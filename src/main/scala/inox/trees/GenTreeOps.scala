@@ -1,17 +1,18 @@
 /* Copyright 2009-2015 EPFL, Lausanne */
 
-package leon
-package purescala
-
-import Common._
-import utils._
+package inox
+package trees
 
 /** A type that pattern matches agains a type of [[Tree]] and extracts it subtrees,
   * and a builder that reconstructs a tree of the same type from subtrees.
   *
   * @tparam SubTree The type of the tree
   */
-trait TreeExtractor[SubTree <: Tree] {
+trait TreeExtractor {
+  val trees: Trees
+  import trees._
+
+  type SubTree <: Tree
   def unapply(e: SubTree): Option[(Seq[SubTree], (Seq[SubTree]) => SubTree)]
 }
 
@@ -19,10 +20,17 @@ trait TreeExtractor[SubTree <: Tree] {
   *
   * @tparam SubTree The type of the tree
   */
-trait GenTreeOps[SubTree <: Tree]  {
+trait GenTreeOps {
+  val trees: Trees
+  import trees._
+
+  type SubTree <: Tree
 
   /** An extractor for [[SubTree]]*/
-  val Deconstructor: TreeExtractor[SubTree]
+  val Deconstructor: TreeExtractor {
+    val trees: GenTreeOps.this.trees
+    type SubTree <: GenTreeOps.this.SubTree
+  }
 
   /* ========
    * Core API

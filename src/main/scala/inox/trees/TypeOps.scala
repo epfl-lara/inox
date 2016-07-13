@@ -1,19 +1,18 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
-package purescala
+package inox
+package trees
 
-import Types._
-import Definitions._
-import Common._
-import Expressions._
+trait TypeOps extends GenTreeOps {
+  val trees: Trees
+  import trees._
 
-object TypeOps extends GenTreeOps[TypeTree] {
+  type SubTree = Type
 
   val Deconstructor = NAryType
 
   def typeParamsOf(expr: Expr): Set[TypeParameter] = {
-    ExprOps.collect(e => typeParamsOf(e.getType))(expr)
+    exprOps.collect(e => typeParamsOf(e.getType))(expr)
   }
 
   def typeParamsOf(t: TypeTree): Set[TypeParameter] = t match {

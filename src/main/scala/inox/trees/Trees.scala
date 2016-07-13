@@ -1,14 +1,17 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
-package purescala
+package inox
+package trees
 
-import utils._
-import Expressions.Variable
-import Types._
-import Definitions.Program
+trait Trees extends Expressions with Extractors with Types with Definitions {
 
-trait Trees extends Expressions with ExprOps with Types with TypeOps {
+  object exprOps extends {
+    val trees: Trees.this.type = Trees.this
+  } with ExprOps with Constructors
+
+  object typeOps extends {
+    val trees: Trees.this.type = Trees.this
+  } with TypeOps
 
   abstract class Tree extends Positioned with Serializable with Printable {
     def copiedFrom(o: Tree): this.type = {
@@ -34,11 +37,8 @@ trait Trees extends Expressions with ExprOps with Types with TypeOps {
     val name: String,
     val globalId: Int,
     private[Common] val id: Int,
-    private val tpe: TypeTree,
     private val alwaysShowUniqueID: Boolean = false
-  ) extends Tree with Typed with Ordered[Identifier] {
-
-    val getType = tpe
+  ) extends Tree with Ordered[Identifier] {
 
     override def equals(other: Any): Boolean = other match {
       case null => false

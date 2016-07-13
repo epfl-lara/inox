@@ -1,15 +1,7 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
-package purescala
-
-import Expressions._
-import Extractors._
-import ExprOps._
-import Definitions._
-import TypeOps._
-import Common._
-import Types._
+package inox
+package trees
 
 /** Provides constructors for [[purescala.Expressions]].
   *
@@ -17,7 +9,8 @@ import Types._
   * potentially use a different expression node if one is more suited.
   * @define encodingof Encoding of
   *  */
-trait Constructors { self: Expressions =>
+trait Constructors { self: ExprOps =>
+  import trees._
 
   /** If `isTuple`:
     * `tupleSelect(tupleWrap(Seq(Tuple(x,y))),1) -> x`
@@ -45,7 +38,7 @@ trait Constructors { self: Expressions =>
     * @see [[purescala.Expressions.Let]]
     */
   def let(id: Identifier, e: Expr, bd: Expr) = {
-    if (variablesOf(bd) contains id)
+    if (exprOps.variablesOf(bd) contains id)
       Let(id, e, bd)
     else bd
   }

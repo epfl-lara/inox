@@ -3,16 +3,9 @@
 package leon
 package purescala
 
-import utils.Library
-import Common._
-import Expressions._
-import ExprOps._
-import Types._
-import TypeOps._
-
 import scala.collection.mutable.{Map => MutableMap}
 
-object Definitions {
+trait Definitions { self: Trees =>
 
   sealed trait Definition extends Tree {
     val id: Identifier
@@ -88,10 +81,10 @@ object Definitions {
 
   // Compiler annotations given in the source code as @annot
   case class Annotation(annot: String, args: Seq[Option[Any]]) extends FunctionFlag with ClassFlag
+  // Class has ADT invariant method
+  case class HasADTInvariant(id: Identifier) extends ClassFlag
   // Is inlined
   case object IsInlined extends FunctionFlag
-  // Is an ADT invariant method
-  case object IsADTInvariant(id: Identifier) extends FunctionFlag
 
   /** Represents a class definition (either an abstract- or a case-class) */
   sealed trait ClassDef extends Definition {
@@ -105,11 +98,8 @@ object Definitions {
 
     def hasParent = parent.isDefined
 
-    def invariana(implicit p: Program)t: Option[FunDef] = {
-      // TODO
-      parent.flatMap(_.classDef.invariant).orElse(_invariant)
-
-    }
+    def invariant(implicit p: Program): Option[FunDef] =
+      flags.collect { case HasADTInvariant(id) => id }.map(p.getFunction)
 
     def annotations: Set[String] = extAnnotations.keySet
     def extAnnotations: Map[String, Seq[Option[Any]]] = flags.collect { case Annotation(s, args) => s -> args }.toMap

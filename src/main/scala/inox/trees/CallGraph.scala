@@ -1,7 +1,7 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
-package purescala
+package inox
+package trees
 
 import Definitions._
 import Expressions._

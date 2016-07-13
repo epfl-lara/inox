@@ -11,16 +11,16 @@ import scala.annotation.tailrec
  */
 object StringSolver {
   type Assignment = Map[Identifier, String]
-  
+
   type StringFormToken = Either[String, Identifier]
-  
+
   type StringForm = List[StringFormToken]
-  
+
   type Equation = (StringForm, String)
-  
+
   /** Sequences of equalities such as xyz"1"uv"2" = "1, 2" */
   type Problem = List[Equation]
-  
+
   def renderStringForm(sf: StringForm): String = sf match {
     case Left(const)::Nil => "\""+const+"\"" 
     case Right(id)::Nil => id.toString
@@ -28,7 +28,7 @@ object StringSolver {
     case Right(id)::q => id.toString + "+" + renderStringForm(q)
     case Nil => ""
   }
-  
+
   def renderProblem(p: Problem): String = {
     def renderEquation(e: Equation): String = {
       renderStringForm(e._1) + "==\""+e._2+"\""
@@ -36,14 +36,14 @@ object StringSolver {
     p match {case Nil => ""
     case e::q => renderEquation(e) + ", " + renderProblem(q)}
   }
-  
+
   /** Evaluates a String form. Requires the solution to have an assignment to all identifiers. */
   @tailrec def evaluate(s: Assignment, acc: StringBuffer = new StringBuffer(""))(sf: StringForm): String = sf match {
     case Nil => acc.toString
     case Left(constant)::q => evaluate(s, acc append constant)(q)
     case Right(identifier)::q => evaluate(s, acc append s(identifier))(q)
   }
-  
+
   /** Assigns the new values to the equations and simplify them at the same time. */
   @tailrec def reduceStringForm(s: Assignment, acc: ListBuffer[StringFormToken] = ListBuffer())(sf: StringForm): StringForm = sf match {
     case Nil => acc.toList

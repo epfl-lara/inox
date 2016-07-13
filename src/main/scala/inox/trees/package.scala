@@ -1,6 +1,6 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 
 /** Provides AST definitions for Leon programs.
   *
@@ -19,6 +19,6 @@ package leon
   * a [[leon.purescala.ScalaPrinter]] that outputs a valid Scala program from a Leon 
   * representation.
   */
-package object purescala {
+package object trees {
 
 }

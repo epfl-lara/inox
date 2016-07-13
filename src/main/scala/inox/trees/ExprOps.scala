@@ -3,16 +3,6 @@
 package leon
 package purescala
 
-import Common._
-import Types._
-import Definitions._
-import Expressions._
-import Extractors._
-import Constructors._
-import utils._
-import solvers._
-import scala.language.implicitConversions
-
 /** Provides functions to manipulate [[purescala.Expressions]].
   *
   * This object provides a few generic operations on Leon expressions,
@@ -32,7 +22,9 @@ import scala.language.implicitConversions
   * operations on Leon expressions.
   *
   */
-trait ExprOps extends GenTreeOps[Expr] with Extractors { self: Trees =>
+trait ExprOps extends GenTreeOps[Expr] with Constructors with Paths {
+  val trees: Trees
+  import trees._
 
   val Deconstructor = Operator
 

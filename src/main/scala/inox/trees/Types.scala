@@ -1,12 +1,7 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
-package purescala
-
-import Common._
-import Expressions._
-import Definitions._
-import TypeOps._
+package inox
+package trees
 
 trait Types { self: Trees =>
 
@@ -89,7 +84,12 @@ trait Types { self: Trees =>
     def lookupClass(implicit p: Program): Option[ClassDef] = p.lookupClass(id, tps)
   }
 
-  object NAryType extends TreeExtractor[Type] {
+  object NAryType extends TreeExtractor {
+    val trees: Types.this.type = Types.this
+    import trees._
+
+    type SubTree = Type
+
     def unapply(t: Type): Option[(Seq[Type], Seq[Type] => Type)] = t match {
       case ClassType(ccd, ts) => Some((ts, ts => ClassType(ccd, ts)))
       case TupleType(ts) => Some((ts, TupleType))

@@ -1,12 +1,7 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
-package purescala
-
-import Expressions._
-import Common._
-import Types._
-import Constructors._
+package inox
+package trees
 
 trait Extractors { self: Expressions =>
 
@@ -23,7 +18,10 @@ trait Extractors { self: Expressions =>
     * one need to simplify the tree, it is easy to write/call a simplification
     * function that would simply apply the corresponding constructor for each node.
     */
-  object Operator extends TreeExtractor[Expr] {
+  object Operator extends TreeExtractor {
+    val trees: Extractors.this.trees = Extractors.this.trees
+    type SubTree = trees.Expr
+
     def unapply(expr: Expr): Option[(Seq[Expr], (Seq[Expr]) => Expr)] = expr match {
       /* Unary operators */
       case Not(t) =>
