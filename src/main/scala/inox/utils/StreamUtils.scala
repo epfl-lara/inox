@@ -1,6 +1,6 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon.utils
+package inox.utils
 
 object StreamUtils {
 
@@ -24,7 +24,7 @@ object StreamUtils {
   }
 
   /** Applies the interleaving to a finite sequence of streams. */
-  def interleave[T](streams : Seq[Stream[T]]) : Stream[T] = {
+  def interleave[T](streams: Seq[Stream[T]]) : Stream[T] = {
     if (streams.isEmpty) Stream() else {
       val nonEmpty = streams filter (_.nonEmpty)
       nonEmpty.toStream.map(_.head) #::: interleave(nonEmpty.map(_.tail))
@@ -54,7 +54,7 @@ object StreamUtils {
     combineRec(sa, sb)(0)
   }
 
-  def cartesianProduct[T](streams : Seq[Stream[T]]) : Stream[List[T]] = {
+  def cartesianProduct[T](streams: Seq[Stream[T]]) : Stream[List[T]] = {
     val dimensions = streams.size
     val vectorizedStreams = streams.map(new VectorizedStream(_))
 

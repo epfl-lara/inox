@@ -19,6 +19,4 @@ package inox
   * a [[leon.purescala.ScalaPrinter]] that outputs a valid Scala program from a Leon 
   * representation.
   */
-package object trees {
-
-}
+package object ast {}

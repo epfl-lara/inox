@@ -1,8 +1,8 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 
-/** Various utilities used throughout the Leon system */
+/** Various utilities used throughout the Inox system */
 package object utils {
 
   /** compute the fixpoint of a function.

@@ -1,7 +1,9 @@
 /* Copyright 2009-2015 EPFL, Lausanne */
 
 package inox
-package trees
+package ast
+
+import utils._
 
 /** A type that pattern matches agains a type of [[Tree]] and extracts it subtrees,
   * and a builder that reconstructs a tree of the same type from subtrees.
@@ -28,7 +30,7 @@ trait GenTreeOps {
 
   /** An extractor for [[SubTree]]*/
   val Deconstructor: TreeExtractor {
-    val trees: GenTreeOps.this.trees
+    val trees: GenTreeOps.this.trees.type
     type SubTree <: GenTreeOps.this.SubTree
   }
 
@@ -284,8 +286,8 @@ trait GenTreeOps {
     rec(expr, init)
   }
 
-  protected def noCombiner(e: SubTree, subCs: Seq[Unit]) = ()
-  protected def noTransformer[C](e: SubTree, c: C) = (e, c)
+  def noCombiner(e: SubTree, subCs: Seq[Unit]) = ()
+  def noTransformer[C](e: SubTree, c: C) = (e, c)
 
   /** A [[genericTransform]] with the trivial combiner that returns () */
   def simpleTransform(pre: SubTree => SubTree, post: SubTree => SubTree)(tree: SubTree) = {

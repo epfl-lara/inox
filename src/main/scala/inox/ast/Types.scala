@@ -1,32 +1,32 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
 package inox
-package trees
+package ast
 
 trait Types { self: Trees =>
 
-  trait Typed extends Printable {
-    def getType(implicit p: Program): Type
-    def isTyped(implicit p: Program): Boolean = getType != Untyped
+  trait Typed extends utils.Printable {
+    def getType(implicit s: Symbols): Type
+    def isTyped(implicit s: Symbols): Boolean = getType != Untyped
   }
 
-  private[trees] trait CachingTyped extends Typed {
-    private var lastProgram: Program = null
+  private[ast] trait CachingTyped extends Typed {
+    private var lastSymbols: Symbols = null
     private var lastType: Type = null
 
-    final def getType(implicit p: Program): Type =
-      if (p eq lastProgram) lastType else {
+    final def getType(implicit s: Symbols): Type =
+      if (s eq lastSymbols) lastType else {
         val tpe = computeType
-        lastProgram = p
+        lastSymbols = s
         lastType = tpe
         tpe
       }
 
-    protected def computeType(implicit p: Program): Type
+    protected def computeType(implicit s: Symbols): Type
   }
 
   abstract class Type extends Tree with Typed {
-    def getType(implicit p: Program): Type = this
+    def getType(implicit s: Symbols): Type = this
 
     // Checks whether the subtypes of this type contain Untyped,
     // and if so sets this to Untyped.
@@ -47,10 +47,12 @@ trait Types { self: Trees =>
   case object StringType  extends Type
 
   case class BVType(size: Int) extends Type
-  case object Int32Type extends BVType(32)
+  object Int32Type extends BVType(32) {
+    override def toString = "Int32Type"
+  }
 
   class TypeParameter private (name: String) extends Type {
-    val id = FreshIdentifier(name, this)
+    val id = FreshIdentifier(name)
     def freshen = new TypeParameter(name)
 
     override def equals(that: Any) = that match {
@@ -81,12 +83,12 @@ trait Types { self: Trees =>
   case class FunctionType(from: Seq[Type], to: Type) extends Type
 
   case class ClassType(id: Identifier, tps: Seq[Type]) extends Type {
-    def lookupClass(implicit p: Program): Option[ClassDef] = p.lookupClass(id, tps)
+    def lookupClass(implicit s: Symbols): Option[TypedClassDef] = p.lookupClass(id, tps)
+    def tcd(implicit s: Symbols): TypedClassDef = s.getClass(id, tps)
   }
 
   object NAryType extends TreeExtractor {
     val trees: Types.this.type = Types.this
-    import trees._
 
     type SubTree = Type
 

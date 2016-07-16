@@ -1,26 +1,34 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
 package inox
-package trees
+package ast
 
-trait TypeOps extends GenTreeOps {
+trait TypeOps {
   val trees: Trees
   import trees._
+  implicit val symbols: Symbols
 
-  type SubTree = Type
+  object typeOps extends GenTreeOps {
+    val trees: TypeOps.this.trees.type = TypeOps.this.trees
+    import trees._
 
-  val Deconstructor = NAryType
-
-  def typeParamsOf(expr: Expr): Set[TypeParameter] = {
-    exprOps.collect(e => typeParamsOf(e.getType))(expr)
+    type SubTree = Type
+    val Deconstructor = NAryType
   }
 
-  def typeParamsOf(t: TypeTree): Set[TypeParameter] = t match {
+  class TypeErrorException(msg: String) extends Exception(msg)
+
+  object TypeErrorException {
+    def apply(obj: Expr, tpes: Seq[Type]): TypeErrorException =
+      new TypeErrorException(s"Type error: $obj, expected ${tpes.mkString(" or ")}, found ${obj.getType}")
+    def apply(obj: Expr, tpe: Type): TypeErrorException = apply(obj, Seq(tpe))
+  }
+
+  def typeParamsOf(t: Type): Set[TypeParameter] = t match {
     case tp: TypeParameter => Set(tp)
     case NAryType(subs, _) =>
       subs.flatMap(typeParamsOf).toSet
   }
-
 
   /** Generic type bounds between two types. Serves as a base for a set of subtyping/unification functions.
     * It will allow subtyping between classes (but type parameters are invariant).
@@ -35,10 +43,10 @@ trait TypeOps extends GenTreeOps {
     *         Result is empty if types are incompatible.
     * @see [[leastUpperBound]], [[greatestLowerBound]], [[isSubtypeOf]], [[typesCompatible]], [[unify]]
     */
-  def typeBound(t1: TypeTree, t2: TypeTree, isLub: Boolean, allowSub: Boolean)
-               (implicit freeParams: Seq[TypeParameter]): Option[(TypeTree, Map[TypeParameter, TypeTree])] = {
+  def typeBound(t1: Type, t2: Type, isLub: Boolean, allowSub: Boolean)
+               (implicit freeParams: Seq[TypeParameter]): Option[(Type, Map[TypeParameter, Type])] = {
 
-    def flatten(res: Seq[Option[(TypeTree, Map[TypeParameter, TypeTree])]]): Option[(Seq[TypeTree], Map[TypeParameter, TypeTree])] = {
+    def flatten(res: Seq[Option[(Type, Map[TypeParameter, Type])]]): Option[(Seq[Type], Map[TypeParameter, Type])] = {
       val (tps, subst) = res.map(_.getOrElse(return None)).unzip
       val flat = subst.flatMap(_.toSeq).groupBy(_._1)
       Some((tps, flat.mapValues { vs =>
@@ -66,11 +74,11 @@ trait TypeOps extends GenTreeOps {
         None
 
       case (ct1: ClassType, ct2: ClassType) =>
-        val cd1 = ct1.classDef
-        val cd2 = ct2.classDef
+        val cd1 = ct1.tcd.cd
+        val cd2 = ct2.tcd.cd
         val bound: Option[ClassDef] = if (allowSub) {
-          val an1 = cd1 +: cd1.ancestors
-          val an2 = cd2 +: cd2.ancestors
+          val an1 = Seq(cd1, cd1.root)
+          val an2 = Seq(cd2, cd2.root)
           if (isLub) {
             (an1.reverse zip an2.reverse)
               .takeWhile(((_: ClassDef) == (_: ClassDef)).tupled)
@@ -90,7 +98,7 @@ trait TypeOps extends GenTreeOps {
             // Class types are invariant!
             typeBound(tp1, tp2, isLub, allowSub = false)
           })
-        } yield (cd.typed(subs), map)
+        } yield (cd.typed(subs).toType, map)
 
       case (FunctionType(from1, to1), FunctionType(from2, to2)) =>
         if (from1.size != from2.size) None
@@ -105,7 +113,7 @@ trait TypeOps extends GenTreeOps {
           }
         }
 
-      case Same(t1, t2) =>
+      case typeOps.Same(t1, t2) =>
         // Only tuples are covariant
         def allowVariance = t1 match {
           case _ : TupleType => true
@@ -124,34 +132,45 @@ trait TypeOps extends GenTreeOps {
     }
   }
 
-  def unify(tp1: TypeTree, tp2: TypeTree, freeParams: Seq[TypeParameter]) =
+  def instantiateType(tpe: Type, tps: Map[TypeParameter, Type]): Type = {
+    if (tps.isEmpty) {
+      tpe
+    } else {
+      typeOps.postMap {
+        case tp: TypeParameter => tps.get(tp)
+        case _ => None
+      } (tpe)
+    }
+  }
+
+  def unify(tp1: Type, tp2: Type, freeParams: Seq[TypeParameter]) =
     typeBound(tp1, tp2, isLub = true, allowSub = false)(freeParams).map(_._2)
 
   /** Will try to instantiate subT and superT so that subT <: superT
     *
     * @return Mapping of instantiations
     */
-  private def subtypingInstantiation(subT: TypeTree, superT: TypeTree, free: Seq[TypeParameter]) =
+  private def subtypingInstantiation(subT: Type, superT: Type, free: Seq[TypeParameter]) =
     typeBound(subT, superT, isLub = true, allowSub = true)(free) collect {
       case (tp, map) if instantiateType(superT, map) == tp => map
     }
 
-  def canBeSubtypeOf(subT: TypeTree, superT: TypeTree) = {
+  def canBeSubtypeOf(subT: Type, superT: Type) = {
     subtypingInstantiation(subT, superT, (typeParamsOf(subT) -- typeParamsOf(superT)).toSeq)
   }
 
-  def canBeSupertypeOf(superT: TypeTree, subT: TypeTree) = {
+  def canBeSupertypeOf(superT: Type, subT: Type) = {
     subtypingInstantiation(subT, superT, (typeParamsOf(superT) -- typeParamsOf(subT)).toSeq)
   }
 
-  def leastUpperBound(tp1: TypeTree, tp2: TypeTree): Option[TypeTree] =
+  def leastUpperBound(tp1: Type, tp2: Type): Option[Type] =
     typeBound(tp1, tp2, isLub = true, allowSub = true)(Seq()).map(_._1)
 
-  def greatestLowerBound(tp1: TypeTree, tp2: TypeTree): Option[TypeTree] =
+  def greatestLowerBound(tp1: Type, tp2: Type): Option[Type] =
     typeBound(tp1, tp2, isLub = false, allowSub = true)(Seq()).map(_._1)
 
-  def leastUpperBound(ts: Seq[TypeTree]): Option[TypeTree] = {
-    def olub(ot1: Option[TypeTree], t2: Option[TypeTree]): Option[TypeTree] = ot1 match {
+  def leastUpperBound(ts: Seq[Type]): Option[Type] = {
+    def olub(ot1: Option[Type], t2: Option[Type]): Option[Type] = ot1 match {
       case Some(t1) => leastUpperBound(t1, t2.get)
       case None => None
     }
@@ -163,15 +182,15 @@ trait TypeOps extends GenTreeOps {
     }
   }
 
-  def isSubtypeOf(t1: TypeTree, t2: TypeTree): Boolean = {
+  def isSubtypeOf(t1: Type, t2: Type): Boolean = {
     leastUpperBound(t1, t2) == Some(t2)
   }
 
-  def typesCompatible(t1: TypeTree, t2s: TypeTree*) = {
+  def typesCompatible(t1: Type, t2s: Type*) = {
     leastUpperBound(t1 +: t2s).isDefined
   }
 
-  def typeCheck(obj: Expr, exps: TypeTree*) {
+  def typeCheck(obj: Expr, exps: Type*) {
     val res = exps.exists(e => isSubtypeOf(obj.getType, e))
 
     if (!res) {
@@ -179,97 +198,68 @@ trait TypeOps extends GenTreeOps {
     }
   }
 
-  def bestRealType(t: TypeTree) : TypeTree = t match {
-    case (c: ClassType) => c.root
+  def bestRealType(t: Type): Type = t match {
+    case (c: ClassType) => c.tcd.root.toType
     case NAryType(tps, builder) => builder(tps.map(bestRealType))
   }
 
-  def isParametricType(tpe: TypeTree): Boolean = tpe match {
+  def isParametricType(tpe: Type): Boolean = tpe match {
     case (tp: TypeParameter) => true
     case NAryType(tps, builder) => tps.exists(isParametricType)
   }
 
-  // Helpers for instantiateType
-  private def typeParamSubst(map: Map[TypeParameter, TypeTree])(tpe: TypeTree): TypeTree = tpe match {
-    case (tp: TypeParameter) => map.getOrElse(tp, tp)
-    case NAryType(tps, builder) => builder(tps.map(typeParamSubst(map)))
-  }
-
-  private def freshId(id: Identifier, newTpe: TypeTree) = {
-    if (id.getType != newTpe) {
-      FreshIdentifier(id.name, newTpe).copiedFrom(id)
-    } else {
-      id
-    }
-  }
-
-  def instantiateType(id: Identifier, tps: Map[TypeParameter, TypeTree]): Identifier = {
-    freshId(id, typeParamSubst(tps)(id.getType))
-  }
-
-  def instantiateType(tpe: TypeTree, tps: Map[TypeParameter, TypeTree]): TypeTree = {
-    if (tps.isEmpty) {
-      tpe
-    } else {
-      typeParamSubst(tps)(tpe)
-    }
-  }
-
-  def instantiateType(e: Expr, tps: Map[TypeParameter, TypeTree], ids: Map[Identifier, Identifier]): Expr = {
-    if (tps.isEmpty && ids.isEmpty) {
-      e
-    } else {
-      val tpeSub = if (tps.isEmpty) {
-        { (tpe: TypeTree) => tpe }
+  def typeCardinality(tp: Type): Option[Int] = {
+    def cards(tps: Seq[Type]): Option[Seq[Int]] = {
+      val cardinalities = tps.map(typeCardinality).flatten
+      if (cardinalities.size == tps.size) {
+        Some(cardinalities)
       } else {
-        typeParamSubst(tps) _
+        None
       }
-
-      val transformer = new TreeTransformer {
-        override def transform(id: Identifier): Identifier = freshId(id, transform(id.getType))
-        override def transform(tpe: TypeTree): TypeTree = tpeSub(tpe)
-      }
-
-      transformer.transform(e)(ids)
     }
-  }
 
-  def typeCardinality(tp: TypeTree): Option[Int] = tp match {
-    case Untyped => Some(0)
-    case BooleanType => Some(2)
-    case UnitType => Some(1)
-    case TupleType(tps) =>
-      Some(tps.map(typeCardinality).map(_.getOrElse(return None)).product)
-    case SetType(base) =>
-      typeCardinality(base).map(b => Math.pow(2, b).toInt)
-    case FunctionType(from, to) =>
-      val t = typeCardinality(to).getOrElse(return None)
-      val f = from.map(typeCardinality).map(_.getOrElse(return None)).product
-      Some(Math.pow(t, f).toInt)
-    case MapType(from, to) =>
-      for {
-        t <- typeCardinality(to)
-        f <- typeCardinality(from)
-      } yield {
-        Math.pow(t + 1, f).toInt
+    tp match {
+      case Untyped => Some(0)
+      case BooleanType => Some(2)
+      case UnitType => Some(1)
+      case TupleType(tps) => cards(tps).map(_.product)
+      case SetType(base) => 
+        typeCardinality(base).map(b => Math.pow(2, b).toInt)
+      case FunctionType(from, to) =>
+        for {
+          t <- typeCardinality(to)
+          f <- cards(from).map(_.product)
+        } yield Math.pow(t, f).toInt
+      case MapType(from, to) =>
+        for {
+          t <- typeCardinality(to)
+          f <- typeCardinality(from)
+        } yield Math.pow(t + 1, f).toInt
+      case ct: ClassType => ct.tcd match {
+        case tccd: TypedCaseClassDef =>
+          cards(tccd.fieldsTypes).map(_.product)
+
+        case accd: TypedAbstractClassDef =>
+          val possibleChildTypes = utils.fixpoint((tpes: Set[Type]) => {
+            tpes.flatMap(tpe => 
+              Set(tpe) ++ (tpe match {
+                case ct: ClassType => ct.tcd match {
+                  case tccd: TypedCaseClassDef => tccd.fieldsTypes
+                  case tacd: TypedAbstractClassDef => (Set(tacd) ++ tacd.ccDescendants).map(_.toType)
+                }
+                case _ => Set.empty
+              })
+            )
+          })(accd.ccDescendants.map(_.toType).toSet)
+
+          if (possibleChildTypes(accd.toType)) {
+            None
+          } else {
+            cards(accd.ccDescendants.map(_.toType)).map(_.sum)
+          }
       }
-    case cct: CaseClassType =>
-      Some(cct.fieldsTypes.map { tpe =>
-        typeCardinality(tpe).getOrElse(return None)
-      }.product)
-    case act: AbstractClassType =>
-      val possibleChildTypes = leon.utils.fixpoint((tpes: Set[TypeTree]) => {
-        tpes.flatMap(tpe => 
-          Set(tpe) ++ (tpe match {
-            case cct: CaseClassType => cct.fieldsTypes
-            case act: AbstractClassType => Set(act) ++ act.knownCCDescendants
-            case _ => Set.empty
-          })
-        )
-      })(act.knownCCDescendants.toSet)
-      if(possibleChildTypes(act)) return None
-      Some(act.knownCCDescendants.map(typeCardinality).map(_.getOrElse(return None)).sum)
-    case _ => None
+      case _ => None
+    }
   }
 
 }

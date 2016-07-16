@@ -1,24 +1,24 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
 package inox
-package trees
-
-import Definitions._
-import Expressions._
-import ExprOps._
+package ast
 
 import utils.Graphs._
 
-class CallGraph(p: Program) {
+trait CallGraph {
+  val trees: Trees
+  import trees._
+  import trees.exprOps._
+  val symbols: Symbols
 
   private def collectCallsInPats(fd: FunDef)(p: Pattern): Set[(FunDef, FunDef)] =
     (p match {
-      case u: UnapplyPattern => Set((fd, u.unapplyFun.fd))
+      case u: UnapplyPattern => Set((fd, symbols.getFunction(u.id)))
       case _ => Set()
     }) ++ p.subPatterns.flatMap(collectCallsInPats(fd))
 
   private def collectCalls(fd: FunDef)(e: Expr): Set[(FunDef, FunDef)] = e match {
-    case f @ FunctionInvocation(f2, _) => Set((fd, f2.fd))
+    case f @ FunctionInvocation(id, tps, _) => Set((fd, symbols.getFunction(id)))
     case MatchExpr(_, cases) => cases.toSet.flatMap((mc: MatchCase) => collectCallsInPats(fd)(mc.pattern))
     case _ => Set()
   }
@@ -26,7 +26,7 @@ class CallGraph(p: Program) {
   lazy val graph: DiGraph[FunDef, SimpleEdge[FunDef]] = {
     var g = DiGraph[FunDef, SimpleEdge[FunDef]]()
 
-    for (fd <- p.definedFunctions; c <- collect(collectCalls(fd))(fd.fullBody)) {
+    for ((_, fd) <- symbols.functions; c <- collect(collectCalls(fd))(fd.fullBody)) {
       g += SimpleEdge(c._1, c._2)
     }
 

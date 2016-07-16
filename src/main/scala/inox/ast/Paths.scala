@@ -1,13 +1,13 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
 package inox
-package trees
+package ast
 
-trait Paths { self: ExprOps =>
+trait Paths { self: TypeOps with Constructors =>
   import trees._
 
   object Path {
-    final type Element = Either[(Identifier, Expr), Expr]
+    final type Element = Either[(ValDef, Expr), Expr]
 
     def empty: Path = new Path(Seq.empty)
 
@@ -29,19 +29,19 @@ trait Paths { self: ExprOps =>
     * not defined, whereas an encoding of let-bindings with equalities
     * could introduce non-sensical equations.
     */
-  class Path private[purescala](
-    private[purescala] val elements: Seq[Path.Element]) extends Printable {
+  class Path private(private[ast] val elements: Seq[Path.Element])
+    extends inox.Printable {
 
     import Path.Element
-    
+
     /** Add a binding to this [[Path]] */
-    def withBinding(p: (Identifier, Expr)) = {
+    def withBinding(p: (ValDef, Expr)) = {
       def exprOf(e: Element) = e match { case Right(e) => e; case Left((_, e)) => e }
-      val (before, after) = elements span (el => !variablesOf(exprOf(el)).contains(p._1))
+      val (before, after) = elements span (el => !exprOps.variablesOf(exprOf(el)).contains(p._1.toVariable))
       new Path(before ++ Seq(Left(p)) ++ after)
     }
 
-    def withBindings(ps: Iterable[(Identifier, Expr)]) = {
+    def withBindings(ps: Iterable[(ValDef, Expr)]) = {
       ps.foldLeft(this)( _ withBinding _ )
     }
 
@@ -56,7 +56,7 @@ trait Paths { self: ExprOps =>
     /** Remove bound variables from this [[Path]]
       * @param ids the bound variables to remove
       */
-    def --(ids: Set[Identifier]) = new Path(elements.filterNot(_.left.exists(p => ids(p._1))))
+    def --(ids: Set[Identifier]) = new Path(elements.filterNot(_.left.exists(p => ids(p._1.id))))
 
     /** Appends `that` path at the end of `this` */
     def merge(that: Path): Path = new Path(elements ++ that.elements)
@@ -103,7 +103,7 @@ trait Paths { self: ExprOps =>
       */
     def negate: Path = {
       val (outers, rest) = elements.span(_.isLeft)
-      new Path(outers :+ Right(not(fold[Expr](BooleanLiteral(true), let, Constructors.and(_, _))(rest))))
+      new Path(outers :+ Right(not(fold[Expr](BooleanLiteral(true), let, self.and(_, _))(rest))))
     }
 
     /** Returns a new path which depends ONLY on provided ids.
@@ -119,35 +119,35 @@ trait Paths { self: ExprOps =>
       * @see [[leon.purescala.FunctionClosure.close]] for an example usecase.
       */
     def filterByIds(ids: Set[Identifier]): Path = {
-      def containsIds(ids: Set[Identifier])(e: Expr): Boolean = exists{
-        case Variable(id) => ids.contains(id)
+      def containsIds(ids: Set[Identifier])(e: Expr): Boolean = exprOps.exists {
+        case Variable(id, _) => ids.contains(id)
         case _ => false
       }(e)
       
       val newElements = elements.filter{
-        case Left((id, e)) => ids.contains(id) || containsIds(ids)(e)
+        case Left((vd, e)) => ids.contains(vd.id) || containsIds(ids)(e)
         case Right(e) => containsIds(ids)(e)
       }
       new Path(newElements)
     }
 
     /** Free variables within the path */
-    lazy val variables: Set[Identifier] = fold[Set[Identifier]](Set.empty,
-      (id, e, res) => res - id ++ variablesOf(e), (e, res) => res ++ variablesOf(e)
+    lazy val variables: Set[Variable] = fold[Set[Variable]](Set.empty,
+      (vd, e, res) => res - vd.toVariable ++ exprOps.variablesOf(e), (e, res) => res ++ exprOps.variablesOf(e)
     )(elements)
 
-    lazy val bindings: Seq[(Identifier, Expr)] = elements.collect { case Left(p) => p }
+    lazy val bindings: Seq[(ValDef, Expr)] = elements.collect { case Left(p) => p }
     lazy val boundIds = bindings map (_._1)
     lazy val conditions: Seq[Expr] = elements.collect { case Right(e) => e }
 
-    def isBound(id: Identifier): Boolean = bindings.exists(p => p._1 == id)
+    def isBound(id: Identifier): Boolean = bindings.exists(p => p._1.id == id)
 
     /** Fold the path elements
       *
       * This function takes two combiner functions, one for let bindings and one
       * for proposition expressions.
       */
-    private def fold[T](base: T, combineLet: (Identifier, Expr, T) => T, combineCond: (Expr, T) => T)
+    private def fold[T](base: T, combineLet: (ValDef, Expr, T) => T, combineCond: (Expr, T) => T)
                        (elems: Seq[Element]): T = elems.foldRight(base) {
       case (Left((id, e)), res) => combineLet(id, e, res)
       case (Right(e), res) => combineCond(e, res)
@@ -168,10 +168,10 @@ trait Paths { self: ExprOps =>
     }
 
     /** Folds the path into a conjunct with the expression `base` */
-    def and(base: Expr) = distributiveClause(base, Constructors.and(_, _))
+    def and(base: Expr) = distributiveClause(base, self.and(_, _))
 
     /** Fold the path into an implication of `base`, namely `path ==> base` */
-    def implies(base: Expr) = distributiveClause(base, Constructors.implies)
+    def implies(base: Expr) = distributiveClause(base, self.implies)
 
     /** Folds the path into a `require` wrapping the expression `body`
       *
@@ -182,17 +182,16 @@ trait Paths { self: ExprOps =>
       */
     def specs(body: Expr, pre: Expr = BooleanLiteral(true), post: Expr = NoTree(BooleanType)) = {
       val (outers, rest) = elements.span(_.isLeft)
-      val cond = fold[Expr](BooleanLiteral(true), let, Constructors.and(_, _))(rest)
+      val cond = fold[Expr](BooleanLiteral(true), let, self.and(_, _))(rest)
 
       def wrap(e: Expr): Expr = {
-        val bindings = rest.collect { case Left((id, e)) => id -> e }
-        val idSubst = bindings.map(p => p._1 -> p._1.freshen).toMap
-        val substMap = idSubst.mapValues(_.toVariable)
-        val replace = replaceFromIDs(substMap, _: Expr)
-        bindings.foldRight(replace(e)) { case ((id, e), b) => let(idSubst(id), replace(e), b) }
+        val bindings = rest.collect { case Left((vd, e)) => vd -> e }
+        val vdSubst = bindings.map(p => p._1 -> p._1.freshen).toMap
+        val replace = exprOps.replaceFromSymbols(vdSubst.mapValues(_.toVariable), _: Expr)
+        bindings.foldRight(replace(e)) { case ((vd, e), b) => let(vdSubst(vd), replace(e), b) }
       }
 
-      val req = Require(Constructors.and(cond, wrap(pre)), wrap(body))
+      val req = Require(self.and(cond, wrap(pre)), wrap(body))
       val full = post match {
         case l @ Lambda(args, body) => Ensuring(req, Lambda(args, wrap(body)).copiedFrom(l))
         case _ => req
@@ -225,8 +224,8 @@ trait Paths { self: ExprOps =>
 
     override def hashCode: Int = elements.hashCode
 
-    override def toString = asString(LeonContext.printNames)
-    def asString(implicit ctx: LeonContext): String = fullClause.asString
-    def asString(pgm: Program)(implicit ctx: LeonContext): String = fullClause.asString(pgm)
+    override def toString = asString(Context.printNames)
+    def asString(implicit ctx: Context): String = fullClause.asString
+    def asString(pgm: Program)(implicit ctx: Context): String = fullClause.asString(pgm)
   }
 }

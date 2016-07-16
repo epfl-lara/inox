@@ -1,8 +1,9 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
 package inox
-package trees
+package ast
 
+import utils._
 import org.apache.commons.lang3.StringEscapeUtils
 
 trait Printers { self: Trees =>
@@ -34,19 +35,6 @@ trait Printers { self: Trees =>
       }
     }
     
-    protected def getScope(implicit ctx: PrinterContext) = 
-      ctx.parents.collectFirst { case (d: Definition) if !d.isInstanceOf[ValDef] => d }
-
-    protected def printNameWithPath(df: Definition)(implicit ctx: PrinterContext) {
-      (opgm, getScope) match {
-        case (Some(pgm), Some(scope)) =>
-          sb.append(fullNameFrom(df, scope, opts.printUniqueIds)(pgm))
-
-        case _ =>
-          p"${df.id}"
-      }
-    }
-    
     private val dbquote = "\""
 
     def pp(tree: Tree)(implicit ctx: PrinterContext): Unit = {
@@ -75,24 +63,18 @@ trait Printers { self: Trees =>
           }
           p"$name"
 
-        case Variable(id) =>
+        case Variable(id, _) =>
           p"$id"
           
-        case Let(id, expr, SubString(Variable(id2), start, StringLength(Variable(id3)))) if id == id2 && id2 == id3 =>
+        case Let(vd, expr, SubString(v2: Variable, start, StringLength(v3: Variable))) if vd == v2 && v2 == v3 =>
           p"$expr.substring($start)"
-          
-        case Let(id, expr, BigSubString(Variable(id2), start, StringLength(Variable(id3)))) if id == id2 && id2 == id3 =>
+
+        case Let(vd, expr, BigSubString(v2: Variable, start, StringLength(v3: Variable))) if vd == v2 && v2 == v3 =>
           p"$expr.bigSubstring($start)"
 
         case Let(b,d,e) =>
           p"""|val $b = $d
               |$e"""
-
-        case LetDef(a::q,body) =>
-          p"""|$a
-              |${letDef(q, body)}"""
-        case LetDef(Nil,body) =>
-          p"""$body"""
 
         case Require(pre, body) =>
           p"""|require($pre)
@@ -113,69 +95,17 @@ trait Printers { self: Trees =>
               |  $post
               |}"""
 
-        case p @ Passes(in, out, tests) =>
-          tests match {
-            case Seq(MatchCase(_, Some(BooleanLiteral(false)), NoTree(_))) =>
-              p"""|byExample($in, $out)"""
-            case _ =>
-              optP {
-                p"""|($in, $out) passes {
-                    |  ${nary(tests, "\n")}
-                    |}"""
-              }
-          }
-          
-
-        case c @ WithOracle(vars, pred) =>
-          p"""|withOracle { (${typed(vars)}) =>
-              |  $pred
-              |}"""
-
-        case h @ Hole(tpe, es) =>
-          if (es.isEmpty) {
-            val hole = (for{scope   <- getScope
-                            program <- opgm }
-                yield simplifyPath("leon" :: "lang" :: "synthesis" :: "???" :: Nil, scope, false)(program))
-                .getOrElse("leon.lang.synthesis.???")
-            p"$hole[$tpe]"
-          } else {
-            p"?($es)"
-          }
-
         case Forall(args, e) =>
-          p"\u2200${typed(args.map(_.id))}. $e"
+          p"\u2200${typed(args)}. $e"
 
         case e @ CaseClass(cct, args) =>
-          opgm.flatMap { pgm => isListLiteral(e)(pgm) } match {
-            case Some((tpe, elems)) =>
-              val chars = elems.collect{ case CharLiteral(ch) => ch }
-              if (chars.length == elems.length && tpe == CharType) {
-                // String literal
-                val str = chars mkString ""
-                val q = '"'
-                p"$q$str$q"
-              } else {
-                val lclass = AbstractClassType(opgm.get.library.List.get, cct.tps)
-
-                p"$lclass($elems)"
-              }
-
-            case None =>
-              if (cct.classDef.isCaseObject) {
-                p"$cct"
-              } else {
-                p"$cct($args)"
-              }
-          }
+          p"$cct($args)"
 
         case And(exprs)           => optP { p"${nary(exprs, " && ")}" }
         case Or(exprs)            => optP { p"${nary(exprs, "| || ")}" } // Ugliness award! The first | is there to shield from stripMargin()
         case Not(Equals(l, r))    => optP { p"$l \u2260 $r" }
         case Implies(l,r)         => optP { p"$l ==> $r" }
-        case BVNot(expr)          => p"~$expr"
         case UMinus(expr)         => p"-$expr"
-        case BVUMinus(expr)       => p"-$expr"
-        case RealUMinus(expr)     => p"-$expr"
         case Equals(l,r)          => optP { p"$l == $r" }
         
         
@@ -192,7 +122,7 @@ trait Printers { self: Trees =>
         case StringBigLength(expr)       => p"$expr.bigLength"
 
         case IntLiteral(v)        => p"$v"
-        case InfiniteIntegerLiteral(v) => p"$v"
+        case IntegerLiteral(v) => p"$v"
         case FractionalLiteral(n, d) =>
           if (d == 1) p"$n"
           else p"$n/$d"
@@ -210,97 +140,25 @@ trait Printers { self: Trees =>
         case Tuple(exprs)         => p"($exprs)"
         case TupleSelect(t, i)    => p"$t._$i"
         case NoTree(tpe)          => p"<empty tree>[$tpe]"
-        case Choose(pred)         =>
-          val choose = (for{scope <- getScope
-                          program <- opgm }
-              yield simplifyPath("leon" :: "lang" :: "synthesis" :: "choose" :: Nil, scope, false)(program))
-              .getOrElse("leon.lang.synthesis.choose")
-          p"$choose($pred)"
         case e @ Error(tpe, err)  => p"""error[$tpe]("$err")"""
         case AsInstanceOf(e, ct)  => p"""$e.asInstanceOf[$ct]"""
-        case IsInstanceOf(e, cct) =>
-          if (cct.classDef.isCaseObject) {
-            p"($e == $cct)"
-          } else {
-            p"$e.isInstanceOf[$cct]"
-          }
+        case IsInstanceOf(e, cct) => p"$e.isInstanceOf[$cct]"
         case CaseClassSelector(_, e, id)         => p"$e.$id"
-        case MethodInvocation(rec, _, tfd, args) =>
-          p"$rec.${tfd.id}${nary(tfd.tps, ", ", "[", "]")}"
-          // No () for fields
-          if (tfd.fd.isRealFunction) {
-            // The non-present arguments are synthetic function invocations
-            val presentArgs = args filter {
-              case MethodInvocation(_, _, tfd, _) if tfd.fd.isSynthetic => false
-              case FunctionInvocation(tfd, _)     if tfd.fd.isSynthetic => false
-              case other => true
-            }
 
-            val requireParens = presentArgs.nonEmpty || args.nonEmpty
-            if (requireParens) {
-              p"($presentArgs)"
-            }
-          }
-
-        case BinaryMethodCall(a, op, b) =>
-          optP { p"$a $op $b" }
-
-        case FcallMethodInvocation(rec, fd, id, tps, args) =>
-
-          p"$rec.$id${nary(tps, ", ", "[", "]")}"
-
-          if (fd.isRealFunction) {
-            // The non-present arguments are synthetic function invocations
-            val presentArgs = args filter {
-              case MethodInvocation(_, _, tfd, _) if tfd.fd.isSynthetic => false
-              case FunctionInvocation(tfd, _)     if tfd.fd.isSynthetic => false
-              case other => true
-            }
-
-            val requireParens = presentArgs.nonEmpty || args.nonEmpty
-            if (requireParens) {
-              p"($presentArgs)"
-            }
-          }
-
-        case FunctionInvocation(TypedFunDef(fd, tps), args) =>
-          printNameWithPath(fd)
-
-          p"${nary(tps, ", ", "[", "]")}"
-
-          if (fd.isRealFunction) {
-            // The non-present arguments are synthetic function invocations
-            val presentArgs = args filter {
-              case MethodInvocation(_, _, tfd, _) if tfd.fd.isSynthetic => false
-              case FunctionInvocation(tfd, _)     if tfd.fd.isSynthetic => false
-              case other => true
-            }
-            val requireParens = presentArgs.nonEmpty || args.nonEmpty
-            if (requireParens) {
-              p"($presentArgs)"
-            }
+        case FunctionInvocation(id, tps, args) =>
+          p"${id}${nary(tps, ", ", "[", "]")}"
+          if (args.nonEmpty) {
+            p"($args)"
           }
 
         case Application(caller, args) =>
           p"$caller($args)"
 
-        case Lambda(Seq(ValDef(id)), FunctionInvocation(TypedFunDef(fd, Seq()), Seq(Variable(idArg)))) if id == idArg =>
-          printNameWithPath(fd)
-          
+        case Lambda(Seq(vd), FunctionInvocation(id, Seq(), Seq(arg))) if vd == arg =>
+          p"${id}"
+
         case Lambda(args, body) =>
           optP { p"($args) => $body" }
-
-        case FiniteLambda(mapping, dflt, _) =>
-          optP {
-            def pm(p: (Seq[Expr], Expr)): PrinterHelpers.Printable =
-              (pctx: PrinterContext) => p"${purescala.Constructors.tupleWrap(p._1)} => ${p._2}"(pctx)
-
-            if (mapping.isEmpty) {
-              p"{ * => ${dflt} }"
-            } else {
-              p"{ ${nary(mapping map pm)}, * => ${dflt} }"
-            }
-          }
 
         case Plus(l,r)                 => optP { p"$l + $r" }
         case Minus(l,r)                => optP { p"$l - $r" }
@@ -312,24 +170,13 @@ trait Printers { self: Trees =>
         case GreaterThan(l,r)          => optP { p"$l > $r" }
         case LessEquals(l,r)           => optP { p"$l <= $r" }
         case GreaterEquals(l,r)        => optP { p"$l >= $r" }
-        case BVPlus(l,r)               => optP { p"$l + $r" }
-        case BVMinus(l,r)              => optP { p"$l - $r" }
-        case BVTimes(l,r)              => optP { p"$l * $r" }
-        case BVDivision(l,r)           => optP { p"$l / $r" }
-        case BVRemainder(l,r)          => optP { p"$l % $r" }
-        case BVAnd(l,r)                => optP { p"$l & $r" }
-        case BVOr(l,r)                 => optP { p"$l | $r" }
         case BVXOr(l,r)                => optP { p"$l ^ $r" }
         case BVShiftLeft(l,r)          => optP { p"$l << $r" }
         case BVAShiftRight(l,r)        => optP { p"$l >> $r" }
         case BVLShiftRight(l,r)        => optP { p"$l >>> $r" }
-        case RealPlus(l,r)             => optP { p"$l + $r" }
-        case RealMinus(l,r)            => optP { p"$l - $r" }
-        case RealTimes(l,r)            => optP { p"$l * $r" }
-        case RealDivision(l,r)         => optP { p"$l / $r" }
-        case fs @ FiniteSet(rs, _)     => p"{${rs.toSeq}}"
-        case fs @ FiniteBag(rs, _)     => p"{$rs}"
-        case fm @ FiniteMap(rs, _, _)  => p"{${rs.toSeq}}"
+        case fs @ FiniteSet(rs, _)     => p"{${rs.distinct}}"
+        case fs @ FiniteBag(rs, _)     => p"{${rs.toMap.toSeq}}"
+        case fm @ FiniteMap(rs, _, _)  => p"{${rs.toMap.toSeq}}"
         case Not(ElementOfSet(e,s))    => p"$e \u2209 $s"
         case ElementOfSet(e,s)         => p"$e \u2208 $s"
         case SubsetOf(l,r)             => p"$l \u2286 $r"
@@ -337,7 +184,6 @@ trait Printers { self: Trees =>
         case SetAdd(s,e)               => p"$s \u222A {$e}"
         case SetUnion(l,r)             => p"$l \u222A $r"
         case BagUnion(l,r)             => p"$l \u222A $r"
-        case MapUnion(l,r)             => p"$l \u222A $r"
         case SetDifference(l,r)        => p"$l \\ $r"
         case BagDifference(l,r)        => p"$l \\ $r"
         case SetIntersection(l,r)      => p"$l \u2229 $r"
@@ -346,47 +192,12 @@ trait Printers { self: Trees =>
         case BagAdd(b,e)               => p"$b + $e"
         case MultiplicityInBag(e, b)   => p"$b($e)"
         case MapApply(m,k)             => p"$m($k)"
-        case MapIsDefinedAt(m,k)       => p"$m.isDefinedAt($k)"
-        case ArrayLength(a)            => p"$a.length"
-        case ArraySelect(a, i)         => p"$a($i)"
-        case ArrayUpdated(a, i, v)     => p"$a.updated($i, $v)"
-        case a@FiniteArray(es, d, s)   => {
-          val ArrayType(underlying) = a.getType
-          val default = d.getOrElse(simplestValue(underlying))
-          def ppBigArray(): Unit = {
-            if(es.isEmpty) {
-              p"Array($default, $default, $default, ..., $default) (of size $s)"
-            } else {
-              p"Array(_) (of size $s)"
-            }
-          }
-          s match {
-            case IntLiteral(length) => {
-              if(es.size == length) {
-                val orderedElements = es.toSeq.sortWith((e1, e2) => e1._1 < e2._1).map(el => el._2)
-                p"Array($orderedElements)"
-              } else if(length < 10) {
-                val elems = (0 until length).map(i =>
-                  es.find(el => el._1 == i).map(el => el._2).getOrElse(d.get)
-                )
-                p"Array($elems)"
-              } else {
-                ppBigArray()
-              }
-            }
-            case _ => ppBigArray()
-          }
-        }
 
         case Not(expr) => p"\u00AC$expr"
 
-        case vd @ ValDef(id) =>
-          if(vd.isVar)
-            p"var "
-          p"$id : ${vd.getType}"
-          vd.defaultValue.foreach { fd => p" = ${fd.body.get}" }
+        case vd @ ValDef(id, tpe) =>
+          p"$id : ${tpe}"
 
-        case This(_)              => p"this"
         case (tfd: TypedFunDef)   => p"typed def ${tfd.id}[${tfd.tps}]"
         case TypeParameterDef(tp) => p"$tp"
         case TypeParameter(id)    => p"$id"
@@ -428,40 +239,24 @@ trait Printers { self: Trees =>
         case WildcardPattern(None)     => p"_"
         case WildcardPattern(Some(id)) => p"$id"
 
-        case CaseClassPattern(ob, cct, subps) =>
+        case CaseClassPattern(ob, ct, subps) =>
           ob.foreach { b => p"$b @ " }
           // Print only the classDef because we don't want type parameters in patterns
-          printNameWithPath(cct.classDef)
-          if (!cct.classDef.isCaseObject) p"($subps)"
+          p"${ct.id}"
+          p"($subps)"
 
         case InstanceOfPattern(ob, cct) =>
-          if (cct.classDef.isCaseObject) {
-            ob.foreach { b => p"$b @ " }
-          } else {
-            ob.foreach { b => p"$b : " }
-          }
-          // It's ok to print the whole type because there are no type parameters for case objects
+          ob.foreach { b => p"$b : " }
+          // It's ok to print the whole type although scalac will complain about erasure
           p"$cct"
 
         case TuplePattern(ob, subps) =>
           ob.foreach { b => p"$b @ " }
           p"($subps)"
 
-        case UnapplyPattern(ob, tfd, subps) =>
+        case UnapplyPattern(ob, id, tps, subps) =>
           ob.foreach { b => p"$b @ " }
-
-          // @mk: I admit this is pretty ugly
-          (for {
-            p <- opgm
-            mod <- p.modules.find( _.definedFunctions contains tfd.fd )
-          } yield mod) match {
-            case Some(obj) =>
-              printNameWithPath(obj)
-            case None =>
-              p"<unknown object>"
-          }
-
-          p"(${nary(subps)})"
+          p"$id(${nary(subps)})"
 
         case LiteralPattern(ob, lit) =>
           ob foreach { b => p"$b @ " }
@@ -476,77 +271,29 @@ trait Printers { self: Trees =>
         case CharType              => p"Char"
         case BooleanType           => p"Boolean"
         case StringType            => p"String"
-        case ArrayType(bt)         => p"Array[$bt]"
         case SetType(bt)           => p"Set[$bt]"
         case BagType(bt)           => p"Bag[$bt]"
         case MapType(ft,tt)        => p"Map[$ft, $tt]"
         case TupleType(tpes)       => p"($tpes)"
         case FunctionType(fts, tt) => p"($fts) => $tt"
         case c: ClassType =>
-          printNameWithPath(c.classDef)
-          p"${nary(c.tps, ", ", "[", "]")}"
+          p"${c.id}${nary(c.tps, ", ", "[", "]")}"
 
         // Definitions
         case Program(units) =>
           p"""${nary(units filter { /*opts.printUniqueIds ||*/ _.isMainUnit }, "\n\n")}"""
 
-        case UnitDef(id,pack, imports, defs,_) =>
-          if (pack.nonEmpty){
-            p"""|package ${pack mkString "."}
-                |"""
-          }
-          p"""|${nary(imports,"\n")}
-              |
-              |${nary(defs,"\n\n")}
-              |"""
-
-        case Import(path, isWild) =>
-          if (isWild) {
-            p"import ${nary(path,".")}._"
-          } else {
-            p"import ${nary(path,".")}"
-          }
-
-        case ModuleDef(id, defs, _) =>
-          p"""|object $id {
-              |  ${nary(defs, "\n\n")}
-              |}"""
-
-        case acd : AbstractClassDef =>
+        case acd: AbstractClassDef =>
           p"abstract class ${acd.id}${nary(acd.tparams, ", ", "[", "]")}"
 
-          acd.parent.foreach{ par =>
-            p" extends ${par.id}"
-          }
-
-          if (acd.methods.nonEmpty) {
-            p"""| {
-                |  ${nary(acd.methods, "\n\n")}
-                |}"""
-          }
-
         case ccd : CaseClassDef =>
-          if (ccd.isCaseObject) {
-            p"case object ${ccd.id}"
-          } else {
-            p"case class ${ccd.id}"
-          }
-
+          p"case class ${ccd.id}"
           p"${nary(ccd.tparams, ", ", "[", "]")}"
-
-          if (!ccd.isCaseObject) {
-            p"(${ccd.fields})"
-          }
+          p"(${ccd.fields})"
 
           ccd.parent.foreach { par =>
             // Remember child and parents tparams are simple bijection
-            p" extends ${par.id}${nary(ccd.tparams, ", ", "[", "]")}"
-          }
-
-          if (ccd.methods.nonEmpty) {
-            p"""| {
-                |  ${nary(ccd.methods, "\n\n") }
-                |}"""
+            p" extends ${par}${nary(ccd.tparams, ", ", "[", "]")}"
           }
 
         case fd: FunDef =>
@@ -555,12 +302,9 @@ trait Printers { self: Trees =>
                 |"""
           }
 
-          if (fd.canBeStrictField) {
-            p"val ${fd.id} : "
-          } else if (fd.canBeLazyField) {
-            p"lazy val ${fd.id} : "
-          } else {
-            p"def ${fd.id}${nary(fd.tparams, ", ", "[", "]")}(${fd.params}): "
+          p"def ${fd.id}${nary(fd.tparams, ", ", "[", "]")}"
+          if (fd.params.nonEmpty) {
+            p"(${fd.params}): "
           }
 
           p"${fd.returnType} = ${fd.fullBody}"
@@ -597,41 +341,8 @@ trait Printers { self: Trees =>
       }
     }
 
-    protected object FcallMethodInvocation {
-      def unapply(fi: FunctionInvocation): Option[(Expr, FunDef, Identifier, Seq[TypeTree], Seq[Expr])] = {
-        val FunctionInvocation(tfd, args) = fi
-        tfd.fd.methodOwner.map { cd =>
-          val (rec, rargs) = (args.head, args.tail)
-
-          val fid = tfd.fd.id
-
-          val realtps = tfd.tps.drop(cd.tparams.size)
-
-          (rec, tfd.fd, fid, realtps, rargs)
-        }
-      }
-    }
-
-    protected object BinaryMethodCall {
-      val makeBinary = Set("+", "-", "*", "::", "++", "--", "&&", "||", "/")
-
-      def unapply(fi: FunctionInvocation): Option[(Expr, String, Expr)] = fi match {
-        case FcallMethodInvocation(rec, _, id, Nil, List(a)) =>
-          val name = id.name
-          if (makeBinary contains name) {
-            if(name == "::")
-              Some((a, name, rec))
-            else
-              Some((rec, name, a))
-          } else {
-            None
-          }
-        case _ => None
-      }
-    }
-
     protected def isSimpleExpr(e: Expr): Boolean = e match {
-      case _: LetDef | _: Let | LetPattern(_, _, _) | _: Assert | _: Require => false
+      case _: Let | LetPattern(_, _, _) | _: Assert | _: Require => false
       case p: PrettyPrintable => p.isSimpleExpr
       case _ => true
     }
@@ -639,8 +350,6 @@ trait Printers { self: Trees =>
     protected def noBracesSub(e: Expr): Seq[Expr] = e match {
       case Assert(_, _, bd) => Seq(bd)
       case Let(_, _, bd) => Seq(bd)
-      case xlang.Expressions.LetVar(_, _, bd) => Seq(bd)
-      case LetDef(_, bd) => Seq(bd)
       case LetPattern(_, _, bd) => Seq(bd)
       case Require(_, bd) => Seq(bd)
       case IfExpr(_, t, e) => Seq(t, e) // if-else always has braces anyway
@@ -652,11 +361,6 @@ trait Printers { self: Trees =>
       case (e: Expr, _) if isSimpleExpr(e) => false
       case (e: Expr, Some(within: Expr)) if noBracesSub(within) contains e => false
       case (_: Expr, Some(_: MatchCase)) => false
-      case (_: LetDef, Some(_: LetDef)) => false
-      case (_: Expr, Some(_: xlang.Expressions.Block)) => false
-      case (_: xlang.Expressions.Block, Some(_: xlang.Expressions.While)) => false
-      case (_: xlang.Expressions.Block, Some(_: FunDef)) => false
-      case (_: xlang.Expressions.Block, Some(_: LetDef)) => false
       case (e: Expr, Some(_)) => true
       case _ => false
     }
@@ -665,12 +369,12 @@ trait Printers { self: Trees =>
       case (pa: PrettyPrintable) => pa.printPrecedence
       case (_: ElementOfSet) => 0
       case (_: Modulo) => 1
-      case (_: Or | BinaryMethodCall(_, "||", _)) => 2
-      case (_: And | BinaryMethodCall(_, "&&", _)) => 3
+      case (_: Or) => 2
+      case (_: And) => 3
       case (_: GreaterThan | _: GreaterEquals  | _: LessEquals | _: LessThan | _: Implies) => 4
       case (_: Equals | _: Not) => 5
-      case (_: Plus | _: BVPlus | _: Minus | _: BVMinus | _: SetUnion| _: SetDifference | BinaryMethodCall(_, "+" | "-", _)) => 7
-      case (_: Times | _: BVTimes | _: Division | _: BVDivision | _: Remainder | _: BVRemainder | BinaryMethodCall(_, "*" | "/", _)) => 8
+      case (_: Plus | _: Minus | _: SetUnion| _: SetDifference) => 7
+      case (_: Times | _: Division | _: Remainder) => 8
       case _ => 9
     }
 
@@ -679,12 +383,10 @@ trait Printers { self: Trees =>
       case (_, None) => false
       case (_, Some(
         _: Ensuring | _: Assert | _: Require | _: Definition | _: MatchExpr | _: MatchCase |
-        _: Let | _: LetDef | _: IfExpr | _ : CaseClass | _ : Lambda | _ : Choose | _ : Tuple
+        _: Let | _: IfExpr | _ : CaseClass | _ : Lambda | _ : Tuple
       )) => false
       case (_:Pattern, _) => false
       case (ex: StringConcat, Some(_: StringConcat)) => false
-      case (b1 @ BinaryMethodCall(_, _, _), Some(b2 @ BinaryMethodCall(_, _, _))) if precedence(b1) > precedence(b2) => false
-      case (BinaryMethodCall(_, _, _), Some(_: FunctionInvocation)) => true
       case (_, Some(_: FunctionInvocation)) => false
       case (ie: IfExpr, _) => true
       case (me: MatchExpr, _ ) => true
@@ -693,11 +395,11 @@ trait Printers { self: Trees =>
     }
   }
 
-  implicit class Printable(val f: PrinterContext => Any) extends AnyVal {
+  implicit class Printable(val f: PrinterContext => Any) {
     def print(ctx: PrinterContext) = f(ctx)
   }
 
-  implicit class PrintingHelper(val sc: StringContext) extends AnyVal {
+  implicit class PrintingHelper(val sc: StringContext) {
 
     def p(args: Any*)(implicit ctx: PrinterContext): Unit = {
       val printer = ctx.printer
@@ -814,12 +516,12 @@ trait Printers { self: Trees =>
       printer.toString
     }
 
-    def apply(tree: Tree, ctx: LeonContext): String = {
+    def apply(tree: Tree, ctx: Context): String = {
       val opts = PrinterOptions.fromContext(ctx)
       apply(tree, opts, None)
     }
 
-    def apply(tree: Tree, ctx: LeonContext, pgm: Program): String = {
+    def apply(tree: Tree, ctx: Context, pgm: Program): String = {
       val opts = PrinterOptions.fromContext(ctx)
       apply(tree, opts, Some(pgm))
     }

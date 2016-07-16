@@ -1,19 +1,17 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
 package inox
-package trees
+package ast
 
-trait Trees extends Expressions with Extractors with Types with Definitions {
+import utils._
+import scala.language.implicitConversions
 
-  object exprOps extends {
-    val trees: Trees.this.type = Trees.this
-  } with ExprOps with Constructors
+trait Trees extends Expressions with Extractors with Types with Definitions with Printers {
 
-  object typeOps extends {
-    val trees: Trees.this.type = Trees.this
-  } with TypeOps
+  class Unsupported(t: Tree, msg: String)(implicit ctx: Context)
+    extends Exception(s"${t.asString(ctx)}@${t.getPos} $msg")
 
-  abstract class Tree extends Positioned with Serializable with Printable {
+  abstract class Tree extends utils.Positioned with Serializable with inox.Printable {
     def copiedFrom(o: Tree): this.type = {
       setPos(o)
       this
@@ -21,22 +19,26 @@ trait Trees extends Expressions with Extractors with Types with Definitions {
 
     // @EK: toString is considered harmful for non-internal things. Use asString(ctx) instead.
 
-    def asString(implicit pgm: Program, ctx: Context): String = {
-      ScalaPrinter(this, ctx, pgm)
+    def asString(implicit symbols: Symbols, ctx: Context): String = {
+      ScalaPrinter(this, ctx, symbols)
     }
 
-    override def toString = asString(LeonContext.printNames)
+    override def toString = asString(Context.printNames)
   }
+
+  object exprOps extends {
+    val trees: Trees.this.type = Trees.this
+  } with ExprOps
 
   /** Represents a unique symbol in Inox.
     *
     * The name is stored in the decoded (source code) form rather than encoded (JVM) form.
     * The type may be left blank (Untyped) for Identifiers that are not variables.
     */
-  class Identifier private[Common](
+  class Identifier private[Trees](
     val name: String,
     val globalId: Int,
-    private[Common] val id: Int,
+    private[Trees] val id: Int,
     private val alwaysShowUniqueID: Boolean = false
   ) extends Tree with Ordered[Identifier] {
 
@@ -56,13 +58,7 @@ trait Trees extends Expressions with Extractors with Types with Definitions {
 
     def uniqueName: String = uniqueNameDelimited("$")
 
-    def toVariable: Variable = Variable(this)
-
-    def freshen: Identifier = FreshIdentifier(name, tpe, alwaysShowUniqueID).copiedFrom(this)
-    
-    def duplicate(name: String = name, tpe: TypeTree = tpe, alwaysShowUniqueID: Boolean = alwaysShowUniqueID) = {
-      FreshIdentifier(name, tpe, alwaysShowUniqueID)
-    }
+    def freshen: Identifier = FreshIdentifier(name, alwaysShowUniqueID).copiedFrom(this)
 
     override def compare(that: Identifier): Int = {
       val ord = implicitly[Ordering[(String, Int, Int)]]
@@ -87,9 +83,9 @@ trait Trees extends Expressions with Extractors with Types with Definitions {
       * @param tpe The type of the identifier
       * @param alwaysShowUniqueID If the unique ID should always be shown
       */
-    def apply(name: String, tpe: TypeTree = Untyped, alwaysShowUniqueID: Boolean = false) : Identifier = {
+    def apply(name: String, alwaysShowUniqueID: Boolean = false) : Identifier = {
       val decoded = decode(name)
-      new Identifier(decoded, uniqueCounter.nextGlobal, uniqueCounter.next(decoded), tpe, alwaysShowUniqueID)
+      new Identifier(decoded, uniqueCounter.nextGlobal, uniqueCounter.next(decoded), alwaysShowUniqueID)
     }
 
     /** Builds a fresh identifier, whose ID is always shown
@@ -98,10 +94,8 @@ trait Trees extends Expressions with Extractors with Types with Definitions {
       * @param forceId The forced ID of the identifier
       * @param tpe The type of the identifier
       */
-    object forceId {
-      def apply(name: String, forceId: Int, tpe: TypeTree, alwaysShowUniqueID: Boolean = false): Identifier =
-        new Identifier(decode(name), uniqueCounter.nextGlobal, forceId, tpe, alwaysShowUniqueID)
-    }
+    def forceId(name: String, forceId: Int, alwaysShowUniqueID: Boolean = false): Identifier =
+      new Identifier(decode(name), uniqueCounter.nextGlobal, forceId, alwaysShowUniqueID)
   }
 
   def aliased(id1: Identifier, id2: Identifier) = {
@@ -115,4 +109,7 @@ trait Trees extends Expressions with Extractors with Types with Definitions {
     (s1 & s2).nonEmpty
   }
 
+  def aliased[T1 <: VariableSymbol,T2 <: VariableSymbol](vs1: Set[T1], vs2: Set[T2]): Boolean = {
+    aliased(vs1.map(_.id), vs2.map(_.id))
+  }
 }

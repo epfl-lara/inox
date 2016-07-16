@@ -1,10 +1,8 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 
-import leon.utils._
-
-import java.io.File
+import inox.utils._
 
 import scala.reflect.ClassTag
 
@@ -12,14 +10,12 @@ import scala.reflect.ClassTag
   * LeonContexts are immutable, and so should all their fields (with the possible
   * exception of the reporter).
   */
-case class LeonContext(
+case class Context(
   reporter: Reporter,
   interruptManager: InterruptManager,
   options: Seq[LeonOption[Any]] = Seq(),
-  files: Seq[File] = Seq(),
-  classDir: Option[File] = None,
-  timers: TimerStorage = new TimerStorage
-) {
+  timers: TimerStorage = new TimerStorage,
+  bank: evaluators.EvaluationBank) {
 
   def findOption[A: ClassTag](optDef: LeonOptionDef[A]): Option[A] = options.collectFirst {
     case LeonOption(`optDef`, value:A) => value
@@ -31,7 +27,7 @@ case class LeonContext(
   def toSctx = solvers.SolverContext(this, new evaluators.EvaluationBank)
 }
 
-object LeonContext {
+object Context {
   def empty = {
     val reporter = new DefaultReporter(Set())
     LeonContext(reporter, new InterruptManager(reporter))

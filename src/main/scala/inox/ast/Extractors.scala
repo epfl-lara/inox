@@ -1,9 +1,9 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
 package inox
-package trees
+package ast
 
-trait Extractors { self: Expressions =>
+trait Extractors { self: Trees =>
 
   /** Operator Extractor to extract any Expression in a consistent way.
     *
@@ -19,7 +19,7 @@ trait Extractors { self: Expressions =>
     * function that would simply apply the corresponding constructor for each node.
     */
   object Operator extends TreeExtractor {
-    val trees: Extractors.this.trees = Extractors.this.trees
+    val trees: Extractors.this.type = Extractors.this
     type SubTree = trees.Expr
 
     def unapply(expr: Expr): Option[(Seq[Expr], (Seq[Expr]) => Expr)] = expr match {
@@ -134,14 +134,14 @@ trait Extractors { self: Expressions =>
       case SubString(t1, a, b) => Some((t1::a::b::Nil, es => SubString(es(0), es(1), es(2))))
       case BigSubString(t1, a, b) => Some((t1::a::b::Nil, es => BigSubString(es(0), es(1), es(2))))
       case FiniteSet(els, base) =>
-        Some((els.toSeq, els => FiniteSet(els.toSet, base)))
+        Some((els, els => FiniteSet(els, base)))
       case FiniteBag(els, base) =>
         val subArgs = els.flatMap { case (k, v) => Seq(k, v) }.toSeq
         val builder = (as: Seq[Expr]) => {
-          def rec(kvs: Seq[Expr]): Map[Expr, Expr] = kvs match {
+          def rec(kvs: Seq[Expr]): Seq[(Expr, Expr)] = kvs match {
             case Seq(k, v, t @ _*) =>
-              Map(k -> v) ++ rec(t)
-            case Seq() => Map()
+              Seq(k -> v) ++ rec(t)
+            case Seq() => Seq()
             case _ => sys.error("odd number of key/value expressions")
           }
           FiniteBag(rec(as), base)
@@ -150,10 +150,10 @@ trait Extractors { self: Expressions =>
       case FiniteMap(args, f, t) => {
         val subArgs = args.flatMap { case (k, v) => Seq(k, v) }.toSeq
         val builder = (as: Seq[Expr]) => {
-          def rec(kvs: Seq[Expr]): Map[Expr, Expr] = kvs match {
+          def rec(kvs: Seq[Expr]): Seq[(Expr, Expr)] = kvs match {
             case Seq(k, v, t @ _*) =>
-              Map(k -> v) ++ rec(t)
-            case Seq() => Map()
+              Seq(k -> v) ++ rec(t)
+            case Seq() => Seq()
             case _ => sys.error("odd number of key/value expressions")
           }
           FiniteMap(rec(as), f, t)
@@ -198,7 +198,7 @@ trait Extractors { self: Expressions =>
   
   object TopLevelOrs { // expr1 OR (expr2 OR (expr3 OR ..)) => List(expr1, expr2, expr3)
     def unapply(e: Expr): Option[Seq[Expr]] = e match {
-      case Let(i, e, TopLevelOrs(bs)) => Some(bs map (let(i,e,_)))
+      case Let(i, e, TopLevelOrs(bs)) => Some(bs map (Let(i,e,_)))
       case Or(exprs) =>
         Some(exprs.flatMap(unapply).flatten)
       case e =>
@@ -208,7 +208,7 @@ trait Extractors { self: Expressions =>
 
   object TopLevelAnds { // expr1 AND (expr2 AND (expr3 AND ..)) => List(expr1, expr2, expr3)
     def unapply(e: Expr): Option[Seq[Expr]] = e match {
-      case Let(i, e, TopLevelAnds(bs)) => Some(bs map (let(i,e,_)))
+      case Let(i, e, TopLevelAnds(bs)) => Some(bs map (Let(i,e,_)))
       case And(exprs) =>
         Some(exprs.flatMap(unapply).flatten)
       case e =>
@@ -217,7 +217,7 @@ trait Extractors { self: Expressions =>
   }
 
   object IsTyped {
-    def unapply[T <: Typed](e: T): Option[(T, Type)] = Some((e, e.getType))
+    def unapply[T <: Typed](e: T)(implicit p: Symbols): Option[(T, Type)] = Some((e, e.getType))
   }
 
   object WithStringconverter {
@@ -232,7 +232,7 @@ trait Extractors { self: Expressions =>
   }
 
   object SimpleCase {
-    def apply(p : Pattern, rhs : Expr) = MatchCase(p, None, rhs)
+    def apply(p: Pattern, rhs: Expr) = MatchCase(p, None, rhs)
     def unapply(c : MatchCase) = c match {
       case MatchCase(p, None, rhs) => Some((p, rhs))
       case _ => None
@@ -240,7 +240,7 @@ trait Extractors { self: Expressions =>
   }
 
   object GuardedCase {
-    def apply(p : Pattern, g: Expr, rhs : Expr) = MatchCase(p, Some(g), rhs)
+    def apply(p: Pattern, g: Expr, rhs: Expr) = MatchCase(p, Some(g), rhs)
     def unapply(c : MatchCase) = c match {
       case MatchCase(p, Some(g), rhs) => Some((p, g, rhs))
       case _ => None
@@ -248,28 +248,28 @@ trait Extractors { self: Expressions =>
   }
 
   object Pattern {
-    def unapply(p : Pattern) : Option[(
-      Option[Identifier], 
+    def unapply(p: Pattern) : Option[(
+      Option[ValDef], 
       Seq[Pattern], 
-      (Option[Identifier], Seq[Pattern]) => Pattern
+      (Option[ValDef], Seq[Pattern]) => Pattern
     )] = Option(p) map {
-      case InstanceOfPattern(b, ct)       => (b, Seq(), (b, _)  => InstanceOfPattern(b,ct))
-      case WildcardPattern(b)             => (b, Seq(), (b, _)  => WildcardPattern(b))
-      case CaseClassPattern(b, ct, subs)  => (b, subs,  (b, sp) => CaseClassPattern(b, ct, sp))
-      case TuplePattern(b,subs)           => (b, subs,  (b, sp) => TuplePattern(b, sp))
-      case LiteralPattern(b, l)           => (b, Seq(), (b, _)  => LiteralPattern(b, l))
-      case UnapplyPattern(b, fd, subs)    => (b, subs,  (b, sp) => UnapplyPattern(b, fd, sp))
+      case InstanceOfPattern(b, ct)         => (b, Seq(), (b, _)  => InstanceOfPattern(b,ct))
+      case WildcardPattern(b)               => (b, Seq(), (b, _)  => WildcardPattern(b))
+      case CaseClassPattern(b, ct, subs)    => (b, subs,  (b, sp) => CaseClassPattern(b, ct, sp))
+      case TuplePattern(b,subs)             => (b, subs,  (b, sp) => TuplePattern(b, sp))
+      case LiteralPattern(b, l)             => (b, Seq(), (b, _)  => LiteralPattern(b, l))
+      case UnapplyPattern(b, id, tps, subs) => (b, subs,  (b, sp) => UnapplyPattern(b, id, tps, sp))
     }
   }
 
-  def unwrapTuple(e: Expr, isTuple: Boolean): Seq[Expr] = e.getType match {
+  def unwrapTuple(e: Expr, isTuple: Boolean)(implicit s: Symbols): Seq[Expr] = e.getType match {
     case TupleType(subs) if isTuple => 
-      for (ind <- 1 to subs.size) yield { tupleSelect(e, ind, isTuple) }      
+      for (ind <- 1 to subs.size) yield { s.tupleSelect(e, ind, isTuple) }
     case _ if !isTuple => Seq(e)
     case tp => sys.error(s"Calling unwrapTuple on non-tuple $e of type $tp")
   }
 
-  def unwrapTuple(e: Expr, expectedSize: Int): Seq[Expr] = unwrapTuple(e, expectedSize > 1)
+  def unwrapTuple(e: Expr, expectedSize: Int)(implicit p: Symbols): Seq[Expr] = unwrapTuple(e, expectedSize > 1)
 
   def unwrapTupleType(tp: Type, isTuple: Boolean): Seq[Type] = tp match {
     case TupleType(subs) if isTuple => subs
@@ -290,25 +290,25 @@ trait Extractors { self: Expressions =>
     unwrapTuplePattern(p, expectedSize > 1)
   
   object LetPattern {
-    def apply(patt : Pattern, value: Expr, body: Expr) : Expr = {
+    def apply(patt: Pattern, value: Expr, body: Expr) : Expr = {
       patt match {
         case WildcardPattern(Some(binder)) => Let(binder, value, body)
         case _ => MatchExpr(value, List(SimpleCase(patt, body)))
       }
     }
 
-    def unapply(me : MatchExpr) : Option[(Pattern, Expr, Expr)] = {
+    def unapply(me: MatchExpr) : Option[(Pattern, Expr, Expr)] = {
       Option(me) collect {
-        case MatchExpr(scrut, List(SimpleCase(pattern, body))) if !aliased(pattern.binders, ExprOps.variablesOf(scrut)) =>
+        case MatchExpr(scrut, List(SimpleCase(pattern, body))) if !aliased(pattern.binders, exprOps.variablesOf(scrut)) =>
           ( pattern, scrut, body )
       }
     }
   }
 
   object LetTuple {
-    def unapply(me : MatchExpr) : Option[(Seq[Identifier], Expr, Expr)] = {
+    def unapply(me: MatchExpr) : Option[(Seq[ValDef], Expr, Expr)] = {
       Option(me) collect {
-        case LetPattern(TuplePattern(None,subPatts), value, body) if
+        case LetPattern(TuplePattern(None, subPatts), value, body) if
             subPatts forall { case WildcardPattern(Some(_)) => true; case _ => false } => 
           (subPatts map { _.binder.get }, value, body )
       }

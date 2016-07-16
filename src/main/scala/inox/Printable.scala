@@ -1,8 +1,8 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 
-/** A trait for objects that can be pretty-printed given a [[leon.LeonContext]] */
+/** A trait for objects that can be pretty-printed given a [[inox.Context]] */
 trait Printable {
-  def asString(implicit ctx: LeonContext): String
+  def asString(implicit ctx: Context): String
 }

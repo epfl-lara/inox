@@ -1,7 +1,7 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
 package inox
-package trees
+package ast
 
 /** Provides constructors for [[purescala.Expressions]].
   *
@@ -9,8 +9,12 @@ package trees
   * potentially use a different expression node if one is more suited.
   * @define encodingof Encoding of
   *  */
-trait Constructors { self: ExprOps =>
+trait Constructors {
+  val trees: Trees
   import trees._
+  import trees.exprOps._
+  implicit val symbols: Symbols
+  import symbols._
 
   /** If `isTuple`:
     * `tupleSelect(tupleWrap(Seq(Tuple(x,y))),1) -> x`
@@ -37,16 +41,16 @@ trait Constructors { self: ExprOps =>
   /** $encodingof ``val id = e; bd``, and returns `bd` if the identifier is not bound in `bd`.
     * @see [[purescala.Expressions.Let]]
     */
-  def let(id: Identifier, e: Expr, bd: Expr) = {
-    if (exprOps.variablesOf(bd) contains id)
-      Let(id, e, bd)
+  def let(vd: ValDef, e: Expr, bd: Expr) = {
+    if (exprOps.variablesOf(bd) contains vd.toVariable)
+      Let(vd, e, bd)
     else bd
   }
 
   /** $encodingof ``val (...binders...) = value; body`` which is translated to  ``value match { case (...binders...) => body }``, and returns `body` if the identifiers are not bound in `body`.
     * @see [[purescala.Expressions.Let]]
     */
-  def letTuple(binders: Seq[Identifier], value: Expr, body: Expr) = binders match {
+  def letTuple(binders: Seq[ValDef], value: Expr, body: Expr) = binders match {
     case Nil =>
       body
     case x :: Nil =>
@@ -60,7 +64,7 @@ trait Constructors { self: ExprOps =>
         s"In letTuple: '$value' is being assigned as a tuple of arity ${xs.size}; yet its type is '${value.getType}' (body is '$body')"
       )
 
-      Extractors.LetPattern(TuplePattern(None,binders map { b => WildcardPattern(Some(b)) }), value, body)
+      LetPattern(TuplePattern(None,binders map { b => WildcardPattern(Some(b)) }), value, body)
   }
 
   /** Wraps the sequence of expressions as a tuple. If the sequence contains a single expression, it is returned instead.
@@ -87,7 +91,7 @@ trait Constructors { self: ExprOps =>
     * If the sequence is empty, the [[purescala.Types.UnitType UnitType]] is returned.
     * @see [[purescala.Types.TupleType]]
     */
-  def tupleTypeWrap(tps: Seq[TypeTree]) = tps match {
+  def tupleTypeWrap(tps: Seq[Type]) = tps match {
     case Seq() => UnitType
     case Seq(elem) => elem
     case more => TupleType(more)
@@ -103,20 +107,20 @@ trait Constructors { self: ExprOps =>
     val formalType = tupleTypeWrap(fd.params map { _.getType })
     val actualType = tupleTypeWrap(args map { _.getType })
 
-    canBeSupertypeOf(formalType, actualType) match {
+    symbols.canBeSupertypeOf(formalType, actualType) match {
       case Some(tmap) =>
-        FunctionInvocation(fd.typed(fd.tparams map { tpd => tmap.getOrElse(tpd.tp, tpd.tp) }), args)
-      case None => throw LeonFatalError(s"$args:$actualType cannot be a subtype of $formalType!")
+        FunctionInvocation(fd.id, fd.tparams map { tpd => tmap.getOrElse(tpd.tp, tpd.tp) }, args)
+      case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
     }
   }
 
   /** Simplifies the provided case class selector.
     * @see [[purescala.Expressions.CaseClassSelector]]
     */
-  def caseClassSelector(classType: CaseClassType, caseClass: Expr, selector: Identifier): Expr = {
+  def caseClassSelector(classType: ClassType, caseClass: Expr, selector: Identifier): Expr = {
     caseClass match {
-      case CaseClass(ct, fields) if ct.classDef == classType.classDef && !ct.classDef.hasInvariant =>
-        fields(ct.classDef.selectorID2Index(selector))
+      case CaseClass(ct, fields) if ct == classType && !ct.tcd.hasInvariant =>
+        fields(ct.tcd.cd.asInstanceOf[CaseClassDef].selectorID2Index(selector))
       case _ =>
         CaseClassSelector(classType, caseClass, selector)
     }
@@ -126,11 +130,11 @@ trait Constructors { self: ExprOps =>
     * @see [[purescala.Expressions.CaseClassPattern MatchExpr]]
     * @see [[purescala.Expressions.CaseClassPattern CaseClassPattern]]
     */
-  private def filterCases(scrutType: TypeTree, resType: Option[TypeTree], cases: Seq[MatchCase]): Seq[MatchCase] = {
+  private def filterCases(scrutType: Type, resType: Option[Type], cases: Seq[MatchCase]): Seq[MatchCase] = {
     val casesFiltered = scrutType match {
-      case c: CaseClassType =>
+      case c: ClassType if !c.tcd.cd.isAbstract =>
         cases.filter(_.pattern match {
-          case CaseClassPattern(_, cct, _) if cct.classDef != c.classDef => false
+          case CaseClassPattern(_, cct, _) if cct.id != c.id => false
           case _ => true
         })
 
@@ -140,7 +144,7 @@ trait Constructors { self: ExprOps =>
 
     resType match {
       case Some(tpe) =>
-        casesFiltered.filter(c => typesCompatible(c.rhs.getType, tpe))
+        casesFiltered.filter(c => symbols.typesCompatible(c.rhs.getType, tpe))
       case None =>
         casesFiltered
     }
@@ -149,7 +153,7 @@ trait Constructors { self: ExprOps =>
   /** $encodingof `... match { ... }` but simplified if possible. Simplifies to [[Error]] if no case can match the scrutined expression.
     * @see [[purescala.Expressions.MatchExpr MatchExpr]]
     */
-  def matchExpr(scrutinee : Expr, cases : Seq[MatchCase]) : Expr ={
+  def matchExpr(scrutinee: Expr, cases: Seq[MatchCase]): Expr = {
     val filtered = filterCases(scrutinee.getType, None, cases)
     if (filtered.nonEmpty)
       MatchExpr(scrutinee, filtered)
@@ -268,20 +272,20 @@ trait Constructors { self: ExprOps =>
      case Lambda(formalArgs, body) =>
       assert(realArgs.size == formalArgs.size, "Invoking lambda with incorrect number of arguments")
 
-      var defs: Seq[(Identifier, Expr)] = Seq()
+      var defs: Seq[(ValDef, Expr)] = Seq()
 
       val subst = formalArgs.zip(realArgs).map {
-        case (ValDef(from), to:Variable) =>
-          from -> to
-        case (ValDef(from), e) =>
-          val fresh = from.freshen
+        case (vd, to:Variable) =>
+          vd -> to
+        case (vd, e) =>
+          val fresh = vd.freshen
           defs :+= (fresh -> e)
-          from -> Variable(fresh)
+          vd -> fresh.toVariable
       }.toMap
 
-      val (ids, bds) = defs.unzip
+      val (vds, bds) = defs.unzip
 
-      letTuple(ids, tupleWrap(bds), replaceFromIDs(subst, body))
+      letTuple(vds, tupleWrap(bds), exprOps.replaceFromSymbols(subst, body))
 
     case _ =>
       Application(fn, realArgs)
@@ -341,7 +345,7 @@ trait Constructors { self: ExprOps =>
 
   /** $encodingof expr.asInstanceOf[tpe], returns `expr` it it already is of type `tpe`.  */
   def asInstOf(expr: Expr, tpe: ClassType) = {
-    if (isSubtypeOf(expr.getType, tpe)) {
+    if (symbols.isSubtypeOf(expr.getType, tpe)) {
       expr
     } else {
       AsInstanceOf(expr, tpe)
@@ -349,7 +353,7 @@ trait Constructors { self: ExprOps =>
   }
 
   def isInstOf(expr: Expr, tpe: ClassType) = {
-    if (isSubtypeOf(expr.getType, tpe)) {
+    if (symbols.isSubtypeOf(expr.getType, tpe)) {
       BooleanLiteral(true)
     } else {
       IsInstanceOf(expr, tpe)
@@ -360,6 +364,19 @@ trait Constructors { self: ExprOps =>
     case BooleanLiteral(true)  => body
     case BooleanLiteral(false) => Error(body.getType, "Precondition failed")
     case _ => Require(pred, body)
+  }
+
+  def tupleWrapArg(fun: Expr) = fun.getType match {
+    case FunctionType(args, res) if args.size > 1 =>
+      val newArgs = fun match {
+        case Lambda(args, _) => args
+        case _ => args map (tpe => ValDef(FreshIdentifier("x", alwaysShowUniqueID = true), tpe))
+      }
+      val res = ValDef(FreshIdentifier("res", alwaysShowUniqueID = true), TupleType(args))
+      val patt = TuplePattern(None, newArgs map (arg => WildcardPattern(Some(arg))))
+      Lambda(Seq(res), MatchExpr(res.toVariable, Seq(SimpleCase(patt, application(fun, newArgs map (_.toVariable))))))
+    case _ =>
+      fun
   }
 
   def ensur(e: Expr, pred: Expr) = {

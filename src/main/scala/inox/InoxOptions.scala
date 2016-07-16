@@ -1,15 +1,12 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 
 import OptionParsers._
 
-import purescala.Definitions._
-import purescala.DefOps.fullName
-
 import scala.util.Try
 
-abstract class LeonOptionDef[+A] {
+abstract class InoxOptionDef[+A] {
   val name: String
   val description: String
   val default: A
@@ -32,49 +29,48 @@ abstract class LeonOptionDef[+A] {
     )
   }
 
-  def parse(s: String)(implicit reporter: Reporter): LeonOption[A] =
-    LeonOption(this)(parseValue(s))
+  def parse(s: String)(implicit reporter: Reporter): InoxOption[A] =
+    InoxOption(this)(parseValue(s))
 
-  def withDefaultValue: LeonOption[A] =
-    LeonOption(this)(default)
+  def withDefaultValue: InoxOption[A] =
+    InoxOption(this)(default)
 
   // @mk: FIXME: Is this cool?
   override def equals(other: Any) = other match {
-    case that: LeonOptionDef[_] => this.name == that.name
+    case that: InoxOptionDef[_] => this.name == that.name
     case _ => false
   }
   override def hashCode = name.hashCode
 }
 
-case class LeonFlagOptionDef(name: String, description: String, default: Boolean) extends LeonOptionDef[Boolean] {
+case class InoxFlagOptionDef(name: String, description: String, default: Boolean) extends InoxOptionDef[Boolean] {
   val parser = booleanParser
   val usageRhs = ""
 }
 
-case class LeonStringOptionDef(name: String, description: String, default: String, usageRhs: String) extends LeonOptionDef[String] {
+case class InoxStringOptionDef(name: String, description: String, default: String, usageRhs: String) extends InoxOptionDef[String] {
   val parser = stringParser
 }
 
-case class LeonLongOptionDef(name: String, description: String, default: Long, usageRhs: String) extends LeonOptionDef[Long] {
+case class InoxLongOptionDef(name: String, description: String, default: Long, usageRhs: String) extends InoxOptionDef[Long] {
   val parser = longParser
 }
 
-
-class LeonOption[+A] private (val optionDef: LeonOptionDef[A], val value: A) {
+class InoxOption[+A] private (val optionDef: InoxOptionDef[A], val value: A) {
   override def toString = s"--${optionDef.name}=$value"
   override def equals(other: Any) = other match {
-    case LeonOption(optionDef, value) =>
+    case InoxOption(optionDef, value) =>
       optionDef.name == this.optionDef.name && value == this.value
     case _ => false
   }
   override def hashCode = optionDef.hashCode + value.hashCode
 }
 
-object LeonOption {
-  def apply[A](optionDef: LeonOptionDef[A])(value: A) = {
-    new LeonOption(optionDef, value)
+object InoxOption {
+  def apply[A](optionDef: InoxOptionDef[A])(value: A) = {
+    new InoxOption(optionDef, value)
   }
-  def unapply[A](opt: LeonOption[A]) = Some((opt.optionDef, opt.value))
+  def unapply[A](opt: InoxOption[A]) = Some((opt.optionDef, opt.value))
 }
 
 object OptionParsers {
@@ -98,12 +94,11 @@ object OptionParsers {
     )
     foo
   }
+
   def setParser[A](base: OptionParser[A]): OptionParser[Set[A]] = {
     seqParser(base)(_).map(_.toSet)
   }
-
 }
-
 
 object OptionsHelpers {
 
@@ -142,10 +137,6 @@ object OptionsHelpers {
     (name: String) => regexPatterns.exists(p => p.matcher(name).matches())
   }
 
-  def fdMatcher(pgm: Program)(patterns: Traversable[String]): FunDef => Boolean = {
-    { (fd: FunDef) => fullName(fd)(pgm) } andThen matcher(patterns)
-  }
-
   def filterInclusive[T](included: Option[T => Boolean], excluded: Option[T => Boolean]): T => Boolean = {
     included match {
       case Some(i) =>
@@ -157,4 +148,46 @@ object OptionsHelpers {
         }
     }
   }
+}
+
+object InoxOptions {
+
+  val optSelectedSolvers = new LeonOptionDef[Set[String]] {
+    val name = "solvers"
+    val description = "Use solvers s1, s2,...\n" + solvers.SolverFactory.availableSolversPretty
+    val default = Set("fairz3")
+    val parser = setParser(stringParser)
+    val usageRhs = "s1,s2,..."
+  }
+
+  val optDebug = new LeonOptionDef[Set[DebugSection]] {
+    import OptionParsers._
+    val name = "debug"
+    val description = {
+      val sects = DebugSections.all.toSeq.map(_.name).sorted
+      val (first, second) = sects.splitAt(sects.length/2 + 1)
+      "Enable detailed messages per component.\nAvailable:\n" +
+        "  " + first.mkString(", ") + ",\n" +
+        "  " + second.mkString(", ")
+    }
+    val default = Set[DebugSection]()
+    val usageRhs = "d1,d2,..."
+    private val debugParser: OptionParser[Set[DebugSection]] = s => {
+      if (s == "all") {
+        Some(DebugSections.all)
+      } else {
+        DebugSections.all.find(_.name == s).map(Set(_))
+      }
+    }
+    val parser: String => Option[Set[DebugSection]] = {
+      setParser[Set[DebugSection]](debugParser)(_).map(_.flatten)
+    }
+  }
+
+  val optTimeout = LeonLongOptionDef(
+    "timeout",
+    "Set a timeout for attempting to prove a verification condition/ repair a function (in sec.)",
+    0L,
+    "t"
+  )
 }

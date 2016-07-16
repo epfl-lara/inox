@@ -1,8 +1,11 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 
 import utils._
+
+abstract class DebugSection(val name: String, val mask: Int)
+case object DebugSectionSolver extends DebugSection("solver", 1 << 0)
 
 abstract class Reporter(val debugSections: Set[DebugSection]) {
 
@@ -34,9 +37,7 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
 
   def emit(msg: Message): Unit
 
-  def onFatal(): Nothing = {
-    throw LeonFatalError(None)
-  }
+  def onFatal(): Nothing = throw FatalError("")
 
   def onCompilerProgress(current: Int, total: Int) = {}
 
