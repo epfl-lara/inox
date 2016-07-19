@@ -4,6 +4,11 @@ package inox
 
 import ast._
 
-class Program(val trees: Trees)(val symbols: trees.Symbols, val ctx: Context) {
+trait Program {
+  val trees: Trees
+  implicit val symbols: trees.Symbols
+  implicit val ctx: InoxContext
 
+  implicit def implicitProgram: this.type = this
+  implicit def printerOpts: trees.PrinterOptions = trees.PrinterOptions.fromSymbols(symbols, ctx)
 }

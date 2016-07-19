@@ -1,5 +1,7 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
+import scala.language.implicitConversions
+
 /** Core package of the Leon system 
   *
   * Provides the basic types and definitions for the Leon system.

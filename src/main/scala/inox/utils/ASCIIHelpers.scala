@@ -1,6 +1,6 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon.utils
+package inox.utils
 
 object ASCIIHelpers {
   case class Table(title: String, rows: Seq[TableRow] = Nil) {

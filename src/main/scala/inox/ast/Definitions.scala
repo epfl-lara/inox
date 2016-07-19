@@ -5,7 +5,7 @@ package ast
 
 import scala.collection.mutable.{Map => MutableMap}
 
-trait Definitions { self: Trees =>
+trait Definitions { self0: Trees =>
 
   sealed trait Definition extends Tree {
     val id: Identifier
@@ -63,9 +63,17 @@ trait Definitions { self: Trees =>
         with Constructors
         with Paths {
 
-    val trees: self.type = self
-    val symbols: this.type = this
-    private implicit def s: Symbols = symbols
+    val trees: self0.type = self0
+
+    // @nv: this is a hack to reinject `this` into the set of implicits
+    // in scope when using the pattern:
+    // {{{
+    //    implicit val symbols: Symbols
+    //    import symbols._
+    // }}}
+    // which seems to remove `symbols` from the set of current implicits
+    // for some mysterious reason.
+    implicit def implicitSymbols: this.type = this
 
     private val typedClassCache: MutableMap[(Identifier, Seq[Type]), Option[TypedClassDef]] = MutableMap.empty
     def lookupClass(id: Identifier): Option[ClassDef] = classes.get(id)
@@ -82,6 +90,8 @@ trait Definitions { self: Trees =>
 
     def getFunction(id: Identifier): FunDef = lookupFunction(id).getOrElse(throw FunctionLookupException(id))
     def getFunction(id: Identifier, tps: Seq[Type]): TypedFunDef = lookupFunction(id, tps).getOrElse(throw FunctionLookupException(id))
+
+    def asString: String = asString(PrinterOptions.fromSymbols(this, InoxContext.printNames))
   }
 
   case class TypeParameterDef(tp: TypeParameter) extends Definition {
@@ -226,6 +236,16 @@ trait Definitions { self: Trees =>
     lazy val hasInvariant: Boolean = invariant.isDefined
 
     def toType = ClassType(cd.id, tps)
+
+    def toCase = this match {
+      case tccd: TypedCaseClassDef => tccd
+      case _ => throw NotWellFormedException(cd.id, symbols)
+    }
+
+    def toAbstract = this match {
+      case accd: TypedAbstractClassDef => accd
+      case _ => throw NotWellFormedException(cd.id, symbols)
+    }
   }
 
   case class TypedAbstractClassDef(cd: AbstractClassDef, tps: Seq[Type])(implicit symbols: Symbols) extends TypedClassDef {

@@ -30,7 +30,7 @@ trait Paths { self: TypeOps with Constructors =>
     * could introduce non-sensical equations.
     */
   class Path private(private[ast] val elements: Seq[Path.Element])
-    extends inox.Printable {
+    extends Printable {
 
     import Path.Element
 
@@ -224,8 +224,7 @@ trait Paths { self: TypeOps with Constructors =>
 
     override def hashCode: Int = elements.hashCode
 
-    override def toString = asString(Context.printNames)
-    def asString(implicit ctx: Context): String = fullClause.asString
-    def asString(pgm: Program)(implicit ctx: Context): String = fullClause.asString(pgm)
+    override def toString = asString(PrinterOptions.fromContext(InoxContext.printNames))
+    def asString(implicit opts: PrinterOptions): String = fullClause.asString
   }
 }

@@ -7,38 +7,35 @@ import inox.utils._
 import scala.reflect.ClassTag
 
 /** Everything that is part of a compilation unit, except the actual program tree.
-  * LeonContexts are immutable, and so should all their fields (with the possible
+  * Contexts are immutable, and so should all their fields (with the possible
   * exception of the reporter).
   */
-case class Context(
+case class InoxContext(
   reporter: Reporter,
   interruptManager: InterruptManager,
-  options: Seq[LeonOption[Any]] = Seq(),
-  timers: TimerStorage = new TimerStorage,
-  bank: evaluators.EvaluationBank) {
+  options: Seq[InoxOption[Any]] = Seq(),
+  timers: TimerStorage = new TimerStorage) {
 
-  def findOption[A: ClassTag](optDef: LeonOptionDef[A]): Option[A] = options.collectFirst {
-    case LeonOption(`optDef`, value:A) => value
+  def findOption[A: ClassTag](optDef: InoxOptionDef[A]): Option[A] = options.collectFirst {
+    case InoxOption(`optDef`, value:A) => value
   }
 
-  def findOptionOrDefault[A: ClassTag](optDef: LeonOptionDef[A]): A =
+  def findOptionOrDefault[A: ClassTag](optDef: InoxOptionDef[A]): A =
     findOption(optDef).getOrElse(optDef.default)
-
-  def toSctx = solvers.SolverContext(this, new evaluators.EvaluationBank)
 }
 
-object Context {
+object InoxContext {
   def empty = {
     val reporter = new DefaultReporter(Set())
-    LeonContext(reporter, new InterruptManager(reporter))
+    InoxContext(reporter, new InterruptManager(reporter))
   }
 
   def printNames = {
     val reporter = new DefaultReporter(Set())
-    LeonContext(
+    InoxContext(
       reporter,
       new InterruptManager(reporter),
-      options = Seq(LeonOption[Set[DebugSection]](GlobalOptions.optDebug)(Set(DebugSectionTrees)))
+      options = Seq(InoxOption[Set[DebugSection]](InoxOptions.optDebug)(Set(ast.DebugSectionTrees)))
     )
   }
 }

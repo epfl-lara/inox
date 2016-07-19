@@ -24,10 +24,10 @@ import utils._
   * operations on Leon expressions.
   *
   */
-trait SymbolOps extends TreeOps {
+trait SymbolOps extends TreeOps { self: TypeOps =>
   import trees._
   import trees.exprOps._
-  implicit val symbols: Symbols
+  val symbols: Symbols
   import symbols._
 
   /** Computes the negation of a boolean formula, with some simplifications. */
@@ -288,8 +288,9 @@ trait SymbolOps extends TreeOps {
           }
 
         case CaseClassPattern(ob, cct, subps) =>
-          assert(cct.tcd.fields.size == subps.size)
-          val pairs = cct.tcd.fields.map(_.id).toList zip subps.toList
+          val tccd = cct.tcd.toCase
+          assert(tccd.fields.size == subps.size)
+          val pairs = tccd.fields.map(_.id).toList zip subps.toList
           val subTests = pairs.map(p => rec(caseClassSelector(cct, in, p._1), p._2))
           Path(IsInstanceOf(in, cct)) merge bind(ob, in) merge subTests
 
@@ -322,7 +323,7 @@ trait SymbolOps extends TreeOps {
 
     pattern match {
       case CaseClassPattern(b, ct, subps) =>
-        val tcd = ct.tcd
+        val tcd = ct.tcd.toCase
         assert(tcd.fields.size == subps.size)
         val pairs = tcd.fields.map(_.id).toList zip subps.toList
         val subMaps = pairs.map(p => mapForPattern(caseClassSelector(ct, asInstOf(in, ct), p._1), p._2))
@@ -428,26 +429,30 @@ trait SymbolOps extends TreeOps {
   }
 
   private def hasInstance(tcd: TypedClassDef): Boolean = {
-    val ancestors = tcd.ancestors.toSet
+    val recursive = Set(tcd, tcd.root)
 
     def isRecursive(tpe: Type, seen: Set[TypedClassDef]): Boolean = tpe match {
       case ct: ClassType =>
         val ctcd = ct.tcd
         if (seen(ctcd)) {
           false
-        } else if (ancestors(ctcd)) {
+        } else if (recursive(ctcd)) {
           true
-        } else {
-          ctcd.fieldsTypes.exists(isRecursive(_, seen + ctcd))
+        } else ctcd match {
+          case tcc: TypedCaseClassDef =>
+            tcc.fieldsTypes.exists(isRecursive(_, seen + ctcd))
+          case _ => false
         }
       case _ => false
     }
 
-    tcd match {
-      case tacd: TypedAbstractClassDef =>
-        tacd.ccDescendants.filterNot(tccd => isRecursive(tccd.toType, Set.empty)).nonEmpty
-      case tccd: TypedCaseClassDef =>
-        !isRecursive(tccd.toType, Set.empty)
+    val tcds = tcd match {
+      case tacd: TypedAbstractClassDef => tacd.ccDescendants
+      case tccd: TypedCaseClassDef => Seq(tccd)
+    }
+
+    tcds.exists { tcd =>
+      tcd.fieldsTypes.forall(tpe => !isRecursive(tpe, Set.empty))
     }
   }
 
@@ -654,7 +659,7 @@ trait SymbolOps extends TreeOps {
   }
 
   /** Returns the value for an identifier given a model. */
-  def valuateWithModel(model: Model)(vd: ValDef): Expr = {
+  def valuateWithModel(model: Map[ValDef, Expr])(vd: ValDef): Expr = {
     model.getOrElse(vd, simplestValue(vd.getType))
   }
 
@@ -662,7 +667,7 @@ trait SymbolOps extends TreeOps {
     *
     * Complete with simplest values in case of incomplete model.
     */
-  def valuateWithModelIn(expr: Expr, vars: Set[ValDef], model: Model): Expr = {
+  def valuateWithModelIn(expr: Expr, vars: Set[ValDef], model: Map[ValDef, Expr]): Expr = {
     val valuator = valuateWithModel(model) _
     replace(vars.map(vd => vd.toVariable -> valuator(vd)).toMap, expr)
   }
@@ -1003,7 +1008,7 @@ trait SymbolOps extends TreeOps {
         (elems forall (kv => isValueOfType(kv._1, from) < s"${kv._1} not a value of type ${from}" && isValueOfType(unWrapSome(kv._2), to) < s"${unWrapSome(kv._2)} not a value of type ${to}" ))
       case (CaseClass(ct, args), ct2: ClassType) =>
         isSubtypeOf(ct, ct2) < s"$ct not a subtype of $ct2" &&
-        ((args zip ct.tcd.fieldsTypes) forall (argstyped => isValueOfType(argstyped._1, argstyped._2) < s"${argstyped._1} not a value of type ${argstyped._2}" ))
+        ((args zip ct.tcd.toCase.fieldsTypes) forall (argstyped => isValueOfType(argstyped._1, argstyped._2) < s"${argstyped._1} not a value of type ${argstyped._2}" ))
       case (Lambda(valdefs, body), FunctionType(ins, out)) =>
         variablesOf(e).isEmpty &&
         (valdefs zip ins forall (vdin => isSubtypeOf(vdin._2, vdin._1.getType) < s"${vdin._2} is not a subtype of ${vdin._1.getType}")) &&

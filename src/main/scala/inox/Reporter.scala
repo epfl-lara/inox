@@ -4,8 +4,7 @@ package inox
 
 import utils._
 
-abstract class DebugSection(val name: String, val mask: Int)
-case object DebugSectionSolver extends DebugSection("solver", 1 << 0)
+abstract class DebugSection(val name: String)
 
 abstract class Reporter(val debugSections: Set[DebugSection]) {
 
@@ -70,12 +69,7 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
     }
   }
 
-  // Debugging
-  private val debugMask = debugSections.foldLeft(0){ _ | _.mask }
-
-  def isDebugEnabled(implicit section: DebugSection): Boolean = {
-    (debugMask & section.mask) == section.mask
-  }
+  def isDebugEnabled(implicit section: DebugSection): Boolean = debugSections(section)
 
   def ifDebug(pos: Position, body: (Any => Unit) => Any)(implicit section: DebugSection) = {
     if (isDebugEnabled) {

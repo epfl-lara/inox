@@ -31,7 +31,7 @@ trait GenTreeOps {
   /** An extractor for [[SubTree]]*/
   val Deconstructor: TreeExtractor {
     val trees: GenTreeOps.this.trees.type
-    type SubTree <: GenTreeOps.this.SubTree
+    type SubTree = GenTreeOps.this.SubTree
   }
 
   /* ========

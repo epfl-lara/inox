@@ -5,6 +5,7 @@ package ast
 
 import utils._
 import org.apache.commons.lang3.StringEscapeUtils
+import scala.language.implicitConversions
 
 trait Printers { self: Trees =>
 
@@ -17,10 +18,29 @@ trait Printers { self: Trees =>
     def parent = parents.headOption
   }
 
+  case class PrinterOptions(
+    baseIndent: Int = 0,
+    printPositions: Boolean = false,
+    printUniqueIds: Boolean = false,
+    printTypes: Boolean = false,
+    symbols: Option[Symbols] = None) {
+      require(!printTypes || symbols.isDefined,
+        "Can't print types without an available symbol table")
+  }
+
+  object PrinterOptions {
+    def fromContext(ctx: InoxContext): PrinterOptions = ???
+    def fromSymbols(s: Symbols, ctx: InoxContext): PrinterOptions = ???
+  }
+
+  trait Printable {
+    def asString(implicit opts: PrinterOptions): String
+  }
+
   /** This pretty-printer uses Unicode for some operators, to make sure we
     * distinguish PureScala from "real" Scala (and also because it's cute). */
   class PrettyPrinter(opts: PrinterOptions,
-                      opgm: Option[Program],
+                      osym: Option[Symbols],
                       val sb: StringBuffer = new StringBuffer) {
 
     override def toString = sb.toString
@@ -96,7 +116,7 @@ trait Printers { self: Trees =>
               |}"""
 
         case Forall(args, e) =>
-          p"\u2200${typed(args)}. $e"
+          p"\u2200${nary(args)}. $e"
 
         case e @ CaseClass(cct, args) =>
           p"$cct($args)"
@@ -280,8 +300,10 @@ trait Printers { self: Trees =>
           p"${c.id}${nary(c.tps, ", ", "[", "]")}"
 
         // Definitions
-        case Program(units) =>
-          p"""${nary(units filter { /*opts.printUniqueIds ||*/ _.isMainUnit }, "\n\n")}"""
+        case Symbols(classes, functions) =>
+          p"""${nary(classes.map(_._2).toSeq, "\n\n")}"""
+          p"\n\n"
+          p"""${nary(functions.map(_._2).toSeq, "\n\n")}"""
 
         case acd: AbstractClassDef =>
           p"abstract class ${acd.id}${nary(acd.tparams, ", ", "[", "]")}"
@@ -316,7 +338,7 @@ trait Printers { self: Trees =>
       if (opts.printTypes) {
         tree match {
           case t: Expr=>
-            p" : ${t.getType} ⟩"
+            p" : ${t.getType(opts.symbols.get)} ⟩"
 
           case _ =>
         }
@@ -395,7 +417,7 @@ trait Printers { self: Trees =>
     }
   }
 
-  implicit class Printable(val f: PrinterContext => Any) {
+  implicit class PrintWrapper(val f: PrinterContext => Any) {
     def print(ctx: PrinterContext) = f(ctx)
   }
 
@@ -456,7 +478,7 @@ trait Printers { self: Trees =>
               val nctx2 = nctx.copy(parents = parents, current = t)
               printer.pp(t)(nctx2)
 
-            case p: Printable =>
+            case p: PrintWrapper =>
               p.print(nctx)
 
             case e =>
@@ -467,7 +489,7 @@ trait Printers { self: Trees =>
     }
   }
 
-  def nary(ls: Seq[Any], sep: String = ", ", init: String = "", closing: String = ""): Printable = {
+  def nary(ls: Seq[Any], sep: String = ", ", init: String = "", closing: String = ""): PrintWrapper = {
     val (i, c) = if(ls.isEmpty) ("", "") else (init, closing)
     val strs = i +: List.fill(ls.size-1)(sep) :+ c
 
@@ -475,12 +497,12 @@ trait Printers { self: Trees =>
       new StringContext(strs: _*).p(ls: _*)
   }
 
-  def typed(t: Tree with Typed): Printable = {
+  def typed(t: Tree with Typed)(implicit s: Symbols): PrintWrapper = {
     implicit pctx: PrinterContext =>
       p"$t : ${t.getType}"
   }
 
-  def typed(ts: Seq[Tree with Typed]): Printable = {
+  def typed(ts: Seq[Tree with Typed])(implicit s: Symbols): PrintWrapper = {
     nary(ts.map(typed))
   }
 
@@ -494,7 +516,7 @@ trait Printers { self: Trees =>
     def isSimpleExpr: Boolean = false
   }
 
-  class EquivalencePrettyPrinter(opts: PrinterOptions, opgm: Option[Program]) extends PrettyPrinter(opts, opgm) {
+  class EquivalencePrettyPrinter(opts: PrinterOptions, osym: Option[Symbols]) extends PrettyPrinter(opts, osym) {
     override def pp(tree: Tree)(implicit ctx: PrinterContext): Unit = {
       tree match {
         case id: Identifier =>
@@ -507,31 +529,31 @@ trait Printers { self: Trees =>
   }
 
   abstract class PrettyPrinterFactory {
-    def create(opts: PrinterOptions, opgm: Option[Program]): PrettyPrinter
+    def create(opts: PrinterOptions, osym: Option[Symbols]): PrettyPrinter
 
-    def apply(tree: Tree, opts: PrinterOptions = PrinterOptions(), opgm: Option[Program] = None): String = {
-      val printer = create(opts, opgm)
+    def apply(tree: Tree, opts: PrinterOptions = PrinterOptions(), osym: Option[Symbols] = None): String = {
+      val printer = create(opts, osym)
       val ctx = PrinterContext(tree, Nil, opts.baseIndent, printer)
       printer.pp(tree)(ctx)
       printer.toString
     }
 
-    def apply(tree: Tree, ctx: Context): String = {
+    def apply(tree: Tree, ctx: InoxContext): String = {
       val opts = PrinterOptions.fromContext(ctx)
       apply(tree, opts, None)
     }
 
-    def apply(tree: Tree, ctx: Context, pgm: Program): String = {
+    def apply(tree: Tree, ctx: InoxContext, sym: Symbols): String = {
       val opts = PrinterOptions.fromContext(ctx)
-      apply(tree, opts, Some(pgm))
+      apply(tree, opts, Some(sym))
     }
   }
 
   object PrettyPrinter extends PrettyPrinterFactory {
-    def create(opts: PrinterOptions, opgm: Option[Program]) = new PrettyPrinter(opts, opgm)
+    def create(opts: PrinterOptions, osym: Option[Symbols]) = new PrettyPrinter(opts, osym)
   }
 
   object EquivalencePrettyPrinter extends PrettyPrinterFactory {
-    def create(opts: PrinterOptions, opgm: Option[Program]) = new EquivalencePrettyPrinter(opts, opgm)
+    def create(opts: PrinterOptions, osym: Option[Symbols]) = new EquivalencePrettyPrinter(opts, osym)
   }
 }

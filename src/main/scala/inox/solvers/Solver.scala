@@ -1,34 +1,53 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 package solvers
 
-import leon.utils.{DebugSectionSolver, Interruptible}
-import purescala.Expressions._
-import purescala.Common.Tree
-import verification.VC
+import utils._
 import evaluators._
 
-case class SolverContext(context: LeonContext, bank: EvaluationBank) {
-  lazy val reporter = context.reporter
-  override def clone = SolverContext(context, bank.clone)
+case class SolverOptions(options: Seq[InoxOption[Any]]) {
+  def set(opts: Seq[LeonOption[Any]]): SolverOptions = {
+    val changed = opts.map(_.optionDef).toSet
+    val remainingOpts = options.filter { case InoxOption(optDef, _) => !changed(optDef) }
+    copy(options = remainingOpts ++ opts)
+  }
 }
+
+case object DebugSectionSolver extends DebugSection("solver")
 
 trait Solver extends Interruptible {
   def name: String
-  val sctx: SolverContext
+  val program: Program
+  val options: SolverOptions
 
-  implicit lazy val context = sctx.context
-  lazy val reporter = sctx.reporter
+  import program._
+  import program.trees._
+
+  sealed trait SolverResponse
+  sealed trait SolverCheckResponse extends SolverResponse
+  sealed trait SolverModelResponse extends SolverResponse
+
+  case object Unknown extends SolverCheckResponse with SolverModelResponse
+  case object UNSAT extends SolverCheckResponse with SolverModelResponse
+  case object SAT extends SolverCheckResponse
+  case class Model(model: Map[ValDef, Expr]) extends SolverModelResponse
+
+  object SolverUnsupportedError {
+    def msg(t: Tree, reason: Option[String]) = {
+      s"(of ${t.getClass}) is unsupported by solver ${name}" + reason.map(":\n  " + _ ).getOrElse("")
+    }
+  }
+
+  case class SolverUnsupportedError(t: Tree, reason: Option[String] = None)
+    extends Unsupported(t, SolverUnsupportedError.msg(t,reason))
+
+  lazy val reporter = program.ctx.reporter
 
   // This is ugly, but helpful for smtlib solvers
   def dbg(msg: => Any) {}
 
   def assertCnstr(expression: Expr): Unit
-  def assertVC(vc: VC) = {
-    dbg(s"; Solving $vc @ ${vc.getPos}\n")
-    assertCnstr(Not(vc.condition))
-  }
 
   /** Returns Some(true) if it found a satisfying model, Some(false) if no model exists, and None otherwise */
   def check: Option[Boolean]
@@ -47,20 +66,20 @@ trait Solver extends Interruptible {
   def getUnsatCore: Set[Expr]
 
   protected def unsupported(t: Tree): Nothing = {
-    val err = SolverUnsupportedError(t, this, None)
-    context.reporter.warning(err.getMessage)
+    val err = SolverUnsupportedError(t, None)
+    reporter.warning(err.getMessage)
     throw err
   }
 
   protected def unsupported(t: Tree, str: String): Nothing = {
-    val err = SolverUnsupportedError(t, this, Some(str))
-    //leonContext.reporter.warning(str)
+    val err = SolverUnsupportedError(t, Some(str))
+    reporter.warning(err.getMessage)
     throw err
   }
 
   implicit val debugSection = DebugSectionSolver
 
   private[solvers] def debugS(msg: String) = {
-    context.reporter.debug("["+name+"] "+msg)
+    reporter.debug("["+name+"] "+msg)
   }
 }

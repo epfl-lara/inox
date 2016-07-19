@@ -5,7 +5,7 @@ package ast
 
 trait Types { self: Trees =>
 
-  trait Typed extends utils.Printable {
+  trait Typed extends Printable {
     def getType(implicit s: Symbols): Type
     def isTyped(implicit s: Symbols): Boolean = getType != Untyped
   }
@@ -83,7 +83,7 @@ trait Types { self: Trees =>
   case class FunctionType(from: Seq[Type], to: Type) extends Type
 
   case class ClassType(id: Identifier, tps: Seq[Type]) extends Type {
-    def lookupClass(implicit s: Symbols): Option[TypedClassDef] = p.lookupClass(id, tps)
+    def lookupClass(implicit s: Symbols): Option[TypedClassDef] = s.lookupClass(id, tps)
     def tcd(implicit s: Symbols): TypedClassDef = s.getClass(id, tps)
   }
 

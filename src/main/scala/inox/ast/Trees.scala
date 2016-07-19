@@ -6,12 +6,14 @@ package ast
 import utils._
 import scala.language.implicitConversions
 
+case object DebugSectionTrees extends DebugSection("trees")
+
 trait Trees extends Expressions with Extractors with Types with Definitions with Printers {
 
-  class Unsupported(t: Tree, msg: String)(implicit ctx: Context)
-    extends Exception(s"${t.asString(ctx)}@${t.getPos} $msg")
+  class Unsupported(t: Tree, msg: String)(implicit ctx: InoxContext)
+    extends Exception(s"${t.asString(PrinterOptions.fromContext(ctx))}@${t.getPos} $msg")
 
-  abstract class Tree extends utils.Positioned with Serializable with inox.Printable {
+  abstract class Tree extends utils.Positioned with Serializable {
     def copiedFrom(o: Tree): this.type = {
       setPos(o)
       this
@@ -19,11 +21,9 @@ trait Trees extends Expressions with Extractors with Types with Definitions with
 
     // @EK: toString is considered harmful for non-internal things. Use asString(ctx) instead.
 
-    def asString(implicit symbols: Symbols, ctx: Context): String = {
-      ScalaPrinter(this, ctx, symbols)
-    }
+    def asString(implicit opts: PrinterOptions): String = PrettyPrinter(this, opts)
 
-    override def toString = asString(Context.printNames)
+    override def toString = asString(PrinterOptions.fromContext(InoxContext.printNames))
   }
 
   object exprOps extends {

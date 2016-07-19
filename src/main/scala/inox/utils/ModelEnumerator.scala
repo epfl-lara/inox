@@ -12,8 +12,11 @@ import purescala.Types._
 import evaluators._
 import solvers._
 
-class ModelEnumerator(ctx: LeonContext, pgm: Program, sf: SolverFactory[Solver]) {
-  private[this] val evaluator = new DefaultEvaluator(ctx, pgm)
+class ModelEnumerator(sf: SolverFactory[Solver]) {
+  val program = sf.program
+  import program.trees._
+
+  protected val evaluator = new DefaultEvaluator(ctx, pgm)
 
   def enumSimple(ids: Seq[Identifier], satisfying: Expr): FreeableIterator[Map[Identifier, Expr]] = {
     enumVarying0(ids, satisfying, None, -1)

@@ -12,10 +12,12 @@ abstract class InoxOptionDef[+A] {
   val default: A
   val parser: OptionParser[A]
   val usageRhs: String
+
   def usageDesc = {
     if (usageRhs.isEmpty) s"--$name"
     else s"--$name=$usageRhs"
   }
+
   def helpString = {
     f"$usageDesc%-28s" + description.replaceAll("\n", "\n" + " " * 28)
   }
@@ -40,6 +42,7 @@ abstract class InoxOptionDef[+A] {
     case that: InoxOptionDef[_] => this.name == that.name
     case _ => false
   }
+
   override def hashCode = name.hashCode
 }
 
@@ -152,7 +155,7 @@ object OptionsHelpers {
 
 object InoxOptions {
 
-  val optSelectedSolvers = new LeonOptionDef[Set[String]] {
+  val optSelectedSolvers = new InoxOptionDef[Set[String]] {
     val name = "solvers"
     val description = "Use solvers s1, s2,...\n" + solvers.SolverFactory.availableSolversPretty
     val default = Set("fairz3")
@@ -160,7 +163,7 @@ object InoxOptions {
     val usageRhs = "s1,s2,..."
   }
 
-  val optDebug = new LeonOptionDef[Set[DebugSection]] {
+  val optDebug = new InoxOptionDef[Set[DebugSection]] {
     import OptionParsers._
     val name = "debug"
     val description = {
@@ -184,7 +187,7 @@ object InoxOptions {
     }
   }
 
-  val optTimeout = LeonLongOptionDef(
+  val optTimeout = InoxLongOptionDef(
     "timeout",
     "Set a timeout for attempting to prove a verification condition/ repair a function (in sec.)",
     0L,
