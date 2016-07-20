@@ -1,6 +1,6 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon.utils
+package inox.utils
 
 import scala.collection.mutable.{Map => MutableMap}
 

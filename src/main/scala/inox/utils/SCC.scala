@@ -1,6 +1,6 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 package utils
 
 /** Returns the list of strongly connected sets of vertices.
