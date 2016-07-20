@@ -3,8 +3,11 @@
 package inox
 package evaluators
 
+case class EvaluatorOptions(options: Seq[InoxOption[Any]]) extends InoxOptions
+
 trait Evaluator {
   val program: Program
+  val options: EvaluatorOptions
   import program.trees._
 
   /** The type of value that this [[Evaluator]] calculates

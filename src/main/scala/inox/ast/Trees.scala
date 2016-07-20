@@ -109,7 +109,7 @@ trait Trees extends Expressions with Extractors with Types with Definitions with
     (s1 & s2).nonEmpty
   }
 
-  def aliased[T1 <: VariableSymbol,T2 <: VariableSymbol](vs1: Set[T1], vs2: Set[T2]): Boolean = {
+  def aliasedSymbols[T1 <: VariableSymbol,T2 <: VariableSymbol](vs1: Set[T1], vs2: Set[T2]): Boolean = {
     aliased(vs1.map(_.id), vs2.map(_.id))
   }
 }

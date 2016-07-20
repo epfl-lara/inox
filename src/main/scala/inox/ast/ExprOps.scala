@@ -4,6 +4,7 @@ package inox
 package ast
 
 import utils._
+import scala.reflect._
 
 /** Provides functions to manipulate [[purescala.Expressions]].
   *
@@ -33,10 +34,12 @@ trait ExprOps extends GenTreeOps {
   val Deconstructor = Operator
 
   /** Replaces bottom-up variables by looking up for them in a map */
-  def replaceFromSymbols(substs: Map[Variable, Expr], expr: Expr): Expr = postMap {
-    case v: Variable => substs.get(v)
-    case _ => None
-  } (expr)
+  def replaceFromSymbols[V <: VariableSymbol](substs: Map[V, Expr], expr: Expr)(implicit ev: VariableConverter[V]): Expr = {
+    postMap {
+      case v: Variable => substs.get(v.to[V])
+      case _ => None
+    } (expr)
+  }
 
   /** Replaces bottom-up variables by looking them up in a map from [[ValDef]] to expressions */
   def replaceFromSymbols(substs: Map[ValDef, Expr], expr: Expr): Expr = postMap {

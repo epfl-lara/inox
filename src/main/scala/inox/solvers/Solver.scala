@@ -6,15 +6,20 @@ package solvers
 import utils._
 import evaluators._
 
-case class SolverOptions(options: Seq[InoxOption[Any]]) {
-  def set(opts: Seq[LeonOption[Any]]): SolverOptions = {
+case class SolverOptions(options: Seq[InoxOption[Any]]) extends InoxOptions {
+  def set(opts: Seq[InoxOption[Any]]): SolverOptions = {
     val changed = opts.map(_.optionDef).toSet
     val remainingOpts = options.filter { case InoxOption(optDef, _) => !changed(optDef) }
     copy(options = remainingOpts ++ opts)
   }
+
+  def set(opt: InoxOption[Any], opts: InoxOption[Any]*): SolverOptions = set(opt +: opts)
 }
 
 case object DebugSectionSolver extends DebugSection("solver")
+
+object optCheckModels  extends InoxFlagOptionDef("checkmodels",  "Double-check counter-examples with evaluator", false)
+object optSilentErrors extends InoxFlagOptionDef("silenterrors", "Fail silently into UNKNOWN when encountering an error", false)
 
 trait Solver extends Interruptible {
   def name: String
@@ -25,13 +30,55 @@ trait Solver extends Interruptible {
   import program.trees._
 
   sealed trait SolverResponse
-  sealed trait SolverCheckResponse extends SolverResponse
-  sealed trait SolverModelResponse extends SolverResponse
+  case object Unknown extends SolverResponse
 
-  case object Unknown extends SolverCheckResponse with SolverModelResponse
-  case object UNSAT extends SolverCheckResponse with SolverModelResponse
-  case object SAT extends SolverCheckResponse
-  case class Model(model: Map[ValDef, Expr]) extends SolverModelResponse
+  sealed trait SolverUnsatResponse extends SolverResponse
+  case object UnsatResponse extends SolverUnsatResponse
+  case class UnsatResponseWithCores(cores: Set[Expr]) extends SolverUnsatResponse
+
+  sealed trait SolverSatResponse extends SolverResponse
+  case object SatResponse extends SolverSatResponse
+  case class SatResponseWithModel(model: Map[ValDef, Expr]) extends SolverSatResponse
+
+  object Check {
+    def unapply(resp: SolverResponse): Option[Boolean] = resp match {
+      case _: SolverUnsatResponse => Some(false)
+      case _: SolverSatResponse   => Some(true)
+      case Unknown => None
+    }
+  }
+
+  object Sat {
+    def unapply(resp: SolverSatResponse): Boolean = resp match {
+      case SatResponse => true
+      case SatResponseWithModel(_) => throw FatalError("Unexpected sat response with model")
+      case _ => false
+    }
+  }
+
+  object Model {
+    def unapply(resp: SolverSatResponse): Option[Map[ValDef, Expr]] = resp match {
+      case SatResponseWithModel(model) => Some(model)
+      case SatResponse => throw FatalError("Unexpected sat response without model")
+      case _ => None
+    }
+  }
+
+  object Unsat {
+    def unapply(resp: SolverUnsatResponse): Boolean = resp match {
+      case UnsatResponse => true
+      case UnsatResponseWithCores(_) => throw FatalError("Unexpected unsat response with cores")
+      case _ => false
+    }
+  }
+
+  object Core {
+    def unapply(resp: SolverUnsatResponse): Option[Set[Expr]] = resp match {
+      case UnsatResponseWithCores(cores) => Some(cores)
+      case UnsatResponse => throw FatalError("Unexpected unsat response with cores")
+      case _ => None
+    }
+  }
 
   object SolverUnsupportedError {
     def msg(t: Tree, reason: Option[String]) = {
@@ -49,10 +96,9 @@ trait Solver extends Interruptible {
 
   def assertCnstr(expression: Expr): Unit
 
-  /** Returns Some(true) if it found a satisfying model, Some(false) if no model exists, and None otherwise */
-  def check: Option[Boolean]
-  /** Returns the model if it exists */
-  def getModel: Model
+  def check(model: Boolean = false, cores: Boolean = false): SolverResponse
+  def checkAssumptions(model: Boolean = false, cores: Boolean = false)(assumptions: Set[Expr]): SolverResponse
+  
   def getResultSolver: Option[Solver] = Some(this)
 
   def free()
@@ -61,9 +107,6 @@ trait Solver extends Interruptible {
 
   def push(): Unit
   def pop(): Unit
-
-  def checkAssumptions(assumptions: Set[Expr]): Option[Boolean]
-  def getUnsatCore: Set[Expr]
 
   protected def unsupported(t: Tree): Nothing = {
     val err = SolverUnsupportedError(t, None)

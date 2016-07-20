@@ -5,11 +5,12 @@ package inox
 import OptionParsers._
 
 import scala.util.Try
+import scala.reflect.ClassTag
 
 abstract class InoxOptionDef[+A] {
   val name: String
   val description: String
-  val default: A
+  def default: A
   val parser: OptionParser[A]
   val usageRhs: String
 
@@ -153,8 +154,19 @@ object OptionsHelpers {
   }
 }
 
+trait InoxOptions {
+  val options: Seq[InoxOption[Any]]
+
+  def findOption[A: ClassTag](optDef: InoxOptionDef[A]): Option[A] = options.collectFirst {
+    case InoxOption(`optDef`, value: A) => value
+  }
+
+  def findOptionOrDefault[A: ClassTag](optDef: InoxOptionDef[A]): A = findOption(optDef).getOrElse(optDef.default)
+}
+
 object InoxOptions {
 
+  /*
   val optSelectedSolvers = new InoxOptionDef[Set[String]] {
     val name = "solvers"
     val description = "Use solvers s1, s2,...\n" + solvers.SolverFactory.availableSolversPretty
@@ -162,25 +174,32 @@ object InoxOptions {
     val parser = setParser(stringParser)
     val usageRhs = "s1,s2,..."
   }
+  */
 
   val optDebug = new InoxOptionDef[Set[DebugSection]] {
     import OptionParsers._
     val name = "debug"
     val description = {
+      /*
       val sects = DebugSections.all.toSeq.map(_.name).sorted
       val (first, second) = sects.splitAt(sects.length/2 + 1)
-      "Enable detailed messages per component.\nAvailable:\n" +
+      */
+      "Enable detailed messages per component." /* +
+      "\nAvailable:\n" +
         "  " + first.mkString(", ") + ",\n" +
-        "  " + second.mkString(", ")
+        "  " + second.mkString(", ")*/
     }
     val default = Set[DebugSection]()
     val usageRhs = "d1,d2,..."
     private val debugParser: OptionParser[Set[DebugSection]] = s => {
+      /*
       if (s == "all") {
         Some(DebugSections.all)
       } else {
         DebugSections.all.find(_.name == s).map(Set(_))
-      }
+      }*/
+     None
+
     }
     val parser: String => Option[Set[DebugSection]] = {
       setParser[Set[DebugSection]](debugParser)(_).map(_.flatten)

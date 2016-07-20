@@ -3,9 +3,10 @@
 package inox
 package ast
 
+import scala.reflect._
 import scala.collection.mutable.{Map => MutableMap}
 
-trait Definitions { self0: Trees =>
+trait Definitions { self: Trees =>
 
   sealed trait Definition extends Tree {
     val id: Identifier
@@ -37,12 +38,32 @@ trait Definitions { self0: Trees =>
 
     def getType(implicit s: Symbols): Type = tpe
 
+    def to[A <: VariableSymbol](implicit ev: VariableConverter[A]): A = ev.convert(this)
+
     override def equals(that: Any): Boolean = that match {
       case vs: VariableSymbol => id == vs.id && tpe == vs.tpe
       case _ => false
     }
 
-    def hashCode: Int = 61 * id.hashCode + tpe.hashCode
+    override def hashCode: Int = 61 * id.hashCode + tpe.hashCode
+  }
+
+  sealed abstract class VariableConverter[B <: VariableSymbol] {
+    def convert(a: VariableSymbol): B
+  }
+
+  implicit def convertToVal = new VariableConverter[ValDef] {
+    def convert(vs: VariableSymbol): ValDef = vs match {
+      case v: ValDef => v
+      case _ => ValDef(vs.id, vs.tpe)
+    }
+  }
+
+  implicit def convertToVar = new VariableConverter[Variable] {
+    def convert(vs: VariableSymbol): Variable = vs match {
+      case v: Variable => v
+      case _ => Variable(vs.id, vs.tpe)
+    }
   }
 
   /** 
@@ -50,8 +71,11 @@ trait Definitions { self0: Trees =>
     */
   case class ValDef(id: Identifier, tpe: Type) extends Definition with VariableSymbol {
     /** Transform this [[ValDef]] into a [[Expressions.Variable Variable]] */
-    def toVariable: Variable = Variable(id, tpe)
+    def toVariable: Variable = to[Variable]
     def freshen: ValDef = ValDef(id.freshen, tpe).copiedFrom(this)
+
+    override def equals(that: Any): Boolean = super[VariableSymbol].equals(that)
+    override def hashCode: Int = super[VariableSymbol].hashCode
   }
 
   /** A wrapper for a program. For now a program is simply a single object. */
@@ -63,7 +87,8 @@ trait Definitions { self0: Trees =>
         with Constructors
         with Paths {
 
-    val trees: self0.type = self0
+    val trees: self.type = self
+    val symbols: this.type = this
 
     // @nv: this is a hack to reinject `this` into the set of implicits
     // in scope when using the pattern:
@@ -248,12 +273,12 @@ trait Definitions { self0: Trees =>
     }
   }
 
-  case class TypedAbstractClassDef(cd: AbstractClassDef, tps: Seq[Type])(implicit symbols: Symbols) extends TypedClassDef {
+  case class TypedAbstractClassDef(cd: AbstractClassDef, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedClassDef {
     def descendants: Seq[TypedClassDef] = cd.descendants.map(_.typed(tps))
     def ccDescendants: Seq[TypedCaseClassDef] = cd.ccDescendants.map(_.typed(tps))
   }
 
-  case class TypedCaseClassDef(cd: CaseClassDef, tps: Seq[Type])(implicit symbols: Symbols) extends TypedClassDef {
+  case class TypedCaseClassDef(cd: CaseClassDef, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedClassDef {
     lazy val fields: Seq[ValDef] = {
       val tmap = (cd.typeArgs zip tps).toMap
       if (tmap.isEmpty) cd.fields

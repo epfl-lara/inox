@@ -299,7 +299,7 @@ trait Extractors { self: Trees =>
 
     def unapply(me: MatchExpr) : Option[(Pattern, Expr, Expr)] = {
       Option(me) collect {
-        case MatchExpr(scrut, List(SimpleCase(pattern, body))) if !aliased(pattern.binders, exprOps.variablesOf(scrut)) =>
+        case MatchExpr(scrut, List(SimpleCase(pattern, body))) if !aliasedSymbols(pattern.binders, exprOps.variablesOf(scrut)) =>
           ( pattern, scrut, body )
       }
     }

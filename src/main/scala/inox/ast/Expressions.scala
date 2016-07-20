@@ -47,7 +47,7 @@ trait Expressions { self: Trees =>
 
   /** Stands for an undefined Expr, similar to `???` or `null` */
   case class NoTree(tpe: Type) extends Expr with Terminal {
-    val getType = tpe
+    def getType(implicit s: Symbols): Type = tpe
   }
 
 
@@ -121,7 +121,7 @@ trait Expressions { self: Trees =>
     */
   case class Variable(id: Identifier, tpe: Type) extends Expr with Terminal with VariableSymbol {
     /** Transforms this [[Variable]] into a [[Definitions.ValDef ValDef]] */
-    def toVal = ValDef(id, tpe)
+    def toVal = to[ValDef]
   }
 
 
@@ -487,7 +487,7 @@ trait Expressions { self: Trees =>
     * you should use [[purescala.Constructors#or purescala's constructor or]] or
     * [[purescala.Constructors#orJoin purescala's constructor orJoin]]
     */
-  case class Or(exprs: Seq[Expr]) extends Expr {
+  case class Or(exprs: Seq[Expr]) extends Expr with CachingTyped {
     require(exprs.size >= 2)
     protected def computeType(implicit s: Symbols): Type = {
       if (exprs forall (_.getType == BooleanType)) BooleanType
@@ -506,7 +506,7 @@ trait Expressions { self: Trees =>
     *
     * @see [[leon.purescala.Constructors.implies]]
     */
-  case class Implies(lhs: Expr, rhs: Expr) extends Expr {
+  case class Implies(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = {
       if(lhs.getType == BooleanType && rhs.getType == BooleanType) BooleanType
       else Untyped
@@ -517,7 +517,7 @@ trait Expressions { self: Trees =>
     *
     * @see [[leon.purescala.Constructors.not]]
     */
-  case class Not(expr: Expr) extends Expr {
+  case class Not(expr: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = {
       if (expr.getType == BooleanType) BooleanType
       else bitVectorType(expr.getType)
@@ -683,19 +683,19 @@ trait Expressions { self: Trees =>
   }
 
   /** $encodingof `... > ...`*/
-  case class GreaterThan(lhs: Expr, rhs: Expr) extends Expr {
+  case class GreaterThan(lhs: Expr, rhs: Expr) extends Expr with CachingTyped{
     protected def computeType(implicit s: Symbols): Type =
       if (numericType(lhs.getType, rhs.getType) != Untyped) BooleanType else Untyped
   }
 
   /** $encodingof `... <= ...`*/
-  case class LessEquals(lhs: Expr, rhs: Expr) extends Expr {
+  case class LessEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
       if (numericType(lhs.getType, rhs.getType) != Untyped) BooleanType else Untyped
   }
 
   /** $encodingof `... >= ...`*/
-  case class GreaterEquals(lhs: Expr, rhs: Expr) extends Expr {
+  case class GreaterEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
       if (numericType(lhs.getType, rhs.getType) != Untyped) BooleanType else Untyped
   }
