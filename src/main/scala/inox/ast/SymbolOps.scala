@@ -460,7 +460,7 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
   def simplestValue(tpe: Type): Expr = tpe match {
     case StringType                 => StringLiteral("")
     case Int32Type                  => IntLiteral(0)
-    case RealType               	  => FractionalLiteral(0, 1)
+    case RealType               	  => FractionLiteral(0, 1)
     case IntegerType                => IntegerLiteral(0)
     case CharType                   => CharLiteral('a')
     case BooleanType                => BooleanLiteral(false)
@@ -752,36 +752,36 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
   }
 
   /**
-   * Some helper methods for FractionalLiterals
+   * Some helper methods for FractionLiterals
    */
-  def normalizeFraction(fl: FractionalLiteral) = {
-    val FractionalLiteral(num, denom) = fl
+  def normalizeFraction(fl: FractionLiteral) = {
+    val FractionLiteral(num, denom) = fl
     val modNum = if (num < 0) -num else num
     val modDenom = if (denom < 0) -denom else denom
     val divisor = modNum.gcd(modDenom)
     val simpNum = num / divisor
     val simpDenom = denom / divisor
     if (simpDenom < 0)
-      FractionalLiteral(-simpNum, -simpDenom)
+      FractionLiteral(-simpNum, -simpDenom)
     else
-      FractionalLiteral(simpNum, simpDenom)
+      FractionLiteral(simpNum, simpDenom)
   }
 
-  val realzero = FractionalLiteral(0, 1)
-  def floor(fl: FractionalLiteral): FractionalLiteral = {
-    val FractionalLiteral(n, d) = normalizeFraction(fl)
+  val realzero = FractionLiteral(0, 1)
+  def floor(fl: FractionLiteral): FractionLiteral = {
+    val FractionLiteral(n, d) = normalizeFraction(fl)
     if (d == 0) throw new IllegalStateException("denominator zero")
     if (n == 0) realzero
     else if (n > 0) {
       //perform integer division
-      FractionalLiteral(n / d, 1)
+      FractionLiteral(n / d, 1)
     } else {
       //here the number is negative
       if (n % d == 0)
-        FractionalLiteral(n / d, 1)
+        FractionLiteral(n / d, 1)
       else {
         //perform integer division and subtract 1
-        FractionalLiteral(n / d - 1, 1)
+        FractionLiteral(n / d - 1, 1)
       }
     }
   }
@@ -991,7 +991,7 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
       case (IntLiteral(_), Int32Type) => true
       case (IntegerLiteral(_), IntegerType) => true
       case (CharLiteral(_), CharType) => true
-      case (FractionalLiteral(_, _), RealType) => true
+      case (FractionLiteral(_, _), RealType) => true
       case (BooleanLiteral(_), BooleanType) => true
       case (UnitLiteral(), UnitType) => true
       case (GenericValue(t, _), tp) => t == tp

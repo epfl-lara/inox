@@ -301,8 +301,8 @@ trait Constructors {
     case (_, IntegerLiteral(bi)) if bi == 0 => lhs
     case (IntLiteral(0), _) => rhs
     case (_, IntLiteral(0)) => lhs
-    case (FractionalLiteral(n, d), _) if n == 0 => rhs
-    case (_, FractionalLiteral(n, d)) if n == 0 => lhs
+    case (FractionLiteral(n, d), _) if n == 0 => rhs
+    case (_, FractionLiteral(n, d)) if n == 0 => lhs
     case _ => Plus(lhs, rhs)
   }
 

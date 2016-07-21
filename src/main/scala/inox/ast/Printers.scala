@@ -142,8 +142,9 @@ trait Printers { self: Trees =>
         case StringBigLength(expr)       => p"$expr.bigLength"
 
         case IntLiteral(v)        => p"$v"
+        case BVLiteral(bits, size) => p"x${(size to 1 by -1).map(i => if (bits(i)) "1" else "0")}"
         case IntegerLiteral(v) => p"$v"
-        case FractionalLiteral(n, d) =>
+        case FractionLiteral(n, d) =>
           if (d == 1) p"$n"
           else p"$n/$d"
         case CharLiteral(v)       => p"$v"

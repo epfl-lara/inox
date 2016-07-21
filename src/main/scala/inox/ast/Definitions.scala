@@ -418,8 +418,8 @@ trait Definitions { self: Trees =>
     lazy val body          = fd.body map translated
     lazy val precondition  = fd.precondition map translated
     lazy val precOrTrue    = translated(fd.precOrTrue)
-    lazy val postcondition = fd.postcondition map translated
-    lazy val postOrTrue    = translated(fd.postOrTrue)
+    lazy val postcondition = fd.postcondition map (p => translated(p).asInstanceOf[Lambda])
+    lazy val postOrTrue    = translated(fd.postOrTrue).asInstanceOf[Lambda]
 
     def hasImplementation = body.isDefined
     def hasBody           = hasImplementation

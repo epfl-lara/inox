@@ -3,6 +3,8 @@
 package inox
 package ast
 
+import scala.collection.BitSet
+
 /** Expression definitions for Pure Scala.
   *
   * If you are looking for things such as function or class definitions,
@@ -273,12 +275,14 @@ trait Expressions { self: Trees =>
   case class UnapplyPattern(binder: Option[ValDef], id: Identifier, tps: Seq[Type], subPatterns: Seq[Pattern]) extends Pattern {
     // Hacky, but ok
     def optionType(implicit s: Symbols) = s.getFunction(id, tps).returnType.asInstanceOf[ClassType]
-    def someType(implicit s: Symbols): ClassType = {
-      val optionChildren = optionType.tcd.asInstanceOf[TypedAbstractClassDef].ccDescendants.sortBy(_.fields.size)
-      val someTcd = optionChildren(1)
-      ClassType(someTcd.id, someTcd.tps)
+    def optionChildren(implicit s: Symbols): (ClassType, ClassType) = {
+      val children = optionType.tcd.asInstanceOf[TypedAbstractClassDef].ccDescendants.sortBy(_.fields.size)
+      val Seq(noneType, someType) = children.map(_.toType)
+      (noneType, someType)
     }
 
+    def noneType(implicit s: Symbols): ClassType = optionChildren(s)._1
+    def someType(implicit s: Symbols): ClassType = optionChildren(s)._2
     def someValue(implicit s: Symbols): ValDef = someType.tcd.asInstanceOf[TypedCaseClassDef].fields.head
 
     /** Construct a pattern matching against unapply(scrut) (as an if-expression)
@@ -357,14 +361,28 @@ trait Expressions { self: Trees =>
     def getType(implicit s: Symbols): Type = CharType
   }
 
-  /** $encodingof a 32-bit integer literal */
-  case class IntLiteral(value: Int) extends Literal[Int] {
-    def getType(implicit s: Symbols): Type = Int32Type
+  /** $encodingof a n-bit bitvector literal */
+  case class BVLiteral(value: BitSet, size: Int) extends Literal[BitSet] {
+    def getType(implicit s: Symbols): Type = BVType(size)
+    def toBigInt: BigInt = {
+      val res = value.foldLeft(BigInt(0))((res, i) => res + BigInt(2).pow(i))
+      if (value(size)) BigInt(2).pow(size) - res else res
+    }
   }
 
-  /** $encodingof a n-bit bitvector literal */
-  case class BVLiteral(value: BigInt, size: Int) extends Literal[BigInt] {
-    def getType(implicit s: Symbols): Type = BVType(size)
+  object BVLiteral {
+    def apply(bi: BigInt, size: Int): BVLiteral = BVLiteral(
+      (1 to size).foldLeft(BitSet.empty) { case (res, i) =>
+        if ((bi & BigInt(2).pow(i)) > 0) res + i else res
+      }, size)
+  }
+
+  object IntLiteral {
+    def apply(i: Int): BVLiteral = BVLiteral(BigInt(i), 32)
+    def unapply(e: Expr): Option[Int] = e match {
+      case b @ BVLiteral(_, 32) => Some(b.toBigInt.toInt)
+      case _ => None
+    }
   }
 
   /** $encodingof an infinite precision integer literal */
@@ -373,7 +391,7 @@ trait Expressions { self: Trees =>
   }
 
   /** $encodingof a fraction literal */
-  case class FractionalLiteral(numerator: BigInt, denominator: BigInt) extends Literal[(BigInt, BigInt)] {
+  case class FractionLiteral(numerator: BigInt, denominator: BigInt) extends Literal[(BigInt, BigInt)] {
     val value = (numerator, denominator)
     def getType(implicit s: Symbols): Type = RealType
   }

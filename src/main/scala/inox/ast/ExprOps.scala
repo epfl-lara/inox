@@ -146,10 +146,10 @@ trait ExprOps extends GenTreeOps {
   }
 
   /** Returns the postcondition of an expression wrapped in Option */
-  def postconditionOf(expr: Expr): Option[Expr] = expr match {
-    case Let(i, e, b)      => postconditionOf(b).map(Let(i, e, _).copiedFrom(expr))
-    case Ensuring(_, post) => Some(post)
-    case _                 => None
+  def postconditionOf(expr: Expr): Option[Lambda] = expr match {
+    case Let(i, e, b)              => postconditionOf(b).map(l => l.copy(body = Let(i, e, l.body)).copiedFrom(expr))
+    case Ensuring(_, post: Lambda) => Some(post)
+    case _                         => None
   }
 
   /** Returns a tuple of precondition, the raw body and the postcondition of an expression */
