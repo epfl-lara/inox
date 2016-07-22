@@ -181,14 +181,11 @@ trait Definitions { self: Trees =>
                          val flags: Set[ClassFlag]) extends ClassDef {
     val isAbstract = true
 
-    def descendants(implicit s: Symbols): Seq[ClassDef] = children
+    def descendants(implicit s: Symbols): Seq[CaseClassDef] = children
       .map(id => s.getClass(id) match {
         case ccd: CaseClassDef => ccd
         case _ => throw NotWellFormedException(id, s)
       })
-
-    def ccDescendants(implicit s: Symbols): Seq[CaseClassDef] =
-      descendants collect { case ccd: CaseClassDef => ccd }
 
     def isInductive(implicit s: Symbols): Boolean = {
       def induct(tpe: Type, seen: Set[ClassDef]): Boolean = tpe match {
@@ -206,7 +203,7 @@ trait Definitions { self: Trees =>
       }
 
       if (this == root && !this.isAbstract) false
-      else ccDescendants.exists { ccd =>
+      else descendants.exists { ccd =>
         ccd.fields.exists(vd => induct(vd.getType, Set(root)))
       }
     }
@@ -275,7 +272,6 @@ trait Definitions { self: Trees =>
 
   case class TypedAbstractClassDef(cd: AbstractClassDef, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedClassDef {
     def descendants: Seq[TypedClassDef] = cd.descendants.map(_.typed(tps))
-    def ccDescendants: Seq[TypedCaseClassDef] = cd.ccDescendants.map(_.typed(tps))
   }
 
   case class TypedCaseClassDef(cd: CaseClassDef, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedClassDef {

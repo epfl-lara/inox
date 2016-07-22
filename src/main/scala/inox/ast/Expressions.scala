@@ -276,7 +276,7 @@ trait Expressions { self: Trees =>
     // Hacky, but ok
     def optionType(implicit s: Symbols) = s.getFunction(id, tps).returnType.asInstanceOf[ClassType]
     def optionChildren(implicit s: Symbols): (ClassType, ClassType) = {
-      val children = optionType.tcd.asInstanceOf[TypedAbstractClassDef].ccDescendants.sortBy(_.fields.size)
+      val children = optionType.tcd.asInstanceOf[TypedAbstractClassDef].descendants.sortBy(_.fields.size)
       val Seq(noneType, someType) = children.map(_.toType)
       (noneType, someType)
     }

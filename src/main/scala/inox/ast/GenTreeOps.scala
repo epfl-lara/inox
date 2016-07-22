@@ -232,7 +232,7 @@ trait GenTreeOps {
 
     val Deconstructor(es, builder) = e
     val newEss = es.map(rec)
-    val newVs: Seq[SubTree] = leon.utils.SeqUtils.cartesianProduct(newEss).map { newEs =>
+    val newVs: Seq[SubTree] = SeqUtils.cartesianProduct(newEss).map { newEs =>
       if ((newEs zip es).exists { case (bef, aft) => aft ne bef }) {
         builder(newEs).copiedFrom(e)
       } else {

@@ -447,7 +447,7 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
     }
 
     val tcds = tcd match {
-      case tacd: TypedAbstractClassDef => tacd.ccDescendants
+      case tacd: TypedAbstractClassDef => tacd.descendants
       case tccd: TypedCaseClassDef => Seq(tccd)
     }
 
@@ -476,7 +476,7 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
 
       val tccd @ TypedCaseClassDef(cd, tps) = tcd match {
         case tacd: TypedAbstractClassDef =>
-          tacd.ccDescendants.filter(hasInstance(_)).sortBy(_.fields.size).head
+          tacd.descendants.filter(hasInstance(_)).sortBy(_.fields.size).head
         case tccd: TypedCaseClassDef => tccd
       }
 
@@ -534,7 +534,7 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
         case Some(tccd: TypedCaseClassDef) =>
           cartesianProduct(tccd.fieldsTypes map valuesOf) map (CaseClass(ct, _))
         case Some(accd: TypedAbstractClassDef) =>
-          interleave(accd.ccDescendants.map(tccd => valuesOf(tccd.toType)))
+          interleave(accd.descendants.map(tccd => valuesOf(tccd.toType)))
         case None => throw ClassLookupException(ct.id)
       }
     }

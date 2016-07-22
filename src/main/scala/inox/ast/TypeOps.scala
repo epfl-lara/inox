@@ -245,17 +245,17 @@ trait TypeOps {
               Set(tpe) ++ (tpe match {
                 case ct: ClassType => ct.tcd match {
                   case tccd: TypedCaseClassDef => tccd.fieldsTypes
-                  case tacd: TypedAbstractClassDef => (Set(tacd) ++ tacd.ccDescendants).map(_.toType)
+                  case tacd: TypedAbstractClassDef => (Set(tacd) ++ tacd.descendants).map(_.toType)
                 }
                 case _ => Set.empty
               })
             )
-          })(accd.ccDescendants.map(_.toType).toSet)
+          })(accd.descendants.map(_.toType).toSet)
 
           if (possibleChildTypes(accd.toType)) {
             None
           } else {
-            cards(accd.ccDescendants.map(_.toType)).map(_.sum)
+            cards(accd.descendants.map(_.toType)).map(_.sum)
           }
       }
       case _ => None
