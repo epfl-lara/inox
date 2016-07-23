@@ -23,7 +23,7 @@ trait TreeExtractor {
   * @tparam SubTree The type of the tree
   */
 trait GenTreeOps {
-  val trees: Trees
+  private[ast] val trees: Trees
   import trees._
 
   type SubTree <: Tree

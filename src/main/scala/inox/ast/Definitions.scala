@@ -87,7 +87,7 @@ trait Definitions { self: Trees =>
         with Constructors
         with Paths {
 
-    val trees: self.type = self
+    private[ast] val trees: self.type = self
     val symbols: this.type = this
 
     // @nv: this is a hack to reinject `this` into the set of implicits
@@ -271,7 +271,7 @@ trait Definitions { self: Trees =>
   }
 
   case class TypedAbstractClassDef(cd: AbstractClassDef, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedClassDef {
-    def descendants: Seq[TypedClassDef] = cd.descendants.map(_.typed(tps))
+    def descendants: Seq[TypedCaseClassDef] = cd.descendants.map(_.typed(tps))
   }
 
   case class TypedCaseClassDef(cd: CaseClassDef, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedClassDef {

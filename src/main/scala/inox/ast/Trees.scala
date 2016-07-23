@@ -27,7 +27,7 @@ trait Trees extends Expressions with Extractors with Types with Definitions with
   }
 
   object exprOps extends {
-    val trees: Trees.this.type = Trees.this
+    private[ast] val trees: Trees.this.type = Trees.this
   } with ExprOps
 
   /** Represents a unique symbol in Inox.

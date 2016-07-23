@@ -26,7 +26,6 @@ import scala.reflect._
   *
   */
 trait ExprOps extends GenTreeOps {
-  val trees: Trees
   import trees._
 
   type SubTree = Expr

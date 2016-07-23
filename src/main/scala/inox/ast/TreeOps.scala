@@ -3,7 +3,7 @@ package inox
 package ast
 
 trait TreeOps {
-  val trees: Trees
+  private[ast] val trees: Trees
   import trees._
 
   trait TreeTransformer {
