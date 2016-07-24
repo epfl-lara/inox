@@ -1,11 +1,7 @@
 /* Copyright 2009-2015 EPFL, Lausanne */
 
-package leon
+package inox
 package grammars
-
-import purescala.Expressions.Expr
-import utils.SeqUtils._
-import Tags._
 
 /**
  * An Aspect applies to a label, and attaches information to it.
@@ -24,9 +20,13 @@ import Tags._
  *
  */
 
+trait Aspects { self: GrammarsUniverse =>
+  import program._
+  import trees._
 
-abstract class Aspect extends Printable {
-  final type Production = ProductionRule[Label, Expr]
+  trait Aspect extends Printable {
+    final type Production = ProductionRule[Label, Expr]
 
-  def applyTo(l: Label, ps: Seq[Production])(implicit ctx: LeonContext): Seq[Production]
+    def applyTo(l: Label, ps: Seq[Production])(implicit ctx: InoxContext): Seq[Production]
+  }
 }

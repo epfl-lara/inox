@@ -1,12 +1,13 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 package grammars
 
-import purescala.Types.CaseClassType
-import purescala.Definitions.FunDef
+trait Tags { self: GrammarsUniverse =>
+  import program._
+  import trees.CaseClassDef
+  import trees.FunDef
 
-object Tags {
   /** A class for tags that tag a [[ProductionRule]] with the kind of expression in generates. */
   abstract class Tag
   case object Top       extends Tag // Tag for the top-level of the grammar (default)
@@ -37,7 +38,7 @@ object Tags {
     *               We need this because this call implicitly contains a variable,
     *               so we want to allow constants in all arguments.
     */
-  case class FunCall(isMethod: Boolean, isSafe: Boolean) extends Tag
+  //case class FunCall(isMethod: Boolean, isSafe: Boolean) extends Tag
 
   /** The set of tags that represent constants */
   val isConst: Set[Tag] = Set(Zero, One, Constant, BooleanC, Constructor(true))
@@ -56,10 +57,10 @@ object Tags {
     * top-level/ general function calls/ constructors/...?
     */
   def allConstArgsAllowed(t: Tag) = t match {
-    case FunCall(_, true) => true
+    //case FunCall(_, true) => true
     case _ => false
   }
 
-  def tagOf(cct: CaseClassType) = Constructor(cct.fields.isEmpty)
-  def tagOf(fd: FunDef, isSafe: Boolean) = FunCall(fd.methodOwner.isDefined, isSafe)
+  def tagOf(cct: CaseClassDef) = Constructor(cct.fields.isEmpty)
+  //def tagOf(fd: FunDef, isSafe: Boolean) = FunCall(fd.methodOwner.isDefined, isSafe)
 }

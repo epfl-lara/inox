@@ -1,18 +1,23 @@
 /* Copyright 2009-2015 EPFL, Lausanne */
 
-package leon
+package inox
 package grammars
 
-import purescala.Types._
+import ast.Trees
 
-case class Label(tpe: TypeTree, aspects: List[Aspect] = Nil) extends Typed {
-  val getType = tpe
+trait Labels { self: GrammarsUniverse =>
+  import program.{printerOpts => _, _}
+  import trees._
 
-  def asString(implicit ctx: LeonContext): String = {
-    val ts = tpe.asString
+  case class Label(tpe: Type, aspects: List[Aspect] = Nil) extends Typed {
+    def getType(implicit s: Symbols) = tpe
 
-    ts + aspects.map(_.asString).mkString
+    def asString(implicit opts: PrinterOptions): String = {
+      val ts = tpe.asString
+
+      ts + aspects.map(_.asString).mkString
+    }
+
+    def withAspect(a: Aspect) = Label(tpe, aspects :+ a)
   }
-
-  def withAspect(a: Aspect) = Label(tpe, aspects :+ a)
 }
