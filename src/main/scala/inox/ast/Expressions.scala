@@ -229,8 +229,8 @@ trait Expressions { self: Trees =>
     val subPatterns: Seq[Pattern]
     val binder: Option[ValDef]
 
-    private def subBinders = subPatterns.flatMap(_.binders).toSet
-    def binders: Set[ValDef] = subBinders ++ binder.toSet
+    private def subBinders = subPatterns.flatMap(_.binders)
+    def binders: Seq[ValDef] = binder.toSeq ++ subBinders
 
     def withBinder(b: ValDef) = { this match {
       case Pattern(None, subs, builder) => builder(Some(b), subs)
