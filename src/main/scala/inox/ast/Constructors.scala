@@ -13,7 +13,7 @@ trait Constructors {
   private[ast] val trees: Trees
   import trees._
   import trees.exprOps._
-  implicit val symbols: Symbols
+  protected implicit val symbols: Symbols
   import symbols._
 
   /** If `isTuple`:

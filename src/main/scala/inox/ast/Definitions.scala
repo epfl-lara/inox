@@ -3,7 +3,6 @@
 package inox
 package ast
 
-import scala.reflect._
 import scala.collection.mutable.{Map => MutableMap}
 
 trait Definitions { self: Trees =>
@@ -88,7 +87,7 @@ trait Definitions { self: Trees =>
         with Paths {
 
     private[ast] val trees: self.type = self
-    val symbols: this.type = this
+    protected val symbols: this.type = this
 
     // @nv: this is a hack to reinject `this` into the set of implicits
     // in scope when using the pattern:

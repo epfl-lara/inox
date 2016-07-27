@@ -27,7 +27,6 @@ import utils._
 trait SymbolOps extends TreeOps { self: TypeOps =>
   import trees._
   import trees.exprOps._
-  val symbols: Symbols
   import symbols._
 
   /** Computes the negation of a boolean formula, with some simplifications. */

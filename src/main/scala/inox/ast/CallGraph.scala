@@ -9,7 +9,7 @@ trait CallGraph {
   private[ast] val trees: Trees
   import trees._
   import trees.exprOps._
-  val symbols: Symbols
+  protected val symbols: Symbols
 
   private def collectCallsInPats(fd: FunDef)(p: Pattern): Set[(FunDef, FunDef)] =
     (p match {

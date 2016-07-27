@@ -6,7 +6,7 @@ package ast
 trait TypeOps {
   private[ast] val trees: Trees
   import trees._
-  implicit val symbols: Symbols
+  protected implicit val symbols: Symbols
 
   object typeOps extends GenTreeOps {
     val trees: TypeOps.this.trees.type = TypeOps.this.trees
