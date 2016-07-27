@@ -3,14 +3,12 @@
 package inox
 package grammars
 
-import ast.Trees
 import scala.collection.mutable.{HashMap => MutableMap}
 
 /** Represents a context-free grammar of expressions */
 trait ExpressionGrammars { self: GrammarsUniverse =>
   import program._
   import trees._
-  import symbols._
 
   trait ExpressionGrammar {
     private[this] val cache = new MutableMap[Label, Seq[ProductionRule[Label, Expr]]]()

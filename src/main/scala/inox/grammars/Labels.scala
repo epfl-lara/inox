@@ -3,8 +3,6 @@
 package inox
 package grammars
 
-import ast.Trees
-
 trait Labels { self: GrammarsUniverse =>
   import program.{printerOpts => _, _}
   import trees._
