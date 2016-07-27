@@ -111,11 +111,13 @@ trait DSL {
 
   def if_ (cond: Expr)(thenn: Expr) = new DanglingElse(cond, thenn)
 
+  def ite(cond: Expr, thenn: Expr, elze: Expr) = IfExpr(cond, thenn, elze)
+
   implicit class FunctionInv(fd: FunDef) {
     def apply(args: Expr*) = functionInvocation(fd, args.toSeq)
   }
 
-  implicit class CC(ct: ClassType) {
+  implicit class CaseClassToExpr(ct: ClassType) {
     def apply(args: Expr*) = CaseClass(ct, args)
   }
 
@@ -172,23 +174,71 @@ trait DSL {
   }
 
   implicit class PatternSuspension(pat: Pattern) {
-    def ~> (rhs: Expr) = MatchCase(pat, None, rhs)
+
+    def ~> (rhs: => Expr) = {
+      val Seq() = pat.binders
+      MatchCase(pat, None, rhs)
+    }
+    def ~> (rhs: Expr => Expr) = {
+      val Seq(b1) = pat.binders
+      MatchCase(pat, None, rhs(b1.toVariable))
+    }
+    def ~> (rhs: (Expr, Expr) => Expr) = {
+      val Seq(b1, b2) = pat.binders
+      MatchCase(pat, None, rhs(b1.toVariable, b2.toVariable))
+    }
+    def ~> (rhs: (Expr, Expr, Expr) => Expr) = {
+      val Seq(b1, b2, b3) = pat.binders
+      MatchCase(pat, None, rhs(b1.toVariable, b2.toVariable, b3.toVariable))
+    }
+    def ~> (rhs: (Expr, Expr, Expr, Expr) => Expr) = {
+      val Seq(b1, b2, b3, b4) = pat.binders
+      MatchCase(pat, None,
+        rhs(b1.toVariable, b2.toVariable, b3.toVariable, b4.toVariable))
+    }
   }
 
-  // TODO: Remove this at some point
-  private def test(e1: Expr, e2: Expr)(implicit simpl: SimplificationLevel) = {
-    val pattern = WildcardPattern(None)
+  private def l2p[T](l: Literal[T]) = LiteralPattern(None, l)
+  def P(i: Int)     = l2p(IntLiteral(i))
+  def P(b: BigInt)  = l2p(IntegerLiteral(b))
+  def P(b: Boolean) = l2p(BooleanLiteral(b))
+  def P(c: Char)    = l2p(CharLiteral(c))
+  def P()           = l2p(UnitLiteral())
+  def P(ps: Pattern*) = TuplePattern(None, ps.toSeq)
 
+  def __ = WildcardPattern(None)
+
+  implicit class BinderToPattern(b: ValDef) {
+    def @@ (p: Pattern) = p.withBinder(b)
+  }
+
+  implicit class CaseClassToPattern(ct: ClassType) {
+    def pat(ps: Pattern*) = CaseClassPattern(None, ct, ps.toSeq)
+  }
+
+  implicit class TypeToInstanceOfPattern(ct: ClassType) {
+    def :: (vd: Option[ValDef]) = InstanceOfPattern(vd, ct)
+    def :: (vd: ValDef) = InstanceOfPattern(Some(vd), ct)
+  }
+
+
+  // TODO: Remove this at some point
+  private def test(e1: Expr, e2: Expr, ct: ClassType)(implicit simpl: SimplificationLevel) = {
     prec(e1) in
       let("i" :: Untyped, e1) { i =>
         if_ (\("j" :: Untyped)(j => e1(j))) {
           e1 + e2 + i + L(42)
         } else_ {
           assertion(L(true), "Weird things") in
-            e2 matchOn (
-            pattern ~> e1,
-            pattern ~> e2
-            )
+          ct(e1, e2) matchOn (
+            ct.pat(
+              ("i" :: Untyped) :: ct, P(42),
+              P(P(__), ( "j" :: Untyped) @@ P(42))
+            ) ~> {
+              (i, j) => e1
+            },
+            __ ~> e2
+          )
         }
       }
   } ensures e2
