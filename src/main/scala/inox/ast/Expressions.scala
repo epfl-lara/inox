@@ -124,6 +124,7 @@ trait Expressions { self: Trees =>
   case class Variable(id: Identifier, tpe: Type) extends Expr with Terminal with VariableSymbol {
     /** Transforms this [[Variable]] into a [[Definitions.ValDef ValDef]] */
     def toVal = to[ValDef]
+    def freshen = Variable(id.freshen, tpe)
   }
 
 

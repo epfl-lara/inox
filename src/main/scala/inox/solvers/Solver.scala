@@ -29,56 +29,60 @@ trait Solver extends Interruptible {
   import program._
   import program.trees._
 
-  sealed trait SolverResponse
-  case object Unknown extends SolverResponse
+  object SolverResponses {
+    sealed trait SolverResponse
+    case object Unknown extends SolverResponse
 
-  sealed trait SolverUnsatResponse extends SolverResponse
-  case object UnsatResponse extends SolverUnsatResponse
-  case class UnsatResponseWithCores(cores: Set[Expr]) extends SolverUnsatResponse
+    sealed trait SolverUnsatResponse extends SolverResponse
+    case object UnsatResponse extends SolverUnsatResponse
+    case class UnsatResponseWithCores(cores: Set[Expr]) extends SolverUnsatResponse
 
-  sealed trait SolverSatResponse extends SolverResponse
-  case object SatResponse extends SolverSatResponse
-  case class SatResponseWithModel(model: Map[ValDef, Expr]) extends SolverSatResponse
+    sealed trait SolverSatResponse extends SolverResponse
+    case object SatResponse extends SolverSatResponse
+    case class SatResponseWithModel(model: Map[ValDef, Expr]) extends SolverSatResponse
 
-  object Check {
-    def unapply(resp: SolverResponse): Option[Boolean] = resp match {
-      case _: SolverUnsatResponse => Some(false)
-      case _: SolverSatResponse   => Some(true)
-      case Unknown => None
+    object Check {
+      def unapply(resp: SolverResponse): Option[Boolean] = resp match {
+        case _: SolverUnsatResponse => Some(false)
+        case _: SolverSatResponse   => Some(true)
+        case Unknown => None
+      }
+    }
+
+    object Sat {
+      def unapply(resp: SolverSatResponse): Boolean = resp match {
+        case SatResponse => true
+        case SatResponseWithModel(_) => throw FatalError("Unexpected sat response with model")
+        case _ => false
+      }
+    }
+
+    object Model {
+      def unapply(resp: SolverSatResponse): Option[Map[ValDef, Expr]] = resp match {
+        case SatResponseWithModel(model) => Some(model)
+        case SatResponse => throw FatalError("Unexpected sat response without model")
+        case _ => None
+      }
+    }
+
+    object Unsat {
+      def unapply(resp: SolverUnsatResponse): Boolean = resp match {
+        case UnsatResponse => true
+        case UnsatResponseWithCores(_) => throw FatalError("Unexpected unsat response with cores")
+        case _ => false
+      }
+    }
+
+    object Core {
+      def unapply(resp: SolverUnsatResponse): Option[Set[Expr]] = resp match {
+        case UnsatResponseWithCores(cores) => Some(cores)
+        case UnsatResponse => throw FatalError("Unexpected unsat response with cores")
+        case _ => None
+      }
     }
   }
 
-  object Sat {
-    def unapply(resp: SolverSatResponse): Boolean = resp match {
-      case SatResponse => true
-      case SatResponseWithModel(_) => throw FatalError("Unexpected sat response with model")
-      case _ => false
-    }
-  }
-
-  object Model {
-    def unapply(resp: SolverSatResponse): Option[Map[ValDef, Expr]] = resp match {
-      case SatResponseWithModel(model) => Some(model)
-      case SatResponse => throw FatalError("Unexpected sat response without model")
-      case _ => None
-    }
-  }
-
-  object Unsat {
-    def unapply(resp: SolverUnsatResponse): Boolean = resp match {
-      case UnsatResponse => true
-      case UnsatResponseWithCores(_) => throw FatalError("Unexpected unsat response with cores")
-      case _ => false
-    }
-  }
-
-  object Core {
-    def unapply(resp: SolverUnsatResponse): Option[Set[Expr]] = resp match {
-      case UnsatResponseWithCores(cores) => Some(cores)
-      case UnsatResponse => throw FatalError("Unexpected unsat response with cores")
-      case _ => None
-    }
-  }
+  import SolverResponses._
 
   object SolverUnsupportedError {
     def msg(t: Tree, reason: Option[String]) = {

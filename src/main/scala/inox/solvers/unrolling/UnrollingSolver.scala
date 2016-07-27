@@ -1,101 +1,72 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 package solvers
 package unrolling
 
-import purescala.Common._
-import purescala.Definitions._
-import purescala.Quantification._
-import purescala.Constructors._
-import purescala.Extractors._
-import purescala.Expressions._
-import purescala.ExprOps._
-import purescala.Types._
-import purescala.TypeOps.bestRealType
 import utils._
 
 import theories._
 import evaluators._
-import Template._
 
-trait UnrollingProcedure extends LeonComponent {
-  val name = "Unroll-P"
-  val description = "Leon Unrolling Procedure"
+object optUnrollFactor extends InoxLongOptionDef("unrollfactor",  "Number of unfoldings to perform in each unfold step", default = 1, "<PosInt>")
+object optFeelingLucky extends InoxFlagOptionDef("feelinglucky",  "Use evaluator to find counter-examples early", false)
+object optUnrollCores  extends InoxFlagOptionDef("unrollcores",   "Use unsat-cores to drive unfolding while remaining fair", false)
+object optAssumePre    extends InoxFlagOptionDef("assumepre",     "Assume precondition holds (pre && f(x) = body) when unfolding", false)
 
-  val optUnrollFactor  = LeonLongOptionDef("unrollfactor",  "Number of unfoldings to perform in each unfold step", default = 1, "<PosInt>")
-  val optFeelingLucky  = LeonFlagOptionDef("feelinglucky",  "Use evaluator to find counter-examples early", false)
-  val optCheckModels   = LeonFlagOptionDef("checkmodels",   "Double-check counter-examples with evaluator", false)
-  val optUnrollCores   = LeonFlagOptionDef("unrollcores",   "Use unsat-cores to drive unfolding while remaining fair", false)
-  val optUseCodeGen    = LeonFlagOptionDef("codegen",       "Use compiled evaluator instead of interpreter", false)
-  val optAssumePre     = LeonFlagOptionDef("assumepre",     "Assume precondition holds (pre && f(x) = body) when unfolding", false)
-  val optPartialModels = LeonFlagOptionDef("partialmodels", "Extract domains for quantifiers and bounded first-class functions", false)
-  val optSilentErrors  = LeonFlagOptionDef("silenterrors",  "Fail silently into UNKNOWN when encountering an error", false)
+trait AbstractUnrollingSolver
+  extends Solver {
 
-  override val definedOptions: Set[LeonOptionDef[Any]] =
-    Set(optCheckModels, optFeelingLucky, optUseCodeGen, optUnrollCores, optAssumePre, optUnrollFactor, optPartialModels)
-}
+  import program._
+  import program.trees._
+  import program.symbols._
 
-object UnrollingProcedure extends UnrollingProcedure
+  val theories: TheoryEncoder
+  lazy val encodedProgram: Program { val trees: program.trees.type } = theories.encode(program)
 
-trait AbstractUnrollingSolver[T]
-  extends UnrollingProcedure
-     with Solver
-     with EvaluatingSolver {
+  type Encoded
+  implicit val printable: Encoded => Printable
 
-  val unfoldFactor     = context.findOptionOrDefault(optUnrollFactor)
-  val feelingLucky     = context.findOptionOrDefault(optFeelingLucky)
-  val checkModels      = context.findOptionOrDefault(optCheckModels)
-  val useCodeGen       = context.findOptionOrDefault(optUseCodeGen)
-  val unrollUnsatCores = context.findOptionOrDefault(optUnrollCores)
-  val assumePreHolds   = context.findOptionOrDefault(optAssumePre)
-  val partialModels    = context.findOptionOrDefault(optPartialModels)
-  val silentErrors     = context.findOptionOrDefault(optSilentErrors)
-
-  protected var foundDefinitiveAnswer = false
-  protected var definitiveAnswer : Option[Boolean] = None
-  protected var definitiveModel  : Model = Model.empty
-  protected var definitiveCore   : Set[Expr] = Set.empty
-
-  def check: Option[Boolean] = genericCheck(Set.empty)
-
-  def getModel: Model = if (foundDefinitiveAnswer && definitiveAnswer.getOrElse(false)) {
-    definitiveModel
-  } else {
-    Model.empty
+  val templates: Templates {
+    val program: encodedProgram.type
+    type Encoded = AbstractUnrollingSolver.this.Encoded
   }
 
-  def getUnsatCore: Set[Expr] = if (foundDefinitiveAnswer && !definitiveAnswer.getOrElse(true)) {
-    definitiveCore
-  } else {
-    Set.empty
+  val evaluator: DeterministicEvaluator with SolvingEvaluator {
+    val program: AbstractUnrollingSolver.this.program.type
   }
+
+  val unfoldFactor     = options.findOptionOrDefault(optUnrollFactor)
+  val feelingLucky     = options.findOptionOrDefault(optFeelingLucky)
+  val checkModels      = options.findOptionOrDefault(optCheckModels)
+  val unrollUnsatCores = options.findOptionOrDefault(optUnrollCores)
+  val assumePreHolds   = options.findOptionOrDefault(optAssumePre)
+  val silentErrors     = options.findOptionOrDefault(optSilentErrors)
+
+  def check(model: Boolean = false, cores: Boolean = false): SolverResponse =
+    checkAssumptions(model = model, cores = cores)(Set.empty)
 
   private val constraints = new IncrementalSeq[Expr]()
-  private val freeVars    = new IncrementalMap[Identifier, T]()
+  private val freeVars    = new IncrementalMap[Variable, Encoded]()
 
   protected var interrupted : Boolean = false
 
-  lazy val templateGenerator = new TemplateGenerator(theoryEncoder, templateEncoder, assumePreHolds)
-  lazy val unrollingBank = new UnrollingBank(context, templateGenerator)
-
   def push(): Unit = {
-    unrollingBank.push()
+    templates.push()
     constraints.push()
     freeVars.push()
   }
 
   def pop(): Unit = {
-    unrollingBank.pop()
+    templates.pop()
     constraints.pop()
     freeVars.pop()
   }
 
   override def reset() = {
-    foundDefinitiveAnswer = false
     interrupted = false
 
-    unrollingBank.reset()
+    templates.reset()
     constraints.reset()
     freeVars.reset()
   }
@@ -108,12 +79,12 @@ trait AbstractUnrollingSolver[T]
     interrupted = false
   }
 
-  protected def declareVariable(id: Identifier): T
+  protected def declareVariable(v: Variable): Encoded
 
   def assertCnstr(expression: Expr): Unit = {
     constraints += expression
-    val bindings = variablesOf(expression).map(id => id -> freeVars.cached(id) {
-      declareVariable(theoryEncoder.encode(id))
+    val bindings = exprOps.variablesOf(expression).map(v => v -> freeVars.cached(v) {
+      declareVariable(theories.encode(v))
     }).toMap
 
     val newClauses = unrollingBank.getClauses(expression, bindings)
@@ -122,29 +93,18 @@ trait AbstractUnrollingSolver[T]
     }
   }
 
-  def foundAnswer(res: Option[Boolean], model: Model = Model.empty, core: Set[Expr] = Set.empty) = {
-    foundDefinitiveAnswer = true
-    definitiveAnswer = res
-    definitiveModel = model
-    definitiveCore = core
-  }
+  def solverAssert(cnstr: Encoded): Unit
 
-  implicit val printable: T => Printable
-
-  val theoryEncoder: TheoryEncoder
-  val templateEncoder: TemplateEncoder[T]
-
-  def solverAssert(cnstr: T): Unit
-
-  /** We define solverCheckAssumptions in CPS in order for solvers that don't
-   *  support this feature to be able to use the provided [[solverCheck]] CPS
-   *  construction.
-   */
-  def solverCheckAssumptions[R](assumptions: Seq[T])(block: Option[Boolean] => R): R =
-    solverCheck(assumptions)(block)
-
-  def checkAssumptions(assumptions: Set[Expr]): Option[Boolean] =
-    genericCheck(assumptions)
+  /** Simpler version of [[Solver.SolverResponses]] used internally in
+    * [[AbstractUnrollingSolver]] and children.
+    *
+    * These enable optimizations for the native Z3 solver (such as avoiding
+    * full Z3 model extraction in certain cases).
+    */
+  protected sealed trait Response
+  protected case object Unknown extends Response
+  protected case class Unsat(cores: Option[Set[Encoded]]) extends Response
+  protected case class Sat(model: Option[ModelWrapper]) extends Response
 
   /** Provides CPS solver.check call. CPS is necessary in order for calls that
    *  depend on solver.getModel to be able to access the model BEFORE the call
@@ -165,27 +125,33 @@ trait AbstractUnrollingSolver[T]
    *  This sequence of calls can also be used to mimic solver.checkAssumptions()
    *  for solvers that don't support the construct natively.
    */
-  def solverCheck[R](clauses: Seq[T])(block: Option[Boolean] => R): R
+  def solverCheck[R](clauses: Seq[Encoded], model: Boolean = false, cores: Boolean = false)
+                    (block: Response => R): R
 
-  def solverUnsatCore: Option[Seq[T]]
+  /** We define solverCheckAssumptions in CPS in order for solvers that don't
+   *  support this feature to be able to use the provided [[solverCheck]] CPS
+   *  construction.
+   */
+  def solverCheckAssumptions[R](assumptions: Seq[Encoded], model: Boolean = false, cores: Boolean = false)
+                               (block: Response => R): R = solverCheck(assumptions)(block)
 
   trait ModelWrapper {
-    def modelEval(elem: T, tpe: TypeTree): Option[Expr]
+    def modelEval(elem: Encoded, tpe: Type): Option[Expr]
 
-    def eval(elem: T, tpe: TypeTree): Option[Expr] = modelEval(elem, theoryEncoder.encode(tpe)).flatMap {
+    def eval(elem: Encoded, tpe: Type): Option[Expr] = modelEval(elem, theories.encode(tpe)).flatMap {
       expr => try {
-        Some(theoryEncoder.decode(expr)(Map.empty))
+        Some(theories.decode(expr)(Map.empty))
       } catch {
         case u: Unsupported => None
       }
     }
 
-    def get(id: Identifier): Option[Expr] = eval(freeVars(id), theoryEncoder.encode(id.getType)).filter {
-      case Variable(_) => false
+    def get(v: Variable): Option[Expr] = eval(freeVars(v), theories.encode(id.getType)).filter {
+      case v: Variable => false
       case _ => true
     }
 
-    private[AbstractUnrollingSolver] def extract(b: T, m: Matcher[T]): Option[Seq[Expr]] = {
+    private[AbstractUnrollingSolver] def extract(b: Encoded, m: templates.Matcher): Option[Seq[Expr]] = {
       val QuantificationTypeMatcher(fromTypes, _) = m.tpe
       val optEnabler = eval(b, BooleanType)
       optEnabler.filter(_ == BooleanLiteral(true)).flatMap { _ =>
@@ -199,19 +165,16 @@ trait AbstractUnrollingSolver[T]
     }
   }
 
-  def solverGetModel: ModelWrapper
-
   private def emit(silenceErrors: Boolean)(msg: String) =
     if (silenceErrors) reporter.debug(msg) else reporter.warning(msg)
 
-  private def extractModel(wrapper: ModelWrapper): Model =
-    new Model(freeVars.toMap.map(p => p._1 -> wrapper.get(p._1).getOrElse(simplestValue(p._1.getType))))
-
-  private def validateModel(model: Model, assumptions: Seq[Expr], silenceErrors: Boolean): Boolean = {
+  private def validateModel(model: ModelWrapper, assumptions: Seq[Expr], silenceErrors: Boolean): Boolean = {
     val expr = andJoin(assumptions ++ constraints)
 
-    val newExpr = model.toSeq.foldLeft(expr){
-      case (e, (k, v)) => let(k, v, e)
+    // we have to check case class constructors in model for ADT invariants
+    val newExpr = freeVars.toSeq.foldLeft(expr) { case (e, (v, _)) =>
+      val value = model.get(v).getOrElse(simplestValue(v.getType))
+      let(v.toVal, value, e)
     }
 
     evaluator.eval(newExpr) match {
@@ -233,256 +196,243 @@ trait AbstractUnrollingSolver[T]
     }
   }
 
-  private def getPartialModel: PartialModel = {
-    val wrapped = solverGetModel
-    val view = templateGenerator.manager.getModel(freeVars.toMap, evaluator, wrapped.get, wrapped.eval)
-    view.getPartialModel
-  }
-
   private def getTotalModel: Model = {
     val wrapped = solverGetModel
     val view = templateGenerator.manager.getModel(freeVars.toMap, evaluator, wrapped.get, wrapped.eval)
     view.getTotalModel
   }
 
-  def genericCheck(assumptions: Set[Expr]): Option[Boolean] = {
-    foundDefinitiveAnswer = false
+  def checkAssumptions(model: Boolean = false, cores: Boolean = false)(assumptions: Set[Expr]) = {
 
-    // TODO: theory encoder for assumptions!?
-    val encoder = templateGenerator.encoder.encodeExpr(freeVars.toMap) _
-    val assumptionsSeq       : Seq[Expr]    = assumptions.toSeq
-    val encodedAssumptions   : Seq[T]       = assumptionsSeq.map(encoder)
-    val encodedToAssumptions : Map[T, Expr] = (encodedAssumptions zip assumptionsSeq).toMap
+    val assumptionsSeq       : Seq[Expr]          = assumptions.toSeq
+    val encodedAssumptions   : Seq[Encoded]       = assumptionsSeq.map { expr =>
+      val vars = exprOps.variablesOf(expr)
+      templates.encodeExpr(vars.map(v => theories.encode(v) -> freeVars(v)).toMap)(expr)
+    }
+    val encodedToAssumptions : Map[Encoded, Expr] = (encodedAssumptions zip assumptionsSeq).toMap
 
-    def encodedCoreToCore(core: Seq[T]): Set[Expr] = {
+    def encodedCoreToCore(core: Set[Encoded]): Set[Expr] = {
       core.flatMap(ast => encodedToAssumptions.get(ast) match {
-        case Some(n @ Not(Variable(_))) => Some(n)
-        case Some(v @ Variable(_)) => Some(v)
+        case Some(n @ Not(_: Variable)) => Some(n)
+        case Some(v: Variable) => Some(v)
         case _ => None
-      }).toSet
+      })
     }
 
-    while (!foundDefinitiveAnswer && !interrupted) {
-      reporter.debug(" - Running search...")
-      var quantify = false
+    sealed abstract class CheckState
+    class CheckResult(val response: SolverResponses.SolverResponse) extends CheckState
+    case class Validate(resp: Sat) extends CheckState
+    case object ModelCheck extends CheckState
+    case object FiniteRangeCheck extends CheckState
+    case object InstantiateQuantifiers extends CheckState
+    case object ProofCheck extends CheckState
+    case object Unroll extends CheckState
 
-      def check[R](clauses: Seq[T])(block: Option[Boolean] => R) =
-        if (partialModels || templateGenerator.manager.quantifications.isEmpty)
-          solverCheckAssumptions(clauses)(block)
-        else solverCheck(clauses)(block)
+    object CheckResult {
+      def apply(resp: SolverResponses.SolverResponse) = new CheckResult(resp)
+      def apply(resp: Response): CheckResult = new CheckResult(resp match {
+        case Unknown           => SolverResponses.Unknown
+        case Sat(None)         => SolverResponses.SatResponse
+        case Sat(Some(model))  => SolverResponses.SatResponseWithModel(model)
+        case Unsat(None)       => SolverResponses.UnsatResponse
+        case Unsat(Some(core)) => SolverResponses.UnsatResponseWithCores(encodedCoreToCore(core))
+      })
+      def unapply(res: CheckResult): Option[SolverResponses.SolverResponse] = Some(res.response)
+    }
 
-      val timer = context.timers.solvers.check.start()
-      check(encodedAssumptions.toSeq ++ unrollingBank.satisfactionAssumptions) { res =>
-        timer.stop()
+    object Abort {
+      def unapply(resp: Response): Boolean = resp == Unknown || interrupted
+    }
 
-        reporter.debug(" - Finished search with blocked literals")
+    var currentState: CheckState = ModelCheck
+    while (!currentState.isInstanceOf[CheckResult]) {
+      currentState = currentState match {
+        case _ if interrupted =>
+          CheckResult(Unknown)
 
-        res match {
-          case None =>
-            foundAnswer(None)
+        case ModelCheck =>
+          reporter.debug(" - Running search...")
 
-          case Some(true) => // SAT
-            val (stop, model) = if (interrupted) {
-              (true, Model.empty)
-            } else if (partialModels) {
-              (true, getPartialModel)
+          val withModel = model && !templates.hasIgnored
+          val withCores = cores || unrollUnsatCores
+
+          val timer = ctx.timers.solvers.check.start()
+          solverCheckAssumptions(
+            encodedAssumptions.toSeq ++ templates.satisfactionAssumptions,
+            model = withModel,
+            cores = withCores
+          ) { res =>
+            timer.stop()
+
+            reporter.debug(" - Finished search with blocked literals")
+
+            res match {
+              case Abort() =>
+                CheckResult(Unknown)
+
+              case sat: Sat =>
+                if (templates.hasIgnored) {
+                  FiniteRangeCheck
+                } else {
+                  Validate(sat)
+                }
+
+              case _: Unsat if !templates.canUnroll =>
+                CheckResult(res)
+
+              case Unsat(Some(cores)) if unrollUnsatCores =>
+                for (c <- cores) templates.extractNot(c) match {
+                  case Some(b) => templates.promoteBlocker(b)
+                  case None => reporter.fatalError("Unexpected blocker polarity for unsat core unrolling: " + c)
+                }
+                ProofCheck
+
+              case _ => 
+                ProofCheck
+            }
+          }
+
+        case FiniteRangeCheck =>
+          reporter.debug(" - Verifying finite ranges")
+
+          val clauses = templates.getFiniteRangeClauses
+          val timer = ctx.timers.solvers.check.start()
+          solverCheck(
+            encodedAssumptions.toSeq ++ templates.satisfactionAssumptions ++ clauses,
+            model = model
+          ) { res =>
+            timer.stop()
+
+            reporter.debug(" - Finished checking finite ranges")
+
+            res match {
+              case Abort() =>
+                CheckResult(Unknown)
+
+              case sat: Sat =>
+                Validate(sat)
+
+              case _ =>
+                InstantiateQuantifiers
+            }
+          }
+
+        case Validate(sat) => sat match {
+          case Sat(None) => CheckResult(SolverResponses.SatResponse)
+          case Sat(Some(model)) =>
+            val valid = !checkModels || validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
+            if (valid) {
+              CheckResult(model)
             } else {
-              val clauses = unrollingBank.getFiniteRangeClauses
-              if (clauses.isEmpty) {
-                (true, extractModel(solverGetModel))
-              } else {
-                reporter.debug(" - Verifying model transitivity")
-
-                val timer = context.timers.solvers.check.start()
-                solverCheck(clauses) { res =>
-                  timer.stop()
-
-                  reporter.debug(" - Finished transitivity check")
-
-                  res match {
-                    case Some(true) =>
-                      (true, getTotalModel)
-
-                    case Some(false) =>
-                      reporter.debug(" - Transitivity not guaranteed for model")
-                      (false, Model.empty)
-
-                    case None =>
-                      reporter.warning(" - Unknown for transitivity!?")
-                      (false, Model.empty)
-                  }
-                }
-              }
-            }
-
-            if (!interrupted) {
-              if (!stop) {
-                if (!unrollingBank.canInstantiate) {
-                  reporter.error("Something went wrong. The model is not transitive yet we can't instantiate!?")
-                  reporter.error(model.asString(context))
-                  foundAnswer(None, model)
-                } else {
-                  quantify = true
-                }
-              } else {
-                val valid = !checkModels || validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
-
-                if (valid) {
-                  foundAnswer(Some(true), model)
-                } else if (silentErrors) {
-                  foundAnswer(None, model)
-                } else {
-                  reporter.error(
-                    "Something went wrong. The model should have been valid, yet we got this: " +
-                    model.asString(context) +
-                    " for formula " + andJoin(assumptionsSeq ++ constraints).asString)
-                  foundAnswer(None, model)
-                }
-              }
-            }
-
-            if (interrupted) {
-              foundAnswer(None)
-            }
-
-          case Some(false) if !unrollingBank.canUnroll =>
-            solverUnsatCore match {
-              case Some(core) =>
-                val exprCore = encodedCoreToCore(core)
-                foundAnswer(Some(false), core = exprCore)
-              case None =>
-                foundAnswer(Some(false))
-            }
-
-          case Some(false) =>
-            if (unrollUnsatCores) {
-              solverUnsatCore match {
-                case Some(core) =>
-                  unrollingBank.decreaseAllGenerations()
-
-                  for (c <- core) templateGenerator.encoder.extractNot(c) match {
-                    case Some(b) => unrollingBank.promoteBlocker(b)
-                    case None => reporter.fatalError("Unexpected blocker polarity for unsat core unrolling: " + c)
-                  }
-                case None =>
-                  reporter.fatalError("Can't unroll unsat core for incompatible solver " + name)
-              }
+              reporter.error(
+                "Something went wrong. The model should have been valid, yet we got this: " +
+                model.asString +
+                " for formula " + andJoin(assumptionsSeq ++ constraints).asString)
+              CheckResult(Unknown)
             }
         }
-      }
 
-      if (!quantify && !foundDefinitiveAnswer && !interrupted) {
-        if (feelingLucky) {
-          reporter.debug(" - Running search without blocked literals (w/ lucky test)")
-        } else {
-          reporter.debug(" - Running search without blocked literals (w/o lucky test)")
-        }
+        case InstantiateQuantifiers =>
+          if (!templates.canUnfoldQuantifiers) {
+            reporter.error("Something went wrong. The model is not transitive yet we can't instantiate!?")
+            CheckResult(Unknown)
+          } else {
+            // TODO: promote ignored quantifiers!
+            Unroll
+          }
 
-        val timer = context.timers.solvers.check.start()
-        solverCheckAssumptions(encodedAssumptions.toSeq ++ unrollingBank.refutationAssumptions) { res2 =>
+        case ProofCheck =>
+          if (feelingLucky) {
+            reporter.debug(" - Running search without blocked literals (w/ lucky test)")
+          } else {
+            reporter.debug(" - Running search without blocked literals (w/o lucky test)")
+          }
+
+          val timer = ctx.timers.solvers.check.start()
+          solverCheckAssumptions(
+            encodedAssumptions.toSeq ++ templates.refutationAssumptions,
+            model = feelingLucky,
+            cores = cores
+          ) { res =>
+            timer.stop()
+
+            reporter.debug(" - Finished search without blocked literals")
+
+            res match {
+              case Abort() =>
+                CheckResult(Unknown)
+
+              case _: Unsat =>
+                CheckResult(res)
+
+              case Sat(Some(model)) if feelingLucky =>
+                if (validateModel(model, assumptionsSeq, silenceErrors = true)) {
+                  CheckResult(res)
+                } else {
+                  for {
+                    (inst, bs) <- templates.getInstantiationsWithBlockers
+                    if !model.isTrue(inst)
+                    b <- bs
+                  } templates.promoteBlocker(b, force = true)
+
+                  Unroll
+                }
+
+              case _ =>
+                Unroll
+            }
+          }
+
+        case Unroll =>
+          reporter.debug("- We need to keep going")
+
+          val timer = ctx.timers.solvers.unroll.start()
+          // unfolling `unfoldFactor` times
+          for (i <- 1 to unfoldFactor.toInt) {
+            val newClauses = templates.unroll
+            for (ncl <- newClauses) {
+              solverAssert(ncl)
+            }
+          }
           timer.stop()
 
-          reporter.debug(" - Finished search without blocked literals")
-
-          res2 match {
-            case Some(false) =>
-              solverUnsatCore match {
-                case Some(core) =>
-                  val exprCore = encodedCoreToCore(core)
-                  foundAnswer(Some(false), core = exprCore)
-                case None =>
-                  foundAnswer(Some(false))
-              }
-
-            case Some(true) =>
-              if (!interrupted) {
-                val model = solverGetModel
-
-                if (this.feelingLucky) {
-                  // we might have been lucky :D
-                  val extracted = extractModel(model)
-                  val valid = validateModel(extracted, assumptionsSeq, silenceErrors = true)
-                  if (valid) foundAnswer(Some(true), extracted)
-                }
-
-                if (!foundDefinitiveAnswer) {
-                  val promote = templateGenerator.manager.getBlockersToPromote(model.eval)
-                  if (promote.nonEmpty) {
-                    unrollingBank.decreaseAllGenerations()
-
-                    for (b <- promote) unrollingBank.promoteBlocker(b, force = true)
-                  }
-                }
-              }
-
-            case None =>
-              foundAnswer(None)
-          }
-        }
-      }
-
-      if (!foundDefinitiveAnswer && !interrupted) {
-        reporter.debug("- We need to keep going")
-
-        reporter.debug(" - more instantiations")
-        val newClauses = unrollingBank.instantiateQuantifiers(force = quantify)
-
-        for (cls <- newClauses) {
-          solverAssert(cls)
-        }
-
-        reporter.debug(" - finished instantiating")
-
-        // unfolling `unfoldFactor` times
-        for (i <- 1 to unfoldFactor.toInt) {
-          val toRelease = unrollingBank.getBlockersToUnlock
-
-          reporter.debug(" - more unrollings")
-
-          val timer = context.timers.solvers.unroll.start()
-          val newClauses = unrollingBank.unrollBehind(toRelease)
-          timer.stop()
-
-          for (ncl <- newClauses) {
-            solverAssert(ncl)
-          }
-        }
-
-        reporter.debug(" - finished unrolling")
+          reporter.debug(" - finished unrolling")
+          ModelCheck
       }
     }
 
-    if (interrupted) {
-      None
-    } else {
-      definitiveAnswer
-    }
+    val CheckResult(res) = currentState
+    res
   }
 }
 
-class UnrollingSolver(
-  val sctx: SolverContext,
-  val program: Program,
-  underlying: Solver,
-  theories: TheoryEncoder = new NoEncoder
-) extends AbstractUnrollingSolver[Expr] {
+trait UnrollingSolver extends AbstractUnrollingSolver {
+  import program._
+  import program.trees._
+  import program.symbols._
 
-  override val name = "U:"+underlying.name
+  type Encoded = Expr
+  val solver: Solver { val program: encodedProgram.type }
+
+  override val name = "U:"+solver.name
 
   def free() {
-    underlying.free()
+    solver.free()
   }
 
   val printable = (e: Expr) => e
 
-  val templateEncoder = new TemplateEncoder[Expr] {
-    def encodeId(id: Identifier): Expr= Variable(id.freshen)
-    def encodeExpr(bindings: Map[Identifier, Expr])(e: Expr): Expr = {
-      replaceFromIDs(bindings, e)
+  val templates = new Templates {
+    val program = encodedProgram
+    type Encoded = Expr
+
+    def encodeSymbol(v: Variable): Expr = v.freshen
+    def encodeExpr(bindings: Map[Variable, Expr])(e: Expr): Expr = {
+      exprOps.replaceFromSymbols(bindings, e)
     }
 
     def substitute(substMap: Map[Expr, Expr]): Expr => Expr = {
-      (e: Expr) => replace(substMap, e)
+      (e: Expr) => exprOps.replace(substMap, e)
     }
 
     def mkNot(e: Expr) = not(e)
@@ -497,20 +447,27 @@ class UnrollingSolver(
     }
   }
 
-  val theoryEncoder = theories
-
-  val solver = underlying
-
-  def declareVariable(id: Identifier): Variable = id.toVariable
+  def declareVariable(v: Variable): Variable = v
 
   def solverAssert(cnstr: Expr): Unit = {
     solver.assertCnstr(cnstr)
   }
 
-  def solverCheck[R](clauses: Seq[Expr])(block: Option[Boolean] => R): R = {
+  case class Model(model: Map[ValDef, Expr]) extends ModelWrapper {
+    def modelEval(elem: Expr, tpe: Type): Option[Expr] = evaluator.eval(elem, model).result
+    override def toString = model.mkString("\n")
+  }
+
+  def solverCheck[R](clauses: Seq[Expr], model: Boolean = false, cores: Boolean = false)(block: Response => R): R = {
     solver.push()
     for (cls <- clauses) solver.assertCnstr(cls)
-    val res = solver.check
+    val res = solver.check(model = model, cores = cores) match {
+      case solver.SolverResponses.Unknown                       => Unknown
+      case solver.SolverResponses.UnsatResponse                 => Unsat(None)
+      case solver.SolverResponses.UnsatResponseWithCores(cores) => Unsat(Some(cores))
+      case solver.SolverResponses.SatResponse                   => Sat(None)
+      case solver.SolverResponses.SatResponseWithModel(model)   => Sat(Some(Model(model)))
+    }
     val r = block(res)
     solver.pop()
     r
@@ -520,11 +477,11 @@ class UnrollingSolver(
 
   def solverGetModel: ModelWrapper = new ModelWrapper {
     val model = solver.getModel
-    def modelEval(elem: Expr, tpe: TypeTree): Option[Expr] = evaluator.eval(elem, model).result
+    def modelEval(elem: Expr, tpe: Type): Option[Expr] = evaluator.eval(elem, model).result
     override def toString = model.toMap.mkString("\n")
   }
 
-  override def dbg(msg: => Any) = underlying.dbg(msg)
+  override def dbg(msg: => Any) = solver.dbg(msg)
 
   override def push(): Unit = {
     super.push()
@@ -536,18 +493,8 @@ class UnrollingSolver(
     solver.pop()
   }
 
-  override def foundAnswer(res: Option[Boolean], model: Model = Model.empty, core: Set[Expr] = Set.empty) = {
-    super.foundAnswer(res, model, core)
-
-    if (!interrupted && res.isEmpty && model.isEmpty) {
-      reporter.ifDebug { debug =>
-        debug("Unknown result!?")
-      }
-    }
-  }
-
   override def reset(): Unit = {
-    underlying.reset()
+    solver.reset()
     super.reset()
   }
 

@@ -571,7 +571,7 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
     postMap(transform, applyRec = true)(expr)
   }
 
-  def collectWithPC[T](f: PartialFunction[Expr, T])(expr: Expr): Seq[(T, Path)] = {
+  def collectWithPaths[T](f: PartialFunction[Expr, T])(expr: Expr): Seq[(T, Path)] = {
 
     def rec(expr: Expr, path: Path): Seq[(T, Path)] = {
       val seq = if (f.isDefinedAt(expr)) {
