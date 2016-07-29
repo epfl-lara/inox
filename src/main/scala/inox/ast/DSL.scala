@@ -119,7 +119,7 @@ trait DSL {
   def E(vd: ValDef) = vd.toVariable // TODO: We should be able to remove this
   def E(id: Identifier) = new IdToFunInv(id)
   class IdToFunInv(id: Identifier) {
-    def apply(tps: TypeParameter*)(args: Expr*) =
+    def apply(tps: Type*)(args: Expr*) =
       FunctionInvocation(id, tps.toSeq, args.toSeq)
   }
 
