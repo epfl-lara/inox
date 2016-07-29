@@ -156,7 +156,7 @@ trait DSL {
     * @param v The value bound to the let-variable
     * @param body The context which will be filled with the let-variable
     */
-  def let(vd: ValDef, v: Expr)(body: Expr => Expr)(implicit simpLvl: SimplificationLevel) = {
+  def let(vd: ValDef, v: Expr)(body: Variable => Expr)(implicit simpLvl: SimplificationLevel) = {
     simp(
       Let(vd, v, body(vd.toVariable)),
       symbols.let(vd, v, body(vd.toVariable))
@@ -164,20 +164,22 @@ trait DSL {
   }
 
   // Lambdas
-  def \(vd: ValDef)(body: Expr => Expr) = {
+  def \(vd: ValDef)(body: Variable => Expr) = {
     Lambda(Seq(vd), body(vd.toVariable))
   }
 
-  def \(vd1: ValDef, vd2: ValDef)(body: (Expr, Expr) => Expr) = {
+  def \(vd1: ValDef, vd2: ValDef)
+       (body: (Variable, Variable) => Expr) = {
     Lambda(Seq(vd1, vd2), body(vd1.toVariable, vd2.toVariable))
   }
 
-  def \(vd1: ValDef, vd2: ValDef, vd3: ValDef)(body: (Expr, Expr, Expr) => Expr) = {
+  def \(vd1: ValDef, vd2: ValDef, vd3: ValDef)
+       (body: (Variable, Variable, Variable) => Expr) = {
     Lambda(Seq(vd1, vd2, vd3), body(vd1.toVariable, vd2.toVariable, vd3.toVariable))
   }
 
   def \(vd1: ValDef, vd2: ValDef, vd3: ValDef, vd4: ValDef)
-       (body: (Expr, Expr, Expr, Expr) => Expr) = {
+       (body: (Variable, Variable, Variable, Variable) => Expr) = {
     Lambda(
       Seq(vd1, vd2, vd3, vd4),
       body(vd1.toVariable, vd2.toVariable, vd3.toVariable, vd4.toVariable)
@@ -211,19 +213,19 @@ trait DSL {
       val Seq() = pat.binders
       MatchCase(pat, guard, rhs)
     }
-    def ==>(rhs: Expr => Expr) = {
+    def ==>(rhs: Variable => Expr) = {
       val Seq(b1) = pat.binders
       MatchCase(pat, guard, rhs(b1.toVariable))
     }
-    def ==>(rhs: (Expr, Expr) => Expr) = {
+    def ==>(rhs: (Variable, Variable) => Expr) = {
       val Seq(b1, b2) = pat.binders
       MatchCase(pat, guard, rhs(b1.toVariable, b2.toVariable))
     }
-    def ==>(rhs: (Expr, Expr, Expr) => Expr) = {
+    def ==>(rhs: (Variable, Variable, Variable) => Expr) = {
       val Seq(b1, b2, b3) = pat.binders
       MatchCase(pat, guard, rhs(b1.toVariable, b2.toVariable, b3.toVariable))
     }
-    def ==>(rhs: (Expr, Expr, Expr, Expr) => Expr) = {
+    def ==>(rhs: (Variable, Variable, Variable, Variable) => Expr) = {
       val Seq(b1, b2, b3, b4) = pat.binders
       MatchCase(pat, guard,
         rhs(b1.toVariable, b2.toVariable, b3.toVariable, b4.toVariable))
@@ -339,7 +341,7 @@ trait DSL {
     */
   def mkFunDef(id: Identifier)
               (tParamNames: String*)
-              (builder: Seq[TypeParameter] => (Seq[ValDef], Type, Seq[Expr] => Expr)) = {
+              (builder: Seq[TypeParameter] => (Seq[ValDef], Type, Seq[Variable] => Expr)) = {
     val tParams = tParamNames map TypeParameter.fresh
     val tParamDefs = tParams map TypeParameterDef
     val (params, retType, bodyBuilder) = builder(tParams)
