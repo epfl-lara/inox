@@ -296,15 +296,27 @@ trait DSL {
 
   /* Definitions */
 
+  /** Creates a [[FunDef]] given only an [[Identifier]] for the name;
+    * the (type) parameter [[Identifier]]s will be created fresh by this function.
+    *
+    * @param id The [[Identifier]] referring to this function.
+    * @param tParamNames The names of the type parameters for this function.
+    * @param builder A function from a Seq of type parameters (which should correspond
+    *                to tParamNames) which, given these type parameters,
+    *                should return
+    *                (1) The sequence of parameters as [[ValDef]]s (see [[TypeToValDef.::]])
+    *                (2) The return type of the function
+    *                (3) A context which, given the parameters, will return the body of the function.
+    * @return A fresh and juicy [[FunDef]]
+    */
   def mkFunDef(id: Identifier)
               (tParamNames: String*)
-              (paramRetBuilder: Seq[TypeParameter] =>
+              (builder: Seq[TypeParameter] =>
                 (Seq[ValDef], Type, Seq[Expr] => Expr)
               ) = {
-
     val tParams = tParamNames map TypeParameter.fresh
     val tParamDefs = tParams map TypeParameterDef
-    val (params, retType, bodyBuilder) = paramRetBuilder(tParams)
+    val (params, retType, bodyBuilder) = builder(tParams)
     val fullBody = bodyBuilder(params map (_.toVariable))
 
     new FunDef(id, tParamDefs, params, retType, fullBody, Set())
@@ -318,10 +330,10 @@ trait DSL {
     new AbstractClassDef(id, tParamDefs, children, Set())
   }
 
-  def mkCaseClassDef(id: Identifier)
-                    (tParamNames: String*)
-                    (parent: Option[Identifier])
-                    (fieldBuilder: Seq[TypeParameter] => Seq[ValDef]) = {
+  def mkCaseClass(id: Identifier)
+                 (tParamNames: String*)
+                 (parent: Option[Identifier])
+                 (fieldBuilder: Seq[TypeParameter] => Seq[ValDef]) = {
     val tParams = tParamNames map TypeParameter.fresh
     val tParamDefs = tParams map TypeParameterDef
     val fields = fieldBuilder(tParams)
