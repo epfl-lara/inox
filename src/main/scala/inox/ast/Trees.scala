@@ -80,7 +80,6 @@ trait Trees extends Expressions with Extractors with Types with Definitions with
     /** Builds a fresh identifier
       *
       * @param name The name of the identifier
-      * @param tpe The type of the identifier
       * @param alwaysShowUniqueID If the unique ID should always be shown
       */
     def apply(name: String, alwaysShowUniqueID: Boolean = false) : Identifier = {
@@ -92,7 +91,7 @@ trait Trees extends Expressions with Extractors with Types with Definitions with
       *
       * @param name The name of the identifier
       * @param forceId The forced ID of the identifier
-      * @param tpe The type of the identifier
+      * @param alwaysShowUniqueID If the unique ID should always be shown
       */
     def forceId(name: String, forceId: Int, alwaysShowUniqueID: Boolean = false): Identifier =
       new Identifier(decode(name), uniqueCounter.nextGlobal, forceId, alwaysShowUniqueID)

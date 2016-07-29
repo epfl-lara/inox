@@ -3,10 +3,7 @@
 package inox
 package ast
 
-import utils._
-import scala.reflect._
-
-/** Provides functions to manipulate [[purescala.Expressions]].
+/** Provides functions to manipulate [[Expressions.Expr]].
   *
   * This object provides a few generic operations on Leon expressions,
   * as well as some common operations.
@@ -114,9 +111,9 @@ trait ExprOps extends GenTreeOps {
   /** Returns if this expression behaves as a purely functional construct,
     * i.e. always returns the same value (for the same environment) and has no side-effects
     */
-  def isPurelyFunctional(e: Expr): Boolean = exists {
-    case _ : Error => false
-    case _ => true
+  def isPurelyFunctional(e: Expr): Boolean = !exists {
+    case _ : Error => true
+    case _ => false
   }(e)
 
   /** Extracts the body without its specification
