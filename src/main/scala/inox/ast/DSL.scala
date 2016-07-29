@@ -5,6 +5,18 @@ package ast
 
 import scala.language.implicitConversions
 
+/** This trait provides a DSL to create Inox trees.
+  *
+  * The two following principles are followed (hopefully with some consistency):
+  * 1) When a fresh identifier needs to be introduced, the API provides constructors
+  *    which are passed the fresh identifiers in the form of [[inox.ast.Definitions.ValDef]]s
+  *    (construct them with [[inox.ast.DSL.TypeToValDef]]), and then a context
+  *    (in the form of a function) to which the newly created identifiers will be passed.
+  * 2) No implicit conversions are provided where there would be ambiguity.
+  *    This refers mainly to Identifiers, which can be transformed to
+  *    [[inox.ast.Types.ClassType]] or [[inox.ast.Expressions.FunctionInvocation]] or ... .
+  *    Instead one-letter constructors are provided.
+  */
 trait DSL {
   val program: Program
   import program._
@@ -38,20 +50,23 @@ trait DSL {
     }
 
     // Arithmetic
-    def +   = binOp(Plus, plus)
-    def -   = binOp(Minus, minus)
+    def + = binOp(Plus, plus)
+    def - = binOp(Minus, minus)
+    def % = binOp(Modulo, Modulo)
+    def / = binOp(Division, Division)
+
+    // Comparisons
+    def <   = binOp(LessThan, LessThan)
+    def <=  = binOp(LessEquals, LessEquals)
+    def >   = binOp(GreaterThan, GreaterThan)
+    def >=  = binOp(GreaterEquals, GreaterEquals)
     def === = binOp(Equals, equality)
+
+    // Boolean
     def &&  = binOp(And(_, _), and(_, _))
     def ||  = binOp(Or(_, _), or(_, _))
     def ==> = binOp(Implies, implies)
-    def %   = binOp(Modulo, Modulo)
-    def /   = binOp(Division, Division)
-
-    // Comparisons
-    def <  = binOp(LessThan, LessThan)
-    def <= = binOp(LessEquals, LessEquals)
-    def >  = binOp(GreaterThan, GreaterThan)
-    def >= = binOp(GreaterEquals, GreaterEquals)
+    def unary_! = unOp(Not, not)
 
     // Tuple selections
     def _1 = unOp(TupleSelect(_, 1), tupleSelect(_, 1, true))
@@ -60,8 +75,9 @@ trait DSL {
     def _4 = unOp(TupleSelect(_, 4), tupleSelect(_, 4, true))
 
     // Sets
-    def size      = SetCardinality(e)
-    def subsetOf  = binOp(SubsetOf, SubsetOf)
+    def size     = SetCardinality(e)
+    def subsetOf = binOp(SubsetOf, SubsetOf)
+    def insert   = binOp(SetAdd, SetAdd)
     def ++ = binOp(SetUnion, SetUnion)
     def -- = binOp(SetDifference, SetDifference)
     def &  = binOp(SetIntersection, SetIntersection)
@@ -100,7 +116,12 @@ trait DSL {
     require(s.nonEmpty)
     FiniteSet(s.toSeq, leastUpperBound(s.toSeq map (_.getType)).get)
   }
-  def E(vd: ValDef) = vd.toVariable
+  def E(vd: ValDef) = vd.toVariable // TODO: We should be able to remove this
+  def E(id: Identifier) = new IdToFunInv(id)
+  class IdToFunInv(id: Identifier) {
+    def apply(tps: TypeParameter*)(args: Expr*) =
+      FunctionInvocation(id, tps.toSeq, args.toSeq)
+  }
 
   // if-then-else
   class DanglingElse(cond: Expr, thenn: Expr) {
@@ -123,11 +144,18 @@ trait DSL {
     def ## (id: Int) = GenericValue(tp, id)
   }
 
-  // This introduces valdefs
+  // Syntax to make ValDefs, e.g. ("i" :: Integer)
   implicit class TypeToValDef(tp: Type) {
     def :: (nm: String): ValDef = ValDef(FreshIdentifier(nm, true), tp)
   }
 
+  /** Creates a [[Let]]. A [[ValDef]] and a context is given; the identifier of the ValDef
+    * is passed to the context.
+    *
+    * @param vd The ValDef which will be bound in the body (see [[TypeToValDef.::]])
+    * @param v The value bound to the let-variable
+    * @param body The context which will be filled with the let-variable
+    */
   def let(vd: ValDef, v: Expr)(body: Expr => Expr)(implicit simpLvl: SimplificationLevel) = {
     simp(
       Let(vd, v, body(vd.toVariable)),
@@ -258,7 +286,7 @@ trait DSL {
             P("k" :: Untyped),
             P(__, ( "j" :: Untyped) @@ P(42))
           ) ==> {
-            (i, j, k) => e1
+            (i, j, k) => !e1
           },
           __ ~|~ e1 ==> e2
         )
@@ -268,7 +296,8 @@ trait DSL {
 
   /* Types */
   def T(tp1: Type, tp2: Type, tps: Type*) = TupleType(tp1 :: tp2 :: tps.toList)
-  implicit class IdToClassType(id: Identifier) {
+  def T(id: Identifier) = new IdToClassType(id)
+  class IdToClassType(id: Identifier) {
     def apply(tps: Type*) = ClassType(id, tps.toSeq)
   }
   implicit class FunctionTypeBuilder(to: Type) {
@@ -280,7 +309,6 @@ trait DSL {
       FunctionType(Seq(from._1, from._2, from._3), to)
     def =>: (from: (Type, Type, Type, Type)) =
       FunctionType(Seq(from._1, from._2, from._3, from._4), to)
-
   }
 
   // TODO remove this at some point
@@ -288,9 +316,9 @@ trait DSL {
     val ct1 = FreshIdentifier("ct1")
     val ct2 = FreshIdentifier("ct2")
     T(
-      ct1(),
-      ct1(ct2(), IntegerType),
-      (ct1(), ct2()) =>: ct1()
+      T(ct1)(),
+      T(ct1)(T(ct2)(), IntegerType),
+      (T(ct1)(), T(ct2)()) =>: T(ct1)()
     )
   }
 
@@ -311,9 +339,7 @@ trait DSL {
     */
   def mkFunDef(id: Identifier)
               (tParamNames: String*)
-              (builder: Seq[TypeParameter] =>
-                (Seq[ValDef], Type, Seq[Expr] => Expr)
-              ) = {
+              (builder: Seq[TypeParameter] => (Seq[ValDef], Type, Seq[Expr] => Expr)) = {
     val tParams = tParamNames map TypeParameter.fresh
     val tParamDefs = tParams map TypeParameterDef
     val (params, retType, bodyBuilder) = builder(tParams)
@@ -347,7 +373,7 @@ trait DSL {
     }
   */
   private def testDefs = {
-    val c = FreshIdentifier("c")
+    val c = T(FreshIdentifier("c"))
     val f = FreshIdentifier("f")
     mkFunDef(f)("A", "B"){ case Seq(aT, bT) => (
       Seq("i" :: IntegerType, "j" :: c(aT), "a" :: aT),
