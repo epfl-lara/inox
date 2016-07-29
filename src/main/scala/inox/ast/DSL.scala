@@ -11,6 +11,7 @@ trait DSL {
   import trees._
   import symbols._
 
+  /* Expressions */
   trait SimplificationLevel
   case object NoSimplify extends SimplificationLevel
   case object SafeSimplify extends SimplificationLevel
@@ -87,18 +88,19 @@ trait DSL {
   }
 
   // Literals
-  def L(i: Int): Expr = IntLiteral(i)
-  def L(b: BigInt): Expr = IntegerLiteral(b)
-  def L(b: Boolean): Expr = BooleanLiteral(b)
-  def L(c: Char): Expr = CharLiteral(c)
-  def L(): Expr = UnitLiteral()
-  def L(n: BigInt, d: BigInt) = FractionLiteral(n, d)
-  def L(s: String): Expr = StringLiteral(s)
-  def L(e1: Expr, e2: Expr, es: Expr*): Expr = Tuple(e1 :: e2 :: es.toList)
-  def L(s: Set[Expr]) = {
+  def E(i: Int): Expr = IntLiteral(i)
+  def E(b: BigInt): Expr = IntegerLiteral(b)
+  def E(b: Boolean): Expr = BooleanLiteral(b)
+  def E(c: Char): Expr = CharLiteral(c)
+  def E(): Expr = UnitLiteral()
+  def E(n: BigInt, d: BigInt) = FractionLiteral(n, d)
+  def E(s: String): Expr = StringLiteral(s)
+  def E(e1: Expr, e2: Expr, es: Expr*): Expr = Tuple(e1 :: e2 :: es.toList)
+  def E(s: Set[Expr]) = {
     require(s.nonEmpty)
     FiniteSet(s.toSeq, leastUpperBound(s.toSeq map (_.getType)).get)
   }
+  def E(vd: ValDef) = vd.toVariable
 
   // if-then-else
   class DanglingElse(cond: Expr, thenn: Expr) {
@@ -170,7 +172,7 @@ trait DSL {
     }
   }
 
-  //Patterns
+  /* Patterns */
 
   // This introduces the rhs of a case given a pattern
   implicit class PatternOps(pat: Pattern) {
@@ -233,26 +235,26 @@ trait DSL {
 
   // Instance-of patterns
   implicit class TypeToInstanceOfPattern(ct: ClassType) {
-    def :: (vd: ValDef) = InstanceOfPattern(Some(vd), ct)
-    def :: (wp: WildcardPattern) = {
+    def @:(vd: ValDef) = InstanceOfPattern(Some(vd), ct)
+    def @:(wp: WildcardPattern) = {
       if (wp.binder.nonEmpty) sys.error("Instance of pattern with named wildcardpattern?")
       else InstanceOfPattern(None, ct)
     } // TODO Kinda dodgy...
   }
 
   // TODO: Remove this at some point
-  private def test(e1: Expr, e2: Expr, ct: ClassType)(implicit simpl: SimplificationLevel) = {
+  private def testExpr(e1: Expr, e2: Expr, ct: ClassType)(implicit simpl: SimplificationLevel) = {
     prec(e1) in
     let("i" :: Untyped, e1) { i =>
       if_ (\("j" :: Untyped)(j => e1(j))) {
-        e1 + e2 + i + L(42)
+        e1 + e2 + i + E(42)
       } else_ {
-        assertion(L(true), "Weird things") in
+        assertion(E(true), "Weird things") in
         ct(e1, e2) matchOn (
           P(ct)(
-            ("i" :: Untyped) :: ct,
+            ("i" :: Untyped) @: ct,
             P(42),
-            __ :: ct,
+            __ @: ct,
             P("k" :: Untyped),
             P(__, ( "j" :: Untyped) @@ P(42))
           ) ==> {
@@ -263,6 +265,84 @@ trait DSL {
       }
     }
   } ensures e2
+
+  /* Types */
+  def T(tp1: Type, tp2: Type, tps: Type*) = TupleType(tp1 :: tp2 :: tps.toList)
+  implicit class IdToClassType(id: Identifier) {
+    def apply(tps: Type*) = ClassType(id, tps.toSeq)
+  }
+  implicit class FunctionTypeBuilder(to: Type) {
+    def =>: (from: Type) =
+      FunctionType(Seq(from), to)
+    def =>: (from: (Type, Type)) =
+      FunctionType(Seq(from._1, from._2), to)
+    def =>: (from: (Type, Type, Type)) =
+      FunctionType(Seq(from._1, from._2, from._3), to)
+    def =>: (from: (Type, Type, Type, Type)) =
+      FunctionType(Seq(from._1, from._2, from._3, from._4), to)
+
+  }
+
+  // TODO remove this at some point
+  private def testTypes: Unit = {
+    val ct1 = FreshIdentifier("ct1")
+    val ct2 = FreshIdentifier("ct2")
+    T(
+      ct1(),
+      ct1(ct2(), IntegerType),
+      (ct1(), ct2()) =>: ct1()
+    )
+  }
+
+  /* Definitions */
+
+  def mkFunDef(id: Identifier)
+              (tParamNames: String*)
+              (paramRetBuilder: Seq[TypeParameter] =>
+                (Seq[ValDef], Type, Seq[Expr] => Expr)
+              ) = {
+
+    val tParams = tParamNames map TypeParameter.fresh
+    val tParamDefs = tParams map TypeParameterDef
+    val (params, retType, bodyBuilder) = paramRetBuilder(tParams)
+    val fullBody = bodyBuilder(params map (_.toVariable))
+
+    new FunDef(id, tParamDefs, params, retType, fullBody, Set())
+  }
+
+  def mkAbstractClass(id: Identifier)
+                     (tParamNames: String*)
+                     (children: Seq[Identifier]) = {
+    val tParams = tParamNames map TypeParameter.fresh
+    val tParamDefs = tParams map TypeParameterDef
+    new AbstractClassDef(id, tParamDefs, children, Set())
+  }
+
+  def mkCaseClassDef(id: Identifier)
+                    (tParamNames: String*)
+                    (parent: Option[Identifier])
+                    (fieldBuilder: Seq[TypeParameter] => Seq[ValDef]) = {
+    val tParams = tParamNames map TypeParameter.fresh
+    val tParamDefs = tParams map TypeParameterDef
+    val fields = fieldBuilder(tParams)
+    new CaseClassDef(id, tParamDefs, parent, fields, Set())
+  }
+
+  // TODO: Remove this at some point
+  /* This defines
+    def f[A, B](i: BigInt, j: C[A], a: A): (BigInt, C[A]) = {
+      (42, C[A](a))
+    }
+  */
+  private def testDefs = {
+    val c = FreshIdentifier("c")
+    val f = FreshIdentifier("f")
+    mkFunDef(f)("A", "B"){ case Seq(aT, bT) => (
+      Seq("i" :: IntegerType, "j" :: c(aT), "a" :: aT),
+      T(IntegerType, c(aT)),
+      { case Seq(i, j, a) => E(E(42), c(aT)(a)) }
+    )}
+  }
 
 }
 
