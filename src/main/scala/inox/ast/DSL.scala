@@ -84,15 +84,16 @@ trait DSL {
 
     // Misc.
 
-    def getField(cc: ClassType, selector: String) = {
+    def getField(selector: String) = {
       val id = for {
-        tcd <- cc.lookupClass
+        ct <- scala.util.Try(e.getType.asInstanceOf[ClassType]).toOption
+        tcd <- ct.lookupClass
         tccd <- scala.util.Try(tcd.toCase).toOption
         field <- tccd.cd.fields.find(_.id.name == selector)
       } yield {
         field.id
       }
-      CaseClassSelector(cc, e, id.get)
+      CaseClassSelector(e, id.get)
     }
 
     def ensures(other: Expr) = Ensuring(e, other)
@@ -190,111 +191,6 @@ trait DSL {
   class BlockSuspension(susp: Expr => Expr) {
     def in(e: Expr) = susp(e)
   }
-
-  def prec(e: Expr) = new BlockSuspension(Require(e, _))
-  def assertion(e: Expr) = new BlockSuspension(Assert(e, None, _))
-  def assertion(e: Expr, msg: String) = new BlockSuspension(Assert(e, Some(msg), _))
-
-  // Pattern-matching
-  implicit class PatternMatch(scrut: Expr) {
-    def matchOn(cases: MatchCase* ) = {
-      MatchExpr(scrut, cases.toList)
-    }
-  }
-
-  /* Patterns */
-
-  // This introduces the rhs of a case given a pattern
-  implicit class PatternOps(pat: Pattern) {
-
-    val guard: Option[Expr] = None
-
-    def ==>(rhs: => Expr) = {
-      val Seq() = pat.binders
-      MatchCase(pat, guard, rhs)
-    }
-    def ==>(rhs: Variable => Expr) = {
-      val Seq(b1) = pat.binders
-      MatchCase(pat, guard, rhs(b1.toVariable))
-    }
-    def ==>(rhs: (Variable, Variable) => Expr) = {
-      val Seq(b1, b2) = pat.binders
-      MatchCase(pat, guard, rhs(b1.toVariable, b2.toVariable))
-    }
-    def ==>(rhs: (Variable, Variable, Variable) => Expr) = {
-      val Seq(b1, b2, b3) = pat.binders
-      MatchCase(pat, guard, rhs(b1.toVariable, b2.toVariable, b3.toVariable))
-    }
-    def ==>(rhs: (Variable, Variable, Variable, Variable) => Expr) = {
-      val Seq(b1, b2, b3, b4) = pat.binders
-      MatchCase(pat, guard,
-        rhs(b1.toVariable, b2.toVariable, b3.toVariable, b4.toVariable))
-    }
-
-    def ~|~(g: Expr) = new PatternOpsWithGuard(pat, g)
-  }
-
-  class PatternOpsWithGuard(pat: Pattern, g: Expr) extends PatternOps(pat) {
-    override val guard = Some(g)
-    override def ~|~(g: Expr) = sys.error("Redefining guard!")
-  }
-
-  private def l2p[T](l: Literal[T]) = LiteralPattern(None, l)
-  // Literal patterns
-  def P(i: Int)     = l2p(IntLiteral(i))
-  def P(b: BigInt)  = l2p(IntegerLiteral(b))
-  def P(b: Boolean) = l2p(BooleanLiteral(b))
-  def P(c: Char)    = l2p(CharLiteral(c))
-  def P()           = l2p(UnitLiteral())
-  // Binder-only patterns
-  def P(vd: ValDef) = WildcardPattern(Some(vd))
-
-  class CaseClassToPattern(ct: ClassType) {
-    def apply(ps: Pattern*) = CaseClassPattern(None, ct, ps.toSeq)
-  }
-  // case class patterns
-  def P(ct: ClassType) = new CaseClassToPattern(ct)
-  // Tuple patterns
-  def P(p1:Pattern, p2: Pattern, ps: Pattern*) = TuplePattern(None, p1 :: p2 :: ps.toList)
-  // Wildcard pattern
-  def __ = WildcardPattern(None)
-  // Attach binder to pattern
-  implicit class BinderToPattern(b: ValDef) {
-    def @@ (p: Pattern) = p.withBinder(b)
-  }
-
-  // Instance-of patterns
-  implicit class TypeToInstanceOfPattern(ct: ClassType) {
-    def @:(vd: ValDef) = InstanceOfPattern(Some(vd), ct)
-    def @:(wp: WildcardPattern) = {
-      if (wp.binder.nonEmpty) sys.error("Instance of pattern with named wildcardpattern?")
-      else InstanceOfPattern(None, ct)
-    } // TODO Kinda dodgy...
-  }
-
-  // TODO: Remove this at some point
-  private def testExpr(e1: Expr, e2: Expr, ct: ClassType)(implicit simpl: SimplificationLevel) = {
-    prec(e1) in
-    let("i" :: Untyped, e1) { i =>
-      if_ (\("j" :: Untyped)(j => e1(j))) {
-        e1 + e2 + i + E(42)
-      } else_ {
-        assertion(E(true), "Weird things") in
-        ct(e1, e2) matchOn (
-          P(ct)(
-            ("i" :: Untyped) @: ct,
-            P(42),
-            __ @: ct,
-            P("k" :: Untyped),
-            P(__, ( "j" :: Untyped) @@ P(42))
-          ) ==> {
-            (i, j, k) => !e1
-          },
-          __ ~|~ e1 ==> e2
-        )
-      }
-    }
-  } ensures e2
 
   /* Types */
   def T(tp1: Type, tp2: Type, tps: Type*) = TupleType(tp1 :: tp2 :: tps.toList)

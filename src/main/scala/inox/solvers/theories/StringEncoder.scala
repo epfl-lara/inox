@@ -13,9 +13,23 @@ import leon.utils.Bijection
 import leon.purescala.TypeOps
 
 class StringEncoder(ctx: LeonContext, p: Program) extends TheoryEncoder {
-  val String     = p.library.lookupUnique[ClassDef]("leon.theories.String").typed
-  val StringCons = p.library.lookupUnique[CaseClassDef]("leon.theories.StringCons").typed
-  val StringNil  = p.library.lookupUnique[CaseClassDef]("leon.theories.StringNil").typed
+  
+  val StringID     = FreshIdentifier("String")
+  val StringNilID  = FreshIdentifier("StringNil")
+  val StringConsID = FreshIdentifier("StringCons")
+
+  val StringConsHeadID = FreshIdentifier("head")
+  val StringConsTailID = FreshIdentifier("tail")
+
+  val String     = new AbstractClassDef(StringID, Seq.empty Seq(StringConsID, StringNilID), Set.empty).typed
+  val StringNil  = new CaseClassDef(StringNilID, Seq.empty, Some(StringID), Seq.empty, Set.empty).typed
+  val StringCons = new CaseClassDef(StringConsID, Seq.empty, Some(StringID), Seq(
+    ValDef(StringConsHeadID, CharType),
+    ValDef(StringConsTailID, ClassType(StringID, Seq.empty))
+  ), Set.empty).typed
+
+  val SizeID = FreshIdentifier("size")
+  val Size = new FunDef()
 
   val Size   = p.library.lookupUnique[FunDef]("leon.theories.String.size").typed
   val Take   = p.library.lookupUnique[FunDef]("leon.theories.String.take").typed

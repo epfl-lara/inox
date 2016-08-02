@@ -44,7 +44,7 @@ trait Helpers { self: GrammarsUniverse =>
   def terminatingCalls(prog: Program, wss: Seq[FunctionInvocation], pc: Path, tpe: Option[Type], introduceHoles: Boolean): List[(FunctionInvocation, Option[Set[Identifier]])] = {
 
     def subExprsOf(expr: Expr, v: EVariable): Option[(EVariable, Expr)] = expr match {
-      case CaseClassSelector(cct, r, _) => subExprsOf(r, v)
+      case CaseClassSelector(r, _) => subExprsOf(r, v)
       case (r: EVariable) if leastUpperBound(r.getType, v.getType).isDefined => Some(r -> v)
       case _ => None
     }
@@ -53,7 +53,7 @@ trait Helpers { self: GrammarsUniverse =>
     val one = IntegerLiteral(1)
     val knownSmallers = (pc.bindings.flatMap {
       // @nv: used to check both Equals(id, selector) and Equals(selector, id)
-      case (id, s @ CaseClassSelector(cct, r, _)) => subExprsOf(s, id.toVariable)
+      case (id, s @ CaseClassSelector(r, _)) => subExprsOf(s, id.toVariable)
       case _ => None
     } ++ pc.conditions.flatMap {
       case GreaterThan(v: EVariable, `z`) =>

@@ -76,21 +76,12 @@ trait LambdaTemplates { self: Templates =>
       }
 
       new LambdaTemplate(
-        ids,
-        pathVar,
-        arguments,
-        condVars,
-        exprVars,
-        condTree,
-        clauses,
-        blockers,
-        applications,
-        matchers,
-        lambdas,
-        quantifications,
+        ids, pathVar, arguments,
+        condVars, exprVars, condTree,
+        clauses, blockers, applications, matchers,
+        lambdas, quantifications,
         structure,
-        lambda,
-        lambdaString
+        lambda, lambdaString
       )
     }
   }
@@ -207,7 +198,7 @@ trait LambdaTemplates { self: Templates =>
     val quantifications: Seq[QuantificationTemplate],
     val structure: LambdaStructure,
     val lambda: Lambda,
-    stringRepr: () => String) extends Template {
+    private[unrolling] val stringRepr: () => String) extends Template {
 
     val args = arguments.map(_._2)
     val tpe = bestRealType(ids._1.getType).asInstanceOf[FunctionType]
@@ -231,15 +222,23 @@ trait LambdaTemplates { self: Templates =>
         ids._1 -> idT, pathVar, arguments, condVars, exprVars, condTree,
         clauses map substituter, // make sure the body-defining clause is inlined!
         blockers, applications, matchers, lambdas, quantifications,
-        structure, lambda, stringRepr
-      )
+        structure, lambda, stringRepr)
     }
 
     private lazy val str : String = stringRepr()
     override def toString : String = str
 
-    override def instantiate(substMap: Map[Encoded, Arg]): Clauses = {
-      super.instantiate(substMap) ++ instantiateAxiom(this, substMap)
+    /** When instantiating closure templates, we want to preserve the condition
+      * under which the associated closure can be evaluated in the program
+      * (namely `pathVar._2`), as well as the condition under which the current
+      * application can take place. We therefore have
+      * {{{
+      *   aVar && pathVar._2 ==> instantiation
+      * }}}
+      */
+    override def instantiate(aVar: Encoded, args: Seq[Arg]): Clauses = {
+      val (freshBlocker, eqClauses) = encodeBlockers(Set(aVar, pathVar._2))
+      eqClauses ++ super.instantiate(freshBlocker, args)
     }
   }
 
@@ -275,14 +274,12 @@ trait LambdaTemplates { self: Templates =>
 
   private def typeUnroller(blocker: Encoded, app: App): Clauses = typeBlockers.get(app.encoded) match {
     case Some(typeBlocker) =>
-      impliesBlocker(blocker, typeBlocker)
       Seq(mkImplies(blocker, typeBlocker))
 
     case None =>
       val App(caller, tpe @ FirstOrderFunctionType(_, to), args, value) = app
       val typeBlocker = encodeSymbol(Variable(FreshIdentifier("t"), BooleanType))
       typeBlockers += value -> typeBlocker
-      impliesBlocker(blocker, typeBlocker)
 
       val clauses = registerSymbol(typeBlocker, value, to)
 
@@ -290,7 +287,6 @@ trait LambdaTemplates { self: Templates =>
         (blocker, Seq.empty)
       } else {
         val firstB = encodeSymbol(Variable(FreshIdentifier("b_free", true), BooleanType))
-        impliesBlocker(firstB, typeBlocker)
         typeEnablers += firstB
 
         val nextB  = encodeSymbol(Variable(FreshIdentifier("b_or", true), BooleanType))
@@ -502,7 +498,6 @@ trait LambdaTemplates { self: Templates =>
 
         val enabler = if (equals == trueT) b else mkAnd(equals, b)
         newCls += mkImplies(enabler, lambdaBlocker)
-        impliesBlocker(b, lambdaBlocker)
 
         ctx.reporter.debug("Unrolling behind "+info+" ("+newCls.size+")")
         for (cl <- newCls) {

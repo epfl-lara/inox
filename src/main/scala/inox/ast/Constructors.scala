@@ -47,26 +47,6 @@ trait Constructors {
     else bd
   }
 
-  /** $encodingof ``val (...binders...) = value; body`` which is translated to  ``value match { case (...binders...) => body }``, and returns `body` if the identifiers are not bound in `body`.
-    * @see [[purescala.Expressions.Let]]
-    */
-  def letTuple(binders: Seq[ValDef], value: Expr, body: Expr) = binders match {
-    case Nil =>
-      body
-    case x :: Nil =>
-      Let(x, value, body)
-    case xs =>
-      require(
-        value.getType match {
-          case TupleType(args) => args.size == xs.size
-          case _ => false
-        },
-        s"In letTuple: '$value' is being assigned as a tuple of arity ${xs.size}; yet its type is '${value.getType}' (body is '$body')"
-      )
-
-      LetPattern(TuplePattern(None,binders map { b => WildcardPattern(Some(b)) }), value, body)
-  }
-
   /** Wraps the sequence of expressions as a tuple. If the sequence contains a single expression, it is returned instead.
     * @see [[purescala.Expressions.Tuple]]
     */
@@ -74,17 +54,6 @@ trait Constructors {
     case Seq() => UnitLiteral()
     case Seq(elem) => elem
     case more => Tuple(more)
-  }
-
-  /** Wraps the sequence of patterns as a tuple. If the sequence contains a single pattern, it is returned instead.
-    * If the sequence is empty, [[purescala.Expressions.LiteralPattern `LiteralPattern`]]`(None, `[[purescala.Expressions.UnitLiteral `UnitLiteral`]]`())` is returned.
-    * @see [[purescala.Expressions.TuplePattern]]
-    * @see [[purescala.Expressions.LiteralPattern]]
-    */
-  def tuplePatternWrap(ps: Seq[Pattern]) = ps match {
-    case Seq() => LiteralPattern(None, UnitLiteral())
-    case Seq(elem) => elem
-    case more => TuplePattern(None, more)
   }
 
   /** Wraps the sequence of types as a tuple. If the sequence contains a single type, it is returned instead.
@@ -117,51 +86,13 @@ trait Constructors {
   /** Simplifies the provided case class selector.
     * @see [[purescala.Expressions.CaseClassSelector]]
     */
-  def caseClassSelector(classType: ClassType, caseClass: Expr, selector: Identifier): Expr = {
+  def caseClassSelector(caseClass: Expr, selector: Identifier): Expr = {
     caseClass match {
-      case CaseClass(ct, fields) if ct == classType && !ct.tcd.hasInvariant =>
+      case CaseClass(ct, fields) if !ct.tcd.hasInvariant =>
         fields(ct.tcd.cd.asInstanceOf[CaseClassDef].selectorID2Index(selector))
       case _ =>
-        CaseClassSelector(classType, caseClass, selector)
+        CaseClassSelector(caseClass, selector)
     }
-  }
-
-  /** $encoding of `case ... if ... => ... ` but simplified if possible, based on types of the encompassing [[purescala.Expressions.CaseClassPattern MatchExpr]].
-    * @see [[purescala.Expressions.CaseClassPattern MatchExpr]]
-    * @see [[purescala.Expressions.CaseClassPattern CaseClassPattern]]
-    */
-  private def filterCases(scrutType: Type, resType: Option[Type], cases: Seq[MatchCase]): Seq[MatchCase] = {
-    val casesFiltered = scrutType match {
-      case c: ClassType if !c.tcd.cd.isAbstract =>
-        cases.filter(_.pattern match {
-          case CaseClassPattern(_, cct, _) if cct.id != c.id => false
-          case _ => true
-        })
-
-      case _ =>
-        cases
-    }
-
-    resType match {
-      case Some(tpe) =>
-        casesFiltered.filter(c => symbols.typesCompatible(c.rhs.getType, tpe))
-      case None =>
-        casesFiltered
-    }
-  }
-
-  /** $encodingof `... match { ... }` but simplified if possible. Simplifies to [[Error]] if no case can match the scrutined expression.
-    * @see [[purescala.Expressions.MatchExpr MatchExpr]]
-    */
-  def matchExpr(scrutinee: Expr, cases: Seq[MatchCase]): Expr = {
-    val filtered = filterCases(scrutinee.getType, None, cases)
-    if (filtered.nonEmpty)
-      MatchExpr(scrutinee, filtered)
-    else
-      Error(
-        cases.headOption.map{ _.rhs.getType }.getOrElse(Untyped),
-        "No case matches the scrutinee"
-      )
   }
 
   /** $encodingof `&&`-expressions with arbitrary number of operands, and simplified.
@@ -240,20 +171,10 @@ trait Constructors {
     */
   // @mk I simplified that because it seemed dangerous and unnessecary
   def equality(a: Expr, b: Expr): Expr = {
-    if (a.isInstanceOf[Terminal] && isPurelyFunctional(a) && a == b ) {
+    if (a.isInstanceOf[Terminal] && a == b ) {
       BooleanLiteral(true)
     } else  {
       Equals(a, b)
-    }
-  }
-
-  def assertion(c: Expr, err: Option[String], res: Expr) = {
-    if (c == BooleanLiteral(true)) {
-      res
-    } else if (c == BooleanLiteral(false)) {
-      Error(res.getType, err.getOrElse("Assertion failed"))
-    } else {
-      Assert(c, err, res)
     }
   }
 
@@ -283,9 +204,9 @@ trait Constructors {
           vd -> fresh.toVariable
       }.toMap
 
-      val (vds, bds) = defs.unzip
-
-      letTuple(vds, tupleWrap(bds), exprOps.replaceFromSymbols(subst, body))
+      defs.foldRight(exprOps.replaceFromSymbols(subst, body)) {
+        case ((vd, bd), body) => let(vd, bd, body)
+      }
 
     case _ =>
       Application(fn, realArgs)
@@ -359,28 +280,4 @@ trait Constructors {
       IsInstanceOf(expr, tpe)
     }
   }
-
-  def req(pred: Expr, body: Expr) = pred match {
-    case BooleanLiteral(true)  => body
-    case BooleanLiteral(false) => Error(body.getType, "Precondition failed")
-    case _ => Require(pred, body)
-  }
-
-  def tupleWrapArg(fun: Expr) = fun.getType match {
-    case FunctionType(args, res) if args.size > 1 =>
-      val newArgs = fun match {
-        case Lambda(args, _) => args
-        case _ => args map (tpe => ValDef(FreshIdentifier("x", alwaysShowUniqueID = true), tpe))
-      }
-      val res = ValDef(FreshIdentifier("res", alwaysShowUniqueID = true), TupleType(args))
-      val patt = TuplePattern(None, newArgs map (arg => WildcardPattern(Some(arg))))
-      Lambda(Seq(res), MatchExpr(res.toVariable, Seq(SimpleCase(patt, application(fun, newArgs map (_.toVariable))))))
-    case _ =>
-      fun
-  }
-
-  def ensur(e: Expr, pred: Expr) = {
-    Ensuring(e, tupleWrapArg(pred))
-  }
-
 }

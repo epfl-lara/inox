@@ -24,7 +24,7 @@ import utils._
   * operations on Leon expressions.
   *
   */
-trait SymbolOps extends TreeOps { self: TypeOps =>
+trait SymbolOps { self: TypeOps =>
   import trees._
   import trees.exprOps._
   import symbols._
@@ -57,7 +57,7 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
     def step(e: Expr): Option[Expr] = e match {
       case Not(t) => Some(not(t))
       case UMinus(t) => Some(uminus(t))
-      case CaseClassSelector(cd, e, sel) => Some(caseClassSelector(cd, e, sel))
+      case CaseClassSelector(e, sel) => Some(caseClassSelector(e, sel))
       case AsInstanceOf(e, ct) => Some(asInstOf(e, ct))
       case Equals(t1, t2) => Some(equality(t1, t2))
       case Implies(t1, t2) => Some(implies(t1, t2))
@@ -67,7 +67,6 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
       case And(args) => Some(andJoin(args))
       case Or(args) => Some(orJoin(args))
       case Tuple(args) => Some(tupleWrap(args))
-      case MatchExpr(scrut, cases) => Some(matchExpr(scrut, cases))
       case _ => None
     }
     postMap(step)(expr)
@@ -79,13 +78,10 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
       case TupleSelect(Let(id, v, b), ts) =>
         Some(Let(id, v, tupleSelect(b, ts, true)))
 
-      case TupleSelect(LetTuple(ids, v, b), ts) =>
-        Some(letTuple(ids, v, tupleSelect(b, ts, true)))
+      case CaseClassSelector(cc: CaseClass, id) =>
+        Some(caseClassSelector(cc, id).copiedFrom(e))
 
-      case CaseClassSelector(cct, cc: CaseClass, id) =>
-        Some(caseClassSelector(cct, cc, id).copiedFrom(e))
-
-      case IfExpr(c, thenn, elze) if (thenn == elze) && isPurelyFunctional(c) =>
+      case IfExpr(c, thenn, elze) if thenn == elze =>
         Some(thenn)
 
       case IfExpr(c, BooleanLiteral(true), BooleanLiteral(false)) =>
@@ -170,7 +166,7 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
     val n = new Normalizer
     // this registers the argument images into n.subst
     val bindings = args map n.transform
-    val normalized = n.transform(matchToIfThenElse(expr))
+    val normalized = n.transform(expr)
 
     val freeVars = variablesOf(normalized) -- bindings.map(_.toVariable)
     val bodySubst = n.subst.filter(p => freeVars(p._1))
@@ -194,7 +190,6 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
       case v: Variable if s.isDefinedAt(v) => rec(s(v), s)
       case l @ Let(i,e,b) => rec(b, s + (i.toVariable -> rec(e, s)))
       case i @ IfExpr(t1,t2,t3) => IfExpr(rec(t1, s),rec(t2, s),rec(t3, s)).copiedFrom(i)
-      case m @ MatchExpr(scrut, cses) => matchExpr(rec(scrut, s), cses.map(inCase(_, s))).copiedFrom(m)
       case n @ Deconstructor(args, recons) =>
         var change = false
         val rargs = args.map(a => {
@@ -213,18 +208,12 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
       case unhandled => scala.sys.error("Unhandled case in expandLets: " + unhandled)
     }
 
-    def inCase(cse: MatchCase, s: Map[Variable,Expr]) : MatchCase = {
-      import cse._
-      MatchCase(pattern, optGuard map { rec(_, s) }, rec(rhs,s))
-    }
-
     rec(expr, Map.empty)
   }
 
   /** Lifts lets to top level.
     *
     * Does not push any used variable out of scope.
-    * Assumes no match expressions (i.e. matchToIfThenElse has been called on e)
     */
   def liftLets(e: Expr): Expr = {
 
@@ -245,187 +234,6 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
     val (bd, defs) = genericTransform[C](noTransformer, noLet, combiner)(Seq())(e)
 
     defs.foldRight(bd){ case ((vd, e), body) => Let(vd, e, body) }
-  }
-
-  /** Recursively transforms a pattern on a boolean formula expressing the conditions for the input expression, possibly including name binders
-    *
-    * For example, the following pattern on the input `i`
-    * {{{
-    * case m @ MyCaseClass(t: B, (_, 7)) =>
-    * }}}
-    * will yield the following condition before simplification (to give some flavour)
-    *
-    * {{{and(IsInstanceOf(MyCaseClass, i), and(Equals(m, i), InstanceOfClass(B, i.t), equals(i.k.arity, 2), equals(i.k._2, 7))) }}}
-    *
-    * Pretty-printed, this would be:
-    * {{{
-    * i.instanceOf[MyCaseClass] && m == i && i.t.instanceOf[B] && i.k.instanceOf[Tuple2] && i.k._2 == 7
-    * }}}
-    *
-    * @see [[purescala.Expressions.Pattern]]
-    */
-  def conditionForPattern(in: Expr, pattern: Pattern, includeBinders: Boolean = false): Path = {
-    def bind(ob: Option[ValDef], to: Expr): Path = {
-      if (!includeBinders) {
-        Path.empty
-      } else {
-        ob.map(v => Path.empty withBinding (v -> to)).getOrElse(Path.empty)
-      }
-    }
-
-    def rec(in: Expr, pattern: Pattern): Path = {
-      pattern match {
-        case WildcardPattern(ob) =>
-          bind(ob, in)
-
-        case InstanceOfPattern(ob, ct) =>
-          val tcd = ct.tcd
-          if (tcd.root == tcd) {
-            bind(ob, in)
-          } else {
-            Path(IsInstanceOf(in, ct)) merge bind(ob, in)
-          }
-
-        case CaseClassPattern(ob, cct, subps) =>
-          val tccd = cct.tcd.toCase
-          assert(tccd.fields.size == subps.size)
-          val pairs = tccd.fields.map(_.id).toList zip subps.toList
-          val subTests = pairs.map(p => rec(caseClassSelector(cct, in, p._1), p._2))
-          Path(IsInstanceOf(in, cct)) merge bind(ob, in) merge subTests
-
-        case TuplePattern(ob, subps) =>
-          val TupleType(tpes) = in.getType
-          assert(tpes.size == subps.size)
-          val subTests = subps.zipWithIndex.map {
-            case (p, i) => rec(tupleSelect(in, i+1, subps.size), p)
-          }
-          bind(ob, in) merge subTests
-
-        case up @ UnapplyPattern(ob, id, tps, subps) =>
-          val subs = unwrapTuple(up.get(in), subps.size).zip(subps) map (rec _).tupled
-          bind(ob, in) withCond up.isSome(in) merge subs
-
-        case LiteralPattern(ob, lit) =>
-          Path(Equals(in, lit)) merge bind(ob, in)
-      }
-    }
-
-    rec(in, pattern)
-  }
-
-  /** Converts the pattern applied to an input to a map between identifiers and expressions */
-  def mapForPattern(in: Expr, pattern: Pattern): Map[Variable,Expr] = {
-    def bindIn(ov: Option[ValDef], cast: Option[ClassType] = None): Map[Variable, Expr] = ov match {
-      case None => Map()
-      case Some(v) => Map(v.toVariable -> cast.map(asInstOf(in, _)).getOrElse(in))
-    }
-
-    pattern match {
-      case CaseClassPattern(b, ct, subps) =>
-        val tcd = ct.tcd.toCase
-        assert(tcd.fields.size == subps.size)
-        val pairs = tcd.fields.map(_.id).toList zip subps.toList
-        val subMaps = pairs.map(p => mapForPattern(caseClassSelector(ct, asInstOf(in, ct), p._1), p._2))
-        val together = subMaps.flatten.toMap
-        bindIn(b, Some(ct)) ++ together
-
-      case TuplePattern(b, subps) =>
-        val TupleType(tpes) = in.getType
-        assert(tpes.size == subps.size)
-
-        val maps = subps.zipWithIndex.map{case (p, i) => mapForPattern(tupleSelect(in, i+1, subps.size), p)}
-        val map = maps.flatten.toMap
-        bindIn(b) ++ map
-
-      case up @ UnapplyPattern(b, _, _, subps) =>
-        bindIn(b) ++ unwrapTuple(up.getUnsafe(in), subps.size).zip(subps).flatMap {
-          case (e, p) => mapForPattern(e, p)
-        }.toMap
-
-      case InstanceOfPattern(b, ct) =>
-        bindIn(b, Some(ct))
-
-      case other =>
-        bindIn(other.binder)
-    }
-  }
-
-  /** Rewrites all pattern-matching expressions into if-then-else expressions
-    * Introduces additional error conditions. Does not introduce additional variables.
-    */
-  def matchToIfThenElse(expr: Expr): Expr = {
-
-    def rewritePM(e: Expr): Option[Expr] = e match {
-      case m @ MatchExpr(scrut, cases) =>
-        // println("Rewriting the following PM: " + e)
-
-        val condsAndRhs = for (cse <- cases) yield {
-          val map = mapForPattern(scrut, cse.pattern)
-          val patCond = conditionForPattern(scrut, cse.pattern, includeBinders = false)
-          val realCond = cse.optGuard match {
-            case Some(g) => patCond withCond replaceFromSymbols(map, g)
-            case None => patCond
-          }
-          val newRhs = replaceFromSymbols(map, cse.rhs)
-          (realCond.toClause, newRhs, cse)
-        }
-
-        val bigIte = condsAndRhs.foldRight[Expr](Error(m.getType, "Match is non-exhaustive").copiedFrom(m))((p1, ex) => {
-          if(p1._1 == BooleanLiteral(true)) {
-            p1._2
-          } else {
-            IfExpr(p1._1, p1._2, ex).copiedFrom(p1._3)
-          }
-        })
-
-        Some(bigIte)
-
-      case _ => None
-    }
-
-    preMap(rewritePM)(expr)
-  }
-
-  /** For each case in the [[purescala.Expressions.MatchExpr MatchExpr]],
-    * concatenates the path condition with the newly induced conditions.
-    * Each case holds the conditions on other previous cases as negative.
-    * @note The guard of the final case is NOT included in the Paths.
-    *
-    * @see [[purescala.ExprOps#conditionForPattern conditionForPattern]]
-    * @see [[purescala.ExprOps#mapForPattern mapForPattern]]
-    */
-  def matchExprCaseConditions(m: MatchExpr, path: Path): Seq[Path] = {
-    val MatchExpr(scrut, cases) = m
-    var pcSoFar = path
-
-    for (c <- cases) yield {
-      val cond = conditionForPattern(scrut, c.pattern, includeBinders = true)
-      val localCond = pcSoFar merge cond
-
-      // These contain no binders defined in this MatchCase
-      val condSafe = conditionForPattern(scrut, c.pattern)
-      val g = c.optGuard getOrElse BooleanLiteral(true)
-      val gSafe = replaceFromSymbols(mapForPattern(scrut, c.pattern), g)
-      pcSoFar = pcSoFar merge (condSafe withCond gSafe).negate
-
-      localCond
-    }
-  }
-
-  /** Condition to pass this match case, expressed w.r.t scrut only */
-  def matchCaseCondition(scrut: Expr, c: MatchCase): Path = {
-
-    val patternC = conditionForPattern(scrut, c.pattern, includeBinders = false)
-
-    c.optGuard match {
-      case Some(g) =>
-        // guard might refer to binders
-        val map  = mapForPattern(scrut, c.pattern)
-        patternC withCond replaceFromSymbols(map, g)
-
-      case None =>
-        patternC
-    }
   }
 
   private def hasInstance(tcd: TypedClassDef): Boolean = {
@@ -585,41 +393,9 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
           rec(v, path) ++
           rec(b, path withBinding (i -> v))
 
-        case Ensuring(Require(pre, body), Lambda(Seq(arg), post)) =>
-          rec(pre, path) ++
-          rec(body, path withCond pre) ++
-          rec(post, path withCond pre withBinding (arg -> body))
-
-        case Ensuring(body, Lambda(Seq(arg), post)) =>
-          rec(body, path) ++
-          rec(post, path withBinding (arg -> body))
-
-        case Require(pre, body) =>
-          rec(pre, path) ++
-          rec(body, path withCond pre)
-
-        case Assert(pred, err, body) =>
+        case Assume(pred, body) =>
           rec(pred, path) ++
           rec(body, path withCond pred)
-
-        case MatchExpr(scrut, cases) =>
-          val rs = rec(scrut, path)
-          var soFar = path
-
-          rs ++ cases.flatMap { c =>
-            val patternPathPos = conditionForPattern(scrut, c.pattern, includeBinders = true)
-            val patternPathNeg = conditionForPattern(scrut, c.pattern, includeBinders = false)
-            val map = mapForPattern(scrut, c.pattern)
-            val guardOrTrue = c.optGuard.getOrElse(BooleanLiteral(true))
-            val guardMapped = replaceFromSymbols(map, guardOrTrue)
-
-            val rc = rec((patternPathPos withCond guardOrTrue).fullClause, soFar)
-            val subPath = soFar merge (patternPathPos withCond guardOrTrue)
-            val rrhs = rec(c.rhs, subPath)
-
-            soFar = soFar merge (patternPathNeg withCond guardMapped).negate
-            rc ++ rrhs
-          }
 
         case IfExpr(cond, thenn, elze) =>
           rec(cond, path) ++
@@ -786,96 +562,6 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
     }
   }
 
-  /* =================
-   * Body manipulation
-   * =================
-   */
-
-  /** Returns whether a particular [[Expressions.Expr]] contains specification
-    * constructs, namely [[Expressions.Require]] and [[Expressions.Ensuring]].
-    */
-  def hasSpec(e: Expr): Boolean = exists {
-    case Require(_, _) => true
-    case Ensuring(_, _) => true
-    case Let(i, e, b) => hasSpec(b)
-    case _ => false
-  } (e)
-
-  /** Merges the given [[Path]] into the provided [[Expressions.Expr]].
-    *
-    * This method expects to run on a [[Definitions.FunDef.fullBody]] and merges into
-    * existing pre- and postconditions.
-    *
-    * @param expr The current body
-    * @param path The path that should be wrapped around the given body
-    * @see [[Expressions.Ensuring]]
-    * @see [[Expressions.Require]]
-    */
-  def withPath(expr: Expr, path: Path): Expr = expr match {
-    case Let(i, e, b) => withPath(b, path withBinding (i -> e))
-    case Require(pre, b) => path specs (b, pre)
-    case Ensuring(Require(pre, b), post) => path specs (b, pre, post)
-    case Ensuring(b, post) => path specs (b, post = post)
-    case b => path specs b
-  }
-
-  /** Replaces the precondition of an existing [[Expressions.Expr]] with a new one.
-    *
-    * If no precondition is provided, removes any existing precondition.
-    * Else, wraps the expression with a [[Expressions.Require]] clause referring to the new precondition.
-    *
-    * @param expr The current expression
-    * @param pred An optional precondition. Setting it to None removes any precondition.
-    * @see [[Expressions.Ensuring]]
-    * @see [[Expressions.Require]]
-    */
-  def withPrecondition(expr: Expr, pred: Option[Expr]): Expr = (pred, expr) match {
-    case (Some(newPre), Require(pre, b))              => req(newPre, b)
-    case (Some(newPre), Ensuring(Require(pre, b), p)) => Ensuring(req(newPre, b), p)
-    case (Some(newPre), Ensuring(b, p))               => Ensuring(req(newPre, b), p)
-    case (Some(newPre), Let(i, e, b)) if hasSpec(b)   => Let(i, e, withPrecondition(b, pred))
-    case (Some(newPre), b)                            => req(newPre, b)
-    case (None, Require(pre, b))                      => b
-    case (None, Ensuring(Require(pre, b), p))         => Ensuring(b, p)
-    case (None, Let(i, e, b)) if hasSpec(b)           => Let(i, e, withPrecondition(b, pred))
-    case (None, b)                                    => b
-  }
-
-  /** Replaces the postcondition of an existing [[Expressions.Expr]] with a new one.
-    *
-    * If no postcondition is provided, removes any existing postcondition.
-    * Else, wraps the expression with a [[Expressions.Ensuring]] clause referring to the new postcondition.
-    *
-    * @param expr The current expression
-    * @param oie An optional postcondition. Setting it to None removes any postcondition.
-    * @see [[Expressions.Ensuring]]
-    * @see [[Expressions.Require]]
-    */
-  def withPostcondition(expr: Expr, oie: Option[Expr]): Expr = (oie, expr) match {
-    case (Some(npost), Ensuring(b, post))          => ensur(b, npost)
-    case (Some(npost), Let(i, e, b)) if hasSpec(b) => Let(i, e, withPostcondition(b, oie))
-    case (Some(npost), b)                          => ensur(b, npost)
-    case (None, Ensuring(b, p))                    => b
-    case (None, Let(i, e, b)) if hasSpec(b)        => Let(i, e, withPostcondition(b, oie))
-    case (None, b)                                 => b
-  }
-
-  /** Adds a body to a specification
-    *
-    * @param expr The specification expression [[Expressions.Ensuring]] or [[Expressions.Require]]. If none of these, the argument is discarded.
-    * @param body An option of [[Expressions.Expr]] possibly containing an expression body.
-    * @return The post/pre condition with the body. If no body is provided, returns [[Expressions.NoTree]]
-    * @see [[Expressions.Ensuring]]
-    * @see [[Expressions.Require]]
-    */
-  def withBody(expr: Expr, body: Option[Expr]): Expr = expr match {
-    case Let(i, e, b) if hasSpec(b)      => Let(i, e, withBody(b, body))
-    case Require(pre, _)                 => Require(pre, body.getOrElse(NoTree(expr.getType)))
-    case Ensuring(Require(pre, _), post) => Ensuring(Require(pre, body.getOrElse(NoTree(expr.getType))), post)
-    case Ensuring(_, post)               => Ensuring(body.getOrElse(NoTree(expr.getType)), post)
-    case _                               => body.getOrElse(NoTree(expr.getType))
-  }
-
   object InvocationExtractor {
     private def flatInvocation(expr: Expr): Option[(Identifier, Seq[Type], Seq[Expr])] = expr match {
       case fi @ FunctionInvocation(id, tps, args) => Some((id, tps, args))
@@ -930,8 +616,6 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
           IfExpr(cond, apply(thenn, args), apply(elze, args))
         case Let(i, e, b) =>
           Let(i, e, apply(b, args))
-        case LetTuple(is, es, b) =>
-          letTuple(is, es, apply(b, args))
         //case l @ Lambda(params, body) =>
         //  l.withParamSubst(args, body)
         case _ => Application(expr, args)
@@ -968,11 +652,7 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
       rec(lift(expr), true)
     }
 
-    liftToLambdas(
-      matchToIfThenElse(
-        expr
-      )
-    )
+    liftToLambdas(expr)
   }
 
   // Use this only to debug isValueOfType

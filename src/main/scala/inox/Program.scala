@@ -11,4 +11,10 @@ trait Program {
 
   implicit def implicitProgram: this.type = this
   implicit def printerOpts: trees.PrinterOptions = trees.PrinterOptions.fromSymbols(symbols, ctx)
+
+  def transform(t: trees.TreeTransformer): Program { val trees: Program.this.trees.type } = new Program {
+    val trees: Program.this.trees.type = Program.this.trees
+    val symbols = Program.this.symbols.transform(t)
+    val ctx = Program.this.ctx
+  }
 }

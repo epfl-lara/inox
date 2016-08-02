@@ -8,7 +8,13 @@ import scala.language.implicitConversions
 
 case object DebugSectionTrees extends DebugSection("trees")
 
-trait Trees extends Expressions with Extractors with Types with Definitions with Printers {
+trait Trees
+  extends Expressions
+     with Extractors
+     with Types
+     with Definitions
+     with Printers
+     with TreeOps {
 
   class Unsupported(t: Tree, msg: String)(implicit ctx: InoxContext)
     extends Exception(s"${t.asString(PrinterOptions.fromContext(ctx))}@${t.getPos} $msg")

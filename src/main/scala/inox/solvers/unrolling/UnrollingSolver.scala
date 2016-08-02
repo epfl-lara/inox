@@ -43,7 +43,7 @@ trait AbstractUnrollingSolver
   val assumePreHolds   = options.findOptionOrDefault(optAssumePre)
   val silentErrors     = options.findOptionOrDefault(optSilentErrors)
 
-  def check(model: Boolean = false, cores: Boolean = false): SolverResponse =
+  def check(model: Boolean = false, cores: Boolean = false): SolverResponses.SolverResponse =
     checkAssumptions(model = model, cores = cores)(Set.empty)
 
   private val constraints = new IncrementalSeq[Expr]()
@@ -87,7 +87,7 @@ trait AbstractUnrollingSolver
       declareVariable(theories.encode(v))
     }).toMap
 
-    val newClauses = unrollingBank.getClauses(expression, bindings)
+    val newClauses = templates.instantiateExpr(expression, bindings)
     for (cl <- newClauses) {
       solverAssert(cl)
     }
@@ -150,32 +150,16 @@ trait AbstractUnrollingSolver
       case v: Variable => false
       case _ => true
     }
-
-    private[AbstractUnrollingSolver] def extract(b: Encoded, m: templates.Matcher): Option[Seq[Expr]] = {
-      val QuantificationTypeMatcher(fromTypes, _) = m.tpe
-      val optEnabler = eval(b, BooleanType)
-      optEnabler.filter(_ == BooleanLiteral(true)).flatMap { _ =>
-        val optArgs = (m.args zip fromTypes).map { case (arg, tpe) => eval(arg.encoded, tpe) }
-        if (optArgs.forall(_.isDefined)) {
-          Some(optArgs.map(_.get))
-        } else {
-          None
-        }
-      }
-    }
   }
 
   private def emit(silenceErrors: Boolean)(msg: String) =
     if (silenceErrors) reporter.debug(msg) else reporter.warning(msg)
 
-  private def validateModel(model: ModelWrapper, assumptions: Seq[Expr], silenceErrors: Boolean): Boolean = {
+  private def validateModel(model: Map[ValDef, Expr], assumptions: Seq[Expr], silenceErrors: Boolean): Boolean = {
     val expr = andJoin(assumptions ++ constraints)
 
     // we have to check case class constructors in model for ADT invariants
-    val newExpr = freeVars.toSeq.foldLeft(expr) { case (e, (v, _)) =>
-      val value = model.get(v).getOrElse(simplestValue(v.getType))
-      let(v.toVal, value, e)
-    }
+    val newExpr = model.toSeq.foldLeft(expr) { case (e, (v, value)) => let(v, value, e) }
 
     evaluator.eval(newExpr) match {
       case EvaluationResults.Successful(BooleanLiteral(true)) =>
@@ -196,10 +180,109 @@ trait AbstractUnrollingSolver
     }
   }
 
-  private def getTotalModel: Model = {
-    val wrapped = solverGetModel
-    val view = templateGenerator.manager.getModel(freeVars.toMap, evaluator, wrapped.get, wrapped.eval)
-    view.getTotalModel
+  private def extractSimpleModel(wrapper: ModelWrapper): Map[ValDef, Expr] = {
+    freeVars.toMap.map { case (v, _) => v.toVal -> wrapper.get(v).getOrElse(simplestValue(v.getType)) }
+  }
+
+  private def extractTotalModel(wrapper: ModelWrapper): Map[ValDef, Expr] = {
+    def functionsOf(expr: Expr, selector: Expr): (Seq[(Expr, Expr)], Seq[Expr] => Expr) = {
+      def reconstruct(subs: Seq[(Seq[(Expr, Expr)], Seq[Expr] => Expr)],
+                      recons: Seq[Expr] => Expr): (Seq[(Expr, Expr)], Seq[Expr] => Expr) =
+        (subs.flatMap(_._1), (exprs: Seq[Expr]) => {
+          var curr = exprs
+          recons(subs.map { case (es, recons) =>
+            val (used, remaining) = curr.splitAt(es.size)
+            curr = remaining
+            recons(used)
+          })
+        })
+
+      def rec(expr: Expr, selector: Expr): (Seq[(Expr, Expr)], Seq[Expr] => Expr) = expr match {
+        case (_: Lambda) =>
+          (Seq(expr -> selector), (es: Seq[Expr]) => es.head)
+
+        case Tuple(es) => reconstruct(es.zipWithIndex.map {
+          case (e, i) => rec(e, TupleSelect(selector, i + 1))
+        }, Tuple)
+
+        case CaseClass(cct, es) => reconstruct((cct.tcd.toCase.fields zip es).map {
+          case (vd, e) => rec(e, CaseClassSelector(selector, vd.id))
+        }, CaseClass(cct, _))
+
+        case _ => (Seq.empty, (es: Seq[Expr]) => expr)
+      }
+
+      rec(expr, selector)
+    }
+
+    import templates.{QuantificationTypeMatcher => QTM}
+    freeVars.toMap.map { case (v, idT) =>
+      val value = wrapper.get(v).getOrElse(simplestValue(v.getType))
+      val (functions, recons) = functionsOf(value, v)
+
+      v.toVal -> recons(functions.map { case (f, selector) =>
+        val encoded = templates.mkEncoder(Map(v -> idT))(selector)
+        val tpe = bestRealType(f.getType).asInstanceOf[FunctionType]
+        val QTM(from, to) = tpe
+
+        if (from.isEmpty) f else {
+          val params = from.map(tpe => Variable(FreshIdentifier("x", true), tpe))
+          val app = templates.mkApplication(selector, params)
+
+          val allImages = templates.getGroundInstantiations(encoded, tpe).flatMap { case (b, eArgs) =>
+            wrapper.eval(b, BooleanType).filter(_ == BooleanLiteral(true)).flatMap { _ =>
+              val optArgs = (eArgs zip from).map { case (arg, tpe) => wrapper.eval(arg, tpe) }
+              val eApp = templates.mkEncoder(Map(v -> idT) ++ (params zip eArgs))(app)
+              val optResult = wrapper.eval(eApp, to)
+
+              if (optArgs.forall(_.isDefined) && optResult.isDefined) {
+                val args = optArgs.map(_.get)
+                val result = optResult.get
+                Some(args -> result)
+              } else {
+                None
+              }
+            }
+          }
+
+          val default = if (allImages.isEmpty) {
+            def rec(e: Expr): Expr = e match {
+              case Lambda(_, body) => rec(body)
+              case IfExpr(_, _, elze) => rec(elze)
+              case e => e
+            }
+
+            rec(f)
+          } else {
+            val optDefault = allImages.collectFirst {
+              case (firstArg +: otherArgs, result) if otherArgs.forall { o =>
+                evaluator.eval(Equals(firstArg, o)).result == Some(BooleanLiteral(true))
+              } => result
+            }
+
+            optDefault.getOrElse {
+              val app = templates.mkApplication(f, Seq.fill(from.size)(allImages.head._1.head))
+              evaluator.eval(app).result.getOrElse {
+                scala.sys.error("Unexpectedly failed to evaluate " + app.asString)
+              }
+            }
+          }
+
+          val body = allImages.foldRight(default) { case ((args, result), elze) =>
+            IfExpr(andJoin((params zip args).map(p => Equals(p._1, p._2))), result, elze)
+          }
+
+          def mkLambda(params: Seq[ValDef], body: Expr): Lambda = body.getType match {
+            case FunctionType(from, to) =>
+              val (rest, curr) = params.splitAt(params.size - from.size)
+              mkLambda(rest, Lambda(curr, body))
+            case _ => Lambda(params, body)
+          }
+
+          mkLambda(params.map(_.toVal), body)
+        }
+      })
+    }
   }
 
   def checkAssumptions(model: Boolean = false, cores: Boolean = false)(assumptions: Set[Expr]) = {
@@ -207,7 +290,7 @@ trait AbstractUnrollingSolver
     val assumptionsSeq       : Seq[Expr]          = assumptions.toSeq
     val encodedAssumptions   : Seq[Encoded]       = assumptionsSeq.map { expr =>
       val vars = exprOps.variablesOf(expr)
-      templates.encodeExpr(vars.map(v => theories.encode(v) -> freeVars(v)).toMap)(expr)
+      templates.mkEncoder(vars.map(v => theories.encode(v) -> freeVars(v)).toMap)(expr)
     }
     val encodedToAssumptions : Map[Encoded, Expr] = (encodedAssumptions zip assumptionsSeq).toMap
 
@@ -221,7 +304,7 @@ trait AbstractUnrollingSolver
 
     sealed abstract class CheckState
     class CheckResult(val response: SolverResponses.SolverResponse) extends CheckState
-    case class Validate(resp: Sat) extends CheckState
+    case class Validate(model: Option[Map[ValDef, Expr]]) extends CheckState
     case object ModelCheck extends CheckState
     case object FiniteRangeCheck extends CheckState
     case object InstantiateQuantifiers extends CheckState
@@ -233,7 +316,7 @@ trait AbstractUnrollingSolver
       def apply(resp: Response): CheckResult = new CheckResult(resp match {
         case Unknown           => SolverResponses.Unknown
         case Sat(None)         => SolverResponses.SatResponse
-        case Sat(Some(model))  => SolverResponses.SatResponseWithModel(model)
+        case Sat(Some(model))  => SolverResponses.SatResponseWithModel(extractSimpleModel(model))
         case Unsat(None)       => SolverResponses.UnsatResponse
         case Unsat(Some(core)) => SolverResponses.UnsatResponseWithCores(encodedCoreToCore(core))
       })
@@ -253,7 +336,7 @@ trait AbstractUnrollingSolver
         case ModelCheck =>
           reporter.debug(" - Running search...")
 
-          val withModel = model && !templates.hasIgnored
+          val withModel = model && !templates.requiresFiniteRangeCheck
           val withCores = cores || unrollUnsatCores
 
           val timer = ctx.timers.solvers.check.start()
@@ -271,10 +354,10 @@ trait AbstractUnrollingSolver
                 CheckResult(Unknown)
 
               case sat: Sat =>
-                if (templates.hasIgnored) {
+                if (templates.requiresFiniteRangeCheck) {
                   FiniteRangeCheck
                 } else {
-                  Validate(sat)
+                  Validate(sat.model.map(extractSimpleModel))
                 }
 
               case _: Unsat if !templates.canUnroll =>
@@ -309,35 +392,35 @@ trait AbstractUnrollingSolver
               case Abort() =>
                 CheckResult(Unknown)
 
-              case sat: Sat =>
-                Validate(sat)
+              case Sat(optModel) =>
+                Validate(optModel.map(extractTotalModel))
 
               case _ =>
                 InstantiateQuantifiers
             }
           }
 
-        case Validate(sat) => sat match {
-          case Sat(None) => CheckResult(SolverResponses.SatResponse)
-          case Sat(Some(model)) =>
+        case Validate(optModel) => optModel match {
+          case None => CheckResult(SolverResponses.SatResponse)
+          case Some(model) =>
             val valid = !checkModels || validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
             if (valid) {
-              CheckResult(model)
+              CheckResult(SolverResponses.SatResponseWithModel(model))
             } else {
               reporter.error(
                 "Something went wrong. The model should have been valid, yet we got this: " +
-                model.asString +
+                model.toString +
                 " for formula " + andJoin(assumptionsSeq ++ constraints).asString)
               CheckResult(Unknown)
             }
         }
 
         case InstantiateQuantifiers =>
-          if (!templates.canUnfoldQuantifiers) {
+          if (!templates.quantificationsManager.unrollGeneration.isDefined) {
             reporter.error("Something went wrong. The model is not transitive yet we can't instantiate!?")
             CheckResult(Unknown)
           } else {
-            // TODO: promote ignored quantifiers!
+            templates.promoteQuantifications
             Unroll
           }
 
@@ -366,12 +449,12 @@ trait AbstractUnrollingSolver
                 CheckResult(res)
 
               case Sat(Some(model)) if feelingLucky =>
-                if (validateModel(model, assumptionsSeq, silenceErrors = true)) {
+                if (validateModel(extractSimpleModel(model), assumptionsSeq, silenceErrors = true)) {
                   CheckResult(res)
                 } else {
                   for {
                     (inst, bs) <- templates.getInstantiationsWithBlockers
-                    if !model.isTrue(inst)
+                    if model.eval(inst, BooleanType) == Some(BooleanLiteral(false))
                     b <- bs
                   } templates.promoteBlocker(b, force = true)
 
@@ -427,13 +510,10 @@ trait UnrollingSolver extends AbstractUnrollingSolver {
     type Encoded = Expr
 
     def encodeSymbol(v: Variable): Expr = v.freshen
-    def encodeExpr(bindings: Map[Variable, Expr])(e: Expr): Expr = {
+    def mkEncoder(bindings: Map[Variable, Expr])(e: Expr): Expr =
       exprOps.replaceFromSymbols(bindings, e)
-    }
-
-    def substitute(substMap: Map[Expr, Expr]): Expr => Expr = {
+    def mkSubstituter(substMap: Map[Expr, Expr]): Expr => Expr =
       (e: Expr) => exprOps.replace(substMap, e)
-    }
 
     def mkNot(e: Expr) = not(e)
     def mkOr(es: Expr*) = orJoin(es)
@@ -471,14 +551,6 @@ trait UnrollingSolver extends AbstractUnrollingSolver {
     val r = block(res)
     solver.pop()
     r
-  }
-
-  def solverUnsatCore = None
-
-  def solverGetModel: ModelWrapper = new ModelWrapper {
-    val model = solver.getModel
-    def modelEval(elem: Expr, tpe: Type): Option[Expr] = evaluator.eval(elem, model).result
-    override def toString = model.toMap.mkString("\n")
   }
 
   override def dbg(msg: => Any) = solver.dbg(msg)

@@ -156,7 +156,6 @@ trait FunctionTemplates { self: Templates =>
         // We connect it to the defBlocker:   blocker => defBlocker
         if (defBlocker != blocker) {
           newCls += mkImplies(blocker, defBlocker)
-          impliesBlocker(blocker, defBlocker)
         }
 
         ctx.reporter.debug("Unrolling behind "+call+" ("+newCls.size+")")

@@ -53,7 +53,7 @@ class Bijection[A, B] extends Iterable[(A, B)] {
 
   def getA(b: B): Option[A] = b2a.get(b)
   def getB(a: A): Option[B] = a2b.get(a)
-  
+
   def getAorElse(b: B, orElse: =>A): A = b2a.getOrElse(b, orElse)
   def getBorElse(a: A, orElse: =>B): B = a2b.getOrElse(a, orElse)
 

@@ -90,7 +90,7 @@ trait DatatypeTemplates { self: Templates =>
 
         def unrollFields(tcd: TypedCaseClassDef): Seq[Expr] = tcd.fields.map { vd =>
           val tpe = tcd.toType
-          typeUnroller(CaseClassSelector(tpe, AsInstanceOf(expr, tpe), vd.id))
+          typeUnroller(CaseClassSelector(AsInstanceOf(expr, tpe), vd.id))
         }
 
         val fields: Seq[Expr] = if (tcd != tcd.root) {
@@ -185,7 +185,7 @@ trait DatatypeTemplates { self: Templates =>
       rec(pathVar, expr)
 
       val (idT, pathVarT) = (encodeSymbol(v), encodeSymbol(pathVar))
-      val encoder: Expr => Encoded = encodeExpr(condVars + (v -> idT) + (pathVar -> pathVarT))
+      val encoder: Expr => Encoded = mkEncoder(condVars + (v -> idT) + (pathVar -> pathVarT))
 
       var clauses: Clauses = Seq.empty
       var calls: CallBlockers  = Map.empty

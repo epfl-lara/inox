@@ -33,12 +33,14 @@ trait SolvingEvaluator extends Evaluator {
       case o @ InoxOption(opt, _) if opt == optForallCache => o
     }.toSeq : _*)
 
+    import solver.SolverResponses._
+
     solver.assertCnstr(body)
     val res = solver.check(model = true)
     timer.stop()
 
     res match {
-      case solver.Model(model) =>
+      case Model(model) =>
         valuateWithModel(model)(vd)
 
       case _ =>
@@ -60,16 +62,18 @@ trait SolvingEvaluator extends Evaluator {
         InoxOption(optForallCache)(cache)
       )
 
+      import solver.SolverResponses._
+
       solver.assertCnstr(Not(forall.body))
       val res = solver.check(model = true)
       timer.stop()
 
       res match {
-        case solver.Unsat() =>
+        case Unsat() =>
           cache(forall) = true
           true
 
-        case solver.Model(model) =>
+        case Model(model) =>
           cache(forall) = false
           eval(Not(forall.body), model) match {
             case EvaluationResults.Successful(BooleanLiteral(true)) => false

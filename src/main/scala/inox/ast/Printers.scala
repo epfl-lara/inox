@@ -96,25 +96,6 @@ trait Printers { self: Trees =>
           p"""|val $b = $d
               |$e"""
 
-        case Require(pre, body) =>
-          p"""|require($pre)
-              |$body"""
-
-        case Assert(const, Some(err), body) =>
-          p"""|assert($const, "$err")
-              |$body"""
-
-        case Assert(const, None, body) =>
-          p"""|assert($const)
-              |$body"""
-
-        case Ensuring(body, post) =>
-          p"""| {
-              |  $body
-              |} ensuring {
-              |  $post
-              |}"""
-
         case Forall(args, e) =>
           p"\u2200${nary(args)}. $e"
 
@@ -160,11 +141,9 @@ trait Printers { self: Trees =>
         case GenericValue(tp, id) => p"$tp#$id"
         case Tuple(exprs)         => p"($exprs)"
         case TupleSelect(t, i)    => p"$t._$i"
-        case NoTree(tpe)          => p"<empty tree>[$tpe]"
-        case e @ Error(tpe, err)  => p"""error[$tpe]("$err")"""
         case AsInstanceOf(e, ct)  => p"""$e.asInstanceOf[$ct]"""
         case IsInstanceOf(e, cct) => p"$e.isInstanceOf[$cct]"
-        case CaseClassSelector(_, e, id)         => p"$e.$id"
+        case CaseClassSelector(e, id)         => p"$e.$id"
 
         case FunctionInvocation(id, tps, args) =>
           p"${id}${nary(tps, ", ", "[", "]")}"
@@ -240,49 +219,6 @@ trait Printers { self: Trees =>
                 |}"""
           }
 
-        case LetPattern(p,s,rhs) =>
-          p"""|val $p = $s
-              |$rhs"""
-
-        case MatchExpr(s, csc) =>
-          optP {
-            p"""|$s match {
-                |  ${nary(csc, "\n")}
-                |}"""
-          }
-
-        // Cases
-        case MatchCase(pat, optG, rhs) =>
-          p"|case $pat "; optG foreach { g => p"if $g "}; p"""=>
-            |  $rhs"""
-
-        // Patterns
-        case WildcardPattern(None)     => p"_"
-        case WildcardPattern(Some(id)) => p"$id"
-
-        case CaseClassPattern(ob, ct, subps) =>
-          ob.foreach { b => p"$b @ " }
-          // Print only the classDef because we don't want type parameters in patterns
-          p"${ct.id}"
-          p"($subps)"
-
-        case InstanceOfPattern(ob, cct) =>
-          ob.foreach { b => p"$b : " }
-          // It's ok to print the whole type although scalac will complain about erasure
-          p"$cct"
-
-        case TuplePattern(ob, subps) =>
-          ob.foreach { b => p"$b @ " }
-          p"($subps)"
-
-        case UnapplyPattern(ob, id, tps, subps) =>
-          ob.foreach { b => p"$b @ " }
-          p"$id(${nary(subps)})"
-
-        case LiteralPattern(ob, lit) =>
-          ob foreach { b => p"$b @ " }
-          p"$lit"
-
         // Types
         case Untyped               => p"<untyped>"
         case UnitType              => p"Unit"
@@ -330,7 +266,12 @@ trait Printers { self: Trees =>
             p"(${fd.params}): "
           }
 
-          p"${fd.returnType} = ${fd.fullBody}"
+          p"${fd.returnType} = "
+
+          fd.body match {
+            case Some(body) => p"$body"
+            case None => p"???"
+          }
 
         case (tree: PrettyPrintable) => tree.printWith(ctx)
 
@@ -365,25 +306,20 @@ trait Printers { self: Trees =>
     }
 
     protected def isSimpleExpr(e: Expr): Boolean = e match {
-      case _: Let | LetPattern(_, _, _) | _: Assert | _: Require => false
+      case _: Let => false
       case p: PrettyPrintable => p.isSimpleExpr
       case _ => true
     }
 
     protected def noBracesSub(e: Expr): Seq[Expr] = e match {
-      case Assert(_, _, bd) => Seq(bd)
       case Let(_, _, bd) => Seq(bd)
-      case LetPattern(_, _, bd) => Seq(bd)
-      case Require(_, bd) => Seq(bd)
       case IfExpr(_, t, e) => Seq(t, e) // if-else always has braces anyway
-      case Ensuring(bd, pred) => Seq(bd, pred)
       case _ => Seq()
     }
 
     protected def requiresBraces(ex: Tree, within: Option[Tree]) = (ex, within) match {
       case (e: Expr, _) if isSimpleExpr(e) => false
       case (e: Expr, Some(within: Expr)) if noBracesSub(within) contains e => false
-      case (_: Expr, Some(_: MatchCase)) => false
       case (e: Expr, Some(_)) => true
       case _ => false
     }
@@ -405,14 +341,11 @@ trait Printers { self: Trees =>
       case (pa: PrettyPrintable, _) => pa.printRequiresParentheses(within)
       case (_, None) => false
       case (_, Some(
-        _: Ensuring | _: Assert | _: Require | _: Definition | _: MatchExpr | _: MatchCase |
-        _: Let | _: IfExpr | _ : CaseClass | _ : Lambda | _ : Tuple
+        _: Definition | _: Let | _: IfExpr | _ : CaseClass | _ : Lambda | _ : Tuple
       )) => false
-      case (_:Pattern, _) => false
       case (ex: StringConcat, Some(_: StringConcat)) => false
       case (_, Some(_: FunctionInvocation)) => false
       case (ie: IfExpr, _) => true
-      case (me: MatchExpr, _ ) => true
       case (e1: Expr, Some(e2: Expr)) if precedence(e1) > precedence(e2) => false
       case (_, _) => true
     }

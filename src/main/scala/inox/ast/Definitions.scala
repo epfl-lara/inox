@@ -77,14 +77,19 @@ trait Definitions { self: Trees =>
     override def hashCode: Int = super[VariableSymbol].hashCode
   }
 
+  type Symbols <: AbstractSymbols
+
   /** A wrapper for a program. For now a program is simply a single object. */
-  case class Symbols(classes: Map[Identifier, ClassDef], functions: Map[Identifier, FunDef])
+  trait AbstractSymbols
      extends Tree
         with TypeOps
         with SymbolOps
         with CallGraph
         with Constructors
         with Paths {
+
+    protected val classes: Map[Identifier, ClassDef]
+    protected val functions: Map[Identifier, FunDef]
 
     private[ast] val trees: self.type = self
     protected val symbols: this.type = this
@@ -116,6 +121,8 @@ trait Definitions { self: Trees =>
     def getFunction(id: Identifier, tps: Seq[Type]): TypedFunDef = lookupFunction(id, tps).getOrElse(throw FunctionLookupException(id))
 
     def asString: String = asString(PrinterOptions.fromSymbols(this, InoxContext.printNames))
+
+    def transform(t: TreeTransformer): Symbols
   }
 
   case class TypeParameterDef(tp: TypeParameter) extends Definition {
@@ -307,25 +314,11 @@ trait Definitions { self: Trees =>
     val tparams: Seq[TypeParameterDef],
     val params: Seq[ValDef],
     val returnType: Type,
-    val fullBody: Expr,
+    val body: Option[Expr],
     val flags: Set[FunctionFlag]
   ) extends Definition {
 
-    /* Body manipulation */
-
-    lazy val body: Option[Expr] = exprOps.withoutSpec(fullBody)
-    lazy val precondition = exprOps.preconditionOf(fullBody)
-    lazy val precOrTrue = precondition getOrElse BooleanLiteral(true)
-
-    lazy val postcondition = exprOps.postconditionOf(fullBody)
-    lazy val postOrTrue = postcondition getOrElse {
-      val arg = ValDef(FreshIdentifier("res", alwaysShowUniqueID = true), returnType)
-      Lambda(Seq(arg), BooleanLiteral(true))
-    }
-
     def hasBody          = body.isDefined
-    def hasPrecondition  = precondition.isDefined
-    def hasPostcondition = postcondition.isDefined
 
     def annotations: Set[String] = extAnnotations.keySet
     def extAnnotations: Map[String, Seq[Option[Any]]] = flags.collect {
@@ -409,16 +402,7 @@ trait Definitions { self: Trees =>
 
     lazy val returnType: Type = translated(fd.returnType)
 
-    lazy val fullBody      = translated(fd.fullBody)
     lazy val body          = fd.body map translated
-    lazy val precondition  = fd.precondition map translated
-    lazy val precOrTrue    = translated(fd.precOrTrue)
-    lazy val postcondition = fd.postcondition map (p => translated(p).asInstanceOf[Lambda])
-    lazy val postOrTrue    = translated(fd.postOrTrue).asInstanceOf[Lambda]
-
-    def hasImplementation = body.isDefined
-    def hasBody           = hasImplementation
-    def hasPrecondition   = precondition.isDefined
-    def hasPostcondition  = postcondition.isDefined
+    def hasBody           = body.isDefined
   }
 }

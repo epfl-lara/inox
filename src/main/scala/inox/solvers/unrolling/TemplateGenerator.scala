@@ -12,8 +12,6 @@ trait TemplateGenerator { self: Templates =>
   import program.trees._
   import program.symbols._
 
-  val assumePreHolds: Boolean
-
   private type TemplateClauses = (
     Map[Variable, Encoded],
     Map[Variable, Encoded],
@@ -42,11 +40,7 @@ trait TemplateGenerator { self: Templates =>
       return cache(tfd)
     }
 
-    // The precondition if it exists.
-    val prec : Option[Expr] = tfd.precondition.map(p => simplifyHOFunctions(matchToIfThenElse(p)))
-
-    val newBody : Option[Expr] = tfd.body.map(b => matchToIfThenElse(b))
-    val lambdaBody : Option[Expr] = newBody.map(b => simplifyHOFunctions(b))
+    val lambdaBody : Option[Expr] = tfd.body.map(simplifyHOFunctions)
 
     val funDefArgs: Seq[Variable] = tfd.params.map(_.toVariable)
     val lambdaArguments: Seq[Variable] = lambdaBody.map(lambdaArgs).toSeq.flatten
@@ -54,14 +48,7 @@ trait TemplateGenerator { self: Templates =>
 
     val invocationEqualsBody : Seq[Expr] = lambdaBody match {
       case Some(body) =>
-        val bs = liftedEquals(invocation, body, lambdaArguments) :+ Equals(invocation, body)
-
-        if(prec.isDefined) {
-          bs.map(Implies(prec.get, _))
-        } else {
-          bs
-        }
-
+        liftedEquals(invocation, body, lambdaArguments) :+ Equals(invocation, body)
       case _ =>
         Seq.empty
     }
@@ -74,31 +61,8 @@ trait TemplateGenerator { self: Templates =>
 
     val substMap : Map[Variable, Encoded] = arguments.toMap + pathVar
 
-    val (bodyConds, bodyExprs, bodyTree, bodyGuarded, bodyLambdas, bodyQuantifications) =
+    val (condVars, exprVars, condTree, guardedExprs, lambdas, quantifications) =
       invocationEqualsBody.foldLeft(emptyClauses)((clsSet, cls) => clsSet ++ mkClauses(start, cls, substMap))
-
-    // Now the postcondition.
-    val (condVars, exprVars, condTree, guardedExprs, lambdas, quantifications) = tfd.postcondition match {
-      case Some(post) =>
-        val newPost : Expr = simplifyHOFunctions(application(matchToIfThenElse(post), Seq(invocation)))
-
-        val postHolds : Expr =
-          if(tfd.hasPrecondition) {
-            if (assumePreHolds) {
-              And(prec.get, newPost)
-            } else {
-              Implies(prec.get, newPost)
-            }
-          } else {
-            newPost
-          }
-
-        val (postConds, postExprs, postTree, postGuarded, postLambdas, postQuantifications) = mkClauses(start, postHolds, substMap)
-        (bodyConds ++ postConds, bodyExprs ++ postExprs, bodyTree merge postTree, bodyGuarded merge postGuarded, bodyLambdas ++ postLambdas, bodyQuantifications ++ postQuantifications)
-
-      case None =>
-        (bodyConds, bodyExprs, bodyTree, bodyGuarded, bodyLambdas, bodyQuantifications)
-    }
 
     val template = FunctionTemplate(tfd, pathVar, arguments,
       condVars, exprVars, condTree, guardedExprs, lambdas, quantifications)
@@ -107,7 +71,7 @@ trait TemplateGenerator { self: Templates =>
   }
 
   private def lambdaArgs(expr: Expr): Seq[Variable] = expr match {
-    case Lambda(args, body) => args.map(_.id.freshen) ++ lambdaArgs(body)
+    case Lambda(args, body) => args.map(_.toVariable.freshen) ++ lambdaArgs(body)
     case IsTyped(_, _: FunctionType) => sys.error("Only applicable on lambda chains")
     case _ => Seq.empty
   }
@@ -127,52 +91,13 @@ trait TemplateGenerator { self: Templates =>
     rec(invocation, body, args, inlineFirst)
   }
 
-  private def minimalFlattening(inits: Set[Variable], conj: Expr): (Set[Variable], Expr) = {
-    var mapping: Map[Expr, Expr] = Map.empty
-    var quantified: Set[Variable] = inits
-    var quantifierEqualities: Seq[(Expr, Variable)] = Seq.empty
-
-    val newConj = exprOps.postMap {
-      case expr if mapping.isDefinedAt(expr) =>
-        Some(mapping(expr))
-
-      case expr @ QuantificationMatcher(c, args) =>
-        val isMatcher = args.exists { case v: Variable => quantified(v) case _ => false }
-        val isRelevant = (exprOps.variablesOf(expr) & quantified).nonEmpty
-        if (!isMatcher && isRelevant) {
-          val newArgs = args.map {
-            case arg @ QuantificationMatcher(_, _) if (exprOps.variablesOf(arg) & quantified).nonEmpty =>
-              val v = Variable(FreshIdentifier("flat", true), arg.getType)
-              quantifierEqualities :+= (arg -> v)
-              quantified += v
-              v
-            case arg => arg
-          }
-
-          val newExpr = exprOps.replace((args zip newArgs).toMap, expr)
-          mapping += expr -> newExpr
-          Some(newExpr)
-        } else {
-          None
-        }
-
-      case _ => None
-    } (conj)
-
-    val flatConj = implies(andJoin(quantifierEqualities.map {
-      case (arg, id) => Equals(arg, id)
-    }), newConj)
-
-    (quantified, flatConj)
-  }
-
-  def mkClauses(pathVar: Variable, expr: Expr, substMap: Map[Variable, Encoded]): TemplateClauses = {
-    val (p, (condVars, exprVars, condTree, guardedExprs, lambdas, quantifications)) = mkExprClauses(pathVar, expr, substMap)
+  def mkClauses(pathVar: Variable, expr: Expr, substMap: Map[Variable, Encoded], polarity: Option[Boolean] = None): TemplateClauses = {
+    val (p, (condVars, exprVars, condTree, guardedExprs, lambdas, quantifications)) = mkExprClauses(pathVar, expr, substMap, polarity)
     val allGuarded = guardedExprs + (pathVar -> (p +: guardedExprs.getOrElse(pathVar, Seq.empty)))
     (condVars, exprVars, condTree, allGuarded, lambdas, quantifications)
   }
 
-  private def mkExprClauses(pathVar: Variable, expr: Expr, substMap: Map[Variable, Encoded]): (Expr, TemplateClauses) = {
+  private def mkExprClauses(pathVar: Variable, expr: Expr, substMap: Map[Variable, Encoded], polarity: Option[Boolean] = None): (Expr, TemplateClauses) = {
 
     var condVars = Map[Variable, Encoded]()
     var condTree = Map[Variable, Set[Variable]](pathVar -> Set.empty).withDefaultValue(Set.empty)
@@ -212,214 +137,197 @@ trait TemplateGenerator { self: Templates =>
     var lambdas = Seq[LambdaTemplate]()
     @inline def registerLambda(lambda: LambdaTemplate) : Unit = lambdas :+= lambda
 
-    def rec(pathVar: Variable, expr: Expr): Expr = {
-      expr match {
-        case a @ Assert(cond, err, body) =>
-          rec(pathVar, IfExpr(cond, body, Error(body.getType, err getOrElse "assertion failed")))
+    def rec(pathVar: Variable, expr: Expr, pol: Option[Boolean]): Expr = expr match {
+      case a @ Assume(cond, body) =>
+        val e = rec(pathVar, cond, Some(true))
+        storeGuarded(pathVar, e)
+        rec(pathVar, body, pol)
 
-        case e @ Ensuring(_, _) =>
-          rec(pathVar, e.toAssert)
+      case l @ Let(i, e: Lambda, b) =>
+        val re = rec(pathVar, e, None) // guaranteed variable!
+        val rb = rec(pathVar, exprOps.replace(Map(i.toVariable -> re), b), pol)
+        rb
 
-        case l @ Let(i, e: Lambda, b) =>
-          val re = rec(pathVar, e) // guaranteed variable!
-          val rb = rec(pathVar, exprOps.replace(Map(i.toVariable -> re), b))
-          rb
+      case l @ Let(i, e, b) =>
+        val newExpr : Variable = Variable(FreshIdentifier("lt", true), i.getType)
+        storeExpr(newExpr)
+        val re = rec(pathVar, e, None)
+        storeGuarded(pathVar, Equals(newExpr, re))
+        val rb = rec(pathVar, exprOps.replace(Map(i.toVariable -> newExpr), b), pol)
+        rb
 
-        case l @ Let(i, e, b) =>
-          val newExpr : Variable = Variable(FreshIdentifier("lt", true), i.getType)
-          storeExpr(newExpr)
-          val re = rec(pathVar, e)
-          storeGuarded(pathVar, Equals(newExpr, re))
-          val rb = rec(pathVar, exprOps.replace(Map(i.toVariable -> newExpr), b))
-          rb
+      case n @ Not(e) if n.getType == BooleanType =>
+        Not(rec(pathVar, e, pol.map(!_)))
 
-        case m : MatchExpr => sys.error("'MatchExpr's should have been eliminated before generating templates.")
-
-        case i @ Implies(lhs, rhs) =>
-          if (!exprOps.isSimple(i)) {
-            rec(pathVar, Or(Not(lhs), rhs))
-          } else {
-            implies(rec(pathVar, lhs), rec(pathVar, rhs))
-          }
-
-        case a @ And(parts) =>
-          val partitions = SeqUtils.groupWhile(parts)(exprOps.isSimple)
-          partitions.map(andJoin) match {
-            case Seq(e) => e
-            case seq =>
-              val newExpr: Variable = Variable(FreshIdentifier("e", true), BooleanType)
-              storeExpr(newExpr)
-
-              def recAnd(pathVar: Variable, partitions: Seq[Expr]): Unit = partitions match {
-                case x :: Nil =>
-                  storeGuarded(pathVar, Equals(newExpr, rec(pathVar, x)))
-
-                case x :: xs =>
-                  val newBool: Variable = Variable(FreshIdentifier("b", true), BooleanType)
-                  storeCond(pathVar, newBool)
-
-                  val xrec = rec(pathVar, x)
-                  iff(and(pathVar, xrec), newBool)
-                  iff(and(pathVar, not(xrec)), not(newExpr))
-
-                  recAnd(newBool, xs)
-
-                case Nil => scala.sys.error("Should never happen!")
-              }
-
-              recAnd(pathVar, seq)
-              newExpr
-          }
-
-        case o @ Or(parts) =>
-          val partitions = SeqUtils.groupWhile(parts)(exprOps.isSimple)
-          partitions.map(orJoin) match {
-            case Seq(e) => e
-            case seq =>
-              val newExpr: Variable = Variable(FreshIdentifier("e", true), BooleanType)
-              storeExpr(newExpr)
-
-              def recOr(pathVar: Variable, partitions: Seq[Expr]): Unit = partitions match {
-                case x :: Nil =>
-                  storeGuarded(pathVar, Equals(newExpr, rec(pathVar, x)))
-
-                case x :: xs =>
-                  val newBool: Variable = Variable(FreshIdentifier("b", true), BooleanType)
-                  storeCond(pathVar, newBool)
-
-                  val xrec = rec(pathVar, x)
-                  iff(and(pathVar, xrec), newExpr)
-                  iff(and(pathVar, not(xrec)), newBool)
-
-                  recOr(newBool, xs)
-
-                case Nil => scala.sys.error("Should never happen!")
-              }
-
-              recOr(pathVar, seq)
-              newExpr
-          }
-
-        case i @ IfExpr(cond, thenn, elze) => {
-          if(exprOps.isSimple(i)) {
-            i
-          } else {
-            val newBool1 : Variable = Variable(FreshIdentifier("b", true), BooleanType)
-            val newBool2 : Variable = Variable(FreshIdentifier("b", true), BooleanType)
-            val newExpr  : Variable = Variable(FreshIdentifier("e", true), i.getType)
-
-            storeCond(pathVar, newBool1)
-            storeCond(pathVar, newBool2)
-
-            storeExpr(newExpr)
-
-            val crec = rec(pathVar, cond)
-            val trec = rec(newBool1, thenn)
-            val erec = rec(newBool2, elze)
-
-            iff(and(pathVar, cond), newBool1)
-            iff(and(pathVar, not(cond)), newBool2)
-
-            storeGuarded(newBool1, Equals(newExpr, trec))
-            storeGuarded(newBool2, Equals(newExpr, erec))
-            newExpr
-          }
+      case i @ Implies(lhs, rhs) =>
+        if (!exprOps.isSimple(i)) {
+          rec(pathVar, Or(Not(lhs), rhs), pol)
+        } else {
+          implies(rec(pathVar, lhs, None), rec(pathVar, rhs, None))
         }
 
-        case l @ Lambda(args, body) =>
-          val idArgs : Seq[Variable] = lambdaArgs(l)
-          val trArgs : Seq[Encoded] = idArgs.map(id => substMap.getOrElse(id, encodeSymbol(id)))
+      case a @ And(parts) if a.getType == BooleanType =>
+        val partitions = SeqUtils.groupWhile(parts)(exprOps.isSimple)
+        partitions.map(andJoin) match {
+          case Seq(e) => e
+          case seq =>
+            val newExpr: Variable = Variable(FreshIdentifier("e", true), BooleanType)
+            storeExpr(newExpr)
 
-          val lid = Variable(FreshIdentifier("lambda", true), bestRealType(l.getType))
-          val clauses = liftedEquals(lid, l, idArgs, inlineFirst = true)
+            def recAnd(pathVar: Variable, partitions: Seq[Expr]): Unit = partitions match {
+              case x :: Nil =>
+                storeGuarded(pathVar, Equals(newExpr, rec(pathVar, x, pol)))
 
-          val localSubst: Map[Variable, Encoded] = substMap ++ condVars ++ exprVars ++ lambdaVars
-          val clauseSubst: Map[Variable, Encoded] = localSubst ++ (idArgs zip trArgs)
-          val (lambdaConds, lambdaExprs, lambdaTree, lambdaGuarded, lambdaTemplates, lambdaQuants) =
-            clauses.foldLeft(emptyClauses)((clsSet, cls) => clsSet ++ mkClauses(pathVar, cls, clauseSubst))
+              case x :: xs =>
+                val newBool: Variable = Variable(FreshIdentifier("b", true), BooleanType)
+                storeCond(pathVar, newBool)
 
-          val ids: (Variable, Encoded) = lid -> storeLambda(lid)
+                val xrec = rec(pathVar, x, pol)
+                iff(and(pathVar, xrec), newBool)
+                iff(and(pathVar, not(xrec)), not(newExpr))
 
-          val (struct, deps) = normalizeStructure(l)
+                recAnd(newBool, xs)
 
-          val (dependencies, (depConds, depExprs, depTree, depGuarded, depLambdas, depQuants)) =
-            deps.foldLeft[(Seq[Encoded], TemplateClauses)](Seq.empty -> emptyClauses) {
-              case ((dependencies, clsSet), (id, expr)) =>
-                if (!exprOps.isSimple(expr)) {
-                  val encoded = encodeSymbol(id)
-                  val (e, cls @ (_, _, _, _, lmbds, quants)) = mkExprClauses(pathVar, expr, localSubst)
-                  val clauseSubst = localSubst ++ lmbds.map(_.ids) ++ quants.map(_.qs)
-                  (dependencies :+ encodeExpr(clauseSubst)(e), clsSet ++ cls)
-                } else {
-                  (dependencies :+ encodeExpr(localSubst)(expr), clsSet)
-                }
+              case Nil => scala.sys.error("Should never happen!")
             }
 
-          val (depClauses, depCalls, depApps, depMatchers, _) = Template.encode(
-            pathVar -> encodedCond(pathVar), Seq.empty,
-            depConds, depExprs, depGuarded, depLambdas, depQuants, localSubst)
+            recAnd(pathVar, seq)
+            newExpr
+        }
 
-          val depClosures: Seq[Encoded] = {
-            val vars = exprOps.variablesOf(l)
-            var cls: Seq[Variable] = Seq.empty
-            exprOps.preTraversal { case v: Variable if vars(v) => cls :+= v case _ => } (l)
-            cls.distinct.map(localSubst)
-          }
+      case o @ Or(parts) if o.getType == BooleanType =>
+        val partitions = SeqUtils.groupWhile(parts)(exprOps.isSimple)
+        partitions.map(orJoin) match {
+          case Seq(e) => e
+          case seq =>
+            val newExpr: Variable = Variable(FreshIdentifier("e", true), BooleanType)
+            storeExpr(newExpr)
 
-          val structure = new LambdaStructure(
-            struct, dependencies, pathVar -> encodedCond(pathVar), depClosures,
-            depConds, depExprs, depTree, depClauses, depCalls, depApps, depLambdas, depMatchers, depQuants)
+            def recOr(pathVar: Variable, partitions: Seq[Expr]): Unit = partitions match {
+              case x :: Nil =>
+                storeGuarded(pathVar, Equals(newExpr, rec(pathVar, x, None)))
 
-          val template = LambdaTemplate(ids, pathVar -> encodedCond(pathVar),
-            idArgs zip trArgs, lambdaConds, lambdaExprs, lambdaTree,
-            lambdaGuarded, lambdaTemplates, lambdaQuants, structure, localSubst, l)
-          registerLambda(template)
-          lid
+              case x :: xs =>
+                val newBool: Variable = Variable(FreshIdentifier("b", true), BooleanType)
+                storeCond(pathVar, newBool)
 
-        case f @ Forall(args, body) =>
-          val TopLevelAnds(conjuncts) = body
+                val xrec = rec(pathVar, x, None)
+                iff(and(pathVar, xrec), newExpr)
+                iff(and(pathVar, not(xrec)), newBool)
 
-          val conjunctQs = conjuncts.map { conjunct =>
-            val vars = exprOps.variablesOf(conjunct)
-            val inits = args.map(_.toVariable).filter(vars).toSet
-            val (quantifiers, flatConj) = minimalFlattening(inits, conjunct)
+                recOr(newBool, xs)
 
-            val idQuantifiers : Seq[Variable] = quantifiers.toSeq
-            val trQuantifiers : Seq[Encoded] = idQuantifiers.map(encodeSymbol)
+              case Nil => scala.sys.error("Should never happen!")
+            }
 
-            val q: Variable = Variable(FreshIdentifier("q", true), BooleanType)
-            val q2: Variable = Variable(FreshIdentifier("qo", true), BooleanType)
-            val inst: Variable = Variable(FreshIdentifier("inst", true), BooleanType)
-            val guard: Variable = Variable(FreshIdentifier("guard", true), BooleanType)
+            recOr(pathVar, seq)
+            newExpr
+        }
 
-            val clause = Equals(inst, Implies(guard, flatConj))
+      case i @ IfExpr(cond, thenn, elze) => {
+        if(exprOps.isSimple(i)) {
+          i
+        } else {
+          val newBool1 : Variable = Variable(FreshIdentifier("b", true), BooleanType)
+          val newBool2 : Variable = Variable(FreshIdentifier("b", true), BooleanType)
+          val newExpr  : Variable = Variable(FreshIdentifier("e", true), i.getType)
 
-            val qs: (Variable, Encoded) = q -> encodeSymbol(q)
-            val localSubst: Map[Variable, Encoded] = substMap ++ condVars ++ exprVars ++ lambdaVars
-            val clauseSubst: Map[Variable, Encoded] = localSubst ++ (idQuantifiers zip trQuantifiers)
-            val (p, (qConds, qExprs, qTree, qGuarded, qTemplates, qQuants)) = mkExprClauses(pathVar, flatConj, clauseSubst)
-            assert(qQuants.isEmpty, "Unhandled nested quantification in "+clause)
+          storeCond(pathVar, newBool1)
+          storeCond(pathVar, newBool2)
 
-            val allGuarded = qGuarded + (pathVar -> (Seq(
-              Equals(inst, Implies(guard, p)),
-              Equals(q, And(q2, inst))
-            ) ++ qGuarded.getOrElse(pathVar, Seq.empty)))
+          storeExpr(newExpr)
 
-            val dependencies: Map[Variable, Encoded] = vars.filterNot(quantifiers).map(id => id -> localSubst(id)).toMap
-            val template = QuantificationTemplate(pathVar -> encodedCond(pathVar),
-              qs, q2, inst, guard, idQuantifiers zip trQuantifiers, qConds, qExprs, qTree, allGuarded, qTemplates, localSubst,
-              dependencies, Forall(quantifiers.toSeq.sortBy(_.id.uniqueName).map(_.toVal), flatConj))
-            registerQuantification(template)
-            q
-          }
+          val crec = rec(pathVar, cond, None)
+          val trec = rec(newBool1, thenn, None)
+          val erec = rec(newBool2, elze, None)
 
-          andJoin(conjunctQs)
+          iff(and(pathVar, cond), newBool1)
+          iff(and(pathVar, not(cond)), newBool2)
 
-        case Operator(as, r) => r(as.map(a => rec(pathVar, a)))
+          storeGuarded(newBool1, Equals(newExpr, trec))
+          storeGuarded(newBool2, Equals(newExpr, erec))
+          newExpr
+        }
       }
+
+      case l @ Lambda(args, body) =>
+        val idArgs : Seq[Variable] = lambdaArgs(l)
+        val trArgs : Seq[Encoded] = idArgs.map(id => substMap.getOrElse(id, encodeSymbol(id)))
+
+        val lid = Variable(FreshIdentifier("lambda", true), bestRealType(l.getType))
+        val clauses = liftedEquals(lid, l, idArgs, inlineFirst = true)
+
+        val localSubst: Map[Variable, Encoded] = substMap ++ condVars ++ exprVars ++ lambdaVars
+        val clauseSubst: Map[Variable, Encoded] = localSubst ++ (idArgs zip trArgs)
+        val (lambdaConds, lambdaExprs, lambdaTree, lambdaGuarded, lambdaTemplates, lambdaQuants) =
+          clauses.foldLeft(emptyClauses)((clsSet, cls) => clsSet ++ mkClauses(pathVar, cls, clauseSubst))
+
+        val ids: (Variable, Encoded) = lid -> storeLambda(lid)
+
+        val (struct, deps) = normalizeStructure(l)
+        val sortedDeps = deps.toSeq.sortBy(_._1.id.uniqueName)
+
+        val (dependencies, (depConds, depExprs, depTree, depGuarded, depLambdas, depQuants)) =
+          sortedDeps.foldLeft[(Seq[Encoded], TemplateClauses)](Seq.empty -> emptyClauses) {
+            case ((dependencies, clsSet), (id, expr)) =>
+              if (!exprOps.isSimple(expr)) {
+                val encoded = encodeSymbol(id)
+                val (e, cls @ (_, _, _, _, lmbds, quants)) = mkExprClauses(pathVar, expr, localSubst)
+                val clauseSubst = localSubst ++ lmbds.map(_.ids) ++ quants.flatMap(_.mapping)
+                (dependencies :+ mkEncoder(clauseSubst)(e), clsSet ++ cls)
+              } else {
+                (dependencies :+ mkEncoder(localSubst)(expr), clsSet)
+              }
+          }
+
+        val (depClauses, depCalls, depApps, depMatchers, _) = Template.encode(
+          pathVar -> encodedCond(pathVar), Seq.empty,
+          depConds, depExprs, depGuarded, depLambdas, depQuants, localSubst)
+
+        val depClosures: Seq[Encoded] = {
+          val vars = exprOps.variablesOf(l)
+          var cls: Seq[Variable] = Seq.empty
+          exprOps.preTraversal { case v: Variable if vars(v) => cls :+= v case _ => } (l)
+          cls.distinct.map(localSubst)
+        }
+
+        val structure = new LambdaStructure(
+          struct, dependencies, pathVar -> encodedCond(pathVar), depClosures,
+          depConds, depExprs, depTree, depClauses, depCalls, depApps, depMatchers, depLambdas, depQuants)
+
+        val template = LambdaTemplate(ids, pathVar -> encodedCond(pathVar),
+          idArgs zip trArgs, lambdaConds, lambdaExprs, lambdaTree,
+          lambdaGuarded, lambdaTemplates, lambdaQuants, structure, localSubst, l)
+        registerLambda(template)
+        lid
+
+      case f @ Forall(args, body) =>
+        val TopLevelAnds(conjuncts) = body
+
+        val conjunctQs = conjuncts.map { conjunct =>
+          val vars = exprOps.variablesOf(conjunct)
+          val quantifiers = args.map(_.toVariable).filter(vars).toSet
+
+          val idQuantifiers : Seq[Variable] = quantifiers.toSeq
+          val trQuantifiers : Seq[Encoded] = idQuantifiers.map(encodeSymbol)
+
+          val localSubst: Map[Variable, Encoded] = substMap ++ condVars ++ exprVars ++ lambdaVars
+          val clauseSubst: Map[Variable, Encoded] = localSubst ++ (idQuantifiers zip trQuantifiers)
+          val (p, (qConds, qExprs, qTree, qGuarded, qLambdas, qQuants)) = mkExprClauses(pathVar, conjunct, clauseSubst)
+
+          val (optVar, template) = QuantificationTemplate(pathVar -> encodedCond(pathVar),
+            pol, p, idQuantifiers zip trQuantifiers, qConds, qExprs, qTree, qGuarded, qLambdas, qQuants,
+            localSubst, Forall(quantifiers.toSeq.sortBy(_.id.uniqueName).map(_.toVal), conjunct))
+          registerQuantification(template)
+          optVar.getOrElse(BooleanLiteral(true))
+        }
+
+        andJoin(conjunctQs)
+
+      case Operator(as, r) => r(as.map(a => rec(pathVar, a, None)))
     }
 
-    val p = rec(pathVar, expr)
+    val p = rec(pathVar, expr, polarity)
     (p, (condVars, exprVars, condTree, guardedExprs, lambdas, quantifications))
   }
 

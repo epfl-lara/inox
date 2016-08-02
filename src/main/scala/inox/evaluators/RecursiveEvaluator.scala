@@ -51,14 +51,10 @@ trait RecursiveEvaluator
       //println(s"Eval $i to $first")
       e(b)(rctx.withNewVar(i, first), gctx)
 
-    case Assert(cond, oerr, body) =>
-      e(IfExpr(Not(cond), Error(expr.getType, oerr.getOrElse("Assertion failed @"+expr.getPos)), body))
-
-    case en @ Ensuring(body, post) =>
-      e(en.toAssert)
-
-    case Error(tpe, desc) =>
-      throw RuntimeError("Error reached in evaluation: " + desc)
+    case Assume(cond, body) =>
+      if (e(cond) != BooleanLiteral(true))
+        throw RuntimeError("Assumption did not hold @" + expr.getPos) 
+      e(body)
 
     case IfExpr(cond, thenn, elze) =>
       val first = e(cond)
@@ -80,16 +76,6 @@ trait RecursiveEvaluator
       // build a mapping for the function...
       val frame = rctx.withNewVars(tfd.paramSubst(evArgs))
 
-      if (tfd.hasPrecondition) {
-        e(tfd.precondition.get)(frame, gctx) match {
-          case BooleanLiteral(true) =>
-          case BooleanLiteral(false) =>
-            throw RuntimeError("Precondition violation for " + tfd.id.asString + " reached in evaluation.: " + tfd.precondition.get.asString)
-          case other =>
-            throw RuntimeError(typeErrorMsg(other, BooleanType))
-        }
-      }
-
       // @nv TODO: choose evaluation
 
       /* @nv TODO: should we do this differently?? lambdas??
@@ -100,17 +86,9 @@ trait RecursiveEvaluator
 
       val callResult: Expr = tfd.body match {
         case Some(body) => e(body)(frame, gctx)
-        case None => onSpecInvocation(tfd.postOrTrue)
-      }
-
-      tfd.postcondition match  {
-        case Some(post) =>
-          e(application(post, Seq(callResult)))(frame, gctx) match {
-            case BooleanLiteral(true) =>
-            case BooleanLiteral(false) => throw RuntimeError("Postcondition violation for " + tfd.id.asString + " reached in evaluation.")
-            case other => throw EvalError(typeErrorMsg(other, BooleanType))
-          }
         case None =>
+          // @nv TODO: this isn't right...
+          throw RuntimeError("Cannot evaluate bodyless function")
       }
 
       callResult
@@ -199,13 +177,13 @@ trait RecursiveEvaluator
       val le = e(expr)
       BooleanLiteral(isSubtypeOf(le.getType, ct))
 
-    case CaseClassSelector(ct1, expr, sel) =>
+    case CaseClassSelector(expr, sel) =>
       e(expr) match {
-        case CaseClass(ct2, args) if ct1 == ct2 => args(ct1.tcd.cd match {
+        case CaseClass(ct, args) => args(ct.tcd.cd match {
           case ccd: CaseClassDef => ccd.selectorID2Index(sel)
           case _ => throw RuntimeError("Unexpected case class type")
         })
-        case le => throw EvalError(typeErrorMsg(le, ct1))
+        case le => throw EvalError(typeErrorMsg(le, expr.getType))
       }
 
     case Plus(l,r) =>
@@ -557,97 +535,12 @@ trait RecursiveEvaluator
         throw EvalError(typeErrorMsg(l, MapType(r.getType, g.getType)))
     }
 
-    case MatchExpr(scrut, cases) =>
-      val rscrut = e(scrut)
-      cases.toStream.map(c => matchesCase(rscrut, c)).find(_.nonEmpty) match {
-        case Some(Some((c, mappings))) =>
-          e(c.rhs)(rctx.withNewVars(mappings), gctx)
-        case _ =>
-          throw RuntimeError("MatchError: "+rscrut.asString+" did not match any of the cases:\n"+cases)
-      }
-
     case gl: GenericValue => gl
     case fl : FractionLiteral => normalizeFraction(fl)
     case l : Literal[_] => l
 
     case other =>
       throw EvalError("Unhandled case in Evaluator : [" + other.getClass + "] " + other.asString)
-  }
-
-  def matchesCase(scrut: Expr, caze: MatchCase)(implicit rctx: RC, gctx: GC): Option[(MatchCase, Map[ValDef, Expr])] = {
-
-    def matchesPattern(pat: Pattern, expr: Expr): Option[Map[ValDef, Expr]] = (pat, expr) match {
-      case (InstanceOfPattern(ob, pct), e) =>
-        if (isSubtypeOf(e.getType, pct)) {
-          Some(obind(ob, e))
-        } else {
-          None
-        }
-      case (WildcardPattern(ob), e) =>
-        Some(obind(ob, e))
-
-      case (CaseClassPattern(ob, pct, subs), CaseClass(ct, args)) =>
-        if (pct == ct) {
-          val res = (subs zip args).map{ case (s, a) => matchesPattern(s, a) }
-          if (res.forall(_.isDefined)) {
-            Some(obind(ob, expr) ++ res.flatten.flatten)
-          } else {
-            None
-          }
-        } else {
-          None
-        }
-      case (up @ UnapplyPattern(ob, id, tps, subs), scrut) =>
-        val tfd = getFunction(id, tps)
-        val (noneType, someType) = up.optionChildren
-
-        e(FunctionInvocation(id, tps, Seq(scrut))) match {
-          case CaseClass(`noneType`, Seq()) =>
-            None
-          case CaseClass(`someType`, Seq(arg)) =>
-            val res = subs zip unwrapTuple(arg, subs.size) map {
-              case (s,a) => matchesPattern(s,a)
-            }
-            if (res.forall(_.isDefined)) {
-              Some(obind(ob, expr) ++ res.flatten.flatten)
-            } else {
-              None
-            }
-          case other =>
-            throw EvalError(typeErrorMsg(other, tfd.returnType))
-        }
-      case (TuplePattern(ob, subs), Tuple(args)) =>
-        if (subs.size == args.size) {
-          val res = (subs zip args).map{ case (s, a) => matchesPattern(s, a) }
-          if (res.forall(_.isDefined)) {
-            Some(obind(ob, expr) ++ res.flatten.flatten)
-          } else {
-            None
-          }
-        } else {
-          None
-        }
-      case (LiteralPattern(ob, l1) , l2 : Literal[_]) if l1 == l2 =>
-        Some(obind(ob,l1))
-      case _ => None
-    }
-
-    def obind(ovd: Option[ValDef], e: Expr): Map[ValDef, Expr] = {
-      ovd.map(vd => vd -> e).toMap
-    }
-
-    caze match {
-      case SimpleCase(p, rhs) =>
-        matchesPattern(p, scrut).map(r =>
-          (caze, r)
-        )
-
-      case GuardedCase(p, g, rhs) =>
-        for {
-          r <- matchesPattern(p, scrut)
-          if e(g)(rctx.withNewVars(r), gctx) == BooleanLiteral(true)
-        } yield (caze, r)
-    }
   }
 }
 

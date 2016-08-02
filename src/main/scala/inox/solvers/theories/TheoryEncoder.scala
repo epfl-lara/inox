@@ -1,82 +1,67 @@
 /* Copyright 2009-2015 EPFL, Lausanne */
 
-package leon
+package inox
 package solvers
 package theories
 
-import purescala.Common._
-import purescala.Expressions._
-import purescala.Definitions._
-import purescala.Extractors._
-import purescala.ExprOps._
-import purescala.Types._
-
 import utils._
 
-import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
+trait TheoryEncoder {
+  val trees: Trees
+  import trees._
 
-trait TheoryEncoder { self =>
-  protected val encoder: Encoder
-  protected val decoder: Decoder
+  private type SameTrees = TheoryEncoder {
+    val trees: TheoryEncoder.this.trees.type
+  }
 
-  private val idMap = new Bijection[Identifier, Identifier]
-  private val fdMap = new Bijection[FunDef    , FunDef    ]
-  private val cdMap = new Bijection[ClassDef  , ClassDef  ]
+  protected val encoder: TreeTransformer
+  protected val decoder: TreeTransformer
 
-  def encode(id: Identifier): Identifier = encoder.transform(id)
-  def decode(id: Identifier): Identifier = decoder.transform(id)
+  def encode(v: Variable): Variable = encoder.transform(v)
+  def decode(v: Variable): Variable = decoder.transform(v)
 
-  def encode(expr: Expr)(implicit bindings: Map[Identifier, Identifier]): Expr = encoder.transform(expr)
-  def decode(expr: Expr)(implicit bindings: Map[Identifier, Identifier]): Expr = decoder.transform(expr)
+  def encode(expr: Expr): Expr = encoder.transform(expr)
+  def decode(expr: Expr): Expr = decoder.transform(expr)
 
-  def encode(tpe: TypeTree): TypeTree = encoder.transform(tpe)
-  def decode(tpe: TypeTree): TypeTree = decoder.transform(tpe)
+  def encode(tpe: Type): Type = encoder.transform(tpe)
+  def decode(tpe: Type): Type = decoder.transform(tpe)
 
-  def encode(fd: FunDef): FunDef = encoder.transform(fd)
-  def decode(fd: FunDef): FunDef = decoder.transform(fd)
+  def >>(that: SameTrees): SameTrees = new TheoryEncoder {
+    val trees: TheoryEncoder.this.trees.type = TheoryEncoder.this.trees
 
-  protected class Encoder extends purescala.DefinitionTransformer(idMap, fdMap, cdMap)
-  protected class Decoder extends purescala.DefinitionTransformer(idMap.swap, fdMap.swap, cdMap.swap)
-
-  def >>(that: TheoryEncoder): TheoryEncoder = new TheoryEncoder {
-    val encoder = new Encoder {
-      override def transformExpr(expr: Expr)(implicit bindings: Map[Identifier, Identifier]): Option[Expr] = {
-        val mapSeq = bindings.toSeq
-        val intermediate = mapSeq.map { case (id, _) => id.duplicate(tpe = self.encoder.transform(id.getType)) }
-        val e2 = self.encoder.transform(expr)((mapSeq zip intermediate).map { case ((id, _), id2) => id -> id2 }.toMap)
-        Some(that.encoder.transform(e2)((intermediate zip mapSeq).map { case (id, (_, id2)) => id -> id2 }.toMap))
+    val encoder = new TreeTransformer {
+      override def transform(id: Identifier, tpe: Type): (Identifier, Type) = {
+        val (id1, tpe1) = TheoryEncoder.this.transform(id, tpe)
+        that.transform(id1, tpe1)
       }
 
-      override def transformType(tpe: TypeTree): Option[TypeTree] = Some(that.encoder.transform(self.encoder.transform(tpe)))
-
-      override def transform(pat: Pattern): (Pattern, Map[Identifier, Identifier]) = {
-        val (pat2, bindings) = self.encoder.transform(pat)
-        val (pat3, bindings2) = that.encoder.transform(pat2)
-        (pat3, bindings2.map { case (id, id2) => id -> bindings2(id2) })
-      }
+      override def transform(expr: Expr): Expr = that.transform(TheoryEncoder.this.transform(expr))
+      override def transform(tpe: Type): Type = that.transform(TheoryEncoder.this.transform(expr))
     }
 
-    val decoder = new Decoder {
-      override def transformExpr(expr: Expr)(implicit bindings: Map[Identifier, Identifier]): Option[Expr] = {
-        val mapSeq = bindings.toSeq
-        val intermediate = mapSeq.map { case (id, _) => id.duplicate(tpe = self.decoder.transform(id.getType)) }
-        val e2 = that.decoder.transform(expr)((mapSeq zip intermediate).map { case ((id, _), id2) => id -> id2 }.toMap)
-        Some(self.decoder.transform(e2)((intermediate zip mapSeq).map { case (id, (_, id2)) => id -> id2 }.toMap))
+    val decoder = new TreeTransformer {
+      override def transform(id: Identifier, tpe: Type): (Identifier, Type) = {
+        val (id1, tpe1) = that.transform(id, tpe)
+        TheoryEncoder.this.transform(id1, tpe1)
       }
 
-      override def transformType(tpe: TypeTree): Option[TypeTree] = Some(self.decoder.transform(that.decoder.transform(tpe)))
-
-      override def transform(pat: Pattern): (Pattern, Map[Identifier, Identifier]) = {
-        val (pat2, bindings) = that.decoder.transform(pat)
-        val (pat3, bindings2) = self.decoder.transform(pat2)
-        (pat3, bindings.map { case (id, id2) => id -> bindings2(id2) })
-      }
+      override def transform(expr: Expr): Expr = TheoryEncoder.this.transform(that.transform(expr))
+      override def transform(tpe: Type): Type = TheoryEncoder.this.transform(that.transform(tpe))
     }
   }
 }
 
-class NoEncoder extends TheoryEncoder {
-  val encoder = new Encoder
-  val decoder = new Decoder
+trait NoEncoder extends TheoryEncoder {
+
+  private object NoTransformer extends trees.TreeTransformer {
+    override def transform(id: Identifier, tpe: Type): (Identifier, Type) = (id, tpe)
+    override def transform(v: Variable): Variable = v
+    override def transform(vd: ValDef): ValDef = vd
+    override def transform(expr: Expr): Expr = expr
+    override def transform(tpe: Type): Type = tpe
+  }
+
+  val encoder = NoTransformer
+  val decoder = NoTransformer
 }
 

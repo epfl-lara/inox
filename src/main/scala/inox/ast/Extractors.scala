@@ -44,8 +44,8 @@ trait Extractors { self: Trees =>
         Some((Seq(t), (es: Seq[Expr]) => RealToString(es.head)))
       case SetCardinality(t) =>
         Some((Seq(t), (es: Seq[Expr]) => SetCardinality(es.head)))
-      case CaseClassSelector(cd, e, sel) =>
-        Some((Seq(e), (es: Seq[Expr]) => CaseClassSelector(cd, es.head, sel)))
+      case CaseClassSelector(e, sel) =>
+        Some((Seq(e), (es: Seq[Expr]) => CaseClassSelector(es.head, sel)))
       case IsInstanceOf(e, ct) =>
         Some((Seq(e), (es: Seq[Expr]) => IsInstanceOf(es.head, ct)))
       case AsInstanceOf(e, ct) =>
@@ -118,12 +118,6 @@ trait Extractors { self: Trees =>
         Some(Seq(t1, t2), (es: Seq[Expr]) => MapApply(es(0), es(1)))
       case Let(binder, e, body) =>
         Some(Seq(e, body), (es: Seq[Expr]) => Let(binder, es(0), es(1)))
-      case Require(pre, body) =>
-        Some(Seq(pre, body), (es: Seq[Expr]) => Require(es(0), es(1)))
-      case Ensuring(body, post) =>
-        Some(Seq(body, post), (es: Seq[Expr]) => Ensuring(es(0), es(1)))
-      case Assert(const, oerr, body) =>
-        Some(Seq(const, body), (es: Seq[Expr]) => Assert(es(0), oerr, es(1)))
 
       /* Other operators */
       case fi @ FunctionInvocation(fd, tps, args) => Some((args, FunctionInvocation(fd, tps, _)))
@@ -164,18 +158,6 @@ trait Extractors { self: Trees =>
       case IfExpr(cond, thenn, elze) => Some((
         Seq(cond, thenn, elze),
         { case Seq(c, t, e) => IfExpr(c, t, e) }
-      ))
-      case m @ MatchExpr(scrut, cases) => Some((
-        scrut +: cases.flatMap { _.expressions },
-        (es: Seq[Expr]) => {
-          var i = 1
-          val newcases = for (caze <- cases) yield caze match {
-            case SimpleCase(b, _) => i += 1; SimpleCase(b, es(i - 1))
-            case GuardedCase(b, _, _) => i += 2; GuardedCase(b, es(i - 2), es(i - 1))
-          }
-
-          MatchExpr(es.head, newcases)
-        }
       ))
 
       /* Terminals */
@@ -231,37 +213,6 @@ trait Extractors { self: Trees =>
     }
   }
 
-  object SimpleCase {
-    def apply(p: Pattern, rhs: Expr) = MatchCase(p, None, rhs)
-    def unapply(c : MatchCase) = c match {
-      case MatchCase(p, None, rhs) => Some((p, rhs))
-      case _ => None
-    }
-  }
-
-  object GuardedCase {
-    def apply(p: Pattern, g: Expr, rhs: Expr) = MatchCase(p, Some(g), rhs)
-    def unapply(c : MatchCase) = c match {
-      case MatchCase(p, Some(g), rhs) => Some((p, g, rhs))
-      case _ => None
-    }
-  }
-
-  object Pattern {
-    def unapply(p: Pattern) : Option[(
-      Option[ValDef], 
-      Seq[Pattern], 
-      (Option[ValDef], Seq[Pattern]) => Pattern
-    )] = Option(p) map {
-      case InstanceOfPattern(b, ct)         => (b, Seq(), (b, _)  => InstanceOfPattern(b,ct))
-      case WildcardPattern(b)               => (b, Seq(), (b, _)  => WildcardPattern(b))
-      case CaseClassPattern(b, ct, subs)    => (b, subs,  (b, sp) => CaseClassPattern(b, ct, sp))
-      case TuplePattern(b,subs)             => (b, subs,  (b, sp) => TuplePattern(b, sp))
-      case LiteralPattern(b, l)             => (b, Seq(), (b, _)  => LiteralPattern(b, l))
-      case UnapplyPattern(b, id, tps, subs) => (b, subs,  (b, sp) => UnapplyPattern(b, id, tps, sp))
-    }
-  }
-
   def unwrapTuple(e: Expr, isTuple: Boolean)(implicit s: Symbols): Seq[Expr] = e.getType match {
     case TupleType(subs) if isTuple => 
       for (ind <- 1 to subs.size) yield { s.tupleSelect(e, ind, isTuple) }
@@ -279,39 +230,4 @@ trait Extractors { self: Trees =>
 
   def unwrapTupleType(tp: Type, expectedSize: Int): Seq[Type] =
     unwrapTupleType(tp, expectedSize > 1)
-
-  def unwrapTuplePattern(p: Pattern, isTuple: Boolean): Seq[Pattern] = p match {
-    case TuplePattern(_, subs) if isTuple => subs
-    case tp if !isTuple => Seq(tp)
-    case tp => sys.error(s"Calling unwrapTuplePattern on $p")
-  }
-
-  def unwrapTuplePattern(p: Pattern, expectedSize: Int): Seq[Pattern] =
-    unwrapTuplePattern(p, expectedSize > 1)
-  
-  object LetPattern {
-    def apply(patt: Pattern, value: Expr, body: Expr) : Expr = {
-      patt match {
-        case WildcardPattern(Some(binder)) => Let(binder, value, body)
-        case _ => MatchExpr(value, List(SimpleCase(patt, body)))
-      }
-    }
-
-    def unapply(me: MatchExpr) : Option[(Pattern, Expr, Expr)] = {
-      Option(me) collect {
-        case MatchExpr(scrut, List(SimpleCase(pattern, body))) if !aliasedSymbols(pattern.binders.toSet, exprOps.variablesOf(scrut)) =>
-          ( pattern, scrut, body )
-      }
-    }
-  }
-
-  object LetTuple {
-    def unapply(me: MatchExpr) : Option[(Seq[ValDef], Expr, Expr)] = {
-      Option(me) collect {
-        case LetPattern(TuplePattern(None, subPatts), value, body) if
-            subPatts forall { case WildcardPattern(Some(_)) => true; case _ => false } => 
-          (subPatts map { _.binder.get }, value, body )
-      }
-    }
-  }
 }

@@ -11,22 +11,15 @@ trait CallGraph {
   import trees.exprOps._
   protected val symbols: Symbols
 
-  private def collectCallsInPats(fd: FunDef)(p: Pattern): Set[(FunDef, FunDef)] =
-    (p match {
-      case u: UnapplyPattern => Set((fd, symbols.getFunction(u.fd)))
-      case _ => Set()
-    }) ++ p.subPatterns.flatMap(collectCallsInPats(fd))
-
   private def collectCalls(fd: FunDef)(e: Expr): Set[(FunDef, FunDef)] = e match {
     case f @ FunctionInvocation(id, tps, _) => Set((fd, symbols.getFunction(id)))
-    case MatchExpr(_, cases) => cases.toSet.flatMap((mc: MatchCase) => collectCallsInPats(fd)(mc.pattern))
     case _ => Set()
   }
 
   lazy val graph: DiGraph[FunDef, SimpleEdge[FunDef]] = {
     var g = DiGraph[FunDef, SimpleEdge[FunDef]]()
 
-    for ((_, fd) <- symbols.functions; c <- collect(collectCalls(fd))(fd.fullBody)) {
+    for ((_, fd) <- symbols.functions; body <- fd.body; c <- collect(collectCalls(fd))(body)) {
       g += SimpleEdge(c._1, c._2)
     }
 

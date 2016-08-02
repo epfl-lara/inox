@@ -173,30 +173,30 @@ trait Paths { self: TypeOps with Constructors =>
     /** Fold the path into an implication of `base`, namely `path ==> base` */
     def implies(base: Expr) = distributiveClause(base, self.implies)
 
-    /** Folds the path into a `require` wrapping the expression `body`
+    /** Folds the path into an expression that shares the path's outer lets
       *
-      * The function takes additional optional parameters
-      * - [[pre]] if one wishes to mix a pre-existing precondition into the final
-      *   [[leon.purescala.Expressions.Require]], and
-      * - [[post]] for mixing a postcondition ([[leon.purescala.Expressions.Ensuring]]) in.
+      * The folding shares all outer bindings in an wrapping sequence of
+      * let-expressions. The inner condition is then passed as the first
+      * argument of the [[recons]] function and must be shared out between
+      * the reconstructions of [[es]] which will only feature the bindings
+      * from the current path.
+      *
+      * This method is useful to reconstruct if-expressions or assumptions
+      * where the condition can be added to the expression in a position
+      * that implies further positions.
       */
-    def specs(body: Expr, pre: Expr = BooleanLiteral(true), post: Expr = NoTree(BooleanType)) = {
+    def withShared(es: Seq[Expr], recons: (Expr, Seq[Expr]) => Expr): Expr = {
       val (outers, rest) = elements.span(_.isLeft)
       val cond = fold[Expr](BooleanLiteral(true), let, self.and(_, _))(rest)
 
       def wrap(e: Expr): Expr = {
         val bindings = rest.collect { case Left((vd, e)) => vd -> e }
-        val vdSubst = bindings.map(p => p._1 -> p._1.freshen).toMap
-        val replace = exprOps.replaceFromSymbols(vdSubst.mapValues(_.toVariable), _: Expr)
-        bindings.foldRight(replace(e)) { case ((vd, e), b) => let(vdSubst(vd), replace(e), b) }
+        val subst = bindings.map(p => p._1 -> p._1.toVariable.freshen).toMap
+        val replace = exprOps.replaceFromSymbols(subst, _: Expr)
+        bindings.foldRight(replace(e)) { case ((vd, e), b) => let(subst(vd).toVal, replace(e), b) }
       }
 
-      val req = Require(self.and(cond, wrap(pre)), wrap(body))
-      val full = post match {
-        case l @ Lambda(args, body) => Ensuring(req, Lambda(args, wrap(body)).copiedFrom(l))
-        case _ => req
-      }
-
+      val full = recons(cond, es.map(wrap))
       fold[Expr](full, let, (_, _) => scala.sys.error("Should never happen!"))(outers)
     }
 
