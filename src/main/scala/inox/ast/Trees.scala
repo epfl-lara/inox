@@ -33,8 +33,12 @@ trait Trees
   }
 
   object exprOps extends {
-    private[ast] val trees: Trees.this.type = Trees.this
+    protected val trees: Trees.this.type = Trees.this
   } with ExprOps
+
+  object dsl extends {
+    protected val trees: Trees.this.type = Trees.this
+  } with DSL
 
   /** Represents a unique symbol in Inox.
     *

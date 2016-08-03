@@ -26,7 +26,7 @@ trait TreeOps { self: Trees =>
     }
 
     @inline
-    private def transformChanged(vds: Seq[ValDef]): (Seq[ValDef], Boolean) = {
+    private def transformValDefs(vds: Seq[ValDef]): (Seq[ValDef], Boolean) = {
       var changed = false
       val newVds = vds.map { vd =>
         val newVd = transform(vd)
@@ -38,7 +38,7 @@ trait TreeOps { self: Trees =>
     }
 
     @inline
-    private def transformChanged(args: Seq[Expr]): (Seq[Expr], Boolean) = {
+    private def transformExprs(args: Seq[Expr]): (Seq[Expr], Boolean) = {
       var changed = false
       val newArgs = args.map { arg =>
         val newArg = transform(arg)
@@ -50,7 +50,7 @@ trait TreeOps { self: Trees =>
     }
 
     @inline
-    private def transformChanged(tps: Seq[Type]): (Seq[Type], Boolean) = {
+    private def transformTypes(tps: Seq[Type]): (Seq[Type], Boolean) = {
       var changed = false
       val newTps = tps.map { tp =>
         val newTp = transform(tp)
@@ -65,7 +65,7 @@ trait TreeOps { self: Trees =>
       case v: Variable => transform(v)
 
       case Lambda(args, body) =>
-        val (newArgs, changedArgs) = transformChanged(args)
+        val (newArgs, changedArgs) = transformValDefs(args)
         val newBody = transform(body)
         if (changedArgs || (body ne newBody)) {
           Lambda(newArgs, newBody).copiedFrom(e)
@@ -74,7 +74,7 @@ trait TreeOps { self: Trees =>
         }
 
       case Forall(args, body) =>
-        val (newArgs, changedArgs) = transformChanged(args)
+        val (newArgs, changedArgs) = transformValDefs(args)
         val newBody = transform(body)
         if (changedArgs || (body ne newBody)) {
           Forall(newArgs, newBody).copiedFrom(e)
@@ -94,7 +94,7 @@ trait TreeOps { self: Trees =>
 
       case CaseClass(ct, args) =>
         val newCt = transform(ct)
-        val (newArgs, changedArgs) = transformChanged(args)
+        val (newArgs, changedArgs) = transformExprs(args)
         if ((ct ne newCt) || changedArgs) {
           CaseClass(newCt.asInstanceOf[ClassType], newArgs).copiedFrom(e)
         } else {
@@ -110,8 +110,8 @@ trait TreeOps { self: Trees =>
         }
 
       case FunctionInvocation(id, tps, args) =>
-        val (newTps, changedTps) = transformChanged(tps)
-        val (newArgs, changedArgs) = transformChanged(args)
+        val (newTps, changedTps) = transformTypes(tps)
+        val (newArgs, changedArgs) = transformExprs(args)
         if (changedTps || changedArgs) {
           FunctionInvocation(id, newTps, newArgs).copiedFrom(e)
         } else {
@@ -137,7 +137,7 @@ trait TreeOps { self: Trees =>
         }
 
       case FiniteSet(es, tpe) =>
-        val (newArgs, changed) = transformChanged(es)
+        val (newArgs, changed) = transformExprs(es)
         val newTpe = transform(tpe)
         if (changed || (tpe ne newTpe)) {
           FiniteSet(newArgs, newTpe).copiedFrom(e)

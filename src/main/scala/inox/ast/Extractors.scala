@@ -30,18 +30,6 @@ trait Extractors { self: Trees =>
         Some((Seq(t), (es: Seq[Expr]) => UMinus(es.head)))
       case StringLength(t) =>
         Some((Seq(t), (es: Seq[Expr]) => StringLength(es.head)))
-      case StringBigLength(t) =>
-        Some((Seq(t), (es: Seq[Expr]) => StringBigLength(es.head)))
-      case Int32ToString(t) =>
-        Some((Seq(t), (es: Seq[Expr]) => Int32ToString(es.head)))
-      case BooleanToString(t) =>
-        Some((Seq(t), (es: Seq[Expr]) => BooleanToString(es.head)))
-      case IntegerToString(t) =>
-        Some((Seq(t), (es: Seq[Expr]) => IntegerToString(es.head)))
-      case CharToString(t) =>
-        Some((Seq(t), (es: Seq[Expr]) => CharToString(es.head)))
-      case RealToString(t) =>
-        Some((Seq(t), (es: Seq[Expr]) => RealToString(es.head)))
       case SetCardinality(t) =>
         Some((Seq(t), (es: Seq[Expr]) => SetCardinality(es.head)))
       case CaseClassSelector(e, sel) =>
@@ -126,7 +114,6 @@ trait Extractors { self: Trees =>
       case And(args) => Some((args, es => And(es)))
       case Or(args) => Some((args, es => Or(es)))
       case SubString(t1, a, b) => Some((t1::a::b::Nil, es => SubString(es(0), es(1), es(2))))
-      case BigSubString(t1, a, b) => Some((t1::a::b::Nil, es => BigSubString(es(0), es(1), es(2))))
       case FiniteSet(els, base) =>
         Some((els, els => FiniteSet(els, base)))
       case FiniteBag(els, base) =>
@@ -200,17 +187,6 @@ trait Extractors { self: Trees =>
 
   object IsTyped {
     def unapply[T <: Typed](e: T)(implicit p: Symbols): Option[(T, Type)] = Some((e, e.getType))
-  }
-
-  object WithStringconverter {
-    def unapply(t: Type): Option[Expr => Expr] = t match {
-      case BooleanType => Some(BooleanToString)
-      case Int32Type   => Some(Int32ToString)
-      case IntegerType => Some(IntegerToString)
-      case CharType    => Some(CharToString)
-      case RealType    => Some(RealToString)
-      case _           => None
-    }
   }
 
   def unwrapTuple(e: Expr, isTuple: Boolean)(implicit s: Symbols): Seq[Expr] = e.getType match {

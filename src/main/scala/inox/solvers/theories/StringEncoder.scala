@@ -1,172 +1,140 @@
 /* Copyright 2009-2015 EPFL, Lausanne */
 
-package leon
+package inox
 package solvers
 package theories
 
-import purescala.Common._
-import purescala.Expressions._
-import purescala.Constructors._
-import purescala.Types._
-import purescala.Definitions._
-import leon.utils.Bijection
-import leon.purescala.TypeOps
+import utils._
 
-class StringEncoder(ctx: LeonContext, p: Program) extends TheoryEncoder {
-  
-  val StringID     = FreshIdentifier("String")
-  val StringNilID  = FreshIdentifier("StringNil")
-  val StringConsID = FreshIdentifier("StringCons")
+trait StringEncoder extends TheoryEncoder {
+  import trees._
+  import trees.dsl._
 
-  val StringConsHeadID = FreshIdentifier("head")
-  val StringConsTailID = FreshIdentifier("tail")
+  val stringID     = FreshIdentifier("String")
+  val stringNilID  = FreshIdentifier("StringNil")
+  val stringConsID = FreshIdentifier("StringCons")
 
-  val String     = new AbstractClassDef(StringID, Seq.empty Seq(StringConsID, StringNilID), Set.empty).typed
-  val StringNil  = new CaseClassDef(StringNilID, Seq.empty, Some(StringID), Seq.empty, Set.empty).typed
-  val StringCons = new CaseClassDef(StringConsID, Seq.empty, Some(StringID), Seq(
-    ValDef(StringConsHeadID, CharType),
-    ValDef(StringConsTailID, ClassType(StringID, Seq.empty))
-  ), Set.empty).typed
+  val head = FreshIdentifier("head")
+  val tail = FreshIdentifier("tail")
+
+  val stringClass     = new AbstractClassDef(stringID, Seq.empty, Seq(stringConsID, stringNilID), Set.empty)
+  val stringNilClass  = new CaseClassDef(stringNilID, Seq.empty, Some(stringID), Seq.empty, Set.empty)
+  val stringConsClass = new CaseClassDef(stringConsID, Seq.empty, Some(stringID), Seq(
+    ValDef(head, CharType),
+    ValDef(tail, ClassType(stringID, Seq.empty))
+  ), Set.empty)
+
+  val String     : ClassType = T(stringID)()
+  val StringNil  : ClassType = T(stringNilID)()
+  val StringCons : ClassType = T(stringConsID)()
 
   val SizeID = FreshIdentifier("size")
-  val Size = new FunDef()
+  val Size = mkFunDef(SizeID)()(_ => (
+    Seq("s" :: String),
+    IntegerType, { case Seq(s) =>
+      if_ (s.isInstOf(StringCons)) {
+        E(BigInt(1)) + E(SizeID)(s.asInstOf(StringCons).getField(tail))
+      } else_ {
+        E(BigInt(0))
+      }
+    }))
 
-  val Size   = p.library.lookupUnique[FunDef]("leon.theories.String.size").typed
-  val Take   = p.library.lookupUnique[FunDef]("leon.theories.String.take").typed
-  val Drop   = p.library.lookupUnique[FunDef]("leon.theories.String.drop").typed
-  val Slice  = p.library.lookupUnique[FunDef]("leon.theories.String.slice").typed
-  val Concat = p.library.lookupUnique[FunDef]("leon.theories.String.concat").typed
+  val TakeID = FreshIdentifier("take")
+  val Take = mkFunDef(TakeID)()(_ => (
+    Seq("s" :: String, "i" :: IntegerType),
+    String, { case Seq(s, i) =>
+      if_ (s.isInstOf(StringCons) && i > E(BigInt(0))) {
+        StringCons(
+          s.asInstOf(StringCons).getField(head),
+          E(TakeID)(s.asInstOf(StringCons).getField(tail), i - E(BigInt(1))))
+      } else_ {
+        StringNil()
+      }
+    }))
 
-  val SizeI   = p.library.lookupUnique[FunDef]("leon.theories.String.sizeI").typed
-  val TakeI   = p.library.lookupUnique[FunDef]("leon.theories.String.takeI").typed
-  val DropI   = p.library.lookupUnique[FunDef]("leon.theories.String.dropI").typed
-  val SliceI  = p.library.lookupUnique[FunDef]("leon.theories.String.sliceI").typed
-  
-  val FromInt      = p.library.lookupUnique[FunDef]("leon.theories.String.fromInt").typed
-  val FromChar     = p.library.lookupUnique[FunDef]("leon.theories.String.fromChar").typed
-  val FromBoolean  = p.library.lookupUnique[FunDef]("leon.theories.String.fromBoolean").typed
-  val FromBigInt   = p.library.lookupUnique[FunDef]("leon.theories.String.fromBigInt").typed
-  
+  val DropID = FreshIdentifier("drop")
+  val Drop = mkFunDef(DropID)()(_ => (
+    Seq("s" :: String, "i" :: IntegerType),
+    String, { case Seq(s, i) =>
+      if_ (s.isInstOf(StringCons) && i > E(BigInt(0))) {
+        E(DropID)(s.asInstOf(StringCons).getField(tail), i - E(BigInt(1)))
+      } else_ {
+        s
+      }
+    }))
+
+  val SliceID = FreshIdentifier("slice")
+  val Slice = mkFunDef(SliceID)()(_ => (
+    Seq("s" :: String, "from" :: IntegerType, "to" :: IntegerType),
+    String, { case Seq(s, from, to) => Take(Drop(s, from), to - from) }))
+
+  val ConcatID = FreshIdentifier("concat")
+  val Concat = mkFunDef(ConcatID)()(_ => (
+    Seq("s1" :: String, "s2" :: String),
+    String, { case Seq(s1, s2) =>
+      if_ (s1.isInstOf(StringCons)) {
+        StringCons(
+          s1.asInstOf(StringCons).getField(head),
+          E(ConcatID)(s1.asInstOf(StringCons).getField(tail), s2))
+      } else_ {
+        s2
+      }
+    }))
 
   private val stringBijection = new Bijection[String, Expr]()
-  
+
   private def convertToString(e: Expr): String  = stringBijection.cachedA(e)(e match {
-    case CaseClass(_, Seq(CharLiteral(c), l)) => (if(c < 31) (c + 97).toChar else c) + convertToString(l)
-    case CaseClass(_, Seq()) => ""
+    case CaseClass(StringCons, Seq(CharLiteral(c), l)) => (if(c < 31) (c + 97).toChar else c) + convertToString(l)
+    case CaseClass(StringNil, Seq()) => ""
   })
 
   private def convertFromString(v: String): Expr = stringBijection.cachedB(v) {
-    v.toList.foldRight(CaseClass(StringNil, Seq())){
-      case (char, l) => CaseClass(StringCons, Seq(CharLiteral(char), l))
-    }
+    v.toList.foldRight(StringNil()){ case (char, l) => StringCons(E(char), l) }
   }
 
-  val encoder = new Encoder {
-    override def transformExpr(e: Expr)(implicit binders: Map[Identifier, Identifier]): Option[Expr] = e match {
-      case StringLiteral(v)          =>
-        Some(convertFromString(v))
-      case StringBigLength(a)           =>
-        Some(FunctionInvocation(Size, Seq(transform(a))).copiedFrom(e))
-      case StringLength(a)           =>
-        Some(FunctionInvocation(SizeI, Seq(transform(a))).copiedFrom(e))
-      case StringConcat(a, b)        =>
-        Some(FunctionInvocation(Concat, Seq(transform(a), transform(b))).copiedFrom(e))
+  val encoder = new TreeTransformer {
+    override def transform(e: Expr): Expr = e match {
+      case StringLiteral(v) => convertFromString(v)
+      case StringLength(a) => Size(transform(a)).copiedFrom(e)
+      case StringConcat(a, b) => Concat(transform(a), transform(b)).copiedFrom(e)
       case SubString(a, start, Plus(start2, length)) if start == start2  =>
-        Some(FunctionInvocation(TakeI, Seq(FunctionInvocation(DropI, Seq(transform(a), transform(start))), transform(length))).copiedFrom(e))
-      case SubString(a, start, end)  => 
-        Some(FunctionInvocation(SliceI, Seq(transform(a), transform(start), transform(end))).copiedFrom(e))
-      case BigSubString(a, start, Plus(start2, length)) if start == start2  =>
-        Some(FunctionInvocation(Take, Seq(FunctionInvocation(Drop, Seq(transform(a), transform(start))), transform(length))).copiedFrom(e))
-      case BigSubString(a, start, end)  => 
-        Some(FunctionInvocation(Slice, Seq(transform(a), transform(start), transform(end))).copiedFrom(e))
-      case Int32ToString(a) => 
-        Some(FunctionInvocation(FromInt, Seq(transform(a))).copiedFrom(e))
-      case IntegerToString(a) =>
-        Some(FunctionInvocation(FromBigInt, Seq(transform(a))).copiedFrom(e))
-      case CharToString(a) =>
-        Some(FunctionInvocation(FromChar, Seq(transform(a))).copiedFrom(e))
-      case BooleanToString(a) =>
-        Some(FunctionInvocation(FromBoolean, Seq(transform(a))).copiedFrom(e))
-      case _ => None
+        Take(Drop(transform(a), transform(start)), transform(length)).copiedFrom(e)
+      case SubString(a, start, end) => 
+        Slice(transform(a), transform(start), transform(end)).copiedFrom(e)
+      case _ => super.transform(e)
     }
 
-    override def transformType(tpe: TypeTree): Option[TypeTree] = tpe match {
-      case StringType => Some(String)
-      case _ => None
-    }
-
-    override def transform(pat: Pattern): (Pattern, Map[Identifier, Identifier]) = pat match {
-      case LiteralPattern(binder, StringLiteral(s)) =>
-        val newBinder = binder map transform
-        val newPattern = s.foldRight(CaseClassPattern(None, StringNil, Seq())) {
-          case (elem, pattern) => CaseClassPattern(None, StringCons, Seq(LiteralPattern(None, CharLiteral(elem)), pattern))
-        }
-        (newPattern.copy(binder = newBinder), (binder zip newBinder).filter(p => p._1 != p._2).toMap)
-      case _ => super.transform(pat)
+    override def transform(tpe: Type): Type = tpe match {
+      case StringType => String
+      case _ => super.transform(tpe)
     }
   }
 
-  val decoder = new Decoder {
-    override def transformExpr(e: Expr)(implicit binders: Map[Identifier, Identifier]): Option[Expr] = e match {
-      case cc @ CaseClass(cct, args) if TypeOps.isSubtypeOf(cct, String)=>
-        Some(StringLiteral(convertToString(cc)).copiedFrom(cc))
-      case FunctionInvocation(SizeI, Seq(a)) =>
-        Some(StringLength(transform(a)).copiedFrom(e))
-      case FunctionInvocation(Size, Seq(a)) =>
-        Some(StringBigLength(transform(a)).copiedFrom(e))
-      case FunctionInvocation(Concat, Seq(a, b)) =>
-        Some(StringConcat(transform(a), transform(b)).copiedFrom(e))
-      case FunctionInvocation(SliceI, Seq(a, from, to)) =>
-        Some(SubString(transform(a), transform(from), transform(to)).copiedFrom(e))
-      case FunctionInvocation(Slice, Seq(a, from, to)) =>
-        Some(BigSubString(transform(a), transform(from), transform(to)).copiedFrom(e))
-      case FunctionInvocation(TakeI, Seq(FunctionInvocation(DropI, Seq(a, start)), length)) =>
+  val decoder = new TreeTransformer {
+    override def transform(e: Expr): Expr = e match {
+      case cc @ CaseClass(ct, args) if ct == StringNil || ct == StringCons =>
+        StringLiteral(convertToString(cc)).copiedFrom(cc)
+      case FunctionInvocation(SizeID, Seq(), Seq(a)) =>
+        StringLength(transform(a)).copiedFrom(e)
+      case FunctionInvocation(ConcatID, Seq(), Seq(a, b)) =>
+        StringConcat(transform(a), transform(b)).copiedFrom(e)
+      case FunctionInvocation(SliceID, Seq(), Seq(a, from, to)) =>
+        SubString(transform(a), transform(from), transform(to)).copiedFrom(e)
+      case FunctionInvocation(TakeID, Seq(), Seq(FunctionInvocation(DropID, Seq(), Seq(a, start)), length)) =>
         val rstart = transform(start)
-        Some(SubString(transform(a), rstart, plus(rstart, transform(length))).copiedFrom(e))
-      case FunctionInvocation(Take, Seq(FunctionInvocation(Drop, Seq(a, start)), length)) =>
-        val rstart = transform(start)
-        Some(BigSubString(transform(a), rstart, plus(rstart, transform(length))).copiedFrom(e))
-      case FunctionInvocation(TakeI, Seq(a, length)) =>
-        Some(SubString(transform(a), IntLiteral(0), transform(length)).copiedFrom(e))
-      case FunctionInvocation(Take, Seq(a, length)) =>
-        Some(BigSubString(transform(a), InfiniteIntegerLiteral(0), transform(length)).copiedFrom(e))
-      case FunctionInvocation(DropI, Seq(a, count)) =>
+        SubString(transform(a), rstart, Plus(rstart, transform(length))).copiedFrom(e)
+      case FunctionInvocation(TakeID, Seq(), Seq(a, length)) =>
+        SubString(transform(a), IntegerLiteral(0), transform(length)).copiedFrom(e)
+      case FunctionInvocation(DropID, Seq(), Seq(a, count)) =>
         val ra = transform(a)
-        Some(SubString(ra, transform(count), StringLength(ra)).copiedFrom(e))
-      case FunctionInvocation(Drop, Seq(a, count)) =>
-        val ra = transform(a)
-        Some(BigSubString(ra, transform(count), StringBigLength(ra)).copiedFrom(e))
-      case FunctionInvocation(FromInt, Seq(a)) =>
-        Some(Int32ToString(transform(a)).copiedFrom(e))
-      case FunctionInvocation(FromBigInt, Seq(a)) =>
-        Some(IntegerToString(transform(a)).copiedFrom(e))
-      case FunctionInvocation(FromChar, Seq(a)) =>
-        Some(CharToString(transform(a)).copiedFrom(e))
-      case FunctionInvocation(FromBoolean, Seq(a)) =>
-        Some(BooleanToString(transform(a)).copiedFrom(e))
-      case _ => None
+        SubString(ra, transform(count), StringLength(ra)).copiedFrom(e)
+      case _ => super.transform(e)
     }
 
 
-    override def transformType(tpe: TypeTree): Option[TypeTree] = tpe match {
-      case String | StringCons | StringNil => Some(StringType)
-      case _ => None
-    }
-
-    override def transform(pat: Pattern): (Pattern, Map[Identifier, Identifier]) = pat match {
-      case CaseClassPattern(b, StringNil, Seq()) =>
-        val newBinder = b map transform
-        (LiteralPattern(newBinder , StringLiteral("")), (b zip newBinder).filter(p => p._1 != p._2).toMap)
-
-      case CaseClassPattern(b, StringCons, Seq(LiteralPattern(_, CharLiteral(elem)), sub)) => transform(sub) match {
-        case (LiteralPattern(_, StringLiteral(s)), binders) =>
-          val newBinder = b map transform
-          (LiteralPattern(newBinder, StringLiteral(elem + s)), (b zip newBinder).filter(p => p._1 != p._2).toMap ++ binders)
-        case (e, binders) =>
-          throw new Unsupported(pat, "Failed to parse pattern back as string: " + e)(ctx)
-      }
-
-      case _ => super.transform(pat)
+    override def transform(tpe: Type): Type = tpe match {
+      case String | StringCons | StringNil => StringType
+      case _ => super.transform(tpe)
     }
   }
 }

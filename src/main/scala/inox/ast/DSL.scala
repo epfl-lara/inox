@@ -18,90 +18,54 @@ import scala.language.implicitConversions
   *    Instead one-letter constructors are provided.
   */
 trait DSL {
-  val program: Program
-  import program._
+  protected val trees: Trees
   import trees._
-  import symbols._
 
   /* Expressions */
-  trait SimplificationLevel
-  case object NoSimplify extends SimplificationLevel
-  case object SafeSimplify extends SimplificationLevel
 
-  private def simp(e1: => Expr, e2: => Expr)(implicit simpLvl: SimplificationLevel): Expr = simpLvl match {
-    case NoSimplify   => e1
-    case SafeSimplify => e2
-  }
-
-  implicit class ExprOps(e: Expr)(implicit simpLvl: SimplificationLevel) {
-
-    private def binOp(
-      e1: (Expr, Expr) => Expr,
-      e2: (Expr, Expr) => Expr
-    ) = {
-      (other: Expr) => simp(e1(e, other), e2(e,other))
-    }
-
-    private def unOp(
-      e1: (Expr) => Expr,
-      e2: (Expr) => Expr
-    ) = {
-      simp(e1(e), e2(e))
-    }
+  implicit class ExpressionWrapper(e: Expr) {
 
     // Arithmetic
-    def + = binOp(Plus, plus)
-    def - = binOp(Minus, minus)
-    def % = binOp(Modulo, Modulo)
-    def / = binOp(Division, Division)
+    def + = Plus(e, _: Expr)
+    def - = Minus(e, _: Expr)
+    def % = Modulo(e, _: Expr)
+    def / = Division(e, _: Expr)
 
     // Comparisons
-    def <   = binOp(LessThan, LessThan)
-    def <=  = binOp(LessEquals, LessEquals)
-    def >   = binOp(GreaterThan, GreaterThan)
-    def >=  = binOp(GreaterEquals, GreaterEquals)
-    def === = binOp(Equals, equality)
+    def <   = LessThan(e, _: Expr)
+    def <=  = LessEquals(e, _: Expr)
+    def >   = GreaterThan(e, _: Expr)
+    def >=  = GreaterEquals(e, _: Expr)
+    def === = Equals(e, _: Expr)
 
     // Boolean
-    def &&  = binOp(And(_, _), and(_, _))
-    def ||  = binOp(Or(_, _), or(_, _))
-    def ==> = binOp(Implies, implies)
-    def unary_! = unOp(Not, not)
+    def &&  = And(e, _: Expr)
+    def ||  = Or(e, _: Expr)
+    def ==> = Implies(e, _: Expr)
+    def unary_! = Not(e)
 
     // Tuple selections
-    def _1 = unOp(TupleSelect(_, 1), tupleSelect(_, 1, true))
-    def _2 = unOp(TupleSelect(_, 2), tupleSelect(_, 2, true))
-    def _3 = unOp(TupleSelect(_, 3), tupleSelect(_, 3, true))
-    def _4 = unOp(TupleSelect(_, 4), tupleSelect(_, 4, true))
+    def _1 = TupleSelect(e, 1)
+    def _2 = TupleSelect(e, 2)
+    def _3 = TupleSelect(e, 3)
+    def _4 = TupleSelect(e, 4)
 
     // Sets
     def size     = SetCardinality(e)
-    def subsetOf = binOp(SubsetOf, SubsetOf)
-    def insert   = binOp(SetAdd, SetAdd)
-    def ++ = binOp(SetUnion, SetUnion)
-    def -- = binOp(SetDifference, SetDifference)
-    def &  = binOp(SetIntersection, SetIntersection)
+    def subsetOf = SubsetOf(e, _: Expr)
+    def insert   = SetAdd(e, _: Expr)
+    def ++ = SetUnion(e, _: Expr)
+    def -- = SetDifference(e, _: Expr)
+    def &  = SetIntersection(e, _: Expr)
 
     // Misc.
 
-    def getField(selector: String) = {
-      val id = for {
-        ct <- scala.util.Try(e.getType.asInstanceOf[ClassType]).toOption
-        tcd <- ct.lookupClass
-        tccd <- scala.util.Try(tcd.toCase).toOption
-        field <- tccd.cd.fields.find(_.id.name == selector)
-      } yield {
-        field.id
-      }
-      CaseClassSelector(e, id.get)
-    }
-
-    def ensures(other: Expr) = Ensuring(e, other)
+    def getField(selector: Identifier) = CaseClassSelector(e, selector)
 
     def apply(es: Expr*) = Application(e, es.toSeq)
 
-    def isInstOf(tp: ClassType) = unOp(IsInstanceOf(_, tp), symbols.isInstOf(_, tp))
-    def asInstOf(tp: ClassType) = unOp(AsInstanceOf(_, tp), symbols.asInstOf(_, tp))
+    def isInstOf(tp: ClassType) = IsInstanceOf(e, tp)
+    def asInstOf(tp: ClassType) = AsInstanceOf(e, tp)
   }
 
   // Literals
@@ -113,28 +77,38 @@ trait DSL {
   def E(n: BigInt, d: BigInt) = FractionLiteral(n, d)
   def E(s: String): Expr = StringLiteral(s)
   def E(e1: Expr, e2: Expr, es: Expr*): Expr = Tuple(e1 :: e2 :: es.toList)
+  /*
   def E(s: Set[Expr]) = {
     require(s.nonEmpty)
     FiniteSet(s.toSeq, leastUpperBound(s.toSeq map (_.getType)).get)
   }
+  */
   def E(vd: ValDef) = vd.toVariable // TODO: We should be able to remove this
   def E(id: Identifier) = new IdToFunInv(id)
   class IdToFunInv(id: Identifier) {
-    def apply(tps: Type*)(args: Expr*) =
-      FunctionInvocation(id, tps.toSeq, args.toSeq)
+    def apply(tp1: Type, tps: Type*)(args: Expr*) =
+      FunctionInvocation(id, tp1 +: tps.toSeq, args.toSeq)
+    def apply(args: Expr*) =
+      FunctionInvocation(id, Seq.empty, args.toSeq)
   }
 
   // if-then-else
-  class DanglingElse(cond: Expr, thenn: Expr) {
-    def else_ (theElse: Expr) = IfExpr(cond, thenn, theElse)
+  class DanglingElse private[DSL] (condThens: Seq[(Expr, Expr)]) {
+    def else_if (cond2: Expr)(thenn2: Expr) = new DanglingElse(condThens :+ (cond2 -> thenn2))
+    def else_ (theElse: Expr) = condThens.foldRight(theElse) {
+      case ((cond, thenn), elze) =>IfExpr(cond, thenn, elze)
+    }
   }
 
-  def if_ (cond: Expr)(thenn: Expr) = new DanglingElse(cond, thenn)
+  def if_ (cond: Expr)(thenn: Expr) = new DanglingElse(Seq(cond -> thenn))
 
   def ite(cond: Expr, thenn: Expr, elze: Expr) = IfExpr(cond, thenn, elze)
 
   implicit class FunctionInv(fd: FunDef) {
-    def apply(args: Expr*) = functionInvocation(fd, args.toSeq)
+    def apply(tp1: Type, tps: Type*)(args: Expr*) =
+      FunctionInvocation(fd.id, tp1 +: tps.toSeq, args.toSeq)
+    def apply(args: Expr*) =
+      FunctionInvocation(fd.id, Seq.empty, args.toSeq)
   }
 
   implicit class CaseClassToExpr(ct: ClassType) {
@@ -157,11 +131,8 @@ trait DSL {
     * @param v The value bound to the let-variable
     * @param body The context which will be filled with the let-variable
     */
-  def let(vd: ValDef, v: Expr)(body: Variable => Expr)(implicit simpLvl: SimplificationLevel) = {
-    simp(
-      Let(vd, v, body(vd.toVariable)),
-      symbols.let(vd, v, body(vd.toVariable))
-    )
+  def let(vd: ValDef, v: Expr)(body: Variable => Expr) = {
+    Let(vd, v, body(vd.toVariable))
   }
 
   // Lambdas
@@ -187,6 +158,28 @@ trait DSL {
     )
   }
 
+  // Foralls
+  def forall(vd: ValDef)(body: Variable => Expr) = {
+    Forall(Seq(vd), body(vd.toVariable))
+  }
+
+  def forall(vd1: ValDef, vd2: ValDef)
+            (body: (Variable, Variable) => Expr) = {
+    Forall(Seq(vd1, vd2), body(vd1.toVariable, vd2.toVariable))
+  }
+
+  def forall(vd1: ValDef, vd2: ValDef, vd3: ValDef)
+            (body: (Variable, Variable, Variable) => Expr) = {
+    Forall(Seq(vd1, vd2, vd3), body(vd1.toVariable, vd2.toVariable, vd3.toVariable))
+  }
+
+  def forall(vd1: ValDef, vd2: ValDef, vd3: ValDef, vd4: ValDef)
+            (body: (Variable, Variable, Variable, Variable) => Expr) = {
+    Forall(
+      Seq(vd1, vd2, vd3, vd4),
+      body(vd1.toVariable, vd2.toVariable, vd3.toVariable, vd4.toVariable))
+  }
+
   // Block-like
   class BlockSuspension(susp: Expr => Expr) {
     def in(e: Expr) = susp(e)
@@ -195,9 +188,11 @@ trait DSL {
   /* Types */
   def T(tp1: Type, tp2: Type, tps: Type*) = TupleType(tp1 :: tp2 :: tps.toList)
   def T(id: Identifier) = new IdToClassType(id)
+
   class IdToClassType(id: Identifier) {
     def apply(tps: Type*) = ClassType(id, tps.toSeq)
   }
+
   implicit class FunctionTypeBuilder(to: Type) {
     def =>: (from: Type) =
       FunctionType(Seq(from), to)
@@ -241,9 +236,9 @@ trait DSL {
     val tParams = tParamNames map TypeParameter.fresh
     val tParamDefs = tParams map TypeParameterDef
     val (params, retType, bodyBuilder) = builder(tParams)
-    val fullBody = bodyBuilder(params map (_.toVariable))
+    val body = bodyBuilder(params map (_.toVariable))
 
-    new FunDef(id, tParamDefs, params, retType, fullBody, Set())
+    new FunDef(id, tParamDefs, params, retType, Some(body), Set())
   }
 
   def mkAbstractClass(id: Identifier)

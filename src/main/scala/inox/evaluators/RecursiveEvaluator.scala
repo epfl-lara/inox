@@ -217,52 +217,15 @@ trait RecursiveEvaluator
       }
 
     case StringLength(a) => e(a) match {
-      case StringLiteral(a) => IntLiteral(a.length)
+      case StringLiteral(a) => IntegerLiteral(a.length)
       case res => throw EvalError(typeErrorMsg(res, Int32Type))
     }
 
-    case StringBigLength(a) => e(a) match {
-      case StringLiteral(a) => IntegerLiteral(a.length)
-      case res => throw EvalError(typeErrorMsg(res, IntegerType))
-    }
-
     case SubString(a, start, end) => (e(a), e(start), e(end)) match {
-      case (StringLiteral(a), IntLiteral(b), IntLiteral(c))  =>
-        StringLiteral(a.substring(b, c))
-      case res => throw EvalError(typeErrorMsg(res._1, StringType))
-    }
-
-    case BigSubString(a, start, end) => (e(a), e(start), e(end)) match {
       case (StringLiteral(a), IntegerLiteral(b), IntegerLiteral(c))  =>
         StringLiteral(a.substring(b.toInt, c.toInt))
       case res => throw EvalError(typeErrorMsg(res._1, StringType))
     }
-
-    case Int32ToString(a) => e(a) match {
-      case IntLiteral(i) => StringLiteral(i.toString)
-      case res =>  throw EvalError(typeErrorMsg(res, Int32Type))
-    }
-
-    case CharToString(a) => 
-      e(a) match {
-        case CharLiteral(i) => StringLiteral(i.toString)
-        case res =>  throw EvalError(typeErrorMsg(res, CharType))
-      }
-
-    case IntegerToString(a) => e(a) match {
-        case IntegerLiteral(i) => StringLiteral(i.toString)
-        case res =>  throw EvalError(typeErrorMsg(res, IntegerType))
-      }
-
-    case BooleanToString(a) => e(a) match {
-        case BooleanLiteral(i) => StringLiteral(i.toString)
-        case res =>  throw EvalError(typeErrorMsg(res, BooleanType))
-      }
-
-    case RealToString(a) => e(a) match {
-        case FractionLiteral(n, d) => StringLiteral(n.toString + "/" + d.toString)
-        case res =>  throw EvalError(typeErrorMsg(res, RealType))
-      }
 
     case UMinus(ex) =>
       e(ex) match {

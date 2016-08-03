@@ -97,14 +97,14 @@ trait FunctionTemplates { self: Templates =>
   }
 
   private[unrolling] object functionsManager extends Manager {
-    val incrementals: Seq[IncrementalState] = Seq(callInfos, defBlockers)
-
     // Function instantiations have their own defblocker
     private[FunctionTemplates] val defBlockers = new IncrementalMap[Call, Encoded]()
 
     // Keep which function invocation is guarded by which guard,
     // also specify the generation of the blocker.
     private[FunctionTemplates] val callInfos   = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[Call])]()
+
+    val incrementals: Seq[IncrementalState] = Seq(callInfos, defBlockers)
 
     def unrollGeneration: Option[Int] =
       if (callInfos.isEmpty) None

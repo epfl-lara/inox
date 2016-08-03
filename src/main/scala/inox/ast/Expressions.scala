@@ -334,27 +334,6 @@ trait Expressions { self: Trees =>
 
   /* String Theory */
 
-  abstract class ConverterToString(fromType: Type, toType: Type) extends Expr with CachingTyped {
-    val expr: Expr
-    protected def computeType(implicit s: Symbols): Type =
-      if (expr.getType == fromType) toType else Untyped
-  }
-
-  /** $encodingof `expr.toString` for Int32 to String */
-  case class Int32ToString(expr: Expr) extends ConverterToString(Int32Type, StringType)
-
-  /** $encodingof `expr.toString` for boolean to String */
-  case class BooleanToString(expr: Expr) extends ConverterToString(BooleanType, StringType)
-
-  /** $encodingof `expr.toString` for BigInt to String */
-  case class IntegerToString(expr: Expr) extends ConverterToString(IntegerType, StringType)
-
-  /** $encodingof `expr.toString` for char to String */
-  case class CharToString(expr: Expr) extends ConverterToString(CharType, StringType)
-
-  /** $encodingof `expr.toString` for real to String */
-  case class RealToString(expr: Expr) extends ConverterToString(RealType, StringType)
-
   /** $encodingof `lhs + rhs` for strings */
   case class StringConcat(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = {
@@ -369,17 +348,6 @@ trait Expressions { self: Trees =>
       val ext = expr.getType
       val st = start.getType
       val et = end.getType
-      if (ext == StringType && st == Int32Type && et == Int32Type) StringType
-      else Untyped
-    }
-  }
-
-  /** $encodingof `lhs.subString(start, end)` for strings */
-  case class BigSubString(expr: Expr, start: Expr, end: Expr) extends Expr with CachingTyped {
-    protected def computeType(implicit s: Symbols): Type = {
-      val ext = expr.getType
-      val st = start.getType
-      val et = end.getType
       if (ext == StringType && st == IntegerType && et == IntegerType) StringType
       else Untyped
     }
@@ -388,19 +356,10 @@ trait Expressions { self: Trees =>
   /** $encodingof `lhs.length` for strings */
   case class StringLength(expr: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = {
-      if (expr.getType == StringType) Int32Type
-      else Untyped
-    }
-  }
-
-  /** $encodingof `lhs.length` for strings */
-  case class StringBigLength(expr: Expr) extends Expr with CachingTyped {
-    protected def computeType(implicit s: Symbols): Type = {
       if (expr.getType == StringType) IntegerType
       else Untyped
     }
   }
-
 
   /* General arithmetic */
 

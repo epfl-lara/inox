@@ -89,9 +89,6 @@ trait Printers { self: Trees =>
         case Let(vd, expr, SubString(v2: Variable, start, StringLength(v3: Variable))) if vd == v2 && v2 == v3 =>
           p"$expr.substring($start)"
 
-        case Let(vd, expr, BigSubString(v2: Variable, start, StringLength(v3: Variable))) if vd == v2 && v2 == v3 =>
-          p"$expr.bigSubstring($start)"
-
         case Let(b,d,e) =>
           p"""|val $b = $d
               |$e"""
@@ -108,19 +105,10 @@ trait Printers { self: Trees =>
         case Implies(l,r)         => optP { p"$l ==> $r" }
         case UMinus(expr)         => p"-$expr"
         case Equals(l,r)          => optP { p"$l == $r" }
-        
-        
-        case Int32ToString(expr)    => p"$expr.toString"
-        case BooleanToString(expr)  => p"$expr.toString"
-        case IntegerToString(expr)  => p"$expr.toString"
-        case CharToString(expr)     => p"$expr.toString"
-        case RealToString(expr)     => p"$expr.toString"
+
         case StringConcat(lhs, rhs) => optP { p"$lhs + $rhs" }
-      
         case SubString(expr, start, end) => p"$expr.substring($start, $end)"
-        case BigSubString(expr, start, end) => p"$expr.bigSubstring($start, $end)"
         case StringLength(expr)          => p"$expr.length"
-        case StringBigLength(expr)       => p"$expr.bigLength"
 
         case IntLiteral(v)        => p"$v"
         case BVLiteral(bits, size) => p"x${(size to 1 by -1).map(i => if (bits(i)) "1" else "0")}"
@@ -237,11 +225,6 @@ trait Printers { self: Trees =>
           p"${c.id}${nary(c.tps, ", ", "[", "]")}"
 
         // Definitions
-        case Symbols(classes, functions) =>
-          p"""${nary(classes.map(_._2).toSeq, "\n\n")}"""
-          p"\n\n"
-          p"""${nary(functions.map(_._2).toSeq, "\n\n")}"""
-
         case acd: AbstractClassDef =>
           p"abstract class ${acd.id}${nary(acd.tparams, ", ", "[", "]")}"
 

@@ -361,7 +361,7 @@ trait SymbolOps { self: TypeOps =>
     def transform(expr: Expr): Option[Expr] = expr match {
       case IfExpr(c, t, e) => None
 
-      case nop@Deconstructor(ts, op) => {
+      case nop @ Deconstructor(ts, op) => {
         val iteIndex = ts.indexWhere{ case IfExpr(_, _, _) => true case _ => false }
         if(iteIndex == -1) None else {
           val (beforeIte, startIte) = ts.splitAt(iteIndex)
@@ -455,9 +455,7 @@ trait SymbolOps { self: TypeOps =>
       case StringConcat(b, StringLiteral("")) => b
       case StringConcat(StringLiteral(a), StringLiteral(b)) => StringLiteral(a + b)
       case StringLength(StringLiteral(a)) => IntLiteral(a.length)
-      case StringBigLength(StringLiteral(a)) => IntegerLiteral(a.length)
       case SubString(StringLiteral(a), IntLiteral(start), IntLiteral(end)) => StringLiteral(a.substring(start.toInt, end.toInt))
-      case BigSubString(StringLiteral(a), IntegerLiteral(start), IntegerLiteral(end)) => StringLiteral(a.substring(start.toInt, end.toInt))
       case _ => expr
     }).copiedFrom(expr)
     simplify0(expr)

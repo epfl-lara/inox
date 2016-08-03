@@ -24,7 +24,7 @@ trait Definitions { self: Trees =>
   case class ClassLookupException(id: Identifier) extends LookupException(id, "class")
 
   case class NotWellFormedException(id: Identifier, s: Symbols)
-    extends Exception(s"$id not well formed in ${s.asString}")
+    extends Exception(s"$id not well formed in $s")
 
   /** Common super-type for [[ValDef]] and [[Expressions.Variable]].
     *
@@ -77,7 +77,7 @@ trait Definitions { self: Trees =>
     override def hashCode: Int = super[VariableSymbol].hashCode
   }
 
-  type Symbols <: AbstractSymbols
+  type Symbols >: Null <: AbstractSymbols
 
   /** A wrapper for a program. For now a program is simply a single object. */
   trait AbstractSymbols
@@ -86,10 +86,10 @@ trait Definitions { self: Trees =>
         with SymbolOps
         with CallGraph
         with Constructors
-        with Paths {
+        with Paths { self0: Symbols =>
 
-    protected val classes: Map[Identifier, ClassDef]
-    protected val functions: Map[Identifier, FunDef]
+    protected[ast] val classes: Map[Identifier, ClassDef]
+    protected[ast] val functions: Map[Identifier, FunDef]
 
     private[ast] val trees: self.type = self
     protected val symbols: this.type = this
@@ -120,7 +120,12 @@ trait Definitions { self: Trees =>
     def getFunction(id: Identifier): FunDef = lookupFunction(id).getOrElse(throw FunctionLookupException(id))
     def getFunction(id: Identifier, tps: Seq[Type]): TypedFunDef = lookupFunction(id, tps).getOrElse(throw FunctionLookupException(id))
 
-    def asString: String = asString(PrinterOptions.fromSymbols(this, InoxContext.printNames))
+    override def toString: String = asString(PrinterOptions.fromSymbols(this, InoxContext.printNames))
+    override def asString(implicit opts: PrinterOptions): String = {
+      classes.map(p => PrettyPrinter(p._2, opts)).mkString("\n\n") +
+      "\n\n-----------\n\n" +
+      functions.map(p => PrettyPrinter(p._2, opts)).mkString("\n\n")
+    }
 
     def transform(t: TreeTransformer): Symbols
   }

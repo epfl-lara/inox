@@ -21,14 +21,13 @@ trait AbstractUnrollingSolver
   import program.trees._
   import program.symbols._
 
-  val theories: TheoryEncoder
-  lazy val encodedProgram: Program { val trees: program.trees.type } = theories.encode(program)
+  val theories: TheoryEncoder { val trees: program.trees.type }
 
   type Encoded
   implicit val printable: Encoded => Printable
 
   val templates: Templates {
-    val program: encodedProgram.type
+    val program: theories.targetProgram.type
     type Encoded = AbstractUnrollingSolver.this.Encoded
   }
 
@@ -140,13 +139,13 @@ trait AbstractUnrollingSolver
 
     def eval(elem: Encoded, tpe: Type): Option[Expr] = modelEval(elem, theories.encode(tpe)).flatMap {
       expr => try {
-        Some(theories.decode(expr)(Map.empty))
+        Some(theories.decode(expr))
       } catch {
         case u: Unsupported => None
       }
     }
 
-    def get(v: Variable): Option[Expr] = eval(freeVars(v), theories.encode(id.getType)).filter {
+    def get(v: Variable): Option[Expr] = eval(freeVars(v), theories.encode(v.getType)).filter {
       case v: Variable => false
       case _ => true
     }
@@ -495,7 +494,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver {
   import program.symbols._
 
   type Encoded = Expr
-  val solver: Solver { val program: encodedProgram.type }
+  val solver: Solver { val program: theories.targetProgram.type }
 
   override val name = "U:"+solver.name
 
@@ -506,7 +505,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver {
   val printable = (e: Expr) => e
 
   val templates = new Templates {
-    val program = encodedProgram
+    val program: theories.targetProgram.type = theories.targetProgram
     type Encoded = Expr
 
     def encodeSymbol(v: Variable): Expr = v.freshen
