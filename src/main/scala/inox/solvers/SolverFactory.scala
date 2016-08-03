@@ -4,7 +4,6 @@ package inox
 package solvers
 
 import scala.reflect.runtime.universe._
-import _root_.smtlib.interpreters._
 
 abstract class SolverFactory[+S <: Solver] {
   def getNewSolver(): S
