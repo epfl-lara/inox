@@ -45,12 +45,10 @@ trait SimplifierWithPC extends TransformerWithPC {
       BooleanLiteral(true).copiedFrom(e)
 
     case a @ Assume(pred, body) if impliedBy(pred, path) =>
-      body
+      rec(body, path)
 
-    /* @nv TODO. what are we supposed to do here!?
     case a @ Assume(pred, body) if contradictedBy(pred, path) =>
-      Error(body.getType, s"Assertion failed: $msg").copiedFrom(a)
-    */
+      Assume(BooleanLiteral(false), rec(body, path))
 
     case b if b.getType == BooleanType && impliedBy(b, path) =>
       BooleanLiteral(true).copiedFrom(b)
