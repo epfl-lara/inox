@@ -7,7 +7,7 @@ package transformers
 trait SimplifierWithPC extends TransformerWithPC {
 
   import trees._
-  import symbols.{Path, matchExpr, matchExprCaseConditions}
+  import symbols.Path
 
   implicit protected val s = symbols
 
@@ -18,9 +18,6 @@ trait SimplifierWithPC extends TransformerWithPC {
   protected def sat(e: Expr) : Boolean
 
   protected override def rec(e: Expr, path: Path) = e match {
-    case Require(pre, body) if impliedBy(pre, path) =>
-      body
-
     case IfExpr(cond, thenn, _) if impliedBy(cond, path) =>
       rec(thenn, path)
 
@@ -47,47 +44,13 @@ trait SimplifierWithPC extends TransformerWithPC {
     case Implies(lhs, rhs) if contradictedBy(lhs, path) =>
       BooleanLiteral(true).copiedFrom(e)
 
-    case me @ MatchExpr(scrut, cases) =>
-      val rs = rec(scrut, path)
-
-      var stillPossible = true
-
-      val conds = matchExprCaseConditions(me, path)
-
-      val newCases = cases.zip(conds).flatMap { case (cs, cond) =>
-        if (stillPossible && sat(cond.toClause)) {
-
-          if (valid(cond.toClause)) {
-            stillPossible = false
-          }
-
-          Seq((cs match {
-            case SimpleCase(p, rhs) =>
-              SimpleCase(p, rec(rhs, cond))
-            case GuardedCase(p, g, rhs) =>
-              val newGuard = rec(g, cond)
-              if (valid(newGuard))
-                SimpleCase(p, rec(rhs,cond))
-              else
-                GuardedCase(p, newGuard, rec(rhs, cond withCond newGuard))
-          }).copiedFrom(cs))
-        } else {
-          Seq()
-        }
-      }
-
-      newCases match {
-        case List() =>
-          Error(e.getType, "Unreachable code").copiedFrom(e)
-        case _ =>
-          matchExpr(rs, newCases).copiedFrom(e)
-      }
-
-    case a @ Assert(pred, _, body) if impliedBy(pred, path) =>
+    case a @ Assume(pred, body) if impliedBy(pred, path) =>
       body
 
-    case a @ Assert(pred, msg, body) if contradictedBy(pred, path) =>
+    /* @nv TODO. what are we supposed to do here!?
+    case a @ Assume(pred, body) if contradictedBy(pred, path) =>
       Error(body.getType, s"Assertion failed: $msg").copiedFrom(a)
+    */
 
     case b if b.getType == BooleanType && impliedBy(b, path) =>
       BooleanLiteral(true).copiedFrom(b)

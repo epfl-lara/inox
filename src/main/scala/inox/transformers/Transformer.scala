@@ -29,6 +29,6 @@ trait Transformer {
   /** Transform an [[Expr]] with the initial environment */
   def transform(e: Expr): Expr            = transform(e, initEnv)
   /** Transform the body of a [[FunDef]] */
-  def transform(fd: FunDef): Expr         = transform(fd.fullBody)
+  def transform(fd: FunDef): Option[Expr] = fd.body.map(transform)
 }
 
