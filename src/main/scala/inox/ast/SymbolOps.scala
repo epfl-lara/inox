@@ -386,10 +386,11 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
     preMap(rewritePM)(expr)
   }
 
-  /** For each case in the [[purescala.Expressions.MatchExpr MatchExpr]], concatenates the path condition with the newly induced conditions.
-   *
-   *  Each case holds the conditions on other previous cases as negative.
-   *
+  /** For each case in the [[purescala.Expressions.MatchExpr MatchExpr]],
+    * concatenates the path condition with the newly induced conditions.
+    * Each case holds the conditions on other previous cases as negative.
+    * @note The guard of the final case is NOT included in the Paths.
+    *
     * @see [[purescala.ExprOps#conditionForPattern conditionForPattern]]
     * @see [[purescala.ExprOps#mapForPattern mapForPattern]]
     */
@@ -398,12 +399,12 @@ trait SymbolOps extends TreeOps { self: TypeOps =>
     var pcSoFar = path
 
     for (c <- cases) yield {
-      val g = c.optGuard getOrElse BooleanLiteral(true)
       val cond = conditionForPattern(scrut, c.pattern, includeBinders = true)
-      val localCond = pcSoFar merge (cond withCond g)
+      val localCond = pcSoFar merge cond
 
       // These contain no binders defined in this MatchCase
       val condSafe = conditionForPattern(scrut, c.pattern)
+      val g = c.optGuard getOrElse BooleanLiteral(true)
       val gSafe = replaceFromSymbols(mapForPattern(scrut, c.pattern), g)
       pcSoFar = pcSoFar merge (condSafe withCond gSafe).negate
 
