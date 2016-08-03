@@ -13,7 +13,7 @@ trait CallGraph {
 
   private def collectCallsInPats(fd: FunDef)(p: Pattern): Set[(FunDef, FunDef)] =
     (p match {
-      case u: UnapplyPattern => Set((fd, symbols.getFunction(u.id)))
+      case u: UnapplyPattern => Set((fd, symbols.getFunction(u.fd)))
       case _ => Set()
     }) ++ p.subPatterns.flatMap(collectCallsInPats(fd))
 

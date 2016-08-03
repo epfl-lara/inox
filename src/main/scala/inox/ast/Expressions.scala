@@ -272,9 +272,9 @@ trait Expressions { self: Trees =>
   }
 
   /** A custom pattern defined through an object's `unapply` function */
-  case class UnapplyPattern(binder: Option[ValDef], id: Identifier, tps: Seq[Type], subPatterns: Seq[Pattern]) extends Pattern {
+  case class UnapplyPattern(binder: Option[ValDef], fd: Identifier, tps: Seq[Type], subPatterns: Seq[Pattern]) extends Pattern {
     // Hacky, but ok
-    def optionType(implicit s: Symbols) = s.getFunction(id, tps).returnType.asInstanceOf[ClassType]
+    def optionType(implicit s: Symbols) = s.getFunction(fd, tps).returnType.asInstanceOf[ClassType]
     def optionChildren(implicit s: Symbols): (ClassType, ClassType) = {
       val children = optionType.tcd.asInstanceOf[TypedAbstractClassDef].descendants.sortBy(_.fields.size)
       val Seq(noneType, someType) = children.map(_.toType)
@@ -297,7 +297,7 @@ trait Expressions { self: Trees =>
       val vd = ValDef(FreshIdentifier("unap", true), optionType)
       Let(
         vd,
-        FunctionInvocation(id, tps, Seq(scrut)),
+        FunctionInvocation(fd, tps, Seq(scrut)),
         IfExpr(
           IsInstanceOf(vd.toVariable, someType),
           someCase(CaseClassSelector(someType, vd.toVariable, someValue.id)),
@@ -318,12 +318,12 @@ trait Expressions { self: Trees =>
       */
     def getUnsafe(scrut: Expr)(implicit s: Symbols) = CaseClassSelector(
       someType,
-      FunctionInvocation(id, tps, Seq(scrut)),
+      FunctionInvocation(fd, tps, Seq(scrut)),
       someValue.id
     )
 
     def isSome(scrut: Expr)(implicit s: Symbols) =
-      IsInstanceOf(FunctionInvocation(id, tps, Seq(scrut)), someType)
+      IsInstanceOf(FunctionInvocation(fd, tps, Seq(scrut)), someType)
   }
 
   // Extracts without taking care of the binder. (contrary to Extractos.Pattern)
