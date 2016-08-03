@@ -95,6 +95,3 @@ trait TransformerWithPC extends Transformer {
   }
 
 }
-
-/** A [[Collector]] that collects path conditions */
-trait CollectorWithPC extends TransformerWithPC with Collector
