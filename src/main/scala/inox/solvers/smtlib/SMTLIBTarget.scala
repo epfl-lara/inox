@@ -142,7 +142,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
   protected val constructors  = new IncrementalBijection[Type, SSymbol]()
   protected val selectors     = new IncrementalBijection[(Type, Int), SSymbol]()
   protected val testers       = new IncrementalBijection[Type, SSymbol]()
-  protected val variables     = new IncrementalBijection[Identifier, SSymbol]()
+  protected val variables     = new IncrementalBijection[Variable, SSymbol]()
   protected val sorts         = new IncrementalBijection[Type, Sort]()
   protected val functions     = new IncrementalBijection[TypedFunDef, SSymbol]()
   protected val lambdas       = new IncrementalBijection[FunctionType, SSymbol]()
@@ -251,11 +251,10 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
     }
   }
 
-  protected def declareVariable(vd: ValDef): SSymbol = declareVariable(vd.id, vd.getType)
-  protected def declareVariable(id: Identifier, tp: Type) = {
-    variables.cachedB(id) {
-      val s = id2sym(id)
-      val cmd = DeclareFun(s, List(), declareSort(tp))
+  protected def declareVariable(v: Variable): SSymbol = {
+    variables.cachedB(v) {
+      val s = id2sym(v.id)
+      val cmd = DeclareFun(s, List(), declareSort(v.getType))
       emit(cmd)
       s
     }
@@ -309,13 +308,13 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
 
   protected def toSMT(e: Expr)(implicit bindings: Map[Identifier, Term]): Term = {
     e match {
-      case Variable(id, tp) =>
-        declareSort(e.getType)
-        bindings.getOrElse(id, variables.toB(id))
+      case v@Variable(id, tp) =>
+        declareSort(tp)
+        bindings.getOrElse(id, variables.toB(v))
 
       case UnitLiteral() =>
         declareSort(UnitType)
-        declareVariable(FreshIdentifier("Unit"), UnitType)
+        declareVariable(Variable(FreshIdentifier("Unit"), UnitType))
 
       case IntegerLiteral(i)     => if (i >= 0) Ints.NumeralLit(i) else Ints.Neg(Ints.NumeralLit(-i))
       case IntLiteral(i)         => FixedSizeBitVectors.BitVectorLit(Hexadecimal.fromInt(i))
@@ -772,7 +771,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
         fromSMT(lets(s), otpe)
 
       case (SimpleSymbol(s), otpe) =>
-        variables.getA(s).map(Variable(_, otpe.get)).getOrElse {
+        variables.getA(s).getOrElse {
           ctx.reporter.fatalError("Could not find variable from SMT")
         }
 

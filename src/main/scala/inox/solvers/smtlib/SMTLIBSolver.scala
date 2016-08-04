@@ -8,11 +8,7 @@ import _root_.smtlib.parser.Commands.{Assert => SMTAssert, FunDef => SMTFunDef, 
 import _root_.smtlib.parser.Terms.{Identifier => _, _}
 import _root_.smtlib.parser.CommandsResponses.{Error => ErrorResponse, _}
 
-import theories._
-import utils._
-
 trait SMTLIBSolver extends Solver with SMTLIBTarget {
-  val theories: TheoryEncoder { val trees: program.trees.type }
 
   import program._
   import trees._
@@ -24,8 +20,6 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
   def targetName: String
   override def name: String = "smt-"+targetName
 
-  private val ids = new IncrementalBijection[Identifier, Identifier]()
-
   override def dbg(msg: => Any) = {
     debugOut foreach { o =>
       o.write(msg.toString)
@@ -34,16 +28,14 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
   }
 
   /* Public solver interface */
-  def assertCnstr(raw: Expr): Unit = if (!hasError) {
+  def assertCnstr(expr: Expr): Unit = if (!hasError) {
     try {
-      val bindings = variablesOf(raw).map(v => v -> ids.cachedB(v.id)(theories.encode(v.id))).toMap
-      val expr = theories.encode(raw)(bindings)
       variablesOf(expr).foreach(declareVariable)
 
       val term = toSMT(expr)(Map())
       emit(SMTAssert(term))
     } catch {
-      case _ : SMTLIBUnsupportedError =>
+      case _ : SolverUnsupportedError =>
         // Store that there was an error. Now all following check()
         // invocations will return None
         addError()
@@ -54,64 +46,66 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
     emit(Reset(), rawOut = true) match {
       case ErrorResponse(msg) =>
         reporter.warning(s"Failed to reset $name: $msg")
-        throw new Exception() //CantResetException(this)
+        throw new Exception() //CantResetException(this) FIXME
       case _ =>
     }
   }
 
-  override def check[R <: SolverResponse[Map[ValDef, Expr], Set[Expr]]](config: Configuration { type Response = R }): R = {
-    if (hasError) Unknown
-    else emit(CheckSat()) match {
-      case CheckSatStatus(SatStatus)     => Some(true)
-      case CheckSatStatus(UnsatStatus)   => Some(false)
-      case CheckSatStatus(UnknownStatus) => None
-      case e                             => None
-    }
-  }
+  override def check(config: Configuration): config.Response[Model, Cores] = config.cast {
+    if (hasError) Unknown else {
+      emit(CheckSat()) match {
+        case CheckSatStatus(SatStatus)     =>
+          config match {
+            case All | Model =>
+              val syms = variables.aSet.map(variables.aToB)
+              emit(GetModel()) match {
+                case GetModelResponseSuccess(smodel) =>
+                  // first-pass to gather functions
+                  val modelFunDefs = smodel.collect {
+                    case me @ DefineFun(SMTFunDef(a, args, _, _)) if args.nonEmpty =>
+                      a -> me
+                  }.toMap
 
-  protected def getModel(filter: Identifier => Boolean): Model = {
-    val syms = variables.aSet.filter(filter).map(variables.aToB)
-    if (syms.isEmpty) {
-      Model.empty
-    } else {
-      try {
-        emit(GetModel()) match {
-          case GetModelResponseSuccess(smodel) =>
-            // first-pass to gather functions
-            val modelFunDefs = smodel.collect {
-              case me @ DefineFun(SMTFunDef(a, args, _, _)) if args.nonEmpty =>
-                a -> me
-            }.toMap
+                  val model = smodel.flatMap {
+                    case DefineFun(SMTFunDef(s, _, _, e)) if syms(s) =>
+                      try {
+                        val v = variables.toA(s)
+                        val value = fromSMT(e, v.getType)(Map(), modelFunDefs)
+                        Some(v.toVal -> value)
+                      } catch {
+                        case _: Unsupported =>
+                          None
+                      }
+                    case _ => None
+                  }.toMap
 
-            val model = smodel.flatMap {
-              case DefineFun(SMTFunDef(s, _, _, e)) if syms(s) =>
-                try {
-                  val id = variables.toA(s)
-                  val value = fromSMT(e, id.getType)(Map(), modelFunDefs)
-                  Some(ids.getAorElse(id, id) -> theories.decode(value)(variablesOf(value).map(id => id -> ids.toA(id)).toMap))
-                } catch {
-                  case _: Unsupported =>
-                    None
-                }
-              case _ => None
-            }.toMap
+                  SatWithModel(model)
 
-            new Model(model)
-
-          case _ =>
-            Model.empty // FIXME improve this
-        }
-      } catch {
-        case e : SMTLIBUnsupportedError =>
-          throw new SolverUnsupportedError(e.t, this, e.reason)
+                case _ =>
+                  Unknown
+              }
+            case _ =>
+              Sat
+          }
+        case CheckSatStatus(UnsatStatus) =>
+          config match {
+            case All | Cores =>
+              emit(GetUnsatCore()) match {
+                case GetUnsatCoreResponseSuccess(syms) =>
+                  UnsatWithCores(Set.empty) // FIXME
+                case _ =>
+                  UnsatWithCores(Set.empty)
+              }
+            case _ =>
+              Unsat
+          }
+        case CheckSatStatus(UnknownStatus) => Unknown
+        case e                             => Unknown
       }
     }
   }
 
-  override def getModel: Model = getModel(_ => true)
-
-  override def push(): Unit = {
-    ids.push()
+  def push(): Unit = {
     constructors.push()
     selectors.push()
     testers.push()
@@ -124,8 +118,7 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
     emit(Push(1))
   }
 
-  override def pop(): Unit = {
-    ids.pop()
+  def pop(): Unit = {
     constructors.pop()
     selectors.pop()
     testers.pop()
