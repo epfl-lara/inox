@@ -21,18 +21,25 @@ trait AbstractUnrollingSolver
   import program.trees._
   import program.symbols._
 
-  val theories: TheoryEncoder { val trees: program.trees.type }
+  protected type Encoded
+  protected implicit val printable: Encoded => Printable
 
-  type Encoded
-  implicit val printable: Encoded => Printable
+  protected val theories: TheoryEncoder { val trees: program.trees.type }
 
-  val templates: Templates {
+  protected val templates: Templates {
     val program: theories.targetProgram.type
     type Encoded = AbstractUnrollingSolver.this.Encoded
   }
 
-  val evaluator: DeterministicEvaluator with SolvingEvaluator {
+  protected val evaluator: DeterministicEvaluator with SolvingEvaluator {
     val program: AbstractUnrollingSolver.this.program.type
+  }
+
+  protected val underlying: AbstractSolver {
+    val program: AbstractUnrollingSolver.this.program.type
+    type Trees = Encoded
+    type Model = ModelWrapper
+    type Cores = Set[Encoded]
   }
 
   val unfoldFactor     = options.findOptionOrDefault(optUnrollFactor)
@@ -88,7 +95,7 @@ trait AbstractUnrollingSolver
 
     val newClauses = templates.instantiateExpr(expression, bindings)
     for (cl <- newClauses) {
-      solverAssert(cl)
+      underlying.assertCnstr(cl)
     }
   }
 

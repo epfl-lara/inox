@@ -26,6 +26,8 @@ trait Extractors { self: Trees =>
       /* Unary operators */
       case Not(t) =>
         Some((Seq(t), (es: Seq[Expr]) => Not(es.head)))
+      case BVNot(t) =>
+        Some((Seq(t), (es: Seq[Expr]) => BVNot(es.head)))
       case UMinus(t) =>
         Some((Seq(t), (es: Seq[Expr]) => UMinus(es.head)))
       case StringLength(t) =>

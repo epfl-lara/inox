@@ -21,70 +21,53 @@ case object DebugSectionSolver extends DebugSection("solver")
 object optCheckModels  extends InoxFlagOptionDef("checkmodels",  "Double-check counter-examples with evaluator", false)
 object optSilentErrors extends InoxFlagOptionDef("silenterrors", "Fail silently into UNKNOWN when encountering an error", false)
 
-trait Solver extends Interruptible {
+trait AbstractSolver extends Interruptible {
   def name: String
   val program: Program
   val options: SolverOptions
 
-  import program._
+  type Trees
+  type Model
+  type Cores
+
+  type Configuration = SolverResponses.Configuration[Model, Cores]
+  val Simple = SolverResponses.Simple
+  val Model  = SolverResponses.Model[Model]()
+  val Cores  = SolverResponses.Cores[Cores]()
+  val All    = SolverResponses.All[Model, Cores]()
+
+  lazy val reporter = program.ctx.reporter
+
+  // This is ugly, but helpful for smtlib solvers
+  def dbg(msg: => Any) {}
+
+  def assertCnstr(expression: Trees): Unit
+
+  def check[R](config: Configuration { type Response <: R }): R
+  def checkAssumptions[R](config: Configuration { type Response <: R })(assumptions: Set[Trees]): R
+
+  def getResultSolver: Option[Solver] = Some(this)
+
+  def free(): Unit
+
+  def reset(): Unit
+
+  def push(): Unit
+  def pop(): Unit
+
+  implicit val debugSection = DebugSectionSolver
+
+  private[solvers] def debugS(msg: String) = {
+    reporter.debug("["+name+"] "+msg)
+  }
+}
+
+trait Solver extends AbstractSolver {
   import program.trees._
 
-  import SolverResponses._
-
-  sealed trait Configuration {
-    type Response <: SolverResponse[Map[ValDef, Expr], Set[Expr]]
-
-    def max(that: Configuration): Configuration = (this, that) match {
-      case (All  , _    ) => All
-      case (_    , All  ) => All
-      case (Model, Cores) => All
-      case (Cores, Model) => All
-      case (Model, _    ) => Model
-      case (_    , Model) => Model
-      case (Cores, _    ) => Cores
-      case (_    , Cores) => Cores
-      case _              => Simple
-    }
-
-    def min(that: Configuration): Configuration = (this, that) match {
-      case (o1, o2) if o1 == o2 => o1
-      case (Simple, _) => Simple
-      case (_, Simple) => Simple
-      case (Model, Cores) => Simple
-      case (Cores, Model) => Simple
-      case (All, o) => o
-      case (o, All) => o
-    }
-
-    def in(solver: Solver): solver.Configuration = this match {
-      case Simple => solver.Simple
-      case Model => solver.Model
-      case Cores => solver.Cores
-      case All => solver.All
-    }
-
-    def cast(resp: SolverResponse[Map[ValDef, Expr], Set[Expr]]): Response = ((this, resp) match {
-      case (_             , Unknown)               => Unknown
-      case (Simple | Cores, Sat)                   => Sat
-      case (Model  | All  , s @ SatWithModel(_))   => s
-      case (Simple | Model, Unsat)                 => Unsat
-      case (Cores  | All  , u @ UnsatWithCores(_)) => u
-      case _ => throw FatalError("Unexpected response " + resp + " for configuration " + this)
-    }).asInstanceOf[Response]
-  }
-
-  object Configuration {
-    def apply(model: Boolean = false, cores: Boolean = false): Configuration =
-      if (model && cores) All
-      else if (model) Model
-      else if (cores) Cores
-      else Simple
-  }
-
-  case object Simple extends Configuration { type Response = SimpleResponse }
-  case object Model  extends Configuration { type Response = ResponseWithModel[Map[ValDef, Expr]] }
-  case object Cores  extends Configuration { type Response = ResponseWithCores[Set[Expr]] }
-  case object All    extends Configuration { type Response = ResponseWithModelAndCores[Map[ValDef, Expr], Set[Expr]] }
+  type Trees = Expr
+  type Model = Map[ValDef, Expr]
+  type Cores = Set[Expr]
 
   object SolverUnsupportedError {
     def msg(t: Tree, reason: Option[String]) = {
@@ -94,25 +77,6 @@ trait Solver extends Interruptible {
 
   case class SolverUnsupportedError(t: Tree, reason: Option[String] = None)
     extends Unsupported(t, SolverUnsupportedError.msg(t,reason))
-
-  lazy val reporter = program.ctx.reporter
-
-  // This is ugly, but helpful for smtlib solvers
-  def dbg(msg: => Any) {}
-
-  def assertCnstr(expression: Expr): Unit
-
-  def check[R](config: Configuration { type Response <: R }): R
-  def checkAssumptions[R](config: Configuration { type Response <: R })(assumptions: Set[Expr]): R
-
-  def getResultSolver: Option[Solver] = Some(this)
-
-  def free()
-
-  def reset()
-
-  def push(): Unit
-  def pop(): Unit
 
   protected def unsupported(t: Tree): Nothing = {
     val err = SolverUnsupportedError(t, None)
@@ -124,11 +88,5 @@ trait Solver extends Interruptible {
     val err = SolverUnsupportedError(t, Some(str))
     reporter.warning(err.getMessage)
     throw err
-  }
-
-  implicit val debugSection = DebugSectionSolver
-
-  private[solvers] def debugS(msg: String) = {
-    reporter.debug("["+name+"] "+msg)
   }
 }

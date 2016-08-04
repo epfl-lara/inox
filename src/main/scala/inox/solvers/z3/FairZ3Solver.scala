@@ -1,41 +1,83 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 package solvers
 package z3
 
 import _root_.z3.scala._
 
-import purescala.Common._
-import purescala.Definitions._
-import purescala.Expressions._
-import purescala.ExprOps._
-import purescala.Types._
-
 import unrolling._
 import theories._
 import utils._
 
-class FairZ3Solver(val sctx: SolverContext, val program: Program)
+trait FairZ3Solver
   extends AbstractZ3Solver
-     with AbstractUnrollingSolver[Z3AST] {
+     with AbstractUnrollingSolver {
 
-  enclosing =>
-
-  protected val errors     = new IncrementalBijection[Unit, Boolean]()
-  protected def hasError   = errors.getB(()) contains true
-  protected def addError() = errors += () -> true
+  import program._
+  import program.trees._
+  import program.symbols._
 
   override val name = "Z3-f"
   override val description = "Fair Z3 Solver"
 
-  override def reset(): Unit = super[AbstractZ3Solver].reset()
-
-  def declareVariable(id: Identifier): Z3AST = variables.cachedB(Variable(id)) {
-    templateEncoder.encodeId(id)
+  type Encoded = Z3AST
+  val printable = (z3: Z3AST) => new Printable {
+    def asString(implicit ctx: LeonContext) = z3.toString
   }
 
-  def solverCheck[R](clauses: Seq[Z3AST])(block: Option[Boolean] => R): R = {
+  object theories extends {
+    val trees: program.trees.type = program.trees
+  } with StringEncoder
+
+  object templates extends {
+    val program: FairZ3Solver.this.program.type = FairZ3Solver.this.program
+    type Encoded = FairZ3Solver.this.Encoded
+  } with Templates {
+
+    def encodeSymbol(v: Variable): Z3AST = symbolToFreshZ3Symbol(v)
+
+    def encodeExpr(bindings: Map[Variable, Z3AST])(e: Expr): Z3AST = {
+      toZ3Formula(e, bindings)
+    }
+
+    def substitute(substMap: Map[Z3AST, Z3AST]): Z3AST => Z3AST = {
+      val (from, to) = substMap.unzip
+      val (fromArray, toArray) = (from.toArray, to.toArray)
+
+      (c: Z3AST) => z3.substitute(c, fromArray, toArray)
+    }
+
+    def mkNot(e: Z3AST) = z3.mkNot(e)
+    def mkOr(es: Z3AST*) = z3.mkOr(es : _*)
+    def mkAnd(es: Z3AST*) = z3.mkAnd(es : _*)
+    def mkEquals(l: Z3AST, r: Z3AST) = z3.mkEq(l, r)
+    def mkImplies(l: Z3AST, r: Z3AST) = z3.mkImplies(l, r)
+
+    def extractNot(l: Z3AST): Option[Z3AST] = z3.getASTKind(l) match {
+      case Z3AppAST(decl, args) => z3.getDeclKind(decl) match {
+        case OpNot => Some(args.head)
+        case _ => None
+      }
+      case ast => None
+    }
+  }
+
+  override def reset(): Unit = super[AbstractZ3Solver].reset()
+
+  def declareVariable(v: Variable): Z3AST = variables.cachedB(v) {
+    templates.encodeSymbol(v)
+  }
+
+  def solverAssert(cnstr: Z3AST): Unit = {
+    val timer = context.timers.solvers.z3.assert.start()
+    solver.assertCnstr(cnstr)
+    timer.stop()
+  }
+
+  def solverCheck[R](config: Configuration)
+                    (clauses: Seq[Z3AST])
+                    (block: Response => R): R = {
     solver.push()
     for (cls <- clauses) solver.assertCnstr(cls)
     val res = solver.check
@@ -103,43 +145,6 @@ class FairZ3Solver(val sctx: SolverContext, val program: Program)
     override def toString = model.toString
   }
 
-  val printable = (z3: Z3AST) => new Printable {
-    def asString(implicit ctx: LeonContext) = z3.toString
-  }
-
-  val theoryEncoder = new StringEncoder(context, program) >> new BagEncoder(context, program) >> new ArrayEncoder(context, program)
-
-  val templateEncoder = new TemplateEncoder[Z3AST] {
-    def encodeId(id: Identifier): Z3AST = {
-      idToFreshZ3Id(id)
-    }
-
-    def encodeExpr(bindings: Map[Identifier, Z3AST])(e: Expr): Z3AST = {
-      toZ3Formula(e, bindings)
-    }
-
-    def substitute(substMap: Map[Z3AST, Z3AST]): Z3AST => Z3AST = {
-      val (from, to) = substMap.unzip
-      val (fromArray, toArray) = (from.toArray, to.toArray)
-
-      (c: Z3AST) => z3.substitute(c, fromArray, toArray)
-    }
-
-    def mkNot(e: Z3AST) = z3.mkNot(e)
-    def mkOr(es: Z3AST*) = z3.mkOr(es : _*)
-    def mkAnd(es: Z3AST*) = z3.mkAnd(es : _*)
-    def mkEquals(l: Z3AST, r: Z3AST) = z3.mkEq(l, r)
-    def mkImplies(l: Z3AST, r: Z3AST) = z3.mkImplies(l, r)
-
-    def extractNot(l: Z3AST): Option[Z3AST] = z3.getASTKind(l) match {
-      case Z3AppAST(decl, args) => z3.getDeclKind(decl) match {
-        case OpNot => Some(args.head)
-        case _ => None
-      }
-      case ast => None
-    }
-  }
-
   private val incrementals: List[IncrementalState] = List(
     errors, functions, lambdas, sorts, variables,
     constructors, selectors, testers
@@ -171,21 +176,6 @@ class FairZ3Solver(val sctx: SolverContext, val program: Program)
     } else {
       super.checkAssumptions(assumptions)
     }
-  }
-
-  override def assertCnstr(expression: Expr): Unit = {
-    try {
-      super.assertCnstr(expression)
-    } catch {
-      case u: Unsupported =>
-        addError()
-    }
-  }
-
-  def solverAssert(cnstr: Z3AST): Unit = {
-    val timer = context.timers.solvers.z3.assert.start()
-    solver.assertCnstr(cnstr)
-    timer.stop()
   }
 
   def solverUnsatCore = Some(solver.getUnsatCore)
