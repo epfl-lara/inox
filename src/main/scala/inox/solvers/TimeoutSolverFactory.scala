@@ -1,17 +1,26 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 package solvers
 
 import scala.reflect.runtime.universe._
 
-class TimeoutSolverFactory[+S <: TimeoutSolver : TypeTag](val sf: SolverFactory[S], to: Long) extends SolverFactory[S] {
-  override def getNewSolver() = sf.getNewSolver().setTimeout(to)
+trait TimeoutSolverFactory extends SolverFactory {
+  type S <: TimeoutSolver { val program: TimeoutSolverFactory.this.program.type }
 
-  override val name = sf.name+" with t.o"
+  val factory: SolverFactory {
+    val program: TimeoutSolverFactory.this.program.type
+    type S = TimeoutSolverFactory.this.S
+  }
 
-  override def reclaim(s: Solver) = sf.reclaim(s)
+  val to: Long
 
-  override def shutdown() = sf.shutdown()
+  override def getNewSolver() = factory.getNewSolver().setTimeout(to)
+
+  override val name = factory.name+" with t.o"
+
+  override def reclaim(s: S) = factory.reclaim(s)
+
+  override def shutdown() = factory.shutdown()
 }
 
