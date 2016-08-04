@@ -11,10 +11,10 @@ object CollectorWithPC {
     new CollectorWithPC {
 
       type R = T
-      val trees: p.trees.type = p.trees
-      val symbols: p.symbols.type = p.symbols
-      import trees.Expr
-      import symbols.Path
+      val program: p.type = p
+      import program._
+      import symbols._
+      import trees._
       val initEnv: Path = Path.empty
 
       protected def step(e: Expr, env: Path): List[(T, Path)] = {

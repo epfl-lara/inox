@@ -25,10 +25,10 @@ trait Transformer {
   protected def rec(e: Expr, env: Env): Expr
 
   /** Transform an [[Expr]] with the specified environment */
-  def transform(e: Expr, init: Env): Expr = rec(e, init)
+  final def transform(e: Expr, init: Env): Expr = rec(e, init)
   /** Transform an [[Expr]] with the initial environment */
-  def transform(e: Expr): Expr            = transform(e, initEnv)
+  final def transform(e: Expr): Expr            = transform(e, initEnv)
   /** Transform the body of a [[FunDef]] */
-  def transform(fd: FunDef): Option[Expr] = fd.body.map(transform)
+  final def transform(fd: FunDef): Option[Expr] = fd.body.map(transform)
 }
 

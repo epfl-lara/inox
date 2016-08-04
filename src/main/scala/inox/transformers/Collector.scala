@@ -10,7 +10,7 @@ package transformers
 trait Collector extends Transformer {
   /** The type of collected objects */
   type R
-  type Result = (R, Env)
+  final type Result = (R, Env)
   import trees.Expr
   private var results: List[Result] = Nil
 
@@ -23,7 +23,7 @@ trait Collector extends Transformer {
   }
 
   /** Traverses the expression and collects */
-  def collect(e: Expr) = {
+  final def collect(e: Expr) = {
     results = Nil
     transform(e)
     results

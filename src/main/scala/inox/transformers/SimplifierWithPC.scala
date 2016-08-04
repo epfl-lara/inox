@@ -3,19 +3,30 @@
 package inox
 package transformers
 
+import inox.solvers.{SimpleSolverAPI, SolverFactory}
+
 /** Uses solvers to perform PC-aware simplifications */
-trait SimplifierWithPC extends TransformerWithPC {
+trait SimplifierWithPC extends TransformerWithPC { self =>
 
+  import program._
   import trees._
-  import symbols.Path
+  import symbols._
 
-  implicit protected val s = symbols
+  protected val sf: SolverFactory{ val program: self.program.type }
+  protected lazy val s = SimpleSolverAPI(sf)
 
-  // FIXME: This needs to be changed when SolverAPI's are available
-  protected def impliedBy(e: Expr, path: Path) : Boolean
-  protected def contradictedBy(e: Expr, path: Path) : Boolean
-  protected def valid(e: Expr) : Boolean
-  protected def sat(e: Expr) : Boolean
+  private def querie(e: Expr, path: Path, implied: Boolean) = {
+    val underTest = if (implied) e else Not(e)
+    try {
+      s.solveVALID(path implies underTest).contains(true)
+    } catch {
+      case _: Throwable =>
+        false
+    }
+  }
+
+  protected final def impliedBy(e: Expr, path: Path) = querie(e, path, true)
+  protected final def contradictedBy(e: Expr, path: Path) = querie(e, path, false)
 
   protected override def rec(e: Expr, path: Path) = e match {
     case IfExpr(cond, thenn, _) if impliedBy(cond, path) =>
@@ -44,10 +55,10 @@ trait SimplifierWithPC extends TransformerWithPC {
     case Implies(lhs, rhs) if contradictedBy(lhs, path) =>
       BooleanLiteral(true).copiedFrom(e)
 
-    case a @ Assume(pred, body) if impliedBy(pred, path) =>
+    case Assume(pred, body) if impliedBy(pred, path) =>
       rec(body, path)
 
-    case a @ Assume(pred, body) if contradictedBy(pred, path) =>
+    case Assume(pred, body) if contradictedBy(pred, path) =>
       Assume(BooleanLiteral(false), rec(body, path))
 
     case b if b.getType == BooleanType && impliedBy(b, path) =>
