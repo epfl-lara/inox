@@ -1,13 +1,8 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 package solvers
 package smtlib
-
-import purescala.Common._
-import purescala.Expressions._
-import purescala.ExprOps._
-import purescala.Definitions._
 
 import _root_.smtlib.parser.Commands.{Assert => SMTAssert, FunDef => SMTFunDef, _}
 import _root_.smtlib.parser.Terms.{Identifier => _, _}
@@ -16,8 +11,14 @@ import _root_.smtlib.parser.CommandsResponses.{Error => ErrorResponse, _}
 import theories._
 import utils._
 
-abstract class SMTLIBSolver(val sctx: SolverContext, val program: Program, theories: TheoryEncoder)
-                           extends Solver with SMTLIBTarget with NaiveAssumptionSolver {
+trait SMTLIBSolver extends Solver with SMTLIBTarget {
+  val theories: TheoryEncoder { val trees: program.trees.type }
+
+  import program._
+  import trees._
+  import symbols._
+  import exprOps.variablesOf
+  import SolverResponses._
 
   /* Solver name */
   def targetName: String
@@ -35,7 +36,7 @@ abstract class SMTLIBSolver(val sctx: SolverContext, val program: Program, theor
   /* Public solver interface */
   def assertCnstr(raw: Expr): Unit = if (!hasError) {
     try {
-      val bindings = variablesOf(raw).map(id => id -> ids.cachedB(id)(theories.encode(id))).toMap
+      val bindings = variablesOf(raw).map(v => v -> ids.cachedB(v.id)(theories.encode(v.id))).toMap
       val expr = theories.encode(raw)(bindings)
       variablesOf(expr).foreach(declareVariable)
 
@@ -53,13 +54,13 @@ abstract class SMTLIBSolver(val sctx: SolverContext, val program: Program, theor
     emit(Reset(), rawOut = true) match {
       case ErrorResponse(msg) =>
         reporter.warning(s"Failed to reset $name: $msg")
-        throw new CantResetException(this)
+        throw new Exception() //CantResetException(this)
       case _ =>
     }
   }
 
-  override def check: Option[Boolean] = {
-    if (hasError) None
+  override def check[R <: SolverResponse[Map[ValDef, Expr], Set[Expr]]](config: Configuration { type Response = R }): R = {
+    if (hasError) Unknown
     else emit(CheckSat()) match {
       case CheckSatStatus(SatStatus)     => Some(true)
       case CheckSatStatus(UnsatStatus)   => Some(false)
