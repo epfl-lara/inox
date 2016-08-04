@@ -8,6 +8,7 @@ import scala.concurrent.duration._
 
 trait TimeoutSolver extends Solver {
   import program.trees._
+  import SolverResponses._
 
   val ti = new TimeoutFor(this)
 
@@ -23,7 +24,7 @@ trait TimeoutSolver extends Solver {
     this
   }
 
-  abstract override def check[R](config: Configuration { type Response <: R }): R = {
+  abstract override def check(config: Configuration) = {
     optTimeout match {
       case Some(to) =>
         ti.interruptAfter(to) {
@@ -34,8 +35,8 @@ trait TimeoutSolver extends Solver {
     }
   }
 
-  abstract override def checkAssumptions[R](config: Configuration { type Response <: R })
-                                           (assumptions: Set[Expr]): R = {
+  abstract override def checkAssumptions(config: Configuration)
+                                        (assumptions: Set[Expr]) = {
     optTimeout match {
       case Some(to) =>
         ti.interruptAfter(to) {

@@ -30,11 +30,7 @@ trait AbstractSolver extends Interruptible {
   type Model
   type Cores
 
-  type Configuration = SolverResponses.Configuration[Model, Cores]
-  val Simple = SolverResponses.Simple
-  val Model  = SolverResponses.Model[Model]()
-  val Cores  = SolverResponses.Cores[Cores]()
-  val All    = SolverResponses.All[Model, Cores]()
+  import SolverResponses._
 
   lazy val reporter = program.ctx.reporter
 
@@ -43,10 +39,8 @@ trait AbstractSolver extends Interruptible {
 
   def assertCnstr(expression: Trees): Unit
 
-  def check[R](config: Configuration { type Response <: R }): R
-  def checkAssumptions[R](config: Configuration { type Response <: R })(assumptions: Set[Trees]): R
-
-  def getResultSolver: Option[Solver] = Some(this)
+  def check(config: Configuration): config.Response[Model, Cores]
+  def checkAssumptions(config: Configuration)(assumptions: Set[Trees]): config.Response[Model, Cores]
 
   def free(): Unit
 
@@ -63,6 +57,7 @@ trait AbstractSolver extends Interruptible {
 }
 
 trait Solver extends AbstractSolver {
+  import program._
   import program.trees._
 
   type Trees = Expr
@@ -77,6 +72,8 @@ trait Solver extends AbstractSolver {
 
   case class SolverUnsupportedError(t: Tree, reason: Option[String] = None)
     extends Unsupported(t, SolverUnsupportedError.msg(t,reason))
+
+  def getResultSolver: Option[Solver] = Some(this)
 
   protected def unsupported(t: Tree): Nothing = {
     val err = SolverUnsupportedError(t, None)

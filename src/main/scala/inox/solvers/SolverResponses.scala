@@ -3,6 +3,9 @@
 package inox
 package solvers
 
+import scala.language.higherKinds
+import scala.language.implicitConversions
+
 object SolverResponses {
   sealed trait SolverResponse[+Model,+Cores]
 
@@ -43,63 +46,57 @@ object SolverResponses {
     }
   }
 
-  sealed trait Configuration[+Model, +Cores] {
-    type Response <: SolverResponse[Model, Cores]
+  sealed trait Configuration {
+    type Response[+M,+C] <: SolverResponse[M,C]
 
-    def max[M >: Model,C >: Cores](that: Configuration[M, C]): Configuration[M, C] = (this, that) match {
-      case (All()  , _      ) => All()
-      case (_      , All()  ) => All()
-      case (Model(), Cores()) => All()
-      case (Cores(), Model()) => All()
-      case (Model(), _      ) => Model()
-      case (_      , Model()) => Model()
-      case (Cores(), _      ) => Cores()
-      case (_      , Cores()) => Cores()
-      case _                  => Simple
+    def max(that: Configuration): Configuration = (this, that) match {
+      case (All  , _    ) => All
+      case (_    , All  ) => All
+      case (Model, Cores) => All
+      case (Cores, Model) => All
+      case (Model, _    ) => Model
+      case (_    , Model) => Model
+      case (Cores, _    ) => Cores
+      case (_    , Cores) => Cores
+      case _              => Simple
     }
 
-    def min[M >: Model, C >: Cores](that: Configuration[M, C]): Configuration[M, C] = (this, that) match {
+    def min(that: Configuration): Configuration = (this, that) match {
       case (o1, o2) if o1 == o2 => o1
       case (Simple, _) => Simple
       case (_, Simple) => Simple
-      case (Model(), Cores()) => Simple
-      case (Cores(), Model()) => Simple
-      case (All(), o) => o
-      case (o, All()) => o
+      case (Model, Cores) => Simple
+      case (Cores, Model) => Simple
+      case (All, o) => o
+      case (o, All) => o
     }
 
-    def cast[M <: Model, C <: Cores](resp: SolverResponse[M, C]): Response = ((this, resp) match {
+    def cast[M, C](resp: SolverResponse[M,C]): Response[M,C] = ((this, resp) match {
       case (_, Unknown)                               => Unknown
-      case (Simple  | Cores(), Sat)                   => Sat
-      case (Model() | All()  , s @ SatWithModel(_))   => s
-      case (Simple  | Model(), Unsat)                 => Unsat
-      case (Cores() | All()  , u @ UnsatWithCores(_)) => u
+      case (Simple | Cores, Sat)                   => Sat
+      case (Model  | All  , s @ SatWithModel(_))   => s
+      case (Simple | Model, Unsat)                 => Unsat
+      case (Cores  | All  , u @ UnsatWithCores(_)) => u
       case _ => throw FatalError("Unexpected response " + resp + " for configuration " + this)
-    }).asInstanceOf[Response]
+    }).asInstanceOf[Response[M,C]]
   }
 
   object Configuration {
-    def apply[M,C](model: Boolean = false, cores: Boolean = false): Configuration[M,C] =
-      if (model && cores) All()
-      else if (model) Model()
-      else if (cores) Cores()
+    def apply(model: Boolean = false, cores: Boolean = false): Configuration =
+      if (model && cores) All
+      else if (model) Model
+      else if (cores) Cores
       else Simple
   }
 
-  case object Simple extends Configuration[Nothing,Nothing] {
-    type Response = SimpleResponse
-  }
+  case object Simple extends Configuration { type Response[+M,+C] = SimpleResponse }
+  case object Model  extends Configuration { type Response[+M,+C] = ResponseWithModel[M] }
+  case object Cores  extends Configuration { type Response[+M,+C] = ResponseWithCores[C] }
+  case object All    extends Configuration { type Response[+M,+C] = ResponseWithModelAndCores[M, C] }
 
-  case class Model[Model]() extends Configuration[Model,Nothing] {
-    type Response = ResponseWithModel[Model]
-  }
-
-  case class Cores[Cores]() extends Configuration[Nothing,Cores] {
-    type Response = ResponseWithCores[Cores]
-  }
-
-  case class All[Model,Cores]() extends Configuration[Model,Cores] {
-    type Response = ResponseWithModelAndCores[Model, Cores]
+  implicit def wideningConfiguration[M,C](config: Configuration)
+                                         (resp: config.Response[M,C]): SolverResponse[M, C] = {
+    resp.asInstanceOf[SolverResponse[M, C]]
   }
 }
 

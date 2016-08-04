@@ -36,7 +36,7 @@ trait SolvingEvaluator extends Evaluator {
     import SolverResponses._
 
     solver.assertCnstr(body)
-    val res = solver.check(solver.Model)
+    val res = solver.check(Model)
     timer.stop()
 
     res match {
@@ -65,7 +65,7 @@ trait SolvingEvaluator extends Evaluator {
       import SolverResponses._
 
       solver.assertCnstr(Not(forall.body))
-      val res = solver.check(solver.Model)
+      val res = solver.check(Model)
       timer.stop()
 
       res match {
