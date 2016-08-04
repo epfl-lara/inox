@@ -61,6 +61,7 @@ trait Expressions { self: Trees =>
 
 
   /** Variable
+    *
     * @param id The identifier of this variable
     */
   case class Variable(id: Identifier, tpe: Type) extends Expr with Terminal with VariableSymbol {
@@ -245,13 +246,18 @@ trait Expressions { self: Trees =>
     * [[purescala.Constructors#caseClassSelector purescala's constructor caseClassSelector]]
     */
   case class CaseClassSelector(caseClass: Expr, selector: Identifier) extends Expr with CachingTyped {
-    protected def computeType(implicit s: Symbols): Type = caseClass.getType match {
+
+    def classIndex(implicit s: Symbols) = caseClass.getType match {
       case ct: ClassType => ct.lookupClass match {
         case Some(tcd: TypedCaseClassDef) =>
-          val index = tcd.cd.selectorID2Index(selector)
-          tcd.fieldsTypes(index)
-        case _ => Untyped
+          Some(tcd, tcd.cd.selectorID2Index(selector))
+        case _ => None
       }
+      case _ => None
+    }
+
+    protected def computeType(implicit s: Symbols): Type = classIndex match {
+      case Some((tcd, ind)) => tcd.fieldsTypes(ind)
       case _ => Untyped
     }
   }
@@ -468,6 +474,15 @@ trait Expressions { self: Trees =>
 
 
   /* Bit-vector operations */
+  /** $encodingof `... | ...` $noteBitvector */
+  case class BVOr(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
+    protected def computeType(implicit s: Symbols): Type = bitVectorType(lhs.getType, rhs.getType)
+  }
+
+  /** $encodingof `... & ...` $noteBitvector */
+  case class BVAnd(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
+    protected def computeType(implicit s: Symbols): Type = bitVectorType(lhs.getType, rhs.getType)
+  }
 
   /** $encodingof `... ^ ...` $noteBitvector */
   case class BVXOr(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
@@ -643,6 +658,13 @@ trait Expressions { self: Trees =>
   case class MapApply(map: Expr, key: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = map.getType match {
       case MapType(from, to) => checkParamTypes(Seq(key.getType), Seq(from), to)
+      case _ => Untyped
+    }
+  }
+
+  case class MapUpdated(map: Expr, key: Expr, value: Expr) extends Expr with CachingTyped {
+    protected def computeType(implicit s: Symbols) = map.getType match {
+      case mt@MapType(from, to) => checkParamTypes(Seq(key.getType, value.getType), Seq(from, to), mt)
       case _ => Untyped
     }
   }
