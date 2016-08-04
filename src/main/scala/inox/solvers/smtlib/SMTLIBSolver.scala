@@ -46,7 +46,7 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
     emit(Reset(), rawOut = true) match {
       case ErrorResponse(msg) =>
         reporter.warning(s"Failed to reset $name: $msg")
-        throw new Exception() //CantResetException(this) FIXME
+        throw new CantResetException(this)
       case _ =>
     }
   }
