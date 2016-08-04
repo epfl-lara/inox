@@ -29,60 +29,62 @@ trait Solver extends Interruptible {
   import program._
   import program.trees._
 
-  object SolverResponses {
-    sealed trait SolverResponse
-    case object Unknown extends SolverResponse
+  import SolverResponses._
 
-    sealed trait SolverUnsatResponse extends SolverResponse
-    case object UnsatResponse extends SolverUnsatResponse
-    case class UnsatResponseWithCores(cores: Set[Expr]) extends SolverUnsatResponse
+  sealed trait Configuration {
+    type Response <: SolverResponse[Map[ValDef, Expr], Set[Expr]]
 
-    sealed trait SolverSatResponse extends SolverResponse
-    case object SatResponse extends SolverSatResponse
-    case class SatResponseWithModel(model: Map[ValDef, Expr]) extends SolverSatResponse
-
-    object Check {
-      def unapply(resp: SolverResponse): Option[Boolean] = resp match {
-        case _: SolverUnsatResponse => Some(false)
-        case _: SolverSatResponse   => Some(true)
-        case Unknown => None
-      }
+    def max(that: Configuration): Configuration = (this, that) match {
+      case (All  , _    ) => All
+      case (_    , All  ) => All
+      case (Model, Cores) => All
+      case (Cores, Model) => All
+      case (Model, _    ) => Model
+      case (_    , Model) => Model
+      case (Cores, _    ) => Cores
+      case (_    , Cores) => Cores
+      case _              => Simple
     }
 
-    object Sat {
-      def unapply(resp: SolverSatResponse): Boolean = resp match {
-        case SatResponse => true
-        case SatResponseWithModel(_) => throw FatalError("Unexpected sat response with model")
-        case _ => false
-      }
+    def min(that: Configuration): Configuration = (this, that) match {
+      case (o1, o2) if o1 == o2 => o1
+      case (Simple, _) => Simple
+      case (_, Simple) => Simple
+      case (Model, Cores) => Simple
+      case (Cores, Model) => Simple
+      case (All, o) => o
+      case (o, All) => o
     }
 
-    object Model {
-      def unapply(resp: SolverSatResponse): Option[Map[ValDef, Expr]] = resp match {
-        case SatResponseWithModel(model) => Some(model)
-        case SatResponse => throw FatalError("Unexpected sat response without model")
-        case _ => None
-      }
+    def in(solver: Solver): solver.Configuration = this match {
+      case Simple => solver.Simple
+      case Model => solver.Model
+      case Cores => solver.Cores
+      case All => solver.All
     }
 
-    object Unsat {
-      def unapply(resp: SolverUnsatResponse): Boolean = resp match {
-        case UnsatResponse => true
-        case UnsatResponseWithCores(_) => throw FatalError("Unexpected unsat response with cores")
-        case _ => false
-      }
-    }
-
-    object Core {
-      def unapply(resp: SolverUnsatResponse): Option[Set[Expr]] = resp match {
-        case UnsatResponseWithCores(cores) => Some(cores)
-        case UnsatResponse => throw FatalError("Unexpected unsat response with cores")
-        case _ => None
-      }
-    }
+    def cast(resp: SolverResponse[Map[ValDef, Expr], Set[Expr]]): Response = ((this, resp) match {
+      case (_             , Unknown)               => Unknown
+      case (Simple | Cores, Sat)                   => Sat
+      case (Model  | All  , s @ SatWithModel(_))   => s
+      case (Simple | Model, Unsat)                 => Unsat
+      case (Cores  | All  , u @ UnsatWithCores(_)) => u
+      case _ => throw FatalError("Unexpected response " + resp + " for configuration " + this)
+    }).asInstanceOf[Response]
   }
 
-  import SolverResponses._
+  object Configuration {
+    def apply(model: Boolean = false, cores: Boolean = false): Configuration =
+      if (model && cores) All
+      else if (model) Model
+      else if (cores) Cores
+      else Simple
+  }
+
+  case object Simple extends Configuration { type Response = SimpleResponse }
+  case object Model  extends Configuration { type Response = ResponseWithModel[Map[ValDef, Expr]] }
+  case object Cores  extends Configuration { type Response = ResponseWithCores[Set[Expr]] }
+  case object All    extends Configuration { type Response = ResponseWithModelAndCores[Map[ValDef, Expr], Set[Expr]] }
 
   object SolverUnsupportedError {
     def msg(t: Tree, reason: Option[String]) = {
@@ -100,9 +102,9 @@ trait Solver extends Interruptible {
 
   def assertCnstr(expression: Expr): Unit
 
-  def check(model: Boolean = false, cores: Boolean = false): SolverResponse
-  def checkAssumptions(model: Boolean = false, cores: Boolean = false)(assumptions: Set[Expr]): SolverResponse
-  
+  def check[R](config: Configuration { type Response <: R }): R
+  def checkAssumptions[R](config: Configuration { type Response <: R })(assumptions: Set[Expr]): R
+
   def getResultSolver: Option[Solver] = Some(this)
 
   def free()

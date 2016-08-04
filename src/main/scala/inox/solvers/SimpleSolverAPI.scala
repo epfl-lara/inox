@@ -1,58 +1,54 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 package solvers
 
-import purescala.Expressions._
+trait SimpleSolverAPI {
+  protected val factory: SolverFactory
 
-class SimpleSolverAPI(sf: SolverFactory[Solver]) {
+  import factory.program.trees._
+  import SolverResponses._
+
   def solveVALID(expression: Expr): Option[Boolean] = {
-    val s = sf.getNewSolver()
+    val s = factory.getNewSolver()
+    import s._
     try {
       s.assertCnstr(Not(expression))
-      s.check.map(r => !r)
+      s.check(Simple) match {
+        case Check(r) => Some(!r)
+        case _ => None
+      }
     } finally {
-      sf.reclaim(s)
+      factory.reclaim(s)
     }
   }
 
-  def solveSAT(expression: Expr): (Option[Boolean], Model) = {
-    val s = sf.getNewSolver()
+  def solveSAT(expression: Expr): ResponseWithModel[Map[ValDef, Expr]] = {
+    val s = factory.getNewSolver()
+    import s._
     try {
       s.assertCnstr(expression)
-      s.check match {
-        case Some(true) =>
-          (Some(true), s.getModel)
-        case Some(false) =>
-          (Some(false), Model.empty)
-        case None =>
-          (None, Model.empty)
-      }
+      s.check(Model)
     } finally {
-      sf.reclaim(s)
+      factory.reclaim(s)
     }
   }
 
-  def solveSATWithCores(expression: Expr, assumptions: Set[Expr]): Option[Either[Set[Expr], Model]] = {
-    val s = sf.getNewSolver()
+  def solveSATWithCores(expression: Expr, assumptions: Set[Expr]):
+                        ResponseWithModelAndCores[Map[ValDef, Expr], Set[Expr]] = {
+    val s = factory.getNewSolver()
+    import s._
     try {
       s.assertCnstr(expression)
-      s.checkAssumptions(assumptions) match {
-        case Some(false) =>
-          Some(Left(s.getUnsatCore))
-        case Some(true) =>
-          Some(Right(s.getModel))
-        case None =>
-          None
-      }
+      s.checkAssumptions(All)(assumptions)
     } finally {
-      sf.reclaim(s)
+      factory.reclaim(s)
     }
   }
 }
 
 object SimpleSolverAPI {
-  def apply(sf: SolverFactory[Solver]) = {
-    new SimpleSolverAPI(sf)
+  def apply(sf: SolverFactory) = new SimpleSolverAPI {
+    val factory: sf.type = sf
   }
 }

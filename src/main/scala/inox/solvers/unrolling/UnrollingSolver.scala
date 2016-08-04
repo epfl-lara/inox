@@ -42,8 +42,8 @@ trait AbstractUnrollingSolver
   val assumePreHolds   = options.findOptionOrDefault(optAssumePre)
   val silentErrors     = options.findOptionOrDefault(optSilentErrors)
 
-  def check(model: Boolean = false, cores: Boolean = false): SolverResponses.SolverResponse =
-    checkAssumptions(model = model, cores = cores)(Set.empty)
+  def check[R](config: Configuration { type Response <: R }): R =
+    checkAssumptions(config)(Set.empty)
 
   private val constraints = new IncrementalSeq[Expr]()
   private val freeVars    = new IncrementalMap[Variable, Encoded]()
@@ -124,15 +124,17 @@ trait AbstractUnrollingSolver
    *  This sequence of calls can also be used to mimic solver.checkAssumptions()
    *  for solvers that don't support the construct natively.
    */
-  def solverCheck[R](clauses: Seq[Encoded], model: Boolean = false, cores: Boolean = false)
+  def solverCheck[R](config: Configuration)
+                    (clauses: Seq[Encoded])
                     (block: Response => R): R
 
   /** We define solverCheckAssumptions in CPS in order for solvers that don't
    *  support this feature to be able to use the provided [[solverCheck]] CPS
    *  construction.
    */
-  def solverCheckAssumptions[R](assumptions: Seq[Encoded], model: Boolean = false, cores: Boolean = false)
-                               (block: Response => R): R = solverCheck(assumptions)(block)
+  def solverCheckAssumptions[R](config: Configuration)
+                               (assumptions: Seq[Encoded])
+                               (block: Response => R): R = solverCheck(config)(assumptions)(block)
 
   trait ModelWrapper {
     def modelEval(elem: Encoded, tpe: Type): Option[Expr]
@@ -284,7 +286,7 @@ trait AbstractUnrollingSolver
     }
   }
 
-  def checkAssumptions(model: Boolean = false, cores: Boolean = false)(assumptions: Set[Expr]) = {
+  def checkAssumptions[R](config: Configuration { type Response <: R })(assumptions: Set[Expr]): R = {
 
     val assumptionsSeq       : Seq[Expr]          = assumptions.toSeq
     val encodedAssumptions   : Seq[Encoded]       = assumptionsSeq.map { expr =>
@@ -302,7 +304,7 @@ trait AbstractUnrollingSolver
     }
 
     sealed abstract class CheckState
-    class CheckResult(val response: SolverResponses.SolverResponse) extends CheckState
+    class CheckResult(val response: config.Response) extends CheckState
     case class Validate(model: Option[Map[ValDef, Expr]]) extends CheckState
     case object ModelCheck extends CheckState
     case object FiniteRangeCheck extends CheckState
@@ -311,15 +313,18 @@ trait AbstractUnrollingSolver
     case object Unroll extends CheckState
 
     object CheckResult {
-      def apply(resp: SolverResponses.SolverResponse) = new CheckResult(resp)
-      def apply(resp: Response): CheckResult = new CheckResult(resp match {
-        case Unknown           => SolverResponses.Unknown
-        case Sat(None)         => SolverResponses.SatResponse
-        case Sat(Some(model))  => SolverResponses.SatResponseWithModel(extractSimpleModel(model))
-        case Unsat(None)       => SolverResponses.UnsatResponse
-        case Unsat(Some(core)) => SolverResponses.UnsatResponseWithCores(encodedCoreToCore(core))
-      })
-      def unapply(res: CheckResult): Option[SolverResponses.SolverResponse] = Some(res.response)
+      def apply(resp: config.Response) = new CheckResult(resp)
+
+      def apply(resp: Response): CheckResult = new CheckResult(config.cast(resp match {
+        case Unknown            => SolverResponses.Unknown
+        case Sat(None)          => SolverResponses.Sat
+        case Sat(Some(model))   => SolverResponses.SatWithModel(extractSimpleModel(model))
+        case Unsat(None)        => SolverResponses.Unsat
+        case Unsat(Some(cores)) => SolverResponses.UnsatWithCores(encodedCoreToCore(cores))
+        case _ => throw FatalError("Unexpected response " + resp + " for configuration " + config)
+      }))
+
+      def unapply(res: CheckResult): Option[config.Response] = Some(res.response)
     }
 
     object Abort {
@@ -335,14 +340,13 @@ trait AbstractUnrollingSolver
         case ModelCheck =>
           reporter.debug(" - Running search...")
 
-          val withModel = model && !templates.requiresFiniteRangeCheck
-          val withCores = cores || unrollUnsatCores
+          val checkConfig = config
+            .min(Configuration(model = !templates.requiresFiniteRangeCheck, cores = true))
+            .max(Configuration(model = false, cores = unrollUnsatCores))
 
           val timer = ctx.timers.solvers.check.start()
-          solverCheckAssumptions(
-            encodedAssumptions.toSeq ++ templates.satisfactionAssumptions,
-            model = withModel,
-            cores = withCores
+          solverCheckAssumptions(checkConfig)(
+            encodedAssumptions.toSeq ++ templates.satisfactionAssumptions
           ) { res =>
             timer.stop()
 
@@ -379,9 +383,8 @@ trait AbstractUnrollingSolver
 
           val clauses = templates.getFiniteRangeClauses
           val timer = ctx.timers.solvers.check.start()
-          solverCheck(
-            encodedAssumptions.toSeq ++ templates.satisfactionAssumptions ++ clauses,
-            model = model
+          solverCheck(config min Model)(
+            encodedAssumptions.toSeq ++ templates.satisfactionAssumptions ++ clauses
           ) { res =>
             timer.stop()
 
@@ -400,11 +403,11 @@ trait AbstractUnrollingSolver
           }
 
         case Validate(optModel) => optModel match {
-          case None => CheckResult(SolverResponses.SatResponse)
+          case None => CheckResult(config cast SolverResponses.Sat)
           case Some(model) =>
             val valid = !checkModels || validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
             if (valid) {
-              CheckResult(SolverResponses.SatResponseWithModel(model))
+              CheckResult(config cast SolverResponses.SatWithModel(model))
             } else {
               reporter.error(
                 "Something went wrong. The model should have been valid, yet we got this: " +
@@ -431,10 +434,8 @@ trait AbstractUnrollingSolver
           }
 
           val timer = ctx.timers.solvers.check.start()
-          solverCheckAssumptions(
-            encodedAssumptions.toSeq ++ templates.refutationAssumptions,
-            model = feelingLucky,
-            cores = cores
+          solverCheckAssumptions(config max Configuration(model = feelingLucky))(
+            encodedAssumptions.toSeq ++ templates.refutationAssumptions
           ) { res =>
             timer.stop()
 
@@ -532,20 +533,21 @@ trait UnrollingSolver extends AbstractUnrollingSolver {
     solver.assertCnstr(cnstr)
   }
 
-  case class Model(model: Map[ValDef, Expr]) extends ModelWrapper {
+  case class ModelWrapper(model: Map[ValDef, Expr]) extends super.ModelWrapper {
     def modelEval(elem: Expr, tpe: Type): Option[Expr] = evaluator.eval(elem, model).result
     override def toString = model.mkString("\n")
   }
 
-  def solverCheck[R](clauses: Seq[Expr], model: Boolean = false, cores: Boolean = false)(block: Response => R): R = {
+  def solverCheck[R](config: Configuration)(clauses: Seq[Expr])(block: Response => R): R = {
     solver.push()
     for (cls <- clauses) solver.assertCnstr(cls)
-    val res = solver.check(model = model, cores = cores) match {
-      case solver.SolverResponses.Unknown                       => Unknown
-      case solver.SolverResponses.UnsatResponse                 => Unsat(None)
-      case solver.SolverResponses.UnsatResponseWithCores(cores) => Unsat(Some(cores))
-      case solver.SolverResponses.SatResponse                   => Sat(None)
-      case solver.SolverResponses.SatResponseWithModel(model)   => Sat(Some(Model(model)))
+    import SolverResponses.{SolverResponse => SR}
+    val res = solver.check[SR[Map[ValDef, Expr], Set[Expr]]](config in solver) match {
+      case SolverResponses.Unknown               => Unknown
+      case SolverResponses.Unsat                 => Unsat(None)
+      case SolverResponses.UnsatWithCores(cores) => Unsat(Some(cores))
+      case SolverResponses.Sat                   => Sat(None)
+      case SolverResponses.SatWithModel(model)   => Sat(Some(ModelWrapper(model)))
     }
     val r = block(res)
     solver.pop()

@@ -5,7 +5,13 @@ package solvers
 
 import scala.reflect.runtime.universe._
 
-abstract class SolverFactory[+S <: Solver] {
+trait SolverFactory {
+  val program: Program
+
+  type S <: Solver { val program: SolverFactory.this.program.type }
+
+  val name: String
+
   def getNewSolver(): S
 
   def shutdown(): Unit = {}
@@ -13,13 +19,15 @@ abstract class SolverFactory[+S <: Solver] {
   def reclaim(s: Solver) {
     s.free()
   }
-
-  val name: String
 }
 
 object SolverFactory {
-  def apply[S <: Solver : TypeTag](nme: String, builder: () => S): SolverFactory[S] = {
-    new SolverFactory[S] {
+  def apply[S1 <: Solver : TypeTag](p: Program)(nme: String, builder: () => S1 { val program: p.type }):
+           SolverFactory { val program: p.type; type S = S1 { val program: p.type } } = {
+    new SolverFactory {
+      val program: p.type = p
+      type S = S1 { val program: p.type }
+
       val name = nme
       def getNewSolver() = builder()
     }
