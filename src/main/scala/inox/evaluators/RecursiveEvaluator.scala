@@ -96,7 +96,6 @@ trait RecursiveEvaluator
     case And(Seq(e1, e2)) =>
       (e(e1), e(e2)) match {
         case (BooleanLiteral(b1), BooleanLiteral(b2)) => BooleanLiteral(b1 && b2)
-        case (BVLiteral(i1, s1), BVLiteral(i2, s2)) if s1 == s2 => BVLiteral(i1 & i2, s1)
         case (le, re) => throw EvalError("Unexpected operation: (" + le.asString + ") && (" + re.asString + ")")
       }
 
@@ -106,7 +105,6 @@ trait RecursiveEvaluator
     case Or(Seq(e1, e2)) =>
       (e(e1), e(e2)) match {
         case (BooleanLiteral(b1), BooleanLiteral(b2)) => BooleanLiteral(b1 || b2)
-        case (BVLiteral(i1, s1), BVLiteral(i2, s2)) if s1 == s2 => BVLiteral(i1 | i2, s1)
         case (le, re) => throw EvalError("Unexpected operation: (" + le.asString + ") || (" + re.asString + ")")
       }
 
@@ -116,8 +114,6 @@ trait RecursiveEvaluator
     case Not(arg) =>
       e(arg) match {
         case BooleanLiteral(v) => BooleanLiteral(!v)
-        case BVLiteral(bs, s) =>
-          BVLiteral(BitSet.empty ++ (1 to s).flatMap(i => if (bs(i)) None else Some(i)), s)
         case other => throw EvalError(typeErrorMsg(other, BooleanType))
       }
 
@@ -294,6 +290,25 @@ trait RecursiveEvaluator
           else
             throw RuntimeError("Modulo of division by 0.")
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") % (" + re.asString + ")")
+      }
+
+    case BVNot(b) =>
+      e(b) match {
+        case BVLiteral(bs, s) =>
+          BVLiteral(BitSet.empty ++ (1 to s).flatMap(i => if (bs(i)) None else Some(i)), s)
+        case other => throw EvalError("Unexpected operation: ~(" + other.asString + ")")
+      }
+
+    case BVAnd(l, r) =>
+      (e(l), e(r)) match {
+        case (BVLiteral(i1, s1), BVLiteral(i2, s2)) if s1 == s2 => BVLiteral(i1 & i2, s1)
+        case (le, re) => throw EvalError("Unexpected operation: (" + le.asString + ") & (" + re.asString + ")")
+      }
+
+    case BVOr(l, r) =>
+      (e(l), e(r)) match {
+        case (BVLiteral(i1, s1), BVLiteral(i2, s2)) if s1 == s2 => BVLiteral(i1 | i2, s1)
+        case (le, re) => throw EvalError("Unexpected operation: (" + le.asString + ") | (" + re.asString + ")")
       }
 
     case BVXOr(l,r) =>
@@ -496,6 +511,14 @@ trait RecursiveEvaluator
         ss.toMap.getOrElse(e, throw RuntimeError("Key not found: " + e.asString))
       case (l,r) =>
         throw EvalError(typeErrorMsg(l, MapType(r.getType, g.getType)))
+    }
+
+    case g @ MapUpdated(m, k, v) => (e(m), e(k), e(v)) match {
+      case (FiniteMap(ss, dflt, tpe), ek, ev) =>
+        FiniteMap((ss.toMap + (ek -> ev)).toSeq, dflt, tpe)
+      case (m,l,r) =>
+        throw EvalError("Unexpected operation: " + m.asString +
+          ".updated(" + l.asString + ", " + r.asString + ")")
     }
 
     case gl: GenericValue => gl
