@@ -1,25 +1,22 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
-package utils
+package inox
+package datagen
 
-import purescala.Definitions._
-import purescala.Common._
-import purescala.Expressions._
-import purescala.Constructors._
-import purescala.ExprOps._
-import purescala.Types._
 import evaluators._
 import solvers._
 
-class ModelEnumerator(sf: SolverFactory[Solver]) {
-  val program = sf.program
+class ModelEnumerator(factory: SolverFactory[Solver]) {
+  val program: factory.program.type = factory.program
+  import program._
   import program.trees._
+  import program.symbols._
 
-  protected val evaluator = new DefaultEvaluator(ctx, pgm)
+  protected val evaluator: RecursiveEvaluator { val program: ModelEnumerator.this.program.type } =
+    RecursiveEvaluator(program)
 
-  def enumSimple(ids: Seq[Identifier], satisfying: Expr): FreeableIterator[Map[Identifier, Expr]] = {
-    enumVarying0(ids, satisfying, None, -1)
+  def enumSimple(vs: Seq[Variable], satisfying: Expr): FreeableIterator[Map[Variable, Expr]] = {
+    enumVarying0(vs, satisfying, None, -1)
   }
 
   /**
@@ -34,7 +31,7 @@ class ModelEnumerator(sf: SolverFactory[Solver]) {
   }
 
   private[this] def enumVarying0(ids: Seq[Identifier], satisfying: Expr, measure: Option[Expr], nPerMeasure: Int = 1): FreeableIterator[Map[Identifier, Expr]] = {
-    val s = sf.getNewSolver
+    val s = factory.getNewSolver
 
     s.assertCnstr(satisfying)
 
@@ -82,7 +79,7 @@ class ModelEnumerator(sf: SolverFactory[Solver]) {
       }
 
       def free() {
-        sf.reclaim(s)
+        factory.reclaim(s)
       }
     }
   }

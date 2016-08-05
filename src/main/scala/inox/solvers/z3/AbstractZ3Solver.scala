@@ -226,9 +226,7 @@ trait AbstractZ3Solver
       sorts(oldtt)
 
     case tpe @ (_: ClassType  | _: TupleType | _: TypeParameter | UnitType) =>
-      sorts.cached(tpe) {
-        declareStructuralSort(tpe)
-      }
+      sorts.getOrElse(tpe, declareStructuralSort(tpe))
 
     case tt @ SetType(base) =>
       sorts.cached(tt) {

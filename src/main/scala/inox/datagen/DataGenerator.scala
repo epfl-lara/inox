@@ -1,18 +1,21 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 package datagen
 
-import purescala.Expressions._
-import purescala.Common._
 import utils._
 
 import java.util.concurrent.atomic.AtomicBoolean
 
+object DebugSectionDataGen extends DebugSection("datagen")
+
 trait DataGenerator extends Interruptible {
+  val program: Program
+  import program.trees._
+
   implicit val debugSection = DebugSectionDataGen
 
-  def generateFor(ins: Seq[Identifier], satisfying: Expr, maxValid: Int, maxEnumerated: Int): Iterator[Seq[Expr]]
+  def generateFor(ins: Seq[Variable], satisfying: Expr, maxValid: Int, maxEnumerated: Int): Iterator[Seq[Expr]]
 
   protected val interrupted: AtomicBoolean = new AtomicBoolean(false)
 

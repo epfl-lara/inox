@@ -128,6 +128,7 @@ trait Definitions { self: Trees =>
     }
 
     def transform(t: TreeTransformer): Symbols
+    def extend(functions: Seq[FunDef] = Seq.empty, classes: Seq[ClassDef] = Seq.empty): Symbols
   }
 
   case class TypeParameterDef(tp: TypeParameter) extends Definition {

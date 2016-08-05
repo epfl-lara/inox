@@ -17,4 +17,11 @@ trait Program {
     val symbols = Program.this.symbols.transform(t)
     val ctx = Program.this.ctx
   }
+
+  def extend(functions: Seq[FunDef] = Seq.empty, classes: Seq[ClassDef] = Seq.empty):
+            Program { val trees: Program.this.trees.type } = new Program {
+    val trees: Program.this.trees.type = Program.this.trees
+    val symbols = Program.this.symbols.extend(functions, classes)
+    val ctx = Program.this.ctx
+  }
 }

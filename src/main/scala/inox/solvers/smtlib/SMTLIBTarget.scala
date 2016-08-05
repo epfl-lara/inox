@@ -129,7 +129,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
   import scala.language.implicitConversions
   protected implicit def symbolToQualifiedId(s: SSymbol): QualifiedIdentifier = SimpleSymbol(s)
 
-  protected val adtManager = new ADTManager(ctx)
+  protected val adtManager = new ADTManager
 
   protected def id2sym(id: Identifier): SSymbol = {
     SSymbol(id.uniqueNameDelimited("!").replace("|", "$pipe").replace("\\", "$backslash"))
@@ -178,37 +178,33 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
 
   // Returns a quantified term where all free variables in the body have been quantified
   protected def quantifiedTerm(quantifier: (SortedVar, Seq[SortedVar], Term) => Term, body: Expr)
-                              (implicit bindings: Map[Identifier, Term])
-  : Term = {
+                              (implicit bindings: Map[Identifier, Term]): Term = {
     quantifiedTerm(quantifier, exprOps.variablesOf(body).toSeq.map(_.toVal), body)
   }
 
-  protected def declareSort(t: Type): Sort = {
-    val tpe = normalizeType(t)
-    sorts.cachedB(tpe) {
-      tpe match {
-        case BooleanType => Core.BoolSort()
-        case IntegerType => Ints.IntSort()
-        case RealType    => Reals.RealSort()
-        case Int32Type   => FixedSizeBitVectors.BitVectorSort(32)
-        case CharType    => FixedSizeBitVectors.BitVectorSort(32)
+  protected def declareSort(t: Type): Sort = bestRealType(t) match {
+    case BooleanType => Core.BoolSort()
+    case IntegerType => Ints.IntSort()
+    case RealType    => Reals.RealSort()
+    case Int32Type   => FixedSizeBitVectors.BitVectorSort(32)
+    case CharType    => FixedSizeBitVectors.BitVectorSort(32)
 
-        case MapType(from, to) =>
-          Sort(SMTIdentifier(SSymbol("Array")), Seq(declareSort(from), declareSort(to)))
-
-        case FunctionType(from, to) =>
-          Ints.IntSort()
-
-        case _: ClassType | _: TupleType | _: TypeParameter | UnitType =>
-          declareStructuralSort(tpe)
-
-        case other =>
-          unsupported(other, s"Could not transform $other into an SMT sort")
+    case mt @ MapType(from, to) =>
+      sorts.cachedB(mt) {
+        Sort(SMTIdentifier(SSymbol("Array")), Seq(declareSort(from), declareSort(to)))
       }
-    }
+
+    case FunctionType(from, to) =>
+      Ints.IntSort()
+
+    case tpe @ (_: ClassType | _: TupleType | _: TypeParameter | UnitType) =>
+      declareStructuralSort(tpe)
+
+    case other =>
+      unsupported(other, s"Could not transform $other into an SMT sort")
   }
 
-  protected def declareDatatypes(datatypes: Map[Type, DataType]): Unit = {
+  protected def declareDatatypes(datatypes: Seq[(Type, DataType)]): Unit = {
     // We pre-declare ADTs
     for ((tpe, DataType(sym, _)) <- datatypes) {
       sorts += tpe -> Sort(SMTIdentifier(id2sym(sym)))
@@ -239,16 +235,8 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
   }
 
   protected def declareStructuralSort(t: Type): Sort = {
-    // Populates the dependencies of the structural type to define.
-    adtManager.defineADT(t) match {
-      case Left(adts) =>
-        declareDatatypes(adts)
-        sorts.toB(normalizeType(t))
-
-      case Right(conflicts) =>
-        conflicts.foreach { declareStructuralSort }
-        declareStructuralSort(t)
-    }
+    adtManager.declareADTs(t, declareDatatypes)
+    sorts.toB(bestRealType(t))
   }
 
   protected def declareVariable(v: Variable): SSymbol = {
@@ -408,10 +396,8 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
         val dyn = declareLambda(caller.getType.asInstanceOf[FunctionType])
         FunctionApplication(dyn, (caller +: args).map(toSMT))
 
-      case Not(u) => u.getType match {
-        case BooleanType => Core.Not(toSMT(u))
-        case Int32Type   => FixedSizeBitVectors.Not(toSMT(u))
-      }
+      case Not(u) => Core.Not(toSMT(u))
+
       case UMinus(u) => u.getType match {
         case IntegerType => Ints.Neg(toSMT(u))
         case Int32Type   => FixedSizeBitVectors.Neg(toSMT(u))
@@ -481,6 +467,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
         case CharType    => FixedSizeBitVectors.SGreaterEquals(toSMT(a), toSMT(b))
       }
 
+      case BVNot(u)                  => FixedSizeBitVectors.Not(toSMT(u))
       case BVAnd(a, b)               => FixedSizeBitVectors.And(toSMT(a), toSMT(b))
       case BVOr(a, b)                => FixedSizeBitVectors.Or(toSMT(a), toSMT(b))
       case BVXOr(a, b)               => FixedSizeBitVectors.XOr(toSMT(a), toSMT(b))

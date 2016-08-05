@@ -15,8 +15,7 @@ trait RecursiveEvaluator
   import program.symbols._
   import program.trees.exprOps._
 
-  val name = "evaluator"
-  val description = "Recursive interpreter for Inox expressions"
+  val name = "Recursive Evaluator"
 
   private def shift(b: BitSet, size: Int, i: Int): BitSet =
     b.map(_ + i).filter(bit => bit >= 1 && bit <= size)
@@ -48,7 +47,6 @@ trait RecursiveEvaluator
 
     case Let(i,ex,b) =>
       val first = e(ex)
-      //println(s"Eval $i to $first")
       e(b)(rctx.withNewVar(i, first), gctx)
 
     case Assume(cond, body) =>
@@ -530,3 +528,10 @@ trait RecursiveEvaluator
   }
 }
 
+object RecursiveEvaluator {
+  def apply(p: Program)(opts: EvaluatorOptions): RecursiveEvaluator { val program: p.type } = new {
+    val program: p.type = p
+  } with RecursiveEvaluator with HasDefaultGlobalContext with HasDefaultRecContext {
+    val maxSteps = 50000
+  }
+}

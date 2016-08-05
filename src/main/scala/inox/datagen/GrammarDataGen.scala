@@ -1,26 +1,21 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 package datagen
 
-import purescala.Expressions._
-import purescala.Types._
-import purescala.Common._
-import purescala.Constructors._
-import purescala.Extractors._
-import purescala.ExprOps._
 import evaluators._
 import bonsai.enumerators._
 
-import grammars._
 import utils.UniqueCounter
 import utils.SeqUtils.cartesianProduct
+import grammars._
 
 /** Utility functions to generate values of a given type.
   * In fact, it could be used to generate *terms* of a given type,
   * e.g. by passing trees representing variables for the "bounds". */
-class GrammarDataGen(evaluator: Evaluator, grammar: ExpressionGrammar = ValueGrammar) extends DataGenerator {
-  implicit val ctx = evaluator.context
+trait GrammarDataGen extends DataGenerator {
+  val evaluator: DeterministicEvaluator { val program: GrammarDataGen.program.type }
+  val grammar: ExpressionGrammar = ValueGrammar
 
   // Assume e contains generic values with index 0.
   // Return a series of expressions with all normalized combinations of generic values.
@@ -50,15 +45,14 @@ class GrammarDataGen(evaluator: Evaluator, grammar: ExpressionGrammar = ValueGra
     }
 
     substitutions map (replace(_, withUniqueCounters))
-
   }
 
-  def generate(tpe: TypeTree): Iterator[Expr] = {
+  def generate(tpe: Type): Iterator[Expr] = {
     val enum = new MemoizedEnumerator[Label, Expr, ProductionRule[Label, Expr]](grammar.getProductions)
     enum.iterator(Label(tpe)).flatMap(expandGenerics).takeWhile(_ => !interrupted.get)
   }
 
-  def generateFor(ins: Seq[Identifier], satisfying: Expr, maxValid: Int, maxEnumerated: Int): Iterator[Seq[Expr]] = {
+  def generateFor(ins: Seq[Variable], satisfying: Expr, maxValid: Int, maxEnumerated: Int): Iterator[Seq[Expr]] = {
 
     def filterCond(vs: Seq[Expr]): Boolean = satisfying match {
       case BooleanLiteral(true) =>
@@ -87,7 +81,7 @@ class GrammarDataGen(evaluator: Evaluator, grammar: ExpressionGrammar = ValueGra
     }
   }
 
-  def generateMapping(ins: Seq[Identifier], satisfying: Expr, maxValid: Int, maxEnumerated: Int) = {
+  def generateMapping(ins: Seq[Variable], satisfying: Expr, maxValid: Int, maxEnumerated: Int) = {
     generateFor(ins, satisfying, maxValid, maxEnumerated) map (ins zip _)
   }
 
