@@ -20,7 +20,9 @@ trait Templates extends TemplateGenerator
   import program.trees._
   import program.symbols._
 
-  type Encoded <: Printable
+  type Encoded
+
+  def asString(e: Encoded): String
 
   def encodeSymbol(v: Variable): Encoded
   def mkEncoder(bindings: Map[Variable, Encoded])(e: Expr): Encoded
@@ -177,7 +179,7 @@ trait Templates extends TemplateGenerator
     override def toString = {
       tfd.signature + args.map {
         case Right(m) => m.toString
-        case Left(v) => v.asString
+        case Left(v) => asString(v)
       }.mkString("(", ", ", ")")
     }
 
@@ -189,7 +191,7 @@ trait Templates extends TemplateGenerator
   /** Represents an application of a first-class function in the unfolding procedure */
   case class App(caller: Encoded, tpe: FunctionType, args: Seq[Arg], encoded: Encoded) {
     override def toString: String =
-      "(" + caller.asString + " : " + tpe.asString + ")" + args.map(_.encoded.asString).mkString("(", ",", ")")
+      "(" + asString(caller) + " : " + tpe.asString + ")" + args.map(a => asString(a.encoded)).mkString("(", ",", ")")
 
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): App = copy(
       caller = substituter(caller),
@@ -201,11 +203,11 @@ trait Templates extends TemplateGenerator
   /** Represents an E-matching matcher that will be used to instantiate relevant quantified propositions */
   case class Matcher(key: Either[(Encoded, Type), TypedFunDef], args: Seq[Arg], encoded: Encoded) {
     override def toString: String = (key match {
-      case Left((c, tpe)) => c.asString + ":" + tpe.asString
+      case Left((c, tpe)) => asString(c) + ":" + tpe.asString
       case Right(tfd) => tfd.signature
     }) + args.map {
       case Right(m) => m.toString
-      case Left(v) => v.asString
+      case Left(v) => asString(v)
     }.mkString("(", ",", ")")
 
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): Matcher = copy(

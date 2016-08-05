@@ -247,6 +247,10 @@ trait Expressions { self: Trees =>
     */
   case class CaseClassSelector(caseClass: Expr, selector: Identifier) extends Expr with CachingTyped {
 
+    def selectorIndex(implicit s: Symbols) = classIndex.map(_._2).getOrElse {
+      throw FatalError("Not well formed selector: " + this)
+    }
+
     def classIndex(implicit s: Symbols) = caseClass.getType match {
       case ct: ClassType => ct.lookupClass match {
         case Some(tcd: TypedCaseClassDef) =>

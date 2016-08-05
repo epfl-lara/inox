@@ -19,7 +19,7 @@ trait DatatypeTemplates { self: Templates =>
 
   /** Represents a type unfolding of a free variable (or input) in the unfolding procedure */
   case class TemplateTypeInfo(tcd: TypedAbstractClassDef, arg: Encoded) {
-    override def toString = tcd.toType.asString + "(" + arg.asString + ")"
+    override def toString = tcd.toType.asString + "(" + asString(arg) + ")"
   }
 
   private val cache: MutableMap[Type, DatatypeTemplate] = MutableMap.empty

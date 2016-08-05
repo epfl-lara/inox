@@ -262,4 +262,27 @@ trait TypeOps {
     }
   }
 
+  def typeDependencies(tpe: Type): Map[Type, Set[Type]] = {
+    var dependencies: Map[Type, Set[Type]] = Map.empty
+
+    def rec(tpe: Type): Unit = if (!dependencies.isDefinedAt(tpe)) {
+      val next = tpe match {
+        case ct: ClassType => ct.tcd match {
+          case accd: TypedAbstractClassDef =>
+            accd.descendants.map(_.toType)
+          case tccd: TypedCaseClassDef =>
+            tccd.fieldsTypes
+        }
+        case NAryType(tps, _) =>
+          tps
+      }
+
+      dependencies += tpe -> next.toSet
+      next.foreach(rec)
+    }
+
+    rec(tpe)
+    dependencies
+  }
+
 }

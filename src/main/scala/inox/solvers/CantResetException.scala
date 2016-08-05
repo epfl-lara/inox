@@ -2,4 +2,4 @@
 
 package inox.solvers
 
-class CantResetException(s: Solver) extends Exception(s"Unable to reset solver $s")
+class CantResetException(s: AbstractSolver) extends Exception(s"Unable to reset solver $s")

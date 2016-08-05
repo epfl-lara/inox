@@ -48,6 +48,8 @@ object SolverResponses {
 
   sealed trait Configuration {
     type Response[+M,+C] <: SolverResponse[M,C]
+    def withModel: Boolean
+    def withCores: Boolean
 
     def max(that: Configuration): Configuration = (this, that) match {
       case (All  , _    ) => All
@@ -79,6 +81,15 @@ object SolverResponses {
       case (Cores  | All  , u @ UnsatWithCores(_)) => u
       case _ => throw FatalError("Unexpected response " + resp + " for configuration " + this)
     }).asInstanceOf[Response[M,C]]
+
+    def convert[M1,C1,M2,C2](resp: Response[M1,C1], cm: M1 => M2, cc: C1 => C2): Response[M2,C2] =
+      cast(resp.asInstanceOf[SolverResponse[M1,C1]] match {
+        case Unknown               => Unknown
+        case Sat                   => Sat
+        case Unsat                 => Unsat
+        case SatWithModel(model)   => SatWithModel(cm(model))
+        case UnsatWithCores(cores) => UnsatWithCores(cc(cores))
+      })
   }
 
   object Configuration {
@@ -89,10 +100,29 @@ object SolverResponses {
       else Simple
   }
 
-  case object Simple extends Configuration { type Response[+M,+C] = SimpleResponse }
-  case object Model  extends Configuration { type Response[+M,+C] = ResponseWithModel[M] }
-  case object Cores  extends Configuration { type Response[+M,+C] = ResponseWithCores[C] }
-  case object All    extends Configuration { type Response[+M,+C] = ResponseWithModelAndCores[M, C] }
+  case object Simple extends Configuration {
+    type Response[+M,+C] = SimpleResponse
+    def withModel = false
+    def withCores = false
+  }
+
+  case object Model extends Configuration {
+    type Response[+M,+C] = ResponseWithModel[M]
+    def withModel = true
+    def withCores = false
+  }
+
+  case object Cores extends Configuration {
+    type Response[+M,+C] = ResponseWithCores[C]
+    def withModel = false
+    def withCores = true
+  }
+
+  case object All extends Configuration {
+    type Response[+M,+C] = ResponseWithModelAndCores[M, C]
+    def withModel = true
+    def withCores = true
+  }
 
   implicit def wideningConfiguration[M,C](config: Configuration)
                                          (resp: config.Response[M,C]): SolverResponse[M, C] = {

@@ -3,7 +3,7 @@
 package inox.utils
 
 trait IncrementalStateWrapper extends IncrementalState {
-  val incrementals: Seq[IncrementalState]
+  protected val incrementals: Seq[IncrementalState]
 
   def push(): Unit = incrementals.foreach(_.push())
   def pop(): Unit = incrementals.foreach(_.pop())

@@ -23,13 +23,13 @@ trait LambdaTemplates { self: Templates =>
   case class TemplateAppInfo(template: Either[LambdaTemplate, Encoded], equals: Encoded, args: Seq[Arg]) {
     override def toString = {
       val caller = template match {
-        case Left(tmpl) => tmpl.ids._2.asString
-        case Right(c) => c.asString
+        case Left(tmpl) => asString(tmpl.ids._2)
+        case Right(c) => asString(c)
       }
 
-      caller + "|" + equals.asString + args.map {
+      caller + "|" + asString(equals) + args.map {
         case Right(m) => m.toString
-        case Left(v) => v.asString
+        case Left(v) => asString(v)
       }.mkString("(", ",", ")")
     }
   }
@@ -227,19 +227,6 @@ trait LambdaTemplates { self: Templates =>
 
     private lazy val str : String = stringRepr()
     override def toString : String = str
-
-    /** When instantiating closure templates, we want to preserve the condition
-      * under which the associated closure can be evaluated in the program
-      * (namely `pathVar._2`), as well as the condition under which the current
-      * application can take place. We therefore have
-      * {{{
-      *   aVar && pathVar._2 ==> instantiation
-      * }}}
-      */
-    override def instantiate(aVar: Encoded, args: Seq[Arg]): Clauses = {
-      val (freshBlocker, eqClauses) = encodeBlockers(Set(aVar, pathVar._2))
-      eqClauses ++ super.instantiate(freshBlocker, args)
-    }
   }
 
   def registerFunction(b: Encoded, tpe: FunctionType, f: Encoded): Clauses = {

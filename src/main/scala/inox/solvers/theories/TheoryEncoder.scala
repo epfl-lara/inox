@@ -7,17 +7,13 @@ package theories
 import utils._
 
 trait TheoryEncoder {
-  val trees: ast.Trees
-  import trees._
-
-  val sourceProgram: Program { val trees: TheoryEncoder.this.trees.type }
+  val sourceProgram: Program
+  lazy val trees: sourceProgram.trees.type = sourceProgram.trees
   lazy val targetProgram: Program { val trees: TheoryEncoder.this.trees.type } = {
     sourceProgram.transform(encoder)
   }
 
-  private type SameTrees = TheoryEncoder {
-    val trees: TheoryEncoder.this.trees.type
-  }
+  import trees._
 
   protected val encoder: TreeTransformer
   protected val decoder: TreeTransformer
@@ -31,8 +27,9 @@ trait TheoryEncoder {
   def encode(tpe: Type): Type = encoder.transform(tpe)
   def decode(tpe: Type): Type = decoder.transform(tpe)
 
-  def >>(that: SameTrees): SameTrees = new TheoryEncoder {
-    val trees: TheoryEncoder.this.trees.type = TheoryEncoder.this.trees
+  def >>(that: TheoryEncoder { val sourceProgram: TheoryEncoder.this.targetProgram.type }): TheoryEncoder {
+    val sourceProgram: TheoryEncoder.this.sourceProgram.type
+  } = new TheoryEncoder {
     val sourceProgram: TheoryEncoder.this.sourceProgram.type = TheoryEncoder.this.sourceProgram
 
     val encoder = new TreeTransformer {

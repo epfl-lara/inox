@@ -24,9 +24,8 @@ trait AbstractUnrollingSolver
   import SolverResponses._
 
   protected type Encoded
-  protected implicit val printable: Encoded => Printable
 
-  protected val theories: TheoryEncoder { val trees: program.trees.type }
+  protected val theories: TheoryEncoder { val sourceProgram: program.type }
 
   protected val templates: Templates {
     val program: theories.targetProgram.type
@@ -284,14 +283,7 @@ trait AbstractUnrollingSolver
 
     object CheckResult {
       def cast(resp: SolverResponse[underlying.Model, underlying.Cores]): CheckResult =
-        new CheckResult(config cast (resp match {
-          case Unknown               => Unknown
-          case Sat                   => Sat
-          case Unsat                 => Unsat
-          case SatWithModel(model)   => SatWithModel(extractSimpleModel(model))
-          case UnsatWithCores(cores) => UnsatWithCores(encodedCoreToCore(cores))
-          case _ => throw FatalError("Unexpected response " + resp + " for configuration " + config)
-        }))
+        new CheckResult(config.convert(config.cast(resp), extractSimpleModel, encodedCoreToCore))
 
       def apply[M <: Model, C <: Cores](resp: config.Response[M, C]) = new CheckResult(resp)
       def unapply(res: CheckResult): Option[config.Response[Model, Cores]] = Some(res.response)
@@ -490,6 +482,8 @@ trait UnrollingSolver extends AbstractUnrollingSolver {
     val program: theories.targetProgram.type = theories.targetProgram
     type Encoded = Expr
 
+    def asString(expr: Expr): String = expr.asString
+
     def encodeSymbol(v: Variable): Expr = v.freshen
     def mkEncoder(bindings: Map[Variable, Expr])(e: Expr): Expr =
       exprOps.replaceFromSymbols(bindings, e)
@@ -508,9 +502,10 @@ trait UnrollingSolver extends AbstractUnrollingSolver {
     }
   }
 
-  def declareVariable(v: Variable): Variable = v
+  protected def declareVariable(v: Variable): Variable = v
+  protected def wrapModel(model: Map[ValDef, Expr]): super.ModelWrapper = ModelWrapper(model)
 
-  case class ModelWrapper(model: Map[ValDef, Expr]) extends super.ModelWrapper {
+  private case class ModelWrapper(model: Map[ValDef, Expr]) extends super.ModelWrapper {
     def modelEval(elem: Expr, tpe: Type): Option[Expr] = evaluator.eval(elem, model).result
     override def toString = model.mkString("\n")
   }

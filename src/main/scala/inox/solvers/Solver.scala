@@ -26,6 +26,9 @@ trait AbstractSolver extends Interruptible {
   val program: Program
   val options: SolverOptions
 
+  import program._
+  import program.trees._
+
   type Trees
   type Model
   type Cores
@@ -36,6 +39,27 @@ trait AbstractSolver extends Interruptible {
 
   // This is ugly, but helpful for smtlib solvers
   def dbg(msg: => Any) {}
+
+  object SolverUnsupportedError {
+    def msg(t: Tree, reason: Option[String]) = {
+      s"(of ${t.getClass}) is unsupported by solver ${name}" + reason.map(":\n  " + _ ).getOrElse("")
+    }
+  }
+
+  case class SolverUnsupportedError(t: Tree, reason: Option[String] = None)
+    extends Unsupported(t, SolverUnsupportedError.msg(t,reason))
+
+  protected def unsupported(t: Tree): Nothing = {
+    val err = SolverUnsupportedError(t, None)
+    reporter.warning(err.getMessage)
+    throw err
+  }
+
+  protected def unsupported(t: Tree, str: String): Nothing = {
+    val err = SolverUnsupportedError(t, Some(str))
+    reporter.warning(err.getMessage)
+    throw err
+  }
 
   def assertCnstr(expression: Trees): Unit
 
@@ -64,26 +88,5 @@ trait Solver extends AbstractSolver {
   type Model = Map[ValDef, Expr]
   type Cores = Set[Expr]
 
-  object SolverUnsupportedError {
-    def msg(t: Tree, reason: Option[String]) = {
-      s"(of ${t.getClass}) is unsupported by solver ${name}" + reason.map(":\n  " + _ ).getOrElse("")
-    }
-  }
-
-  case class SolverUnsupportedError(t: Tree, reason: Option[String] = None)
-    extends Unsupported(t, SolverUnsupportedError.msg(t,reason))
-
   def getResultSolver: Option[Solver] = Some(this)
-
-  protected def unsupported(t: Tree): Nothing = {
-    val err = SolverUnsupportedError(t, None)
-    reporter.warning(err.getMessage)
-    throw err
-  }
-
-  protected def unsupported(t: Tree, str: String): Nothing = {
-    val err = SolverUnsupportedError(t, Some(str))
-    reporter.warning(err.getMessage)
-    throw err
-  }
 }

@@ -1,19 +1,12 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 package solvers.z3
 
 import z3.scala._
 
-import leon.solvers._
+import solvers._
 import utils.IncrementalSet
-
-import purescala.Common._
-import purescala.Definitions._
-import purescala.Expressions._
-import purescala.Extractors._
-import purescala.ExprOps._
-import purescala.Types._
 
 /** This is a rather direct mapping to Z3, where all functions are left uninterpreted.
  *  It reports the results as follows (based on the negation of the formula):
@@ -22,46 +15,56 @@ import purescala.Types._
  *    - otherwise it returns UNKNOWN
  *  Results should come back very quickly.
  */
-class UninterpretedZ3Solver(val sctx: SolverContext, val program: Program)
-  extends AbstractZ3Solver
-     with Z3ModelReconstruction {
+trait UninterpretedZ3Solver
+  extends Solver { self =>
+
+  import program._
+  import program.trees._
+  import program.symbols._
+
+  import SolverResponses._
 
   val name = "Z3-u"
   val description = "Uninterpreted Z3 Solver"
 
-  def push() {
-    solver.push()
-    freeVariables.push()
+  private object underlying extends {
+    val program: self.program.type = self.program
+    val options = self.options
+  } with AbstractZ3Solver
+
+  private val freeVars = new IncrementalSet[Variable]
+
+  def push(): Unit = {
+    underlying.push()
+    freeVars.push()
   }
 
-  def pop() {
-    solver.pop(1)
-    freeVariables.pop()
+  def pop(): Unit = {
+    underlying.pop()
+    freeVars.pop()
   }
 
-  private val freeVariables = new IncrementalSet[Identifier]()
+  def reset(): Unit = {
+    underlying.reset()
+    freeVars.reset()
+  }
 
   def assertCnstr(expression: Expr) {
-    freeVariables ++= variablesOf(expression)
-    solver.assertCnstr(toZ3Formula(expression))
+    freeVars ++= exprOps.variablesOf(expression)
+    underlying.assertCnstr(underlying.toZ3Formula(expression))
   }
 
-  override def check: Option[Boolean] = solver.check()
+  private def completeModel(model: Map[ValDef, Expr]): Map[ValDef, Expr] =
+    freeVars.map(v => v.toVal -> model.getOrElse(v.toVal, simplestValue(v.getType))).toMap
 
-  override def checkAssumptions(assumptions: Set[Expr]): Option[Boolean] = {
-    freeVariables ++= assumptions.flatMap(variablesOf)
-    solver.checkAssumptions(assumptions.toSeq.map(toZ3Formula(_)) : _*)
-  }
+  def check(config: Configuration): config.Response[Model, Cores] =
+    config.convert(underlying.check(config),
+      (model: Z3Model) => completeModel(underlying.extractModel(model)),
+      underlying.extractCores)
 
-  def getModel = {
-    new Model(modelToMap(solver.getModel(), freeVariables.toSet))
-  }
-
-  def getUnsatCore = {
-    solver.getUnsatCore().map(ast => fromZ3Formula(null, ast, BooleanType) match {
-      case n @ Not(Variable(_)) => n
-      case v @ Variable(_) => v
-      case x => scala.sys.error("Impossible element extracted from core: " + ast + " (as Leon tree : " + x + ")")
-    }).toSet
-  }
+  override def checkAssumptions(config: Configuration)
+                               (assumptions: Set[Expr]): config.Response[Model, Cores] =
+    config.convert(underlying.checkAssumptions(config)(assumptions.map(underlying.toZ3Formula(_))),
+      (model: Z3Model) => completeModel(underlying.extractModel(model)),
+      underlying.extractCores)
 }
