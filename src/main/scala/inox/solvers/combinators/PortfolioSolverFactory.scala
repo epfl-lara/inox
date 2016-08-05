@@ -4,8 +4,6 @@ package inox
 package solvers
 package combinators
 
-import scala.reflect.runtime.universe._
-
 trait PortfolioSolverFactory extends SolverFactory { self =>
 
   final type PT = program.type
@@ -22,8 +20,9 @@ trait PortfolioSolverFactory extends SolverFactory { self =>
     }
   }
 
+  // Assumes s is a P/Solver with the correct subsolver types
   override def reclaim(s: S) = sfs.zip(s.solvers).foreach { case (sf, s) =>
-    sf.reclaim(s)
+    sf.reclaim(s.asInstanceOf[sf.S])
   }
 
   val name = sfs.map(_.name).mkString("Pfolio(", ",", ")")
