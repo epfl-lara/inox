@@ -1,26 +1,29 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 package solvers
 package combinators
 
 import scala.reflect.runtime.universe._
 
-class PortfolioSolverFactory[S <: Solver](ctx: SolverContext, sfs: Seq[SolverFactory[S]])
-  extends SolverFactory[PortfolioSolver[S] with TimeoutSolver] {
+trait PortfolioSolverFactory extends SolverFactory { self =>
 
-  def getNewSolver(): PortfolioSolver[S] with TimeoutSolver = {
-    new PortfolioSolver[S](ctx, sfs.map(_.getNewSolver())) with TimeoutSolver
+  final type PT = program.type
+  override type S = PortfolioSolver { val program: PT }
+  final type SF = SolverFactory { val program: PT }
+
+  val sfs: Seq[SF]
+
+  def getNewSolver(): S = {
+    new PortfolioSolver {
+      val program: PT = self.program
+      val solvers = sfs map (_.getNewSolver())
+      val options: SolverOptions = solvers.head.options
+    }
   }
 
-  override def reclaim(s: Solver) = s match {
-    case ps: PortfolioSolver[_] =>
-      sfs.zip(ps.solvers).foreach { case (sf, s) =>
-        sf.reclaim(s)
-      }
-
-    case _ =>
-      ctx.context.reporter.error("Failed to reclaim a non-portfolio solver.")
+  override def reclaim(s: S) = sfs.zip(s.solvers).foreach { case (sf, s) =>
+    sf.reclaim(s)
   }
 
   val name = sfs.map(_.name).mkString("Pfolio(", ",", ")")

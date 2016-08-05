@@ -72,7 +72,7 @@ object SolverResponses {
     }
 
     def cast[M, C](resp: SolverResponse[M,C]): Response[M,C] = ((this, resp) match {
-      case (_, Unknown)                               => Unknown
+      case (_, Unknown)                            => Unknown
       case (Simple | Cores, Sat)                   => Sat
       case (Model  | All  , s @ SatWithModel(_))   => s
       case (Simple | Model, Unsat)                 => Unsat

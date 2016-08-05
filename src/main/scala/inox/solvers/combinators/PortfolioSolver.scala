@@ -1,24 +1,24 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 package solvers
 package combinators
 
-import purescala.Expressions._
-import verification.VC
+import inox.solvers.SolverResponses._
 
-import utils.Interruptible
 import scala.concurrent._
 import scala.concurrent.duration._
+import scala.concurrent.ExecutionContext.Implicits.global
 
-import ExecutionContext.Implicits.global
+trait PortfolioSolver extends Solver { self =>
+  import program._
+  import trees._
 
-class PortfolioSolver[S <: Solver with Interruptible](val sctx: SolverContext, val solvers: Seq[S])
-        extends Solver with NaiveAssumptionSolver {
+  final type SubSolver = Solver { val program: self.program.type }
 
+  val solvers: Seq[SubSolver]
   val name = "Pfolio"
 
-  protected var model = Model.empty
   protected var resultSolver: Option[Solver] = None
 
   override def getResultSolver = resultSolver
@@ -27,40 +27,29 @@ class PortfolioSolver[S <: Solver with Interruptible](val sctx: SolverContext, v
     solvers.foreach(_.assertCnstr(expression))
   }
 
-  override def assertVC(vc: VC): Unit = {
-    solvers.foreach(_.assertVC(vc))
-  }
-
   override def dbg(msg: => Any) = solvers foreach (_.dbg(msg))
 
-  def check: Option[Boolean] = {
-    model = Model.empty
 
+  private def genericCheck(config: Configuration)(f: SubSolver => config.Response[Model, Cores]): config.Response[Model, Cores] = {
     reporter.debug("Running portfolio check")
     // solving
-    val fs = solvers.map { s =>
+    val fs: Seq[Future[(SubSolver, config.Response[Model, Cores])]] = solvers.map { s =>
       Future {
         try {
-          val result = s.check
-          val model: Model = if (result == Some(true)) {
-            s.getModel
-          } else {
-            Model.empty
-          }
-          (s, result, model)
+          val result = f(s)
+          (s, result)
         } catch {
           case _: StackOverflowError =>
             reporter.warning("Stack Overflow while running solver.check()!")
-            (s, None, Model.empty)
+            (s, config.cast(Unknown))
         }
       }
     }
 
-    val result = Future.find(fs)(_._2.isDefined)
+    val result = Future.find(fs)(_._2 != Unknown)
 
     val res = Await.result(result, Duration.Inf) match {
-      case Some((s, r, m)) =>
-        model = m
+      case Some((s, r)) =>
         resultSolver = s.getResultSolver
         resultSolver.foreach { solv =>
           reporter.debug("Solved with "+solv)
@@ -70,11 +59,22 @@ class PortfolioSolver[S <: Solver with Interruptible](val sctx: SolverContext, v
       case None =>
         reporter.debug("No solver succeeded")
         //fs.foreach(f => println(f.value))
-        None
+        config.cast(Unknown)
     }
 
-    fs foreach { Await.ready(_, Duration.Inf) }
+    // TODO: Decide if we really want to wait for all the solvers.
+    // I understand we interrupt them, but what if one gets stuck
+    // fs foreach { Await.ready(_, Duration.Inf) }
     res
+  }
+
+
+  def check(config: Configuration): config.Response[Model, Cores] = {
+    genericCheck(config)(subSolver => subSolver.check(config))
+  }
+
+  def checkAssumptions(config: Configuration)(assumptions: Set[Trees]): config.Response[Model, Cores] = {
+    genericCheck(config)(subSolver => subSolver.checkAssumptions(config)(assumptions))
   }
 
   def push(): Unit = {
@@ -86,12 +86,7 @@ class PortfolioSolver[S <: Solver with Interruptible](val sctx: SolverContext, v
   }
 
   def free() = {
-    solvers.foreach(_.free)
-    model = Model.empty
-  }
-
-  def getModel: Model = {
-    model
+    solvers.foreach(_.free())
   }
 
   def interrupt(): Unit = {
@@ -103,7 +98,6 @@ class PortfolioSolver[S <: Solver with Interruptible](val sctx: SolverContext, v
   }
 
   def reset() = {
-    solvers.foreach(_.reset)
-    model = Model.empty
+    solvers.foreach(_.reset())
   }
 }
