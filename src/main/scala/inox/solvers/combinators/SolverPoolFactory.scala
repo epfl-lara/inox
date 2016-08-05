@@ -1,6 +1,6 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 package solvers
 package combinators
 
@@ -17,7 +17,9 @@ import scala.reflect.runtime.universe._
  * growing/shrinking pool size...
  */
 
-class SolverPoolFactory[+S <: Solver](ctx: LeonContext, sf: SolverFactory[S]) extends SolverFactory[S] {
+trait SolverPoolFactory extends SolverFactory { self =>
+
+  val sf: SolverFactory { val program: self.program.type; type S = self.S }
 
   val name = "Pool(" + sf.name + ")"
 
@@ -25,7 +27,7 @@ class SolverPoolFactory[+S <: Solver](ctx: LeonContext, sf: SolverFactory[S]) ex
   val poolMaxSize = 5
 
   private[this] val availables = Queue[S]()
-  private[this] var inUse      = Set[Solver]()
+  private[this] var inUse      = Set[S]()
 
   def getNewSolver(): S = {
     if (availables.isEmpty) {
@@ -38,7 +40,7 @@ class SolverPoolFactory[+S <: Solver](ctx: LeonContext, sf: SolverFactory[S]) ex
     s
   }
 
-  override def reclaim(s: Solver) = {
+  override def reclaim(s: S) = {
     try {
       s.reset()
       inUse -= s
