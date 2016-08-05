@@ -1,4 +1,4 @@
-name := "Leon"
+name := "inox"
 
 version := "3.0"
 
