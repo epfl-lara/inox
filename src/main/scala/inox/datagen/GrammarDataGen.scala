@@ -13,9 +13,13 @@ import grammars._
 /** Utility functions to generate values of a given type.
   * In fact, it could be used to generate *terms* of a given type,
   * e.g. by passing trees representing variables for the "bounds". */
-trait GrammarDataGen extends DataGenerator {
-  val evaluator: DeterministicEvaluator { val program: GrammarDataGen.program.type }
-  val grammar: ExpressionGrammar = ValueGrammar
+trait GrammarDataGen extends DataGenerator with GrammarsUniverse { self =>
+  val evaluator: DeterministicEvaluator { val program: self.program.type }
+  val grammar: ExpressionGrammar
+
+  import program._
+  import program.trees._
+  import program.symbols._
 
   // Assume e contains generic values with index 0.
   // Return a series of expressions with all normalized combinations of generic values.
