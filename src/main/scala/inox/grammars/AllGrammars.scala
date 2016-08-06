@@ -6,6 +6,6 @@ trait AllGrammars extends ElementaryGrammars
   with ConstantGrammars
   with ClosureGrammars
   with EqualityGrammars
-  with FunctionCallsGrammars
-{ self: GrammarsUniverse =>
+  with FunctionCallsGrammars {
+    self: GrammarsUniverse =>
 }

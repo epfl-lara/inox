@@ -5,17 +5,21 @@ package datagen
 
 import evaluators._
 import solvers._
+import utils._
 
-class ModelEnumerator(factory: SolverFactory[Solver]) {
-  val program: factory.program.type = factory.program
+trait ModelEnumerator {
+  val factory: SolverFactory
+  lazy val program: factory.program.type = factory.program
   import program._
   import program.trees._
   import program.symbols._
 
-  protected val evaluator: RecursiveEvaluator { val program: ModelEnumerator.this.program.type } =
-    RecursiveEvaluator(program)
+  import SolverResponses._
 
-  def enumSimple(vs: Seq[Variable], satisfying: Expr): FreeableIterator[Map[Variable, Expr]] = {
+  protected val evaluator: RecursiveEvaluator { val program: ModelEnumerator.this.program.type } =
+    RecursiveEvaluator(program)(ctx.toEvaluator, ctx.toSolver)
+
+  def enumSimple(vs: Seq[ValDef], satisfying: Expr): FreeableIterator[Map[ValDef, Expr]] = {
     enumVarying0(vs, satisfying, None, -1)
   }
 
@@ -26,52 +30,53 @@ class ModelEnumerator(factory: SolverFactory[Solver]) {
    * Note: there is no guarantee that the models enumerated consecutively share the
    * same `caracteristic`.
    */
-  def enumVarying(ids: Seq[Identifier], satisfying: Expr, measure: Expr, nPerMeasure: Int = 1) = {
-    enumVarying0(ids, satisfying, Some(measure), nPerMeasure)
+  def enumVarying(vs: Seq[ValDef], satisfying: Expr, measure: Expr, nPerMeasure: Int = 1) = {
+    enumVarying0(vs, satisfying, Some(measure), nPerMeasure)
   }
 
-  private[this] def enumVarying0(ids: Seq[Identifier], satisfying: Expr, measure: Option[Expr], nPerMeasure: Int = 1): FreeableIterator[Map[Identifier, Expr]] = {
+  private[this] def enumVarying0(vs: Seq[ValDef], satisfying: Expr, measure: Option[Expr], nPerMeasure: Int = 1): FreeableIterator[Map[ValDef, Expr]] = {
     val s = factory.getNewSolver
 
     s.assertCnstr(satisfying)
 
     val m = measure match {
       case Some(ms) =>
-        val m = FreshIdentifier("measure", ms.getType)
-        s.assertCnstr(Equals(m.toVariable, ms))
+        val m = Variable(FreshIdentifier("measure"), ms.getType)
+        s.assertCnstr(Equals(m, ms))
         m
       case None =>
-        FreshIdentifier("noop", BooleanType)
+        Variable(FreshIdentifier("noop"), BooleanType)
     }
 
     var perMeasureRem = Map[Expr, Int]().withDefaultValue(nPerMeasure)
 
-    new FreeableIterator[Map[Identifier, Expr]] {
+    new FreeableIterator[Map[ValDef, Expr]] {
       def computeNext() = {
-        s.check match {
-          case Some(true) =>
-            val model = s.getModel
-            val idsModel = ids.map { id =>
-              id -> model.getOrElse(id, simplestValue(id.getType))
+        s.check(Model) match {
+          case SatWithModel(model) =>
+            val fullModel = vs.map { v =>
+              v -> model.getOrElse(v, simplestValue(v.getType))
             }.toMap
 
             // Vary the model
-            s.assertCnstr(not(andJoin(idsModel.toSeq.sortBy(_._1).map { case (k, v) => equality(k.toVariable, v) })))
+            s.assertCnstr(not(andJoin(fullModel.toSeq.sortBy(_._1).map {
+              case (k, v) => equality(k.toVariable, v)
+            })))
 
             measure match {
               case Some(ms) =>
-                val mValue = evaluator.eval(ms, idsModel).result.get
+                val mValue = evaluator.eval(ms, fullModel).result.get
 
                 perMeasureRem += (mValue -> (perMeasureRem(mValue) - 1))
 
                 if (perMeasureRem(mValue) <= 0) {
-                  s.assertCnstr(not(equality(m.toVariable, mValue)))
+                  s.assertCnstr(not(equality(m, mValue)))
                 }
 
               case None =>
             }
 
-            Some(idsModel)
+            Some(fullModel)
 
           case _ =>
             None
@@ -84,27 +89,27 @@ class ModelEnumerator(factory: SolverFactory[Solver]) {
     }
   }
 
-  def enumMinimizing(ids: Seq[Identifier], cnstr: Expr, measure: Expr) = {
-    enumOptimizing(ids, cnstr, measure, Down)
+  def enumMinimizing(vs: Seq[ValDef], cnstr: Expr, measure: Expr) = {
+    enumOptimizing(vs, cnstr, measure, Down)
   }
 
-  def enumMaximizing(ids: Seq[Identifier], cnstr: Expr, measure: Expr) = {
-    enumOptimizing(ids, cnstr, measure, Up)
+  def enumMaximizing(vs: Seq[ValDef], cnstr: Expr, measure: Expr) = {
+    enumOptimizing(vs, cnstr, measure, Up)
   }
 
   abstract class SearchDirection
   case object Up   extends SearchDirection
   case object Down extends SearchDirection
 
-  private[this] def enumOptimizing(ids: Seq[Identifier], satisfying: Expr, measure: Expr, dir: SearchDirection): FreeableIterator[Map[Identifier, Expr]] = {
+  private[this] def enumOptimizing(vs: Seq[ValDef], satisfying: Expr, measure: Expr, dir: SearchDirection): FreeableIterator[Map[ValDef, Expr]] = {
     assert(measure.getType == IntegerType)
 
-    val s = sf.getNewSolver
+    val s = factory.getNewSolver
 
     s.assertCnstr(satisfying)
 
-    val mId = FreshIdentifier("measure", measure.getType)
-    s.assertCnstr(Equals(mId.toVariable, measure))
+    val m = Variable(FreshIdentifier("measure"), measure.getType)
+    s.assertCnstr(Equals(m, measure))
 
     // Search Range
     var ub: Option[BigInt] = None
@@ -130,8 +135,8 @@ class ModelEnumerator(factory: SolverFactory[Solver]) {
       case _ => None
     }
 
-    new FreeableIterator[Map[Identifier, Expr]] {
-      def computeNext(): Option[Map[Identifier, Expr]] = {
+    new FreeableIterator[Map[ValDef, Expr]] {
+      def computeNext(): Option[Map[ValDef, Expr]] = {
         if (rangeEmpty()) {
           None
         } else {
@@ -140,37 +145,35 @@ class ModelEnumerator(factory: SolverFactory[Solver]) {
             s.push()
             dir match {
               case Up =>
-                s.assertCnstr(GreaterThan(mId.toVariable, InfiniteIntegerLiteral(t)))
+                s.assertCnstr(GreaterThan(m, IntegerLiteral(t)))
               case Down =>
-                s.assertCnstr(LessThan(mId.toVariable, InfiniteIntegerLiteral(t)))
+                s.assertCnstr(LessThan(m, IntegerLiteral(t)))
             }
             t
           }
 
-          s.check match {
-            case Some(true) =>
-              val sm = s.getModel
-              val m = ids.map { id =>
-                id -> sm.getOrElse(id, simplestValue(id.getType))
+          s.check(Model) match {
+            case SatWithModel(model) =>
+              val fullModel = vs.map { v =>
+                v -> model.getOrElse(v, simplestValue(v.getType))
               }.toMap
 
-              evaluator.eval(measure, m).result match {
-                case Some(InfiniteIntegerLiteral(measureVal)) =>
+              evaluator.eval(measure, fullModel).result match {
+                case Some(IntegerLiteral(measureVal)) =>
                   // Positive result
                   dir match {
                     case Up   => lb = Some(measureVal)
                     case Down => ub = Some(measureVal)
                   }
 
-                  Some(m)
+                  Some(fullModel)
 
                 case _ =>
                   ctx.reporter.warning("Evaluator failed to evaluate measure!")
                   None
               }
 
-
-            case Some(false) =>
+            case Unsat =>
               // Negative result
               thisTry match {
                 case Some(t) =>
@@ -186,15 +189,21 @@ class ModelEnumerator(factory: SolverFactory[Solver]) {
                   None
               }
 
-            case None =>
+            case Unknown =>
               None
           }
         }
       }
 
       def free() {
-        sf.reclaim(s)
+        factory.reclaim(s)
       }
     }
+  }
+}
+
+object ModelEnumerator {
+  def apply(sf: SolverFactory): ModelEnumerator { val factory: sf.type } = new ModelEnumerator {
+    val factory: sf.type = sf
   }
 }

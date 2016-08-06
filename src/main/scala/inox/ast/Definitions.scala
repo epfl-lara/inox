@@ -47,6 +47,9 @@ trait Definitions { self: Trees =>
     override def hashCode: Int = 61 * id.hashCode + tpe.hashCode
   }
 
+  implicit def variableSymbolOrdering[VS <: VariableSymbol]: Ordering[VS] =
+    Ordering.by(e => e.id)
+
   sealed abstract class VariableConverter[B <: VariableSymbol] {
     def convert(a: VariableSymbol): B
   }

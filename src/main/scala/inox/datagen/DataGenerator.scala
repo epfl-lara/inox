@@ -15,7 +15,7 @@ trait DataGenerator extends Interruptible {
 
   implicit val debugSection = DebugSectionDataGen
 
-  def generateFor(ins: Seq[Variable], satisfying: Expr, maxValid: Int, maxEnumerated: Int): Iterator[Seq[Expr]]
+  def generateFor(ins: Seq[ValDef], satisfying: Expr, maxValid: Int, maxEnumerated: Int): Iterator[Seq[Expr]]
 
   protected val interrupted: AtomicBoolean = new AtomicBoolean(false)
 

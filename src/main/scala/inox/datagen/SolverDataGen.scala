@@ -6,19 +6,19 @@ package datagen
 import solvers._
 import utils._
 
-trait SolverDataGen extends DataGenerator {
+trait SolverDataGen extends DataGenerator { self =>
   import program._
   import program.trees._
   import program.symbols._
 
-  def factory(p: Program): SolverFactory { val program: p.type }
+  def factory(p: Program { val trees: self.program.trees.type }): SolverFactory { val program: p.type }
 
   def generate(tpe: Type): FreeableIterator[Expr] = {
-    generateFor(Seq(Variable(FreshIdentifier("tmp"), tpe)),
+    generateFor(Seq(ValDef(FreshIdentifier("tmp"), tpe)),
       BooleanLiteral(true), 20, 20).map(_.head).takeWhile(_ => !interrupted.get)
   }
 
-  def generateFor(ins: Seq[Variable], satisfying: Expr, maxValid: Int, maxEnumerated: Int): FreeableIterator[Seq[Expr]] = {
+  def generateFor(ins: Seq[ValDef], satisfying: Expr, maxValid: Int, maxEnumerated: Int): FreeableIterator[Seq[Expr]] = {
     if (ins.isEmpty) {
       FreeableIterator.empty
     } else {
@@ -31,6 +31,8 @@ trait SolverDataGen extends DataGenerator {
           val tcd = ct.tcd
           val root = tcd.cd.root
           val id = cdToId.getOrElse(root, {
+            import dsl._
+
             val id = FreshIdentifier("sizeOf", true)
             val tparams = root.tparams.map(_.freshen)
             cdToId += root -> id
@@ -41,7 +43,6 @@ trait SolverDataGen extends DataGenerator {
                 plus(i, sizeFor(expr.getField(f.id)))
               }
 
-            import dsl._
             val x = Variable(FreshIdentifier("x", true), tcd.root.toType)
             fds +:= new FunDef(id, tparams, Seq(x.toVal), IntegerType, Some(root match {
               case acd: AbstractClassDef =>
@@ -54,6 +55,8 @@ trait SolverDataGen extends DataGenerator {
               case ccd: CaseClassDef =>
                 sizeOfCaseClass(ccd, x)
             }), Set.empty)
+
+            id
           })
 
           FunctionInvocation(id, ct.tps, Seq(of))
@@ -69,16 +72,22 @@ trait SolverDataGen extends DataGenerator {
           IntegerLiteral(1)
       }
 
-      val sizeOf = sizeFor(tupleWrap(ins))
+      val sizeOf = sizeFor(tupleWrap(ins.map(_.toVariable)))
 
       // We need to synthesize a size function for ins' types.
       val pgm1 = program.extend(functions = fds)
-      val modelEnum = new ModelEnumerator(factory(pgm1))
+      val modelEnum = ModelEnumerator(factory(pgm1))
 
       val enum = modelEnum.enumVarying(ins, satisfying, sizeOf, 5)
 
       enum.take(maxValid).map(model => ins.map(model)).takeWhile(_ => !interrupted.get)
     }
   }
+}
 
+object SolverDataGen {
+  def apply(p: Program): SolverDataGen { val program: p.type } = new SolverDataGen {
+    val program: p.type = p
+    def factory(p2: Program { val trees: p.trees.type }): SolverFactory { val program: p2.type } = SolverFactory(p2)
+  }
 }

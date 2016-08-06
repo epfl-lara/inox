@@ -22,7 +22,7 @@ trait SolverFactory {
 }
 
 object SolverFactory {
-  def apply[S1 <: Solver : TypeTag](p: Program)(nme: String, builder: () => S1 { val program: p.type }):
+  def create[S1 <: Solver : TypeTag](p: Program)(nme: String, builder: () => S1 { val program: p.type }):
            SolverFactory { val program: p.type; type S = S1 { val program: p.type } } = {
     new SolverFactory {
       val program: p.type = p
@@ -32,4 +32,6 @@ object SolverFactory {
       def getNewSolver() = builder()
     }
   }
+
+  def apply(p: Program): SolverFactory { val program: p.type } = ???
 }

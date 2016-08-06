@@ -20,7 +20,7 @@ trait SolvingEvaluator extends Evaluator {
     def default = MutableMap.empty
   }
 
-  def getSolver(opts: InoxOption[Any]*): Solver { val program: SolvingEvaluator.this.program.type }
+  def getSolver(opts: InoxOption[Any]*): SolverFactory { val program: SolvingEvaluator.this.program.type }
 
   private val specCache: MutableMap[Expr, Expr] = MutableMap.empty
   private val forallCache: MutableMap[Forall, Expr] = MutableMap.empty
@@ -29,14 +29,14 @@ trait SolvingEvaluator extends Evaluator {
     val Lambda(Seq(vd), body) = specs
     val timer = ctx.timers.evaluators.specs.start()
 
-    val solver = getSolver(options.options.collect {
+    val sf = getSolver(options.options.collect {
       case o @ InoxOption(opt, _) if opt == optForallCache => o
     }.toSeq : _*)
 
     import SolverResponses._
 
-    solver.assertCnstr(body)
-    val res = solver.check(Model)
+    val api = SimpleSolverAPI(sf)
+    val res = api.solveSAT(body)
     timer.stop()
 
     res match {
@@ -56,7 +56,7 @@ trait SolvingEvaluator extends Evaluator {
     BooleanLiteral(cache.getOrElse(forall, {
       val timer = ctx.timers.evaluators.forall.start()
 
-      val solver = getSolver(
+      val sf = getSolver(
         InoxOption(optSilentErrors)(true),
         InoxOption(optCheckModels)(false),
         InoxOption(optForallCache)(cache)
@@ -64,8 +64,8 @@ trait SolvingEvaluator extends Evaluator {
 
       import SolverResponses._
 
-      solver.assertCnstr(Not(forall.body))
-      val res = solver.check(Model)
+      val api = SimpleSolverAPI(sf)
+      val res = api.solveSAT(Not(forall.body))
       timer.stop()
 
       res match {

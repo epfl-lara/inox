@@ -18,7 +18,7 @@ trait Program {
     val ctx = Program.this.ctx
   }
 
-  def extend(functions: Seq[FunDef] = Seq.empty, classes: Seq[ClassDef] = Seq.empty):
+  def extend(functions: Seq[trees.FunDef] = Seq.empty, classes: Seq[trees.ClassDef] = Seq.empty):
             Program { val trees: Program.this.trees.type } = new Program {
     val trees: Program.this.trees.type = Program.this.trees
     val symbols = Program.this.symbols.extend(functions, classes)

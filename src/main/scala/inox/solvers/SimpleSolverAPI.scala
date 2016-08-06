@@ -11,7 +11,6 @@ trait SimpleSolverAPI {
 
   def solveVALID(expression: Expr): Option[Boolean] = {
     val s = factory.getNewSolver()
-    import s._
     try {
       s.assertCnstr(Not(expression))
       s.check(Simple) match {
@@ -25,7 +24,6 @@ trait SimpleSolverAPI {
 
   def solveSAT(expression: Expr): ResponseWithModel[Map[ValDef, Expr]] = {
     val s = factory.getNewSolver()
-    import s._
     try {
       s.assertCnstr(expression)
       s.check(Model)
@@ -37,7 +35,6 @@ trait SimpleSolverAPI {
   def solveSATWithCores(expression: Expr, assumptions: Set[Expr]):
                         ResponseWithModelAndCores[Map[ValDef, Expr], Set[Expr]] = {
     val s = factory.getNewSolver()
-    import s._
     try {
       s.assertCnstr(expression)
       s.checkAssumptions(All)(assumptions)
@@ -48,7 +45,7 @@ trait SimpleSolverAPI {
 }
 
 object SimpleSolverAPI {
-  def apply(sf: SolverFactory) = new SimpleSolverAPI {
+  def apply(sf: SolverFactory): SimpleSolverAPI { val factory: sf.type } = new SimpleSolverAPI {
     val factory: sf.type = sf
   }
 }
