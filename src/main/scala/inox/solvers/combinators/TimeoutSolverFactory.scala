@@ -2,6 +2,7 @@
 
 package inox
 package solvers
+package combinators
 
 import scala.reflect.runtime.universe._
 
