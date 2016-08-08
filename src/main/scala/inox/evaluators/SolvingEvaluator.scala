@@ -12,7 +12,7 @@ trait SolvingEvaluator extends Evaluator {
   import program.trees._
   import program.symbols._
 
-  object optForallCache extends InoxOptionDef[MutableMap[program.trees.Forall, Boolean]] {
+  private object optForallCache extends InoxOptionDef[MutableMap[program.trees.Forall, Boolean]] {
     val parser = { (_: String) => throw FatalError("Unparsable option \"bankOption\"") }
     val name = "bank-option"
     val description = "Evaluation bank shared between solver and evaluator"

@@ -12,7 +12,6 @@ import evaluators._
 object optUnrollFactor extends InoxLongOptionDef("unrollfactor",  "Number of unfoldings to perform in each unfold step", default = 1, "<PosInt>")
 object optFeelingLucky extends InoxFlagOptionDef("feelinglucky",  "Use evaluator to find counter-examples early", false)
 object optUnrollCores  extends InoxFlagOptionDef("unrollcores",   "Use unsat-cores to drive unfolding while remaining fair", false)
-object optAssumePre    extends InoxFlagOptionDef("assumepre",     "Assume precondition holds (pre && f(x) = body) when unfolding", false)
 
 trait AbstractUnrollingSolver
   extends Solver {
@@ -42,12 +41,11 @@ trait AbstractUnrollingSolver
     type Cores = Set[Encoded]
   }
 
-  val unfoldFactor     = options.findOptionOrDefault(optUnrollFactor)
-  val feelingLucky     = options.findOptionOrDefault(optFeelingLucky)
-  val checkModels      = options.findOptionOrDefault(optCheckModels)
-  val unrollUnsatCores = options.findOptionOrDefault(optUnrollCores)
-  val assumePreHolds   = options.findOptionOrDefault(optAssumePre)
-  val silentErrors     = options.findOptionOrDefault(optSilentErrors)
+  lazy val unfoldFactor     = options.findOptionOrDefault(optUnrollFactor)
+  lazy val feelingLucky     = options.findOptionOrDefault(optFeelingLucky)
+  lazy val checkModels      = options.findOptionOrDefault(optCheckModels)
+  lazy val unrollUnsatCores = options.findOptionOrDefault(optUnrollCores)
+  lazy val silentErrors     = options.findOptionOrDefault(optSilentErrors)
 
   def check(config: Configuration): config.Response[Model, Cores] =
     checkAssumptions(config)(Set.empty)

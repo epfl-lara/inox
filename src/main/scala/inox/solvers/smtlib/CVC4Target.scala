@@ -54,44 +54,18 @@ trait CVC4Target extends SMTLIBTarget {
       case (QualifiedIdentifier(SMTIdentifier(SSymbol("emptyset"), Seq()), _), Some(SetType(base))) =>
         FiniteSet(Seq(), base)
 
-      case (FunctionApplication(QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), _), Seq(elem)), Some(tpe)) =>
-        tpe match {
-          case ft @ FunctionType(from, to) =>
-            finiteLambda(Seq.empty, fromSMT(elem, to), ft)
+      case (FunctionApplication(QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), _), Seq(elem)), Some(MapType(k, v))) =>
+        FiniteMap(Seq(), fromSMT(elem, v), k)
 
-          case MapType(k, v) =>
-            FiniteMap(Seq(), fromSMT(elem, v), k)
-        }
+      case (FunctionApplication(SimpleSymbol(SSymbol("__array_store_all__")), Seq(_, elem)), Some(MapType(k, v))) =>
+        FiniteMap(Seq(), fromSMT(elem, v), k)
 
-      case (FunctionApplication(SimpleSymbol(SSymbol("__array_store_all__")), Seq(_, elem)), Some(tpe)) =>
-        tpe match {
-          case ft @ FunctionType(from, to) =>
-            finiteLambda(Seq.empty, fromSMT(elem, to), ft)
-
-          case MapType(k, v) =>
-            FiniteMap(Seq(), fromSMT(elem, v), k)
-        }
-
-      case (FunctionApplication(SimpleSymbol(SSymbol("store")), Seq(arr, key, elem)), Some(tpe)) =>
-        tpe match {
-          case FunctionType(from, v) =>
-            val Lambda(args, bd) = fromSMT(arr, otpe)
-            Lambda(args, IfExpr(
-              Equals(
-                tupleWrap(args.map(_.toVariable)),
-                fromSMT(key, tupleTypeWrap(from))
-              ),
-              fromSMT(elem, v),
-              bd
-            ))
-
-          case MapType(kT, vT) =>
-            val FiniteMap(elems, default, _) = fromSMT(arr, otpe)
-            val newKey = fromSMT(key, kT)
-            val newV   = fromSMT(elem, vT)
-            val newElems = elems.filterNot(_._1 == newKey) :+ (newKey -> newV)
-            FiniteMap(newElems, default, kT)
-        }
+      case (FunctionApplication(SimpleSymbol(SSymbol("store")), Seq(arr, key, elem)), Some(MapType(kT, vT))) =>
+        val FiniteMap(elems, default, _) = fromSMT(arr, otpe)
+        val newKey = fromSMT(key, kT)
+        val newV   = fromSMT(elem, vT)
+        val newElems = elems.filterNot(_._1 == newKey) :+ (newKey -> newV)
+        FiniteMap(newElems, default, kT)
 
       case (FunctionApplication(SimpleSymbol(SSymbol("singleton")), elems), Some(SetType(base))) =>
         FiniteSet(elems.map(fromSMT(_, base)), base)

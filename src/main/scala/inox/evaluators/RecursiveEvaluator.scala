@@ -17,6 +17,8 @@ trait RecursiveEvaluator
 
   val name = "Recursive Evaluator"
 
+  lazy val ignoreContracts = options.findOptionOrDefault(optIgnoreContracts)
+
   private def shift(b: BitSet, size: Int, i: Int): BitSet =
     b.map(_ + i).filter(bit => bit >= 1 && bit <= size)
 
@@ -50,7 +52,7 @@ trait RecursiveEvaluator
       e(b)(rctx.withNewVar(i, first), gctx)
 
     case Assume(cond, body) =>
-      if (e(cond) != BooleanLiteral(true))
+      if (!ignoreContracts && e(cond) != BooleanLiteral(true))
         throw RuntimeError("Assumption did not hold @" + expr.getPos) 
       e(body)
 

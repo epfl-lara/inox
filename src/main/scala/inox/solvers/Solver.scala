@@ -11,6 +11,15 @@ case class SolverOptions(options: Seq[InoxOption[Any]]) extends InoxOptions[Solv
 
 object SolverOptions {
   def empty = SolverOptions(Seq())
+
+  val options = Seq(
+    optCheckModels,
+    optSilentErrors,
+    unrolling.optUnrollFactor,
+    unrolling.optFeelingLucky,
+    unrolling.optUnrollCores,
+    smtlib.optCVC4Options
+  )
 }
 
 case object DebugSectionSolver extends DebugSection("solver")

@@ -9,7 +9,13 @@ case class EvaluatorOptions(options: Seq[InoxOption[Any]]) extends InoxOptions[E
 
 object EvaluatorOptions {
   def empty = EvaluatorOptions(Seq())
+
+  val options = Seq(
+    optIgnoreContracts
+  )
 }
+
+object optIgnoreContracts extends InoxFlagOptionDef("ignorecontracts", "Don't fail on invalid contracts during evaluation", false)
 
 trait Evaluator {
   val program: Program

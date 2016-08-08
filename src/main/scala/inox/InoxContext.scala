@@ -16,8 +16,10 @@ case class InoxContext(
 
   def build(opts: Seq[InoxOption[Any]]) = InoxContext(reporter, interruptManager, opts, timers)
 
-  def toSolver: solvers.SolverOptions = ???
-  def toEvaluator: evaluators.EvaluatorOptions = ???
+  def toSolver: solvers.SolverOptions = solvers.SolverOptions(
+    options.filter(opt => solvers.SolverOptions.options.exists(_ == opt.optionDef)))
+  def toEvaluator: evaluators.EvaluatorOptions = evaluators.EvaluatorOptions(
+    options.filter(opt => evaluators.EvaluatorOptions.options.exists(_ == opt.optionDef)))
 }
 
 object InoxContext {

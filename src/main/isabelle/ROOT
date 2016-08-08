@@ -1,8 +1,0 @@
-session Leon_Deps = "HOL-Protocol" +
-  theories
-    "~~/src/HOL/Word/Word"
-    "~~/src/HOL/Library/Simps_Case_Conv"
-
-session Leon = Leon_Deps +
-  theories
-    Leon
