@@ -204,7 +204,7 @@ trait QuantificationTemplates { self: Templates =>
       quantifications, ignoredMatchers, handledMatchers, ignoredSubsts, handledSubsts, lambdaAxioms, templates)
 
     private def assumptions: Seq[Encoded] =
-      quantifications.collect { case q: GeneralQuantification => q.currentQ2Var }.toSeq
+      quantifications.collect { case q: GeneralQuantification => q.currentQ2Var }
 
     def satisfactionAssumptions = assumptions
     def refutationAssumptions = assumptions
@@ -369,7 +369,7 @@ trait QuantificationTemplates { self: Templates =>
         q -> (grounds(q).toSet ++ constraints.flatMap { case (key, i) =>
           if (correspond(matcherKey(m), key)) Some(bs -> m.args(i)) else None
         })
-      }).toMap
+      })
 
       /* Transform the map to sequences into a sequence of maps making sure that the current
        * matcher is part of the mapping (otherwise, instantiation has already taken place). */
@@ -711,7 +711,7 @@ trait QuantificationTemplates { self: Templates =>
 
   def promoteQuantifications: Unit = {
     val optGen = quantificationsManager.unrollGeneration
-    if (!optGen.isDefined)
+    if (optGen.isEmpty)
       throw FatalError("Attempting to promote inexistent quantifiers")
 
     val diff = (currentGeneration - optGen.get) max 0

@@ -63,7 +63,7 @@ object SeqUtils {
     var res: Seq[Seq[T]] = Nil
 
     var c = es
-    while (!c.isEmpty) {
+    while (c.nonEmpty) {
       val (span, rest) = c.span(p)
 
       if (span.isEmpty) {

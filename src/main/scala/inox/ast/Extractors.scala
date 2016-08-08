@@ -127,7 +127,7 @@ trait Extractors { self: Trees =>
       case FiniteSet(els, base) =>
         Some((els, els => FiniteSet(els, base)))
       case FiniteBag(els, base) =>
-        val subArgs = els.flatMap { case (k, v) => Seq(k, v) }.toSeq
+        val subArgs = els.flatMap { case (k, v) => Seq(k, v) }
         val builder = (as: Seq[Expr]) => {
           def rec(kvs: Seq[Expr]): Seq[(Expr, Expr)] = kvs match {
             case Seq(k, v, t @ _*) =>
@@ -139,7 +139,7 @@ trait Extractors { self: Trees =>
         }
         Some((subArgs, builder))
       case FiniteMap(args, f, t) => {
-        val subArgs = args.flatMap { case (k, v) => Seq(k, v) }.toSeq
+        val subArgs = args.flatMap { case (k, v) => Seq(k, v) }
         val builder = (as: Seq[Expr]) => {
           def rec(kvs: Seq[Expr]): Seq[(Expr, Expr)] = kvs match {
             case Seq(k, v, t @ _*) =>

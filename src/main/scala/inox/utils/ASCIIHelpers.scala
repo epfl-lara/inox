@@ -87,7 +87,7 @@ object ASCIIHelpers {
               sb append "  "
             }
 
-            val size = (i to i+c.spanning-1).map(colSizes).sum + (c.spanning-1) * 2
+            val size = (i until i + c.spanning).map(colSizes).sum + (c.spanning-1) * 2
 
             if (size >= 0) {
               if (c.align == Left) {

@@ -385,7 +385,7 @@ trait AbstractUnrollingSolver
           }
 
         case InstantiateQuantifiers =>
-          if (!templates.quantificationsManager.unrollGeneration.isDefined) {
+          if (templates.quantificationsManager.unrollGeneration.isEmpty) {
             reporter.error("Something went wrong. The model is not transitive yet we can't instantiate!?")
             CheckResult.cast(Unknown)
           } else {

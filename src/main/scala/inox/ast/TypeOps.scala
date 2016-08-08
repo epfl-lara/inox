@@ -210,7 +210,7 @@ trait TypeOps {
 
   def typeCardinality(tp: Type): Option[Int] = {
     def cards(tps: Seq[Type]): Option[Seq[Int]] = {
-      val cardinalities = tps.map(typeCardinality).flatten
+      val cardinalities = tps.flatMap(typeCardinality)
       if (cardinalities.size == tps.size) {
         Some(cardinalities)
       } else {

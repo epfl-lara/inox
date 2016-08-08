@@ -439,7 +439,7 @@ trait GenTreeOps {
         case _ =>
       }
     }
-    return None
+    None
   }
 
   object Same {

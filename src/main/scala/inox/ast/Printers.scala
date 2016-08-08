@@ -86,7 +86,7 @@ trait Printers { self: Trees =>
         case Variable(id, _) =>
           p"$id"
           
-        case Let(vd, expr, SubString(v2: Variable, start, StringLength(v3: Variable))) if vd == v2 && v2 == v3 =>
+        case Let(vd, expr, SubString(v2: Variable, start, StringLength(v3: Variable))) if vd.toVariable == v2 && v2 == v3 =>
           p"$expr.substring($start)"
 
         case Let(b,d,e) =>
@@ -137,7 +137,7 @@ trait Printers { self: Trees =>
         case CaseClassSelector(e, id)         => p"$e.$id"
 
         case FunctionInvocation(id, tps, args) =>
-          p"${id}${nary(tps, ", ", "[", "]")}"
+          p"$id${nary(tps, ", ", "[", "]")}"
           if (args.nonEmpty) {
             p"($args)"
           }
@@ -146,7 +146,7 @@ trait Printers { self: Trees =>
           p"$caller($args)"
 
         case Lambda(Seq(vd), FunctionInvocation(id, Seq(), Seq(arg))) if vd == arg =>
-          p"${id}"
+          p"$id"
 
         case Lambda(args, body) =>
           optP { p"($args) => $body" }

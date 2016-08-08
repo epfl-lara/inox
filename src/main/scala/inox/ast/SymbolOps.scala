@@ -681,16 +681,16 @@ trait SymbolOps { self: TypeOps =>
       case (FiniteBag(elements, fbtpe), BagType(tpe)) =>
         fbtpe == tpe &&
         elements.forall{ case (key, value) => isValueOfType(key, tpe) && isValueOfType(value, IntegerType) }
-      case (FiniteMap(elems, tk, tv), MapType(from, to)) =>
-        (tk == from) < s"$tk not equal to $from" && (tv == to) < s"$tv not equal to $to" &&
-        (elems forall (kv => isValueOfType(kv._1, from) < s"${kv._1} not a value of type ${from}" && isValueOfType(unWrapSome(kv._2), to) < s"${unWrapSome(kv._2)} not a value of type ${to}" ))
+      case (FiniteMap(elems, default, kt), MapType(from, to)) =>
+        (kt == from) < s"$kt not equal to $from" && (default.getType == to) < s"${default.getType} not equal to $to" &&
+        (elems forall (kv => isValueOfType(kv._1, from) < s"${kv._1} not a value of type $from" && isValueOfType(unWrapSome(kv._2), to) < s"${unWrapSome(kv._2)} not a value of type ${to}" ))
       case (CaseClass(ct, args), ct2: ClassType) =>
         isSubtypeOf(ct, ct2) < s"$ct not a subtype of $ct2" &&
         ((args zip ct.tcd.toCase.fieldsTypes) forall (argstyped => isValueOfType(argstyped._1, argstyped._2) < s"${argstyped._1} not a value of type ${argstyped._2}" ))
       case (Lambda(valdefs, body), FunctionType(ins, out)) =>
         variablesOf(e).isEmpty &&
         (valdefs zip ins forall (vdin => isSubtypeOf(vdin._2, vdin._1.getType) < s"${vdin._2} is not a subtype of ${vdin._1.getType}")) &&
-        (isSubtypeOf(body.getType, out)) < s"${body.getType} is not a subtype of ${out}"
+        isSubtypeOf(body.getType, out) < s"${body.getType} is not a subtype of $out"
       case _ => false
     }
   }

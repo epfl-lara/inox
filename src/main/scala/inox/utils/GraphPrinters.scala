@@ -113,7 +113,7 @@ object GraphPrinters {
 
     def nextColor = {
       _nextColor += 1
-      val colornumber: String = if((_nextColor/bgColors.size)%3 == 0) "" else ((_nextColor/bgColors.size)%3)+"";
+      val colornumber: String = if((_nextColor/bgColors.size)%3 == 0) "" else ((_nextColor/bgColors.size)%3)+""
       bgColors(_nextColor%bgColors.size)+colornumber
     }
 
@@ -169,7 +169,7 @@ object GraphPrinters {
       "turquoise4", "violet", "violetred", "violetred1", "violetred2", "violetred3",
       "violetred4", "wheat", "wheat1", "wheat2", "wheat3", "wheat4", "white",
       "whitesmoke", "yellow", "yellow1", "yellow2", "yellow3", "yellow4",
-      "yellowgreen");
+      "yellowgreen")
 
     def randomColor = {
       _nextColor += 1

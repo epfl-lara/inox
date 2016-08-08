@@ -36,10 +36,10 @@ object StreamUtils {
   }
 
   private def reverseCantorPair(z: Int): (Int, Int) = {
-      val t = Math.floor((-1.0f + Math.sqrt(1.0f + 8.0f * z))/2.0f).toInt;
-      val x = t * (t + 3) / 2 - z;
-      val y = z - t * (t + 1) / 2;
-      (x, y)
+    val t = Math.floor((-1.0f + Math.sqrt(1.0f + 8.0f * z))/2.0f).toInt
+    val x = t * (t + 3) / 2 - z
+    val y = z - t * (t + 1) / 2
+    (x, y)
   }
   
   /** Combines two streams into one using cantor's unpairing function.
