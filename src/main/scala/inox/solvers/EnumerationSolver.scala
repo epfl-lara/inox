@@ -1,32 +1,39 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon
+package inox
 package solvers
 
+import evaluators._
+import SolverResponses._
+import grammars.GrammarsUniverse
 import utils._
-import purescala.Common._
-import purescala.Definitions._
-import purescala.Constructors._
-import purescala.Expressions._
-import purescala.ExprOps._
-
 import datagen._
 
-class EnumerationSolver(val sctx: SolverContext, val program: Program) extends Solver with NaiveAssumptionSolver {
+trait EnumerationSolver extends Solver { self =>
+
+  val grammars: GrammarsUniverse { val program: self.program.type }
+
+  val evaluator: DeterministicEvaluator { val program: self.program.type }
+
+  import program._
+  import trees._
+  import symbols._
+  import exprOps._
+
   def name = "Enum"
 
   val maxTried = 10000
 
-  var datagen: Option[DataGenerator] = None
+  var datagen: Option[DataGenerator { val program: self.program.type }] = None
 
   private var interrupted = false
 
-  val freeVars    = new IncrementalSet[Identifier]()
+  val freeVars    = new IncrementalSet[ValDef]()
   val constraints = new IncrementalSeq[Expr]()
 
   def assertCnstr(expression: Expr): Unit = {
     constraints += expression
-    freeVars ++= variablesOf(expression)
+    freeVars ++= variablesOf(expression).map(_.toVal)
   }
 
   def push() = {
@@ -46,43 +53,49 @@ class EnumerationSolver(val sctx: SolverContext, val program: Program) extends S
     datagen     = None
   }
 
-  private var model = Model.empty
-
-  /** @inheritdoc */
-  def check: Option[Boolean] = {
-    val timer = context.timers.solvers.enum.check.start()
-    val res = try {
-      datagen = Some(new VanuatooDataGen(context, program, sctx.bank))
+  def check(config: Configuration): config.Response[Model, Cores] = config.cast {
+    val res: SolverResponse[Model, Cores] = try {
+      datagen = Some(new GrammarDataGen {
+        val grammars: self.grammars.type = self.grammars
+        val evaluator: DeterministicEvaluator { val program: self.program.type } = self.evaluator
+        val grammar: grammars.ExpressionGrammar = grammars.ValueGrammar
+        val program: self.program.type = self.program
+        def functionsAvailable(p: Program): Set[FunDef] = Set()
+      })
       if (interrupted) {
-        None
+        Unknown
       } else {
-        model = Model.empty
-        val allFreeVars = freeVars.toSeq.sortBy(_.name)
+        val allFreeVars = freeVars.toSeq.sortBy(_.id.name)
         val allConstraints = constraints.toSeq
 
-        val it = datagen.get.generateFor(allFreeVars, andJoin(allConstraints), 1, maxTried)
+        val it: Iterator[Seq[Expr]] = datagen.get.generateFor(allFreeVars, andJoin(allConstraints), 1, maxTried)
 
         if (it.hasNext) {
-          val varModels = it.next
-          model = new Model((allFreeVars zip varModels).toMap)
-          Some(true)
+          config match {
+            case All | Model =>
+              val varModels = it.next
+              SatWithModel(allFreeVars.zip(varModels).toMap)
+            case _ =>
+              Sat
+          }
         } else {
-          None
+          config match {
+            case All | Cores =>
+              ??? // TODO
+            case _ =>
+              Unsat
+          }
         }
       }
     } catch {
-      case e: codegen.CompilationException =>
-        None
+      case e: Throwable =>
+        Unknown
     }
     datagen = None
-    timer.stop()
     res
   }
 
-  /** @inheritdoc */
-  def getModel: Model = {
-    model
-  }
+  def checkAssumptions(config: Configuration)(assumptions: Set[Trees]): config.Response[Model, Cores] = ??? // TODO
 
   def free() = {
     constraints.clear()
@@ -90,13 +103,11 @@ class EnumerationSolver(val sctx: SolverContext, val program: Program) extends S
 
   def interrupt(): Unit = {
     interrupted = true
-
-    datagen.foreach{ s =>
-      s.interrupt
-    }
+    datagen.foreach(_.interrupt())
   }
 
   def recoverInterrupt(): Unit = {
-    datagen.foreach(_.recoverInterrupt)
+    interrupted = false
+    datagen.foreach(_.recoverInterrupt())
   }
 }

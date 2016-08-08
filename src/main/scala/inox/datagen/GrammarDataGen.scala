@@ -13,13 +13,16 @@ import grammars._
 /** Utility functions to generate values of a given type.
   * In fact, it could be used to generate *terms* of a given type,
   * e.g. by passing trees representing variables for the "bounds". */
-trait GrammarDataGen extends DataGenerator with GrammarsUniverse { self =>
+trait GrammarDataGen extends DataGenerator { self =>
+  val grammars: GrammarsUniverse { val program: self.program.type }
+  import grammars._
   val evaluator: DeterministicEvaluator { val program: self.program.type }
   val grammar: ExpressionGrammar
 
   import program._
   import program.trees._
   import program.symbols._
+  import exprOps._
 
   // Assume e contains generic values with index 0.
   // Return a series of expressions with all normalized combinations of generic values.
@@ -56,7 +59,7 @@ trait GrammarDataGen extends DataGenerator with GrammarsUniverse { self =>
     enum.iterator(Label(tpe)).flatMap(expandGenerics).takeWhile(_ => !interrupted.get)
   }
 
-  def generateFor(ins: Seq[Variable], satisfying: Expr, maxValid: Int, maxEnumerated: Int): Iterator[Seq[Expr]] = {
+  def generateFor(ins: Seq[ValDef], satisfying: Expr, maxValid: Int, maxEnumerated: Int): Iterator[Seq[Expr]] = {
 
     def filterCond(vs: Seq[Expr]): Boolean = satisfying match {
       case BooleanLiteral(true) =>
@@ -85,7 +88,7 @@ trait GrammarDataGen extends DataGenerator with GrammarsUniverse { self =>
     }
   }
 
-  def generateMapping(ins: Seq[Variable], satisfying: Expr, maxValid: Int, maxEnumerated: Int) = {
+  def generateMapping(ins: Seq[ValDef], satisfying: Expr, maxValid: Int, maxEnumerated: Int) = {
     generateFor(ins, satisfying, maxValid, maxEnumerated) map (ins zip _)
   }
 
