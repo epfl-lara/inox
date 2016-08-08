@@ -280,4 +280,8 @@ trait Constructors {
       IsInstanceOf(expr, tpe)
     }
   }
+
+  def finiteLambda(cases: Seq[(Expr, Expr)], default: Expr, ft: FunctionType): Expr = {
+    ???
+  }
 }
