@@ -4,7 +4,6 @@ package inox
 package solvers
 
 import utils._
-import evaluators._
 
 case class SolverOptions(options: Seq[InoxOption[Any]]) extends InoxOptions[SolverOptions] {
   def build(opts: Seq[InoxOption[Any]]): SolverOptions = SolverOptions(opts)
