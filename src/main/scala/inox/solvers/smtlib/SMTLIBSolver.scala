@@ -105,6 +105,8 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
     }
   }
 
+  def checkAssumptions(config: Configuration)(assumptions: Set[Trees]): config.Response[Model, Cores] = ???
+
   def push(): Unit = {
     constructors.push()
     selectors.push()
