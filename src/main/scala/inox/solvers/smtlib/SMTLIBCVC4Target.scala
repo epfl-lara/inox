@@ -17,6 +17,8 @@ trait SMTLIBCVC4Target extends SMTLIBTarget {
   import trees._
   import symbols._
 
+  def targetName = "cvc4"
+
   override def getNewInterpreter(ctx: InoxContext) = {
     val opts = interpreterOps(ctx)
     ctx.reporter.debug("Invoking solver with "+opts.mkString(" "))
