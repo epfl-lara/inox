@@ -6,7 +6,7 @@ package smtlib
 
 import org.apache.commons.lang3.StringEscapeUtils
 
-import _root_.smtlib.parser.Terms.{Identifier => SMTIdentifier, Forall => SMTForall, _}
+import _root_.smtlib.parser.Terms.{Identifier => SMTIdentifier, _}
 import _root_.smtlib.parser.Commands._
 import _root_.smtlib.interpreters.CVC4Interpreter
 import _root_.smtlib.theories.experimental.Sets
@@ -156,19 +156,22 @@ trait CVC4Target extends SMTLIBTarget {
         }
       }
 
-    case SubsetOf(ss, s) => Sets.Subset(toSMT(ss), toSMT(s))
-    case ElementOfSet(e, s) => Sets.Member(toSMT(e), toSMT(s))
-    case SetDifference(a, b) => Sets.Setminus(toSMT(a), toSMT(b))
-    case SetUnion(a, b) => Sets.Union(toSMT(a), toSMT(b))
-    case SetIntersection(a, b) => Sets.Intersection(toSMT(a), toSMT(b))
-    case StringLiteral(v)          =>
-        declareSort(StringType)
-        Strings.StringLit(StringEscapeUtils.escapeJava(v))
-    case StringLength(a)           => Strings.Length(toSMT(a))
-    case StringConcat(a, b)        => Strings.Concat(toSMT(a), toSMT(b))
+    case SubsetOf(ss, s)        => Sets.Subset(toSMT(ss), toSMT(s))
+    case ElementOfSet(e, s)     => Sets.Member(toSMT(e), toSMT(s))
+    case SetDifference(a, b)    => Sets.Setminus(toSMT(a), toSMT(b))
+    case SetUnion(a, b)         => Sets.Union(toSMT(a), toSMT(b))
+    case SetIntersection(a, b)  => Sets.Intersection(toSMT(a), toSMT(b))
+
+    /** String operations */
+    case StringLiteral(v) =>
+      declareSort(StringType)
+      Strings.StringLit(StringEscapeUtils.escapeJava(v))
+    case StringLength(a) => Strings.Length(toSMT(a))
+    case StringConcat(a, b) => Strings.Concat(toSMT(a), toSMT(b))
     case SubString(a, start, Plus(start2, length)) if start == start2  =>
-                                      Strings.Substring(toSMT(a),toSMT(start),toSMT(length))
-    case SubString(a, start, end)  => Strings.Substring(toSMT(a),toSMT(start),toSMT(Minus(end, start)))
+      Strings.Substring(toSMT(a),toSMT(start),toSMT(length))
+    case SubString(a, start, end) =>
+      Strings.Substring(toSMT(a),toSMT(start),toSMT(Minus(end, start)))
     case _ =>
       super.toSMT(e)
   }

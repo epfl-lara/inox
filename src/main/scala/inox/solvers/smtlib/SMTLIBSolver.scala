@@ -4,9 +4,9 @@ package inox
 package solvers
 package smtlib
 
-import _root_.smtlib.parser.Commands.{Assert => SMTAssert, FunDef => SMTFunDef, _}
+import _root_.smtlib.parser.Commands.{FunDef => SMTFunDef, _}
 import _root_.smtlib.parser.Terms.{Identifier => _, _}
-import _root_.smtlib.parser.CommandsResponses.{Error => ErrorResponse, _}
+import _root_.smtlib.parser.CommandsResponses._
 
 trait SMTLIBSolver extends Solver with SMTLIBTarget {
 
@@ -33,7 +33,7 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
       variablesOf(expr).foreach(declareVariable)
 
       val term = toSMT(expr)(Map())
-      emit(SMTAssert(term))
+      emit(Assert(term))
     } catch {
       case _ : SolverUnsupportedError =>
         // Store that there was an error. Now all following check()
@@ -44,7 +44,7 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
 
   override def reset() = {
     emit(Reset(), rawOut = true) match {
-      case ErrorResponse(msg) =>
+      case Error(msg) =>
         reporter.warning(s"Failed to reset $name: $msg")
         throw new CantResetException(this)
       case _ =>
@@ -105,7 +105,7 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
     }
   }
 
-  def checkAssumptions(config: Configuration)(assumptions: Set[Trees]): config.Response[Model, Cores] = ???
+  def checkAssumptions(config: Configuration)(assumptions: Set[Trees]): config.Response[Model, Cores] = ??? //TODO
 
   def push(): Unit = {
     constructors.push()

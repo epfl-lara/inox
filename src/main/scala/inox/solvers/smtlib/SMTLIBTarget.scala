@@ -4,7 +4,6 @@ package inox
 package solvers
 package smtlib
 
-import inox.utils.Interruptible
 import utils._
 
 import _root_.smtlib.common._
@@ -12,19 +11,16 @@ import _root_.smtlib.printer.{ RecursivePrinter => SMTPrinter }
 import _root_.smtlib.parser.Commands.{
   Constructor => SMTConstructor,
   FunDef => SMTFunDef,
-  Assert => SMTAssert,
   _
 }
 import _root_.smtlib.parser.Terms.{
   Forall => SMTForall,
-  Exists => _,
   Identifier => SMTIdentifier,
   Let => SMTLet,
   _
 }
-import _root_.smtlib.parser.CommandsResponses.{ Error => ErrorResponse, _ }
+import _root_.smtlib.parser.CommandsResponses._
 import _root_.smtlib.theories.{Constructors => SmtLibConstructors, _}
-import _root_.smtlib.theories.experimental._
 import _root_.smtlib.interpreters.ProcessInterpreter
 
 trait SMTLIBTarget extends Interruptible with ADTManagers {
@@ -94,7 +90,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
       o.flush()
     }
     interpreter.eval(cmd) match {
-      case err @ ErrorResponse(msg) if !hasError && !interrupted && !rawOut =>
+      case err @ Error(msg) if !hasError && !interrupted && !rawOut =>
         ctx.reporter.warning(s"Unexpected error from $targetName solver: $msg")
         //println(Thread.currentThread().getStackTrace.map(_.toString).take(10).mkString("\n"))
         // Store that there was an error. Now all following check()

@@ -34,7 +34,19 @@ trait Z3Target extends SMTLIBTarget {
 
   protected val extSym = SSymbol("_")
 
-  protected var setSort: Option[SSymbol] = None
+  protected lazy val setSort: SSymbol = {
+    val s = SSymbol("Set")
+    val t = SSymbol("T")
+
+    val arraySort = Sort(
+      SMTIdentifier(SSymbol("Array")),
+      Seq(Sort(SMTIdentifier(t)), BoolSort())
+    )
+
+    val cmd = DefineSort(s, Seq(t), arraySort)
+    emit(cmd)
+    s
+  }
 
   override protected def declareSort(t: Type): Sort = {
     val tpe = normalizeType(t)
@@ -42,7 +54,7 @@ trait Z3Target extends SMTLIBTarget {
       tpe match {
         case SetType(base) =>
           super.declareSort(BooleanType)
-          declareSetSort(base)
+          Sort(SMTIdentifier(setSort), Seq(declareSort(base)))
         case BagType(base) =>
           declareSort(MapType(base, IntegerType))
         case _ =>
@@ -51,29 +63,8 @@ trait Z3Target extends SMTLIBTarget {
     }
   }
 
-  protected def declareSetSort(of: Type): Sort = {
-    setSort match {
-      case None =>
-        val s = SSymbol("Set")
-        val t = SSymbol("T")
-        setSort = Some(s)
-
-        val arraySort = Sort(SMTIdentifier(SSymbol("Array")),
-                             Seq(Sort(SMTIdentifier(t)), BoolSort()))
-
-        val cmd = DefineSort(s, Seq(t), arraySort)
-        emit(cmd)
-
-      case _ =>
-    }
-
-    Sort(SMTIdentifier(setSort.get), Seq(declareSort(of)))
-  }
-
   override protected def fromSMT(t: Term, otpe: Option[Type] = None)
                                 (implicit lets: Map[SSymbol, Term], letDefs: Map[SSymbol, DefineFun]): Expr = {
-
-
     (t, otpe) match {
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe)) =>
         if (letDefs contains k) {
@@ -113,8 +104,7 @@ trait Z3Target extends SMTLIBTarget {
      * ===== Set operations =====
      */
     case fs @ FiniteSet(elems, base) =>
-      val st @ SetType(base) = fs.getType
-      declareSort(st)
+      declareSort(fs.getType)
       toSMT(FiniteMap(elems map ((_, BooleanLiteral(true))), BooleanLiteral(false), BooleanType))
 
     case SubsetOf(ss, s) =>
@@ -151,8 +141,10 @@ trait Z3Target extends SMTLIBTarget {
       val bid = FreshIdentifier("b", true)
       val eid = FreshIdentifier("e", true)
       val (bSym, eSym) = (id2sym(bid), id2sym(eid))
-      SMTLet(VarBinding(bSym, toSMT(b)), Seq(VarBinding(eSym, toSMT(e))), ArraysEx.Store(bSym, eSym,
-        Ints.Add(ArraysEx.Select(bSym, eSym), Ints.NumeralLit(1))))
+      SMTLet(
+        VarBinding(bSym, toSMT(b)), Seq(VarBinding(eSym, toSMT(e))),
+        ArraysEx.Store(bSym, eSym, Ints.Add(ArraysEx.Select(bSym, eSym), Ints.NumeralLit(1)))
+      )
 
     case MultiplicityInBag(e, b) =>
       ArraysEx.Select(toSMT(b), toSMT(e))
@@ -175,8 +167,10 @@ trait Z3Target extends SMTLIBTarget {
 
       val all2 = ArrayConst(declareSort(IntegerType), Ints.NumeralLit(2))
 
-      SMTLet(VarBinding(dSym, ArrayMap(minus, toSMT(b1), toSMT(b2))), Seq(),
-        ArrayMap(div, ArrayMap(plus, dSym, ArrayMap(abs, dSym)), all2))
+      SMTLet(
+        VarBinding(dSym, ArrayMap(minus, toSMT(b1), toSMT(b2))), Seq(),
+        ArrayMap(div, ArrayMap(plus, dSym, ArrayMap(abs, dSym)), all2)
+      )
 
     case _ =>
       super.toSMT(e)
