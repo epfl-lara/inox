@@ -13,7 +13,7 @@ trait EqualityGrammars { self: GrammarsUniverse =>
     * @param types The set of types for which equalities will be generated
     */
   case class EqualityGrammar(types: Set[Type]) extends SimpleExpressionGrammar {
-    def computeProductions(t: Type)(implicit ctx: InoxContext): Seq[Prod] = t match {
+    def computeProductions(t: Type): Seq[Prod] = t match {
       case BooleanType =>
         types.toList map { tp =>
           nonTerminal(List(tp, tp), { case Seq(a, b) => equality(a, b) }, Equals)

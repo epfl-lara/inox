@@ -9,7 +9,7 @@ trait ElementaryGrammars { self: GrammarsUniverse =>
 
   /** Generates one production rule for each expression in a sequence that has compatible type */
   case class OneOf(inputs: Seq[Expr]) extends SimpleExpressionGrammar {
-    def computeProductions(lab: Type)(implicit ctx: InoxContext): Seq[Prod] = {
+    def computeProductions(lab: Type): Seq[Prod] = {
       inputs.collect {
         case i if isSubtypeOf(i.getType, lab.getType) =>
           terminal(i)
@@ -23,13 +23,13 @@ trait ElementaryGrammars { self: GrammarsUniverse =>
       case g => Seq(g)
     }
 
-    def computeProductions(label: Label)(implicit ctx: InoxContext): Seq[ProductionRule[Label, Expr]] =
+    def computeProductions(label: Label): Seq[ProductionRule[Label, Expr]] =
       subGrammars.flatMap(_.computeProductions(label))
   }
 
   /** The empty expression grammar */
   case class Empty() extends ExpressionGrammar {
-    def computeProductions(l: Label)(implicit ctx: InoxContext) = Nil
+    def computeProductions(l: Label) = Nil
   }
 
 }

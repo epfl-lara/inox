@@ -28,7 +28,7 @@ trait SimilarToAspects { self: GrammarsUniverse =>
      *                f(a, ~b~)
      *                f(b, a)   // if non-commut
      */
-    def applyTo(lab: Label, ps: Seq[Production])(implicit ctx: InoxContext) = {
+    def applyTo(lab: Label, ps: Seq[Production]) = {
       def isCommutative(e: Expr) = e match {
         case _: EPlus | _: ETimes => true
         case _ => false

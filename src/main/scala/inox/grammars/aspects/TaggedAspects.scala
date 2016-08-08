@@ -19,7 +19,7 @@ trait TaggedAspects { self: GrammarsUniverse =>
       */
     def asString(implicit opts: PrinterOptions): String = s"#$tag$cString@$pos"
 
-    def applyTo(lab: Label, ps: Seq[Production])(implicit ctx: InoxContext) = {
+    def applyTo(lab: Label, ps: Seq[Production]) = {
 
       // Tags to avoid depending on parent aspect
       val excludedTags: Set[Tag] = (tag, pos) match {

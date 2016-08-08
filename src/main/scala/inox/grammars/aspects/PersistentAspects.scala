@@ -20,7 +20,7 @@ trait PersistentAspects { self: GrammarsUniverse =>
    *   e + 1
    */
   abstract class PersistentAspect extends Aspect {
-    def applyTo(lab: Label, ps: Seq[Production])(implicit ctx: InoxContext) = {
+    def applyTo(lab: Label, ps: Seq[Production]) = {
       ps.map { p =>
         p.copy(subTrees = p.subTrees.map(lab => lab.withAspect(this)))
       }

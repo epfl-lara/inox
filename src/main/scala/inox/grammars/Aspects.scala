@@ -27,6 +27,6 @@ trait Aspects { self: GrammarsUniverse =>
   trait Aspect extends Printable {
     final type Production = ProductionRule[Label, Expr]
 
-    def applyTo(l: Label, ps: Seq[Production])(implicit ctx: InoxContext): Seq[Production]
+    def applyTo(l: Label, ps: Seq[Production]): Seq[Production]
   }
 }

@@ -18,7 +18,7 @@ trait ExpressionGrammars { self: GrammarsUniverse =>
       * @param lab The nonterminal for which production rules will be generated
       * @note This is the cached version of [[computeProductions]]. Clients should use this method.
       */
-    final def getProductions(lab: Label)(implicit ctx: InoxContext) = {
+    final def getProductions(lab: Label) = {
       cache.getOrElse(lab, {
         val res = applyAspects(lab, computeProductions(lab))
         cache += lab -> res
@@ -31,7 +31,7 @@ trait ExpressionGrammars { self: GrammarsUniverse =>
       * @param lab The nonterminal for which production rules will be generated
       * @note Clients should use the cached version, [[getProductions]] instead
       */
-    def computeProductions(lab: Label)(implicit ctx: InoxContext): Seq[ProductionRule[Label, Expr]]
+    def computeProductions(lab: Label): Seq[ProductionRule[Label, Expr]]
 
     protected def applyAspects(lab: Label, ps: Seq[ProductionRule[Label, Expr]])(implicit ctx: InoxContext) = {
       lab.aspects.foldLeft(ps) {
@@ -44,7 +44,7 @@ trait ExpressionGrammars { self: GrammarsUniverse =>
     //  Union(Seq(this, that))
     //}
 
-    final def printProductions(printer: String => Unit)(implicit ctx: InoxContext) {
+    final def printProductions(printer: String => Unit) {
       def sorter(lp1: (Label, Seq[ProductionRule[Label, Expr]]), lp2: (Label, Seq[ProductionRule[Label, Expr]])): Boolean = {
         val l1 = lp1._1
         val l2 = lp2._1

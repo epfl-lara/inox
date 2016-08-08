@@ -15,7 +15,7 @@ trait BaseGrammars { self: GrammarsUniverse =>
     */
   case object BaseGrammar extends SimpleExpressionGrammar {
 
-    def computeProductions(t: Type)(implicit ctx: InoxContext): Seq[Prod] = t match {
+    def computeProductions(t: Type): Seq[Prod] = t match {
       case BooleanType =>
         List(
           terminal(BooleanLiteral(false), BooleanC),

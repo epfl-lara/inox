@@ -25,20 +25,20 @@ trait SimpleExpressionGrammars { self: GrammarsUniverse =>
 
     def filter(f: Prod => Boolean) = {
       new SimpleExpressionGrammar {
-        def computeProductions(lab: Type)(implicit ctx: InoxContext) = {
+        def computeProductions(lab: Type) = {
           SimpleExpressionGrammar.this.computeProductions(lab).filter(f)
         }
       }
     }
 
     // Finalize this to depend only on the type of the label
-    final def computeProductions(lab: Label)(implicit ctx: InoxContext): Seq[ProductionRule[Label, Expr]] = {
+    final def computeProductions(lab: Label): Seq[ProductionRule[Label, Expr]] = {
       computeProductions(lab.getType).map { p =>
         ProductionRule(p.subTrees.map(Label(_)), p.builder, p.tag, p.cost)
       }
     }
 
     /** Version of [[ExpressionGrammar.computeProductions]] which depends only a [[Type]] */
-    def computeProductions(tpe: Type)(implicit ctx: InoxContext): Seq[Prod]
+    def computeProductions(tpe: Type): Seq[Prod]
   }
 }

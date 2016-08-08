@@ -9,7 +9,7 @@ trait ClosureGrammars { self: GrammarsUniverse =>
   import symbols._
 
   case object Closures extends ExpressionGrammar {
-    def computeProductions(lab: Label)(implicit ctx: InoxContext): Seq[ProductionRule[Label, Expr]] = lab.getType match {
+    def computeProductions(lab: Label): Seq[ProductionRule[Label, Expr]] = lab.getType match {
       case FunctionType(argsTpes, ret) =>
         val args = argsTpes.zipWithIndex.map { case (tpe, i) =>
           ValDef(FreshIdentifier("a"+i), tpe)

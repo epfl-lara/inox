@@ -10,7 +10,7 @@ trait ValueGrammars { self: GrammarsUniverse =>
 
   /** A grammar of values (ground terms) */
   case object ValueGrammar extends SimpleExpressionGrammar {
-    def computeProductions(t: Type)(implicit ctx: InoxContext): Seq[Prod] = t match {
+    def computeProductions(t: Type): Seq[Prod] = t match {
       case BooleanType =>
         List(
           terminal(BooleanLiteral(true), One),

@@ -16,7 +16,7 @@ trait FunctionCallsGrammars extends utils.Helpers { self: GrammarsUniverse =>
     * @param exclude An additional set of functions for which no calls will be generated
     */
   case class FunctionCalls(prog: Program, currentFunction: FunDef, types: Seq[Type], exclude: Set[FunDef]) extends SimpleExpressionGrammar {
-    def computeProductions(t: Type)(implicit ctx: InoxContext): Seq[Prod] = {
+    def computeProductions(t: Type): Seq[Prod] = {
 
       def getCandidates(fd: FunDef): Seq[TypedFunDef] = {
         // Prevents recursive calls

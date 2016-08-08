@@ -15,7 +15,7 @@ trait SizeAspects { self: GrammarsUniverse =>
   case class Sized(size: Int) extends Aspect {
     def asString(implicit opts: PrinterOptions) = "|"+size+"|"
 
-    def applyTo(lab: Label, ps: Seq[Production])(implicit ctx: InoxContext) = {
+    def applyTo(lab: Label, ps: Seq[Production]) = {
       val optimizeCommut = true
 
       ps.flatMap { p =>

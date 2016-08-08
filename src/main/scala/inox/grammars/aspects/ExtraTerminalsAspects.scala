@@ -19,7 +19,7 @@ trait ExtraTerminalsAspects { self: GrammarsUniverse =>
       s.toList.map(_.asString(opts)).mkString("{", ",", "}")
     }
 
-    override def applyTo(lab: Label, ps: Seq[Production])(implicit ctx: InoxContext) = {
+    override def applyTo(lab: Label, ps: Seq[Production]) = {
       super.applyTo(lab, ps) ++ {
         s.filter(e => isSubtypeOf(e.getType, lab.getType)).map { e =>
           ProductionRule[Label, Expr](Nil, { (es: Seq[Expr]) => e }, Top, formulaSize(e))

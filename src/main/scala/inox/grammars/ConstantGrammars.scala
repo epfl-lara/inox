@@ -22,7 +22,7 @@ trait ConstantGrammars { self: GrammarsUniverse =>
       BooleanLiteral(false)
     )
 
-    def computeProductions(t: Type)(implicit ctx: InoxContext): Seq[Prod] = {
+    def computeProductions(t: Type): Seq[Prod] = {
       val literals = collect[Expr]{
         case IsTyped(l:Literal[_], `t`) => Set(l)
         case _ => Set()
