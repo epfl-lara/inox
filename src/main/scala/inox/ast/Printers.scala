@@ -164,6 +164,7 @@ trait Printers { self: Trees =>
         case GreaterThan(l,r)          => optP { p"$l > $r" }
         case LessEquals(l,r)           => optP { p"$l <= $r" }
         case GreaterEquals(l,r)        => optP { p"$l >= $r" }
+        case BVNot(e)                  => optP { p"~$e" }
         case BVXOr(l,r)                => optP { p"$l ^ $r" }
         case BVOr(l,r)                 => optP { p"$l | $r" }
         case BVAnd(l,r)                => optP { p"$l & $r" }
