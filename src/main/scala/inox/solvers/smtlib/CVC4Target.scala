@@ -12,7 +12,7 @@ import _root_.smtlib.interpreters.CVC4Interpreter
 import _root_.smtlib.theories.experimental.Sets
 import _root_.smtlib.theories.experimental.Strings
 
-trait SMTLIBCVC4Target extends SMTLIBTarget {
+trait CVC4Target extends SMTLIBTarget {
   import program._
   import trees._
   import symbols._

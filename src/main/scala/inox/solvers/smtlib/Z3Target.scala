@@ -10,7 +10,7 @@ import _root_.smtlib.interpreters.Z3Interpreter
 import _root_.smtlib.theories.Core.{Equals => SMTEquals, _}
 import _root_.smtlib.theories._
 
-trait SMTLIBZ3Target extends SMTLIBTarget {
+trait Z3Target extends SMTLIBTarget {
 
   import program._
   import trees._

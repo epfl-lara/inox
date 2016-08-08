@@ -6,9 +6,9 @@ package smtlib
 
 import inox.OptionParsers._
 
-class SMTLIBCVC4Solver(val program: Program, val options: SolverOptions)
+class CVC4Solver(val program: Program, val options: SolverOptions)
   extends SMTLIBSolver
-     with SMTLIBCVC4Target {
+     with CVC4Target {
 
   protected val userDefinedOps = {
     options.findOptionOrDefault(optCVC4Options)
