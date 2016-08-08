@@ -45,7 +45,7 @@ object StreamUtils {
   /** Combines two streams into one using cantor's unpairing function.
     *  Ensures that the stream terminates if both streams terminate */
   def cartesianProduct[A, B](sa: Stream[A], sb: Stream[B]): Stream[(A, B)] = {
-    def combineRec[A, B](sa: Stream[A], sb: Stream[B])(i: Int): Stream[(A, B)] = {
+    def combineRec(sa: Stream[A], sb: Stream[B])(i: Int): Stream[(A, B)] = {
       val (x, y) = reverseCantorPair(i)
       if(!sa.isDefinedAt(x) && !sb.isDefinedAt(y)) Stream.Empty
       else if(sa.isDefinedAt(x) && sb.isDefinedAt(y)) (sa(x), sb(y)) #:: combineRec(sa, sb)(i+1)
