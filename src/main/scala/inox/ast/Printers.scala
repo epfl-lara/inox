@@ -23,9 +23,12 @@ trait Printers { self: Trees =>
     printPositions: Boolean = false,
     printUniqueIds: Boolean = false,
     printTypes: Boolean = false,
-    symbols: Option[Symbols] = None) {
-      require(!printTypes || symbols.isDefined,
-        "Can't print types without an available symbol table")
+    symbols: Option[Symbols] = None
+  ) {
+    require(
+      !printTypes || symbols.isDefined,
+      "Can't print types without an available symbol table"
+    )
   }
 
   object PrinterOptions {
@@ -145,7 +148,7 @@ trait Printers { self: Trees =>
         case Application(caller, args) =>
           p"$caller($args)"
 
-        case Lambda(Seq(vd), FunctionInvocation(id, Seq(), Seq(arg))) if vd == arg =>
+        case Lambda(Seq(vd), FunctionInvocation(id, Seq(), Seq(arg))) if vd.toVariable == arg =>
           p"$id"
 
         case Lambda(args, body) =>
@@ -162,6 +165,8 @@ trait Printers { self: Trees =>
         case LessEquals(l,r)           => optP { p"$l <= $r" }
         case GreaterEquals(l,r)        => optP { p"$l >= $r" }
         case BVXOr(l,r)                => optP { p"$l ^ $r" }
+        case BVOr(l,r)                 => optP { p"$l | $r" }
+        case BVAnd(l,r)                => optP { p"$l & $r" }
         case BVShiftLeft(l,r)          => optP { p"$l << $r" }
         case BVAShiftRight(l,r)        => optP { p"$l >> $r" }
         case BVLShiftRight(l,r)        => optP { p"$l >>> $r" }
@@ -187,7 +192,7 @@ trait Printers { self: Trees =>
         case Not(expr) => p"\u00AC$expr"
 
         case vd @ ValDef(id, tpe) =>
-          p"$id : ${tpe}"
+          p"$id : $tpe"
 
         case (tfd: TypedFunDef)   => p"typed def ${tfd.id}[${tfd.tps}]"
         case TypeParameterDef(tp) => p"$tp"
@@ -238,7 +243,7 @@ trait Printers { self: Trees =>
 
           ccd.parent.foreach { par =>
             // Remember child and parents tparams are simple bijection
-            p" extends ${par}${nary(ccd.tparams, ", ", "[", "]")}"
+            p" extends $par${nary(ccd.tparams, ", ", "[", "]")}"
           }
 
         case fd: FunDef =>
@@ -312,14 +317,27 @@ trait Printers { self: Trees =>
 
     protected def precedence(ex: Expr): Int = ex match {
       case (pa: PrettyPrintable) => pa.printPrecedence
-      case (_: ElementOfSet) => 0
-      case (_: Modulo) => 1
-      case (_: Or) => 2
-      case (_: And) => 3
-      case (_: GreaterThan | _: GreaterEquals  | _: LessEquals | _: LessThan | _: Implies) => 4
-      case (_: Equals | _: Not) => 5
-      case (_: Plus | _: Minus | _: SetUnion| _: SetDifference) => 7
+      // 0: Letters
+      case (_: ElementOfSet | _: Modulo) => 0
+      // 1: |
+      case (_: Or | _: BVOr) => 1
+      // 2: ^
+      case (_: BVXOr) => 2
+      // 3: &
+      case (_: And | _: BVAnd | _: SetIntersection) => 3
+      // 4: < >
+      case (
+        _: GreaterThan   | _: GreaterEquals | _: LessEquals | _: LessThan |
+        _: BVAShiftRight | _: BVLShiftRight | _: BVShiftLeft
+      ) => 4
+      // 5: = !
+      case (_: Equals | _: Not | _: Implies) => 5
+      // 6: :
+      // 7: + -
+      case (_: Plus | _: Minus | _: SetUnion | _: SetDifference | _: StringConcat) => 7
+      // 8: * / %
       case (_: Times | _: Division | _: Remainder) => 8
+      // 9: Other special characters
       case _ => 9
     }
 
