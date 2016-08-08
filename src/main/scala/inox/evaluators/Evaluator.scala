@@ -3,7 +3,13 @@
 package inox
 package evaluators
 
-case class EvaluatorOptions(options: Seq[InoxOption[Any]]) extends InoxOptions
+case class EvaluatorOptions(options: Seq[InoxOption[Any]]) extends InoxOptions[EvaluatorOptions] {
+  protected def build(opts: Seq[InoxOption[Any]]): EvaluatorOptions = EvaluatorOptions(opts)
+}
+
+object EvaluatorOptions {
+  def empty = EvaluatorOptions(Seq())
+}
 
 trait Evaluator {
   val program: Program

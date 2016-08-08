@@ -3,6 +3,7 @@
 package inox
 package datagen
 
+import evaluators._
 import solvers._
 import utils._
 
@@ -12,6 +13,7 @@ trait SolverDataGen extends DataGenerator { self =>
   import program.symbols._
 
   def factory(p: Program { val trees: self.program.trees.type }): SolverFactory { val program: p.type }
+  def evaluator(p: Program { val trees: self.program.trees.type }): DeterministicEvaluator { val program: p.type }
 
   def generate(tpe: Type): FreeableIterator[Expr] = {
     generateFor(Seq(ValDef(FreshIdentifier("tmp"), tpe)),
@@ -76,7 +78,7 @@ trait SolverDataGen extends DataGenerator { self =>
 
       // We need to synthesize a size function for ins' types.
       val pgm1 = program.extend(functions = fds)
-      val modelEnum = ModelEnumerator(factory(pgm1))
+      val modelEnum = ModelEnumerator(pgm1)(factory(pgm1), evaluator(pgm1))
 
       val enum = modelEnum.enumVarying(ins, satisfying, sizeOf, 5)
 
@@ -86,8 +88,9 @@ trait SolverDataGen extends DataGenerator { self =>
 }
 
 object SolverDataGen {
-  def apply(p: Program): SolverDataGen { val program: p.type } = new SolverDataGen {
+  def apply(p: InoxProgram): SolverDataGen { val program: p.type } = new SolverDataGen {
     val program: p.type = p
-    def factory(p2: Program { val trees: p.trees.type }): SolverFactory { val program: p2.type } = SolverFactory(p2)
+    def factory(p: InoxProgram): SolverFactory { val program: p.type } = SolverFactory.default(p)
+    def evaluator(p: InoxProgram): RecursiveEvaluator { val program: p.type } = RecursiveEvaluator.default(p)
   }
 }

@@ -154,14 +154,28 @@ object OptionsHelpers {
   }
 }
 
-trait InoxOptions {
+trait InoxOptions[Self <: InoxOptions[Self]] {
   val options: Seq[InoxOption[Any]]
+
+  protected def build(newOpts: Seq[InoxOption[Any]]): Self
 
   def findOption[A: ClassTag](optDef: InoxOptionDef[A]): Option[A] = options.collectFirst {
     case InoxOption(`optDef`, value: A) => value
   }
 
   def findOptionOrDefault[A: ClassTag](optDef: InoxOptionDef[A]): A = findOption(optDef).getOrElse(optDef.default)
+
+  def +(newOpt: InoxOption[Any]): Self = build {
+    options.filter(_.optionDef != newOpt.optionDef) :+ newOpt
+  }
+
+  def ++(newOpts: Seq[InoxOption[Any]]): Self = build {
+    val defs = newOpts.map(_.optionDef).toSet
+    options.filter(opt => !defs(opt.optionDef)) ++ newOpts
+  }
+
+  @inline
+  def ++(that: Self): Self = this ++ that.options
 }
 
 object InoxOptions {

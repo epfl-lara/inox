@@ -8,16 +8,15 @@ import solvers._
 import utils._
 
 trait ModelEnumerator {
-  val factory: SolverFactory
-  lazy val program: factory.program.type = factory.program
+  val program: Program
+  val factory: SolverFactory { val program: ModelEnumerator.this.program.type }
+  val evaluator: DeterministicEvaluator { val program: ModelEnumerator.this.program.type }
+
   import program._
   import program.trees._
   import program.symbols._
 
   import SolverResponses._
-
-  protected val evaluator: RecursiveEvaluator { val program: ModelEnumerator.this.program.type } =
-    RecursiveEvaluator(program)(ctx.toEvaluator, ctx.toSolver)
 
   def enumSimple(vs: Seq[ValDef], satisfying: Expr): FreeableIterator[Map[ValDef, Expr]] = {
     enumVarying0(vs, satisfying, None, -1)
@@ -203,7 +202,11 @@ trait ModelEnumerator {
 }
 
 object ModelEnumerator {
-  def apply(sf: SolverFactory): ModelEnumerator { val factory: sf.type } = new ModelEnumerator {
+  def apply(p: Program)
+           (sf: SolverFactory { val program: p.type }, ev: DeterministicEvaluator { val program: p.type }):
+            ModelEnumerator { val program: p.type; val factory: sf.type; val evaluator: ev.type } = new {
+    val program: p.type = p
     val factory: sf.type = sf
-  }
+    val evaluator: ev.type = ev
+  } with ModelEnumerator
 }

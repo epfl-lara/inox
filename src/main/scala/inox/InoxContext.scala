@@ -12,7 +12,9 @@ case class InoxContext(
   reporter: Reporter,
   interruptManager: InterruptManager,
   options: Seq[InoxOption[Any]] = Seq(),
-  timers: TimerStorage = new TimerStorage) extends InoxOptions {
+  timers: TimerStorage = new TimerStorage) extends InoxOptions[InoxContext] {
+
+  def build(opts: Seq[InoxOption[Any]]) = InoxContext(reporter, interruptManager, opts, timers)
 
   def toSolver: solvers.SolverOptions = ???
   def toEvaluator: evaluators.EvaluatorOptions = ???

@@ -6,14 +6,12 @@ package solvers
 import utils._
 import evaluators._
 
-case class SolverOptions(options: Seq[InoxOption[Any]]) extends InoxOptions {
-  def set(opts: Seq[InoxOption[Any]]): SolverOptions = {
-    val changed = opts.map(_.optionDef).toSet
-    val remainingOpts = options.filter { case InoxOption(optDef, _) => !changed(optDef) }
-    copy(options = remainingOpts ++ opts)
-  }
+case class SolverOptions(options: Seq[InoxOption[Any]]) extends InoxOptions[SolverOptions] {
+  def build(opts: Seq[InoxOption[Any]]): SolverOptions = SolverOptions(opts)
+}
 
-  def set(opt: InoxOption[Any], opts: InoxOption[Any]*): SolverOptions = set(opt +: opts)
+object SolverOptions {
+  def empty = SolverOptions(Seq())
 }
 
 case object DebugSectionSolver extends DebugSection("solver")

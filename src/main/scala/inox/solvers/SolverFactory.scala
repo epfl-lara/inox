@@ -33,5 +33,10 @@ object SolverFactory {
     }
   }
 
-  def apply(p: Program): SolverFactory { val program: p.type } = ???
+  def apply(p: InoxProgram)
+           (solverOpts: SolverOptions, evOpts: evaluators.EvaluatorOptions):
+            SolverFactory { val program: p.type } = ???
+
+  def default(p: InoxProgram): SolverFactory { val program: p.type } =
+    apply(p)(SolverOptions.empty, evaluators.EvaluatorOptions.empty)
 }
