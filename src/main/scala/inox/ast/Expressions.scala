@@ -115,10 +115,14 @@ trait Expressions { self: Trees =>
     }
   }
 
-  /* Universal Quantification */
-
+  /** $encodingof `forall(...)` (universal quantification) */
   case class Forall(args: Seq[ValDef], body: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = body.getType
+  }
+
+  /** $encodingof `choose(...)` (returns a value satisfying the provided predicate) */
+  case class Choose(res: ValDef, pred: Expr) extends Expr {
+    def getType(implicit s: Symbols): Type = res.tpe
   }
 
   /* Control flow */

@@ -143,6 +143,14 @@ trait TemplateGenerator { self: Templates =>
         storeGuarded(pathVar, e)
         rec(pathVar, body, pol)
 
+      case c @ Choose(res, pred) =>
+        val newExpr = res.toVariable.freshen
+        storeExpr(newExpr)
+
+        val p = rec(pathVar, exprOps.replace(Map(res.toVariable -> newExpr), pred), Some(true))
+        storeGuarded(pathVar, p)
+        newExpr
+
       case l @ Let(i, e: Lambda, b) =>
         val re = rec(pathVar, e, None) // guaranteed variable!
         val rb = rec(pathVar, exprOps.replace(Map(i.toVariable -> re), b), pol)

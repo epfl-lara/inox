@@ -82,6 +82,15 @@ trait TreeOps { self: Trees =>
           e
         }
 
+      case Choose(res, pred) =>
+        val newRes = transform(res)
+        val newPred = transform(pred)
+        if ((res ne newRes) || (pred ne newPred)) {
+          Choose(newRes, newPred).copiedFrom(e)
+        } else {
+          e
+        }
+
       case Let(vd, expr, body) =>
         val newVd = transform(vd)
         val newExpr = transform(expr)
@@ -209,6 +218,10 @@ trait TreeOps { self: Trees =>
       case Forall(args, body) =>
         args foreach (vd => traverse(vd.tpe))
         traverse(body)
+
+      case Choose(res, pred) =>
+        traverse(res.tpe)
+        traverse(pred)
 
       case Let(a, expr, body) =>
         traverse(expr)

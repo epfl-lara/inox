@@ -500,6 +500,8 @@ trait RecursiveEvaluator
 
     case f: Forall => onForallInvocation(f)
 
+    case c: Choose => onChooseInvocation(c)
+
     case f @ FiniteMap(ss, dflt, vT) =>
       // we use toMap.toSeq to reduce dupplicate keys
       FiniteMap(ss.map{ case (k, v) => (e(k), e(v)) }.toMap.toSeq, e(dflt), vT)

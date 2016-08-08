@@ -46,6 +46,8 @@ trait Extractors { self: Trees =>
         Some((Seq(body), (es: Seq[Expr]) => Lambda(args, es.head)))
       case Forall(args, body) =>
         Some((Seq(body), (es: Seq[Expr]) => Forall(args, es.head)))
+      case Choose(res, pred) =>
+        Some((Seq(pred), (es: Seq[Expr]) => Choose(res, es.head)))
 
       /* Binary operators */
       case Equals(t1, t2) =>

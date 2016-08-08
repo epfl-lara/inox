@@ -53,6 +53,7 @@ trait ExprOps extends GenTreeOps {
           case Let(vd, _, _) => subvs - vd.toVariable
           case Lambda(args, _) => subvs -- args.map(_.toVariable)
           case Forall(args, _) => subvs -- args.map(_.toVariable)
+          case Choose(res, _) => subvs - res.toVariable
           case _ => subvs
         }
     }(expr)
@@ -85,7 +86,7 @@ trait ExprOps extends GenTreeOps {
     * unrolling solver. See implementation for what this means exactly.
     */
   def isSimple(e: Expr): Boolean = !exists {
-    case (_: Assume) | (_: Forall) | (_: Lambda) |
+    case (_: Assume) | (_: Forall) | (_: Lambda) | (_: Choose) |
          (_: FunctionInvocation) | (_: Application) => true
     case _ => false
   } (e)

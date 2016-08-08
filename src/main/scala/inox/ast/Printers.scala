@@ -96,6 +96,9 @@ trait Printers { self: Trees =>
         case Forall(args, e) =>
           p"\u2200${nary(args)}. $e"
 
+        case Choose(res, pred) =>
+          p"choose(($res) => $pred)"
+
         case e @ CaseClass(cct, args) =>
           p"$cct($args)"
 
@@ -324,7 +327,7 @@ trait Printers { self: Trees =>
       case (pa: PrettyPrintable, _) => pa.printRequiresParentheses(within)
       case (_, None) => false
       case (_, Some(
-        _: Definition | _: Let | _: IfExpr | _ : CaseClass | _ : Lambda | _ : Tuple
+        _: Definition | _: Let | _: IfExpr | _: CaseClass | _: Lambda | _: Choose | _: Tuple
       )) => false
       case (ex: StringConcat, Some(_: StringConcat)) => false
       case (_, Some(_: FunctionInvocation)) => false

@@ -22,11 +22,10 @@ trait SolvingEvaluator extends Evaluator {
 
   def getSolver(opts: InoxOption[Any]*): SolverFactory { val program: SolvingEvaluator.this.program.type }
 
-  private val specCache: MutableMap[Expr, Expr] = MutableMap.empty
+  private val chooseCache: MutableMap[Choose, Expr] = MutableMap.empty
   private val forallCache: MutableMap[Forall, Expr] = MutableMap.empty
 
-  def onSpecInvocation(specs: Lambda): Expr = specCache.getOrElseUpdate(specs, {
-    val Lambda(Seq(vd), body) = specs
+  def onChooseInvocation(choose: Choose): Expr = chooseCache.getOrElseUpdate(choose, {
     val timer = ctx.timers.evaluators.specs.start()
 
     val sf = getSolver(options.options.collect {
@@ -36,15 +35,15 @@ trait SolvingEvaluator extends Evaluator {
     import SolverResponses._
 
     val api = SimpleSolverAPI(sf)
-    val res = api.solveSAT(body)
+    val res = api.solveSAT(choose.pred)
     timer.stop()
 
     res match {
       case SatWithModel(model) =>
-        valuateWithModel(model)(vd)
+        valuateWithModel(model)(choose.res)
 
       case _ =>
-        throw new RuntimeException("Failed to evaluate specs " + specs.asString)
+        throw new RuntimeException("Failed to evaluate choose " + choose.asString)
     }
   })
 
