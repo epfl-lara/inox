@@ -11,16 +11,8 @@ import inox.utils._
 case class InoxContext(
   reporter: Reporter,
   interruptManager: InterruptManager,
-  options: Seq[InoxOption[Any]] = Seq(),
-  timers: TimerStorage = new TimerStorage) extends InoxOptions[InoxContext] {
-
-  def build(opts: Seq[InoxOption[Any]]) = InoxContext(reporter, interruptManager, opts, timers)
-
-  def toSolver: solvers.SolverOptions = solvers.SolverOptions(
-    options.filter(opt => solvers.SolverOptions.options.exists(_ == opt.optionDef)))
-  def toEvaluator: evaluators.EvaluatorOptions = evaluators.EvaluatorOptions(
-    options.filter(opt => evaluators.EvaluatorOptions.options.exists(_ == opt.optionDef)))
-}
+  options: InoxOptions = InoxOptions(Seq()),
+  timers: TimerStorage = new TimerStorage)
 
 object InoxContext {
   def empty = {
@@ -33,7 +25,7 @@ object InoxContext {
     InoxContext(
       reporter,
       new InterruptManager(reporter),
-      options = Seq(InoxOption[Set[DebugSection]](InoxOptions.optDebug)(Set(ast.DebugSectionTrees)))
+      options = InoxOptions.empty + InoxOption[Set[DebugSection]](InoxOptions.optDebug)(Set(ast.DebugSectionTrees))
     )
   }
 }

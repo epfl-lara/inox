@@ -5,13 +5,7 @@ package solvers
 
 import utils._
 
-case class SolverOptions(options: Seq[InoxOption[Any]]) extends InoxOptions[SolverOptions] {
-  def build(opts: Seq[InoxOption[Any]]): SolverOptions = SolverOptions(opts)
-}
-
 object SolverOptions {
-  def empty = SolverOptions(Seq())
-
   val options = Seq(
     optCheckModels,
     optSilentErrors,
@@ -22,15 +16,18 @@ object SolverOptions {
   )
 }
 
-case object DebugSectionSolver extends DebugSection("solver")
+object optCheckModels  extends InoxFlagOptionDef(
+  "checkmodels",  "Double-check counter-examples with evaluator", false)
 
-object optCheckModels  extends InoxFlagOptionDef("checkmodels",  "Double-check counter-examples with evaluator", false)
-object optSilentErrors extends InoxFlagOptionDef("silenterrors", "Fail silently into UNKNOWN when encountering an error", false)
+object optSilentErrors extends InoxFlagOptionDef(
+  "silenterrors", "Fail silently into UNKNOWN when encountering an error", false)
+
+case object DebugSectionSolver extends DebugSection("solver")
 
 trait AbstractSolver extends Interruptible {
   def name: String
   val program: Program
-  val options: SolverOptions
+  val options: InoxOptions
 
   import program._
   import program.trees._

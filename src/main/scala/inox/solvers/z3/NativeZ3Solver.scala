@@ -72,6 +72,8 @@ trait NativeZ3Solver
     underlying.reset()
   }
 
+  def free(): Unit = underlying.free()
+
   protected def declareVariable(v: Variable): Z3AST = underlying.declareVariable(v)
 
   protected def wrapModel(model: Z3Model): super.ModelWrapper = ModelWrapper(model)

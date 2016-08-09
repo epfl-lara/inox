@@ -9,9 +9,14 @@ import utils._
 import theories._
 import evaluators._
 
-object optUnrollFactor extends InoxLongOptionDef("unrollfactor",  "Number of unfoldings to perform in each unfold step", default = 1, "<PosInt>")
-object optFeelingLucky extends InoxFlagOptionDef("feelinglucky",  "Use evaluator to find counter-examples early", false)
-object optUnrollCores  extends InoxFlagOptionDef("unrollcores",   "Use unsat-cores to drive unfolding while remaining fair", false)
+object optUnrollFactor extends InoxLongOptionDef(
+  "unrollfactor",  "Number of unfoldings to perform in each unfold step", default = 1, "<PosInt>")
+
+object optFeelingLucky extends InoxFlagOptionDef(
+  "feelinglucky",  "Use evaluator to find counter-examples early", false)
+
+object optUnrollCores  extends InoxFlagOptionDef(
+  "unrollcores",   "Use unsat-cores to drive unfolding while remaining fair", false)
 
 trait AbstractUnrollingSolver
   extends Solver {
@@ -41,11 +46,11 @@ trait AbstractUnrollingSolver
     type Cores = Set[Encoded]
   }
 
-  lazy val unfoldFactor     = options.findOptionOrDefault(optUnrollFactor)
-  lazy val feelingLucky     = options.findOptionOrDefault(optFeelingLucky)
-  lazy val checkModels      = options.findOptionOrDefault(optCheckModels)
-  lazy val unrollUnsatCores = options.findOptionOrDefault(optUnrollCores)
-  lazy val silentErrors     = options.findOptionOrDefault(optSilentErrors)
+  lazy val checkModels  = options.findOptionOrDefault(optCheckModels)
+  lazy val silentErrors = options.findOptionOrDefault(optSilentErrors)
+  lazy val unrollFactor = options.findOptionOrDefault(optUnrollFactor)
+  lazy val feelingLucky = options.findOptionOrDefault(optFeelingLucky)
+  lazy val unrollCores  = options.findOptionOrDefault(optUnrollCores)
 
   def check(config: Configuration): config.Response[Model, Cores] =
     checkAssumptions(config)(Set.empty)
@@ -302,7 +307,7 @@ trait AbstractUnrollingSolver
 
           val checkConfig = config
             .min(Configuration(model = !templates.requiresFiniteRangeCheck, cores = true))
-            .max(Configuration(model = false, cores = unrollUnsatCores))
+            .max(Configuration(model = false, cores = unrollCores))
 
           val timer = ctx.timers.solvers.check.start()
           val res: SolverResponse[underlying.Model, underlying.Cores] =
@@ -329,7 +334,7 @@ trait AbstractUnrollingSolver
             case _: Unsatisfiable if !templates.canUnroll =>
               CheckResult.cast(res)
 
-            case UnsatWithCores(cores) if unrollUnsatCores =>
+            case UnsatWithCores(cores) if unrollCores =>
               for (c <- cores) templates.extractNot(c) match {
                 case Some(b) => templates.promoteBlocker(b)
                 case None => reporter.fatalError("Unexpected blocker polarity for unsat core unrolling: " + c)
@@ -371,7 +376,9 @@ trait AbstractUnrollingSolver
           }
 
         case Validate(model) =>
-          val valid = !checkModels || validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
+          val valid: Boolean = !checkModels ||
+            validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
+
           if (valid) {
             CheckResult(config cast SatWithModel(model))
           } else {
@@ -436,8 +443,8 @@ trait AbstractUnrollingSolver
           reporter.debug("- We need to keep going")
 
           val timer = ctx.timers.solvers.unroll.start()
-          // unfolling `unfoldFactor` times
-          for (i <- 1 to unfoldFactor.toInt) {
+          // unfolling `unrollFactor` times
+          for (i <- 1 to unrollFactor.toInt) {
             val newClauses = templates.unroll
             for (ncl <- newClauses) {
               underlying.assertCnstr(ncl)

@@ -3,23 +3,18 @@
 package inox
 package evaluators
 
-case class EvaluatorOptions(options: Seq[InoxOption[Any]]) extends InoxOptions[EvaluatorOptions] {
-  protected def build(opts: Seq[InoxOption[Any]]): EvaluatorOptions = EvaluatorOptions(opts)
-}
-
 object EvaluatorOptions {
-  def empty = EvaluatorOptions(Seq())
-
   val options = Seq(
     optIgnoreContracts
   )
 }
 
-object optIgnoreContracts extends InoxFlagOptionDef("ignorecontracts", "Don't fail on invalid contracts during evaluation", false)
+object optIgnoreContracts extends InoxFlagOptionDef(
+  "ignorecontracts", "Don't fail on invalid contracts during evaluation", false)
 
 trait Evaluator {
   val program: Program
-  val options: EvaluatorOptions
+  val options: InoxOptions
   import program.trees._
 
   /** The type of value that this [[Evaluator]] calculates

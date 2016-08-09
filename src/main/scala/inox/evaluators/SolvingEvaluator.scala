@@ -29,7 +29,7 @@ trait SolvingEvaluator extends Evaluator {
     val timer = ctx.timers.evaluators.specs.start()
 
     val sf = getSolver(options.options.collect {
-      case o@InoxOption(opt, _) if opt == optForallCache => o
+      case o @ InoxOption(opt, _) if opt == optForallCache => o
     } : _*)
 
     import SolverResponses._

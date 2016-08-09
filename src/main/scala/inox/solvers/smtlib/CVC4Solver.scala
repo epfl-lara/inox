@@ -6,13 +6,7 @@ package smtlib
 
 import inox.OptionParsers._
 
-class CVC4Solver(val program: Program, val options: SolverOptions)
-  extends SMTLIBSolver
-     with CVC4Target {
-
-  protected val userDefinedOps = {
-    options.findOptionOrDefault(optCVC4Options)
-  }
+trait CVC4Solver extends SMTLIBSolver with CVC4Target {
 
   def interpreterOps(ctx: InoxContext) = {
     Seq(
@@ -23,7 +17,7 @@ class CVC4Solver(val program: Program, val options: SolverOptions)
       "--rewrite-divk",
       "--print-success",
       "--lang", "smt2.5"
-    ) ++ userDefinedOps.toSeq
+    ) ++ options.findOptionOrDefault(optCVC4Options)
   }
 }
 

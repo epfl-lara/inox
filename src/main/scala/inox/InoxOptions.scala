@@ -154,10 +154,7 @@ object OptionsHelpers {
   }
 }
 
-trait InoxOptions[Self <: InoxOptions[Self]] {
-  val options: Seq[InoxOption[Any]]
-
-  protected def build(newOpts: Seq[InoxOption[Any]]): Self
+case class InoxOptions(options: Seq[InoxOption[Any]]) {
 
   def findOption[A: ClassTag](optDef: InoxOptionDef[A]): Option[A] = options.collectFirst {
     case InoxOption(`optDef`, value: A) => value
@@ -165,30 +162,31 @@ trait InoxOptions[Self <: InoxOptions[Self]] {
 
   def findOptionOrDefault[A: ClassTag](optDef: InoxOptionDef[A]): A = findOption(optDef).getOrElse(optDef.default)
 
-  def +(newOpt: InoxOption[Any]): Self = build {
+  def +(newOpt: InoxOption[Any]): InoxOptions = InoxOptions(
     options.filter(_.optionDef != newOpt.optionDef) :+ newOpt
-  }
+  )
 
-  def ++(newOpts: Seq[InoxOption[Any]]): Self = build {
+  def ++(newOpts: Seq[InoxOption[Any]]): InoxOptions = InoxOptions {
     val defs = newOpts.map(_.optionDef).toSet
     options.filter(opt => !defs(opt.optionDef)) ++ newOpts
   }
 
   @inline
-  def ++(that: Self): Self = this ++ that.options
+  def ++(that: InoxOptions): InoxOptions = this ++ that.options
 }
 
 object InoxOptions {
 
-  /*
+  def empty: InoxOptions = InoxOptions(Seq())
+
   val optSelectedSolvers = new InoxOptionDef[Set[String]] {
     val name = "solvers"
-    val description = "Use solvers s1, s2,...\n" + solvers.SolverFactory.availableSolversPretty
-    val default = Set("fairz3")
+    val description = "Use solvers s1, s2,...\n" +
+      solvers.SolverFactory.solversPretty
+    val default = Set("nativez3")
     val parser = setParser(stringParser)
     val usageRhs = "s1,s2,..."
   }
-  */
 
   val optDebug = new InoxOptionDef[Set[DebugSection]] {
     import OptionParsers._

@@ -3,8 +3,6 @@
 package inox
 package solvers
 
-import scala.reflect.runtime.universe._
-
 trait SolverFactory {
   val program: Program
 
@@ -22,7 +20,7 @@ trait SolverFactory {
 }
 
 object SolverFactory {
-  def create[S1 <: Solver : TypeTag](p: Program)(nme: String, builder: () => S1 { val program: p.type }):
+  def create[S1 <: Solver](p: Program)(nme: String, builder: () => S1 { val program: p.type }):
            SolverFactory { val program: p.type; type S = S1 { val program: p.type } } = {
     new SolverFactory {
       val program: p.type = p
@@ -33,10 +31,79 @@ object SolverFactory {
     }
   }
 
-  def apply(p: InoxProgram)
-           (solverOpts: SolverOptions, evOpts: evaluators.EvaluatorOptions):
-            SolverFactory { val program: p.type } = ???
+  import evaluators._
+  import combinators._
+
+  private val solverNames = Map(
+    "nativez3" -> "Native Z3 with z3-templates for unrolling (default)",
+    "unrollz3" -> "Native Z3 with leon-templates for unrolling",
+    "smt-cvc4" -> "CVC4 through SMT-LIB",
+    "smt-z3"   -> "Z3 through SMT-LIB"
+  )
+
+  def getFromName(name: String)
+                 (p: InoxProgram, opts: InoxOptions)
+                 (ev: DeterministicEvaluator with SolvingEvaluator { val program: p.type }):
+                  SolverFactory { val program: p.type; type S <: TimeoutSolver } = name match {
+    case "nativez3" => create(p)(name, () => new {
+      val program: p.type = p
+      val options = opts
+    } with z3.NativeZ3Solver with TimeoutSolver {
+      val evaluator = ev
+    })
+
+    case "unrollz3" => create(p)(name, () => new {
+      val program: p.type = p
+      val options = opts
+    } with unrolling.UnrollingSolver with theories.Z3Theories with TimeoutSolver {
+      val evaluator = ev
+
+      object underlying extends {
+        val program: theories.targetProgram.type = theories.targetProgram
+        val options = opts
+      } with z3.UninterpretedZ3Solver
+    })
+
+    case "smt-cvc4" => create(p)(name, () => new {
+      val program: p.type = p
+      val options = opts
+    } with unrolling.UnrollingSolver with theories.CVC4Theories with TimeoutSolver {
+      val evaluator = ev
+
+      object underlying extends {
+        val program: theories.targetProgram.type = theories.targetProgram
+        val options = opts
+      } with smtlib.CVC4Solver
+    })
+
+    case "smt-z3" => create(p)(name, () => new {
+      val program: p.type = p
+      val options = opts
+    } with unrolling.UnrollingSolver with theories.Z3Theories with TimeoutSolver {
+      val evaluator = ev
+
+      object underlying extends {
+        val program: theories.targetProgram.type = theories.targetProgram
+        val options = opts
+      } with smtlib.Z3Solver
+    })
+
+    case _ => throw FatalError("Unknown solver: " + name)
+  }
+
+  val solversPretty = "Available: " + solverNames.toSeq.sortBy(_._1).map {
+    case (name, desc) => f"\n  $name%-14s : $desc"
+  }
+
+  def apply(p: InoxProgram, opts: InoxOptions): SolverFactory { val program: p.type; type S <: TimeoutSolver } =
+    p.ctx.options.findOptionOrDefault(InoxOptions.optSelectedSolvers).toSeq match {
+      case Seq() => throw FatalError("No selected solver")
+      case Seq(single) => getFromName(single)(p, opts)(RecursiveEvaluator(p, opts))
+      case multiple => PortfolioSolverFactory(p) {
+        multiple.map(name => getFromName(name)(p, opts)(RecursiveEvaluator(p, opts)))
+      }
+    }
 
   def default(p: InoxProgram): SolverFactory { val program: p.type } =
-    apply(p)(SolverOptions.empty, evaluators.EvaluatorOptions.empty)
+    apply(p, p.ctx.options)
 }
