@@ -28,21 +28,23 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
   }
 
   /* Public solver interface */
-  def assertCnstr(expr: Expr): Unit = if (!hasError) {
-    try {
-      variablesOf(expr).foreach(declareVariable)
+  def assertCnstr(expr: Expr): Unit = {
+    variablesOf(expr).foreach(declareVariable)
 
-      val term = toSMT(expr)(Map())
-      emit(Assert(term))
-    } catch {
-      case _ : SolverUnsupportedError =>
-        // Store that there was an error. Now all following check()
-        // invocations will return None
-        addError()
-    }
+    val term = toSMT(expr)(Map())
+    emit(Assert(term))
   }
 
   override def reset() = {
+    adtManager.reset()
+    constructors.clear()
+    selectors.clear()
+    testers.clear()
+    variables.clear()
+    sorts.clear()
+    lambdas.clear()
+    functions.clear()
+
     emit(Reset(), rawOut = true) match {
       case Error(msg) =>
         reporter.warning(s"Failed to reset $name: $msg")
@@ -51,63 +53,70 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
     }
   }
 
-  override def check(config: Configuration): config.Response[Model, Cores] = config.cast {
-    if (hasError) Unknown else {
-      emit(CheckSat()) match {
-        case CheckSatStatus(SatStatus)     =>
-          config match {
-            case All | Model =>
-              val syms = variables.aSet.map(variables.aToB)
-              emit(GetModel()) match {
-                case GetModelResponseSuccess(smodel) =>
-                  // first-pass to gather functions
-                  val modelFunDefs = smodel.collect {
-                    case me @ DefineFun(SMTFunDef(a, args, _, _)) if args.nonEmpty =>
-                      a -> me
-                  }.toMap
+  private def extractResponse(config: Configuration, res: SExpr): config.Response[Model, Cores] =
+    config.cast(res match {
+      case CheckSatStatus(SatStatus) =>
+        if (config.withModel) {
+          val syms = variables.aSet.map(variables.aToB)
+          emit(GetModel()) match {
+            case GetModelResponseSuccess(smodel) =>
+              // first-pass to gather functions
+              val modelFunDefs = smodel.collect {
+                case me @ DefineFun(SMTFunDef(a, args, _, _)) if args.nonEmpty =>
+                  a -> me
+              }.toMap
 
-                  val model = smodel.flatMap {
-                    case DefineFun(SMTFunDef(s, _, _, e)) if syms(s) =>
-                      try {
-                        val v = variables.toA(s)
-                        val value = fromSMT(e, v.getType)(Map(), modelFunDefs)
-                        Some(v.toVal -> value)
-                      } catch {
-                        case _: Unsupported =>
-                          None
-                      }
-                    case _ => None
-                  }.toMap
+              val model = smodel.flatMap {
+                case DefineFun(SMTFunDef(s, _, _, e)) if syms(s) =>
+                  try {
+                    val v = variables.toA(s)
+                    val value = fromSMT(e, v.getType)(Map(), modelFunDefs)
+                    Some(v.toVal -> value)
+                  } catch {
+                    case _: Unsupported =>
+                      None
+                  }
+                case _ => None
+              }.toMap
 
-                  SatWithModel(model)
+              SatWithModel(model)
 
-                case _ =>
-                  Unknown
-              }
             case _ =>
-              Sat
+              Unknown
           }
-        case CheckSatStatus(UnsatStatus) =>
-          config match {
-            case All | Cores =>
-              emit(GetUnsatCore()) match {
-                case GetUnsatCoreResponseSuccess(syms) =>
-                  UnsatWithCores(Set.empty) // FIXME
-                case _ =>
-                  UnsatWithCores(Set.empty)
-              }
+        } else {
+          Sat
+        }
+      case CheckSatStatus(UnsatStatus) =>
+        if (config.withCores) {
+          emit(GetUnsatCore()) match {
+            case GetUnsatCoreResponseSuccess(syms) =>
+              UnsatWithCores(Set.empty) // FIXME
             case _ =>
-              Unsat
+              UnsatWithCores(Set.empty)
           }
-        case CheckSatStatus(UnknownStatus) => Unknown
-        case e                             => Unknown
-      }
+        } else {
+          Unsat
+        }
+      case CheckSatStatus(UnknownStatus) => Unknown
+      case e                             => Unknown
+    })
+
+  def check(config: Configuration): config.Response[Model, Cores] =
+    extractResponse(config, emit(CheckSat()))
+
+  def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Cores] = {
+    val props = assumptions.toSeq.map {
+      case Not(v: Variable) => PropLiteral(variables.toB(v), false)
+      case v: Variable => PropLiteral(variables.toB(v), true)
+      case t => unsupported(t, "Assumptions must be either variables or their negation")
     }
+
+    extractResponse(config, emit(CheckSatAssuming(props)))
   }
 
-  def checkAssumptions(config: Configuration)(assumptions: Set[Trees]): config.Response[Model, Cores] = ??? //TODO
-
   def push(): Unit = {
+    adtManager.push()
     constructors.push()
     selectors.push()
     testers.push()
@@ -115,12 +124,12 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
     sorts.push()
     lambdas.push()
     functions.push()
-    errors.push()
 
     emit(Push(1))
   }
 
   def pop(): Unit = {
+    adtManager.pop()
     constructors.pop()
     selectors.pop()
     testers.pop()
@@ -128,7 +137,6 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
     sorts.pop()
     lambdas.pop()
     functions.pop()
-    errors.pop()
 
     emit(Pop(1))
   }

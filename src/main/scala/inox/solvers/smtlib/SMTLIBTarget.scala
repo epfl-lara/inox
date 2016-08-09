@@ -90,13 +90,8 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
       o.flush()
     }
     interpreter.eval(cmd) match {
-      case err @ Error(msg) if !hasError && !interrupted && !rawOut =>
-        ctx.reporter.warning(s"Unexpected error from $targetName solver: $msg")
-        //println(Thread.currentThread().getStackTrace.map(_.toString).take(10).mkString("\n"))
-        // Store that there was an error. Now all following check()
-        // invocations will return None
-        addError()
-        err
+      case err @ Error(msg) if !interrupted && !rawOut =>
+        ctx.reporter.fatalError(s"Unexpected error from $targetName solver: $msg")
       case res =>
         res
     }
@@ -142,9 +137,6 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
   protected val sorts         = new IncrementalBijection[Type, Sort]()
   protected val functions     = new IncrementalBijection[TypedFunDef, SSymbol]()
   protected val lambdas       = new IncrementalBijection[FunctionType, SSymbol]()
-  protected val errors        = new IncrementalBijection[Unit, Boolean]()
-  protected def hasError = errors.getB(()) contains true
-  protected def addError() = errors += () -> true
 
   /* Helper functions */
 
