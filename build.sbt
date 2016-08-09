@@ -1,6 +1,6 @@
 name := "inox"
 
-version := "3.0"
+version := "0.1"
 
 organization := "ch.epfl.lara"
 
@@ -54,17 +54,6 @@ libraryDependencies ++= Seq(
   //"com.regblanc" %% "scala-smtlib" % "0.2"
 )
 
-lazy val scriptName = "leon"
-
-lazy val scriptFile = file(".") / scriptName
-
-clean := {
-  clean.value
-  if(scriptFile.exists && scriptFile.isFile) {
-    scriptFile.delete
-  }
-}
-
 lazy val nParallel = {
   val p = System.getProperty("parallel")
   if (p ne null) {
@@ -79,46 +68,12 @@ lazy val nParallel = {
   }
 }
 
-lazy val script = taskKey[Unit]("Generate the leon Bash script")
-
-script := {
-  val s = streams.value
-  try {
-    val cps = (dependencyClasspath in Compile).value
-    val out = (classDirectory      in Compile).value
-    val res = (resourceDirectory   in Compile).value
-    val is64 = System.getProperty("sun.arch.data.model") == "64"
-    val f = scriptFile
-    if(f.exists) {
-      s.log.info("Regenerating '"+f.getName+"' script ("+(if(is64) "64b" else "32b")+")...")
-      f.delete
-    } else {
-      s.log.info("Generating '"+f.getName+"' script ("+(if(is64) "64b" else "32b")+")...")
-    }
-    val paths = (res.getAbsolutePath +: out.getAbsolutePath +: cps.map(_.data.absolutePath)).mkString(System.getProperty("path.separator"))
-    IO.write(f, s"""|#!/bin/bash --posix
-                    |
-                    |SCALACLASSPATH="$paths"
-                    |
-                    |java -Xmx2G -Xms512M -Xss64M -classpath "$${SCALACLASSPATH}" -Dscala.usejavacp=false scala.tools.nsc.MainGenericRunner -classpath "$${SCALACLASSPATH}" leon.Main $$@ 2>&1 | tee -i last.log
-                    |""".stripMargin)
-    f.setExecutable(true)
-  } catch {
-    case e: Throwable =>
-      s.log.error("There was an error while generating the script file: " + e.getLocalizedMessage)
-  }
-}
-
 sourceGenerators in Compile <+= Def.task {
-  val libFiles = ((baseDirectory.value / "library") ** "*.scala").getPaths
-  val build = (sourceManaged in Compile).value / "leon" / "Build.scala";
-  IO.write(build, s"""|package leon
+  val build = (sourceManaged in Compile).value / "inox" / "Build.scala";
+  IO.write(build, s"""|package inox
                       |
                       |object Build {
                       |  val baseDirectory = \"\"\"${baseDirectory.value.toString}\"\"\"
-                      |  val libFiles = List(
-                      |    ${libFiles.mkString("\"\"\"", "\"\"\",\n    \"\"\"", "\"\"\"").replaceAll("\\\\"+"u","\\\\\"\"\"+\"\"\"u")}
-                      |  )
                       |}""".stripMargin)
   Seq(build)
 }
@@ -140,15 +95,15 @@ lazy val testSettings = Seq(
 concurrentRestrictions in Global += Tags.limit(Tags.Test, nParallel)
 
 // Unit Tests
-testOptions in Test := Seq(Tests.Argument("-oDF"), Tests.Filter(_ startsWith "leon.unit."))
+testOptions in Test := Seq(Tests.Argument("-oDF"), Tests.Filter(_ startsWith "inox.unit."))
 
 // Integration Tests
 lazy val IntegrTest = config("integration") extend(Test)
 
-testOptions in IntegrTest := Seq(Tests.Argument("-oDF"), Tests.Filter(_ startsWith "leon.integration."))
+testOptions in IntegrTest := Seq(Tests.Argument("-oDF"), Tests.Filter(_ startsWith "inox.integration."))
 
 
-def regressionFilter(name: String, native: Boolean = false): Boolean = name.startsWith("leon.regression") && (name.endsWith("NativeZ3") == native)
+def regressionFilter(name: String, native: Boolean = false): Boolean = name.startsWith("inox.regression") && (name.endsWith("NativeZ3") == native)
 
 // Regression Tests
 lazy val RegressionTest = config("regression") extend(Test)
@@ -168,35 +123,24 @@ logBuffered in NativeZ3RegressionTest := false
 // Isabelle Tests
 lazy val IsabelleTest = config("isabelle") extend(Test)
 
-testOptions in IsabelleTest := Seq(Tests.Argument("-oDF"), Tests.Filter(_ startsWith "leon.isabelle."))
+testOptions in IsabelleTest := Seq(Tests.Argument("-oDF"), Tests.Filter(_ startsWith "inox.isabelle."))
 
 parallelExecution in IsabelleTest := false
 fork in IsabelleTest := true
-
-// GenC Tests
-lazy val GenCTest = config("genc") extend(Test)
-
-testOptions in GenCTest := Seq(Tests.Argument("-oDF"), Tests.Filter(_ startsWith "leon.genc."))
-
-parallelExecution in GenCTest := false
-
 
 
 def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
 
 lazy val bonsai      = ghProject("git://github.com/colder/bonsai.git",     "10eaaee4ea0ff6567f4f866922cb871bae2da0ac")
 lazy val scalaSmtlib = ghProject("git://github.com/regb/scala-smtlib.git", "88835c02ca2528e888b06bc48e4e93e52dc5f4b5")
-lazy val cafebabe    = ghProject("git://github.com/psuter/cafebabe.git",   "49dce3c83450f5fa0b5e6151a537cc4b9f6a79a6")
 
 lazy val root = (project in file(".")).
-  configs(RegressionTest, NativeZ3RegressionTest, IsabelleTest, GenCTest, IntegrTest).
+  configs(RegressionTest, NativeZ3RegressionTest, IsabelleTest, IntegrTest).
   dependsOn(bonsai).
   dependsOn(scalaSmtlib).
-  dependsOn(cafebabe).
   settings(inConfig(NativeZ3RegressionTest)(Defaults.testTasks ++ testSettings): _*).
   settings(inConfig(RegressionTest)(Defaults.testTasks ++ testSettings): _*).
   settings(inConfig(IntegrTest)(Defaults.testTasks ++ testSettings): _*).
   settings(inConfig(IsabelleTest)(Defaults.testTasks ++ testSettings): _*).
-  settings(inConfig(GenCTest)(Defaults.testTasks ++ testSettings): _*).
   settings(inConfig(Test)(Defaults.testTasks ++ testSettings): _*)
 
