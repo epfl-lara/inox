@@ -84,7 +84,7 @@ trait Definitions { self: Trees =>
 
   /** A wrapper for a program. For now a program is simply a single object. */
   trait AbstractSymbols
-     extends Tree
+     extends Printable
         with TypeOps
         with SymbolOps
         with CallGraph
