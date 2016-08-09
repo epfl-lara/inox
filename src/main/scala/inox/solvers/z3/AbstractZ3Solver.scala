@@ -685,13 +685,20 @@ trait AbstractZ3Solver
       else Sat
 
     case Some(false) =>
-      if (config.withCores) UnsatWithCores(solver.getUnsatCore.toSet)
+      if (config.withUnsatAssumptions) UnsatWithAssumptions(
+        solver.getUnsatCore.toSet.flatMap((c: Z3AST) => z3.getASTKind(c) match {
+          case Z3AppAST(decl, args) => z3.getDeclKind(decl) match {
+            case OpNot => Some(args.head)
+            case _ => None
+          }
+          case _ => None
+        }))
       else Unsat
 
     case None => Unknown
   })
 
-  def check(config: Configuration) = extractResult(config)(solver.check)
+  def check(config: CheckConfiguration) = extractResult(config)(solver.check)
   def checkAssumptions(config: Configuration)(assumptions: Set[Z3AST]) =
     extractResult(config)(solver.checkAssumptions(assumptions.toSeq : _*))
 
@@ -712,7 +719,7 @@ trait AbstractZ3Solver
     }).map(v.toVal -> _)
   }
 
-  def extractCores(cores: Set[Z3AST]): Set[Expr] = {
+  def extractUnsatAssumptions(cores: Set[Z3AST]): Set[Expr] = {
     cores.flatMap { c =>
       variables.getA(c).orElse(z3.getASTKind(c) match {
         case Z3AppAST(decl, args) => z3.getDeclKind(decl) match {

@@ -25,7 +25,7 @@ trait TimeoutSolver extends Solver {
     this
   }
 
-  abstract override def check(config: Configuration) = {
+  abstract override def check(config: CheckConfiguration) = {
     optTimeout match {
       case Some(to) =>
         ti.interruptAfter(to) {

@@ -30,10 +30,12 @@ trait PortfolioSolver extends Solver { self =>
   override def dbg(msg: => Any) = solvers foreach (_.dbg(msg))
 
 
-  private def genericCheck(config: Configuration)(f: SubSolver => config.Response[Model, Cores]): config.Response[Model, Cores] = {
+  private def genericCheck(config: Configuration)
+                          (f: SubSolver => config.Response[Model, Assumptions]):
+                           config.Response[Model, Assumptions] = {
     reporter.debug("Running portfolio check")
     // solving
-    val fs: Seq[Future[(SubSolver, config.Response[Model, Cores])]] = solvers.map { s =>
+    val fs: Seq[Future[(SubSolver, config.Response[Model, Assumptions])]] = solvers.map { s =>
       Future {
         try {
           val result = f(s)
@@ -69,11 +71,11 @@ trait PortfolioSolver extends Solver { self =>
   }
 
 
-  def check(config: Configuration): config.Response[Model, Cores] = {
+  def check(config: CheckConfiguration): config.Response[Model, Assumptions] = {
     genericCheck(config)(subSolver => subSolver.check(config))
   }
 
-  def checkAssumptions(config: Configuration)(assumptions: Set[Trees]): config.Response[Model, Cores] = {
+  def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
     genericCheck(config)(subSolver => subSolver.checkAssumptions(config)(assumptions))
   }
 

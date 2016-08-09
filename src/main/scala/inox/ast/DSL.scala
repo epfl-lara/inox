@@ -191,6 +191,7 @@ trait DSL {
   /* Types */
   def T(tp1: Type, tp2: Type, tps: Type*) = TupleType(tp1 :: tp2 :: tps.toList)
   def T(id: Identifier) = new IdToClassType(id)
+  def T(str: String) = TypeParameter.fresh(str)
 
   class IdToClassType(id: Identifier) {
     def apply(tps: Type*) = ClassType(id, tps.toSeq)

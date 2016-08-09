@@ -57,14 +57,6 @@ trait NativeZ3Solver
     def mkAnd(es: Z3AST*) = z3.mkAnd(es : _*)
     def mkEquals(l: Z3AST, r: Z3AST) = z3.mkEq(l, r)
     def mkImplies(l: Z3AST, r: Z3AST) = z3.mkImplies(l, r)
-
-    def extractNot(l: Z3AST): Option[Z3AST] = z3.getASTKind(l) match {
-      case Z3AppAST(decl, args) => z3.getDeclKind(decl) match {
-        case OpNot => Some(args.head)
-        case _ => None
-      }
-      case ast => None
-    }
   }
 
   override def reset(): Unit = {

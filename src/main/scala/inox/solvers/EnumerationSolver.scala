@@ -52,8 +52,8 @@ trait EnumerationSolver extends Solver { self =>
     datagen     = None
   }
 
-  def check(config: Configuration): config.Response[Model, Cores] = config.cast {
-    val res: SolverResponse[Model, Cores] = try {
+  def check(config: CheckConfiguration): config.Response[Model, Assumptions] = config.cast {
+    val res: SolverResponse[Model, Assumptions] = try {
       datagen = Some(new GrammarDataGen {
         val grammars: self.grammars.type = self.grammars
         val evaluator: DeterministicEvaluator { val program: self.program.type } = self.evaluator
@@ -80,11 +80,7 @@ trait EnumerationSolver extends Solver { self =>
         } else {
           val cardinalities = allFreeVars.map(vd => typeCardinality(vd.tpe))
           if (cardinalities.forall(_.isDefined) && cardinalities.flatten.product < maxTried) {
-            if (config.withCores) {
-              UnsatWithCores(Set.empty)
-            } else {
-              Unsat
-            }
+            Unsat
           } else {
             Unknown
           }
@@ -98,10 +94,15 @@ trait EnumerationSolver extends Solver { self =>
     res
   }
 
-  def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Cores] = {
+  def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
     push()
     for (c <- assumptions) assertCnstr(c)
-    val res = check(config)
+    val res: config.Response[Model, Assumptions] = config.cast {
+      (check(Model min config) : SolverResponse[Model, Assumptions]) match {
+        case Unsat if config.withUnsatAssumptions => UnsatWithAssumptions(Set.empty)
+        case c => c
+      }
+    }
     pop()
     res
   }

@@ -1,8 +1,8 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon.test
+package inox
 
-import leon.DefaultReporter
+import DefaultReporter
 
 class TestSilentReporter extends DefaultReporter(Set()) {
   var lastErrors: List[String] = Nil

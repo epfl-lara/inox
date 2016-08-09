@@ -62,14 +62,14 @@ trait UninterpretedZ3Solver
   private def completeModel(model: Map[ValDef, Expr]): Map[ValDef, Expr] =
     freeVars.map(v => v.toVal -> model.getOrElse(v.toVal, simplestValue(v.getType))).toMap
 
-  def check(config: Configuration): config.Response[Model, Cores] =
+  def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
     config.convert(underlying.check(config),
       (model: Z3Model) => completeModel(underlying.extractModel(model)),
-      underlying.extractCores)
+      underlying.extractUnsatAssumptions)
 
   override def checkAssumptions(config: Configuration)
-                               (assumptions: Set[Expr]): config.Response[Model, Cores] =
+                               (assumptions: Set[Expr]): config.Response[Model, Assumptions] =
     config.convert(underlying.checkAssumptions(config)(assumptions.map(underlying.toZ3Formula(_))),
       (model: Z3Model) => completeModel(underlying.extractModel(model)),
-      underlying.extractCores)
+      underlying.extractUnsatAssumptions)
 }

@@ -53,7 +53,7 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
     }
   }
 
-  private def extractResponse(config: Configuration, res: SExpr): config.Response[Model, Cores] =
+  private def extractResponse(config: Configuration, res: SExpr): config.Response[Model, Assumptions] =
     config.cast(res match {
       case CheckSatStatus(SatStatus) =>
         if (config.withModel) {
@@ -88,12 +88,12 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
           Sat
         }
       case CheckSatStatus(UnsatStatus) =>
-        if (config.withCores) {
-          emit(GetUnsatCore()) match {
-            case GetUnsatCoreResponseSuccess(syms) =>
-              UnsatWithCores(Set.empty) // FIXME
+        if (config.withUnsatAssumptions) {
+          emit(GetUnsatAssumptions()) match {
+            case GetUnsatAssumptionsResponseSuccess(syms) =>
+              UnsatWithAssumptions(syms.flatMap(s => variables.getA(s)).toSet)
             case _ =>
-              UnsatWithCores(Set.empty)
+              UnsatWithAssumptions(Set.empty)
           }
         } else {
           Unsat
@@ -102,10 +102,10 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
       case e                             => Unknown
     })
 
-  def check(config: Configuration): config.Response[Model, Cores] =
+  def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
     extractResponse(config, emit(CheckSat()))
 
-  def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Cores] = {
+  def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
     val props = assumptions.toSeq.map {
       case Not(v: Variable) => PropLiteral(variables.toB(v), false)
       case v: Variable => PropLiteral(variables.toB(v), true)

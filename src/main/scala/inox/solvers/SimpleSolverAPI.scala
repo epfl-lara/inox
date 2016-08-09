@@ -32,8 +32,8 @@ trait SimpleSolverAPI {
     }
   }
 
-  def solveSATWithCores(expression: Expr, assumptions: Set[Expr]):
-                        ResponseWithModelAndCores[Map[ValDef, Expr], Set[Expr]] = {
+  def solveSATWithUnsatAssumptions(expression: Expr, assumptions: Set[Expr]):
+                                   ResponseWithModelAndAssumptions[Map[ValDef, Expr], Set[Expr]] = {
     val s = factory.getNewSolver()
     try {
       s.assertCnstr(expression)

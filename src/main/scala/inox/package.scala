@@ -26,13 +26,19 @@ package object inox {
   object InoxProgram {
     def apply(ictx: InoxContext,
       functions: Seq[inox.trees.FunDef],
-      classes: Seq[inox.trees.ClassDef]) = new Program {
+      classes: Seq[inox.trees.ClassDef]): InoxProgram = new Program {
         val trees = inox.trees
         val ctx = ictx
         val symbols = new inox.trees.Symbols(
           functions.map(fd => fd.id -> fd).toMap,
           classes.map(cd => cd.id -> cd).toMap)
       }
+
+    def apply(ictx: InoxContext, sym: inox.trees.Symbols): InoxProgram = new Program {
+      val trees = inox.trees
+      val ctx = ictx
+      val symbols = sym
+    }
   }
 
   object trees extends ast.Trees {

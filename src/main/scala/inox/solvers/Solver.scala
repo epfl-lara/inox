@@ -11,7 +11,7 @@ object SolverOptions {
     optSilentErrors,
     unrolling.optUnrollFactor,
     unrolling.optFeelingLucky,
-    unrolling.optUnrollCores,
+    unrolling.optUnrollAssumptions,
     smtlib.optCVC4Options
   )
 }
@@ -34,7 +34,7 @@ trait AbstractSolver extends Interruptible {
 
   type Trees
   type Model
-  type Cores
+  type Assumptions = Set[Trees]
 
   import SolverResponses._
 
@@ -66,8 +66,8 @@ trait AbstractSolver extends Interruptible {
 
   def assertCnstr(expression: Trees): Unit
 
-  def check(config: Configuration): config.Response[Model, Cores]
-  def checkAssumptions(config: Configuration)(assumptions: Set[Trees]): config.Response[Model, Cores]
+  def check(config: CheckConfiguration): config.Response[Model, Assumptions]
+  def checkAssumptions(config: Configuration)(assumptions: Set[Trees]): config.Response[Model, Assumptions]
 
   def free(): Unit
 
@@ -89,7 +89,6 @@ trait Solver extends AbstractSolver {
 
   type Trees = Expr
   type Model = Map[ValDef, Expr]
-  type Cores = Set[Expr]
 
   def getResultSolver: Option[Solver] = Some(this)
 }

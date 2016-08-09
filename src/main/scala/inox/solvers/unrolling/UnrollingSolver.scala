@@ -10,13 +10,13 @@ import theories._
 import evaluators._
 
 object optUnrollFactor extends InoxLongOptionDef(
-  "unrollfactor",  "Number of unfoldings to perform in each unfold step", default = 1, "<PosInt>")
+  "unrollfactor",      "Number of unfoldings to perform in each unfold step", default = 1, "<PosInt>")
 
 object optFeelingLucky extends InoxFlagOptionDef(
-  "feelinglucky",  "Use evaluator to find counter-examples early", false)
+  "feelinglucky",      "Use evaluator to find counter-examples early", false)
 
-object optUnrollCores  extends InoxFlagOptionDef(
-  "unrollcores",   "Use unsat-cores to drive unfolding while remaining fair", false)
+object optUnrollAssumptions  extends InoxFlagOptionDef(
+  "unrollassumptions", "Use unsat-assumptions to drive unfolding while remaining fair", false)
 
 trait AbstractUnrollingSolver
   extends Solver {
@@ -43,16 +43,15 @@ trait AbstractUnrollingSolver
   protected val underlying: AbstractSolver {
     val program: AbstractUnrollingSolver.this.theories.targetProgram.type
     type Trees = Encoded
-    type Cores = Set[Encoded]
   }
 
-  lazy val checkModels  = options.findOptionOrDefault(optCheckModels)
+  lazy val checkModels = options.findOptionOrDefault(optCheckModels)
   lazy val silentErrors = options.findOptionOrDefault(optSilentErrors)
   lazy val unrollFactor = options.findOptionOrDefault(optUnrollFactor)
   lazy val feelingLucky = options.findOptionOrDefault(optFeelingLucky)
-  lazy val unrollCores  = options.findOptionOrDefault(optUnrollCores)
+  lazy val unrollAssumptions = options.findOptionOrDefault(optUnrollAssumptions)
 
-  def check(config: Configuration): config.Response[Model, Cores] =
+  def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
     checkAssumptions(config)(Set.empty)
 
   private val constraints = new IncrementalSeq[Expr]()
@@ -256,7 +255,7 @@ trait AbstractUnrollingSolver
     }
   }
 
-  def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Cores] = {
+  def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
 
     val assumptionsSeq       : Seq[Expr]          = assumptions.toSeq
     val encodedAssumptions   : Seq[Encoded]       = assumptionsSeq.map { expr =>
@@ -265,7 +264,7 @@ trait AbstractUnrollingSolver
     }
     val encodedToAssumptions : Map[Encoded, Expr] = (encodedAssumptions zip assumptionsSeq).toMap
 
-    def encodedCoreToCore(core: Set[Encoded]): Set[Expr] = {
+    def decodeAssumptions(core: Set[Encoded]): Set[Expr] = {
       core.flatMap(ast => encodedToAssumptions.get(ast) match {
         case Some(n @ Not(_: Variable)) => Some(n)
         case Some(v: Variable) => Some(v)
@@ -276,7 +275,7 @@ trait AbstractUnrollingSolver
     import SolverResponses._
 
     sealed abstract class CheckState
-    class CheckResult(val response: config.Response[Model, Cores]) extends CheckState
+    class CheckResult(val response: config.Response[Model, Assumptions]) extends CheckState
     case class Validate(model: Map[ValDef, Expr]) extends CheckState
     case object ModelCheck extends CheckState
     case object FiniteRangeCheck extends CheckState
@@ -285,11 +284,11 @@ trait AbstractUnrollingSolver
     case object Unroll extends CheckState
 
     object CheckResult {
-      def cast(resp: SolverResponse[underlying.Model, underlying.Cores]): CheckResult =
-        new CheckResult(config.convert(config.cast(resp), extractSimpleModel, encodedCoreToCore))
+      def cast(resp: SolverResponse[underlying.Model, Set[underlying.Trees]]): CheckResult =
+        new CheckResult(config.convert(config.cast(resp), extractSimpleModel, decodeAssumptions))
 
-      def apply[M <: Model, C <: Cores](resp: config.Response[M, C]) = new CheckResult(resp)
-      def unapply(res: CheckResult): Option[config.Response[Model, Cores]] = Some(res.response)
+      def apply[M <: Model, A <: Assumptions](resp: config.Response[M, A]) = new CheckResult(resp)
+      def unapply(res: CheckResult): Option[config.Response[Model, Assumptions]] = Some(res.response)
     }
 
     object Abort {
@@ -306,11 +305,11 @@ trait AbstractUnrollingSolver
           reporter.debug(" - Running search...")
 
           val checkConfig = config
-            .min(Configuration(model = !templates.requiresFiniteRangeCheck, cores = true))
-            .max(Configuration(model = false, cores = unrollCores))
+            .min(Configuration(model = !templates.requiresFiniteRangeCheck, unsatAssumptions = true))
+            .max(Configuration(model = false, unsatAssumptions = unrollAssumptions))
 
           val timer = ctx.timers.solvers.check.start()
-          val res: SolverResponse[underlying.Model, underlying.Cores] =
+          val res: SolverResponse[underlying.Model, Set[underlying.Trees]] =
             underlying.checkAssumptions(checkConfig)(
               encodedAssumptions.toSet ++ templates.satisfactionAssumptions
             )
@@ -334,11 +333,8 @@ trait AbstractUnrollingSolver
             case _: Unsatisfiable if !templates.canUnroll =>
               CheckResult.cast(res)
 
-            case UnsatWithCores(cores) if unrollCores =>
-              for (c <- cores) templates.extractNot(c) match {
-                case Some(b) => templates.promoteBlocker(b)
-                case None => reporter.fatalError("Unexpected blocker polarity for unsat core unrolling: " + c)
-              }
+            case UnsatWithAssumptions(assumptions) if unrollAssumptions =>
+              for (b <- assumptions) templates.promoteBlocker(b)
               ProofCheck
 
             case _ => 
@@ -355,7 +351,7 @@ trait AbstractUnrollingSolver
           for (cl <- encodedAssumptions.toSeq ++ templates.satisfactionAssumptions ++ clauses) {
             underlying.assertCnstr(cl)
           }
-          val res: SolverResponse[underlying.Model, underlying.Cores] = underlying.check(config min Model)
+          val res: SolverResponse[underlying.Model, Set[underlying.Trees]] = underlying.check(Model min config)
           underlying.pop()
           timer.stop()
 
@@ -406,7 +402,7 @@ trait AbstractUnrollingSolver
           }
 
           val timer = ctx.timers.solvers.check.start()
-          val res: SolverResponse[underlying.Model, underlying.Cores] =
+          val res: SolverResponse[underlying.Model, Set[underlying.Trees]] =
             underlying.checkAssumptions(config max Configuration(model = feelingLucky))(
               encodedAssumptions.toSet ++ templates.refutationAssumptions
             )
@@ -472,7 +468,6 @@ trait UnrollingSolver extends AbstractUnrollingSolver {
     val program: theories.targetProgram.type
     type Trees = Expr
     type Model = Map[ValDef, Expr]
-    type Cores = Set[Expr]
   }
 
   override val name = "U:"+underlying.name
@@ -500,11 +495,6 @@ trait UnrollingSolver extends AbstractUnrollingSolver {
     def mkAnd(es: Expr*) = andJoin(es)
     def mkEquals(l: Expr, r: Expr) = Equals(l, r)
     def mkImplies(l: Expr, r: Expr) = implies(l, r)
-
-    def extractNot(e: Expr): Option[Expr] = e match {
-      case Not(b) => Some(b)
-      case _ => None
-    }
   }
 
   protected def declareVariable(v: Variable): Variable = v
