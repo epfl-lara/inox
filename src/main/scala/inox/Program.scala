@@ -4,6 +4,18 @@ package inox
 
 import ast._
 
+/** Contains all definitions required to construct a complete Inox program.
+  *
+  * The elements of this class are typed dependently on the type of ''trees'',
+  * which is an object containing classes for expressions, types and definitions
+  * used by this program.
+  *
+  * ''symbols'' contains the actual definitions (classes and functions) of the program.
+  *
+  * ''ctx'' provides configuration options.
+  *
+  * ''printerOpts'' provides options for tree printers.
+  */
 trait Program {
   val trees: Trees
   implicit val symbols: trees.Symbols

@@ -264,7 +264,7 @@ trait Constructors {
     case _ => Times(lhs, rhs)
   }
 
-  /** $encodingof expr.asInstanceOf[tpe], returns `expr` it it already is of type `tpe`.  */
+  /** $encodingof expr.asInstanceOf[tpe], returns `expr` if it already is of type `tpe`.  */
   def asInstOf(expr: Expr, tpe: ClassType) = {
     if (symbols.isSubtypeOf(expr.getType, tpe)) {
       expr
