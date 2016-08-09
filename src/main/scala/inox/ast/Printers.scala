@@ -7,6 +7,10 @@ import utils._
 import org.apache.commons.lang3.StringEscapeUtils
 import scala.language.implicitConversions
 
+object optPrintPositions extends InoxFlagOptionDef("printPositions", "Attach positions to trees when printing", false)
+object optPrintUniqueIds extends InoxFlagOptionDef("printIds",       "Always print unique ids",                 false)
+object optPrintTypes     extends InoxFlagOptionDef("printPositions", "Attach types to trees when printing",     false)
+
 trait Printers { self: Trees =>
 
   case class PrinterContext(
@@ -32,8 +36,18 @@ trait Printers { self: Trees =>
   }
 
   object PrinterOptions {
-    def fromContext(ctx: InoxContext): PrinterOptions = ???
-    def fromSymbols(s: Symbols, ctx: InoxContext): PrinterOptions = ???
+    def fromContext(ctx: InoxContext): PrinterOptions = {
+      PrinterOptions(
+        baseIndent = 0,
+        printPositions = ctx.options.findOptionOrDefault(optPrintPositions),
+        printUniqueIds = ctx.options.findOptionOrDefault(optPrintUniqueIds),
+        printTypes     = ctx.options.findOptionOrDefault(optPrintTypes),
+        symbols        = None
+      )
+    }
+    def fromSymbols(s: Symbols, ctx: InoxContext): PrinterOptions = {
+      fromContext(ctx).copy(symbols = Some(s))
+    }
   }
 
   trait Printable {
