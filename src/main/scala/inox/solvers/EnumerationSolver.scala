@@ -12,7 +12,6 @@ import datagen._
 trait EnumerationSolver extends Solver { self =>
 
   val grammars: GrammarsUniverse { val program: self.program.type }
-
   val evaluator: DeterministicEvaluator { val program: self.program.type }
 
   import program._
@@ -62,6 +61,7 @@ trait EnumerationSolver extends Solver { self =>
         val program: self.program.type = self.program
         def functionsAvailable(p: Program): Set[FunDef] = Set()
       })
+
       if (interrupted) {
         Unknown
       } else {
@@ -71,19 +71,22 @@ trait EnumerationSolver extends Solver { self =>
         val it: Iterator[Seq[Expr]] = datagen.get.generateFor(allFreeVars, andJoin(allConstraints), 1, maxTried)
 
         if (it.hasNext) {
-          config match {
-            case All | Model =>
-              val varModels = it.next
-              SatWithModel(allFreeVars.zip(varModels).toMap)
-            case _ =>
-              Sat
+          if (config.withModel) {
+            val varModels = it.next
+            SatWithModel(allFreeVars.zip(varModels).toMap)
+          } else {
+            Sat
           }
         } else {
-          config match {
-            case All | Cores =>
-              ??? // TODO
-            case _ =>
+          val cardinalities = allFreeVars.map(vd => typeCardinality(vd.tpe))
+          if (cardinalities.forall(_.isDefined) && cardinalities.flatten.product < maxTried) {
+            if (config.withCores) {
+              UnsatWithCores(Set.empty)
+            } else {
               Unsat
+            }
+          } else {
+            Unknown
           }
         }
       }
@@ -95,7 +98,13 @@ trait EnumerationSolver extends Solver { self =>
     res
   }
 
-  def checkAssumptions(config: Configuration)(assumptions: Set[Trees]): config.Response[Model, Cores] = ??? // TODO
+  def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Cores] = {
+    push()
+    for (c <- assumptions) assertCnstr(c)
+    val res = check(config)
+    pop()
+    res
+  }
 
   def free() = {
     constraints.clear()
