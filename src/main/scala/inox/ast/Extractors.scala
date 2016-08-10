@@ -239,11 +239,23 @@ trait Extractors { self: Trees =>
     * tools for performing tree transformations that are very predictable, if
     * one need to simplify the tree, it is easy to write/call a simplification
     * function that would simply apply the corresponding constructor for each node.
+    *
+    * XXX: ideally, we would want [[Operator]] to be defined as
+    * {{{
+    *   val Operator: ExprDeconstructor {
+    *     val s: self.type
+    *     val t: self.type
+    *   }
+    * }}}
+    * however the Scala compiler seems to have some bug with this and reports
+    * wrong errors when we define it this way...
+    * @see https://issues.scala-lang.org/browse/SI-9247
     */
-
-  object Operator extends ExprDeconstructor {
-    val s: self.type = self
-    val t: self.type = self
+  val Operator: TreeExtractor {
+    val s: self.type
+    val t: self.type
+    type Source = self.Expr
+    type Target = self.Expr
   }
 
   object TopLevelOrs { // expr1 OR (expr2 OR (expr3 OR ..)) => List(expr1, expr2, expr3)

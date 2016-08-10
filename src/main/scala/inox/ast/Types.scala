@@ -85,6 +85,10 @@ trait Types { self: Trees =>
     def tcd(implicit s: Symbols): TypedClassDef = s.getClass(id, tps)
   }
 
+  /** NAryType extractor to extract any Type in a consistent way.
+    *
+    * @see [[Extractors.Operator]] about why we can't have nice(r) things
+    */
   val NAryType: TreeExtractor {
     val s: self.type
     val t: self.type

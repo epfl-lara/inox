@@ -32,7 +32,7 @@ trait ExprOps extends GenTreeOps {
   type Source = Expr
   type Target = Expr
 
-  val Deconstructor = Operator
+  lazy val Deconstructor = Operator
 
   /** Replaces bottom-up variables by looking up for them in a map */
   def replaceFromSymbols[V <: VariableSymbol](substs: Map[V, Expr], expr: Expr)(implicit ev: VariableConverter[V]): Expr = {
