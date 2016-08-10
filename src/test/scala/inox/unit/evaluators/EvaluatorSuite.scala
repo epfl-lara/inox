@@ -1,267 +1,272 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon.unit.evaluators
+package inox.unit.evaluators
 
-import leon._
-import leon.test._
-import leon.evaluators._
+import inox._
+import inox.evaluators._
 
-import leon.purescala.Common._
-import leon.purescala.Definitions._
-import leon.purescala.Expressions._
-import leon.purescala.Types._
-import leon.purescala.Extractors._
-import leon.purescala.Constructors._
+class EvaluatorSuite extends InoxTestSuite {
+  import inox.trees._
 
-class EvaluatorSuite extends LeonTestSuite with helpers.ExpressionsDSL {
-
-  implicit val pgm = Program.empty
-
-  def normalEvaluators(implicit ctx: LeonContext, pgm: Program): List[DeterministicEvaluator] = {
-    List(
-      new DefaultEvaluator(ctx, pgm),
-      new AngelicEvaluator(new StreamEvaluator(ctx, pgm))
-    )
+  val symbols = new Symbols(Map.empty, Map.empty)
+  def evaluator(ctx: InoxContext): DeterministicEvaluator { val program: InoxProgram } = {
+    val program = InoxProgram(ctx, symbols)
+    RecursiveEvaluator.default(program)
   }
 
-  def codegenEvaluators(implicit ctx: LeonContext, pgm: Program): List[DeterministicEvaluator] = {
-    List(
-      new CodeGenEvaluator(ctx, pgm)
-    )
+  test("Literals") { ctx =>
+    val e = evaluator(ctx)
+
+    eval(e, BooleanLiteral(true))   === BooleanLiteral(true)
+    eval(e, BooleanLiteral(false))  === BooleanLiteral(false)
+    eval(e, IntLiteral(0))          === IntLiteral(0)
+    eval(e, IntLiteral(42))         === IntLiteral(42)
+    eval(e, UnitLiteral())          === UnitLiteral()
+    eval(e, IntegerLiteral(0))      === IntegerLiteral(0)
+    eval(e, IntegerLiteral(42))     === IntegerLiteral(42)
+    eval(e, FractionLiteral(0 ,1))  === FractionLiteral(0 ,1)
+    eval(e, FractionLiteral(42 ,1)) === FractionLiteral(42, 1)
+    eval(e, FractionLiteral(26, 3)) === FractionLiteral(26, 3)
   }
 
-  def allEvaluators(implicit ctx: LeonContext, pgm: Program): List[DeterministicEvaluator] = {
-    normalEvaluators ++ codegenEvaluators
+  test("BitVector Arithmetic") { ctx =>
+    val e = evaluator(ctx)
+
+    eval(e, Plus(IntLiteral(3), IntLiteral(5)))  === IntLiteral(8)
+    eval(e, Plus(IntLiteral(0), IntLiteral(5)))  === IntLiteral(5)
+    eval(e, Times(IntLiteral(3), IntLiteral(3))) === IntLiteral(9)
   }
 
+  test("eval bitwise operations") { ctx =>
+    val e = evaluator(ctx)
 
-  test("Literals") { implicit fix =>
-    for(e <- allEvaluators) {
-      eval(e, BooleanLiteral(true))         === BooleanLiteral(true)
-      eval(e, BooleanLiteral(false))        === BooleanLiteral(false)
-      eval(e, IntLiteral(0))                === IntLiteral(0)
-      eval(e, IntLiteral(42))               === IntLiteral(42)
-      eval(e, UnitLiteral())                === UnitLiteral()
-      eval(e, InfiniteIntegerLiteral(0))    === InfiniteIntegerLiteral(0)
-      eval(e, InfiniteIntegerLiteral(42))   === InfiniteIntegerLiteral(42)
-      eval(e, FractionalLiteral(0 ,1))      === FractionalLiteral(0 ,1)
-      eval(e, FractionalLiteral(42 ,1))     === FractionalLiteral(42, 1)
-      eval(e, FractionalLiteral(26, 3))     === FractionalLiteral(26, 3)
-    }
+    eval(e, BVAnd(IntLiteral(3), IntLiteral(1))) === IntLiteral(1)
+    eval(e, BVAnd(IntLiteral(3), IntLiteral(3))) === IntLiteral(3)
+    eval(e, BVAnd(IntLiteral(5), IntLiteral(3))) === IntLiteral(1)
+    eval(e, BVAnd(IntLiteral(5), IntLiteral(4))) === IntLiteral(4)
+    eval(e, BVAnd(IntLiteral(5), IntLiteral(2))) === IntLiteral(0)
+
+    eval(e, BVOr(IntLiteral(3), IntLiteral(1))) === IntLiteral(3)
+    eval(e, BVOr(IntLiteral(3), IntLiteral(3))) === IntLiteral(3)
+    eval(e, BVOr(IntLiteral(5), IntLiteral(3))) === IntLiteral(7)
+    eval(e, BVOr(IntLiteral(5), IntLiteral(4))) === IntLiteral(5)
+    eval(e, BVOr(IntLiteral(5), IntLiteral(2))) === IntLiteral(7)
+
+    eval(e, BVXOr(IntLiteral(3), IntLiteral(1))) === IntLiteral(2)
+    eval(e, BVXOr(IntLiteral(3), IntLiteral(3))) === IntLiteral(0)
+
+    eval(e, BVNot(IntLiteral(1))) === IntLiteral(-2)
+
+    eval(e, BVShiftLeft(IntLiteral(3), IntLiteral(1))) === IntLiteral(6)
+    eval(e, BVShiftLeft(IntLiteral(4), IntLiteral(2))) === IntLiteral(16)
+
+    eval(e, BVLShiftRight(IntLiteral(8), IntLiteral(1))) === IntLiteral(4)
+    eval(e, BVAShiftRight(IntLiteral(8), IntLiteral(1))) === IntLiteral(4)
   }
 
-  test("BitVector Arithmetic") { implicit fix =>
-    for(e <- allEvaluators) {
-      eval(e, BVPlus(IntLiteral(3), IntLiteral(5)))  === IntLiteral(8)
-      eval(e, BVPlus(IntLiteral(0), IntLiteral(5)))  === IntLiteral(5)
-      eval(e, BVTimes(IntLiteral(3), IntLiteral(3))) === IntLiteral(9)
-    }
+  test("Arithmetic") { ctx =>
+    val e = evaluator(ctx)
+
+    eval(e, Plus(IntegerLiteral(3), IntegerLiteral(5)))  === IntegerLiteral(8)
+    eval(e, Minus(IntegerLiteral(7), IntegerLiteral(2))) === IntegerLiteral(5)
+    eval(e, UMinus(IntegerLiteral(7)))                   === IntegerLiteral(-7)
+    eval(e, Times(IntegerLiteral(2), IntegerLiteral(3))) === IntegerLiteral(6)
   }
 
-  test("eval bitwise operations") { implicit fix =>
-    for(e <- allEvaluators) {
-      eval(e, BVAnd(IntLiteral(3), IntLiteral(1))) === IntLiteral(1)
-      eval(e, BVAnd(IntLiteral(3), IntLiteral(3))) === IntLiteral(3)
-      eval(e, BVAnd(IntLiteral(5), IntLiteral(3))) === IntLiteral(1)
-      eval(e, BVAnd(IntLiteral(5), IntLiteral(4))) === IntLiteral(4)
-      eval(e, BVAnd(IntLiteral(5), IntLiteral(2))) === IntLiteral(0)
+  test("BigInt Modulo and Remainder") { ctx =>
+    val e = evaluator(ctx)
 
-      eval(e, BVOr(IntLiteral(3), IntLiteral(1))) === IntLiteral(3)
-      eval(e, BVOr(IntLiteral(3), IntLiteral(3))) === IntLiteral(3)
-      eval(e, BVOr(IntLiteral(5), IntLiteral(3))) === IntLiteral(7)
-      eval(e, BVOr(IntLiteral(5), IntLiteral(4))) === IntLiteral(5)
-      eval(e, BVOr(IntLiteral(5), IntLiteral(2))) === IntLiteral(7)
+    eval(e, Division(IntegerLiteral(10), IntegerLiteral(3)))   === IntegerLiteral(3)
+    eval(e, Remainder(IntegerLiteral(10), IntegerLiteral(3)))  === IntegerLiteral(1)
+    eval(e, Modulo(IntegerLiteral(10), IntegerLiteral(3)))     === IntegerLiteral(1)
 
-      eval(e, BVXOr(IntLiteral(3), IntLiteral(1))) === IntLiteral(2)
-      eval(e, BVXOr(IntLiteral(3), IntLiteral(3))) === IntLiteral(0)
+    eval(e, Division(IntegerLiteral(-1), IntegerLiteral(3)))   === IntegerLiteral(0)
+    eval(e, Remainder(IntegerLiteral(-1), IntegerLiteral(3)))  === IntegerLiteral(-1)
 
-      eval(e, BVNot(IntLiteral(1))) === IntLiteral(-2)
+    eval(e, Modulo(IntegerLiteral(-1), IntegerLiteral(3)))     === IntegerLiteral(2)
 
-      eval(e, BVShiftLeft(IntLiteral(3), IntLiteral(1))) === IntLiteral(6)
-      eval(e, BVShiftLeft(IntLiteral(4), IntLiteral(2))) === IntLiteral(16)
+    eval(e, Division(IntegerLiteral(-1), IntegerLiteral(-3)))  === IntegerLiteral(0)
+    eval(e, Remainder(IntegerLiteral(-1), IntegerLiteral(-3))) === IntegerLiteral(-1)
+    eval(e, Modulo(IntegerLiteral(-1), IntegerLiteral(-3)))    === IntegerLiteral(2)
 
-      eval(e, BVLShiftRight(IntLiteral(8), IntLiteral(1))) === IntLiteral(4)
-      eval(e, BVAShiftRight(IntLiteral(8), IntLiteral(1))) === IntLiteral(4)
-    }
+    eval(e, Division(IntegerLiteral(1), IntegerLiteral(-3)))   === IntegerLiteral(0)
+    eval(e, Remainder(IntegerLiteral(1), IntegerLiteral(-3)))  === IntegerLiteral(1)
+    eval(e, Modulo(IntegerLiteral(1), IntegerLiteral(-3)))     === IntegerLiteral(1)
   }
 
-  test("Arithmetic") { implicit fix =>
-    for(e <- allEvaluators) {
-      eval(e, Plus(InfiniteIntegerLiteral(3), InfiniteIntegerLiteral(5)))  === InfiniteIntegerLiteral(8)
-      eval(e, Minus(InfiniteIntegerLiteral(7), InfiniteIntegerLiteral(2))) === InfiniteIntegerLiteral(5)
-      eval(e, UMinus(InfiniteIntegerLiteral(7)))                           === InfiniteIntegerLiteral(-7)
-      eval(e, Times(InfiniteIntegerLiteral(2), InfiniteIntegerLiteral(3))) === InfiniteIntegerLiteral(6)
-    }
+  test("Int Comparisons") { ctx =>
+    val e = evaluator(ctx)
+
+    eval(e, GreaterEquals(IntegerLiteral(7), IntegerLiteral(4)))  === BooleanLiteral(true)
+    eval(e, GreaterEquals(IntegerLiteral(7), IntegerLiteral(7)))  === BooleanLiteral(true)
+    eval(e, GreaterEquals(IntegerLiteral(4), IntegerLiteral(7)))  === BooleanLiteral(false)
+
+    eval(e, GreaterThan(IntegerLiteral(7), IntegerLiteral(4)))    === BooleanLiteral(true)
+    eval(e, GreaterThan(IntegerLiteral(7), IntegerLiteral(7)))    === BooleanLiteral(false)
+    eval(e, GreaterThan(IntegerLiteral(4), IntegerLiteral(7)))    === BooleanLiteral(false)
+
+    eval(e, LessEquals(IntegerLiteral(7), IntegerLiteral(4)))     === BooleanLiteral(false)
+    eval(e, LessEquals(IntegerLiteral(7), IntegerLiteral(7)))     === BooleanLiteral(true)
+    eval(e, LessEquals(IntegerLiteral(4), IntegerLiteral(7)))     === BooleanLiteral(true)
+
+    eval(e, LessThan(IntegerLiteral(7), IntegerLiteral(4)))       === BooleanLiteral(false)
+    eval(e, LessThan(IntegerLiteral(7), IntegerLiteral(7)))       === BooleanLiteral(false)
+    eval(e, LessThan(IntegerLiteral(4), IntegerLiteral(7)))       === BooleanLiteral(true)
   }
 
-  test("BigInt Modulo and Remainder") { implicit fix =>
-    for(e <- allEvaluators) {
-      eval(e, Division(InfiniteIntegerLiteral(10), InfiniteIntegerLiteral(3)))   === InfiniteIntegerLiteral(3)
-      eval(e, Remainder(InfiniteIntegerLiteral(10), InfiniteIntegerLiteral(3)))  === InfiniteIntegerLiteral(1)
-      eval(e, Modulo(InfiniteIntegerLiteral(10), InfiniteIntegerLiteral(3)))     === InfiniteIntegerLiteral(1)
+  test("Int Modulo and Remainder") { ctx =>
+    val e = evaluator(ctx)
 
-      eval(e, Division(InfiniteIntegerLiteral(-1), InfiniteIntegerLiteral(3)))   === InfiniteIntegerLiteral(0)
-      eval(e, Remainder(InfiniteIntegerLiteral(-1), InfiniteIntegerLiteral(3)))  === InfiniteIntegerLiteral(-1)
+    eval(e, Division(IntLiteral(10), IntLiteral(3)))    === IntLiteral(3)
+    eval(e, Remainder(IntLiteral(10), IntLiteral(3)))   === IntLiteral(1)
 
-      eval(e, Modulo(InfiniteIntegerLiteral(-1), InfiniteIntegerLiteral(3)))     === InfiniteIntegerLiteral(2)
+    eval(e, Division(IntLiteral(-1), IntLiteral(3)))    === IntLiteral(0)
+    eval(e, Remainder(IntLiteral(-1), IntLiteral(3)))   === IntLiteral(-1)
 
-      eval(e, Division(InfiniteIntegerLiteral(-1), InfiniteIntegerLiteral(-3)))  === InfiniteIntegerLiteral(0)
-      eval(e, Remainder(InfiniteIntegerLiteral(-1), InfiniteIntegerLiteral(-3))) === InfiniteIntegerLiteral(-1)
-      eval(e, Modulo(InfiniteIntegerLiteral(-1), InfiniteIntegerLiteral(-3)))    === InfiniteIntegerLiteral(2)
+    eval(e, Division(IntLiteral(-1), IntLiteral(-3)))   === IntLiteral(0)
+    eval(e, Remainder(IntLiteral(-1), IntLiteral(-3)))  === IntLiteral(-1)
 
-      eval(e, Division(InfiniteIntegerLiteral(1), InfiniteIntegerLiteral(-3)))   === InfiniteIntegerLiteral(0)
-      eval(e, Remainder(InfiniteIntegerLiteral(1), InfiniteIntegerLiteral(-3)))  === InfiniteIntegerLiteral(1)
-      eval(e, Modulo(InfiniteIntegerLiteral(1), InfiniteIntegerLiteral(-3)))     === InfiniteIntegerLiteral(1)
-    }
+    eval(e, Division(IntLiteral(1), IntLiteral(-3)))    === IntLiteral(0)
+    eval(e, Remainder(IntLiteral(1), IntLiteral(-3)))   === IntLiteral(1)
   }
 
-  test("Int Comparisons") { implicit fix =>
-    for(e <- allEvaluators) {
-      eval(e, GreaterEquals(InfiniteIntegerLiteral(7), InfiniteIntegerLiteral(4)))  === BooleanLiteral(true)
-      eval(e, GreaterEquals(InfiniteIntegerLiteral(7), InfiniteIntegerLiteral(7)))  === BooleanLiteral(true)
-      eval(e, GreaterEquals(InfiniteIntegerLiteral(4), InfiniteIntegerLiteral(7)))  === BooleanLiteral(false)
+  test("Boolean Operations") { ctx =>
+    val e = evaluator(ctx)
 
-      eval(e, GreaterThan(InfiniteIntegerLiteral(7), InfiniteIntegerLiteral(4)))    === BooleanLiteral(true)
-      eval(e, GreaterThan(InfiniteIntegerLiteral(7), InfiniteIntegerLiteral(7)))    === BooleanLiteral(false)
-      eval(e, GreaterThan(InfiniteIntegerLiteral(4), InfiniteIntegerLiteral(7)))    === BooleanLiteral(false)
-
-      eval(e, LessEquals(InfiniteIntegerLiteral(7), InfiniteIntegerLiteral(4)))     === BooleanLiteral(false)
-      eval(e, LessEquals(InfiniteIntegerLiteral(7), InfiniteIntegerLiteral(7)))     === BooleanLiteral(true)
-      eval(e, LessEquals(InfiniteIntegerLiteral(4), InfiniteIntegerLiteral(7)))     === BooleanLiteral(true)
-
-      eval(e, LessThan(InfiniteIntegerLiteral(7), InfiniteIntegerLiteral(4)))       === BooleanLiteral(false)
-      eval(e, LessThan(InfiniteIntegerLiteral(7), InfiniteIntegerLiteral(7)))       === BooleanLiteral(false)
-      eval(e, LessThan(InfiniteIntegerLiteral(4), InfiniteIntegerLiteral(7)))       === BooleanLiteral(true)
-    }
+    eval(e, And(BooleanLiteral(true), BooleanLiteral(true)))      === BooleanLiteral(true)
+    eval(e, And(BooleanLiteral(true), BooleanLiteral(false)))     === BooleanLiteral(false)
+    eval(e, And(BooleanLiteral(false), BooleanLiteral(false)))    === BooleanLiteral(false)
+    eval(e, And(BooleanLiteral(false), BooleanLiteral(true)))     === BooleanLiteral(false)
+    eval(e, Or(BooleanLiteral(true), BooleanLiteral(true)))       === BooleanLiteral(true)
+    eval(e, Or(BooleanLiteral(true), BooleanLiteral(false)))      === BooleanLiteral(true)
+    eval(e, Or(BooleanLiteral(false), BooleanLiteral(false)))     === BooleanLiteral(false)
+    eval(e, Or(BooleanLiteral(false), BooleanLiteral(true)))      === BooleanLiteral(true)
+    eval(e, Not(BooleanLiteral(false)))                           === BooleanLiteral(true)
+    eval(e, Not(BooleanLiteral(true)))                            === BooleanLiteral(false)
   }
 
+  test("Real Arightmetic") { ctx =>
+    val e = evaluator(ctx)
 
-  test("Int Modulo and Remainder") { implicit fix =>
-    for(e <- allEvaluators) {
-      eval(e, BVDivision(IntLiteral(10), IntLiteral(3)))    === IntLiteral(3)
-      eval(e, BVRemainder(IntLiteral(10), IntLiteral(3)))   === IntLiteral(1)
-
-      eval(e, BVDivision(IntLiteral(-1), IntLiteral(3)))    === IntLiteral(0)
-      eval(e, BVRemainder(IntLiteral(-1), IntLiteral(3)))   === IntLiteral(-1)
-
-      eval(e, BVDivision(IntLiteral(-1), IntLiteral(-3)))   === IntLiteral(0)
-      eval(e, BVRemainder(IntLiteral(-1), IntLiteral(-3)))  === IntLiteral(-1)
-
-      eval(e, BVDivision(IntLiteral(1), IntLiteral(-3)))    === IntLiteral(0)
-      eval(e, BVRemainder(IntLiteral(1), IntLiteral(-3)))   === IntLiteral(1)
-    }
+    eval(e, Plus(FractionLiteral(2, 3), FractionLiteral(1, 3))) === FractionLiteral(1, 1)
+    eval(e, Minus(FractionLiteral(1, 1), FractionLiteral(1, 4))) === FractionLiteral(3, 4)
+    eval(e, UMinus(FractionLiteral(7, 1))) === FractionLiteral(-7, 1)
+    eval(e, Times(FractionLiteral(2, 3), FractionLiteral(1, 3))) === FractionLiteral(2, 9)
   }
 
-  test("Boolean Operations") { implicit fix =>
-    for(e <- allEvaluators) {
-      eval(e, And(BooleanLiteral(true), BooleanLiteral(true)))      === BooleanLiteral(true)
-      eval(e, And(BooleanLiteral(true), BooleanLiteral(false)))     === BooleanLiteral(false)
-      eval(e, And(BooleanLiteral(false), BooleanLiteral(false)))    === BooleanLiteral(false)
-      eval(e, And(BooleanLiteral(false), BooleanLiteral(true)))     === BooleanLiteral(false)
-      eval(e, Or(BooleanLiteral(true), BooleanLiteral(true)))       === BooleanLiteral(true)
-      eval(e, Or(BooleanLiteral(true), BooleanLiteral(false)))      === BooleanLiteral(true)
-      eval(e, Or(BooleanLiteral(false), BooleanLiteral(false)))     === BooleanLiteral(false)
-      eval(e, Or(BooleanLiteral(false), BooleanLiteral(true)))      === BooleanLiteral(true)
-      eval(e, Not(BooleanLiteral(false)))                           === BooleanLiteral(true)
-      eval(e, Not(BooleanLiteral(true)))                            === BooleanLiteral(false)
-    }
+  test("Real Comparisons") { ctx =>
+    val e = evaluator(ctx)
+
+    eval(e, GreaterEquals(FractionLiteral(7, 1), FractionLiteral(4, 2))) === BooleanLiteral(true)
+    eval(e, GreaterEquals(FractionLiteral(7, 2), FractionLiteral(49, 13))) === BooleanLiteral(false)
+
+    eval(e, GreaterThan(FractionLiteral(49, 13), FractionLiteral(7, 2))) === BooleanLiteral(true)
+    eval(e, GreaterThan(FractionLiteral(49, 14), FractionLiteral(7, 2))) === BooleanLiteral(false)
+    eval(e, GreaterThan(FractionLiteral(4, 2), FractionLiteral(7, 1))) === BooleanLiteral(false)
+
+    eval(e, LessEquals(FractionLiteral(7, 1), FractionLiteral(4, 2))) === BooleanLiteral(false)
+    eval(e, LessEquals(FractionLiteral(7, 2), FractionLiteral(49, 13))) === BooleanLiteral(true)
+
+    eval(e, LessThan(FractionLiteral(49, 13), FractionLiteral(7, 2))) === BooleanLiteral(false)
+    eval(e, LessThan(FractionLiteral(49, 14), FractionLiteral(7, 2))) === BooleanLiteral(false)
+    eval(e, LessThan(FractionLiteral(4, 2), FractionLiteral(7, 1))) === BooleanLiteral(true)
   }
 
-  test("Real Arightmetic") { implicit fix =>
-    for (e <- allEvaluators) {
-      eval(e, RealPlus(FractionalLiteral(2, 3), FractionalLiteral(1, 3))) === FractionalLiteral(1, 1)
-      eval(e, RealMinus(FractionalLiteral(1, 1), FractionalLiteral(1, 4))) === FractionalLiteral(3, 4)
-      eval(e, RealUMinus(FractionalLiteral(7, 1))) === FractionalLiteral(-7, 1)
-      eval(e, RealTimes(FractionalLiteral(2, 3), FractionalLiteral(1, 3))) === FractionalLiteral(2, 9)
-    }
+  test("Simple Variable") { ctx =>
+    val e = evaluator(ctx)
+
+    val v = Variable(FreshIdentifier("id"), Int32Type)
+
+    eval(e, v, Map(v.toVal -> IntLiteral(23))) === IntLiteral(23)
   }
 
-  test("Real Comparisons") { implicit fix =>
-    for(e <- allEvaluators) {
-      eval(e, GreaterEquals(FractionalLiteral(7, 1), FractionalLiteral(4, 2))) === BooleanLiteral(true)
-      eval(e, GreaterEquals(FractionalLiteral(7, 2), FractionalLiteral(49, 13))) === BooleanLiteral(false)
+  test("Undefined Variable") { ctx =>
+    val e = evaluator(ctx)
 
-      eval(e, GreaterThan(FractionalLiteral(49, 13), FractionalLiteral(7, 2))) === BooleanLiteral(true)
-      eval(e, GreaterThan(FractionalLiteral(49, 14), FractionalLiteral(7, 2))) === BooleanLiteral(false)
-      eval(e, GreaterThan(FractionalLiteral(4, 2), FractionalLiteral(7, 1))) === BooleanLiteral(false)
+    val v1 = Variable(FreshIdentifier("id"), Int32Type)
+    val v2 = Variable(FreshIdentifier("foo"), Int32Type)
 
-      eval(e, LessEquals(FractionalLiteral(7, 1), FractionalLiteral(4, 2))) === BooleanLiteral(false)
-      eval(e, LessEquals(FractionalLiteral(7, 2), FractionalLiteral(49, 13))) === BooleanLiteral(true)
-
-      eval(e, LessThan(FractionalLiteral(49, 13), FractionalLiteral(7, 2))) === BooleanLiteral(false)
-      eval(e, LessThan(FractionalLiteral(49, 14), FractionalLiteral(7, 2))) === BooleanLiteral(false)
-      eval(e, LessThan(FractionalLiteral(4, 2), FractionalLiteral(7, 1))) === BooleanLiteral(true)
-    }
+    eval(e, v1, Map(v2.toVal -> IntLiteral(23))).failed
   }
 
-  test("Simple Variable") { implicit fix =>
-    for(e <- allEvaluators) {
-      val id = FreshIdentifier("id", Int32Type)
+  test("Let") { ctx =>
+    val e = evaluator(ctx)
 
-      eval(e, Variable(id), Map(id -> IntLiteral(23))) === IntLiteral(23)
-    }
+    val v = Variable(FreshIdentifier("id"), IntegerType)
+    eval(e, Let(v.toVal, IntLiteral(42), v)) === IntLiteral(42)
   }
 
-  test("Undefined Variable") { implicit fix =>
-    for(e <- allEvaluators) {
-      val id = FreshIdentifier("id", Int32Type)
-      val foo = FreshIdentifier("foo", Int32Type)
+  test("Map Operations") { ctx =>
+    val e = evaluator(ctx)
 
-      eval(e, Variable(id), Map(foo -> IntLiteral(23))).failed
-    }
+    eval(e, Equals(
+      FiniteMap(Seq.empty, IntLiteral(12), Int32Type),
+      FiniteMap(Seq.empty, IntLiteral(12), Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, Equals(
+      FiniteMap(Seq.empty, IntLiteral(9), Int32Type),
+      FiniteMap(Seq.empty, IntLiteral(12), Int32Type))
+    ) === BooleanLiteral(false)
+
+    eval(e, Equals(
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(3)), IntLiteral(9), Int32Type),
+      FiniteMap(Seq(IntLiteral(2) -> IntLiteral(3), IntLiteral(1) -> IntLiteral(2)), IntLiteral(9), Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, Equals(
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(1) -> IntLiteral(3)), IntLiteral(9), Int32Type),
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(3), IntLiteral(1) -> IntLiteral(2)), IntLiteral(9), Int32Type))
+    ) === BooleanLiteral(false)
+
+    eval(e, Equals(
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(1) -> IntLiteral(3)), IntLiteral(9), Int32Type),
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(3)), IntLiteral(9), Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, MapApply(
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type),
+      IntLiteral(1))
+    ) === IntLiteral(4)
+
+    eval(e, MapApply(
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type),
+      IntLiteral(3))
+    ) === IntLiteral(6)
+
+    eval(e, MapApply(
+      MapUpdated(
+        FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type),
+        IntLiteral(1), IntLiteral(3)),
+      IntLiteral(1))
+    ) === IntLiteral(3)
   }
 
-  test("Let") { implicit fix =>
-    for(e <- normalEvaluators) {
-      val id = FreshIdentifier("id")
-      eval(e, Let(id, IntLiteral(42), Variable(id))) === IntLiteral(42)
-    }
-  }
+  test("Map with variables") { ctx =>
+    val e = evaluator(ctx)
 
-  def eqArray(a1: Expr, a2: Expr) = (a1, a2) match {
-    case (FiniteArray(es1, d1, IntLiteral(l1)), FiniteArray(es2, d2, IntLiteral(l2))) =>
-      assert(l1 === l2)
-      for (i <- 0 until l1) {
-        val v1 = es1.get(i).orElse(d1)
-        val v2 = es2.get(i).orElse(d2)
-        assert(v1 === v2)
-      }
-    case (e, _) =>
-      fail("Expected array, got "+e)
-  }
+    val v1 = Variable(FreshIdentifier("v1"), Int32Type)
+    val v2 = Variable(FreshIdentifier("v2"), Int32Type)
+    val v3 = Variable(FreshIdentifier("v3"), Int32Type)
 
-  test("Array Operations") { implicit fix =>
-    for (e <- allEvaluators) {
-      eqArray(eval(e, finiteArray(Map[Int,Expr](), Some(IntLiteral(12), IntLiteral(7)), Int32Type)).res,
-                      finiteArray(Map[Int,Expr](), Some(IntLiteral(12), IntLiteral(7)), Int32Type))
+    eval(e, Equals(
+      FiniteMap(Seq(v1 -> IntLiteral(2), v2 -> IntLiteral(4)), v3, Int32Type),
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type)),
+      Map(v1.toVal -> IntLiteral(1), v2.toVal -> IntLiteral(2), v3.toVal -> IntLiteral(6))
+    ) === BooleanLiteral(true)
 
-      eval(e, ArrayLength(finiteArray(Map[Int,Expr](), Some(IntLiteral(12), IntLiteral(7)), Int32Type))) ===
-                      IntLiteral(7)
+    eval(e, MapApply(
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type),
+      v1),
+      Map(v1.toVal -> IntLiteral(3))
+    ) === IntLiteral(6)
 
-      eval(e, ArraySelect(finiteArray(Seq(IntLiteral(2), IntLiteral(4), IntLiteral(7))), IntLiteral(1))) ===
-                      IntLiteral(4)
-
-      eqArray(eval(e, ArrayUpdated( finiteArray(Seq(IntLiteral(2), IntLiteral(4), IntLiteral(7))), IntLiteral(1), IntLiteral(42))).res,
-                      finiteArray(Seq(IntLiteral(2), IntLiteral(42), IntLiteral(7))))
-
-    }
-  }
-
-  test("Array with variable length") { implicit fix =>
-    // This does not work with CodegenEvaluator
-    for (e <- normalEvaluators) {
-      val len = FreshIdentifier("len", Int32Type)
-      eval(e, ArrayLength(finiteArray(Map[Int, Expr](), Some(IntLiteral(12), Variable(len)), Int32Type)), Map(len -> IntLiteral(27))) ===
-        IntLiteral(27)
-    }
-  }
-
-  test("Array Default Value") { implicit fix  =>
-    for (e <- allEvaluators) {
-      val id = FreshIdentifier("id", Int32Type)
-      eqArray(eval(e, finiteArray(Map[Int, Expr](), Some(Variable(id), IntLiteral(7)), Int32Type), Map(id -> IntLiteral(27))).res,
-                      finiteArray(Map[Int, Expr](), Some(IntLiteral(27), IntLiteral(7)), Int32Type))
-    }
+    eval(e, MapApply(
+      MapUpdated(
+        FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type),
+        v1, v2), v3),
+      Map(v1.toVal -> IntLiteral(1), v2.toVal -> IntLiteral(3), v3.toVal -> IntLiteral(1))
+    ) === IntLiteral(3)
   }
 
   abstract class EvalDSL {
@@ -271,7 +276,7 @@ class EvaluatorSuite extends LeonTestSuite with helpers.ExpressionsDSL {
     def success: Expr = res
   }
 
-  case class Success(expr: Expr, env: Map[Identifier, Expr], evaluator: DeterministicEvaluator, res: Expr) extends EvalDSL {
+  case class Success(expr: Expr, env: Map[ValDef, Expr], evaluator: DeterministicEvaluator, res: Expr) extends EvalDSL {
     override def failed = {
       fail(s"Evaluation of '$expr' with '$evaluator' (and env $env) should have failed")
     }
@@ -281,7 +286,7 @@ class EvaluatorSuite extends LeonTestSuite with helpers.ExpressionsDSL {
     }
   }
 
-  case class Failed(expr: Expr, env: Map[Identifier, Expr], evaluator: DeterministicEvaluator, err: String) extends EvalDSL {
+  case class Failed(expr: Expr, env: Map[ValDef, Expr], evaluator: DeterministicEvaluator, err: String) extends EvalDSL {
     override def success = {
       fail(s"Evaluation of '$expr' with '$evaluator' (and env $env) should have succeeded but failed with $err")
     }
@@ -291,7 +296,11 @@ class EvaluatorSuite extends LeonTestSuite with helpers.ExpressionsDSL {
     def ===(res: Expr) = success
   }
 
-  def eval(e: DeterministicEvaluator, toEval: Expr, env: Map[Identifier, Expr] = Map()): EvalDSL = {
+  def eval(
+    e: DeterministicEvaluator { val program: InoxProgram },
+    toEval: Expr,
+    env: Map[ValDef, Expr] = Map()
+  ): EvalDSL = {
     e.eval(toEval, env) match {
       case EvaluationResults.Successful(res)     => Success(toEval, env, e, res)
       case EvaluationResults.RuntimeError(err)   => Failed(toEval, env, e, err)

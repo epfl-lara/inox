@@ -1,25 +1,32 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon.unit.purescala
+package inox.unit.trees
 
-import leon.test._
-import leon.purescala.Common._
-import leon.purescala.Expressions._
-import leon.purescala.Types._
-import leon.purescala.TypeOps.isSubtypeOf
-import leon.purescala.Definitions._
-import leon.purescala.ExprOps._
+import inox._
 
-class ExprOpsSuite extends LeonTestSuite with helpers.WithLikelyEq with helpers.ExpressionsDSL {
+class ExprOpsSuite extends InoxTestSuite {
+  import inox.trees._
+  import inox.trees.exprOps._
 
   private def foldConcatNames(e: Expr, subNames: Seq[String]): String = e match {
-    case Variable(id) => subNames.mkString + id.name
+    case Variable(id, _) => subNames.mkString + id.name
     case _ => subNames.mkString
   }
+
   private def foldCountVariables(e: Expr, subCounts: Seq[Int]): Int = e match {
-    case Variable(_) => subCounts.sum + 1
+    case Variable(_, _) => subCounts.sum + 1
     case _ => subCounts.sum
   }
+
+  val a = Variable(FreshIdentifier("a"), Int32Type)
+  val b = Variable(FreshIdentifier("b"), Int32Type)
+
+  val x = Variable(FreshIdentifier("x"), IntegerType)
+  val y = Variable(FreshIdentifier("y"), IntegerType)
+
+  val p = Variable(FreshIdentifier("p"), BooleanType)
+  val q = Variable(FreshIdentifier("q"), BooleanType)
+  val r = Variable(FreshIdentifier("r"), BooleanType)
 
   test("foldRight works on single variable expression") { ctx =>
     assert(fold(foldConcatNames)(x) === x.id.name)
@@ -64,7 +71,7 @@ class ExprOpsSuite extends LeonTestSuite with helpers.WithLikelyEq with helpers.
 
     var names: List[String] = List()
     preTraversal({
-      case Variable(id) => names ::= id.name
+      case Variable(id, _) => names ::= id.name
       case _ => ()
     })(x)
     assert(names === List(x.id.name))
@@ -84,7 +91,7 @@ class ExprOpsSuite extends LeonTestSuite with helpers.WithLikelyEq with helpers.
   test("preTraversal visits children from left to right") { ctx =>
     var names: List[String] = List()
     preTraversal({
-      case Variable(id) => names ::= id.name
+      case Variable(id, _) => names ::= id.name
       case _ => ()
     })(And(List(p, q, r)))
     assert(names === List(r.id.name, q.id.name, p.id.name))
@@ -113,7 +120,7 @@ class ExprOpsSuite extends LeonTestSuite with helpers.WithLikelyEq with helpers.
 
     var names: List[String] = List()
     postTraversal({
-      case Variable(id) => names ::= id.name
+      case Variable(id, _) => names ::= id.name
       case _ => ()
     })(x)
     assert(names === List(x.id.name))
@@ -133,7 +140,7 @@ class ExprOpsSuite extends LeonTestSuite with helpers.WithLikelyEq with helpers.
   test("postTraversal visits children from left to right") { ctx =>
     var names: List[String] = List()
     postTraversal({
-      case Variable(id) => names ::= id.name
+      case Variable(id, _) => names ::= id.name
       case _ => ()
     })(And(List(p, q, r)))
     assert(names === List(r.id.name, q.id.name, p.id.name))
@@ -168,40 +175,29 @@ class ExprOpsSuite extends LeonTestSuite with helpers.WithLikelyEq with helpers.
     case e => (None, e)
   }
 
+  def checkEq(ctx: InoxContext)(e1: Expr, e2: Expr): Unit = {
+    val e = evaluators.RecursiveEvaluator.default(InoxProgram(ctx, new Symbols(Map.empty, Map.empty)))
+    val r1 = e.eval(e1)
+    val r2 = e.eval(e2)
 
-
-  test("simplifyArithmetic") { ctx =>
-    val e1 = Plus(bi(3), bi(2))
-    checkLikelyEq(ctx)(e1, simplifyArithmetic(e1))
-    val e2 = Plus(x, Plus(bi(3), bi(2)))
-    checkLikelyEq(ctx)(e2, simplifyArithmetic(e2))
-
-    val e3 = Minus(bi(3), bi(2))
-    checkLikelyEq(ctx)(e3, simplifyArithmetic(e3))
-    val e4 = Plus(x, Minus(bi(3), bi(2)))
-    checkLikelyEq(ctx)(e4, simplifyArithmetic(e4))
-    val e5 = Plus(x, Minus(x, bi(2)))
-    checkLikelyEq(ctx)(e5, simplifyArithmetic(e5))
-
-    val e6 = Times(bi(9), Plus(Division(x, bi(3)), Division(x, bi(6))))
-    checkLikelyEq(ctx)(e6, simplifyArithmetic(e6))
+    assert(r1 === r2, s"'$e1' != '$e2' ('$r1' != '$r2')")
   }
 
-  test("expandAndSimplifyArithmetic") { ctx =>
-    val e1 = Plus(bi(3), bi(2))
-    checkLikelyEq(ctx)(e1, expandAndSimplifyArithmetic(e1))
-    val e2 = Plus(x, Plus(bi(3), bi(2)))
-    checkLikelyEq(ctx)(e2, expandAndSimplifyArithmetic(e2))
+  test("simplifyArithmetic") { ctx =>
+    val e1 = Plus(IntegerLiteral(3), IntegerLiteral(2))
+    checkEq(ctx)(e1, simplifyArithmetic(e1))
+    val e2 = Plus(x, Plus(IntegerLiteral(3), IntegerLiteral(2)))
+    checkEq(ctx)(e2, simplifyArithmetic(e2))
 
-    val e3 = Minus(bi(3), bi(2))
-    checkLikelyEq(ctx)(e3, expandAndSimplifyArithmetic(e3))
-    val e4 = Plus(x, Minus(bi(3), bi(2)))
-    checkLikelyEq(ctx)(e4, expandAndSimplifyArithmetic(e4))
-    val e5 = Plus(x, Minus(x, bi(2)))
-    checkLikelyEq(ctx)(e5, expandAndSimplifyArithmetic(e5))
+    val e3 = Minus(IntegerLiteral(3), IntegerLiteral(2))
+    checkEq(ctx)(e3, simplifyArithmetic(e3))
+    val e4 = Plus(x, Minus(IntegerLiteral(3), IntegerLiteral(2)))
+    checkEq(ctx)(e4, simplifyArithmetic(e4))
+    val e5 = Plus(x, Minus(x, IntegerLiteral(2)))
+    checkEq(ctx)(e5, simplifyArithmetic(e5))
 
-    val e6 = Times(bi(9), Plus(Division(x, bi(3)), Division(x, bi(6))))
-    checkLikelyEq(ctx)(e6, expandAndSimplifyArithmetic(e6))
+    val e6 = Times(IntegerLiteral(9), Plus(Division(x, IntegerLiteral(3)), Division(x, IntegerLiteral(6))))
+    checkEq(ctx)(e6, simplifyArithmetic(e6))
   }
 
   test("extractEquals") { ctx =>
@@ -233,10 +229,10 @@ class ExprOpsSuite extends LeonTestSuite with helpers.WithLikelyEq with helpers.
   }
 
   test("pre and post traversal") { ctx =>
-    val expr = Plus(bi(1), Minus(bi(2), bi(3)))
+    val expr = Plus(IntegerLiteral(1), Minus(IntegerLiteral(2), IntegerLiteral(3)))
     var res = ""
     def f(e: Expr): Unit = e match {
-      case InfiniteIntegerLiteral(i) => res += i
+      case IntegerLiteral(i) => res += i
       case _ : Plus      => res += "P"
       case _ : Minus     => res += "M"
     }
@@ -250,28 +246,32 @@ class ExprOpsSuite extends LeonTestSuite with helpers.WithLikelyEq with helpers.
   }
 
   test("pre- and postMap") { ctx =>
-    val expr = Plus(bi(1), Minus(bi(2), bi(3)))
+    val expr = Plus(IntegerLiteral(1), Minus(IntegerLiteral(2), IntegerLiteral(3)))
     def op(e : Expr ) = e match {
-      case Minus(InfiniteIntegerLiteral(two), e2) if two == BigInt(2) => Some(bi(2))
-      case InfiniteIntegerLiteral(one) if one == BigInt(1) => Some(bi(2))
-      case InfiniteIntegerLiteral(two) if two == BigInt(2) => Some(bi(42))
+      case Minus(IntegerLiteral(two), e2) if two == BigInt(2) => Some(IntegerLiteral(2))
+      case IntegerLiteral(one) if one == BigInt(1) => Some(IntegerLiteral(2))
+      case IntegerLiteral(two) if two == BigInt(2) => Some(IntegerLiteral(42))
       case _ => None
     }
     
-    assert( preMap(op, false)(expr) == Plus(bi(2),  bi(2))  )
-    assert( preMap(op, true )(expr) == Plus(bi(42), bi(42)) )
-    assert( postMap(op, false)(expr) == Plus(bi(2),  Minus(bi(42), bi(3))) )
-    assert( postMap(op, true)(expr)  == Plus(bi(42), Minus(bi(42), bi(3))) )
+    assert( preMap(op, false)(expr) == Plus(IntegerLiteral(2),  IntegerLiteral(2))  )
+    assert( preMap(op, true )(expr) == Plus(IntegerLiteral(42), IntegerLiteral(42)) )
+    assert( postMap(op, false)(expr) == Plus(IntegerLiteral(2),  Minus(IntegerLiteral(42), IntegerLiteral(3))) )
+    assert( postMap(op, true)(expr)  == Plus(IntegerLiteral(42), Minus(IntegerLiteral(42), IntegerLiteral(3))) )
     
   }
 
   test("simplestValue") { ctx =>
+    val symbols = new Symbols(Map.empty, Map.empty)
+    import symbols._
+
     val types = Seq(BooleanType,
                     Int32Type,
                     IntegerType,
                     SetType(BooleanType),
                     TupleType(Seq(BooleanType, BooleanType)),
                     MapType(Int32Type, BooleanType))
+
 
     for (t <- types) {
       val v = simplestValue(t)
@@ -281,42 +281,44 @@ class ExprOpsSuite extends LeonTestSuite with helpers.WithLikelyEq with helpers.
   }
 
   test("preMapWithContext") { ctx =>
-    val expr = Plus(bi(1), Minus(bi(2), bi(3)))
+    val expr = Plus(IntegerLiteral(1), Minus(IntegerLiteral(2), IntegerLiteral(3)))
     def op(e : Expr, set: Set[Int]): (Option[Expr], Set[Int]) = e match {
-      case Minus(InfiniteIntegerLiteral(two), e2) if two == BigInt(2) => (Some(bi(2)), set)
-      case InfiniteIntegerLiteral(one) if one == BigInt(1) => (Some(bi(2)), set)
-      case InfiniteIntegerLiteral(two) if two == BigInt(2) => (Some(bi(42)), set)
+      case Minus(IntegerLiteral(two), e2) if two == BigInt(2) => (Some(IntegerLiteral(2)), set)
+      case IntegerLiteral(one) if one == BigInt(1) => (Some(IntegerLiteral(2)), set)
+      case IntegerLiteral(two) if two == BigInt(2) => (Some(IntegerLiteral(42)), set)
       case _ => (None, set)
     }
     
-    assert(preMapWithContext(op, false)(expr, Set()) === Plus(bi(2),  bi(2)))
-    assert(preMapWithContext(op, true)(expr, Set()) === Plus(bi(42),  bi(42)))
+    assert(preMapWithContext(op, false)(expr, Set()) === Plus(IntegerLiteral(2),  IntegerLiteral(2)))
+    assert(preMapWithContext(op, true)(expr, Set()) === Plus(IntegerLiteral(42),  IntegerLiteral(42)))
 
-    val expr2 = Let(x.id, bi(1), Let(y.id, bi(2), Plus(x, y)))
-    def op2(e: Expr, bindings: Map[Identifier, BigInt]): (Option[Expr], Map[Identifier, BigInt]) = e match {
-      case Let(id, InfiniteIntegerLiteral(v), body) => (None, bindings + (id -> v))
-      case Variable(id) => (bindings.get(id).map(v => InfiniteIntegerLiteral(v)), bindings)
+    val expr2 = Let(x.toVal, IntegerLiteral(1), Let(y.toVal, IntegerLiteral(2), Plus(x, y)))
+    def op2(e: Expr, bindings: Map[Variable, BigInt]): (Option[Expr], Map[Variable, BigInt]) = e match {
+      case Let(vd, IntegerLiteral(v), body) => (None, bindings + (vd.toVariable -> v))
+      case v: Variable => (bindings.get(v).map(value => IntegerLiteral(value)), bindings)
       case _ => (None, bindings)
     }
  
-    assert(preMapWithContext(op2, false)(expr2, Map()) === Let(x.id, bi(1), Let(y.id, bi(2), Plus(bi(1), bi(2)))))
+    assert(preMapWithContext(op2, false)(expr2, Map()) === Let(
+      x.toVal, IntegerLiteral(1), Let(y.toVal, IntegerLiteral(2), Plus(IntegerLiteral(1), IntegerLiteral(2)))))
 
-    def op3(e: Expr, bindings: Map[Identifier, BigInt]): (Option[Expr], Map[Identifier, BigInt]) = e match {
-      case Let(id, InfiniteIntegerLiteral(v), body) => (Some(body), bindings + (id -> v))
-      case Variable(id) => (bindings.get(id).map(v => InfiniteIntegerLiteral(v)), bindings)
+    def op3(e: Expr, bindings: Map[Variable, BigInt]): (Option[Expr], Map[Variable, BigInt]) = e match {
+      case Let(vd, IntegerLiteral(v), body) => (Some(body), bindings + (vd.toVariable -> v))
+      case v: Variable => (bindings.get(v).map(v => IntegerLiteral(v)), bindings)
       case _ => (None, bindings)
     }
-    assert(preMapWithContext(op3, true)(expr2, Map()) === Plus(bi(1), bi(2)))
+    assert(preMapWithContext(op3, true)(expr2, Map()) === Plus(IntegerLiteral(1), IntegerLiteral(2)))
 
 
-    val expr4 = Plus(Let(y.id, bi(2), y),
-                     Let(y.id, bi(4), y))
-    def op4(e: Expr, bindings: Map[Identifier, BigInt]): (Option[Expr], Map[Identifier, BigInt]) = e match {
-      case Let(id, InfiniteIntegerLiteral(v), body) => (Some(body), if(bindings.contains(id)) bindings else (bindings + (id -> v)))
-      case Variable(id) => (bindings.get(id).map(v => InfiniteIntegerLiteral(v)), bindings)
+    val expr4 = Plus(Let(y.toVal, IntegerLiteral(2), y),
+                     Let(y.toVal, IntegerLiteral(4), y))
+    def op4(e: Expr, bindings: Map[Variable, BigInt]): (Option[Expr], Map[Variable, BigInt]) = e match {
+      case Let(vd, IntegerLiteral(v), body) =>
+        (Some(body), if (bindings.contains(vd.toVariable)) bindings else (bindings + (vd.toVariable -> v)))
+      case v: Variable => (bindings.get(v).map(v => IntegerLiteral(v)), bindings)
       case _ => (None, bindings)
     }
-    assert(preMapWithContext(op4, true)(expr4, Map()) === Plus(bi(2), bi(4)))
+    assert(preMapWithContext(op4, true)(expr4, Map()) === Plus(IntegerLiteral(2), IntegerLiteral(4)))
   }
 
 }

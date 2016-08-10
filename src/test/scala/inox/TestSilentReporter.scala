@@ -2,8 +2,6 @@
 
 package inox
 
-import DefaultReporter
-
 class TestSilentReporter extends DefaultReporter(Set()) {
   var lastErrors: List[String] = Nil
 

@@ -6,15 +6,15 @@ trait SolvingTestSuite extends InoxTestSuite {
   import solvers._
 
   override val configurations = for {
-    solverName   <- Seq("nativez3", "unrollz3", "smt-z3", "smt-cvc4")
-    checkModels  <- Seq(true, false)
-    feelingLucky <- Seq(true, false)
-    unrollCores  <- Seq(true, false)
+    solverName        <- Seq("nativez3", "unrollz3", "smt-z3", "smt-cvc4")
+    checkModels       <- Seq(true, false)
+    feelingLucky      <- Seq(true, false)
+    unrollAssumptions <- Seq(true, false)
   } yield Seq(
-    InoxOption(InoxOptions.optSelectedSolver)(Set(solverName)),
+    InoxOption(InoxOptions.optSelectedSolvers)(Set(solverName)),
     InoxOption(optCheckModels)(checkModels),
     InoxOption(unrolling.optFeelingLucky)(feelingLucky),
-    InoxOption(unrolling.optUnrollCores)(unrollCores),
+    InoxOption(unrolling.optUnrollAssumptions)(unrollAssumptions),
     InoxOption(InoxOptions.optTimeout)(300)
   )
 }

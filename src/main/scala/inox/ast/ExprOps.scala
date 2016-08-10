@@ -108,4 +108,118 @@ trait ExprOps extends GenTreeOps {
     val Deconstructor(es, _) = e
     es foreach rec
   }
+
+  /** Simple, local optimization on string */
+  def simplifyString(expr: Expr): Expr = {
+    def simplify0(expr: Expr): Expr = (expr match {
+      case StringConcat(StringLiteral(""), b) => b
+      case StringConcat(b, StringLiteral("")) => b
+      case StringConcat(StringLiteral(a), StringLiteral(b)) => StringLiteral(a + b)
+      case StringLength(StringLiteral(a)) => IntLiteral(a.length)
+      case SubString(StringLiteral(a), IntLiteral(start), IntLiteral(end)) =>
+        StringLiteral(a.substring(start.toInt, end.toInt))
+      case _ => expr
+    }).copiedFrom(expr)
+
+    utils.fixpoint(simplePostTransform(simplify0))(expr)
+  }
+
+  /** Simple, local simplification on arithmetic
+    *
+    * You should not assume anything smarter than some constant folding and
+    * simple cancellation. To avoid infinite cycle we only apply simplification
+    * that reduce the size of the tree. The only guarantee from this function is
+    * to not augment the size of the expression and to be sound.
+    */
+  def simplifyArithmetic(expr: Expr): Expr = {
+    def simplify0(expr: Expr): Expr = (expr match {
+      case Plus(IntegerLiteral(i1), IntegerLiteral(i2)) => IntegerLiteral(i1 + i2)
+      case Plus(IntegerLiteral(zero), e) if zero == BigInt(0) => e
+      case Plus(e, IntegerLiteral(zero)) if zero == BigInt(0) => e
+      case Plus(e1, UMinus(e2)) => Minus(e1, e2)
+      case Plus(Plus(e, IntegerLiteral(i1)), IntegerLiteral(i2)) => Plus(e, IntegerLiteral(i1+i2))
+      case Plus(Plus(IntegerLiteral(i1), e), IntegerLiteral(i2)) => Plus(IntegerLiteral(i1+i2), e)
+
+      case Minus(e, IntegerLiteral(zero)) if zero == BigInt(0) => e
+      case Minus(IntegerLiteral(zero), e) if zero == BigInt(0) => UMinus(e)
+      case Minus(IntegerLiteral(i1), IntegerLiteral(i2)) => IntegerLiteral(i1 - i2)
+      case Minus(e1, UMinus(e2)) => Plus(e1, e2)
+      case Minus(e1, Minus(UMinus(e2), e3)) => Plus(e1, Plus(e2, e3))
+
+      case UMinus(IntegerLiteral(x)) => IntegerLiteral(-x)
+      case UMinus(UMinus(x)) => x
+      case UMinus(Plus(UMinus(e1), e2)) => Plus(e1, UMinus(e2))
+      case UMinus(Minus(e1, e2)) => Minus(e2, e1)
+
+      case Times(IntegerLiteral(i1), IntegerLiteral(i2)) => IntegerLiteral(i1 * i2)
+      case Times(IntegerLiteral(one), e) if one == BigInt(1) => e
+      case Times(IntegerLiteral(mone), e) if mone == BigInt(-1) => UMinus(e)
+      case Times(e, IntegerLiteral(one)) if one == BigInt(1) => e
+      case Times(IntegerLiteral(zero), _) if zero == BigInt(0) => IntegerLiteral(0)
+      case Times(_, IntegerLiteral(zero)) if zero == BigInt(0) => IntegerLiteral(0)
+      case Times(IntegerLiteral(i1), Times(IntegerLiteral(i2), t)) => Times(IntegerLiteral(i1*i2), t)
+      case Times(IntegerLiteral(i1), Times(t, IntegerLiteral(i2))) => Times(IntegerLiteral(i1*i2), t)
+      case Times(IntegerLiteral(i), UMinus(e)) => Times(IntegerLiteral(-i), e)
+      case Times(UMinus(e), IntegerLiteral(i)) => Times(e, IntegerLiteral(-i))
+      case Times(IntegerLiteral(i1), Division(e, IntegerLiteral(i2))) if i2 != BigInt(0) && i1 % i2 == BigInt(0) =>
+        Times(IntegerLiteral(i1/i2), e)
+
+      case Division(IntegerLiteral(i1), IntegerLiteral(i2)) if i2 != BigInt(0) => IntegerLiteral(i1 / i2)
+      case Division(e, IntegerLiteral(one)) if one == BigInt(1) => e
+
+      //here we put more expensive rules
+      //btw, I know those are not the most general rules, but they lead to good optimizations :)
+      case Plus(UMinus(Plus(e1, e2)), e3) if e1 == e3 => UMinus(e2)
+      case Plus(UMinus(Plus(e1, e2)), e3) if e2 == e3 => UMinus(e1)
+      case Minus(e1, e2) if e1 == e2 => IntegerLiteral(0)
+      case Minus(Plus(e1, e2), Plus(e3, e4)) if e1 == e4 && e2 == e3 => IntegerLiteral(0)
+      case Minus(Plus(e1, e2), Plus(Plus(e3, e4), e5)) if e1 == e4 && e2 == e3 => UMinus(e5)
+
+      case StringConcat(StringLiteral(""), a) => a
+      case StringConcat(a, StringLiteral("")) => a
+      case StringConcat(StringLiteral(a), StringLiteral(b)) => StringLiteral(a+b)
+      case StringConcat(StringLiteral(a), StringConcat(StringLiteral(b), c)) => StringConcat(StringLiteral(a+b), c)
+      case StringConcat(StringConcat(c, StringLiteral(a)), StringLiteral(b)) => StringConcat(c, StringLiteral(a+b))
+      case StringConcat(a, StringConcat(b, c)) => StringConcat(StringConcat(a, b), c)
+      //default
+      case e => e
+    }).copiedFrom(expr)
+
+    utils.fixpoint(simplePostTransform(simplify0))(expr)
+  }
+
+  /**
+    * Some helper methods for FractionLiterals
+    */
+  def normalizeFraction(fl: FractionLiteral) = {
+    val FractionLiteral(num, denom) = fl
+    val modNum = if (num < 0) -num else num
+    val modDenom = if (denom < 0) -denom else denom
+    val divisor = modNum.gcd(modDenom)
+    val simpNum = num / divisor
+    val simpDenom = denom / divisor
+    if (simpDenom < 0)
+      FractionLiteral(-simpNum, -simpDenom)
+    else
+      FractionLiteral(simpNum, simpDenom)
+  }
+
+  val realzero = FractionLiteral(0, 1)
+  def floor(fl: FractionLiteral): FractionLiteral = {
+    val FractionLiteral(n, d) = normalizeFraction(fl)
+    if (d == 0) throw new IllegalStateException("denominator zero")
+    if (n == 0) realzero
+    else if (n > 0) {
+      //perform integer division
+      FractionLiteral(n / d, 1)
+    } else {
+      //here the number is negative
+      if (n % d == 0)
+        FractionLiteral(n / d, 1)
+      else {
+        //perform integer division and subtract 1
+        FractionLiteral(n / d - 1, 1)
+      }
+    }
+  }
 }

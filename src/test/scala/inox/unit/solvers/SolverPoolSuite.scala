@@ -1,18 +1,15 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon.unit.solvers
+package inox.unit.solvers
 
-import leon._
-import leon.test._
-import leon.solvers._
-import leon.solvers.combinators._
+import inox._
+import inox.solvers._
+import inox.solvers.combinators._
 
-import leon.purescala.Definitions._
-import leon.purescala.Expressions._
+class SolverPoolSuite extends InoxTestSuite {
+  import inox.trees._
 
-class SolverPoolSuite extends LeonTestSuite {
-
-  private class DummySolver(val sctx: SolverContext, val program: Program) extends Solver with NaiveAssumptionSolver {
+  private trait DummySolver extends Solver {
     val name = "Dummy"
     val description = "dummy"
 
@@ -27,8 +24,11 @@ class SolverPoolSuite extends LeonTestSuite {
     def recoverInterrupt() {}
   }
 
-  def sfactory(implicit ctx: LeonContext): SolverFactory[Solver] = {
-    SolverFactory("dummy", () => new DummySolver(ctx.toSctx, Program.empty))
+  def sfactory(implicit ctx: InoxContext): SolverFactory { val program: InoxProgram } = {
+    val p = InoxProgram(ctx, new Symbols(Map.empty, Map.empty))
+    SolverFactory.create(p)("dummy", () => new DummySolver {
+      val program: p.type = p
+    })
   }
 
   val poolSize = 5;
