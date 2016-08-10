@@ -294,7 +294,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
         declareVariable(Variable(FreshIdentifier("Unit"), UnitType))
 
       case IntegerLiteral(i)     => if (i >= 0) Ints.NumeralLit(i) else Ints.Neg(Ints.NumeralLit(-i))
-      case BVLiteral(bits, _)    => FixedSizeBitVectors.BitVectorLit(bits)
+      case BVLiteral(bits, size)    => FixedSizeBitVectors.BitVectorLit(List.range(1, size + 1).map(i => bits(i)))
       case FractionLiteral(n, d) => Reals.Div(Reals.NumeralLit(n), Reals.NumeralLit(d))
       case CharLiteral(c)        => FixedSizeBitVectors.BitVectorLit(Hexadecimal.fromInt(c.toInt))
       case BooleanLiteral(v)     => Core.BoolConst(v)
