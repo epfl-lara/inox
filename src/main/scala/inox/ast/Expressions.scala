@@ -7,19 +7,11 @@ import scala.collection.BitSet
 
 /** Expression definitions for Pure Scala.
   *
-  * If you are looking for things such as function or class definitions,
-  * please have a look in [[purescala.Definitions]].
+  * Every expression in Inox inherits from [[Expressions.Expr]].
+  * Expressions can be manipulated with functions in [[Constructors]] and [[ExprOps]].
   *
-  * Every expression in Leon inherits from [[Expr]]. The AST definitions are simple
-  * case classes, with no behaviour. In particular, they do not perform smart
-  * rewriting. What you build is what you get. For example,
-  * {{{
-  * And(BooleanLiteral(true), Variable(id, BooleanType)) != Variable(id, BooleanType)
-  * }}}
-  * because the ``And`` constructor will simply build a tree without checking for
-  * optimization opportunities. Unless you need exact control on the structure
-  * of the trees, you should use constructors in [[purescala.Constructors]], that
-  * simplify the trees they produce.
+  * If you are looking for things such as function or class definitions,
+  * please have a look in [[inox.ast.Definitions]].
   *
   * @define encodingof Encoding of
   * @define noteBitvector (32-bit vector)
@@ -76,7 +68,7 @@ trait Expressions { self: Trees =>
     * @param vd The ValDef used in body, defined just after '''val'''
     * @param value The value assigned to the identifier, after the '''=''' sign
     * @param body The expression following the ``val ... = ... ;`` construct
-    * @see [[purescala.Constructors#let purescala's constructor let]]
+    * @see [[Constructors#let purescala's constructor let]]
     */
   case class Let(vd: ValDef, value: Expr, body: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = {
@@ -247,7 +239,7 @@ trait Expressions { self: Trees =>
   /** $encodingof `value.selector` where value is of a case class type
     *
     * If you are not sure about the requirement you should use
-    * [[purescala.Constructors#caseClassSelector purescala's constructor caseClassSelector]]
+    * [[Constructors#caseClassSelector purescala's constructor caseClassSelector]]
     */
   case class CaseClassSelector(caseClass: Expr, selector: Identifier) extends Expr with CachingTyped {
 
@@ -287,8 +279,8 @@ trait Expressions { self: Trees =>
   /** $encodingof `... && ...`
     *
     * [[exprs]] must contain at least two elements; if you are not sure about this,
-    * you should use [[purescala.Constructors#and purescala's constructor and]]
-    * or [[purescala.Constructors#andJoin purescala's constructor andJoin]]
+    * you should use [[Constructors#and purescala's constructor and]]
+    * or [[Constructors#andJoin purescala's constructor andJoin]]
     */
   case class And(exprs: Seq[Expr]) extends Expr with CachingTyped {
     require(exprs.size >= 2)
@@ -305,8 +297,8 @@ trait Expressions { self: Trees =>
   /** $encodingof `... || ...`
     *
     * [[exprs]] must contain at least two elements; if you are not sure about this,
-    * you should use [[purescala.Constructors#or purescala's constructor or]] or
-    * [[purescala.Constructors#orJoin purescala's constructor orJoin]]
+    * you should use [[Constructors#or purescala's constructor or]] or
+    * [[Constructors#orJoin purescala's constructor orJoin]]
     */
   case class Or(exprs: Seq[Expr]) extends Expr with CachingTyped {
     require(exprs.size >= 2)
@@ -325,7 +317,7 @@ trait Expressions { self: Trees =>
     * This is not a standard Scala operator, but it results from an implicit
     * conversion in the Leon library.
     *
-    * @see [[leon.purescala.Constructors.implies]]
+    * @see [[Constructors.implies]]
     */
   case class Implies(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = {
@@ -336,7 +328,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `!...`
     *
-    * @see [[leon.purescala.Constructors.not]]
+    * @see [[Constructors.not]]
     */
   case class Not(expr: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = {
@@ -525,7 +517,7 @@ trait Expressions { self: Trees =>
     *
     * [[exprs]] should always contain at least 2 elements.
     * If you are not sure about this requirement, you should use
-    * [[leon.purescala.Constructors.tupleWrap purescala's constructor tupleWrap]]
+    * [[Constructors.tupleWrap purescala's constructor tupleWrap]]
     *
     * @param exprs The expressions in the tuple
     */
@@ -538,7 +530,7 @@ trait Expressions { self: Trees =>
     *
     * Index is 1-based, first element of tuple is 1.
     * If you are not sure that [[tuple]] is indeed of a TupleType,
-    * you should use [[leon.purescala.Constructors.tupleSelect(t:leon\.purescala\.Expressions\.Expr,index:Int,isTuple:Boolean):leon\.purescala\.Expressions\.Expr* purescala's constructor tupleSelect]]
+    * you should use [[Constructors.tupleSelect purescala's constructor tupleSelect]]
     */
   case class TupleSelect(tuple: Expr, index: Int) extends Expr with CachingTyped {
     require(index >= 1)

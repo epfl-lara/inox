@@ -5,8 +5,10 @@ package ast
 
 import scala.collection.mutable.{Map => MutableMap}
 
+/** Provides types that describe Inox definitions. */
 trait Definitions { self: Trees =>
 
+  /** The base trait for Inox definitions */
   sealed trait Definition extends Tree {
     val id: Identifier
 
@@ -82,7 +84,7 @@ trait Definitions { self: Trees =>
 
   type Symbols >: Null <: AbstractSymbols
 
-  /** A wrapper for a program. For now a program is simply a single object. */
+  /** Provides the class and function definitions of a program and lookups on them */
   trait AbstractSymbols
      extends Printable
         with TypeOps
@@ -158,12 +160,14 @@ trait Definitions { self: Trees =>
 
   // Compiler annotations given in the source code as @annot
   case class Annotation(annot: String, args: Seq[Option[Any]]) extends FunctionFlag with ClassFlag
-  // Class has ADT invariant method
+  /** Denotes that this class is refined by invariant ''id'' */
   case class HasADTInvariant(id: Identifier) extends ClassFlag
   // Is inlined
   case object IsInlined extends FunctionFlag
 
-  /** Represents a class definition (either an abstract- or a case-class) */
+  /** Represents a class definition (either an abstract- or a case-class).
+    * In functional terms, abstract classes are ADTs and case classes are ADT constructors.
+    */
   sealed trait ClassDef extends Definition {
     val id: Identifier
     val tparams: Seq[TypeParameterDef]
@@ -172,7 +176,10 @@ trait Definitions { self: Trees =>
     def annotations: Set[String] = extAnnotations.keySet
     def extAnnotations: Map[String, Seq[Option[Any]]] = flags.collect { case Annotation(s, args) => s -> args }.toMap
 
+    /** The root of the class hierarchy */
     def root(implicit s: Symbols): ClassDef
+
+    /** An invariant that refines this [[ClassDef]] */
     def invariant(implicit s: Symbols): Option[FunDef] = {
       val rt = root
       if (rt ne this) rt.invariant
@@ -189,7 +196,7 @@ trait Definitions { self: Trees =>
     def typed(implicit s: Symbols): TypedClassDef
   }
 
-  /** Abstract classes. */
+  /** Abstract classes / ADTs */
   class AbstractClassDef(val id: Identifier,
                          val tparams: Seq[TypeParameterDef],
                          val children: Seq[Identifier],
@@ -232,7 +239,14 @@ trait Definitions { self: Trees =>
     }
   }
 
-  /** Case classes/ case objects. */
+  /** Case classes/ ADT constructors. For single-case classes these may coincide
+    *
+    * @param id
+    * @param tparams
+    * @param parent
+    * @param fields
+    * @param flags
+    */
   class CaseClassDef(val id: Identifier,
                      val tparams: Seq[TypeParameterDef],
                      val parent: Option[Identifier],
@@ -240,7 +254,7 @@ trait Definitions { self: Trees =>
                      val flags: Set[ClassFlag]) extends ClassDef {
 
     val isAbstract = false
-
+    /** Returns the index of the field with the specified id */
     def selectorID2Index(id: Identifier) : Int = {
       val index = fields.indexWhere(_.id == id)
 
@@ -261,13 +275,14 @@ trait Definitions { self: Trees =>
     }
   }
 
+  /** Represents a [[ClassDef]] whose type parameters have been instantiated to ''tps'' */
   sealed abstract class TypedClassDef extends Tree {
     val cd: ClassDef
     val tps: Seq[Type]
     implicit val symbols: Symbols
 
     val id: Identifier = cd.id
-
+    /** The root of the class hierarchy */
     lazy val root: TypedClassDef = cd.root.typed(tps)
     lazy val invariant: Option[TypedFunDef] = cd.invariant.map(_.typed(tps))
     lazy val hasInvariant: Boolean = invariant.isDefined
@@ -285,10 +300,12 @@ trait Definitions { self: Trees =>
     }
   }
 
+  /** Represents an [[AbstractClassDef]] whose type parameters have been instantiated to ''tps'' */
   case class TypedAbstractClassDef(cd: AbstractClassDef, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedClassDef {
     def descendants: Seq[TypedCaseClassDef] = cd.descendants.map(_.typed(tps))
   }
 
+  /** Represents a [[CaseClassDef]] whose type parameters have been instantiated to ''tps'' */
   case class TypedCaseClassDef(cd: CaseClassDef, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedClassDef {
     lazy val fields: Seq[ValDef] = {
       val tmap = (cd.typeArgs zip tps).toMap
@@ -305,18 +322,11 @@ trait Definitions { self: Trees =>
   }
 
 
-  /** Function/method definition.
+  /** Function definition
     *
-    *  This class represents methods or fields of objects or classes. By "fields" we mean
-    *  fields defined in the body of a class/object, not the constructor arguments of a case class
-    *  (those are accessible through [[leon.purescala.Definitions.ClassDef.fields]]).
-    *
-    *  When it comes to verification, all are treated the same (as functions).
-    *  They are only differentiated when it comes to code generation/ pretty printing.
-    *  By default, the FunDef represents a function/method as opposed to a field,
-    *  unless otherwise specified by its flags.
-    *
-    *  Bear in mind that [[id]] will not be consistently typed.
+    * @param id The identifier which will refer to this function.
+    * @param body The optional body of this function. Empty body functions are treated as uninterpreted
+    * @param flags Flags that annotate this function with attributes.
     */
   class FunDef(
     val id: Identifier,
@@ -327,20 +337,20 @@ trait Definitions { self: Trees =>
     val flags: Set[FunctionFlag]
   ) extends Definition {
 
-    def hasBody          = body.isDefined
+    def hasBody = body.isDefined
 
     def annotations: Set[String] = extAnnotations.keySet
     def extAnnotations: Map[String, Seq[Option[Any]]] = flags.collect {
       case Annotation(s, args) => s -> args
     }.toMap
 
-    /* Wrapping in TypedFunDef */
-
+    /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with the specified type parameters */
     def typed(tps: Seq[Type])(implicit s: Symbols): TypedFunDef = {
       assert(tps.size == tparams.size)
       TypedFunDef(this, tps)
     }
 
+    /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with its own type parameters */
     def typed(implicit s: Symbols): TypedFunDef = typed(tparams.map(_.tp))
 
     /* Auxiliary methods */
@@ -349,12 +359,14 @@ trait Definitions { self: Trees =>
 
     def typeArgs = tparams map (_.tp)
 
+    /** Applies this function on some arguments; type parameters are inferred. */
     def applied(args: Seq[Expr])(implicit s: Symbols): FunctionInvocation = s.functionInvocation(this, args)
+    /** Applies this function on its formal parameters */
     def applied = FunctionInvocation(id, typeArgs, params map (_.toVariable))
   }
 
 
-  // Wrapper for typing function according to valuations for type parameters
+  /** Represents a [[FunDef]] whose type parameters have been instantiated with the specified types */
   case class TypedFunDef(fd: FunDef, tps: Seq[Type])(implicit symbols: Symbols) extends Tree {
     val id = fd.id
 
@@ -370,13 +382,15 @@ trait Definitions { self: Trees =>
       (fd.typeArgs zip tps).toMap.filter(tt => tt._1 != tt._2)
     }
 
-    def translated(t: Type): Type = symbols.instantiateType(t, typesMap)
+    /** A [[Type]] instantiated with this [[TypedFunDef]]'s type instantiation */
+    def instantiate(t: Type): Type = symbols.instantiateType(t, typesMap)
 
-    def translated(e: Expr): Expr = symbols.instantiateType(e, typesMap)
+    /** A [[Expr]] instantiated with this [[TypedFunDef]]'s type instantiation */
+    def instantiate(e: Expr): Expr = symbols.instantiateType(e, typesMap)
 
     /** A mapping from this [[TypedFunDef]]'s formal parameters to real arguments
       *
-      * @param realArgs The arguments to which the formal argumentas are mapped
+      * @param realArgs The arguments to which the formal arguments are mapped
       */
     def paramSubst(realArgs: Seq[Expr]) = {
       require(realArgs.size == params.size)
@@ -392,26 +406,31 @@ trait Definitions { self: Trees =>
       exprOps.replaceFromSymbols(paramSubst(realArgs), e)
     }
 
+    /** Apply this [[inox.ast.Definitions.TypedFunDef]] on specified arguments */
     def applied(realArgs: Seq[Expr]): FunctionInvocation = {
       FunctionInvocation(id, tps, realArgs)
     }
 
+    /** Apply this [[inox.ast.Definitions.TypedFunDef]] on its formal parameters */
     def applied: FunctionInvocation = applied(params map { _.toVariable })
 
-    /** Params will contain ValDefs instantiated with the correct types */
+    /** The paremeters of the respective [[FunDef]] instantiated with the real type parameters */
     lazy val params: Seq[ValDef] = {
       if (typesMap.isEmpty) {
         fd.params
       } else {
-        fd.params.map(vd => vd.copy(tpe = translated(vd.getType)))
+        fd.params.map(vd => vd.copy(tpe = instantiate(vd.getType)))
       }
     }
 
+    /** The function type corresponding to this [[TypedFunDef]]'s arguments and return type */
     lazy val functionType = FunctionType(params.map(_.getType).toList, returnType)
 
-    lazy val returnType: Type = translated(fd.returnType)
+    /** The return type of the respective [[FunDef]] instantiated with the real type parameters */
+    lazy val returnType: Type = instantiate(fd.returnType)
 
-    lazy val body          = fd.body map translated
-    def hasBody           = body.isDefined
+    /** The body of the respective [[FunDef]] instantiated with the real type parameters */
+    lazy val body = fd.body map instantiate
+    def hasBody   = body.isDefined
   }
 }
