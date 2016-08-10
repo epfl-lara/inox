@@ -45,7 +45,7 @@ trait AbstractSolver extends Interruptible {
 
   object SolverUnsupportedError {
     def msg(t: Tree, reason: Option[String]) = {
-      s"(of ${t.getClass}) is unsupported by solver ${name}" + reason.map(":\n  " + _ ).getOrElse("")
+      s"(of ${t.getClass}) is unsupported by solver $name" + reason.map(":\n  " + _ ).getOrElse("")
     }
   }
 
@@ -84,7 +84,6 @@ trait AbstractSolver extends Interruptible {
 }
 
 trait Solver extends AbstractSolver {
-  import program._
   import program.trees._
 
   type Trees = Expr

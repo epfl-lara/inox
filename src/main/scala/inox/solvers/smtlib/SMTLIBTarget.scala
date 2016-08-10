@@ -28,6 +28,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
   import program._
   import trees._
   import symbols._
+
   def targetName: String
 
   implicit val debugSection: DebugSection

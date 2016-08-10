@@ -1,5 +1,7 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
+import inox.ast.TypeDeconstructor
+
 /** Core package of the Inox solving interface
   *
   * == Structure ==
@@ -43,6 +45,11 @@ package object inox {
 
   object trees extends ast.Trees {
 
+    object NAryType extends {
+      protected val s: trees.type = trees
+      protected val t: trees.type = trees
+    } with TypeDeconstructor
+
     class Symbols(
       val functions: Map[Identifier, FunDef],
       val classes: Map[Identifier, ClassDef]
@@ -71,5 +78,6 @@ package object inox {
         this.classes ++ classes.map(cd => cd.id -> cd)
       )
     }
+
   }
 }

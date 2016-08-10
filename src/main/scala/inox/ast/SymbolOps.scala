@@ -190,7 +190,7 @@ trait SymbolOps { self: TypeOps =>
       case v: Variable if s.isDefinedAt(v) => rec(s(v), s)
       case l @ Let(i,e,b) => rec(b, s + (i.toVariable -> rec(e, s)))
       case i @ IfExpr(t1,t2,t3) => IfExpr(rec(t1, s),rec(t2, s),rec(t3, s)).copiedFrom(i)
-      case n @ Deconstructor(args, recons) =>
+      case n @ Operator(args, recons) =>
         var change = false
         val rargs = args.map(a => {
           val ra = rec(a, s)
@@ -422,7 +422,7 @@ trait SymbolOps { self: TypeOps =>
           rec(lhs, path) ++
           rec(rhs, path withCond lhs)
 
-        case Operator(es, _) =>
+        case Deconstructor(es, _) =>
           es.flatMap(rec(_, path))
 
         case _ => sys.error("Expression " + expr + "["+expr.getClass+"] is not extractable")

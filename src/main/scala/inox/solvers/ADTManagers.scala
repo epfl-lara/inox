@@ -13,13 +13,13 @@ trait ADTManagers {
 
   case class DataType(sym: Identifier, cases: Seq[Constructor]) extends Printable {
     def asString(implicit opts: PrinterOptions) = {
-      "Datatype: " + sym.asString(opts) + "\n" + cases.map(c => " - " + c.asString(opts)).mkString("\n")
+      "Datatype: " + sym.toString + "\n" + cases.map(c => " - " + c.asString(opts)).mkString("\n")
     }
   }
 
   case class Constructor(sym: Identifier, tpe: Type, fields: Seq[(Identifier, Type)]) extends Printable {
     def asString(implicit opts: PrinterOptions) = {
-      sym.asString(opts) + " [" + tpe.asString(opts) + "] " + fields.map(f => f._1.asString(opts) + ": " + f._2.asString(opts)).mkString("(", ", ", ")")
+      sym.toString + " [" + tpe.asString(opts) + "] " + fields.map(f => f._1.toString + ": " + f._2.toString).mkString("(", ", ", ")")
     }
   }
 

@@ -5,33 +5,37 @@ package ast
 
 import utils._
 
-/** A type that pattern matches agains a type of [[Tree]] and extracts it subtrees,
-  * and a builder that reconstructs a tree of the same type from subtrees.
+/** A type that pattern matches agains a type of [[Tree]] and extracts it Sources,
+  * and a builder that reconstructs a tree of the same type from Sources.
   *
-  * @tparam SubTree The type of the tree
+  * @tparam Source The type of the tree
   */
 trait TreeExtractor {
-  val trees: Trees
-  import trees._
+  protected val s: Trees
+  protected val t: Trees
 
-  type SubTree <: Tree
-  def unapply(e: SubTree): Option[(Seq[SubTree], (Seq[SubTree]) => SubTree)]
+  type Source <: s.Tree
+  type Target <: t.Tree
+  def unapply(e: Source): Option[(Seq[Source], (Seq[Target]) => Target)]
 }
 
 /** Generic tree traversals based on a deconstructor of a specific tree type
   *
-  * @tparam SubTree The type of the tree
+  * @tparam Source The type of the tree
   */
-trait GenTreeOps {
-  protected val trees: Trees
-  import trees._
+trait GenTreeOps { self =>
+  protected val sourceTrees: Trees
+  protected val targetTrees: Trees
 
-  type SubTree <: Tree
+  type Source <: sourceTrees.Tree
+  type Target <: targetTrees.Tree
 
-  /** An extractor for [[SubTree]]*/
+  /** An extractor for [[Source]]*/
   val Deconstructor: TreeExtractor {
-    val trees: GenTreeOps.this.trees.type
-    type SubTree = GenTreeOps.this.SubTree
+    val s: self.sourceTrees.type
+    val t: self.targetTrees.type
+    type Source = self.Source
+    type Target = self.Target
   }
 
   /* ========
@@ -48,12 +52,12 @@ trait GenTreeOps {
     * to right), and combine the results along with the current node value.
     *
     * @param f a function that takes the current node and the seq
-    *        of results form the subtrees.
+    *        of results form the Sources.
     * @param e The value on which to apply the fold.
-    * @return The expression after applying `f` on all subtrees.
+    * @return The expression after applying `f` on all Sources.
     * @note the computation is lazy, hence you should not rely on side-effects of `f`
     */
-  def fold[T](f: (SubTree, Seq[T]) => T)(e: SubTree): T = {
+  def fold[T](f: (Source, Seq[T]) => T)(e: Source): T = {
     val rec = fold(f) _
     val Deconstructor(es, _) = e
 
@@ -66,7 +70,7 @@ trait GenTreeOps {
   /** Pre-traversal of the tree.
     *
     * Invokes the input function on every node '''before''' visiting
-    * children. Traverse children from left to right subtrees.
+    * children. Traverse children from left to right Sources.
     *
     * e.g.
     * {{{
@@ -80,7 +84,7 @@ trait GenTreeOps {
     * @param f a function to apply on each node of the expression
     * @param e the expression to traverse
     */
-  def preTraversal(f: SubTree => Unit)(e: SubTree): Unit = {
+  def preTraversal(f: Source => Unit)(e: Source): Unit = {
     val rec = preTraversal(f) _
     val Deconstructor(es, _) = e
     f(e)
@@ -104,7 +108,7 @@ trait GenTreeOps {
     * @param f a function to apply on each node of the expression
     * @param e the expression to traverse
     */
-  def postTraversal(f: SubTree => Unit)(e: SubTree): Unit = {
+  def postTraversal(f: Source => Unit)(e: Source): Unit = {
     val rec = postTraversal(f) _
     val Deconstructor(es, _) = e
     es.foreach(rec)
@@ -142,8 +146,8 @@ trait GenTreeOps {
     *
     * @note The mode with applyRec true can diverge if f is not well formed
     */
-  def preMap(f: SubTree => Option[SubTree], applyRec : Boolean = false)(e: SubTree): SubTree = {
-    def g(t: SubTree, u: Unit): (Option[SubTree], Unit) = (f(t), ())
+  def preMap(f: Source => Option[Source], applyRec : Boolean = false)(e: Source): Target = {
+    def g(t: Source, u: Unit): (Option[Source], Unit) = (f(t), ())
     preMapWithContext[Unit](g, applyRec)(e, ())
   }
   
@@ -151,7 +155,7 @@ trait GenTreeOps {
   /** Post-transformation of the tree.
     *
     * Takes a partial function of replacements.
-    * Substitutes '''after''' recursing down the trees.
+    * Substitutes '''after''' recurring down the trees.
     *
     * Supports two modes :
     *
@@ -177,74 +181,24 @@ trait GenTreeOps {
     *
     * @note The mode with applyRec true can diverge if f is not well formed (i.e. not convergent)
     */
-  def postMap(f: SubTree => Option[SubTree], applyRec : Boolean = false)(e: SubTree): SubTree = {
+  def postMap(f: Target => Option[Target], applyRec : Boolean = false)(e: Source): Target = {
     val rec = postMap(f, applyRec) _
 
     val Deconstructor(es, builder) = e
     val newEs = es.map(rec)
-    val newV = {
-      if ((newEs zip es).exists { case (bef, aft) => aft ne bef }) {
+    val newV: Target = {
+      if ((newEs zip es).exists { case (bef, aft) => aft ne bef } || (sourceTrees ne targetTrees)) {
         builder(newEs).copiedFrom(e)
       } else {
-        e
+        e.asInstanceOf[Target]
       }
     }
 
     if (applyRec) {
       // Apply f as long as it returns Some()
-      fixpoint { e : SubTree => f(e) getOrElse e } (newV)
+      fixpoint { e : Target => f(e) getOrElse e } (newV)
     } else {
       f(newV) getOrElse newV
-    }
-  }
-
-  /** Post-transformation of the tree using flattening methods.
-    *
-    * Takes a partial function of replacements.
-    * Substitutes '''after''' recursing down the trees.
-    *
-    * Supports two modes :
-    *
-    *   - If applyRec is false (default), will only substitute once on each level.
-    *   e.g.
-    *   {{{
-    *     Add(a, Minus(b, c)) with replacements: Minus(b,c) -> z, Minus(e,c) -> d, b -> e
-    *   }}}
-    *   will yield:
-    *   {{{
-    *     Add(a, Minus(e, c))
-    *   }}}
-    *
-    *   - If applyRec is true, it will substitute multiple times on each level:
-    *   e.g.
-    *   {{{
-    *     Add(a, Minus(b, c)) with replacements: Minus(e,c) -> d, b -> e, d -> f
-    *   }}}
-    *   will yield:
-    *   {{{
-    *     Add(a, f)
-    *   }}}
-    *
-    * @note The mode with applyRec true can diverge if f is not well formed (i.e. not convergent)
-    */
-  def postFlatmap(f: SubTree => Option[Seq[SubTree]], applyRec: Boolean = false)(e: SubTree): Seq[SubTree] = {
-    val rec = postFlatmap(f, applyRec) _
-
-    val Deconstructor(es, builder) = e
-    val newEss = es.map(rec)
-    val newVs: Seq[SubTree] = SeqUtils.cartesianProduct(newEss).map { newEs =>
-      if ((newEs zip es).exists { case (bef, aft) => aft ne bef }) {
-        builder(newEs).copiedFrom(e)
-      } else {
-        e
-      }
-    }
-
-    if (applyRec) {
-      // Apply f as long as it returns Some()
-      fixpoint { (e : Seq[SubTree]) => e.flatMap(newV => f(newV) getOrElse Seq(newV)) } (newVs)
-    } else {
-      newVs.flatMap((newV: SubTree) => f(newV) getOrElse Seq(newV))
     }
   }
 
@@ -265,11 +219,11 @@ trait GenTreeOps {
     * @see [[simplePreTransform]]
     * @see [[simplePostTransform]]
     */
-  def genericTransform[C](pre:  (SubTree, C) => (SubTree, C),
-                          post: (SubTree, C) => (SubTree, C),
-                          combiner: (SubTree, Seq[C]) => C)(init: C)(expr: SubTree) = {
+  def genericTransform[C](pre:  (Source, C) => (Source, C),
+                          post: (Target, C) => (Target, C),
+                          combiner: (Target, Seq[C]) => C)(init: C)(expr: Source) = {
 
-    def rec(eIn: SubTree, cIn: C): (SubTree, C) = {
+    def rec(eIn: Source, cIn: C): (Target, C) = {
 
       val (expr, ctx) = pre(eIn, cIn)
       val Deconstructor(es, builder) = expr
@@ -286,27 +240,27 @@ trait GenTreeOps {
     rec(expr, init)
   }
 
-  def noCombiner(e: SubTree, subCs: Seq[Unit]) = ()
-  def noTransformer[C](e: SubTree, c: C) = (e, c)
+  def noCombiner(e: Target, subCs: Seq[Unit]) = ()
+  def noTransformer[C](e: Source, c: C) = (e, c)
 
   /** A [[genericTransform]] with the trivial combiner that returns () */
-  def simpleTransform(pre: SubTree => SubTree, post: SubTree => SubTree)(tree: SubTree) = {
-    val newPre  = (e: SubTree, c: Unit) => (pre(e), ())
-    val newPost = (e: SubTree, c: Unit) => (post(e), ())
+  def simpleTransform(pre: Source => Source, post: Target => Target)(tree: Source) = {
+    val newPre  = (e: Source, c: Unit) => (pre(e), ())
+    val newPost = (e: Target, c: Unit) => (post(e), ())
 
     genericTransform[Unit](newPre, newPost, noCombiner)(())(tree)._1
   }
 
   /** A [[simpleTransform]] without a post-transformation */
-  def simplePreTransform(pre: SubTree => SubTree)(tree: SubTree) = {
-    val newPre  = (e: SubTree, c: Unit) => (pre(e), ())
+  def simplePreTransform(pre: Source => Source)(tree: Source) = {
+    val newPre  = (e: Source, c: Unit) => (pre(e), ())
 
     genericTransform[Unit](newPre, (_, _), noCombiner)(())(tree)._1
   }
 
   /** A [[simpleTransform]] without a pre-transformation */
-  def simplePostTransform(post: SubTree => SubTree)(tree: SubTree) = {
-    val newPost = (e: SubTree, c: Unit) => (post(e), ())
+  def simplePostTransform(post: Target => Target)(tree: Source) = {
+    val newPost = (e: Target, c: Unit) => (post(e), ())
 
     genericTransform[Unit]((e,c) => (e, None), newPost, noCombiner)(())(tree)._1
   }
@@ -321,15 +275,15 @@ trait GenTreeOps {
     * the recursion in its children. The context is "lost" when going back up,
     * so changes made by one node will not be see by its siblings.
     */
-  def preMapWithContext[C](f: (SubTree, C) => (Option[SubTree], C), applyRec: Boolean = false)
-                          (e: SubTree, c: C): SubTree = {
+  def preMapWithContext[C](f: (Source, C) => (Option[Source], C), applyRec: Boolean = false)
+                          (e: Source, c: C): Target = {
 
-    def rec(expr: SubTree, context: C): SubTree = {
+    def rec(expr: Source, context: C): Target = {
 
       val (newV, newCtx) = {
         if(applyRec) {
           var ctx = context
-          val finalV = fixpoint{ e: SubTree => {
+          val finalV = fixpoint{ e: Source => {
             val res = f(e, ctx)
             ctx = res._2
             res._1.getOrElse(e)
@@ -344,10 +298,10 @@ trait GenTreeOps {
       val Deconstructor(es, builder) = newV
       val newEs = es.map(e => rec(e, newCtx))
 
-      if ((newEs zip es).exists { case (bef, aft) => aft ne bef }) {
+      if ((newEs zip es).exists { case (bef, aft) => aft ne bef } || (sourceTrees ne targetTrees)) {
         builder(newEs).copiedFrom(newV)
       } else {
-        newV
+        newV.asInstanceOf[Target]
       }
 
     }
@@ -355,10 +309,10 @@ trait GenTreeOps {
     rec(e, c)
   }
 
-  def preFoldWithContext[C](f: (SubTree, C) => C, combiner: (SubTree, C, Seq[C]) => C)
-                           (e: SubTree, c: C): C = {
+  def preFoldWithContext[C](f: (Source, C) => C, combiner: (Source, C, Seq[C]) => C)
+                           (e: Source, c: C): C = {
 
-    def rec(eIn: SubTree, cIn: C): C = {
+    def rec(eIn: Source, cIn: C): C = {
       val ctx = f(eIn, cIn)
       val Deconstructor(es, _) = eIn
       val cs = es.map{ rec(_, ctx) }
@@ -377,57 +331,48 @@ trait GenTreeOps {
    */
 
   /** Checks if the predicate holds in some sub-expression */
-  def exists(matcher: SubTree => Boolean)(e: SubTree): Boolean = {
+  def exists(matcher: Source => Boolean)(e: Source): Boolean = {
     fold[Boolean]({ (e, subs) =>  matcher(e) || subs.contains(true) } )(e)
   }
 
   /** Collects a set of objects from all sub-expressions */
-  def collect[T](matcher: SubTree => Set[T])(e: SubTree): Set[T] = {
+  def collect[T](matcher: Source => Set[T])(e: Source): Set[T] = {
     fold[Set[T]]({ (e, subs) => matcher(e) ++ subs.flatten } )(e)
   }
 
-  def collectPreorder[T](matcher: SubTree => Seq[T])(e: SubTree): Seq[T] = {
+  def collectPreorder[T](matcher: Source => Seq[T])(e: Source): Seq[T] = {
     fold[Seq[T]]({ (e, subs) => matcher(e) ++ subs.flatten } )(e)
   }
 
   /** Returns a set of all sub-expressions matching the predicate */
-  def filter(matcher: SubTree => Boolean)(e: SubTree): Set[SubTree] = {
-    collect[SubTree] { e => Set(e) filter matcher }(e)
+  def filter(matcher: Source => Boolean)(e: Source): Set[Source] = {
+    collect[Source] { e => Set(e) filter matcher }(e)
   }
 
   /** Counts how many times the predicate holds in sub-expressions */
-  def count(matcher: SubTree => Int)(e: SubTree): Int = {
+  def count(matcher: Source => Int)(e: Source): Int = {
     fold[Int]({ (e, subs) => matcher(e) + subs.sum } )(e)
   }
 
   /** Replaces bottom-up sub-expressions by looking up for them in a map */
-  def replace(substs: Map[SubTree,SubTree], expr: SubTree) : SubTree = {
+  def replace(substs: Map[Target, Target], expr: Source): Target = {
     postMap(substs.lift)(expr)
   }
 
-  /** Replaces bottom-up sub-expressions by looking up for them in the provided order */
-  def replaceSeq(substs: Seq[(SubTree, SubTree)], expr: SubTree): SubTree = {
-    var res = expr
-    for (s <- substs) {
-      res = replace(Map(s), res)
-    }
-    res
-  }
-
   /** Computes the size of a tree */
-  def formulaSize(t: SubTree): Int = {
+  def formulaSize(t: Source): Int = {
     val Deconstructor(ts, _) = t
     ts.map(formulaSize).sum + 1
   }
 
   /** Computes the depth of the tree */
-  def depth(e: SubTree): Int = {
+  def depth(e: Source): Int = {
     fold[Int]{ (_, sub) => 1 + (0 +: sub).max }(e)
   }
 
   /** Given a tree `toSearch` present in `treeToLookInto`, if `treeToLookInto` has the same shape as `treeToExtract`,
    *  returns the matching expression in `treeToExtract``.*/
-  def lookup[T](checker: SubTree => Boolean, toExtract: SubTree => T)(treeToLookInto: SubTree, treeToExtract: SubTree): Option[T] = {
+  def lookup[T](checker: Source => Boolean, toExtract: Source => T)(treeToLookInto: Source, treeToExtract: Source): Option[T] = {
     if(checker(treeToLookInto)) return Some(toExtract(treeToExtract))
     
     val Deconstructor(childrenToLookInto, _) = treeToLookInto
@@ -443,7 +388,7 @@ trait GenTreeOps {
   }
 
   object Same {
-    def unapply(tt: (SubTree, SubTree)): Option[(SubTree, SubTree)] = {
+    def unapply(tt: (Source, Source)): Option[(Source, Source)] = {
       if (tt._1.getClass == tt._2.getClass) {
         Some(tt)
       } else {

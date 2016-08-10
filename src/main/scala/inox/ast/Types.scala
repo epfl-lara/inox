@@ -51,9 +51,8 @@ trait Types { self: Trees =>
     override def toString = "Int32Type"
   }
 
-  class TypeParameter private (name: String) extends Type {
-    val id = FreshIdentifier(name)
-    def freshen = new TypeParameter(name)
+  case class TypeParameter(id: Identifier) extends Type {
+    def freshen = new TypeParameter(id.freshen)
 
     override def equals(that: Any) = that match {
       case TypeParameter(id) => this.id == id
@@ -64,8 +63,7 @@ trait Types { self: Trees =>
   }
 
   object TypeParameter {
-    def unapply(tp: TypeParameter): Option[Identifier] = Some(tp.id)
-    def fresh(name: String) = new TypeParameter(name)
+    def fresh(name: String) = new TypeParameter(FreshIdentifier(name))
   }
 
   /* 
@@ -87,21 +85,11 @@ trait Types { self: Trees =>
     def tcd(implicit s: Symbols): TypedClassDef = s.getClass(id, tps)
   }
 
-  object NAryType extends TreeExtractor {
-    val trees: Types.this.type = Types.this
-
-    type SubTree = Type
-
-    def unapply(t: Type): Option[(Seq[Type], Seq[Type] => Type)] = t match {
-      case ClassType(ccd, ts) => Some((ts, ts => ClassType(ccd, ts)))
-      case TupleType(ts) => Some((ts, TupleType))
-      case SetType(t) => Some((Seq(t), ts => SetType(ts.head)))
-      case BagType(t) => Some((Seq(t), ts => BagType(ts.head)))
-      case MapType(from,to) => Some((Seq(from, to), t => MapType(t(0), t(1))))
-      case FunctionType(fts, tt) => Some((tt +: fts, ts => FunctionType(ts.tail.toList, ts.head)))
-      /* nullary types */
-      case t => Some(Nil, _ => t)
-    }
+  val NAryType: TreeExtractor {
+    val s: self.type
+    val t: self.type
+    type Source = self.Type
+    type Target = self.Type
   }
 
   object FirstOrderFunctionType {
@@ -110,5 +98,14 @@ trait Types { self: Trees =>
         unapply(to).map(p => (from ++ p._1) -> p._2) orElse Some(from -> to)
       case _ => None
     }
+  }
+}
+
+trait TypeDeconstructor extends TreeExtractor with TreeDeconstructor {
+  type Source = s.Type
+  type Target = t.Type
+
+  def unapply(tp: s.Type): Option[(Seq[s.Type], Seq[t.Type] => t.Type)] = {
+    Some(deconstruct(tp))
   }
 }

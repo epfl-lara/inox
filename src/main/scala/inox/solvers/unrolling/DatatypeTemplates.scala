@@ -65,12 +65,12 @@ trait DatatypeTemplates { self: Templates =>
         res
     }
 
-    private case class FreshFunction(expr: Expr) extends Expr with Extractable {
+    private case class FreshFunction(expr: Expr) extends Expr { //with Extractable {
       def getType(implicit s: Symbols) = BooleanType
       val extract = Some(Seq(expr), (exprs: Seq[Expr]) => FreshFunction(exprs.head))
     }
 
-    private case class InductiveType(tcd: TypedAbstractClassDef, expr: Expr) extends Expr with Extractable {
+    private case class InductiveType(tcd: TypedAbstractClassDef, expr: Expr) extends Expr { //with Extractable {
       def getType(implicit s: Symbols) = BooleanType
       val extract = Some(Seq(expr), (exprs: Seq[Expr]) => InductiveType(tcd, exprs.head))
     }

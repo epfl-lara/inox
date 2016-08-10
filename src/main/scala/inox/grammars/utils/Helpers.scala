@@ -103,5 +103,5 @@ trait Helpers { self: GrammarsUniverse =>
    *  - all functions in main units
    *  - all functions imported, or methods of classes imported
    */
-  def functionsAvailable(p: Program): Set[p.trees.FunDef] = p.symbols.functions.values.toSet
+  def functionsAvailable: Set[FunDef] = program.symbols.functions.values.toSet
 }

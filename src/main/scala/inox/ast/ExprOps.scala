@@ -23,9 +23,14 @@ package ast
   *
   */
 trait ExprOps extends GenTreeOps {
+  protected val trees: Trees
+  val sourceTrees: trees.type = trees
+  val targetTrees: trees.type = trees
+
   import trees._
 
-  type SubTree = Expr
+  type Source = Expr
+  type Target = Expr
 
   val Deconstructor = Operator
 
@@ -105,7 +110,7 @@ trait ExprOps extends GenTreeOps {
 
     f(e, initParent)
 
-    val Deconstructor(es, _) = e
+    val Operator(es, _) = e
     es foreach rec
   }
 

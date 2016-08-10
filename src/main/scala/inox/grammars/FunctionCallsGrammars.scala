@@ -15,7 +15,7 @@ trait FunctionCallsGrammars extends utils.Helpers { self: GrammarsUniverse =>
     * @param types The candidate real type parameters for [[currentFunction]]
     * @param exclude An additional set of functions for which no calls will be generated
     */
-  case class FunctionCalls(prog: Program, currentFunction: FunDef, types: Seq[Type], exclude: Set[FunDef]) extends SimpleExpressionGrammar {
+  case class FunctionCalls(currentFunction: FunDef, types: Seq[Type], exclude: Set[FunDef]) extends SimpleExpressionGrammar {
     def computeProductions(t: Type): Seq[Prod] = {
 
       def getCandidates(fd: FunDef): Seq[TypedFunDef] = {
@@ -74,7 +74,7 @@ trait FunctionCallsGrammars extends utils.Helpers { self: GrammarsUniverse =>
 
       val filter = (tfd:TypedFunDef) => /* TODO: Reimplement this somehow tfd.fd.isSynthetic || tfd.fd.isInner || */ (exclude contains tfd.fd)
 
-      val funcs = functionsAvailable(prog).toSeq.sortBy(_.id).flatMap(getCandidates).filterNot(filter)
+      val funcs = functionsAvailable.toSeq.sortBy(_.id).flatMap(getCandidates).filterNot(filter)
 
       funcs.map{ tfd =>
         nonTerminal(tfd.params.map(_.getType), FunctionInvocation(tfd.id, tfd.tps, _))//, tagOf(tfd.fd, isSafe = false))

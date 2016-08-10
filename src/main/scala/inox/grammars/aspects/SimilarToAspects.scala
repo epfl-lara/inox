@@ -10,8 +10,10 @@ trait SimilarToAspects { self: GrammarsUniverse =>
   import program._
   import trees.{Minus => EMinus, Plus => EPlus, Times => ETimes, _}
   import symbols._
+  import exprOps._
 
   /** Generates expressions similar to a [[Seq]] of given expressions
+ *
     * @param es The expressions for which similar ones will be generated
     */
   case class SimilarTo(es: Seq[Expr]) extends Aspect {
@@ -36,7 +38,7 @@ trait SimilarToAspects { self: GrammarsUniverse =>
 
       val similarProds: Prods = es.filter(e => isSubtypeOf(e.getType, lab.getType)).flatMap { e =>
         val swaps: Prods = e match {
-          case Operator(as, b) if as.nonEmpty && !isCommutative(e) =>
+          case Deconstructor(as, b) if as.nonEmpty && !isCommutative(e) =>
             val ast = as.zipWithIndex.groupBy(_._1.getType).mapValues(_.map(_._2).toList)
 
             val perms = ast.values.map { is =>

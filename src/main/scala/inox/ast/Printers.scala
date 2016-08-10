@@ -11,24 +11,25 @@ object optPrintPositions extends InoxFlagOptionDef("printPositions", "Attach pos
 object optPrintUniqueIds extends InoxFlagOptionDef("printIds",       "Always print unique ids",                 false)
 object optPrintTypes     extends InoxFlagOptionDef("printPositions", "Attach types to trees when printing",     false)
 
-trait Printers { self: Trees =>
+trait Printers {
+  self: Trees =>
 
   case class PrinterContext(
-    current: Tree,
-    parents: List[Tree],
-    lvl: Int,
-    printer: PrettyPrinter) {
+                             current: Tree,
+                             parents: List[Tree],
+                             lvl: Int,
+                             printer: PrettyPrinter) {
 
     def parent = parents.headOption
   }
 
   case class PrinterOptions(
-    baseIndent: Int = 0,
-    printPositions: Boolean = false,
-    printUniqueIds: Boolean = false,
-    printTypes: Boolean = false,
-    symbols: Option[Symbols] = None
-  ) {
+                             baseIndent: Int = 0,
+                             printPositions: Boolean = false,
+                             printUniqueIds: Boolean = false,
+                             printTypes: Boolean = false,
+                             symbols: Option[Symbols] = None
+                           ) {
     require(
       !printTypes || symbols.isDefined,
       "Can't print types without an available symbol table"
@@ -41,10 +42,11 @@ trait Printers { self: Trees =>
         baseIndent = 0,
         printPositions = ctx.options.findOptionOrDefault(optPrintPositions),
         printUniqueIds = ctx.options.findOptionOrDefault(optPrintUniqueIds),
-        printTypes     = ctx.options.findOptionOrDefault(optPrintTypes),
-        symbols        = None
+        printTypes = ctx.options.findOptionOrDefault(optPrintTypes),
+        symbols = None
       )
     }
+
     def fromSymbols(s: Symbols, ctx: InoxContext): PrinterOptions = {
       fromContext(ctx).copy(symbols = Some(s))
     }
@@ -56,7 +58,7 @@ trait Printers { self: Trees =>
 
   /** This pretty-printer uses Unicode for some operators, to make sure we
     * distinguish PureScala from "real" Scala (and also because it's cute). */
-  class PrettyPrinter(opts: PrinterOptions,
+  class PrettyPrinter(val opts: PrinterOptions,
                       osym: Option[Symbols],
                       val sb: StringBuffer = new StringBuffer) {
 
@@ -71,7 +73,7 @@ trait Printers { self: Trees =>
         body
       }
     }
-    
+
     private val dbquote = "\""
 
     def pp(tree: Tree)(implicit ctx: PrinterContext): Unit = {
@@ -92,21 +94,13 @@ trait Printers { self: Trees =>
         }
       }
       tree match {
-        case id: Identifier =>
-          val name = if (opts.printUniqueIds) {
-            id.uniqueName
-          } else {
-            id.toString
-          }
-          p"$name"
-
         case Variable(id, _) =>
           p"$id"
-          
+
         case Let(vd, expr, SubString(v2: Variable, start, StringLength(v3: Variable))) if vd.toVariable == v2 && v2 == v3 =>
           p"$expr.substring($start)"
 
-        case Let(b,d,e) =>
+        case Let(b, d, e) =>
           p"""|val $b = $d
               |$e"""
 
@@ -116,42 +110,54 @@ trait Printers { self: Trees =>
         case Choose(res, pred) =>
           p"choose(($res) => $pred)"
 
-        case e @ CaseClass(cct, args) =>
+        case e@CaseClass(cct, args) =>
           p"$cct($args)"
 
-        case And(exprs)           => optP { p"${nary(exprs, " && ")}" }
-        case Or(exprs)            => optP { p"${nary(exprs, "| || ")}" } // Ugliness award! The first | is there to shield from stripMargin()
-        case Not(Equals(l, r))    => optP { p"$l \u2260 $r" }
-        case Implies(l,r)         => optP { p"$l ==> $r" }
-        case UMinus(expr)         => p"-$expr"
-        case Equals(l,r)          => optP { p"$l == $r" }
+        case And(exprs) => optP {
+          p"${nary(exprs, " && ")}"
+        }
+        case Or(exprs) => optP {
+          p"${nary(exprs, "| || ")}"
+        } // Ugliness award! The first | is there to shield from stripMargin()
+        case Not(Equals(l, r)) => optP {
+          p"$l \u2260 $r"
+        }
+        case Implies(l, r) => optP {
+          p"$l ==> $r"
+        }
+        case UMinus(expr) => p"-$expr"
+        case Equals(l, r) => optP {
+          p"$l == $r"
+        }
 
-        case StringConcat(lhs, rhs) => optP { p"$lhs + $rhs" }
+        case StringConcat(lhs, rhs) => optP {
+          p"$lhs + $rhs"
+        }
         case SubString(expr, start, end) => p"$expr.substring($start, $end)"
-        case StringLength(expr)          => p"$expr.length"
+        case StringLength(expr) => p"$expr.length"
 
-        case IntLiteral(v)        => p"$v"
+        case IntLiteral(v) => p"$v"
         case BVLiteral(bits, size) => p"x${(size to 1 by -1).map(i => if (bits(i)) "1" else "0")}"
         case IntegerLiteral(v) => p"$v"
         case FractionLiteral(n, d) =>
           if (d == 1) p"$n"
           else p"$n/$d"
-        case CharLiteral(v)       => p"$v"
-        case BooleanLiteral(v)    => p"$v"
-        case UnitLiteral()        => p"()"
-        case StringLiteral(v)     => 
-          if(v.count(c => c == '\n') >= 1 && v.length >= 80 && v.indexOf("\"\"\"") == -1) {
+        case CharLiteral(v) => p"$v"
+        case BooleanLiteral(v) => p"$v"
+        case UnitLiteral() => p"()"
+        case StringLiteral(v) =>
+          if (v.count(c => c == '\n') >= 1 && v.length >= 80 && v.indexOf("\"\"\"") == -1) {
             p"$dbquote$dbquote$dbquote$v$dbquote$dbquote$dbquote"
           } else {
             val escaped = StringEscapeUtils.escapeJava(v)
             p"$dbquote$escaped$dbquote"
           }
         case GenericValue(tp, id) => p"$tp#$id"
-        case Tuple(exprs)         => p"($exprs)"
-        case TupleSelect(t, i)    => p"$t._$i"
-        case AsInstanceOf(e, ct)  => p"""$e.asInstanceOf[$ct]"""
+        case Tuple(exprs) => p"($exprs)"
+        case TupleSelect(t, i) => p"$t._$i"
+        case AsInstanceOf(e, ct) => p"""$e.asInstanceOf[$ct]"""
         case IsInstanceOf(e, cct) => p"$e.isInstanceOf[$cct]"
-        case CaseClassSelector(e, id)         => p"$e.$id"
+        case CaseClassSelector(e, id) => p"$e.$id"
 
         case FunctionInvocation(id, tps, args) =>
           p"$id${nary(tps, ", ", "[", "]")}"
@@ -166,55 +172,91 @@ trait Printers { self: Trees =>
           p"$id"
 
         case Lambda(args, body) =>
-          optP { p"($args) => $body" }
+          optP {
+            p"($args) => $body"
+          }
 
-        case Plus(l,r)                 => optP { p"$l + $r" }
-        case Minus(l,r)                => optP { p"$l - $r" }
-        case Times(l,r)                => optP { p"$l * $r" }
-        case Division(l,r)             => optP { p"$l / $r" }
-        case Remainder(l,r)            => optP { p"$l % $r" }
-        case Modulo(l,r)               => optP { p"$l mod $r" }
-        case LessThan(l,r)             => optP { p"$l < $r" }
-        case GreaterThan(l,r)          => optP { p"$l > $r" }
-        case LessEquals(l,r)           => optP { p"$l <= $r" }
-        case GreaterEquals(l,r)        => optP { p"$l >= $r" }
-        case BVNot(e)                  => optP { p"~$e" }
-        case BVXOr(l,r)                => optP { p"$l ^ $r" }
-        case BVOr(l,r)                 => optP { p"$l | $r" }
-        case BVAnd(l,r)                => optP { p"$l & $r" }
-        case BVShiftLeft(l,r)          => optP { p"$l << $r" }
-        case BVAShiftRight(l,r)        => optP { p"$l >> $r" }
-        case BVLShiftRight(l,r)        => optP { p"$l >>> $r" }
-        case fs @ FiniteSet(rs, _)     => p"{${rs.distinct}}"
-        case fs @ FiniteBag(rs, _)     => p"{${rs.toMap.toSeq}}"
-        case fm @ FiniteMap(rs, _, _)  => p"{${rs.toMap.toSeq}}"
-        case Not(ElementOfSet(e,s))    => p"$e \u2209 $s"
-        case ElementOfSet(e,s)         => p"$e \u2208 $s"
-        case SubsetOf(l,r)             => p"$l \u2286 $r"
-        case Not(SubsetOf(l,r))        => p"$l \u2288 $r"
-        case SetAdd(s,e)               => p"$s \u222A {$e}"
-        case SetUnion(l,r)             => p"$l \u222A $r"
-        case BagUnion(l,r)             => p"$l \u222A $r"
-        case SetDifference(l,r)        => p"$l \\ $r"
-        case BagDifference(l,r)        => p"$l \\ $r"
-        case SetIntersection(l,r)      => p"$l \u2229 $r"
-        case BagIntersection(l,r)      => p"$l \u2229 $r"
-        case SetCardinality(s)         => p"$s.size"
-        case BagAdd(b,e)               => p"$b + $e"
-        case MultiplicityInBag(e, b)   => p"$b($e)"
-        case MapApply(m,k)             => p"$m($k)"
+        case Plus(l, r) => optP {
+          p"$l + $r"
+        }
+        case Minus(l, r) => optP {
+          p"$l - $r"
+        }
+        case Times(l, r) => optP {
+          p"$l * $r"
+        }
+        case Division(l, r) => optP {
+          p"$l / $r"
+        }
+        case Remainder(l, r) => optP {
+          p"$l % $r"
+        }
+        case Modulo(l, r) => optP {
+          p"$l mod $r"
+        }
+        case LessThan(l, r) => optP {
+          p"$l < $r"
+        }
+        case GreaterThan(l, r) => optP {
+          p"$l > $r"
+        }
+        case LessEquals(l, r) => optP {
+          p"$l <= $r"
+        }
+        case GreaterEquals(l, r) => optP {
+          p"$l >= $r"
+        }
+        case BVNot(e) => optP {
+          p"~$e"
+        }
+        case BVXOr(l, r) => optP {
+          p"$l ^ $r"
+        }
+        case BVOr(l, r) => optP {
+          p"$l | $r"
+        }
+        case BVAnd(l, r) => optP {
+          p"$l & $r"
+        }
+        case BVShiftLeft(l, r) => optP {
+          p"$l << $r"
+        }
+        case BVAShiftRight(l, r) => optP {
+          p"$l >> $r"
+        }
+        case BVLShiftRight(l, r) => optP {
+          p"$l >>> $r"
+        }
+        case fs@FiniteSet(rs, _) => p"{${rs.distinct}}"
+        case fs@FiniteBag(rs, _) => p"{${rs.toMap.toSeq}}"
+        case fm@FiniteMap(rs, _, _) => p"{${rs.toMap.toSeq}}"
+        case Not(ElementOfSet(e, s)) => p"$e \u2209 $s"
+        case ElementOfSet(e, s) => p"$e \u2208 $s"
+        case SubsetOf(l, r) => p"$l \u2286 $r"
+        case Not(SubsetOf(l, r)) => p"$l \u2288 $r"
+        case SetAdd(s, e) => p"$s \u222A {$e}"
+        case SetUnion(l, r) => p"$l \u222A $r"
+        case BagUnion(l, r) => p"$l \u222A $r"
+        case SetDifference(l, r) => p"$l \\ $r"
+        case BagDifference(l, r) => p"$l \\ $r"
+        case SetIntersection(l, r) => p"$l \u2229 $r"
+        case BagIntersection(l, r) => p"$l \u2229 $r"
+        case SetCardinality(s) => p"$s.size"
+        case BagAdd(b, e) => p"$b + $e"
+        case MultiplicityInBag(e, b) => p"$b($e)"
+        case MapApply(m, k) => p"$m($k)"
 
         case Not(expr) => p"\u00AC$expr"
 
-        case vd @ ValDef(id, tpe) =>
+        case vd@ValDef(id, tpe) =>
           p"$id : $tpe"
 
-        case (tfd: TypedFunDef)   => p"typed def ${tfd.id}[${tfd.tps}]"
+        case (tfd: TypedFunDef) => p"typed def ${tfd.id}[${tfd.tps}]"
         case TypeParameterDef(tp) => p"$tp"
-        case TypeParameter(id)    => p"$id"
+        case TypeParameter(id) => p"$id"
 
 
-        case IfExpr(c, t, ie : IfExpr) =>
+        case IfExpr(c, t, ie: IfExpr) =>
           optP {
             p"""|if ($c) {
                 |  $t
@@ -231,18 +273,18 @@ trait Printers { self: Trees =>
           }
 
         // Types
-        case Untyped               => p"<untyped>"
-        case UnitType              => p"Unit"
-        case Int32Type             => p"Int"
-        case IntegerType           => p"BigInt"
-        case RealType              => p"Real"
-        case CharType              => p"Char"
-        case BooleanType           => p"Boolean"
-        case StringType            => p"String"
-        case SetType(bt)           => p"Set[$bt]"
-        case BagType(bt)           => p"Bag[$bt]"
-        case MapType(ft,tt)        => p"Map[$ft, $tt]"
-        case TupleType(tpes)       => p"($tpes)"
+        case Untyped => p"<untyped>"
+        case UnitType => p"Unit"
+        case Int32Type => p"Int"
+        case IntegerType => p"BigInt"
+        case RealType => p"Real"
+        case CharType => p"Char"
+        case BooleanType => p"Boolean"
+        case StringType => p"String"
+        case SetType(bt) => p"Set[$bt]"
+        case BagType(bt) => p"Bag[$bt]"
+        case MapType(ft, tt) => p"Map[$ft, $tt]"
+        case TupleType(tpes) => p"($tpes)"
         case FunctionType(fts, tt) => p"($fts) => $tt"
         case c: ClassType =>
           p"${c.id}${nary(c.tps, ", ", "[", "]")}"
@@ -251,7 +293,7 @@ trait Printers { self: Trees =>
         case acd: AbstractClassDef =>
           p"abstract class ${acd.id}${nary(acd.tparams, ", ", "[", "]")}"
 
-        case ccd : CaseClassDef =>
+        case ccd: CaseClassDef =>
           p"case class ${ccd.id}"
           p"${nary(ccd.tparams, ", ", "[", "]")}"
           p"(${ccd.fields})"
@@ -285,7 +327,7 @@ trait Printers { self: Trees =>
       }
       if (opts.printTypes) {
         tree match {
-          case t: Expr=>
+          case t: Expr =>
             p" : ${t.getType(opts.symbols.get)} ⟩"
 
           case _ =>
@@ -342,9 +384,9 @@ trait Printers { self: Trees =>
       case (_: And | _: BVAnd | _: SetIntersection) => 3
       // 4: < >
       case (
-        _: GreaterThan   | _: GreaterEquals | _: LessEquals | _: LessThan |
+        _: GreaterThan | _: GreaterEquals | _: LessEquals | _: LessThan |
         _: BVAShiftRight | _: BVLShiftRight | _: BVShiftLeft
-      ) => 4
+        ) => 4
       // 5: = !
       case (_: Equals | _: Not | _: Implies) => 5
       // 6: :
@@ -360,7 +402,7 @@ trait Printers { self: Trees =>
       case (pa: PrettyPrintable, _) => pa.printRequiresParentheses(within)
       case (_, None) => false
       case (_, Some(
-        _: Definition | _: Let | _: IfExpr | _: CaseClass | _: Lambda | _: Choose | _: Tuple
+      _: Definition | _: Let | _: IfExpr | _: CaseClass | _: Lambda | _: Choose | _: Tuple
       )) => false
       case (ex: StringConcat, Some(_: StringConcat)) => false
       case (_, Some(_: FunctionInvocation)) => false
@@ -378,41 +420,41 @@ trait Printers { self: Trees =>
 
     def p(args: Any*)(implicit ctx: PrinterContext): Unit = {
       val printer = ctx.printer
-      val sb      = printer.sb
+      val sb = printer.sb
 
-      val strings     = sc.parts.iterator
+      val strings = sc.parts.iterator
       val expressions = args.iterator
 
       var extraInd = 0
       var firstElem = true
 
-      while(strings.hasNext) {
+      while (strings.hasNext) {
         val currval = strings.next
-        val s = if(currval != " || ") {
+        val s = if (currval != " || ") {
           currval.stripMargin
         } else currval
 
         // Compute indentation
         val start = s.lastIndexOf('\n')
-        if(start >= 0 || firstElem) {
-          var i = start+1
-          while(i < s.length && s(i) == ' ') {
+        if (start >= 0 || firstElem) {
+          var i = start + 1
+          while (i < s.length && s(i) == ' ') {
             i += 1
           }
-          extraInd = (i-start-1)/2
+          extraInd = (i - start - 1) / 2
         }
 
         firstElem = false
 
         // Make sure new lines are also indented
-        sb.append(s.replaceAll("\n", "\n"+("  "*ctx.lvl)))
+        sb.append(s.replaceAll("\n", "\n" + ("  " * ctx.lvl)))
 
         val nctx = ctx.copy(lvl = ctx.lvl + extraInd)
 
         if (expressions.hasNext) {
           val e = expressions.next
-          if(e == "||")
-        	  println("Seen Expression: "+e)
+          if (e == "||")
+            println("Seen Expression: " + e)
 
           e match {
             case (t1, t2) =>
@@ -431,6 +473,14 @@ trait Printers { self: Trees =>
               val nctx2 = nctx.copy(parents = parents, current = t)
               printer.pp(t)(nctx2)
 
+            case id: Identifier =>
+              val name = if (ctx.printer.opts.printUniqueIds) {
+                id.uniqueName
+              } else {
+                id.toString
+              }
+              p"$name"
+
             case p: PrintWrapper =>
               p.print(nctx)
 
@@ -443,8 +493,8 @@ trait Printers { self: Trees =>
   }
 
   def nary(ls: Seq[Any], sep: String = ", ", init: String = "", closing: String = ""): PrintWrapper = {
-    val (i, c) = if(ls.isEmpty) ("", "") else (init, closing)
-    val strs = i +: List.fill(ls.size-1)(sep) :+ c
+    val (i, c) = if (ls.isEmpty) ("", "") else (init, closing)
+    val strs = i +: List.fill(ls.size - 1)(sep) :+ c
 
     implicit pctx: PrinterContext =>
       new StringContext(strs: _*).p(ls: _*)
@@ -465,20 +515,10 @@ trait Printers { self: Trees =>
     def printWith(implicit pctx: PrinterContext): Unit
 
     def printPrecedence: Int = 1000
+
     def printRequiresParentheses(within: Option[Tree]): Boolean = false
+
     def isSimpleExpr: Boolean = false
-  }
-
-  class EquivalencePrettyPrinter(opts: PrinterOptions, osym: Option[Symbols]) extends PrettyPrinter(opts, osym) {
-    override def pp(tree: Tree)(implicit ctx: PrinterContext): Unit = {
-      tree match {
-        case id: Identifier =>
-          p"${id.name}"
-
-        case _ =>
-          super.pp(tree)
-      }
-    }
   }
 
   abstract class PrettyPrinterFactory {
@@ -506,7 +546,4 @@ trait Printers { self: Trees =>
     def create(opts: PrinterOptions, osym: Option[Symbols]) = new PrettyPrinter(opts, osym)
   }
 
-  object EquivalencePrettyPrinter extends PrettyPrinterFactory {
-    def create(opts: PrinterOptions, osym: Option[Symbols]) = new EquivalencePrettyPrinter(opts, osym)
-  }
 }
