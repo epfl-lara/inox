@@ -285,7 +285,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
 
   protected def toSMT(e: Expr)(implicit bindings: Map[Identifier, Term]): Term = {
     e match {
-      case v@Variable(id, tp) =>
+      case v @ Variable(id, tp) =>
         declareSort(tp)
         bindings.getOrElse(id, variables.toB(v))
 
@@ -316,7 +316,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
       case AsInstanceOf(expr, cct) =>
         toSMT(expr)
 
-      case io@IsInstanceOf(e, cct) =>
+      case io @ IsInstanceOf(e, cct) =>
         declareSort(cct)
         val cases = cct.lookupClass match {
           case Some(act: TypedAbstractClassDef) =>

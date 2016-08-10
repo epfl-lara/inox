@@ -121,7 +121,7 @@ trait TemplateGenerator { self: Templates =>
       guardedExprs += guardVar -> (expr +: prev)
     }
 
-    def iff(e1: Expr, e2: Expr): Unit = storeGuarded(pathVar, Equals(e1, e2))
+    @inline def iff(e1: Expr, e2: Expr): Unit = storeGuarded(pathVar, Equals(e1, e2))
 
     var lambdaVars = Map[Variable, Encoded]()
     @inline def storeLambda(id: Variable): Encoded = {

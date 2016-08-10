@@ -65,83 +65,13 @@ trait DatatypeTemplates { self: Templates =>
         res
     }
 
-    private case class FreshFunction(expr: Expr) extends Expr { //with Extractable {
-      def getType(implicit s: Symbols) = BooleanType
-      val extract = Some(Seq(expr), (exprs: Seq[Expr]) => FreshFunction(exprs.head))
-    }
-
-    private case class InductiveType(tcd: TypedAbstractClassDef, expr: Expr) extends Expr { //with Extractable {
-      def getType(implicit s: Symbols) = BooleanType
-      val extract = Some(Seq(expr), (exprs: Seq[Expr]) => InductiveType(tcd, exprs.head))
-    }
-
-    private def typeUnroller(expr: Expr): Expr = expr.getType match {
-      case tpe if !requireTypeUnrolling(tpe) =>
-        BooleanLiteral(true)
-
-      case ct: ClassType =>
-        val tcd = ct.tcd
-
-        val inv: Seq[Expr] = if (tcd.hasInvariant) {
-          Seq(tcd.invariant.get.applied(Seq(expr)))
-        } else {
-          Seq.empty
-        }
-
-        def unrollFields(tcd: TypedCaseClassDef): Seq[Expr] = tcd.fields.map { vd =>
-          val tpe = tcd.toType
-          typeUnroller(CaseClassSelector(AsInstanceOf(expr, tpe), vd.id))
-        }
-
-        val fields: Seq[Expr] = if (tcd != tcd.root) {
-          IsInstanceOf(expr, tcd.toType) +: unrollFields(tcd.toCase)
-        } else {
-          val isInductive = tcd.cd match {
-            case acd: AbstractClassDef => acd.isInductive
-            case _ => false
-          }
-
-          if (!isInductive) {
-            val matchers = tcd.root match {
-              case (act: TypedAbstractClassDef) => act.descendants
-              case (cct: TypedCaseClassDef) => Seq(cct)
-            }
-
-            val thens = matchers.map(tcd => tcd -> andJoin(unrollFields(tcd)))
-
-            if (thens.forall(_._2 == BooleanLiteral(true))) {
-              Seq.empty
-            } else {
-              val (ifs :+ last) = thens
-              Seq(ifs.foldRight(last._2) { case ((tcd, thenn), res) =>
-                IfExpr(IsInstanceOf(expr, tcd.toType), thenn, res)
-              })
-            }
-          } else {
-            Seq(InductiveType(tcd.toAbstract, expr))
-          }
-        }
-
-        andJoin(inv ++ fields)
-
-      case TupleType(tpes) =>
-        andJoin(tpes.zipWithIndex.map(p => typeUnroller(TupleSelect(expr, p._2 + 1))))
-
-      case FunctionType(_, _) =>
-        FreshFunction(expr)
-
-      case _ => scala.sys.error("TODO")
-    }
-
     def apply(tpe: Type): DatatypeTemplate = {
       val v = Variable(FreshIdentifier("x", true), tpe)
-      val expr = typeUnroller(v)
-
       val pathVar = Variable(FreshIdentifier("b", true), BooleanType)
 
       var condVars = Map[Variable, Encoded]()
       var condTree = Map[Variable, Set[Variable]](pathVar -> Set.empty).withDefaultValue(Set.empty)
-      def storeCond(pathVar: Variable, v: Variable): Unit = {
+      @inline def storeCond(pathVar: Variable, v: Variable): Unit = {
         condVars += v -> encodeSymbol(v)
         condTree += pathVar -> (condTree(pathVar) + v)
       }
@@ -152,85 +82,103 @@ trait DatatypeTemplates { self: Templates =>
         guardedExprs += pathVar -> (expr +: prev)
       }
 
-      def iff(e1: Expr, e2: Expr): Unit = storeGuarded(pathVar, Equals(e1, e2))
+      @inline def iff(e1: Expr, e2: Expr): Unit = storeGuarded(pathVar, Equals(e1, e2))
 
-      def requireDecomposition(e: Expr): Boolean = exprOps.exists {
-        case _: FunctionInvocation => true
-        case _: InductiveType => true
-        case _ => false
-      } (e)
-
-      def rec(pathVar: Variable, expr: Expr): Unit = expr match {
-        case i @ IfExpr(cond, thenn, elze) if requireDecomposition(i) =>
-          val newBool1: Variable = Variable(FreshIdentifier("b", true), BooleanType)
-          val newBool2: Variable = Variable(FreshIdentifier("b", true), BooleanType)
-
-          storeCond(pathVar, newBool1)
-          storeCond(pathVar, newBool2)
-
-          iff(and(pathVar, cond), newBool1)
-          iff(and(pathVar, not(cond)), newBool2)
-
-          rec(newBool1, thenn)
-          rec(newBool2, elze)
-
-        case a @ And(es) if requireDecomposition(a) =>
-          val partitions = SeqUtils.groupWhile(es)(!requireDecomposition(_))
-          for (e <- partitions.map(andJoin)) rec(pathVar, e)
-
-        case _ =>
-          storeGuarded(pathVar, expr)
+      var types = Map[Variable, Set[(TypedAbstractClassDef, Expr)]]()
+      @inline def storeType(pathVar: Variable, tacd: TypedAbstractClassDef, arg: Expr): Unit = {
+        types += pathVar -> (types.getOrElse(pathVar, Set.empty) + (tacd -> arg))
       }
 
-      rec(pathVar, expr)
+      var functions = Map[Variable, Set[Expr]]()
+      @inline def storeFunction(pathVar: Variable, expr: Expr): Unit = {
+        functions += pathVar -> (functions.getOrElse(pathVar, Set.empty) + expr)
+      }
+
+      def rec(pathVar: Variable, expr: Expr): Unit = expr.getType match {
+        case tpe if !requireTypeUnrolling(tpe) =>
+          // nothing to do here!
+
+        case ct: ClassType =>
+          val tcd = ct.tcd
+
+          if (tcd.hasInvariant) {
+            storeGuarded(pathVar, tcd.invariant.get.applied(Seq(expr)))
+          }
+
+          if (tcd.cd.isAbstract && tcd.toAbstract.cd.isInductive) {
+            storeType(pathVar, tcd.toAbstract, expr)
+          } else if (tcd != tcd.root) {
+            storeGuarded(pathVar, IsInstanceOf(expr, tcd.toType))
+
+            val tpe = tcd.toType
+            for (vd <- tcd.toCase.fields) {
+              rec(pathVar, CaseClassSelector(AsInstanceOf(expr, tpe), vd.id))
+            }
+          } else {
+            val matchers = tcd.root match {
+              case (act: TypedAbstractClassDef) => act.descendants
+              case (cct: TypedCaseClassDef) => Seq(cct)
+            }
+
+            for (tccd <- matchers) {
+              val tpe = tccd.toType
+
+              if (requireTypeUnrolling(tpe)) {
+                val newBool: Variable = Variable(FreshIdentifier("b", true), BooleanType)
+                storeCond(pathVar, newBool)
+
+                iff(and(pathVar, IsInstanceOf(expr, tpe)), newBool)
+                for (vd <- tccd.fields) {
+                  rec(newBool, CaseClassSelector(AsInstanceOf(expr, tpe), vd.id))
+                }
+              }
+            }
+          }
+
+        case TupleType(tpes) =>
+          for ((_, idx) <- tpes.zipWithIndex) {
+            rec(pathVar, TupleSelect(expr, idx + 1))
+          }
+
+        case FunctionType(_, _) =>
+          storeFunction(pathVar, expr)
+
+        case _ => scala.sys.error("TODO")
+      }
+
+      rec(pathVar, v)
 
       val (idT, pathVarT) = (encodeSymbol(v), encodeSymbol(pathVar))
       val encoder: Expr => Encoded = mkEncoder(condVars + (v -> idT) + (pathVar -> pathVarT))
 
       var clauses: Clauses = Seq.empty
       var calls: CallBlockers  = Map.empty
-      var types: Map[Encoded, Set[TemplateTypeInfo]] = Map.empty
-      var functions: Functions = Set.empty
 
       for ((b, es) <- guardedExprs) {
-        var callInfos : Set[Call]             = Set.empty
-        var typeInfos : Set[TemplateTypeInfo] = Set.empty
+        var callInfos : Set[Call] = Set.empty
 
         for (e <- es) {
-          val collected = collectWithPaths {
-            case expr @ (_: InductiveType | _: FreshFunction) => expr
-          } (e)
-
-          def clean(e: Expr) = exprOps.postMap {
-            case _: InductiveType => Some(BooleanLiteral(true))
-            case _: FreshFunction => Some(BooleanLiteral(true))
-            case _ => None
-          } (e)
-
-          functions ++= collected.collect { case (FreshFunction(f), path) =>
-            val tpe = bestRealType(f.getType).asInstanceOf[FunctionType]
-            val cleanPath = path.map(clean)
-            (encoder(and(b, cleanPath.toPath)), tpe, encoder(f))
-          }
-
-          typeInfos ++= collected.collect { case (InductiveType(tcd, e), path) =>
-            assert(path.isEmpty, "Inductive datatype unfolder should be implied directly by the blocker")
-            TemplateTypeInfo(tcd, encoder(e))
-          }
-
-          val cleanExpr = clean(e)
-          callInfos ++= firstOrderCallsOf(cleanExpr).map { case (id, tps, args) =>
+          callInfos ++= firstOrderCallsOf(e).map { case (id, tps, args) =>
             Call(getFunction(id, tps), args.map(arg => Left(encoder(arg))))
           }
 
-          clauses :+= encoder(Implies(b, cleanExpr))
+          clauses :+= encoder(Implies(b, e))
         }
 
-        if (typeInfos.nonEmpty) types += encoder(b) -> typeInfos
         if (callInfos.nonEmpty) calls += encoder(b) -> callInfos
       }
 
-      new DatatypeTemplate(pathVar -> pathVarT, idT, condVars, condTree, clauses, calls, types, functions)
+      val encodedTypes: Map[Encoded, Set[TemplateTypeInfo]]  = types.map { case (b, tps) =>
+        encoder(b) -> tps.map { case (tacd, expr) => TemplateTypeInfo(tacd, encoder(expr)) }
+      }
+
+      val encodedFunctions: Functions = functions.flatMap { case (b, fs) =>
+        val bp = encoder(b)
+        fs.map(expr => (bp, bestRealType(expr.getType).asInstanceOf[FunctionType], encoder(expr)))
+      }.toSet
+
+      new DatatypeTemplate(pathVar -> pathVarT, idT, condVars, condTree,
+        clauses, calls, encodedTypes, encodedFunctions)
     }
   }
 
