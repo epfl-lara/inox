@@ -23,7 +23,7 @@ abstract class FreeableIterator[T] extends Iterator[T] {
 
   override def map[B](f: T => B): FreeableIterator[B] = {
     new FreeableIterator[B] {
-      def computeNext() = orig.computeNext.map(f)
+      def computeNext() = orig.computeNext().map(f)
       def free() = orig.free()
     }
   }
@@ -35,7 +35,7 @@ abstract class FreeableIterator[T] extends Iterator[T] {
       def computeNext() = {
         if (c < n) {
           c += 1
-          orig.computeNext
+          orig.computeNext()
         } else {
           None
         }
@@ -47,7 +47,7 @@ abstract class FreeableIterator[T] extends Iterator[T] {
 
   override def takeWhile(p: T => Boolean) = {
     new FreeableIterator[T] {
-      def computeNext(): Option[T] = orig.computeNext.filter(p)
+      def computeNext(): Option[T] = orig.computeNext().filter(p)
       def free(): Unit = orig.free()
     }
   }

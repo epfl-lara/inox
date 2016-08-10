@@ -16,8 +16,7 @@ object GraphOps {
       if (noPreds.isEmpty) {
         if (hasPreds.isEmpty) Right(done.reverse) 
         else Left(hasPreds.keySet)
-      } 
-      else {
+      } else {
         val found : Seq[A] = noPreds.keys.toSeq
         tSort(hasPreds mapValues { _ -- found }, found ++ done)    
       }

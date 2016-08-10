@@ -3,7 +3,6 @@
 package inox
 package solvers.z3
 
-import utils._
 import solvers.{z3 => _, _}
 import unrolling._
 import theories._
