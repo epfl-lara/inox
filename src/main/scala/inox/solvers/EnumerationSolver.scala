@@ -59,7 +59,6 @@ trait EnumerationSolver extends Solver { self =>
         val evaluator: DeterministicEvaluator { val program: self.program.type } = self.evaluator
         val grammar: grammars.ExpressionGrammar = grammars.ValueGrammar
         val program: self.program.type = self.program
-        def functionsAvailable(p: Program): Set[FunDef] = Set()
       })
 
       if (interrupted) {

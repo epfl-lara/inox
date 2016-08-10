@@ -3,6 +3,8 @@
 package inox
 package solvers
 
+import inox.grammars.GrammarsUniverse
+
 trait SolverFactory {
   val program: Program
 
@@ -38,7 +40,8 @@ object SolverFactory {
     "nativez3" -> "Native Z3 with z3-templates for unrolling (default)",
     "unrollz3" -> "Native Z3 with leon-templates for unrolling",
     "smt-cvc4" -> "CVC4 through SMT-LIB",
-    "smt-z3"   -> "Z3 through SMT-LIB"
+    "smt-z3"   -> "Z3 through SMT-LIB",
+    "enum"     -> "Enumeration-based counter-example finder"
   )
 
   def getFromName(name: String)
@@ -86,6 +89,16 @@ object SolverFactory {
         val program: theories.targetProgram.type = theories.targetProgram
         val options = opts
       } with smtlib.Z3Solver
+    })
+
+    case "enum" => create(p)(name, () => new {
+      val program: p.type = p
+      val options = opts
+    } with EnumerationSolver with TimeoutSolver {
+      val evaluator = ev
+      val grammars: GrammarsUniverse {val program: p.type} = new GrammarsUniverse {
+        val program: p.type = p
+      }
     })
 
     case _ => throw FatalError("Unknown solver: " + name)

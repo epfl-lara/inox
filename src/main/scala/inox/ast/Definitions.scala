@@ -93,8 +93,8 @@ trait Definitions { self: Trees =>
         with Constructors
         with Paths { self0: Symbols =>
 
-    protected[ast] val classes: Map[Identifier, ClassDef]
-    protected[ast] val functions: Map[Identifier, FunDef]
+    val classes: Map[Identifier, ClassDef]
+    val functions: Map[Identifier, FunDef]
 
     private[ast] val trees: self.type = self
     protected val symbols: this.type = this
