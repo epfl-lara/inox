@@ -47,6 +47,7 @@ trait Types { self: Trees =>
   case object StringType  extends Type
 
   case class BVType(size: Int) extends Type
+  //TODO: not sure about the interaction between BVType(32) and Int32Type
   object Int32Type extends BVType(32) {
     override def toString = "Int32Type"
   }

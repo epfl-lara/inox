@@ -94,13 +94,12 @@ lazy val testSettings = Seq(
 
 concurrentRestrictions in Global += Tags.limit(Tags.Test, nParallel)
 
-// Unit Tests
-testOptions in Test := Seq(Tests.Argument("-oDF"), Tests.Filter(_ startsWith "inox.unit."))
+testOptions in Test := Seq(Tests.Argument("-oDF"))
 
 // Integration Tests
-lazy val IntegrTest = config("integration") extend(Test)
+//lazy val IntegrTest = config("integration") extend(Test)
 
-testOptions in IntegrTest := Seq(Tests.Argument("-oDF"), Tests.Filter(_ startsWith "inox.integration."))
+//testOptions in IntegrTest := Seq(Tests.Argument("-oDF"), Tests.Filter(_ startsWith "inox.integration."))
 
 
 def regressionFilter(name: String, native: Boolean = false): Boolean = name.startsWith("inox.regression") && (name.endsWith("NativeZ3") == native)
@@ -135,12 +134,13 @@ lazy val bonsai      = ghProject("git://github.com/colder/bonsai.git",     "10ea
 lazy val scalaSmtlib = ghProject("git://github.com/regb/scala-smtlib.git", "88835c02ca2528e888b06bc48e4e93e52dc5f4b5")
 
 lazy val root = (project in file(".")).
-  configs(RegressionTest, NativeZ3RegressionTest, IsabelleTest, IntegrTest).
+  configs(IntegrationTest).
+  configs(RegressionTest, NativeZ3RegressionTest, IsabelleTest).
   dependsOn(bonsai).
   dependsOn(scalaSmtlib).
   settings(inConfig(NativeZ3RegressionTest)(Defaults.testTasks ++ testSettings): _*).
   settings(inConfig(RegressionTest)(Defaults.testTasks ++ testSettings): _*).
-  settings(inConfig(IntegrTest)(Defaults.testTasks ++ testSettings): _*).
+  //settings(inConfig(IntegrTest)(Defaults.testTasks ++ testSettings): _*).
   settings(inConfig(IsabelleTest)(Defaults.testTasks ++ testSettings): _*).
   settings(inConfig(Test)(Defaults.testTasks ++ testSettings): _*)
 

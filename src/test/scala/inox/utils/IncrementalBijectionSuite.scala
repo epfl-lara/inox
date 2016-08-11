@@ -1,8 +1,7 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon.unit.utils
+package inox.utils
 
-import leon.utils._
 import org.scalatest._
 
 class IncrementalBijectionSuite extends FunSuite {

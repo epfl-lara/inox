@@ -1,12 +1,12 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon.unit.utils
+package inox.utils
 
-import leon.test._
-import leon.purescala.Common._
-import leon.utils.Graphs._
+import org.scalatest._
 
-class GraphsSuite extends LeonTestSuite {
+import Graphs._
+
+class GraphsSuite extends FunSuite {
   abstract class Node
   case object A extends Node
   case object B extends Node
@@ -131,7 +131,7 @@ class GraphsSuite extends LeonTestSuite {
   }
 
 
-  test("Graphs basic 1") { ctx =>
+  test("Graphs basic 1") {
     val g = g1
     assert(g.N.size === 4)
     assert(g.E.size === 5)
@@ -145,14 +145,14 @@ class GraphsSuite extends LeonTestSuite {
     assert(g.edgesBetween(A, B).size === 1)
   }
 
-  test("Graphs sinks/sources 1") { ctx =>
+  test("Graphs sinks/sources 1") {
     val g = g1
 
     assert(g.sources == Set())
     assert(g.sinks   == Set())
   }
 
-  test("Graphs sinks/sources 2") { ctx =>
+  test("Graphs sinks/sources 2") {
     val g = g2
 
     assert(g.N.size === 4)
@@ -162,7 +162,7 @@ class GraphsSuite extends LeonTestSuite {
     assert(g.sinks   == Set(D))
   }
 
-  test("Graphs SCC 1") { ctx =>
+  test("Graphs SCC 1") {
     val g = g1
 
     val gs = g.stronglyConnectedComponents
@@ -171,7 +171,7 @@ class GraphsSuite extends LeonTestSuite {
     assert(gs.E.size === 1)
   }
 
-  test("Graphs SCC 2") { ctx =>
+  test("Graphs SCC 2") {
     val g = g2
 
     val gs = g.stronglyConnectedComponents
@@ -180,7 +180,7 @@ class GraphsSuite extends LeonTestSuite {
     assert(gs.E.size === 3)
   }
 
-  test("Graphs SCC 3") { ctx =>
+  test("Graphs SCC 3") {
     val g = g3
 
     val gs = g.stronglyConnectedComponents
@@ -192,7 +192,7 @@ class GraphsSuite extends LeonTestSuite {
     assert(s.indexOf(n1) < s.indexOf(n2), s"Node '$n1' should be before '$n2'");
   }
 
-  test("Graphs top-sort 1") { ctx =>
+  test("Graphs top-sort 1") {
     val g = g4
 
 
@@ -205,7 +205,7 @@ class GraphsSuite extends LeonTestSuite {
     before(A, C)
   }
 
-  test("Graphs top-sort 2 (cyclic graph fails)") { ctx =>
+  test("Graphs top-sort 2 (cyclic graph fails)") {
     val g = g1
 
     intercept[IllegalArgumentException] {
@@ -213,7 +213,7 @@ class GraphsSuite extends LeonTestSuite {
     }
   }
 
-  test("Graphs top-sort 3 (SCC is acyclic)") { ctx =>
+  test("Graphs top-sort 3 (SCC is acyclic)") {
     val g = g3
 
     val gs = g.stronglyConnectedComponents
@@ -232,7 +232,7 @@ class GraphsSuite extends LeonTestSuite {
     before(c4, c2)
   }
 
-  test("Graphs DFS") { ctx =>
+  test("Graphs DFS") {
     val g = g5
 
     var visited = List[Node]()
@@ -247,7 +247,7 @@ class GraphsSuite extends LeonTestSuite {
     assert(!isBefore(D, B) || isBefore(E, C))
   }
 
-  test("Graphs BFS") { ctx =>
+  test("Graphs BFS") {
     val g = g5
 
     var visited = List[Node]()
@@ -262,7 +262,7 @@ class GraphsSuite extends LeonTestSuite {
     assert(isBefore(D, C))
   }
 
-  test("Graphs pred/succ 1") { ctx =>
+  test("Graphs pred/succ 1") {
     val g = g2
 
     assert(g.succ(B) == Set(B, C))

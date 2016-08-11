@@ -1,12 +1,14 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package inox.unit.evaluators
+package inox
+package evaluators
 
-import inox._
-import inox.evaluators._
+import org.scalatest._
 
-class EvaluatorSuite extends InoxTestSuite {
+class EvaluatorSuite extends FunSuite {
   import inox.trees._
+
+  val ctx = InoxContext.empty
 
   val symbols = new Symbols(Map.empty, Map.empty)
   def evaluator(ctx: InoxContext): DeterministicEvaluator { val program: InoxProgram } = {
@@ -14,7 +16,7 @@ class EvaluatorSuite extends InoxTestSuite {
     RecursiveEvaluator.default(program)
   }
 
-  test("Literals") { ctx =>
+  test("Literals") {
     val e = evaluator(ctx)
 
     eval(e, BooleanLiteral(true))   === BooleanLiteral(true)
@@ -29,7 +31,7 @@ class EvaluatorSuite extends InoxTestSuite {
     eval(e, FractionLiteral(26, 3)) === FractionLiteral(26, 3)
   }
 
-  test("BitVector Arithmetic") { ctx =>
+  test("BitVector Arithmetic") {
     val e = evaluator(ctx)
 
     eval(e, Plus(IntLiteral(3), IntLiteral(5)))  === IntLiteral(8)
@@ -37,7 +39,7 @@ class EvaluatorSuite extends InoxTestSuite {
     eval(e, Times(IntLiteral(3), IntLiteral(3))) === IntLiteral(9)
   }
 
-  test("eval bitwise operations") { ctx =>
+  test("eval bitwise operations") {
     val e = evaluator(ctx)
 
     eval(e, BVAnd(IntLiteral(3), IntLiteral(1))) === IntLiteral(1)
@@ -64,7 +66,7 @@ class EvaluatorSuite extends InoxTestSuite {
     eval(e, BVAShiftRight(IntLiteral(8), IntLiteral(1))) === IntLiteral(4)
   }
 
-  test("Arithmetic") { ctx =>
+  test("Arithmetic") {
     val e = evaluator(ctx)
 
     eval(e, Plus(IntegerLiteral(3), IntegerLiteral(5)))  === IntegerLiteral(8)
@@ -73,7 +75,7 @@ class EvaluatorSuite extends InoxTestSuite {
     eval(e, Times(IntegerLiteral(2), IntegerLiteral(3))) === IntegerLiteral(6)
   }
 
-  test("BigInt Modulo and Remainder") { ctx =>
+  test("BigInt Modulo and Remainder") {
     val e = evaluator(ctx)
 
     eval(e, Division(IntegerLiteral(10), IntegerLiteral(3)))   === IntegerLiteral(3)
@@ -94,7 +96,7 @@ class EvaluatorSuite extends InoxTestSuite {
     eval(e, Modulo(IntegerLiteral(1), IntegerLiteral(-3)))     === IntegerLiteral(1)
   }
 
-  test("Int Comparisons") { ctx =>
+  test("Int Comparisons") {
     val e = evaluator(ctx)
 
     eval(e, GreaterEquals(IntegerLiteral(7), IntegerLiteral(4)))  === BooleanLiteral(true)
@@ -114,7 +116,7 @@ class EvaluatorSuite extends InoxTestSuite {
     eval(e, LessThan(IntegerLiteral(4), IntegerLiteral(7)))       === BooleanLiteral(true)
   }
 
-  test("Int Modulo and Remainder") { ctx =>
+  test("Int Modulo and Remainder") {
     val e = evaluator(ctx)
 
     eval(e, Division(IntLiteral(10), IntLiteral(3)))    === IntLiteral(3)
@@ -130,7 +132,7 @@ class EvaluatorSuite extends InoxTestSuite {
     eval(e, Remainder(IntLiteral(1), IntLiteral(-3)))   === IntLiteral(1)
   }
 
-  test("Boolean Operations") { ctx =>
+  test("Boolean Operations") {
     val e = evaluator(ctx)
 
     eval(e, And(BooleanLiteral(true), BooleanLiteral(true)))      === BooleanLiteral(true)
@@ -145,7 +147,7 @@ class EvaluatorSuite extends InoxTestSuite {
     eval(e, Not(BooleanLiteral(true)))                            === BooleanLiteral(false)
   }
 
-  test("Real Arightmetic") { ctx =>
+  test("Real Arightmetic") {
     val e = evaluator(ctx)
 
     eval(e, Plus(FractionLiteral(2, 3), FractionLiteral(1, 3))) === FractionLiteral(1, 1)
@@ -154,7 +156,7 @@ class EvaluatorSuite extends InoxTestSuite {
     eval(e, Times(FractionLiteral(2, 3), FractionLiteral(1, 3))) === FractionLiteral(2, 9)
   }
 
-  test("Real Comparisons") { ctx =>
+  test("Real Comparisons") {
     val e = evaluator(ctx)
 
     eval(e, GreaterEquals(FractionLiteral(7, 1), FractionLiteral(4, 2))) === BooleanLiteral(true)
@@ -172,7 +174,7 @@ class EvaluatorSuite extends InoxTestSuite {
     eval(e, LessThan(FractionLiteral(4, 2), FractionLiteral(7, 1))) === BooleanLiteral(true)
   }
 
-  test("Simple Variable") { ctx =>
+  test("Simple Variable") {
     val e = evaluator(ctx)
 
     val v = Variable(FreshIdentifier("id"), Int32Type)
@@ -180,7 +182,7 @@ class EvaluatorSuite extends InoxTestSuite {
     eval(e, v, Map(v.toVal -> IntLiteral(23))) === IntLiteral(23)
   }
 
-  test("Undefined Variable") { ctx =>
+  test("Undefined Variable") {
     val e = evaluator(ctx)
 
     val v1 = Variable(FreshIdentifier("id"), Int32Type)
@@ -189,14 +191,14 @@ class EvaluatorSuite extends InoxTestSuite {
     eval(e, v1, Map(v2.toVal -> IntLiteral(23))).failed
   }
 
-  test("Let") { ctx =>
+  test("Let") {
     val e = evaluator(ctx)
 
     val v = Variable(FreshIdentifier("id"), IntegerType)
     eval(e, Let(v.toVal, IntLiteral(42), v)) === IntLiteral(42)
   }
 
-  test("Map Operations") { ctx =>
+  test("Map Operations") {
     val e = evaluator(ctx)
 
     eval(e, Equals(
@@ -242,7 +244,7 @@ class EvaluatorSuite extends InoxTestSuite {
     ) === IntLiteral(3)
   }
 
-  test("Map with variables") { ctx =>
+  test("Map with variables") {
     val e = evaluator(ctx)
 
     val v1 = Variable(FreshIdentifier("v1"), Int32Type)
