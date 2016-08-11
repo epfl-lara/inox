@@ -225,12 +225,7 @@ trait RecursiveEvaluator
 
     case UMinus(ex) =>
       e(ex) match {
-        case BVLiteral(b, s) =>
-          BVLiteral((1 to s).foldLeft((BitSet.empty, false)) { case ((res, seen1), i) =>
-            if (b(i) && seen1) (res + i, true)
-            else if (!seen1) (res, seen1)
-            else (if (!b(i)) res + i else res, seen1)
-          }._1, s)
+        case b @ BVLiteral(_, s) => BVLiteral(-b.toBigInt, s)
         case IntegerLiteral(i) => IntegerLiteral(-i)
         case FractionLiteral(n, d) => FractionLiteral(-n, d)
         case re => throw EvalError("Unexpected operation: -(" + re.asString + ")")
@@ -239,9 +234,9 @@ trait RecursiveEvaluator
     case Times(l,r) =>
       (e(l), e(r)) match {
         case (BVLiteral(i1, s1), BVLiteral(i2, s2)) if s1 == s2 =>
-          BVLiteral(i1.foldLeft(BitSet.empty) { case (res, i) =>
-            res ++ shift(i2, s2, i)
-          }, s1)
+          i1.foldLeft(BVLiteral(0, s1): Expr) { case (res, i) =>
+            e(Plus(res, BVLiteral(shift(i2, s2, i-1), s1)))
+          }
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => IntegerLiteral(i1 * i2)
         case (FractionLiteral(ln, ld), FractionLiteral(rn, rd)) =>
           normalizeFraction(FractionLiteral((ln * rn), (ld * rd)))
@@ -509,8 +504,8 @@ trait RecursiveEvaluator
       FiniteMap(ss.map{ case (k, v) => (e(k), e(v)) }.toMap.toSeq, e(dflt), vT)
 
     case g @ MapApply(m,k) => (e(m), e(k)) match {
-      case (FiniteMap(ss, _, _), e) =>
-        ss.toMap.getOrElse(e, throw RuntimeError("Key not found: " + e.asString))
+      case (FiniteMap(ss, dflt, _), e) =>
+        ss.toMap.getOrElse(e, dflt)
       case (l,r) =>
         throw EvalError(typeErrorMsg(l, MapType(r.getType, g.getType)))
     }

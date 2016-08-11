@@ -132,7 +132,7 @@ trait TreeDeconstructor {
       }
       (subArgs, Seq(base), builder)
     case s.FiniteMap(elems, default, kT) =>
-      val subArgs = elems.flatMap { case (k, v) => Seq(k, v) }
+      val subArgs = elems.flatMap { case (k, v) => Seq(k, v) } :+ default
       val builder = (as: Seq[t.Expr], kT: Seq[t.Type]) => {
         def rec(kvs: Seq[t.Expr]): (Seq[(t.Expr, t.Expr)], t.Expr) = kvs match {
           case Seq(k, v, t @ _*) =>

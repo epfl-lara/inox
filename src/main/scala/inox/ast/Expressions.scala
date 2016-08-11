@@ -152,22 +152,33 @@ trait Expressions { self: Trees =>
   case class BVLiteral(value: BitSet, size: Int) extends Literal[BitSet] {
     def getType(implicit s: Symbols): Type = BVType(size)
     def toBigInt: BigInt = {
-      val res = value.foldLeft(BigInt(0))((res, i) => res + BigInt(2).pow(i))
-      if (value(size)) BigInt(2).pow(size) - res else res
+      val res = value.foldLeft(BigInt(0))((res, i) => res + BigInt(2).pow(i-1))
+      if (value(size)) res - BigInt(2).pow(size) else res
     }
   }
 
   object BVLiteral {
-    def apply(bi: BigInt, size: Int): BVLiteral = BVLiteral(
-      (1 to size).foldLeft(BitSet.empty) { case (res, i) =>
-        if ((bi & BigInt(2).pow(i)) > 0) res + i else res
-      }, size)
+    def apply(bi: BigInt, size: Int): BVLiteral = {
+      def extract(bi: BigInt): BitSet = (1 to size).foldLeft(BitSet.empty) {
+        case (res, i) => if ((bi & BigInt(2).pow(i-1)) > 0) res + i else res
+      }
+
+      val bitSet = if (bi >= 0) extract(bi) else {
+        val bs = extract(-bi)
+        (1 to size).foldLeft((BitSet.empty, false)) { case ((res, seen1), i) =>
+          if (bs(i) && !seen1) (res + i, true)
+          else (if (!seen1 || bs(i)) res else res + i, seen1)
+        }._1
+      }
+
+      BVLiteral(bitSet, size)
+    }
   }
 
   object IntLiteral {
     def apply(i: Int): BVLiteral = BVLiteral(BigInt(i), 32)
     def unapply(e: Expr): Option[Int] = e match {
-      case b @ BVLiteral(_, 32) => Some(b.toBigInt.toInt)
+      case b @ BVLiteral(bs, 32) => Some(b.toBigInt.toInt)
       case _ => None
     }
   }

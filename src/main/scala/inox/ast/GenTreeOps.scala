@@ -388,8 +388,11 @@ trait GenTreeOps { self =>
   }
 
   object Same {
-    def unapply(tt: (Source, Source)): Option[(Source, Source)] = {
-      if (tt._1.getClass == tt._2.getClass) {
+    def unapply(tt: (Source, Target))(implicit ev1: Source =:= Target, ev2: Target =:= Source): Option[(Source, Target)] = {
+      val Deconstructor(es1, recons1) = tt._1
+      val Deconstructor(es2, recons2) = ev2(tt._2)
+
+      if (es1.size == es2.size && scala.util.Try(recons2(es1.map(ev1))).toOption == Some(tt._1)) {
         Some(tt)
       } else {
         None

@@ -278,7 +278,6 @@ class ExprOpsSuite extends FunSuite {
       val v = simplestValue(t)
       assert(isSubtypeOf(v.getType, t), "SimplestValue of "+t+": "+v+":"+v.getType)
     }
-
   }
 
   test("preMapWithContext") {

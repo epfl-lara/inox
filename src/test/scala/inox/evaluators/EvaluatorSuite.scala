@@ -36,6 +36,8 @@ class EvaluatorSuite extends FunSuite {
 
     eval(e, Plus(IntLiteral(3), IntLiteral(5)))  === IntLiteral(8)
     eval(e, Plus(IntLiteral(0), IntLiteral(5)))  === IntLiteral(5)
+    eval(e, Plus(IntLiteral(1), IntLiteral(-2)))  === IntLiteral(-1)
+    eval(e, Plus(IntLiteral(Int.MaxValue), IntLiteral(1))) === IntLiteral(Int.MinValue)
     eval(e, Times(IntLiteral(3), IntLiteral(3))) === IntLiteral(9)
   }
 
@@ -229,7 +231,7 @@ class EvaluatorSuite extends FunSuite {
     eval(e, MapApply(
       FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type),
       IntLiteral(1))
-    ) === IntLiteral(4)
+    ) === IntLiteral(2)
 
     eval(e, MapApply(
       FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type),
