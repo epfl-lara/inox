@@ -35,7 +35,7 @@ class SolverPoolSuite extends InoxTestSuite {
 
   test(s"SolverPool has at least $poolSize solvers") { implicit ctx =>
 
-    val sp = new SolverPoolFactory(ctx, sfactory)
+    val sp = SolverPoolFactory(sfactory)
 
     var solvers = Set[Solver]()
 
@@ -48,7 +48,7 @@ class SolverPoolSuite extends InoxTestSuite {
 
   test("SolverPool reuses solvers") { implicit ctx =>
 
-    val sp = new SolverPoolFactory(ctx, sfactory)
+    val sp = SolverPoolFactory(sfactory)
 
     var solvers = Set[Solver]()
 
@@ -67,7 +67,7 @@ class SolverPoolSuite extends InoxTestSuite {
 
   test(s"SolverPool can grow") { implicit ctx =>
 
-    val sp = new SolverPoolFactory(ctx, sfactory)
+    val sp = SolverPoolFactory(sfactory)
 
     var solvers = Set[Solver]()
 

@@ -1,24 +1,20 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-package leon.unit.purescala
+package inox.unit.trees
 
 import org.scalatest._
 
-import leon.test.helpers.ExpressionsDSL
-import leon.purescala.Common._
-import leon.purescala.Expressions._
-import leon.purescala.Extractors._
-
-class ExtractorsSuite extends FunSuite with ExpressionsDSL {
+class ExtractorsSuite extends FunSuite {
+  import inox.trees._
 
   test("Extractors do not simplify basic arithmetic") {
-    val e1 = BVPlus(1, 1)
+    val e1 = Plus(IntLiteral(1), IntLiteral(1))
     val e2 = e1 match {
       case Operator(es, builder) => builder(es)
     }
     assert(e1 === e2)
 
-    val e3 = Times(x, BigInt(1))
+    val e3 = Times(Variable(FreshIdentifier("x"), IntegerType), IntegerLiteral(1))
     val e4 = e3 match {
       case Operator(es, builder) => builder(es)
     }
@@ -26,7 +22,7 @@ class ExtractorsSuite extends FunSuite with ExpressionsDSL {
   }
 
   test("Extractors do not magically change the syntax") {
-    val e1 = Equals(bi(1), bi(1))
+    val e1 = Equals(IntegerLiteral(1), IntegerLiteral(1))
     val e2 = e1 match {
       case Operator(es, builder) => builder(es)
     }
@@ -38,7 +34,7 @@ class ExtractorsSuite extends FunSuite with ExpressionsDSL {
     }
     assert(e3 === e4)
 
-    val e5 = TupleSelect(Tuple(Seq(bi(1), bi(2))), 2)
+    val e5 = TupleSelect(Tuple(Seq(IntegerLiteral(1), IntegerLiteral(2))), 2)
     val e6 = e5 match {
       case Operator(es, builder) => builder(es)
     }
@@ -46,24 +42,31 @@ class ExtractorsSuite extends FunSuite with ExpressionsDSL {
   }
 
 
-  test("Extractors of NonemptyArray with sparse elements") {
-    val a1 = NonemptyArray(Map(0 -> x, 3 -> y, 5 -> z), Some((BigInt(0), BigInt(10))))
+  test("Extractors of map operations") {
+    val x = Variable(FreshIdentifier("x"), IntegerType)
+    val y = Variable(FreshIdentifier("y"), IntegerType)
+    val z = Variable(FreshIdentifier("z"), IntegerType)
+
+    val a1 = FiniteMap(
+      Seq(IntLiteral(0) -> x, IntLiteral(3) -> y, IntLiteral(5) -> z),
+      IntegerLiteral(10),
+      Int32Type)
     val a2 = a1 match {
       case Operator(es, builder) => {
-        assert(es === Seq(x, y, z, InfiniteIntegerLiteral(0), InfiniteIntegerLiteral(10)))
+        assert(es === Seq(IntLiteral(0), x, IntLiteral(3), y, IntLiteral(5), z, IntegerLiteral(10)))
         builder(es)
       }
     }
     assert(a2 === a1)
 
-    val a3 = NonemptyArray(Map(0 -> x, 1 -> y, 2 -> z), None)
-    val a4 = a3 match {
+    val app1 = MapApply(a1, IntLiteral(0))
+    val app2 = app1 match {
       case Operator(es, builder) => {
-        assert(es === Seq(x, y, z))
+        assert(es === Seq(a1, IntLiteral(0)))
         builder(es)
       }
     }
-    assert(a3 === a4)
+    assert(app1 === app2)
   }
 
 }

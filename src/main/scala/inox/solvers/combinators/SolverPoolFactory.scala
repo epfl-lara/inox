@@ -19,9 +19,11 @@ import scala.reflect.runtime.universe._
 
 trait SolverPoolFactory extends SolverFactory { self =>
 
-  val sf: SolverFactory { val program: self.program.type; type S = self.S }
+  val factory: SolverFactory
+  val program: factory.program.type = factory.program
+  type S = factory.S
 
-  val name = "Pool(" + sf.name + ")"
+  val name = "Pool(" + factory.name + ")"
 
   var poolSize    = 0
   val poolMaxSize = 5
@@ -32,7 +34,7 @@ trait SolverPoolFactory extends SolverFactory { self =>
   def getNewSolver(): S = {
     if (availables.isEmpty) {
       poolSize += 1
-      availables += sf.getNewSolver()
+      availables += factory.getNewSolver()
     }
 
     val s = availables.dequeue()
@@ -50,14 +52,14 @@ trait SolverPoolFactory extends SolverFactory { self =>
       case _: CantResetException =>
         inUse -= s
         s.free()
-        sf.reclaim(s)
-        availables += sf.getNewSolver()
+        factory.reclaim(s)
+        availables += factory.getNewSolver()
     }
   }
 
   def init(): Unit = {
     for (i <- 1 to poolMaxSize) {
-      availables += sf.getNewSolver()
+      availables += factory.getNewSolver()
     }
 
     poolSize = poolMaxSize
@@ -65,7 +67,7 @@ trait SolverPoolFactory extends SolverFactory { self =>
 
   override def shutdown(): Unit = {
     for (s <- availables ++ inUse) {
-      sf.reclaim(s)
+      factory.reclaim(s)
     }
 
     availables.clear()
@@ -74,4 +76,12 @@ trait SolverPoolFactory extends SolverFactory { self =>
   }
 
   init()
+}
+
+object SolverPoolFactory {
+  def apply(sf: SolverFactory): SolverPoolFactory {
+    val factory: sf.type
+  } = new {
+    val factory: sf.type = sf
+  } with SolverPoolFactory
 }
