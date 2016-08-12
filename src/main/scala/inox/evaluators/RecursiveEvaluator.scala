@@ -26,7 +26,7 @@ trait RecursiveEvaluator
     case v: Variable =>
       rctx.mappings.get(v.toVal) match {
         case Some(v) => v
-        case None => throw EvalError("No value for variable " + v.asString + " in mapping " + rctx.mappings)
+        case None => throw EvalError("No value for variable " + v + " in mapping " + rctx.mappings)
       }
 
     case Application(caller, args) =>
@@ -84,14 +84,7 @@ trait RecursiveEvaluator
       }
       */
 
-      val callResult: Expr = tfd.body match {
-        case Some(body) => e(body)(frame, gctx)
-        case None =>
-          // @nv TODO: this isn't right...
-          throw RuntimeError("Cannot evaluate bodyless function")
-      }
-
-      callResult
+      e(tfd.fullBody)(frame, gctx)
 
     case And(Seq(e1, e2)) =>
       (e(e1), e(e2)) match {
@@ -495,9 +488,13 @@ trait RecursiveEvaluator
       val mapping = variablesOf(l).map(v => v -> e(v)).toMap
       replaceFromSymbols(mapping, l).asInstanceOf[Lambda]
 
-    case f: Forall => onForallInvocation(f)
+    case f: Forall => onForallInvocation {
+      replaceFromSymbols(variablesOf(f).map(v => v -> e(v)).toMap, f).asInstanceOf[Forall]
+    }
 
-    case c: Choose => onChooseInvocation(c)
+    case c: Choose => onChooseInvocation {
+      replaceFromSymbols(variablesOf(c).map(v => v -> e(v)).toMap, c).asInstanceOf[Choose]
+    }
 
     case f @ FiniteMap(ss, dflt, vT) =>
       // we use toMap.toSeq to reduce dupplicate keys

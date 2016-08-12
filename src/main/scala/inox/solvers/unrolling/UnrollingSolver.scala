@@ -104,7 +104,7 @@ trait AbstractUnrollingSolver
   protected def wrapModel(model: underlying.Model): ModelWrapper
 
   trait ModelWrapper {
-    def modelEval(elem: Encoded, tpe: Type): Option[Expr]
+    protected def modelEval(elem: Encoded, tpe: Type): Option[Expr]
 
     def eval(elem: Encoded, tpe: Type): Option[Expr] = modelEval(elem, theories.encode(tpe)).flatMap {
       expr => try {
@@ -114,7 +114,7 @@ trait AbstractUnrollingSolver
       }
     }
 
-    def get(v: Variable): Option[Expr] = eval(freeVars(v), theories.encode(v.getType)).filter {
+    def get(v: Variable): Option[Expr] = eval(freeVars(v), v.getType).filter {
       case v: Variable => false
       case _ => true
     }
@@ -213,7 +213,7 @@ trait AbstractUnrollingSolver
                 None
               }
             }
-          }
+          }.distinct
 
           val default = if (allImages.isEmpty) {
             def rec(e: Expr): Expr = e match {
@@ -256,7 +256,6 @@ trait AbstractUnrollingSolver
   }
 
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
-
     val assumptionsSeq       : Seq[Expr]          = assumptions.toSeq
     val encodedAssumptions   : Seq[Encoded]       = assumptionsSeq.map { expr =>
       val vars = exprOps.variablesOf(expr)
@@ -476,10 +475,9 @@ trait UnrollingSolver extends AbstractUnrollingSolver {
     underlying.free()
   }
 
-  val printable = (e: Expr) => e
-
-  val templates = new Templates {
+  object templates extends {
     val program: theories.targetProgram.type = theories.targetProgram
+  } with Templates {
     type Encoded = Expr
 
     def asString(expr: Expr): String = expr.asString

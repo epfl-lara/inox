@@ -28,16 +28,12 @@ trait TreeDeconstructor {
       (Seq(e), Seq(ct), (es, tps) => t.AsInstanceOf(es.head, tps.head.asInstanceOf[t.ClassType]))
     case s.TupleSelect(e, i) =>
       (Seq(e), Seq(), (es, tps) => t.TupleSelect(es.head, i))
-    case s.Lambda(args, body) =>
-      (
-        Seq(body), args.map(_.tpe),
-        (es, tps) => t.Lambda(args.zip(tps).map(p => t.ValDef(p._1.id, p._2)), es.head)
-      )
-    case s.Forall(args, body) =>
-      (
-        Seq(body), args.map(_.tpe),
-        (es, tps) => t.Forall(args.zip(tps).map(p => t.ValDef(p._1.id, p._2)), es.head)
-      )
+    case s.Lambda(args, body) => (
+      Seq(body), args.map(_.tpe),
+      (es, tps) => t.Lambda(args.zip(tps).map(p => t.ValDef(p._1.id, p._2)), es.head))
+    case s.Forall(args, body) => (
+      Seq(body), args.map(_.tpe),
+      (es, tps) => t.Forall(args.zip(tps).map(p => t.ValDef(p._1.id, p._2)), es.head))
     case s.Choose(res, pred) =>
       (Seq(pred), Seq(res.tpe), (es, tps) => t.Choose(t.ValDef(res.id, tps.head), es.head))
 
@@ -147,8 +143,7 @@ trait TreeDeconstructor {
     case s.Tuple(args) => (args, Seq(), (es, _) => t.Tuple(es))
     case s.IfExpr(cond, thenn, elze) => (
       Seq(cond, thenn, elze), Seq(),
-      (es, _) => t.IfExpr(es(0), es(1), es(2))
-      )
+      (es, _) => t.IfExpr(es(0), es(1), es(2)))
 
     case s.Variable(id, tp) =>
       (Seq(), Seq(tp), (_, tps) => t.Variable(id, tps.head))
@@ -176,11 +171,6 @@ trait TreeDeconstructor {
 
     case s.UnitLiteral() =>
       (Seq(), Seq(), (_, _) => t.UnitLiteral())
-
-    /* Expr's not handled here should implement this trait */
-   // case e: Extractable =>
-    //  e.extract
-
   }
 
   def deconstruct(tp: s.Type): (Seq[s.Type], Seq[t.Type] => t.Type) = tp match {
@@ -205,27 +195,51 @@ trait TreeDeconstructor {
 
   def translate(e: s.Expr): t.Expr = {
     val (es, tps, builder) = deconstruct(e)
-    builder(es map translate, tps map translate)
+
+    var changed = false
+    val newEs = for (e <- es) yield {
+      val newE = translate(e)
+      if (e ne newE) changed = true
+      newE
+    }
+
+    val newTps = for (tp <- tps) yield {
+      val newTp = translate(tp)
+      if (tp ne newTp) changed = true
+      newTp
+    }
+
+    if (changed || (s ne t)) {
+      builder(newEs, newTps).copiedFrom(e)
+    } else {
+      e.asInstanceOf[t.Expr]
+    }
   }
 
   def translate(tp: s.Type): t.Type = {
     val (tps, builder) = deconstruct(tp)
-    builder(tps map translate)
-  }
 
-}
+    var changed = false
+    val newTps = for (tp <- tps) yield {
+      val newTp = translate(tp)
+      if (tp ne newTp) changed = true
+      newTp
+    }
 
-trait ExprDeconstructor extends TreeExtractor with TreeDeconstructor {
-  type Source = s.Expr
-  type Target = t.Expr
-
-  def unapply(e: Source): Option[(Seq[Source], (Seq[Target]) => Target)] = {
-    val (es, tps, builder) = deconstruct(e)
-    Some(es, ess => builder(ess, tps map translate))
+    if (changed || (s ne t)) {
+      builder(newTps).copiedFrom(tp)
+    } else {
+      tp.asInstanceOf[t.Type]
+    }
   }
 }
 
 trait Extractors { self: Trees =>
+
+  val deconstructor: TreeDeconstructor {
+    val s: self.type
+    val t: self.type
+  }
 
   /** Operator Extractor to extract any Expression in a consistent way.
     *
@@ -239,23 +253,18 @@ trait Extractors { self: Trees =>
     * tools for performing tree transformations that are very predictable, if
     * one need to simplify the tree, it is easy to write/call a simplification
     * function that would simply apply the corresponding constructor for each node.
-    *
-    * XXX: ideally, we would want [[Operator]] to be defined as
-    * {{{
-    *   val Operator: ExprDeconstructor {
-    *     val s: self.type
-    *     val t: self.type
-    *   }
-    * }}}
-    * however the Scala compiler seems to have some bug with this and reports
-    * wrong errors when we define it this way...
-    * @see https://issues.scala-lang.org/browse/SI-9247
     */
-  val Operator: TreeExtractor {
-    val s: self.type
-    val t: self.type
-    type Source = self.Expr
-    type Target = self.Expr
+  object Operator extends {
+    protected val s: self.type = self
+    protected val t: self.type = self
+  } with TreeExtractor {
+    type Source = Expr
+    type Target = Expr
+
+    def unapply(e: Expr): Option[(Seq[Expr], Seq[Expr] => Expr)] = {
+      val (es, tps, builder) = deconstructor.deconstruct(e)
+      Some(es, ess => builder(ess, tps))
+    }
   }
 
   object TopLevelOrs { // expr1 OR (expr2 OR (expr3 OR ..)) => List(expr1, expr2, expr3)

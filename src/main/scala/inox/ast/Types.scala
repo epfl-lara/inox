@@ -47,7 +47,6 @@ trait Types { self: Trees =>
   case object StringType  extends Type
 
   case class BVType(size: Int) extends Type
-  //TODO: not sure about the interaction between BVType(32) and Int32Type
   object Int32Type extends BVType(32) {
     override def toString = "Int32Type"
   }
@@ -90,11 +89,16 @@ trait Types { self: Trees =>
     *
     * @see [[Extractors.Operator]] about why we can't have nice(r) things
     */
-  val NAryType: TreeExtractor {
-    val s: self.type
-    val t: self.type
-    type Source = self.Type
-    type Target = self.Type
+  object NAryType extends {
+    protected val s: self.type = self
+    protected val t: self.type = self
+  } with TreeExtractor {
+    type Source = Type
+    type Target = Type
+
+    def unapply(t: Type): Option[(Seq[Type], Seq[Type] => Type)] = {
+      Some(deconstructor.deconstruct(t))
+    }
   }
 
   object FirstOrderFunctionType {

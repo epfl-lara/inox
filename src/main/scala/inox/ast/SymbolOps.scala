@@ -184,6 +184,30 @@ trait SymbolOps { self: TypeOps =>
     (Forall(args, body), subst)
   }
 
+  /** Pre-processing for solvers that handle universal quantification
+    * in order to increase the precision of polarity analysis for
+    * quantification instantiations.
+    */
+  def simplifyQuantifications(e: Expr): Expr = {
+    val fds = functionCallsOf(e).flatMap { fi =>
+      val fd = fi.tfd.fd
+      transitiveCallees(fd) + fd
+    }
+
+    val fdsToInline = fds
+      .filterNot(fd => transitivelyCalls(fd, fd))
+      .filter(fd => exists { case _: Forall => true case _ => false }(fd.fullBody))
+    
+    def inline(e: Expr): Expr = {
+      val subst = functionCallsOf(e)
+        .filter(fi => fdsToInline(fi.tfd.fd))
+        .map(fi => fi -> fi.inlined)
+      replace(subst.toMap, e)
+    }
+
+    fixpoint(inline)(e)
+  }
+
   /** Fully expands all let expressions. */
   def expandLets(expr: Expr): Expr = {
     def rec(ex: Expr, s: Map[Variable,Expr]) : Expr = ex match {
@@ -585,16 +609,21 @@ trait SymbolOps { self: TypeOps =>
 
   /** Returns true if expr is a value. Stronger than isGround */
   def isValue(e: Expr) = isValueOfType(e, e.getType)
-  
+
   /** Returns a nested string explaining why this expression is typed the way it is.*/
-  def explainTyping(e: Expr): String = {
+  def explainTyping(e: Expr)(implicit opts: PrinterOptions): String = {
     fold[String]{ (e, se) =>
       e match {
         case FunctionInvocation(id, tps, args) =>
           val tfd = getFunction(id, tps)
-          s"$e is of type ${e.getType}" + se.map(child => "\n  " + "\n".r.replaceAllIn(child, "\n  ")).mkString + s" because ${tfd.fd.id.name} was instantiated with ${tfd.fd.tparams.zip(args).map(k => k._1 +":="+k._2).mkString(",")} with type ${tfd.fd.params.map(_.getType).mkString(",")} => ${tfd.fd.returnType}"
+          s"${e.asString} is of type ${e.getType.asString}" +
+          se.map(child => "\n  " + "\n".r.replaceAllIn(child, "\n  ")).mkString +
+          s" because ${tfd.fd.id.name} was instantiated with " +
+          s"${tfd.fd.tparams.zip(tps).map(k => k._1.asString + ":=" + k._2.asString).mkString(",")} " +
+          s"with type ${tfd.fd.params.map(_.getType.asString).mkString(",")} => ${tfd.fd.returnType.asString}"
         case e =>
-          s"$e is of type ${e.getType}" + se.map(child => "\n  " + "\n".r.replaceAllIn(child, "\n  ")).mkString
+          s"${e.asString} is of type ${e.getType.asString}" +
+          se.map(child => "\n  " + "\n".r.replaceAllIn(child, "\n  ")).mkString
       }
     }(e)
   }
@@ -606,8 +635,8 @@ trait SymbolOps { self: TypeOps =>
   // Helpers for instantiateType
   class TypeInstantiator(tps: Map[TypeParameter, Type]) extends TreeTransformer {
     override def transform(tpe: Type): Type = tpe match {
-      case tp: TypeParameter => tps.getOrElse(tp, tpe)
-      case _ => tpe
+      case tp: TypeParameter => tps.getOrElse(tp, super.transform(tpe))
+      case _ => super.transform(tpe)
     }
   }
 

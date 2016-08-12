@@ -7,29 +7,27 @@ import utils._
 import org.apache.commons.lang3.StringEscapeUtils
 import scala.language.implicitConversions
 
-object optPrintPositions extends InoxFlagOptionDef("printPositions", "Attach positions to trees when printing", false)
-object optPrintUniqueIds extends InoxFlagOptionDef("printIds",       "Always print unique ids",                 false)
-object optPrintTypes     extends InoxFlagOptionDef("printPositions", "Attach types to trees when printing",     false)
+object optPrintPositions extends InoxFlagOptionDef("printpositions", "Attach positions to trees when printing", false)
+object optPrintUniqueIds extends InoxFlagOptionDef("printids",       "Always print unique ids",                 false)
+object optPrintTypes     extends InoxFlagOptionDef("printtypes",     "Attach types to trees when printing",     false)
 
 trait Printers {
   self: Trees =>
 
-  case class PrinterContext(
-                             current: Tree,
-                             parents: List[Tree],
-                             lvl: Int,
-                             printer: PrettyPrinter) {
+  case class PrinterContext(current: Tree,
+                            parents: List[Tree],
+                            lvl: Int,
+                            printer: PrettyPrinter) {
 
     def parent = parents.headOption
   }
 
-  case class PrinterOptions(
-                             baseIndent: Int = 0,
-                             printPositions: Boolean = false,
-                             printUniqueIds: Boolean = false,
-                             printTypes: Boolean = false,
-                             symbols: Option[Symbols] = None
-                           ) {
+  case class PrinterOptions(baseIndent: Int = 0,
+                            printPositions: Boolean = false,
+                            printUniqueIds: Boolean = false,
+                            printTypes: Boolean = false,
+                            symbols: Option[Symbols] = None) {
+
     require(
       !printTypes || symbols.isDefined,
       "Can't print types without an available symbol table"
@@ -315,11 +313,7 @@ trait Printers {
           }
 
           p"${fd.returnType} = "
-
-          fd.body match {
-            case Some(body) => p"$body"
-            case None => p"???"
-          }
+          p"${fd.fullBody}"
 
         case (tree: PrettyPrintable) => tree.printWith(ctx)
 

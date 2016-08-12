@@ -43,15 +43,10 @@ package object inox {
 
   object trees extends ast.Trees {
 
-    object Operator extends {
+    object deconstructor extends {
       protected val s: trees.type = trees
       protected val t: trees.type = trees
-    } with ast.ExprDeconstructor
-
-    object NAryType extends {
-      protected val s: trees.type = trees
-      protected val t: trees.type = trees
-    } with ast.TypeDeconstructor
+    } with ast.TreeDeconstructor
 
     class Symbols(
       val functions: Map[Identifier, FunDef],
@@ -64,7 +59,7 @@ package object inox {
           fd.tparams, // type parameters can't be transformed!
           fd.params.map(vd => t.transform(vd)),
           t.transform(fd.returnType),
-          fd.body.map(t.transform),
+          t.transform(fd.fullBody),
           fd.flags)),
         classes.mapValues {
           case acd: AbstractClassDef => acd

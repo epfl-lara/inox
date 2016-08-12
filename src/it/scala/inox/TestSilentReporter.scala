@@ -10,6 +10,10 @@ class TestSilentReporter extends DefaultReporter(Set()) {
     case Message(this.FATAL, _, msg) => lastErrors ++= List(msg.toString)
     case _ =>
   }
+
+  override def debug(pos: utils.Position, msg: => Any)(implicit section: DebugSection): Unit = {
+    println(msg)
+  }
 }
 
 class TestErrorReporter extends DefaultReporter(Set()) {

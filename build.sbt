@@ -40,17 +40,13 @@ resolvers ++= Seq(
   "Sonatype OSS Releases" at "https://oss.sonatype.org/content/repositories/releases"
 )
 
-val libisabelleVer = "0.3.1"
-
 libraryDependencies ++= Seq(
   "org.scala-lang" % "scala-compiler" % scalaVer,
-  "org.scalatest" %% "scalatest" % "2.2.4" % "test",
+  "org.scalatest" %% "scalatest" % "2.2.4" % "test;it",
   "com.typesafe.akka" %% "akka-actor" % "2.3.4",
-  "info.hupel" %% "libisabelle" % libisabelleVer,
-  "info.hupel" %% "libisabelle-setup" % libisabelleVer,
-  "info.hupel" %% "slf4j-impl-helper" % "0.1" % "optional",
   "org.ow2.asm" % "asm-all" % "5.0.4",
-  "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.6.0-rc2"//,
+  "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.6.0-rc2",
+  "org.apache.commons" % "commons-lang3" % "3.4"
   //"com.regblanc" %% "scala-smtlib" % "0.2"
 )
 
@@ -133,14 +129,9 @@ def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${versi
 lazy val bonsai      = ghProject("git://github.com/colder/bonsai.git",     "10eaaee4ea0ff6567f4f866922cb871bae2da0ac")
 lazy val scalaSmtlib = ghProject("git://github.com/regb/scala-smtlib.git", "88835c02ca2528e888b06bc48e4e93e52dc5f4b5")
 
-lazy val root = (project in file(".")).
-  configs(IntegrationTest).
-  configs(RegressionTest, NativeZ3RegressionTest, IsabelleTest).
-  dependsOn(bonsai).
-  dependsOn(scalaSmtlib).
-  settings(inConfig(NativeZ3RegressionTest)(Defaults.testTasks ++ testSettings): _*).
-  settings(inConfig(RegressionTest)(Defaults.testTasks ++ testSettings): _*).
-  //settings(inConfig(IntegrTest)(Defaults.testTasks ++ testSettings): _*).
-  settings(inConfig(IsabelleTest)(Defaults.testTasks ++ testSettings): _*).
-  settings(inConfig(Test)(Defaults.testTasks ++ testSettings): _*)
+lazy val root = (project in file("."))
+  .configs(IntegrationTest)
+  .settings(Defaults.itSettings : _*)
+  .dependsOn(bonsai)
+  .dependsOn(scalaSmtlib)
 

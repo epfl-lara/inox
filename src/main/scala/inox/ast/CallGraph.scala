@@ -19,7 +19,7 @@ trait CallGraph {
   lazy val graph: DiGraph[FunDef, SimpleEdge[FunDef]] = {
     var g = DiGraph[FunDef, SimpleEdge[FunDef]]()
 
-    for ((_, fd) <- symbols.functions; body <- fd.body; c <- collect(collectCalls(fd))(body)) {
+    for ((_, fd) <- symbols.functions; c <- collect(collectCalls(fd))(fd.fullBody)) {
       g += SimpleEdge(c._1, c._2)
     }
 

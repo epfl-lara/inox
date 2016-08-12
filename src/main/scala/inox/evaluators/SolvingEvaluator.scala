@@ -48,10 +48,8 @@ trait SolvingEvaluator extends Evaluator {
   })
 
   def onForallInvocation(forall: Forall): Expr = {
-    val cache = options.findOption(optForallCache).getOrElse {
-      throw new RuntimeException("Couldn't find evaluator's forall cache")
-    }
-    
+    val cache = options.findOptionOrDefault(optForallCache)
+
     BooleanLiteral(cache.getOrElse(forall, {
       val timer = ctx.timers.evaluators.forall.start()
 

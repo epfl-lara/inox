@@ -25,249 +25,61 @@ trait TreeOps { self: Trees =>
       }
     }
 
-    @inline
-    private def transformValDefs(vds: Seq[ValDef]): (Seq[ValDef], Boolean) = {
+    def transform(e: Expr): Expr = {
+      val (es, tps, builder) = deconstructor.deconstruct(e)
+
       var changed = false
-      val newVds = vds.map { vd =>
-        val newVd = transform(vd)
-        if (vd ne newVd) changed = true
-        newVd
+      val newEs = for (e <- es) yield {
+        val newE = transform(e)
+        if (e ne newE) changed = true
+        newE
       }
 
-      (newVds, changed)
-    }
-
-    @inline
-    private def transformExprs(args: Seq[Expr]): (Seq[Expr], Boolean) = {
-      var changed = false
-      val newArgs = args.map { arg =>
-        val newArg = transform(arg)
-        if (arg ne newArg) changed = true
-        newArg
-      }
-
-      (newArgs, changed)
-    }
-
-    @inline
-    private def transformTypes(tps: Seq[Type]): (Seq[Type], Boolean) = {
-      var changed = false
-      val newTps = tps.map { tp =>
+      val newTps = for (tp <- tps) yield {
         val newTp = transform(tp)
         if (tp ne newTp) changed = true
         newTp
       }
 
-      (newTps, changed)
+      if (changed) {
+        builder(newEs, newTps).copiedFrom(e)
+      } else {
+        e
+      }
     }
 
-    def transform(e: Expr): Expr = e match {
-      case v: Variable => transform(v)
+    def transform(t: Type): Type = {
+      val (tps, builder) = deconstructor.deconstruct(t)
 
-      case Lambda(args, body) =>
-        val (newArgs, changedArgs) = transformValDefs(args)
-        val newBody = transform(body)
-        if (changedArgs || (body ne newBody)) {
-          Lambda(newArgs, newBody).copiedFrom(e)
-        } else {
-          e
-        }
+      var changed = false
+      val newTps = for (tp <- tps) yield {
+        val newTp = transform(tp)
+        if (tp ne newTp) changed = true
+        newTp
+      }
 
-      case Forall(args, body) =>
-        val (newArgs, changedArgs) = transformValDefs(args)
-        val newBody = transform(body)
-        if (changedArgs || (body ne newBody)) {
-          Forall(newArgs, newBody).copiedFrom(e)
-        } else {
-          e
-        }
-
-      case Choose(res, pred) =>
-        val newRes = transform(res)
-        val newPred = transform(pred)
-        if ((res ne newRes) || (pred ne newPred)) {
-          Choose(newRes, newPred).copiedFrom(e)
-        } else {
-          e
-        }
-
-      case Let(vd, expr, body) =>
-        val newVd = transform(vd)
-        val newExpr = transform(expr)
-        val newBody = transform(body)
-        if ((vd ne newVd) || (expr ne newExpr) || (body ne newBody)) {
-          Let(newVd, newExpr, newBody).copiedFrom(e)
-        } else {
-          e
-        }
-
-      case CaseClass(ct, args) =>
-        val newCt = transform(ct)
-        val (newArgs, changedArgs) = transformExprs(args)
-        if ((ct ne newCt) || changedArgs) {
-          CaseClass(newCt.asInstanceOf[ClassType], newArgs).copiedFrom(e)
-        } else {
-          e
-        }
-
-      case CaseClassSelector(cc, selector) =>
-        val newCc = transform(cc)
-        if (cc ne newCc) {
-          CaseClassSelector(cc, selector).copiedFrom(e)
-        } else {
-          e
-        }
-
-      case FunctionInvocation(id, tps, args) =>
-        val (newTps, changedTps) = transformTypes(tps)
-        val (newArgs, changedArgs) = transformExprs(args)
-        if (changedTps || changedArgs) {
-          FunctionInvocation(id, newTps, newArgs).copiedFrom(e)
-        } else {
-          e
-        }
-
-      case IsInstanceOf(expr, ct) =>
-        val newExpr = transform(expr)
-        val newCt = transform(ct)
-        if ((expr ne newExpr) || (ct ne newCt)) {
-          IsInstanceOf(newExpr, newCt.asInstanceOf[ClassType]).copiedFrom(e)
-        } else {
-          e
-        }
-
-      case AsInstanceOf(expr, ct) => 
-        val newExpr = transform(expr)
-        val newCt = transform(ct)
-        if ((expr ne newExpr) || (ct ne newCt)) {
-          AsInstanceOf(newExpr, newCt.asInstanceOf[ClassType]).copiedFrom(e)
-        } else {
-          e
-        }
-
-      case FiniteSet(es, tpe) =>
-        val (newArgs, changed) = transformExprs(es)
-        val newTpe = transform(tpe)
-        if (changed || (tpe ne newTpe)) {
-          FiniteSet(newArgs, newTpe).copiedFrom(e)
-        } else {
-          e
-        }
-
-      case FiniteBag(es, tpe) =>
-        var changed = false
-        val newEs = es.map { case (k, v) =>
-          val newK = transform(k)
-          if (k ne newK) changed = true
-          newK -> v
-        }
-        val newTpe = transform(tpe)
-        if (changed || (tpe ne newTpe)) {
-          FiniteBag(newEs, newTpe).copiedFrom(e)
-        } else {
-          e
-        }
-
-      case FiniteMap(pairs, from, to) =>
-        var changed = false
-        val newPairs = pairs.map { case (k, v) =>
-          val newK = transform(k)
-          val newV = transform(v)
-          if ((k ne newK) || (v ne newV)) changed = true
-          newK -> newV
-        }
-        val newFrom = transform(from)
-        val newTo = transform(to)
-        if (changed || (from ne newFrom) || (to ne newTo)) {
-          FiniteMap(newPairs, newFrom, newTo).copiedFrom(e)
-        } else {
-          e
-        }
-
-      case Operator(es, builder) =>
-        val newEs = es map transform
-        if ((newEs zip es).exists { case (bef, aft) => aft ne bef }) {
-          builder(newEs).copiedFrom(e)
-        } else {
-          e
-        }
-
-      case e => e
-    }
-
-    def transform(tpe: Type): Type = tpe match {
-      case NAryType(ts, builder) =>
-        val newTs = ts map transform
-        if ((newTs zip ts).exists { case (bef, aft) => aft ne bef }) {
-          builder(ts map transform).copiedFrom(tpe)
-        } else {
-          tpe
-        }
+      if (changed) {
+        builder(newTps).copiedFrom(t)
+      } else {
+        t
+      }
     }
   }
 
   trait TreeTraverser {
-    def traverse(e: Expr): Unit = e match {
-      case Variable(_, tpe) =>
-        traverse(tpe)
+    def traverse(vd: ValDef): Unit = traverse(vd.tpe)
 
-      case Lambda(args, body) =>
-        args foreach (vd => traverse(vd.tpe))
-        traverse(body)
+    def traverse(v: Variable): Unit = traverse(v.tpe)
 
-      case Forall(args, body) =>
-        args foreach (vd => traverse(vd.tpe))
-        traverse(body)
-
-      case Choose(res, pred) =>
-        traverse(res.tpe)
-        traverse(pred)
-
-      case Let(a, expr, body) =>
-        traverse(expr)
-        traverse(body)
-
-      case CaseClass(cct, args) =>
-        traverse(cct)
-        args foreach traverse
-
-      case CaseClassSelector(caseClass, selector) =>
-        traverse(caseClass)
-
-      case FunctionInvocation(id, tps, args) =>
-        tps foreach traverse
-        args foreach traverse
-
-      case IsInstanceOf(expr, ct) =>
-        traverse(expr)
-        traverse(ct)
-
-      case AsInstanceOf(expr, ct) => 
-        traverse(expr)
-        traverse(ct)
-
-      case FiniteSet(es, tpe) =>
-        es foreach traverse
-        traverse(tpe)
-
-      case FiniteBag(es, tpe) =>
-        es foreach { case (k, _) => traverse(k) }
-        traverse(tpe)
-
-      case FiniteMap(pairs, from, to) =>
-        pairs foreach { case (k, v) => traverse(k); traverse(v) }
-        traverse(from)
-        traverse(to)
-
-      case Operator(es, builder) =>
-        es foreach traverse
-
-      case e =>
+    def traverse(e: Expr): Unit = {
+      val (es, tps, _) = deconstructor.deconstruct(e)
+      es.foreach(traverse)
+      tps.foreach(traverse)
     }
 
-    def traverse(tpe: Type): Unit = tpe match {
-      case NAryType(ts, builder) =>
-        ts foreach traverse
+    def traverse(tpe: Type): Unit = {
+      val (tps, _) = deconstructor.deconstruct(tpe)
+      tps.foreach(traverse)
     }
   }
 }

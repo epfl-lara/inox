@@ -7,10 +7,21 @@ import scala.language.higherKinds
 import scala.language.implicitConversions
 
 object SolverResponses {
-  sealed trait SolverResponse[+Model,+Assumptions]
+  sealed trait SolverResponse[+Model,+Assumptions] {
+    def isSAT: Boolean
+    def isUNSAT: Boolean
+  }
 
-  sealed trait Satisfiable
-  sealed trait Unsatisfiable
+  sealed trait Satisfiable {
+    def isSAT: Boolean = true
+    def isUNSAT: Boolean = false
+  }
+
+  sealed trait Unsatisfiable {
+    def isSAT: Boolean = false
+    def isUNSAT: Boolean = true
+  }
+
   sealed trait CheckResponse
 
   sealed trait SimpleResponse extends SolverResponse[Nothing, Nothing] with CheckResponse
@@ -37,7 +48,10 @@ object SolverResponses {
   case object Unknown extends SimpleResponse
     with ResponseWithModel[Nothing]
     with ResponseWithUnsatAssumptions[Nothing]
-    with ResponseWithModelAndAssumptions[Nothing, Nothing]
+    with ResponseWithModelAndAssumptions[Nothing, Nothing] {
+      def isSAT: Boolean = false
+      def isUNSAT: Boolean = false
+    }
 
   object Check {
     def unapply[Model,Assumptions](resp: SolverResponse[Model,Assumptions]): Option[Boolean] = resp match {

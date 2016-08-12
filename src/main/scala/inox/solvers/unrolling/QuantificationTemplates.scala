@@ -414,7 +414,7 @@ trait QuantificationTemplates { self: Templates =>
 
     private def instantiateSubsts(substs: Seq[(Set[Encoded], Map[Encoded, Arg])]): Clauses = {
       val instantiation = new scala.collection.mutable.ListBuffer[Encoded]
-      for (p @ (bs, subst) <- substs if !handledSubsts(this)(p)) {
+      for (p @ (bs, subst) <- substs if !handledSubsts.get(this).exists(_ contains p)) {
         if (subst.values.exists(_.isRight)) {
           ignoredSubsts += this -> (ignoredSubsts.getOrElse(this, Set.empty) + ((currentGeneration + 3, bs, subst)))
         } else {

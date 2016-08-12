@@ -156,7 +156,7 @@ trait AbstractZ3Solver
 
   def declareStructuralSort(t: Type): Z3Sort = {
     adtManager.declareADTs(t, declareDatatypes)
-    sorts(bestRealType(t))
+    sorts(t)
   }
 
   def declareDatatypes(adts: Seq[(Type, DataType)]): Unit = {

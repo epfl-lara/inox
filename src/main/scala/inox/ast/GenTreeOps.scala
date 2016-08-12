@@ -16,7 +16,7 @@ trait TreeExtractor {
 
   type Source <: s.Tree
   type Target <: t.Tree
-  def unapply(e: Source): Option[(Seq[Source], (Seq[Target]) => Target)]
+  def unapply(e: Source): Option[(Seq[Source], Seq[Target] => Target)]
 }
 
 /** Generic tree traversals based on a deconstructor of a specific tree type
@@ -388,11 +388,12 @@ trait GenTreeOps { self =>
   }
 
   object Same {
-    def unapply(tt: (Source, Target))(implicit ev1: Source =:= Target, ev2: Target =:= Source): Option[(Source, Target)] = {
+    def unapply(tt: (Source, Target))
+               (implicit ev1: Source =:= Target, ev2: Target =:= Source): Option[(Source, Target)] = {
       val Deconstructor(es1, recons1) = tt._1
       val Deconstructor(es2, recons2) = ev2(tt._2)
 
-      if (es1.size == es2.size && scala.util.Try(recons2(es1.map(ev1))).toOption == Some(tt._1)) {
+      if (es1.size == es2.size && scala.util.Try(recons2(es1.map(ev1))).toOption == Some(ev2(tt._1))) {
         Some(tt)
       } else {
         None

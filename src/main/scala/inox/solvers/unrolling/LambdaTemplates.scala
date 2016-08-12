@@ -259,34 +259,38 @@ trait LambdaTemplates { self: Templates =>
     neqClauses ++ extClauses
   }
 
-  private def typeUnroller(blocker: Encoded, app: App): Clauses = typeBlockers.get(app.encoded) match {
-    case Some(typeBlocker) =>
-      Seq(mkImplies(blocker, typeBlocker))
+  private def typeUnroller(blocker: Encoded, app: App): Clauses = {
+    val App(caller, tpe @ FirstOrderFunctionType(_, to), args, value) = app
+    if (!requiresUnrolling(to)) {
+      Seq.empty
+    } else typeBlockers.get(value) match {
+      case Some(typeBlocker) =>
+        Seq(mkImplies(blocker, typeBlocker))
 
-    case None =>
-      val App(caller, tpe @ FirstOrderFunctionType(_, to), args, value) = app
-      val typeBlocker = encodeSymbol(Variable(FreshIdentifier("t"), BooleanType))
-      typeBlockers += value -> typeBlocker
+      case None =>
+        val typeBlocker = encodeSymbol(Variable(FreshIdentifier("t"), BooleanType))
+        typeBlockers += value -> typeBlocker
 
-      val clauses = registerSymbol(typeBlocker, value, to)
+        val clauses = registerSymbol(typeBlocker, value, to)
 
-      val (b, extClauses) = if (knownFree(tpe) contains caller) {
-        (blocker, Seq.empty)
-      } else {
-        val firstB = encodeSymbol(Variable(FreshIdentifier("b_free", true), BooleanType))
-        typeEnablers += firstB
+        val (b, extClauses) = if (knownFree(tpe) contains caller) {
+          (blocker, Seq.empty)
+        } else {
+          val firstB = encodeSymbol(Variable(FreshIdentifier("b_free", true), BooleanType))
+          typeEnablers += firstB
 
-        val nextB  = encodeSymbol(Variable(FreshIdentifier("b_or", true), BooleanType))
-        freeBlockers += tpe -> (freeBlockers(tpe) + (nextB -> caller))
+          val nextB  = encodeSymbol(Variable(FreshIdentifier("b_or", true), BooleanType))
+          freeBlockers += tpe -> (freeBlockers(tpe) + (nextB -> caller))
 
-        val clause = mkEquals(firstB, mkAnd(blocker, mkOr(
-          knownFree(tpe).map(idT => mkEquals(caller, idT)).toSeq ++
-          maybeFree(tpe).map { case (b, idT) => mkAnd(b, mkEquals(caller, idT)) } :+
-          nextB : _*)))
-        (firstB, Seq(clause))
-      }
+          val clause = mkEquals(firstB, mkAnd(blocker, mkOr(
+            knownFree(tpe).map(idT => mkEquals(caller, idT)).toSeq ++
+            maybeFree(tpe).map { case (b, idT) => mkAnd(b, mkEquals(caller, idT)) } :+
+            nextB : _*)))
+          (firstB, Seq(clause))
+        }
 
-      clauses ++ extClauses :+ mkImplies(b, typeBlocker)
+        clauses ++ extClauses :+ mkImplies(b, typeBlocker)
+    }
   }
 
   private def registerAppBlocker(gen: Int, key: (Encoded, App), template: Either[LambdaTemplate, Encoded], equals: Encoded, args: Seq[Arg]): Unit = {
@@ -347,28 +351,30 @@ trait LambdaTemplates { self: Templates =>
 
       if (knownFree(tpe) contains caller) {
         clauses
-      } else if (byID contains caller) {
-        // we register this app at the CURRENT generation to increase the performance
-        // of fold-style higher-order functions (the first-class function will be
-        // dispatched immediately after the fold-style function unrolling)
-        registerAppBlocker(currentGeneration, key, Left(byID(caller)), trueT, args)
-        clauses
       } else {
         val freshAppClause = if (appBlockers.isDefinedAt(key)) None else {
           val firstB = encodeSymbol(Variable(FreshIdentifier("b_lambda", true), BooleanType))
           val clause = mkImplies(mkNot(firstB), mkNot(blocker))
 
+          // blockerToApps will be updated by the following registerAppBlocker call
           appBlockers += key -> firstB
           Some(clause)
         }
 
-        lazy val gen = nextGeneration(currentGeneration)
-        for (template <- byType(tpe).values) {
-          val equals = mkEquals(template.ids._2, caller)
-          registerAppBlocker(gen, key, Left(template), equals, args)
-        }
+        if (byID contains caller) {
+          /* We register this app at the CURRENT generation to increase the performance
+           * of fold-style higher-order functions (the first-class function will be
+           * dispatched immediately after the fold-style function unrolling). */
+          registerAppBlocker(currentGeneration, key, Left(byID(caller)), trueT, args)
+        } else {
+          lazy val gen = nextGeneration(currentGeneration)
+          for (template <- byType(tpe).values) {
+            val equals = mkEquals(template.ids._2, caller)
+            registerAppBlocker(gen, key, Left(template), equals, args)
+          }
 
-        applications += tpe -> (applications(tpe) + key)
+          applications += tpe -> (applications(tpe) + key)
+        }
 
         clauses ++ freshAppClause
       }
@@ -460,6 +466,8 @@ trait LambdaTemplates { self: Templates =>
         val clause = mkEquals(appBlockers(app), extension)
 
         appBlockers += app -> nextB
+        blockerToApps -= appBlockers(app)
+        blockerToApps += nextB -> app
 
         ctx.reporter.debug(" -> extending lambda blocker: " + clause)
         newClauses += clause

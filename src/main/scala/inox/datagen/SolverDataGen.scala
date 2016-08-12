@@ -46,7 +46,7 @@ trait SolverDataGen extends DataGenerator { self =>
               }
 
             val x = Variable(FreshIdentifier("x", true), tcd.root.toType)
-            fds +:= new FunDef(id, tparams, Seq(x.toVal), IntegerType, Some(root match {
+            fds +:= new FunDef(id, tparams, Seq(x.toVal), IntegerType, root match {
               case acd: AbstractClassDef =>
                 val (child +: rest) = acd.descendants
                 def sizeOf(ccd: CaseClassDef) = sizeOfCaseClass(ccd, x.asInstOf(typed(ccd).toType))
@@ -56,7 +56,7 @@ trait SolverDataGen extends DataGenerator { self =>
 
               case ccd: CaseClassDef =>
                 sizeOfCaseClass(ccd, x)
-            }), Set.empty)
+            }, Set.empty)
 
             id
           })

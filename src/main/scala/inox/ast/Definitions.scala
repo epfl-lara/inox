@@ -333,11 +333,9 @@ trait Definitions { self: Trees =>
     val tparams: Seq[TypeParameterDef],
     val params: Seq[ValDef],
     val returnType: Type,
-    val body: Option[Expr],
+    val fullBody: Expr,
     val flags: Set[FunctionFlag]
   ) extends Definition {
-
-    def hasBody = body.isDefined
 
     def annotations: Set[String] = extAnnotations.keySet
     def extAnnotations: Map[String, Seq[Option[Any]]] = flags.collect {
@@ -430,7 +428,6 @@ trait Definitions { self: Trees =>
     lazy val returnType: Type = instantiate(fd.returnType)
 
     /** The body of the respective [[FunDef]] instantiated with the real type parameters */
-    lazy val body = fd.body map instantiate
-    def hasBody   = body.isDefined
+    lazy val fullBody = instantiate(fd.fullBody)
   }
 }

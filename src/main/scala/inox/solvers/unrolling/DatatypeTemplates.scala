@@ -29,41 +29,42 @@ trait DatatypeTemplates { self: Templates =>
     mkTemplate(tpe).instantiate(start, sym)
   }
 
-  object DatatypeTemplate {
+  private val requireChecking: MutableSet[TypedClassDef] = MutableSet.empty
+  private val requireCache: MutableMap[Type, Boolean] = MutableMap.empty
 
-    private val requireChecking: MutableSet[TypedClassDef] = MutableSet.empty
-    private val requireCache: MutableMap[Type, Boolean] = MutableMap.empty
+  def requiresUnrolling(tpe: Type): Boolean = requireCache.get(tpe) match {
+    case Some(res) => res
+    case None =>
+      val res = tpe match {
+        case ft: FunctionType => true
 
-    private def requireTypeUnrolling(tpe: Type): Boolean = requireCache.get(tpe) match {
-      case Some(res) => res
-      case None =>
-        val res = tpe match {
-          case ft: FunctionType => true
-          case ct: ClassType => ct.tcd match {
-            case tccd: TypedCaseClassDef => tccd.parent.isDefined
-            case tcd if requireChecking(tcd.root) => false
-            case tcd =>
-              requireChecking += tcd.root
-              val classTypes = tcd.root +: (tcd.root match {
-                case (tacd: TypedAbstractClassDef) => tacd.descendants
-                case _ => Seq.empty
-              })
+        case ct: ClassType => ct.tcd match {
+          case tccd: TypedCaseClassDef => tccd.parent.isDefined
+          case tcd if requireChecking(tcd.root) => false
+          case tcd =>
+            requireChecking += tcd.root
+            val classTypes = tcd.root +: (tcd.root match {
+              case (tacd: TypedAbstractClassDef) => tacd.descendants
+              case _ => Seq.empty
+            })
 
-              classTypes.exists(ct => ct.hasInvariant || (ct match {
-                case tccd: TypedCaseClassDef => tccd.fieldsTypes.exists(requireTypeUnrolling)
-                case _ => false
-              }))
-          }
-
-          case BooleanType | UnitType | CharType | IntegerType |
-               RealType | StringType | (_: BVType) | (_: TypeParameter) => false
-
-          case NAryType(tpes, _) => tpes.exists(requireTypeUnrolling)
+            classTypes.exists(ct => ct.hasInvariant || (ct match {
+              case tccd: TypedCaseClassDef => tccd.fieldsTypes.exists(requiresUnrolling)
+              case _ => false
+            }))
         }
 
-        requireCache += tpe -> res
-        res
-    }
+        case BooleanType | UnitType | CharType | IntegerType |
+             RealType | StringType | (_: BVType) | (_: TypeParameter) => false
+
+        case NAryType(tpes, _) => tpes.exists(requiresUnrolling)
+      }
+
+      requireCache += tpe -> res
+      res
+  }
+
+  object DatatypeTemplate {
 
     def apply(tpe: Type): DatatypeTemplate = {
       val v = Variable(FreshIdentifier("x", true), tpe)
@@ -95,7 +96,7 @@ trait DatatypeTemplates { self: Templates =>
       }
 
       def rec(pathVar: Variable, expr: Expr): Unit = expr.getType match {
-        case tpe if !requireTypeUnrolling(tpe) =>
+        case tpe if !requiresUnrolling(tpe) =>
           // nothing to do here!
 
         case ct: ClassType =>
@@ -123,7 +124,7 @@ trait DatatypeTemplates { self: Templates =>
             for (tccd <- matchers) {
               val tpe = tccd.toType
 
-              if (requireTypeUnrolling(tpe)) {
+              if (requiresUnrolling(tpe)) {
                 val newBool: Variable = Variable(FreshIdentifier("b", true), BooleanType)
                 storeCond(pathVar, newBool)
 

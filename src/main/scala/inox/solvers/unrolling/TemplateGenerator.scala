@@ -40,18 +40,14 @@ trait TemplateGenerator { self: Templates =>
       return cache(tfd)
     }
 
-    val lambdaBody : Option[Expr] = tfd.body.map(simplifyHOFunctions)
+    val lambdaBody : Expr = simplifyHOFunctions(tfd.fullBody)
 
     val funDefArgs: Seq[Variable] = tfd.params.map(_.toVariable)
-    val lambdaArguments: Seq[Variable] = lambdaBody.map(lambdaArgs).toSeq.flatten
+    val lambdaArguments: Seq[Variable] = lambdaArgs(lambdaBody)
     val invocation : Expr = tfd.applied(funDefArgs)
 
-    val invocationEqualsBody : Seq[Expr] = lambdaBody match {
-      case Some(body) =>
-        liftedEquals(invocation, body, lambdaArguments) :+ Equals(invocation, body)
-      case _ =>
-        Seq.empty
-    }
+    val invocationEqualsBody : Seq[Expr] =
+      liftedEquals(invocation, lambdaBody, lambdaArguments) :+ Equals(invocation, lambdaBody)
 
     val start : Variable = Variable(FreshIdentifier("start", true), BooleanType)
     val pathVar : (Variable, Encoded) = start -> encodeSymbol(start)
@@ -174,7 +170,7 @@ trait TemplateGenerator { self: Templates =>
           implies(rec(pathVar, lhs, None), rec(pathVar, rhs, None))
         }
 
-      case a @ And(parts) if a.getType == BooleanType =>
+      case a @ And(parts) =>
         val partitions = SeqUtils.groupWhile(parts)(exprOps.isSimple)
         partitions.map(andJoin) match {
           case Seq(e) => e
@@ -203,7 +199,7 @@ trait TemplateGenerator { self: Templates =>
             newExpr
         }
 
-      case o @ Or(parts) if o.getType == BooleanType =>
+      case o @ Or(parts) =>
         val partitions = SeqUtils.groupWhile(parts)(exprOps.isSimple)
         partitions.map(orJoin) match {
           case Seq(e) => e
@@ -242,7 +238,6 @@ trait TemplateGenerator { self: Templates =>
 
           storeCond(pathVar, newBool1)
           storeCond(pathVar, newBool2)
-
           storeExpr(newExpr)
 
           val crec = rec(pathVar, cond, None)

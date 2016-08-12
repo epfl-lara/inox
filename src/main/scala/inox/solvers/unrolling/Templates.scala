@@ -517,8 +517,9 @@ trait Templates extends TemplateGenerator
 
     val tpeClauses = bindings.flatMap { case (v, s) => registerSymbol(encodedStart, s, v.getType) }.toSeq
 
+    val instExpr = simplifyHOFunctions(simplifyQuantifications(expr))
     val (condVars, exprVars, condTree, guardedExprs, lambdas, quants) =
-      mkClauses(start, expr, bindings + (start -> encodedStart))
+      mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
 
     val (clauses, calls, apps, matchers, _) = Template.encode(
       start -> encodedStart, bindings.toSeq, condVars, exprVars, guardedExprs, lambdas, quants)
@@ -526,7 +527,13 @@ trait Templates extends TemplateGenerator
     val (substMap, substClauses) = Template.substitution(
       condVars, exprVars, condTree, lambdas, quants, Map.empty, start, encodedStart)
 
-    val templateClauses = Template.instantiate(clauses, calls, apps, matchers, Map.empty)
-    tpeClauses ++ substClauses ++ templateClauses
+    val templateClauses = Template.instantiate(clauses, calls, apps, matchers, substMap)
+    val allClauses = encodedStart +: (tpeClauses ++ substClauses ++ templateClauses)
+
+    for (cl <- allClauses) {
+      ctx.reporter.debug("  . " + cl)
+    }
+
+    allClauses
   }
 }

@@ -242,7 +242,7 @@ trait DSL {
     val (params, retType, bodyBuilder) = builder(tParams)
     val body = bodyBuilder(params map (_.toVariable))
 
-    new FunDef(id, tParamDefs, params, retType, Some(body), Set())
+    new FunDef(id, tParamDefs, params, retType, body, Set())
   }
 
   def mkAbstractClass(id: Identifier)
