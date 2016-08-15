@@ -55,7 +55,8 @@ trait SolvingEvaluator extends Evaluator {
 
       val sf = getSolver(
         InoxOption(optSilentErrors)(true),
-        InoxOption(optCheckModels)(false),
+        InoxOption(optCheckModels)(false), // model is checked manually!! (see below)
+        InoxOption(unrolling.optFeelingLucky)(false),
         InoxOption(optForallCache)(cache)
       )
 

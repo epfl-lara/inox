@@ -2,31 +2,51 @@
 
 package inox
 
+import scala.language.implicitConversions
 import scala.concurrent.duration._
 
 package object solvers {
   import combinators._
 
-  implicit class TimeoutableSolverFactory[S1 <: TimeoutSolver](val sf: SolverFactory { type S = S1 }) {
-    def withTimeout(timeout: Long): TimeoutSolverFactory { type S <: S1 } = {
-      val innerFactory = (sf match {
+  /* XXX: We use an implicit conversion here instead of an implicit
+   *      class in order for dependent types to work correctly. */
+  implicit def factoryToTimeoutableFactory(sf: SolverFactory {
+    type S <: TimeoutSolver
+  }): TimeoutableFactory {
+    val factory: sf.type
+    type S = sf.S { val program: sf.program.type }
+  } = new TimeoutableFactory {
+    val factory: sf.type = sf
+    type S = sf.S { val program:sf.program.type }
+  }
+
+  trait TimeoutableFactory { self =>
+    val factory: SolverFactory { type S <: TimeoutSolver }
+
+    def withTimeout(timeout: Long): TimeoutSolverFactory {
+      val program: self.factory.program.type
+      type S = self.factory.S { val program: self.factory.program.type }
+    } = {
+      val innerFactory = (factory match {
         case tsf: TimeoutSolverFactory => tsf.factory
-        case _ => sf
+        case _ => factory
       }).asInstanceOf[SolverFactory {
-        val program: sf.program.type
-        type S = S1 { val program: sf.program.type }
+        val program: self.factory.program.type
+        type S = self.factory.S { val program: self.factory.program.type }
       }]
 
       new TimeoutSolverFactory {
-        val program: sf.program.type = sf.program
-        type S = S1 { val program: sf.program.type }
+        val program: self.factory.program.type = innerFactory.program
+        type S = self.factory.S { val program: self.factory.program.type }
         val to = timeout
         val factory = innerFactory
       }
     }
 
-    def withTimeout(du: Duration): TimeoutSolverFactory { type S <: S1 } = {
-      withTimeout(du.toMillis)
-    }
+    def withTimeout(du: Duration): TimeoutSolverFactory {
+      val program: self.factory.program.type
+      type S = self.factory.S { val program: self.factory.program.type }
+    } = withTimeout(du.toMillis)
   }
+
 }

@@ -37,7 +37,7 @@ object SolverFactory {
   import combinators._
 
   private val solverNames = Map(
-    "nativez3" -> "Native Z3 with z3-templates for unrolling (default)",
+    "nativez3" -> "Native Z3 with z3-templates for unrolling",
     "unrollz3" -> "Native Z3 with leon-templates for unrolling",
     "smt-cvc4" -> "CVC4 through SMT-LIB",
     "smt-z3"   -> "Z3 through SMT-LIB",
@@ -117,6 +117,6 @@ object SolverFactory {
       }
     }
 
-  def default(p: InoxProgram): SolverFactory { val program: p.type } =
+  def default(p: InoxProgram): SolverFactory { val program: p.type; type S <: TimeoutSolver } =
     apply(p, p.ctx.options)
 }

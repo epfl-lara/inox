@@ -53,7 +53,7 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
     }
   }
 
-  private def extractResponse(config: Configuration, res: SExpr): config.Response[Model, Assumptions] =
+  protected def extractResponse(config: Configuration, res: SExpr): config.Response[Model, Assumptions] = {
     config.cast(res match {
       case CheckSatStatus(SatStatus) =>
         if (config.withModel) {
@@ -101,6 +101,7 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget {
       case CheckSatStatus(UnknownStatus) => Unknown
       case e                             => Unknown
     })
+  }
 
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
     extractResponse(config, emit(CheckSat()))

@@ -7,6 +7,8 @@ package smtlib
 import inox.OptionParsers._
 
 trait CVC4Solver extends SMTLIBSolver with CVC4Target {
+  import program.trees._
+  import SolverResponses._
 
   def interpreterOps(ctx: InoxContext) = {
     Seq(
@@ -18,6 +20,19 @@ trait CVC4Solver extends SMTLIBSolver with CVC4Target {
       "--print-success",
       "--lang", "smt2.5"
     ) ++ options.findOptionOrDefault(optCVC4Options)
+  }
+
+  override def checkAssumptions(config: Configuration)(assumptions: Set[Expr]) = {
+    push()
+    for (cl <- assumptions) assertCnstr(cl)
+    val res: SolverResponse[Model, Assumptions] = check(Model min config)
+    pop()
+
+    config.cast(res match {
+      case Unsat if config.withUnsatAssumptions =>
+        UnsatWithAssumptions(Set.empty)
+      case _ => res
+    })
   }
 }
 

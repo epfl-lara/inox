@@ -1,11 +1,10 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
 package inox
-package regression
+package solvers
+package unrolling
 
-import solvers._
-
-class SimpleQuantifiersSuite extends SolvingTestSuite {
+class AssociativeQuantifiersSuite extends SolvingTestSuite {
   import inox.trees._
   import dsl._
 
@@ -36,7 +35,7 @@ class SimpleQuantifiersSuite extends SolvingTestSuite {
     isRotateID      -> isRotate
   ), Map.empty)
 
-  test("Pair of associative ==> associative pair") { ctx => 
+  ignore("Pair of associative ==> associative pair") { ctx => 
     val program = InoxProgram(ctx, symbols)
 
     val (aT,bT) = (T("A"), T("B"))
@@ -45,55 +44,45 @@ class SimpleQuantifiersSuite extends SolvingTestSuite {
       \("p1" :: T(aT,bT), "p2" :: T(aT, bT))((p1,p2) => E(f1(p1._1,p2._1), f2(p1._2,p2._2)))
     }
 
-    val sf = SolverFactory.default(program)
-    val api = SimpleSolverAPI(sf)
-    assert(api.solveSAT(clause).isUNSAT)
+    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
   }
 
-  test("Commutative and rotate ==> associative") { ctx =>
+  ignore("Commutative and rotate ==> associative") { ctx =>
     val program = InoxProgram(ctx, symbols)
 
     val aT = T("A")
     val f = ("f" :: ((aT, aT) =>: aT)).toVariable
     val clause = isCommutative(aT)(f) && isRotate(aT)(f) && !isAssociative(aT)(f)
 
-    val sf = SolverFactory.default(program)
-    val api = SimpleSolverAPI(sf)
-    assert(api.solveSAT(clause).isUNSAT)
+    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
   }
 
-  test("Commutative and rotate ==> associative (integer type)") { ctx =>
+  ignore("Commutative and rotate ==> associative (integer type)") { ctx =>
     val program = InoxProgram(ctx, symbols)
 
     val f = ("f" :: ((IntegerType, IntegerType) =>: IntegerType)).toVariable
     val clause = isCommutative(IntegerType)(f) && isRotate(IntegerType)(f) && !isAssociative(IntegerType)(f)
 
-    val sf = SolverFactory.default(program)
-    val api = SimpleSolverAPI(sf)
-    assert(api.solveSAT(clause).isUNSAT)
+    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
   }
 
-  test("Associatve =!=> commutative") { ctx =>
+  ignore("Associatve =!=> commutative") { ctx =>
     val program = InoxProgram(ctx, symbols)
 
     val aT = T("A")
     val f = ("f" :: ((aT, aT) =>: aT)).toVariable
     val clause = isAssociative(aT)(f) && !isCommutative(aT)(f)
 
-    val sf = SolverFactory.default(program)
-    val api = SimpleSolverAPI(sf)
-    assert(api.solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
   }
 
-  test("Commutative =!=> associative") { ctx =>
+  ignore("Commutative =!=> associative") { ctx =>
     val program = InoxProgram(ctx, symbols)
 
     val aT = T("A")
     val f = ("f" :: ((aT, aT) =>: aT)).toVariable
     val clause = isCommutative(aT)(f) && !isAssociative(aT)(f)
 
-    val sf = SolverFactory.default(program)
-    val api = SimpleSolverAPI(sf)
-    assert(api.solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
   }
 }

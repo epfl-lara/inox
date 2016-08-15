@@ -93,6 +93,7 @@ trait TypeOps {
         } else {
           (cd1 == cd2).option(cd1)
         }
+
         for {
           cd <- bound
           (subs, map) <- flatten((ct1.tps zip ct2.tps).map { case (tp1, tp2) =>
@@ -272,7 +273,7 @@ trait TypeOps {
           case accd: TypedAbstractClassDef =>
             accd.descendants.map(_.toType)
           case tccd: TypedCaseClassDef =>
-            tccd.fieldsTypes
+            tccd.fieldsTypes ++ tccd.parent.map(_.toType)
         }
         case NAryType(tps, _) =>
           tps

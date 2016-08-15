@@ -18,7 +18,7 @@ trait TimeoutSolverFactory extends SolverFactory {
 
   override def getNewSolver() = factory.getNewSolver().setTimeout(to)
 
-  override val name = factory.name+" with t.o"
+  override lazy val name = factory.name+" with t.o"
 
   override def reclaim(s: S) = factory.reclaim(s)
 

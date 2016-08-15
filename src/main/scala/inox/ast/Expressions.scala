@@ -240,7 +240,7 @@ trait Expressions { self: Trees =>
   /** $encodingof `.isInstanceOf[...]` */
   case class IsInstanceOf(expr: Expr, classType: ClassType) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
-      if (s.isSubtypeOf(expr.getType, classType)) BooleanType else Untyped
+      if (s.typesCompatible(expr.getType, classType)) BooleanType else Untyped
   }
 
   /** $encodingof `expr.asInstanceOf[tpe]`

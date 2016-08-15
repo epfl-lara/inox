@@ -152,7 +152,6 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
                                body: Expr)
                               (implicit bindings: Map[Identifier, Term])
   : Term = {
-    if (vars.isEmpty) toSMT(body)
     if (vars.isEmpty) toSMT(body)(Map())
     else {
       val sortedVars = vars map { vd =>

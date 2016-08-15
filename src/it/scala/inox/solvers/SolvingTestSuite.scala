@@ -1,9 +1,9 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
 package inox
+package solvers
 
 trait SolvingTestSuite extends InoxTestSuite {
-  import solvers._
 
   override val configurations = for {
     solverName        <- Seq("nativez3", "unrollz3", "smt-z3", "smt-cvc4")

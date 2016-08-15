@@ -201,7 +201,7 @@ trait Templates extends TemplateGenerator
   /** Represents an E-matching matcher that will be used to instantiate relevant quantified propositions */
   case class Matcher(key: Either[(Encoded, Type), TypedFunDef], args: Seq[Arg], encoded: Encoded) {
     override def toString: String = (key match {
-      case Left((c, tpe)) => asString(c) + ":" + tpe.asString
+      case Left((c, tpe)) => asString(c)
       case Right(tfd) => tfd.signature
     }) + args.map {
       case Right(m) => m.toString

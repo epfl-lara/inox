@@ -12,7 +12,7 @@ class TestSilentReporter extends DefaultReporter(Set()) {
   }
 
   override def debug(pos: utils.Position, msg: => Any)(implicit section: DebugSection): Unit = {
-    println(msg)
+    //println(msg)
   }
 }
 

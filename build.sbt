@@ -92,6 +92,8 @@ concurrentRestrictions in Global += Tags.limit(Tags.Test, nParallel)
 
 testOptions in Test := Seq(Tests.Argument("-oDF"))
 
+testOptions in IntegrationTest := Seq(Tests.Argument("-oDF"))
+
 // Integration Tests
 //lazy val IntegrTest = config("integration") extend(Test)
 

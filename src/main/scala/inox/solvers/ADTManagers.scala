@@ -51,7 +51,7 @@ trait ADTManagers {
         case _ =>
       }
 
-      for (scc <- sccs) {
+      for (scc <- sccs.map(scc => scc.map(bestRealType))) {
 
         val declarations = (for (tpe <- scc if !declared(tpe)) yield (tpe match {
           case ct: ClassType =>
