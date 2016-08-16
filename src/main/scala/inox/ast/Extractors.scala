@@ -104,6 +104,8 @@ trait TreeDeconstructor {
       (Seq(t1, t2), Seq(), (es, tps) => t.MapApply(es(0), es(1)))
     case s.Let(binder, e, body) =>
       (Seq(e, body), Seq(binder.tpe), (es, tps) => t.Let(t.ValDef(binder.id, tps.head), es(0), es(1)))
+    case s.Assume(pred, body) =>
+      (Seq(pred, body), Seq(), (es, tps) => t.Assume(es(0), es(1)))
 
     /* Other operators */
     case s.FunctionInvocation(id, tps, args) =>

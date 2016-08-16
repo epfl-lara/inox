@@ -93,14 +93,11 @@ trait DSL {
   }
 
   // if-then-else
-  class DanglingElse private[DSL] (condThens: Seq[(Expr, Expr)]) {
-    def else_if (cond2: Expr)(thenn2: Expr) = new DanglingElse(condThens :+ (cond2 -> thenn2))
-    def else_ (theElse: Expr) = condThens.foldRight(theElse) {
-      case ((cond, thenn), elze) =>IfExpr(cond, thenn, elze)
-    }
+  class DanglingElse private[DSL] (theCond: Expr, theThen: Expr) {
+    def else_ (theElse: Expr) = IfExpr(theCond, theThen, theElse)
   }
 
-  def if_ (cond: Expr)(thenn: Expr) = new DanglingElse(Seq(cond -> thenn))
+  def if_ (cond: Expr)(thenn: Expr) = new DanglingElse(cond, thenn)
 
   def ite(cond: Expr, thenn: Expr, elze: Expr) = IfExpr(cond, thenn, elze)
 

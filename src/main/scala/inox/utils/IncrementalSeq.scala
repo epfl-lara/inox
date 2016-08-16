@@ -17,11 +17,11 @@ class IncrementalSeq[A] extends IncrementalState
 
   def clear() : Unit = {
     stack.clear()
+    stack.push(new ArrayBuffer())
   }
 
   def reset(): Unit = {
     clear()
-    stack.push(new ArrayBuffer())
   }
 
   def push(): Unit = {

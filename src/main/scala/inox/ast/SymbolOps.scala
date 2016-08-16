@@ -189,23 +189,37 @@ trait SymbolOps { self: TypeOps =>
     * quantification instantiations.
     */
   def simplifyQuantifications(e: Expr): Expr = {
-    val fds = functionCallsOf(e).flatMap { fi =>
-      val fd = fi.tfd.fd
-      transitiveCallees(fd) + fd
+
+    def inlineFunctions(e: Expr): Expr = {
+      val fds = functionCallsOf(e).flatMap { fi =>
+        val fd = fi.tfd.fd
+        transitiveCallees(fd) + fd
+      }
+
+      val fdsToInline = fds
+        .filterNot(fd => transitivelyCalls(fd, fd))
+        .filter(fd => exists { case _: Forall => true case _ => false }(fd.fullBody))
+      
+      def inline(e: Expr): Expr = {
+        val subst = functionCallsOf(e)
+          .filter(fi => fdsToInline(fi.tfd.fd))
+          .map(fi => fi -> fi.inlined)
+        replace(subst.toMap, e)
+      }
+
+      fixpoint(inline)(e)
     }
 
-    val fdsToInline = fds
-      .filterNot(fd => transitivelyCalls(fd, fd))
-      .filter(fd => exists { case _: Forall => true case _ => false }(fd.fullBody))
-    
-    def inline(e: Expr): Expr = {
-      val subst = functionCallsOf(e)
-        .filter(fi => fdsToInline(fi.tfd.fd))
-        .map(fi => fi -> fi.inlined)
-      replace(subst.toMap, e)
+    /* Weaker variant of disjunctive normal form */
+    def normalizeClauses(e: Expr): Expr = e match {
+      case Not(Not(e)) => normalizeClauses(e)
+      case Not(Or(es)) => andJoin(es.map(e => normalizeClauses(Not(e))))
+      case Not(Implies(e1, e2)) => and(normalizeClauses(e1), normalizeClauses(Not(e2)))
+      case And(es) => andJoin(es map normalizeClauses)
+      case _ => e
     }
 
-    fixpoint(inline)(e)
+    normalizeClauses(inlineFunctions(e))
   }
 
   /** Fully expands all let expressions. */

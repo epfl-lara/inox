@@ -16,8 +16,6 @@ scalacOptions ++= Seq(
 
 scalacOptions in (Compile, doc) ++= Seq("-doc-root-content", baseDirectory.value+"/src/main/scala/root-doc.txt")
 
-javacOptions += "-Xlint:unchecked"
-
 site.settings
 
 site.sphinxSupport()
@@ -50,81 +48,11 @@ libraryDependencies ++= Seq(
   //"com.regblanc" %% "scala-smtlib" % "0.2"
 )
 
-lazy val nParallel = {
-  val p = System.getProperty("parallel")
-  if (p ne null) {
-    try {
-      p.toInt
-    } catch {
-      case nfe: NumberFormatException =>
-        1
-    }
-  } else {
-    1
-  }
-}
-
-sourceGenerators in Compile <+= Def.task {
-  val build = (sourceManaged in Compile).value / "inox" / "Build.scala";
-  IO.write(build, s"""|package inox
-                      |
-                      |object Build {
-                      |  val baseDirectory = \"\"\"${baseDirectory.value.toString}\"\"\"
-                      |}""".stripMargin)
-  Seq(build)
-}
-
-
-sourcesInBase in Compile := false
-
 Keys.fork in run := true
-
-
-lazy val testSettings = Seq(
-    //Keys.fork := true,
-    logBuffered := (nParallel > 1),
-    parallelExecution := (nParallel > 1)
-    //testForkedParallel := true,
-    //javaOptions ++= Seq("-Xss64M", "-Xmx4G")
-)
-
-concurrentRestrictions in Global += Tags.limit(Tags.Test, nParallel)
 
 testOptions in Test := Seq(Tests.Argument("-oDF"))
 
 testOptions in IntegrationTest := Seq(Tests.Argument("-oDF"))
-
-// Integration Tests
-//lazy val IntegrTest = config("integration") extend(Test)
-
-//testOptions in IntegrTest := Seq(Tests.Argument("-oDF"), Tests.Filter(_ startsWith "inox.integration."))
-
-
-def regressionFilter(name: String, native: Boolean = false): Boolean = name.startsWith("inox.regression") && (name.endsWith("NativeZ3") == native)
-
-// Regression Tests
-lazy val RegressionTest = config("regression") extend(Test)
-
-testOptions in RegressionTest := Seq(Tests.Argument("-oDF"), Tests.Filter(regressionFilter(_)))
-
-// Regression Tests that heavily depend on native Z3
-lazy val NativeZ3RegressionTest = config("native") extend(Test)
-
-testOptions in NativeZ3RegressionTest := Seq(Tests.Argument("-oDF"), Tests.Filter(regressionFilter(_, native = true)))
-
-parallelExecution in NativeZ3RegressionTest := false
-
-logBuffered in NativeZ3RegressionTest := false
-
-
-// Isabelle Tests
-lazy val IsabelleTest = config("isabelle") extend(Test)
-
-testOptions in IsabelleTest := Seq(Tests.Argument("-oDF"), Tests.Filter(_ startsWith "inox.isabelle."))
-
-parallelExecution in IsabelleTest := false
-fork in IsabelleTest := true
-
 
 def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
 
@@ -134,6 +62,10 @@ lazy val scalaSmtlib = ghProject("git://github.com/regb/scala-smtlib.git", "8883
 lazy val root = (project in file("."))
   .configs(IntegrationTest)
   .settings(Defaults.itSettings : _*)
+  .settings(inConfig(IntegrationTest)(Defaults.testTasks ++ Seq(
+    logBuffered := false,
+    parallelExecution := false
+  )) : _*)
   .dependsOn(bonsai)
   .dependsOn(scalaSmtlib)
 

@@ -215,33 +215,6 @@ trait AbstractUnrollingSolver
             }
           }.distinct
 
-          val default = if (allImages.isEmpty) {
-            def rec(e: Expr): Expr = e match {
-              case Lambda(_, body) => rec(body)
-              case IfExpr(_, _, elze) => rec(elze)
-              case e => e
-            }
-
-            rec(f)
-          } else {
-            val optDefault = allImages.collectFirst {
-              case (firstArg +: otherArgs, result) if otherArgs.forall { o =>
-                evaluator.eval(Equals(firstArg, o)).result == Some(BooleanLiteral(true))
-              } => result
-            }
-
-            optDefault.getOrElse {
-              val app = templates.mkApplication(f, Seq.fill(from.size)(allImages.head._1.head))
-              evaluator.eval(app).result.getOrElse {
-                scala.sys.error("Unexpectedly failed to evaluate " + app.asString)
-              }
-            }
-          }
-
-          val body = allImages.foldRight(default) { case ((args, result), elze) =>
-            IfExpr(andJoin((params zip args).map(p => Equals(p._1, p._2))), result, elze)
-          }
-
           def mkLambda(params: Seq[ValDef], body: Expr): Lambda = body.getType match {
             case FunctionType(from, to) =>
               val (rest, curr) = params.splitAt(params.size - from.size)
@@ -249,7 +222,42 @@ trait AbstractUnrollingSolver
             case _ => Lambda(params, body)
           }
 
-          mkLambda(params.map(_.toVal), body)
+          if (allImages.isEmpty) {
+            def rec(e: Expr): Expr = e match {
+              case Lambda(_, body) => rec(body)
+              case IfExpr(_, _, elze) => rec(elze)
+              case e => e
+            }
+
+            mkLambda(params.map(_.toVal), rec(f))
+          } else {
+            val projection: Expr = allImages.head._1.head
+
+            val allResults: Seq[(Seq[Expr], Expr)] =
+              (for (subset <- params.toSet.subsets; (args, _) <- allImages) yield {
+                val (concreteArgs, condOpts) = (params zip args).map { case (v, arg) =>
+                  if (!subset(v)) {
+                    (arg, Some(Equals(v, arg)))
+                  } else {
+                    (projection, None)
+                  }
+                }.unzip
+
+                val app = templates.mkApplication(f, concreteArgs)
+                val result = evaluator.eval(app).result.getOrElse {
+                  scala.sys.error("Unexpectedly failed to evaluate " + app.asString)
+                }
+
+                condOpts.flatten -> result
+              }).toSeq
+
+            val withConds :+ ((Seq(), default)) = allResults
+            val body = withConds.foldRight(default) { case ((conds, result), elze) =>
+              IfExpr(andJoin(conds), result, elze)
+            }
+
+            mkLambda(params.map(_.toVal), body)
+          }
         }
       })
     }
@@ -305,7 +313,7 @@ trait AbstractUnrollingSolver
 
           val checkConfig = config
             .min(Configuration(model = !templates.requiresFiniteRangeCheck, unsatAssumptions = true))
-            .max(Configuration(model = false, unsatAssumptions = unrollAssumptions))
+            .max(Configuration(model = false, unsatAssumptions = unrollAssumptions && templates.canUnroll))
 
           val timer = ctx.timers.solvers.check.start()
           val res: SolverResponse[underlying.Model, Set[underlying.Trees]] =

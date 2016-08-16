@@ -198,6 +198,7 @@ trait QuantificationTemplates { self: Templates =>
 
     val ignoredSubsts   = new IncrementalMap[Quantification, Set[(Int, Set[Encoded], Map[Encoded,Arg])]]
     val handledSubsts   = new IncrementalMap[Quantification, Set[(Set[Encoded], Map[Encoded,Arg])]]
+    val ignoredGrounds  = new IncrementalMap[Int, Set[Quantification]]
 
     val lambdaAxioms    = new IncrementalSet[(LambdaStructure, Seq[(Variable, Encoded)])]
     val templates       = new IncrementalMap[(Seq[ValDef], Expr, Seq[Encoded]), Map[Encoded, Encoded]]
@@ -217,7 +218,9 @@ trait QuantificationTemplates { self: Templates =>
     def refutationAssumptions = assumptions
 
     def unrollGeneration: Option[Int] = {
-      val gens: Seq[Int] = ignoredMatchers.toSeq.map(_._1) ++ ignoredSubsts.flatMap(p => p._2.map(_._1))
+      val gens: Seq[Int] = ignoredMatchers.toSeq.map(_._1) ++
+        ignoredSubsts.flatMap(p => p._2.map(_._1)) ++
+        ignoredGrounds.map(_._1)
       if (gens.isEmpty) None else Some(gens.min)
     }
 
@@ -227,15 +230,23 @@ trait QuantificationTemplates { self: Templates =>
     def unroll: Clauses = {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-      for (e @ (gen, bs, m) <- ignoredMatchers.toSeq if gen == currentGeneration) {
+      for (e @ (gen, bs, m) <- ignoredMatchers.toSeq if gen <= currentGeneration) {
         clauses ++= instantiateMatcher(bs, m)
         ignoredMatchers -= e
       }
 
-      for (q <- quantifications.toSeq) {
-        val (release, keep) = ignoredSubsts(q).partition(_._1 == currentGeneration)
-        for ((_, bs, subst) <- release) clauses ++= q.instantiateSubst(bs, subst)
+      for (q <- quantifications.toSeq if ignoredSubsts.isDefinedAt(q)) {
+        val (release, keep) = ignoredSubsts(q).partition(_._1 <= currentGeneration)
         ignoredSubsts += q -> keep
+
+        for ((_, bs, subst) <- release) {
+          clauses ++= q.instantiateSubst(bs, subst)
+        }
+      }
+
+      for ((gen, qs) <- ignoredGrounds.toSeq if gen <= currentGeneration; q <- qs) {
+        clauses ++= q.ensureGrounds
+        ignoredGrounds += gen -> (ignoredGrounds.getOrElse(gen, Set.empty) - q)
       }
 
       clauses.toSeq
@@ -250,7 +261,6 @@ trait QuantificationTemplates { self: Templates =>
     if (handledMatchers(blockers -> matcher)) {
       Seq.empty
     } else {
-      //println(blockers -> matcher)
       handledMatchers += blockers -> matcher
       quantifications.flatMap(_.instantiate(blockers, matcher))
     }
@@ -447,7 +457,8 @@ trait QuantificationTemplates { self: Templates =>
       val instantiation = new scala.collection.mutable.ListBuffer[Encoded]
       for (p @ (bs, subst) <- substs if !handledSubsts.get(this).exists(_ contains p)) {
         if (subst.values.exists(_.isRight)) {
-          ignoredSubsts += this -> (ignoredSubsts.getOrElse(this, Set.empty) + ((currentGeneration + 3, bs, subst)))
+          val gen = currentGeneration + 3 * subst.values.collect { case Right(m) => totalDepth(m) }.sum
+          ignoredSubsts += this -> (ignoredSubsts.getOrElse(this, Set.empty) + ((gen, bs, subst)))
         } else {
           instantiation ++= instantiateSubst(bs, subst)
         }
@@ -692,7 +703,8 @@ trait QuantificationTemplates { self: Templates =>
               clauses ++= axiom.instantiate(bs, m)
             }
 
-            clauses ++= axiom.ensureGrounds
+            val groundGen = currentGeneration + 3
+            ignoredGrounds += groundGen -> (ignoredGrounds.getOrElse(groundGen, Set.empty) + axiom)
             Map.empty
 
           case Negative(insts) =>
@@ -747,7 +759,7 @@ trait QuantificationTemplates { self: Templates =>
 
     val diff = (currentGeneration - optGen.get) max 0
     val currentMatchers = ignoredMatchers.toSeq
-    ignoredMatchers.clear
+    ignoredMatchers.clear()
     for ((gen, bs, m) <- currentMatchers) {
       ignoredMatchers += ((gen - diff, bs, m))
     }

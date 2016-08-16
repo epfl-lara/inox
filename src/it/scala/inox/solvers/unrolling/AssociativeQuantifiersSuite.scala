@@ -35,7 +35,7 @@ class AssociativeQuantifiersSuite extends SolvingTestSuite {
     isRotateID      -> isRotate
   ), Map.empty)
 
-  ignore("Pair of associative ==> associative pair") { ctx => 
+  test("Pair of associative ==> associative pair") { ctx => 
     val program = InoxProgram(ctx, symbols)
 
     val (aT,bT) = (T("A"), T("B"))
@@ -47,7 +47,7 @@ class AssociativeQuantifiersSuite extends SolvingTestSuite {
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
   }
 
-  ignore("Commutative and rotate ==> associative") { ctx =>
+  test("Commutative and rotate ==> associative") { ctx =>
     val program = InoxProgram(ctx, symbols)
 
     val aT = T("A")
@@ -57,7 +57,7 @@ class AssociativeQuantifiersSuite extends SolvingTestSuite {
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
   }
 
-  ignore("Commutative and rotate ==> associative (integer type)") { ctx =>
+  test("Commutative and rotate ==> associative (integer type)") { ctx =>
     val program = InoxProgram(ctx, symbols)
 
     val f = ("f" :: ((IntegerType, IntegerType) =>: IntegerType)).toVariable
@@ -66,7 +66,7 @@ class AssociativeQuantifiersSuite extends SolvingTestSuite {
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
   }
 
-  ignore("Associatve =!=> commutative") { ctx =>
+  test("Associatve =!=> commutative") { ctx =>
     val program = InoxProgram(ctx, symbols)
 
     val aT = T("A")
@@ -76,7 +76,7 @@ class AssociativeQuantifiersSuite extends SolvingTestSuite {
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
   }
 
-  ignore("Commutative =!=> associative") { ctx =>
+  test("Commutative =!=> associative") { ctx =>
     val program = InoxProgram(ctx, symbols)
 
     val aT = T("A")

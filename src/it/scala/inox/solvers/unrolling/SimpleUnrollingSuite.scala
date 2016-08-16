@@ -69,7 +69,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause) match {
       case SatWithModel(model) =>
         symbols.valuateWithModel(model)(vd) match {
-          case CaseClass(ClassType(`nilID`, Seq(tp)), Seq()) =>
+          case CaseClass(ClassType(`nilID`, Seq(`tp`)), Seq()) =>
             // success!!
           case r =>
             fail("Unexpected valuation: " + r)
