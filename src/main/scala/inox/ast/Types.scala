@@ -80,9 +80,9 @@ trait Types { self: Trees =>
   case class MapType(from: Type, to: Type) extends Type
   case class FunctionType(from: Seq[Type], to: Type) extends Type
 
-  case class ClassType(id: Identifier, tps: Seq[Type]) extends Type {
-    def lookupClass(implicit s: Symbols): Option[TypedClassDef] = s.lookupClass(id, tps)
-    def tcd(implicit s: Symbols): TypedClassDef = s.getClass(id, tps)
+  case class ADTType(id: Identifier, tps: Seq[Type]) extends Type {
+    def lookupADT(implicit s: Symbols): Option[TypedADTDefinition] = s.lookupADT(id, tps)
+    def getADT(implicit s: Symbols): TypedADTDefinition = s.getADT(id, tps)
   }
 
   /** NAryType extractor to extract any Type in a consistent way.

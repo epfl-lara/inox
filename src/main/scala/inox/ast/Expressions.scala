@@ -230,17 +230,17 @@ trait Expressions { self: Trees =>
     * @param ct The case class name and inherited attributes
     * @param args The arguments of the case class
     */
-  case class CaseClass(ct: ClassType, args: Seq[Expr]) extends Expr with CachingTyped {
-    protected def computeType(implicit s: Symbols): Type = ct.lookupClass match {
-      case Some(tcd: TypedCaseClassDef) => checkParamTypes(args.map(_.getType), tcd.fieldsTypes, ct)
+  case class ADT(adt: ADTType, args: Seq[Expr]) extends Expr with CachingTyped {
+    protected def computeType(implicit s: Symbols): Type = adt.lookupADT match {
+      case Some(tcons: TypedADTConstructor) => checkParamTypes(args.map(_.getType), tcons.fieldsTypes, adt)
       case _ => Untyped
     }
   }
 
   /** $encodingof `.isInstanceOf[...]` */
-  case class IsInstanceOf(expr: Expr, classType: ClassType) extends Expr with CachingTyped {
+  case class IsInstanceOf(expr: Expr, tpe: ADTType) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
-      if (s.typesCompatible(expr.getType, classType)) BooleanType else Untyped
+      if (s.typesCompatible(expr.getType, tpe)) BooleanType else Untyped
   }
 
   /** $encodingof `expr.asInstanceOf[tpe]`
@@ -248,7 +248,7 @@ trait Expressions { self: Trees =>
     * Introduced by matchToIfThenElse to transform match-cases to type-correct
     * if bodies.
     */
-  case class AsInstanceOf(expr: Expr, tpe: ClassType) extends Expr with CachingTyped {
+  case class AsInstanceOf(expr: Expr, tpe: ADTType) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
       if (s.typesCompatible(tpe, expr.getType)) tpe else Untyped
   }
@@ -258,25 +258,24 @@ trait Expressions { self: Trees =>
     * If you are not sure about the requirement you should use
     * [[Constructors#caseClassSelector purescala's constructor caseClassSelector]]
     */
-  case class CaseClassSelector(caseClass: Expr, selector: Identifier) extends Expr with CachingTyped {
+  case class ADTSelector(adt: Expr, selector: Identifier) extends Expr with CachingTyped {
 
-    def selectorIndex(implicit s: Symbols) = classIndex.map(_._2).getOrElse {
+    def selectorIndex(implicit s: Symbols) = constructor.map(_.definition.selectorID2Index(selector)).getOrElse {
       throw FatalError("Not well formed selector: " + this)
     }
 
-    def classIndex(implicit s: Symbols) = caseClass.getType match {
-      case ct: ClassType => ct.lookupClass match {
-        case Some(tcd: TypedCaseClassDef) =>
-          Some(tcd, tcd.cd.selectorID2Index(selector))
+    def constructor(implicit s: Symbols) = adt.getType match {
+      case adt: ADTType => adt.lookupADT.flatMap {
+        case tcons: TypedADTConstructor => Some(tcons)
         case _ => None
       }
       case _ => None
     }
 
-    protected def computeType(implicit s: Symbols): Type = classIndex match {
-      case Some((tcd, ind)) => tcd.fieldsTypes(ind)
-      case _ => Untyped
-    }
+    protected def computeType(implicit s: Symbols): Type = constructor.map { tccd =>
+      val index = tccd.definition.selectorID2Index(selector)
+      tccd.fieldsTypes(index)
+    }.getOrElse(Untyped)
   }
 
   /** $encodingof `... == ...` */

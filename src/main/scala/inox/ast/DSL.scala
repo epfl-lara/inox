@@ -14,7 +14,7 @@ import scala.language.implicitConversions
   *    (in the form of a function) to which the newly created identifiers will be passed.
   * 2) No implicit conversions are provided where there would be ambiguity.
   *    This refers mainly to Identifiers, which can be transformed to
-  *    [[inox.ast.Types.ClassType]] or [[inox.ast.Expressions.FunctionInvocation]] or ... .
+  *    [[inox.ast.Types.ADTType]] or [[inox.ast.Expressions.FunctionInvocation]] or ... .
   *    Instead one-letter constructors are provided.
   */
 trait DSL {
@@ -60,12 +60,12 @@ trait DSL {
 
     // Misc.
 
-    def getField(selector: Identifier) = CaseClassSelector(e, selector)
+    def getField(selector: Identifier) = ADTSelector(e, selector)
 
     def apply(es: Expr*) = Application(e, es.toSeq)
 
-    def isInstOf(tp: ClassType) = IsInstanceOf(e, tp)
-    def asInstOf(tp: ClassType) = AsInstanceOf(e, tp)
+    def isInstOf(tp: ADTType) = IsInstanceOf(e, tp)
+    def asInstOf(tp: ADTType) = AsInstanceOf(e, tp)
   }
 
   // Literals
@@ -108,8 +108,8 @@ trait DSL {
       FunctionInvocation(fd.id, Seq.empty, args.toSeq)
   }
 
-  implicit class CaseClassToExpr(ct: ClassType) {
-    def apply(args: Expr*) = CaseClass(ct, args)
+  implicit class ADTTypeToExpr(adt: ADTType) {
+    def apply(args: Expr*) = ADT(adt, args)
   }
 
   implicit class GenValue(tp: TypeParameter) {
@@ -187,11 +187,11 @@ trait DSL {
 
   /* Types */
   def T(tp1: Type, tp2: Type, tps: Type*) = TupleType(tp1 :: tp2 :: tps.toList)
-  def T(id: Identifier) = new IdToClassType(id)
+  def T(id: Identifier) = new IdToADTType(id)
   def T(str: String) = TypeParameter.fresh(str)
 
-  class IdToClassType(id: Identifier) {
-    def apply(tps: Type*) = ClassType(id, tps.toSeq)
+  class IdToADTType(id: Identifier) {
+    def apply(tps: Type*) = ADTType(id, tps.toSeq)
   }
 
   implicit class FunctionTypeBuilder(to: Type) {
@@ -242,22 +242,22 @@ trait DSL {
     new FunDef(id, tParamDefs, params, retType, body, Set())
   }
 
-  def mkAbstractClass(id: Identifier)
-                     (tParamNames: String*)
-                     (children: Seq[Identifier]) = {
+  def mkSort(id: Identifier)
+            (tParamNames: String*)
+            (cons: Seq[Identifier]) = {
     val tParams = tParamNames map TypeParameter.fresh
     val tParamDefs = tParams map TypeParameterDef
-    new AbstractClassDef(id, tParamDefs, children, Set())
+    new ADTSort(id, tParamDefs, cons, Set())
   }
 
-  def mkCaseClass(id: Identifier)
-                 (tParamNames: String*)
-                 (parent: Option[Identifier])
-                 (fieldBuilder: Seq[TypeParameter] => Seq[ValDef]) = {
+  def mkConstructor(id: Identifier)
+                   (tParamNames: String*)
+                   (sort: Option[Identifier])
+                   (fieldBuilder: Seq[TypeParameter] => Seq[ValDef]) = {
     val tParams = tParamNames map TypeParameter.fresh
     val tParamDefs = tParams map TypeParameterDef
     val fields = fieldBuilder(tParams)
-    new CaseClassDef(id, tParamDefs, parent, fields, Set())
+    new ADTConstructor(id, tParamDefs, sort, fields, Set())
   }
 
   // TODO: Remove this at some point

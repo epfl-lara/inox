@@ -59,16 +59,16 @@ trait ValueGrammars { self: GrammarsUniverse =>
           nonTerminal(stps, Tuple, Constructor(stps.isEmpty))
         )
 
-      case ct: ClassType =>
-        ct.tcd match {
-          case cct: TypedCaseClassDef =>
+      case adt: ADTType =>
+        adt.getADT match {
+          case tcons: TypedADTConstructor =>
             List(
-              nonTerminal(cct.fields.map(_.getType), CaseClass(cct.toType, _), tagOf(cct.cd))
+              nonTerminal(tcons.fields.map(_.getType), ADT(adt, _), tagOf(tcons.definition))
             )
 
-          case act: TypedAbstractClassDef =>
-            act.descendants.map { cct =>
-              nonTerminal(cct.fields.map(_.getType), CaseClass(cct.toType, _), tagOf(cct.cd))
+          case tsort: TypedADTSort =>
+            tsort.constructors.map { tcons =>
+              nonTerminal(tcons.fields.map(_.getType), ADT(tcons.toType, _), tagOf(tcons.definition))
             }
         }
 

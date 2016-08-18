@@ -166,7 +166,7 @@ trait AbstractZ3Solver
 
     def typeToSortRef(tt: Type): ADTSortReference = {
       val tpe = tt match {
-        case ct: ClassType => ct.tcd.root.toType
+        case adt: ADTType => adt.getADT.root.toType
         case _ => tt
       }
 
@@ -225,7 +225,7 @@ trait AbstractZ3Solver
     case Int32Type | BooleanType | IntegerType | RealType | CharType =>
       sorts(oldtt)
 
-    case tpe @ (_: ClassType  | _: TupleType | _: TypeParameter | UnitType) =>
+    case tpe @ (_: ADTType  | _: TupleType | _: TypeParameter | UnitType) =>
       sorts.getOrElse(tpe, declareStructuralSort(tpe))
 
     case tt @ SetType(base) =>
@@ -370,32 +370,32 @@ trait AbstractZ3Solver
         val selector = selectors.toB((tpe, i-1))
         selector(rec(t))
 
-      case c @ CaseClass(ct, args) =>
-        typeToSort(ct) // Making sure the sort is defined
-        val constructor = constructors.toB(ct)
+      case c @ ADT(adt, args) =>
+        typeToSort(adt) // Making sure the sort is defined
+        val constructor = constructors.toB(adt)
         constructor(args.map(rec): _*)
 
-      case c @ CaseClassSelector(cc, sel) =>
-        val cct = cc.getType
-        typeToSort(cct) // Making sure the sort is defined
-        val selector = selectors.toB(cct -> c.selectorIndex)
+      case c @ ADTSelector(cc, sel) =>
+        val adt = cc.getType
+        typeToSort(adt) // Making sure the sort is defined
+        val selector = selectors.toB(adt -> c.selectorIndex)
         selector(rec(cc))
 
-      case AsInstanceOf(expr, ct) =>
+      case AsInstanceOf(expr, adt) =>
         rec(expr)
 
-      case IsInstanceOf(e, ct) => ct.tcd match {
-        case tacd: TypedAbstractClassDef =>
-          tacd.descendants match {
-            case Seq(tccd) =>
-              rec(IsInstanceOf(e, tccd.toType))
+      case IsInstanceOf(e, adt) => adt.getADT match {
+        case tsort: TypedADTSort =>
+          tsort.constructors match {
+            case Seq(tcons) =>
+              rec(IsInstanceOf(e, tcons.toType))
             case more =>
-              val v = Variable(FreshIdentifier("e", true), ct)
-              rec(Let(v.toVal, e, orJoin(more map (tccd => IsInstanceOf(v, tccd.toType)))))
+              val v = Variable(FreshIdentifier("e", true), adt)
+              rec(Let(v.toVal, e, orJoin(more map (tcons => IsInstanceOf(v, tcons.toType)))))
           }
-        case tccd: TypedCaseClassDef =>
-          typeToSort(ct)
-          val tester = testers.toB(ct)
+        case tcons: TypedADTConstructor =>
+          typeToSort(adt)
+          val tester = testers.toB(adt)
           tester(rec(e))
       }
 
@@ -554,8 +554,8 @@ trait AbstractZ3Solver
             FunctionInvocation(tfd.id, tfd.tps, args.zip(tfd.params).map{ case (a, p) => rec(a, p.getType) })
           } else if (constructors containsB decl) {
             constructors.toA(decl) match {
-              case ct: ClassType =>
-                CaseClass(ct, args.zip(ct.tcd.toCase.fieldsTypes).map { case (a, t) => rec(a, t) })
+              case adt: ADTType =>
+                ADT(adt, args.zip(adt.getADT.toConstructor.fieldsTypes).map { case (a, t) => rec(a, t) })
 
               case UnitType =>
                 UnitLiteral()

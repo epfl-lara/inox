@@ -175,9 +175,9 @@ trait AbstractUnrollingSolver
           case (e, i) => rec(e, TupleSelect(selector, i + 1))
         }, Tuple)
 
-        case CaseClass(cct, es) => reconstruct((cct.tcd.toCase.fields zip es).map {
-          case (vd, e) => rec(e, CaseClassSelector(selector, vd.id))
-        }, CaseClass(cct, _))
+        case ADT(adt, es) => reconstruct((adt.getADT.toConstructor.fields zip es).map {
+          case (vd, e) => rec(e, ADTSelector(selector, vd.id))
+        }, ADT(adt, _))
 
         case _ => (Seq.empty, (es: Seq[Expr]) => expr)
       }

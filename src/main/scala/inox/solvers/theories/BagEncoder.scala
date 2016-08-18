@@ -11,8 +11,9 @@ trait BagEncoder extends TheoryEncoder {
   val BagID = FreshIdentifier("Bag")
   val f = FreshIdentifier("f")
 
-  val bagClass = mkCaseClass(BagID)("T")(None)(
-    { case Seq(aT) => Seq(ValDef(f, aT =>: IntegerType)) })
+  val bagADT = mkConstructor(BagID)("T")(None) {
+    case Seq(aT) => Seq(ValDef(f, aT =>: IntegerType))
+  }
 
   val Bag = T(BagID)
 
@@ -117,7 +118,7 @@ trait BagEncoder extends TheoryEncoder {
     import targetProgram._
 
     override def transform(e: Expr): Expr = e match {
-      case cc @ CaseClass(ClassType(BagID, Seq(tpe)), Seq(Lambda(Seq(vd), body))) =>
+      case cc @ ADT(ADTType(BagID, Seq(tpe)), Seq(Lambda(Seq(vd), body))) =>
         val Variable = vd.toVariable
         def rec(expr: Expr): Seq[(Expr, Expr)] = expr match {
           case IfExpr(Equals(Variable, k), v, elze) => rec(elze) :+ (transform(k) -> transform(v))
@@ -127,7 +128,7 @@ trait BagEncoder extends TheoryEncoder {
 
         FiniteBag(rec(body), transform(tpe)).copiedFrom(e)
 
-      case cc @ CaseClass(ClassType(BagID, Seq(tpe)), args) =>
+      case cc @ ADT(ADTType(BagID, Seq(tpe)), args) =>
         throw new Unsupported(e, "Unexpected argument to bag constructor")
 
       case FunctionInvocation(AddID, Seq(_), Seq(bag, elem)) =>
@@ -152,7 +153,7 @@ trait BagEncoder extends TheoryEncoder {
     }
 
     override def transform(tpe: Type): Type = tpe match {
-      case ClassType(BagID, Seq(base)) => BagType(transform(base)).copiedFrom(tpe)
+      case ADTType(BagID, Seq(base)) => BagType(transform(base)).copiedFrom(tpe)
       case _ => super.transform(tpe)
     }
   }

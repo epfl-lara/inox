@@ -142,7 +142,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
   /* Helper functions */
 
   protected def normalizeType(t: Type): Type = t match {
-    case ct: ClassType => ct.lookupClass.get.root.toType
+    case adt: ADTType => adt.getADT.root.toType
     case tt: TupleType => tupleTypeWrap(tt.bases.map(normalizeType))
     case _             => t
   }
@@ -185,7 +185,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
     case FunctionType(from, to) =>
       Ints.IntSort()
 
-    case tpe @ (_: ClassType | _: TupleType | _: TypeParameter | UnitType) =>
+    case tpe @ (_: ADTType | _: TupleType | _: TypeParameter | UnitType) =>
       declareStructuralSort(tpe)
 
     case other =>
@@ -307,21 +307,21 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
           Seq(),
           newBody)
 
-      case s @ CaseClassSelector(e, id) =>
+      case s @ ADTSelector(e, id) =>
         declareSort(e.getType)
-        val selector = selectors.toB((e.getType, s.classIndex.get._2))
+        val selector = selectors.toB((e.getType, s.selectorIndex))
         FunctionApplication(selector, Seq(toSMT(e)))
 
-      case AsInstanceOf(expr, cct) =>
+      case AsInstanceOf(expr, adt) =>
         toSMT(expr)
 
-      case io @ IsInstanceOf(e, cct) =>
-        declareSort(cct)
-        val cases = cct.lookupClass match {
-          case Some(act: TypedAbstractClassDef) =>
-            act.descendants
-          case Some(cct: TypedCaseClassDef) =>
-            Seq(cct)
+      case io @ IsInstanceOf(e, adt) =>
+        declareSort(adt)
+        val cases = adt.lookupADT match {
+          case Some(tsort: TypedADTSort) =>
+            tsort.constructors
+          case Some(tcons: TypedADTConstructor) =>
+            Seq(tcons)
           case None =>
             unsupported(io, "isInstanceOf on non-class")
         }
@@ -335,9 +335,9 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
               SmtLibConstructors.or(oneOf.map(FunctionApplication(_, Seq(es: Term)))))
         }
 
-      case CaseClass(cct, es) =>
-        declareSort(cct)
-        val constructor = constructors.toB(cct)
+      case ADT(adt, es) =>
+        declareSort(adt)
+        val constructor = constructors.toB(adt)
         if (es.isEmpty) {
           constructor
         } else {
@@ -627,29 +627,29 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
 
       case (SimpleSymbol(s), _) if constructors.containsB(s) =>
         constructors.toA(s) match {
-          case ct: ClassType =>
-            CaseClass(ct, Nil)
+          case adt: ADTType =>
+            ADT(adt, Nil)
           case t =>
             unsupported(t, "woot? for a single constructor for non-case-object")
         }
 
       case (FunctionApplication(SimpleSymbol(s), List(e)), _) if testers.containsB(s) =>
         testers.toA(s) match {
-          case cct: ClassType =>
-            IsInstanceOf(fromSMT(e, cct), cct)
+          case adt: ADTType =>
+            IsInstanceOf(fromSMT(e, adt), adt)
         }
 
       case (FunctionApplication(SimpleSymbol(s), List(e)), _) if selectors.containsB(s) =>
         selectors.toA(s) match {
-          case (ct: ClassType, i) =>
-            CaseClassSelector(fromSMT(e, ct), ct.lookupClass.get.toCase.fields(i).id)
+          case (adt: ADTType, i) =>
+            ADTSelector(fromSMT(e, adt), adt.getADT.toConstructor.fields(i).id)
         }
 
       case (FunctionApplication(SimpleSymbol(s), args), _) if constructors.containsB(s) =>
         constructors.toA(s) match {
-          case ct: ClassType =>
-            val rargs = args.zip(ct.lookupClass.get.toCase.fields.map(_.getType)).map(fromSMT)
-            CaseClass(ct, rargs)
+          case adt: ADTType =>
+            val rargs = args.zip(adt.getADT.toConstructor.fields.map(_.getType)).map(fromSMT)
+            ADT(adt, rargs)
 
           case tt: TupleType =>
             val rargs = args.zip(tt.bases).map(fromSMT)

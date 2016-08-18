@@ -54,15 +54,15 @@ trait ADTManagers {
       for (scc <- sccs.map(scc => scc.map(bestRealType))) {
 
         val declarations = (for (tpe <- scc if !declared(tpe)) yield (tpe match {
-          case ct: ClassType =>
-            val (root, deps) = ct.tcd.root match {
-              case tacd: TypedAbstractClassDef =>
-                (tacd, tacd.descendants)
-              case tccd: TypedCaseClassDef =>
-                (tccd, Seq(tccd))
+          case adt: ADTType =>
+            val (root, deps) = adt.getADT.root match {
+              case tsort: TypedADTSort =>
+                (tsort, tsort.constructors)
+              case tcons: TypedADTConstructor =>
+                (tcons, Seq(tcons))
             }
 
-            Some(ct -> DataType(freshId(root.id), deps.map { tccd =>
+            Some(adt -> DataType(freshId(root.id), deps.map { tccd =>
               Constructor(freshId(tccd.id), tccd.toType, tccd.fields.map(vd => freshId(vd.id) -> vd.tpe))
             }))
 

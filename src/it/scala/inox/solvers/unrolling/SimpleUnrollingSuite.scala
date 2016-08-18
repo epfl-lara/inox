@@ -17,9 +17,9 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
   val head = FreshIdentifier("head")
   val tail = FreshIdentifier("tail")
 
-  val List = mkAbstractClass(listID)("A")(Seq(consID, nilID))
-  val Nil  = mkCaseClass(nilID)("A")(Some(listID))(_ => Seq.empty)
-  val Cons = mkCaseClass(consID)("A")(Some(listID)) {
+  val List = mkSort(listID)("A")(Seq(consID, nilID))
+  val Nil  = mkConstructor(nilID)("A")(Some(listID))(_ => Seq.empty)
+  val Cons = mkConstructor(consID)("A")(Some(listID)) {
     case Seq(aT) => Seq(ValDef(head, aT), ValDef(tail, T(listID)(aT)))
   }
 
@@ -48,7 +48,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause) match {
       case SatWithModel(model) =>
         symbols.valuateWithModel(model)(vd) match {
-          case CaseClass(ClassType(`consID`, Seq(IntegerType)), _) =>
+          case ADT(ADTType(`consID`, Seq(IntegerType)), _) =>
             // success!!
           case r =>
             fail("Unexpected valuation: " + r)
@@ -69,7 +69,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause) match {
       case SatWithModel(model) =>
         symbols.valuateWithModel(model)(vd) match {
-          case CaseClass(ClassType(`nilID`, Seq(`tp`)), Seq()) =>
+          case ADT(ADTType(`nilID`, Seq(`tp`)), Seq()) =>
             // success!!
           case r =>
             fail("Unexpected valuation: " + r)

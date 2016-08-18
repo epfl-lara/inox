@@ -17,16 +17,16 @@ trait StringEncoder extends TheoryEncoder {
   val head = FreshIdentifier("head")
   val tail = FreshIdentifier("tail")
 
-  val stringClass     = new AbstractClassDef(stringID, Seq.empty, Seq(stringConsID, stringNilID), Set.empty)
-  val stringNilClass  = new CaseClassDef(stringNilID, Seq.empty, Some(stringID), Seq.empty, Set.empty)
-  val stringConsClass = new CaseClassDef(stringConsID, Seq.empty, Some(stringID), Seq(
+  val stringADT     = new ADTSort(stringID, Seq.empty, Seq(stringConsID, stringNilID), Set.empty)
+  val stringNilADT  = new ADTConstructor(stringNilID, Seq.empty, Some(stringID), Seq.empty, Set.empty)
+  val stringConsADT = new ADTConstructor(stringConsID, Seq.empty, Some(stringID), Seq(
     ValDef(head, CharType),
-    ValDef(tail, ClassType(stringID, Seq.empty))
+    ValDef(tail, ADTType(stringID, Seq.empty))
   ), Set.empty)
 
-  val String     : ClassType = T(stringID)()
-  val StringNil  : ClassType = T(stringNilID)()
-  val StringCons : ClassType = T(stringConsID)()
+  val String     : ADTType = T(stringID)()
+  val StringNil  : ADTType = T(stringNilID)()
+  val StringCons : ADTType = T(stringConsID)()
 
   val SizeID = FreshIdentifier("size")
   val Size = mkFunDef(SizeID)()(_ => (
@@ -84,8 +84,8 @@ trait StringEncoder extends TheoryEncoder {
   private val stringBijection = new Bijection[String, Expr]()
 
   private def convertToString(e: Expr): String  = stringBijection.cachedA(e)(e match {
-    case CaseClass(StringCons, Seq(CharLiteral(c), l)) => (if(c < 31) (c + 97).toChar else c) + convertToString(l)
-    case CaseClass(StringNil, Seq()) => ""
+    case ADT(StringCons, Seq(CharLiteral(c), l)) => (if(c < 31) (c + 97).toChar else c) + convertToString(l)
+    case ADT(StringNil, Seq()) => ""
   })
 
   private def convertFromString(v: String): Expr = stringBijection.cachedB(v) {
@@ -112,7 +112,7 @@ trait StringEncoder extends TheoryEncoder {
 
   val decoder = new TreeTransformer {
     override def transform(e: Expr): Expr = e match {
-      case cc @ CaseClass(ct, args) if ct == StringNil || ct == StringCons =>
+      case cc @ ADT(adt, args) if adt == StringNil || adt == StringCons =>
         StringLiteral(convertToString(cc)).copiedFrom(cc)
       case FunctionInvocation(SizeID, Seq(), Seq(a)) =>
         StringLength(transform(a)).copiedFrom(e)

@@ -5,7 +5,7 @@ package grammars
 
 trait Tags { self: GrammarsUniverse =>
   import program._
-  import trees.CaseClassDef
+  import trees.ADTConstructor
   import trees.FunDef
 
   /** A class for tags that tag a [[ProductionRule]] with the kind of expression in generates. */
@@ -61,6 +61,6 @@ trait Tags { self: GrammarsUniverse =>
     case _ => false
   }
 
-  def tagOf(cct: CaseClassDef) = Constructor(cct.fields.isEmpty)
+  def tagOf(cons: ADTConstructor) = Constructor(cons.fields.isEmpty)
   //def tagOf(fd: FunDef, isSafe: Boolean) = FunCall(fd.methodOwner.isDefined, isSafe)
 }

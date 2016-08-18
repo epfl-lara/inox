@@ -18,8 +18,8 @@ trait DatatypeTemplates { self: Templates =>
   type Functions = Set[(Encoded, FunctionType, Encoded)]
 
   /** Represents a type unfolding of a free variable (or input) in the unfolding procedure */
-  case class TemplateTypeInfo(tcd: TypedAbstractClassDef, arg: Encoded) {
-    override def toString = tcd.toType.asString + "(" + asString(arg) + ")"
+  case class TemplateTypeInfo(tsort: TypedADTSort, arg: Encoded) {
+    override def toString = tsort.toType.asString + "(" + asString(arg) + ")"
   }
 
   private val cache: MutableMap[Type, DatatypeTemplate] = MutableMap.empty
@@ -29,7 +29,7 @@ trait DatatypeTemplates { self: Templates =>
     mkTemplate(tpe).instantiate(start, sym)
   }
 
-  private val requireChecking: MutableSet[TypedClassDef] = MutableSet.empty
+  private val requireChecking: MutableSet[TypedADTDefinition] = MutableSet.empty
   private val requireCache: MutableMap[Type, Boolean] = MutableMap.empty
 
   def requiresUnrolling(tpe: Type): Boolean = requireCache.get(tpe) match {
@@ -38,18 +38,18 @@ trait DatatypeTemplates { self: Templates =>
       val res = tpe match {
         case ft: FunctionType => true
 
-        case ct: ClassType => ct.tcd match {
-          case tccd: TypedCaseClassDef => tccd.parent.isDefined
-          case tcd if requireChecking(tcd.root) => false
-          case tcd =>
-            requireChecking += tcd.root
-            val classTypes = tcd.root +: (tcd.root match {
-              case (tacd: TypedAbstractClassDef) => tacd.descendants
+        case adt: ADTType => adt.getADT match {
+          case tcons: TypedADTConstructor => tcons.sort.isDefined
+          case tadt if requireChecking(tadt.root) => false
+          case tadt =>
+            requireChecking += tadt.root
+            val classTypes = tadt.root +: (tadt.root match {
+              case (tsort: TypedADTSort) => tsort.constructors
               case _ => Seq.empty
             })
 
             classTypes.exists(ct => ct.hasInvariant || (ct match {
-              case tccd: TypedCaseClassDef => tccd.fieldsTypes.exists(requiresUnrolling)
+              case tcons: TypedADTConstructor => tcons.fieldsTypes.exists(requiresUnrolling)
               case _ => false
             }))
         }
@@ -85,9 +85,9 @@ trait DatatypeTemplates { self: Templates =>
 
       @inline def iff(e1: Expr, e2: Expr): Unit = storeGuarded(pathVar, Equals(e1, e2))
 
-      var types = Map[Variable, Set[(TypedAbstractClassDef, Expr)]]()
-      @inline def storeType(pathVar: Variable, tacd: TypedAbstractClassDef, arg: Expr): Unit = {
-        types += pathVar -> (types.getOrElse(pathVar, Set.empty) + (tacd -> arg))
+      var types = Map[Variable, Set[(TypedADTSort, Expr)]]()
+      @inline def storeType(pathVar: Variable, tsort: TypedADTSort, arg: Expr): Unit = {
+        types += pathVar -> (types.getOrElse(pathVar, Set.empty) + (tsort -> arg))
       }
 
       var functions = Map[Variable, Set[Expr]]()
@@ -99,38 +99,38 @@ trait DatatypeTemplates { self: Templates =>
         case tpe if !requiresUnrolling(tpe) =>
           // nothing to do here!
 
-        case ct: ClassType =>
-          val tcd = ct.tcd
+        case adt: ADTType =>
+          val tadt = adt.getADT
 
-          if (tcd.hasInvariant) {
-            storeGuarded(pathVar, tcd.invariant.get.applied(Seq(expr)))
+          if (tadt.hasInvariant) {
+            storeGuarded(pathVar, tadt.invariant.get.applied(Seq(expr)))
           }
 
-          if (tcd.cd.isAbstract && tcd.toAbstract.cd.isInductive) {
-            storeType(pathVar, tcd.toAbstract, expr)
-          } else if (tcd != tcd.root) {
-            storeGuarded(pathVar, IsInstanceOf(expr, tcd.toType))
+          if (tadt.definition.isSort && tadt.toSort.definition.isInductive) {
+            storeType(pathVar, tadt.toSort, expr)
+          } else if (tadt != tadt.root) {
+            storeGuarded(pathVar, IsInstanceOf(expr, tadt.toType))
 
-            val tpe = tcd.toType
-            for (vd <- tcd.toCase.fields) {
-              rec(pathVar, CaseClassSelector(AsInstanceOf(expr, tpe), vd.id))
+            val tpe = tadt.toType
+            for (vd <- tadt.toConstructor.fields) {
+              rec(pathVar, ADTSelector(AsInstanceOf(expr, tpe), vd.id))
             }
           } else {
-            val matchers = tcd.root match {
-              case (act: TypedAbstractClassDef) => act.descendants
-              case (cct: TypedCaseClassDef) => Seq(cct)
+            val matchers = tadt.root match {
+              case (tsort: TypedADTSort) => tsort.constructors
+              case (tcons: TypedADTConstructor) => Seq(tcons)
             }
 
-            for (tccd <- matchers) {
-              val tpe = tccd.toType
+            for (tcons <- matchers) {
+              val tpe = tcons.toType
 
               if (requiresUnrolling(tpe)) {
                 val newBool: Variable = Variable(FreshIdentifier("b", true), BooleanType)
                 storeCond(pathVar, newBool)
 
                 iff(and(pathVar, IsInstanceOf(expr, tpe)), newBool)
-                for (vd <- tccd.fields) {
-                  rec(newBool, CaseClassSelector(AsInstanceOf(expr, tpe), vd.id))
+                for (vd <- tcons.fields) {
+                  rec(newBool, ADTSelector(AsInstanceOf(expr, tpe), vd.id))
                 }
               }
             }
@@ -260,8 +260,8 @@ trait DatatypeTemplates { self: Templates =>
       val newTypeInfos = blockers.flatMap(id => typeInfos.get(id).map(id -> _))
       typeInfos --= blockers
 
-      for ((blocker, (gen, _, _, tps)) <- newTypeInfos; info @ TemplateTypeInfo(tcd, arg) <- tps) {
-        val template = mkTemplate(tcd.toType)
+      for ((blocker, (gen, _, _, tps)) <- newTypeInfos; info @ TemplateTypeInfo(tadt, arg) <- tps) {
+        val template = mkTemplate(tadt.toType)
         newClauses ++= template.instantiate(blocker, arg)
       }
 

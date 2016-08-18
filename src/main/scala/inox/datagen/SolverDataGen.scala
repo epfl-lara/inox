@@ -25,13 +25,13 @@ trait SolverDataGen extends DataGenerator { self =>
       FreeableIterator.empty
     } else {
 
-      var cdToId: Map[ClassDef, Identifier] = Map.empty
+      var cdToId: Map[ADTDefinition, Identifier] = Map.empty
       var fds: Seq[FunDef] = Seq.empty
 
       def sizeFor(of: Expr): Expr = bestRealType(of.getType) match {
-        case ct: ClassType =>
-          val tcd = ct.tcd
-          val root = tcd.cd.root
+        case adt: ADTType =>
+          val tadt = adt.getADT
+          val root = tadt.definition.root
           val id = cdToId.getOrElse(root, {
             import dsl._
 
@@ -39,29 +39,29 @@ trait SolverDataGen extends DataGenerator { self =>
             val tparams = root.tparams.map(_.freshen)
             cdToId += root -> id
 
-            def typed(ccd: CaseClassDef) = TypedCaseClassDef(ccd, tparams.map(_.tp))
-            def sizeOfCaseClass(ccd: CaseClassDef, expr: Expr): Expr =
-              typed(ccd).fields.foldLeft(IntegerLiteral(1): Expr) { (i, f) =>
+            def typed(cons: ADTConstructor) = TypedADTConstructor(cons, tparams.map(_.tp))
+            def sizeOfConstructor(cons: ADTConstructor, expr: Expr): Expr =
+              typed(cons).fields.foldLeft(IntegerLiteral(1): Expr) { (i, f) =>
                 plus(i, sizeFor(expr.getField(f.id)))
               }
 
-            val x = Variable(FreshIdentifier("x", true), tcd.root.toType)
+            val x = Variable(FreshIdentifier("x", true), tadt.root.toType)
             fds +:= new FunDef(id, tparams, Seq(x.toVal), IntegerType, root match {
-              case acd: AbstractClassDef =>
-                val (child +: rest) = acd.descendants
-                def sizeOf(ccd: CaseClassDef) = sizeOfCaseClass(ccd, x.asInstOf(typed(ccd).toType))
+              case sort: ADTSort =>
+                val (child +: rest) = sort.constructors
+                def sizeOf(cons: ADTConstructor) = sizeOfConstructor(cons, x.asInstOf(typed(cons).toType))
                 rest.foldLeft(sizeOf(child)) { (elze, ccd) =>
                   if_ (x.isInstOf(typed(ccd).toType)) { sizeOf(ccd) } else_ { elze }
                 }
 
-              case ccd: CaseClassDef =>
-                sizeOfCaseClass(ccd, x)
+              case cons: ADTConstructor =>
+                sizeOfConstructor(cons, x)
             }, Set.empty)
 
             id
           })
 
-          FunctionInvocation(id, ct.tps, Seq(of))
+          FunctionInvocation(id, adt.tps, Seq(of))
 
         case tt @ TupleType(tps) =>
           val exprs = for ((t,i) <- tps.zipWithIndex) yield {

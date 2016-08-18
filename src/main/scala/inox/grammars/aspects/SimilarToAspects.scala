@@ -118,17 +118,17 @@ trait SimilarToAspects { self: GrammarsUniverse =>
         }
 
         val ccVariations: Prods = e match {
-          case CaseClass(cct, args) =>
-            val resType = cct.tcd.toCase
+          case ADT(adt, args) =>
+            val resType = adt.getADT.toConstructor
             val neighbors = resType.root match {
-              case acd: TypedAbstractClassDef =>
-                acd.descendants diff Seq(resType)
-              case ccd: TypedCaseClassDef =>
+              case tsort: TypedADTSort =>
+                tsort.constructors diff Seq(resType)
+              case tcons: TypedADTConstructor =>
                 Nil
             }
 
             for (scct <- neighbors if scct.fieldsTypes == resType.fieldsTypes) yield {
-              term(CaseClass(scct.toType, args))
+              term(ADT(scct.toType, args))
             }
           case _ =>
             Nil

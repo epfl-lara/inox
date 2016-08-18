@@ -57,7 +57,7 @@ trait SymbolOps { self: TypeOps =>
     def step(e: Expr): Option[Expr] = e match {
       case Not(t) => Some(not(t))
       case UMinus(t) => Some(uminus(t))
-      case CaseClassSelector(e, sel) => Some(caseClassSelector(e, sel))
+      case ADTSelector(e, sel) => Some(adtSelector(e, sel))
       case AsInstanceOf(e, ct) => Some(asInstOf(e, ct))
       case Equals(t1, t2) => Some(equality(t1, t2))
       case Implies(t1, t2) => Some(implies(t1, t2))
@@ -78,8 +78,8 @@ trait SymbolOps { self: TypeOps =>
       case TupleSelect(Let(id, v, b), ts) =>
         Some(Let(id, v, tupleSelect(b, ts, true)))
 
-      case CaseClassSelector(cc: CaseClass, id) =>
-        Some(caseClassSelector(cc, id).copiedFrom(e))
+      case ADTSelector(cc: ADT, id) =>
+        Some(adtSelector(cc, id).copiedFrom(e))
 
       case IfExpr(c, thenn, elze) if thenn == elze =>
         Some(thenn)
@@ -274,31 +274,31 @@ trait SymbolOps { self: TypeOps =>
     defs.foldRight(bd){ case ((vd, e), body) => Let(vd, e, body) }
   }
 
-  private def hasInstance(tcd: TypedClassDef): Boolean = {
-    val recursive = Set(tcd, tcd.root)
+  private def hasInstance(tadt: TypedADTDefinition): Boolean = {
+    val recursive = Set(tadt, tadt.root)
 
-    def isRecursive(tpe: Type, seen: Set[TypedClassDef]): Boolean = tpe match {
-      case ct: ClassType =>
-        val ctcd = ct.tcd
-        if (seen(ctcd)) {
+    def isRecursive(tpe: Type, seen: Set[TypedADTDefinition]): Boolean = tpe match {
+      case adt: ADTType =>
+        val tadt = adt.getADT
+        if (seen(tadt)) {
           false
-        } else if (recursive(ctcd)) {
+        } else if (recursive(tadt)) {
           true
-        } else ctcd match {
-          case tcc: TypedCaseClassDef =>
-            tcc.fieldsTypes.exists(isRecursive(_, seen + ctcd))
+        } else tadt match {
+          case tcons: TypedADTConstructor =>
+            tcons.fieldsTypes.exists(isRecursive(_, seen + tadt))
           case _ => false
         }
       case _ => false
     }
 
-    val tcds = tcd match {
-      case tacd: TypedAbstractClassDef => tacd.descendants
-      case tccd: TypedCaseClassDef => Seq(tccd)
+    val tconss = tadt match {
+      case tsort: TypedADTSort => tsort.constructors
+      case tcons: TypedADTConstructor => Seq(tcons)
     }
 
-    tcds.exists { tcd =>
-      tcd.fieldsTypes.forall(tpe => !isRecursive(tpe, Set.empty))
+    tconss.exists { tcons =>
+      tcons.fieldsTypes.forall(tpe => !isRecursive(tpe, Set.empty))
     }
   }
 
@@ -316,17 +316,17 @@ trait SymbolOps { self: TypeOps =>
     case MapType(fromType, toType)  => FiniteMap(Seq(), simplestValue(toType), fromType)
     case TupleType(tpes)            => Tuple(tpes.map(simplestValue))
 
-    case ct @ ClassType(id, tps) =>
-      val tcd = ct.lookupClass.getOrElse(throw ClassLookupException(id))
-      if (!hasInstance(tcd)) scala.sys.error(ct +" does not seem to be well-founded")
+    case adt @ ADTType(id, tps) =>
+      val tadt = adt.getADT
+      if (!hasInstance(tadt)) scala.sys.error(adt +" does not seem to be well-founded")
 
-      val tccd @ TypedCaseClassDef(cd, tps) = tcd match {
-        case tacd: TypedAbstractClassDef =>
-          tacd.descendants.filter(hasInstance(_)).sortBy(_.fields.size).head
-        case tccd: TypedCaseClassDef => tccd
+      val tcons @ TypedADTConstructor(cons, tps) = tadt match {
+        case tsort: TypedADTSort =>
+          tsort.constructors.filter(hasInstance(_)).sortBy(_.fields.size).head
+        case tcons: TypedADTConstructor => tcons
       }
 
-      CaseClass(ClassType(cd.id, tps), tccd.fieldsTypes.map(simplestValue))
+      ADT(tcons.toType, tcons.fieldsTypes.map(simplestValue))
 
     case tp: TypeParameter =>
       GenericValue(tp, 0)
@@ -376,12 +376,11 @@ trait SymbolOps { self: TypeOps =>
           prev flatMap { case seq => Stream(seq, seq :+ curr) }
         }.flatten
         cartesianProduct(seqs, valuesOf(to)) map { case (values, default) => FiniteMap(values, default, from) }
-      case ct: ClassType => ct.lookupClass match {
-        case Some(tccd: TypedCaseClassDef) =>
-          cartesianProduct(tccd.fieldsTypes map valuesOf) map (CaseClass(ct, _))
-        case Some(accd: TypedAbstractClassDef) =>
-          interleave(accd.descendants.map(tccd => valuesOf(tccd.toType)))
-        case None => throw ClassLookupException(ct.id)
+      case adt: ADTType => adt.getADT match {
+        case tcons: TypedADTConstructor =>
+          cartesianProduct(tcons.fieldsTypes map valuesOf) map (ADT(adt, _))
+        case tsort: TypedADTSort =>
+          interleave(tsort.constructors.map(tcons => valuesOf(tcons.toType)))
       }
     }
   }
@@ -587,7 +586,7 @@ trait SymbolOps { self: TypeOps =>
   /** Returns true if expr is a value of type t */
   def isValueOfType(e: Expr, t: Type): Boolean = {
     def unWrapSome(s: Expr) = s match {
-      case CaseClass(_, Seq(a)) => a
+      case ADT(_, Seq(a)) => a
       case _ => s
     }
     (e, t) match {
@@ -610,9 +609,9 @@ trait SymbolOps { self: TypeOps =>
       case (FiniteMap(elems, default, kt), MapType(from, to)) =>
         (kt == from) < s"$kt not equal to $from" && (default.getType == to) < s"${default.getType} not equal to $to" &&
         (elems forall (kv => isValueOfType(kv._1, from) < s"${kv._1} not a value of type $from" && isValueOfType(unWrapSome(kv._2), to) < s"${unWrapSome(kv._2)} not a value of type ${to}" ))
-      case (CaseClass(ct, args), ct2: ClassType) =>
-        isSubtypeOf(ct, ct2) < s"$ct not a subtype of $ct2" &&
-        ((args zip ct.tcd.toCase.fieldsTypes) forall (argstyped => isValueOfType(argstyped._1, argstyped._2) < s"${argstyped._1} not a value of type ${argstyped._2}" ))
+      case (ADT(adt, args), adt2: ADTType) =>
+        isSubtypeOf(adt, adt2) < s"$adt not a subtype of $adt2" &&
+        ((args zip adt.getADT.toConstructor.fieldsTypes) forall (argstyped => isValueOfType(argstyped._1, argstyped._2) < s"${argstyped._1} not a value of type ${argstyped._2}" ))
       case (Lambda(valdefs, body), FunctionType(ins, out)) =>
         variablesOf(e).isEmpty &&
         (valdefs zip ins forall (vdin => isSubtypeOf(vdin._2, vdin._1.getType) < s"${vdin._2} is not a subtype of ${vdin._1.getType}")) &&

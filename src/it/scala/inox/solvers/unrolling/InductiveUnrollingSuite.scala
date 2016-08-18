@@ -15,9 +15,9 @@ class InductiveUnrollingSuite extends SolvingTestSuite {
   val head = FreshIdentifier("head")
   val tail = FreshIdentifier("tail")
 
-  val List = mkAbstractClass(listID)("A")(Seq(consID, nilID))
-  val Nil  = mkCaseClass(nilID)("A")(Some(listID))(_ => Seq.empty)
-  val Cons = mkCaseClass(consID)("A")(Some(listID)) {
+  val List = mkSort(listID)("A")(Seq(consID, nilID))
+  val Nil  = mkConstructor(nilID)("A")(Some(listID))(_ => Seq.empty)
+  val Cons = mkConstructor(consID)("A")(Some(listID)) {
     case Seq(aT) => Seq(ValDef(head, aT), ValDef(tail, T(listID)(aT)))
   }
 

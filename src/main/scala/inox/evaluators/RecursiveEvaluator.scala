@@ -140,10 +140,10 @@ trait RecursiveEvaluator
         case _ => BooleanLiteral(lv == rv)
       }
 
-    case CaseClass(cct, args) =>
-      val cc = CaseClass(cct, args.map(e))
-      cct.tcd.invariant.foreach { tfd =>
-        val v = Variable(FreshIdentifier("x", true), cct)
+    case ADT(adt, args) =>
+      val cc = ADT(adt, args.map(e))
+      adt.getADT.invariant.foreach { tfd =>
+        val v = Variable(FreshIdentifier("x", true), adt)
         e(tfd.applied(Seq(v)))(rctx.withNewVar(v.toVal, cc), gctx) match {
           case BooleanLiteral(true) =>
           case BooleanLiteral(false) =>
@@ -166,10 +166,10 @@ trait RecursiveEvaluator
       val le = e(expr)
       BooleanLiteral(isSubtypeOf(le.getType, ct))
 
-    case CaseClassSelector(expr, sel) =>
+    case ADTSelector(expr, sel) =>
       e(expr) match {
-        case CaseClass(ct, args) => args(ct.tcd.cd match {
-          case ccd: CaseClassDef => ccd.selectorID2Index(sel)
+        case ADT(adt, args) => args(adt.getADT.definition match {
+          case cons: ADTConstructor => cons.selectorID2Index(sel)
           case _ => throw RuntimeError("Unexpected case class type")
         })
         case le => throw EvalError(typeErrorMsg(le, expr.getType))

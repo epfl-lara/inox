@@ -26,12 +26,12 @@ package object inox {
   object InoxProgram {
     def apply(ictx: InoxContext,
       functions: Seq[inox.trees.FunDef],
-      classes: Seq[inox.trees.ClassDef]): InoxProgram = new Program {
+      adts: Seq[inox.trees.ADTDefinition]): InoxProgram = new Program {
         val trees = inox.trees
         val ctx = ictx
         val symbols = new inox.trees.Symbols(
           functions.map(fd => fd.id -> fd).toMap,
-          classes.map(cd => cd.id -> cd).toMap)
+          adts.map(cd => cd.id -> cd).toMap)
       }
 
     def apply(ictx: InoxContext, sym: inox.trees.Symbols): InoxProgram = new Program {
@@ -50,7 +50,7 @@ package object inox {
 
     class Symbols(
       val functions: Map[Identifier, FunDef],
-      val classes: Map[Identifier, ClassDef]
+      val adts: Map[Identifier, ADTDefinition]
     ) extends AbstractSymbols {
 
       def transform(t: TreeTransformer) = new Symbols(
@@ -61,19 +61,19 @@ package object inox {
           t.transform(fd.returnType),
           t.transform(fd.fullBody),
           fd.flags)),
-        classes.mapValues {
-          case acd: AbstractClassDef => acd
-          case ccd: CaseClassDef => new CaseClassDef(
-            ccd.id,
-            ccd.tparams,
-            ccd.parent,
-            ccd.fields.map(t.transform),
-            ccd.flags)
+        adts.mapValues {
+          case sort: ADTSort => sort
+          case cons: ADTConstructor => new ADTConstructor(
+            cons.id,
+            cons.tparams,
+            cons.sort,
+            cons.fields.map(t.transform),
+            cons.flags)
         })
 
-      def extend(functions: Seq[FunDef] = Seq.empty, classes: Seq[ClassDef] = Seq.empty) = new Symbols(
+      def extend(functions: Seq[FunDef] = Seq.empty, adts: Seq[ADTDefinition] = Seq.empty) = new Symbols(
         this.functions ++ functions.map(fd => fd.id -> fd),
-        this.classes ++ classes.map(cd => cd.id -> cd)
+        this.adts ++ adts.map(cd => cd.id -> cd)
       )
     }
 

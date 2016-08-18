@@ -20,12 +20,12 @@ trait TreeDeconstructor {
       (Seq(e), Seq(), (es, tps) => t.StringLength(es.head))
     case s.SetCardinality(e) =>
       (Seq(e), Seq(), (es, tps) => t.SetCardinality(es.head))
-    case s.CaseClassSelector(e, sel) =>
-      (Seq(e), Seq(), (es, tps) => t.CaseClassSelector(es.head, sel))
+    case s.ADTSelector(e, sel) =>
+      (Seq(e), Seq(), (es, tps) => t.ADTSelector(es.head, sel))
     case s.IsInstanceOf(e, ct) =>
-      (Seq(e), Seq(ct), (es, tps) => t.IsInstanceOf(es.head, tps.head.asInstanceOf[t.ClassType]))
+      (Seq(e), Seq(ct), (es, tps) => t.IsInstanceOf(es.head, tps.head.asInstanceOf[t.ADTType]))
     case s.AsInstanceOf(e, ct) =>
-      (Seq(e), Seq(ct), (es, tps) => t.AsInstanceOf(es.head, tps.head.asInstanceOf[t.ClassType]))
+      (Seq(e), Seq(ct), (es, tps) => t.AsInstanceOf(es.head, tps.head.asInstanceOf[t.ADTType]))
     case s.TupleSelect(e, i) =>
       (Seq(e), Seq(), (es, tps) => t.TupleSelect(es.head, i))
     case s.Lambda(args, body) => (
@@ -111,7 +111,7 @@ trait TreeDeconstructor {
     case s.FunctionInvocation(id, tps, args) =>
       (args, tps, (es, tps) => t.FunctionInvocation(id, tps, es))
     case s.Application(caller, args) => (caller +: args, Seq(), (es, tps) => t.Application(es.head, es.tail))
-    case s.CaseClass(ct, args) => (args, Seq(ct), (es, tps) => t.CaseClass(tps.head.asInstanceOf[t.ClassType], es))
+    case s.ADT(adt, args) => (args, Seq(adt), (es, tps) => t.ADT(tps.head.asInstanceOf[t.ADTType], es))
     case s.And(args) => (args, Seq(), (es, _) => t.And(es))
     case s.Or(args) => (args, Seq(), (es, _) => t.Or(es))
     case s.SubString(t1, a, b) => (t1 :: a :: b :: Nil, Seq(), (es, _) => t.SubString(es(0), es(1), es(2)))
@@ -176,7 +176,7 @@ trait TreeDeconstructor {
   }
 
   def deconstruct(tp: s.Type): (Seq[s.Type], Seq[t.Type] => t.Type) = tp match {
-    case s.ClassType(ccd, ts) => (ts, ts => t.ClassType(ccd, ts))
+    case s.ADTType(d, ts) => (ts, ts => t.ADTType(d, ts))
     case s.TupleType(ts) => (ts, t.TupleType)
     case s.SetType(tp) => (Seq(tp), ts => t.SetType(ts.head))
     case s.BagType(tp) => (Seq(tp), ts => t.BagType(ts.head))

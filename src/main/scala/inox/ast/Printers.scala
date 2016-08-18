@@ -108,8 +108,8 @@ trait Printers {
         case Choose(res, pred) =>
           p"choose(($res) => $pred)"
 
-        case e@CaseClass(cct, args) =>
-          p"$cct($args)"
+        case e @ ADT(adt, args) =>
+          p"$adt($args)"
 
         case And(exprs) => optP {
           p"${nary(exprs, " && ")}"
@@ -155,7 +155,7 @@ trait Printers {
         case TupleSelect(t, i) => p"$t._$i"
         case AsInstanceOf(e, ct) => p"""$e.asInstanceOf[$ct]"""
         case IsInstanceOf(e, cct) => p"$e.isInstanceOf[$cct]"
-        case CaseClassSelector(e, id) => p"$e.$id"
+        case ADTSelector(e, id) => p"$e.$id"
 
         case FunctionInvocation(id, tps, args) =>
           p"$id${nary(tps, ", ", "[", "]")}"
@@ -284,21 +284,21 @@ trait Printers {
         case MapType(ft, tt) => p"Map[$ft, $tt]"
         case TupleType(tpes) => p"($tpes)"
         case FunctionType(fts, tt) => p"($fts) => $tt"
-        case c: ClassType =>
-          p"${c.id}${nary(c.tps, ", ", "[", "]")}"
+        case adt: ADTType =>
+          p"${adt.id}${nary(adt.tps, ", ", "[", "]")}"
 
         // Definitions
-        case acd: AbstractClassDef =>
-          p"abstract class ${acd.id}${nary(acd.tparams, ", ", "[", "]")}"
+        case sort: ADTSort =>
+          p"abstract class ${sort.id}${nary(sort.tparams, ", ", "[", "]")}"
 
-        case ccd: CaseClassDef =>
-          p"case class ${ccd.id}"
-          p"${nary(ccd.tparams, ", ", "[", "]")}"
-          p"(${ccd.fields})"
+        case cons: ADTConstructor =>
+          p"case class ${cons.id}"
+          p"${nary(cons.tparams, ", ", "[", "]")}"
+          p"(${cons.fields})"
 
-          ccd.parent.foreach { par =>
+          cons.sort.foreach { s =>
             // Remember child and parents tparams are simple bijection
-            p" extends $par${nary(ccd.tparams, ", ", "[", "]")}"
+            p" extends $s${nary(cons.tparams, ", ", "[", "]")}"
           }
 
         case fd: FunDef =>
@@ -396,7 +396,7 @@ trait Printers {
       case (pa: PrettyPrintable, _) => pa.printRequiresParentheses(within)
       case (_, None) => false
       case (_, Some(
-      _: Definition | _: Let | _: IfExpr | _: CaseClass | _: Lambda | _: Choose | _: Tuple
+      _: Definition | _: Let | _: IfExpr | _: ADT | _: Lambda | _: Choose | _: Tuple
       )) => false
       case (ex: StringConcat, Some(_: StringConcat)) => false
       case (_, Some(_: FunctionInvocation)) => false

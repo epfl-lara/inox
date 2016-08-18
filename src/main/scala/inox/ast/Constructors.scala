@@ -86,12 +86,12 @@ trait Constructors {
   /** Simplifies the provided case class selector.
     * @see [[purescala.Expressions.CaseClassSelector]]
     */
-  def caseClassSelector(caseClass: Expr, selector: Identifier): Expr = {
-    caseClass match {
-      case CaseClass(ct, fields) if !ct.tcd.hasInvariant =>
-        fields(ct.tcd.cd.asInstanceOf[CaseClassDef].selectorID2Index(selector))
+  def adtSelector(adt: Expr, selector: Identifier): Expr = {
+    adt match {
+      case a @ ADT(tp, fields) if !tp.getADT.hasInvariant =>
+        fields(tp.getADT.toConstructor.definition.selectorID2Index(selector))
       case _ =>
-        CaseClassSelector(caseClass, selector)
+        ADTSelector(adt, selector)
     }
   }
 
@@ -265,7 +265,7 @@ trait Constructors {
   }
 
   /** $encodingof expr.asInstanceOf[tpe], returns `expr` if it already is of type `tpe`.  */
-  def asInstOf(expr: Expr, tpe: ClassType) = {
+  def asInstOf(expr: Expr, tpe: ADTType) = {
     if (symbols.isSubtypeOf(expr.getType, tpe)) {
       expr
     } else {
@@ -273,7 +273,7 @@ trait Constructors {
     }
   }
 
-  def isInstOf(expr: Expr, tpe: ClassType) = {
+  def isInstOf(expr: Expr, tpe: ADTType) = {
     if (symbols.isSubtypeOf(expr.getType, tpe)) {
       BooleanLiteral(true)
     } else {

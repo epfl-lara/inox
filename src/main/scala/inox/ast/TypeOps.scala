@@ -74,33 +74,33 @@ trait TypeOps {
       case (_, _: TypeParameter) =>
         None
 
-      case (ct1: ClassType, ct2: ClassType) =>
-        val cd1 = ct1.tcd.cd
-        val cd2 = ct2.tcd.cd
-        val bound: Option[ClassDef] = if (allowSub) {
-          val an1 = Seq(cd1, cd1.root)
-          val an2 = Seq(cd2, cd2.root)
+      case (adt1: ADTType, adt2: ADTType) =>
+        val def1 = adt1.getADT.definition
+        val def2 = adt2.getADT.definition
+        val bound: Option[ADTDefinition] = if (allowSub) {
+          val an1 = Seq(def1, def1.root)
+          val an2 = Seq(def2, def2.root)
           if (isLub) {
             (an1.reverse zip an2.reverse)
-              .takeWhile(((_: ClassDef) == (_: ClassDef)).tupled)
+              .takeWhile(((_: ADTDefinition) == (_: ADTDefinition)).tupled)
               .lastOption.map(_._1)
           } else {
             // Lower bound
-            if(an1.contains(cd2)) Some(cd1)
-            else if (an2.contains(cd1)) Some(cd2)
+            if(an1.contains(def2)) Some(def1)
+            else if (an2.contains(def1)) Some(def2)
             else None
           }
         } else {
-          (cd1 == cd2).option(cd1)
+          (def1 == def2).option(def1)
         }
 
         for {
-          cd <- bound
-          (subs, map) <- flatten((ct1.tps zip ct2.tps).map { case (tp1, tp2) =>
+          adtDef <- bound
+          (subs, map) <- flatten((adt1.tps zip adt2.tps).map { case (tp1, tp2) =>
             // Class types are invariant!
             typeBound(tp1, tp2, isLub, allowSub = false)
           })
-        } yield (cd.typed(subs).toType, map)
+        } yield (adtDef.typed(subs).toType, map)
 
       case (FunctionType(from1, to1), FunctionType(from2, to2)) =>
         if (from1.size != from2.size) None
@@ -201,7 +201,7 @@ trait TypeOps {
   }
 
   def bestRealType(t: Type): Type = t match {
-    case (c: ClassType) => c.tcd.root.toType
+    case (adt: ADTType) => adt.getADT.root.toType
     case NAryType(tps, builder) => builder(tps.map(bestRealType))
   }
 
@@ -237,27 +237,27 @@ trait TypeOps {
           t <- typeCardinality(to)
           f <- typeCardinality(from)
         } yield Math.pow(t + 1, f).toInt
-      case ct: ClassType => ct.tcd match {
-        case tccd: TypedCaseClassDef =>
-          cards(tccd.fieldsTypes).map(_.product)
+      case adt: ADTType => adt.getADT match {
+        case tcons: TypedADTConstructor =>
+          cards(tcons.fieldsTypes).map(_.product)
 
-        case accd: TypedAbstractClassDef =>
+        case tsort: TypedADTSort =>
           val possibleChildTypes = utils.fixpoint((tpes: Set[Type]) => {
             tpes.flatMap(tpe => 
               Set(tpe) ++ (tpe match {
-                case ct: ClassType => ct.tcd match {
-                  case tccd: TypedCaseClassDef => tccd.fieldsTypes
-                  case tacd: TypedAbstractClassDef => (Set(tacd) ++ tacd.descendants).map(_.toType)
+                case adt: ADTType => adt.getADT match {
+                  case tcons: TypedADTConstructor => tcons.fieldsTypes
+                  case tsort: TypedADTSort => (Set(tsort) ++ tsort.constructors).map(_.toType)
                 }
                 case _ => Set.empty
               })
             )
-          })(accd.descendants.map(_.toType).toSet)
+          })(tsort.constructors.map(_.toType).toSet)
 
-          if (possibleChildTypes(accd.toType)) {
+          if (possibleChildTypes(tsort.toType)) {
             None
           } else {
-            cards(accd.descendants.map(_.toType)).map(_.sum)
+            cards(tsort.constructors.map(_.toType)).map(_.sum)
           }
       }
       case _ => None
@@ -269,11 +269,11 @@ trait TypeOps {
 
     def rec(tpe: Type): Unit = if (!dependencies.isDefinedAt(tpe)) {
       val next = tpe match {
-        case ct: ClassType => ct.tcd match {
-          case accd: TypedAbstractClassDef =>
-            accd.descendants.map(_.toType)
-          case tccd: TypedCaseClassDef =>
-            tccd.fieldsTypes ++ tccd.parent.map(_.toType)
+        case adt: ADTType => adt.getADT match {
+          case tsort: TypedADTSort =>
+            tsort.constructors.map(_.toType)
+          case tcons: TypedADTConstructor =>
+            tcons.fieldsTypes ++ tcons.sort.map(_.toType)
         }
         case NAryType(tps, _) =>
           tps

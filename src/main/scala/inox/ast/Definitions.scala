@@ -23,7 +23,7 @@ trait Definitions { self: Trees =>
   abstract class LookupException(id: Identifier, what: String)
     extends Exception("Lookup failed for " + what + " with symbol " + id)
   case class FunctionLookupException(id: Identifier) extends LookupException(id, "function")
-  case class ClassLookupException(id: Identifier) extends LookupException(id, "class")
+  case class ADTLookupException(id: Identifier) extends LookupException(id, "class")
 
   case class NotWellFormedException(id: Identifier, s: Symbols)
     extends Exception(s"$id not well formed in $s")
@@ -93,7 +93,7 @@ trait Definitions { self: Trees =>
         with Constructors
         with Paths { self0: Symbols =>
 
-    val classes: Map[Identifier, ClassDef]
+    val adts: Map[Identifier, ADTDefinition]
     val functions: Map[Identifier, FunDef]
 
     protected val trees: self.type = self
@@ -109,13 +109,13 @@ trait Definitions { self: Trees =>
     // for some mysterious reason.
     implicit def implicitSymbols: this.type = this
 
-    private val typedClassCache: MutableMap[(Identifier, Seq[Type]), Option[TypedClassDef]] = MutableMap.empty
-    def lookupClass(id: Identifier): Option[ClassDef] = classes.get(id)
-    def lookupClass(id: Identifier, tps: Seq[Type]): Option[TypedClassDef] =
-      typedClassCache.getOrElseUpdate(id -> tps, lookupClass(id).map(_.typed(tps)))
+    private val typedADTCache: MutableMap[(Identifier, Seq[Type]), Option[TypedADTDefinition]] = MutableMap.empty
+    def lookupADT(id: Identifier): Option[ADTDefinition] = adts.get(id)
+    def lookupADT(id: Identifier, tps: Seq[Type]): Option[TypedADTDefinition] =
+      typedADTCache.getOrElseUpdate(id -> tps, lookupADT(id).map(_.typed(tps)))
 
-    def getClass(id: Identifier): ClassDef = lookupClass(id).getOrElse(throw ClassLookupException(id))
-    def getClass(id: Identifier, tps: Seq[Type]): TypedClassDef = lookupClass(id, tps).getOrElse(throw ClassLookupException(id))
+    def getADT(id: Identifier): ADTDefinition = lookupADT(id).getOrElse(throw ADTLookupException(id))
+    def getADT(id: Identifier, tps: Seq[Type]): TypedADTDefinition = lookupADT(id, tps).getOrElse(throw ADTLookupException(id))
 
     private val typedFunctionCache: MutableMap[(Identifier, Seq[Type]), Option[TypedFunDef]] = MutableMap.empty
     def lookupFunction(id: Identifier): Option[FunDef] = functions.get(id)
@@ -127,13 +127,13 @@ trait Definitions { self: Trees =>
 
     override def toString: String = asString(PrinterOptions.fromSymbols(this, InoxContext.printNames))
     override def asString(implicit opts: PrinterOptions): String = {
-      classes.map(p => PrettyPrinter(p._2, opts)).mkString("\n\n") +
+      adts.map(p => PrettyPrinter(p._2, opts)).mkString("\n\n") +
       "\n\n-----------\n\n" +
       functions.map(p => PrettyPrinter(p._2, opts)).mkString("\n\n")
     }
 
     def transform(t: TreeTransformer): Symbols
-    def extend(functions: Seq[FunDef] = Seq.empty, classes: Seq[ClassDef] = Seq.empty): Symbols
+    def extend(functions: Seq[FunDef] = Seq.empty, adts: Seq[ADTDefinition] = Seq.empty): Symbols
   }
 
   case class TypeParameterDef(tp: TypeParameter) extends Definition {
@@ -141,11 +141,11 @@ trait Definitions { self: Trees =>
     val id = tp.id
   }
  
-  /** A trait that represents flags that annotate a ClassDef with different attributes */
-  sealed trait ClassFlag
+  /** A trait that represents flags that annotate an ADTDefinition with different attributes */
+  sealed trait ADTFlag
 
-  object ClassFlag {
-    def fromName(name: String, args: Seq[Option[Any]]): ClassFlag = Annotation(name, args)
+  object ADTFlag {
+    def fromName(name: String, args: Seq[Option[Any]]): ADTFlag = Annotation(name, args)
   }
 
   /** A trait that represents flags that annotate a FunDef with different attributes */
@@ -159,27 +159,25 @@ trait Definitions { self: Trees =>
   }
 
   // Compiler annotations given in the source code as @annot
-  case class Annotation(annot: String, args: Seq[Option[Any]]) extends FunctionFlag with ClassFlag
-  /** Denotes that this class is refined by invariant ''id'' */
-  case class HasADTInvariant(id: Identifier) extends ClassFlag
+  case class Annotation(annot: String, args: Seq[Option[Any]]) extends FunctionFlag with ADTFlag
+  /** Denotes that this adt is refined by invariant ''id'' */
+  case class HasADTInvariant(id: Identifier) extends ADTFlag
   // Is inlined
   case object IsInlined extends FunctionFlag
 
-  /** Represents a class definition (either an abstract- or a case-class).
-    * In functional terms, abstract classes are ADTs and case classes are ADT constructors.
-    */
-  sealed trait ClassDef extends Definition {
+  /** Represents an ADT definition (either the ADT sort or a constructor). */
+  sealed trait ADTDefinition extends Definition {
     val id: Identifier
     val tparams: Seq[TypeParameterDef]
-    val flags: Set[ClassFlag]
+    val flags: Set[ADTFlag]
 
     def annotations: Set[String] = extAnnotations.keySet
     def extAnnotations: Map[String, Seq[Option[Any]]] = flags.collect { case Annotation(s, args) => s -> args }.toMap
 
     /** The root of the class hierarchy */
-    def root(implicit s: Symbols): ClassDef
+    def root(implicit s: Symbols): ADTDefinition
 
-    /** An invariant that refines this [[ClassDef]] */
+    /** An invariant that refines this [[ADTDefinition]] */
     def invariant(implicit s: Symbols): Option[FunDef] = {
       val rt = root
       if (rt ne this) rt.invariant
@@ -188,35 +186,36 @@ trait Definitions { self: Trees =>
 
     def hasInvariant(implicit s: Symbols): Boolean = invariant.isDefined
 
-    val isAbstract: Boolean
+    val isSort: Boolean
 
     def typeArgs = tparams map (_.tp)
 
-    def typed(tps: Seq[Type])(implicit s: Symbols): TypedClassDef
-    def typed(implicit s: Symbols): TypedClassDef
+    def typed(tps: Seq[Type])(implicit s: Symbols): TypedADTDefinition
+    def typed(implicit s: Symbols): TypedADTDefinition
   }
 
-  /** Abstract classes / ADTs */
-  class AbstractClassDef(val id: Identifier,
-                         val tparams: Seq[TypeParameterDef],
-                         val children: Seq[Identifier],
-                         val flags: Set[ClassFlag]) extends ClassDef {
-    val isAbstract = true
+  /** Algebraic datatype sort definition.
+    * An ADT sort is linked to a series of constructors (ADTConstructor) for this particular sort. */
+  class ADTSort(val id: Identifier,
+                val tparams: Seq[TypeParameterDef],
+                val cons: Seq[Identifier],
+                val flags: Set[ADTFlag]) extends ADTDefinition {
+    val isSort = true
 
-    def descendants(implicit s: Symbols): Seq[CaseClassDef] = children
-      .map(id => s.getClass(id) match {
-        case ccd: CaseClassDef => ccd
+    def constructors(implicit s: Symbols): Seq[ADTConstructor] = cons
+      .map(id => s.getADT(id) match {
+        case cons: ADTConstructor => cons
         case _ => throw NotWellFormedException(id, s)
       })
 
     def isInductive(implicit s: Symbols): Boolean = {
-      def induct(tpe: Type, seen: Set[ClassDef]): Boolean = tpe match {
-        case ct: ClassType =>
-          val tcd = ct.lookupClass.getOrElse(throw ClassLookupException(ct.id))
-          val root = tcd.cd.root
-          seen(root) || (tcd match {
-            case tccd: TypedCaseClassDef =>
-              tccd.fields.exists(vd => induct(vd.getType, seen + root))
+      def induct(tpe: Type, seen: Set[ADTDefinition]): Boolean = tpe match {
+        case adt: ADTType =>
+          val tadt = adt.lookupADT.getOrElse(throw ADTLookupException(adt.id))
+          val root = tadt.definition.root
+          seen(root) || (tadt match {
+            case tcons: TypedADTConstructor =>
+              tcons.fields.exists(vd => induct(vd.getType, seen + root))
             case _ => false
           })
         case TupleType(tpes) =>
@@ -224,18 +223,18 @@ trait Definitions { self: Trees =>
         case _ => false
       }
 
-      if (this == root && !this.isAbstract) false
-      else descendants.exists { ccd =>
-        ccd.fields.exists(vd => induct(vd.getType, Set(root)))
+      if (this == root && !this.isSort) false
+      else constructors.exists { cons =>
+        cons.fields.exists(vd => induct(vd.getType, Set(root)))
       }
     }
 
-    def root(implicit s: Symbols): ClassDef = this
+    def root(implicit s: Symbols): ADTDefinition = this
 
-    def typed(implicit s: Symbols): TypedAbstractClassDef = typed(tparams.map(_.tp))
-    def typed(tps: Seq[Type])(implicit s: Symbols): TypedAbstractClassDef = {
+    def typed(implicit s: Symbols): TypedADTSort = typed(tparams.map(_.tp))
+    def typed(tps: Seq[Type])(implicit s: Symbols): TypedADTSort = {
       require(tps.length == tparams.length)
-      TypedAbstractClassDef(this, tps)
+      TypedADTSort(this, tps)
     }
   }
 
@@ -243,17 +242,17 @@ trait Definitions { self: Trees =>
     *
     * @param id
     * @param tparams
-    * @param parent
+    * @param sort
     * @param fields
     * @param flags
     */
-  class CaseClassDef(val id: Identifier,
-                     val tparams: Seq[TypeParameterDef],
-                     val parent: Option[Identifier],
-                     val fields: Seq[ValDef],
-                     val flags: Set[ClassFlag]) extends ClassDef {
+  class ADTConstructor(val id: Identifier,
+                       val tparams: Seq[TypeParameterDef],
+                       val sort: Option[Identifier],
+                       val fields: Seq[ValDef],
+                       val flags: Set[ADTFlag]) extends ADTDefinition {
 
-    val isAbstract = false
+    val isSort = false
     /** Returns the index of the field with the specified id */
     def selectorID2Index(id: Identifier) : Int = {
       val index = fields.indexWhere(_.id == id)
@@ -266,57 +265,57 @@ trait Definitions { self: Trees =>
       } else index
     }
 
-    def root(implicit s: Symbols): ClassDef = parent.map(id => s.getClass(id).root).getOrElse(this)
+    def root(implicit s: Symbols): ADTDefinition = sort.map(id => s.getADT(id).root).getOrElse(this)
 
-    def typed(implicit s: Symbols): TypedCaseClassDef = typed(tparams.map(_.tp))
-    def typed(tps: Seq[Type])(implicit s: Symbols): TypedCaseClassDef = {
+    def typed(implicit s: Symbols): TypedADTConstructor = typed(tparams.map(_.tp))
+    def typed(tps: Seq[Type])(implicit s: Symbols): TypedADTConstructor = {
       require(tps.length == tparams.length)
-      TypedCaseClassDef(this, tps)
+      TypedADTConstructor(this, tps)
     }
   }
 
-  /** Represents a [[ClassDef]] whose type parameters have been instantiated to ''tps'' */
-  sealed abstract class TypedClassDef extends Tree {
-    val cd: ClassDef
+  /** Represents an [[ADTDefinition]] whose type parameters have been instantiated to ''tps'' */
+  sealed abstract class TypedADTDefinition extends Tree {
+    val definition: ADTDefinition
     val tps: Seq[Type]
     implicit val symbols: Symbols
 
-    val id: Identifier = cd.id
+    val id: Identifier = definition.id
     /** The root of the class hierarchy */
-    lazy val root: TypedClassDef = cd.root.typed(tps)
-    lazy val invariant: Option[TypedFunDef] = cd.invariant.map(_.typed(tps))
+    lazy val root: TypedADTDefinition = definition.root.typed(tps)
+    lazy val invariant: Option[TypedFunDef] = definition.invariant.map(_.typed(tps))
     lazy val hasInvariant: Boolean = invariant.isDefined
 
-    def toType = ClassType(cd.id, tps)
+    def toType = ADTType(definition.id, tps)
 
-    def toCase = this match {
-      case tccd: TypedCaseClassDef => tccd
-      case _ => throw NotWellFormedException(cd.id, symbols)
+    def toConstructor = this match {
+      case tcons: TypedADTConstructor => tcons
+      case _ => throw NotWellFormedException(definition.id, symbols)
     }
 
-    def toAbstract = this match {
-      case accd: TypedAbstractClassDef => accd
-      case _ => throw NotWellFormedException(cd.id, symbols)
+    def toSort = this match {
+      case tsort: TypedADTSort => tsort
+      case _ => throw NotWellFormedException(definition.id, symbols)
     }
   }
 
-  /** Represents an [[AbstractClassDef]] whose type parameters have been instantiated to ''tps'' */
-  case class TypedAbstractClassDef(cd: AbstractClassDef, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedClassDef {
-    def descendants: Seq[TypedCaseClassDef] = cd.descendants.map(_.typed(tps))
+  /** Represents an [[ADTSort]] whose type parameters have been instantiated to ''tps'' */
+  case class TypedADTSort(definition: ADTSort, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedADTDefinition {
+    def constructors: Seq[TypedADTConstructor] = definition.constructors.map(_.typed(tps))
   }
 
-  /** Represents a [[CaseClassDef]] whose type parameters have been instantiated to ''tps'' */
-  case class TypedCaseClassDef(cd: CaseClassDef, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedClassDef {
+  /** Represents an [[ADTConstructor]] whose type parameters have been instantiated to ''tps'' */
+  case class TypedADTConstructor(definition: ADTConstructor, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedADTDefinition {
     lazy val fields: Seq[ValDef] = {
-      val tmap = (cd.typeArgs zip tps).toMap
-      if (tmap.isEmpty) cd.fields
-      else cd.fields.map(vd => vd.copy(tpe = symbols.instantiateType(vd.getType, tmap)))
+      val tmap = (definition.typeArgs zip tps).toMap
+      if (tmap.isEmpty) definition.fields
+      else definition.fields.map(vd => vd.copy(tpe = symbols.instantiateType(vd.getType, tmap)))
     }
 
     lazy val fieldsTypes = fields.map(_.tpe)
 
-    lazy val parent: Option[TypedAbstractClassDef] = cd.parent.map(id => symbols.getClass(id) match {
-      case acd: AbstractClassDef => TypedAbstractClassDef(acd, tps)
+    lazy val sort: Option[TypedADTSort] = definition.sort.map(id => symbols.getADT(id) match {
+      case sort: ADTSort => TypedADTSort(sort, tps)
       case _ => throw NotWellFormedException(id, symbols)
     })
   }
