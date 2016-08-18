@@ -4,7 +4,7 @@ package inox
 package ast
 
 trait TypeOps {
-  private[ast] val trees: Trees
+  protected val trees: Trees
   import trees._
   protected implicit val symbols: Symbols
 

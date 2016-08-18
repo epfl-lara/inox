@@ -6,7 +6,7 @@ package ast
 import utils.Graphs._
 
 trait CallGraph {
-  private[ast] val trees: Trees
+  protected val trees: Trees
   import trees._
   import trees.exprOps._
   protected val symbols: Symbols

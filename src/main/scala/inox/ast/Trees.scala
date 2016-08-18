@@ -35,11 +35,11 @@ trait Trees
     override def toString = asString(PrinterOptions.fromContext(InoxContext.printNames))
   }
 
-  object exprOps extends {
+  val exprOps: ExprOps { val trees: Trees.this.type } = new {
     protected val trees: Trees.this.type = Trees.this
   } with ExprOps
 
-  object dsl extends {
+  val dsl: DSL { val trees: Trees.this.type } = new {
     protected val trees: Trees.this.type = Trees.this
   } with DSL
 

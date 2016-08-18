@@ -10,7 +10,7 @@ package ast
   * @define encodingof Encoding of
   *  */
 trait Constructors {
-  private[ast] val trees: Trees
+  protected val trees: Trees
   import trees._
   import trees.exprOps._
   protected implicit val symbols: Symbols

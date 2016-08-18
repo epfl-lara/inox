@@ -96,7 +96,7 @@ trait Definitions { self: Trees =>
     val classes: Map[Identifier, ClassDef]
     val functions: Map[Identifier, FunDef]
 
-    private[ast] val trees: self.type = self
+    protected val trees: self.type = self
     protected val symbols: this.type = this
 
     // @nv: this is a hack to reinject `this` into the set of implicits
