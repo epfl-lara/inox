@@ -5,7 +5,6 @@ package solvers
 package combinators
 
 import scala.collection.mutable.Queue
-import scala.reflect.runtime.universe._
 
 /**
  * This is a straitforward implementation of solver pools. The goal is to avoid

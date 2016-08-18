@@ -4,9 +4,7 @@ version := "0.1"
 
 organization := "ch.epfl.lara"
 
-val scalaVer = "2.11.8"
-
-scalaVersion := scalaVer
+scalaVersion := "2.11.8"
 
 scalacOptions ++= Seq(
   "-deprecation",
@@ -39,11 +37,8 @@ resolvers ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  "org.scala-lang" % "scala-compiler" % scalaVer,
   "org.scalatest" %% "scalatest" % "2.2.4" % "test;it",
   "com.typesafe.akka" %% "akka-actor" % "2.3.4",
-  "org.ow2.asm" % "asm-all" % "5.0.4",
-  "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.6.0-rc2",
   "org.apache.commons" % "commons-lang3" % "3.4"
   //"com.regblanc" %% "scala-smtlib" % "0.2"
 )

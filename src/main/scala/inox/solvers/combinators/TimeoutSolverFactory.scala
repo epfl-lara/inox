@@ -4,8 +4,6 @@ package inox
 package solvers
 package combinators
 
-import scala.reflect.runtime.universe._
-
 trait TimeoutSolverFactory extends SolverFactory {
   type S <: TimeoutSolver { val program: TimeoutSolverFactory.this.program.type }
 

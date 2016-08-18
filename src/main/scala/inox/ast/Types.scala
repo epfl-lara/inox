@@ -10,7 +10,7 @@ trait Types { self: Trees =>
     def isTyped(implicit s: Symbols): Boolean = getType != Untyped
   }
 
-  private[ast] trait CachingTyped extends Typed {
+  protected trait CachingTyped extends Typed {
     private var lastSymbols: Symbols = null
     private var lastType: Type = null
 
