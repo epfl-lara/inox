@@ -30,10 +30,15 @@ trait Program {
     val ctx = Program.this.ctx
   }
 
-  def extend(functions: Seq[trees.FunDef] = Seq.empty, adts: Seq[trees.ADTDefinition] = Seq.empty):
-            Program { val trees: Program.this.trees.type } = new Program {
+  def withFunctions(functions: Seq[trees.FunDef]): Program { val trees: Program.this.trees.type } = new Program {
     val trees: Program.this.trees.type = Program.this.trees
-    val symbols = Program.this.symbols.extend(functions, adts)
+    val symbols = Program.this.symbols.withFunctions(functions)
+    val ctx = Program.this.ctx
+  }
+
+  def withADTs(adts: Seq[trees.ADTDefinition]): Program { val trees: Program.this.trees.type } = new Program {
+    val trees: Program.this.trees.type = Program.this.trees
+    val symbols = Program.this.symbols.withADTs(adts)
     val ctx = Program.this.ctx
   }
 }

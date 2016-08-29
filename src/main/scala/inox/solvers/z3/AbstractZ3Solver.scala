@@ -323,7 +323,7 @@ trait AbstractZ3Solver
       case BVNot(e) => z3.mkBVNot(rec(e))
       case BVAnd(l, r) => z3.mkBVAnd(rec(l), rec(r))
       case BVOr(l, r) => z3.mkBVOr(rec(l), rec(r))
-      case BVXOr(l, r) => z3.mkBVXor(rec(l), rec(r))
+      case BVXor(l, r) => z3.mkBVXor(rec(l), rec(r))
       case BVShiftLeft(l, r) => z3.mkBVShl(rec(l), rec(r))
       case BVAShiftRight(l, r) => z3.mkBVAshr(rec(l), rec(r))
       case BVLShiftRight(l, r) => z3.mkBVLshr(rec(l), rec(r))

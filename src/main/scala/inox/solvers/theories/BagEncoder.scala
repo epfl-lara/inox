@@ -71,6 +71,9 @@ trait BagEncoder extends TheoryEncoder {
     })
   }
 
+  override val newFunctions = Seq(Get, Add, Union, Difference, Intersect, BagEquals)
+  override val newADTs = Seq(bagADT)
+
   val encoder = new TreeTransformer {
     import sourceProgram._
 

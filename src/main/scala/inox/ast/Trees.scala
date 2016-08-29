@@ -23,10 +23,7 @@ trait Trees
     extends Exception(s"${t.asString(PrinterOptions.fromContext(ctx))}@${t.getPos} $msg")
 
   abstract class Tree extends utils.Positioned with Serializable {
-    def copiedFrom(o: Trees#Tree): this.type = {
-      setPos(o)
-      this
-    }
+    def copiedFrom(o: Trees#Tree): this.type = setPos(o)
 
     // @EK: toString is considered harmful for non-internal things. Use asString(ctx) instead.
 

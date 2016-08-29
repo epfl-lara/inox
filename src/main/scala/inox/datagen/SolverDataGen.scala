@@ -77,7 +77,7 @@ trait SolverDataGen extends DataGenerator { self =>
       val sizeOf = sizeFor(tupleWrap(ins.map(_.toVariable)))
 
       // We need to synthesize a size function for ins' types.
-      val pgm1 = program.extend(functions = fds)
+      val pgm1 = program.withFunctions(fds)
       val modelEnum = ModelEnumerator(pgm1)(factory(pgm1), evaluator(pgm1))
 
       val enum = modelEnum.enumVarying(ins, satisfying, sizeOf, 5)

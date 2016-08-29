@@ -18,8 +18,6 @@ trait TreeDeconstructor {
       (Seq(e), Seq(), (es, tps) => t.UMinus(es.head))
     case s.StringLength(e) =>
       (Seq(e), Seq(), (es, tps) => t.StringLength(es.head))
-    case s.SetCardinality(e) =>
-      (Seq(e), Seq(), (es, tps) => t.SetCardinality(es.head))
     case s.ADTSelector(e, sel) =>
       (Seq(e), Seq(), (es, tps) => t.ADTSelector(es.head, sel))
     case s.IsInstanceOf(e, ct) =>
@@ -66,8 +64,8 @@ trait TreeDeconstructor {
       (Seq(t1, t2), Seq(), (es, tps) => t.BVOr(es(0), es(1)))
     case s.BVAnd(t1, t2) =>
       (Seq(t1, t2), Seq(), (es, tps) => t.BVAnd(es(0), es(1)))
-    case s.BVXOr(t1, t2) =>
-      (Seq(t1, t2), Seq(), (es, tps) => t.BVXOr(es(0), es(1)))
+    case s.BVXor(t1, t2) =>
+      (Seq(t1, t2), Seq(), (es, tps) => t.BVXor(es(0), es(1)))
     case s.BVShiftLeft(t1, t2) =>
       (Seq(t1, t2), Seq(), (es, tps) => t.BVShiftLeft(es(0), es(1)))
     case s.BVAShiftRight(t1, t2) =>

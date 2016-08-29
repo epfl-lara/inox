@@ -299,7 +299,7 @@ trait RecursiveEvaluator
         case (le, re) => throw EvalError("Unexpected operation: (" + le.asString + ") | (" + re.asString + ")")
       }
 
-    case BVXOr(l,r) =>
+    case BVXor(l,r) =>
       (e(l), e(r)) match {
         case (BVLiteral(i1, s1), BVLiteral(i2, s2)) if s1 == s2 => BVLiteral(i1 ^ i2, s1)
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") ^ (" + re.asString + ")")
@@ -409,13 +409,6 @@ trait RecursiveEvaluator
       case (FiniteSet(els1, _),FiniteSet(els2, _)) => BooleanLiteral(els1.toSet.subsetOf(els2.toSet))
       case (le,re) => throw EvalError(typeErrorMsg(le, s1.getType))
     }
-
-    case SetCardinality(s) =>
-      val sr = e(s)
-      sr match {
-        case FiniteSet(els, _) => IntegerLiteral(els.size)
-        case _ => throw EvalError(typeErrorMsg(sr, SetType(Untyped)))
-      }
 
     case f @ FiniteSet(els, base) =>
       FiniteSet(els.map(e).distinct, base)

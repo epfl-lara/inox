@@ -31,6 +31,17 @@ trait TypeOps {
       subs.flatMap(typeParamsOf).toSet
   }
 
+  protected def flattenTypeMappings(res: Seq[Option[(Type, Map[TypeParameter, Type])]]): Option[(Seq[Type], Map[TypeParameter, Type])] = {
+    val (tps, subst) = res.map(_.getOrElse(return None)).unzip
+    val flat = subst.flatMap(_.toSeq).groupBy(_._1)
+    Some((tps, flat.mapValues { vs =>
+      vs.map(_._2).distinct match {
+        case Seq(unique) => unique
+        case _ => return None
+      }
+    }))
+  }
+
   /** Generic type bounds between two types. Serves as a base for a set of subtyping/unification functions.
     * It will allow subtyping between classes (but type parameters are invariant).
     * It will also allow a set of free parameters to be unified if needed.
@@ -47,17 +58,6 @@ trait TypeOps {
   def typeBound(t1: Type, t2: Type, isLub: Boolean, allowSub: Boolean)
                (implicit freeParams: Seq[TypeParameter]): Option[(Type, Map[TypeParameter, Type])] = {
 
-    def flatten(res: Seq[Option[(Type, Map[TypeParameter, Type])]]): Option[(Seq[Type], Map[TypeParameter, Type])] = {
-      val (tps, subst) = res.map(_.getOrElse(return None)).unzip
-      val flat = subst.flatMap(_.toSeq).groupBy(_._1)
-      Some((tps, flat.mapValues { vs =>
-        vs.map(_._2).distinct match {
-          case Seq(unique) => unique
-          case _ => return None
-        }
-      }))
-    }
-
     (t1, t2) match {
       case (_: TypeParameter, _: TypeParameter) if t1 == t2 =>
         Some((t1, Map()))
@@ -73,6 +73,9 @@ trait TypeOps {
 
       case (_, _: TypeParameter) =>
         None
+
+      case (adt: ADTType, _) if !adt.lookupADT.isDefined => None
+      case (_, adt: ADTType) if !adt.lookupADT.isDefined => None
 
       case (adt1: ADTType, adt2: ADTType) =>
         val def1 = adt1.getADT.definition
@@ -96,7 +99,7 @@ trait TypeOps {
 
         for {
           adtDef <- bound
-          (subs, map) <- flatten((adt1.tps zip adt2.tps).map { case (tp1, tp2) =>
+          (subs, map) <- flattenTypeMappings((adt1.tps zip adt2.tps).map { case (tp1, tp2) =>
             // Class types are invariant!
             typeBound(tp1, tp2, isLub, allowSub = false)
           })
@@ -109,7 +112,7 @@ trait TypeOps {
             typeBound(tp1, tp2, !isLub, allowSub) // Contravariant args
           }
           val out = typeBound(to1, to2, isLub, allowSub) // Covariant result
-          flatten(out +: in) map {
+          flattenTypeMappings(out +: in) map {
             case (Seq(newTo, newFrom@_*), map) =>
               (FunctionType(newFrom, newTo), map)
           }
@@ -124,7 +127,7 @@ trait TypeOps {
         val NAryType(ts1, recon) = t1
         val NAryType(ts2, _) = t2
         if (ts1.size == ts2.size) {
-          flatten((ts1 zip ts2).map { case (tp1, tp2) =>
+          flattenTypeMappings((ts1 zip ts2).map { case (tp1, tp2) =>
             typeBound(tp1, tp2, isLub, allowSub = allowVariance)
           }).map { case (subs, map) => (recon(subs), map) }
         } else None

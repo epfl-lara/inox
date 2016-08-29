@@ -207,7 +207,7 @@ trait Printers {
         case BVNot(e) => optP {
           p"~$e"
         }
-        case BVXOr(l, r) => optP {
+        case BVXor(l, r) => optP {
           p"$l ^ $r"
         }
         case BVOr(l, r) => optP {
@@ -239,7 +239,6 @@ trait Printers {
         case BagDifference(l, r) => p"$l \\ $r"
         case SetIntersection(l, r) => p"$l \u2229 $r"
         case BagIntersection(l, r) => p"$l \u2229 $r"
-        case SetCardinality(s) => p"$s.size"
         case BagAdd(b, e) => p"$b + $e"
         case MultiplicityInBag(e, b) => p"$b($e)"
         case MapApply(m, k) => p"$m($k)"
@@ -302,7 +301,7 @@ trait Printers {
           }
 
         case fd: FunDef =>
-          for (an <- fd.annotations) {
+          for (an <- fd.flags) {
             p"""|@$an
                 |"""
           }
@@ -373,7 +372,7 @@ trait Printers {
       // 1: |
       case (_: Or | _: BVOr) => 1
       // 2: ^
-      case (_: BVXOr) => 2
+      case (_: BVXor) => 2
       // 3: &
       case (_: And | _: BVAnd | _: SetIntersection) => 3
       // 4: < >

@@ -19,7 +19,7 @@ import scala.collection.BitSet
   */
 trait Expressions { self: Trees =>
 
-  private def checkParamTypes(real: Seq[Type], formal: Seq[Type], result: Type)(implicit s: Symbols): Type = {
+  protected def checkParamTypes(real: Seq[Type], formal: Seq[Type], result: Type)(implicit s: Symbols): Type = {
     if (real zip formal forall { case (real, formal) => s.isSubtypeOf(real, formal)} ) {
       result.unveilUntyped
     } else {
@@ -507,7 +507,7 @@ trait Expressions { self: Trees =>
   }
 
   /** $encodingof `... ^ ...` $noteBitvector */
-  case class BVXOr(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
+  case class BVXor(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = bitVectorType(lhs.getType, rhs.getType)
   }
 
@@ -585,14 +585,6 @@ trait Expressions { self: Trees =>
       case SetType(base) => base
       case _ => Untyped
     }), BooleanType)
-  }
-
-  /** $encodingof `set.length` */
-  case class SetCardinality(set: Expr) extends Expr with CachingTyped {
-    protected def computeType(implicit s: Symbols): Type = set.getType match {
-      case SetType(_) => IntegerType
-      case _ => Untyped
-    }
   }
 
   /** $encodingof `set.subsetOf(set2)` */

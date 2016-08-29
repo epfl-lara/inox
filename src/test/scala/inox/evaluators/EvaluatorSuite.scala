@@ -56,8 +56,8 @@ class EvaluatorSuite extends FunSuite {
     eval(e, BVOr(IntLiteral(5), IntLiteral(4))) === IntLiteral(5)
     eval(e, BVOr(IntLiteral(5), IntLiteral(2))) === IntLiteral(7)
 
-    eval(e, BVXOr(IntLiteral(3), IntLiteral(1))) === IntLiteral(2)
-    eval(e, BVXOr(IntLiteral(3), IntLiteral(3))) === IntLiteral(0)
+    eval(e, BVXor(IntLiteral(3), IntLiteral(1))) === IntLiteral(2)
+    eval(e, BVXor(IntLiteral(3), IntLiteral(3))) === IntLiteral(0)
 
     eval(e, BVNot(IntLiteral(1))) === IntLiteral(-2)
 

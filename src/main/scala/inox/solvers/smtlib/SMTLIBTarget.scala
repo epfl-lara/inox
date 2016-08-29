@@ -458,7 +458,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
       case BVNot(u)                  => FixedSizeBitVectors.Not(toSMT(u))
       case BVAnd(a, b)               => FixedSizeBitVectors.And(toSMT(a), toSMT(b))
       case BVOr(a, b)                => FixedSizeBitVectors.Or(toSMT(a), toSMT(b))
-      case BVXOr(a, b)               => FixedSizeBitVectors.XOr(toSMT(a), toSMT(b))
+      case BVXor(a, b)               => FixedSizeBitVectors.XOr(toSMT(a), toSMT(b))
       case BVShiftLeft(a, b)         => FixedSizeBitVectors.ShiftLeft(toSMT(a), toSMT(b))
       case BVAShiftRight(a, b)       => FixedSizeBitVectors.AShiftRight(toSMT(a), toSMT(b))
       case BVLShiftRight(a, b)       => FixedSizeBitVectors.LShiftRight(toSMT(a), toSMT(b))

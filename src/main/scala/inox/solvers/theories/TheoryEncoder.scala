@@ -10,13 +10,16 @@ trait TheoryEncoder {
   val sourceProgram: Program
   lazy val trees: sourceProgram.trees.type = sourceProgram.trees
   lazy val targetProgram: Program { val trees: TheoryEncoder.this.trees.type } = {
-    sourceProgram.transform(encoder)
+    sourceProgram.transform(encoder).withFunctions(newFunctions).withADTs(newADTs)
   }
 
   import trees._
 
   protected val encoder: TreeTransformer
   protected val decoder: TreeTransformer
+
+  val newFunctions: Seq[FunDef] = Seq.empty
+  val newADTs: Seq[ADTDefinition] = Seq.empty
 
   def encode(v: Variable): Variable = encoder.transform(v)
   def decode(v: Variable): Variable = decoder.transform(v)

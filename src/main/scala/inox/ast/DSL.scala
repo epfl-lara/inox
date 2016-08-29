@@ -51,7 +51,6 @@ trait DSL {
     def _4 = TupleSelect(e, 4)
 
     // Sets
-    def size     = SetCardinality(e)
     def subsetOf = SubsetOf(e, _: Expr)
     def insert   = SetAdd(e, _: Expr)
     def ++ = SetUnion(e, _: Expr)

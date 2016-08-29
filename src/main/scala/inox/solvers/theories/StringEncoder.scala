@@ -81,6 +81,9 @@ trait StringEncoder extends TheoryEncoder {
       }
     }))
 
+  override val newFunctions = Seq(Size, Take, Drop, Slice, Concat)
+  override val newADTs = Seq(stringADT, stringNilADT, stringConsADT)
+
   private val stringBijection = new Bijection[String, Expr]()
 
   private def convertToString(e: Expr): String  = stringBijection.cachedA(e)(e match {

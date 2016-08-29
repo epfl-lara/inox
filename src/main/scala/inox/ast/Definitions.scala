@@ -9,7 +9,7 @@ import scala.collection.mutable.{Map => MutableMap}
 trait Definitions { self: Trees =>
 
   /** The base trait for Inox definitions */
-  sealed trait Definition extends Tree {
+  trait Definition extends Tree {
     val id: Identifier
 
     override def equals(that: Any): Boolean = that match {
@@ -23,7 +23,7 @@ trait Definitions { self: Trees =>
   abstract class LookupException(id: Identifier, what: String)
     extends Exception("Lookup failed for " + what + " with symbol " + id)
   case class FunctionLookupException(id: Identifier) extends LookupException(id, "function")
-  case class ADTLookupException(id: Identifier) extends LookupException(id, "class")
+  case class ADTLookupException(id: Identifier) extends LookupException(id, "adt")
 
   case class NotWellFormedException(id: Identifier, s: Symbols)
     extends Exception(s"$id not well formed in $s")
@@ -33,7 +33,7 @@ trait Definitions { self: Trees =>
     * Both types share much in common and being able to reason about them
     * in a uniform manner can be useful in certain cases.
     */
-  private[ast] trait VariableSymbol extends Typed {
+  protected[ast] trait VariableSymbol extends Typed {
     val id: Identifier
     val tpe: Type
 
@@ -52,7 +52,7 @@ trait Definitions { self: Trees =>
   implicit def variableSymbolOrdering[VS <: VariableSymbol]: Ordering[VS] =
     Ordering.by(e => e.id)
 
-  sealed abstract class VariableConverter[B <: VariableSymbol] {
+  abstract class VariableConverter[B <: VariableSymbol] {
     def convert(a: VariableSymbol): B
   }
 
@@ -63,7 +63,7 @@ trait Definitions { self: Trees =>
     }
   }
 
-  implicit def convertToVar = new VariableConverter[Variable] {
+  implicit def convertToVariable = new VariableConverter[Variable] {
     def convert(vs: VariableSymbol): Variable = vs match {
       case v: Variable => v
       case _ => Variable(vs.id, vs.tpe)
@@ -78,11 +78,15 @@ trait Definitions { self: Trees =>
     def toVariable: Variable = to[Variable]
     def freshen: ValDef = ValDef(id.freshen, tpe).copiedFrom(this)
 
+    val flags: Set[Annotation] = Set.empty
+
     override def equals(that: Any): Boolean = super[VariableSymbol].equals(that)
     override def hashCode: Int = super[VariableSymbol].hashCode
   }
 
   type Symbols >: Null <: AbstractSymbols
+
+  val NoSymbols: Symbols
 
   /** Provides the class and function definitions of a program and lookups on them */
   trait AbstractSymbols
@@ -132,8 +136,35 @@ trait Definitions { self: Trees =>
       functions.map(p => PrettyPrinter(p._2, opts)).mkString("\n\n")
     }
 
-    def transform(t: TreeTransformer): Symbols
-    def extend(functions: Seq[FunDef] = Seq.empty, adts: Seq[ADTDefinition] = Seq.empty): Symbols
+    def transform(t: TreeTransformer): Symbols = NoSymbols.withFunctions {
+      functions.values.toSeq.map(fd => new FunDef(
+        fd.id,
+        fd.tparams, // type parameters can't be transformed!
+        fd.params.map(vd => t.transform(vd)),
+        t.transform(fd.returnType),
+        t.transform(fd.fullBody),
+        fd.flags))
+    }.withADTs {
+      adts.values.toSeq.map {
+        case sort: ADTSort => sort
+        case cons: ADTConstructor => new ADTConstructor(
+          cons.id,
+          cons.tparams,
+          cons.sort,
+          cons.fields.map(t.transform),
+          cons.flags)
+      }
+    }
+
+    override def equals(that: Any): Boolean = that match {
+      case sym: AbstractSymbols => functions == sym.functions && adts == sym.adts
+      case _ => false
+    }
+
+    override def hashCode: Int = functions.hashCode * 61 + adts.hashCode
+
+    def withFunctions(functions: Seq[FunDef]): Symbols
+    def withADTs(adts: Seq[ADTDefinition]): Symbols
   }
 
   case class TypeParameterDef(tp: TypeParameter) extends Definition {
@@ -141,38 +172,24 @@ trait Definitions { self: Trees =>
     val id = tp.id
   }
  
-  /** A trait that represents flags that annotate an ADTDefinition with different attributes */
-  sealed trait ADTFlag
-
-  object ADTFlag {
-    def fromName(name: String, args: Seq[Option[Any]]): ADTFlag = Annotation(name, args)
-  }
-
-  /** A trait that represents flags that annotate a FunDef with different attributes */
-  sealed trait FunctionFlag
-
-  object FunctionFlag {
-    def fromName(name: String, args: Seq[Option[Any]]): FunctionFlag = name match {
-      case "inline" => IsInlined
-      case _ => Annotation(name, args)
-    }
-  }
-
   // Compiler annotations given in the source code as @annot
-  case class Annotation(annot: String, args: Seq[Option[Any]]) extends FunctionFlag with ADTFlag
+  class Annotation(val annot: String, val args: Seq[Option[Any]]) {
+    override def equals(that: Any): Boolean = that match {
+      case o: Annotation => annot == o.annot && args == o.args
+      case _ => false
+    }
+
+    override def hashCode: Int = annot.hashCode + 31 * args.hashCode
+  }
+
   /** Denotes that this adt is refined by invariant ''id'' */
-  case class HasADTInvariant(id: Identifier) extends ADTFlag
-  // Is inlined
-  case object IsInlined extends FunctionFlag
+  case class HasADTInvariant(id: Identifier) extends Annotation("invariant", Seq(Some(id)))
 
   /** Represents an ADT definition (either the ADT sort or a constructor). */
   sealed trait ADTDefinition extends Definition {
     val id: Identifier
     val tparams: Seq[TypeParameterDef]
-    val flags: Set[ADTFlag]
-
-    def annotations: Set[String] = extAnnotations.keySet
-    def extAnnotations: Map[String, Seq[Option[Any]]] = flags.collect { case Annotation(s, args) => s -> args }.toMap
+    val flags: Set[Annotation]
 
     /** The root of the class hierarchy */
     def root(implicit s: Symbols): ADTDefinition
@@ -199,7 +216,7 @@ trait Definitions { self: Trees =>
   class ADTSort(val id: Identifier,
                 val tparams: Seq[TypeParameterDef],
                 val cons: Seq[Identifier],
-                val flags: Set[ADTFlag]) extends ADTDefinition {
+                val flags: Set[Annotation]) extends ADTDefinition {
     val isSort = true
 
     def constructors(implicit s: Symbols): Seq[ADTConstructor] = cons
@@ -250,7 +267,7 @@ trait Definitions { self: Trees =>
                        val tparams: Seq[TypeParameterDef],
                        val sort: Option[Identifier],
                        val fields: Seq[ValDef],
-                       val flags: Set[ADTFlag]) extends ADTDefinition {
+                       val flags: Set[Annotation]) extends ADTDefinition {
 
     val isSort = false
     /** Returns the index of the field with the specified id */
@@ -280,7 +297,7 @@ trait Definitions { self: Trees =>
     val tps: Seq[Type]
     implicit val symbols: Symbols
 
-    val id: Identifier = definition.id
+    lazy val id: Identifier = definition.id
     /** The root of the class hierarchy */
     lazy val root: TypedADTDefinition = definition.root.typed(tps)
     lazy val invariant: Option[TypedFunDef] = definition.invariant.map(_.typed(tps))
@@ -301,7 +318,7 @@ trait Definitions { self: Trees =>
 
   /** Represents an [[ADTSort]] whose type parameters have been instantiated to ''tps'' */
   case class TypedADTSort(definition: ADTSort, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedADTDefinition {
-    def constructors: Seq[TypedADTConstructor] = definition.constructors.map(_.typed(tps))
+    lazy val constructors: Seq[TypedADTConstructor] = definition.constructors.map(_.typed(tps))
   }
 
   /** Represents an [[ADTConstructor]] whose type parameters have been instantiated to ''tps'' */
@@ -309,7 +326,7 @@ trait Definitions { self: Trees =>
     lazy val fields: Seq[ValDef] = {
       val tmap = (definition.typeArgs zip tps).toMap
       if (tmap.isEmpty) definition.fields
-      else definition.fields.map(vd => vd.copy(tpe = symbols.instantiateType(vd.getType, tmap)))
+      else definition.fields.map(vd => vd.copy(tpe = symbols.instantiateType(vd.tpe, tmap)))
     }
 
     lazy val fieldsTypes = fields.map(_.tpe)
@@ -333,13 +350,8 @@ trait Definitions { self: Trees =>
     val params: Seq[ValDef],
     val returnType: Type,
     val fullBody: Expr,
-    val flags: Set[FunctionFlag]
+    val flags: Set[Annotation]
   ) extends Definition {
-
-    def annotations: Set[String] = extAnnotations.keySet
-    def extAnnotations: Map[String, Seq[Option[Any]]] = flags.collect {
-      case Annotation(s, args) => s -> args
-    }.toMap
 
     /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with the specified type parameters */
     def typed(tps: Seq[Type])(implicit s: Symbols): TypedFunDef = {
