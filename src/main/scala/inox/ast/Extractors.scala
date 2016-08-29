@@ -8,6 +8,12 @@ trait TreeDeconstructor {
   protected val s: Trees
   protected val t: Trees
 
+  // Basically only provided for ValDefs, but could be extended to other
+  // definitions if the users wish to
+  def deconstruct(d: s.Definition): (Identifier, Seq[s.Expr], Seq[s.Type], (Identifier, Seq[t.Expr], Seq[t.Type]) => t.Definition) = d match {
+    case s.ValDef(id, tpe) => (id, Seq.empty, Seq(tpe), (id, es, tps) => t.ValDef(id, tps.head))
+  }
+
   def deconstruct(expr: s.Expr): (Seq[s.Expr], Seq[s.Type], (Seq[t.Expr], Seq[t.Type]) => t.Expr) = expr match {
     /* Unary operators */
     case s.Not(e) =>

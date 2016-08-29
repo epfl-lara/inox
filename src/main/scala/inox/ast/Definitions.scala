@@ -173,17 +173,22 @@ trait Definitions { self: Trees =>
   }
  
   // Compiler annotations given in the source code as @annot
-  class Annotation(val annot: String, val args: Seq[Option[Any]]) {
-    override def equals(that: Any): Boolean = that match {
-      case o: Annotation => annot == o.annot && args == o.args
-      case _ => false
-    }
-
-    override def hashCode: Int = annot.hashCode + 31 * args.hashCode
+  case class Annotation(val annot: String, val args: Seq[Option[Any]]) extends Printable {
+    def asString(implicit opts: PrinterOptions): String = annot + (if (args.isEmpty) "" else {
+      args.map { case p: Printable => p.asString case arg => arg.toString }.mkString("(", ",", ")")
+    })
   }
 
   /** Denotes that this adt is refined by invariant ''id'' */
-  case class HasADTInvariant(id: Identifier) extends Annotation("invariant", Seq(Some(id)))
+  class HasADTInvariant(id: Identifier) extends Annotation("invariant", Seq(Some(id)))
+
+  object HasADTInvariant {
+    def apply(id: Identifier): HasADTInvariant = new HasADTInvariant(id)
+    def unapply(annot: Annotation): Option[Identifier] = annot match {
+      case Annotation("invariant", Seq(Some(id: Identifier))) => Some(id)
+      case _ => None
+    }
+  }
 
   /** Represents an ADT definition (either the ADT sort or a constructor). */
   sealed trait ADTDefinition extends Definition {

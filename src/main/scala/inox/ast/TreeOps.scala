@@ -17,9 +17,18 @@ trait TreeOps { self: Trees =>
     }
 
     def transform(vd: ValDef): ValDef = {
-      val (id, tpe) = transform(vd.id, vd.tpe)
-      if ((id ne vd.id) || (tpe ne vd.tpe)) {
-        ValDef(id, tpe).copiedFrom(vd)
+      val (id, es, Seq(tpe), builder) = deconstructor.deconstruct(vd)
+      val (newId, newTpe) = transform(id, tpe)
+
+      var changed = false
+      val newEs = for (e <- es) yield {
+        val newE = transform(e)
+        if (e ne newE) changed = true
+        newE
+      }
+
+      if ((id ne newId) || (tpe ne newTpe) || changed) {
+        builder(newId, newEs, Seq(newTpe)).copiedFrom(vd).asInstanceOf[ValDef]
       } else {
         vd
       }
