@@ -259,7 +259,6 @@ trait DatatypeTemplates { self: Templates =>
     }
 
     def unroll: Clauses = if (typeInfos.isEmpty) Seq.empty else {
-      println("unrolling datatypes")
       val blockers = typeInfos.filter(_._2._1 <= currentGeneration).toSeq.map(_._1)
 
       val newClauses = new scala.collection.mutable.ListBuffer[Encoded]

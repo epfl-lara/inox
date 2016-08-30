@@ -38,7 +38,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite {
   val append = mkFunDef(appendID)("A") { case Seq(aT) => (
     Seq("l1" :: T(listID)(aT), "l2" :: T(listID)(aT)), T(listID)(aT), { case Seq(l1, l2) =>
       if_ (l1.isInstOf(T(consID)(aT))) {
-        let("c" :: T(listID)(aT), l1.asInstOf(T(consID)(aT))) { c =>
+        let("c" :: T(consID)(aT), l1.asInstOf(T(consID)(aT))) { c =>
           T(consID)(aT)(c.getField(head), E(appendID)(aT)(c.getField(tail), l2))
         }
       } else_ {
