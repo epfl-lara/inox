@@ -131,9 +131,9 @@ trait Definitions { self: Trees =>
 
     override def toString: String = asString(PrinterOptions.fromSymbols(this, InoxContext.printNames))
     override def asString(implicit opts: PrinterOptions): String = {
-      adts.map(p => PrettyPrinter(p._2, opts)).mkString("\n\n") +
+      adts.map(p => prettyPrint(p._2, opts)).mkString("\n\n") +
       "\n\n-----------\n\n" +
-      functions.map(p => PrettyPrinter(p._2, opts)).mkString("\n\n")
+      functions.map(p => prettyPrint(p._2, opts)).mkString("\n\n")
     }
 
     def transform(t: TreeTransformer): Symbols = NoSymbols.withFunctions {

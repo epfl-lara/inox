@@ -27,7 +27,7 @@ trait Trees
 
     // @EK: toString is considered harmful for non-internal things. Use asString(ctx) instead.
 
-    def asString(implicit opts: PrinterOptions): String = PrettyPrinter(this, opts)
+    def asString(implicit opts: PrinterOptions): String = prettyPrint(this, opts)
 
     override def toString = asString(PrinterOptions.fromContext(InoxContext.printNames))
   }

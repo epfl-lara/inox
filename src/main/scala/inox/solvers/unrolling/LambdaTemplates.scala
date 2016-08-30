@@ -271,8 +271,6 @@ trait LambdaTemplates { self: Templates =>
         val typeBlocker = encodeSymbol(Variable(FreshIdentifier("t"), BooleanType))
         typeBlockers += value -> typeBlocker
 
-        val clauses = registerSymbol(typeBlocker, value, to)
-
         val (b, extClauses) = if (knownFree(tpe) contains caller) {
           (blocker, Seq.empty)
         } else {
@@ -288,6 +286,9 @@ trait LambdaTemplates { self: Templates =>
             nextB : _*)))
           (firstB, Seq(clause))
         }
+
+        registerParent(typeBlocker, b)
+        val clauses = registerSymbol(typeBlocker, value, to)
 
         clauses ++ extClauses :+ mkImplies(b, typeBlocker)
     }

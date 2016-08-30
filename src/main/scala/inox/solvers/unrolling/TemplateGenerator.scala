@@ -188,7 +188,7 @@ trait TemplateGenerator { self: Templates =>
 
                 val xrec = rec(pathVar, x, pol)
                 iff(and(pathVar, xrec), newBool)
-                iff(and(pathVar, not(xrec)), not(newExpr))
+                storeGuarded(pathVar, implies(not(xrec), not(newExpr)))
 
                 recAnd(newBool, xs)
 
@@ -216,7 +216,7 @@ trait TemplateGenerator { self: Templates =>
                 storeCond(pathVar, newBool)
 
                 val xrec = rec(pathVar, x, None)
-                iff(and(pathVar, xrec), newExpr)
+                storeGuarded(pathVar, implies(xrec, newExpr))
                 iff(and(pathVar, not(xrec)), newBool)
 
                 recOr(newBool, xs)

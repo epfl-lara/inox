@@ -120,6 +120,10 @@ trait Templates extends TemplateGenerator
       }
   }
 
+  protected def registerParent(child: Encoded, parent: Encoded): Unit = {
+    condImplied += child -> (condImplied(child) + parent)
+  }
+
   protected def blockerParents(b: Encoded): Set[Encoded] = condImplied(b)
   protected def blockerChildren(b: Encoded): Set[Encoded] = condImplies(b)
 

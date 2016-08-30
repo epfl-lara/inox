@@ -128,9 +128,15 @@ trait DatatypeTemplates { self: Templates =>
                 val newBool: Variable = Variable(FreshIdentifier("b", true), BooleanType)
                 storeCond(pathVar, newBool)
 
-                iff(and(pathVar, IsInstanceOf(expr, tpe)), newBool)
                 for (vd <- tcons.fields) {
                   rec(newBool, ADTSelector(AsInstanceOf(expr, tpe), vd.id))
+                }
+
+                val vars = types.keys.toSet ++ functions.keys
+                  guardedExprs.flatMap(_._2.flatMap(exprOps.variablesOf))
+
+                if (vars(newBool)) {
+                  iff(and(pathVar, IsInstanceOf(expr, tpe)), newBool)
                 }
               }
             }
@@ -253,6 +259,7 @@ trait DatatypeTemplates { self: Templates =>
     }
 
     def unroll: Clauses = if (typeInfos.isEmpty) Seq.empty else {
+      println("unrolling datatypes")
       val blockers = typeInfos.filter(_._2._1 <= currentGeneration).toSeq.map(_._1)
 
       val newClauses = new scala.collection.mutable.ListBuffer[Encoded]
