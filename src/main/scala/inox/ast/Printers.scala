@@ -77,19 +77,18 @@ trait Printers {
   private val dbquote = "\""
 
   def pp(tree: Tree)(implicit ctx: PrinterContext): Unit = {
-    ppPrefix(tree)
-    ppBody(tree)
-    ppSuffix(tree)
-  }
-
-  protected def ppPrefix(tree: Tree)(implicit ctx: PrinterContext): Unit = {
     if (requiresBraces(tree, ctx.parent) && !ctx.parent.contains(tree)) {
       p"""|{
           |  $tree
           |}"""
-      return
+    } else {
+      ppPrefix(tree)
+      ppBody(tree)
+      ppSuffix(tree)
     }
+  }
 
+  protected def ppPrefix(tree: Tree)(implicit ctx: PrinterContext): Unit = {
     if (ctx.opts.printTypes) {
       tree match {
         case t: Expr =>
@@ -234,9 +233,9 @@ trait Printers {
     case BVLShiftRight(l, r) => optP {
       p"$l >>> $r"
     }
-    case fs@FiniteSet(rs, _) => p"{${rs.distinct}}"
-    case fs@FiniteBag(rs, _) => p"{${rs.toMap.toSeq}}"
-    case fm@FiniteMap(rs, _, _) => p"{${rs.toMap.toSeq}}"
+    case fs @ FiniteSet(rs, _) => p"{${rs.distinct}}"
+    case fs @ FiniteBag(rs, _) => p"{${rs.toMap.toSeq}}"
+    case fm @ FiniteMap(rs, _, _) => p"{${rs.toMap.toSeq}}"
     case Not(ElementOfSet(e, s)) => p"$e \u2209 $s"
     case ElementOfSet(e, s) => p"$e \u2208 $s"
     case SubsetOf(l, r) => p"$l \u2286 $r"
@@ -254,8 +253,8 @@ trait Printers {
 
     case Not(expr) => p"\u00AC$expr"
 
-    case vd@ValDef(id, tpe) =>
-      p"$id : $tpe"
+    case vd @ ValDef(id, tpe) =>
+      p"$id: $tpe"
 
     case (tfd: TypedFunDef) => p"typed def ${tfd.id}[${tfd.tps}]"
     case TypeParameterDef(tp) => p"$tp"
@@ -311,19 +310,17 @@ trait Printers {
 
     case fd: FunDef =>
       for (an <- fd.flags) {
-        p"""|@$an
+        p"""|@${an.asString(ctx.opts)}
             |"""
       }
 
       p"def ${fd.id}${nary(fd.tparams, ", ", "[", "]")}"
       if (fd.params.nonEmpty) {
-        p"(${fd.params}): "
+        p"(${fd.params})"
       }
 
-      p"${fd.returnType} = "
+      p": ${fd.returnType} = "
       p"${fd.fullBody}"
-
-    case (tree: PrettyPrintable) => tree.printWith(ctx)
 
     case _ => ctx.sb.append("Tree? (" + tree.getClass + ")")
   }
@@ -359,11 +356,10 @@ trait Printers {
 
   protected def isSimpleExpr(e: Expr): Boolean = e match {
     case _: Let => false
-    case p: PrettyPrintable => p.isSimpleExpr
     case _ => true
   }
 
-  protected def noBracesSub(e: Expr): Seq[Expr] = e match {
+  protected def noBracesSub(e: Tree): Seq[Expr] = e match {
     case Let(_, _, bd) => Seq(bd)
     case IfExpr(_, t, e) => Seq(t, e) // if-else always has braces anyway
     case _ => Seq()
@@ -371,13 +367,12 @@ trait Printers {
 
   protected def requiresBraces(ex: Tree, within: Option[Tree]) = (ex, within) match {
     case (e: Expr, _) if isSimpleExpr(e) => false
-    case (e: Expr, Some(within: Expr)) if noBracesSub(within) contains e => false
+    case (e: Expr, Some(within)) if noBracesSub(within) contains e => false
     case (e: Expr, Some(_)) => true
     case _ => false
   }
 
   protected def precedence(ex: Expr): Int = ex match {
-    case (pa: PrettyPrintable) => pa.printPrecedence
     // 0: Letters
     case (_: ElementOfSet | _: Modulo) => 0
     // 1: |
@@ -403,7 +398,6 @@ trait Printers {
   }
 
   protected def requiresParentheses(ex: Tree, within: Option[Tree]): Boolean = (ex, within) match {
-    case (pa: PrettyPrintable, _) => pa.printRequiresParentheses(within)
     case (_, None) => false
     case (_, Some(
     _: Definition | _: Let | _: IfExpr | _: ADT | _: Lambda | _: Choose | _: Tuple
@@ -511,22 +505,16 @@ trait Printers {
     nary(ts.map(typed))
   }
 
-  trait PrettyPrintable {
-    self: Tree =>
-
-    def printWith(implicit pctx: PrinterContext): Unit
-
-    def printPrecedence: Int = 1000
-
-    def printRequiresParentheses(within: Option[Tree]): Boolean = false
-
-    def isSimpleExpr: Boolean = false
-  }
-
   def prettyPrint(tree: Tree, opts: PrinterOptions = PrinterOptions()): String = {
     val ctx = PrinterContext(tree, Nil, opts.baseIndent, opts)
     pp(tree)(ctx)
     ctx.sb.toString
+  }
+
+  def asString(obj: Any)(implicit opts: PrinterOptions): String = obj match {
+    case tree: Tree => prettyPrint(tree, opts)
+    case id: Identifier => if (opts.printUniqueIds) id.uniqueName else id.toString
+    case _ => obj.toString
   }
 
 }

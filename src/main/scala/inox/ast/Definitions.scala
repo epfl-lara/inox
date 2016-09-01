@@ -78,7 +78,7 @@ trait Definitions { self: Trees =>
     def toVariable: Variable = to[Variable]
     def freshen: ValDef = ValDef(id.freshen, tpe).copiedFrom(this)
 
-    val flags: Set[Annotation] = Set.empty
+    val flags: Set[Flag] = Set.empty
 
     override def equals(that: Any): Boolean = super[VariableSymbol].equals(that)
     override def hashCode: Int = super[VariableSymbol].hashCode
@@ -171,30 +171,30 @@ trait Definitions { self: Trees =>
     def freshen = TypeParameterDef(tp.freshen)
     val id = tp.id
   }
- 
-  // Compiler annotations given in the source code as @annot
-  case class Annotation(val annot: String, val args: Seq[Option[Any]]) extends Printable {
-    def asString(implicit opts: PrinterOptions): String = annot + (if (args.isEmpty) "" else {
-      args.map { case p: Printable => p.asString case arg => arg.toString }.mkString("(", ",", ")")
+
+  /** Represents source code annotations and some other meaningful flags. */
+  abstract class Flag(name: String, args: Seq[Any]) extends Printable {
+    def asString(implicit opts: PrinterOptions): String = name + (if (args.isEmpty) "" else {
+      args.map(arg => self.asString(arg)(opts)).mkString("(", ", ", ")")
     })
   }
 
   /** Denotes that this adt is refined by invariant ''id'' */
-  class HasADTInvariant(id: Identifier) extends Annotation("invariant", Seq(Some(id)))
+  case class HasADTInvariant(id: Identifier) extends Flag("invariant", Seq(id))
 
-  object HasADTInvariant {
-    def apply(id: Identifier): HasADTInvariant = new HasADTInvariant(id)
-    def unapply(annot: Annotation): Option[Identifier] = annot match {
-      case Annotation("invariant", Seq(Some(id: Identifier))) => Some(id)
-      case _ => None
-    }
+  // Compiler annotations given in the source code as @annot
+  case class Annotation(val name: String, val args: Seq[Any]) extends Flag(name, args)
+
+  def extractFlag(name: String, args: Seq[Any]): Flag = (name, args) match {
+    case ("invariant", id: Identifier) => HasADTInvariant(id)
+    case _ => Annotation(name, args)
   }
 
   /** Represents an ADT definition (either the ADT sort or a constructor). */
   sealed trait ADTDefinition extends Definition {
     val id: Identifier
     val tparams: Seq[TypeParameterDef]
-    val flags: Set[Annotation]
+    val flags: Set[Flag]
 
     /** The root of the class hierarchy */
     def root(implicit s: Symbols): ADTDefinition
@@ -221,7 +221,7 @@ trait Definitions { self: Trees =>
   class ADTSort(val id: Identifier,
                 val tparams: Seq[TypeParameterDef],
                 val cons: Seq[Identifier],
-                val flags: Set[Annotation]) extends ADTDefinition {
+                val flags: Set[Flag]) extends ADTDefinition {
     val isSort = true
 
     def constructors(implicit s: Symbols): Seq[ADTConstructor] = cons
@@ -272,7 +272,7 @@ trait Definitions { self: Trees =>
                        val tparams: Seq[TypeParameterDef],
                        val sort: Option[Identifier],
                        val fields: Seq[ValDef],
-                       val flags: Set[Annotation]) extends ADTDefinition {
+                       val flags: Set[Flag]) extends ADTDefinition {
 
     val isSort = false
     /** Returns the index of the field with the specified id */
@@ -355,7 +355,7 @@ trait Definitions { self: Trees =>
     val params: Seq[ValDef],
     val returnType: Type,
     val fullBody: Expr,
-    val flags: Set[Annotation]
+    val flags: Set[Flag]
   ) extends Definition {
 
     /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with the specified type parameters */
