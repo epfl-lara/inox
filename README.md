@@ -4,7 +4,8 @@ Inox 0.1 [![Build Status](http://laraquad4.epfl.ch:9000/epfl-lara/inox/status/ma
 InOx
 ----
 
-InOx does not rust. It shines moderately.
+InOx has no rust.
+InOx we trust!
 
 ![InOx](./InOxWeTrust.jpg?raw=true "InOx We Trust")
 
