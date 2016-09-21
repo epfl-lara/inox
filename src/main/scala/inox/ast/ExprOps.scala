@@ -5,7 +5,7 @@ package ast
 
 /** Provides functions to manipulate [[Expressions.Expr]].
   *
-  * This object provides a few generic operations on Leon expressions,
+  * This object provides a few generic operations on Inox expressions,
   * as well as some common operations.
   *
   * The generic operations lets you apply operations on a whole tree
@@ -19,7 +19,7 @@ package ast
   *
   * These operations usually take a higher order function that gets applied to the
   * expression tree in some strategy. They provide an expressive way to build complex
-  * operations on Leon expressions.
+  * operations on Inox expressions.
   *
   */
 trait ExprOps extends GenTreeOps {

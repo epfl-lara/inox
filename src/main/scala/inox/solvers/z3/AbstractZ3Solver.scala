@@ -90,7 +90,7 @@ trait AbstractZ3Solver
   // ADT Manager
   private val adtManager = new ADTManager
 
-  // Bijections between Leon Types/Functions/Ids to Z3 Sorts/Decls/ASTs
+  // Bijections between Inox Types/Functions/Ids to Z3 Sorts/Decls/ASTs
   private val functions = new IncrementalBijection[TypedFunDef, Z3FuncDecl]()
   private val lambdas   = new IncrementalBijection[FunctionType, Z3FuncDecl]()
   private val variables = new IncrementalBijection[Variable, Z3AST]()
@@ -224,6 +224,11 @@ trait AbstractZ3Solver
   protected def typeToSort(oldtt: Type): Z3Sort = bestRealType(oldtt) match {
     case Int32Type | BooleanType | IntegerType | RealType | CharType =>
       sorts(oldtt)
+
+    case tt @ BVType(i) =>
+      sorts.cached(tt) {
+        z3.mkBVSort(i)
+      }
 
     case tpe @ (_: ADTType  | _: TupleType | _: TypeParameter | UnitType) =>
       sorts.getOrElse(tpe, declareStructuralSort(tpe))

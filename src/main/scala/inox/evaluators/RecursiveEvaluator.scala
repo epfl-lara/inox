@@ -76,14 +76,6 @@ trait RecursiveEvaluator
       // build a mapping for the function...
       val frame = rctx.withNewVars(tfd.paramSubst(evArgs))
 
-      // @nv TODO: choose evaluation
-
-      /* @nv TODO: should we do this differently?? lambdas??
-      if (!tfd.hasBody && !rctx.mappings.isDefinedAt(tfd.id)) {
-        throw EvalError("Evaluation of function with unknown implementation." + expr)
-      }
-      */
-
       e(tfd.fullBody)(frame, gctx)
 
     case And(Seq(e1, e2)) =>

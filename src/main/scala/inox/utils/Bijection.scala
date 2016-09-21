@@ -13,7 +13,7 @@ object Bijection {
   *
   * This basically maintains a bi-directional mapping
   * between A and B. This is a common operation throughout
-  * Leon, that would be usually done by keeping a mapping and
+  * Inox, that would be usually done by keeping a mapping and
   * the corresponding reverse mapping. This class abstracts
   * away the details.
   *

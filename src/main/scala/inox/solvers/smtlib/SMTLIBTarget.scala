@@ -106,7 +106,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
   }
 
   /*
-   * Translation from Leon Expressions to SMTLIB terms and reverse
+   * Translation from Inox Expressions to SMTLIB terms and reverse
    */
 
   /* Symbol handling */
@@ -219,7 +219,6 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
       val cmd = DeclareDatatypes(adts)
       emit(cmd)
     }
-
   }
 
   protected def declareStructuralSort(t: Type): Sort = {
@@ -266,7 +265,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
     }
   }
 
-  /* Translate a Leon Expr to an SMTLIB term */
+  /* Translate a Inox Expr to an SMTLIB term */
 
   def sortToSMT(s: Sort): SExpr = {
     s match {
@@ -477,7 +476,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
     }
   }
 
-  /* Translate an SMTLIB term back to a Leon Expr */
+  /* Translate an SMTLIB term back to a Inox Expr */
   protected def fromSMT(t: Term, otpe: Option[Type] = None)(implicit lets: Map[SSymbol, Term], letDefs: Map[SSymbol, DefineFun]): Expr = {
 
     object EQ {

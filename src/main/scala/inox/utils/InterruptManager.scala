@@ -21,7 +21,7 @@ class InterruptManager(reporter: Reporter) extends Interruptible {
       def now(): Long = System.currentTimeMillis()
       reporter.info("")
       if (now() - lastTimestamp.get < exitWindow) {
-        reporter.warning("Aborting Leon...")
+        reporter.warning("Aborting Inox...")
         System.exit(1)
       }
       else {

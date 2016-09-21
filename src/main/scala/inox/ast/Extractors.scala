@@ -3,7 +3,19 @@
 package inox
 package ast
 
-
+/** Meat and bones of tree deconstruction/reconstruction.
+  *
+  * Implementations provide methods to extract all useful subtrees from
+  * a given tree ([[Expressions.Expr]], [[Types.Type]], ...) as well as
+  * a closure that can reconstruct the initial tree based on appropriate
+  * arguments.
+  *
+  * Instances of [[Trees]] must provide a [[TreeDeconstructor]] as a
+  * means of applying generic transformations to arbitrary extensions of
+  * the [[Trees.Tree]] interface.
+  *
+  * @see [[Extractors]] for some interesting use cases
+  */
 trait TreeDeconstructor {
   protected val s: Trees
   protected val t: Trees
@@ -240,6 +252,8 @@ trait TreeDeconstructor {
   }
 }
 
+/** Provides extraction capabilities to [[Trees]] based on a
+  * [[TreeDeconstructor]] instance. */
 trait Extractors { self: Trees =>
 
   val deconstructor: TreeDeconstructor {
@@ -249,7 +263,7 @@ trait Extractors { self: Trees =>
 
   /** Operator Extractor to extract any Expression in a consistent way.
     *
-    * You can match on any Leon Expr, and then get both a Seq[Expr] of
+    * You can match on any Inox Expr, and then get both a Seq[Expr] of
     * subterms and a builder function that takes a Seq of subterms (of same
     * length) and rebuild the original node.
     *

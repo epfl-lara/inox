@@ -38,7 +38,7 @@ object SolverFactory {
 
   private val solverNames = Map(
     "nativez3" -> "Native Z3 with z3-templates for unrolling",
-    "unrollz3" -> "Native Z3 with leon-templates for unrolling",
+    "unrollz3" -> "Native Z3 with inox-templates for unrolling",
     "smt-cvc4" -> "CVC4 through SMT-LIB",
     "smt-z3"   -> "Z3 through SMT-LIB",
     "enum"     -> "Enumeration-based counter-example finder"

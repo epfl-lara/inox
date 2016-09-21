@@ -5,24 +5,9 @@ package ast
 
 import utils._
 
-/** Provides functions to manipulate [[purescala.Expressions]].
-  *
-  * This object provides a few generic operations on Leon expressions,
-  * as well as some common operations.
-  *
-  * The generic operations lets you apply operations on a whole tree
-  * expression. You can look at:
-  *   - [[GenTreeOps.fold foldRight]]
-  *   - [[GenTreeOps.preTraversal preTraversal]]
-  *   - [[GenTreeOps.postTraversal postTraversal]]
-  *   - [[GenTreeOps.preMap preMap]]
-  *   - [[GenTreeOps.postMap postMap]]
-  *   - [[GenTreeOps.genericTransform genericTransform]]
-  *
-  * These operations usually take a higher order function that gets applied to the
-  * expression tree in some strategy. They provide an expressive way to build complex
-  * operations on Leon expressions.
-  *
+/** Provides functions to manipulate [[Expressions.Expr]] in cases where
+  * a symbol table is available (and required: see [[ExprOps]] for
+  * simpler tree manipulations).
   */
 trait SymbolOps { self: TypeOps =>
   import trees._

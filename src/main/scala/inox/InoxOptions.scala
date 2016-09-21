@@ -27,7 +27,7 @@ abstract class InoxOptionDef[+A] {
     parser(s).getOrElse(
       reporter.fatalError(
         s"Invalid option usage: --$name\n" +
-        "Try 'leon --help' for more information."
+        "Try '--help' for more information."
       )
     )
   }
