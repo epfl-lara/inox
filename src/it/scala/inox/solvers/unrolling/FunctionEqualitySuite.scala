@@ -47,4 +47,39 @@ class FunctionEqualitySuite extends SolvingTestSuite {
 
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(clause)).isSAT)
   }
+
+  test("possible equality 1") { ctx =>
+    val program = InoxProgram(ctx, symbols)
+    val f = ("f" :: (IntegerType =>: IntegerType)).toVariable
+    val g = ("g" :: (IntegerType =>: IntegerType)).toVariable
+    val clause = f === (\("x" :: IntegerType)(x => g(x)))
+
+    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+  }
+
+  test("possible equality 2") { ctx =>
+    val program = InoxProgram(ctx, symbols)
+    val f = ("f" :: (IntegerType =>: IntegerType)).toVariable
+    val g = ("g" :: (IntegerType =>: IntegerType)).toVariable
+    val clause = g === (\("x" :: IntegerType)(x => f(x)))
+
+    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+  }
+
+  test("impossible equality 1") { ctx =>
+    val program = InoxProgram(ctx, symbols)
+    val f = ("f" :: (IntegerType =>: IntegerType)).toVariable
+    val clause = f === (\("x" :: IntegerType)(x => f(x)))
+
+    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
+  }
+
+  test("impossible equality 2") { ctx =>
+    val program = InoxProgram(ctx, symbols)
+    val f = ("f" :: (IntegerType =>: IntegerType)).toVariable
+    val g = ("g" :: (IntegerType =>: IntegerType)).toVariable
+    val clause = f === (\("x" :: IntegerType)(x => g(x))) && g === (\("x" :: IntegerType)(x => f(x)))
+
+    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
+  }
 }

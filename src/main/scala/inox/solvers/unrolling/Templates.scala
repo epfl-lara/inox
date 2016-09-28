@@ -235,6 +235,7 @@ trait Templates extends TemplateGenerator
     */
   type Clauses       = Seq[Encoded]
   type CallBlockers  = Map[Encoded, Set[Call]]
+  type TypeBlockers  = Map[Encoded, Set[TemplateTypeInfo]]
   type AppBlockers   = Map[(Encoded, App), Set[TemplateAppInfo]]
 
   implicit class MapSetWrapper[A,B](map: Map[A,Set[B]]) {

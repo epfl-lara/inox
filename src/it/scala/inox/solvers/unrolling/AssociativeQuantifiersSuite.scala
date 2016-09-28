@@ -4,9 +4,25 @@ package inox
 package solvers
 package unrolling
 
-class AssociativeQuantifiersSuite extends SolvingTestSuite {
+class AssociativeQuantifiersSuite extends InoxTestSuite {
   import inox.trees._
   import dsl._
+
+  override val configurations = List(
+    ("nativez3", false, false, false),
+    ("smt-z3",   false, false, false),
+    ("smt-cvc4", false, false, false),
+    ("nativez3", true,  true,  false),
+    ("nativez3", false, false, true ),
+    ("smt-cvc4", false, false, true )
+  ).map { case (solverName, checkModels, feelingLucky, unrollAssumptions) => Seq(
+    InoxOption(InoxOptions.optSelectedSolvers)(Set(solverName)),
+    InoxOption(optCheckModels)(checkModels),
+    InoxOption(optFeelingLucky)(feelingLucky),
+    InoxOption(optUnrollAssumptions)(unrollAssumptions),
+    InoxOption(InoxOptions.optTimeout)(300),
+    InoxOption(ast.optPrintUniqueIds)(true)
+  )}
 
   val isAssociativeID = FreshIdentifier("isAssociative")
   val isAssociative = mkFunDef(isAssociativeID)("A") { case Seq(aT) => (

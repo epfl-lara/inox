@@ -150,8 +150,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
   protected def quantifiedTerm(quantifier: (SortedVar, Seq[SortedVar], Term) => Term,
                                vars: Seq[ValDef],
                                body: Expr)
-                              (implicit bindings: Map[Identifier, Term])
-  : Term = {
+                              (implicit bindings: Map[Identifier, Term]): Term = {
     if (vars.isEmpty) toSMT(body)(Map())
     else {
       val sortedVars = vars map { vd =>
@@ -508,9 +507,9 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
       }
     }
 
-    def extractLambda(n: BigInt, ft: FunctionType): Expr = {
+    def extractLambda(n: BigInt, ft: FunctionType): Lambda = {
       val FunctionType(from, to) = ft
-      lambdas.getB(ft) match {
+      uniquateClosure(n, (lambdas.getB(ft) match {
         case None => simplestValue(ft)
         case Some(dynLambda) => letDefs.get(dynLambda) match {
           case None => simplestValue(ft)
@@ -527,7 +526,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
               case _ => t
             }
 
-            def extract(t: Term): Expr = {
+            def extract(t: Term): Lambda = {
               def recCond(term: Term): Seq[Expr] = term match {
                 case AND(es) =>
                   es.foldLeft(Seq.empty[Expr]) {
@@ -562,7 +561,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
 
             extract(dispatch(body))
         }
-      }
+      }).asInstanceOf[Lambda])
     }
 
     // Use as much information as there is, if there is an expected type, great, but it might not always be there

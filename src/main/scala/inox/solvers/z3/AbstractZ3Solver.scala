@@ -490,7 +490,8 @@ trait AbstractZ3Solver
         unsupported(other)
     }
 
-    rec(expr)(bindings)
+    val res = rec(expr)(bindings)
+    res
   }
 
   protected[z3] def fromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type): Expr = {
@@ -577,27 +578,29 @@ trait AbstractZ3Solver
             }
           } else {
             tpe match {
-              case ft @ FunctionType(fts, tt) => lambdas.getB(ft) match {
-                case None => simplestValue(ft)
-                case Some(decl) => model.getFuncInterpretations.find(_._1 == decl) match {
+              case ft @ FunctionType(fts, tt) =>
+                val n = BigInt(t.toString.split("!").last.init)
+                uniquateClosure(n, (lambdas.getB(ft) match {
                   case None => simplestValue(ft)
-                  case Some((_, mapping, elseValue)) =>
-                    val args = fts.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
-                    val body = mapping.foldLeft(rec(elseValue, tt)) { case (elze, (z3Args, z3Result)) =>
-                      if (t == z3Args.head) {
-                        val cond = andJoin((args zip z3Args.tail).map { case (vd, z3Arg) =>
-                          Equals(vd.toVariable, rec(z3Arg, vd.tpe))
-                        })
+                  case Some(decl) => model.getFuncInterpretations.find(_._1 == decl) match {
+                    case None => simplestValue(ft)
+                    case Some((_, mapping, elseValue)) =>
+                      val args = fts.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
+                      val body = mapping.foldLeft(rec(elseValue, tt)) { case (elze, (z3Args, z3Result)) =>
+                        if (t == z3Args.head) {
+                          val cond = andJoin((args zip z3Args.tail).map { case (vd, z3Arg) =>
+                            Equals(vd.toVariable, rec(z3Arg, vd.tpe))
+                          })
 
-                        IfExpr(cond, rec(z3Result, tt), elze)
-                      } else {
-                        elze
+                          IfExpr(cond, rec(z3Result, tt), elze)
+                        } else {
+                          elze
+                        }
                       }
-                    }
 
-                    Lambda(args, body)
-                }
-              }
+                      Lambda(args, body)
+                  }
+                }).asInstanceOf[Lambda])
 
               case MapType(from, to) =>
                 model.getArrayValue(t) match {

@@ -116,6 +116,10 @@ trait Printers {
     case Choose(res, pred) =>
       p"choose(($res) => $pred)"
 
+    case Assume(pred, body) =>
+      p"""|assume($pred)
+          |$body"""
+
     case e @ ADT(adt, args) =>
       p"$adt($args)"
 

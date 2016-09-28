@@ -9,6 +9,8 @@ import utils._
 import theories._
 import evaluators._
 
+import scala.collection.mutable.{Map => MutableMap}
+
 object optUnrollFactor extends InoxLongOptionDef(
   "unrollfactor",      "Number of unfoldings to perform in each unfold step", default = 1, "<PosInt>")
 
@@ -155,112 +157,205 @@ trait AbstractUnrollingSolver
 
   private def extractTotalModel(model: underlying.Model): Map[ValDef, Expr] = {
     val wrapped = wrapModel(model)
-    def functionsOf(expr: Expr, selector: Expr): (Seq[(Expr, Expr)], Seq[Expr] => Expr) = {
-      def reconstruct(subs: Seq[(Seq[(Expr, Expr)], Seq[Expr] => Expr)],
-                      recons: Seq[Expr] => Expr): (Seq[(Expr, Expr)], Seq[Expr] => Expr) =
-        (subs.flatMap(_._1), (exprs: Seq[Expr]) => {
-          var curr = exprs
-          recons(subs.map { case (es, recons) =>
-            val (used, remaining) = curr.splitAt(es.size)
-            curr = remaining
-            recons(used)
+
+    val cache: MutableMap[Encoded, Expr] = MutableMap.empty
+
+    def extractValue(v: Encoded, tpe: Type): Expr = cache.getOrElseUpdate(v, {
+      def functionsOf(expr: Expr, selector: Expr): (Seq[(Expr, Expr)], Seq[Expr] => Expr) = {
+        def reconstruct(subs: Seq[(Seq[(Expr, Expr)], Seq[Expr] => Expr)],
+                        recons: Seq[Expr] => Expr): (Seq[(Expr, Expr)], Seq[Expr] => Expr) =
+          (subs.flatMap(_._1), (exprs: Seq[Expr]) => {
+            var curr = exprs
+            recons(subs.map { case (es, recons) =>
+              val (used, remaining) = curr.splitAt(es.size)
+              curr = remaining
+              recons(used)
+            })
           })
-        })
 
-      def rec(expr: Expr, selector: Expr): (Seq[(Expr, Expr)], Seq[Expr] => Expr) = expr match {
-        case (_: Lambda) =>
-          (Seq(expr -> selector), (es: Seq[Expr]) => es.head)
+        def rec(expr: Expr, selector: Expr): (Seq[(Expr, Expr)], Seq[Expr] => Expr) = expr match {
+          case (_: Lambda) =>
+            (Seq(expr -> selector), (es: Seq[Expr]) => es.head)
 
-        case Tuple(es) => reconstruct(es.zipWithIndex.map {
-          case (e, i) => rec(e, TupleSelect(selector, i + 1))
-        }, Tuple)
+          case Tuple(es) => reconstruct(es.zipWithIndex.map {
+            case (e, i) => rec(e, TupleSelect(selector, i + 1))
+          }, Tuple)
 
-        case ADT(adt, es) => reconstruct((adt.getADT.toConstructor.fields zip es).map {
-          case (vd, e) => rec(e, ADTSelector(selector, vd.id))
-        }, ADT(adt, _))
+          case ADT(adt, es) => reconstruct((adt.getADT.toConstructor.fields zip es).map {
+            case (vd, e) => rec(e, ADTSelector(selector, vd.id))
+          }, ADT(adt, _))
 
-        case _ => (Seq.empty, (es: Seq[Expr]) => expr)
+          case _ => (Seq.empty, (es: Seq[Expr]) => expr)
+        }
+
+        rec(expr, selector)
       }
 
-      rec(expr, selector)
-    }
-
-    import templates.{QuantificationTypeMatcher => QTM}
-    freeVars.toMap.map { case (v, idT) =>
-      val value = wrapped.get(v).getOrElse(simplestValue(v.getType))
-      val (functions, recons) = functionsOf(value, v)
-
-      v.toVal -> recons(functions.map { case (f, selector) =>
-        val encoded = templates.mkEncoder(Map(v -> idT))(selector)
+      val value = wrapped.eval(v, tpe).getOrElse(simplestValue(tpe))
+      val id = Variable(FreshIdentifier("v"), tpe)
+      val (functions, recons) = functionsOf(value, id)
+      recons(functions.map { case (f, selector) =>
+        val encoded = templates.mkEncoder(Map(id -> v))(selector)
         val tpe = bestRealType(f.getType).asInstanceOf[FunctionType]
-        val QTM(from, to) = tpe
+        extractFunction(encoded, tpe)
+      })
+    })
 
-        if (from.isEmpty) f else {
-          val params = from.map(tpe => Variable(FreshIdentifier("x", true), tpe))
-          val app = templates.mkApplication(selector, params)
+    object FiniteLambda {
+      def apply(params: Seq[Seq[ValDef]], mappings: Seq[(Expr, Expr)], dflt: Expr): Lambda = {
+        def rec(params: Seq[Seq[ValDef]], body: Expr): Expr = params match {
+          case curr +: rest => rec(rest, Lambda(curr, body))
+          case _ => body
+        }
 
-          val allImages = templates.getGroundInstantiations(encoded, tpe).flatMap { case (b, eArgs) =>
-            wrapped.eval(b, BooleanType).filter(_ == BooleanLiteral(true)).flatMap { _ =>
-              val optArgs = (eArgs zip from).map { case (arg, tpe) => wrapped.eval(arg, tpe) }
-              val eApp = templates.mkEncoder(Map(v -> idT) ++ (params zip eArgs))(app)
-              val optResult = wrapped.eval(eApp, to)
+        val body = mappings.foldRight(dflt) { case ((cond, img), elze) => IfExpr(cond, img, elze) }
+        rec(params, body).asInstanceOf[Lambda]
+      }
 
-              if (optArgs.forall(_.isDefined) && optResult.isDefined) {
-                val args = optArgs.map(_.get)
-                val result = optResult.get
-                Some(args -> result)
+      def extract(paramss: Seq[Seq[ValDef]], l: Lambda): (Seq[(Expr, Expr)], Expr) = (paramss, l) match {
+        case (params +: rest, Lambda(args, body: Lambda)) if params == args => extract(rest, body)
+        case (_, body) =>
+          val params = paramss.flatten
+          def rec(e: Expr): Option[(Seq[(Expr, Expr)], Expr)] = e match {
+            case IfExpr(cond @ TopLevelAnds(es), thenn, elze) =>
+              val indexes = es.map {
+                case c @ Equals(v: Variable, _) => params.indexOf(v.toVal)
+                case c @ Equals(_, v: Variable) => params.indexOf(v.toVal)
+                case _ => -1
+              }
+
+              if (indexes.forall(_ >= 0) && indexes == indexes.sorted) {
+                rec(elze).map { case (imgs, dflt) => ((cond -> thenn) +: imgs, dflt) }
               } else {
                 None
               }
-            }
-          }.distinct
-
-          def mkLambda(params: Seq[ValDef], body: Expr): Lambda = body.getType match {
-            case FunctionType(from, to) =>
-              val (rest, curr) = params.splitAt(params.size - from.size)
-              mkLambda(rest, Lambda(curr, body))
-            case _ => Lambda(params, body)
+            case dflt => Some(Seq.empty, dflt)
           }
 
-          if (allImages.isEmpty) {
-            def rec(e: Expr): Expr = e match {
-              case Lambda(_, body) => rec(body)
-              case IfExpr(_, _, elze) => rec(elze)
-              case e => e
-            }
+          rec(body).getOrElse((Seq.empty, body))
+      }
+    }
 
-            mkLambda(params.map(_.toVal), rec(f))
-          } else {
-            val projection: Expr = allImages.head._1.head
+    def extractFunction(f: Encoded, tpe: FunctionType): Expr = cache.getOrElseUpdate(f, {
+      def extractLambda(f: Encoded, tpe: FunctionType): Option[Lambda] = {
+        val optEqTemplate = templates.getLambdaTemplates(tpe).find { tmpl =>
+          wrapped.eval(tmpl.start, BooleanType) == Some(BooleanLiteral(true)) &&
+          wrapped.eval(templates.mkEquals(tmpl.ids._2, f), BooleanType) == Some(BooleanLiteral(true))
+        }
 
-            val allResults: Seq[(Seq[Expr], Expr)] =
-              (for (subset <- params.toSet.subsets; (args, _) <- allImages) yield {
-                val (concreteArgs, condOpts) = (params zip args).map { case (v, arg) =>
-                  if (!subset(v)) {
-                    (arg, Some(Equals(v, arg)))
+        optEqTemplate.map { tmpl =>
+          val localsSubst = tmpl.structure.locals.map(p => p._1 -> wrapped.eval(p._2, p._1.tpe).getOrElse {
+            scala.sys.error("Unexpectedly failed to extract " + templates.asString(p._2) +
+              " with expected type " + p._1.tpe.asString)
+          }).toMap
+
+          exprOps.replaceFromSymbols(localsSubst, tmpl.structure.lambda).asInstanceOf[Lambda]
+        }
+      }
+
+      def extract(
+        caller: Encoded,
+        tpe: FunctionType,
+        params: Seq[Seq[ValDef]],
+        arguments: Seq[Seq[(Seq[Encoded], Expr)]],
+        dflt: Expr
+      ): (Lambda, Boolean) = {
+        if (tpe.from.isEmpty) {
+          val (result, real) = tpe.to match {
+            case ft: FunctionType =>
+              val nextParams = params.tail
+              val nextArguments = arguments.map(_.tail)
+              extract(templates.mkApp(caller, tpe, Seq.empty), ft, nextParams, nextArguments, dflt)
+            case _ =>
+              (extractValue(templates.mkApp(caller, tpe, Seq.empty), tpe.to), false)
+          }
+
+          (Lambda(Seq.empty, result), real)
+        } else {
+          extractLambda(caller, tpe).map(_ -> true).getOrElse {
+            val byCondition = arguments.groupBy(_.head._2).toSeq.sortBy(p => -exprOps.formulaSize(p._1))
+            val mappings = byCondition.flatMap {
+              case (currCond, arguments) => tpe.to match {
+                case ft: FunctionType =>
+                  val (currArgs, restArgs) = (arguments.head.head._1, arguments.map(_.tail))
+                  val newCaller = templates.mkApp(caller, tpe, currArgs)
+                  val (res, real) = extract(newCaller, ft, params.tail, restArgs, dflt)
+                  val mappings: Seq[(Expr, Expr)] = if (real) {
+                    Seq(BooleanLiteral(true) -> res)
                   } else {
-                    (projection, None)
+                    FiniteLambda.extract(params.tail, res)._1
                   }
-                }.unzip
 
-                val app = templates.mkApplication(f, concreteArgs)
-                val result = evaluator.eval(app).result.getOrElse {
-                  scala.sys.error("Unexpectedly failed to evaluate " + app.asString)
-                }
+                  mappings.map(p => (and(currCond, p._1), p._2))
 
-                condOpts.flatten -> result
-              }).toSeq
-
-            val withConds :+ ((Seq(), default)) = allResults
-            val body = withConds.foldRight(default) { case ((conds, result), elze) =>
-              IfExpr(andJoin(conds), result, elze)
+                case _ =>
+                  val currArgs = arguments.head.head._1
+                  val res = extractValue(templates.mkApp(caller, tpe, currArgs), tpe.to)
+                  Seq(currCond -> res)
+              }
             }
 
-            mkLambda(params.map(_.toVal), body)
+            (FiniteLambda(params, mappings, dflt), false)
           }
         }
-      })
-    }
+      }
+
+      val params: Seq[Seq[ValDef]] = {
+        def rec(tpe: Type): Seq[Seq[ValDef]] = tpe match {
+          case FunctionType(from, to) => from.map(tpe => ValDef(FreshIdentifier("x", true), tpe)) +: rec(to)
+          case _ => Nil
+        }
+
+        rec(tpe)
+      }
+
+      val arguments = templates.getGroundInstantiations(f, tpe).flatMap { case (b, eArgs) =>
+        wrapped.eval(b, BooleanType).filter(_ == BooleanLiteral(true)).map(_ => eArgs)
+      }.distinct
+
+      extractLambda(f, tpe).getOrElse {
+        if (arguments.isEmpty) {
+          wrapped.eval(f, tpe).get
+        } else {
+          val projection: Encoded = arguments.head.head
+
+          val flatArguments: Seq[(Seq[Encoded], Seq[Option[Expr]])] =
+            (for (subset <- params.flatten.toSet.subsets; args <- arguments) yield {
+              val (concreteArgs, condOpts) = (params.flatten zip args).map { case (v, arg) =>
+                if (!subset(v)) {
+                  (arg, Some(Equals(v.toVariable, extractValue(arg, v.tpe))))
+                } else {
+                  (projection, None)
+                }
+              }.unzip
+
+              (concreteArgs, condOpts)
+            }).toSeq
+
+          def unflatten[T](seq: Seq[T]): Seq[Seq[T]] = {
+            def rec(p: Seq[Int], seq: Seq[T]): Seq[Seq[T]] = p match {
+              case x +: xs => seq.take(x) +: rec(xs, seq.drop(x))
+              case _ => Nil
+            }
+
+            rec(params.map(_.size), seq)
+          }
+
+          val withConds :+ ((concreteArgs, _)) = flatArguments
+          val allArguments: Seq[Seq[(Seq[Encoded], Expr)]] = flatArguments.init.map {
+            p => (unflatten(p._1) zip unflatten(p._2)).map(p => (p._1, andJoin(p._2.flatten)))
+          }
+
+          val default = extractValue(unflatten(flatArguments.last._1).foldLeft(f -> (tpe: Type)) {
+            case ((f, tpe: FunctionType), args) => (templates.mkApp(f, tpe, args), tpe.to)
+          }._1, tpe)
+
+          extract(f, tpe, params, allArguments, default)._1
+        }
+      }
+    })
+
+    freeVars.toMap.map { case (v, idT) => v.toVal -> extractValue(idT, v.tpe) }
   }
 
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
@@ -335,7 +430,7 @@ trait AbstractUnrollingSolver
               CheckResult.cast(Sat)
 
             case SatWithModel(model) =>
-              Validate(extractSimpleModel(model))
+              Validate(extractTotalModel(model))
 
             case _: Unsatisfiable if !templates.canUnroll =>
               CheckResult.cast(res)

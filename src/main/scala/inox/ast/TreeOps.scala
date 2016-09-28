@@ -35,9 +35,15 @@ trait TreeOps { self: Trees =>
     }
 
     def transform(e: Expr): Expr = {
-      val (es, tps, builder) = deconstructor.deconstruct(e)
+      val (vs, es, tps, builder) = deconstructor.deconstruct(e)
 
       var changed = false
+      val newVs = for (v <- vs) yield {
+        val newV = transform(v)
+        if (v ne newV) changed = true
+        newV
+      }
+
       val newEs = for (e <- es) yield {
         val newE = transform(e)
         if (e ne newE) changed = true
@@ -51,7 +57,7 @@ trait TreeOps { self: Trees =>
       }
 
       if (changed) {
-        builder(newEs, newTps).copiedFrom(e)
+        builder(newVs, newEs, newTps).copiedFrom(e)
       } else {
         e
       }
@@ -81,7 +87,8 @@ trait TreeOps { self: Trees =>
     def traverse(v: Variable): Unit = traverse(v.tpe)
 
     def traverse(e: Expr): Unit = {
-      val (es, tps, _) = deconstructor.deconstruct(e)
+      val (vs, es, tps, _) = deconstructor.deconstruct(e)
+      vs.foreach(traverse)
       es.foreach(traverse)
       tps.foreach(traverse)
     }

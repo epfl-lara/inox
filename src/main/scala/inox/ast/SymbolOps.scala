@@ -110,6 +110,7 @@ trait SymbolOps { self: TypeOps =>
 
     class Normalizer extends TreeTransformer {
       var subst: Map[Variable, Expr] = Map.empty
+      var varSubst: Map[Identifier, Identifier] = Map.empty
       var remainingIds: Map[Type, List[Identifier]] = typedIds.toMap
 
       def getId(e: Expr): Identifier = {
@@ -130,11 +131,17 @@ trait SymbolOps { self: TypeOps =>
       override def transform(id: Identifier, tpe: Type): (Identifier, Type) = subst.get(Variable(id, tpe)) match {
         case Some(Variable(newId, tpe)) => (newId, tpe)
         case Some(_) => scala.sys.error("Should never happen!")
-        case None => (getId(Variable(id, tpe)), tpe)
+        case None => varSubst.get(id) match {
+          case Some(newId) => (newId, tpe)
+          case None =>
+            val newId = getId(Variable(id, tpe))
+            varSubst += id -> newId
+            (newId, tpe)
+        }
       }
 
       override def transform(e: Expr): Expr = e match {
-        case expr if (isSimple(expr) || !onlySimple) && (variablesOf(expr) & vars).isEmpty =>
+        case expr if (!onlySimple || isSimple(expr)) && (variablesOf(expr) & vars).isEmpty =>
           Variable(getId(expr), expr.getType)
         case f: Forall =>
           val (args, body, newSubst) = normalizeStructure(f.args, f.body, onlySimple)
@@ -167,6 +174,28 @@ trait SymbolOps { self: TypeOps =>
   def normalizeStructure(forall: Forall): (Forall, Map[Variable, Expr]) = {
     val (args, body, subst) = normalizeStructure(forall.args, forall.body)
     (Forall(args, body), subst)
+  }
+
+  /** Ensures the closure [[l]] can only be equal to some other closure if they share
+    * the same integer identifier [[id]]. This method makes sure this property is
+    * preserved after going through [[normalizeStructure(Lambda)]]. */
+  def uniquateClosure(id: BigInt, res: Lambda): Lambda = {
+    def allArgs(l: Lambda): Seq[ValDef] = l.args ++ (l.body match {
+      case l2: Lambda => allArgs(l2)
+      case _ => Seq.empty
+    })
+
+    val resArgs = allArgs(res)
+    if (resArgs.isEmpty) res else {
+      /* @nv: This is a hack to ensure that the notion of equality we define on closures
+       *      is respected by those returned by the model. The second `Let` is necessary
+       *      to keep [[normalizeStructure(Lambda)]] from lifting the first one out of
+       *      the closure's body. */
+      Lambda(res.args,
+        Let(ValDef(FreshIdentifier("id"), IntegerType), IntegerLiteral(id),
+          Let(ValDef(FreshIdentifier("denormalize"), resArgs.head.tpe), resArgs.head.toVariable,
+            res.body)))
+    }
   }
 
   /** Pre-processing for solvers that handle universal quantification

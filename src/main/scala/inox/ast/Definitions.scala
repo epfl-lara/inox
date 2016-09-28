@@ -217,7 +217,7 @@ trait Definitions { self: Trees =>
   }
 
   /** Algebraic datatype sort definition.
-    * An ADT sort is linked to a series of constructors (ADTConstructor) for this particular sort. */
+    * An ADT sort is linked to a series of constructors ([[ADTConstructor]]) for this particular sort. */
   class ADTSort(val id: Identifier,
                 val tparams: Seq[TypeParameterDef],
                 val cons: Seq[Identifier],
@@ -235,13 +235,18 @@ trait Definitions { self: Trees =>
         case adt: ADTType =>
           val tadt = adt.lookupADT.getOrElse(throw ADTLookupException(adt.id))
           val root = tadt.definition.root
-          seen(root) || (tadt match {
-            case tcons: TypedADTConstructor =>
-              tcons.fields.exists(vd => induct(vd.getType, seen + root))
-            case _ => false
-          })
+          seen(root) || {
+            val constructors = root match {
+              case tcons: ADTConstructor => Seq(tcons)
+              case tsort: ADTSort => tsort.constructors
+            }
+
+            constructors.exists(tcons => tcons.fields.exists(vd => induct(vd.tpe, seen + root)))
+          }
+
         case TupleType(tpes) =>
           tpes.exists(tpe => induct(tpe, seen))
+
         case _ => false
       }
 
@@ -262,11 +267,12 @@ trait Definitions { self: Trees =>
 
   /** Case classes/ ADT constructors. For single-case classes these may coincide
     *
-    * @param id
-    * @param tparams
-    * @param sort
-    * @param fields
-    * @param flags
+    * @param id      -- The identifier that refers to this ADT constructor.
+    * @param tparams -- The type parameters taken by this constructor.
+    *                   Note that these MUST match the type parameters taken by [[sort]] when it is defined.
+    * @param sort    -- The base sort of this constructor (corresponds to the abstract parent class).
+    * @param fields  -- The fields of this constructor (types may depend on [[tparams]]).
+    * @param flags   -- The Flags that annotate this constructor.
     */
   class ADTConstructor(val id: Identifier,
                        val tparams: Seq[TypeParameterDef],
@@ -345,9 +351,12 @@ trait Definitions { self: Trees =>
 
   /** Function definition
     *
-    * @param id The identifier which will refer to this function.
-    * @param body The optional body of this function. Empty body functions are treated as uninterpreted
-    * @param flags Flags that annotate this function with attributes.
+    * @param id         -- The identifier which will refer to this function.
+    * @param tparams    -- The type parameters this function takes.
+    * @param params     -- The functions formal arguments (types may depend on [[tparams]]).
+    * @param returnType -- The function's return type (may depend on [[tparams]]).
+    * @param fullBody   -- The body of this function.
+    * @param flags      -- Flags that annotate this function with attributes.
     */
   class FunDef(
     val id: Identifier,
