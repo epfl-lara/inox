@@ -239,16 +239,6 @@ trait LambdaTemplates { self: Templates =>
       clauses ++ super.instantiate(b, args)
     }
 
-    override def instantiate(substMap: Map[Encoded, Arg]): Clauses = {
-      val substituter = mkSubstituter(substMap.mapValues(_.encoded))
-
-      val clauses: Clauses = (for (template <- lambdas) yield {
-        registerClosure(substituter(start), ids._2 -> tpe, substituter(template.ids._2) -> template.tpe)
-      }).flatten
-
-      clauses ++ super.instantiate(substMap)
-    }
-
     private lazy val str : String = stringRepr()
     override def toString : String = str
   }
@@ -407,18 +397,7 @@ trait LambdaTemplates { self: Templates =>
             registerParent(typeBlocker, firstB)
             val symClauses = registerSymbol(typeBlocker, encoded, to)
 
-            def orderClauses(tpe: FunctionType, caller: Encoded, args: Seq[Encoded]): Clauses = tpe match {
-              case FunctionType(from, to: FunctionType) =>
-                val (curr, rest) = args.splitAt(from.size)
-                val newCaller = mkApp(caller, tpe, curr)
-                registerClosure(typeBlocker, caller -> tpe, newCaller -> to) ++ orderClauses(to, newCaller, rest)
-              case _ => Seq.empty[Encoded]
-            }
-
-            orderClauses(tpe, caller, args.map(_.encoded)) ++
-              symClauses :+
-              extClause :+
-              mkImplies(firstB, typeBlocker)
+            symClauses :+ extClause :+ mkImplies(firstB, typeBlocker)
         }
 
         applications += tpe -> (applications(tpe) + key)
