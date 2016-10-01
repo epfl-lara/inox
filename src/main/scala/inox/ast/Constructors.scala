@@ -67,8 +67,8 @@ trait Constructors {
   }
 
   /** Instantiates the type parameters of the function according to argument types
-    * @return A [[purescala.Expressions.FunctionInvocation FunctionInvocation]] if it type checks, else throws an error.
-    * @see [[purescala.Expressions.FunctionInvocation]]
+    * @return A [[Expressions.FunctionInvocation FunctionInvocation]] if it type checks, else throws an error.
+    * @see [[Expressions.FunctionInvocation]]
     */
   def functionInvocation(fd: FunDef, args: Seq[Expr]) = {
     require(fd.params.length == args.length, "Invoking function with incorrect number of arguments")
@@ -79,6 +79,22 @@ trait Constructors {
     symbols.canBeSupertypeOf(formalType, actualType) match {
       case Some(tmap) =>
         FunctionInvocation(fd.id, fd.tparams map { tpd => tmap.getOrElse(tpd.tp, tpd.tp) }, args)
+      case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
+    }
+  }
+
+  /** Instantiates the type parameters of the ADT constructor according to argument types
+    * @return A [[Expressions.ADT ADT]] if it type checks, else throws an error
+    * @see [[Expressions.ADT]]
+    */
+  def adtConstruction(adt: ADTConstructor, args: Seq[Expr]) = {
+    require(adt.fields.length == args.length, "Constructing adt with incorrect number of arguments")
+
+    val formalType = tupleTypeWrap(adt.fields.map(_.tpe))
+    val actualType = tupleTypeWrap(args.map(_.getType))
+
+    symbols.canBeSupertypeOf(formalType, actualType) match {
+      case Some(tmap) => ADT(instantiateType(adt.typed.toType, tmap).asInstanceOf[ADTType], args)
       case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
     }
   }

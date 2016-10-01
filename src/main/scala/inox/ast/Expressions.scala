@@ -113,8 +113,10 @@ trait Expressions { self: Trees =>
   }
 
   /** $encodingof `choose(...)` (returns a value satisfying the provided predicate) */
-  case class Choose(res: ValDef, pred: Expr) extends Expr {
-    def getType(implicit s: Symbols): Type = res.tpe
+  case class Choose(res: ValDef, pred: Expr) extends Expr with CachingTyped {
+    protected def computeType(implicit s: Symbols): Type = {
+      if (pred.getType == BooleanType) res.tpe else Untyped
+    }
   }
 
   /* Control flow */

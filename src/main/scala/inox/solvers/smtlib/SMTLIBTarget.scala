@@ -291,7 +291,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
         declareVariable(Variable(FreshIdentifier("Unit"), UnitType))
 
       case IntegerLiteral(i)     => if (i >= 0) Ints.NumeralLit(i) else Ints.Neg(Ints.NumeralLit(-i))
-      case BVLiteral(bits, size)    => FixedSizeBitVectors.BitVectorLit(List.range(1, size + 1).map(i => bits(i)))
+      case BVLiteral(bits, size) => FixedSizeBitVectors.BitVectorLit(List.range(1, size + 1).map(i => bits(i)))
       case FractionLiteral(n, d) => Reals.Div(Reals.NumeralLit(n), Reals.NumeralLit(d))
       case CharLiteral(c)        => FixedSizeBitVectors.BitVectorLit(Hexadecimal.fromInt(c.toInt))
       case BooleanLiteral(v)     => Core.BoolConst(v)
@@ -407,26 +407,28 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
         case RealType    => Reals.Mul(toSMT(a), toSMT(b))
       }
 
-      //FIXME
-      case Division(a, b)  =>
-        val ar = toSMT(a)
-        val br = toSMT(b)
-        Core.ITE(
-          Ints.GreaterEquals(ar, Ints.NumeralLit(0)),
-          Ints.Div(ar, br),
-          Ints.Neg(Ints.Div(Ints.Neg(ar), br))
-        )
+      case Division(a, b)  => a.getType match {
+        case BVType(_) => FixedSizeBitVectors.SDiv(toSMT(a), toSMT(b))
+        case IntegerType =>
+          val ar = toSMT(a)
+          val br = toSMT(b)
+          Core.ITE(
+            Ints.GreaterEquals(ar, Ints.NumeralLit(0)),
+            Ints.Div(ar, br),
+            Ints.Neg(Ints.Div(Ints.Neg(ar), br))
+          )
+        case RealType => Reals.Div(toSMT(a), toSMT(b))
+      }
 
-      //case BVDivision(a, b)          => FixedSizeBitVectors.SDiv(toSMT(a), toSMT(b))
-      //case BVRemainder(a, b)         => FixedSizeBitVectors.SRem(toSMT(a), toSMT(b))
-      //case RealDivision(a, b)        => Reals.Div(toSMT(a), toSMT(b))
+      case Remainder(a, b) => a.getType match {
+        case BVType(_) => FixedSizeBitVectors.SRem(toSMT(a), toSMT(b))
+        case IntegerType =>
+          val q = toSMT(Division(a, b))
+          Ints.Sub(toSMT(a), Ints.Mul(toSMT(b), q))
+      }
 
-      case Remainder(a, b) =>
-        val q = toSMT(Division(a, b))
-        Ints.Sub(toSMT(a), Ints.Mul(toSMT(b), q))
       case Modulo(a, b) =>
         Ints.Mod(toSMT(a), toSMT(b))
-      // End FIXME
 
       case LessThan(a, b) => a.getType match {
         case BVType(_)   => FixedSizeBitVectors.SLessThan(toSMT(a), toSMT(b))
