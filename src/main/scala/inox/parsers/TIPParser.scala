@@ -68,6 +68,7 @@ trait TIPParser {
         throw new MissformedTIPException("unknown ADT " + sym, sym.getPos)
       }
 
+      def withADT(sym: SSymbol, id: Identifier): Locals = withADTs(Seq(sym -> id))
       def withADTs(seq: Seq[(SSymbol, Identifier)]): Locals =
         new Locals(funs, adts ++ seq, selectors, vars, tps, symbols)
 
@@ -85,13 +86,11 @@ trait TIPParser {
         throw new MissformedTIPException("unknown generic type " + sym, sym.getPos)
       }
 
-      def withGeneric(sym: SSymbol, tp: TypeParameter): Locals =
-        new Locals(funs, adts, selectors, vars, tps + (sym -> tp), symbols)
+      def withGeneric(sym: SSymbol, tp: TypeParameter): Locals = withGenerics(Seq(sym -> tp))
       def withGenerics(seq: Seq[(SSymbol, TypeParameter)]): Locals =
         new Locals(funs, adts, selectors, vars, tps ++ seq, symbols)
 
-      def withVariable(sym: SSymbol, v: Variable): Locals =
-        new Locals(funs, adts, selectors, vars + (sym -> v), tps, symbols)
+      def withVariable(sym: SSymbol, v: Variable): Locals = withVariables(Seq(sym -> v))
       def withVariables(seq: Seq[(SSymbol, Variable)]): Locals =
         new Locals(funs, adts, selectors, vars ++ seq, tps, symbols)
 
@@ -242,8 +241,36 @@ trait TIPParser {
               })
             }
 
-          case _ =>
-            // TODO: extractCommand(parseCommandWithoutParens)
+          case Tokens.Token(Tokens.DeclareConst) =>
+            nextToken // eat the "declare-const" token
+            val sym = parseSymbol
+            val sort = parseSort
+            locals = locals.withVariable(sym,
+              Variable(getIdentifier(sym), extractType(sort)).setPos(sym.getPos))
+
+          case Tokens.Token(Tokens.DeclareSort) =>
+            nextToken // eat the "declare-const" token
+            val sym = parseSymbol
+            val arity = parseNumeral.value.toInt
+            locals = if (arity == 0) {
+              locals.withGeneric(sym, TypeParameter.fresh(sym.name))
+            } else {
+              val id = getIdentifier(sym)
+              locals.withADT(sym, id).registerADT {
+                val tparams = List.range(0, arity).map {
+                  i => TypeParameterDef(TypeParameter.fresh("A" + i).setPos(sym.getPos)).setPos(sym.getPos)
+                }
+                val field = ValDef(FreshIdentifier("val"), IntegerType).setPos(sym.getPos)
+
+                new ADTConstructor(id, tparams, None, Seq(field), Set.empty)
+              }
+            }
+
+          case Tokens.Token(Tokens.CheckSat) =>
+            // TODO: what do I do with this??
+
+          case token =>
+            throw new MissformedTIPException("unknown TIP command " + token, token.getPos)
         }
 
         eat(Tokens.CParen)
