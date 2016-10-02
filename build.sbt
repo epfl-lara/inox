@@ -52,7 +52,7 @@ testOptions in IntegrationTest := Seq(Tests.Argument("-oDF"))
 def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
 
 lazy val bonsai      = ghProject("git://github.com/colder/bonsai.git",     "10eaaee4ea0ff6567f4f866922cb871bae2da0ac")
-lazy val scalaSmtlib = ghProject("git://github.com/regb/scala-smtlib.git", "88835c02ca2528e888b06bc48e4e93e52dc5f4b5")
+lazy val scalaSmtlib = ghProject("git://github.com/regb/scala-smtlib.git", "3ac1a4d89b828ca4c3437ca5b83ed320289c0156")
 
 lazy val root = (project in file("."))
   .configs(IntegrationTest)
