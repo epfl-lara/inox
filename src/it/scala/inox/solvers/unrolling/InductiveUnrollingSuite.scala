@@ -88,8 +88,84 @@ class InductiveUnrollingSuite extends SolvingTestSuite {
       })
   }
 
+  val forallID = FreshIdentifier("forall")
+  val forall = mkFunDef(forallID)("A") { case Seq(aT) => (
+    Seq("l" :: T(listID)(aT), "p" :: (aT =>: BooleanType)), BooleanType, { case Seq(l, p) =>
+      if_ (l.isInstOf(T(consID)(aT))) {
+        let("cons" :: T(consID)(aT), l.asInstOf(T(consID)(aT))) { cons =>
+          p(cons.getField(head)) && E(forallID)(aT)(cons.getField(tail), p)
+        }
+      } else_ {
+        E(true)
+      }
+    })
+  }
+
+  val contentID = FreshIdentifier("content")
+  val content = mkFunDef(contentID)("A") { case Seq(aT) => (
+    Seq("l" :: T(listID)(aT)), SetType(aT), { case Seq(l) =>
+      if_ (l.isInstOf(T(consID)(aT))) {
+        let("cons" :: T(consID)(aT), l.asInstOf(T(consID)(aT))) { cons =>
+          E(contentID)(aT)(cons.getField(tail)).insert(cons.getField(head))
+        }
+      } else_ {
+        FiniteSet(Seq.empty, aT)
+      }
+    })
+  }
+
+  val partitionID = FreshIdentifier("partition")
+  val partition = mkFunDef(partitionID)("A") { case Seq(aT) => (
+    Seq("l" :: T(listID)(aT), "p" :: (aT =>: BooleanType)), T(T(listID)(aT), T(listID)(aT)), { case Seq(l, p) =>
+      let("res" :: T(T(listID)(aT), T(listID)(aT)), if_ (l.isInstOf(T(consID)(aT))) {
+        let("cons" :: T(consID)(aT), l.asInstOf(T(consID)(aT))) { cons =>
+          let("ptl" :: T(T(listID)(aT), T(listID)(aT)), E(partitionID)(aT)(cons.getField(tail), p)) { ptl =>
+            if_ (p(cons.getField(head))) {
+              E(T(consID)(aT)(cons.getField(head), ptl._1), ptl._2)
+            } else_ {
+              E(ptl._1, T(consID)(aT)(cons.getField(head), ptl._2))
+            }
+          }
+        }
+      } else_ {
+        E(l, l)
+      }) { res =>
+        Assume(
+          E(forallID)(aT)(res._1, p) &&
+          E(forallID)(aT)(res._2, \("x" :: aT)(x => !p(x))) &&
+          E(contentID)(aT)(l) === E(contentID)(aT)(res._1) ++ E(contentID)(aT)(res._2),
+          res)
+      }
+    })
+  }
+
+  val sortID = FreshIdentifier("sort")
+  val sort = mkFunDef(sortID)("A") { case Seq(aT) => (
+    Seq("l" :: T(listID)(aT), "lt" :: ((aT, aT) =>: BooleanType)), T(listID)(aT), { case Seq(l, lt) =>
+      let("res" :: T(listID)(aT), if_ (l.isInstOf(T(consID)(aT))) {
+        let("cons" :: T(consID)(aT), l.asInstOf(T(consID)(aT))) { cons =>
+        let("part" :: T(T(listID)(aT), T(listID)(aT)),
+          E(partitionID)(aT)(cons.getField(tail), \("x" :: aT)(x => lt(x, cons.getField(head))))) { part =>
+        let("less" :: T(listID)(aT), E(sortID)(aT)(part._1, lt)) { less =>
+        let("more" :: T(listID)(aT), E(sortID)(aT)(part._2, lt)) { more =>
+        let("res" :: T(listID)(aT), E(appendID)(aT)(less, T(consID)(aT)(cons.getField(head), more))) { res =>
+          Assume(E(forallID)(aT)(part._1, \("x" :: aT)(x => lt(x, cons.getField(head)))),
+          Assume(E(contentID)(aT)(less) === E(contentID)(aT)(part._1),
+          Assume(E(forallID)(aT)(less, \("x" :: aT)(x => lt(x, cons.getField(head)))),
+            res
+          )))
+        }}}}}
+      } else_ {
+        l
+      }) { res =>
+        Assume(E(contentID)(aT)(l) === E(contentID)(aT)(res), res)
+      }
+    })
+  }
+
   val symbols = new Symbols(
-    Map(sizeID -> sizeFd, appendID -> append, flatMapID -> flatMap, assocID -> associative),
+    Map(sizeID -> sizeFd, appendID -> append, flatMapID -> flatMap, assocID -> associative,
+        forallID -> forall, contentID -> content, partitionID -> partition, sortID -> sort),
     Map(listID -> List, consID -> Cons, nilID -> Nil)
   )
 
@@ -112,6 +188,14 @@ class InductiveUnrollingSuite extends SolvingTestSuite {
   test("flatMap is associative") { ctx =>
     val program = InoxProgram(ctx, symbols)
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(associative.fullBody)).isUNSAT)
+  }
+
+  test("sort preserves content") { ctx =>
+    val program = InoxProgram(ctx, symbols)
+    val (l,p) = ("l" :: T(listID)(IntegerType), "p" :: ((IntegerType, IntegerType) =>: BooleanType))
+    val clause = E(contentID)(IntegerType)(E(sortID)(IntegerType)(l.toVariable, p.toVariable)) ===
+      E(contentID)(IntegerType)(l.toVariable)
+    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(clause)).isUNSAT)
   }
 
 }

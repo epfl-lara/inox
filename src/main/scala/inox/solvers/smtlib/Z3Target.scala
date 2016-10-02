@@ -105,12 +105,11 @@ trait Z3Target extends SMTLIBTarget {
      */
     case fs @ FiniteSet(elems, base) =>
       declareSort(fs.getType)
-      toSMT(FiniteMap(elems map ((_, BooleanLiteral(true))), BooleanLiteral(false), BooleanType))
+      toSMT(FiniteMap(elems map ((_, BooleanLiteral(true))), BooleanLiteral(false), base))
 
     case SubsetOf(ss, s) =>
       // a isSubset b   ==>   (a zip b).map(implies) == (* => true)
       val allTrue = ArrayConst(declareSort(s.getType), True())
-
       SMTEquals(ArrayMap(SSymbol("implies"), toSMT(ss), toSMT(s)), allTrue)
 
     case SetAdd(s, e) =>

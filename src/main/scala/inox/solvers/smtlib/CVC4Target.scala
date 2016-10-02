@@ -134,6 +134,7 @@ trait CVC4Target extends SMTLIBTarget {
     case ElementOfSet(e, s)     => Sets.Member(toSMT(e), toSMT(s))
     case SetDifference(a, b)    => Sets.Setminus(toSMT(a), toSMT(b))
     case SetUnion(a, b)         => Sets.Union(toSMT(a), toSMT(b))
+    case SetAdd(a, b)           => Sets.Insert(toSMT(b), toSMT(a))
     case SetIntersection(a, b)  => Sets.Intersection(toSMT(a), toSMT(b))
 
     /** String operations */

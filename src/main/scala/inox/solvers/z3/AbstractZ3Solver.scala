@@ -154,9 +154,8 @@ trait AbstractZ3Solver
 
   initZ3()
 
-  def declareStructuralSort(t: Type): Z3Sort = {
+  def declareStructuralSort(t: Type): Unit = {
     adtManager.declareADTs(t, declareDatatypes)
-    sorts(t)
   }
 
   def declareDatatypes(adts: Seq[(Type, DataType)]): Unit = {
@@ -231,7 +230,8 @@ trait AbstractZ3Solver
       }
 
     case tpe @ (_: ADTType  | _: TupleType | _: TypeParameter | UnitType) =>
-      sorts.getOrElse(tpe, declareStructuralSort(tpe))
+      if (!sorts.contains(tpe)) declareStructuralSort(tpe)
+      sorts(tpe)
 
     case tt @ SetType(base) =>
       sorts.cached(tt) {
@@ -431,6 +431,8 @@ trait AbstractZ3Solver
       case SetIntersection(s1, s2) => z3.mkSetIntersect(rec(s1), rec(s2))
 
       case SetUnion(s1, s2) => z3.mkSetUnion(rec(s1), rec(s2))
+
+      case SetAdd(s, e) => z3.mkSetAdd(rec(s), rec(e))
 
       case SetDifference(s1, s2) => z3.mkSetDifference(rec(s1), rec(s2))
 
