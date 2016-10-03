@@ -22,6 +22,15 @@ class InductiveUnrollingSuite extends SolvingTestSuite {
   }
 
   val sizeID = FreshIdentifier("size")
+  val appendID = FreshIdentifier("append")
+  val flatMapID = FreshIdentifier("flatMap")
+  val assocID = FreshIdentifier("associative_lemma")
+
+  val forallID = FreshIdentifier("forall")
+  val contentID = FreshIdentifier("content")
+  val partitionID = FreshIdentifier("partition")
+  val sortID = FreshIdentifier("sort")
+
   val sizeFd = mkFunDef(sizeID)("A") { case Seq(aT) => (
     Seq("l" :: T(listID)(aT)), IntegerType, { case Seq(l) =>
       if_ (l.isInstOf(T(consID)(aT))) {
@@ -34,20 +43,18 @@ class InductiveUnrollingSuite extends SolvingTestSuite {
     })
   }
 
-  val appendID = FreshIdentifier("append")
   val append = mkFunDef(appendID)("A") { case Seq(aT) => (
     Seq("l1" :: T(listID)(aT), "l2" :: T(listID)(aT)), T(listID)(aT), { case Seq(l1, l2) =>
-      if_ (l1.isInstOf(T(consID)(aT))) {
+      let("res" :: T(listID)(aT), if_ (l1.isInstOf(T(consID)(aT))) {
         let("c" :: T(consID)(aT), l1.asInstOf(T(consID)(aT))) { c =>
           T(consID)(aT)(c.getField(head), E(appendID)(aT)(c.getField(tail), l2))
         }
       } else_ {
         l2
-      }
+      }) { res => Assume(E(contentID)(aT)(res) === E(contentID)(aT)(l1) ++ E(contentID)(aT)(l2), res) }
     })
   }
 
-  val flatMapID = FreshIdentifier("flatMap")
   val flatMap = mkFunDef(flatMapID)("A","B") { case Seq(aT, bT) => (
     Seq("l" :: T(listID)(aT), "f" :: (aT =>: T(listID)(bT))), T(listID)(bT), { case Seq(l, f) =>
       if_ (l.isInstOf(T(consID)(aT))) {
@@ -60,7 +67,6 @@ class InductiveUnrollingSuite extends SolvingTestSuite {
     })
   }
 
-  val assocID = FreshIdentifier("associative_lemma")
   val associative = mkFunDef(assocID)("A","B","C") { case Seq(aT, bT, cT) => (
     Seq("l1" :: T(listID)(aT), "l2" :: T(listID)(bT), "l3" :: T(listID)(cT),
       "f" :: (aT =>: T(listID)(bT)), "g" :: (bT =>: T(listID)(cT))), BooleanType,
@@ -88,7 +94,6 @@ class InductiveUnrollingSuite extends SolvingTestSuite {
       })
   }
 
-  val forallID = FreshIdentifier("forall")
   val forall = mkFunDef(forallID)("A") { case Seq(aT) => (
     Seq("l" :: T(listID)(aT), "p" :: (aT =>: BooleanType)), BooleanType, { case Seq(l, p) =>
       if_ (l.isInstOf(T(consID)(aT))) {
@@ -101,7 +106,6 @@ class InductiveUnrollingSuite extends SolvingTestSuite {
     })
   }
 
-  val contentID = FreshIdentifier("content")
   val content = mkFunDef(contentID)("A") { case Seq(aT) => (
     Seq("l" :: T(listID)(aT)), SetType(aT), { case Seq(l) =>
       if_ (l.isInstOf(T(consID)(aT))) {
@@ -114,7 +118,6 @@ class InductiveUnrollingSuite extends SolvingTestSuite {
     })
   }
 
-  val partitionID = FreshIdentifier("partition")
   val partition = mkFunDef(partitionID)("A") { case Seq(aT) => (
     Seq("l" :: T(listID)(aT), "p" :: (aT =>: BooleanType)), T(T(listID)(aT), T(listID)(aT)), { case Seq(l, p) =>
       let("res" :: T(T(listID)(aT), T(listID)(aT)), if_ (l.isInstOf(T(consID)(aT))) {
@@ -139,7 +142,6 @@ class InductiveUnrollingSuite extends SolvingTestSuite {
     })
   }
 
-  val sortID = FreshIdentifier("sort")
   val sort = mkFunDef(sortID)("A") { case Seq(aT) => (
     Seq("l" :: T(listID)(aT), "lt" :: ((aT, aT) =>: BooleanType)), T(listID)(aT), { case Seq(l, lt) =>
       let("res" :: T(listID)(aT), if_ (l.isInstOf(T(consID)(aT))) {
@@ -148,13 +150,12 @@ class InductiveUnrollingSuite extends SolvingTestSuite {
           E(partitionID)(aT)(cons.getField(tail), \("x" :: aT)(x => lt(x, cons.getField(head))))) { part =>
         let("less" :: T(listID)(aT), E(sortID)(aT)(part._1, lt)) { less =>
         let("more" :: T(listID)(aT), E(sortID)(aT)(part._2, lt)) { more =>
-        let("res" :: T(listID)(aT), E(appendID)(aT)(less, T(consID)(aT)(cons.getField(head), more))) { res =>
           Assume(E(forallID)(aT)(part._1, \("x" :: aT)(x => lt(x, cons.getField(head)))),
-          Assume(E(contentID)(aT)(less) === E(contentID)(aT)(part._1),
+          Assume(E(contentID)(aT)(part._1) === E(contentID)(aT)(less),
           Assume(E(forallID)(aT)(less, \("x" :: aT)(x => lt(x, cons.getField(head)))),
-            res
+            E(appendID)(aT)(less, T(consID)(aT)(cons.getField(head), more))
           )))
-        }}}}}
+        }}}}
       } else_ {
         l
       }) { res =>
@@ -190,11 +191,23 @@ class InductiveUnrollingSuite extends SolvingTestSuite {
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(associative.fullBody)).isUNSAT)
   }
 
-  test("sort preserves content") { ctx =>
+  test("sort preserves content 1") { ctx =>
     val program = InoxProgram(ctx, symbols)
     val (l,p) = ("l" :: T(listID)(IntegerType), "p" :: ((IntegerType, IntegerType) =>: BooleanType))
     val clause = E(contentID)(IntegerType)(E(sortID)(IntegerType)(l.toVariable, p.toVariable)) ===
       E(contentID)(IntegerType)(l.toVariable)
+    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(clause)).isUNSAT)
+  }
+
+  test("sort preserves content 2") { ctx =>
+    val program = InoxProgram(ctx, symbols)
+    import program._
+
+    val clause = sort.fullBody match {
+      case Let(res, body, Assume(pred, resVar)) if res.toVariable == resVar =>
+        Let(res, body, pred)
+      case e => fail("Unexpected fullBody of `sort`: " + e.asString)
+    }
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(clause)).isUNSAT)
   }
 

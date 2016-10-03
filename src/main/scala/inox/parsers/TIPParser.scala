@@ -18,7 +18,20 @@ import utils._
 import scala.language.implicitConversions
 
 trait TIPParser {
-  import inox.trees._
+  val trees: ast.Trees
+  import trees._
+
+  def parse(file: File): (Symbols, Expr) = {
+    val pos = new PositionProvider(new java.io.BufferedReader(new java.io.FileReader(file)), Some(file))
+    val parser = new Parser(new Lexer(pos.reader), pos)
+    parser.parseTIPScript
+  }
+
+  def parse(reader: Reader): (Symbols, Expr) = {
+    val pos = new PositionProvider(reader, None)
+    val parser = new Parser(new Lexer(pos.reader), pos)
+    parser.parseTIPScript
+  }
 
   private class PositionProvider(_reader: Reader, _file: Option[File]) {
     val (reader, file): (Reader, File) = _file match {
@@ -48,13 +61,13 @@ trait TIPParser {
   class MissformedTIPException(reason: String, pos: Position)
     extends Exception("Missfomed TIP source @" + pos + ":\n" + reason)
 
-  private class Parser(lex: Lexer, positions: PositionProvider) extends SMTParser(lex) {
+  protected class Parser(lex: Lexer, positions: PositionProvider) extends SMTParser(lex) {
 
     implicit def smtlibPositionToPosition(pos: _root_.smtlib.common.Position): Position = {
       positions.get(pos.line, pos.col)
     }
 
-    private class Locals private(
+    protected class Locals (
       funs: Map[SSymbol, Identifier],
       adts: Map[SSymbol, Identifier],
       selectors: Map[SSymbol, Identifier],
@@ -109,176 +122,168 @@ trait TIPParser {
         new Locals(funs, adts, selectors, vars, tps, symbols.withADTs(defs))
     }
 
-    private object Locals {
-      def empty = new Locals(Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, NoSymbols)
-    }
+    protected val NoLocals: Locals = new Locals(
+      Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, NoSymbols)
 
-    private def getIdentifier(sym: SSymbol): Identifier = {
+    protected def getIdentifier(sym: SSymbol): Identifier = {
       // TODO: check keywords!
       FreshIdentifier(sym.name)
     }
 
-    def parseTIPScript: (InoxProgram, Expr) = {
+    protected def parseTIPCommand(token: Tokens.Token)
+                                 (implicit locals: Locals): (Option[Expr], Locals) = token match {
+      case Tokens.SymbolLit("assert-not") =>
+        (Some(Not(extractExpr(parseTerm))), locals)
 
-      val ctx: InoxContext = InoxContext.empty
+      case Tokens.Token(Tokens.Assert) =>
+        (Some(extractExpr(parseTerm)), locals)
+
+      case Tokens.Token(Tokens.DefineFun) | Tokens.Token(Tokens.DefineFunRec) =>
+        val isRec = token == Tokens.Token(Tokens.DefineFunRec)
+        val (tps, funDef) = getPeekToken.kind match {
+          case Tokens.OParen =>
+            eat(Tokens.OParen)
+            eat(Tokens.Par)
+            val tps = parseMany(parseSymbol _)
+            val res = parseWithin(Tokens.OParen, Tokens.CParen)(parseFunDef _)
+            eat(Tokens.CParen)
+            (tps, res)
+
+          case _ =>
+            (Seq.empty[SSymbol], parseFunDef)
+        }
+
+        val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.getPos)))
+        val fdsLocals = if (!isRec) tpsLocals else {
+          tpsLocals.withFunction(funDef.name, extractSignature(funDef, tps)(tpsLocals))
+        }
+        val fd = extractFunction(funDef, tps)(fdsLocals)
+        (None, locals.withFunction(funDef.name, fd))
+
+      case Tokens.Token(Tokens.DefineFunsRec) =>
+        val (funDec, funDecs) = parseOneOrMore(() => {
+          eat(Tokens.OParen)
+          val (tps, funDec) = getPeekToken.kind match {
+            case Tokens.Par =>
+              eat(Tokens.Par)
+              val tps = parseMany(parseSymbol _)
+              val funDec = parseWithin(Tokens.OParen, Tokens.CParen)(parseFunDec _)
+              (tps -> funDec)
+
+            case _ =>
+              (Seq.empty[SSymbol], parseFunDec)
+          }
+          eat(Tokens.CParen)
+          (tps, funDec)
+        })
+
+        val (body, bodies) = parseOneOrMore(parseTerm _)
+        assert(funDecs.size == bodies.size)
+
+        val funDefs = ((funDec -> body) +: (funDecs zip bodies)).map {
+          case ((tps, FunDec(name, params, returnSort)), body) =>
+            tps -> SMTFunDef(name, params, returnSort, body)
+        }
+
+        val bodyLocals = locals.withFunctions(for ((tps, funDef) <- funDefs) yield {
+          val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.getPos)))
+          funDef.name -> extractSignature(funDef, tps)(tpsLocals)
+        })
+
+        (None, locals.withFunctions(for ((tps, funDef) <- funDefs) yield {
+          val tpsLocals = bodyLocals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.getPos)))
+          funDef.name -> extractFunction(funDef, tps)(tpsLocals)
+        }))
+
+      case Tokens.Token(Tokens.DeclareDatatypes) =>
+        val tps = parseMany(parseSymbol _)
+        val datatypes = parseMany(parseDatatypes _)
+
+        var locs = locals.withADTs(datatypes
+          .flatMap { case (sym, conss) => sym +: conss.map(_.sym) }
+          .map(sym => sym -> getIdentifier(sym)))
+
+        val adtLocals = locs.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.getPos)))
+        for ((sym, conss) <- datatypes) {
+          val children = for (Constructor(sym, fields) <- conss) yield {
+            val id = locs.getADT(sym)
+            val vds = fields.map { case (s, sort) =>
+              ValDef(getIdentifier(s), extractType(sort)(adtLocals)).setPos(s.getPos)
+            }
+
+            (id, vds)
+          }
+
+          val allVds: Set[ValDef] = children.flatMap(_._2).toSet
+          val allTparams: Set[TypeParameter] = children.flatMap(_._2).toSet.flatMap {
+            (vd: ValDef) => locs.symbols.typeParamsOf(vd.tpe): Set[TypeParameter]
+          }
+
+          val tparams: Seq[TypeParameterDef] = tps.flatMap { sym =>
+            val tp = adtLocals.getGeneric(sym)
+            if (allTparams(tp)) Some(TypeParameterDef(tp).setPos(sym.getPos)) else None
+          }
+
+          val parent = if (children.size > 1) {
+            val id = adtLocals.getADT(sym)
+            locs = locs.registerADT(
+              new ADTSort(id, tparams, children.map(_._1), Set.empty).setPos(sym.getPos))
+            Some(id)
+          } else {
+            None
+          }
+
+          locs = locals.registerADTs((conss zip children).map { case (cons, (cid, vds)) =>
+            new ADTConstructor(cid, tparams, parent, vds, Set.empty).setPos(cons.sym.getPos)
+          }).withADTSelectors((conss zip children).flatMap { case (Constructor(_, fields), (_, vds)) =>
+            (fields zip vds).map(p => p._1._1 -> p._2.id)
+          })
+        }
+
+        (None, locs)
+
+      case Tokens.Token(Tokens.DeclareConst) =>
+        val sym = parseSymbol
+        val sort = parseSort
+        (None, locals.withVariable(sym,
+          Variable(getIdentifier(sym), extractType(sort)).setPos(sym.getPos)))
+
+      case Tokens.Token(Tokens.DeclareSort) =>
+        val sym = parseSymbol
+        val arity = parseNumeral.value.toInt
+        val id = getIdentifier(sym)
+        (None, locals.withADT(sym, id).registerADT {
+          val tparams = List.range(0, arity).map {
+            i => TypeParameterDef(TypeParameter.fresh("A" + i).setPos(sym.getPos)).setPos(sym.getPos)
+          }
+          val field = ValDef(FreshIdentifier("val"), IntegerType).setPos(sym.getPos)
+
+          new ADTConstructor(id, tparams, None, Seq(field), Set.empty)
+        })
+
+      case Tokens.Token(Tokens.CheckSat) =>
+        // TODO: what do I do with this??
+        (None, locals)
+
+      case token =>
+        throw new MissformedTIPException("unknown TIP command " + token, token.getPos)
+    }
+
+    def parseTIPScript: (Symbols, Expr) = {
+
       var assertions: Seq[Expr] = Seq.empty
-      implicit var locals: Locals = Locals.empty
+      implicit var locals: Locals = NoLocals
 
       while (peekToken != null) {
         eat(Tokens.OParen)
-
-        peekToken match {
-          case Tokens.SymbolLit("assert-not") =>
-            nextToken // eat the "assert-not" token
-            assertions :+= Not(extractExpr(parseTerm))
-
-          case Tokens.Token(Tokens.Assert) =>
-            nextToken // eat the "assert" token
-            assertions :+= extractExpr(parseTerm)
-
-          case Tokens.Token(Tokens.DefineFun) | Tokens.Token(Tokens.DefineFunRec) =>
-            // eats the "define-fun" or "define-fun-rec" token
-            val isRec = nextToken == Tokens.Token(Tokens.DefineFunRec)
-            val (tps, funDef) = getPeekToken.kind match {
-              case Tokens.OParen =>
-                eat(Tokens.OParen)
-                eat(Tokens.Par)
-                val tps = parseMany(parseSymbol _)
-                val res = parseWithin(Tokens.OParen, Tokens.CParen)(parseFunDef _)
-                eat(Tokens.CParen)
-                (tps, res)
-
-              case _ =>
-                (Seq.empty[SSymbol], parseFunDef)
-            }
-
-            val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.getPos)))
-            val fdsLocals = if (!isRec) tpsLocals else {
-              tpsLocals.withFunction(funDef.name, extractSignature(funDef, tps)(tpsLocals))
-            }
-            val fd = extractFunction(funDef, tps)(fdsLocals)
-            locals = locals.withFunction(funDef.name, fd)
-
-          case Tokens.Token(Tokens.DefineFunsRec) =>
-            nextToken // eat the "define-funs-rec" token
-            val (funDec, funDecs) = parseOneOrMore(() => {
-              eat(Tokens.OParen)
-              val (tps, funDec) = getPeekToken.kind match {
-                case Tokens.Par =>
-                  eat(Tokens.Par)
-                  val tps = parseMany(parseSymbol _)
-                  val funDec = parseWithin(Tokens.OParen, Tokens.CParen)(parseFunDec _)
-                  (tps -> funDec)
-
-                case _ =>
-                  (Seq.empty[SSymbol], parseFunDec)
-              }
-              eat(Tokens.CParen)
-              (tps, funDec)
-            })
-
-            val (body, bodies) = parseOneOrMore(parseTerm _)
-            assert(funDecs.size == bodies.size)
-
-            val funDefs = ((funDec -> body) +: (funDecs zip bodies)).map {
-              case ((tps, FunDec(name, params, returnSort)), body) =>
-                tps -> SMTFunDef(name, params, returnSort, body)
-            }
-
-            val bodyLocals = locals.withFunctions(for ((tps, funDef) <- funDefs) yield {
-              val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.getPos)))
-              funDef.name -> extractSignature(funDef, tps)(tpsLocals)
-            })
-
-            locals = locals.withFunctions(for ((tps, funDef) <- funDefs) yield {
-              val tpsLocals = bodyLocals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.getPos)))
-              funDef.name -> extractFunction(funDef, tps)(tpsLocals)
-            })
-
-          case Tokens.Token(Tokens.DeclareDatatypes) =>
-            nextToken // eat the "declare-datatypes" token
-            val tps = parseMany(parseSymbol _)
-            val datatypes = parseMany(parseDatatypes _)
-
-            locals = locals.withADTs(datatypes
-              .flatMap { case (sym, conss) => sym +: conss.map(_.sym) }
-              .map(sym => sym -> getIdentifier(sym)))
-
-            val adtLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.getPos)))
-            for ((sym, conss) <- datatypes) {
-              val children = for (Constructor(sym, fields) <- conss) yield {
-                val id = locals.getADT(sym)
-                val vds = fields.map { case (s, sort) =>
-                  ValDef(getIdentifier(s), extractType(sort)(adtLocals)).setPos(s.getPos)
-                }
-
-                (id, vds)
-              }
-
-              val allVds: Set[ValDef] = children.flatMap(_._2).toSet
-              val allTparams: Set[TypeParameter] = children.flatMap(_._2).toSet.flatMap {
-                (vd: ValDef) => locals.symbols.typeParamsOf(vd.tpe): Set[TypeParameter]
-              }
-
-              val tparams: Seq[TypeParameterDef] = tps.flatMap { sym =>
-                val tp = adtLocals.getGeneric(sym)
-                if (allTparams(tp)) Some(TypeParameterDef(tp).setPos(sym.getPos)) else None
-              }
-
-              val parent = if (children.size > 1) {
-                val id = adtLocals.getADT(sym)
-                locals = locals.registerADT(
-                  new ADTSort(id, tparams, children.map(_._1), Set.empty).setPos(sym.getPos))
-                Some(id)
-              } else {
-                None
-              }
-
-              locals = locals.registerADTs((conss zip children).map { case (cons, (cid, vds)) =>
-                new ADTConstructor(cid, tparams, parent, vds, Set.empty).setPos(cons.sym.getPos)
-              }).withADTSelectors((conss zip children).flatMap { case (Constructor(_, fields), (_, vds)) =>
-                (fields zip vds).map(p => p._1._1 -> p._2.id)
-              })
-            }
-
-          case Tokens.Token(Tokens.DeclareConst) =>
-            nextToken // eat the "declare-const" token
-            val sym = parseSymbol
-            val sort = parseSort
-            locals = locals.withVariable(sym,
-              Variable(getIdentifier(sym), extractType(sort)).setPos(sym.getPos))
-
-          case Tokens.Token(Tokens.DeclareSort) =>
-            nextToken // eat the "declare-const" token
-            val sym = parseSymbol
-            val arity = parseNumeral.value.toInt
-            locals = if (arity == 0) {
-              locals.withGeneric(sym, TypeParameter.fresh(sym.name))
-            } else {
-              val id = getIdentifier(sym)
-              locals.withADT(sym, id).registerADT {
-                val tparams = List.range(0, arity).map {
-                  i => TypeParameterDef(TypeParameter.fresh("A" + i).setPos(sym.getPos)).setPos(sym.getPos)
-                }
-                val field = ValDef(FreshIdentifier("val"), IntegerType).setPos(sym.getPos)
-
-                new ADTConstructor(id, tparams, None, Seq(field), Set.empty)
-              }
-            }
-
-          case Tokens.Token(Tokens.CheckSat) =>
-            // TODO: what do I do with this??
-
-          case token =>
-            throw new MissformedTIPException("unknown TIP command " + token, token.getPos)
-        }
-
+        val (newAssertions, newLocals) = parseTIPCommand(nextToken)
+        assertions ++= newAssertions
+        locals = newLocals
         eat(Tokens.CParen)
       }
 
       val expr: Expr = locals.symbols.andJoin(assertions)
-      val program = InoxProgram(ctx, locals.symbols)
-      (program, expr)
+      (locals.symbols, expr)
     }
 
     override protected def parseTermWithoutParens: Term = getPeekToken match {
@@ -372,7 +377,7 @@ trait TIPParser {
       }
     }
 
-    private def extractExpr(term: Term)(implicit locals: Locals): Expr = (term match {
+    protected def extractExpr(term: Term)(implicit locals: Locals): Expr = (term match {
       case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("assume")), None), Seq(pred, body)) =>
         Assume(extractExpr(pred), extractExpr(body))
 
@@ -594,7 +599,7 @@ trait TIPParser {
 
     }).setPos(term.getPos)
 
-    private def extractType(sort: Sort)(implicit locals: Locals): Type = (sort match {
+    protected def extractType(sort: Sort)(implicit locals: Locals): Type = (sort match {
       case Sort(SMTIdentifier(SSymbol("bitvector"), Seq(SNumeral(n))), Seq()) => BVType(n.toInt)
       case Sort(SimpleIdentifier(SSymbol("Bool")), Seq()) => BooleanType
       case Sort(SimpleIdentifier(SSymbol("Int")), Seq()) => IntegerType
@@ -620,4 +625,14 @@ trait TIPParser {
       case _ => throw new MissformedTIPException("unexpected sort: " + sort, sort.id.symbol.getPos)
     }).setPos(sort.id.symbol.getPos)
   }
+}
+
+object TIPParser {
+  def parse(file: File): (inox.trees.Symbols, inox.trees.Expr) = new TIPParser {
+    val trees: inox.trees.type = inox.trees
+  }.parse(file)
+
+  def parse(reader: Reader): (inox.trees.Symbols, inox.trees.Expr) = new TIPParser {
+    val trees: inox.trees.type = inox.trees
+  }.parse(reader)
 }

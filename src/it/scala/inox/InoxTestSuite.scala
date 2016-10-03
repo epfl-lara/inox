@@ -8,7 +8,6 @@ import org.scalatest.concurrent._
 import utils._
 
 trait InoxTestSuite extends FunSuite with Matchers with Timeouts {
-  type FixtureParam = InoxContext
 
   val configurations: Seq[Seq[InoxOption[Any]]] = Seq(Seq.empty)
 

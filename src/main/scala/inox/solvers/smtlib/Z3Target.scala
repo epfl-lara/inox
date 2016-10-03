@@ -66,9 +66,8 @@ trait Z3Target extends SMTLIBTarget {
   override protected def fromSMT(t: Term, otpe: Option[Type] = None)
                                 (implicit lets: Map[SSymbol, Term], letDefs: Map[SSymbol, DefineFun]): Expr = {
     (t, otpe) match {
-      case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe)) =>
+      case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ MapType(keyType, valueType))) =>
         if (letDefs contains k) {
-          val MapType(keyType, valueType) = tpe
           val DefineFun(SMTFunDef(a, Seq(SortedVar(arg, akind)), rkind, body)) = letDefs(k)
 
           def extractCases(e: Term): (Map[Expr, Expr], Expr) = e match {
@@ -85,13 +84,39 @@ trait Z3Target extends SMTLIBTarget {
           throw FatalError("Array on non-function or unknown symbol "+k)
         }
 
+      case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ SetType(base))) =>
+        val fm @ FiniteMap(cases, dflt, _) = fromSMT(t, Some(MapType(base, BooleanType)))
+        if (dflt != BooleanLiteral(false)) unsupported(fm, "Solver returned a co-finite set which is not supported")
+        FiniteSet(cases.collect { case (k, BooleanLiteral(true)) => k }, base)
+
+      case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ BagType(base))) =>
+        val fm @ FiniteMap(cases, dflt, _) = fromSMT(t, Some(MapType(base, IntegerType)))
+        if (dflt != IntegerLiteral(0)) unsupported(fm, "Solver returned a co-finite bag which is not supported")
+        FiniteBag(cases.filter(_._2 != IntegerLiteral(BigInt(0))), base)
+
       case (FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
         Seq(defV)
-      ), Some(tpe)) =>
+      ), Some(tpe: MapType)) =>
         val ktpe = sorts.fromB(k)
         val vtpe = sorts.fromB(v)
-        FiniteMap(Seq(), fromSMT(defV), ktpe)
+        FiniteMap(Seq(), fromSMT(defV, Some(vtpe)), ktpe)
+
+      case (FunctionApplication(
+        QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
+        Seq(defV)
+      ), Some(tpe @ SetType(base))) =>
+        val dflt = fromSMT(defV, Some(BooleanType))
+        if (dflt != BooleanLiteral(false)) unsupported(dflt, "Solver returned a co-finite set which is not supported")
+        FiniteSet(Seq.empty, base)
+
+      case (FunctionApplication(
+        QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
+        Seq(defV)
+      ), Some(tpe @ BagType(base))) =>
+        val dflt = fromSMT(defV, Some(IntegerType))
+        if (dflt != IntegerLiteral(BigInt(0))) unsupported(dflt, "Solver returned a co-finite bag which is not supported")
+        FiniteBag(Seq.empty, base)
 
       case _ =>
         super.fromSMT(t, otpe)
