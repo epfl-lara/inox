@@ -9,7 +9,7 @@ import org.scalatest.concurrent._
 import solvers._
 import utils._
 
-trait TIPTestSuite extends InoxTestSuite with ResourceUtils {
+class TIPTestSuite extends InoxTestSuite with ResourceUtils {
 
   val tipDir = "tip-benchmarks"
 

@@ -14,17 +14,19 @@ trait ResourceUtils {
   val resourcesDir = "src/it/resources"
 
   def resourceFiles(dir: String, filter: String => Boolean = (s: String) => true, recursive: Boolean = false): Seq[File] = {
-    val baseDir = new File(getClass.getResource(s"/$dir").getPath)
+    Option(getClass.getResource(s"/$dir")).toSeq.flatMap { url =>
+      val baseDir = new File(url.getPath)
 
-    def rec(f: File): Seq[File] = Option(f.listFiles()).getOrElse(Array()).flatMap { f =>
-      if (f.isDirectory) {
-        if (recursive) rec(f)
-        else Nil
-      } else {
-        List(f)
+      def rec(f: File): Seq[File] = Option(f.listFiles()).getOrElse(Array()).flatMap { f =>
+        if (f.isDirectory) {
+          if (recursive) rec(f)
+          else Nil
+        } else {
+          List(f)
+        }
       }
-    }
 
-    rec(baseDir).filter(f => filter(f.getPath)).toSeq.sortBy(_.getPath)
+      rec(baseDir).filter(f => filter(f.getPath)).toSeq.sortBy(_.getPath)
+    }
   }
 }
