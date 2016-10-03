@@ -11,7 +11,7 @@ import utils._
 
 class TIPTestSuite extends InoxTestSuite with ResourceUtils {
 
-  val tipDir = "tip-benchmarks"
+  val tipDir = "tip-benchmarks/benchmarks"
 
   def makeTests(base: String) = {
     val files = resourceFiles(s"$tipDir/$base")

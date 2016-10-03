@@ -1,0 +1,3 @@
+[submodule "src/it/resources/tip-benchmarks"]
+	path = src/it/resources/tip-benchmarks
+	url = git@github.com:tip-org/benchmarks.git
