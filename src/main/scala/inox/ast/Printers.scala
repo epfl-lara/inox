@@ -261,9 +261,10 @@ trait Printers {
       p"$id: $tpe"
 
     case (tfd: TypedFunDef) => p"typed def ${tfd.id}[${tfd.tps}]"
+    case (afd: TypedADTDefinition) => p"typed class ${afd.id}[${afd.tps}]"
+
     case TypeParameterDef(tp) => p"$tp"
     case TypeParameter(id) => p"$id"
-
 
     case IfExpr(c, t, ie: IfExpr) =>
       optP {

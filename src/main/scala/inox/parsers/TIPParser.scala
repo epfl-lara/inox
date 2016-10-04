@@ -63,8 +63,8 @@ trait TIPParser {
 
   protected class Parser(lex: Lexer, positions: PositionProvider) extends SMTParser(lex) {
 
-    implicit def smtlibPositionToPosition(pos: _root_.smtlib.common.Position): Position = {
-      positions.get(pos.line, pos.col)
+    implicit def smtlibPositionToPosition(pos: Option[_root_.smtlib.common.Position]): Position = {
+      pos.map(p => positions.get(p.line, p.col)).getOrElse(NoPosition)
     }
 
     protected class Locals (
@@ -78,7 +78,7 @@ trait TIPParser {
       def isADT(sym: SSymbol): Boolean = adts.isDefinedAt(sym)
       def lookupADT(sym: SSymbol): Option[Identifier] = adts.get(sym)
       def getADT(sym: SSymbol): Identifier = adts.get(sym).getOrElse {
-        throw new MissformedTIPException("unknown ADT " + sym, sym.getPos)
+        throw new MissformedTIPException("unknown ADT " + sym, sym.optPos)
       }
 
       def withADT(sym: SSymbol, id: Identifier): Locals = withADTs(Seq(sym -> id))
@@ -87,21 +87,25 @@ trait TIPParser {
 
       def isADTSelector(sym: SSymbol): Boolean = selectors.isDefinedAt(sym)
       def getADTSelector(sym: SSymbol): Identifier = selectors.get(sym).getOrElse {
-        throw new MissformedTIPException("unknown ADT selector " + sym, sym.getPos)
+        throw new MissformedTIPException("unknown ADT selector " + sym, sym.optPos)
       }
 
       def withADTSelectors(seq: Seq[(SSymbol, Identifier)]): Locals =
         new Locals(funs, adts, selectors ++ seq, vars, tps, symbols)
 
       def isGeneric(sym: SSymbol): Boolean = tps.isDefinedAt(sym)
-      def lookupGeneric(sym: SSymbol): Option[TypeParameter] = tps.get(sym)
       def getGeneric(sym: SSymbol): TypeParameter = tps.get(sym).getOrElse {
-        throw new MissformedTIPException("unknown generic type " + sym, sym.getPos)
+        throw new MissformedTIPException("unknown generic type " + sym, sym.optPos)
       }
 
       def withGeneric(sym: SSymbol, tp: TypeParameter): Locals = withGenerics(Seq(sym -> tp))
       def withGenerics(seq: Seq[(SSymbol, TypeParameter)]): Locals =
         new Locals(funs, adts, selectors, vars, tps ++ seq, symbols)
+
+      def isVariable(sym: SSymbol): Boolean = vars.isDefinedAt(sym)
+      def getVariable(sym: SSymbol): Variable = vars.get(sym).getOrElse {
+        throw new MissformedTIPException("unknown variable " + sym, sym.optPos)
+      }
 
       def withVariable(sym: SSymbol, v: Variable): Locals = withVariables(Seq(sym -> v))
       def withVariables(seq: Seq[(SSymbol, Variable)]): Locals =
@@ -109,7 +113,7 @@ trait TIPParser {
 
       def isFunction(sym: SSymbol): Boolean = funs.isDefinedAt(sym)
       def getFunction(sym: SSymbol): Identifier = funs.get(sym).getOrElse {
-        throw new MissformedTIPException("unknown function " + sym, sym.getPos)
+        throw new MissformedTIPException("unknown function " + sym, sym.optPos)
       }
 
       def withFunction(sym: SSymbol, fd: FunDef): Locals = withFunctions(Seq(sym -> fd))
@@ -130,16 +134,51 @@ trait TIPParser {
       FreshIdentifier(sym.name)
     }
 
+    def parseTIPScript: (Symbols, Expr) = {
+
+      var assertions: Seq[Expr] = Seq.empty
+      implicit var locals: Locals = NoLocals
+
+      while (peekToken != null) {
+        eat(Tokens.OParen)
+        val (newAssertions, newLocals) = parseTIPCommand(nextToken)
+        assertions ++= newAssertions
+        locals = newLocals
+        eat(Tokens.CParen)
+      }
+
+      val expr: Expr = locals.symbols.andJoin(assertions)
+      (locals.symbols, expr)
+    }
+
+    protected def parseParTerm(implicit locals: Locals): Expr = getPeekToken.kind match {
+      case Tokens.OParen =>
+        eat(Tokens.OParen)
+        getPeekToken.kind match {
+          case Tokens.Par =>
+            eat(Tokens.Par)
+            val tps = parseMany(parseSymbol _)
+            val res = parseTerm
+            eat(Tokens.CParen)
+            extractExpr(res)(locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos))))
+
+          case _ =>
+            extractExpr(parseBefore(Tokens.CParen)(parseTermWithoutParens _))
+        }
+      case _ =>
+        extractExpr(parseTerm)
+    }
+
     protected def parseTIPCommand(token: Tokens.Token)
                                  (implicit locals: Locals): (Option[Expr], Locals) = token match {
       case Tokens.SymbolLit("assert-not") =>
-        (Some(Not(extractExpr(parseTerm))), locals)
+        (Some(Not(parseParTerm)), locals)
 
       case Tokens.Token(Tokens.Assert) =>
-        (Some(extractExpr(parseTerm)), locals)
+        (Some(parseParTerm), locals)
 
       case Tokens.Token(Tokens.DefineFun) | Tokens.Token(Tokens.DefineFunRec) =>
-        val isRec = token == Tokens.Token(Tokens.DefineFunRec)
+        val isRec = token.kind == Tokens.DefineFunRec
         val (tps, funDef) = getPeekToken.kind match {
           case Tokens.OParen =>
             eat(Tokens.OParen)
@@ -153,7 +192,7 @@ trait TIPParser {
             (Seq.empty[SSymbol], parseFunDef)
         }
 
-        val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.getPos)))
+        val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
         val fdsLocals = if (!isRec) tpsLocals else {
           tpsLocals.withFunction(funDef.name, extractSignature(funDef, tps)(tpsLocals))
         }
@@ -186,12 +225,12 @@ trait TIPParser {
         }
 
         val bodyLocals = locals.withFunctions(for ((tps, funDef) <- funDefs) yield {
-          val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.getPos)))
+          val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
           funDef.name -> extractSignature(funDef, tps)(tpsLocals)
         })
 
         (None, locals.withFunctions(for ((tps, funDef) <- funDefs) yield {
-          val tpsLocals = bodyLocals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.getPos)))
+          val tpsLocals = bodyLocals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
           funDef.name -> extractFunction(funDef, tps)(tpsLocals)
         }))
 
@@ -200,15 +239,23 @@ trait TIPParser {
         val datatypes = parseMany(parseDatatypes _)
 
         var locs = locals.withADTs(datatypes
-          .flatMap { case (sym, conss) => sym +: conss.map(_.sym) }
-          .map(sym => sym -> getIdentifier(sym)))
+          .flatMap { case (sym, conss) =>
+            val tpeId = getIdentifier(sym)
+            val cids = if (conss.size == 1) {
+              Seq(conss.head.sym -> tpeId)
+            } else {
+              conss.map(c => c.sym -> getIdentifier(c.sym))
+            }
+            (sym -> tpeId) +: cids
+          })
 
-        val adtLocals = locs.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.getPos)))
+        val generics = tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos))
         for ((sym, conss) <- datatypes) {
+          val adtLocals = locs.withGenerics(generics)
           val children = for (Constructor(sym, fields) <- conss) yield {
             val id = locs.getADT(sym)
             val vds = fields.map { case (s, sort) =>
-              ValDef(getIdentifier(s), extractType(sort)(adtLocals)).setPos(s.getPos)
+              ValDef(getIdentifier(s), extractType(sort)(adtLocals)).setPos(s.optPos)
             }
 
             (id, vds)
@@ -221,20 +268,20 @@ trait TIPParser {
 
           val tparams: Seq[TypeParameterDef] = tps.flatMap { sym =>
             val tp = adtLocals.getGeneric(sym)
-            if (allTparams(tp)) Some(TypeParameterDef(tp).setPos(sym.getPos)) else None
+            if (allTparams(tp)) Some(TypeParameterDef(tp).setPos(sym.optPos)) else None
           }
 
           val parent = if (children.size > 1) {
             val id = adtLocals.getADT(sym)
             locs = locs.registerADT(
-              new ADTSort(id, tparams, children.map(_._1), Set.empty).setPos(sym.getPos))
+              new ADTSort(id, tparams, children.map(_._1), Set.empty).setPos(sym.optPos))
             Some(id)
           } else {
             None
           }
 
-          locs = locals.registerADTs((conss zip children).map { case (cons, (cid, vds)) =>
-            new ADTConstructor(cid, tparams, parent, vds, Set.empty).setPos(cons.sym.getPos)
+          locs = locs.registerADTs((conss zip children).map { case (cons, (cid, vds)) =>
+            new ADTConstructor(cid, tparams, parent, vds, Set.empty).setPos(cons.sym.optPos)
           }).withADTSelectors((conss zip children).flatMap { case (Constructor(_, fields), (_, vds)) =>
             (fields zip vds).map(p => p._1._1 -> p._2.id)
           })
@@ -246,7 +293,7 @@ trait TIPParser {
         val sym = parseSymbol
         val sort = parseSort
         (None, locals.withVariable(sym,
-          Variable(getIdentifier(sym), extractType(sort)).setPos(sym.getPos)))
+          Variable(getIdentifier(sym), extractType(sort)).setPos(sym.optPos)))
 
       case Tokens.Token(Tokens.DeclareSort) =>
         val sym = parseSymbol
@@ -254,9 +301,9 @@ trait TIPParser {
         val id = getIdentifier(sym)
         (None, locals.withADT(sym, id).registerADT {
           val tparams = List.range(0, arity).map {
-            i => TypeParameterDef(TypeParameter.fresh("A" + i).setPos(sym.getPos)).setPos(sym.getPos)
+            i => TypeParameterDef(TypeParameter.fresh("A" + i).setPos(sym.optPos)).setPos(sym.optPos)
           }
-          val field = ValDef(FreshIdentifier("val"), IntegerType).setPos(sym.getPos)
+          val field = ValDef(FreshIdentifier("val"), IntegerType).setPos(sym.optPos)
 
           new ADTConstructor(id, tparams, None, Seq(field), Set.empty)
         })
@@ -266,24 +313,7 @@ trait TIPParser {
         (None, locals)
 
       case token =>
-        throw new MissformedTIPException("unknown TIP command " + token, token.getPos)
-    }
-
-    def parseTIPScript: (Symbols, Expr) = {
-
-      var assertions: Seq[Expr] = Seq.empty
-      implicit var locals: Locals = NoLocals
-
-      while (peekToken != null) {
-        eat(Tokens.OParen)
-        val (newAssertions, newLocals) = parseTIPCommand(nextToken)
-        assertions ++= newAssertions
-        locals = newLocals
-        eat(Tokens.CParen)
-      }
-
-      val expr: Expr = locals.symbols.andJoin(assertions)
-      (locals.symbols, expr)
+        throw new MissformedTIPException("unknown TIP command " + token, token.optPos)
     }
 
     override protected def parseTermWithoutParens: Term = getPeekToken match {
@@ -302,16 +332,16 @@ trait TIPParser {
     private def extractSignature(fd: SMTFunDef, tps: Seq[SSymbol])(implicit locals: Locals): FunDef = {
       assert(!locals.isFunction(fd.name))
       val id = getIdentifier(fd.name)
-      val tparams = tps.map(sym => TypeParameterDef(locals.getGeneric(sym)).setPos(sym.getPos))
+      val tparams = tps.map(sym => TypeParameterDef(locals.getGeneric(sym)).setPos(sym.optPos))
 
       val params = fd.params.map { case SortedVar(s, sort) =>
-        ValDef(getIdentifier(s), extractType(sort)).setPos(s.getPos)
+        ValDef(getIdentifier(s), extractType(sort)).setPos(s.optPos)
       }
 
       val returnType = extractType(fd.returnSort)
       val body = Choose(ValDef(FreshIdentifier("res"), returnType), BooleanLiteral(true))
 
-      new FunDef(id, tparams, params, returnType, body, Set.empty).setPos(fd.name.getPos)
+      new FunDef(id, tparams, params, returnType, body, Set.empty).setPos(fd.name.optPos)
     }
 
     private def extractFunction(fd: SMTFunDef, tps: Seq[SSymbol])(implicit locals: Locals): FunDef = {
@@ -327,7 +357,7 @@ trait TIPParser {
 
       val fullBody = extractExpr(fd.body)(bodyLocals)
 
-      new FunDef(sig.id, sig.tparams, sig.params, sig.returnType, fullBody, Set.empty).setPos(fd.name.getPos)
+      new FunDef(sig.id, sig.tparams, sig.params, sig.returnType, fullBody, Set.empty).setPos(fd.name.optPos)
     }
 
     private def isInstanceOfSymbol(sym: SSymbol)(implicit locals: Locals): Option[Identifier] = {
@@ -358,8 +388,17 @@ trait TIPParser {
       import locals.symbols._
       val formal = bestRealType(tupleTypeWrap(formals))
       val actual = bestRealType(tupleTypeWrap(actuals))
-      canBeSupertypeOf(formal, actual) match {
-        case Some(tmap) => tps.map(tpd => tmap.getOrElse(tpd.tp, tpd.tp))
+
+      // freshen the type parameters in case we're building a substitution that includes params from `tps`
+      val tpSubst: Map[Type, Type] = locals.symbols.typeParamsOf(actual).map(tp => tp -> tp.freshen).toMap
+      val tpRSubst = tpSubst.map(_.swap)
+      val substActual = locals.symbols.typeOps.replace(tpSubst, actual)
+
+      canBeSupertypeOf(formal, substActual) match {
+        case Some(tmap) => tps.map(tpd => tmap.get(tpd.tp).map {
+          tpe => locals.symbols.typeOps.replace(tpRSubst, tpe)
+        }.getOrElse(tpd.tp))
+
         case None => throw new MissformedTIPException(
           s"could not instantiate $tps in $formals given $actuals",
           actuals.headOption.map(_.getPos).getOrElse(NoPosition)
@@ -378,6 +417,9 @@ trait TIPParser {
     }
 
     protected def extractExpr(term: Term)(implicit locals: Locals): Expr = (term match {
+      case QualifiedIdentifier(SimpleIdentifier(sym), None) if locals.isVariable(sym) =>
+        locals.getVariable(sym)
+
       case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("assume")), None), Seq(pred, body)) =>
         Assume(extractExpr(pred), extractExpr(body))
 
@@ -386,7 +428,7 @@ trait TIPParser {
         val mapping = for (VarBinding(name, term) <- (binding +: bindings)) yield {
           val e = extractExpr(term)(locs)
           val tpe = e.getType(locs.symbols)
-          val vd = ValDef(getIdentifier(name), tpe).setPos(name.getPos)
+          val vd = ValDef(getIdentifier(name), tpe).setPos(name.optPos)
           locs = locs.withVariable(name, vd.toVariable)
           vd -> e
         }
@@ -398,7 +440,7 @@ trait TIPParser {
 
       case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("lambda")), None), args :+ body) =>
         val (vds, bindings) = args.map { case QualifiedIdentifier(SimpleIdentifier(s), Some(sort)) =>
-          val vd = ValDef(getIdentifier(s), extractType(sort)).setPos(s.getPos)
+          val vd = ValDef(getIdentifier(s), extractType(sort)).setPos(s.optPos)
           (vd, s -> vd.toVariable)
         }.unzip
 
@@ -406,7 +448,7 @@ trait TIPParser {
 
       case SMTForall(sv, svs, term) =>
         val (vds, bindings) = (sv +: svs).map { case SortedVar(s, sort) =>
-          val vd = ValDef(getIdentifier(s), extractType(sort)).setPos(s.getPos)
+          val vd = ValDef(getIdentifier(s), extractType(sort)).setPos(s.optPos)
           (vd, s -> vd.toVariable)
         }.unzip
 
@@ -414,11 +456,11 @@ trait TIPParser {
 
       case Exists(sv, svs, term) =>
         val (vds, bindings) = (sv +: svs).map { case SortedVar(s, sort) =>
-          val vd = ValDef(getIdentifier(s), extractType(sort)).setPos(s.getPos)
+          val vd = ValDef(getIdentifier(s), extractType(sort)).setPos(s.optPos)
           (vd, s -> vd.toVariable)
         }.unzip
 
-        val body = Not(extractExpr(term)(locals.withVariables(bindings))).setPos(term.getPos)
+        val body = Not(extractExpr(term)(locals.withVariables(bindings))).setPos(term.optPos)
         Forall(vds, body)
 
       case Core.ITE(cond, thenn, elze) =>
@@ -441,6 +483,21 @@ trait TIPParser {
       case SString(value) =>
         StringLiteral(value)
 
+      case QualifiedIdentifier(SimpleIdentifier(sym), optSort) if locals.isADT(sym) =>
+        val cons = locals.symbols.getADT(locals.getADT(sym)).asInstanceOf[ADTConstructor]
+        val tpe = optSort match {
+          case Some(sort) =>
+            val tps = instantiateTypeParams(
+              cons.tparams,
+              Seq(cons.typed(locals.symbols).toType),
+              Seq(extractType(sort)))
+            cons.typed(tps)(locals.symbols).toType
+          case _ =>
+            assert(cons.tparams.isEmpty)
+            cons.typed(locals.symbols).toType
+        }
+        ADT(tpe, Seq.empty)
+
       case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), args)
       if locals.isADT(sym) =>
         val es = args.map(extractExpr)
@@ -448,6 +505,19 @@ trait TIPParser {
         val tps = instantiateTypeParams(cons.tparams, cons.fields.map(_.tpe), es.map(_.getType(locals.symbols)))
         val tcons = cons.typed(tps)(locals.symbols)
         ADT(tcons.toType, wrapAsInstanceOf(tcons.fieldsTypes, es))
+
+      case QualifiedIdentifier(SimpleIdentifier(sym), optSort) if locals.isFunction(sym) =>
+        val fd = locals.symbols.getFunction(locals.getFunction(sym))
+        val tfd = optSort match {
+          case Some(sort) =>
+            val tpe = extractType(sort)
+            val tps = instantiateTypeParams(fd.tparams, Seq(fd.returnType), Seq(tpe))
+            fd.typed(tps)(locals.symbols)
+
+          case None =>
+            fd.typed(locals.symbols)
+        }
+        tfd.applied
 
       case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), args)
       if locals.isFunction(sym) =>
@@ -467,6 +537,12 @@ trait TIPParser {
       if locals.isADTSelector(sym) =>
         ADTSelector(extractExpr(term), locals.getADTSelector(sym))
 
+      case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("distinct")), None), args) =>
+        val es = args.map(extractExpr).toArray
+        val indexPairs = args.indices.flatMap(i1 => args.indices.map(i2 => (i1, i2))).filter(p => p._1 != p._2)
+        locals.symbols.andJoin(
+          indexPairs.map(p => Not(Equals(es(p._1), es(p._2)).setPos(term.optPos)).setPos(term.optPos)))
+
       case Core.Equals(e1, e2) => Equals(extractExpr(e1), extractExpr(e2))
       case Core.And(es @ _*) => And(es.map(extractExpr))
       case Core.Or(es @ _*) => Or(es.map(extractExpr))
@@ -478,8 +554,8 @@ trait TIPParser {
 
       case Strings.Length(s) => StringLength(extractExpr(s))
       case Strings.Concat(e1, e2, es @ _*) =>
-        es.foldLeft(StringConcat(extractExpr(e1), extractExpr(e2)).setPos(term.getPos)) {
-          (c,e) => StringConcat(c, extractExpr(e)).setPos(term.getPos)
+        es.foldLeft(StringConcat(extractExpr(e1), extractExpr(e2)).setPos(term.optPos)) {
+          (c,e) => StringConcat(c, extractExpr(e)).setPos(term.optPos)
         }
 
       case Strings.Substring(e, start, end) =>
@@ -496,8 +572,8 @@ trait TIPParser {
       case Ints.Abs(e) =>
         val ie = extractExpr(e)
         IfExpr(
-          LessThan(ie, IntegerLiteral(BigInt(0)).setPos(term.getPos)).setPos(term.getPos),
-          UMinus(ie).setPos(term.getPos),
+          LessThan(ie, IntegerLiteral(BigInt(0)).setPos(term.optPos)).setPos(term.optPos),
+          UMinus(ie).setPos(term.optPos),
           ie
         )
 
@@ -559,7 +635,7 @@ trait TIPParser {
             case QualifiedIdentifier(SimpleIdentifier(sym), None) =>
               val id = locals.getADT(sym)
               val tpe = typeADTConstructor(id, scrut.getType(locals.symbols))
-              (Some(IsInstanceOf(scrut, tpe).setPos(sym.getPos)), extractExpr(term))
+              (Some(IsInstanceOf(scrut, tpe).setPos(sym.optPos)), extractExpr(term))
 
             case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), args) =>
               val id = locals.getADT(sym)
@@ -573,21 +649,21 @@ trait TIPParser {
 
               val expr = extractExpr(term)(locals.withVariables(bindings.map(p => p._1 -> p._3.toVariable)))
               val fullExpr = bindings.foldRight(expr) { case ((s, id, vd), e) =>
-                val selector = ADTSelector(AsInstanceOf(scrut, tpe).setPos(s.getPos), id).setPos(s.getPos)
-                Let(vd, selector, e).setPos(s.getPos)
+                val selector = ADTSelector(AsInstanceOf(scrut, tpe).setPos(s.optPos), id).setPos(s.optPos)
+                Let(vd, selector, e).setPos(s.optPos)
               }
 
-              (Some(IsInstanceOf(scrut, tpe).setPos(sym.getPos)), fullExpr)
+              (Some(IsInstanceOf(scrut, tpe).setPos(sym.optPos)), fullExpr)
 
-            case _ => throw new MissformedTIPException("unexpected match pattern " + pat, pat.getPos)
+            case _ => throw new MissformedTIPException("unexpected match pattern " + pat, pat.optPos)
           }
 
-          case cse => throw new MissformedTIPException("unexpected match case " + cse, cse.getPos)
+          case cse => throw new MissformedTIPException("unexpected match case " + cse, cse.optPos)
         }
 
         val (withCond, withoutCond) = matchCases.partition(_._1.isDefined)
         val (ifs, last) = if (withoutCond.size > 1) {
-          throw new MissformedTIPException("unexpected multiple defaults in " + term, term.getPos)
+          throw new MissformedTIPException("unexpected multiple defaults in " + term, term.optPos)
         } else if (withoutCond.size == 1) {
           (withCond.map(p => p._1.get -> p._2), withoutCond.head._2)
         } else {
@@ -597,7 +673,7 @@ trait TIPParser {
 
         ifs.foldRight(last) { case ((cond, body), elze) => IfExpr(cond, body, elze).setPos(cond.getPos) }
 
-    }).setPos(term.getPos)
+    }).setPos(term.optPos)
 
     protected def extractType(sort: Sort)(implicit locals: Locals): Type = (sort match {
       case Sort(SMTIdentifier(SSymbol("bitvector"), Seq(SNumeral(n))), Seq()) => BVType(n.toInt)
@@ -622,8 +698,8 @@ trait TIPParser {
       case Sort(SimpleIdentifier(sym), tps) if locals.isADT(sym) =>
         ADTType(locals.getADT(sym), tps.map(extractType))
 
-      case _ => throw new MissformedTIPException("unexpected sort: " + sort, sort.id.symbol.getPos)
-    }).setPos(sort.id.symbol.getPos)
+      case _ => throw new MissformedTIPException("unexpected sort: " + sort, sort.id.symbol.optPos)
+    }).setPos(sort.id.symbol.optPos)
   }
 }
 

@@ -4,12 +4,11 @@ package inox
 package tip
 
 import org.scalatest._
-import org.scalatest.concurrent._
 
 import solvers._
 import utils._
 
-class TIPTestSuite extends InoxTestSuite with ResourceUtils {
+class TIPTestSuite extends FunSuite with ResourceUtils {
 
   val tipDir = "tip-benchmarks/benchmarks"
 
@@ -17,14 +16,14 @@ class TIPTestSuite extends InoxTestSuite with ResourceUtils {
     val files = resourceFiles(s"$tipDir/$base")
 
     if (files.isEmpty) {
-      ignore(s"tip-benchmarks: $base directory not found (missing git submodule?") {_ => ()}
+      ignore(s"tip-benchmarks: $base directory not found (missing git submodule?") {}
     } else {
+      val baseFile = new java.io.File(getClass.getResource(s"/$tipDir").getPath)
       for (file <- files) {
-        test(s"Verifying tip-benchmarks/$base") { ctx =>
-          val (syms, clause) = parsers.TIPParser.parse(file)
-          val program = InoxProgram(ctx, syms)
+        val path = baseFile.toURI.relativize(file.toURI).getPath
 
-          assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+        test(s"Parsing tip-benchmarks/$path") {
+          parsers.TIPParser.parse(file)
         }
       }
     }
