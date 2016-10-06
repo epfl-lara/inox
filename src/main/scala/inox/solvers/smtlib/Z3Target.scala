@@ -10,25 +10,21 @@ import _root_.smtlib.interpreters.Z3Interpreter
 import _root_.smtlib.theories.Core.{Equals => SMTEquals, _}
 import _root_.smtlib.theories._
 
-trait Z3Target extends SMTLIBTarget {
-
+trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   import program._
   import trees._
   import symbols._
 
   def targetName = "z3"
 
-  def interpreterOps(ctx: InoxContext) = {
-    Seq(
-      "-in",
-      "-smt2"
-    )
-  }
+  protected def interpreterOpts = Seq(
+    "-in",
+    "-smt2"
+  )
 
-  def getNewInterpreter(ctx: InoxContext) = {
-    val opts = interpreterOps(ctx)
+  protected val interpreter = {
+    val opts = interpreterOpts
     ctx.reporter.debug("Invoking solver "+targetName+" with "+opts.mkString(" "))
-
     new Z3Interpreter("z3", opts.toArray)
   }
 

@@ -1,0 +1,50 @@
+/* Copyright 2009-2016 EPFL, Lausanne */
+
+package inox
+package solvers
+package smtlib
+
+import _root_.smtlib.parser.Terms._
+
+trait SMTLIBDebugger extends SMTLIBTarget {
+  import program._
+
+  protected def interpreterOpts: Seq[String]
+
+  implicit val debugSection: DebugSection
+
+  override def free(): Unit = {
+    super.free()
+    debugOut.foreach(_.close())
+  }
+
+  /* Printing VCs */
+  protected lazy val debugOut: Option[java.io.FileWriter] = {
+    if (ctx.reporter.isDebugEnabled) {
+      val file = "" // TODO: real file name
+      val n = DebugFileNumbers.next(targetName + file)
+      val fileName = s"smt-sessions/$targetName-$file-$n.smt2"
+
+      val javaFile = new java.io.File(fileName)
+      javaFile.getParentFile.mkdirs()
+
+      ctx.reporter.debug(s"Outputting smt session into $fileName")
+
+      val fw = new java.io.FileWriter(javaFile, false)
+      fw.write("; Options: " + interpreterOpts.mkString(" ") + "\n")
+
+      Some(fw)
+    } else {
+      None
+    }
+  }
+
+  override def emit(cmd: SExpr, rawOut: Boolean = false): SExpr = {
+    debugOut.foreach { o =>
+      interpreter.printer.printSExpr(cmd, o)
+      o.write("\n")
+      o.flush()
+    }
+    super.emit(cmd, rawOut = rawOut)
+  }
+}

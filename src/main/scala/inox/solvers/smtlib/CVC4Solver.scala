@@ -10,7 +10,7 @@ trait CVC4Solver extends SMTLIBSolver with CVC4Target {
   import program.trees._
   import SolverResponses._
 
-  def interpreterOps(ctx: InoxContext) = {
+  def interpreterOpts = {
     Seq(
       "-q",
       "--produce-models",

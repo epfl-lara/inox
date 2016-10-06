@@ -8,7 +8,7 @@ import _root_.smtlib.parser.Commands.{FunDef => SMTFunDef, _}
 import _root_.smtlib.parser.Terms.{Identifier => _, _}
 import _root_.smtlib.parser.CommandsResponses._
 
-trait SMTLIBSolver extends Solver with SMTLIBTarget {
+trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
 
   import program._
   import trees._

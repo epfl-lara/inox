@@ -21,7 +21,7 @@ import _root_.smtlib.parser.Terms.{
 }
 import _root_.smtlib.parser.CommandsResponses._
 import _root_.smtlib.theories.{Constructors => SmtLibConstructors, _}
-import _root_.smtlib.interpreters.ProcessInterpreter
+import _root_.smtlib.Interpreter
 
 trait SMTLIBTarget extends Interruptible with ADTManagers {
   val program: Program
@@ -31,15 +31,9 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
 
   def targetName: String
 
-  implicit val debugSection: DebugSection
-
-  protected def interpreterOps(ctx: InoxContext): Seq[String]
-
-  protected def getNewInterpreter(ctx: InoxContext): ProcessInterpreter
-
   protected def unsupported(t: Tree, str: String): Nothing
 
-  protected lazy val interpreter = getNewInterpreter(ctx)
+  protected val interpreter: Interpreter
 
   /* Interruptible interface */
   private var interrupted = false
@@ -50,46 +44,18 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
     interrupted = true
     interpreter.interrupt()
   }
+
   override def recoverInterrupt(): Unit = {
     interrupted = false
   }
 
-  def free() = {
+  def free(): Unit = {
     interpreter.free()
     ctx.interruptManager.unregisterForInterrupts(this)
-    debugOut foreach { _.close }
-  }
-
-  /* Printing VCs */
-  protected lazy val debugOut: Option[java.io.FileWriter] = {
-    if (ctx.reporter.isDebugEnabled) {
-      val file = ""//ctx.files.headOption.map(_.getName).getOrElse("NA")
-      val n = DebugFileNumbers.next(targetName + file)
-
-      val fileName = s"smt-sessions/$targetName-$file-$n.smt2"
-
-      val javaFile = new java.io.File(fileName)
-      javaFile.getParentFile.mkdirs()
-
-      ctx.reporter.debug(s"Outputting smt session into $fileName")
-
-      val fw = new java.io.FileWriter(javaFile, false)
-
-      fw.write("; Options: " + interpreterOps(ctx).mkString(" ") + "\n")
-
-      Some(fw)
-    } else {
-      None
-    }
   }
 
   /* Send a command to the solver */
   def emit(cmd: SExpr, rawOut: Boolean = false): SExpr = {
-    debugOut foreach { o =>
-      SMTPrinter.printSExpr(cmd, o)
-      o.write("\n")
-      o.flush()
-    }
     interpreter.eval(cmd) match {
       case err @ Error(msg) if !interrupted && !rawOut =>
         ctx.reporter.fatalError(s"Unexpected error from $targetName solver: $msg")

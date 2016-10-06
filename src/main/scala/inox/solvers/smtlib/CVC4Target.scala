@@ -12,17 +12,16 @@ import _root_.smtlib.interpreters.CVC4Interpreter
 import _root_.smtlib.theories.experimental.Sets
 import _root_.smtlib.theories.experimental.Strings
 
-trait CVC4Target extends SMTLIBTarget {
+trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
   import program._
   import trees._
   import symbols._
 
   def targetName = "cvc4"
 
-  override def getNewInterpreter(ctx: InoxContext) = {
-    val opts = interpreterOps(ctx)
+  protected lazy val interpreter = {
+    val opts = interpreterOpts
     ctx.reporter.debug("Invoking solver with "+opts.mkString(" "))
-
     new CVC4Interpreter("cvc4", opts.toArray)
   }
 
