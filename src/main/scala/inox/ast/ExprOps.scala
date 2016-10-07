@@ -48,25 +48,21 @@ trait ExprOps extends GenTreeOps {
     case _ => None
   } (expr)
 
-  protected class VariableExtractor {
-    def unapply(e: Expr): Option[(Set[Variable], Set[Variable])] = e match {
-      case v: Variable => Some((Set(v), Set.empty))
-      case Let(vd, _, _) => Some((Set.empty, Set(vd.toVariable)))
-      case Lambda(args, _) => Some((Set.empty, args.map(_.toVariable).toSet))
-      case Forall(args, _) => Some((Set.empty, args.map(_.toVariable).toSet))
-      case Choose(res, _) => Some((Set.empty, Set(res.toVariable)))
-      case _ => Some((Set.empty, Set.empty))
+  object VariableExtractor {
+    def unapply(e: Expr): Option[Set[Variable]] = {
+      val (vs, _, _, _) = deconstructor.deconstruct(e)
+      Some(vs.toSet)
     }
   }
-
-  protected val VariableExtractor = new VariableExtractor
 
   /** Returns the set of free variables in an expression */
   def variablesOf(expr: Expr): Set[Variable] = {
     fold[Set[Variable]] { case (e, subs) =>
       val subvs = subs.flatten.toSet
-      val VariableExtractor(add, remove) = e
-      subvs ++ add -- remove
+      e match {
+        case v: Variable => subvs + v
+        case VariableExtractor(vs) => subvs -- vs
+      }
     }(expr)
   }
 

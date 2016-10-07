@@ -72,11 +72,8 @@ trait Expressions { self: Trees =>
     */
   case class Let(vd: ValDef, value: Expr, body: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = {
-      if (s.isSubtypeOf(value.getType, vd.tpe))
-        body.getType
-      else {
-        Untyped
-      }
+      if (s.isSubtypeOf(value.getType, vd.tpe)) body.getType
+      else Untyped
     }
   }
 
