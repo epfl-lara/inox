@@ -19,7 +19,7 @@ trait Trees
   type Identifier = ast.Identifier
   val FreshIdentifier = ast.FreshIdentifier
 
-  class Unsupported(t: Tree, msg: String)(implicit ctx: InoxContext)
+  class Unsupported(t: Tree, msg: String)(implicit ctx: Context)
     extends Exception(s"${t.asString(PrinterOptions.fromContext(ctx))}@${t.getPos} $msg")
 
   abstract class Tree extends utils.Positioned with Serializable {
@@ -29,7 +29,7 @@ trait Trees
 
     def asString(implicit opts: PrinterOptions): String = prettyPrint(this, opts)
 
-    override def toString = asString(PrinterOptions.fromContext(InoxContext.printNames))
+    override def toString = asString(PrinterOptions.fromContext(Context.printNames))
   }
 
   val exprOps: ExprOps { val trees: Trees.this.type } = new {

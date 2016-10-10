@@ -108,7 +108,7 @@ trait SymbolOps { self: TypeOps =>
                         (Seq[ValDef], Expr, Map[Variable, Expr]) = synchronized {
     val vars = args.map(_.toVariable).toSet
 
-    class Normalizer extends TreeTransformer {
+    class Normalizer extends SelfTreeTransformer {
       var subst: Map[Variable, Expr] = Map.empty
       var varSubst: Map[Identifier, Identifier] = Map.empty
       var remainingIds: Map[Type, List[Identifier]] = typedIds.toMap
@@ -660,7 +660,7 @@ trait SymbolOps { self: TypeOps =>
   }
 
   // Helpers for instantiateType
-  class TypeInstantiator(tps: Map[TypeParameter, Type]) extends TreeTransformer {
+  class TypeInstantiator(tps: Map[TypeParameter, Type]) extends SelfTreeTransformer {
     override def transform(tpe: Type): Type = tpe match {
       case tp: TypeParameter => tps.getOrElse(tp, super.transform(tpe))
       case _ => super.transform(tpe)

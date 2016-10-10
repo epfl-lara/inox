@@ -13,7 +13,7 @@ class TreeTestsSuite extends FunSuite {
 
     //TODO dont like the fact that we need to create an empty program
     //     to get access to the and/or constructors
-    val pgm = InoxProgram(InoxContext.empty, Seq(), Seq())
+    val pgm = InoxProgram(Context.empty, Seq(), Seq())
     import pgm.symbols._
 
     val x = Variable(FreshIdentifier("x"), BooleanType)

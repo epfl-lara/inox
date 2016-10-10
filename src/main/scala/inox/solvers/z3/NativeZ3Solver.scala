@@ -21,19 +21,22 @@ trait NativeZ3Solver
   type Encoded = Z3AST
 
   object theories extends {
-    val sourceProgram: program.type = program
+    val sourceProgram: NativeZ3Solver.this.encoder.targetProgram.type =
+      NativeZ3Solver.this.encoder.targetProgram
   } with StringEncoder
 
   protected object underlying extends {
-    val program: theories.targetProgram.type = theories.targetProgram
+    val program: targetProgram.type = targetProgram
     val options = NativeZ3Solver.this.options
   } with AbstractZ3Solver
 
   private lazy val z3 = underlying.z3
 
   object templates extends {
-    val program: theories.targetProgram.type = theories.targetProgram
+    val program: targetProgram.type = targetProgram
   } with Templates {
+    import program.trees._
+
     type Encoded = NativeZ3Solver.this.Encoded
 
     def asString(ast: Z3AST): String = ast.toString
@@ -65,19 +68,19 @@ trait NativeZ3Solver
 
   def free(): Unit = underlying.free()
 
-  protected def declareVariable(v: Variable): Z3AST = underlying.declareVariable(v)
+  protected def declareVariable(v: t.Variable): Z3AST = underlying.declareVariable(v)
 
   protected def wrapModel(model: Z3Model): super.ModelWrapper = ModelWrapper(model)
 
   private case class ModelWrapper(model: Z3Model) extends super.ModelWrapper {
-    def modelEval(elem: Z3AST, tpe: Type): Option[Expr] = {
+    def modelEval(elem: Z3AST, tpe: t.Type): Option[t.Expr] = {
       val timer = ctx.timers.solvers.z3.eval.start()
       val res = tpe match {
-        case BooleanType => model.evalAs[Boolean](elem).map(BooleanLiteral)
-        case Int32Type => model.evalAs[Int](elem).map(IntLiteral(_)).orElse {
-          model.eval(elem).flatMap(t => underlying.softFromZ3Formula(model, t, Int32Type))
+        case t.BooleanType => model.evalAs[Boolean](elem).map(t.BooleanLiteral)
+        case t.Int32Type => model.evalAs[Int](elem).map(t.IntLiteral(_)).orElse {
+          model.eval(elem).flatMap(term => underlying.softFromZ3Formula(model, term, t.Int32Type))
         }
-        case IntegerType => model.evalAs[Int](elem).map(IntegerLiteral(_))
+        case t.IntegerType => model.evalAs[Int](elem).map(t.IntegerLiteral(_))
         case other => model.eval(elem) match {
           case None => None
           case Some(t) => underlying.softFromZ3Formula(model, t, other)

@@ -74,7 +74,7 @@ trait BagEncoder extends TheoryEncoder {
   override val newFunctions = Seq(Get, Add, Union, Difference, Intersect, BagEquals)
   override val newADTs = Seq(bagADT)
 
-  val encoder = new TreeTransformer {
+  val treeEncoder = new SelfTreeTransformer {
     import sourceProgram._
 
     override def transform(e: Expr): Expr = e match {
@@ -117,7 +117,7 @@ trait BagEncoder extends TheoryEncoder {
     }
   }
 
-  val decoder = new TreeTransformer {
+  val treeDecoder = new SelfTreeTransformer {
     import targetProgram._
 
     override def transform(e: Expr): Expr = e match {

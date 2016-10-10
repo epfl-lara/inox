@@ -16,10 +16,10 @@ object SolverOptions {
   )
 }
 
-object optCheckModels  extends InoxFlagOptionDef(
+object optCheckModels  extends FlagOptionDef(
   "checkmodels",  "Double-check counter-examples with evaluator", false)
 
-object optSilentErrors extends InoxFlagOptionDef(
+object optSilentErrors extends FlagOptionDef(
   "silenterrors", "Fail silently into UNKNOWN when encountering an error", false)
 
 case object DebugSectionSolver extends DebugSection("solver")
@@ -27,7 +27,7 @@ case object DebugSectionSolver extends DebugSection("solver")
 trait AbstractSolver extends Interruptible {
   def name: String
   val program: Program
-  val options: InoxOptions
+  val options: Options
 
   import program._
   import program.trees._

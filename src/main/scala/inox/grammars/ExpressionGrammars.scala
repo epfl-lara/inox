@@ -33,7 +33,7 @@ trait ExpressionGrammars { self: GrammarsUniverse =>
       */
     def computeProductions(lab: Label): Seq[ProductionRule[Label, Expr]]
 
-    protected def applyAspects(lab: Label, ps: Seq[ProductionRule[Label, Expr]])(implicit ctx: InoxContext) = {
+    protected def applyAspects(lab: Label, ps: Seq[ProductionRule[Label, Expr]]) = {
       lab.aspects.foldLeft(ps) {
         case (ps, a) => a.applyTo(lab, ps)
       }

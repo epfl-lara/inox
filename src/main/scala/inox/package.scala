@@ -24,7 +24,7 @@ package object inox {
   type InoxProgram = Program { val trees: inox.trees.type }
 
   object InoxProgram {
-    def apply(ictx: InoxContext,
+    def apply(ictx: Context,
       functions: Seq[inox.trees.FunDef],
       adts: Seq[inox.trees.ADTDefinition]): InoxProgram = new Program {
         val trees = inox.trees
@@ -34,7 +34,7 @@ package object inox {
           adts.map(cd => cd.id -> cd).toMap)
       }
 
-    def apply(ictx: InoxContext, sym: inox.trees.Symbols): InoxProgram = new Program {
+    def apply(ictx: Context, sym: inox.trees.Symbols): InoxProgram = new Program {
       val trees = inox.trees
       val ctx = ictx
       val symbols = sym

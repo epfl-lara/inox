@@ -9,12 +9,12 @@ object EvaluatorOptions {
   )
 }
 
-object optIgnoreContracts extends InoxFlagOptionDef(
+object optIgnoreContracts extends FlagOptionDef(
   "ignorecontracts", "Don't fail on invalid contracts during evaluation", false)
 
 trait Evaluator {
   val program: Program
-  val options: InoxOptions
+  val options: Options
   import program.trees._
 
   /** The type of value that this [[Evaluator]] calculates

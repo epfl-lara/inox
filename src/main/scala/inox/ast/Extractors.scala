@@ -210,59 +210,20 @@ trait TreeDeconstructor {
     case s.StringType  => (Seq(), _ => t.StringType)
   }
 
-  def translate(v: s.Variable): t.Variable = {
-    val newTpe = translate(v.tpe)
-    if (v.tpe ne newTpe) {
-      t.Variable(v.id, newTpe).copiedFrom(v)
-    } else {
-      v.asInstanceOf[t.Variable]
-    }
-  }
+  def deconstruct(f: s.Flag): (Seq[s.Expr], Seq[s.Type], (Seq[t.Expr], Seq[t.Type]) => t.Flag) = f match {
+    case s.HasADTInvariant(id) =>
+      (Seq(), Seq(), (_, _) => t.HasADTInvariant(id))
+    case s.Annotation(name, args) =>
+      val withIndex = args.zipWithIndex
+      val (exprs, exprIndexes) = withIndex.collect { case (e: s.Expr, i) => e -> i }.unzip
+      val (types, typeIndexes) = withIndex.collect { case (tp: s.Type, i) => tp -> i }.unzip
 
-  def translate(e: s.Expr): t.Expr = {
-    val (vs, es, tps, builder) = deconstruct(e)
-
-    var changed = false
-    val newVs = for (v <- vs) yield {
-      val newV = translate(v)
-      if (v ne newV) changed = true
-      newV
-    }
-
-    val newEs = for (e <- es) yield {
-      val newE = translate(e)
-      if (e ne newE) changed = true
-      newE
-    }
-
-    val newTps = for (tp <- tps) yield {
-      val newTp = translate(tp)
-      if (tp ne newTp) changed = true
-      newTp
-    }
-
-    if (changed || (s ne t)) {
-      builder(newVs, newEs, newTps).copiedFrom(e)
-    } else {
-      e.asInstanceOf[t.Expr]
-    }
-  }
-
-  def translate(tp: s.Type): t.Type = {
-    val (tps, builder) = deconstruct(tp)
-
-    var changed = false
-    val newTps = for (tp <- tps) yield {
-      val newTp = translate(tp)
-      if (tp ne newTp) changed = true
-      newTp
-    }
-
-    if (changed || (s ne t)) {
-      builder(newTps).copiedFrom(tp)
-    } else {
-      tp.asInstanceOf[t.Type]
-    }
+      // we use the implicit contract on Flags here that states that a flag is either
+      // an instance of Expr | Type, or it has nothing to do with a tree
+      val rest = withIndex.filterNot(_._1.isInstanceOf[s.Tree])
+      (exprs, types, (es, tps) => t.Annotation(name,
+        ((es zip exprIndexes) ++ (tps zip typeIndexes) ++ rest).sortBy(_._2).map(_._1)
+      ))
   }
 }
 

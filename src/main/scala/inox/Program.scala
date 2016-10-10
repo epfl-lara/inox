@@ -19,14 +19,22 @@ import ast._
 trait Program {
   val trees: Trees
   implicit val symbols: trees.Symbols
-  implicit val ctx: InoxContext
+  implicit val ctx: Context
 
   implicit def implicitProgram: this.type = this
   implicit def printerOpts: trees.PrinterOptions = trees.PrinterOptions.fromSymbols(symbols, ctx)
 
-  def transform(t: trees.TreeTransformer): Program { val trees: Program.this.trees.type } = new Program {
+  def transform(t: trees.SelfTransformer): Program { val trees: Program.this.trees.type } = new Program {
     val trees: Program.this.trees.type = Program.this.trees
     val symbols = Program.this.symbols.transform(t)
+    val ctx = Program.this.ctx
+  }
+
+  def transform(t: SymbolTransformer {
+    val transformer: TreeTransformer { val s: trees.type }
+  }): Program { val trees: t.t.type } = new Program {
+    val trees: t.t.type = t.t
+    val symbols = t.transform(Program.this.symbols)
     val ctx = Program.this.ctx
   }
 

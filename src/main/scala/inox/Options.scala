@@ -7,7 +7,7 @@ import OptionParsers._
 import scala.util.Try
 import scala.reflect.ClassTag
 
-abstract class InoxOptionDef[+A] {
+abstract class OptionDef[A] {
   val name: String
   val description: String
   def default: A
@@ -32,49 +32,51 @@ abstract class InoxOptionDef[+A] {
     )
   }
 
-  def parse(s: String)(implicit reporter: Reporter): InoxOption[A] =
-    InoxOption(this)(parseValue(s))
+  def parse(s: String)(implicit reporter: Reporter): OptionValue[A] =
+    OptionValue(this)(parseValue(s))
 
-  def withDefaultValue: InoxOption[A] =
-    InoxOption(this)(default)
+  def withDefaultValue: OptionValue[A] =
+    OptionValue(this)(default)
+
+  def apply(value: A): OptionValue[A] = OptionValue(this)(value)
 
   // @mk: FIXME: Is this cool?
   override def equals(other: Any) = other match {
-    case that: InoxOptionDef[_] => this.name == that.name
+    case that: OptionDef[_] => this.name == that.name
     case _ => false
   }
 
   override def hashCode = name.hashCode
 }
 
-case class InoxFlagOptionDef(name: String, description: String, default: Boolean) extends InoxOptionDef[Boolean] {
+case class FlagOptionDef(name: String, description: String, default: Boolean) extends OptionDef[Boolean] {
   val parser = booleanParser
   val usageRhs = ""
 }
 
-case class InoxStringOptionDef(name: String, description: String, default: String, usageRhs: String) extends InoxOptionDef[String] {
+case class StringOptionDef(name: String, description: String, default: String, usageRhs: String) extends OptionDef[String] {
   val parser = stringParser
 }
 
-case class InoxLongOptionDef(name: String, description: String, default: Long, usageRhs: String) extends InoxOptionDef[Long] {
+case class LongOptionDef(name: String, description: String, default: Long, usageRhs: String) extends OptionDef[Long] {
   val parser = longParser
 }
 
-class InoxOption[+A] private (val optionDef: InoxOptionDef[A], val value: A) {
+class OptionValue[A] private (val optionDef: OptionDef[A], val value: A) {
   override def toString = s"--${optionDef.name}=$value"
   override def equals(other: Any) = other match {
-    case InoxOption(optionDef, value) =>
+    case OptionValue(optionDef, value) =>
       optionDef.name == this.optionDef.name && value == this.value
     case _ => false
   }
   override def hashCode = optionDef.hashCode + value.hashCode
 }
 
-object InoxOption {
-  def apply[A](optionDef: InoxOptionDef[A])(value: A) = {
-    new InoxOption(optionDef, value)
+object OptionValue {
+  def apply[A](optionDef: OptionDef[A])(value: A) = {
+    new OptionValue(optionDef, value)
   }
-  def unapply[A](opt: InoxOption[A]) = Some((opt.optionDef, opt.value))
+  def unapply[A](opt: OptionValue[A]) = Some((opt.optionDef, opt.value))
 }
 
 object OptionParsers {
@@ -154,32 +156,34 @@ object OptionsHelpers {
   }
 }
 
-case class InoxOptions(options: Seq[InoxOption[Any]]) {
+case class Options(options: Seq[OptionValue[_]]) {
 
-  def findOption[A: ClassTag](optDef: InoxOptionDef[A]): Option[A] = options.collectFirst {
-    case InoxOption(`optDef`, value: A) => value
+  def findOption[A: ClassTag](optDef: OptionDef[A]): Option[A] = options.collectFirst {
+    case OptionValue(`optDef`, value: A) => value
   }
 
-  def findOptionOrDefault[A: ClassTag](optDef: InoxOptionDef[A]): A = findOption(optDef).getOrElse(optDef.default)
+  def findOptionOrDefault[A: ClassTag](optDef: OptionDef[A]): A = findOption(optDef).getOrElse(optDef.default)
 
-  def +(newOpt: InoxOption[Any]): InoxOptions = InoxOptions(
+  def +(newOpt: OptionValue[_]): Options = Options(
     options.filter(_.optionDef != newOpt.optionDef) :+ newOpt
   )
 
-  def ++(newOpts: Seq[InoxOption[Any]]): InoxOptions = InoxOptions {
+  def ++(newOpts: Seq[OptionValue[_]]): Options = Options {
     val defs = newOpts.map(_.optionDef).toSet
     options.filter(opt => !defs(opt.optionDef)) ++ newOpts
   }
 
   @inline
-  def ++(that: InoxOptions): InoxOptions = this ++ that.options
+  def ++(that: Options): Options = this ++ that.options
+}
+
+object Options {
+  def empty: Options = Options(Seq())
 }
 
 object InoxOptions {
 
-  def empty: InoxOptions = InoxOptions(Seq())
-
-  val optSelectedSolvers = new InoxOptionDef[Set[String]] {
+  val optSelectedSolvers = new OptionDef[Set[String]] {
     val name = "solvers"
     val description = "Use solvers s1, s2,...\n" +
       solvers.SolverFactory.solversPretty
@@ -188,7 +192,7 @@ object InoxOptions {
     val usageRhs = "s1,s2,..."
   }
 
-  val optDebug = new InoxOptionDef[Set[DebugSection]] {
+  val optDebug = new OptionDef[Set[DebugSection]] {
     import OptionParsers._
     val name = "debug"
     val description = {
@@ -218,7 +222,7 @@ object InoxOptions {
     }
   }
 
-  val optTimeout = InoxLongOptionDef(
+  val optTimeout = LongOptionDef(
     "timeout",
     "Set a timeout for attempting to prove a verification condition/ repair a function (in sec.)",
     0L,

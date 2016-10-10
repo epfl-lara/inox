@@ -95,7 +95,7 @@ trait StringEncoder extends TheoryEncoder {
     v.toList.foldRight(StringNil()){ case (char, l) => StringCons(E(char), l) }
   }
 
-  val encoder = new TreeTransformer {
+  val treeEncoder = new SelfTreeTransformer {
     override def transform(e: Expr): Expr = e match {
       case StringLiteral(v) => convertFromString(v)
       case StringLength(a) => Size(transform(a)).copiedFrom(e)
@@ -113,7 +113,7 @@ trait StringEncoder extends TheoryEncoder {
     }
   }
 
-  val decoder = new TreeTransformer {
+  val treeDecoder = new SelfTreeTransformer {
     override def transform(e: Expr): Expr = e match {
       case cc @ ADT(adt, args) if adt == StringNil || adt == StringCons =>
         StringLiteral(convertToString(cc)).copiedFrom(cc)

@@ -8,24 +8,24 @@ import inox.utils._
   * Contexts are immutable, and so should all their fields (with the possible
   * exception of the reporter).
   */
-case class InoxContext(
+case class Context(
   reporter: Reporter,
   interruptManager: InterruptManager,
-  options: InoxOptions = InoxOptions(Seq()),
+  options: Options = Options(Seq()),
   timers: TimerStorage = new TimerStorage)
 
-object InoxContext {
+object Context {
   def empty = {
     val reporter = new DefaultReporter(Set())
-    InoxContext(reporter, new InterruptManager(reporter))
+    Context(reporter, new InterruptManager(reporter))
   }
 
   def printNames = {
     val reporter = new DefaultReporter(Set())
-    InoxContext(
+    Context(
       reporter,
       new InterruptManager(reporter),
-      options = InoxOptions.empty + InoxOption[Set[DebugSection]](InoxOptions.optDebug)(Set(ast.DebugSectionTrees))
+      options = Options.empty + InoxOptions.optDebug(Set(ast.DebugSectionTrees: DebugSection))
     )
   }
 }

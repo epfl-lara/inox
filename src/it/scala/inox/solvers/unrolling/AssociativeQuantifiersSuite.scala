@@ -16,12 +16,12 @@ class AssociativeQuantifiersSuite extends InoxTestSuite {
     ("nativez3", false, false, true ),
     ("smt-cvc4", false, false, true )
   ).map { case (solverName, checkModels, feelingLucky, unrollAssumptions) => Seq(
-    InoxOption(InoxOptions.optSelectedSolvers)(Set(solverName)),
-    InoxOption(optCheckModels)(checkModels),
-    InoxOption(optFeelingLucky)(feelingLucky),
-    InoxOption(optUnrollAssumptions)(unrollAssumptions),
-    InoxOption(InoxOptions.optTimeout)(300),
-    InoxOption(ast.optPrintUniqueIds)(true)
+    InoxOptions.optSelectedSolvers(Set(solverName)),
+    optCheckModels(checkModels),
+    optFeelingLucky(feelingLucky),
+    optUnrollAssumptions(unrollAssumptions),
+    InoxOptions.optTimeout(300),
+    ast.optPrintUniqueIds(true)
   )}
 
   val isAssociativeID = FreshIdentifier("isAssociative")

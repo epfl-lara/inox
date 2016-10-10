@@ -6,6 +6,14 @@ package smtlib
 
 import inox.OptionParsers._
 
+object optCVC4Options extends OptionDef[Set[String]] {
+  val name = "solver:cvc4"
+  val description = "Pass extra arguments to CVC4"
+  val default = Set[String]()
+  val parser = setParser(stringParser)
+  val usageRhs = "<cvc4-opt>"
+}
+
 trait CVC4Solver extends SMTLIBSolver with CVC4Target {
   import program.trees._
   import SolverResponses._
@@ -36,10 +44,3 @@ trait CVC4Solver extends SMTLIBSolver with CVC4Target {
   }
 }
 
-object optCVC4Options extends InoxOptionDef[Set[String]] {
-  val name = "solver:cvc4"
-  val description = "Pass extra arguments to CVC4"
-  val default = Set[String]()
-  val parser = setParser(stringParser)
-  val usageRhs = "<cvc4-opt>"
-}

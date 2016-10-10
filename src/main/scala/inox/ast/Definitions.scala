@@ -129,32 +129,16 @@ trait Definitions { self: Trees =>
     def getFunction(id: Identifier): FunDef = lookupFunction(id).getOrElse(throw FunctionLookupException(id))
     def getFunction(id: Identifier, tps: Seq[Type]): TypedFunDef = lookupFunction(id, tps).getOrElse(throw FunctionLookupException(id))
 
-    override def toString: String = asString(PrinterOptions.fromSymbols(this, InoxContext.printNames))
+    override def toString: String = asString(PrinterOptions.fromSymbols(this, Context.printNames))
     override def asString(implicit opts: PrinterOptions): String = {
       adts.map(p => prettyPrint(p._2, opts)).mkString("\n\n") +
       "\n\n-----------\n\n" +
       functions.map(p => prettyPrint(p._2, opts)).mkString("\n\n")
     }
 
-    def transform(t: TreeTransformer): Symbols = NoSymbols.withFunctions {
-      functions.values.toSeq.map(fd => new FunDef(
-        fd.id,
-        fd.tparams, // type parameters can't be transformed!
-        fd.params.map(vd => t.transform(vd)),
-        t.transform(fd.returnType),
-        t.transform(fd.fullBody),
-        fd.flags))
-    }.withADTs {
-      adts.values.toSeq.map {
-        case sort: ADTSort => sort
-        case cons: ADTConstructor => new ADTConstructor(
-          cons.id,
-          cons.tparams,
-          cons.sort,
-          cons.fields.map(t.transform),
-          cons.flags)
-      }
-    }
+    def transform(trans: SelfTransformer): Symbols = new SymbolTransformer {
+      val transformer: trans.type = trans
+    }.transform(this)
 
     override def equals(that: Any): Boolean = that match {
       case sym: AbstractSymbols => functions == sym.functions && adts == sym.adts
@@ -172,7 +156,11 @@ trait Definitions { self: Trees =>
     val id = tp.id
   }
 
-  /** Represents source code annotations and some other meaningful flags. */
+  /** Represents source code annotations and some other meaningful flags.
+    * 
+    * In order to enable transformations on [[Flag]] instances, there is an
+    * implicit contract on [[args]] such that for each argument, either
+    * {{{arg: Expr | Type}}}, or there exists no tree instance within arg. */
   abstract class Flag(name: String, args: Seq[Any]) extends Printable {
     def asString(implicit opts: PrinterOptions): String = name + (if (args.isEmpty) "" else {
       args.map(arg => self.asString(arg)(opts)).mkString("(", ", ", ")")
@@ -182,7 +170,9 @@ trait Definitions { self: Trees =>
   /** Denotes that this adt is refined by invariant ''id'' */
   case class HasADTInvariant(id: Identifier) extends Flag("invariant", Seq(id))
 
-  // Compiler annotations given in the source code as @annot
+  /** Compiler annotations given in the source code as @annot.
+    * 
+    * @see [[Flag]] for some notes on the actual type of [[args]]. */
   case class Annotation(val name: String, val args: Seq[Any]) extends Flag(name, args)
 
   def extractFlag(name: String, args: Seq[Any]): Flag = (name, args) match {

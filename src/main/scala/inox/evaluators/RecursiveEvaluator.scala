@@ -510,13 +510,13 @@ trait RecursiveEvaluator
 }
 
 object RecursiveEvaluator {
-  def apply(p: InoxProgram, opts: InoxOptions): RecursiveEvaluator { val program: p.type } = {
+  def apply(p: InoxProgram, opts: Options): RecursiveEvaluator { val program: p.type } = {
     new {
       val program: p.type = p
     } with RecursiveEvaluator with HasDefaultGlobalContext with HasDefaultRecContext {
       val options = opts
       val maxSteps = 50000
-      def getSolver(moreOpts: InoxOption[Any]*) = solvers.SolverFactory(p, opts ++ moreOpts)
+      def getSolver(moreOpts: OptionValue[_]*) = solvers.SolverFactory(p, opts ++ moreOpts)
     }
   }
 

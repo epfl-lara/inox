@@ -224,7 +224,7 @@ trait Paths { self: TypeOps with Constructors =>
 
     override def hashCode: Int = elements.hashCode
 
-    override def toString = asString(PrinterOptions.fromContext(InoxContext.printNames))
+    override def toString = asString(PrinterOptions.fromContext(Context.printNames))
     def asString(implicit opts: PrinterOptions): String = fullClause.asString
   }
 }

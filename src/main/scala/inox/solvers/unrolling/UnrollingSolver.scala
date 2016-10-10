@@ -8,33 +8,43 @@ import utils._
 
 import theories._
 import evaluators._
+import combinators._
 
 import scala.collection.mutable.{Map => MutableMap}
 
-object optUnrollFactor extends InoxLongOptionDef(
+object optUnrollFactor extends LongOptionDef(
   "unrollfactor",      "Number of unfoldings to perform in each unfold step", default = 1, "<PosInt>")
 
-object optFeelingLucky extends InoxFlagOptionDef(
+object optFeelingLucky extends FlagOptionDef(
   "feelinglucky",      "Use evaluator to find counter-examples early", false)
 
-object optUnrollAssumptions  extends InoxFlagOptionDef(
+object optUnrollAssumptions  extends FlagOptionDef(
   "unrollassumptions", "Use unsat-assumptions to drive unfolding while remaining fair", false)
 
-trait AbstractUnrollingSolver
-  extends Solver {
+trait AbstractUnrollingSolver extends Solver with EncodingSolver {
 
   import program._
   import program.trees._
   import program.symbols._
-
   import SolverResponses._
 
   protected type Encoded
 
-  protected val theories: TheoryEncoder { val sourceProgram: program.type }
+  protected val encoder: ProgramEncoder { val sourceProgram: program.type }
+
+  protected val theories: TheoryEncoder { val sourceProgram: AbstractUnrollingSolver.this.encoder.targetProgram.type }
+
+  protected lazy val programEncoder = encoder >> theories
+
+  protected lazy val s: programEncoder.s.type = programEncoder.s
+  protected lazy val t: programEncoder.t.type = programEncoder.t
+  protected lazy val targetProgram: programEncoder.targetProgram.type = programEncoder.targetProgram
+
+  protected def encode(tpe: FunctionType): t.FunctionType =
+    programEncoder.encode(tpe).asInstanceOf[t.FunctionType]
 
   protected val templates: Templates {
-    val program: theories.targetProgram.type
+    val program: targetProgram.type
     type Encoded = AbstractUnrollingSolver.this.Encoded
   }
 
@@ -43,7 +53,7 @@ trait AbstractUnrollingSolver
   }
 
   protected val underlying: AbstractSolver {
-    val program: AbstractUnrollingSolver.this.theories.targetProgram.type
+    val program: targetProgram.type
     type Trees = Encoded
   }
 
@@ -89,15 +99,15 @@ trait AbstractUnrollingSolver
     interrupted = false
   }
 
-  protected def declareVariable(v: Variable): Encoded
+  protected def declareVariable(v: t.Variable): Encoded
 
   def assertCnstr(expression: Expr): Unit = {
     constraints += expression
     val bindings = exprOps.variablesOf(expression).map(v => v -> freeVars.cached(v) {
-      declareVariable(theories.encode(v))
+      declareVariable(encode(v))
     }).toMap
 
-    val newClauses = templates.instantiateExpr(expression, bindings)
+    val newClauses = templates.instantiateExpr(encode(expression), bindings.map(p => encode(p._1) -> p._2))
     for (cl <- newClauses) {
       underlying.assertCnstr(cl)
     }
@@ -106,17 +116,17 @@ trait AbstractUnrollingSolver
   protected def wrapModel(model: underlying.Model): ModelWrapper
 
   trait ModelWrapper {
-    protected def modelEval(elem: Encoded, tpe: Type): Option[Expr]
+    protected def modelEval(elem: Encoded, tpe: t.Type): Option[t.Expr]
 
-    def eval(elem: Encoded, tpe: Type): Option[Expr] = modelEval(elem, theories.encode(tpe)).flatMap {
+    def eval(elem: Encoded, tpe: s.Type): Option[Expr] = modelEval(elem, encode(tpe)).flatMap {
       expr => try {
-        Some(theories.decode(expr))
+        Some(decode(expr))
       } catch {
         case u: Unsupported => None
       }
     }
 
-    def get(v: Variable): Option[Expr] = eval(freeVars(v), v.getType).filter {
+    def get(v: Variable): Option[Expr] = eval(freeVars(v), v.tpe).filter {
       case v: Variable => false
       case _ => true
     }
@@ -196,7 +206,7 @@ trait AbstractUnrollingSolver
       val id = Variable(FreshIdentifier("v"), tpe)
       val (functions, recons) = functionsOf(value, id)
       recons(functions.map { case (f, selector) =>
-        val encoded = templates.mkEncoder(Map(id -> v))(selector)
+        val encoded = templates.mkEncoder(Map(encode(id) -> v))(encode(selector))
         val tpe = bestRealType(f.getType).asInstanceOf[FunctionType]
         extractFunction(encoded, tpe)
       })
@@ -239,18 +249,21 @@ trait AbstractUnrollingSolver
 
     def extractFunction(f: Encoded, tpe: FunctionType): Expr = {
       def extractLambda(f: Encoded, tpe: FunctionType): Option[Lambda] = {
-        val optEqTemplate = templates.getLambdaTemplates(tpe).find { tmpl =>
+        val optEqTemplate = templates.getLambdaTemplates(encode(tpe)).find { tmpl =>
           wrapped.eval(tmpl.start, BooleanType) == Some(BooleanLiteral(true)) &&
           wrapped.eval(templates.mkEquals(tmpl.ids._2, f), BooleanType) == Some(BooleanLiteral(true))
         }
 
         optEqTemplate.map { tmpl =>
-          val localsSubst = tmpl.structure.locals.map(p => p._1 -> wrapped.eval(p._2, p._1.tpe).getOrElse {
-            scala.sys.error("Unexpectedly failed to extract " + templates.asString(p._2) +
-              " with expected type " + p._1.tpe.asString)
-          }).toMap
+          val localsSubst = tmpl.structure.locals.map { case (v, ev) =>
+            val dv = decode(v)
+            dv -> wrapped.eval(ev, dv.tpe).getOrElse {
+              scala.sys.error("Unexpectedly failed to extract " + templates.asString(ev) +
+                " with expected type " + dv.tpe.asString)
+            }
+          }.toMap
 
-          exprOps.replaceFromSymbols(localsSubst, tmpl.structure.lambda).asInstanceOf[Lambda]
+          exprOps.replaceFromSymbols(localsSubst, decode(tmpl.structure.lambda)).asInstanceOf[Lambda]
         }
       }
 
@@ -266,9 +279,9 @@ trait AbstractUnrollingSolver
             case ft: FunctionType =>
               val nextParams = params.tail
               val nextArguments = arguments.map(_.tail)
-              extract(templates.mkApp(caller, tpe, Seq.empty), ft, nextParams, nextArguments, dflt)
+              extract(templates.mkApp(caller, encode(tpe), Seq.empty), ft, nextParams, nextArguments, dflt)
             case _ =>
-              (extractValue(templates.mkApp(caller, tpe, Seq.empty), tpe.to), false)
+              (extractValue(templates.mkApp(caller, encode(tpe), Seq.empty), tpe.to), false)
           }
 
           (Lambda(Seq.empty, result), real)
@@ -279,7 +292,7 @@ trait AbstractUnrollingSolver
               case (currCond, arguments) => tpe.to match {
                 case ft: FunctionType =>
                   val (currArgs, restArgs) = (arguments.head.head._1, arguments.map(_.tail))
-                  val newCaller = templates.mkApp(caller, tpe, currArgs)
+                  val newCaller = templates.mkApp(caller, encode(tpe), currArgs)
                   val (res, real) = extract(newCaller, ft, params.tail, restArgs, dflt)
                   val mappings: Seq[(Expr, Expr)] = if (real) {
                     Seq(BooleanLiteral(true) -> res)
@@ -291,7 +304,7 @@ trait AbstractUnrollingSolver
 
                 case _ =>
                   val currArgs = arguments.head.head._1
-                  val res = extractValue(templates.mkApp(caller, tpe, currArgs), tpe.to)
+                  val res = extractValue(templates.mkApp(caller, encode(tpe), currArgs), tpe.to)
                   Seq(currCond -> res)
               }
             }
@@ -329,7 +342,7 @@ trait AbstractUnrollingSolver
         rec(tpe)
       }
 
-      val arguments = templates.getGroundInstantiations(f, tpe).flatMap { case (b, eArgs) =>
+      val arguments = templates.getGroundInstantiations(f, encode(tpe)).flatMap { case (b, eArgs) =>
         wrapped.eval(b, BooleanType).filter(_ == BooleanLiteral(true)).map(_ => eArgs)
       }.distinct
 
@@ -367,7 +380,7 @@ trait AbstractUnrollingSolver
           }
 
           val default = extractValue(unflatten(flatArguments.last._1).foldLeft(f -> (tpe: Type)) {
-            case ((f, tpe: FunctionType), args) => (templates.mkApp(f, tpe, args), tpe.to)
+            case ((f, tpe: FunctionType), args) => (templates.mkApp(f, encode(tpe), args), tpe.to)
           }._1, tpe)
 
           extract(f, tpe, params, allArguments, default)._1
@@ -382,7 +395,7 @@ trait AbstractUnrollingSolver
     val assumptionsSeq       : Seq[Expr]          = assumptions.toSeq
     val encodedAssumptions   : Seq[Encoded]       = assumptionsSeq.map { expr =>
       val vars = exprOps.variablesOf(expr)
-      templates.mkEncoder(vars.map(v => theories.encode(v) -> freeVars(v)).toMap)(expr)
+      templates.mkEncoder(vars.map(v => encode(v) -> freeVars(v)).toMap)(encode(expr))
     }
     val encodedToAssumptions : Map[Encoded, Expr] = (encodedAssumptions zip assumptionsSeq).toMap
 
@@ -585,11 +598,11 @@ trait UnrollingSolver extends AbstractUnrollingSolver {
   import program.trees._
   import program.symbols._
 
-  type Encoded = Expr
+  type Encoded = t.Expr
   val underlying: Solver {
-    val program: theories.targetProgram.type
-    type Trees = Expr
-    type Model = Map[ValDef, Expr]
+    val program: targetProgram.type
+    type Trees = t.Expr
+    type Model = Map[t.ValDef, t.Expr]
   }
 
   override val name = "U:"+underlying.name
@@ -599,8 +612,12 @@ trait UnrollingSolver extends AbstractUnrollingSolver {
   }
 
   object templates extends {
-    val program: theories.targetProgram.type = theories.targetProgram
+    val program: targetProgram.type = targetProgram
   } with Templates {
+    import program._
+    import program.trees._
+    import program.symbols._
+
     type Encoded = Expr
 
     def asString(expr: Expr): String = expr.asString
@@ -618,11 +635,13 @@ trait UnrollingSolver extends AbstractUnrollingSolver {
     def mkImplies(l: Expr, r: Expr) = implies(l, r)
   }
 
-  protected def declareVariable(v: Variable): Variable = v
-  protected def wrapModel(model: Map[ValDef, Expr]): super.ModelWrapper = ModelWrapper(model)
+  protected def declareVariable(v: t.Variable): t.Variable = v
+  protected def wrapModel(model: Map[t.ValDef, t.Expr]): super.ModelWrapper =
+    ModelWrapper(model.map(p => decode(p._1) -> decode(p._2)))
 
   private case class ModelWrapper(model: Map[ValDef, Expr]) extends super.ModelWrapper {
-    def modelEval(elem: Expr, tpe: Type): Option[Expr] = evaluator.eval(elem, model).result
+    def modelEval(elem: t.Expr, tpe: t.Type): Option[t.Expr] =
+      evaluator.eval(decode(elem), model).result.map(encode)
     override def toString = model.mkString("\n")
   }
 

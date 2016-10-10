@@ -8,10 +8,10 @@ import org.scalatest._
 class EvaluatorSuite extends FunSuite {
   import inox.trees._
 
-  val ctx = InoxContext.empty
+  val ctx = Context.empty
 
   val symbols = new Symbols(Map.empty, Map.empty)
-  def evaluator(ctx: InoxContext): DeterministicEvaluator { val program: InoxProgram } = {
+  def evaluator(ctx: Context): DeterministicEvaluator { val program: InoxProgram } = {
     val program = InoxProgram(ctx, symbols)
     RecursiveEvaluator.default(program)
   }

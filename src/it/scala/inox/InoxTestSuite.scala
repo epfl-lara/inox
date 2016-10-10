@@ -9,19 +9,19 @@ import utils._
 
 trait InoxTestSuite extends FunSuite with Matchers with Timeouts {
 
-  val configurations: Seq[Seq[InoxOption[Any]]] = Seq(Seq.empty)
+  val configurations: Seq[Seq[OptionValue[_]]] = Seq(Seq.empty)
 
-  private def optionsString(options: InoxOptions): String = {
+  private def optionsString(options: Options): String = {
     "solver=" + options.findOptionOrDefault(InoxOptions.optSelectedSolvers).head + " " +
     "feelinglucky=" + options.findOptionOrDefault(solvers.unrolling.optFeelingLucky) + " " +
     "checkmodels=" + options.findOptionOrDefault(solvers.optCheckModels) + " " +
     "unrollassumptions=" + options.findOptionOrDefault(solvers.unrolling.optUnrollAssumptions)
   }
 
-  protected def test(name: String, tags: Tag*)(body: InoxContext => Unit): Unit = {
+  protected def test(name: String, tags: Tag*)(body: Context => Unit): Unit = {
     for (config <- configurations) {
       val reporter = new TestSilentReporter
-      val ctx = InoxContext(reporter, new InterruptManager(reporter), InoxOptions(config))
+      val ctx = Context(reporter, new InterruptManager(reporter), Options(config))
       try {
         super.test(name + " " + optionsString(ctx.options))(body(ctx))
       } catch {
@@ -32,9 +32,9 @@ trait InoxTestSuite extends FunSuite with Matchers with Timeouts {
     }
   }
 
-  protected def ignore(name: String, tags: Tag*)(body: InoxContext => Unit): Unit = {
+  protected def ignore(name: String, tags: Tag*)(body: Context => Unit): Unit = {
     for (config <- configurations) {
-      super.ignore(name + " " + optionsString(InoxOptions(config)))(())
+      super.ignore(name + " " + optionsString(Options(config)))(())
     }
   }
 }

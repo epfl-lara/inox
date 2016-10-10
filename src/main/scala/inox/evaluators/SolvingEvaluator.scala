@@ -12,7 +12,7 @@ trait SolvingEvaluator extends Evaluator {
   import program.trees._
   import program.symbols._
 
-  private object optForallCache extends InoxOptionDef[MutableMap[program.trees.Forall, Boolean]] {
+  private object optForallCache extends OptionDef[MutableMap[program.trees.Forall, Boolean]] {
     val parser = { (_: String) => throw FatalError("Unparsable option \"bankOption\"") }
     val name = "bank-option"
     val description = "Evaluation bank shared between solver and evaluator"
@@ -20,7 +20,7 @@ trait SolvingEvaluator extends Evaluator {
     def default = MutableMap.empty
   }
 
-  def getSolver(opts: InoxOption[Any]*): SolverFactory { val program: SolvingEvaluator.this.program.type }
+  def getSolver(opts: OptionValue[_]*): SolverFactory { val program: SolvingEvaluator.this.program.type }
 
   private val chooseCache: MutableMap[Choose, Expr] = MutableMap.empty
   private val forallCache: MutableMap[Forall, Expr] = MutableMap.empty
@@ -29,7 +29,7 @@ trait SolvingEvaluator extends Evaluator {
     val timer = ctx.timers.evaluators.specs.start()
 
     val sf = getSolver(options.options.collect {
-      case o @ InoxOption(opt, _) if opt == optForallCache => o
+      case o @ OptionValue(opt, _) if opt == optForallCache => o
     } : _*)
 
     import SolverResponses._
@@ -54,10 +54,10 @@ trait SolvingEvaluator extends Evaluator {
       val timer = ctx.timers.evaluators.forall.start()
 
       val sf = getSolver(
-        InoxOption(optSilentErrors)(true),
-        InoxOption(optCheckModels)(false), // model is checked manually!! (see below)
-        InoxOption(unrolling.optFeelingLucky)(false),
-        InoxOption(optForallCache)(cache)
+        optSilentErrors(true),
+        optCheckModels(false), // model is checked manually!! (see below)
+        unrolling.optFeelingLucky(false),
+        optForallCache(cache)
       )
 
       import SolverResponses._
