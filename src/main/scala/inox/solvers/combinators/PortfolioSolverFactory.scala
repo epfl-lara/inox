@@ -26,7 +26,7 @@ trait PortfolioSolverFactory extends SolverFactory { self =>
 }
 
 object PortfolioSolverFactory {
-  def apply(p: InoxProgram)
+  def apply(p: Program)
            (factories: Seq[SolverFactory { val program: p.type; type S <: TimeoutSolver }]):
             PortfolioSolverFactory { val program: p.type; type S <: TimeoutSolver } = new {
     val program: p.type = p

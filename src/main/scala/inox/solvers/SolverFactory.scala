@@ -121,7 +121,7 @@ object SolverFactory {
   }
 
   def apply(p: InoxProgram, opts: Options): SolverFactory { val program: p.type; type S <: TimeoutSolver } =
-    p.ctx.options.findOptionOrDefault(InoxOptions.optSelectedSolvers).toSeq match {
+    opts.findOptionOrDefault(InoxOptions.optSelectedSolvers).toSeq match {
       case Seq() => throw FatalError("No selected solver")
       case Seq(single) => apply(single, p, opts)
       case multiple => PortfolioSolverFactory(p) {
