@@ -234,6 +234,9 @@ trait Extractors { self: Trees =>
   val deconstructor: TreeDeconstructor {
     val s: self.type
     val t: self.type
+  } = new TreeDeconstructor {
+    protected val s: self.type = self
+    protected val t: self.type = self
   }
 
   /** Operator Extractor to extract any Expression in a consistent way.

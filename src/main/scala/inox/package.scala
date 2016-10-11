@@ -42,9 +42,9 @@ package object inox {
   }
 
   object trees extends ast.Trees with ast.SimpleSymbols {
-    object deconstructor extends {
-      protected val s: trees.type = trees
-      protected val t: trees.type = trees
-    } with ast.TreeDeconstructor
+    case class Symbols(
+      functions: Map[Identifier, FunDef],
+      adts: Map[Identifier, ADTDefinition]
+    ) extends SimpleSymbols
   }
 }
