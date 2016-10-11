@@ -19,7 +19,7 @@ trait TreeOps { self: Trees =>
     } = self.deconstructor
   }
 
-  lazy val TreeIdentity = new SelfTreeTransformer {
+  class TreeIdentity extends SelfTreeTransformer {
     override def transform(id: Identifier, tpe: s.Type): (Identifier, t.Type) = (id, tpe)
     override def transform(v: s.Variable): t.Variable = v
     override def transform(vd: s.ValDef): t.ValDef = vd
@@ -28,10 +28,14 @@ trait TreeOps { self: Trees =>
     override def transform(flag: s.Flag): t.Flag = flag
   }
 
-  lazy val SymbolIdentity = new SymbolTransformer {
+  lazy val TreeIdentity: SelfTransformer = new TreeIdentity
+
+  class SymbolIdentity extends SymbolTransformer {
     val transformer = TreeIdentity
     override def transform(syms: s.Symbols): t.Symbols = syms
   }
+
+  lazy val SymbolIdentity: SymbolTransformer { val transformer: SelfTransformer } = new SymbolIdentity
 
   trait TreeTraverser {
     def traverse(vd: ValDef): Unit = traverse(vd.tpe)

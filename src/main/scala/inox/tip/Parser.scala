@@ -380,10 +380,7 @@ class Parser(file: File) {
     case SNumeral(n) =>
       IntegerLiteral(n)
 
-    // TODO: hexadecimal case
-    //case SHexadecimal(value) => BVLiteral()
-
-    case SBinary(bs) =>
+    case FixedSizeBitVectors.BitVectorLit(bs) =>
       BVLiteral(BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i }, bs.size)
 
     case SDecimal(value) =>
