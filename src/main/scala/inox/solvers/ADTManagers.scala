@@ -4,6 +4,7 @@ package inox
 package solvers
 
 import utils._
+import ast.{Identifier, FreshIdentifier}
 
 trait ADTManagers {
   val program: Program

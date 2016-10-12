@@ -5,8 +5,7 @@ package solvers
 package unrolling
 
 import utils._
-
-import scala.collection.generic.CanBuildFrom
+import ast.FreshIdentifier
 
 trait FunctionTemplates { self: Templates =>
   import program._

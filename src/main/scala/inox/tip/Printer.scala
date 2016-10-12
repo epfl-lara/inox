@@ -3,7 +3,7 @@
 package inox
 package tip
 
-import java.io.{File, Writer}
+import ast.Identifier
 
 import smtlib.parser.Terms.{Forall => SMTForall, Identifier => SMTIdentifier, _}
 import smtlib.parser.Commands.{Constructor => SMTConstructor, _}
@@ -11,6 +11,7 @@ import smtlib.extensions.tip.Terms.{Lambda => SMTLambda, Application => SMTAppli
 import smtlib.extensions.tip.Commands._
 import smtlib.Interpreter
 
+import java.io.Writer
 import scala.collection.mutable.{Map => MutableMap}
 
 class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.SMTLIBTarget {

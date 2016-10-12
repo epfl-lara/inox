@@ -5,7 +5,7 @@ package solvers
 package unrolling
 
 import utils._
-
+import ast.{Identifier, FreshIdentifier}
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 trait LambdaTemplates { self: Templates =>

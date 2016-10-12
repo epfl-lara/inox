@@ -4,6 +4,7 @@ package inox
 package solvers
 package smtlib
 
+import ast.{Identifier, FreshIdentifier}
 import utils._
 
 import _root_.smtlib.common._

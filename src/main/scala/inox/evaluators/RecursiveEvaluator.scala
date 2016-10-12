@@ -4,6 +4,7 @@ package inox
 package evaluators
 
 import scala.collection.BitSet
+import ast.FreshIdentifier
 
 trait RecursiveEvaluator
   extends ContextualEvaluator

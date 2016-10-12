@@ -1,5 +1,7 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
+import inox.ast.Identifier
+
 /** Core package of the Inox solving interface
   *
   * == Structure ==

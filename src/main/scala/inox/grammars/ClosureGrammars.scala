@@ -3,6 +3,8 @@
 package inox
 package grammars
 
+import ast.FreshIdentifier
+
 trait ClosureGrammars { self: GrammarsUniverse =>
   import program._
   import trees._

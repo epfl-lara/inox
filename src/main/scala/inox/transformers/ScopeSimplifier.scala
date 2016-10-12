@@ -3,6 +3,8 @@
 package inox
 package transformers
 
+import ast.{Identifier, FreshIdentifier}
+
 /** Simplifies variable ids in scope */
 trait ScopeSimplifier extends Transformer {
   import trees._

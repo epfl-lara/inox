@@ -4,6 +4,8 @@ package inox
 package grammars
 package utils
 
+import ast.{Identifier, FreshIdentifier}
+
 trait Helpers { self: GrammarsUniverse =>
   import program._
   import trees.{ Minus => EMinus, Plus => EPlus, Variable => EVariable, _ }

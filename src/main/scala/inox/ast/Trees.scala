@@ -3,7 +3,6 @@
 package inox
 package ast
 
-import utils._
 import scala.language.implicitConversions
 
 case object DebugSectionTrees extends DebugSection("trees")
@@ -15,9 +14,6 @@ trait Trees
      with Definitions
      with Printers
      with TreeOps {
-
-  type Identifier = ast.Identifier
-  val FreshIdentifier = ast.FreshIdentifier
 
   class Unsupported(t: Tree, msg: String)(implicit ctx: Context)
     extends Exception(s"${t.asString(PrinterOptions.fromContext(ctx))}@${t.getPos} $msg")

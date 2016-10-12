@@ -7,7 +7,7 @@ package transformers
 trait CollectorWithPC extends TransformerWithPC with Collector
 
 object CollectorWithPC {
-  def apply[T](p: Program)(f: PartialFunction[(p.trees.Expr, p.symbols.Path), T]) = {
+  def apply[T](p: Program)(f: PartialFunction[(p.trees.Expr, p.symbols.Path), T]): CollectorWithPC { type R = T; val program: p.type } = {
     new CollectorWithPC {
 
       type R = T
@@ -17,10 +17,13 @@ object CollectorWithPC {
       import trees._
       val initEnv: Path = Path.empty
 
+      private val fLifted = f.lift
+
       protected def step(e: Expr, env: Path): List[(T, Path)] = {
-        f.lift((e, env)).map((_, env)).toList
+        fLifted((e, env)).map((_, env)).toList
       }
 
     }
   }
+
 }

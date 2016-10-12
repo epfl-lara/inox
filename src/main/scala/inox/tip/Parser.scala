@@ -3,6 +3,9 @@
 package inox
 package tip
 
+import ast.{Identifier, FreshIdentifier}
+import utils._
+
 import smtlib.lexer._
 import smtlib.parser.Commands.{FunDef => SMTFunDef, _}
 import smtlib.parser.Terms.{Let => SMTLet, Forall => SMTForall, Identifier => SMTIdentifier, _}
@@ -14,8 +17,6 @@ import smtlib.extensions.tip.Commands._
 
 import scala.collection.BitSet
 import java.io.{Reader, File, BufferedReader, FileReader}
-
-import utils._
 
 import scala.language.implicitConversions
 

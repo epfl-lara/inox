@@ -3,6 +3,7 @@
 package inox
 package solvers.z3
 
+import ast.FreshIdentifier
 import utils._
 
 import z3.scala.{Z3Solver => ScalaZ3Solver, _}

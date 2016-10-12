@@ -4,6 +4,8 @@ package inox
 package solvers
 package theories
 
+import ast.{Identifier, FreshIdentifier}
+
 trait BagEncoder extends TheoryEncoder {
   import trees._
   import trees.dsl._

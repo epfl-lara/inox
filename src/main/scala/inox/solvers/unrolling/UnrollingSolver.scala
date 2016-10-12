@@ -4,6 +4,7 @@ package inox
 package solvers
 package unrolling
 
+import ast.FreshIdentifier
 import utils._
 
 import theories._
