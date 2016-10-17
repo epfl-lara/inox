@@ -163,6 +163,17 @@ trait TreeTransformer {
     }
   }
 
+  final def transform(fd: s.FunDef): t.FunDef = {
+    new t.FunDef(
+      fd.id,
+      fd.tparams.map(tpd => t.TypeParameterDef(transform(tpd.tp).asInstanceOf[t.TypeParameter])),
+      fd.params.map(transform),
+      transform(fd.returnType),
+      transform(fd.fullBody),
+      fd.flags map transform
+    )
+  }
+
   protected trait TreeTransformerComposition extends TreeTransformer {
     protected val t1: TreeTransformer
     protected val t2: TreeTransformer { val s: t1.t.type }
