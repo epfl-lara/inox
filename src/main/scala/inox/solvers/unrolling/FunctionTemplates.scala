@@ -5,7 +5,6 @@ package solvers
 package unrolling
 
 import utils._
-import ast.FreshIdentifier
 
 trait FunctionTemplates { self: Templates =>
   import program._

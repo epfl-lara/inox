@@ -4,7 +4,6 @@ package inox
 package solvers
 package theories
 
-import ast.{Identifier, FreshIdentifier}
 import utils._
 
 trait StringEncoder extends TheoryEncoder {

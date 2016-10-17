@@ -6,7 +6,6 @@ package smtlib
 
 import org.apache.commons.lang3.StringEscapeUtils
 
-import ast.{Identifier, FreshIdentifier}
 import _root_.smtlib.parser.Terms.{Identifier => SMTIdentifier, _}
 import _root_.smtlib.parser.Commands._
 import _root_.smtlib.interpreters.CVC4Interpreter

@@ -6,7 +6,6 @@ package datagen
 import evaluators._
 import solvers._
 import utils._
-import ast.{FreshIdentifier, Identifier}
 
 trait SolverDataGen extends DataGenerator { self =>
   import program._

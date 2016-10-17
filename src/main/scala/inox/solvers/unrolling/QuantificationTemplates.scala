@@ -4,7 +4,6 @@ package inox
 package solvers
 package unrolling
 
-import ast.{Identifier, FreshIdentifier}
 import utils._
 import evaluators._
 

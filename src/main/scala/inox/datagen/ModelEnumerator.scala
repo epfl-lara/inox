@@ -6,7 +6,6 @@ package datagen
 import evaluators._
 import solvers._
 import utils._
-import ast.FreshIdentifier
 
 trait ModelEnumerator {
   val program: Program

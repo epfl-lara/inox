@@ -3,8 +3,6 @@
 package inox
 package tip
 
-import ast.Identifier
-
 import smtlib.parser.Terms.{Forall => SMTForall, Identifier => SMTIdentifier, _}
 import smtlib.parser.Commands.{Constructor => SMTConstructor, _}
 import smtlib.extensions.tip.Terms.{Lambda => SMTLambda, Application => SMTApplication, _}

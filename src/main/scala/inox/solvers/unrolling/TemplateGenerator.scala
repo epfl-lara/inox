@@ -4,7 +4,6 @@ package inox
 package solvers
 package unrolling
 
-import ast.FreshIdentifier
 import utils._
 import scala.collection.mutable.{Map => MutableMap}
 

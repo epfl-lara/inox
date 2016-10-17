@@ -4,7 +4,6 @@ package inox
 package solvers
 package smtlib
 
-import ast.{Identifier, FreshIdentifier}
 import _root_.smtlib.parser.Terms.{Identifier => SMTIdentifier, Let => SMTLet, _}
 import _root_.smtlib.parser.Commands.{FunDef => SMTFunDef, _}
 import _root_.smtlib.interpreters.Z3Interpreter

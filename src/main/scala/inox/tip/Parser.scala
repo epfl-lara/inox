@@ -3,7 +3,6 @@
 package inox
 package tip
 
-import ast.{Identifier, FreshIdentifier}
 import utils._
 
 import smtlib.lexer._

@@ -3,7 +3,6 @@
 package inox
 package grammars
 
-import ast.FreshIdentifier
 import scala.collection.mutable.{HashMap => MutableMap}
 
 /** Represents a context-free grammar of expressions */

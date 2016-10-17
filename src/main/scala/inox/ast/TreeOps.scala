@@ -163,14 +163,41 @@ trait TreeTransformer {
     }
   }
 
+  /* Type parameters can't be modified by transformed but they need to be
+   * translated into the new tree definitions given by `t`. */
+  @inline
+  protected[ast] final def transformTypeParams(tparams: Seq[s.TypeParameterDef]): Seq[t.TypeParameterDef] = {
+    if (s eq t) tparams.asInstanceOf[Seq[t.TypeParameterDef]]
+    else tparams.map(tdef => t.TypeParameterDef(t.TypeParameter(tdef.id)))
+  }
+
   final def transform(fd: s.FunDef): t.FunDef = {
     new t.FunDef(
       fd.id,
-      fd.tparams.map(tpd => t.TypeParameterDef(transform(tpd.tp).asInstanceOf[t.TypeParameter])),
+      transformTypeParams(fd.tparams),
       fd.params.map(transform),
       transform(fd.returnType),
       transform(fd.fullBody),
       fd.flags map transform
+    )
+  }
+
+  final def transform(adt: s.ADTDefinition): t.ADTDefinition = adt match {
+    case sort: s.ADTSort if (s eq t) => sort.asInstanceOf[t.ADTSort]
+
+    case sort: s.ADTSort => new t.ADTSort(
+      sort.id,
+      transformTypeParams(sort.tparams),
+      sort.cons,
+      sort.flags map transform
+    )
+
+    case cons: s.ADTConstructor => new t.ADTConstructor(
+      cons.id,
+      transformTypeParams(cons.tparams),
+      cons.sort,
+      cons.fields map transform,
+      cons.flags map transform
     )
   }
 
@@ -234,36 +261,11 @@ trait SymbolTransformer {
   def transform(tpe: s.Type): t.Type = transformer.transform(tpe)
   def transform(flag: s.Flag): t.Flag = transformer.transform(flag)
 
-  /* Type parameters can't be modified by transformed but they need to be
-   * translated into the new tree definitions given by `t`. */
-  protected def transformTypeParams(tparams: Seq[s.TypeParameterDef]): Seq[t.TypeParameterDef] = {
-    if (s eq t) tparams.asInstanceOf[Seq[t.TypeParameterDef]]
-    else tparams.map(tdef => t.TypeParameterDef(t.TypeParameter(tdef.id)))
-  }
+  @inline
+  protected def transformTypeParams(tparams: Seq[s.TypeParameterDef]) = transformer.transformTypeParams(tparams)
 
-  protected def transformFunction(fd: s.FunDef): t.FunDef = new t.FunDef(
-    fd.id,
-    transformTypeParams(fd.tparams),
-    fd.params.map(vd => transformer.transform(vd)),
-    transformer.transform(fd.returnType),
-    transformer.transform(fd.fullBody),
-    fd.flags.map(f => transformer.transform(f))
-  )
-
-  protected def transformADT(adt: s.ADTDefinition): t.ADTDefinition = adt match {
-    case sort: s.ADTSort if (s eq t) => sort.asInstanceOf[t.ADTSort]
-    case sort: s.ADTSort => new t.ADTSort(
-      sort.id,
-      transformTypeParams(sort.tparams),
-      sort.cons,
-      sort.flags.map(f => transformer.transform(f)))
-    case cons: s.ADTConstructor => new t.ADTConstructor(
-      cons.id,
-      transformTypeParams(cons.tparams),
-      cons.sort,
-      cons.fields.map(vd => transformer.transform(vd)),
-      cons.flags.map(f => transformer.transform(f)))
-  }
+  protected def transformFunction(fd: s.FunDef): t.FunDef = transformer.transform(fd)
+  protected def transformADT(adt: s.ADTDefinition): t.ADTDefinition = transformer.transform(adt)
 
   def transform(syms: s.Symbols): t.Symbols = t.NoSymbols
     .withFunctions(syms.functions.values.toSeq.map(transformFunction))
