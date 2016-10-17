@@ -113,7 +113,7 @@ trait Definitions { self: Trees =>
     // for some mysterious reason.
     implicit def implicitSymbols: this.type = this
 
-    private val typedADTCache: MutableMap[(Identifier, Seq[Type]), Option[TypedADTDefinition]] = MutableMap.empty
+    private[this] val typedADTCache: MutableMap[(Identifier, Seq[Type]), Option[TypedADTDefinition]] = MutableMap.empty
     def lookupADT(id: Identifier): Option[ADTDefinition] = adts.get(id)
     def lookupADT(id: Identifier, tps: Seq[Type]): Option[TypedADTDefinition] =
       typedADTCache.getOrElseUpdate(id -> tps, lookupADT(id).map(_.typed(tps)))
@@ -121,7 +121,7 @@ trait Definitions { self: Trees =>
     def getADT(id: Identifier): ADTDefinition = lookupADT(id).getOrElse(throw ADTLookupException(id))
     def getADT(id: Identifier, tps: Seq[Type]): TypedADTDefinition = lookupADT(id, tps).getOrElse(throw ADTLookupException(id))
 
-    private val typedFunctionCache: MutableMap[(Identifier, Seq[Type]), Option[TypedFunDef]] = MutableMap.empty
+    private[this] val typedFunctionCache: MutableMap[(Identifier, Seq[Type]), Option[TypedFunDef]] = MutableMap.empty
     def lookupFunction(id: Identifier): Option[FunDef] = functions.get(id)
     def lookupFunction(id: Identifier, tps: Seq[Type]): Option[TypedFunDef] =
       typedFunctionCache.getOrElseUpdate(id -> tps, lookupFunction(id).map(_.typed(tps)(this)))
