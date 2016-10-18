@@ -32,6 +32,8 @@ trait TreeOps { self: Trees =>
 
   class SymbolIdentity extends SymbolTransformer {
     val transformer = TreeIdentity
+    override protected final def transformFunction(fd: s.FunDef): t.FunDef = sys.error("unexpected")
+    override protected final def transformADT(adt: s.ADTDefinition): t.ADTDefinition = sys.error("unexpected")
     override def transform(syms: s.Symbols): t.Symbols = syms
   }
 

@@ -7,7 +7,7 @@ package transformers
 trait TransformerWithPC extends Transformer {
   val program: Program
   import program._
-  final val trees: program.trees.type = program.trees
+  final lazy val trees: program.trees.type = program.trees
   import trees._
   import symbols._
   type Env = Path
