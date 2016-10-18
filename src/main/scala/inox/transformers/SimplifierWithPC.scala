@@ -12,7 +12,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
   import trees._
   import symbols._
 
-  protected val sf: SolverFactory{ val program: self.program.type }
+  protected val sf: SolverFactory { val program: self.program.type }
   protected lazy val s = SimpleSolverAPI(sf)
 
   private def querie(e: Expr, path: Path, implied: Boolean) = {

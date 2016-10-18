@@ -30,6 +30,7 @@ trait DSL {
     def - = Minus(e, _: Expr)
     def % = Modulo(e, _: Expr)
     def / = Division(e, _: Expr)
+    def unary_- = UMinus(e)
 
     // Comparisons
     def <   = LessThan(e, _: Expr)
