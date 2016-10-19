@@ -253,6 +253,13 @@ trait Definitions { self: Trees =>
       require(tps.length == tparams.length)
       TypedADTSort(this, tps)
     }
+
+    def copy(
+      id: Identifier = this.id,
+      tparams: Seq[TypeParameterDef] = this.tparams,
+      cons: Seq[Identifier] = this.cons,
+      flags: Set[Flag] = this.flags
+    ): ADTSort = new ADTSort(id, tparams, cons, flags)
   }
 
   /** Case classes/ ADT constructors. For single-case classes these may coincide
@@ -290,6 +297,14 @@ trait Definitions { self: Trees =>
       require(tps.length == tparams.length)
       TypedADTConstructor(this, tps)
     }
+
+    def copy(
+      id: Identifier = this.id,
+      tparams: Seq[TypeParameterDef] = this.tparams,
+      sort: Option[Identifier] = this.sort,
+      fields: Seq[ValDef] = this.fields,
+      flags: Set[Flag] = this.flags
+    ): ADTConstructor = new ADTConstructor(id, tparams, sort, fields, flags)
   }
 
   /** Represents an [[ADTDefinition]] whose type parameters have been instantiated to ''tps'' */
@@ -378,6 +393,15 @@ trait Definitions { self: Trees =>
     def applied(args: Seq[Expr])(implicit s: Symbols): FunctionInvocation = s.functionInvocation(this, args)
     /** Applies this function on its formal parameters */
     def applied = FunctionInvocation(id, typeArgs, params map (_.toVariable))
+
+    def copy(
+      id: Identifier = this.id,
+      tparams: Seq[TypeParameterDef] = this.tparams,
+      params: Seq[ValDef] = this.params,
+      returnType: Type = this.returnType,
+      fullBody: Expr = this.fullBody,
+      flags: Set[Flag] = this.flags
+    ): FunDef = new FunDef(id, tparams, params, returnType, fullBody, flags)
   }
 
 
@@ -393,15 +417,15 @@ trait Definitions { self: Trees =>
       }
     }
 
-    private lazy val typesMap: Map[TypeParameter, Type] = {
+    lazy val tpSubst: Map[TypeParameter, Type] = {
       (fd.typeArgs zip tps).toMap.filter(tt => tt._1 != tt._2)
     }
 
     /** A [[Type]] instantiated with this [[TypedFunDef]]'s type instantiation */
-    def instantiate(t: Type): Type = symbols.instantiateType(t, typesMap)
+    def instantiate(t: Type): Type = symbols.instantiateType(t, tpSubst)
 
     /** A [[Expr]] instantiated with this [[TypedFunDef]]'s type instantiation */
-    def instantiate(e: Expr): Expr = symbols.instantiateType(e, typesMap)
+    def instantiate(e: Expr): Expr = symbols.instantiateType(e, tpSubst)
 
     /** A mapping from this [[TypedFunDef]]'s formal parameters to real arguments
       *
@@ -431,7 +455,7 @@ trait Definitions { self: Trees =>
 
     /** The paremeters of the respective [[FunDef]] instantiated with the real type parameters */
     lazy val params: Seq[ValDef] = {
-      if (typesMap.isEmpty) {
+      if (tpSubst.isEmpty) {
         fd.params
       } else {
         fd.params.map(vd => vd.copy(tpe = instantiate(vd.getType)))

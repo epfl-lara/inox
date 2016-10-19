@@ -3,7 +3,7 @@
 package inox
 package ast
 
-trait Paths { self: TypeOps with Constructors =>
+trait Paths { self: SymbolOps with TypeOps with Constructors =>
   import trees._
 
   object Path {
@@ -69,7 +69,19 @@ trait Paths { self: TypeOps with Constructors =>
       * Expressions in a path appear both on the right-hand side of let binders
       * and in boolean path conditions.
       */
-    def map(f: Expr => Expr) = new Path(elements.map(_.left.map { case (id, e) => id -> f(e) }.right.map(f)))
+    def map(f: Expr => Expr) = new Path(elements.map(_.left.map { case (vd, e) => vd -> f(e) }.right.map(f)))
+
+    /** Instantiates type parameters within the path
+      *
+      * Type parameters within a path may appear both inside expressions and in
+      * the type associated to a let binder.
+      */
+    def instantiate(tps: Map[TypeParameter, Type]) = {
+      val t = new TypeInstantiator(tps)
+      new Path(elements.map(_.left.map {
+        case (vd, e) => t.transform(vd) -> t.transform(e)
+      }.right.map(t.transform)))
+    }
 
     /** Splits the path on predicate `p`
       *

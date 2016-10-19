@@ -19,6 +19,8 @@ trait SolverFactory {
   def reclaim(s: S) {
     s.free()
   }
+
+  def toAPI = SimpleSolverAPI(this)
 }
 
 object SolverFactory {

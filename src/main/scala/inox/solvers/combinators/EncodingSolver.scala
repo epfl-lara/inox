@@ -33,8 +33,8 @@ object ProgramEncoder {
     val sourceProgram: p.type = p
     val t: p.trees.type = p.trees
 
-    val encoder = p.trees.SymbolIdentity
-    val decoder = p.trees.SymbolIdentity
+    object encoder extends p.trees.IdentitySymbolTransformer
+    object decoder extends p.trees.IdentitySymbolTransformer
   }
 }
 

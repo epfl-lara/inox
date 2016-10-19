@@ -46,7 +46,7 @@ trait TheoryEncoder extends ast.TreeBijection {
 trait NoEncoder extends TheoryEncoder {
   import trees._
 
-  protected val treeEncoder: SelfTransformer = TreeIdentity
-  protected val treeDecoder: SelfTransformer = TreeIdentity
+  protected object treeEncoder extends IdentityTreeTransformer
+  protected object treeDecoder extends IdentityTreeTransformer
 }
 

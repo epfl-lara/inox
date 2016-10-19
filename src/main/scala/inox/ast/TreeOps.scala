@@ -19,7 +19,7 @@ trait TreeOps { self: Trees =>
     } = self.deconstructor
   }
 
-  class TreeIdentity extends SelfTreeTransformer {
+  trait IdentityTreeTransformer extends SelfTreeTransformer {
     override def transform(id: Identifier, tpe: s.Type): (Identifier, t.Type) = (id, tpe)
     override def transform(v: s.Variable): t.Variable = v
     override def transform(vd: s.ValDef): t.ValDef = vd
@@ -28,16 +28,16 @@ trait TreeOps { self: Trees =>
     override def transform(flag: s.Flag): t.Flag = flag
   }
 
-  lazy val TreeIdentity: SelfTransformer = new TreeIdentity
+  trait IdentitySymbolTransformer extends SymbolTransformer {
+    /* For some reason, the scala compiler doesn't accept {{{
+     *   object transformer extends IdentityTreeTransformer
+     * }}} which would be nicer. */
+    val transformer = new IdentityTreeTransformer {}
 
-  class SymbolIdentity extends SymbolTransformer {
-    val transformer = TreeIdentity
     override protected final def transformFunction(fd: s.FunDef): t.FunDef = sys.error("unexpected")
     override protected final def transformADT(adt: s.ADTDefinition): t.ADTDefinition = sys.error("unexpected")
     override def transform(syms: s.Symbols): t.Symbols = syms
   }
-
-  lazy val SymbolIdentity: SymbolTransformer { val transformer: SelfTransformer } = new SymbolIdentity
 
   trait TreeTraverser {
     def traverse(vd: ValDef): Unit = traverse(vd.tpe)

@@ -4,13 +4,11 @@ package inox
 package transformers
 
 /** A common trait for objects that collect something from expressions.
-  * The [[Transformer]] environment will also be collected along the way.
   * This trait is meant to be mixed in with a specific [[Transformer]] to attach collect functionality.
   */
 trait Collector extends Transformer {
   /** The type of collected objects */
-  type R
-  final type Result = (R, Env)
+  type Result
   private var results: List[Result] = Nil
 
   import trees._
