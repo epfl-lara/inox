@@ -33,7 +33,7 @@ trait Definitions { self: Trees =>
     * Both types share much in common and being able to reason about them
     * in a uniform manner can be useful in certain cases.
     */
-  protected[ast] trait VariableSymbol extends Typed {
+  protected[ast] trait VariableSymbol extends Tree with Typed {
     val id: Identifier
     val tpe: Type
 
@@ -59,14 +59,14 @@ trait Definitions { self: Trees =>
   implicit def convertToVal = new VariableConverter[ValDef] {
     def convert(vs: VariableSymbol): ValDef = vs match {
       case v: ValDef => v
-      case _ => ValDef(vs.id, vs.tpe)
+      case _ => ValDef(vs.id, vs.tpe).copiedFrom(vs)
     }
   }
 
   implicit def convertToVariable = new VariableConverter[Variable] {
     def convert(vs: VariableSymbol): Variable = vs match {
       case v: Variable => v
-      case _ => Variable(vs.id, vs.tpe)
+      case _ => Variable(vs.id, vs.tpe).copiedFrom(vs)
     }
   }
 
@@ -259,7 +259,7 @@ trait Definitions { self: Trees =>
       tparams: Seq[TypeParameterDef] = this.tparams,
       cons: Seq[Identifier] = this.cons,
       flags: Set[Flag] = this.flags
-    ): ADTSort = new ADTSort(id, tparams, cons, flags)
+    ): ADTSort = new ADTSort(id, tparams, cons, flags).copiedFrom(this)
   }
 
   /** Case classes/ ADT constructors. For single-case classes these may coincide
@@ -304,7 +304,7 @@ trait Definitions { self: Trees =>
       sort: Option[Identifier] = this.sort,
       fields: Seq[ValDef] = this.fields,
       flags: Set[Flag] = this.flags
-    ): ADTConstructor = new ADTConstructor(id, tparams, sort, fields, flags)
+    ): ADTConstructor = new ADTConstructor(id, tparams, sort, fields, flags).copiedFrom(this)
   }
 
   /** Represents an [[ADTDefinition]] whose type parameters have been instantiated to ''tps'' */
@@ -334,11 +334,15 @@ trait Definitions { self: Trees =>
 
   /** Represents an [[ADTSort]] whose type parameters have been instantiated to ''tps'' */
   case class TypedADTSort(definition: ADTSort, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedADTDefinition {
+    copiedFrom(definition)
+
     lazy val constructors: Seq[TypedADTConstructor] = definition.constructors.map(_.typed(tps))
   }
 
   /** Represents an [[ADTConstructor]] whose type parameters have been instantiated to ''tps'' */
   case class TypedADTConstructor(definition: ADTConstructor, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedADTDefinition {
+    copiedFrom(definition)
+
     lazy val fields: Seq[ValDef] = {
       val tmap = (definition.typeArgs zip tps).toMap
       if (tmap.isEmpty) definition.fields
@@ -401,12 +405,14 @@ trait Definitions { self: Trees =>
       returnType: Type = this.returnType,
       fullBody: Expr = this.fullBody,
       flags: Set[Flag] = this.flags
-    ): FunDef = new FunDef(id, tparams, params, returnType, fullBody, flags)
+    ): FunDef = new FunDef(id, tparams, params, returnType, fullBody, flags).copiedFrom(this)
   }
 
 
   /** Represents a [[FunDef]] whose type parameters have been instantiated with the specified types */
   case class TypedFunDef(fd: FunDef, tps: Seq[Type])(implicit symbols: Symbols) extends Tree {
+    copiedFrom(fd)
+
     val id = fd.id
 
     def signature = {

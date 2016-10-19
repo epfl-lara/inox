@@ -3,10 +3,14 @@
 package inox
 package evaluators
 
+object optMaxCalls extends IntOptionDef("maxcalls",
+  "Maximum number of function invocations allowed during evaluation", 50000, "<PosInt> | -1 (for unbounded")
+
 trait ContextualEvaluator extends Evaluator {
-  val maxSteps: Int
   import program._
   import program.trees._
+
+  lazy val maxSteps: Int = options.findOptionOrDefault(optMaxCalls)
 
   trait RecContext[RC <: RecContext[RC]] {
     def mappings: Map[ValDef, Expr]

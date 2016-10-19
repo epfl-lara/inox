@@ -1,6 +1,6 @@
 package inox.ast
 
-import inox.utils.UniqueCounter
+import inox.utils.{UniqueCounter, Positioned}
 
 /** Represents a unique symbol in Inox.
   *
@@ -12,7 +12,7 @@ class Identifier (
   val globalId: Int,
   private val id: Int,
   private val alwaysShowUniqueID: Boolean = false
-) extends Ordered[Identifier] {
+) extends Ordered[Identifier] with Positioned {
 
   override def equals(other: Any): Boolean = other match {
     case null => false

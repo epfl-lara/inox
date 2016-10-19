@@ -62,6 +62,10 @@ case class LongOptionDef(name: String, description: String, default: Long, usage
   val parser = longParser
 }
 
+case class IntOptionDef(name: String, description: String, default: Int, usageRhs: String) extends OptionDef[Int] {
+  val parser = intParser
+}
+
 class OptionValue[A] private (val optionDef: OptionDef[A], val value: A) {
   override def toString = s"--${optionDef.name}=$value"
   override def equals(other: Any) = other match {
@@ -82,9 +86,8 @@ object OptionValue {
 object OptionParsers {
   type OptionParser[A] = String => Option[A]
 
-  val longParser: OptionParser[Long] = { s =>
-    Try(s.toLong).toOption
-  }
+  val intParser: OptionParser[Int] = { s => Try(s.toInt).toOption }
+  val longParser: OptionParser[Long] = { s => Try(s.toLong).toOption }
   val stringParser: OptionParser[String] = Some(_)
   val booleanParser: OptionParser[Boolean] = {
     case "on"  | "true"  | "yes" | "" => Some(true)

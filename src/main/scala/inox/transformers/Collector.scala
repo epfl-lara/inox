@@ -21,12 +21,15 @@ trait Collector extends Transformer {
     super.rec(e, current)
   }
 
-  /** Traverses the expression and collects */
-  final def collect(e: Expr): List[Result] = {
+  /** Traverses an [[Expr]] with the specified environment and collects */
+  final def collect(e: Expr, init: Env) = {
     results = Nil
-    transform(e)
+    transform(e, init)
     results
   }
+
+  /** Traverses an [[Expr]] with the initial environment and collects */
+  final def collect(e: Expr): List[Result] = collect(e, initEnv)
 
   /** Collect the expressions in a [[FunDef]]'s body */
   final def collect(fd: FunDef): List[Result] = collect(fd.fullBody)

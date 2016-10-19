@@ -21,7 +21,7 @@ object optFeelingLucky extends FlagOptionDef(
 object optUnrollAssumptions  extends FlagOptionDef(
   "unrollassumptions", "Use unsat-assumptions to drive unfolding while remaining fair", false)
 
-trait AbstractUnrollingSolver extends Solver with EncodingSolver {
+trait AbstractUnrollingSolver extends Solver {
 
   import program._
   import program.trees._
@@ -30,7 +30,7 @@ trait AbstractUnrollingSolver extends Solver with EncodingSolver {
 
   protected type Encoded
 
-  protected val encoder: ProgramEncoder { val sourceProgram: program.type }
+  protected val encoder: ast.ProgramEncoder { val sourceProgram: program.type }
 
   protected val theories: TheoryEncoder { val sourceProgram: AbstractUnrollingSolver.this.encoder.targetProgram.type }
 
@@ -40,8 +40,19 @@ trait AbstractUnrollingSolver extends Solver with EncodingSolver {
   protected lazy val t: programEncoder.t.type = programEncoder.t
   protected lazy val targetProgram: programEncoder.targetProgram.type = programEncoder.targetProgram
 
-  protected def encode(tpe: FunctionType): t.FunctionType =
-    programEncoder.encode(tpe).asInstanceOf[t.FunctionType]
+  protected final def encode(vd: ValDef): t.ValDef = programEncoder.encode(vd)
+  protected final def decode(vd: t.ValDef): ValDef = programEncoder.decode(vd)
+
+  protected final def encode(v: Variable): t.Variable = programEncoder.encode(v)
+  protected final def decode(v: t.Variable): Variable = programEncoder.decode(v)
+
+  protected final def encode(e: Expr): t.Expr = programEncoder.encode(e)
+  protected final def decode(e: t.Expr): Expr = programEncoder.decode(e)
+
+  protected final def encode(tpe: Type): t.Type = programEncoder.encode(tpe)
+  protected final def decode(tpe: t.Type): Type = programEncoder.decode(tpe)
+  protected final def encode(ft: FunctionType): t.FunctionType =
+    programEncoder.encode(ft).asInstanceOf[t.FunctionType]
 
   protected val templates: Templates {
     val program: targetProgram.type

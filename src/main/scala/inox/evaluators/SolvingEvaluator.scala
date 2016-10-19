@@ -4,6 +4,7 @@ package inox
 package evaluators
 
 import solvers._
+import solvers.combinators._
 
 import scala.collection.mutable.{Map => MutableMap}
 
@@ -20,7 +21,10 @@ trait SolvingEvaluator extends Evaluator {
     def default = MutableMap.empty
   }
 
-  def getSolver(opts: OptionValue[_]*): SolverFactory { val program: SolvingEvaluator.this.program.type }
+  def getSolver(opts: OptionValue[_]*): SolverFactory {
+    val program: SolvingEvaluator.this.program.type
+    type S <: TimeoutSolver { val program: SolvingEvaluator.this.program.type }
+  }
 
   private val chooseCache: MutableMap[Choose, Expr] = MutableMap.empty
   private val forallCache: MutableMap[Forall, Expr] = MutableMap.empty

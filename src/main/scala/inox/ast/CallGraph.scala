@@ -32,6 +32,10 @@ trait CallGraph {
     graph.transitiveSucc(f) contains f
   }
 
+  def isSelfRecursive(f: FunDef) = {
+    graph.succ(f) contains f
+  }
+
   def calls(from: FunDef, to: FunDef) = {
     graph.E contains SimpleEdge(from, to)
   }
