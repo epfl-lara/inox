@@ -9,8 +9,7 @@ import theories._
 
 import z3.scala._
 
-trait NativeZ3Solver
-  extends AbstractUnrollingSolver {
+trait NativeZ3Solver extends AbstractUnrollingSolver { self =>
 
   import program._
   import program.trees._
@@ -21,13 +20,12 @@ trait NativeZ3Solver
   type Encoded = Z3AST
 
   object theories extends {
-    val sourceProgram: NativeZ3Solver.this.encoder.targetProgram.type =
-      NativeZ3Solver.this.encoder.targetProgram
+    val sourceProgram: self.encoder.targetProgram.type = self.encoder.targetProgram
   } with StringEncoder
 
   protected object underlying extends {
     val program: targetProgram.type = targetProgram
-    val options = NativeZ3Solver.this.options
+    val options = self.options
   } with AbstractZ3Solver
 
   private lazy val z3 = underlying.z3
@@ -37,7 +35,7 @@ trait NativeZ3Solver
   } with Templates {
     import program.trees._
 
-    type Encoded = NativeZ3Solver.this.Encoded
+    type Encoded = self.Encoded
 
     def asString(ast: Z3AST): String = ast.toString
 

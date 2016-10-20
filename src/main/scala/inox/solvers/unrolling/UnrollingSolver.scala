@@ -21,7 +21,7 @@ object optFeelingLucky extends FlagOptionDef(
 object optUnrollAssumptions  extends FlagOptionDef(
   "unrollassumptions", "Use unsat-assumptions to drive unfolding while remaining fair", false)
 
-trait AbstractUnrollingSolver extends Solver {
+trait AbstractUnrollingSolver extends Solver { self =>
 
   import program._
   import program.trees._
@@ -32,9 +32,9 @@ trait AbstractUnrollingSolver extends Solver {
 
   protected val encoder: ast.ProgramEncoder { val sourceProgram: program.type }
 
-  protected val theories: TheoryEncoder { val sourceProgram: AbstractUnrollingSolver.this.encoder.targetProgram.type }
+  protected val theories: TheoryEncoder { val sourceProgram: self.encoder.targetProgram.type }
 
-  protected lazy val programEncoder = encoder >> theories
+  protected lazy val programEncoder = encoder andThen theories
 
   protected lazy val s: programEncoder.s.type = programEncoder.s
   protected lazy val t: programEncoder.t.type = programEncoder.t
@@ -56,11 +56,11 @@ trait AbstractUnrollingSolver extends Solver {
 
   protected val templates: Templates {
     val program: targetProgram.type
-    type Encoded = AbstractUnrollingSolver.this.Encoded
+    type Encoded = self.Encoded
   }
 
   protected val evaluator: DeterministicEvaluator with SolvingEvaluator {
-    val program: AbstractUnrollingSolver.this.program.type
+    val program: self.program.type
   }
 
   protected val underlying: AbstractSolver {

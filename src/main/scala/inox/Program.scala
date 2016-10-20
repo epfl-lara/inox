@@ -30,9 +30,7 @@ trait Program {
     val ctx = Program.this.ctx
   }
 
-  def transform(t: SymbolTransformer {
-    val transformer: TreeTransformer { val s: trees.type }
-  }): Program { val trees: t.t.type } = new Program {
+  def transform(t: SymbolTransformer { val s: trees.type }): Program { val trees: t.t.type } = new Program {
     val trees: t.t.type = t.t
     val symbols = t.transform(Program.this.symbols)
     val ctx = Program.this.ctx

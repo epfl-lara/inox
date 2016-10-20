@@ -21,7 +21,6 @@ trait TreeOps { self: Trees =>
 
   trait IdentityTreeTransformer extends SelfTreeTransformer {
     override def transform(id: Identifier, tpe: s.Type): (Identifier, t.Type) = (id, tpe)
-    override def transform(v: s.Variable): t.Variable = v
     override def transform(vd: s.ValDef): t.ValDef = vd
     override def transform(e: s.Expr): t.Expr = e
     override def transform(tpe: s.Type): t.Type = tpe
@@ -29,13 +28,9 @@ trait TreeOps { self: Trees =>
   }
 
   trait IdentitySymbolTransformer extends SymbolTransformer {
-    /* For some reason, the scala compiler doesn't accept {{{
-     *   object transformer extends IdentityTreeTransformer
-     * }}} which would be nicer. */
-    val transformer = new IdentityTreeTransformer {}
+    val s: self.type = self
+    val t: self.type = self
 
-    override protected final def transformFunction(fd: s.FunDef): t.FunDef = sys.error("unexpected")
-    override protected final def transformADT(adt: s.ADTDefinition): t.ADTDefinition = sys.error("unexpected")
     override def transform(syms: s.Symbols): t.Symbols = syms
   }
 
@@ -69,15 +64,6 @@ trait TreeTransformer {
 
   def transform(id: Identifier, tpe: s.Type): (Identifier, t.Type) = (id, transform(tpe))
 
-  def transform(v: s.Variable): t.Variable = {
-    val (id, tpe) = transform(v.id, v.tpe)
-    if ((id ne v.id) || (tpe ne v.tpe) || (s ne t)) {
-      t.Variable(id, tpe).copiedFrom(v)
-    } else {
-      v.asInstanceOf[t.Variable]
-    }
-  }
-
   def transform(vd: s.ValDef): t.ValDef = {
     val (id, es, Seq(tpe), builder) = deconstructor.deconstruct(vd)
     val (newId, newTpe) = transform(id, tpe)
@@ -101,7 +87,7 @@ trait TreeTransformer {
 
     var changed = false
     val newVs = for (v <- vs) yield {
-      val newV = transform(v)
+      val newV = transformVariable(v)
       if (v ne newV) changed = true
       newV
     }
@@ -168,9 +154,16 @@ trait TreeTransformer {
   /* Type parameters can't be modified by transformed but they need to be
    * translated into the new tree definitions given by `t`. */
   @inline
-  protected[ast] final def transformTypeParams(tparams: Seq[s.TypeParameterDef]): Seq[t.TypeParameterDef] = {
+  final def transformTypeParams(tparams: Seq[s.TypeParameterDef]): Seq[t.TypeParameterDef] = {
     if (s eq t) tparams.asInstanceOf[Seq[t.TypeParameterDef]]
     else tparams.map(tdef => t.TypeParameterDef(t.TypeParameter(tdef.id)))
+  }
+
+  @inline
+  final def transformVariable(v: s.Variable): t.Variable = {
+    val (nid, ntpe) = transform(v.id, v.tpe)
+    if ((v.id ne nid) || (v.tpe ne ntpe) || (s ne t)) t.Variable(nid, ntpe).copiedFrom(v)
+    else v.asInstanceOf[t.Variable]
   }
 
   final def transform(fd: s.FunDef): t.FunDef = {
@@ -215,7 +208,6 @@ trait TreeTransformer {
       t2.transform(id1, tp1)
     }
 
-    override def transform(v: s.Variable): t.Variable = t2.transform(t1.transform(v))
     override def transform(vd: s.ValDef): t.ValDef = t2.transform(t1.transform(vd))
     override def transform(e: s.Expr): t.Expr = t2.transform(t1.transform(e))
     override def transform(tpe: s.Type): t.Type = t2.transform(t1.transform(tpe))
@@ -250,115 +242,56 @@ trait TreeTransformer {
   }
 }
 
-/** Symbol table transformer */
-trait SymbolTransformer {
-  val transformer: TreeTransformer
-  lazy val s: transformer.s.type = transformer.s
-  lazy val t: transformer.t.type = transformer.t
+/** Symbol table transformer base type */
+trait SymbolTransformer { self =>
+  val s: Trees
+  val t: Trees
 
-  def transform(id: Identifier, tpe: s.Type): (Identifier, t.Type) = transformer.transform(id, tpe)
-  def transform(v: s.Variable): t.Variable = transformer.transform(v)
-  def transform(vd: s.ValDef): t.ValDef = transformer.transform(vd)
-  def transform(e: s.Expr): t.Expr = transformer.transform(e)
-  def transform(tpe: s.Type): t.Type = transformer.transform(tpe)
-  def transform(flag: s.Flag): t.Flag = transformer.transform(flag)
-
-  @inline
-  protected def transformTypeParams(tparams: Seq[s.TypeParameterDef]) = transformer.transformTypeParams(tparams)
-
-  protected def transformFunction(fd: s.FunDef): t.FunDef = transformer.transform(fd)
-  protected def transformADT(adt: s.ADTDefinition): t.ADTDefinition = transformer.transform(adt)
-
-  def transform(syms: s.Symbols): t.Symbols = t.NoSymbols
-    .withFunctions(syms.functions.values.toSeq.map(transformFunction))
-    .withADTs(syms.adts.values.toSeq.map(transformADT))
+  def transform(syms: s.Symbols): t.Symbols
 
   def compose(that: SymbolTransformer {
-    val transformer: TreeTransformer { val t: SymbolTransformer.this.s.type }
+    val t: self.s.type
   }): SymbolTransformer {
-    val transformer: TreeTransformer {
-      val s: that.s.type
-      val t: SymbolTransformer.this.t.type
-    }
+    val s: that.s.type
+    val t: self.t.type
   } = new SymbolTransformer {
-    val transformer = SymbolTransformer.this.transformer compose that.transformer
-    override def transform(syms: s.Symbols): t.Symbols = SymbolTransformer.this.transform(that.transform(syms))
+    val s: that.s.type = that.s
+    val t: self.t.type = self.t
+    override def transform(syms: s.Symbols): t.Symbols = self.transform(that.transform(syms))
   }
 
   def andThen(that: SymbolTransformer {
-    val transformer: TreeTransformer { val s: SymbolTransformer.this.t.type }
+    val s: self.t.type
   }): SymbolTransformer {
-    val transformer: TreeTransformer {
-      val s: SymbolTransformer.this.s.type
-      val t: that.t.type
-    }
+    val s: self.s.type
+    val t: that.t.type
   } = {
     // the scala compiler doesn't realize that this relation must hold here
     that compose this.asInstanceOf[SymbolTransformer {
-      val transformer: TreeTransformer {
-        val s: SymbolTransformer.this.s.type
-        val t: that.s.type
-      }
+      val s: self.s.type
+      val t: that.s.type
     }]
   }
 }
 
-trait TreeBijection {
-  val s: Trees
-  val t: Trees
+trait SimpleSymbolTransformer extends SymbolTransformer { self =>
+  protected def transformFunction(fd: s.FunDef): t.FunDef
+  protected def transformADT(adt: s.ADTDefinition): t.ADTDefinition
 
-  val encoder: SymbolTransformer { val transformer: TreeTransformer {
-    val s: TreeBijection.this.s.type
-    val t: TreeBijection.this.t.type
-  }}
+  def transform(syms: s.Symbols): t.Symbols = t.NoSymbols
+    .withFunctions(syms.functions.values.toSeq.map(transformFunction))
+    .withADTs(syms.adts.values.toSeq.map(transformADT))
+}
 
-  val decoder: SymbolTransformer { val transformer: TreeTransformer {
-    val s: TreeBijection.this.t.type
-    val t: TreeBijection.this.s.type
-  }}
+object SymbolTransformer {
+  def apply(trans: TreeTransformer): SymbolTransformer {
+    val s: trans.s.type
+    val t: trans.t.type
+  } = new SimpleSymbolTransformer {
+    val s: trans.s.type = trans.s
+    val t: trans.t.type = trans.t
 
-  def encode(vd: s.ValDef): t.ValDef = encoder.transform(vd)
-  def decode(vd: t.ValDef): s.ValDef = decoder.transform(vd)
-
-  def encode(v: s.Variable): t.Variable = encoder.transform(v)
-  def decode(v: t.Variable): s.Variable = decoder.transform(v)
-
-  def encode(e: s.Expr): t.Expr = encoder.transform(e)
-  def decode(e: t.Expr): s.Expr = decoder.transform(e)
-
-  def encode(tpe: s.Type): t.Type = encoder.transform(tpe)
-  def decode(tpe: t.Type): s.Type = decoder.transform(tpe)
-
-  def inverse: TreeBijection {
-    val s: TreeBijection.this.t.type
-    val t: TreeBijection.this.s.type
-  } = new TreeBijection {
-    val s: TreeBijection.this.t.type = TreeBijection.this.t
-    val t: TreeBijection.this.s.type = TreeBijection.this.s
-
-    val encoder = TreeBijection.this.decoder
-    val decoder = TreeBijection.this.encoder
-  }
-
-  def compose(that: TreeBijection { val t: TreeBijection.this.s.type }): TreeBijection {
-    val s: that.s.type
-    val t: TreeBijection.this.t.type
-  } = new TreeBijection {
-    val s: that.s.type = that.s
-    val t: TreeBijection.this.t.type = TreeBijection.this.t
-
-    val encoder = TreeBijection.this.encoder compose that.encoder
-    val decoder = that.decoder compose TreeBijection.this.decoder
-  }
-
-  def andThen(that: TreeBijection { val s: TreeBijection.this.t.type }): TreeBijection {
-    val s: TreeBijection.this.s.type
-    val t: that.t.type
-  } = new TreeBijection {
-    val s: TreeBijection.this.s.type = TreeBijection.this.s
-    val t: that.t.type = that.t
-
-    val encoder = TreeBijection.this.encoder andThen that.encoder
-    val decoder = that.decoder andThen TreeBijection.this.decoder
+    protected def transformFunction(fd: s.FunDef): t.FunDef = trans.transform(fd)
+    protected def transformADT(adt: s.ADTDefinition): t.ADTDefinition = trans.transform(adt)
   }
 }

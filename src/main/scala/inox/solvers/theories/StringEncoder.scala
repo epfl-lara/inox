@@ -81,8 +81,8 @@ trait StringEncoder extends TheoryEncoder {
       }
     }))
 
-  override val newFunctions = Seq(Size, Take, Drop, Slice, Concat)
-  override val newADTs = Seq(stringADT, stringNilADT, stringConsADT)
+  override val extraFunctions = Seq(Size, Take, Drop, Slice, Concat)
+  override val extraADTs = Seq(stringADT, stringNilADT, stringConsADT)
 
   private val stringBijection = new Bijection[String, Expr]()
 
@@ -95,7 +95,7 @@ trait StringEncoder extends TheoryEncoder {
     v.toList.foldRight(StringNil()){ case (char, l) => StringCons(E(char), l) }
   }
 
-  val treeEncoder = new SelfTreeTransformer {
+  protected object encoder extends SelfTreeTransformer {
     override def transform(e: Expr): Expr = e match {
       case StringLiteral(v) => convertFromString(v)
       case StringLength(a) => Size(transform(a)).copiedFrom(e)
@@ -113,7 +113,7 @@ trait StringEncoder extends TheoryEncoder {
     }
   }
 
-  val treeDecoder = new SelfTreeTransformer {
+  protected object decoder extends SelfTreeTransformer {
     override def transform(e: Expr): Expr = e match {
       case cc @ ADT(adt, args) if adt == StringNil || adt == StringCons =>
         StringLiteral(convertToString(cc)).copiedFrom(cc)

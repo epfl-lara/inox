@@ -10,7 +10,7 @@ import inox.utils.{UniqueCounter, Positioned}
 class Identifier (
   val name: String,
   val globalId: Int,
-  private val id: Int,
+  val id: Int,
   private val alwaysShowUniqueID: Boolean = false
 ) extends Ordered[Identifier] with Positioned {
 

@@ -187,6 +187,19 @@ trait TypeOps {
     }
   }
 
+  def greatestLowerBound(ts: Seq[Type]): Option[Type] = {
+    def oglb(ot1: Option[Type], t2: Option[Type]): Option[Type] = ot1 match {
+      case Some(t1) => greatestLowerBound(t1, t2.get)
+      case None => None
+    }
+
+    if (ts.isEmpty) {
+      None
+    } else {
+      ts.map(Some(_)).reduceLeft(oglb)
+    }
+  }
+
   def isSubtypeOf(t1: Type, t2: Type): Boolean = {
     leastUpperBound(t1, t2) == Some(t2)
   }

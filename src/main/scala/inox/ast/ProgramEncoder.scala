@@ -3,22 +3,58 @@
 package inox
 package ast
 
-trait ProgramEncoder extends TreeBijection {
+trait ProgramEncoder { self =>
   val sourceProgram: Program
-  lazy val s: sourceProgram.trees.type = sourceProgram.trees
-  lazy val targetProgram: Program { val trees: t.type } = sourceProgram.transform(encoder)
+  val t: Trees
 
-  /* @nv XXX: ideally, we would want to replace `>>` by `override def andThen`, however this
-   *          seems to break the scala compiler for some weird reason... */
-  def >>(that: TreeBijection { val s: ProgramEncoder.this.t.type }): ProgramEncoder {
-    val sourceProgram: ProgramEncoder.this.sourceProgram.type
+  protected val extraFunctions: Seq[t.FunDef] = Seq.empty
+  protected val extraADTs: Seq[t.ADTDefinition] = Seq.empty
+
+  /** Override point for more complex program transformations */
+  protected def encodedProgram: Program { val trees: t.type } = {
+    sourceProgram.transform(SymbolTransformer(encoder))
+  }
+
+  lazy final val s: sourceProgram.trees.type = sourceProgram.trees
+  lazy final val targetProgram: Program { val trees: t.type } = {
+    encodedProgram.withFunctions(extraFunctions).withADTs(extraADTs)
+  }
+
+  protected val encoder: TreeTransformer { val s: self.s.type; val t: self.t.type }
+  protected val decoder: TreeTransformer { val s: self.t.type; val t: self.s.type }
+
+  def encode(vd: s.ValDef): t.ValDef = encoder.transform(vd)
+  def decode(vd: t.ValDef): s.ValDef = decoder.transform(vd)
+
+  def encode(v: s.Variable): t.Variable = encoder.transform(v).asInstanceOf[t.Variable]
+  def decode(v: t.Variable): s.Variable = decoder.transform(v).asInstanceOf[s.Variable]
+
+  def encode(e: s.Expr): t.Expr = encoder.transform(e)
+  def decode(e: t.Expr): s.Expr = decoder.transform(e)
+
+  def encode(tpe: s.Type): t.Type = encoder.transform(tpe)
+  def decode(tpe: t.Type): s.Type = decoder.transform(tpe)
+
+  def compose(that: ProgramEncoder { val t: self.s.type }): ProgramEncoder {
+    val sourceProgram: that.sourceProgram.type
+    val t: self.t.type
+  } = new ProgramEncoder {
+    val sourceProgram: that.sourceProgram.type = that.sourceProgram
+    val t: self.t.type = self.t
+
+    val encoder = self.encoder compose that.encoder
+    val decoder = that.decoder compose self.decoder
+  }
+
+  def andThen(that: ProgramEncoder { val sourceProgram: self.targetProgram.type }): ProgramEncoder {
+    val sourceProgram: self.sourceProgram.type
     val t: that.t.type
   } = new ProgramEncoder {
-    val sourceProgram: ProgramEncoder.this.sourceProgram.type = ProgramEncoder.this.sourceProgram
+    val sourceProgram: self.sourceProgram.type = self.sourceProgram
     val t: that.t.type = that.t
 
-    val encoder = ProgramEncoder.this.encoder andThen that.encoder
-    val decoder = that.decoder andThen ProgramEncoder.this.decoder
+    val encoder = self.encoder andThen that.encoder
+    val decoder = that.decoder andThen self.decoder
   }
 }
 
@@ -30,8 +66,8 @@ object ProgramEncoder {
     val sourceProgram: p.type = p
     val t: p.trees.type = p.trees
 
-    object encoder extends p.trees.IdentitySymbolTransformer
-    object decoder extends p.trees.IdentitySymbolTransformer
+    protected object encoder extends p.trees.IdentityTreeTransformer
+    protected object decoder extends p.trees.IdentityTreeTransformer
   }
 }
 
