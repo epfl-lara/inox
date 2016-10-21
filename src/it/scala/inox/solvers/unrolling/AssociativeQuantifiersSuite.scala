@@ -16,11 +16,11 @@ class AssociativeQuantifiersSuite extends InoxTestSuite {
     ("nativez3", false, false, true ),
     ("smt-cvc4", false, false, true )
   ).map { case (solverName, checkModels, feelingLucky, unrollAssumptions) => Seq(
-    InoxOptions.optSelectedSolvers(Set(solverName)),
+    optSelectedSolvers(Set(solverName)),
     optCheckModels(checkModels),
     optFeelingLucky(feelingLucky),
     optUnrollAssumptions(unrollAssumptions),
-    InoxOptions.optTimeout(300),
+    optTimeout(300),
     ast.optPrintUniqueIds(true)
   )}
 

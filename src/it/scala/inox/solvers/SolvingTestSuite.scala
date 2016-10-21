@@ -11,11 +11,11 @@ trait SolvingTestSuite extends InoxTestSuite {
     feelingLucky      <- Seq(false, true)
     unrollAssumptions <- Seq(false, true)
   } yield Seq(
-    InoxOptions.optSelectedSolvers(Set(solverName)),
+    optSelectedSolvers(Set(solverName)),
     optCheckModels(checkModels),
     unrolling.optFeelingLucky(feelingLucky),
     unrolling.optUnrollAssumptions(unrollAssumptions),
-    InoxOptions.optTimeout(300),
+    optTimeout(300),
     ast.optPrintUniqueIds(true)
   )
 }

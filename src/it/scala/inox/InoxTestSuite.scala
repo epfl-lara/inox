@@ -12,7 +12,7 @@ trait InoxTestSuite extends FunSuite with Matchers with Timeouts {
   val configurations: Seq[Seq[OptionValue[_]]] = Seq(Seq.empty)
 
   private def optionsString(options: Options): String = {
-    "solver=" + options.findOptionOrDefault(InoxOptions.optSelectedSolvers).head + " " +
+    "solver=" + options.findOptionOrDefault(optSelectedSolvers).head + " " +
     "feelinglucky=" + options.findOptionOrDefault(solvers.unrolling.optFeelingLucky) + " " +
     "checkmodels=" + options.findOptionOrDefault(solvers.optCheckModels) + " " +
     "unrollassumptions=" + options.findOptionOrDefault(solvers.unrolling.optUnrollAssumptions)
