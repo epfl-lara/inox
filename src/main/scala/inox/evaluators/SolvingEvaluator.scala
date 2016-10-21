@@ -14,10 +14,9 @@ trait SolvingEvaluator extends Evaluator {
   import program.symbols._
 
   private object optForallCache extends OptionDef[MutableMap[program.trees.Forall, Boolean]] {
-    val parser = { (_: String) => throw FatalError("Unparsable option \"bankOption\"") }
-    val name = "bank-option"
-    val description = "Evaluation bank shared between solver and evaluator"
-    val usageRhs = ""
+    val parser = { (_: String) => throw FatalError("Unparsable option \"forallCache\"") }
+    val name = "forall-cache"
+    val usageRhs = "No possible usage"
     def default = MutableMap.empty
   }
 

@@ -5,22 +5,8 @@ package solvers
 
 import utils._
 
-object SolverOptions {
-  val options = Seq(
-    optCheckModels,
-    optSilentErrors,
-    unrolling.optUnrollFactor,
-    unrolling.optFeelingLucky,
-    unrolling.optUnrollAssumptions,
-    smtlib.optCVC4Options
-  )
-}
-
-object optCheckModels  extends FlagOptionDef(
-  "checkmodels",  "Double-check counter-examples with evaluator", false)
-
-object optSilentErrors extends FlagOptionDef(
-  "silenterrors", "Fail silently into UNKNOWN when encountering an error", false)
+object optCheckModels  extends FlagOptionDef("checkmodels", false)
+object optSilentErrors extends FlagOptionDef("silenterrors", false)
 
 case object DebugSectionSolver extends DebugSection("solver")
 

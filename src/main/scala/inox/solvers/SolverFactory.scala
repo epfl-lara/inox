@@ -113,10 +113,6 @@ object SolverFactory {
     }
   }
 
-  val solversPretty = "Available: " + solverNames.toSeq.sortBy(_._1).map {
-    case (name, desc) => f"\n  $name%-14s : $desc"
-  }
-
   val solvers: Set[String] = solverNames.map(_._1).toSet
 
   def apply(name: String, p: InoxProgram, opts: Options): SolverFactory {
@@ -127,7 +123,7 @@ object SolverFactory {
   def apply(p: InoxProgram, opts: Options): SolverFactory {
     val program: p.type
     type S <: TimeoutSolver { val program: p.type }
-  } = opts.findOptionOrDefault(InoxOptions.optSelectedSolvers).toSeq match {
+  } = opts.findOptionOrDefault(optSelectedSolvers).toSeq match {
     case Seq() => throw FatalError("No selected solver")
     case Seq(single) => apply(single, p, opts)
     case multiple => PortfolioSolverFactory(p) {

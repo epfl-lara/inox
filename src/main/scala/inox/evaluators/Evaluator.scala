@@ -3,14 +3,7 @@
 package inox
 package evaluators
 
-object EvaluatorOptions {
-  val options = Seq(
-    optIgnoreContracts
-  )
-}
-
-object optIgnoreContracts extends FlagOptionDef(
-  "ignorecontracts", "Don't fail on invalid contracts during evaluation", false)
+object optIgnoreContracts extends FlagOptionDef("ignorecontracts", false)
 
 trait Evaluator {
   val program: Program

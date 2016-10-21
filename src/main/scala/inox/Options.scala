@@ -7,9 +7,10 @@ import OptionParsers._
 import scala.util.Try
 import scala.reflect.ClassTag
 
+object DebugSectionOptions extends DebugSection("options")
+
 abstract class OptionDef[A] {
   val name: String
-  val description: String
   def default: A
   val parser: OptionParser[A]
   val usageRhs: String
@@ -17,10 +18,6 @@ abstract class OptionDef[A] {
   def usageDesc = {
     if (usageRhs.isEmpty) s"--$name"
     else s"--$name=$usageRhs"
-  }
-
-  def helpString = {
-    f"$usageDesc%-28s" + description.replaceAll("\n", "\n" + " " * 28)
   }
 
   private def parseValue(s: String)(implicit reporter: Reporter): A = {
@@ -40,7 +37,6 @@ abstract class OptionDef[A] {
 
   def apply(value: A): OptionValue[A] = OptionValue(this)(value)
 
-  // @mk: FIXME: Is this cool?
   override def equals(other: Any) = other match {
     case that: OptionDef[_] => this.name == that.name
     case _ => false
@@ -49,20 +45,20 @@ abstract class OptionDef[A] {
   override def hashCode = name.hashCode
 }
 
-case class FlagOptionDef(name: String, description: String, default: Boolean) extends OptionDef[Boolean] {
+case class FlagOptionDef(name: String, default: Boolean) extends OptionDef[Boolean] {
   val parser = booleanParser
   val usageRhs = ""
 }
 
-case class StringOptionDef(name: String, description: String, default: String, usageRhs: String) extends OptionDef[String] {
+case class StringOptionDef(name: String, default: String, usageRhs: String) extends OptionDef[String] {
   val parser = stringParser
 }
 
-case class LongOptionDef(name: String, description: String, default: Long, usageRhs: String) extends OptionDef[Long] {
+case class LongOptionDef(name: String, default: Long, usageRhs: String) extends OptionDef[Long] {
   val parser = longParser
 }
 
-case class IntOptionDef(name: String, description: String, default: Int, usageRhs: String) extends OptionDef[Int] {
+case class IntOptionDef(name: String, default: Int, usageRhs: String) extends OptionDef[Int] {
   val parser = intParser
 }
 
@@ -184,51 +180,11 @@ object Options {
   def empty: Options = Options(Seq())
 }
 
-object InoxOptions {
+object optTimeout extends LongOptionDef("timeout", 0L, "t")
 
-  val optSelectedSolvers = new OptionDef[Set[String]] {
-    val name = "solvers"
-    val description = "Use solvers s1, s2,...\n" +
-      solvers.SolverFactory.solversPretty
-    val default = Set("nativez3")
-    val parser = setParser(stringParser)
-    val usageRhs = "s1,s2,..."
-  }
-
-  val optDebug = new OptionDef[Set[DebugSection]] {
-    import OptionParsers._
-    val name = "debug"
-    val description = {
-      /*
-      val sects = DebugSections.all.toSeq.map(_.name).sorted
-      val (first, second) = sects.splitAt(sects.length/2 + 1)
-      */
-      "Enable detailed messages per component." /* +
-      "\nAvailable:\n" +
-        "  " + first.mkString(", ") + ",\n" +
-        "  " + second.mkString(", ")*/
-    }
-    val default = Set[DebugSection]()
-    val usageRhs = "d1,d2,..."
-    private val debugParser: OptionParser[Set[DebugSection]] = s => {
-      /*
-      if (s == "all") {
-        Some(DebugSections.all)
-      } else {
-        DebugSections.all.find(_.name == s).map(Set(_))
-      }*/
-     None
-
-    }
-    val parser: String => Option[Set[DebugSection]] = {
-      setParser[Set[DebugSection]](debugParser)(_).map(_.flatten)
-    }
-  }
-
-  val optTimeout = LongOptionDef(
-    "timeout",
-    "Set a timeout for attempting to prove a verification condition/ repair a function (in sec.)",
-    0L,
-    "t"
-  )
+object optSelectedSolvers extends OptionDef[Set[String]] {
+  val name = "solvers"
+  val default = Set("nativez3")
+  val parser = setParser(stringParser)
+  val usageRhs = "s1,s2,..."
 }

@@ -25,7 +25,7 @@ object Context {
     Context(
       reporter,
       new InterruptManager(reporter),
-      options = Options.empty + InoxOptions.optDebug(Set(ast.DebugSectionTrees: DebugSection))
+      options = Options.empty + Main.optDebug(Set(ast.DebugSectionTrees: DebugSection))
     )
   }
 }

@@ -8,7 +8,6 @@ import inox.OptionParsers._
 
 object optCVC4Options extends OptionDef[Set[String]] {
   val name = "solver:cvc4"
-  val description = "Pass extra arguments to CVC4"
   val default = Set[String]()
   val parser = setParser(stringParser)
   val usageRhs = "<cvc4-opt>"

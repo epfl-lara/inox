@@ -12,14 +12,9 @@ import combinators._
 
 import scala.collection.mutable.{Map => MutableMap}
 
-object optUnrollFactor extends LongOptionDef(
-  "unrollfactor",      "Number of unfoldings to perform in each unfold step", default = 1, "<PosInt>")
-
-object optFeelingLucky extends FlagOptionDef(
-  "feelinglucky",      "Use evaluator to find counter-examples early", false)
-
-object optUnrollAssumptions  extends FlagOptionDef(
-  "unrollassumptions", "Use unsat-assumptions to drive unfolding while remaining fair", false)
+object optUnrollFactor      extends LongOptionDef("unrollfactor", default = 1, "<PosInt>")
+object optFeelingLucky      extends FlagOptionDef("feelinglucky", false)
+object optUnrollAssumptions extends FlagOptionDef("unrollassumptions", false)
 
 trait AbstractUnrollingSolver extends Solver { self =>
 
