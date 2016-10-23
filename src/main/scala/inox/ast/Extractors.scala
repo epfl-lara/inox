@@ -231,13 +231,18 @@ trait TreeDeconstructor {
   * [[TreeDeconstructor]] instance. */
 trait Extractors { self: Trees =>
 
+  def getDeconstructor(that: Trees): TreeDeconstructor {
+    val s: self.type
+    val t: that.type
+  } = new TreeDeconstructor {
+    protected val s: self.type = self
+    protected val t: that.type = that
+  }
+
   val deconstructor: TreeDeconstructor {
     val s: self.type
     val t: self.type
-  } = new TreeDeconstructor {
-    protected val s: self.type = self
-    protected val t: self.type = self
-  }
+  } = getDeconstructor(self)
 
   /** Operator Extractor to extract any Expression in a consistent way.
     *

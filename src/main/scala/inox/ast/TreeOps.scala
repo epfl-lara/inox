@@ -12,11 +12,6 @@ trait TreeOps { self: Trees =>
   trait SelfTreeTransformer extends TreeTransformer {
     val s: self.type = self
     val t: self.type = self
-
-    lazy val deconstructor: TreeDeconstructor {
-      val s: self.type
-      val t: self.type
-    } = self.deconstructor
   }
 
   trait IdentityTreeTransformer extends SelfTreeTransformer {
@@ -57,10 +52,10 @@ trait TreeTransformer {
   val s: Trees
   val t: Trees
 
-  val deconstructor: TreeDeconstructor {
+  lazy val deconstructor: TreeDeconstructor {
     val s: TreeTransformer.this.s.type
     val t: TreeTransformer.this.t.type
-  }
+  } = s.getDeconstructor(t)
 
   def transform(id: Identifier, tpe: s.Type): (Identifier, t.Type) = (id, transform(tpe))
 
@@ -231,14 +226,6 @@ trait TreeTransformer {
   } = new TreeTransformerComposition {
     val t1: TreeTransformer.this.type = TreeTransformer.this
     val t2: that.type = that
-
-    lazy val deconstructor: TreeDeconstructor {
-      val s: TreeTransformer.this.s.type
-      val t: that.t.type
-    } = new TreeDeconstructor {
-      protected val s: TreeTransformer.this.s.type = TreeTransformer.this.s
-      protected val t: that.t.type = that.t
-    }
   }
 }
 
