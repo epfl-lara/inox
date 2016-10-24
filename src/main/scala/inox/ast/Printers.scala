@@ -518,8 +518,7 @@ trait Printers {
 
   def asString(obj: Any)(implicit opts: PrinterOptions): String = obj match {
     case tree: Tree => prettyPrint(tree, opts)
-    case id: Identifier => if (opts.printUniqueIds) id.uniqueName else id.toString
+    case id: Identifier => id.asString
     case _ => obj.toString
   }
-
 }

@@ -39,6 +39,10 @@ class Identifier (
       (that.name, that.id, that.globalId)
     )
   }
+
+  def asString(implicit opts: Trees#PrinterOptions): String = {
+    if (opts.printUniqueIds) uniqueName else toString
+  }
 }
 
 object FreshIdentifier {
