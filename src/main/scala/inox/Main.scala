@@ -147,20 +147,26 @@ object Main extends MainHelpers {
         import program.ctx._
 
         import SolverResponses._
-        SimpleSolverAPI(SolverFactory.default(program)).solveSAT(expr) match {
+        val error = SimpleSolverAPI(SolverFactory.default(program)).solveSAT(expr) match {
           case SatWithModel(model) =>
             reporter.info(" => SAT")
             for ((vd, res) <- model) {
               reporter.info(f"${vd.asString}%-15s -> ${res.asString}")
             }
-            exit(error = false)
+            false
           case Unsat =>
             reporter.info(" => UNSAT")
-            exit(error = false)
+            false
           case Unknown =>
             reporter.info(" => UNKNOWN")
-            exit(error = true)
+            true
         }
+
+        reporter.whenDebug(utils.DebugSectionTimers) { debug =>
+          timers.outputTable(debug)
+        }
+
+        exit(error = error)
       }
     }
   }

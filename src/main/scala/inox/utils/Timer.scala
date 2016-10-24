@@ -5,6 +5,8 @@ package utils
 
 import scala.language.dynamics
 
+object DebugSectionTimers extends DebugSection("timers")
+
 /** Implements a timer for profiling purposes */
 class Timer() {
   var beginning: Long = 0L
