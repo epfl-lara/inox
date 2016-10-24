@@ -16,7 +16,7 @@ import ast._
   *
   * ''printerOpts'' provides options for tree printers.
   */
-trait Program {
+trait Program { self =>
   val trees: Trees
   implicit val symbols: trees.Symbols
   implicit val ctx: Context
@@ -24,27 +24,27 @@ trait Program {
   implicit def implicitProgram: this.type = this
   implicit def printerOpts: trees.PrinterOptions = trees.PrinterOptions.fromSymbols(symbols, ctx)
 
-  def transform(t: trees.SelfTransformer): Program { val trees: Program.this.trees.type } = new Program {
-    val trees: Program.this.trees.type = Program.this.trees
-    val symbols = Program.this.symbols.transform(t)
-    val ctx = Program.this.ctx
-  }
-
-  def transform(t: SymbolTransformer { val s: trees.type }): Program { val trees: t.t.type } = new Program {
+  def transform(t: TreeTransformer { val s: self.trees.type }): Program { val trees: t.t.type } = new Program {
     val trees: t.t.type = t.t
-    val symbols = t.transform(Program.this.symbols)
-    val ctx = Program.this.ctx
+    val symbols = self.symbols.transform(t)
+    val ctx = self.ctx
   }
 
-  def withFunctions(functions: Seq[trees.FunDef]): Program { val trees: Program.this.trees.type } = new Program {
-    val trees: Program.this.trees.type = Program.this.trees
-    val symbols = Program.this.symbols.withFunctions(functions)
-    val ctx = Program.this.ctx
+  def transform(t: SymbolTransformer { val s: self.trees.type }): Program { val trees: t.t.type } = new Program {
+    val trees: t.t.type = t.t
+    val symbols = t.transform(self.symbols)
+    val ctx = self.ctx
   }
 
-  def withADTs(adts: Seq[trees.ADTDefinition]): Program { val trees: Program.this.trees.type } = new Program {
-    val trees: Program.this.trees.type = Program.this.trees
-    val symbols = Program.this.symbols.withADTs(adts)
-    val ctx = Program.this.ctx
+  def withFunctions(functions: Seq[trees.FunDef]): Program { val trees: self.trees.type } = new Program {
+    val trees: self.trees.type = self.trees
+    val symbols = self.symbols.withFunctions(functions)
+    val ctx = self.ctx
+  }
+
+  def withADTs(adts: Seq[trees.ADTDefinition]): Program { val trees: self.trees.type } = new Program {
+    val trees: self.trees.type = self.trees
+    val symbols = self.symbols.withADTs(adts)
+    val ctx = self.ctx
   }
 }

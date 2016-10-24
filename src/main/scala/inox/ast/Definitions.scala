@@ -136,7 +136,7 @@ trait Definitions { self: Trees =>
       functions.map(p => prettyPrint(p._2, opts)).mkString("\n\n")
     }
 
-    def transform(trans: SelfTransformer): Symbols = SymbolTransformer(trans).transform(this)
+    def transform(t: TreeTransformer { val s: self.type }): t.t.Symbols = SymbolTransformer(t).transform(this)
 
     override def equals(that: Any): Boolean = that match {
       case sym: AbstractSymbols => functions == sym.functions && adts == sym.adts
