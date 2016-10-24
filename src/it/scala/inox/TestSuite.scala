@@ -7,15 +7,18 @@ import org.scalatest.concurrent._
 
 import utils._
 
-trait InoxTestSuite extends FunSuite with Matchers with Timeouts {
+trait TestSuite extends FunSuite with Matchers with Timeouts {
 
   val configurations: Seq[Seq[OptionValue[_]]] = Seq(Seq.empty)
 
-  private def optionsString(options: Options): String = {
-    "solver=" + options.findOptionOrDefault(optSelectedSolvers).head + " " +
-    "feelinglucky=" + options.findOptionOrDefault(solvers.unrolling.optFeelingLucky) + " " +
-    "checkmodels=" + options.findOptionOrDefault(solvers.optCheckModels) + " " +
-    "unrollassumptions=" + options.findOptionOrDefault(solvers.unrolling.optUnrollAssumptions)
+  private val counter = new UniqueCounter[Unit]
+  counter.nextGlobal // Start at 1
+
+  protected def optionsString(options: Options): String = {
+    "solvr=" + options.findOptionOrDefault(optSelectedSolvers).head + " " +
+    "lucky=" + options.findOptionOrDefault(solvers.unrolling.optFeelingLucky) + " " +
+    "check=" + options.findOptionOrDefault(solvers.optCheckModels) + " " +
+    "assum=" + options.findOptionOrDefault(solvers.unrolling.optUnrollAssumptions)
   }
 
   protected def test(name: String, tags: Tag*)(body: Context => Unit): Unit = {
@@ -23,7 +26,8 @@ trait InoxTestSuite extends FunSuite with Matchers with Timeouts {
       val reporter = new TestSilentReporter
       val ctx = Context(reporter, new InterruptManager(reporter), Options(config))
       try {
-        super.test(name + " " + optionsString(ctx.options))(body(ctx))
+        val index = counter.nextGlobal
+        super.test(f"$index%3d: $name ${optionsString(ctx.options)}")(body(ctx))
       } catch {
         case err: FatalError =>
           reporter.lastErrors :+= err.msg
@@ -34,7 +38,8 @@ trait InoxTestSuite extends FunSuite with Matchers with Timeouts {
 
   protected def ignore(name: String, tags: Tag*)(body: Context => Unit): Unit = {
     for (config <- configurations) {
-      super.ignore(name + " " + optionsString(Options(config)))(())
+      val index = counter.nextGlobal
+      super.ignore(f"$index%3d: $name ${optionsString(Options(config))}")(())
     }
   }
 }

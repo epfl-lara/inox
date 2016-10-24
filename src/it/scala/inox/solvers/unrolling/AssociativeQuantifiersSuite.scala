@@ -4,7 +4,7 @@ package inox
 package solvers
 package unrolling
 
-class AssociativeQuantifiersSuite extends InoxTestSuite {
+class AssociativeQuantifiersSuite extends TestSuite {
   import inox.trees._
   import dsl._
 

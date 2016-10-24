@@ -3,7 +3,7 @@
 package inox
 package solvers
 
-trait SolvingTestSuite extends InoxTestSuite {
+trait SolvingTestSuite extends TestSuite {
 
   override val configurations = for {
     solverName        <- Seq("nativez3", "unrollz3", "smt-z3", "smt-cvc4")

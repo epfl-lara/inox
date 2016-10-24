@@ -11,8 +11,6 @@ import utils._
 
 trait ResourceUtils {
 
-  val resourcesDir = "src/it/resources"
-
   def resourceFiles(dir: String, filter: String => Boolean = (s: String) => true, recursive: Boolean = false): Seq[File] = {
     Option(getClass.getResource(s"/$dir")).toSeq.flatMap { url =>
       val baseDir = new File(url.getPath)
