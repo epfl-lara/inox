@@ -33,7 +33,7 @@ trait MainHelpers {
   protected def getOptions: Map[OptionDef[_], String] = Map(
     optTimeout -> "Set a timeout for each proof attempt (in sec.)",
     optSelectedSolvers -> {
-      "Use solvers s1, s2,...\nAvailable: " +
+      "Use solvers s1,s2,...\nAvailable: " +
       solvers.SolverFactory.solverNames.toSeq.sortBy(_._1).map {
         case (name, desc) => f"\n  $name%-14s : $desc"
       }

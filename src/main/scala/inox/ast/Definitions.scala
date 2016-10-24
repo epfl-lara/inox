@@ -178,6 +178,10 @@ trait Definitions { self: Trees =>
     case _ => Annotation(name, args)
   }
 
+  implicit class FlagSetWrapper(flags: Set[Flag]) {
+    def contains(str: String): Boolean = flags contains Annotation(str, Seq.empty)
+  }
+
   /** Represents an ADT definition (either the ADT sort or a constructor). */
   sealed trait ADTDefinition extends Definition {
     val id: Identifier
