@@ -12,7 +12,7 @@ trait MainHelpers {
     solvers.DebugSectionSolver
   )
 
-  protected final val debugSections = getDebugSections
+  protected final lazy val debugSections = getDebugSections
 
   final object optDebug extends OptionDef[Set[DebugSection]] {
     import OptionParsers._
@@ -58,7 +58,7 @@ trait MainHelpers {
     evaluators.optIgnoreContracts -> "Don't fail on invalid contracts during evaluation"
   )
 
-  protected final val options = getOptions
+  protected final lazy val options = getOptions
 
   private def helpString(opt: OptionDef[_]): String = {
     f"${opt.usageDesc}%-28s" + options(opt).replaceAll("\n", "\n" + " " * 28)
