@@ -15,21 +15,6 @@ trait Trees
      with Printers
      with TreeOps {
 
-  /** We provide aliases to [[ast.Identifier]] and [[ast.FreshIdentifier]] here in
-    * order for {{{import trees._}}} to also provide these. Note that this DOES NOT
-    * mean that [[Identifier]] or [[FreshIdentifier]] become dependent types!!
-    *
-    * I (@nv) feel it makes sense for all types necessary for expression/tree
-    * construction to be available from a single import. It would be rather
-    * counter-intuitive for an Inox user to have to go in search of the
-    * [[ast.Identifier]] type in the [[ast]] package when all other expression and
-    * definitions have been imported.
-    */
-  type Identifier = ast.Identifier
-
-  /** @see [[Identifier]] for a discussion about why this is here. */
-  val FreshIdentifier = ast.FreshIdentifier
-
   class Unsupported(t: Tree, msg: String)(implicit ctx: Context)
     extends Exception(s"${t.asString(PrinterOptions.fromContext(ctx))}@${t.getPos} $msg")
 

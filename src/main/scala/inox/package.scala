@@ -1,7 +1,5 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
-import inox.ast.Identifier
-
 /** Core package of the Inox solving interface
   *
   * == Structure ==
@@ -22,6 +20,18 @@ package object inox {
   }
 
   case class FatalError(msg: String) extends Exception(msg)
+
+  /** We provide aliases to [[ast.Identifier]] and [[ast.FreshIdentifier]] here
+    * for a more natural import experience.
+    * 
+    * Indeed, as Inox typically follows a pattern of nesting package clauses with
+    * the outer-most being {{{package inox}}}, including these basic definitions
+    * in the default imports makes my (@nv) life easier.
+    */
+  type Identifier = ast.Identifier
+
+  /** @see [[Identifier]] for why this is here */
+  val FreshIdentifier = ast.FreshIdentifier
 
   type InoxProgram = Program { val trees: inox.trees.type }
 
