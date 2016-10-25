@@ -123,7 +123,7 @@ trait Expressions { self: Trees =>
     protected def computeType(implicit s: Symbols): Type = s.lookupFunction(id, tps) match {
       case Some(tfd) =>
         require(args.size == tfd.params.size)
-        checkParamTypes(args.map(_.getType), tfd.params.map(_.getType), tfd.returnType)
+        checkParamTypes(args.map(_.getType), tfd.params.map(_.tpe), tfd.returnType)
       case _ => Untyped
     }
 
@@ -562,9 +562,10 @@ trait Expressions { self: Trees =>
   /* Set operations */
 
   /** $encodingof `Set[base](elements)` */
-  case class FiniteSet(elements: Seq[Expr], base: Type) extends Expr {
-    private lazy val tpe = SetType(base).unveilUntyped
-    def getType(implicit s: Symbols): Type = tpe
+  case class FiniteSet(elements: Seq[Expr], base: Type) extends Expr with CachingTyped {
+    protected def computeType(implicit s: Symbols): Type = SetType(
+      checkParamTypes(elements.map(_.getType), List.fill(elements.size)(base), base)
+    ).unveilUntyped
   }
 
   /** $encodingof `set + elem` */
@@ -663,8 +664,10 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `Map[keyType, valueType](key1 -> value1, key2 -> value2 ...)` */
   case class FiniteMap(pairs: Seq[(Expr, Expr)], default: Expr, keyType: Type) extends Expr with CachingTyped {
-    protected def computeType(implicit s: Symbols): Type =
-      MapType(keyType, default.getType).unveilUntyped
+    protected def computeType(implicit s: Symbols): Type = MapType(
+      checkParamTypes(pairs.map(_._1.getType), List.fill(pairs.size)(keyType), keyType),
+      s.leastUpperBound(pairs.map(_._2.getType) :+ default.getType).getOrElse(Untyped)
+    ).unveilUntyped
   }
 
   /** $encodingof `map.apply(key)` (or `map(key)`) */
