@@ -5,11 +5,10 @@ package transformers
 
 /** A [[Transformer]] which uses path conditions as environment */
 trait TransformerWithPC extends Transformer {
-  val program: Program
-  import program._
-  final lazy val trees: program.trees.type = program.trees
+  val symbols: trees.Symbols
   import trees._
   import symbols._
+
   type Env = Path
 
   protected def rec(e: Expr, path: Path): Expr = e match {

@@ -8,9 +8,13 @@ import inox.solvers.{SimpleSolverAPI, SolverFactory}
 /** Uses solvers to perform PC-aware simplifications */
 trait SimplifierWithPC extends TransformerWithPC { self =>
 
+  val program: Program
+  lazy val trees: program.trees.type = program.trees
+  lazy val symbols: program.symbols.type = program.symbols
+
   import program._
-  import trees._
-  import symbols._
+  import program.trees._
+  import program.symbols._
 
   protected val sf: SolverFactory { val program: self.program.type }
   protected lazy val s = SimpleSolverAPI(sf)
