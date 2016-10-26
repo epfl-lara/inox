@@ -254,6 +254,7 @@ trait Printers {
     case BagAdd(b, e) => p"$b + $e"
     case MultiplicityInBag(e, b) => p"$b($e)"
     case MapApply(m, k) => p"$m($k)"
+    case MapUpdated(m, k, v) => p"$m.updated($k, $v)"
 
     case Not(expr) => p"\u00AC$expr"
 

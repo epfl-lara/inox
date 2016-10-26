@@ -466,25 +466,33 @@ trait Expressions { self: Trees =>
   /** $encodingof `... < ...`*/
   case class LessThan(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
-      if (numericType(lhs.getType, rhs.getType) != Untyped) BooleanType else Untyped
+      if (numericType(lhs.getType, rhs.getType) != Untyped) BooleanType
+      else if (lhs.getType == CharType && rhs.getType == CharType) BooleanType
+      else Untyped
   }
 
   /** $encodingof `... > ...`*/
   case class GreaterThan(lhs: Expr, rhs: Expr) extends Expr with CachingTyped{
     protected def computeType(implicit s: Symbols): Type =
-      if (numericType(lhs.getType, rhs.getType) != Untyped) BooleanType else Untyped
+      if (numericType(lhs.getType, rhs.getType) != Untyped) BooleanType
+      else if (lhs.getType == CharType && rhs.getType == CharType) BooleanType
+      else Untyped
   }
 
   /** $encodingof `... <= ...`*/
   case class LessEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
-      if (numericType(lhs.getType, rhs.getType) != Untyped) BooleanType else Untyped
+      if (numericType(lhs.getType, rhs.getType) != Untyped) BooleanType
+      else if (lhs.getType == CharType && rhs.getType == CharType) BooleanType
+      else Untyped
   }
 
   /** $encodingof `... >= ...`*/
   case class GreaterEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
-      if (numericType(lhs.getType, rhs.getType) != Untyped) BooleanType else Untyped
+      if (numericType(lhs.getType, rhs.getType) != Untyped) BooleanType
+      else if (lhs.getType == CharType && rhs.getType == CharType) BooleanType
+      else Untyped
   }
 
 
