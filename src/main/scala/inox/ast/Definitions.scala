@@ -378,8 +378,6 @@ trait Definitions { self: Trees =>
     val flags: Set[Flag]
   ) extends Definition {
 
-    def paramIds = params map (_.id)
-
     /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with the specified type parameters */
     def typed(tps: Seq[Type])(implicit s: Symbols): TypedFunDef = {
       assert(tps.size == tparams.size)
