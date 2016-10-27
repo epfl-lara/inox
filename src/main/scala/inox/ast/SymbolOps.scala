@@ -648,7 +648,8 @@ trait SymbolOps { self: TypeOps =>
               se.map(child => "\n  " + "\n".r.replaceAllIn(child, "\n  ")).mkString +
               s" because ${tfd.fd.id.name} was instantiated with " +
               s"${tfd.fd.tparams.zip(tps).map(k => k._1.asString + ":=" + k._2.asString).mkString(",")} " +
-              s"with type ${tfd.fd.params.map(_.getType.asString).mkString(",")} => ${tfd.fd.returnType.asString}"
+              s"with type ${tfd.fd.params.map(_.getType.asString).mkString("(", ",", ")")} => " +
+              s"${tfd.fd.returnType.asString}"
             case None =>
               s"${e.asString} is of type ${e.getType.asString}" +
               se.map(child => "\n  " + "\n".r.replaceAllIn(child, "\n  ")).mkString +

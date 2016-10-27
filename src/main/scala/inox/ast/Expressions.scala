@@ -271,9 +271,8 @@ trait Expressions { self: Trees =>
       case _ => None
     }
 
-    protected def computeType(implicit s: Symbols): Type = constructor.map { tccd =>
-      val index = tccd.definition.selectorID2Index(selector)
-      tccd.fieldsTypes(index)
+    protected def computeType(implicit s: Symbols): Type = constructor.flatMap { tccd =>
+      scala.util.Try(tccd.definition.selectorID2Index(selector)).toOption.map(tccd.fieldsTypes)
     }.getOrElse(Untyped)
   }
 
