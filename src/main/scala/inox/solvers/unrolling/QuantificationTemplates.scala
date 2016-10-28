@@ -246,7 +246,12 @@ trait QuantificationTemplates { self: Templates =>
 
       for ((gen, qs) <- ignoredGrounds.toSeq if gen <= currentGeneration; q <- qs) {
         clauses ++= q.ensureGrounds
-        ignoredGrounds += gen -> (ignoredGrounds.getOrElse(gen, Set.empty) - q)
+        val remaining = ignoredGrounds.getOrElse(gen, Set.empty) - q
+        if (remaining.nonEmpty) {
+          ignoredGrounds += gen -> remaining
+        } else {
+          ignoredGrounds -= gen
+        }
       }
 
       clauses.toSeq
