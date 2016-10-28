@@ -441,7 +441,7 @@ trait AbstractZ3Solver
        */
       case fb @ FiniteBag(elems, base) =>
         typeToSort(fb.getType)
-        rec(FiniteMap(elems, IntegerLiteral(0), base))
+        rec(FiniteMap(elems, IntegerLiteral(0), base, IntegerType))
 
       case BagAdd(b, e) =>
         val (bag, elem) = (rec(b), rec(e))
@@ -476,7 +476,7 @@ trait AbstractZ3Solver
       case al @ MapUpdated(a, i, e) =>
         z3.mkStore(rec(a), rec(i), rec(e))
 
-      case FiniteMap(elems, default, keyTpe) =>
+      case FiniteMap(elems, default, keyTpe, valueType) =>
         val ar = z3.mkConstArray(typeToSort(keyTpe), rec(default))
 
         elems.foldLeft(ar) {
@@ -612,12 +612,12 @@ trait AbstractZ3Solver
                       case (k,v) => (rec(k, from), rec(v, to))
                     }
 
-                    FiniteMap(entries.toSeq, default, from)
+                    FiniteMap(entries.toSeq, default, from, to)
                   case None => unsound(t, "invalid array AST")
                 }
 
               case BagType(base) =>
-                val fm @ FiniteMap(entries, default, from) = rec(t, MapType(base, IntegerType))
+                val fm @ FiniteMap(entries, default, from, IntegerType) = rec(t, MapType(base, IntegerType))
                 if (default != IntegerLiteral(0)) {
                   unsound(t, "co-finite bag AST")
                 }

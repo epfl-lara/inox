@@ -513,7 +513,8 @@ class Parser(file: File) {
     case ArraysEx.Select(e1, e2) => MapApply(extractTerm(e1), extractTerm(e2))
     case ArraysEx.Store(e1, e2, e3) => MapUpdated(extractTerm(e1), extractTerm(e2), extractTerm(e3))
     case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("const")), Some(sort)), Seq(dflt)) =>
-      FiniteMap(Seq.empty, extractTerm(dflt), extractSort(sort))
+      val d = extractTerm(dflt)
+      FiniteMap(Seq.empty, d, extractSort(sort), locals.symbols.bestRealType(d.getType(locals.symbols)))
 
     case Sets.Union(e1, e2) => SetUnion(extractTerm(e1), extractTerm(e2))
     case Sets.Intersection(e1, e2) => SetIntersection(extractTerm(e1), extractTerm(e2))

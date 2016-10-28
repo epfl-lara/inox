@@ -110,7 +110,7 @@ trait MainHelpers {
 
     Context(
       reporter = reporter,
-      options = Options(inoxOptions),
+      options = Options(inoxOptions :+ optFiles(files)),
       interruptManager = new utils.InterruptManager(reporter)
     )
   }

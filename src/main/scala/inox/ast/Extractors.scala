@@ -150,9 +150,9 @@ trait TreeDeconstructor {
         t.FiniteBag(rec(as), tps.head)
       }
       (Seq(), subArgs, Seq(base), builder)
-    case s.FiniteMap(elems, default, kT) =>
+    case s.FiniteMap(elems, default, kT, vT) =>
       val subArgs = elems.flatMap { case (k, v) => Seq(k, v) } :+ default
-      val builder = (vs: Seq[t.Variable], as: Seq[t.Expr], kT: Seq[t.Type]) => {
+      val builder = (vs: Seq[t.Variable], as: Seq[t.Expr], tps: Seq[t.Type]) => {
         def rec(kvs: Seq[t.Expr]): (Seq[(t.Expr, t.Expr)], t.Expr) = kvs match {
           case Seq(k, v, t @ _*) =>
             val (kvs, default) = rec(t)
@@ -160,9 +160,9 @@ trait TreeDeconstructor {
           case Seq(default) => (Seq(), default)
         }
         val (pairs, default) = rec(as)
-        t.FiniteMap(pairs, default, kT.head)
+        t.FiniteMap(pairs, default, tps(0), tps(1))
       }
-      (Seq(), subArgs, Seq(kT), builder)
+      (Seq(), subArgs, Seq(kT, vT), builder)
     case s.Tuple(args) =>
       (Seq(), args, Seq(), (_, es, _) => t.Tuple(es))
     case s.IfExpr(cond, thenn, elze) => (

@@ -670,10 +670,10 @@ trait Expressions { self: Trees =>
   /* Total map operations */
 
   /** $encodingof `Map[keyType, valueType](key1 -> value1, key2 -> value2 ...)` */
-  case class FiniteMap(pairs: Seq[(Expr, Expr)], default: Expr, keyType: Type) extends Expr with CachingTyped {
+  case class FiniteMap(pairs: Seq[(Expr, Expr)], default: Expr, keyType: Type, valueType: Type) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = MapType(
       checkParamTypes(pairs.map(_._1.getType), List.fill(pairs.size)(keyType), keyType),
-      s.leastUpperBound(pairs.map(_._2.getType) :+ default.getType).getOrElse(Untyped)
+      checkParamTypes(pairs.map(_._2.getType) :+ default.getType, List.fill(pairs.size + 1)(valueType), valueType)
     ).unveilUntyped
   }
 

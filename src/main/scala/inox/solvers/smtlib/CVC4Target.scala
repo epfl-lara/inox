@@ -54,17 +54,17 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
         FiniteSet(Seq(), base)
 
       case (FunctionApplication(QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), _), Seq(elem)), Some(MapType(k, v))) =>
-        FiniteMap(Seq(), fromSMT(elem, v), k)
+        FiniteMap(Seq(), fromSMT(elem, v), k, v)
 
       case (FunctionApplication(SimpleSymbol(SSymbol("__array_store_all__")), Seq(_, elem)), Some(MapType(k, v))) =>
-        FiniteMap(Seq(), fromSMT(elem, v), k)
+        FiniteMap(Seq(), fromSMT(elem, v), k, v)
 
       case (FunctionApplication(SimpleSymbol(SSymbol("store")), Seq(arr, key, elem)), Some(MapType(kT, vT))) =>
-        val FiniteMap(elems, default, _) = fromSMT(arr, otpe)
+        val FiniteMap(elems, default, _, _) = fromSMT(arr, otpe)
         val newKey = fromSMT(key, kT)
         val newV   = fromSMT(elem, vT)
         val newElems = elems.filterNot(_._1 == newKey) :+ (newKey -> newV)
-        FiniteMap(newElems, default, kT)
+        FiniteMap(newElems, default, kT, vT)
 
       case (FunctionApplication(SimpleSymbol(SSymbol("singleton")), elems), Some(SetType(base))) =>
         FiniteSet(elems.map(fromSMT(_, base)), base)

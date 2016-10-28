@@ -75,28 +75,26 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
           }
           // Need to recover value form function model
           val (cases, default) = extractCases(body)
-          FiniteMap(cases.toSeq, default, keyType)
+          FiniteMap(cases.toSeq, default, keyType, valueType)
         } else {
           throw FatalError("Array on non-function or unknown symbol "+k)
         }
 
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ SetType(base))) =>
-        val fm @ FiniteMap(cases, dflt, _) = fromSMT(t, Some(MapType(base, BooleanType)))
+        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, BooleanType)))
         if (dflt != BooleanLiteral(false)) unsupported(fm, "Solver returned a co-finite set which is not supported")
         FiniteSet(cases.collect { case (k, BooleanLiteral(true)) => k }, base)
 
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ BagType(base))) =>
-        val fm @ FiniteMap(cases, dflt, _) = fromSMT(t, Some(MapType(base, IntegerType)))
+        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, IntegerType)))
         if (dflt != IntegerLiteral(0)) unsupported(fm, "Solver returned a co-finite bag which is not supported")
         FiniteBag(cases.filter(_._2 != IntegerLiteral(BigInt(0))), base)
 
       case (FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
         Seq(defV)
-      ), Some(tpe: MapType)) =>
-        val ktpe = sorts.fromB(k)
-        val vtpe = sorts.fromB(v)
-        FiniteMap(Seq(), fromSMT(defV, Some(vtpe)), ktpe)
+      ), Some(MapType(from, to))) =>
+        FiniteMap(Seq(), fromSMT(defV, Some(to)), from, to)
 
       case (FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
@@ -126,7 +124,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
      */
     case fs @ FiniteSet(elems, base) =>
       declareSort(fs.getType)
-      toSMT(FiniteMap(elems map ((_, BooleanLiteral(true))), BooleanLiteral(false), base))
+      toSMT(FiniteMap(elems map ((_, BooleanLiteral(true))), BooleanLiteral(false), base, BooleanType))
 
     case SubsetOf(ss, s) =>
       // a isSubset b   ==>   (a zip b).map(implies) == (* => true)
@@ -155,7 +153,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     case fb @ FiniteBag(elems, base) =>
       val BagType(t) = fb.getType
       declareSort(BagType(t))
-      toSMT(FiniteMap(elems, IntegerLiteral(0), t))
+      toSMT(FiniteMap(elems, IntegerLiteral(0), t, IntegerType))
 
     case BagAdd(b, e) =>
       val bid = FreshIdentifier("b", true)

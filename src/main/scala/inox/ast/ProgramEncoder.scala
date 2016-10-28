@@ -42,6 +42,13 @@ trait ProgramEncoder { self =>
     val sourceProgram: that.sourceProgram.type = that.sourceProgram
     val t: self.t.type = self.t
 
+    // make sure we don't ignore potential `encodedProgram` overrides
+    // note that we don't actually need to look at `that.encodedProgram` since the type
+    // of the compose method ensures the override is not ignored
+    override protected def encodedProgram: Program { val trees: self.t.type } = self.encodedProgram
+    override protected val extraFunctions: Seq[t.FunDef] = self.extraFunctions
+    override protected val extraADTs: Seq[t.ADTDefinition] = self.extraADTs
+
     val encoder = self.encoder compose that.encoder
     val decoder = that.decoder compose self.decoder
   }
@@ -52,6 +59,13 @@ trait ProgramEncoder { self =>
   } = new ProgramEncoder {
     val sourceProgram: self.sourceProgram.type = self.sourceProgram
     val t: that.t.type = that.t
+
+    // make sure we don't ignore potential `encodedProgram` overrides
+    // note that we don't actually need to look at `that.encodedProgram` since the type
+    // of the andThen method ensures the override is not ignored
+    override protected def encodedProgram: Program { val trees: that.t.type } = that.encodedProgram
+    override protected val extraFunctions: Seq[t.FunDef] = that.extraFunctions
+    override protected val extraADTs: Seq[t.ADTDefinition] = that.extraADTs
 
     val encoder = self.encoder andThen that.encoder
     val decoder = that.decoder andThen self.decoder

@@ -327,7 +327,7 @@ trait SymbolOps { self: TypeOps =>
     case UnitType                   => UnitLiteral()
     case SetType(baseType)          => FiniteSet(Seq(), baseType)
     case BagType(baseType)          => FiniteBag(Seq(), baseType)
-    case MapType(fromType, toType)  => FiniteMap(Seq(), simplestValue(toType), fromType)
+    case MapType(fromType, toType)  => FiniteMap(Seq(), simplestValue(toType), fromType, toType)
     case TupleType(tpes)            => Tuple(tpes.map(simplestValue))
 
     case adt @ ADTType(id, tps) =>
@@ -389,7 +389,7 @@ trait SymbolOps { self: TypeOps =>
         val seqs = elems.scanLeft(Stream(Seq[(Expr, Expr)]())) { (prev, curr) =>
           prev flatMap { case seq => Stream(seq, seq :+ curr) }
         }.flatten
-        cartesianProduct(seqs, valuesOf(to)) map { case (values, default) => FiniteMap(values, default, from) }
+        cartesianProduct(seqs, valuesOf(to)) map { case (values, default) => FiniteMap(values, default, from, to) }
       case adt: ADTType => adt.getADT match {
         case tcons: TypedADTConstructor =>
           cartesianProduct(tcons.fieldsTypes map valuesOf) map (ADT(adt, _))
@@ -620,8 +620,9 @@ trait SymbolOps { self: TypeOps =>
       case (FiniteBag(elements, fbtpe), BagType(tpe)) =>
         fbtpe == tpe &&
         elements.forall{ case (key, value) => isValueOfType(key, tpe) && isValueOfType(value, IntegerType) }
-      case (FiniteMap(elems, default, kt), MapType(from, to)) =>
-        (kt == from) < s"$kt not equal to $from" && (default.getType == to) < s"${default.getType} not equal to $to" &&
+      case (FiniteMap(elems, default, kt, vt), MapType(from, to)) =>
+        (kt == from) < s"$kt not equal to $from" && (vt == to) < s"${default.getType} not equal to $to" &&
+        isValueOfType(default, to) < s"${default} not a value of type $to" &&
         (elems forall (kv => isValueOfType(kv._1, from) < s"${kv._1} not a value of type $from" && isValueOfType(unWrapSome(kv._2), to) < s"${unWrapSome(kv._2)} not a value of type ${to}" ))
       case (ADT(adt, args), adt2: ADTType) =>
         isSubtypeOf(adt, adt2) < s"$adt not a subtype of $adt2" &&

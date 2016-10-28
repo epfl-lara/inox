@@ -118,7 +118,7 @@ trait RecursiveEvaluator
           BooleanLiteral(el1.toSet == el2.toSet)
         case (FiniteBag(el1, _),FiniteBag(el2, _)) =>
           BooleanLiteral(el1.toMap == el2.toMap)
-        case (FiniteMap(el1, dflt1, _),FiniteMap(el2, dflt2, _)) =>
+        case (FiniteMap(el1, dflt1, _, _),FiniteMap(el2, dflt2, _, _)) =>
           BooleanLiteral(el1.toMap == el2.toMap && dflt1 == dflt2)
         case (l1: Lambda, l2: Lambda) =>
           val (nl1, subst1) = normalizeStructure(l1)
@@ -481,20 +481,20 @@ trait RecursiveEvaluator
       replaceFromSymbols(variablesOf(c).map(v => v -> e(v)).toMap, c).asInstanceOf[Choose]
     }
 
-    case f @ FiniteMap(ss, dflt, vT) =>
+    case f @ FiniteMap(ss, dflt, kT, vT) =>
       // we use toMap.toSeq to reduce dupplicate keys
-      FiniteMap(ss.map{ case (k, v) => (e(k), e(v)) }.toMap.toSeq, e(dflt), vT)
+      FiniteMap(ss.map{ case (k, v) => (e(k), e(v)) }.toMap.toSeq, e(dflt), kT, vT)
 
     case g @ MapApply(m,k) => (e(m), e(k)) match {
-      case (FiniteMap(ss, dflt, _), e) =>
+      case (FiniteMap(ss, dflt, _, _), e) =>
         ss.toMap.getOrElse(e, dflt)
       case (l,r) =>
         throw EvalError(typeErrorMsg(l, MapType(r.getType, g.getType)))
     }
 
     case g @ MapUpdated(m, k, v) => (e(m), e(k), e(v)) match {
-      case (FiniteMap(ss, dflt, tpe), ek, ev) =>
-        FiniteMap((ss.toMap + (ek -> ev)).toSeq, dflt, tpe)
+      case (FiniteMap(ss, dflt, kT, vT), ek, ev) =>
+        FiniteMap((ss.toMap + (ek -> ev)).toSeq, dflt, kT, vT)
       case (m,l,r) =>
         throw EvalError("Unexpected operation: " + m.asString +
           ".updated(" + l.asString + ", " + r.asString + ")")
