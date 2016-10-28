@@ -43,7 +43,8 @@ object SolverFactory {
     "unrollz3" -> "Native Z3 with inox-templates for unrolling",
     "smt-cvc4" -> "CVC4 through SMT-LIB",
     "smt-z3"   -> "Z3 through SMT-LIB",
-    "enum"     -> "Enumeration-based counter-example finder"
+    "enum"     -> "Enumeration-based counter-example finder",
+    "princess" -> "Princess with inox unrolling"
   )
 
   def getFromName(name: String)
@@ -107,6 +108,22 @@ object SolverFactory {
         val grammars: GrammarsUniverse {val program: p.type} = new GrammarsUniverse {
           val program: p.type = p
         }
+      })
+
+      case "princess" => create(p)(name, () => new {
+        val program: p.type = p
+        val options = opts
+        val encoder = enc
+      } with unrolling.UnrollingSolver with TimeoutSolver {
+        self =>
+        val evaluator = ev
+        import inox.solvers.theories._
+        object theories extends NoEncoder { val sourceProgram: self.encoder.targetProgram.type = self.encoder.targetProgram }
+
+        object underlying extends {
+          val program: targetProgram.type = targetProgram
+          val options = opts
+        } with PrincessSolver
       })
 
       case _ => throw FatalError("Unknown solver: " + name)

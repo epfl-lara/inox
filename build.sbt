@@ -28,6 +28,9 @@ if(osName.indexOf("win") != -1) {
   (unmanagedJars in Compile) += baseDirectory.value / "unmanaged" / s"scalaz3-unix-$osArch.jar"
 }
 
+unmanagedJars in Compile += baseDirectory.value / "unmanaged" / s"princess.jar"
+unmanagedJars in Compile += baseDirectory.value / "unmanaged" / s"scala-actors-2.11.0.jar"
+
 unmanagedBase <<= baseDirectory { base => base / "unmanaged" / osArch }
 
 resolvers ++= Seq(
