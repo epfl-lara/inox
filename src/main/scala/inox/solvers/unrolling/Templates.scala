@@ -59,7 +59,7 @@ trait Templates extends TemplateGenerator
   def canUnroll: Boolean = managers.exists(_.unrollGeneration.isDefined)
   def unroll: Clauses = {
     assert(canUnroll, "Impossible to unroll further")
-    val generation = managers.flatMap(_.unrollGeneration).min
+    val generation = managers.flatMap(_.unrollGeneration).min + 1
     if (generation > currentGen) {
       currentGen = generation
     }

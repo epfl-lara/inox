@@ -183,12 +183,17 @@ trait TemplateGenerator { self: Templates =>
                 storeGuarded(pathVar, Equals(newExpr, rec(pathVar, x, pol)))
 
               case x :: xs =>
+                val newRes: Variable = Variable(FreshIdentifier("res", true), BooleanType)
+                storeExpr(newRes)
+
+                val xrec = rec(pathVar, x, pol)
+                storeGuarded(pathVar, Equals(newRes, xrec))
+
                 val newBool: Variable = Variable(FreshIdentifier("b", true), BooleanType)
                 storeCond(pathVar, newBool)
 
-                val xrec = rec(pathVar, x, pol)
-                iff(and(pathVar, xrec), newBool)
-                storeGuarded(pathVar, implies(not(xrec), not(newExpr)))
+                storeGuarded(pathVar, implies(not(newRes), not(newExpr)))
+                iff(and(pathVar, newRes), newBool)
 
                 recAnd(newBool, xs)
 
@@ -212,12 +217,17 @@ trait TemplateGenerator { self: Templates =>
                 storeGuarded(pathVar, Equals(newExpr, rec(pathVar, x, None)))
 
               case x :: xs =>
+                val newRes: Variable = Variable(FreshIdentifier("res", true), BooleanType)
+                storeExpr(newRes)
+
+                val xrec = rec(pathVar, x, pol)
+                storeGuarded(pathVar, Equals(newRes, xrec))
+
                 val newBool: Variable = Variable(FreshIdentifier("b", true), BooleanType)
                 storeCond(pathVar, newBool)
 
-                val xrec = rec(pathVar, x, None)
-                storeGuarded(pathVar, implies(xrec, newExpr))
-                iff(and(pathVar, not(xrec)), newBool)
+                storeGuarded(pathVar, implies(newRes, newExpr))
+                iff(and(pathVar, not(newRes)), newBool)
 
                 recOr(newBool, xs)
 
@@ -235,17 +245,20 @@ trait TemplateGenerator { self: Templates =>
           val newBool1 : Variable = Variable(FreshIdentifier("b", true), BooleanType)
           val newBool2 : Variable = Variable(FreshIdentifier("b", true), BooleanType)
           val newExpr  : Variable = Variable(FreshIdentifier("e", true), i.getType)
+          val condVar  : Variable = Variable(FreshIdentifier("c", true), BooleanType)
 
           storeCond(pathVar, newBool1)
           storeCond(pathVar, newBool2)
           storeExpr(newExpr)
+          storeExpr(condVar)
 
           val crec = rec(pathVar, cond, None)
           val trec = rec(newBool1, thenn, None)
           val erec = rec(newBool2, elze, None)
 
-          iff(and(pathVar, cond), newBool1)
-          iff(and(pathVar, not(cond)), newBool2)
+          storeGuarded(pathVar, Equals(condVar, crec))
+          iff(and(pathVar, condVar), newBool1)
+          iff(and(pathVar, not(condVar)), newBool2)
 
           storeGuarded(newBool1, Equals(newExpr, trec))
           storeGuarded(newBool2, Equals(newExpr, erec))
