@@ -503,7 +503,7 @@ trait AbstractZ3Solver
       kind match {
         case Z3NumeralIntAST(Some(v)) =>
           val leading = t.toString.substring(0, 2 min t.toString.length)
-          if(leading == "#x") {
+          if (leading == "#x") {
             _root_.smtlib.common.Hexadecimal.fromString(t.toString.substring(2)) match {
               case Some(hexa) =>
                 tpe match {

@@ -385,9 +385,10 @@ trait AbstractUnrollingSolver extends Solver { self =>
             p => (unflatten(p._1) zip unflatten(p._2)).map(p => (p._1, andJoin(p._2.flatten)))
           }
 
-          val default = extractValue(unflatten(flatArguments.last._1).foldLeft(f -> (tpe: Type)) {
+          val (app, to) = unflatten(flatArguments.last._1).foldLeft(f -> (tpe: Type)) {
             case ((f, tpe: FunctionType), args) => (templates.mkApp(f, encode(tpe), args), tpe.to)
-          }._1, tpe)
+          }
+          val default = extractValue(app, to)
 
           extract(f, tpe, params, allArguments, default)._1
         }

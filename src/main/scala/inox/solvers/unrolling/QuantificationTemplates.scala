@@ -909,7 +909,7 @@ trait QuantificationTemplates { self: Templates =>
       clauses += mkSubstituter(substMap)(mkImplies(b, clause))
     }
 
-    for (q <- quantifications) {
+    for (q <- quantifications if ignoredSubsts.isDefinedAt(q)) {
       val guard = Variable(FreshIdentifier("guard", true), BooleanType)
       val elems = q.quantifiers.map(_._1)
       val values = elems.map(v => v.freshen)
