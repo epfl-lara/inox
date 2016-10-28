@@ -204,43 +204,43 @@ class EvaluatorSuite extends FunSuite {
     val e = evaluator(ctx)
 
     eval(e, Equals(
-      FiniteMap(Seq.empty, IntLiteral(12), Int32Type),
-      FiniteMap(Seq.empty, IntLiteral(12), Int32Type))
+      FiniteMap(Seq.empty, IntLiteral(12), Int32Type, Int32Type),
+      FiniteMap(Seq.empty, IntLiteral(12), Int32Type, Int32Type))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
-      FiniteMap(Seq.empty, IntLiteral(9), Int32Type),
-      FiniteMap(Seq.empty, IntLiteral(12), Int32Type))
+      FiniteMap(Seq.empty, IntLiteral(9), Int32Type, Int32Type),
+      FiniteMap(Seq.empty, IntLiteral(12), Int32Type, Int32Type))
     ) === BooleanLiteral(false)
 
     eval(e, Equals(
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(3)), IntLiteral(9), Int32Type),
-      FiniteMap(Seq(IntLiteral(2) -> IntLiteral(3), IntLiteral(1) -> IntLiteral(2)), IntLiteral(9), Int32Type))
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(3)), IntLiteral(9), Int32Type, Int32Type),
+      FiniteMap(Seq(IntLiteral(2) -> IntLiteral(3), IntLiteral(1) -> IntLiteral(2)), IntLiteral(9), Int32Type, Int32Type))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(1) -> IntLiteral(3)), IntLiteral(9), Int32Type),
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(3), IntLiteral(1) -> IntLiteral(2)), IntLiteral(9), Int32Type))
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(1) -> IntLiteral(3)), IntLiteral(9), Int32Type, Int32Type),
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(3), IntLiteral(1) -> IntLiteral(2)), IntLiteral(9), Int32Type, Int32Type))
     ) === BooleanLiteral(false)
 
     eval(e, Equals(
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(1) -> IntLiteral(3)), IntLiteral(9), Int32Type),
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(3)), IntLiteral(9), Int32Type))
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(1) -> IntLiteral(3)), IntLiteral(9), Int32Type, Int32Type),
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(3)), IntLiteral(9), Int32Type, Int32Type))
     ) === BooleanLiteral(true)
 
     eval(e, MapApply(
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type),
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type, Int32Type),
       IntLiteral(1))
     ) === IntLiteral(2)
 
     eval(e, MapApply(
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type),
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type, Int32Type),
       IntLiteral(3))
     ) === IntLiteral(6)
 
     eval(e, MapApply(
       MapUpdated(
-        FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type),
+        FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type, Int32Type),
         IntLiteral(1), IntLiteral(3)),
       IntLiteral(1))
     ) === IntLiteral(3)
@@ -254,20 +254,20 @@ class EvaluatorSuite extends FunSuite {
     val v3 = Variable(FreshIdentifier("v3"), Int32Type)
 
     eval(e, Equals(
-      FiniteMap(Seq(v1 -> IntLiteral(2), v2 -> IntLiteral(4)), v3, Int32Type),
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type)),
+      FiniteMap(Seq(v1 -> IntLiteral(2), v2 -> IntLiteral(4)), v3, Int32Type, Int32Type),
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type, Int32Type)),
       Map(v1.toVal -> IntLiteral(1), v2.toVal -> IntLiteral(2), v3.toVal -> IntLiteral(6))
     ) === BooleanLiteral(true)
 
     eval(e, MapApply(
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type),
+      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type, Int32Type),
       v1),
       Map(v1.toVal -> IntLiteral(3))
     ) === IntLiteral(6)
 
     eval(e, MapApply(
       MapUpdated(
-        FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type),
+        FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type, Int32Type),
         v1, v2), v3),
       Map(v1.toVal -> IntLiteral(1), v2.toVal -> IntLiteral(3), v3.toVal -> IntLiteral(1))
     ) === IntLiteral(3)

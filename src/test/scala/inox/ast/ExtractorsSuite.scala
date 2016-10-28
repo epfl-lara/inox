@@ -51,7 +51,8 @@ class ExtractorsSuite extends FunSuite {
     val a1 = FiniteMap(
       Seq(IntLiteral(0) -> x, IntLiteral(3) -> y, IntLiteral(5) -> z),
       IntegerLiteral(10),
-      Int32Type)
+      Int32Type,
+      IntegerType)
     val a2 = a1 match {
       case Operator(es, builder) => {
         assert(es === Seq(IntLiteral(0), x, IntLiteral(3), y, IntLiteral(5), z, IntegerLiteral(10)))
