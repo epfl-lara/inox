@@ -318,11 +318,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
             val lambda = FiniteLambda(params, mappings, dflt)
             // make sure `lambda` is not equal to any other distinct extracted first-class function
             val res = (funExtractions.collectFirst {
-              case (encoded, `lambda`) =>
-                Right(encoded)
-              case (e, img) if
-              wrapped.eval(templates.mkEquals(e, f), BooleanType) == Some(BooleanLiteral(true)) =>
-                Left(img)
+              case (encoded, `lambda`) => Right(encoded)
+              case (e, img) if (
+                bestRealType(img.getType) == bestRealType(lambda.getType) &&
+                wrapped.eval(templates.mkEquals(e, f), BooleanType) == Some(BooleanLiteral(true))
+              )=> Left(img)
             }) match {
               case Some(Right(enc)) => wrapped.eval(enc, tpe).get match {
                 case Lambda(_, Let(_, IntegerLiteral(n), _)) => uniquateClosure(n, lambda)

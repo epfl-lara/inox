@@ -259,7 +259,7 @@ trait LambdaTemplates { self: Templates =>
     freeFunctions += ft -> (freeFunctions(ft) + (b -> f))
 
     lazy val gen = nextGeneration(currentGeneration)
-    for (app @ (_, App(caller, _, args, _)) <- applications(tpe)) {
+    for (app @ (_, App(caller, _, args, _)) <- applications(ft)) {
       val cond = mkAnd(b, mkEquals(f, caller))
       registerAppBlocker(gen, app, Right(f), cond, args)
     }
