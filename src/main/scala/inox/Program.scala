@@ -47,4 +47,10 @@ trait Program { self =>
     val symbols = self.symbols.withADTs(adts)
     val ctx = self.ctx
   }
+
+  def withContext(nctx: Context): Program { val trees: self.trees.type; val symbols: self.symbols.type } = new Program {
+    val trees: self.trees.type = self.trees
+    val symbols: self.symbols.type = self.symbols
+    val ctx = nctx
+  }
 }
