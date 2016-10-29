@@ -77,4 +77,28 @@ trait CallGraph {
   }
 
   lazy val stronglyConnectedComponents = graph.stronglyConnectedComponents.N
+
+  lazy val functionComponent: Map[FunDef, Set[FunDef]] = {
+    val inComponents = stronglyConnectedComponents.flatMap(fds => fds.map(_ -> fds)).toMap
+    inComponents ++ symbols.functions.values.filterNot(inComponents.isDefinedAt).map(_ -> Set.empty[FunDef])
+  }
+
+  object CallGraphOrderings {
+    implicit object componentOrdering extends Ordering[Set[FunDef]] {
+      private val components = graph.stronglyConnectedComponents.topSort
+      def compare(a: Set[FunDef], b: Set[FunDef]): Int = {
+        components.indexOf(a).compare(components.indexOf(b))
+      }
+    }
+
+    implicit object functionOrdering extends Ordering[FunDef] {
+      def compare(a: FunDef, b: FunDef): Int = {
+        val (c1, c2) = (functionComponent(a), functionComponent(b))
+        if (c1.isEmpty && c2.isEmpty) a.id.uniqueName.compare(b.id.uniqueName)
+        else if (c1.isEmpty) -1
+        else if (c2.isEmpty) -1
+        else componentOrdering.compare(c1, c2)
+      }
+    }
+  }
 }
