@@ -170,7 +170,7 @@ trait LambdaTemplates { self: Templates =>
       */
     lazy val (key, instantiation) = {
       val (substMap, substInst) = Template.substitution(
-        condVars, exprVars, condTree, lambdas, quantifications, Map.empty, pathVar._1, pathVar._2)
+        condVars, exprVars, condTree, lambdas, quantifications, Map.empty, pathVar._2)
       val tmplInst = Template.instantiate(clauses, blockers, applications, matchers, substMap)
 
       val substituter = mkSubstituter(substMap.mapValues(_.encoded))

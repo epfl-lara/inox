@@ -68,13 +68,13 @@ trait QuantificationTemplates { self: Templates =>
     */
   sealed abstract class Polarity {
     def substitute(substituter: Encoded => Encoded): Polarity = this match {
-      case Positive(guardVar) => Positive(guardVar)
+      case Positive(guard) => Positive(guard)
       case Negative(insts) => Negative(insts._1 -> substituter(insts._2))
-      case Unknown(qs, q2s, insts, guardVar) => Unknown(qs._1 -> substituter(qs._2), q2s, insts, guardVar)
+      case Unknown(qs, q2s, insts, guard) => Unknown(qs._1 -> substituter(qs._2), q2s, insts, guard)
     }
   }
 
-  case class Positive(guardVar: Encoded) extends Polarity
+  case class Positive(guard: Encoded) extends Polarity
   case class Negative(insts: (Variable, Encoded)) extends Polarity
 
   /** Unknown quantification polarity.
@@ -88,7 +88,7 @@ trait QuantificationTemplates { self: Templates =>
     * constructed where only certain `inst` variables are falsified. This is used to enable
     * a powerful unrolling heuristic in the presence of both quantifiers and recursive functions.
     */
-  case class Unknown(qs: (Variable, Encoded), q2s: (Variable, Encoded), insts: (Variable, Encoded), guardVar: Encoded) extends Polarity
+  case class Unknown(qs: (Variable, Encoded), q2s: (Variable, Encoded), insts: (Variable, Encoded), guard: Encoded) extends Polarity
 
   class QuantificationTemplate private[QuantificationTemplates] (
     val pathVar: (Variable, Encoded),
@@ -153,22 +153,24 @@ trait QuantificationTemplates { self: Templates =>
       proposition: Forall
     ): (Option[Variable], QuantificationTemplate) = {
 
-      val pT = mkEncoder(
-        condVars ++ exprVars + pathVar ++ quantifiers ++
-        substMap ++ lambdas.map(_.ids) ++ quantifications.flatMap(_.mapping)
-      )(p)
-
-      val (optVar, polarity, extraClauses, extraSubst) = optPol match {
+      val (optVar, polarity, extraGuarded, extraEqs, extraSubst): (
+        Option[Variable],
+        Polarity,
+        Map[Variable, Seq[Expr]],
+        Seq[Expr],
+        Map[Variable, Encoded]
+      ) = optPol match {
         case Some(true) =>
           val guard = encodeSymbol(Variable(FreshIdentifier("guard", true), BooleanType))
-          val extraClause = mkImplies(mkAnd(pathVar._2, guard), pT)
-          (None, Positive(guard), Seq(extraClause), Map(pathVar._1 -> guard))
+          val extraSubst = Map(pathVar._1 -> guard)
+          val extraGuarded = Map(pathVar._1 -> Seq(p))
+          (None, Positive(guard), extraGuarded, Seq.empty, extraSubst)
 
         case Some(false) =>
           val inst: Variable = Variable(FreshIdentifier("inst", true), BooleanType)
           val insts = inst -> encodeSymbol(inst)
-          val extraClause = mkImplies(pathVar._2, mkEquals(insts._2, pT))
-          (Some(inst), Negative(insts), Seq(extraClause), Map.empty[Variable, Encoded])
+          val extraGuarded = Map(pathVar._1 -> Seq(Equals(inst, p)))
+          (Some(inst), Negative(insts), extraGuarded, Seq.empty, Map(insts))
 
         case None =>
           val q: Variable = Variable(FreshIdentifier("q", true), BooleanType)
@@ -181,11 +183,8 @@ trait QuantificationTemplates { self: Templates =>
           val insts = inst -> encodeSymbol(inst)
 
           val polarity = Unknown(qs, q2s, insts, guard)
-          val extraClauses = Seq(
-            mkImplies(pathVar._2, mkEquals(qs._2, mkAnd(q2s._2, insts._2))),
-            mkImplies(pathVar._2, mkEquals(insts._2, mkImplies(guard, pT)))
-          )
-          (Some(q), polarity, extraClauses, Map(pathVar._1 -> guard))
+          val extraEqs = Seq(Equals(q, And(q2, inst)), Equals(inst, Implies(pathVar._1, p)))
+          (Some(q), polarity, Map.empty, extraEqs, Map(qs, q2s, insts) + (pathVar._1 -> guard))
       }
 
       // Note @nv: some hacky shit is going on here...
@@ -194,15 +193,16 @@ trait QuantificationTemplates { self: Templates =>
       // works due to [[Template.encode]] injecting `pathVar` BEFORE `substMap` into the
       // global encoding substitution.
       val (clauses, blockers, applications, matchers, templateString) =
-        Template.encode(pathVar, quantifiers, condVars, exprVars, guardedExprs,
-          equations, lambdas, quantifications, substMap = substMap ++ extraSubst)
+        Template.encode(pathVar, quantifiers, condVars, exprVars,
+          extraGuarded merge guardedExprs, extraEqs ++ equations,
+          lambdas, quantifications, substMap = substMap ++ extraSubst)
 
       val key = templateKey(proposition.args, proposition.body, substMap)
 
       (optVar, new QuantificationTemplate(
-        pathVar, polarity, quantifiers, condVars, exprVars, condTree,
-        extraClauses ++ clauses, blockers, applications, matchers, lambdas, quantifications, key,
-        proposition.body, () => "Template for " + proposition + " is :\n" + templateString()))
+        pathVar, polarity, quantifiers, condVars, exprVars, condTree, clauses,
+        blockers, applications, matchers, lambdas, quantifications, key, proposition.body,
+        () => "Template for " + proposition + " is :\n" + templateString()))
     }
   }
 
@@ -467,7 +467,8 @@ trait QuantificationTemplates { self: Templates =>
     if (es.isEmpty) trueT else mkAnd(es.toSeq.sortBy(_.toString) : _*)
 
   private[solvers] trait Quantification extends IncrementalState {
-    val pathVar: (Variable, Encoded)
+    val blocker: Encoded
+    val guard: Encoded
     val quantifiers: Seq[(Variable, Encoded)]
     val condVars: Map[Variable, Encoded]
     val exprVars: Map[Variable, Encoded]
@@ -483,8 +484,7 @@ trait QuantificationTemplates { self: Templates =>
     val body: Expr
 
     lazy val quantified: Set[Encoded] = quantifiers.map(_._2).toSet
-    lazy val start = pathVar._2
-    lazy val pathBlockers = blockerPath(start)
+    lazy val pathBlockers = blockerPath(blocker)
 
     private val constraints: Seq[(Encoded, MatcherKey, Int)] = (for {
       (_, ms) <- matchers
@@ -587,7 +587,7 @@ trait QuantificationTemplates { self: Templates =>
       for (p @ (bs, subst, delay) <- substs if !handledSubsts.get(this).exists(_ contains (bs -> subst))) {
         val totalDelay = delay + (3 * subst.values.collect { case Right(m) => totalDepth(m) }.sum)
         if (totalDelay > 0) {
-          val gen = currentGeneration + totalDelay
+          val gen = currentGeneration + totalDelay + (if (this.isInstanceOf[GeneralQuantification]) 2 else 0)
           ignoredSubsts += this -> (ignoredSubsts.getOrElse(this, Set.empty) + ((gen, bs, subst)))
         } else {
           instantiation ++= instantiateSubst(bs, subst)
@@ -606,7 +606,7 @@ trait QuantificationTemplates { self: Templates =>
 
       val baseSubst = subst ++ instanceSubst(enabler).mapValues(Left(_))
       val (substMap, substClauses) = Template.substitution(
-        condVars, exprVars, condTree, lambdas, quantifications, baseSubst, pathVar._1, enabler)
+        condVars, exprVars, condTree, lambdas, quantifications, baseSubst, enabler)
       instantiation ++= substClauses
 
       val msubst = substMap.collect { case (c, Right(m)) => c -> m }
@@ -617,17 +617,17 @@ trait QuantificationTemplates { self: Templates =>
       instantiation ++= Template.instantiate(clauses, blockers, applications, Map.empty, substMap)
 
       for ((b,ms) <- matchers; m <- ms) {
-        val sb = bs ++ (if (b == start) Set.empty else Set(substituter(b)))
+        val sb = bs ++ (if (b == guard) Set.empty else Set(substituter(b)))
         val sm = m.substitute(substituter, msubst)
 
         def abs(i: Int): Int = if (i < 0) -i else i
-        val nextGeneration: Int = currentGeneration +
-          2 * (abs(totalDepth(sm) - totalDepth(m)) + (if (b == start) 0 else 1))
+        val totalDelay = 2 * (abs(totalDepth(sm) - totalDepth(m)) + (if (b == guard) 0 else 1))
 
-        if (nextGeneration == currentGeneration) {
-          instantiation ++= instantiateMatcher(sb, sm)
+        if (totalDelay > 0) {
+          val gen = currentGeneration + totalDelay + (if (this.isInstanceOf[GeneralQuantification]) 2 else 0)
+          ignoredMatchers += ((gen, sb, sm))
         } else {
-          ignoredMatchers += ((nextGeneration, sb, sm))
+          instantiation ++= instantiateMatcher(sb, sm)
         }
       }
 
@@ -693,11 +693,11 @@ trait QuantificationTemplates { self: Templates =>
   }
 
   private class GeneralQuantification (
-    val pathVar: (Variable, Encoded),
+    val blocker: Encoded,
     val qs: (Variable, Encoded),
     val q2s: (Variable, Encoded),
     val insts: (Variable, Encoded),
-    val guardVar: Encoded,
+    val guard: Encoded,
     val quantifiers: Seq[(Variable, Encoded)],
     val condVars: Map[Variable, Encoded],
     val exprVars: Map[Variable, Encoded],
@@ -717,11 +717,10 @@ trait QuantificationTemplates { self: Templates =>
     private var _insts: Map[Encoded, Set[Encoded]] = Map.empty
     def instantiations = _insts
 
-    private val blocker = Variable(FreshIdentifier("b_fresh", true), BooleanType)
     protected def instanceSubst(enabler: Encoded): Map[Encoded, Encoded] = {
       val nextQ2Var = encodeSymbol(q2s._1)
 
-      val subst = Map(qs._2 -> currentQ2Var, guardVar -> enabler,
+      val subst = Map(qs._2 -> currentQ2Var, guard -> enabler,
         q2s._2 -> nextQ2Var, insts._2 -> encodeSymbol(insts._1))
 
       _currentQ2Var = nextQ2Var
@@ -736,8 +735,8 @@ trait QuantificationTemplates { self: Templates =>
   }
 
   private class Axiom (
-    val pathVar: (Variable, Encoded),
-    val guardVar: Encoded,
+    val blocker: Encoded,
+    val guard: Encoded,
     val quantifiers: Seq[(Variable, Encoded)],
     val condVars: Map[Variable, Encoded],
     val exprVars: Map[Variable, Encoded],
@@ -753,7 +752,7 @@ trait QuantificationTemplates { self: Templates =>
     val holds = trueT
 
     protected def instanceSubst(enabler: Encoded): Map[Encoded, Encoded] = {
-      Map(guardVar -> enabler)
+      Map(guard -> enabler)
     }
   }
 
@@ -820,8 +819,8 @@ trait QuantificationTemplates { self: Templates =>
       case None =>
         val clauses = new scala.collection.mutable.ListBuffer[Encoded]
         val mapping: Map[Encoded, Encoded] = template.polarity match {
-          case Positive(guardVar) =>
-            val axiom = new Axiom(template.pathVar, guardVar,
+          case Positive(guard) =>
+            val axiom = new Axiom(template.pathVar._2, guard,
               template.quantifiers, template.condVars, template.exprVars, template.condTree,
               template.clauses, template.blockers, template.applications, template.matchers,
               template.lambdas, template.quantifications, template.body)
@@ -841,7 +840,7 @@ trait QuantificationTemplates { self: Templates =>
             val (substMap, substClauses) = Template.substitution(
               template.condVars, template.exprVars, template.condTree,
               template.lambdas, template.quantifications,
-              Map(insts._2 -> Left(instT)), template.pathVar._1, template.pathVar._2)
+              Map(insts._2 -> Left(instT)), template.pathVar._2)
             clauses ++= substClauses
 
             // this will call `instantiateMatcher` on all matchers in `template.matchers`
@@ -851,12 +850,12 @@ trait QuantificationTemplates { self: Templates =>
 
             Map(insts._2 -> instT)
 
-          case Unknown(qs, q2s, insts, guardVar) =>
+          case Unknown(qs, q2s, insts, guard) =>
             val qT = encodeSymbol(qs._1)
             val substituter = mkSubstituter(Map(qs._2 -> qT))
 
-            val quantification = new GeneralQuantification(template.pathVar,
-              qs._1 -> qT, q2s, insts, guardVar,
+            val quantification = new GeneralQuantification(template.pathVar._2,
+              qs._1 -> qT, q2s, insts, guard,
               template.quantifiers, template.condVars, template.exprVars, template.condTree,
               template.clauses map substituter, // one clause depends on 'qs._2' (and therefore 'qT')
               template.blockers, template.applications, template.matchers,
@@ -904,7 +903,7 @@ trait QuantificationTemplates { self: Templates =>
       ignoredMatchers += ((gen - diff, bs, m))
     }
 
-    for (q <- quantifications) {
+    for (q <- quantifications if ignoredSubsts.isDefinedAt(q)) {
       ignoredSubsts += q -> ignoredSubsts(q).map { case (gen, bs, subst) => (gen - diff, bs, subst) }
     }
   }

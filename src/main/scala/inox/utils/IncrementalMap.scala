@@ -20,6 +20,7 @@ class IncrementalMap[A, B] private(dflt: Option[B])
 
   override def clear(): Unit = {
     stack.clear()
+    push()
   }
 
   def reset(): Unit = {
