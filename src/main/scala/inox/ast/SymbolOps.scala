@@ -236,6 +236,29 @@ trait SymbolOps { self: TypeOps =>
     normalizeClauses(inlineFunctions(e))
   }
 
+  def simplifyLets(expr: Expr): Expr = postMap({
+    case Let(v1, Let(v2, e2, b2), b1) =>
+      Some(Let(v2, e2, Let(v1, b2, b1)))
+
+    case Let(v, ts @ (
+      TupleSelect(_: Variable, _) |
+      ADTSelector(_: Variable, _) |
+      FiniteMap(Seq(), _, _, _)   |
+      FiniteBag(Seq(), _)         |
+      FiniteSet(Seq(), _)
+    ), b) =>
+      Some(replaceFromSymbols(Map(v -> ts), b))
+
+    case Let(vd, e, b) =>
+      exprOps.count { case v: Variable if vd.toVariable == v => 1 case _ => 0 } (b) match {
+        case 0 => Some(b)
+        case 1 => Some(replaceFromSymbols(Map(vd -> e), b))
+        case _ => None
+      }
+
+    case _ => None
+  }, applyRec = true)(expr)
+
   /** Fully expands all let expressions. */
   def expandLets(expr: Expr): Expr = {
     def rec(ex: Expr, s: Map[Variable,Expr]) : Expr = ex match {
