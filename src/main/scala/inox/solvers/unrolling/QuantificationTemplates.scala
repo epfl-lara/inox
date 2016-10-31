@@ -168,7 +168,7 @@ trait QuantificationTemplates { self: Templates =>
           val inst: Variable = Variable(FreshIdentifier("inst", true), BooleanType)
           val insts = inst -> encodeSymbol(inst)
           val extraClause = mkImplies(pathVar._2, mkEquals(insts._2, pT))
-          (Some(inst), Negative(insts), Seq(extraClause), Map.empty)
+          (Some(inst), Negative(insts), Seq(extraClause), Map.empty[Variable, Encoded])
 
         case None =>
           val q: Variable = Variable(FreshIdentifier("q", true), BooleanType)
