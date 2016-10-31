@@ -456,7 +456,9 @@ trait QuantificationTemplates { self: Templates =>
     def unzipSet: Set[(Set[Encoded], Arg, Set[Int])] = iterator.map(p => (p._1, p._2._1, p._2._2)).toSet
   }
 
-  private class MatcherSet extends BlockedSet[Matcher]
+  private class MatcherSet extends BlockedSet[Matcher] {
+    def contains(m: Matcher): Boolean = get(m).isDefined
+  }
 
   private def totalDepth(m: Matcher): Int = 1 + m.args.map {
     case Right(ma) => totalDepth(ma)
@@ -482,6 +484,8 @@ trait QuantificationTemplates { self: Templates =>
 
     val holds: Encoded
     val body: Expr
+
+    def getPolarity: Option[Boolean]
 
     lazy val quantified: Set[Encoded] = quantifiers.map(_._2).toSet
     lazy val pathBlockers = blockerPath(blocker)
@@ -513,9 +517,10 @@ trait QuantificationTemplates { self: Templates =>
       /* Build mappings from quantifiers to all potential ground values previously encountered. */
       val quantToGround: Map[Encoded, Set[(Set[Encoded], Arg, Set[Int])]] =
         for ((q, constraints) <- groupedConstraints) yield q -> {
-          grounds(q).unzipSet ++
-          constraints.flatMap { case (key, i) =>
-            correspond(matcherKey(m), key).map(p => (bs, m.args(i), if (p) Set.empty[Int] else Set(gen)))
+          grounds(q).unzipSet ++ constraints.flatMap {
+            case (key, i) => correspond(matcherKey(m), key).map {
+              p => (bs, m.args(i), if (p) Set.empty[Int] else Set(gen))
+            }
           }
         }
 
@@ -538,7 +543,11 @@ trait QuantificationTemplates { self: Templates =>
           }
         }
 
-        mappings ++= newMappings.map { case (bs, map, gens, c) => (bs, map, c) }
+        /* @nv: I tried some smarter cost computations here but it turns out that the
+         *      overhead needed to determine when to optimize exceeds the benefits */
+        mappings ++= newMappings.map { case (bs, map, gens, c) =>
+          (bs, map, c + (3 * map.values.collect { case Right(m) => totalDepth(m) }.sum))
+        }
 
         // register ground instantiation for future instantiations
         grounds(q) += ((bs, m.args(i), initGens))
@@ -573,7 +582,9 @@ trait QuantificationTemplates { self: Templates =>
           }
         }
 
-        mappings ++= newMappings.map { case (bs, map, gens, c) => (bs, map, c) }
+        mappings ++= newMappings.map { case (bs, map, gens, c) =>
+          (bs, map, c + (3 * map.values.collect { case Right(m) => totalDepth(m) }.sum))
+        }
 
         grounds(q) += ((Set.empty[Encoded], Left(q), Set.empty[Int]))
       }
@@ -585,9 +596,8 @@ trait QuantificationTemplates { self: Templates =>
       val instantiation = new scala.collection.mutable.ListBuffer[Encoded]
 
       for (p @ (bs, subst, delay) <- substs if !handledSubsts.get(this).exists(_ contains (bs -> subst))) {
-        val totalDelay = delay + (3 * subst.values.collect { case Right(m) => totalDepth(m) }.sum)
-        if (totalDelay > 0) {
-          val gen = currentGeneration + totalDelay + (if (this.isInstanceOf[GeneralQuantification]) 2 else 0)
+        if (delay > 0) {
+          val gen = currentGeneration + delay + (if (getPolarity.isEmpty) 2 else 0)
           ignoredSubsts += this -> (ignoredSubsts.getOrElse(this, Set.empty) + ((gen, bs, subst)))
         } else {
           instantiation ++= instantiateSubst(bs, subst)
@@ -624,7 +634,7 @@ trait QuantificationTemplates { self: Templates =>
         val totalDelay = 2 * (abs(totalDepth(sm) - totalDepth(m)) + (if (b == guard) 0 else 1))
 
         if (totalDelay > 0) {
-          val gen = currentGeneration + totalDelay + (if (this.isInstanceOf[GeneralQuantification]) 2 else 0)
+          val gen = currentGeneration + totalDelay
           ignoredMatchers += ((gen, sb, sm))
         } else {
           instantiation ++= instantiateMatcher(sb, sm)
@@ -714,6 +724,8 @@ trait QuantificationTemplates { self: Templates =>
     def currentQ2Var = _currentQ2Var
     val holds = qs._2
 
+    def getPolarity = None
+
     private var _insts: Map[Encoded, Set[Encoded]] = Map.empty
     def instantiations = _insts
 
@@ -750,6 +762,8 @@ trait QuantificationTemplates { self: Templates =>
     val body: Expr) extends Quantification {
 
     val holds = trueT
+
+    def getPolarity = Some(true)
 
     protected def instanceSubst(enabler: Encoded): Map[Encoded, Encoded] = {
       Map(guard -> enabler)
