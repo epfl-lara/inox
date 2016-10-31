@@ -35,10 +35,11 @@ trait Templates extends TemplateGenerator
   def mkImplies(l: Encoded, r: Encoded): Encoded
 
   private[unrolling] lazy val trueT = mkEncoder(Map.empty)(BooleanLiteral(true))
+  private[unrolling] lazy val falseT = mkEncoder(Map.empty)(BooleanLiteral(false))
 
   private var currentGen: Int = 0
   protected def currentGeneration: Int = currentGen
-  protected def nextGeneration(gen: Int): Int = gen + 5
+  protected def nextGeneration(gen: Int): Int = gen + 3
 
   trait Manager extends IncrementalStateWrapper {
     def unrollGeneration: Option[Int]
@@ -59,22 +60,29 @@ trait Templates extends TemplateGenerator
   def canUnroll: Boolean = managers.exists(_.unrollGeneration.isDefined)
   def unroll: Clauses = {
     assert(canUnroll, "Impossible to unroll further")
-    val generation = managers.flatMap(_.unrollGeneration).min + 1
-    if (generation > currentGen) {
-      currentGen = generation
-    }
-
+    currentGen = managers.flatMap(_.unrollGeneration).min + 1
+    ctx.reporter.debug("Unrolling generation [" + currentGen + "]")
     managers.flatMap(_.unroll)
   }
 
   def satisfactionAssumptions = managers.flatMap(_.satisfactionAssumptions)
   def refutationAssumptions = managers.flatMap(_.refutationAssumptions)
 
+  // implication tree that we're sure about: if  (b1, b2) is in the tree, then
+  // we have the precise semantics of b1 ==> b2 in the resulting clause set
   private val condImplies = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
   private val condImplied = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
+
+  // implication tree that isn't quite ensured in the resulting clause set
+  // this can happen due to defBlocker caching in unrolling
+  private val potImplies = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
+  private val potImplied = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
+
   private val condEquals  = new IncrementalBijection[Encoded, Set[Encoded]]
 
-  val incrementals: Seq[IncrementalState] = managers ++ Seq(condImplies, condImplied, condEquals)
+  val incrementals: Seq[IncrementalState] = managers ++ Seq(
+    condImplies, condImplied, potImplies, potImplied, condEquals
+  )
 
   protected def freshConds(
     pathVar: Encoded,
@@ -89,7 +97,8 @@ trait Templates extends TemplateGenerator
         case None => // enabling condition, corresponds to pathVar
           for (child <- children) {
             val ec = mapping(child)
-            condImplied += ec -> (condImplies(ec) + pathVar)
+            condImplies += pathVar -> (condImplies(pathVar) + ec)
+            condImplied += ec -> (condImplied(ec) + pathVar)
           }
 
         case Some(ep) =>
@@ -106,8 +115,11 @@ trait Templates extends TemplateGenerator
 
   private val sym = Variable(FreshIdentifier("bs", true), BooleanType)
   protected def encodeBlockers(bs: Set[Encoded]): (Encoded, Clauses) = bs.toSeq match {
-    case Seq(b) if condImplies.isDefinedAt(b) || condImplied.isDefinedAt(b) || condEquals.containsA(b) =>
-      (b, Seq.empty)
+    case Seq(b) if (
+      condImplies.isDefinedAt(b) || condImplied.isDefinedAt(b) ||
+      potImplies.isDefinedAt(b) || potImplied.isDefinedAt(b) ||
+      condEquals.containsA(b)
+    ) => (b, Seq.empty)
 
     case _ =>
       val flatBs = fixpoint((bs: Set[Encoded]) => bs.flatMap(b => condEquals.getBorElse(b, Set(b))))(bs)
@@ -120,12 +132,30 @@ trait Templates extends TemplateGenerator
       }
   }
 
-  protected def registerParent(child: Encoded, parent: Encoded): Unit = {
-    condImplied += child -> (condImplied(child) + parent)
+  protected def registerImplication(b1: Encoded, b2: Encoded): Unit = {
+    potImplies += b1 -> (potImplies(b1) + b2)
+    potImplied += b2 -> (potImplied(b2) + b1)
   }
 
-  protected def blockerParents(b: Encoded): Set[Encoded] = condImplied(b)
-  protected def blockerChildren(b: Encoded): Set[Encoded] = condImplies(b)
+  protected def blockerEquals(b: Encoded): Set[Encoded] = condEquals.getBorElse(b, Set.empty)
+
+  protected def blockerParents(b: Encoded, strict: Boolean = true): Set[Encoded] = {
+    condImplied(b) ++ (if (!strict) potImplied(b) else Set.empty)
+  }
+
+  protected def blockerChildren(b: Encoded, strict: Boolean = true): Set[Encoded] = {
+    condImplies(b) ++ (if (!strict) potImplies(b) else Set.empty)
+  }
+
+  protected def blockerPath(b: Encoded): Set[Encoded] = blockerPath(Set(b))
+
+  /* This set is guaranteed finite and won't expand beyond the limit of a function's
+   * definition as aVar ==> defBlocker is NOT a strict implication (ie. won't be in
+   * the condImplied map) */
+  protected def blockerPath(bs: Set[Encoded]): Set[Encoded] = fixpoint((bs: Set[Encoded]) => bs.flatMap { b =>
+    val equal = condEquals.getBorElse(b, Set.empty)
+    if (equal.nonEmpty) equal else (condImplied(b) + b)
+  })(bs)
 
   def promoteBlocker(b: Encoded, force: Boolean = false): Boolean = {
     var seen: Set[Encoded] = Set.empty
@@ -145,7 +175,7 @@ trait Templates extends TemplateGenerator
         }
 
         if (force) {
-          blockerChildren(b)
+          blockerChildren(b, strict = false)
         } else {
           Seq.empty[Encoded]
         }
@@ -309,6 +339,7 @@ trait Templates extends TemplateGenerator
       condVars: Map[Variable, Encoded],
       exprVars: Map[Variable, Encoded],
       guardedExprs: Map[Variable, Seq[Expr]],
+      equations: Seq[Expr],
       lambdas: Seq[LambdaTemplate],
       quantifications: Seq[QuantificationTemplate],
       substMap: Map[Variable, Encoded] = Map.empty[Variable, Encoded],
@@ -394,6 +425,8 @@ trait Templates extends TemplateGenerator
 
           if (matchs.nonEmpty) matchers += b -> matchs
         }
+
+        clauses ++= equations.map(encoder)
 
         (clauses, blockers, applications, matchers merge optIdMatcher.map(m => pathVar._1 -> Set(m)).toMap)
       }
@@ -523,11 +556,11 @@ trait Templates extends TemplateGenerator
     val tpeClauses = bindings.flatMap { case (v, s) => registerSymbol(encodedStart, s, v.getType) }.toSeq
 
     val instExpr = simplifyHOFunctions(simplifyQuantifications(expr))
-    val (condVars, exprVars, condTree, guardedExprs, lambdas, quants) =
+    val (condVars, exprVars, condTree, guardedExprs, eqs, lambdas, quants) =
       mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
 
     val (clauses, calls, apps, matchers, _) = Template.encode(
-      start -> encodedStart, bindings.toSeq, condVars, exprVars, guardedExprs, lambdas, quants)
+      start -> encodedStart, bindings.toSeq, condVars, exprVars, guardedExprs, eqs, lambdas, quants)
 
     val (substMap, substClauses) = Template.substitution(
       condVars, exprVars, condTree, lambdas, quants, Map.empty, start, encodedStart)

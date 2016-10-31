@@ -17,19 +17,22 @@ trait TemplateGenerator { self: Templates =>
     Map[Variable, Encoded],
     Map[Variable, Set[Variable]],
     Map[Variable, Seq[Expr]],
+    Seq[Expr],
     Seq[LambdaTemplate],
     Seq[QuantificationTemplate]
   )
 
-  private def emptyClauses: TemplateClauses = (Map.empty, Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty)
+  private def emptyClauses: TemplateClauses =
+    (Map.empty, Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty, Seq.empty)
 
   private implicit class ClausesWrapper(clauses: TemplateClauses) {
     def ++(that: TemplateClauses): TemplateClauses = {
-      val (thisConds, thisExprs, thisTree, thisGuarded, thisLambdas, thisQuants) = clauses
-      val (thatConds, thatExprs, thatTree, thatGuarded, thatLambdas, thatQuants) = that
+      val (thisConds, thisExprs, thisTree, thisGuarded, thisEqs, thisLambdas, thisQuants) = clauses
+      val (thatConds, thatExprs, thatTree, thatGuarded, thatEqs, thatLambdas, thatQuants) = that
 
-      (thisConds ++ thatConds, thisExprs ++ thatExprs, thisTree merge thatTree,
-        thisGuarded merge thatGuarded, thisLambdas ++ thatLambdas, thisQuants ++ thatQuants)
+      (thisConds ++ thatConds, thisExprs ++ thatExprs,
+        thisTree merge thatTree, thisGuarded merge thatGuarded,
+        thisEqs ++ thatEqs, thisLambdas ++ thatLambdas, thisQuants ++ thatQuants)
     }
   }
 
@@ -57,11 +60,11 @@ trait TemplateGenerator { self: Templates =>
 
     val substMap : Map[Variable, Encoded] = arguments.toMap + pathVar
 
-    val (condVars, exprVars, condTree, guardedExprs, lambdas, quantifications) =
+    val (condVars, exprVars, condTree, guardedExprs, eqs, lambdas, quantifications) =
       invocationEqualsBody.foldLeft(emptyClauses)((clsSet, cls) => clsSet ++ mkClauses(start, cls, substMap))
 
     val template = FunctionTemplate(tfd, pathVar, arguments,
-      condVars, exprVars, condTree, guardedExprs, lambdas, quantifications)
+      condVars, exprVars, condTree, guardedExprs, eqs, lambdas, quantifications)
     cache += tfd -> template
     template
   }
@@ -88,12 +91,13 @@ trait TemplateGenerator { self: Templates =>
   }
 
   def mkClauses(pathVar: Variable, expr: Expr, substMap: Map[Variable, Encoded], polarity: Option[Boolean] = None): TemplateClauses = {
-    val (p, (condVars, exprVars, condTree, guardedExprs, lambdas, quantifications)) = mkExprClauses(pathVar, expr, substMap, polarity)
+    val (p, (condVars, exprVars, condTree, guardedExprs, eqs, lambdas, quantifications)) = mkExprClauses(pathVar, expr, substMap, polarity)
     val allGuarded = guardedExprs + (pathVar -> (p +: guardedExprs.getOrElse(pathVar, Seq.empty)))
-    (condVars, exprVars, condTree, allGuarded, lambdas, quantifications)
+    (condVars, exprVars, condTree, allGuarded, eqs, lambdas, quantifications)
   }
 
   private def mkExprClauses(pathVar: Variable, expr: Expr, substMap: Map[Variable, Encoded], polarity: Option[Boolean] = None): (Expr, TemplateClauses) = {
+    val initVar = pathVar
 
     var condVars = Map[Variable, Encoded]()
     var condTree = Map[Variable, Set[Variable]](pathVar -> Set.empty).withDefaultValue(Set.empty)
@@ -117,7 +121,9 @@ trait TemplateGenerator { self: Templates =>
       guardedExprs += guardVar -> (expr +: prev)
     }
 
-    @inline def iff(e1: Expr, e2: Expr): Unit = storeGuarded(pathVar, Equals(e1, e2))
+    // Represents equations (simple formulas)
+    var eqs = Seq[Expr]()
+    @inline def iff(e1: Expr, e2: Expr): Unit = eqs :+= Equals(e1, e2)
 
     var lambdaVars = Map[Variable, Encoded]()
     @inline def storeLambda(id: Variable): Encoded = {
@@ -275,7 +281,7 @@ trait TemplateGenerator { self: Templates =>
 
         val localSubst: Map[Variable, Encoded] = substMap ++ condVars ++ exprVars ++ lambdaVars
         val clauseSubst: Map[Variable, Encoded] = localSubst ++ (idArgs zip trArgs)
-        val (lambdaConds, lambdaExprs, lambdaTree, lambdaGuarded, lambdaTemplates, lambdaQuants) =
+        val (lambdaConds, lambdaExprs, lambdaTree, lambdaGuarded, lambdaEqs, lambdaTemplates, lambdaQuants) =
           clauses.foldLeft(emptyClauses)((clsSet, cls) => clsSet ++ mkClauses(pathVar, cls, clauseSubst))
 
         val ids: (Variable, Encoded) = lid -> storeLambda(lid)
@@ -283,12 +289,12 @@ trait TemplateGenerator { self: Templates =>
         val (struct, deps) = normalizeStructure(l)
         val sortedDeps = deps.toSeq.sortBy(_._1.id.uniqueName)
 
-        val (dependencies, (depConds, depExprs, depTree, depGuarded, depLambdas, depQuants)) =
+        val (dependencies, (depConds, depExprs, depTree, depGuarded, depEqs, depLambdas, depQuants)) =
           sortedDeps.foldLeft[(Seq[Encoded], TemplateClauses)](Seq.empty -> emptyClauses) {
             case ((dependencies, clsSet), (id, expr)) =>
               if (!exprOps.isSimple(expr)) {
                 val encoded = encodeSymbol(id)
-                val (e, cls @ (_, _, _, _, lmbds, quants)) = mkExprClauses(pathVar, expr, localSubst)
+                val (e, cls @ (_, _, _, _, _, lmbds, quants)) = mkExprClauses(pathVar, expr, localSubst)
                 val clauseSubst = localSubst ++ lmbds.map(_.ids) ++ quants.flatMap(_.mapping)
                 (dependencies :+ mkEncoder(clauseSubst)(e), clsSet ++ cls)
               } else {
@@ -298,7 +304,7 @@ trait TemplateGenerator { self: Templates =>
 
         val (depClauses, depCalls, depApps, depMatchers, _) = Template.encode(
           pathVar -> encodedCond(pathVar), Seq.empty,
-          depConds, depExprs, depGuarded, depLambdas, depQuants, localSubst)
+          depConds, depExprs, depGuarded, depEqs, depLambdas, depQuants, localSubst)
 
         val depClosures: Seq[Encoded] = {
           val vars = exprOps.variablesOf(l)
@@ -313,7 +319,7 @@ trait TemplateGenerator { self: Templates =>
 
         val template = LambdaTemplate(ids, pathVar -> encodedCond(pathVar),
           idArgs zip trArgs, lambdaConds, lambdaExprs, lambdaTree,
-          lambdaGuarded, lambdaTemplates, lambdaQuants, structure, localSubst, l)
+          lambdaGuarded, lambdaEqs, lambdaTemplates, lambdaQuants, structure, localSubst, l)
         registerLambda(template)
         lid
 
@@ -329,10 +335,10 @@ trait TemplateGenerator { self: Templates =>
 
           val localSubst: Map[Variable, Encoded] = substMap ++ condVars ++ exprVars ++ lambdaVars
           val clauseSubst: Map[Variable, Encoded] = localSubst ++ (idQuantifiers zip trQuantifiers)
-          val (p, (qConds, qExprs, qTree, qGuarded, qLambdas, qQuants)) = mkExprClauses(pathVar, conjunct, clauseSubst)
+          val (p, (qConds, qExprs, qTree, qGuarded, qEqs, qLambdas, qQuants)) = mkExprClauses(pathVar, conjunct, clauseSubst)
 
           val (optVar, template) = QuantificationTemplate(pathVar -> encodedCond(pathVar),
-            pol, p, idQuantifiers zip trQuantifiers, qConds, qExprs, qTree, qGuarded, qLambdas, qQuants,
+            pol, p, idQuantifiers zip trQuantifiers, qConds, qExprs, qTree, qGuarded, qEqs, qLambdas, qQuants,
             localSubst, Forall(quantifiers.toSeq.sortBy(_.id.uniqueName).map(_.toVal), conjunct))
           registerQuantification(template)
           optVar.getOrElse(BooleanLiteral(true))
@@ -344,7 +350,7 @@ trait TemplateGenerator { self: Templates =>
     }
 
     val p = rec(pathVar, expr, polarity)
-    (p, (condVars, exprVars, condTree, guardedExprs, lambdas, quantifications))
+    (p, (condVars, exprVars, condTree, guardedExprs, eqs, lambdas, quantifications))
   }
 
 }

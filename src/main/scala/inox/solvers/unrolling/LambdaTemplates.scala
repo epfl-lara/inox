@@ -58,6 +58,7 @@ trait LambdaTemplates { self: Templates =>
       exprVars: Map[Variable, Encoded],
       condTree: Map[Variable, Set[Variable]],
       guardedExprs: Map[Variable, Seq[Expr]],
+      equations: Seq[Expr],
       lambdas: Seq[LambdaTemplate],
       quantifications: Seq[QuantificationTemplate],
       structure: LambdaStructure,
@@ -68,8 +69,8 @@ trait LambdaTemplates { self: Templates =>
       val id = ids._2
       val tpe = ids._1.getType.asInstanceOf[FunctionType]
       val (clauses, blockers, applications, matchers, templateString) =
-        Template.encode(pathVar, arguments, condVars, exprVars, guardedExprs, lambdas, quantifications,
-          substMap = baseSubstMap + ids, optApp = Some(id -> tpe))
+        Template.encode(pathVar, arguments, condVars, exprVars, guardedExprs, equations,
+          lambdas, quantifications, substMap = baseSubstMap + ids, optApp = Some(id -> tpe))
 
       val lambdaString : () => String = () => {
         "Template for lambda " + ids._1 + ": " + lambda + " is :\n" + templateString()
@@ -375,6 +376,7 @@ trait LambdaTemplates { self: Templates =>
           Seq.empty
         } else typeBlockers.get(encoded) match {
           case Some(typeBlocker) =>
+            registerImplication(blocker, typeBlocker)
             Seq(mkImplies(blocker, typeBlocker))
 
           case None =>
@@ -393,7 +395,7 @@ trait LambdaTemplates { self: Templates =>
 
             val extClause = mkEquals(firstB, mkAnd(blocker, mkNot(mkOr(boundClauses.toSeq :+ nextB : _*))))
 
-            registerParent(typeBlocker, firstB)
+            registerImplication(firstB, typeBlocker)
             val symClauses = registerSymbol(typeBlocker, encoded, to)
 
             symClauses :+ extClause :+ mkImplies(firstB, typeBlocker)
@@ -520,6 +522,7 @@ trait LambdaTemplates { self: Templates =>
         }
 
         val enabler = if (equals == trueT) b else mkAnd(equals, b)
+        registerImplication(b, lambdaBlocker)
         newCls += mkImplies(enabler, lambdaBlocker)
 
         ctx.reporter.debug("Unrolling behind "+info+" ("+newCls.size+")")

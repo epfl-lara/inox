@@ -544,8 +544,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
           }
 
           val timer = ctx.timers.solvers.check.start()
+
+          // we always ask for a model here in order to give priority to blockers that
+          // are keeping quantified clause instantiations from being considered
           val res: SolverResponse[underlying.Model, Set[underlying.Trees]] =
-            underlying.checkAssumptions(config max Configuration(model = feelingLucky))(
+            underlying.checkAssumptions(config max Configuration(model = true))(
               encodedAssumptions.toSet ++ templates.refutationAssumptions
             )
           timer.stop()
@@ -559,8 +562,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
             case _: Unsatisfiable =>
               CheckResult.cast(res)
 
-            case SatWithModel(model) if feelingLucky =>
-              if (validateModel(extractSimpleModel(model), assumptionsSeq, silenceErrors = true)) {
+            case SatWithModel(model) =>
+              if (feelingLucky && validateModel(extractSimpleModel(model), assumptionsSeq, silenceErrors = true)) {
                 CheckResult.cast(res)
               } else {
                 val wrapped = wrapModel(model)
@@ -572,9 +575,6 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
                 Unroll
               }
-
-            case _ =>
-              Unroll
           }
 
         case Unroll =>
@@ -582,7 +582,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
           val timer = ctx.timers.solvers.unroll.start()
           // unfolling `unrollFactor` times
-          for (i <- 1 to unrollFactor.toInt) {
+          for (i <- 1 to unrollFactor.toInt if templates.canUnroll) {
             val newClauses = templates.unroll
             for (ncl <- newClauses) {
               underlying.assertCnstr(ncl)

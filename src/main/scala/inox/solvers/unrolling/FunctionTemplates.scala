@@ -23,13 +23,14 @@ trait FunctionTemplates { self: Templates =>
       exprVars: Map[Variable, Encoded],
       condTree: Map[Variable, Set[Variable]],
       guardedExprs: Map[Variable, Seq[Expr]],
+      equations: Seq[Expr],
       lambdas: Seq[LambdaTemplate],
       quantifications: Seq[QuantificationTemplate]
     ) : FunctionTemplate = {
 
       val (clauses, blockers, applications, matchers, templateString) =
-        Template.encode(pathVar, arguments, condVars, exprVars, guardedExprs, lambdas, quantifications,
-          optCall = Some(tfd))
+        Template.encode(pathVar, arguments, condVars, exprVars, guardedExprs, equations,
+          lambdas, quantifications, optCall = Some(tfd))
 
       val funString : () => String = () => {
         "Template for def " + tfd.signature +
@@ -153,6 +154,7 @@ trait FunctionTemplates { self: Templates =>
 
         // We connect it to the defBlocker:   blocker => defBlocker
         if (defBlocker != blocker) {
+          registerImplication(blocker, defBlocker)
           newCls += mkImplies(blocker, defBlocker)
         }
 

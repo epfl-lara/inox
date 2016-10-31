@@ -76,11 +76,19 @@ trait QuantificationTemplates { self: Templates =>
 
   case class Positive(guardVar: Encoded) extends Polarity
   case class Negative(insts: (Variable, Encoded)) extends Polarity
-  case class Unknown(
-    qs: (Variable, Encoded),
-    q2s: (Variable, Encoded),
-    insts: (Variable, Encoded),
-    guardVar: Encoded) extends Polarity
+
+  /** Unknown quantification polarity.
+    *
+    * Instantiations of unknown polarity quantification with body {{{p}}} follows the schema:
+    * {{{
+    *    b ==> (q == (q2 && inst)
+    *    b ==> (inst == (guard ==> p))
+    * }}}
+    * It is useful to keep the two clauses separate so that satisfying assignments can be
+    * constructed where only certain `inst` variables are falsified. This is used to enable
+    * a powerful unrolling heuristic in the presence of both quantifiers and recursive functions.
+    */
+  case class Unknown(qs: (Variable, Encoded), q2s: (Variable, Encoded), insts: (Variable, Encoded), guardVar: Encoded) extends Polarity
 
   class QuantificationTemplate private[QuantificationTemplates] (
     val pathVar: (Variable, Encoded),
@@ -138,52 +146,62 @@ trait QuantificationTemplates { self: Templates =>
       exprVars: Map[Variable, Encoded],
       condTree: Map[Variable, Set[Variable]],
       guardedExprs: Map[Variable, Seq[Expr]],
+      equations: Seq[Expr],
       lambdas: Seq[LambdaTemplate],
       quantifications: Seq[QuantificationTemplate],
-      baseSubstMap: Map[Variable, Encoded],
+      substMap: Map[Variable, Encoded],
       proposition: Forall
     ): (Option[Variable], QuantificationTemplate) = {
 
-      val (optVar, polarity, extraGuarded, extraSubst) = optPol match {
+      val pT = mkEncoder(
+        condVars ++ exprVars + pathVar ++ quantifiers ++
+        substMap ++ lambdas.map(_.ids) ++ quantifications.flatMap(_.mapping)
+      )(p)
+
+      val (optVar, polarity, extraClauses, extraSubst) = optPol match {
         case Some(true) =>
-          val guard: Variable = Variable(FreshIdentifier("guard", true), BooleanType)
-          val guards = guard -> encodeSymbol(guard)
-          (None, Positive(guards._2), Map(pathVar._1 -> Seq(Implies(guard, p))), Map(guards))
+          val guard = encodeSymbol(Variable(FreshIdentifier("guard", true), BooleanType))
+          val extraClause = mkImplies(mkAnd(pathVar._2, guard), pT)
+          (None, Positive(guard), Seq(extraClause), Map(pathVar._1 -> guard))
 
         case Some(false) =>
           val inst: Variable = Variable(FreshIdentifier("inst", true), BooleanType)
           val insts = inst -> encodeSymbol(inst)
-          (Some(inst), Negative(insts), Map(pathVar._1 -> Seq(Equals(inst, p))), Map(insts))
+          val extraClause = mkImplies(pathVar._2, mkEquals(insts._2, pT))
+          (Some(inst), Negative(insts), Seq(extraClause), Map.empty)
 
         case None =>
           val q: Variable = Variable(FreshIdentifier("q", true), BooleanType)
           val q2: Variable = Variable(FreshIdentifier("qo", true), BooleanType)
           val inst: Variable = Variable(FreshIdentifier("inst", true), BooleanType)
-          val guard: Variable = Variable(FreshIdentifier("guard", true), BooleanType)
+          val guard = encodeSymbol(Variable(FreshIdentifier("guard", true), BooleanType))
 
           val qs = q -> encodeSymbol(q)
           val q2s = q2 -> encodeSymbol(q2)
           val insts = inst -> encodeSymbol(inst)
-          val guards = guard -> encodeSymbol(guard)
 
-          val polarity = Unknown(qs, q2s, insts, guards._2)
-          val extraGuarded = Map(pathVar._1 -> Seq(Equals(inst, Implies(guard, p)), Equals(q, And(q2, inst))))
-          val extraSubst = Map(qs, q2s, insts, guards)
-          (Some(q), polarity, extraGuarded, extraSubst)
+          val polarity = Unknown(qs, q2s, insts, guard)
+          val extraClauses = Seq(
+            mkImplies(pathVar._2, mkEquals(qs._2, mkAnd(q2s._2, insts._2))),
+            mkImplies(pathVar._2, mkEquals(insts._2, mkImplies(guard, pT)))
+          )
+          (Some(q), polarity, extraClauses, Map(pathVar._1 -> guard))
       }
 
-      val substMap = baseSubstMap ++ extraSubst
-      val allGuarded = guardedExprs merge extraGuarded
-
+      // Note @nv: some hacky shit is going on here...
+      // We are overriding the mapping of `pathVar._1` for certain polarities so that
+      // the encoded clauses use the `guard` as blocker instead of `pathVar._2`. This only
+      // works due to [[Template.encode]] injecting `pathVar` BEFORE `substMap` into the
+      // global encoding substitution.
       val (clauses, blockers, applications, matchers, templateString) =
-        Template.encode(pathVar, quantifiers, condVars, exprVars, allGuarded,
-          lambdas, quantifications, substMap = substMap)
+        Template.encode(pathVar, quantifiers, condVars, exprVars, guardedExprs,
+          equations, lambdas, quantifications, substMap = substMap ++ extraSubst)
 
       val key = templateKey(proposition.args, proposition.body, substMap)
 
       (optVar, new QuantificationTemplate(
         pathVar, polarity, quantifiers, condVars, exprVars, condTree,
-        clauses, blockers, applications, matchers, lambdas, quantifications, key,
+        extraClauses ++ clauses, blockers, applications, matchers, lambdas, quantifications, key,
         proposition.body, () => "Template for " + proposition + " is :\n" + templateString()))
     }
   }
@@ -203,8 +221,8 @@ trait QuantificationTemplates { self: Templates =>
     val lambdaAxioms    = new IncrementalSet[(LambdaStructure, Seq[(Variable, Encoded)])]
     val templates       = new IncrementalMap[(Seq[ValDef], Expr, Seq[Encoded]), Map[Encoded, Encoded]]
 
-    val incrementals: Seq[IncrementalState] = Seq(
-      quantifications, ignoredMatchers, handledMatchers, ignoredSubsts, handledSubsts, lambdaAxioms, templates)
+    val incrementals: Seq[IncrementalState] = Seq(quantifications, lambdaAxioms, templates,
+      ignoredMatchers, handledMatchers, ignoredSubsts, handledSubsts, ignoredGrounds)
 
     override def push(): Unit  = { super.push();  for (q <- quantifications) q.push()  }
     override def pop(): Unit   = { super.pop();   for (q <- quantifications) q.pop()   }
@@ -228,24 +246,35 @@ trait QuantificationTemplates { self: Templates =>
     def promoteBlocker(b: Encoded): Boolean = false
 
     def unroll: Clauses = {
-      val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-
+      val imClauses = new scala.collection.mutable.ListBuffer[Encoded]
       for (e @ (gen, bs, m) <- ignoredMatchers.toSeq if gen <= currentGeneration) {
-        clauses ++= instantiateMatcher(bs, m)
+        imClauses ++= instantiateMatcher(bs, m)
         ignoredMatchers -= e
       }
 
+      ctx.reporter.debug("Unrolling ignored matchers (" + imClauses.size + ")")
+      for (cl <- imClauses) {
+        ctx.reporter.debug("  . " + cl)
+      }
+
+      val suClauses = new scala.collection.mutable.ListBuffer[Encoded]
       for (q <- quantifications.toSeq if ignoredSubsts.isDefinedAt(q)) {
         val (release, keep) = ignoredSubsts(q).partition(_._1 <= currentGeneration)
         ignoredSubsts += q -> keep
 
         for ((_, bs, subst) <- release) {
-          clauses ++= q.instantiateSubst(bs, subst)
+          suClauses ++= q.instantiateSubst(bs, subst)
         }
       }
 
+      ctx.reporter.debug("Unrolling ignored substitutions (" + suClauses.size + ")")
+      for (cl <- suClauses) {
+        ctx.reporter.debug("  . " + cl)
+      }
+
+      val grClauses = new scala.collection.mutable.ListBuffer[Encoded]
       for ((gen, qs) <- ignoredGrounds.toSeq if gen <= currentGeneration; q <- qs) {
-        clauses ++= q.ensureGrounds
+        grClauses ++= q.ensureGrounds
         val remaining = ignoredGrounds.getOrElse(gen, Set.empty) - q
         if (remaining.nonEmpty) {
           ignoredGrounds += gen -> remaining
@@ -254,20 +283,28 @@ trait QuantificationTemplates { self: Templates =>
         }
       }
 
-      clauses.toSeq
+      ctx.reporter.debug("Unrolling ignored grounds (" + grClauses.size + ")")
+      for (cl <- grClauses) {
+        ctx.reporter.debug("  . " + cl)
+      }
+
+      imClauses.toSeq ++ suClauses ++ grClauses
     }
   }
 
-  def instantiateMatcher(blocker: Encoded, matcher: Matcher): Clauses =
+  def instantiateMatcher(blocker: Encoded, matcher: Matcher): Clauses = {
     instantiateMatcher(Set(blocker), matcher)
+  }
 
   @inline
   private def instantiateMatcher(blockers: Set[Encoded], matcher: Matcher): Clauses = {
-    if (handledMatchers(blockers -> matcher)) {
+    val relevantBlockers = blockerPath(blockers)
+
+    if (handledMatchers(relevantBlockers -> matcher)) {
       Seq.empty
     } else {
-      handledMatchers += blockers -> matcher
-      quantifications.flatMap(_.instantiate(blockers, matcher))
+      handledMatchers += relevantBlockers -> matcher
+      quantifications.flatMap(_.instantiate(relevantBlockers, matcher))
     }
   }
 
@@ -447,6 +484,7 @@ trait QuantificationTemplates { self: Templates =>
 
     lazy val quantified: Set[Encoded] = quantifiers.map(_._2).toSet
     lazy val start = pathVar._2
+    lazy val pathBlockers = blockerPath(start)
 
     private val constraints: Seq[(Encoded, MatcherKey, Int)] = (for {
       (_, ms) <- matchers
@@ -509,6 +547,8 @@ trait QuantificationTemplates { self: Templates =>
       instantiateSubsts(mappings)
     }
 
+    def hasAllGrounds: Boolean = quantified.forall(q => grounds(q).nonEmpty)
+
     def ensureGrounds: Clauses = {
       /* Build mappings from quantifiers to all potential ground values previously encountered
        * AND the constants we're introducing to make sure grounds are non-empty. */
@@ -561,7 +601,7 @@ trait QuantificationTemplates { self: Templates =>
       handledSubsts += this -> (handledSubsts.getOrElse(this, Set.empty) + (bs -> subst))
       val instantiation = new scala.collection.mutable.ListBuffer[Encoded]
 
-      val (enabler, enablerClauses) = encodeBlockers(bs)
+      val (enabler, enablerClauses) = encodeBlockers(bs ++ pathBlockers)
       instantiation ++= enablerClauses
 
       val baseSubst = subst ++ instanceSubst(enabler).mapValues(Left(_))
@@ -828,8 +868,12 @@ trait QuantificationTemplates { self: Templates =>
               clauses ++= quantification.instantiate(bs, m)
             }
 
+            val freshSubst = mkSubstituter(template.quantifiers.map(p => p._2 -> encodeSymbol(p._1)).toMap)
             for ((b,ms) <- template.matchers; m <- ms) {
-              clauses ++= instantiateMatcher(b, m)
+              clauses ++= instantiateMatcher(Set.empty[Encoded], m)
+              // it is very rare that such instantiations are actually required, so we defer them
+              val gen = currentGeneration + 20
+              ignoredMatchers += ((gen, Set(b), m.substitute(freshSubst, Map.empty)))
             }
 
             clauses ++= quantification.ensureGrounds
@@ -847,6 +891,13 @@ trait QuantificationTemplates { self: Templates =>
       throw FatalError("Attempting to promote inexistent quantifiers")
 
     val diff = (currentGeneration - optGen.get) max 0
+
+    val currentGrounds = ignoredGrounds.toSeq
+    ignoredGrounds.clear()
+    for ((gen, qs) <- currentGrounds) {
+      ignoredGrounds += (gen - diff) -> qs
+    }
+
     val currentMatchers = ignoredMatchers.toSeq
     ignoredMatchers.clear()
     for ((gen, bs, m) <- currentMatchers) {
@@ -864,6 +915,13 @@ trait QuantificationTemplates { self: Templates =>
   def getFiniteRangeClauses: Clauses = {
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
     val keyClause = MutableMap.empty[MatcherKey, (Clauses, Encoded)]
+
+    val currentGrounds = ignoredGrounds.toSeq
+    for ((gen, qs) <- currentGrounds if qs.exists(!_.hasAllGrounds)) {
+      ignoredGrounds -= gen
+      ignoredGrounds += currentGeneration -> qs
+      clauses += falseT
+    }
 
     for ((_, bs, m) <- ignoredMatchers) {
       val key = matcherKey(m)
