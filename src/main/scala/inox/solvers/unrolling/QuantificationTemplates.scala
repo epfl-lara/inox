@@ -293,7 +293,12 @@ trait QuantificationTemplates { self: Templates =>
   }
 
   def instantiateMatcher(blocker: Encoded, matcher: Matcher): Clauses = {
-    instantiateMatcher(Set(blocker), matcher, false)
+    // first instantiate sub-matchers
+    val subs = matcher.args.collect { case Right(m) =>
+      instantiateMatcher(Set(blocker), m, false)
+    }.flatten
+
+    subs ++ instantiateMatcher(Set(blocker), matcher, false)
   }
 
   @inline
@@ -459,6 +464,7 @@ trait QuantificationTemplates { self: Templates =>
   private class MatcherSet extends BlockedSet[Matcher] {
     private val keys = new IncrementalSet[(MatcherKey, Seq[Arg])]
     def contains(m: Matcher): Boolean = keys(matcherKey(m) -> m.args)
+    def containsAll(ms: Set[Matcher]): Boolean = ms.forall(contains)
 
     override def +=(p: (Set[Encoded], Matcher)): Unit = {
       keys += matcherKey(p._2) -> p._2.args
@@ -538,7 +544,7 @@ trait QuantificationTemplates { self: Templates =>
             common.nonEmpty && 
             (quantifiersOf(m) -- common.flatMap(quantifiersOf)).nonEmpty
           }
-        })
+        }).toList
       allQuorums.foldLeft(Seq[Set[Matcher]]())((qs,q) => if (qs.exists(_ subsetOf q)) qs else qs :+ q)
     }
 
@@ -562,8 +568,7 @@ trait QuantificationTemplates { self: Templates =>
       var mappings: Seq[(Set[Encoded], Map[Encoded, Arg], Int)] = Seq.empty
       for ((q, constraints) <- groupedConstraints;
            (key, i) <- constraints;
-           perfect <- correspond(matcherKey(m), key)
-           if !grounds(q)(bs, m.args(i))) {
+           perfect <- correspond(matcherKey(m), key)) {
         val initGens: Set[Int] = if (perfect && !defer) Set.empty else Set(gen)
         val newMappings = (quantified - q).foldLeft(Seq((bs, Map(q -> m.args(i)), initGens, 0))) {
           case (maps, oq) => for {
@@ -585,7 +590,7 @@ trait QuantificationTemplates { self: Templates =>
             val substituter = mkSubstituter(map.mapValues(_.encoded))
             val msubst = map.collect { case (q, Right(m)) => q -> m }
             val isOpt = optimizationQuorums.exists { ms =>
-              ms.forall(m => handledMatchers.contains(m.substitute(substituter, msubst)))
+              handledMatchers.containsAll(ms.map(_.substitute(substituter, msubst)))
             }
 
             if (isOpt) 0 else 3
