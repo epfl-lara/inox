@@ -457,7 +457,18 @@ trait QuantificationTemplates { self: Templates =>
   }
 
   private class MatcherSet extends BlockedSet[Matcher] {
-    def contains(m: Matcher): Boolean = get(m).isDefined
+    private val keys = new IncrementalSet[MatcherKey]
+    def contains(m: Matcher): Boolean = keys(matcherKey(m))
+
+    override def +=(p: (Set[Encoded], Matcher)): Unit = {
+      keys += matcherKey(p._2)
+      super.+=(p)
+    }
+
+    override def push(): Unit = { keys.push(); super.push() }
+    override def pop(): Unit  = { keys.pop();  super.pop()  }
+    override def clear(): Unit = { keys.clear(); super.clear() }
+    override def reset(): Unit = { keys.reset(); super.reset() }
   }
 
   private def totalDepth(m: Matcher): Int = 1 + m.args.map {
@@ -565,8 +576,8 @@ trait QuantificationTemplates { self: Templates =>
           }
         }
 
-        /* @nv: I tried some smarter cost computations here but it turns out that the
-         *      overhead needed to determine when to optimize exceeds the benefits */
+        /* @nv: I reused the cost heuristic from Leon here, it worked pretty well
+         *      on all our pre-existing benchmarks and regressions. */
         mappings ++= newMappings.map { case (bs, map, gens, c) =>
           val substituter = mkSubstituter(map.mapValues(_.encoded))
           val msubst = map.collect { case (q, Right(m)) => q -> m }
