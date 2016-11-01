@@ -138,7 +138,8 @@ trait DatatypeTemplates { self: Templates =>
         guardedExprs += pathVar -> (expr +: prev)
       }
 
-      @inline protected def iff(e1: Expr, e2: Expr): Unit = storeGuarded(pathVar, Equals(e1, e2))
+      private var equations = Seq[Expr]()
+      @inline protected def iff(e1: Expr, e2: Expr): Unit = equations :+= Equals(e1, e2)
 
       private var tpes = Map[Variable, Set[(TypedADTSort, Expr)]]()
       @inline protected def storeType(pathVar: Variable, tsort: TypedADTSort, arg: Expr): Unit = {
@@ -179,6 +180,7 @@ trait DatatypeTemplates { self: Templates =>
                 }
 
                 val vars = tpes.keys.toSet ++ functions.keys ++
+                  guardedExprs.keys ++
                   guardedExprs.flatMap(_._2.flatMap(exprOps.variablesOf))
 
                 if (vars(newBool)) {
@@ -222,6 +224,8 @@ trait DatatypeTemplates { self: Templates =>
 
           if (callInfos.nonEmpty) calls += encoder(b) -> callInfos
         }
+
+        clauses ++= equations.map(encoder)
 
         val encodedTypes: Map[Encoded, Set[(TypedADTSort, Encoded)]] = tpes.map { case (b, tps) =>
           encoder(b) -> tps.map { case (tadt, expr) => (tadt, encoder(expr)) }
@@ -485,6 +489,11 @@ trait DatatypeTemplates { self: Templates =>
         case Some((container, containerType)) =>
           val template = CaptureTemplate(tadt.toType, containerType)
           newClauses ++= template.instantiate(blocker, container, arg)
+      }
+
+      ctx.reporter.debug("Unrolling datatypes (" + newClauses.size + ")")
+      for (cl <- newClauses) {
+        ctx.reporter.debug("  . " + cl)
       }
 
       newClauses.toSeq
