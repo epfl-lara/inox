@@ -579,18 +579,16 @@ trait QuantificationTemplates { self: Templates =>
         /* @nv: I reused the cost heuristic from Leon here, it worked pretty well
          *      on all our pre-existing benchmarks and regressions. */
         mappings ++= newMappings.map { case (bs, map, gens, c) =>
-          val substituter = mkSubstituter(map.mapValues(_.encoded))
-          val msubst = map.collect { case (q, Right(m)) => q -> m }
-          val isOpt = optimizationQuorums.exists { ms =>
-            ms.forall(m => handledMatchers.contains(m.substitute(substituter, msubst)))
-          }
-
           val cost = if (initGens.nonEmpty) {
             1 + 3 * map.values.collect { case Right(m) => totalDepth(m) }.sum
-          } else if (!isOpt) {
-            3
           } else {
-            0
+            val substituter = mkSubstituter(map.mapValues(_.encoded))
+            val msubst = map.collect { case (q, Right(m)) => q -> m }
+            val isOpt = optimizationQuorums.exists { ms =>
+              ms.forall(m => handledMatchers.contains(m.substitute(substituter, msubst)))
+            }
+
+            if (isOpt) 0 else 3
           }
 
           (bs, map, c + cost)
@@ -967,7 +965,7 @@ trait QuantificationTemplates { self: Templates =>
   }
 
   def requiresFiniteRangeCheck: Boolean =
-    ignoredMatchers.nonEmpty || ignoredSubsts.exists(_._2.nonEmpty)
+    ignoredGrounds.nonEmpty || ignoredMatchers.nonEmpty || ignoredSubsts.exists(_._2.nonEmpty)
 
   def getFiniteRangeClauses: Clauses = {
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
