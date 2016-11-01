@@ -593,7 +593,9 @@ trait QuantificationTemplates { self: Templates =>
               handledMatchers.containsAll(ms.map(_.substitute(substituter, msubst)))
             }
 
-            if (isOpt) 0 else 3
+            if (isOpt) 0
+            else if (grounds(q)(bs, m.args(i))) 10
+            else 3
           }
 
           (bs, map, c + cost)
