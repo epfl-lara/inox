@@ -457,11 +457,11 @@ trait QuantificationTemplates { self: Templates =>
   }
 
   private class MatcherSet extends BlockedSet[Matcher] {
-    private val keys = new IncrementalSet[MatcherKey]
-    def contains(m: Matcher): Boolean = keys(matcherKey(m))
+    private val keys = new IncrementalSet[(MatcherKey, Seq[Arg])]
+    def contains(m: Matcher): Boolean = keys(matcherKey(m) -> m.args)
 
     override def +=(p: (Set[Encoded], Matcher)): Unit = {
-      keys += matcherKey(p._2)
+      keys += matcherKey(p._2) -> p._2.args
       super.+=(p)
     }
 

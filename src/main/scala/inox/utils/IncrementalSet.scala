@@ -13,11 +13,12 @@ class IncrementalSet[A] extends IncrementalState
                         with Builder[A, IncrementalSet[A]] {
 
   private[this] val stack = new Stack[MSet[A]]()
-  override def repr = stack.flatten.toSet
+  override def repr = stack.head.toSet
 
   /** Removes all the elements */
   override def clear(): Unit = {
     stack.clear()
+    push()
   }
 
   /** Removes all the elements and creates a new set */
@@ -28,7 +29,11 @@ class IncrementalSet[A] extends IncrementalState
 
   /** Creates one more set level */
   def push(): Unit = {
-    stack.push(MSet())
+    if (stack.isEmpty) {
+      stack.push(MSet())
+    } else {
+      stack.push(stack.head.clone)
+    }
   }
 
   /** Removes one set level */
@@ -37,16 +42,16 @@ class IncrementalSet[A] extends IncrementalState
   }
 
   /** Returns true if the set contains elem */
-  def apply(elem: A) = repr.contains(elem)
+  def apply(elem: A) = stack.head.contains(elem)
   /** Returns true if the set contains elem */
-  def contains(elem: A) = repr.contains(elem)
+  def contains(elem: A) = stack.head.contains(elem)
 
   /** Returns an iterator over all the elements */
-  def iterator = stack.flatten.iterator
+  def iterator = stack.head.iterator
   /** Add an element to the head set */
   def += (elem: A) = { stack.head += elem; this }
   /** Removes an element from all stacked sets */
-  def -= (elem: A) = { stack.foreach(_ -= elem); this }
+  def -= (elem: A) = { stack.head -= elem; this }
 
   override def newBuilder = new scala.collection.mutable.SetBuilder(Set.empty[A])
   def result = this
