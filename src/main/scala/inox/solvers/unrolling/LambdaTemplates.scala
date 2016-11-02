@@ -168,20 +168,19 @@ trait LambdaTemplates { self: Templates =>
       * already been found, then the associated instantiations must already appear
       * in those handled by the solver.
       */
-    lazy val (key, instantiation) = {
+    lazy val (key, instantiation, locals) = {
       val (substMap, substInst) = Template.substitution(
         condVars, exprVars, condTree, lambdas, quantifications, Map.empty, pathVar._2)
       val tmplInst = Template.instantiate(clauses, blockers, applications, matchers, substMap)
+      val instantiation = substInst ++ tmplInst
 
       val substituter = mkSubstituter(substMap.mapValues(_.encoded))
-      val key = (lambda, pathVar._2, dependencies.map(substituter))
-      val instantiation = substInst ++ tmplInst
-      (key, instantiation)
-    }
+      val deps = dependencies.map(substituter)
+      val key = (lambda, pathVar._2, deps)
 
-    lazy val locals: Seq[(Variable, Encoded)] = {
       val sortedDeps = exprOps.variablesOf(lambda).toSeq.sortBy(_.id.uniqueName)
-      sortedDeps zip dependencies
+      val locals = sortedDeps zip deps
+      (key, instantiation, locals)
     }
 
     override def equals(that: Any): Boolean = that match {
@@ -297,7 +296,7 @@ trait LambdaTemplates { self: Templates =>
         val idT = encodeSymbol(template.ids._1)
         val newTemplate = template.withId(idT)
 
-        val orderingClauses: Clauses = newTemplate.structure.locals.flatMap {
+        val orderingClauses = newTemplate.structure.locals.flatMap {
           case (v, dep) => registerClosure(newTemplate.start, idT -> newTemplate.tpe, dep -> v.tpe)
         }
 
@@ -320,6 +319,7 @@ trait LambdaTemplates { self: Templates =>
           orderingClauses ++
           extClauses ++
           arglessEqClauses
+
 
         byID += idT -> newTemplate
         byType += newTemplate.tpe -> (byType(newTemplate.tpe) + (newTemplate.structure -> newTemplate))
@@ -416,12 +416,12 @@ trait LambdaTemplates { self: Templates =>
       mkImplies(
         mkAnd(template.start, that.start),
         if (template.structure.lambda == that.structure.lambda) {
-          val pairs = template.structure.dependencies zip that.structure.dependencies
+          val pairs = template.structure.locals zip that.structure.locals
           val filtered = pairs.filter(p => p._1 != p._2)
           if (filtered.isEmpty) {
             equals
           } else {
-            val eqs = filtered.map(p => mkEquals(p._1, p._2))
+            val eqs = filtered.map(p => mkEquals(p._1._2, p._2._2))
             mkEquals(mkAnd(eqs : _*), equals)
           }
         } else {
