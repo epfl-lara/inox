@@ -5,6 +5,8 @@ package ast
 
 import utils._
 
+import scala.collection.mutable.{Map => MutableMap}
+
 /** Provides functions to manipulate [[Expressions.Expr]] in cases where
   * a symbol table is available (and required: see [[ExprOps]] for
   * simpler tree manipulations).
@@ -88,8 +90,8 @@ trait SymbolOps { self: TypeOps =>
     fixpoint(postMap(rec))(expr)
   }
 
-  private val typedIds: scala.collection.mutable.Map[Type, List[Identifier]] =
-    scala.collection.mutable.Map.empty.withDefaultValue(List.empty)
+  private val typedIds: MutableMap[Type, List[Identifier]] =
+    MutableMap.empty.withDefaultValue(List.empty)
 
   /** Normalizes identifiers in an expression to enable some notion of structural
     * equality between expressions on which usual equality doesn't make sense
@@ -106,64 +108,71 @@ trait SymbolOps { self: TypeOps =>
     */
   def normalizeStructure(args: Seq[ValDef], expr: Expr, onlySimple: Boolean = true):
                         (Seq[ValDef], Expr, Map[Variable, Expr]) = synchronized {
-    val vars = args.map(_.toVariable).toSet
 
-    class Normalizer extends SelfTreeTransformer {
-      var subst: Map[Variable, Expr] = Map.empty
-      var varSubst: Map[Identifier, Identifier] = Map.empty
-      var remainingIds: Map[Type, List[Identifier]] = typedIds.toMap
+    val subst: MutableMap[Variable, Expr] = MutableMap.empty
+    val varSubst: MutableMap[Identifier, Identifier] = MutableMap.empty
 
-      def getId(e: Expr): Identifier = {
-        val tpe = bestRealType(e.getType)
-        val newId = remainingIds.get(tpe) match {
-          case Some(x :: xs) =>
-            remainingIds += tpe -> xs
-            x
-          case _ =>
-            val x = FreshIdentifier("x", true)
-            typedIds(tpe) = typedIds(tpe) :+ x
-            x
-        }
-        subst += Variable(newId, tpe) -> e
-        newId
+    // Note: don't use clone here, we want to drop the `withDefaultValue` feature of [[typeIds]]
+    val remainingIds: MutableMap[Type, List[Identifier]] = MutableMap.empty ++ typedIds.toMap
+
+    def getId(e: Expr): Identifier = {
+      val tpe = bestRealType(e.getType)
+      val newId = remainingIds.get(tpe) match {
+        case Some(x :: xs) =>
+          remainingIds += tpe -> xs
+          x
+        case _ =>
+          val x = FreshIdentifier("x", true)
+          typedIds(tpe) = typedIds(tpe) :+ x
+          x
       }
+      subst += Variable(newId, tpe) -> e
+      newId
+    }
 
-      override def transform(id: Identifier, tpe: Type): (Identifier, Type) = subst.get(Variable(id, tpe)) match {
-        case Some(Variable(newId, tpe)) => (newId, tpe)
-        case Some(_) => scala.sys.error("Should never happen!")
-        case None => varSubst.get(id) match {
-          case Some(newId) => (newId, tpe)
-          case None =>
-            val newId = getId(Variable(id, tpe))
-            varSubst += id -> newId
-            (newId, tpe)
-        }
-      }
-
-      override def transform(e: Expr): Expr = e match {
-        case expr if (!onlySimple || isSimple(expr)) && (variablesOf(expr) & vars).isEmpty =>
-          Variable(getId(expr), expr.getType)
-        case f: Forall =>
-          val (args, body, newSubst) = normalizeStructure(f.args, f.body, onlySimple)
-          subst ++= newSubst
-          Forall(args, body)
-        case l: Lambda =>
-          val (args, body, newSubst) = normalizeStructure(l.args, l.body, onlySimple)
-          subst ++= newSubst
-          Lambda(args, body)
-        case _ => super.transform(e)
+    def transformId(id: Identifier, tpe: Type): (Identifier, Type) = subst.get(Variable(id, tpe)) match {
+      case Some(Variable(newId, tpe)) => (newId, tpe)
+      case Some(_) => scala.sys.error("Should never happen!")
+      case None => varSubst.get(id) match {
+        case Some(newId) => (newId, tpe)
+        case None =>
+          val newId = getId(Variable(id, tpe))
+          varSubst += id -> newId
+          (newId, tpe)
       }
     }
 
-    val n = new Normalizer
-    // this registers the argument images into n.subst
-    val bindings = args map n.transform
-    val normalized = n.transform(expr)
+    def rec(vars: Set[Variable], body: Expr): Expr = {
 
-    val freeVars = variablesOf(normalized) -- bindings.map(_.toVariable)
-    val bodySubst = n.subst.filter(p => freeVars(p._1))
+      class Normalizer extends SelfTreeTransformer {
+        override def transform(id: Identifier, tpe: Type): (Identifier, Type) = transformId(id, tpe)
 
-    (bindings, normalized, bodySubst)
+        override def transform(e: Expr): Expr = e match {
+          case expr if (!onlySimple || isSimple(expr)) && (variablesOf(expr) & vars).isEmpty =>
+            Variable(getId(expr), expr.getType)
+          case f: Forall =>
+            val newBody = rec(vars ++ f.args.map(_.toVariable), f.body)
+            Forall(f.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
+          case l: Lambda =>
+            val newBody = rec(vars ++ l.args.map(_.toVariable), l.body)
+            Lambda(l.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
+          case _ => super.transform(e)
+        }
+      }
+
+      val n = new Normalizer
+
+      // this registers the argument images into subst
+      vars foreach n.transform
+      n.transform(body)
+    }
+
+    val newExpr = rec(args.map(_.toVariable).toSet, expr)
+    val bindings = args.map(vd => vd.copy(id = varSubst(vd.id)))
+    val freeVars = variablesOf(newExpr) -- bindings.map(_.toVariable)
+    val bodySubst = subst.filter(p => freeVars(p._1)).toMap
+
+    (bindings, newExpr, bodySubst)
   }
 
   def normalizeStructure(lambda: Lambda): (Lambda, Map[Variable, Expr]) = {

@@ -96,7 +96,7 @@ trait CallGraph {
         val (c1, c2) = (functionComponent(a), functionComponent(b))
         if (c1.isEmpty && c2.isEmpty) a.id.uniqueName.compare(b.id.uniqueName)
         else if (c1.isEmpty) -1
-        else if (c2.isEmpty) -1
+        else if (c2.isEmpty) +1
         else componentOrdering.compare(c1, c2)
       }
     }

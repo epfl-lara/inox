@@ -14,6 +14,7 @@ trait LambdaTemplates { self: Templates =>
 
   import lambdasManager._
   import datatypesManager._
+  import quantificationsManager._
 
   /** Represents a POTENTIAL application of a first-class function in the unfolding procedure
     *
@@ -83,7 +84,7 @@ trait LambdaTemplates { self: Templates =>
         clauses, blockers, applications, matchers,
         lambdas, quantifications,
         structure,
-        lambda, lambdaString
+        lambda, lambdaString, false
       )
     }
   }
@@ -177,7 +178,7 @@ trait LambdaTemplates { self: Templates =>
 
       val substituter = mkSubstituter(substMap.mapValues(_.encoded))
       val deps = dependencies.map(substituter)
-      val key = (lambda, pathVar._2, deps)
+      val key = (lambda, blockerPath(pathVar._2), deps)
 
       val sortedDeps = exprOps.variablesOf(lambda).toSeq.sortBy(_.id.uniqueName)
       val locals = sortedDeps zip deps
@@ -190,6 +191,10 @@ trait LambdaTemplates { self: Templates =>
     }
 
     override def hashCode: Int = key.hashCode
+
+    def subsumes(that: LambdaStructure): Boolean = {
+      key._1 == that.key._1 && key._3 == that.key._3 && key._2.subsetOf(that.key._2)
+    }
   }
 
   class LambdaTemplate private (
@@ -208,7 +213,8 @@ trait LambdaTemplates { self: Templates =>
     val quantifications: Seq[QuantificationTemplate],
     val structure: LambdaStructure,
     val lambda: Lambda,
-    private[unrolling] val stringRepr: () => String) extends Template {
+    private[unrolling] val stringRepr: () => String,
+    private val isConcrete: Boolean) extends Template {
 
     val args = arguments.map(_._2)
     val tpe = bestRealType(ids._1.getType).asInstanceOf[FunctionType]
@@ -224,10 +230,11 @@ trait LambdaTemplates { self: Templates =>
       lambdas.map(_.substitute(substituter, msubst)),
       quantifications.map(_.substitute(substituter, msubst)),
       structure.substitute(substituter, msubst),
-      lambda, stringRepr)
+      lambda, stringRepr, isConcrete)
 
     /** This must be called right before returning the clauses in [[structure.instantiation]]! */
     def concretize(idT: Encoded): LambdaTemplate = {
+      assert(!isConcrete, "Can't concretize concrete lambda template")
       val substituter = mkSubstituter(Map(ids._2 -> idT) ++ (closures.map(_._2) zip structure.locals.map(_._2)))
       new LambdaTemplate(
         ids._1 -> idT,
@@ -238,7 +245,7 @@ trait LambdaTemplates { self: Templates =>
         matchers.map { case (b, ms) => b -> ms.map(_.substitute(substituter, Map.empty)) },
         lambdas.map(_.substitute(substituter, Map.empty)),
         quantifications.map(_.substitute(substituter, Map.empty)),
-        structure, lambda, stringRepr)
+        structure, lambda, stringRepr, true)
     }
 
     override def instantiate(blocker: Encoded, args: Seq[Arg]): Clauses = {
@@ -260,6 +267,11 @@ trait LambdaTemplates { self: Templates =>
     })
 
     mkSubstituter(Map(vT -> caller) ++ (asT zip args))(app)
+  }
+
+  def mkFlatApp(caller: Encoded, tpe: FunctionType, args: Seq[Encoded]): Encoded = tpe.to match {
+    case ft: FunctionType => mkFlatApp(mkApp(caller, tpe, args.take(tpe.from.size)), ft, args.drop(tpe.from.size))
+    case _ => mkApp(caller, tpe, args)
   }
 
   def registerFunction(b: Encoded, tpe: FunctionType, f: Encoded): Clauses = {
@@ -296,48 +308,50 @@ trait LambdaTemplates { self: Templates =>
   }
 
   def instantiateLambda(template: LambdaTemplate): (Encoded, Clauses) = {
-    byType(template.tpe).get(template.structure) match {
-      case Some(template) =>
-        (template.ids._2, Seq.empty)
+    byType(template.tpe).get(template.structure).map {
+      t => (t.ids._2, Seq.empty)
+    }.orElse {
+      byType(template.tpe).collectFirst {
+        case (s, t) if s subsumes template.structure => (t.ids._2, Seq.empty)
+      }
+    }.getOrElse {
+      val idT = encodeSymbol(template.ids._1)
+      val newTemplate = template.concretize(idT)
 
-      case None =>
-        val idT = encodeSymbol(template.ids._1)
-        val newTemplate = template.concretize(idT)
+      val orderingClauses = newTemplate.structure.locals.flatMap {
+        case (v, dep) => registerClosure(newTemplate.start, idT -> newTemplate.tpe, dep -> v.tpe)
+      }
 
-        val orderingClauses = newTemplate.structure.locals.flatMap {
-          case (v, dep) => registerClosure(newTemplate.start, idT -> newTemplate.tpe, dep -> v.tpe)
+      val extClauses = for ((oldB, freeF) <- freeBlockers(newTemplate.tpe) if canEqual(freeF, idT)) yield {
+        val nextB  = encodeSymbol(Variable(FreshIdentifier("b_or", true), BooleanType))
+        val ext = mkOr(mkAnd(newTemplate.start, mkEquals(idT, freeF)), nextB)
+        mkEquals(oldB, ext)
+      }
+
+      val arglessEqClauses = if (newTemplate.tpe.from.nonEmpty) Seq.empty[Encoded] else {
+        for ((b,f) <- freeFunctions(newTemplate.tpe) if canEqual(idT, f)) yield {
+          val (tmplApp, fApp) = (mkApp(idT, newTemplate.tpe, Seq.empty), mkApp(f, newTemplate.tpe, Seq.empty))
+          mkImplies(mkAnd(b, newTemplate.start, mkEquals(tmplApp, fApp)), mkEquals(idT, f))
         }
+      }
 
-        val extClauses = for ((oldB, freeF) <- freeBlockers(newTemplate.tpe) if canEqual(freeF, idT)) yield {
-          val nextB  = encodeSymbol(Variable(FreshIdentifier("b_or", true), BooleanType))
-          val ext = mkOr(mkAnd(newTemplate.start, mkEquals(idT, freeF)), nextB)
-          mkEquals(oldB, ext)
-        }
+      // make sure we have sound equality between the new lambda and previously defined ones
+      val clauses = newTemplate.structure.instantiation ++
+        equalityClauses(newTemplate) ++
+        orderingClauses ++
+        extClauses ++
+        arglessEqClauses
 
-        val arglessEqClauses = if (newTemplate.tpe.from.nonEmpty) Seq.empty[Encoded] else {
-          for ((b,f) <- freeFunctions(newTemplate.tpe) if canEqual(idT, f)) yield {
-            val (tmplApp, fApp) = (mkApp(idT, newTemplate.tpe, Seq.empty), mkApp(f, newTemplate.tpe, Seq.empty))
-            mkImplies(mkAnd(b, newTemplate.start, mkEquals(tmplApp, fApp)), mkEquals(idT, f))
-          }
-        }
+      byID += idT -> newTemplate
+      byType += newTemplate.tpe -> (byType(newTemplate.tpe) + (newTemplate.structure -> newTemplate))
 
-        // make sure we have sound equality between the new lambda and previously defined ones
-        val clauses = newTemplate.structure.instantiation ++
-          equalityClauses(newTemplate) ++
-          orderingClauses ++
-          extClauses ++
-          arglessEqClauses
+      val gen = nextGeneration(currentGeneration)
+      for (app @ (_, App(caller, _, args, _)) <- applications(newTemplate.tpe)) {
+        val cond = mkAnd(newTemplate.start, mkEquals(idT, caller))
+        registerAppBlocker(gen, app, Left(newTemplate), cond, args)
+      }
 
-        byID += idT -> newTemplate
-        byType += newTemplate.tpe -> (byType(newTemplate.tpe) + (newTemplate.structure -> newTemplate))
-
-        val gen = nextGeneration(currentGeneration)
-        for (app @ (_, App(caller, _, args, _)) <- applications(newTemplate.tpe)) {
-          val cond = mkAnd(newTemplate.start, mkEquals(idT, caller))
-          registerAppBlocker(gen, app, Left(newTemplate), cond, args)
-        }
-
-        (idT, clauses)
+      (idT, clauses)
     }
   }
 
