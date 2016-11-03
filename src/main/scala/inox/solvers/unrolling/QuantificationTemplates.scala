@@ -308,6 +308,7 @@ trait QuantificationTemplates { self: Templates =>
     if (handledMatchers(relevantBlockers -> matcher)) {
       Seq.empty
     } else {
+      ctx.reporter.debug(" -> instantiating matcher " + blockers.mkString("{",",","}") + " ==> " + matcher)
       handledMatchers += relevantBlockers -> matcher
       quantifications.flatMap(_.instantiate(relevantBlockers, matcher, defer))
     }

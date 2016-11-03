@@ -276,24 +276,25 @@ trait TemplateGenerator { self: Templates =>
         val idArgs : Seq[Variable] = lambdaArgs(l)
         val trArgs : Seq[Encoded] = idArgs.map(id => substMap.getOrElse(id, encodeSymbol(id)))
 
+        val (struct, deps) = normalizeStructure(l)
+        val sortedDeps = deps.toSeq.sortBy(_._1.id.uniqueName)
+        val idDeps = sortedDeps.map(_._1)
+        val trDeps = idDeps.map(id => encodeSymbol(id))
+
         val lid = Variable(FreshIdentifier("lambda", true), bestRealType(l.getType))
-        val clauses = liftedEquals(lid, l, idArgs, inlineFirst = true)
+        val clauses = liftedEquals(lid, struct, idArgs, inlineFirst = true)
 
         val localSubst: Map[Variable, Encoded] = substMap ++ condVars ++ exprVars ++ lambdaVars
-        val clauseSubst: Map[Variable, Encoded] = localSubst ++ (idArgs zip trArgs)
+        val clauseSubst: Map[Variable, Encoded] = localSubst ++ (idArgs zip trArgs) ++ (idDeps zip trDeps)
         val (lambdaConds, lambdaExprs, lambdaTree, lambdaGuarded, lambdaEqs, lambdaTemplates, lambdaQuants) =
           clauses.foldLeft(emptyClauses)((clsSet, cls) => clsSet ++ mkClauses(pathVar, cls, clauseSubst))
 
         val ids: (Variable, Encoded) = lid -> storeLambda(lid)
 
-        val (struct, deps) = normalizeStructure(l)
-        val sortedDeps = deps.toSeq.sortBy(_._1.id.uniqueName)
-
         val (dependencies, (depConds, depExprs, depTree, depGuarded, depEqs, depLambdas, depQuants)) =
           sortedDeps.foldLeft[(Seq[Encoded], TemplateClauses)](Seq.empty -> emptyClauses) {
-            case ((dependencies, clsSet), (id, expr)) =>
+            case ((dependencies, clsSet), (_, expr)) =>
               if (!exprOps.isSimple(expr)) {
-                val encoded = encodeSymbol(id)
                 val (e, cls @ (_, _, _, _, _, lmbds, quants)) = mkExprClauses(pathVar, expr, localSubst)
                 val clauseSubst = localSubst ++ lmbds.map(_.ids) ++ quants.flatMap(_.mapping)
                 (dependencies :+ mkEncoder(clauseSubst)(e), clsSet ++ cls)
@@ -307,9 +308,11 @@ trait TemplateGenerator { self: Templates =>
           depConds, depExprs, depGuarded, depEqs, depLambdas, depQuants, localSubst)
 
         val depClosures: Seq[Encoded] = {
-          val vars = exprOps.variablesOf(l)
           var cls: Seq[Variable] = Seq.empty
-          exprOps.preTraversal { case v: Variable if vars(v) => cls :+= v case _ => } (l)
+          for ((_, e) <- sortedDeps) {
+            val vars = exprOps.variablesOf(e).toSet
+            exprOps.preTraversal { case v: Variable if vars(v) => cls :+= v case _ => } (e)
+          }
           cls.distinct.map(localSubst)
         }
 
@@ -318,7 +321,7 @@ trait TemplateGenerator { self: Templates =>
           depConds, depExprs, depTree, depClauses, depCalls, depApps, depMatchers, depLambdas, depQuants)
 
         val template = LambdaTemplate(ids, pathVar -> encodedCond(pathVar),
-          idArgs zip trArgs, lambdaConds, lambdaExprs, lambdaTree,
+          idArgs zip trArgs, idDeps zip trDeps, lambdaConds, lambdaExprs, lambdaTree,
           lambdaGuarded, lambdaEqs, lambdaTemplates, lambdaQuants, structure, localSubst, l)
         registerLambda(template)
         lid

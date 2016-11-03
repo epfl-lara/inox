@@ -54,6 +54,7 @@ trait LambdaTemplates { self: Templates =>
       ids: (Variable, Encoded),
       pathVar: (Variable, Encoded),
       arguments: Seq[(Variable, Encoded)],
+      closures: Seq[(Variable, Encoded)],
       condVars: Map[Variable, Encoded],
       exprVars: Map[Variable, Encoded],
       condTree: Map[Variable, Set[Variable]],
@@ -70,14 +71,14 @@ trait LambdaTemplates { self: Templates =>
       val tpe = ids._1.getType.asInstanceOf[FunctionType]
       val (clauses, blockers, applications, matchers, templateString) =
         Template.encode(pathVar, arguments, condVars, exprVars, guardedExprs, equations,
-          lambdas, quantifications, substMap = baseSubstMap + ids, optApp = Some(id -> tpe))
+          lambdas, quantifications, substMap = baseSubstMap + ids ++ closures, optApp = Some(id -> tpe))
 
       val lambdaString : () => String = () => {
         "Template for lambda " + ids._1 + ": " + lambda + " is :\n" + templateString()
       }
 
       new LambdaTemplate(
-        ids, pathVar, arguments,
+        ids, pathVar, arguments, closures,
         condVars, exprVars, condTree,
         clauses, blockers, applications, matchers,
         lambdas, quantifications,
@@ -195,6 +196,7 @@ trait LambdaTemplates { self: Templates =>
     val ids: (Variable, Encoded),
     val pathVar: (Variable, Encoded),
     val arguments: Seq[(Variable, Encoded)],
+    val closures: Seq[(Variable, Encoded)],
     val condVars: Map[Variable, Encoded],
     val exprVars: Map[Variable, Encoded],
     val condTree: Map[Variable, Set[Variable]],
@@ -214,7 +216,7 @@ trait LambdaTemplates { self: Templates =>
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): LambdaTemplate = new LambdaTemplate(
       ids._1 -> substituter(ids._2),
       pathVar._1 -> substituter(pathVar._2),
-      arguments, condVars, exprVars, condTree,
+      arguments, closures, condVars, exprVars, condTree,
       clauses.map(substituter),
       blockers.map { case (b, fis) => substituter(b) -> fis.map(_.substitute(substituter, msubst)) },
       applications.map { case (b, apps) => substituter(b) -> apps.map(_.substitute(substituter, msubst)) },
@@ -224,12 +226,18 @@ trait LambdaTemplates { self: Templates =>
       structure.substitute(substituter, msubst),
       lambda, stringRepr)
 
-    def withId(idT: Encoded): LambdaTemplate = {
-      val substituter = mkSubstituter(Map(ids._2 -> idT))
+    /** This must be called right before returning the clauses in [[structure.instantiation]]! */
+    def concretize(idT: Encoded): LambdaTemplate = {
+      val substituter = mkSubstituter(Map(ids._2 -> idT) ++ (closures.map(_._2) zip structure.locals.map(_._2)))
       new LambdaTemplate(
-        ids._1 -> idT, pathVar, arguments, condVars, exprVars, condTree,
-        clauses map substituter, // make sure the body-defining clause is inlined!
-        blockers, applications, matchers, lambdas, quantifications,
+        ids._1 -> idT,
+        pathVar, arguments, closures, condVars, exprVars, condTree,
+        clauses map substituter,
+        blockers.map { case (b, fis) => b -> fis.map(_.substitute(substituter, Map.empty)) },
+        applications.map { case (b, apps) => b -> apps.map(_.substitute(substituter, Map.empty)) },
+        matchers.map { case (b, ms) => b -> ms.map(_.substitute(substituter, Map.empty)) },
+        lambdas.map(_.substitute(substituter, Map.empty)),
+        quantifications.map(_.substitute(substituter, Map.empty)),
         structure, lambda, stringRepr)
     }
 
@@ -294,7 +302,7 @@ trait LambdaTemplates { self: Templates =>
 
       case None =>
         val idT = encodeSymbol(template.ids._1)
-        val newTemplate = template.withId(idT)
+        val newTemplate = template.concretize(idT)
 
         val orderingClauses = newTemplate.structure.locals.flatMap {
           case (v, dep) => registerClosure(newTemplate.start, idT -> newTemplate.tpe, dep -> v.tpe)
@@ -319,7 +327,6 @@ trait LambdaTemplates { self: Templates =>
           orderingClauses ++
           extClauses ++
           arglessEqClauses
-
 
         byID += idT -> newTemplate
         byType += newTemplate.tpe -> (byType(newTemplate.tpe) + (newTemplate.structure -> newTemplate))
