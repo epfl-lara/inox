@@ -25,8 +25,8 @@ trait Definitions { self: Trees =>
   case class FunctionLookupException(id: Identifier) extends LookupException(id, "function")
   case class ADTLookupException(id: Identifier) extends LookupException(id, "adt")
 
-  case class NotWellFormedException(id: Identifier, s: Symbols)
-    extends Exception(s"$id not well formed in $s")
+  case class NotWellFormedException(d: Definition)
+    extends Exception(s"Not well formed definition $d")
 
   /** Common super-type for [[ValDef]] and [[Expressions.Variable]].
     *
@@ -219,7 +219,7 @@ trait Definitions { self: Trees =>
     def constructors(implicit s: Symbols): Seq[ADTConstructor] = cons
       .map(id => s.getADT(id) match {
         case cons: ADTConstructor => cons
-        case _ => throw NotWellFormedException(id, s)
+        case sort => throw NotWellFormedException(sort)
       })
 
     def isInductive(implicit s: Symbols): Boolean = {
@@ -325,12 +325,12 @@ trait Definitions { self: Trees =>
 
     def toConstructor = this match {
       case tcons: TypedADTConstructor => tcons
-      case _ => throw NotWellFormedException(definition.id, symbols)
+      case _ => throw NotWellFormedException(definition)
     }
 
     def toSort = this match {
       case tsort: TypedADTSort => tsort
-      case _ => throw NotWellFormedException(definition.id, symbols)
+      case _ => throw NotWellFormedException(definition)
     }
   }
 
@@ -355,7 +355,7 @@ trait Definitions { self: Trees =>
 
     lazy val sort: Option[TypedADTSort] = definition.sort.map(id => symbols.getADT(id) match {
       case sort: ADTSort => TypedADTSort(sort, tps)
-      case _ => throw NotWellFormedException(id, symbols)
+      case cons => throw NotWellFormedException(cons)
     })
   }
 

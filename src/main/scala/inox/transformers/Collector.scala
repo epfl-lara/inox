@@ -13,11 +13,15 @@ trait Collector extends Transformer {
 
   import trees._
 
+  protected def accumulate(e: Expr, env: Env): Unit = {
+    results ++= step(e, env)
+  }
+
   /** Does one step of collection for the current [[Expr]] and [[Env]] */
   protected def step(e: Expr, env: Env): List[Result]
 
   abstract override protected def rec(e: Expr, current: Env): Expr = {
-    results ++= step(e, current)
+    accumulate(e, current)
     super.rec(e, current)
   }
 

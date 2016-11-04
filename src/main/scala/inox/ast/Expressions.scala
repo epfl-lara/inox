@@ -121,8 +121,7 @@ trait Expressions { self: Trees =>
   /** $encodingof  `function(...)` (function invocation) */
   case class FunctionInvocation(id: Identifier, tps: Seq[Type], args: Seq[Expr]) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = s.lookupFunction(id, tps) match {
-      case Some(tfd) =>
-        require(args.size == tfd.params.size)
+      case Some(tfd) if args.size == tfd.params.size =>
         checkParamTypes(args.map(_.getType), tfd.params.map(_.tpe), tfd.returnType)
       case _ => Untyped
     }

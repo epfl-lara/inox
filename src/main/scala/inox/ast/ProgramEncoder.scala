@@ -83,5 +83,19 @@ object ProgramEncoder {
     protected object encoder extends p.trees.IdentityTreeTransformer
     protected object decoder extends p.trees.IdentityTreeTransformer
   }
+
+  def apply(p: Program)(tr: SymbolTransformer { val s: p.trees.type; val t: p.trees.type }): ProgramEncoder {
+    val sourceProgram: p.type
+    val t: p.trees.type
+  } = new ProgramEncoder {
+    val sourceProgram: p.type = p
+    val t: p.trees.type = p.trees
+
+    override protected def encodedProgram: Program { val trees: p.trees.type } = p.transform(tr)
+
+    protected object encoder extends p.trees.IdentityTreeTransformer
+    protected object decoder extends p.trees.IdentityTreeTransformer
+  }
+
 }
 
