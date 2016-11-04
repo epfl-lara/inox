@@ -291,21 +291,21 @@ trait TemplateGenerator { self: Templates =>
 
         val ids: (Variable, Encoded) = lid -> storeLambda(lid)
 
-        val (dependencies, (depConds, depExprs, depTree, depGuarded, depEqs, depLambdas, depQuants)) =
-          sortedDeps.foldLeft[(Seq[Encoded], TemplateClauses)](Seq.empty -> emptyClauses) {
-            case ((dependencies, clsSet), (_, expr)) =>
+        val (depSubst, (depConds, depExprs, depTree, depGuarded, depEqs, depLambdas, depQuants)) =
+          sortedDeps.foldLeft[(Map[Variable, Encoded], TemplateClauses)](localSubst -> emptyClauses) {
+            case ((depSubst, clsSet), (v, expr)) =>
               if (!exprOps.isSimple(expr)) {
-                val (e, cls @ (_, _, _, _, _, lmbds, quants)) = mkExprClauses(pathVar, expr, localSubst)
-                val clauseSubst = localSubst ++ lmbds.map(_.ids) ++ quants.flatMap(_.mapping)
-                (dependencies :+ mkEncoder(clauseSubst)(e), clsSet ++ cls)
+                val (e, cls @ (_, _, _, _, _, lmbds, quants)) = mkExprClauses(pathVar, expr, depSubst)
+                val clauseSubst = depSubst ++ lmbds.map(_.ids) ++ quants.flatMap(_.mapping)
+                (depSubst + (v -> mkEncoder(clauseSubst)(e)), clsSet ++ cls)
               } else {
-                (dependencies :+ mkEncoder(localSubst)(expr), clsSet)
+                (depSubst + (v -> mkEncoder(depSubst)(expr)), clsSet)
               }
           }
 
         val (depClauses, depCalls, depApps, depMatchers, _) = Template.encode(
           pathVar -> encodedCond(pathVar), Seq.empty,
-          depConds, depExprs, depGuarded, depEqs, depLambdas, depQuants, localSubst)
+          depConds, depExprs, depGuarded, depEqs, depLambdas, depQuants, depSubst)
 
         val depClosures: Seq[Encoded] = {
           var cls: Seq[Variable] = Seq.empty
@@ -313,8 +313,10 @@ trait TemplateGenerator { self: Templates =>
             val vars = exprOps.variablesOf(e).toSet
             exprOps.preTraversal { case v: Variable if vars(v) => cls :+= v case _ => } (e)
           }
-          cls.distinct.map(localSubst)
+          cls.distinct.map(depSubst)
         }
+
+        val dependencies = sortedDeps.map(p => depSubst(p._1))
 
         val structure = new LambdaStructure(
           struct, dependencies, pathVar -> encodedCond(pathVar), depClosures,
@@ -322,7 +324,7 @@ trait TemplateGenerator { self: Templates =>
 
         val template = LambdaTemplate(ids, pathVar -> encodedCond(pathVar),
           idArgs zip trArgs, idDeps zip trDeps, lambdaConds, lambdaExprs, lambdaTree,
-          lambdaGuarded, lambdaEqs, lambdaTemplates, lambdaQuants, structure, localSubst, l)
+          lambdaGuarded, lambdaEqs, lambdaTemplates, lambdaQuants, structure, depSubst, l)
         registerLambda(template)
         lid
 

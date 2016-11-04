@@ -130,32 +130,42 @@ trait SymbolOps { self: TypeOps =>
       newId
     }
 
-    def transformId(id: Identifier, tpe: Type): (Identifier, Type) = subst.get(Variable(id, tpe)) match {
-      case Some(Variable(newId, tpe)) => (newId, tpe)
+    def transformId(id: Identifier, tpe: Type): Identifier = subst.get(Variable(id, tpe)) match {
+      case Some(Variable(newId, _)) => newId
       case Some(_) => scala.sys.error("Should never happen!")
       case None => varSubst.get(id) match {
-        case Some(newId) => (newId, tpe)
+        case Some(newId) => newId
         case None =>
           val newId = getId(Variable(id, tpe))
           varSubst += id -> newId
-          (newId, tpe)
+          newId
       }
     }
 
     def rec(vars: Set[Variable], body: Expr): Expr = {
 
       class Normalizer extends SelfTreeTransformer {
-        override def transform(id: Identifier, tpe: Type): (Identifier, Type) = transformId(id, tpe)
+        override def transform(id: Identifier, tpe: Type): (Identifier, Type) = (transformId(id, tpe), tpe)
 
         override def transform(e: Expr): Expr = e match {
+          case Variable(id, tpe) =>
+            Variable(transformId(id, tpe), tpe)
+
+          case Let(vd, e, b) if (!onlySimple || isSimple(e)) && (variablesOf(e) & vars).nonEmpty =>
+            val newId = getId(e)
+            transform(replaceFromSymbols(Map(vd.toVariable -> Variable(newId, vd.tpe)), b))
+
           case expr if (!onlySimple || isSimple(expr)) && (variablesOf(expr) & vars).isEmpty =>
             Variable(getId(expr), expr.getType)
+
           case f: Forall =>
             val newBody = rec(vars ++ f.args.map(_.toVariable), f.body)
             Forall(f.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
+
           case l: Lambda =>
             val newBody = rec(vars ++ l.args.map(_.toVariable), l.body)
             Lambda(l.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
+
           case _ => super.transform(e)
         }
       }
