@@ -116,7 +116,7 @@ trait SymbolOps { self: TypeOps =>
     val remainingIds: MutableMap[Type, List[Identifier]] = MutableMap.empty ++ typedIds.toMap
 
     def getId(e: Expr): Identifier = {
-      val tpe = bestRealType(e.getType)
+      val tpe = e.getType
       val newId = remainingIds.get(tpe) match {
         case Some(x :: xs) =>
           remainingIds += tpe -> xs

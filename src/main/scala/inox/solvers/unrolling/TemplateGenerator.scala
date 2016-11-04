@@ -278,21 +278,16 @@ trait TemplateGenerator { self: Templates =>
 
         val (struct, deps) = normalizeStructure(l)
         val sortedDeps = deps.toSeq.sortBy(_._1.id.uniqueName)
-        val idDeps = sortedDeps.map(_._1)
-        val trDeps = idDeps.map(id => encodeSymbol(id))
 
-        val lid = Variable(FreshIdentifier("lambda", true), bestRealType(l.getType))
-        val clauses = liftedEquals(lid, struct, idArgs, inlineFirst = true)
+        val depsByScope: Seq[(Variable, Expr)] = {
+          def rec(v: Variable): Seq[Variable] =
+            (exprOps.variablesOf(deps(v)) & deps.keySet).toSeq.flatMap(rec) :+ v
+          deps.keys.toSeq.flatMap(rec).distinct.map(v => v -> deps(v))
+        }
 
         val localSubst: Map[Variable, Encoded] = substMap ++ condVars ++ exprVars ++ lambdaVars
-        val clauseSubst: Map[Variable, Encoded] = localSubst ++ (idArgs zip trArgs) ++ (idDeps zip trDeps)
-        val (lambdaConds, lambdaExprs, lambdaTree, lambdaGuarded, lambdaEqs, lambdaTemplates, lambdaQuants) =
-          clauses.foldLeft(emptyClauses)((clsSet, cls) => clsSet ++ mkClauses(pathVar, cls, clauseSubst))
-
-        val ids: (Variable, Encoded) = lid -> storeLambda(lid)
-
         val (depSubst, (depConds, depExprs, depTree, depGuarded, depEqs, depLambdas, depQuants)) =
-          sortedDeps.foldLeft[(Map[Variable, Encoded], TemplateClauses)](localSubst -> emptyClauses) {
+          depsByScope.foldLeft[(Map[Variable, Encoded], TemplateClauses)](localSubst -> emptyClauses) {
             case ((depSubst, clsSet), (v, expr)) =>
               if (!exprOps.isSimple(expr)) {
                 val (e, cls @ (_, _, _, _, _, lmbds, quants)) = mkExprClauses(pathVar, expr, depSubst)
@@ -322,8 +317,36 @@ trait TemplateGenerator { self: Templates =>
           struct, dependencies, pathVar -> encodedCond(pathVar), depClosures,
           depConds, depExprs, depTree, depClauses, depCalls, depApps, depMatchers, depLambdas, depQuants)
 
+        val isNormalForm: Boolean = {
+          def extractBody(e: Expr): (Seq[ValDef], Expr) = e match {
+            case Lambda(args, body) =>
+              val (nextArgs, nextBody) = extractBody(body)
+              (args ++ nextArgs, nextBody)
+            case _ => (Seq.empty, e)
+          }
+
+          extractBody(struct) match {
+            case (params, ApplicationExtractor(caller: Variable, args)) =>
+              (params.map(_.toVariable) == args) && (deps.get(caller) match {
+                case Some(_: Application | _: FunctionInvocation) => true
+                case _ => false
+              })
+            case _ => false
+          }
+        }
+
+        val realLambda = if (isNormalForm) l else struct
+        val lid = Variable(FreshIdentifier("lambda", true), bestRealType(l.getType))
+        val clauses = liftedEquals(lid, realLambda, idArgs, inlineFirst = true)
+
+        val clauseSubst: Map[Variable, Encoded] = depSubst ++ (idArgs zip trArgs)
+        val (lambdaConds, lambdaExprs, lambdaTree, lambdaGuarded, lambdaEqs, lambdaTemplates, lambdaQuants) =
+          clauses.foldLeft(emptyClauses)((clsSet, cls) => clsSet ++ mkClauses(pathVar, cls, clauseSubst))
+
+        val ids: (Variable, Encoded) = lid -> storeLambda(lid)
+
         val template = LambdaTemplate(ids, pathVar -> encodedCond(pathVar),
-          idArgs zip trArgs, idDeps zip trDeps, lambdaConds, lambdaExprs, lambdaTree,
+          idArgs zip trArgs, lambdaConds, lambdaExprs, lambdaTree,
           lambdaGuarded, lambdaEqs, lambdaTemplates, lambdaQuants, structure, depSubst, l)
         registerLambda(template)
         lid
