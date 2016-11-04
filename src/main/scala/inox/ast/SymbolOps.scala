@@ -198,7 +198,7 @@ trait SymbolOps { self: TypeOps =>
   /** Ensures the closure [[l]] can only be equal to some other closure if they share
     * the same integer identifier [[id]]. This method makes sure this property is
     * preserved after going through [[normalizeStructure(Lambda)]]. */
-  def uniquateClosure(id: BigInt, res: Lambda): Lambda = {
+  def uniquateClosure(id: Int, res: Lambda): Lambda = {
     def allArgs(l: Lambda): Seq[ValDef] = l.args ++ (l.body match {
       case l2: Lambda => allArgs(l2)
       case _ => Seq.empty
@@ -207,13 +207,12 @@ trait SymbolOps { self: TypeOps =>
     val resArgs = allArgs(res)
     if (resArgs.isEmpty) res else {
       /* @nv: This is a hack to ensure that the notion of equality we define on closures
-       *      is respected by those returned by the model. The second `Let` is necessary
-       *      to keep [[normalizeStructure(Lambda)]] from lifting the first one out of
-       *      the closure's body. */
-      Lambda(res.args,
-        Let(ValDef(FreshIdentifier("id"), IntegerType), IntegerLiteral(id),
-          Let(ValDef(FreshIdentifier("denormalize"), resArgs.head.tpe), resArgs.head.toVariable,
-            res.body)))
+       *      is respected by those returned by the model. */
+      Lambda(res.args, Let(
+        ValDef(FreshIdentifier("id"), tupleTypeWrap(List.fill(id)(resArgs.head.tpe))),
+        tupleWrap(List.fill(id)(resArgs.head.toVariable)),
+        res.body
+      ))
     }
   }
 

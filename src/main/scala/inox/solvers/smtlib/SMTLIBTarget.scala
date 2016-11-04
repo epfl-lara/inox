@@ -477,7 +477,8 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
 
     def extractLambda(n: BigInt, ft: FunctionType): Lambda = {
       val FunctionType(from, to) = ft
-      uniquateClosure(n, (lambdas.getB(ft) match {
+      val count = if (n < 0) -2 * n.toInt else 2 * n.toInt + 1
+      uniquateClosure(count, (lambdas.getB(ft) match {
         case None => simplestValue(ft)
         case Some(dynLambda) => letDefs.get(dynLambda) match {
           case None => simplestValue(ft)

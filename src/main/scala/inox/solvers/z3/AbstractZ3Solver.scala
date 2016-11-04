@@ -581,7 +581,7 @@ trait AbstractZ3Solver
           } else {
             tpe match {
               case ft @ FunctionType(fts, tt) =>
-                val n = BigInt(t.toString.split("!").last.init)
+                val n = t.toString.split("!").last.init.toInt
                 uniquateClosure(n, (lambdas.getB(ft) match {
                   case None => simplestValue(ft)
                   case Some(decl) => model.getFuncInterpretations.find(_._1 == decl) match {

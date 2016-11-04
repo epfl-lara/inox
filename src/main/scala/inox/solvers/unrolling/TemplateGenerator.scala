@@ -287,14 +287,14 @@ trait TemplateGenerator { self: Templates =>
             case _ => (Seq.empty, e)
           }
 
-          extractBody(struct) match {
+          !l.getType.isInstanceOf[FunctionType] && (extractBody(struct) match {
             case (params, ApplicationExtractor(caller: Variable, args)) =>
               (params.map(_.toVariable) == args) && (deps.get(caller) match {
-                case Some(_: Application | _: FunctionInvocation) => true
+                case Some(_: Application | _: FunctionInvocation | _: Variable) => true
                 case _ => false
               })
             case _ => false
-          }
+          })
         }
 
         val depsByScope: Seq[(Variable, Expr)] = {
