@@ -132,7 +132,7 @@ trait SymbolOps { self: TypeOps =>
 
     def transformId(id: Identifier, tpe: Type): Identifier = subst.get(Variable(id, tpe)) match {
       case Some(Variable(newId, _)) => newId
-      case Some(_) => scala.sys.error("Should never happen!")
+      case Some(_) => id
       case None => varSubst.get(id) match {
         case Some(newId) => newId
         case None =>
@@ -151,7 +151,7 @@ trait SymbolOps { self: TypeOps =>
           case Variable(id, tpe) =>
             Variable(transformId(id, tpe), tpe)
 
-          case Let(vd, e, b) if (!onlySimple || isSimple(e)) && (variablesOf(e) & vars).nonEmpty =>
+          case Let(vd, e, b) if (!onlySimple || isSimple(e)) && (variablesOf(e) & vars).isEmpty =>
             val newId = getId(e)
             transform(replaceFromSymbols(Map(vd.toVariable -> Variable(newId, vd.tpe)), b))
 

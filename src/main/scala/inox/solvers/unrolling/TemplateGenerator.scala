@@ -279,9 +279,27 @@ trait TemplateGenerator { self: Templates =>
         val (struct, deps) = normalizeStructure(l)
         val sortedDeps = deps.toSeq.sortBy(_._1.id.uniqueName)
 
+        val isNormalForm: Boolean = {
+          def extractBody(e: Expr): (Seq[ValDef], Expr) = e match {
+            case Lambda(args, body) =>
+              val (nextArgs, nextBody) = extractBody(body)
+              (args ++ nextArgs, nextBody)
+            case _ => (Seq.empty, e)
+          }
+
+          extractBody(struct) match {
+            case (params, ApplicationExtractor(caller: Variable, args)) =>
+              (params.map(_.toVariable) == args) && (deps.get(caller) match {
+                case Some(_: Application | _: FunctionInvocation) => true
+                case _ => false
+              })
+            case _ => false
+          }
+        }
+
         val depsByScope: Seq[(Variable, Expr)] = {
           def rec(v: Variable): Seq[Variable] =
-            (exprOps.variablesOf(deps(v)) & deps.keySet).toSeq.flatMap(rec) :+ v
+            (exprOps.variablesOf(deps(v)) & deps.keySet - v).toSeq.flatMap(rec) :+ v
           deps.keys.toSeq.flatMap(rec).distinct.map(v => v -> deps(v))
         }
 
@@ -290,7 +308,8 @@ trait TemplateGenerator { self: Templates =>
           depsByScope.foldLeft[(Map[Variable, Encoded], TemplateClauses)](localSubst -> emptyClauses) {
             case ((depSubst, clsSet), (v, expr)) =>
               if (!exprOps.isSimple(expr)) {
-                val (e, cls @ (_, _, _, _, _, lmbds, quants)) = mkExprClauses(pathVar, expr, depSubst)
+                val normalExpr = if (!isNormalForm) simplifyHOFunctions(expr) else expr
+                val (e, cls @ (_, _, _, _, _, lmbds, quants)) = mkExprClauses(pathVar, normalExpr, depSubst)
                 val clauseSubst = depSubst ++ lmbds.map(_.ids) ++ quants.flatMap(_.mapping)
                 (depSubst + (v -> mkEncoder(clauseSubst)(e)), clsSet ++ cls)
               } else {
@@ -316,24 +335,6 @@ trait TemplateGenerator { self: Templates =>
         val structure = new LambdaStructure(
           struct, dependencies, pathVar -> encodedCond(pathVar), depClosures,
           depConds, depExprs, depTree, depClauses, depCalls, depApps, depMatchers, depLambdas, depQuants)
-
-        val isNormalForm: Boolean = {
-          def extractBody(e: Expr): (Seq[ValDef], Expr) = e match {
-            case Lambda(args, body) =>
-              val (nextArgs, nextBody) = extractBody(body)
-              (args ++ nextArgs, nextBody)
-            case _ => (Seq.empty, e)
-          }
-
-          extractBody(struct) match {
-            case (params, ApplicationExtractor(caller: Variable, args)) =>
-              (params.map(_.toVariable) == args) && (deps.get(caller) match {
-                case Some(_: Application | _: FunctionInvocation) => true
-                case _ => false
-              })
-            case _ => false
-          }
-        }
 
         val realLambda = if (isNormalForm) l else struct
         val lid = Variable(FreshIdentifier("lambda", true), bestRealType(l.getType))

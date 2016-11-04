@@ -169,7 +169,7 @@ trait LambdaTemplates { self: Templates =>
       * already been found, then the associated instantiations must already appear
       * in those handled by the solver.
       */
-    lazy val (key, instantiation, locals) = {
+    lazy val (key, instantiation, locals, instantiationSubst) = {
       val (substMap, substInst) = Template.substitution(
         condVars, exprVars, condTree, lambdas, quantifications, Map.empty, pathVar._2)
       val tmplInst = Template.instantiate(clauses, blockers, applications, matchers, substMap)
@@ -181,7 +181,7 @@ trait LambdaTemplates { self: Templates =>
 
       val sortedDeps = exprOps.variablesOf(lambda).toSeq.sortBy(_.id.uniqueName)
       val locals = sortedDeps zip deps
-      (key, instantiation, locals)
+      (key, instantiation, locals, substMap.mapValues(_.encoded))
     }
 
     override def equals(that: Any): Boolean = that match {
@@ -233,7 +233,7 @@ trait LambdaTemplates { self: Templates =>
     /** This must be called right before returning the clauses in [[structure.instantiation]]! */
     def concretize(idT: Encoded): LambdaTemplate = {
       assert(!isConcrete, "Can't concretize concrete lambda template")
-      val substituter = mkSubstituter(Map(ids._2 -> idT))
+      val substituter = mkSubstituter(Map(ids._2 -> idT) ++ structure.instantiationSubst)
       new LambdaTemplate(
         ids._1 -> idT,
         pathVar, arguments, condVars, exprVars, condTree,
