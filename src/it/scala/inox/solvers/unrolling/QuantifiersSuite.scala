@@ -4,7 +4,7 @@ package inox
 package solvers
 package unrolling
 
-class AssociativeQuantifiersSuite extends TestSuite {
+class QuantifiersSuite extends TestSuite {
   import inox.trees._
   import dsl._
 
@@ -45,10 +45,18 @@ class AssociativeQuantifiersSuite extends TestSuite {
     })
   }
 
+  val isIdempotentID = FreshIdentifier("isIdempotent")
+  val isIdempotent = mkFunDef(isIdempotentID)("A") { case Seq(aT) => (
+    Seq("f" :: ((aT, aT) =>: aT)), BooleanType, { case Seq(f) =>
+      forall("x" :: aT, "y" :: aT)((x,y) => f(x,y) === f(x,f(x,y)))
+    })
+  }
+
   val symbols = new Symbols(Map(
     isAssociativeID -> isAssociative,
     isCommutativeID -> isCommutative,
-    isRotateID      -> isRotate
+    isRotateID      -> isRotate,
+    isIdempotentID  -> isIdempotent
   ), Map.empty)
 
   test("Pair of associative ==> associative pair") { ctx => 
@@ -100,5 +108,26 @@ class AssociativeQuantifiersSuite extends TestSuite {
     val clause = isCommutative(aT)(f) && !isAssociative(aT)(f)
 
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+  }
+
+  test("Commutative + idempotent satisfiable") { ctx =>
+    val program = InoxProgram(ctx, symbols)
+
+    val f = ("f" :: ((IntegerType, IntegerType) =>: IntegerType)).toVariable
+    val clause = isCommutative(IntegerType)(f) && isIdempotent(IntegerType)(f) &&
+      !(f(E(BigInt(1)), E(BigInt(2))) ===
+        f(f(E(BigInt(2)), E(BigInt(1))), E(BigInt(3))))
+
+    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+  }
+
+  test("Unification is unsatisfiable") { ctx =>
+    val program = InoxProgram(ctx, symbols)
+
+    val aT = T("A")
+    val f = ("f" :: ((aT, aT) =>: aT)).toVariable
+    val clause = forall("x" :: aT, "y" :: aT)((x,y) => !(f(x,y) === f(y,x)))
+
+    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
   }
 }

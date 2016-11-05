@@ -591,13 +591,20 @@ trait QuantificationTemplates { self: Templates =>
           } else {
             val substituter = mkSubstituter(map.mapValues(_.encoded))
             val msubst = map.collect { case (q, Right(m)) => q -> m }
-            val isOpt = optimizationQuorums.exists { ms =>
-              handledMatchers.containsAll(ms.map(_.substitute(substituter, msubst)))
+            val opts = optimizationQuorums.flatMap { ms =>
+              val sms = ms.map(_.substitute(substituter, msubst))
+              if (handledMatchers.containsAll(sms)) sms.toList else Nil
             }
 
-            if (isOpt) 0
-            else if (grounds(q)(bs, m.args(i))) 10
-            else 3
+            if (opts.nonEmpty) {
+              val tms = matchers.flatMap(_._2.map(_.substitute(substituter, msubst)))
+              if (opts.map(totalDepth).max >= tms.map(totalDepth).max) 0
+              else 3
+            } else if (grounds(q)(bs, m.args(i))) {
+              10
+            } else {
+              3
+            }
           }
 
           (bs, map, c + cost)
