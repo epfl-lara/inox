@@ -24,6 +24,33 @@ trait SolverFactory {
 }
 
 object SolverFactory {
+
+  lazy val hasNativeZ3 = try {
+    _root_.z3.Z3Wrapper.withinJar()
+    true
+  } catch {
+    case _: java.lang.UnsatisfiedLinkError =>
+      false
+  }
+
+  import _root_.smtlib.interpreters._
+
+  lazy val hasZ3 = try {
+    new Z3Interpreter("z3", Array("-in", "-smt2"))
+    true
+  } catch {
+    case _: java.io.IOException =>
+      false
+  }
+
+  lazy val hasCVC4 = try {
+    new CVC4Interpreter("cvc4", Array("-q", "--lang", "smt2.5"))
+    true
+  } catch {
+    case _: java.io.IOException =>
+      false
+  }
+
   def create[S1 <: Solver](p: Program)(nme: String, builder: () => S1 { val program: p.type }):
            SolverFactory { val program: p.type; type S = S1 { val program: p.type } } = {
     new SolverFactory {
@@ -115,10 +142,37 @@ object SolverFactory {
 
   val solvers: Set[String] = solverNames.map(_._1).toSet
 
+  private var reported: Boolean = false
+
   def apply(name: String, p: InoxProgram, opts: Options): SolverFactory {
     val program: p.type
     type S <: TimeoutSolver { val program: p.type }
-  } = getFromName(name)(p, opts)(RecursiveEvaluator(p, opts), ast.ProgramEncoder.empty(p))
+  } = {
+    val fallbacks = Map(
+      "nativez3" -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4"),   "Z3 native interface"),
+      "unrollz3" -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4"),   "Z3 native interface"),
+      "smt-z3"   -> (() => hasZ3,       Seq("nativez3", "smt-cvc4"), "'z3' binary"),
+      "smt-cvc4" -> (() => hasCVC4,     Seq("nativez3", "smt-z3"),   "'cvc4' binary")
+    )
+
+    fallbacks.get(name) match {
+      case Some((guard, names, requirement)) if !guard() =>
+        names.collectFirst { case name if fallbacks(name)._1() => name } match {
+          case Some(name) =>
+            if (!reported) {
+              p.ctx.reporter.warning(s"The $requirement is not available. Falling back onto $name.")
+              reported = true
+            }
+            apply(name, p, opts)
+
+          case None =>
+            p.ctx.reporter.fatalError("No SMT solver available: " +
+              "native Z3 api could not load and 'cvc4' or 'z3' binaries were not found in PATH.")
+        }
+      case _ =>
+        getFromName(name)(p, opts)(RecursiveEvaluator(p, opts), ast.ProgramEncoder.empty(p))
+    }
+  }
 
   def apply(p: InoxProgram, opts: Options): SolverFactory {
     val program: p.type

@@ -47,7 +47,10 @@ Keys.fork in run := true
 
 testOptions in Test := Seq(Tests.Argument("-oDF"))
 
-testOptions in IntegrationTest := Seq(Tests.Argument("-oDF"))
+// Note that we can't use IntegrationTest because it is already defined in sbt._
+lazy val ItTest = config("it") extend(Test)
+
+testOptions in ItTest := Seq(Tests.Argument("-oDF"))
 
 def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
 
@@ -57,7 +60,7 @@ lazy val scalaSmtlib = ghProject("git://github.com/regb/scala-smtlib.git", "567e
 lazy val root = (project in file("."))
   .configs(IntegrationTest)
   .settings(Defaults.itSettings : _*)
-  .settings(inConfig(IntegrationTest)(Defaults.testTasks ++ Seq(
+  .settings(inConfig(ItTest)(Defaults.testTasks ++ Seq(
     logBuffered := false,
     parallelExecution := false
   )) : _*)

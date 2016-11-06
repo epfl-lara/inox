@@ -57,6 +57,7 @@ trait DSL {
     def ++ = SetUnion(e, _: Expr)
     def -- = SetDifference(e, _: Expr)
     def &  = SetIntersection(e, _: Expr)
+    def contains = ElementOfSet(_: Expr, e)
 
     // Misc.
 

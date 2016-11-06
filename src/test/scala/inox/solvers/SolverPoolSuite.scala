@@ -11,7 +11,7 @@ class SolverPoolSuite extends FunSuite {
   import inox.trees._
   import SolverResponses._
 
-  implicit val ctx = Context.empty
+  implicit val ctx = TestContext.empty
 
   private trait DummySolver extends Solver {
     val name = "Dummy"
