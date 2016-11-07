@@ -8,7 +8,7 @@ import org.scalatest._
 class EvaluatorSuite extends FunSuite {
   import inox.trees._
 
-  val ctx = Context.empty
+  val ctx = TestContext.empty
 
   val symbols = new Symbols(Map.empty, Map.empty)
   def evaluator(ctx: Context): DeterministicEvaluator { val program: InoxProgram } = {
@@ -196,8 +196,9 @@ class EvaluatorSuite extends FunSuite {
   test("Let") {
     val e = evaluator(ctx)
 
-    val v = Variable(FreshIdentifier("id"), IntegerType)
+    val v = Variable(FreshIdentifier("id"), Int32Type)
     eval(e, Let(v.toVal, IntLiteral(42), v)) === IntLiteral(42)
+    eval(e, Let(v.toVal, IntLiteral(42), Plus(v, IntLiteral(1)))) === IntLiteral(43)
   }
 
   test("Map Operations") {
