@@ -27,7 +27,15 @@ trait TestSuite extends FunSuite with Matchers with Timeouts {
       val ctx = Context(reporter, new InterruptManager(reporter), Options(config))
       try {
         val index = counter.nextGlobal
-        super.test(f"$index%3d: $name ${optionsString(ctx.options)}")(body(ctx))
+        if (ctx.options.findOptionOrDefault(optSelectedSolvers).exists { sname =>
+          (sname == "nativez3" || sname == "unrollz3") && !solvers.SolverFactory.hasNativeZ3 ||
+          sname == "smt-z3" && !solvers.SolverFactory.hasZ3 ||
+          sname == "smt-cvc4" && !solvers.SolverFactory.hasCVC4
+        }) {
+          super.ignore(f"$index%3d: $name ${optionsString(ctx.options)}")(())
+        } else {
+          super.test(f"$index%3d: $name ${optionsString(ctx.options)}")(body(ctx))
+        }
       } catch {
         case err: FatalError =>
           reporter.lastErrors :+= err.msg
