@@ -6,6 +6,8 @@ package unrolling
 
 import utils._
 
+import scala.collection.mutable.{Set => MutableSet}
+
 trait FunctionTemplates { self: Templates =>
   import program._
   import program.trees._
@@ -127,10 +129,14 @@ trait FunctionTemplates { self: Templates =>
 
       val newClauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-      val newCallInfos = blockers.flatMap(id => callInfos.get(id).map(id -> _))
+      val thisCallInfos = blockers.flatMap(id => callInfos.get(id).map(id -> _))
       callInfos --= blockers
 
-      for ((blocker, (gen, _, _, calls)) <- newCallInfos; call @ Call(tfd, args) <- calls) {
+      val remainingBlockers = MutableSet.empty ++ blockers
+
+      for ((blocker, (gen, _, _, calls)) <- thisCallInfos if calls.nonEmpty && !interrupted;
+           _ = remainingBlockers -= blocker;
+           call @ Call(tfd, args) <- calls) {
         val newCls = new scala.collection.mutable.ListBuffer[Encoded]
 
         val defBlocker = defBlockers.get(call) match {
@@ -164,6 +170,11 @@ trait FunctionTemplates { self: Templates =>
         }
 
         newClauses ++= newCls
+      }
+
+      for ((b, (gen, origGen, notB, calls)) <- thisCallInfos if remainingBlockers(b)) callInfos.get(b) match {
+        case Some((newGen, _, _, newCalls)) => callInfos += b -> (gen min newGen, origGen, notB, calls ++ newCalls)
+        case None => callInfos += b -> (gen, origGen, notB, calls)
       }
 
       ctx.reporter.debug(s"   - ${newClauses.size} new clauses")

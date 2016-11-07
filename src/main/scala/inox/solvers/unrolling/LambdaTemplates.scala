@@ -506,50 +506,76 @@ trait LambdaTemplates { self: Templates =>
         (gen, infos)
       })
 
+      val remainingApps = MutableSet.empty ++ apps
+
       blockerToApps --= blockers
       appInfos --= apps
 
-      for ((app, (_, infos)) <- thisAppInfos if infos.nonEmpty) {
+      val newBlockers = (for ((app, (_, infos)) <- thisAppInfos if infos.nonEmpty) yield {
         val nextB = encodeSymbol(Variable(FreshIdentifier("b_lambda", true), BooleanType))
-        val extension = mkOr((infos.map(_.equals).toSeq :+ nextB) : _*)
-        val clause = mkEquals(appBlockers(app), extension)
+        val lastB = appBlockers(app)
 
-        appBlockers += app -> nextB
-        blockerToApps -= appBlockers(app)
         blockerToApps += nextB -> app
+        appBlockers += app -> nextB
 
-        ctx.reporter.debug(" -> extending lambda blocker: " + clause)
-        newClauses += clause
+        app -> ((lastB, nextB))
+      }).toMap
+
+      for ((app @ (b, _), (gen, infos)) <- thisAppInfos if infos.nonEmpty) {
+        val (lastB, nextB) = newBlockers(app)
+        if (interrupted) {
+          newClauses += mkEquals(lastB, nextB)
+        } else {
+          remainingApps -= app
+
+          val extension = mkOr((infos.map(info => info.template match {
+            case Left(template) => mkAnd(template.start, info.equals)
+            case Right(_) => info.equals
+          }).toSeq :+ nextB) : _*)
+
+          val clause = mkEquals(lastB, extension)
+          ctx.reporter.debug(" -> extending lambda blocker: " + clause)
+          newClauses += clause
+
+          for (info @ TemplateAppInfo(tmpl, equals, args) <- infos; template <- tmpl.left) {
+            val newCls = new scala.collection.mutable.ListBuffer[Encoded]
+
+            val lambdaBlocker = lambdaBlockers.get(info) match {
+              case Some(lambdaBlocker) => lambdaBlocker
+
+              case None =>
+                val lambdaBlocker = encodeSymbol(Variable(FreshIdentifier("d", true), BooleanType))
+                lambdaBlockers += info -> lambdaBlocker
+
+                val instClauses: Clauses = template.instantiate(lambdaBlocker, args)
+
+                newCls ++= instClauses
+                lambdaBlocker
+            }
+
+            val enabler = if (equals == trueT) b else mkAnd(equals, b)
+            registerImplication(b, lambdaBlocker)
+            newCls += mkImplies(enabler, lambdaBlocker)
+
+            ctx.reporter.debug("Unrolling behind "+info+" ("+newCls.size+")")
+            for (cl <- newCls) {
+              ctx.reporter.debug("  . "+cl)
+            }
+
+            newClauses ++= newCls
+          }
+        }
       }
 
-      for ((app @ (b, _), (gen, infos)) <- thisAppInfos;
-           info @ TemplateAppInfo(tmpl, equals, args) <- infos;
-           template <- tmpl.left) {
-        val newCls = new scala.collection.mutable.ListBuffer[Encoded]
-
-        val lambdaBlocker = lambdaBlockers.get(info) match {
-          case Some(lambdaBlocker) => lambdaBlocker
-
-          case None =>
-            val lambdaBlocker = encodeSymbol(Variable(FreshIdentifier("d", true), BooleanType))
-            lambdaBlockers += info -> lambdaBlocker
-
-            val instClauses: Clauses = template.instantiate(lambdaBlocker, args)
-
-            newCls ++= instClauses
-            lambdaBlocker
-        }
-
-        val enabler = if (equals == trueT) b else mkAnd(equals, b)
-        registerImplication(b, lambdaBlocker)
-        newCls += mkImplies(enabler, lambdaBlocker)
-
-        ctx.reporter.debug("Unrolling behind "+info+" ("+newCls.size+")")
-        for (cl <- newCls) {
-          ctx.reporter.debug("  . "+cl)
-        }
-
-        newClauses ++= newCls
+      val remainingInfos = thisAppInfos.filter { case (app, _) => remainingApps(app) }
+      for ((app, (gen, infos)) <- thisAppInfos if remainingApps(app)) appInfos.get(app) match {
+        case Some((newGen, origGen, b, notB, newInfos)) =>
+          appInfos += app -> (gen min newGen, origGen, b, notB, infos ++ newInfos)
+          
+        case None =>
+          val b = appBlockers(app)
+          val notB = mkNot(b)
+          appInfos += app -> (gen, gen, b, notB, infos)
       }
 
       ctx.reporter.debug(s"   - ${newClauses.size} new clauses")

@@ -38,6 +38,7 @@ trait NativeZ3Solver extends AbstractUnrollingSolver { self =>
     type Encoded = self.Encoded
 
     def asString(ast: Z3AST): String = ast.toString
+    def interrupted: Boolean = self.interrupted
 
     def encodeSymbol(v: Variable): Z3AST = underlying.symbolToFreshZ3Symbol(v)
 

@@ -601,7 +601,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
   }
 }
 
-trait UnrollingSolver extends AbstractUnrollingSolver {
+trait UnrollingSolver extends AbstractUnrollingSolver { self =>
   import program._
   import program.trees._
   import program.symbols._
@@ -629,6 +629,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver {
     type Encoded = Expr
 
     def asString(expr: Expr): String = expr.asString
+    def interrupted: Boolean = self.interrupted
 
     def encodeSymbol(v: Variable): Expr = v.freshen
     def mkEncoder(bindings: Map[Variable, Expr])(e: Expr): Expr =

@@ -24,6 +24,8 @@ trait Templates extends TemplateGenerator
 
   def asString(e: Encoded): String
 
+  def interrupted: Boolean
+
   def encodeSymbol(v: Variable): Encoded
   def mkEncoder(bindings: Map[Variable, Encoded])(e: Expr): Encoded
   def mkSubstituter(map: Map[Encoded, Encoded]): Encoded => Encoded
