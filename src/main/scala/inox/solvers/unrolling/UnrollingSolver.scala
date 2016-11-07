@@ -97,6 +97,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
     freeVars.reset()
   }
 
+  ctx.interruptManager.registerForInterrupts(this)
+
   override def interrupt(): Unit = {
     interrupted = true
   }

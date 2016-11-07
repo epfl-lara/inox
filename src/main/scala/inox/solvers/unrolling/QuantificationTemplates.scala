@@ -317,7 +317,7 @@ trait QuantificationTemplates { self: Templates =>
     if (handledMatchers(relevantBlockers -> matcher)) {
       Seq.empty
     } else if (interrupted) {
-      ignoredMatchers += ((currentGeneration + 1, blockers, matcher))
+      ignoredMatchers += ((currentGeneration, blockers, matcher))
       Seq.empty
     } else {
       ctx.reporter.debug(" -> instantiating matcher " + blockers.mkString("{",",","}") + " ==> " + matcher)
