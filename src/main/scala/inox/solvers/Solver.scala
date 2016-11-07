@@ -39,15 +39,11 @@ trait AbstractSolver extends Interruptible {
     extends Unsupported(t, SolverUnsupportedError.msg(t,reason))
 
   protected def unsupported(t: Tree): Nothing = {
-    val err = SolverUnsupportedError(t, None)
-    reporter.warning(err.getMessage)
-    throw err
+    throw SolverUnsupportedError(t, None)
   }
 
   protected def unsupported(t: Tree, str: String): Nothing = {
-    val err = SolverUnsupportedError(t, Some(str))
-    reporter.warning(err.getMessage)
-    throw err
+    throw SolverUnsupportedError(t, Some(str))
   }
 
   def assertCnstr(expression: Trees): Unit

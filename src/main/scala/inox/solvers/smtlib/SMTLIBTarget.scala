@@ -322,8 +322,10 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
 
       case al @ MapApply(a, i) =>
         ArraysEx.Select(toSMT(a), toSMT(i))
+
       case al @ MapUpdated(map, k, v) =>
         ArraysEx.Store(toSMT(map), toSMT(k), toSMT(v))
+
       case ra @ FiniteMap(elems, default, keyTpe, valueType) =>
         val s = declareSort(ra.getType)
 

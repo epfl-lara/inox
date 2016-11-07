@@ -239,7 +239,12 @@ trait Printers {
     }
     case fs @ FiniteSet(rs, _) => p"{${rs.distinct}}"
     case fs @ FiniteBag(rs, _) => p"{${rs.toMap.toSeq}}"
-    case fm @ FiniteMap(rs, _, _, _) => p"{${rs.toMap.toSeq}}"
+    case fm @ FiniteMap(rs, dflt, _, _) =>
+      if (rs.isEmpty) {
+        p"{* -> $dflt}"
+      } else {
+        p"{${rs.toMap.toSeq}, * -> $dflt}"
+      }
     case Not(ElementOfSet(e, s)) => p"$e \u2209 $s"
     case ElementOfSet(e, s) => p"$e \u2208 $s"
     case SubsetOf(l, r) => p"$l \u2286 $r"
