@@ -85,8 +85,8 @@ trait BagEncoder extends TheoryEncoder {
     Seq("b1" :: Bag(aT), "b2" :: Bag(aT)),
     BooleanType, { case Seq(b1, b2) =>
       forall("x" :: aT) { x =>
-        let("f1x" :: aT, b1.getField(f)(x)) { f1x =>
-          let("f2x" :: aT, b2.getField(f)(x)) { f2x =>
+        let("f1x" :: IntegerType, b1.getField(f)(x)) { f1x =>
+          let("f2x" :: IntegerType, b2.getField(f)(x)) { f2x =>
             f1x === f2x ||
             (!(b1.getField(keys) contains x) && f2x === E(BigInt(0))) ||
             (f1x === E(BigInt(0)) && !(b2.getField(keys) contains x)) ||

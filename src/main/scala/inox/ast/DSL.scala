@@ -195,6 +195,10 @@ trait DSL {
     def apply(tps: Type*) = ADTType(id, tps.toSeq)
   }
 
+  implicit class ADTTypeBuilder(adt: ADTDefinition) {
+    def apply(tps: Type*) = ADTType(adt.id, tps.toSeq)
+  }
+
   implicit class FunctionTypeBuilder(to: Type) {
     def =>: (from: Type) =
       FunctionType(Seq(from), to)

@@ -4,22 +4,9 @@ package inox
 package solvers
 package unrolling
 
-class InductiveUnrollingSuite extends SolvingTestSuite {
+class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
   import trees._
   import dsl._
-
-  val listID = FreshIdentifier("List")
-  val consID = FreshIdentifier("Cons")
-  val nilID  = FreshIdentifier("Nil")
-
-  val head = FreshIdentifier("head")
-  val tail = FreshIdentifier("tail")
-
-  val List = mkSort(listID)("A")(Seq(consID, nilID))
-  val Nil  = mkConstructor(nilID)("A")(Some(listID))(_ => Seq.empty)
-  val Cons = mkConstructor(consID)("A")(Some(listID)) {
-    case Seq(aT) => Seq(ValDef(head, aT), ValDef(tail, T(listID)(aT)))
-  }
 
   val sizeID = FreshIdentifier("size")
   val appendID = FreshIdentifier("append")
@@ -164,11 +151,8 @@ class InductiveUnrollingSuite extends SolvingTestSuite {
     })
   }
 
-  val symbols = new Symbols(
-    Map(sizeID -> sizeFd, appendID -> append, flatMapID -> flatMap, assocID -> associative,
-        forallID -> forall, contentID -> content, partitionID -> partition, sortID -> sort),
-    Map(listID -> List, consID -> Cons, nilID -> Nil)
-  )
+  val symbols = baseSymbols
+    .withFunctions(Seq(sizeFd, append, flatMap, associative, forall, content, partition, sort))
 
   test("size(x) == 0 is satisfiable") { ctx =>
     val program = InoxProgram(ctx, symbols)

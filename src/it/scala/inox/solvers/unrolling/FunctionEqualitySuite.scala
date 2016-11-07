@@ -4,21 +4,9 @@ package inox
 package solvers
 package unrolling
 
-class FunctionEqualitySuite extends SolvingTestSuite {
+class FunctionEqualitySuite extends SolvingTestSuite with DatastructureUtils {
   import inox.trees._
   import dsl._
-
-  val v = FreshIdentifier("value")
-
-  val optionID = FreshIdentifier("Option")
-  val someID = FreshIdentifier("Some")
-  val noneID = FreshIdentifier("None")
-
-  val option = mkSort(optionID)("A")(Seq(someID, noneID))
-  val none   = mkConstructor(noneID)("A")(Some(optionID))(_ => Seq.empty)
-  val some   = mkConstructor(someID)("A")(Some(optionID)) {
-    case Seq(aT) => Seq(ValDef(v, aT))
-  }
 
   val f = FreshIdentifier("f")
   val mmapID = FreshIdentifier("MMap")
@@ -33,10 +21,9 @@ class FunctionEqualitySuite extends SolvingTestSuite {
     })
   }
 
-  val symbols = new Symbols(
-    Map(containsID -> contains),
-    Map(optionID -> option, someID -> some, noneID -> none, mmapID -> mmap)
-  )
+  val symbols = baseSymbols
+    .withFunctions(Seq(contains))
+    .withADTs(Seq(mmap))
 
   test("simple theorem") { ctx =>
     val program = InoxProgram(ctx, symbols)
