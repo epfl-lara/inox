@@ -292,7 +292,7 @@ trait TemplateGenerator { self: Templates =>
               !app.getType.isInstanceOf[FunctionType] &&
               (params.map(_.toVariable) == args) &&
               (deps.get(caller) match {
-                case Some(_: Application | _: FunctionInvocation | _: Variable) => true
+                case Some(_: Application | _: FunctionInvocation | _: Variable | _: ADTSelector) => true
                 case _ => false
               })
             case _ => false
