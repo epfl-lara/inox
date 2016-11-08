@@ -45,7 +45,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   }
 
   override protected def declareSort(t: Type): Sort = {
-    val tpe = normalizeType(t)
+    val tpe = bestRealType(t)
     sorts.cachedB(tpe) {
       tpe match {
         case SetType(base) =>

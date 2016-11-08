@@ -107,12 +107,6 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
 
   /* Helper functions */
 
-  protected def normalizeType(t: Type): Type = t match {
-    case adt: ADTType => adt.getADT.root.toType
-    case tt: TupleType => tupleTypeWrap(tt.bases.map(normalizeType))
-    case _             => t
-  }
-
   protected def quantifiedTerm(quantifier: (SortedVar, Seq[SortedVar], Term) => Term,
                                vars: Seq[ValDef],
                                body: Expr)
@@ -272,14 +266,17 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
           newBody)
 
       case s @ ADTSelector(e, id) =>
-        declareSort(e.getType)
-        val selector = selectors.toB((e.getType, s.selectorIndex))
+        val ADTType(id, tps) = e.getType
+        val adt = ADTType(id, tps map bestRealType)
+        declareSort(adt)
+        val selector = selectors.toB(adt -> s.selectorIndex)
         FunctionApplication(selector, Seq(toSMT(e)))
 
       case AsInstanceOf(expr, adt) =>
         toSMT(expr)
 
-      case io @ IsInstanceOf(e, adt) =>
+      case io @ IsInstanceOf(e, ADTType(id, tps)) =>
+        val adt = ADTType(id, tps map bestRealType)
         declareSort(adt)
         val cases = adt.lookupADT match {
           case Some(tsort: TypedADTSort) =>
@@ -299,7 +296,8 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
               SmtLibConstructors.or(oneOf.map(FunctionApplication(_, Seq(es: Term)))))
         }
 
-      case ADT(adt, es) =>
+      case ADT(ADTType(id, tps), es) =>
+        val adt = ADTType(id, tps map bestRealType)
         declareSort(adt)
         val constructor = constructors.toB(adt)
         if (es.isEmpty) {
@@ -309,13 +307,13 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
         }
 
       case t @ Tuple(es) =>
-        val tpe = normalizeType(t.getType)
+        val tpe = bestRealType(t.getType)
         declareSort(tpe)
         val constructor = constructors.toB(tpe)
         FunctionApplication(constructor, es.map(toSMT))
 
       case ts @ TupleSelect(t, i) =>
-        val tpe = normalizeType(t.getType)
+        val tpe = bestRealType(t.getType)
         declareSort(tpe)
         val selector = selectors.toB((tpe, i - 1))
         FunctionApplication(selector, Seq(toSMT(t)))

@@ -375,13 +375,15 @@ trait AbstractZ3Solver
         val selector = selectors.toB((tpe, i-1))
         selector(rec(t))
 
-      case c @ ADT(adt, args) =>
+      case c @ ADT(ADTType(id, tps), args) =>
+        val adt = ADTType(id, tps map bestRealType)
         typeToSort(adt) // Making sure the sort is defined
         val constructor = constructors.toB(adt)
         constructor(args.map(rec): _*)
 
       case c @ ADTSelector(cc, sel) =>
-        val adt = cc.getType
+        val ADTType(id, tps) = cc.getType
+        val adt = ADTType(id, tps map bestRealType)
         typeToSort(adt) // Making sure the sort is defined
         val selector = selectors.toB(adt -> c.selectorIndex)
         selector(rec(cc))
@@ -389,20 +391,22 @@ trait AbstractZ3Solver
       case AsInstanceOf(expr, adt) =>
         rec(expr)
 
-      case IsInstanceOf(e, adt) => adt.getADT match {
-        case tsort: TypedADTSort =>
-          tsort.constructors match {
-            case Seq(tcons) =>
-              rec(IsInstanceOf(e, tcons.toType))
-            case more =>
-              val v = Variable(FreshIdentifier("e", true), adt)
-              rec(Let(v.toVal, e, orJoin(more map (tcons => IsInstanceOf(v, tcons.toType)))))
-          }
-        case tcons: TypedADTConstructor =>
-          typeToSort(adt)
-          val tester = testers.toB(adt)
-          tester(rec(e))
-      }
+      case IsInstanceOf(e, ADTType(id, tps)) =>
+        val adt = ADTType(id, tps map bestRealType)
+        adt.getADT match {
+          case tsort: TypedADTSort =>
+            tsort.constructors match {
+              case Seq(tcons) =>
+                rec(IsInstanceOf(e, tcons.toType))
+              case more =>
+                val v = Variable(FreshIdentifier("e", true), adt)
+                rec(Let(v.toVal, e, orJoin(more map (tcons => IsInstanceOf(v, tcons.toType)))))
+            }
+          case tcons: TypedADTConstructor =>
+            typeToSort(adt)
+            val tester = testers.toB(adt)
+            tester(rec(e))
+        }
 
       case f @ FunctionInvocation(id, tps, args) =>
         z3.mkApp(functionDefToDecl(getFunction(id, tps)), args.map(rec): _*)

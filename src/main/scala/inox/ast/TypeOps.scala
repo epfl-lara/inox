@@ -217,8 +217,8 @@ trait TypeOps {
   }
 
   def bestRealType(t: Type): Type = t match {
-    case (adt: ADTType) => adt.getADT.root.toType
-    case NAryType(tps, builder) => builder(tps.map(bestRealType))
+    case (adt: ADTType) => ADTType(adt.getADT.definition.root.id, adt.tps map bestRealType)
+    case NAryType(tps, builder) => builder(tps map bestRealType)
   }
 
   def isParametricType(tpe: Type): Boolean = tpe match {
