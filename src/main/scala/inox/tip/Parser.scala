@@ -580,6 +580,7 @@ class Parser(file: File) {
     case Sets.Member(e1, e2) => ElementOfSet(extractTerm(e1), extractTerm(e2))
     case Sets.Subset(e1, e2) => SubsetOf(extractTerm(e1), extractTerm(e2))
 
+    case Sets.EmptySet(sort) => FiniteSet(Seq.empty, extractSort(sort))
     case Sets.Singleton(e) =>
       val elem = extractTerm(e)
       FiniteSet(Seq(elem), locals.symbols.bestRealType(elem.getType(locals.symbols)))
@@ -587,7 +588,18 @@ class Parser(file: File) {
     case Sets.Insert(set, es @ _*) =>
       es.foldLeft(extractTerm(set))((s,e) => SetAdd(s, extractTerm(e)))
 
-    // TODO: bags
+    case Bags.Singleton(k, v) =>
+      val key = extractTerm(k)
+      FiniteBag(Seq(key -> extractTerm(v)), locals.symbols.bestRealType(key.getType(locals.symbols)))
+
+    case Bags.EmptyBag(sort) => FiniteBag(Seq.empty, extractSort(sort))
+    case Bags.Union(e1, e2) => BagUnion(extractTerm(e1), extractTerm(e2))
+    case Bags.Intersection(e1, e2) => BagIntersection(extractTerm(e1), extractTerm(e2))
+    case Bags.Difference(e1, e2) => BagDifference(extractTerm(e1), extractTerm(e2))
+    case Bags.Multiplicity(e1, e2) => MultiplicityInBag(extractTerm(e1), extractTerm(e2))
+
+    case Bags.Insert(bag, es @ _*) =>
+      es.foldLeft(extractTerm(bag))((b,e) => BagAdd(b, extractTerm(e)))
 
     case Match(s, cases) =>
       val scrut = extractTerm(s)

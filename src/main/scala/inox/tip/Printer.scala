@@ -211,11 +211,19 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
       }.unzip
       Exists(param, params, toSMT(body)(bindings ++ newBindings))
 
-    case Application(caller, args) =>
-      SMTApplication(toSMT(caller), args.map(toSMT))
+    case Application(caller, args) => SMTApplication(toSMT(caller), args.map(toSMT))
 
-    case Assume(pred, body) =>
-      SMTAssume(toSMT(pred), toSMT(body))
+    case Assume(pred, body) => SMTAssume(toSMT(pred), toSMT(body))
+
+    case FiniteBag(elems, base) =>
+      elems.foldLeft(Bags.EmptyBag(declareSort(base))) { case (b, (k, v)) =>
+        Bags.Union(b, Bags.Singleton(toSMT(k), toSMT(v)))
+      }
+
+    case BagAdd(bag, elem) => Bags.Insert(toSMT(bag), toSMT(elem))
+    case MultiplicityInBag(elem, bag) => Bags.Multiplicity(toSMT(elem), toSMT(bag))
+    case BagIntersection(b1, b2) => Bags.Intersection(toSMT(b1), toSMT(b2))
+    case BagDifference(b1, b2) => Bags.Difference(toSMT(b1), toSMT(b2))
 
     case _ => super.toSMT(e)
   }
