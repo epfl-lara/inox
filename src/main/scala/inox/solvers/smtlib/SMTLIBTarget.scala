@@ -729,6 +729,3 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
     fromSMT(s, Some(tpe))
   }
 }
-
-// Unique numbers
-private[smtlib] object DebugFileNumbers extends UniqueCounter[String]

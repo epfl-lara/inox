@@ -33,21 +33,24 @@ class Parser(file: File) {
     pos.map(p => positions.get(p.line, p.col)).getOrElse(NoPosition)
   }
 
-  def parseScript: (Symbols, Expr) = {
+  def parseScript: Seq[(Symbols, Expr)] = {
     val parser = new TipParser(new TipLexer(positions.reader))
     val script = parser.parseScript
 
     var assertions: Seq[Expr] = Seq.empty
     implicit var locals: Locals = NoLocals
 
-    for (cmd <- script.commands) {
-      val (newAssertions, newLocals) = extractCommand(cmd)
-      assertions ++= newAssertions
-      locals = newLocals
-    }
+    (for (cmd <- script.commands) yield cmd match {
+      case CheckSat() =>
+        val expr: Expr = locals.symbols.andJoin(assertions)
+        Some((locals.symbols, expr))
 
-    val expr: Expr = locals.symbols.andJoin(assertions)
-    (locals.symbols, expr)
+      case _ =>
+        val (newAssertions, newLocals) = extractCommand(cmd)
+        assertions ++= newAssertions
+        locals = newLocals
+        None
+    }).flatten
   }
 
   protected class Locals (

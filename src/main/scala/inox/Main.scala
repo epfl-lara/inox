@@ -140,34 +140,34 @@ object Main extends MainHelpers {
     if (files.isEmpty) {
       ctx.reporter.fatalError(s"Input file was not specified.\nTry the --help option for more information.")
     } else {
-      for (file <- files) {
-        val (syms, expr) = new tip.Parser(file).parseScript
+      var error: Boolean = false
+      for (file <- files;
+           (syms, expr) <- new tip.Parser(file).parseScript) {
         val program = InoxProgram(ctx, syms)
         import program._
         import program.ctx._
 
         import SolverResponses._
-        val error = SimpleSolverAPI(SolverFactory.default(program)).solveSAT(expr) match {
+        SimpleSolverAPI(SolverFactory.default(program)).solveSAT(expr) match {
           case SatWithModel(model) =>
             reporter.info(" => SAT")
             for ((vd, res) <- model) {
               reporter.info(f"${vd.asString}%-15s -> ${res.asString}")
             }
-            false
           case Unsat =>
             reporter.info(" => UNSAT")
-            false
           case Unknown =>
             reporter.info(" => UNKNOWN")
-            true
+            error = true
         }
 
-        reporter.whenDebug(utils.DebugSectionTimers) { debug =>
-          timers.outputTable(debug)
-        }
-
-        exit(error = error)
       }
+
+      ctx.reporter.whenDebug(utils.DebugSectionTimers) { debug =>
+        ctx.timers.outputTable(debug)
+      }
+
+      exit(error = error)
     }
   }
 }
