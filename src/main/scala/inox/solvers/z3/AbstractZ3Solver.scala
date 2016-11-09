@@ -88,18 +88,18 @@ trait AbstractZ3Solver
   }
 
   // ADT Manager
-  private val adtManager = new ADTManager
+  private[z3] val adtManager = new ADTManager
 
-  // Bijections between Inox Types/Functions/Ids to Z3 Sorts/Decls/ASTs
-  private val functions = new IncrementalBijection[TypedFunDef, Z3FuncDecl]()
-  private val lambdas   = new IncrementalBijection[FunctionType, Z3FuncDecl]()
-  private val variables = new IncrementalBijection[Variable, Z3AST]()
+  // Bije[z3]ctions between Inox Types/Functions/Ids to Z3 Sorts/Decls/ASTs
+  private[z3] val functions = new IncrementalBijection[TypedFunDef, Z3FuncDecl]()
+  private[z3] val lambdas   = new IncrementalBijection[FunctionType, Z3FuncDecl]()
+  private[z3] val variables = new IncrementalBijection[Variable, Z3AST]()
 
-  private val constructors = new IncrementalBijection[Type, Z3FuncDecl]()
-  private val selectors    = new IncrementalBijection[(Type, Int), Z3FuncDecl]()
-  private val testers      = new IncrementalBijection[Type, Z3FuncDecl]()
+  private[z3] val constructors = new IncrementalBijection[Type, Z3FuncDecl]()
+  private[z3] val selectors    = new IncrementalBijection[(Type, Int), Z3FuncDecl]()
+  private[z3] val testers      = new IncrementalBijection[Type, Z3FuncDecl]()
 
-  private val sorts     = new IncrementalMap[Type, Z3Sort]()
+  private[z3] val sorts     = new IncrementalMap[Type, Z3Sort]()
 
   def push(): Unit = {
     adtManager.push()
@@ -207,7 +207,6 @@ trait AbstractZ3Solver
   // Prepares some of the Z3 sorts, but *not* the tuple sorts; these are created on-demand.
   private def prepareSorts(): Unit = {
 
-    //TODO: mkBitVectorType
     sorts += Int32Type -> z3.mkBVSort(32)
     sorts += CharType -> z3.mkBVSort(32)
     sorts += IntegerType -> z3.mkIntSort
@@ -534,11 +533,9 @@ trait AbstractZ3Solver
           if(ts.length > 4 && ts.substring(0, 2) == "bv" && ts.substring(ts.length - 4) == "[32]") {
             val integer = ts.substring(2, ts.length - 4)
             tpe match {
-              case Int32Type => 
-                IntLiteral(integer.toLong.toInt)
+              case Int32Type => IntLiteral(integer.toLong.toInt)
               case CharType  => CharLiteral(integer.toInt.toChar)
-              case IntegerType => 
-                IntegerLiteral(BigInt(integer))
+              // @nv XXX: why would we have this!? case IntegerType => IntegerLiteral(BigInt(integer))
               case _ =>
                 reporter.fatalError("Unexpected target type for BV value: " + tpe.asString)
             }

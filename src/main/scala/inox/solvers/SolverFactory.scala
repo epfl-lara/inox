@@ -93,6 +93,7 @@ object SolverFactory {
         val encoder = enc
       } with unrolling.UnrollingSolver with theories.Z3Theories with TimeoutSolver {
         val evaluator = ev
+        lazy val modelEvaluator = RecursiveEvaluator(targetProgram, options)
 
         object underlying extends {
           val program: targetProgram.type = targetProgram
@@ -106,6 +107,7 @@ object SolverFactory {
         val encoder = enc
       } with unrolling.UnrollingSolver with theories.CVC4Theories with TimeoutSolver {
         val evaluator = ev
+        lazy val modelEvaluator = RecursiveEvaluator(targetProgram, options)
 
         object underlying extends {
           val program: targetProgram.type = targetProgram
@@ -119,6 +121,7 @@ object SolverFactory {
         val encoder = enc
       } with unrolling.UnrollingSolver with theories.Z3Theories with TimeoutSolver {
         val evaluator = ev
+        lazy val modelEvaluator = RecursiveEvaluator(targetProgram, options)
 
         object underlying extends {
           val program: targetProgram.type = targetProgram

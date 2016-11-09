@@ -72,6 +72,34 @@ trait NativeZ3Solver extends AbstractUnrollingSolver { self =>
   protected def wrapModel(model: Z3Model): super.ModelWrapper = ModelWrapper(model)
 
   private case class ModelWrapper(model: Z3Model) extends super.ModelWrapper {
+    def extractConstructor(v: Z3AST): Option[Identifier] = model.eval(v).flatMap {
+      elem => z3.getASTKind(elem) match {
+        case Z3AppAST(decl, args) if underlying.constructors containsB decl =>
+          underlying.constructors.toA(decl) match {
+            case t.ADTType(id, _) => Some(id)
+            case _ => None
+          }
+        case _ => None
+      }
+    }
+
+    def extractSet(v: Z3AST): Option[Seq[Z3AST]] = model.eval(v).flatMap {
+      elem => model.getSetValue(elem) collect { case (set, true) => set.toSeq }
+    }
+
+    def extractBag(v: Z3AST): Option[Seq[(Z3AST, Z3AST)]] = model.eval(v).flatMap {
+      elem => model.getArrayValue(elem) flatMap { case (z3Map, z3Default) =>
+        z3.getASTKind(z3Default) match {
+          case Z3NumeralIntAST(Some(0)) => Some(z3Map.toSeq)
+          case _ => None
+        }
+      }
+    }
+
+    def extractMap(v: Z3AST): Option[(Seq[(Z3AST, Z3AST)], Z3AST)] = model.eval(v).flatMap {
+      elem => model.getArrayValue(elem).map(p => p._1.toSeq -> p._2)
+    }
+
     def modelEval(elem: Z3AST, tpe: t.Type): Option[t.Expr] = {
       val timer = ctx.timers.solvers.z3.eval.start()
       val res = tpe match {
