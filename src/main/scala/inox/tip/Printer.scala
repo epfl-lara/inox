@@ -9,6 +9,9 @@ import smtlib.extensions.tip.Terms.{Lambda => SMTLambda, Application => SMTAppli
 import smtlib.extensions.tip.Commands._
 import smtlib.Interpreter
 
+import Terms.{Assume => SMTAssume}
+import Commands._
+
 import java.io.Writer
 import scala.collection.mutable.{Map => MutableMap}
 
@@ -109,6 +112,30 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
           }).toList
         }).toList
       ))
+
+      val invariants = adts
+        .collect { case (adt: ADTType, _) => adt }
+        .map(_.getADT.definition)
+        .flatMap(_.invariant)
+
+      for (fd <- invariants) {
+        val Seq(vd) = fd.params
+        if (fd.tparams.isEmpty) {
+          emit(DatatypeInvariant(
+            id2sym(vd.id),
+            declareSort(vd.tpe),
+            toSMT(fd.fullBody)(Map(vd.id -> id2sym(vd.id)))
+          ))
+        } else {
+          val tps = fd.tparams.map(tpd => declareSort(tpd.tp).id.symbol)
+          emit(DatatypeInvariantPar(
+            tps,
+            id2sym(vd.id),
+            declareSort(vd.tpe),
+            toSMT(fd.fullBody)(Map(vd.id -> id2sym(vd.id)))
+          ))
+        }
+      }
     }
   }
 
@@ -188,10 +215,7 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
       SMTApplication(toSMT(caller), args.map(toSMT))
 
     case Assume(pred, body) =>
-      FunctionApplication(
-        QualifiedIdentifier(SMTIdentifier(SSymbol("assume")), None),
-        Seq(toSMT(pred), toSMT(body))
-      )
+      SMTAssume(toSMT(pred), toSMT(body))
 
     case _ => super.toSMT(e)
   }
