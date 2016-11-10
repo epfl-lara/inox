@@ -292,7 +292,6 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
       case ADT(ADTType(id, tps), es) =>
         val adt = ADTType(id, tps map bestRealType)
         declareSort(adt)
-        println(adt, constructors)
         val constructor = constructors.toB(adt)
         if (es.isEmpty) {
           constructor
