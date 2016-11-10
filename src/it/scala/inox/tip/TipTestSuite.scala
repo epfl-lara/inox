@@ -6,13 +6,13 @@ package tip
 import solvers._
 import org.scalatest._
 
-class TIPTestSuite extends FunSuite with ResourceUtils {
+class TipTestSuite extends FunSuite with ResourceUtils {
 
   val ctx = TestContext.empty
 
   for (file <- resourceFiles("regression/tip/SAT", _.endsWith(".tip"))) {
     test(s"SAT - ${file.getName}") {
-      for ((syms, expr) <- new tip.Parser(file).parseScript) {
+      for ((syms, expr) <- new Parser(file).parseScript) {
         val program = InoxProgram(ctx, syms)
         assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(expr).isSAT)
       }
@@ -21,7 +21,7 @@ class TIPTestSuite extends FunSuite with ResourceUtils {
 
   for (file <- resourceFiles("regression/tip/UNSAT", _.endsWith(".tip"))) {
     test(s"UNSAT - ${file.getName}") {
-      for ((syms, expr) <- new tip.Parser(file).parseScript) {
+      for ((syms, expr) <- new Parser(file).parseScript) {
         val program = InoxProgram(ctx, syms)
         assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(expr).isUNSAT)
       }
