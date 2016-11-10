@@ -37,7 +37,7 @@ object Commands {
       ctx.print(sort)
       ctx.print(" ")
       ctx.print(pred)
-      ctx.print(")")
+      ctx.print(")\n")
     }
   }
 
@@ -50,7 +50,7 @@ object Commands {
       ctx.print(sort)
       ctx.print(" ")
       ctx.print(pred)
-      ctx.print("))")
+      ctx.print("))\n")
     }
   }
 }
@@ -71,6 +71,7 @@ class TipParser(lexer: TipLexer) extends SMTParser(lexer) {
 
   override protected def parseTermWithoutParens: Term = getPeekToken.kind match {
     case Tokens.Assume =>
+      eat(Tokens.Assume)
       val pred = parseTerm
       val body = parseTerm
       Assume(pred, body)

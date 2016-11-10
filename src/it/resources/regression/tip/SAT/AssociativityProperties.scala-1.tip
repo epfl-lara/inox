@@ -1,0 +1,13 @@
+(declare-datatypes (A1!1 A2!0 R!22) ((fun2!5 (fun2!6 (f!40 (=> A1!1 A2!0 R!22)) (pre!12 (=> A1!1 A2!0 Bool))))))
+
+(define-fun (par (A!0) (isAssociative!0 ((f!0 (fun2!5 A!0 A!0 A!0))) Bool (forall ((x!0 A!0)(y!0 A!0) (z!0 A!0)) (= (assume (@ (pre!12 f!0) (assume (@ (pre!12 f!0) x!0 y!0) (@ (f!40 f!0) x!0 y!0)) z!0) (@ (f!40 f!0) (assume (@ (pre!12 f!0) x!0 y!0) (@ (f!40 f!0) x!0 y!0)) z!0)) (assume (@ (pre!12 f!0) x!0 (assume (@ (pre!12 f!0) y!0 z!0) (@ (f!40 f!0) y!0 z!0))) (@ (f!40 f!0) x!0 (assume (@ (pre!12 f!0) y!0 z!0) (@ (f!40 f!0) y!0 z!0)))))))))
+
+(declare-const (par (A!3) (f!3 (fun2!5 A!3 A!3 A!3))))
+
+(define-fun (par (A!1) (isCommutative!0 ((f!1 (fun2!5 A!1 A!1 A!1))) Bool (forall ((x!1 A!1)(y!1 A!1)) (= (assume (@ (pre!12 f!1) x!1 y!1) (@ (f!40 f!1) x!1 y!1)) (assume (@ (pre!12 f!1) y!1 x!1) (@ (f!40 f!1) y!1 x!1)))))))
+
+(assert (par (A!3) (not (=> (isAssociative!0 (as f!3 (fun2!5 A!3 A!3 A!3))) (isCommutative!0 (as f!3 (fun2!5 A!3 A!3 A!3)))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

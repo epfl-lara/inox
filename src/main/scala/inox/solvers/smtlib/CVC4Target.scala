@@ -25,17 +25,10 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
     new CVC4Interpreter("cvc4", opts.toArray)
   }
 
-  override protected def declareSort(t: Type): Sort = {
-    val tpe = bestRealType(t)
-    sorts.cachedB(tpe) {
-      tpe match {
-        case SetType(base) =>
-          Sets.SetSort(declareSort(base))
-        case StringType  => Strings.StringSort()
-        case _ =>
-          super.declareSort(t)
-      }
-    }
+  override protected def computeSort(t: Type): Sort = t match {
+    case SetType(base) => Sets.SetSort(declareSort(base))
+    case StringType  => Strings.StringSort()
+    case _ => super.computeSort(t)
   }
 
   override protected def fromSMT(t: Term, otpe: Option[Type] = None)

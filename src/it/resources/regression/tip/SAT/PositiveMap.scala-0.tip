@@ -1,0 +1,23 @@
+(declare-datatypes () ((List!5 (Nil!2) (Cons!2 (head!5 (_ BitVec 32)) (tail!7 List!5)))))
+
+(declare-const |error: Match is non-exhaustive!46| Bool)
+
+(define-fun-rec positive!0 ((list!0 List!5)) Bool (ite (is-Cons!2 list!0) (ite (bvslt (head!5 list!0) #b00000000000000000000000000000000) false (positive!0 (tail!7 list!0))) (ite (is-Nil!2 list!0) true |error: Match is non-exhaustive!46|)))
+
+(declare-const list!1 List!5)
+
+(declare-datatypes (A1!0 R!21) ((fun1!1 (fun1!2 (f!32 (=> A1!0 R!21)) (pre!10 (=> A1!0 Bool))))))
+
+(declare-const f!0 (fun1!1 (_ BitVec 32) (_ BitVec 32)))
+
+(declare-const |error: Match is non-exhaustive!42| List!5)
+
+(define-fun-rec positiveMap_failling_1!0 ((f!0 (fun1!1 (_ BitVec 32) (_ BitVec 32))) (list!1 List!5)) List!5 (let ((res!0 (ite (is-Cons!2 list!1) (let ((fh!0 (assume (@ (pre!10 f!0) (head!5 list!1)) (@ (f!32 f!0) (head!5 list!1))))) (let ((nh!0 (ite (bvslt fh!0 #b11111111111111111111111111111111) #b00000000000000000000000000000000 fh!0))) (Cons!2 nh!0 (positiveMap_failling_1!0 f!0 (tail!7 list!1))))) (ite (is-Nil!2 list!1) Nil!2 |error: Match is non-exhaustive!42|)))) (assume (positive!0 res!0) res!0)))
+
+(declare-const |error: Match is non-exhaustive!75| List!5)
+
+(assert (not (positive!0 (ite (is-Cons!2 list!1) (let ((fh!0 (assume (@ (pre!10 f!0) (head!5 list!1)) (@ (f!32 f!0) (head!5 list!1))))) (Cons!2 (ite (bvslt fh!0 #b11111111111111111111111111111111) #b00000000000000000000000000000000 fh!0) (positiveMap_failling_1!0 f!0 (tail!7 list!1)))) (ite (is-Nil!2 list!1) Nil!2 |error: Match is non-exhaustive!75|)))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

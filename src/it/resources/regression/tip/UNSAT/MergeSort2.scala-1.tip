@@ -1,0 +1,33 @@
+(declare-datatypes (T!4) ((List!16 (Nil!13) (Cons!13 (h!58 T!4) (t!65 (List!16 T!4))))))
+
+(define-fun-rec isSorted!0 ((list!1 (List!16 Int))) Bool (ite (and (is-Cons!13 list!1) (is-Cons!13 (t!65 list!1))) (and (<= (h!58 list!1) (h!58 (t!65 list!1))) (isSorted!0 (t!65 list!1))) true))
+
+(declare-const l1!0 (List!16 Int))
+
+(declare-const l2!0 (List!16 Int))
+
+(declare-const (par (T!31) (|error: Match is non-exhaustive!7| (List!16 T!31))))
+
+(declare-const (par (T!50) (|error: Match is non-exhaustive!26| (Set T!50))))
+
+(define-fun-rec (par (T!50) (content!2 ((thiss!38 (List!16 T!50))) (Set T!50) (ite (is-Nil!13 thiss!38) (as emptyset T!50) (ite (is-Cons!13 thiss!38) (union (insert (as emptyset T!50) (h!58 thiss!38)) (content!2 (t!65 thiss!38))) (as |error: Match is non-exhaustive!26| (Set T!50)))))))
+
+(declare-const |error: Match is non-exhaustive!67| Int)
+
+(define-fun-rec (par (T!91) (size!0 ((thiss!106 (List!16 T!91))) Int (let ((x$1!2 (ite (is-Nil!13 thiss!106) 0 (ite (is-Cons!13 thiss!106) (+ 1 (size!0 (t!65 thiss!106))) |error: Match is non-exhaustive!67|)))) (assume (>= x$1!2 0) x$1!2)))))
+
+(define-fun-rec (par (T!31) (++!0 ((thiss!10 (List!16 T!31)) (that!10 (List!16 T!31))) (List!16 T!31) (let ((res!5 (ite (is-Nil!13 thiss!10) that!10 (ite (is-Cons!13 thiss!10) (Cons!13 (h!58 thiss!10) (++!0 (t!65 thiss!10) that!10)) (as |error: Match is non-exhaustive!7| (List!16 T!31)))))) (assume (and (and (= (content!2 res!5) (union (content!2 thiss!10) (content!2 that!10))) (= (size!0 res!5) (+ (size!0 thiss!10) (size!0 that!10)))) (or (not (= that!10 (as Nil!13 (List!16 T!31)))) (= res!5 thiss!10))) res!5)))))
+
+(define-fun (par (T!2) (empty!0 () (Bag T!2) (as bag.empty T!2))))
+
+(declare-const (par (T!0) (|error: Match is non-exhaustive!68| (Bag T!0))))
+
+(define-fun-rec (par (T!0) (bag!0 ((list!0 (List!16 T!0))) (Bag T!0) (ite (is-Nil!13 list!0) (as empty!0 (Bag T!0)) (ite (is-Cons!13 list!0) (bag.insert (bag!0 (t!65 list!0)) (h!58 list!0)) (as |error: Match is non-exhaustive!68| (Bag T!0)))))))
+
+(define-fun-rec merge!0 ((l1!0 (List!16 Int)) (l2!0 (List!16 Int))) (List!16 Int) (assume (and (isSorted!0 l1!0) (isSorted!0 l2!0)) (let ((res!0 (ite (and (is-Cons!13 l1!0) (is-Cons!13 l2!0)) (ite (<= (h!58 l1!0) (h!58 l2!0)) (Cons!13 (h!58 l1!0) (merge!0 (t!65 l1!0) l2!0)) (Cons!13 (h!58 l2!0) (merge!0 l1!0 (t!65 l2!0)))) (++!0 l1!0 l2!0)))) (assume (and (and (isSorted!0 res!0) (= (bag!0 res!0) (bag.union (bag!0 l1!0) (bag!0 l2!0)))) (= (size!0 res!0) (+ (size!0 l1!0) (size!0 l2!0)))) res!0))))
+
+(assert (not (=> (and (isSorted!0 l1!0) (isSorted!0 l2!0)) (let ((res!32 (ite (and (is-Cons!13 l1!0) (is-Cons!13 l2!0)) (ite (<= (h!58 l1!0) (h!58 l2!0)) (Cons!13 (h!58 l1!0) (merge!0 (t!65 l1!0) l2!0)) (Cons!13 (h!58 l2!0) (merge!0 l1!0 (t!65 l2!0)))) (++!0 l1!0 l2!0)))) (and (and (isSorted!0 res!32) (= (bag!0 res!32) (bag.union (bag!0 l1!0) (bag!0 l2!0)))) (= (size!0 res!32) (+ (size!0 l1!0) (size!0 l2!0))))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

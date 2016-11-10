@@ -1,0 +1,22 @@
+(declare-datatypes () ((Tree!1 (Node!1 (left!3 Tree!1) (value!2 Int) (right!3 Tree!1)) (Leaf!1))))
+
+(define-fun (par (T!2) (empty!0 () (Set T!2) (as emptyset T!2))))
+
+(declare-const |error: Match is non-exhaustive!25| (Set Int))
+
+(define-fun-rec content!0 ((thiss!51 Tree!1)) (Set Int) (ite (is-Leaf!1 thiss!51) (as empty!0 (Set Int)) (ite (is-Node!1 thiss!51) (union (union (content!0 (left!3 thiss!51)) (insert (as emptyset Int) (value!2 thiss!51))) (content!0 (right!3 thiss!51))) |error: Match is non-exhaustive!25|)))
+
+(define-fun inv!0 ((thiss!14 Tree!1)) Bool (and (forall ((x!0 Int)) (=> (member x!0 (content!0 (left!3 thiss!14))) (< x!0 (value!2 thiss!14)))) (forall ((x!1 Int)) (=> (member x!1 (content!0 (right!3 thiss!14))) (< (value!2 thiss!14) x!1)))))
+
+(datatype-invariant thiss!114 Tree!1 (ite (is-Node!1 thiss!114) (inv!0 (assume (is-Node!1 thiss!114) thiss!114)) true))
+(declare-const tree!0 Tree!1)
+
+(define-fun inv!2 ((thiss!114 Tree!1)) Bool (ite (is-Node!1 thiss!114) (inv!0 (assume (is-Node!1 thiss!114) thiss!114)) true))
+
+(declare-const value!1 Int)
+
+(assert (not (=> (is-Leaf!1 tree!0) (inv!2 (Node!1 (assume (inv!2 Leaf!1) Leaf!1) value!1 (assume (inv!2 Leaf!1) Leaf!1))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

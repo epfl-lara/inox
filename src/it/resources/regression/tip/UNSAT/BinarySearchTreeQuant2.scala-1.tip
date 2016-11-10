@@ -1,0 +1,29 @@
+(declare-datatypes () ((Tree!17 (Node!17 (left!19 Tree!17) (value!18 Int) (right!19 Tree!17)) (Leaf!17))))
+
+(define-fun (par (T!2) (empty!0 () (Set T!2) (as emptyset T!2))))
+
+(declare-const |error: Match is non-exhaustive!25| (Set Int))
+
+(define-fun-rec content!0 ((thiss!51 Tree!17)) (Set Int) (ite (is-Leaf!17 thiss!51) (as empty!0 (Set Int)) (ite (is-Node!17 thiss!51) (union (union (content!0 (left!19 thiss!51)) (insert (as emptyset Int) (value!18 thiss!51))) (content!0 (right!19 thiss!51))) |error: Match is non-exhaustive!25|)))
+
+(declare-const tree!0 Tree!17)
+
+(define-fun inv!0 ((thiss!14 Tree!17)) Bool (and (forall ((x!0 Int)) (=> (member x!0 (content!0 (left!19 thiss!14))) (< x!0 (value!18 thiss!14)))) (forall ((x!1 Int)) (=> (member x!1 (content!0 (right!19 thiss!14))) (< (value!18 thiss!14) x!1)))))
+
+(define-fun inv!2 ((thiss!114 Tree!17)) Bool (ite (is-Node!17 thiss!114) (inv!0 (assume (is-Node!17 thiss!114) thiss!114)) true))
+
+(declare-const value!1 Int)
+
+(declare-const |error: Match is non-exhaustive!51| Tree!17)
+
+(define-fun-rec insert!0 ((tree!0 Tree!17) (value!1 Int)) Tree!17 (let ((res!0 (ite (is-Leaf!17 tree!0) (assume (inv!2 (Node!17 (assume (inv!2 Leaf!17) Leaf!17) value!1 (assume (inv!2 Leaf!17) Leaf!17))) (Node!17 (assume (inv!2 Leaf!17) Leaf!17) value!1 (assume (inv!2 Leaf!17) Leaf!17))) (ite (is-Node!17 tree!0) (ite (< (value!18 tree!0) value!1) (assume (inv!2 (Node!17 (left!19 tree!0) (value!18 tree!0) (insert!0 (right!19 tree!0) value!1))) (Node!17 (left!19 tree!0) (value!18 tree!0) (insert!0 (right!19 tree!0) value!1))) (ite (> (value!18 tree!0) value!1) (assume (inv!2 (Node!17 (insert!0 (left!19 tree!0) value!1) (value!18 tree!0) (right!19 tree!0))) (Node!17 (insert!0 (left!19 tree!0) value!1) (value!18 tree!0) (right!19 tree!0))) (assume (inv!2 (Node!17 (left!19 tree!0) (value!18 tree!0) (right!19 tree!0))) (Node!17 (left!19 tree!0) (value!18 tree!0) (right!19 tree!0))))) |error: Match is non-exhaustive!51|)))) (assume (= (content!0 res!0) (union (content!0 tree!0) (insert (as emptyset Int) value!1))) res!0)))
+
+(declare-const |error: Match is non-exhaustive!75| Tree!17)
+
+(datatype-invariant thiss!114 Tree!17 (ite (is-Node!17 thiss!114) (inv!0 (assume (is-Node!17 thiss!114) thiss!114)) true))
+
+(assert (not (= (content!0 (ite (is-Leaf!17 tree!0) (assume (inv!2 (Node!17 (assume (inv!2 Leaf!17) Leaf!17) value!1 (assume (inv!2 Leaf!17) Leaf!17))) (Node!17 (assume (inv!2 Leaf!17) Leaf!17) value!1 (assume (inv!2 Leaf!17) Leaf!17))) (ite (is-Node!17 tree!0) (ite (< (value!18 tree!0) value!1) (assume (inv!2 (Node!17 (left!19 tree!0) (value!18 tree!0) (insert!0 (right!19 tree!0) value!1))) (Node!17 (left!19 tree!0) (value!18 tree!0) (insert!0 (right!19 tree!0) value!1))) (ite (> (value!18 tree!0) value!1) (assume (inv!2 (Node!17 (insert!0 (left!19 tree!0) value!1) (value!18 tree!0) (right!19 tree!0))) (Node!17 (insert!0 (left!19 tree!0) value!1) (value!18 tree!0) (right!19 tree!0))) (assume (inv!2 (Node!17 (left!19 tree!0) (value!18 tree!0) (right!19 tree!0))) (Node!17 (left!19 tree!0) (value!18 tree!0) (right!19 tree!0))))) |error: Match is non-exhaustive!75|))) (union (content!0 tree!0) (insert (as emptyset Int) value!1)))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

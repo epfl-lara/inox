@@ -43,6 +43,14 @@ class Parser(file: File) {
     (for (cmd <- script.commands) yield cmd match {
       case CheckSat() =>
         val expr: Expr = locals.symbols.andJoin(assertions)
+        for (fd <- locals.symbols.functions.values) {
+          if (fd.fullBody.getType(locals.symbols) == Untyped) {
+            println(locals.symbols.explainTyping(fd.fullBody)(PrinterOptions(printUniqueIds = true, symbols = Some(locals.symbols))))
+          }
+        }
+        if (expr.getType(locals.symbols) == Untyped) {
+          println(locals.symbols.explainTyping(expr)(PrinterOptions(printUniqueIds = true, symbols = Some(locals.symbols))))
+        }
         Some((locals.symbols, expr))
 
       case _ =>
@@ -297,10 +305,6 @@ class Parser(file: File) {
       (None, locals.withSymbols(
         locals.symbols.withFunctions(Seq(fd)).withADTs(optAdt.toSeq)))
 
-    case CheckSat() =>
-      // FIXME: what do I do with this??
-      (None, locals)
-
     case _ =>
       throw new MissformedTIPException("unknown TIP command " + cmd, cmd.optPos)
   }
@@ -396,6 +400,10 @@ class Parser(file: File) {
     case QualifiedIdentifier(SimpleIdentifier(sym), None) if locals.isVariable(sym) =>
       locals.getVariable(sym)
 
+    case QualifiedIdentifier(SimpleIdentifier(sym), Some(sort)) if locals.isVariable(sym) =>
+      val v = locals.getVariable(sym).asInstanceOf[Variable]
+      Variable(v.id, extractSort(sort))
+
     case SMTAssume(pred, body) =>
       Assume(extractTerm(pred), extractTerm(body))
 
@@ -442,7 +450,7 @@ class Parser(file: File) {
       IntegerLiteral(n)
 
     case FixedSizeBitVectors.BitVectorLit(bs) =>
-      BVLiteral(BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i }, bs.size)
+      BVLiteral(BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
 
     case SDecimal(value) =>
       FractionLiteral(
@@ -504,7 +512,18 @@ class Parser(file: File) {
 
     case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), Seq(term))
     if locals.isADTSelector(sym) =>
-      ADTSelector(extractTerm(term), locals.getADTSelector(sym))
+      val id = locals.getADTSelector(sym)
+      val adt = extractTerm(term)
+      adt.getType(locals.symbols) match {
+        case tpe: ADTType => tpe.getADT(locals.symbols) match {
+          case tcons: TypedADTConstructor => ADTSelector(adt, id)
+          case tsort: TypedADTSort =>
+            val tcons = tsort.constructors.find(_.fields.exists(vd => vd.id == id)).getOrElse {
+              throw new MissformedTIPException("Coulnd't find corresponding constructor", sym.optPos)
+            }
+            ADTSelector(AsInstanceOf(adt, tcons.toType).setPos(term.optPos), id)
+        }
+      }
 
     case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("distinct")), None), args) =>
       val es = args.map(extractTerm).toArray
@@ -644,17 +663,17 @@ class Parser(file: File) {
   }).setPos(term.optPos)
 
   protected def extractSort(sort: Sort)(implicit locals: Locals): Type = (sort match {
-    case Sort(SMTIdentifier(SSymbol("bitvector"), Seq(SNumeral(n))), Seq()) => BVType(n.toInt)
+    case Sort(SMTIdentifier(SSymbol("bitvector" | "BitVec"), Seq(SNumeral(n))), Seq()) => BVType(n.toInt)
     case Sort(SimpleIdentifier(SSymbol("Bool")), Seq()) => BooleanType
     case Sort(SimpleIdentifier(SSymbol("Int")), Seq()) => IntegerType
 
     case Sort(SimpleIdentifier(SSymbol("Array")), Seq(from, to)) =>
       MapType(extractSort(from), extractSort(to))
 
-    case Sort(SimpleIdentifier(SSymbol("Set")), Seq(base)) =>
+    case Sets.SetSort(base) =>
       SetType(extractSort(base))
 
-    case Sort(SimpleIdentifier(SSymbol("Bag")), Seq(base)) =>
+    case Bags.BagSort(base) =>
       BagType(extractSort(base))
 
     case Sort(SimpleIdentifier(SSymbol("=>")), params :+ res) =>

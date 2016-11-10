@@ -97,13 +97,13 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
   protected def freshSym(name: String): SSymbol = id2sym(FreshIdentifier(name))
 
   /* Metadata for CC, and variables */
-  protected val constructors  = new IncrementalBijection[Type, SSymbol]()
-  protected val selectors     = new IncrementalBijection[(Type, Int), SSymbol]()
-  protected val testers       = new IncrementalBijection[Type, SSymbol]()
-  protected val variables     = new IncrementalBijection[Variable, SSymbol]()
-  protected val sorts         = new IncrementalBijection[Type, Sort]()
-  protected val functions     = new IncrementalBijection[TypedFunDef, SSymbol]()
-  protected val lambdas       = new IncrementalBijection[FunctionType, SSymbol]()
+  protected val constructors  = new IncrementalBijection[Type, SSymbol]
+  protected val selectors     = new IncrementalBijection[(Type, Int), SSymbol]
+  protected val testers       = new IncrementalBijection[Type, SSymbol]
+  protected val variables     = new IncrementalBijection[Variable, SSymbol]
+  protected val sorts         = new IncrementalBijection[Type, Sort]
+  protected val functions     = new IncrementalBijection[TypedFunDef, SSymbol]
+  protected val lambdas       = new IncrementalBijection[FunctionType, SSymbol]
 
   /* Helper functions */
 
@@ -129,7 +129,12 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
     quantifiedTerm(quantifier, exprOps.variablesOf(body).toSeq.map(_.toVal), body)
   }
 
-  protected def declareSort(t: Type): Sort = bestRealType(t) match {
+  protected final def declareSort(t: Type): Sort = {
+    val tpe = bestRealType(t)
+    sorts.cachedB(tpe)(computeSort(tpe))
+  }
+
+  protected def computeSort(t: Type): Sort = t match {
     case BooleanType => Core.BoolSort()
     case IntegerType => Ints.IntSort()
     case RealType    => Reals.RealSort()
@@ -137,9 +142,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
     case CharType    => FixedSizeBitVectors.BitVectorSort(32)
 
     case mt @ MapType(from, to) =>
-      sorts.cachedB(mt) {
-        Sort(SMTIdentifier(SSymbol("Array")), Seq(declareSort(from), declareSort(to)))
-      }
+      Sort(SMTIdentifier(SSymbol("Array")), Seq(declareSort(from), declareSort(to)))
 
     case FunctionType(from, to) =>
       Ints.IntSort()
@@ -251,7 +254,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
         declareVariable(Variable(FreshIdentifier("Unit"), UnitType))
 
       case IntegerLiteral(i)     => if (i >= 0) Ints.NumeralLit(i) else Ints.Neg(Ints.NumeralLit(-i))
-      case BVLiteral(bits, size) => FixedSizeBitVectors.BitVectorLit(List.range(1, size + 1).map(i => bits(i)))
+      case BVLiteral(bits, size) => FixedSizeBitVectors.BitVectorLit(List.range(1, size + 1).map(i => bits(size + 1 - i)))
       case FractionLiteral(n, d) => Reals.Div(Reals.NumeralLit(n), Reals.NumeralLit(d))
       case CharLiteral(c)        => FixedSizeBitVectors.BitVectorLit(Hexadecimal.fromInt(c.toInt))
       case BooleanLiteral(v)     => Core.BoolConst(v)
@@ -278,27 +281,18 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
       case io @ IsInstanceOf(e, ADTType(id, tps)) =>
         val adt = ADTType(id, tps map bestRealType)
         declareSort(adt)
-        val cases = adt.lookupADT match {
-          case Some(tsort: TypedADTSort) =>
-            tsort.constructors
-          case Some(tcons: TypedADTConstructor) =>
-            Seq(tcons)
-          case None =>
-            unsupported(io, "isInstanceOf on non-class")
-        }
-        val oneOf = cases map (_.toType) map testers.toB
-        oneOf match {
-          case Seq(tester) =>
+        adt.getADT match {
+          case tcons: TypedADTConstructor =>
+            val tester = testers.toB(tcons.toType)
             FunctionApplication(tester, Seq(toSMT(e)))
-          case more =>
-            val es = freshSym("e")
-            SMTLet(VarBinding(es, toSMT(e)), Seq(),
-              SmtLibConstructors.or(oneOf.map(FunctionApplication(_, Seq(es: Term)))))
+          case _ =>
+            toSMT(BooleanLiteral(true))
         }
 
       case ADT(ADTType(id, tps), es) =>
         val adt = ADTType(id, tps map bestRealType)
         declareSort(adt)
+        println(adt, constructors)
         val constructor = constructors.toB(adt)
         if (es.isEmpty) {
           constructor

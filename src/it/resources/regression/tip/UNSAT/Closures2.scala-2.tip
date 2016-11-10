@@ -1,0 +1,17 @@
+(declare-datatypes (A1!0 R!21) ((fun1!9 (fun1!10 (f!35 (=> A1!0 R!21)) (pre!14 (=> A1!0 Bool))))))
+
+(define-fun union!0 ((s1!0 (fun1!9 (_ BitVec 32) Bool)) (s2!0 (fun1!9 (_ BitVec 32) Bool))) (fun1!9 (_ BitVec 32) Bool) (fun1!10 (lambda ((x!1 (_ BitVec 32))) (or (assume (@ (pre!14 s1!0) x!1) (@ (f!35 s1!0) x!1)) (assume (@ (pre!14 s2!0) x!1) (@ (f!35 s2!0) x!1)))) (lambda ((x!44 (_ BitVec 32))) true)))
+
+(define-fun set!0 ((i!0 (_ BitVec 32))) (fun1!9 (_ BitVec 32) Bool) (fun1!10 (lambda ((x!0 (_ BitVec 32))) (= x!0 i!0)) (lambda ((x!45 (_ BitVec 32))) true)))
+
+(define-fun set123!0 () (fun1!9 (_ BitVec 32) Bool) (union!0 (set!0 #b00000000000000000000000000000001) (union!0 (set!0 #b00000000000000000000000000000010) (set!0 #b00000000000000000000000000000011))))
+
+(define-fun diff!0 ((s1!2 (fun1!9 (_ BitVec 32) Bool)) (s2!2 (fun1!9 (_ BitVec 32) Bool))) (fun1!9 (_ BitVec 32) Bool) (fun1!10 (lambda ((x!3 (_ BitVec 32))) (and (assume (@ (pre!14 s1!2) x!3) (@ (f!35 s1!2) x!3)) (not (assume (@ (pre!14 s2!2) x!3) (@ (f!35 s2!2) x!3))))) (lambda ((x!43 (_ BitVec 32))) true)))
+
+(define-fun intersection!0 ((s1!1 (fun1!9 (_ BitVec 32) Bool)) (s2!1 (fun1!9 (_ BitVec 32) Bool))) (fun1!9 (_ BitVec 32) Bool) (fun1!10 (lambda ((x!2 (_ BitVec 32))) (and (assume (@ (pre!14 s1!1) x!2) (@ (f!35 s1!1) x!2)) (assume (@ (pre!14 s2!1) x!2) (@ (f!35 s2!1) x!2)))) (lambda ((x!42 (_ BitVec 32))) true)))
+
+(assert (not (let ((s1!4 set123!0)) (let ((holds!30 (let ((s3!0 (diff!0 s1!4 (intersection!0 s1!4 (union!0 (set!0 #b00000000000000000000000000000001) (set!0 #b00000000000000000000000000000011)))))) (and (and (assume (@ (pre!14 s3!0) #b00000000000000000000000000000010) (@ (f!35 s3!0) #b00000000000000000000000000000010)) (not (assume (@ (pre!14 s3!0) #b00000000000000000000000000000001) (@ (f!35 s3!0) #b00000000000000000000000000000001)))) (not (assume (@ (pre!14 s3!0) #b00000000000000000000000000000011) (@ (f!35 s3!0) #b00000000000000000000000000000011))))))) holds!30))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

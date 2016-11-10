@@ -1,0 +1,13 @@
+(declare-datatypes (A1!0 R!21) ((fun1!1 (fun1!2 (f!31 (=> A1!0 R!21)) (pre!10 (=> A1!0 Bool))))))
+
+(define-fun union!0 ((s1!0 (fun1!1 (_ BitVec 32) Bool)) (s2!0 (fun1!1 (_ BitVec 32) Bool))) (fun1!1 (_ BitVec 32) Bool) (fun1!2 (lambda ((x!1 (_ BitVec 32))) (or (assume (@ (pre!10 s1!0) x!1) (@ (f!31 s1!0) x!1)) (assume (@ (pre!10 s2!0) x!1) (@ (f!31 s2!0) x!1)))) (lambda ((x!44 (_ BitVec 32))) true)))
+
+(define-fun set!0 ((i!0 (_ BitVec 32))) (fun1!1 (_ BitVec 32) Bool) (fun1!2 (lambda ((x!0 (_ BitVec 32))) (= x!0 i!0)) (lambda ((x!45 (_ BitVec 32))) true)))
+
+(define-fun set123!0 () (fun1!1 (_ BitVec 32) Bool) (union!0 (set!0 #b00000000000000000000000000000001) (union!0 (set!0 #b00000000000000000000000000000010) (set!0 #b00000000000000000000000000000011))))
+
+(assert (not (let ((s2!3 (union!0 set123!0 (set!0 #b00000000000000000000000000000100)))) (let ((holds!29 (and (and (and (assume (@ (pre!10 s2!3) #b00000000000000000000000000000001) (@ (f!31 s2!3) #b00000000000000000000000000000001)) (assume (@ (pre!10 s2!3) #b00000000000000000000000000000010) (@ (f!31 s2!3) #b00000000000000000000000000000010))) (assume (@ (pre!10 s2!3) #b00000000000000000000000000000011) (@ (f!31 s2!3) #b00000000000000000000000000000011))) (assume (@ (pre!10 s2!3) #b00000000000000000000000000000100) (@ (f!31 s2!3) #b00000000000000000000000000000100))))) holds!29))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

@@ -1,0 +1,39 @@
+(declare-datatypes (T!4) ((List!8 (Nil!5) (Cons!5 (h!50 T!4) (t!57 (List!8 T!4))))))
+
+(declare-const list!3 (List!8 Int))
+
+(declare-datatypes (A0!3 A1!13) ((tuple2!4 (tuple2!5 (_1!2 A0!3) (_2!2 A1!13)))))
+
+(declare-const |error: Match is non-exhaustive!67| Int)
+
+(define-fun-rec (par (T!91) (size!0 ((thiss!106 (List!8 T!91))) Int (let ((x$1!2 (ite (is-Nil!5 thiss!106) 0 (ite (is-Cons!5 thiss!106) (+ 1 (size!0 (t!57 thiss!106))) |error: Match is non-exhaustive!67|)))) (assume (>= x$1!2 0) x$1!2)))))
+
+(declare-const |error: Match is non-exhaustive!61| (tuple2!4 (List!8 Int) (List!8 Int)))
+
+(define-fun (par (T!2) (empty!0 () (Bag T!2) (as bag.empty T!2))))
+
+(declare-const (par (T!0) (|error: Match is non-exhaustive!68| (Bag T!0))))
+
+(define-fun-rec (par (T!0) (bag!0 ((list!0 (List!8 T!0))) (Bag T!0) (ite (is-Nil!5 list!0) (as empty!0 (Bag T!0)) (ite (is-Cons!5 list!0) (bag.insert (bag!0 (t!57 list!0)) (h!50 list!0)) (as |error: Match is non-exhaustive!68| (Bag T!0)))))))
+
+(define-fun-rec split!0 ((list!2 (List!8 Int))) (tuple2!4 (List!8 Int) (List!8 Int)) (assume (> (size!0 list!2) 1) (let ((res!1 (ite (and (is-Cons!5 list!2) (<= (size!0 (t!57 list!2)) 2)) (tuple2!5 (Cons!5 (h!50 list!2) (as Nil!5 (List!8 Int))) (t!57 list!2)) (ite (and (is-Cons!5 list!2) (is-Cons!5 (t!57 list!2))) (let ((x$1!0 (tuple2!5 (_1!2 (split!0 (t!57 (t!57 list!2)))) (_2!2 (split!0 (t!57 (t!57 list!2))))))) (let ((s1!0 (_1!2 x$1!0))) (let ((s2!0 (_2!2 x$1!0))) (tuple2!5 (Cons!5 (h!50 list!2) s1!0) (Cons!5 (h!50 (t!57 list!2)) s2!0))))) |error: Match is non-exhaustive!61|)))) (assume (and (and (and (= (bag.union (bag!0 (_1!2 res!1)) (bag!0 (_2!2 res!1))) (bag!0 list!2)) (= (+ (size!0 (_1!2 res!1)) (size!0 (_2!2 res!1))) (size!0 list!2))) (> (size!0 (_1!2 res!1)) 0)) (> (size!0 (_2!2 res!1)) 0)) res!1))))
+
+(define-fun-rec isSorted!0 ((list!1 (List!8 Int))) Bool (ite (and (is-Cons!5 list!1) (is-Cons!5 (t!57 list!1))) (and (<= (h!50 list!1) (h!50 (t!57 list!1))) (isSorted!0 (t!57 list!1))) true))
+
+(declare-const (par (T!31) (|error: Match is non-exhaustive!7| (List!8 T!31))))
+
+(declare-const (par (T!50) (|error: Match is non-exhaustive!26| (Set T!50))))
+
+(define-fun-rec (par (T!50) (content!2 ((thiss!38 (List!8 T!50))) (Set T!50) (ite (is-Nil!5 thiss!38) (as emptyset T!50) (ite (is-Cons!5 thiss!38) (union (insert (as emptyset T!50) (h!50 thiss!38)) (content!2 (t!57 thiss!38))) (as |error: Match is non-exhaustive!26| (Set T!50)))))))
+
+(define-fun-rec (par (T!31) (++!0 ((thiss!10 (List!8 T!31)) (that!10 (List!8 T!31))) (List!8 T!31) (let ((res!5 (ite (is-Nil!5 thiss!10) that!10 (ite (is-Cons!5 thiss!10) (Cons!5 (h!50 thiss!10) (++!0 (t!57 thiss!10) that!10)) (as |error: Match is non-exhaustive!7| (List!8 T!31)))))) (assume (and (and (= (content!2 res!5) (union (content!2 thiss!10) (content!2 that!10))) (= (size!0 res!5) (+ (size!0 thiss!10) (size!0 that!10)))) (or (not (= that!10 (as Nil!5 (List!8 T!31)))) (= res!5 thiss!10))) res!5)))))
+
+(define-fun-rec merge!0 ((l1!0 (List!8 Int)) (l2!0 (List!8 Int))) (List!8 Int) (assume (and (isSorted!0 l1!0) (isSorted!0 l2!0)) (let ((res!0 (ite (and (is-Cons!5 l1!0) (is-Cons!5 l2!0)) (ite (<= (h!50 l1!0) (h!50 l2!0)) (Cons!5 (h!50 l1!0) (merge!0 (t!57 l1!0) l2!0)) (Cons!5 (h!50 l2!0) (merge!0 l1!0 (t!57 l2!0)))) (++!0 l1!0 l2!0)))) (assume (and (and (isSorted!0 res!0) (= (bag!0 res!0) (bag.union (bag!0 l1!0) (bag!0 l2!0)))) (= (size!0 res!0) (+ (size!0 l1!0) (size!0 l2!0)))) res!0))))
+
+(define-fun-rec mergeSort!0 ((list!3 (List!8 Int))) (List!8 Int) (let ((res!2 (ite (and (is-Cons!5 list!3) (is-Cons!5 (t!57 list!3))) (let ((x$2!0 (tuple2!5 (_1!2 (split!0 list!3)) (_2!2 (split!0 list!3))))) (let ((s1!2 (_1!2 x$2!0))) (let ((s2!2 (_2!2 x$2!0))) (merge!0 (mergeSort!0 s1!2) (mergeSort!0 s2!2))))) list!3))) (assume (and (and (isSorted!0 res!2) (= (bag!0 res!2) (bag!0 list!3))) (= (size!0 res!2) (size!0 list!3))) res!2)))
+
+(assert (not (let ((res!34 (ite (and (is-Cons!5 list!3) (is-Cons!5 (t!57 list!3))) (let ((x$2!0 (tuple2!5 (_1!2 (split!0 list!3)) (_2!2 (split!0 list!3))))) (merge!0 (mergeSort!0 (_1!2 x$2!0)) (mergeSort!0 (_2!2 x$2!0)))) list!3))) (and (and (isSorted!0 res!34) (= (bag!0 res!34) (bag!0 list!3))) (= (size!0 res!34) (size!0 list!3))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

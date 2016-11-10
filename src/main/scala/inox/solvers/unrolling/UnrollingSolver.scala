@@ -47,11 +47,6 @@ trait AbstractUnrollingSolver extends Solver { self =>
   protected final def encode(tpe: Type): t.Type = programEncoder.encode(tpe)
   protected final def decode(tpe: t.Type): Type = programEncoder.decode(tpe)
 
-  /*
-  protected final def encode(ft: FunctionType): t.FunctionType =
-    programEncoder.encode(ft).asInstanceOf[t.FunctionType]
-  */
-
   protected val templates: Templates {
     val program: targetProgram.type
     type Encoded = self.Encoded
@@ -246,7 +241,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
         rec(v, tpe)
       }
 
-      if (wrapped.modelEval(v, tpe).isDefined) {
+      val ev = wrapped.modelEval(v, tpe).filterNot(_.isInstanceOf[Variable])
+      if (ev.isDefined) {
         val (functions, recons) = functionsOf(v, tpe)
         recons(functions.map { case (f, tpe) =>
           extractFunction(f, bestRealType(tpe).asInstanceOf[FunctionType])

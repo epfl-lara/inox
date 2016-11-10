@@ -7,30 +7,56 @@ import utils._
 import solvers._
 
 trait TipDebugger extends Solver {
+  val program: Program
   import program._
+  import program.trees._
+  import SolverResponses._
+
+  protected val encoder: ast.ProgramEncoder { val sourceProgram: program.type; val t: inox.trees.type }
 
   implicit val debugSection: DebugSection
 
   abstract override def free(): Unit = {
     super.free()
-    debugOut.foreach(_.close())
+    debugOut.foreach(_.free())
   }
 
-  protected lazy val debugOut: Option[java.io.FileWriter] = {
+  protected lazy val debugOut: Option[tip.Printer] = {
     if (ctx.reporter.isDebugEnabled) {
-      val file = ctx.options.findOptionOrDefault(Main.optFiles).headOption.map(_.getName).getOrElse("NA")
-      val n = DebugFileNumbers.next(file)
-      val fileName = s"tip-sessions/$file-$n.tip"
+      val files = ctx.options.findOptionOrDefault(Main.optFiles)
+      if (files.nonEmpty && files.forall(_.getName.endsWith(".tip"))) {
+        // don't output TIP when running on a TIP benchmark
+        None
+      } else {
+        val file = files.headOption.map(_.getName).getOrElse("NA")
+        val n = DebugFileNumbers.next(file)
+        val fileName = s"tip-sessions/$file-$n.tip"
 
-      val javaFile = new java.io.File(fileName)
-      javaFile.getParentFile.mkdirs()
+        val javaFile = new java.io.File(fileName)
+        javaFile.getParentFile.mkdirs()
 
-      ctx.reporter.debug(s"Outputting tip session into $fileName")
-      val fw = new java.io.FileWriter(javaFile, false)
-      Some(fw)
+        ctx.reporter.debug(s"Outputting tip session into $fileName")
+        val fw = new java.io.FileWriter(javaFile, false)
+        Some(new tip.Printer(encoder.targetProgram, fw))
+      }
     } else {
       None
     }
+  }
+
+  abstract override def assertCnstr(expr: Expr): Unit = {
+    debugOut.foreach { o => o.printScript(encoder.encode(expr)) }
+    super.assertCnstr(expr)
+  }
+
+  abstract override def check(config: CheckConfiguration): config.Response[Model, Assumptions] = {
+    debugOut.foreach { o => o.emit(_root_.smtlib.parser.Commands.CheckSat()) }
+    super.check(config)
+  }
+
+  abstract override def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
+    debugOut.foreach { o => o.emit("; check-assumptions required here, but not part of tip standard") }
+    super.checkAssumptions(config)(assumptions)
   }
 }
 

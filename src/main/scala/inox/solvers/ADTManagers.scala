@@ -32,6 +32,8 @@ trait ADTManagers {
     private val declared = new IncrementalSet[Type]
     protected val incrementals = Seq(declared)
 
+    def types: Set[Type] = declared.toSet
+
     def declareADTs(tpe: Type, declare: Seq[(Type, DataType)] => Unit): Unit = {
       val deps = typeDependencies(tpe)
       val transitiveDeps: Map[Type, Set[Type]] = utils.fixpoint { (map: Map[Type, Set[Type]]) =>
