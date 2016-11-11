@@ -8,7 +8,7 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
   import trees._
   import dsl._
 
-  override val configurations = for {
+  override def configurations = for {
     solverName   <- Seq("nativez3", "unrollz3", "smt-z3", "smt-cvc4")
     feelingLucky <- Seq(false, true)
   } yield Seq(

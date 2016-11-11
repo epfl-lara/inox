@@ -9,7 +9,7 @@ import utils._
 
 trait TestSuite extends FunSuite with Matchers with Timeouts {
 
-  val configurations: Seq[Seq[OptionValue[_]]] = Seq(Seq.empty)
+  def configurations: Seq[Seq[OptionValue[_]]] = Seq(Seq.empty)
 
   private val counter = new UniqueCounter[Unit]
   counter.nextGlobal // Start at 1

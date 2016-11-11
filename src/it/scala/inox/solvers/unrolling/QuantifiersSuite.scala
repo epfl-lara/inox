@@ -8,7 +8,7 @@ class QuantifiersSuite extends TestSuite {
   import inox.trees._
   import dsl._
 
-  override val configurations = List(
+  override def configurations = List(
     ("nativez3", false, false, false),
     ("smt-z3",   false, false, false),
     ("smt-cvc4", false, false, false),
