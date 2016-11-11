@@ -322,7 +322,19 @@ trait QuantificationTemplates { self: Templates =>
     } else {
       ctx.reporter.debug(" -> instantiating matcher " + blockers.mkString("{",",","}") + " ==> " + matcher)
       handledMatchers += relevantBlockers -> matcher
-      quantifications.flatMap(_.instantiate(relevantBlockers, matcher, defer))
+      val qClauses: Clauses = quantifications.flatMap(_.instantiate(relevantBlockers, matcher, defer))
+
+      val mClauses: Clauses = matcherKey(matcher) match {
+        case FunctionKey(tfd) =>
+          val (b, encClauses) = encodeBlockers(relevantBlockers)
+          encClauses ++ unrollInvariant(b, matcher.encoded, tfd.returnType)
+        case TypeKey(MapType(_, to)) =>
+          val (b, encClauses) = encodeBlockers(relevantBlockers)
+          encClauses ++ unrollInvariant(b, matcher.encoded, to)
+        case _ => Seq.empty
+      }
+
+      qClauses ++ mClauses
     }
   }
 
