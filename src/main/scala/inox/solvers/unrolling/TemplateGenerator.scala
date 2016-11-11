@@ -43,7 +43,7 @@ trait TemplateGenerator { self: Templates =>
       return cache(tfd)
     }
 
-    val lambdaBody : Expr = simplifyHOFunctions(tfd.fullBody)
+    val lambdaBody : Expr = simplifyFormula(tfd.fullBody)
 
     val funDefArgs: Seq[Variable] = tfd.params.map(_.toVariable)
     val lambdaArguments: Seq[Variable] = lambdaArgs(lambdaBody)

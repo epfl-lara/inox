@@ -622,6 +622,10 @@ trait SymbolOps { self: TypeOps =>
     liftToLambdas(expr)
   }
 
+  def simplifyFormula(e: Expr): Expr = {
+    simplifyHOFunctions(simplifyByConstructors(simplifyQuantifications(e)))
+  }
+
   // Use this only to debug isValueOfType
   private implicit class BooleanAdder(b: Boolean) {
     @inline def <(msg: => String) = {/*if(!b) println(msg); */b}

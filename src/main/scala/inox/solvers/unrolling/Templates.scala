@@ -557,7 +557,7 @@ trait Templates extends TemplateGenerator
 
     val tpeClauses = bindings.flatMap { case (v, s) => registerSymbol(encodedStart, s, v.getType) }.toSeq
 
-    val instExpr = simplifyHOFunctions(simplifyQuantifications(expr))
+    val instExpr = simplifyFormula(expr)
     val (condVars, exprVars, condTree, guardedExprs, eqs, lambdas, quants) =
       mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
 

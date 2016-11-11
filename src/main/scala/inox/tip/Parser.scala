@@ -43,14 +43,6 @@ class Parser(file: File) {
     (for (cmd <- script.commands) yield cmd match {
       case CheckSat() =>
         val expr: Expr = locals.symbols.andJoin(assertions)
-        for (fd <- locals.symbols.functions.values) {
-          if (fd.fullBody.getType(locals.symbols) == Untyped) {
-            println(locals.symbols.explainTyping(fd.fullBody)(PrinterOptions(printUniqueIds = true, symbols = Some(locals.symbols))))
-          }
-        }
-        if (expr.getType(locals.symbols) == Untyped) {
-          println(locals.symbols.explainTyping(expr)(PrinterOptions(printUniqueIds = true, symbols = Some(locals.symbols))))
-        }
         Some((locals.symbols, expr))
 
       case _ =>
