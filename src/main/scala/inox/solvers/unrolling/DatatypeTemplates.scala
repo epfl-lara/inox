@@ -183,7 +183,8 @@ trait DatatypeTemplates { self: Templates =>
                 storeCond(pathVar, newBool)
 
                 for (vd <- tcons.fields) {
-                  rec(newBool, ADTSelector(AsInstanceOf(expr, tpe), vd.id), state.copy(recurseSort = false))
+                  val ex = if (adt != tpe) AsInstanceOf(expr, tpe) else expr
+                  rec(newBool, ADTSelector(ex, vd.id), state.copy(recurseSort = false))
                 }
 
                 val vars = tpes.keys.toSet ++ functions.keys ++

@@ -13,7 +13,7 @@ import smtlib.theories.experimental._
 import smtlib.extensions.tip.Terms.{Lambda => SMTLambda, Application => SMTApplication, _}
 import smtlib.extensions.tip.Commands._
 
-import Terms.{Assume => SMTAssume}
+import Terms.{Assume => SMTAssume, Choose => SMTChoose}
 import Commands._
 
 import scala.collection.BitSet
@@ -406,6 +406,10 @@ class Parser(file: File) {
 
     case SMTAssume(pred, body) =>
       Assume(extractTerm(pred), extractTerm(body))
+
+    case SMTChoose(sym, sort, pred) =>
+      val vd = ValDef(FreshIdentifier(sym.name), extractSort(sort))
+      Choose(vd, extractTerm(pred)(locals.withVariable(sym, vd.toVariable)))
 
     case SMTLet(binding, bindings, term) =>
       var locs = locals

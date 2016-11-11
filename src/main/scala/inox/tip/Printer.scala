@@ -11,7 +11,7 @@ import smtlib.extensions.tip.Terms.{Lambda => SMTLambda, Application => SMTAppli
 import smtlib.extensions.tip.Commands._
 import smtlib.Interpreter
 
-import Terms.{Assume => SMTAssume}
+import Terms.{Assume => SMTAssume, Choose => SMTChoose}
 import Commands._
 
 import java.io.Writer
@@ -355,6 +355,11 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
         SMTIdentifier(declareFunction(fi.tfd)),
         Some(declareSort(fi.tfd.returnType))
       )
+
+    case Choose(vd, pred) =>
+      val sym = id2sym(vd.id)
+      val sort = declareSort(vd.tpe)
+      SMTChoose(sym, declareSort(vd.tpe), toSMT(pred)(bindings + (vd.id -> (sym: Term))))
 
     case _ => super.toSMT(e)
   }
