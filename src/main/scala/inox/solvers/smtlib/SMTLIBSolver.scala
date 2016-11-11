@@ -73,8 +73,8 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
                     val value = fromSMT(e, v.getType)(Map(), modelFunDefs)
                     Some(v.toVal -> value)
                   } catch {
-                    case _: Unsupported =>
-                      None
+                    case _: Unsupported => None
+                    case _: java.lang.StackOverflowError => None
                   }
                 case _ => None
               }.toMap
