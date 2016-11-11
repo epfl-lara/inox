@@ -330,31 +330,20 @@ trait SymbolOps { self: TypeOps =>
   }
 
   private def hasInstance(tadt: TypedADTDefinition): Boolean = {
-    val recursive = Set(tadt, tadt.root)
+    def rec(adt: TypedADTDefinition, seen: Set[TypedADTDefinition]): Boolean = {
+      if (seen(adt)) false else (adt match {
+        case tsort: TypedADTSort =>
+          tsort.constructors.exists(rec(_, seen + tsort))
 
-    def isRecursive(tpe: Type, seen: Set[TypedADTDefinition]): Boolean = tpe match {
-      case adt: ADTType =>
-        val tadt = adt.getADT
-        if (seen(tadt)) {
-          false
-        } else if (recursive(tadt)) {
-          true
-        } else tadt match {
-          case tcons: TypedADTConstructor =>
-            tcons.fieldsTypes.exists(isRecursive(_, seen + tadt))
-          case _ => false
-        }
-      case _ => false
+        case tcons: TypedADTConstructor =>
+          tcons.fieldsTypes.flatMap(tpe => typeOps.collect {
+            case t: ADTType => Set(t.getADT)
+            case _ => Set.empty[TypedADTDefinition]
+          } (tpe)).forall(rec(_, seen + tcons))
+      })
     }
 
-    val tconss = tadt match {
-      case tsort: TypedADTSort => tsort.constructors
-      case tcons: TypedADTConstructor => Seq(tcons)
-    }
-
-    tconss.exists { tcons =>
-      tcons.fieldsTypes.forall(tpe => !isRecursive(tpe, Set.empty))
-    }
+    rec(tadt, Set.empty)
   }
 
   /** Returns simplest value of a given type */

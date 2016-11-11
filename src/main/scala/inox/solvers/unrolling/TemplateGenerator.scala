@@ -339,7 +339,7 @@ trait TemplateGenerator { self: Templates =>
           depConds, depExprs, depTree, depClauses, depCalls, depApps, depMatchers, depLambdas, depQuants)
 
         val realLambda = if (isNormalForm) l else struct
-        val lid = Variable(FreshIdentifier("lambda", true), bestRealType(l.getType))
+        val lid = Variable(FreshIdentifier("lambda", true), l.getType)
         val clauses = liftedEquals(lid, realLambda, idArgs, inlineFirst = true)
 
         val clauseSubst: Map[Variable, Encoded] = depSubst ++ (idArgs zip trArgs)
