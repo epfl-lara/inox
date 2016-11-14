@@ -228,10 +228,24 @@ trait Constructors {
       Application(fn, realArgs)
    }
 
+  /** $encodingof simplified `assume(pred, body)` (assumption).
+    * Transforms
+    * {{{ assume(assume(pred1, pred2), body) }}}
+    * and
+    * {{{ assume(pred1, assume(pred2, body)) }}}
+    * into
+    * {{{ assume(pred1 && pred2, body) }}}
+    * @see [[purescala.Expressions.Assume Assume]]
+    */
+  def assume(pred: Expr, body: Expr): Expr = (pred, body) match {
+    case (Assume(pred1, pred2), _) => assume(and(pred1, pred2), body)
+    case (_, Assume(pred2, body)) => assume(and(pred, pred2), body)
+    case (BooleanLiteral(true), body) => body
+    case _ => Assume(pred, body)
+  }
+
   /** $encodingof simplified `... + ...` (plus).
     * @see [[purescala.Expressions.Plus Plus]]
-    * @see [[purescala.Expressions.BVPlus BVPlus]]
-    * @see [[purescala.Expressions.RealPlus RealPlus]]
     */
   def plus(lhs: Expr, rhs: Expr): Expr = (lhs, rhs) match {
     case (IntegerLiteral(bi), _) if bi == 0 => rhs

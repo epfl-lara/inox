@@ -248,24 +248,6 @@ trait SymbolOps { self: TypeOps =>
 
     def inlineQuantifications(e: Expr): Expr = postMap {
       case Forall(args1, Forall(args2, body)) => Some(Forall(args1 ++ args2, body))
-      case a @ Assume(pred, body) =>
-        val vars = variablesOf(a)
-        var assumptions: Seq[Expr] = Seq.empty
-        object transformer extends transformers.TransformerWithPC {
-          val trees: self.trees.type = self.trees
-          val symbols: self.symbols.type = self.symbols
-          val initEnv = Path.empty
-
-          override protected def rec(e: Expr, path: Path): Expr = e match {
-            case Assume(pred, body) if (variablesOf(pred) ++ path.variables) subsetOf vars =>
-              assumptions :+= path implies pred
-              rec(body, path withCond pred)
-            case _ => super.rec(e, path)
-          }
-        }
-        val newPred = transformer.transform(pred)
-        val newBody = transformer.transform(body)
-        Some(Assume(andJoin(newPred +: assumptions), newBody))
       case _ => None
     } (e)
 
@@ -709,9 +691,40 @@ trait SymbolOps { self: TypeOps =>
     })
   }
 
+  def simplifyAssumptions(expr: Expr): Expr = {
+    def lift(expr: Expr): Expr = {
+      val vars = variablesOf(expr)
+      var assumptions: Seq[Expr] = Seq.empty
+
+      object transformer extends transformers.TransformerWithPC {
+        val trees: self.trees.type = self.trees
+        val symbols: self.symbols.type = self.symbols
+        val initEnv = Path.empty
+
+        override protected def rec(e: Expr, path: Path): Expr = e match {
+          case Assume(pred, body) if (variablesOf(pred) ++ path.variables) subsetOf vars =>
+            assumptions :+= path implies pred
+            rec(body, path withCond pred)
+          case _ => super.rec(e, path)
+        }
+      }
+
+      val (vs, es, tps, recons) = deconstructor.deconstruct(expr)
+      val newEs = es.map(transformer.transform)
+      assume(andJoin(assumptions.toSeq), recons(vs, newEs, tps))
+    }
+
+    postMap(e => Some(lift(e)))(expr)
+  }
+
   def simplifyFormula(e: Expr, simplify: Boolean = true): Expr = {
     if (simplify) {
-      fixpoint((e: Expr) => simplifyHOFunctions(simplifyByConstructors(simplifyQuantifications(e))))(e)
+      val simp: Expr => Expr =
+        ((e: Expr) => simplifyHOFunctions(e))     compose
+        ((e: Expr) => simplifyByConstructors(e))  compose
+        ((e: Expr) => simplifyAssumptions(e))     compose
+        ((e: Expr) => simplifyQuantifications(e))
+      fixpoint(simp)(e)
     } else {
       simplifyHOFunctions(e, simplify = false)
     }

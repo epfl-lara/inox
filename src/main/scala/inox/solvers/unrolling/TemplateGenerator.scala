@@ -302,7 +302,7 @@ trait TemplateGenerator { self: Templates =>
         val trArgs : Seq[Encoded] = idArgs.map(id => substMap.getOrElse(id, encodeSymbol(id)))
 
         val (struct, deps) = normalizeStructure(l)
-        val sortedDeps = deps.toSeq.sortBy(_._1.id.uniqueName)
+        val sortedDeps = exprOps.variablesOf(struct).map(v => v -> deps(v)).toSeq.sortBy(_._1.id.uniqueName)
 
         val isNormalForm: Boolean = {
           def extractBody(e: Expr): (Seq[ValDef], Expr) = e match {

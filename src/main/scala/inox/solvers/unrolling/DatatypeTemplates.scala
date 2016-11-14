@@ -601,7 +601,7 @@ trait DatatypeTemplates { self: Templates =>
 
     def apply(dtpe: Type, containerType: FunctionType): CaptureTemplate = cache.getOrElseUpdate(dtpe -> containerType, {
       val (ps, idT, exprVars, condVars, condTree, clauses, types, funs) = tmplCache.getOrElseUpdate(dtpe, {
-        object b extends { val tpe = dtpe } with Builder
+        object b extends { val tpe = dtpe } with super[FunctionUnrolling].Builder with super[ADTUnrolling].Builder
         assert(b.calls.isEmpty, "Captured function templates shouldn't have any calls: " + b.calls)
         (b.pathVar -> b.pathVarT, b.idT, b.exprs, b.conds, b.tree, b.clauses, b.types, b.funs)
       })
