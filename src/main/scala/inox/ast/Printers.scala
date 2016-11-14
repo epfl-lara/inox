@@ -367,6 +367,7 @@ trait Printers {
 
   protected def isSimpleExpr(e: Expr): Boolean = e match {
     case _: Let => false
+    case _: Assume => false
     case _ => true
   }
 

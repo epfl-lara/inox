@@ -69,7 +69,7 @@ trait LambdaTemplates { self: Templates =>
 
       val id = ids._2
       val tpe = ids._1.getType.asInstanceOf[FunctionType]
-      val (clauses, blockers, applications, matchers, templateString) =
+      val (clauses, blockers, applications, matchers, pointers, templateString) =
         Template.encode(pathVar, arguments, condVars, exprVars, guardedExprs, equations,
           lambdas, quantifications, substMap = baseSubstMap + ids, optApp = Some(id -> tpe))
 
@@ -81,7 +81,7 @@ trait LambdaTemplates { self: Templates =>
         ids, pathVar, arguments,
         condVars, exprVars, condTree,
         clauses, blockers, applications, matchers,
-        lambdas, quantifications,
+        lambdas, quantifications, pointers,
         structure,
         lambda, lambdaString, false
       )
@@ -140,7 +140,8 @@ trait LambdaTemplates { self: Templates =>
     val applications: Apps,
     val matchers: Matchers,
     val lambdas: Seq[LambdaTemplate],
-    val quantifications: Seq[QuantificationTemplate]) {
+    val quantifications: Seq[QuantificationTemplate],
+    val pointers: Map[Encoded, Encoded]) {
 
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]) = new LambdaStructure(
       lambda,
@@ -152,7 +153,8 @@ trait LambdaTemplates { self: Templates =>
       applications.map { case (b, fas) => substituter(b) -> fas.map(_.substitute(substituter, msubst)) },
       matchers.map { case (b, ms) => substituter(b) -> ms.map(_.substitute(substituter, msubst)) },
       lambdas.map(_.substitute(substituter, msubst)),
-      quantifications.map(_.substitute(substituter, msubst)))
+      quantifications.map(_.substitute(substituter, msubst)),
+      pointers.map(p => substituter(p._1) -> substituter(p._2)))
 
     /** The [[key]] value (tuple of [[lambda]] and [[dependencies]]) is used
       * to determine syntactic equality between lambdas. If the keys of two
@@ -170,8 +172,8 @@ trait LambdaTemplates { self: Templates =>
       * in those handled by the solver.
       */
     lazy val (key, instantiation, locals, instantiationSubst) = {
-      val (substMap, substInst) = Template.substitution(
-        condVars, exprVars, condTree, lambdas, quantifications, Map.empty, pathVar._2)
+      val (substMap, substInst) = Template.substitution(condVars, exprVars, condTree,
+        lambdas, quantifications, pointers, Map.empty, pathVar._2)
       val tmplInst = Template.instantiate(clauses, blockers, applications, matchers, substMap)
       val instantiation = substInst ++ tmplInst
 
@@ -209,6 +211,7 @@ trait LambdaTemplates { self: Templates =>
     val matchers: Matchers,
     val lambdas: Seq[LambdaTemplate],
     val quantifications: Seq[QuantificationTemplate],
+    val pointers: Map[Encoded, Encoded],
     val structure: LambdaStructure,
     val lambda: Lambda,
     private[unrolling] val stringRepr: () => String,
@@ -227,6 +230,7 @@ trait LambdaTemplates { self: Templates =>
       matchers.map { case (b, ms) => substituter(b) -> ms.map(_.substitute(substituter, msubst)) },
       lambdas.map(_.substitute(substituter, msubst)),
       quantifications.map(_.substitute(substituter, msubst)),
+      pointers.map(p => substituter(p._1) -> substituter(p._2)),
       structure.substitute(substituter, msubst),
       lambda, stringRepr, isConcrete)
 
@@ -243,6 +247,7 @@ trait LambdaTemplates { self: Templates =>
         matchers.map { case (b, ms) => b -> ms.map(_.substitute(substituter, Map.empty)) },
         lambdas.map(_.substitute(substituter, Map.empty)),
         quantifications.map(_.substitute(substituter, Map.empty)),
+        pointers.map(p => substituter(p._1) -> substituter(p._2)),
         structure, lambda, stringRepr, true)
     }
 
@@ -303,6 +308,14 @@ trait LambdaTemplates { self: Templates =>
         appInfos += key -> (gen, gen, b, notB, Set(info))
         blockerToApps += b -> key
     }
+  }
+
+  def registerLambda(pointer: Encoded, target: Encoded): Boolean = byID.get(target) match {
+    case Some(template) =>
+      byID += pointer -> template
+      true
+    case None =>
+      false
   }
 
   def instantiateLambda(template: LambdaTemplate): (Encoded, Clauses) = {
@@ -571,7 +584,7 @@ trait LambdaTemplates { self: Templates =>
       for ((app, (gen, infos)) <- thisAppInfos if remainingApps(app)) appInfos.get(app) match {
         case Some((newGen, origGen, b, notB, newInfos)) =>
           appInfos += app -> (gen min newGen, origGen, b, notB, infos ++ newInfos)
-          
+
         case None =>
           val b = appBlockers(app)
           val notB = mkNot(b)

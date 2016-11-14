@@ -291,7 +291,7 @@ trait Extractors { self: Trees =>
   }
 
   object IsTyped {
-    def unapply[T <: Typed](e: T)(implicit p: Symbols): Option[(T, Type)] = Some((e, e.getType))
+    def unapply[T <: Typed](e: T)(implicit s: Symbols): Option[(T, Type)] = Some((e, e.getType))
   }
 
   def unwrapTuple(e: Expr, isTuple: Boolean)(implicit s: Symbols): Seq[Expr] = e.getType match {
@@ -301,7 +301,7 @@ trait Extractors { self: Trees =>
     case tp => sys.error(s"Calling unwrapTuple on non-tuple $e of type $tp")
   }
 
-  def unwrapTuple(e: Expr, expectedSize: Int)(implicit p: Symbols): Seq[Expr] = unwrapTuple(e, expectedSize > 1)
+  def unwrapTuple(e: Expr, expectedSize: Int)(implicit s: Symbols): Seq[Expr] = unwrapTuple(e, expectedSize > 1)
 
   def unwrapTupleType(tp: Type, isTuple: Boolean): Seq[Type] = tp match {
     case TupleType(subs) if isTuple => subs
@@ -311,4 +311,37 @@ trait Extractors { self: Trees =>
 
   def unwrapTupleType(tp: Type, expectedSize: Int): Seq[Type] =
     unwrapTupleType(tp, expectedSize > 1)
+
+  object RecordType {
+    def unapply(tpe: ADTType)(implicit s: Symbols): Option[TypedADTConstructor] = tpe.getADT match {
+      case tcons: TypedADTConstructor if !tcons.definition.isInductive => Some(tcons)
+      case tsort: TypedADTSort if tsort.constructors.size == 1 => unapply(tsort.constructors.head.toType)
+      case _ => None
+    }
+  }
+
+  object FunctionContainerType {
+    def unapply(tpe: Type)(implicit s: Symbols): Boolean = {
+      def rec(tpe: Type, first: Boolean = false): Boolean = tpe match {
+        case RecordType(tcons) => tcons.fieldsTypes.exists(rec(_))
+        case TupleType(tpes) => tpes.exists(rec(_))
+        case _: FunctionType if !first => true
+        case _ => false
+      }
+
+      rec(tpe, first = true)
+    }
+  }
+
+  object Container {
+    def unapply(e: Expr)(implicit s: Symbols): Option[(Seq[Expr], Seq[Expr] => Expr)] = e.getType match {
+      case adt @ RecordType(tcons) =>
+        Some((tcons.fields.map(vd => ADTSelector(e, vd.id)), es => ADT(adt, es)))
+
+      case TupleType(tps) =>
+        Some((tps.indices.map(i => TupleSelect(e, i + 1)).toSeq, es => Tuple(es)))
+
+      case _ => None
+    }
+  }
 }

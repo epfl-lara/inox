@@ -15,6 +15,7 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
     optSelectedSolvers(Set(solverName)),
     optCheckModels(true),
     optFeelingLucky(feelingLucky),
+    optNoSimplifications(solverName == "smt-cvc4"),
     optTimeout(300),
     ast.optPrintUniqueIds(true)
   )
@@ -57,7 +58,27 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
     })
   }
 
-  val symbols = baseSymbols.withFunctions(Seq(bag, split))
+  val split2ID = FreshIdentifier("split2")
+  val split2 = mkFunDef(split2ID)("A") { case Seq(aT) => (
+    Seq("l" :: List(aT)), T(List(aT), List(aT)), { case Seq(l) =>
+      let(
+        "res" :: T(List(aT), List(aT)),
+        if_ (l.isInstOf(Cons(aT)) && l.asInstOf(Cons(aT)).getField(tail).isInstOf(Cons(aT))) {
+          let(
+            "tuple" :: T(List(aT), List(aT)),
+            E(splitID)(aT)(l.asInstOf(Cons(aT)).getField(tail).asInstOf(Cons(aT)).getField(tail))
+          ) { tuple => E(
+            Cons(aT)(l.asInstOf(Cons(aT)).getField(head), tuple._1),
+            Cons(aT)(l.asInstOf(Cons(aT)).getField(tail).asInstOf(Cons(aT)).getField(head), tuple._2)
+          )}
+        } else_ {
+          E(Nil(aT)(), Nil(aT)())
+        }
+      ) { res => Assume(bag(aT)(l) === BagUnion(bag(aT)(res._1), bag(aT)(res._2)), res) }
+    })
+  }
+
+  val symbols = baseSymbols.withFunctions(Seq(bag, split, split2))
 
   test("Finite model finding 1") { ctx =>
     val program = InoxProgram(ctx, symbols)
@@ -101,5 +122,13 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
     val clause = Let(vd, body, pred)
 
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveVALID(clause) contains true)
+  }
+
+  test("split2 doesn't preserve content") { ctx =>
+    val program = InoxProgram(ctx, symbols)
+    val Let(vd, body, Assume(pred, _)) = split2.fullBody
+    val clause = Let(vd, body, pred)
+
+    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(clause)).isSAT)
   }
 }

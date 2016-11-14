@@ -103,6 +103,7 @@ trait QuantificationTemplates { self: Templates =>
     val matchers: Matchers,
     val lambdas: Seq[LambdaTemplate],
     val quantifications: Seq[QuantificationTemplate],
+    val pointers: Map[Encoded, Encoded],
     val key: (Encoded, Seq[ValDef], Expr, Seq[Encoded]),
     val body: Expr,
     stringRepr: () => String) {
@@ -122,6 +123,7 @@ trait QuantificationTemplates { self: Templates =>
         matchers.map { case (b, ms) => substituter(b) -> ms.map(_.substitute(substituter, msubst)) },
         lambdas.map(_.substitute(substituter, msubst)),
         quantifications.map(_.substitute(substituter, msubst)),
+        pointers.map(p => substituter(p._1) -> substituter(p._2)),
         (substituter(key._1), key._2, key._3, key._4.map(substituter)),
         body, stringRepr)
 
@@ -192,7 +194,7 @@ trait QuantificationTemplates { self: Templates =>
       // the encoded clauses use the `guard` as blocker instead of `pathVar._2`. This only
       // works due to [[Template.encode]] injecting `pathVar` BEFORE `substMap` into the
       // global encoding substitution.
-      val (clauses, blockers, applications, matchers, templateString) =
+      val (clauses, blockers, applications, matchers, pointers, templateString) =
         Template.encode(pathVar, quantifiers, condVars, exprVars,
           extraGuarded merge guardedExprs, extraEqs ++ equations,
           lambdas, quantifications, substMap = substMap ++ extraSubst)
@@ -202,8 +204,8 @@ trait QuantificationTemplates { self: Templates =>
 
       (optVar, new QuantificationTemplate(
         pathVar, polarity, quantifiers, condVars, exprVars, condTree, clauses,
-        blockers, applications, matchers, lambdas, quantifications, key, proposition.body,
-        () => "Template for " + proposition + " is :\n" + templateString()))
+        blockers, applications, matchers, lambdas, quantifications, pointers, key,
+        proposition.body, () => "Template for " + proposition + " is :\n" + templateString()))
     }
   }
 
@@ -523,6 +525,7 @@ trait QuantificationTemplates { self: Templates =>
     val matchers: Matchers
     val lambdas: Seq[LambdaTemplate]
     val quantifications: Seq[QuantificationTemplate]
+    val pointers: Map[Encoded, Encoded]
 
     val holds: Encoded
     val body: Expr
@@ -700,7 +703,7 @@ trait QuantificationTemplates { self: Templates =>
 
       val baseSubst = subst ++ instanceSubst(enabler).mapValues(Left(_))
       val (substMap, substClauses) = Template.substitution(
-        condVars, exprVars, condTree, lambdas, quantifications, baseSubst, enabler)
+        condVars, exprVars, condTree, lambdas, quantifications, pointers, baseSubst, enabler)
       instantiation ++= substClauses
 
       val msubst = substMap.collect { case (c, Right(m)) => c -> m }
@@ -807,6 +810,7 @@ trait QuantificationTemplates { self: Templates =>
     val matchers: Matchers,
     val lambdas: Seq[LambdaTemplate],
     val quantifications: Seq[QuantificationTemplate],
+    val pointers: Map[Encoded, Encoded],
     val body: Expr) extends Quantification {
 
     private var _currentQ2Var: Encoded = qs._2
@@ -848,6 +852,7 @@ trait QuantificationTemplates { self: Templates =>
     val matchers: Matchers,
     val lambdas: Seq[LambdaTemplate],
     val quantifications: Seq[QuantificationTemplate],
+    val pointers: Map[Encoded, Encoded],
     val body: Expr) extends Quantification {
 
     val holds = trueT
@@ -901,6 +906,7 @@ trait QuantificationTemplates { self: Templates =>
         } merge Map(guard -> Set(matcher)),
         template.lambdas.map(_.substitute(substituter, Map.empty)),
         template.quantifications.map(_.substitute(substituter, Map.empty)),
+        template.pointers.map(p => substituter(p._1) -> substituter(p._2)),
         key, body, template.stringRepr))._2 // mapping is guaranteed empty!!
     }
   }
@@ -917,7 +923,7 @@ trait QuantificationTemplates { self: Templates =>
             val axiom = new Axiom(template.pathVar._2, guard,
               template.quantifiers, template.condVars, template.exprVars, template.condTree,
               template.clauses, template.blockers, template.applications, template.matchers,
-              template.lambdas, template.quantifications, template.body)
+              template.lambdas, template.quantifications, template.pointers, template.body)
 
             quantifications += axiom
 
@@ -933,7 +939,7 @@ trait QuantificationTemplates { self: Templates =>
             val instT = encodeSymbol(insts._1)
             val (substMap, substClauses) = Template.substitution(
               template.condVars, template.exprVars, template.condTree,
-              template.lambdas, template.quantifications,
+              template.lambdas, template.quantifications, template.pointers,
               Map(insts._2 -> Left(instT)), template.pathVar._2)
             clauses ++= substClauses
 
@@ -952,7 +958,7 @@ trait QuantificationTemplates { self: Templates =>
               template.quantifiers, template.condVars, template.exprVars, template.condTree,
               template.clauses map substituter, // one clause depends on 'qs._2' (and therefore 'qT')
               template.blockers, template.applications, template.matchers,
-              template.lambdas, template.quantifications, template.body)
+              template.lambdas, template.quantifications, template.pointers, template.body)
 
             quantifications += quantification
 

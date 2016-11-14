@@ -286,8 +286,8 @@ trait DatatypeTemplates { self: Templates =>
           var callInfos : Set[Call] = Set.empty
 
           for (e <- es) {
-            callInfos ++= firstOrderCallsOf(e).map { case (id, tps, args) =>
-              Call(getFunction(id, tps), args.map(arg => Left(encoder(arg))))
+            callInfos ++= firstOrderCallsOf(e).map { case (id, tps, path, args) =>
+              Call(getFunction(id, tps), path, args.map(arg => Left(encoder(arg))))
             }
 
             clauses :+= encoder(Implies(b, e))
@@ -460,6 +460,7 @@ trait DatatypeTemplates { self: Templates =>
     val lambdas = Seq.empty[LambdaTemplate]
     val matchers = Map.empty[Encoded, Set[Matcher]]
     val quantifications = Seq.empty[QuantificationTemplate]
+    val pointers = Map.empty[Encoded, Encoded]
 
     override def instantiate(substMap: Map[Encoded, Arg]): Clauses = {
       val substituter = mkSubstituter(substMap.mapValues(_.encoded))

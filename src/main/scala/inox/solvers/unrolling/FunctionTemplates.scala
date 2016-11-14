@@ -19,6 +19,7 @@ trait FunctionTemplates { self: Templates =>
 
     def apply(
       tfd: TypedFunDef,
+      path: Seq[Either[Identifier, Int]],
       pathVar: (Variable, Encoded),
       arguments: Seq[(Variable, Encoded)],
       condVars: Map[Variable, Encoded],
@@ -30,9 +31,9 @@ trait FunctionTemplates { self: Templates =>
       quantifications: Seq[QuantificationTemplate]
     ) : FunctionTemplate = {
 
-      val (clauses, blockers, applications, matchers, templateString) =
+      val (clauses, blockers, applications, matchers, pointers, templateString) =
         Template.encode(pathVar, arguments, condVars, exprVars, guardedExprs, equations,
-          lambdas, quantifications, optCall = Some(tfd))
+          lambdas, quantifications, optCall = Some(tfd -> path))
 
       val funString : () => String = () => {
         "Template for def " + tfd.signature +
@@ -41,7 +42,6 @@ trait FunctionTemplates { self: Templates =>
       }
 
       new FunctionTemplate(
-        tfd,
         pathVar,
         arguments.map(_._2),
         condVars,
@@ -53,13 +53,13 @@ trait FunctionTemplates { self: Templates =>
         matchers,
         lambdas,
         quantifications,
+        pointers,
         funString
       )
     }
   }
 
   class FunctionTemplate private(
-    val tfd: TypedFunDef,
     val pathVar: (Variable, Encoded),
     val args: Seq[Encoded],
     val condVars: Map[Variable, Encoded],
@@ -71,6 +71,7 @@ trait FunctionTemplates { self: Templates =>
     val matchers: Matchers,
     val lambdas: Seq[LambdaTemplate],
     val quantifications: Seq[QuantificationTemplate],
+    val pointers: Map[Encoded, Encoded],
     stringRepr: () => String) extends Template {
 
     private lazy val str : String = stringRepr()
@@ -136,7 +137,7 @@ trait FunctionTemplates { self: Templates =>
 
       for ((blocker, (gen, _, _, calls)) <- thisCallInfos if calls.nonEmpty && !interrupted;
            _ = remainingBlockers -= blocker;
-           call @ Call(tfd, args) <- calls) {
+           call @ Call(tfd, path, args) <- calls) {
         val newCls = new scala.collection.mutable.ListBuffer[Encoded]
 
         val defBlocker = defBlockers.get(call) match {
@@ -149,7 +150,7 @@ trait FunctionTemplates { self: Templates =>
             val defBlocker = encodeSymbol(Variable(FreshIdentifier("d", true), BooleanType))
             defBlockers += call -> defBlocker
 
-            val template = mkTemplate(tfd)
+            val template = mkTemplate(tfd, path)
             //reporter.debug(template)
 
             val newExprs = template.instantiate(defBlocker, args)

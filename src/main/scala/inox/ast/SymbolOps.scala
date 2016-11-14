@@ -54,6 +54,7 @@ trait SymbolOps { self: TypeOps =>
       case And(args) => Some(andJoin(args))
       case Or(args) => Some(orJoin(args))
       case Tuple(args) => Some(tupleWrap(args))
+      case Application(e, es) => Some(application(e, es))
       case _ => None
     }
     postMap(step)(expr)
@@ -142,9 +143,9 @@ trait SymbolOps { self: TypeOps =>
       }
     }
 
-    def rec(vars: Set[Variable], body: Expr): Expr = {
+    def outer(vars: Set[Variable], body: Expr): Expr = {
 
-      class Normalizer extends SelfTreeTransformer {
+      object normalizer extends SelfTreeTransformer {
         override def transform(id: Identifier, tpe: Type): (Identifier, Type) = (transformId(id, tpe), tpe)
 
         override def transform(e: Expr): Expr = e match {
@@ -159,27 +160,30 @@ trait SymbolOps { self: TypeOps =>
             Variable(getId(expr), expr.getType)
 
           case f: Forall =>
-            val newBody = rec(vars ++ f.args.map(_.toVariable), f.body)
+            val newBody = outer(vars ++ f.args.map(_.toVariable), f.body)
             Forall(f.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
 
           case l: Lambda =>
-            val newBody = rec(vars ++ l.args.map(_.toVariable), l.body)
+            val newBody = outer(vars ++ l.args.map(_.toVariable), l.body)
             Lambda(l.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
 
           case _ => super.transform(e)
         }
       }
 
-      val n = new Normalizer
-
       // this registers the argument images into subst
-      vars foreach n.transform
-      n.transform(body)
+      vars foreach (v => transformId(v.id, v.tpe))
+      normalizer.transform(body)
     }
 
-    val newExpr = rec(args.map(_.toVariable).toSet, expr)
+    val newExpr = outer(args.map(_.toVariable).toSet, expr)
     val bindings = args.map(vd => vd.copy(id = varSubst(vd.id)))
-    val freeVars = variablesOf(newExpr) -- bindings.map(_.toVariable)
+
+    val bindingVars = bindings.map(_.toVariable).toSet
+    val freeVars = fixpoint { (vs: Set[Variable]) =>
+      vs ++ subst.filter(p => vs(p._1)).flatMap(p => variablesOf(p._2)) -- bindingVars
+    } (variablesOf(newExpr) -- bindings.map(_.toVariable))
+
     val bodySubst = subst.filter(p => freeVars(p._1)).toMap
 
     (bindings, newExpr, bodySubst)
@@ -242,6 +246,29 @@ trait SymbolOps { self: TypeOps =>
       fixpoint(inline)(e)
     }
 
+    def inlineQuantifications(e: Expr): Expr = postMap {
+      case Forall(args1, Forall(args2, body)) => Some(Forall(args1 ++ args2, body))
+      case a @ Assume(pred, body) =>
+        val vars = variablesOf(a)
+        var assumptions: Seq[Expr] = Seq.empty
+        object transformer extends transformers.TransformerWithPC {
+          val trees: self.trees.type = self.trees
+          val symbols: self.symbols.type = self.symbols
+          val initEnv = Path.empty
+
+          override protected def rec(e: Expr, path: Path): Expr = e match {
+            case Assume(pred, body) if (variablesOf(pred) ++ path.variables) subsetOf vars =>
+              assumptions :+= path implies pred
+              rec(body, path withCond pred)
+            case _ => super.rec(e, path)
+          }
+        }
+        val newPred = transformer.transform(pred)
+        val newBody = transformer.transform(body)
+        Some(Assume(andJoin(newPred +: assumptions), newBody))
+      case _ => None
+    } (e)
+
     /* Weaker variant of disjunctive normal form */
     def normalizeClauses(e: Expr): Expr = e match {
       case Not(Not(e)) => normalizeClauses(e)
@@ -251,7 +278,7 @@ trait SymbolOps { self: TypeOps =>
       case _ => e
     }
 
-    normalizeClauses(inlineFunctions(e))
+    normalizeClauses(inlineQuantifications(inlineFunctions(e)))
   }
 
   def simplifyLets(expr: Expr): Expr = postMap({
@@ -530,30 +557,46 @@ trait SymbolOps { self: TypeOps =>
   }
 
   object InvocationExtractor {
-    private def flatInvocation(expr: Expr): Option[(Identifier, Seq[Type], Seq[Expr])] = expr match {
-      case fi @ FunctionInvocation(id, tps, args) => Some((id, tps, args))
-      case Application(caller, args) => flatInvocation(caller) match {
-        case Some((id, tps, prevArgs)) => Some((id, tps, prevArgs ++ args))
+    type Invocation = (Identifier, Seq[Type], Seq[Either[Identifier, Int]], Seq[Expr])
+
+    private def flatSelectors(expr: Expr): Option[Invocation] = expr match {
+      case ADTSelector(IsTyped(e, FunctionContainerType()), sid) => flatSelectors(e).map {
+        case (id, tps, path, args) => (id, tps, path :+ Left(sid), args)
+      }
+      case TupleSelect(IsTyped(e, FunctionContainerType()), i) => flatSelectors(e).map {
+        case (id, tps, path, args) => (id, tps, path :+ Right(i), args)
+      }
+      case fi @ FunctionInvocation(id, tps, args) => Some((id, tps, Seq.empty, args))
+      case _ => None
+    }
+
+    private def flatInvocation(expr: Expr, specialize: Boolean): Option[Invocation] = expr match {
+      case fi @ FunctionInvocation(id, tps, args) => Some((id, tps, Seq.empty, args))
+      case Application(caller, args) => flatInvocation(caller, specialize) match {
+        case Some((id, tps, path, prevArgs)) => Some((id, tps, path, prevArgs ++ args))
         case None => None
       }
-      case _ => None
+      case _ => if (specialize) flatSelectors(expr) else None
     }
 
-    def unapply(expr: Expr): Option[(Identifier, Seq[Type], Seq[Expr])] = expr match {
+    def extract(expr: Expr, specialize: Boolean = true): Option[Invocation] = expr match {
       case IsTyped(f: FunctionInvocation, ft: FunctionType) => None
       case IsTyped(f: Application, ft: FunctionType) => None
-      case FunctionInvocation(id, tps, args) => Some((id, tps, args))
-      case f: Application => flatInvocation(f)
+      case IsTyped(f: FunctionInvocation, FunctionContainerType()) if specialize => None
+      case FunctionInvocation(id, tps, args) => Some((id, tps, Seq.empty, args))
+      case f: Application => flatInvocation(f, specialize)
       case _ => None
     }
+
+    object Specialized { def unapply(expr: Expr): Option[Invocation] = extract(expr, specialize = true) }
+    object Unspecialized { def unapply(expr: Expr): Option[Invocation] = extract(expr, specialize = false) }
   }
 
-  def firstOrderCallsOf(expr: Expr): Set[(Identifier, Seq[Type], Seq[Expr])] =
-    collect { e => InvocationExtractor.unapply(e).toSet[(Identifier, Seq[Type], Seq[Expr])] }(expr)
+  def firstOrderCallsOf(expr: Expr, specialize: Boolean = true): Set[InvocationExtractor.Invocation] =
+    collect { e => InvocationExtractor.extract(e, specialize).toSet }(expr)
 
   object ApplicationExtractor {
     private def flatApplication(expr: Expr): Option[(Expr, Seq[Expr])] = expr match {
-      case Application(fi: FunctionInvocation, _) => None
       case Application(caller: Application, args) => flatApplication(caller) match {
         case Some((c, prevArgs)) => Some((c, prevArgs ++ args))
         case None => None
@@ -562,68 +605,116 @@ trait SymbolOps { self: TypeOps =>
       case _ => None
     }
 
-    def unapply(expr: Expr): Option[(Expr, Seq[Expr])] = expr match {
+    def extract(expr: Expr, specialize: Boolean = true): Option[(Expr, Seq[Expr])] = expr match {
       case IsTyped(f: Application, ft: FunctionType) => None
-      case f: Application => flatApplication(f)
-      case _ => None
+      case _ => InvocationExtractor.extract(expr, specialize) match {
+        case Some(_) => None
+        case None => expr match {
+          case f: Application => flatApplication(f)
+          case _ => None
+        }
+      }
     }
+
+    object Specialized { def unapply(expr: Expr): Option[(Expr, Seq[Expr])] = extract(expr, specialize = true) }
+    object Unspecialized { def unapply(expr: Expr): Option[(Expr, Seq[Expr])] = extract(expr, specialize = false) }
   }
 
-  def firstOrderAppsOf(expr: Expr): Set[(Expr, Seq[Expr])] =
-    collect[(Expr, Seq[Expr])] {
-      case ApplicationExtractor(caller, args) => Set(caller -> args)
-      case _ => Set.empty
-    } (expr)
+  def firstOrderAppsOf(expr: Expr, specialize: Boolean = true): Set[(Expr, Seq[Expr])] =
+    collect[(Expr, Seq[Expr])](e => ApplicationExtractor.extract(e).toSet)(expr)
 
-  def simplifyHOFunctions(expr: Expr): Expr = {
+  def simplifyHOFunctions(expr: Expr, simplify: Boolean = true): Expr = {
+
+    def pushDown(expr: Expr, recons: Expr => Expr): Expr = expr match {
+      case IfExpr(cond, thenn, elze) =>
+        IfExpr(cond, pushDown(thenn, recons), pushDown(elze, recons))
+      case Let(i, e, b) =>
+        Let(i, e, pushDown(b, recons))
+      case Assume(pred, body) =>
+        Assume(pred, pushDown(body, recons))
+      case _ => recons(expr)
+    }
+
+    def traverse(expr: Expr, lift: Expr => Expr): Expr = {
+      def extract(expr: Expr, build: Boolean) = if (build) lift(expr) else expr
+
+      def rec(expr: Expr, build: Boolean): Expr = extract(expr match {
+        case Application(caller, args) =>
+          val newArgs = args.map(rec(_, true))
+          val newCaller = rec(caller, false)
+          Application(newCaller, newArgs)
+        case FunctionInvocation(id, tps, args) =>
+          val newArgs = args.map(rec(_, true))
+          FunctionInvocation(id, tps, newArgs)
+        case l @ Lambda(args, body) =>
+          val newBody = rec(body, true)
+          Lambda(args, newBody)
+        case Deconstructor(es, recons) => recons(es.map(rec(_, build)))
+      }, build)
+
+      rec(lift(expr), true)
+    }
 
     def liftToLambdas(expr: Expr) = {
-      def apply(expr: Expr, args: Seq[Expr]): Expr = expr match {
-        case IfExpr(cond, thenn, elze) =>
-          IfExpr(cond, apply(thenn, args), apply(elze, args))
-        case Let(i, e, b) =>
-          Let(i, e, apply(b, args))
-        //case l @ Lambda(params, body) =>
-        //  l.withParamSubst(args, body)
-        case _ => Application(expr, args)
-      }
-
       def lift(expr: Expr): Expr = expr.getType match {
         case FunctionType(from, to) => expr match {
           case _ : Lambda => expr
           case _ : Variable => expr
           case e =>
             val args = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
-            val application = apply(expr, args.map(_.toVariable))
+            val application = pushDown(expr, Application(_, args.map(_.toVariable)))
             Lambda(args, lift(application))
         }
         case _ => expr
       }
 
-      def extract(expr: Expr, build: Boolean) = if (build) lift(expr) else expr
-
-      def rec(expr: Expr, build: Boolean): Expr = expr match {
-        case Application(caller, args) =>
-          val newArgs = args.map(rec(_, true))
-          val newCaller = rec(caller, false)
-          extract(Application(newCaller, newArgs), build)
-        case FunctionInvocation(id, tps, args) =>
-          val newArgs = args.map(rec(_, true))
-          extract(FunctionInvocation(id, tps, newArgs), build)
-        case l @ Lambda(args, body) =>
-          val newBody = rec(body, true)
-          extract(Lambda(args, newBody), build)
-        case Deconstructor(es, recons) => recons(es.map(rec(_, build)))
-      }
-
-      rec(lift(expr), true)
+      traverse(expr, lift)
     }
 
-    liftToLambdas(expr)
+    def liftContainers(expr: Expr): Expr = {
+      def lift(expr: Expr): Expr = expr.getType match {
+        case tpe @ FunctionContainerType() => expr match {
+          case _ : ADT => expr
+          case _ : Tuple => expr
+          case _ : Variable => expr
+          case e => tpe match {
+            case adt @ RecordType(tcons) =>
+              val castExpr = if (tcons.id == adt.id) expr else AsInstanceOf(expr, tcons.toType)
+              val fields = tcons.fields.map(vd => pushDown(castExpr, ADTSelector(_, vd.id)))
+              ADT(tcons.toType, fields)
+            case TupleType(tpes) =>
+              Tuple(tpes.indices.map(i => pushDown(expr, TupleSelect(_, i + 1))))
+          }
+        }
+        case _ => expr
+      }
+
+      traverse(expr, lift)
+    }
+
+    def simplifyContainers(expr: Expr): Expr = postMap {
+      case ADTSelector(IsTyped(e, FunctionContainerType()), id) =>
+        val newExpr = pushDown(e, adtSelector(_, id))
+        if (newExpr != expr) Some(newExpr) else None
+      case TupleSelect(IsTyped(e, FunctionContainerType()), i) =>
+        val newExpr = pushDown(e, tupleSelect(_, i, true))
+        if (newExpr != expr) Some(newExpr) else None
+      case _ => None
+    } (expr)
+
+    liftToLambdas(if (simplify) {
+      simplifyContainers(liftContainers(expr))
+    } else {
+      expr
+    })
   }
 
-  def simplifyFormula(e: Expr): Expr = {
-    simplifyHOFunctions(simplifyByConstructors(simplifyQuantifications(e)))
+  def simplifyFormula(e: Expr, simplify: Boolean = true): Expr = {
+    if (simplify) {
+      fixpoint((e: Expr) => simplifyHOFunctions(simplifyByConstructors(simplifyQuantifications(e))))(e)
+    } else {
+      simplifyHOFunctions(e, simplify = false)
+    }
   }
 
   // Use this only to debug isValueOfType

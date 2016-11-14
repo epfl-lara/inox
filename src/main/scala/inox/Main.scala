@@ -53,6 +53,7 @@ trait MainHelpers {
     solvers.unrolling.optUnrollFactor -> "Number of unrollings to perform in each unfold step",
     solvers.unrolling.optFeelingLucky -> "Use evaluator to find counter-examples early",
     solvers.unrolling.optUnrollAssumptions -> "Use unsat-assumptions to drive unfolding while remaining fair",
+    solvers.unrolling.optNoSimplifications -> "Disable selector/quantifier simplifications in solvers",
     solvers.smtlib.optCVC4Options -> "Pass extra options to CVC4",
     evaluators.optMaxCalls -> "Maximum number of function invocations allowed during evaluation",
     evaluators.optIgnoreContracts -> "Don't fail on invalid contracts during evaluation"

@@ -191,6 +191,22 @@ trait Definitions { self: Trees =>
     /** The root of the class hierarchy */
     def root(implicit s: Symbols): ADTDefinition
 
+    def isInductive(implicit s: Symbols): Boolean = {
+      val base = typed
+
+      def rec(adt: TypedADTDefinition, seen: Set[TypedADTDefinition], first: Boolean = false): Boolean = {
+        if (!first && adt == base) true else if (seen(adt)) false else (adt match {
+          case tsort: TypedADTSort => tsort.constructors.exists(rec(_, seen + tsort))
+          case tcons: TypedADTConstructor => tcons.fieldsTypes.flatMap(tpe => s.typeOps.collect {
+            case t: ADTType => Set(t.getADT)
+            case _ => Set.empty[TypedADTDefinition]
+          } (tpe)).exists(rec(_, seen + tcons))
+        })
+      }
+
+      rec(base, Set.empty, first = true)
+    }
+
     /** An invariant that refines this [[ADTDefinition]] */
     def invariant(implicit s: Symbols): Option[FunDef] = {
       val rt = root
@@ -221,32 +237,6 @@ trait Definitions { self: Trees =>
         case cons: ADTConstructor => cons
         case sort => throw NotWellFormedException(sort)
       })
-
-    def isInductive(implicit s: Symbols): Boolean = {
-      def induct(tpe: Type, seen: Set[ADTDefinition]): Boolean = tpe match {
-        case adt: ADTType =>
-          val tadt = adt.lookupADT.getOrElse(throw ADTLookupException(adt.id))
-          val root = tadt.definition.root
-          seen(root) || {
-            val constructors = root match {
-              case tcons: ADTConstructor => Seq(tcons)
-              case tsort: ADTSort => tsort.constructors
-            }
-
-            constructors.exists(tcons => tcons.fields.exists(vd => induct(vd.tpe, seen + root)))
-          }
-
-        case TupleType(tpes) =>
-          tpes.exists(tpe => induct(tpe, seen))
-
-        case _ => false
-      }
-
-      if (this == root && !this.isSort) false
-      else constructors.exists { cons =>
-        cons.fields.exists(vd => induct(vd.getType, Set(root)))
-      }
-    }
 
     def root(implicit s: Symbols): ADTDefinition = this
 
@@ -280,6 +270,7 @@ trait Definitions { self: Trees =>
                        val flags: Set[Flag]) extends ADTDefinition {
 
     val isSort = false
+
     /** Returns the index of the field with the specified id */
     def selectorID2Index(id: Identifier) : Int = {
       val index = fields.indexWhere(_.id == id)
