@@ -205,7 +205,7 @@ trait Constructors {
     * @see [[Expressions.Lambda Lambda]]
     * @see [[Expressions.Application Application]]
     */
-  def application(fn: Expr, realArgs: Seq[Expr]) = fn match {
+  def application(fn: Expr, realArgs: Seq[Expr]): Expr = fn match {
      case Lambda(formalArgs, body) =>
       assert(realArgs.size == formalArgs.size, "Invoking lambda with incorrect number of arguments")
 
@@ -223,6 +223,9 @@ trait Constructors {
       defs.foldRight(exprOps.replaceFromSymbols(subst, body)) {
         case ((vd, bd), body) => let(vd, bd, body)
       }
+
+    case Assume(pred, l: Lambda) =>
+      assume(pred, application(l, realArgs))
 
     case _ =>
       Application(fn, realArgs)

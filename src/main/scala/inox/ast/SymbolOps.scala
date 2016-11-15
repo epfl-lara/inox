@@ -258,7 +258,7 @@ trait SymbolOps { self: TypeOps =>
 
         forall(args ++ allArgs.flatten, recons(allBodies))
       }
-      
+
       postMap {
         case Forall(args1, Forall(args2, body)) =>
           Some(forall(args1 ++ args2, body))
@@ -746,31 +746,34 @@ trait SymbolOps { self: TypeOps =>
     })
   }
 
-  def simplifyAssumptions(expr: Expr): Expr = {
-    def lift(expr: Expr): Expr = {
-      val vars = variablesOf(expr)
-      var assumptions: Seq[Expr] = Seq.empty
+  def liftAssumptions(expr: Expr): (Seq[Expr], Expr) = {
+    val vars = variablesOf(expr)
+    var assumptions: Seq[Expr] = Seq.empty
 
-      object transformer extends transformers.TransformerWithPC {
-        val trees: self.trees.type = self.trees
-        val symbols: self.symbols.type = self.symbols
-        val initEnv = Path.empty
+    object transformer extends transformers.TransformerWithPC {
+      val trees: self.trees.type = self.trees
+      val symbols: self.symbols.type = self.symbols
+      val initEnv = Path.empty
 
-        override protected def rec(e: Expr, path: Path): Expr = e match {
-          case Assume(pred, body) if (variablesOf(pred) ++ path.variables) subsetOf vars =>
-            assumptions :+= path implies pred
-            rec(body, path withCond pred)
-          case _ => super.rec(e, path)
-        }
+      override protected def rec(e: Expr, path: Path): Expr = e match {
+        case Assume(pred, body) if (variablesOf(pred) ++ path.variables) subsetOf vars =>
+          assumptions :+= path implies pred
+          rec(body, path withCond pred)
+        case _ => super.rec(e, path)
       }
-
-      val (vs, es, tps, recons) = deconstructor.deconstruct(expr)
-      val newEs = es.map(transformer.transform)
-      assume(andJoin(assumptions.toSeq), recons(vs, newEs, tps))
     }
 
-    postMap(e => Some(lift(e)))(expr)
+    val newExpr = transformer.transform(expr)
+    (assumptions, newExpr)
   }
+
+  def simplifyAssumptions(expr: Expr): Expr = postMap {
+    case Assume(pred, body) =>
+      val (predAssumptions, newPred) = liftAssumptions(pred)
+      val (bodyAssumptions, newBody) = liftAssumptions(body)
+      Some(assume(andJoin(predAssumptions ++ (newPred +: bodyAssumptions)), newBody))
+    case _ => None
+  } (expr)
 
   def simplifyFormula(e: Expr, simplify: Boolean = true): Expr = {
     if (simplify) {

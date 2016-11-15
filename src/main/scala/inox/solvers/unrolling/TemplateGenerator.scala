@@ -301,7 +301,13 @@ trait TemplateGenerator { self: Templates =>
         val idArgs : Seq[Variable] = lambdaArgs(l)
         val trArgs : Seq[Encoded] = idArgs.map(id => substMap.getOrElse(id, encodeSymbol(id)))
 
-        val (struct, deps) = normalizeStructure(l)
+        val (assumptions, without) = liftAssumptions(l)
+
+        for (a <- assumptions) {
+          rec(pathVar, a, Some(true))
+        }
+
+        val (struct, deps) = normalizeStructure(without.asInstanceOf[Lambda])
         val sortedDeps = exprOps.variablesOf(struct).map(v => v -> deps(v)).toSeq.sortBy(_._1.id.uniqueName)
 
         val isNormalForm: Boolean = {
