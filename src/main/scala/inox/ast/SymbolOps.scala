@@ -246,10 +246,65 @@ trait SymbolOps { self: TypeOps =>
       fixpoint(inline)(e)
     }
 
-    def inlineQuantifications(e: Expr): Expr = postMap {
-      case Forall(args1, Forall(args2, body)) => Some(Forall(args1 ++ args2, body))
-      case _ => None
-    } (e)
+    def inlineQuantifications(e: Expr): Expr = {
+      def liftForalls(args: Seq[ValDef], es: Seq[Expr], recons: Seq[Expr] => Expr): Forall = {
+        val (allArgs, allBodies) = es.map {
+          case f: Forall =>
+            val Forall(args, body) = freshenLocals(f)
+            (args, body)
+          case e =>
+            (Seq[ValDef](), e)
+        }.unzip
+
+        Forall(args ++ allArgs.flatten, recons(allBodies))
+      }
+      
+      postMap {
+        case Forall(args1, Forall(args2, body)) =>
+          Some(Forall(args1 ++ args2, body))
+
+        case Forall(args, And(es)) =>
+          Some(liftForalls(args, es, andJoin))
+
+        case Forall(args, Or(es)) =>
+          Some(liftForalls(args, es, orJoin))
+
+        case Forall(args, Implies(e1, e2)) =>
+          Some(liftForalls(args, Seq(e1, e2), es => implies(es(0), es(1))))
+
+        case And(es) => Some(andJoin(SeqUtils.groupWhile(es)(_.isInstanceOf[Forall]).map {
+          case Seq(e) => e
+          case foralls =>
+            val pairs = foralls.collect { case Forall(args, body) => (args, body) }
+            val (allArgs, allBodies) = pairs.foldLeft((Seq[ValDef](), Seq[Expr]())) {
+              case ((allArgs, bodies), (args, body)) =>
+                val available = allArgs.groupBy(_.tpe).mapValues(_.sortBy(_.id.uniqueName))
+                val (_, map) = args.foldLeft((available, Map[ValDef, ValDef]())) {
+                  case ((available, map), vd) => available.get(vd.tpe) match {
+                    case Some(x +: xs) =>
+                      val newAvailable = if (xs.isEmpty) {
+                        available - vd.tpe
+                      } else {
+                        available + (vd.tpe -> xs)
+                      }
+                      (newAvailable, map + (vd -> x))
+                    case _ =>
+                      (available, map + (vd -> vd))
+                  }
+                }
+
+                val newBody = replaceFromSymbols(map.mapValues(_.toVariable), body)
+                val newArgs = allArgs ++ map.map(_._2).filterNot(allArgs contains _)
+                val newBodies = bodies :+ newBody
+                (newArgs, newBodies)
+            }
+
+            Forall(allArgs, andJoin(allBodies))
+        }))
+
+        case _ => None
+      } (e)
+    }
 
     /* Weaker variant of disjunctive normal form */
     def normalizeClauses(e: Expr): Expr = e match {

@@ -121,10 +121,10 @@ trait Constructors {
     }
 
     var stop = false
-    val simpler = for(e <- flat if !stop && e != BooleanLiteral(true)) yield {
-      if(e == BooleanLiteral(false)) stop = true
+    val simpler = (for (e <- flat if !stop && e != BooleanLiteral(true)) yield {
+      if (e == BooleanLiteral(false)) stop = true
       e
-    }
+    }).distinct
 
     simpler match {
       case Seq()  => BooleanLiteral(true)

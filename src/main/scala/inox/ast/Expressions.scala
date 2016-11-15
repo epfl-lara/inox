@@ -130,7 +130,7 @@ trait Expressions { self: Trees =>
 
     def inlined(implicit s: Symbols): Expr = {
       val tfd = this.tfd
-      tfd.withParamSubst(args, tfd.fullBody)
+      exprOps.freshenLocals(tfd.withParamSubst(args, tfd.fullBody))
     }
   }
 

@@ -66,6 +66,20 @@ trait ExprOps extends GenTreeOps {
     }(expr)
   }
 
+  /** Freshens all local variables */
+  def freshenLocals(expr: Expr): Expr = {
+    def rec(expr: Expr, bindings: Map[Variable, Variable]): Expr = expr match {
+      case v: Variable => bindings(v)
+      case _ =>
+        val (vs, es, tps, recons) = deconstructor.deconstruct(expr)
+        val newVs = vs.map(_.freshen)
+        val newBindings = bindings ++ (vs zip newVs)
+        recons(newVs, es map (rec(_, newBindings)), tps)
+    }
+
+    rec(expr, variablesOf(expr).map(v => v -> v).toMap)
+  }
+
   /** Returns true if the expression contains a function call */
   def containsFunctionCalls(expr: Expr): Boolean = {
     exists{
