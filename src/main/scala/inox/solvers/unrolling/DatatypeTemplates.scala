@@ -394,15 +394,6 @@ trait DatatypeTemplates { self: Templates =>
     protected def unrollType(tpe: Type): Boolean = false
   }
 
-  /** Template generator that combines ADT unrolling and function accumulation.
-    *
-    * See [[$CaptureTemplate]] and [[$DatatypeTemplate]] for concrete examples. */
-  /*protected trait FullTemplateGenerator
-    extends TemplateGenerator
-       with FunctionUnrolling
-       with ADTUnrolling
-       with CachedUnrolling*/
-
   /** Template generator that generates clauses for ADT invariant assertion. */
   protected trait InvariantGenerator
     extends TemplateGenerator
