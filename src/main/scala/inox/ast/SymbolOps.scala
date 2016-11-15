@@ -247,7 +247,7 @@ trait SymbolOps { self: TypeOps =>
     }
 
     def inlineQuantifications(e: Expr): Expr = {
-      def liftForalls(args: Seq[ValDef], es: Seq[Expr], recons: Seq[Expr] => Expr): Forall = {
+      def liftForalls(args: Seq[ValDef], es: Seq[Expr], recons: Seq[Expr] => Expr): Expr = {
         val (allArgs, allBodies) = es.map {
           case f: Forall =>
             val Forall(args, body) = freshenLocals(f)
@@ -256,12 +256,12 @@ trait SymbolOps { self: TypeOps =>
             (Seq[ValDef](), e)
         }.unzip
 
-        Forall(args ++ allArgs.flatten, recons(allBodies))
+        forall(args ++ allArgs.flatten, recons(allBodies))
       }
       
       postMap {
         case Forall(args1, Forall(args2, body)) =>
-          Some(Forall(args1 ++ args2, body))
+          Some(forall(args1 ++ args2, body))
 
         case Forall(args, And(es)) =>
           Some(liftForalls(args, es, andJoin))
@@ -299,7 +299,7 @@ trait SymbolOps { self: TypeOps =>
                 (newArgs, newBodies)
             }
 
-            Forall(allArgs, andJoin(allBodies))
+            forall(allArgs, andJoin(allBodies))
         }))
 
         case _ => None

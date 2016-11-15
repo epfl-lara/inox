@@ -3,7 +3,7 @@
 package inox
 package ast
 
-/** Provides constructors for [[purescala.Expressions]].
+/** Provides constructors for [[Expressions]].
   *
   * The constructors implement some logic to simplify the tree and
   * potentially use a different expression node if one is more suited.
@@ -21,7 +21,7 @@ trait Constructors {
     * `tupleSelect(tupleExpr,1) -> tupleExpr._1`
     * If not `isTuple` (usually used only in the case of a tuple of arity 1)
     * `tupleSelect(tupleWrap(Seq(Tuple(x,y))),1) -> Tuple(x,y)`.
-    * @see [[purescala.Expressions.TupleSelect]]
+    * @see [[Expressions.TupleSelect TupleSelect]]
     */
   def tupleSelect(t: Expr, index: Int, isTuple: Boolean): Expr = t match {
     case Tuple(es) if isTuple => es(index-1)
@@ -34,12 +34,12 @@ trait Constructors {
 
   /** Simplifies the construct `TupleSelect(expr, index, originalSize > 1)`
     * @param originalSize The arity of the tuple. If less or equal to 1, the whole expression is returned.
-    * @see [[purescala.Expressions.TupleSelect]]
+    * @see [[Expressions.TupleSelect TupleSelect]]
     */
   def tupleSelect(t: Expr, index: Int, originalSize: Int): Expr = tupleSelect(t, index, originalSize > 1)
 
   /** $encodingof ``val id = e; bd``, and returns `bd` if the identifier is not bound in `bd`.
-    * @see [[purescala.Expressions.Let]]
+    * @see [[Expressions.Let Let]]
     */
   def let(vd: ValDef, e: Expr, bd: Expr) = {
     if (exprOps.variablesOf(bd) contains vd.toVariable)
@@ -48,7 +48,7 @@ trait Constructors {
   }
 
   /** Wraps the sequence of expressions as a tuple. If the sequence contains a single expression, it is returned instead.
-    * @see [[purescala.Expressions.Tuple]]
+    * @see [[Expressions.Tuple Tuple]]
     */
   def tupleWrap(es: Seq[Expr]): Expr = es match {
     case Seq() => UnitLiteral()
@@ -57,8 +57,8 @@ trait Constructors {
   }
 
   /** Wraps the sequence of types as a tuple. If the sequence contains a single type, it is returned instead.
-    * If the sequence is empty, the [[purescala.Types.UnitType UnitType]] is returned.
-    * @see [[purescala.Types.TupleType]]
+    * If the sequence is empty, the [[Types.UnitType UnitType]] is returned.
+    * @see [[Types.TupleType]]
     */
   def tupleTypeWrap(tps: Seq[Type]) = tps match {
     case Seq() => UnitType
@@ -100,7 +100,7 @@ trait Constructors {
   }
 
   /** Simplifies the provided case class selector.
-    * @see [[purescala.Expressions.CaseClassSelector]]
+    * @see [[Expressions.ADTSelector ADTSelector]]
     */
   def adtSelector(adt: Expr, selector: Identifier): Expr = {
     adt match {
@@ -112,7 +112,7 @@ trait Constructors {
   }
 
   /** $encodingof `&&`-expressions with arbitrary number of operands, and simplified.
-    * @see [[purescala.Expressions.And And]]
+    * @see [[Expressions.And And]]
     */
   def and(exprs: Expr*): Expr = {
     val flat = exprs.flatMap {
@@ -134,12 +134,12 @@ trait Constructors {
   }
 
   /** $encodingof `&&`-expressions with arbitrary number of operands as a sequence, and simplified.
-    * @see [[purescala.Expressions.And And]]
+    * @see [[Expressions.And And]]
     */
   def andJoin(es: Seq[Expr]) = and(es :_*)
 
   /** $encodingof `||`-expressions with arbitrary number of operands, and simplified.
-    * @see [[purescala.Expressions.Or Or]]
+    * @see [[Expressions.Or Or]]
     */
   def or(exprs: Expr*): Expr = {
     val flat = exprs.flatMap {
@@ -161,17 +161,17 @@ trait Constructors {
   }
 
   /** $encodingof `||`-expressions with arbitrary number of operands as a sequence, and simplified.
-    * @see [[purescala.Expressions.Or Or]]
+    * @see [[Expressions.Or Or]]
     */
   def orJoin(es: Seq[Expr]) = or(es :_*)
 
   /** $encodingof simplified `!`-expressions .
-    * @see [[purescala.Expressions.Not Not]]
+    * @see [[Expressions.Not Not]]
     */
   def not(e: Expr): Expr = negate(e)
 
   /** $encodingof simplified `... ==> ...` (implication)
-    * @see [[purescala.Expressions.Implies Implies]]
+    * @see [[Expressions.Implies Implies]]
     */
   def implies(lhs: Expr, rhs: Expr): Expr = (lhs, rhs) match {
     case (BooleanLiteral(false), _) => BooleanLiteral(true)
@@ -183,7 +183,7 @@ trait Constructors {
   }
 
   /** $encodingof simplified `... == ...` (equality).
-    * @see [[purescala.Expressions.Equals Equals]]
+    * @see [[Expressions.Equals Equals]]
     */
   // @mk I simplified that because it seemed dangerous and unnessecary
   def equality(a: Expr, b: Expr): Expr = {
@@ -202,8 +202,8 @@ trait Constructors {
     * val y0 = d
     * g(x0, y0)}}}
     * and further simplifies it.
-    * @see [[purescala.Expressions.Lambda Lambda]]
-    * @see [[purescala.Expressions.Application Application]]
+    * @see [[Expressions.Lambda Lambda]]
+    * @see [[Expressions.Application Application]]
     */
   def application(fn: Expr, realArgs: Seq[Expr]) = fn match {
      case Lambda(formalArgs, body) =>
@@ -235,7 +235,7 @@ trait Constructors {
     * {{{ assume(pred1, assume(pred2, body)) }}}
     * into
     * {{{ assume(pred1 && pred2, body) }}}
-    * @see [[purescala.Expressions.Assume Assume]]
+    * @see [[Expressions.Assume Assume]]
     */
   def assume(pred: Expr, body: Expr): Expr = (pred, body) match {
     case (Assume(pred1, pred2), _) => assume(and(pred1, pred2), body)
@@ -244,8 +244,18 @@ trait Constructors {
     case _ => Assume(pred, body)
   }
 
+  /** $encodingof simplified `forall(args, body)` (universal quantification).
+    * @see [[Expressions.Forall Forall]]
+    */
+  def forall(args: Seq[ValDef], body: Expr): Expr = body match {
+    case BooleanLiteral(true) => BooleanLiteral(true)
+    case _ =>
+      val vars = variablesOf(body)
+      Forall(args.filter(vd => vars(vd.toVariable)), body)
+  }
+
   /** $encodingof simplified `... + ...` (plus).
-    * @see [[purescala.Expressions.Plus Plus]]
+    * @see [[Expressions.Plus Plus]]
     */
   def plus(lhs: Expr, rhs: Expr): Expr = (lhs, rhs) match {
     case (IntegerLiteral(bi), _) if bi == 0 => rhs
@@ -258,9 +268,7 @@ trait Constructors {
   }
 
   /** $encodingof simplified `... - ...` (minus).
-    * @see [[purescala.Expressions.Minus Minus]]
-    * @see [[purescala.Expressions.BVMinus BVMinus]]
-    * @see [[purescala.Expressions.RealMinus RealMinus]]
+    * @see [[Expressions.Minus Minus]]
     */
   def minus(lhs: Expr, rhs: Expr): Expr = (lhs, rhs) match {
     case (_, IntegerLiteral(bi)) if bi == 0 => lhs
@@ -278,9 +286,7 @@ trait Constructors {
   }
 
   /** $encodingof simplified `... * ...` (times).
-    * @see [[purescala.Expressions.Times Times]]
-    * @see [[purescala.Expressions.BVTimes BVTimes]]
-    * @see [[purescala.Expressions.RealTimes RealTimes]]
+    * @see [[Expressions.Times Times]]
     */
   def times(lhs: Expr, rhs: Expr): Expr = (lhs, rhs) match {
     case (IntegerLiteral(bi), _) if bi == 1 => rhs
