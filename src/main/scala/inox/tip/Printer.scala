@@ -143,7 +143,13 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
       case _ => false
     }
 
-    for ((tpe, DataType(id, _)) <- adts) {
+    val (ours, externals) = adts.partition {
+      case (adt: ADTType, _) => adt == adt.getADT.definition.typed.toType
+      case (tpe @ TupleType(tps), _) => tpe == tuples(tps.size)
+      case _ => true
+    }
+
+    for ((tpe, DataType(id, _)) <- ours) {
       val tparams: Seq[TypeParameter] = tpe match {
         case ADTType(_, tps) => tps.map(_.asInstanceOf[TypeParameter])
         case TupleType(tps) => tps.map(_.asInstanceOf[TypeParameter])
@@ -154,12 +160,12 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
       sorts += tpe -> Sort(SMTIdentifier(id2sym(id)), tpSorts)
     }
 
-    val generics = adts.flatMap { case (tp, _) => typeParamsOf(tp) }.toSet
+    val generics = ours.flatMap { case (tp, _) => typeParamsOf(tp) }.toSet
     val genericSyms = generics.map(tp => id2sym(tp.id))
 
-    if (adts.nonEmpty) {
+    if (ours.nonEmpty) {
       emit(DeclareDatatypesPar(genericSyms.toList,
-        (for ((tpe, DataType(sym, cases)) <- adts.toList) yield {
+        (for ((tpe, DataType(sym, cases)) <- ours.toList) yield {
           id2sym(sym) -> (for (c <- cases) yield {
             val s = id2sym(c.sym)
 
