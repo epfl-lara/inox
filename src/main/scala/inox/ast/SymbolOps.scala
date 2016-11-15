@@ -224,7 +224,7 @@ trait SymbolOps { self: TypeOps =>
     * in order to increase the precision of polarity analysis for
     * quantification instantiations.
     */
-  def simplifyQuantifications(e: Expr): Expr = {
+  def simplifyForalls(e: Expr): Expr = {
 
     def inlineFunctions(e: Expr): Expr = {
       val fds = functionCallsOf(e).flatMap { fi =>
@@ -246,7 +246,7 @@ trait SymbolOps { self: TypeOps =>
       fixpoint(inline)(e)
     }
 
-    def inlineQuantifications(e: Expr): Expr = {
+    def inlineForalls(e: Expr): Expr = {
       def liftForalls(args: Seq[ValDef], es: Seq[Expr], recons: Seq[Expr] => Expr): Expr = {
         val (allArgs, allBodies) = es.map {
           case f: Forall =>
@@ -315,7 +315,7 @@ trait SymbolOps { self: TypeOps =>
       case _ => e
     }
 
-    normalizeClauses(inlineQuantifications(inlineFunctions(e)))
+    normalizeClauses(inlineForalls(inlineFunctions(e)))
   }
 
   def simplifyLets(expr: Expr): Expr = postMap({
@@ -778,10 +778,10 @@ trait SymbolOps { self: TypeOps =>
   def simplifyFormula(e: Expr, simplify: Boolean = true): Expr = {
     if (simplify) {
       val simp: Expr => Expr =
-        ((e: Expr) => simplifyHOFunctions(e))     compose
-        ((e: Expr) => simplifyByConstructors(e))  compose
-        ((e: Expr) => simplifyAssumptions(e))     compose
-        ((e: Expr) => simplifyQuantifications(e))
+        ((e: Expr) => simplifyHOFunctions(e))    compose
+        ((e: Expr) => simplifyByConstructors(e)) compose
+        ((e: Expr) => simplifyAssumptions(e))    compose
+        ((e: Expr) => simplifyForalls(e))
       fixpoint(simp)(e)
     } else {
       simplifyHOFunctions(e, simplify = false)

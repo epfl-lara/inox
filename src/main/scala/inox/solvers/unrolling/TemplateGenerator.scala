@@ -297,7 +297,7 @@ trait TemplateGenerator { self: Templates =>
         }
       }
 
-      case l @ Lambda(args, body) =>
+      case l: Lambda =>
         val idArgs : Seq[Variable] = lambdaArgs(l)
         val trArgs : Seq[Encoded] = idArgs.map(id => substMap.getOrElse(id, encodeSymbol(id)))
 
@@ -386,7 +386,13 @@ trait TemplateGenerator { self: Templates =>
         registerLambda(template)
         lid
 
-      case f @ Forall(args, body) =>
+      case f: Forall =>
+        val (assumptions, Forall(args, body)) = liftAssumptions(f)
+
+        for (a <- assumptions) {
+          rec(pathVar, a, Some(true))
+        }
+
         val TopLevelAnds(conjuncts) = body
 
         val conjunctQs = conjuncts.map { conjunct =>
