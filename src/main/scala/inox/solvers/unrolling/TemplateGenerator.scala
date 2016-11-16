@@ -191,7 +191,7 @@ trait TemplateGenerator { self: Templates =>
         val rb = rec(pathVar, exprOps.replace(Map(i.toVariable -> newExpr), b), pol)
         rb
 
-      case n @ Not(e) if n.getType == BooleanType =>
+      case n @ Not(e) =>
         Not(rec(pathVar, e, pol.map(!_)))
 
       case i @ Implies(lhs, rhs) =>
