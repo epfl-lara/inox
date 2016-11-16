@@ -10,8 +10,8 @@ class TipPrintingSuite extends FunSuite with ResourceUtils {
 
   val ctx = TestContext.empty
 
-  val files = resourceFiles("regression/tip/SAT", _.endsWith(".tip")).toList ++
-    resourceFiles("regression/tip/UNSAT", _.endsWith(".tip"))
+  val files = resourceFiles("regression/tip/SAT", _.endsWith(".tip")).toList.map("SAT" -> _) ++
+    resourceFiles("regression/tip/UNSAT", _.endsWith(".tip")).map("UNSAT" -> _)
 
   private def checkScript(syms: Symbols, expr: Expr): Unit = {
     for (fd <- syms.functions.values) {
@@ -21,14 +21,14 @@ class TipPrintingSuite extends FunSuite with ResourceUtils {
     assert(expr.getType(syms) != Untyped)
   }
 
-  for (file <- files) {
-    test(s"Parsing file ${file.getName}") {
+  for ((cat, file) <- files) {
+    test(s"Parsing file $cat/${file.getName}") {
       for ((syms, expr) <- new Parser(file).parseScript) {
         checkScript(syms, expr)
       }
     }
 
-    test(s"Re-printing file ${file.getName}") {
+    test(s"Re-printing file $cat/${file.getName}") {
       for ((syms, expr) <- new Parser(file).parseScript) {
         val program = InoxProgram(ctx, syms)
 

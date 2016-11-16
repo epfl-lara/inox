@@ -272,7 +272,7 @@ class Parser(file: File) {
           )
         ).setPos(pred.optPos)
       } else {
-        extractTerm(pred)(locals.withVariable(s, vd.toVariable))
+        extractTerm(pred)(locals.withGenerics(syms zip root.typeArgs).withVariable(s, vd.toVariable))
       }
 
       val (optAdt, fd) = root.invariant(locals.symbols) match {
