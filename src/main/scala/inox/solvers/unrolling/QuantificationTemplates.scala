@@ -1061,7 +1061,7 @@ trait QuantificationTemplates { self: Templates =>
           mkSubstituter(subst)(exprT)
         }
 
-        val res = (valuesP.map(_._2), mkOr(disjuncts : _*))
+        val res = (valuesP.map(_._2), if (disjuncts.isEmpty) falseT else mkOr(disjuncts : _*))
         keyClause += key -> res
         res
       })
