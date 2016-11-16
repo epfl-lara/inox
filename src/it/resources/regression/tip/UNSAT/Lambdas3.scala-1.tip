@@ -1,0 +1,17 @@
+(declare-datatypes (A1!1 A2!0 R!22) ((fun2!3 (fun2!4 (f!36 (=> A1!1 A2!0 R!22)) (pre!15 (=> A1!1 A2!0 Bool))))))
+
+(define-fun-rec intForAll2!0 ((n!1 Int) (m!0 Int) (p!0 (fun2!3 Int Int Bool))) Bool (assume (forall ((x!154 Int)(x!155 Int)) (=> (@ (f!36 (fun2!4 (lambda ((x!152 Int) (x!153 Int)) true) (lambda ((x!310 Int) (x!311 Int)) true))) x!154 x!155) (@ (f!36 (fun2!4 (pre!15 p!0) (lambda ((x!312 Int) (x!313 Int)) true))) x!154 x!155))) (ite (or (<= n!1 0) (<= m!0 0)) true (and (and (@ (f!36 p!0) (- n!1 1) (- m!0 1)) (intForAll2!0 (- n!1 1) m!0 p!0)) (intForAll2!0 n!1 (- m!0 1) p!0)))))
+
+(declare-const n!3 Int)
+
+(declare-datatypes (A1!0 R!21) ((fun1!9 (fun1!10 (f!37 (=> A1!0 R!21)) (pre!16 (=> A1!0 Bool))))))
+
+(define-fun smallNumbers!0 ((n!0 Int) (messages!0 (fun1!9 Int Int)) (i!1 Int) (j!0 Int)) Bool (assume (forall ((x!125 Int)) (=> (@ (f!37 (fun1!10 (lambda ((x!124 Int)) true) (lambda ((x!278 Int)) true))) x!125) (@ (f!37 (fun1!10 (pre!16 messages!0) (lambda ((x!279 Int)) true))) x!125))) (and (< i!1 n!0) (< j!0 n!0))))
+
+(define-fun init_messages!0 () (fun1!9 Int Int) (fun1!10 (lambda ((i!0 Int)) 0) (lambda ((i!17 Int)) true)))
+
+(assert (not (=> (intForAll2!0 n!3 n!3 (fun2!4 (lambda ((i!3 Int) (j!2 Int)) (smallNumbers!0 n!3 init_messages!0 i!3 j!2)) (lambda ((i!31 Int) (j!7 Int)) (forall ((x!125 Int)) (=> (@ (f!37 (fun1!10 (lambda ((x!124 Int)) true) (lambda ((x!382 Int)) true))) x!125) (@ (f!37 (fun1!10 (pre!16 init_messages!0) (lambda ((x!383 Int)) true))) x!125)))))) (forall ((x!67 Int)) (=> (@ (f!37 (fun1!10 (lambda ((x!66 Int)) true) (lambda ((x!384 Int)) true))) x!67) (@ (f!37 (fun1!10 (pre!16 init_messages!0) (lambda ((x!385 Int)) true))) x!67))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

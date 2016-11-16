@@ -1,0 +1,12 @@
+(declare-datatypes (A1!0 R!21) ((fun1!49 (fun1!50 (f!55 (=> A1!0 R!21)) (pre!34 (=> A1!0 Bool))))))
+
+(define-fun union!0 ((s1!0 (fun1!49 (_ BitVec 32) Bool)) (s2!0 (fun1!49 (_ BitVec 32) Bool))) (fun1!49 (_ BitVec 32) Bool) (assume (and (forall ((x!87 (_ BitVec 32))) (=> (@ (f!55 (fun1!50 (lambda ((x!86 (_ BitVec 32))) true) (lambda ((x!247 (_ BitVec 32))) true))) x!87) (@ (f!55 (fun1!50 (pre!34 s1!0) (lambda ((x!248 (_ BitVec 32))) true))) x!87))) (forall ((x!89 (_ BitVec 32))) (=> (@ (f!55 (fun1!50 (lambda ((x!88 (_ BitVec 32))) true) (lambda ((x!249 (_ BitVec 32))) true))) x!89) (@ (f!55 (fun1!50 (pre!34 s2!0) (lambda ((x!250 (_ BitVec 32))) true))) x!89)))) (fun1!50 (lambda ((x!1 (_ BitVec 32))) (or (@ (f!55 s1!0) x!1) (@ (f!55 s2!0) x!1))) (lambda ((x!251 (_ BitVec 32))) (and (@ (f!55 (fun1!50 (pre!34 s1!0) (lambda ((x!252 (_ BitVec 32))) true))) x!251) (=> (not (@ (f!55 s1!0) x!251)) (@ (f!55 (fun1!50 (pre!34 s2!0) (lambda ((x!253 (_ BitVec 32))) true))) x!251)))))))
+
+(define-fun set!0 ((i!0 (_ BitVec 32))) (fun1!49 (_ BitVec 32) Bool) (fun1!50 (lambda ((x!0 (_ BitVec 32))) (= x!0 i!0)) (lambda ((x!288 (_ BitVec 32))) true)))
+
+(define-fun set123!0 () (fun1!49 (_ BitVec 32) Bool) (union!0 (set!0 #b00000000000000000000000000000001) (union!0 (set!0 #b00000000000000000000000000000010) (set!0 #b00000000000000000000000000000011))))
+
+(assert (not (let ((s2!3 (union!0 set123!0 (set!0 #b00000000000000000000000000000100)))) (let ((holds!28 (and (and (and (@ (f!55 s2!3) #b00000000000000000000000000000001) (@ (f!55 s2!3) #b00000000000000000000000000000010)) (@ (f!55 s2!3) #b00000000000000000000000000000011)) (@ (f!55 s2!3) #b00000000000000000000000000000100)))) holds!28))))
+
+(check-sat)
+

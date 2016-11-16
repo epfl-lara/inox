@@ -1,0 +1,19 @@
+(declare-datatypes (A1!1 A2!0 R!22) ((fun2!7 (fun2!8 (f!40 (=> A1!1 A2!0 R!22)) (pre!19 (=> A1!1 A2!0 Bool))))))
+
+(define-fun-rec intForAll2!0 ((n!1 Int) (m!0 Int) (p!0 (fun2!7 Int Int Bool))) Bool (assume (forall ((x!154 Int)(x!155 Int)) (=> (@ (f!40 (fun2!8 (lambda ((x!152 Int) (x!153 Int)) true) (lambda ((x!310 Int) (x!311 Int)) true))) x!154 x!155) (@ (f!40 (fun2!8 (pre!19 p!0) (lambda ((x!312 Int) (x!313 Int)) true))) x!154 x!155))) (ite (or (<= n!1 0) (<= m!0 0)) true (and (and (@ (f!40 p!0) (- n!1 1) (- m!0 1)) (intForAll2!0 (- n!1 1) m!0 p!0)) (intForAll2!0 n!1 (- m!0 1) p!0)))))
+
+(declare-const n!3 Int)
+
+(declare-datatypes (A1!0 R!21) ((fun1!13 (fun1!14 (f!41 (=> A1!0 R!21)) (pre!20 (=> A1!0 Bool))))))
+
+(define-fun smallNumbers!0 ((n!0 Int) (messages!0 (fun1!13 Int Int)) (i!1 Int) (j!0 Int)) Bool (assume (forall ((x!125 Int)) (=> (@ (f!41 (fun1!14 (lambda ((x!124 Int)) true) (lambda ((x!278 Int)) true))) x!125) (@ (f!41 (fun1!14 (pre!20 messages!0) (lambda ((x!279 Int)) true))) x!125))) (and (< i!1 n!0) (< j!0 n!0))))
+
+(define-fun init_messages!0 () (fun1!13 Int Int) (fun1!14 (lambda ((i!0 Int)) 0) (lambda ((i!17 Int)) true)))
+
+(define-fun invariant!0 ((n!2 Int) (messages!1 (fun1!13 Int Int))) Bool (assume (forall ((x!67 Int)) (=> (@ (f!41 (fun1!14 (lambda ((x!66 Int)) true) (lambda ((x!217 Int)) true))) x!67) (@ (f!41 (fun1!14 (pre!20 messages!1) (lambda ((x!218 Int)) true))) x!67))) (intForAll2!0 n!2 n!2 (fun2!8 (lambda ((i!2 Int) (j!1 Int)) (smallNumbers!0 n!2 messages!1 i!2 j!1)) (lambda ((i!16 Int) (j!3 Int)) (forall ((x!125 Int)) (=> (@ (f!41 (fun1!14 (lambda ((x!124 Int)) true) (lambda ((x!219 Int)) true))) x!125) (@ (f!41 (fun1!14 (pre!20 messages!1) (lambda ((x!220 Int)) true))) x!125))))))))
+
+(assert (not (=> (intForAll2!0 n!3 n!3 (fun2!8 (lambda ((i!3 Int) (j!2 Int)) (smallNumbers!0 n!3 init_messages!0 i!3 j!2)) (lambda ((i!40 Int) (j!11 Int)) (forall ((x!125 Int)) (=> (@ (f!41 (fun1!14 (lambda ((x!124 Int)) true) (lambda ((x!408 Int)) true))) x!125) (@ (f!41 (fun1!14 (pre!20 init_messages!0) (lambda ((x!409 Int)) true))) x!125)))))) (invariant!0 n!3 init_messages!0))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

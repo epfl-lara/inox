@@ -1,0 +1,15 @@
+(declare-datatypes (A1!0 R!21) ((fun1!83 (fun1!84 (f!88 (=> A1!0 R!21)) (pre!52 (=> A1!0 Bool))))))
+
+(declare-datatypes (A!0 B!0) ((~>!29 (~>!30 (f!91 (fun1!83 A!0 B!0)) (ens!15 (fun1!83 B!0 Bool))))))
+
+(declare-const (par (A!36 B!26) (thiss!44 (~>!29 A!36 B!26))))
+
+(declare-const (par (A!36) (x!0 A!36)))
+
+(datatype-invariant (par (A!48 B!35) thiss!91 (~>!29 A!48 B!35) (forall ((b!0 B!35)) (@ (f!88 (fun1!84 (pre!52 (ens!15 thiss!91)) (lambda ((x!298 B!35)) true))) b!0))))
+
+(assert (par (A!36 B!26) (not (=> (@ (f!88 (fun1!84 (pre!52 (f!91 (as thiss!44 (~>!29 A!36 B!26)))) (lambda ((x!430 A!36)) true))) (as x!0 A!36)) (@ (f!88 (ens!15 (as thiss!44 (~>!29 A!36 B!26)))) (@ (f!88 (f!91 (as thiss!44 (~>!29 A!36 B!26)))) (as x!0 A!36)))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

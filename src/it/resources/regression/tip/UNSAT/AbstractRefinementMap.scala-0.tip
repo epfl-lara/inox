@@ -1,0 +1,27 @@
+(declare-datatypes (T!3) ((List!8 (Nil!5) (Cons!5 (h!50 T!3) (t!57 (List!8 T!3))))))
+
+(define-fun-rec (par (T!36) (content!2 ((thiss!20 (List!8 T!36))) (Set T!36) (ite (is-Nil!5 thiss!20) (as emptyset T!36) (ite (is-Cons!5 thiss!20) (union (insert (as emptyset T!36) (h!50 thiss!20)) (content!2 (t!57 thiss!20))) (choose |error: Match is non-exhaustive!16| (Set T!36) true))))))
+
+(define-fun-rec (par (T!46) (contains!0 ((thiss!37 (List!8 T!46)) (v!3 T!46)) Bool (let ((x$2!1 (ite (is-Cons!5 thiss!37) (or (= (h!50 thiss!37) v!3) (contains!0 (t!57 thiss!37) v!3)) (ite (is-Nil!5 thiss!37) false (choose |error: Match is non-exhaustive!26| Bool true))))) (assume (= x$2!1 (member v!3 (content!2 thiss!37))) x$2!1)))))
+
+(declare-const (par (A!1) (l!0 (List!8 A!1))))
+
+(declare-datatypes (A1!0 R!21) ((fun1!65 (fun1!66 (f!77 (=> A1!0 R!21)) (pre!43 (=> A1!0 Bool))))))
+
+(declare-datatypes (A!0 B!0) ((~>!25 (~>!26 (f!80 (fun1!65 A!0 B!0)) (ens!13 (fun1!65 B!0 Bool))))))
+
+(define-fun (par (A!50 B!36) (pre!0 ((thiss!102 (~>!25 A!50 B!36))) (fun1!65 A!50 Bool) (fun1!66 (pre!43 (f!80 thiss!102)) (lambda ((x!311 A!50)) true)))))
+
+(declare-const (par (A!1 B!1) (f!1 (~>!25 A!1 B!1))))
+
+(define-fun (par (A!27 B!18) (apply!0 ((thiss!4 (~>!25 A!27 B!18)) (x!2 A!27)) B!18 (assume (@ (f!77 (fun1!66 (pre!43 (f!80 thiss!4)) (lambda ((x!194 A!27)) true))) x!2) (let ((res!0 (@ (f!77 (f!80 thiss!4)) x!2))) (assume (@ (f!77 (ens!13 thiss!4)) res!0) res!0))))))
+
+(define-fun-rec (par (A!1 B!1) (map!0 ((l!0 (List!8 A!1)) (f!1 (~>!25 A!1 B!1))) (List!8 B!1) (assume (forall ((x!4 A!1)) (=> (contains!0 l!0 x!4) (@ (f!77 (pre!0 f!1)) x!4))) (let ((res!1 (ite (is-Cons!5 l!0) (Cons!5 (apply!0 f!1 (h!50 l!0)) (map!0 (t!57 l!0) f!1)) (ite (is-Nil!5 l!0) (as Nil!5 (List!8 B!1)) (choose |error: Match is non-exhaustive!57| (List!8 B!1) true))))) (assume (forall ((x!3 B!1)) (=> (contains!0 res!1 x!3) (@ (f!77 (ens!13 f!1)) x!3))) res!1))))))
+
+(datatype-invariant (par (A!43 B!31) thiss!63 (~>!25 A!43 B!31) (and (forall ((x!0 B!31)) (@ (f!77 (fun1!66 (pre!43 (ens!13 thiss!63)) (lambda ((x!255 B!31)) true))) x!0)) (forall ((x!1 A!43)) (=> (@ (f!77 (fun1!66 (pre!43 (f!80 thiss!63)) (lambda ((x!256 A!43)) true))) x!1) (@ (f!77 (ens!13 thiss!63)) (@ (f!77 (f!80 thiss!63)) x!1)))))))
+
+(assert (par (A!1 B!1) (not (=> (forall ((x!4 A!1)) (=> (contains!0 (as l!0 (List!8 A!1)) x!4) (@ (f!77 (pre!0 (as f!1 (~>!25 A!1 B!1)))) x!4))) (forall ((x!3 B!1)) (=> (contains!0 (ite (is-Cons!5 (as l!0 (List!8 A!1))) (Cons!5 (apply!0 (as f!1 (~>!25 A!1 B!1)) (h!50 (as l!0 (List!8 A!1)))) (map!0 (t!57 (as l!0 (List!8 A!1))) (as f!1 (~>!25 A!1 B!1)))) (ite (is-Nil!5 (as l!0 (List!8 A!1))) (as Nil!5 (List!8 B!1)) (choose |error: Match is non-exhaustive!76| (List!8 B!1) true))) x!3) (@ (f!77 (ens!13 (as f!1 (~>!25 A!1 B!1)))) x!3)))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard
