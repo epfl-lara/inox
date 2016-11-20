@@ -402,16 +402,19 @@ trait TemplateGenerator { self: Templates =>
       }
 
       val localSubst: Map[Variable, Encoded] = substMap ++ condVars ++ exprVars ++ lambdaVars
-      val (depSubst, (depConds, depExprs, depTree, depGuarded, depEqs, depLambdas, depQuants)) =
-        depsByScope.foldLeft[(Map[Variable, Encoded], TemplateClauses)](localSubst -> emptyClauses) {
-          case ((depSubst, clsSet), (v, expr)) =>
+      val (depSubst, basePointers, (depConds, depExprs, depTree, depGuarded, depEqs, depLambdas, depQuants)) =
+        depsByScope.foldLeft[(Map[Variable, Encoded], Map[Encoded, Encoded], TemplateClauses)](
+          (localSubst, Map.empty, emptyClauses)
+        ) { case ((depSubst, pointers, clsSet), (v, expr)) =>
             if (!exprOps.isSimple(expr)) {
               val normalExpr = if (!isNormalForm) simplifyHOFunctions(expr) else expr
               val (e, cls @ (_, _, _, _, _, lmbds, quants)) = mkExprClauses(pathVar, normalExpr, depSubst)
               val clauseSubst = depSubst ++ lmbds.map(_.ids) ++ quants.flatMap(_.mapping)
-              (depSubst + (v -> mkEncoder(clauseSubst)(e)), clsSet ++ cls)
+              val encoder = mkEncoder(clauseSubst) _
+              (depSubst + (v -> encoder(e)), Template.lambdaPointers(encoder)(e), clsSet ++ cls)
             } else {
-              (depSubst + (v -> mkEncoder(depSubst)(expr)), clsSet)
+              val encoder = mkEncoder(depSubst) _
+              (depSubst + (v -> encoder(expr)), Template.lambdaPointers(encoder)(expr), clsSet)
             }
         }
 
@@ -423,7 +426,7 @@ trait TemplateGenerator { self: Templates =>
 
       val structure = new TemplateStructure(struct, dependencies,
         pathVar -> encodedCond(pathVar), depConds, depExprs, depTree,
-        depClauses, depCalls, depApps, depMatchers, depLambdas, depQuants, depPointers)
+        depClauses, depCalls, depApps, depMatchers, depLambdas, depQuants, basePointers ++ depPointers)
 
       val res = if (isNormalForm) expr else struct
       (res, structure, depSubst)

@@ -456,6 +456,32 @@ trait Templates extends TemplateGenerator
 
   object Template {
 
+    def lambdaPointers(encoder: Expr => Encoded)(expr: Expr): Map[Encoded, Encoded] = {
+      def collectSelectors(expr: Expr, ptr: Expr): Seq[(Expr, Variable)] = expr match {
+        case ADT(tpe, es) => (tpe.getADT.toConstructor.fields zip es).flatMap {
+          case (vd, e) => collectSelectors(e, ADTSelector(ptr, vd.id))
+        }
+
+        case Tuple(es) => es.zipWithIndex.flatMap {
+          case (e, i) => collectSelectors(e, TupleSelect(ptr, i + 1))
+        }
+
+        case IsTyped(v: Variable, _: FunctionType) => Seq(ptr -> v)
+        case _ => Seq.empty
+      }
+
+      val pointers = exprOps.collect {
+        case Equals(v: Variable, e) => collectSelectors(e, v).toSet
+        case FunctionInvocation(_, _, es) => es.flatMap(e => collectSelectors(e, e)).toSet
+        case Application(_, es) => es.flatMap(e => collectSelectors(e, e)).toSet
+        case e: Tuple => collectSelectors(e, e).toSet
+        case e: ADT => collectSelectors(e, e).toSet
+        case _ => Set.empty[(Expr, Variable)]
+      } (expr).toMap
+
+      pointers.map(p => encoder(p._1) -> encoder(p._2))
+    }
+
     def encode(
       pathVar: (Variable, Encoded),
       arguments: Seq[(Variable, Encoded)],
@@ -483,36 +509,15 @@ trait Templates extends TemplateGenerator
         App(idT, bestRealType(tpe).asInstanceOf[FunctionType], arguments.map(p => Left(p._2)), encoded)
       }
 
-      lazy val optIdMatcher = optCall.map { case (tfd, path) =>
+      lazy val optIdMatcher = optCall.filter {
+        case (tfd, path) => tfd.returnType.isInstanceOf[FunctionType] && path.isEmpty
+      }.map { case (tfd, path) =>
         val (fiArgs, appArgs) = arguments.map(_._1).splitAt(tfd.params.size)
         val encoded = mkEncoder(arguments.toMap)(mkApplication(mkSelection(tfd.applied(fiArgs), path), appArgs))
         Matcher(Right(tfd), arguments.map(p => Left(p._2)), encoded)
       }
 
-      def lambdaPointers(expr: Expr): Map[Expr, Variable] = {
-        def collectSelectors(expr: Expr, ptr: Expr): Seq[(Expr, Variable)] = expr match {
-          case ADT(tpe, es) => (tpe.getADT.toConstructor.fields zip es).flatMap {
-            case (vd, e) => collectSelectors(e, ADTSelector(ptr, vd.id))
-          }
-
-          case Tuple(es) => es.zipWithIndex.flatMap {
-            case (e, i) => collectSelectors(e, TupleSelect(ptr, i + 1))
-          }
-
-          case IsTyped(v: Variable, _: FunctionType) => Seq(ptr -> v)
-          case _ => Seq.empty
-        }
-
-        exprOps.collect {
-          case Equals(v: Variable, e) => collectSelectors(e, v).toSet
-          case FunctionInvocation(_, _, es) => es.flatMap(e => collectSelectors(e, e)).toSet
-          case Application(_, es) => es.flatMap(e => collectSelectors(e, e)).toSet
-          case _ => Set.empty[(Expr, Variable)]
-        } (expr).toMap
-      }
-
-      val pointers = (equations ++ guardedExprs.flatMap(_._2)).flatMap(lambdaPointers).toMap
-      val encodedPointers = pointers.map(p => encoder(p._1) -> encoder(p._2))
+      val pointers = (equations ++ guardedExprs.flatMap(_._2)).flatMap(lambdaPointers(encoder) _).toMap
 
       val (clauses, blockers, applications, matchers) = {
         var clauses      : Clauses = Seq.empty
@@ -608,7 +613,7 @@ trait Templates extends TemplateGenerator
         }.mkString("\n")
       }
 
-      (clauses, encodedBlockers, encodedApps, encodedMatchers, encodedPointers, stringRepr)
+      (clauses, encodedBlockers, encodedApps, encodedMatchers, pointers, stringRepr)
     }
 
     def substitution(

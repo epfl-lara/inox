@@ -263,6 +263,7 @@ trait SymbolOps { self: TypeOps =>
           case Variable(id, tpe) =>
             Variable(transformId(id, tpe), tpe)
 
+          /*
           case (_: Application) | (_: MultiplicityInBag) | (_: ElementOfSet) | (_: MapApply) if (
             !isLocal(e, path) &&
             preserveApps
@@ -270,6 +271,7 @@ trait SymbolOps { self: TypeOps =>
             val (es, recons) = extractMatcher(e)
             val newEs = es.map(rec(_, path))
             recons(newEs)
+          */
 
           case Let(vd, e, b) if (
             isLocal(e, path) &&
