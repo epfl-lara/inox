@@ -302,7 +302,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
             }
           }.toMap
 
-          exprOps.replaceFromSymbols(localsSubst, tmpl.structure.lambda).asInstanceOf[Lambda]
+          exprOps.replaceFromSymbols(localsSubst, tmpl.structure.body).asInstanceOf[Lambda]
         }
       }
 

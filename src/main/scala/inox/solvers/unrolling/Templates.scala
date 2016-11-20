@@ -341,6 +341,104 @@ trait Templates extends TemplateGenerator
     override def toString : String = "Instantiated template"
   }
 
+  /** Semi-template used for inner-template equality
+    *
+    * We introduce a structure here that resembles a [[Template]] that is instantiated
+    * ONCE when the corresponding template becomes of interest. */
+  class TemplateStructure(
+
+    /** The normalized expression that is shared between all templates that are "equal".
+      * Template equality is conditioned on [[body]] equality.
+      *
+      * @see [[dependencies]] for the other component of equality
+      */
+    val body: Expr,
+
+    /** The closed expressions (independent of the arguments to [[body]]) contained in
+      * the inner-template. Equality is conditionned on equality of [[dependencies]]
+      * (inside the solver).
+      *
+      * @see [[body]] for the other component of equality
+      */
+     val dependencies: Seq[Encoded],
+
+    /** The condition under which this structure can be reached within the program. If
+      * the `pathVar` does not hold, then equality will not be checked. */
+    val pathVar: (Variable, Encoded),
+
+    val condVars: Map[Variable, Encoded],
+    val exprVars: Map[Variable, Encoded],
+    val condTree: Map[Variable, Set[Variable]],
+    val clauses: Clauses,
+    val blockers: Calls,
+    val applications: Apps,
+    val matchers: Matchers,
+    val lambdas: Seq[LambdaTemplate],
+    val quantifications: Seq[QuantificationTemplate],
+    val pointers: Map[Encoded, Encoded]) {
+
+    def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]) = new TemplateStructure(
+      body,
+      dependencies.map(substituter),
+      pathVar._1 -> substituter(pathVar._2),
+      condVars, exprVars, condTree,
+      clauses.map(substituter),
+      blockers.map { case (b, fis) => substituter(b) -> fis.map(_.substitute(substituter, msubst)) },
+      applications.map { case (b, fas) => substituter(b) -> fas.map(_.substitute(substituter, msubst)) },
+      matchers.map { case (b, ms) => substituter(b) -> ms.map(_.substitute(substituter, msubst)) },
+      lambdas.map(_.substitute(substituter, msubst)),
+      quantifications.map(_.substitute(substituter, msubst)),
+      pointers.map(p => substituter(p._1) -> substituter(p._2))
+    )
+
+    /** The [[key]] value (triplet of [[body]], a normalization of [[pathVar]] and [[locals]])
+      * is used to determine syntactic equality between inner-templates. If the key of two such
+      * templates are equal, then they must necessarily be equal in every model.
+      *
+      * The [[instantiation]] consists of the clause set instantiation (in the sense of
+      * [[Template.instantiate]] that is required for [[dependencies]] to make sense in the solver
+      * (introduces blockers, lambdas, quantifications, etc.) Since [[dependencies]] CHANGE during
+      * instantiation and [[key]] makes no sense without the associated instantiation, the implicit
+      * contract here is that whenever a new key appears during unfolding, its associated
+      * instantiation MUST be added to the set of instantiations managed by the solver. However, if
+      * an identical (or subsuming) pre-existing key has already been found, then the associated
+      * instantiation must already appear in the handled by the solver and the new one can be discarded.
+      *
+      * The [[locals]] value consists of the [[dependencies]] on which the substitution resulting
+      * from instantiation has been applied. The [[dependencies]] should not be directly used here
+      * as they may depend on closure and quantifier ids that were only obtained when [[instantiation]]
+      * was computed.
+      *
+      * The [[instantiationSubst]] substitution corresponds that applied to [[dependencies]] when
+      * constructing [[locals]].
+      */
+    lazy val (key, instantiation, locals, instantiationSubst) = {
+      val (substMap, substInst) = Template.substitution(condVars, exprVars, condTree,
+        lambdas, quantifications, pointers, Map.empty, pathVar._2)
+      val tmplInst = Template.instantiate(clauses, blockers, applications, matchers, substMap)
+      val instantiation = substInst ++ tmplInst
+
+      val substituter = mkSubstituter(substMap.mapValues(_.encoded))
+      val deps = dependencies.map(substituter)
+      val key = (body, blockerPath(pathVar._2), deps)
+
+      val sortedDeps = exprOps.variablesOf(body).toSeq.sortBy(_.id.uniqueName)
+      val locals = sortedDeps zip deps
+      (key, instantiation, locals, substMap.mapValues(_.encoded))
+    }
+
+    override def equals(that: Any): Boolean = that match {
+      case (struct: TemplateStructure) => key == struct.key
+      case _ => false
+    }
+
+    override def hashCode: Int = key.hashCode
+
+    def subsumes(that: TemplateStructure): Boolean = {
+      key._1 == that.key._1 && key._3 == that.key._3 && key._2.subsetOf(that.key._2)
+    }
+  }
+
   private[unrolling] def mkApplication(caller: Expr, args: Seq[Expr]): Expr = caller.getType match {
     case FunctionType(from, to) =>
       val (curr, next) = args.splitAt(from.size)
@@ -541,7 +639,7 @@ trait Templates extends TemplateGenerator
       val lambdaKeys = lambdas.map(lambda => lambda.ids._2 -> lambda).toMap
       def extractSubst(lambda: LambdaTemplate): Unit = {
         for {
-          dep <- lambda.structure.closures flatMap lambdaKeys.get 
+          dep <- lambda.closures map lambdaKeys
           if !seen(dep)
         } extractSubst(dep)
 

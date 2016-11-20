@@ -104,9 +104,10 @@ trait QuantificationTemplates { self: Templates =>
     val lambdas: Seq[LambdaTemplate],
     val quantifications: Seq[QuantificationTemplate],
     val pointers: Map[Encoded, Encoded],
-    val key: (Encoded, Seq[ValDef], Expr, Seq[Encoded]),
+    val structure: TemplateStructure,
     val body: Expr,
-    stringRepr: () => String) {
+    stringRepr: () => String,
+    private val isConcrete: Boolean) {
 
     lazy val start = pathVar._2
     lazy val mapping: Map[Variable, Encoded] = polarity match {
@@ -124,21 +125,29 @@ trait QuantificationTemplates { self: Templates =>
         lambdas.map(_.substitute(substituter, msubst)),
         quantifications.map(_.substitute(substituter, msubst)),
         pointers.map(p => substituter(p._1) -> substituter(p._2)),
-        (substituter(key._1), key._2, key._3, key._4.map(substituter)),
-        body, stringRepr)
+        structure.substitute(substituter, msubst),
+        body, stringRepr, isConcrete)
+
+    def concretize: QuantificationTemplate = {
+      assert(!isConcrete, "Can't concretize concrete quantification template")
+      val substituter = mkSubstituter(structure.instantiationSubst)
+      new QuantificationTemplate(
+        pathVar, polarity, quantifiers, condVars, exprVars, condTree,
+        clauses map substituter,
+        blockers.map { case (b, fis) => b -> fis.map(_.substitute(substituter, Map.empty)) },
+        applications.map { case (b, fas) => b -> fas.map(_.substitute(substituter, Map.empty)) },
+        matchers.map { case (b, ms) => b -> ms.map(_.substitute(substituter, Map.empty)) },
+        lambdas.map(_.substitute(substituter, Map.empty)),
+        quantifications.map(_.substitute(substituter, Map.empty)),
+        pointers.map(p => substituter(p._1) -> substituter(p._2)),
+        structure, body, stringRepr, true)
+    }
 
     private lazy val str : String = stringRepr()
     override def toString : String = str
   }
 
   object QuantificationTemplate {
-    def templateKey(quantifiers: Seq[ValDef], expr: Expr, substMap: Map[Variable, Encoded]): (Seq[ValDef], Expr, Seq[Encoded]) = {
-      val (vals, struct, deps) = normalizeStructure(quantifiers, expr)
-      val encoder = mkEncoder(substMap) _
-      val depClosures = deps.toSeq.sortBy(_._1.id.uniqueName).map(p => encoder(p._2))
-      (vals, struct, depClosures)
-    }
-
     def apply(
       pathVar: (Variable, Encoded),
       optPol: Option[Boolean],
@@ -151,6 +160,7 @@ trait QuantificationTemplates { self: Templates =>
       equations: Seq[Expr],
       lambdas: Seq[LambdaTemplate],
       quantifications: Seq[QuantificationTemplate],
+      structure: TemplateStructure,
       substMap: Map[Variable, Encoded],
       proposition: Forall
     ): (Option[Variable], QuantificationTemplate) = {
@@ -199,13 +209,10 @@ trait QuantificationTemplates { self: Templates =>
           extraGuarded merge guardedExprs, extraEqs ++ equations,
           lambdas, quantifications, substMap = substMap ++ extraSubst)
 
-      val tk = templateKey(proposition.args, proposition.body, substMap)
-      val key = (pathVar._2, tk._1, tk._2, tk._3)
-
       (optVar, new QuantificationTemplate(
         pathVar, polarity, quantifiers, condVars, exprVars, condTree, clauses,
-        blockers, applications, matchers, lambdas, quantifications, pointers, key,
-        proposition.body, () => "Template for " + proposition + " is :\n" + templateString()))
+        blockers, applications, matchers, lambdas, quantifications, pointers, structure,
+        proposition.body, () => "Template for " + proposition + " is :\n" + templateString(), false))
     }
   }
 
@@ -221,8 +228,8 @@ trait QuantificationTemplates { self: Templates =>
     val handledSubsts   = new IncrementalMap[Quantification, Set[(Set[Encoded], Map[Encoded,Arg])]]
     val ignoredGrounds  = new IncrementalMap[Int, Set[Quantification]]
 
-    val lambdaAxioms    = new IncrementalSet[LambdaStructure]
-    val templates       = new IncrementalMap[(Encoded, Seq[ValDef], Expr, Seq[Encoded]), (QuantificationTemplate, Map[Encoded, Encoded])]
+    val lambdaAxioms    = new IncrementalSet[TemplateStructure]
+    val templates       = new IncrementalMap[TemplateStructure, (QuantificationTemplate, Encoded, Map[Encoded, Encoded])]
 
     val incrementals: Seq[IncrementalState] = Seq(quantifications, lambdaAxioms, templates,
       ignoredMatchers, handledMatchers, ignoredSubsts, handledSubsts, ignoredGrounds)
@@ -355,10 +362,14 @@ trait QuantificationTemplates { self: Templates =>
   private case class TypeKey(tt: Type) extends TypedKey(tt)
 
   private def matcherKey(key: Either[(Encoded, Type), TypedFunDef]): MatcherKey = key match {
-    case Right(tfd) => FunctionKey(tfd)
-    case Left((caller, ft: FunctionType)) if byID.isDefinedAt(caller) => LambdaKey(byID(caller).structure.lambda, ft)
-    case Left((caller, ft: FunctionType)) => CallerKey(caller, ft)
-    case Left((_, tpe)) => TypeKey(tpe)
+    case Right(tfd) =>
+      FunctionKey(tfd)
+    case Left((caller, ft: FunctionType)) if byID.isDefinedAt(caller) =>
+      LambdaKey(byID(caller).structure.body.asInstanceOf[Lambda], ft)
+    case Left((caller, ft: FunctionType)) =>
+      CallerKey(caller, ft)
+    case Left((_, tpe)) =>
+      TypeKey(tpe)
   }
 
   @inline
@@ -881,15 +892,8 @@ trait QuantificationTemplates { self: Templates =>
           case Lambda(args, body) => rec(Application(caller, args.map(_.toVariable)), body)
           case _ => Equals(caller, body)
         }
-        rec(template.ids._1, template.structure.lambda)
+        rec(template.ids._1, template.structure.body)
       }
-
-      val tk = QuantificationTemplate.templateKey(
-        quantifiers.map(_._1.toVal),
-        body,
-        template.structure.locals.toMap + template.ids
-      )
-      val key = (template.pathVar._2, tk._1, tk._2, tk._3)
 
       instantiateQuantification(new QuantificationTemplate(
         template.pathVar,
@@ -907,23 +911,28 @@ trait QuantificationTemplates { self: Templates =>
         template.lambdas.map(_.substitute(substituter, Map.empty)),
         template.quantifications.map(_.substitute(substituter, Map.empty)),
         template.pointers.map(p => substituter(p._1) -> substituter(p._2)),
-        key, body, template.stringRepr))._2 // mapping is guaranteed empty!!
+        template.structure, body, template.stringRepr, false))._2 // mapping is guaranteed empty!!
     }
   }
 
   def instantiateQuantification(template: QuantificationTemplate): (Map[Encoded, Encoded], Clauses) = {
-    templates.get(template.key) match {
-      case Some((_, map)) =>
+    templates.get(template.structure).orElse {
+      templates.collectFirst { case (s, t) if s subsumes template.structure => t }
+    } match {
+      case Some((_, _, map)) =>
         (map, Seq.empty)
 
       case None =>
+        val newTemplate = template.concretize
         val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-        val mapping: Map[Encoded, Encoded] = template.polarity match {
+        clauses ++= newTemplate.structure.instantiation
+
+        val (inst, mapping): (Encoded, Map[Encoded, Encoded]) = newTemplate.polarity match {
           case Positive(guard) =>
-            val axiom = new Axiom(template.pathVar._2, guard,
-              template.quantifiers, template.condVars, template.exprVars, template.condTree,
-              template.clauses, template.blockers, template.applications, template.matchers,
-              template.lambdas, template.quantifications, template.pointers, template.body)
+            val axiom = new Axiom(newTemplate.pathVar._2, guard,
+              newTemplate.quantifiers, newTemplate.condVars, newTemplate.exprVars, newTemplate.condTree,
+              newTemplate.clauses, newTemplate.blockers, newTemplate.applications, newTemplate.matchers,
+              newTemplate.lambdas, newTemplate.quantifications, newTemplate.pointers, newTemplate.body)
 
             quantifications += axiom
 
@@ -933,32 +942,32 @@ trait QuantificationTemplates { self: Templates =>
 
             val groundGen = currentGeneration + 3
             ignoredGrounds += groundGen -> (ignoredGrounds.getOrElse(groundGen, Set.empty) + axiom)
-            Map.empty
+            (trueT, Map.empty)
 
           case Negative(insts) =>
             val instT = encodeSymbol(insts._1)
             val (substMap, substClauses) = Template.substitution(
-              template.condVars, template.exprVars, template.condTree,
-              template.lambdas, template.quantifications, template.pointers,
-              Map(insts._2 -> Left(instT)), template.pathVar._2)
+              newTemplate.condVars, newTemplate.exprVars, newTemplate.condTree,
+              newTemplate.lambdas, newTemplate.quantifications, newTemplate.pointers,
+              Map(insts._2 -> Left(instT)), newTemplate.pathVar._2)
             clauses ++= substClauses
 
-            // this will call `instantiateMatcher` on all matchers in `template.matchers`
-            clauses ++= Template.instantiate(template.clauses,
-              template.blockers, template.applications, template.matchers, substMap)
+            // this will call `instantiateMatcher` on all matchers in `newTemplate.matchers`
+            clauses ++= Template.instantiate(newTemplate.clauses,
+              newTemplate.blockers, newTemplate.applications, newTemplate.matchers, substMap)
 
-            Map(insts._2 -> instT)
+            (instT, Map(insts._2 -> instT))
 
           case Unknown(qs, q2s, insts, guard) =>
             val qT = encodeSymbol(qs._1)
             val substituter = mkSubstituter(Map(qs._2 -> qT))
 
-            val quantification = new GeneralQuantification(template.pathVar._2,
+            val quantification = new GeneralQuantification(newTemplate.pathVar._2,
               qs._1 -> qT, q2s, insts, guard,
-              template.quantifiers, template.condVars, template.exprVars, template.condTree,
-              template.clauses map substituter, // one clause depends on 'qs._2' (and therefore 'qT')
-              template.blockers, template.applications, template.matchers,
-              template.lambdas, template.quantifications, template.pointers, template.body)
+              newTemplate.quantifiers, newTemplate.condVars, newTemplate.exprVars, newTemplate.condTree,
+              newTemplate.clauses map substituter, // one clause depends on 'qs._2' (and therefore 'qT')
+              newTemplate.blockers, newTemplate.applications, newTemplate.matchers,
+              newTemplate.lambdas, newTemplate.quantifications, newTemplate.pointers, newTemplate.body)
 
             quantifications += quantification
 
@@ -966,9 +975,9 @@ trait QuantificationTemplates { self: Templates =>
               clauses ++= quantification.instantiate(bs, m)
             }
 
-            val freshQuantifiers = template.quantifiers.map(p => encodeSymbol(p._1))
-            val freshSubst = mkSubstituter((template.quantifiers.map(_._2) zip freshQuantifiers).toMap)
-            for ((b,ms) <- template.matchers; m <- ms) {
+            val freshQuantifiers = newTemplate.quantifiers.map(p => encodeSymbol(p._1))
+            val freshSubst = mkSubstituter((newTemplate.quantifiers.map(_._2) zip freshQuantifiers).toMap)
+            for ((b,ms) <- newTemplate.matchers; m <- ms) {
               clauses ++= instantiateMatcher(Set.empty[Encoded], m, false)
               // it is very rare that such instantiations are actually required, so we defer them
               val gen = currentGeneration + 20
@@ -976,10 +985,22 @@ trait QuantificationTemplates { self: Templates =>
             }
 
             clauses ++= quantification.ensureGrounds
-            Map(qs._2 -> qT)
+            (qT, Map(qs._2 -> qT))
         }
 
-        templates += template.key -> ((template, mapping))
+        clauses ++= templates.flatMap { case (key, (tmpl, tinst, _)) =>
+          if (newTemplate.structure.body == tmpl.structure.body) {
+            val eqConds = (newTemplate.structure.locals zip tmpl.structure.locals)
+              .filter(p => p._1 != p._2)
+              .map(p => mkEquals(p._1._2, p._2._2))
+            val cond = mkAnd(newTemplate.pathVar._2 +: tmpl.pathVar._2 +: eqConds : _*)
+            Some(mkImplies(cond, mkEquals(inst, tinst)))
+          } else {
+            None
+          }
+        }
+
+        templates += newTemplate.structure -> ((newTemplate, inst, mapping))
         (mapping, clauses.toSeq)
     }
   }

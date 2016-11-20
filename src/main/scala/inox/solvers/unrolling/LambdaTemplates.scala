@@ -62,7 +62,8 @@ trait LambdaTemplates { self: Templates =>
       equations: Seq[Expr],
       lambdas: Seq[LambdaTemplate],
       quantifications: Seq[QuantificationTemplate],
-      structure: LambdaStructure,
+      structure: TemplateStructure,
+      closures: Set[Encoded],
       baseSubstMap: Map[Variable, Encoded],
       lambda: Lambda
     ) : LambdaTemplate = {
@@ -82,119 +83,9 @@ trait LambdaTemplates { self: Templates =>
         condVars, exprVars, condTree,
         clauses, blockers, applications, matchers,
         lambdas, quantifications, pointers,
-        structure,
+        structure, closures,
         lambda, lambdaString, false
       )
-    }
-  }
-
-  /** Semi-template used for hardcore function equality
-    *
-    * Function equality, while unhandled in general, can be very useful for certain
-    * proofs that refer specifically to first-class functions. In order to support
-    * such proofs, flexible notions of equality on first-class functions are
-    * necessary. These are provided by [[LambdaStructure]] which, much like a
-    * [[Template]], will generate clauses that represent equality between two
-    * functions.
-    *
-    * To support complex cases of equality where closed portions of the first-class
-    * function rely on complex program features (function calls, introducing lambdas,
-    * foralls, etc.), we use a structure that resembles a [[Template]] that is
-    * instantiated when function equality is of interest.
-    *
-    * Note that lambda creation now introduces clauses to determine equality between
-    * closed portions (that are independent of the lambda arguments).
-    */
-  class LambdaStructure private[unrolling] (
-    /** The normalized lambda that is shared between all "equal" first-class functions.
-      * First-class function equality is conditionned on `lambda` equality.
-      *
-      * @see [[dependencies]] for the other component of equality between first-class functions
-      */
-    val lambda: Lambda,
-
-    /** The closed expressions (independent of the arguments to [[lambda]]) contained in
-      * the first-class function. Equality is conditioned on equality of `dependencies`
-      * (inside the solver).
-      *
-      * @see [[lambda]] for the other component of equality between first-class functions
-      */
-    val dependencies: Seq[Encoded],
-    val pathVar: (Variable, Encoded),
-
-    /** The set of closed variables that exist in the associated lambda.
-      *
-      * This set is necessary to determine whether other closures have been
-      * captured by this particular closure when deciding the order of
-      * lambda instantiations in [[Template.substitution]].
-      *
-      * We also use this set when computing lambda instantiation orders to
-      * determine whether equality with free first-class functions is possible.
-      */
-    val closures: Seq[Encoded],
-    val condVars: Map[Variable, Encoded],
-    val exprVars: Map[Variable, Encoded],
-    val condTree: Map[Variable, Set[Variable]],
-    val clauses: Clauses,
-    val blockers: Calls,
-    val applications: Apps,
-    val matchers: Matchers,
-    val lambdas: Seq[LambdaTemplate],
-    val quantifications: Seq[QuantificationTemplate],
-    val pointers: Map[Encoded, Encoded]) {
-
-    def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]) = new LambdaStructure(
-      lambda,
-      dependencies.map(substituter),
-      pathVar._1 -> substituter(pathVar._2),
-      closures.map(substituter), condVars, exprVars, condTree,
-      clauses.map(substituter),
-      blockers.map { case (b, fis) => substituter(b) -> fis.map(_.substitute(substituter, msubst)) },
-      applications.map { case (b, fas) => substituter(b) -> fas.map(_.substitute(substituter, msubst)) },
-      matchers.map { case (b, ms) => substituter(b) -> ms.map(_.substitute(substituter, msubst)) },
-      lambdas.map(_.substitute(substituter, msubst)),
-      quantifications.map(_.substitute(substituter, msubst)),
-      pointers.map(p => substituter(p._1) -> substituter(p._2)))
-
-    /** The [[key]] value (tuple of [[lambda]] and [[dependencies]]) is used
-      * to determine syntactic equality between lambdas. If the keys of two
-      * closures are equal, then they must necessarily be equal in every model.
-      *
-      * The [[instantiation]] consists of the clause set instantiation (in the
-      * sense of [[Template.instantiate]] that is required for [[dependencies]]
-      * to make sense in the solver (introduces blockers, quantifications, other
-      * lambdas, etc.) Since [[dependencies]] CHANGE during instantiation and
-      * [[key]] makes no sense without the associated instantiation, the implicit
-      * contract here is that whenever a new key appears during unfolding, its
-      * associated instantiation MUST be added to the set of instantiations
-      * managed by the solver. However, if an identical pre-existing key has
-      * already been found, then the associated instantiations must already appear
-      * in those handled by the solver.
-      */
-    lazy val (key, instantiation, locals, instantiationSubst) = {
-      val (substMap, substInst) = Template.substitution(condVars, exprVars, condTree,
-        lambdas, quantifications, pointers, Map.empty, pathVar._2)
-      val tmplInst = Template.instantiate(clauses, blockers, applications, matchers, substMap)
-      val instantiation = substInst ++ tmplInst
-
-      val substituter = mkSubstituter(substMap.mapValues(_.encoded))
-      val deps = dependencies.map(substituter)
-      val key = (lambda, blockerPath(pathVar._2), deps)
-
-      val sortedDeps = exprOps.variablesOf(lambda).toSeq.sortBy(_.id.uniqueName)
-      val locals = sortedDeps zip deps
-      (key, instantiation, locals, substMap.mapValues(_.encoded))
-    }
-
-    override def equals(that: Any): Boolean = that match {
-      case (struct: LambdaStructure) => key == struct.key
-      case _ => false
-    }
-
-    override def hashCode: Int = key.hashCode
-
-    def subsumes(that: LambdaStructure): Boolean = {
-      key._1 == that.key._1 && key._3 == that.key._3 && key._2.subsetOf(that.key._2)
     }
   }
 
@@ -212,7 +103,8 @@ trait LambdaTemplates { self: Templates =>
     val lambdas: Seq[LambdaTemplate],
     val quantifications: Seq[QuantificationTemplate],
     val pointers: Map[Encoded, Encoded],
-    val structure: LambdaStructure,
+    val structure: TemplateStructure,
+    val closures: Set[Encoded],
     val lambda: Lambda,
     private[unrolling] val stringRepr: () => String,
     private val isConcrete: Boolean) extends Template {
@@ -232,6 +124,7 @@ trait LambdaTemplates { self: Templates =>
       quantifications.map(_.substitute(substituter, msubst)),
       pointers.map(p => substituter(p._1) -> substituter(p._2)),
       structure.substitute(substituter, msubst),
+      closures.map(substituter),
       lambda, stringRepr, isConcrete)
 
     /** This must be called right before returning the clauses in [[structure.instantiation]]! */
@@ -248,7 +141,7 @@ trait LambdaTemplates { self: Templates =>
         lambdas.map(_.substitute(substituter, Map.empty)),
         quantifications.map(_.substitute(substituter, Map.empty)),
         pointers.map(p => substituter(p._1) -> substituter(p._2)),
-        structure, lambda, stringRepr, true)
+        structure, closures, lambda, stringRepr, true)
     }
 
     override def instantiate(blocker: Encoded, args: Seq[Arg]): Clauses = {
@@ -447,7 +340,7 @@ trait LambdaTemplates { self: Templates =>
       val equals = mkEquals(template.ids._2, that.ids._2)
       mkImplies(
         mkAnd(template.start, that.start),
-        if (template.structure.lambda == that.structure.lambda) {
+        if (template.structure.body == that.structure.body) {
           val pairs = template.structure.locals zip that.structure.locals
           val filtered = pairs.filter(p => p._1 != p._2)
           if (filtered.isEmpty) {
@@ -475,7 +368,7 @@ trait LambdaTemplates { self: Templates =>
     val blockerToApps = new IncrementalMap[Encoded, (Encoded, App)]()
 
     val byID          = new IncrementalMap[Encoded, LambdaTemplate]
-    val byType        = new IncrementalMap[FunctionType, Map[LambdaStructure, LambdaTemplate]].withDefaultValue(Map.empty)
+    val byType        = new IncrementalMap[FunctionType, Map[TemplateStructure, LambdaTemplate]].withDefaultValue(Map.empty)
     val applications  = new IncrementalMap[FunctionType, Set[(Encoded, App)]].withDefaultValue(Set.empty)
     val freeBlockers  = new IncrementalMap[FunctionType, Set[(Encoded, Encoded)]].withDefaultValue(Set.empty)
     val freeFunctions = new IncrementalMap[FunctionType, Set[(Encoded, Encoded)]].withDefaultValue(Set.empty)

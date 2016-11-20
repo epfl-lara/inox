@@ -124,7 +124,7 @@ trait SymbolOps { self: TypeOps =>
     * unrolling solver to provide geenral equality checks between functions even when
     * they have complex closures.
     */
-  def normalizeStructure(args: Seq[ValDef], expr: Expr, onlySimple: Boolean = true):
+  def normalizeStructure(args: Seq[ValDef], expr: Expr, preserveApps: Boolean = true):
                         (Seq[ValDef], Expr, Map[Variable, Expr]) = synchronized {
 
     val subst: MutableMap[Variable, Expr] = MutableMap.empty
@@ -158,6 +158,33 @@ trait SymbolOps { self: TypeOps =>
           varSubst += id -> newId
           newId
       }
+    }
+
+    def extractMatcher(e: Expr): (Seq[Expr], Seq[Expr] => Expr) = e match {
+      case Application(caller, args) =>
+        val (es, recons) = extractMatcher(caller)
+        (args ++ es, es => {
+          val (newArgs, newEs) = es.splitAt(args.size)
+          Application(recons(newEs), newArgs)
+        })
+
+      case ADTSelector(adt, id) =>
+        val (es, recons) = extractMatcher(adt)
+        (es, es => ADTSelector(recons(es), id))
+
+      case ElementOfSet(elem, set) =>
+        val (es, recons) = extractMatcher(set)
+        (elem +: es, { case elem +: es => ElementOfSet(elem, recons(es)) })
+
+      case MultiplicityInBag(elem, bag) =>
+        val (es, recons) = extractMatcher(bag)
+        (elem +: es, { case elem +: es => MultiplicityInBag(elem, recons(es)) })
+
+      case MapApply(map, key) =>
+        val (es, recons) = extractMatcher(map)
+        (key +: es, { case key +: es => MapApply(recons(es), key) })
+
+      case _ => (Seq(e), es => es.head)
     }
 
     def outer(vars: Set[Variable], body: Expr): Expr = {
@@ -236,9 +263,16 @@ trait SymbolOps { self: TypeOps =>
           case Variable(id, tpe) =>
             Variable(transformId(id, tpe), tpe)
 
+          case (_: Application) | (_: MultiplicityInBag) | (_: ElementOfSet) | (_: MapApply) if (
+            !isLocal(e, path) &&
+            preserveApps
+          ) =>
+            val (es, recons) = extractMatcher(e)
+            val newEs = es.map(rec(_, path))
+            recons(newEs)
+
           case Let(vd, e, b) if (
             isLocal(e, path) &&
-            (!onlySimple || isSimple(e)) &&
             ((isSatisfiable(path) contains true) || isPure(e))
           ) =>
             val newId = getId(e)
@@ -246,7 +280,6 @@ trait SymbolOps { self: TypeOps =>
 
           case expr if (
             isLocal(expr, path) &&
-            (!onlySimple || isSimple(expr)) &&
             ((isSatisfiable(path) contains true) || isPure(expr))
           ) =>
             Variable(getId(expr), expr.getType)
@@ -282,14 +315,16 @@ trait SymbolOps { self: TypeOps =>
     (bindings, newExpr, bodySubst)
   }
 
-  def normalizeStructure(lambda: Lambda): (Lambda, Map[Variable, Expr]) = {
-    val (args, body, subst) = normalizeStructure(lambda.args, lambda.body, onlySimple = false)
-    (Lambda(args, body), subst)
-  }
-
-  def normalizeStructure(forall: Forall): (Forall, Map[Variable, Expr]) = {
-    val (args, body, subst) = normalizeStructure(forall.args, forall.body)
-    (Forall(args, body), subst)
+  def normalizeStructure(e: Expr): (Expr, Map[Variable, Expr]) = e match {
+    case lambda: Lambda =>
+      val (args, body, subst) = normalizeStructure(lambda.args, lambda.body, preserveApps = false)
+      (Lambda(args, body), subst)
+    case forall: Forall =>
+      val (args, body, subst) = normalizeStructure(forall.args, forall.body, preserveApps = true)
+      (Forall(args, body), subst)
+    case _ =>
+      val (_, body, subst) = normalizeStructure(Seq.empty, e)
+      (body, subst)
   }
 
   /** Ensures the closure [[l]] can only be equal to some other closure if they share
