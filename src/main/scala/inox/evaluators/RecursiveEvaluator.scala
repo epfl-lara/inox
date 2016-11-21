@@ -383,7 +383,7 @@ trait RecursiveEvaluator
     }
 
     case f @ FiniteSet(els, base) =>
-      FiniteSet(els.map(e).distinct, base)
+      FiniteSet(els.map(e).distinct.sortBy(_.toString), base)
 
     case BagAdd(bag, elem) => (e(bag), e(elem)) match {
       case (FiniteBag(els, tpe), evElem) =>
@@ -450,7 +450,7 @@ trait RecursiveEvaluator
       FiniteBag(els.map { case (k, v) => (e(k), e(v)) }.toMap.toSeq.filter {
         case (_, IntegerLiteral(i)) if i == 0 => false
         case _ => true
-      }, base)
+      }.sortBy(_._1.toString), base)
 
     case l @ Lambda(_, _) =>
       val (nl, deps) = normalizeStructure(l)
@@ -474,7 +474,7 @@ trait RecursiveEvaluator
       FiniteMap(ss.map{ case (k, v) => (e(k), e(v)) }.toMap.toSeq.filter {
         case (_, `rdflt`) => false
         case _ => true
-      }, rdflt, kT, vT)
+      }.sortBy(_._1.toString), rdflt, kT, vT)
 
     case g @ MapApply(m,k) => (e(m), e(k)) match {
       case (FiniteMap(ss, dflt, _, _), e) =>
