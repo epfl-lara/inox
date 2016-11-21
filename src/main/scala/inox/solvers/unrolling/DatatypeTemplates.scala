@@ -151,6 +151,12 @@ trait DatatypeTemplates { self: Templates =>
         tpes += pathVar -> (tpes.getOrElse(pathVar, Set.empty) + (info -> arg))
       }
 
+      protected def isRelevantBlocker(v: Variable): Boolean = {
+        (tpes contains v) ||
+        (guardedExprs contains v) ||
+        guardedExprs.exists(_._2.exists(e => exprOps.variablesOf(e)(v)))
+      }
+
       protected case class RecursionState(
         recurseSort: Boolean, // visit sort children
         recurseMap: Boolean,  // unroll map definition
@@ -187,11 +193,7 @@ trait DatatypeTemplates { self: Templates =>
                   rec(newBool, ADTSelector(ex, vd.id), state.copy(recurseSort = false))
                 }
 
-                val vars = tpes.keys.toSet ++ functions.keys ++
-                  guardedExprs.keys ++
-                  guardedExprs.flatMap(_._2.flatMap(exprOps.variablesOf))
-
-                if (vars(newBool)) {
+                if (isRelevantBlocker(newBool)) {
                   iff(and(pathVar, IsInstanceOf(expr, tpe)), newBool)
                 }
               }
@@ -354,6 +356,10 @@ trait DatatypeTemplates { self: Templates =>
       private var functions = Map[Variable, Set[Expr]]()
       @inline protected def storeFunction(pathVar: Variable, expr: Expr): Unit = {
         functions += pathVar -> (functions.getOrElse(pathVar, Set.empty) + expr)
+      }
+
+      override protected def isRelevantBlocker(v: Variable): Boolean = {
+        super.isRelevantBlocker(v) || (functions contains v)
       }
 
       override protected def rec(pathVar: Variable, expr: Expr, state: RecursionState): Unit = expr.getType match {
