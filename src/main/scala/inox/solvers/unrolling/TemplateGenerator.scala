@@ -343,7 +343,8 @@ trait TemplateGenerator { self: Templates =>
             vds.distinct
           }
 
-          val (Forall(args, body), structure, depSubst) = recStructure(pathVar, Forall(conjArgs, conj))
+          val (Forall(args, body), structure, depSubst) =
+            recStructure(pathVar, Forall(conjArgs, conj), onlySimple = simplify)
 
           val quantifiers = args.map(_.toVariable).toSet
           val idQuantifiers : Seq[Variable] = quantifiers.toSeq
@@ -364,14 +365,15 @@ trait TemplateGenerator { self: Templates =>
       case Operator(as, r) => r(as.map(a => rec(pathVar, a, None)))
     }
 
-    def recStructure(pathVar: Variable, expr: Expr): (Expr, TemplateStructure, Map[Variable, Encoded]) = {
+    def recStructure(pathVar: Variable, expr: Expr, onlySimple: Boolean = false):
+                    (Expr, TemplateStructure, Map[Variable, Encoded]) = {
       val (assumptions, without) = liftAssumptions(expr)
 
       for (a <- assumptions) {
         rec(pathVar, a, Some(true))
       }
 
-      val (struct, deps) = normalizeStructure(without)
+      val (struct, deps) = normalizeStructure(without, onlySimple = onlySimple)
       val sortedDeps = exprOps.variablesOf(struct).map(v => v -> deps(v)).toSeq.sortBy(_._1.id.uniqueName)
 
       lazy val isNormalForm: Boolean = {

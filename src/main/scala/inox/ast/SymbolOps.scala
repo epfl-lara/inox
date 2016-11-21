@@ -124,7 +124,7 @@ trait SymbolOps { self: TypeOps =>
     * unrolling solver to provide geenral equality checks between functions even when
     * they have complex closures.
     */
-  def normalizeStructure(args: Seq[ValDef], expr: Expr, preserveApps: Boolean = true):
+  def normalizeStructure(args: Seq[ValDef], expr: Expr, preserveApps: Boolean, onlySimple: Boolean):
                         (Seq[ValDef], Expr, Map[Variable, Expr]) = synchronized {
 
     val subst: MutableMap[Variable, Expr] = MutableMap.empty
@@ -199,8 +199,8 @@ trait SymbolOps { self: TypeOps =>
         val vs = variablesOf(e)
         val bindings = path.bindings.map(p => p._1.toVariable -> p._2).toMap
         (tvars & (vs.flatMap { v =>
-          varSubst.get(v.id).map(Variable(_, v.tpe)).toSet ++
-          bindings.get(v).toSet.flatMap(variablesOf)
+          val tv = varSubst.get(v.id).map(Variable(_, v.tpe))
+          tv.toSet ++ tv.flatMap(v => bindings.get(v)).toSet.flatMap(variablesOf)
         })).isEmpty
       }
 
@@ -277,6 +277,7 @@ trait SymbolOps { self: TypeOps =>
 
           case Let(vd, e, b) if (
             isLocal(e, path) &&
+            (isSimple(e) || !onlySimple) &&
             ((isSatisfiable(path) contains true) || isPure(e))
           ) =>
             val newId = getId(e)
@@ -284,6 +285,7 @@ trait SymbolOps { self: TypeOps =>
 
           case expr if (
             isLocal(expr, path) &&
+            (isSimple(expr) || !onlySimple) &&
             ((isSatisfiable(path) contains true) || isPure(expr))
           ) =>
             Variable(getId(expr), expr.getType)
@@ -311,15 +313,17 @@ trait SymbolOps { self: TypeOps =>
     (bindings, newExpr, subst.toMap)
   }
 
-  def normalizeStructure(e: Expr): (Expr, Map[Variable, Expr]) = e match {
+  def normalizeStructure(e: Expr, onlySimple: Boolean = true): (Expr, Map[Variable, Expr]) = e match {
     case lambda: Lambda =>
-      val (args, body, subst) = normalizeStructure(lambda.args, lambda.body, preserveApps = false)
+      val (args, body, subst) = normalizeStructure(lambda.args, lambda.body, false, onlySimple)
       (Lambda(args, body), subst)
+
     case forall: Forall =>
-      val (args, body, subst) = normalizeStructure(forall.args, forall.body, preserveApps = true)
+      val (args, body, subst) = normalizeStructure(forall.args, forall.body, true, onlySimple)
       (Forall(args, body), subst)
+
     case _ =>
-      val (_, body, subst) = normalizeStructure(Seq.empty, e)
+      val (_, body, subst) = normalizeStructure(Seq.empty, e, false, onlySimple)
       (body, subst)
   }
 
