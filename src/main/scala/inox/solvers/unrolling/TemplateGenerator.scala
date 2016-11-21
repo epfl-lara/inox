@@ -408,8 +408,8 @@ trait TemplateGenerator { self: Templates =>
         ) { case ((depSubst, pointers, clsSet), (v, expr)) =>
             if (!exprOps.isSimple(expr)) {
               val normalExpr = if (!isNormalForm) simplifyHOFunctions(expr) else expr
-              val (e, cls @ (_, _, _, _, _, lmbds, quants)) = mkExprClauses(pathVar, normalExpr, depSubst)
-              val clauseSubst = depSubst ++ lmbds.map(_.ids) ++ quants.flatMap(_.mapping)
+              val (e, cls @ (conds, exprs, _, _, _, lmbds, quants)) = mkExprClauses(pathVar, normalExpr, depSubst)
+              val clauseSubst = depSubst ++ conds ++ exprs ++ lmbds.map(_.ids) ++ quants.flatMap(_.mapping)
               val encoder = mkEncoder(clauseSubst) _
               (depSubst + (v -> encoder(e)), Template.lambdaPointers(encoder)(e), clsSet ++ cls)
             } else {
