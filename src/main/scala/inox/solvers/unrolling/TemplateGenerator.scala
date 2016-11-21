@@ -344,7 +344,7 @@ trait TemplateGenerator { self: Templates =>
           }
 
           val (Forall(args, body), structure, depSubst) =
-            recStructure(pathVar, Forall(conjArgs, conj), onlySimple = simplify)
+            recStructure(pathVar, Forall(conjArgs, conj), onlySimple = !simplify)
 
           val quantifiers = args.map(_.toVariable).toSet
           val idQuantifiers : Seq[Variable] = quantifiers.toSeq
