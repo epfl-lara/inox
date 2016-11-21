@@ -184,12 +184,16 @@ trait SymbolOps { self: TypeOps =>
         val (es, recons) = extractMatcher(map)
         (key +: es, { case key +: es => MapApply(recons(es), key) })
 
+      case FunctionInvocation(id, tps, args) =>
+        (args, es => FunctionInvocation(id, tps, es))
+
       case _ => (Seq(e), es => es.head)
     }
 
     def outer(vars: Set[Variable], body: Expr): Expr = {
       // this registers the argument images into subst
       val tvars = vars map (v => v.copy(id = transformId(v.id, v.tpe)))
+      subst --= tvars
 
       def isLocal(e: Expr, path: Path): Boolean = {
         val vs = variablesOf(e)
@@ -263,7 +267,6 @@ trait SymbolOps { self: TypeOps =>
           case Variable(id, tpe) =>
             Variable(transformId(id, tpe), tpe)
 
-          /*
           case (_: Application) | (_: MultiplicityInBag) | (_: ElementOfSet) | (_: MapApply) if (
             !isLocal(e, path) &&
             preserveApps
@@ -271,7 +274,6 @@ trait SymbolOps { self: TypeOps =>
             val (es, recons) = extractMatcher(e)
             val newEs = es.map(rec(_, path))
             recons(newEs)
-          */
 
           case Let(vd, e, b) if (
             isLocal(e, path) &&
@@ -306,15 +308,7 @@ trait SymbolOps { self: TypeOps =>
 
     val newExpr = outer(args.map(_.toVariable).toSet, expr)
     val bindings = args.map(vd => vd.copy(id = varSubst(vd.id)))
-
-    val bindingVars = bindings.map(_.toVariable).toSet
-    val freeVars = fixpoint { (vs: Set[Variable]) =>
-      vs ++ subst.filter(p => vs(p._1)).flatMap(p => variablesOf(p._2)) -- bindingVars
-    } (variablesOf(newExpr) -- bindings.map(_.toVariable))
-
-    val bodySubst = subst.filter(p => freeVars(p._1)).toMap
-
-    (bindings, newExpr, bodySubst)
+    (bindings, newExpr, subst.toMap)
   }
 
   def normalizeStructure(e: Expr): (Expr, Map[Variable, Expr]) = e match {
