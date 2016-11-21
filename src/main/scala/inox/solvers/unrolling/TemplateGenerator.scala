@@ -347,7 +347,7 @@ trait TemplateGenerator { self: Templates =>
 
           val quantifiers = args.map(_.toVariable).toSet
           val idQuantifiers : Seq[Variable] = quantifiers.toSeq
-          val trQuantifiers : Seq[Encoded] = idQuantifiers.map(encodeSymbol)
+          val trQuantifiers : Seq[Encoded] = conjArgs.map(v => encodeSymbol(v.toVariable))
 
           val clauseSubst: Map[Variable, Encoded] = depSubst ++ (idQuantifiers zip trQuantifiers)
           val (p, (qConds, qExprs, qTree, qGuarded, qEqs, qLambdas, qQuants)) = mkExprClauses(pathVar, body, clauseSubst)

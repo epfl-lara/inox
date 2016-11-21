@@ -229,7 +229,7 @@ trait QuantificationTemplates { self: Templates =>
     val ignoredGrounds  = new IncrementalMap[Int, Set[Quantification]]
 
     val lambdaAxioms    = new IncrementalSet[TemplateStructure]
-    val templates       = new IncrementalMap[TemplateStructure, (QuantificationTemplate, Encoded, Map[Encoded, Encoded])]
+    val templates       = new IncrementalMap[TemplateStructure, (QuantificationTemplate, Encoded)]
 
     val incrementals: Seq[IncrementalState] = Seq(quantifications, lambdaAxioms, templates,
       ignoredMatchers, handledMatchers, ignoredSubsts, handledSubsts, ignoredGrounds)
@@ -918,7 +918,7 @@ trait QuantificationTemplates { self: Templates =>
   def instantiateQuantification(template: QuantificationTemplate): (Map[Encoded, Encoded], Clauses) = {
     templates.get(template.structure).orElse {
       templates.collectFirst { case (s, t) if s subsumes template.structure => t }
-    }.map { case (tmpl, inst, _) =>
+    }.map { case (tmpl, inst) =>
       template.polarity match {
         case Positive(guard) =>
           (Map.empty[Encoded, Encoded], Seq(mkImplies(template.pathVar._2, inst)))
@@ -993,7 +993,7 @@ trait QuantificationTemplates { self: Templates =>
           (qT, Map(qs._2 -> qT))
       }
 
-      clauses ++= templates.flatMap { case (key, (tmpl, tinst, _)) =>
+      clauses ++= templates.flatMap { case (key, (tmpl, tinst)) =>
         if (newTemplate.structure.body == tmpl.structure.body) {
           val eqConds = (newTemplate.structure.locals zip tmpl.structure.locals)
             .filter(p => p._1 != p._2)
@@ -1005,7 +1005,7 @@ trait QuantificationTemplates { self: Templates =>
         }
       }
 
-      templates += newTemplate.structure -> ((newTemplate, inst, mapping))
+      templates += newTemplate.structure -> ((newTemplate, inst))
       (mapping, clauses.toSeq)
     }
   }
