@@ -91,8 +91,7 @@ trait SymbolOps { self: TypeOps =>
     fixpoint(postMap(rec))(expr)
   }
 
-  /** Returns '''true''' iff the expression [[expr]] cannot lead to the evaluation of
-    * an [[Assume]] or [[Choose]] expression. */
+  /** Returns '''true''' iff the evaluation of expression [[expr]] cannot lead to a crash. */
   def isPure(expr: Expr): Boolean = {
     val callees = collect {
       case fi: FunctionInvocation => Set(fi.tfd.fd)
@@ -100,12 +99,15 @@ trait SymbolOps { self: TypeOps =>
     } (expr)
 
     val allCallees = callees ++ callees.flatMap(transitiveCallees)
-    !(expr +: allCallees.toSeq.map(_.fullBody)).exists { expr =>
-      exists {
-        case (_: Assume) | (_: Choose) => true
-        case _ => false
-      }(expr)
+    !(expr +: allCallees.toSeq.map(_.fullBody)).exists {
+      expr => exists(isImpureExpr)(expr)
     }
+  }
+
+  protected def isImpureExpr(expr: Expr): Boolean = expr match {
+    case (_: Assume) | (_: Choose) |
+         (_: Division) | (_: Remainder) | (_: Modulo) | (_: AsInstanceOf) => true
+    case _ => false
   }
 
   private val typedIds: MutableMap[Type, List[Identifier]] =
@@ -469,8 +471,8 @@ trait SymbolOps { self: TypeOps =>
 
     case Let(vd, e, b) =>
       exprOps.count { case v: Variable if vd.toVariable == v => 1 case _ => 0 } (b) match {
-        case 0 => Some(b)
-        case 1 => Some(replaceFromSymbols(Map(vd -> e), b))
+        case 0 if isPure(e) => Some(b)
+        case 1 if isPure(e) => Some(replaceFromSymbols(Map(vd -> e), b))
         case _ => None
       }
 

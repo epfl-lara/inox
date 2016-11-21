@@ -42,7 +42,7 @@ trait Constructors {
     * @see [[Expressions.Let Let]]
     */
   def let(vd: ValDef, e: Expr, bd: Expr) = {
-    if (exprOps.variablesOf(bd) contains vd.toVariable)
+    if ((exprOps.variablesOf(bd) contains vd.toVariable) || !isPure(e))
       Let(vd, e, bd)
     else bd
   }
