@@ -125,7 +125,7 @@ trait SymbolOps { self: TypeOps =>
     * they have complex closures.
     */
   def normalizeStructure(args: Seq[ValDef], expr: Expr, preserveApps: Boolean, onlySimple: Boolean):
-                        (Seq[ValDef], Expr, Map[Variable, Expr]) = synchronized {
+                        (Seq[ValDef], Expr, Seq[(Variable, Expr)]) = synchronized {
 
     val subst: MutableMap[Variable, Expr] = MutableMap.empty
     val varSubst: MutableMap[Identifier, Identifier] = MutableMap.empty
@@ -133,7 +133,7 @@ trait SymbolOps { self: TypeOps =>
     // Note: don't use clone here, we want to drop the `withDefaultValue` feature of [[typeIds]]
     val remainingIds: MutableMap[Type, List[Identifier]] = MutableMap.empty ++ typedIds.toMap
 
-    def getId(e: Expr): Identifier = {
+    def getId(e: Expr, store: Boolean = true): Identifier = {
       val tpe = e.getType
       val newId = remainingIds.get(tpe) match {
         case Some(x :: xs) =>
@@ -144,21 +144,22 @@ trait SymbolOps { self: TypeOps =>
           typedIds(tpe) = typedIds(tpe) :+ x
           x
       }
-      subst += Variable(newId, tpe) -> e
+      if (store) subst += Variable(newId, tpe) -> e
       newId
     }
 
-    def transformId(id: Identifier, tpe: Type): Identifier = subst.get(Variable(id, tpe)) match {
-      case Some(Variable(newId, _)) => newId
-      case Some(_) => id
-      case None => varSubst.get(id) match {
-        case Some(newId) => newId
-        case None =>
-          val newId = getId(Variable(id, tpe))
-          varSubst += id -> newId
-          newId
+    def transformId(id: Identifier, tpe: Type, store: Boolean = true): Identifier =
+      subst.get(Variable(id, tpe)) match {
+        case Some(Variable(newId, _)) => newId
+        case Some(_) => id
+        case None => varSubst.get(id) match {
+          case Some(newId) => newId
+          case None =>
+            val newId = getId(Variable(id, tpe), store = store)
+            varSubst += id -> newId
+            newId
+        }
       }
-    }
 
     def extractMatcher(e: Expr): (Seq[Expr], Seq[Expr] => Expr) = e match {
       case Application(caller, args) =>
@@ -192,8 +193,7 @@ trait SymbolOps { self: TypeOps =>
 
     def outer(vars: Set[Variable], body: Expr): Expr = {
       // this registers the argument images into subst
-      val tvars = vars map (v => v.copy(id = transformId(v.id, v.tpe)))
-      subst --= tvars
+      val tvars = vars map (v => v.copy(id = transformId(v.id, v.tpe, store = false)))
 
       def isLocal(e: Expr, path: Path): Boolean = {
         val vs = variablesOf(e)
@@ -300,7 +300,7 @@ trait SymbolOps { self: TypeOps =>
 
           case _ =>
             val (vs, es, tps, recons) = deconstructor.deconstruct(e)
-            val newVs = vs.map(v => v.copy(id = transformId(v.id, v.tpe)))
+            val newVs = vs.map(v => v.copy(id = transformId(v.id, v.tpe, store = false)))
             super.rec(recons(newVs, es, tps), path)
         }
       }
@@ -310,10 +310,15 @@ trait SymbolOps { self: TypeOps =>
 
     val newExpr = outer(args.map(_.toVariable).toSet, expr)
     val bindings = args.map(vd => vd.copy(id = varSubst(vd.id)))
-    (bindings, newExpr, subst.toMap)
+
+    def rec(v: Variable): Seq[Variable] =
+      (variablesOf(subst(v)) & subst.keySet - v).toSeq.flatMap(rec) :+ v
+    val deps = subst.keys.toSeq.flatMap(rec).distinct.map(v => v -> subst(v))
+
+    (bindings, newExpr, deps)
   }
 
-  def normalizeStructure(e: Expr, onlySimple: Boolean = true): (Expr, Map[Variable, Expr]) = e match {
+  def normalizeStructure(e: Expr, onlySimple: Boolean = true): (Expr, Seq[(Variable, Expr)]) = e match {
     case lambda: Lambda =>
       val (args, body, subst) = normalizeStructure(lambda.args, lambda.body, false, onlySimple)
       (Lambda(args, body), subst)
@@ -337,7 +342,7 @@ trait SymbolOps { self: TypeOps =>
     })
 
     val resArgs = allArgs(res)
-    if (resArgs.isEmpty) res else {
+    val unique = if (resArgs.isEmpty) res else {
       /* @nv: This is a hack to ensure that the notion of equality we define on closures
        *      is respected by those returned by the model. */
       Lambda(res.args, Let(
@@ -346,6 +351,9 @@ trait SymbolOps { self: TypeOps =>
         res.body
       ))
     }
+
+    val (nl, subst) = normalizeStructure(unique)
+    replaceFromSymbols(subst.toMap, nl).asInstanceOf[Lambda]
   }
 
   /** Pre-processing for solvers that handle universal quantification

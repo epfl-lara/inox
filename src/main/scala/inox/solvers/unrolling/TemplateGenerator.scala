@@ -373,8 +373,8 @@ trait TemplateGenerator { self: Templates =>
         rec(pathVar, a, Some(true))
       }
 
-      val (struct, deps) = normalizeStructure(without, onlySimple = onlySimple)
-      val sortedDeps = exprOps.variablesOf(struct).map(v => v -> deps(v)).toSeq.sortBy(_._1.id.uniqueName)
+      val (struct, depsByScope) = normalizeStructure(without, onlySimple = onlySimple)
+      val deps = depsByScope.toMap
 
       lazy val isNormalForm: Boolean = {
         def extractBody(e: Expr): (Seq[ValDef], Expr) = e match {
@@ -397,13 +397,8 @@ trait TemplateGenerator { self: Templates =>
         }
       }
 
-      val depsByScope: Seq[(Variable, Expr)] = {
-        def rec(v: Variable): Seq[Variable] =
-          (exprOps.variablesOf(deps(v)) & deps.keySet - v).toSeq.flatMap(rec) :+ v
-        deps.keys.toSeq.flatMap(rec).distinct.map(v => v -> deps(v))
-      }
-
       val localSubst: Map[Variable, Encoded] = substMap ++ condVars ++ exprVars ++ lambdaVars
+
       val (depSubst, basePointers, (depConds, depExprs, depTree, depGuarded, depEqs, depLambdas, depQuants)) =
         depsByScope.foldLeft[(Map[Variable, Encoded], Map[Encoded, Encoded], TemplateClauses)](
           (localSubst, Map.empty, emptyClauses)
@@ -424,6 +419,7 @@ trait TemplateGenerator { self: Templates =>
         pathVar -> encodedCond(pathVar), Seq.empty,
         depConds, depExprs, depGuarded, depEqs, depLambdas, depQuants, depSubst)
 
+      val sortedDeps = exprOps.variablesOf(struct).map(v => v -> deps(v)).toSeq.sortBy(_._1.id.uniqueName)
       val dependencies = sortedDeps.map(p => depSubst(p._1))
 
       val structure = new TemplateStructure(struct, dependencies,

@@ -296,13 +296,12 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
         optEqTemplate.map { tmpl =>
           val localsSubst = tmpl.structure.locals.map { case (v, ev) =>
-            v -> wrapped.modelEval(ev, v.tpe).getOrElse {
-              scala.sys.error("Unexpectedly failed to extract " + templates.asString(ev) +
-                " with expected type " + v.tpe.asString)
-            }
+            v -> extractValue(ev, v.tpe)
           }.toMap
 
-          exprOps.replaceFromSymbols(localsSubst, tmpl.structure.body).asInstanceOf[Lambda]
+          val res = exprOps.replaceFromSymbols(localsSubst, tmpl.structure.body)
+          val (nl, subst) = normalizeStructure(res, onlySimple = true)
+          exprOps.replaceFromSymbols(subst.toMap, nl).asInstanceOf[Lambda]
         }
       }
 

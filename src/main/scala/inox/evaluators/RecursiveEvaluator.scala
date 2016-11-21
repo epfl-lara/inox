@@ -110,27 +110,7 @@ trait RecursiveEvaluator
       }
 
     case Equals(le,re) =>
-      val lv = e(le)
-      val rv = e(re)
-
-      (lv,rv) match {
-        case (FiniteSet(el1, _),FiniteSet(el2, _)) =>
-          BooleanLiteral(el1.toSet == el2.toSet)
-        case (FiniteBag(el1, _),FiniteBag(el2, _)) =>
-          BooleanLiteral(el1.toMap == el2.toMap)
-        case (FiniteMap(el1, dflt1, _, _),FiniteMap(el2, dflt2, _, _)) =>
-          BooleanLiteral(el1.toMap == el2.toMap && dflt1 == dflt2)
-        case (l1: Lambda, l2: Lambda) =>
-          val (nl1, subst1) = normalizeStructure(l1)
-          val (nl2, subst2) = normalizeStructure(l2)
-          BooleanLiteral(nl1 == nl2 && subst1.keys.toSet == subst2.keys.toSet && {
-            subst1.forall { case (k, v) => e(Equals(v, subst2(k))) match {
-              case BooleanLiteral(res) => res
-              case e => throw EvalError(typeErrorMsg(e, BooleanType))
-            }}
-          })
-        case _ => BooleanLiteral(lv == rv)
-      }
+      BooleanLiteral(e(le) == e(re))
 
     case ADT(adt, args) =>
       val cc = ADT(adt, args.map(e))
@@ -467,11 +447,18 @@ trait RecursiveEvaluator
 
     case FiniteBag(els, base) =>
       // we use toMap.toSeq to reduce dupplicate keys
-      FiniteBag(els.map { case (k, v) => (e(k), e(v)) }.toMap.toSeq, base)
+      FiniteBag(els.map { case (k, v) => (e(k), e(v)) }.toMap.toSeq.filter {
+        case (_, IntegerLiteral(i)) if i == 0 => false
+        case _ => true
+      }, base)
 
     case l @ Lambda(_, _) =>
-      val mapping = variablesOf(l).map(v => v -> e(v)).toMap
-      replaceFromSymbols(mapping, l).asInstanceOf[Lambda]
+      val (nl, deps) = normalizeStructure(l)
+      val newCtx = deps.foldLeft(rctx) {
+        case (rctx, (v, dep)) => rctx.withNewVar(v.toVal, e(dep)(rctx, gctx))
+      }
+      val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
+      replaceFromSymbols(mapping, nl)
 
     case f: Forall => onForallInvocation {
       replaceFromSymbols(variablesOf(f).map(v => v -> e(v)).toMap, f).asInstanceOf[Forall]
@@ -482,8 +469,12 @@ trait RecursiveEvaluator
     }
 
     case f @ FiniteMap(ss, dflt, kT, vT) =>
+      val rdflt = e(dflt)
       // we use toMap.toSeq to reduce dupplicate keys
-      FiniteMap(ss.map{ case (k, v) => (e(k), e(v)) }.toMap.toSeq, e(dflt), kT, vT)
+      FiniteMap(ss.map{ case (k, v) => (e(k), e(v)) }.toMap.toSeq.filter {
+        case (_, `rdflt`) => false
+        case _ => true
+      }, rdflt, kT, vT)
 
     case g @ MapApply(m,k) => (e(m), e(k)) match {
       case (FiniteMap(ss, dflt, _, _), e) =>
