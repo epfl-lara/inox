@@ -28,8 +28,8 @@ if(osName.indexOf("win") != -1) {
   (unmanagedJars in Compile) += baseDirectory.value / "unmanaged" / s"scalaz3-unix-$osArch.jar"
 }
 
-unmanagedJars in Compile += baseDirectory.value / "unmanaged" / s"princess.jar"
-unmanagedJars in Compile += baseDirectory.value / "unmanaged" / s"scala-actors-2.11.0.jar"
+//unmanagedJars in Compile += baseDirectory.value / "unmanaged" / s"princess.jar"
+//unmanagedJars in Compile += baseDirectory.value / "unmanaged" / s"scala-actors-2.11.0.jar"
 
 unmanagedBase <<= baseDirectory { base => base / "unmanaged" / osArch }
 
@@ -60,6 +60,8 @@ def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${versi
 lazy val bonsai      = ghProject("git://github.com/colder/bonsai.git",     "10eaaee4ea0ff6567f4f866922cb871bae2da0ac")
 lazy val scalaSmtlib = ghProject("git://github.com/regb/scala-smtlib.git", "850580ae86e299a1baa0eaef9e24eed905fefe58")
 
+lazy val princess    = ghProject("svn://hal4.it.uu.se/princess/interpolation/trunk", "2703")
+
 lazy val root = (project in file("."))
   .configs(IntegrationTest)
   .settings(Defaults.itSettings : _*)
@@ -68,5 +70,6 @@ lazy val root = (project in file("."))
     parallelExecution := false
   )) : _*)
   .dependsOn(bonsai)
+  .dependsOn(princess)
   .dependsOn(scalaSmtlib)
 
