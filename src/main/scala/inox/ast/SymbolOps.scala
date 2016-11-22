@@ -460,6 +460,9 @@ trait SymbolOps { self: TypeOps =>
     case Let(v1, Let(v2, e2, b2), b1) =>
       Some(Let(v2, e2, Let(v1, b2, b1)))
 
+    case Let(v, e, v2) if v.toVariable == v2 =>
+      Some(e)
+
     case Let(v, ts @ (
       TupleSelect(_: Variable, _) |
       ADTSelector(_: Variable, _) |
@@ -919,7 +922,8 @@ trait SymbolOps { self: TypeOps =>
         ((e: Expr) => simplifyHOFunctions(e))    compose
         ((e: Expr) => simplifyByConstructors(e)) compose
         ((e: Expr) => simplifyAssumptions(e))    compose
-        ((e: Expr) => simplifyForalls(e))
+        ((e: Expr) => simplifyForalls(e))        compose
+        ((e: Expr) => simplifyLets(e))
       fixpoint(simp)(e)
     } else {
       simplifyHOFunctions(e, simplify = false)
