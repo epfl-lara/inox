@@ -101,7 +101,9 @@ trait TypeOps {
           adtDef <- bound
           (subs, map) <- flattenTypeMappings((adt1.tps zip adt2.tps).map { case (tp1, tp2) =>
             // Class types are invariant!
-            typeBound(tp1, tp2, isLub, allowSub = false)
+            // XXX @nv: however, we need to allowSub here as long as we don't have variance
+            //          due to encodings of tuples and functions (which have variance) into ADTs
+            typeBound(tp1, tp2, isLub, allowSub)
           })
         } yield (adtDef.typed(subs).toType, map)
 
