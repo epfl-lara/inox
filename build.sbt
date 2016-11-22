@@ -70,6 +70,14 @@ lazy val root = (project in file("."))
     parallelExecution := false
   )) : _*)
   .dependsOn(bonsai)
-  .dependsOn(princess)
   .dependsOn(scalaSmtlib)
+  .dependsOn(princess).settings(
+    // XXX @nv: ugly hack to make sure we don't have a name clash between
+    //          princess' smtlib parser and the scala-smtlib one.
+    unmanagedClasspath in Compile := {
+      val prev = (unmanagedClasspath in Compile).value
+      val princessJars = (unmanagedJars in (princess, Compile)).value.toSet
+      prev.filterNot(princessJars)
+    }
+  )
 
