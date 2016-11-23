@@ -12,7 +12,10 @@ trait TipDebugger extends Solver {
   import program.trees._
   import SolverResponses._
 
-  protected val encoder: ast.ProgramEncoder { val sourceProgram: program.type; val t: inox.trees.type }
+  protected val encoder: ast.ProgramTransformer {
+    val sourceProgram: program.type
+    val targetProgram: Program { val trees: inox.trees.type }
+  }
 
   implicit val debugSection: DebugSection
 

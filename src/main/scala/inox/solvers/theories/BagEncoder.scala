@@ -4,11 +4,14 @@ package inox
 package solvers
 package theories
 
-trait BagEncoder extends TheoryEncoder {
+import evaluators._
+
+trait BagEncoder extends TheoryEncoder with ast.ProgramEncoder {
+  val t: sourceProgram.trees.type = sourceProgram.trees
   import trees._
   import trees.dsl._
 
-  val evaluator: evaluators.DeterministicEvaluator {
+  val evaluator: DeterministicEvaluator {
     val program: sourceProgram.type
   }
 
@@ -188,4 +191,30 @@ trait BagEncoder extends TheoryEncoder {
       case _ => super.transform(tpe)
     }
   }
+}
+
+object BagEncoder {
+  def apply(enc: ast.ProgramTransformer, opts: Options)
+           (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }):
+           BagEncoder { val sourceProgram: enc.targetProgram.type } = new {
+    val sourceProgram: enc.targetProgram.type = enc.targetProgram
+
+    val evaluator: DeterministicEvaluator { val program: enc.targetProgram.type } = new {
+      val program: enc.targetProgram.type = enc.targetProgram
+      val options = opts
+    } with DeterministicEvaluator {
+      import program.trees._
+      import EvaluationResults._
+
+      def eval(e: Expr, model: Map[ValDef, Expr]): EvaluationResult = {
+        ev.eval(enc.decode(e), model.map {
+          case (vd, value) => enc.decode(vd) -> enc.decode(value)
+        }) match {
+          case Successful(value) => Successful(enc.encode(value))
+          case RuntimeError(message) => RuntimeError(message)
+          case EvaluatorError(message) => EvaluatorError(message)
+        }
+      }
+    }
+  } with BagEncoder
 }

@@ -25,17 +25,17 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   protected type Encoded
 
-  protected val encoder: ast.ProgramEncoder { val sourceProgram: program.type }
+  protected val encoder: ast.ProgramTransformer { val sourceProgram: program.type }
 
-  protected val theories: ast.ProgramEncoder {
+  protected val theories: ast.ProgramTransformer {
     val sourceProgram: self.encoder.targetProgram.type
-    val t: self.encoder.targetProgram.trees.type
+    val targetProgram: Program { val trees: self.encoder.targetProgram.trees.type }
   }
 
   protected lazy val programEncoder = encoder andThen theories
 
-  protected lazy val s: programEncoder.s.type = programEncoder.s
-  protected lazy val t: programEncoder.t.type = programEncoder.t
+  protected lazy val s: programEncoder.sourceProgram.trees.type = programEncoder.sourceProgram.trees
+  protected lazy val t: programEncoder.targetProgram.trees.type = programEncoder.targetProgram.trees
   protected lazy val targetProgram: programEncoder.targetProgram.type = programEncoder.targetProgram
 
   protected final def encode(vd: ValDef): t.ValDef = programEncoder.encode(vd)
@@ -127,10 +127,10 @@ trait AbstractUnrollingSolver extends Solver { self =>
   trait ModelWrapper {
     def modelEval(elem: Encoded, tpe: t.Type): Option[t.Expr]
 
-    def extractConstructor(elem: Encoded): Option[Identifier]
-    def extractSet(elem: Encoded): Option[Seq[Encoded]]
-    def extractMap(elem: Encoded): Option[(Seq[(Encoded, Encoded)], Encoded)]
-    def extractBag(elem: Encoded): Option[Seq[(Encoded, Encoded)]]
+    def extractConstructor(elem: Encoded, tpe: t.ADTType): Option[Identifier]
+    def extractSet(elem: Encoded, tpe: t.SetType): Option[Seq[Encoded]]
+    def extractMap(elem: Encoded, tpe: t.MapType): Option[(Seq[(Encoded, Encoded)], Encoded)]
+    def extractBag(elem: Encoded, tpe: t.BagType): Option[Seq[(Encoded, Encoded)]]
 
     def eval(elem: Encoded, tpe: Type): Option[Expr] = modelEval(elem, encode(tpe)).flatMap {
       expr => try {
@@ -214,26 +214,26 @@ trait AbstractUnrollingSolver extends Solver { self =>
               case (tpe, index) => rec(encoder(TupleSelect(id, index + 1)), tpe)
             }, Tuple)
 
-          case ADTType(sid, tps) =>
-            val adt = ADTType(wrapped.extractConstructor(v).get, tps)
+          case tpe @ ADTType(sid, tps) =>
+            val adt = ADTType(wrapped.extractConstructor(v, tpe).get, tps)
             val id = Variable(FreshIdentifier("adt"), adt)
             val encoder = templates.mkEncoder(Map(id -> v)) _
             reconstruct(adt.getADT.toConstructor.fields.map {
               vd => rec(encoder(ADTSelector(id, vd.id)), vd.tpe)
             }, ADT(adt, _))
 
-          case SetType(base) =>
-            val vs = wrapped.extractSet(v).get
+          case st @ SetType(base) =>
+            val vs = wrapped.extractSet(v, st).get
             reconstruct(vs.map(rec(_, base)), FiniteSet(_, base))
 
-          case MapType(from, to) =>
-            val (vs, dflt) = wrapped.extractMap(v).get
+          case mt @ MapType(from, to) =>
+            val (vs, dflt) = wrapped.extractMap(v, mt).get
             reconstruct(vs.flatMap(p => Seq(rec(p._1, from), rec(p._2, to))) :+ rec(dflt, to), {
               case es :+ default => FiniteMap(es.grouped(2).map(s => s(0) -> s(1)).toSeq, default, from, to)
             })
 
-          case BagType(base) =>
-            val vs = wrapped.extractBag(v).get
+          case bt @ BagType(base) =>
+            val vs = wrapped.extractBag(v, bt).get
             reconstruct(vs.map(p => rec(p._1, base)), es => FiniteBag((es zip vs).map {
               case (k, (_, v)) => k -> wrapped.modelEval(v, IntegerType).get
             }, base))
@@ -689,22 +689,22 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
   private case class ModelWrapper(model: Map[t.ValDef, t.Expr]) extends super.ModelWrapper {
     private def e(expr: t.Expr): Option[t.Expr] = modelEvaluator.eval(expr, model).result
 
-    def extractConstructor(elem: t.Expr): Option[Identifier] = e(elem) match {
+    def extractConstructor(elem: t.Expr, tpe: t.ADTType): Option[Identifier] = e(elem) match {
       case Some(t.ADT(t.ADTType(id, _), _)) => Some(id)
       case _ => None
     }
 
-    def extractSet(elem: t.Expr): Option[Seq[t.Expr]] = e(elem) match {
+    def extractSet(elem: t.Expr, tpe: t.SetType): Option[Seq[t.Expr]] = e(elem) match {
       case Some(t.FiniteSet(elems, _)) => Some(elems)
       case _ => None
     }
 
-    def extractBag(elem: t.Expr): Option[Seq[(t.Expr, t.Expr)]] = e(elem) match {
+    def extractBag(elem: t.Expr, tpe: t.BagType): Option[Seq[(t.Expr, t.Expr)]] = e(elem) match {
       case Some(t.FiniteBag(elems, _)) => Some(elems)
       case _ => None
     }
 
-    def extractMap(elem: t.Expr): Option[(Seq[(t.Expr, t.Expr)], t.Expr)] = e(elem) match {
+    def extractMap(elem: t.Expr, tpe: t.MapType): Option[(Seq[(t.Expr, t.Expr)], t.Expr)] = e(elem) match {
       case Some(t.FiniteMap(elems, default, _, _)) => Some((elems, default))
       case _ => None
     }

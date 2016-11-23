@@ -6,32 +6,17 @@ package solvers
 package object theories {
 
   trait Z3Theories { self: unrolling.AbstractUnrollingSolver =>
-    object theories extends {
-      val sourceProgram: self.encoder.targetProgram.type = self.encoder.targetProgram
-    } with StringEncoder
+    val theories = StringEncoder(self.encoder.targetProgram)
   }
 
   trait CVC4Theories { self: unrolling.AbstractUnrollingSolver =>
-    object theories extends {
-      val sourceProgram: self.encoder.targetProgram.type = self.encoder.targetProgram
-      val evaluator: evaluators.DeterministicEvaluator { val program: self.encoder.targetProgram.type } = new {
-        val program: self.encoder.targetProgram.type = self.encoder.targetProgram
-        val options = self.options
-      } with evaluators.DeterministicEvaluator {
-        import program.trees._
-        import evaluators.EvaluationResults._
+    val theories = BagEncoder(self.encoder, self.options)(self.evaluator)
+  }
 
-        def eval(e: Expr, model: Map[ValDef, Expr]): EvaluationResult = {
-          self.evaluator.eval(self.encoder.decode(e), model.map {
-            case (vd, value) => self.encoder.decode(vd) -> self.encoder.decode(value)
-          }) match {
-            case Successful(value) => Successful(self.encoder.encode(value))
-            case RuntimeError(message) => RuntimeError(message)
-            case EvaluatorError(message) => EvaluatorError(message)
-          }
-        }
-      }
-    } with BagEncoder
+  trait PrincessTheories { self: unrolling.AbstractUnrollingSolver =>
+    val stringEncoder = StringEncoder(self.encoder.targetProgram)
+    val bagEncoder = BagEncoder(self.encoder andThen stringEncoder, self.options)(self.evaluator)
+    val theories = stringEncoder andThen bagEncoder
   }
 }
 

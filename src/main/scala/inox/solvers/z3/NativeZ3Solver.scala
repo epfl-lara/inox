@@ -9,7 +9,7 @@ import theories._
 
 import z3.scala._
 
-trait NativeZ3Solver extends AbstractUnrollingSolver { self =>
+trait NativeZ3Solver extends AbstractUnrollingSolver with Z3Theories { self =>
 
   import program._
   import program.trees._
@@ -18,10 +18,6 @@ trait NativeZ3Solver extends AbstractUnrollingSolver { self =>
   override val name = "NativeZ3"
 
   type Encoded = Z3AST
-
-  object theories extends {
-    val sourceProgram: self.encoder.targetProgram.type = self.encoder.targetProgram
-  } with StringEncoder
 
   protected object underlying extends {
     val program: targetProgram.type = targetProgram
@@ -72,7 +68,7 @@ trait NativeZ3Solver extends AbstractUnrollingSolver { self =>
   protected def wrapModel(model: Z3Model): super.ModelWrapper = ModelWrapper(model)
 
   private case class ModelWrapper(model: Z3Model) extends super.ModelWrapper {
-    def extractConstructor(v: Z3AST): Option[Identifier] = model.eval(v).flatMap {
+    def extractConstructor(v: Z3AST, tpe: t.ADTType): Option[Identifier] = model.eval(v).flatMap {
       elem => z3.getASTKind(elem) match {
         case Z3AppAST(decl, args) if underlying.constructors containsB decl =>
           underlying.constructors.toA(decl) match {
@@ -83,11 +79,11 @@ trait NativeZ3Solver extends AbstractUnrollingSolver { self =>
       }
     }
 
-    def extractSet(v: Z3AST): Option[Seq[Z3AST]] = model.eval(v).flatMap {
+    def extractSet(v: Z3AST, tpe: t.SetType): Option[Seq[Z3AST]] = model.eval(v).flatMap {
       elem => model.getSetValue(elem) collect { case (set, true) => set.toSeq }
     }
 
-    def extractBag(v: Z3AST): Option[Seq[(Z3AST, Z3AST)]] = model.eval(v).flatMap {
+    def extractBag(v: Z3AST, tpe: t.BagType): Option[Seq[(Z3AST, Z3AST)]] = model.eval(v).flatMap {
       elem => model.getArrayValue(elem) flatMap { case (z3Map, z3Default) =>
         z3.getASTKind(z3Default) match {
           case Z3NumeralIntAST(Some(0)) => Some(z3Map.toSeq)
@@ -96,7 +92,7 @@ trait NativeZ3Solver extends AbstractUnrollingSolver { self =>
       }
     }
 
-    def extractMap(v: Z3AST): Option[(Seq[(Z3AST, Z3AST)], Z3AST)] = model.eval(v).flatMap {
+    def extractMap(v: Z3AST, tpe: t.MapType): Option[(Seq[(Z3AST, Z3AST)], Z3AST)] = model.eval(v).flatMap {
       elem => model.getArrayValue(elem).map(p => p._1.toSeq -> p._2)
     }
 

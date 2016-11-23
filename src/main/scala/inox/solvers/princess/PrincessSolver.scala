@@ -10,23 +10,13 @@ import ap.parser._
 import unrolling._
 import solvers.theories._
 
-trait PrincessSolver extends AbstractUnrollingSolver { self =>
+trait PrincessSolver extends AbstractUnrollingSolver with PrincessTheories { self =>
 
   import program._
   import program.trees._
   import program.symbols._
 
   override val name = "Princess"
-
-  object stringEncoder extends {
-    val sourceProgram: self.encoder.targetProgram.type = self.encoder.targetProgram
-  } with StringEncoder
-
-  object bagEncoder extends {
-    val sourceProgram: stringEncoder.targetProgram.type = stringEncoder.targetProgram
-  } with BagEncoder
-
-  val theories = stringEncoder andThen bagEncoder
 
   protected object underlying extends {
     val program: targetProgram.type = targetProgram
@@ -43,6 +33,7 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
     type Encoded = self.Encoded
 
     def asString(ast: IExpression): String = ast.toString
+    def interrupted: Boolean = self.interrupted
 
     def encodeSymbol(v: Variable): IExpression = underlying.freshSymbol(v)
 
@@ -89,6 +80,25 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
   protected def wrapModel(model: underlying.Model): super.ModelWrapper = ModelWrapper(model)
 
   private case class ModelWrapper(model: underlying.Model) extends super.ModelWrapper {
+    import IExpression._
+
+    def extractConstructor(v: IExpression, tpe: t.ADTType): Option[Identifier] =
+      model.eval(v.asInstanceOf[ITerm]).flatMap { elem =>
+        val realType = underlying.program.symbols.bestRealType(tpe).asInstanceOf[t.ADTType]
+        val (sort, adts) = underlying.typeToSort(tpe)
+        (adts.map(_._1) zip sort.ctorIds).collectFirst {
+          case (`realType`, fun) => model.eval(fun(v.asInstanceOf[ITerm])).map { i =>
+            val index = i.intValue
+            val constructors = adts.flatMap(_._2.cases)
+            constructors(index).tpe.asInstanceOf[t.ADTType].id
+          }
+        }.flatten
+      }
+
+    def extractSet(v: IExpression, tpe: t.SetType) = None
+    def extractBag(v: IExpression, tpe: t.BagType) = None
+    def extractMap(v: IExpression, tpe: t.MapType) = None
+
     def modelEval(elem: IExpression, tpe: t.Type): Option[t.Expr] = {
       val timer = ctx.timers.solvers.princess.eval.start()
       val res = underlying.princessToInox(elem, tpe)(model)

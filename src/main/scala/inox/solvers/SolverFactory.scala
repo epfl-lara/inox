@@ -77,8 +77,10 @@ object SolverFactory {
   def getFromName(name: String)
                  (p: Program, opts: Options)
                  (ev: DeterministicEvaluator with SolvingEvaluator { val program: p.type },
-                   enc: ast.ProgramEncoder { val sourceProgram: p.type; val t: inox.trees.type }):
-                  SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } } = {
+                  enc: ast.ProgramTransformer {
+                     val sourceProgram: p.type
+                     val targetProgram: Program { val trees: inox.trees.type }
+                  }): SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } } = {
     name match {
       case "nativez3" => create(p)(name, () => new {
         val program: p.type = p

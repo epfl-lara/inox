@@ -6,7 +6,8 @@ package theories
 
 import utils._
 
-trait StringEncoder extends TheoryEncoder {
+trait StringEncoder extends TheoryEncoder with ast.ProgramEncoder {
+  val t: sourceProgram.trees.type = sourceProgram.trees
   import trees._
   import trees.dsl._
 
@@ -142,3 +143,8 @@ trait StringEncoder extends TheoryEncoder {
   }
 }
 
+object StringEncoder {
+  def apply(p: Program): StringEncoder { val sourceProgram: p.type } = new {
+    val sourceProgram: p.type = p
+  } with StringEncoder
+}

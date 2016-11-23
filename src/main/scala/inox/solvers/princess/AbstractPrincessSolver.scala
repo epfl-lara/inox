@@ -46,7 +46,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
   protected val adtManager = new ADTManager
 
-  protected def typeToSort(tpe: ADTType): (PADT, Seq[(Type, DataType)]) = {
+  def typeToSort(tpe: ADTType): (PADT, Seq[(Type, DataType)]) = {
     val realType = bestRealType(tpe).asInstanceOf[ADTType]
     adtManager.declareADTs(realType, (adts: Seq[(Type, DataType)]) => {
       val indexMap: Map[Type, Int] = adts.map(_._1).zipWithIndex.toMap

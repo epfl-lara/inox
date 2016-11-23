@@ -6,7 +6,7 @@ package combinators
 
 object EncodingSolverFactory {
   def apply(p: Program)
-           (enc: ast.ProgramEncoder { val sourceProgram: p.type })
+           (enc: ast.ProgramTransformer { val sourceProgram: p.type })
            (sf: SolverFactory {
              val program: enc.targetProgram.type
              type S <: TimeoutSolver { val program: enc.targetProgram.type }

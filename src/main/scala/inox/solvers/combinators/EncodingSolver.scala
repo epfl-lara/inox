@@ -8,8 +8,8 @@ trait EncodingSolver extends Solver {
   import program.trees._
   import SolverResponses._
 
-  protected val encoder: ast.ProgramEncoder { val sourceProgram: program.type }
-  protected lazy val t: encoder.t.type = encoder.t
+  protected val encoder: ast.ProgramTransformer { val sourceProgram: program.type }
+  protected lazy val t: encoder.targetProgram.trees.type = encoder.targetProgram.trees
 
   protected val underlying: Solver {
     val program: encoder.targetProgram.type
