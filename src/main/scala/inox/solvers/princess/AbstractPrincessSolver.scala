@@ -294,8 +294,8 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
   def declareVariable(v: Variable): IExpression = variables.cachedB(v)(freshSymbol(v))
 
   def freshSymbol(v: Variable): IExpression = v.tpe match {
-    case BooleanType => p.createBooleanVariable(v.id.uniqueName)
-    case _ => p.createConstant(v.id.uniqueName)
+    case BooleanType => p.createBooleanVariable(v.id.freshen.uniqueName)
+    case _ => p.createConstant(v.id.freshen.uniqueName)
   }
 
   def assertCnstr(formula: Trees): Unit = p !! formula.asInstanceOf[IFormula]
@@ -304,7 +304,9 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
     import SimpleAPI.ProverStatus
 
     config.cast(p.??? match {
-      case ProverStatus.Sat =>
+      // FIXME @nv: for now, we treat Inconclusive as Sat, but this should
+      //            be changed once Princess ensures soundness of models with ADTs
+      case ProverStatus.Sat | ProverStatus.Inconclusive =>
         if (config.withModel) {
           SatWithModel(p.partialModel)
         } else {
@@ -318,7 +320,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
           Unsat
         }
 
-      case ProverStatus.Inconclusive | ProverStatus.Unknown =>
+      case ProverStatus.Unknown =>
         Unknown
 
       case r => throw new PrincessSolverException("Unexpected solver response: " + r)
@@ -329,10 +331,10 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
   // We use push/pop to simulate checking with assumptions
   def checkAssumptions(config: Configuration)(assumptions: Set[Trees]): config.Response[Model, Assumptions] = {
-    p.push
+    push()
     for (a <- assumptions) assertCnstr(a)
     val res = internalCheck(config)
-    p.pop
+    pop()
     res
   }
 
