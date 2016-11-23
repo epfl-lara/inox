@@ -57,7 +57,7 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
     config.cast(res match {
       case CheckSatStatus(SatStatus) =>
         if (config.withModel) {
-          val syms = variables.aSet.map(variables.aToB)
+          val syms = variables.bSet
           emit(GetModel()) match {
             case GetModelResponseSuccess(smodel) =>
               // first-pass to gather functions

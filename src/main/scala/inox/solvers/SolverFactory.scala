@@ -130,6 +130,14 @@ object SolverFactory {
         } with smtlib.Z3Solver
       })
 
+      case "princess" => create(p)(name, () => new {
+        val program: p.type = p
+        val options = opts
+        val encoder = enc
+      } with princess.PrincessSolver with TimeoutSolver {
+        val evaluator = ev
+      })
+
       case "enum" => create(p)(name, () => new {
         val program: p.type = p
         val options = opts
@@ -138,22 +146,6 @@ object SolverFactory {
         val grammars: GrammarsUniverse {val program: p.type} = new GrammarsUniverse {
           val program: p.type = p
         }
-      })
-
-      case "princess" => create(p)(name, () => new {
-        val program: p.type = p
-        val options = opts
-        val encoder = enc
-      } with unrolling.UnrollingSolver with TimeoutSolver {
-        self =>
-        val evaluator = ev
-        import inox.solvers.theories._
-        object theories extends NoEncoder { val sourceProgram: self.encoder.targetProgram.type = self.encoder.targetProgram }
-
-        object underlying extends {
-          val program: targetProgram.type = targetProgram
-          val options = opts
-        } with PrincessSolver
       })
 
       case _ => throw FatalError("Unknown solver: " + name)

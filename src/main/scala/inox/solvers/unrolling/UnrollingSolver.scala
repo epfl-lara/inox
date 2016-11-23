@@ -27,7 +27,10 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   protected val encoder: ast.ProgramEncoder { val sourceProgram: program.type }
 
-  protected val theories: TheoryEncoder { val sourceProgram: self.encoder.targetProgram.type }
+  protected val theories: ast.ProgramEncoder {
+    val sourceProgram: self.encoder.targetProgram.type
+    val t: self.encoder.targetProgram.trees.type
+  }
 
   protected lazy val programEncoder = encoder andThen theories
 

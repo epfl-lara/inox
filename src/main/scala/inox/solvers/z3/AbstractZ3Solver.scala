@@ -30,7 +30,6 @@ trait AbstractZ3Solver
 
   type Trees = Z3AST
   type Model = Z3Model
-  type Cores = Set[Z3AST]
 
   private[this] var freed = false
   val traceE = new Exception()
@@ -714,7 +713,7 @@ trait AbstractZ3Solver
     extractResult(config)(solver.checkAssumptions(assumptions.toSeq : _*))
 
   def extractModel(model: Z3Model): Map[ValDef, Expr] = variables.aToB.flatMap {
-    case (v,z3ID) => (v.getType match {
+    case (v,z3ID) => (v.tpe match {
       case BooleanType =>
         model.evalAs[Boolean](z3ID).map(BooleanLiteral)
 

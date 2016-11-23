@@ -134,4 +134,9 @@ trait NativeZ3Solver extends AbstractUnrollingSolver { self =>
     underlying.interrupt()
     super.interrupt()
   }
+
+  override def recoverInterrupt(): Unit = {
+    underlying.recoverInterrupt()
+    super.recoverInterrupt()
+  }
 }
