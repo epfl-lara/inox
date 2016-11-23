@@ -139,31 +139,25 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       }
 
       // ADT INSTANCE OF
-      case IsInstanceOf(expr, tpe) =>
-        val realType = bestRealType(tpe).asInstanceOf[ADTType]
-        val root = realType.getADT.root
+      case IsInstanceOf(expr, ADTType(id, tps)) =>
+        val tpe = ADTType(id, tps.map(bestRealType))
+        val root = tpe.getADT.root
 
-        if (root.toType == realType) {
+        if (root.toType == tpe) {
           true
         } else {
-          val (sort, adts) = typeToSort(realType)
+          val (sort, adts) = typeToSort(tpe)
           val constructors = adts.flatMap(_._2.cases)
-          sort.hasCtor(parseTerm(expr), constructors.indexWhere(_.tpe == realType))
+          sort.hasCtor(parseTerm(expr), constructors.indexWhere(_.tpe == tpe))
         }
+
+      case (_: FunctionInvocation) | (_: Application) | (_: ADTSelector) =>
+        parseTerm(expr) === 0
 
       case _ => unsupported(expr, "Unexpected formula " + expr)
     }
 
     def parseTerm(expr: Expr)(implicit bindings: Map[Variable, IExpression]): ITerm = expr match {
-      case IsTyped(_, BooleanType) =>
-        ITermITE(parseFormula(expr), i(0), i(1))
-
-      case v: Variable => 
-        bindings.getOrElse(v, declareVariable(v)).asInstanceOf[ITerm]
-
-      // LITERALS
-      case IntegerLiteral(value) => value.toInt
-
       case FunctionInvocation(id, tps, args) =>
         val f = functions.cachedB(getFunction(id, tps)) {
           p.createFunction(id.uniqueName, args.size)
@@ -174,10 +168,44 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       case Application(caller, args) =>
         val realType = bestRealType(caller.getType).asInstanceOf[FunctionType]
         val f = lambdas.cachedB(realType) {
-          p.createFunction(FreshIdentifier("dynLambda").uniqueName, args.size)
+          p.createFunction(FreshIdentifier("dynLambda").uniqueName, args.size + 1)
         }
         val pArgs = for (a <- caller +: args) yield parseTerm(a)
         IFunApp(f, pArgs)
+
+      // ADT
+      case ADT(ADTType(id, tps), args) =>
+        val tpe = ADTType(id, tps.map(bestRealType))
+        val (sort, adts) = typeToSort(tpe)
+        val constructors = adts.flatMap(_._2.cases)
+        val constructor = (constructors zip sort.constructors).collectFirst {
+          case (cons, fun) if cons.tpe == tpe => fun
+        }.getOrElse(throw PrincessSolverException(s"Undefined constructor for $tpe!?"))
+        constructor(args.map(parseTerm) : _*)
+
+      case s @ ADTSelector(IsTyped(adt, ADTType(id, tps)), _) =>
+        val tpe = ADTType(id, tps.map(bestRealType))
+        val (sort, adts) = typeToSort(tpe)
+        val constructors = adts.flatMap(_._2.cases)
+        val selector = (constructors zip sort.selectors).collectFirst {
+          case (cons, sels) if cons.tpe == tpe => sels(s.selectorIndex)
+        }.getOrElse(throw PrincessSolverException(s"Undefined selector for $s!?"))
+        selector(parseTerm(adt))
+
+      // I think we can ignore this since we do not type our variables
+      case AsInstanceOf(expr, tpe) =>
+        parseTerm(expr)
+
+      // @nv: this MUST come at least after having dealt with FunctionInvocation,
+      //      Application and ADTSelectors which can return booleans
+      case IsTyped(_, BooleanType) =>
+        ITermITE(parseFormula(expr), i(0), i(1))
+
+      case v: Variable =>
+        bindings.getOrElse(v, declareVariable(v)).asInstanceOf[ITerm]
+
+      // LITERALS
+      case IntegerLiteral(value) => value.toInt
 
       // INTEGER ARITHMETIC
       case Plus(lhs, rhs) => {
@@ -216,29 +244,6 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         val pRhs = parseTerm(rhs)
         throw new PrincessSolverException("MODULO")
       }
-
-      // ADT
-      case ADT(adt, args) =>
-        val tpe = bestRealType(adt).asInstanceOf[ADTType]
-        val (sort, adts) = typeToSort(adt)
-        val constructors = adts.flatMap(_._2.cases)
-        val constructor = (constructors zip sort.constructors).collectFirst {
-          case (cons, fun) if cons.tpe == tpe => fun
-        }.getOrElse(throw PrincessSolverException(s"Undefined constructor for $tpe!?"))
-        constructor(args.map(parseTerm) : _*)
-
-      case s @ ADTSelector(adt, _) =>
-        val tpe = bestRealType(adt.getType).asInstanceOf[ADTType]
-        val (sort, adts) = typeToSort(tpe)
-        val constructors = adts.flatMap(_._2.cases)
-        val selector = (constructors zip sort.selectors).collectFirst {
-          case (cons, sels) if cons.tpe == tpe => sels(s.selectorIndex)
-        }.getOrElse(throw PrincessSolverException(s"Undefined selector for $s!?"))
-        selector(parseTerm(adt))
-
-      // I think we can ignore this since we do not type our variables
-      case AsInstanceOf(expr, tpe) =>
-        parseTerm(expr)
 
       case _ => unsupported(expr, "Unexpected formula " + expr)
     }

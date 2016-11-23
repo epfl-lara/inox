@@ -10,10 +10,12 @@ class QuantifiersSuite extends TestSuite {
 
   override def configurations = List(
     ("nativez3", false, false, false),
+    ("princess", false, false, false),
     ("smt-z3",   false, false, false),
     ("smt-cvc4", false, false, false),
     ("nativez3", true,  true,  false),
     ("nativez3", false, false, true ),
+    ("princess", true,  true,  false),
     ("smt-cvc4", false, false, true )
   ).map { case (solverName, checkModels, feelingLucky, unrollAssumptions) => Seq(
     optSelectedSolvers(Set(solverName)),
