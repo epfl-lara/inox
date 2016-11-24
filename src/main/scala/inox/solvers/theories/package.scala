@@ -10,27 +10,27 @@ import scala.language.existentials
 package object theories {
 
   trait Z3Theories { self: unrolling.AbstractUnrollingSolver =>
-    val theories = StringEncoder(self.encoder.targetProgram)
+    lazy val theories = StringEncoder(self.encoder.targetProgram)
   }
 
   trait CVC4Theories { self: unrolling.AbstractUnrollingSolver =>
-    val theories = BagEncoder(self.encoder, self.options)(self.evaluator)
+    lazy val theories = BagEncoder(self.encoder, self.options)(self.evaluator)
   }
 
   trait PrincessTheories { self: unrolling.AbstractUnrollingSolver =>
-    val stringEncoder = StringEncoder(self.encoder.targetProgram)
+    lazy val stringEncoder = StringEncoder(self.encoder.targetProgram)
 
-    val bagEncoder = BagEncoder(
+    lazy val bagEncoder = BagEncoder(
       self.encoder andThen stringEncoder,
       self.options
     )(self.evaluator)
 
-    val setEncoder = SetEncoder(
+    lazy val setEncoder = SetEncoder(
       self.encoder andThen stringEncoder andThen bagEncoder,
       self.options
     )(self.evaluator)
 
-    val theories = stringEncoder andThen bagEncoder andThen setEncoder
+    lazy val theories = stringEncoder andThen bagEncoder andThen setEncoder
   }
 
   object ReverseEvaluator {

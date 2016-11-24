@@ -648,7 +648,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     type Model = Map[t.ValDef, t.Expr]
   }
 
-  override val name = "U:"+underlying.name
+  override lazy val name = "U:"+underlying.name
 
   def free() {
     underlying.free()

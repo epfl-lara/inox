@@ -62,6 +62,19 @@ lazy val scalaSmtlib = ghProject("git://github.com/regb/scala-smtlib.git", "8505
 
 lazy val princess    = ghProject("svn://hal4.it.uu.se/princess/interpolation/trunk", "2703")
 
+// XXX @nv: complex hack to make sure we don't have a name clash between
+//          princess' smtlib parser and the scala-smtlib one.
+lazy val classpathSettings = {
+  def cleanClasspath(config: Configuration) =
+    unmanagedClasspath in config := {
+      val prev = (unmanagedClasspath in config).value
+      val princessJars = (unmanagedJars in (princess, Compile)).value.toSet
+      prev.filterNot(princessJars)
+    }
+
+  Seq(cleanClasspath(Compile), cleanClasspath(Test), cleanClasspath(ItTest))
+}
+
 lazy val root = (project in file("."))
   .configs(IntegrationTest)
   .settings(Defaults.itSettings : _*)
@@ -71,13 +84,6 @@ lazy val root = (project in file("."))
   )) : _*)
   .dependsOn(bonsai)
   .dependsOn(scalaSmtlib)
-  .dependsOn(princess).settings(
-    // XXX @nv: ugly hack to make sure we don't have a name clash between
-    //          princess' smtlib parser and the scala-smtlib one.
-    unmanagedClasspath in Compile := {
-      val prev = (unmanagedClasspath in Compile).value
-      val princessJars = (unmanagedJars in (princess, Compile)).value.toSet
-      prev.filterNot(princessJars)
-    }
-  )
+  .dependsOn(princess)
+  .settings(classpathSettings : _*)
 

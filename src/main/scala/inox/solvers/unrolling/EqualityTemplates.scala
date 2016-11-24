@@ -92,21 +92,26 @@ trait EqualityTemplates { self: Templates =>
         mkClauses(pathVar, Equals(Application(f, args), tpe match {
           case adt: ADTType =>
             val root = adt.getADT.root
-            val constructors = root match {
-              case tsort: TypedADTSort => tsort.constructors
-              case tcons: TypedADTConstructor => Seq(tcons)
+
+            if (root.hasEquality) {
+              root.equality.get.applied(args)
+            } else {
+              val constructors = root match {
+                case tsort: TypedADTSort => tsort.constructors
+                case tcons: TypedADTConstructor => Seq(tcons)
+              }
+
+              orJoin(constructors.map { tcons =>
+                val (instCond, asE1, asE2) = if (tcons == root) (BooleanLiteral(true), e1, e2) else (
+                  and(IsInstanceOf(e1, tcons.toType), IsInstanceOf(e2, tcons.toType)),
+                  AsInstanceOf(e1, tcons.toType),
+                  AsInstanceOf(e2, tcons.toType)
+                )
+
+                val fieldConds = tcons.fields.map(vd => Equals(ADTSelector(asE1, vd.id), ADTSelector(asE2, vd.id)))
+                andJoin(instCond +: fieldConds)
+              })
             }
-
-            orJoin(constructors.map { tcons =>
-              val (instCond, asE1, asE2) = if (tcons == root) (BooleanLiteral(true), e1, e2) else (
-                and(IsInstanceOf(e1, tcons.toType), IsInstanceOf(e2, tcons.toType)),
-                AsInstanceOf(e1, tcons.toType),
-                AsInstanceOf(e2, tcons.toType)
-              )
-
-              val fieldConds = tcons.fields.map(vd => Equals(ADTSelector(asE1, vd.id), ADTSelector(asE2, vd.id)))
-              andJoin(instCond +: fieldConds)
-            })
 
           case TupleType(tps) =>
             andJoin(tps.indices.map(i => Equals(TupleSelect(e1, i + 1), TupleSelect(e2, i + 1))))
