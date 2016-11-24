@@ -115,6 +115,13 @@ trait TemplateGenerator { self: Templates =>
     rec(invocation, body, args, inlineFirst)
   }
 
+  private def isSimple(expr: Expr): Boolean = {
+    exprOps.isSimple(expr) && !exprOps.exists {
+      case Equals(e1, e2) => unrollEquality(e1.getType)
+      case _ => false
+    } (expr)
+  }
+
   def mkClauses(pathVar: Variable, expr: Expr, substMap: Map[Variable, Encoded], polarity: Option[Boolean] = None): TemplateClauses = {
     val (p, (condVars, exprVars, condTree, guardedExprs, eqs, lambdas, quantifications)) = mkExprClauses(pathVar, expr, substMap, polarity)
     val allGuarded = guardedExprs + (pathVar -> (p +: guardedExprs.getOrElse(pathVar, Seq.empty)))
@@ -195,14 +202,14 @@ trait TemplateGenerator { self: Templates =>
         Not(rec(pathVar, e, pol.map(!_)))
 
       case i @ Implies(lhs, rhs) =>
-        if (!exprOps.isSimple(i)) {
+        if (!isSimple(i)) {
           rec(pathVar, Or(Not(lhs), rhs), pol)
         } else {
           implies(rec(pathVar, lhs, None), rec(pathVar, rhs, None))
         }
 
       case a @ And(parts) =>
-        val partitions = SeqUtils.groupWhile(parts)(exprOps.isSimple)
+        val partitions = SeqUtils.groupWhile(parts)(isSimple)
         partitions.map(andJoin) match {
           case Seq(e) => e
           case seq =>
@@ -236,7 +243,7 @@ trait TemplateGenerator { self: Templates =>
         }
 
       case o @ Or(parts) =>
-        val partitions = SeqUtils.groupWhile(parts)(exprOps.isSimple)
+        val partitions = SeqUtils.groupWhile(parts)(isSimple)
         partitions.map(orJoin) match {
           case Seq(e) => e
           case seq =>
@@ -270,7 +277,7 @@ trait TemplateGenerator { self: Templates =>
         }
 
       case i @ IfExpr(cond, thenn, elze) => {
-        if(exprOps.isSimple(i)) {
+        if (isSimple(i)) {
           i
         } else {
           val newBool1 : Variable = Variable(FreshIdentifier("b", true), BooleanType)
@@ -403,7 +410,7 @@ trait TemplateGenerator { self: Templates =>
         depsByScope.foldLeft[(Map[Variable, Encoded], Map[Encoded, Encoded], TemplateClauses)](
           (localSubst, Map.empty, emptyClauses)
         ) { case ((depSubst, pointers, clsSet), (v, expr)) =>
-            if (!exprOps.isSimple(expr)) {
+            if (!isSimple(expr)) {
               val normalExpr = if (!isNormalForm) simplifyHOFunctions(expr) else expr
               val (e, cls @ (conds, exprs, _, _, _, lmbds, quants)) = mkExprClauses(pathVar, normalExpr, depSubst)
               val clauseSubst = depSubst ++ conds ++ exprs ++ lmbds.map(_.ids) ++ quants.flatMap(_.mapping)
@@ -415,16 +422,16 @@ trait TemplateGenerator { self: Templates =>
             }
         }
 
-      val (depClauses, depCalls, depApps, depMatchers, depPointers, _) = Template.encode(
-        pathVar -> encodedCond(pathVar), Seq.empty,
-        depConds, depExprs, depGuarded, depEqs, depLambdas, depQuants, depSubst)
+      val (depClauses, depCalls, depApps, depMatchers, depEqualities, depPointers, _) = Template.encode(
+        pathVar -> encodedCond(pathVar), Seq.empty, depConds,
+        depExprs, depGuarded, depEqs, depLambdas, depQuants, depSubst)
 
       val sortedDeps = exprOps.variablesOf(struct).map(v => v -> deps(v)).toSeq.sortBy(_._1.id.uniqueName)
       val dependencies = sortedDeps.map(p => depSubst(p._1))
 
-      val structure = new TemplateStructure(struct, dependencies,
-        pathVar -> encodedCond(pathVar), depConds, depExprs, depTree,
-        depClauses, depCalls, depApps, depMatchers, depLambdas, depQuants, basePointers ++ depPointers)
+      val structure = new TemplateStructure(struct, dependencies, TemplateContents(
+        pathVar -> encodedCond(pathVar), Seq.empty, depConds, depExprs, depTree, depClauses,
+        depCalls, depApps, depMatchers, depEqualities, depLambdas, depQuants, basePointers ++ depPointers))
 
       val res = if (isNormalForm) expr else struct
       (res, structure, depSubst)

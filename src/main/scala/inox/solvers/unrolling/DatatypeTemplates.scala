@@ -1,4 +1,4 @@
-/* Copyright 2009-2015 EPFL, Lausanne */
+/* Copyright 2009-2016 EPFL, Lausanne */
 
 package inox
 package solvers
@@ -121,7 +121,7 @@ trait DatatypeTemplates { self: Templates =>
     protected trait Builder {
       val tpe: Type
 
-      protected val v = Variable(FreshIdentifier("x", true), tpe)
+      val v = Variable(FreshIdentifier("x", true), tpe)
       val pathVar = Variable(FreshIdentifier("b", true), BooleanType)
       val (idT, pathVarT) = (encodeSymbol(v), encodeSymbol(pathVar))
 
@@ -451,13 +451,8 @@ trait DatatypeTemplates { self: Templates =>
 
   /** Base type for datatype unfolding templates. */
   trait TypesTemplate extends Template {
+    val contents: TemplateContents
     val types: Map[Encoded, Set[TemplateTypeInfo]]
-
-    val applications = Map.empty[Encoded, Set[App]]
-    val lambdas = Seq.empty[LambdaTemplate]
-    val matchers = Map.empty[Encoded, Set[Matcher]]
-    val quantifications = Seq.empty[QuantificationTemplate]
-    val pointers = Map.empty[Encoded, Encoded]
 
     override def instantiate(substMap: Map[Encoded, Arg]): Clauses = {
       val substituter = mkSubstituter(substMap.mapValues(_.encoded))
@@ -482,17 +477,9 @@ trait DatatypeTemplates { self: Templates =>
 
   /** Template used to unfold free symbols in the input expression. */
   class DatatypeTemplate private[DatatypeTemplates] (
-    val pathVar: (Variable, Encoded),
-    val argument: Encoded,
-    val exprVars: Map[Variable, Encoded],
-    val condVars: Map[Variable, Encoded],
-    val condTree: Map[Variable, Set[Variable]],
-    val clauses: Clauses,
-    val blockers: CallBlockers,
+    val contents: TemplateContents,
     val types: Map[Encoded, Set[TemplateTypeInfo]],
     val functions: Functions) extends TypesTemplate {
-
-    val args = Seq(argument)
 
     def instantiate(blocker: Encoded, arg: Encoded): Clauses = {
       instantiate(blocker, Seq(Left(arg)))
@@ -523,25 +510,20 @@ trait DatatypeTemplates { self: Templates =>
         blocker -> tps.map { case (info, arg) => TemplateTypeInfo(info, arg, Datatype) }
       }
 
-      new DatatypeTemplate(b.pathVar -> b.pathVarT, b.idT,
-        b.exprs, b.conds, b.tree, b.clauses, b.calls, typeBlockers, b.funs)
+      new DatatypeTemplate(TemplateContents(
+        b.pathVar -> b.pathVarT, Seq(b.v -> b.idT),
+        b.exprs, b.conds, b.tree, b.clauses, b.calls,
+        Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty, Map.empty), typeBlockers, b.funs)
     })
   }
 
   /** Template used to unfold ADT closures that may contain functions. */
   class CaptureTemplate private[DatatypeTemplates](
-    val pathVar: (Variable, Encoded),
-    val container: Encoded,
-    val argument: Encoded,
-    val exprVars: Map[Variable, Encoded],
-    val condVars: Map[Variable, Encoded],
-    val condTree: Map[Variable, Set[Variable]],
-    val clauses: Clauses,
+    val contents: TemplateContents,
     val types: Map[Encoded, Set[TemplateTypeInfo]],
     val functions: Set[Encoded]) extends TypesTemplate {
 
-    val args = Seq(container, argument)
-    val blockers = Map.empty[Encoded, Set[Call]]
+    val Seq((_, container), _) = contents.arguments
 
     def instantiate(blocker: Encoded, container: Encoded, arg: Encoded): Clauses = {
       instantiate(blocker, Seq(Left(container), Left(arg)))
@@ -567,7 +549,7 @@ trait DatatypeTemplates { self: Templates =>
 
     private val tmplCache: MutableMap[Type, (
       (Variable, Encoded),
-      Encoded,
+      (Variable, Encoded),
       Map[Variable, Encoded],
       Map[Variable, Encoded],
       Map[Variable, Set[Variable]],
@@ -597,10 +579,10 @@ trait DatatypeTemplates { self: Templates =>
     })
 
     def apply(dtpe: Type, containerType: FunctionType): CaptureTemplate = cache.getOrElseUpdate(dtpe -> containerType, {
-      val (ps, idT, exprVars, condVars, condTree, clauses, types, funs) = tmplCache.getOrElseUpdate(dtpe, {
+      val (ps, ids, exprVars, condVars, condTree, clauses, types, funs) = tmplCache.getOrElseUpdate(dtpe, {
         object b extends { val tpe = dtpe } with super[FunctionUnrolling].Builder with super[ADTUnrolling].Builder
         assert(b.calls.isEmpty, "Captured function templates shouldn't have any calls: " + b.calls)
-        (b.pathVar -> b.pathVarT, b.idT, b.exprs, b.conds, b.tree, b.clauses, b.types, b.funs)
+        (b.pathVar -> b.pathVarT, b.v -> b.idT, b.exprs, b.conds, b.tree, b.clauses, b.types, b.funs)
       })
 
       val ctpe = bestRealType(containerType).asInstanceOf[FunctionType]
@@ -615,23 +597,18 @@ trait DatatypeTemplates { self: Templates =>
         mkImplies(blocker, lessThan(order(tpe)(f), order(ctpe)(containerT)))
       }
 
-      new CaptureTemplate(ps, containerT, idT,
-        exprVars, condVars, condTree, clauses ++ orderClauses, typeBlockers, funs.map(_._3))
+      new CaptureTemplate(TemplateContents(
+        ps, Seq(container -> containerT, ids),
+        exprVars, condVars, condTree, clauses ++ orderClauses,
+        Map.empty, Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty, Map.empty
+      ), typeBlockers, funs.map(_._3))
     })
   }
 
   /** Template used to unfold adts returned from functions or maps. */
   class InvariantTemplate private[DatatypeTemplates] (
-    val pathVar: (Variable, Encoded),
-    val argument: Encoded,
-    val exprVars: Map[Variable, Encoded],
-    val condVars: Map[Variable, Encoded],
-    val condTree: Map[Variable, Set[Variable]],
-    val clauses: Clauses,
-    val blockers: CallBlockers,
+    val contents: TemplateContents,
     val types: Map[Encoded, Set[TemplateTypeInfo]]) extends TypesTemplate {
-
-    val args = Seq(argument)
 
     def instantiate(blocker: Encoded, arg: Encoded): Clauses = {
       instantiate(blocker, Seq(Left(arg)))
@@ -658,8 +635,11 @@ trait DatatypeTemplates { self: Templates =>
         blocker -> tps.map { case (info, arg) => TemplateTypeInfo(info, arg, Invariant) }
       }
 
-      new InvariantTemplate(b.pathVar -> b.pathVarT, b.idT,
-        b.exprs, b.conds, b.tree, b.clauses, b.calls, typeBlockers)
+      new InvariantTemplate(TemplateContents(
+        b.pathVar -> b.pathVarT, Seq(b.v -> b.idT),
+        b.exprs, b.conds, b.tree, b.clauses, b.calls,
+        Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty, Map.empty
+      ), typeBlockers)
     })
   }
 
@@ -676,7 +656,7 @@ trait DatatypeTemplates { self: Templates =>
       !transitiveLess(f1, f2) && !transitiveLess(f2, f1)
     }
 
-    val incrementals: Seq[IncrementalState] = Seq(typeInfos)
+    val incrementals: Seq[IncrementalState] = Seq(typeInfos, lessOrder)
 
     def unrollGeneration: Option[Int] =
       if (typeInfos.isEmpty) None

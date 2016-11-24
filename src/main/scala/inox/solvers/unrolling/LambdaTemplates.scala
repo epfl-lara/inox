@@ -70,59 +70,32 @@ trait LambdaTemplates { self: Templates =>
 
       val id = ids._2
       val tpe = ids._1.getType.asInstanceOf[FunctionType]
-      val (clauses, blockers, applications, matchers, pointers, templateString) =
-        Template.encode(pathVar, arguments, condVars, exprVars, guardedExprs, equations,
-          lambdas, quantifications, substMap = baseSubstMap + ids, optApp = Some(id -> tpe))
+      val (contents, str) = Template.contents(
+        pathVar, arguments, condVars, exprVars, condTree, guardedExprs, equations,
+        lambdas, quantifications, substMap = baseSubstMap + ids, optApp = Some(id -> tpe))
 
       val lambdaString : () => String = () => {
-        "Template for lambda " + ids._1 + ": " + lambda + " is :\n" + templateString()
+        "Template for lambda " + ids._1 + ": " + lambda + " is :\n" + str()
       }
 
-      new LambdaTemplate(
-        ids, pathVar, arguments,
-        condVars, exprVars, condTree,
-        clauses, blockers, applications, matchers,
-        lambdas, quantifications, pointers,
-        structure, closures,
-        lambda, lambdaString, false
-      )
+      new LambdaTemplate(ids, contents, structure, closures, lambda, lambdaString, false)
     }
   }
 
   class LambdaTemplate private (
     val ids: (Variable, Encoded),
-    val pathVar: (Variable, Encoded),
-    val arguments: Seq[(Variable, Encoded)],
-    val condVars: Map[Variable, Encoded],
-    val exprVars: Map[Variable, Encoded],
-    val condTree: Map[Variable, Set[Variable]],
-    val clauses: Clauses,
-    val blockers: Calls,
-    val applications: Apps,
-    val matchers: Matchers,
-    val lambdas: Seq[LambdaTemplate],
-    val quantifications: Seq[QuantificationTemplate],
-    val pointers: Map[Encoded, Encoded],
+    val contents: TemplateContents,
     val structure: TemplateStructure,
     val closures: Set[Encoded],
     val lambda: Lambda,
     private[unrolling] val stringRepr: () => String,
     private val isConcrete: Boolean) extends Template {
 
-    val args = arguments.map(_._2)
     val tpe = bestRealType(ids._1.getType).asInstanceOf[FunctionType]
 
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): LambdaTemplate = new LambdaTemplate(
       ids._1 -> substituter(ids._2),
-      pathVar._1 -> substituter(pathVar._2),
-      arguments, condVars, exprVars, condTree,
-      clauses.map(substituter),
-      blockers.map { case (b, fis) => substituter(b) -> fis.map(_.substitute(substituter, msubst)) },
-      applications.map { case (b, apps) => substituter(b) -> apps.map(_.substitute(substituter, msubst)) },
-      matchers.map { case (b, ms) => substituter(b) -> ms.map(_.substitute(substituter, msubst)) },
-      lambdas.map(_.substitute(substituter, msubst)),
-      quantifications.map(_.substitute(substituter, msubst)),
-      pointers.map(p => substituter(p._1) -> substituter(p._2)),
+      contents.substitute(substituter, msubst),
       structure.substitute(substituter, msubst),
       closures.map(substituter),
       lambda, stringRepr, isConcrete)
@@ -131,21 +104,13 @@ trait LambdaTemplates { self: Templates =>
     def concretize(idT: Encoded): LambdaTemplate = {
       assert(!isConcrete, "Can't concretize concrete lambda template")
       val substituter = mkSubstituter(Map(ids._2 -> idT) ++ structure.instantiationSubst)
-      new LambdaTemplate(
-        ids._1 -> idT,
-        pathVar, arguments, condVars, exprVars, condTree,
-        clauses map substituter,
-        blockers.map { case (b, fis) => b -> fis.map(_.substitute(substituter, Map.empty)) },
-        applications.map { case (b, apps) => b -> apps.map(_.substitute(substituter, Map.empty)) },
-        matchers.map { case (b, ms) => b -> ms.map(_.substitute(substituter, Map.empty)) },
-        lambdas.map(_.substitute(substituter, Map.empty)),
-        quantifications.map(_.substitute(substituter, Map.empty)),
-        pointers.map(p => substituter(p._1) -> substituter(p._2)),
+      new LambdaTemplate(ids._1 -> idT,
+        contents.substitute(substituter, Map.empty),
         structure, closures, lambda, stringRepr, true)
     }
 
     override def instantiate(blocker: Encoded, args: Seq[Arg]): Clauses = {
-      val (b, clauses) = encodeBlockers(Set(blocker, pathVar._2))
+      val (b, clauses) = encodeBlockers(Set(blocker, contents.pathVar._2))
       clauses ++ super.instantiate(b, args)
     }
 
@@ -154,7 +119,7 @@ trait LambdaTemplates { self: Templates =>
   }
 
   private val appCache: MutableMap[FunctionType, (Encoded, Seq[Encoded], Encoded)] = MutableMap.empty
-  def mkApp(caller: Encoded, tpe: FunctionType, args: Seq[Encoded]): Encoded = {
+  def mkApp(caller: Encoded, tpe: FunctionType, args: Seq[Encoded], rec: Boolean = false): Encoded = {
     val (vT, asT, app) = appCache.getOrElseUpdate(tpe, {
       val v = Variable(FreshIdentifier("f"), tpe)
       val as = tpe.from.map(tp => Variable(FreshIdentifier("x", true), tp))
@@ -162,7 +127,13 @@ trait LambdaTemplates { self: Templates =>
       (vT, asT, mkEncoder(Map(v -> vT) ++ (as zip asT))(Application(v, as)))
     })
 
-    mkSubstituter(Map(vT -> caller) ++ (asT zip args))(app)
+    val (currArgs, restArgs) = args.splitAt(tpe.from.size)
+    val firstApp = mkSubstituter(Map(vT -> caller) ++ (asT zip currArgs))(app)
+
+    tpe.to match {
+      case ft: FunctionType if rec => mkApp(firstApp, ft, restArgs)
+      case _ => firstApp
+    }
   }
 
   def mkFlatApp(caller: Encoded, tpe: FunctionType, args: Seq[Encoded]): Encoded = tpe.to match {

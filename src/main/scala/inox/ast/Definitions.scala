@@ -168,6 +168,9 @@ trait Definitions { self: Trees =>
   /** Denotes that this adt is refined by invariant ''id'' */
   case class HasADTInvariant(id: Identifier) extends Flag("invariant", Seq(id))
 
+  /** Denotes that this adt has an overriden equality relation given by ''id'' */
+  case class HasADTEquality(id: Identifier) extends Flag("equality", Seq(id))
+
   /** Compiler annotations given in the source code as @annot.
     * 
     * @see [[Flag]] for some notes on the actual type of [[args]]. */
@@ -175,6 +178,7 @@ trait Definitions { self: Trees =>
 
   def extractFlag(name: String, args: Seq[Any]): Flag = (name, args) match {
     case ("invariant", id: Identifier) => HasADTInvariant(id)
+    case ("equality", id: Identifier) => HasADTEquality(id)
     case _ => Annotation(name, args)
   }
 
@@ -211,10 +215,19 @@ trait Definitions { self: Trees =>
     def invariant(implicit s: Symbols): Option[FunDef] = {
       val rt = root
       if (rt ne this) rt.invariant
-      else flags.collect { case HasADTInvariant(id) => id }.headOption.map(s.getFunction)
+      else flags.collectFirst { case HasADTInvariant(id) => s.getFunction(id) }
     }
 
     def hasInvariant(implicit s: Symbols): Boolean = invariant.isDefined
+
+    /** An equality relation defined on this [[ADTDefinition]] */
+    def equality(implicit s: Symbols): Option[FunDef] = {
+      val rt = root
+      if (rt ne this) rt.equality
+      else flags.collectFirst { case HasADTEquality(id) => s.getFunction(id) }
+    }
+
+    def hasEquality(implicit s: Symbols): Boolean = equality.isDefined
 
     val isSort: Boolean
 
@@ -309,8 +322,12 @@ trait Definitions { self: Trees =>
     lazy val id: Identifier = definition.id
     /** The root of the class hierarchy */
     lazy val root: TypedADTDefinition = definition.root.typed(tps)
+
     lazy val invariant: Option[TypedFunDef] = definition.invariant.map(_.typed(tps))
     lazy val hasInvariant: Boolean = invariant.isDefined
+
+    lazy val equality: Option[TypedFunDef] = definition.equality.map(_.typed(tps))
+    lazy val hasEquality: Boolean = equality.isDefined
 
     def toType = ADTType(definition.id, tps)
 

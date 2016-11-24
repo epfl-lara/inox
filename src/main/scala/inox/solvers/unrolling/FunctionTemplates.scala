@@ -19,7 +19,7 @@ trait FunctionTemplates { self: Templates =>
 
     def apply(
       tfd: TypedFunDef,
-      path: Seq[Either[Identifier, Int]],
+      path: SelectorPath,
       pathVar: (Variable, Encoded),
       arguments: Seq[(Variable, Encoded)],
       condVars: Map[Variable, Encoded],
@@ -31,47 +31,22 @@ trait FunctionTemplates { self: Templates =>
       quantifications: Seq[QuantificationTemplate]
     ) : FunctionTemplate = {
 
-      val (clauses, blockers, applications, matchers, pointers, templateString) =
-        Template.encode(pathVar, arguments, condVars, exprVars, guardedExprs, equations,
-          lambdas, quantifications, optCall = Some(tfd -> path))
+      val (contents, str) = Template.contents(
+        pathVar, arguments, condVars, exprVars, condTree, guardedExprs, equations,
+        lambdas, quantifications, optCall = Some(tfd -> path))
 
       val funString : () => String = () => {
         "Template for def " + tfd.signature +
         "(" + tfd.params.map(a => a.id + " : " + a.getType).mkString(", ") + ") : " +
-        tfd.returnType + " is :\n" + templateString()
+        tfd.returnType + " is :\n" + str()
       }
 
-      new FunctionTemplate(
-        pathVar,
-        arguments.map(_._2),
-        condVars,
-        exprVars,
-        condTree,
-        clauses,
-        blockers,
-        applications,
-        matchers,
-        lambdas,
-        quantifications,
-        pointers,
-        funString
-      )
+      new FunctionTemplate(contents, funString)
     }
   }
 
   class FunctionTemplate private(
-    val pathVar: (Variable, Encoded),
-    val args: Seq[Encoded],
-    val condVars: Map[Variable, Encoded],
-    val exprVars: Map[Variable, Encoded],
-    val condTree: Map[Variable, Set[Variable]],
-    val clauses: Clauses,
-    val blockers: Calls,
-    val applications: Apps,
-    val matchers: Matchers,
-    val lambdas: Seq[LambdaTemplate],
-    val quantifications: Seq[QuantificationTemplate],
-    val pointers: Map[Encoded, Encoded],
+    val contents: TemplateContents,
     stringRepr: () => String) extends Template {
 
     private lazy val str : String = stringRepr()
