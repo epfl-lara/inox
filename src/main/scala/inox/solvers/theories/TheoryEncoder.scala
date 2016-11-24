@@ -11,6 +11,10 @@ trait TheoryEncoder extends ast.ProgramTransformer { self =>
   lazy val trees: sourceProgram.trees.type = sourceProgram.trees
 }
 
+trait SimpleEncoder extends TheoryEncoder with ast.ProgramEncoder {
+  val t: sourceProgram.trees.type = sourceProgram.trees
+}
+
 trait NoEncoder extends TheoryEncoder {
   import trees._
 

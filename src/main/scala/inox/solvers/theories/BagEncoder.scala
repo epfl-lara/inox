@@ -6,8 +6,7 @@ package theories
 
 import evaluators._
 
-trait BagEncoder extends TheoryEncoder with ast.ProgramEncoder {
-  val t: sourceProgram.trees.type = sourceProgram.trees
+trait BagEncoder extends SimpleEncoder {
   import trees._
   import trees.dsl._
 
@@ -18,10 +17,6 @@ trait BagEncoder extends TheoryEncoder with ast.ProgramEncoder {
   val BagID = FreshIdentifier("Bag")
   val keys = FreshIdentifier("keys")
   val f = FreshIdentifier("f")
-
-  val bagADT = mkConstructor(BagID)("T")(None) {
-    case Seq(aT) => Seq(ValDef(keys, SetType(aT)), ValDef(f, aT =>: IntegerType))
-  }
 
   val Bag = T(BagID)
 
@@ -35,59 +30,61 @@ trait BagEncoder extends TheoryEncoder with ast.ProgramEncoder {
 
   val GetID = FreshIdentifier("get")
   val Get = mkFunDef(GetID)("T") { case Seq(aT) => (
-    Seq("bag" :: Bag(aT), "x" :: aT),
-    IntegerType, { case Seq(bag, x) => get(bag, x) })
+    Seq("bag" :: Bag(aT), "x" :: aT), IntegerType, { case Seq(bag, x) => get(bag, x) })
   }
 
   val AddID = FreshIdentifier("add")
   val Add = mkFunDef(AddID)("T") { case Seq(aT) => (
-    Seq("bag" :: Bag(aT), "x" :: aT),
-    Bag(aT), { case Seq(bag, x) => Bag(aT)(
-      bag.getField(keys) insert x,
-      \("y" :: aT)(y => get(bag, y) + {
-        if_ (y === x) { E(BigInt(1)) } else_ { E(BigInt(0)) }
-      }))
+    Seq("bag" :: Bag(aT), "x" :: aT), Bag(aT), {
+      case Seq(bag, x) => Bag(aT)(
+        bag.getField(keys) insert x,
+        \("y" :: aT)(y => get(bag, y) + {
+          if_ (y === x) { E(BigInt(1)) } else_ { E(BigInt(0)) }
+        })
+      )
     })
   }
 
   val UnionID = FreshIdentifier("union")
   val Union = mkFunDef(UnionID)("T") { case Seq(aT) => (
-    Seq("b1" :: Bag(aT), "b2" :: Bag(aT)),
-    Bag(aT), { case Seq(b1, b2) => Bag(aT)(
-      b1.getField(keys) ++ b2.getField(keys),
-      \("y" :: aT)(y => get(b1, y) + get(b2, y)))
+    Seq("b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), {
+      case Seq(b1, b2) => Bag(aT)(
+        b1.getField(keys) ++ b2.getField(keys),
+        \("y" :: aT)(y => get(b1, y) + get(b2, y))
+      )
     })
   }
 
   val DifferenceID = FreshIdentifier("difference")
   val Difference = mkFunDef(DifferenceID)("T") { case Seq(aT) => (
-    Seq("b1" :: Bag(aT), "b2" :: Bag(aT)),
-    Bag(aT), { case Seq(b1, b2) => Bag(aT)(
-      b1.getField(keys),
-      \("y" :: aT)(y => let("res" :: IntegerType, get(b1, y) - get(b2, y)) {
-        res => if_ (res < E(BigInt(0))) { E(BigInt(0)) } else_ { res }
-      }))
+    Seq("b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), {
+      case Seq(b1, b2) => Bag(aT)(
+        b1.getField(keys),
+        \("y" :: aT)(y => let("res" :: IntegerType, get(b1, y) - get(b2, y)) {
+          res => if_ (res < E(BigInt(0))) { E(BigInt(0)) } else_ { res }
+        })
+      )
     })
   }
 
   val IntersectID = FreshIdentifier("intersect")
   val Intersect = mkFunDef(IntersectID)("T") { case Seq(aT) => (
-    Seq("b1" :: Bag(aT), "b2" :: Bag(aT)),
-    Bag(aT), { case Seq(b1, b2) => Bag(aT)(
-      b1.getField(keys) & b2.getField(keys),
-      \("y" :: aT)(y => let("r1" :: IntegerType, get(b1, y)) { r1 =>
-        let("r2" :: IntegerType, get(b2, y)) { r2 =>
-          if_ (r1 > r2) { r2 } else_ { r1 }
-        }
-      }))
+    Seq("b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), {
+      case Seq(b1, b2) => Bag(aT)(
+        b1.getField(keys) & b2.getField(keys),
+        \("y" :: aT)(y => let("r1" :: IntegerType, get(b1, y)) { r1 =>
+          let("r2" :: IntegerType, get(b2, y)) { r2 =>
+            if_ (r1 > r2) { r2 } else_ { r1 }
+          }
+        })
+      )
     })
   }
 
   val EqualsID = FreshIdentifier("equals")
   val BagEquals = mkFunDef(EqualsID)("T") { case Seq(aT) => (
-    Seq("b1" :: Bag(aT), "b2" :: Bag(aT)),
-    BooleanType, { case Seq(b1, b2) =>
-      forall("x" :: aT) { x =>
+    Seq("b1" :: Bag(aT), "b2" :: Bag(aT)), BooleanType, {
+      case Seq(b1, b2) => forall("x" :: aT) { x =>
         let("f1x" :: IntegerType, b1.getField(f)(x)) { f1x =>
           let("f2x" :: IntegerType, b2.getField(f)(x)) { f2x =>
             f1x === f2x ||
@@ -98,6 +95,14 @@ trait BagEncoder extends TheoryEncoder with ast.ProgramEncoder {
         }
       }
     })
+  }
+
+  val bagADT: ADTConstructor = {
+    val tparams @ Seq(TypeParameterDef(tp)) = Seq(TypeParameterDef(TypeParameter.fresh("T")))
+    new ADTConstructor(BagID, tparams, None,
+      Seq(ValDef(keys, SetType(tp)), ValDef(f, tp =>: IntegerType)),
+      Set(HasADTEquality(EqualsID))
+    )
   }
 
   override val extraFunctions = Seq(Get, Add, Union, Difference, Intersect, BagEquals)
@@ -134,11 +139,7 @@ trait BagEncoder extends TheoryEncoder with ast.ProgramEncoder {
 
       case BagDifference(b1, b2) =>
         val BagType(base) = b1.getType
-        Difference(transform(base))(transform(b1), transform(b2))
-
-      case Equals(b1, b2) if b1.getType.isInstanceOf[BagType] =>
-        val BagType(base) = b1.getType
-        BagEquals(transform(base))(transform(b1), transform(b2)).copiedFrom(e)
+        Difference(transform(base))(transform(b1), transform(b2)).copiedFrom(e)
 
       case _ => super.transform(e)
     }
@@ -180,9 +181,6 @@ trait BagEncoder extends TheoryEncoder with ast.ProgramEncoder {
       case FunctionInvocation(DifferenceID, Seq(_), Seq(b1, b2)) =>
         BagDifference(transform(b1), transform(b2)).copiedFrom(e)
 
-      case FunctionInvocation(EqualsID, Seq(_), Seq(b1, b2)) =>
-        Equals(transform(b1), transform(b2)).copiedFrom(e)
-
       case _ => super.transform(e)
     }
 
@@ -198,23 +196,6 @@ object BagEncoder {
            (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }):
            BagEncoder { val sourceProgram: enc.targetProgram.type } = new {
     val sourceProgram: enc.targetProgram.type = enc.targetProgram
-
-    val evaluator: DeterministicEvaluator { val program: enc.targetProgram.type } = new {
-      val program: enc.targetProgram.type = enc.targetProgram
-      val options = opts
-    } with DeterministicEvaluator {
-      import program.trees._
-      import EvaluationResults._
-
-      def eval(e: Expr, model: Map[ValDef, Expr]): EvaluationResult = {
-        ev.eval(enc.decode(e), model.map {
-          case (vd, value) => enc.decode(vd) -> enc.decode(value)
-        }) match {
-          case Successful(value) => Successful(enc.encode(value))
-          case RuntimeError(message) => RuntimeError(message)
-          case EvaluatorError(message) => EvaluatorError(message)
-        }
-      }
-    }
+    val evaluator = ReverseEvaluator(enc, opts)(ev)
   } with BagEncoder
 }
