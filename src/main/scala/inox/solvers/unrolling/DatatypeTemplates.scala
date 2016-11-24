@@ -276,7 +276,7 @@ trait DatatypeTemplates { self: Templates =>
 
       /* Calls [[rec]] and finalizes the bookkeeping collection before returning everything
        * necessary to a template creation. */
-      lazy val (encoder, exprs, conds, tree, clauses, calls, types) = {
+      lazy val (encoder, conds, exprs, tree, clauses, calls, types) = {
         rec(pathVar, v, RecursionState(true, true, true, true))
 
         val encoder: Expr => Encoded = mkEncoder(exprVars ++ condVars + (v -> idT) + (pathVar -> pathVarT))
@@ -304,7 +304,7 @@ trait DatatypeTemplates { self: Templates =>
           encoder(b) -> tps.map { case (info, expr) => (info, encoder(expr)) }
         }
 
-        (encoder, exprVars, condVars, condTree, clauses, calls, encodedTypes)
+        (encoder, condVars, exprVars, condTree, clauses, calls, encodedTypes)
       }
     }
   }
@@ -512,7 +512,7 @@ trait DatatypeTemplates { self: Templates =>
 
       new DatatypeTemplate(TemplateContents(
         b.pathVar -> b.pathVarT, Seq(b.v -> b.idT),
-        b.exprs, b.conds, b.tree, b.clauses, b.calls,
+        b.conds, b.exprs, b.tree, b.clauses, b.calls,
         Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty, Map.empty), typeBlockers, b.funs)
     })
   }
@@ -579,10 +579,10 @@ trait DatatypeTemplates { self: Templates =>
     })
 
     def apply(dtpe: Type, containerType: FunctionType): CaptureTemplate = cache.getOrElseUpdate(dtpe -> containerType, {
-      val (ps, ids, exprVars, condVars, condTree, clauses, types, funs) = tmplCache.getOrElseUpdate(dtpe, {
+      val (ps, ids, condVars, exprVars, condTree, clauses, types, funs) = tmplCache.getOrElseUpdate(dtpe, {
         object b extends { val tpe = dtpe } with super[FunctionUnrolling].Builder with super[ADTUnrolling].Builder
         assert(b.calls.isEmpty, "Captured function templates shouldn't have any calls: " + b.calls)
-        (b.pathVar -> b.pathVarT, b.v -> b.idT, b.exprs, b.conds, b.tree, b.clauses, b.types, b.funs)
+        (b.pathVar -> b.pathVarT, b.v -> b.idT, b.conds, b.exprs, b.tree, b.clauses, b.types, b.funs)
       })
 
       val ctpe = bestRealType(containerType).asInstanceOf[FunctionType]
@@ -599,7 +599,7 @@ trait DatatypeTemplates { self: Templates =>
 
       new CaptureTemplate(TemplateContents(
         ps, Seq(container -> containerT, ids),
-        exprVars, condVars, condTree, clauses ++ orderClauses,
+        condVars, exprVars, condTree, clauses ++ orderClauses,
         Map.empty, Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty, Map.empty
       ), typeBlockers, funs.map(_._3))
     })
@@ -637,7 +637,7 @@ trait DatatypeTemplates { self: Templates =>
 
       new InvariantTemplate(TemplateContents(
         b.pathVar -> b.pathVarT, Seq(b.v -> b.idT),
-        b.exprs, b.conds, b.tree, b.clauses, b.calls,
+        b.conds, b.exprs, b.tree, b.clauses, b.calls,
         Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty, Map.empty
       ), typeBlockers)
     })
