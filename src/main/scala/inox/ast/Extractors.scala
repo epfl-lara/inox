@@ -213,6 +213,8 @@ trait TreeDeconstructor {
   def deconstruct(f: s.Flag): (Seq[s.Expr], Seq[s.Type], (Seq[t.Expr], Seq[t.Type]) => t.Flag) = f match {
     case s.HasADTInvariant(id) =>
       (Seq(), Seq(), (_, _) => t.HasADTInvariant(id))
+    case s.HasADTEquality(id) =>
+      (Seq(), Seq(), (_, _) => t.HasADTEquality(id))
     case s.Annotation(name, args) =>
       val withIndex = args.zipWithIndex
       val (exprs, exprIndexes) = withIndex.collect { case (e: s.Expr, i) => e -> i }.unzip
