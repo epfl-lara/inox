@@ -142,8 +142,7 @@ trait QuantificationTemplates { self: Templates =>
       val trQuantifiers: Seq[Encoded] = forall.args.map(v => encodeSymbol(v.toVariable))
 
       val clauseSubst: Map[Variable, Encoded] = depSubst ++ (idQuantifiers zip trQuantifiers)
-      val (p, (condVars, exprVars, condTree, guardedExprs, eqs, lambdas, quants)) =
-        mkExprClauses(pathVar._1, body, clauseSubst)
+      val (p, tmplClauses) = mkExprClauses(pathVar._1, body, clauseSubst)
 
       val (optVar, polarity, extraGuarded, extraEqs, extraSubst): (
         Option[Variable],
@@ -179,14 +178,16 @@ trait QuantificationTemplates { self: Templates =>
           (Some(q), polarity, Map.empty, extraEqs, Map(qs, q2s, insts) + (pathVar._1 -> guard))
       }
 
+      val (conds, exprs, tree, guarded, eqs, equalities, lambdas, quants) = tmplClauses
+
       // Note @nv: some hacky shit is going on here...
       // We are overriding the mapping of `pathVar._1` for certain polarities so that
       // the encoded clauses use the `guard` as blocker instead of `pathVar._2`. This only
       // works due to [[Template.encode]] injecting `pathVar` BEFORE `substMap` into the
       // global encoding substitution.
-      val (contents, str) = Template.contents(pathVar, idQuantifiers zip trQuantifiers,
-        condVars, exprVars, condTree, extraGuarded merge guardedExprs, extraEqs ++ eqs,
-        lambdas, quants, substMap ++ extraSubst)
+      val (contents, str) = Template.contents(pathVar, idQuantifiers zip trQuantifiers, (
+        conds, exprs, tree, extraGuarded merge guarded, extraEqs ++ eqs, equalities, lambdas, quants
+      ), depSubst ++ extraSubst)
 
       (optVar, new QuantificationTemplate(polarity, contents, structure,
         forall.body, () => "Template for " + forall.asString + " is :\n" + str(), false))

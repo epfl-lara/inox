@@ -277,6 +277,8 @@ trait Templates extends TemplateGenerator
       e1 = substituter(e1),
       e2 = substituter(e2)
     )
+
+    lazy val symbols: (Variable, Encoded) = equalitySymbol(tpe)
   }
 
   /** Template instantiations
@@ -510,60 +512,18 @@ trait Templates extends TemplateGenerator
     def encode(
       pathVar: (Variable, Encoded),
       arguments: Seq[(Variable, Encoded)],
-      condVars: Map[Variable, Encoded],
-      exprVars: Map[Variable, Encoded],
-      guardedExprs: Map[Variable, Seq[Expr]],
-      equations: Seq[Expr],
-      lambdas: Seq[LambdaTemplate],
-      quantifications: Seq[QuantificationTemplate],
+      tmplClauses: TemplateClauses,
       substMap: Map[Variable, Encoded] = Map.empty[Variable, Encoded],
       optCall: Option[(TypedFunDef, SelectorPath)] = None,
       optApp: Option[(Encoded, FunctionType)] = None
-    ) : (Clauses, Calls, Apps, Matchers, Equalities, Pointers, () => String) = {
+    ): (Clauses, Calls, Apps, Matchers, Pointers, () => String) = {
+      val (condVars, exprVars, condTree, guardedExprs, eqs, equalities, lambdas, quants) = tmplClauses
 
       val idToTrId : Map[Variable, Encoded] =
         condVars ++ exprVars + pathVar ++ arguments ++ substMap ++
-        lambdas.map(_.ids) ++ quantifications.flatMap(_.mapping)
+        lambdas.map(_.ids) ++ quants.flatMap(_.mapping) ++ equalities.flatMap(_._2.map(_.symbols))
 
-      val (newGuarded, newEquations, newSubst, equalities) = {
-        var currentSubst : Map[Variable, Encoded] = idToTrId
-        var equalities   : Map[Encoded, Set[Equality]] = Map.empty
-
-        def handleEquality(b: Variable, e: Expr): Expr = exprOps.postMap {
-          case Equals(e1, e2) if unrollEquality(e1.getType) =>
-            val encoder = mkEncoder(currentSubst) _
-
-            if (optApp.exists { case (idT, tpe) =>
-              mkFlatApp(idT, tpe, arguments.map(_._2)) == encoder(e1)
-            } || optCall.exists { case (tfd, path) =>
-              val (fdArgs, restArgs) = arguments.splitAt(tfd.params.size)
-              val sel = mkSelection(tfd.applied(fdArgs.map(_._1)), path)
-              val app = mkApplication(sel, restArgs.map(_._1))
-              app == e1
-            }) None else {
-              val tpe = bestRealType(e1.getType)
-              val (feq, feqT) = equalitySymbol(tpe)
-              currentSubst += feq -> feqT
-
-              val bp = encoder(b)
-              val prev = equalities.getOrElse(bp, Set.empty)
-              equalities += bp -> (prev + Equality(tpe, encoder(e1), encoder(e2)))
-
-              Some(Application(feq, Seq(e1, e2)))
-            }
-
-          case _ => None
-        } (e)
-
-        val newGuarded = guardedExprs.map {
-          case (b, es) => b -> es.map(handleEquality(b, _))
-        }
-
-        val newEquations = equations.map(handleEquality(pathVar._1, _))
-        (newGuarded, newEquations, currentSubst, equalities)
-      }
-
-      val encoder : Expr => Encoded = mkEncoder(newSubst)
+      val encoder : Expr => Encoded = mkEncoder(idToTrId)
 
       val optIdCall = optCall.map { case (tfd, path) => Call(tfd, path, arguments.map(p => Left(p._2))) }
       val optIdApp = optApp.map { case (idT, tpe) =>
@@ -579,7 +539,7 @@ trait Templates extends TemplateGenerator
         Matcher(Right(tfd), arguments.map(p => Left(p._2)), encoded)
       }
 
-      val pointers = (newEquations ++ newGuarded.flatMap(_._2)).flatMap(lambdaPointers(encoder) _).toMap
+      val pointers = (eqs ++ guardedExprs.flatMap(_._2)).flatMap(lambdaPointers(encoder) _).toMap
 
       val (clauses, blockers, applications, matchers) = {
         var clauses      : Clauses = Seq.empty
@@ -588,7 +548,7 @@ trait Templates extends TemplateGenerator
         var matchers     : Map[Variable, Set[Matcher]]  = Map.empty
 
         val pv = pathVar._1
-        for ((b,es) <- newGuarded + (pv -> (newGuarded.getOrElse(pv, Set.empty) ++ newEquations))) {
+        for ((b,es) <- guardedExprs merge Map(pv -> eqs)) {
           var funInfos   : Set[Call]     = Set.empty
           var appInfos   : Set[App]      = Set.empty
           var matchInfos : Set[Matcher]  = Set.empty
@@ -620,7 +580,10 @@ trait Templates extends TemplateGenerator
               Call(getFunction(id, tps), path, args.map(encodeArg))
             }
 
-            appInfos ++= firstOrderAppsOf(e, simplify).map { case (c, args) =>
+            appInfos ++= firstOrderAppsOf(e, simplify).filter {
+              case (c, Seq(e1, e2)) => c != equalitySymbol(e1.getType)._1
+              case _ => true
+            }.map { case (c, args) =>
               val tpe = bestRealType(c.getType).asInstanceOf[FunctionType]
               App(encoder(c), tpe, args.map(encodeArg), encoder(mkApplication(c, args)))
             }
@@ -641,8 +604,8 @@ trait Templates extends TemplateGenerator
           if (matchs.nonEmpty) matchers += b -> matchs
         }
 
-        clauses ++= (for ((b,es) <- newGuarded; e <- es) yield encoder(Implies(b, e)))
-        clauses ++= newEquations.map(encoder)
+        clauses ++= (for ((b,es) <- guardedExprs; e <- es) yield encoder(Implies(b, e)))
+        clauses ++= eqs.map(encoder)
 
         val allMatchers = matchers merge optIdMatcher.map(m => pathVar._1 -> Set(m)).toMap
         (clauses, blockers, applications, allMatchers)
@@ -671,37 +634,31 @@ trait Templates extends TemplateGenerator
         " * Lambdas            :\n" + lambdas.map { case template =>
           " +> " + template.toString.split("\n").mkString("\n    ") + "\n"
         }.mkString("\n") +
-        " * Foralls            :\n" + quantifications.map { case template =>
+        " * Foralls            :\n" + quants.map { case template =>
           " +> " + template.toString.split("\n").mkString("\n    ") + "\n"
         }.mkString("\n")
       }
 
-      (clauses, encodedBlockers, encodedApps, encodedMatchers, equalities, pointers, stringRepr)
+      (clauses, encodedBlockers, encodedApps, encodedMatchers, pointers, stringRepr)
     }
 
     def contents(
       pathVar: (Variable, Encoded),
       arguments: Seq[(Variable, Encoded)],
-      condVars: Map[Variable, Encoded],
-      exprVars: Map[Variable, Encoded],
-      condTree: Map[Variable, Set[Variable]],
-      guardedExprs: Map[Variable, Seq[Expr]],
-      equations: Seq[Expr],
-      lambdas: Seq[LambdaTemplate],
-      quantifications: Seq[QuantificationTemplate],
+      tmplClauses: TemplateClauses,
       substMap: Map[Variable, Encoded] = Map.empty,
       optCall: Option[(TypedFunDef, SelectorPath)] = None,
       optApp: Option[(Encoded, FunctionType)] = None
     ): (TemplateContents, () => String) = {
 
-      val (clauses, blockers, applications, matchers, equalities, pointers, string) = Template.encode(
-        pathVar, arguments, condVars, exprVars, guardedExprs, equations, lambdas, quantifications,
-        substMap = substMap, optCall = optCall, optApp = optApp)
+      val (condVars, exprVars, condTree, equalities, lambdas, quants) = tmplClauses.proj
+      val (clauses, blockers, applications, matchers, pointers, string) = Template.encode(
+        pathVar, arguments, tmplClauses, substMap = substMap, optCall = optCall, optApp = optApp)
 
       val contents = TemplateContents(
         pathVar, arguments, condVars, exprVars, condTree,
         clauses, blockers, applications, matchers, equalities,
-        lambdas, quantifications, pointers
+        lambdas, quants, pointers
       )
 
       (contents, string)
@@ -712,7 +669,7 @@ trait Templates extends TemplateGenerator
       exprVars: Map[Variable, Encoded],
       condTree: Map[Variable, Set[Variable]],
       lambdas: Seq[LambdaTemplate],
-      quantifications: Seq[QuantificationTemplate],
+      quants: Seq[QuantificationTemplate],
       pointers: Map[Encoded, Encoded],
       baseSubst: Map[Encoded, Arg],
       aVar: Encoded
@@ -735,7 +692,7 @@ trait Templates extends TemplateGenerator
       val lambdaKeys = lambdas.map(lambda => lambda.ids._2 -> lambda).toMap
       def extractSubst(lambda: LambdaTemplate): Unit = {
         for {
-          dep <- lambda.closures map lambdaKeys
+          dep <- lambda.closures flatMap lambdaKeys.get
           if !seen(dep)
         } extractSubst(dep)
 
@@ -753,7 +710,7 @@ trait Templates extends TemplateGenerator
 
       // instantiate positive quantifications last to avoid introducing
       // extra quantifier instantiations that arise due to empty domains
-      for (q <- quantifications.sortBy(_.polarity.isInstanceOf[Positive])) {
+      for (q <- quants.sortBy(_.polarity.isInstanceOf[Positive])) {
         val substMap = subst.mapValues(_.encoded)
         val substQuant = q.substitute(mkSubstituter(substMap), matcherSubst)
         val (map, cls) = instantiateQuantification(substQuant)
@@ -811,12 +768,12 @@ trait Templates extends TemplateGenerator
     val tpeClauses = bindings.flatMap { case (v, s) => registerSymbol(encodedStart, s, v.getType) }.toSeq
 
     val instExpr = simplifyFormula(expr, simplify)
-    val (condVars, exprVars, condTree, guardedExprs, eqs, lambdas, quants) =
-      mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
+    val tmplClauses = mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
 
-    val (clauses, calls, apps, matchers, equalities, pointers, _) = Template.encode(
-      start -> encodedStart, bindings.toSeq, condVars, exprVars, guardedExprs, eqs, lambdas, quants)
+    val (clauses, calls, apps, matchers, pointers, _) =
+      Template.encode(start -> encodedStart, bindings.toSeq, tmplClauses)
 
+    val (condVars, exprVars, condTree, equalities, lambdas, quants) = tmplClauses.proj
     val (substClauses, substMap) = Template.substitution(
       condVars, exprVars, condTree, lambdas, quants, pointers, Map.empty, encodedStart)
 

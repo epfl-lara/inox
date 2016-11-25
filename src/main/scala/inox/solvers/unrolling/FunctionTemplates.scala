@@ -44,15 +44,13 @@ trait FunctionTemplates { self: Templates =>
       val arguments = (fdArgs ++ lambdaArgs).map(v => v -> encodeSymbol(v))
       val substMap = arguments.toMap + pathVar
 
-      val (condVars, exprVars, condTree, guardedExprs, eqs, lambdas, quants) =
-        callEqBody.foldLeft(emptyClauses) { case (clsSet, (app, body)) =>
-          val (p, cls) = mkExprClauses(start, body, substMap)
-          cls + (start -> Equals(app, p))
-        }
+      val tmplClauses = callEqBody.foldLeft(emptyClauses) { case (clsSet, (app, body)) =>
+        val (p, cls) = mkExprClauses(start, body, substMap)
+        clsSet ++ cls + (start -> Equals(app, p))
+      }
 
       val (contents, str) = Template.contents(
-        pathVar, arguments, condVars, exprVars, condTree, guardedExprs, eqs,
-        lambdas, quants, optCall = Some(tfd -> path))
+        pathVar, arguments, tmplClauses, optCall = Some(tfd -> path))
 
       val funString : () => String = () => {
         "Template for def " + tfd.signature +

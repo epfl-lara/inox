@@ -42,9 +42,12 @@ trait EqualityTemplates { self: Templates =>
     case NAryType(tpes, _) => tpes.exists(unrollEquality)
   })
 
-  def equalitySymbol(tpe: Type): (Variable, Encoded) = typeSymbols.cached(tpe) {
-    val v = Variable(FreshIdentifier("eq" + tpe), FunctionType(Seq(tpe, tpe), BooleanType))
-    v -> encodeSymbol(v)
+  def equalitySymbol(tpe: Type): (Variable, Encoded) = {
+    val rt = bestRealType(tpe)
+    typeSymbols.cached(rt) {
+      val v = Variable(FreshIdentifier("eq" + rt), FunctionType(Seq(rt, rt), BooleanType))
+      v -> encodeSymbol(v)
+    }
   }
 
   class EqualityTemplate private(val contents: TemplateContents) extends Template {
@@ -60,17 +63,7 @@ trait EqualityTemplates { self: Templates =>
       // register equalities!
       val substituter = mkSubstituter(substMap.mapValues(_.encoded))
       for ((b, eqs) <- contents.equalities; bp = substituter(b); equality <- eqs) {
-        val seq = equality.substitute(substituter)
-        val gen = nextGeneration(currentGeneration)
-        val notBp = mkNot(bp)
-
-        equalityInfos.get(bp) match {
-          case Some((exGen, origGen, _, exEqs)) =>
-            val minGen = gen min exGen
-            equalityInfos += bp -> (minGen, origGen, notBp, exEqs + seq)
-          case None =>
-            equalityInfos += bp -> (gen, gen, notBp, Set(seq))
-        }
+        registerEquality(bp, equality.substitute(substituter))
       }
 
       clauses
@@ -88,42 +81,39 @@ trait EqualityTemplates { self: Templates =>
       val pathVar = Variable(FreshIdentifier("b", true), BooleanType)
       val pathVarT = encodeSymbol(pathVar)
 
-      val (condVars, exprVars, condTree, guardedExprs, equations, lambdas, quantifications) =
-        mkClauses(pathVar, Equals(Application(f, args), tpe match {
-          case adt: ADTType =>
-            val root = adt.getADT.root
+      val tmplClauses = mkClauses(pathVar, Equals(Application(f, args), tpe match {
+        case adt: ADTType =>
+          val root = adt.getADT.root
 
-            if (root.hasEquality) {
-              root.equality.get.applied(args)
-            } else {
-              val constructors = root match {
-                case tsort: TypedADTSort => tsort.constructors
-                case tcons: TypedADTConstructor => Seq(tcons)
-              }
-
-              orJoin(constructors.map { tcons =>
-                val (instCond, asE1, asE2) = if (tcons == root) (BooleanLiteral(true), e1, e2) else (
-                  and(IsInstanceOf(e1, tcons.toType), IsInstanceOf(e2, tcons.toType)),
-                  AsInstanceOf(e1, tcons.toType),
-                  AsInstanceOf(e2, tcons.toType)
-                )
-
-                val fieldConds = tcons.fields.map(vd => Equals(ADTSelector(asE1, vd.id), ADTSelector(asE2, vd.id)))
-                andJoin(instCond +: fieldConds)
-              })
+          if (root.hasEquality) {
+            root.equality.get.applied(args)
+          } else {
+            val constructors = root match {
+              case tsort: TypedADTSort => tsort.constructors
+              case tcons: TypedADTConstructor => Seq(tcons)
             }
 
-          case TupleType(tps) =>
-            andJoin(tps.indices.map(i => Equals(TupleSelect(e1, i + 1), TupleSelect(e2, i + 1))))
+            orJoin(constructors.map { tcons =>
+              val (instCond, asE1, asE2) = if (tcons == root) (BooleanLiteral(true), e1, e2) else (
+                and(IsInstanceOf(e1, tcons.toType), IsInstanceOf(e2, tcons.toType)),
+                AsInstanceOf(e1, tcons.toType),
+                AsInstanceOf(e2, tcons.toType)
+              )
 
-          case _ => throw FatalError(s"Why does $tpe require equality unrolling!?")
-        }), (args zip argsT).toMap + (f -> fT) + (pathVar -> encodeSymbol(pathVar)))
+              val fieldConds = tcons.fields.map(vd => Equals(ADTSelector(asE1, vd.id), ADTSelector(asE2, vd.id)))
+              andJoin(instCond +: fieldConds)
+            })
+          }
+
+        case TupleType(tps) =>
+          andJoin(tps.indices.map(i => Equals(TupleSelect(e1, i + 1), TupleSelect(e2, i + 1))))
+
+        case _ => throw FatalError(s"Why does $tpe require equality unrolling!?")
+      }), (args zip argsT).toMap + (f -> fT) + (pathVar -> encodeSymbol(pathVar)))
 
       val (contents, _) = Template.contents(
-        pathVar -> pathVarT, args zip argsT, condVars, exprVars, condTree,
-        guardedExprs, equations, lambdas, quantifications,
-        substMap = Map(f -> fT),
-        optApp = Some(fT -> FunctionType(Seq(tpe, tpe), BooleanType))
+        pathVar -> pathVarT, args zip argsT, tmplClauses,
+        substMap = Map(f -> fT), optApp = Some(fT -> FunctionType(Seq(tpe, tpe), BooleanType))
       )
 
       new EqualityTemplate(contents)

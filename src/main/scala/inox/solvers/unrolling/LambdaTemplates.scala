@@ -67,16 +67,14 @@ trait LambdaTemplates { self: Templates =>
       val appEqBody: Seq[(Expr, Expr)] = liftedEquals(lid, realLambda, idArgs, inlineFirst = true)
 
       val clauseSubst: Map[Variable, Encoded] = depSubst ++ (idArgs zip trArgs)
-      val (condVars, exprVars, condTree, guardedExprs, eqs, lambdas, quants) =
-        appEqBody.foldLeft(emptyClauses) { case (clsSet, (app, body)) =>
-          val (p, cls) = mkExprClauses(pathVar._1, body, clauseSubst)
-          cls + (pathVar._1 -> Equals(app, p))
-        }
+      val tmplClauses = appEqBody.foldLeft(emptyClauses) { case (clsSet, (app, body)) =>
+        val (p, cls) = mkExprClauses(pathVar._1, body, clauseSubst)
+        clsSet ++ cls + (pathVar._1 -> Equals(app, p))
+      }
 
       val lidT = encodeSymbol(lid)
-      val (contents, str) = Template.contents(
-        pathVar, idArgs zip trArgs, condVars, exprVars, condTree, guardedExprs, eqs,
-        lambdas, quants, substMap = depSubst + (lid -> lidT), optApp = Some(lidT -> tpe))
+      val (contents, str) = Template.contents(pathVar, idArgs zip trArgs, tmplClauses,
+        substMap = depSubst + (lid -> lidT), optApp = Some(lidT -> tpe))
 
       val lambdaString : () => String = () => {
         "Template for lambda " + lid + ": " + lambda + " is :\n" + str()
