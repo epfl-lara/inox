@@ -52,33 +52,37 @@ trait LambdaTemplates { self: Templates =>
   object LambdaTemplate {
 
     def apply(
-      ids: (Variable, Encoded),
       pathVar: (Variable, Encoded),
-      arguments: Seq[(Variable, Encoded)],
-      condVars: Map[Variable, Encoded],
-      exprVars: Map[Variable, Encoded],
-      condTree: Map[Variable, Set[Variable]],
-      guardedExprs: Map[Variable, Seq[Expr]],
-      equations: Seq[Expr],
-      lambdas: Seq[LambdaTemplate],
-      quantifications: Seq[QuantificationTemplate],
-      structure: TemplateStructure,
-      closures: Set[Encoded],
-      baseSubstMap: Map[Variable, Encoded],
-      lambda: Lambda
-    ) : LambdaTemplate = {
+      lambda: Lambda,
+      substMap: Map[Variable, Encoded]
+    ): LambdaTemplate = {
+      val idArgs: Seq[Variable] = lambdaArguments(lambda)
+      val trArgs: Seq[Encoded] = idArgs.map(v => substMap.getOrElse(v, encodeSymbol(v)))
 
-      val id = ids._2
-      val tpe = ids._1.getType.asInstanceOf[FunctionType]
+      val (realLambda, structure, depSubst) = mkExprStructure(pathVar._1, lambda, substMap)
+      val depClosures = exprOps.variablesOf(lambda).flatMap(substMap.get)
+
+      val tpe = lambda.getType.asInstanceOf[FunctionType]
+      val lid = Variable(FreshIdentifier("lambda", true), tpe)
+      val appEqBody: Seq[(Expr, Expr)] = liftedEquals(lid, realLambda, idArgs, inlineFirst = true)
+
+      val clauseSubst: Map[Variable, Encoded] = depSubst ++ (idArgs zip trArgs)
+      val (condVars, exprVars, condTree, guardedExprs, eqs, lambdas, quants) =
+        appEqBody.foldLeft(emptyClauses) { case (clsSet, (app, body)) =>
+          val (p, cls) = mkExprClauses(pathVar._1, body, clauseSubst)
+          cls + (pathVar._1 -> Equals(app, p))
+        }
+
+      val lidT = encodeSymbol(lid)
       val (contents, str) = Template.contents(
-        pathVar, arguments, condVars, exprVars, condTree, guardedExprs, equations,
-        lambdas, quantifications, substMap = baseSubstMap + ids, optApp = Some(id -> tpe))
+        pathVar, idArgs zip trArgs, condVars, exprVars, condTree, guardedExprs, eqs,
+        lambdas, quants, substMap = depSubst + (lid -> lidT), optApp = Some(lidT -> tpe))
 
       val lambdaString : () => String = () => {
-        "Template for lambda " + ids._1 + ": " + lambda + " is :\n" + str()
+        "Template for lambda " + lid + ": " + lambda + " is :\n" + str()
       }
 
-      new LambdaTemplate(ids, contents, structure, closures, lambda, lambdaString, false)
+      new LambdaTemplate(lid -> lidT, contents, structure, depClosures, lambda, lambdaString, false)
     }
   }
 
@@ -119,7 +123,7 @@ trait LambdaTemplates { self: Templates =>
   }
 
   private val appCache: MutableMap[FunctionType, (Encoded, Seq[Encoded], Encoded)] = MutableMap.empty
-  def mkApp(caller: Encoded, tpe: FunctionType, args: Seq[Encoded], rec: Boolean = false): Encoded = {
+  def mkApp(caller: Encoded, tpe: FunctionType, args: Seq[Encoded]): Encoded = {
     val (vT, asT, app) = appCache.getOrElseUpdate(tpe, {
       val v = Variable(FreshIdentifier("f"), tpe)
       val as = tpe.from.map(tp => Variable(FreshIdentifier("x", true), tp))
@@ -127,13 +131,7 @@ trait LambdaTemplates { self: Templates =>
       (vT, asT, mkEncoder(Map(v -> vT) ++ (as zip asT))(Application(v, as)))
     })
 
-    val (currArgs, restArgs) = args.splitAt(tpe.from.size)
-    val firstApp = mkSubstituter(Map(vT -> caller) ++ (asT zip currArgs))(app)
-
-    tpe.to match {
-      case ft: FunctionType if rec => mkApp(firstApp, ft, restArgs)
-      case _ => firstApp
-    }
+    mkSubstituter(Map(vT -> caller) ++ (asT zip args))(app)
   }
 
   def mkFlatApp(caller: Encoded, tpe: FunctionType, args: Seq[Encoded]): Encoded = tpe.to match {
@@ -280,8 +278,6 @@ trait LambdaTemplates { self: Templates =>
             typeBlockers += encoded -> typeBlocker
 
             val firstB = encodeSymbol(Variable(FreshIdentifier("b_free", true), BooleanType))
-            typeEnablers += firstB
-
             val nextB  = encodeSymbol(Variable(FreshIdentifier("b_or", true), BooleanType))
             freeBlockers += tpe -> (freeBlockers(tpe) + (nextB -> caller))
 
@@ -309,15 +305,20 @@ trait LambdaTemplates { self: Templates =>
   private def equalityClauses(template: LambdaTemplate): Clauses = {
     byType(template.tpe).values.map { that =>
       val equals = mkEquals(template.ids._2, that.ids._2)
+      val blocker = mkAnd(template.start, that.start)
       mkImplies(
-        mkAnd(template.start, that.start),
+        blocker,
         if (template.structure.body == that.structure.body) {
           val pairs = template.structure.locals zip that.structure.locals
           val filtered = pairs.filter(p => p._1 != p._2)
           if (filtered.isEmpty) {
             equals
           } else {
-            val eqs = filtered.map(p => mkEquals(p._1._2, p._2._2))
+            val eqs = filtered.map { case ((v, e1), (_, e2)) =>
+              if (!unrollEquality(v.tpe)) mkEquals(e1, e2) else {
+                registerEquality(blocker, v.tpe, e1, e2)
+              }
+            }
             mkEquals(mkAnd(eqs : _*), equals)
           }
         } else {
@@ -330,13 +331,13 @@ trait LambdaTemplates { self: Templates =>
 
   private[unrolling] object lambdasManager extends Manager {
     // Function instantiations have their own defblocker
-    val lambdaBlockers = new IncrementalMap[TemplateAppInfo, Encoded]()
+    private[LambdaTemplates] val lambdaBlockers = new IncrementalMap[TemplateAppInfo, Encoded]()
 
     // Keep which function invocation is guarded by which guard,
     // also specify the generation of the blocker.
-    val appInfos      = new IncrementalMap[(Encoded, App), (Int, Int, Encoded, Encoded, Set[TemplateAppInfo])]()
-    val appBlockers   = new IncrementalMap[(Encoded, App), Encoded]()
-    val blockerToApps = new IncrementalMap[Encoded, (Encoded, App)]()
+    private[LambdaTemplates] val appInfos      = new IncrementalMap[(Encoded, App), (Int, Int, Encoded, Encoded, Set[TemplateAppInfo])]()
+    private[LambdaTemplates] val appBlockers   = new IncrementalMap[(Encoded, App), Encoded]()
+    private[LambdaTemplates] val blockerToApps = new IncrementalMap[Encoded, (Encoded, App)]()
 
     val byID          = new IncrementalMap[Encoded, LambdaTemplate]
     val byType        = new IncrementalMap[FunctionType, Map[TemplateStructure, LambdaTemplate]].withDefaultValue(Map.empty)
@@ -346,10 +347,9 @@ trait LambdaTemplates { self: Templates =>
 
     val instantiated = new IncrementalSet[(Encoded, App)]
 
-    val typeBlockers = new IncrementalMap[Encoded, Encoded]()
-    val typeEnablers: MutableSet[Encoded] = MutableSet.empty
+    private[LambdaTemplates] val typeBlockers = new IncrementalMap[Encoded, Encoded]()
 
-    override val incrementals: Seq[IncrementalState] = Seq(
+    val incrementals: Seq[IncrementalState] = Seq(
       lambdaBlockers, appInfos, appBlockers, blockerToApps,
       byID, byType, applications, freeBlockers, freeFunctions,
       instantiated, typeBlockers)

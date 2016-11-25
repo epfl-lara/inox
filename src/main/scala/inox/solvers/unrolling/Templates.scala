@@ -301,12 +301,16 @@ trait Templates extends TemplateGenerator
     def merge(that: Map[A,Set[B]]): Map[A,Set[B]] = (map.keys ++ that.keys).map { k =>
       k -> (map.getOrElse(k, Set.empty) ++ that.getOrElse(k, Set.empty))
     }.toMap
+
+    def merge(that: (A,B)): Map[A,Set[B]] = map + (that._1 -> (map.getOrElse(that._1, Set.empty) + that._2))
   }
 
   implicit class MapSeqWrapper[A,B](map: Map[A,Seq[B]]) {
     def merge(that: Map[A,Seq[B]]): Map[A,Seq[B]] = (map.keys ++ that.keys).map { k =>
       k -> (map.getOrElse(k, Seq.empty) ++ that.getOrElse(k, Seq.empty)).distinct
     }.toMap
+
+    def merge(that: (A,B)): Map[A,Seq[B]] = map + (that._1 -> (map.getOrElse(that._1, Seq.empty) :+ that._2))
   }
 
   /** Abstract templates
@@ -530,7 +534,7 @@ trait Templates extends TemplateGenerator
             val encoder = mkEncoder(currentSubst) _
 
             if (optApp.exists { case (idT, tpe) =>
-              mkApp(idT, tpe, arguments.map(_._2), rec = true) == encoder(e1)
+              mkFlatApp(idT, tpe, arguments.map(_._2)) == encoder(e1)
             } || optCall.exists { case (tfd, path) =>
               val (fdArgs, restArgs) = arguments.splitAt(tfd.params.size)
               val sel = mkSelection(tfd.applied(fdArgs.map(_._1)), path)
@@ -563,7 +567,7 @@ trait Templates extends TemplateGenerator
 
       val optIdCall = optCall.map { case (tfd, path) => Call(tfd, path, arguments.map(p => Left(p._2))) }
       val optIdApp = optApp.map { case (idT, tpe) =>
-        val encoded = mkApp(idT, tpe, arguments.map(_._2), rec = true)
+        val encoded = mkFlatApp(idT, tpe, arguments.map(_._2))
         App(idT, bestRealType(tpe).asInstanceOf[FunctionType], arguments.map(p => Left(p._2)), encoded)
       }
 

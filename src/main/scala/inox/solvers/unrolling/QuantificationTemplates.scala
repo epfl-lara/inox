@@ -131,19 +131,19 @@ trait QuantificationTemplates { self: Templates =>
     def apply(
       pathVar: (Variable, Encoded),
       optPol: Option[Boolean],
-      p: Expr,
-      quantifiers: Seq[(Variable, Encoded)],
-      condVars: Map[Variable, Encoded],
-      exprVars: Map[Variable, Encoded],
-      condTree: Map[Variable, Set[Variable]],
-      guardedExprs: Map[Variable, Seq[Expr]],
-      equations: Seq[Expr],
-      lambdas: Seq[LambdaTemplate],
-      quantifications: Seq[QuantificationTemplate],
-      structure: TemplateStructure,
-      substMap: Map[Variable, Encoded],
-      proposition: Forall
+      forall: Forall,
+      substMap: Map[Variable, Encoded]
     ): (Option[Variable], QuantificationTemplate) = {
+      val (Forall(args, body), structure, depSubst) =
+        mkExprStructure(pathVar._1, forall, substMap, onlySimple = !simplify)
+
+      val quantifiers = args.map(_.toVariable).toSet
+      val idQuantifiers: Seq[Variable] = args.map(_.toVariable)
+      val trQuantifiers: Seq[Encoded] = forall.args.map(v => encodeSymbol(v.toVariable))
+
+      val clauseSubst: Map[Variable, Encoded] = depSubst ++ (idQuantifiers zip trQuantifiers)
+      val (p, (condVars, exprVars, condTree, guardedExprs, eqs, lambdas, quants)) =
+        mkExprClauses(pathVar._1, body, clauseSubst)
 
       val (optVar, polarity, extraGuarded, extraEqs, extraSubst): (
         Option[Variable],
@@ -184,29 +184,29 @@ trait QuantificationTemplates { self: Templates =>
       // the encoded clauses use the `guard` as blocker instead of `pathVar._2`. This only
       // works due to [[Template.encode]] injecting `pathVar` BEFORE `substMap` into the
       // global encoding substitution.
-      val (contents, str) = Template.contents(pathVar, quantifiers, condVars, exprVars, condTree,
-        extraGuarded merge guardedExprs, extraEqs ++ equations, lambdas, quantifications,
-        substMap ++ extraSubst)
+      val (contents, str) = Template.contents(pathVar, idQuantifiers zip trQuantifiers,
+        condVars, exprVars, condTree, extraGuarded merge guardedExprs, extraEqs ++ eqs,
+        lambdas, quants, substMap ++ extraSubst)
 
       (optVar, new QuantificationTemplate(polarity, contents, structure,
-        proposition.body, () => "Template for " + proposition + " is :\n" + str(), false))
+        forall.body, () => "Template for " + forall.asString + " is :\n" + str(), false))
     }
   }
 
   private[unrolling] object quantificationsManager extends Manager {
     val quantifications = new IncrementalSeq[Quantification]
 
-    val ignoredMatchers = new IncrementalSeq[(Int, Set[Encoded], Matcher)]
+    private[QuantificationTemplates] val ignoredMatchers = new IncrementalSeq[(Int, Set[Encoded], Matcher)]
 
     // to avoid [[MatcherSet]] escaping defining context, we must keep this ~private
     private[QuantificationTemplates] val handledMatchers = new MatcherSet
 
-    val ignoredSubsts   = new IncrementalMap[Quantification, Set[(Int, Set[Encoded], Map[Encoded,Arg])]]
-    val handledSubsts   = new IncrementalMap[Quantification, Set[(Set[Encoded], Map[Encoded,Arg])]]
-    val ignoredGrounds  = new IncrementalMap[Int, Set[Quantification]]
+    private[QuantificationTemplates] val ignoredSubsts   = new IncrementalMap[Quantification, Set[(Int, Set[Encoded], Map[Encoded,Arg])]]
+    private[QuantificationTemplates] val handledSubsts   = new IncrementalMap[Quantification, Set[(Set[Encoded], Map[Encoded,Arg])]]
+    private[QuantificationTemplates] val ignoredGrounds  = new IncrementalMap[Int, Set[Quantification]]
 
-    val lambdaAxioms    = new IncrementalSet[TemplateStructure]
-    val templates       = new IncrementalMap[TemplateStructure, (QuantificationTemplate, Encoded)]
+    private[QuantificationTemplates] val lambdaAxioms    = new IncrementalSet[TemplateStructure]
+    private[QuantificationTemplates] val templates       = new IncrementalMap[TemplateStructure, (QuantificationTemplate, Encoded)]
 
     val incrementals: Seq[IncrementalState] = Seq(quantifications, lambdaAxioms, templates,
       ignoredMatchers, handledMatchers, ignoredSubsts, handledSubsts, ignoredGrounds)
@@ -940,10 +940,14 @@ trait QuantificationTemplates { self: Templates =>
 
       clauses ++= templates.flatMap { case (key, (tmpl, tinst)) =>
         if (newTemplate.structure.body == tmpl.structure.body) {
+          val blocker = mkAnd(newTemplate.contents.pathVar._2, tmpl.contents.pathVar._2)
           val eqConds = (newTemplate.structure.locals zip tmpl.structure.locals)
-            .filter(p => p._1 != p._2)
-            .map(p => mkEquals(p._1._2, p._2._2))
-          val cond = mkAnd(newTemplate.contents.pathVar._2 +: tmpl.contents.pathVar._2 +: eqConds : _*)
+            .filter(p => p._1 != p._2).map { case ((v, e1), (_, e2)) =>
+              if (!unrollEquality(v.tpe)) mkEquals(e1, e2) else {
+                registerEquality(blocker, v.tpe, e1, e2)
+              }
+            }
+          val cond = mkAnd(blocker +: eqConds : _*)
           Some(mkImplies(cond, mkEquals(inst, tinst)))
         } else {
           None

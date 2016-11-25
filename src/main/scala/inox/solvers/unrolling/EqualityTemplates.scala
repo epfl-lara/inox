@@ -134,9 +134,29 @@ trait EqualityTemplates { self: Templates =>
     EqualityTemplate(equality.tpe).instantiate(blocker, equality.e1, equality.e2)
   }
 
+  def registerEquality(blocker: Encoded, tpe: Type, e1: Encoded, e2: Encoded): Encoded = {
+    registerEquality(blocker, Equality(tpe, e1, e2))
+  }
+
+  def registerEquality(blocker: Encoded, equality: Equality): Encoded = {
+    val tpe = equality.tpe
+    val gen = nextGeneration(currentGeneration)
+    val notBlocker = mkNot(blocker)
+
+    equalityInfos.get(blocker) match {
+      case Some((exGen, origGen, _, exEqs)) =>
+        val minGen = gen min exGen
+        equalityInfos += blocker -> (minGen, origGen, notBlocker, exEqs + equality)
+      case None =>
+        equalityInfos += blocker -> (gen, gen, notBlocker, Set(equality))
+    }
+
+    mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType), Seq(equality.e1, equality.e2))
+  }
+
   private[unrolling] object equalityManager extends Manager {
-    val typeSymbols = new IncrementalMap[Type, (Variable, Encoded)]
-    val equalityInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[Equality])]
+    private[EqualityTemplates] val typeSymbols = new IncrementalMap[Type, (Variable, Encoded)]
+    private[EqualityTemplates] val equalityInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[Equality])]
 
     val incrementals: Seq[IncrementalState] = Seq(typeSymbols, equalityInfos)
 

@@ -644,8 +644,8 @@ trait DatatypeTemplates { self: Templates =>
   }
 
   private[unrolling] object datatypesManager extends Manager {
-    val typeInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[TemplateTypeInfo])]
-    val lessOrder = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
+    private[DatatypeTemplates] val typeInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[TemplateTypeInfo])]
+    private[DatatypeTemplates] val lessOrder = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
 
     def canEqual(f1: Encoded, f2: Encoded): Boolean = {
       def transitiveLess(l: Encoded, r: Encoded): Boolean = {

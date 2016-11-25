@@ -6,7 +6,7 @@ package unrolling
 
 import utils._
 
-import scala.collection.mutable.{Set => MutableSet}
+import scala.collection.mutable.{Set => MutableSet, Map => MutableMap}
 
 trait FunctionTemplates { self: Templates =>
   import program._
@@ -15,25 +15,44 @@ trait FunctionTemplates { self: Templates =>
 
   import functionsManager._
 
-  object FunctionTemplate {
+  type SelectorPath = Seq[Either[Identifier, Int]]
 
-    def apply(
-      tfd: TypedFunDef,
-      path: SelectorPath,
-      pathVar: (Variable, Encoded),
-      arguments: Seq[(Variable, Encoded)],
-      condVars: Map[Variable, Encoded],
-      exprVars: Map[Variable, Encoded],
-      condTree: Map[Variable, Set[Variable]],
-      guardedExprs: Map[Variable, Seq[Expr]],
-      equations: Seq[Expr],
-      lambdas: Seq[LambdaTemplate],
-      quantifications: Seq[QuantificationTemplate]
-    ) : FunctionTemplate = {
+  object FunctionTemplate {
+    private val cache: MutableMap[(TypedFunDef, SelectorPath), FunctionTemplate] = MutableMap.empty
+
+    def apply(tfd: TypedFunDef, path: SelectorPath): FunctionTemplate = cache.getOrElseUpdate(tfd -> path, {
+      val lambdaBody: Expr = {
+        def rec(e: Expr, path: SelectorPath): Expr = (e, path) match {
+          case (ADT(tpe, es), Left(id) +: tail) =>
+            rec(es(tpe.getADT.toConstructor.definition.selectorID2Index(id)), tail)
+          case (Tuple(es), Right(i) +: tail) =>
+            rec(es(i - 1), tail)
+          case _ => e
+        }
+
+        rec(simplifyFormula(tfd.fullBody, simplify), path)
+      }
+
+      val fdArgs: Seq[Variable] = tfd.params.map(_.toVariable)
+      val lambdaArgs: Seq[Variable] = lambdaArguments(lambdaBody)
+      val call: Expr = mkSelection(tfd.applied(fdArgs), path)
+
+      val callEqBody: Seq[(Expr, Expr)] = liftedEquals(call, lambdaBody, lambdaArgs) :+ (call -> lambdaBody)
+
+      val start = Variable(FreshIdentifier("start", true), BooleanType)
+      val pathVar = start -> encodeSymbol(start)
+      val arguments = (fdArgs ++ lambdaArgs).map(v => v -> encodeSymbol(v))
+      val substMap = arguments.toMap + pathVar
+
+      val (condVars, exprVars, condTree, guardedExprs, eqs, lambdas, quants) =
+        callEqBody.foldLeft(emptyClauses) { case (clsSet, (app, body)) =>
+          val (p, cls) = mkExprClauses(start, body, substMap)
+          cls + (start -> Equals(app, p))
+        }
 
       val (contents, str) = Template.contents(
-        pathVar, arguments, condVars, exprVars, condTree, guardedExprs, equations,
-        lambdas, quantifications, optCall = Some(tfd -> path))
+        pathVar, arguments, condVars, exprVars, condTree, guardedExprs, eqs,
+        lambdas, quants, optCall = Some(tfd -> path))
 
       val funString : () => String = () => {
         "Template for def " + tfd.signature +
@@ -42,7 +61,7 @@ trait FunctionTemplates { self: Templates =>
       }
 
       new FunctionTemplate(contents, funString)
-    }
+    })
   }
 
   class FunctionTemplate private(
@@ -71,6 +90,62 @@ trait FunctionTemplates { self: Templates =>
     }
 
     Seq.empty
+  }
+
+  protected def lambdaArguments(expr: Expr): Seq[Variable] = expr match {
+    case Lambda(args, body) => args.map(_.toVariable.freshen) ++ lambdaArguments(body)
+    case Assume(pred, body) => lambdaArguments(body)
+    case IsTyped(_, _: FunctionType) => sys.error("Only applicable on lambda/assume chains")
+    case _ => Seq.empty
+  }
+
+  protected def liftedEquals(call: Expr, body: Expr, args: Seq[Variable], inlineFirst: Boolean = false) = {
+    def rec(c: Expr, b: Expr, args: Seq[Variable], inline: Boolean): Seq[(Expr, Expr)] = c.getType match {
+      case FunctionType(from, to) =>
+        def apply(e: Expr, es: Seq[Expr]): Expr = e match {
+          case _: Lambda if inline => application(e, es)
+          case Assume(pred, l: Lambda) if inline => Assume(pred, application(l, es))
+          case _ => Application(e, es)
+        }
+
+        val (currArgs, nextArgs) = args.splitAt(from.size)
+        val (appliedCall, appliedBody) = (apply(c, currArgs), apply(b, currArgs))
+        rec(appliedCall, appliedBody, nextArgs, false) :+ (appliedCall -> appliedBody)
+      case _ =>
+        assert(args.isEmpty, "liftedEquals should consume all provided arguments")
+        Seq.empty
+    }
+
+    rec(call, body, args, inlineFirst)
+  }
+
+  protected def flatTypes(tfd: TypedFunDef, path: SelectorPath): (Seq[Type], Type) = {
+    def rec(tpe: Type, path: SelectorPath): (Seq[Type], Type) = (tpe, path) match {
+      case (adt: ADTType, Left(id) +: rest) => rec(adt.getADT.toConstructor.fields.find(_.id == id).get.tpe, rest)
+      case (TupleType(tps), Right(i) +: rest) => rec(tps(i), rest)
+      case (_, path) if path.nonEmpty => throw new IllegalArgumentException(s"Non empty path for type $tpe")
+      case (FunctionType(from, to), _) =>
+        val (recTps, recRes) = rec(to, path)
+        (from ++ recTps, recRes)
+      case _ => (Seq.empty, tpe)
+    }
+
+    val (appTps, appRes) = rec(tfd.returnType, path)
+    (tfd.params.map(_.tpe) ++ appTps, appRes)
+  }
+
+  private val callCache: MutableMap[(TypedFunDef, SelectorPath), (Seq[Encoded], Encoded)] = MutableMap.empty
+  protected def mkCall(tfd: TypedFunDef, path: SelectorPath, args: Seq[Encoded]): Encoded = {
+    val (asT, call) = callCache.getOrElseUpdate(tfd -> path, {
+      val as = flatTypes(tfd, path)._1.map(tpe => Variable(FreshIdentifier("x", true), tpe))
+      val asT = as.map(encodeSymbol)
+
+      val (fdArgs, appArgs) = as.splitAt(tfd.params.size)
+      val call = mkApplication(mkSelection(tfd.applied(fdArgs), path), appArgs)
+      (asT, mkEncoder((as zip asT).toMap)(call))
+    })
+
+    mkSubstituter((asT zip args).toMap)(call)
   }
 
   private[unrolling] object functionsManager extends Manager {
@@ -123,14 +198,31 @@ trait FunctionTemplates { self: Templates =>
           case None =>
             // we need to define this defBlocker and link it to definition
             val defBlocker = encodeSymbol(Variable(FreshIdentifier("d", true), BooleanType))
+
+            // we generate helper equality clauses that stem from purity
+            for ((pcall, pblocker) <- defBlockers if pcall.tfd == tfd && pcall.path == path) {
+              val (argTpes, resTpe) = flatTypes(tfd, path)
+
+              def makeEq(tpe: Type, e1: Encoded, e2: Encoded): Encoded =
+                if (!unrollEquality(tpe)) mkEquals(e1, e2) else {
+                  mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType), Seq(e1, e2))
+                }
+
+              if (argTpes.exists(unrollEquality) || unrollEquality(resTpe)) {
+                val argPairs = (pcall.args zip args)
+                val cond = mkAnd((argTpes zip argPairs).map {
+                  case (tpe, (e1, e2)) => makeEq(tpe, e1.encoded, e2.encoded)
+                } : _*)
+                val entail = makeEq(resTpe,
+                  mkCall(tfd, path, pcall.args.map(_.encoded)),
+                  mkCall(tfd, path, args.map(_.encoded)))
+                newClauses += mkImplies(mkAnd(pblocker, defBlocker, cond), entail)
+              }
+            }
+
             defBlockers += call -> defBlocker
 
-            val template = mkTemplate(tfd, path)
-            //reporter.debug(template)
-
-            val newExprs = template.instantiate(defBlocker, args)
-
-            newCls ++= newExprs
+            newCls ++= FunctionTemplate(tfd, path).instantiate(defBlocker, args)
             defBlocker
         }
 
