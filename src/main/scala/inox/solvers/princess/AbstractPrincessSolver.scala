@@ -46,8 +46,8 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
   protected val adtManager = new ADTManager
 
-  def typeToSort(tpe: ADTType): (PADT, Seq[(Type, DataType)]) = {
-    val realType = bestRealType(tpe).asInstanceOf[ADTType]
+  def typeToSort(tpe: Type): (PADT, Seq[(Type, DataType)]) = {
+    val realType = bestRealType(tpe)
     adtManager.declareADTs(realType, (adts: Seq[(Type, DataType)]) => {
       val indexMap: Map[Type, Int] = adts.map(_._1).zipWithIndex.toMap
 
@@ -76,7 +76,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       for ((tpe, _) <- adts) sorts += tpe -> ((adt, adts))
     })
 
-    sorts(realType.getADT.root.toType)
+    sorts(realType)
   }
 
   object inoxToPrincess {
@@ -154,6 +154,9 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       case (_: FunctionInvocation) | (_: Application) | (_: ADTSelector) =>
         parseTerm(expr) === 0
 
+      case IfExpr(cond, thenn, elze) =>
+        IFormulaITE(parseFormula(cond), parseFormula(thenn), parseFormula(elze))
+
       case _ => unsupported(expr, "Unexpected formula " + expr)
     }
 
@@ -192,6 +195,25 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         }.getOrElse(throw PrincessSolverException(s"Undefined selector for $s!?"))
         selector(parseTerm(adt))
 
+      // Tuple
+      case Tuple(es) =>
+        val tpe = TupleType(es.map(e => bestRealType(e.getType)))
+        val (sort, adts) = typeToSort(tpe)
+        val constructors = adts.flatMap(_._2.cases)
+        val constructor = (constructors zip sort.constructors).collectFirst {
+          case (cons, fun) if cons.tpe == tpe => fun
+        }.getOrElse(throw PrincessSolverException(s"Unedefined constructor for $tpe!?"))
+        constructor(es.map(parseTerm) : _*)
+
+      case s @ TupleSelect(tpl, index) =>
+        val tpe = bestRealType(tpl.getType)
+        val (sort, adts) = typeToSort(tpe)
+        val constructors = adts.flatMap(_._2.cases)
+        val selector = (constructors zip sort.selectors).collectFirst {
+          case (cons, sels) if cons.tpe == tpe => sels(index - 1)
+        }.getOrElse(throw PrincessSolverException(s"Undefined selector for $s!?"))
+        selector(parseTerm(tpl))
+
       // I think we can ignore this since we do not type our variables
       case AsInstanceOf(expr, tpe) =>
         parseTerm(expr)
@@ -203,6 +225,9 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
       case v: Variable =>
         bindings.getOrElse(v, declareVariable(v)).asInstanceOf[ITerm]
+
+      case IfExpr(cond, thenn, elze) =>
+        ITermITE(parseFormula(cond), parseTerm(thenn), parseTerm(elze))
 
       // LITERALS
       case IntegerLiteral(value) => value.toInt
@@ -376,6 +401,6 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
     p.reset
   }
 
-  override def interrupt() = p.stop
+  override def interrupt() = p.stop(false)
   override def recoverInterrupt() = ()
 }
