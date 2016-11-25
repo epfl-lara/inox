@@ -25,10 +25,7 @@ package object theories {
       self.options
     )(self.evaluator)
 
-    lazy val setEncoder = SetEncoder(
-      self.encoder andThen stringEncoder andThen bagEncoder,
-      self.options
-    )(self.evaluator)
+    lazy val setEncoder = SetEncoder(bagEncoder.targetProgram)
 
     lazy val theories = stringEncoder andThen bagEncoder andThen setEncoder
   }
