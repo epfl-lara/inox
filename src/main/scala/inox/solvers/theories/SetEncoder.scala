@@ -136,9 +136,9 @@ trait SetEncoder extends SimpleEncoder {
       case FiniteSet(elems, tpe) =>
         val newTpe = transform(tpe)
         val newElems = elems.map(transform)
-        Set(newTpe)(
-          newElems.foldLeft(Leaf(newTpe)())((acc, x) => Sum(newTpe)(acc, Elem(newTpe)(x)))
-        ).copiedFrom(e)
+        newElems.foldLeft(Leaf(newTpe).copiedFrom(e)().copiedFrom(e)) {
+          (acc, x) => Sum(newTpe).copiedFrom(e)(acc, Elem(newTpe).copiedFrom(e)(x).copiedFrom(e)).copiedFrom(e)
+        }
 
       case SetAdd(set, elem) =>
         val SetType(base) = set.getType
