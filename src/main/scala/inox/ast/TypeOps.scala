@@ -223,6 +223,11 @@ trait TypeOps {
     case NAryType(tps, builder) => builder(tps map bestRealType)
   }
 
+  def bestRealParameters(t: Type): Type = t match {
+    case ADTType(id, tps) => ADTType(id, tps map bestRealType)
+    case NAryType(tps, builder) => builder(tps map bestRealType)
+  }
+
   def isParametricType(tpe: Type): Boolean = tpe match {
     case (tp: TypeParameter) => true
     case NAryType(tps, builder) => tps.exists(isParametricType)
