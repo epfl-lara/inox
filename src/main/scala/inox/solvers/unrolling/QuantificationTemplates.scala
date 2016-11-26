@@ -941,7 +941,7 @@ trait QuantificationTemplates { self: Templates =>
 
       clauses ++= templates.flatMap { case (key, (tmpl, tinst)) =>
         if (newTemplate.structure.body == tmpl.structure.body) {
-          val blocker = mkAnd(newTemplate.contents.pathVar._2, tmpl.contents.pathVar._2)
+          val (blocker, cls) = encodeBlockers(Set(newTemplate.contents.pathVar._2, tmpl.contents.pathVar._2))
           val eqConds = (newTemplate.structure.locals zip tmpl.structure.locals)
             .filter(p => p._1 != p._2).map { case ((v, e1), (_, e2)) =>
               if (!unrollEquality(v.tpe)) mkEquals(e1, e2) else {
@@ -949,9 +949,9 @@ trait QuantificationTemplates { self: Templates =>
               }
             }
           val cond = mkAnd(blocker +: eqConds : _*)
-          Some(mkImplies(cond, mkEquals(inst, tinst)))
+          cls :+ mkImplies(cond, mkEquals(inst, tinst))
         } else {
-          None
+          Seq.empty[Encoded]
         }
       }
 

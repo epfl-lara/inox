@@ -50,7 +50,7 @@ trait EqualityTemplates { self: Templates =>
     }
   }
 
-  class EqualityTemplate private(val contents: TemplateContents) extends Template {
+  class EqualityTemplate private(val tpe: Type, val contents: TemplateContents) extends Template {
     def instantiate(aVar: Encoded, e1: Encoded, e2: Encoded): Clauses = {
       instantiate(aVar, Seq(Left(e1), Left(e2)))
     }
@@ -60,7 +60,7 @@ trait EqualityTemplates { self: Templates =>
         contents.clauses, contents.blockers, contents.applications, contents.matchers,
         Map.empty, substMap)
 
-      // register equalities!
+      // register equalities (WILL NOT lead to any [[instantiate]] calls)
       val substituter = mkSubstituter(substMap.mapValues(_.encoded))
       for ((b, eqs) <- contents.equalities; bp = substituter(b); equality <- eqs) {
         registerEquality(bp, equality.substitute(substituter))
@@ -116,16 +116,52 @@ trait EqualityTemplates { self: Templates =>
         substMap = Map(f -> fT), optApp = Some(fT -> FunctionType(Seq(tpe, tpe), BooleanType))
       )
 
-      new EqualityTemplate(contents)
+      new EqualityTemplate(tpe, contents)
     })
   }
 
   def instantiateEquality(blocker: Encoded, equality: Equality): Clauses = {
-    EqualityTemplate(equality.tpe).instantiate(blocker, equality.e1, equality.e2)
+    val Equality(tpe, e1, e2) = equality
+    if (instantiated(tpe)((blocker, e1, e2))) Seq.empty else {
+      val clauses = new scala.collection.mutable.ListBuffer[Encoded]
+      clauses ++= EqualityTemplate(tpe).instantiate(blocker, e1, e2)
+
+      val (_, f) = equalitySymbol(tpe)
+      val ft = FunctionType(Seq(tpe, tpe), BooleanType)
+
+      // congruence is transitive
+      for ((tb, te1, te2) <- instantiated(tpe); cond = mkAnd(blocker, tb)) {
+        if (e2 == te1) {
+          clauses += mkImplies(
+            mkAnd(cond, mkApp(f, ft, Seq(e1, e2)), mkApp(f, ft, Seq(e2, te2))),
+            mkApp(f, ft, Seq(e1, te2))
+          )
+
+          instantiated += tpe -> (instantiated(tpe) + ((cond, e1, te2)))
+        }
+
+        if (te2 == e1) {
+          clauses += mkImplies(
+            mkAnd(cond, mkApp(f, ft, Seq(te1, te2)), mkApp(f, ft, Seq(te2, e2))),
+            mkApp(f, ft, Seq(te1, e2))
+          )
+
+          instantiated += tpe -> (instantiated(tpe) + ((cond, te1, e2)))
+        }
+      }
+
+      // congruence is commutative
+      clauses += mkImplies(blocker, mkEquals(mkApp(f, ft, Seq(e1, e2)), mkApp(f, ft, Seq(e2, e1))))
+      instantiated += tpe -> (instantiated(tpe) + ((blocker, e1, e2)) + ((blocker, e2, e1)))
+
+      clauses += mkImplies(mkEquals(e1, e2), mkApp(f, ft, Seq(e1, e2)))
+
+      clauses.toSeq
+    }
   }
 
   def registerEquality(blocker: Encoded, tpe: Type, e1: Encoded, e2: Encoded): Encoded = {
-    registerEquality(blocker, Equality(tpe, e1, e2))
+    registerEquality(blocker, Equality(bestRealType(tpe), e1, e2))
   }
 
   def registerEquality(blocker: Encoded, equality: Equality): Encoded = {
@@ -147,8 +183,9 @@ trait EqualityTemplates { self: Templates =>
   private[unrolling] object equalityManager extends Manager {
     private[EqualityTemplates] val typeSymbols = new IncrementalMap[Type, (Variable, Encoded)]
     private[EqualityTemplates] val equalityInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[Equality])]
+    private[EqualityTemplates] val instantiated = new IncrementalMap[Type, Set[(Encoded, Encoded, Encoded)]].withDefaultValue(Set.empty)
 
-    val incrementals: Seq[IncrementalState] = Seq(typeSymbols, equalityInfos)
+    val incrementals: Seq[IncrementalState] = Seq(typeSymbols, equalityInfos, instantiated)
 
     def unrollGeneration: Option[Int] =
       if (equalityInfos.isEmpty) None
@@ -174,8 +211,8 @@ trait EqualityTemplates { self: Templates =>
       val newEqInfos = eqBlockers.flatMap(id => equalityInfos.get(id).map(id -> _))
       equalityInfos --= eqBlockers
 
-      for ((blocker, (gen, _, _, eqs)) <- newEqInfos; Equality(tpe, e1, e2) <- eqs) {
-        newClauses ++= EqualityTemplate(tpe).instantiate(blocker, e1, e2)
+      for ((blocker, (gen, _, _, eqs)) <- newEqInfos; e <- eqs) {
+        newClauses ++= instantiateEquality(blocker, e)
       }
 
       ctx.reporter.debug("Unrolling equalities (" + newClauses.size + ")")
