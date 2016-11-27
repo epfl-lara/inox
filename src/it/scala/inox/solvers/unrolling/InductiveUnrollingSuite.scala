@@ -10,6 +10,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
 
   val sizeID = FreshIdentifier("size")
   val appendID = FreshIdentifier("append")
+  val appendNoSpecID = FreshIdentifier("appendNoSpec")
   val flatMapID = FreshIdentifier("flatMap")
   val assocID = FreshIdentifier("associative_lemma")
 
@@ -42,11 +43,25 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
     })
   }
 
+  // @nv: we define flatMap using this append to make sure the princess solver doesn't get
+  //      bogged down in quantifier instantiations due to [[SetEncoder]]
+  val appendNoSpec = mkFunDef(appendNoSpecID)("A") { case Seq(aT) => (
+    Seq("l1" :: T(listID)(aT), "l2" :: T(listID)(aT)), T(listID)(aT), { case Seq(l1, l2) =>
+      if_ (l1.isInstOf(T(consID)(aT))) {
+        let("c" :: T(consID)(aT), l1.asInstOf(T(consID)(aT))) { c =>
+          T(consID)(aT)(c.getField(head), E(appendNoSpecID)(aT)(c.getField(tail), l2))
+        }
+      } else_ {
+        l2
+      }
+    })
+  }
+
   val flatMap = mkFunDef(flatMapID)("A","B") { case Seq(aT, bT) => (
     Seq("l" :: T(listID)(aT), "f" :: (aT =>: T(listID)(bT))), T(listID)(bT), { case Seq(l, f) =>
       if_ (l.isInstOf(T(consID)(aT))) {
         let("c" :: T(consID)(aT), l.asInstOf(T(consID)(aT))) { c =>
-          append(bT)(f(c.getField(head)), E(flatMapID)(aT,bT)(c.getField(tail), f))
+          appendNoSpec(bT)(f(c.getField(head)), E(flatMapID)(aT,bT)(c.getField(tail), f))
         }
       } else_ {
         T(nilID)(bT)()
@@ -74,8 +89,8 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
               E(true)
             }
           }
-        }) && append(cT)(l3, flatMap(bT,cT)(append(bT)(l2, flatMap(aT,bT)(l1, f)), g)) ===
-          append(cT)(append(cT)(l3, flatMap(bT,cT)(l2, g)), flatMap(aT,cT)(l1, \("x" :: aT) { x =>
+        }) && appendNoSpec(cT)(l3, flatMap(bT,cT)(appendNoSpec(bT)(l2, flatMap(aT,bT)(l1, f)), g)) ===
+          appendNoSpec(cT)(appendNoSpec(cT)(l3, flatMap(bT,cT)(l2, g)), flatMap(aT,cT)(l1, \("x" :: aT) { x =>
             flatMap(bT,cT)(f(x), g)
           }))
       })
@@ -152,7 +167,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
   }
 
   val symbols = baseSymbols
-    .withFunctions(Seq(sizeFd, append, flatMap, associative, forall, content, partition, sort))
+    .withFunctions(Seq(sizeFd, append, appendNoSpec, flatMap, associative, forall, content, partition, sort))
 
   test("size(x) == 0 is satisfiable") { ctx =>
     val program = InoxProgram(ctx, symbols)
@@ -170,12 +185,23 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
   }
 
-  test("flatMap is associative") { ctx =>
+  def filterPrincess(ctx: Context): Boolean = {
+    val solvers = ctx.options.findOptionOrDefault(optSelectedSolvers)
+    val feelingLucky = ctx.options.findOptionOrDefault(optFeelingLucky)
+    val checkModels = ctx.options.findOptionOrDefault(optCheckModels)
+    val unrollAssume = ctx.options.findOptionOrDefault(optUnrollAssumptions)
+    solvers != Set("princess") || {
+      (feelingLucky && checkModels && unrollAssume) ||
+      (!feelingLucky && !checkModels && !unrollAssume)
+    }
+  }
+
+  test("flatMap is associative", filterPrincess _) { ctx =>
     val program = InoxProgram(ctx, symbols)
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(associative.fullBody)).isUNSAT)
   }
 
-  test("sort preserves content 1") { ctx =>
+  test("sort preserves content 1", filterPrincess _) { ctx =>
     val program = InoxProgram(ctx, symbols)
     val (l,p) = ("l" :: T(listID)(IntegerType), "p" :: ((IntegerType, IntegerType) =>: BooleanType))
     val clause = E(contentID)(IntegerType)(E(sortID)(IntegerType)(l.toVariable, p.toVariable)) ===
@@ -183,7 +209,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(clause)).isUNSAT)
   }
 
-  test("sort preserves content 2") { ctx =>
+  test("sort preserves content 2", _.options.findOptionOrDefault(optSelectedSolvers) != Set("princess")) { ctx =>
     val program = InoxProgram(ctx, symbols)
     import program._
 

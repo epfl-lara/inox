@@ -22,10 +22,14 @@ trait TestSuite extends FunSuite with Matchers with Timeouts {
   }
 
   protected def test(name: String, tags: Tag*)(body: Context => Unit): Unit = {
+    test(name, _ => true, tags : _*)(body)
+  }
+
+  protected def test(name: String, filter: Context => Boolean, tags: Tag*)(body: Context => Unit): Unit = {
     for (config <- configurations) {
       val reporter = new TestSilentReporter
       val ctx = Context(reporter, new InterruptManager(reporter), Options(config))
-      try {
+      if (filter(ctx)) try {
         val index = counter.nextGlobal
         if (ctx.options.findOptionOrDefault(optSelectedSolvers).exists { sname =>
           (sname == "nativez3" || sname == "unrollz3") && !solvers.SolverFactory.hasNativeZ3 ||
@@ -45,6 +49,10 @@ trait TestSuite extends FunSuite with Matchers with Timeouts {
   }
 
   protected def ignore(name: String, tags: Tag*)(body: Context => Unit): Unit = {
+    ignore(name, _ => true, tags : _*)(body)
+  }
+
+  protected def ignore(name: String, filter: Context => Boolean, tags: Tag*)(body: Context => Unit): Unit = {
     for (config <- configurations) {
       val index = counter.nextGlobal
       super.ignore(f"$index%3d: $name ${optionsString(Options(config))}")(())
