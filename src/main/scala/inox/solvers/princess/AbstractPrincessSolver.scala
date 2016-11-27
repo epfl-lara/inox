@@ -258,24 +258,15 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       case UMinus(e) =>
         - parseTerm(e)
 
-      // TODO: We should support these
-      case Division(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        throw new PrincessSolverException("DIVISION")
-      }
+      case Division(lhs, rhs) =>
+        p.mulTheory.eDiv(parseTerm(lhs), parseTerm(rhs))
 
-      case Remainder(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        throw new PrincessSolverException("REMAINDER")
-      }
+      case Remainder(lhs, rhs) =>
+        val q = parseTerm(Division(lhs, rhs))
+        parseTerm(lhs) - (parseTerm(rhs) * q)
 
-      case Modulo(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        throw new PrincessSolverException("MODULO")
-      }
+      case Modulo(lhs, rhs) =>
+        p.mulTheory.eMod(parseTerm(lhs), parseTerm(rhs))
 
       case _ => unsupported(expr, "Unexpected formula " + expr)
     }
