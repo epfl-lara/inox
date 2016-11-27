@@ -250,36 +250,23 @@ trait TypeOps {
       case TupleType(tps) => cards(tps).map(_.product)
       case SetType(base) => 
         typeCardinality(base).map(b => Math.pow(2, b).toInt)
-      case FunctionType(from, to) =>
-        for {
-          t <- typeCardinality(to)
-          f <- cards(from).map(_.product)
-        } yield Math.pow(t, f).toInt
+      case FunctionType(Seq(), to) => typeCardinality(to)
+      case FunctionType(_, to) if typeCardinality(to) == Some(0) => Some(0)
       case MapType(from, to) =>
         for {
           t <- typeCardinality(to)
           f <- typeCardinality(from)
-        } yield Math.pow(t + 1, f).toInt
+        } yield Math.pow(t, f).toInt
+      case BagType(base) => typeCardinality(base) match {
+        case Some(x) if x <= 1 => Some(1)
+        case _ => None
+      }
       case adt: ADTType => adt.getADT match {
         case tcons: TypedADTConstructor =>
           cards(tcons.fieldsTypes).map(_.product)
 
         case tsort: TypedADTSort =>
-          val possibleChildTypes = utils.fixpoint((tpes: Set[Type]) => {
-            tpes.flatMap(tpe => 
-              Set(tpe) ++ (tpe match {
-                case adt: ADTType => adt.getADT match {
-                  case tcons: TypedADTConstructor => tcons.fieldsTypes
-                  case tsort: TypedADTSort => (Set(tsort) ++ tsort.constructors).map(_.toType)
-                }
-                case _ => Set.empty
-              })
-            )
-          })(tsort.constructors.map(_.toType).toSet)
-
-          if (possibleChildTypes(tsort.toType)) {
-            None
-          } else {
+          if (tsort.definition.isInductive) None else {
             cards(tsort.constructors.map(_.toType)).map(_.sum)
           }
       }

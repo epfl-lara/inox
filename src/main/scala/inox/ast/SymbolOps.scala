@@ -358,6 +358,99 @@ trait SymbolOps { self: TypeOps =>
     replaceFromSymbols(subst.toMap, nl).asInstanceOf[Lambda]
   }
 
+  /** Generates an instance of type [[tpe]] such that the following holds:
+    * {{{constructExpr(i, tpe) == constructExpr(j, tpe)}}} iff {{{i == j}}}.
+    */
+  def constructExpr(i: Int, tpe: Type): Expr = tpe match {
+    case _ if typeCardinality(tpe).exists(_ >= i) =>
+      throw FatalError(s"Cardinality ${typeCardinality(tpe)} of type $tpe too high for index $i")
+    case BooleanType => BooleanLiteral(i == 0)
+    case IntegerType => IntegerLiteral(i)
+    case BVType(size) => BVLiteral(i, size)
+    case CharType => CharLiteral(i.toChar)
+    case RealType => FractionLiteral(i, 1)
+    case UnitType => UnitLiteral()
+    case tp: TypeParameter => GenericValue(tp, i)
+    case TupleType(tps) =>
+      val (0, args) = tps.foldLeft((i, Seq[Expr]())) {
+        case ((i, args), tpe) => typeCardinality(tpe) match {
+          case Some(card) =>
+            val fieldCard = i min card
+            val arg = constructExpr(fieldCard, tpe)
+            (i - fieldCard, args :+ arg)
+
+          case None =>
+            val arg = constructExpr(i, tpe)
+            (0, args :+ arg)
+        }
+      }
+      Tuple(args)
+
+    case adt: ADTType => adt.getADT match {
+      case tcons: TypedADTConstructor =>
+        val es = unwrapTuple(constructExpr(i, tupleTypeWrap(tcons.fieldsTypes)), tcons.fieldsTypes.size)
+        ADT(tcons.toType, es)
+
+      case tsort: TypedADTSort =>
+        def rec(i: Int, tconss: Seq[TypedADTConstructor]): (Int, TypedADTConstructor) = tconss match {
+          case tcons +: rest => typeCardinality(tcons.toType) match {
+            case None => i -> tcons
+            case Some(card) if card > i => i -> tcons
+            case Some(card) => rec(i - card, rest)
+          }
+          case _ => sys.error("Should never happen")
+        }
+
+        val (ni, tcons) = rec(i, tsort.constructors)
+        constructExpr(ni, tcons.toType)
+    }
+
+    case SetType(base) => typeCardinality(base) match {
+      case None => FiniteSet(Seq(constructExpr(i, base)), base)
+      case Some(card) if card > i => FiniteSet(Seq(constructExpr(i, base)), base)
+      case Some(card) =>
+        def rec(i: Int, c: Int): Seq[Expr] = {
+          val elem = if (i % 2 == 0) None else Some(constructExpr(c, base))
+          elem.toSeq ++ rec(i / 2, c + 1)
+        }
+        FiniteSet(rec(i, 0), base)
+    }
+
+    case MapType(from, to) => (typeCardinality(from), typeCardinality(to)) match {
+      case (_, Some(1)) =>
+        FiniteMap(Seq.empty, constructExpr(0, to), from, to)
+      case (Some(x), _) if x <= 1 =>
+        FiniteMap(Seq.empty, constructExpr(i, to), from, to)
+      case (_, None) =>
+        FiniteMap(Seq.empty, constructExpr(i, to), from, to)
+      case (None, _) =>
+        FiniteMap(Seq(constructExpr(i, from) -> constructExpr(1, to)), constructExpr(0, to), from, to)
+      case (Some(i1), Some(i2)) =>
+        val dfltIndex = i % i2
+        val default = constructExpr(dfltIndex, to)
+        def rec(i: Int, c: Int): Seq[(Expr, Expr)] = {
+          val elem = if (i % i2 == 0) None else {
+            val mod = (i % i2) - 1
+            val index = if (mod == dfltIndex) i2 - 1 else mod
+            Some(constructExpr(c, from) -> constructExpr(index, to))
+          }
+          elem.toSeq ++ rec(i / i2, c + 1)
+        }
+        FiniteMap(rec(i, 0), default, from, to)
+    }
+
+    case BagType(base) => if (i == 0) FiniteBag(Seq.empty, base) else {
+      val key = constructExpr(0, base)
+      FiniteBag(Seq(key -> IntegerLiteral(i)), base)
+    }
+
+    case FunctionType(Seq(), to) =>
+      Lambda(Seq.empty, constructExpr(i, to))
+
+    case FunctionType(from, to) =>
+      uniquateClosure(i, Lambda(from.map(tpe => ValDef(FreshIdentifier("x", true), tpe)), constructExpr(0, to)))
+  }
+
   /** Pre-processing for solvers that handle universal quantification
     * in order to increase the precision of polarity analysis for
     * quantification instantiations.

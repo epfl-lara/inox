@@ -157,7 +157,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
           sort.hasCtor(parseTerm(expr), constructors.indexWhere(_.tpe == tpe))
         }
 
-      case (_: FunctionInvocation) | (_: Application) | (_: ADTSelector) =>
+      case (_: FunctionInvocation) | (_: Application) | (_: ADTSelector) | (_: TupleSelect) =>
         parseTerm(expr) === 0
 
       case IfExpr(cond, thenn, elze) =>
@@ -183,9 +183,14 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         IFunApp(f, pArgs)
 
       // ADT | Tuple
-      case (_: ADT) | (_: Tuple) =>
+      case (_: ADT) | (_: Tuple) | (_: GenericValue) | (_: UnitLiteral) =>
         val tpe = bestRealParameters(expr.getType)
-        val (_, args, _, _) = deconstructor.deconstruct(expr)
+        val args = expr match {
+          case ADT(_, args) => args
+          case Tuple(args) => args
+          case GenericValue(_, i) => Seq(IntegerLiteral(i))
+          case UnitLiteral() => Seq.empty
+        }
         val (sort, adts) = typeToSort(tpe)
         val constructors = adts.flatMap(_._2.cases)
         val constructor = (constructors zip sort.constructors).collectFirst {
@@ -285,13 +290,15 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
   object princessToInox {
     def parseExpr(iexpr: IExpression, tpe: Type)(implicit model: Model): Option[Expr] = tpe match {
-      case BooleanType =>
-        model.eval(iexpr.asInstanceOf[IFormula]).map(BooleanLiteral)
+      case BooleanType => iexpr match {
+        case iterm: ITerm => model.eval(iterm).map(i => BooleanLiteral(i.intValue == 0))
+        case iformula: IFormula => model.eval(iformula).map(BooleanLiteral)
+      }
 
       case IntegerType =>
         model.eval(iexpr.asInstanceOf[ITerm]).map(i => IntegerLiteral(i.bigIntValue))
 
-      case t @ ((_: ADTType) | (_: TupleType) | (_: TypeParameter)) =>
+      case t @ ((_: ADTType) | (_: TupleType) | (_: TypeParameter) | UnitType) =>
         val tpe = bestRealType(t)
         val (sort, adts) = typeToSort(tpe)
 
@@ -307,6 +314,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
             case tp: TypeParameter => (Seq(IntegerType), (es: Seq[Expr]) => {
               GenericValue(tp, es.head.asInstanceOf[IntegerLiteral].value.toInt)
             })
+            case UnitType => (Seq(), _ => UnitLiteral())
           }
 
           val optArgs = (sort.selectors(index) zip fieldsTypes).map {
@@ -318,6 +326,8 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
           } else {
             None
           }
+        }.orElse {
+          model.eval(iexpr.asInstanceOf[ITerm]).map(n => constructExpr(n.intValue, tpe))
         }
 
       case ft: FunctionType =>
