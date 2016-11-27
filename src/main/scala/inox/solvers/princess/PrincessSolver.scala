@@ -95,9 +95,9 @@ trait PrincessSolver extends AbstractUnrollingSolver with PrincessTheories { sel
         }.flatten
       }
 
-    def extractSet(v: IExpression, tpe: t.SetType) = None
-    def extractBag(v: IExpression, tpe: t.BagType) = None
-    def extractMap(v: IExpression, tpe: t.MapType) = None
+    def extractSet(v: IExpression, tpe: t.SetType) = scala.sys.error("Should never happen")
+    def extractBag(v: IExpression, tpe: t.BagType) = scala.sys.error("Should never happen")
+    def extractMap(v: IExpression, tpe: t.MapType) = scala.sys.error("Should never happen")
 
     def modelEval(elem: IExpression, tpe: t.Type): Option[t.Expr] = {
       val timer = ctx.timers.solvers.princess.eval.start()

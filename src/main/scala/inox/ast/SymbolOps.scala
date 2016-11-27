@@ -362,7 +362,7 @@ trait SymbolOps { self: TypeOps =>
     * {{{constructExpr(i, tpe) == constructExpr(j, tpe)}}} iff {{{i == j}}}.
     */
   def constructExpr(i: Int, tpe: Type): Expr = tpe match {
-    case _ if typeCardinality(tpe).exists(_ >= i) =>
+    case _ if typeCardinality(tpe).exists(_ <= i) =>
       throw FatalError(s"Cardinality ${typeCardinality(tpe)} of type $tpe too high for index $i")
     case BooleanType => BooleanLiteral(i == 0)
     case IntegerType => IntegerLiteral(i)
@@ -388,8 +388,12 @@ trait SymbolOps { self: TypeOps =>
 
     case adt: ADTType => adt.getADT match {
       case tcons: TypedADTConstructor =>
-        val es = unwrapTuple(constructExpr(i, tupleTypeWrap(tcons.fieldsTypes)), tcons.fieldsTypes.size)
-        ADT(tcons.toType, es)
+        if (tcons.fieldsTypes.isEmpty) {
+          ADT(tcons.toType, Seq.empty)
+        } else {
+          val es = unwrapTuple(constructExpr(i, tupleTypeWrap(tcons.fieldsTypes)), tcons.fieldsTypes.size)
+          ADT(tcons.toType, es)
+        }
 
       case tsort: TypedADTSort =>
         def rec(i: Int, tconss: Seq[TypedADTConstructor]): (Int, TypedADTConstructor) = tconss match {
@@ -401,7 +405,7 @@ trait SymbolOps { self: TypeOps =>
           case _ => sys.error("Should never happen")
         }
 
-        val (ni, tcons) = rec(i, tsort.constructors)
+        val (ni, tcons) = rec(i, tsort.constructors.sortBy(t => typeCardinality(t.toType).getOrElse(Int.MaxValue)))
         constructExpr(ni, tcons.toType)
     }
 

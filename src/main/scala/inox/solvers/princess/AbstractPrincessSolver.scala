@@ -352,14 +352,16 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
               }
 
             case _ => None
-          }
-          if interps.nonEmpty
+          }.toSeq.sortBy(_.toString)
         } yield {
-          val params = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
-          val body = interps.foldRight(interps.head._2) { case ((args, res), elze) =>
-            IfExpr(andJoin((params zip args).map(p => Equals(p._1.toVariable, p._2))), res, elze)
+          val lambda = if (interps.isEmpty) simplestValue(ft).asInstanceOf[Lambda] else {
+            val params = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
+            val body = interps.foldRight(interps.head._2) { case ((args, res), elze) =>
+              IfExpr(andJoin((params zip args).map(p => Equals(p._1.toVariable, p._2))), res, elze)
+            }
+            Lambda(params, body)
           }
-          uniquateClosure(n.intValue, Lambda(params, body))
+          uniquateClosure(n.intValue, lambda)
         }
     }
 
