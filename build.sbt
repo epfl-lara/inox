@@ -86,4 +86,9 @@ lazy val root = (project in file("."))
   .dependsOn(scalaSmtlib)
   .dependsOn(princess)
   .settings(classpathSettings : _*)
+  .settings(
+    // @nv: ignore warnings from projects that are out of our control
+    logLevel in (scalaSmtlib, Compile) := Level.Error,
+    logLevel in (princess, Compile) := Level.Error
+  )
 
