@@ -25,9 +25,10 @@ class GlobalVariablesSuite extends FunSuite {
   val program = InoxProgram(ctx, NoSymbols.withFunctions(Seq(testFd)))
 
   val solverNames: Seq[String] = {
-    (if (SolverFactory.hasNativeZ3) Seq("nativez3") else Nil) ++
+    (if (SolverFactory.hasNativeZ3) Seq("nativez3", "unrollz3") else Nil) ++
     (if (SolverFactory.hasZ3)       Seq("smt-z3") else Nil) ++
-    (if (SolverFactory.hasCVC4)     Seq("smt-cvc4") else Nil)
+    (if (SolverFactory.hasCVC4)     Seq("smt-cvc4") else Nil) ++
+    Seq("princess")
   }
 
   for (sname <- solverNames) {
