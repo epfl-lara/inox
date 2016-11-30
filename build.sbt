@@ -55,12 +55,15 @@ lazy val ItTest = config("it") extend(Test)
 
 testOptions in ItTest := Seq(Tests.Argument("-oDF"))
 
-def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
+def ghProject(repo: String, version: String) = RootProject(uri(s"git://$repo#$version"))
 
-lazy val bonsai      = ghProject("git://github.com/colder/bonsai.git",     "10eaaee4ea0ff6567f4f866922cb871bae2da0ac")
-lazy val scalaSmtlib = ghProject("git://github.com/regb/scala-smtlib.git", "850580ae86e299a1baa0eaef9e24eed905fefe58")
+def svnProject(repo: String, version: String, user: String, pass: String) =
+  RootProject(uri(s"svn+credentials://$repo#username=$user&password=$pass&$version"))
 
-lazy val princess    = ghProject("svn://hal4.it.uu.se/princess/interpolation/trunk", "2703")
+lazy val bonsai      = ghProject("github.com/colder/bonsai.git",     "10eaaee4ea0ff6567f4f866922cb871bae2da0ac")
+lazy val scalaSmtlib = ghProject("github.com/regb/scala-smtlib.git", "850580ae86e299a1baa0eaef9e24eed905fefe58")
+
+lazy val princess    = svnProject("hal4.it.uu.se/princess/interpolation/trunk", "2703", "anonymous", "anonymous")
 
 // XXX @nv: complex hack to make sure we don't have a name clash between
 //          princess' smtlib parser and the scala-smtlib one.
