@@ -5,8 +5,6 @@ package solvers
 
 import evaluators._
 
-import scala.language.existentials
-
 package object theories {
 
   trait Z3Theories { self: unrolling.AbstractUnrollingSolver =>
@@ -20,14 +18,20 @@ package object theories {
   trait PrincessTheories { self: unrolling.AbstractUnrollingSolver =>
     lazy val stringEncoder = StringEncoder(self.encoder.targetProgram)
 
-    lazy val bagEncoder = BagEncoder(
-      self.encoder andThen stringEncoder,
-      self.options
-    )(self.evaluator)
+    lazy val selfAndString = self.encoder andThen stringEncoder
+    lazy val bagEncoder = BagEncoder(selfAndString, self.options)(self.evaluator)
 
     lazy val setEncoder = SetEncoder(bagEncoder.targetProgram)
 
-    lazy val theories = stringEncoder andThen bagEncoder andThen setEncoder
+    lazy val bvEncoder = BitvectorEncoder(setEncoder.targetProgram)
+
+    lazy val realEncoder = RealEncoder(bvEncoder.targetProgram)
+
+    // @nv: Required due to limitations in scalac existential types
+    protected lazy val e1 = stringEncoder andThen bagEncoder
+    protected lazy val e2 = e1 andThen setEncoder
+    protected lazy val e3 = e2 andThen bvEncoder
+    lazy val theories = e3 andThen realEncoder
   }
 
   object ReverseEvaluator {

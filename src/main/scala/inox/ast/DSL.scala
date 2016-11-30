@@ -28,6 +28,7 @@ trait DSL {
     // Arithmetic
     def + = Plus(e, _: Expr)
     def - = Minus(e, _: Expr)
+    def * = Times(e, _: Expr)
     def % = Modulo(e, _: Expr)
     def / = Division(e, _: Expr)
     def unary_- = UMinus(e)

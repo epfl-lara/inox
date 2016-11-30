@@ -134,7 +134,6 @@ trait StringEncoder extends SimpleEncoder {
       case _ => super.transform(e)
     }
 
-
     override def transform(tpe: Type): Type = tpe match {
       case String | StringCons | StringNil => StringType
       case _ => super.transform(tpe)
