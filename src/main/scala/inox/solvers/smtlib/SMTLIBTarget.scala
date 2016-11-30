@@ -23,6 +23,8 @@ import _root_.smtlib.parser.CommandsResponses._
 import _root_.smtlib.theories.{Constructors => SmtLibConstructors, _}
 import _root_.smtlib.Interpreter
 
+import scala.collection.BitSet
+
 trait SMTLIBTarget extends Interruptible with ADTManagers {
   val program: Program
   import program._
@@ -346,6 +348,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
       case UMinus(u) => u.getType match {
         case IntegerType => Ints.Neg(toSMT(u))
         case BVType(_)   => FixedSizeBitVectors.Neg(toSMT(u))
+        case RealType    => Reals.Neg(toSMT(u))
       }
 
       case Equals(a, b)    => Core.Equals(toSMT(a), toSMT(b))
@@ -433,6 +436,19 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
         quantifiedTerm(SMTForall, vs, bd)(Map())
       case o =>
         unsupported(o, "")
+    }
+  }
+
+  protected def fromSMT(sort: Sort): Type = sorts.getA(sort) match {
+    case Some(tpe) => tpe
+    case None => sort match {
+      case Core.BoolSort() => BooleanType
+      case Ints.IntSort() => IntegerType
+      case Reals.RealSort() => RealType
+      case FixedSizeBitVectors.BitVectorSort(l) => BVType(l.intValue)
+      case Sort(SMTIdentifier(SSymbol("Array"), Seq()), Seq(from, to)) =>
+        MapType(fromSMT(from), fromSMT(to))
+      case other => throw FatalError(s"Unexpected sort $other")
     }
   }
 
@@ -534,14 +550,17 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
       case (FixedSizeBitVectors.BitVectorConstant(n, b), Some(CharType)) if b == BigInt(32) =>
         CharLiteral(n.toInt.toChar)
 
-      case (FixedSizeBitVectors.BitVectorConstant(n, _), Some(BVType(size))) =>
-        BVLiteral(n, size)
+      case (FixedSizeBitVectors.BitVectorConstant(n, size), _) =>
+        BVLiteral(n, size.intValue)
 
       case (SHexadecimal(h), Some(CharType)) =>
         CharLiteral(h.toInt.toChar)
 
-      case (SHexadecimal(hexa), Some(BVType(size))) =>
-        BVLiteral(hexa.toInt, size)
+      case (SHexadecimal(hexa), _) =>
+        BVLiteral(
+          BitSet.empty ++ hexa.toBinary.reverse.zipWithIndex.collect { case (true, i) => i + 1 },
+          hexa.repr.length * 4
+        )
 
       case (SDecimal(d), Some(RealType)) =>
         // converting bigdecimal to a fraction
@@ -564,7 +583,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
 
       case (SNumeral(n), Some(RealType)) =>
         FractionLiteral(n, 1)
-      
+
       case (FunctionApplication(SimpleSymbol(SSymbol("ite")), Seq(cond, thenn, elze)), t) =>
         IfExpr(
           fromSMT(cond, Some(BooleanType)),

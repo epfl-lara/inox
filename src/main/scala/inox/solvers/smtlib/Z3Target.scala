@@ -90,6 +90,12 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         FiniteMap(Seq(), fromSMT(defV, Some(to)), from, to)
 
       case (FunctionApplication(
+        QualifiedIdentifier(SMTIdentifier(SSymbol("store"), _), _),
+        Seq(arr, key, elem)
+      ), Some(mt @ MapType(from, to))) =>
+        MapUpdated(fromSMT(arr, mt), fromSMT(key, from), fromSMT(elem, to))
+
+      case (FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
         Seq(defV)
       ), Some(tpe @ SetType(base))) =>
@@ -98,12 +104,39 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         FiniteSet(Seq.empty, base)
 
       case (FunctionApplication(
+        QualifiedIdentifier(SMTIdentifier(SSymbol("store"), _), _),
+        Seq(arr, key, elem)
+      ), Some(st @ SetType(base))) =>
+        val set = fromSMT(arr, st)
+        IfExpr(fromSMT(elem, BooleanType), SetAdd(set, fromSMT(key, base)), set)
+
+      case (FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
         Seq(defV)
       ), Some(tpe @ BagType(base))) =>
         val dflt = fromSMT(defV, Some(IntegerType))
         if (dflt != IntegerLiteral(BigInt(0))) unsupported(dflt, "Solver returned a co-finite bag which is not supported")
         FiniteBag(Seq.empty, base)
+
+      case (FunctionApplication(
+        QualifiedIdentifier(SMTIdentifier(SSymbol("store"), _), _),
+        Seq(arr, key, elem)
+      ), Some(bt @ BagType(base))) =>
+        BagUnion(fromSMT(arr, bt), FiniteBag(Seq(fromSMT(key, base) -> fromSMT(elem, IntegerType)), base))
+
+      case (FunctionApplication(
+        QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
+        Seq(defV)
+      ), None) =>
+        val keyType = fromSMT(k)
+        val valType = fromSMT(v)
+        FiniteMap(Seq(), fromSMT(defV, valType), keyType, valType)
+
+      case (FunctionApplication(
+        QualifiedIdentifier(SMTIdentifier(SSymbol("store"), _), _),
+        Seq(arr, key, elem)
+      ), None) =>
+        MapUpdated(fromSMT(arr), fromSMT(key), fromSMT(elem))
 
       case _ =>
         super.fromSMT(t, otpe)

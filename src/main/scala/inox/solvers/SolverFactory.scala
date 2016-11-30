@@ -129,7 +129,9 @@ object SolverFactory {
         object underlying extends {
           val program: targetProgram.type = targetProgram
           val options = opts
-        } with smtlib.Z3Solver
+        } with smtlib.Z3Solver {
+          val evaluator = modelEvaluator
+        }
       })
 
       case "princess" => create(p)(name, () => new {

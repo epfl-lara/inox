@@ -7,9 +7,25 @@ package smtlib
 import _root_.smtlib.parser.Terms.{Identifier => _, _}
 import _root_.smtlib.parser.CommandsResponses._
 
-trait Z3Solver extends SMTLIBSolver with Z3Target {
+trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
   import program.trees._
   import SolverResponses._
+
+  protected val evaluator: evaluators.DeterministicEvaluator { val program: self.program.type }
+
+  // XXX @nv: Sometimes Z3 doesn't return fully evaluated models so we make sure to
+  //          bring them into some normal form after extraction
+  override protected def extractResponse(config: Configuration, res: SExpr) =
+    config.cast(super.extractResponse(config, res) match {
+      case SatWithModel(model) =>
+        val evaluations = model.map { case (k, v) => k -> evaluator.eval(v).result }
+        if (evaluations.forall(_._2.isDefined)) {
+          SatWithModel(evaluations.mapValues(_.get))
+        } else {
+          Unknown
+        }
+      case resp => resp
+    })
 
   /** Z3 uses a non-standard syntax for check-sat-assuming, namely
     * {{{
