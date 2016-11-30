@@ -216,6 +216,9 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       case AsInstanceOf(expr, tpe) =>
         parseTerm(expr)
 
+      case BooleanLiteral(true) => i(0)
+      case BooleanLiteral(false) => i(1)
+
       // @nv: this MUST come at least after having dealt with FunctionInvocation,
       //      Application and ADTSelectors which can return booleans
       case IsTyped(_, BooleanType) =>
@@ -252,14 +255,14 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       case Times(lhs, rhs) => {
         val pLhs = parseTerm(lhs)
         val pRhs = parseTerm(rhs)
-        pLhs * pRhs
+        p.mult(pLhs, pRhs)
       }
 
       case UMinus(e) =>
         - parseTerm(e)
 
       case Division(lhs, rhs) =>
-        p.mulTheory.eDiv(parseTerm(lhs), parseTerm(rhs))
+        p.mulTheory.tDiv(parseTerm(lhs), parseTerm(rhs))
 
       case Remainder(lhs, rhs) =>
         val q = parseTerm(Division(lhs, rhs))
