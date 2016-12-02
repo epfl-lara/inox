@@ -558,6 +558,7 @@ trait Templates extends TemplateGenerator
               val result = res.flatten.toMap
 
               result ++ (expr match {
+                case QuantificationMatcher(c, Seq(e1, _)) if c == equalitySymbol(e1.getType)._1 => None
                 case QuantificationMatcher(c, args) =>
                   // Note that we rely here on the fact that foldRight visits the matcher's arguments first,
                   // so any Matcher in arguments will belong to the `result` map
