@@ -185,23 +185,22 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
   }
 
-  def filterPrincess(ctx: Context): Boolean = {
+  def filterPrincess(ctx: Context, allowSelect: Boolean = true): FilterStatus = {
     val solvers = ctx.options.findOptionOrDefault(optSelectedSolvers)
     val feelingLucky = ctx.options.findOptionOrDefault(optFeelingLucky)
     val checkModels = ctx.options.findOptionOrDefault(optCheckModels)
     val unrollAssume = ctx.options.findOptionOrDefault(optUnrollAssumptions)
-    solvers != Set("princess") || {
-      (feelingLucky && checkModels && unrollAssume) ||
-      (!feelingLucky && !checkModels && !unrollAssume)
-    }
+    if (solvers == Set("princess") &&
+      (!allowSelect || feelingLucky != checkModels || checkModels != unrollAssume)) Skip
+    else Test
   }
 
-  test("flatMap is associative", filterPrincess _) { ctx =>
+  test("flatMap is associative", filterPrincess(_)) { ctx =>
     val program = InoxProgram(ctx, symbols)
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(associative.fullBody)).isUNSAT)
   }
 
-  test("sort preserves content 1", filterPrincess _) { ctx =>
+  test("sort preserves content 1", filterPrincess(_)) { ctx =>
     val program = InoxProgram(ctx, symbols)
     val (l,p) = ("l" :: T(listID)(IntegerType), "p" :: ((IntegerType, IntegerType) =>: BooleanType))
     val clause = E(contentID)(IntegerType)(E(sortID)(IntegerType)(l.toVariable, p.toVariable)) ===
@@ -209,7 +208,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(clause)).isUNSAT)
   }
 
-  test("sort preserves content 2", _.options.findOptionOrDefault(optSelectedSolvers) != Set("princess")) { ctx =>
+  test("sort preserves content 2", filterPrincess(_, allowSelect = false)) { ctx =>
     val program = InoxProgram(ctx, symbols)
     import program._
 
