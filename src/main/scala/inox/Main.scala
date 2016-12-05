@@ -30,13 +30,16 @@ trait MainHelpers {
     }
   }
 
+  final object optHelp extends FlagOptionDef("help", false)
+
   protected def getOptions: Map[OptionDef[_], String] = Map(
+    optHelp -> "Show help message",
     optTimeout -> "Set a timeout for each proof attempt (in sec.)",
     optSelectedSolvers -> {
       "Use solvers s1,s2,...\nAvailable: " +
       solvers.SolverFactory.solverNames.toSeq.sortBy(_._1).map {
         case (name, desc) => f"\n  $name%-14s : $desc"
-      }
+      }.mkString("")
     },
     optDebug -> {
       val sects = debugSections.toSeq.map(_.name).sorted
@@ -55,7 +58,7 @@ trait MainHelpers {
     solvers.unrolling.optUnrollAssumptions -> "Use unsat-assumptions to drive unfolding while remaining fair",
     solvers.unrolling.optNoSimplifications -> "Disable selector/quantifier simplifications in solvers",
     solvers.smtlib.optCVC4Options -> "Pass extra options to CVC4",
-    evaluators.optMaxCalls -> "Maximum number of function invocations allowed during evaluation",
+    evaluators.optMaxCalls -> "Maximum function invocations allowed during evaluation (-1 for unbounded)",
     evaluators.optIgnoreContracts -> "Don't fail on invalid contracts during evaluation"
   )
 
@@ -63,6 +66,20 @@ trait MainHelpers {
 
   private def helpString(opt: OptionDef[_]): String = {
     f"${opt.usageDesc}%-28s" + options(opt).replaceAll("\n", "\n" + " " * 28)
+  }
+
+  protected def displayHelp(reporter: Reporter, error: Boolean) = {
+    // TODO: add option categories??
+    for (opt <- options.keys.toSeq.sortBy(_.name)) {
+      reporter.info(helpString(opt))
+    }
+    exit(error)
+  }
+
+  protected def displayVersion(reporter: Reporter) = {
+    reporter.title("Inox solver (https://github.com/epfl-lara/inox)")
+    val version = getClass.getPackage.getImplementationVersion
+    reporter.info(s"Version: $version")
   }
 
   /** The current files on which Inox is running.
@@ -126,9 +143,13 @@ trait MainHelpers {
         exit(error = true)
     }
 
-    ctx.interruptManager.registerSignalHandler()
-
-    ctx
+    if (ctx.options.findOptionOrDefault(optHelp)) {
+      displayVersion(ctx.reporter)
+      displayHelp(ctx.reporter, error = false)
+    } else {
+      ctx.interruptManager.registerSignalHandler()
+      ctx
+    }
   }
 }
 

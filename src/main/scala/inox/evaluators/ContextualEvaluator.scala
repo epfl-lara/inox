@@ -3,7 +3,7 @@
 package inox
 package evaluators
 
-object optMaxCalls extends IntOptionDef("maxcalls", 50000, "<PosInt> | -1 (for unbounded")
+object optMaxCalls extends IntOptionDef("maxcalls", 50000, "<PosInt> | -1")
 
 trait ContextualEvaluator extends Evaluator {
   import program._
