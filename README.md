@@ -1,10 +1,25 @@
-Inox 0.1 [![Build Status](http://laraquad4.epfl.ch:9000/epfl-lara/inox/status/master)](http://laraquad4.epfl.ch:9000/epfl-lara/inox)
+Inox 1.0 [![Build Status](http://laraquad4.epfl.ch:9000/epfl-lara/inox/status/master)](http://laraquad4.epfl.ch:9000/epfl-lara/inox)
 ==========
 
 Inox is a solver for higher-order functional programs which provides first-class support for
+features such as:
+- Recursive and first-class functions
+- ADTs, integers, bitvectors, strings, set-multiset-map abstractions
+- Quantifiers
+- ADT invariants
 
+Interfacing with the solver can take place through the Scala API by constructing the AST
+corresponding to the query of interest and then feeding it to one of the solvers.
+See [Expression](https://github.com/epfl-lara/inox/blob/master/src/main/scala/inox/ast/Expressions.scala),
+[Types](https://github.com/epfl-lara/inox/blob/master/src/main/scala/inox/ast/Types.scala) and
+[Definitions](https://github.com/epfl-lara/inox/blob/master/src/main/scala/inox/ast/Definitions.scala)
+for AST construction and
+[Solver](https://github.com/epfl-lara/inox/blob/master/src/main/scala/inox/solvers/Solver.scala),
+[SolverFactory](https://github.com/epfl-lara/inox/blob/master/src/main/scala/inox/solvers/SolverFactory.scala) and [SimpleSolverAPI](https://github.com/epfl-lara/inox/blob/master/src/main/scala/inox/solvers/SimpleSolverAPI.scala)
+for solving the query.
 
-
+Alternatively, one can user Inox through a textual interface by using the [TIP](https://tip-org.github.io/) format
+to describe the relevant query.
 
 Installing Inox
 ===============
@@ -18,7 +33,7 @@ written and tested improvements to the information below.
 
 **Requirements:**
 
-* `Java SE Development Kit 8 <http://www.oracle.com/technetwork/java/javase/downloads/jdk8-downloads-2133151.html>`_ or `Java SE Development Kit 7 <http://www.oracle.com/technetwork/java/javase/downloads/jdk7-downloads-1880260.html>`_ for your platform
+* [Java SE Development Kit 8](http://www.oracle.com/technetwork/java/javase/downloads/jdk8-downloads-2133151.html) or [Java SE Development Kit 7](http://www.oracle.com/technetwork/java/javase/downloads/jdk7-downloads-1880260.html) for your platform
 * SBT 0.13.x (Available from http://www.scala-sbt.org/)
 * Git and svn executables
 
@@ -27,21 +42,21 @@ Linux & Mac OS-X
 
 Get the sources of Inox by cloning the official Inox repository:
 
-'''bash
-  $ git clone https://github.com/epfl-lara/inox.git
-  Cloning into 'inox'...
-  // ...
-  $ cd inox
-  $ sbt clean compile
-  // takes about 3 minutes
-'''
+```
+$ git clone https://github.com/epfl-lara/inox.git
+Cloning into 'inox'...
+// ...
+$ cd inox
+$ sbt clean compile
+// takes about 3 minutes
+```
  
 Inox compilation generates an ``inox`` bash script that runs Inox with all
 the appropriate settings. This script expects argument files in the
 [TIP](https://tip-org.github.io/) input format and will report SAT or UNSAT
 to the specified properties.
 
-See '''./inox --help''' for more information about script usage.
+See ``./inox --help`` for more information about script usage.
 
 Windows
 -------
@@ -50,18 +65,18 @@ __Not yet tested!__
 
 Get the sources of Inox by cloning the official Inox
 repository. You will need a Git shell for windows, e.g. 
-`Git for Windows <https://git-for-windows.github.io/>`_.
+[Git for Windows](https://git-for-windows.github.io/).
 
-'''bash
-  $ git clone https://github.com/epfl-lara/inox.git
-  Cloning into 'inox'...
-  // ...
-  $ cd inox
-  $ sbt clean compile
-  // takes about 3 minutes
-'''
+```
+$ git clone https://github.com/epfl-lara/inox.git
+Cloning into 'inox'...
+// ...
+$ cd inox
+$ sbt clean compile
+// takes about 3 minutes
+```
  
-You will now need to either port the bash '''inox''' script to Windows, or to run it
+You will now need to either port the bash ``inox`` script to Windows, or run it
 under Cygwin.
 
 **Known issues**
@@ -70,7 +85,7 @@ The default solver underlying Inox (nativez3) ships with a wrapped native librar
 See the [ScalaZ3](https://github.com/epfl-lara/ScalaZ3) repository for tips on getting
 the solver running on Windows. Alternatively, one can use the
 [Princess](http://www.philipp.ruemmer.org/princess.shtml) solver
-(command-line option '''--solvers=princess''') to get a full JVM stack experience that
+(command-line option ``--solvers=princess``) to get a full JVM stack experience that
 should work out of the box.
 
 You may be able to obtain additional tips on getting Inox to work on Windows 
@@ -124,6 +139,7 @@ Running Tests
 Inox comes with a test suite. Consider running the following commands to
 invoke different test suites:
 
- $ sbt test
- $ sbt it:test
-
+```
+$ sbt test
+$ sbt it:test
+```
