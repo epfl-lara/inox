@@ -11,9 +11,7 @@
 # sbt
 target
 /project/build
-/leon
-/setupenv
-/leon-bench
+/inox
 /.test-history
 /out-classes
 

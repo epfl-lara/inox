@@ -14,10 +14,6 @@ scalacOptions ++= Seq(
 
 scalacOptions in (Compile, doc) ++= Seq("-doc-root-content", baseDirectory.value+"/src/main/scala/root-doc.txt")
 
-site.settings
-
-site.sphinxSupport()
-
 val osName = Option(System.getProperty("os.name")).getOrElse("").toLowerCase()
 
 val osArch = System.getProperty("sun.arch.data.model")
@@ -27,9 +23,6 @@ if(osName.indexOf("win") != -1) {
 } else {
   (unmanagedJars in Compile) += baseDirectory.value / "unmanaged" / s"scalaz3-unix-$osArch.jar"
 }
-
-//unmanagedJars in Compile += baseDirectory.value / "unmanaged" / s"princess.jar"
-//unmanagedJars in Compile += baseDirectory.value / "unmanaged" / s"scala-actors-2.11.0.jar"
 
 unmanagedBase <<= baseDirectory { base => base / "unmanaged" / osArch }
 
@@ -45,6 +38,48 @@ libraryDependencies ++= Seq(
   "org.apache.commons" % "commons-lang3" % "3.4"
   //"com.regblanc" %% "scala-smtlib" % "0.2"
 )
+
+lazy val scriptName = "inox"
+
+lazy val scriptFile = file(".") / scriptName
+
+clean := {
+  clean.value
+  if (scriptFile.exists && scriptFile.isFile) {
+    scriptFile.delete
+  }
+}
+
+lazy val script = taskKey[Unit]("Generate the inox Bash script")
+
+script := {
+  val s = streams.value
+  try {
+    val cps = (dependencyClasspath in Compile).value
+    val out = (classDirectory      in Compile).value
+    val res = (resourceDirectory   in Compile).value
+
+    if (scriptFile.exists) {
+      s.log.info("Regenerating '" + scriptFile.getName + "' script")
+      scriptFile.delete
+    } else {
+      s.log.info("Generating '" + scriptFile.getName + "' script")
+    }
+
+    val paths = res.getAbsolutePath +: out.getAbsolutePath +: cps.map(_.data.absolutePath)
+    val cp = paths.mkString(System.getProperty("path.separator"))
+    IO.write(scriptFile, s"""|#!/bin/bash --posix
+                             |
+                             |SCALACLASSPATH=$cp
+                             |
+                             |java -Xmx2G -Xms512M -Xss64M -classpath "$${SCALACLASSPATH}" -Dscala.usejavacp=true inox.Main $$@ 2>&1
+                             |""".stripMargin)
+    scriptFile.setExecutable(true)
+  } catch {
+    case e: Throwable =>
+      s.log.error("There was an error while generating the script file: " + e.getLocalizedMessage)
+  }
+}
 
 Keys.fork in run := true
 
@@ -79,12 +114,13 @@ lazy val classpathSettings = {
 }
 
 lazy val root = (project in file("."))
-  .configs(IntegrationTest)
+  .configs(ItTest)
   .settings(Defaults.itSettings : _*)
   .settings(inConfig(ItTest)(Defaults.testTasks ++ Seq(
     logBuffered := false,
     parallelExecution := false
   )) : _*)
+  .settings(compile <<= (compile in Compile) dependsOn script)
   .dependsOn(bonsai)
   .dependsOn(scalaSmtlib)
   .dependsOn(princess)
