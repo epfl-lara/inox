@@ -128,7 +128,7 @@ trait Paths { self: SymbolOps with TypeOps with Constructors =>
       * within a fixpoint computation where the `ids` set is iteratively computed
       * by performing [[filterByIds]] calls on some (unchaning) base [[Path]].
       *
-      * @see [[leon.purescala.FunctionClosure.close]] for an example usecase.
+      * @see [[stainless.extraction.innerfuns.FunctionClosure.transform]] for an example usecase.
       */
     def filterByIds(ids: Set[Identifier]): Path = {
       def containsIds(ids: Set[Identifier])(e: Expr): Boolean = exprOps.exists {
@@ -216,7 +216,7 @@ trait Paths { self: SymbolOps with TypeOps with Constructors =>
     lazy val toClause: Expr = and(BooleanLiteral(true))
 
     /** Like [[toClause]] but doesn't simplify final path through constructors
-      * from [[leon.purescala.Constructors]] */
+      * from [[Constructors]] */
     lazy val fullClause: Expr = fold[Expr](BooleanLiteral(true), Let, And(_, _))(elements)
 
     /** Folds the path into a boolean proposition where let-bindings are

@@ -30,7 +30,7 @@ trait Expressions { self: Trees =>
     }
   }
 
-  /** Represents an expression in Leon. */
+  /** Represents an expression in Inox. */
   abstract class Expr extends Tree with Typed
 
   /** Trait which gets mixed-in to expressions without subexpressions */
@@ -327,9 +327,6 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `... ==> ...` (logical implication).
     *
-    * This is not a standard Scala operator, but it results from an implicit
-    * conversion in the Leon library.
-    *
     * @see [[Constructors.implies]]
     */
   case class Implies(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
@@ -428,7 +425,7 @@ trait Expressions { self: Trees =>
     *
     * Division and Remainder follows Java/Scala semantics. Division corresponds
     * to / operator on BigInt and Remainder corresponds to %. Note that in
-    * Java/Scala % is called remainder and the "mod" operator (Modulo in Leon) is also
+    * Java/Scala % is called remainder and the "mod" operator (Modulo in Inox) is also
     * defined on BigInteger and differs from Remainder. The "mod" operator
     * returns an always positive remainder, while Remainder could return
     * a negative remainder. The following must hold:
