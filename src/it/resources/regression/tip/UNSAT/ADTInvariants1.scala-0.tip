@@ -1,0 +1,15 @@
+(declare-datatypes () ((Positive!5 (Positive!6 (i!17 Int)))))
+
+(declare-datatypes (A1!0 R!21) ((fun1!5 (fun1!6 (f!34 (=> A1!0 R!21)) (pre!12 (=> A1!0 Bool))))))
+
+(declare-const f!0 (fun1!5 Positive!5 Positive!5))
+
+(define-fun inv!0 ((thiss!70 Positive!5)) Bool (> (i!17 thiss!70) 0))
+
+(datatype-invariant thiss!70 Positive!5 (> (i!17 thiss!70) 0))
+
+(assert (not (=> (forall ((x!55 Positive!5)) (=> (@ (f!34 (fun1!6 (lambda ((x!54 Positive!5)) true) (lambda ((x!341 Positive!5)) true))) x!55) (@ (f!34 (fun1!6 (pre!12 f!0) (lambda ((x!342 Positive!5)) true))) x!55))) (> (i!17 (@ (f!34 f!0) (assume (inv!0 (Positive!6 1)) (Positive!6 1)))) 0))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

@@ -633,7 +633,7 @@ trait QuantificationTemplates { self: Templates =>
         val groundsSet: Set[(Set[Encoded], Arg, Set[Int])] = grounds(q).unzipSet
         val newGrounds: Set[(Set[Encoded], Arg, Set[Int])] = {
           if (groundsSet.isEmpty) {
-            clauses ++= registerSymbol(trueT, q, v.tpe)
+            clauses ++= registerSymbol(contents.pathVar._2, q, v.tpe)
             Set((Set(), Left(q), Set()))
           } else {
             Set.empty
@@ -901,7 +901,7 @@ trait QuantificationTemplates { self: Templates =>
           clauses ++= newTemplate.contents.instantiate(substMap)
 
           for ((v,q) <- newTemplate.quantifiers) {
-            clauses ++= registerSymbol(trueT, q, v.tpe)
+            clauses ++= registerSymbol(newTemplate.contents.pathVar._2, q, v.tpe)
           }
 
           (instT, Map(insts._2 -> instT))
@@ -932,7 +932,7 @@ trait QuantificationTemplates { self: Templates =>
           }
 
           for (((v,_), q) <- newTemplate.quantifiers zip freshQuantifiers) {
-            clauses ++= registerSymbol(trueT, q, v.tpe)
+            clauses ++= registerSymbol(newTemplate.start, q, v.tpe)
           }
 
           clauses ++= quantification.ensureGrounds
