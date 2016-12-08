@@ -72,22 +72,30 @@ trait MainHelpers {
 
   protected final lazy val options = getOptions
 
-  protected def displayHelp(reporter: Reporter, error: Boolean) = {
-    val categories = General +: (options.map(_._2.category).toSet - General).toSeq.sortBy(_.toString)
+  protected def getCategories: Seq[Category] = {
+    General +: (options.map(_._2.category).toSet - General).toSeq.sortBy(_.toString)
+  }
 
-    for (category <- categories) {
+  protected def displayHelp(reporter: Reporter, error: Boolean) = {
+    val categories = getCategories
+
+    for {
+      category <- categories
+      opts = options.filter(_._2.category == category)
+      if opts.nonEmpty
+    } {
       reporter.info("")
       reporter.title(category)
-      for ((opt, Description(cat, desc)) <- options if category == cat) {
+      for ((opt, Description(_, desc)) <- opts) {
         reporter.info(f"${opt.usageDesc}%-28s" + desc.replaceAll("\n", "\n" + " " * 28))
       }
     }
+
     exit(error)
   }
 
   protected def displayVersion(reporter: Reporter) = {
     reporter.title("Inox solver (https://github.com/epfl-lara/inox)")
-    reporter.info("")
     // XXX @nv: Just ignore this... no clean way to do it :(
     // reporter.info(s"Version: $version")
   }
