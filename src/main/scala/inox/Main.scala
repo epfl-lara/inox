@@ -32,54 +32,64 @@ trait MainHelpers {
 
   final object optHelp extends FlagOptionDef("help", false)
 
-  protected def getOptions: Map[OptionDef[_], String] = Map(
-    optHelp -> "Show help message",
-    optTimeout -> "Set a timeout for each proof attempt (in sec.)",
-    optSelectedSolvers -> {
+  abstract class Category
+  case object General extends Category
+  case object Solvers extends Category
+  case object Evaluators extends Category
+  case object Printing extends Category
+
+  protected case class Description(category: Category, description: String)
+
+  protected def getOptions: Map[OptionDef[_], Description] = Map(
+    optHelp -> Description(General, "Show help message"),
+    optTimeout -> Description(General, "Set a timeout for each proof attempt (in sec.)"),
+    optSelectedSolvers -> Description(General, {
       "Use solvers s1,s2,...\nAvailable: " +
       solvers.SolverFactory.solverNames.toSeq.sortBy(_._1).map {
         case (name, desc) => f"\n  $name%-14s : $desc"
       }.mkString("")
-    },
-    optDebug -> {
+    }),
+    optDebug -> Description(General, {
       val sects = debugSections.toSeq.map(_.name).sorted
       val (first, second) = sects.splitAt(sects.length/2 + 1)
       "Enable detailed messages per component.\nAvailable:\n" +
         "  " + first.mkString(", ") + ",\n" +
         "  " + second.mkString(", ")
-    },
-    ast.optPrintPositions -> "Attach positions to trees when printing",
-    ast.optPrintUniqueIds -> "Always print unique ids",
-    ast.optPrintTypes -> "Attach types to trees when printing",
-    solvers.optCheckModels -> "Double-check counter-examples with evaluator",
-    solvers.optSilentErrors -> "Fail silently into UNKNOWN when encountering an error",
-    solvers.unrolling.optUnrollFactor -> "Number of unrollings to perform in each unfold step",
-    solvers.unrolling.optFeelingLucky -> "Use evaluator to find counter-examples early",
-    solvers.unrolling.optUnrollAssumptions -> "Use unsat-assumptions to drive unfolding while remaining fair",
-    solvers.unrolling.optNoSimplifications -> "Disable selector/quantifier simplifications in solvers",
-    solvers.smtlib.optCVC4Options -> "Pass extra options to CVC4",
-    evaluators.optMaxCalls -> "Maximum function invocations allowed during evaluation (-1 for unbounded)",
-    evaluators.optIgnoreContracts -> "Don't fail on invalid contracts during evaluation"
+    }),
+    ast.optPrintPositions -> Description(Printing, "Attach positions to trees when printing"),
+    ast.optPrintUniqueIds -> Description(Printing, "Always print unique ids"),
+    ast.optPrintTypes -> Description(Printing, "Attach types to trees when printing"),
+    solvers.optCheckModels -> Description(Solvers, "Double-check counter-examples with evaluator"),
+    solvers.optSilentErrors -> Description(Solvers, "Fail silently into UNKNOWN when encountering an error"),
+    solvers.unrolling.optUnrollFactor -> Description(Solvers, "Number of unrollings to perform in each unfold step"),
+    solvers.unrolling.optFeelingLucky -> Description(Solvers, "Use evaluator to find counter-examples early"),
+    solvers.unrolling.optUnrollAssumptions -> Description(Solvers, "Use unsat-assumptions to drive unfolding while remaining fair"),
+    solvers.unrolling.optNoSimplifications -> Description(Solvers, "Disable selector/quantifier simplifications in solvers"),
+    solvers.smtlib.optCVC4Options -> Description(Solvers, "Pass extra options to CVC4"),
+    evaluators.optMaxCalls -> Description(Evaluators, "Maximum function invocations allowed during evaluation (-1 for unbounded)"),
+    evaluators.optIgnoreContracts -> Description(Evaluators, "Don't fail on invalid contracts during evaluation")
   )
 
   protected final lazy val options = getOptions
 
-  private def helpString(opt: OptionDef[_]): String = {
-    f"${opt.usageDesc}%-28s" + options(opt).replaceAll("\n", "\n" + " " * 28)
-  }
-
   protected def displayHelp(reporter: Reporter, error: Boolean) = {
-    // TODO: add option categories??
-    for (opt <- options.keys.toSeq.sortBy(_.name)) {
-      reporter.info(helpString(opt))
+    val categories = General +: (options.map(_._2.category).toSet - General).toSeq.sortBy(_.toString)
+
+    for (category <- categories) {
+      reporter.info("")
+      reporter.title(category)
+      for ((opt, Description(cat, desc)) <- options if category == cat) {
+        reporter.info(f"${opt.usageDesc}%-28s" + desc.replaceAll("\n", "\n" + " " * 28))
+      }
     }
     exit(error)
   }
 
   protected def displayVersion(reporter: Reporter) = {
     reporter.title("Inox solver (https://github.com/epfl-lara/inox)")
-    val version = getClass.getPackage.getImplementationVersion
-    reporter.info(s"Version: $version")
+    reporter.info("")
+    // XXX @nv: Just ignore this... no clean way to do it :(
+    // reporter.info(s"Version: $version")
   }
 
   /** The current files on which Inox is running.
