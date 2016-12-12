@@ -94,7 +94,6 @@ trait Definitions { self: Trees =>
         with TypeOps
         with SymbolOps
         with CallGraph
-        with Constructors
         with Paths { self0: Symbols =>
 
     val adts: Map[Identifier, ADTDefinition]

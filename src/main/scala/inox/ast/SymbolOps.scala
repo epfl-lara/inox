@@ -16,24 +16,6 @@ trait SymbolOps { self: TypeOps =>
   import trees.exprOps._
   import symbols._
 
-  /** Computes the negation of a boolean formula, with some simplifications. */
-  def negate(expr: Expr) : Expr = {
-    (expr match {
-      case Let(i,b,e) => Let(i,b,negate(e))
-      case Not(e) => e
-      case Implies(e1,e2) => and(e1, negate(e2))
-      case Or(exs) => and(exs map negate: _*)
-      case And(exs) => or(exs map negate: _*)
-      case LessThan(e1,e2) => GreaterEquals(e1,e2)
-      case LessEquals(e1,e2) => GreaterThan(e1,e2)
-      case GreaterThan(e1,e2) => LessEquals(e1,e2)
-      case GreaterEquals(e1,e2) => LessThan(e1,e2)
-      case IfExpr(c,e1,e2) => IfExpr(c, negate(e1), negate(e2))
-      case BooleanLiteral(b) => BooleanLiteral(!b)
-      case e => Not(e)
-    }).setPos(expr)
-  }
-
   /** Replace each node by its constructor
     *
     * Remap the expression by calling the corresponding constructor
@@ -1115,6 +1097,142 @@ trait SymbolOps { self: TypeOps =>
       e
     } else {
       new TypeInstantiator(tps).transform(e)
+    }
+  }
+
+  /* ===================================================
+   *        Constructors that require Symbols
+   * =================================================== */
+
+  /** Simplifies the construct `TupleSelect(expr, index)`
+    * @param originalSize The arity of the tuple. If less or equal to 1, the whole expression is returned.
+    * @see [[Expressions.TupleSelect TupleSelect]]
+    */
+  def tupleSelect(t: Expr, index: Int, originalSize: Int): Expr = tupleSelect(t, index, originalSize > 1)
+
+  /** If `isTuple`:
+    * `tupleSelect(tupleWrap(Seq(Tuple(x,y))), 1) -> x`
+    * `tupleSelect(tupleExpr,1) -> tupleExpr._1`
+    * If not `isTuple` (usually used only in the case of a tuple of arity 1)
+    * `tupleSelect(tupleWrap(Seq(Tuple(x,y))),1) -> Tuple(x,y)`.
+    * @see [[Expressions.TupleSelect TupleSelect]]
+    */
+  def tupleSelect(t: Expr, index: Int, isTuple: Boolean): Expr = t match {
+    case Tuple(es) if isTuple => es(index-1)
+    case _ if t.getType.isInstanceOf[TupleType] && isTuple => TupleSelect(t, index)
+    case other if !isTuple => other
+    case _ =>
+      sys.error(s"Calling tupleSelect on non-tuple $t")
+  }
+
+  /** $encodingof ``val id = e; vd``, and returns `bd` if the identifier is not bound in `bd` AND
+    * the expression `e` is pure.
+    * @see [[Expressions.Let Let]]
+    * @see [[SymbolOps.isPure isPure]]
+    */
+  def let(vd: ValDef, e: Expr, bd: Expr) = {
+    if ((variablesOf(bd) contains vd.toVariable) || !isPure(e)) Let(vd, e, bd) else bd
+  }
+
+  /** Instantiates the type parameters of the function according to argument types
+    * @return A [[Expressions.FunctionInvocation FunctionInvocation]] if it type checks, else throws an error.
+    * @see [[Expressions.FunctionInvocation]]
+    */
+  def functionInvocation(fd: FunDef, args: Seq[Expr]) = {
+    require(fd.params.length == args.length, "Invoking function with incorrect number of arguments")
+
+    val formalType = tupleTypeWrap(fd.params map { _.getType })
+    val actualType = tupleTypeWrap(args map { _.getType })
+
+    symbols.canBeSupertypeOf(formalType, actualType) match {
+      case Some(tmap) =>
+        FunctionInvocation(fd.id, fd.tparams map { tpd => tmap.getOrElse(tpd.tp, tpd.tp) }, args)
+      case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
+    }
+  }
+
+  /** $encodingof simplified `fn(realArgs)` (function application).
+   * Transforms
+   * {{{ ((x: A, y: B) => g(x, y))(c, d) }}}
+   * into
+   * {{{
+   *   val x0 = c
+   *   val y0 = d
+   *   g(x0, y0)
+   * }}}
+   * and further simplifies it.
+   * @see [[Expressions.Lambda Lambda]]
+   * @see [[Expressions.Application Application]]
+   */
+  def application(fn: Expr, realArgs: Seq[Expr]): Expr = fn match {
+    case Lambda(formalArgs, body) =>
+      assert(realArgs.size == formalArgs.size, "Invoking lambda with incorrect number of arguments")
+
+      var defs: Seq[(ValDef, Expr)] = Seq()
+
+      val subst = formalArgs.zip(realArgs).map {
+        case (vd, to:Variable) =>
+          vd -> to
+        case (vd, e) =>
+          val fresh = vd.freshen
+          defs :+= (fresh -> e)
+          vd -> fresh.toVariable
+      }.toMap
+
+      defs.foldRight(exprOps.replaceFromSymbols(subst, body)) {
+        case ((vd, bd), body) => let(vd, bd, body)
+      }
+
+    case Assume(pred, l: Lambda) =>
+      assume(pred, application(l, realArgs))
+
+    case _ =>
+      Application(fn, realArgs)
+  }
+
+
+  /** Instantiates the type parameters of the ADT constructor according to argument types
+    * @return A [[Expressions.ADT ADT]] if it type checks, else throws an error
+    * @see [[Expressions.ADT]]
+    */
+  def adtConstruction(adt: ADTConstructor, args: Seq[Expr]) = {
+    require(adt.fields.length == args.length, "Constructing adt with incorrect number of arguments")
+
+    val formalType = tupleTypeWrap(adt.fields.map(_.tpe))
+    val actualType = tupleTypeWrap(args.map(_.getType))
+
+    symbols.canBeSupertypeOf(formalType, actualType) match {
+      case Some(tmap) => ADT(instantiateType(adt.typed.toType, tmap).asInstanceOf[ADTType], args)
+      case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
+    }
+  }
+
+  /** Simplifies the provided case class selector.
+    * @see [[Expressions.ADTSelector ADTSelector]]
+    */
+  def adtSelector(adt: Expr, selector: Identifier): Expr = {
+    adt match {
+      case a @ ADT(tp, fields) if !tp.getADT.hasInvariant =>
+        fields(tp.getADT.toConstructor.definition.selectorID2Index(selector))
+      case _ =>
+        ADTSelector(adt, selector)
+    }
+  }
+
+  /** $encodingof expr.asInstanceOf[tpe], returns `expr` if it already is of type `tpe`.  */
+  def asInstOf(expr: Expr, tpe: ADTType) = {
+    if (symbols.isSubtypeOf(expr.getType, tpe)) {
+      expr
+    } else {
+      AsInstanceOf(expr, tpe)
+    }
+  }
+
+  def isInstOf(expr: Expr, tpe: ADTType) = {
+    if (symbols.isSubtypeOf(expr.getType, tpe)) {
+      BooleanLiteral(true)
+    } else {
+      IsInstanceOf(expr, tpe)
     }
   }
 }

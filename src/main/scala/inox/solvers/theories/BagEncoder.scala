@@ -7,7 +7,7 @@ package theories
 import evaluators._
 
 trait BagEncoder extends SimpleEncoder {
-  import trees._
+  import trees.{forall => _, _}
   import trees.dsl._
 
   val evaluator: DeterministicEvaluator {

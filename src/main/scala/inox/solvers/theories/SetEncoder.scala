@@ -7,7 +7,7 @@ package theories
 import scala.collection.immutable.{Set => ScalaSet}
 
 trait SetEncoder extends SimpleEncoder {
-  import trees._
+  import trees.{forall => _, _}
   import trees.dsl._
 
   val SetID = FreshIdentifier("Set")

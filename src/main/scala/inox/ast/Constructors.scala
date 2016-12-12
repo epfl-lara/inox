@@ -8,46 +8,11 @@ package ast
   * The constructors implement some logic to simplify the tree and
   * potentially use a different expression node if one is more suited.
   * @define encodingof Encoding of
-  *  */
-trait Constructors {
-  protected val trees: Trees
-  import trees._
-  import trees.exprOps._
-  protected implicit val symbols: Symbols
-  import symbols._
+  */
+trait Constructors { self: Trees =>
 
-  /** If `isTuple`:
-    * `tupleSelect(tupleWrap(Seq(Tuple(x,y))),1) -> x`
-    * `tupleSelect(tupleExpr,1) -> tupleExpr._1`
-    * If not `isTuple` (usually used only in the case of a tuple of arity 1)
-    * `tupleSelect(tupleWrap(Seq(Tuple(x,y))),1) -> Tuple(x,y)`.
-    * @see [[Expressions.TupleSelect TupleSelect]]
-    */
-  def tupleSelect(t: Expr, index: Int, isTuple: Boolean): Expr = t match {
-    case Tuple(es) if isTuple => es(index-1)
-    case _ if t.getType.isInstanceOf[TupleType] && isTuple =>
-      TupleSelect(t, index)
-    case other if !isTuple => other
-    case _ =>
-      sys.error(s"Calling tupleSelect on non-tuple $t")
-  }
-
-  /** Simplifies the construct `TupleSelect(expr, index, originalSize > 1)`
-    * @param originalSize The arity of the tuple. If less or equal to 1, the whole expression is returned.
-    * @see [[Expressions.TupleSelect TupleSelect]]
-    */
-  def tupleSelect(t: Expr, index: Int, originalSize: Int): Expr = tupleSelect(t, index, originalSize > 1)
-
-  /** $encodingof ``val id = e; bd``, and returns `bd` if the identifier is not bound in `bd`.
-    * @see [[Expressions.Let Let]]
-    */
-  def let(vd: ValDef, e: Expr, bd: Expr) = {
-    if ((exprOps.variablesOf(bd) contains vd.toVariable) || !isPure(e))
-      Let(vd, e, bd)
-    else bd
-  }
-
-  /** Wraps the sequence of expressions as a tuple. If the sequence contains a single expression, it is returned instead.
+  /** Wraps the sequence of expressions as a tuple. If the sequence contains a single expression,
+    * it is returned instead.
     * @see [[Expressions.Tuple Tuple]]
     */
   def tupleWrap(es: Seq[Expr]): Expr = es match {
@@ -64,51 +29,6 @@ trait Constructors {
     case Seq() => UnitType
     case Seq(elem) => elem
     case more => TupleType(more)
-  }
-
-  /** Instantiates the type parameters of the function according to argument types
-    * @return A [[Expressions.FunctionInvocation FunctionInvocation]] if it type checks, else throws an error.
-    * @see [[Expressions.FunctionInvocation]]
-    */
-  def functionInvocation(fd: FunDef, args: Seq[Expr]) = {
-    require(fd.params.length == args.length, "Invoking function with incorrect number of arguments")
-
-    val formalType = tupleTypeWrap(fd.params map { _.getType })
-    val actualType = tupleTypeWrap(args map { _.getType })
-
-    symbols.canBeSupertypeOf(formalType, actualType) match {
-      case Some(tmap) =>
-        FunctionInvocation(fd.id, fd.tparams map { tpd => tmap.getOrElse(tpd.tp, tpd.tp) }, args)
-      case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
-    }
-  }
-
-  /** Instantiates the type parameters of the ADT constructor according to argument types
-    * @return A [[Expressions.ADT ADT]] if it type checks, else throws an error
-    * @see [[Expressions.ADT]]
-    */
-  def adtConstruction(adt: ADTConstructor, args: Seq[Expr]) = {
-    require(adt.fields.length == args.length, "Constructing adt with incorrect number of arguments")
-
-    val formalType = tupleTypeWrap(adt.fields.map(_.tpe))
-    val actualType = tupleTypeWrap(args.map(_.getType))
-
-    symbols.canBeSupertypeOf(formalType, actualType) match {
-      case Some(tmap) => ADT(instantiateType(adt.typed.toType, tmap).asInstanceOf[ADTType], args)
-      case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
-    }
-  }
-
-  /** Simplifies the provided case class selector.
-    * @see [[Expressions.ADTSelector ADTSelector]]
-    */
-  def adtSelector(adt: Expr, selector: Identifier): Expr = {
-    adt match {
-      case a @ ADT(tp, fields) if !tp.getADT.hasInvariant =>
-        fields(tp.getADT.toConstructor.definition.selectorID2Index(selector))
-      case _ =>
-        ADTSelector(adt, selector)
-    }
   }
 
   /** $encodingof `&&`-expressions with arbitrary number of operands, and simplified.
@@ -168,7 +88,7 @@ trait Constructors {
   /** $encodingof simplified `!`-expressions .
     * @see [[Expressions.Not Not]]
     */
-  def not(e: Expr): Expr = negate(e)
+  def not(e: Expr): Expr = exprOps.negate(e)
 
   /** $encodingof simplified `... ==> ...` (implication)
     * @see [[Expressions.Implies Implies]]
@@ -194,43 +114,6 @@ trait Constructors {
     }
   }
 
-  /** $encodingof simplified `fn(realArgs)` (function application).
-    * Transforms
-    * {{{ ((x: A, y: B) => g(x, y))(c, d) }}}
-    * into
-    * {{{val x0 = c
-    * val y0 = d
-    * g(x0, y0)}}}
-    * and further simplifies it.
-    * @see [[Expressions.Lambda Lambda]]
-    * @see [[Expressions.Application Application]]
-    */
-  def application(fn: Expr, realArgs: Seq[Expr]): Expr = fn match {
-     case Lambda(formalArgs, body) =>
-      assert(realArgs.size == formalArgs.size, "Invoking lambda with incorrect number of arguments")
-
-      var defs: Seq[(ValDef, Expr)] = Seq()
-
-      val subst = formalArgs.zip(realArgs).map {
-        case (vd, to:Variable) =>
-          vd -> to
-        case (vd, e) =>
-          val fresh = vd.freshen
-          defs :+= (fresh -> e)
-          vd -> fresh.toVariable
-      }.toMap
-
-      defs.foldRight(exprOps.replaceFromSymbols(subst, body)) {
-        case ((vd, bd), body) => let(vd, bd, body)
-      }
-
-    case Assume(pred, l: Lambda) =>
-      assume(pred, application(l, realArgs))
-
-    case _ =>
-      Application(fn, realArgs)
-   }
-
   /** $encodingof simplified `assume(pred, body)` (assumption).
     * Transforms
     * {{{ assume(assume(pred1, pred2), body) }}}
@@ -253,7 +136,7 @@ trait Constructors {
   def forall(args: Seq[ValDef], body: Expr): Expr = body match {
     case BooleanLiteral(true) => BooleanLiteral(true)
     case _ =>
-      val vars = variablesOf(body)
+      val vars = exprOps.variablesOf(body)
       Forall(args.filter(vd => vars(vd.toVariable)), body)
   }
 
@@ -284,7 +167,6 @@ trait Constructors {
     case IntegerLiteral(bi) if bi == 0 => e
     case IntLiteral(0) => e
     case IntegerLiteral(bi) if bi < 0 => IntegerLiteral(-bi)
-    case UMinus(i) if i.getType == IntegerType => i
     case _ => UMinus(e)
   }
 
@@ -301,22 +183,5 @@ trait Constructors {
     case (IntLiteral(0), _) => IntLiteral(0)
     case (_, IntLiteral(0)) => IntLiteral(0)
     case _ => Times(lhs, rhs)
-  }
-
-  /** $encodingof expr.asInstanceOf[tpe], returns `expr` if it already is of type `tpe`.  */
-  def asInstOf(expr: Expr, tpe: ADTType) = {
-    if (symbols.isSubtypeOf(expr.getType, tpe)) {
-      expr
-    } else {
-      AsInstanceOf(expr, tpe)
-    }
-  }
-
-  def isInstOf(expr: Expr, tpe: ADTType) = {
-    if (symbols.isSubtypeOf(expr.getType, tpe)) {
-      BooleanLiteral(true)
-    } else {
-      IsInstanceOf(expr, tpe)
-    }
   }
 }

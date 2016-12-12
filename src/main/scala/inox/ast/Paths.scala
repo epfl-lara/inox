@@ -3,7 +3,7 @@
 package inox
 package ast
 
-trait Paths { self: SymbolOps with TypeOps with Constructors =>
+trait Paths { self: SymbolOps with TypeOps =>
   import trees._
 
   object Path {
@@ -115,7 +115,7 @@ trait Paths { self: SymbolOps with TypeOps with Constructors =>
       */
     def negate: Path = {
       val (outers, rest) = elements.span(_.isLeft)
-      new Path(outers :+ Right(not(fold[Expr](BooleanLiteral(true), let, self.and(_, _))(rest))))
+      new Path(outers :+ Right(not(fold[Expr](BooleanLiteral(true), let, trees.and(_, _))(rest))))
     }
 
     /** Returns a new path which depends ONLY on provided ids.
@@ -180,10 +180,10 @@ trait Paths { self: SymbolOps with TypeOps with Constructors =>
     }
 
     /** Folds the path into a conjunct with the expression `base` */
-    def and(base: Expr) = distributiveClause(base, self.and(_, _))
+    def and(base: Expr) = distributiveClause(base, trees.and(_, _))
 
     /** Fold the path into an implication of `base`, namely `path ==> base` */
-    def implies(base: Expr) = distributiveClause(base, self.implies)
+    def implies(base: Expr) = distributiveClause(base, trees.implies)
 
     /** Folds the path into an expression that shares the path's outer lets
       *
@@ -199,7 +199,7 @@ trait Paths { self: SymbolOps with TypeOps with Constructors =>
       */
     def withShared(es: Seq[Expr], recons: (Expr, Seq[Expr]) => Expr): Expr = {
       val (outers, rest) = elements.span(_.isLeft)
-      val cond = fold[Expr](BooleanLiteral(true), let, self.and(_, _))(rest)
+      val cond = fold[Expr](BooleanLiteral(true), let, trees.and(_, _))(rest)
 
       def wrap(e: Expr): Expr = {
         val bindings = rest.collect { case Left((vd, e)) => vd -> e }

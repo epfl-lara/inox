@@ -145,6 +145,24 @@ trait ExprOps extends GenTreeOps {
     utils.fixpoint(simplePostTransform(simplify0))(expr)
   }
 
+  /** Computes the negation of a boolean formula, with some simplifications. */
+  def negate(expr: Expr) : Expr = {
+    (expr match {
+      case Let(i,b,e) => Let(i,b,negate(e))
+      case Not(e) => e
+      case Implies(e1,e2) => and(e1, negate(e2))
+      case Or(exs) => and(exs map negate: _*)
+      case And(exs) => or(exs map negate: _*)
+      case LessThan(e1,e2) => GreaterEquals(e1,e2)
+      case LessEquals(e1,e2) => GreaterThan(e1,e2)
+      case GreaterThan(e1,e2) => LessEquals(e1,e2)
+      case GreaterEquals(e1,e2) => LessThan(e1,e2)
+      case IfExpr(c,e1,e2) => IfExpr(c, negate(e1), negate(e2))
+      case BooleanLiteral(b) => BooleanLiteral(!b)
+      case e => Not(e)
+    }).setPos(expr)
+  }
+
   /** Simple, local simplification on arithmetic
     *
     * You should not assume anything smarter than some constant folding and

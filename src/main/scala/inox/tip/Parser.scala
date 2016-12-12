@@ -42,7 +42,7 @@ class Parser(file: File) {
 
     (for (cmd <- script.commands) yield cmd match {
       case CheckSat() =>
-        val expr: Expr = locals.symbols.andJoin(assertions)
+        val expr: Expr = andJoin(assertions)
         Some((locals.symbols, expr))
 
       case _ =>
@@ -278,7 +278,7 @@ class Parser(file: File) {
       val (optAdt, fd) = root.invariant(locals.symbols) match {
         case Some(fd) =>
           val Seq(v) = fd.params
-          val fullBody = locals.symbols.and(
+          val fullBody = and(
             fd.fullBody,
             exprOps.replaceFromSymbols(Map(v.toVariable -> vd.toVariable), body).setPos(body)
           ).setPos(body)
@@ -524,8 +524,7 @@ class Parser(file: File) {
     case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("distinct")), None), args) =>
       val es = args.map(extractTerm).toArray
       val indexPairs = args.indices.flatMap(i1 => args.indices.map(i2 => (i1, i2))).filter(p => p._1 != p._2)
-      locals.symbols.andJoin(
-        indexPairs.map(p => Not(Equals(es(p._1), es(p._2)).setPos(term.optPos)).setPos(term.optPos)))
+      andJoin(indexPairs.map(p => Not(Equals(es(p._1), es(p._2)).setPos(term.optPos)).setPos(term.optPos)))
 
     case Core.Equals(e1, e2) => Equals(extractTerm(e1), extractTerm(e2))
     case Core.And(es @ _*) => And(es.map(extractTerm))
