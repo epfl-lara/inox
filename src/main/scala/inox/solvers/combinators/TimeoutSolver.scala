@@ -25,7 +25,7 @@ trait TimeoutSolver extends Solver {
     this
   }
 
-  abstract override def check(config: CheckConfiguration) = {
+  abstract override def check(config: CheckConfiguration): config.Response[Model, Assumptions] = {
     optTimeout match {
       case Some(to) =>
         ti.interruptAfter(to) {
@@ -37,7 +37,7 @@ trait TimeoutSolver extends Solver {
   }
 
   abstract override def checkAssumptions(config: Configuration)
-                                        (assumptions: Set[Expr]) = {
+                                        (assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
     optTimeout match {
       case Some(to) =>
         ti.interruptAfter(to) {

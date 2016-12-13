@@ -95,7 +95,6 @@ def ghProject(repo: String, version: String) = RootProject(uri(s"git://$repo#$ve
 def svnProject(repo: String, version: String, user: String, pass: String) =
   RootProject(uri(s"svn+credentials://$repo#username=$user&password=$pass&$version"))
 
-lazy val bonsai      = ghProject("github.com/colder/bonsai.git",     "10eaaee4ea0ff6567f4f866922cb871bae2da0ac")
 lazy val scalaSmtlib = ghProject("github.com/regb/scala-smtlib.git", "850580ae86e299a1baa0eaef9e24eed905fefe58")
 
 lazy val princess    = svnProject("hal4.it.uu.se/princess/interpolation/trunk", "2703", "anonymous", "anonymous")
@@ -121,13 +120,12 @@ lazy val root = (project in file("."))
     parallelExecution := false
   )) : _*)
   .settings(compile <<= (compile in Compile) dependsOn script)
-  .dependsOn(bonsai)
   .dependsOn(scalaSmtlib)
   .dependsOn(princess)
   .settings(classpathSettings : _*)
   .settings(
     // @nv: ignore warnings from projects that are out of our control
     logLevel in (scalaSmtlib, Compile) := Level.Error,
-    logLevel in (princess, Compile) := Level.Error
+    logLevel in (princess, Compile)    := Level.Error
   )
 

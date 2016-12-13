@@ -3,8 +3,6 @@
 package inox
 package solvers
 
-import inox.grammars.GrammarsUniverse
-
 trait SolverFactory {
   val program: Program
 
@@ -64,13 +62,13 @@ object SolverFactory {
 
   import evaluators._
   import combinators._
+  import unrolling._
 
   val solverNames = Map(
     "nativez3" -> "Native Z3 with z3-templates for unrolling",
     "unrollz3" -> "Native Z3 with inox-templates for unrolling",
     "smt-cvc4" -> "CVC4 through SMT-LIB",
     "smt-z3"   -> "Z3 through SMT-LIB",
-    "enum"     -> "Enumeration-based counter-example finder",
     "princess" -> "Princess with inox unrolling"
   )
 
@@ -78,9 +76,12 @@ object SolverFactory {
                  (p: Program, opts: Options)
                  (ev: DeterministicEvaluator with SolvingEvaluator { val program: p.type },
                   enc: ast.ProgramTransformer {
-                     val sourceProgram: p.type
-                     val targetProgram: Program { val trees: inox.trees.type }
-                  }): SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } } = {
+                    val sourceProgram: p.type
+                    val targetProgram: Program { val trees: inox.trees.type }
+                  }): SolverFactory {
+                    val program: p.type
+                    type S <: TimeoutSolver { val program: p.type }
+                  } = {
     name match {
       case "nativez3" => create(p)(name, () => new {
         val program: p.type = p
@@ -94,7 +95,7 @@ object SolverFactory {
         val program: p.type = p
         val options = opts
         val encoder = enc
-      } with unrolling.UnrollingSolver with theories.Z3Theories with TimeoutSolver with tip.TipDebugger {
+      } with UnrollingSolver with theories.Z3Theories with TimeoutSolver with tip.TipDebugger {
         val evaluator = ev
         lazy val modelEvaluator = RecursiveEvaluator(targetProgram, options + optIgnoreContracts(true))
 
@@ -108,7 +109,7 @@ object SolverFactory {
         val program: p.type = p
         val options = opts
         val encoder = enc
-      } with unrolling.UnrollingSolver with theories.CVC4Theories with TimeoutSolver with tip.TipDebugger {
+      } with UnrollingSolver with theories.CVC4Theories with TimeoutSolver with tip.TipDebugger {
         val evaluator = ev
         lazy val modelEvaluator = RecursiveEvaluator(targetProgram, options + optIgnoreContracts(true))
 
@@ -122,7 +123,7 @@ object SolverFactory {
         val program: p.type = p
         val options = opts
         val encoder = enc
-      } with unrolling.UnrollingSolver with theories.Z3Theories with TimeoutSolver with tip.TipDebugger {
+      } with UnrollingSolver with theories.Z3Theories with TimeoutSolver with tip.TipDebugger {
         val evaluator = ev
         lazy val modelEvaluator = RecursiveEvaluator(targetProgram, options + optIgnoreContracts(true))
 
@@ -140,16 +141,6 @@ object SolverFactory {
         val encoder = enc
       } with princess.PrincessSolver with TimeoutSolver {
         val evaluator = ev
-      })
-
-      case "enum" => create(p)(name, () => new {
-        val program: p.type = p
-        val options = opts
-      } with EnumerationSolver with TimeoutSolver {
-        val evaluator = ev
-        val grammars: GrammarsUniverse {val program: p.type} = new GrammarsUniverse {
-          val program: p.type = p
-        }
       })
 
       case _ => throw FatalError("Unknown solver: " + name)

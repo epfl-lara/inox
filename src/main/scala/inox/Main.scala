@@ -8,7 +8,6 @@ trait MainHelpers {
 
   protected def getDebugSections: Set[DebugSection] = Set(
     ast.DebugSectionTrees,
-    datagen.DebugSectionDataGen,
     solvers.DebugSectionSolver
   )
 
