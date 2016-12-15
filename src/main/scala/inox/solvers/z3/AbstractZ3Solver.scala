@@ -397,7 +397,7 @@ trait AbstractZ3Solver
               case Seq(tcons) =>
                 rec(IsInstanceOf(e, tcons.toType))
               case more =>
-                val v = Variable(FreshIdentifier("e", true), adt)
+                val v = Variable.fresh("e", adt, true)
                 rec(Let(v.toVal, e, orJoin(more map (tcons => IsInstanceOf(v, tcons.toType)))))
             }
           case tcons: TypedADTConstructor =>
@@ -571,7 +571,7 @@ trait AbstractZ3Solver
               case TupleType(ts) =>
                 tupleWrap(args.zip(ts).map { case (a, t) => rec(a, t) })
 
-              case tp @ TypeParameter(id) =>
+              case tp: TypeParameter =>
                 val IntegerLiteral(n) = rec(args(0), IntegerType)
                 GenericValue(tp, n.toInt)
 

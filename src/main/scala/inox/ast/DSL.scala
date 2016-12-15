@@ -241,7 +241,7 @@ trait DSL {
               (tParamNames: String*)
               (builder: Seq[TypeParameter] => (Seq[ValDef], Type, Seq[Variable] => Expr)) = {
     val tParams = tParamNames map TypeParameter.fresh
-    val tParamDefs = tParams map TypeParameterDef
+    val tParamDefs = tParams map (TypeParameterDef(_))
     val (params, retType, bodyBuilder) = builder(tParams)
     val body = bodyBuilder(params map (_.toVariable))
 
@@ -252,7 +252,7 @@ trait DSL {
             (tParamNames: String*)
             (cons: Seq[Identifier]) = {
     val tParams = tParamNames map TypeParameter.fresh
-    val tParamDefs = tParams map TypeParameterDef
+    val tParamDefs = tParams map (TypeParameterDef(_))
     new ADTSort(id, tParamDefs, cons, Set())
   }
 
@@ -261,7 +261,7 @@ trait DSL {
                    (sort: Option[Identifier])
                    (fieldBuilder: Seq[TypeParameter] => Seq[ValDef]) = {
     val tParams = tParamNames map TypeParameter.fresh
-    val tParamDefs = tParams map TypeParameterDef
+    val tParamDefs = tParams map (TypeParameterDef(_))
     val fields = fieldBuilder(tParams)
     new ADTConstructor(id, tParamDefs, sort, fields, Set())
   }

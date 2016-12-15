@@ -39,7 +39,7 @@ trait FunctionTemplates { self: Templates =>
 
       val callEqBody: Seq[(Expr, Expr)] = liftedEquals(call, lambdaBody, lambdaArgs) :+ (call -> lambdaBody)
 
-      val start = Variable(FreshIdentifier("start", true), BooleanType)
+      val start = Variable.fresh("start", BooleanType, true)
       val pathVar = start -> encodeSymbol(start)
       val arguments = (fdArgs ++ lambdaArgs).map(v => v -> encodeSymbol(v))
       val substMap = arguments.toMap + pathVar
@@ -135,7 +135,7 @@ trait FunctionTemplates { self: Templates =>
   private val callCache: MutableMap[(TypedFunDef, SelectorPath), (Seq[Encoded], Encoded)] = MutableMap.empty
   protected def mkCall(tfd: TypedFunDef, path: SelectorPath, args: Seq[Encoded]): Encoded = {
     val (asT, call) = callCache.getOrElseUpdate(tfd -> path, {
-      val as = flatTypes(tfd, path)._1.map(tpe => Variable(FreshIdentifier("x", true), tpe))
+      val as = flatTypes(tfd, path)._1.map(tpe => Variable.fresh("x", tpe, true))
       val asT = as.map(encodeSymbol)
 
       val (fdArgs, appArgs) = as.splitAt(tfd.params.size)
@@ -195,7 +195,7 @@ trait FunctionTemplates { self: Templates =>
 
           case None =>
             // we need to define this defBlocker and link it to definition
-            val defBlocker = encodeSymbol(Variable(FreshIdentifier("d", true), BooleanType))
+            val defBlocker = encodeSymbol(Variable.fresh("d", BooleanType, true))
 
             // we generate helper equality clauses that stem from purity
             for ((pcall, pblocker) <- defBlockers if pcall.tfd == tfd && pcall.path == path) {

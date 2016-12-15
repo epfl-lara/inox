@@ -132,7 +132,7 @@ trait Paths { self: SymbolOps with TypeOps =>
       */
     def filterByIds(ids: Set[Identifier]): Path = {
       def containsIds(ids: Set[Identifier])(e: Expr): Boolean = exprOps.exists {
-        case Variable(id, _) => ids.contains(id)
+        case Variable(id, _, _) => ids.contains(id)
         case _ => false
       }(e)
       

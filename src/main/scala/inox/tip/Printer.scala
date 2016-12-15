@@ -241,7 +241,7 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
   }
 
   override protected def toSMT(e: Expr)(implicit bindings: Map[Identifier, Term]): Term = e match {
-    case v @ Variable(id, tp) =>
+    case v @ Variable(id, tp, flags) =>
       val sort = declareSort(tp)
       bindings.get(id) orElse variables.getB(v).map(s => s: Term) getOrElse {
         val tps = typeParamsOf(tp).toSeq

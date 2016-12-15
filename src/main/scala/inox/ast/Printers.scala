@@ -100,7 +100,7 @@ trait Printers {
   }
 
   protected def ppBody(tree: Tree)(implicit ctx: PrinterContext): Unit = tree match {
-    case Variable(id, _) =>
+    case Variable(id, _, _) =>
       p"$id"
 
     case Let(vd, expr, SubString(v2: Variable, start, StringLength(v3: Variable))) if vd.toVariable == v2 && v2 == v3 =>
@@ -263,14 +263,21 @@ trait Printers {
 
     case Not(expr) => p"\u00AC$expr"
 
-    case vd @ ValDef(id, tpe) =>
-      p"$id: $tpe"
+    case vd @ ValDef(id, tpe, flags) =>
+      if (flags.isEmpty) {
+        p"$id: $tpe"
+      } else {
+        p"($id: $tpe)"
+        for (f <- flags) p" @${f.asString(ctx.opts)}"
+      }
 
     case (tfd: TypedFunDef) => p"typed def ${tfd.id}[${tfd.tps}]"
     case (afd: TypedADTDefinition) => p"typed class ${afd.id}[${afd.tps}]"
 
-    case TypeParameterDef(tp) => p"$tp"
-    case TypeParameter(id) => p"$id"
+    case tpd: TypeParameterDef => p"${tpd.tp}"
+    case TypeParameter(id, flags) =>
+      p"$id"
+      for (f <- flags) p" @${f.asString(ctx.opts)}"
 
     case IfExpr(c, t, ie: IfExpr) =>
       optP {

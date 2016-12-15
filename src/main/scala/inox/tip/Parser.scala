@@ -136,12 +136,12 @@ class Parser(file: File) {
 
     case DeclareConst(sym, sort) =>
       (None, locals.withVariable(sym,
-        Variable(FreshIdentifier(sym.name), extractSort(sort)).setPos(sym.optPos)))
+        Variable.fresh(sym.name, extractSort(sort)).setPos(sym.optPos)))
 
     case DeclareConstPar(tps, sym, sort) =>
       val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
       (None, locals.withVariable(sym,
-        Variable(FreshIdentifier(sym.name), extractSort(sort)(tpsLocals)).setPos(sym.optPos)))
+        Variable.fresh(sym.name, extractSort(sort)(tpsLocals)).setPos(sym.optPos)))
 
     case DefineFun(funDef) =>
       val fd = extractFunction(funDef, Seq.empty)
@@ -394,7 +394,7 @@ class Parser(file: File) {
 
     case QualifiedIdentifier(SimpleIdentifier(sym), Some(sort)) if locals.isVariable(sym) =>
       val v = locals.getVariable(sym).asInstanceOf[Variable]
-      Variable(v.id, extractSort(sort))
+      Variable(v.id, extractSort(sort), v.flags)
 
     case SMTAssume(pred, body) =>
       Assume(extractTerm(pred), extractTerm(body))

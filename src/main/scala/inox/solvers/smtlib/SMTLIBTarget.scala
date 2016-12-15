@@ -247,13 +247,13 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
 
   protected def toSMT(e: Expr)(implicit bindings: Map[Identifier, Term]): Term = {
     e match {
-      case v @ Variable(id, tp) =>
+      case v @ Variable(id, tp, flags) =>
         declareSort(tp)
         bindings.getOrElse(id, variables.toB(v))
 
       case UnitLiteral() =>
         declareSort(UnitType)
-        declareVariable(Variable(FreshIdentifier("Unit"), UnitType))
+        declareVariable(Variable.fresh("Unit", UnitType))
 
       case IntegerLiteral(i)     => if (i >= 0) Ints.NumeralLit(i) else Ints.Neg(Ints.NumeralLit(-i))
       case BVLiteral(bits, size) => FixedSizeBitVectors.BitVectorLit(List.range(1, size + 1).map(i => bits(size + 1 - i)))
@@ -634,7 +634,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
             val rargs = args.zip(tt.bases).map(fromSMT)
             tupleWrap(rargs)
 
-          case tp @ TypeParameter(id) =>
+          case tp: TypeParameter =>
             val IntegerLiteral(n) = fromSMT(args(0), IntegerType)
             GenericValue(tp, n.toInt)
 

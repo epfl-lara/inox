@@ -56,10 +56,18 @@ trait Expressions { self: Trees =>
     *
     * @param id The identifier of this variable
     */
-  case class Variable(id: Identifier, tpe: Type) extends Expr with Terminal with VariableSymbol {
+  case class Variable(id: Identifier, tpe: Type, flags: Set[Flag]) extends Expr with Terminal with VariableSymbol {
     /** Transforms this [[Variable]] into a [[Definitions.ValDef ValDef]] */
     def toVal = to[ValDef]
-    def freshen = Variable(id.freshen, tpe)
+    def freshen = Variable(id.freshen, tpe, flags)
+
+    override def equals(that: Any) = super[VariableSymbol].equals(that)
+    override def hashCode = super[VariableSymbol].hashCode
+  }
+
+  object Variable {
+    def fresh(name: String, tpe: Type, alwaysShowUniqueID: Boolean = false) =
+      Variable(FreshIdentifier(name, alwaysShowUniqueID), tpe, Set.empty)
   }
 
 

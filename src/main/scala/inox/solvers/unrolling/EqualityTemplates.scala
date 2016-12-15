@@ -45,7 +45,7 @@ trait EqualityTemplates { self: Templates =>
   def equalitySymbol(tpe: Type): (Variable, Encoded) = {
     val rt = bestRealType(tpe)
     typeSymbols.cached(rt) {
-      val v = Variable(FreshIdentifier("eq" + rt), FunctionType(Seq(rt, rt), BooleanType))
+      val v = Variable.fresh("eq" + rt, FunctionType(Seq(rt, rt), BooleanType))
       v -> encodeSymbol(v)
     }
   }
@@ -75,10 +75,10 @@ trait EqualityTemplates { self: Templates =>
 
     def apply(tpe: Type): EqualityTemplate = cache.getOrElseUpdate(tpe, {
       val (f, fT) = equalitySymbol(tpe)
-      val args @ Seq(e1, e2) = Seq("e1", "e2").map(s => Variable(FreshIdentifier(s), tpe))
+      val args @ Seq(e1, e2) = Seq("e1", "e2").map(s => Variable.fresh(s, tpe))
       val argsT = args.map(encodeSymbol)
 
-      val pathVar = Variable(FreshIdentifier("b", true), BooleanType)
+      val pathVar = Variable.fresh("b", BooleanType, true)
       val pathVarT = encodeSymbol(pathVar)
 
       val tmplClauses = mkClauses(pathVar, Equals(Application(f, args), tpe match {

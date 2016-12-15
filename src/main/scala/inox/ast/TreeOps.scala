@@ -30,9 +30,15 @@ trait TreeOps { self: Trees =>
   }
 
   trait TreeTraverser {
-    def traverse(vd: ValDef): Unit = traverse(vd.tpe)
+    def traverse(vd: ValDef): Unit = {
+      traverse(vd.tpe)
+      vd.flags.foreach(traverse)
+    }
 
-    def traverse(v: Variable): Unit = traverse(v.tpe)
+    def traverse(v: Variable): Unit = {
+      traverse(v.tpe)
+      v.flags.foreach(traverse)
+    }
 
     def traverse(e: Expr): Unit = {
       val (vs, es, tps, _) = deconstructor.deconstruct(e)
@@ -42,7 +48,14 @@ trait TreeOps { self: Trees =>
     }
 
     def traverse(tpe: Type): Unit = {
-      val (tps, _) = deconstructor.deconstruct(tpe)
+      val (tps, flags, _) = deconstructor.deconstruct(tpe)
+      tps.foreach(traverse)
+      flags.foreach(traverse)
+    }
+
+    def traverse(flag: Flag): Unit = {
+      val (es, tps, _) = deconstructor.deconstruct(flag)
+      es.foreach(traverse)
       tps.foreach(traverse)
     }
   }
@@ -60,20 +73,30 @@ trait TreeTransformer {
   def transform(id: Identifier, tpe: s.Type): (Identifier, t.Type) = (id, transform(tpe))
 
   def transform(vd: s.ValDef): t.ValDef = {
-    val (id, es, Seq(tpe), builder) = deconstructor.deconstruct(vd)
+    val s.ValDef(id, tpe, flags) = vd
     val (newId, newTpe) = transform(id, tpe)
 
     var changed = false
-    val newEs = for (e <- es) yield {
-      val newE = transform(e)
-      if (e ne newE) changed = true
-      newE
+    val newFlags = for (f <- flags) yield {
+      val newFlag = transform(f)
+      if (f ne newFlag) changed = true
+      newFlag
     }
 
     if ((id ne newId) || (tpe ne newTpe) || changed || (s ne t)) {
-      builder(newId, newEs, Seq(newTpe)).copiedFrom(vd).asInstanceOf[t.ValDef]
+      t.ValDef(newId, newTpe, newFlags).copiedFrom(vd)
     } else {
       vd.asInstanceOf[t.ValDef]
+    }
+  }
+
+  def transform(tpd: s.TypeParameterDef): t.TypeParameterDef = {
+    val newTp = transform(tpd.tp)
+
+    if ((tpd.tp ne newTp) || (s ne t)) {
+      t.TypeParameterDef(newTp.asInstanceOf[t.TypeParameter])
+    } else {
+      tpd.asInstanceOf[t.TypeParameterDef]
     }
   }
 
@@ -82,9 +105,10 @@ trait TreeTransformer {
 
     var changed = false
     val newVs = for (v <- vs) yield {
-      val newV = transformVariable(v)
-      if (v ne newV) changed = true
-      newV
+      val vd = v.toVal
+      val newVd = transform(vd)
+      if (vd ne newVd) changed = true
+      newVd.toVariable
     }
 
     val newEs = for (e <- es) yield {
@@ -107,7 +131,7 @@ trait TreeTransformer {
   }
 
   def transform(tpe: s.Type): t.Type = {
-    val (tps, builder) = deconstructor.deconstruct(tpe)
+    val (tps, flags, builder) = deconstructor.deconstruct(tpe)
 
     var changed = false
     val newTps = for (tp <- tps) yield {
@@ -116,8 +140,14 @@ trait TreeTransformer {
       newTp
     }
 
+    val newFlags = for (f <- flags) yield {
+      val newFlag = transform(f)
+      if (f ne newFlag) changed = true
+      newFlag
+    }
+
     if (changed || (s ne t)) {
-      builder(newTps).copiedFrom(tpe)
+      builder(newTps, newFlags).copiedFrom(tpe)
     } else {
       tpe.asInstanceOf[t.Type]
     }
@@ -146,26 +176,11 @@ trait TreeTransformer {
     }
   }
 
-  /* Type parameters can't be modified by transformed but they need to be
-   * translated into the new tree definitions given by `t`. */
-  @inline
-  final def transformTypeParams(tparams: Seq[s.TypeParameterDef]): Seq[t.TypeParameterDef] = {
-    if (s eq t) tparams.asInstanceOf[Seq[t.TypeParameterDef]]
-    else tparams.map(tdef => t.TypeParameterDef(t.TypeParameter(tdef.id)))
-  }
-
-  @inline
-  final def transformVariable(v: s.Variable): t.Variable = {
-    val (nid, ntpe) = transform(v.id, v.tpe)
-    if ((v.id ne nid) || (v.tpe ne ntpe) || (s ne t)) t.Variable(nid, ntpe).copiedFrom(v)
-    else v.asInstanceOf[t.Variable]
-  }
-
   final def transform(fd: s.FunDef): t.FunDef = {
     new t.FunDef(
       fd.id,
-      transformTypeParams(fd.tparams),
-      fd.params.map(transform),
+      fd.tparams map transform,
+      fd.params map transform,
       transform(fd.returnType),
       transform(fd.fullBody),
       fd.flags map transform
@@ -177,14 +192,14 @@ trait TreeTransformer {
 
     case sort: s.ADTSort => new t.ADTSort(
       sort.id,
-      transformTypeParams(sort.tparams),
+      sort.tparams map transform,
       sort.cons,
       sort.flags map transform
     )
 
     case cons: s.ADTConstructor => new t.ADTConstructor(
       cons.id,
-      transformTypeParams(cons.tparams),
+      cons.tparams map transform,
       cons.sort,
       cons.fields map transform,
       cons.flags map transform

@@ -24,10 +24,10 @@ trait ScopeSimplifier extends Transformer {
   }
 
   protected def genId(vd: ValDef, scope: Scope): ValDef = {
-    val ValDef(id, tp) = vd
+    val ValDef(id, tp, flags) = vd
     val existCount = scope.inScope.count(_.id.name == id.name)
 
-    ValDef(FreshIdentifier.forceId(id.name, existCount, existCount >= 1), tp)
+    ValDef(FreshIdentifier.forceId(id.name, existCount, existCount >= 1), tp, flags)
   }
 
   protected def rec(e: Expr, scope: Scope): Expr = e match {

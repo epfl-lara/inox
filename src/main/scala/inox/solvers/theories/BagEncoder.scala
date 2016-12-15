@@ -98,7 +98,8 @@ trait BagEncoder extends SimpleEncoder {
   }
 
   val bagADT: ADTConstructor = {
-    val tparams @ Seq(TypeParameterDef(tp)) = Seq(TypeParameterDef(TypeParameter.fresh("T")))
+    val tparams = Seq(TypeParameterDef(TypeParameter.fresh("T")))
+    val tp = tparams.head.tp
     new ADTConstructor(BagID, tparams, None,
       Seq(ValDef(keys, SetType(tp)), ValDef(f, tp =>: IntegerType)),
       Set(HasADTEquality(EqualsID))

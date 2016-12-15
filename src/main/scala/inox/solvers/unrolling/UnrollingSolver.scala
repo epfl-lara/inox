@@ -208,7 +208,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
             (Seq(v -> ft), es => es.head)
 
           case TupleType(tps) =>
-            val id = Variable(FreshIdentifier("tuple"), tpe)
+            val id = Variable.fresh("tuple", tpe)
             val encoder = templates.mkEncoder(Map(id -> v)) _
             reconstruct(tps.zipWithIndex.map {
               case (tpe, index) => rec(encoder(TupleSelect(id, index + 1)), tpe)
@@ -216,7 +216,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
           case tpe @ ADTType(sid, tps) =>
             val adt = ADTType(wrapped.extractConstructor(v, tpe).get, tps)
-            val id = Variable(FreshIdentifier("adt"), adt)
+            val id = Variable.fresh("adt", adt)
             val encoder = templates.mkEncoder(Map(id -> v)) _
             reconstruct(adt.getADT.toConstructor.fields.map {
               vd => rec(encoder(ADTSelector(id, vd.id)), vd.tpe)

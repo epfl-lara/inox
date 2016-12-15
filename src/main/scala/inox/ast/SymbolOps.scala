@@ -128,18 +128,18 @@ trait SymbolOps { self: TypeOps =>
           typedIds(tpe) = typedIds(tpe) :+ x
           x
       }
-      if (store) subst += Variable(newId, tpe) -> e
+      if (store) subst += Variable(newId, tpe, Set.empty) -> e
       newId
     }
 
     def transformId(id: Identifier, tpe: Type, store: Boolean = true): Identifier =
-      subst.get(Variable(id, tpe)) match {
-        case Some(Variable(newId, _)) => newId
+      subst.get(Variable(id, tpe, Set.empty)) match {
+        case Some(Variable(newId, _, _)) => newId
         case Some(_) => id
         case None => varSubst.get(id) match {
           case Some(newId) => newId
           case None =>
-            val newId = getId(Variable(id, tpe), store = store)
+            val newId = getId(Variable(id, tpe, Set.empty), store = store)
             varSubst += id -> newId
             newId
         }
@@ -183,7 +183,7 @@ trait SymbolOps { self: TypeOps =>
         val vs = variablesOf(e)
         val bindings = path.bindings.map(p => p._1.toVariable -> p._2).toMap
         (tvars & (vs.flatMap { v =>
-          val tv = varSubst.get(v.id).map(Variable(_, v.tpe))
+          val tv = varSubst.get(v.id).map(Variable(_, v.tpe, v.flags))
           tv.toSet ++ tv.flatMap(v => bindings.get(v)).toSet.flatMap(variablesOf)
         })).isEmpty
       }
@@ -248,8 +248,8 @@ trait SymbolOps { self: TypeOps =>
         val initEnv = Path.empty
 
         override protected def rec(e: Expr, path: Path): Expr = e match {
-          case Variable(id, tpe) =>
-            Variable(transformId(id, tpe), tpe)
+          case Variable(id, tpe, flags) =>
+            Variable(transformId(id, tpe), tpe, flags)
 
           case (_: Application) | (_: MultiplicityInBag) | (_: ElementOfSet) | (_: MapApply) if (
             !isLocal(e, path) &&
@@ -265,14 +265,14 @@ trait SymbolOps { self: TypeOps =>
             ((isSatisfiable(path) contains true) || isPure(e))
           ) =>
             val newId = getId(e)
-            rec(replaceFromSymbols(Map(vd.toVariable -> Variable(newId, vd.tpe)), b), path)
+            rec(replaceFromSymbols(Map(vd.toVariable -> Variable(newId, vd.tpe, Set.empty)), b), path)
 
           case expr if (
             isLocal(expr, path) &&
             (isSimple(expr) || !onlySimple) &&
             ((isSatisfiable(path) contains true) || isPure(expr))
           ) =>
-            Variable(getId(expr), expr.getType)
+            Variable(getId(expr), expr.getType, Set.empty)
 
           case f: Forall =>
             val newBody = outer(vars ++ f.args.map(_.toVariable), f.body)

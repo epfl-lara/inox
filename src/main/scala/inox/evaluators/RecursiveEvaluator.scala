@@ -115,7 +115,7 @@ trait RecursiveEvaluator
     case ADT(adt, args) =>
       val cc = ADT(adt, args.map(e))
       if (!ignoreContracts) adt.getADT.invariant.foreach { tfd =>
-        val v = Variable(FreshIdentifier("x", true), adt)
+        val v = Variable.fresh("x", adt, true)
         e(tfd.applied(Seq(v)))(rctx.withNewVar(v.toVal, cc), gctx) match {
           case BooleanLiteral(true) =>
           case BooleanLiteral(false) =>

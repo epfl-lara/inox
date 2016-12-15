@@ -36,17 +36,18 @@ trait Definitions { self: Trees =>
   protected[ast] trait VariableSymbol extends Tree with Typed {
     val id: Identifier
     val tpe: Type
+    val flags: Set[Flag]
 
     def getType(implicit s: Symbols): Type = tpe
 
     def to[A <: VariableSymbol](implicit ev: VariableConverter[A]): A = ev.convert(this)
 
     override def equals(that: Any): Boolean = that match {
-      case vs: VariableSymbol => id == vs.id && tpe == vs.tpe
+      case vs: VariableSymbol => id == vs.id && tpe == vs.tpe && flags == vs.flags
       case _ => false
     }
 
-    override def hashCode: Int = 61 * id.hashCode + tpe.hashCode
+    override def hashCode: Int = 61 * id.hashCode + 31 * tpe.hashCode + flags.hashCode
   }
 
   implicit def variableSymbolOrdering[VS <: VariableSymbol]: Ordering[VS] =
@@ -59,29 +60,41 @@ trait Definitions { self: Trees =>
   implicit def convertToVal = new VariableConverter[ValDef] {
     def convert(vs: VariableSymbol): ValDef = vs match {
       case v: ValDef => v
-      case _ => ValDef(vs.id, vs.tpe).copiedFrom(vs)
+      case _ => ValDef(vs.id, vs.tpe, vs.flags).copiedFrom(vs)
     }
   }
 
   implicit def convertToVariable = new VariableConverter[Variable] {
     def convert(vs: VariableSymbol): Variable = vs match {
       case v: Variable => v
-      case _ => Variable(vs.id, vs.tpe).copiedFrom(vs)
+      case _ => Variable(vs.id, vs.tpe, vs.flags).copiedFrom(vs)
     }
   }
 
   /** 
     * A ValDef declares a formal parameter (with symbol [[id]]) to be of a certain type.
     */
-  case class ValDef(id: Identifier, tpe: Type) extends Definition with VariableSymbol {
-    /** Transform this [[ValDef]] into a [[Expressions.Variable Variable]] */
-    def toVariable: Variable = to[Variable]
-    def freshen: ValDef = ValDef(id.freshen, tpe).copiedFrom(this)
+  class ValDef(v: Variable) extends Definition with VariableSymbol {
+    lazy val id = v.id
+    lazy val tpe = v.tpe
+    lazy val flags = v.flags
 
-    val flags: Set[Flag] = Set.empty
+    /** Transform this [[ValDef]] into a [[Expressions.Variable Variable]] */
+    def toVariable: Variable = v
+    def freshen: ValDef = new ValDef(v.freshen).copiedFrom(this)
 
     override def equals(that: Any): Boolean = super[VariableSymbol].equals(that)
     override def hashCode: Int = super[VariableSymbol].hashCode
+
+    override def toString: String = s"ValDef($id, $tpe, $flags)"
+
+    def copy(id: Identifier = id, tpe: Type = tpe, flags: Set[Flag] = flags): ValDef =
+      new ValDef(v.copy(id = id, tpe = tpe, flags = flags))
+  }
+
+  object ValDef {
+    def apply(id: Identifier, tpe: Type, flags: Set[Flag] = Set.empty) = new ValDef(Variable(id, tpe, flags))
+    def unapply(vd: ValDef): Option[(Identifier, Type, Set[Flag])] = Some((vd.id, vd.tpe, vd.flags))
   }
 
   type Symbols >: Null <: AbstractSymbols
@@ -148,9 +161,26 @@ trait Definitions { self: Trees =>
     def withADTs(adts: Seq[ADTDefinition]): Symbols
   }
 
-  case class TypeParameterDef(tp: TypeParameter) extends Definition {
-    def freshen = TypeParameterDef(tp.freshen)
-    val id = tp.id
+  class TypeParameterDef(val tp: TypeParameter) extends Definition {
+    lazy val id = tp.id
+    lazy val flags = tp.flags
+
+    def freshen = new TypeParameterDef(tp.freshen)
+
+    override def equals(that: Any): Boolean = that match {
+      case tpd: TypeParameterDef => tp == tpd.tp
+      case _ => false
+    }
+
+    override def hashCode: Int = tp.hashCode
+
+    override def toString: String = s"TypeParameterDef($tp)"
+  }
+
+  object TypeParameterDef {
+    def apply(tp: TypeParameter) = new TypeParameterDef(tp)
+    def apply(id: Identifier, flags: Set[Flag] = Set.empty) = new TypeParameterDef(TypeParameter(id, flags))
+    def unapply(tpd: TypeParameterDef): Option[(Identifier, Set[Flag])] = Some((tpd.id, tpd.flags))
   }
 
   /** Represents source code annotations and some other meaningful flags.

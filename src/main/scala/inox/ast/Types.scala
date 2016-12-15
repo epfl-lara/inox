@@ -51,11 +51,11 @@ trait Types { self: Trees =>
     override def toString = "Int32Type"
   }
 
-  case class TypeParameter(id: Identifier) extends Type {
-    def freshen = new TypeParameter(id.freshen)
+  case class TypeParameter(id: Identifier, flags: Set[Flag]) extends Type {
+    def freshen = TypeParameter(id.freshen, flags)
 
     override def equals(that: Any) = that match {
-      case TypeParameter(id) => this.id == id
+      case tp: TypeParameter => id == tp.id
       case _ => false
     }
 
@@ -63,7 +63,7 @@ trait Types { self: Trees =>
   }
 
   object TypeParameter {
-    def fresh(name: String) = new TypeParameter(FreshIdentifier(name))
+    def fresh(name: String) = TypeParameter(FreshIdentifier(name), Set.empty)
   }
 
   /* 
@@ -97,7 +97,8 @@ trait Types { self: Trees =>
     type Target = Type
 
     def unapply(t: Type): Option[(Seq[Type], Seq[Type] => Type)] = {
-      Some(deconstructor.deconstruct(t))
+      val (tps, flags, recons) = deconstructor.deconstruct(t)
+      Some((tps, tps => recons(tps, flags)))
     }
   }
 
@@ -110,11 +111,3 @@ trait Types { self: Trees =>
   }
 }
 
-trait TypeDeconstructor extends TreeExtractor with TreeDeconstructor {
-  type Source = s.Type
-  type Target = t.Type
-
-  def unapply(tp: s.Type): Option[(Seq[s.Type], Seq[t.Type] => t.Type)] = {
-    Some(deconstruct(tp))
-  }
-}

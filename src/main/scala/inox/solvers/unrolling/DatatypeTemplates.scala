@@ -121,8 +121,8 @@ trait DatatypeTemplates { self: Templates =>
     protected trait Builder {
       val tpe: Type
 
-      val v = Variable(FreshIdentifier("x", true), tpe)
-      val pathVar = Variable(FreshIdentifier("b", true), BooleanType)
+      val v = Variable.fresh("x", tpe, true)
+      val pathVar = Variable.fresh("b", BooleanType, true)
       val (idT, pathVarT) = (encodeSymbol(v), encodeSymbol(pathVar))
 
       private var exprVars = Map[Variable, Encoded]()
@@ -185,7 +185,7 @@ trait DatatypeTemplates { self: Templates =>
               val tpe = tcons.toType
 
               if (unroll(tpe)) {
-                val newBool: Variable = Variable(FreshIdentifier("b", true), BooleanType)
+                val newBool: Variable = Variable.fresh("b", BooleanType, true)
                 storeCond(pathVar, newBool)
 
                 for (vd <- tcons.fields) {
@@ -206,10 +206,10 @@ trait DatatypeTemplates { self: Templates =>
           }
 
         case MapType(from, to) =>
-          val newBool: Variable = Variable(FreshIdentifier("b", true), BooleanType)
+          val newBool: Variable = Variable.fresh("b", BooleanType, true)
           storeCond(pathVar, newBool)
 
-          val dfltExpr: Variable = Variable(FreshIdentifier("dlft", true), to)
+          val dfltExpr: Variable = Variable.fresh("dlft", to, true)
           storeExpr(dfltExpr)
 
           iff(and(pathVar, Not(Equals(expr, FiniteMap(Seq.empty, dfltExpr, from, to)))), newBool)
@@ -218,9 +218,9 @@ trait DatatypeTemplates { self: Templates =>
           if (!state.recurseMap) {
             storeType(newBool, MapInfo(from, to), expr)
           } else {
-            val keyExpr: Variable = Variable(FreshIdentifier("key", true), from)
-            val valExpr: Variable = Variable(FreshIdentifier("val", true), to)
-            val restExpr: Variable = Variable(FreshIdentifier("rest", true), MapType(from, to))
+            val keyExpr: Variable = Variable.fresh("key", from, true)
+            val valExpr: Variable = Variable.fresh("val", to, true)
+            val restExpr: Variable = Variable.fresh("rest", MapType(from, to), true)
             storeExpr(keyExpr)
             storeExpr(valExpr)
             storeExpr(restExpr)
@@ -232,7 +232,7 @@ trait DatatypeTemplates { self: Templates =>
           }
 
         case SetType(base) =>
-          val newBool: Variable = Variable(FreshIdentifier("b", true), BooleanType)
+          val newBool: Variable = Variable.fresh("b", BooleanType, true)
           storeCond(pathVar, newBool)
 
           iff(and(pathVar, Not(Equals(expr, FiniteSet(Seq.empty, base)))), newBool)
@@ -240,8 +240,8 @@ trait DatatypeTemplates { self: Templates =>
           if (!state.recurseSet) {
             storeType(newBool, SetInfo(base), expr)
           } else {
-            val elemExpr: Variable = Variable(FreshIdentifier("elem", true), base)
-            val restExpr: Variable = Variable(FreshIdentifier("rest", true), SetType(base))
+            val elemExpr: Variable = Variable.fresh("elem", base, true)
+            val restExpr: Variable = Variable.fresh("rest", SetType(base), true)
             storeExpr(elemExpr)
             storeExpr(restExpr)
 
@@ -251,7 +251,7 @@ trait DatatypeTemplates { self: Templates =>
           }
 
         case BagType(base) =>
-          val newBool: Variable = Variable(FreshIdentifier("b", true), BooleanType)
+          val newBool: Variable = Variable.fresh("b", BooleanType, true)
           storeCond(pathVar, newBool)
 
           iff(and(pathVar, Not(Equals(expr, FiniteBag(Seq.empty, base)))), newBool)
@@ -259,9 +259,9 @@ trait DatatypeTemplates { self: Templates =>
           if (!state.recurseBag) {
             storeType(pathVar, BagInfo(base), expr)
           } else {
-            val elemExpr: Variable = Variable(FreshIdentifier("elem", true), base)
-            val multExpr: Variable = Variable(FreshIdentifier("mult", true), IntegerType)
-            val restExpr: Variable = Variable(FreshIdentifier("rest", true), BagType(base))
+            val elemExpr: Variable = Variable.fresh("elem", base, true)
+            val multExpr: Variable = Variable.fresh("mult", IntegerType, true)
+            val restExpr: Variable = Variable.fresh("rest", BagType(base), true)
             storeExpr(elemExpr)
             storeExpr(multExpr)
             storeExpr(restExpr)
@@ -562,8 +562,8 @@ trait DatatypeTemplates { self: Templates =>
     private val ordCache: MutableMap[FunctionType, Encoded => Encoded] = MutableMap.empty
 
     private val lessThan: (Encoded, Encoded) => Encoded = {
-      val l = Variable(FreshIdentifier("left"), IntegerType)
-      val r = Variable(FreshIdentifier("right"), IntegerType)
+      val l = Variable.fresh("left", IntegerType)
+      val r = Variable.fresh("right", IntegerType)
       val (lT, rT) = (encodeSymbol(l), encodeSymbol(r))
 
       val encoded = mkEncoder(Map(l -> lT, r -> rT))(LessThan(l, r))
@@ -571,8 +571,8 @@ trait DatatypeTemplates { self: Templates =>
     }
 
     private def order(tpe: FunctionType): Encoded => Encoded = ordCache.getOrElseUpdate(tpe, {
-      val a = Variable(FreshIdentifier("arg"), tpe)
-      val o = Variable(FreshIdentifier("order", true), FunctionType(Seq(tpe), IntegerType))
+      val a = Variable.fresh("arg", tpe)
+      val o = Variable.fresh("order", FunctionType(Seq(tpe), IntegerType), true)
       val (aT, oT) = (encodeSymbol(a), encodeSymbol(o))
       val encoded = mkEncoder(Map(a -> aT, o -> oT))(Application(o, Seq(a)))
       (na: Encoded) => mkSubstituter(Map(aT -> na))(encoded)
@@ -586,7 +586,7 @@ trait DatatypeTemplates { self: Templates =>
       })
 
       val ctpe = bestRealType(containerType).asInstanceOf[FunctionType]
-      val container = Variable(FreshIdentifier("container", true), ctpe)
+      val container = Variable.fresh("container", ctpe, true)
       val containerT = encodeSymbol(container)
 
       val typeBlockers: TypeBlockers = types.map { case (blocker, tps) =>

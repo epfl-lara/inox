@@ -20,12 +20,6 @@ trait TreeDeconstructor {
   protected val s: Trees
   protected val t: Trees
 
-  // Basically only provided for ValDefs, but could be extended to other
-  // definitions if the users wish to
-  def deconstruct(d: s.Definition): (Identifier, Seq[s.Expr], Seq[s.Type], (Identifier, Seq[t.Expr], Seq[t.Type]) => t.Definition) = d match {
-    case s.ValDef(id, tpe) => (id, Seq.empty, Seq(tpe), (id, es, tps) => t.ValDef(id, tps.head))
-  }
-
   def deconstruct(expr: s.Expr): (Seq[s.Variable], Seq[s.Expr], Seq[s.Type], (Seq[t.Variable], Seq[t.Expr], Seq[t.Type]) => t.Expr) = expr match {
     /* Unary operators */
     case s.Not(e) =>
@@ -169,7 +163,7 @@ trait TreeDeconstructor {
       Seq(), Seq(cond, thenn, elze), Seq(),
       (_, es, _) => t.IfExpr(es(0), es(1), es(2)))
 
-    case v @ s.Variable(id, tp) =>
+    case v @ s.Variable(id, tp, _) =>
       (Seq(v), Seq(), Seq(), (vs, _, _) => vs.head)
 
     case s.GenericValue(tp, id) =>
@@ -190,24 +184,24 @@ trait TreeDeconstructor {
       (Seq(), Seq(), Seq(), (_, _, _) => t.UnitLiteral())
   }
 
-  def deconstruct(tp: s.Type): (Seq[s.Type], Seq[t.Type] => t.Type) = tp match {
-    case s.ADTType(d, ts) => (ts, ts => t.ADTType(d, ts))
-    case s.TupleType(ts) => (ts, t.TupleType)
-    case s.SetType(tp) => (Seq(tp), ts => t.SetType(ts.head))
-    case s.BagType(tp) => (Seq(tp), ts => t.BagType(ts.head))
-    case s.MapType(from,to) => (Seq(from, to), ts => t.MapType(ts(0), ts(1)))
-    case s.FunctionType(fts, tt) => (tt +: fts, ts => t.FunctionType(ts.tail.toList, ts.head))
+  def deconstruct(tp: s.Type): (Seq[s.Type], Seq[s.Flag], (Seq[t.Type], Seq[t.Flag]) => t.Type) = tp match {
+    case s.ADTType(d, ts) => (ts, Seq(), (ts, _) => t.ADTType(d, ts))
+    case s.TupleType(ts) => (ts, Seq(), (ts, _) => t.TupleType(ts))
+    case s.SetType(tp) => (Seq(tp), Seq(), (ts, _) => t.SetType(ts.head))
+    case s.BagType(tp) => (Seq(tp), Seq(), (ts, _) => t.BagType(ts.head))
+    case s.MapType(from,to) => (Seq(from, to), Seq(), (ts, _) => t.MapType(ts(0), ts(1)))
+    case s.FunctionType(fts, tt) => (tt +: fts, Seq(),  (ts, _) => t.FunctionType(ts.tail.toList, ts.head))
 
-    case s.TypeParameter(id) => (Seq(), _ => t.TypeParameter(id))
-    case s.BVType(size) => (Seq(), _ => t.BVType(size))
+    case s.TypeParameter(id, flags) => (Seq(), flags.toSeq, (_, flags) => t.TypeParameter(id, flags.toSet))
+    case s.BVType(size) => (Seq(), Seq(), (_, _) => t.BVType(size))
 
-    case s.Untyped     => (Seq(), _ => t.Untyped)
-    case s.BooleanType => (Seq(), _ => t.BooleanType)
-    case s.UnitType    => (Seq(), _ => t.UnitType)
-    case s.CharType    => (Seq(), _ => t.CharType)
-    case s.IntegerType => (Seq(), _ => t.IntegerType)
-    case s.RealType    => (Seq(), _ => t.RealType)
-    case s.StringType  => (Seq(), _ => t.StringType)
+    case s.Untyped     => (Seq(), Seq(), (_, _) => t.Untyped)
+    case s.BooleanType => (Seq(), Seq(), (_, _) => t.BooleanType)
+    case s.UnitType    => (Seq(), Seq(), (_, _) => t.UnitType)
+    case s.CharType    => (Seq(), Seq(), (_, _) => t.CharType)
+    case s.IntegerType => (Seq(), Seq(), (_, _) => t.IntegerType)
+    case s.RealType    => (Seq(), Seq(), (_, _) => t.RealType)
+    case s.StringType  => (Seq(), Seq(), (_, _) => t.StringType)
   }
 
   def deconstruct(f: s.Flag): (Seq[s.Expr], Seq[s.Type], (Seq[t.Expr], Seq[t.Type]) => t.Flag) = f match {
