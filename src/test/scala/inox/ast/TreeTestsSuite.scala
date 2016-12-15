@@ -16,8 +16,8 @@ class TreeTestsSuite extends FunSuite {
     val pgm = InoxProgram(Context.empty, Seq(), Seq())
     import pgm.symbols._
 
-    val x = Variable(FreshIdentifier("x"), BooleanType)
-    val y = Variable(FreshIdentifier("y"), BooleanType)
+    val x = Variable.fresh("x", BooleanType)
+    val y = Variable.fresh("y", BooleanType)
     val t = BooleanLiteral(true)
     val f = BooleanLiteral(false)
 

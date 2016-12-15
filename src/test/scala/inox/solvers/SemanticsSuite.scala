@@ -39,7 +39,7 @@ class SemanticsSuite extends FunSuite {
   }
 
   protected def check(s: SimpleSolverAPI { val factory: SolverFactory { val program: InoxProgram } }, e: Expr, expected: Expr) = {
-    val v = Variable(FreshIdentifier("v"), e.getType)
+    val v = Variable.fresh("v", e.getType)
     s.solveSAT(Equals(v, e)) match {
       case SatWithModel(model) => assert(model.get(v.toVal) == Some(expected))
       case _ => fail(s"Solving of '$e' failed.")
@@ -209,7 +209,7 @@ class SemanticsSuite extends FunSuite {
   test("Let") { ctx =>
     val s = solver(ctx)
 
-    val v = Variable(FreshIdentifier("id"), Int32Type)
+    val v = Variable.fresh("id", Int32Type)
     check(s, Let(v.toVal, IntLiteral(42), v), IntLiteral(42))
     check(s, Let(v.toVal, IntLiteral(42), Plus(v, IntLiteral(1))), IntLiteral(43))
   }

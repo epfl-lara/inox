@@ -11,7 +11,7 @@ class GlobalVariablesSuite extends FunSuite {
 
   val ctx = TestContext.empty
 
-  val freeVariable = Variable(FreshIdentifier("b"), BooleanType)
+  val freeVariable = Variable.fresh("b", BooleanType)
 
   val testFd = mkFunDef(FreshIdentifier("test"))()(_ => (
     Seq("i" :: IntegerType), IntegerType, { case Seq(i) =>

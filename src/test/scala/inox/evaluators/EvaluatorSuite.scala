@@ -179,7 +179,7 @@ class EvaluatorSuite extends FunSuite {
   test("Simple Variable") {
     val e = evaluator(ctx)
 
-    val v = Variable(FreshIdentifier("id"), Int32Type)
+    val v = Variable.fresh("id", Int32Type)
 
     eval(e, v, Map(v.toVal -> IntLiteral(23))) === IntLiteral(23)
   }
@@ -187,8 +187,8 @@ class EvaluatorSuite extends FunSuite {
   test("Undefined Variable") {
     val e = evaluator(ctx)
 
-    val v1 = Variable(FreshIdentifier("id"), Int32Type)
-    val v2 = Variable(FreshIdentifier("foo"), Int32Type)
+    val v1 = Variable.fresh("id", Int32Type)
+    val v2 = Variable.fresh("foo", Int32Type)
 
     eval(e, v1, Map(v2.toVal -> IntLiteral(23))).failed
   }
@@ -196,7 +196,7 @@ class EvaluatorSuite extends FunSuite {
   test("Let") {
     val e = evaluator(ctx)
 
-    val v = Variable(FreshIdentifier("id"), Int32Type)
+    val v = Variable.fresh("id", Int32Type)
     eval(e, Let(v.toVal, IntLiteral(42), v)) === IntLiteral(42)
     eval(e, Let(v.toVal, IntLiteral(42), Plus(v, IntLiteral(1)))) === IntLiteral(43)
   }
@@ -250,9 +250,9 @@ class EvaluatorSuite extends FunSuite {
   test("Map with variables") {
     val e = evaluator(ctx)
 
-    val v1 = Variable(FreshIdentifier("v1"), Int32Type)
-    val v2 = Variable(FreshIdentifier("v2"), Int32Type)
-    val v3 = Variable(FreshIdentifier("v3"), Int32Type)
+    val v1 = Variable.fresh("v1", Int32Type)
+    val v2 = Variable.fresh("v2", Int32Type)
+    val v3 = Variable.fresh("v3", Int32Type)
 
     eval(e, Equals(
       FiniteMap(Seq(v1 -> IntLiteral(2), v2 -> IntLiteral(4)), v3, Int32Type, Int32Type),

@@ -10,24 +10,24 @@ class ExprOpsSuite extends FunSuite {
   import inox.trees.exprOps._
 
   private def foldConcatNames(e: Expr, subNames: Seq[String]): String = e match {
-    case Variable(id, _) => subNames.mkString + id.name
+    case Variable(id, _, _) => subNames.mkString + id.name
     case _ => subNames.mkString
   }
 
   private def foldCountVariables(e: Expr, subCounts: Seq[Int]): Int = e match {
-    case Variable(_, _) => subCounts.sum + 1
+    case Variable(_, _, _) => subCounts.sum + 1
     case _ => subCounts.sum
   }
 
-  val a = Variable(FreshIdentifier("a"), Int32Type)
-  val b = Variable(FreshIdentifier("b"), Int32Type)
+  val a = Variable.fresh("a", Int32Type)
+  val b = Variable.fresh("b", Int32Type)
 
-  val x = Variable(FreshIdentifier("x"), IntegerType)
-  val y = Variable(FreshIdentifier("y"), IntegerType)
+  val x = Variable.fresh("x", IntegerType)
+  val y = Variable.fresh("y", IntegerType)
 
-  val p = Variable(FreshIdentifier("p"), BooleanType)
-  val q = Variable(FreshIdentifier("q"), BooleanType)
-  val r = Variable(FreshIdentifier("r"), BooleanType)
+  val p = Variable.fresh("p", BooleanType)
+  val q = Variable.fresh("q", BooleanType)
+  val r = Variable.fresh("r", BooleanType)
 
   test("foldRight works on single variable expression") {
     assert(fold(foldConcatNames)(x) === x.id.name)
@@ -72,7 +72,7 @@ class ExprOpsSuite extends FunSuite {
 
     var names: List[String] = List()
     preTraversal({
-      case Variable(id, _) => names ::= id.name
+      case Variable(id, _, _) => names ::= id.name
       case _ => ()
     })(x)
     assert(names === List(x.id.name))
@@ -92,7 +92,7 @@ class ExprOpsSuite extends FunSuite {
   test("preTraversal visits children from left to right") {
     var names: List[String] = List()
     preTraversal({
-      case Variable(id, _) => names ::= id.name
+      case Variable(id, _, _) => names ::= id.name
       case _ => ()
     })(And(List(p, q, r)))
     assert(names === List(r.id.name, q.id.name, p.id.name))
@@ -121,7 +121,7 @@ class ExprOpsSuite extends FunSuite {
 
     var names: List[String] = List()
     postTraversal({
-      case Variable(id, _) => names ::= id.name
+      case Variable(id, _, _) => names ::= id.name
       case _ => ()
     })(x)
     assert(names === List(x.id.name))
@@ -141,7 +141,7 @@ class ExprOpsSuite extends FunSuite {
   test("postTraversal visits children from left to right") {
     var names: List[String] = List()
     postTraversal({
-      case Variable(id, _) => names ::= id.name
+      case Variable(id, _, _) => names ::= id.name
       case _ => ()
     })(And(List(p, q, r)))
     assert(names === List(r.id.name, q.id.name, p.id.name))

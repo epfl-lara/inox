@@ -37,7 +37,7 @@ class SolversSuite extends FunSuite {
     TupleType(Seq(IntegerType, BooleanType, Int32Type))
   )
 
-  val vs = types.map(tpe => Variable(FreshIdentifier("v", true), tpe))
+  val vs = types.map(tpe => Variable.fresh("v", tpe, true))
 
   // We need to make sure models are not co-finite
   val cnstrs = vs.map(v => v.getType match {

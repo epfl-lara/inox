@@ -48,12 +48,12 @@ class TimeoutSolverSuite extends FunSuite {
     assert(SimpleSolverAPI(sfactory).solveVALID(BooleanLiteral(true)) === None)
     assert(SimpleSolverAPI(sfactory).solveVALID(BooleanLiteral(false)) === None)
 
-    val x = Variable(FreshIdentifier("x"), IntegerType)
+    val x = Variable.fresh("x", IntegerType)
     assert(SimpleSolverAPI(sfactory).solveVALID(x === x) === None)
   }
 
   test("TimeoutSolver 2") {
-    val x = Variable(FreshIdentifier("x"), IntegerType)
+    val x = Variable.fresh("x", IntegerType)
     assert(SimpleSolverAPI(sfactory).solveVALID(x + E(BigInt(1)) === E(BigInt(1)) + x) === None)
     assert(SimpleSolverAPI(sfactory).solveVALID(x + E(BigInt(1)) === x) === None)
   }
