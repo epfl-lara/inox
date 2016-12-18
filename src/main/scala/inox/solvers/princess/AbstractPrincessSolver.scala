@@ -371,10 +371,20 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
   def assertCnstr(formula: Trees): Unit = p !! formula.asInstanceOf[IFormula]
 
+  private[this] var interruptCheckSat = false
+
   private def internalCheck(config: Configuration): config.Response[Model, Assumptions] = {
     import SimpleAPI.ProverStatus
 
-    config.cast(p.??? match {
+    interruptCheckSat = false
+
+    p checkSat false
+
+    while ((p getStatus 50) == ProverStatus.Running) {
+      if (interruptCheckSat) p stop true
+    }
+
+    config.cast(p.getStatus(true) match {
       // FIXME @nv: for now, we treat Inconclusive as Sat, but this should
       //            be changed once Princess ensures soundness of models with ADTs
       case ProverStatus.Sat | ProverStatus.Inconclusive =>
@@ -447,6 +457,6 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
     p.reset
   }
 
-  override def interrupt() = p.stop(false)
-  override def recoverInterrupt() = ()
+  override def interrupt() = interruptCheckSat = true
+  override def recoverInterrupt() = interruptCheckSat = false
 }

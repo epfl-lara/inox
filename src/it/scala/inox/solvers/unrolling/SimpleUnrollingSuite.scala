@@ -80,10 +80,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     }
   }
 
-  test("size(x) < 0 is not satisfiable (unknown)", ctx => {
-    if (ctx.options.findOptionOrDefault(optSelectedSolvers) contains "princess") Ignore
-    else Test
-  }) { ctx =>
+  test("size(x) < 0 is not satisfiable (unknown)") { ctx =>
     val program = InoxProgram(ctx, symbols)
 
     val vd: ValDef = "x" :: T(listID)(IntegerType)
