@@ -29,9 +29,7 @@ trait Paths { self: SymbolOps with TypeOps =>
     * not defined, whereas an encoding of let-bindings with equalities
     * could introduce non-sensical equations.
     */
-  class Path private(private[ast] val elements: Seq[Path.Element])
-    extends Printable {
-
+  class Path private(private[ast] val elements: Seq[Path.Element]) extends Printable {
     import Path.Element
 
     /** Add a binding to this [[Path]] */
@@ -70,6 +68,17 @@ trait Paths { self: SymbolOps with TypeOps =>
       * and in boolean path conditions.
       */
     def map(f: Expr => Expr) = new Path(elements.map(_.left.map { case (vd, e) => vd -> f(e) }.right.map(f)))
+
+    /** Transforms both let bindings and expressions inside the path
+      * 
+      * The function [[fVal]] is applied to all values in [[bound]] and [[fExpr]] is applied
+      * to both the bodies of the [[bindings]] as well as the [[conditions]].
+      *
+      * @see [[map(Expr => Expr)]] for a map only defined on expressions
+      */
+    def map(fVal: ValDef => ValDef, fExpr: Expr => Expr) = new Path(
+      elements.map(_.left.map { case (vd, e) => fVal(vd) -> fExpr(e) }.right.map(fExpr))
+    )
 
     /** Instantiates type parameters within the path
       *
@@ -149,7 +158,7 @@ trait Paths { self: SymbolOps with TypeOps =>
     )(elements)
 
     lazy val bindings: Seq[(ValDef, Expr)] = elements.collect { case Left(p) => p }
-    lazy val boundIds = bindings map (_._1)
+    lazy val bound = bindings map (_._1)
     lazy val conditions: Seq[Expr] = elements.collect { case Right(e) => e }
 
     def isBound(id: Identifier): Boolean = bindings.exists(p => p._1.id == id)
