@@ -543,6 +543,7 @@ trait SymbolOps { self: TypeOps =>
       Some(e)
 
     case Let(v, ts @ (
+      (_: Variable)               |
       TupleSelect(_: Variable, _) |
       ADTSelector(_: Variable, _) |
       FiniteMap(Seq(), _, _, _)   |
