@@ -65,7 +65,7 @@ a type with an identifier and has the following signature:
 class ValDef(val id: Identifier, val tpe: Type, val flags: Set[Flag])
 ```
 
-__ADT Definitions__
+__ADTs__
 
 Algebraic datatype definitions can be recursive and support type-parametric polymorphism,
 as in the named function case. An ADT can either correspond to a *sort*, or a *constructor*.
