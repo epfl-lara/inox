@@ -42,14 +42,14 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
 
   ctx.interruptManager.registerForInterrupts(this)
 
-  override def interrupt(): Unit = {
+  def interrupt(): Unit = {
     interrupted = true
     interpreter.interrupt()
   }
 
-  override def recoverInterrupt(): Unit = {
-    interrupted = false
-  }
+  // @nv: Note that interruption is final since it kills the underlying solver.
+  //      No point in trying to recover at this point.
+  def recoverInterrupt(): Unit = ()
 
   def free(): Unit = {
     interpreter.free()
