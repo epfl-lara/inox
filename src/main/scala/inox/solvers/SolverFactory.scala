@@ -173,8 +173,11 @@ object SolverFactory {
             apply(name, p, opts)
 
           case None =>
-            p.ctx.reporter.fatalError("No SMT solver available: " +
-              "native Z3 api could not load and 'cvc4' or 'z3' binaries were not found in PATH.")
+            if (!reported) {
+              p.ctx.reporter.warning(s"The $requirement is not available. Falling back onto princess.")
+              reported = true
+            }
+            apply("princess", p, opts)
         }
       case _ =>
         getFromName(name)(p, opts)(RecursiveEvaluator(p, opts), ast.ProgramEncoder.empty(p))
