@@ -30,7 +30,6 @@ class TimeoutSolverSuite extends FunSuite {
       config.cast(Unknown)
     }
 
-    def recoverInterrupt(): Unit = { interrupted = false }
     def interrupt(): Unit = { interrupted = true }
 
     def assertCnstr(e: Expr) = ()

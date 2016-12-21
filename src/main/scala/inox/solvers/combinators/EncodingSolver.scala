@@ -33,6 +33,7 @@ trait EncodingSolver extends Solver {
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]) =
     convert(config)(underlying.checkAssumptions(config)(assumptions.map(encoder.encode)))
 
+  def interrupt() = underlying.interrupt()
   def free() = underlying.free()
   def reset() = underlying.reset()
   def push() = underlying.push()

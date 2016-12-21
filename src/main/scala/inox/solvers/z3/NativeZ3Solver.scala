@@ -34,7 +34,8 @@ trait NativeZ3Solver extends AbstractUnrollingSolver with Z3Theories { self =>
     type Encoded = self.Encoded
 
     def asString(ast: Z3AST): String = ast.toString
-    def interrupted: Boolean = self.interrupted
+    def abort: Boolean = self.abort
+    def pause: Boolean = self.pause
 
     def encodeSymbol(v: Variable): Z3AST = underlying.symbolToFreshZ3Symbol(v)
 
@@ -129,10 +130,5 @@ trait NativeZ3Solver extends AbstractUnrollingSolver with Z3Theories { self =>
   override def interrupt(): Unit = {
     underlying.interrupt()
     super.interrupt()
-  }
-
-  override def recoverInterrupt(): Unit = {
-    underlying.recoverInterrupt()
-    super.recoverInterrupt()
   }
 }

@@ -457,6 +457,5 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
     p.reset
   }
 
-  override def interrupt() = interruptCheckSat = true
-  override def recoverInterrupt() = interruptCheckSat = false
+  def interrupt() = interruptCheckSat = true
 }

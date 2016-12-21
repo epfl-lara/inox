@@ -95,10 +95,6 @@ trait PortfolioSolver extends Solver { self =>
     solvers.foreach(_.interrupt())
   }
 
-  def recoverInterrupt(): Unit = {
-    solvers.foreach(_.recoverInterrupt())
-  }
-
   def reset() = {
     solvers.foreach(_.reset())
   }

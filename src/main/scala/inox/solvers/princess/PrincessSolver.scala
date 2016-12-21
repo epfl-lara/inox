@@ -33,7 +33,8 @@ trait PrincessSolver extends AbstractUnrollingSolver with PrincessTheories { sel
     type Encoded = self.Encoded
 
     def asString(ast: IExpression): String = ast.toString
-    def interrupted: Boolean = self.interrupted
+    def abort: Boolean = self.abort
+    def pause: Boolean = self.pause
 
     def encodeSymbol(v: Variable): IExpression = underlying.freshSymbol(v)
 
@@ -122,10 +123,5 @@ trait PrincessSolver extends AbstractUnrollingSolver with PrincessTheories { sel
   override def interrupt(): Unit = {
     underlying.interrupt()
     super.interrupt()
-  }
-
-  override def recoverInterrupt(): Unit = {
-    underlying.recoverInterrupt()
-    super.recoverInterrupt()
   }
 }

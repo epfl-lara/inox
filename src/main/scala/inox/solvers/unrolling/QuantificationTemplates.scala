@@ -235,7 +235,7 @@ trait QuantificationTemplates { self: Templates =>
 
     def unroll: Clauses = {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for (e @ (gen, bs, m) <- ignoredMatchers.toSeq if gen <= currentGeneration && !interrupted) {
+      for (e @ (gen, bs, m) <- ignoredMatchers.toSeq if gen <= currentGeneration && !abort && !pause) {
         clauses ++= instantiateMatcher(bs, m, defer = true)
         ignoredMatchers -= e
       }
@@ -245,10 +245,10 @@ trait QuantificationTemplates { self: Templates =>
         ctx.reporter.debug("  . " + cl)
       }
 
-      if (interrupted) return clauses.toSeq
+      if (abort || pause) return clauses.toSeq
 
       val suClauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for (q <- quantifications.toSeq if ignoredSubsts.isDefinedAt(q) && !interrupted) {
+      for (q <- quantifications.toSeq if ignoredSubsts.isDefinedAt(q) && !abort && !pause) {
         val (release, keep) = ignoredSubsts(q).partition(_._1 <= currentGeneration)
         ignoredSubsts += q -> keep
 
@@ -264,10 +264,10 @@ trait QuantificationTemplates { self: Templates =>
 
       clauses ++= suClauses
 
-      if (interrupted) return clauses.toSeq
+      if (abort || pause) return clauses.toSeq
 
       val grClauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for ((gen, qs) <- ignoredGrounds.toSeq if gen <= currentGeneration && !interrupted; q <- qs) {
+      for ((gen, qs) <- ignoredGrounds.toSeq if gen <= currentGeneration && !abort && !pause; q <- qs if !abort) {
         grClauses ++= q.ensureGrounds
         val remaining = ignoredGrounds.getOrElse(gen, Set.empty) - q
         if (remaining.nonEmpty) {
@@ -303,7 +303,7 @@ trait QuantificationTemplates { self: Templates =>
 
     if (handledMatchers(relevantBlockers -> matcher)) {
       Seq.empty
-    } else if (interrupted) {
+    } else if (abort || pause) {
       ignoredMatchers += ((currentGeneration, blockers, matcher))
       Seq.empty
     } else {
@@ -669,7 +669,7 @@ trait QuantificationTemplates { self: Templates =>
       val instantiation = new scala.collection.mutable.ListBuffer[Encoded]
 
       for (p @ (bs, subst, delay) <- substs if !handledSubsts.get(this).exists(_ contains (bs -> subst))) {
-        if (interrupted || delay > 0) {
+        if (abort || pause || delay > 0) {
           val gen = currentGeneration + delay + (if (getPolarity.isEmpty) 2 else 0)
           ignoredSubsts += this -> (ignoredSubsts.getOrElse(this, Set.empty) + ((gen, bs, subst)))
         } else {
@@ -704,7 +704,7 @@ trait QuantificationTemplates { self: Templates =>
         val sb = bs ++ (if (b == guard) Set.empty else Set(substituter(b)))
         val sm = m.substitute(substituter, msubst)
 
-        if (interrupted || b != guard) {
+        if (abort || pause || b != guard) {
           val gen = currentGeneration + 1
           ignoredMatchers += ((gen, sb, sm))
         } else {

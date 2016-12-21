@@ -26,7 +26,6 @@ class SolverPoolSuite extends FunSuite {
     def push() = ()
     def pop() = ()
     def interrupt() = ()
-    def recoverInterrupt() = ()
   }
 
   def sfactory(implicit ctx: Context): SolverFactory { val program: InoxProgram } = {

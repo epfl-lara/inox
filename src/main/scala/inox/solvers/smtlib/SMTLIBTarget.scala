@@ -38,18 +38,14 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
   protected val interpreter: Interpreter
 
   /* Interruptible interface */
-  private var interrupted = false
+  private var aborted = false
 
   ctx.interruptManager.registerForInterrupts(this)
 
   def interrupt(): Unit = {
-    interrupted = true
+    aborted = true
     interpreter.interrupt()
   }
-
-  // @nv: Note that interruption is final since it kills the underlying solver.
-  //      No point in trying to recover at this point.
-  def recoverInterrupt(): Unit = ()
 
   def free(): Unit = {
     interpreter.free()
@@ -59,7 +55,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
   /* Send a command to the solver */
   def emit(cmd: SExpr, rawOut: Boolean = false): SExpr = {
     interpreter.eval(cmd) match {
-      case err @ Error(msg) if !interrupted && !rawOut =>
+      case err @ Error(msg) if !aborted && !rawOut =>
         ctx.reporter.fatalError(s"Unexpected error from $targetName solver: $msg")
       case res =>
         res

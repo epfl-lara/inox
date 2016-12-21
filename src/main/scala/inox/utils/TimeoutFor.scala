@@ -17,7 +17,7 @@ class TimeoutFor(it: Interruptible) {
         Thread.sleep(10)
       }
 
-      if(exceeded && keepRunning) {
+      if (exceeded && keepRunning) {
         onTimeout
       }
     }
@@ -28,30 +28,14 @@ class TimeoutFor(it: Interruptible) {
   }
 
   def interruptAfter[T](timeout: Long)(body: => T): T = {
-    var reachedTimeout = false
-
     val timer = new Countdown(timeout, {
       it.interrupt()
-      reachedTimeout = true
     })
 
     timer.start()
     val res = body
     timer.finishedRunning()
 
-    if (reachedTimeout) {
-      it.recoverInterrupt()
-    }
-
     res
-  }
-
-  def interruptAfter[T](timeout: Option[Long])(body: => T): T = {
-    timeout match {
-      case Some(to) =>
-        interruptAfter(to)(body)
-      case None =>
-        body
-    }
   }
 }

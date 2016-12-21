@@ -396,9 +396,9 @@ trait LambdaTemplates { self: Templates =>
         app -> ((lastB, nextB))
       }).toMap
 
-      for ((app @ (b, _), (gen, infos)) <- thisAppInfos if infos.nonEmpty) {
+      for ((app @ (b, _), (gen, infos)) <- thisAppInfos if infos.nonEmpty && !abort) {
         val (lastB, nextB) = newBlockers(app)
-        if (interrupted) {
+        if (pause) {
           newClauses += mkEquals(lastB, nextB)
         } else {
           remainingApps -= app
@@ -412,7 +412,7 @@ trait LambdaTemplates { self: Templates =>
           ctx.reporter.debug(" -> extending lambda blocker: " + clause)
           newClauses += clause
 
-          for (info @ TemplateAppInfo(tmpl, equals, args) <- infos; template <- tmpl.left) {
+          for (info @ TemplateAppInfo(tmpl, equals, args) <- infos if !abort; template <- tmpl.left) {
             val newCls = new scala.collection.mutable.ListBuffer[Encoded]
 
             val lambdaBlocker = lambdaBlockers.get(info) match {

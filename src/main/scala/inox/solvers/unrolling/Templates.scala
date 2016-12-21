@@ -27,7 +27,8 @@ trait Templates extends TemplateGenerator
 
   def asString(e: Encoded): String
 
-  def interrupted: Boolean
+  def abort: Boolean
+  def pause: Boolean
 
   def encodeSymbol(v: Variable): Encoded
   def mkEncoder(bindings: Map[Variable, Encoded])(e: Expr): Encoded
@@ -742,19 +743,19 @@ trait Templates extends TemplateGenerator
       val allClauses = new scala.collection.mutable.ListBuffer[Encoded]
       allClauses ++= clauses.map(substituter)
 
-      for ((b, fis) <- calls; bp = substituter(b); fi <- fis) {
+      for ((b, fis) <- calls if !abort; bp = substituter(b); fi <- fis if !abort) {
         allClauses ++= instantiateCall(bp, fi.substitute(substituter, msubst))
       }
 
-      for ((b,fas) <- apps; bp = substituter(b); fa <- fas) {
+      for ((b,fas) <- apps if !abort; bp = substituter(b); fa <- fas if !abort) {
         allClauses ++= instantiateApp(bp, fa.substitute(substituter, msubst))
       }
 
-      for ((b, matchs) <- matchers; bp = substituter(b); m <- matchs) {
+      for ((b, matchs) <- matchers if !abort; bp = substituter(b); m <- matchs if !abort) {
         allClauses ++= instantiateMatcher(bp, m.substitute(substituter, msubst))
       }
 
-      for ((b, eqs) <- equalities; bp = substituter(b); e <- eqs) {
+      for ((b, eqs) <- equalities if !abort; bp = substituter(b); e <- eqs if !abort) {
         allClauses ++= instantiateEquality(bp, e.substitute(substituter))
       }
 

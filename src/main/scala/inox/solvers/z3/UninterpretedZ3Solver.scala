@@ -52,7 +52,6 @@ trait UninterpretedZ3Solver
   def free(): Unit = underlying.free()
 
   def interrupt(): Unit = underlying.interrupt()
-  def recoverInterrupt(): Unit = underlying.recoverInterrupt()
 
   def assertCnstr(expression: Expr) {
     freeVars ++= exprOps.variablesOf(expression)

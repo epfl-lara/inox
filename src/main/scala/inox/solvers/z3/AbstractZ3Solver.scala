@@ -57,21 +57,20 @@ trait AbstractZ3Solver
 
   protected var solver : ScalaZ3Solver = null
 
-  override def free(): Unit = {
+  def free(): Unit = {
     freed = true
     if (z3 ne null) {
       z3.delete()
       z3 = null
     }
+    ctx.interruptManager.unregisterForInterrupts(this)
   }
 
-  override def interrupt(): Unit = {
+  def interrupt(): Unit = {
     if(z3 ne null) {
       z3.interrupt()
     }
   }
-
-  override def recoverInterrupt(): Unit = ()
 
   def functionDefToDecl(tfd: TypedFunDef): Z3FuncDecl = {
     functions.cachedB(tfd) {

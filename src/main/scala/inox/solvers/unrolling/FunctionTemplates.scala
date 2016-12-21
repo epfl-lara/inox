@@ -183,9 +183,9 @@ trait FunctionTemplates { self: Templates =>
 
       val remainingBlockers = MutableSet.empty ++ blockers
 
-      for ((blocker, (gen, _, _, calls)) <- thisCallInfos if calls.nonEmpty && !interrupted;
+      for ((blocker, (gen, _, _, calls)) <- thisCallInfos if calls.nonEmpty && !abort && !pause;
            _ = remainingBlockers -= blocker;
-           call @ Call(tfd, path, args) <- calls) {
+           call @ Call(tfd, path, args) <- calls if !abort) {
         val newCls = new scala.collection.mutable.ListBuffer[Encoded]
 
         val defBlocker = defBlockers.get(call) match {

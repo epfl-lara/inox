@@ -23,8 +23,7 @@ class InterruptManager(reporter: Reporter) extends Interruptible {
       if (now() - lastTimestamp.get < exitWindow) {
         reporter.warning("Aborting...")
         System.exit(1)
-      }
-      else {
+      } else {
         reporter.warning("Interrupted...")
         lastTimestamp.set(now())
         interrupt()
@@ -42,32 +41,14 @@ class InterruptManager(reporter: Reporter) extends Interruptible {
       interrupted.set(true)
 
       val it = interruptibles.keySet.iterator
-
-      for (i <- it) {
-        i.interrupt()
-      }
+      for (i <- it) i.interrupt()
     } else {
       reporter.warning("Already interrupted!")
     }
   }
 
-  def recoverInterrupt() = synchronized {
-    if (isInterrupted) {
-      interrupted.set(false)
-
-      val it = interruptibles.keySet.iterator
-      for (i <- it) {
-         i.recoverInterrupt()
-      }
-    } else {
-      reporter.warning("Not interrupted!")
-    }
-  }
-
   def registerForInterrupts(i: Interruptible) = synchronized {
-    if (isInterrupted) {
-      i.interrupt()
-    }
+    if (isInterrupted) i.interrupt()
     interruptibles.put(i, true)
   }
 

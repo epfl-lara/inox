@@ -20,9 +20,6 @@ object EncodingSolverFactory {
     } with EncodingSolver with TimeoutSolver {
       val encoder: enc.type = enc
       val underlying = sf.getNewSolver()
-
-      def interrupt() = underlying.interrupt()
-      def recoverInterrupt() = underlying.recoverInterrupt()
     })
   }
 }

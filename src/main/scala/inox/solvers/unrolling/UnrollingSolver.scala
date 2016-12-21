@@ -76,7 +76,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
   private val constraints = new IncrementalSeq[Expr]()
   private val freeVars    = new IncrementalMap[Variable, Encoded]()
 
-  protected var interrupted : Boolean = false
+  protected var abort: Boolean = false
+  protected var pause: Boolean = false
 
   def push(): Unit = {
     templates.push()
@@ -90,23 +91,19 @@ trait AbstractUnrollingSolver extends Solver { self =>
     freeVars.pop()
   }
 
-  override def reset() = {
-    interrupted = false
+  def reset() = {
+    abort = false
+    pause = false
 
     templates.reset()
     constraints.reset()
     freeVars.reset()
+    underlying.reset()
   }
 
   ctx.interruptManager.registerForInterrupts(this)
 
-  override def interrupt(): Unit = {
-    interrupted = true
-  }
-
-  override def recoverInterrupt(): Unit = {
-    interrupted = false
-  }
+  def interrupt(): Unit = { abort = true }
 
   protected def declareVariable(v: t.Variable): Encoded
 
@@ -470,13 +467,13 @@ trait AbstractUnrollingSolver extends Solver { self =>
     }
 
     object Abort {
-      def unapply[A,B](resp: SolverResponse[A,B]): Boolean = resp == Unknown || interrupted
+      def unapply[A,B](resp: SolverResponse[A,B]): Boolean = resp == Unknown || abort || pause
     }
 
     var currentState: CheckState = ModelCheck
     while (!currentState.isInstanceOf[CheckResult]) {
       currentState = currentState match {
-        case _ if interrupted =>
+        case _ if abort || pause =>
           CheckResult.cast(Unknown)
 
         case ModelCheck =>
@@ -555,6 +552,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
           if (valid) {
             CheckResult(config cast SatWithModel(model))
+          } else if (abort || pause) {
+            CheckResult.cast(Unknown)
           } else {
             reporter.error(
               "Something went wrong. The model should have been valid, yet we got this: " +
@@ -664,7 +663,8 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     type Encoded = Expr
 
     def asString(expr: Expr): String = expr.asString
-    def interrupted: Boolean = self.interrupted
+    def abort: Boolean = self.abort
+    def pause: Boolean = self.pause
 
     def encodeSymbol(v: Variable): Expr = v.freshen
     def mkEncoder(bindings: Map[Variable, Expr])(e: Expr): Expr =
@@ -734,10 +734,5 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
   override def interrupt(): Unit = {
     super.interrupt()
     underlying.interrupt()
-  }
-
-  override def recoverInterrupt(): Unit = {
-    underlying.recoverInterrupt()
-    super.recoverInterrupt()
   }
 }
