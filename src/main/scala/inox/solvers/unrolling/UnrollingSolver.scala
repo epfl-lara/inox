@@ -15,6 +15,7 @@ import scala.collection.mutable.{Map => MutableMap}
 object optUnrollFactor      extends LongOptionDef("unrollfactor", default = 1, "<PosInt>")
 object optFeelingLucky      extends FlagOptionDef("feelinglucky", false)
 object optUnrollAssumptions extends FlagOptionDef("unrollassumptions", false)
+object optModelFinding      extends FlagOptionDef("modelfinding", false)
 
 trait AbstractUnrollingSolver extends Solver { self =>
 
@@ -69,6 +70,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
   lazy val unrollFactor = options.findOptionOrDefault(optUnrollFactor)
   lazy val feelingLucky = options.findOptionOrDefault(optFeelingLucky)
   lazy val unrollAssumptions = options.findOptionOrDefault(optUnrollAssumptions)
+  lazy val modelFinding = options.findOptionOrDefault(optModelFinding)
 
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
     checkAssumptions(config)(Set.empty)
@@ -602,6 +604,15 @@ trait AbstractUnrollingSolver extends Solver { self =>
                 CheckResult.cast(res)
               } else {
                 val wrapped = wrapModel(model)
+
+                if (modelFinding) {
+                  for {
+                    b <- templates.satisfactionAssumptions
+                    v = templates.extractNot(b).getOrElse(b)
+                    if wrapped.eval(v, BooleanType) == Some(BooleanLiteral(true))
+                  } templates.promoteBlocker(v)
+                }
+
                 for {
                   (inst, bs) <- templates.getInstantiationsWithBlockers
                   if wrapped.eval(inst, BooleanType) == Some(BooleanLiteral(false))
@@ -677,6 +688,11 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     def mkAnd(es: Expr*) = andJoin(es)
     def mkEquals(l: Expr, r: Expr) = Equals(l, r)
     def mkImplies(l: Expr, r: Expr) = implies(l, r)
+
+    def extractNot(e: Expr) = e match {
+      case Not(e2) => Some(e2)
+      case _ => None
+    }
   }
 
   protected val modelEvaluator: DeterministicEvaluator {

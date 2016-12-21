@@ -41,7 +41,7 @@ Cloning into 'inox'...
 // ...
 $ cd inox
 $ sbt clean compile
-// takes about 3 minutes
+// takes about 1 minutes
 ```
  
 Inox compilation generates an ``inox`` bash script that runs Inox with all
@@ -66,7 +66,7 @@ Cloning into 'inox'...
 // ...
 $ cd inox
 $ sbt clean compile
-// takes about 3 minutes
+// takes about 1 minutes
 ```
  
 You will now need to either port the bash ``inox`` script to Windows, or run it

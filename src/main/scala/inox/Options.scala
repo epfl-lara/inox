@@ -6,6 +6,7 @@ import OptionParsers._
 
 import scala.util.Try
 import scala.reflect.ClassTag
+import scala.concurrent.duration._
 
 object DebugSectionOptions extends DebugSection("options")
 
@@ -62,6 +63,10 @@ case class IntOptionDef(name: String, default: Int, usageRhs: String) extends Op
   val parser = intParser
 }
 
+case class DoubleOptionDef(name: String, default: Double, usageRhs: String) extends OptionDef[Double] {
+  val parser = doubleParser
+}
+
 class OptionValue[A] private (val optionDef: OptionDef[A], val value: A) {
   override def toString = s"--${optionDef.name}=$value"
   override def equals(other: Any) = other match {
@@ -84,6 +89,7 @@ object OptionParsers {
 
   val intParser: OptionParser[Int] = { s => Try(s.toInt).toOption }
   val longParser: OptionParser[Long] = { s => Try(s.toLong).toOption }
+  val doubleParser: OptionParser[Double] = { s => Try(s.toDouble).toOption }
   val stringParser: OptionParser[String] = Some(_)
   val booleanParser: OptionParser[Boolean] = {
     case "on"  | "true"  | "yes" | "" => Some(true)
@@ -180,7 +186,14 @@ object Options {
   def empty: Options = Options(Seq())
 }
 
-object optTimeout extends LongOptionDef("timeout", 0L, "t")
+object optTimeout extends OptionDef[Duration] {
+  val name = "timeout"
+  val default = 0.0.seconds
+  val parser: OptionParser[Duration] = { s => doubleParser(s).map(_.seconds) }
+  val usageRhs = "t"
+
+  def apply(secs: Double): OptionValue[Duration] = apply(secs.seconds)
+}
 
 object optSelectedSolvers extends OptionDef[Set[String]] {
   val name = "solvers"

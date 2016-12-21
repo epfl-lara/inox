@@ -14,10 +14,8 @@ package object solvers {
     type S <: TimeoutSolver
   }): TimeoutableFactory {
     val factory: sf.type
-    type S = sf.S { val program: sf.program.type }
   } = new TimeoutableFactory {
     val factory: sf.type = sf
-    type S = sf.S { val program:sf.program.type }
   }
 
   trait TimeoutableFactory { self =>
@@ -47,21 +45,5 @@ package object solvers {
       val program: self.factory.program.type
       type S = self.factory.S { val program: self.factory.program.type }
     } = withTimeout(du.toMillis)
-
-    def withTimeout(optTimeout: Option[Long]): SolverFactory {
-      val program: self.factory.program.type
-      type S = self.factory.S { val program: self.factory.program.type }
-    } = optTimeout match {
-      case Some(to) =>
-        withTimeout(to)
-
-      case None =>
-        // XXX @nv: stupid type checker...
-        factory.asInstanceOf[SolverFactory {
-          val program: self.factory.program.type
-          type S = self.factory.S { val program: self.factory.program.type }
-        }]
-    }
   }
-
 }

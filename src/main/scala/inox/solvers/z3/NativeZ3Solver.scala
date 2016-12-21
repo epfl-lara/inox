@@ -55,6 +55,8 @@ trait NativeZ3Solver extends AbstractUnrollingSolver with Z3Theories { self =>
     def mkAnd(es: Z3AST*) = z3.mkAnd(es : _*)
     def mkEquals(l: Z3AST, r: Z3AST) = z3.mkEq(l, r)
     def mkImplies(l: Z3AST, r: Z3AST) = z3.mkImplies(l, r)
+
+    def extractNot(e: Z3AST): Option[Z3AST] = underlying.extractNot(e)
   }
 
   override def reset(): Unit = {

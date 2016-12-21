@@ -67,6 +67,11 @@ trait PrincessSolver extends AbstractUnrollingSolver with PrincessTheories { sel
       case (t1: ITerm, t2: ITerm) => t1 === t2
       case _ => throw underlying.PrincessSolverException(s"Unhandled equality between $e1 and $e2")
     }
+
+    def extractNot(e: IExpression) = e match {
+      case INot(e2) => Some(e2)
+      case _ => None
+    }
   }
 
   override def reset(): Unit = {
