@@ -10,22 +10,15 @@ features such as:
 
 Interfacing with the solver can take place through the Scala API by constructing the AST
 corresponding to the query of interest and then feeding it to one of the solvers.
-See [Expression](https://github.com/epfl-lara/inox/blob/master/src/main/scala/inox/ast/Expressions.scala),
-[Types](https://github.com/epfl-lara/inox/blob/master/src/main/scala/inox/ast/Types.scala) and
-[Definitions](https://github.com/epfl-lara/inox/blob/master/src/main/scala/inox/ast/Definitions.scala)
-for AST construction and
-[Solver](https://github.com/epfl-lara/inox/blob/master/src/main/scala/inox/solvers/Solver.scala),
-[SolverFactory](https://github.com/epfl-lara/inox/blob/master/src/main/scala/inox/solvers/SolverFactory.scala) and [SimpleSolverAPI](https://github.com/epfl-lara/inox/blob/master/src/main/scala/inox/solvers/SimpleSolverAPI.scala)
-for solving the query.
+See the [tutorial](src/doc/tutorial.md) and [API](src/doc/API.md) for more information.
 
-Alternatively, one can user Inox through a textual interface by using the [TIP](https://tip-org.github.io/) format
+Alternatively, one can use Inox through command-line by using the [TIP](https://tip-org.github.io/) format
 to describe the relevant query.
 
-Installing Inox
+Building Inox
 ===============
 
-Inox is probably easiest to build on Linux-like
-platforms, but read on regarding other platforms.
+Inox is probably easiest to build on Linux-like platforms, but read on regarding other platforms.
 
 Due to its nature, this documentation section may not always
 be up to date; we welcome pull requests with carefully
