@@ -47,6 +47,14 @@ class InterruptManager(reporter: Reporter) extends Interruptible {
     }
   }
 
+  def reset() = synchronized {
+    if (isInterrupted) {
+      interrupted.set(false)
+    } else {
+      reporter.warning("Not interrupted!")
+    }
+  }
+
   def registerForInterrupts(i: Interruptible) = synchronized {
     if (isInterrupted) i.interrupt()
     interruptibles.put(i, true)

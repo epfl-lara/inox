@@ -187,7 +187,8 @@ object Main extends MainHelpers {
         import program.ctx._
 
         import SolverResponses._
-        SimpleSolverAPI(SolverFactory.default(program)).solveSAT(expr) match {
+        val sf = SolverFactory.default(program).withTimeout(program.ctx.options.findOption(optTimeout))
+        SimpleSolverAPI(sf).solveSAT(expr) match {
           case SatWithModel(model) =>
             reporter.info(" => SAT")
             for ((vd, res) <- model) {
