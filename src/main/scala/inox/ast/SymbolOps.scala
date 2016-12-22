@@ -543,19 +543,28 @@ trait SymbolOps { self: TypeOps =>
       Some(e)
 
     case Let(v, ts @ (
-      (_: Variable)               |
-      TupleSelect(_: Variable, _) |
-      ADTSelector(_: Variable, _) |
-      FiniteMap(Seq(), _, _, _)   |
-      FiniteBag(Seq(), _)         |
-      FiniteSet(Seq(), _)
+      (_: Variable)                |
+      TupleSelect(_: Variable, _)  |
+      ADTSelector(_: Variable, _)  |
+      FiniteMap(Seq(), _, _, _)    |
+      FiniteBag(Seq(), _)          |
+      FiniteSet(Seq(), _)          |
+      IsInstanceOf(_: Variable, _) |
+      AsInstanceOf(_: Variable, _)
     ), b) =>
       Some(replaceFromSymbols(Map(v -> ts), b))
 
     case Let(vd, e, b) =>
       exprOps.count { case v: Variable if vd.toVariable == v => 1 case _ => 0 } (b) match {
         case 0 if isPure(e) => Some(b)
-        case 1 if isPure(e) => Some(replaceFromSymbols(Map(vd -> e), b))
+        case 1 =>
+          if (isPure(e) || transformers.CollectorWithPC(trees)(symbols) {
+            case (v: Variable, path) if vd.toVariable == v && path.conditions.nonEmpty => v
+          }.collect(b).isEmpty) {
+            Some(replaceFromSymbols(Map(vd -> e), b))
+          } else {
+            None
+          }
         case _ => None
       }
 
@@ -996,6 +1005,183 @@ trait SymbolOps { self: TypeOps =>
     case _ => None
   } (expr)
 
+  def mergeFunctions(expr: Expr): Expr = {
+    type Bindings = Seq[(ValDef, Expr)]
+    implicit class BindingsWrapper(bindings: Bindings) {
+      def merge(that: Bindings): Bindings = (bindings ++ that).distinct
+      def wrap(that: Expr): Expr = bindings.foldRight(that) { case ((vd, e), b) => let(vd, e, b) }
+    }
+
+    def liftCalls(e: Expr): Expr = {
+      def rec(e: Expr): (Expr, Bindings) = e match {
+        case Let(i, fi @ FunctionInvocation(id, tps, args), body) =>
+          val (recArgs, argsBindings) = args.map(rec).unzip
+          val (recBody, bodyBindings) = rec(body)
+          val recBindings = argsBindings.flatten ++ bodyBindings
+          (recBody, ((argsBindings.flatten :+ (i -> FunctionInvocation(id, tps, recArgs).copiedFrom(fi))) ++ recBindings).distinct)
+
+        case fi @ FunctionInvocation(id, tps, args) =>
+          val v = Variable.fresh("call", fi.tfd.returnType, true)
+          val (recArgs, recBindings) = args.map(rec).unzip
+          (v, recBindings.flatten.distinct :+ (v.toVal -> FunctionInvocation(id, tps, recArgs).copiedFrom(fi)))
+
+        case Let(i, v, b) =>
+          val (vr, vBindings) = rec(v)
+          val (br, bBindings) = rec(b)
+          (br, vBindings merge ((i -> vr) +: bBindings))
+
+        case Forall(args, body) =>
+          val (recBody, bodyBindings) = rec(body)
+          (Forall(args, bodyBindings wrap recBody), Seq.empty)
+
+        case Assume(pred, body) =>
+          val (recPred, predBindings) = rec(pred)
+          val (recBody, bodyBindings) = rec(body)
+          (Assume(recPred, bodyBindings wrap recBody), predBindings)
+
+        case IfExpr(cond, thenn, elze) =>
+          val (recCond, condBindings) = rec(cond)
+          val (recThen, thenBindings) = rec(thenn)
+          val (recElse, elseBindings) = rec(elze)
+          (IfExpr(recCond, thenBindings wrap recThen, elseBindings wrap recElse), condBindings)
+
+        case And(e +: es) =>
+          val (recE, eBindings) = rec(e)
+          val newEs = es.map { e =>
+            val (recE, eBindings) = rec(e)
+            eBindings wrap recE
+          }
+          (And(recE +: newEs), eBindings)
+
+        case Or(e +: es) =>
+          val (recE, eBindings) = rec(e)
+          val newEs = es.map { e =>
+            val (recE, eBindings) = rec(e)
+            eBindings wrap recE
+          }
+          (Or(recE +: newEs), eBindings)
+
+        case Implies(lhs, rhs) =>
+          val (recLhs, lhsBindings) = rec(lhs)
+          val (recRhs, rhsBindings) = rec(rhs)
+          (Implies(recLhs, rhsBindings wrap recRhs), lhsBindings)
+
+        case Operator(es, recons) =>
+          val (recEs, esBindings) = es.map(rec).unzip
+          (recons(recEs), esBindings.flatten.distinct)
+      }
+
+      val (newE, bindings) = rec(e)
+      bindings wrap newE
+    }
+
+    def mergeCalls(e: Expr): Expr = {
+      def evCalls(e: Expr): Map[TypedFunDef, Set[(Path, Seq[Expr])]] = {
+        def extractPath(path: Path, vs: Set[Variable]): Option[Path] = {
+          val problematic = utils.fixpoint((vs: Set[Variable]) => vs ++ path.bindings.collect {
+            case (vd, e) if (variablesOf(e) & vs).nonEmpty => vd.toVariable
+            case (vd, e) if exists { case fi: FunctionInvocation => true case _ => false }(e) => vd.toVariable
+          })(Set.empty)
+
+          val allVars = vs ++ path.conditions.flatMap(variablesOf)
+          if ((allVars & problematic).isEmpty) {
+            Some(path -- problematic.map(_.toVal))
+          } else {
+            None
+          }
+        }
+
+        val pathFis = transformers.CollectorWithPC(trees)(symbols) {
+          case (fi: FunctionInvocation, path) => extractPath(path, variablesOf(fi)).map(path => path -> fi)
+        }.collect(e).flatten
+
+        pathFis.groupBy(_._2.tfd).mapValues(_.map(p => (p._1, p._2.args)).toSet)
+      }
+
+      def replace(path: Path, oldE: Expr, newE: Expr, body: Expr): Expr = {
+        object transformer extends transformers.TransformerWithPC {
+          val trees: self.trees.type = self.trees
+          val symbols: self.symbols.type = self.symbols
+          val initEnv = Path.empty
+
+          override protected def rec(e: Expr, p: Path): Expr = {
+            if ((path.bindings.toSet subsetOf p.bindings.toSet) &&
+                (p.conditions == path.conditions) &&
+                e == oldE) {
+              newE
+            } else {
+              super.rec(e, p)
+            }
+          }
+        }
+
+        transformer.transform(body)
+      }
+
+      postMap {
+        case IfExpr(cond, thenn, elze) =>
+          val condVar = Variable.fresh("cond", BooleanType, true)
+          val condPath = Path(condVar)
+
+          def rec(bindings: Bindings, thenn: Expr, elze: Expr): (Bindings, Expr, Expr) = {
+            val thenCalls = evCalls(thenn)
+            val elseCalls = evCalls(elze)
+
+            (thenCalls.keySet & elseCalls.keySet).headOption match {
+              case Some(tfd) =>
+                val (pathThen, argsThen) = thenCalls(tfd).toSeq.sortBy(_._1.elements.size).head
+                val (pathElse, argsElse) = elseCalls(tfd).toSeq.sortBy(_._1.elements.size).head
+
+                val v = Variable.fresh("res", tfd.returnType, true)
+                val condThen = Variable.fresh("condThen", BooleanType, true)
+
+                val result = IfExpr(Or(condThen, (condPath.negate merge pathElse).toClause),
+                  tfd.applied((argsThen zip argsElse).map { case (argThen, argElse) =>
+                    ifExpr(condThen, pathThen.bindings wrap argThen, pathElse.bindings wrap argElse)
+                  }), Choose(Variable.fresh("res", tfd.returnType).toVal, BooleanLiteral(true)))
+
+                val newBindings = bindings ++ Seq(condThen.toVal -> (condPath merge pathThen).toClause, v.toVal -> result)
+                val newThen = replace(pathThen, tfd.applied(argsThen), v, thenn)
+                val newElse = replace(pathElse, tfd.applied(argsElse), v, elze)
+                rec(newBindings, newThen, newElse)
+
+              case None => (bindings, thenn, elze)
+            }
+          }
+
+          val (bindings, newThen, newElse) = rec(Seq.empty, thenn, elze)
+          Some(((condVar.toVal -> cond) +: bindings) wrap IfExpr(condVar, newThen, newElse))
+
+        case _ => None
+      } (e)
+    }
+
+    def simplifyCondLets(e: Expr): Expr = postMap {
+      case l @ Let(vd, ie @ IfExpr(cond, v: Variable, _: Choose), body) =>
+        object transformer extends transformers.TransformerWithPC {
+          val trees: self.trees.type = self.trees
+          val symbols: self.symbols.type = self.symbols
+          val initEnv = Path.empty
+
+          override protected def rec(e: Expr, path: Path): Expr = e match {
+            case nv: Variable if vd.toVariable == nv && (path.conditions contains cond) => v
+            case _ => super.rec(e, path)
+          }
+        }
+
+        val newBody = transformer.transform(body)
+        if (variablesOf(newBody) contains vd.toVariable) {
+          Some(Let(vd, ie, newBody).copiedFrom(l))
+        } else {
+          Some(newBody)
+        }
+
+      case _ => None
+    } (e)
+
+    simplifyCondLets(simplifyLets(mergeCalls(liftCalls(expr))))
+  }
+
   def simplifyFormula(e: Expr, simplify: Boolean = true): Expr = {
     if (simplify) {
       val simp: Expr => Expr =
@@ -1003,6 +1189,7 @@ trait SymbolOps { self: TypeOps =>
         ((e: Expr) => simplifyByConstructors(e)) compose
         ((e: Expr) => simplifyAssumptions(e))    compose
         ((e: Expr) => simplifyForalls(e))        compose
+        ((e: Expr) => mergeFunctions(e))         compose
         ((e: Expr) => simplifyLets(e))
       fixpoint(simp)(e)
     } else {
@@ -1133,6 +1320,15 @@ trait SymbolOps { self: TypeOps =>
     */
   def let(vd: ValDef, e: Expr, bd: Expr) = {
     if ((variablesOf(bd) contains vd.toVariable) || !isPure(e)) Let(vd, e, bd) else bd
+  }
+
+  /** $encodingof simplified `if (c) t else e` (if-expression).
+    * @see [[Expressions.IfExpr IfExpr]]
+    */
+  def ifExpr(c: Expr, t: Expr, e: Expr): Expr = (t, e) match {
+    case (_, `t`) if isPure(c) => t
+    case (_, IfExpr(c2, `t`, e2)) if isPure(c2) => IfExpr(c, t, e2)
+    case _ => IfExpr(c, t, e)
   }
 
   /** Instantiates the type parameters of the function according to argument types

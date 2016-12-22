@@ -13,10 +13,13 @@ trait Paths { self: SymbolOps with TypeOps =>
 
     def apply(p: Expr): Path = p match {
       case Let(i, e, b) => new Path(Seq(Left(i -> e))) merge apply(b)
+      case BooleanLiteral(true) => new Path(Seq.empty)
       case _ => new Path(Seq(Right(p)))
     }
 
-    def apply(path: Seq[Expr]): Path = new Path(path.map(Right(_)))
+    def apply(p: (ValDef, Expr)): Path = new Path(Seq(Left(p)))
+
+    def apply(path: Seq[Expr]): Path = new Path(path.filterNot(_ == BooleanLiteral(true)).map(Right(_)))
   }
 
   /** Encodes path conditions
@@ -54,10 +57,10 @@ trait Paths { self: SymbolOps with TypeOps =>
     /** Remove bound variables from this [[Path]]
       * @param ids the bound variables to remove
       */
-    def --(ids: Set[Identifier]) = new Path(elements.filterNot(_.left.exists(p => ids(p._1.id))))
+    def --(vds: Set[ValDef]) = new Path(elements.filterNot(_.left.exists(p => vds(p._1))))
 
     /** Appends `that` path at the end of `this` */
-    def merge(that: Path): Path = new Path(elements ++ that.elements)
+    def merge(that: Path): Path = new Path((elements ++ that.elements).distinct)
 
     /** Appends `those` paths at the end of `this` */
     def merge(those: Traversable[Path]): Path = those.foldLeft(this)(_ merge _)

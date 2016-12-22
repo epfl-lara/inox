@@ -48,9 +48,5 @@ trait TransformerWithPC extends Transformer {
 
     case o @ Operator(es, builder) =>
       builder(es.map(rec(_, path))).copiedFrom(o)
-
-    case _ =>
-      sys.error(s"Expression $e [${e.getClass}] is not extractable")
   }
-
 }
