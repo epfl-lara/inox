@@ -727,7 +727,10 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
 
     def modelEval(elem: t.Expr, tpe: t.Type): Option[t.Expr] = e(elem)
 
-    override def toString = model.mkString("\n")
+    override def toString = {
+      import targetProgram._
+      model.map(p => p._1.asString -> p._2.asString).mkString("\n")
+    }
   }
 
   override def dbg(msg: => Any) = underlying.dbg(msg)

@@ -331,6 +331,11 @@ trait Templates extends TemplateGenerator
   type Equalities = Map[Encoded, Set[Equality]]
   type Pointers   = Map[Encoded, Encoded]
 
+  object TemplateContents {
+    def empty(pathVar: (Variable, Encoded), args: Seq[(Variable, Encoded)]) =
+      TemplateContents(pathVar, args, Map(), Map(), Map(), Seq(), Map(), Map(), Map(), Map(), Seq(), Seq(), Map())
+  }
+
   case class TemplateContents(
     val pathVar   : (Variable, Encoded),
     val arguments : Seq[(Variable, Encoded)],
@@ -374,6 +379,34 @@ trait Templates extends TemplateGenerator
 
     def instantiate(substMap: Map[Encoded, Arg]): Clauses =
       Template.instantiate(clauses, blockers, applications, matchers, equalities, substMap)
+
+    def merge(
+      condVars : Map[Variable, Encoded],
+      exprVars : Map[Variable, Encoded],
+      condTree : Map[Variable, Set[Variable]],
+      clauses      : Clauses,
+      blockers     : Calls,
+      applications : Apps,
+      matchers     : Matchers,
+      equalities   : Equalities,
+      lambdas         : Seq[LambdaTemplate],
+      quantifications : Seq[QuantificationTemplate],
+      pointers : Pointers
+    ): TemplateContents = TemplateContents(
+      pathVar,
+      arguments,
+      this.condVars ++ condVars,
+      this.exprVars ++ exprVars,
+      this.condTree merge condTree,
+      this.clauses ++ clauses,
+      this.blockers merge blockers,
+      this.applications merge applications,
+      this.matchers merge matchers,
+      this.equalities merge equalities,
+      this.lambdas ++ lambdas,
+      this.quantifications ++ quantifications,
+      this.pointers ++ pointers
+    )
   }
 
   trait Template { self =>
@@ -512,6 +545,56 @@ trait Templates extends TemplateGenerator
       pointers.map(p => encoder(p._1) -> encoder(p._2))
     }
 
+    def extractCalls(
+      expr: Expr,
+      substMap: Map[Variable, Encoded] = Map.empty[Variable, Encoded],
+      optCall: Option[Call] = None,
+      optApp: Option[App] = None
+    ): (Set[Call], Set[App], Set[Matcher], Pointers) = {
+      val encoder : Expr => Encoded = mkEncoder(substMap)
+
+      val pointers = lambdaPointers(encoder)(expr)
+
+      val exprToMatcher = exprOps.fold[Map[Expr, Matcher]] { (expr, res) =>
+        val result = res.flatten.toMap
+
+        result ++ (expr match {
+          case QuantificationMatcher(c, Seq(e1, _)) if c == equalitySymbol(e1.getType)._1 => None
+          case QuantificationMatcher(c, args) =>
+            // Note that we rely here on the fact that foldRight visits the matcher's arguments first,
+            // so any Matcher in arguments will belong to the `result` map
+            val encodedArgs = args.map(arg => result.get(arg) match {
+              case Some(matcher) => Right(matcher)
+              case None => Left(encoder(arg))
+            })
+
+            Some(expr -> Matcher(Left(encoder(c) -> bestRealType(c.getType)), encodedArgs, encoder(expr)))
+          case _ => None
+        })
+      }(expr)
+
+      def encodeArg(arg: Expr): Arg = exprToMatcher.get(arg) match {
+        case Some(matcher) => Right(matcher)
+        case None => Left(encoder(arg))
+      }
+
+      val calls = firstOrderCallsOf(expr, simplify).map { case (id, tps, path, args) =>
+        Call(getFunction(id, tps), path, args.map(encodeArg))
+      }.filter(i => Some(i) != optCall)
+
+      val apps = firstOrderAppsOf(expr, simplify).filter {
+        case (c, Seq(e1, e2)) => c != equalitySymbol(e1.getType)._1
+        case _ => true
+      }.map { case (c, args) =>
+        val tpe = bestRealType(c.getType).asInstanceOf[FunctionType]
+        App(encoder(c), tpe, args.map(encodeArg), encoder(mkApplication(c, args)))
+      }.filter(i => Some(i) != optApp)
+
+      val matchers = exprToMatcher.values.toSet.filter(i => Some(i.encoded) != optApp.map(_.encoded))
+
+      (calls, apps, matchers, pointers)
+    }
+
     def encode(
       pathVar: (Variable, Encoded),
       arguments: Seq[(Variable, Encoded)],
@@ -525,8 +608,7 @@ trait Templates extends TemplateGenerator
       val idToTrId : Map[Variable, Encoded] =
         condVars ++ exprVars + pathVar ++ arguments ++ substMap ++
         lambdas.map(_.ids) ++ quants.flatMap(_.mapping) ++ equalities.flatMap(_._2.map(_.symbols))
-
-      val encoder : Expr => Encoded = mkEncoder(idToTrId)
+      val encoder: Expr => Encoded = mkEncoder(idToTrId)
 
       val optIdCall = optCall.map { case (tfd, path) => Call(tfd, path, arguments.map(p => Left(p._2))) }
       val optIdApp = optApp.map { case (idT, tpe) =>
@@ -542,98 +624,55 @@ trait Templates extends TemplateGenerator
         Matcher(Right(tfd), arguments.map(p => Left(p._2)), encoded)
       }
 
-      val pointers = (eqs ++ guardedExprs.flatMap(_._2)).flatMap(lambdaPointers(encoder) _).toMap
-
-      val (clauses, blockers, applications, matchers) = {
+      val (clauses, blockers, applications, matchers, pointers) = {
         var clauses      : Clauses = Seq.empty
-        var blockers     : Map[Variable, Set[Call]]     = Map.empty
-        var applications : Map[Variable, Set[App]]      = Map.empty
-        var matchers     : Map[Variable, Set[Matcher]]  = Map.empty
+        var blockers     : Map[Encoded, Set[Call]]     = Map.empty
+        var applications : Map[Encoded, Set[App]]      = Map.empty
+        var matchers     : Map[Encoded, Set[Matcher]]  = Map.empty
+        var pointers     : Map[Encoded, Encoded]       = Map.empty
 
         val pv = pathVar._1
         for ((b,es) <- guardedExprs merge Map(pv -> eqs)) {
-          var funInfos   : Set[Call]     = Set.empty
-          var appInfos   : Set[App]      = Set.empty
-          var matchInfos : Set[Matcher]  = Set.empty
+          var calls  : Set[Call]     = Set.empty
+          var apps   : Set[App]      = Set.empty
+          var matchs : Set[Matcher]  = Set.empty
+          val bp = idToTrId(b)
 
           for (e <- es) {
-            val exprToMatcher = exprOps.fold[Map[Expr, Matcher]] { (expr, res) =>
-              val result = res.flatten.toMap
-
-              result ++ (expr match {
-                case QuantificationMatcher(c, Seq(e1, _)) if c == equalitySymbol(e1.getType)._1 => None
-                case QuantificationMatcher(c, args) =>
-                  // Note that we rely here on the fact that foldRight visits the matcher's arguments first,
-                  // so any Matcher in arguments will belong to the `result` map
-                  val encodedArgs = args.map(arg => result.get(arg) match {
-                    case Some(matcher) => Right(matcher)
-                    case None => Left(encoder(arg))
-                  })
-
-                  Some(expr -> Matcher(Left(encoder(c) -> bestRealType(c.getType)), encodedArgs, encoder(expr)))
-                case _ => None
-              })
-            }(e)
-
-            def encodeArg(arg: Expr): Arg = exprToMatcher.get(arg) match {
-              case Some(matcher) => Right(matcher)
-              case None => Left(encoder(arg))
-            }
-
-            funInfos ++= firstOrderCallsOf(e, simplify).map { case (id, tps, path, args) =>
-              Call(getFunction(id, tps), path, args.map(encodeArg))
-            }
-
-            appInfos ++= firstOrderAppsOf(e, simplify).filter {
-              case (c, Seq(e1, e2)) => c != equalitySymbol(e1.getType)._1
-              case _ => true
-            }.map { case (c, args) =>
-              val tpe = bestRealType(c.getType).asInstanceOf[FunctionType]
-              App(encoder(c), tpe, args.map(encodeArg), encoder(mkApplication(c, args)))
-            }
-
-            matchInfos ++= exprToMatcher.values
+            val (eCalls, eApps, eMatchers, ePtrs) = extractCalls(e, idToTrId, optIdCall, optIdApp)
+            calls ++= eCalls
+            apps ++= eApps
+            matchs ++= eMatchers
+            pointers ++= ePtrs
           }
 
-          val calls = funInfos.filter(i => Some(i) != optIdCall)
-          if (calls.nonEmpty) blockers += b -> calls
-
-          val apps = appInfos.filter(i => Some(i) != optIdApp)
-          if (apps.nonEmpty) applications += b -> apps
-
-          val matchs = matchInfos.filter { case m @ Matcher(_, _, menc) =>
-            !optIdApp.exists { case App(_, _, _, aenc) => menc == aenc }
-          }
-
-          if (matchs.nonEmpty) matchers += b -> matchs
+          if (calls.nonEmpty) blockers += bp -> calls
+          if (apps.nonEmpty) applications += bp -> apps
+          if (matchs.nonEmpty) matchers += bp -> matchs
         }
 
         clauses ++= (for ((b,es) <- guardedExprs; e <- es) yield encoder(Implies(b, e)))
         clauses ++= eqs.map(encoder)
 
-        val allMatchers = matchers merge optIdMatcher.map(m => pathVar._1 -> Set(m)).toMap
-        (clauses, blockers, applications, allMatchers)
+        val allMatchers = matchers merge optIdMatcher.map(m => pathVar._2 -> Set(m)).toMap
+        (clauses, blockers, applications, allMatchers, pointers)
       }
 
-      val encodedBlockers   : Calls      = blockers.map(p => idToTrId(p._1) -> p._2)
-      val encodedApps       : Apps       = applications.map(p => idToTrId(p._1) -> p._2)
-      val encodedMatchers   : Matchers   = matchers.map(p => idToTrId(p._1) -> p._2)
-
       val stringRepr : () => String = () => {
-        " * Activating boolean : " + pathVar._1 + "\n" +
-        " * Control booleans   : " + condVars.keys.mkString(", ") + "\n" +
-        " * Expression vars    : " + exprVars.keys.mkString(", ") + "\n" +
+        " * Activating boolean : " + pathVar._1.asString + "\n" +
+        " * Control booleans   : " + condVars.keys.map(_.asString).mkString(", ") + "\n" +
+        " * Expression vars    : " + exprVars.keys.map(_.asString).mkString(", ") + "\n" +
         " * Clauses            : " + (if (guardedExprs.isEmpty) "\n" else {
-          "\n   " + (for ((b,es) <- guardedExprs; e <- es) yield (b + " ==> " + e)).mkString("\n   ") + "\n"
+          "\n   " + (for ((b,es) <- guardedExprs; e <- es) yield (b.asString + " ==> " + e.asString)).mkString("\n   ") + "\n"
         }) +
         " * Invocation-blocks  :" + (if (blockers.isEmpty) "\n" else {
-          "\n   " + blockers.map(p => p._1 + " ==> " + p._2).mkString("\n   ") + "\n"
+          "\n   " + blockers.map(p => asString(p._1) + " ==> " + p._2).mkString("\n   ") + "\n"
         }) +
         " * Application-blocks :" + (if (applications.isEmpty) "\n" else {
-          "\n   " + applications.map(p => p._1 + " ==> " + p._2).mkString("\n   ") + "\n"
+          "\n   " + applications.map(p => asString(p._1) + " ==> " + p._2).mkString("\n   ") + "\n"
         }) + 
         " * Matchers           :" + (if (matchers.isEmpty) "\n" else {
-          "\n   " + matchers.map(p => p._1 + " ==> " + p._2).mkString("\n   ") + "\n"
+          "\n   " + matchers.map(p => asString(p._1) + " ==> " + p._2).mkString("\n   ") + "\n"
         }) +
         " * Lambdas            :\n" + lambdas.map { case template =>
           " +> " + template.toString.split("\n").mkString("\n    ") + "\n"
@@ -643,7 +682,7 @@ trait Templates extends TemplateGenerator
         }.mkString("\n")
       }
 
-      (clauses, encodedBlockers, encodedApps, encodedMatchers, pointers, stringRepr)
+      (clauses, blockers, applications, matchers, pointers, stringRepr)
     }
 
     def contents(

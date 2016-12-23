@@ -96,34 +96,59 @@ trait TemplateGenerator { self: Templates =>
       }
     }
 
-    val (depSubst, basePointers, tmplClauses) =
-      depsByScope.foldLeft[(Map[Variable, Encoded], Map[Encoded, Encoded], TemplateClauses)](
-        (substMap, Map.empty, emptyClauses)
-      ) { case ((depSubst, pointers, clsSet), (v, expr)) =>
+    type DepClauses = (
+      Map[Variable, Encoded],
+      Map[Variable, Encoded],
+      Map[Variable, Set[Variable]],
+      Clauses,
+      Calls,
+      Apps,
+      Matchers,
+      Equalities,
+      Seq[LambdaTemplate],
+      Seq[QuantificationTemplate],
+      Pointers
+    )
+
+    val (depSubst, depContents) =
+      depsByScope.foldLeft(substMap, TemplateContents.empty(pathVar -> substMap(pathVar), Seq())) {
+        case ((depSubst, contents), (v, expr)) =>
           if (!isSimple(expr)) {
             val normalExpr = if (!isNormalForm) simplifyHOFunctions(expr) else expr
             val (e, cls) = mkExprClauses(pathVar, normalExpr, depSubst)
-            val (conds, exprs, _, equals, lmbds, quants) = cls.proj
+
+            // setup the full encoding substMap
+            val (conds, exprs, tree, equals, lmbds, quants) = cls.proj
             val clauseSubst: Map[Variable, Encoded] = depSubst ++ conds ++ exprs ++
               lmbds.map(_.ids) ++ quants.flatMap(_.mapping) ++ equals.flatMap(_._2.map(_.symbols))
-            val encoder = mkEncoder(clauseSubst) _
-            (depSubst + (v -> encoder(e)), Template.lambdaPointers(encoder)(e), clsSet ++ cls)
+
+            val (eCalls, eApps, eMatchers, ePointers) = Template.extractCalls(e, clauseSubst)
+            val (clsClauses, clsCalls, clsApps, clsMatchers, clsPointers, _) =
+              Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
+
+            (depSubst + (v -> mkEncoder(clauseSubst)(e)), contents merge (
+              conds,
+              exprs,
+              tree,
+              clsClauses,
+              clsCalls merge Map(substMap(pathVar) -> eCalls),
+              clsApps merge Map(substMap(pathVar) -> eApps),
+              clsMatchers merge Map(substMap(pathVar) -> eMatchers),
+              equals,
+              lmbds,
+              quants,
+              clsPointers ++ ePointers
+            ))
           } else {
             val encoder = mkEncoder(depSubst) _
-            (depSubst + (v -> encoder(expr)), Template.lambdaPointers(encoder)(expr), clsSet)
+            val ePointers = Template.lambdaPointers(encoder)(expr)
+            (depSubst + (v -> encoder(expr)), contents.copy(pointers = contents.pointers ++ ePointers))
           }
       }
 
-    val (depClauses, depCalls, depApps, depMatchers, depPointers, _) =
-      Template.encode(pathVar -> substMap(pathVar), Seq.empty, tmplClauses, depSubst)
-
     val sortedDeps = exprOps.variablesOf(struct).map(v => v -> deps(v)).toSeq.sortBy(_._1.id.uniqueName)
     val dependencies = sortedDeps.map(p => depSubst(p._1))
-
-    val (depConds, depExprs, depTree, depEqualities, depLambdas, depQuants) = tmplClauses.proj
-    val structure = new TemplateStructure(struct, dependencies, TemplateContents(
-      pathVar -> substMap(pathVar), Seq.empty, depConds, depExprs, depTree, depClauses,
-      depCalls, depApps, depMatchers, depEqualities, depLambdas, depQuants, basePointers ++ depPointers))
+    val structure = new TemplateStructure(struct, dependencies, depContents)
 
     val res = if (isNormalForm) expr else struct
     (res, structure, depSubst)
