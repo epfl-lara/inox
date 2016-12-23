@@ -1,0 +1,17 @@
+(declare-datatypes () ((Expr!3 (Or!3 (lhs!18 Expr!3) (rhs!18 Expr!3)) (BoolLiteral!3 (i!18 Int)) (And!3 (lhs!19 Expr!3) (rhs!19 Expr!3)) (Not!3 (e!18 Expr!3)) (Implies!3 (lhs!20 Expr!3) (rhs!20 Expr!3)))))
+
+(declare-const e!5 Expr!3)
+
+(define-fun-rec existsImplies!0 ((e!3 Expr!3)) Bool (or (is-Implies!3 e!3) (ite (is-And!3 e!3) (or (existsImplies!0 (lhs!19 e!3)) (existsImplies!0 (rhs!19 e!3))) (ite (is-Or!3 e!3) (or (existsImplies!0 (lhs!18 e!3)) (existsImplies!0 (rhs!18 e!3))) (ite (is-Implies!3 e!3) (or (existsImplies!0 (lhs!20 e!3)) (existsImplies!0 (rhs!20 e!3))) (ite (is-Not!3 e!3) (existsImplies!0 (e!18 e!3)) false))))))
+
+(declare-datatypes (A1!0 R!21) ((fun1!3 (fun1!4 (f!38 (=> A1!0 R!21)) (pre!11 (=> A1!0 Bool))))))
+
+(define-fun-rec exists!0 ((e!1 Expr!3) (f!0 (fun1!3 Expr!3 Bool))) Bool (assume (forall ((x!130 Expr!3)) (=> (@ (f!38 (fun1!4 (lambda ((x!129 Expr!3)) true) (lambda ((x!358 Expr!3)) true))) x!130) (@ (f!38 (fun1!4 (pre!11 f!0) (lambda ((x!359 Expr!3)) true))) x!130))) (or (@ (f!38 f!0) e!1) (ite (is-And!3 e!1) (or (exists!0 (lhs!19 e!1) f!0) (exists!0 (rhs!19 e!1) f!0)) (ite (is-Or!3 e!1) (or (exists!0 (lhs!18 e!1) f!0) (exists!0 (rhs!18 e!1) f!0)) (ite (is-Implies!3 e!1) (or (exists!0 (lhs!20 e!1) f!0) (exists!0 (rhs!20 e!1) f!0)) (ite (is-Not!3 e!1) (exists!0 (e!18 e!1) f!0) false)))))))
+
+(define-fun-rec desugar!0 ((e!5 Expr!3)) Expr!3 (let ((out!0 (ite (is-And!3 e!5) (And!3 (desugar!0 (lhs!19 e!5)) (desugar!0 (rhs!19 e!5))) (ite (is-Or!3 e!5) (Or!3 (desugar!0 (lhs!18 e!5)) (desugar!0 (rhs!18 e!5))) (ite (is-Implies!3 e!5) (Or!3 (Not!3 (desugar!0 (lhs!20 e!5))) (desugar!0 (rhs!20 e!5))) (ite (is-Not!3 e!5) (Not!3 (desugar!0 (e!18 e!5))) e!5)))))) (assume (and (not (existsImplies!0 out!0)) (not (exists!0 out!0 (fun1!4 (lambda ((f!1 Expr!3)) (is-Implies!3 f!1)) (lambda ((f!33 Expr!3)) true))))) out!0)))
+
+(assert (not (let ((out!1 (ite (is-And!3 e!5) (And!3 (desugar!0 (lhs!19 e!5)) (desugar!0 (rhs!19 e!5))) (ite (is-Or!3 e!5) (Or!3 (desugar!0 (lhs!18 e!5)) (desugar!0 (rhs!18 e!5))) (ite (is-Implies!3 e!5) (Or!3 (Not!3 (desugar!0 (lhs!20 e!5))) (desugar!0 (rhs!20 e!5))) (ite (is-Not!3 e!5) (Not!3 (desugar!0 (e!18 e!5))) e!5)))))) (and (not (existsImplies!0 out!1)) (not (exists!0 out!1 (fun1!4 (lambda ((f!1 Expr!3)) (is-Implies!3 f!1)) (lambda ((f!37 Expr!3)) true))))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard
