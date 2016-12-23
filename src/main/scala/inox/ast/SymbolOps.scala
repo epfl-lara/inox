@@ -37,6 +37,7 @@ trait SymbolOps { self: TypeOps =>
       case Or(args) => Some(orJoin(args))
       case Tuple(args) => Some(tupleWrap(args))
       case Application(e, es) => Some(application(e, es))
+      case IfExpr(c, t, e) => Some(ifExpr(c, t, e))
       case _ => None
     }
     postMap(step)(expr)
@@ -1153,7 +1154,7 @@ trait SymbolOps { self: TypeOps =>
           }
 
           val (bindings, newThen, newElse) = rec(Seq.empty, thenn, elze)
-          Some(((condVar.toVal -> cond) +: bindings) wrap IfExpr(condVar, newThen, newElse))
+          Some(((condVar.toVal -> cond) +: bindings) wrap ifExpr(condVar, newThen, newElse))
 
         case _ => None
       } (e)
@@ -1166,8 +1167,23 @@ trait SymbolOps { self: TypeOps =>
           val symbols: self.symbols.type = self.symbols
           val initEnv = Path.empty
 
+          def implies(path: Path, cond: Expr): Boolean = {
+            def simpleDNF(e: Expr): Expr = e match {
+              case And(es) => orJoin(es.foldLeft(Seq(BooleanLiteral(true): Expr)) {
+                case (acc, Or(ors)) => ors.flatMap(or => acc.map(s => and(s, or)))
+                case (acc, e) => acc.map(s => and(s, e))
+              })
+              case Or(es) => orJoin(es map simpleDNF)
+              case _ => e
+            }
+
+            val TopLevelOrs(ors) = simpleDNF(cond)
+            val pathConjs = path.conditions.flatMap { case TopLevelAnds(ands) => ands }.toSet
+            ors.exists { case TopLevelAnds(ands) => ands.toSet subsetOf pathConjs }
+          }
+
           override protected def rec(e: Expr, path: Path): Expr = e match {
-            case nv: Variable if vd.toVariable == nv && (path.conditions contains cond) => v
+            case nv: Variable if vd.toVariable == nv && implies(path, cond) => v
             case _ => super.rec(e, path)
           }
         }
@@ -1330,7 +1346,7 @@ trait SymbolOps { self: TypeOps =>
     */
   def ifExpr(c: Expr, t: Expr, e: Expr): Expr = (t, e) match {
     case (_, `t`) if isPure(c) => t
-    case (_, IfExpr(c2, `t`, e2)) if isPure(c2) => IfExpr(c, t, e2)
+    case (_, IfExpr(c2, `t`, e2)) => IfExpr(or(c, c2), t, e2)
     case _ => IfExpr(c, t, e)
   }
 
