@@ -15,18 +15,9 @@ target
 /.test-history
 /out-classes
 
-# synthesis
-derivation*.dot
-
-# leon
-last.log
-*.last
-*.table
-*.log
+# inox
 smt-sessions/
-leon.out/
-repairs.dat
-tmp
+tip-sessions/
 
 #eclipse
 .cache
@@ -37,8 +28,8 @@ tmp
 
 #intellij
 .idea
-Leon.eml
-Leon.iml
+Inox.eml
+Inox.iml
 /.idea_modules
 
 #scripts
