@@ -1,0 +1,19 @@
+(declare-datatypes () ((A!59 (A!60 (x!539 (_ BitVec 32))))))
+
+(declare-datatypes (A1!0 R!21) ((fun1!11 (fun1!12 (f!40 (=> A1!0 R!21)) (pre!15 (=> A1!0 Bool))))))
+
+(declare-datatypes (A0!6 A1!22) ((tuple2!10 (tuple2!11 (_1!5 A0!6) (_2!5 A1!22)))))
+
+(declare-datatypes () ((FunctionWrapper!5 (FunctionWrapper!6 (f!39 (fun1!11 A!59 (tuple2!10 (_ BitVec 32) A!59)))))))
+
+(declare-datatypes () ((WrapWrapper!5 (WrapWrapper!6 (fw!4 FunctionWrapper!5)))))
+
+(define-fun fImpl!0 ((a!1 A!59)) (tuple2!10 (_ BitVec 32) A!59) (let ((a!26 (A!60 (bvadd (x!539 a!1) #b00000000000000000000000000000001)))) (tuple2!11 (x!539 a!26) a!26)))
+
+(define-fun app!0 ((ww!0 WrapWrapper!5) (a!0 A!59)) (tuple2!10 (_ BitVec 32) A!59) (assume (forall ((x!133 A!59)) (=> (@ (f!40 (fun1!12 (lambda ((x!132 A!59)) true) (lambda ((x!364 A!59)) true))) x!133) (@ (f!40 (fun1!12 (pre!15 (f!39 (fw!4 ww!0))) (lambda ((x!365 A!59)) true))) x!133))) (let ((t!53 (let ((res!38 (@ (f!40 (f!39 (fw!4 ww!0))) a!0))) (tuple2!11 (_1!5 res!38) (_2!5 res!38))))) (tuple2!11 (_1!5 t!53) (_2!5 t!53)))))
+
+(assert (not (let ((wrap!0 (WrapWrapper!6 (FunctionWrapper!6 (fun1!12 (lambda ((a!3 A!59)) (let ((res!40 (fImpl!0 a!3))) (tuple2!11 (_1!5 res!40) (_2!5 res!40)))) (lambda ((a!32 A!59)) true)))))) (let ((x$1!5 (x!539 (_2!5 (app!0 wrap!0 (_2!5 (app!0 wrap!0 (A!60 #b00000000000000000000000000000000)))))))) (= x$1!5 #b00000000000000000000000000000010)))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

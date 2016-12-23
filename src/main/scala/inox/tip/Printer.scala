@@ -145,7 +145,7 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
 
     val (ours, externals) = adts.partition {
       case (adt: ADTType, _) => adt == adt.getADT.definition.typed.toType
-      case (tpe @ TupleType(tps), _) => tpe == tuples(tps.size)
+      case (tpe @ TupleType(tps), _) => Some(tpe) == tuples.get(tps.size)
       case _ => true
     }
 

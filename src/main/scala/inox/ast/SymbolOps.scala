@@ -1030,10 +1030,6 @@ trait SymbolOps { self: TypeOps =>
           val (br, bBindings) = rec(b)
           (br, vBindings merge ((i -> vr) +: bBindings))
 
-        case Forall(args, body) =>
-          val (recBody, bodyBindings) = rec(body)
-          (Forall(args, bodyBindings wrap recBody), Seq.empty)
-
         case Assume(pred, body) =>
           val (recPred, predBindings) = rec(pred)
           val (recBody, bodyBindings) = rec(body)
@@ -1065,6 +1061,13 @@ trait SymbolOps { self: TypeOps =>
           val (recLhs, lhsBindings) = rec(lhs)
           val (recRhs, rhsBindings) = rec(rhs)
           (Implies(recLhs, rhsBindings wrap recRhs), lhsBindings)
+
+        case v: Variable => (v, Seq.empty)
+
+        case ex @ VariableExtractor(vs) if vs.nonEmpty =>
+          val Operator(subs, recons) = ex
+          val recSubs = subs.map(rec)
+          (recons(recSubs.map { case (e, bindings) => bindings wrap e }), Seq.empty)
 
         case Operator(es, recons) =>
           val (recEs, esBindings) = es.map(rec).unzip
