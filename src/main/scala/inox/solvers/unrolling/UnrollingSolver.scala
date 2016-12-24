@@ -12,10 +12,15 @@ import combinators._
 
 import scala.collection.mutable.{Map => MutableMap}
 
-object optUnrollFactor      extends LongOptionDef("unrollfactor", default = 1, "<PosInt>")
+object optUnrollFactor      extends IntOptionDef("unrollfactor", default = 1, "<PosInt>")
 object optFeelingLucky      extends FlagOptionDef("feelinglucky", false)
 object optUnrollAssumptions extends FlagOptionDef("unrollassumptions", false)
-object optModelFinding      extends FlagOptionDef("modelfinding", false)
+object optModelFinding      extends IntOptionDef("modelfinding", 0, "<PosInt> | 0 (off)") {
+  override val parser: OptionParsers.OptionParser[Int] = (s => s match {
+    case "" => Some(1)
+    case _ => OptionParsers.intParser(s)
+  })
+}
 
 trait AbstractUnrollingSolver extends Solver { self =>
 
@@ -70,7 +75,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
   lazy val unrollFactor = options.findOptionOrDefault(optUnrollFactor)
   lazy val feelingLucky = options.findOptionOrDefault(optFeelingLucky)
   lazy val unrollAssumptions = options.findOptionOrDefault(optUnrollAssumptions)
-  lazy val modelFinding = options.findOptionOrDefault(optModelFinding)
+  lazy val modelFinding = options.findOptionOrDefault(optModelFinding) > 0
 
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
     checkAssumptions(config)(Set.empty)
@@ -628,7 +633,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
           val timer = ctx.timers.solvers.unroll.start()
           // unfolling `unrollFactor` times
-          for (i <- 1 to unrollFactor.toInt if templates.canUnroll) {
+          for (i <- 1 to unrollFactor.toInt if templates.canUnroll && !abort && !pause) {
             val newClauses = templates.unroll
             for (ncl <- newClauses) {
               underlying.assertCnstr(ncl)

@@ -64,7 +64,7 @@ trait MainHelpers {
     solvers.unrolling.optFeelingLucky -> Description(Solvers, "Use evaluator to find counter-examples early"),
     solvers.unrolling.optUnrollAssumptions -> Description(Solvers, "Use unsat-assumptions to drive unfolding while remaining fair"),
     solvers.unrolling.optNoSimplifications -> Description(Solvers, "Disable selector/quantifier simplifications in solvers"),
-    solvers.unrolling.optModelFinding -> Description(Solvers, "Enhance model-finding capabilities of solvers"),
+    solvers.unrolling.optModelFinding -> Description(Solvers, "Enhance model-finding capabilities of solvers by given aggresivity"),
     solvers.smtlib.optCVC4Options -> Description(Solvers, "Pass extra options to CVC4"),
     evaluators.optMaxCalls -> Description(Evaluators, "Maximum function invocations allowed during evaluation (-1 for unbounded)"),
     evaluators.optIgnoreContracts -> Description(Evaluators, "Don't fail on invalid contracts during evaluation")

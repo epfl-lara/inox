@@ -46,10 +46,11 @@ trait Templates extends TemplateGenerator
   private[unrolling] lazy val falseT = mkEncoder(Map.empty)(BooleanLiteral(false))
 
   protected lazy val simplify = !ctx.options.findOptionOrDefault(optNoSimplifications)
+  protected lazy val deferFactor =  3 * ctx.options.findOptionOrDefault(optModelFinding)
 
   private var currentGen: Int = 0
   protected def currentGeneration: Int = currentGen
-  protected def nextGeneration(gen: Int): Int = gen + 3
+  protected def nextGeneration(gen: Int): Int = gen + 3 + deferFactor
 
   trait Manager extends IncrementalStateWrapper {
     def unrollGeneration: Option[Int]
