@@ -69,15 +69,19 @@ trait Paths { self: SymbolOps with TypeOps =>
       *
       * Expressions in a path appear both on the right-hand side of let binders
       * and in boolean path conditions.
+      *
+      * @see [[map(fVal:Paths\.this\.trees\.ValDef=>Paths\.this\.trees\.ValDef,fExpr:Paths\.this\.trees\.Expr=>Paths\.this\.trees\.Expr):Paths\.this\.Path* map]]
+      *      for a map that can transform bindings as well
       */
     def map(f: Expr => Expr) = new Path(elements.map(_.left.map { case (vd, e) => vd -> f(e) }.right.map(f)))
 
     /** Transforms both let bindings and expressions inside the path
       * 
-      * The function [[fVal]] is applied to all values in [[bound]] and [[fExpr]] is applied
+      * The function `fVal` is applied to all values in [[bound]] and `fExpr` is applied
       * to both the bodies of the [[bindings]] as well as the [[conditions]].
       *
-      * @see [[map(Expr => Expr)]] for a map only defined on expressions
+      * @see [[map(f:Paths\.this\.trees\.Expr=>Paths\.this\.trees\.Expr):Paths\.this\.Path* map]]
+      *      for a map defined only on expressions
       */
     def map(fVal: ValDef => ValDef, fExpr: Expr => Expr) = new Path(
       elements.map(_.left.map { case (vd, e) => fVal(vd) -> fExpr(e) }.right.map(fExpr))
@@ -140,7 +144,8 @@ trait Paths { self: SymbolOps with TypeOps =>
       * within a fixpoint computation where the `ids` set is iteratively computed
       * by performing [[filterByIds]] calls on some (unchaning) base [[Path]].
       *
-      * @see [[stainless.extraction.innerfuns.FunctionClosure.transform]] for an example usecase.
+      * @see [https://github.com/epfl-lara/stainless/blob/master/src/main/scala/stainless/extraction/innerfuns/FunctionClosure.scala](
+      *       FunctionClosure in stainless for an example usecase).
       */
     def filterByIds(ids: Set[Identifier]): Path = {
       def containsIds(ids: Set[Identifier])(e: Expr): Boolean = exprOps.exists {
@@ -201,8 +206,8 @@ trait Paths { self: SymbolOps with TypeOps =>
       *
       * The folding shares all outer bindings in an wrapping sequence of
       * let-expressions. The inner condition is then passed as the first
-      * argument of the [[recons]] function and must be shared out between
-      * the reconstructions of [[es]] which will only feature the bindings
+      * argument of the `recons` function and must be shared out between
+      * the reconstructions of `es` which will only feature the bindings
       * from the current path.
       *
       * This method is useful to reconstruct if-expressions or assumptions

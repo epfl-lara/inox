@@ -102,7 +102,7 @@ trait LambdaTemplates { self: Templates =>
       closures.map(substituter),
       lambda, stringRepr, isConcrete)
 
-    /** This must be called right before returning the clauses in [[structure.instantiation]]! */
+    /** This must be called right before returning the clauses in [[structure]]`.instantiation` ! */
     def concretize(idT: Encoded): LambdaTemplate = {
       assert(!isConcrete, "Can't concretize concrete lambda template")
       val substituter = mkSubstituter(Map(ids._2 -> idT) ++ structure.instantiationSubst)

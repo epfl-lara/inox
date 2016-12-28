@@ -9,12 +9,12 @@ import scala.language.implicitConversions
   *
   * The two following principles are followed (hopefully with some consistency):
   * 1) When a fresh identifier needs to be introduced, the API provides constructors
-  *    which are passed the fresh identifiers in the form of [[inox.ast.Definitions.ValDef]]s
-  *    (construct them with [[inox.ast.DSL.TypeToValDef]]), and then a context
+  *    which are passed the fresh identifiers in the form of [[Definitions.ValDef ValDef]]s
+  *    (construct them with [[TypeToValDef]]), and then a context
   *    (in the form of a function) to which the newly created identifiers will be passed.
   * 2) No implicit conversions are provided where there would be ambiguity.
   *    This refers mainly to Identifiers, which can be transformed to
-  *    [[inox.ast.Types.ADTType]] or [[inox.ast.Expressions.FunctionInvocation]] or ... .
+  *    [[Types.ADTType ADTType]] or [[Expressions.FunctionInvocation FunctionInvocation]] or ... .
   *    Instead one-letter constructors are provided.
   */
 trait DSL {
@@ -123,8 +123,8 @@ trait DSL {
     def :: (nm: String): ValDef = ValDef(FreshIdentifier(nm, true), tp)
   }
 
-  /** Creates a [[Let]]. A [[ValDef]] and a context is given; the identifier of the ValDef
-    * is passed to the context.
+  /** Creates a [[Expressions.Let Let]]. A [[Definitions.ValDef ValDef]] and a
+    * context is given; the identifier of the ValDef is passed to the context.
     *
     * @param vd The ValDef which will be bound in the body (see [[TypeToValDef.::]])
     * @param v The value bound to the let-variable
@@ -224,7 +224,7 @@ trait DSL {
 
   /* Definitions */
 
-  /** Creates a [[FunDef]] given only an [[Identifier]] for the name;
+  /** Creates a [[Definitions.FunDef FunDef]] given only an [[Identifier]] for the name;
     * the (type) parameter [[Identifier]]s will be created fresh by this function.
     *
     * @param id The [[Identifier]] referring to this function.
@@ -232,10 +232,10 @@ trait DSL {
     * @param builder A function from a Seq of type parameters (which should correspond
     *                to tParamNames) which, given these type parameters,
     *                should return
-    *                (1) The sequence of parameters as [[ValDef]]s (see [[TypeToValDef.::]])
+    *                (1) The sequence of parameters as [[Definitions.ValDef ValDef]]s (see [[TypeToValDef.::]])
     *                (2) The return type of the function
     *                (3) A context which, given the parameters, will return the body of the function.
-    * @return A fresh and juicy [[FunDef]]
+    * @return A fresh and juicy [[Definitions.FunDef FunDef]]
     */
   def mkFunDef(id: Identifier)
               (tParamNames: String*)

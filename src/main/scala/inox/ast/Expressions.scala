@@ -76,7 +76,7 @@ trait Expressions { self: Trees =>
     * @param vd The ValDef used in body, defined just after '''val'''
     * @param value The value assigned to the identifier, after the '''=''' sign
     * @param body The expression following the ``val ... = ... ;`` construct
-    * @see [[Constructors#let purescala's constructor let]]
+    * @see [[SymbolOps.let the let constructor]]
     */
   case class Let(vd: ValDef, value: Expr, body: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = {
@@ -262,7 +262,7 @@ trait Expressions { self: Trees =>
   /** $encodingof `value.selector` where value is of a case class type
     *
     * If you are not sure about the requirement you should use
-    * [[Constructors#caseClassSelector purescala's constructor caseClassSelector]]
+    * [[SymbolOps.adtSelector the adtSelector constructor]]
     */
   case class ADTSelector(adt: Expr, selector: Identifier) extends Expr with CachingTyped {
 
@@ -300,8 +300,8 @@ trait Expressions { self: Trees =>
   /** $encodingof `... && ...`
     *
     * [[exprs]] must contain at least two elements; if you are not sure about this,
-    * you should use [[Constructors#and purescala's constructor and]]
-    * or [[Constructors#andJoin purescala's constructor andJoin]]
+    * you should use [[Constructors.and the and constructor]]
+    * or [[Constructors.andJoin the andJoin constructor]]
     */
   case class And(exprs: Seq[Expr]) extends Expr with CachingTyped {
     require(exprs.size >= 2)
@@ -318,8 +318,8 @@ trait Expressions { self: Trees =>
   /** $encodingof `... || ...`
     *
     * [[exprs]] must contain at least two elements; if you are not sure about this,
-    * you should use [[Constructors#or purescala's constructor or]] or
-    * [[Constructors#orJoin purescala's constructor orJoin]]
+    * you should use [[Constructors#or the or constructor]] or
+    * [[Constructors#orJoin the orJoin constructor]]
     */
   case class Or(exprs: Seq[Expr]) extends Expr with CachingTyped {
     require(exprs.size >= 2)
@@ -543,7 +543,7 @@ trait Expressions { self: Trees =>
     *
     * [[exprs]] should always contain at least 2 elements.
     * If you are not sure about this requirement, you should use
-    * [[Constructors.tupleWrap purescala's constructor tupleWrap]]
+    * [[Constructors.tupleWrap the tupleWrap constructor]]
     *
     * @param exprs The expressions in the tuple
     */
@@ -555,8 +555,10 @@ trait Expressions { self: Trees =>
   /** $encodingof `(tuple)._i`
     *
     * Index is 1-based, first element of tuple is 1.
-    * If you are not sure that [[tuple]] is indeed of a TupleType,
-    * you should use [[Constructors.tupleSelect purescala's constructor tupleSelect]]
+    * If you are not sure that [[tuple]] is indeed of a TupleType, you should use one of the
+    * [[SymbolOps.tupleSelect(t:SymbolOps\.this\.trees\.Expr,index:Int,originalSize:Int)*]]
+    * [[SymbolOps.tupleSelect(t:SymbolOps\.this\.trees\.Expr,index:Int,isTuple:Boolean)*]]
+    * constructors
     */
   case class TupleSelect(tuple: Expr, index: Int) extends Expr with CachingTyped {
     require(index >= 1)

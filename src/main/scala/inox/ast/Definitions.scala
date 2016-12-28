@@ -28,7 +28,7 @@ trait Definitions { self: Trees =>
   case class NotWellFormedException(d: Definition)
     extends Exception(s"Not well formed definition $d")
 
-  /** Common super-type for [[ValDef]] and [[Expressions.Variable]].
+  /** Common super-type for [[ValDef]] and [[Expressions.Variable Variable]].
     *
     * Both types share much in common and being able to reason about them
     * in a uniform manner can be useful in certain cases.
@@ -186,8 +186,9 @@ trait Definitions { self: Trees =>
   /** Represents source code annotations and some other meaningful flags.
     * 
     * In order to enable transformations on [[Flag]] instances, there is an
-    * implicit contract on [[args]] such that for each argument, either
-    * {{{arg: Expr | Type}}}, or there exists no tree instance within arg. */
+    * implicit contract on `args` such that for each argument, either
+    * {{{arg: Expr | Type}}}, or there exists no [[Expressions.Expr Expr]]
+    * or [[Types.Type Type]] instance within arg. */
   abstract class Flag(name: String, args: Seq[Any]) extends Printable {
     def asString(implicit opts: PrinterOptions): String = name + (if (args.isEmpty) "" else {
       args.map(arg => self.asString(arg)(opts)).mkString("(", ", ", ")")
@@ -464,10 +465,10 @@ trait Definitions { self: Trees =>
       (fd.typeArgs zip tps).toMap.filter(tt => tt._1 != tt._2)
     }
 
-    /** A [[Type]] instantiated with this [[TypedFunDef]]'s type instantiation */
+    /** A [[Types.Type Type]] instantiated with this [[TypedFunDef]]'s type instantiation */
     def instantiate(t: Type): Type = symbols.instantiateType(t, tpSubst)
 
-    /** A [[Expr]] instantiated with this [[TypedFunDef]]'s type instantiation */
+    /** A [[Expressions.Expr Expr]] instantiated with this [[TypedFunDef]]'s type instantiation */
     def instantiate(e: Expr): Expr = symbols.instantiateType(e, tpSubst)
 
     /** A mapping from this [[TypedFunDef]]'s formal parameters to real arguments

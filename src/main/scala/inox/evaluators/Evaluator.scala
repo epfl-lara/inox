@@ -11,14 +11,14 @@ trait Evaluator {
   import program.trees._
 
   /** The type of value that this [[Evaluator]] calculates
-    * Typically, it will be [[Expr]] for deterministic evaluators, and
-    * [[Stream[Expr]]] for non-deterministic ones.
+    * Typically, it will be [[ast.Expressions.Expr Expr]] for deterministic evaluators, and
+    * `Stream[[ast.Expressions.Expr Expr]]` for non-deterministic ones.
     */
   type Value
 
   type EvaluationResult = EvaluationResults.Result[Value]
 
-  /** Evaluates an expression, using [[Model.mapping]] as a valuation function for the free variables. */
+  /** Evaluates an expression, using `model` as a valuation function for the free variables. */
   def eval(expr: Expr, model: Map[ValDef, Expr]) : EvaluationResult
 
   /** Evaluates a ground expression. */

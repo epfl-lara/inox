@@ -53,7 +53,9 @@ trait TypeOps {
     *         (with type parameters instantiated as needed)
     *         and map the assignment of type variables.
     *         Result is empty if types are incompatible.
-    * @see [[leastUpperBound]], [[greatestLowerBound]], [[isSubtypeOf]], [[typesCompatible]], [[unify]]
+    * @see [[leastUpperBound(ts:Seq[TypeOps\.this\.trees\.Type]):Option[TypeOps\.this\.trees\.Type]* leastUpperBound]],
+    *      [[greatestLowerBound(ts:Seq[TypeOps\.this\.trees\.Type]):Option[TypeOps\.this\.trees\.Type]* greatestLowerBound]],
+    *      [[isSubtypeOf]], [[typesCompatible]], [[unify]]
     */
   def typeBound(t1: Type, t2: Type, isLub: Boolean, allowSub: Boolean)
                (implicit freeParams: Seq[TypeParameter]): Option[(Type, Map[TypeParameter, Type])] = {

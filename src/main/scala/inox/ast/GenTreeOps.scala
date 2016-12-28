@@ -5,10 +5,12 @@ package ast
 
 import utils._
 
-/** A type that pattern matches agains a type of [[Tree]] and extracts it Sources,
-  * and a builder that reconstructs a tree of the same type from Sources.
+/** A type that pattern matches agains a type of `Sources` and extracts its components,
+  * and a builder that given a set of `Target` components, reconstructs a `Target` tree
+  * that corresponds to the initially deconstructed tree.
   *
-  * @tparam Source The type of the tree
+  * @tparam Source The type of the tree to deconstruct
+  * @tparam Target The type of the tree to reconstruct
   */
 trait TreeExtractor {
   protected val s: Trees
@@ -21,7 +23,8 @@ trait TreeExtractor {
 
 /** Generic tree traversals based on a deconstructor of a specific tree type
   *
-  * @tparam Source The type of the tree
+  * @tparam Source The type of the tree to deconstruct
+  * @tparam Target The type of the tree to reconstruct
   */
 trait GenTreeOps { self =>
   protected val sourceTrees: Trees

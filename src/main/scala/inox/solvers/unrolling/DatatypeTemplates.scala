@@ -96,7 +96,8 @@ trait DatatypeTemplates { self: Templates =>
     *   determines whether a given type requires unfolding.
     *   @see [[ADTUnrolling.unroll]]
     *   @see [[FunctionUnrolling.unroll]]
-    *   @see [[FullTemplateGenerator.unroll]]
+    *   @see [[FlatUnrolling.unroll]]
+    *   @see [[CachedUnrolling.unroll]]
     *
     * - [[Builder.rec]]:
     *   can be overriden to provide finer controll of what clauses should be generated during
@@ -104,14 +105,14 @@ trait DatatypeTemplates { self: Templates =>
     *   careful to use the overriding class when construction a template! We use a [[Builder]]
     *   class here so that the [[Builder.rec]] method can refer to the current [[Builder]]
     *   state while still providing an override point.
-    *   @see [[$DatatypeTemplate.Builder.rec]]
-    *   @see [[$CaptureTemplate.Builder.rec]]
+    *   @see [[DatatypeTemplate.Builder.rec]]
+    *   @see [[CaptureTemplate.Builder.rec]]
     *
-    * @see [[$DatatypeTemplate]]
-    * @see [[$CaptureTemplate]]
+    * @see [[DatatypeTemplate$]]
+    * @see [[CaptureTemplate$]]
     */
   sealed protected trait TemplateGenerator {
-    /** Determines whether a given [[Type]] needs to be considered during ADT unfolding. */
+    /** Determines whether a given [[ast.Types.Type Type]] needs to be considered during ADT unfolding. */
     def unroll(tpe: Type): Boolean
 
     /** Stateful template generating trait. Provides the [[rec]] override point so that
@@ -381,7 +382,7 @@ trait DatatypeTemplates { self: Templates =>
   protected trait CachedUnrolling extends TemplateGenerator {
     private val unrollCache: MutableMap[Type, Boolean] = MutableMap.empty
 
-    /** Determines whether a given [[Type]] needs to be considered during ADT unfolding.
+    /** Determines whether a given [[ast.Types.Type Type]] needs to be considered during ADT unfolding.
       * 
       * This function DOES NOT correspond to an override point (hence the `final` modifier).
       * One should look at [[unrollType]] to change the behavior of [[unroll]].

@@ -8,9 +8,9 @@
   *
   * [[inox.ast]]: Provides definitions for expressions, types and definitions,
   *   as well as operations on them
-  * [[inox.datagen]]: Generators/enumerators for Inox expressions
   * [[inox.evaluators]]: Evaluators of Inox expressions
   * [[inox.solvers]]: Interfaces to SMT-solvers
+  * [[inox.tip]]: Parsing and printing for TIP problems
   * [[inox.transformers]]: Tree transformations for Inox expressions
   * [[inox.utils]]: Utility methods
   */

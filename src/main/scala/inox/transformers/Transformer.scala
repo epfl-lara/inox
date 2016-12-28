@@ -24,11 +24,11 @@ trait Transformer {
     */
   protected def rec(e: Expr, env: Env): Expr
 
-  /** Transform an [[Expr]] with the specified environment */
+  /** Transform an [[ast.Expressions.Expr Expr]] with the specified environment */
   final def transform(e: Expr, init: Env): Expr = rec(e, init)
-  /** Transform an [[Expr]] with the initial environment */
+  /** Transform an [[ast.Expressions.Expr Expr]] with the initial environment */
   final def transform(e: Expr): Expr            = transform(e, initEnv)
-  /** Transform the body of a [[FunDef]] */
+  /** Transform the body of a [[ast.Definitions.FunDef FunDef]] */
   final def transform(fd: FunDef): Expr         = transform(fd.fullBody)
 }
 

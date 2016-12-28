@@ -10,6 +10,8 @@ import scala.collection.mutable.{Map => MutableMap}
 /** Provides functions to manipulate [[Expressions.Expr]] in cases where
   * a symbol table is available (and required: see [[ExprOps]] for
   * simpler tree manipulations).
+  *
+  * @define encodingof Encoding of
   */
 trait SymbolOps { self: TypeOps =>
   import trees._
@@ -74,7 +76,7 @@ trait SymbolOps { self: TypeOps =>
     fixpoint(postMap(rec))(expr)
   }
 
-  /** Returns '''true''' iff the evaluation of expression [[expr]] cannot lead to a crash. */
+  /** Returns '''true''' iff the evaluation of expression `expr` cannot lead to a crash. */
   def isPure(expr: Expr): Boolean = {
     val callees = collect {
       case fi: FunctionInvocation => Set(fi.tfd.fd)
@@ -103,10 +105,10 @@ trait SymbolOps { self: TypeOps =>
     * This function relies on the static map `typedIds` to ensure identical
     * structures and must therefore be synchronized.
     *
-    * The optional argument [[onlySimple]] determines whether non-simple expressions
-    * (see [[isSimple]]) should be normalized into a dependency or recursed into
-    * (when they don't depend on [[args]]). This distinction is used in the
-    * unrolling solver to provide geenral equality checks between functions even when
+    * The optional argument `onlySimple` determines whether non-simple expressions
+    * (see [[ExprOps.isSimple isSimple]]) should be normalized into a dependency or recursed
+    * into (when they don't depend on `args`). This distinction is used in the
+    * unrolling solver to provide general equality checks between functions even when
     * they have complex closures.
     */
   def normalizeStructure(args: Seq[ValDef], expr: Expr, preserveApps: Boolean, onlySimple: Boolean):
@@ -303,6 +305,10 @@ trait SymbolOps { self: TypeOps =>
     (bindings, newExpr, deps)
   }
 
+  /** Wrapper around
+    * [[normalizeStructure(args:Seq[SymbolOps\.this\.trees\.ValDef],expr:SymbolOps\.this\.trees\.Expr,preserveApps:Boolean,onlySimple:Boolean)* normalizeStructure]]
+    * that is tailored for structural equality of [[Expressions.Lambda Lambda]] and [[Expressions.Forall Forall]] instances.
+    */
   def normalizeStructure(e: Expr, onlySimple: Boolean = true): (Expr, Seq[(Variable, Expr)]) = e match {
     case lambda: Lambda =>
       val (args, body, subst) = normalizeStructure(lambda.args, lambda.body, false, onlySimple)
@@ -317,9 +323,9 @@ trait SymbolOps { self: TypeOps =>
       (body, subst)
   }
 
-  /** Ensures the closure [[l]] can only be equal to some other closure if they share
-    * the same integer identifier [[id]]. This method makes sure this property is
-    * preserved after going through [[normalizeStructure(Lambda)]]. */
+  /** Ensures the closure `res` can only be equal to some other closure if they share the same
+    * integer identifier `id`. This method makes sure this property is preserved after going through
+    * [[normalizeStructure(e:SymbolOps\.this\.trees\.Expr,onlySimple:Boolean)*]]. */
   def uniquateClosure(id: Int, res: Lambda): Lambda = {
     def allArgs(l: Lambda): Seq[ValDef] = l.args ++ (l.body match {
       case l2: Lambda => allArgs(l2)
@@ -341,7 +347,7 @@ trait SymbolOps { self: TypeOps =>
     replaceFromSymbols(subst.toMap, nl).asInstanceOf[Lambda]
   }
 
-  /** Generates an instance of type [[tpe]] such that the following holds:
+  /** Generates an instance of type `tpe` such that the following holds:
     * {{{constructExpr(i, tpe) == constructExpr(j, tpe)}}} iff {{{i == j}}}.
     */
   def constructExpr(i: Int, tpe: Type): Expr = tpe match {

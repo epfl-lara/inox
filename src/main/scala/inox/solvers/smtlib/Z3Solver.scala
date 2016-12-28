@@ -27,7 +27,7 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
     * {{{
     *   (check-sat a1 ... an)
     * }}}
-    * so we have to use a [[_root_.smtlib.parser.Terms.SList]] to actually
+    * so we have to use a scala-smtlib `SList` to actually
     * send the command to the underlying smtlib solver.
     */
   override def checkAssumptions(config: Configuration)(assumptions: Set[Expr]) = {

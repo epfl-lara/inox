@@ -42,7 +42,7 @@ trait ExprOps extends GenTreeOps {
     } (expr)
   }
 
-  /** Replaces bottom-up variables by looking them up in a map from [[ValDef]] to expressions */
+  /** Replaces bottom-up variables by looking them up in a map from [[Definitions.ValDef ValDef]] to expressions */
   def replaceFromSymbols(substs: Map[ValDef, Expr], expr: Expr): Expr = postMap {
     case v: Variable => substs.get(v.toVal)
     case _ => None
@@ -98,7 +98,7 @@ trait ExprOps extends GenTreeOps {
 
   /** Returns '''true''' if the formula is Ground,
     * which means that it does not contain any variables
-    * ([[purescala.ExprOps#variablesOf]] e is empty)
+    * ([[variablesOf]] e is empty)
     */
   def isGround(e: Expr): Boolean = variablesOf(e).isEmpty
 

@@ -17,7 +17,7 @@ trait Collector extends Transformer {
     results ++= step(e, env)
   }
 
-  /** Does one step of collection for the current [[Expr]] and [[Env]] */
+  /** Does one step of collection for the current [[ast.Expressions.Expr Expr]] and [[Env]] */
   protected def step(e: Expr, env: Env): List[Result]
 
   abstract override protected def rec(e: Expr, current: Env): Expr = {
@@ -25,16 +25,16 @@ trait Collector extends Transformer {
     super.rec(e, current)
   }
 
-  /** Traverses an [[Expr]] with the specified environment and collects */
+  /** Traverses an [[ast.Expressions.Expr Expr]] with the specified environment and collects */
   final def collect(e: Expr, init: Env) = {
     results = Nil
     transform(e, init)
     results
   }
 
-  /** Traverses an [[Expr]] with the initial environment and collects */
+  /** Traverses an [[ast.Expressions.Expr Expr]] with the initial environment and collects */
   final def collect(e: Expr): List[Result] = collect(e, initEnv)
 
-  /** Collect the expressions in a [[FunDef]]'s body */
+  /** Collect the expressions in a [[ast.Definitions.FunDef FunDef]]'s body */
   final def collect(fd: FunDef): List[Result] = collect(fd.fullBody)
 }

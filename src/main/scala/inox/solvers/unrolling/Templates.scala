@@ -456,7 +456,7 @@ trait Templates extends TemplateGenerator
       contents.substitute(substituter, msubst)
     )
 
-    /** The [[key]] value (triplet of [[body]], a normalization of [[pathVar]] and [[locals]])
+    /** The [[key]] value (triplet of [[body]], a normalization of the `pathVar` of [[contents]] and [[locals]])
       * is used to determine syntactic equality between inner-templates. If the key of two such
       * templates are equal, then they must necessarily be equal in every model.
       *
