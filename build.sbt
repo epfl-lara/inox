@@ -2,6 +2,8 @@ name := "inox"
 
 version := "1.0"
 
+isSnapshot := true
+
 organization := "ch.epfl.lara"
 
 scalaVersion := "2.11.8"
@@ -107,7 +109,11 @@ publishTo := {
   else                  Some("releases"  at nexus + "service/local/staging/deploy/maven2")
 }
 
-publishArtifact in Test := true
+publishArtifact in (Test, packageBin) := true
+
+publishArtifact in (ItTest, packageBin) := true
+
+addArtifact(artifact in (ItTest, packageBin), packageBin in ItTest)
 
 pomIncludeRepository := { _.name == "uuverifiers" }
 
