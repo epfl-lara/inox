@@ -1,4 +1,4 @@
-Inox 1.0 [![Build Status](http://laraquad4.epfl.ch:9000/epfl-lara/inox/status/master)](http://laraquad4.epfl.ch:9000/epfl-lara/inox)
+Inox [![Build Status](http://laraquad4.epfl.ch:9000/epfl-lara/inox/status/master)](http://laraquad4.epfl.ch:9000/epfl-lara/inox) [<img src="https://img.shields.io/maven-central/v/ch.epfl.lara/inox_2.11.svg?label=latest%20release%20for%202.11"/>](http://search.maven.org/#search%7Cga%7C1%7Cg%3Ach.epfl.lara%20a%3Ainox_2.11) [<img src="https://img.shields.io/maven-central/v/ch.epfl.lara/inox_2.12*.svg?label=latest%20release%20for%202.12"/>](http://search.maven.org/#search%7Cga%7C1%7Cg%3Ach.epfl.lara%20a%3Ainox_2.12*)
 ==========
 
 Inox is a solver for higher-order functional programs which provides first-class support for
