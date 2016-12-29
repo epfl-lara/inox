@@ -1,8 +1,6 @@
 name := "inox"
 
-version := "1.0"
-
-isSnapshot := true
+version := "1.0-SNAPSHOT"
 
 organization := "ch.epfl.lara"
 
@@ -88,7 +86,7 @@ Keys.fork in run := true
 testOptions in Test := Seq(Tests.Argument("-oDF"))
 
 // Note that we can't use IntegrationTest because it is already defined in sbt._
-lazy val ItTest = config("it") extend(Test)
+lazy val ItTest = config("it") extend (Test)
 
 testOptions in ItTest := Seq(Tests.Argument("-oDF"))
 
