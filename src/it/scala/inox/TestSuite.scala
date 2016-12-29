@@ -7,7 +7,7 @@ import org.scalatest.concurrent._
 
 import utils._
 
-trait TestSuite extends FunSuite with Matchers with Timeouts {
+trait TestSuite extends FunSuite with Matchers with TimeLimits {
 
   def configurations: Seq[Seq[OptionValue[_]]] = Seq(Seq.empty)
 

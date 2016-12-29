@@ -7,7 +7,7 @@ package unrolling
 import utils._
 import evaluators._
 
-import scala.collection.mutable.{Map => MutableMap, Set => MutableSet, Stack => MutableStack, Queue}
+import scala.collection.mutable.{Map => MutableMap, Set => MutableSet, Queue}
 
 trait QuantificationTemplates { self: Templates =>
   import program._
@@ -365,7 +365,7 @@ trait QuantificationTemplates { self: Templates =>
 
   private trait BlockedSet[Element] extends Iterable[(Set[Encoded], Element)] with IncrementalState {
     private var map: MutableMap[Any, (Element, MutableSet[Set[Encoded]])] = MutableMap.empty
-    private val stack = new MutableStack[MutableMap[Any, (Element, MutableSet[Set[Encoded]])]]
+    private var stack: List[MutableMap[Any, (Element, MutableSet[Set[Encoded]])]] = List.empty
 
     /** Override point to determine the "key" associated to element [[e]].
       *
@@ -433,16 +433,18 @@ trait QuantificationTemplates { self: Templates =>
       for ((k, (e, bss)) <- map) {
         newMap += k -> (e -> bss.clone)
       }
-      stack.push(map)
+      stack ::= map
       map = newMap
     }
 
     def pop(): Unit = {
-      map = stack.pop()
+      val (head :: tail) = stack
+      map = head
+      stack = tail
     }
 
     def clear(): Unit = {
-      stack.clear()
+      stack = List.empty
       map = MutableMap.empty
     }
 

@@ -2,7 +2,6 @@
 
 package inox.utils
 
-import scala.collection.mutable.Stack
 import scala.collection.mutable.Builder
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Iterable, IterableLike}
@@ -12,12 +11,10 @@ class IncrementalSeq[A] extends IncrementalState
                         with IterableLike[A, Seq[A]]
                         with Builder[A, IncrementalSeq[A]] {
 
-  private[this] val stack = new Stack[ArrayBuffer[A]]()
-  stack.push(new ArrayBuffer())
+  private[this] var stack: List[ArrayBuffer[A]] = List(new ArrayBuffer())
 
   def clear() : Unit = {
-    stack.clear()
-    stack.push(new ArrayBuffer())
+    stack = List(new ArrayBuffer())
   }
 
   def reset(): Unit = {
@@ -25,14 +22,14 @@ class IncrementalSeq[A] extends IncrementalState
   }
 
   def push(): Unit = {
-    stack.push(stack.head.clone)
+    stack ::= stack.head.clone
   }
 
   def pop(): Unit = {
-    stack.pop()
+    stack = stack.tail
   }
 
-  def iterator = stack.flatten.iterator
+  def iterator = stack.head.toList.iterator
   def +=(e: A) = { stack.head += e; this }
   def -=(e: A) = { stack.head -= e; this }
 

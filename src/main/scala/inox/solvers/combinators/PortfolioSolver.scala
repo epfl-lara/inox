@@ -48,7 +48,7 @@ trait PortfolioSolver extends Solver { self =>
       }
     }
 
-    val result = Future.find(fs)(_._2 != Unknown)
+    val result = Future.find(fs.toList)(_._2 != Unknown)
 
     val res = Await.result(result, Duration.Inf) match {
       case Some((s, r)) =>

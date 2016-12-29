@@ -12,33 +12,27 @@ class IncrementalSet[A] extends IncrementalState
                         with IterableLike[A, Set[A]]
                         with Builder[A, IncrementalSet[A]] {
 
-  private[this] val stack = new Stack[MSet[A]]()
+  private[this] var stack = List[MSet[A]](MSet())
   override def repr = stack.head.toSet
 
   /** Removes all the elements */
   override def clear(): Unit = {
-    stack.clear()
-    push()
+    stack = List(MSet())
   }
 
   /** Removes all the elements and creates a new set */
   def reset(): Unit = {
     clear()
-    push()
   }
 
   /** Creates one more set level */
   def push(): Unit = {
-    if (stack.isEmpty) {
-      stack.push(MSet())
-    } else {
-      stack.push(stack.head.clone)
-    }
+    stack ::= stack.head.clone
   }
 
   /** Removes one set level */
   def pop(): Unit = {
-    stack.pop()
+    stack = stack.tail
   }
 
   /** Returns true if the set contains elem */
@@ -55,6 +49,4 @@ class IncrementalSet[A] extends IncrementalState
 
   override def newBuilder = new scala.collection.mutable.SetBuilder(Set.empty[A])
   def result = this
-
-  push() // By default, creates a new empty mutable set ready to add elements to it.
 }

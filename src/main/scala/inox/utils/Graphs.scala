@@ -154,16 +154,17 @@ object Graphs {
     def depthFirstSearch(from: Node)(f: Node => Unit): Unit = {
       var visited = Set[Node]()
 
-      val stack = new collection.mutable.Stack[Node]()
+      var stack = List[Node]()
 
-      stack.push(from)
+      stack ::= from
 
-      while(stack.nonEmpty) {
-        val n = stack.pop
+      while (stack.nonEmpty) {
+        val (n :: rest) = stack
+        stack = rest
         visited += n
         f(n)
         for (n2 <- succ(n) if !visited(n2)) {
-          stack.push(n2)
+          stack ::= n2
         }
       }
     }

@@ -1,10 +1,12 @@
 name := "inox"
 
-version := "1.0-SNAPSHOT"
+version := "1.0"
 
 organization := "ch.epfl.lara"
 
-scalaVersion := "2.11.8"
+scalaVersion := "2.12.1"
+
+crossScalaVersions := Seq("2.11.8", "2.12.1")
 
 scalacOptions ++= Seq(
   "-deprecation",
@@ -12,14 +14,12 @@ scalacOptions ++= Seq(
   "-feature"
 )
 
-val osName = Option(System.getProperty("os.name")).getOrElse("").toLowerCase()
+val osName = if (Option(System.getProperty("os.name")).getOrElse("").toLowerCase contains "win") "win" else "unix"
 
 val osArch = System.getProperty("sun.arch.data.model")
 
-if(osName.indexOf("win") != -1) {
-  (unmanagedJars in Compile) += baseDirectory.value / "unmanaged" / s"scalaz3-win-$osArch.jar"
-} else {
-  (unmanagedJars in Compile) += baseDirectory.value / "unmanaged" / s"scalaz3-unix-$osArch.jar"
+unmanagedJars in Compile += {
+  baseDirectory.value / "unmanaged" / s"scalaz3-$osName-$osArch-${scalaBinaryVersion.value}.jar"
 }
 
 resolvers ++= Seq(
@@ -29,10 +29,10 @@ resolvers ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  "org.scalatest" %% "scalatest" % "2.2.4" % "test;it",
+  "org.scalatest" %% "scalatest" % "3.0.1" % "test;it",
   "org.apache.commons" % "commons-lang3" % "3.4",
   "com.regblanc" %% "scala-smtlib" % "0.2.1",
-  "uuverifiers" % "princess_2.11" % "2016-12-26"
+  "uuverifiers" %% "princess" % "2016-12-26"
 )
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")

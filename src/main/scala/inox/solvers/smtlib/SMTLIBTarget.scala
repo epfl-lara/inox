@@ -612,12 +612,18 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
         testers.toA(s) match {
           case adt: ADTType =>
             IsInstanceOf(fromSMT(e, adt), adt)
+          case t =>
+            unsupported(t, "woot? tester for non-adt type")
         }
 
       case (FunctionApplication(SimpleSymbol(s), List(e)), _) if selectors.containsB(s) =>
         selectors.toA(s) match {
           case (adt: ADTType, i) =>
             ADTSelector(fromSMT(e, adt), adt.getADT.toConstructor.fields(i).id)
+          case (tt: TupleType, i) =>
+            TupleSelect(fromSMT(e, tt), i + 1)
+          case (t, _) =>
+            unsupported(t, "woot? selector for non-structural type")
         }
 
       case (FunctionApplication(SimpleSymbol(s), args), _) if constructors.containsB(s) =>

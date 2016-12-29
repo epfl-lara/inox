@@ -3,7 +3,7 @@
 package inox
 package utils
 
-import scala.collection.JavaConversions._
+import scala.collection.JavaConverters._
 
 import java.util.concurrent.atomic.{AtomicLong, AtomicBoolean}
 import sun.misc.{Signal, SignalHandler}
@@ -41,7 +41,7 @@ class InterruptManager(reporter: Reporter) extends Interruptible {
       interrupted.set(true)
 
       val it = interruptibles.keySet.iterator
-      for (i <- it) i.interrupt()
+      for (i <- it.asScala) i.interrupt()
     } else {
       reporter.warning("Already interrupted!")
     }
