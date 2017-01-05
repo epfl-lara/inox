@@ -27,7 +27,7 @@ trait RecursiveEvaluator
   }
 
   protected def finiteBag(els: Iterable[(Expr, Expr)], tpe: Type): FiniteBag = {
-    FiniteBag(els.toMap.toSeq.filter { case (_, IntegerLiteral(i)) => i > 0 }.sortBy(_._1.toString), tpe)
+    FiniteBag(els.toMap.toSeq.filter { case (_, IntegerLiteral(i)) => i > 0 case _ => false }.sortBy(_._1.toString), tpe)
   }
 
   protected def finiteMap(els: Iterable[(Expr, Expr)], default: Expr, from: Type, to: Type): FiniteMap = {

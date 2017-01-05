@@ -1,10 +1,10 @@
 name := "inox"
 
-version := "1.0"
+version := "1.0-SNAPSHOT"
 
 organization := "ch.epfl.lara"
 
-scalaVersion := "2.12.1"
+scalaVersion := "2.11.8"
 
 crossScalaVersions := Seq("2.11.8", "2.12.1")
 
@@ -25,7 +25,7 @@ unmanagedJars in Compile += {
 resolvers ++= Seq(
   "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
   "Sonatype OSS Releases" at "https://oss.sonatype.org/content/repositories/releases",
-  "uuverifiers" at "http://logicrunch.it.uu.se:4096/~wv/maven/"
+  "uuverifiers" at "http://logicrunch.it.uu.se:4096/~wv/maven"
 )
 
 libraryDependencies ++= Seq(
@@ -113,7 +113,7 @@ publishArtifact in (ItTest, packageBin) := true
 
 addArtifact(artifact in (ItTest, packageBin), packageBin in ItTest)
 
-pomIncludeRepository := { _.name == "uuverifiers" }
+pomIncludeRepository := { _ => false }
 
 licenses := Seq("GNU General Public License, Version 3" -> url("http://www.gnu.org/licenses/gpl-3.0.html"))
 
