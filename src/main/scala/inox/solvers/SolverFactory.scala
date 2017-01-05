@@ -27,8 +27,8 @@ object SolverFactory {
     _root_.z3.Z3Wrapper.withinJar()
     true
   } catch {
-    case _: java.lang.UnsatisfiedLinkError =>
-      false
+    case _: java.lang.UnsatisfiedLinkError => false
+    case _: java.lang.NoClassDefFoundError => false
   }
 
   import _root_.smtlib.interpreters._
@@ -37,16 +37,14 @@ object SolverFactory {
     new Z3Interpreter("z3", Array("-in", "-smt2"))
     true
   } catch {
-    case _: java.io.IOException =>
-      false
+    case _: java.io.IOException => false
   }
 
   lazy val hasCVC4 = try {
     new CVC4Interpreter("cvc4", Array("-q", "--lang", "smt2.5"))
     true
   } catch {
-    case _: java.io.IOException =>
-      false
+    case _: java.io.IOException => false
   }
 
   def create[S1 <: Solver](p: Program)(nme: String, builder: () => S1 { val program: p.type }):
@@ -72,7 +70,15 @@ object SolverFactory {
     "princess" -> "Princess with inox unrolling"
   )
 
-  def getFromName(name: String)
+  private val fallbacks = Map(
+    "nativez3" -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4",   "princess"), "Z3 native interface"),
+    "unrollz3" -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4",   "princess"), "Z3 native interface"),
+    "smt-cvc4" -> (() => hasCVC4,     Seq("nativez3", "smt-z3",   "princess"), "'cvc4' binary"),
+    "smt-z3"   -> (() => hasZ3,       Seq("nativez3", "smt-cvc4", "princess"), "'z3' binary"),
+    "princess" -> (() => true,        Seq(),                                   "Princess solver")
+  )
+
+  def getFromName(name: String, force: Boolean = false)
                  (p: Program, opts: Options)
                  (ev: DeterministicEvaluator with SolvingEvaluator { val program: p.type },
                   enc: ast.ProgramTransformer {
@@ -82,8 +88,27 @@ object SolverFactory {
                     val program: p.type
                     type S <: TimeoutSolver { val program: p.type }
                   } = {
-    name match {
-      case "nativez3" => create(p)(name, () => new {
+
+    val finalName = if (force) {
+      name 
+    } else {
+      fallbacks.get(name) match {
+        case Some((guard, names, requirement)) if !guard() =>
+          val replacement = names.collectFirst { case name if fallbacks(name)._1() => name }.get
+          if (!reported) {
+            p.ctx.reporter.warning(s"The $requirement is not available. Falling back onto $replacement.")
+            reported = true
+          }
+          replacement
+
+        case Some(_) => name
+
+        case _ => throw FatalError("Unknown solver: " + name)
+      }
+    }
+
+    finalName match {
+      case "nativez3" => create(p)(finalName, () => new {
         val program: p.type = p
         val options = opts
         val encoder = enc
@@ -91,7 +116,7 @@ object SolverFactory {
         val evaluator = ev
       })
 
-      case "unrollz3" => create(p)(name, () => new {
+      case "unrollz3" => create(p)(finalName, () => new {
         val program: p.type = p
         val options = opts
         val encoder = enc
@@ -105,7 +130,7 @@ object SolverFactory {
         } with z3.UninterpretedZ3Solver
       })
 
-      case "smt-cvc4" => create(p)(name, () => new {
+      case "smt-cvc4" => create(p)(finalName, () => new {
         val program: p.type = p
         val options = opts
         val encoder = enc
@@ -119,7 +144,7 @@ object SolverFactory {
         } with smtlib.CVC4Solver
       })
 
-      case "smt-z3" => create(p)(name, () => new {
+      case "smt-z3" => create(p)(finalName, () => new {
         val program: p.type = p
         val options = opts
         val encoder = enc
@@ -135,7 +160,7 @@ object SolverFactory {
         }
       })
 
-      case "princess" => create(p)(name, () => new {
+      case "princess" => create(p)(finalName, () => new {
         val program: p.type = p
         val options = opts
         val encoder = enc
@@ -143,7 +168,7 @@ object SolverFactory {
         val evaluator = ev
       })
 
-      case _ => throw FatalError("Unknown solver: " + name)
+      case _ => throw FatalError("Unknown solver: " + finalName)
     }
   }
 
@@ -151,47 +176,29 @@ object SolverFactory {
 
   private var reported: Boolean = false
 
-  def apply(name: String, p: InoxProgram, opts: Options): SolverFactory {
+  def apply(name: String, p: InoxProgram, opts: Options, force: Boolean = false): SolverFactory {
     val program: p.type
     type S <: TimeoutSolver { val program: p.type }
-  } = {
-    val fallbacks = Map(
-      "nativez3" -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4"),   "Z3 native interface"),
-      "unrollz3" -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4"),   "Z3 native interface"),
-      "smt-z3"   -> (() => hasZ3,       Seq("nativez3", "smt-cvc4"), "'z3' binary"),
-      "smt-cvc4" -> (() => hasCVC4,     Seq("nativez3", "smt-z3"),   "'cvc4' binary")
-    )
-
-    fallbacks.get(name) match {
-      case Some((guard, names, requirement)) if !guard() =>
-        names.collectFirst { case name if fallbacks(name)._1() => name } match {
-          case Some(name) =>
-            if (!reported) {
-              p.ctx.reporter.warning(s"The $requirement is not available. Falling back onto $name.")
-              reported = true
-            }
-            apply(name, p, opts)
-
-          case None =>
-            if (!reported) {
-              p.ctx.reporter.warning(s"The $requirement is not available. Falling back onto princess.")
-              reported = true
-            }
-            apply("princess", p, opts)
-        }
-      case _ =>
-        getFromName(name)(p, opts)(RecursiveEvaluator(p, opts), ast.ProgramEncoder.empty(p))
-    }
-  }
+  } = getFromName(name, force = force)(p, opts)(RecursiveEvaluator(p, opts), ast.ProgramEncoder.empty(p))
 
   def apply(p: InoxProgram, opts: Options): SolverFactory {
     val program: p.type
     type S <: TimeoutSolver { val program: p.type }
-  } = opts.findOptionOrDefault(optSelectedSolvers).toSeq match {
-    case Seq() => throw FatalError("No selected solver")
-    case Seq(single) => apply(single, p, opts)
-    case multiple => PortfolioSolverFactory(p) {
-      multiple.map(name => apply(name, p, opts))
+  } = opts.findOption(optSelectedSolvers) match {
+    case None => optSelectedSolvers.default.toSeq match {
+      case Seq() => throw FatalError("No selected solver")
+      case Seq(single) => apply(single, p, opts, force = false)
+      case multiple => PortfolioSolverFactory(p) {
+        multiple.map(name => apply(name, p, opts, force = false))
+      }
+    }
+
+    case Some(set) => set.toSeq match {
+      case Seq() => throw FatalError("No selected solver")
+      case Seq(single) => apply(single, p, opts, force = true)
+      case multiple => PortfolioSolverFactory(p) {
+        multiple.map(name => apply(name, p, opts, force = true))
+      }
     }
   }
 

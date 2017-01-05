@@ -174,37 +174,22 @@ trait SetEncoder extends SimpleEncoder {
     import targetProgram._
 
     override def transform(e: Expr): Expr = e match {
-      case cc @ ADT(ADTType(SetID, Seq(tpe)), Seq(elems, l @ Lambda(Seq(_), _))) =>
-        val tl = transform(l)
-        def rec(e: Expr): ScalaSet[Expr] = e match {
-          case ADT(ADTType(SumID, Seq(_)), Seq(e1, e2)) => rec(e1) ++ rec(e2)
-          case ADT(ADTType(ElemID, Seq(_)), Seq(e)) => ScalaSet(e)
-          case ADT(ADTType(LeafID, Seq(_)), Seq()) => ScalaSet.empty
-          case _ => throw new Unsupported(e, "Unexpected element in set contents")
-        }
+      case ADT(ADTType(SumID, Seq(tpe)), Seq(e1, e2)) =>
+        val FiniteSet(els1, _) = transform(e1)
+        val FiniteSet(els2, _) = transform(e2)
+        FiniteSet(els1 ++ els2, transform(tpe)).copiedFrom(e)
 
-        FiniteSet(rec(elems).toSeq.map(transform), transform(tpe)).copiedFrom(e)
+      case ADT(ADTType(ElemID, Seq(tpe)), Seq(e)) =>
+        FiniteSet(Seq(transform(e)), transform(tpe)).copiedFrom(e)
 
-      case FunctionInvocation(AddID, Seq(_), Seq(set, elem)) =>
-        SetAdd(transform(set), transform(elem)).copiedFrom(e)
-
-      case FunctionInvocation(ContainsID, Seq(_), Seq(set, elem)) =>
-        ElementOfSet(transform(elem), transform(set)).copiedFrom(e)
-
-      case FunctionInvocation(IntersectID, Seq(_), Seq(s1, s2)) =>
-        SetIntersection(transform(s1), transform(s2)).copiedFrom(e)
-
-      case FunctionInvocation(UnionID, Seq(_), Seq(s1, s2)) =>
-        SetUnion(transform(s1), transform(s2)).copiedFrom(e)
-
-      case FunctionInvocation(DifferenceID, Seq(_), Seq(s1, s2)) =>
-        SetDifference(transform(s1), transform(s2)).copiedFrom(e)
+      case ADT(ADTType(LeafID, Seq(tpe)), Seq()) =>
+        FiniteSet(Seq.empty, transform(tpe)).copiedFrom(e)
 
       case _ => super.transform(e)
     }
 
     override def transform(tpe: Type): Type = tpe match {
-      case ADTType(SetID, Seq(base)) => SetType(transform(base)).copiedFrom(tpe)
+      case ADTType(SetID | SumID | ElemID | LeafID, Seq(base)) => SetType(transform(base)).copiedFrom(tpe)
       case _ => super.transform(tpe)
     }
   }

@@ -15,27 +15,15 @@ trait FunctionTemplates { self: Templates =>
 
   import functionsManager._
 
-  type SelectorPath = Seq[Either[Identifier, Int]]
-
   object FunctionTemplate {
-    private val cache: MutableMap[(TypedFunDef, SelectorPath), FunctionTemplate] = MutableMap.empty
+    private val cache: MutableMap[TypedFunDef, FunctionTemplate] = MutableMap.empty
 
-    def apply(tfd: TypedFunDef, path: SelectorPath): FunctionTemplate = cache.getOrElseUpdate(tfd -> path, {
-      val lambdaBody: Expr = {
-        def rec(e: Expr, path: SelectorPath): Expr = (e, path) match {
-          case (ADT(tpe, es), Left(id) +: tail) =>
-            rec(es(tpe.getADT.toConstructor.definition.selectorID2Index(id)), tail)
-          case (Tuple(es), Right(i) +: tail) =>
-            rec(es(i - 1), tail)
-          case _ => e
-        }
-
-        rec(simplifyFormula(tfd.fullBody, simplify), path)
-      }
+    def apply(tfd: TypedFunDef): FunctionTemplate = cache.getOrElseUpdate(tfd, {
+      val lambdaBody: Expr = simplifyFormula(tfd.fullBody, simplify)
 
       val fdArgs: Seq[Variable] = tfd.params.map(_.toVariable)
       val lambdaArgs: Seq[Variable] = lambdaArguments(lambdaBody)
-      val call: Expr = mkSelection(tfd.applied(fdArgs), path)
+      val call: Expr = tfd.applied(fdArgs)
 
       val callEqBody: Seq[(Expr, Expr)] = liftedEquals(call, lambdaBody, lambdaArgs) :+ (call -> lambdaBody)
 
@@ -50,7 +38,7 @@ trait FunctionTemplates { self: Templates =>
       }
 
       val (contents, str) = Template.contents(
-        pathVar, arguments, tmplClauses, optCall = Some(tfd -> path))
+        pathVar, arguments, tmplClauses, optCall = Some(tfd))
 
       val funString : () => String = () => {
         "Template for def " + tfd.signature +
@@ -93,7 +81,7 @@ trait FunctionTemplates { self: Templates =>
   protected def lambdaArguments(expr: Expr): Seq[Variable] = expr match {
     case Lambda(args, body) => args.map(_.toVariable.freshen) ++ lambdaArguments(body)
     case Assume(pred, body) => lambdaArguments(body)
-    case IsTyped(_, _: FunctionType) => sys.error("Only applicable on lambda/assume chains")
+    case IsTyped(_, FirstOrderFunctionType(from, to)) => from.map(tpe => Variable.fresh("x", tpe, true))
     case _ => Seq.empty
   }
 
@@ -117,29 +105,23 @@ trait FunctionTemplates { self: Templates =>
     rec(call, body, args, inlineFirst)
   }
 
-  protected def flatTypes(tfd: TypedFunDef, path: SelectorPath): (Seq[Type], Type) = {
-    def rec(tpe: Type, path: SelectorPath): (Seq[Type], Type) = (tpe, path) match {
-      case (adt: ADTType, Left(id) +: rest) => rec(adt.getADT.toConstructor.fields.find(_.id == id).get.tpe, rest)
-      case (TupleType(tps), Right(i) +: rest) => rec(tps(i), rest)
-      case (_, path) if path.nonEmpty => throw new IllegalArgumentException(s"Non empty path for type $tpe")
-      case (FunctionType(from, to), _) =>
-        val (recTps, recRes) = rec(to, path)
-        (from ++ recTps, recRes)
-      case _ => (Seq.empty, tpe)
+  protected def flatTypes(tfd: TypedFunDef): (Seq[Type], Type) = {
+    val (appTps, appRes) = tfd.returnType match {
+      case FirstOrderFunctionType(from, to) => (from, to)
+      case tpe => (Seq.empty, tpe)
     }
 
-    val (appTps, appRes) = rec(tfd.returnType, path)
     (tfd.params.map(_.tpe) ++ appTps, appRes)
   }
 
-  private val callCache: MutableMap[(TypedFunDef, SelectorPath), (Seq[Encoded], Encoded)] = MutableMap.empty
-  protected def mkCall(tfd: TypedFunDef, path: SelectorPath, args: Seq[Encoded]): Encoded = {
-    val (asT, call) = callCache.getOrElseUpdate(tfd -> path, {
-      val as = flatTypes(tfd, path)._1.map(tpe => Variable.fresh("x", tpe, true))
+  private val callCache: MutableMap[TypedFunDef, (Seq[Encoded], Encoded)] = MutableMap.empty
+  protected def mkCall(tfd: TypedFunDef, args: Seq[Encoded]): Encoded = {
+    val (asT, call) = callCache.getOrElseUpdate(tfd, {
+      val as = flatTypes(tfd)._1.map(tpe => Variable.fresh("x", tpe, true))
       val asT = as.map(encodeSymbol)
 
       val (fdArgs, appArgs) = as.splitAt(tfd.params.size)
-      val call = mkApplication(mkSelection(tfd.applied(fdArgs), path), appArgs)
+      val call = mkApplication(tfd.applied(fdArgs), appArgs)
       (asT, mkEncoder((as zip asT).toMap)(call))
     })
 
@@ -185,7 +167,7 @@ trait FunctionTemplates { self: Templates =>
 
       for ((blocker, (gen, _, _, calls)) <- thisCallInfos if calls.nonEmpty && !abort && !pause;
            _ = remainingBlockers -= blocker;
-           call @ Call(tfd, path, args) <- calls if !abort) {
+           call @ Call(tfd, args) <- calls if !abort) {
         val newCls = new scala.collection.mutable.ListBuffer[Encoded]
 
         val defBlocker = defBlockers.get(call) match {
@@ -198,8 +180,8 @@ trait FunctionTemplates { self: Templates =>
             val defBlocker = encodeSymbol(Variable.fresh("d", BooleanType, true))
 
             // we generate helper equality clauses that stem from purity
-            for ((pcall, pblocker) <- defBlockers if pcall.tfd == tfd && pcall.path == path) {
-              val (argTpes, resTpe) = flatTypes(tfd, path)
+            for ((pcall, pblocker) <- defBlockers if pcall.tfd == tfd) {
+              val (argTpes, resTpe) = flatTypes(tfd)
 
               def makeEq(tpe: Type, e1: Encoded, e2: Encoded): Encoded =
                 if (!unrollEquality(tpe)) mkEquals(e1, e2) else {
@@ -212,19 +194,19 @@ trait FunctionTemplates { self: Templates =>
                   case (tpe, (e1, e2)) => makeEq(tpe, e1.encoded, e2.encoded)
                 } : _*)
                 val entail = makeEq(resTpe,
-                  mkCall(tfd, path, pcall.args.map(_.encoded)),
-                  mkCall(tfd, path, args.map(_.encoded)))
+                  mkCall(tfd, pcall.args.map(_.encoded)),
+                  mkCall(tfd, args.map(_.encoded)))
                 newClauses += mkImplies(mkAnd(pblocker, defBlocker, cond), entail)
               }
             }
 
             defBlockers += call -> defBlocker
 
-            newCls ++= FunctionTemplate(tfd, path).instantiate(defBlocker, args)
+            newCls ++= FunctionTemplate(tfd).instantiate(defBlocker, args)
             defBlocker
         }
 
-        // We connect it to the defBlocker:   blocker => defBlocker
+        // We connect it to the defBlocker: blocker => defBlocker
         if (defBlocker != blocker) {
           registerImplication(blocker, defBlocker)
           newCls += mkImplies(blocker, defBlocker)

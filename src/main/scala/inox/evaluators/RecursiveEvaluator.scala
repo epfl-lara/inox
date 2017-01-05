@@ -22,6 +22,18 @@ trait RecursiveEvaluator
   private def shift(b: BitSet, size: Int, i: Int): BitSet =
     b.map(_ + i).filter(bit => bit >= 1 && bit <= size)
 
+  protected def finiteSet(els: Iterable[Expr], tpe: Type): FiniteSet = {
+    FiniteSet(els.toSeq.distinct.sortBy(_.toString), tpe)
+  }
+
+  protected def finiteBag(els: Iterable[(Expr, Expr)], tpe: Type): FiniteBag = {
+    FiniteBag(els.toMap.toSeq.filter { case (_, IntegerLiteral(i)) => i > 0 }.sortBy(_._1.toString), tpe)
+  }
+
+  protected def finiteMap(els: Iterable[(Expr, Expr)], default: Expr, from: Type, to: Type): FiniteMap = {
+    FiniteMap(els.toMap.toSeq.filter { case (_, value) => value != default }.sortBy(_._1.toString), default, from, to)
+  }
+
   protected[evaluators] def e(expr: Expr)(implicit rctx: RC, gctx: GC): Expr = expr match {
     case v: Variable =>
       rctx.mappings.get(v.toVal) match {
@@ -350,25 +362,25 @@ trait RecursiveEvaluator
 
     case SetAdd(s1, elem) =>
       (e(s1), e(elem)) match {
-        case (FiniteSet(els1, tpe), evElem) => FiniteSet((els1 :+ evElem).distinct, tpe)
+        case (FiniteSet(els1, tpe), evElem) => finiteSet(els1 :+ evElem, tpe)
         case (le, re) => throw EvalError(typeErrorMsg(le, s1.getType))
       }
 
     case SetUnion(s1,s2) =>
       (e(s1), e(s2)) match {
-        case (FiniteSet(els1, tpe), FiniteSet(els2, _)) => FiniteSet(els1 ++ els2, tpe)
+        case (FiniteSet(els1, tpe), FiniteSet(els2, _)) => finiteSet(els1 ++ els2, tpe)
         case (le, re) => throw EvalError(typeErrorMsg(le, s1.getType))
       }
 
     case SetIntersection(s1,s2) =>
       (e(s1), e(s2)) match {
-        case (FiniteSet(els1, tpe), FiniteSet(els2, _)) => FiniteSet(els1 intersect els2, tpe)
+        case (FiniteSet(els1, tpe), FiniteSet(els2, _)) => finiteSet(els1 intersect els2, tpe)
         case (le,re) => throw EvalError(typeErrorMsg(le, s1.getType))
       }
 
     case SetDifference(s1,s2) =>
       (e(s1), e(s2)) match {
-        case (FiniteSet(els1, tpe), FiniteSet(els2, _)) => FiniteSet((els1.toSet -- els2).toSeq, tpe)
+        case (FiniteSet(els1, tpe), FiniteSet(els2, _)) => finiteSet(els1.toSet -- els2, tpe)
         case (le,re) => throw EvalError(typeErrorMsg(le, s1.getType))
       }
 
@@ -383,12 +395,12 @@ trait RecursiveEvaluator
     }
 
     case f @ FiniteSet(els, base) =>
-      FiniteSet(els.map(e).distinct.sortBy(_.toString), base)
+      finiteSet(els.map(e), base)
 
     case BagAdd(bag, elem) => (e(bag), e(elem)) match {
       case (FiniteBag(els, tpe), evElem) =>
         val (matching, rest) = els.partition(_._1 == evElem)
-        FiniteBag(rest :+ (evElem -> matching.lastOption.map {
+        finiteBag(rest :+ (evElem -> matching.lastOption.map {
           case (_, IntegerLiteral(i)) => IntegerLiteral(i + 1)
           case (_, e) => throw EvalError(typeErrorMsg(e, IntegerType))
         }.getOrElse(IntegerLiteral(1))), tpe)
@@ -405,7 +417,7 @@ trait RecursiveEvaluator
     case BagIntersection(b1, b2) => (e(b1), e(b2)) match {
       case (FiniteBag(els1, tpe), FiniteBag(els2, _)) =>
         val map2 = els2.toMap
-        FiniteBag(els1.flatMap { case (k, v) =>
+        finiteBag(els1.flatMap { case (k, v) =>
           val i = (v, map2.getOrElse(k, IntegerLiteral(0))) match {
             case (IntegerLiteral(i1), IntegerLiteral(i2)) => i1 min i2
             case (le, re) => throw EvalError(typeErrorMsg(le, IntegerType))
@@ -420,7 +432,7 @@ trait RecursiveEvaluator
     case BagUnion(b1, b2) => (e(b1), e(b2)) match {
       case (FiniteBag(els1, tpe), FiniteBag(els2, _)) =>
         val (map1, map2) = (els1.toMap, els2.toMap)
-        FiniteBag((map1.keys ++ map2.keys).toSet.map { (k: Expr) =>
+        finiteBag((map1.keys ++ map2.keys).toSet.map { (k: Expr) =>
           k -> ((map1.getOrElse(k, IntegerLiteral(0)), map2.getOrElse(k, IntegerLiteral(0))) match {
             case (IntegerLiteral(i1), IntegerLiteral(i2)) => IntegerLiteral(i1 + i2)
             case (le, re) => throw EvalError(typeErrorMsg(le, IntegerType))
@@ -433,7 +445,7 @@ trait RecursiveEvaluator
     case BagDifference(b1, b2) => (e(b1), e(b2)) match {
       case (FiniteBag(els1, tpe), FiniteBag(els2, _)) =>
         val map2 = els2.toMap
-        FiniteBag(els1.flatMap { case (k, v) =>
+        finiteBag(els1.flatMap { case (k, v) =>
           val i = (v, map2.getOrElse(k, IntegerLiteral(0))) match {
             case (IntegerLiteral(i1), IntegerLiteral(i2)) => i1 - i2
             case (le, re) => throw EvalError(typeErrorMsg(le, IntegerType))
@@ -446,11 +458,7 @@ trait RecursiveEvaluator
     }
 
     case FiniteBag(els, base) =>
-      // we use toMap.toSeq to reduce dupplicate keys
-      FiniteBag(els.map { case (k, v) => (e(k), e(v)) }.toMap.toSeq.filter {
-        case (_, IntegerLiteral(i)) if i == 0 => false
-        case _ => true
-      }.sortBy(_._1.toString), base)
+      finiteBag(els.map { case (k, v) => (e(k), e(v)) }, base)
 
     case l @ Lambda(_, _) =>
       val (nl, deps) = normalizeStructure(l)
@@ -469,12 +477,7 @@ trait RecursiveEvaluator
     }
 
     case f @ FiniteMap(ss, dflt, kT, vT) =>
-      val rdflt = e(dflt)
-      // we use toMap.toSeq to reduce dupplicate keys
-      FiniteMap(ss.map{ case (k, v) => (e(k), e(v)) }.toMap.toSeq.filter {
-        case (_, `rdflt`) => false
-        case _ => true
-      }.sortBy(_._1.toString), rdflt, kT, vT)
+      finiteMap(ss.map{ case (k, v) => (e(k), e(v)) }, e(dflt), kT, vT)
 
     case g @ MapApply(m,k) => (e(m), e(k)) match {
       case (FiniteMap(ss, dflt, _, _), e) =>
@@ -485,7 +488,7 @@ trait RecursiveEvaluator
 
     case g @ MapUpdated(m, k, v) => (e(m), e(k), e(v)) match {
       case (FiniteMap(ss, dflt, kT, vT), ek, ev) =>
-        FiniteMap((ss.toMap + (ek -> ev)).toSeq, dflt, kT, vT)
+        finiteMap((ss.toMap + (ek -> ev)).toSeq, dflt, kT, vT)
       case (m,l,r) =>
         throw EvalError("Unexpected operation: " + m.asString +
           ".updated(" + l.asString + ", " + r.asString + ")")

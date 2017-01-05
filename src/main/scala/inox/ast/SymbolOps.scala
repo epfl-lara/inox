@@ -28,6 +28,7 @@ trait SymbolOps { self: TypeOps =>
     def step(e: Expr): Option[Expr] = e match {
       case Not(t) => Some(not(t))
       case UMinus(t) => Some(uminus(t))
+      case ADT(tpe, args) => Some(adt(tpe, args))
       case ADTSelector(e, sel) => Some(adtSelector(e, sel))
       case AsInstanceOf(e, ct) => Some(asInstOf(e, ct))
       case Equals(t1, t2) => Some(equality(t1, t2))
@@ -78,6 +79,13 @@ trait SymbolOps { self: TypeOps =>
 
   /** Returns '''true''' iff the evaluation of expression `expr` cannot lead to a crash. */
   def isPure(expr: Expr): Boolean = {
+    def collect[T](m: Expr => Set[T])(expr: Expr): Set[T] = m(expr) ++ (expr match {
+      case l: Lambda =>
+        val (_, substs) = normalizeStructure(l)
+        substs.flatMap(p => collect(m)(p._2)).toSet
+      case Operator(es, _) => es.flatMap(collect(m) _).toSet
+    })
+
     val callees = collect {
       case fi: FunctionInvocation => Set(fi.tfd.fd)
       case _ => Set.empty[FunDef]
@@ -85,7 +93,7 @@ trait SymbolOps { self: TypeOps =>
 
     val allCallees = callees ++ callees.flatMap(transitiveCallees)
     !(expr +: allCallees.toSeq.map(_.fullBody)).exists {
-      expr => exists(isImpureExpr)(expr)
+      expr => collect { case e if isImpureExpr(e) => Set(e) case _ => Set.empty[Expr] }(expr).nonEmpty
     }
   }
 
@@ -458,8 +466,16 @@ trait SymbolOps { self: TypeOps =>
 
       val fdsToInline = fds
         .filterNot(fd => transitivelyCalls(fd, fd))
-        .filter(fd => exists { case _: Forall => true case _ => false }(fd.fullBody))
-      
+        .filter { fd =>
+          def existsSpec(e: Expr): Boolean = e match {
+            case Assume(pred, body) => existsSpec(body)
+            case _: Forall => true
+            case Operator(es, _) => es.exists(existsSpec)
+          }
+
+          existsSpec(fd.fullBody)
+        }
+
       def inline(e: Expr): Expr = {
         val subst = functionCallsOf(e)
           .filter(fi => fdsToInline(fi.tfd.fd))
@@ -831,43 +847,46 @@ trait SymbolOps { self: TypeOps =>
   }
 
   object InvocationExtractor {
-    type Invocation = (Identifier, Seq[Type], Seq[Either[Identifier, Int]], Seq[Expr])
+    type Invocation = (Identifier, Seq[Type], Seq[Expr])
 
-    private def flatSelectors(expr: Expr): Option[Invocation] = expr match {
-      case ADTSelector(IsTyped(e, FunctionContainerType()), sid) => flatSelectors(e).map {
-        case (id, tps, path, args) => (id, tps, path :+ Left(sid), args)
-      }
-      case TupleSelect(IsTyped(e, FunctionContainerType()), i) => flatSelectors(e).map {
-        case (id, tps, path, args) => (id, tps, path :+ Right(i), args)
-      }
-      case fi @ FunctionInvocation(id, tps, args) => Some((id, tps, Seq.empty, args))
-      case _ => None
-    }
-
-    private def flatInvocation(expr: Expr, specialize: Boolean): Option[Invocation] = expr match {
-      case fi @ FunctionInvocation(id, tps, args) => Some((id, tps, Seq.empty, args))
-      case Application(caller, args) => flatInvocation(caller, specialize) match {
-        case Some((id, tps, path, prevArgs)) => Some((id, tps, path, prevArgs ++ args))
+    private[SymbolOps] def flatInvocation(expr: Expr): Option[Invocation] = expr match {
+      case fi @ FunctionInvocation(id, tps, args) => Some((id, tps, args))
+      case Application(caller, args) => flatInvocation(caller) match {
+        case Some((id, tps, prevArgs)) => Some((id, tps, prevArgs ++ args))
         case None => None
       }
-      case _ => if (specialize) flatSelectors(expr) else None
-    }
-
-    def extract(expr: Expr, specialize: Boolean = true): Option[Invocation] = expr match {
-      case IsTyped(f: FunctionInvocation, ft: FunctionType) => None
-      case IsTyped(f: Application, ft: FunctionType) => None
-      case IsTyped(f: FunctionInvocation, FunctionContainerType()) if specialize => None
-      case FunctionInvocation(id, tps, args) => Some((id, tps, Seq.empty, args))
-      case f: Application => flatInvocation(f, specialize)
       case _ => None
     }
 
-    object Specialized { def unapply(expr: Expr): Option[Invocation] = extract(expr, specialize = true) }
-    object Unspecialized { def unapply(expr: Expr): Option[Invocation] = extract(expr, specialize = false) }
+    def apply(e: Expr): Set[Invocation] = {
+      var invocations: Set[Invocation] = Set.empty
+
+      def rec(e: Expr, extract: Boolean): Unit = e match {
+        case IsTyped(FunctionInvocation(_, _, args), _: FunctionType) =>
+          args.foreach(rec(_, true))
+
+        case IsTyped(Application(caller, args), _: FunctionType) =>
+          rec(caller, false)
+          args.foreach(rec(_, true))
+
+        case FunctionInvocation(id, tps, args) =>
+          args.foreach(rec(_, true))
+          if (extract) invocations += ((id, tps, args))
+
+        case f @ Application(caller, args) =>
+          rec(caller, false)
+          args.foreach(rec(_, true))
+          if (extract) invocations ++= flatInvocation(f)
+
+        case Operator(es, _) => es.foreach(rec(_, true))
+      }
+
+      rec(e, true)
+      invocations
+    }
   }
 
-  def firstOrderCallsOf(expr: Expr, specialize: Boolean = true): Set[InvocationExtractor.Invocation] =
-    collect { e => InvocationExtractor.extract(e, specialize).toSet }(expr)
+  def firstOrderCallsOf(expr: Expr): Set[InvocationExtractor.Invocation] = InvocationExtractor(expr)
 
   object ApplicationExtractor {
     private def flatApplication(expr: Expr): Option[(Expr, Seq[Expr])] = expr match {
@@ -879,25 +898,31 @@ trait SymbolOps { self: TypeOps =>
       case _ => None
     }
 
-    def extract(expr: Expr, specialize: Boolean = true): Option[(Expr, Seq[Expr])] = expr match {
-      case IsTyped(f: Application, ft: FunctionType) => None
-      case _ => InvocationExtractor.extract(expr, specialize) match {
-        case Some(_) => None
-        case None => expr match {
-          case f: Application => flatApplication(f)
-          case _ => None
-        }
-      }
-    }
+    def apply(e: Expr): Set[(Expr, Seq[Expr])] = {
+      var applications: Set[(Expr, Seq[Expr])] = Set.empty
 
-    object Specialized { def unapply(expr: Expr): Option[(Expr, Seq[Expr])] = extract(expr, specialize = true) }
-    object Unspecialized { def unapply(expr: Expr): Option[(Expr, Seq[Expr])] = extract(expr, specialize = false) }
+      def rec(e: Expr, extract: Boolean): Unit = e match {
+        case IsTyped(Application(caller, args), _: FunctionType) =>
+          rec(caller, false)
+          args.foreach(rec(_, true))
+
+        case f @ Application(caller, args) =>
+          rec(caller, false)
+          args.foreach(rec(_, true))
+          if (extract && InvocationExtractor.flatInvocation(e).isEmpty)
+            applications ++= flatApplication(f)
+
+        case Operator(es, _) => es.foreach(rec(_, true))
+      }
+
+      rec(e, true)
+      applications
+    }
   }
 
-  def firstOrderAppsOf(expr: Expr, specialize: Boolean = true): Set[(Expr, Seq[Expr])] =
-    collect[(Expr, Seq[Expr])](e => ApplicationExtractor.extract(e).toSet)(expr)
+  def firstOrderAppsOf(expr: Expr): Set[(Expr, Seq[Expr])] = ApplicationExtractor(expr)
 
-  def simplifyHOFunctions(expr: Expr, simplify: Boolean = true): Expr = {
+  def simplifyHOFunctions(expr: Expr): Expr = {
 
     def pushDown(expr: Expr, recons: Expr => Expr): Expr = expr match {
       case IfExpr(cond, thenn, elze) =>
@@ -923,7 +948,7 @@ trait SymbolOps { self: TypeOps =>
         case l @ Lambda(args, body) =>
           val newBody = rec(body, true)
           Lambda(args, newBody)
-        case Deconstructor(es, recons) => recons(es.map(rec(_, build)))
+        case Operator(es, recons) => recons(es.map(rec(_, build)))
       }, build)
 
       rec(lift(expr), true)
@@ -945,25 +970,15 @@ trait SymbolOps { self: TypeOps =>
       traverse(expr, lift)
     }
 
-    def liftContainers(expr: Expr): Expr = {
-      def lift(expr: Expr): Expr = expr.getType match {
-        case tpe @ FunctionContainerType() => expr match {
-          case _ : ADT => expr
-          case _ : Tuple => expr
-          case _ : Variable => expr
-          case e => tpe match {
-            case adt @ RecordType(tcons) =>
-              val castExpr = if (tcons.id == adt.id) expr else AsInstanceOf(expr, tcons.toType)
-              val fields = tcons.fields.map(vd => pushDown(castExpr, ADTSelector(_, vd.id)))
-              ADT(tcons.toType, fields)
-            case TupleType(tpes) =>
-              Tuple(tpes.indices.map(i => pushDown(expr, TupleSelect(_, i + 1))))
-          }
-        }
-        case _ => expr
+    def liftContainers(expr: Expr): Expr = expr match {
+      case IfExpr(cond, thenn, elze) => (liftContainers(thenn), liftContainers(elze)) match {
+        case (Tuple(es1), Tuple(es2)) =>
+          Tuple((es1 zip es2).map(p => ifExpr(cond, p._1, p._2)))
+        case (ADT(tpe1, es1), ADT(tpe2, es2)) if tpe1 == tpe2 =>
+          ADT(tpe1, (es1 zip es2).map(p => ifExpr(cond, p._1, p._2)))
+        case (e1, e2) => ifExpr(cond, e1, e2)
       }
-
-      traverse(expr, lift)
+      case _ => expr
     }
 
     def simplifyContainers(expr: Expr): Expr = postMap {
@@ -976,11 +991,7 @@ trait SymbolOps { self: TypeOps =>
       case _ => None
     } (expr)
 
-    liftToLambdas(if (simplify) {
-      simplifyContainers(liftContainers(expr))
-    } else {
-      expr
-    })
+    liftToLambdas(simplifyContainers(liftContainers(expr)))
   }
 
   def liftAssumptions(expr: Expr): (Seq[Expr], Expr) = {
@@ -1211,14 +1222,14 @@ trait SymbolOps { self: TypeOps =>
     if (simplify) {
       val simp: Expr => Expr =
         ((e: Expr) => simplifyHOFunctions(e))    compose
-        ((e: Expr) => simplifyByConstructors(e)) compose
         ((e: Expr) => simplifyAssumptions(e))    compose
         ((e: Expr) => simplifyForalls(e))        compose
         ((e: Expr) => mergeFunctions(e))         compose
+        ((e: Expr) => simplifyByConstructors(e)) compose
         ((e: Expr) => simplifyLets(e))
       fixpoint(simp)(e)
     } else {
-      simplifyHOFunctions(e, simplify = false)
+      simplifyHOFunctions(e)
     }
   }
 
@@ -1352,7 +1363,14 @@ trait SymbolOps { self: TypeOps =>
     */
   def ifExpr(c: Expr, t: Expr, e: Expr): Expr = (t, e) match {
     case (_, `t`) if isPure(c) => t
+    case (IfExpr(c2, thenn, `e`), _) => IfExpr(and(c, c2), thenn, e)
     case (_, IfExpr(c2, `t`, e2)) => IfExpr(or(c, c2), t, e2)
+    case (BooleanLiteral(true), BooleanLiteral(false)) => c
+    case (BooleanLiteral(false), BooleanLiteral(true)) => not(c)
+    case (BooleanLiteral(true), _) => or(c, e)
+    case (_, BooleanLiteral(true)) => or(not(c), t)
+    case (BooleanLiteral(false), _) => and(not(c), e)
+    case (_, BooleanLiteral(false)) => and(c, t)
     case _ => IfExpr(c, t, e)
   }
 
@@ -1429,7 +1447,20 @@ trait SymbolOps { self: TypeOps =>
     }
   }
 
-  /** Simplifies the provided case class selector.
+  /** Simplifies the provided adt construction.
+    * @see [[Expressions.ADT ADT]] */
+  def adt(tpe: ADTType, args: Seq[Expr]): Expr = {
+    val ls = (tpe.getADT.toConstructor.fields zip args).collect {
+      case (vd, ADTSelector(e, id)) if vd.id == id => e
+    }
+
+    ls match {
+      case ls @ (e +: es) if ls.size == args.size && es.forall(_ == e) && tpe == e.getType => e
+      case _ => ADT(tpe, args)
+    }
+  }
+
+  /** Simplifies the provided adt selector.
     * @see [[Expressions.ADTSelector ADTSelector]]
     */
   def adtSelector(adt: Expr, selector: Identifier): Expr = {

@@ -268,6 +268,7 @@ trait DatatypeTemplates { self: Templates =>
             storeExpr(restExpr)
 
             storeGuarded(newBool, Equals(expr, BagUnion(FiniteBag(Seq(elemExpr -> multExpr), base), restExpr)))
+            storeGuarded(newBool, GreaterThan(multExpr, IntegerLiteral(0)))
             rec(newBool, restExpr, state.copy(recurseBag = false))
             rec(newBool, elemExpr, state)
           }
@@ -289,8 +290,8 @@ trait DatatypeTemplates { self: Templates =>
           var callInfos : Set[Call] = Set.empty
 
           for (e <- es) {
-            callInfos ++= firstOrderCallsOf(e).map { case (id, tps, path, args) =>
-              Call(getFunction(id, tps), path, args.map(arg => Left(encoder(arg))))
+            callInfos ++= firstOrderCallsOf(e).map { case (id, tps, args) =>
+              Call(getFunction(id, tps), args.map(arg => Left(encoder(arg))))
             }
 
             clauses :+= encoder(Implies(b, e))

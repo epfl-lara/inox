@@ -84,16 +84,13 @@ trait TemplateGenerator { self: Templates =>
       }
 
       val (params, app) = extractBody(struct)
-      ApplicationExtractor.extract(app, simplify) match {
-        case Some((caller: Variable, args)) =>
-          !app.getType.isInstanceOf[FunctionType] &&
-          (params.map(_.toVariable) == args) &&
-          (deps.get(caller) match {
-            case Some(_: Application | _: FunctionInvocation | _: Variable | _: ADTSelector) => true
-            case _ => false
-          })
+      !app.getType.isInstanceOf[FunctionType] && (ApplicationExtractor(app) exists {
+        case (caller: Variable, args) => (params.map(_.toVariable) == args) && (deps.get(caller) match {
+          case Some(_: Application | _: FunctionInvocation | _: Variable | _: ADTSelector) => true
+          case _ => false
+        })
         case _ => false
-      }
+      })
     }
 
     type DepClauses = (

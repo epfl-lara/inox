@@ -312,12 +312,20 @@ trait QuantificationTemplates { self: Templates =>
       val qClauses: Clauses = quantifications.flatMap(_.instantiate(relevantBlockers, matcher, defer))
 
       val mClauses: Clauses = matcherKey(matcher) match {
+        /* XXX @nv: this is actually unsound. Consider
+         * {{{
+         * def id(a: A): A = a
+         * case class A(i: Int) { require(id(this).i >= 0) }
+         * }}}
+         * We would assume `this.i >= 0` while trying to prove it!
+         *
         case FunctionKey(tfd) =>
           val (b, encClauses) = encodeBlockers(relevantBlockers)
           encClauses ++ unrollInvariant(b, matcher.encoded, tfd.returnType)
         case TypeKey(MapType(_, to)) =>
           val (b, encClauses) = encodeBlockers(relevantBlockers)
           encClauses ++ unrollInvariant(b, matcher.encoded, to)
+         */
         case _ => Seq.empty
       }
 

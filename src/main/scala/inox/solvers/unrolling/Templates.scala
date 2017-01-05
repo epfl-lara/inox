@@ -219,24 +219,12 @@ trait Templates extends TemplateGenerator
   }
 
   /** Represents a named function call in the unfolding procedure */
-  case class Call(tfd: TypedFunDef, path: SelectorPath, args: Seq[Arg]) {
-    override def toString = {
-      tfd.signature + {
-        val (fdArgs, appArgs) = args.splitAt(tfd.params.size)
-        def pArgs(args: Seq[Arg]) = if (args.isEmpty) "" else args.map {
-          case Right(m) => m.toString
-          case Left(v) => asString(v)
-        }.mkString("(", ", ", ")")
-
-        pArgs(fdArgs) +
-        (if (path.nonEmpty) "." else "") +
-        path.map {
-          case Left(id) => id.asString
-          case Right(i) => "_" + i
-        }.mkString(".") +
-        pArgs(appArgs)
-      }
-    }
+  case class Call(tfd: TypedFunDef, args: Seq[Arg]) {
+    override def toString = tfd.signature +
+      (if (args.isEmpty) "" else args.map {
+        case Right(m) => m.toString
+        case Left(v) => asString(v)
+      }.mkString("(", ", ", ")"))
 
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): Call = copy(
       args = args.map(_.substitute(substituter, msubst))
@@ -512,12 +500,6 @@ trait Templates extends TemplateGenerator
       caller
   }
 
-  private[unrolling] def mkSelection(expr: Expr, path: SelectorPath): Expr = path match {
-    case Left(id) +: tail => mkSelection(ADTSelector(expr, id), tail)
-    case Right(i) +: tail => mkSelection(TupleSelect(expr, i), tail)
-    case _ => expr
-  }
-
   object Template {
 
     def lambdaPointers(encoder: Expr => Encoded)(expr: Expr): Map[Encoded, Encoded] = {
@@ -535,7 +517,8 @@ trait Templates extends TemplateGenerator
       }
 
       val pointers = exprOps.collect {
-        case Equals(v: Variable, e) => collectSelectors(e, v).toSet
+        case Equals(v @ (_: Variable | _: FunctionInvocation | _: Application), e) => collectSelectors(e, v).toSet
+        case Equals(e, v @ (_: Variable | _: FunctionInvocation | _: Application)) => collectSelectors(e, v).toSet
         case FunctionInvocation(_, _, es) => es.flatMap(e => collectSelectors(e, e)).toSet
         case Application(_, es) => es.flatMap(e => collectSelectors(e, e)).toSet
         case e: Tuple => collectSelectors(e, e).toSet
@@ -579,11 +562,11 @@ trait Templates extends TemplateGenerator
         case None => Left(encoder(arg))
       }
 
-      val calls = firstOrderCallsOf(expr, simplify).map { case (id, tps, path, args) =>
-        Call(getFunction(id, tps), path, args.map(encodeArg))
+      val calls = firstOrderCallsOf(expr).map { case (id, tps, args) =>
+        Call(getFunction(id, tps), args.map(encodeArg))
       }.filter(i => Some(i) != optCall)
 
-      val apps = firstOrderAppsOf(expr, simplify).filter {
+      val apps = firstOrderAppsOf(expr).filter {
         case (c, Seq(e1, e2)) => c != equalitySymbol(e1.getType)._1
         case _ => true
       }.map { case (c, args) =>
@@ -601,7 +584,7 @@ trait Templates extends TemplateGenerator
       arguments: Seq[(Variable, Encoded)],
       tmplClauses: TemplateClauses,
       substMap: Map[Variable, Encoded] = Map.empty[Variable, Encoded],
-      optCall: Option[(TypedFunDef, SelectorPath)] = None,
+      optCall: Option[TypedFunDef] = None,
       optApp: Option[(Encoded, FunctionType)] = None
     ): (Clauses, Calls, Apps, Matchers, Pointers, () => String) = {
       val (condVars, exprVars, condTree, guardedExprs, eqs, equalities, lambdas, quants) = tmplClauses
@@ -611,17 +594,15 @@ trait Templates extends TemplateGenerator
         lambdas.map(_.ids) ++ quants.flatMap(_.mapping) ++ equalities.flatMap(_._2.map(_.symbols))
       val encoder: Expr => Encoded = mkEncoder(idToTrId)
 
-      val optIdCall = optCall.map { case (tfd, path) => Call(tfd, path, arguments.map(p => Left(p._2))) }
+      val optIdCall = optCall.map { tfd => Call(tfd, arguments.map(p => Left(p._2))) }
       val optIdApp = optApp.map { case (idT, tpe) =>
         val encoded = mkFlatApp(idT, tpe, arguments.map(_._2))
         App(idT, bestRealType(tpe).asInstanceOf[FunctionType], arguments.map(p => Left(p._2)), encoded)
       }
 
-      lazy val optIdMatcher = optCall.filter {
-        case (tfd, path) => tfd.returnType.isInstanceOf[FunctionType] && path.isEmpty
-      }.map { case (tfd, path) =>
+      lazy val optIdMatcher = optCall.map { tfd =>
         val (fiArgs, appArgs) = arguments.map(_._1).splitAt(tfd.params.size)
-        val encoded = mkEncoder(arguments.toMap)(mkApplication(mkSelection(tfd.applied(fiArgs), path), appArgs))
+        val encoded = mkEncoder(arguments.toMap)(mkApplication(tfd.applied(fiArgs), appArgs))
         Matcher(Right(tfd), arguments.map(p => Left(p._2)), encoded)
       }
 
@@ -691,7 +672,7 @@ trait Templates extends TemplateGenerator
       arguments: Seq[(Variable, Encoded)],
       tmplClauses: TemplateClauses,
       substMap: Map[Variable, Encoded] = Map.empty,
-      optCall: Option[(TypedFunDef, SelectorPath)] = None,
+      optCall: Option[TypedFunDef] = None,
       optApp: Option[(Encoded, FunctionType)] = None
     ): (TemplateContents, () => String) = {
 

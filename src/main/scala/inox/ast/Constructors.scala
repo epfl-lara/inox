@@ -18,7 +18,11 @@ trait Constructors { self: Trees =>
   def tupleWrap(es: Seq[Expr]): Expr = es match {
     case Seq() => UnitLiteral()
     case Seq(elem) => elem
-    case more => Tuple(more)
+    case more =>
+      more.zipWithIndex.collect { case (TupleSelect(e, idx), i) if idx == i + 1 => e } match {
+        case ls @ (e +: es) if ls.size == more.size && es.forall(_ == e) => e
+        case _ => Tuple(more)
+      }
   }
 
   /** Wraps the sequence of types as a tuple. If the sequence contains a single type, it is returned instead.

@@ -15,7 +15,6 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
     optSelectedSolvers(Set(solverName)),
     optCheckModels(true),
     optFeelingLucky(feelingLucky),
-    optNoSimplifications(solverName == "smt-cvc4"),
     optTimeout(300),
     ast.optPrintUniqueIds(true)
   )

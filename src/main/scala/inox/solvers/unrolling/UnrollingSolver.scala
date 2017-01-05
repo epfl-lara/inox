@@ -606,7 +606,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
             case SatWithModel(model) =>
               if (feelingLucky && validateModel(extractSimpleModel(model), assumptionsSeq, silenceErrors = true)) {
-                CheckResult.cast(res)
+                if (config.withModel) CheckResult.cast(res) else CheckResult.cast(Sat)
               } else {
                 val wrapped = wrapModel(model)
 

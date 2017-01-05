@@ -173,6 +173,12 @@ trait LambdaTemplates { self: Templates =>
   def registerLambda(pointer: Encoded, target: Encoded): Boolean = byID.get(target) match {
     case Some(template) =>
       byID += pointer -> template
+      applications += template.tpe -> applications(template.tpe).filterNot(_._2.caller == pointer)
+
+      for ((key @ (_, app), (gen, origGen, b, notB, fis)) <- appInfos.toSeq if fis.nonEmpty && app.caller == pointer) {
+        appInfos += key -> (gen, origGen, b, notB, Set(TemplateAppInfo(template, trueT, app.args)))
+      }
+
       true
     case None =>
       false

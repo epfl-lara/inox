@@ -44,7 +44,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
 
   def interrupt(): Unit = {
     aborted = true
-    interpreter.interrupt()
+    if (interpreter != null) interpreter.interrupt()
   }
 
   def free(): Unit = {
