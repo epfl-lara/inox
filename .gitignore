@@ -18,6 +18,7 @@ target
 # inox
 smt-sessions/
 tip-sessions/
+*.log
 
 #eclipse
 .cache
