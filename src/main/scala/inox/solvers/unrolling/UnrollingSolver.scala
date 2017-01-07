@@ -112,6 +112,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   def interrupt(): Unit = { abort = true }
 
+  def free(): Unit = ctx.interruptManager.unregisterForInterrupts(this)
+
   protected def declareVariable(v: t.Variable): Encoded
 
   def assertCnstr(expression: Expr): Unit = {
@@ -665,10 +667,6 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
 
   override lazy val name = "U:"+underlying.name
 
-  def free() {
-    underlying.free()
-  }
-
   object templates extends {
     val program: targetProgram.type = targetProgram
   } with Templates {
@@ -758,5 +756,10 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
   override def interrupt(): Unit = {
     super.interrupt()
     underlying.interrupt()
+  }
+
+  override def free(): Unit = {
+    super.free()
+    underlying.free()
   }
 }

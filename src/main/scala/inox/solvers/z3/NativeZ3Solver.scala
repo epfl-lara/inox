@@ -59,13 +59,6 @@ trait NativeZ3Solver extends AbstractUnrollingSolver with Z3Theories { self =>
     def extractNot(e: Z3AST): Option[Z3AST] = underlying.extractNot(e)
   }
 
-  override def reset(): Unit = {
-    super.reset()
-    underlying.reset()
-  }
-
-  def free(): Unit = underlying.free()
-
   protected def declareVariable(v: t.Variable): Z3AST = underlying.declareVariable(v)
 
   protected def wrapModel(model: Z3Model): super.ModelWrapper = ModelWrapper(model)
@@ -129,8 +122,18 @@ trait NativeZ3Solver extends AbstractUnrollingSolver with Z3Theories { self =>
     underlying.pop()
   }
 
+  override def reset(): Unit = {
+    super.reset()
+    underlying.reset()
+  }
+
   override def interrupt(): Unit = {
     underlying.interrupt()
     super.interrupt()
+  }
+
+  override def free(): Unit = {
+    super.free()
+    underlying.free()
   }
 }

@@ -48,8 +48,8 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
   }
 
   def free(): Unit = {
-    interpreter.free()
     ctx.interruptManager.unregisterForInterrupts(this)
+    interpreter.free()
   }
 
   /* Send a command to the solver */

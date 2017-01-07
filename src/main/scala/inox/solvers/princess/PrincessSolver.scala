@@ -74,13 +74,6 @@ trait PrincessSolver extends AbstractUnrollingSolver with PrincessTheories { sel
     }
   }
 
-  override def reset(): Unit = {
-    super.reset()
-    underlying.reset()
-  }
-
-  def free(): Unit = underlying.free()
-
   protected def declareVariable(v: t.Variable): IExpression = underlying.declareVariable(v)
 
   protected def wrapModel(model: underlying.Model): super.ModelWrapper = ModelWrapper(model)
@@ -125,8 +118,18 @@ trait PrincessSolver extends AbstractUnrollingSolver with PrincessTheories { sel
     underlying.pop()
   }
 
+  override def reset(): Unit = {
+    super.reset()
+    underlying.reset()
+  }
+
   override def interrupt(): Unit = {
     underlying.interrupt()
     super.interrupt()
+  }
+
+  override def free(): Unit = {
+    super.free()
+    underlying.free()
   }
 }
