@@ -1,0 +1,43 @@
+(declare-const amount!5 Int)
+
+(declare-datatypes () ((BankAccount!29 (BankAccount!30 (checking!15 Int) (savings!15 Int)))))
+
+(declare-const from!1 BankAccount!29)
+
+(declare-datatypes (A0!9 A1!21 A2!14) ((tuple3!4 (tuple3!5 (_1!7 A0!9) (_2!7 A1!21) (_3!2 A2!14)))))
+
+(declare-datatypes () ((Unit!18 (Unit!19))))
+
+(declare-datatypes (A1!1 A2!0 R!22) ((fun2!11 (fun2!12 (f!37 (=> A1!1 A2!0 R!22)) (pre!15 (=> A1!1 A2!0 Bool))))))
+
+(declare-datatypes (A0!12 A1!26) ((tuple2!14 (tuple2!15 (_1!10 A0!12) (_2!10 A1!26)))))
+
+(declare-datatypes () ((Transaction!3 (Transaction!4 (operation!2 (fun2!11 BankAccount!29 Int (tuple2!14 Bool BankAccount!29))) (cancel!2 (fun2!11 BankAccount!29 Int (tuple2!14 Unit!18 BankAccount!29))) (account!2 BankAccount!29) (amount!49 Int) (executed!5 Bool)))))
+
+(define-fun execute!0 ((thiss!55 Transaction!3)) (tuple2!14 Bool Transaction!3) (assume (and (forall ((x!212 BankAccount!29)(x!213 Int)) (=> (@ (f!37 (fun2!12 (lambda ((x!210 BankAccount!29) (x!211 Int)) true) (lambda ((x!503 BankAccount!29) (x!504 Int)) true))) x!212 x!213) (@ (f!37 (fun2!12 (pre!15 (operation!2 thiss!55)) (lambda ((x!505 BankAccount!29) (x!506 Int)) true))) x!212 x!213))) (forall ((x!216 BankAccount!29)(x!217 Int)) (=> (@ (f!37 (fun2!12 (lambda ((x!214 BankAccount!29) (x!215 Int)) true) (lambda ((x!507 BankAccount!29) (x!508 Int)) true))) x!216 x!217) (@ (f!37 (fun2!12 (pre!15 (cancel!2 thiss!55)) (lambda ((x!509 BankAccount!29) (x!510 Int)) true))) x!216 x!217))) (not (executed!5 thiss!55))) (let ((res!65 (@ (f!37 (operation!2 thiss!55)) (account!2 thiss!55) (amount!49 thiss!55)))) (let ((thiss!149 (Transaction!4 (operation!2 thiss!55) (cancel!2 thiss!55) (_2!10 res!65) (amount!49 thiss!55) (executed!5 thiss!55)))) (let ((thiss!148 (Transaction!4 (operation!2 thiss!149) (cancel!2 thiss!149) (account!2 thiss!149) (amount!49 thiss!149) (_1!10 res!65)))) (tuple2!15 (executed!5 thiss!148) thiss!148))))))
+
+(declare-fun Unit!20 () Unit!18)
+
+(define-fun rollback!0 ((thiss!29 Transaction!3)) (tuple2!14 Unit!18 Transaction!3) (assume (and (forall ((x!156 BankAccount!29)(x!157 Int)) (=> (@ (f!37 (fun2!12 (lambda ((x!154 BankAccount!29) (x!155 Int)) true) (lambda ((x!441 BankAccount!29) (x!442 Int)) true))) x!156 x!157) (@ (f!37 (fun2!12 (pre!15 (operation!2 thiss!29)) (lambda ((x!443 BankAccount!29) (x!444 Int)) true))) x!156 x!157))) (forall ((x!160 BankAccount!29)(x!161 Int)) (=> (@ (f!37 (fun2!12 (lambda ((x!158 BankAccount!29) (x!159 Int)) true) (lambda ((x!445 BankAccount!29) (x!446 Int)) true))) x!160 x!161) (@ (f!37 (fun2!12 (pre!15 (cancel!2 thiss!29)) (lambda ((x!447 BankAccount!29) (x!448 Int)) true))) x!160 x!161))) (executed!5 thiss!29)) (let ((thiss!145 (Transaction!4 (operation!2 thiss!29) (cancel!2 thiss!29) (_2!10 (@ (f!37 (cancel!2 thiss!29)) (account!2 thiss!29) (amount!49 thiss!29))) (amount!49 thiss!29) (executed!5 thiss!29)))) (tuple2!15 Unit!20 (Transaction!4 (operation!2 thiss!145) (cancel!2 thiss!145) (account!2 thiss!145) (amount!49 thiss!145) false)))))
+
+(define-fun execute!1 ((transaction1!0 Transaction!3) (transaction2!0 Transaction!3)) (tuple3!4 Bool Transaction!3 Transaction!3) (assume (and (forall ((x!376 BankAccount!29)(x!377 Int)) (=> (@ (f!37 (fun2!12 (lambda ((x!374 BankAccount!29) (x!375 Int)) true) (lambda ((x!683 BankAccount!29) (x!684 Int)) true))) x!376 x!377) (@ (f!37 (fun2!12 (pre!15 (operation!2 transaction1!0)) (lambda ((x!685 BankAccount!29) (x!686 Int)) true))) x!376 x!377))) (forall ((x!380 BankAccount!29)(x!381 Int)) (=> (@ (f!37 (fun2!12 (lambda ((x!378 BankAccount!29) (x!379 Int)) true) (lambda ((x!687 BankAccount!29) (x!688 Int)) true))) x!380 x!381) (@ (f!37 (fun2!12 (pre!15 (cancel!2 transaction1!0)) (lambda ((x!689 BankAccount!29) (x!690 Int)) true))) x!380 x!381))) (forall ((x!384 BankAccount!29)(x!385 Int)) (=> (@ (f!37 (fun2!12 (lambda ((x!382 BankAccount!29) (x!383 Int)) true) (lambda ((x!691 BankAccount!29) (x!692 Int)) true))) x!384 x!385) (@ (f!37 (fun2!12 (pre!15 (operation!2 transaction2!0)) (lambda ((x!693 BankAccount!29) (x!694 Int)) true))) x!384 x!385))) (forall ((x!388 BankAccount!29)(x!389 Int)) (=> (@ (f!37 (fun2!12 (lambda ((x!386 BankAccount!29) (x!387 Int)) true) (lambda ((x!695 BankAccount!29) (x!696 Int)) true))) x!388 x!389) (@ (f!37 (fun2!12 (pre!15 (cancel!2 transaction2!0)) (lambda ((x!697 BankAccount!29) (x!698 Int)) true))) x!388 x!389))) (not (executed!5 transaction1!0)) (not (executed!5 transaction2!0))) (let ((executed!2 (let ((res!96 (execute!0 transaction1!0))) (let ((t!77 (ite (_1!10 res!96) (let ((res!97 (execute!0 transaction2!0))) (let ((t!76 (ite (_1!10 res!97) (tuple2!15 true (_2!10 res!96)) (tuple2!15 false (_2!10 (rollback!0 (_2!10 res!96))))))) (tuple3!5 (_1!10 t!76) (_2!10 res!97) (_2!10 t!76)))) (tuple3!5 false transaction2!0 (_2!10 res!96))))) (tuple3!5 (_1!7 t!77) (_3!2 t!77) (_2!7 t!77)))))) (assume (and (=> (_1!7 executed!2) (and (executed!5 (_2!7 executed!2)) (executed!5 (_3!2 executed!2)))) (=> (not (_1!7 executed!2)) (and (not (executed!5 (_2!7 executed!2))) (not (executed!5 (_3!2 executed!2)))))) executed!2))))
+
+(define-fun inv!0 ((thiss!26 BankAccount!29)) Bool (and (>= (checking!15 thiss!26) 0) (>= (savings!15 thiss!26) 0)))
+
+(define-fun subOp!0 ((acc!1 BankAccount!29) (amount!4 Int)) (tuple2!14 Bool BankAccount!29) (let ((t!74 (ite (ite (< amount!4 0) true (> amount!4 (checking!15 acc!1))) (tuple2!15 false acc!1) (tuple2!15 true (assume (inv!0 (BankAccount!30 (- (checking!15 acc!1) amount!4) (savings!15 acc!1))) (BankAccount!30 (- (checking!15 acc!1) amount!4) (savings!15 acc!1))))))) (tuple2!15 (_1!10 t!74) (_2!10 t!74))))
+
+(declare-fun Unit!21 () Unit!18)
+
+(define-fun addOp!0 ((acc!0 BankAccount!29) (amount!3 Int)) (tuple2!14 Bool BankAccount!29) (let ((t!69 (ite (< amount!3 0) (tuple2!15 false acc!0) (tuple2!15 true (assume (inv!0 (BankAccount!30 (+ (checking!15 acc!0) amount!3) (savings!15 acc!0))) (BankAccount!30 (+ (checking!15 acc!0) amount!3) (savings!15 acc!0))))))) (tuple2!15 (_1!10 t!69) (_2!10 t!69))))
+
+(declare-fun Unit!22 () Unit!18)
+
+(declare-const to!1 BankAccount!29)
+
+(datatype-invariant thiss!26 BankAccount!29 (and (>= (checking!15 thiss!26) 0) (>= (savings!15 thiss!26) 0)))
+
+(assert (not (=> (and (>= amount!5 0) (>= (checking!15 from!1) amount!5)) (_1!7 (execute!1 (Transaction!4 (fun2!12 (lambda ((acc!2 BankAccount!29) (amount!6 Int)) (let ((res!81 (subOp!0 acc!2 amount!6))) (tuple2!15 (_1!10 res!81) (_2!10 res!81)))) (lambda ((acc!69 BankAccount!29) (amount!45 Int)) true)) (fun2!12 (lambda ((acc!3 BankAccount!29) (amount!7 Int)) (tuple2!15 Unit!21 (_2!10 (addOp!0 acc!3 amount!7)))) (lambda ((acc!70 BankAccount!29) (amount!46 Int)) true)) from!1 amount!5 false) (Transaction!4 (fun2!12 (lambda ((acc!4 BankAccount!29) (amount!8 Int)) (let ((res!79 (addOp!0 acc!4 amount!8))) (tuple2!15 (_1!10 res!79) (_2!10 res!79)))) (lambda ((acc!71 BankAccount!29) (amount!47 Int)) true)) (fun2!12 (lambda ((acc!5 BankAccount!29) (amount!9 Int)) (tuple2!15 Unit!22 (_2!10 (subOp!0 acc!5 amount!9)))) (lambda ((acc!72 BankAccount!29) (amount!48 Int)) true)) to!1 amount!5 false))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

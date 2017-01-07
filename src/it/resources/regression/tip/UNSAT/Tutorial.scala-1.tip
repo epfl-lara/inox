@@ -1,0 +1,30 @@
+(declare-datatypes (A!6) ((State!7 (State!8 (value!3 A!6)))))
+
+(declare-datatypes (A1!1 A2!0 R!22) ((fun2!145 (fun2!146 (f!112 (=> A1!1 A2!0 R!22)) (pre!82 (=> A1!1 A2!0 Bool))))))
+
+(declare-datatypes (A0!63 A1!107) ((tuple2!162 (tuple2!163 (_1!91 A0!63) (_2!91 A1!107)))))
+
+(declare-datatypes (A!7 S!1 B!0) ((SFun!3 (SFun!4 (state!43 (State!7 S!1)) (f!111 (fun2!145 A!7 (State!7 S!1) (tuple2!162 B!0 (State!7 S!1))))))))
+
+(declare-datatypes () ((Unit!81 (Unit!82))))
+
+(declare-datatypes (A!0) ((List!5 (Nil!2) (Cons!2 (head!27 A!0) (tail!30 (List!5 A!0))))))
+
+(declare-fun Unit!83 () Unit!81)
+
+(declare-fun Unit!84 () Unit!81)
+
+(define-fun (par (A!46 S!2 B!27) (apply!0 ((thiss!66 (SFun!3 A!46 S!2 B!27)) (a!0 A!46)) (tuple2!162 B!27 (SFun!3 A!46 S!2 B!27)) (assume (forall ((x!248 A!46)(x!249 (State!7 S!2))) (=> (@ (f!112 (fun2!146 (lambda ((x!246 A!46) (x!247 (State!7 S!2))) true) (lambda ((x!544 A!46) (x!545 (State!7 S!2))) true))) x!248 x!249) (@ (f!112 (fun2!146 (pre!82 (f!111 thiss!66)) (lambda ((x!546 A!46) (x!547 (State!7 S!2))) true))) x!248 x!249))) (let ((res!71 (@ (f!112 (f!111 thiss!66)) a!0 (state!43 thiss!66)))) (tuple2!163 (_1!91 res!71) (SFun!4 (_2!91 res!71) (f!111 thiss!66))))))))
+
+(declare-fun Unit!85 () Unit!81)
+
+(define-fun-rec (par (A!5 S!0) (foreach!0 ((l!4 (List!5 A!5)) (sf!0 (SFun!3 A!5 S!0 Unit!81))) (tuple2!162 Unit!81 (SFun!3 A!5 S!0 Unit!81)) (assume (forall ((x!344 A!5)(x!345 (State!7 S!0))) (=> (@ (f!112 (fun2!146 (lambda ((x!342 A!5) (x!343 (State!7 S!0))) true) (lambda ((x!651 A!5) (x!652 (State!7 S!0))) true))) x!344 x!345) (@ (f!112 (fun2!146 (pre!82 (f!111 sf!0)) (lambda ((x!653 A!5) (x!654 (State!7 S!0))) true))) x!344 x!345))) (tuple2!163 Unit!83 (_2!91 (ite (is-Cons!2 l!4) (tuple2!163 Unit!84 (_2!91 (foreach!0 (tail!30 l!4) (_2!91 (apply!0 sf!0 (head!27 l!4)))))) (ite (is-Nil!2 l!4) (tuple2!163 Unit!85 sf!0) (choose |error: Match is non-exhaustive!61| (tuple2!162 Unit!81 (SFun!3 A!5 S!0 Unit!81)) true)))))))))
+
+(define-fun (par (A!32) (|::!0| ((thiss!6 (List!5 A!32)) (el!0 A!32)) (List!5 A!32) (Cons!2 el!0 thiss!6))))
+
+(declare-fun Unit!86 () Unit!81)
+
+(assert (not (= (value!3 (state!43 (_2!91 (foreach!0 (|::!0| (|::!0| (|::!0| (|::!0| (|::!0| (|::!0| (|::!0| (|::!0| (|::!0| (|::!0| (as Nil!2 (List!5 (_ BitVec 32))) #b00000000000000000000000000001010) #b00000000000000000000000000001001) #b00000000000000000000000000001000) #b00000000000000000000000000000111) #b00000000000000000000000000000110) #b00000000000000000000000000000101) #b00000000000000000000000000000100) #b00000000000000000000000000000011) #b00000000000000000000000000000010) #b00000000000000000000000000000001) (SFun!4 (State!8 #b00000000000000000000000000000000) (fun2!146 (lambda ((el!1 (_ BitVec 32)) (s!0 (State!7 (_ BitVec 32)))) (tuple2!163 Unit!86 (State!8 (bvadd (value!3 s!0) el!1)))) (lambda ((el!5 (_ BitVec 32)) (s!113 (State!7 (_ BitVec 32)))) true))))))) #b00000000000000000000000000110111)))
+
+(check-sat)
+
