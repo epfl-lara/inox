@@ -143,6 +143,17 @@ class Parser(file: File) {
       (None, locals.withVariable(sym,
         Variable.fresh(sym.name, extractSort(sort)(tpsLocals)).setPos(sym.optPos)))
 
+    case DeclareFun(name, sorts, returnSort) =>
+      (None, locals.withFunction(name, extractSignature(FunDec(name, sorts.map {
+        sort => SortedVar(SSymbol(FreshIdentifier("x").uniqueName).setPos(sort), sort).setPos(sort)
+      }, returnSort), Seq.empty)))
+
+    case DeclareFunPar(tps, name, sorts, returnSort) =>
+      val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
+      (None, locals.withFunction(name, extractSignature(FunDec(name, sorts.map {
+        sort => SortedVar(SSymbol(FreshIdentifier("x").uniqueName).setPos(sort), sort).setPos(sort)
+      }, returnSort), tps)))
+
     case DefineFun(funDef) =>
       val fd = extractFunction(funDef, Seq.empty)
       (None, locals.withFunction(funDef.name, fd))
@@ -301,7 +312,7 @@ class Parser(file: File) {
       throw new MissformedTIPException("unknown TIP command " + cmd, cmd.optPos)
   }
 
-  private def extractSignature(fd: SMTFunDef, tps: Seq[SSymbol])(implicit locals: Locals): FunDef = {
+  private def extractSignature(fd: FunDec, tps: Seq[SSymbol])(implicit locals: Locals): FunDef = {
     assert(!locals.isFunction(fd.name))
     val id = FreshIdentifier(fd.name.name)
     val tparams = tps.map(sym => TypeParameterDef(locals.getGeneric(sym)).setPos(sym.optPos))
@@ -314,6 +325,10 @@ class Parser(file: File) {
     val body = Choose(ValDef(FreshIdentifier("res"), returnType), BooleanLiteral(true))
 
     new FunDef(id, tparams, params, returnType, body, Set.empty).setPos(fd.name.optPos)
+  }
+
+  private def extractSignature(fd: SMTFunDef, tps: Seq[SSymbol])(implicit locals: Locals): FunDef = {
+    extractSignature(FunDec(fd.name, fd.params, fd.returnSort), tps)
   }
 
   private def extractFunction(fd: SMTFunDef, tps: Seq[SSymbol])(implicit locals: Locals): FunDef = {
