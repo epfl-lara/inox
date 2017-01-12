@@ -39,7 +39,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     Map(listID -> List, consID -> Cons, nilID -> Nil)
   )
 
-  test("size(x) > 0 is satisfiable") { ctx =>
+  test("size(x) > 0 is satisfiable") { implicit ctx =>
     val program = InoxProgram(ctx, symbols)
 
     val vd: ValDef = "x" :: T(listID)(IntegerType)
@@ -59,7 +59,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     }
   }
 
-  test("size(x) == 0 is satisfiable") { ctx =>
+  test("size(x) == 0 is satisfiable") { implicit ctx =>
     val program = InoxProgram(ctx, symbols)
 
     val tp = TypeParameter.fresh("A")

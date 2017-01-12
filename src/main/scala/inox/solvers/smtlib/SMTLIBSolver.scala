@@ -70,7 +70,7 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
                 case DefineFun(SMTFunDef(s, _, _, e)) if syms(s) =>
                   try {
                     val v = variables.toA(s)
-                    val value = fromSMT(e, v.getType)(Map(), modelFunDefs)
+                    val value = fromSMT(e, v.getType)(Context(variables.bToA, modelFunDefs))
                     Some(v.toVal -> value)
                   } catch {
                     case _: Unsupported => None

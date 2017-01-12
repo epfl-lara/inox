@@ -9,8 +9,8 @@ import org.apache.commons.lang3.StringEscapeUtils
 import _root_.smtlib.parser.Terms.{Identifier => SMTIdentifier, _}
 import _root_.smtlib.parser.Commands._
 import _root_.smtlib.interpreters.CVC4Interpreter
-import _root_.smtlib.theories.experimental.Sets
-import _root_.smtlib.theories.experimental.Strings
+import _root_.smtlib.theories._
+import _root_.smtlib.theories.experimental._
 
 trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
   import program._
@@ -31,75 +31,98 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
     case _ => super.computeSort(t)
   }
 
-  override protected def fromSMT(t: Term, otpe: Option[Type] = None)
-                                (implicit lets: Map[SSymbol, Term], letDefs: Map[SSymbol, DefineFun]): Expr = {
+  override protected def fromSMT(t: Term, otpe: Option[Type] = None)(implicit context: Context): Expr = {
     (t, otpe) match {
       // EK: This hack is necessary for sygus which does not strictly follow smt-lib for negative literals
       case (SimpleSymbol(SSymbol(v)), Some(IntegerType)) if v.startsWith("-") =>
         try {
           IntegerLiteral(v.toInt)
         } catch {
-          case _: Throwable =>
-            super.fromSMT(t, otpe)
+          case _: Throwable => super.fromSMT(t, otpe)
         }
 
-      case (QualifiedIdentifier(SMTIdentifier(SSymbol("emptyset"), Seq()), _), Some(SetType(base))) =>
-        FiniteSet(Seq(), base)
+      // XXX @nv: CVC4 seems to return some weird representations for certain adt selectors
+      case (FunctionApplication(SimpleSymbol(s), Seq(e)), _) if s.name.endsWith("'") && selectors.containsB(SSymbol(s.name.init)) =>
+        super.fromSMT(FunctionApplication(SimpleSymbol(SSymbol(s.name.init)), Seq(e)), otpe)
 
-      case (FunctionApplication(QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), _), Seq(elem)), Some(MapType(k, v))) =>
-        FiniteMap(Seq(), fromSMT(elem, v), k, v)
+      // XXX @nv: CVC4 seems to return some weird representations for certain adt constructors
+      case (FunctionApplication(SimpleSymbol(s), args), _) if s.name.endsWith("'") && constructors.containsB(SSymbol(s.name.init)) =>
+        super.fromSMT(FunctionApplication(SimpleSymbol(SSymbol(s.name.init)), args), otpe)
+
+      case (Sets.EmptySet(sort), Some(SetType(base))) => FiniteSet(Seq.empty, base)
+      case (Sets.EmptySet(sort), _) => FiniteSet(Seq.empty, fromSMT(sort))
+
+      case (Sets.Singleton(e), Some(SetType(base))) => FiniteSet(Seq(fromSMT(e, base)), base)
+      case (Sets.Singleton(e), _) =>
+        val elem = fromSMT(e)
+        FiniteSet(Seq(elem), bestRealType(elem.getType))
+
+      case (Sets.Insert(set, es @ _*), Some(SetType(base))) => es.foldLeft(fromSMT(set, SetType(base))) {
+        case (FiniteSet(elems, base), e) =>
+          val elem = fromSMT(e, base)
+          FiniteSet(elems.filter(_ != elem) :+ elem, base)
+        case (s, e) => SetAdd(s, fromSMT(e, base))
+      }
+
+      case (Sets.Insert(set, es @ _*), _) => es.foldLeft(fromSMT(set)) {
+        case (FiniteSet(elems, base), e) =>
+          val elem = fromSMT(e, base)
+          FiniteSet(elems.filter(_ != elem) :+ elem, base)
+        case (s, e) => SetAdd(s, fromSMT(e))
+      }
+
+      case (Sets.Union(e1, e2), Some(SetType(base))) =>
+        (fromSMT(e1, SetType(base)), fromSMT(e2, SetType(base))) match {
+          case (FiniteSet(elems1, _), FiniteSet(elems2, _)) => FiniteSet(elems1 ++ elems2, base)
+          case (s1, s2) => SetUnion(s1, s2)
+        }
+
+      case (Sets.Union(e1, e2), _) =>
+        (fromSMT(e1), fromSMT(e2)) match {
+          case (fs1 @ FiniteSet(elems1, b1), fs2 @ FiniteSet(elems2, b2)) =>
+            FiniteSet(elems1 ++ elems2, leastUpperBound(b1, b2).getOrElse {
+              unsupported(SetUnion(fs1, fs2), "woot? incompatible set base-types")
+            })
+          case (s1, s2) => SetUnion(s1, s2)
+        }
+
+      case (ArraysEx.Store(e1, e2, e3), Some(MapType(from, to))) =>
+        (fromSMT(e1, MapType(from, to)), fromSMT(e2, from), fromSMT(e3, to)) match {
+          case (FiniteMap(elems, default, _, _), key, value) => FiniteMap(elems :+ (key -> value), default, from, to)
+          case _ => super.fromSMT(t, otpe)
+        }
+
+      case (ArraysEx.Store(e1, e2, e3), _) =>
+        (fromSMT(e1), fromSMT(e2), fromSMT(e3)) match {
+          case (FiniteMap(elems, default, from, to), key, value) => FiniteMap(elems :+ (key -> value), default, from, to)
+          case _ => super.fromSMT(t, otpe)
+        }
 
       case (FunctionApplication(SimpleSymbol(SSymbol("__array_store_all__")), Seq(_, elem)), Some(MapType(k, v))) =>
         FiniteMap(Seq(), fromSMT(elem, v), k, v)
 
-      case (FunctionApplication(SimpleSymbol(SSymbol("store")), Seq(arr, key, elem)), Some(MapType(kT, vT))) =>
-        val FiniteMap(elems, default, _, _) = fromSMT(arr, otpe)
-        val newKey = fromSMT(key, kT)
-        val newV   = fromSMT(elem, vT)
-        val newElems = elems.filterNot(_._1 == newKey) :+ (newKey -> newV)
-        FiniteMap(newElems, default, kT, vT)
-
-      case (FunctionApplication(SimpleSymbol(SSymbol("singleton")), elems), Some(SetType(base))) =>
-        FiniteSet(elems.map(fromSMT(_, base)), base)
-
-      case (FunctionApplication(SimpleSymbol(SSymbol("insert")), elems), Some(SetType(base))) =>
-        val selems = elems.init.map(fromSMT(_, base))
-        val FiniteSet(se, _) = fromSMT(elems.last, otpe)
-        FiniteSet(se ++ selems, base)
-
-      case (FunctionApplication(SimpleSymbol(SSymbol("union")), elems), Some(SetType(base))) =>
-        FiniteSet(elems.flatMap(fromSMT(_, otpe) match {
-          case FiniteSet(elems, _) => elems
-        }), base)
-
       case (SString(v), Some(StringType)) =>
         StringLiteral(StringEscapeUtils.unescapeJava(v))
 
-      case (Strings.Length(a), Some(IntegerType)) =>
-        val aa = fromSMT(a)
-        StringLength(aa)
+      case (Strings.Length(a), _) => StringLength(fromSMT(a, StringType))
 
-      case (Strings.Concat(a, b, c @ _*), _) =>
-        val aa = fromSMT(a)
-        val bb = fromSMT(b)
-        (StringConcat(aa, bb) /: c.map(fromSMT(_))) {
-          case (s, cc) => StringConcat(s, cc)
+      case (Strings.Concat(a, b, cs @ _*), _) =>
+        (StringConcat(fromSMT(a, StringType), fromSMT(b, StringType)) /: cs) {
+          case (s, c) => StringConcat(s, fromSMT(c, StringType))
         }
-      
+
       case (Strings.Substring(s, start, offset), _) =>
-        val ss = fromSMT(s)
-        val tt = fromSMT(start)
-        val oo = fromSMT(offset)
+        val ss = fromSMT(s, StringType)
+        val tt = fromSMT(start, IntegerType)
+        val oo = fromSMT(offset, IntegerType)
         oo match {
           case Minus(otherEnd, `tt`) => SubString(ss, tt, otherEnd)
-          case _ =>
-            SubString(ss, tt, Plus(tt, oo))
+          case _ => SubString(ss, tt, Plus(tt, oo))
         }
-        
+
       case (Strings.At(a, b), _) => fromSMT(Strings.Substring(a, b, SNumeral(1)))
 
-      case _ =>
-        super.fromSMT(t, otpe)
+      case _ => super.fromSMT(t, otpe)
     }
   }
 

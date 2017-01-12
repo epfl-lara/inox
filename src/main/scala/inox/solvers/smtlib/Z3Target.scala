@@ -52,26 +52,18 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     case _ => super.computeSort(t)
   }
 
-  override protected def fromSMT(t: Term, otpe: Option[Type] = None)
-                                (implicit lets: Map[SSymbol, Term], letDefs: Map[SSymbol, DefineFun]): Expr = {
+  override protected def fromSMT(t: Term, otpe: Option[Type] = None)(implicit context: Context): Expr = {
     (t, otpe) match {
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ MapType(keyType, valueType))) =>
-        if (letDefs contains k) {
-          val DefineFun(SMTFunDef(a, Seq(SortedVar(arg, akind)), rkind, body)) = letDefs(k)
+        val Some(Lambda(Seq(arg), body)) = context.getFunction(k, FunctionType(Seq(keyType), valueType))
 
-          def extractCases(e: Term): (Map[Expr, Expr], Expr) = e match {
-            case ITE(SMTEquals(SimpleSymbol(`arg`), k), v, e) =>
-              val (cs, d) = extractCases(e)
-              (Map(fromSMT(k, keyType) -> fromSMT(v, valueType)) ++ cs, d)
-            case e =>
-              (Map(),fromSMT(e, valueType))
-          }
-          // Need to recover value form function model
-          val (cases, default) = extractCases(body)
-          FiniteMap(cases.toSeq, default, keyType, valueType)
-        } else {
-          throw FatalError("Array on non-function or unknown symbol "+k)
+        def extractCases(e: Expr): FiniteMap = e match {
+          case IfExpr(Equals(argV, k), v, e) if argV == arg.toVariable =>
+            val FiniteMap(elems, default, from, to) = extractCases(e)
+            FiniteMap(elems :+ (k, v), default, from, to)
+          case e => FiniteMap(Seq.empty, e, keyType, valueType)
         }
+        extractCases(body)
 
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ SetType(base))) =>
         val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, BooleanType)))

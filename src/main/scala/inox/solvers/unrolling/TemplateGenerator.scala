@@ -15,6 +15,7 @@ trait TemplateGenerator { self: Templates =>
   protected type TemplateClauses = (
     Map[Variable, Encoded],
     Map[Variable, Encoded],
+    Map[Variable, Encoded],
     Map[Variable, Set[Variable]],
     Map[Variable, Seq[Expr]],
     Seq[Expr],
@@ -24,24 +25,25 @@ trait TemplateGenerator { self: Templates =>
   )
 
   protected def emptyClauses: TemplateClauses =
-    (Map.empty, Map.empty, Map.empty, Map.empty, Seq.empty, Map.empty, Seq.empty, Seq.empty)
+    (Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Seq.empty, Map.empty, Seq.empty, Seq.empty)
 
   protected implicit class ClausesWrapper(clauses: TemplateClauses) {
     def ++(that: TemplateClauses): TemplateClauses = {
-      val (thisConds, thisExprs, thisTree, thisGuarded, thisEqs, thisEqualities, thisLambdas, thisQuants) = clauses
-      val (thatConds, thatExprs, thatTree, thatGuarded, thatEqs, thatEqualities, thatLambdas, thatQuants) = that
+      val (thisConds, thisExprs, thisChooses, thisTree, thisGuarded, thisEqs, thisEqualities, thisLambdas, thisQuants) = clauses
+      val (thatConds, thatExprs, thatChooses, thatTree, thatGuarded, thatEqs, thatEqualities, thatLambdas, thatQuants) = that
 
-      (thisConds ++ thatConds, thisExprs ++ thatExprs,
+      (thisConds ++ thatConds, thisExprs ++ thatExprs, thisChooses ++ thatChooses,
         thisTree merge thatTree, thisGuarded merge thatGuarded, thisEqs ++ thatEqs,
         thisEqualities merge thatEqualities, thisLambdas ++ thatLambdas, thisQuants ++ thatQuants)
     }
 
     def +(pair: (Variable, Expr)): TemplateClauses = {
-      val (thisConds, thisExprs, thisTree, thisGuarded, thisEqs, thisEqualities, thisLambdas, thisQuants) = clauses
-      (thisConds, thisExprs, thisTree, thisGuarded merge pair, thisEqs, thisEqualities, thisLambdas, thisQuants)
+      val (thisConds, thisExprs, thisChooses, thisTree, thisGuarded, thisEqs, thisEqualities, thisLambdas, thisQuants) = clauses
+      (thisConds, thisExprs, thisChooses, thisTree, thisGuarded merge pair, thisEqs, thisEqualities, thisLambdas, thisQuants)
     }
 
     def proj: (
+      Map[Variable, Encoded],
       Map[Variable, Encoded],
       Map[Variable, Encoded],
       Map[Variable, Set[Variable]],
@@ -49,8 +51,8 @@ trait TemplateGenerator { self: Templates =>
       Seq[LambdaTemplate],
       Seq[QuantificationTemplate]
     ) = {
-      val (thisConds, thisExprs, thisTree, thisGuarded, thisEqs, thisEqualities, thisLambdas, thisQuants) = clauses
-      (thisConds, thisExprs, thisTree, thisEqualities, thisLambdas, thisQuants)
+      val (thisConds, thisExprs, thisChooses, thisTree, thisGuarded, thisEqs, thisEqualities, thisLambdas, thisQuants) = clauses
+      (thisConds, thisExprs, thisChooses, thisTree, thisEqualities, thisLambdas, thisQuants)
     }
   }
 
@@ -62,8 +64,8 @@ trait TemplateGenerator { self: Templates =>
   }
 
   def mkClauses(pathVar: Variable, expr: Expr, substMap: Map[Variable, Encoded], polarity: Option[Boolean] = None): TemplateClauses = {
-    val (p, (conds, exprs, tree, guarded, eqs, equalities, lambdas, quants)) = mkExprClauses(pathVar, expr, substMap, polarity)
-    (conds, exprs, tree, guarded merge (pathVar -> p), eqs, equalities, lambdas, quants)
+    val (p, (conds, exprs, chooses, tree, guarded, eqs, equalities, lambdas, quants)) = mkExprClauses(pathVar, expr, substMap, polarity)
+    (conds, exprs, chooses, tree, guarded merge (pathVar -> p), eqs, equalities, lambdas, quants)
   }
 
   protected def mkExprStructure(
@@ -115,8 +117,8 @@ trait TemplateGenerator { self: Templates =>
             val (e, cls) = mkExprClauses(pathVar, normalExpr, depSubst)
 
             // setup the full encoding substMap
-            val (conds, exprs, tree, equals, lmbds, quants) = cls.proj
-            val clauseSubst: Map[Variable, Encoded] = depSubst ++ conds ++ exprs ++
+            val (conds, exprs, chooses, tree, equals, lmbds, quants) = cls.proj
+            val clauseSubst: Map[Variable, Encoded] = depSubst ++ conds ++ exprs ++ chooses ++
               lmbds.map(_.ids) ++ quants.flatMap(_.mapping) ++ equals.flatMap(_._2.map(_.symbols))
 
             val (eCalls, eApps, eMatchers, ePointers) = Template.extractCalls(e, clauseSubst)
@@ -126,6 +128,7 @@ trait TemplateGenerator { self: Templates =>
             (depSubst + (v -> mkEncoder(clauseSubst)(e)), contents merge (
               conds,
               exprs,
+              chooses,
               tree,
               clsClauses,
               clsCalls merge Map(substMap(pathVar) -> eCalls),
@@ -157,8 +160,6 @@ trait TemplateGenerator { self: Templates =>
     substMap: Map[Variable, Encoded],
     polarity: Option[Boolean] = None
   ): (Expr, TemplateClauses) = {
-    val initVar = pathVar
-
     var condVars = Map[Variable, Encoded]()
     var condTree = Map[Variable, Set[Variable]](pathVar -> Set.empty).withDefaultValue(Set.empty)
     def storeCond(pathVar: Variable, id: Variable): Unit = {
@@ -170,6 +171,9 @@ trait TemplateGenerator { self: Templates =>
 
     var exprVars = Map[Variable, Encoded]()
     @inline def storeExpr(id: Variable): Unit = exprVars += id -> encodeSymbol(id)
+
+    var chooseVars = Map[Variable, Encoded]()
+    @inline def storeChoose(id: Variable): Unit = chooseVars += id -> encodeSymbol(id)
 
     // Represents clauses of the form:
     //    id => expr && ... && expr
@@ -200,7 +204,8 @@ trait TemplateGenerator { self: Templates =>
       equalities += b -> (prev + Equality(bestRealType(e1.getType), encoder(e1), encoder(e2)))
     }
 
-    @inline def localSubst: Map[Variable, Encoded] = substMap ++ condVars ++ exprVars ++ lambdas.map(_.ids)
+    @inline def localSubst: Map[Variable, Encoded] =
+      substMap ++ condVars ++ exprVars ++ chooseVars ++ lambdas.map(_.ids)
 
     def rec(pathVar: Variable, expr: Expr, pol: Option[Boolean]): Expr = expr match {
       case a @ Assume(cond, body) =>
@@ -210,7 +215,7 @@ trait TemplateGenerator { self: Templates =>
 
       case c @ Choose(res, pred) =>
         val newExpr = res.toVariable.freshen
-        storeExpr(newExpr)
+        storeChoose(newExpr)
 
         val p = rec(pathVar, exprOps.replace(Map(res.toVariable -> newExpr), pred), Some(true))
         storeGuarded(pathVar, p)
@@ -382,6 +387,6 @@ trait TemplateGenerator { self: Templates =>
     }
 
     val p = rec(pathVar, expr, polarity)
-    (p, (condVars, exprVars, condTree, guardedExprs, equations, equalities, lambdas, quantifications))
+    (p, (condVars, exprVars, chooseVars, condTree, guardedExprs, equations, equalities, lambdas, quantifications))
   }
 }

@@ -514,7 +514,7 @@ trait DatatypeTemplates { self: Templates =>
 
       new DatatypeTemplate(TemplateContents(
         b.pathVar -> b.pathVarT, Seq(b.v -> b.idT),
-        b.conds, b.exprs, b.tree, b.clauses, b.calls,
+        b.conds, b.exprs, Map.empty, b.tree, b.clauses, b.calls,
         Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty, Map.empty), typeBlockers, b.funs)
     })
   }
@@ -601,7 +601,7 @@ trait DatatypeTemplates { self: Templates =>
 
       new CaptureTemplate(TemplateContents(
         ps, Seq(container -> containerT, ids),
-        condVars, exprVars, condTree, clauses ++ orderClauses,
+        condVars, exprVars, Map.empty, condTree, clauses ++ orderClauses,
         Map.empty, Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty, Map.empty
       ), typeBlockers, funs.map(_._3))
     })
@@ -639,7 +639,7 @@ trait DatatypeTemplates { self: Templates =>
 
       new InvariantTemplate(TemplateContents(
         b.pathVar -> b.pathVarT, Seq(b.v -> b.idT),
-        b.conds, b.exprs, b.tree, b.clauses, b.calls,
+        b.conds, b.exprs, Map.empty, b.tree, b.clauses, b.calls,
         Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty, Map.empty
       ), typeBlockers)
     })

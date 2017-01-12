@@ -14,7 +14,13 @@ trait Trees
      with Types
      with Definitions
      with Printers
-     with TreeOps {
+     with TreeOps { self =>
+
+  /** Returns a solver defined for the current instance of [[Trees]] */
+  def getSolver(p: Program { val trees: self.type }): solvers.SolverFactory { val program: p.type }
+
+  /** Returns an evaluator defined for the current instance of [[Trees]] */
+  def getEvaluator(p: Program { val trees: self.type }): evaluators.DeterministicEvaluator { val program: p.type }
 
   class Unsupported(t: Tree, msg: String)(implicit ctx: Context)
     extends Exception(s"${t.asString(PrinterOptions.fromContext(ctx))}@${t.getPos} $msg")

@@ -25,8 +25,10 @@ import _root_.smtlib.Interpreter
 
 import scala.collection.BitSet
 
-trait SMTLIBTarget extends Interruptible with ADTManagers {
+trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   val program: Program
+  lazy val trees: program.trees.type = program.trees
+  lazy val symbols: program.symbols.type = program.symbols
   import program._
   import trees._
   import symbols._
@@ -205,7 +207,7 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
       val s = id2sym(id)
       emit(DeclareFun(
         s,
-        tfd.params.map((p: ValDef) => declareSort(p.getType)),
+        tfd.params.map((p: ValDef) => declareSort(p.tpe)),
         declareSort(tfd.returnType)))
       s
     }
@@ -435,108 +437,32 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
     }
   }
 
-  protected def fromSMT(sort: Sort): Type = sorts.getA(sort) match {
+  protected case class Context(vars: Map[SSymbol, Expr], functions: Map[SSymbol, DefineFun]) extends super.AbstractContext {
+    def withVariable(sym: SSymbol, expr: Expr): Context = copy(vars = vars + (sym -> expr))
+
+    def getFunction(sym: SSymbol, ft: FunctionType): Option[Lambda] = functions.get(sym).map {
+      case DefineFun(SMTFunDef(a, args, _, body)) =>
+        val vds = (args zip ft.from).map(p => ValDef(FreshIdentifier(p._1.name.name), p._2))
+        val exBody = fromSMT(body, ft.to)(withVariables(args.map(_.name) zip vds.map(_.toVariable)))
+        Lambda(vds, exBody)
+    }
+  }
+
+  override protected def fromSMT(sort: Sort)(implicit context: Context): Type = sorts.getA(sort) match {
     case Some(tpe) => tpe
-    case None => sort match {
-      case Core.BoolSort() => BooleanType
-      case Ints.IntSort() => IntegerType
-      case Reals.RealSort() => RealType
-      case FixedSizeBitVectors.BitVectorSort(l) => BVType(l.intValue)
-      case Sort(SMTIdentifier(SSymbol("Array"), Seq()), Seq(from, to)) =>
-        MapType(fromSMT(from), fromSMT(to))
-      case other => throw FatalError(s"Unexpected sort $other")
+    case None => super.fromSMT(sort)
+  }
+
+  protected object Num {
+    def unapply(t: Term): Option[BigInt] = t match {
+      case SNumeral(n) => Some(n)
+      case FunctionApplication(f, Seq(SNumeral(n))) if f.toString == "-" => Some(-n)
+      case _ => None
     }
   }
 
   /* Translate an SMTLIB term back to a Inox Expr */
-  protected def fromSMT(t: Term, otpe: Option[Type] = None)(implicit lets: Map[SSymbol, Term], letDefs: Map[SSymbol, DefineFun]): Expr = {
-
-    object EQ {
-      def unapply(t: Term): Option[(Term, Term)] = t match {
-        case Core.Equals(e1, e2) => Some((e1, e2))
-        case FunctionApplication(f, Seq(e1, e2)) if f.toString == "=" => Some((e1, e2))
-        case _ => None
-      }
-    }
-
-    object AND {
-      def unapply(t: Term): Option[Seq[Term]] = t match {
-        case Core.And(e1, e2) => Some(Seq(e1, e2))
-        case FunctionApplication(SimpleSymbol(SSymbol("and")), args) => Some(args)
-        case _ => None
-      }
-      def apply(ts: Seq[Term]): Term = ts match {
-        case Seq() => throw new IllegalArgumentException
-        case Seq(t) => t
-        case _ => FunctionApplication(SimpleSymbol(SSymbol("and")), ts)
-      }
-    }
-
-    object Num {
-      def unapply(t: Term): Option[BigInt] = t match {
-        case SNumeral(n) => Some(n)
-        case FunctionApplication(f, Seq(SNumeral(n))) if f.toString == "-" => Some(-n)
-        case _ => None
-      }
-    }
-
-    def extractLambda(n: BigInt, ft: FunctionType): Lambda = {
-      val FunctionType(from, to) = ft
-      val count = if (n < 0) -2 * n.toInt else 2 * n.toInt + 1
-      uniquateClosure(count, (lambdas.getB(ft) match {
-        case None => simplestValue(ft)
-        case Some(dynLambda) => letDefs.get(dynLambda) match {
-          case None => simplestValue(ft)
-          case Some(DefineFun(SMTFunDef(a, SortedVar(dispatcher, dkind) +: args, rkind, body))) =>
-            val lambdaArgs = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
-            val argsMap: Map[Term, ValDef] = (args.map(sv => symbolToQualifiedId(sv.name)) zip lambdaArgs).toMap
-
-            val d = symbolToQualifiedId(dispatcher)
-            def dispatch(t: Term): Term = t match {
-              case Core.ITE(EQ(di, Num(ni)), thenn, elze) if di == d =>
-                if (ni == n) thenn else dispatch(elze)
-              case Core.ITE(AND(EQ(di, Num(ni)) +: rest), thenn, elze) if di == d =>
-                if (ni == n) Core.ITE(AND(rest), thenn, dispatch(elze)) else dispatch(elze)
-              case _ => t
-            }
-
-            def extract(t: Term): Lambda = {
-              def recCond(term: Term): Seq[Expr] = term match {
-                case AND(es) =>
-                  es.foldLeft(Seq.empty[Expr]) {
-                    case (seq, e) => seq ++ recCond(e)
-                  }
-                case EQ(e1, e2) =>
-                  argsMap.get(e1).map(l => l -> e2) orElse argsMap.get(e2).map(l => l -> e1) match {
-                    case Some((lambdaArg, term)) => Seq(Equals(lambdaArg.toVariable, fromSMT(term, lambdaArg.getType)))
-                    case _ => Seq.empty
-                  }
-                case arg =>
-                  argsMap.get(arg) match {
-                    case Some(lambdaArg) => Seq(lambdaArg.toVariable)
-                    case _ => Seq.empty
-                  }
-              }
-
-              def recCases(term: Term): Expr = term match {
-                case Core.ITE(cond, thenn, elze) =>
-                  IfExpr(andJoin(recCond(cond)), recCases(thenn), recCases(elze))
-                case AND(es) if to == BooleanType =>
-                  andJoin(recCond(term))
-                case EQ(e1, e2) if to == BooleanType =>
-                  andJoin(recCond(term))
-                case _ =>
-                 fromSMT(term, to)
-              }
-
-              val body = recCases(t)
-              Lambda(lambdaArgs, body)
-            }
-
-            extract(dispatch(body))
-        }
-      }).asInstanceOf[Lambda])
-    }
+  override protected def fromSMT(t: Term, otpe: Option[Type] = None)(implicit context: Context): Expr = {
 
     // Use as much information as there is, if there is an expected type, great, but it might not always be there
     (t, otpe) match {
@@ -546,59 +472,35 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
       case (FixedSizeBitVectors.BitVectorConstant(n, b), Some(CharType)) if b == BigInt(32) =>
         CharLiteral(n.toInt.toChar)
 
-      case (FixedSizeBitVectors.BitVectorConstant(n, size), _) =>
-        BVLiteral(n, size.intValue)
-
       case (SHexadecimal(h), Some(CharType)) =>
         CharLiteral(h.toInt.toChar)
 
-      case (SHexadecimal(hexa), _) =>
-        BVLiteral(
-          BitSet.empty ++ hexa.toBinary.reverse.zipWithIndex.collect { case (true, i) => i + 1 },
-          hexa.repr.length * 4
-        )
-
-      case (SDecimal(d), Some(RealType)) =>
-        // converting bigdecimal to a fraction
-        if (d == BigDecimal(0))
-          FractionLiteral(0, 1)
-        else {
-          d.toBigIntExact() match {
-            case Some(num) =>
-              FractionLiteral(num, 1)
-            case _ =>
-              val scale = d.scale
-              val num = BigInt(d.bigDecimal.scaleByPowerOfTen(scale).toBigInteger())
-              val denom = BigInt(new java.math.BigDecimal(1).scaleByPowerOfTen(scale).toBigInteger())
-              FractionLiteral(num, denom)
-          }
-        }
+      case (Num(i), Some(IntegerType)) =>
+        IntegerLiteral(i)
 
       case (Num(n), Some(ft: FunctionType)) =>
-        extractLambda(n, ft)
+        val count = if (n < 0) -2 * n.toInt else 2 * n.toInt + 1
+        val FirstOrderFunctionType(from, to) = ft
+        uniquateClosure(count, (lambdas.getB(ft) match {
+          case None => simplestValue(ft)
+          case Some(dynLambda) => context.getFunction(dynLambda, FunctionType(IntegerType +: from, to)) match {
+            case None => simplestValue(ft)
+            case Some(Lambda(dispatcher +: args, body)) =>
+              val dv = dispatcher.toVariable
 
-      case (SNumeral(n), Some(RealType)) =>
-        FractionLiteral(n, 1)
+              val dispatchedBody = exprOps.postMap {
+                case Equals(`dv`, IntegerLiteral(i)) => Some(BooleanLiteral(n == i))
+                case Equals(IntegerLiteral(i), `dv`) => Some(BooleanLiteral(n == i))
+                case Equals(`dv`, UMinus(IntegerLiteral(i))) => Some(BooleanLiteral(n == -i))
+                case Equals(UMinus(IntegerLiteral(i)), `dv`) => Some(BooleanLiteral(n == -i))
+                case _ => None
+              } (body)
 
-      case (FunctionApplication(SimpleSymbol(SSymbol("ite")), Seq(cond, thenn, elze)), t) =>
-        IfExpr(
-          fromSMT(cond, Some(BooleanType)),
-          fromSMT(thenn, t),
-          fromSMT(elze, t)
-        )
-
-      // Best-effort case
-      case (SNumeral(n), _) =>
-        IntegerLiteral(n)
-
-      // EK: Since we have no type information, we cannot do type-directed
-      // extraction of defs, instead, we expand them in smt-world
-      case (SMTLet(binding, bindings, body), tpe) =>
-        val defsMap: Map[SSymbol, Term] = (binding +: bindings).map {
-          case VarBinding(s, value) => (s, value)
-        }.toMap
-
-        fromSMT(body, tpe)(lets ++ defsMap, letDefs)
+              val simpBody = simplifyByConstructors(dispatchedBody)
+              assert(!(exprOps.variablesOf(simpBody) contains dispatcher.toVariable), "Dispatcher still in lambda body")
+              Lambda(args, simpBody)
+          }
+        }).asInstanceOf[Lambda])
 
       case (SimpleSymbol(s), _) if constructors.containsB(s) =>
         constructors.toA(s) match {
@@ -644,102 +546,18 @@ trait SMTLIBTarget extends Interruptible with ADTManagers {
             unsupported(t, "Woot? structural type that is non-structural")
         }
 
-      case (FunctionApplication(SimpleSymbol(s @ SSymbol(app)), args), _) =>
-        (app, args) match {
-          case (">=", List(a, b)) =>
-            GreaterEquals(fromSMT(a, IntegerType), fromSMT(b, IntegerType))
+      // @nv: useful hack for dynLambda extraction
+      case (Core.Equals(QualifiedIdentifier(SimpleIdentifier(sym), None), e), _)
+      if (context.vars contains sym) && context.vars(sym).isTyped =>
+        val v = context.vars(sym)
+        Equals(v, fromSMT(e, bestRealType(v.getType)))
 
-          case ("<=", List(a, b)) =>
-            LessEquals(fromSMT(a, IntegerType), fromSMT(b, IntegerType))
+      case (Core.Equals(e, QualifiedIdentifier(SimpleIdentifier(sym), None)), _)
+      if (context.vars contains sym) && context.vars(sym).isTyped =>
+        val v = context.vars(sym)
+        Equals(fromSMT(e, bestRealType(v.getType)), v)
 
-          case (">", List(a, b)) =>
-            GreaterThan(fromSMT(a, IntegerType), fromSMT(b, IntegerType))
-
-          case (">", List(a, b)) =>
-            LessThan(fromSMT(a, IntegerType), fromSMT(b, IntegerType))
-
-          case ("+", args) =>
-            args.map(fromSMT(_, otpe)).reduceLeft(plus)
-
-          case ("-", List(a)) if otpe == Some(RealType) =>
-            val aexpr = fromSMT(a, otpe)
-            aexpr match {
-              case FractionLiteral(na, da) =>
-                FractionLiteral(-na, da)
-              case _ =>
-                UMinus(aexpr)
-            }
-
-          case ("-", List(a)) =>
-            val aexpr = fromSMT(a, otpe)
-            aexpr match {
-              case IntegerLiteral(v) =>
-                IntegerLiteral(-v)
-              case _ =>
-                UMinus(aexpr)
-            }
-
-          case ("-", List(a, b)) =>
-            Minus(fromSMT(a, otpe), fromSMT(b, otpe))
-
-          case ("*", args) =>
-            args.map(fromSMT(_, otpe)).reduceLeft(times)
-
-          case ("/", List(a, b)) if otpe == Some(RealType) =>
-            val aexpr = fromSMT(a, otpe)
-            val bexpr = fromSMT(b, otpe)
-            (aexpr, bexpr) match {
-              case (FractionLiteral(na, da), FractionLiteral(nb, db)) if da == 1 && db == 1 =>
-                FractionLiteral(na, nb)
-              case _ =>
-                Division(aexpr, bexpr)
-            }
-
-          case ("/", List(a, b)) =>
-            Division(fromSMT(a, otpe), fromSMT(b, otpe))
-
-          case ("div", List(a, b)) =>
-            Division(fromSMT(a, otpe), fromSMT(b, otpe))
-
-          case ("not", List(a)) =>
-            Not(fromSMT(a, BooleanType))
-
-          case ("or", args) =>
-            orJoin(args.map(fromSMT(_, BooleanType)))
-
-          case ("and", args) =>
-            andJoin(args.map(fromSMT(_, BooleanType)))
-
-          case ("=", List(a, b)) =>
-            val ra = fromSMT(a, None)
-            Equals(ra, fromSMT(b, ra.getType))
-
-          case _ =>
-            ctx.reporter.fatalError("Function " + app + " not handled in fromSMT: " + s)
-        }
-
-      case (Core.True(), Some(BooleanType))  => BooleanLiteral(true)
-      case (Core.False(), Some(BooleanType)) => BooleanLiteral(false)
-
-      case (SimpleSymbol(s), otpe) if lets contains s =>
-        fromSMT(lets(s), otpe)
-
-      case (SimpleSymbol(s), otpe) =>
-        variables.getA(s).getOrElse {
-          ctx.reporter.fatalError("Could not find variable from SMT")
-        }
-
-      case _ =>
-        ctx.reporter.fatalError(s"Unhandled case in fromSMT: $t : ${otpe.map(_.asString).getOrElse("?")} (${t.getClass})")
-
+      case _ => super.fromSMT(t, otpe)
     }
-  }
-
-  final protected def fromSMT(pair: (Term, Type))(implicit lets: Map[SSymbol, Term], letDefs: Map[SSymbol, DefineFun]): Expr = {
-    fromSMT(pair._1, Some(pair._2))
-  }
-
-  final protected def fromSMT(s: Term, tpe: Type)(implicit lets: Map[SSymbol, Term], letDefs: Map[SSymbol, DefineFun]): Expr = {
-    fromSMT(s, Some(tpe))
   }
 }

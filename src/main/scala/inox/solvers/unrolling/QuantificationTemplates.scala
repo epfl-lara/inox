@@ -178,7 +178,7 @@ trait QuantificationTemplates { self: Templates =>
           (Some(q), polarity, Map.empty, extraEqs, Map(qs, q2s, insts) + (pathVar._1 -> guard))
       }
 
-      val (conds, exprs, tree, guarded, eqs, equalities, lambdas, quants) = tmplClauses
+      val (conds, exprs, chooses, tree, guarded, eqs, equalities, lambdas, quants) = tmplClauses
 
       // Note @nv: some hacky shit is going on here...
       // We are overriding the mapping of `pathVar._1` for certain polarities so that
@@ -186,7 +186,7 @@ trait QuantificationTemplates { self: Templates =>
       // works due to [[Template.encode]] injecting `pathVar` BEFORE `substMap` into the
       // global encoding substitution.
       val (contents, str) = Template.contents(pathVar, idQuantifiers zip trQuantifiers, (
-        conds, exprs, tree, extraGuarded merge guarded, extraEqs ++ eqs, equalities, lambdas, quants
+        conds, exprs, chooses, tree, extraGuarded merge guarded, extraEqs ++ eqs, equalities, lambdas, quants
       ), depSubst ++ extraSubst)
 
       (optVar, new QuantificationTemplate(polarity, contents, structure,
@@ -235,7 +235,7 @@ trait QuantificationTemplates { self: Templates =>
 
     def unroll: Clauses = {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for (e @ (gen, bs, m) <- ignoredMatchers.toSeq if gen <= currentGeneration && !abort && !pause) {
+      for (e @ (gen, bs, m) <- ignoredMatchers.toList if gen <= currentGeneration && !abort && !pause) {
         clauses ++= instantiateMatcher(bs, m, defer = true)
         ignoredMatchers -= e
       }
@@ -267,7 +267,7 @@ trait QuantificationTemplates { self: Templates =>
       if (abort || pause) return clauses.toSeq
 
       val grClauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for ((gen, qs) <- ignoredGrounds.toSeq if gen <= currentGeneration && !abort && !pause; q <- qs if !abort) {
+      for ((gen, qs) <- ignoredGrounds.toList if gen <= currentGeneration && !abort && !pause; q <- qs if !abort) {
         grClauses ++= q.ensureGrounds
         val remaining = ignoredGrounds.getOrElse(gen, Set.empty) - q
         if (remaining.nonEmpty) {
@@ -881,6 +881,8 @@ trait QuantificationTemplates { self: Templates =>
           (Map(qs._2 -> inst), Seq.empty[Encoded])
       }
     }.getOrElse {
+      ctx.reporter.debug("instantiating quantification " + template.body.asString)
+
       val newTemplate = template.concretize
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
       clauses ++= newTemplate.structure.instantiation
@@ -890,7 +892,7 @@ trait QuantificationTemplates { self: Templates =>
           val axiom = new Axiom(guard, newTemplate.contents, newTemplate.body)
           quantifications += axiom
 
-          for ((bs,m) <- handledMatchers) {
+          for ((bs,m) <- handledMatchers.toList) {
             clauses ++= axiom.instantiate(bs, m)
           }
 
@@ -928,7 +930,7 @@ trait QuantificationTemplates { self: Templates =>
 
           quantifications += quantification
 
-          for ((bs,m) <- handledMatchers) {
+          for ((bs,m) <- handledMatchers.toList) {
             clauses ++= quantification.instantiate(bs, m)
           }
 
@@ -977,13 +979,13 @@ trait QuantificationTemplates { self: Templates =>
 
     val diff = (currentGeneration - optGen.get) max 0
 
-    val currentGrounds = ignoredGrounds.toSeq
+    val currentGrounds = ignoredGrounds.toList
     ignoredGrounds.clear()
     for ((gen, qs) <- currentGrounds) {
       ignoredGrounds += (gen - diff) -> qs
     }
 
-    val currentMatchers = ignoredMatchers.toSeq
+    val currentMatchers = ignoredMatchers.toList
     ignoredMatchers.clear()
     for ((gen, bs, m) <- currentMatchers) {
       ignoredMatchers += ((gen - diff, bs, m))
@@ -1001,14 +1003,14 @@ trait QuantificationTemplates { self: Templates =>
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
     val keyClause = MutableMap.empty[MatcherKey, (Clauses, Encoded)]
 
-    val currentGrounds = ignoredGrounds.toSeq
+    val currentGrounds = ignoredGrounds.toList
     for ((gen, qs) <- currentGrounds if qs.exists(!_.hasAllGrounds)) {
       ignoredGrounds -= gen
       ignoredGrounds += currentGeneration -> qs
       clauses += falseT
     }
 
-    for ((_, bs, m) <- ignoredMatchers) {
+    for ((_, bs, m) <- ignoredMatchers.toList) {
       val key = matcherKey(m)
       val argTypes = key match {
         case tk: TypedKey =>
@@ -1023,7 +1025,7 @@ trait QuantificationTemplates { self: Templates =>
       }
 
       val (values, clause) = keyClause.getOrElse(key, {
-        val insts = handledMatchers.filter(hm => correspond(matcherKey(hm._2), key).isDefined)
+        val insts = handledMatchers.toList.filter(hm => correspond(matcherKey(hm._2), key).isDefined)
 
         val guard = Variable.fresh("guard", BooleanType, true)
         val elems = argTypes.map(tpe => Variable.fresh("elem", tpe, true))
@@ -1035,7 +1037,7 @@ trait QuantificationTemplates { self: Templates =>
         val valuesP = values.map(v => v -> encodeSymbol(v))
         val exprT = mkEncoder(elemsP.toMap ++ valuesP + guardP)(expr)
 
-        val disjuncts = insts.toSeq.map { case (bs, im) =>
+        val disjuncts = insts.map { case (bs, im) =>
           val cond = (m.key, im.key) match {
             case (Left((mcaller, _)), Left((imcaller, _))) if mcaller != imcaller =>
               Some(mkEquals(mcaller, imcaller))
@@ -1089,7 +1091,8 @@ trait QuantificationTemplates { self: Templates =>
 
   def getGroundInstantiations(e: Encoded, tpe: Type): Seq[(Encoded, Seq[Encoded])] = {
     val bestTpe = bestRealType(tpe)
-    handledMatchers.toSeq.flatMap { case (bs, m) =>
+
+    handledMatchers.toList.flatMap { case (bs, m) =>
       val enabler = encodeEnablers(bs)
       val optArgs = matcherKey(m) match {
         case tp: TypedKey if bestTpe == tp.tpe => Some(m.args.map(_.encoded))

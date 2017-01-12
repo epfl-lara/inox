@@ -116,9 +116,27 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   protected def declareVariable(v: t.Variable): Encoded
 
+  private[this] var reported = false
+
   def assertCnstr(expression: Expr): Unit = {
     constraints += expression
-    val bindings = exprOps.variablesOf(expression).map(v => v -> freeVars.cached(v) {
+
+    val fds = exprOps.collect {
+      case fi: FunctionInvocation => Set(fi.tfd.fd)
+      case _ => Set.empty[FunDef]
+    } (expression).flatMap(fd => transitiveCallees(fd) + fd)
+
+    val fdVars = fds.flatMap { fd =>
+      val vars = exprOps.variablesOf(fd.fullBody) -- fd.params.map(_.toVariable)
+      val globalDeps = vars.filter(v => (typeParamsOf(v.tpe) & fd.typeArgs.toSet).nonEmpty)
+      if (globalDeps.nonEmpty && !reported) {
+        reporter.warning("Cannot report model for global variables with dependent types")
+        reported = true
+      }
+      vars -- globalDeps
+    }
+
+    val bindings = (exprOps.variablesOf(expression) ++ fdVars).map(v => v -> freeVars.cached(v) {
       declareVariable(encode(v))
     }).toMap
 
@@ -159,7 +177,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
     val expr = andJoin(assumptions ++ constraints)
 
     // we have to check case class constructors in model for ADT invariants
-    val newExpr = model.toSeq.foldLeft(expr) { case (e, (v, value)) => let(v, value, e) }
+    val newExpr = model.toSeq.foldLeft(expr) { case (e, (v, value)) => Let(v, value, e) }
 
     evaluator.eval(newExpr) match {
       case EvaluationResults.Successful(BooleanLiteral(true)) =>
@@ -398,15 +416,17 @@ trait AbstractUnrollingSolver extends Solver { self =>
         if (arguments.isEmpty) {
           wrapped.modelEval(f, tpe).get
         } else {
-          val projection: Encoded = arguments.head.head
+          val projections: Map[Type, Encoded] = (arguments.head zip params.flatten)
+            .groupBy(p => bestRealType(p._2.tpe))
+            .mapValues(_.head._1)
 
           val flatArguments: Seq[(Seq[Encoded], Seq[Option[Expr]])] =
             (for (subset <- params.flatten.toSet.subsets; args <- arguments) yield {
-              val (concreteArgs, condOpts) = (params.flatten zip args).map { case (v, arg) =>
+              val (concreteArgs, condOpts) = params.flatten.zipWithIndex.map { case (v, i) =>
                 if (!subset(v)) {
-                  (arg, Some(Equals(v.toVariable, extractValue(arg, v.tpe))))
+                  (args(i), Some(Equals(v.toVariable, extractValue(args(i), v.tpe))))
                 } else {
-                  (projection, None)
+                  (projections(bestRealType(v.tpe)), None)
                 }
               }.unzip
 
@@ -681,10 +701,8 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     def pause: Boolean = self.pause
 
     def encodeSymbol(v: Variable): Expr = v.freshen
-    def mkEncoder(bindings: Map[Variable, Expr])(e: Expr): Expr =
-      exprOps.replaceFromSymbols(bindings, e)
-    def mkSubstituter(substMap: Map[Expr, Expr]): Expr => Expr =
-      (e: Expr) => exprOps.replace(substMap, e)
+    def mkEncoder(bindings: Map[Variable, Expr])(e: Expr): Expr = exprOps.replaceFromSymbols(bindings, e)
+    def mkSubstituter(substMap: Map[Expr, Expr]): Expr => Expr = (e: Expr) => exprOps.replace(substMap, e)
 
     def mkNot(e: Expr) = not(e)
     def mkOr(es: Expr*) = orJoin(es)
