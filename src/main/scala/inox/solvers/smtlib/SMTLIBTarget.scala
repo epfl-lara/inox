@@ -478,6 +478,20 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case (Num(i), Some(IntegerType)) =>
         IntegerLiteral(i)
 
+      case (Num(i), Some(RealType)) =>
+        exprOps.normalizeFraction(FractionLiteral(i, 1))
+
+      case (Reals.Div(SNumeral(n1), SNumeral(n2)), Some(RealType)) =>
+        exprOps.normalizeFraction(FractionLiteral(n1, n2))
+
+      case (Ints.Neg(Reals.Div(SNumeral(n1), SNumeral(n2))), Some(RealType)) =>
+        exprOps.normalizeFraction(FractionLiteral(-n1, n2))
+
+      case (Ints.Neg(SDecimal(value)), Some(RealType)) =>
+        exprOps.normalizeFraction(FractionLiteral(
+          value.bigDecimal.movePointRight(value.scale).toBigInteger.negate,
+          BigInt(10).pow(value.scale)))
+
       case (Num(n), Some(ft: FunctionType)) =>
         val count = if (n < 0) -2 * n.toInt else 2 * n.toInt + 1
         val FirstOrderFunctionType(from, to) = ft

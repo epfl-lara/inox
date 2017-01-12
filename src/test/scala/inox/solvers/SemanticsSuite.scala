@@ -179,7 +179,7 @@ class SemanticsSuite extends FunSuite {
     check(s, Not(BooleanLiteral(true)),                         BooleanLiteral(false))
   }
 
-  test("Real Arightmetic") { ctx =>
+  test("Real Arithmetic") { ctx =>
     val s = solver(ctx)
 
     check(s, Plus(FractionLiteral(2, 3), FractionLiteral(1, 3)),  FractionLiteral(1, 1))

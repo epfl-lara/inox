@@ -76,8 +76,10 @@ trait SMTLIBParser {
     case Core.ITE(cond, thenn, elze) =>
       IfExpr(fromSMT(cond, BooleanType), fromSMT(thenn, otpe), fromSMT(elze, otpe))
 
-    case SNumeral(n) =>
-      IntegerLiteral(n)
+    case SNumeral(n) => otpe match {
+      case Some(RealType) => FractionLiteral(n, 1)
+      case _ => IntegerLiteral(n)
+    }
 
     case FixedSizeBitVectors.BitVectorLit(bs) =>
       BVLiteral(BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
@@ -86,9 +88,9 @@ trait SMTLIBParser {
       BVLiteral(n, size.intValue)
 
     case SDecimal(value) =>
-      FractionLiteral(
+      exprOps.normalizeFraction(FractionLiteral(
         value.bigDecimal.movePointRight(value.scale).toBigInteger,
-        BigInt(10).pow(value.scale))
+        BigInt(10).pow(value.scale)))
 
     case SString(value) =>
       StringLiteral(value)
@@ -122,10 +124,11 @@ trait SMTLIBParser {
 
     /* Ints extractors cover the Reals operations as well */
 
-    case Ints.Neg(e) => UMinus(fromSMT(e, IntegerType))
-    case Ints.Add(e1, e2) => Plus(fromSMT(e1, IntegerType), fromSMT(e2, IntegerType))
-    case Ints.Sub(e1, e2) => Minus(fromSMT(e1, IntegerType), fromSMT(e2, IntegerType))
-    case Ints.Mul(e1, e2) => Times(fromSMT(e1, IntegerType), fromSMT(e2, IntegerType))
+    case Ints.Neg(e) => UMinus(fromSMT(e, otpe))
+    case Ints.Add(e1, e2) => Plus(fromSMT(e1, otpe), fromSMT(e2, otpe))
+    case Ints.Sub(e1, e2) => Minus(fromSMT(e1, otpe), fromSMT(e2, otpe))
+    case Ints.Mul(e1, e2) => Times(fromSMT(e1, otpe), fromSMT(e2, otpe))
+
     case Ints.Div(e1, e2) => Division(fromSMT(e1, IntegerType), fromSMT(e2, IntegerType))
     case Ints.Mod(e1, e2) => Modulo(fromSMT(e1, IntegerType), fromSMT(e2, IntegerType))
     case Ints.Abs(e) =>
@@ -136,10 +139,13 @@ trait SMTLIBParser {
         ie
       )
 
-    case Ints.LessThan(e1, e2) => LessThan(fromSMT(e1, IntegerType), fromSMT(e2, IntegerType))
-    case Ints.LessEquals(e1, e2) => LessEquals(fromSMT(e1, IntegerType), fromSMT(e2, IntegerType))
-    case Ints.GreaterThan(e1, e2) => GreaterThan(fromSMT(e1, IntegerType), fromSMT(e2, IntegerType))
-    case Ints.GreaterEquals(e1, e2) => GreaterEquals(fromSMT(e1, IntegerType), fromSMT(e2, IntegerType))
+    case Ints.LessThan(e1, e2) => fromSMTUnifyType(e1, e2, None)(LessThan)
+    case Ints.LessEquals(e1, e2) => fromSMTUnifyType(e1, e2, None)(LessEquals)
+    case Ints.GreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, None)(GreaterThan)
+    case Ints.GreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, None)(GreaterEquals)
+
+    case Reals.Div(SNumeral(n1), SNumeral(n2)) => FractionLiteral(n1, n2)
+    case Reals.Div(e1, e2) => Division(fromSMT(e1, RealType), fromSMT(e2, RealType))
 
     case FixedSizeBitVectors.Not(e) => BVNot(fromSMT(e, otpe))
     case FixedSizeBitVectors.Neg(e) => UMinus(fromSMT(e, otpe))
