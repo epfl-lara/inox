@@ -508,9 +508,7 @@ object RecursiveEvaluator {
     new {
       val program: p.type = p
       val options = opts
-    } with RecursiveEvaluator with HasDefaultGlobalContext with HasDefaultRecContext {
-      def getSolver(moreOpts: OptionValue[_]*) = solvers.SolverFactory(p, opts ++ moreOpts)
-    }
+    } with RecursiveEvaluator with HasDefaultGlobalContext with HasDefaultRecContext
   }
 
   def default(p: InoxProgram) = apply(p, p.ctx.options)

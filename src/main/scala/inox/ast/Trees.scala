@@ -17,13 +17,26 @@ trait Trees
      with TreeOps { self =>
 
   /** Returns a solver defined for the current instance of [[Trees]] */
-  def getSolver(p: Program { val trees: self.type }): solvers.SolverFactory { val program: p.type }
+  def getSolver(p: Program { val trees: self.type }, opts: Options): solvers.SolverFactory { val program: p.type }
+
+  /** Returns a solver defined for the current instance of [[Trees]] with the default options in `p` */
+  def getSolver(p: Program { val trees: self.type }): solvers.SolverFactory { val program: p.type } = {
+    getSolver(p, p.ctx.options)
+  }
+
 
   /** Returns an evaluator defined for the current instance of [[Trees]] */
-  def getEvaluator(p: Program { val trees: self.type }): evaluators.DeterministicEvaluator { val program: p.type }
+  def getEvaluator(p: Program { val trees: self.type }, opts: Options): evaluators.DeterministicEvaluator { val program: p.type }
+
+  /** Returns an evaluator defined for the current instance of [[Trees]] with the default options in `p` */
+  def getEvaluator(p: Program { val trees: self.type }): evaluators.DeterministicEvaluator { val program: p.type } = {
+    getEvaluator(p, p.ctx.options)
+  }
+
 
   class Unsupported(t: Tree, msg: String)(implicit ctx: Context)
     extends Exception(s"${t.asString(PrinterOptions.fromContext(ctx))}@${t.getPos} $msg")
+
 
   abstract class Tree extends utils.Positioned with Serializable {
     def copiedFrom(o: Trees#Tree): this.type = setPos(o)
@@ -35,6 +48,7 @@ trait Trees
     override def toString = asString(PrinterOptions.fromContext(Context.printNames))
   }
 
+
   val exprOps: ExprOps { val trees: Trees.this.type } = new {
     protected val trees: Trees.this.type = Trees.this
   } with ExprOps
@@ -42,6 +56,7 @@ trait Trees
   val dsl: DSL { val trees: Trees.this.type } = new {
     protected val trees: Trees.this.type = Trees.this
   } with DSL
+
 
   def aliased(id1: Identifier, id2: Identifier) = {
     id1.toString == id2.toString

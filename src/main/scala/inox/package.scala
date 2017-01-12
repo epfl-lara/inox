@@ -59,12 +59,15 @@ package object inox {
       adts: Map[Identifier, ADTDefinition]
     ) extends SimpleSymbols
 
-    def getSolver(p: InoxProgram): solvers.SolverFactory { val program: p.type } = {
-      solvers.SolverFactory.default(p)
+    import evaluators._
+    import solvers._
+
+    def getSolver(p: InoxProgram, opts: Options): SolverFactory { val program: p.type } = {
+      SolverFactory(p, opts)
     }
 
-    def getEvaluator(p: InoxProgram): evaluators.DeterministicEvaluator { val program: p.type } = {
-      evaluators.RecursiveEvaluator.default(p)
+    def getEvaluator(p: InoxProgram, opts: Options): DeterministicEvaluator { val program: p.type } = {
+      RecursiveEvaluator(p, opts)
     }
   }
 }

@@ -53,4 +53,25 @@ trait Program { self =>
     val symbols: self.symbols.type = self.symbols
     val ctx = nctx
   }
+
+  // @nv: the type checker is a bit stupid here...
+
+  import solvers._
+  import evaluators._
+
+  def getSolver: SolverFactory { val program: self.type } =
+    trees.getSolver(self.asInstanceOf[Program { val trees: self.trees.type }])
+      .asInstanceOf[SolverFactory { val program: self.type }]
+
+  def getSolver(opts: Options): SolverFactory { val program: self.type } =
+    trees.getSolver(self.asInstanceOf[Program { val trees: self.trees.type }], opts)
+      .asInstanceOf[SolverFactory { val program: self.type }]
+
+  def getEvaluator: DeterministicEvaluator { val program: self.type } =
+    trees.getEvaluator(self.asInstanceOf[Program { val trees: self.trees.type }])
+      .asInstanceOf[DeterministicEvaluator { val program: self.type }]
+
+  def getEvaluator(opts: Options): DeterministicEvaluator { val program: self.type } =
+    trees.getEvaluator(self.asInstanceOf[Program { val trees: self.trees.type }], opts)
+      .asInstanceOf[DeterministicEvaluator { val program: self.type }]
 }

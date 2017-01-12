@@ -80,7 +80,7 @@ object SolverFactory {
 
   def getFromName(name: String, force: Boolean = false)
                  (p: Program, opts: Options)
-                 (ev: DeterministicEvaluator with SolvingEvaluator { val program: p.type },
+                 (ev: DeterministicEvaluator { val program: p.type },
                   enc: ast.ProgramTransformer {
                     val sourceProgram: p.type
                     val targetProgram: Program { val trees: inox.trees.type }

@@ -20,20 +20,13 @@ trait SolvingEvaluator extends Evaluator {
     def default = MutableMap.empty
   }
 
-  def getSolver(opts: OptionValue[_]*): SolverFactory {
-    val program: SolvingEvaluator.this.program.type
-    type S <: TimeoutSolver { val program: SolvingEvaluator.this.program.type }
-  }
-
   private val chooseCache: MutableMap[Choose, Expr] = MutableMap.empty
   private val forallCache: MutableMap[Forall, Expr] = MutableMap.empty
 
   def onChooseInvocation(choose: Choose): Expr = chooseCache.getOrElseUpdate(choose, {
     val timer = ctx.timers.evaluators.specs.start()
 
-    val sf = getSolver(options.options.collect {
-      case o @ OptionValue(opt, _) if opt == optForallCache => o
-    } : _*)
+    val sf = program.getSolver
 
     import SolverResponses._
 
@@ -56,12 +49,12 @@ trait SolvingEvaluator extends Evaluator {
     BooleanLiteral(cache.getOrElse(forall, {
       val timer = ctx.timers.evaluators.forall.start()
 
-      val sf = getSolver(
+      val sf = program.getSolver(ctx.options ++ Seq(
         optSilentErrors(true),
         optCheckModels(false), // model is checked manually!! (see below)
         unrolling.optFeelingLucky(false),
-        optForallCache(cache)
-      )
+        optForallCache(cache) // this makes sure we have an `optForallCache` set!
+      ))
 
       import SolverResponses._
 

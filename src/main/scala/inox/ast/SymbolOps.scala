@@ -687,7 +687,7 @@ trait SymbolOps { self: TypeOps =>
           val symbols: self.symbols.type = self.symbols
           val ctx = ctx0
         }
-        val sf = getSolver(program)
+        val sf = program.getSolver
         val p = Variable.fresh("p", FunctionType(Seq(adt), BooleanType))
         val res = Variable.fresh("v", adt)
 

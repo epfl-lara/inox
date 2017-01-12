@@ -61,7 +61,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
     type Encoded = self.Encoded
   }
 
-  protected val evaluator: DeterministicEvaluator with SolvingEvaluator {
+  protected val evaluator: DeterministicEvaluator {
     val program: self.program.type
   }
 
