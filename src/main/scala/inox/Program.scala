@@ -63,4 +63,7 @@ trait Program { self =>
     val symbols: self.symbols.type = self.symbols
     val ctx = nctx
   }
+
+  def asString: String = trees.asString(symbols)
+  override def toString: String = asString
 }
