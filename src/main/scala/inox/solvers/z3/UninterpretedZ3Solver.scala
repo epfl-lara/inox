@@ -24,13 +24,17 @@ trait UninterpretedZ3Solver
 
   import SolverResponses._
 
+  protected implicit val semantics: program.Semantics
+
   val name = "Z3-u"
   val description = "Uninterpreted Z3 Solver"
 
   private object underlying extends {
     val program: self.program.type = self.program
     val options = self.options
-  } with AbstractZ3Solver
+  } with AbstractZ3Solver {
+    val semantics = self.semantics
+  }
 
   private val freeVars = new IncrementalSet[Variable]
 

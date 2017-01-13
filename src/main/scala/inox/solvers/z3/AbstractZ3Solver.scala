@@ -24,6 +24,8 @@ trait AbstractZ3Solver
 
   import SolverResponses._
 
+  protected implicit val semantics: program.Semantics
+
   val name = "AbstractZ3"
 
   ctx.interruptManager.registerForInterrupts(this)

@@ -24,6 +24,16 @@ trait Program { self =>
   implicit def implicitProgram: this.type = this
   implicit def printerOpts: trees.PrinterOptions = trees.PrinterOptions.fromSymbols(symbols, ctx)
 
+  type Semantics = inox.Semantics {
+    val trees: self.trees.type
+    val symbols: self.symbols.type
+    val program: self.type
+  }
+
+  implicit def implicitSemantics(implicit ev: self.type <:< InoxProgram): Semantics = {
+    ev(self).semantics.asInstanceOf[Semantics]
+  }
+
   def transform(t: TreeTransformer { val s: self.trees.type }): Program { val trees: t.t.type } = new Program {
     val trees: t.t.type = t.t
     val symbols = self.symbols.transform(t)
@@ -53,25 +63,4 @@ trait Program { self =>
     val symbols: self.symbols.type = self.symbols
     val ctx = nctx
   }
-
-  // @nv: the type checker is a bit stupid here...
-
-  import solvers._
-  import evaluators._
-
-  def getSolver: SolverFactory { val program: self.type } =
-    trees.getSolver(self.asInstanceOf[Program { val trees: self.trees.type }])
-      .asInstanceOf[SolverFactory { val program: self.type }]
-
-  def getSolver(opts: Options): SolverFactory { val program: self.type } =
-    trees.getSolver(self.asInstanceOf[Program { val trees: self.trees.type }], opts)
-      .asInstanceOf[SolverFactory { val program: self.type }]
-
-  def getEvaluator: DeterministicEvaluator { val program: self.type } =
-    trees.getEvaluator(self.asInstanceOf[Program { val trees: self.trees.type }])
-      .asInstanceOf[DeterministicEvaluator { val program: self.type }]
-
-  def getEvaluator(opts: Options): DeterministicEvaluator { val program: self.type } =
-    trees.getEvaluator(self.asInstanceOf[Program { val trees: self.trees.type }], opts)
-      .asInstanceOf[DeterministicEvaluator { val program: self.type }]
 }

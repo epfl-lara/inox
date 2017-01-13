@@ -41,13 +41,15 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
 
   test("size(x) > 0 is satisfiable") { implicit ctx =>
     val program = InoxProgram(ctx, symbols)
+    import program._
+    import program.symbols._
 
     val vd: ValDef = "x" :: T(listID)(IntegerType)
     val clause = sizeFd(IntegerType)(vd.toVariable) > E(BigInt(0))
 
     SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause) match {
       case SatWithModel(model) =>
-        symbols.valuateWithModel(model)(vd) match {
+        valuateWithModel(model)(vd) match {
           case ADT(ADTType(`consID`, Seq(IntegerType)), _) =>
             // success!!
           case r =>
@@ -61,6 +63,8 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
 
   test("size(x) == 0 is satisfiable") { implicit ctx =>
     val program = InoxProgram(ctx, symbols)
+    import program._
+    import program.symbols._
 
     val tp = TypeParameter.fresh("A")
     val vd: ValDef = "x" :: T(listID)(tp)
@@ -68,7 +72,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
 
     SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause) match {
       case SatWithModel(model) =>
-        symbols.valuateWithModel(model)(vd) match {
+        valuateWithModel(model)(vd) match {
           case ADT(ADTType(`nilID`, Seq(`tp`)), Seq()) =>
             // success!!
           case r =>

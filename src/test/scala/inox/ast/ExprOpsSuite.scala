@@ -9,7 +9,7 @@ class ExprOpsSuite extends FunSuite {
   import inox.trees._
   import inox.trees.exprOps._
 
-  implicit val ctx = TestContext.empty
+  implicit val ctx0 = TestContext.empty
 
   private def foldConcatNames(e: Expr, subNames: Seq[String]): String = e match {
     case Variable(id, _, _) => subNames.mkString + id.name
@@ -261,12 +261,19 @@ class ExprOpsSuite extends FunSuite {
     assert( preMap(op, true )(expr) == Plus(IntegerLiteral(42), IntegerLiteral(42)) )
     assert( postMap(op, false)(expr) == Plus(IntegerLiteral(2),  Minus(IntegerLiteral(42), IntegerLiteral(3))) )
     assert( postMap(op, true)(expr)  == Plus(IntegerLiteral(42), Minus(IntegerLiteral(42), IntegerLiteral(3))) )
-    
   }
 
   test("simplestValue") {
-    val symbols = new Symbols(Map.empty, Map.empty)
-    import symbols._
+    val syms = new Symbols(Map.empty, Map.empty)
+    object program extends Program {
+      val trees: inox.trees.type = inox.trees
+      val symbols: syms.type = syms
+      val ctx = ctx0
+    }
+
+    import program._
+    import program.trees._
+    import program.symbols._
 
     val types = Seq(BooleanType,
                     Int32Type,
@@ -274,7 +281,6 @@ class ExprOpsSuite extends FunSuite {
                     SetType(BooleanType),
                     TupleType(Seq(BooleanType, BooleanType)),
                     MapType(Int32Type, BooleanType))
-
 
     for (t <- types) {
       val v = simplestValue(t)

@@ -115,6 +115,11 @@ trait Definitions { self: Trees =>
     protected val trees: self.type = self
     protected val symbols: this.type = this
 
+    type Semantics = inox.Semantics {
+      val trees: self0.trees.type
+      val symbols: self0.symbols.type
+    }
+
     // @nv: this is a hack to reinject `this` into the set of implicits
     // in scope when using the pattern:
     // {{{

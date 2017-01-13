@@ -29,6 +29,10 @@ trait AbstractUnrollingSolver extends Solver { self =>
   import program.symbols._
   import SolverResponses._
 
+  protected implicit val semantics: program.Semantics
+
+  protected lazy val evaluator: DeterministicEvaluator { val program: self.program.type } = semantics.getEvaluator
+
   protected type Encoded
 
   protected val encoder: ast.ProgramTransformer { val sourceProgram: program.type }
@@ -43,6 +47,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
   protected lazy val s: programEncoder.sourceProgram.trees.type = programEncoder.sourceProgram.trees
   protected lazy val t: programEncoder.targetProgram.trees.type = programEncoder.targetProgram.trees
   protected lazy val targetProgram: programEncoder.targetProgram.type = programEncoder.targetProgram
+
+  protected implicit val targetSemantics: targetProgram.Semantics
 
   protected final def encode(vd: ValDef): t.ValDef = programEncoder.encode(vd)
   protected final def decode(vd: t.ValDef): ValDef = programEncoder.decode(vd)
@@ -59,10 +65,6 @@ trait AbstractUnrollingSolver extends Solver { self =>
   protected val templates: Templates {
     val program: targetProgram.type
     type Encoded = self.Encoded
-  }
-
-  protected val evaluator: DeterministicEvaluator {
-    val program: self.program.type
   }
 
   protected val underlying: AbstractSolver {
@@ -275,7 +277,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
           extractFunction(f, bestRealType(tpe).asInstanceOf[FunctionType])
         })
       } else {
-        simplestValue(tpe)
+        encode(program.symbols.simplestValue(decode(tpe)))
       }
     }
 
@@ -716,9 +718,8 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     }
   }
 
-  protected val modelEvaluator: DeterministicEvaluator {
-    val program: self.targetProgram.type
-  }
+  protected lazy val modelEvaluator: DeterministicEvaluator { val program: self.targetProgram.type } =
+    targetSemantics.getEvaluator(ctx.options + optIgnoreContracts(true))
 
   protected def declareVariable(v: t.Variable): t.Variable = v
   protected def wrapModel(model: Map[t.ValDef, t.Expr]): super.ModelWrapper = ModelWrapper(model)

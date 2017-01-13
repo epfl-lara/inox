@@ -21,7 +21,9 @@ trait PrincessSolver extends AbstractUnrollingSolver with PrincessTheories { sel
   protected object underlying extends {
     val program: targetProgram.type = targetProgram
     val options = self.options
-  } with AbstractPrincessSolver
+  } with AbstractPrincessSolver {
+    lazy val semantics = targetSemantics
+  }
 
   type Encoded = IExpression
 

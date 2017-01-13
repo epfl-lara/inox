@@ -39,6 +39,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
   protected val interpreter: Interpreter
 
+  protected implicit val semantics: program.Semantics
+
   /* Interruptible interface */
   private var aborted = false
 

@@ -29,9 +29,9 @@ trait EncodingEvaluator extends DeterministicEvaluator { self =>
 }
 
 object EncodingEvaluator {
-  def solving(p: Program)
-             (enc: ast.ProgramTransformer { val sourceProgram: p.type })
-             (ev: DeterministicEvaluator { val program: enc.targetProgram.type }) = {
+  def apply(p: Program)
+           (enc: ast.ProgramTransformer { val sourceProgram: p.type })
+           (ev: DeterministicEvaluator { val program: enc.targetProgram.type }) = {
     new {
       val program: p.type = p
     } with EncodingEvaluator {
@@ -39,5 +39,4 @@ object EncodingEvaluator {
       lazy val underlying = ev
     }
   }
-
 }

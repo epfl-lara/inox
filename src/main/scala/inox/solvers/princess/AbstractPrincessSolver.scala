@@ -29,6 +29,8 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
   import program.trees._
   import program.symbols._
 
+  protected implicit val semantics: program.Semantics
+
   val name = "Princess"
 
   ctx.interruptManager.registerForInterrupts(this)

@@ -50,6 +50,17 @@ trait ProgramTransformer { self =>
     protected val encoder = self.encoder andThen that.encoder
     protected val decoder = that.decoder andThen self.decoder
   }
+
+  def reverse: ProgramTransformer {
+    val sourceProgram: self.targetProgram.type
+    val targetProgram: self.sourceProgram.type
+  } = new ProgramTransformer {
+    val sourceProgram: self.targetProgram.type = self.targetProgram
+    val targetProgram: self.sourceProgram.type = self.sourceProgram
+
+    protected val encoder = self.decoder
+    protected val decoder = self.encoder
+  }
 }
 
 trait ProgramEncoder extends ProgramTransformer { self =>

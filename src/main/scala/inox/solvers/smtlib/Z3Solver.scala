@@ -11,7 +11,8 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
   import program.trees._
   import SolverResponses._
 
-  protected val evaluator: evaluators.DeterministicEvaluator { val program: self.program.type }
+  protected lazy val evaluator: evaluators.DeterministicEvaluator { val program: self.program.type } =
+    semantics.getEvaluator(program.ctx.options + evaluators.optIgnoreContracts(true))
 
   // XXX @nv: Sometimes Z3 doesn't return fully evaluated models so we make sure to
   //          bring them into some normal form after extraction

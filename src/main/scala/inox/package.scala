@@ -1,5 +1,7 @@
 /* Copyright 2009-2016 EPFL, Lausanne */
 
+import scala.language.implicitConversions
+
 /** Core package of the Inox solving interface
   *
   * == Structure ==
@@ -58,16 +60,33 @@ package object inox {
       functions: Map[Identifier, FunDef],
       adts: Map[Identifier, ADTDefinition]
     ) extends SimpleSymbols
+  }
 
-    import evaluators._
-    import solvers._
+  // @nv: type system is unfortunately a little weak here...
 
-    def getSolver(p: InoxProgram, opts: Options): SolverFactory { val program: p.type } = {
-      SolverFactory(p, opts)
-    }
+  trait SemanticsProvider {
+    val program: InoxProgram
+    val semantics: program.Semantics
+  }
 
-    def getEvaluator(p: InoxProgram, opts: Options): DeterministicEvaluator { val program: p.type } = {
-      RecursiveEvaluator(p, opts)
-    }
+  implicit def inoxSemantics(p: InoxProgram): SemanticsProvider { val program: p.type } = new SemanticsProvider {
+    val program: p.type = p
+    val semantics: p.Semantics = new Semantics { self =>
+      val trees: p.trees.type = p.trees
+      val symbols: p.symbols.type = p.symbols
+      val program: Program { val trees: p.trees.type; val symbols: p.symbols.type } = p.asInstanceOf[Program {
+        val trees: p.trees.type
+        val symbols: p.symbols.type
+      }]
+
+      def getSolver(opts: Options): solvers.SolverFactory {
+        val program: self.program.type
+        type S <: solvers.combinators.TimeoutSolver { val program: self.program.type }
+      } = solvers.SolverFactory(self.program, opts)
+
+      def getEvaluator(opts: Options): evaluators.DeterministicEvaluator { val program: self.program.type } = {
+        evaluators.RecursiveEvaluator(self.program, opts)
+      }
+    }.asInstanceOf[p.Semantics] // @nv: unfortunately required here...
   }
 }

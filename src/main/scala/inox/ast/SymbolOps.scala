@@ -664,7 +664,7 @@ trait SymbolOps { self: TypeOps =>
   }
 
   /** Returns simplest value of a given type */
-  def simplestValue(tpe: Type)(implicit ctx0: Context): Expr = tpe match {
+  def simplestValue(tpe: Type)(implicit sem: symbols.Semantics): Expr = tpe match {
     case StringType                 => StringLiteral("")
     case Int32Type                  => IntLiteral(0)
     case RealType               	  => FractionLiteral(0, 1)
@@ -682,19 +682,13 @@ trait SymbolOps { self: TypeOps =>
       if (!hasInstance(tadt)) scala.sys.error(adt +" does not seem to be well-founded")
 
       if (tadt.hasInvariant) {
-        object program extends Program {
-          val trees: self.trees.type = self.trees
-          val symbols: self.symbols.type = self.symbols
-          val ctx = ctx0
-        }
-        val sf = program.getSolver
         val p = Variable.fresh("p", FunctionType(Seq(adt), BooleanType))
         val res = Variable.fresh("v", adt)
 
         import solvers._
         import SolverResponses._
 
-        SimpleSolverAPI(sf).solveSAT(Application(p, Seq(res))) match {
+        SimpleSolverAPI(sem.getSolver).solveSAT(Application(p, Seq(res))) match {
           case SatWithModel(model) => model.getOrElse(res.toVal, throw FatalError("No simplest value for " + adt))
           case _ => throw FatalError("Simplest value is unsatisfiable for " + adt)
         }
@@ -852,7 +846,7 @@ trait SymbolOps { self: TypeOps =>
   }
 
   /** Returns the value for an identifier given a model. */
-  def valuateWithModel(model: Map[ValDef, Expr])(vd: ValDef)(implicit ctx: Context): Expr = {
+  def valuateWithModel(model: Map[ValDef, Expr])(vd: ValDef)(implicit sem: symbols.Semantics): Expr = {
     model.getOrElse(vd, simplestValue(vd.getType))
   }
 
@@ -860,7 +854,7 @@ trait SymbolOps { self: TypeOps =>
     *
     * Complete with simplest values in case of incomplete model.
     */
-  def valuateWithModelIn(expr: Expr, vars: Set[ValDef], model: Map[ValDef, Expr])(implicit ctx: Context): Expr = {
+  def valuateWithModelIn(expr: Expr, vars: Set[ValDef], model: Map[ValDef, Expr])(implicit sem: symbols.Semantics): Expr = {
     val valuator = valuateWithModel(model) _
     replace(vars.map(vd => vd.toVariable -> valuator(vd)).toMap, expr)
   }
