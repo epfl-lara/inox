@@ -482,7 +482,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
     sealed abstract class CheckState
     class CheckResult(val response: config.Response[Model, Assumptions]) extends CheckState
-    case class Validate(model: Map[ValDef, Expr]) extends CheckState
+    case class Validate(model: underlying.Model) extends CheckState
     case object ModelCheck extends CheckState
     case object FiniteRangeCheck extends CheckState
     case object InstantiateQuantifiers extends CheckState
@@ -510,8 +510,9 @@ trait AbstractUnrollingSolver extends Solver { self =>
         case ModelCheck =>
           reporter.debug(" - Running search...")
 
+          val getModel = !templates.requiresFiniteRangeCheck || checkModels || templates.hasQuantifiers
           val checkConfig = config
-            .min(Configuration(model = !templates.requiresFiniteRangeCheck, unsatAssumptions = true))
+            .min(Configuration(model = getModel, unsatAssumptions = true))
             .max(Configuration(model = false, unsatAssumptions = unrollAssumptions && templates.canUnroll))
 
           val timer = ctx.timers.solvers.check.start()
@@ -527,14 +528,14 @@ trait AbstractUnrollingSolver extends Solver { self =>
             case Abort() =>
               CheckResult.cast(Unknown)
 
-            case Sat if templates.requiresFiniteRangeCheck =>
+            case _: Satisfiable if templates.requiresFiniteRangeCheck =>
               FiniteRangeCheck
 
             case Sat =>
               CheckResult.cast(Sat)
 
             case SatWithModel(model) =>
-              Validate(extractTotalModel(model))
+              Validate(model)
 
             case _: Unsatisfiable if !templates.canUnroll =>
               CheckResult.cast(res)
@@ -571,26 +572,59 @@ trait AbstractUnrollingSolver extends Solver { self =>
               CheckResult.cast(Sat)
 
             case SatWithModel(model) =>
-              Validate(extractTotalModel(model))
+              Validate(model)
 
             case _ =>
               InstantiateQuantifiers
           }
 
-        case Validate(model) =>
-          val valid: Boolean = !checkModels ||
-            validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
+        case Validate(umodel) =>
+          val model = extractTotalModel(umodel)
 
-          if (valid) {
+          lazy val modelString: String = if (model.isEmpty) {
+            "  (Empty model)"
+          } else {
+            val max = model.keys.map(_.asString.length).max
+            (for ((vd, res) <- model) yield {
+              "  %-" + max + "s -> %s".format(vd.asString, res.asString)
+            }).mkString("\n")
+          }
+
+          lazy val satResult = config cast (if (config.withModel) SatWithModel(model) else Sat)
+
+          val valid = !checkModels || validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
+
+          if (checkModels && valid) {
             CheckResult(config cast SatWithModel(model))
           } else if (abort || pause) {
-            CheckResult.cast(Unknown)
+            CheckResult cast Unknown
+          } else if (checkModels && !valid) {
+            reporter.error("Something went wrong. The model should have been valid, yet we got this:")
+            reporter.error(modelString)
+            reporter.error("for formula " + andJoin(assumptionsSeq ++ constraints).asString)
+            CheckResult cast Unknown
+          } else if (templates.hasQuantifiers) {
+            val wrapped = wrapModel(umodel)
+            val optError = templates.getQuantifications.view.flatMap { q =>
+              if (wrapped.modelEval(q.holds, t.BooleanType) != Some(t.BooleanLiteral(false))) {
+                q.checkForall.map(err => q.body -> err)
+              } else {
+                None
+              }
+            }.headOption
+
+            optError match {
+              case Some((expr, err)) =>
+                reporter.error("Quantification " + expr.asString(templates.program.printerOpts) +
+                  " does not fit in supported fragment.\n  Reason: " + err)
+                reporter.error("Model obtained was:")
+                reporter.error(modelString)
+                CheckResult cast Unknown
+              case None =>
+                CheckResult(satResult)
+            }
           } else {
-            reporter.error(
-              "Something went wrong. The model should have been valid, yet we got this: " +
-              model.toString +
-              " for formula " + andJoin(assumptionsSeq ++ constraints).asString)
-            CheckResult.cast(Unknown)
+            CheckResult(satResult)
           }
 
         case InstantiateQuantifiers =>

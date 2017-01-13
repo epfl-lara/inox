@@ -335,6 +335,8 @@ trait QuantificationTemplates { self: Templates =>
 
   def hasQuantifiers: Boolean = quantifications.nonEmpty
 
+  def getQuantifications: Seq[Quantification] = quantifications.toSeq
+
   def getInstantiationsWithBlockers = quantifications.toSeq.flatMap {
     case q: GeneralQuantification => q.instantiations.toSeq
     case _ => Seq.empty
