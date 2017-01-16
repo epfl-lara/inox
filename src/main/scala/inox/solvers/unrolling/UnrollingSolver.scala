@@ -132,7 +132,10 @@ trait AbstractUnrollingSolver extends Solver { self =>
       val vars = exprOps.variablesOf(fd.fullBody) -- fd.params.map(_.toVariable)
       val globalDeps = vars.filter(v => (typeParamsOf(v.tpe) & fd.typeArgs.toSet).nonEmpty)
       if (globalDeps.nonEmpty && !reported) {
-        reporter.warning("Cannot report model for global variables with dependent types")
+        val depString = globalDeps.take(2).map(_.asString).mkString(",") + (if (globalDeps.size > 2) "..." else "")
+        reporter.warning("Cannot report model for global parametrically typed " +
+          (if (globalDeps.size > 1) "variables" else "variable") + " " +
+          globalDeps.take(2).map(_.asString).mkString(",") + (if (globalDeps.size > 2) "..." else ""))
         reported = true
       }
       vars -- globalDeps
