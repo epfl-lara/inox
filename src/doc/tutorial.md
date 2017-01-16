@@ -3,7 +3,7 @@ Tutorial
 
 Let us consider the problem of checking whether the following size function on a list is always greater or equal to 0.
 ```scala
-def size[T](list: List[T]): BigInt = list match {
+def size[A](list: List[A]): BigInt = list match {
   case Cons(x, xs) => 1 + size(xs)
   case Nil() => 0
 }
@@ -30,19 +30,21 @@ The dsl we just imported provides us with the following helper methods to define
 the [Definitions](/src/doc/API.md#definitions) section in the API documentation for more details):
 
 1. For ADT sort definitions
-```scala
-def mkSort(id: Identifier)
-          (tpNames: String*)
-          (cons: Seq[Identifier]): ADTSort
-```
+
+    ```scala
+    def mkSort(id: Identifier)
+              (tpNames: String*)
+              (cons: Seq[Identifier]): ADTSort
+    ```
 
 2. For ADT constructor definitions
-```scala
-def mkConstructor(id: Identifier)
-                 (tpNames: String*)
-                 (sort: Option[Identifier])
-                 (fieldBuilder: Seq[TypeParameter] => Seq[ValDef]): ADTConstructor
-```
+
+    ```scala
+    def mkConstructor(id: Identifier)
+                     (tpNames: String*)
+                     (sort: Option[Identifier])
+                     (fieldBuilder: Seq[TypeParameter] => Seq[ValDef]): ADTConstructor
+    ```
 
 We therefore start by setting up the identifiers for the `List` sort
 ```scala
@@ -58,17 +60,17 @@ val tail: Identifier = FreshIdentifier("tail")
 
 Based on these, we can construct the relevant ADT sort and constructors
 ```scala
-val listSort = mkSort(list)("T")(Seq(cons, nil))
-val consConstructor = mkConstructor(cons)("T")(Some(list)) {
-  case Seq(tp) => /* `tp` is the type parameter required by the "T" argument to `mkConstructor`. */
+val listSort = mkSort(list)("A")(Seq(cons, nil))
+val consConstructor = mkConstructor(cons)("A")(Some(list)) {
+  case Seq(tp) => /* `tp` is the type parameter required by the "A" argument to `mkConstructor`. */
     /* We use the previously defined `head` and `tail` identifiers for the fields' symbols.
      * The type `T(list)(tp)` is a shorthand for `ADTType(list, Seq(tp))`. */
     Seq(ValDef(head, tp), ValDef(tail, T(list)(tp)))
 }
-val nilConstructor = mkConstructor(nil)("T")(Some(list))(tps => Seq.empty)
+val nilConstructor = mkConstructor(nil)("A")(Some(list))(tps => Seq.empty)
 ```
 Note that we have defined a list *sort* with identifier `list` that has two constructors with identifiers
-`cons` and `nil`. All three definitions are parametric in a type "T" (Inox imposes the restriction that
+`cons` and `nil`. All three definitions are parametric in a type "A" (Inox imposes the restriction that
 sorts and their constructors must have the same number of type parameters).
 
 ### Function Definition
@@ -130,7 +132,7 @@ def mkFunDef(id: Identifier)
 ```
 and we can then construct the function definition as
 ```scala
-val sizeFunction = mkFunDef(size)("T") { case Seq(tp) => (
+val sizeFunction = mkFunDef(size)("A") { case Seq(tp) => (
   /* We now define the argument list of the size function.
    * Note that `"ls" :: T(list)(tp)` is a shorthand for the definition
    * `ValDef(FreshIdentifier("ls"), ADTType(list, Seq(tp)))`. */
@@ -164,9 +166,9 @@ We make the symbols value implicit as many methods in Inox require an implicit `
 ## Verifying Properties
 
 Now that we have set up the relevant definitions, we want to move on to some actual verification.
-The property we want to verify is that forall `ls: List[T]`, we have `size(ls) >= 0`. As Inox
+The property we want to verify is that forall `ls: List[A]`, we have `size(ls) >= 0`. As Inox
 primarily focuses on satisfiability checks, we will show instead that there exists no
-`ls: List[T]` such that `size(ls) < 0`.
+`ls: List[A]` such that `size(ls) < 0`.
 
 __Note__: It is __not__ sound to simply check that the expression `E(size)(tp)(ls) < 0` is not
 satisfiable! Indeed, would simply assume this to be true given the `Assume` statement in the body of
@@ -180,7 +182,7 @@ Sound assume/guarantee reasonning can be implemented by checking that the body o
 the `Assume` statement) satisfies the condition we are trying to prove. (Note that termination of
 `size` is also a requirement here.) The property we are interested in is therefore
 ```scala
-val tp: TypeParameter = TypeParameter.fresh("T")
+val tp: TypeParameter = TypeParameter.fresh("A")
 val ls: Variable = Variable.fresh("ls", T(list)(tp))
 val prop = if_ (ls.isInstOf(T(list)(tp))) {
   E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(list)(tp)).getField(tail))
