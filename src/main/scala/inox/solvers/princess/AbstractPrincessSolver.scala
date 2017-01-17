@@ -38,7 +38,10 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
   type Trees = IExpression
   type Model = SimpleAPI.PartialModel
 
-  protected val p = SimpleAPI.spawnWithAssertions
+  private val enableAssertions = false
+
+  ap.util.Debug enableAllAssertions enableAssertions
+  protected val p = SimpleAPI(enableAssert = enableAssertions)
 
   // Internal maps storing created Constant, Variables, ADT and Function symbols
   protected val variables = new IncrementalBijection[Variable, IExpression]
