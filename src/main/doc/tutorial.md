@@ -28,7 +28,7 @@ required definitions.
 ### ADT Definitions
 
 The dsl we just imported provides us with the following helper methods to define ADTs (see
-the [Definitions](/src/doc/API.md#definitions) section in the API documentation for more details):
+the [Definitions](/doc/API.md#definitions) section in the API documentation for more details):
 
 1. For ADT sort definitions
 
@@ -125,7 +125,7 @@ let("res" :: IntegerType, if_ (ls.isInstOf(T(cons)(tp))) {
 ```
 
 Inox provides the following helper method to define functions (see
-the [Definitions](/src/doc/API.md#definitions) section in the API documentation for more details):
+the [Definitions](/doc/API.md#definitions) section in the API documentation for more details):
 ```scala
 def mkFunDef(id: Identifier)
             (tpNames: String*)
@@ -196,7 +196,7 @@ val prop = (if_ (ls.isInstOf(T(cons)(tp))) {
 __Note__: Inox will assume the inductive invariant on the recursive call to `size(xs)`.
 
 In order to verify the property, we get an instance of an Inox solver (see
-[Programs](/src/doc/API.md#programs) and [Solvers](/src/doc/API.md#solvers) for more details):
+[Programs](/doc/API.md#programs) and [Solvers](/doc/API.md#solvers) for more details):
 ```tut:silent
 val program = InoxProgram(Context.empty, symbols)
 val solver = solvers.SolverFactory.default(program).getNewSolver
