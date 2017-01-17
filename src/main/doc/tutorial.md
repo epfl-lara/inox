@@ -13,7 +13,7 @@ Note that verifying this property requires the use of induction, something Inox 
 However, Inox provides all the tools necessary to enable inductive reasonning, as we will see shortly.
 
 Let us start by setting up some useful imports:
-```scala
+```tut:silent
 import inox._
 import inox.trees._
 import inox.trees.dsl._
@@ -48,19 +48,19 @@ the [Definitions](/src/doc/API.md#definitions) section in the API documentation 
     ```
 
 We therefore start by setting up the identifiers for the `List` sort
-```scala
+```tut:silent
 val list: Identifier = FreshIdentifier("List")
 val cons: Identifier = FreshIdentifier("Cons")
 val nil: Identifier = FreshIdentifier("Nil")
 ```
 It is also useful to create identifiers for the fields of ADTs, as we will see shortly
-```scala
+```tut:silent
 val head: Identifier = FreshIdentifier("head")
 val tail: Identifier = FreshIdentifier("tail")
 ```
 
 Based on these, we can construct the relevant ADT sort and constructors
-```scala
+```tut:silent
 val listSort = mkSort(list)("A")(Seq(cons, nil))
 val consConstructor = mkConstructor(cons)("A")(Some(list)) {
   case Seq(tp) => /* `tp` is the type parameter required by the "A" argument to `mkConstructor`. */
@@ -77,7 +77,7 @@ sorts and their constructors must have the same number of type parameters).
 ### Function Definition
 
 Let us now consider the function `size`. We start by defining the symbol corresponding to the function's definition.
-```scala
+```tut:silent
 val size: Identifier = FreshIdentifier("size")
 ```
 
@@ -132,7 +132,7 @@ def mkFunDef(id: Identifier)
             (builder: Seq[TypeParameter] => (Seq[ValDef], Type, Seq[Variable] => Expr)): FunDef
 ```
 and we can then construct the function definition as
-```scala
+```tut:silent
 val sizeFunction = mkFunDef(size)("A") { case Seq(tp) => (
   /* We now define the argument list of the size function.
    * Note that `"ls" :: T(list)(tp)` is a shorthand for the definition
@@ -156,10 +156,12 @@ val sizeFunction = mkFunDef(size)("A") { case Seq(tp) => (
 ### Symbols
 
 A symbol table in Inox is an instance of `Symbols`. The easiest way to construct one is to use
-```scala
-implicit val symbols = NoSymbols
-  .withFunctions(Seq(sizeFunction))
-  .withADTs(Seq(listSort, consConstructor, nilConstructor))
+```tut:silent
+implicit val symbols = {
+  NoSymbols
+    .withFunctions(Seq(sizeFunction))
+    .withADTs(Seq(listSort, consConstructor, nilConstructor))
+}
 ```
 We make the symbols value implicit as many methods in Inox require an implicit `Symbols` argument
 (such as `getType`, `getFunction`, `getADT`, etc.).
@@ -182,7 +184,7 @@ It is the burden of the user to construct a sound verification procedure with th
 Sound assume/guarantee reasonning can be implemented by checking that the body of `size` (without
 the `Assume` statement) satisfies the condition we are trying to prove. (Note that termination of
 `size` is also a requirement here.) The property we are interested in is therefore
-```scala
+```tut:silent
 val tp: TypeParameter = TypeParameter.fresh("A")
 val ls: Variable = Variable.fresh("ls", T(list)(tp))
 val prop = (if_ (ls.isInstOf(T(cons)(tp))) {
@@ -193,12 +195,12 @@ val prop = (if_ (ls.isInstOf(T(cons)(tp))) {
 ```
 __Note__: Inox will assume the inductive invariant on the recursive call to `size(xs)`.
 
-In order to verify the property, we get an instance of an Inox solver (see 
+In order to verify the property, we get an instance of an Inox solver (see
 [Programs](/src/doc/API.md#programs) and [Solvers](/src/doc/API.md#solvers) for more details):
-```scala
+```tut:silent
 val program = InoxProgram(Context.empty, symbols)
 val solver = solvers.SolverFactory.default(program).getNewSolver
 solver.assertCnstr(Not(prop))
-solver.check(SolverResponses.Simple) /* Should return `Unsat` */
+solver.check(SolverResponses.Simple) // Should return `Unsat`
 ```
 Et voila, all done!
