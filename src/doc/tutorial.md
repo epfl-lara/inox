@@ -185,11 +185,11 @@ the `Assume` statement) satisfies the condition we are trying to prove. (Note th
 ```scala
 val tp: TypeParameter = TypeParameter.fresh("A")
 val ls: Variable = Variable.fresh("ls", T(list)(tp))
-val prop = if_ (ls.isInstOf(T(cons)(tp))) {
+val prop = (if_ (ls.isInstOf(T(cons)(tp))) {
   E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(cons)(tp)).getField(tail))
 } else_ {
   E(BigInt(0))
-}
+}) >= E(BigInt(0))
 ```
 __Note__: Inox will assume the inductive invariant on the recursive call to `size(xs)`.
 
