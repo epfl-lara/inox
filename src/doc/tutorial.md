@@ -17,6 +17,7 @@ Let us start by setting up some useful imports:
 import inox._
 import inox.trees._
 import inox.trees.dsl._
+import inox.solvers._
 ```
 
 ## Creating the Symbol Table
@@ -119,7 +120,7 @@ let("res" :: IntegerType, if_ (ls.isInstOf(T(list)(tp))) {
   E(BigInt(0))
 }) { res =>
   /* We assume the inductive hypothesis, namely the result of `size` is greater or equal to 0. */
-  Assume(res >= 0, res))
+  Assume(res >= E(BigInt(0)), res)
 }
 ```
 
@@ -147,7 +148,7 @@ val sizeFunction = mkFunDef(size)("A") { case Seq(tp) => (
       E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(list)(tp)).getField(tail))
     } else_ {
       E(BigInt(0))
-    }) (res => Assume(res >= 0, res)))
+    }) (res => Assume(res >= E(BigInt(0)), res))
   })
 }
 ```
@@ -196,7 +197,7 @@ In order to verify the property, we get an instance of an Inox solver (see
 [Programs](/src/doc/API.md#programs) and [Solvers](/src/doc/API.md#solvers) for more details):
 ```scala
 val program = InoxProgram(Context.empty, symbols)
-val solver = solvers.SolverFactory.default(program)
+val solver = solvers.SolverFactory.default(program).getNewSolver
 solver.assertCnstr(Not(prop))
 solver.check(SolverResponses.Simple) /* Should return `Unsat` */
 ```
