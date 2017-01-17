@@ -90,7 +90,7 @@ We start by defining the conditional. Inox has no concept of pattern matching
 the pattern matching in our `size` definition to an __if__-expression. We can thus write the conditional in
 Inox as
 ```scala
-if_ (ls.isInstOf(T(list)(tp))) {
+if_ (ls.isInstOf(T(cons)(tp))) {
   ... /* `1 + size(ls.tail)` */
 } else_ {
   ... /* 0 */
@@ -99,12 +99,12 @@ if_ (ls.isInstOf(T(list)(tp))) {
 We then complete the *then* and *else* expressions of the conditional as follows
 ```scala
 /* The `E(BigInt(i))` calls correspond to `IntegerLiteral(i)` ASTs. */
-if_ (ls.isInstOf(T(list)(tp))) {
+if_ (ls.isInstOf(T(cons)(tp))) {
   /* The recursive call to `size` written `E(size)(tp)(...)` corresponds to
    * the AST `FunctionInvocation(size, Seq(tp), Seq(...))`.
    * Note that we refer to the symbol `tail` of the `consConstructor`'s second
    * field when building the selector AST. */
-  E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(list)(tp)).getField(tail))
+  E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(cons)(tp)).getField(tail))
 } else_ {
   E(BigInt(0))
 }
@@ -114,8 +114,8 @@ still lacking the inductive invariant. In Inox, one can use the `Assume` AST to 
 leading to the full `size` body:
 ```scala
 /* We use a `let` binding here to avoid dupplication. */
-let("res" :: IntegerType, if_ (ls.isInstOf(T(list)(tp))) {
-  E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(list)(tp)).getField(tail))
+let("res" :: IntegerType, if_ (ls.isInstOf(T(cons)(tp))) {
+  E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(cons)(tp)).getField(tail))
 } else_ {
   E(BigInt(0))
 }) { res =>
@@ -144,8 +144,8 @@ val sizeFunction = mkFunDef(size)("A") { case Seq(tp) => (
    * The function we pass in here will receive instances of `Variable` corresponding
    * to the `ValDef` parameters specified above. */
   { case Seq(ls) =>
-    let("res" :: IntegerType, if_ (ls.isInstOf(T(list)(tp))) {
-      E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(list)(tp)).getField(tail))
+    let("res" :: IntegerType, if_ (ls.isInstOf(T(cons)(tp))) {
+      E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(cons)(tp)).getField(tail))
     } else_ {
       E(BigInt(0))
     }) (res => Assume(res >= E(BigInt(0)), res))
@@ -185,8 +185,8 @@ the `Assume` statement) satisfies the condition we are trying to prove. (Note th
 ```scala
 val tp: TypeParameter = TypeParameter.fresh("A")
 val ls: Variable = Variable.fresh("ls", T(list)(tp))
-val prop = if_ (ls.isInstOf(T(list)(tp))) {
-  E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(list)(tp)).getField(tail))
+val prop = if_ (ls.isInstOf(T(cons)(tp))) {
+  E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(cons)(tp)).getField(tail))
 } else_ {
   E(BigInt(0))
 }
