@@ -42,7 +42,79 @@ trait AbstractUnrollingSolver extends Solver { self =>
     val targetProgram: Program { val trees: self.encoder.targetProgram.trees.type }
   }
 
-  protected lazy val programEncoder = encoder andThen theories
+  protected lazy val encoderAndTheories = encoder andThen theories
+
+  protected object chooseEncoder extends ast.ProgramTransformer {
+    val sourceProgram: encoderAndTheories.targetProgram.type = encoderAndTheories.targetProgram
+    import sourceProgram.trees._
+
+    val (newFunctions: Seq[FunDef], chooseToFunction: Map[ValDef, FunDef]) = {
+      val chooses = sourceProgram.symbols.functions.values.toSeq.map { fd =>
+        def rec(e: Expr, args: Seq[ValDef]): (Expr, Map[ValDef, FunDef]) = e match {
+          case l: Lambda =>
+            val free = exprOps.variablesOf(l)
+            rec(l.body, args.filter(vd => free(vd.toVariable)) ++ l.args)
+
+          case c: Choose =>
+            val newRes = c.res.freshen
+            val (newPred, map) = rec(c.pred, args)
+            val freshArgs = args.map(_.freshen)
+
+            val substPred = exprOps.replaceFromSymbols(
+              (args zip freshArgs.map(_.toVariable)).toMap + (c.res -> newRes.toVariable),
+              newPred)
+
+            val newFd = new FunDef(
+              FreshIdentifier("choose"), fd.tparams, freshArgs,
+              c.res.tpe, Choose(newRes, substPred).copiedFrom(c), Set.empty)
+
+            (FunctionInvocation(newFd.id, newFd.tparams.map(_.tp), args.map(_.toVariable)), Map(c.res -> newFd) ++ map)
+
+          case Operator(es, recons) =>
+            val (nes, maps) = es.map(rec(_, args)).unzip
+            (recons(nes), maps.flatten.toMap)
+        }
+
+        val free = exprOps.variablesOf(fd.fullBody)
+        val withChooses = exprOps.postMap {
+          case v: Variable if free(v) => Some(Choose(v.toVal, BooleanLiteral(true).copiedFrom(v)).copiedFrom(v))
+          case _ => None
+        } (fd.fullBody)
+
+        val (newBody, map) = withChooses match {
+          case c: Choose =>
+            val (newPred, map) = rec(c.pred, fd.params)
+            (c.copy(pred = newPred), map)
+          case body =>
+            rec(body, fd.params)
+        }
+
+        (fd.copy(fullBody = newBody), map)
+      }
+
+      val allFunctions = chooses.map(_._1) ++ chooses.flatMap(_._2.values)
+      val mapping = chooses.flatMap(_._2).toMap
+      (allFunctions, mapping)
+    }
+
+    val targetProgram: Program { val trees: encoderAndTheories.targetProgram.trees.type } = new Program {
+      val trees: encoderAndTheories.targetProgram.trees.type = encoderAndTheories.targetProgram.trees
+      val symbols = sourceProgram.symbols.withFunctions(newFunctions)
+      val ctx = sourceProgram.ctx
+    }
+
+    protected object encoder extends ast.TreeTransformer {
+      val s: sourceProgram.trees.type = sourceProgram.trees
+      val t: sourceProgram.trees.type = sourceProgram.trees
+    }
+
+    protected object decoder extends ast.TreeTransformer {
+      val s: sourceProgram.trees.type = sourceProgram.trees
+      val t: sourceProgram.trees.type = sourceProgram.trees
+    }
+  }
+
+  protected lazy val programEncoder = encoderAndTheories andThen chooseEncoder
 
   protected lazy val s: programEncoder.sourceProgram.trees.type = programEncoder.sourceProgram.trees
   protected lazy val t: programEncoder.targetProgram.trees.type = programEncoder.targetProgram.trees
