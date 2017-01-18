@@ -7,7 +7,7 @@ Trees
 Extendability is core to the design of the Inox AST (Abstract Syntax Tree).
 The [Trees](/src/main/scala/inox/ast/Trees.scala) trait can be extended with
 new constructs and provide useful override points to enable extensions with
-new features. See [Stainless](https://githum.com/epfl-lara/stainless) for some
+new features. See [Stainless](https://github.com/epfl-lara/stainless) for some
 concrete examples.
 
 ### Identifiers
