@@ -63,7 +63,11 @@ trait Model { self =>
     }).mkString("\n")
 
     if (modelString.isEmpty && functionString.isEmpty) {
-      "(Empty model)"
+      if (chooses.isEmpty) {
+        "(Empty model)"
+      } else {
+        "(Model with chooses)"
+      }
     } else {
       modelString +
       (if (modelString.nonEmpty && functionString.nonEmpty) "\n\n" else "") +
