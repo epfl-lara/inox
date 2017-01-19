@@ -37,11 +37,13 @@ trait Model { self =>
     val chooses = self.chooses.map { case ((id, tps), e) => (id, tps.map(t.encode(_))) -> t.encode(e) }
   }
 
-  def asString: String = if (isEmpty) "(Empty model)" else {
-    val max = vars.keys.map(_.asString.length).max
-    val modelString = (for ((vd, e) <- vars) yield {
-      "%-" + max + "s -> %s".format(vd.asString, e.asString)
-    }).mkString("\n")
+  def asString: String = {
+    val modelString: String = if (vars.isEmpty) "" else {
+      val max = vars.keys.map(_.asString.length).max
+      (for ((vd, e) <- vars) yield {
+        ("%-" + max + "s -> %s").format(vd.asString, e.asString)
+      }).mkString("\n")
+    }
 
     val chooseFds = symbols.functions.values.flatMap(fd => fd.fullBody match {
       case Choose(res, _) =>
@@ -60,9 +62,13 @@ trait Model { self =>
       " -> " + e.asString
     }).mkString("\n")
 
-    modelString +
-    (if (modelString.nonEmpty && functionString.nonEmpty) "\n\n" else "") +
-    functionString
+    if (modelString.isEmpty && functionString.isEmpty) {
+      "(Empty model)"
+    } else {
+      modelString +
+      (if (modelString.nonEmpty && functionString.nonEmpty) "\n\n" else "") +
+      functionString
+    }
   }
 
   override def toString: String = asString

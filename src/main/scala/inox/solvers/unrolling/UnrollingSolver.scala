@@ -44,24 +44,23 @@ trait AbstractUnrollingSolver extends Solver { self =>
     val (newFunctions: Seq[FunDef], scopes: Map[ValDef, Seq[ValDef]]) = {
       var fdChooses: Set[(ValDef, FunDef, Seq[ValDef])] = Set.empty
 
-      val newFds = sourceProgram.symbols.functions.values.toSeq.map { fd =>
+      val newFds = sourceProgram.symbols.functions.values.toList.map { fd =>
         def rec(e: Expr, args: Seq[ValDef]): Expr = e match {
           case l: Lambda =>
             val free = exprOps.variablesOf(l)
             l.copy(body = rec(l.body, args.filter(vd => free(vd.toVariable)) ++ l.args)).copiedFrom(l)
 
           case c: Choose =>
-            val newRes = c.res.freshen
             val newPred = rec(c.pred, args)
             val freshArgs = args.map(_.freshen)
 
             val substPred = exprOps.replaceFromSymbols(
-              (args zip freshArgs.map(_.toVariable)).toMap + (c.res -> newRes.toVariable),
+              (args zip freshArgs.map(_.toVariable)).toMap,
               newPred)
 
             val newFd = new FunDef(
-              FreshIdentifier("choose"), fd.tparams, freshArgs,
-              c.res.tpe, Choose(newRes, substPred).copiedFrom(c), Set.empty)
+              FreshIdentifier("choose", true), fd.tparams, freshArgs,
+              c.res.tpe, Choose(c.res, substPred).copiedFrom(c), Set.empty)
             fdChooses += ((c.res, newFd, args))
 
             FunctionInvocation(newFd.id, newFd.tparams.map(_.tp), args.map(_.toVariable)).copiedFrom(c)
@@ -76,7 +75,12 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }
 
       val allFunctions = newFds ++ fdChooses.map(_._2)
-      (allFunctions, fdChooses.map(p => p._1 -> p._3).toMap)
+      val allScopes = fdChooses.map(p => p._1 -> p._3).toMap ++ newFds.flatMap(fd => fd.fullBody match {
+        case c: Choose => Some(c.res -> fd.params)
+        case _ => None
+      })
+
+      (allFunctions, allScopes)
     }
 
     val targetProgram: Program { val trees: self.encoder.targetProgram.trees.type } = new Program {
@@ -145,12 +149,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   private val constraints = new IncrementalSeq[Expr]()
   private val freeVars    = new IncrementalMap[Variable, Encoded]()
+  private val freeChooses = new IncrementalMap[Choose, Encoded]()
 
   private lazy val chooses: Map[ValDef, Choose] = {
     program.symbols.functions.values.flatMap { fd =>
-      val vs = exprOps.variablesOf(fd.fullBody)
-      val cs = exprOps.collect { case c: Choose => Set(c) case _ => Set.empty[Choose] } (fd.fullBody)
-      vs.map(v => v.toVal -> Choose(v.toVal, BooleanLiteral(true).copiedFrom(v)).copiedFrom(v)) ++ cs.map(c => c.res -> c)
+      exprOps.collect { case c: Choose => Set(c) case _ => Set.empty[Choose] } (fd.fullBody).map(c => c.res -> c)
     }.toMap
   }
 
@@ -192,11 +195,25 @@ trait AbstractUnrollingSolver extends Solver { self =>
   def assertCnstr(expression: Expr): Unit = {
     constraints += expression
 
-    val bindings = exprOps.variablesOf(expression).map(v => v -> freeVars.cached(v) {
-      declareVariable(encode(v))
-    }).toMap
+    val freeBindings: Map[Variable, Encoded] =
+      (exprOps.variablesOf(expression) -- chooses.keys.map(_.toVariable)).map {
+        v => v -> freeVars.cached(v)(declareVariable(encode(v)))
+      }.toMap
 
-    val newClauses = templates.instantiateExpr(encode(expression), bindings.map(p => encode(p._1) -> p._2))
+    var chooseBindings: Map[Variable, Encoded] = Map.empty
+    val withoutChooses = exprOps.postMap {
+      case c: Choose =>
+        val v = c.res.toVariable
+        chooseBindings += v -> freeChooses.cached(c)(declareVariable(encode(v)))
+        Some(Assume(c.pred, v))
+      case _ => None
+    } (expression)
+
+    val newClauses = templates.instantiateExpr(
+      encode(withoutChooses),
+      (freeBindings ++ chooseBindings).map(p => encode(p._1) -> p._2)
+    )
+
     for (cl <- newClauses) {
       underlying.assertCnstr(cl)
     }
@@ -206,7 +223,6 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   trait ModelWrapper {
     def modelEval(elem: Encoded, tpe: t.Type): Option[t.Expr]
-    def modelFunctions: Map[t.TypedFunDef, Seq[(Seq[Encoded], Encoded)]]
 
     def extractConstructor(elem: Encoded, tpe: t.ADTType): Option[Identifier]
     def extractSet(elem: Encoded, tpe: t.SetType): Option[Seq[Encoded]]
@@ -221,24 +237,40 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }
     }
 
-    def get(v: Variable): Option[Expr] = eval(freeVars(v), v.tpe).filter {
-      case v: Variable => false
-      case _ => true
-    }
-
     def getModel(extract: (Encoded, Type) => Expr): program.Model = {
       val vs = freeVars.toMap.map { case (v, idT) => v.toVal -> extract(idT, v.tpe) }
 
-      val cs = modelFunctions.flatMap { case (tfd, mapping) =>
-        tfd.fullBody match {
+      val cs = templates.getCalls
+        .filter(p => modelEval(p._1, t.BooleanType) == Some(t.BooleanLiteral(true)))
+        .map(_._2)
+        .groupBy(_.tfd)
+        .flatMap { case (tfd, calls) => tfd.fd.fullBody match {
           case t.Choose(res, _) =>
+            val tpSubst = tfd.tpSubst.map(p => decode(p._1) -> decode(p._2))
+            val t.FirstOrderFunctionType(from, to) = t.FunctionType(tfd.params.map(_.tpe), tfd.returnType)
+            import templates._
+
             chooseEncoder.scopes.get(theories.decode(res)).flatMap { vds =>
+              val tvds = vds.map(vd => vd.copy(tpe = tfd.instantiate(vd.tpe)))
               chooses.get(decode(res)).map { c =>
-                val body = mapping.foldRight(c: Expr) { case ((args, img), elze) =>
-                  IfExpr(andJoin((vds zip args).map { case (vd, arg) =>
-                    val dvd = encoder.decode(vd)
-                    Equals(dvd.toVariable, extract(arg, dvd.tpe))
-                  }), extract(img, decode(res.tpe)), elze)
+                val tc = instantiateType(c, tfd.tpSubst.map { case (tp, tpe) =>
+                  encoder.decode(tp).asInstanceOf[TypeParameter] -> encoder.decode(tpe)
+                })
+
+                val mappings = calls.flatMap { call =>
+                  val optArgs = (call.args zip from).map(p => modelEval(p._1.encoded, p._2))
+                  val optRes = modelEval(mkCall(tfd, call.args.map(_.encoded)), to)
+                  if (optArgs.forall(_.isDefined) && optRes.isDefined) {
+                    Some(optArgs.map(_.get) -> optRes.get)
+                  } else {
+                    None
+                  }
+                }
+
+                val body = mappings.foldRight(tc: Expr) { case ((args, img), elze) =>
+                  IfExpr(andJoin((tvds zip args).map { case (vd, arg) =>
+                    Equals(encoder.decode(vd).toVariable, decode(arg))
+                  }), decode(img), elze)
                 }
 
                 (res.id, tfd.tps.map(decode(_))) -> body
@@ -246,10 +278,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
             }
 
           case _ => None
-        }
-      }
+        }}
 
-      inox.Model(program)(vs, cs)
+      val freeCs = freeChooses.toMap.map { case (c, idT) => (c.res.id, Seq.empty[Type]) -> extract(idT, c.res.tpe) }
+
+      inox.Model(program)(vs, cs ++ freeCs)
     }
   }
 
@@ -850,24 +883,6 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     }
 
     def modelEval(elem: t.Expr, tpe: t.Type): Option[t.Expr] = e(elem)
-    lazy val modelFunctions: Map[t.TypedFunDef, Seq[(Seq[t.Expr], t.Expr)]] = {
-      def extract(e: t.Expr): Seq[(Seq[t.Expr], t.Expr)] = e match {
-        case t.IfExpr(t.TopLevelAnds(es), thenn, elze) =>
-          val args = es.map {
-            case t.Equals(_: t.Variable, e) => e
-            case e => unsupported(decode(e), "Unexpected condition shape in choose model")
-          }
-          (args -> thenn) +: extract(elze)
-        case _ => Nil
-      }
-
-      targetProgram.symbols.functions.values.flatMap(fd => fd.fullBody match {
-        case t.Choose(res, _) => model.chooses.collect {
-          case ((id, tps), body) if id == res.id => fd.typed(tps)(targetProgram.symbols) -> extract(body)
-        }
-        case _ => Nil
-      }).toMap
-    }
 
     override def toString = model.asString
   }

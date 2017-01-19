@@ -49,8 +49,8 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
 
     SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause) match {
       case SatWithModel(model) =>
-        valuateWithModel(model)(vd) match {
-          case ADT(ADTType(`consID`, Seq(IntegerType)), _) =>
+        model.vars.get(vd) match {
+          case Some(ADT(ADTType(`consID`, Seq(IntegerType)), _)) =>
             // success!!
           case r =>
             fail("Unexpected valuation: " + r)
@@ -72,8 +72,8 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
 
     SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause) match {
       case SatWithModel(model) =>
-        valuateWithModel(model)(vd) match {
-          case ADT(ADTType(`nilID`, Seq(`tp`)), Seq()) =>
+        model.vars.get(vd) match {
+          case Some(ADT(ADTType(`nilID`, Seq(`tp`)), Seq())) =>
             // success!!
           case r =>
             fail("Unexpected valuation: " + r)

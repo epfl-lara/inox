@@ -121,7 +121,7 @@ trait LambdaTemplates { self: Templates =>
   }
 
   private val appCache: MutableMap[FunctionType, (Encoded, Seq[Encoded], Encoded)] = MutableMap.empty
-  def mkApp(caller: Encoded, tpe: FunctionType, args: Seq[Encoded]): Encoded = {
+  private[unrolling] def mkApp(caller: Encoded, tpe: FunctionType, args: Seq[Encoded]): Encoded = {
     val (vT, asT, app) = appCache.getOrElseUpdate(tpe, {
       val v = Variable.fresh("f", tpe)
       val as = tpe.from.map(tp => Variable.fresh("x", tp, true))

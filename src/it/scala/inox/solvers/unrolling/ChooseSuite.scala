@@ -49,10 +49,11 @@ class ChooseSuite extends SolvingTestSuite {
   }
 
   // Recursive function where the same choose takes on different values
-  val fun4 = mkFunDef(FreshIdentifier("fun4"))()(_ => (
-    Seq("x" :: IntegerType, "y" :: IntegerType), IntegerType, { case Seq(x) =>
+  val fun4ID = FreshIdentifier("fun4")
+  val fun4 = mkFunDef(fun4ID)()(_ => (
+    Seq("x" :: IntegerType, "y" :: IntegerType), IntegerType, { case Seq(x, y) =>
       if_ (x >= E(BigInt(0))) {
-        choose("v" :: IntegerType)(_ > y) + fun4(x - 1, y - 1)
+        choose("v" :: IntegerType)(_ > y) + E(fun4ID)(x - E(BigInt(1)), y - E(BigInt(1)))
       } else_ {
         E(BigInt(0))
       }
@@ -60,10 +61,9 @@ class ChooseSuite extends SolvingTestSuite {
 
   val symbols = NoSymbols.withFunctions(Seq(fun1, fun2, fun3, fun4))
 
-
   test("simple choose") { ctx =>
     val program = InoxProgram(ctx, symbols)
-    val clause = choose("v" :: IntegerType)(v => v > 0) === IntegerLiteral(10)
+    val clause = choose("v" :: IntegerType)(v => v > IntegerLiteral(0)) === IntegerLiteral(10)
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
   }
 
@@ -75,14 +75,14 @@ class ChooseSuite extends SolvingTestSuite {
 
   test("choose in function and arguments") { ctx =>
     val program = InoxProgram(ctx, symbols)
-    val clause = fun1(choose("v" :: IntegerType)(_ < E(BigInt(0))) === IntegerLiteral(10)
+    val clause = fun1(choose("v" :: IntegerType)(_ < IntegerLiteral(0))) === IntegerLiteral(10)
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
   }
 
   test("choose in callee function") { ctx =>
     val program = InoxProgram(ctx, symbols)
-    val clause = fun2(IntegerLiteral(1)) === IntegerLiteral(10) &&
-      fun2(IntegerLiteral(-1)) === IntegerLiteral(2)
+    val clause = fun2(IntegerLiteral(1), IntegerLiteral(-1)) === IntegerLiteral(10) &&
+      fun2(IntegerLiteral(-1), IntegerLiteral(0)) === IntegerLiteral(2)
     assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
   }
 

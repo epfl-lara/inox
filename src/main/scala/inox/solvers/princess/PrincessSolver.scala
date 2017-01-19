@@ -107,19 +107,6 @@ trait PrincessSolver extends AbstractUnrollingSolver with PrincessTheories { sel
       res
     }
 
-    lazy val modelFunctions: Map[t.TypedFunDef, Seq[(Seq[IExpression], IExpression)]] = {
-      underlying.functions.aToB.flatMap { case (tfd, fun) =>
-        val mappings = model.interpretation.toSeq.flatMap {
-          case (SimpleAPI.IntFunctionLoc(`fun`, args), SimpleAPI.IntValue(res)) =>
-            // make sure implicit conversions kick in here
-            Some(args.map(a => a: IExpression) -> (res: IExpression))
-          case _ => None
-        }
-
-        if (mappings.isEmpty) None else Some(tfd -> mappings)
-      }
-    }
-
     override def toString = model.toString
   }
 

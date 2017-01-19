@@ -12,7 +12,7 @@
 (datatype-invariant a acc (and (<= 1 (id a)) (<= (id a) 2)))
 
 (declare-fun acc_init () acc)
-(declare-const f (=> acc Bool acc))
+(declare-fun f (acc Bool) acc)
 
 (define-fun-rec
  fold
@@ -20,7 +20,7 @@
  (match l
   (case nil a)
   (case (cons x tail)
-   (let ((a2 (@ f a x)))
+   (let ((a2 (f a x)))
     (fold a2 tail)))))
 
 

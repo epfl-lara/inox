@@ -15,10 +15,16 @@ trait ContextualEvaluator extends Evaluator {
     def tps: Seq[Type]
     def mappings: Map[ValDef, Expr]
     def chooses: Map[(Identifier, Seq[Type]), Expr]
+
+    def newTypes(tps: Seq[Type]): RC
+
     def newVars(news: Map[ValDef, Expr]): RC
     def withNewVar(vd: ValDef, expr: Expr): RC = newVars(mappings + (vd -> expr))
     def withNewVars(news: Map[ValDef, Expr]): RC = newVars(mappings ++ news)
-    def newTypes(tps: Seq[Type]): RC
+
+    def newChooses(news: Map[(Identifier, Seq[Type]), Expr]): RC
+    def getChoose(id: Identifier): Option[Expr] = chooses.get(id -> tps)
+    def withoutChoose(id: Identifier) = newChooses(chooses - (id -> tps))
   }
 
   case class DefaultRecContext(
@@ -26,8 +32,9 @@ trait ContextualEvaluator extends Evaluator {
     mappings: Map[ValDef, Expr],
     chooses: Map[(Identifier, Seq[Type]), Expr]
   ) extends RecContext[DefaultRecContext] {
-    def newVars(news: Map[ValDef, Expr]) = copy(mappings = news)
     def newTypes(tps: Seq[Type]) = copy(tps = tps)
+    def newVars(news: Map[ValDef, Expr]) = copy(mappings = news)
+    def newChooses(news: Map[(Identifier, Seq[Type]), Expr]) = copy(chooses = news)
   }
 
   class GlobalContext(val maxSteps: Int) {

@@ -78,6 +78,8 @@ trait FunctionTemplates { self: Templates =>
     Seq.empty
   }
 
+  def getCalls: Seq[(Encoded, Call)] = defBlockers.toList.map(p => p._2 -> p._1)
+
   protected def lambdaArguments(expr: Expr): Seq[Variable] = expr match {
     case Lambda(args, body) => args.map(_.toVariable.freshen) ++ lambdaArguments(body)
     case Assume(pred, body) => lambdaArguments(body)
@@ -115,7 +117,7 @@ trait FunctionTemplates { self: Templates =>
   }
 
   private val callCache: MutableMap[TypedFunDef, (Seq[Encoded], Encoded)] = MutableMap.empty
-  protected def mkCall(tfd: TypedFunDef, args: Seq[Encoded]): Encoded = {
+  private[unrolling] def mkCall(tfd: TypedFunDef, args: Seq[Encoded]): Encoded = {
     val (asT, call) = callCache.getOrElseUpdate(tfd, {
       val as = flatTypes(tfd)._1.map(tpe => Variable.fresh("x", tpe, true))
       val asT = as.map(encodeSymbol)

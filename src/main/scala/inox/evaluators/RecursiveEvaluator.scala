@@ -472,9 +472,13 @@ trait RecursiveEvaluator
       replaceFromSymbols(variablesOf(f).map(v => v -> e(v)).toMap, f).asInstanceOf[Forall]
     }
 
-    case c: Choose => onChooseInvocation {
-      replaceFromSymbols(variablesOf(c).map(v => v -> e(v)).toMap, c).asInstanceOf[Choose]
-    }
+    case c: Choose =>
+      rctx.getChoose(c.res.id) match {
+        case Some(expr) => e(expr)(rctx.withoutChoose(c.res.id), gctx)
+        case None => onChooseInvocation {
+          replaceFromSymbols(variablesOf(c).map(v => v -> e(v)).toMap, c).asInstanceOf[Choose]
+        }
+      }
 
     case f @ FiniteMap(ss, dflt, kT, vT) =>
       finiteMap(ss.map{ case (k, v) => (e(k), e(v)) }, e(dflt), kT, vT)
