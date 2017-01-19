@@ -226,10 +226,10 @@ trait BagEncoder extends SimpleEncoder {
 }
 
 object BagEncoder {
-  def apply(enc: ast.ProgramTransformer, opts: Options)
+  def apply(enc: ast.ProgramTransformer)
            (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }):
            BagEncoder { val sourceProgram: enc.targetProgram.type } = new {
     val sourceProgram: enc.targetProgram.type = enc.targetProgram
-    val evaluator = ReverseEvaluator(enc, opts)(ev)
+    val evaluator = ReverseEvaluator(enc)(ev)
   } with BagEncoder
 }

@@ -86,7 +86,7 @@ trait RecursiveEvaluator
       val evArgs = args map e
 
       // build a mapping for the function...
-      val frame = rctx.withNewVars(tfd.paramSubst(evArgs))
+      val frame = rctx.withNewVars(tfd.paramSubst(evArgs)).newTypes(tps)
 
       e(tfd.fullBody)(frame, gctx)
 

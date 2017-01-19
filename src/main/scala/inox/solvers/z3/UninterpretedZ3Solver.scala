@@ -62,8 +62,10 @@ trait UninterpretedZ3Solver
     underlying.assertCnstr(underlying.toZ3Formula(expression))
   }
 
-  private def completeModel(model: Map[ValDef, Expr]): Map[ValDef, Expr] =
-    freeVars.map(v => v.toVal -> model.getOrElse(v.toVal, simplestValue(v.getType))).toMap
+  private def completeModel(model: program.Model): program.Model = {
+    val allVars = freeVars.map(v => v.toVal -> model.vars.getOrElse(v.toVal, simplestValue(v.getType))).toMap
+    inox.Model(program)(allVars, model.chooses)
+  }
 
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
     config.convert(underlying.check(config),

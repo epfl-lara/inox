@@ -196,14 +196,7 @@ object Main extends MainHelpers {
         SimpleSolverAPI(sf).solveSAT(expr) match {
           case SatWithModel(model) =>
             reporter.info(" => SAT")
-            if (model.isEmpty) {
-              reporter.info("  (Empty model)")
-            } else {
-              val max = model.keys.map(_.asString.length).max
-              for ((vd, res) <- model) {
-                reporter.info("  %-" + max + "s -> %s".format(vd.asString, res.asString))
-              }
-            }
+            reporter.info("  " + model.asString.replaceAll("\n", "\n  "))
           case Unsat =>
             reporter.info(" => UNSAT")
           case Unknown =>

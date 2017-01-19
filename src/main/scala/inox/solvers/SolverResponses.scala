@@ -7,6 +7,7 @@ import scala.language.higherKinds
 import scala.language.implicitConversions
 
 object SolverResponses {
+
   sealed trait SolverResponse[+Model,+Assumptions] {
     def isSAT: Boolean
     def isUNSAT: Boolean

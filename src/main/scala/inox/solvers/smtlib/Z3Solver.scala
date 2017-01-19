@@ -19,8 +19,8 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
   override protected def extractResponse(config: Configuration, res: SExpr) =
     config.cast(super.extractResponse(config, res) match {
       case SatWithModel(model) =>
-        val evaluations = model.map { case (k, v) => k -> evaluator.eval(v).result }
-        SatWithModel(evaluations.collect { case (k, Some(v)) => k -> v })
+        val evaluations = model.vars.map { case (k, v) => k -> evaluator.eval(v).result }
+        SatWithModel(inox.Model(program)(evaluations.collect { case (k, Some(v)) => k -> v }, model.chooses))
       case resp => resp
     })
 

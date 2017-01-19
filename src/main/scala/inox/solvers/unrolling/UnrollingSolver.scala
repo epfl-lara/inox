@@ -37,27 +37,22 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   protected val encoder: ast.ProgramTransformer { val sourceProgram: program.type }
 
-  protected val theories: ast.ProgramTransformer {
-    val sourceProgram: self.encoder.targetProgram.type
-    val targetProgram: Program { val trees: self.encoder.targetProgram.trees.type }
-  }
-
-  protected lazy val encoderAndTheories = encoder andThen theories
-
   protected object chooseEncoder extends ast.ProgramTransformer {
-    val sourceProgram: encoderAndTheories.targetProgram.type = encoderAndTheories.targetProgram
+    val sourceProgram: self.encoder.targetProgram.type = self.encoder.targetProgram
     import sourceProgram.trees._
 
-    val (newFunctions: Seq[FunDef], chooseToFunction: Map[ValDef, FunDef]) = {
-      val chooses = sourceProgram.symbols.functions.values.toSeq.map { fd =>
-        def rec(e: Expr, args: Seq[ValDef]): (Expr, Map[ValDef, FunDef]) = e match {
+    val (newFunctions: Seq[FunDef], scopes: Map[ValDef, Seq[ValDef]]) = {
+      var fdChooses: Set[(ValDef, FunDef, Seq[ValDef])] = Set.empty
+
+      val newFds = sourceProgram.symbols.functions.values.toSeq.map { fd =>
+        def rec(e: Expr, args: Seq[ValDef]): Expr = e match {
           case l: Lambda =>
             val free = exprOps.variablesOf(l)
-            rec(l.body, args.filter(vd => free(vd.toVariable)) ++ l.args)
+            l.copy(body = rec(l.body, args.filter(vd => free(vd.toVariable)) ++ l.args)).copiedFrom(l)
 
           case c: Choose =>
             val newRes = c.res.freshen
-            val (newPred, map) = rec(c.pred, args)
+            val newPred = rec(c.pred, args)
             val freshArgs = args.map(_.freshen)
 
             val substPred = exprOps.replaceFromSymbols(
@@ -67,54 +62,48 @@ trait AbstractUnrollingSolver extends Solver { self =>
             val newFd = new FunDef(
               FreshIdentifier("choose"), fd.tparams, freshArgs,
               c.res.tpe, Choose(newRes, substPred).copiedFrom(c), Set.empty)
+            fdChooses += ((c.res, newFd, args))
 
-            (FunctionInvocation(newFd.id, newFd.tparams.map(_.tp), args.map(_.toVariable)), Map(c.res -> newFd) ++ map)
+            FunctionInvocation(newFd.id, newFd.tparams.map(_.tp), args.map(_.toVariable)).copiedFrom(c)
 
-          case Operator(es, recons) =>
-            val (nes, maps) = es.map(rec(_, args)).unzip
-            (recons(nes), maps.flatten.toMap)
+          case Operator(es, recons) => recons(es.map(rec(_, args))).copiedFrom(e)
         }
 
-        val free = exprOps.variablesOf(fd.fullBody)
-        val withChooses = exprOps.postMap {
-          case v: Variable if free(v) => Some(Choose(v.toVal, BooleanLiteral(true).copiedFrom(v)).copiedFrom(v))
-          case _ => None
-        } (fd.fullBody)
-
-        val (newBody, map) = withChooses match {
-          case c: Choose =>
-            val (newPred, map) = rec(c.pred, fd.params)
-            (c.copy(pred = newPred), map)
-          case body =>
-            rec(body, fd.params)
-        }
-
-        (fd.copy(fullBody = newBody), map)
+        fd.copy(fullBody = fd.fullBody match {
+          case c: Choose => c.copy(pred = rec(c.pred, fd.params)).copiedFrom(c)
+          case body => rec(body, fd.params)
+        })
       }
 
-      val allFunctions = chooses.map(_._1) ++ chooses.flatMap(_._2.values)
-      val mapping = chooses.flatMap(_._2).toMap
-      (allFunctions, mapping)
+      val allFunctions = newFds ++ fdChooses.map(_._2)
+      (allFunctions, fdChooses.map(p => p._1 -> p._3).toMap)
     }
 
-    val targetProgram: Program { val trees: encoderAndTheories.targetProgram.trees.type } = new Program {
-      val trees: encoderAndTheories.targetProgram.trees.type = encoderAndTheories.targetProgram.trees
+    val targetProgram: Program { val trees: self.encoder.targetProgram.trees.type } = new Program {
+      val trees: self.encoder.targetProgram.trees.type = self.encoder.targetProgram.trees
       val symbols = sourceProgram.symbols.withFunctions(newFunctions)
       val ctx = sourceProgram.ctx
     }
 
     protected object encoder extends ast.TreeTransformer {
       val s: sourceProgram.trees.type = sourceProgram.trees
-      val t: sourceProgram.trees.type = sourceProgram.trees
+      val t: targetProgram.trees.type = targetProgram.trees
     }
 
     protected object decoder extends ast.TreeTransformer {
-      val s: sourceProgram.trees.type = sourceProgram.trees
+      val s: targetProgram.trees.type = targetProgram.trees
       val t: sourceProgram.trees.type = sourceProgram.trees
     }
   }
 
-  protected lazy val programEncoder = encoderAndTheories andThen chooseEncoder
+  protected lazy val fullEncoder = encoder andThen chooseEncoder
+
+  protected val theories: ast.ProgramTransformer {
+    val sourceProgram: fullEncoder.targetProgram.type
+    val targetProgram: Program { val trees: fullEncoder.targetProgram.trees.type }
+  }
+
+  protected lazy val programEncoder = fullEncoder andThen theories
 
   protected lazy val s: programEncoder.sourceProgram.trees.type = programEncoder.sourceProgram.trees
   protected lazy val t: programEncoder.targetProgram.trees.type = programEncoder.targetProgram.trees
@@ -157,6 +146,14 @@ trait AbstractUnrollingSolver extends Solver { self =>
   private val constraints = new IncrementalSeq[Expr]()
   private val freeVars    = new IncrementalMap[Variable, Encoded]()
 
+  private lazy val chooses: Map[ValDef, Choose] = {
+    program.symbols.functions.values.flatMap { fd =>
+      val vs = exprOps.variablesOf(fd.fullBody)
+      val cs = exprOps.collect { case c: Choose => Set(c) case _ => Set.empty[Choose] } (fd.fullBody)
+      vs.map(v => v.toVal -> Choose(v.toVal, BooleanLiteral(true).copiedFrom(v)).copiedFrom(v)) ++ cs.map(c => c.res -> c)
+    }.toMap
+  }
+
   protected var abort: Boolean = false
   protected var pause: Boolean = false
 
@@ -195,25 +192,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
   def assertCnstr(expression: Expr): Unit = {
     constraints += expression
 
-    val fds = exprOps.collect {
-      case fi: FunctionInvocation => Set(fi.tfd.fd)
-      case _ => Set.empty[FunDef]
-    } (expression).flatMap(fd => transitiveCallees(fd) + fd)
-
-    val fdVars = fds.flatMap { fd =>
-      val vars = exprOps.variablesOf(fd.fullBody) -- fd.params.map(_.toVariable)
-      val globalDeps = vars.filter(v => (typeParamsOf(v.tpe) & fd.typeArgs.toSet).nonEmpty)
-      if (globalDeps.nonEmpty && !reported) {
-        val depString = globalDeps.take(2).map(_.asString).mkString(",") + (if (globalDeps.size > 2) "..." else "")
-        reporter.warning("Cannot report model for global parametrically typed " +
-          (if (globalDeps.size > 1) "variables" else "variable") + " " +
-          globalDeps.take(2).map(_.asString).mkString(",") + (if (globalDeps.size > 2) "..." else ""))
-        reported = true
-      }
-      vars -- globalDeps
-    }
-
-    val bindings = (exprOps.variablesOf(expression) ++ fdVars).map(v => v -> freeVars.cached(v) {
+    val bindings = exprOps.variablesOf(expression).map(v => v -> freeVars.cached(v) {
       declareVariable(encode(v))
     }).toMap
 
@@ -227,6 +206,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   trait ModelWrapper {
     def modelEval(elem: Encoded, tpe: t.Type): Option[t.Expr]
+    def modelFunctions: Map[t.TypedFunDef, Seq[(Seq[Encoded], Encoded)]]
 
     def extractConstructor(elem: Encoded, tpe: t.ADTType): Option[Identifier]
     def extractSet(elem: Encoded, tpe: t.SetType): Option[Seq[Encoded]]
@@ -245,18 +225,44 @@ trait AbstractUnrollingSolver extends Solver { self =>
       case v: Variable => false
       case _ => true
     }
+
+    def getModel(extract: (Encoded, Type) => Expr): program.Model = {
+      val vs = freeVars.toMap.map { case (v, idT) => v.toVal -> extract(idT, v.tpe) }
+
+      val cs = modelFunctions.flatMap { case (tfd, mapping) =>
+        tfd.fullBody match {
+          case t.Choose(res, _) =>
+            chooseEncoder.scopes.get(theories.decode(res)).flatMap { vds =>
+              chooses.get(decode(res)).map { c =>
+                val body = mapping.foldRight(c: Expr) { case ((args, img), elze) =>
+                  IfExpr(andJoin((vds zip args).map { case (vd, arg) =>
+                    val dvd = encoder.decode(vd)
+                    Equals(dvd.toVariable, extract(arg, dvd.tpe))
+                  }), extract(img, decode(res.tpe)), elze)
+                }
+
+                (res.id, tfd.tps.map(decode(_))) -> body
+              }
+            }
+
+          case _ => None
+        }
+      }
+
+      inox.Model(program)(vs, cs)
+    }
   }
 
   private def emit(silenceErrors: Boolean)(msg: String) =
     if (silenceErrors) reporter.debug(msg) else reporter.warning(msg)
 
-  private def validateModel(model: Map[ValDef, Expr], assumptions: Seq[Expr], silenceErrors: Boolean): Boolean = {
+  private def validateModel(model: program.Model, assumptions: Seq[Expr], silenceErrors: Boolean): Boolean = {
     val expr = andJoin(assumptions ++ constraints)
 
     // we have to check case class constructors in model for ADT invariants
-    val newExpr = model.toSeq.foldLeft(expr) { case (e, (v, value)) => Let(v, value, e) }
+    val newExpr = model.vars.toSeq.foldLeft(expr) { case (e, (v, value)) => Let(v, value, e) }
 
-    evaluator.eval(newExpr) match {
+    evaluator.eval(newExpr, inox.Model(program)(Map.empty, model.chooses)) match {
       case EvaluationResults.Successful(BooleanLiteral(true)) =>
         reporter.debug("- Model validated.")
         true
@@ -275,12 +281,12 @@ trait AbstractUnrollingSolver extends Solver { self =>
     }
   }
 
-  private def extractSimpleModel(model: underlying.Model): Map[ValDef, Expr] = {
+  private def extractSimpleModel(model: underlying.Model): program.Model = {
     val wrapped = wrapModel(model)
-    freeVars.toMap.map { case (v, _) => v.toVal -> wrapped.get(v).getOrElse(simplestValue(v.getType)) }
+    wrapped.getModel((e, tpe) => wrapped.eval(e, tpe).getOrElse(simplestValue(tpe)))
   }
 
-  private def extractTotalModel(model: underlying.Model): Map[ValDef, Expr] = {
+  private def extractTotalModel(model: underlying.Model): program.Model = {
     val wrapped = wrapModel(model)
 
     import targetProgram._
@@ -534,7 +540,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }
     }
 
-    freeVars.toMap.map { case (v, idT) => v.toVal -> decode(extractValue(idT, encode(v.tpe))) }
+    wrapped.getModel((e, tpe) => decode(extractValue(e, encode(tpe))))
   }
 
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
@@ -656,15 +662,6 @@ trait AbstractUnrollingSolver extends Solver { self =>
         case Validate(umodel) =>
           val model = extractTotalModel(umodel)
 
-          lazy val modelString: String = if (model.isEmpty) {
-            "  (Empty model)"
-          } else {
-            val max = model.keys.map(_.asString.length).max
-            (for ((vd, res) <- model) yield {
-              "  %-" + max + "s -> %s".format(vd.asString, res.asString)
-            }).mkString("\n")
-          }
-
           lazy val satResult = config cast (if (config.withModel) SatWithModel(model) else Sat)
 
           val valid = !checkModels || validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
@@ -675,7 +672,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
             CheckResult cast Unknown
           } else if (checkModels && !valid) {
             reporter.error("Something went wrong. The model should have been valid, yet we got this:")
-            reporter.error(modelString)
+            reporter.error("  " + model.asString.replaceAll("\n", "\n  "))
             reporter.error("for formula " + andJoin(assumptionsSeq ++ constraints).asString)
             CheckResult cast Unknown
           } else if (templates.hasQuantifiers) {
@@ -693,7 +690,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
                 reporter.error("Quantification " + expr.asString(templates.program.printerOpts) +
                   " does not fit in supported fragment.\n  Reason: " + err)
                 reporter.error("Model obtained was:")
-                reporter.error(modelString)
+                reporter.error("  " + model.asString.replaceAll("\n", "\n  "))
                 CheckResult cast Unknown
               case None =>
                 CheckResult(satResult)
@@ -790,11 +787,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
   import program.symbols._
 
   type Encoded = t.Expr
-  val underlying: Solver {
-    val program: targetProgram.type
-    type Trees = t.Expr
-    type Model = Map[t.ValDef, t.Expr]
-  }
+  val underlying: Solver { val program: targetProgram.type }
 
   override lazy val name = "U:"+underlying.name
 
@@ -831,9 +824,9 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     targetSemantics.getEvaluator(ctx.options + optIgnoreContracts(true))
 
   protected def declareVariable(v: t.Variable): t.Variable = v
-  protected def wrapModel(model: Map[t.ValDef, t.Expr]): super.ModelWrapper = ModelWrapper(model)
+  protected def wrapModel(model: targetProgram.Model): super.ModelWrapper = ModelWrapper(model)
 
-  private case class ModelWrapper(model: Map[t.ValDef, t.Expr]) extends super.ModelWrapper {
+  private case class ModelWrapper(model: targetProgram.Model) extends super.ModelWrapper {
     private def e(expr: t.Expr): Option[t.Expr] = modelEvaluator.eval(expr, model).result
 
     def extractConstructor(elem: t.Expr, tpe: t.ADTType): Option[Identifier] = e(elem) match {
@@ -857,11 +850,26 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     }
 
     def modelEval(elem: t.Expr, tpe: t.Type): Option[t.Expr] = e(elem)
+    lazy val modelFunctions: Map[t.TypedFunDef, Seq[(Seq[t.Expr], t.Expr)]] = {
+      def extract(e: t.Expr): Seq[(Seq[t.Expr], t.Expr)] = e match {
+        case t.IfExpr(t.TopLevelAnds(es), thenn, elze) =>
+          val args = es.map {
+            case t.Equals(_: t.Variable, e) => e
+            case e => unsupported(decode(e), "Unexpected condition shape in choose model")
+          }
+          (args -> thenn) +: extract(elze)
+        case _ => Nil
+      }
 
-    override def toString = {
-      import targetProgram._
-      model.map(p => p._1.asString -> p._2.asString).mkString("\n")
+      targetProgram.symbols.functions.values.flatMap(fd => fd.fullBody match {
+        case t.Choose(res, _) => model.chooses.collect {
+          case ((id, tps), body) if id == res.id => fd.typed(tps)(targetProgram.symbols) -> extract(body)
+        }
+        case _ => Nil
+      }).toMap
     }
+
+    override def toString = model.asString
   }
 
   override def dbg(msg: => Any) = underlying.dbg(msg)

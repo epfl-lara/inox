@@ -12,14 +12,22 @@ trait ContextualEvaluator extends Evaluator {
   lazy val maxSteps: Int = options.findOptionOrDefault(optMaxCalls)
 
   trait RecContext[RC <: RecContext[RC]] {
+    def tps: Seq[Type]
     def mappings: Map[ValDef, Expr]
+    def chooses: Map[(Identifier, Seq[Type]), Expr]
     def newVars(news: Map[ValDef, Expr]): RC
     def withNewVar(vd: ValDef, expr: Expr): RC = newVars(mappings + (vd -> expr))
     def withNewVars(news: Map[ValDef, Expr]): RC = newVars(mappings ++ news)
+    def newTypes(tps: Seq[Type]): RC
   }
 
-  case class DefaultRecContext(mappings: Map[ValDef, Expr]) extends RecContext[DefaultRecContext] {
+  case class DefaultRecContext(
+    tps: Seq[Type],
+    mappings: Map[ValDef, Expr],
+    chooses: Map[(Identifier, Seq[Type]), Expr]
+  ) extends RecContext[DefaultRecContext] {
     def newVars(news: Map[ValDef, Expr]) = copy(mappings = news)
+    def newTypes(tps: Seq[Type]) = copy(tps = tps)
   }
 
   class GlobalContext(val maxSteps: Int) {
@@ -29,7 +37,7 @@ trait ContextualEvaluator extends Evaluator {
   type RC <: RecContext[RC]
   type GC <: GlobalContext
 
-  def initRC(mappings: Map[ValDef, Expr]): RC
+  def initRC(model: program.Model): RC
   def initGC: GC
 
   case class EvalError(msg: String) extends Exception {
@@ -38,7 +46,7 @@ trait ContextualEvaluator extends Evaluator {
   case class RuntimeError(msg: String) extends Exception
   case class QuantificationError(msg: String) extends Exception
 
-  def eval(ex: Expr, model: Map[ValDef, Expr]) = {
+  def eval(ex: Expr, model: program.Model) = {
     try {
       ctx.timers.evaluators.recursive.runtime.start()
       EvaluationResults.Successful(e(ex)(initRC(model), initGC))
@@ -64,7 +72,7 @@ trait ContextualEvaluator extends Evaluator {
 trait HasDefaultRecContext extends ContextualEvaluator {
   import program.trees._
   type RC = DefaultRecContext
-  def initRC(mappings: Map[ValDef, Expr]) = DefaultRecContext(mappings)
+  def initRC(model: program.Model) = DefaultRecContext(Seq.empty, model.vars, model.chooses)
 }
 
 trait HasDefaultGlobalContext extends ContextualEvaluator {

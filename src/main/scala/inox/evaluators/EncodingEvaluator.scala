@@ -14,11 +14,8 @@ trait EncodingEvaluator extends DeterministicEvaluator { self =>
 
   lazy val options = underlying.options
 
-  def eval(expr: Expr, model: Map[ValDef, Expr]): EvaluationResult = {
-    val res = underlying.eval(
-      encoder.encode(expr),
-      model.map(p => encoder.encode(p._1) -> encoder.encode(p._2))
-    )
+  def eval(expr: Expr, model: program.Model): EvaluationResult = {
+    val res = underlying.eval(encoder.encode(expr), model.encode(encoder))
 
     res match {
       case EvaluationResults.Successful(v) => EvaluationResults.Successful(encoder.decode(v))

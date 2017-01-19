@@ -8,18 +8,18 @@ import evaluators._
 package object theories {
 
   trait Z3Theories { self: unrolling.AbstractUnrollingSolver =>
-    lazy val theories = StringEncoder(self.encoder.targetProgram)
+    lazy val theories = StringEncoder(self.fullEncoder.targetProgram)
   }
 
   trait CVC4Theories { self: unrolling.AbstractUnrollingSolver =>
-    lazy val theories = BagEncoder(self.encoder, self.options)(self.evaluator)
+    lazy val theories = BagEncoder(self.fullEncoder)(self.evaluator)
   }
 
   trait PrincessTheories { self: unrolling.AbstractUnrollingSolver =>
-    lazy val stringEncoder = StringEncoder(self.encoder.targetProgram)
+    lazy val stringEncoder = StringEncoder(self.fullEncoder.targetProgram)
 
-    lazy val selfAndString = self.encoder andThen stringEncoder
-    lazy val bagEncoder = BagEncoder(selfAndString, self.options)(self.evaluator)
+    lazy val selfAndString = self.fullEncoder andThen stringEncoder
+    lazy val bagEncoder = BagEncoder(selfAndString)(self.evaluator)
 
     lazy val setEncoder = SetEncoder(bagEncoder.targetProgram)
 
@@ -35,19 +35,17 @@ package object theories {
   }
 
   object ReverseEvaluator {
-    def apply(enc: ast.ProgramTransformer, opts: Options)
+    def apply(enc: ast.ProgramTransformer)
              (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }):
              DeterministicEvaluator { val program: enc.targetProgram.type } = new {
       val program: enc.targetProgram.type = enc.targetProgram
-      val options = opts
+      val options = ev.options
     } with DeterministicEvaluator {
       import program.trees._
       import EvaluationResults._
 
-      def eval(e: Expr, model: Map[ValDef, Expr]): EvaluationResult = {
-        ev.eval(enc.decode(e), model.map {
-          case (vd, value) => enc.decode(vd) -> enc.decode(value)
-        }) match {
+      def eval(e: Expr, model: program.Model): EvaluationResult = {
+        ev.eval(enc.decode(e), model.encode(enc.reverse)) match {
           case Successful(value) => Successful(enc.encode(value))
           case RuntimeError(message) => RuntimeError(message)
           case EvaluatorError(message) => EvaluatorError(message)

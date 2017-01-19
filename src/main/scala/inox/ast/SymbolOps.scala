@@ -689,7 +689,7 @@ trait SymbolOps { self: TypeOps =>
         import SolverResponses._
 
         SimpleSolverAPI(sem.getSolver).solveSAT(Application(p, Seq(res))) match {
-          case SatWithModel(model) => model.getOrElse(res.toVal, throw FatalError("No simplest value for " + adt))
+          case SatWithModel(model) => model.vars.getOrElse(res.toVal, throw FatalError("No simplest value for " + adt))
           case _ => throw FatalError("Simplest value is unsatisfiable for " + adt)
         }
       } else {
@@ -843,20 +843,6 @@ trait SymbolOps { self: TypeOps =>
     }
 
     rec(expr, Path.empty)
-  }
-
-  /** Returns the value for an identifier given a model. */
-  def valuateWithModel(model: Map[ValDef, Expr])(vd: ValDef)(implicit sem: symbols.Semantics): Expr = {
-    model.getOrElse(vd, simplestValue(vd.getType))
-  }
-
-  /** Substitute (free) variables in an expression with values form a model.
-    *
-    * Complete with simplest values in case of incomplete model.
-    */
-  def valuateWithModelIn(expr: Expr, vars: Set[ValDef], model: Map[ValDef, Expr])(implicit sem: symbols.Semantics): Expr = {
-    val valuator = valuateWithModel(model) _
-    replace(vars.map(vd => vd.toVariable -> valuator(vd)).toMap, expr)
   }
 
   object InvocationExtractor {

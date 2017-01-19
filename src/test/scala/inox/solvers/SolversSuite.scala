@@ -58,7 +58,7 @@ class SolversSuite extends FunSuite {
   def checkSolver(sf: SolverFactory { val program: p.type }, vs: Set[Variable], cnstr: Expr): Unit = {
     SimpleSolverAPI(sf).solveSAT(cnstr) match {
       case SatWithModel(model) =>
-        for (v <- vs) model.get(v.toVal) match {
+        for (v <- vs) model.vars.get(v.toVal) match {
           case Some(e) =>
             assert(e.getType === v.tpe, s"Solver ${sf.name} - Extracting value of type ${v.tpe}")
           case _ =>

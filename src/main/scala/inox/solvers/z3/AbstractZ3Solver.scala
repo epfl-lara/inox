@@ -34,7 +34,7 @@ trait AbstractZ3Solver
   type Model = Z3Model
 
   private[this] var freed = false
-  val traceE = new Exception()
+  private[this] val traceE = new Exception()
 
   protected def unsound(ast: Z3AST, msg: String): Nothing =
     throw UnsoundExtractionException(ast, msg)
@@ -714,21 +714,38 @@ trait AbstractZ3Solver
     case _ => None
   }
 
-  def extractModel(model: Z3Model): Map[ValDef, Expr] = variables.aToB.flatMap {
-    case (v,z3ID) => (v.tpe match {
-      case BooleanType =>
-        model.evalAs[Boolean](z3ID).map(BooleanLiteral)
+  def extractModel(model: Z3Model): program.Model = {
+    val vars = variables.aToB.flatMap {
+      case (v,z3ID) => (v.tpe match {
+        case BooleanType =>
+          model.evalAs[Boolean](z3ID).map(BooleanLiteral)
 
-      case Int32Type =>
-        model.evalAs[Int](z3ID).map(IntLiteral(_)).orElse {
-          model.eval(z3ID).flatMap(t => softFromZ3Formula(model, t, Int32Type))
-        }
+        case Int32Type =>
+          model.evalAs[Int](z3ID).map(IntLiteral(_)).orElse {
+            model.eval(z3ID).flatMap(t => softFromZ3Formula(model, t, Int32Type))
+          }
 
-      case IntegerType =>
-        model.evalAs[Int](z3ID).map(i => IntegerLiteral(BigInt(i)))
+        case IntegerType =>
+          model.evalAs[Int](z3ID).map(i => IntegerLiteral(BigInt(i)))
 
-      case other => model.eval(z3ID).flatMap(t => softFromZ3Formula(model, t, other))
-    }).map(v.toVal -> _)
+        case other => model.eval(z3ID).flatMap(t => softFromZ3Formula(model, t, other))
+      }).map(v.toVal -> _)
+    }
+
+    val chooses = model.getFuncInterpretations.flatMap { case (decl, mapping, _) =>
+      functions.getA(decl).flatMap(tfd => tfd.fullBody match {
+        case c: Choose =>
+          val body = mapping.foldRight(c: Expr) { case ((args, res), elze) =>
+            IfExpr(andJoin((tfd.params.map(_.toVariable) zip args).map {
+              case (v, e) => Equals(v, fromZ3Formula(model, e, v.tpe))
+            }), fromZ3Formula(model, res, tfd.returnType), elze)
+          }
+          Some((c.res.id, tfd.tps) -> body)
+        case _ => None
+      })
+    }.toMap
+
+    inox.Model(program)(vars, chooses)
   }
 
   def extractUnsatAssumptions(cores: Set[Z3AST]): Set[Expr] = {

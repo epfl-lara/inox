@@ -24,6 +24,10 @@ trait Program { self =>
   implicit def implicitProgram: this.type = this
   implicit def printerOpts: trees.PrinterOptions = trees.PrinterOptions.fromSymbols(symbols, ctx)
 
+  type Model = inox.Model {
+    val program: self.type
+  }
+
   type Semantics = inox.Semantics {
     val trees: self.trees.type
     val symbols: self.symbols.type

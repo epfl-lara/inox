@@ -38,7 +38,7 @@ trait SolvingEvaluator extends Evaluator { self =>
 
     res match {
       case SatWithModel(model) =>
-        valuateWithModel(model)(choose.res)
+        model.vars.getOrElse(choose.res, simplestValue(choose.res.tpe))
 
       case _ =>
         throw new RuntimeException("Failed to evaluate choose " + choose.asString)

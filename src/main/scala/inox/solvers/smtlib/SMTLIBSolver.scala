@@ -66,7 +66,7 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
                   a -> me
               }.toMap
 
-              val model = smodel.flatMap {
+              val vars = smodel.flatMap {
                 case DefineFun(SMTFunDef(s, _, _, e)) if syms(s) =>
                   try {
                     val v = variables.toA(s)
@@ -79,7 +79,25 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
                 case _ => None
               }.toMap
 
-              SatWithModel(model)
+              val chooses = smodel.flatMap {
+                case DefineFun(SMTFunDef(s, args, _, e)) if functions containsB s =>
+                  try {
+                    val tfd = functions.toA(s)
+                    tfd.fullBody match {
+                      case Choose(res, _) =>
+                        val ctx = Context(variables.bToA, modelFunDefs).withVariables(args.map(_.name) zip tfd.params.map(_.toVariable))
+                        val body = fromSMT(e, tfd.returnType)(ctx)
+                        Some((res.id, tfd.tps) -> body)
+                      case _ => None
+                    }
+                  } catch {
+                    case _: Unsupported => None
+                    case _: java.lang.StackOverflowError => None
+                  }
+                case _ => None
+              }.toMap
+
+              SatWithModel(inox.Model(program)(vars, chooses))
 
             case _ =>
               Unknown

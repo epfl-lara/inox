@@ -22,7 +22,7 @@ trait SimpleSolverAPI {
     }
   }
 
-  def solveSAT(expression: Expr): ResponseWithModel[Map[ValDef, Expr]] = {
+  def solveSAT(expression: Expr): ResponseWithModel[Model { val program: factory.program.type }] = {
     val s = factory.getNewSolver()
     try {
       s.assertCnstr(expression)
@@ -33,7 +33,7 @@ trait SimpleSolverAPI {
   }
 
   def solveSATWithUnsatAssumptions(expression: Expr, assumptions: Set[Expr]):
-                                   ResponseWithModelAndAssumptions[Map[ValDef, Expr], Set[Expr]] = {
+                                   ResponseWithModelAndAssumptions[Model { val program: factory.program.type }, Set[Expr]] = {
     val s = factory.getNewSolver()
     try {
       s.assertCnstr(expression)

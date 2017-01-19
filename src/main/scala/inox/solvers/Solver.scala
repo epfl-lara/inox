@@ -65,11 +65,11 @@ trait AbstractSolver extends Interruptible {
   }
 }
 
-trait Solver extends AbstractSolver {
+trait Solver extends AbstractSolver { self =>
   import program.trees._
 
   type Trees = Expr
-  type Model = Map[ValDef, Expr]
+  type Model = program.Model
 
   def getResultSolver: Option[Solver] = Some(this)
 }

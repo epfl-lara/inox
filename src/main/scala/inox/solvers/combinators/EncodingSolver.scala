@@ -21,11 +21,11 @@ trait EncodingSolver extends Solver {
   def assertCnstr(expr: Expr) = underlying.assertCnstr(encoder.encode(expr))
 
   private def convert(config: Configuration)
-                     (resp: config.Response[Map[t.ValDef, t.Expr], Set[t.Expr]]):
-                      config.Response[Map[ValDef, Expr], Set[Expr]] = {
+                     (resp: config.Response[underlying.Model, underlying.Assumptions]):
+                      config.Response[Model, Assumptions] = {
     config.convert(resp,
-      (model: Map[t.ValDef, t.Expr]) => model.map(p => encoder.decode(p._1) -> encoder.decode(p._2)),
-      (assumptions: Set[t.Expr]) => assumptions.map(encoder.decode)
+      (model: underlying.Model) => model.encode(encoder.reverse),
+      (assumptions: underlying.Assumptions) => assumptions.map(encoder.decode)
     )
   }
 

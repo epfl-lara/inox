@@ -1,6 +1,8 @@
+/* Copyright 2009-2016 EPFL, Lausanne */
 
 package inox
 package solvers
+package princess
 
 //
 // Interface file between Inox and Princess
@@ -41,15 +43,15 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
   private val enableAssertions = false
 
   ap.util.Debug enableAllAssertions enableAssertions
-  protected val p = SimpleAPI(enableAssert = enableAssertions)
+  protected[princess] val p = SimpleAPI(enableAssert = enableAssertions)
 
   // Internal maps storing created Constant, Variables, ADT and Function symbols
-  protected val variables = new IncrementalBijection[Variable, IExpression]
-  protected val functions = new IncrementalBijection[TypedFunDef, IFunction]
-  protected val lambdas = new IncrementalBijection[FunctionType, IFunction]
-  protected val sorts = new IncrementalMap[Type, (PADT, Seq[(Type, DataType)])]
+  private[princess] val variables = new IncrementalBijection[Variable, IExpression]
+  private[princess] val functions = new IncrementalBijection[TypedFunDef, IFunction]
+  private[princess] val lambdas = new IncrementalBijection[FunctionType, IFunction]
+  private[princess] val sorts = new IncrementalMap[Type, (PADT, Seq[(Type, DataType)])]
 
-  protected val adtManager = new ADTManager
+  private[princess] val adtManager = new ADTManager
 
   def typeToSort(tpe: Type): (PADT, Seq[(Type, DataType)]) = {
     val realType = bestRealType(tpe)
@@ -422,10 +424,6 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
     val res = internalCheck(config)
     pop()
     res
-  }
-
-  def extractModel(model: Model): Map[ValDef, Expr] = variables.aToB.flatMap {
-    case (v, iexpr) => princessToInox(iexpr, v.tpe)(model).map(v.toVal -> _)
   }
 
   override def free() = {

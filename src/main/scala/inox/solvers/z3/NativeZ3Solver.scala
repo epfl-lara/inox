@@ -111,6 +111,12 @@ trait NativeZ3Solver extends AbstractUnrollingSolver with Z3Theories { self =>
       res
     }
 
+    lazy val modelFunctions: Map[t.TypedFunDef, Seq[(Seq[Z3AST], Z3AST)]] = {
+      model.getFuncInterpretations.flatMap { case (decl, mapping, _) =>
+        underlying.functions.getA(decl).map { tfd => tfd -> mapping }
+      }.toMap
+    }
+
     override def toString = model.toString
   }
 

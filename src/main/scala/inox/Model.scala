@@ -1,0 +1,69 @@
+/* Copyright 2009-2016 EPFL, Lausanne */
+
+package inox
+
+object Model {
+  def empty(p: Program): p.Model = new Model {
+    val program: p.type = p
+    val vars: Map[p.trees.ValDef, p.trees.Expr] = Map.empty
+    val chooses: Map[(Identifier, Seq[p.trees.Type]), p.trees.Expr] = Map.empty
+  }
+
+  def apply(p: Program)(
+    vs: Map[p.trees.ValDef, p.trees.Expr],
+    cs: Map[(Identifier, Seq[p.trees.Type]), p.trees.Expr]
+  ): p.Model = new Model {
+    val program: p.type = p
+    val vars = vs
+    val chooses = cs
+  }
+}
+
+trait Model { self =>
+  val program: Program
+  import program._
+  import program.trees._
+
+  val vars: Map[ValDef, Expr]
+  val chooses: Map[(Identifier, Seq[Type]), Expr]
+
+  def isEmpty: Boolean = vars.isEmpty && chooses.isEmpty
+
+  def encode(t: ast.ProgramTransformer {
+    val sourceProgram: program.type
+  }): t.targetProgram.Model = new inox.Model {
+    val program: t.targetProgram.type = t.targetProgram
+    val vars = self.vars.map { case (vd, e) => t.encode(vd) -> t.encode(e) }
+    val chooses = self.chooses.map { case ((id, tps), e) => (id, tps.map(t.encode(_))) -> t.encode(e) }
+  }
+
+  def asString: String = if (isEmpty) "(Empty model)" else {
+    val max = vars.keys.map(_.asString.length).max
+    val modelString = (for ((vd, e) <- vars) yield {
+      "%-" + max + "s -> %s".format(vd.asString, e.asString)
+    }).mkString("\n")
+
+    val chooseFds = symbols.functions.values.flatMap(fd => fd.fullBody match {
+      case Choose(res, _) =>
+        val cs = chooses.filter { case ((id, _), _) => res.id == id }
+        if (cs.isEmpty) None else Some(fd -> cs)
+      case _ => None
+    }).toSeq
+
+    val functionString = (for {
+      (fd, cs) <- chooseFds
+      ((id, tps), e) <- cs
+    } yield {
+      fd.id.asString +
+      (if (tps.nonEmpty) "[" + tps.map(_.asString).mkString(",") + "]" else "") +
+      (if (fd.params.nonEmpty) "(" + fd.params.map(_.asString).mkString(", ") + ")" else "") +
+      " -> " + e.asString
+    }).mkString("\n")
+
+    modelString +
+    (if (modelString.nonEmpty && functionString.nonEmpty) "\n\n" else "") +
+    functionString
+  }
+
+  override def toString: String = asString
+}

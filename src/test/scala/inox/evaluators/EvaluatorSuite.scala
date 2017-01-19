@@ -306,7 +306,7 @@ class EvaluatorSuite extends FunSuite {
     toEval: Expr,
     env: Map[ValDef, Expr] = Map()
   ): EvalDSL = {
-    e.eval(toEval, env) match {
+    e.eval(toEval, Model(e.program)(env, Map.empty)) match {
       case EvaluationResults.Successful(res)     => Success(toEval, env, e, res)
       case EvaluationResults.RuntimeError(err)   => Failed(toEval, env, e, err)
       case EvaluationResults.EvaluatorError(err) => Failed(toEval, env, e, err)
