@@ -40,10 +40,21 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
   type Trees = IExpression
   type Model = SimpleAPI.PartialModel
 
-  private val enableAssertions = false
+  private val enableAssertions = ctx.reporter.isDebugEnabled
 
   ap.util.Debug enableAllAssertions enableAssertions
-  protected[princess] val p = SimpleAPI(enableAssert = enableAssertions)
+  protected[princess] val p = SimpleAPI(
+    enableAssert = enableAssertions,
+    dumpScala = enableAssertions,
+    scalaDumpBasename = ctx.options.findOptionOrDefault(Main.optFiles).headOption.map(_.getName).getOrElse("NA") + "-",
+    dumpDirectory = if (enableAssertions) {
+      val dir = new java.io.File("pri-sessions")
+      dir.mkdirs()
+      dir
+    } else {
+      null
+    }
+  )
 
   // Internal maps storing created Constant, Variables, ADT and Function symbols
   private[princess] val variables = new IncrementalBijection[Variable, IExpression]
