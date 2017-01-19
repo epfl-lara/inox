@@ -55,6 +55,7 @@ trait MainHelpers {
         "  " + first.mkString(", ") + ",\n" +
         "  " + second.mkString(", ")
     }),
+    optPrintChooses -> Description(Printing, "Display partial models for chooses when printing models"),
     ast.optPrintPositions -> Description(Printing, "Attach positions to trees when printing"),
     ast.optPrintUniqueIds -> Description(Printing, "Always print unique ids"),
     ast.optPrintTypes -> Description(Printing, "Attach types to trees when printing"),

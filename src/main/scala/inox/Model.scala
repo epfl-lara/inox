@@ -2,6 +2,8 @@
 
 package inox
 
+object optPrintChooses extends FlagOptionDef("printchooses", false)
+
 object Model {
   def empty(p: Program): p.Model = new Model {
     val program: p.type = p
@@ -62,7 +64,21 @@ trait Model { self =>
       " -> " + e.asString
     }).mkString("\n")
 
-    if (modelString.isEmpty && functionString.isEmpty) {
+    val printChooses = ctx.options.findOptionOrDefault(optPrintChooses)
+    lazy val chooseString = if (!printChooses) "" else {
+      val fdChooses = symbols.functions.values.flatMap(fd => fd.fullBody match {
+        case Choose(res, _) => Some(res.id)
+        case _ => None
+      }).toSet
+
+      chooses.collect { case ((id, tps), e) if !fdChooses(id) =>
+        id.asString +
+        (if (tps.nonEmpty) " (typed [" + tps.mkString(",") + "])" else "") +
+        " -> " + e.asString
+      }.mkString("\n")
+    }
+
+    if (modelString.isEmpty && functionString.isEmpty && (chooses.isEmpty || !printChooses)) {
       if (chooses.isEmpty) {
         "(Empty model)"
       } else {
@@ -71,7 +87,9 @@ trait Model { self =>
     } else {
       modelString +
       (if (modelString.nonEmpty && functionString.nonEmpty) "\n\n" else "") +
-      functionString
+      functionString +
+      (if (functionString.nonEmpty && chooseString.nonEmpty) "\n\n" else "") +
+      chooseString
     }
   }
 
