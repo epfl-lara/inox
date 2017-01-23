@@ -98,8 +98,9 @@ trait SymbolOps { self: TypeOps =>
   }
 
   protected def isImpureExpr(expr: Expr): Boolean = expr match {
-    case (_: Assume) | (_: Choose) |
+    case (_: Assume) | (_: Choose) | (_: Application) |
          (_: Division) | (_: Remainder) | (_: Modulo) | (_: AsInstanceOf) => true
+    case ADT(tpe, _) => tpe.getADT.definition.hasInvariant
     case _ => false
   }
 
@@ -199,60 +200,6 @@ trait SymbolOps { self: TypeOps =>
         })).isEmpty
       }
 
-      def isSatisfiable(path: Path): Option[Boolean] = path.conditions match {
-        case Seq() => Some(true)
-        case conds =>
-          val (posConds, posRest) = conds.partition {
-            case IsInstanceOf(v: Variable, adt) if tvars(v) => true
-            case _ => false
-          }
-
-          val (negConds, negRest) = posRest.partition {
-            case Not(IsInstanceOf(v: Variable, adt)) if tvars(v) => true
-            case _ => false
-          }
-
-          if (negRest.nonEmpty) {
-            None
-          } else {
-            val posAdts = posConds.collect {
-              case IsInstanceOf(v: Variable, tpe) if tpe != tpe.getADT.root.toType => v -> tpe
-            }.groupBy(_._1).mapValues(_.map(_._2).toSet)
-
-            val negAdts = negConds.collect {
-              case Not(IsInstanceOf(v: Variable, tpe)) => v -> tpe
-            }.groupBy(_._1).mapValues(_.map(_._2).toSet)
-
-            val results = for (v: Variable <- (posAdts.keys ++ negAdts.keys).toSet) yield {
-              val pos = posAdts.getOrElse(v, Set.empty)
-              val neg = negAdts.getOrElse(v, Set.empty)
-
-              if (pos.size > 1 || (pos & neg).nonEmpty) {
-                Some(false)
-              } else {
-                val constructors = ((pos ++ neg).head.getADT.root match {
-                  case tsort: TypedADTSort => tsort.constructors
-                  case tcons: TypedADTConstructor => Seq(tcons)
-                }).map(_.toType).toSet
-
-                if (neg == constructors) {
-                  Some(false)
-                } else {
-                  None
-                }
-              }
-            }
-
-            if (results.exists(_ contains false)) {
-              Some(false)
-            } else if (results.forall(_ contains true)) {
-              Some(true)
-            } else {
-              None
-            }
-          }
-      }
-
       object normalizer extends transformers.TransformerWithPC {
         val trees: self.trees.type = self.trees
         val symbols: self.symbols.type = self.symbols
@@ -273,7 +220,7 @@ trait SymbolOps { self: TypeOps =>
           case Let(vd, e, b) if (
             isLocal(e, path) &&
             (isSimple(e) || !onlySimple) &&
-            ((isSatisfiable(path) contains true) || isPure(e))
+            isPure(e)
           ) =>
             val newId = getId(e)
             rec(replaceFromSymbols(Map(vd.toVariable -> Variable(newId, vd.tpe, Set.empty)), b), path)
@@ -281,7 +228,7 @@ trait SymbolOps { self: TypeOps =>
           case expr if (
             isLocal(expr, path) &&
             (isSimple(expr) || !onlySimple) &&
-            ((isSatisfiable(path) contains true) || isPure(expr))
+            isPure(expr)
           ) =>
             Variable(getId(expr), expr.getType, Set.empty)
 
