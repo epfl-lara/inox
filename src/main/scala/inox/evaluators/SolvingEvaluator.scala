@@ -15,7 +15,7 @@ trait SolvingEvaluator extends Evaluator { self =>
 
   protected implicit val semantics: program.Semantics
 
-  private object optForallCache extends OptionDef[MutableMap[program.trees.Forall, Boolean]] {
+  private object optForallCache extends OptionDef[MutableMap[Forall, Boolean]] {
     val parser = { (_: String) => throw FatalError("Unparsable option \"forallCache\"") }
     val name = "forall-cache"
     val usageRhs = "No possible usage"
@@ -23,7 +23,11 @@ trait SolvingEvaluator extends Evaluator { self =>
   }
 
   private val chooseCache: MutableMap[Choose, Expr] = MutableMap.empty
-  private val forallCache: MutableMap[Forall, Expr] = MutableMap.empty
+
+  // @nv: this has to be visible otherwise the compiler just sets it to `null`
+  protected lazy val forallCache: MutableMap[Forall, Boolean] = {
+    options.findOptionOrDefault(optForallCache)
+  }
 
   def onChooseInvocation(choose: Choose): Expr = chooseCache.getOrElseUpdate(choose, {
     val timer = ctx.timers.evaluators.specs.start()
@@ -46,16 +50,14 @@ trait SolvingEvaluator extends Evaluator { self =>
   })
 
   def onForallInvocation(forall: Forall): Expr = {
-    val cache = options.findOptionOrDefault(optForallCache)
-
-    BooleanLiteral(cache.getOrElse(forall, {
+    BooleanLiteral(forallCache.getOrElse(forall, {
       val timer = ctx.timers.evaluators.forall.start()
 
       val sf = semantics.getSolver(ctx.options ++ Seq(
         optSilentErrors(true),
         optCheckModels(false), // model is checked manually!! (see below)
         unrolling.optFeelingLucky(false),
-        optForallCache(cache) // this makes sure we have an `optForallCache` set!
+        optForallCache(forallCache) // this makes sure we have an `optForallCache` set!
       ))
 
       import SolverResponses._
@@ -66,11 +68,11 @@ trait SolvingEvaluator extends Evaluator { self =>
 
       res match {
         case Unsat =>
-          cache(forall) = true
+          forallCache(forall) = true
           true
 
         case SatWithModel(model) =>
-          cache(forall) = false
+          forallCache(forall) = false
           eval(Not(forall.body), model) match {
             case EvaluationResults.Successful(BooleanLiteral(true)) => false
             case _ => throw new RuntimeException("Forall model check failed")
