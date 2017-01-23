@@ -34,8 +34,13 @@ trait Program { self =>
     val program: self.type
   }
 
-  implicit def implicitSemantics(implicit ev: self.type <:< InoxProgram): Semantics = {
-    ev(self).semantics.asInstanceOf[Semantics]
+  private[this] var _semantics: Semantics = null
+  implicit def getSemantics(implicit ev: SemanticsProvider { val trees: self.trees.type }): Semantics = {
+    if (_semantics == null) {
+      // @nv: tell the type system what's what!
+      _semantics = ev.getSemantics(this.asInstanceOf[Program { val trees: self.trees.type }]).asInstanceOf[Semantics]
+    }
+    _semantics
   }
 
   def transform(t: TreeTransformer { val s: self.trees.type }): Program { val trees: t.t.type } = new Program {

@@ -513,7 +513,7 @@ object RecursiveEvaluator {
       val program: p.type = p
       val options = opts
     } with RecursiveEvaluator with HasDefaultGlobalContext with HasDefaultRecContext {
-      val semantics: p.Semantics = p.semantics
+      val semantics: p.Semantics = p.getSemantics
     }
   }
 

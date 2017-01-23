@@ -23,3 +23,8 @@ trait Semantics { self =>
 
   def getEvaluator(opts: Options): evaluators.DeterministicEvaluator { val program: self.program.type }
 }
+
+trait SemanticsProvider { self =>
+  val trees: ast.Trees
+  def getSemantics(p: Program { val trees: self.trees.type }): p.Semantics
+}

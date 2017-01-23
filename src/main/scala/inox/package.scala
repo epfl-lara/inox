@@ -62,31 +62,25 @@ package object inox {
     ) extends SimpleSymbols
   }
 
-  // @nv: type system is unfortunately a little weak here...
+  implicit lazy val inoxSemantics: SemanticsProvider { val trees: inox.trees.type } = new SemanticsProvider {
+    val trees: inox.trees.type = inox.trees
 
-  trait SemanticsProvider {
-    val program: InoxProgram
-    val semantics: program.Semantics
-  }
-
-  implicit def inoxSemantics(p: InoxProgram): SemanticsProvider { val program: p.type } = new SemanticsProvider {
-    val program: p.type = p
-    val semantics: p.Semantics = new Semantics { self =>
+    def getSemantics(p: Program { val trees: inox.trees.type }): p.Semantics = new inox.Semantics { self =>
       val trees: p.trees.type = p.trees
       val symbols: p.symbols.type = p.symbols
-      val program: Program { val trees: p.trees.type; val symbols: p.symbols.type } = p.asInstanceOf[Program {
-        val trees: p.trees.type
-        val symbols: p.symbols.type
-      }]
+
+      // @nv: type system is unfortunately a little weak here...
+      val program: Program { val trees: p.trees.type; val symbols: p.symbols.type } =
+        p.asInstanceOf[Program { val trees: p.trees.type; val symbols: p.symbols.type }]
 
       def getSolver(opts: Options): solvers.SolverFactory {
         val program: self.program.type
         type S <: solvers.combinators.TimeoutSolver { val program: self.program.type }
       } = solvers.SolverFactory(self.program, opts)
 
-      def getEvaluator(opts: Options): evaluators.DeterministicEvaluator { val program: self.program.type } = {
-        evaluators.RecursiveEvaluator(self.program, opts)
-      }
-    }.asInstanceOf[p.Semantics] // @nv: unfortunately required here...
+      def getEvaluator(opts: Options): evaluators.DeterministicEvaluator {
+        val program: self.program.type
+      } = evaluators.RecursiveEvaluator(self.program, opts)
+    }.asInstanceOf[p.Semantics]
   }
 }

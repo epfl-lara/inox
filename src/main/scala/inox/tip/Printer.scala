@@ -56,7 +56,7 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
     def interrupt(): Unit = free()
   }
 
-  protected val semantics: program.Semantics = program.semantics
+  protected val semantics: program.Semantics = program.getSemantics
 
   protected val extraVars = new Bijection[Variable, SSymbol]
 
