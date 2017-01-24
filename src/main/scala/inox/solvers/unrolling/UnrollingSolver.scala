@@ -745,7 +745,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
   import program.symbols._
 
   type Encoded = t.Expr
-  val underlying: Solver { val program: targetProgram.type }
+  protected val underlying: Solver { val program: targetProgram.type }
 
   override lazy val name = "U:"+underlying.name
 

@@ -106,75 +106,132 @@ object SolverFactory {
     }
 
     finalName match {
-      case "nativez3" => create(p)(finalName, () => new {
-        val program: p.type = p
-        val options = opts
-        val encoder: enc.type = enc
-      } with z3.NativeZ3Solver with TimeoutSolver with tip.TipDebugger {
-        val semantics = sem
-        lazy val chooses = ChooseEncoder(p)(encoder)
-        lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
-      })
+      case "nativez3" => create(p)(finalName, {
+        val chooseEnc = ChooseEncoder(p)(enc)
+        val fullEnc = enc andThen chooseEnc
+        val theoryEnc = theories.Z3(fullEnc.targetProgram)
+        val progEnc = fullEnc andThen theoryEnc
 
-      case "unrollz3" => create(p)(finalName, () => new {
-        val program: p.type = p
-        val options = opts
-        val encoder: enc.type = enc
-      } with UnrollingSolver with theories.Z3Theories with TimeoutSolver with tip.TipDebugger {
-        val semantics = sem
-        lazy val chooses = ChooseEncoder(p)(encoder)
-        lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
-
-        object underlying extends {
-          val program: targetProgram.type = targetProgram
+        () => new {
+          val program: p.type = p
           val options = opts
-        } with z3.UninterpretedZ3Solver {
-          lazy val semantics: targetProgram.Semantics = targetSemantics
+          val encoder: enc.type = enc
+        } with z3.NativeZ3Solver with TimeoutSolver with tip.TipDebugger {
+          val semantics = sem
+          val chooses: chooseEnc.type = chooseEnc
+          override protected lazy val theories: theoryEnc.type = theoryEnc
+          override protected lazy val fullEncoder = fullEnc
+          override protected lazy val programEncoder = progEnc
+          lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
         }
       })
 
-      case "smt-cvc4" => create(p)(finalName, () => new {
-        val program: p.type = p
-        val options = opts
-        val encoder: enc.type = enc
-      } with UnrollingSolver with theories.CVC4Theories with TimeoutSolver with tip.TipDebugger {
-        val semantics = sem
-        lazy val chooses = ChooseEncoder(p)(encoder)
-        lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
+      case "unrollz3" => create(p)(finalName, {
+        val chooseEnc = ChooseEncoder(p)(enc)
+        val fullEnc = enc andThen chooseEnc
+        val theoryEnc = theories.Z3(fullEnc.targetProgram)
+        val progEnc = fullEnc andThen theoryEnc
+        val targetSem = progEnc.targetProgram.getSemantics
 
-        object underlying extends {
-          val program: targetProgram.type = targetProgram
+        () => new {
+          val program: p.type = p
           val options = opts
-        } with smtlib.CVC4Solver {
-          lazy val semantics: targetProgram.Semantics = targetSemantics
+          val encoder: enc.type = enc
+        } with UnrollingSolver with TimeoutSolver with tip.TipDebugger {
+          val semantics = sem
+          val chooses: chooseEnc.type = chooseEnc
+          val theories: theoryEnc.type = theoryEnc
+          val targetSemantics = targetSem
+          override protected lazy val fullEncoder = fullEnc
+          override protected lazy val programEncoder = progEnc
+
+          protected object underlying extends {
+            val program: progEnc.targetProgram.type = progEnc.targetProgram
+            val options = opts
+          } with z3.UninterpretedZ3Solver {
+            val semantics: program.Semantics = targetSem
+          }
         }
       })
 
-      case "smt-z3" => create(p)(finalName, () => new {
-        val program: p.type = p
-        val options = opts
-        val encoder: enc.type = enc
-      } with UnrollingSolver with theories.Z3Theories with TimeoutSolver with tip.TipDebugger {
-        val semantics = sem
-        lazy val chooses = ChooseEncoder(p)(encoder)
-        lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
+      case "smt-z3" => create(p)(finalName, {
+        val chooseEnc = ChooseEncoder(p)(enc)
+        val fullEnc = enc andThen chooseEnc
+        val theoryEnc = theories.Z3(fullEnc.targetProgram)
+        val progEnc = fullEnc andThen theoryEnc
+        val targetSem = progEnc.targetProgram.getSemantics
 
-        object underlying extends {
-          val program: targetProgram.type = targetProgram
+        () => new {
+          val program: p.type = p
           val options = opts
-        } with smtlib.Z3Solver {
-          lazy val semantics: targetProgram.Semantics = targetSemantics
+          val encoder: enc.type = enc
+        } with UnrollingSolver with TimeoutSolver with tip.TipDebugger {
+          val semantics = sem
+          val chooses: chooseEnc.type = chooseEnc
+          val theories: theoryEnc.type = theoryEnc
+          val targetSemantics = targetSem
+          override protected lazy val fullEncoder = fullEnc
+          override protected lazy val programEncoder = progEnc
+
+          protected object underlying extends {
+            val program: progEnc.targetProgram.type = progEnc.targetProgram
+            val options = opts
+          } with smtlib.Z3Solver {
+            val semantics: program.Semantics = targetSem
+          }
         }
       })
 
-      case "princess" => create(p)(finalName, () => new {
-        val program: p.type = p
-        val options = opts
-        val encoder: enc.type = enc
-      } with princess.PrincessSolver with TimeoutSolver {
-        val semantics = sem
-        lazy val chooses = ChooseEncoder(p)(encoder)
-        lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
+      case "smt-cvc4" => create(p)(finalName, {
+        val ev = sem.getEvaluator
+        val chooseEnc = ChooseEncoder(p)(enc)
+        val fullEnc = enc andThen chooseEnc
+        val theoryEnc = theories.CVC4(fullEnc)(ev)
+        val progEnc = fullEnc andThen theoryEnc
+        val targetSem = progEnc.targetProgram.getSemantics
+
+        () => new {
+          val program: p.type = p
+          val options = opts
+          val encoder: enc.type = enc
+        } with UnrollingSolver with TimeoutSolver with tip.TipDebugger {
+          val semantics = sem
+          val chooses: chooseEnc.type = chooseEnc
+          val theories: theoryEnc.type = theoryEnc
+          val targetSemantics = targetSem
+          override protected lazy val evaluator = ev
+          override protected lazy val fullEncoder = fullEnc
+          override protected lazy val programEncoder = progEnc
+
+          protected object underlying extends {
+            val program: progEnc.targetProgram.type = progEnc.targetProgram
+            val options = opts
+          } with smtlib.CVC4Solver {
+            val semantics: program.Semantics = targetSem
+          }
+        }
+      })
+
+      case "princess" => create(p)(finalName, {
+        val ev = sem.getEvaluator
+        val chooseEnc = ChooseEncoder(p)(enc)
+        val fullEnc = enc andThen chooseEnc
+        val theoryEnc = theories.Princess(fullEnc)(ev)
+        val progEnc = fullEnc andThen theoryEnc
+
+        () => new {
+          val program: p.type = p
+          val options = opts
+          val encoder: enc.type = enc
+        } with princess.PrincessSolver with TimeoutSolver {
+          val semantics = sem
+          val chooses: chooseEnc.type = chooseEnc
+          override protected lazy val theories: theoryEnc.type = theoryEnc
+          override protected lazy val evaluator = ev
+          override protected lazy val fullEncoder = fullEnc
+          override protected lazy val programEncoder = progEnc
+          lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
+        }
       })
 
       case _ => throw FatalError("Unknown solver: " + finalName)

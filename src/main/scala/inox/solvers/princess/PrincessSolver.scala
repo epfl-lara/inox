@@ -8,15 +8,16 @@ import ap._
 import ap.parser._
 
 import unrolling._
-import solvers.theories._
 
-trait PrincessSolver extends AbstractUnrollingSolver with PrincessTheories { self =>
+trait PrincessSolver extends AbstractUnrollingSolver { self =>
 
   import program._
   import program.trees._
   import program.symbols._
 
   override val name = "Princess"
+
+  protected lazy val theories = solvers.theories.Princess(fullEncoder)(semantics.getEvaluator)
 
   protected object underlying extends {
     val program: targetProgram.type = targetProgram

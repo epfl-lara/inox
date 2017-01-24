@@ -7,31 +7,38 @@ import evaluators._
 
 package object theories {
 
-  trait Z3Theories { self: unrolling.AbstractUnrollingSolver =>
-    lazy val theories = StringEncoder(self.fullEncoder.targetProgram)
-  }
+  def Z3(p: Program): ast.ProgramTransformer {
+    val sourceProgram: p.type
+    val targetProgram: Program { val trees: p.trees.type }
+  } = StringEncoder(p)
 
-  trait CVC4Theories { self: unrolling.AbstractUnrollingSolver =>
-    lazy val theories = BagEncoder(self.fullEncoder)(self.evaluator)
-  }
+  def CVC4(enc: ast.ProgramTransformer)
+          (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }): ast.ProgramTransformer {
+    val sourceProgram: enc.targetProgram.type
+    val targetProgram: Program { val trees: enc.targetProgram.trees.type }
+  } = BagEncoder(enc)(ev)
 
-  trait PrincessTheories { self: unrolling.AbstractUnrollingSolver =>
-    lazy val stringEncoder = StringEncoder(self.fullEncoder.targetProgram)
+  def Princess(enc: ast.ProgramTransformer)
+              (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }): ast.ProgramTransformer {
+    val sourceProgram: enc.targetProgram.type
+    val targetProgram: Program { val trees: enc.targetProgram.trees.type }
+  } = {
+    val stringEncoder = StringEncoder(enc.targetProgram)
 
-    lazy val selfAndString = self.fullEncoder andThen stringEncoder
-    lazy val bagEncoder = BagEncoder(selfAndString)(self.evaluator)
+    val encAndString = enc andThen stringEncoder
+    val bagEncoder = BagEncoder(encAndString)(ev)
 
-    lazy val setEncoder = SetEncoder(bagEncoder.targetProgram)
+    val setEncoder = SetEncoder(bagEncoder.targetProgram)
 
-    lazy val bvEncoder = BitvectorEncoder(setEncoder.targetProgram)
+    val bvEncoder = BitvectorEncoder(setEncoder.targetProgram)
 
-    lazy val realEncoder = RealEncoder(bvEncoder.targetProgram)
+    val realEncoder = RealEncoder(bvEncoder.targetProgram)
 
     // @nv: Required due to limitations in scalac existential types
-    protected lazy val e1 = stringEncoder andThen bagEncoder
-    protected lazy val e2 = e1 andThen setEncoder
-    protected lazy val e3 = e2 andThen bvEncoder
-    lazy val theories = e3 andThen realEncoder
+    val e1 = stringEncoder andThen bagEncoder
+    val e2 = e1 andThen setEncoder
+    val e3 = e2 andThen bvEncoder
+    e3 andThen realEncoder
   }
 
   object ReverseEvaluator {

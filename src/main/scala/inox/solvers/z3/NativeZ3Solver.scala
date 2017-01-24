@@ -5,11 +5,10 @@ package solvers.z3
 
 import solvers.{z3 => _, _}
 import unrolling._
-import theories._
 
 import z3.scala._
 
-trait NativeZ3Solver extends AbstractUnrollingSolver with Z3Theories { self =>
+trait NativeZ3Solver extends AbstractUnrollingSolver { self =>
 
   import program._
   import program.trees._
@@ -18,6 +17,8 @@ trait NativeZ3Solver extends AbstractUnrollingSolver with Z3Theories { self =>
   override val name = "NativeZ3"
 
   type Encoded = Z3AST
+
+  protected lazy val theories = solvers.theories.Z3(fullEncoder.targetProgram)
 
   protected object underlying extends {
     val program: targetProgram.type = targetProgram
