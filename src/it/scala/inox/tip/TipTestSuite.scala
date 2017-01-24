@@ -33,7 +33,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     }) { ctx =>
       for ((syms, expr) <- new Parser(file).parseScript) {
         val program = InoxProgram(ctx, syms)
-        assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(expr).isSAT)
+        assert(SimpleSolverAPI(program.getSolver).solveSAT(expr).isSAT)
       }
     }
   }
@@ -46,7 +46,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     }) { ctx =>
       for ((syms, expr) <- new Parser(file).parseScript) {
         val program = InoxProgram(ctx, syms)
-        assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(expr).isUNSAT)
+        assert(SimpleSolverAPI(program.getSolver).solveSAT(expr).isUNSAT)
       }
     }
   }

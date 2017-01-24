@@ -118,6 +118,15 @@ trait Program {
 In general, Inox uses programs to make its path-dependant API feasible and both [solvers](#solvers)
 and [evaluators](#evaluators) are bound to some program instance.
 
+When in possession of an `InoxProgram` (namely a `Program { val trees: inox.trees.type }`), one
+further gains access to the following extra API:
+```scala
+def getSolver: solvers.SolverFactory
+def getSolver(opts: Options): solvers.SolverFactory
+def getEvaluator: evaluators.DeterministicEvaluator
+def getEvaluator(opts: Options): evaluators.DeterministicEvaluator
+```
+
 Solvers
 -------
 

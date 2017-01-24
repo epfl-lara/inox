@@ -34,14 +34,38 @@ trait Program { self =>
     val program: self.type
   }
 
+  private type Provider = inox.SemanticsProvider {
+    val trees: self.trees.type
+  }
+
   private[this] var _semantics: Semantics = null
-  implicit def getSemantics(implicit ev: SemanticsProvider { val trees: self.trees.type }): Semantics = {
+  implicit def getSemantics(implicit ev: Provider): Semantics = {
     if (_semantics == null) {
       // @nv: tell the type system what's what!
       _semantics = ev.getSemantics(this.asInstanceOf[Program { val trees: self.trees.type }]).asInstanceOf[Semantics]
     }
     _semantics
   }
+
+
+  def getSolver(implicit ev: Provider): solvers.SolverFactory {
+    val program: self.type
+    type S <: solvers.combinators.TimeoutSolver { val program: self.type }
+  } = getSemantics.getSolver
+
+  def getSolver(opts: Options)(implicit ev: Provider): solvers.SolverFactory {
+    val program: self.type
+    type S <: solvers.combinators.TimeoutSolver { val program: self.type }
+  } = getSemantics.getSolver(opts)
+
+  def getEvaluator(implicit ev: Provider): evaluators.DeterministicEvaluator {
+    val program: self.type
+  } = getSemantics.getEvaluator
+
+  def getEvaluator(opts: Options)(implicit ev: Provider): evaluators.DeterministicEvaluator {
+    val program: self.type
+  } = getSemantics.getEvaluator
+
 
   def transform(t: TreeTransformer { val s: self.trees.type }): Program { val trees: t.t.type } = new Program {
     val trees: t.t.type = t.t

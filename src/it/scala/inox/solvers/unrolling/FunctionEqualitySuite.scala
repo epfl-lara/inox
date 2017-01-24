@@ -32,7 +32,7 @@ class FunctionEqualitySuite extends SolvingTestSuite with DatastructureUtils {
       T(mmapID)(IntegerType, IntegerType =>: IntegerType)(\("i" :: IntegerType)(i => T(someID)(IntegerType =>: IntegerType)(\("x" :: IntegerType)(x => IntegerLiteral(0)))))
     )(states => contains(IntegerType, IntegerType =>: IntegerType)(states, IntegerLiteral(0)) && E(false))
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(clause)).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(clause)).isSAT)
   }
 
   test("possible equality 1") { ctx =>
@@ -41,7 +41,7 @@ class FunctionEqualitySuite extends SolvingTestSuite with DatastructureUtils {
     val g = ("g" :: (IntegerType =>: IntegerType)).toVariable
     val clause = f === (\("x" :: IntegerType)(x => g(x)))
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("possible equality 2") { ctx =>
@@ -50,7 +50,7 @@ class FunctionEqualitySuite extends SolvingTestSuite with DatastructureUtils {
     val g = ("g" :: (IntegerType =>: IntegerType)).toVariable
     val clause = g === (\("x" :: IntegerType)(x => f(x)))
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("impossible equality 1") { ctx =>
@@ -58,7 +58,7 @@ class FunctionEqualitySuite extends SolvingTestSuite with DatastructureUtils {
     val f = ("f" :: (IntegerType =>: IntegerType)).toVariable
     val clause = f === (\("x" :: IntegerType)(x => f(x)))
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 
   test("impossible equality 2") { ctx =>
@@ -67,6 +67,6 @@ class FunctionEqualitySuite extends SolvingTestSuite with DatastructureUtils {
     val g = ("g" :: (IntegerType =>: IntegerType)).toVariable
     val clause = f === (\("x" :: IntegerType)(x => g(x))) && g === (\("x" :: IntegerType)(x => f(x)))
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 }

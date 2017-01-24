@@ -64,44 +64,44 @@ class ChooseSuite extends SolvingTestSuite {
   test("simple choose") { ctx =>
     val program = InoxProgram(ctx, symbols)
     val clause = choose("v" :: IntegerType)(v => v > IntegerLiteral(0)) === IntegerLiteral(10)
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("choose in function") { ctx =>
     val program = InoxProgram(ctx, symbols)
     val clause = fun1(IntegerLiteral(-1)) === IntegerLiteral(10)
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("choose in function and arguments") { ctx =>
     val program = InoxProgram(ctx, symbols)
     val clause = fun1(choose("v" :: IntegerType)(_ < IntegerLiteral(0))) === IntegerLiteral(10)
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("choose in callee function") { ctx =>
     val program = InoxProgram(ctx, symbols)
     val clause = fun2(IntegerLiteral(1), IntegerLiteral(-1)) === IntegerLiteral(10) &&
       fun2(IntegerLiteral(-1), IntegerLiteral(0)) === IntegerLiteral(2)
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("choose in parametric function") { ctx =>
     val program = InoxProgram(ctx, symbols)
     val clause = fun3(IntegerType)(IntegerLiteral(1), E(true)) === IntegerLiteral(10) &&
       fun3(BooleanType)(E(true), E(true)) === E(false)
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("choose in recursive function") { ctx =>
     val program = InoxProgram(ctx, symbols)
     val clause = fun4(IntegerLiteral(2), IntegerLiteral(1)) === IntegerLiteral(10)
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
 
     val clause2 = fun4(IntegerLiteral(2), IntegerLiteral(2)) === IntegerLiteral(6)
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause2).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause2).isSAT)
 
     val clause3 = fun4(IntegerLiteral(2), IntegerLiteral(2)) === IntegerLiteral(5)
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause3).isUNSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause3).isUNSAT)
   }
 }

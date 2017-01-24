@@ -19,7 +19,7 @@ class SemanticsSuite extends FunSuite {
 
   def solver(ctx: Context): SimpleSolverAPI { val factory: SolverFactory { val program: InoxProgram } } = {
     val program = InoxProgram(ctx, symbols)
-    SimpleSolverAPI(SolverFactory.default(program))
+    SimpleSolverAPI(program.getSolver)
   }
 
   protected def test(name: String, tags: Tag*)(body: Context => Unit): Unit = {

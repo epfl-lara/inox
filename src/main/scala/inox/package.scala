@@ -73,12 +73,12 @@ package object inox {
       val program: Program { val trees: p.trees.type; val symbols: p.symbols.type } =
         p.asInstanceOf[Program { val trees: p.trees.type; val symbols: p.symbols.type }]
 
-      def getSolver(opts: Options): solvers.SolverFactory {
+      protected def createSolver(opts: Options): solvers.SolverFactory {
         val program: self.program.type
         type S <: solvers.combinators.TimeoutSolver { val program: self.program.type }
       } = solvers.SolverFactory(self.program, opts)
 
-      def getEvaluator(opts: Options): evaluators.DeterministicEvaluator {
+      protected def createEvaluator(opts: Options): evaluators.DeterministicEvaluator {
         val program: self.program.type
       } = evaluators.RecursiveEvaluator(self.program, opts)
     }.asInstanceOf[p.Semantics]

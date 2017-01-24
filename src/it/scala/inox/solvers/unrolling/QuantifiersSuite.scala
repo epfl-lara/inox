@@ -70,7 +70,7 @@ class QuantifiersSuite extends TestSuite {
       \("p1" :: T(aT,bT), "p2" :: T(aT, bT))((p1,p2) => E(f1(p1._1,p2._1), f2(p1._2,p2._2)))
     }
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 
   test("Commutative and rotate ==> associative") { ctx =>
@@ -80,7 +80,7 @@ class QuantifiersSuite extends TestSuite {
     val f = ("f" :: ((aT, aT) =>: aT)).toVariable
     val clause = isCommutative(aT)(f) && isRotate(aT)(f) && !isAssociative(aT)(f)
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 
   test("Commutative and rotate ==> associative (integer type)") { ctx =>
@@ -89,7 +89,7 @@ class QuantifiersSuite extends TestSuite {
     val f = ("f" :: ((IntegerType, IntegerType) =>: IntegerType)).toVariable
     val clause = isCommutative(IntegerType)(f) && isRotate(IntegerType)(f) && !isAssociative(IntegerType)(f)
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 
   test("Associatve =!=> commutative") { ctx =>
@@ -99,7 +99,7 @@ class QuantifiersSuite extends TestSuite {
     val f = ("f" :: ((aT, aT) =>: aT)).toVariable
     val clause = isAssociative(aT)(f) && !isCommutative(aT)(f)
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("Commutative =!=> associative") { ctx =>
@@ -109,7 +109,7 @@ class QuantifiersSuite extends TestSuite {
     val f = ("f" :: ((aT, aT) =>: aT)).toVariable
     val clause = isCommutative(aT)(f) && !isAssociative(aT)(f)
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("Commutative + idempotent satisfiable") { ctx =>
@@ -120,7 +120,7 @@ class QuantifiersSuite extends TestSuite {
       !(f(E(BigInt(1)), E(BigInt(2))) ===
         f(f(E(BigInt(2)), E(BigInt(1))), E(BigInt(3))))
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("Unification is unsatisfiable") { ctx =>
@@ -130,6 +130,6 @@ class QuantifiersSuite extends TestSuite {
     val f = ("f" :: ((aT, aT) =>: aT)).toVariable
     val clause = forall("x" :: aT, "y" :: aT)((x,y) => !(f(x,y) === f(y,x)))
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 }

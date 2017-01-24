@@ -86,7 +86,7 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
     val b = ("bag" :: BagType(aT)).toVariable
     val clause = Not(Equals(b, FiniteBag(Seq.empty, aT)))
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("Finite model finding 2") { ctx =>
@@ -97,7 +97,7 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
     val elem = ("elem" :: aT).toVariable
     val clause = Not(Equals(b, FiniteBag(Seq(elem -> IntegerLiteral(1)), aT)))
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("Finite model finding 3") { ctx =>
@@ -112,7 +112,7 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
       Not(Equals(MultiplicityInBag(e2, b), IntegerLiteral(0)))
     ))
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("split preserves content") { ctx =>
@@ -120,7 +120,7 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
     val Let(vd, body, Assume(pred, _)) = split.fullBody
     val clause = Let(vd, body, pred)
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveVALID(clause) contains true)
+    assert(SimpleSolverAPI(program.getSolver).solveVALID(clause) contains true)
   }
 
   test("split2 doesn't preserve content") { ctx =>
@@ -128,6 +128,6 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
     val Let(vd, body, Assume(pred, _)) = split2.fullBody
     val clause = Let(vd, body, pred)
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(clause)).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(clause)).isSAT)
   }
 }

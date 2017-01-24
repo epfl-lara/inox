@@ -174,7 +174,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
     val vd = "x" :: T(listID)(IntegerType)
     val clause = sizeFd(IntegerType)(vd.toVariable) === E(BigInt(0))
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("size(x) < 0 is unsatisfiable") { ctx =>
@@ -182,7 +182,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
     val vd = "x" :: T(listID)(IntegerType)
     val clause = sizeFd(IntegerType)(vd.toVariable) < E(BigInt(0))
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isUNSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 
   def filterPrincess(ctx: Context, allowSelect: Boolean = true): FilterStatus = {
@@ -197,7 +197,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
 
   test("flatMap is associative", filterPrincess(_)) { ctx =>
     val program = InoxProgram(ctx, symbols)
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(associative.fullBody)).isUNSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(associative.fullBody)).isUNSAT)
   }
 
   test("sort preserves content 1", filterPrincess(_)) { ctx =>
@@ -205,7 +205,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
     val (l,p) = ("l" :: T(listID)(IntegerType), "p" :: ((IntegerType, IntegerType) =>: BooleanType))
     val clause = E(contentID)(IntegerType)(E(sortID)(IntegerType)(l.toVariable, p.toVariable)) ===
       E(contentID)(IntegerType)(l.toVariable)
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(clause)).isUNSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(clause)).isUNSAT)
   }
 
   test("sort preserves content 2", filterPrincess(_, allowSelect = false)) { ctx =>
@@ -217,7 +217,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
         Let(res, body, pred)
       case e => fail("Unexpected fullBody of `sort`: " + e.asString)
     }
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(Not(clause)).isUNSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(clause)).isUNSAT)
   }
 
 }

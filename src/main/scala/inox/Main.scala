@@ -189,8 +189,8 @@ object Main extends MainHelpers {
         import program.ctx._
 
         val sf = program.ctx.options.findOption(optTimeout) match {
-          case Some(to) => SolverFactory.default(program).withTimeout(to)
-          case None => SolverFactory.default(program)
+          case Some(to) => program.getSolver.withTimeout(to)
+          case None => program.getSolver
         }
 
         import SolverResponses._

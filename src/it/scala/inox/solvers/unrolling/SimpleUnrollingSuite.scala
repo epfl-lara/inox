@@ -47,7 +47,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     val vd: ValDef = "x" :: T(listID)(IntegerType)
     val clause = sizeFd(IntegerType)(vd.toVariable) > E(BigInt(0))
 
-    SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause) match {
+    SimpleSolverAPI(program.getSolver).solveSAT(clause) match {
       case SatWithModel(model) =>
         model.vars.get(vd) match {
           case Some(ADT(ADTType(`consID`, Seq(IntegerType)), _)) =>
@@ -70,7 +70,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     val vd: ValDef = "x" :: T(listID)(tp)
     val clause = sizeFd(tp)(vd.toVariable) === E(BigInt(0))
 
-    SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause) match {
+    SimpleSolverAPI(program.getSolver).solveSAT(clause) match {
       case SatWithModel(model) =>
         model.vars.get(vd) match {
           case Some(ADT(ADTType(`nilID`, Seq(`tp`)), Seq())) =>
@@ -90,7 +90,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     val vd: ValDef = "x" :: T(listID)(IntegerType)
     val clause = sizeFd(IntegerType)(vd.toVariable) < E(BigInt(0))
 
-    assert(!SimpleSolverAPI(SolverFactory.default(program).withTimeout(100)).solveSAT(clause).isSAT)
+    assert(!SimpleSolverAPI(program.getSolver.withTimeout(100)).solveSAT(clause).isSAT)
   }
 
   test("size(x) > size(y) is satisfiable") { ctx =>
@@ -100,7 +100,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     val y: ValDef = "y" :: T(listID)(IntegerType)
     val clause = sizeFd(IntegerType)(x.toVariable) > sizeFd(IntegerType)(y.toVariable)
 
-    assert(SimpleSolverAPI(SolverFactory.default(program)).solveSAT(clause).isSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
 }
