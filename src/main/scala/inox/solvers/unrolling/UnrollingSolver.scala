@@ -629,9 +629,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
           } else if (abort || pause) {
             CheckResult cast Unknown
           } else if (checkModels && !valid) {
-            reporter.error("Something went wrong. The model should have been valid, yet we got this:")
-            reporter.error("  " + model.asString.replaceAll("\n", "\n  "))
-            reporter.error("for formula " + andJoin(assumptionsSeq ++ constraints).asString)
+            if (!silentErrors) {
+              reporter.error("Something went wrong. The model should have been valid, yet we got this:")
+              reporter.error("  " + model.asString.replaceAll("\n", "\n  "))
+              reporter.error("for formula " + andJoin(assumptionsSeq ++ constraints).asString)
+            }
             CheckResult cast Unknown
           } else if (templates.hasQuantifiers) {
             val wrapped = wrapModel(umodel)
@@ -645,10 +647,12 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
             optError match {
               case Some((expr, err)) =>
-                reporter.error("Quantification " + expr.asString(templates.program.printerOpts) +
-                  " does not fit in supported fragment.\n  Reason: " + err)
-                reporter.error("Model obtained was:")
-                reporter.error("  " + model.asString.replaceAll("\n", "\n  "))
+                if (!silentErrors) {
+                  reporter.error("Quantification " + expr.asString(templates.program.printerOpts) +
+                    " does not fit in supported fragment.\n  Reason: " + err)
+                  reporter.error("Model obtained was:")
+                  reporter.error("  " + model.asString.replaceAll("\n", "\n  "))
+                }
                 CheckResult cast Unknown
               case None =>
                 CheckResult(satResult)
@@ -659,7 +663,9 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
         case InstantiateQuantifiers =>
           if (templates.quantificationsManager.unrollGeneration.isEmpty) {
-            reporter.error("Something went wrong. The model is not transitive yet we can't instantiate!?")
+            if (!silentErrors) {
+              reporter.error("Something went wrong. The model is not transitive yet we can't instantiate!?")
+            }
             CheckResult.cast(Unknown)
           } else {
             templates.promoteQuantifications
