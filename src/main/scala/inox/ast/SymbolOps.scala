@@ -240,6 +240,12 @@ trait SymbolOps { self: TypeOps =>
             val newBody = outer(vars ++ l.args.map(_.toVariable), l.body)
             Lambda(l.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
 
+          // @nv: we make sure NOT to normalize choose ids as we may need to
+          // report models for unnormalized chooses!
+          case c: Choose =>
+            val vs = variablesOf(c).map(v => v -> v.copy(id = transformId(v.id, v.tpe, store = false))).toMap
+            replaceFromSymbols(vs, c)
+
           case _ =>
             val (vs, es, tps, recons) = deconstructor.deconstruct(e)
             val newVs = vs.map(v => v.copy(id = transformId(v.id, v.tpe, store = false)))
