@@ -90,23 +90,23 @@ trait RecursiveEvaluator
 
       e(tfd.fullBody)(frame, gctx)
 
-    case And(Seq(e1, e2)) =>
-      (e(e1), e(e2)) match {
-        case (BooleanLiteral(b1), BooleanLiteral(b2)) => BooleanLiteral(b1 && b2)
-        case (le, re) => throw EvalError("Unexpected operation: (" + le.asString + ") && (" + re.asString + ")")
-      }
+    case And(Seq(e1, e2)) => e(e1) match {
+      case BooleanLiteral(false) => BooleanLiteral(false)
+      case BooleanLiteral(true) => e(e2)
+      case le => throw EvalError("Unexpected operation (" + le.asString + ") && (" + e2.asString + ")")
+    }
 
     case And(args) =>
-      e(And(args.head, e(And(args.tail))))
+      e(And(args.head, And(args.tail)))
 
-    case Or(Seq(e1, e2)) =>
-      (e(e1), e(e2)) match {
-        case (BooleanLiteral(b1), BooleanLiteral(b2)) => BooleanLiteral(b1 || b2)
-        case (le, re) => throw EvalError("Unexpected operation: (" + le.asString + ") || (" + re.asString + ")")
-      }
+    case Or(Seq(e1, e2)) => e(e1) match {
+      case BooleanLiteral(true) => BooleanLiteral(true)
+      case BooleanLiteral(false) => e(e2)
+      case le => throw EvalError("Unexpected operation (" + le.asString + ") || (" + e2.asString + ")")
+    }
 
     case Or(args) =>
-      e(Or(args.head, e(Or(args.tail))))
+      e(Or(args.head, Or(args.tail)))
 
     case Not(arg) =>
       e(arg) match {
