@@ -25,12 +25,14 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     (solver == "smt-z3" && fileName.endsWith("MergeSort2.scala-1.tip"))
   }
 
+  private def ignore(ctx: Context, file: java.io.File): FilterStatus = 
+    ctx.options.findOptionOrDefault(optSelectedSolvers).headOption match {
+      case Some(solver) if ignoreFile(solver, file.getName) => Ignore
+      case _ => Test
+    }
+
   for (file <- resourceFiles("regression/tip/SAT", _.endsWith(".tip"))) {
-    test(s"SAT - ${file.getName}", ctx =>
-      ctx.options.findOptionOrDefault(optSelectedSolvers).headOption match {
-        case Some(solver) if ignoreFile(solver, file.getName) => Ignore
-        case _ => Test
-    }) { ctx =>
+    test(s"SAT - ${file.getName}", ignore(_, file)) { ctx =>
       for ((syms, expr) <- new Parser(file).parseScript) {
         val program = InoxProgram(ctx, syms)
         assert(SimpleSolverAPI(program.getSolver).solveSAT(expr).isSAT)
@@ -39,14 +41,22 @@ class TipTestSuite extends TestSuite with ResourceUtils {
   }
 
   for (file <- resourceFiles("regression/tip/UNSAT", _.endsWith(".tip"))) {
-    test(s"UNSAT - ${file.getName}", ctx =>
-      ctx.options.findOptionOrDefault(optSelectedSolvers).headOption match {
-        case Some(solver) if ignoreFile(solver, file.getName) => Ignore
-        case _ => Test
-    }) { ctx =>
+    test(s"UNSAT - ${file.getName}", ignore(_, file)) { ctx =>
       for ((syms, expr) <- new Parser(file).parseScript) {
         val program = InoxProgram(ctx, syms)
         assert(SimpleSolverAPI(program.getSolver).solveSAT(expr).isUNSAT)
+      }
+    }
+  }
+
+  for (file <- resourceFiles("regression/tip/UNKNOWN", _.endsWith(".tip"))) {
+    test(s"UNKNOWN - ${file.getName}", ignore(_, file)) { ctx =>
+      for ((syms, expr) <- new Parser(file).parseScript) {
+        val program = InoxProgram(ctx, syms)
+        val api = SimpleSolverAPI(program.getSolver)
+        val res = api.solveSAT(expr)
+        assert(!res.isSAT && !res.isUNSAT)
+        assert(ctx.reporter.errorCount > 0)
       }
     }
   }
