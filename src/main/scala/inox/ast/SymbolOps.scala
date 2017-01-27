@@ -508,7 +508,21 @@ trait SymbolOps { self: TypeOps =>
       case _ => e
     }
 
-    normalizeClauses(inlineForalls(inlineFunctions(e)))
+    def simplifyMatchers(e: Expr): Expr = postMap {
+      case f @ FiniteSet(elems, base) if elems.nonEmpty =>
+        Some(elems.foldLeft(FiniteSet(Seq.empty, base).copiedFrom(f): Expr)(SetAdd(_,_).copiedFrom(f)))
+      case f @ FiniteBag(pair +: pairs, base) if pairs.nonEmpty =>
+        Some(pairs.foldLeft(FiniteBag(Seq(pair), base).copiedFrom(f): Expr) {
+          (bag, pair) => BagUnion(bag, FiniteBag(Seq(pair), base).copiedFrom(f)).copiedFrom(f)
+        })
+      case f @ FiniteMap(pairs, dflt, from, to) if pairs.nonEmpty =>
+        Some(pairs.foldLeft(FiniteMap(Seq.empty, dflt, from, to).copiedFrom(f): Expr) {
+          (map, pair) => MapUpdated(map, pair._1, pair._2).copiedFrom(f)
+        })
+      case _ => None
+    } (e)
+
+    normalizeClauses(simplifyMatchers(inlineForalls(inlineFunctions(e))))
   }
 
   def simplifyLets(expr: Expr): Expr = postMap({

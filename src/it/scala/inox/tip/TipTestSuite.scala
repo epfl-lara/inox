@@ -22,7 +22,10 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     // See http://church.cims.nyu.edu/bugzilla3/show_bug.cgi?id=500
     (solver == "smt-cvc4" && fileName.endsWith("List-fold.tip")) ||
     // Z3 binary will predictably segfault on certain permutations of this problem
-    (solver == "smt-z3" && fileName.endsWith("MergeSort2.scala-1.tip"))
+    (solver == "smt-z3" && fileName.endsWith("MergeSort2.scala-1.tip")) ||
+    // Z3 and CVC4 binaries are exceedingly slow on this benchmark
+    (solver == "smt-z3" && fileName.endsWith("BinarySearchTreeQuant.scala-2.tip")) ||
+    (solver == "smt-cvc4" && fileName.endsWith("BinarySearchTreeQuant.scala-2.tip"))
   }
 
   private def ignore(ctx: Context, file: java.io.File): FilterStatus = 
@@ -50,7 +53,8 @@ class TipTestSuite extends TestSuite with ResourceUtils {
   }
 
   for (file <- resourceFiles("regression/tip/UNKNOWN", _.endsWith(".tip"))) {
-    test(s"UNKNOWN - ${file.getName}", ignore(_, file)) { ctx =>
+    test(s"UNKNOWN - ${file.getName}", ignore(_, file)) { ctx0 =>
+      val ctx = ctx0.copy(options = ctx0.options + optCheckModels(false))
       for ((syms, expr) <- new Parser(file).parseScript) {
         val program = InoxProgram(ctx, syms)
         val api = SimpleSolverAPI(program.getSolver)

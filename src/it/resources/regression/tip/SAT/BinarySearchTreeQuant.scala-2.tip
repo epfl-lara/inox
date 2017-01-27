@@ -1,0 +1,16 @@
+(declare-datatypes () ((Tree!5 (Leaf!5) (Node!5 (left!8 Tree!5) (value!6 Int) (right!8 Tree!5)))))
+
+(define-fun-rec content!0 ((tree!0 Tree!5)) (Set Int) (ite (is-Leaf!5 tree!0) (as emptyset Int) (union (union (content!0 (left!8 tree!0)) (insert (as emptyset Int) (value!6 tree!0))) (content!0 (right!8 tree!0)))))
+
+(define-fun-rec isBST!0 ((tree!1 Tree!5)) Bool (ite (is-Leaf!5 tree!1) true (and (and (and (isBST!0 (left!8 tree!1)) (isBST!0 (right!8 tree!1))) (forall ((x!0 Int)) (=> (member x!0 (content!0 (left!8 tree!1))) (< x!0 (- (value!6 tree!1) 10))))) (forall ((x!1 Int)) (=> (member x!1 (content!0 (right!8 tree!1))) (< (value!6 tree!1) x!1))))))
+
+(declare-const tree!2 Tree!5)
+
+(declare-const value!1 Int)
+
+(define-fun-rec insert!0 ((tree!2 Tree!5) (value!1 Int)) Tree!5 (assume (isBST!0 tree!2) (let ((res!0 (ite (is-Leaf!5 tree!2) (Node!5 Leaf!5 value!1 Leaf!5) (ite (< (value!6 tree!2) value!1) (Node!5 (left!8 tree!2) (value!6 tree!2) (insert!0 (right!8 tree!2) value!1)) (ite (> (value!6 tree!2) value!1) (Node!5 (insert!0 (left!8 tree!2) value!1) (value!6 tree!2) (right!8 tree!2)) (Node!5 (left!8 tree!2) (value!6 tree!2) (right!8 tree!2))))))) (assume (and (isBST!0 res!0) (= (content!0 res!0) (union (content!0 tree!2) (insert (as emptyset Int) value!1)))) res!0))))
+
+(assert (not (=> (isBST!0 tree!2) (let ((res!46 (ite (is-Leaf!5 tree!2) (Node!5 Leaf!5 value!1 Leaf!5) (ite (< (value!6 tree!2) value!1) (Node!5 (left!8 tree!2) (value!6 tree!2) (insert!0 (right!8 tree!2) value!1)) (ite (> (value!6 tree!2) value!1) (Node!5 (insert!0 (left!8 tree!2) value!1) (value!6 tree!2) (right!8 tree!2)) (Node!5 (left!8 tree!2) (value!6 tree!2) (right!8 tree!2))))))) (and (isBST!0 res!46) (= (content!0 res!46) (union (content!0 tree!2) (insert (as emptyset Int) value!1))))))))
+
+(check-sat)
+

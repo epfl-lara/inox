@@ -34,8 +34,12 @@ trait QuantificationTemplates { self: Templates =>
       case IsTyped(a: Application, ft: FunctionType) => None
       case Application(e, args) => flatApplication(expr)
       case MapApply(map, key) => Some(map -> Seq(key))
+      case MapUpdated(map, key, value) => Some(map -> Seq(key))
       case MultiplicityInBag(elem, bag) => Some(bag -> Seq(elem))
+      case bag @ FiniteBag(Seq((key, _)), _) => Some(bag -> Seq(key))
+      case BagAdd(bag, elem) => Some(bag -> Seq(elem))
       case ElementOfSet(elem, set) => Some(set -> Seq(elem))
+      case SetAdd(set, elem) => Some(set -> Seq(elem))
       case _ => None
     }
   }
