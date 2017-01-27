@@ -1,0 +1,9 @@
+(define-fun isZero!0 ((a!0 Int)) Bool (= a!0 0))
+
+(declare-const a!1 Int)
+
+(assert (not (=> (forall ((x!0 Int)) (isZero!0 x!0)) (isZero!0 a!1))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

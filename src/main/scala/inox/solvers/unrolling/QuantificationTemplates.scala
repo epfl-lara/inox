@@ -40,6 +40,24 @@ trait QuantificationTemplates { self: Templates =>
     }
   }
 
+  object FunctionMatcher {
+    private def flatApplication(expr: Expr): Option[(TypedFunDef, Seq[Expr])] = expr match {
+      case Application(fi: FunctionInvocation, args) => Some((fi.tfd, args))
+      case Application(caller: Application, args) => flatApplication(caller) match {
+        case Some((c, prevArgs)) => Some((c, prevArgs ++ args))
+        case None => None
+      }
+      case _ => None
+    }
+
+    def unapply(expr: Expr): Option[(TypedFunDef, Seq[Expr])] = expr match {
+      case IsTyped(a: Application, ft: FunctionType) => None
+      case Application(e, args) => flatApplication(expr)
+      case fi @ FunctionInvocation(_, _, args) => Some((fi.tfd, args))
+      case _ => None
+    }
+  }
+
   object QuantificationTypeMatcher {
     private def flatType(tpe: Type): (Seq[Type], Type) = tpe match {
       case FunctionType(from, to) =>

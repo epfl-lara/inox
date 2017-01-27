@@ -556,6 +556,14 @@ trait Templates extends TemplateGenerator
             })
 
             Some(expr -> Matcher(Left(encoder(c) -> bestRealType(c.getType)), encodedArgs, encoder(expr)))
+          case FunctionMatcher(tfd, args) =>
+            // see comment above
+            val encodedArgs = args.map(arg => result.get(arg) match {
+              case Some(matcher) => Right(matcher)
+              case None => Left(encoder(arg))
+            })
+
+            Some(expr -> Matcher(Right(tfd), encodedArgs, encoder(expr)))
           case _ => None
         })
       }(expr)
@@ -577,7 +585,12 @@ trait Templates extends TemplateGenerator
         App(encoder(c), tpe, args.map(encodeArg), encoder(mkApplication(c, args)))
       }.filter(i => Some(i) != optApp)
 
-      val matchers = exprToMatcher.values.toSet.filter(i => Some(i.encoded) != optApp.map(_.encoded))
+      val matchers = exprToMatcher.values.toSet
+        .filter(i => Some(i.encoded) != optApp.map(_.encoded))
+        .filter {
+          case Matcher(Right(tfd), args, _) => Some(Call(tfd, args)) != optCall
+          case _ => true
+        }
 
       (calls, apps, matchers, pointers)
     }
@@ -601,12 +614,6 @@ trait Templates extends TemplateGenerator
       val optIdApp = optApp.map { case (idT, tpe) =>
         val encoded = mkFlatApp(idT, tpe, arguments.map(_._2))
         App(idT, bestRealType(tpe).asInstanceOf[FunctionType], arguments.map(p => Left(p._2)), encoded)
-      }
-
-      lazy val optIdMatcher = optCall.map { tfd =>
-        val (fiArgs, appArgs) = arguments.map(_._1).splitAt(tfd.params.size)
-        val encoded = mkEncoder(arguments.toMap)(mkApplication(tfd.applied(fiArgs), appArgs))
-        Matcher(Right(tfd), arguments.map(p => Left(p._2)), encoded)
       }
 
       val (clauses, blockers, applications, matchers, pointers) = {
@@ -639,8 +646,7 @@ trait Templates extends TemplateGenerator
         clauses ++= (for ((b,es) <- guardedExprs; e <- es) yield encoder(Implies(b, e)))
         clauses ++= eqs.map(encoder)
 
-        val allMatchers = matchers merge optIdMatcher.map(m => pathVar._2 -> Set(m)).toMap
-        (clauses, blockers, applications, allMatchers, pointers)
+        (clauses, blockers, applications, matchers, pointers)
       }
 
       val stringRepr : () => String = () => {
