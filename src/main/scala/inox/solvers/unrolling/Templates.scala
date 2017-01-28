@@ -178,7 +178,8 @@ trait Templates extends TemplateGenerator
       val (bs +: rest) = blockers
       blockers = rest
 
-      val next = (for (b <- bs if !seen(b)) yield {
+      val allBs = bs ++ bs.flatMap(blockerEquals)
+      val next = (for (b <- allBs if !seen(b)) yield {
         seen += b
 
         for (manager <- managers) {
