@@ -150,8 +150,8 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
         lines
     }
 
-    if (lines.size > pos.line && pos.line >= 0) {
-      Some(lines(pos.line))
+    if (lines.size >= pos.line && pos.line > 0) {
+      Some(lines(pos.line - 1))
     } else {
       None
     }
