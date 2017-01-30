@@ -52,6 +52,16 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     case _ => super.computeSort(t)
   }
 
+  override protected def id2sym(id: Identifier): SSymbol = {
+    // @nv: Z3 uses identifiers of the shape 'k!\d+' to represent
+    //      its array functions, so we have to make sure to avoid collisions!
+    if (id.name == "k") {
+      super.id2sym(FreshIdentifier("k0"))
+    } else {
+      super.id2sym(id)
+    }
+  }
+
   override protected def fromSMT(t: Term, otpe: Option[Type] = None)(implicit context: Context): Expr = {
     (t, otpe) match {
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ MapType(keyType, valueType))) =>
