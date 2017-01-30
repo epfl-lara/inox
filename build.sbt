@@ -81,6 +81,16 @@ script := {
   }
 }
 
+sourceGenerators in Compile <+= (sourceManaged in Compile, version) map { (dir, version) =>
+  val file = dir / "inox" / "Build.scala"
+  IO.write(file, s"""|package inox
+                     |
+                     |object Build {
+                     |  val version = \"\"\"$version\"\"\"
+                     |}""".stripMargin)
+  Seq(file)
+}
+
 lazy val genDoc = taskKey[Unit]("Typecheck and interpret the documentation")
 
 tutSettings

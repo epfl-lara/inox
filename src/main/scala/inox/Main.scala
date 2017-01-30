@@ -68,7 +68,7 @@ trait MainHelpers {
     solvers.unrolling.optNoSimplifications -> Description(Solvers, "Disable selector/quantifier simplifications in solvers"),
     solvers.unrolling.optModelFinding -> Description(Solvers, "Enhance model-finding capabilities of solvers by given aggresivity"),
     solvers.smtlib.optCVC4Options -> Description(Solvers, "Pass extra options to CVC4"),
-    evaluators.optMaxCalls -> Description(Evaluators, "Maximum function invocations allowed during evaluation (-1 for unbounded)"),
+    evaluators.optMaxCalls -> Description(Evaluators, "Maximum function invocations allowed during evaluation"),
     evaluators.optIgnoreContracts -> Description(Evaluators, "Don't fail on invalid contracts during evaluation")
   )
 
@@ -78,28 +78,41 @@ trait MainHelpers {
     General +: (options.map(_._2.category).toSet - General).toSeq.sortBy(_.toString)
   }
 
+  protected def displayVersion(reporter: Reporter) = {
+    reporter.title("Inox solver (https://github.com/epfl-lara/inox)")
+    reporter.info(s"Version: ${Build.version}")
+  }
+
+  protected def getName: String = "inox"
+
+  protected def displayUsage(reporter: Reporter) = {
+    reporter.info("Usage: " +
+      Console.BOLD + getName + Console.RESET +
+      " [" + Console.UNDERLINED + "OPTION" + Console.RESET + "]... " +
+      Console.UNDERLINED + "FILE" + Console.RESET + "..."
+    )
+  }
+
   protected def displayHelp(reporter: Reporter, error: Boolean) = {
     val categories = getCategories
+    val margin = options.map(_._1.usageDesc.size).max + 2
+    var first = true
 
     for {
       category <- categories
       opts = options.filter(_._2.category == category)
       if opts.nonEmpty
     } {
-      reporter.info("")
+      if (!first) reporter.info("")
+      first = false
+
       reporter.title(category)
       for ((opt, Description(_, desc)) <- opts) {
-        reporter.info(f"${opt.usageDesc}%-28s" + desc.replaceAll("\n", "\n" + " " * 28))
+        reporter.info(s"%-${margin}s".format(opt.usageDesc) + desc.replaceAll("\n", "\n" + " " * margin))
       }
     }
 
     exit(error)
-  }
-
-  protected def displayVersion(reporter: Reporter) = {
-    reporter.title("Inox solver (https://github.com/epfl-lara/inox)")
-    // XXX @nv: Just ignore this... no clean way to do it :(
-    // reporter.info(s"Version: $version")
   }
 
   /** The current files on which Inox is running.
@@ -165,6 +178,9 @@ trait MainHelpers {
 
     if (ctx.options.findOptionOrDefault(optHelp)) {
       displayVersion(ctx.reporter)
+      ctx.reporter.info("")
+      displayUsage(ctx.reporter)
+      ctx.reporter.info("")
       displayHelp(ctx.reporter, error = false)
     } else {
       ctx.interruptManager.registerSignalHandler()
@@ -180,7 +196,8 @@ object Main extends MainHelpers {
 
     val files = ctx.options.findOptionOrDefault(optFiles)
     if (files.isEmpty) {
-      ctx.reporter.fatalError(s"Input file was not specified.\nTry the --help option for more information.")
+      ctx.reporter.error(s"Input file was not specified.\nTry the --help option for more information.")
+      exit(error = true)
     } else {
       var error: Boolean = false
       for (file <- files;
