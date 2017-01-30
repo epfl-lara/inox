@@ -368,10 +368,14 @@ trait TemplateGenerator { self: Templates =>
             vds.distinct
           }
 
-          val forall = Forall(conjArgs, conj)
-          val (optVar, template) = QuantificationTemplate(pathVar -> encodedCond(pathVar), pol, forall, localSubst)
-          registerQuantification(template)
-          optVar.getOrElse(BooleanLiteral(true))
+          if (conjArgs.isEmpty) {
+            conj
+          } else {
+            val forall = Forall(conjArgs, conj)
+            val (optVar, template) = QuantificationTemplate(pathVar -> encodedCond(pathVar), pol, forall, localSubst)
+            registerQuantification(template)
+            optVar.getOrElse(BooleanLiteral(true))
+          }
         }
 
         andJoin(conjunctQs)
