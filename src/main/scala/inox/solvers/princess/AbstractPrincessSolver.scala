@@ -20,6 +20,8 @@ import ap.theories.{ADT => PADT, _}
 import utils._
 import SolverResponses._
 
+import scala.collection.mutable.{Map => MutableMap}
+
 trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
   import scala.language.postfixOps
   import IExpression._
@@ -301,21 +303,30 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
   }
 
   object princessToInox {
-    def parseExpr(iexpr: IExpression, tpe: Type)(implicit model: Model): Option[Expr] = tpe match {
+    protected class Context(
+      val model: Model,
+      val seen: Set[BigInt] = Set.empty,
+      private[AbstractPrincessSolver] val chooses: MutableMap[BigInt, Choose] = MutableMap.empty,
+      private[AbstractPrincessSolver] val lambdas: MutableMap[BigInt, Lambda] = MutableMap.empty
+    ) {
+      def withSeen(n: BigInt): Context = new Context(model, seen + n, chooses, lambdas)
+    }
+
+    def parseExpr(iexpr: IExpression, tpe: Type)(implicit ctx: Context): Option[Expr] = tpe match {
       case BooleanType => iexpr match {
-        case iterm: ITerm => model.eval(iterm).map(i => BooleanLiteral(i.intValue == 0))
-        case iformula: IFormula => model.eval(iformula).map(BooleanLiteral)
+        case iterm: ITerm => ctx.model.eval(iterm).map(i => BooleanLiteral(i.intValue == 0))
+        case iformula: IFormula => ctx.model.eval(iformula).map(BooleanLiteral)
       }
 
       case IntegerType =>
-        model.eval(iexpr.asInstanceOf[ITerm]).map(i => IntegerLiteral(i.bigIntValue))
+        ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(i => IntegerLiteral(i.bigIntValue))
 
       case t @ ((_: ADTType) | (_: TupleType) | (_: TypeParameter) | UnitType) =>
         val tpe = bestRealType(t)
         val (sort, adts) = typeToSort(tpe)
 
         val optIndex = (adts.map(_._1) zip sort.ctorIds).collectFirst {
-          case (`tpe`, fun) => model.eval(fun(iexpr.asInstanceOf[ITerm])).map(_.intValue)
+          case (`tpe`, fun) => ctx.model.eval(fun(iexpr.asInstanceOf[ITerm])).map(_.intValue)
         }.flatten
 
         optIndex.flatMap { index =>
@@ -339,45 +350,63 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
             None
           }
         }.orElse {
-          model.eval(iexpr.asInstanceOf[ITerm]).map(n => constructExpr(n.intValue, tpe))
+          ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(n => constructExpr(n.intValue, tpe))
         }
 
       case ft: FunctionType =>
         val tpe @ FunctionType(from, to) = bestRealType(ft)
         val iterm = iexpr.asInstanceOf[ITerm]
-        for {
-          n <- model.eval(iterm)
-          fun <- lambdas.getB(tpe)
-          interps = model.interpretation.flatMap {
-            case (SimpleAPI.IntFunctionLoc(`fun`, ptr +: args), SimpleAPI.IntValue(res)) =>
-              if (model.eval(iterm === ptr) contains true) {
-                val optArgs = (args zip from).map(p => parseExpr(p._1, p._2))
-                val optRes = parseExpr(res, to)
+        ctx.model.eval(iterm).flatMap { ideal =>
+          val n = BigInt(ideal.bigIntValue)
+          if (ctx.seen(n)) {
+            Some(ctx.chooses.getOrElseUpdate(n, {
+              Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
+            }))
+          } else {
+            ctx.lambdas.get(n).orElse {
+              for {
+                fun <- lambdas.getB(tpe)
+                newCtx = ctx.withSeen(n)
+                interps = ctx.model.interpretation.flatMap {
+                  case (SimpleAPI.IntFunctionLoc(`fun`, ptr +: args), SimpleAPI.IntValue(res)) =>
+                    if (ctx.model.eval(iterm === ptr) contains true) {
+                      val optArgs = (args zip from).map(p => parseExpr(p._1, p._2)(newCtx))
+                      val optRes = parseExpr(res, to)(newCtx)
 
-                if (optArgs.forall(_.isDefined) && optRes.isDefined) {
-                  Some(optArgs.map(_.get) -> optRes.get)
-                } else {
-                  None
+                      if (optArgs.forall(_.isDefined) && optRes.isDefined) {
+                        Some(optArgs.map(_.get) -> optRes.get)
+                      } else {
+                        None
+                      }
+                    } else {
+                      None
+                    }
+
+                  case _ => None
+                }.toSeq.sortBy(_.toString)
+              } yield {
+                val lambda = if (interps.isEmpty) simplestValue(ft).asInstanceOf[Lambda] else {
+                  val params = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
+                  val body = interps.foldRight(interps.head._2) { case ((args, res), elze) =>
+                    IfExpr(andJoin((params zip args).map(p => Equals(p._1.toVariable, p._2))), res, elze)
+                  }
+                  Lambda(params, body)
                 }
-              } else {
-                None
-              }
 
-            case _ => None
-          }.toSeq.sortBy(_.toString)
-        } yield {
-          val lambda = if (interps.isEmpty) simplestValue(ft).asInstanceOf[Lambda] else {
-            val params = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
-            val body = interps.foldRight(interps.head._2) { case ((args, res), elze) =>
-              IfExpr(andJoin((params zip args).map(p => Equals(p._1.toVariable, p._2))), res, elze)
+                val res = uniquateClosure(n.intValue, lambda)
+                ctx.lambdas(n) = res
+                res
+              }
             }
-            Lambda(params, body)
           }
-          uniquateClosure(n.intValue, lambda)
         }
     }
 
-    def apply(iexpr: IExpression, tpe: Type)(implicit model: Model) = parseExpr(iexpr, tpe)
+    def apply(iexpr: IExpression, tpe: Type)(implicit model: Model) = {
+      val ctx = new Context(model)
+      val res = parseExpr(iexpr, tpe)(ctx)
+      (res, ctx.chooses.map { case (n, c) => c -> ctx.lambdas(n) })
+    }
   }
 
   def declareVariable(v: Variable): IExpression = variables.cachedB(v)(freshSymbol(v))

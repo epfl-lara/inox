@@ -161,6 +161,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
     def extractMap(elem: Encoded, tpe: t.MapType): Option[(Seq[(Encoded, Encoded)], Encoded)]
     def extractBag(elem: Encoded, tpe: t.BagType): Option[Seq[(Encoded, Encoded)]]
 
+    def getChoose(id: Identifier): Option[t.Expr]
+
     def eval(elem: Encoded, tpe: Type): Option[Expr] = modelEval(elem, encode(tpe)).flatMap {
       expr => try {
         Some(decode(expr))
@@ -183,7 +185,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
             import templates._
 
             val tvds = vds.map(vd => vd.copy(tpe = instantiateType(vd.tpe, tpSubst)))
-            val tc = instantiateType(c, tpSubst)
+            val tc = instantiateType(c.copy(res = c.res.freshen), tpSubst)
 
             val mappings = calls.flatMap { call =>
               val optArgs = (call.args zip from).map(p => modelEval(p._1.encoded, p._2))
@@ -207,7 +209,15 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
       val freeCs = freeChooses.toMap.map { case (c, idT) => (c.res.id, Seq.empty[Type]) -> extract(idT, c.res.tpe) }
 
-      inox.Model(program)(vs, cs ++ freeCs)
+      def choosesOf(e: Expr, tps: Seq[Type]): Map[(Identifier, Seq[Type]), Expr] = exprOps.collect {
+        case c: Choose => getChoose(c.res.id).map(e => (c.res.id, tps) -> decode(e)).toSet
+        case _ => Set.empty[((Identifier, Seq[Type]), Expr)]
+      } (e).toMap
+
+      val modelCs = vs.values.toSeq.flatMap(e => choosesOf(e, Seq.empty)) ++
+        (cs ++ freeCs).flatMap { case ((id, tps), e) => choosesOf(e, tps) }
+
+      inox.Model(program)(vs, cs ++ freeCs ++ modelCs)
     }
   }
 
@@ -252,9 +262,13 @@ trait AbstractUnrollingSolver extends Solver { self =>
     import targetProgram.symbols._
 
     // maintain extracted functions to make sure equality is well-defined
-    var funExtractions: Seq[(Encoded, Lambda)] = Seq.empty
+    var lambdaExtractions: Seq[(Encoded, Lambda)] = Seq.empty
+    var chooseExtractions: Seq[(Encoded, Choose)] = Seq.empty
 
-    def extractValue(v: Encoded, tpe: Type): Expr = {
+    def modelEq(e1: Encoded, e2: Encoded): Boolean =
+      wrapped.modelEval(templates.mkEquals(e1, e2), BooleanType) == Some(BooleanLiteral(true))
+
+    def extractValue(v: Encoded, tpe: Type, seen: Set[Encoded]): Expr = {
 
       def functionsOf(v: Encoded, tpe: Type): (Seq[(Encoded, FunctionType)], Seq[Expr] => Expr) = {
         def reconstruct(subs: Seq[(Seq[(Encoded, FunctionType)], Seq[Expr] => Expr)],
@@ -313,7 +327,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
       if (ev.isDefined) {
         val (functions, recons) = functionsOf(v, tpe)
         recons(functions.map { case (f, tpe) =>
-          extractFunction(f, bestRealType(tpe).asInstanceOf[FunctionType])
+          extractFunction(f, bestRealType(tpe).asInstanceOf[FunctionType], seen)
         })
       } else {
         encode(program.symbols.simplestValue(decode(tpe)))
@@ -355,16 +369,18 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }
     }
 
-    def extractFunction(f: Encoded, tpe: FunctionType): Expr = {
+    def extractFunction(f: Encoded, tpe: FunctionType, seen: Set[Encoded]): Expr = {
+      val nextSeen = seen + f
+
       def extractLambda(f: Encoded, tpe: FunctionType): Option[Lambda] = {
         val optEqTemplate = templates.getLambdaTemplates(tpe).find { tmpl =>
           wrapped.modelEval(tmpl.start, BooleanType) == Some(BooleanLiteral(true)) &&
-          wrapped.modelEval(templates.mkEquals(tmpl.ids._2, f), BooleanType) == Some(BooleanLiteral(true))
+          modelEq(tmpl.ids._2, f)
         }
 
         optEqTemplate.map { tmpl =>
           val localsSubst = tmpl.structure.locals.map { case (v, ev) =>
-            v -> extractValue(ev, v.tpe)
+            v -> extractValue(ev, v.tpe, nextSeen)
           }.toMap
 
           val res = exprOps.replaceFromSymbols(localsSubst, tmpl.structure.body)
@@ -380,19 +396,21 @@ trait AbstractUnrollingSolver extends Solver { self =>
         arguments: Seq[Seq[(Seq[Encoded], Expr)]],
         dflt: Expr
       ): (Lambda, Boolean) = {
-        if (tpe.from.isEmpty) {
-          val (result, real) = tpe.to match {
-            case ft: FunctionType =>
-              val nextParams = params.tail
-              val nextArguments = arguments.map(_.tail)
-              extract(templates.mkApp(caller, tpe, Seq.empty), ft, nextParams, nextArguments, dflt)
-            case _ =>
-              (extractValue(templates.mkApp(caller, tpe, Seq.empty), tpe.to), false)
-          }
+        extractLambda(caller, tpe).map(_ -> true).getOrElse {
+          if (tpe.from.isEmpty) {
+            val (result, real) = tpe.to match {
+              case ft: FunctionType =>
+                val nextParams = params.tail
+                val nextArguments = arguments.map(_.tail)
+                extract(templates.mkApp(caller, tpe, Seq.empty), ft, nextParams, nextArguments, dflt)
+              case _ =>
+                (extractValue(templates.mkApp(caller, tpe, Seq.empty), tpe.to, nextSeen), false)
+            }
 
-          (Lambda(Seq.empty, result), real)
-        } else {
-          extractLambda(caller, tpe).map(_ -> true).getOrElse {
+            val res = Lambda(Seq.empty, result)
+            lambdaExtractions :+= f -> res
+            (res, real)
+          } else {
             val byCondition = arguments.groupBy(_.head._2).toSeq.sortBy(p => -exprOps.formulaSize(p._1))
             val mappings = byCondition.flatMap {
               case (currCond, arguments) => tpe.to match {
@@ -410,19 +428,20 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
                 case _ =>
                   val currArgs = arguments.head.head._1
-                  val res = extractValue(templates.mkApp(caller, tpe, currArgs), tpe.to)
+                  val res = extractValue(templates.mkApp(caller, tpe, currArgs), tpe.to, nextSeen)
                   Seq(currCond -> res)
               }
             }
 
             val lambda = FiniteLambda(params, mappings, dflt)
+
             // make sure `lambda` is not equal to any other distinct extracted first-class function
-            val res = (funExtractions.collectFirst {
-              case (encoded, `lambda`) => Right(encoded)
+            val res = (lambdaExtractions.collectFirst {
               case (e, img) if (
                 bestRealType(img.getType) == bestRealType(lambda.getType) &&
-                wrapped.modelEval(templates.mkEquals(e, f), BooleanType) == Some(BooleanLiteral(true))
-              )=> Left(img)
+                modelEq(e, f)
+              ) => Left(img)
+              case (encoded, `lambda`) => Right(encoded)
             }) match {
               case Some(Right(enc)) => wrapped.modelEval(enc, tpe).get match {
                 case Lambda(_, Let(_, Tuple(es), _)) =>
@@ -433,7 +452,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
               case None => lambda
             }
 
-            funExtractions :+= f -> res
+            lambdaExtractions :+= f -> res
 
             (res, false)
           }
@@ -453,19 +472,35 @@ trait AbstractUnrollingSolver extends Solver { self =>
         wrapped.modelEval(b, BooleanType).filter(_ == BooleanLiteral(true)).map(_ => eArgs)
       }.distinct
 
-      extractLambda(f, tpe).getOrElse {
+      extractLambda(f, tpe).orElse {
+        if (seen.exists(e => modelEq(f, e))) {
+          Some(chooseExtractions.collectFirst { case (e, c) if modelEq(f, e) => c }.getOrElse {
+            val c = Choose(Variable.fresh("x", tpe, true).toVal, BooleanLiteral(true))
+            chooseExtractions :+= f -> c
+            c
+          })
+        } else {
+          None
+        }
+      }.getOrElse {
         if (arguments.isEmpty) {
-          wrapped.modelEval(f, tpe).get
+          val res = wrapped.modelEval(f, tpe).get.asInstanceOf[Lambda]
+          lambdaExtractions :+= f -> res
+          res
         } else {
           val projections: Map[Type, Encoded] = (arguments.head zip params.flatten)
             .groupBy(p => bestRealType(p._2.tpe))
             .mapValues(_.head._1)
 
+          val exArguments = for (args <- arguments) yield {
+            (params.flatten zip args).map { case (vd, arg) => extractValue(arg, vd.tpe, nextSeen) }
+          }
+
           val flatArguments: Seq[(Seq[Encoded], Seq[Option[Expr]])] =
-            (for (subset <- params.flatten.toSet.subsets; args <- arguments) yield {
+            (for (subset <- params.flatten.toSet.subsets; (args, exArgs) <- arguments zip exArguments) yield {
               val (concreteArgs, condOpts) = params.flatten.zipWithIndex.map { case (v, i) =>
                 if (!subset(v)) {
-                  (args(i), Some(Equals(v.toVariable, extractValue(args(i), v.tpe))))
+                  (args(i), Some(Equals(v.toVariable, exArgs(i))))
                 } else {
                   (projections(bestRealType(v.tpe)), None)
                 }
@@ -491,14 +526,19 @@ trait AbstractUnrollingSolver extends Solver { self =>
           val (app, to) = unflatten(flatArguments.last._1).foldLeft(f -> (tpe: Type)) {
             case ((f, tpe: FunctionType), args) => (templates.mkApp(f, tpe, args), tpe.to)
           }
-          val default = extractValue(app, to)
+          val default = extractValue(app, to, nextSeen)
 
           extract(f, tpe, params, allArguments, default)._1
         }
       }
     }
 
-    wrapped.getModel((e, tpe) => decode(extractValue(e, encode(tpe))))
+    val exModel = wrapped.getModel((e, tpe) => decode(extractValue(e, encode(tpe), Set.empty)))
+    val exChooses = chooseExtractions.toMap.map { case (e, c) =>
+      c -> lambdaExtractions.collectFirst { case (f, lambda) if modelEq(f, e) => lambda }.get
+    }
+    val chooses = exChooses.map(p => (p._1.res.id, Seq.empty[s.Type]) -> decode(p._2))
+    inox.Model(program)(exModel.vars, exModel.chooses ++ chooses)
   }
 
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
@@ -814,6 +854,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     }
 
     def modelEval(elem: t.Expr, tpe: t.Type): Option[t.Expr] = e(elem)
+    def getChoose(id: Identifier): Option[t.Expr] = model.chooses.find(_._1 == id).map(_._2)
 
     override def toString = model.asString
   }

@@ -8,6 +8,8 @@ import _root_.smtlib.parser.Commands.{FunDef => SMTFunDef, _}
 import _root_.smtlib.parser.Terms.{Identifier => _, _}
 import _root_.smtlib.parser.CommandsResponses._
 
+import scala.collection.mutable.{Map => MutableMap}
+
 trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
 
   import program._
@@ -66,11 +68,13 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
                   a -> me
               }.toMap
 
+              val ctx = new Context(variables.bToA, modelFunDefs)
+
               val vars = smodel.flatMap {
                 case DefineFun(SMTFunDef(s, _, _, e)) if syms(s) =>
                   try {
                     val v = variables.toA(s)
-                    val value = fromSMT(e, v.getType)(Context(variables.bToA, modelFunDefs))
+                    val value = fromSMT(e, v.getType)(ctx)
                     Some(v.toVal -> value)
                   } catch {
                     case _: Unsupported => None
@@ -79,14 +83,18 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
                 case _ => None
               }.toMap
 
-              val chooses = smodel.flatMap {
+              val chooses: MutableMap[(Identifier, Seq[Type]), Expr] = MutableMap.empty
+              chooses ++= ctx.getChooses.map(p => (p._1.res.id, Seq.empty[Type]) -> p._2)
+
+              chooses ++= smodel.flatMap {
                 case DefineFun(SMTFunDef(s, args, _, e)) if functions containsB s =>
                   try {
                     val tfd = functions.toA(s)
                     tfd.fullBody match {
                       case Choose(res, _) =>
-                        val ctx = Context(variables.bToA, modelFunDefs).withVariables(args.map(_.name) zip tfd.params.map(_.toVariable))
+                        val ctx = new Context(variables.bToA, modelFunDefs).withVariables(args.map(_.name) zip tfd.params.map(_.toVariable))
                         val body = fromSMT(e, tfd.returnType)(ctx)
+                        chooses ++= ctx.getChooses.map(p => (p._1.res.id, tfd.tps) -> p._2)
                         Some((res.id, tfd.tps) -> body)
                       case _ => None
                     }
@@ -97,7 +105,7 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
                 case _ => None
               }.toMap
 
-              SatWithModel(inox.Model(program)(vars, chooses))
+              SatWithModel(inox.Model(program)(vars, chooses.toMap))
 
             case _ =>
               Unknown

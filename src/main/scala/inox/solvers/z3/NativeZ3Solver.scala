@@ -67,6 +67,8 @@ trait NativeZ3Solver extends AbstractUnrollingSolver { self =>
   protected def wrapModel(model: Z3Model): super.ModelWrapper = ModelWrapper(model)
 
   private case class ModelWrapper(model: Z3Model) extends super.ModelWrapper {
+    private val ex = new underlying.ModelExtractor(model)
+
     def extractConstructor(v: Z3AST, tpe: t.ADTType): Option[Identifier] = model.eval(v).flatMap {
       elem => z3.getASTKind(elem) match {
         case Z3AppAST(decl, args) if underlying.constructors containsB decl =>
@@ -100,17 +102,19 @@ trait NativeZ3Solver extends AbstractUnrollingSolver { self =>
       val res = tpe match {
         case t.BooleanType => model.evalAs[Boolean](elem).map(t.BooleanLiteral)
         case t.Int32Type => model.evalAs[Int](elem).map(t.IntLiteral(_)).orElse {
-          model.eval(elem).flatMap(term => underlying.softFromZ3Formula(model, term, t.Int32Type))
+          model.eval(elem).flatMap(term => ex.get(term, t.Int32Type))
         }
         case t.IntegerType => model.evalAs[Int](elem).map(t.IntegerLiteral(_))
         case other => model.eval(elem) match {
           case None => None
-          case Some(t) => underlying.softFromZ3Formula(model, t, other)
+          case Some(t) => ex.get(t, other)
         }
       }
       timer.stop()
       res
     }
+
+    def getChoose(id: Identifier): Option[t.Expr] = ex.chooses.get(id)
 
     override def toString = model.toString
   }

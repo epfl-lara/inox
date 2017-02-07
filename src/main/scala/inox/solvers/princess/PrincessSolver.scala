@@ -9,6 +9,8 @@ import ap.parser._
 
 import unrolling._
 
+import scala.collection.mutable.{Map => MutableMap}
+
 trait PrincessSolver extends AbstractUnrollingSolver { self =>
 
   import program._
@@ -82,6 +84,7 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
   protected def wrapModel(model: underlying.Model): super.ModelWrapper = ModelWrapper(model)
 
   private case class ModelWrapper(model: underlying.Model) extends super.ModelWrapper {
+    private val chooses: MutableMap[Identifier, t.Expr] = MutableMap.empty
     import IExpression._
 
     def extractConstructor(v: IExpression, tpe: t.ADTType): Option[Identifier] =
@@ -103,10 +106,13 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
 
     def modelEval(elem: IExpression, tpe: t.Type): Option[t.Expr] = {
       val timer = ctx.timers.solvers.princess.eval.start()
-      val res = underlying.princessToInox(elem, tpe)(model)
+      val (res, cs) = underlying.princessToInox(elem, tpe)(model)
+      chooses ++= cs.map(p => p._1.res.id -> p._2)
       timer.stop()
       res
     }
+
+    def getChoose(id: Identifier): Option[t.Expr] = chooses.get(id)
 
     override def toString = model.toString
   }

@@ -1,0 +1,9 @@
+(declare-datatypes () ((Stream!19 (SNil!19) (SCons!19 (x!5782 Int) (tailFun!21 (=> Stream!19))))))
+
+(declare-const s!0 Stream!19)
+
+(assert (and (is-SCons!19 s!0) (let ((x!5535 (x!5782 s!0))) (let ((tfun!4 (tailFun!21 s!0))) (let ((tail!29 (@ tfun!4))) (and (>= x!5535 0) (let ((s!119 tail!29)) (= s!0 s!119))))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

@@ -8,6 +8,8 @@ import utils._
 import z3.scala.{Z3Solver => ScalaZ3Solver, _}
 import solvers._
 
+import scala.collection.mutable.{Map => MutableMap}
+
 case class UnsoundExtractionException(ast: Z3AST, msg: String)
   extends Exception("Can't extract " + ast + " : " + msg)
 
@@ -499,9 +501,12 @@ trait AbstractZ3Solver
     res
   }
 
-  protected[z3] def fromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type): Expr = {
+  protected[z3] def fromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type): (Expr, Map[Choose, Expr]) = {
 
-    def rec(t: Z3AST, tpe: Type): Expr = {
+    val z3ToChooses: MutableMap[Z3AST, Choose] = MutableMap.empty
+    val z3ToLambdas: MutableMap[Z3AST, Lambda] = MutableMap.empty
+
+    def rec(t: Z3AST, tpe: Type, seen: Set[Z3AST]): Expr = {
       val kind = z3.getASTKind(t)
       kind match {
         case Z3NumeralIntAST(Some(v)) =>
@@ -560,20 +565,20 @@ trait AbstractZ3Solver
           } else if(functions containsB decl) {
             val tfd = functions.toA(decl)
             assert(tfd.params.size == argsSize)
-            FunctionInvocation(tfd.id, tfd.tps, args.zip(tfd.params).map{ case (a, p) => rec(a, p.getType) })
+            FunctionInvocation(tfd.id, tfd.tps, args.zip(tfd.params).map{ case (a, p) => rec(a, p.getType, seen) })
           } else if (constructors containsB decl) {
             constructors.toA(decl) match {
               case adt: ADTType =>
-                ADT(adt, args.zip(adt.getADT.toConstructor.fieldsTypes).map { case (a, t) => rec(a, t) })
+                ADT(adt, args.zip(adt.getADT.toConstructor.fieldsTypes).map { case (a, t) => rec(a, t, seen) })
 
               case UnitType =>
                 UnitLiteral()
 
               case TupleType(ts) =>
-                tupleWrap(args.zip(ts).map { case (a, t) => rec(a, t) })
+                tupleWrap(args.zip(ts).map { case (a, t) => rec(a, t, seen) })
 
               case tp: TypeParameter =>
-                val IntegerLiteral(n) = rec(args(0), IntegerType)
+                val IntegerLiteral(n) = rec(args(0), IntegerType, seen)
                 GenericValue(tp, n.toInt)
 
               case t =>
@@ -581,7 +586,11 @@ trait AbstractZ3Solver
             }
           } else {
             tpe match {
-              case ft @ FunctionType(fts, tt) =>
+              case ft: FunctionType if seen(t) => z3ToChooses.getOrElseUpdate(t, {
+                Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
+              })
+
+              case ft @ FunctionType(fts, tt) => z3ToLambdas.getOrElseUpdate(t, {
                 val n = t.toString.split("!").last.init.toInt
                 uniquateClosure(n, (lambdas.getB(ft) match {
                   case None => simplestValue(ft)
@@ -589,13 +598,13 @@ trait AbstractZ3Solver
                     case None => simplestValue(ft)
                     case Some((_, mapping, elseValue)) =>
                       val args = fts.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
-                      val body = mapping.foldLeft(rec(elseValue, tt)) { case (elze, (z3Args, z3Result)) =>
+                      val body = mapping.foldLeft(rec(elseValue, tt, seen + t)) { case (elze, (z3Args, z3Result)) =>
                         if (t == z3Args.head) {
                           val cond = andJoin((args zip z3Args.tail).map { case (vd, z3Arg) =>
-                            Equals(vd.toVariable, rec(z3Arg, vd.tpe))
+                            Equals(vd.toVariable, rec(z3Arg, vd.tpe, seen + t))
                           })
 
-                          IfExpr(cond, rec(z3Result, tt), elze)
+                          IfExpr(cond, rec(z3Result, tt, seen + t), elze)
                         } else {
                           elze
                         }
@@ -604,13 +613,14 @@ trait AbstractZ3Solver
                       Lambda(args, body)
                   }
                 }).asInstanceOf[Lambda])
+              })
 
               case MapType(from, to) =>
                 model.getArrayValue(t) match {
                   case Some((z3map, z3default)) =>
-                    val default = rec(z3default, to)
+                    val default = rec(z3default, to, seen)
                     val entries = z3map.map {
-                      case (k,v) => (rec(k, from), rec(v, to))
+                      case (k,v) => (rec(k, from, seen), rec(v, to, seen))
                     }
 
                     FiniteMap(entries.toSeq, default, from, to)
@@ -618,7 +628,7 @@ trait AbstractZ3Solver
                 }
 
               case BagType(base) =>
-                val fm @ FiniteMap(entries, default, from, IntegerType) = rec(t, MapType(base, IntegerType))
+                val fm @ FiniteMap(entries, default, from, IntegerType) = rec(t, MapType(base, IntegerType), seen)
                 if (default != IntegerLiteral(0)) {
                   unsound(t, "co-finite bag AST")
                 }
@@ -630,7 +640,7 @@ trait AbstractZ3Solver
                   case None => unsound(t, "invalid set AST")
                   case Some((_, false)) => unsound(t, "co-finite set AST")
                   case Some((set, true)) =>
-                    val elems = set.map(e => rec(e, dt))
+                    val elems = set.map(e => rec(e, dt, seen))
                     FiniteSet(elems.toSeq, dt)
                 }
 
@@ -653,7 +663,7 @@ trait AbstractZ3Solver
             //      case OpGT =>      GreaterThan(rargs(0), rargs(1))
             //      case OpAdd =>     Plus(rargs(0), rargs(1))
             //      case OpSub =>     Minus(rargs(0), rargs(1))
-                  case OpUMinus =>  UMinus(rec(args(0), tpe))
+                  case OpUMinus =>  UMinus(rec(args(0), tpe, seen))
             //      case OpMul =>     Times(rargs(0), rargs(1))
             //      case OpDiv =>     Division(rargs(0), rargs(1))
             //      case OpIDiv =>    Division(rargs(0), rargs(1))
@@ -671,10 +681,13 @@ trait AbstractZ3Solver
       }
     }
 
-    rec(tree, bestRealType(tpe))
+    val res = rec(tree, tpe, Set.empty)
+    val chooses = z3ToChooses.toMap.map { case (ast, c) => c -> z3ToLambdas(ast) }
+
+    (res, chooses)
   }
 
-  protected[z3] def softFromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type) : Option[Expr] = {
+  protected[z3] def softFromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type) : Option[(Expr, Map[Choose, Expr])] = {
     try {
       Some(fromZ3Formula(model, tree, tpe))
     } catch {
@@ -714,7 +727,27 @@ trait AbstractZ3Solver
     case _ => None
   }
 
+  private[z3] class ModelExtractor(model: Z3Model) {
+    private val innerChooses: MutableMap[Identifier, Expr] = MutableMap.empty
+
+    def apply(z3ast: Z3AST, tpe: Type): Expr = {
+      val (e, cs) = fromZ3Formula(model, z3ast, tpe)
+      innerChooses ++= cs.map(p => p._1.res.id -> p._2)
+      e
+    }
+
+    def get(z3ast: Z3AST, tpe: Type): Option[Expr] =
+      softFromZ3Formula(model, z3ast, tpe).map { case (e, cs) =>
+        innerChooses ++= cs.map(p => p._1.res.id -> p._2)
+        e
+      }
+
+    def chooses = innerChooses.toMap
+  }
+
   def extractModel(model: Z3Model): program.Model = {
+    val ex = new ModelExtractor(model)
+
     val vars = variables.aToB.flatMap {
       case (v,z3ID) => (v.tpe match {
         case BooleanType =>
@@ -722,30 +755,35 @@ trait AbstractZ3Solver
 
         case Int32Type =>
           model.evalAs[Int](z3ID).map(IntLiteral(_)).orElse {
-            model.eval(z3ID).flatMap(t => softFromZ3Formula(model, t, Int32Type))
+            model.eval(z3ID).flatMap(t => ex.get(t, Int32Type))
           }
 
         case IntegerType =>
           model.evalAs[Int](z3ID).map(i => IntegerLiteral(BigInt(i)))
 
-        case other => model.eval(z3ID).flatMap(t => softFromZ3Formula(model, t, other))
+        case other => model.eval(z3ID).flatMap(t => ex.get(t, other))
       }).map(v.toVal -> _)
     }
 
-    val chooses = model.getFuncInterpretations.flatMap { case (decl, mapping, _) =>
+    val chooses: MutableMap[(Identifier, Seq[Type]), Expr] = MutableMap.empty
+    chooses ++= ex.chooses.map(p => (p._1, Seq.empty[Type]) -> p._2)
+
+    chooses ++= model.getFuncInterpretations.flatMap { case (decl, mapping, _) =>
       functions.getA(decl).flatMap(tfd => tfd.fullBody match {
         case c: Choose =>
+          val ex = new ModelExtractor(model)
           val body = mapping.foldRight(c: Expr) { case ((args, res), elze) =>
             IfExpr(andJoin((tfd.params.map(_.toVariable) zip args).map {
-              case (v, e) => Equals(v, fromZ3Formula(model, e, v.tpe))
-            }), fromZ3Formula(model, res, tfd.returnType), elze)
+              case (v, e) => Equals(v, ex(e, v.tpe))
+            }), ex(res, tfd.returnType), elze)
           }
+          chooses ++= ex.chooses.map(p => (p._1, tfd.tps) -> p._2)
           Some((c.res.id, tfd.tps) -> body)
         case _ => None
       })
     }.toMap
 
-    inox.Model(program)(vars, chooses)
+    inox.Model(program)(vars, chooses.toMap)
   }
 
   def extractUnsatAssumptions(cores: Set[Z3AST]): Set[Expr] = {
