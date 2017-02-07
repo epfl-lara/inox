@@ -443,11 +443,11 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected class Context(
     val vars: Map[SSymbol, Expr],
     val functions: Map[SSymbol, DefineFun],
-    val seen: Set[BigInt] = Set.empty,
+    val seen: Set[(BigInt, Type)] = Set.empty,
     private[SMTLIBTarget] val chooses: MutableMap[(BigInt, Type), Choose] = MutableMap.empty,
     private[SMTLIBTarget] val lambdas: MutableMap[(BigInt, Type), Lambda] = MutableMap.empty
   ) extends super.AbstractContext {
-    def withSeen(n: BigInt): Context = new Context(vars, functions, seen + n, chooses, lambdas)
+    def withSeen(n: (BigInt, Type)): Context = new Context(vars, functions, seen + n, chooses, lambdas)
     def withVariable(sym: SSymbol, expr: Expr): Context = new Context(vars + (sym -> expr), functions, seen, chooses, lambdas)
 
     def getFunction(sym: SSymbol, ft: FunctionType): Option[Lambda] = functions.get(sym).map {
@@ -504,7 +504,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           value.bigDecimal.movePointRight(value.scale).toBigInteger.negate,
           BigInt(10).pow(value.scale)))
 
-      case (Num(n), Some(ft: FunctionType)) if context.seen(n) =>
+      case (Num(n), Some(ft: FunctionType)) if context.seen(n -> ft) =>
         context.chooses.getOrElseUpdate(n -> ft, {
           Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
         })
@@ -515,7 +515,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         uniquateClosure(count, (lambdas.getB(ft) match {
           case None => simplestValue(ft)
           case Some(dynLambda) =>
-            context.withSeen(n).getFunction(dynLambda, FunctionType(IntegerType +: from, to)) match {
+            context.withSeen(n -> ft).getFunction(dynLambda, FunctionType(IntegerType +: from, to)) match {
               case None => simplestValue(ft)
               case Some(Lambda(dispatcher +: args, body)) =>
                 val dv = dispatcher.toVariable

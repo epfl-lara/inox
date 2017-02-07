@@ -1,0 +1,13 @@
+(declare-datatypes (A1!0 R!21) ((fun1!135 (fun1!136 (f!107 (=> A1!0 R!21)) (pre!77 (=> A1!0 Bool))))))
+
+(declare-const (par (A!1) (p!1 (fun1!135 A!1 Bool))))
+
+(declare-const (par (A!1 B!0) (f!0 (fun1!135 A!1 (fun1!135 B!0 Bool)))))
+
+(declare-const (par (B!0) (b!0 B!0)))
+
+(assert (par (A!1 B!0) (not (=> (and (forall ((x!145 A!1)) (=> (@ (f!107 (fun1!136 (lambda ((x!144 A!1)) true) (lambda ((x!1773 A!1)) true))) x!145) (@ (f!107 (fun1!136 (pre!77 (as p!1 (fun1!135 A!1 Bool))) (lambda ((x!1774 A!1)) true))) x!145))) (forall ((x!147 A!1)) (=> (@ (f!107 (fun1!136 (lambda ((x!146 A!1)) true) (lambda ((x!1775 A!1)) true))) x!147) (@ (f!107 (fun1!136 (pre!77 (as f!0 (fun1!135 A!1 (fun1!135 B!0 Bool)))) (lambda ((x!1776 A!1)) true))) x!147))) (forall ((x!146 A!1)) (forall ((x!149 B!0)) (=> (@ (f!107 (fun1!136 (lambda ((x!148 B!0)) true) (lambda ((x!1777 B!0)) true))) x!149) (@ (f!107 (fun1!136 (pre!77 (@ (f!107 (as f!0 (fun1!135 A!1 (fun1!135 B!0 Bool)))) x!146)) (lambda ((x!1778 B!0)) true))) x!149))))) (forall ((x!249 A!1)) (=> (@ (f!107 (fun1!136 (lambda ((x!248 A!1)) true) (lambda ((x!1779 A!1)) true))) x!249) (@ (f!107 (fun1!136 (pre!77 (fun1!136 (lambda ((a!1 A!1)) (and (@ (f!107 (as p!1 (fun1!135 A!1 Bool))) a!1) (@ (f!107 (@ (f!107 (as f!0 (fun1!135 A!1 (fun1!135 B!0 Bool)))) a!1)) (as b!0 B!0)))) (lambda ((a!356 A!1)) (and (@ (f!107 (fun1!136 (pre!77 (as p!1 (fun1!135 A!1 Bool))) (lambda ((x!1780 A!1)) true))) a!356) (=> (@ (f!107 (as p!1 (fun1!135 A!1 Bool))) a!356) (@ (f!107 (fun1!136 (pre!77 (@ (f!107 (as f!0 (fun1!135 A!1 (fun1!135 B!0 Bool)))) a!356)) (lambda ((x!1781 B!0)) true))) (as b!0 B!0))) (=> (@ (f!107 (as p!1 (fun1!135 A!1 Bool))) a!356) (@ (f!107 (fun1!136 (pre!77 (as f!0 (fun1!135 A!1 (fun1!135 B!0 Bool)))) (lambda ((x!1782 A!1)) true))) a!356)))))) (lambda ((x!1783 A!1)) true))) x!249)))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard
