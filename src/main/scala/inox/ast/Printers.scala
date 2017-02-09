@@ -381,6 +381,7 @@ trait Printers {
   protected def noBracesSub(e: Tree): Seq[Expr] = e match {
     case Let(_, _, bd) => Seq(bd)
     case IfExpr(_, t, e) => Seq(t, e) // if-else always has braces anyway
+    case Assume(_, bd) => Seq(bd)
     case _ => Seq()
   }
 
@@ -419,7 +420,7 @@ trait Printers {
   protected def requiresParentheses(ex: Tree, within: Option[Tree]): Boolean = (ex, within) match {
     case (_, None) => false
     case (_, Some(
-    _: Definition | _: Let | _: IfExpr | _: ADT | _: Lambda | _: Choose | _: Tuple
+      _: Definition | _: Let | _: IfExpr | _: ADT | _: Lambda | _: Choose | _: Tuple | _: Assume
     )) => false
     case (ex: StringConcat, Some(_: StringConcat)) => false
     case (_, Some(_: FunctionInvocation)) => false
