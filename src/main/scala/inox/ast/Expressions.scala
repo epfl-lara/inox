@@ -244,7 +244,7 @@ trait Expressions { self: Trees =>
   }
 
   /** $encodingof `.isInstanceOf[...]` */
-  case class IsInstanceOf(expr: Expr, tpe: ADTType) extends Expr with CachingTyped {
+  case class IsInstanceOf(expr: Expr, tpe: Type) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
       if (s.typesCompatible(expr.getType, tpe)) BooleanType else Untyped
   }
@@ -254,7 +254,7 @@ trait Expressions { self: Trees =>
     * Introduced by matchToIfThenElse to transform match-cases to type-correct
     * if bodies.
     */
-  case class AsInstanceOf(expr: Expr, tpe: ADTType) extends Expr with CachingTyped {
+  case class AsInstanceOf(expr: Expr, tpe: Type) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
       if (s.typesCompatible(tpe, expr.getType)) tpe else Untyped
   }

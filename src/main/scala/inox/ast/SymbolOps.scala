@@ -1439,7 +1439,7 @@ trait SymbolOps { self: TypeOps =>
   }
 
   /** $encodingof expr.asInstanceOf[tpe], returns `expr` if it already is of type `tpe`.  */
-  def asInstOf(expr: Expr, tpe: ADTType) = {
+  def asInstOf(expr: Expr, tpe: Type) = {
     if (symbols.isSubtypeOf(expr.getType, tpe)) {
       expr
     } else {
@@ -1447,7 +1447,7 @@ trait SymbolOps { self: TypeOps =>
     }
   }
 
-  def isInstOf(expr: Expr, tpe: ADTType) = {
+  def isInstOf(expr: Expr, tpe: Type) = {
     if (symbols.isSubtypeOf(expr.getType, tpe)) {
       BooleanLiteral(true)
     } else {
