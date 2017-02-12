@@ -33,9 +33,9 @@ trait TreeDeconstructor {
     case s.ADTSelector(e, sel) =>
       (Seq(), Seq(e), Seq(), (_, es, _) => t.ADTSelector(es.head, sel))
     case s.IsInstanceOf(e, ct) =>
-      (Seq(), Seq(e), Seq(ct), (_, es, tps) => t.IsInstanceOf(es.head, tps.head.asInstanceOf[t.ADTType]))
+      (Seq(), Seq(e), Seq(ct), (_, es, tps) => t.IsInstanceOf(es.head, tps.head))
     case s.AsInstanceOf(e, ct) =>
-      (Seq(), Seq(e), Seq(ct), (_, es, tps) => t.AsInstanceOf(es.head, tps.head.asInstanceOf[t.ADTType]))
+      (Seq(), Seq(e), Seq(ct), (_, es, tps) => t.AsInstanceOf(es.head, tps.head))
     case s.TupleSelect(e, i) =>
       (Seq(), Seq(e), Seq(), (_, es, _) => t.TupleSelect(es.head, i))
     case s.Lambda(args, body) => (
