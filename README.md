@@ -11,11 +11,8 @@ features such as:
 Interfacing with the solver can take place through the Scala API by constructing the AST
 corresponding to the query of interest and then feeding it to one of the solvers. For more
 information, see:
-
 - The usage [tutorial](doc/tutorial.md) gives some insight on how to use Inox as a library.
-
 - A more detailed description of the available solver/evaluator [API](doc/API.md) calls.
-
 - A description of the [trees](doc/trees.md) API and how to extend them.
 
 Alternatively, one can use Inox through command-line by using the [TIP](https://tip-org.github.io/) format
