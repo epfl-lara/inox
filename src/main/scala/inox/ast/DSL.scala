@@ -222,6 +222,14 @@ trait DSL {
     )
   }
 
+  /* Patterns */
+  object C {
+    def unapplySeq(expr: Expr): Option[(Identifier, Seq[Expr])] = expr match {
+      case ADT(adt, exprs) => Some((adt.id, exprs))
+      case _ => None
+    }
+  }
+
   /* Definitions */
 
   /** Creates a [[Definitions.FunDef FunDef]] given only an [[Identifier]] for the name;
