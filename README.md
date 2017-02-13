@@ -47,7 +47,7 @@ you can instruct Inox to use a given sequence of solvers.
 The more solvers you have installed, the more successful Inox might get,
 because solver capabilities are incomparable.
 
-## Native Z3 API
+### Native Z3 API
 
 In addition to these external binaries, a native Z3 API for
 Linux is bundled with Inox and should work out of the box
@@ -65,7 +65,7 @@ then need to copy the resulting jar into the "unmanaged" directory
 named "scalaz3-$os-$arch-$scalaBinaryVersion.jar" (replace the
 $ variables by the relevant values).
 
-## Solver Defaults
+### Solver Defaults
 
 As of now the default solver is the native Z3 API. If that solver
 is unavailable, a series of fallbacks take place until the
@@ -88,7 +88,7 @@ written and tested improvements to the information below.
 * [Java SE Development Kit 8](http://www.oracle.com/technetwork/java/javase/downloads/jdk8-downloads-2133151.html) or [Java SE Development Kit 7](http://www.oracle.com/technetwork/java/javase/downloads/jdk7-downloads-1880260.html) for your platform
 * SBT 0.13.x (Available from http://www.scala-sbt.org/)
 
-## Linux & Mac OS-X
+### Linux & Mac OS-X
 
 Get the sources of Inox by cloning the official Inox repository:
 
@@ -108,7 +108,7 @@ to the specified properties.
 
 See ``./inox --help`` for more information about script usage.
 
-## Windows
+### Windows
 
 __Not yet tested!__
 
@@ -123,8 +123,7 @@ You may be able to obtain additional tips on getting Inox to work on Windows
 from [Mikael Mayer](http://people.epfl.ch/mikael.mayer) or on
 [his dedicated web page](http://lara.epfl.ch/~mayer/leon/).
 
-Running Tests
--------------
+### Running Tests
 
 Inox comes with a test suite. Consider running the following commands to
 invoke different test suites:
