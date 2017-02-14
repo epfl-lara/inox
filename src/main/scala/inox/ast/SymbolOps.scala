@@ -613,23 +613,6 @@ trait SymbolOps { self: TypeOps =>
     defs.foldRight(bd){ case ((vd, e), body) => Let(vd, e, body) }
   }
 
-  private def hasInstance(tadt: TypedADTDefinition): Boolean = {
-    def rec(adt: TypedADTDefinition, seen: Set[TypedADTDefinition]): Boolean = {
-      if (seen(adt)) false else (adt match {
-        case tsort: TypedADTSort =>
-          tsort.constructors.exists(rec(_, seen + tsort))
-
-        case tcons: TypedADTConstructor =>
-          tcons.fieldsTypes.flatMap(tpe => typeOps.collect {
-            case t: ADTType => Set(t.getADT)
-            case _ => Set.empty[TypedADTDefinition]
-          } (tpe)).forall(rec(_, seen + tcons))
-      })
-    }
-
-    rec(tadt, Set.empty)
-  }
-
   /** Returns simplest value of a given type */
   def simplestValue(tpe: Type)(implicit sem: symbols.Semantics): Expr = tpe match {
     case StringType                 => StringLiteral("")
@@ -646,7 +629,7 @@ trait SymbolOps { self: TypeOps =>
 
     case adt @ ADTType(id, tps) =>
       val tadt = adt.getADT
-      if (!hasInstance(tadt)) scala.sys.error(adt +" does not seem to be well-founded")
+      if (!tadt.definition.hasInstance) scala.sys.error(adt +" does not seem to be well-founded")
 
       if (tadt.hasInvariant) {
         val p = Variable.fresh("p", FunctionType(Seq(adt), BooleanType))
@@ -662,7 +645,7 @@ trait SymbolOps { self: TypeOps =>
       } else {
         val tcons = tadt match {
           case tsort: TypedADTSort =>
-            tsort.constructors.filter(hasInstance(_)).sortBy(_.fields.size).head
+            tsort.constructors.filter(_.definition.hasInstance).sortBy(_.fields.size).head
           case tcons: TypedADTConstructor => tcons
         }
 

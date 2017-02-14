@@ -246,6 +246,23 @@ trait Definitions { self: Trees =>
       rec(base, Set.empty, first = true)
     }
 
+    def hasInstance(implicit s: Symbols): Boolean = {
+      def rec(adt: TypedADTDefinition, seen: Set[TypedADTDefinition]): Boolean = {
+        if (seen(adt)) false else (adt match {
+          case tsort: TypedADTSort =>
+            tsort.constructors.exists(rec(_, seen + tsort))
+
+          case tcons: TypedADTConstructor =>
+            tcons.fieldsTypes.flatMap(tpe => s.typeOps.collect {
+              case t: ADTType => Set(t.getADT)
+              case _ => Set.empty[TypedADTDefinition]
+            } (tpe)).forall(rec(_, seen + tcons))
+        })
+      }
+
+      rec(typed, Set.empty)
+    }
+
     /** An invariant that refines this [[ADTDefinition]] */
     def invariant(implicit s: Symbols): Option[FunDef] = {
       val rt = root

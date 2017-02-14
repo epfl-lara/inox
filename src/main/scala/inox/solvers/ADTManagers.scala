@@ -45,9 +45,9 @@ trait ADTManagers {
       // check whether all types can be defined
       for (scc <- sccs if scc.exists(tpe => (transitiveDeps(tpe) & scc).nonEmpty); tpe <- scc) tpe match {
         case t @ ((_: MapType) | (_: SetType) | (_: BagType)) =>
-          val str = "Encountered ADT that can't be defined.\n" +
-            "It appears it has recursive references through non-structural types (such as arrays, maps, or sets)."
-          val err = new Unsupported(t, str)
+          val err = new Unsupported(t, "Encountered ADT that can't be defined.\n" +
+            "It has recursive references through non-structural types (such as arrays, maps, or sets): " +
+            t.asString)
           ctx.reporter.warning(err.getMessage)
           throw err
         case _ =>
@@ -57,7 +57,14 @@ trait ADTManagers {
 
         val declarations = (for (tpe <- scc if !declared(tpe)) yield (tpe match {
           case adt: ADTType =>
-            val (root, deps) = adt.getADT.root match {
+            val tdef = adt.getADT
+            if (!tdef.definition.hasInstance) {
+              val err = new Unsupported(adt, "Not well-founded ADT:\n" + tdef.definition.asString)
+              ctx.reporter.warning(err.getMessage)
+              throw err
+            }
+
+            val (root, deps) = tdef.root match {
               case tsort: TypedADTSort =>
                 (tsort, tsort.constructors)
               case tcons: TypedADTConstructor =>
