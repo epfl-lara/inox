@@ -11,6 +11,8 @@ trait ADTManagers {
   import program.trees._
   import program.symbols._
 
+  protected def unsupported(t: Tree, str: String): Nothing
+
   case class DataType(sym: Identifier, cases: Seq[Constructor]) extends Printable {
     def asString(implicit opts: PrinterOptions) = {
       "Datatype: " + sym.toString + "\n" + cases.map(c => " - " + c.asString(opts)).mkString("\n")
@@ -45,11 +47,9 @@ trait ADTManagers {
       // check whether all types can be defined
       for (scc <- sccs if scc.exists(tpe => (transitiveDeps(tpe) & scc).nonEmpty); tpe <- scc) tpe match {
         case t @ ((_: MapType) | (_: SetType) | (_: BagType)) =>
-          val err = new Unsupported(t, "Encountered ADT that can't be defined.\n" +
+          unsupported(t, "Encountered ADT that can't be defined.\n" +
             "It has recursive references through non-structural types (such as arrays, maps, or sets): " +
             t.asString)
-          ctx.reporter.warning(err.getMessage)
-          throw err
         case _ =>
       }
 
@@ -59,9 +59,7 @@ trait ADTManagers {
           case adt: ADTType =>
             val tdef = adt.getADT
             if (!tdef.definition.hasInstance) {
-              val err = new Unsupported(adt, "Not well-founded ADT:\n" + tdef.definition.asString)
-              ctx.reporter.warning(err.getMessage)
-              throw err
+              unsupported(adt, "Not well-founded ADT:\n" + tdef.definition.asString)
             }
 
             val (root, deps) = tdef.root match {
