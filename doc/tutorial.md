@@ -27,7 +27,6 @@ The explanation is the following:
 - `inox.trees.dsl._` imports the [domain-specific-language helpers](/src/main/scala/inox/ast/DSL.scala#L20) to create [`trees`](/src/main/scala/inox/package.scala#L58) expressions.
 - `inox.solvers._` imports the [solvers](/src/main/scala/inox/solvers/package.scala#L8).
 
-
 ## Creating the Symbol Table
 
 Inox uses a symbol table to lookup function and ADT definitions, so we start by setting up the
