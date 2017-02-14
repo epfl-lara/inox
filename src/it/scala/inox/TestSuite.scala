@@ -29,23 +29,29 @@ trait TestSuite extends FunSuite with Matchers with TimeLimits {
   case object Test extends FilterStatus
   case object Ignore extends FilterStatus
   case object Skip extends FilterStatus
+  case class WithContext(ctx: Context) extends FilterStatus
 
   protected def test(name: String, filter: Context => FilterStatus, tags: Tag*)(body: Context => Unit): Unit = {
     for (config <- configurations) {
       val reporter = new TestSilentReporter
       val ctx = Context(reporter, new InterruptManager(reporter), Options(config))
       filter(ctx) match {
-        case status @ (Test | Ignore) =>
+        case status @ (Test | Ignore | _: WithContext) =>
+          val newCtx = status match {
+            case WithContext(newCtx) => newCtx
+            case _ => ctx
+          }
+
           val index = counter.nextGlobal
-          if (status == Ignore || ctx.options.findOptionOrDefault(optSelectedSolvers).exists { sname =>
+          if (status == Ignore || newCtx.options.findOptionOrDefault(optSelectedSolvers).exists { sname =>
             (sname == "nativez3" || sname == "unrollz3") && !solvers.SolverFactory.hasNativeZ3 ||
             sname == "smt-z3" && !solvers.SolverFactory.hasZ3 ||
             sname == "smt-cvc4" && !solvers.SolverFactory.hasCVC4
           }) {
-            super.ignore(f"$index%3d: $name ${optionsString(ctx.options)}")(())
+            super.ignore(f"$index%3d: $name ${optionsString(newCtx.options)}")(())
           } else {
             try {
-              super.test(f"$index%3d: $name ${optionsString(ctx.options)}")(body(ctx))
+              super.test(f"$index%3d: $name ${optionsString(newCtx.options)}")(body(newCtx))
             } catch {
               case err: FatalError =>
                 reporter.lastErrors :+= err.msg
