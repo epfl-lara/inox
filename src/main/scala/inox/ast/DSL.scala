@@ -120,7 +120,7 @@ trait DSL {
 
   // Syntax to make ValDefs, e.g. ("i" :: Integer)
   implicit class TypeToValDef(tp: Type) {
-    def :: (nm: String): ValDef = ValDef(FreshIdentifier(nm, true), tp)
+    def :: (nm: String): ValDef = ValDef(FreshIdentifier(nm), tp)
   }
 
   /** Creates a [[Expressions.Let Let]]. A [[Definitions.ValDef ValDef]] and a
