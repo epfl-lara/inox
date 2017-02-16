@@ -499,6 +499,43 @@ trait SymbolOps { self: TypeOps =>
       } (e)
     }
 
+    def inlinePosts(e: Expr): Expr = {
+      def qArgs(quantified: Set[Variable], args: Seq[Expr]): Boolean = args.exists {
+        case v: Variable => quantified(v)
+        case _ => false
+      }
+
+      def inline(quantified: Set[Variable], e: Expr): Expr = andJoin(collect {
+        case fi @ FunctionInvocation(_, _, args) if qArgs(quantified, args) =>
+          val tfd = fi.tfd
+          val nextQuantified = args.collect { case v: Variable if quantified(v) => v }.toSet
+          tfd.withParamSubst(args, tfd.fullBody) match {
+            case Let(res, _, Assume(pred, res2)) if res.toVariable == res2 && exists {
+              case FunctionInvocation(_, _, args) => qArgs(quantified, args)
+              case Application(_, args) => qArgs(quantified, args)
+              case ElementOfSet(elem: Variable, set) => quantified(elem)
+              case MultiplicityInBag(elem: Variable, set) => quantified(elem)
+              case MapApply(elem: Variable, set) => quantified(elem)
+              case _ => false
+            } (pred) && !exists {
+              case fi: FunctionInvocation => transitivelyCalls(fi.tfd.fd, tfd.fd)
+              case _ => false
+            } (pred) => Set(replaceFromSymbols(Map(res.toVariable -> fi), and(pred, inline(nextQuantified, pred))))
+            case _ => Set.empty[Expr]
+          }
+        case _ => Set.empty[Expr]
+      } (e).toSeq)
+
+      postMap {
+        case f @ Forall(args, body) =>
+          Some(assume(
+            forall(args, inline(args.map(_.toVariable).toSet, body)),
+            f
+          ))
+        case _ => None
+      } (e)
+    }
+
     /* Weaker variant of disjunctive normal form */
     def normalizeClauses(e: Expr): Expr = e match {
       case Not(Not(e)) => normalizeClauses(e)
@@ -522,7 +559,7 @@ trait SymbolOps { self: TypeOps =>
       case _ => None
     } (e)
 
-    normalizeClauses(simplifyMatchers(inlineForalls(inlineFunctions(e))))
+    normalizeClauses(simplifyMatchers(inlinePosts(inlineForalls(inlineFunctions(e)))))
   }
 
   def simplifyLets(expr: Expr): Expr = postMap({
