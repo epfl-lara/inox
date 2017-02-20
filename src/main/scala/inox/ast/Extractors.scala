@@ -205,6 +205,8 @@ trait TreeDeconstructor {
   }
 
   def deconstruct(f: s.Flag): (Seq[s.Expr], Seq[s.Type], (Seq[t.Expr], Seq[t.Type]) => t.Flag) = f match {
+    case s.Variance(v) =>
+      (Seq(), Seq(), (_, _) => t.Variance(v))
     case s.HasADTInvariant(id) =>
       (Seq(), Seq(), (_, _) => t.HasADTInvariant(id))
     case s.HasADTEquality(id) =>
