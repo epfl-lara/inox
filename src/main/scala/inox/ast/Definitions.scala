@@ -200,6 +200,9 @@ trait Definitions { self: Trees =>
     })
   }
 
+  /** Determines the variance of a [[TypeParameter]] (should only be attached to those) */
+  case class Variance(variance: Option[Boolean]) extends Flag("variance", Seq(variance))
+
   /** Denotes that this adt is refined by invariant ''id'' */
   case class HasADTInvariant(id: Identifier) extends Flag("invariant", Seq(id))
 

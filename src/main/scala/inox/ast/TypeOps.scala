@@ -47,12 +47,12 @@ trait TypeOps {
       case (adt1: ADTType, adt2: ADTType) =>
         val def1 = adt1.getADT.definition
         val def2 = adt2.getADT.definition
-        val (al, ah) = if (isUpper) (adt1, adt2) else (adt2, adt1)
-        if (!((al == ah) || (al.getADT.root.toType != ah))) unsolvable
+        val (al, ah) = if (isUpper) (def1, def2) else (def2, def1)
+        if (!((al == ah) || (al.root == ah))) unsolvable
         else {
           for {
-            (t1, t2) <- adt1.tps zip adt2.tps
-            variance <- Seq(true, false)
+            (tp, (t1, t2)) <- def1.typeArgs zip (adt1.tps zip adt2.tps)
+            variance <- if (tp.isCovariant) Seq(isUpper) else if (tp.isContravariant) Seq(!isUpper) else Seq(true, false)
             constr <- collectConstraints(t1, t2, variance)
           } yield constr
         }
@@ -107,12 +107,20 @@ trait TypeOps {
     case (adt: ADTType, _) if !adt.lookupADT.isDefined => Untyped
     case (_, adt: ADTType) if !adt.lookupADT.isDefined => Untyped
     case (adt1: ADTType, adt2: ADTType) =>
-      if (adt1.tps != adt2.tps) Untyped // invariant classtypes
+      if (adt1.tps.size != adt2.tps.size) Untyped
       else {
         val def1 = adt1.getADT.definition
         val def2 = adt2.getADT.definition
         val an1 = Seq(def1, def1.root)
         val an2 = Seq(def2, def2.root)
+
+        val tps = (def1.typeArgs zip (adt1.tps zip adt2.tps)).map { case (tp, (t1, t2)) =>
+          if (tp.isCovariant) typeBound(t1, t2, upper)
+          else if (tp.isContravariant) typeBound(t1, t2, !upper)
+          else if (t1 == t2) t1
+          else Untyped
+        }
+
         val bound = if (upper) {
           // Upper bound
           (an1.reverse zip an2.reverse)
@@ -125,7 +133,7 @@ trait TypeOps {
           else None
         }
 
-        bound.map(_.typed(adt1.tps).toType).getOrElse(Untyped).unveilUntyped
+        bound.map(_.typed(tps).toType).getOrElse(Untyped).unveilUntyped
       }
 
     case (FunctionType(from1, to1), FunctionType(from2, to2)) =>
@@ -202,7 +210,7 @@ trait TypeOps {
         unsolvable
       case (_, adt: ADTType) if !adt.lookupADT.isDefined =>
         unsolvable
-      case (adt1: ADTType, adt2: ADTType) if adt1.getADT == adt2.getADT =>
+      case (adt1: ADTType, adt2: ADTType) if adt1.getADT.definition == adt2.getADT.definition =>
         (adt1.tps zip adt2.tps).toList flatMap (collectConstraints _).tupled
       case typeOps.Same(NAryType(ts1, _), NAryType(ts2, _)) if ts1.size == ts2.size =>
         (ts1 zip ts2).toList flatMap (collectConstraints _).tupled
@@ -221,7 +229,7 @@ trait TypeOps {
           unsolvable
         case (_, adt: ADTType) :: tl if !adt.lookupADT.isDefined =>
           unsolvable
-        case (adt1: ADTType, adt2: ADTType) :: tl if adt1.getADT == adt2.getADT =>
+        case (adt1: ADTType, adt2: ADTType) :: tl if adt1.getADT.definition == adt2.getADT.definition =>
           solveConstraints((adt1.tps zip adt2.tps).toList ++ tl)
         case typeOps.Same(NAryType(ts1, _), NAryType(ts2, _)) :: tl if ts1.size == ts2.size =>
           solveConstraints((ts1 zip ts2).toList ++ tl)
