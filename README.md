@@ -36,7 +36,7 @@ which should work out of the box on any system.
 
 You can also use the following external SMT solvers:
 
-  * CVC4, http://cvc4.cs.nyu.edu/web/
+  * CVC4, http://cvc4.cs.stanford.edu/wiki/User_Manual#Getting_CVC4
   * Z3, https://github.com/Z3Prover/z3
 
 Solver binaries that you install should match your operating
