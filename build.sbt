@@ -1,6 +1,6 @@
 name := "inox"
 
-version := "1.0.2-41f88"
+version := "1.0.2-a44c8"
 
 organization := "ch.epfl.lara"
 
