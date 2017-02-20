@@ -145,7 +145,7 @@ trait Expressions { self: Trees =>
   /** $encodingof `if(...) ... else ...` */
   case class IfExpr(cond: Expr, thenn: Expr, elze: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = 
-      s.leastUpperBound(thenn.getType, elze.getType).getOrElse(Untyped).unveilUntyped
+      s.leastUpperBound(thenn.getType, elze.getType)
   }
 
 
@@ -611,19 +611,19 @@ trait Expressions { self: Trees =>
   /** $encodingof `set & set2` */
   case class SetIntersection(set1: Expr, set2: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
-      s.leastUpperBound(Seq(set1, set2).map(_.getType)).getOrElse(Untyped).unveilUntyped
+      s.leastUpperBound(Seq(set1, set2).map(_.getType))
   }
 
   /** $encodingof `set ++ set2` */
   case class SetUnion(set1: Expr, set2: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
-      s.leastUpperBound(Seq(set1, set2).map(_.getType)).getOrElse(Untyped).unveilUntyped
+      s.leastUpperBound(Seq(set1, set2).map(_.getType))
   }
 
   /** $encodingof `set -- set2` */
   case class SetDifference(set1: Expr, set2: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
-      s.leastUpperBound(Seq(set1, set2).map(_.getType)).getOrElse(Untyped).unveilUntyped
+      s.leastUpperBound(Seq(set1, set2).map(_.getType))
   }
 
 
@@ -657,19 +657,19 @@ trait Expressions { self: Trees =>
   /** $encodingof `bag1 & bag2` */
   case class BagIntersection(bag1: Expr, bag2: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
-      s.leastUpperBound(Seq(bag1, bag2).map(_.getType)).getOrElse(Untyped).unveilUntyped
+      s.leastUpperBound(Seq(bag1, bag2).map(_.getType))
   }
 
   /** $encodingof `bag1 ++ bag2` */
   case class BagUnion(bag1: Expr, bag2: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
-      s.leastUpperBound(Seq(bag1, bag2).map(_.getType)).getOrElse(Untyped).unveilUntyped
+      s.leastUpperBound(Seq(bag1, bag2).map(_.getType))
   }
 
   /** $encodingof `bag1 -- bag2` */
   case class BagDifference(bag1: Expr, bag2: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
-      s.leastUpperBound(Seq(bag1, bag2).map(_.getType)).getOrElse(Untyped).unveilUntyped
+      s.leastUpperBound(Seq(bag1, bag2).map(_.getType))
   }
 
 

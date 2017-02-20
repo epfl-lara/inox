@@ -367,7 +367,7 @@ class Parser(file: File) {
   private def typeADTConstructor(id: Identifier, superType: Type)(implicit locals: Locals): ADTType = {
     val tcons = locals.symbols.getADT(id).typed(locals.symbols).toConstructor
     val troot = tcons.root.toType
-    locals.symbols.canBeSupertypeOf(troot, superType) match {
+    locals.symbols.instantiation_>:(troot, superType) match {
       case Some(tmap) => locals.symbols.instantiateType(tcons.toType, tmap).asInstanceOf[ADTType]
       case None => throw new MissformedTIPException(
         "cannot construct full typing for " + tcons,
@@ -385,13 +385,13 @@ class Parser(file: File) {
     val actual = bestRealType(tupleTypeWrap(actuals))
 
     // freshen the type parameters in case we're building a substitution that includes params from `tps`
-    val tpSubst: Map[Type, Type] = locals.symbols.typeParamsOf(actual).map(tp => tp -> tp.freshen).toMap
+    val tpSubst: Map[Type, Type] = typeParamsOf(actual).map(tp => tp -> tp.freshen).toMap
     val tpRSubst = tpSubst.map(_.swap)
-    val substActual = locals.symbols.typeOps.replace(tpSubst, actual)
+    val substActual = typeOps.replace(tpSubst, actual)
 
-    canBeSupertypeOf(formal, substActual) match {
+    instantiation_>:(formal, substActual) match {
       case Some(tmap) => tps.map(tpd => tmap.get(tpd.tp).map {
-        tpe => locals.symbols.typeOps.replace(tpRSubst, tpe)
+        tpe => typeOps.replace(tpRSubst, tpe)
       }.getOrElse(tpd.tp))
 
       case None => throw new MissformedTIPException(

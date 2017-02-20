@@ -98,9 +98,8 @@ trait SMTLIBParser {
     case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("distinct")), None), args) =>
       val es = args.map(fromSMT(_))
       val tpEs = (if (es.exists(_.getType == Untyped) && es.exists(_.getType != Untyped)) {
-        val tpe = leastUpperBound(es.map(_.getType).filter(_ != Untyped)).getOrElse {
-          throw new MissformedSMTException(term, "Inconsistent types")
-        }
+        val tpe = leastUpperBound(es.map(_.getType).filter(_ != Untyped))
+        if (tpe == Untyped) throw new MissformedSMTException(term, "Inconsistent types")
         args.map(fromSMT(_, tpe))
       } else {
         es

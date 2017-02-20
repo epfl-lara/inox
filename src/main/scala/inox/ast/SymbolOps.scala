@@ -1370,7 +1370,7 @@ trait SymbolOps { self: TypeOps =>
     val formalType = tupleTypeWrap(fd.params map { _.getType })
     val actualType = tupleTypeWrap(args map { _.getType })
 
-    symbols.canBeSupertypeOf(formalType, actualType) match {
+    symbols.instantiation_>:(formalType, actualType) match {
       case Some(tmap) =>
         FunctionInvocation(fd.id, fd.tparams map { tpd => tmap.getOrElse(tpd.tp, tpd.tp) }, args)
       case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
@@ -1427,7 +1427,7 @@ trait SymbolOps { self: TypeOps =>
     val formalType = tupleTypeWrap(adt.fields.map(_.tpe))
     val actualType = tupleTypeWrap(args.map(_.getType))
 
-    symbols.canBeSupertypeOf(formalType, actualType) match {
+    symbols.instantiation_>:(formalType, actualType) match {
       case Some(tmap) => ADT(instantiateType(adt.typed.toType, tmap).asInstanceOf[ADTType], args)
       case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
     }

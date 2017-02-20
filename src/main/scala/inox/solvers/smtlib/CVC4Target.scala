@@ -80,9 +80,9 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
       case (Sets.Union(e1, e2), _) =>
         (fromSMT(e1), fromSMT(e2)) match {
           case (fs1 @ FiniteSet(elems1, b1), fs2 @ FiniteSet(elems2, b2)) =>
-            FiniteSet(elems1 ++ elems2, leastUpperBound(b1, b2).getOrElse {
-              unsupported(SetUnion(fs1, fs2), "woot? incompatible set base-types")
-            })
+            val tpe = leastUpperBound(b1, b2)
+            if (tpe == Untyped) unsupported(SetUnion(fs1, fs2), "woot? incompatible set base-types")
+            FiniteSet(elems1 ++ elems2, tpe)
           case (s1, s2) => SetUnion(s1, s2)
         }
 
