@@ -1,0 +1,23 @@
+(declare-datatypes (T!3) ((List!8 (Nil!5) (Cons!5 (h!50 T!3) (t!57 (List!8 T!3))))))
+
+(define-fun-rec isSorted!0 ((list!0 (List!8 Int))) Bool (ite (and (is-Cons!5 list!0) (is-Cons!5 (t!57 list!0))) (and (<= (h!50 list!0) (h!50 (t!57 list!0))) (isSorted!0 (t!57 list!0))) true))
+
+(declare-const l!0 (List!8 Int))
+
+(declare-const r!0 (List!8 Int))
+
+(declare-datatypes (A1!0 R!21) ((fun1!5 (fun1!6 (f!33 (=> A1!0 R!21)) (pre!12 (=> A1!0 Bool))))))
+
+(define-fun-rec (par (T!56) (forall!0 ((thiss!62 (List!8 T!56)) (p!16 (fun1!5 T!56 Bool))) Bool (assume (forall ((x!176 T!56)) (=> (@ (f!33 (fun1!6 (lambda ((x!175 T!56)) true) (lambda ((x!405 T!56)) true))) x!176) (@ (f!33 (fun1!6 (pre!12 p!16) (lambda ((x!406 T!56)) true))) x!176))) (ite (is-Nil!5 thiss!62) true (and (@ (f!33 p!16) (h!50 thiss!62)) (forall!0 (t!57 thiss!62) p!16)))))))
+
+(define-fun-rec (par (T!54) (content!2 ((thiss!58 (List!8 T!54))) (Set T!54) (ite (is-Nil!5 thiss!58) (as emptyset T!54) (union (insert (as emptyset T!54) (h!50 thiss!58)) (content!2 (t!57 thiss!58)))))))
+
+(define-fun-rec (par (T!30) (size!0 ((thiss!9 (List!8 T!30))) Int (let ((x$1!2 (ite (is-Nil!5 thiss!9) 0 (+ 1 (size!0 (t!57 thiss!9)))))) (assume (>= x$1!2 0) x$1!2)))))
+
+(define-fun-rec (par (T!88) (++!0 ((thiss!116 (List!8 T!88)) (that!11 (List!8 T!88))) (List!8 T!88) (let ((res!5 (ite (is-Nil!5 thiss!116) that!11 (Cons!5 (h!50 thiss!116) (++!0 (t!57 thiss!116) that!11))))) (assume (and (and (= (content!2 res!5) (union (content!2 thiss!116) (content!2 that!11))) (= (size!0 res!5) (+ (size!0 thiss!116) (size!0 that!11)))) (or (not (= that!11 (as Nil!5 (List!8 T!88)))) (= res!5 thiss!116))) res!5)))))
+
+(assert (not (=> (and (and (isSorted!0 l!0) (isSorted!0 r!0)) (forall!0 l!0 (fun1!6 (lambda ((e!0 Int)) (forall!0 r!0 (fun1!6 (lambda ((that!0 Int)) (<= e!0 that!0)) (lambda ((that!26 Int)) true)))) (lambda ((e!11 Int)) (forall ((x!176 Int)) (=> (@ (f!33 (fun1!6 (lambda ((x!175 Int)) true) (lambda ((x!578 Int)) true))) x!176) (@ (f!33 (fun1!6 (pre!12 (fun1!6 (lambda ((that!0 Int)) (<= e!11 that!0)) (lambda ((that!27 Int)) true))) (lambda ((x!579 Int)) true))) x!176))))))) (= (++!0 l!0 r!0) l!0))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard
