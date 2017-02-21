@@ -155,6 +155,38 @@ trait Definitions { self: Trees =>
 
     def transform(t: TreeTransformer { val s: self.type }): t.t.Symbols = SymbolTransformer(t).transform(this)
 
+    /** Makes sure these symbols pass a certain number of well-formedness checks, such as
+      * - function definition bodies satisfy the declared return types
+      * - adt sorts and constructors point to each other correctly
+      * - each adt type has at least one instance
+      * - adt type parameter flags match between children and parents
+      */
+    lazy val ensureWellFormed = {
+      for ((_, fd) <- functions) {
+        typeCheck(fd.fullBody, fd.returnType)
+      }
+
+      for ((_, adt) <- adts) {
+        if (!adt.hasInstance) throw NotWellFormedException(adt)
+
+        adt match {
+          case sort: ADTSort =>
+            if (!sort.constructors.forall(cons => cons.sort == Some(sort.id)))
+              throw NotWellFormedException(adt)
+          case cons: ADTConstructor =>
+            cons.sort.map(getADT) match {
+              case None => // OK
+              case Some(sort: ADTSort) =>
+                if (!(sort.cons contains cons.id) ||
+                    cons.tparams.size != sort.tparams.size ||
+                    (cons.tparams zip sort.tparams).exists(p => p._1.flags != p._2.flags))
+                  throw NotWellFormedException(adt)
+              case _ => throw NotWellFormedException(cons)
+            }
+        }
+      }
+    }
+
     override def equals(that: Any): Boolean = that match {
       case sym: AbstractSymbols => functions == sym.functions && adts == sym.adts
       case _ => false

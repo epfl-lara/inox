@@ -126,6 +126,9 @@ trait AbstractUnrollingSolver extends Solver { self =>
   private[this] var reported = false
 
   def assertCnstr(expression: Expr): Unit = {
+    symbols.ensureWellFormed // make sure that the current program is well-formed
+    typeCheck(expression, BooleanType) // make sure we've asserted a boolean-typed expression
+
     constraints += expression
 
     val freeBindings: Map[Variable, Encoded] = exprOps.variablesOf(expression).map {

@@ -257,7 +257,7 @@ trait TypeOps {
     }
   }
 
-  def typeCheck(obj: Expr, exps: Type*) {
+  def typeCheck(obj: Expr, exps: Type*) = {
     val res = exps.exists(e => isSubtypeOf(obj.getType, e))
 
     if (!res) {
