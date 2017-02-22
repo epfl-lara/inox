@@ -1,6 +1,8 @@
 name := "inox"
 
-version := "1.0.2-a44c8"
+enablePlugins(GitVersioning)
+
+git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
