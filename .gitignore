@@ -18,6 +18,7 @@ target
 # inox
 smt-sessions/
 tip-sessions/
+pri-sessions/
 *.log
 
 #eclipse
