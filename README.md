@@ -87,8 +87,7 @@ written and tested improvements to the information below.
 
 * [Java SE Development Kit 8](http://www.oracle.com/technetwork/java/javase/downloads/jdk8-downloads-2133151.html) or [Java SE Development Kit 7](http://www.oracle.com/technetwork/java/javase/downloads/jdk7-downloads-1880260.html) for your platform
 * SBT 0.13.x (Available from http://www.scala-sbt.org/)
-* The [git](https://git-scm.com/) command on your path.
-
+* The [git](https://git-scm.com/) command on your path  
   **Note:** this is *only* required for version computation and
   you can avoid installing Git by using JGit (see the
   [related documentation](https://github.com/sbt/sbt-git#using-jgit)
