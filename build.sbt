@@ -123,10 +123,11 @@ lazy val root = (project in file("."))
 
 publishMavenStyle := true
 
-publishTo := {
+publishTo <<= version { (v: String) =>
   val nexus = "https://oss.sonatype.org/"
-  if (isSnapshot.value) Some("snapshots" at nexus + "content/repositories/snapshots")
-  else                  Some("releases"  at nexus + "service/local/staging/deploy/maven2")
+  // @nv: we can't use `isSnapshot` here as it is not compatible with sbt-git versioning
+  if (v.trim.endsWith("SNAPSHOT")) Some("snapshots" at nexus + "content/repositories/snapshots")
+  else                             Some("releases"  at nexus + "service/local/staging/deploy/maven2")
 }
 
 publishArtifact in (Test, packageBin) := true
