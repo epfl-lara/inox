@@ -274,7 +274,11 @@ trait Printers {
     case (tfd: TypedFunDef) => p"typed def ${tfd.id}[${tfd.tps}]"
     case (afd: TypedADTDefinition) => p"typed class ${afd.id}[${afd.tps}]"
 
-    case tpd: TypeParameterDef => p"${tpd.tp}"
+    case tpd: TypeParameterDef =>
+      if (tpd.tp.isCovariant) p"+"
+      else if (tpd.tp.isContravariant) p"-"
+      p"${tpd.tp}"
+
     case TypeParameter(id, flags) =>
       p"$id"
       for (f <- flags) p" @${f.asString(ctx.opts)}"
@@ -314,9 +318,13 @@ trait Printers {
 
     // Definitions
     case sort: ADTSort =>
+      for (an <- sort.flags) p"""|@${an.asString(ctx.opts)}
+                                 |"""
       p"abstract class ${sort.id}${nary(sort.tparams, ", ", "[", "]")}"
 
     case cons: ADTConstructor =>
+      for (an <- cons.flags) p"""|@${an.asString(ctx.opts)}
+                                 |"""
       p"case class ${cons.id}"
       p"${nary(cons.tparams, ", ", "[", "]")}"
       p"(${cons.fields})"
