@@ -68,8 +68,8 @@ trait GenTreeOps { self =>
     //contains-like operations)
     f(e, es.view.map(rec))
   }
-  
-  
+
+
   /** Pre-traversal of the tree.
     *
     * Invokes the input function on every node '''before''' visiting
