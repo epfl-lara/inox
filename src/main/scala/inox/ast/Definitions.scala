@@ -89,7 +89,7 @@ trait Definitions { self: Trees =>
     override def toString: String = s"ValDef($id, $tpe, $flags)"
 
     def copy(id: Identifier = id, tpe: Type = tpe, flags: Set[Flag] = flags): ValDef =
-      new ValDef(v.copy(id = id, tpe = tpe, flags = flags))
+      new ValDef(v.copy(id = id, tpe = tpe, flags = flags)).copiedFrom(this)
   }
 
   object ValDef {

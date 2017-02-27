@@ -642,7 +642,7 @@ trait Expressions { self: Trees =>
         case BagType(base) => base
         case _ => Untyped
       }
-      checkParamTypes(Seq(base), Seq(elem.getType), BagType(base).unveilUntyped)
+      checkParamTypes(Seq(elem.getType), Seq(base), BagType(base).unveilUntyped)
     }
   }
 
