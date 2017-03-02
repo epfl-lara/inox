@@ -1,0 +1,13 @@
+(declare-datatypes (A0!0 A1!0) ((tuple2!0 (tuple2!1 (_1!0 A0!0) (_2!0 A1!0)))))
+
+(declare-datatypes (A!0) ((List!1 (Cons!1 (head!2 A!0) (tail!2 (List!1 A!0))) (Nil!1))))
+
+(declare-datatypes (A0!3 A1!3 A2!0) ((tuple3!0 (tuple3!1 (_1!1 A0!3) (_2!1 A1!3) (_3!0 A2!0)))))
+
+(define-fun-rec eea!0 ((r!0 (tuple2!0 Int Int)) (s!0 (tuple2!0 Int Int)) (t!0 (tuple2!0 Int Int))) (List!1 (tuple3!0 Int Int Int)) (ite (= (_2!0 r!0) 0) (as Nil!1 (List!1 (tuple3!0 Int Int Int))) (let ((q!0 (ite (>= (_1!0 r!0) 0) (div (_1!0 r!0) (_2!0 r!0)) (- (div (- (_1!0 r!0)) (_2!0 r!0)))))) (Cons!1 (tuple3!1 (_1!0 r!0) (_1!0 s!0) (_1!0 t!0)) (eea!0 (tuple2!1 (_2!0 r!0) (- (_1!0 r!0) (* q!0 (_2!0 r!0)))) (tuple2!1 (_2!0 s!0) (- (_1!0 s!0) (* q!0 (_2!0 s!0)))) (tuple2!1 (_2!0 t!0) (- (_1!0 t!0) (* q!0 (_2!0 t!0)))))))))
+
+(assert (exists ((a!1 Int)(b!1 Int)) (not (=> (and (and (>= a!1 0) (> b!1 0)) (<= b!1 a!1)) (let ((l!2 (eea!0 (tuple2!1 a!1 b!1) (tuple2!1 1 0) (tuple2!1 0 1)))) (let ((h!0 (head!2 l!2))) (=> (is-Cons!1 (tail!2 l!2)) (let ((h2!0 (head!2 (tail!2 l!2)))) (and (= (_1!1 h!0) a!1) (= (_1!1 h2!0) b!1))))))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

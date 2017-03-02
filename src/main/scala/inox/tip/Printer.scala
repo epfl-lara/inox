@@ -280,7 +280,7 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
         val sym = id2sym(vd.id)
         (vd.id -> (sym: Term), SortedVar(sym, declareSort(vd.tpe)))
       }.unzip
-      Exists(param, params, toSMT(body)(bindings ++ newBindings))
+      Exists(param, params, toSMT(Not(body))(bindings ++ newBindings))
 
     case Application(caller, args) => SMTApplication(toSMT(caller), args.map(toSMT))
 

@@ -71,7 +71,7 @@ trait SMTLIBParser {
       val vds = (sv +: svs).map(fromSMT)
       val bindings = ((sv +: svs) zip vds).map(p => p._1.name -> p._2.toVariable)
       val body = fromSMT(term, BooleanType)(context.withVariables(bindings))
-      Forall(vds, Not(body).setPos(body))
+      Not(Forall(vds, Not(body).setPos(body)))
 
     case Core.ITE(cond, thenn, elze) =>
       IfExpr(fromSMT(cond, BooleanType), fromSMT(thenn, otpe), fromSMT(elze, otpe))
