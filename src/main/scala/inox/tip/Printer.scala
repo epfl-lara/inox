@@ -317,9 +317,10 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
     case StringLength(s) => Strings.Length(toSMT(s))
 
     case ADT(tpe @ ADTType(id, tps), es) =>
-      val tcons = tpe.getADT.definition.typed.toConstructor
+      val d = tpe.getADT.definition
+      val tcons = d.typed(d.root.typeArgs).toConstructor
       val adt = tcons.toType
-      val sort = declareSort(tpe)
+      val sort = declareSort(adt)
       val constructor = constructors.toB(adt)
       if (es.isEmpty) {
         if (tcons.tps.nonEmpty) QualifiedIdentifier(SMTIdentifier(constructor), Some(sort))
@@ -329,14 +330,16 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
       }
 
     case s @ ADTSelector(e, id) =>
-      val tcons = e.getType.asInstanceOf[ADTType].getADT.definition.typed.toConstructor
+      val d = e.getType.asInstanceOf[ADTType].getADT.definition
+      val tcons = d.typed(d.root.typeArgs).toConstructor
       val adt = tcons.toType
       declareSort(adt)
       val selector = selectors.toB(adt -> s.selectorIndex)
       FunctionApplication(selector, Seq(toSMT(e)))
 
     case IsInstanceOf(e, t: ADTType) =>
-      val tdef = t.getADT.definition.typed
+      val d = t.getADT.definition
+      val tdef = d.typed(d.root.typeArgs)
       if (tdef.definition.isSort) {
         toSMT(BooleanLiteral(true))
       } else {
