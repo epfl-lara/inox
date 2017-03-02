@@ -193,11 +193,8 @@ trait SymbolOps { self: TypeOps =>
 
       def isLocal(e: Expr, path: Path): Boolean = {
         val vs = variablesOf(e)
-        val bindings = path.bindings.map(p => p._1.toVariable -> p._2).toMap
-        (tvars & (vs.flatMap { v =>
-          val tv = varSubst.get(v.id).map(Variable(_, v.tpe, v.flags))
-          tv.toSet ++ tv.flatMap(v => bindings.get(v)).toSet.flatMap(variablesOf)
-        })).isEmpty
+        val tvs = vs.flatMap(v => varSubst.get(v.id).map(Variable(_, v.tpe, v.flags)))
+        (tvars & tvs).isEmpty && (path.bindings.map(_._1.toVariable).toSet & tvs).isEmpty
       }
 
       object normalizer extends transformers.TransformerWithPC {
