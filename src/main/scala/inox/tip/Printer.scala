@@ -320,7 +320,7 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
       val d = tpe.getADT.definition
       val tcons = d.typed(d.root.typeArgs).toConstructor
       val adt = tcons.toType
-      val sort = declareSort(adt)
+      val sort = declareSort(tpe)
       val constructor = constructors.toB(adt)
       if (es.isEmpty) {
         if (tcons.tps.nonEmpty) QualifiedIdentifier(SMTIdentifier(constructor), Some(sort))
