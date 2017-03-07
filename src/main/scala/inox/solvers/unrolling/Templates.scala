@@ -509,7 +509,9 @@ trait Templates extends TemplateGenerator
     def lambdaPointers(encoder: Expr => Encoded)(expr: Expr): Map[Encoded, Encoded] = {
       def collectSelectors(expr: Expr, ptr: Expr): Seq[(Expr, Variable)] = expr match {
         case ADT(tpe, es) => (tpe.getADT.toConstructor.fields zip es).flatMap {
-          case (vd, e) => collectSelectors(e, ADTSelector(ptr, vd.id))
+          case (vd, e) =>
+            val ex = if (ptr.getType == tpe) ptr else AsInstanceOf(ptr, tpe)
+            collectSelectors(e, ADTSelector(ex, vd.id))
         }
 
         case Tuple(es) => es.zipWithIndex.flatMap {
