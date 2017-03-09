@@ -138,7 +138,9 @@ trait Expressions { self: Trees =>
 
     def inlined(implicit s: Symbols): Expr = {
       val tfd = this.tfd
-      exprOps.freshenLocals(tfd.withParamSubst(args, tfd.fullBody))
+      exprOps.freshenLocals((tfd.params zip args).foldRight(tfd.fullBody) {
+        case ((vd, e), body) => s.let(vd, e, body)
+      })
     }
   }
 

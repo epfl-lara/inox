@@ -26,8 +26,11 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     // Z3 and CVC4 binaries are exceedingly slow on this benchmark
     (solver == "smt-z3" && fileName.endsWith("BinarySearchTreeQuant.scala-2.tip")) ||
     (solver == "smt-cvc4" && fileName.endsWith("BinarySearchTreeQuant.scala-2.tip")) ||
-    // uses non-linear operators that aren't supported in CVC4
-    (solver == "smt-cvc4" && fileName.endsWith("LetsInForall.tip"))
+    // use non-linear operators that aren't supported in CVC4
+    (solver == "smt-cvc4" && fileName.endsWith("LetsInForall.tip")) ||
+    (solver == "smt-cvc4" && fileName.endsWith("Instantiation.scala-0.tip")) ||
+    (solver == "smt-cvc4" && fileName.endsWith("Weird.scala-0.tip")) ||
+    (solver == "smt-cvc4" && fileName.endsWith("Soundness.scala-0.tip"))
   }
 
   private def ignore(ctx: Context, file: java.io.File): FilterStatus = 

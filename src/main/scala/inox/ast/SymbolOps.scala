@@ -223,7 +223,7 @@ trait SymbolOps { self: TypeOps =>
           case Let(vd, e, b) if (
             isLocal(e, path) &&
             (isSimple(e) || !onlySimple) &&
-            isPure(e)
+            (isPure(e) || path.conditions.isEmpty)
           ) =>
             val newId = getId(e)
             rec(replaceFromSymbols(Map(vd.toVariable -> Variable(newId, vd.tpe, Set.empty)), b), path)
@@ -231,7 +231,7 @@ trait SymbolOps { self: TypeOps =>
           case expr if (
             isLocal(expr, path) &&
             (isSimple(expr) || !onlySimple) &&
-            isPure(expr)
+            (isPure(expr) || path.conditions.isEmpty)
           ) =>
             Variable(getId(expr), expr.getType, Set.empty)
 
@@ -539,6 +539,33 @@ trait SymbolOps { self: TypeOps =>
       } (e)
     }
 
+    /* Inline lambda lets that appear in forall bodies. For example,
+     * {{{
+     *   val f = (x: BigInt) => x + 1
+     *   forall((x: BigInt) => f(x) == x + 1)
+     * }}}
+     * will be rewritten to
+     * {{{
+     *   val f = (x: BigInt) => x + 1
+     *   forall((x: BigInt) => x + 1 == x + 1)
+     * }}}
+     */
+    def inlineLambdas(e: Expr): Expr = {
+      def rec(e: Expr, lambdas: Map[Variable, Lambda], inForall: Boolean): Expr = e match {
+        case Let(vd, l: Lambda, b) =>
+          val nl = l.copy(body = rec(l.body, lambdas, false))
+          Let(vd, nl, rec(b, lambdas + (vd.toVariable -> nl), inForall))
+        case Application(v: Variable, args) if (lambdas contains v) && inForall =>
+          application(lambdas(v), args.map(rec(_, lambdas, inForall)))
+        case Forall(args, body) =>
+          Forall(args, rec(body, lambdas, true))
+        case Operator(es, recons) =>
+          recons(es.map(rec(_, lambdas, inForall)))
+      }
+
+      rec(e, Map.empty, false)
+    }
+
     /* Weaker variant of disjunctive normal form */
     def normalizeClauses(e: Expr): Expr = e match {
       case Not(Not(e)) => normalizeClauses(e)
@@ -562,44 +589,87 @@ trait SymbolOps { self: TypeOps =>
       case _ => None
     } (e)
 
-    normalizeClauses(simplifyMatchers(inlinePosts(inlineForalls(inlineFunctions(e)))))
+    normalizeClauses(simplifyMatchers(inlineLambdas(inlinePosts(inlineForalls(inlineFunctions(e))))))
   }
 
-  def simplifyLets(expr: Expr): Expr = postMap({
-    case Let(v1, Let(v2, e2, b2), b1) =>
-      Some(Let(v2, e2, Let(v1, b2, b1)))
+  def simplifyLets(expr: Expr): Expr = {
+    def isPureIn(e: Expr, path: Path): Boolean = e match {
+      case AsInstanceOf(e, tpe: ADTType) =>
+        val tadt = tpe.getADT
+        isPureIn(e, path) && (
+          tadt.definition.isSort ||
+          path.conditions.exists { case TopLevelOrs(ors) =>
+            ors.forall { case TopLevelAnds(ands) => ands contains IsInstanceOf(e, tpe) }
+          } ||
+          tadt.toConstructor.sort.exists { tsort =>
+            val alts = (tsort.constructors.toSet - tadt).map(_.toType)
+            val nots = path.conditions.flatMap { case TopLevelOrs(ors) =>
+              ors.map { case TopLevelAnds(ands) =>
+                ands.collect { case IsInstanceOf(`e`, tpe: ADTType) => tpe }.toSet
+              }.reduce(_ & _)
+            }.toSet
+            alts subsetOf nots
+          })
 
-    case Let(v, e, v2) if v.toVariable == v2 =>
-      Some(e)
+      case _ => isPure(e)
+    }
 
-    case Let(v, ts @ (
-      (_: Variable)                |
-      TupleSelect(_: Variable, _)  |
-      ADTSelector(_: Variable, _)  |
-      FiniteMap(Seq(), _, _, _)    |
-      FiniteBag(Seq(), _)          |
-      FiniteSet(Seq(), _)          |
-      IsInstanceOf(_: Variable, _) |
-      AsInstanceOf(_: Variable, _)
-    ), b) =>
-      Some(replaceFromSymbols(Map(v -> ts), b))
+    object transformer extends transformers.TransformerWithPC {
+      val trees: self.trees.type = self.trees
+      val symbols: self.symbols.type = self.symbols
+      val initEnv = Path.empty
 
-    case Let(vd, e, b) =>
-      exprOps.count { case v: Variable if vd.toVariable == v => 1 case _ => 0 } (b) match {
-        case 0 if isPure(e) => Some(b)
-        case 1 =>
-          if (isPure(e) || transformers.CollectorWithPC(trees)(symbols) {
-            case (v: Variable, path) if vd.toVariable == v && path.conditions.nonEmpty => v
-          }.collect(b).isEmpty) {
-            Some(replaceFromSymbols(Map(vd -> e), b))
-          } else {
-            None
+      override protected def rec(e: Expr, path: Path): Expr = e match {
+        case Let(v1, Let(v2, e2, b2), b1) => rec(Let(v2, e2, Let(v1, b2, b1)), path)
+
+        case Let(v, e, v2) if v.toVariable == v2 => rec(e, path)
+
+        case Let(v, ts @ (
+          (_: Variable)                |
+          TupleSelect(_: Variable, _)  |
+          ADTSelector(_: Variable, _)  |
+          FiniteMap(Seq(), _, _, _)    |
+          FiniteBag(Seq(), _)          |
+          FiniteSet(Seq(), _)          |
+          IsInstanceOf(_: Variable, _)
+        ), b) => rec(replaceFromSymbols(Map(v -> ts), b), path)
+
+        case Let(vd, ADT(tpe, es), b) if {
+          val v = vd.toVariable
+          var onlyFields: Boolean = true
+          new TreeTraverser {
+            override def traverse(e: Expr): Unit = e match {
+              case ADTSelector(`v`, id) =>
+              case `v` => onlyFields = false
+              case _ => super.traverse(e)
+            }
+          }.traverse(b)
+          onlyFields
+        } =>
+          val params = tpe.getADT.toConstructor.fields
+          val vds = params.map(_.freshen)
+          val selectorMap = (params.map(_.id) zip vds.map(_.toVariable)).toMap
+
+          rec((vds zip es).foldRight(exprOps.postMap {
+            case ADTSelector(v, id) if v == vd.toVariable => Some(selectorMap(id))
+            case _ => None
+          } (b)) { case ((vd, e), body) => let(vd, e, body) }, path)
+
+        case lt @ Let(vd, e, b) =>
+          exprOps.count { case v: Variable if vd.toVariable == v => 1 case _ => 0 } (b) match {
+            case 0 if isPureIn(e, path) => rec(b, path)
+            case 1 if isPure(e) || transformers.CollectorWithPC(trees)(symbols) {
+              case (v: Variable, path) if vd.toVariable == v && path.conditions.nonEmpty => v
+            }.collect(b).isEmpty => rec(replaceFromSymbols(Map(vd -> e), b), path)
+            case _ => super.rec(lt, path)
           }
-        case _ => None
-      }
 
-    case _ => None
-  }, applyRec = true)(expr)
+        case _ => super.rec(e, path)
+      }
+    }
+
+    transformer.transform(expr)
+  }
 
   /** Fully expands all let expressions. */
   def expandLets(expr: Expr): Expr = {
@@ -1168,28 +1238,28 @@ trait SymbolOps { self: TypeOps =>
 
     def simplifyCondLets(e: Expr): Expr = postMap {
       case l @ Let(vd, ie @ IfExpr(cond, v: Variable, _: Choose), body) =>
+        def impliesCondition(path: Path): Boolean = {
+          def simpleDNF(e: Expr): Expr = e match {
+            case And(es) => orJoin(es.foldLeft(Seq(BooleanLiteral(true): Expr)) {
+              case (acc, Or(ors)) => ors.flatMap(or => acc.map(s => and(s, or)))
+              case (acc, e) => acc.map(s => and(s, e))
+            })
+            case Or(es) => orJoin(es map simpleDNF)
+            case _ => e
+          }
+
+          val TopLevelOrs(ors) = simpleDNF(cond)
+          val pathConjs = path.conditions.flatMap { case TopLevelAnds(ands) => ands }.toSet
+          ors.exists { case TopLevelAnds(ands) => ands.toSet subsetOf pathConjs }
+        }
+
         object transformer extends transformers.TransformerWithPC {
           val trees: self.trees.type = self.trees
           val symbols: self.symbols.type = self.symbols
           val initEnv = Path.empty
 
-          def implies(path: Path, cond: Expr): Boolean = {
-            def simpleDNF(e: Expr): Expr = e match {
-              case And(es) => orJoin(es.foldLeft(Seq(BooleanLiteral(true): Expr)) {
-                case (acc, Or(ors)) => ors.flatMap(or => acc.map(s => and(s, or)))
-                case (acc, e) => acc.map(s => and(s, e))
-              })
-              case Or(es) => orJoin(es map simpleDNF)
-              case _ => e
-            }
-
-            val TopLevelOrs(ors) = simpleDNF(cond)
-            val pathConjs = path.conditions.flatMap { case TopLevelAnds(ands) => ands }.toSet
-            ors.exists { case TopLevelAnds(ands) => ands.toSet subsetOf pathConjs }
-          }
-
           override protected def rec(e: Expr, path: Path): Expr = e match {
-            case nv: Variable if vd.toVariable == nv && implies(path, cond) => v
+            case nv: Variable if vd.toVariable == nv && impliesCondition(path) => v
             case _ => super.rec(e, path)
           }
         }
@@ -1204,7 +1274,7 @@ trait SymbolOps { self: TypeOps =>
       case _ => None
     } (e)
 
-    simplifyCondLets(simplifyLets(mergeCalls(liftCalls(expr))))
+    simplifyByConstructors(simplifyCondLets(simplifyLets(mergeCalls(liftCalls(expr)))))
   }
 
   def simplifyFormula(e: Expr, simplify: Boolean = true): Expr = {

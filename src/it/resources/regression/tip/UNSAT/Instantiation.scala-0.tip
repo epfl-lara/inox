@@ -1,0 +1,19 @@
+(define-fun divide!0 ((x!0 Int) (y!0 Int)) Bool (exists ((k!0 Int)) (not (not (= y!0 (* k!0 x!0))))))
+
+(declare-const x!2 Int)
+
+(declare-const y!2 Int)
+
+(declare-datatypes (A1!0 R!21) ((fun1!5 (fun1!6 (f!35 (=> A1!0 R!21)) (pre!13 (=> A1!0 Bool))))))
+
+(define-fun (par (T!1) (introduction_exists!0 ((t!2 T!1) (p!1 (fun1!5 T!1 Bool))) Bool (assume (and (forall ((x!108 T!1)) (=> (@ (f!35 (fun1!6 (lambda ((x!107 T!1)) true) (lambda ((x!329 T!1)) true))) x!108) (@ (f!35 (fun1!6 (pre!13 p!1) (lambda ((x!330 T!1)) true))) x!108))) (@ (f!35 p!1) t!2)) (let ((holds!0 (exists ((t!3 T!1)) (not (not (@ (f!35 p!1) t!3)))))) (assume holds!0 holds!0))))))
+
+(define-fun (par (T!0) (elimination_exists!0 ((p!0 (fun1!5 T!0 Bool))) T!0 (assume (and (forall ((x!206 T!0)) (=> (@ (f!35 (fun1!6 (lambda ((x!205 T!0)) true) (lambda ((x!435 T!0)) true))) x!206) (@ (f!35 (fun1!6 (pre!13 p!0) (lambda ((x!436 T!0)) true))) x!206))) (exists ((t!0 T!0)) (not (not (@ (f!35 p!0) t!0))))) (let ((res!0 (choose t!1 T!0 (@ (f!35 p!0) t!1)))) (assume (@ (f!35 p!0) res!0) res!0))))))
+
+(define-fun divide_multiply!0 ((x!1 Int) (y!1 Int) (z!0 Int)) Bool (assume (divide!0 x!1 y!1) (let ((holds!1 (let ((tmp!0 (introduction_exists!0 (* (elimination_exists!0 (fun1!6 (lambda ((k!1 Int)) (= y!1 (* k!1 x!1))) (lambda ((k!4 Int)) true))) z!0) (fun1!6 (lambda ((k!2 Int)) (= (* y!1 z!0) (* k!2 x!1))) (lambda ((k!5 Int)) true))))) (divide!0 x!1 (* y!1 z!0))))) (assume holds!1 holds!1))))
+
+(assert (not (=> (and (divide!0 x!2 y!2) (> y!2 0)) (assume (divide_multiply!0 x!2 y!2 (assume (not (= y!2 0)) (ite (>= x!2 0) (div x!2 y!2) (- (div (- x!2) y!2))))) (divide!0 x!2 (* y!2 (assume (not (= y!2 0)) (ite (>= x!2 0) (div x!2 y!2) (- (div (- x!2) y!2))))))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

@@ -1,0 +1,13 @@
+(define-fun divide!0 ((x!0 Int) (y!0 Int)) Bool (exists ((k!0 Int)) (not (not (= y!0 (* k!0 x!0))))))
+
+(define-fun smallerDivider!0 ((r2!0 Int) (r!0 Int) (a!0 Int) (b!0 Int)) Bool (=> (and (divide!0 r2!0 a!0) (divide!0 r2!0 b!0)) (<= r2!0 r!0)))
+
+(declare-const a!1 Int)
+
+(declare-const r!1 Int)
+
+(assert (not (=> (smallerDivider!0 a!1 r!1 a!1 0) (=> (and (divide!0 a!1 a!1) (divide!0 a!1 0)) (<= a!1 r!1)))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

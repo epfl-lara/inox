@@ -47,12 +47,22 @@ trait Paths { self: SymbolOps with TypeOps =>
     }
 
     /** Add a condition to this [[Path]] */
-    def withCond(e: Expr) = {
-      if (e == BooleanLiteral(true)) this
-      else new Path(elements :+ Right(e))
+    def withCond(e: Expr): Path = e match {
+      case TopLevelAnds(es) if es.size > 1 => withConds(es)
+      case Not(TopLevelOrs(es)) if es.size > 1 => withConds(es.map(not(_)))
+      case _ =>
+        val notE = not(e)
+        val newElements = elements.map(_.right.map { e =>
+          simplifyByConstructors(exprOps.replace(Map(notE -> BooleanLiteral(false)), e))
+        }) :+ Right(simplifyByConstructors(conditions.foldLeft(e) { (e, c) =>
+          exprOps.replace(Map(not(c) -> BooleanLiteral(false)), e)
+        }))
+
+        new Path(newElements.filterNot(_.right.exists(_ == BooleanLiteral(true))))
     }
 
-    def withConds(es: Iterable[Expr]) = new Path(elements ++ es.filterNot( _ == BooleanLiteral(true)).map(Right(_)))
+    /** Add multiple conditions to this [[Path]] */
+    def withConds(es: Iterable[Expr]) = es.foldLeft(this)((p, e) => p withCond e)
 
     /** Remove bound variables from this [[Path]]
       * @param ids the bound variables to remove
