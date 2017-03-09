@@ -5,7 +5,7 @@ package ast
 
 import utils._
 
-import scala.collection.mutable.{Map => MutableMap}
+import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 /** Provides functions to manipulate [[Expressions.Expr]] in cases where
   * a symbol table is available (and required: see [[ExprOps]] for
@@ -125,6 +125,7 @@ trait SymbolOps { self: TypeOps =>
 
     val subst: MutableMap[Variable, Expr] = MutableMap.empty
     val varSubst: MutableMap[Identifier, Identifier] = MutableMap.empty
+    val locals: MutableSet[Identifier] = MutableSet.empty
 
     // Note: don't use clone here, we want to drop the `withDefaultValue` feature of [[typeIds]]
     val remainingIds: MutableMap[Type, List[Identifier]] = MutableMap.empty ++ typedIds.toMap
@@ -152,6 +153,7 @@ trait SymbolOps { self: TypeOps =>
           case Some(newId) => newId
           case None =>
             val newId = getId(Variable(id, tpe, Set.empty), store = store)
+            if (!store) locals += id
             varSubst += id -> newId
             newId
         }
@@ -203,8 +205,12 @@ trait SymbolOps { self: TypeOps =>
         val initEnv = Path.empty
 
         override protected def rec(e: Expr, path: Path): Expr = e match {
-          case Variable(id, tpe, flags) =>
-            Variable(transformId(id, tpe), tpe, flags)
+          case v @ Variable(id, tpe, flags) =>
+            Variable(
+              if (vars(v) || locals(id)) transformId(id, tpe, store = false)
+              else getId(v),
+              tpe, flags
+            )
 
           case (_: Application) | (_: MultiplicityInBag) | (_: ElementOfSet) | (_: MapApply) if (
             !isLocal(e, path) &&
