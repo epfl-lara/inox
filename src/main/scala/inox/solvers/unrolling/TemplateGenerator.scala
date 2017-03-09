@@ -294,7 +294,7 @@ trait TemplateGenerator { self: Templates =>
                 val newRes: Variable = Variable.fresh("res", BooleanType, true)
                 storeExpr(newRes)
 
-                val xrec = rec(pathVar, x, pol)
+                val xrec = rec(pathVar, x, None)
                 storeGuarded(pathVar, Equals(newRes, xrec))
 
                 val newBool: Variable = Variable.fresh("b", BooleanType, true)
