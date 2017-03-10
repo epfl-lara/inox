@@ -8,6 +8,7 @@ import _root_.smtlib.parser.Terms.{Identifier => SMTIdentifier, Let => SMTLet, _
 import _root_.smtlib.parser.Commands.{FunDef => SMTFunDef, _}
 import _root_.smtlib.interpreters.Z3Interpreter
 import _root_.smtlib.theories.Core.{Equals => SMTEquals, _}
+import _root_.smtlib.theories.Operations._
 import _root_.smtlib.theories._
 
 trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
@@ -49,6 +50,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       declareSort(BooleanType)
       Sort(SMTIdentifier(setSort), Seq(declareSort(base)))
     case BagType(base) => declareSort(MapType(base, IntegerType))
+    case StringType => Sort(SMTIdentifier(SSymbol("Seq")), Seq(declareSort(CharType)))
     case _ => super.computeSort(t)
   }
 
@@ -140,6 +142,8 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       ), None) =>
         MapUpdated(fromSMT(arr), fromSMT(key), fromSMT(elem))
 
+      case (StringLit(v), _) => StringLiteral(v)
+
       case _ =>
         super.fromSMT(t, otpe)
     }
@@ -218,6 +222,18 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         ArrayMap(div, ArrayMap(plus, dSym, ArrayMap(abs, dSym)), all2)
       )
 
+    /** String operations */
+    case StringLiteral(v) =>
+      declareSort(StringType)
+      StringLit(v)
+
+    case StringLength(a) => SeqLength(toSMT(a))
+    case StringConcat(a, b) => SeqConcat(toSMT(a), toSMT(b))
+    case SubString(a, start, Plus(start2, length)) if start == start2 =>
+      SeqExtract(toSMT(a), toSMT(start), toSMT(length))
+    case SubString(a, start, end) =>
+      SeqExtract(toSMT(a), toSMT(start), toSMT(Minus(end, start)))
+
     case _ =>
       super.toSMT(e)
   }
@@ -246,4 +262,36 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         List(default))
     }
   }
+
+  protected object StringLit {
+    import FixedSizeBitVectors._
+
+    def apply(str: String): Term = str.map(c => SeqUnit(toSMT(CharLiteral(c))(Map.empty))) match {
+      case Seq() => QualifiedIdentifier(SMTIdentifier(SSymbol("seq.empty")), Some(declareSort(StringType)))
+      case Seq(e) => e
+      case h1 +: h2 +: rest => SeqConcat(h1, h2, rest : _*)
+    }
+
+    def unapply(term: Term): Option[String] = term match {
+      case QualifiedIdentifier(SMTIdentifier(SSymbol("seq.empty"), _), Some(BitVectorSort(b))) if b == BigInt(16) => Some("")
+      case QualifiedIdentifier(SMTIdentifier(SSymbol("seq.empty"), _), None) => Some("")
+      case SeqUnit(BitVectorConstant(n, b)) if b == BigInt(16) => Some(n.toInt.toChar.toString)
+      case SeqConcat(e1, e2, es @ _*) =>
+        val optChars = (e1 +: e2 +: es).map {
+          case BitVectorConstant(n, b) if b == BigInt(16) => Some(n.toInt.toChar.toString)
+          case _ => None
+        }
+        if (optChars.forall(_.isDefined)) {
+          Some(optChars.map(_.get).reduce(_ + _))
+        } else {
+          None
+        }
+      case _ => None
+    }
+  }
+
+  protected object SeqUnit extends Operation1 { override val name = "seq.unit" }
+  protected object SeqLength extends Operation1 { override val name = "seq.len" }
+  protected object SeqConcat extends OperationN2 { override val name = "seq.++" }
+  protected object SeqExtract extends Operation3 { override val name = "seq.extract" }
 }

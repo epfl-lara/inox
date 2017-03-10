@@ -142,7 +142,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     case IntegerType => Ints.IntSort()
     case RealType    => Reals.RealSort()
     case BVType(l)   => FixedSizeBitVectors.BitVectorSort(l)
-    case CharType    => FixedSizeBitVectors.BitVectorSort(32)
+    case CharType    => FixedSizeBitVectors.BitVectorSort(16)
 
     case mt @ MapType(from, to) =>
       Sort(SMTIdentifier(SSymbol("Array")), Seq(declareSort(from), declareSort(to)))
@@ -259,7 +259,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case IntegerLiteral(i)     => if (i >= 0) Ints.NumeralLit(i) else Ints.Neg(Ints.NumeralLit(-i))
       case BVLiteral(bits, size) => FixedSizeBitVectors.BitVectorLit(List.range(1, size + 1).map(i => bits(size + 1 - i)))
       case FractionLiteral(n, d) => Reals.Div(Reals.NumeralLit(n), Reals.NumeralLit(d))
-      case CharLiteral(c)        => FixedSizeBitVectors.BitVectorLit(Hexadecimal.fromInt(c.toInt))
+      case CharLiteral(c)        => FixedSizeBitVectors.BitVectorLit(Hexadecimal.fromShort(c.toShort))
       case BooleanLiteral(v)     => Core.BoolConst(v)
       case Let(b, d, e) =>
         val id = id2sym(b.id)
@@ -481,7 +481,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case (_, Some(UnitType)) =>
         UnitLiteral()
 
-      case (FixedSizeBitVectors.BitVectorConstant(n, b), Some(CharType)) if b == BigInt(32) =>
+      case (FixedSizeBitVectors.BitVectorConstant(n, b), Some(CharType)) if b == BigInt(16) =>
         CharLiteral(n.toInt.toChar)
 
       case (SHexadecimal(h), Some(CharType)) =>

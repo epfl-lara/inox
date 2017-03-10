@@ -210,10 +210,11 @@ trait AbstractZ3Solver
   private def prepareSorts(): Unit = {
 
     sorts += Int32Type -> z3.mkBVSort(32)
-    sorts += CharType -> z3.mkBVSort(32)
+    sorts += CharType -> z3.mkBVSort(16)
     sorts += IntegerType -> z3.mkIntSort
     sorts += RealType -> z3.mkRealSort
     sorts += BooleanType -> z3.mkBoolSort
+    sorts += StringType -> z3.mkSeqSort(z3.mkBVSort(16))
 
     testers.clear()
     constructors.clear()
@@ -222,7 +223,7 @@ trait AbstractZ3Solver
 
   // assumes prepareSorts has been called....
   protected def typeToSort(oldtt: Type): Z3Sort = bestRealType(oldtt) match {
-    case Int32Type | BooleanType | IntegerType | RealType | CharType =>
+    case Int32Type | BooleanType | IntegerType | RealType | CharType | StringType =>
       sorts(oldtt)
 
     case tt @ BVType(i) =>
@@ -488,6 +489,27 @@ trait AbstractZ3Solver
           case (array, (k, v)) => z3.mkStore(array, rec(k), rec(v))
         }
 
+      /**
+       * ====== String operations ====
+       */
+      case StringLiteral(v) => v.map(c => z3.mkUnitSeq(z3.mkInt(c, typeToSort(CharType)))) match {
+        case Seq() => z3.mkEmptySeq(typeToSort(CharType))
+        case Seq(e) => e
+        case es => z3.mkSeqConcat(es : _*)
+      }
+
+      case StringLength(a) =>
+        z3.mkSeqLength(rec(a))
+
+      case StringConcat(a, b) =>
+        z3.mkSeqConcat(rec(a), rec(b))
+
+      case SubString(a, start, Plus(start2, length)) if start == start2 =>
+        z3.mkSeqExtract(rec(a), rec(start), rec(length))
+
+      case SubString(a, start, end) =>
+        z3.mkSeqExtract(rec(a), rec(start), rec(Minus(end, start)))
+
       case gv @ GenericValue(tp, id) =>
         typeToSort(tp)
         val constructor = constructors.toB(tp)
@@ -668,7 +690,18 @@ trait AbstractZ3Solver
             //      case OpDiv =>     Division(rargs(0), rargs(1))
             //      case OpIDiv =>    Division(rargs(0), rargs(1))
             //      case OpMod =>     Modulo(rargs(0), rargs(1))
-                  case other => unsound(t, 
+
+                  case OpSeqEmpty if tpe == StringType => StringLiteral("")
+
+                  case OpSeqUnit if tpe == StringType =>
+                    val CharLiteral(c) = rec(args(0), CharType, seen)
+                    StringLiteral(c.toString)
+
+                  case OpSeqConcat if tpe == StringType => StringLiteral(args.map(rec(_, CharType, seen)).map {
+                    case CharLiteral(c) => c.toString
+                  }.reduce(_ + _))
+
+                  case other => unsound(t,
                       s"""|Don't know what to do with this declKind: $other
                           |Expected type: ${Option(tpe).map{_.asString}.getOrElse("")}
                           |Tree: $t
