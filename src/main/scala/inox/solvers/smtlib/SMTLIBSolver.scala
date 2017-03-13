@@ -38,15 +38,6 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
   }
 
   override def reset() = {
-    adtManager.reset()
-    constructors.clear()
-    selectors.clear()
-    testers.clear()
-    variables.clear()
-    sorts.clear()
-    lambdas.clear()
-    functions.clear()
-
     emit(Reset(), rawOut = true) match {
       case Error(msg) =>
         reporter.warning(s"Failed to reset $name: $msg")
