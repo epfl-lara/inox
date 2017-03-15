@@ -461,7 +461,7 @@ trait RecursiveEvaluator
       finiteBag(els.map { case (k, v) => (e(k), e(v)) }, base)
 
     case l @ Lambda(_, _) =>
-      val (nl, deps) = normalizeStructure(l)
+      val (nl, deps) = normalizeStructure(freshenLocals(l))
       val newCtx = deps.foldLeft(rctx) {
         case (rctx, (v, dep)) => rctx.withNewVar(v.toVal, e(dep)(rctx, gctx))
       }

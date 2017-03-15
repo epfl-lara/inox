@@ -274,6 +274,25 @@ class EvaluatorSuite extends FunSuite {
     ) === IntLiteral(3)
   }
 
+  test("Nested lambdas") {
+    val e = evaluator(ctx)
+
+    val ap = ValDef(FreshIdentifier("a"), StringType, Set())
+    val bp = ValDef(FreshIdentifier("b"), StringType, Set())
+
+    val body = Application(Application(
+      Lambda(
+        Seq(ap),
+        Lambda(
+          Seq(bp),
+          StringConcat(StringConcat(ap.toVariable, StringLiteral(":")), bp.toVariable))
+        ),
+      Seq(StringLiteral("Winner"))
+    ), Seq(StringLiteral("Mikael")))
+
+    eval(e, Equals(body, StringLiteral("Winner:Mikael"))) === BooleanLiteral(true)
+  }
+
   abstract class EvalDSL {
     def res: Expr
     def ===(res: Expr): Unit
