@@ -26,7 +26,7 @@ trait UninterpretedZ3Solver
 
   protected implicit val semantics: program.Semantics
 
-  val name = "Z3-u"
+  val name = "z3-u"
   val description = "Uninterpreted Z3 Solver"
 
   private object underlying extends {

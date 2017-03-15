@@ -44,8 +44,8 @@ trait TestSuite extends FunSuite with Matchers with TimeLimits {
 
           val index = counter.nextGlobal
           if (status == Ignore || newCtx.options.findOptionOrDefault(optSelectedSolvers).exists { sname =>
-            (sname == "nativez3" || sname == "unrollz3") && !solvers.SolverFactory.hasNativeZ3 ||
-            sname == "smt-z3" && !solvers.SolverFactory.hasZ3 ||
+            (sname == "nativez3" || sname == "unrollz3" || sname == "nativez3-opt") && !solvers.SolverFactory.hasNativeZ3 ||
+            (sname == "smt-z3" || sname == "smt-z3-opt") && !solvers.SolverFactory.hasZ3 ||
             sname == "smt-cvc4" && !solvers.SolverFactory.hasCVC4
           }) {
             super.ignore(f"$index%3d: $name ${optionsString(newCtx.options)}")(())

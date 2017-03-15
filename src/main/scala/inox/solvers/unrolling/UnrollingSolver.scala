@@ -86,8 +86,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
     checkAssumptions(config)(Set.empty)
 
+  protected val freeVars  = new IncrementalMap[Variable, Encoded]()
   private val constraints = new IncrementalSeq[Expr]()
-  private val freeVars    = new IncrementalMap[Variable, Encoded]()
   private val freeChooses = new IncrementalMap[Choose, Encoded]()
 
   protected var abort: Boolean = false

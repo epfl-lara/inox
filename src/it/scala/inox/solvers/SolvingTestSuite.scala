@@ -6,7 +6,7 @@ package solvers
 trait SolvingTestSuite extends TestSuite {
 
   override def configurations = for {
-    solverName        <- Seq("nativez3", "unrollz3", "princess", "smt-z3", "smt-cvc4")
+    solverName        <- Seq("nativez3", "nativez3-opt", "unrollz3", "princess", "smt-z3", "smt-z3-opt", "smt-cvc4")
     checkModels       <- Seq(false, true)
     feelingLucky      <- Seq(false, true)
     unrollAssumptions <- Seq(false, true)

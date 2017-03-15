@@ -185,22 +185,23 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 
-  def filterPrincess(ctx: Context, allowSelect: Boolean = true): FilterStatus = {
+  def filter(ctx: Context, allowSelect: Boolean = true, allowOpt: Boolean = false): FilterStatus = {
     val solvers = ctx.options.findOptionOrDefault(optSelectedSolvers)
     val feelingLucky = ctx.options.findOptionOrDefault(optFeelingLucky)
     val checkModels = ctx.options.findOptionOrDefault(optCheckModels)
     val unrollAssume = ctx.options.findOptionOrDefault(optUnrollAssumptions)
     if (solvers == Set("princess") &&
       (!allowSelect || feelingLucky != checkModels || checkModels != unrollAssume)) Skip
+    else if (solvers == Set("nativez3-opt") && !allowOpt) Skip
     else Test
   }
 
-  test("flatMap is associative", filterPrincess(_)) { ctx =>
+  test("flatMap is associative", filter(_, allowOpt = true)) { ctx =>
     val program = InoxProgram(ctx, symbols)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(associative.fullBody)).isUNSAT)
   }
 
-  test("sort preserves content 1", filterPrincess(_)) { ctx =>
+  test("sort preserves content 1", filter(_)) { ctx =>
     val program = InoxProgram(ctx, symbols)
     val (l,p) = ("l" :: T(listID)(IntegerType), "p" :: ((IntegerType, IntegerType) =>: BooleanType))
     val clause = E(contentID)(IntegerType)(E(sortID)(IntegerType)(l.toVariable, p.toVariable)) ===
@@ -208,7 +209,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(clause)).isUNSAT)
   }
 
-  test("sort preserves content 2", filterPrincess(_, allowSelect = false)) { ctx =>
+  test("sort preserves content 2", filter(_, allowSelect = false)) { ctx =>
     val program = InoxProgram(ctx, symbols)
     import program._
 
