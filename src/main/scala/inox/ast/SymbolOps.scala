@@ -285,7 +285,7 @@ trait SymbolOps { self: TypeOps =>
     * [[normalizeStructure(args:Seq[SymbolOps\.this\.trees\.ValDef],expr:SymbolOps\.this\.trees\.Expr,preserveApps:Boolean,onlySimple:Boolean)* normalizeStructure]]
     * that is tailored for structural equality of [[Expressions.Lambda Lambda]] and [[Expressions.Forall Forall]] instances.
     */
-  def normalizeStructure(e: Expr, onlySimple: Boolean = true): (Expr, Seq[(Variable, Expr)]) = e match {
+  def normalizeStructure(e: Expr, onlySimple: Boolean = false): (Expr, Seq[(Variable, Expr)]) = e match {
     case lambda: Lambda =>
       val (args, body, subst) = normalizeStructure(lambda.args, lambda.body, false, onlySimple, true)
       (Lambda(args, body), subst)
@@ -303,6 +303,8 @@ trait SymbolOps { self: TypeOps =>
     * integer identifier `id`. This method makes sure this property is preserved after going through
     * [[normalizeStructure(e:SymbolOps\.this\.trees\.Expr,onlySimple:Boolean)*]]. */
   def uniquateClosure(id: Int, res: Lambda): Lambda = {
+    assert(isSimple(res.body))
+
     def allArgs(l: Lambda): Seq[ValDef] = l.args ++ (l.body match {
       case l2: Lambda => allArgs(l2)
       case _ => Seq.empty
@@ -1030,6 +1032,7 @@ trait SymbolOps { self: TypeOps =>
         case FunctionType(from, to) => expr match {
           case _ : Lambda => expr
           case _ : Variable => expr
+          case _ : ADTSelector => expr
           case e =>
             val args = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
             val application = pushDown(expr, Application(_, args.map(_.toVariable)))
