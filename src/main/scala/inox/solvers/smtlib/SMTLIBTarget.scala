@@ -397,25 +397,25 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         case BVType(_)   => FixedSizeBitVectors.SLessThan(toSMT(a), toSMT(b))
         case IntegerType => Ints.LessThan(toSMT(a), toSMT(b))
         case RealType    => Reals.LessThan(toSMT(a), toSMT(b))
-        case CharType    => FixedSizeBitVectors.SLessThan(toSMT(a), toSMT(b))
+        case CharType    => FixedSizeBitVectors.ULessThan(toSMT(a), toSMT(b))
       }
       case LessEquals(a, b) => a.getType match {
         case BVType(_)   => FixedSizeBitVectors.SLessEquals(toSMT(a), toSMT(b))
         case IntegerType => Ints.LessEquals(toSMT(a), toSMT(b))
         case RealType    => Reals.LessEquals(toSMT(a), toSMT(b))
-        case CharType    => FixedSizeBitVectors.SLessEquals(toSMT(a), toSMT(b))
+        case CharType    => FixedSizeBitVectors.ULessEquals(toSMT(a), toSMT(b))
       }
       case GreaterThan(a, b) => a.getType match {
         case BVType(_)   => FixedSizeBitVectors.SGreaterThan(toSMT(a), toSMT(b))
         case IntegerType => Ints.GreaterThan(toSMT(a), toSMT(b))
         case RealType    => Reals.GreaterThan(toSMT(a), toSMT(b))
-        case CharType    => FixedSizeBitVectors.SGreaterThan(toSMT(a), toSMT(b))
+        case CharType    => FixedSizeBitVectors.UGreaterThan(toSMT(a), toSMT(b))
       }
       case GreaterEquals(a, b) => a.getType match {
         case BVType(_)   => FixedSizeBitVectors.SGreaterEquals(toSMT(a), toSMT(b))
         case IntegerType => Ints.GreaterEquals(toSMT(a), toSMT(b))
         case RealType    => Reals.GreaterEquals(toSMT(a), toSMT(b))
-        case CharType    => FixedSizeBitVectors.SGreaterEquals(toSMT(a), toSMT(b))
+        case CharType    => FixedSizeBitVectors.UGreaterEquals(toSMT(a), toSMT(b))
       }
 
       case BVNot(u)                  => FixedSizeBitVectors.Not(toSMT(u))
