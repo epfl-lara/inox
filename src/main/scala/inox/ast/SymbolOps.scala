@@ -303,8 +303,6 @@ trait SymbolOps { self: TypeOps =>
     * integer identifier `id`. This method makes sure this property is preserved after going through
     * [[normalizeStructure(e:SymbolOps\.this\.trees\.Expr,onlySimple:Boolean)*]]. */
   def uniquateClosure(id: Int, res: Lambda): Lambda = {
-    assert(isSimple(res.body))
-
     def allArgs(l: Lambda): Seq[ValDef] = l.args ++ (l.body match {
       case l2: Lambda => allArgs(l2)
       case _ => Seq.empty
