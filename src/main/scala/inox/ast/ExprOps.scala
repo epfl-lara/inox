@@ -66,10 +66,15 @@ trait ExprOps extends GenTreeOps {
     }(expr)
   }
 
-  /** Freshens all local variables */
-  def freshenLocals(expr: Expr): Expr = {
+  /** Freshens all local variables
+    * 
+    * Note that we don't freshen choose ids as these are considered global
+    * and used to lookup their images within models!
+    */
+  def freshenLocals(expr: Expr, freshenChooses: Boolean = false): Expr = {
     def rec(expr: Expr, bindings: Map[Variable, Variable]): Expr = expr match {
       case v: Variable => bindings(v)
+      case c: Choose if !freshenChooses => replaceFromSymbols(bindings, c)
       case _ =>
         val (vs, es, tps, recons) = deconstructor.deconstruct(expr)
         val newVs = vs.map(_.freshen)

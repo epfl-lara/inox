@@ -114,14 +114,26 @@ trait SymbolOps { self: TypeOps =>
     * This function relies on the static map `typedIds` to ensure identical
     * structures and must therefore be synchronized.
     *
-    * The optional argument `onlySimple` determines whether non-simple expressions
-    * (see [[ExprOps.isSimple isSimple]]) should be normalized into a dependency or recursed
-    * into (when they don't depend on `args`). This distinction is used in the
-    * unrolling solver to provide general equality checks between functions even when
-    * they have complex closures.
+    * @param args The "arguments" (free variables) of `expr`
+    * @param expr The expression to be normalized
+    * @param preserveApps Determines whether E-matching patterns should be preserved
+    *                     during normalization (useful for normalizing foralls)
+    * @param onlySimple Determines whether non-simple expressions (see
+    *                   [[ExprOps.isSimple isSimple]]) should be normalized into a
+    *                   dependency or recursed into (when they don't depend on `args`).
+    *                   This distinction is used to provide general equality checks
+    *                   between functions even when they have complex closures.
+    * @param inFunction Determines whether normalization is called on a function. If
+    *                   not, then normalization can normalize impure expressions when
+    *                   the path-condition is empty.
     */
-  def normalizeStructure(args: Seq[ValDef], expr: Expr, preserveApps: Boolean, onlySimple: Boolean):
-                        (Seq[ValDef], Expr, Seq[(Variable, Expr)]) = synchronized {
+  def normalizeStructure(
+    args: Seq[ValDef],
+    expr: Expr,
+    preserveApps: Boolean,
+    onlySimple: Boolean,
+    inFunction: Boolean
+  ): (Seq[ValDef], Expr, Seq[(Variable, Expr)]) = synchronized {
 
     val subst: MutableMap[Variable, Expr] = MutableMap.empty
     val varSubst: MutableMap[Identifier, Identifier] = MutableMap.empty
@@ -189,7 +201,7 @@ trait SymbolOps { self: TypeOps =>
       case _ => (Seq(e), es => es.head)
     }
 
-    def outer(vars: Set[Variable], body: Expr): Expr = {
+    def outer(vars: Set[Variable], body: Expr, inFunction: Boolean): Expr = {
       // this registers the argument images into subst
       val tvars = vars map (v => v.copy(id = transformId(v.id, v.tpe, store = false)))
 
@@ -223,7 +235,7 @@ trait SymbolOps { self: TypeOps =>
           case Let(vd, e, b) if (
             isLocal(e, path) &&
             (isSimple(e) || !onlySimple) &&
-            (isPure(e) || path.conditions.isEmpty)
+            (isPure(e) || (!inFunction && path.conditions.isEmpty))
           ) =>
             val newId = getId(e)
             rec(replaceFromSymbols(Map(vd.toVariable -> Variable(newId, vd.tpe, Set.empty)), b), path)
@@ -231,16 +243,16 @@ trait SymbolOps { self: TypeOps =>
           case expr if (
             isLocal(expr, path) &&
             (isSimple(expr) || !onlySimple) &&
-            (isPure(expr) || path.conditions.isEmpty)
+            (isPure(expr) || (!inFunction && path.conditions.isEmpty))
           ) =>
             Variable(getId(expr), expr.getType, Set.empty)
 
           case f: Forall =>
-            val newBody = outer(vars ++ f.args.map(_.toVariable), f.body)
+            val newBody = outer(vars ++ f.args.map(_.toVariable), f.body, false)
             Forall(f.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
 
           case l: Lambda =>
-            val newBody = outer(vars ++ l.args.map(_.toVariable), l.body)
+            val newBody = outer(vars ++ l.args.map(_.toVariable), l.body, true)
             Lambda(l.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
 
           // @nv: we make sure NOT to normalize choose ids as we may need to
@@ -259,7 +271,7 @@ trait SymbolOps { self: TypeOps =>
       normalizer.transform(body)
     }
 
-    val newExpr = outer(args.map(_.toVariable).toSet, expr)
+    val newExpr = outer(args.map(_.toVariable).toSet, expr, inFunction)
     val bindings = args.map(vd => vd.copy(id = varSubst(vd.id)))
 
     def rec(v: Variable): Seq[Variable] =
@@ -275,15 +287,15 @@ trait SymbolOps { self: TypeOps =>
     */
   def normalizeStructure(e: Expr, onlySimple: Boolean = true): (Expr, Seq[(Variable, Expr)]) = e match {
     case lambda: Lambda =>
-      val (args, body, subst) = normalizeStructure(lambda.args, lambda.body, false, onlySimple)
+      val (args, body, subst) = normalizeStructure(lambda.args, lambda.body, false, onlySimple, true)
       (Lambda(args, body), subst)
 
     case forall: Forall =>
-      val (args, body, subst) = normalizeStructure(forall.args, forall.body, true, onlySimple)
+      val (args, body, subst) = normalizeStructure(forall.args, forall.body, true, onlySimple, false)
       (Forall(args, body), subst)
 
     case _ =>
-      val (_, body, subst) = normalizeStructure(Seq.empty, e, false, onlySimple)
+      val (_, body, subst) = normalizeStructure(Seq.empty, e, false, onlySimple, false)
       (body, subst)
   }
 
