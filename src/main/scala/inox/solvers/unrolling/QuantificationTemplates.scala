@@ -933,10 +933,14 @@ trait QuantificationTemplates { self: Templates =>
 
           clauses ++= substClauses
 
-          // this will call `instantiateMatcher` on all matchers in `newTemplate.matchers`
-          clauses ++= newTemplate.contents.instantiate(substMap)
+          val freshQuants = newTemplate.quantifiers.map(p => encodeSymbol(p._1))
+          val freshSubst = (newTemplate.quantifiers.map(_._2) zip freshQuants.map(Left(_))).toMap
+          val fullSubst = substMap ++ freshSubst
 
-          for ((v,q) <- newTemplate.quantifiers) {
+          // this will call `instantiateMatcher` on all matchers in `newTemplate.matchers`
+          clauses ++= newTemplate.contents.instantiate(fullSubst)
+
+          for ((v,q) <- newTemplate.quantifiers.map(_._1) zip freshQuants) {
             clauses ++= registerSymbol(newTemplate.contents.pathVar._2, q, v.tpe)
           }
 

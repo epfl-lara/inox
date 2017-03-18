@@ -1,0 +1,23 @@
+(declare-const b!2 Int)
+
+(declare-datatypes (A1!0 R!21) ((fun1!7 (fun1!8 (f!39 (=> A1!0 R!21)) (pre!17 (=> A1!0 Bool))))))
+
+(define-fun divides!0 ((x!1 Int) (y!0 Int)) Bool (let ((p!26 (fun1!8 (lambda ((k!4 Int)) (= y!0 (* k!4 x!1))) (lambda ((k!7 Int)) true)))) (exists ((x!85 Int)) (not (not (@ (f!39 p!26) x!85))))))
+
+(define-fun smallerDivider!0 ((r2!0 Int) (r!0 Int) (a!0 Int) (b!0 Int)) Bool (=> (and (divides!0 r2!0 a!0) (divides!0 r2!0 b!0)) (<= r2!0 r!0)))
+
+(define-fun gcd!0 ((a!1 Int) (b!1 Int) (r!1 Int)) Bool (and (divides!0 r!1 a!1) (divides!0 r!1 b!1) (forall ((r2!1 Int)) (smallerDivider!0 r2!1 r!1 a!1 b!1))))
+
+(declare-const a!2 Int)
+
+(declare-const r!2 Int)
+
+(define-fun (par (T!1) (elimination_exists!0 ((p!1 (fun1!7 T!1 Bool))) T!1 (assume (and (forall ((x!248 T!1)) (=> (@ (f!39 (fun1!8 (lambda ((x!247 T!1)) true) (lambda ((x!483 T!1)) true))) x!248) (@ (f!39 (fun1!8 (pre!17 p!1) (lambda ((x!484 T!1)) true))) x!248))) (let ((p!27 (fun1!8 (lambda ((e!7 T!1)) (@ (f!39 p!1) e!7)) (lambda ((e!8 T!1)) (@ (f!39 (fun1!8 (pre!17 p!1) (lambda ((x!485 T!1)) true))) e!8))))) (exists ((x!86 T!1)) (not (not (@ (f!39 p!27) x!86)))))) (let ((res!0 (choose e!1 T!1 (@ (f!39 p!1) e!1)))) (assume (@ (f!39 p!1) res!0) res!0))))))
+
+(declare-const r2!2 Int)
+
+(assert (not (=> (and (> b!2 0) (gcd!0 a!2 b!2 r!2)) (let ((ka!0 (elimination_exists!0 (fun1!8 (lambda ((k!1 Int)) (= a!2 (* k!1 r!2))) (lambda ((k!34 Int)) true))))) (let ((kb!0 (elimination_exists!0 (fun1!8 (lambda ((k!2 Int)) (= b!2 (* k!2 r!2))) (lambda ((k!35 Int)) true))))) (smallerDivider!0 r2!2 r!2 b!2 b!2))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard
