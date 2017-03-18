@@ -4,8 +4,6 @@ package inox
 package solvers
 package smtlib
 
-import org.apache.commons.lang3.StringEscapeUtils
-
 import _root_.smtlib.parser.Terms.{Identifier => SMTIdentifier, _}
 import _root_.smtlib.parser.Commands._
 import _root_.smtlib.interpreters.CVC4Interpreter
@@ -27,7 +25,6 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
 
   override protected def computeSort(t: Type): Sort = t match {
     case SetType(base) => Sets.SetSort(declareSort(base))
-    case StringType  => Strings.StringSort()
     case _ => super.computeSort(t)
   }
 
@@ -101,27 +98,6 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
       case (FunctionApplication(SimpleSymbol(SSymbol("__array_store_all__")), Seq(_, elem)), Some(MapType(k, v))) =>
         FiniteMap(Seq(), fromSMT(elem, v), k, v)
 
-      case (SString(v), Some(StringType)) =>
-        StringLiteral(StringEscapeUtils.unescapeJava(v))
-
-      case (Strings.Length(a), _) => StringLength(fromSMT(a, StringType))
-
-      case (Strings.Concat(a, b, cs @ _*), _) =>
-        (StringConcat(fromSMT(a, StringType), fromSMT(b, StringType)) /: cs) {
-          case (s, c) => StringConcat(s, fromSMT(c, StringType))
-        }
-
-      case (Strings.Substring(s, start, offset), _) =>
-        val ss = fromSMT(s, StringType)
-        val tt = fromSMT(start, IntegerType)
-        val oo = fromSMT(offset, IntegerType)
-        oo match {
-          case Minus(otherEnd, `tt`) => SubString(ss, tt, otherEnd)
-          case _ => SubString(ss, tt, Plus(tt, oo))
-        }
-
-      case (Strings.At(a, b), _) => fromSMT(Strings.Substring(a, b, SNumeral(1)))
-
       case _ => super.fromSMT(t, otpe)
     }
   }
@@ -152,16 +128,6 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
     case SetAdd(a, b)           => Sets.Insert(toSMT(b), toSMT(a))
     case SetIntersection(a, b)  => Sets.Intersection(toSMT(a), toSMT(b))
 
-    /** String operations */
-    case StringLiteral(v) =>
-      declareSort(StringType)
-      Strings.StringLit(StringEscapeUtils.escapeJava(v))
-    case StringLength(a) => Strings.Length(toSMT(a))
-    case StringConcat(a, b) => Strings.Concat(toSMT(a), toSMT(b))
-    case SubString(a, start, Plus(start2, length)) if start == start2  =>
-      Strings.Substring(toSMT(a),toSMT(start),toSMT(length))
-    case SubString(a, start, end) =>
-      Strings.Substring(toSMT(a),toSMT(start),toSMT(Minus(end, start)))
     case _ =>
       super.toSMT(e)
   }

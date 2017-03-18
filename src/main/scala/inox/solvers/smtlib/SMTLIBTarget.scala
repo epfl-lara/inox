@@ -21,6 +21,7 @@ import _root_.smtlib.parser.Terms.{
 }
 import _root_.smtlib.parser.CommandsResponses._
 import _root_.smtlib.theories.{Constructors => SmtLibConstructors, _}
+import _root_.smtlib.theories.experimental._
 import _root_.smtlib.Interpreter
 
 import scala.collection.BitSet
@@ -143,6 +144,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     case RealType    => Reals.RealSort()
     case BVType(l)   => FixedSizeBitVectors.BitVectorSort(l)
     case CharType    => FixedSizeBitVectors.BitVectorSort(16)
+    case StringType  => Strings.StringSort()
 
     case mt @ MapType(from, to) =>
       Sort(SMTIdentifier(SSymbol("Array")), Seq(declareSort(from), declareSort(to)))
@@ -435,6 +437,20 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         else FunctionApplication(fun, sub.map(toSMT))
       case Forall(vs, bd) =>
         quantifiedTerm(SMTForall, vs, bd)(Map())
+
+      /** String operations */
+      // FIXME: replace by Seq(BV(16)) once solvers can handle them
+      case StringLiteral(v) =>
+        declareSort(StringType)
+        Strings.StringLit(v)
+
+      case StringLength(a) => Strings.Length(toSMT(a))
+      case StringConcat(a, b) => Strings.Concat(toSMT(a), toSMT(b))
+      case SubString(a, start, Plus(start2, length)) if start == start2 =>
+        Strings.Substring(toSMT(a), toSMT(start), toSMT(length))
+      case SubString(a, start, end) =>
+        Strings.Substring(toSMT(a), toSMT(start), toSMT(Minus(end, start)))
+
       case o =>
         unsupported(o, "")
     }
@@ -503,6 +519,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         exprOps.normalizeFraction(FractionLiteral(
           value.bigDecimal.movePointRight(value.scale).toBigInteger.negate,
           BigInt(10).pow(value.scale)))
+
+      case (SString(v), _) => StringLiteral(v)
 
       case (Num(n), Some(ft: FunctionType)) if context.seen(n -> ft) =>
         context.chooses.getOrElseUpdate(n -> ft, {

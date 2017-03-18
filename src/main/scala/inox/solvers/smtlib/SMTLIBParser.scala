@@ -198,6 +198,7 @@ trait SMTLIBParser {
     case Sort(SMTIdentifier(SSymbol("bitvector" | "BitVec"), Seq(SNumeral(n))), Seq()) => BVType(n.toInt)
     case Sort(SimpleIdentifier(SSymbol("Bool")), Seq()) => BooleanType
     case Sort(SimpleIdentifier(SSymbol("Int")), Seq()) => IntegerType
+    case Sort(SimpleIdentifier(SSymbol("String")), Seq()) => StringType
     case Sort(SimpleIdentifier(SSymbol("Array")), Seq(from, to)) => MapType(fromSMT(from), fromSMT(to))
     case _ => throw new MissformedSMTException(sort, "unexpected sort: " + sort)
   }

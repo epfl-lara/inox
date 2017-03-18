@@ -15,10 +15,18 @@ trait SimpleEncoder extends TheoryEncoder with ast.ProgramEncoder {
   val t: sourceProgram.trees.type = sourceProgram.trees
 }
 
-trait NoEncoder extends TheoryEncoder {
-  import trees._
+object NoEncoder {
+  def apply(p: Program): TheoryEncoder {
+    val sourceProgram: p.type
+    val targetProgram: Program { val trees: p.trees.type }
+  } = new TheoryEncoder {
+    val sourceProgram: p.type = p
+    val targetProgram: Program { val trees: p.trees.type } =
+      p.asInstanceOf[Program { val trees: p.trees.type }]
 
-  protected object encoder extends IdentityTreeTransformer
-  protected object decoder extends IdentityTreeTransformer
+    import trees._
+    protected object encoder extends IdentityTreeTransformer
+    protected object decoder extends IdentityTreeTransformer
+  }
 }
 

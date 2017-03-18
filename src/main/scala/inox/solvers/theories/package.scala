@@ -10,13 +10,18 @@ package object theories {
   def Z3(p: Program): ast.ProgramTransformer {
     val sourceProgram: p.type
     val targetProgram: Program { val trees: p.trees.type }
-  } = StringEncoder(p)
+  } = ASCIIStringEncoder(p)
 
   def CVC4(enc: ast.ProgramTransformer)
           (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }): ast.ProgramTransformer {
     val sourceProgram: enc.targetProgram.type
     val targetProgram: Program { val trees: enc.targetProgram.trees.type }
-  } = BagEncoder(enc)(ev)
+  } = {
+    val stringEncoder = ASCIIStringEncoder(enc.targetProgram)
+    val encAndString = enc andThen stringEncoder
+    val bagEncoder = BagEncoder(encAndString)(ev)
+    stringEncoder andThen bagEncoder
+  }
 
   def Princess(enc: ast.ProgramTransformer)
               (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }): ast.ProgramTransformer {
