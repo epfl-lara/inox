@@ -123,7 +123,14 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
     assert(SimpleSolverAPI(program.getSolver).solveVALID(clause) contains true)
   }
 
-  test("split2 doesn't preserve content") { ctx =>
+  def filter(ctx: Context): FilterStatus = {
+    val solvers = ctx.options.findOptionOrDefault(optSelectedSolvers)
+    // @nv: these tests are unstable due to bugs in z3
+    if (solvers == Set("unrollz3") || solvers == Set("smt-z3")) Skip
+    else Test
+  }
+
+  test("split2 doesn't preserve content", filter(_)) { ctx =>
     val program = InoxProgram(ctx, symbols)
     val Let(vd, body, Assume(pred, _)) = split2.fullBody
     val clause = Let(vd, body, pred)
