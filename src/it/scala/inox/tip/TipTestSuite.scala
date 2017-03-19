@@ -30,7 +30,8 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     (solver == "smt-cvc4" && fileName.endsWith("LetsInForall.tip")) ||
     (solver == "smt-cvc4" && fileName.endsWith("Instantiation.scala-0.tip")) ||
     (solver == "smt-cvc4" && fileName.endsWith("Weird.scala-0.tip")) ||
-    (solver == "smt-cvc4" && fileName.endsWith("Soundness.scala-0.tip"))
+    (solver == "smt-cvc4" && fileName.endsWith("Soundness.scala-0.tip")) ||
+    (solver == "smt-cvc4" && fileName.endsWith("Soundness2.scala-0.tip"))
   }
 
   private def ignore(ctx: Context, file: java.io.File): FilterStatus = 

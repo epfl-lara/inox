@@ -80,9 +80,7 @@ trait SymbolOps { self: TypeOps =>
   /** Returns '''true''' iff the evaluation of expression `expr` cannot lead to a crash. */
   def isPure(expr: Expr): Boolean = {
     def collect[T](m: Expr => Set[T])(expr: Expr): Set[T] = m(expr) ++ (expr match {
-      case l: Lambda =>
-        val (_, substs) = normalizeStructure(l)
-        substs.flatMap(p => collect(m)(p._2)).toSet
+      case l: Lambda => Set.empty
       case Operator(es, _) => es.flatMap(collect(m) _).toSet
     })
 
@@ -285,7 +283,7 @@ trait SymbolOps { self: TypeOps =>
     * [[normalizeStructure(args:Seq[SymbolOps\.this\.trees\.ValDef],expr:SymbolOps\.this\.trees\.Expr,preserveApps:Boolean,onlySimple:Boolean)* normalizeStructure]]
     * that is tailored for structural equality of [[Expressions.Lambda Lambda]] and [[Expressions.Forall Forall]] instances.
     */
-  def normalizeStructure(e: Expr, onlySimple: Boolean = false): (Expr, Seq[(Variable, Expr)]) = e match {
+  def normalizeStructure(e: Expr, onlySimple: Boolean = false): (Expr, Seq[(Variable, Expr)]) = freshenLocals(e) match {
     case lambda: Lambda =>
       val (args, body, subst) = normalizeStructure(lambda.args, lambda.body, false, onlySimple, true)
       (Lambda(args, body), subst)
