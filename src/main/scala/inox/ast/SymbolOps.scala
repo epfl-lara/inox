@@ -280,7 +280,7 @@ trait SymbolOps { self: TypeOps =>
   }
 
   /** Wrapper around
-    * [[normalizeStructure(args:Seq[SymbolOps\.this\.trees\.ValDef],expr:SymbolOps\.this\.trees\.Expr,preserveApps:Boolean,onlySimple:Boolean)* normalizeStructure]]
+    * [[normalizeStructure(args:Seq[SymbolOps\.this\.trees\.ValDef],expr:SymbolOps\.this\.trees\.Expr,preserveApps:Boolean,onlySimple:Boolean,inFunction:Boolean)* normalizeStructure]]
     * that is tailored for structural equality of [[Expressions.Lambda Lambda]] and [[Expressions.Forall Forall]] instances.
     */
   def normalizeStructure(e: Expr, onlySimple: Boolean = false): (Expr, Seq[(Variable, Expr)]) = freshenLocals(e) match {

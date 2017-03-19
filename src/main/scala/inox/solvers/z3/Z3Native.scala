@@ -453,8 +453,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
           case (array, (k, v)) => z3.mkStore(array, rec(k), rec(v))
         }
 
-      /**
-       * ====== String operations ====
+      /* ====== String operations ====
        * FIXME: replace z3 strings with sequences once they are fixed (in z3)
        */
       case StringLiteral(v) =>
