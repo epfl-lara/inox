@@ -1,0 +1,15 @@
+(declare-datatypes (A1!1 A2!0 R!22) ((fun2!5 (fun2!6 (f!35 (=> A1!1 A2!0 R!22)) (pre!12 (=> A1!1 A2!0 Bool))))))
+
+(declare-const (par (A!1) (f!1 (fun2!5 A!1 A!1 A!1))))
+
+(declare-datatypes (A0!0 A1!14 A2!13) ((tuple3!0 (tuple3!1 (_1!0 A0!0) (_2!0 A1!14) (_3!0 A2!13)))))
+
+(define-fun (par (A!0) (isAssociative!0 ((f!0 (fun2!5 A!0 A!0 A!0))) Bool (assume (forall ((x!245 A!0)(x!246 A!0)) (=> (@ (f!35 (fun2!6 (lambda ((x!243 A!0) (x!244 A!0)) true) (lambda ((x!486 A!0) (x!487 A!0)) true))) x!245 x!246) (@ (f!35 (fun2!6 (pre!12 f!0) (lambda ((x!488 A!0) (x!489 A!0)) true))) x!245 x!246))) (forall ((t!0 (tuple3!0 A!0 A!0 A!0))) (let ((x$1!0 (tuple3!1 (_1!0 t!0) (_2!0 t!0) (_3!0 t!0)))) (= (@ (f!35 f!0) (_1!0 x$1!0) (@ (f!35 f!0) (_2!0 x$1!0) (_3!0 x$1!0))) (@ (f!35 f!0) (@ (f!35 f!0) (_1!0 x$1!0) (_2!0 x$1!0)) (_3!0 x$1!0)))))))))
+
+(declare-const (par (A!1) (x!2 A!1)))
+
+(assert (par (A!1) (not (=> (and (forall ((x!295 A!1)(x!296 A!1)) (=> (@ (f!35 (fun2!6 (lambda ((x!293 A!1) (x!294 A!1)) true) (lambda ((x!596 A!1) (x!597 A!1)) true))) x!295 x!296) (@ (f!35 (fun2!6 (pre!12 (as f!1 (fun2!5 A!1 A!1 A!1))) (lambda ((x!598 A!1) (x!599 A!1)) true))) x!295 x!296))) (isAssociative!0 (as f!1 (fun2!5 A!1 A!1 A!1)))) (= (@ (f!35 (as f!1 (fun2!5 A!1 A!1 A!1))) (@ (f!35 (as f!1 (fun2!5 A!1 A!1 A!1))) (as x!2 A!1) (as x!2 A!1)) (as x!2 A!1)) (@ (f!35 (as f!1 (fun2!5 A!1 A!1 A!1))) (as x!2 A!1) (@ (f!35 (as f!1 (fun2!5 A!1 A!1 A!1))) (as x!2 A!1) (as x!2 A!1))))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard
