@@ -212,7 +212,7 @@ trait QuantificationTemplates { self: Templates =>
       ), depSubst ++ extraSubst)
 
       (optVar, new QuantificationTemplate(polarity, contents, structure,
-        forall.body, () => "Template for " + forall.asString + " is :\n" + str(), false))
+        body, () => "Template for " + forall.asString + " is :\n" + str(), false))
     }
   }
 
@@ -780,10 +780,6 @@ trait QuantificationTemplates { self: Templates =>
         }))
       }
 
-      val bijectiveMappings = matcherToQuants.filter(_._2.nonEmpty).groupBy(_._2)
-      if (bijectiveMappings.size > 1)
-        return Some("Non-bijective mapping for symbol " + bijectiveMappings.head._2.head._1.asString)
-
       def quantifiedArg(e: Expr): Boolean = e match {
         case v: Variable => quantified(v)
         case QuantificationMatcher(_, args) => args.forall(quantifiedArg)
@@ -791,11 +787,7 @@ trait QuantificationTemplates { self: Templates =>
       }
 
       exprOps.postTraversal(m => m match {
-        case QuantificationMatcher(_, args) =>
-          val qArgs = args.filter(quantifiedArg)
-
-          if (qArgs.nonEmpty && qArgs.size < args.size)
-            return Some("Mixed ground and quantified arguments in " + m.asString)
+        case QuantificationMatcher(_, args) => // OK
 
         case Operator(es, _) if es.collect { case v: Variable if quantified(v) => v }.nonEmpty =>
           return Some("Invalid operation on quantifiers " + m.asString)
@@ -805,7 +797,7 @@ trait QuantificationTemplates { self: Templates =>
         case Operator(es, _) if (es.flatMap(exprOps.variablesOf).toSet & quantified).nonEmpty =>
           return Some("Unandled implications from operation " + m.asString)
 
-        case _ =>
+        case _ => // OK
       }) (body)
 
       body match {
