@@ -250,8 +250,8 @@ trait TypeOps {
       (tp -> t) :: unificationSolution(replaced)
     case (adt: ADTType, _) :: tl if adt.lookupADT.isEmpty => unsolvable
     case (_, adt: ADTType) :: tl if adt.lookupADT.isEmpty => unsolvable
-    case (adt1: ADTType, adt2: ADTType) :: tl if adt1.getADT.definition == adt2.getADT.definition =>
-      unificationSolution((adt1.tps zip adt2.tps).toList ++ tl)
+    case (ADTType(id1, tps1), ADTType(id2, tps2)) :: tl if id1 == id2 =>
+      unificationSolution((tps1 zip tps2).toList ++ tl)
     case typeOps.Same(NAryType(ts1, _), NAryType(ts2, _)) :: tl if ts1.size == ts2.size =>
       unificationSolution((ts1 zip ts2).toList ++ tl)
     case _ =>
