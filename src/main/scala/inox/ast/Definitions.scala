@@ -506,7 +506,7 @@ trait Definitions { self: Trees =>
 
 
   /** Represents a [[FunDef]] whose type parameters have been instantiated with the specified types */
-  case class TypedFunDef(fd: FunDef, tps: Seq[Type])(implicit symbols: Symbols) extends Tree {
+  case class TypedFunDef(fd: FunDef, tps: Seq[Type])(implicit val symbols: Symbols) extends Tree {
     copiedFrom(fd)
 
     val id = fd.id
