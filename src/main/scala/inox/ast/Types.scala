@@ -113,5 +113,14 @@ trait Types { self: Trees =>
       case _ => None
     }
   }
+
+  object typeOps extends {
+    protected val sourceTrees: self.type = self
+    protected val targetTrees: self.type = self
+  } with GenTreeOps {
+    type Source = self.Type
+    type Target = self.Type
+    lazy val Deconstructor = NAryType
+  }
 }
 

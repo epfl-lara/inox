@@ -8,15 +8,6 @@ trait TypeOps {
   import trees._
   protected implicit val symbols: Symbols
 
-  object typeOps extends {
-    protected val sourceTrees: trees.type = trees
-    protected val targetTrees: trees.type = trees
-  } with GenTreeOps {
-    type Source = trees.Type
-    type Target = trees.Type
-    lazy val Deconstructor = NAryType
-  }
-
   class TypeErrorException(msg: String) extends Exception(msg)
 
   object TypeErrorException {
@@ -364,5 +355,4 @@ trait TypeOps {
     rec(tpe)
     dependencies
   }
-
 }

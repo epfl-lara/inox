@@ -272,7 +272,7 @@ trait Definitions { self: Trees =>
       def rec(adt: TypedADTDefinition, seen: Set[TypedADTDefinition], first: Boolean = false): Boolean = {
         if (!first && adt == base) true else if (seen(adt)) false else (adt match {
           case tsort: TypedADTSort => tsort.constructors.exists(rec(_, seen + tsort))
-          case tcons: TypedADTConstructor => tcons.fieldsTypes.flatMap(tpe => s.typeOps.collect {
+          case tcons: TypedADTConstructor => tcons.fieldsTypes.flatMap(tpe => typeOps.collect {
             case t: ADTType => Set(t.getADT)
             case _ => Set.empty[TypedADTDefinition]
           } (tpe)).exists(rec(_, seen + tcons))
@@ -289,7 +289,7 @@ trait Definitions { self: Trees =>
             tsort.constructors.exists(rec(_, seen + tsort))
 
           case tcons: TypedADTConstructor =>
-            tcons.fieldsTypes.flatMap(tpe => s.typeOps.collect {
+            tcons.fieldsTypes.flatMap(tpe => typeOps.collect {
               case t: ADTType => Set(t.getADT)
               case _ => Set.empty[TypedADTDefinition]
             } (tpe)).forall(rec(_, seen + tcons))
