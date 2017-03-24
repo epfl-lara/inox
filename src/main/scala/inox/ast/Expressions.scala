@@ -397,17 +397,17 @@ trait Expressions { self: Trees =>
   }
 
   def integerType(tpe: Type, tpes: Type*)(implicit s: Symbols): Type = tpe match {
-    case IntegerType if s.typesCompatible(tpe, tpes : _*) => tpe
+    case IntegerType if tpes.forall(tpe == _) => tpe
     case _ => Untyped
   }
 
   def bitVectorType(tpe: Type, tpes: Type*)(implicit s: Symbols): Type = tpe match {
-    case _: BVType if s.typesCompatible(tpe, tpes: _*) => tpe
+    case _: BVType if tpes.forall(tpe == _) => tpe
     case _ => Untyped
   }
 
   def realType(tpe: Type, tpes: Type*)(implicit s: Symbols): Type = tpe match {
-    case RealType if s.typesCompatible(tpe, tpes : _*) => tpe
+    case RealType if tpes.forall(tpe == _) => tpe
     case _ => Untyped
   }
 
