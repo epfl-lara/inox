@@ -35,14 +35,9 @@ trait TreeOps { self: Trees =>
       vd.flags.foreach(traverse)
     }
 
-    def traverse(v: Variable): Unit = {
-      traverse(v.tpe)
-      v.flags.foreach(traverse)
-    }
-
     def traverse(e: Expr): Unit = {
       val (vs, es, tps, _) = deconstructor.deconstruct(e)
-      vs.foreach(traverse)
+      vs.foreach(v => traverse(v.toVal))
       es.foreach(traverse)
       tps.foreach(traverse)
     }
