@@ -35,6 +35,10 @@ trait TreeOps { self: Trees =>
       vd.flags.foreach(traverse)
     }
 
+    def traverse(tpd: TypeParameterDef): Unit = {
+      traverse(tpd.tp)
+    }
+
     def traverse(e: Expr): Unit = {
       val (vs, es, tps, _) = deconstructor.deconstruct(e)
       vs.foreach(v => traverse(v.toVal))
@@ -52,6 +56,25 @@ trait TreeOps { self: Trees =>
       val (es, tps, _) = deconstructor.deconstruct(flag)
       es.foreach(traverse)
       tps.foreach(traverse)
+    }
+
+    final def traverse(fd: FunDef): Unit = {
+      fd.tparams.foreach(traverse)
+      fd.params.foreach(traverse)
+      traverse(fd.returnType)
+      traverse(fd.fullBody)
+      fd.flags.foreach(traverse)
+    }
+
+    final def traverse(adt: ADTDefinition): Unit = adt match {
+      case sort: ADTSort =>
+        sort.tparams.foreach(traverse)
+        sort.flags.foreach(traverse)
+
+      case cons: ADTConstructor =>
+        cons.tparams.foreach(traverse)
+        cons.fields.foreach(traverse)
+        cons.flags.foreach(traverse)
     }
   }
 }
@@ -183,8 +206,6 @@ trait TreeTransformer {
   }
 
   final def transform(adt: s.ADTDefinition): t.ADTDefinition = adt match {
-    case sort: s.ADTSort if (s eq t) => sort.asInstanceOf[t.ADTSort]
-
     case sort: s.ADTSort => new t.ADTSort(
       sort.id,
       sort.tparams map transform,
