@@ -81,42 +81,6 @@ trait ProgramEncoder extends ProgramTransformer { self =>
   lazy final val targetProgram: Program { val trees: t.type } = {
     encodedProgram.withFunctions(extraFunctions).withADTs(extraADTs)
   }
-
-  def >>(that: ProgramEncoder { val t: self.s.type }): ProgramEncoder {
-    val sourceProgram: that.sourceProgram.type
-    val t: self.t.type
-  } = new ProgramEncoder {
-    val sourceProgram: that.sourceProgram.type = that.sourceProgram
-    val t: self.t.type = self.t
-
-    // make sure we don't ignore potential `encodedProgram` overrides
-    // note that we don't actually need to look at `that.encodedProgram` since the type
-    // of the compose method ensures the override is not ignored
-    override protected def encodedProgram: Program { val trees: self.t.type } = self.encodedProgram
-    override protected val extraFunctions: Seq[t.FunDef] = self.extraFunctions
-    override protected val extraADTs: Seq[t.ADTDefinition] = self.extraADTs
-
-    protected val encoder = self.encoder compose that.enc
-    protected val decoder = that.dec compose self.decoder
-  }
-
-  def <<(that: ProgramEncoder { val sourceProgram: self.targetProgram.type }): ProgramEncoder {
-    val sourceProgram: self.sourceProgram.type
-    val t: that.t.type
-  } = new ProgramEncoder {
-    val sourceProgram: self.sourceProgram.type = self.sourceProgram
-    val t: that.t.type = that.t
-
-    // make sure we don't ignore potential `encodedProgram` overrides
-    // note that we don't actually need to look at `that.encodedProgram` since the type
-    // of the andThen method ensures the override is not ignored
-    override protected def encodedProgram: Program { val trees: that.t.type } = that.encodedProgram
-    override protected val extraFunctions: Seq[t.FunDef] = that.extraFunctions
-    override protected val extraADTs: Seq[t.ADTDefinition] = that.extraADTs
-
-    protected val encoder = self.encoder andThen that.enc
-    protected val decoder = that.dec andThen self.decoder
-  }
 }
 
 object ProgramEncoder {
