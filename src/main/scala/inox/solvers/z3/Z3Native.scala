@@ -428,12 +428,13 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         rec(BagDifference(b1, BagDifference(b1, b2)))
 
       case BagDifference(b1, b2) =>
+        val BagType(base) = b1.getType
         val abs = z3.getAbsFuncDecl()
         val plus = z3.getFuncDecl(OpAdd, typeToSort(IntegerType), typeToSort(IntegerType))
         val minus = z3.getFuncDecl(OpSub, typeToSort(IntegerType), typeToSort(IntegerType))
         val div = z3.getFuncDecl(OpDiv, typeToSort(IntegerType), typeToSort(IntegerType))
 
-        val all2 = z3.mkConstArray(typeToSort(IntegerType), z3.mkInt(2, typeToSort(IntegerType)))
+        val all2 = z3.mkConstArray(typeToSort(base), z3.mkInt(2, typeToSort(IntegerType)))
         val withNeg = z3.mkArrayMap(minus, rec(b1), rec(b2))
         z3.mkArrayMap(div, z3.mkArrayMap(plus, withNeg, z3.mkArrayMap(abs, withNeg)), all2)
 
@@ -520,7 +521,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
               case IntegerType => IntegerLiteral(BigInt(v))
               case other =>
                 unsupported(other, "Unexpected type for BV value: " + other)
-            } 
+            }
           }
 
         case Z3NumeralIntAST(None) =>

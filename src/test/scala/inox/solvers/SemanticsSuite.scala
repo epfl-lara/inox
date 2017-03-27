@@ -7,6 +7,7 @@ import org.scalatest._
 
 class SemanticsSuite extends FunSuite {
   import inox.trees._
+  import inox.trees.dsl._
   import SolverResponses._
 
   implicit val symbols = new Symbols(Map.empty, Map.empty)
@@ -34,8 +35,10 @@ class SemanticsSuite extends FunSuite {
     } super.test(s"$name solver=$sname", tags : _*)(body(ctx))
   }
 
-  protected def filterPrincess(ctx: Context): Boolean = {
-    ctx.options.findOptionOrDefault(optSelectedSolvers) != Set("princess")
+  protected def filterSolvers(ctx: Context, princess: Boolean = false, cvc4: Boolean = false): Boolean = {
+    val solvers = ctx.options.findOptionOrDefault(optSelectedSolvers)
+    (!princess || solvers != Set("princess")) &&
+    (!cvc4 || solvers != Set("smt-cvc4"))
   }
 
   protected def check(s: SimpleSolverAPI { val factory: SolverFactory { val program: InoxProgram } }, e: Expr, expected: Expr) = {
@@ -71,7 +74,7 @@ class SemanticsSuite extends FunSuite {
     check(s, Times(IntLiteral(3), IntLiteral(3)),           IntLiteral(9))
   }
 
-  test("solve bitwise operations", filterPrincess _) { ctx =>
+  test("solve bitwise operations", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, BVAnd(IntLiteral(3), IntLiteral(1)), IntLiteral(1))
@@ -148,7 +151,7 @@ class SemanticsSuite extends FunSuite {
     check(s, LessThan(IntegerLiteral(4), IntegerLiteral(7)),      BooleanLiteral(true))
   }
 
-  test("Int Modulo and Remainder", filterPrincess _) { ctx =>
+  test("Int Modulo and Remainder", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Division(IntLiteral(10), IntLiteral(3)),   IntLiteral(3))
@@ -214,7 +217,7 @@ class SemanticsSuite extends FunSuite {
     check(s, Let(v.toVal, IntLiteral(42), Plus(v, IntLiteral(1))), IntLiteral(43))
   }
 
-  test("Map Operations", filterPrincess _) { ctx =>
+  test("Map Operations", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Equals(
@@ -222,25 +225,32 @@ class SemanticsSuite extends FunSuite {
       FiniteMap(Seq.empty, IntLiteral(12), Int32Type, Int32Type)
     ), BooleanLiteral(true))
 
-    check(s, Equals(
-      FiniteMap(Seq.empty, IntLiteral(9), Int32Type, Int32Type),
-      FiniteMap(Seq.empty, IntLiteral(12), Int32Type, Int32Type)
-    ), BooleanLiteral(false))
+    val v = Variable.fresh("v", Int32Type)
 
-    check(s, Equals(
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(3)), IntLiteral(9), Int32Type, Int32Type),
-      FiniteMap(Seq(IntLiteral(2) -> IntLiteral(3), IntLiteral(1) -> IntLiteral(2)), IntLiteral(9), Int32Type, Int32Type)
-    ), BooleanLiteral(true))
+    assert(s.solveVALID(Equals(
+      MapApply(FiniteMap(Seq.empty, IntLiteral(9), Int32Type, Int32Type), v),
+      MapApply(FiniteMap(Seq.empty, IntLiteral(12), Int32Type, Int32Type), v)
+    )) contains false)
 
-    check(s, Equals(
+    assert(s.solveVALID(Equals(
+      MapApply(FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(3)), IntLiteral(9), Int32Type, Int32Type), v),
+      MapApply(FiniteMap(Seq(IntLiteral(2) -> IntLiteral(3), IntLiteral(1) -> IntLiteral(2)), IntLiteral(9), Int32Type, Int32Type), v)
+    )) contains true)
+
+    assert(s.solveVALID(Equals(
+      MapApply(FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(3)), IntLiteral(9), Int32Type, Int32Type), v),
+      MapApply(FiniteMap(Seq(IntLiteral(2) -> IntLiteral(3), IntLiteral(1) -> IntLiteral(2)), IntLiteral(9), Int32Type, Int32Type), v)
+    )) contains true)
+
+    assert(s.solveVALID(Equals(
       FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(1) -> IntLiteral(3)), IntLiteral(9), Int32Type, Int32Type),
       FiniteMap(Seq(IntLiteral(1) -> IntLiteral(3), IntLiteral(1) -> IntLiteral(2)), IntLiteral(9), Int32Type, Int32Type)
-    ), BooleanLiteral(false))
+    )) contains false)
 
-    check(s, Equals(
+    assert(s.solveVALID(Equals(
       FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(1) -> IntLiteral(3)), IntLiteral(9), Int32Type, Int32Type),
       FiniteMap(Seq(IntLiteral(1) -> IntLiteral(3)), IntLiteral(9), Int32Type, Int32Type)
-    ), BooleanLiteral(true))
+    )) contains true)
 
     check(s, MapApply(
       FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type, Int32Type),
@@ -258,5 +268,196 @@ class SemanticsSuite extends FunSuite {
         IntLiteral(1), IntLiteral(3)),
       IntLiteral(1)
     ), IntLiteral(3))
+  }
+
+  test("Set Operations", filterSolvers(_, princess = true)) { ctx =>
+    val s = solver(ctx)
+
+    check(s, Equals(
+      FiniteSet(Seq.empty, Int32Type),
+      FiniteSet(Seq.empty, Int32Type)
+    ), BooleanLiteral(true))
+
+    check(s, Equals(
+      FiniteSet(Seq(IntLiteral(9)), Int32Type),
+      FiniteSet(Seq.empty, Int32Type)
+    ), BooleanLiteral(false))
+
+    check(s, Equals(
+      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type),
+      FiniteSet(Seq(IntLiteral(2), IntLiteral(1)), Int32Type)
+    ), BooleanLiteral(true))
+
+    check(s, Equals(
+      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type),
+      FiniteSet(Seq(IntLiteral(1), IntLiteral(2), IntLiteral(1)), Int32Type)
+    ), BooleanLiteral(true))
+
+    check(s, ElementOfSet(
+      IntLiteral(1),
+      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type)
+    ), BooleanLiteral(true))
+
+    check(s, ElementOfSet(
+      IntLiteral(2),
+      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type)
+    ), BooleanLiteral(true))
+
+    check(s, ElementOfSet(
+      IntLiteral(3),
+      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type)
+    ), BooleanLiteral(false))
+
+    check(s, ElementOfSet(
+      IntLiteral(3),
+      SetAdd(FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type), IntLiteral(3))
+    ), BooleanLiteral(true))
+
+    val v = Variable.fresh("v", Int32Type)
+
+    assert(s.solveVALID(let(
+      "s" :: SetType(Int32Type),
+      SetUnion(FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type), FiniteSet(Seq(IntLiteral(1)), Int32Type))
+    )(s => And(
+      ElementOfSet(IntLiteral(1), s),
+      ElementOfSet(IntLiteral(2), s)
+    ))) contains true)
+
+    assert(s.solveVALID(let(
+      "s" :: SetType(Int32Type),
+      SetUnion(FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type), FiniteSet(Seq(IntLiteral(1)), Int32Type))
+    )(s => or(Equals(v, IntLiteral(1)), Equals(v, IntLiteral(2)), Not(ElementOfSet(v, s))))) contains true)
+
+    assert(s.solveVALID(or(
+      Equals(v, IntLiteral(2)), Not(ElementOfSet(v, SetDifference(
+        FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type),
+        FiniteSet(Seq(IntLiteral(1)), Int32Type)
+      )))
+    )) contains true)
+
+    assert(s.solveVALID(or(
+      Equals(v, IntLiteral(2)), Not(ElementOfSet(v, SetDifference(
+        FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type),
+        FiniteSet(Seq.empty, Int32Type)
+      )))
+    )) contains false)
+
+    assert(s.solveVALID(or(
+      Equals(v, IntLiteral(2)), Not(ElementOfSet(v, SetIntersection(
+        FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type),
+        FiniteSet(Seq(IntLiteral(2)), Int32Type)
+      )))
+    )) contains true)
+  }
+
+  test("Simple Bag Operations", filterSolvers(_, princess = true)) { ctx =>
+    val s = solver(ctx)
+
+    assert(s.solveVALID(Equals(
+      FiniteBag(Seq.empty, Int32Type),
+      FiniteBag(Seq.empty, Int32Type)
+    )) contains true)
+
+    assert(s.solveVALID(Equals(
+      FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(1), IntLiteral(2) -> IntegerLiteral(2)), Int32Type),
+      FiniteBag(Seq(IntLiteral(2) -> IntegerLiteral(2), IntLiteral(1) -> IntegerLiteral(1)), Int32Type)
+    )) contains true)
+
+    assert(s.solveVALID(Equals(
+      FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(1)), Int32Type),
+      FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(2), IntLiteral(1) -> IntegerLiteral(1)), Int32Type)
+    )) contains true)
+
+    check(s, MultiplicityInBag(
+      IntLiteral(1),
+      FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(2)), Int32Type)
+    ), IntegerLiteral(2))
+  }
+
+  test("Bag Operations", filterSolvers(_, princess = true, cvc4 = true)) { ctx =>
+    val s = solver(ctx)
+
+    check(s, Equals(
+      FiniteBag(Seq(IntLiteral(9) -> IntegerLiteral(1)), Int32Type),
+      FiniteBag(Seq.empty, Int32Type)
+    ), BooleanLiteral(false))
+
+    check(s, MultiplicityInBag(
+      IntLiteral(2),
+      FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(2)), Int32Type)
+    ), IntegerLiteral(0))
+
+    check(s, MultiplicityInBag(
+      IntLiteral(1),
+      BagAdd(FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(1)), Int32Type), IntLiteral(1))
+    ), IntegerLiteral(2))
+
+    check(s, Equals(
+      BagUnion(
+        FiniteBag(Seq(
+          IntLiteral(1) -> IntegerLiteral(1),
+          IntLiteral(2) -> IntegerLiteral(2)
+        ), Int32Type),
+        FiniteBag(Seq(
+          IntLiteral(2) -> IntegerLiteral(1),
+          IntLiteral(3) -> IntegerLiteral(1)
+        ), Int32Type)
+      ),
+      FiniteBag(Seq(
+        IntLiteral(1) -> IntegerLiteral(1),
+        IntLiteral(2) -> IntegerLiteral(3),
+        IntLiteral(3) -> IntegerLiteral(1)
+      ), Int32Type)
+    ), BooleanLiteral(true))
+
+    check(s, Equals(
+      BagUnion(
+        FiniteBag(Seq(
+          IntLiteral(1) -> IntegerLiteral(1),
+          IntLiteral(2) -> IntegerLiteral(2)
+        ), Int32Type),
+        FiniteBag(Seq(
+          IntLiteral(2) -> IntegerLiteral(2),
+          IntLiteral(3) -> IntegerLiteral(1)
+        ), Int32Type)
+      ),
+      FiniteBag(Seq(
+        IntLiteral(1) -> IntegerLiteral(1),
+        IntLiteral(2) -> IntegerLiteral(3),
+        IntLiteral(3) -> IntegerLiteral(1)
+      ), Int32Type)
+    ), BooleanLiteral(false))
+
+    check(s, Equals(
+      BagDifference(
+        FiniteBag(Seq(
+          IntLiteral(1) -> IntegerLiteral(1),
+          IntLiteral(2) -> IntegerLiteral(2)
+        ), Int32Type),
+        FiniteBag(Seq(
+          IntLiteral(2) -> IntegerLiteral(3),
+          IntLiteral(3) -> IntegerLiteral(1)
+        ), Int32Type)
+      ),
+      FiniteBag(Seq(
+        IntLiteral(1) -> IntegerLiteral(1)
+      ), Int32Type)
+    ), BooleanLiteral(true))
+
+    check(s, Equals(
+      BagIntersection(
+        FiniteBag(Seq(
+          IntLiteral(1) -> IntegerLiteral(1),
+          IntLiteral(2) -> IntegerLiteral(2)
+        ), Int32Type),
+        FiniteBag(Seq(
+          IntLiteral(2) -> IntegerLiteral(3),
+          IntLiteral(3) -> IntegerLiteral(1)
+        ), Int32Type)
+      ),
+      FiniteBag(Seq(
+        IntLiteral(2) -> IntegerLiteral(2)
+      ), Int32Type)
+    ), BooleanLiteral(true))
   }
 }

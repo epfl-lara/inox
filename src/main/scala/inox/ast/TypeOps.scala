@@ -198,7 +198,7 @@ trait TypeOps {
     typeBound(tps, false)
 
   def isSubtypeOf(t1: Type, t2: Type): Boolean = {
-    leastUpperBound(t1, t2) == t2
+    (!t1.isTyped && !t2.isTyped) || (t1.isTyped && t2.isTyped && leastUpperBound(t1, t2) == t2)
   }
 
   def typesCompatible(t1: Type, t2s: Type*) = {

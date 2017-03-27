@@ -588,10 +588,14 @@ trait SymbolOps { self: TypeOps =>
     def simplifyMatchers(e: Expr): Expr = postMap {
       case f @ FiniteSet(elems, base) if elems.nonEmpty =>
         Some(elems.foldLeft(FiniteSet(Seq.empty, base).copiedFrom(f): Expr)(SetAdd(_,_).copiedFrom(f)))
-      case f @ FiniteBag(pair +: pairs, base) if pairs.nonEmpty =>
-        Some(pairs.foldLeft(FiniteBag(Seq(pair), base).copiedFrom(f): Expr) {
-          (bag, pair) => BagUnion(bag, FiniteBag(Seq(pair), base).copiedFrom(f)).copiedFrom(f)
-        })
+      case f @ FiniteBag(pairs :+ (pair @ (key, _)), base) if pairs.nonEmpty =>
+        Some(pairs.foldRight((FiniteBag(Seq(pair), base).copiedFrom(f): Expr, Seq(key))) {
+          case (pair @ (key, _), (bag, elems)) => (ifExpr(
+            orJoin(elems.map(e => Equals(e, key).copiedFrom(f))).copiedFrom(f),
+            bag,
+            BagUnion(bag, FiniteBag(Seq(pair), base).copiedFrom(f)).copiedFrom(f)
+          ).copiedFrom(f), key +: elems)
+        }._1)
       case f @ FiniteMap(pairs, dflt, from, to) if pairs.nonEmpty =>
         Some(pairs.foldLeft(FiniteMap(Seq.empty, dflt, from, to).copiedFrom(f): Expr) {
           (map, pair) => MapUpdated(map, pair._1, pair._2).copiedFrom(f)

@@ -66,6 +66,15 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     }
   }
 
+  protected def extractSet(e: Expr): Expr = e match {
+    case FiniteMap(els, dflt, base, _) =>
+      if (dflt != BooleanLiteral(false)) unsupported(dflt, "Solver returned a co-finite set which is not supported")
+      if (els.forall(p => isValue(p._2))) FiniteSet(els.collect { case (e, BooleanLiteral(true)) => e }, base)
+      else els.foldRight(FiniteSet(Seq.empty, base): Expr) { case ((k, v), s) => IfExpr(k, SetAdd(s, v), s) }
+    case s: FiniteSet => s
+    case _ => unsupported(e, "Expecting set expression in this position")
+  }
+
   override protected def fromSMT(t: Term, otpe: Option[Type] = None)(implicit context: Context): Expr = {
     (t, otpe) match {
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ MapType(keyType, valueType))) =>
@@ -115,6 +124,20 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       ), Some(st @ SetType(base))) =>
         val set = fromSMT(arr, st)
         IfExpr(fromSMT(elem, BooleanType), SetAdd(set, fromSMT(key, base)), set)
+
+      case (FunctionApplication(
+        QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
+          List(SList(List(SSymbol("or"), SList(List(SSymbol("Bool"), SSymbol("Bool"))), SSymbol("Bool"))))), None),
+        Seq(s1, s2)
+      ), _) =>
+        fromSMTUnifyType(s1, s2, otpe)((e1, e2) => SetUnion(extractSet(e1), extractSet(e2)))
+
+      case (FunctionApplication(
+        QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
+          List(SList(List(SSymbol("or"), SList(List(SSymbol("Bool"), SSymbol("Bool"))), SSymbol("Bool"))))), None),
+        Seq(s1, s2)
+      ), _) =>
+        fromSMTUnifyType(s1, s2, otpe)((e1, e2) => SetIntersection(extractSet(e1), extractSet(e2)))
 
       case (FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
@@ -210,12 +233,12 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       val abs   = SortedSymbol("abs", List(IntegerType).map(declareSort), declareSort(IntegerType))
       val plus  = SortedSymbol("+", List(IntegerType, IntegerType).map(declareSort), declareSort(IntegerType))
       val minus = SortedSymbol("-", List(IntegerType, IntegerType).map(declareSort), declareSort(IntegerType))
-      val div   = SortedSymbol("/", List(IntegerType, IntegerType).map(declareSort), declareSort(IntegerType))
+      val div   = SortedSymbol("div", List(IntegerType, IntegerType).map(declareSort), declareSort(IntegerType))
 
       val did = FreshIdentifier("d", true)
       val dSym = id2sym(did)
 
-      val all2 = ArrayConst(declareSort(IntegerType), Ints.NumeralLit(2))
+      val all2 = ArrayConst(declareSort(b1.getType), Ints.NumeralLit(2))
 
       SMTLet(
         VarBinding(dSym, ArrayMap(minus, toSMT(b1), toSMT(b2))), Seq(),

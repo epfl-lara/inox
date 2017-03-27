@@ -247,6 +247,182 @@ class EvaluatorSuite extends FunSuite {
     ) === IntLiteral(3)
   }
 
+  test("Set Operations") {
+    val e = evaluator(ctx)
+
+    eval(e, Equals(
+      FiniteSet(Seq.empty, Int32Type),
+      FiniteSet(Seq.empty, Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, Equals(
+      FiniteSet(Seq(IntLiteral(9)), Int32Type),
+      FiniteSet(Seq.empty, Int32Type))
+    ) === BooleanLiteral(false)
+
+    eval(e, Equals(
+      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type),
+      FiniteSet(Seq(IntLiteral(2), IntLiteral(1)), Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, Equals(
+      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type),
+      FiniteSet(Seq(IntLiteral(1), IntLiteral(2), IntLiteral(1)), Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, ElementOfSet(
+      IntLiteral(1),
+      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, ElementOfSet(
+      IntLiteral(2),
+      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, ElementOfSet(
+      IntLiteral(3),
+      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type))
+    ) === BooleanLiteral(false)
+
+    eval(e, ElementOfSet(
+      IntLiteral(3),
+      SetAdd(FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type), IntLiteral(3)))
+    ) === BooleanLiteral(true)
+
+    eval(e, Equals(
+      SetUnion(FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type), FiniteSet(Seq(IntLiteral(1)), Int32Type)),
+      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, Equals(
+      SetUnion(FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type), FiniteSet(Seq(IntLiteral(3)), Int32Type)),
+      FiniteSet(Seq(IntLiteral(1), IntLiteral(2), IntLiteral(3)), Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, Equals(
+      SetDifference(FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type), FiniteSet(Seq(IntLiteral(1)), Int32Type)),
+      FiniteSet(Seq(IntLiteral(2)), Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, Equals(
+      SetDifference(FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type), FiniteSet(Seq.empty, Int32Type)),
+      FiniteSet(Seq(IntLiteral(2)), Int32Type))
+    ) === BooleanLiteral(false)
+
+    eval(e, Equals(
+      SetIntersection(FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type), FiniteSet(Seq(IntLiteral(2)), Int32Type)),
+      FiniteSet(Seq(IntLiteral(2)), Int32Type))
+    ) === BooleanLiteral(true)
+  }
+
+  test("Bag Operations") {
+    val e = evaluator(ctx)
+
+    eval(e, Equals(
+      FiniteBag(Seq.empty, Int32Type),
+      FiniteBag(Seq.empty, Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, Equals(
+      FiniteBag(Seq(IntLiteral(9) -> IntegerLiteral(1)), Int32Type),
+      FiniteBag(Seq.empty, Int32Type))
+    ) === BooleanLiteral(false)
+
+    eval(e, Equals(
+      FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(1), IntLiteral(2) -> IntegerLiteral(2)), Int32Type),
+      FiniteBag(Seq(IntLiteral(2) -> IntegerLiteral(2), IntLiteral(1) -> IntegerLiteral(1)), Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, Equals(
+      FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(1)), Int32Type),
+      FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(2), IntLiteral(1) -> IntegerLiteral(1)), Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, MultiplicityInBag(
+      IntLiteral(1),
+      FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(2)), Int32Type))
+    ) === IntegerLiteral(2)
+
+    eval(e, MultiplicityInBag(
+      IntLiteral(2),
+      FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(2)), Int32Type))
+    ) === IntegerLiteral(0)
+
+    eval(e, MultiplicityInBag(
+      IntLiteral(1),
+      BagAdd(FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(1)), Int32Type), IntLiteral(1)))
+    ) === IntegerLiteral(2)
+
+    eval(e, Equals(
+      BagUnion(
+        FiniteBag(Seq(
+          IntLiteral(1) -> IntegerLiteral(1),
+          IntLiteral(2) -> IntegerLiteral(2)
+        ), Int32Type),
+        FiniteBag(Seq(
+          IntLiteral(2) -> IntegerLiteral(1),
+          IntLiteral(3) -> IntegerLiteral(1)
+        ), Int32Type)
+      ),
+      FiniteBag(Seq(
+        IntLiteral(1) -> IntegerLiteral(1),
+        IntLiteral(2) -> IntegerLiteral(3),
+        IntLiteral(3) -> IntegerLiteral(1)
+      ), Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, Equals(
+      BagUnion(
+        FiniteBag(Seq(
+          IntLiteral(1) -> IntegerLiteral(1),
+          IntLiteral(2) -> IntegerLiteral(2)
+        ), Int32Type),
+        FiniteBag(Seq(
+          IntLiteral(2) -> IntegerLiteral(2),
+          IntLiteral(3) -> IntegerLiteral(1)
+        ), Int32Type)
+      ),
+      FiniteBag(Seq(
+        IntLiteral(1) -> IntegerLiteral(1),
+        IntLiteral(2) -> IntegerLiteral(3),
+        IntLiteral(3) -> IntegerLiteral(1)
+      ), Int32Type))
+    ) === BooleanLiteral(false)
+
+    eval(e, Equals(
+      BagDifference(
+        FiniteBag(Seq(
+          IntLiteral(1) -> IntegerLiteral(1),
+          IntLiteral(2) -> IntegerLiteral(2)
+        ), Int32Type),
+        FiniteBag(Seq(
+          IntLiteral(2) -> IntegerLiteral(3),
+          IntLiteral(3) -> IntegerLiteral(1)
+        ), Int32Type)
+      ),
+      FiniteBag(Seq(
+        IntLiteral(1) -> IntegerLiteral(1)
+      ), Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, Equals(
+      BagIntersection(
+        FiniteBag(Seq(
+          IntLiteral(1) -> IntegerLiteral(1),
+          IntLiteral(2) -> IntegerLiteral(2)
+        ), Int32Type),
+        FiniteBag(Seq(
+          IntLiteral(2) -> IntegerLiteral(3),
+          IntLiteral(3) -> IntegerLiteral(1)
+        ), Int32Type)
+      ),
+      FiniteBag(Seq(
+        IntLiteral(2) -> IntegerLiteral(2)
+      ), Int32Type))
+    ) === BooleanLiteral(true)
+  }
+
   test("Map with variables") {
     val e = evaluator(ctx)
 

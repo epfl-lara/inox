@@ -154,9 +154,13 @@ trait BagEncoder extends SimpleEncoder {
       case FiniteBag(elems, tpe) =>
         val newTpe = transform(tpe)
         val newElems = elems.map(p => transform(p._1) -> transform(p._2))
-        newElems.foldLeft(Leaf(newTpe)()) {
-          case (acc, (key, value)) => Sum(newTpe)(acc, Elem(newTpe)(key, value))
-        }
+        newElems.foldRight((Leaf(newTpe)(): Expr, Seq[Expr]())) {
+          case ((key, value), (acc, elems)) => (IfExpr(
+            orJoin(elems.map(e => Equals(e, key))),
+            acc,
+            Sum(newTpe)(acc, Elem(newTpe)(key, value))
+          ), key +: elems)
+        }._1
 
       case BagAdd(bag, elem) =>
         val BagType(base) = bag.getType
