@@ -289,10 +289,10 @@ trait Definitions { self: Trees =>
             tsort.constructors.exists(rec(_, seen + tsort))
 
           case tcons: TypedADTConstructor =>
-            tcons.fieldsTypes.flatMap(tpe => typeOps.collect {
+            tcons.fieldsTypes.flatMap{
               case t: ADTType => Set(t.getADT)
               case _ => Set.empty[TypedADTDefinition]
-            } (tpe)).forall(rec(_, seen + tcons))
+            }.forall(rec(_, seen + tcons))
         })
       }
 
