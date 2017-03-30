@@ -286,6 +286,7 @@ trait Definitions { self: Trees =>
       def flattenTuples(s: Seq[Type]): Seq[Type] = s match {
         case Nil => Nil
         case (head: TupleType) +: tail => flattenTuples(head.bases ++ tail)
+        case (head: MapType) +: tail => flattenTuples(head.to +: tail) // Because Map has a default.
         case head +: tail => head +: flattenTuples(tail)
       }
       def rec(adt: TypedADTDefinition, seen: Set[TypedADTDefinition]): Boolean = {
