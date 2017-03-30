@@ -283,16 +283,22 @@ trait Definitions { self: Trees =>
     }
 
     def hasInstance(implicit s: Symbols): Boolean = {
+      def flattenTuples(s: Seq[Type]): Seq[Type] = s match {
+        case Nil => Nil
+        case (head: TupleType) +: tail => flattenTuples(head.bases ++ tail)
+        case (head: MapType) +: tail => flattenTuples(head.to +: tail) // Because Map has a default.
+        case head +: tail => head +: flattenTuples(tail)
+      }
       def rec(adt: TypedADTDefinition, seen: Set[TypedADTDefinition]): Boolean = {
         if (seen(adt)) false else (adt match {
           case tsort: TypedADTSort =>
             tsort.constructors.exists(rec(_, seen + tsort))
 
           case tcons: TypedADTConstructor =>
-            tcons.fieldsTypes.flatMap(tpe => typeOps.collect {
+            flattenTuples(tcons.fieldsTypes).flatMap{
               case t: ADTType => Set(t.getADT)
               case _ => Set.empty[TypedADTDefinition]
-            } (tpe)).forall(rec(_, seen + tcons))
+            }.forall(rec(_, seen + tcons))
         })
       }
 
