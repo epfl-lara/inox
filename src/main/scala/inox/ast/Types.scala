@@ -54,8 +54,8 @@ trait Types { self: Trees =>
   case class TypeParameter(id: Identifier, flags: Set[Flag]) extends Type {
     def freshen = TypeParameter(id.freshen, flags)
 
-    def isCovariant = flags contains Variance(Some(true))
-    def isContravariant = flags contains Variance(Some(false))
+    def isCovariant = flags contains Variance(true)
+    def isContravariant = flags contains Variance(false)
     def isInvariant = !isCovariant && !isContravariant
 
     override def equals(that: Any) = that match {

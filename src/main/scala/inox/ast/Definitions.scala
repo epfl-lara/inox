@@ -226,7 +226,7 @@ trait Definitions { self: Trees =>
     * implicit contract on `args` such that for each argument, either
     * {{{arg: Expr | Type}}}, or there exists no [[Expressions.Expr Expr]]
     * or [[Types.Type Type]] instance within arg. */
-  abstract class Flag(name: String, args: Seq[Any]) extends Printable {
+  abstract class Flag(val name: String, args: Seq[Any]) extends Printable {
     def asString(implicit opts: PrinterOptions): String = name + (if (args.isEmpty) "" else {
       args.map(arg => self.asString(arg)(opts)).mkString("(", ", ", ")")
     })
@@ -234,7 +234,7 @@ trait Definitions { self: Trees =>
 
   /** Determines the variance of a [[Types.TypeParameter TypeParameter]]
     * (should only be attached to those) */
-  case class Variance(variance: Option[Boolean]) extends Flag("variance", Seq(variance))
+  case class Variance(variance: Boolean) extends Flag("variance", Seq(variance))
 
   /** Denotes that this adt is refined by invariant ''id'' */
   case class HasADTInvariant(id: Identifier) extends Flag("invariant", Seq(id))
@@ -245,7 +245,7 @@ trait Definitions { self: Trees =>
   /** Compiler annotations given in the source code as @annot.
     * 
     * @see [[Flag]] for some notes on the actual type of [[args]]. */
-  case class Annotation(val name: String, val args: Seq[Any]) extends Flag(name, args)
+  case class Annotation(override val name: String, val args: Seq[Any]) extends Flag(name, args)
 
   def extractFlag(name: String, args: Seq[Any]): Flag = (name, args) match {
     case ("invariant", id: Identifier) => HasADTInvariant(id)
@@ -254,7 +254,7 @@ trait Definitions { self: Trees =>
   }
 
   implicit class FlagSetWrapper(flags: Set[Flag]) {
-    def contains(str: String): Boolean = flags contains Annotation(str, Seq.empty)
+    def contains(str: String): Boolean = flags.exists(_.name == str)
   }
 
   /** Represents an ADT definition (either the ADT sort or a constructor). */
