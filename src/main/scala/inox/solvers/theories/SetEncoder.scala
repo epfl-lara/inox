@@ -109,13 +109,7 @@ trait SetEncoder extends SimpleEncoder {
     })
   }
 
-  val setADT: ADTDefinition = {
-    val tparams = Seq(TypeParameterDef(TypeParameter.fresh("T")))
-    val tp = tparams.head.tp
-    new ADTSort(SetID, tparams, Seq(SumID, ElemID, LeafID),
-      ScalaSet(HasADTEquality(EqualsID))
-    )
-  }
+  val setADT = mkSort(SetID, HasADTEquality(EqualsID))("T")(Seq(SumID, ElemID, LeafID))
 
   val sumADT = mkConstructor(SumID)("T")(Some(SetID)) {
     case Seq(aT) => Seq(ValDef(left, Set(aT)), ValDef(right, Set(aT)))

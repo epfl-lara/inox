@@ -123,11 +123,7 @@ trait BagEncoder extends SimpleEncoder {
     })
   }
 
-  val bagADT: ADTSort = {
-    val tparams = Seq(TypeParameterDef(TypeParameter.fresh("T")))
-    val tp = tparams.head.tp
-    new ADTSort(BagID, tparams, Seq(SumID, ElemID, LeafID), Set(HasADTEquality(EqualsID), HasADTInvariant(InvID)))
-  }
+  val bagADT = mkSort(BagID, HasADTEquality(EqualsID), HasADTInvariant(InvID))("T")(Seq(SumID, ElemID, LeafID))
 
   val sumADT = mkConstructor(SumID)("T")(Some(BagID)) {
     case Seq(aT) => Seq(ValDef(left, Bag(aT)), ValDef(right, Bag(aT)))

@@ -22,9 +22,9 @@ trait RealEncoder extends SimpleEncoder {
       (i1.getField(num) * i2.getField(denom)) === (i1.getField(denom) * i2.getField(num))
     }))
 
-  private val fraction = new ADTConstructor(fractionID, Seq.empty, None, Seq(
+  private val fraction = mkConstructor(fractionID)()(None)(_ => Seq(
     ValDef(num, IntegerType), ValDef(denom, IntegerType)
-  ), Set(HasADTInvariant(fraction_inv.id), HasADTEquality(fraction_eq.id)))
+  ))
 
   override val extraFunctions = Seq(fraction_inv, fraction_eq)
   override val extraADTs = Seq(fraction)

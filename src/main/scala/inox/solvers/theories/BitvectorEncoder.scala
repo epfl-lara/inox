@@ -30,8 +30,8 @@ trait BitvectorEncoder extends SimpleEncoder {
 
     val invID = FreshIdentifier("bv_inv" + size)
 
-    val bv = new ADTConstructor(bvID, Seq.empty, None, Seq(bvField), Set(HasADTInvariant(invID)))
-    val blasted = new ADTConstructor(blastedID, Seq.empty, None, blastedFields, Set.empty)
+    val bv = mkConstructor(bvID, HasADTInvariant(invID))()(None)(_ => Seq(bvField))
+    val blasted = mkConstructor(blastedID)()(None)(_ => blastedFields)
 
     val toBV = mkFunDef(FreshIdentifier("toBV" + size))()(_ => (
       Seq("x" :: blasted()), bv(), { case Seq(x) =>

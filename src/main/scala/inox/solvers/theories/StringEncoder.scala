@@ -17,12 +17,11 @@ trait StringEncoder extends SimpleEncoder {
   val head = FreshIdentifier("head")
   val tail = FreshIdentifier("tail")
 
-  val stringADT     = new ADTSort(stringID, Seq.empty, Seq(stringConsID, stringNilID), Set.empty)
-  val stringNilADT  = new ADTConstructor(stringNilID, Seq.empty, Some(stringID), Seq.empty, Set.empty)
-  val stringConsADT = new ADTConstructor(stringConsID, Seq.empty, Some(stringID), Seq(
-    ValDef(head, CharType),
-    ValDef(tail, ADTType(stringID, Seq.empty))
-  ), Set.empty)
+  val stringADT     = mkSort(stringID)()(Seq(stringConsID, stringNilID))
+  val stringNilADT  = mkConstructor(stringNilID)()(Some(stringID))(_ => Seq())
+  val stringConsADT = mkConstructor(stringConsID)()(Some(stringID))(_ => Seq(
+    ValDef(head, CharType), ValDef(tail, ADTType(stringID, Seq.empty))
+  ))
 
   val String     : ADTType = T(stringID)()
   val StringNil  : ADTType = T(stringNilID)()

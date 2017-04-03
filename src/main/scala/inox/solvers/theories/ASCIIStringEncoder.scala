@@ -15,13 +15,9 @@ trait ASCIIStringEncoder extends SimpleEncoder {
   val value = FreshIdentifier("value")
   val inv = FreshIdentifier("inv")
 
-  val stringADT = new ADTConstructor(
-    FreshIdentifier("String"),
-    Seq.empty,
-    None,
-    Seq(ValDef(value, StringType)),
-    Set(HasADTInvariant(inv))
-  )
+  val stringADT = mkConstructor(
+    FreshIdentifier("String"), HasADTInvariant(inv)
+  )()(None)(_ => Seq(ValDef(value, StringType)))
 
   val String: ADTType = T(stringADT.id)()
 

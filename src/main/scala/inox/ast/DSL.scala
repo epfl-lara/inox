@@ -246,7 +246,7 @@ trait DSL {
     *                (3) A context which, given the parameters, will return the body of the function.
     * @return A fresh and juicy [[Definitions.FunDef FunDef]]
     */
-  def mkFunDef(id: Identifier)
+  def mkFunDef(id: Identifier, flags: Flag*)
               (tParamNames: String*)
               (builder: Seq[TypeParameter] => (Seq[ValDef], Type, Seq[Variable] => Expr)) = {
     val tParams = tParamNames map TypeParameter.fresh
@@ -254,25 +254,25 @@ trait DSL {
     val (params, retType, bodyBuilder) = builder(tParams)
     val body = bodyBuilder(params map (_.toVariable))
 
-    new FunDef(id, tParamDefs, params, retType, body, Set())
+    new FunDef(id, tParamDefs, params, retType, body, flags.toSet)
   }
 
-  def mkSort(id: Identifier)
+  def mkSort(id: Identifier, flags: Flag*)
             (tParamNames: String*)
             (cons: Seq[Identifier]) = {
     val tParams = tParamNames map TypeParameter.fresh
     val tParamDefs = tParams map (TypeParameterDef(_))
-    new ADTSort(id, tParamDefs, cons, Set())
+    new ADTSort(id, tParamDefs, cons, flags.toSet)
   }
 
-  def mkConstructor(id: Identifier)
+  def mkConstructor(id: Identifier, flags: Flag*)
                    (tParamNames: String*)
                    (sort: Option[Identifier])
                    (fieldBuilder: Seq[TypeParameter] => Seq[ValDef]) = {
     val tParams = tParamNames map TypeParameter.fresh
     val tParamDefs = tParams map (TypeParameterDef(_))
     val fields = fieldBuilder(tParams)
-    new ADTConstructor(id, tParamDefs, sort, fields, Set())
+    new ADTConstructor(id, tParamDefs, sort, fields, flags.toSet)
   }
 
   // TODO: Remove this at some point
