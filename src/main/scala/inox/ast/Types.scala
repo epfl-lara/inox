@@ -87,6 +87,12 @@ trait Types { self: Trees =>
   case class ADTType(id: Identifier, tps: Seq[Type]) extends Type {
     def lookupADT(implicit s: Symbols): Option[TypedADTDefinition] = s.lookupADT(id, tps)
     def getADT(implicit s: Symbols): TypedADTDefinition = s.getADT(id, tps)
+
+    def getField(selector: Identifier)(implicit s: Symbols): Option[ValDef] = lookupADT match {
+      case Some(tcons: TypedADTConstructor) =>
+        tcons.fields.collectFirst { case vd @ ValDef(`selector`, _, _) => vd }
+      case _ => None
+    }
   }
 
   /** NAryType extractor to extract any Type in a consistent way.
