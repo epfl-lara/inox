@@ -243,7 +243,7 @@ trait Printers {
       if (rs.isEmpty) {
         p"{* -> $dflt}"
       } else {
-        p"{${rs.toMap.toSeq}, * -> $dflt}"
+        p"{${rs.toSeq}, * -> $dflt}"
       }
     case Not(ElementOfSet(e, s)) => p"$e \u2209 $s"
     case ElementOfSet(e, s) => p"$e \u2208 $s"
