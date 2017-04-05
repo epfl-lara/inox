@@ -648,7 +648,7 @@ trait SymbolOps { self: TypeOps =>
           IsInstanceOf(_: Variable, _)
         ), b) => rec(replaceFromSymbols(Map(v -> ts), b), path)
 
-        case Let(vd, ADT(tpe, es), b) if {
+        case Let(vd, ADT(tpe, es), b) if !tpe.getADT.hasInvariant && {
           val v = vd.toVariable
           var onlyFields: Boolean = true
           new TreeTraverser {
