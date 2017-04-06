@@ -60,6 +60,8 @@ package object inox {
       functions: Map[Identifier, FunDef],
       adts: Map[Identifier, ADTDefinition]
     ) extends SimpleSymbols
+
+    object printer extends ast.Printer { val trees: inox.trees.type = inox.trees }
   }
 
   implicit lazy val inoxSemantics: SemanticsProvider { val trees: inox.trees.type } = new SemanticsProvider {

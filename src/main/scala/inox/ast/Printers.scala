@@ -11,8 +11,9 @@ object optPrintPositions extends FlagOptionDef("printpositions", false)
 object optPrintUniqueIds extends FlagOptionDef("printids",       false)
 object optPrintTypes     extends FlagOptionDef("printtypes",     false)
 
-trait Printers {
-  self: Trees =>
+trait Printers { self: Trees =>
+
+  val printer: Printer { val trees: self.type }
 
   case class PrinterContext(current: Tree,
                             parents: List[Tree],
@@ -55,14 +56,22 @@ trait Printers {
     def asString(implicit opts: PrinterOptions): String
   }
 
-  /** This pretty-printer uses Unicode for some operators, to make sure we
-    * distinguish PureScala from "real" Scala (and also because it's cute). */
-  class PrettyPrinter(val opts: PrinterOptions,
-                      osym: Option[Symbols],
-                      val sb: StringBuffer = new StringBuffer) {
-
-    override def toString = sb.toString
+  def asString(obj: Any)(implicit opts: PrinterOptions): String = obj match {
+    case tree: Tree => prettyPrint(tree, opts)
+    case id: Identifier => id.asString
+    case _ => obj.toString
   }
+
+  def prettyPrint(tree: Tree, opts: PrinterOptions = PrinterOptions()): String = {
+    val ctx = PrinterContext(tree, Nil, opts.baseIndent, opts)
+    printer.pp(tree)(ctx)
+    ctx.sb.toString
+  }
+}
+
+trait Printer {
+  protected val trees: Trees
+  import trees._
 
   protected def optP(body: => Any)(implicit ctx: PrinterContext) = {
     if (requiresParentheses(ctx.current, ctx.parent)) {
@@ -531,17 +540,5 @@ trait Printers {
 
   def typed(ts: Seq[Tree with Typed])(implicit s: Symbols): PrintWrapper = {
     nary(ts.map(typed))
-  }
-
-  def prettyPrint(tree: Tree, opts: PrinterOptions = PrinterOptions()): String = {
-    val ctx = PrinterContext(tree, Nil, opts.baseIndent, opts)
-    pp(tree)(ctx)
-    ctx.sb.toString
-  }
-
-  def asString(obj: Any)(implicit opts: PrinterOptions): String = obj match {
-    case tree: Tree => prettyPrint(tree, opts)
-    case id: Identifier => id.asString
-    case _ => obj.toString
   }
 }
