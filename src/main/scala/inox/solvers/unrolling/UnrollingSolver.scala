@@ -271,7 +271,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
     def modelEq(e1: Encoded, e2: Encoded): Boolean =
       wrapped.modelEval(templates.mkEquals(e1, e2), BooleanType) == Some(BooleanLiteral(true))
 
-    def extractValue(v: Encoded, tpe: Type, seen: Set[Encoded]): Expr = {
+    def extractValue(v: Encoded, tpe: Type, seen: Map[FunctionType, Set[Encoded]]): Expr = {
 
       def functionsOf(v: Encoded, tpe: Type): (Seq[(Encoded, FunctionType)], Seq[Expr] => Expr) = {
         def reconstruct(subs: Seq[(Seq[(Encoded, FunctionType)], Seq[Expr] => Expr)],
@@ -372,8 +372,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }
     }
 
-    def extractFunction(f: Encoded, tpe: FunctionType, seen: Set[Encoded]): Expr = {
-      val nextSeen = seen + f
+    def extractFunction(f: Encoded, tpe: FunctionType, seen: Map[FunctionType, Set[Encoded]]): Expr = {
+      val nextSeen = seen + (tpe -> (seen(tpe) + f))
 
       def extractLambda(f: Encoded, tpe: FunctionType): Option[Lambda] = {
         val optEqTemplate = templates.getLambdaTemplates(tpe).find { tmpl =>
@@ -476,7 +476,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }.distinct
 
       extractLambda(f, tpe).orElse {
-        if (seen.exists(e => modelEq(f, e))) {
+        if (seen(tpe).exists(e => modelEq(f, e))) {
           Some(chooseExtractions.collectFirst { case (e, c) if modelEq(f, e) => c }.getOrElse {
             val c = Choose(Variable.fresh("x", tpe, true).toVal, BooleanLiteral(true))
             chooseExtractions :+= f -> c
@@ -536,7 +536,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }
     }
 
-    val exModel = wrapped.getModel((e, tpe) => decode(extractValue(e, encode(tpe), Set.empty)))
+    val initSeen: Map[FunctionType, Set[Encoded]] = Map.empty.withDefaultValue(Set.empty)
+    val exModel = wrapped.getModel((e, tpe) => decode(extractValue(e, encode(tpe), initSeen)))
     val exChooses = chooseExtractions.toMap.map { case (e, c) =>
       c -> lambdaExtractions.collectFirst { case (f, lambda) if modelEq(f, e) => lambda }.get
     }
