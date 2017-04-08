@@ -1,0 +1,9 @@
+(declare-datatypes (A1!0 R!25) ((fun1!1 (fun1!2 (f!36 (=> A1!0 R!25)) (pre!10 (=> A1!0 Bool))))))
+
+(declare-const f!0 (fun1!1 Int (fun1!1 Int Int)))
+
+(assert (not (=> (and (forall ((x!149 Int)) (=> (@ (f!36 (fun1!2 (lambda ((x!148 Int)) true) (lambda ((x!388 Int)) true))) x!149) (@ (f!36 (fun1!2 (pre!10 f!0) (lambda ((x!389 Int)) true))) x!149))) (forall ((x!148 Int)) (forall ((x!151 Int)) (=> (@ (f!36 (fun1!2 (lambda ((x!150 Int)) true) (lambda ((x!390 Int)) true))) x!151) (@ (f!36 (fun1!2 (pre!10 (@ (f!36 f!0) x!148)) (lambda ((x!391 Int)) true))) x!151))))) false)))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard
