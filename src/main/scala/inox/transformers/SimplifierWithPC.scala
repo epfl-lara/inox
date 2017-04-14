@@ -169,7 +169,14 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       ) {
         simplify(replaceFromSymbols(Map(vd -> re), rb), path)
       } else {
-        (Let(vd, re, rb), pe && pb)
+        val let = Let(vd, re, rb)
+        re match {
+          case l: Lambda =>
+            val inlined = inlineLambdas(let)
+            if (inlined != let) simplify(inlined, path)
+            else (let, pe && pb)
+          case _ => (let, pe && pb)
+        }
       }
 
     case Equals(e1: Literal[_], e2: Literal[_]) =>

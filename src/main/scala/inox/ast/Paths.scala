@@ -328,7 +328,8 @@ trait Paths { self: SymbolOps with TypeOps =>
       val (preds, newE) = liftAssumptions(simplifyLets(unexpandLets(e)))
       val expr = andJoin(newE +: preds)
       simpCache.getOrElseUpdate(expr, {
-        val clauses = cnf(expr).map(simplify).flatMap {
+        val clauses = new scala.collection.mutable.ListBuffer[Expr]
+        for (cl <- cnf(expr)) clauses ++= (simplify(cl) match {
           case v: Variable =>
             boolSubst.getOrElse(v, Seq(v))
 
@@ -337,31 +338,34 @@ trait Paths { self: SymbolOps with TypeOps =>
               case (ors, TopLevelOrs(es)) => es.flatMap(e => ors.map(d => or(d, not(e))))
             }
 
-          case Or(disjuncts) => disjuncts.foldLeft(Seq(BooleanLiteral(false): Expr)) {
-            case (ors, d) => d match {
-              case v: Variable => boolSubst.getOrElse(v, Seq(v)).flatMap {
-                vdisj => ors.map(d => or(d, vdisj))
-              }
+          case Or(disjuncts) =>
+            disjuncts.foldLeft(Seq(BooleanLiteral(false): Expr)) {
+              case (ors, d) => d match {
+                case v: Variable => boolSubst.getOrElse(v, Seq(v)).flatMap {
+                  vdisj => ors.map(d => or(d, vdisj))
+                }
 
-              case Not(v: Variable) => boolSubst.getOrElse(v, Seq(v)).foldLeft(ors) {
-                case (ors, TopLevelOrs(es)) => es.flatMap(e => ors.map(d => or(d, not(e))))
-              }
+                case Not(v: Variable) => boolSubst.getOrElse(v, Seq(v)).foldLeft(ors) {
+                  case (ors, TopLevelOrs(es)) => es.flatMap(e => ors.map(d => or(d, not(e))))
+                }
 
-              case e => ors.map(d => or(d, e))
+                case e => ors.map(d => or(d, e))
+              }
             }
-          }
 
           case e => Seq(e)
-        }.map { case TopLevelOrs(es) => orJoin(es.distinct.sortBy(_.hashCode)) }.toSet
+        })
 
-        clauses.map { case TopLevelOrs(es) =>
+        val clauseSet = clauses.map { case TopLevelOrs(es) => orJoin(es.distinct.sortBy(_.hashCode)) }.toSet
+
+        clauseSet.map { case TopLevelOrs(es) =>
           val eSet = es.toSet
           if (es.exists(e => conditions(e) || (eSet contains not(e)))) {
             BooleanLiteral(true)
-          } else if (es.size > 1 && es.exists(e => clauses(e))) {
+          } else if (es.size > 1 && es.exists(e => clauseSet(e))) {
             BooleanLiteral(true)
           } else {
-            orJoin(es.filter(e => !clauses(not(e)) && !conditions(not(e))))
+            orJoin(es.filter(e => !clauseSet(not(e)) && !conditions(not(e))))
           }
         }.toSeq.filterNot(_ == BooleanLiteral(true))
       })

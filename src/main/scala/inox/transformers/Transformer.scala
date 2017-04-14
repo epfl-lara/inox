@@ -14,7 +14,7 @@ trait Transformer {
   import trees.{Expr, FunDef}
 
   /** The default initial [[Env]] */
-  val initEnv: Env
+  def initEnv: Env
 
   /** The function that recursively traverses the expression
     *

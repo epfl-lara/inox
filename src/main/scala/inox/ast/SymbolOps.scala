@@ -21,7 +21,9 @@ trait SymbolOps { self: TypeOps =>
   protected lazy val simplifier = new transformers.SimplifierWithPC {
     val trees: self.trees.type = self.trees
     val symbols: self.symbols.type = self.symbols
-    val initEnv = CNFPath.empty
+    // @nv: note that we make sure the initial env is fresh each time
+    //      (since agressive caching of cnf computations is taking place)
+    def initEnv = CNFPath.empty
   }
 
   /** Replace each node by its constructor
@@ -439,6 +441,33 @@ trait SymbolOps { self: TypeOps =>
       uniquateClosure(i, Lambda(from.map(tpe => ValDef(FreshIdentifier("x", true), tpe)), constructExpr(0, to)))
   }
 
+  /* Inline lambda lets that appear in forall bodies. For example,
+   * {{{
+   *   val f = (x: BigInt) => x + 1
+   *   forall((x: BigInt) => f(x) == x + 1)
+   * }}}
+   * will be rewritten to
+   * {{{
+   *   val f = (x: BigInt) => x + 1
+   *   forall((x: BigInt) => x + 1 == x + 1)
+   * }}}
+   */
+  def inlineLambdas(e: Expr): Expr = {
+    def rec(e: Expr, lambdas: Map[Variable, Lambda], inForall: Boolean): Expr = e match {
+      case Let(vd, l: Lambda, b) =>
+        val nl = l.copy(body = rec(l.body, lambdas, false))
+        Let(vd, nl, rec(b, lambdas + (vd.toVariable -> nl), inForall))
+      case Application(v: Variable, args) if (lambdas contains v) && inForall =>
+        application(lambdas(v), args.map(rec(_, lambdas, inForall)))
+      case Forall(args, body) =>
+        Forall(args, rec(body, lambdas, true))
+      case Operator(es, recons) =>
+        recons(es.map(rec(_, lambdas, inForall)))
+    }
+
+    rec(e, Map.empty, false)
+  }
+
   /** Pre-processing for solvers that handle universal quantification
     * in order to increase the precision of polarity analysis for
     * quantification instantiations.
@@ -513,33 +542,6 @@ trait SymbolOps { self: TypeOps =>
           ))
         case _ => None
       } (e)
-    }
-
-    /* Inline lambda lets that appear in forall bodies. For example,
-     * {{{
-     *   val f = (x: BigInt) => x + 1
-     *   forall((x: BigInt) => f(x) == x + 1)
-     * }}}
-     * will be rewritten to
-     * {{{
-     *   val f = (x: BigInt) => x + 1
-     *   forall((x: BigInt) => x + 1 == x + 1)
-     * }}}
-     */
-    def inlineLambdas(e: Expr): Expr = {
-      def rec(e: Expr, lambdas: Map[Variable, Lambda], inForall: Boolean): Expr = e match {
-        case Let(vd, l: Lambda, b) =>
-          val nl = l.copy(body = rec(l.body, lambdas, false))
-          Let(vd, nl, rec(b, lambdas + (vd.toVariable -> nl), inForall))
-        case Application(v: Variable, args) if (lambdas contains v) && inForall =>
-          application(lambdas(v), args.map(rec(_, lambdas, inForall)))
-        case Forall(args, body) =>
-          Forall(args, rec(body, lambdas, true))
-        case Operator(es, recons) =>
-          recons(es.map(rec(_, lambdas, inForall)))
-      }
-
-      rec(e, Map.empty, false)
     }
 
     /* Weaker variant of conjunctive normal form */
