@@ -56,7 +56,7 @@ trait SymbolOps { self: TypeOps =>
   }
 
   def simpleSolve(e: Expr, path: Path): Option[Boolean] = {
-    val env = CNFPath(path)
+    val env = simplifier.CNFPath(path)
     if (env contains BooleanLiteral(false)) {
       Some(true)
     } else {
@@ -105,7 +105,7 @@ trait SymbolOps { self: TypeOps =>
 
   /** Returns 'true' iff the evaluation of expression `expr` cannot lead to a crash under the provided path. */
   def isPureIn(e: Expr, path: Path): Boolean = {
-    val env = CNFPath(path)
+    val env = simplifier.CNFPath(path)
     if (env contains BooleanLiteral(false)) {
       true
     } else {
