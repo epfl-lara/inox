@@ -10,13 +10,14 @@ import scala.collection.generic.CanBuildFrom
 
 object optNoSimplifications extends FlagOptionDef("nosimplifications", false)
 
-trait Templates extends TemplateGenerator
-                   with FunctionTemplates
-                   with DatatypeTemplates
-                   with EqualityTemplates
-                   with LambdaTemplates
-                   with QuantificationTemplates
-                   with IncrementalStateWrapper {
+trait Templates
+  extends TemplateGenerator
+     with FunctionTemplates
+     with DatatypeTemplates
+     with EqualityTemplates
+     with LambdaTemplates
+     with QuantificationTemplates
+     with IncrementalStateWrapper {
 
   val program: Program
   import program._

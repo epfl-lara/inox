@@ -266,4 +266,19 @@ trait ExprOps extends GenTreeOps {
       }
     }
   }
+
+  def toCNF(e: Expr): Seq[Expr] = e match {
+    case Let(i, e, b) => toCNF(b).map(b => Let(i, e, b))
+    case And(es) => es.flatMap(toCNF)
+    case Or(es) => es.map(toCNF).foldLeft(Seq[Expr](BooleanLiteral(false))) {
+      case (clauses, es) => es.flatMap(e => clauses.map(c => or(c, e)))
+    }
+    case IfExpr(c, t, e) => toCNF(and(implies(c, t), implies(not(c), e)))
+    case Implies(l, r) => toCNF(or(not(l), r))
+    case Not(Or(es)) => toCNF(andJoin(es.map(not)))
+    case Not(Implies(l, r)) => toCNF(and(l, not(r)))
+    case Not(Not(e)) => toCNF(e)
+    case Not(e) => Seq(not(e))
+    case e => Seq(e)
+  }
 }

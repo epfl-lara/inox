@@ -113,7 +113,9 @@ trait Constructors { self: Trees =>
   def equality(a: Expr, b: Expr): Expr = {
     if (a.isInstanceOf[Terminal] && a == b ) {
       BooleanLiteral(true)
-    } else  {
+    } else if (a.isInstanceOf[Literal[_]] && b.isInstanceOf[Literal[_]] && a != b) {
+      BooleanLiteral(false)
+    } else {
       Equals(a, b)
     }
   }
@@ -142,6 +144,33 @@ trait Constructors { self: Trees =>
     case _ =>
       val vars = exprOps.variablesOf(body)
       Forall(args.filter(vd => vars(vd.toVariable)), body)
+  }
+
+  def simpForall(args: Seq[ValDef], body: Expr): Expr = {
+    def liftForalls(es: Seq[Expr], recons: Seq[Expr] => Expr): Expr = {
+      val (allArgs, allBodies) = es.map {
+        case f: Forall =>
+          val Forall(args, body) = exprOps.freshenLocals(f)
+          (args, body)
+        case e =>
+          (Seq[ValDef](), e)
+      }.unzip
+
+      val flatArgs = allArgs.flatten
+      if (flatArgs.isEmpty) {
+        forall(args, recons(allBodies))
+      } else {
+        simpForall(args ++ flatArgs, recons(allBodies))
+      }
+    }
+
+    body match {
+      case Forall(args2, body) => simpForall(args ++ args2, body)
+      case And(es) => liftForalls(es, andJoin)
+      case Or(es) => liftForalls(es, orJoin)
+      case Implies(l, r) => liftForalls(Seq(l, r), es => implies(es(0), es(1)))
+      case _ => forall(args, body)
+    }
   }
 
   /** $encodingof simplified `... + ...` (plus).

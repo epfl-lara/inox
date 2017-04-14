@@ -288,6 +288,10 @@ trait Extractors { self: Trees =>
     }
   }
 
+  object CNF {
+    def unapply(e: Expr): Option[Seq[Expr]] = Some(exprOps.toCNF(e))
+  }
+
   object IsTyped {
     def unapply[T <: Typed](e: T)(implicit s: Symbols): Option[(T, Type)] = Some((e, e.getType))
   }

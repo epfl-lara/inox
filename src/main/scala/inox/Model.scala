@@ -88,7 +88,7 @@ trait Model { self =>
       modelString +
       (if (modelString.nonEmpty && functionString.nonEmpty) "\n\n" else "") +
       functionString +
-      (if (functionString.nonEmpty && chooseString.nonEmpty) "\n\n" else "") +
+      (if ((modelString.nonEmpty || functionString.nonEmpty) && chooseString.nonEmpty) "\n\n" else "") +
       chooseString
     }
   }

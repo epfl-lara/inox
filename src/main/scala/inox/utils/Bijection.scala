@@ -102,4 +102,9 @@ class Bijection[A, B] extends Iterable[(A, B)] {
     override protected val a2b = Bijection.this.b2a
     override protected val b2a = Bijection.this.a2b
   }
+
+  override def clone: Bijection[A,B] = new Bijection[A,B] {
+    override protected val a2b = Bijection.this.a2b.clone
+    override protected val b2a = Bijection.this.b2a.clone
+  }
 }

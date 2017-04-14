@@ -369,7 +369,7 @@ trait TemplateGenerator { self: Templates =>
           }
 
           if (conjArgs.isEmpty) {
-            conj
+            rec(pathVar, conj, pol)
           } else {
             val forall = Forall(conjArgs, conj)
             val (optVar, template) = QuantificationTemplate(pathVar -> encodedCond(pathVar), pol, forall, localSubst)

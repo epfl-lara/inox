@@ -474,7 +474,7 @@ trait RecursiveEvaluator
 
     case c: Choose =>
       rctx.getChoose(c.res.id) match {
-        case Some(expr) => e(expr)(rctx.withoutChoose(c.res.id), gctx)
+        case Some(expr) => e(expr)
         case None => onChooseInvocation {
           replaceFromSymbols(variablesOf(c).map(v => v -> e(v)).toMap, c).asInstanceOf[Choose]
         }

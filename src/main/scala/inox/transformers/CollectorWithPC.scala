@@ -5,6 +5,7 @@ package transformers
 
 /** A [[Collector]] that collects path conditions */
 trait CollectorWithPC extends TransformerWithPC with Collector {
+  type Env = symbols.Path
   lazy val initEnv = symbols.Path.empty
 }
 
@@ -31,6 +32,4 @@ object CollectorWithPC {
                CollectorWithPC { type Result = T; val trees: p.trees.type; val symbols: p.symbols.type } = {
     apply(p.trees)(p.symbols)(f)
   }
-              
-
 }

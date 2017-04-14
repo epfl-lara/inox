@@ -3,10 +3,41 @@
 package inox
 package ast
 
+import utils._
+import scala.collection.mutable.{Map => MutableMap}
+
 trait Paths { self: SymbolOps with TypeOps =>
   import trees._
 
-  object Path {
+  trait PathLike[Self <: PathLike[Self]] { self: Self =>
+    //protected val self: Self = this.asInstanceOf[Self]
+
+    /** Add a binding to this [[PathLike]] */
+    def withBinding(p: (ValDef, Expr)): Self
+
+    def withBindings(ps: Iterable[(ValDef, Expr)]): Self = ps.foldLeft(self)(_ withBinding _)
+
+    /** Add a condition to this [[PathLike]] */
+    def withCond(e: Expr): Self
+
+    /** Add multiple conditions to this [[PathLike]] */
+    def withConds(es: Iterable[Expr]): Self = es.foldLeft(self)(_ withCond _)
+
+    /** Appends `that` path at the end of `this` */
+    def merge(that: Self): Self
+
+    /** Appends `those` paths at the end of `this` */
+    def merge(those: Traversable[Self]): Self = those.foldLeft(self)(_ merge _)
+
+    /** Returns the negation of a path. */
+    def negate: Self
+  }
+
+  trait PathProvider[P <: PathLike[P]] {
+    def empty: P
+  }
+
+  implicit object Path extends PathProvider[Path] {
     final type Element = Either[(ValDef, Expr), Expr]
 
     def empty: Path = new Path(Seq.empty)
@@ -32,7 +63,7 @@ trait Paths { self: SymbolOps with TypeOps =>
     * not defined, whereas an encoding of let-bindings with equalities
     * could introduce non-sensical equations.
     */
-  class Path private(private[ast] val elements: Seq[Path.Element]) extends Printable {
+  class Path protected(val elements: Seq[Path.Element]) extends Printable with PathLike[Path] {
     import Path.Element
 
     /** Add a binding to this [[Path]] */
@@ -40,10 +71,6 @@ trait Paths { self: SymbolOps with TypeOps =>
       def exprOf(e: Element) = e match { case Right(e) => e; case Left((_, e)) => e }
       val (before, after) = elements span (el => !exprOps.variablesOf(exprOf(el)).contains(p._1.toVariable))
       new Path(before ++ Seq(Left(p)) ++ after)
-    }
-
-    def withBindings(ps: Iterable[(ValDef, Expr)]) = {
-      ps.foldLeft(this)( _ withBinding _ )
     }
 
     /** Add a condition to this [[Path]] */
@@ -61,9 +88,6 @@ trait Paths { self: SymbolOps with TypeOps =>
         new Path(newElements.filterNot(_.right.exists(_ == BooleanLiteral(true))))
     }
 
-    /** Add multiple conditions to this [[Path]] */
-    def withConds(es: Iterable[Expr]) = es.foldLeft(this)((p, e) => p withCond e)
-
     /** Remove bound variables from this [[Path]]
       * @param ids the bound variables to remove
       */
@@ -71,9 +95,6 @@ trait Paths { self: SymbolOps with TypeOps =>
 
     /** Appends `that` path at the end of `this` */
     def merge(that: Path): Path = new Path((elements ++ that.elements).distinct)
-
-    /** Appends `those` paths at the end of `this` */
-    def merge(those: Traversable[Path]): Path = those.foldLeft(this)(_ merge _)
 
     /** Transforms all expressions inside the path
       *
@@ -162,7 +183,7 @@ trait Paths { self: SymbolOps with TypeOps =>
         case Variable(id, _, _) => ids.contains(id)
         case _ => false
       }(e)
-      
+
       val newElements = elements.filter{
         case Left((vd, e)) => ids.contains(vd.id) || containsIds(ids)(e)
         case Right(e) => containsIds(ids)(e)
@@ -265,5 +286,151 @@ trait Paths { self: SymbolOps with TypeOps =>
 
     override def toString = asString(PrinterOptions.fromContext(Context.printNames))
     def asString(implicit opts: PrinterOptions): String = fullClause.asString
+  }
+
+  class CNFPath private(
+    private val exprSubst: Bijection[Variable, Expr],
+    private val boolSubst: Map[Variable, Seq[Expr]],
+    private val conditions: Set[Expr],
+    private val cnfCache: MutableMap[Expr, Seq[Expr]],
+    private val simpCache: MutableMap[Expr, Seq[Expr]]) extends PathLike[CNFPath] {
+
+    import exprOps._
+
+    private def unexpandLets(e: Expr, exprSubst: Bijection[Variable, Expr] = exprSubst): Expr = {
+      postMap(exprSubst.getA)(e)
+    }
+
+    def contains(e: Expr) = {
+      val TopLevelOrs(es) = unexpandLets(e)
+      conditions contains orJoin(es.distinct.sortBy(_.hashCode))
+    }
+
+    private def cnf(e: Expr): Seq[Expr] = cnfCache.getOrElseUpdate(e, e match {
+      case Let(i, e, b) => cnf(b).map(Let(i, e, _))
+      case And(es) => es.flatMap(cnf)
+      case Or(es) => es.map(cnf).foldLeft(Seq(BooleanLiteral(false): Expr)) {
+        case (clauses, es) => es.flatMap(e => clauses.map(c => or(e, c)))
+      }
+      case IfExpr(c, t, e) => cnf(and(implies(c, t), implies(not(c), e)))
+      case Implies(l, r) => cnf(or(not(l), r))
+      case Not(Or(es)) => cnf(andJoin(es.map(not)))
+      case Not(Implies(l, r)) => cnf(and(l, not(r)))
+      case Not(Not(e)) => cnf(e)
+      case e => Seq(e)
+    })
+
+    private def simplify(e: Expr): Expr = {
+      simplifier.transform(e, this.asInstanceOf[simplifier.Env])
+    }
+
+    private def getClauses(e: Expr): Seq[Expr] = simpCache.getOrElseUpdate(e, {
+      val (preds, newE) = liftAssumptions(simplifyLets(unexpandLets(e)))
+      val expr = andJoin(newE +: preds)
+      simpCache.getOrElseUpdate(expr, {
+        val clauses = cnf(expr).map(simplify).flatMap {
+          case v: Variable =>
+            boolSubst.getOrElse(v, Seq(v))
+
+          case Not(v: Variable) =>
+            boolSubst.getOrElse(v, Seq(v)).foldLeft(Seq(BooleanLiteral(false): Expr)) {
+              case (ors, TopLevelOrs(es)) => es.flatMap(e => ors.map(d => or(d, not(e))))
+            }
+
+          case Or(disjuncts) => disjuncts.foldLeft(Seq(BooleanLiteral(false): Expr)) {
+            case (ors, d) => d match {
+              case v: Variable => boolSubst.getOrElse(v, Seq(v)).flatMap {
+                vdisj => ors.map(d => or(d, vdisj))
+              }
+
+              case Not(v: Variable) => boolSubst.getOrElse(v, Seq(v)).foldLeft(ors) {
+                case (ors, TopLevelOrs(es)) => es.flatMap(e => ors.map(d => or(d, not(e))))
+              }
+
+              case e => ors.map(d => or(d, e))
+            }
+          }
+
+          case e => Seq(e)
+        }.map { case TopLevelOrs(es) => orJoin(es.distinct.sortBy(_.hashCode)) }.toSet
+
+        clauses.map { case TopLevelOrs(es) =>
+          val eSet = es.toSet
+          if (es.exists(e => conditions(e) || (eSet contains not(e)))) {
+            BooleanLiteral(true)
+          } else if (es.size > 1 && es.exists(e => clauses(e))) {
+            BooleanLiteral(true)
+          } else {
+            orJoin(es.filter(e => !clauses(not(e)) && !conditions(not(e))))
+          }
+        }.toSeq.filterNot(_ == BooleanLiteral(true))
+      })
+    })
+
+    def withBinding(p: (ValDef, Expr)) = {
+      val (vd, expr) = p
+      if (formulaSize(expr) > 20) {
+        this
+      } else if (vd.tpe == BooleanType) {
+        new CNFPath(exprSubst, boolSubst + (vd.toVariable -> getClauses(expr)), conditions, cnfCache, simpCache)
+      } else {
+        val newSubst = exprSubst.clone += (vd.toVariable -> unexpandLets(expr))
+        val newBools = boolSubst.mapValues(_.map(unexpandLets(_, newSubst)))
+        val newConds = conditions.map(unexpandLets(_, newSubst))
+
+        for ((k, v) <- cnfCache) {
+          val newK = unexpandLets(k, newSubst)
+          val newV = v.map(unexpandLets(_, newSubst))
+          cnfCache += newK -> newV
+        }
+
+        for ((k, v) <- simpCache) {
+          val newK = unexpandLets(k, newSubst)
+          val newV = v.map(unexpandLets(_, newSubst))
+          simpCache += newK -> newV
+        }
+
+        new CNFPath(newSubst, newBools, newConds, cnfCache, simpCache)
+      }
+    }
+
+    def withCond(e: Expr) = if (formulaSize(e) > 20) this else {
+      val clauses = getClauses(e)
+      val clauseSet = clauses.toSet
+      val newConditions = conditions.flatMap { case clause @ TopLevelOrs(es) =>
+        val newClause = orJoin(es.filterNot(e => clauseSet contains not(e)))
+        if (newClause != clause) exprOps.toCNF(newClause) else Seq(clause)
+      }
+
+      new CNFPath(exprSubst, boolSubst, newConditions ++ clauseSet - BooleanLiteral(true), cnfCache, simpCache)
+    }
+
+    def merge(that: CNFPath) = new CNFPath(
+      exprSubst.clone ++= that.exprSubst,
+      boolSubst ++ that.boolSubst,
+      conditions ++ that.conditions,
+      cnfCache ++= that.cnfCache,
+      simpCache ++= that.simpCache
+    )
+
+    def negate = new CNFPath(
+      exprSubst,
+      boolSubst,
+      conditions.foldLeft(Seq(BooleanLiteral(false): Expr)) {
+        case (ors, TopLevelOrs(es)) => es.flatMap(e => ors.map(d => or(d, not(e))))
+      }.toSet,
+      cnfCache,
+      simpCache
+    )
+
+    override def toString = conditions.toString
+  }
+
+  implicit object CNFPath extends PathProvider[CNFPath] {
+    def empty = new CNFPath(new Bijection[Variable, Expr], Map.empty, Set.empty, MutableMap.empty, MutableMap.empty)
+    def apply(path: Path) = path.elements.foldLeft(empty) {
+      case (path, Left(p)) => path withBinding (p._1 -> simplifier.transform(p._2, path.asInstanceOf[simplifier.Env]))
+      case (path, Right(c)) => path withCond (simplifier.transform(c, path.asInstanceOf[simplifier.Env]))
+    }
   }
 }
