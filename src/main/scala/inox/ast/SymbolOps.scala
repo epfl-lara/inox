@@ -1139,46 +1139,7 @@ trait SymbolOps { self: TypeOps =>
       } (e)
     }
 
-    def simplifyCondLets(e: Expr): Expr = postMap {
-      case l @ Let(vd, ie @ IfExpr(cond, v: Variable, _: Choose), body) =>
-        def impliesCondition(path: Path): Boolean = {
-          def simpleDNF(e: Expr): Expr = e match {
-            case And(es) => orJoin(es.foldLeft(Seq(BooleanLiteral(true): Expr)) {
-              case (acc, Or(ors)) => ors.flatMap(or => acc.map(s => and(s, or)))
-              case (acc, e) => acc.map(s => and(s, e))
-            })
-            case Or(es) => orJoin(es map simpleDNF)
-            case _ => e
-          }
-
-          val TopLevelOrs(ors) = simpleDNF(cond)
-          val pathConjs = path.conditions.flatMap { case TopLevelAnds(ands) => ands }.toSet
-          ors.exists { case TopLevelAnds(ands) => ands.toSet subsetOf pathConjs }
-        }
-
-        object transformer extends transformers.TransformerWithPC {
-          val trees: self.trees.type = self.trees
-          val symbols: self.symbols.type = self.symbols
-          val initEnv = Path.empty
-          type Env = Path
-
-          override protected def rec(e: Expr, path: Path): Expr = e match {
-            case nv: Variable if vd.toVariable == nv && impliesCondition(path) => v
-            case _ => super.rec(e, path)
-          }
-        }
-
-        val newBody = transformer.transform(body)
-        if (variablesOf(newBody) contains vd.toVariable) {
-          Some(Let(vd, ie, newBody).copiedFrom(l))
-        } else {
-          Some(newBody)
-        }
-
-      case _ => None
-    } (e)
-
-    simplifyCondLets(mergeCalls(liftCalls(expr)))
+    mergeCalls(liftCalls(expr))
   }
 
   def simplifyFormula(e: Expr, simplify: Boolean = true): Expr = {
