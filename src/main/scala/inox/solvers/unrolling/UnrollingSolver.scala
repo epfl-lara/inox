@@ -539,7 +539,9 @@ trait AbstractUnrollingSolver extends Solver { self =>
     val initSeen: Map[FunctionType, Set[Encoded]] = Map.empty.withDefaultValue(Set.empty)
     val exModel = wrapped.getModel((e, tpe) => decode(extractValue(e, encode(tpe), initSeen)))
     val exChooses = chooseExtractions.toMap.map { case (e, c) =>
-      c -> lambdaExtractions.collectFirst { case (f, lambda) if modelEq(f, e) => lambda }.get
+      c -> lambdaExtractions.collectFirst {
+        case (f, lambda) if bestRealType(lambda.getType) == bestRealType(c.res.tpe) && modelEq(f, e) => lambda
+      }.get
     }
     val chooses = exChooses.map(p => (p._1.res.id, Seq.empty[s.Type]) -> decode(p._2))
     inox.Model(program)(exModel.vars, exModel.chooses ++ chooses)
