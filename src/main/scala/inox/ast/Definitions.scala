@@ -167,7 +167,7 @@ trait Definitions { self: Trees =>
       }
 
       for ((_, adt) <- adts) {
-        if (!adt.hasInstance) throw NotWellFormedException(adt)
+        if (!adt.isWellFormed) throw NotWellFormedException(adt)
 
         adt match {
           case sort: ADTSort =>
@@ -282,20 +282,22 @@ trait Definitions { self: Trees =>
       rec(base, Set.empty, first = true)
     }
 
-    def hasInstance(implicit s: Symbols): Boolean = {
-      def flattenTuples(s: Seq[Type]): Seq[Type] = s match {
+    private def hasInstance(simple: Boolean)(implicit s: Symbols): Boolean = {
+      def flatten(s: Seq[Type]): Seq[Type] = s match {
         case Nil => Nil
-        case (head: TupleType) +: tail => flattenTuples(head.bases ++ tail)
-        case (head: MapType) +: tail => flattenTuples(head.to +: tail) // Because Map has a default.
-        case head +: tail => head +: flattenTuples(tail)
+        case (head: TupleType) +: tail => flatten(head.bases ++ tail)
+        case (head: MapType) +: tail => flatten(head.to +: tail) // Because Map has a default.
+        case (head: FunctionType) +: tail if simple => flatten(head.to +: tail)
+        case head +: tail => head +: flatten(tail)
       }
+
       def rec(adt: TypedADTDefinition, seen: Set[TypedADTDefinition]): Boolean = {
         if (seen(adt)) false else (adt match {
           case tsort: TypedADTSort =>
             tsort.constructors.exists(rec(_, seen + tsort))
 
           case tcons: TypedADTConstructor =>
-            flattenTuples(tcons.fieldsTypes).flatMap{
+            flatten(tcons.fieldsTypes).flatMap{
               case t: ADTType => Set(t.getADT)
               case _ => Set.empty[TypedADTDefinition]
             }.forall(rec(_, seen + tcons))
@@ -304,6 +306,10 @@ trait Definitions { self: Trees =>
 
       rec(typed, Set.empty)
     }
+
+    def isWellFormed(implicit s: Symbols): Boolean = hasInstance(false)
+
+    def hasSimpleInstance(implicit s: Symbols): Boolean = hasInstance(true)
 
     /** An invariant that refines this [[ADTDefinition]] */
     def invariant(implicit s: Symbols): Option[FunDef] = {

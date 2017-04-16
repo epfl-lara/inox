@@ -58,7 +58,7 @@ trait ADTManagers {
         val declarations = (for (tpe <- scc if !declared(tpe)) yield (tpe match {
           case adt: ADTType =>
             val tdef = adt.getADT
-            if (!tdef.definition.hasInstance) {
+            if (!tdef.definition.isWellFormed) {
               unsupported(adt, "Not well-founded ADT:\n" + tdef.definition.asString)
             }
 
