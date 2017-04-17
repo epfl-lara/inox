@@ -148,7 +148,7 @@ trait LambdaTemplates { self: Templates =>
     }
 
     if (ft.from.nonEmpty) Seq.empty else for {
-      template <- byType(ft).values.toSeq
+      template <- byType(ft).values.toList
       if canEqual(template.ids._2, f) && isPureTemplate(template)
     } yield {
       val (tmplApp, fApp) = (mkApp(template.ids._2, ft, Seq.empty), mkApp(f, ft, Seq.empty))
@@ -205,9 +205,10 @@ trait LambdaTemplates { self: Templates =>
         case (v, dep) => registerClosure(newTemplate.start, idT -> newTemplate.tpe, dep -> v.tpe)
       }
 
-      val extClauses = for ((oldB, freeF) <- freeBlockers(newTemplate.tpe) if canEqual(freeF, idT)) yield {
+      val extClauses = for ((oldB, freeF) <- freeBlockers(newTemplate.tpe).toList if canEqual(freeF, idT)) yield {
         val nextB  = encodeSymbol(Variable.fresh("b_or", BooleanType, true))
         val ext = mkOr(mkAnd(newTemplate.start, mkEquals(idT, freeF)), nextB)
+        freeBlockers += newTemplate.tpe -> (freeBlockers(newTemplate.tpe) + (nextB -> freeF))
         mkEquals(oldB, ext)
       }
 
@@ -267,7 +268,7 @@ trait LambdaTemplates { self: Templates =>
         Seq.empty
       } else {
         lazy val gen = nextGeneration(currentGeneration)
-        for (template <- byType(tpe).values if canEqual(caller, template.ids._2)) {
+        for (template <- byType(tpe).values.toList if canEqual(caller, template.ids._2)) {
           val cond = mkAnd(template.start, mkEquals(template.ids._2, caller))
           registerAppBlocker(gen, key, Left(template), cond, args)
         }
