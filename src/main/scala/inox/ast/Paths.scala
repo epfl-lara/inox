@@ -7,26 +7,25 @@ trait Paths { self: SymbolOps with TypeOps =>
   import trees._
 
   trait PathLike[Self <: PathLike[Self]] { self: Self =>
-    //protected val self: Self = this.asInstanceOf[Self]
 
-    /** Add a binding to this [[PathLike]] */
+    /** Add a binding to this `PathLike`. */
     def withBinding(p: (ValDef, Expr)): Self
 
     def withBindings(ps: Iterable[(ValDef, Expr)]): Self = ps.foldLeft(self)(_ withBinding _)
 
-    /** Add a condition to this [[PathLike]] */
+    /** Add a condition to this `PathLike`. */
     def withCond(e: Expr): Self
 
-    /** Add multiple conditions to this [[PathLike]] */
+    /** Add multiple conditions to this `PathLike`. */
     def withConds(es: Iterable[Expr]): Self = es.foldLeft(self)(_ withCond _)
 
-    /** Appends `that` path at the end of `this` */
+    /** Appends `that` path at the end of `this`. */
     def merge(that: Self): Self
 
-    /** Appends `those` paths at the end of `this` */
+    /** Appends `those` paths at the end of `this`. */
     def merge(those: Traversable[Self]): Self = those.foldLeft(self)(_ merge _)
 
-    /** Returns the negation of a path. */
+    /** Returns the negation of this path. */
     def negate: Self
   }
 
