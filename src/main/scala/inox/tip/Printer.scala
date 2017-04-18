@@ -361,11 +361,20 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
       val selector = selectors.toB((tpe, i - 1))
       FunctionApplication(selector, Seq(toSMT(t)))
 
-    case fi @ FunctionInvocation(id, tps, Seq()) if tps.nonEmpty =>
-      QualifiedIdentifier(
-        SMTIdentifier(declareFunction(fi.tfd)),
-        Some(declareSort(fi.tfd.returnType))
-      )
+    case fi @ FunctionInvocation(id, tps, args) =>
+      val tfd = fi.tfd
+      val retTpArgs = typeParamsOf(tfd.fd.returnType)
+      val paramTpArgs = tfd.fd.params.flatMap(vd => typeParamsOf(vd.tpe)).toSet
+      if ((retTpArgs -- paramTpArgs).nonEmpty) {
+        val caller = QualifiedIdentifier(
+          SMTIdentifier(declareFunction(tfd)),
+          Some(declareSort(tfd.returnType))
+        )
+        if (args.isEmpty) caller
+        else FunctionApplication(caller, args.map(toSMT))
+      } else {
+        super.toSMT(e)
+      }
 
     case Choose(vd, pred) =>
       val sym = id2sym(vd.id)

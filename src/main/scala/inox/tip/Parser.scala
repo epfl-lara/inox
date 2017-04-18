@@ -515,11 +515,22 @@ class Parser(file: File) {
         }
         tfd.applied
 
-      case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), args)
+      case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), optSort), args)
       if ctx.isFunction(sym) =>
         val es = args.map(fromSMT(_))
         val fd = symbols.getFunction(ctx.getFunction(sym))
-        val tps = instantiateTypeParams(fd.tparams, fd.params.map(_.tpe), es.map(_.getType))(ctx.locals)
+        val tps = optSort match {
+          case Some(sort) =>
+            val tpe = fromSMT(sort)
+            instantiateTypeParams(
+              fd.tparams,
+              fd.params.map(_.tpe) :+ fd.returnType,
+              es.map(_.getType) :+ tpe
+            )(ctx.locals)
+
+          case None =>
+            instantiateTypeParams(fd.tparams, fd.params.map(_.tpe), es.map(_.getType))(ctx.locals)
+        }
         val tfd = fd.typed(tps)
         tfd.applied(wrapAsInstanceOf(tfd.params.map(_.tpe), es)(ctx.locals))
 

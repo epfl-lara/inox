@@ -431,8 +431,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case And(sub)                  => SmtLibConstructors.and(sub.map(toSMT))
       case Or(sub)                   => SmtLibConstructors.or(sub.map(toSMT))
       case IfExpr(cond, thenn, elze) => Core.ITE(toSMT(cond), toSMT(thenn), toSMT(elze))
-      case FunctionInvocation(id, tps, sub) =>
-        val fun = declareFunction(symbols.getFunction(id).typed(tps))
+      case fi @ FunctionInvocation(_, _, sub) =>
+        val fun = declareFunction(fi.tfd)
         if (sub.isEmpty) fun
         else FunctionApplication(fun, sub.map(toSMT))
       case Forall(vs, bd) =>

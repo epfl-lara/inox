@@ -208,7 +208,7 @@ trait LambdaTemplates { self: Templates =>
       val extClauses = for ((oldB, freeF) <- freeBlockers(newTemplate.tpe).toList if canEqual(freeF, idT)) yield {
         val nextB  = encodeSymbol(Variable.fresh("b_or", BooleanType, true))
         val ext = mkOr(mkAnd(newTemplate.start, mkEquals(idT, freeF)), nextB)
-        freeBlockers += newTemplate.tpe -> (freeBlockers(newTemplate.tpe) + (nextB -> freeF))
+        freeBlockers += newTemplate.tpe -> (freeBlockers(newTemplate.tpe) - (oldB -> freeF) + (nextB -> freeF))
         mkEquals(oldB, ext)
       }
 

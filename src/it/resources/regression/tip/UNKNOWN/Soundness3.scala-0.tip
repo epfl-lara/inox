@@ -1,0 +1,32 @@
+(declare-datatypes (A1!0 R!26) ((fun1!37 (fun1!38 (f!71 (=> A1!0 R!26)) (pre!28 (=> A1!0 Bool))))))
+
+(declare-datatypes (A!0 B!0) ((Mapping!32 (Mapping!33 (f!73 (fun1!37 A!0 B!0))))))
+
+(declare-datatypes () ((R!56 (R!57 (x!519 Int) (m!7 (Mapping!32 Int Bool))))))
+
+(declare-datatypes () ((C!23 (C!24 (rs!10 (Mapping!32 Int R!56)) (n!15 Int)))))
+
+(declare-const thiss!119 C!23)
+
+(define-fun (par (A!45 B!34) (apply!0 ((thiss!77 (Mapping!32 A!45 B!34)) (k!0 A!45)) B!34 (assume (forall ((x!170 A!45)) (=> (@ (f!71 (fun1!38 (lambda ((x!169 A!45)) true) (lambda ((x!330 A!45)) true))) x!170) (@ (f!71 (fun1!38 (pre!28 (f!73 thiss!77)) (lambda ((x!331 A!45)) true))) x!170))) (@ (f!71 (f!73 thiss!77)) k!0)))))
+
+(define-fun largerThan2!0 ((rs!0 (Mapping!32 Int R!56)) (i!0 Int) (n!0 Int)) Bool (assume (and (forall ((x!124 Int)) (=> (@ (f!71 (fun1!38 (lambda ((x!123 Int)) true) (lambda ((x!272 Int)) true))) x!124) (@ (f!71 (fun1!38 (pre!28 (f!73 rs!0)) (lambda ((x!273 Int)) true))) x!124))) (forall ((x!123 Int)) (forall ((x!126 Int)) (=> (@ (f!71 (fun1!38 (lambda ((x!125 Int)) true) (lambda ((x!274 Int)) true))) x!126) (@ (f!71 (fun1!38 (pre!28 (f!73 (m!7 (@ (f!71 (f!73 rs!0)) x!123)))) (lambda ((x!275 Int)) true))) x!126))))) (=> (and (<= 0 i!0) (< i!0 n!0)) (>= (x!519 (apply!0 rs!0 i!0)) 2))))
+
+(declare-datatypes (A0!3 A1!21) ((tuple2!4 (tuple2!5 (_1!2 A0!3) (_2!2 A1!21)))))
+
+(declare-datatypes () ((Unit!6 (Unit!7))))
+
+(define-fun (par (A!1 B!1) (constantMapping!0 ((b!2 B!1)) (Mapping!32 A!1 B!1) (Mapping!33 (fun1!38 (lambda ((x!2 A!1)) b!2) (lambda ((x!366 A!1)) true))))))
+
+(define-fun (par (A!44 B!33) (updated!0 ((thiss!70 (Mapping!32 A!44 B!33)) (k!1 A!44) (v!0 B!33)) (Mapping!32 A!44 B!33) (assume (forall ((x!154 A!44)) (=> (@ (f!71 (fun1!38 (lambda ((x!153 A!44)) true) (lambda ((x!312 A!44)) true))) x!154) (@ (f!71 (fun1!38 (pre!28 (f!73 thiss!70)) (lambda ((x!313 A!44)) true))) x!154))) (Mapping!33 (fun1!38 (lambda ((x!1 A!44)) (ite (= x!1 k!1) v!0 (@ (f!71 (f!73 thiss!70)) x!1))) (lambda ((x!314 A!44)) (=> (not (= x!314 k!1)) (@ (f!71 (fun1!38 (pre!28 (f!73 thiss!70)) (lambda ((x!315 A!44)) true))) x!314)))))))))
+
+(declare-fun Unit!8 () Unit!6)
+
+(define-fun addR_aux!0 ((thiss!16 C!23) (b!0 Int)) (tuple2!4 Unit!6 C!23) (assume (and (forall ((x!118 Int)) (=> (@ (f!71 (fun1!38 (lambda ((x!117 Int)) true) (lambda ((x!266 Int)) true))) x!118) (@ (f!71 (fun1!38 (pre!28 (f!73 (rs!10 thiss!16))) (lambda ((x!267 Int)) true))) x!118))) (forall ((x!117 Int)) (forall ((x!120 Int)) (=> (@ (f!71 (fun1!38 (lambda ((x!119 Int)) true) (lambda ((x!268 Int)) true))) x!120) (@ (f!71 (fun1!38 (pre!28 (f!73 (m!7 (@ (f!71 (f!73 (rs!10 thiss!16))) x!117)))) (lambda ((x!269 Int)) true))) x!120))))) (let ((r!0 (R!57 b!0 ((as constantMapping!0 (Mapping!32 Int Bool)) false)))) (let ((thiss!140 (C!24 (updated!0 (rs!10 thiss!16) (n!15 thiss!16) r!0) (n!15 thiss!16)))) (let ((thiss!141 (C!24 (rs!10 thiss!140) (+ (n!15 thiss!140) 1)))) (tuple2!5 Unit!8 thiss!141))))))
+
+(declare-const b!1 Int)
+
+(assert (not (=> (and (forall ((x!222 Int)) (@ (f!71 (fun1!38 (pre!28 (f!73 (rs!10 thiss!119))) (lambda ((x!517 Int)) true))) x!222)) (forall ((x!221 Int)) (forall ((x!224 Int)) (@ (f!71 (fun1!38 (pre!28 (f!73 (m!7 (@ (f!71 (f!73 (rs!10 thiss!119))) x!221)))) (lambda ((x!518 Int)) true))) x!224))) (>= (n!15 thiss!119) 0) (forall ((i!1 Int)) (largerThan2!0 (rs!10 thiss!119) i!1 (n!15 thiss!119)))) (let ((res!37 (addR_aux!0 thiss!119 b!1))) (forall ((i!2 Int)) (largerThan2!0 (rs!10 (_2!2 res!37)) i!2 (n!15 (_2!2 res!37))))))))
+
+(check-sat)
+
