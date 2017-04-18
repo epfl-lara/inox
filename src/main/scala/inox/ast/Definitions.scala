@@ -282,12 +282,11 @@ trait Definitions { self: Trees =>
       rec(base, Set.empty, first = true)
     }
 
-    private def hasInstance(simple: Boolean)(implicit s: Symbols): Boolean = {
+    def isWellFormed(implicit s: Symbols): Boolean = {
       def flatten(s: Seq[Type]): Seq[Type] = s match {
         case Nil => Nil
         case (head: TupleType) +: tail => flatten(head.bases ++ tail)
         case (head: MapType) +: tail => flatten(head.to +: tail) // Because Map has a default.
-        case (head: FunctionType) +: tail if simple => flatten(head.to +: tail)
         case head +: tail => head +: flatten(tail)
       }
 
@@ -306,10 +305,6 @@ trait Definitions { self: Trees =>
 
       rec(typed, Set.empty)
     }
-
-    def isWellFormed(implicit s: Symbols): Boolean = hasInstance(false)
-
-    def hasSimpleInstance(implicit s: Symbols): Boolean = hasInstance(true)
 
     /** An invariant that refines this [[ADTDefinition]] */
     def invariant(implicit s: Symbols): Option[FunDef] = {

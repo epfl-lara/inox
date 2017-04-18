@@ -7,8 +7,6 @@ import utils._
 
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
-case class NoSimpleValue(tpe: Trees#Type) extends Exception(s"No simple value found for type $tpe")
-
 /** Provides functions to manipulate [[Expressions.Expr]] in cases where
   * a symbol table is available (and required: see [[ExprOps]] for
   * simpler tree manipulations).
@@ -655,65 +653,73 @@ trait SymbolOps { self: TypeOps =>
     defs.foldRight(bd){ case ((vd, e), body) => Let(vd, e, body) }
   }
 
-  def hasInstance(tpe: Type, simple: Boolean = true): Option[Boolean] = tpe match {
+  def hasInstance(tpe: Type): Option[Boolean] = tpe match {
     case MapType(_, to) => hasInstance(to)
-    case FunctionType(_, to) if simple => hasInstance(to)
     case TupleType(tpes) => if (tpes.forall(tp => hasInstance(tp) contains true)) Some(true) else None
     case adt: ADTType =>
       val tadt = adt.getADT
       if (tadt.hasInvariant) None
-      else if (simple && !tadt.definition.hasSimpleInstance) Some(false)
-      else if (!simple && !tadt.definition.isWellFormed) Some(false)
+      else if (!tadt.definition.isWellFormed) Some(false)
       else Some(true)
     case _ => Some(true)
   }
 
+  case class NoSimpleValue(tpe: Type) extends Exception(s"No simple value found for type $tpe")
+
   /** Returns simplest value of a given type */
-  def simplestValue(tpe: Type)(implicit sem: symbols.Semantics): Expr = tpe match {
-    case StringType                 => StringLiteral("")
-    case Int32Type                  => IntLiteral(0)
-    case RealType                   => FractionLiteral(0, 1)
-    case IntegerType                => IntegerLiteral(0)
-    case CharType                   => CharLiteral('a')
-    case BooleanType                => BooleanLiteral(false)
-    case UnitType                   => UnitLiteral()
-    case SetType(baseType)          => FiniteSet(Seq(), baseType)
-    case BagType(baseType)          => FiniteBag(Seq(), baseType)
-    case MapType(fromType, toType)  => FiniteMap(Seq(), simplestValue(toType), fromType, toType)
-    case TupleType(tpes)            => Tuple(tpes.map(simplestValue))
+  def simplestValue(tpe: Type)(implicit sem: symbols.Semantics): Expr = {
+    def rec(tpe: Type, seen: Set[Type]): Expr = tpe match {
+      case StringType                 => StringLiteral("")
+      case Int32Type                  => IntLiteral(0)
+      case RealType                   => FractionLiteral(0, 1)
+      case IntegerType                => IntegerLiteral(0)
+      case CharType                   => CharLiteral('a')
+      case BooleanType                => BooleanLiteral(false)
+      case UnitType                   => UnitLiteral()
+      case SetType(baseType)          => FiniteSet(Seq(), baseType)
+      case BagType(baseType)          => FiniteBag(Seq(), baseType)
+      case MapType(fromType, toType)  => FiniteMap(Seq(), rec(toType, seen), fromType, toType)
+      case TupleType(tpes)            => Tuple(tpes.map(rec(_, seen)))
 
-    case adt @ ADTType(id, tps) =>
-      val tadt = adt.getADT
-      if (!tadt.definition.hasSimpleInstance) throw NoSimpleValue(adt)
+      case adt @ ADTType(id, tps) =>
+        val tadt = adt.getADT
+        if (!tadt.definition.isWellFormed) throw NoSimpleValue(adt)
 
-      if (tadt.hasInvariant) {
-        val p = Variable.fresh("p", FunctionType(Seq(adt), BooleanType))
-        val res = Variable.fresh("v", adt)
+        if (tadt.hasInvariant) {
+          val p = Variable.fresh("p", FunctionType(Seq(adt), BooleanType))
+          val res = Variable.fresh("v", adt)
 
-        import solvers._
-        import SolverResponses._
+          import solvers._
+          import SolverResponses._
 
-        SimpleSolverAPI(sem.getSolver).solveSAT(Application(p, Seq(res))) match {
-          case SatWithModel(model) => model.vars.get(res.toVal).getOrElse(throw NoSimpleValue(adt))
-          case _ => throw NoSimpleValue(adt)
+          SimpleSolverAPI(sem.getSolver).solveSAT(Application(p, Seq(res))) match {
+            case SatWithModel(model) => model.vars.get(res.toVal).getOrElse(throw NoSimpleValue(adt))
+            case _ => throw NoSimpleValue(adt)
+          }
+        } else {
+          val tconss = tadt match {
+            case tsort: TypedADTSort => tsort.constructors.filter(_.definition.isWellFormed)
+            case tcons: TypedADTConstructor => Seq(tcons)
+          }
+
+          tconss.filter(t => !seen(t.toType)).sortBy(_.fields.size).headOption match {
+            case Some(tcons) =>
+              ADT(tcons.toType, tcons.fieldsTypes.map(rec(_, seen + tcons.toType)))
+            case None =>
+              Choose(ValDef(FreshIdentifier("res"), adt), BooleanLiteral(true))
+          }
         }
-      } else {
-        val tcons = tadt match {
-          case tsort: TypedADTSort =>
-            tsort.constructors.filter(_.definition.hasSimpleInstance).sortBy(_.fields.size).head
-          case tcons: TypedADTConstructor => tcons
-        }
 
-        ADT(tcons.toType, tcons.fieldsTypes.map(simplestValue))
-      }
+      case tp: TypeParameter =>
+        GenericValue(tp, 0)
 
-    case tp: TypeParameter =>
-      GenericValue(tp, 0)
+      case ft @ FunctionType(from, to) =>
+        Lambda(from.map(tpe => ValDef(FreshIdentifier("x", true), tpe)), rec(to, seen))
 
-    case ft @ FunctionType(from, to) =>
-      Lambda(from.map(tpe => ValDef(FreshIdentifier("x", true), tpe)), simplestValue(to))
+      case _ => throw NoSimpleValue(tpe)
+    }
 
-    case _ => throw NoSimpleValue(tpe)
+    rec(tpe, Set.empty)
   }
 
   def valuesOf(tp: Type): Stream[Expr] = {
