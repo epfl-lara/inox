@@ -663,7 +663,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
               InstantiateQuantifiers
           }
 
-        case Validate(umodel) => 
+        case Validate(umodel) =>
           val model = extractTotalModel(umodel)
 
           lazy val satResult = config cast (if (config.withModel) SatWithModel(model) else Sat)

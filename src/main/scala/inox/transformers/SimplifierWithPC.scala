@@ -169,14 +169,19 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
   private def isPureFunction(id: Identifier): Boolean = pureCache.get(id) match {
     case Some(b) => b
     case None =>
-      pureCache += id -> true
       val fd = getFunction(id)
-      if (isPure(fd.fullBody, CNFPath.empty)) {
-        true
-      } else {
+      if (transitivelyCalls(fd, fd)) {
         pureCache += id -> false
-        transitiveCallers(fd).foreach(fd => pureCache += fd.id -> false)
         false
+      } else {
+        pureCache += id -> true
+        if (isPure(fd.fullBody, CNFPath.empty)) {
+          true
+        } else {
+          pureCache += id -> false
+          transitiveCallers(fd).foreach(fd => pureCache += fd.id -> false)
+          false
+        }
       }
   }
 
