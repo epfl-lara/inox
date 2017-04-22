@@ -1160,16 +1160,6 @@ trait SymbolOps { self: TypeOps =>
         ((e: Expr) => simplifyAssumptions(e)) compose
         ((e: Expr) => mergeFunctions(e))
       simp(e)
-      /*
-      val simp: Expr => Expr =
-        ((e: Expr) => simplifyHOFunctions(e))    compose
-        ((e: Expr) => simplifyByConstructors(e)) compose
-        ((e: Expr) => simplifyLets(e))           compose
-        ((e: Expr) => simplifyForalls(e))        compose
-        ((e: Expr) => simplifyAssumptions(e))    compose
-        ((e: Expr) => mergeFunctions(e))
-      fixpoint(simp)(e)
-      */
     } else {
       simplifyHOFunctions(e)
     }
@@ -1425,6 +1415,7 @@ trait SymbolOps { self: TypeOps =>
     }
   }
 
+  /** $encodingof expr.isInstanceOf[tpe], simplifies to `true` or `false` in clear cases. */
   def isInstOf(expr: Expr, tpe: Type) = (expr.getType, tpe) match {
     case (t1, t2) if symbols.isSubtypeOf(t1, t2) => BooleanLiteral(true)
 
