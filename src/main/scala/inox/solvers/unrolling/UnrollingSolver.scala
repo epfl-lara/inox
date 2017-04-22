@@ -685,7 +685,9 @@ trait AbstractUnrollingSolver extends Solver { self =>
             val wrapped = wrapModel(umodel)
             val optError = templates.getQuantifications.view.flatMap { q =>
               if (wrapped.modelEval(q.holds, t.BooleanType) != Some(t.BooleanLiteral(false))) {
-                q.checkForall.map(err => q.body -> err)
+                q.checkForall { (e1, e2) =>
+                  wrapped.modelEval(templates.mkEquals(e1, e2), t.BooleanType) == Some(t.BooleanLiteral(true))
+                }.map(err => q.body -> err)
               } else {
                 None
               }

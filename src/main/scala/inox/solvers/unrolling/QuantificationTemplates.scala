@@ -368,7 +368,7 @@ trait QuantificationTemplates { self: Templates =>
   private case class FunctionKey(tfd: TypedFunDef) extends MatcherKey
   private sealed abstract class TypedKey(val tpe: Type) extends MatcherKey
   private case class LambdaKey(lambda: Lambda, tt: Type) extends TypedKey(tt)
-  private case class CallerKey(caller: Encoded, tt: Type) extends TypedKey(tt)
+  private case class CallerKey(caller: Encoded, tt: FunctionType) extends TypedKey(tt)
   private case class TypeKey(tt: Type) extends TypedKey(tt)
 
   private def matcherKey(key: Either[(Encoded, Type), TypedFunDef]): MatcherKey = key match {
@@ -762,8 +762,16 @@ trait QuantificationTemplates { self: Templates =>
 
     protected def registerBlockers(substituter: Encoded => Encoded): Unit = ()
 
-    def checkForall: Option[String] = {
+    def checkForall(modelEq: (Encoded, Encoded) => Boolean): Option[String] = {
       val quantified = quantifiers.map(_._1).toSet
+
+      if (constraints.exists {
+        case (_, _: LambdaKey, _) => true
+        case (_, _: FunctionKey, _) => true
+        case (_, CallerKey(caller, tt), _) =>
+          byType(tt).values.exists(t => modelEq(t.ids._2, caller))
+        case _ => false
+      }) return Some("Can't guarantee model for complex matchers.")
 
       val matchers = exprOps.collect[(Expr, Seq[Expr])] {
         case QuantificationMatcher(e, args) => Set(e -> args)
