@@ -5,6 +5,8 @@ package ast
 
 import scala.language.implicitConversions
 
+import inox.parsing.Interpolator
+
 case object DebugSectionTrees extends DebugSection("trees")
 
 trait Trees
@@ -39,6 +41,11 @@ trait Trees
 
   def aliased(id1: Identifier, id2: Identifier) = {
     id1.toString == id2.toString
+  }
+
+  def interpolator(implicit ss: Symbols): Interpolator { val trees: Trees.this.type; val symbols: Trees.this.Symbols } = new Interpolator {
+    protected val trees: Trees.this.type = Trees.this
+    protected val symbols: Trees.this.Symbols = ss
   }
 
   /** Returns true if the two group of identifiers ovelap. */
