@@ -18,7 +18,7 @@ trait SymbolOps { self: TypeOps =>
   import trees.exprOps._
   import symbols._
 
-  protected lazy val simplifier = new transformers.SimplifierWithPC {
+  lazy val simplifier = new transformers.SimplifierWithPC {
     val trees: self.trees.type = self.trees
     val symbols: self.symbols.type = self.symbols
     // @nv: note that we make sure the initial env is fresh each time
@@ -264,7 +264,7 @@ trait SymbolOps { self: TypeOps =>
             isLocal(expr, env) &&
             (isSimple(expr) || !onlySimple) &&
             (isPure(expr) || (!inFunction && env.conditions.isEmpty)) &&
-            !exists { case c: Choose => true case _ => false } (e)
+            !exists { case c: Choose => true case _ => false } (expr)
           ) =>
             Variable(getId(expr), expr.getType, Set.empty)
 
@@ -799,19 +799,6 @@ trait SymbolOps { self: TypeOps =>
     }
 
     postMap(transform, applyRec = true)(expr)
-  }
-
-  def collectWithPaths[T](f: PartialFunction[(Path, Expr), T])(expr: Expr): Seq[T] = {
-    new transformers.CollectorWithPC {
-      val trees: self.trees.type = self.trees
-      val symbols: self.symbols.type = self.symbols
-      type Result = T
-
-      protected def step(e: Expr, path: Path): List[Result] = {
-        if (f.isDefinedAt((path, e))) List(f((path, e)))
-        else Nil
-      }
-    }.collect(expr)
   }
 
   object InvocationExtractor {

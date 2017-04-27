@@ -162,7 +162,8 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
   type Env = CNFPath
 
-  private[this] var purity: Boolean = true
+  private[this] var stack: List[Int] = Nil
+  private[this] var purity: List[Boolean] = Nil
 
   private val pureCache: MutableMap[Identifier, Boolean] = MutableMap.empty
 
@@ -319,7 +320,9 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       val insts = count { case `v` => 1 case _ => 0 }(rb)
       if (
         (pe && insts <= 1) ||
-        (insts == 1 && collectWithPaths[Variable] { case (path, `v`) if path.isEmpty => v }(rb).nonEmpty)
+        (insts == 1 && CollectorWithPC[Variable](trees)(symbols) {
+          case (`v`, path) if path.isEmpty => v
+        }.collect(rb).nonEmpty)
       ) {
         simplify(replaceFromSymbols(Map(vd -> re), rb), path)
       } else {
@@ -358,11 +361,12 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     case Forall(args, body)  => simplifyAndCons(Seq(body), path, es => simpForall(args, es.head))
 
     case _ =>
-      val old = purity
-      purity = true
+      stack = 0 :: stack
       val re = super.rec(e, path)
-      val pe = purity && !isImpureExpr(re)
-      purity &&= old && pe
+      val (rpure, rest) = purity.splitAt(stack.head)
+      val pe = rpure.foldLeft(!isImpureExpr(re))(_ && _)
+      stack = stack.tail
+      purity = rest
       (re, pe)
   }
 
@@ -372,8 +376,9 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
   }
 
   override protected def rec(e: Expr, path: CNFPath): Expr = {
-    purity = true
-    val (re, _) = simplify(e, path)
+    stack = if (stack.isEmpty) Nil else (stack.head + 1) :: stack.tail
+    val (re, pe) = simplify(e, path)
+    purity = if (stack.isEmpty) purity else pe :: purity
     re
   }
 }
