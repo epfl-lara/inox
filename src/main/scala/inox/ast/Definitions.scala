@@ -3,6 +3,8 @@
 package inox
 package ast
 
+import inox.parsing.Interpolator
+
 import scala.collection.mutable.{Map => MutableMap}
 
 /** Provides types that describe Inox definitions. */
@@ -114,6 +116,12 @@ trait Definitions { self: Trees =>
 
     protected val trees: self.type = self
     protected val symbols: this.type = this
+
+    val interpolator: Interpolator { val trees: AbstractSymbols.this.trees.type; val symbols: AbstractSymbols.this.type } = new Interpolator {
+      protected val trees: AbstractSymbols.this.trees.type = AbstractSymbols.this.trees
+      protected val symbols: AbstractSymbols.this.type = AbstractSymbols.this
+    }
+
 
     type Semantics = inox.Semantics {
       val trees: self0.trees.type
