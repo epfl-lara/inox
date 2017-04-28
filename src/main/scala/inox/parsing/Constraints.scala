@@ -29,7 +29,7 @@ trait Constraints { self: Interpolator =>
     }
   }
 
-  sealed abstract class TypeClass extends Positional {
+  sealed abstract class TypeClass {
     def &(that: TypeClass) = (this, that) match {
       case (Bits, _) => Bits
       case (_, Bits) => Bits
@@ -91,10 +91,10 @@ trait Constraints { self: Interpolator =>
   object Constraint {
     def equal(a: Type, b: Type)(implicit position: Position): Constraint = Equal(a, b).setPos(position)
     def subtype(a: Type, b: Type)(implicit position: Position): Constraint = Subtype(a, b).setPos(position)
-    def isNumeric(a: Type)(implicit position: Position): Constraint = HasClass(a, Numeric.setPos(position)).setPos(position)
-    def isIntegral(a: Type)(implicit position: Position): Constraint = HasClass(a, Integral.setPos(position)).setPos(position)
-    def isComparable(a: Type)(implicit position: Position): Constraint = HasClass(a, Comparable.setPos(position)).setPos(position)
-    def isBitVector(a: Type)(implicit position: Position): Constraint = HasClass(a, Bits.setPos(position)).setPos(position)
+    def isNumeric(a: Type)(implicit position: Position): Constraint = HasClass(a, Numeric).setPos(position)
+    def isIntegral(a: Type)(implicit position: Position): Constraint = HasClass(a, Integral).setPos(position)
+    def isComparable(a: Type)(implicit position: Position): Constraint = HasClass(a, Comparable).setPos(position)
+    def isBitVector(a: Type)(implicit position: Position): Constraint = HasClass(a, Bits).setPos(position)
     def atIndex(tup: Type, mem: Type, idx: Int)(implicit position: Position) = AtIndexEqual(tup, mem, idx).setPos(position)
   }
 

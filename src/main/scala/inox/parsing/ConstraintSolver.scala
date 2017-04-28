@@ -178,7 +178,7 @@ trait ConstraintSolvers { self: Interpolator =>
         typeClasses.get(u).foreach { (c: TypeClass) =>
 
           // We reintroduce this constraints.
-          remaining +:= HasClass(t, c).setPos(c.pos)
+          remaining +:= HasClass(t, c).setPos(u.pos)
 
           // Remove the entry for the variable.
           typeClasses -= u
