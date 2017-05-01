@@ -88,7 +88,7 @@ Let us now consider the function `size`. We start by defining the symbol corresp
 val size: Identifier = FreshIdentifier("size")
 ```
 
-The main point of interrest here lies in constructing the body of `size`. Let us assume we have in scope
+The main point of interest here lies in constructing the body of `size`. Let us assume we have in scope
 some type parameter `tp: TypeParameter` and variable `ls: Variable` (we will see shortly how Inox provides you
 with these).
 
