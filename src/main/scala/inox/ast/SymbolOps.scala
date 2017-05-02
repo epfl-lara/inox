@@ -1039,6 +1039,16 @@ trait SymbolOps { self: TypeOps =>
 
         case v: Variable => (v, Seq.empty)
 
+        case Lambda(args, body) =>
+          val (recBody, bodyBindings) = rec(body)
+          val (pureBindings, impureBindings) = {
+            val impure = fixpoint { impure: Set[Variable] =>
+              impure ++ bodyBindings.collect { case (vd, e) if (variablesOf(e) & impure).nonEmpty => vd.toVariable  }
+            } (bodyBindings.collect { case (vd, e) if !isPure(e) => vd.toVariable }.toSet)
+            bodyBindings.partition(p => !impure(p._1.toVariable))
+          }
+          (Lambda(args, impureBindings wrap recBody), pureBindings)
+
         case ex @ VariableExtractor(vs) if vs.nonEmpty =>
           val Operator(subs, recons) = ex
           val recSubs = subs.map(rec)
@@ -1055,24 +1065,42 @@ trait SymbolOps { self: TypeOps =>
 
     def mergeCalls(e: Expr): Expr = {
       def evCalls(e: Expr): Map[TypedFunDef, Set[(Path, Seq[Expr])]] = {
-        def extractPath(path: Path, vs: Set[Variable]): Option[Path] = {
-          val problematic = utils.fixpoint((vs: Set[Variable]) => vs ++ path.bindings.collect {
-            case (vd, e) if (variablesOf(e) & vs).nonEmpty => vd.toVariable
-            case (vd, e) if exists { case fi: FunctionInvocation => true case _ => false }(e) => vd.toVariable
-          })(Set.empty)
 
-          val allVars = vs ++ path.conditions.flatMap(variablesOf)
-          if ((allVars & problematic).isEmpty) {
-            Some(path -- problematic.map(_.toVal))
-          } else {
-            None
+        object collector extends transformers.CollectorWithPC {
+          val trees: self.trees.type = self.trees
+          val symbols: self.symbols.type = self.symbols
+          type Result = (Path, FunctionInvocation)
+
+          private var inLambda: Boolean = false
+
+          override protected def rec(e: Expr, path: Path): Expr = e match {
+            case l: Lambda =>
+              val old = inLambda
+              inLambda = true
+              val res = super.rec(l, path)
+              inLambda = old
+              res
+            case _ => super.rec(e, path)
+          }
+
+          protected def step(e: Expr, path: Path): List[Result] = e match {
+            case fi: FunctionInvocation =>
+              val problematic = utils.fixpoint((vs: Set[Variable]) => vs ++ path.bindings.collect {
+                case (vd, e) if (variablesOf(e) & vs).nonEmpty => vd.toVariable
+                case (vd, e) if exists { case fi: FunctionInvocation => true case _ => false }(e) => vd.toVariable
+              })(Set.empty)
+
+              val allVars = variablesOf(fi) ++ path.conditions.flatMap(variablesOf)
+              if ((!inLambda || isPure(fi)) && (allVars & problematic).isEmpty) {
+                List((path -- problematic.map(_.toVal), fi))
+              } else {
+                Nil
+              }
+            case _ => Nil
           }
         }
 
-        val pathFis = transformers.CollectorWithPC(trees)(symbols) {
-          case (fi: FunctionInvocation, path) => extractPath(path, variablesOf(fi)).map(path => path -> fi)
-        }.collect(e).flatten
-
+        val pathFis = collector.collect(e)
         pathFis.groupBy(_._2.tfd).mapValues(_.map(p => (p._1, p._2.args)).toSet)
       }
 
@@ -1138,14 +1166,15 @@ trait SymbolOps { self: TypeOps =>
     mergeCalls(liftCalls(expr))
   }
 
-  def simplifyFormula(e: Expr, simplify: Boolean = true): Expr = {
+  def simplifyFormula(e: Expr, simplify: Boolean = true, models: Boolean = false): Expr = {
     if (simplify) {
+      val modelSimp: Expr => Expr = if (models) ((e: Expr) => mergeFunctions(e)) else identity
       val simp: Expr => Expr =
         ((e: Expr) => simplifyHOFunctions(e)) compose
         ((e: Expr) => simplifyExpr(e))        compose
         ((e: Expr) => simplifyForalls(e))     compose
         ((e: Expr) => simplifyAssumptions(e)) compose
-        ((e: Expr) => mergeFunctions(e))
+        modelSimp
       simp(e)
     } else {
       simplifyHOFunctions(e)

@@ -125,10 +125,12 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       val clauseSet = clauses.toSet
       val newConditions = conditions.flatMap { case clause @ TopLevelOrs(es) =>
         val newClause = orJoin(es.filterNot(e => clauseSet contains not(e)))
-        if (newClause != clause) exprOps.toCNF(newClause) else Seq(clause)
+        if (newClause != clause) cnf(newClause) else Seq(clause)
       }
 
-      new CNFPath(exprSubst, boolSubst, newConditions ++ clauseSet - BooleanLiteral(true), cnfCache, simpCache)
+      val conds = newConditions ++ clauseSet - BooleanLiteral(true)
+
+      new CNFPath(exprSubst, boolSubst, conds, cnfCache, simpCache)
     }
 
     def merge(that: CNFPath) = new CNFPath(
@@ -139,15 +141,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       simpCache ++= that.simpCache
     )
 
-    def negate = new CNFPath(
-      exprSubst,
-      boolSubst,
-      conditions.foldLeft(Seq(BooleanLiteral(false): Expr)) {
-        case (ors, TopLevelOrs(es)) => es.flatMap(e => ors.map(d => or(d, not(e))))
-      }.toSet,
-      cnfCache,
-      simpCache
-    )
+    def negate = new CNFPath(exprSubst, boolSubst, Set(), cnfCache, simpCache) withConds conditions.map(not)
 
     override def toString = conditions.toString
   }

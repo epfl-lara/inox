@@ -10,11 +10,13 @@ trait SolvingTestSuite extends TestSuite {
     checkModels       <- Seq(false, true)
     feelingLucky      <- Seq(false, true)
     unrollAssumptions <- Seq(false, true)
+    modelFinding      <- Seq(0, 1)
   } yield Seq(
     optSelectedSolvers(Set(solverName)),
     optCheckModels(checkModels),
     unrolling.optFeelingLucky(feelingLucky),
     unrolling.optUnrollAssumptions(unrollAssumptions),
+    unrolling.optModelFinding(modelFinding),
     optTimeout(300),
     ast.optPrintUniqueIds(true)
   )

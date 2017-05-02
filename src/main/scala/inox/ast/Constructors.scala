@@ -139,11 +139,15 @@ trait Constructors { self: Trees =>
   /** $encodingof simplified `forall(args, body)` (universal quantification).
     * @see [[Expressions.Forall Forall]]
     */
-  def forall(args: Seq[ValDef], body: Expr): Expr = body match {
-    case BooleanLiteral(true) => BooleanLiteral(true)
-    case _ =>
+  def forall(args: Seq[ValDef], body: Expr): Expr = {
+    if (body == BooleanLiteral(true)) BooleanLiteral(true)
+    else if (args.isEmpty) body
+    else {
       val vars = exprOps.variablesOf(body)
-      Forall(args.filter(vd => vars(vd.toVariable)), body)
+      val newArgs = args.filter(vd => vars(vd.toVariable))
+      if (newArgs.size == args.size) Forall(args, body)
+      else forall(newArgs, body)
+    }
   }
 
   def simpForall(args: Seq[ValDef], body: Expr): Expr = {

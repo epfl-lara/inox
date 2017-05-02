@@ -9,6 +9,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
 
   override def configurations = Seq(
     Seq(optSelectedSolvers(Set("nativez3")), optCheckModels(true)),
+    Seq(optSelectedSolvers(Set("nativez3")), optCheckModels(true), unrolling.optModelFinding(1)),
     Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true)),
     Seq(optSelectedSolvers(Set("smt-cvc4")), optCheckModels(true))
   )
