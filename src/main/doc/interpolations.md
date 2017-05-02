@@ -3,16 +3,36 @@ Inox String Interpolation
 
 # Table of Content
 
+- ***[Introduction](#introduction)***
+  - [Importing](#importing)
+- ***[Syntax](#syntax)***
+  - [Literals](#literals)
+    - [Boolean](#boolean-literals)
+    - [Numeric](#numeric-literals)
+      - [Real](#real-literals)
+    - [String](#string-literals)
+    - [Character](#character-literals)
+  - [Arithmetic](#arithmetic)
+  - [Conditionals](#conditionals)
+  - [Let bindings](#let-bindings)
+  - [Lambda expressions](#lambda-expressions)
+  - [Quantifiers](#quantifiers)
+    - [Universal quantifiers](#universal-quantifiers)
+    - [Existential quantifiers](#existential-quantifiers)
+  - [Choose](#choose)
+
 - ***[Primitives](#primitives)***
   - [Strings](#primitive-strings)
   - [Sets](#primitive-sets)
   - [Bags](#primitive-bags)
   - [Maps](#primitive-maps)
 
+<a name="introduction"></a>
 # Introduction
 
 In this document, we describe the string interpolation facility offered in Inox. String interpolations make it possible to build and deconstruct Inox types and expressions using a succinct and expressive language. Throughout this document, we will describe the syntax of this language and its primitive constructs.
 
+<a name="importing"></a>
 ## Importing the interpolator
 
 The first step to use this feature is to import it. The string interpolator is located within the `Symbols` class.
@@ -38,10 +58,21 @@ It is also possible to embed types and expressions:
 e"let x: $tpe = $expr in !x"
 ```
 
+<a name="syntax"></a>
 # Syntax
 
+<a name="literals"></a>
 ## Literals
 
+<a name="boolean-literals"></a>
+### Boolean literals
+
+```tut
+e"true"
+e"false"
+```
+
+<a name="numeric-literals"></a>
 ### Numeric literal
 
 ```tut
@@ -67,12 +98,28 @@ val realLit = e"1 : Real"
 realLit.getType
 ```
 
+<a name="real-literals"></a>
 #### Real literals
 
 ```tut
 e"3.75"
 ```
 
+<a name="string-literals"></a>
+### String literals
+
+```tut
+e"'Hello world!'"
+```
+
+<a name="character-literals"></a>
+### Character literals
+
+```tut
+e"`a`"
+```
+
+<a name="arithmetic"></a>
 ## Arithmetic
 
 Arithmetic operators are infix and have there usual associativity and priority.
@@ -81,19 +128,22 @@ Arithmetic operators are infix and have there usual associativity and priority.
 e"1 + 2 * 5 + 6 - 7 / 17"
 ```
 
+<a name="conditionals"></a>
 ## Conditionals
 
 ```tut
 e"if (1 == 2) 'foo' else 'bar'"
 ```
 
-## Let binding
+<a name="let-bindings"></a>
+## Let bindings
 
 ```tut
 e"let word: String = 'World!' in concatenate('Hello ', word)"
 ```
 
-## Lambda expression
+<a name="lambda-expressions"></a>
+## Lambda expressions
 
 ```tut
 e"lambda x: BigInt, y: BigInt. x + y"
@@ -111,26 +161,31 @@ Type annotations can be omitted for any of the parameters if their type can be i
 e"lambda x. x * 0.5"
 ```
 
+<a name="quantifiers"></a>
 ## Quantifiers
 
+<a name="universal-quantifiers"></a>
 ### Universal Quantifier
 
 ```tut
 e"forall x: Int. x > 0"
-```
-
-```tut
 e"∀x. x || true"
 ```
 
+<a name="existential-quantifiers"></a>
 ### Existential Quantifier
 
 ```tut
 e"exists x: BigInt. x < 0"
+e"∃x, y. x + y == 0"
 ```
 
+<a name="choose"></a>
+## Choose
+
 ```tut
-e"∃x, y. x + y == 0"
+e"choose x. x * 3 < 17"
+e"choose x: String. true"
 ```
 
 <a name="primitives"></a>
