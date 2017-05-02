@@ -13,7 +13,7 @@ Inox String Interpolation
 
 In this document, we describe the string interpolation facility offered in Inox. String interpolations make it possible to build and deconstruct Inox types and expressions using a succinct and expressive language. Throughout this document, we will describe the syntax of this language and its primitive constructs.
 
-## Importing
+## Importing the interpolator
 
 The first step to use this feature is to import it. The string interpolator is located within the `Symbols` class.
 
@@ -21,7 +21,7 @@ The first step to use this feature is to import it. The string interpolator is l
 import inox._
 import inox.trees._
 
-val mySymbols = NoSymbols
+implicit val mySymbols = NoSymbols
 import mySymbols.interpolator._
 ```
 
@@ -46,15 +46,126 @@ val x: Boolean = 1 + 1 == 2
 
 # Syntax
 
+## Literals
+
+### Numeric literal
+
+```scala
+scala> e"1"
+res2: mySymbols.interpolator.trees.Expr = 1
+```
+
+Note that the type of numeric expressions is infered. In case of ambiguity, `BigInt` is chosen by default.
+
+```scala
+scala> val bigIntLit = e"1"
+bigIntLit: mySymbols.interpolator.trees.Expr = 1
+
+scala> bigIntLit.getType
+res3: mySymbols.interpolator.trees.Type = BigInt
+```
+
+It is however possible to annotate the desired type.
+
+```scala
+scala> val intLit = e"1 : Int"
+intLit: mySymbols.interpolator.trees.Expr = 1
+
+scala> intLit.getType
+res4: mySymbols.interpolator.trees.Type = Int
+```
+
+```scala
+scala> val realLit = e"1 : Real"
+realLit: mySymbols.interpolator.trees.Expr = 1
+
+scala> realLit.getType
+res5: mySymbols.interpolator.trees.Type = Real
+```
+
+#### Real literals
+
+```scala
+scala> e"3.75"
+res6: mySymbols.interpolator.trees.Expr = 15/4
+```
+
 ## Arithmetic
 
 Arithmetic operators are infix and have there usual associativity and priority.
 
 ```scala
 scala> e"1 + 2 * 5 + 6 - 7 / 17"
-res2: mySymbols.interpolator.trees.Expr = ((1 + 2 * 5) + 6) - 7 / 17
+res7: mySymbols.interpolator.trees.Expr = ((1 + 2 * 5) + 6) - 7 / 17
 ```
 
+## Conditionals
+
+```scala
+scala> e"if (1 == 2) 'foo' else 'bar'"
+res8: mySymbols.interpolator.trees.Expr =
+if (1 == 2) {
+  "foo"
+} else {
+  "bar"
+}
+```
+
+## Let binding
+
+```scala
+scala> e"let word: String = 'World!' in concatenate('Hello ', word)"
+res9: mySymbols.interpolator.trees.Expr =
+val word: String = "World!"
+"Hello " + word
+```
+
+## Lambda expression
+
+```scala
+scala> e"lambda x: BigInt, y: BigInt. x + y"
+res10: mySymbols.interpolator.trees.Expr = (x: BigInt, y: BigInt) => x + y
+```
+
+It is also possible to use the unicode `λ` symbol.
+
+```scala
+scala> e"λx: BigInt, y: BigInt. x + y"
+res11: mySymbols.interpolator.trees.Expr = (x: BigInt, y: BigInt) => x + y
+```
+
+Type annotations can be omitted for any of the parameters if their type can be infered.
+
+```scala
+scala> e"lambda x. x * 0.5"
+res12: mySymbols.interpolator.trees.Expr = (x: Real) => x * 1/2
+```
+
+## Quantifiers
+
+### Universal Quantifier
+
+```scala
+scala> e"forall x: Int. x > 0"
+res13: mySymbols.interpolator.trees.Expr = ∀x: Int. (x > 0)
+```
+
+```scala
+scala> e"∀x. x || true"
+res14: mySymbols.interpolator.trees.Expr = ∀x: Boolean. (x || true)
+```
+
+### Existential Quantifier
+
+```scala
+scala> e"exists x: BigInt. x < 0"
+res15: mySymbols.interpolator.trees.Expr = ¬∀x: BigInt. (x >= 0)
+```
+
+```scala
+scala> e"∃x, y. x + y == 0"
+res16: mySymbols.interpolator.trees.Expr = ¬∀x: BigInt, y: BigInt. (x + y ≠ 0)
+```
 
 <a name="primitives"></a>
 # Primitives

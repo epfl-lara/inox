@@ -13,7 +13,7 @@ Inox String Interpolation
 
 In this document, we describe the string interpolation facility offered in Inox. String interpolations make it possible to build and deconstruct Inox types and expressions using a succinct and expressive language. Throughout this document, we will describe the syntax of this language and its primitive constructs.
 
-## Importing
+## Importing the interpolator
 
 The first step to use this feature is to import it. The string interpolator is located within the `Symbols` class.
 
@@ -21,7 +21,7 @@ The first step to use this feature is to import it. The string interpolator is l
 import inox._
 import inox.trees._
 
-val mySymbols = NoSymbols
+implicit val mySymbols = NoSymbols
 import mySymbols.interpolator._
 ```
 
@@ -40,6 +40,39 @@ e"let x: $tpe = $expr in !x"
 
 # Syntax
 
+## Literals
+
+### Numeric literal
+
+```tut
+e"1"
+```
+
+Note that the type of numeric expressions is infered. In case of ambiguity, `BigInt` is chosen by default.
+
+```tut
+val bigIntLit = e"1"
+bigIntLit.getType
+```
+
+It is however possible to annotate the desired type.
+
+```tut
+val intLit = e"1 : Int"
+intLit.getType
+```
+
+```tut
+val realLit = e"1 : Real"
+realLit.getType
+```
+
+#### Real literals
+
+```tut
+e"3.75"
+```
+
 ## Arithmetic
 
 Arithmetic operators are infix and have there usual associativity and priority.
@@ -48,6 +81,57 @@ Arithmetic operators are infix and have there usual associativity and priority.
 e"1 + 2 * 5 + 6 - 7 / 17"
 ```
 
+## Conditionals
+
+```tut
+e"if (1 == 2) 'foo' else 'bar'"
+```
+
+## Let binding
+
+```tut
+e"let word: String = 'World!' in concatenate('Hello ', word)"
+```
+
+## Lambda expression
+
+```tut
+e"lambda x: BigInt, y: BigInt. x + y"
+```
+
+It is also possible to use the unicode `λ` symbol.
+
+```tut
+e"λx: BigInt, y: BigInt. x + y"
+```
+
+Type annotations can be omitted for any of the parameters if their type can be infered.
+
+```tut
+e"lambda x. x * 0.5"
+```
+
+## Quantifiers
+
+### Universal Quantifier
+
+```tut
+e"forall x: Int. x > 0"
+```
+
+```tut
+e"∀x. x || true"
+```
+
+### Existential Quantifier
+
+```tut
+e"exists x: BigInt. x < 0"
+```
+
+```tut
+e"∃x, y. x + y == 0"
+```
 
 <a name="primitives"></a>
 # Primitives
