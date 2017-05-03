@@ -102,6 +102,14 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
     ifDebug(NoPosition, body)
   final def whenDebug(section: DebugSection)(body: (Any => Unit) => Any): Unit =
     whenDebug(NoPosition, section)(body)
+
+  final def debug(pos: Position, msg: => Any, e: Throwable)(implicit section: DebugSection): Unit = {
+    debug(pos, msg)
+    debug(s"StackTrace:")
+    for (frame <- e.getStackTrace)
+      debug(frame)
+  }
+
 }
 
 class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSections) {
