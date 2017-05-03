@@ -113,10 +113,12 @@ trait Types { self: Trees =>
   }
 
   object FirstOrderFunctionType {
-    def unapply(tpe: Type): Option[(Seq[Type], Type)] = tpe match {
+    def unapply(tpe: FunctionType): Option[(Seq[Type], Type)] = tpe match {
+      case FunctionType(from, to: FunctionType) =>
+        val Some((toFrom, toTo)) = unapply(to)
+        Some((from ++ toFrom, toTo))
       case FunctionType(from, to) =>
-        unapply(to).map(p => (from ++ p._1) -> p._2) orElse Some(from -> to)
-      case _ => None
+        Some(from -> to)
     }
   }
 

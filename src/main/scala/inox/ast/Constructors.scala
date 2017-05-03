@@ -221,4 +221,11 @@ trait Constructors { self: Trees =>
     case (_, IntLiteral(0)) => IntLiteral(0)
     case _ => Times(lhs, rhs)
   }
+
+  def mkLambda(args: Seq[ValDef], body: Expr, tpe: FunctionType): Lambda = tpe match {
+    case FunctionType(from, to: FunctionType) =>
+      val (currArgs, restArgs) = args.splitAt(from.size)
+      Lambda(currArgs, mkLambda(restArgs, body, to))
+    case _ => Lambda(args, body)
+  }
 }

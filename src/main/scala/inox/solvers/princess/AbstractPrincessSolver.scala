@@ -354,7 +354,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         }
 
       case ft: FunctionType =>
-        val tpe @ FunctionType(from, to) = bestRealType(ft)
+        val tpe @ FirstOrderFunctionType(from, to) = bestRealType(ft)
         val iterm = iexpr.asInstanceOf[ITerm]
         ctx.model.eval(iterm).flatMap { ideal =>
           val n = BigInt(ideal.bigIntValue)
@@ -385,19 +385,20 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
                   case _ => None
                 }.toSeq.sortBy(_.toString)
               } yield {
-                if (interps.isEmpty) {
-                  val res = Choose(ValDef(FreshIdentifier("res"), ft), BooleanLiteral(true))
-                  ctx.chooses(n) = res
-                  res
+                val params = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
+                uniquateClosure(n.intValue, if (interps.isEmpty) {
+                  try {
+                    simplestValue(tpe, allowSolver = false).asInstanceOf[Lambda]
+                  } catch {
+                    case _: NoSimpleValue =>
+                      mkLambda(params, Choose(ValDef(FreshIdentifier("res"), to), BooleanLiteral(true)), tpe)
+                  }
                 } else {
-                  val params = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
                   val body = interps.foldRight(interps.head._2) { case ((args, res), elze) =>
                     IfExpr(andJoin((params zip args).map(p => Equals(p._1.toVariable, p._2))), res, elze)
                   }
-                  val res = uniquateClosure(n.intValue, Lambda(params, body))
-                  ctx.lambdas(n) = res
-                  res
-                }
+                  mkLambda(params, body, tpe)
+                })
               }
             }
           }

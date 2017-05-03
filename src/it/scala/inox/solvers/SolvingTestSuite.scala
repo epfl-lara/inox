@@ -20,4 +20,8 @@ trait SolvingTestSuite extends TestSuite {
     optTimeout(300),
     ast.optPrintUniqueIds(true)
   )
+
+  override protected def optionsString(options: Options): String = {
+    super.optionsString(options) + " model=" + options.findOptionOrDefault(unrolling.optModelFinding)
+  }
 }

@@ -53,7 +53,7 @@ class SolversSuite extends FunSuite {
     case MapType(from, to) =>
       Not(Equals(MapApply(v, simplestValue(from)), simplestValue(to)))
     case FunctionType(froms, to) =>
-      Not(Equals(Application(v, froms.map(simplestValue)), simplestValue(to)))
+      Not(Equals(Application(v, froms.map(simplestValue(_))), simplestValue(to)))
     case _ =>
       not(Equals(v, simplestValue(v.getType)))
   })

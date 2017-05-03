@@ -581,33 +581,32 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                 Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
               })
 
-              case ft @ FunctionType(fts, tt) => z3ToLambdas.get(t) getOrElse {
-                lambdas.getB(ft).flatMap { decl =>
-                  model.getFuncInterpretations.find(_._1 == decl)
-                }.map { case (_, mapping, elseValue) =>
-                  val args = fts.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
-                  val body = mapping.foldLeft(rec(elseValue, tt, seen + t)) { case (elze, (z3Args, z3Result)) =>
-                    if (t == z3Args.head) {
-                      val cond = andJoin((args zip z3Args.tail).map { case (vd, z3Arg) =>
-                        Equals(vd.toVariable, rec(z3Arg, vd.tpe, seen + t))
-                      })
+              case ft @ FirstOrderFunctionType(fts, tt) => z3ToLambdas.getOrElseUpdate(t, {
+                val n = t.toString.split("!").last.init.toInt
+                val args = fts.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
+                uniquateClosure(n, lambdas.getB(ft)
+                  .flatMap(decl => model.getFuncInterpretations.find(_._1 == decl))
+                  .map { case (_, mapping, elseValue) =>
+                    val body = mapping.foldLeft(rec(elseValue, tt, seen + t)) { case (elze, (z3Args, z3Result)) =>
+                      if (t == z3Args.head) {
+                        val cond = andJoin((args zip z3Args.tail).map { case (vd, z3Arg) =>
+                          Equals(vd.toVariable, rec(z3Arg, vd.tpe, seen + t))
+                        })
 
-                      IfExpr(cond, rec(z3Result, tt, seen + t), elze)
-                    } else {
-                      elze
+                        IfExpr(cond, rec(z3Result, tt, seen + t), elze)
+                      } else {
+                        elze
+                      }
                     }
-                  }
 
-                  val n = t.toString.split("!").last.init.toInt
-                  val res = uniquateClosure(n, Lambda(args, body))
-                  z3ToLambdas(t) = res
-                  res
-                }.getOrElse {
-                  val res = Choose(ValDef(FreshIdentifier("res"), ft), BooleanLiteral(true))
-                  z3ToChooses(t) = res
-                  res
-                }
-              }
+                    mkLambda(args, body, ft)
+                  }.getOrElse(try {
+                    simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
+                  } catch {
+                    case _: NoSimpleValue =>
+                      mkLambda(args, Choose(ValDef(FreshIdentifier("res"), tt), BooleanLiteral(true)), ft)
+                  }))
+              })
 
               case MapType(from, to) =>
                 model.getArrayValue(t) match {
@@ -679,7 +678,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     }
 
     val res = rec(tree, tpe, Set.empty)
-    val chooses = z3ToChooses.toMap.map { case (ast, c) => c -> z3ToLambdas(ast) }
+    val chooses = z3ToChooses.toMap.collect { case (ast, c) if z3ToLambdas contains ast => c -> z3ToLambdas(ast) }
 
     (res, chooses)
   }

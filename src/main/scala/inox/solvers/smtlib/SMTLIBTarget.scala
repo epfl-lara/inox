@@ -527,11 +527,11 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
         })
 
-      case (Num(n), Some(ft: FunctionType)) =>
-        context.lambdas.get(n -> ft) getOrElse {
-          val count = if (n < 0) -2 * n.toInt else 2 * n.toInt + 1
-          val FirstOrderFunctionType(from, to) = ft
-          lambdas.getB(ft).flatMap { dynLambda =>
+      case (Num(n), Some(ft: FunctionType)) => context.lambdas.getOrElseUpdate(n -> ft, {
+        val count = if (n < 0) -2 * n.toInt else 2 * n.toInt + 1
+        val FirstOrderFunctionType(from, to) = ft
+        uniquateClosure(count, lambdas.getB(ft)
+          .flatMap { dynLambda =>
             context.withSeen(n -> ft).getFunction(dynLambda, FunctionType(IntegerType +: from, to))
           }.map { case Lambda(dispatcher +: args, body) =>
             val dv = dispatcher.toVariable
@@ -546,15 +546,15 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
             val simpBody = simplifyByConstructors(dispatchedBody)
             assert(!(exprOps.variablesOf(simpBody) contains dispatcher.toVariable), "Dispatcher still in lambda body")
-            val res = uniquateClosure(count, Lambda(args, simpBody))
-            context.lambdas(n -> ft) = res
-            res
-          }.getOrElse {
-            val res = Choose(ValDef(FreshIdentifier("res"), ft), BooleanLiteral(true))
-            context.chooses(n -> ft) = res
-            res
-          }
-        }
+            mkLambda(args, simpBody, ft)
+          }.getOrElse(try {
+            simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
+          } catch {
+            case _: NoSimpleValue =>
+              val args = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
+              mkLambda(args, Choose(ValDef(FreshIdentifier("res"), ft), BooleanLiteral(true)), ft)
+          }))
+      })
 
       case (SimpleSymbol(s), _) if constructors.containsB(s) =>
         constructors.toA(s) match {
