@@ -473,7 +473,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         Lambda(vds, exBody)
     }
 
-    def getChooses = chooses.toMap.collect { case (n, c) if lambdas contains n => c -> lambdas(n) }
+    def getChooses = chooses.toMap.map { case (n, c) => c -> lambdas(n) }
   }
 
   override protected def fromSMT(sort: Sort)(implicit context: Context): Type = sorts.getA(sort) match {

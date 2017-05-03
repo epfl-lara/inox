@@ -678,7 +678,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     }
 
     val res = rec(tree, tpe, Set.empty)
-    val chooses = z3ToChooses.toMap.collect { case (ast, c) if z3ToLambdas contains ast => c -> z3ToLambdas(ast) }
+    val chooses = z3ToChooses.toMap.map { case (ast, c) => c -> z3ToLambdas(ast) }
 
     (res, chooses)
   }
