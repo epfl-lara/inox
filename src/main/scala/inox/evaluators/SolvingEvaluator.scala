@@ -42,7 +42,11 @@ trait SolvingEvaluator extends Evaluator { self =>
 
     res match {
       case SatWithModel(model) =>
-        model.vars.getOrElse(choose.res, simplestValue(choose.res.tpe))
+        try {
+          model.vars.getOrElse(choose.res, simplestValue(choose.res.tpe, allowSolver = false))
+        } catch {
+          case _: NoSimpleValue => throw new RuntimeException("No simple value for choose " + choose.asString)
+        }
 
       case _ =>
         throw new RuntimeException("Failed to evaluate choose " + choose.asString)

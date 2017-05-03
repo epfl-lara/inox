@@ -667,7 +667,7 @@ trait SymbolOps { self: TypeOps =>
   case class NoSimpleValue(tpe: Type) extends Exception(s"No simple value found for type $tpe")
 
   /** Returns simplest value of a given type */
-  def simplestValue(tpe: Type)(implicit sem: symbols.Semantics): Expr = {
+  def simplestValue(tpe: Type, allowSolver: Boolean = true)(implicit sem: symbols.Semantics): Expr = {
     def rec(tpe: Type, seen: Set[Type]): Expr = tpe match {
       case StringType                 => StringLiteral("")
       case Int32Type                  => IntLiteral(0)
@@ -686,6 +686,8 @@ trait SymbolOps { self: TypeOps =>
         if (!tadt.definition.isWellFormed) throw NoSimpleValue(adt)
 
         if (tadt.hasInvariant) {
+          if (!allowSolver) throw NoSimpleValue(adt)
+
           val p = Variable.fresh("p", FunctionType(Seq(adt), BooleanType))
           val res = Variable.fresh("v", adt)
 
@@ -1166,15 +1168,14 @@ trait SymbolOps { self: TypeOps =>
     mergeCalls(liftCalls(expr))
   }
 
-  def simplifyFormula(e: Expr, simplify: Boolean = true, models: Boolean = false): Expr = {
+  def simplifyFormula(e: Expr, simplify: Boolean = true): Expr = {
     if (simplify) {
-      val modelSimp: Expr => Expr = if (models) ((e: Expr) => mergeFunctions(e)) else identity
       val simp: Expr => Expr =
         ((e: Expr) => simplifyHOFunctions(e)) compose
         ((e: Expr) => simplifyExpr(e))        compose
         ((e: Expr) => simplifyForalls(e))     compose
         ((e: Expr) => simplifyAssumptions(e)) compose
-        modelSimp
+        ((e: Expr) => mergeFunctions(e))
       simp(e)
     } else {
       simplifyHOFunctions(e)

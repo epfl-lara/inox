@@ -473,7 +473,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         Lambda(vds, exBody)
     }
 
-    def getChooses = chooses.toMap.map { case (n, c) => c -> lambdas(n) }
+    def getChooses = chooses.toMap.collect { case (n, c) if lambdas contains n => c -> lambdas(n) }
   }
 
   override protected def fromSMT(sort: Sort)(implicit context: Context): Type = sorts.getA(sort) match {
@@ -527,31 +527,34 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
         })
 
-      case (Num(n), Some(ft: FunctionType)) => context.lambdas.getOrElseUpdate(n -> ft, {
-        val count = if (n < 0) -2 * n.toInt else 2 * n.toInt + 1
-        val FirstOrderFunctionType(from, to) = ft
-        uniquateClosure(count, (lambdas.getB(ft) match {
-          case None => simplestValue(ft)
-          case Some(dynLambda) =>
-            context.withSeen(n -> ft).getFunction(dynLambda, FunctionType(IntegerType +: from, to)) match {
-              case None => simplestValue(ft)
-              case Some(Lambda(dispatcher +: args, body)) =>
-                val dv = dispatcher.toVariable
+      case (Num(n), Some(ft: FunctionType)) =>
+        context.lambdas.get(n -> ft) getOrElse {
+          val count = if (n < 0) -2 * n.toInt else 2 * n.toInt + 1
+          val FirstOrderFunctionType(from, to) = ft
+          lambdas.getB(ft).flatMap { dynLambda =>
+            context.withSeen(n -> ft).getFunction(dynLambda, FunctionType(IntegerType +: from, to))
+          }.map { case Lambda(dispatcher +: args, body) =>
+            val dv = dispatcher.toVariable
 
-                val dispatchedBody = exprOps.postMap {
-                  case Equals(`dv`, IntegerLiteral(i)) => Some(BooleanLiteral(n == i))
-                  case Equals(IntegerLiteral(i), `dv`) => Some(BooleanLiteral(n == i))
-                  case Equals(`dv`, UMinus(IntegerLiteral(i))) => Some(BooleanLiteral(n == -i))
-                  case Equals(UMinus(IntegerLiteral(i)), `dv`) => Some(BooleanLiteral(n == -i))
-                  case _ => None
-                } (body)
+            val dispatchedBody = exprOps.postMap {
+              case Equals(`dv`, IntegerLiteral(i)) => Some(BooleanLiteral(n == i))
+              case Equals(IntegerLiteral(i), `dv`) => Some(BooleanLiteral(n == i))
+              case Equals(`dv`, UMinus(IntegerLiteral(i))) => Some(BooleanLiteral(n == -i))
+              case Equals(UMinus(IntegerLiteral(i)), `dv`) => Some(BooleanLiteral(n == -i))
+              case _ => None
+            } (body)
 
-                val simpBody = simplifyByConstructors(dispatchedBody)
-                assert(!(exprOps.variablesOf(simpBody) contains dispatcher.toVariable), "Dispatcher still in lambda body")
-                Lambda(args, simpBody)
-            }
-        }).asInstanceOf[Lambda])
-      })
+            val simpBody = simplifyByConstructors(dispatchedBody)
+            assert(!(exprOps.variablesOf(simpBody) contains dispatcher.toVariable), "Dispatcher still in lambda body")
+            val res = uniquateClosure(count, Lambda(args, simpBody))
+            context.lambdas(n -> ft) = res
+            res
+          }.getOrElse {
+            val res = Choose(ValDef(FreshIdentifier("res"), ft), BooleanLiteral(true))
+            context.chooses(n -> ft) = res
+            res
+          }
+        }
 
       case (SimpleSymbol(s), _) if constructors.containsB(s) =>
         constructors.toA(s) match {

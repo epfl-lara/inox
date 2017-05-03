@@ -385,17 +385,19 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
                   case _ => None
                 }.toSeq.sortBy(_.toString)
               } yield {
-                val lambda = if (interps.isEmpty) simplestValue(ft).asInstanceOf[Lambda] else {
+                if (interps.isEmpty) {
+                  val res = Choose(ValDef(FreshIdentifier("res"), ft), BooleanLiteral(true))
+                  ctx.chooses(n) = res
+                  res
+                } else {
                   val params = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
                   val body = interps.foldRight(interps.head._2) { case ((args, res), elze) =>
                     IfExpr(andJoin((params zip args).map(p => Equals(p._1.toVariable, p._2))), res, elze)
                   }
-                  Lambda(params, body)
+                  val res = uniquateClosure(n.intValue, Lambda(params, body))
+                  ctx.lambdas(n) = res
+                  res
                 }
-
-                val res = uniquateClosure(n.intValue, lambda)
-                ctx.lambdas(n) = res
-                res
               }
             }
           }

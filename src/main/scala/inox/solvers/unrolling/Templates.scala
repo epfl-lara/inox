@@ -48,7 +48,6 @@ trait Templates
 
   protected lazy val simplify = !ctx.options.findOptionOrDefault(optNoSimplifications)
   protected lazy val deferFactor =  3 * ctx.options.findOptionOrDefault(optModelFinding)
-  protected lazy val models = deferFactor > 0
 
   private var currentGen: Int = 0
   protected def currentGeneration: Int = currentGen
@@ -813,7 +812,7 @@ trait Templates
 
     val tpeClauses = bindings.flatMap { case (v, s) => registerSymbol(encodedStart, s, v.getType) }.toSeq
 
-    val instExpr = simplifyFormula(expr, simplify, models)
+    val instExpr = simplifyFormula(expr, simplify)
     val tmplClauses = mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
 
     val (clauses, calls, apps, matchers, pointers, _) =
