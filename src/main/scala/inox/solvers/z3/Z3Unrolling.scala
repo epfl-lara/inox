@@ -96,6 +96,12 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
       val timer = ctx.timers.solvers.z3.eval.start()
       val res = tpe match {
         case t.BooleanType => model.evalAs[Boolean](elem).map(t.BooleanLiteral)
+        /* FIXME missing implicit value for parameter converter:
+         *       (z3.scala.Z3Model, z3.scala.Z3AST) => Option[Byte]
+         * case t.Int8Type => model.evalAs[Byte](elem).map(t.Int8Literal(_)).orElse {
+         *   model.eval(elem).flatMap(term => ex.get(term, t.Int32Type))
+         * }
+         */
         case t.Int32Type => model.evalAs[Int](elem).map(t.Int32Literal(_)).orElse {
           model.eval(elem).flatMap(term => ex.get(term, t.Int32Type))
         }
