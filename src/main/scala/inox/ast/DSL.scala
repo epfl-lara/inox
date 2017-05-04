@@ -72,7 +72,7 @@ trait DSL {
   }
 
   // Literals
-  def E(i: Int): Expr = IntLiteral(i)
+  def E(i: Int): Expr = Int32Literal(i)
   def E(b: BigInt): Expr = IntegerLiteral(b)
   def E(b: Boolean): Expr = BooleanLiteral(b)
   def E(c: Char): Expr = CharLiteral(c)
