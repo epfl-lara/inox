@@ -266,6 +266,9 @@ trait ExpressionExtractors { self: Interpolator =>
         }
 
         case trees.ADTSelector(adt, selector) => template match {
+          case Selection(adtTemplate, FieldHole(index)) => for {
+            (store, matchings) <- extract(toExprObl(adt -> adtTemplate))
+          } yield (store, matching(index, selector) ++ matchings)
           case Selection(adtTemplate, Field((cons, vd))) if (vd.id == selector) =>  // TODO: Handle selectors with the same name.
             extract(toExprObl(adt -> adtTemplate))
           case _ => fail
