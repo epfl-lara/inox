@@ -419,7 +419,7 @@ trait Expressions { self: Trees =>
     case _ => Untyped
   }
 
-  /** $encodingof `... +  ...` for BigInts */
+  /** $encodingof `... +  ...` */
   case class Plus(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = numericType(lhs.getType, rhs.getType)
   }
@@ -429,7 +429,7 @@ trait Expressions { self: Trees =>
     protected def computeType(implicit s: Symbols): Type = numericType(lhs.getType, rhs.getType)
   }
 
-  /** $encodingof `- ... for BigInts`*/
+  /** $encodingof `- ...` */
   case class UMinus(expr: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = numericType(expr.getType)
   }
