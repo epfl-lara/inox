@@ -75,7 +75,8 @@ trait BagEncoder extends SimpleEncoder {
     })
   }
 
-  val Difference = mkFunDef(FreshIdentifier("difference"))("T") { case Seq(aT) => (
+  val DifferenceID = FreshIdentifier("difference")
+  val Difference = mkFunDef(DifferenceID)("T") { case Seq(aT) => (
     Seq("b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), { case Seq(b1, b2) => E(diff)(aT)(b1, b1, b2) })
   }
 
@@ -101,7 +102,8 @@ trait BagEncoder extends SimpleEncoder {
     })
   }
 
-  val Intersect = mkFunDef(FreshIdentifier("intersect"))("T") { case Seq(aT) => (
+  val IntersectID = FreshIdentifier("intersect")
+  val Intersect = mkFunDef(IntersectID)("T") { case Seq(aT) => (
     Seq("b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), { case Seq(b1, b2) => E(inter)(aT)(b1, b1, b2) })
   }
 
@@ -192,28 +194,47 @@ trait BagEncoder extends SimpleEncoder {
 
     override def transform(e: Expr): Expr = e match {
       case ADT(ADTType(SumID, Seq(tpe)), Seq(e1, e2)) =>
-        val FiniteBag(els1, _) = transform(e1)
-        val FiniteBag(els2, _) = transform(e2)
+        val fb1 @ FiniteBag(els1, _) = transform(e1)
+        val fb2 @ FiniteBag(els2, _) = transform(e2)
 
-        def groundMap(els: Seq[(Expr, Expr)]): Map[Expr, Expr] = els.map { case (key, value) => (
-          evaluator.eval(key).result.getOrElse(throw new Unsupported(e, "Failed to evaluate bag contents")),
-          evaluator.eval(value).result.getOrElse(throw new Unsupported(e, "Failed to evaluate bag contents"))
-        )}.toMap
+        if (exprOps.variablesOf(fb1).isEmpty && exprOps.variablesOf(fb2).isEmpty) {
+          def groundMap(els: Seq[(Expr, Expr)]): Map[Expr, Expr] = els.map { case (key, value) => (
+            evaluator.eval(key).result.getOrElse(throw new Unsupported(e, "Failed to evaluate bag contents")),
+            evaluator.eval(value).result.getOrElse(throw new Unsupported(e, "Failed to evaluate bag contents"))
+          )}.toMap
 
-        val map1 = groundMap(els1)
-        val map2 = groundMap(els2)
+          val map1 = groundMap(els1)
+          val map2 = groundMap(els2)
 
-        FiniteBag((map1.keySet ++ map2.keySet).map { key =>
-          val IntegerLiteral(i1) = map1.getOrElse(key, IntegerLiteral(0))
-          val IntegerLiteral(i2) = map2.getOrElse(key, IntegerLiteral(0))
-          key -> IntegerLiteral(i1 + i2)
-        }.toSeq, transform(tpe)).copiedFrom(e)
+          FiniteBag((map1.keySet ++ map2.keySet).map { key =>
+            val IntegerLiteral(i1) = map1.getOrElse(key, IntegerLiteral(0))
+            val IntegerLiteral(i2) = map2.getOrElse(key, IntegerLiteral(0))
+            key -> IntegerLiteral(i1 + i2)
+          }.toSeq, transform(tpe)).copiedFrom(e)
+        } else {
+          FiniteBag(els1 ++ els2, transform(tpe)).copiedFrom(e)
+        }
 
       case ADT(ADTType(ElemID, Seq(tpe)), Seq(key, value)) =>
         FiniteBag(Seq(transform(key) -> transform(value)), transform(tpe)).copiedFrom(e)
 
       case ADT(ADTType(LeafID, Seq(tpe)), Seq()) =>
         FiniteBag(Seq.empty, transform(tpe)).copiedFrom(e)
+
+      case FunctionInvocation(AddID, _, Seq(bag, elem)) =>
+        BagAdd(transform(bag), transform(elem)).copiedFrom(e)
+
+      case FunctionInvocation(GetID, _, Seq(bag, elem)) =>
+        MultiplicityInBag(transform(elem), transform(bag)).copiedFrom(e)
+
+      case FunctionInvocation(IntersectID, _, Seq(b1, b2)) =>
+        BagIntersection(transform(b1), transform(b2)).copiedFrom(e)
+
+      case FunctionInvocation(UnionID, _, Seq(b1, b2)) =>
+        BagUnion(transform(b1), transform(b2)).copiedFrom(e)
+
+      case FunctionInvocation(DifferenceID, _, Seq(b1, b2)) =>
+        BagDifference(transform(b1), transform(b2)).copiedFrom(e)
 
       case _ => super.transform(e)
     }

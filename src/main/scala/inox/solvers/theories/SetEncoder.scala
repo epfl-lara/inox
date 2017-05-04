@@ -179,6 +179,21 @@ trait SetEncoder extends SimpleEncoder {
       case ADT(ADTType(LeafID, Seq(tpe)), Seq()) =>
         FiniteSet(Seq.empty, transform(tpe)).copiedFrom(e)
 
+      case FunctionInvocation(AddID, _, Seq(set, elem)) =>
+        SetAdd(transform(set), transform(elem)).copiedFrom(e)
+
+      case FunctionInvocation(ContainsID, _, Seq(set, elem)) =>
+        ElementOfSet(transform(elem), transform(set)).copiedFrom(e)
+
+      case FunctionInvocation(IntersectID, _, Seq(s1, s2)) =>
+        SetIntersection(transform(s1), transform(s2)).copiedFrom(e)
+
+      case FunctionInvocation(UnionID, _, Seq(s1, s2)) =>
+        SetUnion(transform(s1), transform(s2)).copiedFrom(e)
+
+      case FunctionInvocation(DifferenceID, _, Seq(s1, s2)) =>
+        SetDifference(transform(s1), transform(s2)).copiedFrom(e)
+
       case _ => super.transform(e)
     }
 

@@ -54,6 +54,8 @@ trait ASCIIStringEncoder extends SimpleEncoder {
     }
   }
 
+  private val TWO = IntegerLiteral(2)
+
   protected object encoder extends SelfTreeTransformer {
     override def transform(e: Expr): Expr = e match {
       case StringLiteral(v) => String(StringLiteral(v.flatMap { c =>
@@ -63,9 +65,9 @@ trait ASCIIStringEncoder extends SimpleEncoder {
           case Seq(b1, b2) => encodeByte(b1) + encodeByte(b2)
         }
       }))
-      case StringLength(a) => Division(StringLength(transform(a).getField(value)), IntegerLiteral(2))
+      case StringLength(a) => Division(StringLength(transform(a).getField(value)), TWO)
       case StringConcat(a, b) => String(StringConcat(transform(a).getField(value), transform(b).getField(value)))
-      case SubString(a, start, end) => String(SubString(transform(a).getField(value), transform(start) * E(BigInt(2)), transform(end) * E(BigInt(2))))
+      case SubString(a, start, end) => String(SubString(transform(a).getField(value), transform(start) * TWO, transform(end) * TWO))
       case _ => super.transform(e)
     }
 
@@ -76,6 +78,7 @@ trait ASCIIStringEncoder extends SimpleEncoder {
   }
 
   protected object decoder extends SelfTreeTransformer {
+
     override def transform(e: Expr): Expr = e match {
       case ADT(String, Seq(StringLiteral(s))) =>
         def unescape(s: String): String = if (s.isEmpty) s else {
@@ -98,6 +101,21 @@ trait ASCIIStringEncoder extends SimpleEncoder {
         }
 
         StringLiteral(unescape(s))
+
+      case ADTSelector(a, `value`) => transform(a)
+
+      case Division(StringLength(a), TWO) =>
+        StringLength(transform(a))
+
+      case ADT(String, Seq(StringConcat(a, b))) =>
+        StringConcat(transform(a), transform(b))
+
+      case ADT(String, Seq(SubString(a, Times(start, TWO), Times(end, TWO)))) =>
+        SubString(transform(a), transform(start), transform(end))
+
+      case ADT(String, Seq(arg)) =>
+        println(arg)
+        super.transform(e)
 
       case _ => super.transform(e)
     }
