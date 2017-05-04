@@ -84,6 +84,10 @@ trait TreeDeconstructor {
       (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.BVAShiftRight(es(0), es(1)))
     case s.BVLShiftRight(t1, t2) =>
       (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.BVLShiftRight(es(0), es(1)))
+    case s.BVNarrowingCast(e, bvt) =>
+      (Seq(), Seq(e), Seq(bvt), (_, es, tps) => t.BVNarrowingCast(es(0), tps(0).asInstanceOf[t.BVType]))
+    case s.BVWideningCast(e, bvt) =>
+      (Seq(), Seq(e), Seq(bvt), (_, es, tps) => t.BVWideningCast(es(0), tps(0).asInstanceOf[t.BVType]))
     case s.StringConcat(t1, t2) =>
       (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.StringConcat(es(0), es(1)))
     case s.SetAdd(t1, t2) =>

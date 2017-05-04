@@ -428,6 +428,14 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case BVAShiftRight(a, b)       => FixedSizeBitVectors.AShiftRight(toSMT(a), toSMT(b))
       case BVLShiftRight(a, b)       => FixedSizeBitVectors.LShiftRight(toSMT(a), toSMT(b))
 
+      case c @ BVWideningCast(e, _)  =>
+        val Some((from, to)) = c.cast // FIXME can we assume it's well typed here?
+        FixedSizeBitVectors.SignExtend(to - from, toSMT(e))
+
+      case c @ BVNarrowingCast(e, _) =>
+        val Some((from, to)) = c.cast // FIXME can we assume it's well typed here?
+        FixedSizeBitVectors.Extract(to - 1, 0, toSMT(e))
+
       case And(sub)                  => SmtLibConstructors.and(sub.map(toSMT))
       case Or(sub)                   => SmtLibConstructors.or(sub.map(toSMT))
       case IfExpr(cond, thenn, elze) => Core.ITE(toSMT(cond), toSMT(thenn), toSMT(elze))

@@ -546,6 +546,36 @@ trait Expressions { self: Trees =>
     protected def computeType(implicit s: Symbols): Type = bitVectorType(lhs.getType, rhs.getType)
   }
 
+  /** $encodingof `... .toByte` and other narrowing casts */
+  case class BVNarrowingCast(expr: Expr, newType: BVType) extends Expr with CachingTyped {
+    // The expression is well types iff `expr` is well typed and the BVTypes' size match a narrowing cast.
+    protected def computeType(implicit s: Symbols): Type = cast match {
+      case Some((from, to)) => newType
+      case _ => Untyped
+    }
+
+    // Returns the pair of sizes from -> to
+    def cast(implicit s: Symbols): Option[(Int, Int)] = expr.getType match {
+      case BVType(from) if from > newType.size => Some(from -> newType.size)
+      case _ => None
+    }
+  }
+
+  /** $encodingof `... .toInt` and other widening casts */
+  case class BVWideningCast(expr: Expr, newType: BVType) extends Expr with CachingTyped {
+    // The expression is well types iff `expr` is well typed and the BVTypes' size match a widening cast.
+    protected def computeType(implicit s: Symbols): Type = cast match {
+      case Some((from, to)) => newType
+      case _ => Untyped
+    }
+
+    // Returns the pair of sizes from -> to
+    def cast(implicit s: Symbols): Option[(Int, Int)] = expr.getType match {
+      case BVType(from) if from < newType.size => Some(from -> newType.size)
+      case _ => None
+    }
+  }
+
 
   /* Tuple operations */
 

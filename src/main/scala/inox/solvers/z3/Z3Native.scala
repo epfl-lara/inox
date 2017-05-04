@@ -250,8 +250,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case Implies(l, r) => z3.mkImplies(rec(l), rec(r))
       case Not(Equals(l, r)) => z3.mkDistinct(rec(l), rec(r))
       case Not(e) => z3.mkNot(rec(e))
-      case Int8Literal(v) => z3.mkInt(v, typeToSort(Int8Type))
-      case Int32Literal(v) => z3.mkInt(v, typeToSort(Int32Type))
+      case bv @ BVLiteral(_, size) if size <= 32 => z3.mkInt(bv.toBigInt.toInt, typeToSort(BVType(size)))
+      // FIXME currently ScalaZ3 doesn't support integer larger than Int(32).
+      case bv @ BVLiteral(_, size) => unsupported(bv, "BitVector too big to fit in an integer")
       case IntegerLiteral(v) => z3.mkNumeral(v.toString, typeToSort(IntegerType))
       case FractionLiteral(n, d) => z3.mkNumeral(s"$n / $d", typeToSort(RealType))
       case CharLiteral(c) => z3.mkInt(c, typeToSort(CharType))
@@ -300,6 +301,15 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case BVShiftLeft(l, r) => z3.mkBVShl(rec(l), rec(r))
       case BVAShiftRight(l, r) => z3.mkBVAshr(rec(l), rec(r))
       case BVLShiftRight(l, r) => z3.mkBVLshr(rec(l), rec(r))
+
+      case c @ BVWideningCast(e, _)  =>
+        val Some((from, to)) = c.cast // FIXME can we assume it's well typed here?
+        z3.mkSignExt(to - from, rec(e))
+
+      case c @ BVNarrowingCast(e, _) =>
+        val Some((from, to)) = c.cast // FIXME can we assume it's well typed here?
+        z3.mkExtract(to - 1, 0, rec(e))
+
       case LessThan(l, r) => l.getType match {
         case IntegerType => z3.mkLT(rec(l), rec(r))
         case RealType => z3.mkLT(rec(l), rec(r))
@@ -508,8 +518,8 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
             _root_.smtlib.common.Hexadecimal.fromString(t.toString.substring(2)) match {
               case Some(hexa) =>
                 tpe match {
-                  case Int8Type => Int8Literal(hexa.toInt.toByte)
-                  case Int32Type => Int32Literal(hexa.toInt)
+                  case BVType(size) if size <= 32 => BVLiteral(BigInt(hexa.toInt), size)
+                  case BVType(size) => unsupported(tpe, "Value might be too big, doesn't fit in Int")
                   case CharType  => CharLiteral(hexa.toInt.toChar)
                   case IntegerType => IntegerLiteral(BigInt(hexa.toInt))
                   case other =>
@@ -519,8 +529,8 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
               }
           } else {
             tpe match {
-              case Int8Type => Int8Literal(v.toByte)
-              case Int32Type => Int32Literal(v)
+              case BVType(size) if size <= 32 => BVLiteral(BigInt(v), size)
+              case BVType(size) => unsupported(tpe, "Value might be too big, doesn't fit in Int")
               case CharType  => CharLiteral(v.toChar)
               case IntegerType => IntegerLiteral(BigInt(v))
               case other =>
