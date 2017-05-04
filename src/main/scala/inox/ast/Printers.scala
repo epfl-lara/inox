@@ -155,7 +155,7 @@ trait Printer {
     case SubString(expr, start, end) => p"$expr.substring($start, $end)"
     case StringLength(expr) => p"$expr.length"
 
-    case IntLiteral(v) => p"$v"
+    case Int32Literal(v) => p"$v"
     case BVLiteral(bits, size) => p"x${(size to 1 by -1).map(i => if (bits(i)) "1" else "0")}"
     case IntegerLiteral(v) => p"$v"
     case FractionLiteral(n, d) =>

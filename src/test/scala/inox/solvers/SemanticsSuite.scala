@@ -54,8 +54,8 @@ class SemanticsSuite extends FunSuite {
 
     check(s, BooleanLiteral(true),   BooleanLiteral(true))
     check(s, BooleanLiteral(false),  BooleanLiteral(false))
-    check(s, IntLiteral(0),          IntLiteral(0))
-    check(s, IntLiteral(42),         IntLiteral(42))
+    check(s, Int32Literal(0),        Int32Literal(0))
+    check(s, Int32Literal(42),       Int32Literal(42))
     check(s, UnitLiteral(),          UnitLiteral())
     check(s, IntegerLiteral(0),      IntegerLiteral(0))
     check(s, IntegerLiteral(42),     IntegerLiteral(42))
@@ -67,38 +67,38 @@ class SemanticsSuite extends FunSuite {
   test("BitVector Arithmetic") { ctx =>
     val s = solver(ctx)
 
-    check(s, Plus(IntLiteral(3), IntLiteral(5)),            IntLiteral(8))
-    check(s, Plus(IntLiteral(0), IntLiteral(5)),            IntLiteral(5))
-    check(s, Plus(IntLiteral(1), IntLiteral(-2)),           IntLiteral(-1))
-    check(s, Plus(IntLiteral(Int.MaxValue), IntLiteral(1)), IntLiteral(Int.MinValue))
-    check(s, Times(IntLiteral(3), IntLiteral(3)),           IntLiteral(9))
+    check(s, Plus(Int32Literal(3), Int32Literal(5)),            Int32Literal(8))
+    check(s, Plus(Int32Literal(0), Int32Literal(5)),            Int32Literal(5))
+    check(s, Plus(Int32Literal(1), Int32Literal(-2)),           Int32Literal(-1))
+    check(s, Plus(Int32Literal(Int.MaxValue), Int32Literal(1)), Int32Literal(Int.MinValue))
+    check(s, Times(Int32Literal(3), Int32Literal(3)),           Int32Literal(9))
   }
 
   test("solve bitwise operations", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
 
-    check(s, BVAnd(IntLiteral(3), IntLiteral(1)), IntLiteral(1))
-    check(s, BVAnd(IntLiteral(3), IntLiteral(3)), IntLiteral(3))
-    check(s, BVAnd(IntLiteral(5), IntLiteral(3)), IntLiteral(1))
-    check(s, BVAnd(IntLiteral(5), IntLiteral(4)), IntLiteral(4))
-    check(s, BVAnd(IntLiteral(5), IntLiteral(2)), IntLiteral(0))
+    check(s, BVAnd(Int32Literal(3), Int32Literal(1)), Int32Literal(1))
+    check(s, BVAnd(Int32Literal(3), Int32Literal(3)), Int32Literal(3))
+    check(s, BVAnd(Int32Literal(5), Int32Literal(3)), Int32Literal(1))
+    check(s, BVAnd(Int32Literal(5), Int32Literal(4)), Int32Literal(4))
+    check(s, BVAnd(Int32Literal(5), Int32Literal(2)), Int32Literal(0))
 
-    check(s, BVOr(IntLiteral(3), IntLiteral(1)), IntLiteral(3))
-    check(s, BVOr(IntLiteral(3), IntLiteral(3)), IntLiteral(3))
-    check(s, BVOr(IntLiteral(5), IntLiteral(3)), IntLiteral(7))
-    check(s, BVOr(IntLiteral(5), IntLiteral(4)), IntLiteral(5))
-    check(s, BVOr(IntLiteral(5), IntLiteral(2)), IntLiteral(7))
+    check(s, BVOr(Int32Literal(3), Int32Literal(1)), Int32Literal(3))
+    check(s, BVOr(Int32Literal(3), Int32Literal(3)), Int32Literal(3))
+    check(s, BVOr(Int32Literal(5), Int32Literal(3)), Int32Literal(7))
+    check(s, BVOr(Int32Literal(5), Int32Literal(4)), Int32Literal(5))
+    check(s, BVOr(Int32Literal(5), Int32Literal(2)), Int32Literal(7))
 
-    check(s, BVXor(IntLiteral(3), IntLiteral(1)), IntLiteral(2))
-    check(s, BVXor(IntLiteral(3), IntLiteral(3)), IntLiteral(0))
+    check(s, BVXor(Int32Literal(3), Int32Literal(1)), Int32Literal(2))
+    check(s, BVXor(Int32Literal(3), Int32Literal(3)), Int32Literal(0))
 
-    check(s, BVNot(IntLiteral(1)), IntLiteral(-2))
+    check(s, BVNot(Int32Literal(1)), Int32Literal(-2))
 
-    check(s, BVShiftLeft(IntLiteral(3), IntLiteral(1)), IntLiteral(6))
-    check(s, BVShiftLeft(IntLiteral(4), IntLiteral(2)), IntLiteral(16))
+    check(s, BVShiftLeft(Int32Literal(3), Int32Literal(1)), Int32Literal(6))
+    check(s, BVShiftLeft(Int32Literal(4), Int32Literal(2)), Int32Literal(16))
 
-    check(s, BVLShiftRight(IntLiteral(8), IntLiteral(1)), IntLiteral(4))
-    check(s, BVAShiftRight(IntLiteral(8), IntLiteral(1)), IntLiteral(4))
+    check(s, BVLShiftRight(Int32Literal(8), Int32Literal(1)), Int32Literal(4))
+    check(s, BVAShiftRight(Int32Literal(8), Int32Literal(1)), Int32Literal(4))
   }
 
   test("Arithmetic") { ctx =>
@@ -154,17 +154,17 @@ class SemanticsSuite extends FunSuite {
   test("Int Modulo and Remainder", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
 
-    check(s, Division(IntLiteral(10), IntLiteral(3)),   IntLiteral(3))
-    check(s, Remainder(IntLiteral(10), IntLiteral(3)),  IntLiteral(1))
+    check(s, Division(Int32Literal(10), Int32Literal(3)),   Int32Literal(3))
+    check(s, Remainder(Int32Literal(10), Int32Literal(3)),  Int32Literal(1))
 
-    check(s, Division(IntLiteral(-1), IntLiteral(3)),   IntLiteral(0))
-    check(s, Remainder(IntLiteral(-1), IntLiteral(3)),  IntLiteral(-1))
+    check(s, Division(Int32Literal(-1), Int32Literal(3)),   Int32Literal(0))
+    check(s, Remainder(Int32Literal(-1), Int32Literal(3)),  Int32Literal(-1))
 
-    check(s, Division(IntLiteral(-1), IntLiteral(-3)),  IntLiteral(0))
-    check(s, Remainder(IntLiteral(-1), IntLiteral(-3)), IntLiteral(-1))
+    check(s, Division(Int32Literal(-1), Int32Literal(-3)),  Int32Literal(0))
+    check(s, Remainder(Int32Literal(-1), Int32Literal(-3)), Int32Literal(-1))
 
-    check(s, Division(IntLiteral(1), IntLiteral(-3)),   IntLiteral(0))
-    check(s, Remainder(IntLiteral(1), IntLiteral(-3)),  IntLiteral(1))
+    check(s, Division(Int32Literal(1), Int32Literal(-3)),   Int32Literal(0))
+    check(s, Remainder(Int32Literal(1), Int32Literal(-3)),  Int32Literal(1))
   }
 
   test("Boolean Operations") { ctx =>
@@ -213,61 +213,61 @@ class SemanticsSuite extends FunSuite {
     val s = solver(ctx)
 
     val v = Variable.fresh("id", Int32Type)
-    check(s, Let(v.toVal, IntLiteral(42), v), IntLiteral(42))
-    check(s, Let(v.toVal, IntLiteral(42), Plus(v, IntLiteral(1))), IntLiteral(43))
+    check(s, Let(v.toVal, Int32Literal(42), v), Int32Literal(42))
+    check(s, Let(v.toVal, Int32Literal(42), Plus(v, Int32Literal(1))), Int32Literal(43))
   }
 
   test("Map Operations", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Equals(
-      FiniteMap(Seq.empty, IntLiteral(12), Int32Type, Int32Type),
-      FiniteMap(Seq.empty, IntLiteral(12), Int32Type, Int32Type)
+      FiniteMap(Seq.empty, Int32Literal(12), Int32Type, Int32Type),
+      FiniteMap(Seq.empty, Int32Literal(12), Int32Type, Int32Type)
     ), BooleanLiteral(true))
 
     val v = Variable.fresh("v", Int32Type)
 
     assert(s.solveVALID(Equals(
-      MapApply(FiniteMap(Seq.empty, IntLiteral(9), Int32Type, Int32Type), v),
-      MapApply(FiniteMap(Seq.empty, IntLiteral(12), Int32Type, Int32Type), v)
+      MapApply(FiniteMap(Seq.empty, Int32Literal(9), Int32Type, Int32Type), v),
+      MapApply(FiniteMap(Seq.empty, Int32Literal(12), Int32Type, Int32Type), v)
     )) contains false)
 
     assert(s.solveVALID(Equals(
-      MapApply(FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(3)), IntLiteral(9), Int32Type, Int32Type), v),
-      MapApply(FiniteMap(Seq(IntLiteral(2) -> IntLiteral(3), IntLiteral(1) -> IntLiteral(2)), IntLiteral(9), Int32Type, Int32Type), v)
+      MapApply(FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(3)), Int32Literal(9), Int32Type, Int32Type), v),
+      MapApply(FiniteMap(Seq(Int32Literal(2) -> Int32Literal(3), Int32Literal(1) -> Int32Literal(2)), Int32Literal(9), Int32Type, Int32Type), v)
     )) contains true)
 
     assert(s.solveVALID(Equals(
-      MapApply(FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(3)), IntLiteral(9), Int32Type, Int32Type), v),
-      MapApply(FiniteMap(Seq(IntLiteral(2) -> IntLiteral(3), IntLiteral(1) -> IntLiteral(2)), IntLiteral(9), Int32Type, Int32Type), v)
+      MapApply(FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(3)), Int32Literal(9), Int32Type, Int32Type), v),
+      MapApply(FiniteMap(Seq(Int32Literal(2) -> Int32Literal(3), Int32Literal(1) -> Int32Literal(2)), Int32Literal(9), Int32Type, Int32Type), v)
     )) contains true)
 
     assert(s.solveVALID(Equals(
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(1) -> IntLiteral(3)), IntLiteral(9), Int32Type, Int32Type),
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(3), IntLiteral(1) -> IntLiteral(2)), IntLiteral(9), Int32Type, Int32Type)
+      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(1) -> Int32Literal(3)), Int32Literal(9), Int32Type, Int32Type),
+      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(3), Int32Literal(1) -> Int32Literal(2)), Int32Literal(9), Int32Type, Int32Type)
     )) contains false)
 
     assert(s.solveVALID(Equals(
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(1) -> IntLiteral(3)), IntLiteral(9), Int32Type, Int32Type),
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(3)), IntLiteral(9), Int32Type, Int32Type)
+      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(1) -> Int32Literal(3)), Int32Literal(9), Int32Type, Int32Type),
+      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(3)), Int32Literal(9), Int32Type, Int32Type)
     )) contains true)
 
     check(s, MapApply(
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type, Int32Type),
-      IntLiteral(1)
-    ), IntLiteral(2))
+      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(4)), Int32Literal(6), Int32Type, Int32Type),
+      Int32Literal(1)
+    ), Int32Literal(2))
 
     check(s, MapApply(
-      FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type, Int32Type),
-      IntLiteral(3)
-    ), IntLiteral(6))
+      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(4)), Int32Literal(6), Int32Type, Int32Type),
+      Int32Literal(3)
+    ), Int32Literal(6))
 
     check(s, MapApply(
       MapUpdated(
-        FiniteMap(Seq(IntLiteral(1) -> IntLiteral(2), IntLiteral(2) -> IntLiteral(4)), IntLiteral(6), Int32Type, Int32Type),
-        IntLiteral(1), IntLiteral(3)),
-      IntLiteral(1)
-    ), IntLiteral(3))
+        FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(4)), Int32Literal(6), Int32Type, Int32Type),
+        Int32Literal(1), Int32Literal(3)),
+      Int32Literal(1)
+    ), Int32Literal(3))
   }
 
   test("Set Operations", filterSolvers(_, princess = true)) { ctx =>
@@ -279,73 +279,73 @@ class SemanticsSuite extends FunSuite {
     ), BooleanLiteral(true))
 
     check(s, Equals(
-      FiniteSet(Seq(IntLiteral(9)), Int32Type),
+      FiniteSet(Seq(Int32Literal(9)), Int32Type),
       FiniteSet(Seq.empty, Int32Type)
     ), BooleanLiteral(false))
 
     check(s, Equals(
-      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type),
-      FiniteSet(Seq(IntLiteral(2), IntLiteral(1)), Int32Type)
+      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type),
+      FiniteSet(Seq(Int32Literal(2), Int32Literal(1)), Int32Type)
     ), BooleanLiteral(true))
 
     check(s, Equals(
-      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type),
-      FiniteSet(Seq(IntLiteral(1), IntLiteral(2), IntLiteral(1)), Int32Type)
+      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type),
+      FiniteSet(Seq(Int32Literal(1), Int32Literal(2), Int32Literal(1)), Int32Type)
     ), BooleanLiteral(true))
 
     check(s, ElementOfSet(
-      IntLiteral(1),
-      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type)
+      Int32Literal(1),
+      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type)
     ), BooleanLiteral(true))
 
     check(s, ElementOfSet(
-      IntLiteral(2),
-      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type)
+      Int32Literal(2),
+      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type)
     ), BooleanLiteral(true))
 
     check(s, ElementOfSet(
-      IntLiteral(3),
-      FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type)
+      Int32Literal(3),
+      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type)
     ), BooleanLiteral(false))
 
     check(s, ElementOfSet(
-      IntLiteral(3),
-      SetAdd(FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type), IntLiteral(3))
+      Int32Literal(3),
+      SetAdd(FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type), Int32Literal(3))
     ), BooleanLiteral(true))
 
     val v = Variable.fresh("v", Int32Type)
 
     assert(s.solveVALID(let(
       "s" :: SetType(Int32Type),
-      SetUnion(FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type), FiniteSet(Seq(IntLiteral(1)), Int32Type))
+      SetUnion(FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type), FiniteSet(Seq(Int32Literal(1)), Int32Type))
     )(s => And(
-      ElementOfSet(IntLiteral(1), s),
-      ElementOfSet(IntLiteral(2), s)
+      ElementOfSet(Int32Literal(1), s),
+      ElementOfSet(Int32Literal(2), s)
     ))) contains true)
 
     assert(s.solveVALID(let(
       "s" :: SetType(Int32Type),
-      SetUnion(FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type), FiniteSet(Seq(IntLiteral(1)), Int32Type))
-    )(s => or(Equals(v, IntLiteral(1)), Equals(v, IntLiteral(2)), Not(ElementOfSet(v, s))))) contains true)
+      SetUnion(FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type), FiniteSet(Seq(Int32Literal(1)), Int32Type))
+    )(s => or(Equals(v, Int32Literal(1)), Equals(v, Int32Literal(2)), Not(ElementOfSet(v, s))))) contains true)
 
     assert(s.solveVALID(or(
-      Equals(v, IntLiteral(2)), Not(ElementOfSet(v, SetDifference(
-        FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type),
-        FiniteSet(Seq(IntLiteral(1)), Int32Type)
+      Equals(v, Int32Literal(2)), Not(ElementOfSet(v, SetDifference(
+        FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type),
+        FiniteSet(Seq(Int32Literal(1)), Int32Type)
       )))
     )) contains true)
 
     assert(s.solveVALID(or(
-      Equals(v, IntLiteral(2)), Not(ElementOfSet(v, SetDifference(
-        FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type),
+      Equals(v, Int32Literal(2)), Not(ElementOfSet(v, SetDifference(
+        FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type),
         FiniteSet(Seq.empty, Int32Type)
       )))
     )) contains false)
 
     assert(s.solveVALID(or(
-      Equals(v, IntLiteral(2)), Not(ElementOfSet(v, SetIntersection(
-        FiniteSet(Seq(IntLiteral(1), IntLiteral(2)), Int32Type),
-        FiniteSet(Seq(IntLiteral(2)), Int32Type)
+      Equals(v, Int32Literal(2)), Not(ElementOfSet(v, SetIntersection(
+        FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type),
+        FiniteSet(Seq(Int32Literal(2)), Int32Type)
       )))
     )) contains true)
   }
@@ -359,18 +359,18 @@ class SemanticsSuite extends FunSuite {
     )) contains true)
 
     assert(s.solveVALID(Equals(
-      FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(1), IntLiteral(2) -> IntegerLiteral(2)), Int32Type),
-      FiniteBag(Seq(IntLiteral(2) -> IntegerLiteral(2), IntLiteral(1) -> IntegerLiteral(1)), Int32Type)
+      FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(1), Int32Literal(2) -> IntegerLiteral(2)), Int32Type),
+      FiniteBag(Seq(Int32Literal(2) -> IntegerLiteral(2), Int32Literal(1) -> IntegerLiteral(1)), Int32Type)
     )) contains true)
 
     assert(s.solveVALID(Equals(
-      FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(1)), Int32Type),
-      FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(2), IntLiteral(1) -> IntegerLiteral(1)), Int32Type)
+      FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(1)), Int32Type),
+      FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(2), Int32Literal(1) -> IntegerLiteral(1)), Int32Type)
     )) contains true)
 
     check(s, MultiplicityInBag(
-      IntLiteral(1),
-      FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(2)), Int32Type)
+      Int32Literal(1),
+      FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(2)), Int32Type)
     ), IntegerLiteral(2))
   }
 
@@ -378,85 +378,85 @@ class SemanticsSuite extends FunSuite {
     val s = solver(ctx)
 
     check(s, Equals(
-      FiniteBag(Seq(IntLiteral(9) -> IntegerLiteral(1)), Int32Type),
+      FiniteBag(Seq(Int32Literal(9) -> IntegerLiteral(1)), Int32Type),
       FiniteBag(Seq.empty, Int32Type)
     ), BooleanLiteral(false))
 
     check(s, MultiplicityInBag(
-      IntLiteral(2),
-      FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(2)), Int32Type)
+      Int32Literal(2),
+      FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(2)), Int32Type)
     ), IntegerLiteral(0))
 
     check(s, MultiplicityInBag(
-      IntLiteral(1),
-      BagAdd(FiniteBag(Seq(IntLiteral(1) -> IntegerLiteral(1)), Int32Type), IntLiteral(1))
+      Int32Literal(1),
+      BagAdd(FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(1)), Int32Type), Int32Literal(1))
     ), IntegerLiteral(2))
 
     check(s, Equals(
       BagUnion(
         FiniteBag(Seq(
-          IntLiteral(1) -> IntegerLiteral(1),
-          IntLiteral(2) -> IntegerLiteral(2)
+          Int32Literal(1) -> IntegerLiteral(1),
+          Int32Literal(2) -> IntegerLiteral(2)
         ), Int32Type),
         FiniteBag(Seq(
-          IntLiteral(2) -> IntegerLiteral(1),
-          IntLiteral(3) -> IntegerLiteral(1)
+          Int32Literal(2) -> IntegerLiteral(1),
+          Int32Literal(3) -> IntegerLiteral(1)
         ), Int32Type)
       ),
       FiniteBag(Seq(
-        IntLiteral(1) -> IntegerLiteral(1),
-        IntLiteral(2) -> IntegerLiteral(3),
-        IntLiteral(3) -> IntegerLiteral(1)
+        Int32Literal(1) -> IntegerLiteral(1),
+        Int32Literal(2) -> IntegerLiteral(3),
+        Int32Literal(3) -> IntegerLiteral(1)
       ), Int32Type)
     ), BooleanLiteral(true))
 
     check(s, Equals(
       BagUnion(
         FiniteBag(Seq(
-          IntLiteral(1) -> IntegerLiteral(1),
-          IntLiteral(2) -> IntegerLiteral(2)
+          Int32Literal(1) -> IntegerLiteral(1),
+          Int32Literal(2) -> IntegerLiteral(2)
         ), Int32Type),
         FiniteBag(Seq(
-          IntLiteral(2) -> IntegerLiteral(2),
-          IntLiteral(3) -> IntegerLiteral(1)
+          Int32Literal(2) -> IntegerLiteral(2),
+          Int32Literal(3) -> IntegerLiteral(1)
         ), Int32Type)
       ),
       FiniteBag(Seq(
-        IntLiteral(1) -> IntegerLiteral(1),
-        IntLiteral(2) -> IntegerLiteral(3),
-        IntLiteral(3) -> IntegerLiteral(1)
+        Int32Literal(1) -> IntegerLiteral(1),
+        Int32Literal(2) -> IntegerLiteral(3),
+        Int32Literal(3) -> IntegerLiteral(1)
       ), Int32Type)
     ), BooleanLiteral(false))
 
     check(s, Equals(
       BagDifference(
         FiniteBag(Seq(
-          IntLiteral(1) -> IntegerLiteral(1),
-          IntLiteral(2) -> IntegerLiteral(2)
+          Int32Literal(1) -> IntegerLiteral(1),
+          Int32Literal(2) -> IntegerLiteral(2)
         ), Int32Type),
         FiniteBag(Seq(
-          IntLiteral(2) -> IntegerLiteral(3),
-          IntLiteral(3) -> IntegerLiteral(1)
+          Int32Literal(2) -> IntegerLiteral(3),
+          Int32Literal(3) -> IntegerLiteral(1)
         ), Int32Type)
       ),
       FiniteBag(Seq(
-        IntLiteral(1) -> IntegerLiteral(1)
+        Int32Literal(1) -> IntegerLiteral(1)
       ), Int32Type)
     ), BooleanLiteral(true))
 
     check(s, Equals(
       BagIntersection(
         FiniteBag(Seq(
-          IntLiteral(1) -> IntegerLiteral(1),
-          IntLiteral(2) -> IntegerLiteral(2)
+          Int32Literal(1) -> IntegerLiteral(1),
+          Int32Literal(2) -> IntegerLiteral(2)
         ), Int32Type),
         FiniteBag(Seq(
-          IntLiteral(2) -> IntegerLiteral(3),
-          IntLiteral(3) -> IntegerLiteral(1)
+          Int32Literal(2) -> IntegerLiteral(3),
+          Int32Literal(3) -> IntegerLiteral(1)
         ), Int32Type)
       ),
       FiniteBag(Seq(
-        IntLiteral(2) -> IntegerLiteral(2)
+        Int32Literal(2) -> IntegerLiteral(2)
       ), Int32Type)
     ), BooleanLiteral(true))
   }

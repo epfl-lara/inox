@@ -249,7 +249,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case Implies(l, r) => z3.mkImplies(rec(l), rec(r))
       case Not(Equals(l, r)) => z3.mkDistinct(rec(l), rec(r))
       case Not(e) => z3.mkNot(rec(e))
-      case IntLiteral(v) => z3.mkInt(v, typeToSort(Int32Type))
+      case Int32Literal(v) => z3.mkInt(v, typeToSort(Int32Type))
       case IntegerLiteral(v) => z3.mkNumeral(v.toString, typeToSort(IntegerType))
       case FractionLiteral(n, d) => z3.mkNumeral(s"$n / $d", typeToSort(RealType))
       case CharLiteral(c) => z3.mkInt(c, typeToSort(CharType))
@@ -506,7 +506,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
             _root_.smtlib.common.Hexadecimal.fromString(t.toString.substring(2)) match {
               case Some(hexa) =>
                 tpe match {
-                  case Int32Type => IntLiteral(hexa.toInt)
+                  case Int32Type => Int32Literal(hexa.toInt)
                   case CharType  => CharLiteral(hexa.toInt.toChar)
                   case IntegerType => IntegerLiteral(BigInt(hexa.toInt))
                   case other =>
@@ -516,7 +516,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
               }
           } else {
             tpe match {
-              case Int32Type => IntLiteral(v)
+              case Int32Type => Int32Literal(v)
               case CharType  => CharLiteral(v.toChar)
               case IntegerType => IntegerLiteral(BigInt(v))
               case other =>
@@ -732,7 +732,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
           model.evalAs[Boolean](z3ID).map(BooleanLiteral)
 
         case Int32Type =>
-          model.evalAs[Int](z3ID).map(IntLiteral(_)).orElse {
+          model.evalAs[Int](z3ID).map(Int32Literal(_)).orElse {
             model.eval(z3ID).flatMap(t => ex.get(t, Int32Type))
           }
 

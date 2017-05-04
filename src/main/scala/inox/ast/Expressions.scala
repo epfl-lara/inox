@@ -189,7 +189,7 @@ trait Expressions { self: Trees =>
     }
   }
 
-  object IntLiteral {
+  object Int32Literal {
     def apply(i: Int): BVLiteral = BVLiteral(BigInt(i), 32)
     def unapply(e: Expr): Option[Int] = e match {
       case b @ BVLiteral(bs, 32) => Some(b.toBigInt.toInt)
