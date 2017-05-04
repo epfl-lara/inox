@@ -87,6 +87,28 @@ class SemanticsSuite extends FunSuite {
     check(s, Times(Int32Literal(3), Int32Literal(3)),           Int32Literal(9))
   }
 
+  test("BitVector Cast", filterSolvers(_, princess = true)) { ctx =>
+    val s = solver(ctx)
+
+    check(s, BVWideningCast(Int8Literal(0), Int32Type),       Int32Literal(0))
+    check(s, BVWideningCast(Int8Literal(1), Int32Type),       Int32Literal(1))
+    check(s, BVWideningCast(BVLiteral(2, 3), BVType(4)),      BVLiteral(2, 4))
+    check(s, BVWideningCast(Int8Literal(1), BVType(9)),       BVLiteral(1, 9))
+    check(s, BVWideningCast(BVLiteral(1, 2), Int32Type),      Int32Literal(1))
+    check(s, BVWideningCast(BVLiteral(1, 1), Int32Type),      Int32Literal(-1)) // 2's complement on 1 bit
+    check(s, BVWideningCast(Int8Literal(-1), Int32Type),      Int32Literal(-1))
+    check(s, BVWideningCast(Int8Literal(-128), Int32Type),    Int32Literal(-128))
+
+    check(s, BVNarrowingCast(Int8Literal(1), BVType(7)),      BVLiteral(1, 7))
+    check(s, BVNarrowingCast(Int32Literal(1), Int8Type),      Int8Literal(1))
+    // check(s, BVNarrowingCast(BVLiteral(1, 33), Int32Type),    Int32Literal(1)) // FIXME 32-bit, max is supported
+    check(s, BVNarrowingCast(Int32Literal(-1), Int8Type),     Int8Literal(-1))
+    check(s, BVNarrowingCast(Int32Literal(-128), Int8Type),   Int8Literal(-128))
+    check(s, BVNarrowingCast(Int32Literal(-129), Int8Type),   Int8Literal(127))
+    check(s, BVNarrowingCast(Int32Literal(128), Int8Type),    Int8Literal(-128))
+  }
+
+
   test("solve bitwise operations", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
 

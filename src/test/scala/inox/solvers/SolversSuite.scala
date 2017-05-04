@@ -30,6 +30,8 @@ class SolversSuite extends FunSuite {
     CharType,
     RealType,
     IntegerType,
+    Int8Type,
+    BVType(13),
     Int32Type,
     StringType,
     TypeParameter.fresh("T"),

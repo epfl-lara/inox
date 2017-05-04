@@ -51,6 +51,22 @@ class EvaluatorSuite extends FunSuite {
     eval(e, Plus(BVLiteral(3, 13), BVLiteral(5, 13)))  === BVLiteral(8, 13)
     eval(e, Plus(BVLiteral(3, 16), BVLiteral(5, 16)))  === BVLiteral(8, 16)
     eval(e, Plus(BVLiteral(Short.MaxValue, 16), BVLiteral(1, 16))) === BVLiteral(Short.MinValue, 16)
+
+    eval(e, BVWideningCast(Int8Literal(0), Int32Type)) === Int32Literal(0)
+    eval(e, BVWideningCast(Int8Literal(1), Int32Type)) === Int32Literal(1)
+    eval(e, BVWideningCast(Int8Literal(1), BVType(9))) === BVLiteral(1, 9)
+    eval(e, BVWideningCast(BVLiteral(1, 2), Int32Type)) === Int32Literal(1)
+    eval(e, BVWideningCast(BVLiteral(1, 1), Int32Type)) === Int32Literal(-1) // 2's complement on 1 bit
+    eval(e, BVWideningCast(Int8Literal(-1), Int32Type)) === Int32Literal(-1)
+    eval(e, BVWideningCast(Int8Literal(-128), Int32Type)) === Int32Literal(-128)
+
+    eval(e, BVNarrowingCast(Int8Literal(1), BVType(7))) === BVLiteral(1, 7)
+    eval(e, BVNarrowingCast(Int32Literal(1), Int8Type)) === Int8Literal(1)
+    eval(e, BVNarrowingCast(BVLiteral(1, 33), Int32Type)) === Int32Literal(1)
+    eval(e, BVNarrowingCast(Int32Literal(-1), Int8Type)) === Int8Literal(-1)
+    eval(e, BVNarrowingCast(Int32Literal(-128), Int8Type)) === Int8Literal(-128)
+    eval(e, BVNarrowingCast(Int32Literal(-129), Int8Type)) === Int8Literal(127)
+    eval(e, BVNarrowingCast(Int32Literal(128), Int8Type)) === Int8Literal(-128)
   }
 
   test("eval bitwise operations") {

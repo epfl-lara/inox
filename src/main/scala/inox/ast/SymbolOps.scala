@@ -670,8 +670,7 @@ trait SymbolOps { self: TypeOps =>
   def simplestValue(tpe: Type, allowSolver: Boolean = true)(implicit sem: symbols.Semantics): Expr = {
     def rec(tpe: Type, seen: Set[Type]): Expr = tpe match {
       case StringType                 => StringLiteral("")
-      case Int8Type                   => Int8Literal(0)
-      case Int32Type                  => Int32Literal(0)
+      case BVType(size)               => BVLiteral(0, size)
       case RealType                   => FractionLiteral(0, 1)
       case IntegerType                => IntegerLiteral(0)
       case CharType                   => CharLiteral('a')
