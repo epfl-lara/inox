@@ -21,8 +21,12 @@ class EvaluatorSuite extends FunSuite {
 
     eval(e, BooleanLiteral(true))   === BooleanLiteral(true)
     eval(e, BooleanLiteral(false))  === BooleanLiteral(false)
+    eval(e, Int8Literal(0))         === Int8Literal(0)
+    eval(e, Int8Literal(58))        === Int8Literal(58)
     eval(e, Int32Literal(0))        === Int32Literal(0)
     eval(e, Int32Literal(42))       === Int32Literal(42)
+    eval(e, BVLiteral(0, 13))       === BVLiteral(0, 13)
+    eval(e, BVLiteral(58, 64))      === BVLiteral(58, 64)
     eval(e, UnitLiteral())          === UnitLiteral()
     eval(e, IntegerLiteral(0))      === IntegerLiteral(0)
     eval(e, IntegerLiteral(42))     === IntegerLiteral(42)
@@ -34,15 +38,30 @@ class EvaluatorSuite extends FunSuite {
   test("BitVector Arithmetic") {
     val e = evaluator(ctx)
 
+    eval(e, Plus(Int8Literal(3), Int8Literal(5)))  === Int8Literal(8)
+    eval(e, Plus(Int8Literal(Byte.MaxValue), Int8Literal(1))) === Int8Literal(Byte.MinValue)
+    eval(e, Times(Int8Literal(3), Int8Literal(3))) === Int8Literal(9)
+
     eval(e, Plus(Int32Literal(3), Int32Literal(5)))  === Int32Literal(8)
     eval(e, Plus(Int32Literal(0), Int32Literal(5)))  === Int32Literal(5)
     eval(e, Plus(Int32Literal(1), Int32Literal(-2))) === Int32Literal(-1)
     eval(e, Plus(Int32Literal(Int.MaxValue), Int32Literal(1))) === Int32Literal(Int.MinValue)
     eval(e, Times(Int32Literal(3), Int32Literal(3))) === Int32Literal(9)
+
+    eval(e, Plus(BVLiteral(3, 13), BVLiteral(5, 13)))  === BVLiteral(8, 13)
+    eval(e, Plus(BVLiteral(3, 16), BVLiteral(5, 16)))  === BVLiteral(8, 16)
+    eval(e, Plus(BVLiteral(Short.MaxValue, 16), BVLiteral(1, 16))) === BVLiteral(Short.MinValue, 16)
   }
 
   test("eval bitwise operations") {
     val e = evaluator(ctx)
+
+    eval(e, BVAnd(Int8Literal(3), Int8Literal(1))) === Int8Literal(1)
+    eval(e, BVOr(Int8Literal(5), Int8Literal(3))) === Int8Literal(7)
+    eval(e, BVXor(Int8Literal(3), Int8Literal(1))) === Int8Literal(2)
+    eval(e, BVNot(Int8Literal(1))) === Int8Literal(-2)
+    eval(e, BVShiftLeft(Int8Literal(3), Int8Literal(1))) === Int8Literal(6)
+    eval(e, BVAShiftRight(Int8Literal(8), Int8Literal(1))) === Int8Literal(4)
 
     eval(e, BVAnd(Int32Literal(3), Int32Literal(1))) === Int32Literal(1)
     eval(e, BVAnd(Int32Literal(3), Int32Literal(3))) === Int32Literal(3)
@@ -66,9 +85,17 @@ class EvaluatorSuite extends FunSuite {
 
     eval(e, BVLShiftRight(Int32Literal(8), Int32Literal(1))) === Int32Literal(4)
     eval(e, BVAShiftRight(Int32Literal(8), Int32Literal(1))) === Int32Literal(4)
+
+    def bvl(x: BigInt) = BVLiteral(x, 11)
+    eval(e, BVAnd(bvl(3), bvl(1))) === bvl(1)
+    eval(e, BVOr(bvl(5), bvl(3))) === bvl(7)
+    eval(e, BVXor(bvl(3), bvl(1))) === bvl(2)
+    eval(e, BVNot(bvl(1))) === bvl(-2)
+    eval(e, BVShiftLeft(bvl(3), bvl(1))) === bvl(6)
+    eval(e, BVAShiftRight(bvl(8), bvl(1))) === bvl(4)
   }
 
-  test("Arithmetic") {
+  test("BigInt Arithmetic") {
     val e = evaluator(ctx)
 
     eval(e, Plus(IntegerLiteral(3), IntegerLiteral(5)))  === IntegerLiteral(8)
@@ -98,7 +125,7 @@ class EvaluatorSuite extends FunSuite {
     eval(e, Modulo(IntegerLiteral(1), IntegerLiteral(-3)))     === IntegerLiteral(1)
   }
 
-  test("Int Comparisons") {
+  test("BigInt Comparisons") {
     val e = evaluator(ctx)
 
     eval(e, GreaterEquals(IntegerLiteral(7), IntegerLiteral(4)))  === BooleanLiteral(true)
@@ -118,7 +145,39 @@ class EvaluatorSuite extends FunSuite {
     eval(e, LessThan(IntegerLiteral(4), IntegerLiteral(7)))       === BooleanLiteral(true)
   }
 
-  test("Int Modulo and Remainder") {
+  test("BitVector Comparisons") {
+    val e = evaluator(ctx)
+
+    eval(e, GreaterEquals(Int8Literal(7), Int8Literal(4)))  === BooleanLiteral(true)
+    eval(e, GreaterThan(Int8Literal(7), Int8Literal(7)))    === BooleanLiteral(false)
+    eval(e, LessEquals(Int8Literal(7), Int8Literal(7)))     === BooleanLiteral(true)
+    eval(e, LessThan(Int8Literal(4), Int8Literal(7)))       === BooleanLiteral(true)
+
+    eval(e, GreaterEquals(Int32Literal(7), Int32Literal(4)))  === BooleanLiteral(true)
+    eval(e, GreaterEquals(Int32Literal(7), Int32Literal(7)))  === BooleanLiteral(true)
+    eval(e, GreaterEquals(Int32Literal(4), Int32Literal(7)))  === BooleanLiteral(false)
+
+    eval(e, GreaterThan(Int32Literal(7), Int32Literal(4)))    === BooleanLiteral(true)
+    eval(e, GreaterThan(Int32Literal(7), Int32Literal(7)))    === BooleanLiteral(false)
+    eval(e, GreaterThan(Int32Literal(4), Int32Literal(7)))    === BooleanLiteral(false)
+
+    eval(e, LessEquals(Int32Literal(7), Int32Literal(4)))     === BooleanLiteral(false)
+    eval(e, LessEquals(Int32Literal(7), Int32Literal(7)))     === BooleanLiteral(true)
+    eval(e, LessEquals(Int32Literal(4), Int32Literal(7)))     === BooleanLiteral(true)
+
+    eval(e, LessThan(Int32Literal(7), Int32Literal(4)))       === BooleanLiteral(false)
+    eval(e, LessThan(Int32Literal(7), Int32Literal(7)))       === BooleanLiteral(false)
+    eval(e, LessThan(Int32Literal(4), Int32Literal(7)))       === BooleanLiteral(true)
+
+    def bvl(x: BigInt) = BVLiteral(x, 13)
+    eval(e, GreaterEquals(bvl(7), bvl(4)))  === BooleanLiteral(true)
+    eval(e, GreaterThan(bvl(7), bvl(7)))    === BooleanLiteral(false)
+    eval(e, LessEquals(bvl(7), bvl(7)))     === BooleanLiteral(true)
+    eval(e, LessThan(bvl(4), bvl(7)))       === BooleanLiteral(true)
+  }
+
+  test("BitVector Division and Remainder") {
+    // FIXME is it intentional that Modulo are not tested?
     val e = evaluator(ctx)
 
     eval(e, Division(Int32Literal(10), Int32Literal(3)))    === Int32Literal(3)
@@ -132,6 +191,13 @@ class EvaluatorSuite extends FunSuite {
 
     eval(e, Division(Int32Literal(1), Int32Literal(-3)))    === Int32Literal(0)
     eval(e, Remainder(Int32Literal(1), Int32Literal(-3)))   === Int32Literal(1)
+
+    eval(e, Division(Int8Literal(1), Int8Literal(-3)))  === Int8Literal(0)
+    eval(e, Remainder(Int8Literal(1), Int8Literal(-3))) === Int8Literal(1)
+
+    def bvl(x: BigInt) = BVLiteral(x, 13)
+    eval(e, Division(bvl(1), bvl(-3)))    === bvl(0)
+    eval(e, Remainder(bvl(1), bvl(-3)))   === bvl(1)
   }
 
   test("Boolean Operations") {
@@ -261,8 +327,18 @@ class EvaluatorSuite extends FunSuite {
     ) === BooleanLiteral(false)
 
     eval(e, Equals(
+      FiniteSet(Seq(Int8Literal(1), Int8Literal(2)), Int8Type),
+      FiniteSet(Seq(Int8Literal(2), Int8Literal(1)), Int8Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, Equals(
       FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type),
       FiniteSet(Seq(Int32Literal(2), Int32Literal(1)), Int32Type))
+    ) === BooleanLiteral(true)
+
+    eval(e, Equals(
+      FiniteSet(Seq(BVLiteral(1, 3), BVLiteral(2, 3)), BVType(3)),
+      FiniteSet(Seq(BVLiteral(2, 3), BVLiteral(1, 3)), BVType(3)))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(

@@ -54,8 +54,17 @@ class SemanticsSuite extends FunSuite {
 
     check(s, BooleanLiteral(true),   BooleanLiteral(true))
     check(s, BooleanLiteral(false),  BooleanLiteral(false))
+    check(s, Int8Literal(0),         Int8Literal(0))
+    check(s, Int8Literal(58),        Int8Literal(58))
     check(s, Int32Literal(0),        Int32Literal(0))
     check(s, Int32Literal(42),       Int32Literal(42))
+    // FIXME currently BV 8/16/32 are supported by BitvectorEncoder.
+    // check(s, BVLiteral(0, 13),       BVLiteral(0, 13))
+    // check(s, BVLiteral(58, 64),      BVLiteral(58, 64))
+    // FIXME currently BV 8/32 are supported by Z3Native.
+    // check(s, BVLiteral(0, 16),       BVLiteral(0, 16))
+    // check(s, BVLiteral(58, 16),      BVLiteral(58, 16))
+    // NOTE When/if this is fixed, add relevant tests in the sections below.
     check(s, UnitLiteral(),          UnitLiteral())
     check(s, IntegerLiteral(0),      IntegerLiteral(0))
     check(s, IntegerLiteral(42),     IntegerLiteral(42))
@@ -67,6 +76,10 @@ class SemanticsSuite extends FunSuite {
   test("BitVector Arithmetic") { ctx =>
     val s = solver(ctx)
 
+    check(s, Plus(Int8Literal(3), Int8Literal(5)),              Int8Literal(8))
+    check(s, Plus(Int8Literal(Byte.MaxValue), Int8Literal(1)),  Int8Literal(Byte.MinValue))
+    check(s, Times(Int8Literal(3), Int8Literal(3)),             Int8Literal(9))
+
     check(s, Plus(Int32Literal(3), Int32Literal(5)),            Int32Literal(8))
     check(s, Plus(Int32Literal(0), Int32Literal(5)),            Int32Literal(5))
     check(s, Plus(Int32Literal(1), Int32Literal(-2)),           Int32Literal(-1))
@@ -76,6 +89,13 @@ class SemanticsSuite extends FunSuite {
 
   test("solve bitwise operations", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
+
+    check(s, BVAnd(Int8Literal(3), Int8Literal(1)),         Int8Literal(1))
+    check(s, BVOr(Int8Literal(5), Int8Literal(3)),          Int8Literal(7))
+    check(s, BVXor(Int8Literal(3), Int8Literal(1)),         Int8Literal(2))
+    check(s, BVNot(Int8Literal(1)),                         Int8Literal(-2))
+    check(s, BVShiftLeft(Int8Literal(3), Int8Literal(1)),   Int8Literal(6))
+    check(s, BVAShiftRight(Int8Literal(8), Int8Literal(1)), Int8Literal(4))
 
     check(s, BVAnd(Int32Literal(3), Int32Literal(1)), Int32Literal(1))
     check(s, BVAnd(Int32Literal(3), Int32Literal(3)), Int32Literal(3))
@@ -101,7 +121,7 @@ class SemanticsSuite extends FunSuite {
     check(s, BVAShiftRight(Int32Literal(8), Int32Literal(1)), Int32Literal(4))
   }
 
-  test("Arithmetic") { ctx =>
+  test("BigInt Arithmetic") { ctx =>
     val s = solver(ctx)
 
     check(s, Plus(IntegerLiteral(3), IntegerLiteral(5)),  IntegerLiteral(8))
@@ -131,7 +151,7 @@ class SemanticsSuite extends FunSuite {
     check(s, Modulo(IntegerLiteral(1), IntegerLiteral(-3)),    IntegerLiteral(1))
   }
 
-  test("Int Comparisons") { ctx =>
+  test("BigInt Comparisons") { ctx =>
     val s = solver(ctx)
 
     check(s, GreaterEquals(IntegerLiteral(7), IntegerLiteral(4)), BooleanLiteral(true))
@@ -151,7 +171,33 @@ class SemanticsSuite extends FunSuite {
     check(s, LessThan(IntegerLiteral(4), IntegerLiteral(7)),      BooleanLiteral(true))
   }
 
-  test("Int Modulo and Remainder", filterSolvers(_, princess = true)) { ctx =>
+  test("BitVector Comparisons", filterSolvers(_, princess = true)) { ctx =>
+    val s = solver(ctx)
+
+    check(s, GreaterEquals(Int8Literal(7), Int8Literal(4)),   BooleanLiteral(true))
+    check(s, GreaterThan(Int8Literal(7), Int8Literal(7)),     BooleanLiteral(false))
+    check(s, LessEquals(Int8Literal(4), Int8Literal(7)),      BooleanLiteral(true))
+    check(s, LessThan(Int8Literal(4), Int8Literal(7)),        BooleanLiteral(true))
+
+    check(s, GreaterEquals(Int32Literal(7), Int32Literal(4)), BooleanLiteral(true))
+    check(s, GreaterEquals(Int32Literal(7), Int32Literal(7)), BooleanLiteral(true))
+    check(s, GreaterEquals(Int32Literal(4), Int32Literal(7)), BooleanLiteral(false))
+
+    check(s, GreaterThan(Int32Literal(7), Int32Literal(4)),   BooleanLiteral(true))
+    check(s, GreaterThan(Int32Literal(7), Int32Literal(7)),   BooleanLiteral(false))
+    check(s, GreaterThan(Int32Literal(4), Int32Literal(7)),   BooleanLiteral(false))
+
+    check(s, LessEquals(Int32Literal(7), Int32Literal(4)),    BooleanLiteral(false))
+    check(s, LessEquals(Int32Literal(7), Int32Literal(7)),    BooleanLiteral(true))
+    check(s, LessEquals(Int32Literal(4), Int32Literal(7)),    BooleanLiteral(true))
+
+    check(s, LessThan(Int32Literal(7), Int32Literal(4)),      BooleanLiteral(false))
+    check(s, LessThan(Int32Literal(7), Int32Literal(7)),      BooleanLiteral(false))
+    check(s, LessThan(Int32Literal(4), Int32Literal(7)),      BooleanLiteral(true))
+  }
+
+  test("BitVector Division and Remainder", filterSolvers(_, princess = true)) { ctx =>
+    // FIXME is it intentional that Modulo are not tested?
     val s = solver(ctx)
 
     check(s, Division(Int32Literal(10), Int32Literal(3)),   Int32Literal(3))
@@ -165,6 +211,9 @@ class SemanticsSuite extends FunSuite {
 
     check(s, Division(Int32Literal(1), Int32Literal(-3)),   Int32Literal(0))
     check(s, Remainder(Int32Literal(1), Int32Literal(-3)),  Int32Literal(1))
+
+    check(s, Division(Int8Literal(1), Int8Literal(-3)),   Int8Literal(0))
+    check(s, Remainder(Int8Literal(1), Int8Literal(-3)),  Int8Literal(1))
   }
 
   test("Boolean Operations") { ctx =>
@@ -282,6 +331,11 @@ class SemanticsSuite extends FunSuite {
       FiniteSet(Seq(Int32Literal(9)), Int32Type),
       FiniteSet(Seq.empty, Int32Type)
     ), BooleanLiteral(false))
+
+    check(s, Equals(
+      FiniteSet(Seq(Int8Literal(1), Int8Literal(2)), Int8Type),
+      FiniteSet(Seq(Int8Literal(2), Int8Literal(1)), Int8Type)
+    ), BooleanLiteral(true))
 
     check(s, Equals(
       FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type),
