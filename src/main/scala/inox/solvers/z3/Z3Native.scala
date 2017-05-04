@@ -176,6 +176,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   }
 
   // Prepare some of the Z3 sorts, but *not* the tuple sorts; these are created on-demand.
+  sorts += Int8Type -> z3.mkBVSort(8)
   sorts += Int32Type -> z3.mkBVSort(32)
   sorts += CharType -> z3.mkBVSort(16)
   sorts += IntegerType -> z3.mkIntSort
@@ -187,7 +188,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
   // assumes prepareSorts has been called....
   protected def typeToSort(oldtt: Type): Z3Sort = bestRealType(oldtt) match {
-    case Int32Type | BooleanType | IntegerType | RealType | CharType | StringType =>
+    case Int8Type | Int32Type | BooleanType | IntegerType | RealType | CharType | StringType =>
       sorts(oldtt)
 
     case tt @ BVType(i) =>
@@ -249,6 +250,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case Implies(l, r) => z3.mkImplies(rec(l), rec(r))
       case Not(Equals(l, r)) => z3.mkDistinct(rec(l), rec(r))
       case Not(e) => z3.mkNot(rec(e))
+      case Int8Literal(v) => z3.mkInt(v, typeToSort(Int8Type))
       case Int32Literal(v) => z3.mkInt(v, typeToSort(Int32Type))
       case IntegerLiteral(v) => z3.mkNumeral(v.toString, typeToSort(IntegerType))
       case FractionLiteral(n, d) => z3.mkNumeral(s"$n / $d", typeToSort(RealType))
@@ -506,6 +508,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
             _root_.smtlib.common.Hexadecimal.fromString(t.toString.substring(2)) match {
               case Some(hexa) =>
                 tpe match {
+                  case Int8Type => Int8Literal(hexa.toInt.toByte)
                   case Int32Type => Int32Literal(hexa.toInt)
                   case CharType  => CharLiteral(hexa.toInt.toChar)
                   case IntegerType => IntegerLiteral(BigInt(hexa.toInt))
@@ -516,6 +519,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
               }
           } else {
             tpe match {
+              case Int8Type => Int8Literal(v.toByte)
               case Int32Type => Int32Literal(v)
               case CharType  => CharLiteral(v.toChar)
               case IntegerType => IntegerLiteral(BigInt(v))
@@ -529,17 +533,19 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
           if(ts.length > 4 && ts.substring(0, 2) == "bv" && ts.substring(ts.length - 4) == "[32]") {
             val integer = ts.substring(2, ts.length - 4)
             tpe match {
-              case Int32Type => IntLiteral(integer.toLong.toInt)
+              case Int8Type  => Int8Literal(integer.toLong.toByte) // FIXME is this right? above reads "ends with [32]"...
+              case Int32Type => Int32Literal(integer.toLong.toInt)
               case CharType  => CharLiteral(integer.toInt.toChar)
               // @nv XXX: why would we have this!? case IntegerType => IntegerLiteral(BigInt(integer))
               case _ =>
                 reporter.fatalError("Unexpected target type for BV value: " + tpe.asString)
             }
-          } else {  
+          } else {
             _root_.smtlib.common.Hexadecimal.fromString(t.toString.substring(2)) match {
               case Some(hexa) =>
                 tpe match {
-                  case Int32Type => IntLiteral(hexa.toInt)
+                  case Int8Type  => Int8Literal(hexa.toInt.toByte)
+                  case Int32Type => Int32Literal(hexa.toInt)
                   case CharType  => CharLiteral(hexa.toInt.toChar)
                   case _ => unsound(t, "unexpected target type for BV value: " + tpe.asString)
                 }
@@ -730,6 +736,14 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case (v,z3ID) => (v.tpe match {
         case BooleanType =>
           model.evalAs[Boolean](z3ID).map(BooleanLiteral)
+
+        /* FIXME missing value for parameter converter:
+         *       (z3.scala.Z3Model, z3.scala.Z3AST) => Option[Byte]
+         * case Int8Type =>
+         *   model.evalAs[Byte](z3ID).map(Int8Literal(_)).orElse {
+         *     model.eval(z3ID).flatMap(t => ex.get(t, Int8Type))
+         *   }
+         */
 
         case Int32Type =>
           model.evalAs[Int](z3ID).map(Int32Literal(_)).orElse {

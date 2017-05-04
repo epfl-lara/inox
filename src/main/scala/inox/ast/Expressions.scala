@@ -192,7 +192,15 @@ trait Expressions { self: Trees =>
   object Int32Literal {
     def apply(i: Int): BVLiteral = BVLiteral(BigInt(i), 32)
     def unapply(e: Expr): Option[Int] = e match {
-      case b @ BVLiteral(bs, 32) => Some(b.toBigInt.toInt)
+      case b @ BVLiteral(_, 32) => Some(b.toBigInt.toInt)
+      case _ => None
+    }
+  }
+
+  object Int8Literal {
+    def apply(i: Int): BVLiteral = BVLiteral(BigInt(i), 8)
+    def unapply(e: Expr): Option[Byte] = e match {
+      case b @ BVLiteral(_, 8) => Some(b.toBigInt.toByte)
       case _ => None
     }
   }

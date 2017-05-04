@@ -50,6 +50,9 @@ trait Types { self: Trees =>
   object Int32Type extends BVType(32) {
     override def toString = "Int32Type"
   }
+  object Int8Type extends BVType(8) {
+    override def toString = "Int8Type"
+  }
 
   case class TypeParameter(id: Identifier, flags: Set[Flag]) extends Type {
     def freshen = TypeParameter(id.freshen, flags)
