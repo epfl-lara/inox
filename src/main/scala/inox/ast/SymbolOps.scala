@@ -1041,20 +1041,14 @@ trait SymbolOps { self: TypeOps =>
 
         case v: Variable => (v, Seq.empty)
 
-        case Lambda(args, body) =>
-          val (recBody, bodyBindings) = rec(body)
-          val (pureBindings, impureBindings) = {
-            val impure = fixpoint { impure: Set[Variable] =>
-              impure ++ bodyBindings.collect { case (vd, e) if (variablesOf(e) & impure).nonEmpty => vd.toVariable  }
-            } (bodyBindings.collect { case (vd, e) if !isPure(e) => vd.toVariable }.toSet)
-            bodyBindings.partition(p => !impure(p._1.toVariable))
-          }
-          (Lambda(args, impureBindings wrap recBody), pureBindings)
-
         case ex @ VariableExtractor(vs) if vs.nonEmpty =>
           val Operator(subs, recons) = ex
           val recSubs = subs.map(rec)
           (recons(recSubs.map { case (e, bindings) => bindings wrap e }), Seq.empty)
+
+        case Lambda(Seq(), body) =>
+          val (recBody, bodyBindings) = rec(body)
+          (Lambda(Seq(), bodyBindings wrap recBody), Seq.empty)
 
         case Operator(es, recons) =>
           val (recEs, esBindings) = es.map(rec).unzip
