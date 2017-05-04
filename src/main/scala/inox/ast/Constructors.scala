@@ -183,8 +183,8 @@ trait Constructors { self: Trees =>
   def plus(lhs: Expr, rhs: Expr): Expr = (lhs, rhs) match {
     case (IntegerLiteral(bi), _) if bi == 0 => rhs
     case (_, IntegerLiteral(bi)) if bi == 0 => lhs
-    case (Int32Literal(0), _) => rhs
-    case (_, Int32Literal(0)) => lhs
+    case (bv: BVLiteral, _) if bv.toBigInt == 0 => rhs
+    case (_, bv: BVLiteral) if bv.toBigInt == 0 => lhs
     case (FractionLiteral(n, d), _) if n == 0 => rhs
     case (_, FractionLiteral(n, d)) if n == 0 => lhs
     case _ => Plus(lhs, rhs)
@@ -195,14 +195,14 @@ trait Constructors { self: Trees =>
     */
   def minus(lhs: Expr, rhs: Expr): Expr = (lhs, rhs) match {
     case (_, IntegerLiteral(bi)) if bi == 0 => lhs
-    case (_, Int32Literal(0)) => lhs
+    case (_, bv: BVLiteral) if bv.toBigInt == 0 => lhs
     case (IntegerLiteral(bi), _) if bi == 0 => UMinus(rhs)
     case _ => Minus(lhs, rhs)
   }
 
   def uminus(e: Expr): Expr = e match {
     case IntegerLiteral(bi) if bi == 0 => e
-    case Int32Literal(0) => e
+    case bv: BVLiteral if bv.toBigInt == 0 => e
     case IntegerLiteral(bi) if bi < 0 => IntegerLiteral(-bi)
     case _ => UMinus(e)
   }
@@ -215,10 +215,10 @@ trait Constructors { self: Trees =>
     case (_, IntegerLiteral(bi)) if bi == 1 => lhs
     case (IntegerLiteral(bi), _) if bi == 0 => IntegerLiteral(0)
     case (_, IntegerLiteral(bi)) if bi == 0 => IntegerLiteral(0)
-    case (Int32Literal(1), _) => rhs
-    case (_, Int32Literal(1)) => lhs
-    case (Int32Literal(0), _) => Int32Literal(0)
-    case (_, Int32Literal(0)) => Int32Literal(0)
+    case (bv: BVLiteral, _) if bv.toBigInt == 1 => rhs
+    case (_, bv: BVLiteral) if bv.toBigInt == 1 => lhs
+    case (bv: BVLiteral, _) if bv.toBigInt == 0 => lhs
+    case (_, bv: BVLiteral) if bv.toBigInt == 0 => rhs
     case _ => Times(lhs, rhs)
   }
 
