@@ -20,6 +20,19 @@ class ExtractorsSuite extends FunSuite {
       case Operator(es, builder) => builder(es)
     }
     assert(e3 === e4)
+
+    val e5 = Plus(Int8Literal(1), Int8Literal(1))
+    val e6 = e5 match {
+      case Operator(es, builder) => builder(es)
+    }
+    assert(e5 === e6)
+
+    val size = 13
+    val e7 = Plus(BVLiteral(1, size), BVLiteral(1, size))
+    val e8 = e7 match {
+      case Operator(es, builder) => builder(es)
+    }
+    assert(e7 === e8)
   }
 
   test("Extractors do not magically change the syntax") {
