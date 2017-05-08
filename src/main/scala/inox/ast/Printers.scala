@@ -247,6 +247,12 @@ trait Printer {
     case BVLShiftRight(l, r) => optP {
       p"$l >>> $r"
     }
+
+    case BVNarrowingCast(e, Int8Type)  => p"$e.toByte"
+    case BVNarrowingCast(e, Int32Type) => p"$e.toInt"
+    case BVWideningCast(e, Int8Type)   => p"$e.toByte"
+    case BVWideningCast(e, Int32Type)  => p"$e.toInt"
+
     case fs @ FiniteSet(rs, _) => p"{${rs}}"
     case fs @ FiniteBag(rs, _) => p"{${rs.toSeq}}"
     case fm @ FiniteMap(rs, dflt, _, _) =>
@@ -312,6 +318,7 @@ trait Printer {
     // Types
     case Untyped => p"<untyped>"
     case UnitType => p"Unit"
+    case Int8Type => p"Byte"
     case Int32Type => p"Int"
     case IntegerType => p"BigInt"
     case RealType => p"Real"
