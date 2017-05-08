@@ -1189,8 +1189,7 @@ trait SymbolOps { self: TypeOps =>
     }
     (e, t) match {
       case (StringLiteral(_), StringType) => true
-      case (Int8Literal(_), Int8Type) => true
-      case (Int32Literal(_), Int32Type) => true
+      case (BVLiteral(_, s), BVType(t)) => s == t
       case (IntegerLiteral(_), IntegerType) => true
       case (CharLiteral(_), CharType) => true
       case (FractionLiteral(_, _), RealType) => true
