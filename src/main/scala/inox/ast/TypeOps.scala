@@ -174,6 +174,8 @@ trait TypeOps {
         TupleType(ts).unveilUntyped
       }
 
+    // TODO BVType, maybe?
+
     case (t1, t2) =>
       // Everything else is invariant
       if (t1 == t2) t1.unveilUntyped else Untyped
@@ -306,6 +308,7 @@ trait TypeOps {
       case Untyped => Some(0)
       case BooleanType => Some(2)
       case UnitType => Some(1)
+      // TODO BVType => 2^size
       case TupleType(tps) => cards(tps).map(_.product)
       case SetType(base) => 
         typeCardinality(base).map(b => Math.pow(2, b).toInt)
