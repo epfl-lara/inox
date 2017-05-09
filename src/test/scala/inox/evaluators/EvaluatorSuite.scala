@@ -60,6 +60,18 @@ class EvaluatorSuite extends FunSuite {
     eval(e, BVWideningCast(Int8Literal(-1), Int32Type)) === Int32Literal(-1)
     eval(e, BVWideningCast(Int8Literal(-128), Int32Type)) === Int32Literal(-128)
 
+    eval(e, Plus(Int32Literal(1), BVWideningCast(Int8Literal(1), Int32Type))) === Int32Literal(2)
+
+    val b: Byte = 1
+    eval(e, Plus(
+              BVWideningCast(Int32Literal(Int.MaxValue), Int64Type),
+              BVWideningCast(Int8Literal(1), Int64Type)
+            )) === Int64Literal(Int.MaxValue + b.toLong)
+    eval(e, Plus(
+              BVWideningCast(Int32Literal(Int.MaxValue), Int64Type),
+              BVWideningCast(Int8Literal(1), Int64Type)
+            )) !== Int64Literal(Int.MaxValue + b.toInt) // mind the `toInt` instead of `toLong`
+
     eval(e, BVNarrowingCast(Int8Literal(1), BVType(7))) === BVLiteral(1, 7)
     eval(e, BVNarrowingCast(Int32Literal(1), Int8Type)) === Int8Literal(1)
     eval(e, BVNarrowingCast(BVLiteral(1, 33), Int32Type)) === Int32Literal(1)
@@ -101,6 +113,12 @@ class EvaluatorSuite extends FunSuite {
 
     eval(e, BVLShiftRight(Int32Literal(8), Int32Literal(1))) === Int32Literal(4)
     eval(e, BVAShiftRight(Int32Literal(8), Int32Literal(1))) === Int32Literal(4)
+
+    eval(e, BVNarrowingCast(
+              BVAnd(BVWideningCast(Int8Literal(1), Int32Type),
+                    BVWideningCast(Int8Literal(2), Int32Type)),
+              Int8Type)
+    ) === Int8Literal(0)
 
     def bvl(x: BigInt) = BVLiteral(x, 11)
     eval(e, BVAnd(bvl(3), bvl(1))) === bvl(1)
