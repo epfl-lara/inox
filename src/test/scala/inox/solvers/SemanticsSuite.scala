@@ -35,9 +35,12 @@ class SemanticsSuite extends FunSuite {
     } super.test(s"$name solver=$sname", tags : _*)(body(ctx))
   }
 
-  protected def filterSolvers(ctx: Context, princess: Boolean = false, cvc4: Boolean = false): Boolean = {
+  protected def filterSolvers(ctx: Context, princess: Boolean = false, cvc4: Boolean = false, unroll: Boolean = false, z3: Boolean = false, native: Boolean = false): Boolean = {
     val solvers = ctx.options.findOptionOrDefault(optSelectedSolvers)
     (!princess || solvers != Set("princess")) &&
+    (!unroll || solvers != Set("unrollz3")) &&
+    (!z3 || solvers != Set("smt-z3")) &&
+    (!native || solvers != Set("nativez3")) &&
     (!cvc4 || solvers != Set("smt-cvc4"))
   }
 
@@ -54,23 +57,36 @@ class SemanticsSuite extends FunSuite {
 
     check(s, BooleanLiteral(true),   BooleanLiteral(true))
     check(s, BooleanLiteral(false),  BooleanLiteral(false))
+    check(s, Int8Literal(-1),        Int8Literal(-1))
     check(s, Int8Literal(0),         Int8Literal(0))
     check(s, Int8Literal(58),        Int8Literal(58))
+    check(s, Int16Literal(58),       Int16Literal(58))
+    check(s, Int16Literal(-1),       Int16Literal(-1))
+    check(s, Int16Literal(0),        Int16Literal(0))
+    check(s, Int32Literal(-1),       Int32Literal(-1))
     check(s, Int32Literal(0),        Int32Literal(0))
     check(s, Int32Literal(42),       Int32Literal(42))
-    // FIXME currently BV 8/16/32 are supported by BitvectorEncoder.
-    // check(s, BVLiteral(0, 13),       BVLiteral(0, 13))
-    // check(s, BVLiteral(58, 64),      BVLiteral(58, 64))
-    // FIXME currently BV 8/32 are supported by Z3Native.
-    // check(s, BVLiteral(0, 16),       BVLiteral(0, 16))
-    // check(s, BVLiteral(58, 16),      BVLiteral(58, 16))
-    // NOTE When/if this is fixed, add relevant tests in the sections below.
     check(s, UnitLiteral(),          UnitLiteral())
+    check(s, IntegerLiteral(-1),     IntegerLiteral(-1))
     check(s, IntegerLiteral(0),      IntegerLiteral(0))
     check(s, IntegerLiteral(42),     IntegerLiteral(42))
     check(s, FractionLiteral(0 ,1),  FractionLiteral(0 ,1))
     check(s, FractionLiteral(42 ,1), FractionLiteral(42, 1))
     check(s, FractionLiteral(26, 3), FractionLiteral(26, 3))
+  }
+
+  test("BitVector & Large integer Literals", filterSolvers(_, princess = true)) { ctx =>
+    val s = solver(ctx)
+
+    // Test the literals that princess doesn't support.
+    check(s, BVLiteral(0, 13),           BVLiteral(0, 13))
+    check(s, BVLiteral(-1, 13),          BVLiteral(-1, 13))
+    check(s, BVLiteral(-1, 33),          BVLiteral(-1, 33))
+    check(s, BVLiteral(4294967296L, 33), BVLiteral(4294967296L, 33)) // 2^32 fits in 33 bits!
+    check(s, Int64Literal(-1),           Int64Literal(-1))
+    check(s, Int64Literal(4294967296L),  Int64Literal(4294967296L))
+
+    check(s, IntegerLiteral(1099511627776L), IntegerLiteral(1099511627776L)) // 2^40
   }
 
   test("BitVector Arithmetic") { ctx =>
@@ -87,7 +103,7 @@ class SemanticsSuite extends FunSuite {
     check(s, Times(Int32Literal(3), Int32Literal(3)),           Int32Literal(9))
   }
 
-  test("BitVector Cast", filterSolvers(_, princess = true)) { ctx =>
+  test("BitVector Casts", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, BVWideningCast(Int8Literal(0), Int32Type),       Int32Literal(0))
@@ -101,7 +117,7 @@ class SemanticsSuite extends FunSuite {
 
     check(s, BVNarrowingCast(Int8Literal(1), BVType(7)),      BVLiteral(1, 7))
     check(s, BVNarrowingCast(Int32Literal(1), Int8Type),      Int8Literal(1))
-    // check(s, BVNarrowingCast(BVLiteral(1, 33), Int32Type),    Int32Literal(1)) // FIXME 32-bit, max is supported
+    check(s, BVNarrowingCast(BVLiteral(1, 33), Int32Type),    Int32Literal(1))
     check(s, BVNarrowingCast(Int32Literal(-1), Int8Type),     Int8Literal(-1))
     check(s, BVNarrowingCast(Int32Literal(-128), Int8Type),   Int8Literal(-128))
     check(s, BVNarrowingCast(Int32Literal(-129), Int8Type),   Int8Literal(127))
