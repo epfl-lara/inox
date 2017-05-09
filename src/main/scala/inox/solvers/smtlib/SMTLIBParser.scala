@@ -81,6 +81,10 @@ trait SMTLIBParser {
       case _ => IntegerLiteral(n)
     }
 
+    // FIXME smtlib.theories.BitVectorConstant.unapply is broken! This is the correct implementation (i.e. no toInt)
+    case QualifiedIdentifier(SMTIdentifier(SSymbol(cst), Seq(SNumeral(size))), None) if cst startsWith "bv" =>
+      BVLiteral(BigInt(cst drop 2), size.toInt)
+
     case FixedSizeBitVectors.BitVectorLit(bs) =>
       BVLiteral(BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
 

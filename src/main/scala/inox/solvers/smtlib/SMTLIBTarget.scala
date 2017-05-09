@@ -511,15 +511,6 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case (SHexadecimal(h), Some(CharType)) =>
         CharLiteral(h.toInt.toChar)
 
-/*
- *      TODO
- *       case (FixedSizeBitVectors.BitVectorConstant(n, b), Some(BVType(size))) if b == size =>
- *         BVLiteral(n, size)
- *
- *       case (SHexadecimal(h), Some(BVType(size))) if size <= 32 =>
- *         BVLiteral(BigInt(h.toInt), size)
- *       // FIXME SHexadecimal has no conversion for integer larger than 32 bits.
- */
 
       case (Num(i), Some(IntegerType)) =>
         IntegerLiteral(i)
