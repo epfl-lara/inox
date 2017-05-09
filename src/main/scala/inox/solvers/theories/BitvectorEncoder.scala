@@ -80,7 +80,7 @@ trait BitvectorEncoder extends SimpleEncoder {
   }
 
   private val bitvectors: Map[Int, BitvectorEncoding] = {
-    (for (i <- List(8, 16, 32)) yield (i -> mkEncoding(i))).toMap
+    (for (i <- List(8, 16, 32, 64)) yield (i -> mkEncoding(i))).toMap
   }
 
   private val chars: BitvectorEncoding = mkEncoding(32)
