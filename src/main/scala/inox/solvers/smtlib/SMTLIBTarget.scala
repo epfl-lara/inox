@@ -429,11 +429,11 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case BVLShiftRight(a, b)       => FixedSizeBitVectors.LShiftRight(toSMT(a), toSMT(b))
 
       case c @ BVWideningCast(e, _)  =>
-        val Some((from, to)) = c.cast // FIXME can we assume it's well typed here?
+        val Some((from, to)) = c.cast
         FixedSizeBitVectors.SignExtend(to - from, toSMT(e))
 
       case c @ BVNarrowingCast(e, _) =>
-        val Some((from, to)) = c.cast // FIXME can we assume it's well typed here?
+        val Some((from, to)) = c.cast
         FixedSizeBitVectors.Extract(to - 1, 0, toSMT(e))
 
       case And(sub)                  => SmtLibConstructors.and(sub.map(toSMT))

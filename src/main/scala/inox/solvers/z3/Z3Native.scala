@@ -253,9 +253,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case Implies(l, r) => z3.mkImplies(rec(l), rec(r))
       case Not(Equals(l, r)) => z3.mkDistinct(rec(l), rec(r))
       case Not(e) => z3.mkNot(rec(e))
-      case bv @ BVLiteral(_, size) if size <= 32 => z3.mkInt(bv.toBigInt.toInt, typeToSort(BVType(size)))
-      // FIXME currently ScalaZ3 doesn't support integer larger than Int(32).
-      case bv @ BVLiteral(_, size) => unsupported(bv, "BitVector too big to fit in an integer")
+      case bv @ BVLiteral(_, _) => z3.mkNumeral(bv.toBigInt.toString, typeToSort(bv.getType))
       case IntegerLiteral(v) => z3.mkNumeral(v.toString, typeToSort(IntegerType))
       case FractionLiteral(n, d) => z3.mkNumeral(s"$n / $d", typeToSort(RealType))
       case CharLiteral(c) => z3.mkInt(c, typeToSort(CharType))
@@ -306,11 +304,11 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case BVLShiftRight(l, r) => z3.mkBVLshr(rec(l), rec(r))
 
       case c @ BVWideningCast(e, _)  =>
-        val Some((from, to)) = c.cast // FIXME can we assume it's well typed here?
+        val Some((from, to)) = c.cast
         z3.mkSignExt(to - from, rec(e))
 
       case c @ BVNarrowingCast(e, _) =>
-        val Some((from, to)) = c.cast // FIXME can we assume it's well typed here?
+        val Some((from, to)) = c.cast
         z3.mkExtract(to - 1, 0, rec(e))
 
       case LessThan(l, r) => l.getType match {
