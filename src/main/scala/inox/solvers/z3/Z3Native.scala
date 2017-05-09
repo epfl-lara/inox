@@ -514,54 +514,28 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       val kind = z3.getASTKind(t)
       kind match {
         case Z3NumeralIntAST(Some(v)) =>
-          val leading = t.toString.substring(0, 2 min t.toString.length)
-          if (leading == "#x") {
-            _root_.smtlib.common.Hexadecimal.fromString(t.toString.substring(2)) match {
-              case Some(hexa) =>
-                tpe match {
-                  case BVType(size) if size <= 32 => BVLiteral(BigInt(hexa.toInt), size)
-                  case BVType(size) => unsupported(tpe, "Value might be too big, doesn't fit in Int")
-                  case CharType  => CharLiteral(hexa.toInt.toChar)
-                  case IntegerType => IntegerLiteral(BigInt(hexa.toInt))
-                  case other =>
-                    unsupported(other, "Unexpected target type for BV value")
-                }
-              case None => unsound(t, "could not translate hexadecimal Z3 numeral")
-              }
-          } else {
-            tpe match {
-              case BVType(size) if size <= 32 => BVLiteral(BigInt(v), size)
-              case BVType(size) => unsupported(tpe, "Value might be too big, doesn't fit in Int")
-              case CharType  => CharLiteral(v.toChar)
-              case IntegerType => IntegerLiteral(BigInt(v))
-              case other =>
-                unsupported(other, "Unexpected type for BV value: " + other)
-            }
+          tpe match {
+            case BVType(size) => BVLiteral(BigInt(v), size)
+            case CharType => CharLiteral(v.toChar)
+            case IntegerType => IntegerLiteral(BigInt(v))
+
+            case other => unsupported(other, s"Unexpected target type for value $v")
           }
 
         case Z3NumeralIntAST(None) =>
           val ts = t.toString
-          if(ts.length > 4 && ts.substring(0, 2) == "bv" && ts.substring(ts.length - 4) == "[32]") {
-            val integer = ts.substring(2, ts.length - 4)
-            tpe match {
-              case Int8Type  => Int8Literal(integer.toLong.toByte) // FIXME is this right? above reads "ends with [32]"...
-              case Int32Type => Int32Literal(integer.toLong.toInt)
-              case CharType  => CharLiteral(integer.toInt.toChar)
-              // @nv XXX: why would we have this!? case IntegerType => IntegerLiteral(BigInt(integer))
-              case _ =>
-                reporter.fatalError("Unexpected target type for BV value: " + tpe.asString)
-            }
-          } else {
-            _root_.smtlib.common.Hexadecimal.fromString(t.toString.substring(2)) match {
-              case Some(hexa) =>
-                tpe match {
-                  case Int8Type  => Int8Literal(hexa.toInt.toByte)
-                  case Int32Type => Int32Literal(hexa.toInt)
-                  case CharType  => CharLiteral(hexa.toInt.toChar)
-                  case _ => unsound(t, "unexpected target type for BV value: " + tpe.asString)
-                }
-              case None => unsound(t, "could not translate Z3NumeralIntAST numeral")
-            }
+          tpe match {
+            case BVType(size) =>
+              if (ts.startsWith("#b")) BVLiteral(BigInt(ts.drop(2), 2), size)
+              else if (ts.startsWith("#x")) BVLiteral(BigInt(ts.drop(2), 16), size)
+              else if (ts.startsWith("#")) reporter.fatalError(s"Unexpected format for BV value: $ts")
+              else BVLiteral(BigInt(ts, 10), size)
+
+            case IntegerType =>
+              if (ts.startsWith("#")) reporter.fatalError(s"Unexpected format for Integer value: $ts")
+              else IntegerLiteral(BigInt(ts, 10))
+
+            case other => unsupported(other, s"Unexpected target type for value $ts")
           }
 
         case Z3NumeralRealAST(n: BigInt, d: BigInt) => FractionLiteral(n, d)
@@ -744,25 +718,25 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     val ex = new ModelExtractor(model)
 
     val vars = variables.aToB.flatMap {
+      /** WARNING this code is very similar to Z3Unrolling.modelEval!!! */
       case (v,z3ID) => (v.tpe match {
         case BooleanType =>
           model.evalAs[Boolean](z3ID).map(BooleanLiteral)
-
-        /* FIXME missing value for parameter converter:
-         *       (z3.scala.Z3Model, z3.scala.Z3AST) => Option[Byte]
-         * case Int8Type =>
-         *   model.evalAs[Byte](z3ID).map(Int8Literal(_)).orElse {
-         *     model.eval(z3ID).flatMap(t => ex.get(t, Int8Type))
-         *   }
-         */
 
         case Int32Type =>
           model.evalAs[Int](z3ID).map(Int32Literal(_)).orElse {
             model.eval(z3ID).flatMap(t => ex.get(t, Int32Type))
           }
 
-        case IntegerType =>
-          model.evalAs[Int](z3ID).map(i => IntegerLiteral(BigInt(i)))
+         /*
+          * FIXME this seems to work, but why not rely on the default evaluation instead of the specialised evaluation
+          *       for Int(32) which fails for big integers.
+          *
+          * case IntegerType =>
+          *  model.evalAs[Int](z3ID).map(IntegerLiteral(_)).orElse {
+          *    model.eval(z3ID).flatMap(ex.get(_, IntegerType))
+          *  }
+          */
 
         case other => model.eval(z3ID).flatMap(t => ex.get(t, other))
       }).map(v.toVal -> _)

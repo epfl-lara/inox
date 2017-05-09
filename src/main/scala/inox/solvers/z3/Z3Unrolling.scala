@@ -92,20 +92,23 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
       elem => model.getArrayValue(elem).map(p => p._1.toSeq -> p._2)
     }
 
+    /** WARNING this code is very similar to Z3Native.extractModel!!! */
     def modelEval(elem: Z3AST, tpe: t.Type): Option[t.Expr] = {
       val timer = ctx.timers.solvers.z3.eval.start()
       val res = tpe match {
         case t.BooleanType => model.evalAs[Boolean](elem).map(t.BooleanLiteral)
-        /* FIXME missing implicit value for parameter converter:
-         *       (z3.scala.Z3Model, z3.scala.Z3AST) => Option[Byte]
-         * case t.Int8Type => model.evalAs[Byte](elem).map(t.Int8Literal(_)).orElse {
-         *   model.eval(elem).flatMap(term => ex.get(term, t.Int32Type))
-         * }
-         */
+
         case t.Int32Type => model.evalAs[Int](elem).map(t.Int32Literal(_)).orElse {
           model.eval(elem).flatMap(term => ex.get(term, t.Int32Type))
         }
-        case t.IntegerType => model.evalAs[Int](elem).map(t.IntegerLiteral(_))
+
+        /* FIXME this seems to work, but why not rely on the default evaluation instead of the specialised evaluation
+         *       for Int(32) which fails for big integers.
+         * case t.IntegerType => model.evalAs[Int](elem).map(t.IntegerLiteral(_)).orElse {
+         *   model.eval(elem).flatMap(ex.get(_, t.IntegerType))
+         * }
+         */
+
         case other => model.eval(elem).flatMap(ex.get(_, other))
       }
       timer.stop()
