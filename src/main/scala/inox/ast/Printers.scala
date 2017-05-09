@@ -156,7 +156,9 @@ trait Printer {
     case StringLength(expr) => p"$expr.length"
 
     case Int8Literal(v) => p"$v"
+    case Int16Literal(v) => p"$v"
     case Int32Literal(v) => p"$v"
+    case Int64Literal(v) => p"$v"
     case BVLiteral(bits, size) => p"x${(size to 1 by -1).map(i => if (bits(i)) "1" else "0")}"
     case IntegerLiteral(v) => p"$v"
     case FractionLiteral(n, d) =>
@@ -249,9 +251,13 @@ trait Printer {
     }
 
     case BVNarrowingCast(e, Int8Type)  => p"$e.toByte"
+    case BVNarrowingCast(e, Int16Type)  => p"$e.toShort"
     case BVNarrowingCast(e, Int32Type) => p"$e.toInt"
+    case BVNarrowingCast(e, Int64Type)  => p"$e.toLong"
     case BVWideningCast(e, Int8Type)   => p"$e.toByte"
+    case BVWideningCast(e, Int16Type)   => p"$e.toShort"
     case BVWideningCast(e, Int32Type)  => p"$e.toInt"
+    case BVWideningCast(e, Int64Type)   => p"$e.toLong"
 
     case fs @ FiniteSet(rs, _) => p"{${rs}}"
     case fs @ FiniteBag(rs, _) => p"{${rs.toSeq}}"
@@ -319,7 +325,9 @@ trait Printer {
     case Untyped => p"<untyped>"
     case UnitType => p"Unit"
     case Int8Type => p"Byte"
+    case Int16Type => p"Short"
     case Int32Type => p"Int"
+    case Int64Type => p"Long"
     case IntegerType => p"BigInt"
     case RealType => p"Real"
     case CharType => p"Char"

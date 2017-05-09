@@ -47,11 +47,18 @@ trait Types { self: Trees =>
   case object StringType  extends Type
 
   case class BVType(size: Int) extends Type
+
+  object Int8Type extends BVType(8) {
+    override def toString = "Int8Type"
+  }
+  object Int16Type extends BVType(16) {
+    override def toString = "Int16Type"
+  }
   object Int32Type extends BVType(32) {
     override def toString = "Int32Type"
   }
-  object Int8Type extends BVType(8) {
-    override def toString = "Int8Type"
+  object Int64Type extends BVType(64) {
+    override def toString = "Int64Type"
   }
 
   case class TypeParameter(id: Identifier, flags: Set[Flag]) extends Type {
