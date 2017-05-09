@@ -177,7 +177,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
   // Prepare some of the Z3 sorts, but *not* the tuple sorts; these are created on-demand.
   sorts += Int8Type -> z3.mkBVSort(8)
+  sorts += Int16Type -> z3.mkBVSort(16)
   sorts += Int32Type -> z3.mkBVSort(32)
+  sorts += Int64Type -> z3.mkBVSort(64)
   sorts += CharType -> z3.mkBVSort(16)
   sorts += IntegerType -> z3.mkIntSort
   sorts += RealType -> z3.mkRealSort
@@ -188,7 +190,8 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
   // assumes prepareSorts has been called....
   protected def typeToSort(oldtt: Type): Z3Sort = bestRealType(oldtt) match {
-    case Int8Type | Int32Type | BooleanType | IntegerType | RealType | CharType | StringType =>
+    case Int8Type | Int16Type | Int32Type | Int64Type |
+         BooleanType | IntegerType | RealType | CharType | StringType =>
       sorts(oldtt)
 
     case tt @ BVType(i) =>

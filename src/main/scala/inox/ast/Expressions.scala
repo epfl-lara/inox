@@ -189,18 +189,34 @@ trait Expressions { self: Trees =>
     }
   }
 
+  object Int8Literal {
+    def apply(x: Byte): BVLiteral = BVLiteral(BigInt(x), 8)
+    def unapply(e: Expr): Option[Byte] = e match {
+      case b @ BVLiteral(_, 8) => Some(b.toBigInt.toByte)
+      case _ => None
+    }
+  }
+
+  object Int16Literal {
+    def apply(x: Short): BVLiteral = BVLiteral(BigInt(x), 16)
+    def unapply(e: Expr): Option[Short] = e match {
+      case b @ BVLiteral(_, 16) => Some(b.toBigInt.toShort)
+      case _ => None
+    }
+  }
+
   object Int32Literal {
-    def apply(i: Int): BVLiteral = BVLiteral(BigInt(i), 32)
+    def apply(x: Int): BVLiteral = BVLiteral(BigInt(x), 32)
     def unapply(e: Expr): Option[Int] = e match {
       case b @ BVLiteral(_, 32) => Some(b.toBigInt.toInt)
       case _ => None
     }
   }
 
-  object Int8Literal {
-    def apply(i: Int): BVLiteral = BVLiteral(BigInt(i), 8)
-    def unapply(e: Expr): Option[Byte] = e match {
-      case b @ BVLiteral(_, 8) => Some(b.toBigInt.toByte)
+  object Int64Literal {
+    def apply(x: Long): BVLiteral = BVLiteral(BigInt(x), 64)
+    def unapply(e: Expr): Option[Long] = e match {
+      case b @ BVLiteral(_, 64) => Some(b.toBigInt.toLong)
       case _ => None
     }
   }
