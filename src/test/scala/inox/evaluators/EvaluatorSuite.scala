@@ -26,6 +26,7 @@ class EvaluatorSuite extends FunSuite {
     eval(e, Int32Literal(0))        === Int32Literal(0)
     eval(e, Int32Literal(42))       === Int32Literal(42)
     eval(e, BVLiteral(0, 13))       === BVLiteral(0, 13)
+    eval(e, BVLiteral(261, 13))     === BVLiteral(261, 13)
     eval(e, BVLiteral(58, 64))      === BVLiteral(58, 64)
     eval(e, UnitLiteral())          === UnitLiteral()
     eval(e, IntegerLiteral(0))      === IntegerLiteral(0)
