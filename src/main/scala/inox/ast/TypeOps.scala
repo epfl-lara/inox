@@ -174,8 +174,6 @@ trait TypeOps {
         TupleType(ts).unveilUntyped
       }
 
-    // TODO BVType, maybe?
-
     case (t1, t2) =>
       // Everything else is invariant
       if (t1 == t2) t1.unveilUntyped else Untyped
