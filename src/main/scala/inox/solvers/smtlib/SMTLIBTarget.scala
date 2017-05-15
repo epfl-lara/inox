@@ -392,8 +392,21 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           Ints.Sub(toSMT(a), Ints.Mul(toSMT(b), q))
       }
 
-      case Modulo(a, b) =>
-        Ints.Mod(toSMT(a), toSMT(b))
+      case Modulo(a, b) => a.getType match {
+        case BVType(size) => // we want x mod |y|
+          val ar = toSMT(a)
+          val br = toSMT(b)
+          FixedSizeBitVectors.SMod(
+            ar,
+            Core.ITE(
+              FixedSizeBitVectors.SLessThan(br, toSMT(BVLiteral(0, size))),
+              FixedSizeBitVectors.Neg(br),
+              br
+            )
+          )
+
+        case IntegerType => Ints.Mod(toSMT(a), toSMT(b))
+      }
 
       case LessThan(a, b) => a.getType match {
         case BVType(_)   => FixedSizeBitVectors.SLessThan(toSMT(a), toSMT(b))

@@ -289,7 +289,24 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
           val q = rec(Division(l, r))
           z3.mkSub(rec(l), z3.mkMul(rec(r), q))
       }
-      case Modulo(l, r) => z3.mkMod(rec(l), rec(r))
+
+      case Modulo(l, r) => l.getType match {
+        case BVType(size) => // we want x mod |y|
+          val lr = rec(l)
+          val rr = rec(r)
+          z3.mkBVSmod(
+            lr,
+            z3.mkITE(
+              z3.mkBVSle(rr, rec(BVLiteral(0, size))),
+              z3.mkBVNeg(rr),
+              rr
+            )
+          )
+
+        case _ =>
+          z3.mkMod(rec(l), rec(r))
+      }
+
       case UMinus(e) => e.getType match {
         case BVType(_) => z3.mkBVNeg(rec(e))
         case _ => z3.mkUnaryMinus(rec(e))
