@@ -203,7 +203,7 @@ class SemanticsSuite extends FunSuite {
     check(s, Times(IntegerLiteral(2), IntegerLiteral(3)), IntegerLiteral(6))
   }
 
-  test("BigInt Modulo and Remainder") { ctx =>
+  test("BigInt Division, Modulo and Remainder") { ctx =>
     val s = solver(ctx)
 
     check(s, Division(IntegerLiteral(10), IntegerLiteral(3)),  IntegerLiteral(3))
@@ -212,7 +212,6 @@ class SemanticsSuite extends FunSuite {
 
     check(s, Division(IntegerLiteral(-1), IntegerLiteral(3)),  IntegerLiteral(0))
     check(s, Remainder(IntegerLiteral(-1), IntegerLiteral(3)), IntegerLiteral(-1))
-
     check(s, Modulo(IntegerLiteral(-1), IntegerLiteral(3)),    IntegerLiteral(2))
 
     check(s, Division(IntegerLiteral(-1), IntegerLiteral(-3)), IntegerLiteral(0))
@@ -285,32 +284,43 @@ class SemanticsSuite extends FunSuite {
     check(s, LessThan(bvl(4), bvl(7)),      BooleanLiteral(true))
   }
 
-  test("BitVector Division and Remainder", filterSolvers(_, princess = true)) { ctx =>
-    // FIXME is it intentional that Modulo are not tested?
+  test("BitVector Division, Remainder and Modulo", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Division(Int32Literal(10), Int32Literal(3)),   Int32Literal(3))
     check(s, Remainder(Int32Literal(10), Int32Literal(3)),  Int32Literal(1))
+    check(s, Modulo(Int32Literal(10), Int32Literal(3)),     Int32Literal(1))
 
     check(s, Division(Int32Literal(-1), Int32Literal(3)),   Int32Literal(0))
     check(s, Remainder(Int32Literal(-1), Int32Literal(3)),  Int32Literal(-1))
+    check(s, Modulo(Int32Literal(-1), Int32Literal(3)),     Int32Literal(2))
 
     check(s, Division(Int32Literal(-1), Int32Literal(-3)),  Int32Literal(0))
     check(s, Remainder(Int32Literal(-1), Int32Literal(-3)), Int32Literal(-1))
+    check(s, Modulo(Int32Literal(-1), Int32Literal(-3)),    Int32Literal(2))
 
     check(s, Division(Int32Literal(1), Int32Literal(-3)),   Int32Literal(0))
     check(s, Remainder(Int32Literal(1), Int32Literal(-3)),  Int32Literal(1))
+    check(s, Modulo(Int32Literal(1), Int32Literal(-3)),     Int32Literal(1))
 
     check(s, Division(Int8Literal(1), Int8Literal(-3)),     Int8Literal(0))
     check(s, Remainder(Int8Literal(1), Int8Literal(-3)),    Int8Literal(1))
+    check(s, Remainder(Int8Literal(-1), Int8Literal(3)),    Int8Literal(-1))
+    check(s, Modulo(Int8Literal(-1), Int8Literal(3)),       Int8Literal(2))
     check(s, Division(Int16Literal(1), Int16Literal(-3)),   Int16Literal(0))
     check(s, Remainder(Int16Literal(1), Int16Literal(-3)),  Int16Literal(1))
+    check(s, Remainder(Int16Literal(-1), Int16Literal(3)),  Int16Literal(-1))
+    check(s, Modulo(Int16Literal(-1), Int16Literal(3)),     Int16Literal(2))
     check(s, Division(Int64Literal(1), Int64Literal(-3)),   Int64Literal(0))
     check(s, Remainder(Int64Literal(1), Int64Literal(-3)),  Int64Literal(1))
+    check(s, Remainder(Int64Literal(-1), Int64Literal(3)),  Int64Literal(-1))
+    check(s, Modulo(Int64Literal(-1), Int64Literal(3)),     Int64Literal(2))
 
     def bvl(x: BigInt) = BVLiteral(x, 13)
     check(s, Division(bvl(1), bvl(-3)),  bvl(0))
     check(s, Remainder(bvl(1), bvl(-3)), bvl(1))
+    check(s, Remainder(bvl(-1), bvl(3)), bvl(-1))
+    check(s, Modulo(bvl(-1), bvl(3)),    bvl(2))
   }
 
   test("Boolean Operations") { ctx =>

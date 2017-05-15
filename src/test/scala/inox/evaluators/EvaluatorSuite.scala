@@ -159,7 +159,6 @@ class EvaluatorSuite extends FunSuite {
 
     eval(e, Division(IntegerLiteral(-1), IntegerLiteral(3)))   === IntegerLiteral(0)
     eval(e, Remainder(IntegerLiteral(-1), IntegerLiteral(3)))  === IntegerLiteral(-1)
-
     eval(e, Modulo(IntegerLiteral(-1), IntegerLiteral(3)))     === IntegerLiteral(2)
 
     eval(e, Division(IntegerLiteral(-1), IntegerLiteral(-3)))  === IntegerLiteral(0)
@@ -232,32 +231,43 @@ class EvaluatorSuite extends FunSuite {
     eval(e, LessThan(bvl(4), bvl(7)))       === BooleanLiteral(true)
   }
 
-  test("BitVector Division and Remainder") {
-    // FIXME is it intentional that Modulo are not tested?
+  test("BitVector Division, Remainder and Modulo") {
     val e = evaluator(ctx)
 
     eval(e, Division(Int32Literal(10), Int32Literal(3)))    === Int32Literal(3)
     eval(e, Remainder(Int32Literal(10), Int32Literal(3)))   === Int32Literal(1)
+    eval(e, Modulo(Int32Literal(10), Int32Literal(3)))      === Int32Literal(1)
 
     eval(e, Division(Int32Literal(-1), Int32Literal(3)))    === Int32Literal(0)
     eval(e, Remainder(Int32Literal(-1), Int32Literal(3)))   === Int32Literal(-1)
+    eval(e, Modulo(Int32Literal(-1), Int32Literal(3)))      === Int32Literal(2)
 
     eval(e, Division(Int32Literal(-1), Int32Literal(-3)))   === Int32Literal(0)
     eval(e, Remainder(Int32Literal(-1), Int32Literal(-3)))  === Int32Literal(-1)
+    eval(e, Modulo(Int32Literal(-1), Int32Literal(-3)))     === Int32Literal(2)
 
     eval(e, Division(Int32Literal(1), Int32Literal(-3)))    === Int32Literal(0)
     eval(e, Remainder(Int32Literal(1), Int32Literal(-3)))   === Int32Literal(1)
+    eval(e, Modulo(Int32Literal(1), Int32Literal(-3)))      === Int32Literal(1)
 
     eval(e, Division(Int8Literal(1), Int8Literal(-3)))      === Int8Literal(0)
     eval(e, Remainder(Int8Literal(1), Int8Literal(-3)))     === Int8Literal(1)
+    eval(e, Remainder(Int8Literal(-1), Int8Literal(3)))     === Int8Literal(-1)
+    eval(e, Modulo(Int8Literal(-1), Int8Literal(3)))        === Int8Literal(2)
     eval(e, Division(Int16Literal(1), Int16Literal(-3)))    === Int16Literal(0)
     eval(e, Remainder(Int16Literal(1), Int16Literal(-3)))   === Int16Literal(1)
+    eval(e, Remainder(Int16Literal(-1), Int16Literal(3)))   === Int16Literal(-1)
+    eval(e, Modulo(Int16Literal(-1), Int16Literal(3)))      === Int16Literal(2)
     eval(e, Division(Int64Literal(1), Int64Literal(-3)))    === Int64Literal(0)
     eval(e, Remainder(Int64Literal(1), Int64Literal(-3)))   === Int64Literal(1)
+    eval(e, Remainder(Int64Literal(-1), Int64Literal(3)))   === Int64Literal(-1)
+    eval(e, Modulo(Int64Literal(-1), Int64Literal(3)))      === Int64Literal(2)
 
     def bvl(x: BigInt) = BVLiteral(x, 13)
     eval(e, Division(bvl(1), bvl(-3)))    === bvl(0)
     eval(e, Remainder(bvl(1), bvl(-3)))   === bvl(1)
+    eval(e, Remainder(bvl(-1), bvl(3)))   === bvl(-1)
+    eval(e, Modulo(bvl(-1), bvl(3)))      === bvl(2)
   }
 
   test("Boolean Operations") {
