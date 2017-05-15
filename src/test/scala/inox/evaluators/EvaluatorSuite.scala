@@ -21,17 +21,27 @@ class EvaluatorSuite extends FunSuite {
 
     eval(e, BooleanLiteral(true))   === BooleanLiteral(true)
     eval(e, BooleanLiteral(false))  === BooleanLiteral(false)
+    eval(e, Int8Literal(-1))        === Int8Literal(-1)
     eval(e, Int8Literal(0))         === Int8Literal(0)
     eval(e, Int8Literal(58))        === Int8Literal(58)
+    eval(e, Int16Literal(58))       === Int16Literal(58)
+    eval(e, Int16Literal(-1))       === Int16Literal(-1)
+    eval(e, Int16Literal(0))        === Int16Literal(0)
+    eval(e, Int32Literal(-1))       === Int32Literal(-1)
     eval(e, Int32Literal(0))        === Int32Literal(0)
     eval(e, Int32Literal(42))       === Int32Literal(42)
+    eval(e, Int64Literal(58))       === Int64Literal(58)
+    eval(e, Int64Literal(-1))       === Int64Literal(-1)
+    eval(e, Int64Literal(4294967296L)) === Int64Literal(4294967296L)
     eval(e, BVLiteral(0, 13))       === BVLiteral(0, 13)
     eval(e, BVLiteral(261, 13))     === BVLiteral(261, 13)
-    eval(e, BVLiteral(58, 64))      === BVLiteral(58, 64)
+    eval(e, BVLiteral(-1, 33))      === BVLiteral(-1, 33)
+    eval(e, BVLiteral(4294967296L, 33)) === BVLiteral(4294967296L, 33) // 2^32 fits in 33 bits!
     eval(e, UnitLiteral())          === UnitLiteral()
     eval(e, IntegerLiteral(0))      === IntegerLiteral(0)
     eval(e, IntegerLiteral(42))     === IntegerLiteral(42)
-    eval(e, FractionLiteral(0 ,1))  === FractionLiteral(0 ,1)
+    eval(e, IntegerLiteral(1099511627776L)) === IntegerLiteral(1099511627776L) // 2^40
+    eval(e, FractionLiteral(0, 1))  === FractionLiteral(0, 1)
     eval(e, FractionLiteral(42 ,1)) === FractionLiteral(42, 1)
     eval(e, FractionLiteral(26, 3)) === FractionLiteral(26, 3)
   }
@@ -39,26 +49,27 @@ class EvaluatorSuite extends FunSuite {
   test("BitVector Arithmetic") {
     val e = evaluator(ctx)
 
-    eval(e, Plus(Int8Literal(3), Int8Literal(5)))  === Int8Literal(8)
+    eval(e, Plus(Int8Literal(3), Int8Literal(5)))             === Int8Literal(8)
     eval(e, Plus(Int8Literal(Byte.MaxValue), Int8Literal(1))) === Int8Literal(Byte.MinValue)
-    eval(e, Times(Int8Literal(3), Int8Literal(3))) === Int8Literal(9)
+    eval(e, Times(Int8Literal(3), Int8Literal(3)))            === Int8Literal(9)
 
-    eval(e, Plus(Int32Literal(3), Int32Literal(5)))  === Int32Literal(8)
-    eval(e, Plus(Int32Literal(0), Int32Literal(5)))  === Int32Literal(5)
-    eval(e, Plus(Int32Literal(1), Int32Literal(-2))) === Int32Literal(-1)
-    eval(e, Plus(Int32Literal(Int.MaxValue), Int32Literal(1))) === Int32Literal(Int.MinValue)
-    eval(e, Times(Int32Literal(3), Int32Literal(3))) === Int32Literal(9)
+    eval(e, Plus(Int32Literal(3), Int32Literal(5)))             === Int32Literal(8)
+    eval(e, Plus(Int32Literal(0), Int32Literal(5)))             === Int32Literal(5)
+    eval(e, Plus(Int32Literal(1), Int32Literal(-2)))            === Int32Literal(-1)
+    eval(e, Plus(Int32Literal(Int.MaxValue), Int32Literal(1)))  === Int32Literal(Int.MinValue)
+    eval(e, Times(Int32Literal(3), Int32Literal(3)))            === Int32Literal(9)
 
-    eval(e, Plus(BVLiteral(3, 13), BVLiteral(5, 13)))  === BVLiteral(8, 13)
-    eval(e, Plus(BVLiteral(3, 16), BVLiteral(5, 16)))  === BVLiteral(8, 16)
-    eval(e, Plus(BVLiteral(Short.MaxValue, 16), BVLiteral(1, 16))) === BVLiteral(Short.MinValue, 16)
+    eval(e, Plus(BVLiteral(3, 13), BVLiteral(5, 13)))               === BVLiteral(8, 13)
+    eval(e, Plus(BVLiteral(3, 16), BVLiteral(5, 16)))               === BVLiteral(8, 16)
+    eval(e, Plus(BVLiteral(Short.MaxValue, 16), BVLiteral(1, 16)))  === BVLiteral(Short.MinValue, 16)
 
-    eval(e, BVWideningCast(Int8Literal(0), Int32Type)) === Int32Literal(0)
-    eval(e, BVWideningCast(Int8Literal(1), Int32Type)) === Int32Literal(1)
-    eval(e, BVWideningCast(Int8Literal(1), BVType(9))) === BVLiteral(1, 9)
-    eval(e, BVWideningCast(BVLiteral(1, 2), Int32Type)) === Int32Literal(1)
-    eval(e, BVWideningCast(BVLiteral(1, 1), Int32Type)) === Int32Literal(-1) // 2's complement on 1 bit
-    eval(e, BVWideningCast(Int8Literal(-1), Int32Type)) === Int32Literal(-1)
+    eval(e, BVWideningCast(Int8Literal(0), Int32Type))    === Int32Literal(0)
+    eval(e, BVWideningCast(Int8Literal(1), Int32Type))    === Int32Literal(1)
+    eval(e, BVWideningCast(BVLiteral(2, 3), BVType(4)))   === BVLiteral(2, 4)
+    eval(e, BVWideningCast(Int8Literal(1), BVType(9)))    === BVLiteral(1, 9)
+    eval(e, BVWideningCast(BVLiteral(1, 2), Int32Type))   === Int32Literal(1)
+    eval(e, BVWideningCast(BVLiteral(1, 1), Int32Type))   === Int32Literal(-1) // 2's complement on 1 bit
+    eval(e, BVWideningCast(Int8Literal(-1), Int32Type))   === Int32Literal(-1)
     eval(e, BVWideningCast(Int8Literal(-128), Int32Type)) === Int32Literal(-128)
 
     eval(e, Plus(Int32Literal(1), BVWideningCast(Int8Literal(1), Int32Type))) === Int32Literal(2)
@@ -73,24 +84,24 @@ class EvaluatorSuite extends FunSuite {
               BVWideningCast(Int8Literal(1), Int64Type)
             )) !== Int64Literal(Int.MaxValue + b.toInt) // mind the `toInt` instead of `toLong`
 
-    eval(e, BVNarrowingCast(Int8Literal(1), BVType(7))) === BVLiteral(1, 7)
-    eval(e, BVNarrowingCast(Int32Literal(1), Int8Type)) === Int8Literal(1)
-    eval(e, BVNarrowingCast(BVLiteral(1, 33), Int32Type)) === Int32Literal(1)
-    eval(e, BVNarrowingCast(Int32Literal(-1), Int8Type)) === Int8Literal(-1)
-    eval(e, BVNarrowingCast(Int32Literal(-128), Int8Type)) === Int8Literal(-128)
-    eval(e, BVNarrowingCast(Int32Literal(-129), Int8Type)) === Int8Literal(127)
-    eval(e, BVNarrowingCast(Int32Literal(128), Int8Type)) === Int8Literal(-128)
+    eval(e, BVNarrowingCast(Int8Literal(1), BVType(7)))     === BVLiteral(1, 7)
+    eval(e, BVNarrowingCast(Int32Literal(1), Int8Type))     === Int8Literal(1)
+    eval(e, BVNarrowingCast(BVLiteral(1, 33), Int32Type))   === Int32Literal(1)
+    eval(e, BVNarrowingCast(Int32Literal(-1), Int8Type))    === Int8Literal(-1)
+    eval(e, BVNarrowingCast(Int32Literal(-128), Int8Type))  === Int8Literal(-128)
+    eval(e, BVNarrowingCast(Int32Literal(-129), Int8Type))  === Int8Literal(127)
+    eval(e, BVNarrowingCast(Int32Literal(128), Int8Type))   === Int8Literal(-128)
   }
 
   test("eval bitwise operations") {
     val e = evaluator(ctx)
 
-    eval(e, BVAnd(Int8Literal(3), Int8Literal(1))) === Int8Literal(1)
-    eval(e, BVOr(Int8Literal(5), Int8Literal(3))) === Int8Literal(7)
-    eval(e, BVXor(Int8Literal(3), Int8Literal(1))) === Int8Literal(2)
-    eval(e, BVNot(Int8Literal(1))) === Int8Literal(-2)
-    eval(e, BVShiftLeft(Int8Literal(3), Int8Literal(1))) === Int8Literal(6)
-    eval(e, BVAShiftRight(Int8Literal(8), Int8Literal(1))) === Int8Literal(4)
+    eval(e, BVAnd(Int8Literal(3), Int8Literal(1)))          === Int8Literal(1)
+    eval(e, BVOr(Int8Literal(5), Int8Literal(3)))           === Int8Literal(7)
+    eval(e, BVXor(Int8Literal(3), Int8Literal(1)))          === Int8Literal(2)
+    eval(e, BVNot(Int8Literal(1)))                          === Int8Literal(-2)
+    eval(e, BVShiftLeft(Int8Literal(3), Int8Literal(1)))    === Int8Literal(6)
+    eval(e, BVAShiftRight(Int8Literal(8), Int8Literal(1)))  === Int8Literal(4)
 
     eval(e, BVAnd(Int32Literal(3), Int32Literal(1))) === Int32Literal(1)
     eval(e, BVAnd(Int32Literal(3), Int32Literal(3))) === Int32Literal(3)
@@ -122,12 +133,12 @@ class EvaluatorSuite extends FunSuite {
     ) === Int8Literal(0)
 
     def bvl(x: BigInt) = BVLiteral(x, 11)
-    eval(e, BVAnd(bvl(3), bvl(1))) === bvl(1)
-    eval(e, BVOr(bvl(5), bvl(3))) === bvl(7)
-    eval(e, BVXor(bvl(3), bvl(1))) === bvl(2)
-    eval(e, BVNot(bvl(1))) === bvl(-2)
-    eval(e, BVShiftLeft(bvl(3), bvl(1))) === bvl(6)
-    eval(e, BVAShiftRight(bvl(8), bvl(1))) === bvl(4)
+    eval(e, BVAnd(bvl(3), bvl(1)))          === bvl(1)
+    eval(e, BVOr(bvl(5), bvl(3)))           === bvl(7)
+    eval(e, BVXor(bvl(3), bvl(1)))          === bvl(2)
+    eval(e, BVNot(bvl(1)))                  === bvl(-2)
+    eval(e, BVShiftLeft(bvl(3), bvl(1)))    === bvl(6)
+    eval(e, BVAShiftRight(bvl(8), bvl(1)))  === bvl(4)
   }
 
   test("BigInt Arithmetic") {
@@ -188,6 +199,16 @@ class EvaluatorSuite extends FunSuite {
     eval(e, LessEquals(Int8Literal(7), Int8Literal(7)))     === BooleanLiteral(true)
     eval(e, LessThan(Int8Literal(4), Int8Literal(7)))       === BooleanLiteral(true)
 
+    eval(e, GreaterEquals(Int16Literal(7), Int16Literal(4)))  === BooleanLiteral(true)
+    eval(e, GreaterThan(Int16Literal(7), Int16Literal(7)))    === BooleanLiteral(false)
+    eval(e, LessEquals(Int16Literal(7), Int16Literal(7)))     === BooleanLiteral(true)
+    eval(e, LessThan(Int16Literal(4), Int16Literal(7)))       === BooleanLiteral(true)
+
+    eval(e, GreaterEquals(Int64Literal(7), Int64Literal(4)))  === BooleanLiteral(true)
+    eval(e, GreaterThan(Int64Literal(7), Int64Literal(7)))    === BooleanLiteral(false)
+    eval(e, LessEquals(Int64Literal(7), Int64Literal(7)))     === BooleanLiteral(true)
+    eval(e, LessThan(Int64Literal(4), Int64Literal(7)))       === BooleanLiteral(true)
+
     eval(e, GreaterEquals(Int32Literal(7), Int32Literal(4)))  === BooleanLiteral(true)
     eval(e, GreaterEquals(Int32Literal(7), Int32Literal(7)))  === BooleanLiteral(true)
     eval(e, GreaterEquals(Int32Literal(4), Int32Literal(7)))  === BooleanLiteral(false)
@@ -227,8 +248,12 @@ class EvaluatorSuite extends FunSuite {
     eval(e, Division(Int32Literal(1), Int32Literal(-3)))    === Int32Literal(0)
     eval(e, Remainder(Int32Literal(1), Int32Literal(-3)))   === Int32Literal(1)
 
-    eval(e, Division(Int8Literal(1), Int8Literal(-3)))  === Int8Literal(0)
-    eval(e, Remainder(Int8Literal(1), Int8Literal(-3))) === Int8Literal(1)
+    eval(e, Division(Int8Literal(1), Int8Literal(-3)))      === Int8Literal(0)
+    eval(e, Remainder(Int8Literal(1), Int8Literal(-3)))     === Int8Literal(1)
+    eval(e, Division(Int16Literal(1), Int16Literal(-3)))    === Int16Literal(0)
+    eval(e, Remainder(Int16Literal(1), Int16Literal(-3)))   === Int16Literal(1)
+    eval(e, Division(Int64Literal(1), Int64Literal(-3)))    === Int64Literal(0)
+    eval(e, Remainder(Int64Literal(1), Int64Literal(-3)))   === Int64Literal(1)
 
     def bvl(x: BigInt) = BVLiteral(x, 13)
     eval(e, Division(bvl(1), bvl(-3)))    === bvl(0)

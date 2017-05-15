@@ -70,7 +70,7 @@ class SemanticsSuite extends FunSuite {
     check(s, IntegerLiteral(-1),     IntegerLiteral(-1))
     check(s, IntegerLiteral(0),      IntegerLiteral(0))
     check(s, IntegerLiteral(42),     IntegerLiteral(42))
-    check(s, FractionLiteral(0 ,1),  FractionLiteral(0 ,1))
+    check(s, FractionLiteral(0, 1),  FractionLiteral(0, 1))
     check(s, FractionLiteral(42 ,1), FractionLiteral(42, 1))
     check(s, FractionLiteral(26, 3), FractionLiteral(26, 3))
   }
@@ -103,8 +103,17 @@ class SemanticsSuite extends FunSuite {
     check(s, Times(Int32Literal(3), Int32Literal(3)),           Int32Literal(9))
   }
 
+  test("BitVector Arithmetic Bis", filterSolvers(_, princess = true)) { ctx =>
+    val s = solver(ctx)
+
+    check(s, Plus(BVLiteral(3, 13), BVLiteral(5, 13)),              BVLiteral(8, 13))
+    check(s, Plus(BVLiteral(3, 16), BVLiteral(5, 16)),              BVLiteral(8, 16))
+    check(s, Plus(BVLiteral(Short.MaxValue, 16), BVLiteral(1, 16)), BVLiteral(Short.MinValue, 16))
+  }
+
   test("BitVector Casts", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
+    val b: Byte = 1
 
     check(s, BVWideningCast(Int8Literal(0), Int32Type),       Int32Literal(0))
     check(s, BVWideningCast(Int8Literal(1), Int32Type),       Int32Literal(1))
@@ -122,6 +131,18 @@ class SemanticsSuite extends FunSuite {
     check(s, BVNarrowingCast(Int32Literal(-128), Int8Type),   Int8Literal(-128))
     check(s, BVNarrowingCast(Int32Literal(-129), Int8Type),   Int8Literal(127))
     check(s, BVNarrowingCast(Int32Literal(128), Int8Type),    Int8Literal(-128))
+
+    check(s, Plus(Int32Literal(1), BVWideningCast(Int8Literal(1), Int32Type)), Int32Literal(2))
+
+    check(s, Plus(
+              BVWideningCast(Int32Literal(Int.MaxValue), Int64Type),
+              BVWideningCast(Int8Literal(1), Int64Type)
+            ), Int64Literal(Int.MaxValue + b.toLong))
+
+    check(s, Equals(Plus(
+              BVWideningCast(Int32Literal(Int.MaxValue), Int64Type),
+              BVWideningCast(Int8Literal(1), Int64Type)
+            ), Int64Literal(Int.MaxValue + b.toInt)), BooleanLiteral(false)) // mind the `toInt` instead of `toLong`
   }
 
 
@@ -157,6 +178,20 @@ class SemanticsSuite extends FunSuite {
 
     check(s, BVLShiftRight(Int32Literal(8), Int32Literal(1)), Int32Literal(4))
     check(s, BVAShiftRight(Int32Literal(8), Int32Literal(1)), Int32Literal(4))
+
+    check(s, BVNarrowingCast(
+              BVAnd(BVWideningCast(Int8Literal(1), Int32Type),
+                    BVWideningCast(Int8Literal(2), Int32Type)),
+              Int8Type
+            ), Int8Literal(0))
+
+    def bvl(x: BigInt) = BVLiteral(x, 11)
+    check(s, BVAnd(bvl(3), bvl(1)),          bvl(1))
+    check(s, BVOr(bvl(5), bvl(3)),           bvl(7))
+    check(s, BVXor(bvl(3), bvl(1)),          bvl(2))
+    check(s, BVNot(bvl(1)),                  bvl(-2))
+    check(s, BVShiftLeft(bvl(3), bvl(1)),    bvl(6))
+    check(s, BVAShiftRight(bvl(8), bvl(1)),  bvl(4))
   }
 
   test("BigInt Arithmetic") { ctx =>
@@ -217,6 +252,16 @@ class SemanticsSuite extends FunSuite {
     check(s, LessEquals(Int8Literal(4), Int8Literal(7)),      BooleanLiteral(true))
     check(s, LessThan(Int8Literal(4), Int8Literal(7)),        BooleanLiteral(true))
 
+    check(s, GreaterEquals(Int16Literal(7), Int16Literal(4)), BooleanLiteral(true))
+    check(s, GreaterThan(Int16Literal(7), Int16Literal(7)),   BooleanLiteral(false))
+    check(s, LessEquals(Int16Literal(4), Int16Literal(7)),    BooleanLiteral(true))
+    check(s, LessThan(Int16Literal(4), Int16Literal(7)),      BooleanLiteral(true))
+
+    check(s, GreaterEquals(Int64Literal(7), Int64Literal(4)), BooleanLiteral(true))
+    check(s, GreaterThan(Int64Literal(7), Int64Literal(7)),   BooleanLiteral(false))
+    check(s, LessEquals(Int64Literal(4), Int64Literal(7)),    BooleanLiteral(true))
+    check(s, LessThan(Int64Literal(4), Int64Literal(7)),      BooleanLiteral(true))
+
     check(s, GreaterEquals(Int32Literal(7), Int32Literal(4)), BooleanLiteral(true))
     check(s, GreaterEquals(Int32Literal(7), Int32Literal(7)), BooleanLiteral(true))
     check(s, GreaterEquals(Int32Literal(4), Int32Literal(7)), BooleanLiteral(false))
@@ -232,6 +277,12 @@ class SemanticsSuite extends FunSuite {
     check(s, LessThan(Int32Literal(7), Int32Literal(4)),      BooleanLiteral(false))
     check(s, LessThan(Int32Literal(7), Int32Literal(7)),      BooleanLiteral(false))
     check(s, LessThan(Int32Literal(4), Int32Literal(7)),      BooleanLiteral(true))
+
+    def bvl(x: BigInt) = BVLiteral(x, 13)
+    check(s, GreaterEquals(bvl(7), bvl(4)), BooleanLiteral(true))
+    check(s, GreaterThan(bvl(7), bvl(7)),   BooleanLiteral(false))
+    check(s, LessEquals(bvl(7), bvl(7)),    BooleanLiteral(true))
+    check(s, LessThan(bvl(4), bvl(7)),      BooleanLiteral(true))
   }
 
   test("BitVector Division and Remainder", filterSolvers(_, princess = true)) { ctx =>
@@ -250,8 +301,16 @@ class SemanticsSuite extends FunSuite {
     check(s, Division(Int32Literal(1), Int32Literal(-3)),   Int32Literal(0))
     check(s, Remainder(Int32Literal(1), Int32Literal(-3)),  Int32Literal(1))
 
-    check(s, Division(Int8Literal(1), Int8Literal(-3)),   Int8Literal(0))
-    check(s, Remainder(Int8Literal(1), Int8Literal(-3)),  Int8Literal(1))
+    check(s, Division(Int8Literal(1), Int8Literal(-3)),     Int8Literal(0))
+    check(s, Remainder(Int8Literal(1), Int8Literal(-3)),    Int8Literal(1))
+    check(s, Division(Int16Literal(1), Int16Literal(-3)),   Int16Literal(0))
+    check(s, Remainder(Int16Literal(1), Int16Literal(-3)),  Int16Literal(1))
+    check(s, Division(Int64Literal(1), Int64Literal(-3)),   Int64Literal(0))
+    check(s, Remainder(Int64Literal(1), Int64Literal(-3)),  Int64Literal(1))
+
+    def bvl(x: BigInt) = BVLiteral(x, 13)
+    check(s, Division(bvl(1), bvl(-3)),  bvl(0))
+    check(s, Remainder(bvl(1), bvl(-3)), bvl(1))
   }
 
   test("Boolean Operations") { ctx =>
