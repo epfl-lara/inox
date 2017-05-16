@@ -22,6 +22,7 @@ class EvaluatorSuite extends FunSuite {
     eval(e, BooleanLiteral(true))   === BooleanLiteral(true)
     eval(e, BooleanLiteral(false))  === BooleanLiteral(false)
     eval(e, Int8Literal(-1))        === Int8Literal(-1)
+    eval(e, Int8Literal(-128))      === Int8Literal(-128)
     eval(e, Int8Literal(0))         === Int8Literal(0)
     eval(e, Int8Literal(58))        === Int8Literal(58)
     eval(e, Int16Literal(58))       === Int16Literal(58)
@@ -50,6 +51,7 @@ class EvaluatorSuite extends FunSuite {
     val e = evaluator(ctx)
 
     eval(e, Plus(Int8Literal(3), Int8Literal(5)))             === Int8Literal(8)
+    eval(e, Plus(Int8Literal(-127), Int8Literal(-1)))         === Int8Literal(-128)
     eval(e, Plus(Int8Literal(Byte.MaxValue), Int8Literal(1))) === Int8Literal(Byte.MinValue)
     eval(e, Times(Int8Literal(3), Int8Literal(3)))            === Int8Literal(9)
 
