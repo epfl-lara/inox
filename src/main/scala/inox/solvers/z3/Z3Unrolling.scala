@@ -102,8 +102,10 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
           model.eval(elem).flatMap(term => ex.get(term, t.Int32Type))
         }
 
-        /* FIXME this seems to work, but why not rely on the default evaluation instead of the specialised evaluation
-         *       for Int(32) which fails for big integers.
+        /*
+         * NOTE The following could be faster than the default case, but be carefull to
+         *      fallback to the default when a BigInt doesn't fit in a regular Int.
+         *
          * case t.IntegerType => model.evalAs[Int](elem).map(t.IntegerLiteral(_)).orElse {
          *   model.eval(elem).flatMap(ex.get(_, t.IntegerType))
          * }
