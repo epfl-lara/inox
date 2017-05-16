@@ -746,8 +746,8 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
           }
 
          /*
-          * FIXME this seems to work, but why not rely on the default evaluation instead of the specialised evaluation
-          *       for Int(32) which fails for big integers.
+          * NOTE The following could be faster than the default case, but be carefull to
+          *      fallback to the default when a BigInt doesn't fit in a regular Int.
           *
           * case IntegerType =>
           *  model.evalAs[Int](z3ID).map(IntegerLiteral(_)).orElse {
