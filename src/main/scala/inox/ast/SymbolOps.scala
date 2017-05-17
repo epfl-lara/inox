@@ -582,7 +582,7 @@ trait SymbolOps { self: TypeOps =>
   }
 
   def simplifyLets(expr: Expr): Expr = preMap {
-    case Let(v1, Let(v2, e2, b2), b1) => Some(Let(v2, e2, Let(v1, b2, b1)))
+    case l1 @ Let(v1, Let(v2, e2, b2), b1) => Some(Let(v2, e2, Let(v1, b2, b1).copiedFrom(l1)).copiedFrom(l1))
 
     case Let(v, e, v2) if v.toVariable == v2 => Some(e)
 
@@ -596,7 +596,7 @@ trait SymbolOps { self: TypeOps =>
       IsInstanceOf(_: Variable, _)
     ), b) => Some(replaceFromSymbols(Map(v -> ts), b))
 
-    case Let(v, e, b) => Some(Let(v, e, replace(Map(e -> v.toVariable), b)))
+    case l @ Let(v, e, b) => Some(Let(v, e, replace(Map(e -> v.toVariable), b)).copiedFrom(l))
 
     case _ => None
   } (expr)
@@ -1298,7 +1298,7 @@ trait SymbolOps { self: TypeOps =>
     * @see [[SymbolOps.isPure isPure]]
     */
   def let(vd: ValDef, e: Expr, bd: Expr) = {
-    if ((variablesOf(bd) contains vd.toVariable) || !isPure(e)) Let(vd, e, bd) else bd
+    if ((variablesOf(bd) contains vd.toVariable) || !isPure(e)) Let(vd, e, bd).setPos(Position.between(vd.getPos, bd.getPos)) else bd
   }
 
   /** $encodingof simplified `if (c) t else e` (if-expression).

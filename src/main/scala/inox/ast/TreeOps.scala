@@ -202,7 +202,7 @@ trait TreeTransformer {
       transform(fd.returnType),
       transform(fd.fullBody),
       fd.flags map transform
-    )
+    ).copiedFrom(fd)
   }
 
   final def transform(adt: s.ADTDefinition): t.ADTDefinition = adt match {
