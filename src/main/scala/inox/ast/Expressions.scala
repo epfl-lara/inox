@@ -59,10 +59,13 @@ trait Expressions { self: Trees =>
   case class Variable(id: Identifier, tpe: Type, flags: Set[Flag]) extends Expr with Terminal with VariableSymbol {
     /** Transforms this [[Variable]] into a [[Definitions.ValDef ValDef]] */
     def toVal = to[ValDef]
-    def freshen = Variable(id.freshen, tpe, flags)
+    def freshen = copy(id.freshen)
 
     override def equals(that: Any) = super[VariableSymbol].equals(that)
     override def hashCode = super[VariableSymbol].hashCode
+
+    def copy(id: Identifier = id, tpe: Type = tpe, flags: Set[Flag] = flags) =
+      Variable(id, tpe, flags).copiedFrom(this)
   }
 
   object Variable {

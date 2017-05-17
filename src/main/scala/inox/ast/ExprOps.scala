@@ -79,7 +79,7 @@ trait ExprOps extends GenTreeOps {
         val (vs, es, tps, recons) = deconstructor.deconstruct(expr)
         val newVs = vs.map(_.freshen)
         val newBindings = bindings ++ (vs zip newVs)
-        recons(newVs, es map (rec(_, newBindings)), tps)
+        recons(newVs, es map (rec(_, newBindings)), tps).copiedFrom(expr)
     }
 
     rec(expr, variablesOf(expr).map(v => v -> v).toMap)
