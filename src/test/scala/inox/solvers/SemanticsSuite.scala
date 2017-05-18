@@ -18,7 +18,7 @@ class SemanticsSuite extends FunSuite {
     Seq("princess")
   }
 
-  def solver(ctx: Context): SimpleSolverAPI { val factory: SolverFactory { val program: InoxProgram } } = {
+  def solver(ctx: Context): SimpleSolverAPI { val program: InoxProgram } = {
     val program = InoxProgram(ctx, symbols)
     SimpleSolverAPI(program.getSolver)
   }
@@ -41,7 +41,7 @@ class SemanticsSuite extends FunSuite {
     (!cvc4 || solvers != Set("smt-cvc4"))
   }
 
-  protected def check(s: SimpleSolverAPI { val factory: SolverFactory { val program: InoxProgram } }, e: Expr, expected: Expr) = {
+  protected def check(s: SimpleSolverAPI { val program: InoxProgram }, e: Expr, expected: Expr) = {
     val v = Variable.fresh("v", e.getType)
     s.solveSAT(Equals(v, e)) match {
       case SatWithModel(model) => assert(model.vars.get(v.toVal) == Some(expected))
