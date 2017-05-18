@@ -17,4 +17,6 @@ class LruCache[A,B](val maxSize: Int) {
       cache.put(key, res)
       res
   }
+
+  def clear(): Unit = cache.clear()
 }

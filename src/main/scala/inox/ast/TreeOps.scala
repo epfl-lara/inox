@@ -260,6 +260,24 @@ trait TreeTransformer {
   }
 }
 
+/** Enables equality checks between symbol transformer compositions */
+private[ast] trait SymbolTransformerComposition extends SymbolTransformer {
+  protected val lhs: SymbolTransformer
+  protected val rhs: SymbolTransformer { val t: lhs.s.type }
+
+  val s: rhs.s.type = rhs.s
+  val t: lhs.t.type = lhs.t
+
+  override def transform(syms: s.Symbols): t.Symbols = lhs.transform(rhs.transform(syms))
+
+  override def equals(that: Any): Boolean = that match {
+    case c: SymbolTransformerComposition => rhs == c.rhs && lhs == c.lhs
+    case _ => false
+  }
+
+  override def hashCode: Int = 31 * rhs.hashCode + lhs.hashCode
+}
+
 /** Symbol table transformer base type */
 trait SymbolTransformer { self =>
   val s: Trees
@@ -267,16 +285,13 @@ trait SymbolTransformer { self =>
 
   def transform(syms: s.Symbols): t.Symbols
 
-  def compose(that: SymbolTransformer {
-    val t: self.s.type
-  }): SymbolTransformer {
+  def compose(that: SymbolTransformer { val t: self.s.type }): SymbolTransformer {
     val s: that.s.type
     val t: self.t.type
-  } = new SymbolTransformer {
-    val s: that.s.type = that.s
-    val t: self.t.type = self.t
-    override def transform(syms: s.Symbols): t.Symbols = self.transform(that.transform(syms))
-  }
+  } = new {
+    val rhs: that.type = that
+    val lhs: self.type = self
+  } with SymbolTransformerComposition
 
   def andThen(that: SymbolTransformer {
     val s: self.t.type
