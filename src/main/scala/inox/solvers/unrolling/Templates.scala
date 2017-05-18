@@ -812,7 +812,10 @@ trait Templates
 
     val tpeClauses = bindings.flatMap { case (v, s) => registerSymbol(encodedStart, s, v.getType) }.toSeq
 
+    val timer = ctx.timers.solvers.simplify.start()
     val instExpr = simplifyFormula(expr, simplify)
+    timer.stop()
+
     val tmplClauses = mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
 
     val (clauses, calls, apps, matchers, pointers, _) =

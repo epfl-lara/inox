@@ -19,7 +19,9 @@ trait FunctionTemplates { self: Templates =>
     private val cache: MutableMap[TypedFunDef, FunctionTemplate] = MutableMap.empty
 
     def apply(tfd: TypedFunDef): FunctionTemplate = cache.getOrElseUpdate(tfd, {
+      val timer = ctx.timers.solvers.simplify.start()
       val lambdaBody: Expr = simplifyFormula(tfd.fullBody, simplify)
+      timer.stop()
 
       val fdArgs: Seq[Variable] = tfd.params.map(_.toVariable)
       val lambdaArgs: Seq[Variable] = lambdaArguments(lambdaBody)
