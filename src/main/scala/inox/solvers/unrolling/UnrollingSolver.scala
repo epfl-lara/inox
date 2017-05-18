@@ -126,6 +126,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
   private[this] var reported = false
 
   def assertCnstr(expression: Expr): Unit = {
+    val timer = ctx.timers.solvers.assert.start()
+
     symbols.ensureWellFormed // make sure that the current program is well-formed
     typeCheck(expression, BooleanType) // make sure we've asserted a boolean-typed expression
 
@@ -152,6 +154,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
     for (cl <- newClauses) {
       underlying.assertCnstr(cl)
     }
+
+    timer.stop()
   }
 
   protected def wrapModel(model: underlying.Model): ModelWrapper
@@ -548,6 +552,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
   }
 
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
+    val timer = ctx.timers.solvers.unrolling.start()
+
     val assumptionsSeq       : Seq[Expr]          = assumptions.toSeq
     val encodedAssumptions   : Seq[Encoded]       = assumptionsSeq.map { expr =>
       val vars = exprOps.variablesOf(expr)
@@ -600,7 +606,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
             .min(Configuration(model = getModel, unsatAssumptions = true))
             .max(Configuration(model = false, unsatAssumptions = unrollAssumptions && templates.canUnroll))
 
-          val timer = ctx.timers.solvers.check.start()
+          val timer = ctx.timers.solvers.unrolling.check.start()
           val res: SolverResponse[underlying.Model, Set[underlying.Trees]] =
             underlying.checkAssumptions(checkConfig)(
               encodedAssumptions.toSet ++ templates.satisfactionAssumptions
@@ -638,7 +644,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
           val clauses = templates.getFiniteRangeClauses
 
-          val timer = ctx.timers.solvers.check.start()
+          val timer = ctx.timers.solvers.unrolling.check.start()
           underlying.push()
           for (cl <- encodedAssumptions.toSeq ++ templates.satisfactionAssumptions ++ clauses) {
             underlying.assertCnstr(cl)
@@ -727,7 +733,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
             reporter.debug(" - Running search without blocked literals (w/o lucky test)")
           }
 
-          val timer = ctx.timers.solvers.check.start()
+          val timer = ctx.timers.solvers.unrolling.check.start()
 
           // we always ask for a model here in order to give priority to blockers that
           // are keeping quantified clause instantiations from being considered
@@ -782,7 +788,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
         case Unroll =>
           reporter.debug("- We need to keep going")
 
-          val timer = ctx.timers.solvers.unroll.start()
+          val timer = ctx.timers.solvers.unrolling.unroll.start()
           // unfolling `unrollFactor` times
           for (i <- 1 to unrollFactor.toInt if templates.canUnroll && !abort && !pause) {
             val newClauses = templates.unroll
@@ -798,6 +804,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
     }
 
     val CheckResult(res) = currentState
+    timer.stop()
     res
   }
 }
