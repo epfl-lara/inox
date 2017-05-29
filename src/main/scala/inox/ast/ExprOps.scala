@@ -141,8 +141,8 @@ trait ExprOps extends GenTreeOps {
       case StringConcat(StringLiteral(""), b) => b
       case StringConcat(b, StringLiteral("")) => b
       case StringConcat(StringLiteral(a), StringLiteral(b)) => StringLiteral(a + b)
-      case StringLength(StringLiteral(a)) => Int32Literal(a.length)
-      case SubString(StringLiteral(a), Int32Literal(start), Int32Literal(end)) =>
+      case StringLength(StringLiteral(a)) => IntegerLiteral(a.length)
+      case SubString(StringLiteral(a), IntegerLiteral(start), IntegerLiteral(end)) =>
         StringLiteral(a.substring(start.toInt, end.toInt))
       case _ => expr
     }).copiedFrom(expr)
