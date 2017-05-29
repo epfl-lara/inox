@@ -47,11 +47,9 @@ trait TipDebugger extends Solver {
     }
   }
 
-  abstract override def assertCnstr(expr: Expr): Unit = try {
+  abstract override def assertCnstr(expr: Expr): Unit = {
     debugOut.foreach { o => o.printScript(encoder.encode(expr)) }
     super.assertCnstr(expr)
-  } catch {
-    case te: program.symbols.TypeErrorException => ctx.reporter.fatalError(te.pos, te.getMessage)
   }
 
   abstract override def check(config: CheckConfiguration): config.Response[Model, Assumptions] = {
