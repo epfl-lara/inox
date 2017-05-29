@@ -3,8 +3,8 @@
 package inox
 package tip
 
-import smtlib.parser.Terms.{Forall => SMTForall, Identifier => SMTIdentifier, _}
-import smtlib.parser.Commands.{Constructor => SMTConstructor, _}
+import smtlib.trees.Terms.{Forall => SMTForall, Identifier => SMTIdentifier, _}
+import smtlib.trees.Commands.{Constructor => SMTConstructor, _}
 import smtlib.theories._
 import smtlib.theories.experimental._
 import smtlib.extensions.tip.Terms.{Lambda => SMTLambda, Application => SMTApplication, _}
@@ -46,7 +46,7 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
       writer.write("\n")
       writer.flush()
 
-      smtlib.parser.CommandsResponses.Success
+      smtlib.trees.CommandsResponses.Success
     }
 
     def free(): Unit = {

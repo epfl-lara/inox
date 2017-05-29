@@ -3,7 +3,7 @@
 package inox
 package tip
 
-import smtlib.parser.Terms._
+import smtlib.trees.Terms._
 import smtlib.theories.Operations._
 
 object Bags {

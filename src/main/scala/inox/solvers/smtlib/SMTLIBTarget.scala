@@ -8,18 +8,18 @@ import utils._
 
 import _root_.smtlib.common._
 import _root_.smtlib.printer.{ RecursivePrinter => SMTPrinter }
-import _root_.smtlib.parser.Commands.{
+import _root_.smtlib.trees.Commands.{
   Constructor => SMTConstructor,
   FunDef => SMTFunDef,
   _
 }
-import _root_.smtlib.parser.Terms.{
+import _root_.smtlib.trees.Terms.{
   Forall => SMTForall,
   Identifier => SMTIdentifier,
   Let => SMTLet,
   _
 }
-import _root_.smtlib.parser.CommandsResponses._
+import _root_.smtlib.trees.CommandsResponses._
 import _root_.smtlib.theories.{Constructors => SmtLibConstructors, _}
 import _root_.smtlib.theories.experimental._
 import _root_.smtlib.Interpreter
