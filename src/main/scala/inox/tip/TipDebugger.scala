@@ -53,7 +53,7 @@ trait TipDebugger extends Solver {
   }
 
   abstract override def check(config: CheckConfiguration): config.Response[Model, Assumptions] = {
-    debugOut.foreach { o => o.emit(_root_.smtlib.parser.Commands.CheckSat()) }
+    debugOut.foreach { o => o.emit(_root_.smtlib.trees.Commands.CheckSat()) }
     super.check(config)
   }
 

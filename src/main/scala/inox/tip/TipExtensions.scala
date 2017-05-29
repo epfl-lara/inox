@@ -4,8 +4,9 @@ package inox
 package tip
 
 import smtlib.printer._
-import smtlib.parser.Terms._
-import smtlib.parser.Commands._
+import smtlib.trees.Terms._
+import smtlib.trees.Commands._
+import smtlib.trees.TreeTransformer
 import smtlib.lexer.{Tokens => LT, _}
 import smtlib.extensions.tip.{Parser => SMTParser, Lexer => SMTLexer}
 
@@ -19,7 +20,7 @@ object Tokens {
 
 object Terms {
   case class Assume(pred: Term, body: Term) extends TermExtension {
-    def print(ctx: PrintingContext): Unit = {
+    override def print(ctx: PrintingContext): Unit = {
       ctx.print("(assume ")
       ctx.print(pred)
       ctx.print(" ")
@@ -29,7 +30,7 @@ object Terms {
   }
 
   case class Choose(name: SSymbol, sort: Sort, pred: Term) extends TermExtension {
-    def print(ctx: PrintingContext): Unit = {
+    override def print(ctx: PrintingContext): Unit = {
       ctx.print("(choose ")
       ctx.print(name)
       ctx.print(" ")
@@ -43,7 +44,7 @@ object Terms {
 
 object Commands {
   case class DatatypeInvariant(name: SSymbol, sort: Sort, pred: Term) extends CommandExtension {
-    def print(ctx: PrintingContext): Unit = {
+    override def print(ctx: PrintingContext): Unit = {
       ctx.print("(datatype-invariant ")
       ctx.print(name)
       ctx.print(" ")
@@ -52,10 +53,12 @@ object Commands {
       ctx.print(pred)
       ctx.print(")\n")
     }
+
+    override def transform(tt: TreeTransformer)(context: tt.C): (Command, tt.R) = ??? // FIXME
   }
 
   case class DatatypeInvariantPar(syms: Seq[SSymbol], name: SSymbol, sort: Sort, pred: Term) extends CommandExtension {
-    def print(ctx: PrintingContext): Unit = {
+    override def print(ctx: PrintingContext): Unit = {
       ctx.print("(datatype-invariant (par ")
       ctx.printNary(syms, "(", " ", ") ")
       ctx.print(name)
@@ -65,6 +68,8 @@ object Commands {
       ctx.print(pred)
       ctx.print("))\n")
     }
+
+    override def transform(tt: TreeTransformer)(context: tt.C): (Command, tt.R) = ??? // FIXME
   }
 }
 
@@ -83,7 +88,9 @@ class TipParser(lexer: TipLexer) extends SMTParser(lexer) {
   import Terms._
   import Commands._
 
-  override protected def parseTermWithoutParens: Term = getPeekToken.kind match {
+  import smtlib.common.Position
+
+  override protected def parseTermWithoutParens(startPos: Position): Term = getPeekToken.kind match {
     case Tokens.Assume =>
       eat(Tokens.Assume)
       val pred = parseTerm
@@ -97,7 +104,7 @@ class TipParser(lexer: TipLexer) extends SMTParser(lexer) {
       val pred = parseTerm
       Choose(name, sort, pred)
 
-    case _ => super.parseTermWithoutParens
+    case _ => super.parseTermWithoutParens(startPos)
   }
 
   override protected def parseCommandWithoutParens: Command = getPeekToken.kind match {

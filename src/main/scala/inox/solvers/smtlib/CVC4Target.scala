@@ -4,8 +4,8 @@ package inox
 package solvers
 package smtlib
 
-import _root_.smtlib.parser.Terms.{Identifier => SMTIdentifier, _}
-import _root_.smtlib.parser.Commands._
+import _root_.smtlib.trees.Terms.{Identifier => SMTIdentifier, _}
+import _root_.smtlib.trees.Commands._
 import _root_.smtlib.interpreters.CVC4Interpreter
 import _root_.smtlib.theories._
 import _root_.smtlib.theories.experimental._

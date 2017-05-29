@@ -5,7 +5,7 @@ package solvers
 package smtlib
 
 import utils._
-import _root_.smtlib.parser.Terms._
+import _root_.smtlib.trees.Terms._
 
 trait SMTLIBDebugger extends SMTLIBTarget {
   import program._
