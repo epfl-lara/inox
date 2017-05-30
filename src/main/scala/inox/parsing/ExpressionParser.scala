@@ -24,7 +24,7 @@ trait ExpressionParsers { self: Interpolator =>
     }
 
     lazy val selectableExpr: Parser[Expression] = withApplication {
-      invocationExpr | holeExpr | literalExpr | variableExpr | literalSetLikeExpr | tupleOrParensExpr
+      holeExpr | literalExpr | variableExpr | literalSetLikeExpr | tupleOrParensExpr
     }
 
     def withTypeAnnotation(exprParser: Parser[Expression]): Parser[Expression] = {
@@ -220,21 +220,6 @@ trait ExpressionParsers { self: Interpolator =>
         e <- expression
       } yield (e, ot)
 
-    lazy val fdTable = symbols.functions.keys.toSet
-
-    lazy val cstrTable = symbols.adts.toSeq.collect({
-      case (i, cstr: trees.ADTConstructor) => i
-    }).toSet
-
-    lazy val symbolTable = fdTable ++ cstrTable
-
-    lazy val symbol: Parser[Expression] = acceptMatch("Symbol", {
-      case lexical.Identifier(name) if bi.names.contains(name) => Literal(Name(name))
-      case lexical.Identifier(name) if symbolTable.map(_.name).contains(name) => Literal(Name(name))
-      case Embedded(i : inox.Identifier) if symbolTable.contains(i) => Literal(EmbeddedIdentifier(i))
-      case lexical.Hole(i) => ExpressionHole(i)
-    })
-
     lazy val arguments: Parser[List[Expression]] = 
       p('(') ~> repsep(exprEllipsis | (holeExprSeq | expression) ^^ {List(_)}, p(',')) <~ commit(p(')') withFailureMessage {
         (p: Position) => withPos("Missing ')' at the end of the arguments.", p)
@@ -248,15 +233,6 @@ trait ExpressionParsers { self: Interpolator =>
     }) <~ commit(kw("...") withFailureMessage {
       (p: Position) => withPos("Missing `...` after embedded sequence of expressions.", p)
     })
-
-    lazy val invocationExpr: Parser[Expression] = for {
-      sb <- symbol
-      otps <- opt(typeArguments)
-      args <- arguments
-    } yield otps match {
-      case Some(tps) => Application(TypeApplication(sb, tps), args)
-      case None => Application(sb, args)
-    }
 
     lazy val quantifier: Parser[Quantifier] = acceptMatch("Quantifier expected.", {
       case lexical.Quantifier("forall") => Forall

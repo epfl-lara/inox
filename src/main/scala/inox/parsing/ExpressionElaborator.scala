@@ -126,16 +126,6 @@ trait ExpressionElaborators { self: Interpolator =>
 
         //---- Variables ----//
 
-        // Embedded identifier.
-        case Literal(EmbeddedIdentifier(i)) => Constrained.withUnifier({ (unifier: Unifier) =>
-          val (_, t) = store(i.uniqueName)
-          trees.Variable(i, unifier(t), Set.empty)
-        }).checkImmediate(
-          store.contains(i.uniqueName), "Unknown identifier " + i + ".", expr.pos
-        ).addConstraint({
-          Constraint.equal(store(i.uniqueName)._2, expected)
-        })
-
         // Variable.
         case Variable(variable) => Constrained.withUnifier({ (unifier: Unifier) =>
           val (i, t) = store(variable.getName)

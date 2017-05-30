@@ -36,8 +36,8 @@ trait ExpressionDeconstructors { self: Interpolator =>
       lazy val functionsByName = symbols.functions.toSeq.map(_._2).groupBy(_.id.name)
 
       def unapplySeq(expression: Expression): Option[Seq[trees.FunDef]] = expression match {
-        case Literal(EmbeddedIdentifier(identifier)) => symbols.functions.get(identifier).map(Seq(_))
-        case Literal(Name(string)) => functionsByName.get(string)
+        case Variable(IdentifierIdentifier(identifier)) => symbols.functions.get(identifier).map(Seq(_))
+        case Variable(IdentifierName(string)) => functionsByName.get(string)
         case _ => None
       }
     }
@@ -61,8 +61,8 @@ trait ExpressionDeconstructors { self: Interpolator =>
       lazy val consByName = allConstructors.groupBy(_.id.name)
 
       def unapplySeq(expression: Expression): Option[Seq[trees.ADTConstructor]] = expression match {
-        case Literal(EmbeddedIdentifier(identifier)) => consById.get(identifier)
-        case Literal(Name(string)) => consByName.get(string)
+        case Variable(IdentifierIdentifier(identifier)) => consById.get(identifier)
+        case Variable(IdentifierName(string)) => consByName.get(string)
         case _ => None
       }
     }
@@ -148,9 +148,9 @@ trait ExpressionDeconstructors { self: Interpolator =>
 
     object PrimitiveFunction {
       def unapply(expr: Expression): Option[(bi.BuiltIn, String, Seq[Expression], Option[Seq[Type]])] = expr match {
-        case Application(TypeApplication(Literal(Name(name@bi.BuiltIn(builtIn))), tpes), args) =>
+        case Application(TypeApplication(Variable(IdentifierName(name@bi.BuiltIn(builtIn))), tpes), args) =>
           Some((builtIn, name, args, Some(tpes)))
-        case Application(Literal(Name(name@bi.BuiltIn(builtIn))), args) =>
+        case Application(Variable(IdentifierName(name@bi.BuiltIn(builtIn))), args) =>
           Some((builtIn, name, args, None))
         case _ => None
       }

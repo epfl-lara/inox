@@ -41,8 +41,6 @@ trait ExprIRs extends ExpressionElaborators with ExpressionExtractors with Expre
     sealed abstract class Value
     case class EmbeddedExpr(expr: trees.Expr) extends Value
     case class EmbeddedValue(value: Any) extends Value
-    case class EmbeddedIdentifier(identifier: inox.Identifier) extends Value
-    case class Name(name: String) extends Value
     case class NumericLiteral(value: String) extends Value
     case class StringLiteral(string: String) extends Value
     case class BooleanLiteral(value: Boolean) extends Value
