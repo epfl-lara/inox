@@ -39,13 +39,12 @@ trait Trees
     protected val trees: Trees.this.type = Trees.this
   } with DSL
 
+  val interpolator: Interpolator { val trees: Trees.this.type } = new {
+    protected val trees: Trees.this.type = Trees.this
+  } with Interpolator
+
   def aliased(id1: Identifier, id2: Identifier) = {
     id1.toString == id2.toString
-  }
-
-  def interpolator(implicit ss: Symbols): Interpolator { val trees: Trees.this.type; val symbols: Trees.this.Symbols } = new Interpolator {
-    protected val trees: Trees.this.type = Trees.this
-    protected val symbols: Trees.this.Symbols = ss
   }
 
   /** Returns true if the two group of identifiers ovelap. */
