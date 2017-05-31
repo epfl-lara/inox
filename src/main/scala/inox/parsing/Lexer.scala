@@ -50,9 +50,9 @@ trait Lexers { self: Interpolator =>
     val colon: Parser[Token] = ':' ^^^ Punctuation(':')
     val punctuation: Parser[Token] = comma | dot | colon
 
-    val number = rep1(digit) ~ opt('.' ~> rep1(digit)) ^^ {
-      case ds ~ None     => NumericLit(ds.mkString)
-      case ds ~ Some(rs) => NumericLit(ds.mkString + "." + rs.mkString)
+    val number = opt('-') ~ rep1(digit) ~ opt('.' ~> rep1(digit)) ^^ {
+      case s ~ ds ~ None     => NumericLit(s.map(x => "-").getOrElse("") + ds.mkString)
+      case s ~ ds ~ Some(rs) => NumericLit(s.map(x => "-").getOrElse("") + ds.mkString + "." + rs.mkString)
     }
 
     val char = '`' ~> commit(elem("Character", (x: Char) => true) <~ '`') ^^ {
