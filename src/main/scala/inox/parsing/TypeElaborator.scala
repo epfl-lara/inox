@@ -11,7 +11,9 @@ trait TypeElaborators { self: Interpolator =>
 
   import Utils.{either, traverse, plural}
 
-  trait TypeElaborator { self: TypeIR.type =>
+  trait TypeElaborator { self: TypeConvertor =>
+
+    import TypeIR._
 
     object BVType {
       def apply(size: Int): String = {

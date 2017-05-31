@@ -312,13 +312,13 @@ trait ExpressionParsers { self: Interpolator =>
       (p: Position) => withPos("Missing ']'.", p)
     })
 
-    lazy val inoxValDef: Parser[trees.ValDef] = for {
+    lazy val inoxValDef: Parser[(inox.Identifier, ExprIR.Type)] = for {
       i <- identifier
       _ <- p(':')
-      t <- inoxType
+      t <- typeExpression
     } yield i match {
-      case IdentifierIdentifier(v) => trees.ValDef(v, t)
-      case IdentifierName(n) => trees.ValDef(FreshIdentifier(n), t)
+      case IdentifierIdentifier(v) => (v, t)
+      case IdentifierName(n) => (FreshIdentifier(n), t)
       case IdentifierHole(_) => throw new scala.Error("Unexpected hole in value definition.")
     }
   }

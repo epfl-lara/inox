@@ -5,7 +5,9 @@ package parsing
 
 trait ExpressionDeconstructors { self: Interpolator =>
 
-  trait ExpressionDeconstructor { inner: ExprIR.type =>
+  trait ExpressionDeconstructor { inner: ExpressionConvertor =>
+
+    import ExprIR._
 
     object TupleField {
       def unapply(field: Field): Option[Int] = field match {

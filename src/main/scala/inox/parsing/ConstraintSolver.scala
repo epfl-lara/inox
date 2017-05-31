@@ -7,7 +7,7 @@ import scala.util.parsing.input._
 
 trait ConstraintSolvers { self: Interpolator =>
   
-  object Solver {
+  class Solver(symbols: trees.Symbols) {
 
     import trees._
 

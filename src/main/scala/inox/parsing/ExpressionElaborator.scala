@@ -9,9 +9,11 @@ import Utils.plural
 
 trait ExpressionElaborators { self: Interpolator => 
 
-  trait ExpressionElaborator { inner: ExprIR.type =>
+  trait ExpressionElaborator { inner: ExpressionConvertor =>
 
-    import TypeIR.getType
+    lazy val solver = new Solver(symbols)
+
+    import ExprIR._
 
     //---- Errors ----//
 
@@ -45,7 +47,7 @@ trait ExpressionElaborators { self: Interpolator =>
       typeCheck(expr, Unknown.fresh(expr.pos))(Map()) match {
         case Unsatifiable(es) => throw new ExpressionElaborationException(es)
         case WithConstraints(elaborator, constraints) => {
-          val unifier = Solver.solveConstraints(constraints)
+          val unifier = solver.solveConstraints(constraints)
           elaborator(unifier)
         }
       }

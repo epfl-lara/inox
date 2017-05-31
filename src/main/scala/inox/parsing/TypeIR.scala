@@ -5,9 +5,9 @@ package parsing
 
 import scala.util.parsing.input.Position
 
-trait TypeIRs extends TypeElaborators with TypeExtractors { self: Interpolator =>
+trait TypeIRs extends TypeConvertors { self: Interpolator =>
 
-  object TypeIR extends IR with TypeElaborator with TypeExtractor {
+  object TypeIR extends IR {
 
     type Identifier = Nothing
     type Type = Nothing

@@ -5,9 +5,9 @@ package parsing
 
 trait ExpressionExtractors { self: Interpolator =>
 
-  trait ExpressionExtractor extends Extractor { self: ExprIR.type => 
+  trait ExpressionExtractor extends Extractor { inner: ExpressionConvertor =>
 
-    implicit val implicitSymbols = symbols
+    import ExprIR._
 
     private case class State(local: Store, global: Store)
 
@@ -40,7 +40,7 @@ trait ExpressionExtractors { self: Interpolator =>
     }
     private def toTypeObl(pair: (trees.Type, Type)): MatchObligation = { (state: State) => 
       val (tpe, template) = pair
-      TypeIR.extract(tpe, template).map((state.global, _))
+      extract(tpe, template).map((state.global, _))
     }
     private def toOptTypeObl(pair: (trees.Type, Option[Type])): MatchObligation = { (state: State) =>
       val (tpe, optTemplateType) = pair
@@ -78,7 +78,7 @@ trait ExpressionExtractors { self: Interpolator =>
       }
     }
     private def toTypeObls(pair: (Seq[trees.Type], Seq[Type])): MatchObligation = { (state: State) =>
-      TypeIR.extractSeq(pair._1, pair._2).map((state.global, _))
+      extractSeq(pair._1, pair._2).map((state.global, _))
     }
     private def toOptTypeObls(pair: (Seq[trees.Type], Seq[Option[Type]])): MatchObligation = { (state: State) =>
       val pairs = pair._1.zip(pair._2).collect {

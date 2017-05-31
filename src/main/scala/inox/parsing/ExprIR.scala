@@ -5,10 +5,10 @@ package parsing
 
 import scala.util.parsing.input._
 
-trait ExprIRs extends ExpressionElaborators with ExpressionExtractors with ExpressionDeconstructors { self: Interpolator =>
+trait ExprIRs extends ExpressionConvertors { self: Interpolator =>
 
   /** IR for expressions. */
-  object ExprIR extends IR with ExpressionElaborator with ExpressionExtractor with ExpressionDeconstructor {
+  object ExprIR extends IR {
 
     sealed abstract class Identifier extends Positional {
       def getName: String

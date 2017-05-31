@@ -104,10 +104,5 @@ trait TypeParsers { self: Interpolator =>
       case None => n
       case Some(args) => Application(n, args)
     }
-
-    lazy val inoxType: Parser[trees.Type] = (typeExpression ^^ toInoxType).flatMap { case e => e match {
-      case Right(t) => success(t)
-      case Left(es) => err(es.map(_.toString).mkString("\n\n"))
-    }}
   }
 }

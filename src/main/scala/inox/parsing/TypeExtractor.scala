@@ -5,7 +5,9 @@ package parsing
 
 trait TypeExtractors { self: Interpolator =>
 
-  trait TypeExtractor extends Extractor { self: TypeIR.type =>
+  trait TypeExtractor extends Extractor { self: TypeConvertor =>
+
+    import TypeIR._
 
     def extractSeq(tpes: Seq[trees.Type], templates: Seq[Expression]): Option[Match] = (tpes, templates) match {
       case (Seq(), Seq()) => Some(empty)
