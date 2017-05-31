@@ -40,9 +40,9 @@ The first step to use this feature is to import it. The string interpolator is l
 ```tut:silent
 import inox._
 import inox.trees._
+import inox.trees.interpolator._
 
 implicit val mySymbols = NoSymbols
-import mySymbols.interpolator._
 ```
 
 Once imported, it is possible to build Inox types and expressions using a friendlier syntax:
