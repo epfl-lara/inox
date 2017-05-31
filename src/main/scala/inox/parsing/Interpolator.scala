@@ -18,7 +18,7 @@ trait Interpolator extends BuiltIns
 
   import trees._
 
-  implicit class ExpressionInterpolator(sc: StringContext)(implicit symbols: trees.Symbols) {
+  implicit class ExpressionInterpolator(sc: StringContext)(implicit symbols: trees.Symbols = trees.NoSymbols) {
 
     private lazy val convertor = new ExpressionConvertor(symbols)
     private lazy val parser = new ExpressionParser()
