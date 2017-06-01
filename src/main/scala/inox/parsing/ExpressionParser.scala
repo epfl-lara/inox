@@ -146,6 +146,7 @@ trait ExpressionParsers { self: Interpolator =>
       case Keyword("false") => BooleanLiteral(false)
       case StringLit(s) => StringLiteral(s)
       case NumericLit(n) => NumericLiteral(n)
+      case DecimalLit(w, t, r) => DecimalLiteral(w, t, r)
       case CharLit(c) => CharLiteral(c)
       case Embedded(e : trees.Expr) => EmbeddedExpr(e)
     }) ^^ (Literal(_)))

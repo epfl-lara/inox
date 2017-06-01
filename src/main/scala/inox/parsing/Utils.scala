@@ -51,16 +51,37 @@ object Utils {
     (lefts, rights)
   }
 
-  def toFraction(string: String): (BigInt, BigInt) = {
-    val parts = string.split('.')
+  def toFraction(whole: String, trailing: String, repeating: String): (BigInt, BigInt) = {
 
-    val size = parts.length
-    require(size == 1 || size == 2, "toFraction: Not a valid formatted number.")
+    type Fraction = (BigInt, BigInt)
 
-    val nominator = BigInt(parts.reduce(_ ++ _))
-    val denominator = if (size == 2) BigInt(10).pow(parts(1).length) else BigInt(1)
-    val gcd = nominator.gcd(denominator)
+    def add(a: Fraction, b: Fraction): Fraction = {
+      val (na, da) = a
+      val (nb, db) = b
 
-    (nominator / gcd, denominator / gcd)
+      (na * db + nb * da, da * db)
+    }
+
+    def normalize(a: Fraction): Fraction = {
+      val (na, da) = a
+
+      val gcd = na.gcd(da)
+
+      (na / gcd, da / gcd)
+    }
+
+    val t = BigInt(10).pow(trailing.length)
+
+    val nonRepeatingPart: Fraction = (BigInt(whole + trailing), t)
+    if (repeating.length == 0) {
+      normalize(nonRepeatingPart)
+    }
+    else {
+      val r = BigInt(10).pow(repeating.length)
+      val sign = if (whole.startsWith("-")) -1 else 1
+      val repeatingPart: Fraction = (sign * BigInt(repeating), (r - 1) * t)
+
+      normalize(add(nonRepeatingPart, repeatingPart))
+    }
   }
 }

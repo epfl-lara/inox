@@ -368,7 +368,8 @@ trait ExpressionExtractors { self: Interpolator =>
         }
 
         case trees.FractionLiteral(numerator, denominator) => template match {
-          case Literal(NumericLiteral(string)) if { val (n, d) = Utils.toFraction(string); n * denominator == d * numerator } => success
+          case Literal(NumericLiteral(string)) if { val n = BigInt(string); n * denominator == numerator } => success
+          case Literal(DecimalLiteral(w, t, r)) if { val (n, d) = Utils.toFraction(w, t, r); n * denominator == d * numerator } => success
           case _ => fail
         }
 

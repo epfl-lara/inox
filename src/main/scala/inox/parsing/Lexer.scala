@@ -20,6 +20,7 @@ trait Lexers { self: Interpolator =>
     val operators = (opTable.flatMap(_.ops) ++ unaryOps).distinct
 
     case class CharLit(char: Char) extends Token { def chars = char.toString }
+    case class DecimalLit(whole: String, trailing: String, repeating: String) extends Token { def chars = whole + "." + trailing + "(" + repeating + ")" }
     case class Parenthesis(parenthesis: Char) extends Token { def chars = parenthesis.toString }
     case class Punctuation(punctuation: Char) extends Token { def chars = punctuation.toString }
     case class Quantifier(quantifier: String) extends Token { def chars = quantifier }
@@ -50,10 +51,16 @@ trait Lexers { self: Interpolator =>
     val colon: Parser[Token] = ':' ^^^ Punctuation(':')
     val punctuation: Parser[Token] = comma | dot | colon
 
-    val number = opt('-') ~ rep1(digit) ~ opt('.' ~> rep1(digit)) ^^ {
+    val number = opt('-') ~ rep1(digit) ~ opt('.' ~> afterDot) ^^ {
       case s ~ ds ~ None     => NumericLit(s.map(x => "-").getOrElse("") + ds.mkString)
-      case s ~ ds ~ Some(rs) => NumericLit(s.map(x => "-").getOrElse("") + ds.mkString + "." + rs.mkString)
+      case s ~ ds ~ Some((ts, rs)) => DecimalLit(s.map(x => "-").getOrElse("") + ds.mkString, ts, rs.getOrElse(""))
     }
+
+    val afterDot: Parser[(String, Option[String])] = rep(digit) ~ opt('(' ~> rep1(digit) <~ ')') ^^ {
+      case ds ~ os => (ds.mkString, os.map(_.mkString))
+    }
+
+
 
     val char = '`' ~> commit(elem("Character", (x: Char) => true) <~ '`') ^^ {
       CharLit(_)

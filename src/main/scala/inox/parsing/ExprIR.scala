@@ -42,6 +42,7 @@ trait ExprIRs extends ExpressionConvertors { self: Interpolator =>
     case class EmbeddedExpr(expr: trees.Expr) extends Value
     case class EmbeddedValue(value: Any) extends Value
     case class NumericLiteral(value: String) extends Value
+    case class DecimalLiteral(whole: String, trailing: String, repeating: String) extends Value
     case class StringLiteral(string: String) extends Value
     case class BooleanLiteral(value: Boolean) extends Value
     case class CharLiteral(value: Char) extends Value

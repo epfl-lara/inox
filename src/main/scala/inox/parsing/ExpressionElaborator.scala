@@ -103,16 +103,19 @@ trait ExpressionElaborators { self: Interpolator =>
             case trees.IntegerType => trees.IntegerLiteral(BigInt(string))
             case trees.Int32Type => trees.IntLiteral(string.toInt)
             case trees.BVType(n) => trees.BVLiteral(BigInt(string), n)
-            case trees.RealType => {
-              val (n, d) = Utils.toFraction(string)
-              trees.FractionLiteral(n, d)
-            }
+            case trees.RealType => trees.FractionLiteral(BigInt(string), 1)
             case tpe => throw new Exception("typeCheck: Unexpected type during elaboration: " + tpe)
           }
-        }).addConstraint(if (string.contains(".")) {
-          Constraint.equal(expected, trees.RealType)
-        } else {
+        }).addConstraint({
           Constraint.isNumeric(expected)
+        })
+
+        // Decimal literal.
+        case Literal(DecimalLiteral(whole, trailing, repeating)) => Constrained.pure({
+          val (n, d) = Utils.toFraction(whole, trailing, repeating)
+          trees.FractionLiteral(n, d)
+        }).addConstraint({
+          Constraint.equal(expected, trees.RealType)
         })
 
         // Empty set literal.
