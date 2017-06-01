@@ -35,6 +35,13 @@ class ExprLiteralParserSuite extends FunSuite {
     }
   }
 
+  test("Parsing Unit literal.") {
+
+    assertResult(UnitLiteral()) {
+      e"()"
+    }
+  }
+
   test("Parsing String literals.") {
 
     assertResult(StringLiteral("abc")) {
