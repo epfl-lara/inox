@@ -72,4 +72,16 @@ class StringSuite extends SolvingTestSuite {
         fail("Expected sat-with-model")
     }
   }
+
+  test("String with newline") { ctx =>
+    val program = InoxProgram(ctx, NoSymbols)
+    val v = Variable.fresh("r", StringType)
+    val clause = Equals(v, StringLiteral("\n"))
+    SimpleSolverAPI(program.getSolver).solveSAT(clause) match {
+      case SatWithModel(model) =>
+        assert(model.vars.get(v.toVal) == Some(StringLiteral("\n")))
+      case _ =>
+        fail("Expected sat-with-model")
+    }
+  }
 }

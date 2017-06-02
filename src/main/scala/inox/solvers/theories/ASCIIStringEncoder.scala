@@ -48,6 +48,9 @@ trait ASCIIStringEncoder extends SimpleEncoder {
     if (hex.findFirstIn(s).isDefined) {
       val (head, s2) = s.splitAt(4)
       (decodeHex(head), s2)
+    } else if (s.charAt(0) == '\\') {
+      val Seq(b) = StringEscapeUtils.unescapeJava(s.take(2)).getBytes.toSeq
+      (b, s.drop(2))
     } else s.charAt(0).toString.getBytes.toSeq match {
       case Seq(b) => (b, s.tail)
       case Seq(b1, b2) => (b1, encodeByte(b2) + s.tail)
@@ -58,13 +61,12 @@ trait ASCIIStringEncoder extends SimpleEncoder {
 
   protected object encoder extends SelfTreeTransformer {
     override def transform(e: Expr): Expr = e match {
-      case StringLiteral(v) => String(StringLiteral(v.flatMap { c =>
-        c.toString.getBytes.toSeq match {
+      case StringLiteral(v) =>
+        String(StringLiteral(v.flatMap(c => c.toString.getBytes.toSeq match {
           case Seq(b) if 32 <= b && b <= 127 => b.toChar.toString + b.toChar.toString
           case Seq(b) => encodeByte(b) + encodeByte(b)
           case Seq(b1, b2) => encodeByte(b1) + encodeByte(b2)
-        }
-      }))
+        })))
       case StringLength(a) => Division(StringLength(transform(a).getField(value)), TWO)
       case StringConcat(a, b) => String(StringConcat(transform(a).getField(value), transform(b).getField(value)))
       case SubString(a, start, end) => String(SubString(transform(a).getField(value), transform(start) * TWO, transform(end) * TWO))
@@ -84,7 +86,7 @@ trait ASCIIStringEncoder extends SimpleEncoder {
         def unescape(s: String): String = if (s.isEmpty) s else {
           val (b1, s2) = decodeFirstByte(s)
           val (b2, s3) = decodeFirstByte(s2)
-          val h: String = if (32 <= b1 && b1 <= 127 && b1 == b2) {
+          val h: String = if (0 <= b1 && b1 <= 127 && b1 == b2) {
             b1.toChar.toString
           } else if (0 <= b1 && b1 <= 127 && 0 <= b2 && b2 <= 127) {
             new java.lang.String(Seq(
@@ -112,10 +114,6 @@ trait ASCIIStringEncoder extends SimpleEncoder {
 
       case ADT(String, Seq(SubString(a, Times(start, TWO), Times(end, TWO)))) =>
         SubString(transform(a), transform(start), transform(end))
-
-      case ADT(String, Seq(arg)) =>
-        println(arg)
-        super.transform(e)
 
       case _ => super.transform(e)
     }
