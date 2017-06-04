@@ -4,6 +4,7 @@ package inox
 package ast
 
 import inox.parsing.Interpolator
+import inox.utils.Position
 
 import scala.collection.mutable.{Map => MutableMap}
 
@@ -80,6 +81,11 @@ trait Definitions { self: Trees =>
     lazy val id = v.id
     lazy val tpe = v.tpe
     lazy val flags = v.flags
+
+    override def setPos(pos: Position): ValDef.this.type = {
+      v.setPos(pos)
+      super.setPos(pos)
+    }
 
     /** Transform this [[ValDef]] into a [[Expressions.Variable Variable]] */
     def toVariable: Variable = v

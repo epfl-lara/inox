@@ -105,10 +105,7 @@ trait Positioned {
     this
   }
 
-  def setPos(that: Positioned): this.type = {
-    _pos = that.getPos
-    this
-  }
+  def setPos(that: Positioned): this.type = setPos(that.getPos)
 
   def getPos = {
     _pos

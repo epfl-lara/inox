@@ -36,7 +36,7 @@ class TipPrintingSuite extends FunSuite with ResourceUtils {
         val fw = new java.io.FileWriter(file, false)
         val printer = new Printer(program, fw)
         printer.printScript(expr)
-        printer.emit(smtlib.parser.Commands.CheckSat())
+        printer.emit(smtlib.trees.Commands.CheckSat())
         printer.free()
 
         val Seq((newSyms, newExpr)) = new Parser(file).parseScript

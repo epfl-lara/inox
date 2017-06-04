@@ -99,7 +99,6 @@ trait ExpressionElaborators { self: Interpolator =>
 
           unifier(expected) match {
             case trees.IntegerType => trees.IntegerLiteral(BigInt(string))
-            case trees.Int32Type => trees.IntLiteral(string.toInt)
             case trees.BVType(n) => trees.BVLiteral(BigInt(string), n)
             case trees.RealType => {
               val (n, d) = Utils.toFraction(string)
@@ -167,7 +166,7 @@ trait ExpressionElaborators { self: Interpolator =>
             })
           case n : Int => 
             Constrained.pure({
-              trees.IntLiteral(n)
+              trees.Int32Literal(n)
             }).addConstraint({
               Constraint.equal(expected, trees.Int32Type)
             })

@@ -9,7 +9,7 @@ class ExtractorsSuite extends FunSuite {
   import inox.trees._
 
   test("Extractors do not simplify basic arithmetic") {
-    val e1 = Plus(IntLiteral(1), IntLiteral(1))
+    val e1 = Plus(Int32Literal(1), Int32Literal(1))
     val e2 = e1 match {
       case Operator(es, builder) => builder(es)
     }
@@ -20,6 +20,19 @@ class ExtractorsSuite extends FunSuite {
       case Operator(es, builder) => builder(es)
     }
     assert(e3 === e4)
+
+    val e5 = Plus(Int8Literal(1), Int8Literal(1))
+    val e6 = e5 match {
+      case Operator(es, builder) => builder(es)
+    }
+    assert(e5 === e6)
+
+    val size = 13
+    val e7 = Plus(BVLiteral(1, size), BVLiteral(1, size))
+    val e8 = e7 match {
+      case Operator(es, builder) => builder(es)
+    }
+    assert(e7 === e8)
   }
 
   test("Extractors do not magically change the syntax") {
@@ -49,22 +62,22 @@ class ExtractorsSuite extends FunSuite {
     val z = Variable.fresh("z", IntegerType)
 
     val a1 = FiniteMap(
-      Seq(IntLiteral(0) -> x, IntLiteral(3) -> y, IntLiteral(5) -> z),
+      Seq(Int32Literal(0) -> x, Int32Literal(3) -> y, Int32Literal(5) -> z),
       IntegerLiteral(10),
       Int32Type,
       IntegerType)
     val a2 = a1 match {
       case Operator(es, builder) => {
-        assert(es === Seq(IntLiteral(0), x, IntLiteral(3), y, IntLiteral(5), z, IntegerLiteral(10)))
+        assert(es === Seq(Int32Literal(0), x, Int32Literal(3), y, Int32Literal(5), z, IntegerLiteral(10)))
         builder(es)
       }
     }
     assert(a2 === a1)
 
-    val app1 = MapApply(a1, IntLiteral(0))
+    val app1 = MapApply(a1, Int32Literal(0))
     val app2 = app1 match {
       case Operator(es, builder) => {
-        assert(es === Seq(a1, IntLiteral(0)))
+        assert(es === Seq(a1, Int32Literal(0)))
         builder(es)
       }
     }

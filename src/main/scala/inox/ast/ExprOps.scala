@@ -79,7 +79,7 @@ trait ExprOps extends GenTreeOps {
         val (vs, es, tps, recons) = deconstructor.deconstruct(expr)
         val newVs = vs.map(_.freshen)
         val newBindings = bindings ++ (vs zip newVs)
-        recons(newVs, es map (rec(_, newBindings)), tps)
+        recons(newVs, es map (rec(_, newBindings)), tps).copiedFrom(expr)
     }
 
     rec(expr, variablesOf(expr).map(v => v -> v).toMap)
@@ -141,8 +141,8 @@ trait ExprOps extends GenTreeOps {
       case StringConcat(StringLiteral(""), b) => b
       case StringConcat(b, StringLiteral("")) => b
       case StringConcat(StringLiteral(a), StringLiteral(b)) => StringLiteral(a + b)
-      case StringLength(StringLiteral(a)) => IntLiteral(a.length)
-      case SubString(StringLiteral(a), IntLiteral(start), IntLiteral(end)) =>
+      case StringLength(StringLiteral(a)) => IntegerLiteral(a.length)
+      case SubString(StringLiteral(a), IntegerLiteral(start), IntegerLiteral(end)) =>
         StringLiteral(a.substring(start.toInt, end.toInt))
       case _ => expr
     }).copiedFrom(expr)

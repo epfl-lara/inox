@@ -3,16 +3,18 @@
 package inox
 package ast
 
+import utils.Position
+
 trait TypeOps {
   protected val trees: Trees
   import trees._
   protected implicit val symbols: Symbols
 
-  class TypeErrorException(msg: String) extends Exception(msg)
+  class TypeErrorException(msg: String, val pos: Position) extends Exception(msg)
 
   object TypeErrorException {
     def apply(obj: Expr, tpes: Seq[Type]): TypeErrorException =
-      new TypeErrorException(s"Type error: $obj, expected ${tpes.mkString(" or ")}, found ${obj.getType}")
+      new TypeErrorException(s"Type error: $obj, expected ${tpes.mkString(" or ")}, found ${obj.getType}", obj.getPos)
     def apply(obj: Expr, tpe: Type): TypeErrorException = apply(obj, Seq(tpe))
   }
 
@@ -306,6 +308,7 @@ trait TypeOps {
       case Untyped => Some(0)
       case BooleanType => Some(2)
       case UnitType => Some(1)
+      // TODO BVType => 2^size
       case TupleType(tps) => cards(tps).map(_.product)
       case SetType(base) => 
         typeCardinality(base).map(b => Math.pow(2, b).toInt)

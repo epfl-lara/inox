@@ -8,18 +8,18 @@ import utils._
 
 import _root_.smtlib.common._
 import _root_.smtlib.printer.{ RecursivePrinter => SMTPrinter }
-import _root_.smtlib.parser.Commands.{
+import _root_.smtlib.trees.Commands.{
   Constructor => SMTConstructor,
   FunDef => SMTFunDef,
   _
 }
-import _root_.smtlib.parser.Terms.{
+import _root_.smtlib.trees.Terms.{
   Forall => SMTForall,
   Identifier => SMTIdentifier,
   Let => SMTLet,
   _
 }
-import _root_.smtlib.parser.CommandsResponses._
+import _root_.smtlib.trees.CommandsResponses._
 import _root_.smtlib.theories.{Constructors => SmtLibConstructors, _}
 import _root_.smtlib.theories.experimental._
 import _root_.smtlib.Interpreter
@@ -392,8 +392,21 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           Ints.Sub(toSMT(a), Ints.Mul(toSMT(b), q))
       }
 
-      case Modulo(a, b) =>
-        Ints.Mod(toSMT(a), toSMT(b))
+      case Modulo(a, b) => a.getType match {
+        case BVType(size) => // we want x mod |y|
+          val ar = toSMT(a)
+          val br = toSMT(b)
+          FixedSizeBitVectors.SMod(
+            ar,
+            Core.ITE(
+              FixedSizeBitVectors.SLessThan(br, toSMT(BVLiteral(0, size))),
+              FixedSizeBitVectors.Neg(br),
+              br
+            )
+          )
+
+        case IntegerType => Ints.Mod(toSMT(a), toSMT(b))
+      }
 
       case LessThan(a, b) => a.getType match {
         case BVType(_)   => FixedSizeBitVectors.SLessThan(toSMT(a), toSMT(b))
@@ -427,6 +440,14 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case BVShiftLeft(a, b)         => FixedSizeBitVectors.ShiftLeft(toSMT(a), toSMT(b))
       case BVAShiftRight(a, b)       => FixedSizeBitVectors.AShiftRight(toSMT(a), toSMT(b))
       case BVLShiftRight(a, b)       => FixedSizeBitVectors.LShiftRight(toSMT(a), toSMT(b))
+
+      case c @ BVWideningCast(e, _)  =>
+        val Some((from, to)) = c.cast
+        FixedSizeBitVectors.SignExtend(to - from, toSMT(e))
+
+      case c @ BVNarrowingCast(e, _) =>
+        val Some((from, to)) = c.cast
+        FixedSizeBitVectors.Extract(to - 1, 0, toSMT(e))
 
       case And(sub)                  => SmtLibConstructors.and(sub.map(toSMT))
       case Or(sub)                   => SmtLibConstructors.or(sub.map(toSMT))
@@ -502,6 +523,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
       case (SHexadecimal(h), Some(CharType)) =>
         CharLiteral(h.toInt.toChar)
+
 
       case (Num(i), Some(IntegerType)) =>
         IntegerLiteral(i)

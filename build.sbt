@@ -39,9 +39,11 @@ resolvers ++= Seq(
 libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "3.0.1" % "test;it",
   "org.apache.commons" % "commons-lang3" % "3.4",
-  "com.regblanc" %% "scala-smtlib" % "0.2.1",
+  // "com.regblanc" %% "scala-smtlib" % "0.2.2", // FIXME publish 0.2.2
   "uuverifiers" %% "princess" % "2016-12-26"
 )
+
+lazy val scala_smtlib = RootProject(uri("https://github.com/regb/scala-smtlib.git#7686226a113cfa89fb51df07aed49b4cb4b48fc1"))
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")
 
@@ -119,6 +121,7 @@ lazy val ItTest = config("it") extend (Test)
 testOptions in ItTest := Seq(Tests.Argument("-oDF"))
 
 lazy val root = (project in file("."))
+  .dependsOn(scala_smtlib)
   .configs(ItTest)
   .settings(Defaults.itSettings : _*)
   .settings(inConfig(ItTest)(Defaults.testTasks ++ Seq(

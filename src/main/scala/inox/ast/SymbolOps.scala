@@ -582,7 +582,7 @@ trait SymbolOps { self: TypeOps =>
   }
 
   def simplifyLets(expr: Expr): Expr = preMap {
-    case Let(v1, Let(v2, e2, b2), b1) => Some(Let(v2, e2, Let(v1, b2, b1)))
+    case l1 @ Let(v1, Let(v2, e2, b2), b1) => Some(Let(v2, e2, Let(v1, b2, b1).copiedFrom(l1)).copiedFrom(l1))
 
     case Let(v, e, v2) if v.toVariable == v2 => Some(e)
 
@@ -596,7 +596,7 @@ trait SymbolOps { self: TypeOps =>
       IsInstanceOf(_: Variable, _)
     ), b) => Some(replaceFromSymbols(Map(v -> ts), b))
 
-    case Let(v, e, b) => Some(Let(v, e, replace(Map(e -> v.toVariable), b)))
+    case l @ Let(v, e, b) => Some(Let(v, e, replace(Map(e -> v.toVariable), b)).copiedFrom(l))
 
     case _ => None
   } (expr)
@@ -670,7 +670,7 @@ trait SymbolOps { self: TypeOps =>
   def simplestValue(tpe: Type, allowSolver: Boolean = true)(implicit sem: symbols.Semantics): Expr = {
     def rec(tpe: Type, seen: Set[Type]): Expr = tpe match {
       case StringType                 => StringLiteral("")
-      case Int32Type                  => IntLiteral(0)
+      case BVType(size)               => BVLiteral(0, size)
       case RealType                   => FractionLiteral(0, 1)
       case IntegerType                => IntegerLiteral(0)
       case CharType                   => CharLiteral('a')
@@ -1189,7 +1189,7 @@ trait SymbolOps { self: TypeOps =>
     }
     (e, t) match {
       case (StringLiteral(_), StringType) => true
-      case (IntLiteral(_), Int32Type) => true
+      case (BVLiteral(_, s), BVType(t)) => s == t
       case (IntegerLiteral(_), IntegerType) => true
       case (CharLiteral(_), CharType) => true
       case (FractionLiteral(_, _), RealType) => true
@@ -1298,7 +1298,7 @@ trait SymbolOps { self: TypeOps =>
     * @see [[SymbolOps.isPure isPure]]
     */
   def let(vd: ValDef, e: Expr, bd: Expr) = {
-    if ((variablesOf(bd) contains vd.toVariable) || !isPure(e)) Let(vd, e, bd) else bd
+    if ((variablesOf(bd) contains vd.toVariable) || !isPure(e)) Let(vd, e, bd).setPos(Position.between(vd.getPos, bd.getPos)) else bd
   }
 
   /** $encodingof simplified `if (c) t else e` (if-expression).

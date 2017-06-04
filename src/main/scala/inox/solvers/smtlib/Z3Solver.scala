@@ -4,8 +4,8 @@ package inox
 package solvers
 package smtlib
 
-import _root_.smtlib.parser.Terms.{Identifier => _, _}
-import _root_.smtlib.parser.CommandsResponses._
+import _root_.smtlib.trees.Terms.{Identifier => _, _}
+import _root_.smtlib.trees.CommandsResponses._
 
 trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
   import program.trees._
