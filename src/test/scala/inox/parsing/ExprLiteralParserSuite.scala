@@ -1,6 +1,7 @@
 package inox
 package parsing
 
+import scala.collection.BitSet
 import org.scalatest._
 
 class ExprLiteralParserSuite extends FunSuite {
@@ -103,6 +104,26 @@ class ExprLiteralParserSuite extends FunSuite {
 
     assertResult(BVLiteral(-1, 4)) {
       e"-1 : Int4"
+    }
+
+    assertResult(BVLiteral(BitSet(), 2)) {
+      e"4 : Int2"
+    }
+
+    assertResult(BVLiteral(BitSet(1), 2)) {
+      e"1 : Int2"
+    }
+
+    assertResult(BVLiteral(BitSet(2), 2)) {
+      e"2 : Int2"
+    }
+
+    assertResult(BVLiteral(BitSet(1, 2), 2)) {
+      e"3 : Int2"
+    }
+
+    assertResult(BVLiteral(BitSet(1, 2), 2)) {
+      e"-1 : Int2"
     }
   }
 
