@@ -945,7 +945,7 @@ trait ExpressionElaborators { self: Interpolator =>
           Constrained.withUnifier({ (unifier: Unifier) => 
             val vds = bs.map({ case (i, t) => trees.ValDef(i, unifier(t)) })
 
-            (bodyExpr: trees.Expr) => trees.Not(trees.Forall(vds, trees.not(bodyExpr)))
+            (bodyExpr: trees.Expr) => trees.Not(trees.Forall(vds, trees.Not(bodyExpr)))
           }).app({
             typeCheck(body, expected)(store ++ bindings.map(_._1.getName).zip(bs))
           }).addConstraints({
