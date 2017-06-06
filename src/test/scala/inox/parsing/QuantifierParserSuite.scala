@@ -96,4 +96,76 @@ class QuantifierParserSuite extends FunSuite {
       }
     }
   }
+
+  test("Parsing choose.") {
+
+    e"choose x. x > 2" match {
+      case Choose(ValDef(id, IntegerType, _), expr) => 
+        assertResult(GreaterThan(Variable(id, IntegerType, Set()), IntegerLiteral(2))) {
+          expr
+        }
+      case e => fail("Unexpected shape: " + e)
+    }
+
+    e"choose x: BigInt. false ==> true" match {
+      case Choose(ValDef(id, IntegerType, _), expr) => 
+        assertResult(Implies(BooleanLiteral(false), BooleanLiteral(true))) {
+          expr
+        }
+      case e => fail("Unexpected shape: " + e)
+    }
+
+    e"4 + choose x: BigInt. false ==> true" match {
+      case Plus(IntegerLiteral(_), Choose(ValDef(id, IntegerType, _), expr)) => 
+        assertResult(Implies(BooleanLiteral(false), BooleanLiteral(true))) {
+          expr
+        }
+      case e => fail("Unexpected shape: " + e)
+    }
+  }
+
+  test("Parsing lambda.") {
+
+    e"lambda x. x > 2" match {
+      case Lambda(Seq(ValDef(id, IntegerType, _)), expr) => 
+        assertResult(GreaterThan(Variable(id, IntegerType, Set()), IntegerLiteral(2))) {
+          expr
+        }
+      case e => fail("Unexpected shape: " + e)
+    }
+
+    e"lambda x: BigInt. false ==> true" match {
+      case Lambda(Seq(ValDef(id, IntegerType, _)), expr) => 
+        assertResult(Implies(BooleanLiteral(false), BooleanLiteral(true))) {
+          expr
+        }
+      case e => fail("Unexpected shape: " + e)
+    }
+
+    e"(lambda x: BigInt. false ==> true)(17)" match {
+      case Application(Lambda(Seq(ValDef(id, IntegerType, _)), expr), Seq(IntegerLiteral(_))) => 
+        assertResult(Implies(BooleanLiteral(false), BooleanLiteral(true))) {
+          expr
+        }
+      case e => fail("Unexpected shape: " + e)
+    }
+
+    e"(lambda x, y, z: BigInt. x * y + z)(1, 2, 3)" match {
+      case Application(Lambda(Seq(ValDef(idX, IntegerType, _), ValDef(idY, IntegerType, _), ValDef(idZ, IntegerType, _)), expr),
+          Seq(vX, vY, vZ)) => {
+        val x = Variable(idX, IntegerType, Set())
+        val y = Variable(idY, IntegerType, Set())
+        val z = Variable(idZ, IntegerType, Set())
+
+        assertResult(Plus(Times(x, y), z)) {
+          expr
+        }
+
+        assertResult(IntegerLiteral(1)) { vX }
+        assertResult(IntegerLiteral(2)) { vY }
+        assertResult(IntegerLiteral(3)) { vZ }
+      }
+      case e => fail("Unexpected shape: " + e)
+    }
+  }
 }
