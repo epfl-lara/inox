@@ -6,8 +6,8 @@ class TestSilentReporter extends DefaultReporter(Set()) {
   var lastErrors: List[String] = Nil
 
   override def emit(msg: Message): Unit = msg match { 
-    case Message(this.ERROR, _, msg) => lastErrors ++= List(msg.toString)
-    case Message(this.FATAL, _, msg) => lastErrors ++= List(msg.toString)
+    case Message(ERROR, _, msg) => lastErrors ++= List(msg.toString)
+    case Message(FATAL, _, msg) => lastErrors ++= List(msg.toString)
     case _ =>
   }
 
@@ -19,7 +19,7 @@ class TestSilentReporter extends DefaultReporter(Set()) {
 
 class TestErrorReporter extends DefaultReporter(Set()) {
   override def emit(msg: Message): Unit = msg match { 
-    case Message(this.ERROR | this.FATAL, _, _) => super.emit(msg)
+    case Message(ERROR | FATAL, _, _) => super.emit(msg)
     case _ =>
   }
 }
