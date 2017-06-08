@@ -72,7 +72,7 @@ trait MainHelpers {
     evaluators.optIgnoreContracts -> Description(Evaluators, "Don't fail on invalid contracts during evaluation")
   )
 
-  protected final lazy val options = getOptions
+  final lazy val options = getOptions
 
   protected def getCategories: Seq[Category] = {
     General +: (options.map(_._2.category).toSet - General).toSeq.sortBy(_.toString)
