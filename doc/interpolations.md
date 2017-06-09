@@ -215,7 +215,7 @@ res18: inox.trees.interpolator.trees.Expr = ∀x: Boolean. (x || true)
 
 ```scala
 scala> e"exists x: BigInt. x < 0"
-res19: inox.trees.interpolator.trees.Expr = ¬∀x: BigInt. (x >= 0)
+res19: inox.trees.interpolator.trees.Expr = ¬∀x: BigInt. ¬(x < 0)
 
 scala> e"∃x, y. x + y == 0"
 res20: inox.trees.interpolator.trees.Expr = ¬∀x: BigInt, y: BigInt. (x + y ≠ 0)
