@@ -79,15 +79,15 @@ class ExprLiteralParserSuite extends FunSuite {
 
   test("Parsing Int literals.") {
 
-    assertResult(IntLiteral(0)) {
+    assertResult(Int32Literal(0)) {
       e"0 : Int"
     }
 
-    assertResult(IntLiteral(217)) {
+    assertResult(Int32Literal(217)) {
       e"217 : Int"
     }
 
-    assertResult(IntLiteral(-12)) {
+    assertResult(Int32Literal(-12)) {
       e"-12 : Int"
     }
   }

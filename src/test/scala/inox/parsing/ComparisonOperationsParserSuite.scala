@@ -19,7 +19,7 @@ class ComparisonOperationsParserSuite extends FunSuite {
       e"1 == 2"
     }
 
-    assertResult(Equals(IntLiteral(1), IntLiteral(2))) {
+    assertResult(Equals(Int32Literal(1), Int32Literal(2))) {
       e"1 == 2 : Int"
     }
 
@@ -54,7 +54,7 @@ class ComparisonOperationsParserSuite extends FunSuite {
       e"1 <= 2"
     }
 
-    assertResult(LessEquals(IntLiteral(1), IntLiteral(2))) {
+    assertResult(LessEquals(Int32Literal(1), Int32Literal(2))) {
       e"1 <= 2 : Int"
     }
 
@@ -89,7 +89,7 @@ class ComparisonOperationsParserSuite extends FunSuite {
       e"1 >= 2"
     }
 
-    assertResult(GreaterEquals(IntLiteral(1), IntLiteral(2))) {
+    assertResult(GreaterEquals(Int32Literal(1), Int32Literal(2))) {
       e"1 >= 2 : Int"
     }
 
@@ -124,7 +124,7 @@ class ComparisonOperationsParserSuite extends FunSuite {
       e"1 < 2"
     }
 
-    assertResult(LessThan(IntLiteral(1), IntLiteral(2))) {
+    assertResult(LessThan(Int32Literal(1), Int32Literal(2))) {
       e"1 < 2 : Int"
     }
 
@@ -159,7 +159,7 @@ class ComparisonOperationsParserSuite extends FunSuite {
       e"1 > 2"
     }
 
-    assertResult(GreaterThan(IntLiteral(1), IntLiteral(2))) {
+    assertResult(GreaterThan(Int32Literal(1), Int32Literal(2))) {
       e"1 > 2 : Int"
     }
 
