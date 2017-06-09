@@ -4,9 +4,9 @@ package inox
 package solvers
 package smtlib
 
-import _root_.smtlib.parser.Commands.{FunDef => SMTFunDef, _}
-import _root_.smtlib.parser.Terms.{Identifier => _, _}
-import _root_.smtlib.parser.CommandsResponses._
+import _root_.smtlib.trees.Commands.{FunDef => SMTFunDef, _}
+import _root_.smtlib.trees.Terms.{Identifier => _, _}
+import _root_.smtlib.trees.CommandsResponses._
 
 import scala.collection.mutable.{Map => MutableMap}
 

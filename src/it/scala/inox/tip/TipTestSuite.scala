@@ -5,6 +5,8 @@ package tip
 
 import solvers._
 
+import scala.language.existentials
+
 class TipTestSuite extends TestSuite with ResourceUtils {
 
   override def configurations = Seq(

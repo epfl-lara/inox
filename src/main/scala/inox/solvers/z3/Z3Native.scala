@@ -176,7 +176,10 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   }
 
   // Prepare some of the Z3 sorts, but *not* the tuple sorts; these are created on-demand.
+  sorts += Int8Type -> z3.mkBVSort(8)
+  sorts += Int16Type -> z3.mkBVSort(16)
   sorts += Int32Type -> z3.mkBVSort(32)
+  sorts += Int64Type -> z3.mkBVSort(64)
   sorts += CharType -> z3.mkBVSort(16)
   sorts += IntegerType -> z3.mkIntSort
   sorts += RealType -> z3.mkRealSort
@@ -187,7 +190,8 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
   // assumes prepareSorts has been called....
   protected def typeToSort(oldtt: Type): Z3Sort = bestRealType(oldtt) match {
-    case Int32Type | BooleanType | IntegerType | RealType | CharType | StringType =>
+    case Int8Type | Int16Type | Int32Type | Int64Type |
+         BooleanType | IntegerType | RealType | CharType | StringType =>
       sorts(oldtt)
 
     case tt @ BVType(i) =>
@@ -249,7 +253,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case Implies(l, r) => z3.mkImplies(rec(l), rec(r))
       case Not(Equals(l, r)) => z3.mkDistinct(rec(l), rec(r))
       case Not(e) => z3.mkNot(rec(e))
-      case IntLiteral(v) => z3.mkInt(v, typeToSort(Int32Type))
+      case bv @ BVLiteral(_, _) => z3.mkNumeral(bv.toBigInt.toString, typeToSort(bv.getType))
       case IntegerLiteral(v) => z3.mkNumeral(v.toString, typeToSort(IntegerType))
       case FractionLiteral(n, d) => z3.mkNumeral(s"$n / $d", typeToSort(RealType))
       case CharLiteral(c) => z3.mkInt(c, typeToSort(CharType))
@@ -285,7 +289,24 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
           val q = rec(Division(l, r))
           z3.mkSub(rec(l), z3.mkMul(rec(r), q))
       }
-      case Modulo(l, r) => z3.mkMod(rec(l), rec(r))
+
+      case Modulo(l, r) => l.getType match {
+        case BVType(size) => // we want x mod |y|
+          val lr = rec(l)
+          val rr = rec(r)
+          z3.mkBVSmod(
+            lr,
+            z3.mkITE(
+              z3.mkBVSle(rr, rec(BVLiteral(0, size))),
+              z3.mkBVNeg(rr),
+              rr
+            )
+          )
+
+        case _ =>
+          z3.mkMod(rec(l), rec(r))
+      }
+
       case UMinus(e) => e.getType match {
         case BVType(_) => z3.mkBVNeg(rec(e))
         case _ => z3.mkUnaryMinus(rec(e))
@@ -298,28 +319,37 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case BVShiftLeft(l, r) => z3.mkBVShl(rec(l), rec(r))
       case BVAShiftRight(l, r) => z3.mkBVAshr(rec(l), rec(r))
       case BVLShiftRight(l, r) => z3.mkBVLshr(rec(l), rec(r))
+
+      case c @ BVWideningCast(e, _)  =>
+        val Some((from, to)) = c.cast
+        z3.mkSignExt(to - from, rec(e))
+
+      case c @ BVNarrowingCast(e, _) =>
+        val Some((from, to)) = c.cast
+        z3.mkExtract(to - 1, 0, rec(e))
+
       case LessThan(l, r) => l.getType match {
         case IntegerType => z3.mkLT(rec(l), rec(r))
         case RealType => z3.mkLT(rec(l), rec(r))
-        case Int32Type => z3.mkBVSlt(rec(l), rec(r))
+        case BVType(_) => z3.mkBVSlt(rec(l), rec(r))
         case CharType => z3.mkBVUlt(rec(l), rec(r))
       }
       case LessEquals(l, r) => l.getType match {
         case IntegerType => z3.mkLE(rec(l), rec(r))
         case RealType => z3.mkLE(rec(l), rec(r))
-        case Int32Type => z3.mkBVSle(rec(l), rec(r))
+        case BVType(_) => z3.mkBVSle(rec(l), rec(r))
         case CharType => z3.mkBVUle(rec(l), rec(r))
       }
       case GreaterThan(l, r) => l.getType match {
         case IntegerType => z3.mkGT(rec(l), rec(r))
         case RealType => z3.mkGT(rec(l), rec(r))
-        case Int32Type => z3.mkBVSgt(rec(l), rec(r))
+        case BVType(_) => z3.mkBVSgt(rec(l), rec(r))
         case CharType => z3.mkBVUgt(rec(l), rec(r))
       }
       case GreaterEquals(l, r) => l.getType match {
         case IntegerType => z3.mkGE(rec(l), rec(r))
         case RealType => z3.mkGE(rec(l), rec(r))
-        case Int32Type => z3.mkBVSge(rec(l), rec(r))
+        case BVType(_) => z3.mkBVSge(rec(l), rec(r))
         case CharType => z3.mkBVUge(rec(l), rec(r))
       }
 
@@ -501,50 +531,28 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       val kind = z3.getASTKind(t)
       kind match {
         case Z3NumeralIntAST(Some(v)) =>
-          val leading = t.toString.substring(0, 2 min t.toString.length)
-          if (leading == "#x") {
-            _root_.smtlib.common.Hexadecimal.fromString(t.toString.substring(2)) match {
-              case Some(hexa) =>
-                tpe match {
-                  case Int32Type => IntLiteral(hexa.toInt)
-                  case CharType  => CharLiteral(hexa.toInt.toChar)
-                  case IntegerType => IntegerLiteral(BigInt(hexa.toInt))
-                  case other =>
-                    unsupported(other, "Unexpected target type for BV value")
-                }
-              case None => unsound(t, "could not translate hexadecimal Z3 numeral")
-              }
-          } else {
-            tpe match {
-              case Int32Type => IntLiteral(v)
-              case CharType  => CharLiteral(v.toChar)
-              case IntegerType => IntegerLiteral(BigInt(v))
-              case other =>
-                unsupported(other, "Unexpected type for BV value: " + other)
-            }
+          tpe match {
+            case BVType(size) => BVLiteral(BigInt(v), size)
+            case CharType => CharLiteral(v.toChar)
+            case IntegerType => IntegerLiteral(BigInt(v))
+
+            case other => unsupported(other, s"Unexpected target type for value $v")
           }
 
         case Z3NumeralIntAST(None) =>
           val ts = t.toString
-          if(ts.length > 4 && ts.substring(0, 2) == "bv" && ts.substring(ts.length - 4) == "[32]") {
-            val integer = ts.substring(2, ts.length - 4)
-            tpe match {
-              case Int32Type => IntLiteral(integer.toLong.toInt)
-              case CharType  => CharLiteral(integer.toInt.toChar)
-              // @nv XXX: why would we have this!? case IntegerType => IntegerLiteral(BigInt(integer))
-              case _ =>
-                reporter.fatalError("Unexpected target type for BV value: " + tpe.asString)
-            }
-          } else {  
-            _root_.smtlib.common.Hexadecimal.fromString(t.toString.substring(2)) match {
-              case Some(hexa) =>
-                tpe match {
-                  case Int32Type => IntLiteral(hexa.toInt)
-                  case CharType  => CharLiteral(hexa.toInt.toChar)
-                  case _ => unsound(t, "unexpected target type for BV value: " + tpe.asString)
-                }
-              case None => unsound(t, "could not translate Z3NumeralIntAST numeral")
-            }
+          tpe match {
+            case BVType(size) =>
+              if (ts.startsWith("#b")) BVLiteral(BigInt(ts.drop(2), 2), size)
+              else if (ts.startsWith("#x")) BVLiteral(BigInt(ts.drop(2), 16), size)
+              else if (ts.startsWith("#")) reporter.fatalError(s"Unexpected format for BV value: $ts")
+              else BVLiteral(BigInt(ts, 10), size)
+
+            case IntegerType =>
+              if (ts.startsWith("#")) reporter.fatalError(s"Unexpected format for Integer value: $ts")
+              else IntegerLiteral(BigInt(ts, 10))
+
+            case other => unsupported(other, s"Unexpected target type for value $ts")
           }
 
         case Z3NumeralRealAST(n: BigInt, d: BigInt) => FractionLiteral(n, d)
@@ -727,17 +735,25 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     val ex = new ModelExtractor(model)
 
     val vars = variables.aToB.flatMap {
+      /** WARNING this code is very similar to Z3Unrolling.modelEval!!! */
       case (v,z3ID) => (v.tpe match {
         case BooleanType =>
           model.evalAs[Boolean](z3ID).map(BooleanLiteral)
 
         case Int32Type =>
-          model.evalAs[Int](z3ID).map(IntLiteral(_)).orElse {
+          model.evalAs[Int](z3ID).map(Int32Literal(_)).orElse {
             model.eval(z3ID).flatMap(t => ex.get(t, Int32Type))
           }
 
-        case IntegerType =>
-          model.evalAs[Int](z3ID).map(i => IntegerLiteral(BigInt(i)))
+         /*
+          * NOTE The following could be faster than the default case, but be carefull to
+          *      fallback to the default when a BigInt doesn't fit in a regular Int.
+          *
+          * case IntegerType =>
+          *  model.evalAs[Int](z3ID).map(IntegerLiteral(_)).orElse {
+          *    model.eval(z3ID).flatMap(ex.get(_, IntegerType))
+          *  }
+          */
 
         case other => model.eval(z3ID).flatMap(t => ex.get(t, other))
       }).map(v.toVal -> _)

@@ -3,6 +3,8 @@
 package inox
 package ast
 
+import inox.utils.{Position, NoPosition}
+
 /** Provides constructors for [[Expressions]].
   *
   * The constructors implement some logic to simplify the tree and
@@ -50,10 +52,15 @@ trait Constructors { self: Trees =>
       e
     }).distinct
 
+    val defaultPos = exprs match {
+      case Seq() => NoPosition
+      case es => Position.between(es.head.getPos, es.last.getPos)
+    }
+
     simpler match {
-      case Seq()  => BooleanLiteral(true)
+      case Seq()  => BooleanLiteral(true).setPos(defaultPos)
       case Seq(x) => x
-      case _      => And(simpler)
+      case _      => And(simpler).setPos(defaultPos)
     }
   }
 
@@ -77,10 +84,15 @@ trait Constructors { self: Trees =>
       e
     }
 
+    val defaultPos = exprs match {
+      case Seq() => NoPosition
+      case es => Position.between(es.head.getPos, es.last.getPos)
+    }
+
     simpler match {
-      case Seq()  => BooleanLiteral(false)
+      case Seq()  => BooleanLiteral(false).setPos(defaultPos)
       case Seq(x) => x
-      case _      => Or(simpler)
+      case _      => Or(simpler).setPos(defaultPos)
     }
   }
 
@@ -183,8 +195,8 @@ trait Constructors { self: Trees =>
   def plus(lhs: Expr, rhs: Expr): Expr = (lhs, rhs) match {
     case (IntegerLiteral(bi), _) if bi == 0 => rhs
     case (_, IntegerLiteral(bi)) if bi == 0 => lhs
-    case (IntLiteral(0), _) => rhs
-    case (_, IntLiteral(0)) => lhs
+    case (bv: BVLiteral, _) if bv.toBigInt == 0 => rhs
+    case (_, bv: BVLiteral) if bv.toBigInt == 0 => lhs
     case (FractionLiteral(n, d), _) if n == 0 => rhs
     case (_, FractionLiteral(n, d)) if n == 0 => lhs
     case _ => Plus(lhs, rhs)
@@ -195,14 +207,14 @@ trait Constructors { self: Trees =>
     */
   def minus(lhs: Expr, rhs: Expr): Expr = (lhs, rhs) match {
     case (_, IntegerLiteral(bi)) if bi == 0 => lhs
-    case (_, IntLiteral(0)) => lhs
+    case (_, bv: BVLiteral) if bv.toBigInt == 0 => lhs
     case (IntegerLiteral(bi), _) if bi == 0 => UMinus(rhs)
     case _ => Minus(lhs, rhs)
   }
 
   def uminus(e: Expr): Expr = e match {
     case IntegerLiteral(bi) if bi == 0 => e
-    case IntLiteral(0) => e
+    case bv: BVLiteral if bv.toBigInt == 0 => e
     case IntegerLiteral(bi) if bi < 0 => IntegerLiteral(-bi)
     case _ => UMinus(e)
   }
@@ -215,10 +227,10 @@ trait Constructors { self: Trees =>
     case (_, IntegerLiteral(bi)) if bi == 1 => lhs
     case (IntegerLiteral(bi), _) if bi == 0 => IntegerLiteral(0)
     case (_, IntegerLiteral(bi)) if bi == 0 => IntegerLiteral(0)
-    case (IntLiteral(1), _) => rhs
-    case (_, IntLiteral(1)) => lhs
-    case (IntLiteral(0), _) => IntLiteral(0)
-    case (_, IntLiteral(0)) => IntLiteral(0)
+    case (bv: BVLiteral, _) if bv.toBigInt == 1 => rhs
+    case (_, bv: BVLiteral) if bv.toBigInt == 1 => lhs
+    case (bv: BVLiteral, _) if bv.toBigInt == 0 => lhs
+    case (_, bv: BVLiteral) if bv.toBigInt == 0 => rhs
     case _ => Times(lhs, rhs)
   }
 

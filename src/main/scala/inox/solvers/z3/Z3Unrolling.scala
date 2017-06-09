@@ -92,14 +92,25 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
       elem => model.getArrayValue(elem).map(p => p._1.toSeq -> p._2)
     }
 
+    /** WARNING this code is very similar to Z3Native.extractModel!!! */
     def modelEval(elem: Z3AST, tpe: t.Type): Option[t.Expr] = {
       val timer = ctx.timers.solvers.z3.eval.start()
       val res = tpe match {
         case t.BooleanType => model.evalAs[Boolean](elem).map(t.BooleanLiteral)
-        case t.Int32Type => model.evalAs[Int](elem).map(t.IntLiteral(_)).orElse {
+
+        case t.Int32Type => model.evalAs[Int](elem).map(t.Int32Literal(_)).orElse {
           model.eval(elem).flatMap(term => ex.get(term, t.Int32Type))
         }
-        case t.IntegerType => model.evalAs[Int](elem).map(t.IntegerLiteral(_))
+
+        /*
+         * NOTE The following could be faster than the default case, but be carefull to
+         *      fallback to the default when a BigInt doesn't fit in a regular Int.
+         *
+         * case t.IntegerType => model.evalAs[Int](elem).map(t.IntegerLiteral(_)).orElse {
+         *   model.eval(elem).flatMap(ex.get(_, t.IntegerType))
+         * }
+         */
+
         case other => model.eval(elem).flatMap(ex.get(_, other))
       }
       timer.stop()

@@ -5,8 +5,8 @@ package solvers.smtlib.optimization
 
 import smtlib._
 import smtlib.lexer.{Tokens => LT}
-import smtlib.parser.Terms._
-import smtlib.parser.Commands._
+import smtlib.trees.Terms._
+import smtlib.trees.Commands._
 
 object Tokens {
   import LT.ReservedWord

@@ -5,7 +5,7 @@ package parsing
 
 import scala.util.parsing.input._
 
-trait StringContextPosition extends Position {
+sealed trait StringContextPosition extends Position {
   val context: StringContext
 
   import StringContextPosition._

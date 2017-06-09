@@ -101,7 +101,6 @@ trait ExpressionElaborators { self: Interpolator =>
 
           unifier(expected) match {
             case trees.IntegerType => trees.IntegerLiteral(BigInt(string))
-            case trees.Int32Type => trees.IntLiteral(string.toInt)
             case trees.BVType(n) => trees.BVLiteral(BigInt(string), n)
             case trees.RealType => trees.FractionLiteral(BigInt(string), 1)
             case tpe => throw new Exception("typeCheck: Unexpected type during elaboration: " + tpe)
@@ -162,7 +161,7 @@ trait ExpressionElaborators { self: Interpolator =>
             })
           case n : Int => 
             Constrained.pure({
-              trees.IntLiteral(n)
+              trees.Int32Literal(n)
             }).addConstraint({
               Constraint.equal(expected, trees.Int32Type)
             })
