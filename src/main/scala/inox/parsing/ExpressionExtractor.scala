@@ -440,8 +440,8 @@ trait ExpressionExtractors { self: Interpolator =>
 
         // Bit vectors.
 
-        case trees.BVLiteral(value, _) => template match {
-          case Literal(NumericLiteral(string)) if (scala.util.Try(BigInt(string)).toOption == Some(value)) => success
+        case v@trees.BVLiteral(value, base) => template match {
+          case Literal(NumericLiteral(string)) if (scala.util.Try(trees.BVLiteral(BigInt(string), base)).toOption == Some(v)) => success
           case _ => fail
         }
 
