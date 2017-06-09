@@ -9,52 +9,37 @@ trait ExpressionExtractors { self: Interpolator =>
 
     import ExprIR._
 
-    private case class State(local: Store, global: Store)
+    private type MatchObligation = Option[Match]
 
-    private object State {
-      def empty: State = State(Store.empty, Store.empty)
-    }
+    private def toIdObl(pair: (inox.Identifier, Identifier)): MatchObligation = {
+      val (id, templateId) = pair
 
-    private type MatchObligation = State => Option[(Store, Match)]
-
-    private def withBindings(bindings: (Seq[inox.Identifier], Seq[String]))(obligation: MatchObligation): MatchObligation = { (state: State) =>
-      if (bindings._1.length == bindings._2.length) {
-        val newLocal = bindings._1.zip(bindings._2).foldLeft(state.local) {
-          case (currentStore, (id, name)) => currentStore.add(id, name)
-        }
-
-        obligation(State(newLocal, state.global))
-      }
-      else {
-        None
+      templateId match {
+        case IdentifierName(name) if name == id.name => Some(empty)
+        case IdentifierHole(index) => Some(matching(index, id))
+        case _ => None
       }
     }
-    private def withBinding(pair: (inox.Identifier, String))(obligation: MatchObligation): MatchObligation = { (state: State) =>
-      val (id, name) = pair
-      val newLocal = state.local.add(id, name)
-      
-      obligation(State(newLocal, state.global))
+    private def toExprObl(pair: (trees.Expr, Expression)): MatchObligation = {
+      extract(pair._1, pair._2)
     }
-    private def toExprObl(pair: (trees.Expr, Expression)): MatchObligation = { (state: State) => 
-      extractOne(pair._1, pair._2)(state)
-    }
-    private def toTypeObl(pair: (trees.Type, Type)): MatchObligation = { (state: State) => 
+    private def toTypeObl(pair: (trees.Type, Type)): MatchObligation = {
       val (tpe, template) = pair
-      extract(tpe, template).map((state.global, _))
+      extract(tpe, template)
     }
-    private def toOptTypeObl(pair: (trees.Type, Option[Type])): MatchObligation = { (state: State) =>
+    private def toOptTypeObl(pair: (trees.Type, Option[Type])): MatchObligation = {
       val (tpe, optTemplateType) = pair
 
       if (optTemplateType.isEmpty) {
-        Some((state.global, empty))
+        Some(empty)
       }
       else {
-        toTypeObl(tpe -> optTemplateType.get)(state)
+        toTypeObl(tpe -> optTemplateType.get)
       }
     }
-    private def toExprObls(pair: (Seq[trees.Expr], Seq[Expression])): MatchObligation = { (state: State) =>
+    private def toExprObls(pair: (Seq[trees.Expr], Seq[Expression])): MatchObligation = {
       pair match {
-        case (Seq(), Seq()) => Some((state.global, empty))
+        case (Seq(), Seq()) => Some(empty)
         case (Seq(), _) => None
         case (_, Seq()) => None
         case (_, Seq(ExpressionSeqHole(i), templateRest @ _*)) => {
@@ -66,81 +51,60 @@ trait ExpressionExtractors { self: Interpolator =>
           else {
             val (matches, rest) = pair._1.splitAt(n)
 
-            toExprObls(rest -> templateRest)(state) map {
-              case (store, matchings) => (store, matching(i, matches) ++ matchings)
+            toExprObls(rest -> templateRest) map {
+              case matchings => matching(i, matches) ++ matchings
             }
           }
         }
         case (Seq(expr, exprRest @ _*), Seq(template, templateRest @ _*)) => for {
-          (interGlobal, matchingsHead) <- extract(toExprObl(expr -> template))(state)
-          (finalGlobal, matchingsRest) <- extract(toExprObls(exprRest -> templateRest))(State(state.local, interGlobal))
-        } yield (finalGlobal, matchingsHead ++ matchingsRest)
+          matchingsHead <- extract(toExprObl(expr -> template))
+          matchingsRest <- extract(toExprObls(exprRest -> templateRest))
+        } yield matchingsHead ++ matchingsRest
       }
     }
-    private def toTypeObls(pair: (Seq[trees.Type], Seq[Type])): MatchObligation = { (state: State) =>
-      extractSeq(pair._1, pair._2).map((state.global, _))
+    private def toTypeObls(pair: (Seq[trees.Type], Seq[Type])): MatchObligation = {
+      extractSeq(pair._1, pair._2)
     }
-    private def toOptTypeObls(pair: (Seq[trees.Type], Seq[Option[Type]])): MatchObligation = { (state: State) =>
+    private def toOptTypeObls(pair: (Seq[trees.Type], Seq[Option[Type]])): MatchObligation = {
       val pairs = pair._1.zip(pair._2).collect {
         case (tpe, Some(template)) => toTypeObl(tpe -> template)
       }
-      extract(pairs : _*)(state)
+      extract(pairs : _*)
+    }
+    private def toIdObls(pair: (Seq[inox.Identifier], Seq[Identifier])): MatchObligation = {
+
+      // TODO: Change this.
+      val (ids, templatesIds) = pair
+
+      if (ids.length == templatesIds.length) {
+        extract(ids.zip(templatesIds).map(toIdObl) : _*)
+      }
+      else {
+        None
+      }
     }
 
-    private def extract(pairs: MatchObligation*)(implicit state: State): Option[(Store, Match)] = {
+    private def extract(pairs: MatchObligation*): MatchObligation = {
 
-      val zero: Option[(Store, Match)] = Some((state.global, empty))
+      val zero: MatchObligation = Some(empty)
 
       pairs.foldLeft(zero) {
         case (None, _) => None
-        case (Some((globalAcc, matchingsAcc)), obligation) => {
-          obligation(State(state.local, globalAcc)) map {
-            case (newGlobal, extraMatchings) => (newGlobal, matchingsAcc ++ extraMatchings)
+        case (Some(matchingsAcc), obligation) => {
+          obligation map {
+            case extraMatchings => matchingsAcc ++ extraMatchings
           }
         }
       }
     }
 
-    private class Store(val inoxToIr: Map[inox.Identifier, String], val irToInox: Map[String, inox.Identifier]) {
+    def extract(expr: trees.Expr, template: Expression): MatchObligation = {
 
-      override def toString = inoxToIr.toString + "\n" + irToInox.toString
-
-      def get(id: inox.Identifier): Option[String] = inoxToIr.get(id)
-      def get(name: String): Option[inox.Identifier] = irToInox.get(name)
-
-      def add(id: inox.Identifier, name: String): Store = {
-
-        val optOldName = inoxToIr.get(id)
-        val optOldId = irToInox.get(name)
-
-        val newIrToInox = optOldName match {
-          case None => irToInox + ((name -> id))
-          case Some(oldName) => irToInox - oldName + ((name -> id))
-        }
-
-        val newInoxToIR = optOldId match {
-          case None => inoxToIr + ((id -> name))
-          case Some(oldId) => inoxToIr - oldId + ((id -> name))
-        }
-        
-        new Store(newInoxToIR, newIrToInox)
-      }
-    }
-
-    private object Store {
-      val empty = new Store(Map(), Map())
-    }
-
-    def extract(expr: trees.Expr, template: Expression): Option[Match] = extract(toExprObl(expr -> template))(State.empty).map(_._2)
-
-    private def extractOne(expr: trees.Expr, template: Expression)(implicit state: State): Option[(Store, Match)] = {
-
-      val store = state.global
-      val success = Some((store, empty))
+      val success = Some(empty)
 
       template match {
         case ExpressionHole(index) =>
-          return Some((store, Map(index -> expr)))
+          return Some(Map(index -> expr))
         case TypeAnnotationOperation(templateInner, templateType) =>
           return extract(toTypeObl(expr.getType -> templateType), toExprObl(expr -> templateInner))
         case _ => ()
@@ -151,18 +115,7 @@ trait ExpressionExtractors { self: Interpolator =>
         // Variables
 
         case trees.Variable(inoxId, _, _) => template match {
-          case Variable(id) => {
-            val name = id.getName
-            (state.local.get(name), state.local.get(inoxId)) match {
-              case (Some(`inoxId`), Some(`name`)) => success  // Locally bound identifier.
-              case (None, None) => (store.get(name), store.get(inoxId)) match {
-                case (Some(`inoxId`), Some(`name`)) => success  // Globally bound identifier.
-                case (None, None) => Some((store.add(inoxId, name), empty)) // Free identifier. We recorder it in the global store.
-                case _ => fail
-              }
-              case _ => fail
-            }
-          }
+          case Variable(templateId) => extract(toIdObl(inoxId -> templateId))
           case _ => fail
         }
 
@@ -188,7 +141,11 @@ trait ExpressionExtractors { self: Interpolator =>
               case _ => Let(rest, templateBody)
             }
 
-            extract(toExprObl(value -> templateValue), toOptTypeObl(vd.tpe -> optTemplateType), withBinding(vd.id -> templateId.getName)(toExprObl(body -> templateRest)))
+            extract(
+              toExprObl(value -> templateValue), 
+              toOptTypeObl(vd.tpe -> optTemplateType),
+              toIdObl(vd.id -> templateId),
+              toExprObl(body -> templateRest))
           }
           case _ => fail
         }
@@ -197,7 +154,8 @@ trait ExpressionExtractors { self: Interpolator =>
           case Abstraction(Lambda, templateArgs, templateBody) =>
             extract(
               toOptTypeObls(args.map(_.tpe) -> templateArgs.map(_._2)), 
-              withBindings(args.map(_.id) -> templateArgs.map(_._1.getName))(toExprObl(body -> templateBody)))
+              toIdObls(args.map(_.id) -> templateArgs.map(_._1)),
+              toExprObl(body -> templateBody))
           case _ => fail
         }
 
@@ -205,18 +163,22 @@ trait ExpressionExtractors { self: Interpolator =>
           case Abstraction(Forall, templateArgs, templateBody) =>
             extract(
               toOptTypeObls(args.map(_.tpe) -> templateArgs.map(_._2)), 
-              withBindings(args.map(_.id) -> templateArgs.map(_._1.getName))(toExprObl(body -> templateBody)))
+              toIdObls(args.map(_.id) -> templateArgs.map(_._1)),
+              toExprObl(body -> templateBody))
           case _ => fail
         }
 
         case trees.Choose(arg, pred) => template match {
-          case Abstraction(Choose, Seq((id, optTemplateType), rest @ _*), templatePred) => {
+          case Abstraction(Choose, Seq((templateId, optTemplateType), rest @ _*), templatePred) => {
             val templateRest = rest match {
               case Seq() => templatePred
               case _ => Abstraction(Choose, rest, templatePred)
             }
 
-            extract(toOptTypeObl(arg.tpe -> optTemplateType), withBinding(arg.id -> id.getName)(toExprObl(pred -> templateRest)))
+            extract(
+              toOptTypeObl(arg.tpe -> optTemplateType),
+              toIdObl(arg.id -> templateId),
+              toExprObl(pred -> templateRest))
           }
           case _ => fail
         }
@@ -238,11 +200,11 @@ trait ExpressionExtractors { self: Interpolator =>
             }
           }
           case Application(TypeApplication(ExpressionHole(index), templateTypes), templateArgs) => for {
-            (store, matchings) <- extract(toTypeObls(tpes -> templateTypes), toExprObls(args -> templateArgs))
-          } yield (store, matching(index, id) ++ matchings)
+            matchings <- extract(toTypeObls(tpes -> templateTypes), toExprObls(args -> templateArgs))
+          } yield matching(index, id) ++ matchings
           case Application(ExpressionHole(index), templateArgs) => for {
-            (store, matchings) <- extract(toExprObls(args -> templateArgs))
-          } yield (store, matching(index, id) ++ matchings)
+            matchings <- extract(toExprObls(args -> templateArgs))
+          } yield matching(index, id) ++ matchings
           case _ => fail
         }
 
@@ -257,18 +219,18 @@ trait ExpressionExtractors { self: Interpolator =>
             }
           }
           case Application(TypeApplication(ExpressionHole(index), templateTypes), templateArgs) => for {
-            (store, matchings) <- extract(toTypeObls(tpes -> templateTypes), toExprObls(args -> templateArgs))
-          } yield (store, matching(index, id) ++ matchings)
+            matchings <- extract(toTypeObls(tpes -> templateTypes), toExprObls(args -> templateArgs))
+          } yield matching(index, id) ++ matchings
           case Application(ExpressionHole(index), templateArgs) => for {
-            (store, matchings) <- extract(toExprObls(args -> templateArgs))
-          } yield (store, matching(index, id) ++ matchings)
+            matchings <- extract(toExprObls(args -> templateArgs))
+          } yield matching(index, id) ++ matchings
           case _ => fail
         }
 
         case trees.ADTSelector(adt, selector) => template match {
           case Selection(adtTemplate, FieldHole(index)) => for {
-            (store, matchings) <- extract(toExprObl(adt -> adtTemplate))
-          } yield (store, matching(index, selector) ++ matchings)
+            matchings <- extract(toExprObl(adt -> adtTemplate))
+          } yield matching(index, selector) ++ matchings
           case Selection(adtTemplate, Field((cons, vd))) if (vd.id == selector) =>  // TODO: Handle selectors with the same name.
             extract(toExprObl(adt -> adtTemplate))
           case _ => fail
