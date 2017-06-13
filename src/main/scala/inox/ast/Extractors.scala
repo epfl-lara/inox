@@ -21,41 +21,72 @@ trait TreeDeconstructor {
   protected val t: Trees
 
   def deconstruct(expr: s.Expr): (Seq[s.Variable], Seq[s.Expr], Seq[s.Type], (Seq[t.Variable], Seq[t.Expr], Seq[t.Type]) => t.Expr) = expr match {
-    /* Unary operators */
+    /* MOST FREQUENT EXPRESSION FIRST, in order */
+    case v @ s.Variable(id, tp, _) =>
+      (Seq(v), Seq(), Seq(), (vs, _, _) => vs.head)
+    case s.ADTSelector(e, sel) =>
+      (Seq(), Seq(e), Seq(), (_, es, _) => t.ADTSelector(es.head, sel))
     case s.Not(e) =>
       (Seq(), Seq(e), Seq(), (_, es, _) => t.Not(es.head))
+    case s.AsInstanceOf(e, ct) =>
+      (Seq(), Seq(e), Seq(ct), (_, es, tps) => t.AsInstanceOf(es.head, tps.head))
+    case s.FunctionInvocation(id, tps, args) =>
+      (Seq(), args, tps, (_, es, tps) => t.FunctionInvocation(id, tps, es))
+    case s.Let(binder, e, body) =>
+      (Seq(binder.toVariable), Seq(e, body), Seq(), (vs, es, _) => t.Let(vs.head.toVal, es(0), es(1)))
+    case s.IntegerLiteral(i) =>
+      (Seq(), Seq(), Seq(), (_, _, _) => t.IntegerLiteral(i))
+    case s.IsInstanceOf(e, ct) =>
+      (Seq(), Seq(e), Seq(ct), (_, es, tps) => t.IsInstanceOf(es.head, tps.head))
+    case s.Equals(t1, t2) =>
+      (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.Equals(es(0), es(1)))
+    case s.And(args) =>
+      (Seq(), args, Seq(), (_, es, _) => t.And(es))
+    case s.Or(args) =>
+      (Seq(), args, Seq(), (_, es, _) => t.Or(es))
+    case s.IfExpr(cond, thenn, elze) => (
+      Seq(), Seq(cond, thenn, elze), Seq(),
+      (_, es, _) => t.IfExpr(es(0), es(1), es(2)))
+    case s.BooleanLiteral(b) =>
+      (Seq(), Seq(), Seq(), (_, _, _) => t.BooleanLiteral(b))
+    case s.GreaterEquals(t1, t2) =>
+      (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.GreaterEquals(es(0), es(1)))
+    case s.ADT(adt, args) =>
+      (Seq(), args, Seq(adt), (_, es, tps) => t.ADT(tps.head.asInstanceOf[t.ADTType], es))
+    case s.Application(caller, args) =>
+      (Seq(), caller +: args, Seq(), (_, es, _) => t.Application(es.head, es.tail))
+    case s.Choose(res, pred) =>
+      (Seq(res.toVariable), Seq(pred), Seq(), (vs, es, _) => t.Choose(vs.head.toVal, es.head))
+    case s.LessThan(t1, t2) =>
+      (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.LessThan(es(0), es(1)))
+    case s.LessEquals(t1, t2) =>
+      (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.LessEquals(es(0), es(1)))
+    case s.Lambda(args, body) => (
+      args.map(_.toVariable), Seq(body), Seq(),
+      (vs, es, _) => t.Lambda(vs.map(_.toVal), es.head))
+    case s.Plus(t1, t2) =>
+      (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.Plus(es(0), es(1)))
+    case s.TupleSelect(e, i) =>
+      (Seq(), Seq(e), Seq(), (_, es, _) => t.TupleSelect(es.head, i))
+    case s.Minus(t1, t2) =>
+      (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.Minus(es(0), es(1)))
+    case s.GreaterThan(t1, t2) =>
+      (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.GreaterThan(es(0), es(1)))
+
+    /* Unary operators */
     case s.BVNot(e) =>
       (Seq(), Seq(e), Seq(), (_, es, _) => t.BVNot(es.head))
     case s.UMinus(e) =>
       (Seq(), Seq(e), Seq(), (_, es, _) => t.UMinus(es.head))
     case s.StringLength(e) =>
       (Seq(), Seq(e), Seq(), (_, es, _) => t.StringLength(es.head))
-    case s.ADTSelector(e, sel) =>
-      (Seq(), Seq(e), Seq(), (_, es, _) => t.ADTSelector(es.head, sel))
-    case s.IsInstanceOf(e, ct) =>
-      (Seq(), Seq(e), Seq(ct), (_, es, tps) => t.IsInstanceOf(es.head, tps.head))
-    case s.AsInstanceOf(e, ct) =>
-      (Seq(), Seq(e), Seq(ct), (_, es, tps) => t.AsInstanceOf(es.head, tps.head))
-    case s.TupleSelect(e, i) =>
-      (Seq(), Seq(e), Seq(), (_, es, _) => t.TupleSelect(es.head, i))
-    case s.Lambda(args, body) => (
-      args.map(_.toVariable), Seq(body), Seq(),
-      (vs, es, _) => t.Lambda(vs.map(_.toVal), es.head))
     case s.Forall(args, body) => (
       args.map(_.toVariable), Seq(body), Seq(),
       (vs, es, _) => t.Forall(vs.map(_.toVal), es.head))
-    case s.Choose(res, pred) =>
-      (Seq(res.toVariable), Seq(pred), Seq(), (vs, es, _) => t.Choose(vs.head.toVal, es.head))
 
     /* Binary operators */
-    case s.Equals(t1, t2) =>
-      (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.Equals(es(0), es(1)))
     case s.Implies(t1, t2) =>
       (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.Implies(es(0), es(1)))
-    case s.Plus(t1, t2) =>
-      (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.Plus(es(0), es(1)))
-    case s.Minus(t1, t2) =>
-      (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.Minus(es(0), es(1)))
     case s.Times(t1, t2) =>
       (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.Times(es(0), es(1)))
     case s.Division(t1, t2) =>
@@ -64,14 +95,6 @@ trait TreeDeconstructor {
       (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.Remainder(es(0), es(1)))
     case s.Modulo(t1, t2) =>
       (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.Modulo(es(0), es(1)))
-    case s.LessThan(t1, t2) =>
-      (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.LessThan(es(0), es(1)))
-    case s.GreaterThan(t1, t2) =>
-      (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.GreaterThan(es(0), es(1)))
-    case s.LessEquals(t1, t2) =>
-      (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.LessEquals(es(0), es(1)))
-    case s.GreaterEquals(t1, t2) =>
-      (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.GreaterEquals(es(0), es(1)))
     case s.BVOr(t1, t2) =>
       (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.BVOr(es(0), es(1)))
     case s.BVAnd(t1, t2) =>
@@ -116,22 +139,10 @@ trait TreeDeconstructor {
       (Seq(), Seq(map, k, v), Seq(), (_, es, _) => t.MapUpdated(es(0), es(1), es(2)))
     case s.MapApply(t1, t2) =>
       (Seq(), Seq(t1, t2), Seq(), (_, es, _) => t.MapApply(es(0), es(1)))
-    case s.Let(binder, e, body) =>
-      (Seq(binder.toVariable), Seq(e, body), Seq(), (vs, es, _) => t.Let(vs.head.toVal, es(0), es(1)))
     case s.Assume(pred, body) =>
       (Seq(), Seq(pred, body), Seq(), (_, es, _) => t.Assume(es(0), es(1)))
 
     /* Other operators */
-    case s.FunctionInvocation(id, tps, args) =>
-      (Seq(), args, tps, (_, es, tps) => t.FunctionInvocation(id, tps, es))
-    case s.Application(caller, args) =>
-      (Seq(), caller +: args, Seq(), (_, es, _) => t.Application(es.head, es.tail))
-    case s.ADT(adt, args) =>
-      (Seq(), args, Seq(adt), (_, es, tps) => t.ADT(tps.head.asInstanceOf[t.ADTType], es))
-    case s.And(args) =>
-      (Seq(), args, Seq(), (_, es, _) => t.And(es))
-    case s.Or(args) =>
-      (Seq(), args, Seq(), (_, es, _) => t.Or(es))
     case s.SubString(t1, a, b) =>
       (Seq(), t1 :: a :: b :: Nil, Seq(), (_, es, _) => t.SubString(es(0), es(1), es(2)))
     case s.FiniteSet(els, base) =>
@@ -163,12 +174,6 @@ trait TreeDeconstructor {
       (Seq(), subArgs, Seq(kT, vT), builder)
     case s.Tuple(args) =>
       (Seq(), args, Seq(), (_, es, _) => t.Tuple(es))
-    case s.IfExpr(cond, thenn, elze) => (
-      Seq(), Seq(cond, thenn, elze), Seq(),
-      (_, es, _) => t.IfExpr(es(0), es(1), es(2)))
-
-    case v @ s.Variable(id, tp, _) =>
-      (Seq(v), Seq(), Seq(), (vs, _, _) => vs.head)
 
     case s.GenericValue(tp, id) =>
       (Seq(), Seq(), Seq(tp), (_, _, tps) => t.GenericValue(tps.head.asInstanceOf[t.TypeParameter], id))
@@ -176,12 +181,8 @@ trait TreeDeconstructor {
       (Seq(), Seq(), Seq(), (_, _, _) => t.CharLiteral(ch))
     case s.BVLiteral(bits, size) =>
       (Seq(), Seq(), Seq(), (_, _, _) => t.BVLiteral(bits, size))
-    case s.IntegerLiteral(i) =>
-      (Seq(), Seq(), Seq(), (_, _, _) => t.IntegerLiteral(i))
     case s.FractionLiteral(n, d) =>
       (Seq(), Seq(), Seq(), (_, _, _) => t.FractionLiteral(n, d))
-    case s.BooleanLiteral(b) =>
-      (Seq(), Seq(), Seq(), (_, _, _) => t.BooleanLiteral(b))
     case s.StringLiteral(st) =>
       (Seq(), Seq(), Seq(), (_, _, _) => t.StringLiteral(st))
     case s.UnitLiteral() =>
