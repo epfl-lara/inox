@@ -24,7 +24,7 @@ trait ExpressionParsers { self: Interpolator =>
     }
 
     lazy val selectableExpr: Parser[Expression] = withApplication {
-      holeExpr | literalExpr | variableExpr | literalSetLikeExpr | tupleOrParensExpr
+      holeExpr | literalExpr | withTypeApplication(variableExpr) | literalSetLikeExpr | tupleOrParensExpr
     }
 
     def withTypeAnnotation(exprParser: Parser[Expression]): Parser[Expression] = {
@@ -44,6 +44,16 @@ trait ExpressionParsers { self: Interpolator =>
       } yield {
         argss.foldLeft(expr) {
           case (acc, args) => Application(acc, args)
+        }
+      }
+
+    def withTypeApplication(exprParser: Parser[Expression]): Parser[Expression] =
+      for {
+        expr <- exprParser
+        oargs <- opt(typeArguments)
+      } yield {
+        oargs.foldLeft(expr) {
+          case (acc, args) => TypeApplication(acc, args)
         }
       }
 
