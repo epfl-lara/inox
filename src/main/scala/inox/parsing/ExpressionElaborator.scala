@@ -929,6 +929,10 @@ trait ExpressionElaborators { self: Interpolator =>
           }).addConstraint({
             // The expected type should be boolean.
             Constraint.equal(expected, trees.BooleanType)
+          }).addConstraints({
+            bs.map {
+              case (_, fresh) => Constraint.exist(fresh)
+            }  
           })
         }
 
@@ -955,6 +959,10 @@ trait ExpressionElaborators { self: Interpolator =>
           }).addConstraint({
             // The expected type should be boolean.
             Constraint.equal(expected, trees.BooleanType)
+          }).addConstraints({
+            bs.map {
+              case (_, fresh) => Constraint.exist(fresh)
+            }  
           })
         }
 

@@ -89,6 +89,7 @@ trait Constraints { self: Interpolator =>
   case class AtIndexEqual(tup: Type, mem: Type, idx: Int) extends Constraint(Seq(tup, mem))
 
   object Constraint {
+    def exist(a: Unknown)(implicit position: Position): Constraint = Equal(a, a).setPos(position)
     def equal(a: Type, b: Type)(implicit position: Position): Constraint = Equal(a, b).setPos(position)
     def subtype(a: Type, b: Type)(implicit position: Position): Constraint = Subtype(a, b).setPos(position)
     def isNumeric(a: Type)(implicit position: Position): Constraint = HasClass(a, Numeric).setPos(position)
