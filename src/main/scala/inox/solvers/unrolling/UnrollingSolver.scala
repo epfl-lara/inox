@@ -603,8 +603,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
           val getModel = !templates.requiresFiniteRangeCheck || checkModels || templates.hasQuantifiers
           val checkConfig = config
-            .min(Configuration(model = getModel, unsatAssumptions = true))
-            .max(Configuration(model = false, unsatAssumptions = unrollAssumptions && templates.canUnroll))
+            .max(Configuration(model = getModel, unsatAssumptions = unrollAssumptions && templates.canUnroll))
 
           val timer = ctx.timers.solvers.unrolling.check.start()
           val res: SolverResponse[underlying.Model, Set[underlying.Trees]] =
