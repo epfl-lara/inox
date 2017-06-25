@@ -131,8 +131,9 @@ trait Expressions { self: Trees =>
 
   /** $encodingof  `function(...)` (function invocation) */
   case class FunctionInvocation(id: Identifier, tps: Seq[Type], args: Seq[Expr]) extends Expr with CachingTyped {
-    protected def computeType(implicit s: Symbols): Type = s.lookupFunction(id, tps) match {
-      case Some(tfd) if args.size == tfd.params.size =>
+    protected def computeType(implicit s: Symbols): Type = s.lookupFunction(id) match {
+      case Some(fd) if tps.size == fd.tparams.size && args.size == fd.params.size =>
+        val tfd = fd.typed(tps)
         checkParamTypes(args.map(_.getType), tfd.params.map(_.tpe), tfd.returnType)
       case _ => Untyped
     }
@@ -266,8 +267,10 @@ trait Expressions { self: Trees =>
     * @param args The arguments of the case class
     */
   case class ADT(adt: ADTType, args: Seq[Expr]) extends Expr with CachingTyped {
-    protected def computeType(implicit s: Symbols): Type = adt.lookupADT match {
-      case Some(tcons: TypedADTConstructor) => checkParamTypes(args.map(_.getType), tcons.fieldsTypes, adt)
+    protected def computeType(implicit s: Symbols): Type = s.lookupADT(adt.id) match {
+      case Some(cons: ADTConstructor) if adt.tps.size == cons.tparams.size && args.size == cons.fields.size =>
+        val tcons = cons.typed(adt.tps)
+        checkParamTypes(args.map(_.getType), tcons.fieldsTypes, adt)
       case _ => Untyped
     }
   }
@@ -300,8 +303,9 @@ trait Expressions { self: Trees =>
     }
 
     def constructor(implicit s: Symbols) = adt.getType match {
-      case adt: ADTType => adt.lookupADT.flatMap {
-        case tcons: TypedADTConstructor => Some(tcons)
+      case adt: ADTType => s.lookupADT(adt.id) match {
+        case Some(cons: ADTConstructor) if adt.tps.size == cons.tparams.size =>
+          Some(cons.typed(adt.tps))
         case _ => None
       }
       case _ => None
