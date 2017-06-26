@@ -89,15 +89,15 @@ script := {
   }
 }
 
-sourceGenerators in Compile <+= (sourceManaged in Compile, version) map { (dir, version) =>
-  val file = dir / "inox" / "Build.scala"
+sourceGenerators in Compile += Def.task {
+  val file = (sourceManaged in Compile).value / "inox" / "Build.scala"
   IO.write(file, s"""|package inox
                      |
                      |object Build {
-                     |  val version = \"\"\"$version\"\"\"
+                     |  val version = \"\"\"${version.value}\"\"\"
                      |}""".stripMargin)
   Seq(file)
-}
+}.taskValue
 
 lazy val genDoc = taskKey[Unit]("Typecheck and interpret the documentation")
 
@@ -107,7 +107,7 @@ tutSourceDirectory := sourceDirectory.value / "main" / "doc"
 tutTargetDirectory := baseDirectory.value / "doc"
 
 genDoc := { tutQuick.value; () }
-genDoc <<= genDoc dependsOn (compile in Compile)
+genDoc := (genDoc dependsOn (compile in Compile)).value
 
 Keys.fork in run := true
 
@@ -125,15 +125,15 @@ lazy val root = (project in file("."))
     logBuffered := false,
     parallelExecution := false
   )) : _*)
-  .settings(compile <<= (compile in Compile) dependsOn script dependsOn genDoc)
+  .settings(compile := ((compile in Compile) dependsOn script dependsOn genDoc).value)
 
 publishMavenStyle := true
 
-publishTo <<= version { (v: String) =>
+publishTo := {
   val nexus = "https://oss.sonatype.org/"
   // @nv: we can't use `isSnapshot` here as it is not compatible with sbt-git versioning
-  if (v.trim.endsWith("SNAPSHOT")) Some("snapshots" at nexus + "content/repositories/snapshots")
-  else                             Some("releases"  at nexus + "service/local/staging/deploy/maven2")
+  if (version.value.trim.endsWith("SNAPSHOT")) Some("snapshots" at nexus + "content/repositories/snapshots")
+  else                                         Some("releases"  at nexus + "service/local/staging/deploy/maven2")
 }
 
 publishArtifact in (Test, packageBin) := true

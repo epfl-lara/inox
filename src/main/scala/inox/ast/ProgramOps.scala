@@ -67,9 +67,6 @@ trait ProgramEncoder extends ProgramTransformer { self =>
   lazy final val s: sourceProgram.trees.type = sourceProgram.trees
   val t: Trees
 
-  private lazy val enc = encoder
-  private lazy val dec = decoder
-
   protected val extraFunctions: Seq[t.FunDef] = Seq.empty
   protected val extraADTs: Seq[t.ADTDefinition] = Seq.empty
 
