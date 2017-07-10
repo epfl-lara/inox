@@ -150,8 +150,13 @@ trait TemplateGenerator { self: Templates =>
     val dependencies = sortedDeps.map(p => depSubst(p._1))
     val structure = new TemplateStructure(struct, dependencies, depContents)
 
-    val res = if (isNormalForm) expr else struct
-    (res, structure, depSubst)
+    if (isNormalForm) {
+      (expr, structure, depSubst)
+    } else {
+      val freshSubst = exprOps.variablesOf(struct).map(v => v -> v.freshen).toMap
+      val freshDeps = depSubst.map { case (v, e) => freshSubst.getOrElse(v, v) -> e }
+      (exprOps.replaceFromSymbols(freshSubst, struct), structure, freshDeps)
+    }
   }
 
   protected def mkExprClauses(

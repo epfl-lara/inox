@@ -257,8 +257,8 @@ trait SymbolOps { self: TypeOps =>
             (isPure(e) || (!inFunction && env.conditions.isEmpty)) &&
             !exists { case c: Choose => true case _ => false } (e)
           ) =>
-            val newId = getId(e)
-            rec(replaceFromSymbols(Map(vd.toVariable -> Variable(newId, vd.tpe, Set.empty)), b), env)
+            subst += vd.toVariable -> e
+            rec(b, env)
 
           case expr if (
             isLocal(expr, env) &&
