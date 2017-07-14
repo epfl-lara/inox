@@ -373,7 +373,7 @@ trait LambdaTemplates { self: Templates =>
       else Some(appInfos.values.map(_._1).min)
 
     private def assumptions: Seq[Encoded] = freeBlockers.toSeq.flatMap(_._2.map(p => mkNot(p._1)))
-    def satisfactionAssumptions = appInfos.map(_._2._4).toSeq ++ assumptions
+    def satisfactionAssumptions = appInfos.map(_._2._4).toSeq ++ appBlockers.map(p => mkNot(p._2)) ++ assumptions
     def refutationAssumptions = assumptions
 
     def promoteBlocker(b: Encoded): Boolean = {
