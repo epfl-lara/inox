@@ -366,7 +366,9 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
   private def simplifyAndCons(es: Seq[Expr], path: CNFPath, cons: Seq[Expr] => Expr): (Expr, Boolean) = {
     val (res, pes) = es.map(simplify(_, path)).unzip
-    (cons(res), pes.foldLeft(true)(_ && _))
+    val re = cons(res)
+    val pe = pes.foldLeft(!isImpureExpr(re))(_ && _)
+    (re, pe)
   }
 
   override protected def rec(e: Expr, path: CNFPath): Expr = {
