@@ -138,6 +138,7 @@ trait LambdaTemplates { self: Templates =>
   }
 
   def registerFunction(b: Encoded, tpe: FunctionType, f: Encoded): Clauses = {
+    ctx.reporter.debug(s"-> registering free function $b ==> $f: $tpe")
     val ft = bestRealType(tpe).asInstanceOf[FunctionType]
     freeFunctions += ft -> (freeFunctions(ft) + (b -> f))
 
@@ -274,8 +275,11 @@ trait LambdaTemplates { self: Templates =>
         }
 
         for ((b,f) <- freeFunctions(tpe) if canEqual(caller, f)) {
+          /* We register this app at the CURRENT generation to increase performance for
+           * model finding with quantifiers. */
+          val bgen = if (f == caller) currentGeneration else gen
           val cond = mkAnd(b, mkEquals(f, caller))
-          registerAppBlocker(gen, key, Right(f), cond, args)
+          registerAppBlocker(bgen, key, Right(f), cond, args)
         }
 
         /* Make sure that if `app` DOES NOT correspond to a concrete closure defined

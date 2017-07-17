@@ -651,7 +651,7 @@ trait DatatypeTemplates { self: Templates =>
 
     def canEqual(f1: Encoded, f2: Encoded): Boolean = {
       def transitiveLess(l: Encoded, r: Encoded): Boolean = {
-        val fs = fixpoint((fs: Set[Encoded]) => fs ++ fs.flatMap(lessOrder))(Set(l))
+        val fs = fixpoint((fs: Set[Encoded]) => fs ++ fs.flatMap(lessOrder))(lessOrder(l))
         fs(r)
       }
 
