@@ -112,12 +112,17 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
       } else {
         val selems = elems.map(toSMT)
 
-        val sgt = Sets.Singleton(selems.head)
+        if (exprOps.variablesOf(elems.head).isEmpty) {
+          val sgt = Sets.Singleton(selems.head)
 
-        if (selems.size > 1) {
-          Sets.Insert(selems.tail :+ sgt)
+          if (selems.size > 1) {
+            Sets.Insert(selems.tail :+ sgt)
+          } else {
+            sgt
+          }
         } else {
-          sgt
+          val sgt = Sets.EmptySet(declareSort(fs.getType))
+          Sets.Insert(selems :+ sgt)
         }
       }
 

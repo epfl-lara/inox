@@ -322,7 +322,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case al @ MapUpdated(map, k, v) =>
         ArraysEx.Store(toSMT(map), toSMT(k), toSMT(v))
 
-      case ra @ FiniteMap(elems, default, keyTpe, valueType) =>
+      case ra @ FiniteMap(elems, default, _, _) =>
         val s = declareSort(ra.getType)
 
         var res: Term = FunctionApplication(
