@@ -222,11 +222,21 @@ trait Templates
 
   /** Represents a named function call in the unfolding procedure */
   case class Call(tfd: TypedFunDef, args: Seq[Arg]) {
-    override def toString = tfd.signature +
-      (if (args.isEmpty) "" else args.map {
+    override def toString = tfd.signature + {
+      def pArgs(args: Seq[Arg]): String = args.map {
         case Right(m) => m.toString
         case Left(v) => asString(v)
-      }.mkString("(", ", ", ")"))
+      }.mkString("(", ", ", ")")
+
+      def rec(tpe: Type, args: Seq[Arg]): String = tpe match {
+        case ft: FunctionType =>
+          val (currArgs, nextArgs) = args.splitAt(ft.from.size)
+          pArgs(currArgs) + rec(ft.to, nextArgs)
+        case _ => pArgs(args)
+      }
+
+      rec(tfd.returnType, args)
+    }
 
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): Call = copy(
       args = args.map(_.substitute(substituter, msubst))
