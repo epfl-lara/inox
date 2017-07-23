@@ -315,7 +315,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       if (
         (pe && insts <= 1) ||
         (insts == 1 && !(CollectorWithPC[Boolean](trees)(symbols) {
-          case (e @ (_: Lambda  | _: Forall | _: Choose), _) if variablesOf(e) contains v => false
+          case (l: Lambda, _) if variablesOf(l) contains v => false
           case (`v`, path) => path.isEmpty
         }.collect(rb) contains false))
       ) {
