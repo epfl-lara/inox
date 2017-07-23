@@ -314,9 +314,10 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       val insts = count { case `v` => 1 case _ => 0 }(rb)
       if (
         (pe && insts <= 1) ||
-        (insts == 1 && CollectorWithPC[Variable](trees)(symbols) {
-          case (`v`, path) if path.isEmpty => v
-        }.collect(rb).nonEmpty)
+        (insts == 1 && !(CollectorWithPC[Boolean](trees)(symbols) {
+          case (e @ (_: Lambda  | _: Forall | _: Choose), _) if variablesOf(e) contains v => false
+          case (`v`, path) => path.isEmpty
+        }.collect(rb) contains false))
       ) {
         simplify(replaceFromSymbols(Map(vd -> re), rb), path)
       } else {
