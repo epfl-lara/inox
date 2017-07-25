@@ -596,8 +596,6 @@ trait SymbolOps { self: TypeOps =>
       IsInstanceOf(_: Variable, _)
     ), b) => Some(replaceFromSymbols(Map(v -> ts), b))
 
-    case l @ Let(v, e, b) => Some(Let(v, e, replace(Map(e -> v.toVariable), b)).copiedFrom(l))
-
     case _ => None
   } (expr)
 
