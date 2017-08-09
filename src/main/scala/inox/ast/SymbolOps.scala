@@ -274,9 +274,9 @@ trait SymbolOps { self: TypeOps =>
           replaceFromSymbols(vs, c)
 
         case _ =>
-          val (vs, es, tps, recons) = deconstructor.deconstruct(e)
+          val (ids, vs, es, tps, recons) = deconstructor.deconstruct(e)
           val newVs = vs.map(v => v.copy(id = transformId(v.id, v.tpe, store = false)))
-          op.superRec(recons(newVs, es, tps), env)
+          op.superRec(recons(ids, newVs, es, tps), env)
       })
     }
 

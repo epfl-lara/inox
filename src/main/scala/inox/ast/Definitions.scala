@@ -24,7 +24,7 @@ trait Definitions { self: Trees =>
   }
 
   abstract class LookupException(id: Identifier, what: String)
-    extends Exception("Lookup failed for " + what + " with symbol " + id)
+    extends Exception("Lookup failed for " + what + " with symbol `" + id.uniqueName + "`")
   case class FunctionLookupException(id: Identifier) extends LookupException(id, "function")
   case class ADTLookupException(id: Identifier) extends LookupException(id, "adt")
 
