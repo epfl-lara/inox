@@ -109,7 +109,7 @@ trait SymbolOps { self: TypeOps =>
     if (env contains BooleanLiteral(false)) {
       true
     } else {
-      simplifier.isPure(e, env)
+      Bench.time("checking purity", simplifier.isPure(e, env))
     }
   }
 
@@ -283,9 +283,9 @@ trait SymbolOps { self: TypeOps =>
             replaceFromSymbols(vs, c)
 
           case _ =>
-            val (vs, es, tps, recons) = deconstructor.deconstruct(e)
+            val (ids, vs, es, tps, recons) = deconstructor.deconstruct(e)
             val newVs = vs.map(v => v.copy(id = transformId(v.id, v.tpe, store = false)))
-            super.rec(recons(newVs, es, tps), env)
+            super.rec(recons(ids, newVs, es, tps), env)
         }
       }
 
