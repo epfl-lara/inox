@@ -329,6 +329,8 @@ trait Definitions { self: Trees =>
 
     def hasInvariant(implicit s: Symbols): Boolean = invariant.isDefined
 
+    def changeInvariant(newInvariant: Option[FunDef]): ADTDefinition
+
     /** An equality relation defined on this [[ADTDefinition]] */
     def equality(implicit s: Symbols): Option[FunDef] = {
       val rt = root
@@ -366,6 +368,12 @@ trait Definitions { self: Trees =>
     def typed(tps: Seq[Type])(implicit s: Symbols): TypedADTSort = {
       require(tps.length == tparams.length)
       TypedADTSort(this, tps)
+    }
+
+    override def changeInvariant(newInvariant: Option[FunDef]) = {
+      new ADTSort(id, tparams, cons, flags) {
+        override def invariant(implicit syms: Symbols) = newInvariant
+      }.copiedFrom(this)
     }
 
     def copy(
@@ -411,6 +419,12 @@ trait Definitions { self: Trees =>
     def typed(tps: Seq[Type])(implicit s: Symbols): TypedADTConstructor = {
       require(tps.length == tparams.length)
       TypedADTConstructor(this, tps)
+    }
+
+    override def changeInvariant(newInvariant: Option[FunDef]) = {
+      new ADTConstructor(id, tparams, sort, fields, flags) {
+        override def invariant(implicit syms: Symbols) = newInvariant
+      }.copiedFrom(this)
     }
 
     def copy(
