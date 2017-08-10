@@ -109,7 +109,7 @@ trait SymbolOps { self: TypeOps =>
     if (env contains BooleanLiteral(false)) {
       true
     } else {
-      Bench.time("checking purity", simplifier.isPure(e, env))
+      simplifier.isPure(e, env)
     }
   }
 
