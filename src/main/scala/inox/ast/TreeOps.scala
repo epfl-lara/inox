@@ -25,7 +25,6 @@ trait TreeOps { self: Trees =>
   trait IdentitySymbolTransformer extends SymbolTransformer {
     val s: self.type = self
     val t: self.type = self
-    override val name = Some("Identity")
 
     override def transform(syms: s.Symbols): t.Symbols = syms
   }
@@ -99,10 +98,7 @@ trait TreeTransformer {
     val t: TreeTransformer.this.t.type
   } = s.getDeconstructor(t)
 
-  def transform(id: Identifier): Identifier = {
-    // println("in super transformation: " + id)
-    id
-  }
+  def transform(id: Identifier): Identifier = id
 
   def transform(id: Identifier, tpe: s.Type): (Identifier, t.Type) = (transform(id), transform(tpe))
 
@@ -200,7 +196,7 @@ trait TreeTransformer {
     } else {
       tpe.asInstanceOf[t.Type]
     }
-    
+
     res
   }
 
@@ -321,7 +317,6 @@ private[ast] trait SymbolTransformerComposition extends SymbolTransformer {
 trait SymbolTransformer { self =>
   val s: Trees
   val t: Trees
-  val name: Option[String] = None
 
   def transform(syms: s.Symbols): t.Symbols
 
