@@ -50,7 +50,7 @@ trait ExprOps extends GenTreeOps {
 
   object VariableExtractor {
     def unapply(e: Expr): Option[Set[Variable]] = {
-      val (vs, _, _, _) = deconstructor.deconstruct(e)
+      val (_, vs, _, _, _) = deconstructor.deconstruct(e)
       Some(vs.toSet)
     }
   }
@@ -76,10 +76,10 @@ trait ExprOps extends GenTreeOps {
       case v: Variable => bindings(v)
       case c: Choose if !freshenChooses => replaceFromSymbols(bindings, c)
       case _ =>
-        val (vs, es, tps, recons) = deconstructor.deconstruct(expr)
+        val (ids, vs, es, tps, recons) = deconstructor.deconstruct(expr)
         val newVs = vs.map(_.freshen)
         val newBindings = bindings ++ (vs zip newVs)
-        recons(newVs, es map (rec(_, newBindings)), tps).copiedFrom(expr)
+        recons(ids, newVs, es map (rec(_, newBindings)), tps).copiedFrom(expr)
     }
 
     rec(expr, variablesOf(expr).map(v => v -> v).toMap)
