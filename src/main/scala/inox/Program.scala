@@ -22,7 +22,9 @@ trait Program { self =>
   implicit val ctx: Context
 
   implicit def implicitProgram: this.type = this
-  implicit def printerOpts: trees.PrinterOptions = trees.PrinterOptions.fromSymbols(symbols, ctx)
+  implicit lazy val printerOpts: trees.PrinterOptions = trees.PrinterOptions.fromSymbols(symbols, ctx)
+  implicit lazy val purityOpts: solvers.PurityOptions = solvers.PurityOptions(ctx)
+  implicit lazy val simpOpts: solvers.SimplificationOptions = solvers.SimplificationOptions(ctx)
 
   type Model = inox.Model {
     val program: self.type

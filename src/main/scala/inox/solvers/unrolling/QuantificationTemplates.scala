@@ -157,7 +157,7 @@ trait QuantificationTemplates { self: Templates =>
       substMap: Map[Variable, Encoded]
     ): (Option[Variable], QuantificationTemplate) = {
       val (Forall(args, body), structure, depSubst) =
-        mkExprStructure(pathVar._1, forall, substMap, onlySimple = !simplify)
+        mkExprStructure(pathVar._1, forall, substMap, onlySimple = !simpOpts.simplify)
 
       val quantifiers = args.map(_.toVariable).toSet
       val idQuantifiers: Seq[Variable] = args.map(_.toVariable)

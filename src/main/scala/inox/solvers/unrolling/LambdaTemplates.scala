@@ -396,9 +396,13 @@ trait LambdaTemplates { self: Templates =>
     def promoteBlocker(b: Encoded): Boolean = {
       if (blockerToApps contains b) {
         val app = blockerToApps(b)
-        val (_, origGen, infos) = appInfos(app)
-        appInfos += app -> (currentGeneration, origGen, infos)
-        true
+        if (appInfos contains app) {
+          val (_, origGen, infos) = appInfos(app)
+          appInfos += app -> (currentGeneration, origGen, infos)
+          true
+        } else {
+          false
+        }
       } else {
         false
       }
