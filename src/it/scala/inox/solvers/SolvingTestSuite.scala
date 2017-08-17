@@ -10,7 +10,7 @@ trait SolvingTestSuite extends TestSuite {
     checkModels       <- Seq(false, true)
     feelingLucky      <- Seq(false, true)
     unrollAssumptions <- Seq(false, true)
-    assumeChecked     <- Seq(false, true)
+    assumeChecked     <- Seq(PurityOptions.Unchecked, PurityOptions.AssumeChecked)
     modelFinding      <- Seq(0, 1)
   } yield Seq(
     optSelectedSolvers(Set(solverName)),
@@ -25,7 +25,7 @@ trait SolvingTestSuite extends TestSuite {
 
   override protected def optionsString(options: Options): String = {
     super.optionsString(options) +
-    " assck=" + options.findOptionOrDefault(optAssumeChecked) +
+    " assck=" + options.findOptionOrDefault(optAssumeChecked).assumeChecked +
     " model=" + options.findOptionOrDefault(unrolling.optModelFinding)
   }
 }

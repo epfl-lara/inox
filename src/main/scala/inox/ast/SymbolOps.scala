@@ -97,7 +97,7 @@ trait SymbolOps { self: TypeOps =>
   /** Returns 'true' iff the evaluation of expression `expr` cannot lead to a crash. */
   def isPure(expr: Expr)(implicit opts: PurityOptions): Boolean = isPureIn(expr, Path.empty)
 
-  def isAlwaysPure(expr: Expr) = isPure(expr)(PurityOptions(false, false))
+  def isAlwaysPure(expr: Expr) = isPure(expr)(PurityOptions.Unchecked)
 
   /** Returns 'true' iff the evaluation of expression `expr` cannot lead to a crash under the provided path. */
   def isPureIn(e: Expr, path: Path)(implicit opts: PurityOptions): Boolean = {
@@ -428,7 +428,7 @@ trait SymbolOps { self: TypeOps =>
 
     case FunctionType(from, to) =>
       val l = Lambda(from.map(tpe => ValDef(FreshIdentifier("x", true), tpe)), constructExpr(0, to))
-      uniquateClosure(i, l)(PurityOptions())
+      uniquateClosure(i, l)(PurityOptions.Unchecked)
   }
 
   /* Inline lambda lets that appear in forall bodies. For example,
@@ -1311,7 +1311,7 @@ trait SymbolOps { self: TypeOps =>
     * @see [[SymbolOps.isPure isPure]]
     */
   def let(vd: ValDef, e: Expr, bd: Expr) = {
-    if ((variablesOf(bd) contains vd.toVariable) || !isPure(e)(PurityOptions()))
+    if ((variablesOf(bd) contains vd.toVariable) || !isPure(e)(PurityOptions.Unchecked))
       Let(vd, e, bd).setPos(Position.between(vd.getPos, bd.getPos))
     else bd
   }
@@ -1320,7 +1320,7 @@ trait SymbolOps { self: TypeOps =>
     * @see [[Expressions.IfExpr IfExpr]]
     */
   def ifExpr(c: Expr, t: Expr, e: Expr): Expr = (t, e) match {
-    case (_, `t`) if isPure(c)(PurityOptions()) => t
+    case (_, `t`) if isPure(c)(PurityOptions.Unchecked) => t
     case (IfExpr(c2, thenn, `e`), _) => ifExpr(and(c, c2), thenn, e)
     case (_, IfExpr(c2, `t`, e2)) => ifExpr(or(c, c2), t, e2)
     case (BooleanLiteral(true), BooleanLiteral(false)) => c

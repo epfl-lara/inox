@@ -8,27 +8,32 @@ import scala.concurrent.duration._
 package object solvers {
   import combinators._
 
-  object optAssumeChecked extends FlagOptionDef("assumechecked", false)
-  object optTotalFunctions extends FlagOptionDef("totalfunctions", false)
-  object optNoSimplifications extends FlagOptionDef("nosimplifications", false)
-
-  class PurityOptions(val assumeChecked: Boolean, val totalFunctions: Boolean) {
-    override def equals(that: Any): Boolean = (that != null) && (that match {
-      case p: PurityOptions => assumeChecked == p.assumeChecked && totalFunctions == p.totalFunctions
-      case _ => false
-    })
-
-    override def hashCode: Int = (if (assumeChecked) 2 else 0) + (if (totalFunctions) 1 else 0)
+  sealed abstract class PurityOptions {
+    def assumeChecked = this != PurityOptions.Unchecked
+    def totalFunctions = this == PurityOptions.TotalFunctions
   }
 
   object PurityOptions {
-    def apply(ctx: Context) = new PurityOptions(
-      ctx.options.findOptionOrDefault(optAssumeChecked),
-      ctx.options.findOptionOrDefault(optTotalFunctions))
+    case object Unchecked extends PurityOptions
+    case object AssumeChecked extends PurityOptions
+    case object TotalFunctions extends PurityOptions
 
-    def apply(assumeChecked: Boolean = false, totalFunctions: Boolean = false) =
-      new PurityOptions(assumeChecked, totalFunctions)
+    def apply(ctx: Context) = ctx.options.findOptionOrDefault(optAssumeChecked)
   }
+
+  object optAssumeChecked extends OptionDef[PurityOptions] {
+    val name = "assumechecked"
+    val default = PurityOptions.Unchecked
+    val parser = (str: String) => str match {
+      case "false" => Some(PurityOptions.Unchecked)
+      case "" | "checked" => Some(PurityOptions.AssumeChecked)
+      case "total" => Some(PurityOptions.TotalFunctions)
+      case _ => None
+    }
+    val usageRhs = s"--$name=(false|checked|total)"
+  }
+
+  object optNoSimplifications extends FlagOptionDef("nosimplifications", false)
 
   class SimplificationOptions(val simplify: Boolean)
   object SimplificationOptions {

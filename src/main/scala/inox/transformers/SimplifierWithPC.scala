@@ -320,8 +320,8 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       lazy val insts = count { case `v` => 1 case _ => 0 }(rb)
       lazy val inLambda = exists { case l: Lambda => variablesOf(l) contains v case _ => false }(rb)
       lazy val immediateCall = existsWithPC(rb) { case (`v`, path) => path.isEmpty case _ => false }
-      lazy val realPE = (!opts.assumeChecked && pe) || (opts.assumeChecked && (opts.totalFunctions || {
-        val simp = simplifier(solvers.PurityOptions(false, false))
+      lazy val realPE = (!opts.assumeChecked && pe) || (opts.totalFunctions || (opts.assumeChecked && {
+        val simp = simplifier(solvers.PurityOptions.Unchecked)
         simp.isPure(e, path.asInstanceOf[simp.CNFPath])
       }))
 
