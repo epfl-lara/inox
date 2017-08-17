@@ -22,11 +22,11 @@ trait TreeDeconstructor {
   protected val s: Trees
   protected val t: Trees
 
-  /** Rebuild an expression from the given set of variables, subexpressions and types */
-  type ExprBuilder = (Seq[Identifier], Seq[t.Variable], Seq[t.Expr], Seq[t.Type]) => t.Expr
+  /** Rebuild an expression from the given set of identifiers, variables, subexpressions and types */
+  protected type ExprBuilder = (Seq[Identifier], Seq[t.Variable], Seq[t.Expr], Seq[t.Type]) => t.Expr
 
   /** Extracted subtrees from an expression as well as a "builder" */
-  type DeconstructedExpr = (Seq[Identifier], Seq[s.Variable], Seq[s.Expr], Seq[s.Type], ExprBuilder)
+  protected type DeconstructedExpr = (Seq[Identifier], Seq[s.Variable], Seq[s.Expr], Seq[s.Type], ExprBuilder)
 
   /** Optimisation trick for large pattern matching sequence: jumps directly to the correct case based
     * on the type of the expression -- a kind of virtual table for pattern matching.
@@ -341,7 +341,13 @@ trait TreeDeconstructor {
 
   def deconstruct(expr: s.Expr): DeconstructedExpr = exprTable(expr.getClass)(expr)
 
-  def deconstruct(tp: s.Type): (Seq[Identifier], Seq[s.Type], Seq[s.Flag], (Seq[Identifier], Seq[t.Type], Seq[t.Flag]) => t.Type) = tp match {
+  /** Rebuild a type from the given set of identifiers, subtypes and flags */
+  protected type TypeBuilder = (Seq[Identifier], Seq[t.Type], Seq[t.Flag]) => t.Type
+
+  /** Extracted subtrees from a type as well as a "builder" */
+  protected type DeconstructedType = (Seq[Identifier], Seq[s.Type], Seq[s.Flag], TypeBuilder)
+
+  def deconstruct(tp: s.Type): DeconstructedType = tp match {
     case s.ADTType(id, ts) => (Seq(id), ts, Seq(), (ids, ts, _) => t.ADTType(ids.head, ts))
     case s.TupleType(ts) => (Seq(), ts, Seq(), (_, ts, _) => t.TupleType(ts))
     case s.SetType(tp) => (Seq(), Seq(tp), Seq(), (_, ts, _) => t.SetType(ts.head))
@@ -361,11 +367,13 @@ trait TreeDeconstructor {
     case s.StringType  => (Seq(), Seq(), Seq(), (_, _, _) => t.StringType)
   }
 
-  def deconstruct(f: s.Flag): 
-                  (
-                    Seq[Identifier], Seq[s.Expr], Seq[s.Type], 
-                    (Seq[Identifier], Seq[t.Expr], Seq[t.Type]) => t.Flag
-                  ) = f match {
+  /** Rebuild a flag from the given set of identifiers, expressions and types */
+  protected type FlagBuilder = (Seq[Identifier], Seq[t.Expr], Seq[t.Type]) => t.Flag
+
+  /** Extracted subtrees from a flag as well as a "builder" */
+  protected type DeconstructedFlag = (Seq[Identifier], Seq[s.Expr], Seq[s.Type], FlagBuilder)
+
+  def deconstruct(f: s.Flag): DeconstructedFlag = f match {
     case s.Variance(v) =>
       (Seq(), Seq(), Seq(), (_, _, _) => t.Variance(v))
     case s.HasADTInvariant(id) =>

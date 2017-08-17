@@ -1141,28 +1141,44 @@ trait SymbolOps { self: TypeOps =>
 
   class TransformerOp[P <: PathLike[P]](val rec: (Expr, P) => Expr, val superRec: (Expr, P) => Expr)
 
+  protected trait TransformerWithFun extends transformers.TransformerWithPC {
+    val trees: self.trees.type
+    val symbols: self.symbols.type
+
+    val path: Env
+    val f: (Expr, Env, TransformerOp[Env]) => Expr
+    val op = new TransformerOp[Env](rec _, super.rec _)
+
+    override protected def rec(e: Expr, env: Env): Expr = f(e, env, op)
+  }
+
   protected class TransformerWithPC[P <: PathLike[P]](val path: P, val f: (Expr, P, TransformerOp[P]) => Expr)
-      extends transformers.TransformerWithPC {
+    extends transformers.TransformerWithPC { self0: TransformerWithFun =>
+
     val trees: self.trees.type = self.trees
     val symbols: self.symbols.type = self.symbols
     val initEnv = path
     type Env = P
-
-    val op = new TransformerOp[Env](rec _, super.rec _)
-    override protected def rec(e: Expr, env: Env): Expr = f(e, env, op)
   }
 
   /** Override point for transformer with PC creation */
-  protected def createTransformer[P <: PathLike[P]](path: P, f: (Expr, P, TransformerOp[P]) => Expr): TransformerWithPC[P] = new TransformerWithPC(path, f)
+  protected def createTransformer[P <: PathLike[P]](path: P, f: (Expr, P, TransformerOp[P]) => Expr)
+                                                   (implicit pp: PathProvider[P]): TransformerWithPC[P] = {
+    new TransformerWithPC(path, f) with TransformerWithFun
+  }
 
-  def transformWithPC[P <: PathLike[P]](e: Expr, path: P)(f: (Expr, P, TransformerOp[P]) => Expr): Expr = {
+  def transformWithPC[P <: PathLike[P]](e: Expr, path: P)
+                                       (f: (Expr, P, TransformerOp[P]) => Expr)
+                                       (implicit pp: PathProvider[P]): Expr = {
     createTransformer[P](path, f).transform(e)
   }
 
   def transformWithPC(e: Expr)(f: (Expr, Path, TransformerOp[Path]) => Expr): Expr =
     transformWithPC(e, Path.empty)(f)
 
-  def collectWithPC[P <: PathLike[P], T](e: Expr, path: P)(pf: PartialFunction[(Expr, P), T]): Seq[T] = {
+  def collectWithPC[P <: PathLike[P], T](e: Expr, path: P)
+                                        (pf: PartialFunction[(Expr, P), T])
+                                        (implicit pp: PathProvider[P]): Seq[T] = {
     var results: Seq[T] = Nil
     var pfLift = pf.lift
     transformWithPC(e, path) { (e, path, op) =>
@@ -1174,7 +1190,9 @@ trait SymbolOps { self: TypeOps =>
 
   def collectWithPC[T](e: Expr)(pf: PartialFunction[(Expr, Path), T]): Seq[T] = collectWithPC(e, Path.empty)(pf)
 
-  def existsWithPC[P <: PathLike[P]](e: Expr, path: P)(p: (Expr, P) => Boolean): Boolean = {
+  def existsWithPC[P <: PathLike[P]](e: Expr, path: P)
+                                    (p: (Expr, P) => Boolean)
+                                    (implicit pp: PathProvider[P]): Boolean = {
     var result = false
     transformWithPC(e, path) { (e, path, op) =>
       if (p(e, path)) {
