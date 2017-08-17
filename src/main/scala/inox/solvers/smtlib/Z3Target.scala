@@ -33,6 +33,10 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     new Z3Interpreter("z3", opts.toArray)
   }
 
+  // Z3 version 4.5.1 has disabled producing unsat assumptions by default,
+  // so make sure it is enabled at this point.
+  emit(SetOption(ProduceUnsatAssumptions(true)))
+
   protected val extSym = SSymbol("_")
 
   protected lazy val setSort: SSymbol = {
