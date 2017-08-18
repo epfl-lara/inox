@@ -320,10 +320,13 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       lazy val insts = count { case `v` => 1 case _ => 0 }(rb)
       lazy val inLambda = exists { case l: Lambda => variablesOf(l) contains v case _ => false }(rb)
       lazy val immediateCall = existsWithPC(rb) { case (`v`, path) => path.isEmpty case _ => false }
-      lazy val realPE = (!opts.assumeChecked && pe) || (opts.totalFunctions || (opts.assumeChecked && {
-        val simp = simplifier(solvers.PurityOptions.Unchecked)
-        simp.isPure(e, path.asInstanceOf[simp.CNFPath])
-      }))
+      lazy val realPE = opts match {
+        case solvers.PurityOptions.Unchecked => pe
+        case solvers.PurityOptions.TotalFunctions => pe
+        case _ =>
+          val simp = simplifier(solvers.PurityOptions.Unchecked)
+          simp.isPure(e, path.asInstanceOf[simp.CNFPath])
+      }
 
       if (
         (((!inLambda && pe) || (inLambda && realPE)) && insts <= 1) ||
@@ -340,6 +343,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
           case _ => (let, pe && pb)
         }
       }
+
 
     case Equals(e1: Literal[_], e2: Literal[_]) =>
       (BooleanLiteral(e1 == e2), true)
@@ -367,12 +371,11 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     case Application(e, es)  => simplify(e, path) match {
       case (l: Lambda, _) =>
         val (res, _) = es.map(simplify(_, path)).unzip
-        val re = application(l, res)
-        (re, isPure(re, path))
+        simplify(application(l, res), path)
 
       case (Assume(pred, l: Lambda), _) =>
         val (res, _) = es.map(simplify(_, path)).unzip
-        (assume(pred, application(l, res)), opts.assumeChecked)
+        simplify(assume(pred, application(l, res)), path)
 
       case (re, _) =>
         (application(re, es.map(simplify(_, path)._1)), opts.assumeChecked)
