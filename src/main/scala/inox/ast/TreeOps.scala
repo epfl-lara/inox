@@ -83,6 +83,7 @@ trait TreeOps { self: Trees =>
       case cons: ADTConstructor =>
         traverse(cons.id)
         cons.tparams.foreach(traverse)
+        cons.sort.foreach(traverse)
         cons.fields.foreach(traverse)
         cons.flags.foreach(traverse)
     }
@@ -231,7 +232,7 @@ trait TreeTransformer {
 
   final def transform(fd: s.FunDef): t.FunDef = {
     new t.FunDef(
-      fd.id,
+      transform(fd.id),
       fd.tparams map transform,
       fd.params map transform,
       transform(fd.returnType),
@@ -242,16 +243,16 @@ trait TreeTransformer {
 
   final def transform(adt: s.ADTDefinition): t.ADTDefinition = adt match {
     case sort: s.ADTSort => new t.ADTSort(
-      sort.id,
+      transform(sort.id),
       sort.tparams map transform,
-      sort.cons,
+      sort.cons map transform,
       sort.flags map transform
     )
 
     case cons: s.ADTConstructor => new t.ADTConstructor(
-      cons.id,
+      transform(cons.id),
       cons.tparams map transform,
-      cons.sort,
+      cons.sort map transform,
       cons.fields map transform,
       cons.flags map transform
     )
