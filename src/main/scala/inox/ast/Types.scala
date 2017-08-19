@@ -117,8 +117,8 @@ trait Types { self: Trees =>
     type Target = Type
 
     def unapply(t: Type): Option[(Seq[Type], Seq[Type] => Type)] = {
-      val (tps, flags, recons) = deconstructor.deconstruct(t)
-      Some((tps, tps => recons(tps, flags)))
+      val (ids, tps, flags, recons) = deconstructor.deconstruct(t)
+      Some((tps, tps => recons(ids, tps, flags)))
     }
   }
 

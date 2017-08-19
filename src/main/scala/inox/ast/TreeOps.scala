@@ -30,6 +30,10 @@ trait TreeOps { self: Trees =>
   }
 
   trait TreeTraverser {
+    def traverse(id: Identifier): Unit = {
+      ()
+    }
+
     def traverse(vd: ValDef): Unit = {
       traverse(vd.tpe)
       vd.flags.foreach(traverse)
@@ -40,20 +44,23 @@ trait TreeOps { self: Trees =>
     }
 
     def traverse(e: Expr): Unit = {
-      val (vs, es, tps, _) = deconstructor.deconstruct(e)
+      val (ids, vs, es, tps, _) = deconstructor.deconstruct(e)
+      ids.foreach(traverse)
       vs.foreach(v => traverse(v.toVal))
       es.foreach(traverse)
       tps.foreach(traverse)
     }
 
     def traverse(tpe: Type): Unit = {
-      val (tps, flags, _) = deconstructor.deconstruct(tpe)
+      val (ids, tps, flags, _) = deconstructor.deconstruct(tpe)
+      ids.foreach(traverse)
       tps.foreach(traverse)
       flags.foreach(traverse)
     }
 
     def traverse(flag: Flag): Unit = {
-      val (es, tps, _) = deconstructor.deconstruct(flag)
+      val (ids, es, tps, _) = deconstructor.deconstruct(flag)
+      ids.foreach(traverse)
       es.foreach(traverse)
       tps.foreach(traverse)
     }
@@ -68,10 +75,13 @@ trait TreeOps { self: Trees =>
 
     final def traverse(adt: ADTDefinition): Unit = adt match {
       case sort: ADTSort =>
+        traverse(sort.id)
         sort.tparams.foreach(traverse)
+        sort.cons.foreach(traverse)
         sort.flags.foreach(traverse)
 
       case cons: ADTConstructor =>
+        traverse(cons.id)
         cons.tparams.foreach(traverse)
         cons.fields.foreach(traverse)
         cons.flags.foreach(traverse)
@@ -88,7 +98,9 @@ trait TreeTransformer {
     val t: TreeTransformer.this.t.type
   } = s.getDeconstructor(t)
 
-  def transform(id: Identifier, tpe: s.Type): (Identifier, t.Type) = (id, transform(tpe))
+  def transform(id: Identifier): Identifier = id
+
+  def transform(id: Identifier, tpe: s.Type): (Identifier, t.Type) = (transform(id), transform(tpe))
 
   def transform(vd: s.ValDef): t.ValDef = {
     val s.ValDef(id, tpe, flags) = vd
@@ -119,9 +131,16 @@ trait TreeTransformer {
   }
 
   def transform(e: s.Expr): t.Expr = {
-    val (vs, es, tps, builder) = deconstructor.deconstruct(e)
+    val (ids, vs, es, tps, builder) = deconstructor.deconstruct(e)
 
     var changed = false
+
+    val newIds = for (id <- ids) yield {
+      val newId = transform(id)
+      if (id ne newId) changed = true
+      newId
+    }
+
     val newVs = for (v <- vs) yield {
       val vd = v.toVal
       val newVd = transform(vd)
@@ -142,16 +161,23 @@ trait TreeTransformer {
     }
 
     if (changed || (s ne t)) {
-      builder(newVs, newEs, newTps).copiedFrom(e)
+      builder(newIds, newVs, newEs, newTps).copiedFrom(e)
     } else {
       e.asInstanceOf[t.Expr]
     }
   }
 
   def transform(tpe: s.Type): t.Type = {
-    val (tps, flags, builder) = deconstructor.deconstruct(tpe)
+    val (ids, tps, flags, builder) = deconstructor.deconstruct(tpe)
 
     var changed = false
+
+    val newIds = for (id <- ids) yield {
+      val newId = transform(id)
+      if (id ne newId) changed = true
+      newId
+    }
+
     val newTps = for (tp <- tps) yield {
       val newTp = transform(tp)
       if (tp ne newTp) changed = true
@@ -164,17 +190,26 @@ trait TreeTransformer {
       newFlag
     }
 
+    val res =
     if (changed || (s ne t)) {
-      builder(newTps, newFlags).copiedFrom(tpe)
+      builder(newIds, newTps, newFlags).copiedFrom(tpe)
     } else {
       tpe.asInstanceOf[t.Type]
     }
+
+    res
   }
 
   def transform(flag: s.Flag): t.Flag = {
-    val (es, tps, builder) = deconstructor.deconstruct(flag)
+    val (ids, es, tps, builder) = deconstructor.deconstruct(flag)
 
     var changed = false
+    val newIds = for (id <- ids) yield {
+      val newId = transform(id)
+      if (id ne newId) changed = true
+      newId
+    }
+
     val newEs = for (e <- es) yield {
       val newE = transform(e)
       if (e ne newE) changed = true
@@ -188,7 +223,7 @@ trait TreeTransformer {
     }
 
     if (changed || (s ne t)) {
-      builder(newEs, newTps)
+      builder(newIds, newEs, newTps)
     } else {
       flag.asInstanceOf[t.Flag]
     }

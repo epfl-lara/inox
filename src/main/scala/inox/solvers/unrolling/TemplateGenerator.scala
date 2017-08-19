@@ -74,7 +74,7 @@ trait TemplateGenerator { self: Templates =>
     substMap: Map[Variable, Encoded],
     onlySimple: Boolean = false
   ): (Expr, TemplateStructure, Map[Variable, Encoded]) = {
-    val (struct, depsByScope) = normalizeStructure(expr, onlySimple = onlySimple)
+    val (struct, depsByScope) = normalizeStructure(expr)
     val deps = depsByScope.toMap
 
     lazy val isNormalForm: Boolean = {

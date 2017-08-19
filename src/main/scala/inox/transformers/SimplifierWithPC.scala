@@ -12,6 +12,8 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
   import exprOps._
   import dsl._
 
+  val opts: solvers.PurityOptions
+
   class CNFPath private(
     private val exprSubst: Bijection[Variable, Expr],
     private val boolSubst: Map[Variable, Seq[Expr]],
@@ -156,12 +158,16 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
   type Env = CNFPath
 
+  // @nv: note that we make sure the initial env is fresh each time
+  //      (since aggressive caching of cnf computations is taking place)
+  def initEnv: CNFPath = CNFPath.empty
+
   private[this] var stack: List[Int] = Nil
   private[this] var purity: List[Boolean] = Nil
 
   private val pureCache: MutableMap[Identifier, Boolean] = MutableMap.empty
 
-  private def isPureFunction(id: Identifier): Boolean = pureCache.get(id) match {
+  private def isPureFunction(id: Identifier): Boolean = opts.assumeChecked || (pureCache.get(id) match {
     case Some(b) => b
     case None =>
       val fd = getFunction(id)
@@ -178,7 +184,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
           false
         }
       }
-  }
+  })
 
   private def isInstanceOf(e: Expr, tpe: ADTType, path: CNFPath): Option[Boolean] = {
     val tadt = tpe.getADT
@@ -209,7 +215,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     case e if path contains not(e) => (BooleanLiteral(false), true)
 
     case c @ Choose(res, BooleanLiteral(true)) if hasInstance(res.tpe) == Some(true) => (c, true)
-    case c: Choose => (c, false)
+    case c: Choose => (c, opts.assumeChecked)
 
     case Lambda(args, body) =>
       val (rb, _) = simplify(body, path)
@@ -258,10 +264,10 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       case (BooleanLiteral(true), true) => simplify(body, path)
       case (BooleanLiteral(false), true) =>
         val (rb, _) = simplify(body, path)
-        (Assume(BooleanLiteral(false), rb), false)
+        (Assume(BooleanLiteral(false), rb), opts.assumeChecked)
       case (rp, _) =>
         val (rb, _) = simplify(body, path withCond rp)
-        (Assume(rp, rb), false)
+        (Assume(rp, rb), opts.assumeChecked)
     }
 
     case IsInstanceOf(ADT(tpe1, args), tpe2: ADTType) if !tpe2.getADT.definition.isSort =>
@@ -283,7 +289,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       val tadt = tpe.getADT
       isInstanceOf(re, tpe, path) match {
         case Some(true) => (AsInstanceOf(re, tpe), pe)
-        case _ => (AsInstanceOf(re, tpe), false)
+        case _ => (AsInstanceOf(re, tpe), opts.assumeChecked)
       }
 
     case Let(vd, IfExpr(c1, t1, e1), IfExpr(c2, t2, e2)) if c1 == c2 =>
@@ -291,7 +297,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
     case Let(vd, v: Variable, b) => simplify(replaceFromSymbols(Map(vd -> v), b), path)
 
-    case Let(vd, ADT(tpe, es), b) if !tpe.getADT.hasInvariant && {
+    case Let(vd, ADT(tpe, es), b) if (opts.assumeChecked || !tpe.getADT.hasInvariant) && {
       val v = vd.toVariable
       def rec(e: Expr): Boolean = e match {
         case ADTSelector(`v`, id) => true
@@ -311,13 +317,17 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       val (rb, pb) = simplify(b, path withBinding (vd -> re))
 
       val v = vd.toVariable
-      val insts = count { case `v` => 1 case _ => 0 }(rb)
+      lazy val insts = count { case `v` => 1 case _ => 0 }(rb)
+      lazy val inLambda = exists { case l: Lambda => variablesOf(l) contains v case _ => false }(rb)
+      lazy val immediateCall = existsWithPC(rb) { case (`v`, path) => path.isEmpty case _ => false }
+      lazy val realPE = (!opts.assumeChecked && pe) || (opts.totalFunctions || (opts.assumeChecked && {
+        val simp = simplifier(solvers.PurityOptions.Unchecked)
+        simp.isPure(e, path.asInstanceOf[simp.CNFPath])
+      }))
+
       if (
-        (pe && insts <= 1) ||
-        (insts == 1 && !(CollectorWithPC[Boolean](trees)(symbols) {
-          case (l: Lambda, _) if variablesOf(l) contains v => false
-          case (`v`, path) => path.isEmpty
-        }.collect(rb) contains false))
+        (((!inLambda && pe) || (inLambda && realPE)) && insts <= 1) ||
+        (!inLambda && immediateCall && insts == 1)
       ) {
         simplify(replaceFromSymbols(Map(vd -> re), rb), path)
       } else {
@@ -362,17 +372,17 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
       case (Assume(pred, l: Lambda), _) =>
         val (res, _) = es.map(simplify(_, path)).unzip
-        (assume(pred, application(l, res)), false)
+        (assume(pred, application(l, res)), opts.assumeChecked)
 
       case (re, _) =>
-        (application(re, es.map(simplify(_, path)._1)), false)
+        (application(re, es.map(simplify(_, path)._1)), opts.assumeChecked)
     }
 
     case _ =>
       stack = 0 :: stack
       val re = super.rec(e, path)
       val (rpure, rest) = purity.splitAt(stack.head)
-      val pe = rpure.foldLeft(!isImpureExpr(re))(_ && _)
+      val pe = rpure.foldLeft(opts.assumeChecked || !isImpureExpr(re))(_ && _)
       stack = stack.tail
       purity = rest
       (re, pe)
@@ -381,7 +391,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
   private def simplifyAndCons(es: Seq[Expr], path: CNFPath, cons: Seq[Expr] => Expr): (Expr, Boolean) = {
     val (res, pes) = es.map(simplify(_, path)).unzip
     val re = cons(res)
-    val pe = pes.foldLeft(!isImpureExpr(re))(_ && _)
+    val pe = pes.foldLeft(opts.assumeChecked || !isImpureExpr(re))(_ && _)
     (re, pe)
   }
 

@@ -8,8 +8,6 @@ import utils._
 
 import scala.collection.generic.CanBuildFrom
 
-object optNoSimplifications extends FlagOptionDef("nosimplifications", false)
-
 trait Templates
   extends TemplateGenerator
      with FunctionTemplates
@@ -46,7 +44,6 @@ trait Templates
   private[unrolling] lazy val trueT = mkEncoder(Map.empty)(BooleanLiteral(true))
   private[unrolling] lazy val falseT = mkEncoder(Map.empty)(BooleanLiteral(false))
 
-  protected lazy val simplify = !ctx.options.findOptionOrDefault(optNoSimplifications)
   protected lazy val deferFactor =  3 * ctx.options.findOptionOrDefault(optModelFinding)
 
   private var currentGen: Int = 0
@@ -823,7 +820,7 @@ trait Templates
     val tpeClauses = bindings.flatMap { case (v, s) => registerSymbol(encodedStart, s, v.getType) }.toSeq
 
     val timer = ctx.timers.solvers.simplify.start()
-    val instExpr = simplifyFormula(expr, simplify)
+    val instExpr = simplifyFormula(expr)
     timer.stop()
 
     val tmplClauses = mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))

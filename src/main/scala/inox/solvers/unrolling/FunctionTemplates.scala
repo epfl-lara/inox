@@ -20,7 +20,7 @@ trait FunctionTemplates { self: Templates =>
 
     def apply(tfd: TypedFunDef): FunctionTemplate = cache.getOrElseUpdate(tfd, {
       val timer = ctx.timers.solvers.simplify.start()
-      val lambdaBody: Expr = simplifyFormula(tfd.fullBody, simplify)
+      val lambdaBody: Expr = simplifyFormula(tfd.fullBody)
       timer.stop()
 
       val fdArgs: Seq[Variable] = tfd.params.map(_.toVariable)
