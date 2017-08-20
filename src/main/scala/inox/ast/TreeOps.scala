@@ -77,7 +77,7 @@ trait TreeOps { self: Trees =>
       case sort: ADTSort =>
         traverse(sort.id)
         sort.tparams.foreach(traverse)
-        sort.cons.foreach(traverse)
+        sort.cons.sortBy(_.name).foreach(traverse)
         sort.flags.foreach(traverse)
 
       case cons: ADTConstructor =>
@@ -245,7 +245,7 @@ trait TreeTransformer {
     case sort: s.ADTSort => new t.ADTSort(
       transform(sort.id),
       sort.tparams map transform,
-      sort.cons map transform,
+      sort.cons.sortBy(_.name) map transform,
       sort.flags map transform
     )
 
