@@ -12,18 +12,21 @@ import unrolling._
 import scala.collection.mutable.{Map => MutableMap}
 
 trait PrincessSolver extends AbstractUnrollingSolver { self =>
-
+  import context._
   import program._
   import program.trees._
   import program.symbols._
 
   override val name = "Princess"
 
-  protected lazy val theories = solvers.theories.Princess(fullEncoder)(semantics.getEvaluator)
+  protected lazy val theories: ast.ProgramTransformer {
+    val sourceProgram: fullEncoder.targetProgram.type
+    val targetProgram: Program { val trees: fullEncoder.targetProgram.trees.type }
+  } = solvers.theories.Princess(fullEncoder)(semantics.getEvaluator)
 
   protected object underlying extends {
     val program: targetProgram.type = targetProgram
-    val options = self.options
+    val context = self.context
   } with AbstractPrincessSolver {
     lazy val semantics = targetSemantics
   }
@@ -32,6 +35,7 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
 
   object templates extends {
     val program: targetProgram.type = targetProgram
+    val context = self.context
   } with Templates {
     import program.trees._
 
@@ -105,7 +109,7 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
     def extractMap(v: IExpression, tpe: t.MapType) = scala.sys.error("Should never happen")
 
     def modelEval(elem: IExpression, tpe: t.Type): Option[t.Expr] = {
-      val timer = ctx.timers.solvers.princess.eval.start()
+      val timer = timers.solvers.princess.eval.start()
       val (res, cs) = underlying.princessToInox(elem, tpe)(model)
       chooses ++= cs.map(p => p._1.res.id -> p._2)
       timer.stop()

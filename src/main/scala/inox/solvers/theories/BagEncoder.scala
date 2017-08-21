@@ -147,6 +147,7 @@ trait BagEncoder extends SimpleEncoder {
 
   protected object encoder extends SelfTreeTransformer {
     import sourceProgram._
+    import evaluator.context._
 
     override def transform(e: Expr): Expr = e match {
       case FiniteBag(elems, tpe) =>
@@ -191,6 +192,7 @@ trait BagEncoder extends SimpleEncoder {
 
   protected object decoder extends SelfTreeTransformer {
     import targetProgram._
+    import evaluator.context._
 
     override def transform(e: Expr): Expr = e match {
       case ADT(ADTType(SumID, Seq(tpe)), Seq(e1, e2)) =>

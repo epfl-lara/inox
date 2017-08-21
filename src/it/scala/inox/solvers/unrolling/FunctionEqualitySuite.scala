@@ -25,8 +25,9 @@ class FunctionEqualitySuite extends SolvingTestSuite with DatastructureUtils {
     .withFunctions(Seq(contains))
     .withADTs(Seq(mmap))
 
-  test("simple theorem") { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  val program = InoxProgram(symbols)
+
+  test("simple theorem") { implicit ctx =>
     val clause = let(
       "states" :: T(mmapID)(IntegerType, IntegerType =>: IntegerType),
       T(mmapID)(IntegerType, IntegerType =>: IntegerType)(\("i" :: IntegerType)(i => T(someID)(IntegerType =>: IntegerType)(\("x" :: IntegerType)(x => IntegerLiteral(0)))))
@@ -35,8 +36,7 @@ class FunctionEqualitySuite extends SolvingTestSuite with DatastructureUtils {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(clause)).isSAT)
   }
 
-  test("possible equality 1") { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("possible equality 1") { implicit ctx =>
     val f = ("f" :: (IntegerType =>: IntegerType)).toVariable
     val g = ("g" :: (IntegerType =>: IntegerType)).toVariable
     val clause = f === (\("x" :: IntegerType)(x => g(x)))
@@ -44,8 +44,7 @@ class FunctionEqualitySuite extends SolvingTestSuite with DatastructureUtils {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("possible equality 2") { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("possible equality 2") { implicit ctx =>
     val f = ("f" :: (IntegerType =>: IntegerType)).toVariable
     val g = ("g" :: (IntegerType =>: IntegerType)).toVariable
     val clause = g === (\("x" :: IntegerType)(x => f(x)))
@@ -53,16 +52,14 @@ class FunctionEqualitySuite extends SolvingTestSuite with DatastructureUtils {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("impossible equality 1") { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("impossible equality 1") { implicit ctx =>
     val f = ("f" :: (IntegerType =>: IntegerType)).toVariable
     val clause = f === (\("x" :: IntegerType)(x => f(x)))
 
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 
-  test("impossible equality 2") { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("impossible equality 2") { implicit ctx =>
     val f = ("f" :: (IntegerType =>: IntegerType)).toVariable
     val g = ("g" :: (IntegerType =>: IntegerType)).toVariable
     val clause = f === (\("x" :: IntegerType)(x => g(x))) && g === (\("x" :: IntegerType)(x => f(x)))

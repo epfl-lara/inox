@@ -12,6 +12,13 @@ class SolverPoolSuite extends FunSuite {
   import SolverResponses._
 
   implicit val ctx = TestContext.empty
+  val p = InoxProgram(NoSymbols)
+  val sfactory: SolverFactory { val program: InoxProgram } = {
+    SolverFactory.create(p)("dummy", () => new DummySolver {
+      val program: p.type = p
+      val context = ctx
+    })
+  }
 
   private trait DummySolver extends Solver {
     val name = "Dummy"
@@ -26,14 +33,6 @@ class SolverPoolSuite extends FunSuite {
     def push() = ()
     def pop() = ()
     def interrupt() = ()
-  }
-
-  def sfactory(implicit ctx: Context): SolverFactory { val program: InoxProgram } = {
-    val p = InoxProgram(ctx, new Symbols(Map.empty, Map.empty))
-    SolverFactory.create(p)("dummy", () => new DummySolver {
-      val program: p.type = p
-      val options = ctx.options
-    })
   }
 
   val poolSize = 5

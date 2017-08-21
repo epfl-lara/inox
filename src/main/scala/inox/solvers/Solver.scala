@@ -13,8 +13,9 @@ case object DebugSectionSolver extends DebugSection("solver")
 trait AbstractSolver extends Interruptible {
   def name: String
   val program: Program
-  val options: Options
+  val context: Context
 
+  import context._
   import program._
   import program.trees._
 
@@ -23,8 +24,6 @@ trait AbstractSolver extends Interruptible {
   type Assumptions = Set[Trees]
 
   import SolverResponses._
-
-  lazy val reporter = program.ctx.reporter
 
   // This is ugly, but helpful for smtlib solvers
   def dbg(msg: => Any) {}

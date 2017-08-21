@@ -39,11 +39,11 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     Map(listID -> List, consID -> Cons, nilID -> Nil)
   )
 
-  test("size(x) > 0 is satisfiable") { implicit ctx =>
-    val program = InoxProgram(ctx, symbols)
-    import program._
-    import program.symbols._
+  val program = InoxProgram(symbols)
+  import program._
+  import program.symbols._
 
+  test("size(x) > 0 is satisfiable") { implicit ctx =>
     val vd: ValDef = "x" :: T(listID)(IntegerType)
     val clause = sizeFd(IntegerType)(vd.toVariable) > E(BigInt(0))
 
@@ -62,10 +62,6 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
   }
 
   test("size(x) == 0 is satisfiable") { implicit ctx =>
-    val program = InoxProgram(ctx, symbols)
-    import program._
-    import program.symbols._
-
     val tp = TypeParameter.fresh("A")
     val vd: ValDef = "x" :: T(listID)(tp)
     val clause = sizeFd(tp)(vd.toVariable) === E(BigInt(0))
@@ -84,18 +80,14 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     }
   }
 
-  test("size(x) < 0 is not satisfiable (unknown)") { ctx =>
-    val program = InoxProgram(ctx, symbols)
-
+  test("size(x) < 0 is not satisfiable (unknown)") { implicit ctx =>
     val vd: ValDef = "x" :: T(listID)(IntegerType)
     val clause = sizeFd(IntegerType)(vd.toVariable) < E(BigInt(0))
 
     assert(!SimpleSolverAPI(program.getSolver.withTimeout(100)).solveSAT(clause).isSAT)
   }
 
-  test("size(x) > size(y) is satisfiable") { ctx =>
-    val program = InoxProgram(ctx, symbols)
-
+  test("size(x) > size(y) is satisfiable") { implicit ctx =>
     val x: ValDef = "x" :: T(listID)(IntegerType)
     val y: ValDef = "y" :: T(listID)(IntegerType)
     val clause = sizeFd(IntegerType)(x.toVariable) > sizeFd(IntegerType)(y.toVariable)
@@ -103,8 +95,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("simple configuration is sound with quantifiers") { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("simple configuration is sound with quantifiers") { implicit ctx =>
     val factory = program.getSolver
     val c = Variable.fresh("c", IntegerType)
     val x = Variable.fresh("x", IntegerType)

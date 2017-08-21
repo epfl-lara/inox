@@ -60,41 +60,36 @@ class ChooseSuite extends SolvingTestSuite {
     }))
 
   val symbols = NoSymbols.withFunctions(Seq(fun1, fun2, fun3, fun4))
+  val program = InoxProgram(symbols)
 
-  test("simple choose") { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("simple choose") { implicit ctx =>
     val clause = choose("v" :: IntegerType)(v => v > IntegerLiteral(0)) === IntegerLiteral(10)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("choose in function") { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("choose in function") { implicit ctx =>
     val clause = fun1(IntegerLiteral(-1)) === IntegerLiteral(10)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("choose in function and arguments") { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("choose in function and arguments") { implicit ctx =>
     val clause = fun1(choose("v" :: IntegerType)(_ < IntegerLiteral(0))) === IntegerLiteral(10)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("choose in callee function") { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("choose in callee function") { implicit ctx =>
     val clause = fun2(IntegerLiteral(1), IntegerLiteral(-1)) === IntegerLiteral(10) &&
       fun2(IntegerLiteral(-1), IntegerLiteral(0)) === IntegerLiteral(2)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("choose in parametric function") { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("choose in parametric function") { implicit ctx =>
     val clause = fun3(IntegerType)(IntegerLiteral(1), E(true)) === IntegerLiteral(10) &&
       fun3(BooleanType)(E(true), E(true)) === E(false)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("choose in recursive function") { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("choose in recursive function") { implicit ctx =>
     val clause = fun4(IntegerLiteral(2), IntegerLiteral(1)) === IntegerLiteral(10)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
 

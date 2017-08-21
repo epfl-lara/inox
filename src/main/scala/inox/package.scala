@@ -38,19 +38,17 @@ package object inox {
   type InoxProgram = Program { val trees: inox.trees.type }
 
   object InoxProgram {
-    def apply(ictx: Context,
+    def apply(
       functions: Seq[inox.trees.FunDef],
       adts: Seq[inox.trees.ADTDefinition]): InoxProgram = new Program {
         val trees = inox.trees
-        val ctx = ictx
         val symbols = new inox.trees.Symbols(
           functions.map(fd => fd.id -> fd).toMap,
           adts.map(cd => cd.id -> cd).toMap)
       }
 
-    def apply(ictx: Context, sym: inox.trees.Symbols): InoxProgram = new Program {
+    def apply(sym: inox.trees.Symbols): InoxProgram = new Program {
       val trees = inox.trees
-      val ctx = ictx
       val symbols = sym
     }
   }
@@ -75,14 +73,14 @@ package object inox {
       val program: Program { val trees: p.trees.type; val symbols: p.symbols.type } =
         p.asInstanceOf[Program { val trees: p.trees.type; val symbols: p.symbols.type }]
 
-      protected def createSolver(opts: Options): solvers.SolverFactory {
+      protected def createSolver(ctx: Context): solvers.SolverFactory {
         val program: self.program.type
         type S <: solvers.combinators.TimeoutSolver { val program: self.program.type }
-      } = solvers.SolverFactory(self.program, opts)
+      } = solvers.SolverFactory(self.program, ctx)
 
-      protected def createEvaluator(opts: Options): evaluators.DeterministicEvaluator {
+      protected def createEvaluator(ctx: Context): evaluators.DeterministicEvaluator {
         val program: self.program.type
-      } = evaluators.RecursiveEvaluator(self.program, opts)
+      } = evaluators.RecursiveEvaluator(self.program, ctx)
     }.asInstanceOf[p.Semantics]
   }
 }

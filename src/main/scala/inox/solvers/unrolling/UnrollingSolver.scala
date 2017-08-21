@@ -24,6 +24,7 @@ object optModelFinding      extends IntOptionDef("modelfinding", 0, "<PosInt> | 
 
 trait AbstractUnrollingSolver extends Solver { self =>
 
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -115,18 +116,18 @@ trait AbstractUnrollingSolver extends Solver { self =>
     underlying.reset()
   }
 
-  ctx.interruptManager.registerForInterrupts(this)
+  context.interruptManager.registerForInterrupts(this)
 
   def interrupt(): Unit = { abort = true }
 
-  def free(): Unit = ctx.interruptManager.unregisterForInterrupts(this)
+  def free(): Unit = context.interruptManager.unregisterForInterrupts(this)
 
   protected def declareVariable(v: t.Variable): Encoded
 
   private[this] var reported = false
 
   def assertCnstr(expression: Expr): Unit = {
-    val timer = ctx.timers.solvers.assert.start()
+    val timer = context.timers.solvers.assert.start()
 
     symbols.ensureWellFormed // make sure that the current program is well-formed
     typeCheck(expression, BooleanType) // make sure we've asserted a boolean-typed expression
@@ -224,7 +225,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
       val modelCs = vs.values.toSeq.flatMap(e => choosesOf(e, Seq.empty)) ++
         (cs ++ freeCs).flatMap { case ((id, tps), e) => choosesOf(e, tps) }
 
-      inox.Model(program)(vs, cs ++ freeCs ++ modelCs)
+      inox.Model(program, context)(vs, cs ++ freeCs ++ modelCs)
     }
   }
 
@@ -237,7 +238,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
     // we have to check case class constructors in model for ADT invariants
     val newExpr = model.vars.toSeq.foldLeft(expr) { case (e, (v, value)) => Let(v, value, e) }
 
-    evaluator.eval(newExpr, inox.Model(program)(Map.empty, model.chooses)) match {
+    evaluator.eval(newExpr, inox.Model(program, context)(Map.empty, model.chooses)) match {
       case EvaluationResults.Successful(BooleanLiteral(true)) =>
         reporter.debug("- Model validated.")
         true
@@ -548,11 +549,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }.get
     }
     val chooses = exChooses.map(p => (p._1.res.id, Seq.empty[s.Type]) -> decode(p._2))
-    inox.Model(program)(exModel.vars, exModel.chooses ++ chooses)
+    inox.Model(program, context)(exModel.vars, exModel.chooses ++ chooses)
   }
 
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
-    val timer = ctx.timers.solvers.unrolling.start()
+    val timer = context.timers.solvers.unrolling.start()
 
     val assumptionsSeq       : Seq[Expr]          = assumptions.toSeq
     val encodedAssumptions   : Seq[Encoded]       = assumptionsSeq.map { expr =>
@@ -605,7 +606,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
           val checkConfig = config
             .max(Configuration(model = getModel, unsatAssumptions = unrollAssumptions && templates.canUnroll))
 
-          val timer = ctx.timers.solvers.unrolling.check.start()
+          val timer = context.timers.solvers.unrolling.check.start()
           val res: SolverResponse[underlying.Model, Set[underlying.Trees]] =
             underlying.checkAssumptions(checkConfig)(
               encodedAssumptions.toSet ++ templates.satisfactionAssumptions
@@ -643,7 +644,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
           val clauses = templates.getFiniteRangeClauses
 
-          val timer = ctx.timers.solvers.unrolling.check.start()
+          val timer = context.timers.solvers.unrolling.check.start()
           underlying.push()
           for (cl <- encodedAssumptions.toSeq ++ templates.satisfactionAssumptions ++ clauses) {
             underlying.assertCnstr(cl)
@@ -732,7 +733,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
             reporter.debug(" - Running search without blocked literals (w/o lucky test)")
           }
 
-          val timer = ctx.timers.solvers.unrolling.check.start()
+          val timer = context.timers.solvers.unrolling.check.start()
 
           // we always ask for a model here in order to give priority to blockers that
           // are keeping quantified clause instantiations from being considered
@@ -787,7 +788,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
         case Unroll =>
           reporter.debug("- We need to keep going")
 
-          val timer = ctx.timers.solvers.unrolling.unroll.start()
+          val timer = context.timers.solvers.unrolling.unroll.start()
           // unfolling `unrollFactor` times
           for (i <- 1 to unrollFactor.toInt if templates.canUnroll && !abort && !pause) {
             val newClauses = templates.unroll
@@ -809,6 +810,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 }
 
 trait UnrollingSolver extends AbstractUnrollingSolver { self =>
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -820,6 +822,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
 
   object templates extends {
     val program: targetProgram.type = targetProgram
+    val context = self.context
   } with Templates {
     import program._
     import program.trees._
@@ -848,7 +851,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
   }
 
   protected lazy val modelEvaluator: DeterministicEvaluator { val program: self.targetProgram.type } =
-    targetSemantics.getEvaluator(ctx.options + optIgnoreContracts(true))
+    targetSemantics.getEvaluator(context.withOpts(optIgnoreContracts(true)))
 
   protected def declareVariable(v: t.Variable): t.Variable = v
   protected def wrapModel(model: targetProgram.Model): super.ModelWrapper = ModelWrapper(model)

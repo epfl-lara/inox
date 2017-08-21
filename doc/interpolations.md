@@ -138,7 +138,7 @@ res9: mySymbols.interpolator.trees.Expr = "Hello world!"
 
 ```scala
 scala> e"`a`"
-res10: mySymbols.interpolator.trees.Expr = a
+res10: mySymbols.interpolator.trees.Expr = 'a'
 ```
 
 <a name="arithmetic"></a>

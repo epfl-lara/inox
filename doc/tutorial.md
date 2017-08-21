@@ -205,7 +205,8 @@ __Note__: Inox will assume the inductive invariant on the recursive call to `siz
 In order to verify the property, we get an instance of an Inox solver (see
 [Programs](/doc/API.md#programs) and [Solvers](/doc/API.md#solvers) for more details):
 ```scala
-val program = InoxProgram(Context.empty, symbols)
+implicit val ctx = Context.empty
+val program = InoxProgram(symbols)
 val solver = program.getSolver.getNewSolver
 solver.assertCnstr(Not(prop))
 solver.check(SolverResponses.Simple) // Should return `Unsat`

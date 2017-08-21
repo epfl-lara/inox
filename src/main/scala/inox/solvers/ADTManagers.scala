@@ -7,6 +7,9 @@ import utils._
 
 trait ADTManagers {
   val program: Program
+  val context: Context
+
+  import context._
   import program._
   import program.trees._
   import program.symbols._

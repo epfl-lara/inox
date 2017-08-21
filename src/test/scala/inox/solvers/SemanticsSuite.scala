@@ -10,7 +10,9 @@ class SemanticsSuite extends FunSuite {
   import inox.trees.dsl._
   import SolverResponses._
 
-  implicit val symbols = new Symbols(Map.empty, Map.empty)
+  implicit val symbols = NoSymbols
+  val program = InoxProgram(symbols)
+
   val solverNames: Seq[String] = {
     (if (SolverFactory.hasNativeZ3) Seq("nativez3", "unrollz3") else Nil) ++
     (if (SolverFactory.hasZ3) Seq("smt-z3") else Nil) ++
@@ -19,8 +21,7 @@ class SemanticsSuite extends FunSuite {
   }
 
   def solver(ctx: Context): SimpleSolverAPI { val program: InoxProgram } = {
-    val program = InoxProgram(ctx, symbols)
-    SimpleSolverAPI(program.getSolver)
+    SimpleSolverAPI(program.getSolver(ctx))
   }
 
   protected def test(name: String, tags: Tag*)(body: Context => Unit): Unit = {

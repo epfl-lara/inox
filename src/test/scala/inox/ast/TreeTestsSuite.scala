@@ -10,12 +10,6 @@ import inox.trees._
 class TreeTestsSuite extends FunSuite {
 
   test("And- and Or- simplifications") {
-
-    //TODO dont like the fact that we need to create an empty program
-    //     to get access to the and/or constructors
-    val pgm = InoxProgram(Context.empty, Seq(), Seq())
-    import pgm.symbols._
-
     val x = Variable.fresh("x", BooleanType)
     val y = Variable.fresh("y", BooleanType)
     val t = BooleanLiteral(true)

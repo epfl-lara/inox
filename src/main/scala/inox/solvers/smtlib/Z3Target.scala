@@ -15,9 +15,10 @@ import _root_.smtlib.theories.experimental._
 import utils._
 
 trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
+  import context._
   import program._
-  import trees._
-  import symbols._
+  import program.trees._
+  import program.symbols._
 
   def targetName = "z3"
 
@@ -28,7 +29,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
   protected val interpreter = {
     val opts = interpreterOpts
-    ctx.reporter.debug("Invoking solver "+targetName+" with "+opts.mkString(" "))
+    reporter.debug("Invoking solver "+targetName+" with "+opts.mkString(" "))
     new Z3Interpreter("z3", opts.toArray)
   }
 

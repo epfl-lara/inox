@@ -21,6 +21,7 @@ import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
   *                          and the total ordering of closures.
   */
 trait DatatypeTemplates { self: Templates =>
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -649,7 +650,7 @@ trait DatatypeTemplates { self: Templates =>
     private[DatatypeTemplates] val typeInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[TemplateTypeInfo])]
     private[DatatypeTemplates] val lessOrder = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
 
-    def canEqual(f1: Encoded, f2: Encoded): Boolean = {
+    def canBeEqual(f1: Encoded, f2: Encoded): Boolean = {
       def transitiveLess(l: Encoded, r: Encoded): Boolean = {
         val fs = fixpoint((fs: Set[Encoded]) => fs ++ fs.flatMap(lessOrder))(lessOrder(l))
         fs(r)
@@ -696,9 +697,9 @@ trait DatatypeTemplates { self: Templates =>
           newClauses ++= template.instantiate(blocker, arg)
       }
 
-      ctx.reporter.debug("Unrolling datatypes (" + newClauses.size + ")")
+      reporter.debug("Unrolling datatypes (" + newClauses.size + ")")
       for (cl <- newClauses) {
-        ctx.reporter.debug("  . " + cl)
+        reporter.debug("  . " + cl)
       }
 
       newClauses.toSeq

@@ -10,12 +10,12 @@ class TimeoutSolverSuite extends FunSuite {
   import dsl._
 
   val ctx = TestContext.empty
-  val p = InoxProgram(ctx, NoSymbols)
+  val p = InoxProgram(NoSymbols)
 
   private class IdioticSolver extends Solver {
     val name = "Idiotic"
     val program: p.type = p
-    val options = ctx.options
+    val context = ctx
 
     var interrupted = false
 

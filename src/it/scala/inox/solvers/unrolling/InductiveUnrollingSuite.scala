@@ -169,16 +169,16 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
   val symbols = baseSymbols
     .withFunctions(Seq(sizeFd, append, appendNoSpec, flatMap, associative, forall, content, partition, sort))
 
-  test("size(x) == 0 is satisfiable") { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  val program = InoxProgram(symbols)
+
+  test("size(x) == 0 is satisfiable") { implicit ctx =>
     val vd = "x" :: T(listID)(IntegerType)
     val clause = sizeFd(IntegerType)(vd.toVariable) === E(BigInt(0))
 
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("size(x) < 0 is unsatisfiable") { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("size(x) < 0 is unsatisfiable") { implicit ctx =>
     val vd = "x" :: T(listID)(IntegerType)
     val clause = sizeFd(IntegerType)(vd.toVariable) < E(BigInt(0))
 
@@ -196,23 +196,19 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
     else Test
   }
 
-  test("flatMap is associative", filter(_, allowOpt = true)) { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("flatMap is associative", filter(_, allowOpt = true)) { implicit ctx =>
     assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(associative.fullBody)).isUNSAT)
   }
 
-  test("sort preserves content 1", filter(_)) { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("sort preserves content 1", filter(_)) { implicit ctx =>
     val (l,p) = ("l" :: T(listID)(IntegerType), "p" :: ((IntegerType, IntegerType) =>: BooleanType))
     val clause = E(contentID)(IntegerType)(E(sortID)(IntegerType)(l.toVariable, p.toVariable)) ===
       E(contentID)(IntegerType)(l.toVariable)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(clause)).isUNSAT)
   }
 
-  test("sort preserves content 2", filter(_, allowSelect = false)) { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("sort preserves content 2", filter(_, allowSelect = false)) { implicit ctx =>
     import program._
-
     val clause = sort.fullBody match {
       case Let(res, body, Assume(pred, resVar)) if res.toVariable == resVar =>
         Let(res, body, pred)

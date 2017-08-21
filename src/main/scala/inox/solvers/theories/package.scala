@@ -51,7 +51,7 @@ package object theories {
              (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }):
              DeterministicEvaluator { val program: enc.targetProgram.type } = new {
       val program: enc.targetProgram.type = enc.targetProgram
-      val options = ev.options
+      val context = ev.context
     } with DeterministicEvaluator {
       import program.trees._
       import EvaluationResults._

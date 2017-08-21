@@ -12,7 +12,7 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
   import SolverResponses._
 
   protected lazy val evaluator: evaluators.DeterministicEvaluator { val program: self.program.type } =
-    semantics.getEvaluator(program.ctx.options + evaluators.optIgnoreContracts(true))
+    semantics.getEvaluator(context.withOpts(evaluators.optIgnoreContracts(true)))
 
   // XXX @nv: Sometimes Z3 doesn't return fully evaluated models so we make sure to
   //          bring them into some normal form after extraction
@@ -20,7 +20,9 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
     config.cast(super.extractResponse(config, res) match {
       case SatWithModel(model) =>
         val evaluations = model.vars.map { case (k, v) => k -> evaluator.eval(v).result }
-        SatWithModel(inox.Model(program)(evaluations.collect { case (k, Some(v)) => k -> v }, model.chooses))
+        SatWithModel(inox.Model(program, context)(
+          evaluations.collect { case (k, Some(v)) => k -> v }, model.chooses
+        ))
       case resp => resp
     })
 

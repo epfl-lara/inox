@@ -655,7 +655,7 @@ trait SymbolOps { self: TypeOps =>
   case class NoSimpleValue(tpe: Type) extends Exception(s"No simple value found for type $tpe")
 
   /** Returns simplest value of a given type */
-  def simplestValue(tpe: Type, allowSolver: Boolean = true)(implicit sem: symbols.Semantics): Expr = {
+  def simplestValue(tpe: Type, allowSolver: Boolean = true)(implicit sem: symbols.Semantics, ctx: Context): Expr = {
     def rec(tpe: Type, seen: Set[Type]): Expr = tpe match {
       case StringType                 => StringLiteral("")
       case BVType(size)               => BVLiteral(0, size)

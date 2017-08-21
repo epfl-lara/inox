@@ -13,7 +13,7 @@ class SolversSuite extends FunSuite {
     optCheckModels(true)
   )))
 
-  val p = InoxProgram(ctx, NoSymbols)
+  val p = InoxProgram(NoSymbols)
 
   import p._
   import p.symbols._
@@ -80,7 +80,7 @@ class SolversSuite extends FunSuite {
   // Check that we correctly extract several types from solver models
   for (sname <- solverNames) {
     test(s"Model Extraction in $sname") {
-      val sf = SolverFactory(sname, p, ctx.options)
+      val sf = SolverFactory(sname, p, ctx)
       checkSolver(sf, vs.toSet, andJoin(cnstrs))
     }
   }

@@ -10,6 +10,7 @@ trait RecursiveEvaluator
      with DeterministicEvaluator
      with SolvingEvaluator {
 
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -520,14 +521,12 @@ trait RecursiveEvaluator
 }
 
 object RecursiveEvaluator {
-  def apply(p: InoxProgram, opts: Options): RecursiveEvaluator { val program: p.type } = {
+  def apply(p: InoxProgram, ctx: Context): RecursiveEvaluator { val program: p.type } = {
     new {
       val program: p.type = p
-      val options = opts
+      val context = ctx
     } with RecursiveEvaluator with HasDefaultGlobalContext with HasDefaultRecContext {
       val semantics: p.Semantics = p.getSemantics
     }
   }
-
-  def default(p: InoxProgram) = apply(p, p.ctx.options)
 }

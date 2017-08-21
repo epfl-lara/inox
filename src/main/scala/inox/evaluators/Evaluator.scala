@@ -7,7 +7,7 @@ object optIgnoreContracts extends FlagOptionDef("ignorecontracts", false)
 
 trait Evaluator {
   val program: Program
-  val options: Options
+  val context: Context
   import program.trees._
 
   /** The type of value that this [[Evaluator]] calculates
@@ -22,7 +22,7 @@ trait Evaluator {
   def eval(expr: Expr, model: program.Model) : EvaluationResult
 
   /** Evaluates a ground expression. */
-  final def eval(expr: Expr) : EvaluationResult = eval(expr, Model.empty(program))
+  final def eval(expr: Expr) : EvaluationResult = eval(expr, Model.empty(program, context))
 
   /** Compiles an expression into a function, where the arguments are the free variables in the expression.
     * `argorder` specifies in which order the arguments should be passed.

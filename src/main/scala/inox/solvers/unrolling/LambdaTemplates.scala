@@ -8,6 +8,7 @@ import utils._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 trait LambdaTemplates { self: Templates =>
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -138,7 +139,7 @@ trait LambdaTemplates { self: Templates =>
   }
 
   def registerFunction(b: Encoded, tpe: FunctionType, f: Encoded): Clauses = {
-    ctx.reporter.debug(s"-> registering free function $b ==> $f: $tpe")
+    reporter.debug(s"-> registering free function $b ==> $f: $tpe")
     val ft = bestRealType(tpe).asInstanceOf[FunctionType]
     freeFunctions += ft -> (freeFunctions(ft) + (b -> f))
 
@@ -157,7 +158,7 @@ trait LambdaTemplates { self: Templates =>
 
     if (ft.from.isEmpty) clauses ++= (for {
       template <- byType(ft).values.toList
-      if canEqual(template.ids._2, f) && isPureTemplate(template)
+      if canBeEqual(template.ids._2, f) && isPureTemplate(template)
     } yield {
       val (tmplApp, fApp) = (mkApp(template.ids._2, ft, Seq.empty), mkApp(f, ft, Seq.empty))
       mkImplies(mkAnd(b, template.start, mkEquals(tmplApp, fApp)), mkEquals(template.ids._2, f))
@@ -225,7 +226,7 @@ trait LambdaTemplates { self: Templates =>
         case (v, dep) => registerClosure(newTemplate.start, idT -> newTemplate.tpe, dep -> v.tpe)
       }
 
-      val extClauses = for ((oldB, freeF) <- freeBlockers(newTemplate.tpe).toList if canEqual(freeF, idT)) yield {
+      val extClauses = for ((oldB, freeF) <- freeBlockers(newTemplate.tpe).toList if canBeEqual(freeF, idT)) yield {
         val nextB  = encodeSymbol(Variable.fresh("b_or", BooleanType, true))
         val ext = mkOr(mkAnd(newTemplate.start, mkEquals(idT, freeF)), nextB)
         freeBlockers += newTemplate.tpe -> (freeBlockers(newTemplate.tpe) - (oldB -> freeF) + (nextB -> freeF))
@@ -236,7 +237,7 @@ trait LambdaTemplates { self: Templates =>
       val arglessEqClauses = if (newTemplate.tpe.from.nonEmpty || !isPureTemplate(newTemplate)) {
         Seq.empty[Encoded]
       } else {
-        for ((b,f) <- freeFunctions(newTemplate.tpe) if canEqual(idT, f)) yield {
+        for ((b,f) <- freeFunctions(newTemplate.tpe) if canBeEqual(idT, f)) yield {
           val (tmplApp, fApp) = (mkApp(idT, newTemplate.tpe, Seq.empty), mkApp(f, newTemplate.tpe, Seq.empty))
           mkImplies(mkAnd(b, newTemplate.start, mkEquals(tmplApp, fApp)), mkEquals(idT, f))
         }
@@ -283,12 +284,12 @@ trait LambdaTemplates { self: Templates =>
         registerAppInfo(currentGeneration, key, Left(byID(caller)), trueT, args)
       } else {
         lazy val gen = nextGeneration(currentGeneration)
-        for (template <- byType(tpe).values.toList if canEqual(caller, template.ids._2)) {
+        for (template <- byType(tpe).values.toList if canBeEqual(caller, template.ids._2)) {
           val cond = mkAnd(template.start, mkEquals(template.ids._2, caller))
           registerAppInfo(gen, key, Left(template), cond, args)
         }
 
-        for ((b,f) <- freeFunctions(tpe) if canEqual(caller, f)) {
+        for ((b,f) <- freeFunctions(tpe) if canBeEqual(caller, f)) {
           if (f == caller) {
             // We unroll this app immediately to increase performance for model finding with quantifiers
             val (lastB, nextB) = nextAppBlocker(key)
@@ -314,7 +315,7 @@ trait LambdaTemplates { self: Templates =>
             val nextB  = encodeSymbol(Variable.fresh("b_or", BooleanType, true))
             freeBlockers += tpe -> (freeBlockers(tpe) + (nextB -> caller))
 
-            val boundClauses = for (template <- byType(tpe).values if canEqual(caller, template.ids._2)) yield {
+            val boundClauses = for (template <- byType(tpe).values if canBeEqual(caller, template.ids._2)) yield {
               mkAnd(template.start, mkEquals(caller, template.ids._2))
             }
 
@@ -439,7 +440,7 @@ trait LambdaTemplates { self: Templates =>
           }).toSeq :+ nextB) : _*)
 
           val clause = mkEquals(lastB, extension)
-          ctx.reporter.debug(" -> extending lambda blocker: " + clause)
+          reporter.debug(" -> extending lambda blocker: " + clause)
           newClauses += clause
 
           for (info @ TemplateAppInfo(tmpl, equals, args) <- infos if !abort; template <- tmpl.left) {
@@ -462,9 +463,9 @@ trait LambdaTemplates { self: Templates =>
             registerImplication(b, lambdaBlocker)
             newCls += mkImplies(enabler, lambdaBlocker)
 
-            ctx.reporter.debug("Unrolling behind "+info+" ("+newCls.size+")")
+            reporter.debug("Unrolling behind "+info+" ("+newCls.size+")")
             for (cl <- newCls) {
-              ctx.reporter.debug("  . "+cl)
+              reporter.debug("  . "+cl)
             }
 
             newClauses ++= newCls
@@ -482,7 +483,7 @@ trait LambdaTemplates { self: Templates =>
           blockerToApps += appBlockers(app) -> app
       }
 
-      ctx.reporter.debug(s"   - ${newClauses.size} new clauses")
+      reporter.debug(s"   - ${newClauses.size} new clauses")
 
       newClauses
     }

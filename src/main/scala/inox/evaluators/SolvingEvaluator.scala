@@ -9,6 +9,7 @@ import solvers.combinators._
 import scala.collection.mutable.{Map => MutableMap}
 
 trait SolvingEvaluator extends Evaluator { self =>
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -30,7 +31,7 @@ trait SolvingEvaluator extends Evaluator { self =>
   }
 
   def onChooseInvocation(choose: Choose): Expr = chooseCache.getOrElseUpdate(choose, {
-    val timer = ctx.timers.evaluators.specs.start()
+    val timer = context.timers.evaluators.specs.start()
 
     val sf = semantics.getSolver
 
@@ -55,9 +56,9 @@ trait SolvingEvaluator extends Evaluator { self =>
 
   def onForallInvocation(forall: Forall): Expr = {
     BooleanLiteral(forallCache.getOrElse(forall, {
-      val timer = ctx.timers.evaluators.forall.start()
+      val timer = context.timers.evaluators.forall.start()
 
-      val sf = semantics.getSolver(ctx.options ++ Seq(
+      val sf = semantics.getSolver(context.withOpts(
         optSilentErrors(true),
         optCheckModels(false), // model is checked manually!! (see below)
         unrolling.optFeelingLucky(false),

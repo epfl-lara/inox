@@ -10,6 +10,7 @@ import evaluators._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet, Queue}
 
 trait QuantificationTemplates { self: Templates =>
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -262,9 +263,9 @@ trait QuantificationTemplates { self: Templates =>
         ignoredMatchers -= e
       }
 
-      ctx.reporter.debug("Unrolling ignored matchers (" + clauses.size + ")")
+      reporter.debug("Unrolling ignored matchers (" + clauses.size + ")")
       for (cl <- clauses) {
-        ctx.reporter.debug("  . " + cl)
+        reporter.debug("  . " + cl)
       }
 
       if (abort || pause) return clauses.toSeq
@@ -279,9 +280,9 @@ trait QuantificationTemplates { self: Templates =>
         }
       }
 
-      ctx.reporter.debug("Unrolling ignored substitutions (" + suClauses.size + ")")
+      reporter.debug("Unrolling ignored substitutions (" + suClauses.size + ")")
       for (cl <- suClauses) {
-        ctx.reporter.debug("  . " + cl)
+        reporter.debug("  . " + cl)
       }
 
       clauses ++= suClauses
@@ -299,9 +300,9 @@ trait QuantificationTemplates { self: Templates =>
         }
       }
 
-      ctx.reporter.debug("Unrolling ignored grounds (" + grClauses.size + ")")
+      reporter.debug("Unrolling ignored grounds (" + grClauses.size + ")")
       for (cl <- grClauses) {
-        ctx.reporter.debug("  . " + cl)
+        reporter.debug("  . " + cl)
       }
 
       clauses ++= grClauses
@@ -329,7 +330,7 @@ trait QuantificationTemplates { self: Templates =>
       ignoredMatchers += ((currentGeneration, blockers, matcher))
       Seq.empty
     } else {
-      ctx.reporter.debug(" -> instantiating matcher " + blockers.mkString("{",",","}") + " ==> " + matcher)
+      reporter.debug(" -> instantiating matcher " + blockers.mkString("{",",","}") + " ==> " + matcher)
       handledMatchers += relevantBlockers -> matcher
       val qClauses: Clauses = quantifications.flatMap(_.instantiate(relevantBlockers, matcher, defer))
 
@@ -905,7 +906,7 @@ trait QuantificationTemplates { self: Templates =>
           (Map(qs._2 -> inst), Seq.empty[Encoded])
       }
     }.getOrElse {
-      ctx.reporter.debug("instantiating quantification " + template.body.asString)
+      reporter.debug("instantiating quantification " + template.body.asString)
 
       val newTemplate = template.concretize
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]

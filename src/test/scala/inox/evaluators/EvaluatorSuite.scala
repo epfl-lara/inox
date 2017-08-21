@@ -9,11 +9,9 @@ class EvaluatorSuite extends FunSuite {
   import inox.trees._
 
   val ctx = TestContext.empty
-
-  val symbols = new Symbols(Map.empty, Map.empty)
+  val program = InoxProgram(NoSymbols)
   def evaluator(ctx: Context): DeterministicEvaluator { val program: InoxProgram } = {
-    val program = InoxProgram(ctx, symbols)
-    RecursiveEvaluator.default(program)
+    RecursiveEvaluator(program, ctx)
   }
 
   test("Literals") {
@@ -649,7 +647,7 @@ class EvaluatorSuite extends FunSuite {
     toEval: Expr,
     env: Map[ValDef, Expr] = Map()
   ): EvalDSL = {
-    e.eval(toEval, Model(e.program)(env, Map.empty)) match {
+    e.eval(toEval, Model(e.program, ctx)(env, Map.empty)) match {
       case EvaluationResults.Successful(res)     => Success(toEval, env, e, res)
       case EvaluationResults.RuntimeError(err)   => Failed(toEval, env, e, err)
       case EvaluationResults.EvaluatorError(err) => Failed(toEval, env, e, err)

@@ -14,7 +14,7 @@ trait NativeZ3Solver extends Z3Unrolling { self =>
 
   protected object underlying extends {
     val program: targetProgram.type = targetProgram
-    val options = self.options
+    val context = self.context
   } with AbstractZ3Solver {
     lazy val semantics = targetSemantics
   }

@@ -33,7 +33,7 @@ class Parser(file: File) {
     pos.map(p => positions.get(p.line, p.col)).getOrElse(NoPosition)
   }
 
-  def parseScript: Seq[(Symbols, Expr)] = {
+  def parseScript: Seq[(InoxProgram, Expr)] = {
     val parser = new TipParser(new TipLexer(positions.reader))
     val script = parser.parseScript
 
@@ -43,7 +43,7 @@ class Parser(file: File) {
     (for (cmd <- script.commands) yield cmd match {
       case CheckSat() =>
         val expr: Expr = andJoin(assertions)
-        Some((locals.symbols, expr))
+        Some((InoxProgram(locals.symbols), expr))
 
       case _ =>
         val (newAssertions, newLocals) = extractCommand(cmd)

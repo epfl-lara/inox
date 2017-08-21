@@ -12,7 +12,12 @@ case class Context(
   reporter: Reporter,
   interruptManager: InterruptManager,
   options: Options = Options(Seq()),
-  timers: TimerStorage = new TimerStorage)
+  timers: TimerStorage = new TimerStorage) {
+
+  implicit val implicitContext: this.type = this
+
+  def withOpts(opts: OptionValue[_]*): Context = copy(options = options ++ opts)
+}
 
 object Context {
   def empty = {

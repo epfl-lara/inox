@@ -16,7 +16,7 @@ trait SimpleEncoder extends TheoryEncoder with ast.ProgramEncoder {
 }
 
 object NoEncoder {
-  def apply(p: Program): TheoryEncoder {
+  def apply(p: Program, ctx: Context): TheoryEncoder {
     val sourceProgram: p.type
     val targetProgram: Program { val trees: p.trees.type }
   } = new TheoryEncoder {

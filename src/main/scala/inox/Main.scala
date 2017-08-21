@@ -201,13 +201,11 @@ object Main extends MainHelpers {
       exit(error = true)
     } else {
       var error: Boolean = false
-      for (file <- files;
-           (syms, expr) <- new tip.Parser(file).parseScript) {
-        val program = InoxProgram(ctx, syms)
+      for (file <- files; (program, expr) <- new tip.Parser(file).parseScript) {
+        import ctx._
         import program._
-        import program.ctx._
 
-        val sf = program.ctx.options.findOption(optTimeout) match {
+        val sf = ctx.options.findOption(optTimeout) match {
           case Some(to) => program.getSolver.withTimeout(to)
           case None => program.getSolver
         }

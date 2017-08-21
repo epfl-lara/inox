@@ -11,10 +11,10 @@ import _root_.smtlib.trees.CommandsResponses._
 import scala.collection.mutable.{Map => MutableMap}
 
 trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
-
+  import context._
   import program._
-  import trees._
-  import symbols._
+  import program.trees._
+  import program.symbols._
   import exprOps.variablesOf
   import SolverResponses._
 
@@ -96,7 +96,7 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
                 case _ => None
               }.toMap
 
-              SatWithModel(inox.Model(program)(vars, chooses.toMap))
+              SatWithModel(inox.Model(program, context)(vars, chooses.toMap))
 
             case _ =>
               Unknown
