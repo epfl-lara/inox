@@ -355,7 +355,11 @@ trait TreeDeconstructor {
     case s.MapType(from,to) => (Seq(), Seq(from, to), Seq(), (_, ts, _) => t.MapType(ts(0), ts(1)))
     case s.FunctionType(fts, tt) => (Seq(), tt +: fts, Seq(),  (_, ts, _) => t.FunctionType(ts.tail.toList, ts.head))
 
-    case s.TypeParameter(id, flags) => (Seq(id), Seq(), flags.toSeq, (ids, _, flags) => t.TypeParameter(ids.head, flags.toSet))
+    case s.TypeParameter(id, flags) => (
+      Seq(id), Seq(), flags.toSeq.sortBy(_.toString),
+      (ids, _, flags) => t.TypeParameter(ids.head, flags.toSet)
+    )
+
     case s.BVType(size) => (Seq(), Seq(), Seq(), ((_, _, _) => t.BVType(size)))
 
     case s.Untyped     => (Seq(), Seq(), Seq(), (_, _, _) => t.Untyped)
