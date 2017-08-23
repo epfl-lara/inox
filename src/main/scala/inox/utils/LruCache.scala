@@ -10,6 +10,7 @@ class LruCache[A,B](val maxSize: Int) {
   }
 
   def get(key: A): Option[B] = Option(cache.get(key))
+  def update(key: A, value: B): Unit = cache.put(key, value)
 
   def cached(key: A, body: => B): B = get(key) match {
     case Some(res) => res
