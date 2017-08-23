@@ -323,6 +323,11 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       val selectorMap: Map[Expr, Expr] = (selectors zip vds.map(_.toVariable)).toMap
       simplify((vds zip es).foldRight(replace(selectorMap, b)) { case ((vd, e), b) => Let(vd, e, b) }, path)
 
+    // @nv: Simplifying lets can lead to exponential simplification cost.
+    //      The `simplifyLetCache` greatly reduces the cost of simplifying lets but
+    //      there are still corner cases that will make this expensive.
+    //      In `assumeChecked` mode, the cost should be lower as most lets with
+    //      `insts <= 1` will be inlined immediately.
     case let @ Let(vd, e, b) =>
       simplifyLetCache.get(let)
         .filter(_._1.subsumes(path))
