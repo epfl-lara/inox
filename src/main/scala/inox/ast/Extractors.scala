@@ -28,6 +28,8 @@ trait TreeDeconstructor {
   /** Extracted subtrees from an expression as well as a "builder" */
   protected type DeconstructedExpr = (Seq[Identifier], Seq[s.Variable], Seq[s.Expr], Seq[s.Type], ExprBuilder)
 
+  type ExpressionTableDispatch = Map[Class[_], s.Expr => DeconstructedExpr]
+
   /** Optimisation trick for large pattern matching sequence: jumps directly to the correct case based
     * on the type of the expression -- a kind of virtual table for pattern matching.
     *
@@ -37,7 +39,10 @@ trait TreeDeconstructor {
     *
     *     classOf[s.Not] -> { case s.Not(e) => /* ... */ }
     */
-  private val exprTable: Map[Class[_], s.Expr => DeconstructedExpr] = HashMap(
+  private lazy val exprTable: ExpressionTableDispatch = buildExprTableDispatch
+
+  // This is overridable
+  protected def buildExprTableDispatch: ExpressionTableDispatch = HashMap(
     /* Unary operators */
     classOf[s.Not] -> { expr =>
       val s.Not(e) = expr
@@ -339,7 +344,7 @@ trait TreeDeconstructor {
     }
   )
 
-  def deconstruct(expr: s.Expr): DeconstructedExpr = exprTable(expr.getClass)(expr)
+  final def deconstruct(expr: s.Expr): DeconstructedExpr = exprTable(expr.getClass)(expr)
 
   /** Rebuild a type from the given set of identifiers, subtypes and flags */
   protected type TypeBuilder = (Seq[Identifier], Seq[t.Type], Seq[t.Flag]) => t.Type
