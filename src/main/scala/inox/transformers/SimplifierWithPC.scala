@@ -218,7 +218,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
   def isPure(e: Expr, path: CNFPath): Boolean = simplify(e, path)._2
 
-  private val simplifyLetCache = new LruCache[Let, (CNFPath, Expr, Boolean)](100)
+  private val simplifyCache = new LruCache[Expr, (CNFPath, Expr, Boolean)](100)
 
   def simplify(e: Expr, path: CNFPath): (Expr, Boolean) = e match {
     case e if path contains e => (BooleanLiteral(true), true)
@@ -324,12 +324,12 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       simplify((vds zip es).foldRight(replace(selectorMap, b)) { case ((vd, e), b) => Let(vd, e, b) }, path)
 
     // @nv: Simplifying lets can lead to exponential simplification cost.
-    //      The `simplifyLetCache` greatly reduces the cost of simplifying lets but
+    //      The `simplifyCache` greatly reduces the cost of simplifying lets but
     //      there are still corner cases that will make this expensive.
     //      In `assumeChecked` mode, the cost should be lower as most lets with
     //      `insts <= 1` will be inlined immediately.
     case let @ Let(vd, e, b) =>
-      simplifyLetCache.get(let)
+      simplifyCache.get(let)
         .filter(_._1.subsumes(path))
         .map(p => (p._2, p._3))
         .getOrElse {
@@ -365,7 +365,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
             }
           }
 
-          simplifyLetCache(let) = (path, lete, letp)
+          simplifyCache(let) = (path, lete, letp)
           (lete, letp)
         }
 
