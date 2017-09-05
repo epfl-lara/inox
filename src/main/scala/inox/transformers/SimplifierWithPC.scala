@@ -23,6 +23,14 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
     import exprOps._
 
+    def subsumes(that: CNFPath): Boolean =
+      (conditions subsetOf that.conditions) &&
+      (exprSubst.forall { case (k, e) => that.exprSubst.getB(k).exists(_ == e) }) &&
+      (boolSubst.forall { case (k, es) =>
+        val eSet = es.toSet
+        that.boolSubst.get(k).exists(_.toSet == eSet)
+      })
+
     private def unexpandLets(e: Expr, exprSubst: Bijection[Variable, Expr] = exprSubst): Expr = {
       postMap(exprSubst.getA)(e)
     }
@@ -210,6 +218,8 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
   def isPure(e: Expr, path: CNFPath): Boolean = simplify(e, path)._2
 
+  private val simplifyCache = new LruCache[Expr, (CNFPath, Expr, Boolean)](100)
+
   def simplify(e: Expr, path: CNFPath): (Expr, Boolean) = e match {
     case e if path contains e => (BooleanLiteral(true), true)
     case e if path contains not(e) => (BooleanLiteral(false), true)
@@ -271,9 +281,10 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     }
 
     case IsInstanceOf(ADT(tpe1, args), tpe2: ADTType) if !tpe2.getADT.definition.isSort =>
-      simplify((tpe1.getADT.toConstructor.fields zip args).foldRight(BooleanLiteral(tpe1.id == tpe2.id): Expr) {
-        case ((vd, e), body) => Let(vd.freshen, e, body)
-      }, path)
+      simplify((tpe1.getADT.toConstructor.fields zip args)
+        .foldRight(BooleanLiteral(tpe1.id == tpe2.id): Expr) {
+          case ((vd, e), body) => Let(vd.freshen, e, body)
+        }, path)
 
     case IsInstanceOf(e, tpe: ADTType) =>
       val (re, pe) = simplify(e, path)
@@ -312,37 +323,51 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       val selectorMap: Map[Expr, Expr] = (selectors zip vds.map(_.toVariable)).toMap
       simplify((vds zip es).foldRight(replace(selectorMap, b)) { case ((vd, e), b) => Let(vd, e, b) }, path)
 
-    case Let(vd, e, b) =>
-      val (re, pe) = simplify(e, path)
-      val (rb, pb) = simplify(b, path withBinding (vd -> re))
+    // @nv: Simplifying lets can lead to exponential simplification cost.
+    //      The `simplifyCache` greatly reduces the cost of simplifying lets but
+    //      there are still corner cases that will make this expensive.
+    //      In `assumeChecked` mode, the cost should be lower as most lets with
+    //      `insts <= 1` will be inlined immediately.
+    case let @ Let(vd, e, b) =>
+      simplifyCache.get(let)
+        .filter(_._1.subsumes(path))
+        .map(p => (p._2, p._3))
+        .getOrElse {
+          val (re, pe) = simplify(e, path)
+          val (rb, pb) = simplify(b, path withBinding (vd -> re))
 
-      val v = vd.toVariable
-      lazy val insts = count { case `v` => 1 case _ => 0 }(rb)
-      lazy val inLambda = exists { case l: Lambda => variablesOf(l) contains v case _ => false }(rb)
-      lazy val immediateCall = existsWithPC(rb) { case (`v`, path) => path.isEmpty case _ => false }
-      lazy val realPE = opts match {
-        case solvers.PurityOptions.Unchecked => pe
-        case solvers.PurityOptions.TotalFunctions => pe
-        case _ =>
-          val simp = simplifier(solvers.PurityOptions.Unchecked)
-          simp.isPure(e, path.asInstanceOf[simp.CNFPath])
-      }
+          val v = vd.toVariable
+          lazy val insts = count { case `v` => 1 case _ => 0 }(rb)
+          lazy val inLambda = exists { case l: Lambda => variablesOf(l) contains v case _ => false }(rb)
+          lazy val immediateCall = existsWithPC(rb) { case (`v`, path) => path.isEmpty case _ => false }
+          lazy val containsLambda = exists { case l: Lambda => true case _ => false }(re)
+          lazy val realPE = opts match {
+            case solvers.PurityOptions.Unchecked => pe
+            case solvers.PurityOptions.TotalFunctions => pe
+            case _ =>
+              val simp = simplifier(solvers.PurityOptions.Unchecked)
+              simp.isPure(e, path.asInstanceOf[simp.CNFPath])
+          }
 
-      if (
-        (((!inLambda && pe) || (inLambda && realPE)) && insts <= 1) ||
-        (!inLambda && immediateCall && insts == 1)
-      ) {
-        simplify(replaceFromSymbols(Map(vd -> re), rb), path)
-      } else {
-        val let = Let(vd, re, rb)
-        re match {
-          case l: Lambda =>
-            val inlined = inlineLambdas(let)
-            if (inlined != let) simplify(inlined, path)
-            else (let, pe && pb)
-          case _ => (let, pe && pb)
+          val (lete, letp) = if (
+            (((!inLambda && pe) || (inLambda && realPE && !containsLambda)) && insts <= 1) ||
+            (!inLambda && immediateCall && insts == 1)
+          ) {
+            simplify(replaceFromSymbols(Map(vd -> re), rb), path)
+          } else {
+            val let = Let(vd, re, rb)
+            re match {
+              case l: Lambda =>
+                val inlined = inlineLambdas(let)
+                if (inlined != let) simplify(inlined, path)
+                else (let, pe && pb)
+              case _ => (let, pe && pb)
+            }
+          }
+
+          simplifyCache(let) = (path, lete, letp)
+          (lete, letp)
         }
-      }
 
 
     case Equals(e1: Literal[_], e2: Literal[_]) =>
