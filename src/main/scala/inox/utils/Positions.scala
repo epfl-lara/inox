@@ -73,6 +73,8 @@ abstract class DefinedPosition extends Position {
 case class OffsetPosition(line: Int, col: Int, point: Int, file: File) extends DefinedPosition {
   def focusBegin = this
   def focusEnd = this
+
+  override def toString = super.toString + " (" + file + ")"
 }
 
 case class RangePosition(lineFrom: Int, colFrom: Int, pointFrom: Int,
@@ -84,6 +86,8 @@ case class RangePosition(lineFrom: Int, colFrom: Int, pointFrom: Int,
 
   val line = lineFrom
   val col  = colFrom
+  
+  override def toString = super.toString + " (" + file + ")"
 }
 
 case object NoPosition extends Position {

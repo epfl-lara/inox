@@ -241,7 +241,7 @@ trait TreeTransformer {
     ).copiedFrom(fd)
   }
 
-  final def transform(adt: s.ADTDefinition): t.ADTDefinition = adt match {
+  final def transform(adt: s.ADTDefinition): t.ADTDefinition = (adt match {
     case sort: s.ADTSort => new t.ADTSort(
       transform(sort.id),
       sort.tparams map transform,
@@ -256,7 +256,7 @@ trait TreeTransformer {
       cons.fields map transform,
       cons.flags map transform
     )
-  }
+  }).copiedFrom(adt)
 
   protected trait TreeTransformerComposition extends TreeTransformer {
     protected val t1: TreeTransformer

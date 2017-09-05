@@ -65,7 +65,7 @@ trait DSL {
 
     def getField(selector: Identifier) = ADTSelector(e, selector)
 
-    def apply(es: Expr*) = Application(e, es.toSeq)
+    def apply(es: Expr*) = Application(e, es.toSeq).copiedFrom(e)
 
     def isInstOf(tp: ADTType) = IsInstanceOf(e, tp)
     def asInstOf(tp: ADTType) = AsInstanceOf(e, tp)
