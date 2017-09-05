@@ -1364,7 +1364,7 @@ trait SymbolOps { self: TypeOps =>
 
     symbols.instantiation_>:(formalType, actualType) match {
       case Some(tmap) =>
-        FunctionInvocation(fd.id, fd.tparams map { tpd => tmap.getOrElse(tpd.tp, tpd.tp) }, args)
+        FunctionInvocation(fd.id, fd.tparams map { tpd => tmap.getOrElse(tpd.tp, tpd.tp) }, args).setPos(fd.getPos)
       case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
     }
   }
@@ -1405,7 +1405,7 @@ trait SymbolOps { self: TypeOps =>
       assume(pred, application(l, realArgs))
 
     case _ =>
-      Application(fn, realArgs)
+      Application(fn, realArgs).copiedFrom(fn)
   }
 
 
@@ -1420,7 +1420,7 @@ trait SymbolOps { self: TypeOps =>
     val actualType = tupleTypeWrap(args.map(_.getType))
 
     symbols.instantiation_>:(formalType, actualType) match {
-      case Some(tmap) => ADT(instantiateType(adt.typed.toType, tmap).asInstanceOf[ADTType], args)
+      case Some(tmap) => ADT(instantiateType(adt.typed.toType, tmap).asInstanceOf[ADTType], args).setPos(adt.getPos)
       case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
     }
   }
@@ -1434,7 +1434,7 @@ trait SymbolOps { self: TypeOps =>
 
     ls match {
       case ls @ (e +: es) if ls.size == args.size && es.forall(_ == e) && tpe == e.getType => e
-      case _ => ADT(tpe, args)
+      case _ => ADT(tpe, args).setPos(tpe.getPos)
     }
   }
 
@@ -1446,7 +1446,7 @@ trait SymbolOps { self: TypeOps =>
       case a @ ADT(tp, fields) if !tp.getADT.hasInvariant =>
         fields(tp.getADT.toConstructor.definition.selectorID2Index(selector))
       case _ =>
-        ADTSelector(adt, selector)
+        ADTSelector(adt, selector).copiedFrom(adt)
     }
   }
 
@@ -1455,17 +1455,17 @@ trait SymbolOps { self: TypeOps =>
     if (symbols.isSubtypeOf(expr.getType, tpe)) {
       expr
     } else {
-      AsInstanceOf(expr, tpe)
+      AsInstanceOf(expr, tpe).copiedFrom(expr)
     }
   }
 
   /** $encodingof expr.isInstanceOf[tpe], simplifies to `true` or `false` in clear cases. */
   def isInstOf(expr: Expr, tpe: Type) = (expr.getType, tpe) match {
-    case (t1, t2) if symbols.isSubtypeOf(t1, t2) => BooleanLiteral(true)
+    case (t1, t2) if symbols.isSubtypeOf(t1, t2) => BooleanLiteral(true).copiedFrom(expr)
 
     case (t1: ADTType, t2: ADTType)
-    if t1.id != t2.id && !t1.getADT.definition.isSort && !t2.getADT.definition.isSort => BooleanLiteral(false)
+    if t1.id != t2.id && !t1.getADT.definition.isSort && !t2.getADT.definition.isSort => BooleanLiteral(false).copiedFrom(expr)
 
-    case _ => IsInstanceOf(expr, tpe)
+    case _ => IsInstanceOf(expr, tpe).copiedFrom(expr)
   }
 }
