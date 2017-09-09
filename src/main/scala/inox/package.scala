@@ -40,17 +40,12 @@ package object inox {
   object InoxProgram {
     def apply(
       functions: Seq[inox.trees.FunDef],
-      adts: Seq[inox.trees.ADTDefinition]): InoxProgram = new Program {
-        val trees = inox.trees
-        val symbols = new inox.trees.Symbols(
+      adts: Seq[inox.trees.ADTDefinition]): InoxProgram =
+        Program(inox.trees)(new inox.trees.Symbols(
           functions.map(fd => fd.id -> fd).toMap,
-          adts.map(cd => cd.id -> cd).toMap)
-      }
+          adts.map(cd => cd.id -> cd).toMap))
 
-    def apply(sym: inox.trees.Symbols): InoxProgram = new Program {
-      val trees = inox.trees
-      val symbols = sym
-    }
+    def apply(symbols: inox.trees.Symbols): InoxProgram = Program(inox.trees)(symbols)
   }
 
   object trees extends ast.Trees with ast.SimpleSymbols {

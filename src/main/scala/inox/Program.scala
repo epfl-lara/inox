@@ -70,26 +70,25 @@ trait Program { self =>
   } = getSemantics.getEvaluator(ctx)
 
 
-  def transform(t: TreeTransformer { val s: self.trees.type }): Program { val trees: t.t.type } = new Program {
-    val trees: t.t.type = t.t
-    val symbols = self.symbols.transform(t)
-  }
+  def transform(t: TreeTransformer { val s: self.trees.type }): Program { val trees: t.t.type } =
+    Program(t.t)(symbols transform t)
 
-  def transform(t: SymbolTransformer { val s: self.trees.type }): Program { val trees: t.t.type } = new Program {
-    val trees: t.t.type = t.t
-    val symbols = t.transform(self.symbols)
-  }
+  def transform(t: SymbolTransformer { val s: self.trees.type }): Program { val trees: t.t.type } =
+    Program(t.t)(t transform symbols)
 
-  def withFunctions(functions: Seq[trees.FunDef]): Program { val trees: self.trees.type } = new Program {
-    val trees: self.trees.type = self.trees
-    val symbols = self.symbols.withFunctions(functions)
-  }
+  def withFunctions(functions: Seq[trees.FunDef]): Program { val trees: self.trees.type } =
+    Program(trees)(symbols withFunctions functions)
 
-  def withADTs(adts: Seq[trees.ADTDefinition]): Program { val trees: self.trees.type } = new Program {
-    val trees: self.trees.type = self.trees
-    val symbols = self.symbols.withADTs(adts)
-  }
+  def withADTs(adts: Seq[trees.ADTDefinition]): Program { val trees: self.trees.type } =
+    Program(trees)(symbols withADTs adts)
 
   def asString(implicit ctx: Context): String = trees.asString(symbols)
   override def toString: String = asString(Context.empty)
+}
+
+object Program {
+  def apply(t: ast.Trees)(syms: t.Symbols): Program { val trees: t.type; val symbols: syms.type } = new Program {
+    val trees: t.type = t
+    val symbols: syms.type = syms
+  }
 }
