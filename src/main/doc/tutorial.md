@@ -210,5 +210,6 @@ val program = InoxProgram(symbols)
 val solver = program.getSolver.getNewSolver
 solver.assertCnstr(Not(prop))
 solver.check(SolverResponses.Simple) // Should return `Unsat`
+solver.free()
 ```
 Et voila, all done!
