@@ -25,7 +25,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
 
   val sizeID = FreshIdentifier("size")
   val sizeFd = mkFunDef(sizeID)("A") { case Seq(aT) => (
-    Seq("l" :: T(listID)(aT)), IntegerType, { case Seq(l) =>
+    Seq("l" :: T(listID)(aT)), IntegerType(), { case Seq(l) =>
       if_ (l.isInstOf(T(consID)(aT))) {
         E(BigInt(1)) + E(sizeID)(aT)(l.asInstOf(T(consID)(aT)).getField(tail))
       } else_ {
@@ -44,13 +44,13 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
   import program.symbols._
 
   test("size(x) > 0 is satisfiable") { implicit ctx =>
-    val vd: ValDef = "x" :: T(listID)(IntegerType)
-    val clause = sizeFd(IntegerType)(vd.toVariable) > E(BigInt(0))
+    val vd: ValDef = "x" :: T(listID)(IntegerType())
+    val clause = sizeFd(IntegerType())(vd.toVariable) > E(BigInt(0))
 
     SimpleSolverAPI(program.getSolver).solveSAT(clause) match {
       case SatWithModel(model) =>
         model.vars.get(vd) match {
-          case Some(ADT(ADTType(`consID`, Seq(IntegerType)), _)) =>
+          case Some(ADT(ADTType(`consID`, Seq(IntegerType())), _)) =>
             // success!!
           case r =>
             fail("Unexpected valuation: " + r)
@@ -81,24 +81,24 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
   }
 
   test("size(x) < 0 is not satisfiable (unknown)") { implicit ctx =>
-    val vd: ValDef = "x" :: T(listID)(IntegerType)
-    val clause = sizeFd(IntegerType)(vd.toVariable) < E(BigInt(0))
+    val vd: ValDef = "x" :: T(listID)(IntegerType())
+    val clause = sizeFd(IntegerType())(vd.toVariable) < E(BigInt(0))
 
     assert(!SimpleSolverAPI(program.getSolver.withTimeout(100)).solveSAT(clause).isSAT)
   }
 
   test("size(x) > size(y) is satisfiable") { implicit ctx =>
-    val x: ValDef = "x" :: T(listID)(IntegerType)
-    val y: ValDef = "y" :: T(listID)(IntegerType)
-    val clause = sizeFd(IntegerType)(x.toVariable) > sizeFd(IntegerType)(y.toVariable)
+    val x: ValDef = "x" :: T(listID)(IntegerType())
+    val y: ValDef = "y" :: T(listID)(IntegerType())
+    val clause = sizeFd(IntegerType())(x.toVariable) > sizeFd(IntegerType())(y.toVariable)
 
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("simple configuration is sound with quantifiers") { implicit ctx =>
     val factory = program.getSolver
-    val c = Variable.fresh("c", IntegerType)
-    val x = Variable.fresh("x", IntegerType)
+    val c = Variable.fresh("c", IntegerType())
+    val x = Variable.fresh("x", IntegerType())
     val expr = Forall(Seq(x.toVal), And(Equals(c, x), Equals(c, IntegerLiteral(42))))
 
     for (config <- Seq(Simple, Model)) {

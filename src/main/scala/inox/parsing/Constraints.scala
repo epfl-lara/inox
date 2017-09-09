@@ -44,17 +44,17 @@ trait Constraints { self: Interpolator =>
   }
   case object Comparable extends TypeClass {
     override def hasInstance(tpe: Type) = {
-      tpe == trees.CharType || Numeric.hasInstance(tpe)
+      tpe == trees.CharType() || Numeric.hasInstance(tpe)
     }
   }
   case object Numeric extends TypeClass {
     override def hasInstance(tpe: Type) = {
-      tpe == trees.RealType || Integral.hasInstance(tpe)
+      tpe == trees.RealType() || Integral.hasInstance(tpe)
     }
   }
   case object Integral extends TypeClass {
     override def hasInstance(tpe: Type) = {
-      tpe == trees.IntegerType || Bits.hasInstance(tpe)
+      tpe == trees.IntegerType() || Bits.hasInstance(tpe)
     }
   }
   case object Bits extends TypeClass {

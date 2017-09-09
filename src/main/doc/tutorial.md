@@ -121,7 +121,7 @@ still lacking the inductive invariant. In Inox, one can use the `Assume` AST to 
 leading to the full `size` body:
 ```scala
 /* We use a `let` binding here to avoid dupplication. */
-let("res" :: IntegerType, if_ (ls.isInstOf(T(cons)(tp))) {
+let("res" :: IntegerType(), if_ (ls.isInstOf(T(cons)(tp))) {
   E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(cons)(tp)).getField(tail))
 } else_ {
   E(BigInt(0))
@@ -146,12 +146,12 @@ val sizeFunction = mkFunDef(size)("A") { case Seq(tp) => (
    * `ValDef(FreshIdentifier("ls"), ADTType(list, Seq(tp)))`. */
   Seq("ls" :: T(list)(tp)),
   /* Now comes the return type of the size function (a mathematical integer). */
-  IntegerType,
+  IntegerType(),
   /* And finally, the body constructor.
    * The function we pass in here will receive instances of `Variable` corresponding
    * to the `ValDef` parameters specified above. */
   { case Seq(ls) =>
-    let("res" :: IntegerType, if_ (ls.isInstOf(T(cons)(tp))) {
+    let("res" :: IntegerType(), if_ (ls.isInstOf(T(cons)(tp))) {
       E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(cons)(tp)).getField(tail))
     } else_ {
       E(BigInt(0))

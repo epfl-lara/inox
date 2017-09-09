@@ -63,34 +63,34 @@ class EvaluatorSuite extends FunSuite {
     eval(e, Plus(BVLiteral(3, 16), BVLiteral(5, 16)))               === BVLiteral(8, 16)
     eval(e, Plus(BVLiteral(Short.MaxValue, 16), BVLiteral(1, 16)))  === BVLiteral(Short.MinValue, 16)
 
-    eval(e, BVWideningCast(Int8Literal(0), Int32Type))    === Int32Literal(0)
-    eval(e, BVWideningCast(Int8Literal(1), Int32Type))    === Int32Literal(1)
-    eval(e, BVWideningCast(BVLiteral(2, 3), BVType(4)))   === BVLiteral(2, 4)
-    eval(e, BVWideningCast(Int8Literal(1), BVType(9)))    === BVLiteral(1, 9)
-    eval(e, BVWideningCast(BVLiteral(1, 2), Int32Type))   === Int32Literal(1)
-    eval(e, BVWideningCast(BVLiteral(1, 1), Int32Type))   === Int32Literal(-1) // 2's complement on 1 bit
-    eval(e, BVWideningCast(Int8Literal(-1), Int32Type))   === Int32Literal(-1)
-    eval(e, BVWideningCast(Int8Literal(-128), Int32Type)) === Int32Literal(-128)
+    eval(e, BVWideningCast(Int8Literal(0), Int32Type()))    === Int32Literal(0)
+    eval(e, BVWideningCast(Int8Literal(1), Int32Type()))    === Int32Literal(1)
+    eval(e, BVWideningCast(BVLiteral(2, 3), BVType(4)))     === BVLiteral(2, 4)
+    eval(e, BVWideningCast(Int8Literal(1), BVType(9)))      === BVLiteral(1, 9)
+    eval(e, BVWideningCast(BVLiteral(1, 2), Int32Type()))   === Int32Literal(1)
+    eval(e, BVWideningCast(BVLiteral(1, 1), Int32Type()))   === Int32Literal(-1) // 2's complement on 1 bit
+    eval(e, BVWideningCast(Int8Literal(-1), Int32Type()))   === Int32Literal(-1)
+    eval(e, BVWideningCast(Int8Literal(-128), Int32Type())) === Int32Literal(-128)
 
-    eval(e, Plus(Int32Literal(1), BVWideningCast(Int8Literal(1), Int32Type))) === Int32Literal(2)
+    eval(e, Plus(Int32Literal(1), BVWideningCast(Int8Literal(1), Int32Type()))) === Int32Literal(2)
 
     val b: Byte = 1
     eval(e, Plus(
-              BVWideningCast(Int32Literal(Int.MaxValue), Int64Type),
-              BVWideningCast(Int8Literal(1), Int64Type)
+              BVWideningCast(Int32Literal(Int.MaxValue), Int64Type()),
+              BVWideningCast(Int8Literal(1), Int64Type())
             )) === Int64Literal(Int.MaxValue + b.toLong)
     eval(e, Plus(
-              BVWideningCast(Int32Literal(Int.MaxValue), Int64Type),
-              BVWideningCast(Int8Literal(1), Int64Type)
+              BVWideningCast(Int32Literal(Int.MaxValue), Int64Type()),
+              BVWideningCast(Int8Literal(1), Int64Type())
             )) !== Int64Literal(Int.MaxValue + b.toInt) // mind the `toInt` instead of `toLong`
 
-    eval(e, BVNarrowingCast(Int8Literal(1), BVType(7)))     === BVLiteral(1, 7)
-    eval(e, BVNarrowingCast(Int32Literal(1), Int8Type))     === Int8Literal(1)
-    eval(e, BVNarrowingCast(BVLiteral(1, 33), Int32Type))   === Int32Literal(1)
-    eval(e, BVNarrowingCast(Int32Literal(-1), Int8Type))    === Int8Literal(-1)
-    eval(e, BVNarrowingCast(Int32Literal(-128), Int8Type))  === Int8Literal(-128)
-    eval(e, BVNarrowingCast(Int32Literal(-129), Int8Type))  === Int8Literal(127)
-    eval(e, BVNarrowingCast(Int32Literal(128), Int8Type))   === Int8Literal(-128)
+    eval(e, BVNarrowingCast(Int8Literal(1), BVType(7)))       === BVLiteral(1, 7)
+    eval(e, BVNarrowingCast(Int32Literal(1), Int8Type()))     === Int8Literal(1)
+    eval(e, BVNarrowingCast(BVLiteral(1, 33), Int32Type()))   === Int32Literal(1)
+    eval(e, BVNarrowingCast(Int32Literal(-1), Int8Type()))    === Int8Literal(-1)
+    eval(e, BVNarrowingCast(Int32Literal(-128), Int8Type()))  === Int8Literal(-128)
+    eval(e, BVNarrowingCast(Int32Literal(-129), Int8Type()))  === Int8Literal(127)
+    eval(e, BVNarrowingCast(Int32Literal(128), Int8Type()))   === Int8Literal(-128)
   }
 
   test("eval bitwise operations") {
@@ -127,9 +127,9 @@ class EvaluatorSuite extends FunSuite {
     eval(e, BVAShiftRight(Int32Literal(8), Int32Literal(1))) === Int32Literal(4)
 
     eval(e, BVNarrowingCast(
-              BVAnd(BVWideningCast(Int8Literal(1), Int32Type),
-                    BVWideningCast(Int8Literal(2), Int32Type)),
-              Int8Type)
+              BVAnd(BVWideningCast(Int8Literal(1), Int32Type()),
+                    BVWideningCast(Int8Literal(2), Int32Type())),
+              Int8Type())
     ) === Int8Literal(0)
 
     def bvl(x: BigInt) = BVLiteral(x, 11)
@@ -315,7 +315,7 @@ class EvaluatorSuite extends FunSuite {
   test("Simple Variable") {
     val e = evaluator(ctx)
 
-    val v = Variable.fresh("id", Int32Type)
+    val v = Variable.fresh("id", Int32Type())
 
     eval(e, v, Map(v.toVal -> Int32Literal(23))) === Int32Literal(23)
   }
@@ -323,8 +323,8 @@ class EvaluatorSuite extends FunSuite {
   test("Undefined Variable") {
     val e = evaluator(ctx)
 
-    val v1 = Variable.fresh("id", Int32Type)
-    val v2 = Variable.fresh("foo", Int32Type)
+    val v1 = Variable.fresh("id", Int32Type())
+    val v2 = Variable.fresh("foo", Int32Type())
 
     eval(e, v1, Map(v2.toVal -> Int32Literal(23))).failed
   }
@@ -332,7 +332,7 @@ class EvaluatorSuite extends FunSuite {
   test("Let") {
     val e = evaluator(ctx)
 
-    val v = Variable.fresh("id", Int32Type)
+    val v = Variable.fresh("id", Int32Type())
     eval(e, Let(v.toVal, Int32Literal(42), v)) === Int32Literal(42)
     eval(e, Let(v.toVal, Int32Literal(42), Plus(v, Int32Literal(1)))) === Int32Literal(43)
   }
@@ -341,43 +341,43 @@ class EvaluatorSuite extends FunSuite {
     val e = evaluator(ctx)
 
     eval(e, Equals(
-      FiniteMap(Seq.empty, Int32Literal(12), Int32Type, Int32Type),
-      FiniteMap(Seq.empty, Int32Literal(12), Int32Type, Int32Type))
+      FiniteMap(Seq.empty, Int32Literal(12), Int32Type(), Int32Type()),
+      FiniteMap(Seq.empty, Int32Literal(12), Int32Type(), Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
-      FiniteMap(Seq.empty, Int32Literal(9), Int32Type, Int32Type),
-      FiniteMap(Seq.empty, Int32Literal(12), Int32Type, Int32Type))
+      FiniteMap(Seq.empty, Int32Literal(9), Int32Type(), Int32Type()),
+      FiniteMap(Seq.empty, Int32Literal(12), Int32Type(), Int32Type()))
     ) === BooleanLiteral(false)
 
     eval(e, Equals(
-      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(3)), Int32Literal(9), Int32Type, Int32Type),
-      FiniteMap(Seq(Int32Literal(2) -> Int32Literal(3), Int32Literal(1) -> Int32Literal(2)), Int32Literal(9), Int32Type, Int32Type))
+      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(3)), Int32Literal(9), Int32Type(), Int32Type()),
+      FiniteMap(Seq(Int32Literal(2) -> Int32Literal(3), Int32Literal(1) -> Int32Literal(2)), Int32Literal(9), Int32Type(), Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
-      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(1) -> Int32Literal(3)), Int32Literal(9), Int32Type, Int32Type),
-      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(3), Int32Literal(1) -> Int32Literal(2)), Int32Literal(9), Int32Type, Int32Type))
+      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(1) -> Int32Literal(3)), Int32Literal(9), Int32Type(), Int32Type()),
+      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(3), Int32Literal(1) -> Int32Literal(2)), Int32Literal(9), Int32Type(), Int32Type()))
     ) === BooleanLiteral(false)
 
     eval(e, Equals(
-      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(1) -> Int32Literal(3)), Int32Literal(9), Int32Type, Int32Type),
-      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(3)), Int32Literal(9), Int32Type, Int32Type))
+      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(1) -> Int32Literal(3)), Int32Literal(9), Int32Type(), Int32Type()),
+      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(3)), Int32Literal(9), Int32Type(), Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, MapApply(
-      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(4)), Int32Literal(6), Int32Type, Int32Type),
+      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(4)), Int32Literal(6), Int32Type(), Int32Type()),
       Int32Literal(1))
     ) === Int32Literal(2)
 
     eval(e, MapApply(
-      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(4)), Int32Literal(6), Int32Type, Int32Type),
+      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(4)), Int32Literal(6), Int32Type(), Int32Type()),
       Int32Literal(3))
     ) === Int32Literal(6)
 
     eval(e, MapApply(
       MapUpdated(
-        FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(4)), Int32Literal(6), Int32Type, Int32Type),
+        FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(4)), Int32Literal(6), Int32Type(), Int32Type()),
         Int32Literal(1), Int32Literal(3)),
       Int32Literal(1))
     ) === Int32Literal(3)
@@ -387,23 +387,23 @@ class EvaluatorSuite extends FunSuite {
     val e = evaluator(ctx)
 
     eval(e, Equals(
-      FiniteSet(Seq.empty, Int32Type),
-      FiniteSet(Seq.empty, Int32Type))
+      FiniteSet(Seq.empty, Int32Type()),
+      FiniteSet(Seq.empty, Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
-      FiniteSet(Seq(Int32Literal(9)), Int32Type),
-      FiniteSet(Seq.empty, Int32Type))
+      FiniteSet(Seq(Int32Literal(9)), Int32Type()),
+      FiniteSet(Seq.empty, Int32Type()))
     ) === BooleanLiteral(false)
 
     eval(e, Equals(
-      FiniteSet(Seq(Int8Literal(1), Int8Literal(2)), Int8Type),
-      FiniteSet(Seq(Int8Literal(2), Int8Literal(1)), Int8Type))
+      FiniteSet(Seq(Int8Literal(1), Int8Literal(2)), Int8Type()),
+      FiniteSet(Seq(Int8Literal(2), Int8Literal(1)), Int8Type()))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
-      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type),
-      FiniteSet(Seq(Int32Literal(2), Int32Literal(1)), Int32Type))
+      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type()),
+      FiniteSet(Seq(Int32Literal(2), Int32Literal(1)), Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
@@ -412,53 +412,53 @@ class EvaluatorSuite extends FunSuite {
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
-      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type),
-      FiniteSet(Seq(Int32Literal(1), Int32Literal(2), Int32Literal(1)), Int32Type))
+      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type()),
+      FiniteSet(Seq(Int32Literal(1), Int32Literal(2), Int32Literal(1)), Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, ElementOfSet(
       Int32Literal(1),
-      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type))
+      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, ElementOfSet(
       Int32Literal(2),
-      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type))
+      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, ElementOfSet(
       Int32Literal(3),
-      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type))
+      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type()))
     ) === BooleanLiteral(false)
 
     eval(e, ElementOfSet(
       Int32Literal(3),
-      SetAdd(FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type), Int32Literal(3)))
+      SetAdd(FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type()), Int32Literal(3)))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
-      SetUnion(FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type), FiniteSet(Seq(Int32Literal(1)), Int32Type)),
-      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type))
+      SetUnion(FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type()), FiniteSet(Seq(Int32Literal(1)), Int32Type())),
+      FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
-      SetUnion(FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type), FiniteSet(Seq(Int32Literal(3)), Int32Type)),
-      FiniteSet(Seq(Int32Literal(1), Int32Literal(2), Int32Literal(3)), Int32Type))
+      SetUnion(FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type()), FiniteSet(Seq(Int32Literal(3)), Int32Type())),
+      FiniteSet(Seq(Int32Literal(1), Int32Literal(2), Int32Literal(3)), Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
-      SetDifference(FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type), FiniteSet(Seq(Int32Literal(1)), Int32Type)),
-      FiniteSet(Seq(Int32Literal(2)), Int32Type))
+      SetDifference(FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type()), FiniteSet(Seq(Int32Literal(1)), Int32Type())),
+      FiniteSet(Seq(Int32Literal(2)), Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
-      SetDifference(FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type), FiniteSet(Seq.empty, Int32Type)),
-      FiniteSet(Seq(Int32Literal(2)), Int32Type))
+      SetDifference(FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type()), FiniteSet(Seq.empty, Int32Type())),
+      FiniteSet(Seq(Int32Literal(2)), Int32Type()))
     ) === BooleanLiteral(false)
 
     eval(e, Equals(
-      SetIntersection(FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type), FiniteSet(Seq(Int32Literal(2)), Int32Type)),
-      FiniteSet(Seq(Int32Literal(2)), Int32Type))
+      SetIntersection(FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type()), FiniteSet(Seq(Int32Literal(2)), Int32Type())),
+      FiniteSet(Seq(Int32Literal(2)), Int32Type()))
     ) === BooleanLiteral(true)
   }
 
@@ -466,38 +466,38 @@ class EvaluatorSuite extends FunSuite {
     val e = evaluator(ctx)
 
     eval(e, Equals(
-      FiniteBag(Seq.empty, Int32Type),
-      FiniteBag(Seq.empty, Int32Type))
+      FiniteBag(Seq.empty, Int32Type()),
+      FiniteBag(Seq.empty, Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
-      FiniteBag(Seq(Int32Literal(9) -> IntegerLiteral(1)), Int32Type),
-      FiniteBag(Seq.empty, Int32Type))
+      FiniteBag(Seq(Int32Literal(9) -> IntegerLiteral(1)), Int32Type()),
+      FiniteBag(Seq.empty, Int32Type()))
     ) === BooleanLiteral(false)
 
     eval(e, Equals(
-      FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(1), Int32Literal(2) -> IntegerLiteral(2)), Int32Type),
-      FiniteBag(Seq(Int32Literal(2) -> IntegerLiteral(2), Int32Literal(1) -> IntegerLiteral(1)), Int32Type))
+      FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(1), Int32Literal(2) -> IntegerLiteral(2)), Int32Type()),
+      FiniteBag(Seq(Int32Literal(2) -> IntegerLiteral(2), Int32Literal(1) -> IntegerLiteral(1)), Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
-      FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(1)), Int32Type),
-      FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(2), Int32Literal(1) -> IntegerLiteral(1)), Int32Type))
+      FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(1)), Int32Type()),
+      FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(2), Int32Literal(1) -> IntegerLiteral(1)), Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, MultiplicityInBag(
       Int32Literal(1),
-      FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(2)), Int32Type))
+      FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(2)), Int32Type()))
     ) === IntegerLiteral(2)
 
     eval(e, MultiplicityInBag(
       Int32Literal(2),
-      FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(2)), Int32Type))
+      FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(2)), Int32Type()))
     ) === IntegerLiteral(0)
 
     eval(e, MultiplicityInBag(
       Int32Literal(1),
-      BagAdd(FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(1)), Int32Type), Int32Literal(1)))
+      BagAdd(FiniteBag(Seq(Int32Literal(1) -> IntegerLiteral(1)), Int32Type()), Int32Literal(1)))
     ) === IntegerLiteral(2)
 
     eval(e, Equals(
@@ -505,17 +505,17 @@ class EvaluatorSuite extends FunSuite {
         FiniteBag(Seq(
           Int32Literal(1) -> IntegerLiteral(1),
           Int32Literal(2) -> IntegerLiteral(2)
-        ), Int32Type),
+        ), Int32Type()),
         FiniteBag(Seq(
           Int32Literal(2) -> IntegerLiteral(1),
           Int32Literal(3) -> IntegerLiteral(1)
-        ), Int32Type)
+        ), Int32Type())
       ),
       FiniteBag(Seq(
         Int32Literal(1) -> IntegerLiteral(1),
         Int32Literal(2) -> IntegerLiteral(3),
         Int32Literal(3) -> IntegerLiteral(1)
-      ), Int32Type))
+      ), Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
@@ -523,17 +523,17 @@ class EvaluatorSuite extends FunSuite {
         FiniteBag(Seq(
           Int32Literal(1) -> IntegerLiteral(1),
           Int32Literal(2) -> IntegerLiteral(2)
-        ), Int32Type),
+        ), Int32Type()),
         FiniteBag(Seq(
           Int32Literal(2) -> IntegerLiteral(2),
           Int32Literal(3) -> IntegerLiteral(1)
-        ), Int32Type)
+        ), Int32Type())
       ),
       FiniteBag(Seq(
         Int32Literal(1) -> IntegerLiteral(1),
         Int32Literal(2) -> IntegerLiteral(3),
         Int32Literal(3) -> IntegerLiteral(1)
-      ), Int32Type))
+      ), Int32Type()))
     ) === BooleanLiteral(false)
 
     eval(e, Equals(
@@ -541,15 +541,15 @@ class EvaluatorSuite extends FunSuite {
         FiniteBag(Seq(
           Int32Literal(1) -> IntegerLiteral(1),
           Int32Literal(2) -> IntegerLiteral(2)
-        ), Int32Type),
+        ), Int32Type()),
         FiniteBag(Seq(
           Int32Literal(2) -> IntegerLiteral(3),
           Int32Literal(3) -> IntegerLiteral(1)
-        ), Int32Type)
+        ), Int32Type())
       ),
       FiniteBag(Seq(
         Int32Literal(1) -> IntegerLiteral(1)
-      ), Int32Type))
+      ), Int32Type()))
     ) === BooleanLiteral(true)
 
     eval(e, Equals(
@@ -557,40 +557,40 @@ class EvaluatorSuite extends FunSuite {
         FiniteBag(Seq(
           Int32Literal(1) -> IntegerLiteral(1),
           Int32Literal(2) -> IntegerLiteral(2)
-        ), Int32Type),
+        ), Int32Type()),
         FiniteBag(Seq(
           Int32Literal(2) -> IntegerLiteral(3),
           Int32Literal(3) -> IntegerLiteral(1)
-        ), Int32Type)
+        ), Int32Type())
       ),
       FiniteBag(Seq(
         Int32Literal(2) -> IntegerLiteral(2)
-      ), Int32Type))
+      ), Int32Type()))
     ) === BooleanLiteral(true)
   }
 
   test("Map with variables") {
     val e = evaluator(ctx)
 
-    val v1 = Variable.fresh("v1", Int32Type)
-    val v2 = Variable.fresh("v2", Int32Type)
-    val v3 = Variable.fresh("v3", Int32Type)
+    val v1 = Variable.fresh("v1", Int32Type())
+    val v2 = Variable.fresh("v2", Int32Type())
+    val v3 = Variable.fresh("v3", Int32Type())
 
     eval(e, Equals(
-      FiniteMap(Seq(v1 -> Int32Literal(2), v2 -> Int32Literal(4)), v3, Int32Type, Int32Type),
-      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(4)), Int32Literal(6), Int32Type, Int32Type)),
+      FiniteMap(Seq(v1 -> Int32Literal(2), v2 -> Int32Literal(4)), v3, Int32Type(), Int32Type()),
+      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(4)), Int32Literal(6), Int32Type(), Int32Type())),
       Map(v1.toVal -> Int32Literal(1), v2.toVal -> Int32Literal(2), v3.toVal -> Int32Literal(6))
     ) === BooleanLiteral(true)
 
     eval(e, MapApply(
-      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(4)), Int32Literal(6), Int32Type, Int32Type),
+      FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(4)), Int32Literal(6), Int32Type(), Int32Type()),
       v1),
       Map(v1.toVal -> Int32Literal(3))
     ) === Int32Literal(6)
 
     eval(e, MapApply(
       MapUpdated(
-        FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(4)), Int32Literal(6), Int32Type, Int32Type),
+        FiniteMap(Seq(Int32Literal(1) -> Int32Literal(2), Int32Literal(2) -> Int32Literal(4)), Int32Literal(6), Int32Type(), Int32Type()),
         v1, v2), v3),
       Map(v1.toVal -> Int32Literal(1), v2.toVal -> Int32Literal(3), v3.toVal -> Int32Literal(1))
     ) === Int32Literal(3)
@@ -599,8 +599,8 @@ class EvaluatorSuite extends FunSuite {
   test("Nested lambdas") {
     val e = evaluator(ctx)
 
-    val ap = ValDef(FreshIdentifier("a"), StringType, Set())
-    val bp = ValDef(FreshIdentifier("b"), StringType, Set())
+    val ap = ValDef(FreshIdentifier("a"), StringType(), Set())
+    val bp = ValDef(FreshIdentifier("b"), StringType(), Set())
 
     val body = Application(Application(
       Lambda(

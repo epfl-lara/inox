@@ -30,7 +30,7 @@ trait FunctionTemplates { self: Templates =>
 
       val callEqBody: Seq[(Expr, Expr)] = liftedEquals(call, lambdaBody, lambdaArgs) :+ (call -> lambdaBody)
 
-      val start = Variable.fresh("start", BooleanType, true)
+      val start = Variable.fresh("start", BooleanType(), true)
       val pathVar = start -> encodeSymbol(start)
       val arguments = (fdArgs ++ lambdaArgs).map(v => v -> encodeSymbol(v))
       val substMap = arguments.toMap + pathVar
@@ -182,7 +182,7 @@ trait FunctionTemplates { self: Templates =>
 
           case None =>
             // we need to define this defBlocker and link it to definition
-            val defBlocker = encodeSymbol(Variable.fresh("d", BooleanType, true))
+            val defBlocker = encodeSymbol(Variable.fresh("d", BooleanType(), true))
 
             // we generate helper equality clauses that stem from purity
             for ((pcall, pblocker) <- defBlockers if pcall.tfd == tfd) {
@@ -190,7 +190,7 @@ trait FunctionTemplates { self: Templates =>
 
               def makeEq(tpe: Type, e1: Encoded, e2: Encoded): Encoded =
                 if (!unrollEquality(tpe)) mkEquals(e1, e2) else {
-                  mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType), Seq(e1, e2))
+                  mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType()), Seq(e1, e2))
                 }
 
               if (argTpes.exists(unrollEquality) || unrollEquality(resTpe)) {

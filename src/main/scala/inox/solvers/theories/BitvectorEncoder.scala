@@ -25,8 +25,8 @@ trait BitvectorEncoder extends SimpleEncoder {
     val bvID = FreshIdentifier("bv" + size)
     val blastedID = FreshIdentifier("blasted" + size)
 
-    val bvField = ValDef(FreshIdentifier("value"), IntegerType)
-    val blastedFields = (1 to size).map(i => ValDef(FreshIdentifier("b" + i), BooleanType)).toSeq
+    val bvField = ValDef(FreshIdentifier("value"), IntegerType())
+    val blastedFields = (1 to size).map(i => ValDef(FreshIdentifier("b" + i), BooleanType())).toSeq
 
     val invID = FreshIdentifier("bv_inv" + size)
 
@@ -35,7 +35,7 @@ trait BitvectorEncoder extends SimpleEncoder {
 
     val toBV = mkFunDef(FreshIdentifier("toBV" + size))()(_ => (
       Seq("x" :: blasted()), bv(), { case Seq(x) =>
-        let("r" :: IntegerType, (0 until size - 1).map(i => if_ (x.getField(blastedFields(i).id)) {
+        let("r" :: IntegerType(), (0 until size - 1).map(i => if_ (x.getField(blastedFields(i).id)) {
           E(BigInt(2).pow(i))
         } else_ {
           E(BigInt(0))
@@ -54,7 +54,7 @@ trait BitvectorEncoder extends SimpleEncoder {
           if (i == 0) {
             ADT(blasted(), (last === E(BigInt(1))) +: vs)
           } else {
-            let("tpl" :: T(IntegerType, BooleanType), if_ (last >= E(BigInt(2).pow(i))) {
+            let("tpl" :: T(IntegerType(), BooleanType()), if_ (last >= E(BigInt(2).pow(i))) {
               E(last - E(BigInt(2).pow(i)), E(true))
             } else_ {
               E(last, E(false))
@@ -72,7 +72,7 @@ trait BitvectorEncoder extends SimpleEncoder {
       }))
 
     val invariant = mkFunDef(invID)()(_ => (
-      Seq("bv" :: bv()), BooleanType, { case Seq(bv) =>
+      Seq("bv" :: bv()), BooleanType(), { case Seq(bv) =>
         E(BigInt(Int.MinValue)) <= bv.getField(bvField.id) && bv.getField(bvField.id) <= E(BigInt(Int.MaxValue))
       }))
 
@@ -136,7 +136,7 @@ trait BitvectorEncoder extends SimpleEncoder {
       case Plus(IsTyped(i1, BVType(size)), i2) =>
         val encoding = bitvectors(size)
         import encoding._
-        let("sum" :: IntegerType,
+        let("sum" :: IntegerType(),
           transform(i1).getField(bv.fields(0).id) +
           transform(i2).getField(bv.fields(0).id)) {
             sum => bv()(simplifySum(sum, size))
@@ -153,7 +153,7 @@ trait BitvectorEncoder extends SimpleEncoder {
       case Times(IsTyped(i1, BVType(size)), i2) =>
         val encoding = bitvectors(size)
         import encoding._
-        let("prod" :: IntegerType,
+        let("prod" :: IntegerType(),
           transform(i1).getField(bv.fields(0).id) *
           transform(i2).getField(bv.fields(0).id)) { prod =>
             bv()(if_ (prod > E(BigInt(Int.MaxValue))) {
@@ -190,7 +190,7 @@ trait BitvectorEncoder extends SimpleEncoder {
         val encoding = bitvectors(size)
         import encoding._
         let("bl" :: blasted(), simplifyBlasted(transform(i1), size)) { bl =>
-          let("count" :: IntegerType, transform(i2).getField(bv.fields(0).id)) { count =>
+          let("count" :: IntegerType(), transform(i2).getField(bv.fields(0).id)) { count =>
             toBV((0 until size).foldRight(blasted()(List.fill(size)(E(false)) : _*): Expr) { (i, elze) =>
               IfExpr(count === E(BigInt(i)), blasted()(
                 (size - i to 0 by -1).map(j => bl.getField(blasted.fields(j).id)) ++
@@ -204,7 +204,7 @@ trait BitvectorEncoder extends SimpleEncoder {
         val encoding = bitvectors(size)
         import encoding._
         let("bl" :: blasted(), simplifyBlasted(transform(i1), size)) { bl =>
-          let("count" :: IntegerType, transform(i2).getField(bv.fields(0).id)) { count =>
+          let("count" :: IntegerType(), transform(i2).getField(bv.fields(0).id)) { count =>
             val default = bl.getField(blasted.fields(size - 1).id)
             toBV((0 until size).foldRight(blasted()(List.fill(size)(default) : _*): Expr) { (i, elze) =>
               IfExpr(count === E(BigInt(i)), blasted()(
@@ -219,7 +219,7 @@ trait BitvectorEncoder extends SimpleEncoder {
         val encoding = bitvectors(size)
         import encoding._
         let("bl" :: blasted(), simplifyBlasted(transform(i1), size)) { bl =>
-          let("count" :: IntegerType, transform(i2).getField(bv.fields(0).id)) { count =>
+          let("count" :: IntegerType(), transform(i2).getField(bv.fields(0).id)) { count =>
             toBV((0 until size).foldRight(blasted()(List.fill(size)(E(false)) : _*): Expr) { (i, elze) =>
               IfExpr(count === E(BigInt(i)), blasted()(
                 List.fill(i)(E(false)) ++
@@ -234,7 +234,7 @@ trait BitvectorEncoder extends SimpleEncoder {
 
     override def transform(tpe: Type): Type = tpe match {
       case BVType(size) => bitvectors(size).bv()
-      case CharType => chars.bv()
+      case CharType() => chars.bv()
       case _ => super.transform(tpe)
     }
   }
@@ -268,7 +268,7 @@ trait BitvectorEncoder extends SimpleEncoder {
 
     override def transform(tpe: Type): Type = tpe match {
       case tpe: ADTType => tpeMap.get(tpe) match {
-        case Some((size, e)) => if (e == chars) CharType else BVType(size)
+        case Some((size, e)) => if (e == chars) CharType() else BVType(size)
         case None => super.transform(tpe)
       }
 

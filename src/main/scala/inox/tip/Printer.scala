@@ -112,7 +112,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
     case SetType(base) =>
       Sets.SetSort(declareSort(base))
 
-    case StringType =>
+    case StringType() =>
       Strings.StringSort()
 
     case _ => super.computeSort(t)

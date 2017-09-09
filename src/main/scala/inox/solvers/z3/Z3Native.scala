@@ -175,22 +175,17 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   }
 
   // Prepare some of the Z3 sorts, but *not* the tuple sorts; these are created on-demand.
-  sorts += Int8Type -> z3.mkBVSort(8)
-  sorts += Int16Type -> z3.mkBVSort(16)
-  sorts += Int32Type -> z3.mkBVSort(32)
-  sorts += Int64Type -> z3.mkBVSort(64)
-  sorts += CharType -> z3.mkBVSort(16)
-  sorts += IntegerType -> z3.mkIntSort
-  sorts += RealType -> z3.mkRealSort
-  sorts += BooleanType -> z3.mkBoolSort
+  sorts += CharType() -> z3.mkBVSort(16)
+  sorts += IntegerType() -> z3.mkIntSort
+  sorts += RealType() -> z3.mkRealSort
+  sorts += BooleanType() -> z3.mkBoolSort
 
   // FIXME: change to `z3.mkSeqSort(z3.mkBVSort(16))` once sequence support is fixed in z3
-  sorts += StringType -> z3.mkSeqSort(z3.mkBVSort(8))
+  sorts += StringType() -> z3.mkSeqSort(z3.mkBVSort(8))
 
   // assumes prepareSorts has been called....
   protected def typeToSort(oldtt: Type): Z3Sort = bestRealType(oldtt) match {
-    case Int8Type | Int16Type | Int32Type | Int64Type |
-         BooleanType | IntegerType | RealType | CharType | StringType =>
+    case BooleanType() | IntegerType() | RealType() | CharType() | StringType() =>
       sorts(oldtt)
 
     case tt @ BVType(i) =>
@@ -198,7 +193,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         z3.mkBVSort(i)
       }
 
-    case tpe @ (_: ADTType  | _: TupleType | _: TypeParameter | UnitType) =>
+    case tpe @ (_: ADTType  | _: TupleType | _: TypeParameter | UnitType()) =>
       if (!sorts.contains(tpe)) declareStructuralSort(tpe)
       sorts(tpe)
 
@@ -209,7 +204,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       }
 
     case tt @ BagType(base) =>
-      typeToSort(MapType(base, IntegerType))
+      typeToSort(MapType(base, IntegerType()))
 
     case tt @ MapType(from, to) =>
       sorts.cached(tt) {
@@ -253,9 +248,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case Not(Equals(l, r)) => z3.mkDistinct(rec(l), rec(r))
       case Not(e) => z3.mkNot(rec(e))
       case bv @ BVLiteral(_, _) => z3.mkNumeral(bv.toBigInt.toString, typeToSort(bv.getType))
-      case IntegerLiteral(v) => z3.mkNumeral(v.toString, typeToSort(IntegerType))
-      case FractionLiteral(n, d) => z3.mkNumeral(s"$n / $d", typeToSort(RealType))
-      case CharLiteral(c) => z3.mkInt(c, typeToSort(CharType))
+      case IntegerLiteral(v) => z3.mkNumeral(v.toString, typeToSort(IntegerType()))
+      case FractionLiteral(n, d) => z3.mkNumeral(s"$n / $d", typeToSort(RealType()))
+      case CharLiteral(c) => z3.mkInt(c, typeToSort(CharType()))
       case BooleanLiteral(v) => if (v) z3.mkTrue() else z3.mkFalse()
       case Equals(l, r) => z3.mkEq(rec( l ), rec( r ) )
       case Plus(l, r) => l.getType match {
@@ -273,9 +268,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case Division(l, r) =>
         val (rl, rr) = (rec(l), rec(r))
         l.getType match {
-          case IntegerType =>
+          case IntegerType() =>
             z3.mkITE(
-              z3.mkGE(rl, z3.mkNumeral("0", typeToSort(IntegerType))),
+              z3.mkGE(rl, z3.mkNumeral("0", typeToSort(IntegerType()))),
               z3.mkDiv(rl, rr),
               z3.mkUnaryMinus(z3.mkDiv(z3.mkUnaryMinus(rl), rr))
             )
@@ -328,28 +323,28 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         z3.mkExtract(to - 1, 0, rec(e))
 
       case LessThan(l, r) => l.getType match {
-        case IntegerType => z3.mkLT(rec(l), rec(r))
-        case RealType => z3.mkLT(rec(l), rec(r))
+        case IntegerType() => z3.mkLT(rec(l), rec(r))
+        case RealType() => z3.mkLT(rec(l), rec(r))
         case BVType(_) => z3.mkBVSlt(rec(l), rec(r))
-        case CharType => z3.mkBVUlt(rec(l), rec(r))
+        case CharType() => z3.mkBVUlt(rec(l), rec(r))
       }
       case LessEquals(l, r) => l.getType match {
-        case IntegerType => z3.mkLE(rec(l), rec(r))
-        case RealType => z3.mkLE(rec(l), rec(r))
+        case IntegerType() => z3.mkLE(rec(l), rec(r))
+        case RealType() => z3.mkLE(rec(l), rec(r))
         case BVType(_) => z3.mkBVSle(rec(l), rec(r))
-        case CharType => z3.mkBVUle(rec(l), rec(r))
+        case CharType() => z3.mkBVUle(rec(l), rec(r))
       }
       case GreaterThan(l, r) => l.getType match {
-        case IntegerType => z3.mkGT(rec(l), rec(r))
-        case RealType => z3.mkGT(rec(l), rec(r))
+        case IntegerType() => z3.mkGT(rec(l), rec(r))
+        case RealType() => z3.mkGT(rec(l), rec(r))
         case BVType(_) => z3.mkBVSgt(rec(l), rec(r))
-        case CharType => z3.mkBVUgt(rec(l), rec(r))
+        case CharType() => z3.mkBVUgt(rec(l), rec(r))
       }
       case GreaterEquals(l, r) => l.getType match {
-        case IntegerType => z3.mkGE(rec(l), rec(r))
-        case RealType => z3.mkGE(rec(l), rec(r))
+        case IntegerType() => z3.mkGE(rec(l), rec(r))
+        case RealType() => z3.mkGE(rec(l), rec(r))
         case BVType(_) => z3.mkBVSge(rec(l), rec(r))
-        case CharType => z3.mkBVUge(rec(l), rec(r))
+        case CharType() => z3.mkBVUge(rec(l), rec(r))
       }
 
       case u : UnitLiteral =>
@@ -440,7 +435,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
        */
       case fb @ FiniteBag(elems, base) =>
         typeToSort(fb.getType)
-        rec(FiniteMap(elems, IntegerLiteral(0), base, IntegerType))
+        rec(FiniteMap(elems, IntegerLiteral(0), base, IntegerType()))
 
       case BagAdd(b, e) =>
         val (bag, elem) = (rec(b), rec(e))
@@ -450,7 +445,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         z3.mkSelect(rec(b), rec(e))
 
       case BagUnion(b1, b2) =>
-        val plus = z3.getFuncDecl(OpAdd, typeToSort(IntegerType), typeToSort(IntegerType))
+        val plus = z3.getFuncDecl(OpAdd, typeToSort(IntegerType()), typeToSort(IntegerType()))
         z3.mkArrayMap(plus, rec(b1), rec(b2))
 
       case BagIntersection(b1, b2) =>
@@ -459,11 +454,11 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case BagDifference(b1, b2) =>
         val BagType(base) = b1.getType
         val abs = z3.getAbsFuncDecl()
-        val plus = z3.getFuncDecl(OpAdd, typeToSort(IntegerType), typeToSort(IntegerType))
-        val minus = z3.getFuncDecl(OpSub, typeToSort(IntegerType), typeToSort(IntegerType))
-        val div = z3.getFuncDecl(OpDiv, typeToSort(IntegerType), typeToSort(IntegerType))
+        val plus = z3.getFuncDecl(OpAdd, typeToSort(IntegerType()), typeToSort(IntegerType()))
+        val minus = z3.getFuncDecl(OpSub, typeToSort(IntegerType()), typeToSort(IntegerType()))
+        val div = z3.getFuncDecl(OpDiv, typeToSort(IntegerType()), typeToSort(IntegerType()))
 
-        val all2 = z3.mkConstArray(typeToSort(base), z3.mkInt(2, typeToSort(IntegerType)))
+        val all2 = z3.mkConstArray(typeToSort(base), z3.mkInt(2, typeToSort(IntegerType())))
         val withNeg = z3.mkArrayMap(minus, rec(b1), rec(b2))
         z3.mkArrayMap(div, z3.mkArrayMap(plus, withNeg, z3.mkArrayMap(abs, withNeg)), all2)
 
@@ -515,7 +510,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   }
 
   protected lazy val emptySeq = {
-    z3.getASTKind(z3.mkEmptySeq(typeToSort(StringType))) match {
+    z3.getASTKind(z3.mkEmptySeq(typeToSort(StringType()))) match {
       case Z3AppAST(decl, _) => decl
       case ast => error("Unexpected non-app AST " + ast)
     }
@@ -532,8 +527,8 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         case Z3NumeralIntAST(Some(v)) =>
           tpe match {
             case BVType(size) => BVLiteral(BigInt(v), size)
-            case CharType => CharLiteral(v.toChar)
-            case IntegerType => IntegerLiteral(BigInt(v))
+            case CharType() => CharLiteral(v.toChar)
+            case IntegerType() => IntegerLiteral(BigInt(v))
 
             case other => unsupported(other, s"Unexpected target type for value $v")
           }
@@ -547,7 +542,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
               else if (ts.startsWith("#")) reporter.fatalError(s"Unexpected format for BV value: $ts")
               else BVLiteral(BigInt(ts, 10), size)
 
-            case IntegerType =>
+            case IntegerType() =>
               if (ts.startsWith("#")) reporter.fatalError(s"Unexpected format for Integer value: $ts")
               else IntegerLiteral(BigInt(ts, 10))
 
@@ -569,14 +564,14 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
               case adt: ADTType =>
                 ADT(adt, args.zip(adt.getADT.toConstructor.fieldsTypes).map { case (a, t) => rec(a, t, seen) })
 
-              case UnitType =>
+              case UnitType() =>
                 UnitLiteral()
 
               case TupleType(ts) =>
                 tupleWrap(args.zip(ts).map { case (a, t) => rec(a, t, seen) })
 
               case tp: TypeParameter =>
-                val IntegerLiteral(n) = rec(args(0), IntegerType, seen)
+                val IntegerLiteral(n) = rec(args(0), IntegerType(), seen)
                 GenericValue(tp, n.toInt)
 
               case t =>
@@ -628,7 +623,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                 }
 
               case BagType(base) =>
-                val fm @ FiniteMap(entries, default, from, IntegerType) = rec(t, MapType(base, IntegerType), seen)
+                val fm @ FiniteMap(entries, default, from, IntegerType()) = rec(t, MapType(base, IntegerType()), seen)
                 if (default != IntegerLiteral(0)) {
                   unsound(t, "co-finite bag AST")
                 }
@@ -644,7 +639,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                     FiniteSet(elems.toSeq, dt)
                 }
 
-              case StringType => StringLiteral(z3.getString(t))
+              case StringType() => StringLiteral(z3.getString(t))
 
               case _ =>
                 import Z3DeclKind._
@@ -736,21 +731,21 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     val vars = variables.aToB.flatMap {
       /** WARNING this code is very similar to Z3Unrolling.modelEval!!! */
       case (v,z3ID) => (v.tpe match {
-        case BooleanType =>
+        case BooleanType() =>
           model.evalAs[Boolean](z3ID).map(BooleanLiteral)
 
-        case Int32Type =>
+        case Int32Type() =>
           model.evalAs[Int](z3ID).map(Int32Literal(_)).orElse {
-            model.eval(z3ID).flatMap(t => ex.get(t, Int32Type))
+            model.eval(z3ID).flatMap(t => ex.get(t, Int32Type()))
           }
 
          /*
           * NOTE The following could be faster than the default case, but be carefull to
           *      fallback to the default when a BigInt doesn't fit in a regular Int.
           *
-          * case IntegerType =>
+          * case IntegerType() =>
           *  model.evalAs[Int](z3ID).map(IntegerLiteral(_)).orElse {
-          *    model.eval(z3ID).flatMap(ex.get(_, IntegerType))
+          *    model.eval(z3ID).flatMap(ex.get(_, IntegerType()))
           *  }
           */
 

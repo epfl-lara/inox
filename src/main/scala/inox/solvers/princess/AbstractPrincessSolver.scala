@@ -111,7 +111,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
       case Let(vd, e, b) =>
         parseFormula(b)(bindings + (vd.toVariable -> (vd.tpe match {
-          case BooleanType => parseFormula(e)
+          case BooleanType() => parseFormula(e)
           case _ => parseTerm(e)
         })))
 
@@ -136,7 +136,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
       // EQUALITY
       case Equals(lhs, rhs) => lhs.getType match {
-        case BooleanType => parseFormula(lhs) <=> parseFormula(rhs)
+        case BooleanType() => parseFormula(lhs) <=> parseFormula(rhs)
         case _ => parseTerm(lhs) === parseTerm(rhs)
       }
 
@@ -242,7 +242,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
       // @nv: this MUST come at least after having dealt with FunctionInvocation,
       //      Application and ADTSelectors which can return booleans
-      case IsTyped(_, BooleanType) =>
+      case IsTyped(_, BooleanType()) =>
         ITermITE(parseFormula(expr), i(0), i(1))
 
       case v: Variable =>
@@ -250,7 +250,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
       case Let(vd, e, b) =>
         parseTerm(b)(bindings + (vd.toVariable -> (vd.tpe match {
-          case BooleanType => parseFormula(e)
+          case BooleanType() => parseFormula(e)
           case _ => parseTerm(e)
         })))
 
@@ -298,7 +298,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
     // Tries to convert Inox Expression to Princess IFormula
     def apply(expr: Expr)(implicit bindings: Map[Variable, IExpression]): IExpression =
       expr.getType match {
-        case BooleanType => parseFormula(expr)
+        case BooleanType() => parseFormula(expr)
         case _ => parseTerm(expr)
       }
   }
@@ -314,15 +314,15 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
     }
 
     def parseExpr(iexpr: IExpression, tpe: Type)(implicit ctx: Context): Option[Expr] = tpe match {
-      case BooleanType => iexpr match {
+      case BooleanType() => iexpr match {
         case iterm: ITerm => ctx.model.eval(iterm).map(i => BooleanLiteral(i.intValue == 0))
         case iformula: IFormula => ctx.model.eval(iformula).map(BooleanLiteral)
       }
 
-      case IntegerType =>
+      case IntegerType() =>
         ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(i => IntegerLiteral(i.bigIntValue))
 
-      case t @ ((_: ADTType) | (_: TupleType) | (_: TypeParameter) | UnitType) =>
+      case t @ ((_: ADTType) | (_: TupleType) | (_: TypeParameter) | UnitType()) =>
         val tpe = bestRealType(t)
         val (sort, adts) = typeToSort(tpe)
 
@@ -335,10 +335,10 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
           val (fieldsTypes, recons): (Seq[Type], Seq[Expr] => Expr) = constructors(index).tpe match {
             case adt: ADTType => (adt.getADT.toConstructor.fieldsTypes, ADT(adt, _))
             case TupleType(tps) => (tps, Tuple(_))
-            case tp: TypeParameter => (Seq(IntegerType), (es: Seq[Expr]) => {
+            case tp: TypeParameter => (Seq(IntegerType()), (es: Seq[Expr]) => {
               GenericValue(tp, es.head.asInstanceOf[IntegerLiteral].value.toInt)
             })
-            case UnitType => (Seq(), _ => UnitLiteral())
+            case UnitType() => (Seq(), _ => UnitLiteral())
           }
 
           val optArgs = (sort.selectors(index) zip fieldsTypes).map {
@@ -416,7 +416,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
   def declareVariable(v: Variable): IExpression = variables.cachedB(v)(freshSymbol(v))
 
   def freshSymbol(v: Variable): IExpression = v.tpe match {
-    case BooleanType => p.createBooleanVariable(v.id.freshen.uniqueName)
+    case BooleanType() => p.createBooleanVariable(v.id.freshen.uniqueName)
     case _ => p.createConstant(v.id.freshen.uniqueName)
   }
 

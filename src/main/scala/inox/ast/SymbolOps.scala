@@ -339,12 +339,12 @@ trait SymbolOps { self: TypeOps =>
   def constructExpr(i: Int, tpe: Type): Expr = tpe match {
     case _ if typeCardinality(tpe).exists(_ <= i) =>
       throw FatalError(s"Cardinality ${typeCardinality(tpe)} of type $tpe too high for index $i")
-    case BooleanType => BooleanLiteral(i == 0)
-    case IntegerType => IntegerLiteral(i)
+    case BooleanType() => BooleanLiteral(i == 0)
+    case IntegerType() => IntegerLiteral(i)
     case BVType(size) => BVLiteral(i, size)
-    case CharType => CharLiteral(i.toChar)
-    case RealType => FractionLiteral(i, 1)
-    case UnitType => UnitLiteral()
+    case CharType() => CharLiteral(i.toChar)
+    case RealType() => FractionLiteral(i, 1)
+    case UnitType() => UnitLiteral()
     case tp: TypeParameter => GenericValue(tp, i)
     case TupleType(tps) =>
       val (0, args) = tps.foldLeft((i, Seq[Expr]())) {
@@ -657,13 +657,13 @@ trait SymbolOps { self: TypeOps =>
   /** Returns simplest value of a given type */
   def simplestValue(tpe: Type, allowSolver: Boolean = true)(implicit sem: symbols.Semantics, ctx: Context): Expr = {
     def rec(tpe: Type, seen: Set[Type]): Expr = tpe match {
-      case StringType                 => StringLiteral("")
+      case StringType()               => StringLiteral("")
       case BVType(size)               => BVLiteral(0, size)
-      case RealType                   => FractionLiteral(0, 1)
-      case IntegerType                => IntegerLiteral(0)
-      case CharType                   => CharLiteral('a')
-      case BooleanType                => BooleanLiteral(false)
-      case UnitType                   => UnitLiteral()
+      case RealType()                 => FractionLiteral(0, 1)
+      case IntegerType()              => IntegerLiteral(0)
+      case CharType()                 => CharLiteral('a')
+      case BooleanType()              => BooleanLiteral(false)
+      case UnitType()                 => UnitLiteral()
       case SetType(baseType)          => FiniteSet(Seq(), baseType)
       case BagType(baseType)          => FiniteBag(Seq(), baseType)
       case MapType(fromType, toType)  => FiniteMap(Seq(), rec(toType, seen), fromType, toType)
@@ -676,7 +676,7 @@ trait SymbolOps { self: TypeOps =>
         if (tadt.hasInvariant) {
           if (!allowSolver) throw NoSimpleValue(adt)
 
-          val p = Variable.fresh("p", FunctionType(Seq(adt), BooleanType))
+          val p = Variable.fresh("p", FunctionType(Seq(adt), BooleanType()))
           val res = Variable.fresh("v", adt)
 
           import solvers._
@@ -715,7 +715,7 @@ trait SymbolOps { self: TypeOps =>
   def valuesOf(tp: Type): Stream[Expr] = {
     import utils.StreamUtils._
     tp match {
-      case BooleanType =>
+      case BooleanType() =>
         Stream(BooleanLiteral(false), BooleanLiteral(true))
       case BVType(size) =>
         val count = BigInt(2).pow(size - 1)
@@ -723,11 +723,11 @@ trait SymbolOps { self: TypeOps =>
           if (i <= count) Stream.cons(i, Stream.cons(-i - 1, rec(i + 1)))
           else Stream.empty
         rec(0) map (BVLiteral(_, size))
-      case IntegerType =>
+      case IntegerType() =>
         Stream.iterate(BigInt(0)) { prev =>
           if (prev > 0) -prev else -prev + 1
         } map IntegerLiteral
-      case UnitType =>
+      case UnitType() =>
         Stream(UnitLiteral())
       case tp: TypeParameter =>
         Stream.from(0) map (GenericValue(tp, _))
@@ -791,7 +791,7 @@ trait SymbolOps { self: TypeOps =>
     postMap(transform, applyRec = true)(expr)
   }
 
-  object InvocationExtractor {
+  private[inox] object InvocationExtractor {
     type Invocation = (Identifier, Seq[Type], Seq[Expr])
 
     private[SymbolOps] def flatInvocation(expr: Expr): Option[Invocation] = expr match {
@@ -831,9 +831,9 @@ trait SymbolOps { self: TypeOps =>
     }
   }
 
-  def firstOrderCallsOf(expr: Expr): Set[InvocationExtractor.Invocation] = InvocationExtractor(expr)
+  private[inox] def firstOrderCallsOf(expr: Expr): Set[InvocationExtractor.Invocation] = InvocationExtractor(expr)
 
-  object ApplicationExtractor {
+  private[inox] object ApplicationExtractor {
     private def flatApplication(expr: Expr): Option[(Expr, Seq[Expr])] = expr match {
       case Application(caller: Application, args) => flatApplication(caller) match {
         case Some((c, prevArgs)) => Some((c, prevArgs ++ args))
@@ -865,9 +865,9 @@ trait SymbolOps { self: TypeOps =>
     }
   }
 
-  def firstOrderAppsOf(expr: Expr): Set[(Expr, Seq[Expr])] = ApplicationExtractor(expr)
+  private[inox] def firstOrderAppsOf(expr: Expr): Set[(Expr, Seq[Expr])] = ApplicationExtractor(expr)
 
-  def simplifyHOFunctions(expr: Expr): Expr = {
+  private[inox] def simplifyHOFunctions(expr: Expr): Expr = {
 
     def pushDown(expr: Expr, recons: Expr => Expr): Expr = expr match {
       case IfExpr(cond, thenn, elze) =>
@@ -940,7 +940,7 @@ trait SymbolOps { self: TypeOps =>
     liftToLambdas(simplifyContainers(liftContainers(expr)))
   }
 
-  def liftAssumptions(expr: Expr): (Seq[Expr], Expr) = {
+  private[inox] def liftAssumptions(expr: Expr): (Seq[Expr], Expr) = {
     val vars = variablesOf(expr)
     var assumptions: Seq[Expr] = Seq.empty
 
@@ -954,7 +954,7 @@ trait SymbolOps { self: TypeOps =>
     (assumptions, newExpr)
   }
 
-  def simplifyAssumptions(expr: Expr): Expr = postMap {
+  private def simplifyAssumptions(expr: Expr): Expr = postMap {
     case Assume(pred, body) =>
       val (predAssumptions, newPred) = liftAssumptions(pred)
       val (bodyAssumptions, newBody) = liftAssumptions(body)
@@ -962,7 +962,7 @@ trait SymbolOps { self: TypeOps =>
     case _ => None
   } (expr)
 
-  def mergeFunctions(expr: Expr)(implicit opts: PurityOptions): Expr = {
+  private def mergeFunctions(expr: Expr)(implicit opts: PurityOptions): Expr = {
     type Bindings = Seq[(ValDef, Expr)]
     implicit class BindingsWrapper(bindings: Bindings) {
       def merge(that: Bindings): Bindings = (bindings ++ that).distinct
@@ -1083,7 +1083,7 @@ trait SymbolOps { self: TypeOps =>
 
       postMap {
         case IfExpr(cond, thenn, elze) =>
-          val condVar = Variable.fresh("cond", BooleanType, true)
+          val condVar = Variable.fresh("cond", BooleanType(), true)
           val condPath = Path(condVar)
 
           def rec(bindings: Bindings, thenn: Expr, elze: Expr): (Bindings, Expr, Expr) = {
@@ -1096,7 +1096,7 @@ trait SymbolOps { self: TypeOps =>
                 val (pathElse, argsElse) = elseCalls(tfd).toSeq.sortBy(_._1.elements.size).head
 
                 val v = Variable.fresh("res", tfd.returnType, true)
-                val condThen = Variable.fresh("condThen", BooleanType, true)
+                val condThen = Variable.fresh("condThen", BooleanType(), true)
 
                 val result = IfExpr(Or(condThen, (condPath.negate merge pathElse).toClause),
                   tfd.applied((argsThen zip argsElse).map { case (argThen, argElse) =>
@@ -1122,7 +1122,7 @@ trait SymbolOps { self: TypeOps =>
     mergeCalls(liftCalls(expr))
   }
 
-  def simplifyFormula(e: Expr)(implicit ctx: Context): Expr = {
+  private[inox] def simplifyFormula(e: Expr)(implicit ctx: Context): Expr = {
     implicit val simpOpts = SimplificationOptions(ctx)
     implicit val purityOpts = PurityOptions(ctx)
 
@@ -1219,13 +1219,13 @@ trait SymbolOps { self: TypeOps =>
       case _ => s
     }
     (e, t) match {
-      case (StringLiteral(_), StringType) => true
+      case (StringLiteral(_), StringType()) => true
       case (BVLiteral(_, s), BVType(t)) => s == t
-      case (IntegerLiteral(_), IntegerType) => true
-      case (CharLiteral(_), CharType) => true
-      case (FractionLiteral(_, _), RealType) => true
-      case (BooleanLiteral(_), BooleanType) => true
-      case (UnitLiteral(), UnitType) => true
+      case (IntegerLiteral(_), IntegerType()) => true
+      case (CharLiteral(_), CharType()) => true
+      case (FractionLiteral(_, _), RealType()) => true
+      case (BooleanLiteral(_), BooleanType()) => true
+      case (UnitLiteral(), UnitType()) => true
       case (GenericValue(t, _), tp) => t == tp
       case (Tuple(elems), TupleType(bases)) =>
         elems zip bases forall (eb => isValueOfType(eb._1, eb._2))
@@ -1234,7 +1234,7 @@ trait SymbolOps { self: TypeOps =>
         (elems forall isValue)
       case (FiniteBag(elements, fbtpe), BagType(tpe)) =>
         fbtpe == tpe &&
-        elements.forall{ case (key, value) => isValueOfType(key, tpe) && isValueOfType(value, IntegerType) }
+        elements.forall{ case (key, value) => isValueOfType(key, tpe) && isValueOfType(value, IntegerType()) }
       case (FiniteMap(elems, default, kt, vt), MapType(from, to)) =>
         (kt == from) < s"$kt not equal to $from" && (vt == to) < s"${default.getType} not equal to $to" &&
         isValueOfType(default, to) < s"${default} not a value of type $to" &&

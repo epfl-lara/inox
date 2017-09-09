@@ -126,7 +126,7 @@ trait Templates
     subst
   }
 
-  private val sym = Variable.fresh("bs", BooleanType, true)
+  private val sym = Variable.fresh("bs", BooleanType(), true)
   protected def encodeBlockers(bs: Set[Encoded]): (Encoded, Clauses) = bs.toSeq match {
     case Seq(b) if (
       condImplies.isDefinedAt(b) || condImplied.isDefinedAt(b) ||
@@ -817,7 +817,7 @@ trait Templates
   }
 
   def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {
-    val start = Variable.fresh("start", BooleanType, true)
+    val start = Variable.fresh("start", BooleanType(), true)
     val encodedStart = encodeSymbol(start)
 
     val tpeClauses = bindings.flatMap { case (v, s) => registerSymbol(encodedStart, s, v.getType) }.toSeq

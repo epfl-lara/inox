@@ -221,7 +221,7 @@ trait DSL {
     val ct2 = FreshIdentifier("ct2")
     T(
       T(ct1)(),
-      T(ct1)(T(ct2)(), IntegerType),
+      T(ct1)(T(ct2)(), IntegerType()),
       (T(ct1)(), T(ct2)()) =>: T(ct1)()
     )
   }
@@ -288,8 +288,8 @@ trait DSL {
     val c = T(FreshIdentifier("c"))
     val f = FreshIdentifier("f")
     mkFunDef(f)("A", "B"){ case Seq(aT, bT) => (
-      Seq("i" :: IntegerType, "j" :: c(aT), "a" :: aT),
-      T(IntegerType, c(aT)),
+      Seq("i" :: IntegerType(), "j" :: c(aT), "a" :: aT),
+      T(IntegerType(), c(aT)),
       { case Seq(i, j, a) => E(E(42), c(aT)(a)) }
     )}
   }

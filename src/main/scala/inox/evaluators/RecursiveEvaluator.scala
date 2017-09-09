@@ -74,7 +74,7 @@ trait RecursiveEvaluator
       first match {
         case BooleanLiteral(true) => e(thenn)
         case BooleanLiteral(false) => e(elze)
-        case _ => throw EvalError(typeErrorMsg(first, BooleanType))
+        case _ => throw EvalError(typeErrorMsg(first, BooleanType()))
       }
 
     case FunctionInvocation(id, tps, args) =>
@@ -112,14 +112,14 @@ trait RecursiveEvaluator
     case Not(arg) =>
       e(arg) match {
         case BooleanLiteral(v) => BooleanLiteral(!v)
-        case other => throw EvalError(typeErrorMsg(other, BooleanType))
+        case other => throw EvalError(typeErrorMsg(other, BooleanType()))
       }
 
     case Implies(l,r) =>
       e(l) match {
         case BooleanLiteral(false) => BooleanLiteral(true)
         case BooleanLiteral(true) => e(r)
-        case le => throw EvalError(typeErrorMsg(le, BooleanType))
+        case le => throw EvalError(typeErrorMsg(le, BooleanType()))
       }
 
     case Equals(le,re) =>
@@ -134,7 +134,7 @@ trait RecursiveEvaluator
           case BooleanLiteral(false) =>
             throw RuntimeError("ADT invariant violation for " + cc.asString)
           case other =>
-            throw RuntimeError(typeErrorMsg(other, BooleanType))
+            throw RuntimeError(typeErrorMsg(other, BooleanType()))
         }
       }
       cc
@@ -187,18 +187,18 @@ trait RecursiveEvaluator
     case StringConcat(l, r) =>
       (e(l), e(r)) match {
         case (StringLiteral(i1), StringLiteral(i2)) => StringLiteral(i1 + i2)
-        case (le,re) => throw EvalError(typeErrorMsg(le, StringType))
+        case (le,re) => throw EvalError(typeErrorMsg(le, StringType()))
       }
 
     case StringLength(a) => e(a) match {
       case StringLiteral(a) => IntegerLiteral(a.length)
-      case res => throw EvalError(typeErrorMsg(res, Int32Type))
+      case res => throw EvalError(typeErrorMsg(res, Int32Type()))
     }
 
     case SubString(a, start, end) => (e(a), e(start), e(end)) match {
       case (StringLiteral(a), IntegerLiteral(b), IntegerLiteral(c))  =>
         StringLiteral(a.substring(b.toInt, c.toInt))
-      case res => throw EvalError(typeErrorMsg(res._1, StringType))
+      case res => throw EvalError(typeErrorMsg(res._1, StringType()))
     }
 
     case UMinus(ex) =>
@@ -334,7 +334,7 @@ trait RecursiveEvaluator
           val FractionLiteral(n, _) = e(Minus(a, b))
           BooleanLiteral(n < 0)
         case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 < c2)
-        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type))
+        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
       }
 
     case GreaterThan(l,r) =>
@@ -346,7 +346,7 @@ trait RecursiveEvaluator
           val FractionLiteral(n, _) = e(Minus(a, b))
           BooleanLiteral(n > 0)
         case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 > c2)
-        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type))
+        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
       }
 
     case LessEquals(l,r) =>
@@ -358,7 +358,7 @@ trait RecursiveEvaluator
           val FractionLiteral(n, _) = e(Minus(a, b))
           BooleanLiteral(n <= 0)
         case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 <= c2)
-        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type))
+        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
       }
 
     case GreaterEquals(l,r) =>
@@ -370,7 +370,7 @@ trait RecursiveEvaluator
           val FractionLiteral(n, _) = e(Minus(a, b))
           BooleanLiteral(n >= 0)
         case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 >= c2)
-        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type))
+        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
       }
 
     case SetAdd(s1, elem) =>
@@ -415,7 +415,7 @@ trait RecursiveEvaluator
         val (matching, rest) = els.partition(_._1 == evElem)
         finiteBag(rest :+ (evElem -> matching.lastOption.map {
           case (_, IntegerLiteral(i)) => IntegerLiteral(i + 1)
-          case (_, e) => throw EvalError(typeErrorMsg(e, IntegerType))
+          case (_, e) => throw EvalError(typeErrorMsg(e, IntegerType()))
         }.getOrElse(IntegerLiteral(1))), tpe)
 
       case (le, re) => throw EvalError(typeErrorMsg(le, bag.getType))
@@ -433,7 +433,7 @@ trait RecursiveEvaluator
         finiteBag(els1.flatMap { case (k, v) =>
           val i = (v, map2.getOrElse(k, IntegerLiteral(0))) match {
             case (IntegerLiteral(i1), IntegerLiteral(i2)) => i1 min i2
-            case (le, re) => throw EvalError(typeErrorMsg(le, IntegerType))
+            case (le, re) => throw EvalError(typeErrorMsg(le, IntegerType()))
           }
 
           if (i <= 0) None else Some(k -> IntegerLiteral(i))
@@ -448,7 +448,7 @@ trait RecursiveEvaluator
         finiteBag((map1.keys ++ map2.keys).toSet.map { (k: Expr) =>
           k -> ((map1.getOrElse(k, IntegerLiteral(0)), map2.getOrElse(k, IntegerLiteral(0))) match {
             case (IntegerLiteral(i1), IntegerLiteral(i2)) => IntegerLiteral(i1 + i2)
-            case (le, re) => throw EvalError(typeErrorMsg(le, IntegerType))
+            case (le, re) => throw EvalError(typeErrorMsg(le, IntegerType()))
           })
         }.toSeq, tpe)
 
@@ -461,7 +461,7 @@ trait RecursiveEvaluator
         finiteBag(els1.flatMap { case (k, v) =>
           val i = (v, map2.getOrElse(k, IntegerLiteral(0))) match {
             case (IntegerLiteral(i1), IntegerLiteral(i2)) => i1 - i2
-            case (le, re) => throw EvalError(typeErrorMsg(le, IntegerType))
+            case (le, re) => throw EvalError(typeErrorMsg(le, IntegerType()))
           }
 
           if (i <= 0) None else Some(k -> IntegerLiteral(i))

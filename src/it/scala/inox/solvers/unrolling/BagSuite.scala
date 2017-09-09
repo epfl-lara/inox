@@ -100,7 +100,7 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
   test("Finite model finding 3") { implicit ctx =>
     val aT = TypeParameter.fresh("A")
     val b = ("bag" :: BagType(aT)).toVariable
-    val Seq(e1, v1, e2, v2) = Seq("e1" :: aT, "v1" :: IntegerType, "e2" :: aT, "v2" :: IntegerType).map(_.toVariable)
+    val Seq(e1, v1, e2, v2) = Seq("e1" :: aT, "v1" :: IntegerType(), "e2" :: aT, "v2" :: IntegerType()).map(_.toVariable)
     val clause = And(Seq(
       Not(Equals(b, FiniteBag(Seq(e1 -> v1, e2 -> v2), aT))),
       Not(Equals(MultiplicityInBag(e1, b), IntegerLiteral(0))),

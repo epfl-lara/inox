@@ -34,9 +34,9 @@ class TypeOpsSuite extends FunSuite with DatastructureUtils {
   }
 
   test("Subtyping with params") {
-    assert(!isSubtypeOf(T(nilID)(tp2), T(listID)(tp3)),         "Types are not subtypes with incompatible params")
-    assert(!isSubtypeOf(T(nilID)(tp2), T(listID)(IntegerType)), "Types are not subtypes with incompatible params")
-    assert(!isSubtypeOf(SetType(tp2),  SetType(tp3)),           "Types are not subtypes with incompatible params")
+    assert(!isSubtypeOf(T(nilID)(tp2), T(listID)(tp3)),           "Types are not subtypes with incompatible params")
+    assert(!isSubtypeOf(T(nilID)(tp2), T(listID)(IntegerType())), "Types are not subtypes with incompatible params")
+    assert(!isSubtypeOf(SetType(tp2),  SetType(tp3)),             "Types are not subtypes with incompatible params")
   }
 
   test("Invariant subtyping") {
@@ -49,10 +49,10 @@ class TypeOpsSuite extends FunSuite with DatastructureUtils {
   }
 
   test("Type compatibility") {
-    assert(!typesCompatible(tp2,         tp3),          "Different types should be incompatible")
-    assert(!typesCompatible(BooleanType, tp3),          "Different types should be incompatible")
-    assert(!typesCompatible(tp2,         BooleanType),  "Different types should be incompatible")
-    assert(!typesCompatible(IntegerType, Int32Type),    "Different types should be incompatible")
+    assert(!typesCompatible(tp2,           tp3),            "Different types should be incompatible")
+    assert(!typesCompatible(BooleanType(), tp3),            "Different types should be incompatible")
+    assert(!typesCompatible(tp2,           BooleanType()),  "Different types should be incompatible")
+    assert(!typesCompatible(IntegerType(), Int32Type()),    "Different types should be incompatible")
   }
 
   test("Type unification") {
@@ -66,8 +66,8 @@ class TypeOpsSuite extends FunSuite with DatastructureUtils {
     assert(unify(ListT, NilT,           Seq(tp) ).isEmpty,   "Subtypes not unifiable")
 
     assert({
-        val s = unify(MapType(IntegerType, tp), MapType(tp2, IntegerType), Seq(tp, tp2)).getOrElse(Seq.empty)
-        s.contains(tp -> IntegerType) && s.contains(tp2 -> IntegerType)
+        val s = unify(MapType(IntegerType(), tp), MapType(tp2, IntegerType()), Seq(tp, tp2)).getOrElse(Seq.empty)
+        s.contains(tp -> IntegerType()) && s.contains(tp2 -> IntegerType())
       },
       "MapType unifiable"
     )
@@ -80,7 +80,7 @@ class TypeOpsSuite extends FunSuite with DatastructureUtils {
     )
 
     assert(
-      instantiation_>:(T(listID)(tp2), T(consID)(IntegerType)) contains Map(tp2 -> IntegerType),
+      instantiation_>:(T(listID)(tp2), T(consID)(IntegerType())) contains Map(tp2 -> IntegerType()),
       "List[A] >: Cons[BigInt] under A -> BigInt"
     )
 
@@ -90,12 +90,12 @@ class TypeOpsSuite extends FunSuite with DatastructureUtils {
     )
 
     assert(
-      instantiation_<:(T(consID)(IntegerType), T(listID)(tp2)).isEmpty,
+      instantiation_<:(T(consID)(IntegerType()), T(listID)(tp2)).isEmpty,
       "Cons[BigInt] cannot be instantiated so that it is <: List[A]"
     )
 
     assert(
-      instantiation_>:(T(listID)(tp2), T(consID)(IntegerType)) contains Map(tp2 -> IntegerType),
+      instantiation_>:(T(listID)(tp2), T(consID)(IntegerType())) contains Map(tp2 -> IntegerType()),
       "List[A] >: Cons[BigInt] under A -> BigInt"
     )
 
@@ -108,22 +108,22 @@ class TypeOpsSuite extends FunSuite with DatastructureUtils {
     )
 
     assert(
-      instantiation_<:(TupleType(Seq(IntegerType, Int32Type)), TupleType(Seq(IntegerType, Int32Type, IntegerType))).isEmpty,
+      instantiation_<:(TupleType(Seq(IntegerType(), Int32Type())), TupleType(Seq(IntegerType(), Int32Type(), IntegerType()))).isEmpty,
       "Incompatible tuples"
     )
 
     assert(
       instantiation_<:(
-        MapType(ConsT, IntegerType),
-        MapType(ListT, IntegerType)
+        MapType(ConsT, IntegerType()),
+        MapType(ListT, IntegerType())
       ).isEmpty,
       "Invariant maps"
     )
 
     assert(
       instantiation_<:(
-        MapType(tp, IntegerType),
-        MapType(tp2, IntegerType)
+        MapType(tp, IntegerType()),
+        MapType(tp2, IntegerType())
       ).contains(Map(tp -> tp2)),
       "Instantiation within map type"
     )
@@ -142,11 +142,11 @@ class TypeOpsSuite extends FunSuite with DatastructureUtils {
       instantiation_>:(
         TupleType(Seq(ListT, tp, ListT)),
         TupleType(Seq(
-          T(listID)(T(listID)(IntegerType)),
-          T(consID)(IntegerType),
-          T(nilID)(T(listID)(IntegerType))
+          T(listID)(T(listID)(IntegerType())),
+          T(consID)(IntegerType()),
+          T(nilID)(T(listID)(IntegerType()))
         ))
-      ).contains(Map(tp -> T(listID)(IntegerType))),
+      ).contains(Map(tp -> T(listID)(IntegerType()))),
       "Complex example"
     )
   }

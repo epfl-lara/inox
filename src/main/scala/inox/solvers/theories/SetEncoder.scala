@@ -26,7 +26,7 @@ trait SetEncoder extends SimpleEncoder {
 
   val ContainsID = FreshIdentifier("contains")
   val Contains = mkFunDef(ContainsID)("T") { case Seq(aT) => (
-    Seq("set" :: Set(aT), "x" :: aT), BooleanType, {
+    Seq("set" :: Set(aT), "x" :: aT), BooleanType(), {
       case Seq(set, x) => !set.isInstOf(Leaf(aT)) && (if_ (set.isInstOf(Sum(aT))) {
         E(ContainsID)(aT)(set.asInstOf(Sum(aT)).getField(left), x) ||
         E(ContainsID)(aT)(set.asInstOf(Sum(aT)).getField(right), x)
@@ -102,7 +102,7 @@ trait SetEncoder extends SimpleEncoder {
 
   val EqualsID = FreshIdentifier("equals")
   val SetEquals = mkFunDef(EqualsID)("T") { case Seq(aT) => (
-    Seq("s1" :: Set(aT), "s2" :: Set(aT)), BooleanType, {
+    Seq("s1" :: Set(aT), "s2" :: Set(aT)), BooleanType(), {
       case Seq(s1, s2) => forall("y" :: aT) { y =>
         E(ContainsID)(aT)(s1, y) === E(ContainsID)(aT)(s2, y)
       }

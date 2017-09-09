@@ -21,15 +21,15 @@ class ExprOpsSuite extends FunSuite {
     case _ => subCounts.sum
   }
 
-  val a = Variable.fresh("a", Int32Type)
-  val b = Variable.fresh("b", Int32Type)
+  val a = Variable.fresh("a", Int32Type())
+  val b = Variable.fresh("b", Int32Type())
 
-  val x = Variable.fresh("x", IntegerType)
-  val y = Variable.fresh("y", IntegerType)
+  val x = Variable.fresh("x", IntegerType())
+  val y = Variable.fresh("y", IntegerType())
 
-  val p = Variable.fresh("p", BooleanType)
-  val q = Variable.fresh("q", BooleanType)
-  val r = Variable.fresh("r", BooleanType)
+  val p = Variable.fresh("p", BooleanType())
+  val q = Variable.fresh("q", BooleanType())
+  val r = Variable.fresh("r", BooleanType())
 
   test("foldRight works on single variable expression") {
     assert(fold(foldConcatNames)(x) === x.id.name)
@@ -275,12 +275,12 @@ class ExprOpsSuite extends FunSuite {
     import program.trees._
     import program.symbols._
 
-    val types = Seq(BooleanType,
-                    Int32Type,
-                    IntegerType,
-                    SetType(BooleanType),
-                    TupleType(Seq(BooleanType, BooleanType)),
-                    MapType(Int32Type, BooleanType))
+    val types = Seq(BooleanType(),
+                    Int32Type(),
+                    IntegerType(),
+                    SetType(BooleanType()),
+                    TupleType(Seq(BooleanType(), BooleanType())),
+                    MapType(Int32Type(), BooleanType()))
 
     for (t <- types) {
       val v = simplestValue(t)

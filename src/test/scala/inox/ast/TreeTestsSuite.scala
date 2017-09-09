@@ -10,8 +10,8 @@ import inox.trees._
 class TreeTestsSuite extends FunSuite {
 
   test("And- and Or- simplifications") {
-    val x = Variable.fresh("x", BooleanType)
-    val y = Variable.fresh("y", BooleanType)
+    val x = Variable.fresh("x", BooleanType())
+    val y = Variable.fresh("y", BooleanType())
     val t = BooleanLiteral(true)
     val f = BooleanLiteral(false)
 

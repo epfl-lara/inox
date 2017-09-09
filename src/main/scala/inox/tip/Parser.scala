@@ -264,7 +264,7 @@ class Parser(file: File) {
         val tparams = List.range(0, arity).map {
           i => TypeParameterDef(TypeParameter.fresh("A" + i).setPos(sym.optPos)).setPos(sym.optPos)
         }
-        val field = ValDef(FreshIdentifier("val"), IntegerType).setPos(sym.optPos)
+        val field = ValDef(FreshIdentifier("val"), IntegerType().setPos(sym.optPos)).setPos(sym.optPos)
 
         new ADTConstructor(id, tparams, None, Seq(field), Set.empty).setPos(sym.optPos)
       })
@@ -309,7 +309,7 @@ class Parser(file: File) {
             case sort: ADTSort => sort.copy(flags = sort.flags + HasADTInvariant(id))
             case cons: ADTConstructor => cons.copy(flags = cons.flags + HasADTInvariant(id))
           }
-          val fd = new FunDef(id, root.tparams, Seq(vd), BooleanType, body, Set.empty).setPos(s.optPos)
+          val fd = new FunDef(id, root.tparams, Seq(vd), BooleanType().setPos(s.optPos), body, Set.empty).setPos(s.optPos)
           (Some(newAdt), fd)
       }
 

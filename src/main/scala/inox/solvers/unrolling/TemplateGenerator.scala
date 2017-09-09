@@ -185,7 +185,7 @@ trait TemplateGenerator { self: Templates =>
     //    id => expr && ... && expr
     var guardedExprs = Map[Variable, Seq[Expr]]()
     def storeGuarded(guardVar: Variable, expr: Expr): Unit = {
-      assert(expr.getType == BooleanType, expr.asString + " is not of type Boolean. " + explainTyping(expr))
+      assert(expr.getType == BooleanType(), expr.asString + " is not of type Boolean. " + explainTyping(expr))
 
       val prev = guardedExprs.getOrElse(guardVar, Nil)
       guardedExprs += guardVar -> (expr +: prev)
@@ -255,7 +255,7 @@ trait TemplateGenerator { self: Templates =>
         partitions.map(andJoin) match {
           case Seq(e) => e
           case seq =>
-            val newExpr: Variable = Variable.fresh("e", BooleanType, true)
+            val newExpr: Variable = Variable.fresh("e", BooleanType(), true)
             storeExpr(newExpr)
 
             def recAnd(pathVar: Variable, partitions: Seq[Expr]): Unit = partitions match {
@@ -263,13 +263,13 @@ trait TemplateGenerator { self: Templates =>
                 storeGuarded(pathVar, Equals(newExpr, rec(pathVar, x, pol)))
 
               case x :: xs =>
-                val newRes: Variable = Variable.fresh("res", BooleanType, true)
+                val newRes: Variable = Variable.fresh("res", BooleanType(), true)
                 storeExpr(newRes)
 
                 val xrec = rec(pathVar, x, pol)
                 storeGuarded(pathVar, Equals(newRes, xrec))
 
-                val newBool: Variable = Variable.fresh("b", BooleanType, true)
+                val newBool: Variable = Variable.fresh("b", BooleanType(), true)
                 storeCond(pathVar, newBool)
 
                 storeGuarded(pathVar, implies(not(newRes), not(newExpr)))
@@ -289,7 +289,7 @@ trait TemplateGenerator { self: Templates =>
         partitions.map(orJoin) match {
           case Seq(e) => e
           case seq =>
-            val newExpr: Variable = Variable.fresh("e", BooleanType, true)
+            val newExpr: Variable = Variable.fresh("e", BooleanType(), true)
             storeExpr(newExpr)
 
             def recOr(pathVar: Variable, partitions: Seq[Expr]): Unit = partitions match {
@@ -297,13 +297,13 @@ trait TemplateGenerator { self: Templates =>
                 storeGuarded(pathVar, Equals(newExpr, rec(pathVar, x, None)))
 
               case x :: xs =>
-                val newRes: Variable = Variable.fresh("res", BooleanType, true)
+                val newRes: Variable = Variable.fresh("res", BooleanType(), true)
                 storeExpr(newRes)
 
                 val xrec = rec(pathVar, x, None)
                 storeGuarded(pathVar, Equals(newRes, xrec))
 
-                val newBool: Variable = Variable.fresh("b", BooleanType, true)
+                val newBool: Variable = Variable.fresh("b", BooleanType(), true)
                 storeCond(pathVar, newBool)
 
                 storeGuarded(pathVar, implies(newRes, newExpr))
@@ -322,10 +322,10 @@ trait TemplateGenerator { self: Templates =>
         if (isSimple(i)) {
           i
         } else {
-          val newBool1 : Variable = Variable.fresh("b", BooleanType, true)
-          val newBool2 : Variable = Variable.fresh("b", BooleanType, true)
+          val newBool1 : Variable = Variable.fresh("b", BooleanType(), true)
+          val newBool2 : Variable = Variable.fresh("b", BooleanType(), true)
           val newExpr  : Variable = Variable.fresh("e", i.getType, true)
-          val condVar  : Variable = Variable.fresh("c", BooleanType, true)
+          val condVar  : Variable = Variable.fresh("c", BooleanType(), true)
 
           storeCond(pathVar, newBool1)
           storeCond(pathVar, newBool2)

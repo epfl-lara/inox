@@ -20,7 +20,7 @@ trait StringEncoder extends SimpleEncoder {
   val stringADT     = mkSort(stringID)()(Seq(stringConsID, stringNilID))
   val stringNilADT  = mkConstructor(stringNilID)()(Some(stringID))(_ => Seq())
   val stringConsADT = mkConstructor(stringConsID)()(Some(stringID))(_ => Seq(
-    ValDef(head, CharType), ValDef(tail, ADTType(stringID, Seq.empty))
+    ValDef(head, CharType()), ValDef(tail, ADTType(stringID, Seq.empty))
   ))
 
   val String     : ADTType = T(stringID)()
@@ -30,7 +30,7 @@ trait StringEncoder extends SimpleEncoder {
   val SizeID = FreshIdentifier("size")
   val Size = mkFunDef(SizeID)()(_ => (
     Seq("s" :: String),
-    IntegerType, { case Seq(s) =>
+    IntegerType(), { case Seq(s) =>
       if_ (s.isInstOf(StringCons)) {
         E(BigInt(1)) + E(SizeID)(s.asInstOf(StringCons).getField(tail))
       } else_ {
@@ -40,7 +40,7 @@ trait StringEncoder extends SimpleEncoder {
 
   val TakeID = FreshIdentifier("take")
   val Take = mkFunDef(TakeID)()(_ => (
-    Seq("s" :: String, "i" :: IntegerType),
+    Seq("s" :: String, "i" :: IntegerType()),
     String, { case Seq(s, i) =>
       if_ (s.isInstOf(StringCons) && i > E(BigInt(0))) {
         StringCons(
@@ -53,7 +53,7 @@ trait StringEncoder extends SimpleEncoder {
 
   val DropID = FreshIdentifier("drop")
   val Drop = mkFunDef(DropID)()(_ => (
-    Seq("s" :: String, "i" :: IntegerType),
+    Seq("s" :: String, "i" :: IntegerType()),
     String, { case Seq(s, i) =>
       if_ (s.isInstOf(StringCons) && i > E(BigInt(0))) {
         E(DropID)(s.asInstOf(StringCons).getField(tail), i - E(BigInt(1)))
@@ -64,7 +64,7 @@ trait StringEncoder extends SimpleEncoder {
 
   val SliceID = FreshIdentifier("slice")
   val Slice = mkFunDef(SliceID)()(_ => (
-    Seq("s" :: String, "from" :: IntegerType, "to" :: IntegerType),
+    Seq("s" :: String, "from" :: IntegerType(), "to" :: IntegerType()),
     String, { case Seq(s, from, to) => Take(Drop(s, from), to - from) }))
 
   val ConcatID = FreshIdentifier("concat")
@@ -107,7 +107,7 @@ trait StringEncoder extends SimpleEncoder {
     }
 
     override def transform(tpe: Type): Type = tpe match {
-      case StringType => String
+      case StringType() => String
       case _ => super.transform(tpe)
     }
   }
@@ -134,7 +134,7 @@ trait StringEncoder extends SimpleEncoder {
     }
 
     override def transform(tpe: Type): Type = tpe match {
-      case String | StringCons | StringNil => StringType
+      case String | StringCons | StringNil => StringType()
       case _ => super.transform(tpe)
     }
   }

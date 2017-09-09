@@ -32,7 +32,7 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
   override protected def fromSMT(t: Term, otpe: Option[Type] = None)(implicit context: Context): Expr = {
     (t, otpe) match {
       // EK: This hack is necessary for sygus which does not strictly follow smt-lib for negative literals
-      case (SimpleSymbol(SSymbol(v)), Some(IntegerType)) if v.startsWith("-") =>
+      case (SimpleSymbol(SSymbol(v)), Some(IntegerType())) if v.startsWith("-") =>
         try {
           IntegerLiteral(v.toInt)
         } catch {

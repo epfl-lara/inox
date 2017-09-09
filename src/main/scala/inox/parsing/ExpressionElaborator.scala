@@ -70,44 +70,44 @@ trait ExpressionElaborators { self: Interpolator =>
         case Literal(BooleanLiteral(value)) => Constrained.pure({
           trees.BooleanLiteral(value)
         }).addConstraint({
-          Constraint.equal(expected, trees.BooleanType)
+          Constraint.equal(expected, trees.BooleanType())
         })
 
         // Unit literal.
         case Literal(UnitLiteral) => Constrained.pure({
           trees.UnitLiteral()
         }).addConstraint({
-          Constraint.equal(expected, trees.UnitType)
+          Constraint.equal(expected, trees.UnitType())
         })
 
         // String literal.
         case Literal(StringLiteral(string)) => Constrained.pure({
           trees.StringLiteral(string)
         }).addConstraint({
-          Constraint.equal(expected, trees.StringType)
+          Constraint.equal(expected, trees.StringType())
         })
 
         // Char literal.
         case Literal(CharLiteral(character)) => Constrained.pure({
           trees.CharLiteral(character)
         }).addConstraint({
-          Constraint.equal(expected, trees.CharType)
+          Constraint.equal(expected, trees.CharType())
         })
 
         // Numeric literal.
         case Literal(NumericLiteral(string)) => Constrained.withUnifier({ (unifier: Unifier) =>
 
           unifier(expected) match {
-            case trees.IntegerType => trees.IntegerLiteral(BigInt(string))
+            case trees.IntegerType() => trees.IntegerLiteral(BigInt(string))
             case trees.BVType(n) => trees.BVLiteral(BigInt(string), n)
-            case trees.RealType => {
+            case trees.RealType() => {
               val (n, d) = Utils.toFraction(string)
               trees.FractionLiteral(n, d)
             }
             case tpe => throw new Exception("typeCheck: Unexpected type during elaboration: " + tpe)
           }
         }).addConstraint(if (string.contains(".")) {
-          Constraint.equal(expected, trees.RealType)
+          Constraint.equal(expected, trees.RealType())
         } else {
           Constraint.isNumeric(expected)
         })
@@ -162,37 +162,37 @@ trait ExpressionElaborators { self: Interpolator =>
             Constrained.pure({
               trees.BooleanLiteral(b)
             }).addConstraint({
-              Constraint.equal(expected, trees.BooleanType)
+              Constraint.equal(expected, trees.BooleanType())
             })
           case n : Int => 
             Constrained.pure({
               trees.Int32Literal(n)
             }).addConstraint({
-              Constraint.equal(expected, trees.Int32Type)
+              Constraint.equal(expected, trees.Int32Type())
             })
           case n : BigInt =>
             Constrained.pure({
               trees.IntegerLiteral(n)
             }).addConstraint({
-              Constraint.equal(expected, trees.IntegerType)
+              Constraint.equal(expected, trees.IntegerType())
             })
           case c : Char =>
             Constrained.pure({
               trees.CharLiteral(c)
             }).addConstraint({
-              Constraint.equal(expected, trees.CharType)
+              Constraint.equal(expected, trees.CharType())
             })
           case s : String =>
             Constrained.pure({
               trees.StringLiteral(s)
             }).addConstraint({
-              Constraint.equal(expected, trees.StringType)
+              Constraint.equal(expected, trees.StringType())
             })
           case _ : Unit =>
             Constrained.pure({
               trees.UnitLiteral()
             }).addConstraint({
-              Constraint.equal(expected, trees.UnitType)
+              Constraint.equal(expected, trees.UnitType())
             })
           case _ => Constrained.fail("Unsupported embedded value: " + value + ".", expr.pos)
         }
@@ -244,7 +244,7 @@ trait ExpressionElaborators { self: Interpolator =>
         // Unary negation.
         case Operation("!", Seq(arg)) => {
           typeCheck(arg, expected).map(trees.Not(_)).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           })
         }
 
@@ -269,7 +269,7 @@ trait ExpressionElaborators { self: Interpolator =>
           ).addConstraint({
             Constraint.isComparable(expectedArg)
           }).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           })
         }
 
@@ -298,7 +298,7 @@ trait ExpressionElaborators { self: Interpolator =>
           }).checkImmediate(
             args.length == 2, wrongNumberOfArguments, expr.pos
           ).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           })
         }
 
@@ -314,7 +314,7 @@ trait ExpressionElaborators { self: Interpolator =>
           }).checkImmediate(
             args.length == 2, wrongNumberOfArguments, expr.pos
           ).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           })
         }
 
@@ -328,7 +328,7 @@ trait ExpressionElaborators { self: Interpolator =>
           }).checkImmediate(
             args.length == 2, wrongNumberOfArguments, expr.pos
           ).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           })
         }
 
@@ -342,7 +342,7 @@ trait ExpressionElaborators { self: Interpolator =>
           ).checkImmediate(
             args.length >= 2, wrongNumberOfArguments, expr.pos
           ).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           })
         }
 
@@ -379,7 +379,7 @@ trait ExpressionElaborators { self: Interpolator =>
           }).map({
             case Seq(s1, s2) => trees.StringConcat(s1, s2)
           }).addConstraint({
-            Constraint.equal(expected, trees.StringType)
+            Constraint.equal(expected, trees.StringType())
           })
         }
 
@@ -394,9 +394,9 @@ trait ExpressionElaborators { self: Interpolator =>
           )).map({
             case Seq(s, a, b) => trees.SubString(s, a, b)
           }).addConstraint({
-            Constraint.equal(expected, trees.StringType)
+            Constraint.equal(expected, trees.StringType())
           }).addConstraint({
-            Constraint.equal(indexExpected, trees.IntegerType)
+            Constraint.equal(indexExpected, trees.IntegerType())
           })
         }
 
@@ -406,9 +406,9 @@ trait ExpressionElaborators { self: Interpolator =>
           typeCheck(s, stringExpected).map({
             case e => trees.StringLength(e) 
           }).addConstraint({
-            Constraint.equal(stringExpected, trees.StringType)
+            Constraint.equal(stringExpected, trees.StringType())
           }).addConstraint({
-            Constraint.equal(expected, trees.IntegerType)
+            Constraint.equal(expected, trees.IntegerType())
           })
         }
 
@@ -440,7 +440,7 @@ trait ExpressionElaborators { self: Interpolator =>
               })
             })
           }).addConstraint({
-            Constraint.equal(countType, trees.IntegerType)
+            Constraint.equal(countType, trees.IntegerType())
           }).addConstraint({
             Constraint.equal(expected, trees.BagType(elementType))
           })
@@ -455,7 +455,7 @@ trait ExpressionElaborators { self: Interpolator =>
           typeCheck(map, mapExpected).combine(typeCheck(key, keyExpected))({
             case (m, k) => trees.MultiplicityInBag(k, m)
           }).addConstraint({
-            Constraint.equal(expected, trees.IntegerType)
+            Constraint.equal(expected, trees.IntegerType())
           }).addConstraint({
             Constraint.subtype(keyExpected, elementType)
           }).addConstraint({
@@ -613,7 +613,7 @@ trait ExpressionElaborators { self: Interpolator =>
           }).app({
             typeCheck(elem, elementExpected)
           }).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           }).addConstraint({
             Constraint.equal(setType, trees.SetType(elementType))
           }).addConstraint({
@@ -631,7 +631,7 @@ trait ExpressionElaborators { self: Interpolator =>
           }).app({
             typeCheck(set2, setType)
           }).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           }).addConstraint({
             Constraint.equal(setType, trees.SetType(elementType))
           })
@@ -680,7 +680,7 @@ trait ExpressionElaborators { self: Interpolator =>
           )).map({
             case Seq(condExpr, thennExpr, elzeExpr) => trees.IfExpr(condExpr, thennExpr, elzeExpr)
           }).addConstraint({
-            Constraint.equal(expectedCond, trees.BooleanType)
+            Constraint.equal(expectedCond, trees.BooleanType())
           })
         }
 
@@ -690,7 +690,7 @@ trait ExpressionElaborators { self: Interpolator =>
           typeCheck(p, booleanExpected).combine(typeCheck(e, expected))({
             case (pred, body) => trees.Assume(pred, body)
           }).addConstraint({
-            Constraint.equal(booleanExpected, trees.BooleanType)
+            Constraint.equal(booleanExpected, trees.BooleanType())
           })
         }
 
@@ -933,7 +933,7 @@ trait ExpressionElaborators { self: Interpolator =>
             })
           }).addConstraint({
             // The expected type should be boolean.
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           })
         }
 
@@ -959,7 +959,7 @@ trait ExpressionElaborators { self: Interpolator =>
             })
           }).addConstraint({
             // The expected type should be boolean.
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           })
         }
 
@@ -977,7 +977,7 @@ trait ExpressionElaborators { self: Interpolator =>
           }).app({
             typeCheck(body, predType)(store + (id.getName -> ((inoxIdent, identType))))
           }).addConstraint({
-            Constraint.equal(predType, trees.BooleanType)
+            Constraint.equal(predType, trees.BooleanType())
           }).addConstraint({
             Constraint.subtype(identType, expected)
           })
@@ -1034,7 +1034,7 @@ trait ExpressionElaborators { self: Interpolator =>
             (e: trees.Expr) => trees.IsInstanceOf(e, inoxTpe)
           }).addConstraint({
             // The expected type should be Boolean.
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           }).addConstraint({
             // There should exist a type which is a (non-strict) super type of the annotated type...
             Constraint.subtype(inoxTpe, sup)

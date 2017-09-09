@@ -130,7 +130,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
     val timer = context.timers.solvers.assert.start()
 
     symbols.ensureWellFormed // make sure that the current program is well-formed
-    typeCheck(expression, BooleanType) // make sure we've asserted a boolean-typed expression
+    typeCheck(expression, BooleanType()) // make sure we've asserted a boolean-typed expression
 
     constraints += expression
 
@@ -183,7 +183,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
       val vs = freeVars.toMap.map { case (v, idT) => v.toVal -> extract(idT, v.tpe) }
 
       val cs = templates.getCalls
-        .filter(p => modelEval(p._1, t.BooleanType) == Some(t.BooleanLiteral(true)))
+        .filter(p => modelEval(p._1, t.BooleanType()) == Some(t.BooleanLiteral(true)))
         .map(_._2)
         .groupBy(_.tfd)
         .flatMap { case (tfd, calls) =>
@@ -274,7 +274,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
     var chooseExtractions: Seq[(Encoded, Choose)] = Seq.empty
 
     def modelEq(e1: Encoded, e2: Encoded): Boolean =
-      wrapped.modelEval(templates.mkEquals(e1, e2), BooleanType) == Some(BooleanLiteral(true))
+      wrapped.modelEval(templates.mkEquals(e1, e2), BooleanType()) == Some(BooleanLiteral(true))
 
     def extractValue(v: Encoded, tpe: Type, seen: Map[FunctionType, Set[Encoded]]): Expr = {
 
@@ -322,7 +322,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
           case bt @ BagType(base) =>
             val vs = wrapped.extractBag(v, bt).get
             reconstruct(vs.map(p => rec(p._1, base)), es => FiniteBag((es zip vs).map {
-              case (k, (_, v)) => k -> wrapped.modelEval(v, IntegerType).get
+              case (k, (_, v)) => k -> wrapped.modelEval(v, IntegerType()).get
             }, base))
 
           case _ => (Seq.empty, (es: Seq[Expr]) => wrapped.modelEval(v, tpe).get)
@@ -382,7 +382,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
       def extractLambda(f: Encoded, tpe: FunctionType): Option[Lambda] = {
         val optEqTemplate = templates.getLambdaTemplates(tpe).find { tmpl =>
-          wrapped.modelEval(tmpl.start, BooleanType) == Some(BooleanLiteral(true)) &&
+          wrapped.modelEval(tmpl.start, BooleanType()) == Some(BooleanLiteral(true)) &&
           modelEq(tmpl.ids._2, f)
         }
 
@@ -477,7 +477,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }
 
       val arguments = templates.getGroundInstantiations(f, tpe).flatMap { case (b, eArgs) =>
-        wrapped.modelEval(b, BooleanType).filter(_ == BooleanLiteral(true)).map(_ => eArgs)
+        wrapped.modelEval(b, BooleanType()).filter(_ == BooleanLiteral(true)).map(_ => eArgs)
       }.distinct
 
       extractLambda(f, tpe).orElse {
@@ -690,9 +690,9 @@ trait AbstractUnrollingSolver extends Solver { self =>
           } else if (templates.hasQuantifiers) {
             val wrapped = wrapModel(umodel)
             val optError = templates.getQuantifications.view.flatMap { q =>
-              if (wrapped.modelEval(q.holds, t.BooleanType) != Some(t.BooleanLiteral(false))) {
+              if (wrapped.modelEval(q.holds, t.BooleanType()) != Some(t.BooleanLiteral(false))) {
                 q.checkForall { (e1, e2) =>
-                  wrapped.modelEval(templates.mkEquals(e1, e2), t.BooleanType) == Some(t.BooleanLiteral(true))
+                  wrapped.modelEval(templates.mkEquals(e1, e2), t.BooleanType()) == Some(t.BooleanLiteral(true))
                 }.map(err => q.body -> err)
               } else {
                 None
@@ -771,13 +771,13 @@ trait AbstractUnrollingSolver extends Solver { self =>
                   for {
                     b <- templates.satisfactionAssumptions
                     v = templates.extractNot(b).getOrElse(b)
-                    if wrapped.eval(v, BooleanType) == Some(BooleanLiteral(true))
+                    if wrapped.eval(v, BooleanType()) == Some(BooleanLiteral(true))
                   } templates.promoteBlocker(v)
                 }
 
                 for {
                   (inst, bs) <- templates.getInstantiationsWithBlockers
-                  if wrapped.eval(inst, BooleanType) == Some(BooleanLiteral(false))
+                  if wrapped.eval(inst, BooleanType()) == Some(BooleanLiteral(false))
                   b <- bs
                 } templates.promoteBlocker(b, force = true)
 

@@ -31,13 +31,13 @@ trait TypeElaborators { self: Interpolator =>
     }
 
     lazy val basic: Map[Value, trees.Type] = Seq(
-      "Boolean" -> trees.BooleanType,
-      "BigInt"  -> trees.IntegerType,
-      "Char"    -> trees.CharType,
-      "Int"     -> trees.Int32Type,
-      "Real"    -> trees.RealType,
-      "String"  -> trees.StringType,
-      "Unit"    -> trees.UnitType).map({ case (n, v) => Name(n) -> v }).toMap
+      "Boolean" -> trees.BooleanType(),
+      "BigInt"  -> trees.IntegerType(),
+      "Char"    -> trees.CharType(),
+      "Int"     -> trees.Int32Type(),
+      "Real"    -> trees.RealType(),
+      "String"  -> trees.StringType(),
+      "Unit"    -> trees.UnitType()).map({ case (n, v) => Name(n) -> v }).toMap
 
     private lazy val basicInv = basic.map(_.swap)
 

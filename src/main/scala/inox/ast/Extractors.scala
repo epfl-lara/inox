@@ -362,13 +362,14 @@ trait TreeDeconstructor {
 
     case s.BVType(size) => (Seq(), Seq(), Seq(), ((_, _, _) => t.BVType(size)))
 
-    case s.Untyped     => (Seq(), Seq(), Seq(), (_, _, _) => t.Untyped)
-    case s.BooleanType => (Seq(), Seq(), Seq(), (_, _, _) => t.BooleanType)
-    case s.UnitType    => (Seq(), Seq(), Seq(), (_, _, _) => t.UnitType)
-    case s.CharType    => (Seq(), Seq(), Seq(), (_, _, _) => t.CharType)
-    case s.IntegerType => (Seq(), Seq(), Seq(), (_, _, _) => t.IntegerType)
-    case s.RealType    => (Seq(), Seq(), Seq(), (_, _, _) => t.RealType)
-    case s.StringType  => (Seq(), Seq(), Seq(), (_, _, _) => t.StringType)
+    case s.Untyped => (Seq(), Seq(), Seq(), (_, _, _) => t.Untyped)
+
+    case s.BooleanType() => (Seq(), Seq(), Seq(), (_, _, _) => t.BooleanType())
+    case s.UnitType()    => (Seq(), Seq(), Seq(), (_, _, _) => t.UnitType())
+    case s.CharType()    => (Seq(), Seq(), Seq(), (_, _, _) => t.CharType())
+    case s.IntegerType() => (Seq(), Seq(), Seq(), (_, _, _) => t.IntegerType())
+    case s.RealType()    => (Seq(), Seq(), Seq(), (_, _, _) => t.RealType())
+    case s.StringType()  => (Seq(), Seq(), Seq(), (_, _, _) => t.StringType())
   }
 
   /** Rebuild a flag from the given set of identifiers, expressions and types */

@@ -15,13 +15,13 @@ trait AbstractUnrollingOptimizer extends AbstractUnrollingSolver with Optimizer 
   }
 
   def assertCnstr(expression: Expr, weight: Int): Unit = {
-    val b = Variable.fresh("b", BooleanType)
+    val b = Variable.fresh("b", BooleanType())
     assertCnstr(Implies(b, expression))
     underlying.assertCnstr(freeVars(b), weight)
   }
 
   def assertCnstr(expression: Expr, weight: Int, group: String): Unit = {
-    val b = Variable.fresh("b", BooleanType)
+    val b = Variable.fresh("b", BooleanType())
     assertCnstr(Implies(b, expression))
     underlying.assertCnstr(freeVars(b), weight, group)
   }

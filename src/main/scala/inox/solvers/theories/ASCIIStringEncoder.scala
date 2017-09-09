@@ -17,12 +17,12 @@ trait ASCIIStringEncoder extends SimpleEncoder {
 
   val stringADT = mkConstructor(
     FreshIdentifier("String"), HasADTInvariant(inv)
-  )()(None)(_ => Seq(ValDef(value, StringType)))
+  )()(None)(_ => Seq(ValDef(value, StringType())))
 
   val String: ADTType = T(stringADT.id)()
 
   val invariant = mkFunDef(inv)()(_ => (
-    Seq("s" :: String), BooleanType, { case Seq(s) =>
+    Seq("s" :: String), BooleanType(), { case Seq(s) =>
       StringLength(s.getField(value)) % E(BigInt(2)) === E(BigInt(0))
     }))
 
@@ -74,7 +74,7 @@ trait ASCIIStringEncoder extends SimpleEncoder {
     }
 
     override def transform(tpe: Type): Type = tpe match {
-      case StringType => String
+      case StringType() => String
       case _ => super.transform(tpe)
     }
   }
@@ -119,7 +119,7 @@ trait ASCIIStringEncoder extends SimpleEncoder {
     }
 
     override def transform(tpe: Type): Type = tpe match {
-      case String => StringType
+      case String => StringType()
       case _ => super.transform(tpe)
     }
   }

@@ -191,7 +191,7 @@ trait LambdaTemplates { self: Templates =>
   }
 
   private def nextAppBlocker(app: (Encoded, App)): (Encoded, Encoded) = {
-    val nextB = encodeSymbol(Variable.fresh("b_lambda", BooleanType, true))
+    val nextB = encodeSymbol(Variable.fresh("b_lambda", BooleanType(), true))
     val lastB = appBlockers(app)
     registerAppBlocker(app, nextB)
     (lastB, nextB)
@@ -227,7 +227,7 @@ trait LambdaTemplates { self: Templates =>
       }
 
       val extClauses = for ((oldB, freeF) <- freeBlockers(newTemplate.tpe).toList if canBeEqual(freeF, idT)) yield {
-        val nextB  = encodeSymbol(Variable.fresh("b_or", BooleanType, true))
+        val nextB  = encodeSymbol(Variable.fresh("b_or", BooleanType(), true))
         val ext = mkOr(mkAnd(newTemplate.start, mkEquals(idT, freeF)), nextB)
         freeBlockers += newTemplate.tpe -> (freeBlockers(newTemplate.tpe) - (oldB -> freeF) + (nextB -> freeF))
         mkEquals(oldB, ext)
@@ -272,7 +272,7 @@ trait LambdaTemplates { self: Templates =>
       instantiated += key
 
       if (!appBlockers.isDefinedAt(key)) {
-        val firstB = encodeSymbol(Variable.fresh("b_lambda", BooleanType, true))
+        val firstB = encodeSymbol(Variable.fresh("b_lambda", BooleanType(), true))
         registerAppBlocker(key, firstB)
         clauses :+= mkImplies(mkNot(firstB), mkNot(blocker))
       }
@@ -308,11 +308,11 @@ trait LambdaTemplates { self: Templates =>
             clauses :+= mkImplies(blocker, typeBlocker)
 
           case None =>
-            val typeBlocker = encodeSymbol(Variable.fresh("t", BooleanType))
+            val typeBlocker = encodeSymbol(Variable.fresh("t", BooleanType()))
             typeBlockers += encoded -> typeBlocker
 
-            val firstB = encodeSymbol(Variable.fresh("b_free", BooleanType, true))
-            val nextB  = encodeSymbol(Variable.fresh("b_or", BooleanType, true))
+            val firstB = encodeSymbol(Variable.fresh("b_free", BooleanType(), true))
+            val nextB  = encodeSymbol(Variable.fresh("b_or", BooleanType(), true))
             freeBlockers += tpe -> (freeBlockers(tpe) + (nextB -> caller))
 
             val boundClauses = for (template <- byType(tpe).values if canBeEqual(caller, template.ids._2)) yield {
@@ -450,7 +450,7 @@ trait LambdaTemplates { self: Templates =>
               case Some(lambdaBlocker) => lambdaBlocker
 
               case None =>
-                val lambdaBlocker = encodeSymbol(Variable.fresh("d", BooleanType, true))
+                val lambdaBlocker = encodeSymbol(Variable.fresh("d", BooleanType(), true))
                 lambdaBlockers += info -> lambdaBlocker
 
                 val instClauses: Clauses = template.instantiate(lambdaBlocker, args)

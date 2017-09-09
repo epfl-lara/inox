@@ -30,28 +30,28 @@ class QuantifiersSuite extends TestSuite {
 
   val isAssociativeID = FreshIdentifier("isAssociative")
   val isAssociative = mkFunDef(isAssociativeID)("A") { case Seq(aT) => (
-    Seq("f" :: ((aT, aT) =>: aT)), BooleanType, { case Seq(f) =>
+    Seq("f" :: ((aT, aT) =>: aT)), BooleanType(), { case Seq(f) =>
       forall("x" :: aT, "y" :: aT, "z" :: aT)((x,y,z) => f(f(x,y),z) === f(x,f(y,z)))
     })
   }
 
   val isCommutativeID = FreshIdentifier("isCommutative")
   val isCommutative = mkFunDef(isCommutativeID)("A") { case Seq(aT) => (
-    Seq("f" :: ((aT, aT) =>: aT)), BooleanType, { case Seq(f) =>
+    Seq("f" :: ((aT, aT) =>: aT)), BooleanType(), { case Seq(f) =>
       forall("x" :: aT, "y" :: aT)((x,y) => f(x,y) === f(y,x))
     })
   }
 
   val isRotateID = FreshIdentifier("isRotate")
   val isRotate = mkFunDef(isRotateID)("A") { case Seq(aT) => (
-    Seq("f" :: ((aT, aT) =>: aT)), BooleanType, { case Seq(f) =>
+    Seq("f" :: ((aT, aT) =>: aT)), BooleanType(), { case Seq(f) =>
       forall("x" :: aT, "y" :: aT, "z" :: aT)((x,y,z) => f(f(x,y),z) === f(f(y,z),x))
     })
   }
 
   val isIdempotentID = FreshIdentifier("isIdempotent")
   val isIdempotent = mkFunDef(isIdempotentID)("A") { case Seq(aT) => (
-    Seq("f" :: ((aT, aT) =>: aT)), BooleanType, { case Seq(f) =>
+    Seq("f" :: ((aT, aT) =>: aT)), BooleanType(), { case Seq(f) =>
       forall("x" :: aT, "y" :: aT)((x,y) => f(x,y) === f(x,f(x,y)))
     })
   }
@@ -84,8 +84,8 @@ class QuantifiersSuite extends TestSuite {
   }
 
   test("Commutative and rotate ==> associative (integer type)") { implicit ctx =>
-    val f = ("f" :: ((IntegerType, IntegerType) =>: IntegerType)).toVariable
-    val clause = isCommutative(IntegerType)(f) && isRotate(IntegerType)(f) && !isAssociative(IntegerType)(f)
+    val f = ("f" :: ((IntegerType(), IntegerType()) =>: IntegerType())).toVariable
+    val clause = isCommutative(IntegerType())(f) && isRotate(IntegerType())(f) && !isAssociative(IntegerType())(f)
 
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
@@ -107,8 +107,8 @@ class QuantifiersSuite extends TestSuite {
   }
 
   test("Commutative + idempotent satisfiable") { implicit ctx =>
-    val f = ("f" :: ((IntegerType, IntegerType) =>: IntegerType)).toVariable
-    val clause = isCommutative(IntegerType)(f) && isIdempotent(IntegerType)(f) &&
+    val f = ("f" :: ((IntegerType(), IntegerType()) =>: IntegerType())).toVariable
+    val clause = isCommutative(IntegerType())(f) && isIdempotent(IntegerType())(f) &&
       !(f(E(BigInt(1)), E(BigInt(2))) ===
         f(f(E(BigInt(2)), E(BigInt(1))), E(BigInt(3))))
 

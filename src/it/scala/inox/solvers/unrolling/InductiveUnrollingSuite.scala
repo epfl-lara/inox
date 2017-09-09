@@ -20,9 +20,9 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
   val sortID = FreshIdentifier("sort")
 
   val sizeFd = mkFunDef(sizeID)("A") { case Seq(aT) => (
-    Seq("l" :: T(listID)(aT)), IntegerType, { case Seq(l) =>
+    Seq("l" :: T(listID)(aT)), IntegerType(), { case Seq(l) =>
       if_ (l.isInstOf(T(consID)(aT))) {
-        E(BigInt(1)) + let("res" :: IntegerType, E(sizeID)(aT)(l.asInstOf(T(consID)(aT)).getField(tail))) {
+        E(BigInt(1)) + let("res" :: IntegerType(), E(sizeID)(aT)(l.asInstOf(T(consID)(aT)).getField(tail))) {
           res => Assume(res >= E(BigInt(0)), res)
         }
       } else_ {
@@ -71,7 +71,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
 
   val associative = mkFunDef(assocID)("A","B","C") { case Seq(aT, bT, cT) => (
     Seq("l1" :: T(listID)(aT), "l2" :: T(listID)(bT), "l3" :: T(listID)(cT),
-      "f" :: (aT =>: T(listID)(bT)), "g" :: (bT =>: T(listID)(cT))), BooleanType,
+      "f" :: (aT =>: T(listID)(bT)), "g" :: (bT =>: T(listID)(cT))), BooleanType(),
       { case Seq(l1, l2, l3, f, g) =>
         (if_ (l3.isInstOf(T(consID)(cT))) {
           Assume(E(assocID)(aT, bT, cT)(l1, l2, l3.asInstOf(T(consID)(cT)).getField(tail), f, g), E(true))
@@ -97,7 +97,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
   }
 
   val forall = mkFunDef(forallID)("A") { case Seq(aT) => (
-    Seq("l" :: T(listID)(aT), "p" :: (aT =>: BooleanType)), BooleanType, { case Seq(l, p) =>
+    Seq("l" :: T(listID)(aT), "p" :: (aT =>: BooleanType())), BooleanType(), { case Seq(l, p) =>
       if_ (l.isInstOf(T(consID)(aT))) {
         let("cons" :: T(consID)(aT), l.asInstOf(T(consID)(aT))) { cons =>
           p(cons.getField(head)) && E(forallID)(aT)(cons.getField(tail), p)
@@ -121,7 +121,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
   }
 
   val partition = mkFunDef(partitionID)("A") { case Seq(aT) => (
-    Seq("l" :: T(listID)(aT), "p" :: (aT =>: BooleanType)), T(T(listID)(aT), T(listID)(aT)), { case Seq(l, p) =>
+    Seq("l" :: T(listID)(aT), "p" :: (aT =>: BooleanType())), T(T(listID)(aT), T(listID)(aT)), { case Seq(l, p) =>
       let("res" :: T(T(listID)(aT), T(listID)(aT)), if_ (l.isInstOf(T(consID)(aT))) {
         let("cons" :: T(consID)(aT), l.asInstOf(T(consID)(aT))) { cons =>
           let("ptl" :: T(T(listID)(aT), T(listID)(aT)), E(partitionID)(aT)(cons.getField(tail), p)) { ptl =>
@@ -145,7 +145,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
   }
 
   val sort = mkFunDef(sortID)("A") { case Seq(aT) => (
-    Seq("l" :: T(listID)(aT), "lt" :: ((aT, aT) =>: BooleanType)), T(listID)(aT), { case Seq(l, lt) =>
+    Seq("l" :: T(listID)(aT), "lt" :: ((aT, aT) =>: BooleanType())), T(listID)(aT), { case Seq(l, lt) =>
       let("res" :: T(listID)(aT), if_ (l.isInstOf(T(consID)(aT))) {
         let("cons" :: T(consID)(aT), l.asInstOf(T(consID)(aT))) { cons =>
         let("part" :: T(T(listID)(aT), T(listID)(aT)),
@@ -172,15 +172,15 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
   val program = InoxProgram(symbols)
 
   test("size(x) == 0 is satisfiable") { implicit ctx =>
-    val vd = "x" :: T(listID)(IntegerType)
-    val clause = sizeFd(IntegerType)(vd.toVariable) === E(BigInt(0))
+    val vd = "x" :: T(listID)(IntegerType())
+    val clause = sizeFd(IntegerType())(vd.toVariable) === E(BigInt(0))
 
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
   test("size(x) < 0 is unsatisfiable") { implicit ctx =>
-    val vd = "x" :: T(listID)(IntegerType)
-    val clause = sizeFd(IntegerType)(vd.toVariable) < E(BigInt(0))
+    val vd = "x" :: T(listID)(IntegerType())
+    val clause = sizeFd(IntegerType())(vd.toVariable) < E(BigInt(0))
 
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
@@ -201,9 +201,9 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
   }
 
   test("sort preserves content 1", filter(_)) { implicit ctx =>
-    val (l,p) = ("l" :: T(listID)(IntegerType), "p" :: ((IntegerType, IntegerType) =>: BooleanType))
-    val clause = E(contentID)(IntegerType)(E(sortID)(IntegerType)(l.toVariable, p.toVariable)) ===
-      E(contentID)(IntegerType)(l.toVariable)
+    val (l,p) = ("l" :: T(listID)(IntegerType()), "p" :: ((IntegerType(), IntegerType()) =>: BooleanType()))
+    val clause = E(contentID)(IntegerType())(E(sortID)(IntegerType())(l.toVariable, p.toVariable)) ===
+      E(contentID)(IntegerType())(l.toVariable)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(clause)).isUNSAT)
   }
 

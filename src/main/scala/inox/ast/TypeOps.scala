@@ -306,8 +306,8 @@ trait TypeOps {
 
     tp match {
       case Untyped => Some(0)
-      case BooleanType => Some(2)
-      case UnitType => Some(1)
+      case BooleanType() => Some(2)
+      case UnitType() => Some(1)
       // TODO BVType => 2^size
       case TupleType(tps) => cards(tps).map(_.product)
       case SetType(base) => 

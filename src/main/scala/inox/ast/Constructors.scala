@@ -31,8 +31,8 @@ trait Constructors { self: Trees =>
     * If the sequence is empty, the [[Types.UnitType UnitType]] is returned.
     * @see [[Types.TupleType]]
     */
-  def tupleTypeWrap(tps: Seq[Type]) = tps match {
-    case Seq() => UnitType
+  def tupleTypeWrap(tps: Seq[Type]): Type = tps match {
+    case Seq() => UnitType()
     case Seq(elem) => elem
     case more => TupleType(more)
   }
@@ -67,7 +67,7 @@ trait Constructors { self: Trees =>
   /** $encodingof `&&`-expressions with arbitrary number of operands as a sequence, and simplified.
     * @see [[Expressions.And And]]
     */
-  def andJoin(es: Seq[Expr]) = and(es :_*)
+  def andJoin(es: Seq[Expr]): Expr = and(es :_*)
 
   /** $encodingof `||`-expressions with arbitrary number of operands, and simplified.
     * @see [[Expressions.Or Or]]
@@ -99,7 +99,7 @@ trait Constructors { self: Trees =>
   /** $encodingof `||`-expressions with arbitrary number of operands as a sequence, and simplified.
     * @see [[Expressions.Or Or]]
     */
-  def orJoin(es: Seq[Expr]) = or(es :_*)
+  def orJoin(es: Seq[Expr]): Expr = or(es :_*)
 
   /** $encodingof simplified `!`-expressions .
     * @see [[Expressions.Not Not]]

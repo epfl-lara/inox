@@ -83,14 +83,14 @@ trait ADTManagers {
               case (tpe, i) => (freshId("_" + (i + 1)), tpe)
             }))))
 
-          case UnitType =>
+          case UnitType() =>
             Some(tpe -> DataType(freshId("Unit"), Seq(Constructor(freshId("Unit"), tpe, Nil))))
 
           case TypeParameter(id, _) =>
             val sym = freshId(id.name)
 
             Some(tpe -> DataType(sym, Seq(Constructor(freshId(sym.name), tpe, List(
-              (freshId("val"), IntegerType)
+              (freshId("val"), IntegerType())
             )))))
 
           case _ => None

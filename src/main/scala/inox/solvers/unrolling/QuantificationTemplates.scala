@@ -74,8 +74,8 @@ trait QuantificationTemplates { self: Templates =>
     def unapply(tpe: Type): Option[(Seq[Type], Type)] = tpe match {
       case FunctionType(from, to) => Some(flatType(tpe))
       case MapType(from, to) => Some(Seq(from) -> to)
-      case BagType(base) => Some(Seq(base) -> IntegerType)
-      case SetType(base) => Some(Seq(base) -> BooleanType)
+      case BagType(base) => Some(Seq(base) -> IntegerType())
+      case SetType(base) => Some(Seq(base) -> BooleanType())
       case _ => None
     }
   }
@@ -175,22 +175,22 @@ trait QuantificationTemplates { self: Templates =>
         Map[Variable, Encoded]
       ) = optPol match {
         case Some(true) =>
-          val guard = encodeSymbol(Variable.fresh("guard", BooleanType, true))
+          val guard = encodeSymbol(Variable.fresh("guard", BooleanType(), true))
           val extraSubst = Map(pathVar._1 -> guard)
           val extraGuarded = Map(pathVar._1 -> Seq(p))
           (None, Positive(guard), extraGuarded, Seq.empty, extraSubst)
 
         case Some(false) =>
-          val inst: Variable = Variable.fresh("inst", BooleanType, true)
+          val inst: Variable = Variable.fresh("inst", BooleanType(), true)
           val insts = inst -> encodeSymbol(inst)
           val extraGuarded = Map(pathVar._1 -> Seq(Equals(inst, p)))
           (Some(inst), Negative(insts), extraGuarded, Seq.empty, Map(insts))
 
         case None =>
-          val q: Variable = Variable.fresh("q", BooleanType, true)
-          val q2: Variable = Variable.fresh("qo", BooleanType, true)
-          val inst: Variable = Variable.fresh("inst", BooleanType, true)
-          val guard = encodeSymbol(Variable.fresh("guard", BooleanType, true))
+          val q: Variable = Variable.fresh("q", BooleanType(), true)
+          val q2: Variable = Variable.fresh("qo", BooleanType(), true)
+          val inst: Variable = Variable.fresh("inst", BooleanType(), true)
+          val guard = encodeSymbol(Variable.fresh("guard", BooleanType(), true))
 
           val qs = q -> encodeSymbol(q)
           val q2s = q2 -> encodeSymbol(q2)
@@ -874,7 +874,7 @@ trait QuantificationTemplates { self: Templates =>
       val app = mkFlatApp(template.ids._2, template.tpe, quantifiers.map(_._2))
       val matcher = Matcher(Left(template.ids._2 -> template.tpe), quantifiers.map(p => Left(p._2)), app)
 
-      val guard = encodeSymbol(Variable.fresh("guard", BooleanType, true))
+      val guard = encodeSymbol(Variable.fresh("guard", BooleanType(), true))
       val substituter = mkSubstituter(Map(template.start -> guard))
 
       val body: Expr = {
@@ -1056,7 +1056,7 @@ trait QuantificationTemplates { self: Templates =>
       val (values, clause) = keyClause.getOrElse(key, {
         val insts = handledMatchers.toList.filter(hm => correspond(matcherKey(hm._2), key).isDefined)
 
-        val guard = Variable.fresh("guard", BooleanType, true)
+        val guard = Variable.fresh("guard", BooleanType(), true)
         val elems = argTypes.map(tpe => Variable.fresh("elem", tpe, true))
         val values = argTypes.map(tpe => Variable.fresh("value", tpe, true))
         val expr = andJoin(guard +: (elems zip values).map(p => Equals(p._1, p._2)))
@@ -1089,7 +1089,7 @@ trait QuantificationTemplates { self: Templates =>
     }
 
     for (q <- quantifications if ignoredSubsts.isDefinedAt(q)) {
-      val guard = Variable.fresh("guard", BooleanType, true)
+      val guard = Variable.fresh("guard", BooleanType(), true)
       val elems = q.quantifiers.map(_._1)
       val values = elems.map(v => v.freshen)
       val expr = andJoin(guard +: (elems zip values).map(p => Equals(p._1, p._2)))

@@ -31,7 +31,7 @@ trait BagEncoder extends SimpleEncoder {
 
   val GetID = FreshIdentifier("get")
   val Get = mkFunDef(GetID)("T") { case Seq(aT) => (
-    Seq("bag" :: Bag(aT), "x" :: aT), IntegerType, {
+    Seq("bag" :: Bag(aT), "x" :: aT), IntegerType(), {
       case Seq(bag, x) => if_ (bag.isInstOf(Sum(aT))) {
         E(GetID)(aT)(bag.asInstOf(Sum(aT)).getField(left), x) +
           E(GetID)(aT)(bag.asInstOf(Sum(aT)).getField(right), x)
@@ -64,7 +64,7 @@ trait BagEncoder extends SimpleEncoder {
       } else_ {
         if_ (keys.isInstOf(Elem(aT))) {
           let("f" :: aT, keys.asInstOf(Elem(aT)).getField(key)) { f =>
-            let("d" :: IntegerType, Get(aT)(b1, f) - Get(aT)(b2, f)) { d =>
+            let("d" :: IntegerType(), Get(aT)(b1, f) - Get(aT)(b2, f)) { d =>
               if_ (d < E(BigInt(0))) { Leaf(aT)() } else_ { Elem(aT)(f, d) }
             }
           }
@@ -89,8 +89,8 @@ trait BagEncoder extends SimpleEncoder {
       } else_ {
         if_ (keys.isInstOf(Elem(aT))) {
           let("f" :: aT, keys.asInstOf(Elem(aT)).getField(key)) { f =>
-            let("v1" :: IntegerType, Get(aT)(b1, f)) { v1 =>
-              let("v2" :: IntegerType, Get(aT)(b2, f)) { v2 =>
+            let("v1" :: IntegerType(), Get(aT)(b1, f)) { v1 =>
+              let("v2" :: IntegerType(), Get(aT)(b2, f)) { v2 =>
                 Elem(aT)(f, if_ (v1 <= v2) { v1 } else_ { v2 })
               }
             }
@@ -109,14 +109,14 @@ trait BagEncoder extends SimpleEncoder {
 
   val EqualsID = FreshIdentifier("equals")
   val BagEquals = mkFunDef(EqualsID)("T") { case Seq(aT) => (
-    Seq("b1" :: Bag(aT), "b2" :: Bag(aT)), BooleanType, {
+    Seq("b1" :: Bag(aT), "b2" :: Bag(aT)), BooleanType(), {
       case Seq(b1, b2) => forall("x" :: aT)(x => Get(aT)(b1, x) === Get(aT)(b2, x))
     })
   }
 
   val InvID = FreshIdentifier("inv")
   val BagInvariant = mkFunDef(InvID)("T") { case Seq(aT) => (
-    Seq("bag" :: Bag(aT)), BooleanType, {
+    Seq("bag" :: Bag(aT)), BooleanType(), {
       case Seq(bag) => if_ (bag.isInstOf(Elem(aT))) {
         bag.asInstOf(Elem(aT)).getField(value) >= E(BigInt(0))
       } else_ {
@@ -132,7 +132,7 @@ trait BagEncoder extends SimpleEncoder {
   }
 
   val elemADT = mkConstructor(ElemID)("T")(Some(BagID)) {
-    case Seq(aT) => Seq(ValDef(key, aT), ValDef(value, IntegerType))
+    case Seq(aT) => Seq(ValDef(key, aT), ValDef(value, IntegerType()))
   }
 
   val leafADT = mkConstructor(LeafID)("T")(Some(BagID))(_ => Seq.empty)

@@ -19,9 +19,9 @@ class ChooseSuite extends SolvingTestSuite {
 
   // Simple functions that contains a choose
   val fun1 = mkFunDef(FreshIdentifier("fun1"))()(_ => (
-    Seq("x" :: IntegerType), IntegerType, { case Seq(x) =>
+    Seq("x" :: IntegerType()), IntegerType(), { case Seq(x) =>
       if_ (x <= E(BigInt(0))) {
-        choose("v" :: IntegerType)(_ > E(BigInt(0)))
+        choose("v" :: IntegerType())(_ > E(BigInt(0)))
       } else_ {
         x
       }
@@ -29,9 +29,9 @@ class ChooseSuite extends SolvingTestSuite {
 
   // Function that contains a choose AND calls another function containing a choose
   val fun2 = mkFunDef(FreshIdentifier("fun2"))()(_ => (
-    Seq("x" :: IntegerType, "y" :: IntegerType), IntegerType, { case Seq(x, y) =>
+    Seq("x" :: IntegerType(), "y" :: IntegerType()), IntegerType(), { case Seq(x, y) =>
       if_ (x <= E(BigInt(0))) {
-        choose("v" :: IntegerType)(_ > E(BigInt(0)))
+        choose("v" :: IntegerType())(_ > E(BigInt(0)))
       } else_ {
         fun1(y)
       }
@@ -39,7 +39,7 @@ class ChooseSuite extends SolvingTestSuite {
 
   // Function containing a choose that depends on a type parameter
   val fun3 = mkFunDef(FreshIdentifier("fun3"))("T") { case Seq(aT) => (
-    Seq("x" :: aT, "b" :: BooleanType), aT, { case Seq(x, b) =>
+    Seq("x" :: aT, "b" :: BooleanType()), aT, { case Seq(x, b) =>
       if_ (b) {
         choose("v" :: aT)(_ => E(true))
       } else_ {
@@ -51,9 +51,9 @@ class ChooseSuite extends SolvingTestSuite {
   // Recursive function where the same choose takes on different values
   val fun4ID = FreshIdentifier("fun4")
   val fun4 = mkFunDef(fun4ID)()(_ => (
-    Seq("x" :: IntegerType, "y" :: IntegerType), IntegerType, { case Seq(x, y) =>
+    Seq("x" :: IntegerType(), "y" :: IntegerType()), IntegerType(), { case Seq(x, y) =>
       if_ (x >= E(BigInt(0))) {
-        choose("v" :: IntegerType)(_ > y) + E(fun4ID)(x - E(BigInt(1)), y - E(BigInt(1)))
+        choose("v" :: IntegerType())(_ > y) + E(fun4ID)(x - E(BigInt(1)), y - E(BigInt(1)))
       } else_ {
         E(BigInt(0))
       }
@@ -63,7 +63,7 @@ class ChooseSuite extends SolvingTestSuite {
   val program = InoxProgram(symbols)
 
   test("simple choose") { implicit ctx =>
-    val clause = choose("v" :: IntegerType)(v => v > IntegerLiteral(0)) === IntegerLiteral(10)
+    val clause = choose("v" :: IntegerType())(v => v > IntegerLiteral(0)) === IntegerLiteral(10)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
@@ -73,7 +73,7 @@ class ChooseSuite extends SolvingTestSuite {
   }
 
   test("choose in function and arguments") { implicit ctx =>
-    val clause = fun1(choose("v" :: IntegerType)(_ < IntegerLiteral(0))) === IntegerLiteral(10)
+    val clause = fun1(choose("v" :: IntegerType())(_ < IntegerLiteral(0))) === IntegerLiteral(10)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
@@ -84,8 +84,8 @@ class ChooseSuite extends SolvingTestSuite {
   }
 
   test("choose in parametric function") { implicit ctx =>
-    val clause = fun3(IntegerType)(IntegerLiteral(1), E(true)) === IntegerLiteral(10) &&
-      fun3(BooleanType)(E(true), E(true)) === E(false)
+    val clause = fun3(IntegerType())(IntegerLiteral(1), E(true)) === IntegerLiteral(10) &&
+      fun3(BooleanType())(E(true), E(true)) === E(false)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 

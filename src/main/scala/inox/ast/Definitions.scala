@@ -77,7 +77,7 @@ trait Definitions { self: Trees =>
   /** 
     * A ValDef declares a formal parameter (with symbol [[id]]) to be of a certain type.
     */
-  class ValDef(v: Variable) extends Definition with VariableSymbol {
+  sealed class ValDef(v: Variable) extends Definition with VariableSymbol {
     lazy val id = v.id
     lazy val tpe = v.tpe
     lazy val flags = v.flags
@@ -212,7 +212,7 @@ trait Definitions { self: Trees =>
     def withADTs(adts: Seq[ADTDefinition]): Symbols
   }
 
-  class TypeParameterDef(val tp: TypeParameter) extends Definition {
+  sealed class TypeParameterDef(val tp: TypeParameter) extends Definition {
     lazy val id = tp.id
     lazy val flags = tp.flags
 
@@ -248,18 +248,18 @@ trait Definitions { self: Trees =>
 
   /** Determines the variance of a [[Types.TypeParameter TypeParameter]]
     * (should only be attached to those) */
-  case class Variance(variance: Boolean) extends Flag("variance", Seq(variance))
+  sealed case class Variance(variance: Boolean) extends Flag("variance", Seq(variance))
 
   /** Denotes that this adt is refined by invariant ''id'' */
-  case class HasADTInvariant(id: Identifier) extends Flag("invariant", Seq(id))
+  sealed case class HasADTInvariant(id: Identifier) extends Flag("invariant", Seq(id))
 
   /** Denotes that this adt has an overriden equality relation given by ''id'' */
-  case class HasADTEquality(id: Identifier) extends Flag("equality", Seq(id))
+  sealed case class HasADTEquality(id: Identifier) extends Flag("equality", Seq(id))
 
   /** Compiler annotations given in the source code as @annot.
     * 
     * @see [[Flag]] for some notes on the actual type of [[args]]. */
-  case class Annotation(override val name: String, val args: Seq[Any]) extends Flag(name, args)
+  sealed case class Annotation(override val name: String, val args: Seq[Any]) extends Flag(name, args)
 
   def extractFlag(name: String, args: Seq[Any]): Flag = (name, args) match {
     case ("invariant", id: Identifier) => HasADTInvariant(id)

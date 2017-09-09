@@ -37,8 +37,8 @@ trait EqualityTemplates { self: Templates =>
         constructors.exists(c => c.fieldsTypes.exists(unrollEquality))
       })
 
-    case BooleanType | UnitType | CharType | IntegerType |
-         RealType | StringType | (_: BVType) | (_: TypeParameter) => false
+    case BooleanType() | UnitType() | CharType() | IntegerType() |
+         RealType() | StringType() | (_: BVType) | (_: TypeParameter) => false
 
     case NAryType(tpes, _) => tpes.exists(unrollEquality)
   })
@@ -46,7 +46,7 @@ trait EqualityTemplates { self: Templates =>
   def equalitySymbol(tpe: Type): (Variable, Encoded) = {
     val rt = bestRealType(tpe)
     typeSymbols.cached(rt) {
-      val v = Variable.fresh("eq" + rt, FunctionType(Seq(rt, rt), BooleanType))
+      val v = Variable.fresh("eq" + rt, FunctionType(Seq(rt, rt), BooleanType()))
       v -> encodeSymbol(v)
     }
   }
@@ -79,7 +79,7 @@ trait EqualityTemplates { self: Templates =>
       val args @ Seq(e1, e2) = Seq("e1", "e2").map(s => Variable.fresh(s, tpe))
       val argsT = args.map(encodeSymbol)
 
-      val pathVar = Variable.fresh("b", BooleanType, true)
+      val pathVar = Variable.fresh("b", BooleanType(), true)
       val pathVarT = encodeSymbol(pathVar)
 
       val tmplClauses = mkClauses(pathVar, Equals(Application(f, args), tpe match {
@@ -114,7 +114,7 @@ trait EqualityTemplates { self: Templates =>
 
       val (contents, _) = Template.contents(
         pathVar -> pathVarT, args zip argsT, tmplClauses,
-        substMap = Map(f -> fT), optApp = Some(fT -> FunctionType(Seq(tpe, tpe), BooleanType))
+        substMap = Map(f -> fT), optApp = Some(fT -> FunctionType(Seq(tpe, tpe), BooleanType()))
       )
 
       new EqualityTemplate(tpe, contents)
@@ -128,7 +128,7 @@ trait EqualityTemplates { self: Templates =>
       clauses ++= EqualityTemplate(tpe).instantiate(blocker, e1, e2)
 
       val (_, f) = equalitySymbol(tpe)
-      val ft = FunctionType(Seq(tpe, tpe), BooleanType)
+      val ft = FunctionType(Seq(tpe, tpe), BooleanType())
 
       // congruence is transitive
       for ((tb, te1, te2) <- instantiated(tpe); cond = mkAnd(blocker, tb)) {
@@ -178,7 +178,7 @@ trait EqualityTemplates { self: Templates =>
         equalityInfos += blocker -> (gen, gen, notBlocker, Set(equality))
     }
 
-    mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType), Seq(equality.e1, equality.e2))
+    mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType()), Seq(equality.e1, equality.e2))
   }
 
   private[unrolling] object equalityManager extends Manager {
