@@ -47,7 +47,7 @@ trait Types { self: Trees =>
   case class RealType()    extends Type
   case class StringType()  extends Type
 
-  final case class BVType(size: Int) extends Type {
+  sealed case class BVType(size: Int) extends Type {
     override def toString: String = size match {
       case 8  => "Int8Type"
       case 16 => "Int16Type"
@@ -67,7 +67,7 @@ trait Types { self: Trees =>
   object Int32Type extends BVTypeExtractor(32)
   object Int64Type extends BVTypeExtractor(64)
 
-  final case class TypeParameter(id: Identifier, flags: Set[Flag]) extends Type {
+  sealed case class TypeParameter(id: Identifier, flags: Set[Flag]) extends Type {
     def freshen = TypeParameter(id.freshen, flags)
 
     def isCovariant = flags contains Variance(true)
@@ -90,17 +90,17 @@ trait Types { self: Trees =>
    * If you are not sure about the requirement, 
    * you should use tupleTypeWrap in purescala.Constructors
    */
-  final case class TupleType(bases: Seq[Type]) extends Type {
+  sealed case class TupleType(bases: Seq[Type]) extends Type {
     val dimension: Int = bases.length
     require(dimension >= 2)
   }
 
-  final case class SetType(base: Type) extends Type
-  final case class BagType(base: Type) extends Type
-  final case class MapType(from: Type, to: Type) extends Type
-  final case class FunctionType(from: Seq[Type], to: Type) extends Type
+  sealed case class SetType(base: Type) extends Type
+  sealed case class BagType(base: Type) extends Type
+  sealed case class MapType(from: Type, to: Type) extends Type
+  sealed case class FunctionType(from: Seq[Type], to: Type) extends Type
 
-  final case class ADTType(id: Identifier, tps: Seq[Type]) extends Type {
+  sealed case class ADTType(id: Identifier, tps: Seq[Type]) extends Type {
     def lookupADT(implicit s: Symbols): Option[TypedADTDefinition] = s.lookupADT(id, tps)
     def getADT(implicit s: Symbols): TypedADTDefinition = s.getADT(id, tps)
 
