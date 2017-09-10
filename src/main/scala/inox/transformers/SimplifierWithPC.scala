@@ -107,7 +107,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       val (vd, expr) = p
       if (formulaSize(expr) > 20) {
         this
-      } else if (vd.tpe == BooleanType) {
+      } else if (vd.tpe == BooleanType()) {
         new CNFPath(exprSubst, boolSubst + (vd.toVariable -> getClauses(expr)), conditions, cnfCache, simpCache)
       } else {
         val newSubst = exprSubst.clone += (vd.toVariable -> unexpandLets(expr))
