@@ -1364,7 +1364,7 @@ trait SymbolOps { self: TypeOps =>
 
     symbols.instantiation_>:(formalType, actualType) match {
       case Some(tmap) =>
-        FunctionInvocation(fd.id, fd.tparams map { tpd => tmap.getOrElse(tpd.tp, tpd.tp) }, args).setPos(fd.getPos)
+        FunctionInvocation(fd.id, fd.tparams map { tpd => tmap.getOrElse(tpd.tp, tpd.tp) }, args)
       case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
     }
   }
@@ -1420,7 +1420,7 @@ trait SymbolOps { self: TypeOps =>
     val actualType = tupleTypeWrap(args.map(_.getType))
 
     symbols.instantiation_>:(formalType, actualType) match {
-      case Some(tmap) => ADT(instantiateType(adt.typed.toType, tmap).asInstanceOf[ADTType], args).setPos(adt.getPos)
+      case Some(tmap) => ADT(instantiateType(adt.typed.toType, tmap).asInstanceOf[ADTType], args)
       case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
     }
   }
