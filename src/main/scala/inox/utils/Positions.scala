@@ -63,11 +63,17 @@ object Position {
 
 abstract class DefinedPosition extends Position {
   override def toString = line+":"+col
-  override def fullString = file.getPath+":"+line+":"+col
+  override def fullString = path+":"+line+":"+col
   override def isDefined = true
 
   def focusBegin: OffsetPosition
   def focusEnd: OffsetPosition
+
+  private lazy val path = {
+    val base = new File(".").getCanonicalFile.toPath
+    val absolute = file.getAbsoluteFile.toPath
+    base.relativize(absolute).toString
+  }
 }
 
 case class OffsetPosition(line: Int, col: Int, point: Int, file: File) extends DefinedPosition {
