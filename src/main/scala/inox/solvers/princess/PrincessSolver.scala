@@ -108,11 +108,9 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
     def extractBag(v: IExpression, tpe: t.BagType) = scala.sys.error("Should never happen")
     def extractMap(v: IExpression, tpe: t.MapType) = scala.sys.error("Should never happen")
 
-    def modelEval(elem: IExpression, tpe: t.Type): Option[t.Expr] = {
-      val timer = timers.solvers.princess.eval.start()
+    def modelEval(elem: IExpression, tpe: t.Type): Option[t.Expr] = timers.solvers.princess.eval.run {
       val (res, cs) = underlying.princessToInox(elem, tpe)(model)
       chooses ++= cs.map(p => p._1.res.id -> p._2)
-      timer.stop()
       res
     }
 

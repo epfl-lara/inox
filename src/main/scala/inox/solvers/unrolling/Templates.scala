@@ -676,7 +676,7 @@ trait Templates
         }) +
         " * Application-blocks :" + (if (applications.isEmpty) "\n" else {
           "\n   " + applications.map(p => asString(p._1) + " ==> " + p._2).mkString("\n   ") + "\n"
-        }) + 
+        }) +
         " * Matchers           :" + (if (matchers.isEmpty) "\n" else {
           "\n   " + matchers.map(p => asString(p._1) + " ==> " + p._2).mkString("\n   ") + "\n"
         }) +
@@ -822,9 +822,7 @@ trait Templates
 
     val tpeClauses = bindings.flatMap { case (v, s) => registerSymbol(encodedStart, s, v.getType) }.toSeq
 
-    val timer = timers.solvers.simplify.start()
-    val instExpr = simplifyFormula(expr)
-    timer.stop()
+    val instExpr = timers.solvers.simplify.run { simplifyFormula(expr) }
 
     val tmplClauses = mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
 

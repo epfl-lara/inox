@@ -54,9 +54,8 @@ trait ContextualEvaluator extends Evaluator {
   case class RuntimeError(msg: String) extends Exception
   case class QuantificationError(msg: String) extends Exception
 
-  def eval(ex: Expr, model: program.Model) = {
+  def eval(ex: Expr, model: program.Model) = timers.evaluators.recursive.runtime.run {
     try {
-      timers.evaluators.recursive.runtime.start()
       EvaluationResults.Successful(e(ex)(initRC(model), initGC))
     } catch {
       case EvalError(msg) =>
@@ -67,8 +66,6 @@ trait ContextualEvaluator extends Evaluator {
         EvaluationResults.RuntimeError(msg)
       case jre: java.lang.RuntimeException =>
         EvaluationResults.RuntimeError(jre.getMessage)
-    } finally {
-      timers.evaluators.recursive.runtime.stop()
     }
   }
 

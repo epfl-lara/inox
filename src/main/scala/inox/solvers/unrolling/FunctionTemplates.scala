@@ -20,9 +20,7 @@ trait FunctionTemplates { self: Templates =>
     private val cache: MutableMap[TypedFunDef, FunctionTemplate] = MutableMap.empty
 
     def apply(tfd: TypedFunDef): FunctionTemplate = cache.getOrElseUpdate(tfd, {
-      val timer = timers.solvers.simplify.start()
-      val lambdaBody: Expr = simplifyFormula(tfd.fullBody)
-      timer.stop()
+      val lambdaBody: Expr = timers.solvers.simplify.run { simplifyFormula(tfd.fullBody) }
 
       val fdArgs: Seq[Variable] = tfd.params.map(_.toVariable)
       val lambdaArgs: Seq[Variable] = lambdaArguments(lambdaBody)

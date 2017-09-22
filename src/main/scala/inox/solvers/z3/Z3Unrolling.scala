@@ -94,9 +94,8 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
     }
 
     /** WARNING this code is very similar to Z3Native.extractModel!!! */
-    def modelEval(elem: Z3AST, tpe: t.Type): Option[t.Expr] = {
-      val timer = timers.solvers.z3.eval.start()
-      val res = tpe match {
+    def modelEval(elem: Z3AST, tpe: t.Type): Option[t.Expr] = timers.solvers.z3.eval.run {
+      tpe match {
         case t.BooleanType() => model.evalAs[Boolean](elem).map(t.BooleanLiteral)
 
         case t.Int32Type() => model.evalAs[Int](elem).map(t.Int32Literal(_)).orElse {
@@ -114,8 +113,6 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
 
         case other => model.eval(elem).flatMap(ex.get(_, other))
       }
-      timer.stop()
-      res
     }
 
     def getChoose(id: Identifier): Option[t.Expr] = ex.chooses.get(id)

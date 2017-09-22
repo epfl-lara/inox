@@ -12,7 +12,7 @@ case class Context(
   reporter: Reporter,
   interruptManager: InterruptManager,
   options: Options = Options(Seq()),
-  timers: TimerStorage = new TimerStorage) {
+  timers: TimerStorage = TimerStorage()) {
 
   implicit val implicitContext: this.type = this
 

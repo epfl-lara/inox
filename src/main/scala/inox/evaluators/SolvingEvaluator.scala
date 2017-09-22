@@ -31,15 +31,14 @@ trait SolvingEvaluator extends Evaluator { self =>
   }
 
   def onChooseInvocation(choose: Choose): Expr = chooseCache.getOrElseUpdate(choose, {
-    val timer = context.timers.evaluators.specs.start()
-
-    val sf = semantics.getSolver
+    import scala.language.existentials
+    val res = context.timers.evaluators.specs.run {
+      val sf = semantics.getSolver
+      val api = SimpleSolverAPI(sf)
+      api.solveSAT(choose.pred)
+    }
 
     import SolverResponses._
-
-    val api = SimpleSolverAPI(sf)
-    val res = api.solveSAT(choose.pred)
-    timer.stop()
 
     res match {
       case SatWithModel(model) =>
@@ -56,20 +55,20 @@ trait SolvingEvaluator extends Evaluator { self =>
 
   def onForallInvocation(forall: Forall): Expr = {
     BooleanLiteral(forallCache.getOrElse(forall, {
-      val timer = context.timers.evaluators.forall.start()
+      import scala.language.existentials
+      val res = context.timers.evaluators.forall.run {
+        val sf = semantics.getSolver(context.withOpts(
+          optSilentErrors(true),
+          optCheckModels(false), // model is checked manually!! (see below)
+          unrolling.optFeelingLucky(false),
+          optForallCache(forallCache) // this makes sure we have an `optForallCache` set!
+        ))
 
-      val sf = semantics.getSolver(context.withOpts(
-        optSilentErrors(true),
-        optCheckModels(false), // model is checked manually!! (see below)
-        unrolling.optFeelingLucky(false),
-        optForallCache(forallCache) // this makes sure we have an `optForallCache` set!
-      ))
+        val api = SimpleSolverAPI(sf)
+        api.solveSAT(Not(forall.body))
+      }
 
       import SolverResponses._
-
-      val api = SimpleSolverAPI(sf)
-      val res = api.solveSAT(Not(forall.body))
-      timer.stop()
 
       res match {
         case Unsat =>
