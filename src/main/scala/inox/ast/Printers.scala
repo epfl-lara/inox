@@ -7,9 +7,9 @@ import utils._
 import org.apache.commons.lang3.StringEscapeUtils
 import scala.language.implicitConversions
 
-object optPrintPositions extends FlagOptionDef("printpositions", false)
-object optPrintUniqueIds extends FlagOptionDef("printids",       false)
-object optPrintTypes     extends FlagOptionDef("printtypes",     false)
+object optPrintPositions extends FlagOptionDef("print-positions", false)
+object optPrintUniqueIds extends FlagOptionDef("print-ids",       false)
+object optPrintTypes     extends FlagOptionDef("print-types",     false)
 
 trait Printers { self: Trees =>
 

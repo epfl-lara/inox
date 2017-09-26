@@ -22,7 +22,7 @@ package object solvers {
   }
 
   object optAssumeChecked extends OptionDef[PurityOptions] {
-    val name = "assumechecked"
+    val name = "assume-checked"
     val default = PurityOptions.Unchecked
     val parser = (str: String) => str match {
       case "false" => Some(PurityOptions.Unchecked)
@@ -33,7 +33,7 @@ package object solvers {
     val usageRhs = s"--$name=(false|checked|total)"
   }
 
-  object optNoSimplifications extends FlagOptionDef("nosimplifications", false)
+  object optNoSimplifications extends FlagOptionDef("no-simplifications", false)
 
   class SimplificationOptions(val simplify: Boolean)
   object SimplificationOptions {

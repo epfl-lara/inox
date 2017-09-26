@@ -2,7 +2,7 @@
 
 package inox
 
-object optPrintChooses extends FlagOptionDef("printchooses", false)
+object optPrintChooses extends FlagOptionDef("print-chooses", false)
 
 object Model {
   def empty(p: Program, ctx: Context): p.Model = new Model {

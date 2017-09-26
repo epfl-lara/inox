@@ -12,10 +12,10 @@ import combinators._
 
 import scala.collection.mutable.{Map => MutableMap}
 
-object optUnrollFactor      extends IntOptionDef("unrollfactor", default = 1, "<PosInt>")
-object optFeelingLucky      extends FlagOptionDef("feelinglucky", false)
-object optUnrollAssumptions extends FlagOptionDef("unrollassumptions", false)
-object optModelFinding      extends IntOptionDef("modelfinding", 0, "<PosInt> | 0 (off)") {
+object optUnrollFactor      extends IntOptionDef("unroll-factor", default = 1, "<PosInt>")
+object optFeelingLucky      extends FlagOptionDef("feeling-lucky", false)
+object optUnrollAssumptions extends FlagOptionDef("unroll-assumptions", false)
+object optModelFinding      extends IntOptionDef("model-finding", 0, "<PosInt> | 0 (off)") {
   override val parser: OptionParsers.OptionParser[Int] = (s => s match {
     case "" => Some(1)
     case _ => OptionParsers.intParser(s)
