@@ -216,11 +216,11 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     }
   }
 
-  def isPure(e: Expr, path: CNFPath): Boolean = simplify(e, path)._2
+  def isPure(e: Expr, path: CNFPath): Boolean = synchronized { simplify(e, path)._2 }
 
   private val simplifyCache = new LruCache[Expr, (CNFPath, Expr, Boolean)](100)
 
-  def simplify(e: Expr, path: CNFPath): (Expr, Boolean) = e match {
+  private def simplify(e: Expr, path: CNFPath): (Expr, Boolean) = e match {
     case e if path contains e => (BooleanLiteral(true), true)
     case e if path contains not(e) => (BooleanLiteral(false), true)
 
@@ -423,7 +423,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     (re, pe)
   }
 
-  override protected def rec(e: Expr, path: CNFPath): Expr = {
+  override protected def rec(e: Expr, path: CNFPath): Expr = synchronized {
     stack = if (stack.isEmpty) Nil else (stack.head + 1) :: stack.tail
     val (re, pe) = simplify(e, path)
     purity = if (stack.isEmpty) purity else pe :: purity
