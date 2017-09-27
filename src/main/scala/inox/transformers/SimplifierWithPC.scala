@@ -4,6 +4,8 @@ package inox
 package transformers
 
 import utils._
+
+import scala.util.DynamicVariable
 import scala.collection.mutable.{Map => MutableMap}
 
 trait SimplifierWithPC extends TransformerWithPC { self =>
@@ -170,8 +172,8 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
   //      (since aggressive caching of cnf computations is taking place)
   def initEnv: CNFPath = CNFPath.empty
 
-  private[this] var stack: List[Int] = Nil
-  private[this] var purity: List[Boolean] = Nil
+  private[this] var dynStack: DynamicVariable[List[Int]] = new DynamicVariable(Nil)
+  private[this] var dynPurity: DynamicVariable[List[Boolean]] = new DynamicVariable(Nil)
 
   private val pureCache: MutableMap[Identifier, Boolean] = MutableMap.empty
 
@@ -216,7 +218,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     }
   }
 
-  def isPure(e: Expr, path: CNFPath): Boolean = synchronized { simplify(e, path)._2 }
+  def isPure(e: Expr, path: CNFPath): Boolean = simplify(e, path)._2
 
   private val simplifyCache = new LruCache[Expr, (CNFPath, Expr, Boolean)](100)
 
@@ -407,12 +409,12 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     }
 
     case _ =>
-      stack = 0 :: stack
+      dynStack.value = 0 :: dynStack.value
       val re = super.rec(e, path)
-      val (rpure, rest) = purity.splitAt(stack.head)
+      val (rpure, rest) = dynPurity.value.splitAt(dynStack.value.head)
       val pe = rpure.foldLeft(opts.assumeChecked || !isImpureExpr(re))(_ && _)
-      stack = stack.tail
-      purity = rest
+      dynStack.value = dynStack.value.tail
+      dynPurity.value = rest
       (re, pe)
   }
 
@@ -423,10 +425,10 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     (re, pe)
   }
 
-  override protected def rec(e: Expr, path: CNFPath): Expr = synchronized {
-    stack = if (stack.isEmpty) Nil else (stack.head + 1) :: stack.tail
+  override protected def rec(e: Expr, path: CNFPath): Expr = {
+    dynStack.value = if (dynStack.value.isEmpty) Nil else (dynStack.value.head + 1) :: dynStack.value.tail
     val (re, pe) = simplify(e, path)
-    purity = if (stack.isEmpty) purity else pe :: purity
+    dynPurity.value = if (dynStack.value.isEmpty) dynPurity.value else pe :: dynPurity.value
     re
   }
 }
