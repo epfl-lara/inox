@@ -175,27 +175,28 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
   private[this] var dynStack: DynamicVariable[List[Int]] = new DynamicVariable(Nil)
   private[this] var dynPurity: DynamicVariable[List[Boolean]] = new DynamicVariable(Nil)
 
-  private val pureCache: MutableMap[Identifier, Boolean] = MutableMap.empty
+  private sealed abstract class PurityCheck
+  private case object Pure extends PurityCheck
+  private case object Impure extends PurityCheck
+  private case object Checking extends PurityCheck
 
-  private def isPureFunction(id: Identifier): Boolean = opts.assumeChecked || synchronized {
-    pureCache.get(id) match {
-      case Some(b) => b
+  private[this] val pureCache: MutableMap[Identifier, PurityCheck] = MutableMap.empty
+
+  private def isPureFunction(id: Identifier): Boolean = {
+    opts.assumeChecked ||
+    synchronized(pureCache.get(id) match {
+      case Some(Pure) => true
+      case Some(Impure) => false
+      case Some(Checking) =>
+        // Function is recursive and cycles were not pruned by the simplifier.
+        // No need to update pureCache here as the update will take place in the next branch.
+        false
       case None =>
-        val fd = getFunction(id)
-        if (transitivelyCalls(fd, fd)) {
-          pureCache += id -> false
-          false
-        } else {
-          if (isPure(fd.fullBody, CNFPath.empty)) {
-            pureCache += id -> true
-            true
-          } else {
-            pureCache += id -> false
-            transitiveCallers(fd) foreach { pureCache += _.id -> false }
-            false
-          }
-        }
-    }
+        pureCache += id -> Checking
+        val p = isPure(getFunction(id).fullBody, CNFPath.empty)
+        pureCache += id -> (if (p) Pure else Impure)
+        p
+    })
   }
 
   private def isInstanceOf(e: Expr, tpe: ADTType, path: CNFPath): Option[Boolean] = {
