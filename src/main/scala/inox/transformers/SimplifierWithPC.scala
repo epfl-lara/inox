@@ -177,24 +177,26 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
   private val pureCache: MutableMap[Identifier, Boolean] = MutableMap.empty
 
-  private def isPureFunction(id: Identifier): Boolean = opts.assumeChecked || (pureCache.get(id) match {
-    case Some(b) => b
-    case None =>
-      val fd = getFunction(id)
-      if (transitivelyCalls(fd, fd)) {
-        pureCache += id -> false
-        false
-      } else {
-        pureCache += id -> true
-        if (isPure(fd.fullBody, CNFPath.empty)) {
-          true
-        } else {
+  private def isPureFunction(id: Identifier): Boolean = opts.assumeChecked || synchronized {
+    pureCache.get(id) match {
+      case Some(b) => b
+      case None =>
+        val fd = getFunction(id)
+        if (transitivelyCalls(fd, fd)) {
           pureCache += id -> false
-          transitiveCallers(fd).foreach(fd => pureCache += fd.id -> false)
           false
+        } else {
+          if (isPure(fd.fullBody, CNFPath.empty)) {
+            pureCache += id -> true
+            true
+          } else {
+            pureCache += id -> false
+            transitiveCallers(fd) foreach { pureCache += _.id -> false }
+            false
+          }
         }
-      }
-  })
+    }
+  }
 
   private def isInstanceOf(e: Expr, tpe: ADTType, path: CNFPath): Option[Boolean] = {
     val tadt = tpe.getADT
