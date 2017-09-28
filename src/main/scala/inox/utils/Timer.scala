@@ -51,7 +51,7 @@ final class Timer {
 }
 
 /**
- * Provide a [[Dynamic]], thread-safe API to measure times.
+ * Provide a `Dynamic`, thread-safe API to measure times.
  *
  * With the exception of [[outputTable]], all methods are thread safe.
  * When calling [[outputTable]], all generated timers MUST have been stopped.
@@ -71,10 +71,10 @@ final class TimerStorage private(val _name: Option[String])
   }
 
   /**
-    * Create a new [[Timer]] associated with this [[Storage]].
+    * Create a new [[Timer]] associated with this [[TimerStorage]].
     *
-    * The callee is required to call [[Timer.stop()]] before
-    * calling [[Storage.stats]] or [[Storage.recursiveStats]].
+    * The callee is required to call [[Timer.stop]] before
+    * calling [[Timer.time]].
     */
   def start(): Timer = {
     val t = new Timer
