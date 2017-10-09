@@ -28,8 +28,8 @@ trait Definitions { self: Trees =>
   case class FunctionLookupException(id: Identifier) extends LookupException(id, "function")
   case class ADTLookupException(id: Identifier) extends LookupException(id, "adt")
 
-  case class NotWellFormedException(d: Definition)
-    extends Exception(s"Not well formed definition $d")
+  case class NotWellFormedException(d: Definition, info: Option[String] = None)
+    extends Exception(s"Not well formed definition $d" + (info map { i => s" \n\tbecause $i" } getOrElse ""))
 
   /** Common super-type for [[ValDef]] and [[Expressions.Variable Variable]].
     *
@@ -74,7 +74,7 @@ trait Definitions { self: Trees =>
     }
   }
 
-  /** 
+  /**
     * A ValDef declares a formal parameter (with symbol [[id]]) to be of a certain type.
     */
   sealed class ValDef(v: Variable) extends Definition with VariableSymbol {
@@ -174,12 +174,14 @@ trait Definitions { self: Trees =>
       * - adt sorts and constructors point to each other correctly
       * - each adt type has at least one instance
       * - adt type parameter flags match between children and parents
+      * - every variable is available in the scope of its usage
       */
     lazy val ensureWellFormed = {
-      for ((_, fd) <- functions) {
-        typeCheck(fd.fullBody, fd.returnType)
-      }
+      ensureWellFormedFunctions
+      ensureWellFormedAdts
+    }
 
+    private def ensureWellFormedAdts = {
       for ((_, adt) <- adts) {
         if (!adt.isWellFormed) throw NotWellFormedException(adt)
 
@@ -198,6 +200,35 @@ trait Definitions { self: Trees =>
               case _ => throw NotWellFormedException(cons)
             }
         }
+      }
+    }
+
+    private def ensureWellFormedFunctions = {
+      // Checker for preMapWithContext, ensure that every variable is defined in the scope where it's used.
+      case class UnknownVariable(error: String) extends Exception(error)
+      def checkImpl(e: Expr, ctx: Set[Identifier]): Set[Identifier] = e match {
+        case Variable(id, _, _) =>
+          // Ensure the variable is available in the current context
+          if (!ctx(id)) {
+            throw UnknownVariable(s"${id.uniqueName} not in context: ${ctx map { _.uniqueName } mkString ", "}")
+          }
+
+          ctx
+
+        case e =>
+          // Expends the context with newly defined variables.
+          val (_, vds, _, _, _) = deconstructor.deconstruct(e)
+          ctx ++ (vds map { _.id })
+      }
+
+      def check(e: Expr, ctx: Set[Identifier]) = (None, checkImpl(e, ctx))
+
+      for ((_, fd) <- functions) {
+        typeCheck(fd.fullBody, fd.returnType)
+
+        val initialCtx = fd.params map { _.id }
+        try { exprOps.preMapWithContext(check)(fd.fullBody, initialCtx.toSet) }
+        catch { case UnknownVariable(error) => throw NotWellFormedException(fd, Some(error)) }
       }
     }
 
@@ -235,7 +266,7 @@ trait Definitions { self: Trees =>
   }
 
   /** Represents source code annotations and some other meaningful flags.
-    * 
+    *
     * In order to enable transformations on [[Flag]] instances, there is an
     * implicit contract on `args` such that for each argument, either
     * {{{arg: Expr | Type}}}, or there exists no [[Expressions.Expr Expr]]
@@ -257,7 +288,7 @@ trait Definitions { self: Trees =>
   sealed case class HasADTEquality(id: Identifier) extends Flag("equality", Seq(id))
 
   /** Compiler annotations given in the source code as @annot.
-    * 
+    *
     * @see [[Flag]] for some notes on the actual type of [[args]]. */
   sealed case class Annotation(override val name: String, val args: Seq[Any]) extends Flag(name, args)
 
