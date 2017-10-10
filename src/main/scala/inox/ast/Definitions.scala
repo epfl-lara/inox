@@ -204,31 +204,14 @@ trait Definitions { self: Trees =>
     }
 
     private def ensureWellFormedFunctions = {
-      // Checker for preMapWithContext, ensure that every variable is defined in the scope where it's used.
-      case class UnknownVariable(error: String) extends Exception(error)
-      def checkImpl(e: Expr, ctx: Set[Identifier]): Set[Identifier] = e match {
-        case Variable(id, _, _) =>
-          // Ensure the variable is available in the current context
-          if (!ctx(id)) {
-            throw UnknownVariable(s"${id.uniqueName} not in context: ${ctx map { _.uniqueName } mkString ", "}")
-          }
-
-          ctx
-
-        case e =>
-          // Expends the context with newly defined variables.
-          val (_, vds, _, _, _) = deconstructor.deconstruct(e)
-          ctx ++ (vds map { _.id })
-      }
-
-      def check(e: Expr, ctx: Set[Identifier]) = (None, checkImpl(e, ctx))
-
       for ((_, fd) <- functions) {
         typeCheck(fd.fullBody, fd.returnType)
 
-        val initialCtx = fd.params map { _.id }
-        try { exprOps.preMapWithContext(check)(fd.fullBody, initialCtx.toSet) }
-        catch { case UnknownVariable(error) => throw NotWellFormedException(fd, Some(error)) }
+        def isBound(id: Identifier, path: Path) = (path isBound id) || (fd.params exists { _.id == id })
+        val unbound: Seq[Variable] = collectWithPC(fd.fullBody) { case (v: Variable, path) if !isBound(v.id, path) => v }
+        if (unbound.nonEmpty) {
+          throw NotWellFormedException(fd, Some("Unknown variables: " + (unbound map { _.id.uniqueName } mkString ", ")))
+        }
       }
     }
 
