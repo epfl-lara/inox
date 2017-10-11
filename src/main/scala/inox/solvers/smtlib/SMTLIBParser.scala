@@ -166,6 +166,17 @@ trait SMTLIBParser {
     case FixedSizeBitVectors.AShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVAShiftRight)
     case FixedSizeBitVectors.LShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVLShiftRight)
 
+    case FixedSizeBitVectors.SignExtend(extend, e) =>
+      val ast = fromSMT(e)
+      val BVType(current) = ast.getType
+      val newSize = (current + extend).bigInteger.intValueExact
+      BVWideningCast(ast, BVType(newSize))
+
+    case FixedSizeBitVectors.Extract(i, j, e) =>
+      // Assume this is a Narrowing Cast, hence j must be 0
+      if (j != 0) throw new MissformedSMTException(term, "Unexpected 'extract' which is not a narrowing cast")
+      BVNarrowingCast(fromSMT(e), BVType((i + 1).bigInteger.intValueExact))
+
     case ArraysEx.Select(e1, e2) => otpe match {
       case Some(tpe) =>
         val ex2 = fromSMT(e2)
@@ -189,7 +200,8 @@ trait SMTLIBParser {
 
     case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("const")), Some(sort)), Seq(dflt)) =>
       val d = fromSMT(dflt)
-      FiniteMap(Seq.empty, d, fromSMT(sort), bestRealType(d.getType))
+      val MapType(from, to) = fromSMT(sort)
+      FiniteMap(Seq.empty, d, from, to)
 
     case _ => throw new MissformedSMTException(term, "Unknown SMT term")
   }
@@ -198,6 +210,7 @@ trait SMTLIBParser {
     case Sort(SMTIdentifier(SSymbol("bitvector" | "BitVec"), Seq(SNumeral(n))), Seq()) => BVType(n.toInt)
     case Sort(SimpleIdentifier(SSymbol("Bool")), Seq()) => BooleanType()
     case Sort(SimpleIdentifier(SSymbol("Int")), Seq()) => IntegerType()
+    case Sort(SimpleIdentifier(SSymbol("Real")), Seq()) => RealType()
     case Sort(SimpleIdentifier(SSymbol("String")), Seq()) => StringType()
     case Sort(SimpleIdentifier(SSymbol("Array")), Seq(from, to)) => MapType(fromSMT(from), fromSMT(to))
     case _ => throw new MissformedSMTException(sort, "unexpected sort: " + sort)

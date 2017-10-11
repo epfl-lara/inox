@@ -1,0 +1,7 @@
+(declare-const i!24 (_ BitVec 32))
+
+(assert (not (bvslt ((_ sign_extend 24) ((_ extract 7 0) i!24)) #b00000000000000000000000010000000)))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

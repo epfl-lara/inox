@@ -1,0 +1,13 @@
+(declare-const i!20 (_ BitVec 32))
+
+(declare-datatypes (A!251) ((array!160 (array!161 (arr!81 (Array (_ BitVec 32) A!251)) (size!120 (_ BitVec 32))))))
+
+(define-fun foo!3 ((i!19 (_ BitVec 32))) (array!160 (_ BitVec 32)) (assume (bvsgt i!19 #b00000000000000000000000000000000) (let ((res!38 (array!161 ((as const (Array (_ BitVec 32) (_ BitVec 32))) #b00000000000000000000000000000000) i!19))) (assume (= (size!120 res!38) i!19) res!38))))
+
+(datatype-invariant (par (A!250) array!141 (array!160 A!250) (bvsge (size!120 array!141) #b00000000000000000000000000000000)))
+
+(assert (not (=> (bvsgt i!20 #b00000000000000000000000000000000) (let ((b!352 (foo!3 i!20))) (and (bvsge #b00000000000000000000000000000000 #b00000000000000000000000000000000) (bvslt #b00000000000000000000000000000000 (size!120 b!352)))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard
