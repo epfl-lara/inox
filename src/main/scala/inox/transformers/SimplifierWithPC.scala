@@ -132,7 +132,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       }
     }
 
-    override def withBound(b: ValDef) = ???
+    override def withBound(b: ValDef) = this // NOTE CNFPath doesn't need to track such bounds.
 
     override def withCond(e: Expr) = if (formulaSize(e) > 20) this else {
       val clauses = getClauses(e)
