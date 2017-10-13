@@ -4,15 +4,15 @@
 
 (declare-datatypes (A0!3 A1!13) ((tuple2!4 (tuple2!5 (_1!2 A0!3) (_2!2 A1!13)))))
 
-(declare-const |error: Match is non-exhaustive!67| Int)
+(declare-fun |error: Match is non-exhaustive!67| () Int)
 
 (define-fun-rec (par (T!91) (size!0 ((thiss!106 (List!8 T!91))) Int (let ((x$1!2 (ite (is-Nil!5 thiss!106) 0 (ite (is-Cons!5 thiss!106) (+ 1 (size!0 (t!57 thiss!106))) |error: Match is non-exhaustive!67|)))) (assume (>= x$1!2 0) x$1!2)))))
 
-(declare-const |error: Match is non-exhaustive!61| (tuple2!4 (List!8 Int) (List!8 Int)))
+(declare-fun |error: Match is non-exhaustive!61| () (tuple2!4 (List!8 Int) (List!8 Int)))
 
 (define-fun (par (T!2) (empty!0 () (Bag T!2) (as bag.empty T!2))))
 
-(declare-const (par (T!0) (|error: Match is non-exhaustive!68| (Bag T!0))))
+(declare-fun (par (T!0) (|error: Match is non-exhaustive!68| () (Bag T!0))))
 
 (define-fun-rec (par (T!0) (bag!0 ((list!0 (List!8 T!0))) (Bag T!0) (ite (is-Nil!5 list!0) (as empty!0 (Bag T!0)) (ite (is-Cons!5 list!0) (bag.insert (bag!0 (t!57 list!0)) (h!50 list!0)) (as |error: Match is non-exhaustive!68| (Bag T!0)))))))
 
@@ -20,9 +20,9 @@
 
 (define-fun-rec isSorted!0 ((list!1 (List!8 Int))) Bool (ite (and (is-Cons!5 list!1) (is-Cons!5 (t!57 list!1))) (and (<= (h!50 list!1) (h!50 (t!57 list!1))) (isSorted!0 (t!57 list!1))) true))
 
-(declare-const (par (T!31) (|error: Match is non-exhaustive!7| (List!8 T!31))))
+(declare-fun (par (T!31) (|error: Match is non-exhaustive!7| () (List!8 T!31))))
 
-(declare-const (par (T!50) (|error: Match is non-exhaustive!26| (Set T!50))))
+(declare-fun (par (T!50) (|error: Match is non-exhaustive!26| () (Set T!50))))
 
 (define-fun-rec (par (T!50) (content!2 ((thiss!38 (List!8 T!50))) (Set T!50) (ite (is-Nil!5 thiss!38) (as emptyset T!50) (ite (is-Cons!5 thiss!38) (union (insert (as emptyset T!50) (h!50 thiss!38)) (content!2 (t!57 thiss!38))) (as |error: Match is non-exhaustive!26| (Set T!50)))))))
 

@@ -142,7 +142,7 @@ class Parser(file: File) {
       (Some(tpsLocals.extractTerm(term)), locals)
 
     case DeclareConst(sym, sort) =>
-      extractCommand(DeclareFun(sym, Seq.empty, sort))
+      (None, locals.withVariable(sym, Variable.fresh(sym.name, locals.extractSort(sort)).setPos(sym.optPos)))
 
     case DeclareConstPar(tps, sym, sort) =>
       extractCommand(DeclareFunPar(tps, sym, Seq.empty, sort))
