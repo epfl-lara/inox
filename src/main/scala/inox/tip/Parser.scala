@@ -142,22 +142,10 @@ class Parser(file: File) {
       (Some(tpsLocals.extractTerm(term)), locals)
 
     case DeclareConst(sym, sort) =>
-      val choose = Choose(
-        ValDef(FreshIdentifier(sym.name), locals.extractSort(sort)),
-        BooleanLiteral(true)
-      ).setPos(sym.optPos)
-      (None, locals.withVariable(sym, choose))
+      extractCommand(DeclareFun(sym, Seq.empty, sort))
 
     case DeclareConstPar(tps, sym, sort) =>
-      val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
-      val choose = Choose(
-        ValDef(FreshIdentifier(sym.name), tpsLocals.extractSort(sort)),
-        BooleanLiteral(true)
-      ).setPos(sym.optPos)
-      (None, locals.withVariable(sym, choose)) // FIXME This failes:
-// [info] -  77: UNSAT - MergeSort2.scala-0.tip solver=smt-z3 assumechecked *** FAILED *** (128 milliseconds)
-// [info]   java.lang.ClassCastException: inox.ast.Expressions$Choose cannot be cast to inox.ast.Expressions$Variable
-
+      extractCommand(DeclareFunPar(tps, sym, Seq.empty, sort))
 
     case DeclareFun(name, sorts, returnSort) =>
       (None, locals.withFunction(name, extractSignature(FunDec(name, sorts.map {
@@ -168,7 +156,7 @@ class Parser(file: File) {
       val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
       (None, locals.withFunction(name, extractSignature(FunDec(name, sorts.map {
         sort => SortedVar(SSymbol(FreshIdentifier("x").uniqueName).setPos(sort), sort).setPos(sort)
-      }, returnSort), tps)))
+      }, returnSort), tps)(tpsLocals)))
 
     case DefineFun(funDef) =>
       val fd = extractFunction(funDef, Seq.empty)
