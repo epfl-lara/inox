@@ -17,6 +17,18 @@ trait TransformerWithPC extends Transformer {
       val sb = rec(b, env withBinding (i -> se))
       Let(i, se, sb).copiedFrom(e)
 
+    case Lambda(args, b) =>
+      val sb = rec(b, env withBounds args)
+      Lambda(args, sb).copiedFrom(e)
+
+    case Forall(args, b) =>
+      val sb = rec(b, env withBounds args)
+      Forall(args, sb).copiedFrom(e)
+
+    case Choose(arg, p) =>
+      val sp = rec(p, env withBound arg)
+      Choose(arg, sp).copiedFrom(e)
+
     case Assume(pred, body) =>
       val sp = rec(pred, env)
       val sb = rec(body, env withCond sp)
