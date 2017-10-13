@@ -105,7 +105,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       })
     })
 
-    def withBinding(p: (ValDef, Expr)) = {
+    override def withBinding(p: (ValDef, Expr)) = {
       val (vd, expr) = p
       if (formulaSize(expr) > 20) {
         this
@@ -132,7 +132,9 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       }
     }
 
-    def withCond(e: Expr) = if (formulaSize(e) > 20) this else {
+    override def withBound(b: ValDef) = ???
+
+    override def withCond(e: Expr) = if (formulaSize(e) > 20) this else {
       val clauses = getClauses(e)
       val clauseSet = clauses.toSet
       val newConditions = conditions.flatMap { case clause @ TopLevelOrs(es) =>
@@ -145,7 +147,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       new CNFPath(exprSubst, boolSubst, conds, cnfCache, simpCache)
     }
 
-    def merge(that: CNFPath) = new CNFPath(
+    override def merge(that: CNFPath) = new CNFPath(
       exprSubst.clone ++= that.exprSubst,
       boolSubst ++ that.boolSubst,
       conditions ++ that.conditions,
@@ -153,7 +155,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       simpCache ++= that.simpCache
     )
 
-    def negate = new CNFPath(exprSubst, boolSubst, Set(), cnfCache, simpCache) withConds conditions.map(not)
+    override def negate = new CNFPath(exprSubst, boolSubst, Set(), cnfCache, simpCache) withConds conditions.map(not)
 
     override def toString = conditions.toString
   }

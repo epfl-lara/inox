@@ -11,19 +11,23 @@ trait Paths { self: SymbolOps with TypeOps =>
     /** Add a binding to this `PathLike`. */
     def withBinding(p: (ValDef, Expr)): Self
 
-    def withBindings(ps: Iterable[(ValDef, Expr)]): Self = ps.foldLeft(self)(_ withBinding _)
+    final def withBindings(ps: Iterable[(ValDef, Expr)]): Self = ps.foldLeft(self)(_ withBinding _)
+
+    def withBound(b: ValDef): Self
+
+    final def withBounds(bs: Iterable[ValDef]): Self = bs.foldLeft(self)(_ withBound _)
 
     /** Add a condition to this `PathLike`. */
     def withCond(e: Expr): Self
 
     /** Add multiple conditions to this `PathLike`. */
-    def withConds(es: Iterable[Expr]): Self = es.foldLeft(self)(_ withCond _)
+    final def withConds(es: Iterable[Expr]): Self = es.foldLeft(self)(_ withCond _)
 
     /** Appends `that` path at the end of `this`. */
     def merge(that: Self): Self
 
     /** Appends `those` paths at the end of `this`. */
-    def merge(those: Traversable[Self]): Self = those.foldLeft(self)(_ merge _)
+    final def merge(those: Traversable[Self]): Self = those.foldLeft(self)(_ merge _)
 
     /** Returns the negation of this path. */
     def negate: Self
@@ -36,21 +40,21 @@ trait Paths { self: SymbolOps with TypeOps =>
   implicit object Path extends PathProvider[Path] {
     final type Element = Either[(ValDef, Expr), Expr]
 
-    def empty: Path = new Path(Seq.empty)
+    def empty: Path = new Path(Seq.empty, Seq.empty)
 
     def apply(p: Expr): Path = p match {
-      case Let(i, e, b) => new Path(Seq(Left(i -> e))) merge apply(b)
-      case BooleanLiteral(true) => new Path(Seq.empty)
-      case _ => new Path(Seq(Right(p)))
+      case Let(i, e, b) => new Path(Seq(Left(i -> e)), Seq.empty) merge apply(b)
+      case BooleanLiteral(true) => new Path(Seq.empty, Seq.empty)
+      case _ => new Path(Seq(Right(p)), Seq.empty)
     }
 
-    def apply(p: (ValDef, Expr)): Path = new Path(Seq(Left(p)))
+    def apply(p: (ValDef, Expr)): Path = new Path(Seq(Left(p)), Seq.empty)
 
-    def apply(path: Seq[Expr]): Path = new Path(path.filterNot(_ == BooleanLiteral(true)).map(Right(_)))
+    def apply(path: Seq[Expr]): Path = new Path(path.filterNot(_ == BooleanLiteral(true)).map(Right(_)), Seq.empty)
   }
 
   /** Encodes path conditions
-    * 
+    *
     * Paths are encoded as an (ordered) series of let-bindings and boolean
     * propositions. A path is satisfiable iff all propositions are true
     * in the context of the provided let-bindings.
@@ -59,18 +63,22 @@ trait Paths { self: SymbolOps with TypeOps =>
     * not defined, whereas an encoding of let-bindings with equalities
     * could introduce non-sensical equations.
     */
-  class Path protected(val elements: Seq[Path.Element]) extends Printable with PathLike[Path] {
+  class Path protected(val elements: Seq[Path.Element], val bounds: Seq[ValDef])
+    extends Printable with PathLike[Path] {
     import Path.Element
 
     /** Add a binding to this [[Path]] */
-    def withBinding(p: (ValDef, Expr)) = {
+    override def withBinding(p: (ValDef, Expr)) = {
       def exprOf(e: Element) = e match { case Right(e) => e; case Left((_, e)) => e }
       val (before, after) = elements span (el => !exprOps.variablesOf(exprOf(el)).contains(p._1.toVariable))
-      new Path(before ++ Seq(Left(p)) ++ after)
+      new Path(before ++ Seq(Left(p)) ++ after, bounds)
     }
 
+    /** Add a bound to this [[Path]], a variable being defined but to an unknown/arbitrary value. */
+    override def withBound(b: ValDef) = new Path(elements, b +: bounds)
+
     /** Add a condition to this [[Path]] */
-    def withCond(e: Expr): Path = e match {
+    override def withCond(e: Expr): Path = e match {
       case TopLevelAnds(es) if es.size > 1 => withConds(es)
       case Not(TopLevelOrs(es)) if es.size > 1 => withConds(es.map(not(_)))
       case _ =>
@@ -81,16 +89,16 @@ trait Paths { self: SymbolOps with TypeOps =>
           exprOps.replace(Map(not(c) -> BooleanLiteral(false)), e)
         }))
 
-        new Path(newElements.filterNot(_.right.exists(_ == BooleanLiteral(true))))
+        new Path(newElements.filterNot(_.right.exists(_ == BooleanLiteral(true))), bounds)
     }
 
     /** Remove bound variables from this [[Path]]
       * @param ids the bound variables to remove
       */
-    def --(vds: Set[ValDef]) = new Path(elements.filterNot(_.left.exists(p => vds(p._1))))
+    def --(vds: Set[ValDef]) = new Path(elements.filterNot(_.left.exists(p => vds(p._1))), bounds filterNot vds)
 
     /** Appends `that` path at the end of `this` */
-    def merge(that: Path): Path = new Path((elements ++ that.elements).distinct)
+    override def merge(that: Path): Path = new Path((elements ++ that.elements).distinct, that.bounds ++ bounds)
 
     /** Transforms all expressions inside the path
       *
@@ -100,10 +108,10 @@ trait Paths { self: SymbolOps with TypeOps =>
       * @see [[map(fVal:Paths\.this\.trees\.ValDef=>Paths\.this\.trees\.ValDef,fExpr:Paths\.this\.trees\.Expr=>Paths\.this\.trees\.Expr):Paths\.this\.Path* map]]
       *      for a map that can transform bindings as well
       */
-    def map(f: Expr => Expr) = new Path(elements.map(_.left.map { case (vd, e) => vd -> f(e) }.right.map(f)))
+    def map(f: Expr => Expr) = new Path(elements.map(_.left.map { case (vd, e) => vd -> f(e) }.right.map(f)), bounds)
 
     /** Transforms both let bindings and expressions inside the path
-      * 
+      *
       * The function `fVal` is applied to all values in [[bound]] and `fExpr` is applied
       * to both the bodies of the [[bindings]] as well as the [[conditions]].
       *
@@ -111,7 +119,8 @@ trait Paths { self: SymbolOps with TypeOps =>
       *      for a map defined only on expressions
       */
     def map(fVal: ValDef => ValDef, fExpr: Expr => Expr) = new Path(
-      elements.map(_.left.map { case (vd, e) => fVal(vd) -> fExpr(e) }.right.map(fExpr))
+      elements.map(_.left.map { case (vd, e) => fVal(vd) -> fExpr(e) }.right.map(fExpr)),
+      bounds
     )
 
     /** Instantiates type parameters within the path
@@ -123,7 +132,7 @@ trait Paths { self: SymbolOps with TypeOps =>
       val t = new TypeInstantiator(tps)
       new Path(elements.map(_.left.map {
         case (vd, e) => t.transform(vd) -> t.transform(e)
-      }.right.map(t.transform)))
+      }.right.map(t.transform)), bounds)
     }
 
     /** Splits the path on predicate `p`
@@ -138,7 +147,7 @@ trait Paths { self: SymbolOps with TypeOps =>
         case Left(_) => true
       }
 
-      (new Path(passed), failed.flatMap(_.right.toOption))
+      (new Path(passed, bounds), failed.flatMap(_.right.toOption))
     }
 
     /** Check if the path is empty
@@ -156,9 +165,9 @@ trait Paths { self: SymbolOps with TypeOps =>
       * However, all external let-binders can be preserved in the resulting path, thus
       * avoiding let-binding dupplication in future path foldings.
       */
-    def negate: Path = {
+    override def negate: Path = {
       val (outers, rest) = elements.span(_.isLeft)
-      new Path(outers :+ Right(not(fold[Expr](BooleanLiteral(true), let, trees.and(_, _))(rest))))
+      new Path(outers :+ Right(not(fold[Expr](BooleanLiteral(true), let, trees.and(_, _))(rest))), bounds)
     }
 
     /** Returns a new path which depends ONLY on provided ids.
@@ -184,7 +193,7 @@ trait Paths { self: SymbolOps with TypeOps =>
         case Left((vd, e)) => ids.contains(vd.id) || containsIds(ids)(e)
         case Right(e) => containsIds(ids)(e)
       }
-      new Path(newElements)
+      new Path(newElements, bounds)
     }
 
     /** Free variables within the path */
@@ -196,7 +205,7 @@ trait Paths { self: SymbolOps with TypeOps =>
     lazy val bound = bindings map (_._1)
     lazy val conditions: Seq[Expr] = elements.collect { case Right(e) => e }
 
-    def isBound(id: Identifier): Boolean = bindings.exists(p => p._1.id == id)
+    def isBound(id: Identifier): Boolean = bindings.exists(p => p._1.id == id) || bounds.exists(_.id == id)
 
     /** Fold the path elements
       *
@@ -210,7 +219,7 @@ trait Paths { self: SymbolOps with TypeOps =>
     }
 
     /** Folds the path elements over a distributive proposition combinator [[combine]]
-      * 
+      *
       * Certain combiners can be distributive over let-binding folds. Namely, one
       * requires that `combine(let a = b in e1, e2)` be equivalent to
       * `let a = b in combine(e1, e2)` (where a \not\in FV(e2)). This is the case for
@@ -274,7 +283,7 @@ trait Paths { self: SymbolOps with TypeOps =>
     })
 
     override def equals(that: Any): Boolean = that match {
-      case p: Path => elements == p.elements
+      case p: Path => elements == p.elements && bounds == p.bounds
       case _ => false
     }
 
