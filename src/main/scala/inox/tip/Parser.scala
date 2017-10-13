@@ -142,13 +142,22 @@ class Parser(file: File) {
       (Some(tpsLocals.extractTerm(term)), locals)
 
     case DeclareConst(sym, sort) =>
-      (None, locals.withVariable(sym,
-        Variable.fresh(sym.name, locals.extractSort(sort)).setPos(sym.optPos)))
+      val choose = Choose(
+        ValDef(FreshIdentifier(sym.name), locals.extractSort(sort)),
+        BooleanLiteral(true)
+      ).setPos(sym.optPos)
+      (None, locals.withVariable(sym, choose))
 
     case DeclareConstPar(tps, sym, sort) =>
       val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
-      (None, locals.withVariable(sym,
-        Variable.fresh(sym.name, tpsLocals.extractSort(sort)).setPos(sym.optPos)))
+      val choose = Choose(
+        ValDef(FreshIdentifier(sym.name), tpsLocals.extractSort(sort)),
+        BooleanLiteral(true)
+      ).setPos(sym.optPos)
+      (None, locals.withVariable(sym, choose)) // FIXME This failes:
+// [info] -  77: UNSAT - MergeSort2.scala-0.tip solver=smt-z3 assumechecked *** FAILED *** (128 milliseconds)
+// [info]   java.lang.ClassCastException: inox.ast.Expressions$Choose cannot be cast to inox.ast.Expressions$Variable
+
 
     case DeclareFun(name, sorts, returnSort) =>
       (None, locals.withFunction(name, extractSignature(FunDec(name, sorts.map {
