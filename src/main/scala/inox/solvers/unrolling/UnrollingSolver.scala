@@ -872,7 +872,9 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     }
 
     def modelEval(elem: t.Expr, tpe: t.Type): Option[t.Expr] = e(elem)
-    def getChoose(id: Identifier): Option[t.Expr] = model.chooses.find(_._1 == id).map(_._2)
+    def getChoose(id: Identifier): Option[t.Expr] = model.chooses.collectFirst {
+      case ((cid, tps), e) if cid == id && tps.isEmpty => e
+    }
 
     override def toString = model.asString
   }
