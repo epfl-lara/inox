@@ -142,10 +142,13 @@ class Parser(file: File) {
       (Some(tpsLocals.extractTerm(term)), locals)
 
     case DeclareConst(sym, sort) =>
-      (None, locals.withVariable(sym, Variable.fresh(sym.name, locals.extractSort(sort)).setPos(sym.optPos)))
+      (None, locals.withVariable(sym,
+        Variable.fresh(sym.name, locals.extractSort(sort)).setPos(sym.optPos)))
 
     case DeclareConstPar(tps, sym, sort) =>
-      extractCommand(DeclareFunPar(tps, sym, Seq.empty, sort))
+      val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
+      (None, locals.withVariable(sym,
+        Variable.fresh(sym.name, tpsLocals.extractSort(sort)).setPos(sym.optPos)))
 
     case DeclareFun(name, sorts, returnSort) =>
       (None, locals.withFunction(name, extractSignature(FunDec(name, sorts.map {
