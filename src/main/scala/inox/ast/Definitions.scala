@@ -207,8 +207,10 @@ trait Definitions { self: Trees =>
       for ((_, fd) <- functions) {
         typeCheck(fd.fullBody, fd.returnType)
 
-        def isBound(id: Identifier, path: Path) = (path isBound id) || (fd.params exists { _.id == id })
-        val unbound: Seq[Variable] = collectWithPC(fd.fullBody) { case (v: Variable, path) if !isBound(v.id, path) => v }
+        val unbound: Seq[Variable] = collectWithPC(fd.fullBody, Path.empty withBounds fd.params) {
+          case (v: Variable, path) if !(path isBound v.id) => v
+        }
+
         if (unbound.nonEmpty) {
           throw NotWellFormedException(fd, Some("Unknown variables: " + (unbound map { _.id.uniqueName } mkString ", ")))
         }
