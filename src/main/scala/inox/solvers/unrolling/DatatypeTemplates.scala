@@ -33,14 +33,14 @@ trait DatatypeTemplates { self: Templates =>
   /** Represents the kind of datatype a given template is associated to. */
   sealed abstract class TypeInfo {
     def getType: Type = this match {
-      case SortInfo(tsort) => tsort.toType
+      case ADTInfo(tadt) => tadt.toType
       case SetInfo(base) => SetType(base)
       case BagInfo(base) => BagType(base)
       case MapInfo(from, to) => MapType(from, to)
     }
   }
 
-  case class SortInfo(tsort: TypedADTSort) extends TypeInfo
+  case class ADTInfo(tadt: TypedADTDefinition) extends TypeInfo
   case class SetInfo(base: Type) extends TypeInfo
   case class BagInfo(base: Type) extends TypeInfo
   case class MapInfo(from: Type, to: Type) extends TypeInfo
@@ -160,10 +160,10 @@ trait DatatypeTemplates { self: Templates =>
       }
 
       protected case class RecursionState(
-        recurseSort: Boolean, // visit sort children
-        recurseMap: Boolean,  // unroll map definition
-        recurseSet: Boolean,  // unroll set definition
-        recurseBag: Boolean   // unroll bag definition
+        recurseAdt: Boolean, // visit adt children/fields
+        recurseMap: Boolean, // unroll map definition
+        recurseSet: Boolean, // unroll set definition
+        recurseBag: Boolean  // unroll bag definition
       )
 
       /** Generates the clauses and other bookkeeping relevant to a type unfolding template.
@@ -175,8 +175,8 @@ trait DatatypeTemplates { self: Templates =>
         case adt: ADTType =>
           val tadt = adt.getADT
 
-          if (tadt.definition.isSort && tadt.toSort.definition.isInductive && !state.recurseSort) {
-            storeType(pathVar, SortInfo(tadt.toSort), expr)
+          if (tadt.definition.isInductive && !state.recurseAdt) {
+            storeType(pathVar, ADTInfo(tadt), expr)
           } else {
             val matchers = tadt.root match {
               case (tsort: TypedADTSort) => tsort.constructors
@@ -192,7 +192,7 @@ trait DatatypeTemplates { self: Templates =>
 
                 for (vd <- tcons.fields) {
                   val ex = if (adt != tpe) AsInstanceOf(expr, tpe) else expr
-                  rec(newBool, ADTSelector(ex, vd.id), state.copy(recurseSort = false))
+                  rec(newBool, ADTSelector(ex, vd.id), state.copy(recurseAdt = false))
                 }
 
                 if (isRelevantBlocker(newBool)) {
@@ -441,7 +441,7 @@ trait DatatypeTemplates { self: Templates =>
 
             val tpe = tadt.toType
             for (vd <- tadt.toConstructor.fields) {
-              rec(pathVar, ADTSelector(AsInstanceOf(expr, tpe), vd.id), state.copy(recurseSort = false))
+              rec(pathVar, ADTSelector(AsInstanceOf(expr, tpe), vd.id), state.copy(recurseAdt = false))
             }
           } else {
             super.rec(pathVar, expr, state)
