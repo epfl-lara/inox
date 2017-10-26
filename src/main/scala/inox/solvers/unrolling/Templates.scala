@@ -789,7 +789,6 @@ trait Templates
       equalities: Equalities,
       substMap: Map[Encoded, Arg]
     ): Clauses = {
-
       val substituter : Encoded => Encoded = mkSubstituter(substMap.mapValues(_.encoded))
       val msubst = substMap.collect { case (c, Right(m)) => c -> m }
 

@@ -397,8 +397,133 @@ trait QuantificationTemplates { self: Templates =>
     correspond(matcherKey(m1), matcherKey(m2))
 
   private trait BlockedSet[Element] extends Iterable[(Set[Encoded], Element)] with IncrementalState {
-    private var map: MutableMap[Any, (Element, MutableSet[Set[Encoded]])] = MutableMap.empty
-    private var stack: List[MutableMap[Any, (Element, MutableSet[Set[Encoded]])]] = List.empty
+    import scala.collection.JavaConverters._
+
+    private[this] object BlockerTrie {
+      // A node within the BlockerTrie structure that enables maintaining a history
+      // of how many times a particular node has been accessed.
+      final class Node private(
+        private var _blockers: Set[Encoded],
+        private[this] var _next: BlockerTrie,
+        private var count: Int) extends Ordered[Node] {
+
+        def this(blockers: Set[Encoded]) = this(blockers, new BlockerTrie, 0)
+
+        @inline final def blockers: Set[Encoded] = _blockers
+        @inline final def next: BlockerTrie = _next
+
+        final def insert(bs: Set[Encoded]): Boolean = {
+          // If the blocker set is already within this trie, no need to do anything.
+          blockers == bs || {
+            val intersect = blockers & bs
+            intersect.nonEmpty && {
+              if (intersect == blockers) {
+                // If the intersection is exactly the current trie key, then we can simply
+                // recursively add the remaining blockers into the next trie.
+                next += bs -- blockers
+              } else { // we know intersect != bs as otherwise, es == bs would have held
+                // If the intersection is different from the current key, we need to change
+                // the current key to that intersection and update the child trie.
+                // 1. We start by adding the difference to all child trie keys.
+                val diff = blockers -- intersect
+                for (node <- next.trie.asScala) node._blockers ++= diff
+
+                // 2. We then add the new element into the child trie.
+                next += bs -- intersect
+
+                // 3. And finally, we update the current set of blockers.
+                _blockers = intersect
+              }
+              true
+            }
+          }
+        }
+
+        @inline final def containsSubset(bs: Set[Encoded]): Boolean =
+          (blockers subsetOf bs) && (next.isEmpty || (next containsSubset (bs -- blockers)))
+
+        @inline final def increment: Unit = count += 1
+
+        override final def compare(that: Node) = count - that.count
+        override final def clone: Node = new Node(blockers, next.clone, count)
+      }
+    }
+
+    import BlockerTrie._
+
+    // A trie set that is optimized for computing subset containement.
+    private[this] final class BlockerTrie private(
+      private val trie: java.util.ArrayList[Node]
+    ) extends Iterable[Set[Encoded]] {
+      def this() = this(new java.util.ArrayList)
+
+      @inline
+      override def isEmpty = trie.isEmpty
+
+      def containsSubset(bs: Set[Encoded]): Boolean = {
+        var found = false
+        var index = 0
+        while (index < trie.size && !found) {
+          found = trie.get(index) containsSubset bs
+          if (!found) index += 1
+        }
+
+        // We bubble up the successful node to the beginning of the list to make
+        // the linear search succeed earlier for common nodes.
+        if (found) {
+          val node = trie.get(index)
+          node.increment
+
+          while (index > 0 && (node compare trie.get(index - 1)) > 0) {
+            trie.set(index, trie.get(index - 1))
+            trie.set(index - 1, node)
+            index -= 1
+          }
+        }
+
+        found
+      }
+
+      def +=(bs: Set[Encoded]): Unit = {
+        var added = false
+        val it = trie.iterator
+        while (it.hasNext && !added) {
+          added = it.next.insert(bs)
+        }
+
+        if (!added) {
+          trie.add(new Node(bs))
+        }
+      }
+
+      override def clone: BlockerTrie = {
+        val newTrie = new java.util.ArrayList[Node](trie.size)
+        for (node <- trie.asScala) newTrie.add(node.clone)
+        new BlockerTrie(newTrie)
+      }
+
+      override def iterator: Iterator[Set[Encoded]] = new collection.AbstractIterator[Set[Encoded]] {
+        private val listIt: java.util.Iterator[Node] = BlockerTrie.this.trie.iterator
+        private var trieIt: Iterator[Set[Encoded]] = Iterator.empty
+        private var current: Set[Encoded] = _
+
+        override def hasNext = listIt.hasNext || trieIt.hasNext
+        override def next: Set[Encoded] = if (trieIt.hasNext) {
+          current ++ trieIt.next
+        } else {
+          val node = listIt.next
+          if (node.next.isEmpty) node.blockers
+          else {
+            current = node.blockers
+            trieIt = node.next.iterator
+            next // guaranteed to exist here
+          }
+        }
+      }
+    }
+
+    private[this] var map: MutableMap[Any, (Element, BlockerTrie)] = MutableMap.empty
+    private[this] var stack: List[MutableMap[Any, (Element, BlockerTrie)]] = List.empty
 
     /** Override point to determine the "key" associated to element [[e]].
       *
@@ -415,37 +540,29 @@ trait QuantificationTemplates { self: Templates =>
       */
     protected def merge(e1: Element, e2: Element): Element = e1
 
-    protected def contained(s: Set[Encoded], ss: Set[Encoded] => Boolean): Boolean = ss(s) || {
-      // we assume here that iterating through the powerset of `s`
-      // will be significantly faster then iterating through `ss`
-      s.subsets.exists(set => ss(set))
-    }
-
     @inline
-    protected def get(k: Any): Option[Set[Encoded] => Boolean] = map.get(k).map(_._2)
-
-    def apply(p: (Set[Encoded], Element)): Boolean = get(key(p._2)).exists {
-      blockerSets => contained(p._1, blockerSets)
+    protected final def containsSubset(k: Any, bs: Set[Encoded]): Boolean = {
+      map.get(k).exists(p => p._2 containsSubset bs)
     }
+
+    def apply(p: (Set[Encoded], Element)): Boolean = containsSubset(key(p._2), p._1)
 
     def +=(p: (Set[Encoded], Element)): Unit = {
       val k = key(p._2)
-      val (elem, blockerSets) = map.get(k) match {
-        case Some((elem, blockerSets)) =>
-          (merge(p._2, elem), blockerSets)
-        case None =>
-          (p._2, MutableSet.empty[Set[Encoded]])
+      val (elem, bt) = map.get(k) match {
+        case Some((elem, bt)) => (merge(p._2, elem), bt)
+        case None => (p._2, new BlockerTrie)
       }
 
-      if (!contained(p._1, blockerSets)) {
-        blockerSets += p._1
+      if (!(bt containsSubset p._1)) {
+        bt += p._1
       }
 
-      map(k) = (elem, blockerSets)
+      map(k) = (elem, bt)
     }
 
     def iterator: Iterator[(Set[Encoded], Element)] = new collection.AbstractIterator[(Set[Encoded], Element)] {
-      private val mapIt: Iterator[(Any, (Element, MutableSet[Set[Encoded]]))] = BlockedSet.this.map.iterator
+      private val mapIt: Iterator[(Any, (Element, BlockerTrie))] = BlockedSet.this.map.iterator
       private var setIt: Iterator[Set[Encoded]] = Iterator.empty
       private var current: Element = _
 
@@ -462,7 +579,7 @@ trait QuantificationTemplates { self: Templates =>
     }
 
     def push(): Unit = {
-      val newMap: MutableMap[Any, (Element, MutableSet[Set[Encoded]])] = MutableMap.empty
+      val newMap: MutableMap[Any, (Element, BlockerTrie)] = MutableMap.empty
       for ((k, (e, bss)) <- map) {
         newMap += k -> (e -> bss.clone)
       }
@@ -502,9 +619,7 @@ trait QuantificationTemplates { self: Templates =>
       else (ag1._1 -> (ag1._2 ++ ag2._2))
     }
 
-    def apply(bs: Set[Encoded], arg: Arg): Boolean = get(arg).exists {
-      blockerSets => contained(bs, blockerSets)
-    }
+    def apply(bs: Set[Encoded], arg: Arg): Boolean = containsSubset(arg, bs)
 
     @inline
     def +=(p: (Set[Encoded], Arg, Set[Int])): Unit = this += (p._1 -> (p._2 -> p._3))
