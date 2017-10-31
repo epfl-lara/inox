@@ -467,25 +467,24 @@ trait SymbolOps { self: TypeOps =>
 
     def inlineFunctions(e: Expr): Expr = {
       val fds = functionCallsOf(e).flatMap { fi =>
-        val fd = fi.tfd.fd
-        transitiveCallees(fd) + fd
+        transitiveCallees(fi.id) + fi.id
       }
 
       val fdsToInline = fds
-        .filterNot(fd => transitivelyCalls(fd, fd))
-        .filter { fd =>
+        .filterNot(id => isRecursive(id))
+        .filter { id =>
           def existsSpec(e: Expr): Boolean = e match {
             case Assume(pred, body) => existsSpec(body)
             case _: Forall => true
             case Operator(es, _) => es.exists(existsSpec)
           }
 
-          existsSpec(fd.fullBody)
+          existsSpec(getFunction(id).fullBody)
         }
 
       def inline(e: Expr): Expr = {
         val subst = functionCallsOf(e)
-          .filter(fi => fdsToInline(fi.tfd.fd))
+          .filter(fi => fdsToInline(fi.id))
           .map(fi => fi -> fi.inlined)
         replace(subst.toMap, e)
       }
@@ -517,7 +516,7 @@ trait SymbolOps { self: TypeOps =>
               case MapApply(elem: Variable, set) => quantified(elem)
               case _ => false
             } (pred) && !exists {
-              case fi: FunctionInvocation => transitivelyCalls(fi.tfd.fd, tfd.fd)
+              case fi: FunctionInvocation => transitivelyCalls(fi.id, tfd.id)
               case _ => false
             } (pred) => Set(replaceFromSymbols(Map(res.toVariable -> fi), and(pred, inline(nextQuantified, pred))))
             case _ => Set.empty[Expr]

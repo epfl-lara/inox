@@ -56,7 +56,6 @@ object Graphs {
     def -(e: Edge) = copy(E = E-e)
   }
 
-
   trait DiGraphOps[Node, Edge <: EdgeLike[Node], G <: DiGraphLike[Node, Edge, G]] {
     this: G =>
 

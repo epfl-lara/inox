@@ -11,89 +11,102 @@ trait CallGraph {
   import trees.exprOps._
   protected val symbols: Symbols
 
-  private def collectCalls(fd: FunDef)(e: Expr): Set[(FunDef, FunDef)] = e match {
-    case f @ FunctionInvocation(id, tps, _) => Set((fd, symbols.getFunction(id)))
+  private def collectCalls(fd: FunDef)(e: Expr): Set[(Identifier, Identifier)] = e match {
+    case f @ FunctionInvocation(id, tps, _) => Set((fd.id, id))
     case _ => Set()
   }
 
-  lazy val graph: DiGraph[FunDef, SimpleEdge[FunDef]] = {
-    var g = DiGraph[FunDef, SimpleEdge[FunDef]]()
+  private[this] var _graph: DiGraph[Identifier, SimpleEdge[Identifier]] = _
+  def graph: DiGraph[Identifier, SimpleEdge[Identifier]] = {
+    if (_graph eq null) {
+      var g = DiGraph[Identifier, SimpleEdge[Identifier]]()
 
-    for ((_, fd) <- symbols.functions; c <- collect(collectCalls(fd))(fd.fullBody)) {
-      g += SimpleEdge(c._1, c._2)
+      for ((_, fd) <- symbols.functions; (from, to) <- collect(collectCalls(fd))(fd.fullBody)) {
+        g += SimpleEdge(from, to)
+      }
+
+      _graph = g
     }
-
-    g
+    _graph
   }
 
-  lazy val allCalls = graph.E.map(e => e._1 -> e._2)
+  def allCalls = graph.E.map(e => e._1 -> e._2)
 
-  def isRecursive(f: FunDef) = {
-    graph.transitiveSucc(f) contains f
+  def isRecursive(id: Identifier) = {
+    graph.transitiveSucc(id) contains id
   }
 
-  def isSelfRecursive(f: FunDef) = {
-    graph.succ(f) contains f
+  def isSelfRecursive(id: Identifier) = {
+    graph.succ(id) contains id
   }
 
-  def calls(from: FunDef, to: FunDef) = {
+  def calls(from: Identifier, to: Identifier) = {
     graph.E contains SimpleEdge(from, to)
   }
 
-  def callers(to: FunDef): Set[FunDef] = {
+  def callers(to: Identifier): Set[Identifier] = {
     graph.pred(to)
   }
 
-  def callers(tos: Set[FunDef]): Set[FunDef] = {
+  def callers(tos: Set[Identifier]): Set[Identifier] = {
     tos.flatMap(callers)
   }
 
-  def callees(from: FunDef): Set[FunDef] = {
+  def callees(from: Identifier): Set[Identifier] = {
     graph.succ(from)
   }
 
-  def callees(froms: Set[FunDef]): Set[FunDef] = {
+  def callees(froms: Set[Identifier]): Set[Identifier] = {
     froms.flatMap(callees)
   }
 
-  def transitiveCallers(to: FunDef): Set[FunDef] = {
+  def transitiveCallers(to: Identifier): Set[Identifier] = {
     graph.transitivePred(to)
   }
 
-  def transitiveCallers(tos: Set[FunDef]): Set[FunDef] = {
+  def transitiveCallers(tos: Set[Identifier]): Set[Identifier] = {
     tos.flatMap(transitiveCallers)
   }
 
-  def transitiveCallees(from: FunDef): Set[FunDef] = {
+  def transitiveCallees(from: Identifier): Set[Identifier] = {
     graph.transitiveSucc(from)
   }
 
-  def transitiveCallees(froms: Set[FunDef]): Set[FunDef] = {
+  def transitiveCallees(froms: Set[Identifier]): Set[Identifier] = {
     froms.flatMap(transitiveCallees)
   }
 
-  def transitivelyCalls(from: FunDef, to: FunDef): Boolean = {
+  def transitivelyCalls(from: Identifier, to: Identifier): Boolean = {
     graph.transitiveSucc(from) contains to
   }
 
-  lazy val stronglyConnectedComponents = graph.stronglyConnectedComponents.N
-
-  lazy val functionComponent: Map[FunDef, Set[FunDef]] = {
-    val inComponents = stronglyConnectedComponents.flatMap(fds => fds.map(_ -> fds)).toMap
-    inComponents ++ symbols.functions.values.filterNot(inComponents.isDefinedAt).map(_ -> Set.empty[FunDef])
+  private[this] var _sccs: DiGraph[Set[Identifier], SimpleEdge[Set[Identifier]]] = _
+  def sccs: DiGraph[Set[Identifier], SimpleEdge[Set[Identifier]]] = {
+    if (_sccs eq null) {
+      _sccs = graph.stronglyConnectedComponents
+    }
+    _sccs
   }
 
   object CallGraphOrderings {
     implicit object componentOrdering extends Ordering[Set[FunDef]] {
-      private val components = graph.stronglyConnectedComponents.topSort
+      private val components = sccs.topSort.zipWithIndex.map {
+        case (ids, i) => ids.map(symbols.getFunction(_)) -> i
+      }.toMap.withDefaultValue(-1)
+
       def compare(a: Set[FunDef], b: Set[FunDef]): Int = {
-        components.indexOf(a).compare(components.indexOf(b))
+        components(a).compare(components(b))
       }
     }
 
     implicit object functionOrdering extends Ordering[FunDef] {
+      private val functionToComponent = sccs.N.flatMap { ids =>
+        val fds = ids.map(symbols.getFunction(_))
+        fds.map(_ -> fds)
+      }.toMap.withDefaultValue(Set.empty)
+
       def compare(a: FunDef, b: FunDef): Int = {
-        val (c1, c2) = (functionComponent(a), functionComponent(b))
+        val (c1, c2) = (functionToComponent(a), functionToComponent(b))
         if (c1.isEmpty && c2.isEmpty) a.id.uniqueName.compare(b.id.uniqueName)
         else if (c1.isEmpty) -1
         else if (c2.isEmpty) +1

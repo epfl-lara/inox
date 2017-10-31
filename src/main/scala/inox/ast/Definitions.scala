@@ -522,7 +522,7 @@ trait Definitions { self: Trees =>
 
     /* Auxiliary methods */
 
-    def isRecursive(implicit s: Symbols) = s.transitiveCallees(this) contains this
+    def isRecursive(implicit s: Symbols) = s.isRecursive(id)
 
     def typeArgs = tparams map (_.tp)
 

@@ -193,7 +193,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
       case None =>
         functions += fd.typed -> id2sym(fd.id)
 
-        val scc = transitiveCallees(fd).filter(fd2 => transitivelyCalls(fd2, fd))
+        val scc = transitiveCallees(fd.id).filter(id2 => transitivelyCalls(id2, fd.id))
         if (scc.size <= 1) {
           val (sym, params, returnSort, body) = (
             id2sym(fd.id),
@@ -211,11 +211,12 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
             case (false, false) => DefineFunRecPar(tps, FunDef(sym, params, returnSort, body))
           })
         } else {
-          functions ++= scc.toList.map(fd => fd.typed -> id2sym(fd.id))
+          functions ++= scc.toList.map(id => getFunction(id).typed -> id2sym(id))
 
-          val (decs, bodies) = (for (fd <- scc.toList) yield {
+          val (decs, bodies) = (for (id <- scc.toList) yield {
+            val fd = getFunction(id)
             val (sym, params, returnSort) = (
-              id2sym(fd.id),
+              id2sym(id),
               fd.params.map(vd => SortedVar(id2sym(vd.id), declareSort(vd.tpe))),
               declareSort(fd.returnType)
             )
