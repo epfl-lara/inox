@@ -487,7 +487,7 @@ trait Definitions { self: Trees =>
 
     private[this] var _constructors: Seq[TypedADTConstructor] = _
     def constructors: Seq[TypedADTConstructor] = {
-      if (_constructors eq null) definition.constructors.map(_.typed(tps))
+      if (_constructors eq null) _constructors = definition.constructors.map(_.typed(tps))
       _constructors
     }
   }
