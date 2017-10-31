@@ -125,7 +125,7 @@ object ASCIIHelpers {
     require(spanning >= 1)
 
     lazy val vString = v.toString
-    
+
     lazy val printableWidth = trimNonPrintable(vString).length
     lazy val fullWidth      = vString.length
     lazy val invisibleWidth = fullWidth-printableWidth
