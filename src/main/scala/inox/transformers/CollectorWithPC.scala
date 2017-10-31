@@ -6,7 +6,7 @@ package transformers
 /** A [[Collector]] that collects path conditions */
 trait CollectorWithPC extends TransformerWithPC with Collector {
   type Env = symbols.Path
-  lazy val initEnv = symbols.Path.empty
+  def initEnv = symbols.Path.empty
 }
 
 object CollectorWithPC {

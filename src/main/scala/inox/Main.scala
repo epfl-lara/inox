@@ -12,7 +12,7 @@ trait MainHelpers {
     solvers.DebugSectionSolver
   )
 
-  protected final lazy val debugSections = getDebugSections
+  protected final val debugSections = getDebugSections
 
   final object optDebug extends OptionDef[Set[DebugSection]] {
     import OptionParsers._
@@ -73,7 +73,7 @@ trait MainHelpers {
     evaluators.optIgnoreContracts -> Description(Evaluators, "Don't fail on invalid contracts during evaluation")
   )
 
-  final lazy val options = getOptions
+  final val options = getOptions
 
   protected def getCategories: Seq[Category] = {
     General +: (options.map(_._2.category).toSet - General).toSeq.sortBy(_.toString)
