@@ -57,7 +57,7 @@ package object inox {
     object printer extends ast.Printer { val trees: inox.trees.type = inox.trees }
   }
 
-  implicit lazy val inoxSemantics: SemanticsProvider { val trees: inox.trees.type } = new SemanticsProvider {
+  implicit val inoxSemantics: SemanticsProvider { val trees: inox.trees.type } = new SemanticsProvider {
     val trees: inox.trees.type = inox.trees
 
     def getSemantics(p: Program { val trees: inox.trees.type }): p.Semantics = new inox.Semantics { self =>

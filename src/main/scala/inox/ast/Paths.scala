@@ -88,22 +88,25 @@ trait Paths { self: SymbolOps with TypeOps =>
     }
 
     /** Add a bound to this [[Path]], a variable being defined but to an unknown/arbitrary value. */
-    override def withBound(b: ValDef) = this :+ OpenBound(b)
+    override def withBound(b: ValDef) = {
+      val exprs = elements collect {
+        case CloseBound(_, e) => e
+        case Condition(e) => e
+      }
+      assert(exprs forall { e => !(exprOps.variablesOf(e) contains b.toVariable) })
+      this :+ OpenBound(b)
+    }
 
     /** Add a condition to this [[Path]] */
     override def withCond(e: Expr): Path = e match {
       case TopLevelAnds(es) if es.size > 1 => withConds(es)
       case Not(TopLevelOrs(es)) if es.size > 1 => withConds(es map not)
       case _ =>
-        def replaceNeg(from: Expr)(to: Expr) = exprOps.replace(Map(not(from) -> BooleanLiteral(false)), to)
-
-        val prefix: Seq[Element] = elements map {
-          case Condition(c) => Condition(simplifyByConstructors(replaceNeg(e)(c)))
-          case p => p
-        }
-        val last = Condition(simplifyByConstructors(conditions.foldLeft(e) { (acc, c) => replaceNeg(c)(acc) }))
-        val newElements = (prefix :+ last) filter { _ != Condition(BooleanLiteral(true)) } // simplify path
-        new Path(newElements)
+        val newCondition = simplifyByConstructors(conditions.foldLeft(e) { (acc, c) =>
+          exprOps.replace(Map(not(c) -> BooleanLiteral(false), c -> BooleanLiteral(true)), acc)
+        })
+        if (newCondition == BooleanLiteral(true)) this
+        else new Path(elements :+ Condition(newCondition))
     }
 
     /** Remove bound variables from this [[Path]]
@@ -195,23 +198,37 @@ trait Paths { self: SymbolOps with TypeOps =>
     }
 
     /** Free variables within the path */
-    lazy val freeVariables: Set[Variable] = {
-      val allVars = elements. collect { case Condition(e) => e; case CloseBound(_, e) => e }
-                            . flatMap { e => exprOps.variablesOf(e) }
-      val boundVars = bounds map { _.toVariable }
-      allVars.toSet -- boundVars
+    private[this] var _variables: Set[Variable] = _
+    def variables: Set[Variable] = {
+      if (_variables eq null) {
+        val allVars = elements
+          .collect { case Condition(e) => e case CloseBound(_, e) => e }
+          .flatMap { e => exprOps.variablesOf(e) }
+        val boundVars = bound map { _.toVariable }
+        _variables = allVars.toSet -- boundVars
+      }
+      _variables
     }
 
-    lazy val bindings: Seq[(ValDef, Expr)] = elements collect { case CloseBound(vd, e) => vd -> e }
-
-    lazy val bounds: Seq[ValDef] = elements collect {
-      case CloseBound(vd, _) => vd
-      case OpenBound(vd) => vd
+    private[this] var _bindings: Seq[(ValDef, Expr)] = _
+    def bindings: Seq[(ValDef, Expr)] = {
+      if (_bindings eq null) _bindings = elements.collect { case CloseBound(vd, e) => vd -> e }
+      _bindings
     }
 
-    lazy val conditions: Seq[Expr] = elements collect { case Condition(e) => e }
+    private[this] var _bound: Seq[ValDef] = _
+    def bound: Seq[ValDef] = {
+      if (_bound eq null) _bound = elements.collect { case CloseBound(vd, _) => vd case OpenBound(vd) => vd }
+      _bound
+    }
 
-    def isBound(id: Identifier): Boolean = bounds exists { _.id == id }
+    private[this] var _conditions: Seq[Expr] = _
+    def conditions: Seq[Expr] = {
+      if (_conditions eq null) _conditions = elements.collect { case Condition(e) => e }
+      _conditions
+    }
+
+    def isBound(id: Identifier): Boolean = bound exists { _.id == id }
 
     /** Fold the path elements
       *
@@ -222,7 +239,7 @@ trait Paths { self: SymbolOps with TypeOps =>
                        (elems: Seq[Element]): T = elems.foldRight(base) {
       case (CloseBound(vd, e), res) => combineLet(vd, e, res)
       case (Condition(e), res) => combineCond(e, res)
-      case (OpenBound(_), res) => res // FIXME should it also take a combiner for OpenBound?
+      case (OpenBound(_), res) => res
     }
 
     /** Folds the path elements over a distributive proposition combinator [[combine]]
@@ -275,14 +292,14 @@ trait Paths { self: SymbolOps with TypeOps =>
     }
 
     /** Folds the path into the associated boolean proposition */
-    lazy val toClause: Expr = and(BooleanLiteral(true))
+    @inline def toClause: Expr = and(BooleanLiteral(true))
 
     /** Like [[toClause]] but doesn't simplify final path through constructors
       * from [[Constructors]] */
-    lazy val fullClause: Expr = fold[Expr](BooleanLiteral(true), Let, And(_, _))(elements)
+    @inline def fullClause: Expr = fold[Expr](BooleanLiteral(true), Let, And(_, _))(elements)
 
     override def equals(that: Any): Boolean = that match {
-      case p: Path => elements == p.elements && bounds == p.bounds
+      case p: Path => elements == p.elements
       case _ => false
     }
 

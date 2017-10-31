@@ -698,7 +698,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `Bag[base](elements)` */
   sealed case class FiniteBag(elements: Seq[(Expr, Expr)], base: Type) extends Expr {
-    lazy val tpe = BagType(base).unveilUntyped
+    private[this] val tpe = BagType(base).unveilUntyped
     def getType(implicit s: Symbols): Type = tpe
   }
 

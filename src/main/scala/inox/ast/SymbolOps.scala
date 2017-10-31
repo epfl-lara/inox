@@ -219,7 +219,7 @@ trait SymbolOps { self: TypeOps =>
       def isLocal(e: Expr, path: Path): Boolean = {
         val vs = variablesOf(e)
         val tvs = vs flatMap { v => varSubst.get(v.id) map { Variable(_, v.tpe, v.flags) } }
-        val pathVars = path.bounds.toSet map { vd: ValDef => vd.toVariable }
+        val pathVars = path.bound.toSet map { vd: ValDef => vd.toVariable }
         (tvars & tvs).isEmpty && (pathVars & tvs).isEmpty
       }
 
@@ -945,7 +945,7 @@ trait SymbolOps { self: TypeOps =>
     var assumptions: Seq[Expr] = Seq.empty
 
     val newExpr = transformWithPC(expr)((e, env, op) => e match {
-      case Assume(pred, body) if (variablesOf(pred) ++ env.freeVariables) subsetOf vars =>
+      case Assume(pred, body) if (variablesOf(pred) ++ env.variables) subsetOf vars =>
         assumptions :+= env implies pred
         op.rec(body, env withCond pred)
       case _ => op.superRec(e, env)
@@ -1053,7 +1053,6 @@ trait SymbolOps { self: TypeOps =>
             nl
 
           case fi: FunctionInvocation =>
-            // FIXME should this also use "open" bounds?
             val problematic = utils.fixpoint((vs: Set[Variable]) => vs ++ path.bindings.collect {
               case (vd, e) if (variablesOf(e) & vs).nonEmpty => vd.toVariable
               case (vd, e) if exists { case fi: FunctionInvocation => true case _ => false }(e) => vd.toVariable
@@ -1074,7 +1073,8 @@ trait SymbolOps { self: TypeOps =>
 
       def replace(path: Path, oldE: Expr, newE: Expr, body: Expr): Expr = transformWithPC(body) {
         (e, env, op) =>
-          if ((path.bindings.toSet subsetOf env.bindings.toSet) && // FIXME bindings or bounds?
+          if ((path.bindings.toSet subsetOf env.bindings.toSet) &&
+            (path.bound.toSet subsetOf env.bound.toSet) &&
             (path.conditions == env.conditions) && e == oldE) {
             newE
           } else {
