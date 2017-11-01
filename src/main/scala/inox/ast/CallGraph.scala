@@ -32,15 +32,15 @@ trait CallGraph {
 
   def allCalls = graph.E.map(e => e._1 -> e._2)
 
-  def isRecursive(id: Identifier) = {
+  def isRecursive(id: Identifier): Boolean = {
     graph.transitiveSucc(id) contains id
   }
 
-  def isSelfRecursive(id: Identifier) = {
+  def isSelfRecursive(id: Identifier): Boolean = {
     graph.succ(id) contains id
   }
 
-  def calls(from: Identifier, to: Identifier) = {
+  def calls(from: Identifier, to: Identifier): Boolean = {
     graph.E contains SimpleEdge(from, to)
   }
 
@@ -48,7 +48,15 @@ trait CallGraph {
     graph.pred(to)
   }
 
+  def callers(to: FunDef): Set[FunDef] = {
+    callers(to.id).map(symbols.getFunction(_))
+  }
+
   def callers(tos: Set[Identifier]): Set[Identifier] = {
+    tos.flatMap(callers)
+  }
+
+  def callers(tos: Set[FunDef])(implicit dummy: DummyImplicit): Set[FunDef] = {
     tos.flatMap(callers)
   }
 
@@ -56,7 +64,15 @@ trait CallGraph {
     graph.succ(from)
   }
 
+  def callees(from: FunDef): Set[FunDef] = {
+    callees(from.id).map(symbols.getFunction(_))
+  }
+
   def callees(froms: Set[Identifier]): Set[Identifier] = {
+    froms.flatMap(callees)
+  }
+
+  def callees(froms: Set[FunDef])(implicit dummy: DummyImplicit): Set[FunDef] = {
     froms.flatMap(callees)
   }
 
@@ -64,7 +80,15 @@ trait CallGraph {
     graph.transitivePred(to)
   }
 
+  def transitiveCallers(to: FunDef): Set[FunDef] = {
+    transitiveCallers(to.id).map(symbols.getFunction(_))
+  }
+
   def transitiveCallers(tos: Set[Identifier]): Set[Identifier] = {
+    tos.flatMap(transitiveCallers)
+  }
+
+  def transitiveCallers(tos: Set[FunDef])(implicit dummy: DummyImplicit): Set[FunDef] = {
     tos.flatMap(transitiveCallers)
   }
 
@@ -72,12 +96,24 @@ trait CallGraph {
     graph.transitiveSucc(from)
   }
 
+  def transitiveCallees(from: FunDef): Set[FunDef] = {
+    transitiveCallees(from.id).map(symbols.getFunction(_))
+  }
+
   def transitiveCallees(froms: Set[Identifier]): Set[Identifier] = {
+    froms.flatMap(transitiveCallees)
+  }
+
+  def transitiveCallees(froms: Set[FunDef])(implicit dummy: DummyImplicit): Set[FunDef] = {
     froms.flatMap(transitiveCallees)
   }
 
   def transitivelyCalls(from: Identifier, to: Identifier): Boolean = {
     graph.transitiveSucc(from) contains to
+  }
+
+  def transitivelyCalls(from: FunDef, to: FunDef): Boolean = {
+    transitivelyCalls(from.id, to.id)
   }
 
   private[this] var _sccs: DiGraph[Set[Identifier], SimpleEdge[Set[Identifier]]] = _
