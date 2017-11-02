@@ -141,22 +141,10 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
     printLineContent(msg.position)
   }
 
-  protected var linesOf = Map[java.io.File, List[String]]()
-
   def getLine(pos: Position): Option[String] = {
-    val lines = linesOf.get(pos.file) match {
-      case Some(lines) =>
-        lines
-      case None =>
-        val lines = if (pos == NoPosition) {
-          Nil
-        } else {
-          scala.io.Source.fromFile(pos.file).getLines.toList
-        }
-
-        linesOf += pos.file -> lines
-        lines
-    }
+    val lines =
+      if (pos == NoPosition) Nil
+      else scala.io.Source.fromFile(pos.file).getLines.toList
 
     if (lines.size >= pos.line && pos.line > 0) {
       Some(lines(pos.line - 1))
