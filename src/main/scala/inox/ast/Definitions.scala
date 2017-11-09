@@ -176,7 +176,7 @@ trait Definitions { self: Trees =>
       * - adt type parameter flags match between children and parents
       * - every variable is available in the scope of its usage
       */
-    lazy val ensureWellFormed = {
+    def ensureWellFormed = {
       ensureWellFormedFunctions
       ensureWellFormedAdts
     }

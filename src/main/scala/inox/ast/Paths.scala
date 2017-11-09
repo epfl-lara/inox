@@ -154,7 +154,7 @@ trait Paths { self: SymbolOps with TypeOps =>
       *
       * A path is empty iff it contains no let-bindings and its path condition is trivial.
       */
-    lazy val isEmpty = elements forall {
+    def isEmpty = elements forall {
       case Condition(BooleanLiteral(true)) => true
       case _ => false
     }
