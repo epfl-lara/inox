@@ -105,6 +105,7 @@ trait Paths { self: SymbolOps with TypeOps =>
         val newCondition = simplifyByConstructors(conditions.foldLeft(e) { (acc, c) =>
           exprOps.replace(Map(not(c) -> BooleanLiteral(false), c -> BooleanLiteral(true)), acc)
         })
+
         if (newCondition == BooleanLiteral(true)) this
         else new Path(elements :+ Condition(newCondition))
     }
