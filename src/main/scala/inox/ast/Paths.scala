@@ -55,6 +55,7 @@ trait Paths { self: SymbolOps with TypeOps =>
     }
 
     def apply(p: (ValDef, Expr)): Path = Path(CloseBound(p._1, p._2))
+    def apply(vd: ValDef): Path = Path(OpenBound(vd))
 
     def apply(path: Seq[Expr])(implicit d: DummyImplicit): Path =
       new Path(path filterNot { _ == BooleanLiteral(true) } map Condition)
@@ -153,9 +154,11 @@ trait Paths { self: SymbolOps with TypeOps =>
     /** Check if the path is empty
       *
       * A path is empty iff it contains no let-bindings and its path condition is trivial.
+      * Note that empty paths may contain open bounds.
       */
     def isEmpty = elements forall {
       case Condition(BooleanLiteral(true)) => true
+      case OpenBound(_) => true
       case _ => false
     }
 
