@@ -76,12 +76,13 @@ script := {
 
     val paths = res.getAbsolutePath +: out.getAbsolutePath +: cps.map(_.data.absolutePath)
     val cp = paths.mkString(System.getProperty("path.separator"))
-    IO.write(file, s"""|#!/bin/bash --posix
-                             |
-                             |SCALACLASSPATH=$cp
-                             |
-                             |java -Xmx2G -Xms512M -Xss64M -classpath "$${SCALACLASSPATH}" -Dscala.usejavacp=true inox.Main $$@ 2>&1
-                             |""".stripMargin)
+    IO.write(file, s"""|#!/usr/bin/env bash
+                       |set -o posix
+                       |
+                       |SCALACLASSPATH=$cp
+                       |
+                       |java -Xmx2G -Xms512M -Xss64M -classpath "$${SCALACLASSPATH}" -Dscala.usejavacp=true inox.Main $$@ 2>&1
+                       |""".stripMargin)
     file.setExecutable(true)
   } catch {
     case e: Throwable =>
