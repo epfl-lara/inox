@@ -115,6 +115,44 @@ trait SymbolOps { self: TypeOps =>
     case _ => false
   }
 
+  /** Returns true when the given expression is ground, pure, and does not contain
+   *  choose or quantifiers, and can thus be simplified.
+   */
+  def canBeForced(expr: Expr): Boolean = {
+    isGround(expr) && isPure(expr)(PurityOptions.AssumeChecked) && !containsChooseOrQuantifiers(expr)
+  }
+
+  /** Simplify all the pure and ground sub-expressions of the given expression,
+   * by forcing them using [[inox.evaluators.Evaluator]].
+   *
+   * @see [[canBeForced]]
+   */
+  def simplifyGround(expr: Expr)(implicit sem: symbols.Semantics, ctx: Context): Expr = {
+    val evaluator = sem.getEvaluator
+
+    def err(desc: String, msg: String): Unit = {
+      ctx.reporter.error(s"Forcing failed due to a $desc: $msg")
+    }
+
+    import inox.evaluators.EvaluationResults._
+
+    postMap {
+      case e if canBeForced(e) =>
+        evaluator.eval(e) match {
+          case Successful(value) =>
+            Some(value)
+          case RuntimeError(msg) =>
+            err("runtime error", msg)
+            None
+          case EvaluatorError(msg) =>
+            err("evaluator error", msg)
+            None
+        }
+
+      case _ => None
+    } (expr)
+  }
+
   private val typedIds: MutableMap[Type, List[Identifier]] =
     MutableMap.empty.withDefaultValue(List.empty)
 
