@@ -23,6 +23,8 @@ trait SolvingEvaluator extends Evaluator { self =>
     def default = MutableMap.empty
   }
 
+  lazy val crashOnChoose = options.findOptionOrDefault(optCrashOnChoose)
+
   private val chooseCache: MutableMap[Choose, Expr] = MutableMap.empty
 
   // @nv: this has to be visible otherwise the compiler just sets it to `null`
@@ -30,30 +32,40 @@ trait SolvingEvaluator extends Evaluator { self =>
     options.findOptionOrDefault(optForallCache)
   }
 
-  def onChooseInvocation(choose: Choose): Expr = chooseCache.getOrElseUpdate(choose, {
-    import scala.language.existentials
-    val res = context.timers.evaluators.specs.run {
-      val sf = semantics.getSolver
-      val api = SimpleSolverAPI(sf)
-      api.solveSAT(choose.pred)
+  def onChooseInvocation(choose: Choose): Expr = {
+    if (crashOnChoose) {
+      throw new RuntimeException(s"Evaluation of 'choose' expressions disabled @ ${choose.getPos}")
     }
 
-    import SolverResponses._
+    chooseCache.getOrElseUpdate(choose, {
+      import scala.language.existentials
+      val res = context.timers.evaluators.specs.run {
+        val sf = semantics.getSolver
+        val api = SimpleSolverAPI(sf)
+        api.solveSAT(choose.pred)
+      }
 
-    res match {
-      case SatWithModel(model) =>
-        try {
-          model.vars.getOrElse(choose.res, simplestValue(choose.res.tpe, allowSolver = false))
-        } catch {
-          case _: NoSimpleValue => throw new RuntimeException("No simple value for choose " + choose.asString)
-        }
+      import SolverResponses._
 
-      case _ =>
-        throw new RuntimeException("Failed to evaluate choose " + choose.asString)
-    }
-  })
+      res match {
+        case SatWithModel(model) =>
+          try {
+            model.vars.getOrElse(choose.res, simplestValue(choose.res.tpe, allowSolver = false))
+          } catch {
+            case _: NoSimpleValue => throw new RuntimeException("No simple value for choose " + choose.asString)
+          }
+
+        case _ =>
+          throw new RuntimeException("Failed to evaluate choose " + choose.asString)
+      }
+    })
+  }
 
   def onForallInvocation(forall: Forall): Expr = {
+    if (crashOnChoose) {
+      throw new RuntimeException(s"Evaluation of 'forall' expressions disabled @ ${forall.getPos}")
+    }
+
     BooleanLiteral(forallCache.getOrElse(forall, {
       import scala.language.existentials
       val res = context.timers.evaluators.forall.run {

@@ -4,6 +4,7 @@ package inox
 package evaluators
 
 object optIgnoreContracts extends FlagOptionDef("ignore-contracts", false)
+object optCrashOnChoose extends FlagOptionDef("crash-on-choose", false)
 
 trait Evaluator {
   val program: Program
