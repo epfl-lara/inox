@@ -177,43 +177,39 @@ trait Definitions { self: Trees =>
       * - every variable is available in the scope of its usage
       */
     def ensureWellFormed = {
-      ensureWellFormedFunctions
-      ensureWellFormedAdts
+      for ((_, fd) <- functions) ensureWellFormedFunction(fd)
+      for ((_, adt) <- adts) ensureWellFormedAdt(adt)
     }
 
-    private def ensureWellFormedAdts = {
-      for ((_, adt) <- adts) {
-        if (!adt.isWellFormed) throw NotWellFormedException(adt)
+    protected def ensureWellFormedFunction(fd: FunDef) = {
+      typeCheck(fd.fullBody, fd.returnType)
 
-        adt match {
-          case sort: ADTSort =>
-            if (!sort.constructors.forall(cons => cons.sort == Some(sort.id)))
-              throw NotWellFormedException(adt)
-          case cons: ADTConstructor =>
-            cons.sort.map(getADT) match {
-              case None => // OK
-              case Some(sort: ADTSort) =>
-                if (!(sort.cons contains cons.id) ||
-                    cons.tparams.size != sort.tparams.size ||
-                    (cons.tparams zip sort.tparams).exists(p => p._1.flags != p._2.flags))
-                  throw NotWellFormedException(adt)
-              case _ => throw NotWellFormedException(cons)
-            }
-        }
+      val unbound: Seq[Variable] = collectWithPC(fd.fullBody, Path.empty withBounds fd.params) {
+        case (v: Variable, path) if !(path isBound v.id) => v
+      }
+
+      if (unbound.nonEmpty) {
+        throw NotWellFormedException(fd, Some("Unknown variables: " + (unbound map { _.id.uniqueName } mkString ", ")))
       }
     }
 
-    private def ensureWellFormedFunctions = {
-      for ((_, fd) <- functions) {
-        typeCheck(fd.fullBody, fd.returnType)
+    protected def ensureWellFormedAdt(adt: ADTDefinition) = {
+      if (!adt.isWellFormed) throw NotWellFormedException(adt)
 
-        val unbound: Seq[Variable] = collectWithPC(fd.fullBody, Path.empty withBounds fd.params) {
-          case (v: Variable, path) if !(path isBound v.id) => v
-        }
-
-        if (unbound.nonEmpty) {
-          throw NotWellFormedException(fd, Some("Unknown variables: " + (unbound map { _.id.uniqueName } mkString ", ")))
-        }
+      adt match {
+        case sort: ADTSort =>
+          if (!sort.constructors.forall(cons => cons.sort == Some(sort.id)))
+            throw NotWellFormedException(adt)
+        case cons: ADTConstructor =>
+          cons.sort.map(getADT) match {
+            case None => // OK
+            case Some(sort: ADTSort) =>
+              if (!(sort.cons contains cons.id) ||
+                  cons.tparams.size != sort.tparams.size ||
+                  (cons.tparams zip sort.tparams).exists(p => p._1.flags != p._2.flags))
+                throw NotWellFormedException(adt)
+            case _ => throw NotWellFormedException(cons)
+          }
       }
     }
 
