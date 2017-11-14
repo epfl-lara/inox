@@ -122,24 +122,26 @@ trait SymbolOps { self: TypeOps =>
     * ground, pure, and does not contain choose or quantifiers.
     */
   def simplifyGround(expr: Expr, force: Boolean = false)
-                    (implicit sem: symbols.Semantics, ctx: Context, opts: PurityOptions): Result[Expr] = {
+                    (implicit sem: symbols.Semantics, ctx: Context, opts: PurityOptions): Expr = {
     import evaluators.optCrashOnChoose
 
     val evalCtx = ctx.withOpts(optCrashOnChoose(true))
     val evaluator = sem.getEvaluator(ctx)
-    val canEvaluate = force || isGround(expr) && isPure(expr)
 
-    if (canEvaluate) {
-      evaluator.eval(expr)
-    } else {
-      Successful(expr)
+    def evalChildren(e: Expr): Expr = e match {
+      case Operator(es, recons) => recons(es.map(rec))
     }
-  }
 
-  private def simplifyGroundOrSame
-    (expr: Expr, force: Boolean = false)
-    (implicit sem: symbols.Semantics, ctx: Context, opts: PurityOptions): Expr = {
-    simplifyGround(expr, force).result.getOrElse(expr)
+    def rec(e: Expr): Expr = e match {
+      case e if isValue(e) =>
+        e
+      case e if isPure(e) && isGround(e) =>
+        evaluator.eval(e).result.getOrElse(evalChildren(e))
+      case e =>
+        evalChildren(e)
+    }
+
+    rec(expr)
   }
 
   private val typedIds: MutableMap[Type, List[Identifier]] =
@@ -1155,11 +1157,11 @@ trait SymbolOps { self: TypeOps =>
 
     if (simpOpts.simplify) {
       val simp: Expr => Expr =
-        ((e: Expr) => simplifyGroundOrSame(e)) compose
-        ((e: Expr) => simplifyHOFunctions(e))  compose
-        ((e: Expr) => simplifyExpr(e))         compose
-        ((e: Expr) => simplifyForalls(e))      compose
-        ((e: Expr) => simplifyAssumptions(e))  compose
+        ((e: Expr) => simplifyGround(e))      compose
+        ((e: Expr) => simplifyHOFunctions(e)) compose
+        ((e: Expr) => simplifyExpr(e))        compose
+        ((e: Expr) => simplifyForalls(e))     compose
+        ((e: Expr) => simplifyAssumptions(e)) compose
         ((e: Expr) => mergeFunctions(e))
       simp(e)
     } else {

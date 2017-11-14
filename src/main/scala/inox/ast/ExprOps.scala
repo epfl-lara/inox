@@ -101,15 +101,6 @@ trait ExprOps extends GenTreeOps {
     }(expr)
   }
 
-  /** Returns true if the expression contains choose or quantifiers */
-  def containsChooseOrQuantifiers(expr: Expr): Boolean = {
-    exists {
-      case _: Forall => true
-      case _: Choose => true
-      case _ => false
-    }(expr)
-  }
-
   /** Returns '''true''' if the formula is Ground,
     * which means that it does not contain any variables
     * ([[variablesOf]] e is empty)
