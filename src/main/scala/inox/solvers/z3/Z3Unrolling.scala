@@ -28,6 +28,7 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
   object templates extends {
     val program: targetProgram.type = targetProgram
     val context = self.context
+    protected implicit val semantics: targetProgram.Semantics = self.targetSemantics
   } with Templates {
     import program.trees._
 

@@ -19,6 +19,7 @@ trait Templates
 
   val program: Program
   val context: Context
+  protected implicit val semantics: program.Semantics
 
   import context._
   import program._

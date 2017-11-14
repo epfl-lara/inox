@@ -115,19 +115,18 @@ trait SymbolOps { self: TypeOps =>
     case _ => false
   }
 
-  /** Returns true when the given expression is ground, pure, and does not contain
-   *  choose or quantifiers, and can thus be simplified.
-   */
-  def canBeForced(expr: Expr): Boolean = {
-    isGround(expr) && isPure(expr)(PurityOptions.AssumeChecked) && !containsChooseOrQuantifiers(expr)
-  }
-
   /** Simplify all the pure and ground sub-expressions of the given expression,
-   * by forcing them using [[inox.evaluators.Evaluator]].
-   *
-   * @see [[canBeForced]]
-   */
-  def simplifyGround(expr: Expr)(implicit sem: symbols.Semantics, ctx: Context): Expr = {
+    * by evaluating them using [[inox.evaluators.Evaluator]].
+    * If `force` is omitted, the given expression will only be evaluated if it is
+    * ground, pure, and does not contain choose or quantifiers.
+    */
+  def simplifyGround(expr: Expr, force: Boolean = false)
+                    (implicit sem: symbols.Semantics, ctx: Context, opts: PurityOptions): Expr = {
+
+    val canEvaluate: Boolean = force || {
+      isGround(expr) && isPure(expr) && !containsChooseOrQuantifiers(expr)
+    }
+
     val evaluator = sem.getEvaluator
 
     def err(desc: String, msg: String): Unit = {
@@ -136,21 +135,23 @@ trait SymbolOps { self: TypeOps =>
 
     import inox.evaluators.EvaluationResults._
 
-    postMap {
-      case e if canBeForced(e) =>
-        evaluator.eval(e) match {
-          case Successful(value) =>
-            Some(value)
-          case RuntimeError(msg) =>
-            err("runtime error", msg)
-            None
-          case EvaluatorError(msg) =>
-            err("evaluator error", msg)
-            None
-        }
+    val result = if (canEvaluate) {
+      evaluator.eval(expr) match {
+        case Successful(value) =>
+          Some(value)
+        case RuntimeError(msg) =>
+          err("runtime error", msg)
+          None
+        case EvaluatorError(msg) =>
+          err("evaluator error", msg)
+          None
+      }
+    }
+    else {
+      None
+    }
 
-      case _ => None
-    } (expr)
+    result.getOrElse(expr)
   }
 
   private val typedIds: MutableMap[Type, List[Identifier]] =
@@ -1160,12 +1161,13 @@ trait SymbolOps { self: TypeOps =>
     mergeCalls(liftCalls(expr))
   }
 
-  private[inox] def simplifyFormula(e: Expr)(implicit ctx: Context): Expr = {
+  private[inox] def simplifyFormula(e: Expr)(implicit ctx: Context, sem: symbols.Semantics): Expr = {
     implicit val simpOpts = SimplificationOptions(ctx)
     implicit val purityOpts = PurityOptions(ctx)
 
     if (simpOpts.simplify) {
       val simp: Expr => Expr =
+        ((e: Expr) => simplifyGround(e))      compose
         ((e: Expr) => simplifyHOFunctions(e)) compose
         ((e: Expr) => simplifyExpr(e))        compose
         ((e: Expr) => simplifyForalls(e))     compose
