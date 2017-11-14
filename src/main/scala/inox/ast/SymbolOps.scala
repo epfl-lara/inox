@@ -966,7 +966,11 @@ trait SymbolOps { self: TypeOps =>
     type Bindings = Seq[(ValDef, Expr)]
     implicit class BindingsWrapper(bindings: Bindings) {
       def merge(that: Bindings): Bindings = (bindings ++ that).distinct
-      def wrap(that: Expr): Expr = bindings.foldRight(that) { case ((vd, e), b) => let(vd, e, b) }
+      def wrap(that: Expr): Expr = bindings.foldRight(that) { case ((vd, e), b) =>
+        val freshVd = vd.freshen
+        val fb = replaceFromSymbols(Map(vd -> freshVd.toVariable), b)
+        let(freshVd, e, fb)
+      }
     }
 
     def liftCalls(e: Expr): Expr = {
