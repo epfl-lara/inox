@@ -127,6 +127,19 @@ trait SymbolOps { self: TypeOps =>
     val evalCtx = ctx.withOpts(evaluators.optEvalQuantifiers(false))
     val evaluator = sem.getEvaluator(ctx)
 
+    case class SimplifyGroundError(expr: Expr, result: Result[Expr]) {
+      def errMsg: String = result match {
+        case RuntimeError(msg) =>
+          s"runtime error: $msg"
+        case EvaluatorError(msg) =>
+          s"evaluator error: $msg"
+        case _ => ""
+      }
+      override def toString: String = {
+        s"Forced evaluation of expression @ ${expr.getPos} failed because of a $errMsg"
+      }
+    }
+
     def evalChildren(e: Expr): Expr = e match {
       case Operator(es, recons) => recons(es.map(rec))
     }
@@ -135,14 +148,10 @@ trait SymbolOps { self: TypeOps =>
       case e if isValue(e) =>
         e
       case e if force || isPure(e) && isGround(e) =>
-        evaluator.eval(e).result match {
-          case Some(res) =>
-            res
-          case None =>
-            if (force) {
-              ctx.reporter.error(s"Forced evaluation of expression failed @ ${e.getPos}")
-            }
-            evalChildren(e)
+        val evaluated = evaluator.eval(e)
+        evaluated.result.getOrElse {
+          if (force) ctx.reporter.error(SimplifyGroundError(e, evaluated))
+          evalChildren(e)
         }
       case e =>
         evalChildren(e)
