@@ -134,8 +134,16 @@ trait SymbolOps { self: TypeOps =>
     def rec(e: Expr): Expr = e match {
       case e if isValue(e) =>
         e
-      case e if isPure(e) && isGround(e) =>
-        evaluator.eval(e).result.getOrElse(evalChildren(e))
+      case e if force || isPure(e) && isGround(e) =>
+        evaluator.eval(e).result match {
+          case Some(res) =>
+            res
+          case None =>
+            if (force) {
+              ctx.reporter.error(s"Forced evaluation of expression failed @ ${e.getPos}")
+            }
+            evalChildren(e)
+        }
       case e =>
         evalChildren(e)
     }
