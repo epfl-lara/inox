@@ -123,9 +123,8 @@ trait SymbolOps { self: TypeOps =>
     */
   def simplifyGround(expr: Expr, force: Boolean = false)
                     (implicit sem: symbols.Semantics, ctx: Context, opts: PurityOptions): Expr = {
-    import evaluators.optCrashOnChoose
 
-    val evalCtx = ctx.withOpts(optCrashOnChoose(true))
+    val evalCtx = ctx.withOpts(evaluators.optEvalQuantifiers(false))
     val evaluator = sem.getEvaluator(ctx)
 
     def evalChildren(e: Expr): Expr = e match {

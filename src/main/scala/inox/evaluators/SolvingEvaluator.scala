@@ -23,7 +23,7 @@ trait SolvingEvaluator extends Evaluator { self =>
     def default = MutableMap.empty
   }
 
-  lazy val crashOnChoose = options.findOptionOrDefault(optCrashOnChoose)
+  lazy val evalQuantifiers = options.findOptionOrDefault(optEvalQuantifiers)
 
   private val chooseCache: MutableMap[Choose, Expr] = MutableMap.empty
 
@@ -33,7 +33,7 @@ trait SolvingEvaluator extends Evaluator { self =>
   }
 
   def onChooseInvocation(choose: Choose): Expr = {
-    if (crashOnChoose) {
+    if (!evalQuantifiers) {
       throw new RuntimeException(s"Evaluation of 'choose' expressions disabled @ ${choose.getPos}")
     }
 
@@ -62,7 +62,7 @@ trait SolvingEvaluator extends Evaluator { self =>
   }
 
   def onForallInvocation(forall: Forall): Expr = {
-    if (crashOnChoose) {
+    if (!evalQuantifiers) {
       throw new RuntimeException(s"Evaluation of 'forall' expressions disabled @ ${forall.getPos}")
     }
 
