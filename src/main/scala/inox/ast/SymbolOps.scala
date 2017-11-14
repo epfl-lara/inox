@@ -5,6 +5,7 @@ package ast
 
 import utils._
 import solvers.{PurityOptions, SimplificationOptions}
+import evaluators.EvaluationResults._
 
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
@@ -121,37 +122,24 @@ trait SymbolOps { self: TypeOps =>
     * ground, pure, and does not contain choose or quantifiers.
     */
   def simplifyGround(expr: Expr, force: Boolean = false)
-                    (implicit sem: symbols.Semantics, ctx: Context, opts: PurityOptions): Expr = {
+                    (implicit sem: symbols.Semantics, ctx: Context, opts: PurityOptions): Result[Expr] = {
+    import evaluators.optCrashOnChoose
 
-    val canEvaluate: Boolean = force || {
-      isGround(expr) && isPure(expr) && !containsChooseOrQuantifiers(expr)
+    val evalCtx = ctx.withOpts(optCrashOnChoose(true))
+    val evaluator = sem.getEvaluator(ctx)
+    val canEvaluate = force || isGround(expr) && isPure(expr)
+
+    if (canEvaluate) {
+      evaluator.eval(expr)
+    } else {
+      Successful(expr)
     }
+  }
 
-    val evaluator = sem.getEvaluator
-
-    def err(desc: String, msg: String): Unit = {
-      ctx.reporter.error(s"Forcing failed due to a $desc: $msg")
-    }
-
-    import inox.evaluators.EvaluationResults._
-
-    val result = if (canEvaluate) {
-      evaluator.eval(expr) match {
-        case Successful(value) =>
-          Some(value)
-        case RuntimeError(msg) =>
-          err("runtime error", msg)
-          None
-        case EvaluatorError(msg) =>
-          err("evaluator error", msg)
-          None
-      }
-    }
-    else {
-      None
-    }
-
-    result.getOrElse(expr)
+  private def simplifyGroundOrSame
+    (expr: Expr, force: Boolean = false)
+    (implicit sem: symbols.Semantics, ctx: Context, opts: PurityOptions): Expr = {
+    simplifyGround(expr, force).result.getOrElse(expr)
   }
 
   private val typedIds: MutableMap[Type, List[Identifier]] =
@@ -1167,11 +1155,11 @@ trait SymbolOps { self: TypeOps =>
 
     if (simpOpts.simplify) {
       val simp: Expr => Expr =
-        ((e: Expr) => simplifyGround(e))      compose
-        ((e: Expr) => simplifyHOFunctions(e)) compose
-        ((e: Expr) => simplifyExpr(e))        compose
-        ((e: Expr) => simplifyForalls(e))     compose
-        ((e: Expr) => simplifyAssumptions(e)) compose
+        ((e: Expr) => simplifyGroundOrSame(e)) compose
+        ((e: Expr) => simplifyHOFunctions(e))  compose
+        ((e: Expr) => simplifyExpr(e))         compose
+        ((e: Expr) => simplifyForalls(e))      compose
+        ((e: Expr) => simplifyAssumptions(e))  compose
         ((e: Expr) => mergeFunctions(e))
       simp(e)
     } else {
