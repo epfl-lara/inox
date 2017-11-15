@@ -229,7 +229,7 @@ trait Paths { self: SymbolOps with TypeOps =>
                        (elems: Seq[Element]): T = elems.foldRight(base) {
       case (CloseBound(vd, e), res) => combineLet(vd, e, res)
       case (Condition(e), res) => combineCond(e, res)
-      case (OpenBound(_), res) => res // FIXME should it also take a combiner for OpenBound?
+      case (OpenBound(_), res) => res // No combiner for OpenBound
     }
 
     /** Folds the path elements over a distributive proposition combinator [[combine]]

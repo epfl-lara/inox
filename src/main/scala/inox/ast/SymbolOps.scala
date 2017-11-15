@@ -1054,7 +1054,6 @@ trait SymbolOps { self: TypeOps =>
             nl
 
           case fi: FunctionInvocation =>
-            // FIXME should this also use "open" bounds?
             val problematic = utils.fixpoint((vs: Set[Variable]) => vs ++ path.bindings.collect {
               case (vd, e) if (variablesOf(e) & vs).nonEmpty => vd.toVariable
               case (vd, e) if exists { case fi: FunctionInvocation => true case _ => false }(e) => vd.toVariable
@@ -1075,8 +1074,9 @@ trait SymbolOps { self: TypeOps =>
 
       def replace(path: Path, oldE: Expr, newE: Expr, body: Expr): Expr = transformWithPC(body) {
         (e, env, op) =>
-          if ((path.bindings.toSet subsetOf env.bindings.toSet) && // FIXME bindings or bounds?
-            (path.conditions == env.conditions) && e == oldE) {
+          if ((path.bindings.toSet subsetOf env.bindings.toSet) &&
+              (path.bounds.toSet subsetOf env.bounds.toSet) &&
+              (path.conditions == env.conditions) && e == oldE) {
             newE
           } else {
             op.superRec(e, env)
