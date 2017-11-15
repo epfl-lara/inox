@@ -74,21 +74,28 @@ trait Paths { self: SymbolOps with TypeOps =>
     extends Printable with PathLike[Path] {
     import Path.{ Element, CloseBound, OpenBound, Condition }
 
-    private def :+(e: Element) = new Path(elements :+ e)
+    private def :+(e: Element): Path = {
+      e match {
+        case CloseBound(vd, _) => assertNotInPath(vd)
+        case OpenBound(vd) => assertNotInPath(vd)
+        case Condition(_) => // no check
+      }
+      new Path(elements :+ e)
+    }
 
-    /** Add a binding to this [[Path]] */
-    override def withBinding(p: (ValDef, Expr)) = {
-      val (vd, value) = p
+    private def assertNotInPath(vd: ValDef): Unit = {
       val exprs = elements collect {
         case CloseBound(_, e) => e
         case Condition(e) => e
       }
       assert(exprs forall { e => !(exprOps.variablesOf(e) contains vd.toVariable) })
-      this :+ CloseBound(vd, value)
     }
 
+    /** Add a binding to this [[Path]] */
+    override def withBinding(p: (ValDef, Expr)): Path = this :+ CloseBound(p._1, p._2)
+
     /** Add a bound to this [[Path]], a variable being defined but to an unknown/arbitrary value. */
-    override def withBound(b: ValDef) = this :+ OpenBound(b)
+    override def withBound(b: ValDef): Path = this :+ OpenBound(b)
 
     /** Add a condition to this [[Path]] */
     override def withCond(e: Expr): Path = e match {
