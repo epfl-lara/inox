@@ -176,9 +176,16 @@ trait Definitions { self: Trees =>
       * - adt type parameter flags match between children and parents
       * - every variable is available in the scope of its usage
       */
+    private[this] var _optWFError: Option[Throwable] = _
     def ensureWellFormed = {
-      for ((_, fd) <- functions) ensureWellFormedFunction(fd)
-      for ((_, adt) <- adts) ensureWellFormedAdt(adt)
+      if (_optWFError eq null) try {
+        for ((_, fd) <- functions) ensureWellFormedFunction(fd)
+        for ((_, adt) <- adts) ensureWellFormedAdt(adt)
+        _optWFError = None
+      } catch {
+        case t: Throwable => _optWFError = Some(t)
+      }
+      _optWFError.foreach(throw _)
     }
 
     protected def ensureWellFormedFunction(fd: FunDef) = {
