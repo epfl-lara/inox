@@ -7,6 +7,7 @@ import scala.language.dynamics
 import scala.annotation.switch
 
 import scala.collection.mutable.{ Map => MutableMap, ListBuffer => MutableList }
+import scala.util.Try
 
 object DebugSectionTimers extends DebugSection("timers")
 
@@ -83,10 +84,15 @@ final class TimerStorage private(val _name: Option[String])
     t
   }
 
-  /** Run a timer around a given code. */
-  def run[T](body: => T): T = {
+  /** Run a timer around a given code, throwing exception. */
+  def run[T](body: => T): T = runAndGetTime(body)._2.get
+
+  /** Run a timer around a given code, returning the result and the time it took. */
+  def runAndGetTime[T](body: => T): (Long, Try[T]) = {
     val timer = start()
-    try { body } finally { timer.stop() }
+    val res = Try(body)
+    val time = timer.stop()
+    (time, res)
   }
 
   /**
