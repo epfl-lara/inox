@@ -4,7 +4,7 @@ package inox
 package ast
 
 import inox.parsing.Interpolator
-import inox.utils.Position
+import inox.utils._
 
 import scala.collection.mutable.{Map => MutableMap}
 import scala.util.Try
@@ -89,8 +89,8 @@ trait Definitions { self: Trees =>
     }
 
     /** Transform this [[ValDef]] into a [[Expressions.Variable Variable]] */
-    def toVariable: Variable = v
-    def freshen: ValDef = new ValDef(v.freshen).copiedFrom(this)
+    @inline def toVariable: Variable = v
+    @inline def freshen: ValDef = new ValDef(v.freshen).copiedFrom(this)
 
     override def equals(that: Any): Boolean = super[VariableSymbol].equals(that)
     override def hashCode: Int = super[VariableSymbol].hashCode
@@ -234,7 +234,7 @@ trait Definitions { self: Trees =>
     @inline def id = tp.id
     @inline def flags = tp.flags
 
-    def freshen = new TypeParameterDef(tp.freshen)
+    @inline def freshen = new TypeParameterDef(tp.freshen)
 
     override def equals(that: Any): Boolean = that match {
       case tpd: TypeParameterDef => tp == tpd.tp
@@ -447,26 +447,18 @@ trait Definitions { self: Trees =>
     implicit val symbols: Symbols
 
     @inline def id: Identifier = definition.id
-    /** The root of the class hierarchy */
-    private[this] var _root: TypedADTDefinition = _
-    def root: TypedADTDefinition = {
-      if (_root eq null) _root = definition.root.typed(tps)
-      _root
-    }
 
-    private[this] var _invariant: Option[TypedFunDef] = _
-    def invariant: Option[TypedFunDef] = {
-      if (_invariant eq null) _invariant = definition.invariant.map(_.typed(tps))
-      _invariant
-    }
+    /** The root of the class hierarchy */
+    @inline def root: TypedADTDefinition = _root.get
+    private[this] val _root = Lazy(definition.root.typed(tps))
+
+    @inline def invariant: Option[TypedFunDef] = _invariant.get
+    private[this] val _invariant = Lazy(definition.invariant.map(_.typed(tps)))
 
     @inline def hasInvariant: Boolean = invariant.isDefined
 
-    private[this] var _equality: Option[TypedFunDef] = _
-    def equality: Option[TypedFunDef] = {
-      if (_equality eq null) _equality = definition.equality.map(_.typed(tps))
-      _equality
-    }
+    @inline def equality: Option[TypedFunDef] = _equality.get
+    private[this] val _equality = Lazy(definition.equality.map(_.typed(tps)))
 
     @inline def hasEquality: Boolean = equality.isDefined
 
@@ -487,39 +479,30 @@ trait Definitions { self: Trees =>
   case class TypedADTSort(definition: ADTSort, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedADTDefinition {
     copiedFrom(definition)
 
-    private[this] var _constructors: Seq[TypedADTConstructor] = _
-    def constructors: Seq[TypedADTConstructor] = {
-      if (_constructors eq null) _constructors = definition.constructors.map(_.typed(tps))
-      _constructors
-    }
+    @inline def constructors: Seq[TypedADTConstructor] = _constructors.get
+    private[this] val _constructors = Lazy(definition.constructors.map(_.typed(tps)))
   }
 
   /** Represents an [[ADTConstructor]] whose type parameters have been instantiated to ''tps'' */
   case class TypedADTConstructor(definition: ADTConstructor, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedADTDefinition {
     copiedFrom(definition)
 
-    private[this] var _fields: Seq[ValDef] = _
-    def fields: Seq[ValDef] = {
-      if (_fields eq null) {
-        val tmap = (definition.typeArgs zip tps).toMap
-        _fields =
-          if (tmap.isEmpty) definition.fields
-          else definition.fields.map(vd => vd.copy(tpe = symbols.instantiateType(vd.tpe, tmap)))
-      }
-      _fields
+    @inline def fields: Seq[ValDef] = _fields.get
+    private[this] val _fields = Lazy {
+      val tmap = (definition.typeArgs zip tps).toMap
+      if (tmap.isEmpty) definition.fields
+      else definition.fields.map(vd => vd.copy(tpe = symbols.instantiateType(vd.tpe, tmap)))
     }
 
-    @inline def fieldsTypes = fields.map(_.tpe)
+    @inline def fieldsTypes: Seq[Type] = _fieldsTypes.get
+    private[this] val _fieldsTypes = Lazy(fields.map(_.tpe))
 
-    private[this] var _sort: Option[TypedADTSort] = _
-    def sort: Option[TypedADTSort] = {
-      if (_sort eq null) {
-        _sort = definition.sort.map(id => symbols.getADT(id) match {
-          case sort: ADTSort => TypedADTSort(sort, tps)
-          case cons => throw NotWellFormedException(cons)
-        })
-      }
-      _sort
+    @inline def sort: Option[TypedADTSort] = _sort.get
+    private[this] val _sort = Lazy {
+      definition.sort.map(id => symbols.getADT(id) match {
+        case sort: ADTSort => TypedADTSort(sort, tps)
+        case cons => throw NotWellFormedException(cons)
+      })
     }
   }
 
@@ -555,12 +538,13 @@ trait Definitions { self: Trees =>
 
     def isRecursive(implicit s: Symbols) = s.isRecursive(id)
 
-    def typeArgs = tparams map (_.tp)
+    @inline def typeArgs: Seq[TypeParameter] = _typeArgs.get
+    private[this] val _typeArgs = Lazy(tparams.map(_.tp))
 
     /** Applies this function on some arguments; type parameters are inferred. */
     def applied(args: Seq[Expr])(implicit s: Symbols): FunctionInvocation = s.functionInvocation(this, args)
     /** Applies this function on its formal parameters */
-    def applied = FunctionInvocation(id, typeArgs, params map (_.toVariable))
+    @inline def applied = FunctionInvocation(id, typeArgs, params map (_.toVariable))
 
     def copy(
       id: Identifier = this.id,
@@ -587,11 +571,8 @@ trait Definitions { self: Trees =>
       }
     }
 
-    private[this] var _tpSubst: Map[TypeParameter, Type] = _
-    def tpSubst: Map[TypeParameter, Type] = {
-      if (_tpSubst eq null) _tpSubst = (fd.typeArgs zip tps).toMap.filter(tt => tt._1 != tt._2)
-      _tpSubst
-    }
+    @inline def tpSubst: Map[TypeParameter, Type] = _tpSubst.get
+    private[this] val _tpSubst = Lazy((fd.typeArgs zip tps).toMap.filter(tt => tt._1 != tt._2))
 
     /** A [[Types.Type Type]] instantiated with this [[TypedFunDef]]'s type instantiation */
     def instantiate(t: Type): Type = symbols.instantiateType(t, tpSubst)
@@ -623,34 +604,24 @@ trait Definitions { self: Trees =>
     }
 
     /** Apply this [[inox.ast.Definitions.TypedFunDef]] on its formal parameters */
-    def applied: FunctionInvocation = applied(params map { _.toVariable })
+    @inline def applied: FunctionInvocation = applied(params map { _.toVariable })
 
     /** The paremeters of the respective [[FunDef]] instantiated with the real type parameters */
-    private[this] var _params: Seq[ValDef] = _
-    def params: Seq[ValDef] = {
-      if (_params eq null) {
-        _params =
-          if (tpSubst.isEmpty) fd.params
-          else fd.params.map(vd => vd.copy(tpe = instantiate(vd.getType)))
-      }
-      _params
+    @inline def params: Seq[ValDef] = _params.get
+    private[this] val _params = Lazy {
+      if (tpSubst.isEmpty) fd.params
+      else fd.params.map(vd => vd.copy(tpe = instantiate(vd.getType)))
     }
 
     /** The function type corresponding to this [[TypedFunDef]]'s arguments and return type */
-    def functionType: FunctionType = FunctionType(params.map(_.getType).toList, returnType)
+    @inline def functionType: FunctionType = FunctionType(params.map(_.tpe), returnType)
 
     /** The return type of the respective [[FunDef]] instantiated with the real type parameters */
-    private[this] var _returnType: Type = _
-    def returnType: Type = {
-      if (_returnType eq null) _returnType = instantiate(fd.returnType)
-      _returnType
-    }
+    @inline def returnType: Type = _returnType.get
+    private[this] val _returnType = Lazy(instantiate(fd.returnType))
 
     /** The body of the respective [[FunDef]] instantiated with the real type parameters */
-    private[this] var _fullBody: Expr = _
-    def fullBody: Expr = {
-      if (_fullBody eq null) _fullBody = instantiate(fd.fullBody)
-      _fullBody
-    }
+    @inline def fullBody: Expr = _fullBody.get
+    private[this] val _fullBody = Lazy(instantiate(fd.fullBody))
   }
 }
