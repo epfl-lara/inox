@@ -7,6 +7,7 @@ import inox.parsing.Interpolator
 import inox.utils.Position
 
 import scala.collection.mutable.{Map => MutableMap}
+import scala.util.Try
 
 /** Provides types that describe Inox definitions. */
 trait Definitions { self: Trees =>
@@ -176,16 +177,14 @@ trait Definitions { self: Trees =>
       * - adt type parameter flags match between children and parents
       * - every variable is available in the scope of its usage
       */
-    private[this] var _optWFError: Option[Throwable] = _
-    def ensureWellFormed = {
-      if (_optWFError eq null) try {
+    private[this] var _tryWF: Try[Unit] = _
+    def ensureWellFormed: Unit = {
+      if (_tryWF eq null) _tryWF = Try({
         for ((_, fd) <- functions) ensureWellFormedFunction(fd)
         for ((_, adt) <- adts) ensureWellFormedAdt(adt)
-        _optWFError = None
-      } catch {
-        case t: Throwable => _optWFError = Some(t)
-      }
-      _optWFError.foreach(throw _)
+        ()
+      })
+      _tryWF.get
     }
 
     protected def ensureWellFormedFunction(fd: FunDef) = {
