@@ -203,8 +203,8 @@ trait Paths { self: SymbolOps with TypeOps =>
     }
 
     /** Free variables within the path */
-    @inline def variables: Set[Variable] = _variables.get
-    private[this] val _variables: Lazy[Set[Variable]] = Lazy {
+    @inline def freeVariables: Set[Variable] = _free.get
+    private[this] val _free: Lazy[Set[Variable]] = Lazy {
       val allVars = elements
         .collect { case Condition(e) => e case CloseBound(_, e) => e }
         .flatMap { e => exprOps.variablesOf(e) }
