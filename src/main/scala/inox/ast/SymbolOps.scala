@@ -144,10 +144,11 @@ trait SymbolOps { self: TypeOps =>
       case Operator(es, recons) => recons(es.map(rec))
     }
 
+    // TODO: Should we run this within a fixpoint with simplifyByConstructor?
     def rec(e: Expr): Expr = e match {
       case e if isValue(e) =>
         e
-      case e if force || isPure(e) && isGround(e) =>
+      case e if isGround(e) && (force || isPure(e)) =>
         val evaluated = evaluator.eval(e)
         evaluated.result.getOrElse {
           if (force) ctx.reporter.error(SimplifyGroundError(e, evaluated))
