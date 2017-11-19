@@ -6,7 +6,8 @@ package ast
 import inox.parsing.Interpolator
 import inox.utils._
 
-import scala.collection.mutable.{Map => MutableMap}
+import scala.collection.concurrent.{Map => ConcurrentMap}
+import scala.collection.JavaConverters._
 import scala.util.Try
 
 /** Provides types that describe Inox definitions. */
@@ -145,21 +146,27 @@ trait Definitions { self: Trees =>
     // for some mysterious reason.
     implicit def implicitSymbols: this.type = this
 
-    private[this] val typedADTCache: MutableMap[(Identifier, Seq[Type]), Option[TypedADTDefinition]] = MutableMap.empty
+    private[this] val typedADTCache: ConcurrentMap[(Identifier, Seq[Type]), Option[TypedADTDefinition]] =
+      new java.util.concurrent.ConcurrentHashMap[(Identifier, Seq[Type]), Option[TypedADTDefinition]].asScala
     def lookupADT(id: Identifier): Option[ADTDefinition] = adts.get(id)
     def lookupADT(id: Identifier, tps: Seq[Type]): Option[TypedADTDefinition] =
       typedADTCache.getOrElseUpdate(id -> tps, lookupADT(id).map(_.typed(tps)))
 
-    def getADT(id: Identifier): ADTDefinition = lookupADT(id).getOrElse(throw ADTLookupException(id))
-    def getADT(id: Identifier, tps: Seq[Type]): TypedADTDefinition = lookupADT(id, tps).getOrElse(throw ADTLookupException(id))
+    def getADT(id: Identifier): ADTDefinition =
+      lookupADT(id).getOrElse(throw ADTLookupException(id))
+    def getADT(id: Identifier, tps: Seq[Type]): TypedADTDefinition =
+      lookupADT(id, tps).getOrElse(throw ADTLookupException(id))
 
-    private[this] val typedFunctionCache: MutableMap[(Identifier, Seq[Type]), Option[TypedFunDef]] = MutableMap.empty
+    private[this] val typedFunctionCache: ConcurrentMap[(Identifier, Seq[Type]), Option[TypedFunDef]] =
+      new java.util.concurrent.ConcurrentHashMap[(Identifier, Seq[Type]), Option[TypedFunDef]].asScala
     def lookupFunction(id: Identifier): Option[FunDef] = functions.get(id)
     def lookupFunction(id: Identifier, tps: Seq[Type]): Option[TypedFunDef] =
       typedFunctionCache.getOrElseUpdate(id -> tps, lookupFunction(id).map(_.typed(tps)(this)))
 
-    def getFunction(id: Identifier): FunDef = lookupFunction(id).getOrElse(throw FunctionLookupException(id))
-    def getFunction(id: Identifier, tps: Seq[Type]): TypedFunDef = lookupFunction(id, tps).getOrElse(throw FunctionLookupException(id))
+    def getFunction(id: Identifier): FunDef =
+      lookupFunction(id).getOrElse(throw FunctionLookupException(id))
+    def getFunction(id: Identifier, tps: Seq[Type]): TypedFunDef =
+      lookupFunction(id, tps).getOrElse(throw FunctionLookupException(id))
 
     override def toString: String = asString(PrinterOptions.fromSymbols(this, Context.printNames))
     override def asString(implicit opts: PrinterOptions): String = {
@@ -188,7 +195,16 @@ trait Definitions { self: Trees =>
     }
 
     protected def ensureWellFormedFunction(fd: FunDef) = {
+      try {
       typeCheck(fd.fullBody, fd.returnType)
+      } catch {
+        case t: Throwable =>
+          implicit val opts = PrinterOptions(printUniqueIds = true, symbols = Some(this))
+          val str = explainTyping(fd.fullBody)
+          if (str.length < 10000) println(str)
+          println(fd.returnType.asString)
+          throw t
+      }
 
       val unbound: Seq[Variable] = collectWithPC(fd.fullBody, Path.empty withBounds fd.params) {
         case (v: Variable, path) if !(path isBound v.id) => v
