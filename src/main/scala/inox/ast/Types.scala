@@ -11,16 +11,18 @@ trait Types { self: Trees =>
   }
 
   protected trait CachingTyped extends Typed {
-    private var lastSymbols: Symbols = null
-    private var lastType: Type = null
+    private[this] val cache = new java.lang.ThreadLocal[(Symbols, Type)]
 
-    final def getType(implicit s: Symbols): Type =
-      if (s eq lastSymbols) lastType else {
+    final def getType(implicit s: Symbols): Type = {
+      val cached = cache.get()
+      if ((cached ne null) && (s eq cached._1)) {
+        cached._2
+      } else {
         val tpe = computeType
-        lastSymbols = s
-        lastType = tpe
+        cache.set(s -> tpe)
         tpe
       }
+    }
 
     protected def computeType(implicit s: Symbols): Type
   }
