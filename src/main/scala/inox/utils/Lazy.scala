@@ -5,7 +5,7 @@ package utils
 
 /** Class that provides deadlock-free lazyness */
 class Lazy[T](computeValue: => T) {
-  private[this] var computed: Boolean = false
+  @volatile private[this] var computed: Boolean = false
   private[this] var value: T = _
 
   def get: T = {
