@@ -2,7 +2,7 @@
 
 (define-fun (par (T!2) (empty!0 () (Set T!2) (as emptyset T!2))))
 
-(declare-const |error: Match is non-exhaustive!25| (Set Int))
+(declare-fun |error: Match is non-exhaustive!25| () (Set Int))
 
 (define-fun-rec content!0 ((thiss!51 Tree!1)) (Set Int) (ite (is-Leaf!1 thiss!51) (as empty!0 (Set Int)) (ite (is-Node!1 thiss!51) (union (union (content!0 (left!3 thiss!51)) (insert (as emptyset Int) (value!2 thiss!51))) (content!0 (right!3 thiss!51))) |error: Match is non-exhaustive!25|)))
 

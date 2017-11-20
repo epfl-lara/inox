@@ -159,7 +159,7 @@ class Parser(file: File) {
       val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
       (None, locals.withFunction(name, extractSignature(FunDec(name, sorts.map {
         sort => SortedVar(SSymbol(FreshIdentifier("x").uniqueName).setPos(sort), sort).setPos(sort)
-      }, returnSort), tps)))
+      }, returnSort), tps)(tpsLocals)))
 
     case DefineFun(funDef) =>
       val fd = extractFunction(funDef, Seq.empty)

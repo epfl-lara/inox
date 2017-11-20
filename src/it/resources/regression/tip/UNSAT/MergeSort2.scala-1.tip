@@ -6,13 +6,13 @@
 
 (declare-const l2!0 (List!16 Int))
 
-(declare-const (par (T!31) (|error: Match is non-exhaustive!7| (List!16 T!31))))
+(declare-fun (par (T!31) (|error: Match is non-exhaustive!7| () (List!16 T!31))))
 
-(declare-const (par (T!50) (|error: Match is non-exhaustive!26| (Set T!50))))
+(declare-fun (par (T!50) (|error: Match is non-exhaustive!26| () (Set T!50))))
 
 (define-fun-rec (par (T!50) (content!2 ((thiss!38 (List!16 T!50))) (Set T!50) (ite (is-Nil!13 thiss!38) (as emptyset T!50) (ite (is-Cons!13 thiss!38) (union (insert (as emptyset T!50) (h!58 thiss!38)) (content!2 (t!65 thiss!38))) (as |error: Match is non-exhaustive!26| (Set T!50)))))))
 
-(declare-const |error: Match is non-exhaustive!67| Int)
+(declare-fun |error: Match is non-exhaustive!67| () Int)
 
 (define-fun-rec (par (T!91) (size!0 ((thiss!106 (List!16 T!91))) Int (let ((x$1!2 (ite (is-Nil!13 thiss!106) 0 (ite (is-Cons!13 thiss!106) (+ 1 (size!0 (t!65 thiss!106))) |error: Match is non-exhaustive!67|)))) (assume (>= x$1!2 0) x$1!2)))))
 
@@ -20,7 +20,7 @@
 
 (define-fun (par (T!2) (empty!0 () (Bag T!2) (as bag.empty T!2))))
 
-(declare-const (par (T!0) (|error: Match is non-exhaustive!68| (Bag T!0))))
+(declare-fun (par (T!0) (|error: Match is non-exhaustive!68| () (Bag T!0))))
 
 (define-fun-rec (par (T!0) (bag!0 ((list!0 (List!16 T!0))) (Bag T!0) (ite (is-Nil!13 list!0) (as empty!0 (Bag T!0)) (ite (is-Cons!13 list!0) (bag.insert (bag!0 (t!65 list!0)) (h!58 list!0)) (as |error: Match is non-exhaustive!68| (Bag T!0)))))))
 

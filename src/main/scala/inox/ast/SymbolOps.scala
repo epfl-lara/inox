@@ -218,8 +218,9 @@ trait SymbolOps { self: TypeOps =>
 
       def isLocal(e: Expr, path: Path): Boolean = {
         val vs = variablesOf(e)
-        val tvs = vs.flatMap(v => varSubst.get(v.id).map(Variable(_, v.tpe, v.flags)))
-        (tvars & tvs).isEmpty && (path.bindings.map(_._1.toVariable).toSet & tvs).isEmpty
+        val tvs = vs flatMap { v => varSubst.get(v.id) map { Variable(_, v.tpe, v.flags) } }
+        val pathVars = path.bounds.toSet map { vd: ValDef => vd.toVariable }
+        (tvars & tvs).isEmpty && (pathVars & tvs).isEmpty
       }
 
       transformWithPC(body)((e, env, op) => e match {
@@ -719,7 +720,7 @@ trait SymbolOps { self: TypeOps =>
         Stream(BooleanLiteral(false), BooleanLiteral(true))
       case BVType(size) =>
         val count = BigInt(2).pow(size - 1)
-        def rec(i: BigInt): Stream[BigInt] = 
+        def rec(i: BigInt): Stream[BigInt] =
           if (i <= count) Stream.cons(i, Stream.cons(-i - 1, rec(i + 1)))
           else Stream.empty
         rec(0) map (BVLiteral(_, size))
@@ -945,7 +946,7 @@ trait SymbolOps { self: TypeOps =>
     var assumptions: Seq[Expr] = Seq.empty
 
     val newExpr = transformWithPC(expr)((e, env, op) => e match {
-      case Assume(pred, body) if (variablesOf(pred) ++ env.variables) subsetOf vars =>
+      case Assume(pred, body) if (variablesOf(pred) ++ env.freeVariables) subsetOf vars =>
         assumptions :+= env implies pred
         op.rec(body, env withCond pred)
       case _ => op.superRec(e, env)
@@ -1074,7 +1075,8 @@ trait SymbolOps { self: TypeOps =>
       def replace(path: Path, oldE: Expr, newE: Expr, body: Expr): Expr = transformWithPC(body) {
         (e, env, op) =>
           if ((path.bindings.toSet subsetOf env.bindings.toSet) &&
-            (path.conditions == env.conditions) && e == oldE) {
+              (path.bounds.toSet subsetOf env.bounds.toSet) &&
+              (path.conditions == env.conditions) && e == oldE) {
             newE
           } else {
             op.superRec(e, env)
