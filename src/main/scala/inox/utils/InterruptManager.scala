@@ -41,7 +41,7 @@ class InterruptManager(reporter: Reporter) extends Interruptible {
       interrupted.set(true)
 
       val it = interruptibles.keySet.iterator
-      for (i <- it.asScala) i.interrupt()
+      for (i <- it.asScala.toList) i.interrupt()
     } else {
       reporter.warning("Already interrupted!")
     }
