@@ -172,7 +172,7 @@ object SolverFactory {
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
 
-          protected object underlying extends {
+          protected val underlying = new {
             val program: progEnc.targetProgram.type = progEnc.targetProgram
             val context = ctx
           } with z3.UninterpretedZ3Solver {
@@ -200,7 +200,7 @@ object SolverFactory {
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
 
-          protected object underlying extends {
+          protected val underlying = new {
             val program: progEnc.targetProgram.type = progEnc.targetProgram
             val context = ctx
           } with smtlib.Z3Solver {
@@ -228,7 +228,7 @@ object SolverFactory {
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
 
-          protected object underlying extends {
+          protected val underlying = new {
             val program: progEnc.targetProgram.type = progEnc.targetProgram
             val context = ctx
           } with smtlib.optimization.Z3Optimizer {
@@ -258,7 +258,7 @@ object SolverFactory {
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
 
-          protected object underlying extends {
+          protected val underlying = new {
             val program: progEnc.targetProgram.type = progEnc.targetProgram
             val context = ctx
           } with smtlib.CVC4Solver {
