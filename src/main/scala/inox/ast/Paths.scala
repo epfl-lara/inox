@@ -126,9 +126,6 @@ trait Paths { self: SymbolOps with TypeOps =>
       *
       * The function `fVal` is applied to all values in [[bound]] and `fExpr` is applied
       * to both the bodies of the [[bindings]] as well as the [[conditions]].
-      *
-      * @see [[map(f:Paths\.this\.trees\.Expr=>Paths\.this\.trees\.Expr):Paths\.this\.Path* map]]
-      *      for a map defined only on expressions
       */
     def map(fVal: ValDef => ValDef, fExpr: Expr => Expr) = new Path(elements map {
       case CloseBound(vd, e) => CloseBound(fVal(vd), fExpr(e))
