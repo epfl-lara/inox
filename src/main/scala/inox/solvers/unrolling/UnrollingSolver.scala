@@ -116,8 +116,6 @@ trait AbstractUnrollingSolver extends Solver { self =>
     underlying.reset()
   }
 
-  context.interruptManager.registerForInterrupts(this)
-
   def interrupt(): Unit = { abort = true }
 
   def free(): Unit = context.interruptManager.unregisterForInterrupts(this)
@@ -129,6 +127,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
   def assertCnstr(expression: Expr): Unit = context.timers.solvers.assert.run {
     symbols.ensureWellFormed // make sure that the current program is well-formed
     typeCheck(expression, BooleanType()) // make sure we've asserted a boolean-typed expression
+    // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
+    context.interruptManager.registerForInterrupts(this)
 
     constraints += expression
 
@@ -550,6 +550,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] =
       context.timers.solvers.unrolling.run {
+    // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
+    context.interruptManager.registerForInterrupts(this)
 
     val assumptionsSeq       : Seq[Expr]          = assumptions.toSeq
     val encodedAssumptions   : Seq[Encoded]       = assumptionsSeq.map { expr =>
