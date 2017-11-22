@@ -5,6 +5,7 @@ package ast
 
 import utils._
 import solvers.{PurityOptions, SimplificationOptions}
+import evaluators.EvaluationResults._
 
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
@@ -113,6 +114,51 @@ trait SymbolOps { self: TypeOps =>
          (_: Division) | (_: Remainder) | (_: Modulo) | (_: AsInstanceOf) => true
     case ADT(tpe, _) => tpe.getADT.definition.hasInvariant
     case _ => false
+  }
+
+  /** Simplify all the pure and ground sub-expressions of the given expression,
+    * by evaluating them using [[inox.evaluators.Evaluator]].
+    * If `force` is omitted, the given expression will only be evaluated if it is
+    * ground, pure, and does not contain choose or quantifiers.
+    */
+  def simplifyGround(expr: Expr, force: Boolean = false)
+                    (implicit sem: symbols.Semantics, ctx: Context, opts: PurityOptions): Expr = {
+
+    val evalCtx = ctx.withOpts(evaluators.optEvalQuantifiers(false))
+    val evaluator = sem.getEvaluator(ctx)
+
+    case class SimplifyGroundError(expr: Expr, result: Result[Expr]) {
+      def errMsg: String = result match {
+        case RuntimeError(msg) =>
+          s"runtime error: $msg"
+        case EvaluatorError(msg) =>
+          s"evaluator error: $msg"
+        case _ => ""
+      }
+      override def toString: String = {
+        s"Forced evaluation of expression @ ${expr.getPos} failed because of a $errMsg"
+      }
+    }
+
+    def evalChildren(e: Expr): Expr = e match {
+      case Operator(es, recons) => recons(es.map(rec))
+    }
+
+    // TODO: Should we run this within a fixpoint with simplifyByConstructor?
+    def rec(e: Expr): Expr = e match {
+      case e if isValue(e) =>
+        e
+      case e if isGround(e) && (force || isPure(e)) =>
+        val evaluated = evaluator.eval(e)
+        evaluated.result.getOrElse {
+          if (force) ctx.reporter.error(SimplifyGroundError(e, evaluated))
+          evalChildren(e)
+        }
+      case e =>
+        evalChildren(e)
+    }
+
+    rec(expr)
   }
 
   private val typedIds: MutableMap[Type, List[Identifier]] =
@@ -1127,12 +1173,13 @@ trait SymbolOps { self: TypeOps =>
     mergeCalls(liftCalls(expr))
   }
 
-  private[inox] def simplifyFormula(e: Expr)(implicit ctx: Context): Expr = {
+  private[inox] def simplifyFormula(e: Expr)(implicit ctx: Context, sem: symbols.Semantics): Expr = {
     implicit val simpOpts = SimplificationOptions(ctx)
     implicit val purityOpts = PurityOptions(ctx)
 
     if (simpOpts.simplify) {
       val simp: Expr => Expr =
+        ((e: Expr) => simplifyGround(e))      compose
         ((e: Expr) => simplifyHOFunctions(e)) compose
         ((e: Expr) => simplifyExpr(e))        compose
         ((e: Expr) => simplifyForalls(e))     compose

@@ -249,6 +249,16 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     sortToSMT(declareSort(t))
   }
 
+  private def intToTerm(i: BigInt): Term = i match {
+    case i if i >= 0 => Ints.NumeralLit(i)
+    case i => Ints.Neg(Ints.NumeralLit(-i))
+  }
+
+  private def realToTerm(r: BigInt): Term = r match {
+    case r if r >= 0 => Reals.NumeralLit(r)
+    case r => Reals.Neg(Reals.NumeralLit(-r))
+  }
+
   protected def toSMT(e: Expr)(implicit bindings: Map[Identifier, Term]): Term = {
     e match {
       case v @ Variable(id, tp, flags) =>
@@ -259,9 +269,9 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         declareSort(UnitType())
         declareVariable(Variable.fresh("Unit", UnitType()))
 
-      case IntegerLiteral(i)     => if (i >= 0) Ints.NumeralLit(i) else Ints.Neg(Ints.NumeralLit(-i))
+      case IntegerLiteral(i)     => intToTerm(i)
       case BVLiteral(bits, size) => FixedSizeBitVectors.BitVectorLit(List.range(1, size + 1).map(i => bits(size + 1 - i)))
-      case FractionLiteral(n, d) => Reals.Div(Reals.NumeralLit(n), Reals.NumeralLit(d))
+      case FractionLiteral(n, d) => Reals.Div(realToTerm(n), realToTerm(d))
       case CharLiteral(c)        => FixedSizeBitVectors.BitVectorLit(Hexadecimal.fromShort(c.toShort))
       case BooleanLiteral(v)     => Core.BoolConst(v)
       case Let(b, d, e) =>
