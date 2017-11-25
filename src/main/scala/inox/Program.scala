@@ -43,7 +43,7 @@ trait Program { self =>
 
   private[this] var _semantics: Semantics = null
   implicit def getSemantics(implicit ev: Provider): Semantics = {
-    if (_semantics == null) {
+    if (_semantics eq null) {
       // @nv: tell the type system what's what!
       _semantics = ev.getSemantics(this.asInstanceOf[Program { val trees: self.trees.type }]).asInstanceOf[Semantics]
     }

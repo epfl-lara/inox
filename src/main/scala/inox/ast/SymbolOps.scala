@@ -9,6 +9,14 @@ import evaluators.EvaluationResults._
 
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
+object SymbolOps {
+  private[this] val identifiers = new scala.collection.mutable.ArrayBuffer[Identifier]
+  def getId(index: Int): Identifier = synchronized {
+    for (i <- identifiers.size to index) identifiers += FreshIdentifier("x", true)
+    identifiers(index)
+  }
+}
+
 /** Provides functions to manipulate [[Expressions.Expr]] in cases where
   * a symbol table is available (and required: see [[ExprOps]] for
   * simpler tree manipulations).
@@ -122,10 +130,9 @@ trait SymbolOps { self: TypeOps =>
     * ground, pure, and does not contain choose or quantifiers.
     */
   def simplifyGround(expr: Expr, force: Boolean = false)
-                    (implicit sem: symbols.Semantics, ctx: Context, opts: PurityOptions): Expr = {
-
+                    (implicit sem: symbols.Semantics, ctx: Context): Expr = {
     val evalCtx = ctx.withOpts(evaluators.optEvalQuantifiers(false))
-    val evaluator = sem.getEvaluator(ctx)
+    val evaluator = sem.getEvaluator(evalCtx)
 
     case class SimplifyGroundError(expr: Expr, result: Result[Expr]) {
       def errMsg: String = result match {
@@ -140,36 +147,35 @@ trait SymbolOps { self: TypeOps =>
       }
     }
 
-    def evalChildren(e: Expr): Expr = e match {
+    def evalChildren(e: Expr)(implicit opts: PurityOptions): Expr = e match {
       case Operator(es, recons) => recons(es.map(rec))
     }
 
     // TODO: Should we run this within a fixpoint with simplifyByConstructor?
-    def rec(e: Expr): Expr = e match {
+    def rec(e: Expr)(implicit opts: PurityOptions): Expr = e match {
       case e if isValue(e) =>
         e
       case e if isGround(e) && (force || isPure(e)) =>
         val evaluated = evaluator.eval(e)
-        evaluated.result.getOrElse {
+        evaluated.result.map(exprOps.freshenLocals(_)).getOrElse {
           if (force) ctx.reporter.error(SimplifyGroundError(e, evaluated))
           evalChildren(e)
         }
+      case l: Lambda if !opts.totalFunctions =>
+        evalChildren(l)(PurityOptions.Unchecked)
       case e =>
         evalChildren(e)
     }
 
-    rec(expr)
+    rec(expr)(PurityOptions(ctx))
   }
-
-  private val typedIds: MutableMap[Type, List[Identifier]] =
-    MutableMap.empty.withDefaultValue(List.empty)
 
   /** Normalizes identifiers in an expression to enable some notion of structural
     * equality between expressions on which usual equality doesn't make sense
     * (i.e. closures).
     *
-    * This function relies on the static map `typedIds` to ensure identical
-    * structures and must therefore be synchronized.
+    * This function relies on the static map `identifiers` to ensure identical
+    * structures.
     *
     * @param args The "arguments" (free variables) of `expr`
     * @param expr The expression to be normalized
@@ -190,26 +196,17 @@ trait SymbolOps { self: TypeOps =>
     preserveApps: Boolean,
     onlySimple: Boolean,
     inFunction: Boolean
-  )(implicit opts: PurityOptions): (Seq[ValDef], Expr, Seq[(Variable, Expr)]) = synchronized {
+  )(implicit opts: PurityOptions): (Seq[ValDef], Expr, Seq[(Variable, Expr)]) = {
 
     val subst: MutableMap[Variable, Expr] = MutableMap.empty
     val varSubst: MutableMap[Identifier, Identifier] = MutableMap.empty
     val locals: MutableSet[Identifier] = MutableSet.empty
 
-    // Note: don't use clone here, we want to drop the `withDefaultValue` feature of [[typeIds]]
-    val remainingIds: MutableMap[Type, List[Identifier]] = MutableMap.empty ++ typedIds.toMap
-
+    var counter: Int = 0
     def getId(e: Expr, store: Boolean = true): Identifier = {
       val tpe = e.getType
-      val newId = remainingIds.get(tpe) match {
-        case Some(x :: xs) =>
-          remainingIds += tpe -> xs
-          x
-        case _ =>
-          val x = FreshIdentifier("x", true)
-          typedIds(tpe) = typedIds(tpe) :+ x
-          x
-      }
+      val newId = SymbolOps.getId(counter)
+      counter += 1
       if (store) subst += Variable(newId, tpe, Set.empty) -> e
       newId
     }
