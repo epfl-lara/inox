@@ -129,8 +129,7 @@ trait SymbolOps { self: TypeOps =>
     * If `force` is omitted, the given expression will only be evaluated if it is
     * ground, pure, and does not contain choose or quantifiers.
     */
-  def simplifyGround(expr: Expr, force: Boolean = false)
-                    (implicit sem: symbols.Semantics, ctx: Context): Expr = {
+  def simplifyGround(expr: Expr, reportErrors: Boolean = false)(implicit sem: symbols.Semantics, ctx: Context): Expr = {
     val evalCtx = ctx.withOpts(evaluators.optEvalQuantifiers(false))
     val evaluator = sem.getEvaluator(evalCtx)
 
@@ -155,10 +154,10 @@ trait SymbolOps { self: TypeOps =>
     def rec(e: Expr)(implicit opts: PurityOptions): Expr = e match {
       case e if isValue(e) =>
         e
-      case e if isGround(e) && (force || isPure(e)) =>
+      case e if isGround(e) && isPure(e) =>
         val evaluated = evaluator.eval(e)
         evaluated.result.map(exprOps.freshenLocals(_)).getOrElse {
-          if (force) ctx.reporter.error(SimplifyGroundError(e, evaluated))
+          if (reportErrors) ctx.reporter.error(SimplifyGroundError(e, evaluated))
           evalChildren(e)
         }
       case l: Lambda if !opts.totalFunctions =>
