@@ -34,7 +34,7 @@ trait SolvingEvaluator extends Evaluator { self =>
 
   def onChooseInvocation(choose: Choose): Expr = {
     if (!evalQuantifiers) {
-      throw new RuntimeException(s"Evaluation of 'choose' expressions disabled @ ${choose.getPos}")
+      throw new RuntimeException(s"Evaluation of 'choose' expressions disabled @ ${choose.getPos}: $choose")
     }
 
     chooseCache.getOrElseUpdate(choose, {
@@ -63,7 +63,7 @@ trait SolvingEvaluator extends Evaluator { self =>
 
   def onForallInvocation(forall: Forall): Expr = {
     if (!evalQuantifiers) {
-      throw new RuntimeException(s"Evaluation of 'forall' expressions disabled @ ${forall.getPos}")
+      throw new RuntimeException(s"Evaluation of 'forall' expressions disabled @ ${forall.getPos}: $forall")
     }
 
     BooleanLiteral(forallCache.getOrElse(forall, {
