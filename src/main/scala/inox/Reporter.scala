@@ -51,9 +51,9 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
   }
 
   final def internalError(pos: Position, msg: Any) : Nothing = {
-    emit(account(Message(INTERNAL, pos, msg.toString + 
+    emit(account(Message(INTERNAL, pos, msg.toString +
       "\nPlease inform the authors of Inox about this message"
-    ))) 
+    )))
     onFatal(msg.toString)
   }
 
@@ -95,8 +95,15 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
   final def error(msg: Any): Unit         = error(NoPosition, msg)
   final def title(msg: Any): Unit         = title(NoPosition, msg)
   final def fatalError(msg: Any): Nothing = fatalError(NoPosition, msg)
-  final def internalError(msg: Any) : Nothing = internalError(NoPosition, msg)
+
+  final def internalError(msg: Any): Nothing = internalError(NoPosition, msg)
+  final def internalError(e: Throwable): Nothing = {
+    logTrace(INTERNAL, e)
+    internalError(e.getMessage)
+  }
+
   final def internalAssertion(cond : Boolean, msg: Any) : Unit = internalAssertion(cond,NoPosition, msg)
+
   final def debug(msg: => Any)(implicit section: DebugSection): Unit = debug(NoPosition, msg)
   final def ifDebug(body: (Any => Unit) => Any)(implicit section: DebugSection): Unit =
     ifDebug(NoPosition, body)
@@ -105,9 +112,25 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
 
   final def debug(pos: Position, msg: => Any, e: Throwable)(implicit section: DebugSection): Unit = {
     debug(pos, msg)
-    debug(s"StackTrace:")
-    for (frame <- e.getStackTrace)
-      debug(frame)
+    logTrace(DEBUG(section), e)
+  }
+
+  private def logTrace(severity: Severity, e: Throwable): Unit = {
+    var indent = 0
+    def log(msg: Any) = emit(account(Message(severity, NoPosition, ("  " * indent) + msg)))
+
+    var ex = e
+    while (ex != null) {
+      val prefix = if (indent == 0) "Error" else "Cause"
+      log(s"$prefix: ${ex.getMessage}. Trace:")
+      for (frame <- ex.getStackTrace)
+        log(s"- $frame")
+
+      indent += 1
+
+      val cause = e.getCause
+      ex = if (cause ne ex) cause else null // don't loop forever on the same cause!
+    }
   }
 
 }
