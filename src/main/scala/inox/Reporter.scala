@@ -93,6 +93,7 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
   final def info(msg: Any): Unit          = info(NoPosition, msg)
   final def warning(msg: Any): Unit       = warning(NoPosition, msg)
   final def error(msg: Any): Unit         = error(NoPosition, msg)
+  final def error(e: Throwable): Unit     = logTrace(ERROR, e)
   final def title(msg: Any): Unit         = title(NoPosition, msg)
   final def fatalError(msg: Any): Nothing = fatalError(NoPosition, msg)
 
