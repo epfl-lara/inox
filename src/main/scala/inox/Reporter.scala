@@ -111,8 +111,10 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
     whenDebug(NoPosition, section)(body)
 
   final def debug(pos: Position, msg: => Any, e: Throwable)(implicit section: DebugSection): Unit = {
-    debug(pos, msg)
-    logTrace(DEBUG(section), e)
+    if (isDebugEnabled(section)) {
+      debug(pos, msg)
+      logTrace(DEBUG(section), e)
+    }
   }
 
   final def debug(e: Throwable)(implicit section: DebugSection): Unit =
