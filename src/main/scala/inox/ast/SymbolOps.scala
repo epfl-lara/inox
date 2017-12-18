@@ -330,7 +330,71 @@ trait SymbolOps { self: TypeOps =>
       (variablesOf(subst(v)) & subst.keySet - v).toSeq.flatMap(rec) :+ v
     val deps = subst.keys.toSeq.flatMap(rec).distinct.map(v => v -> subst(v))
 
-    (bindings, newExpr, deps)
+    // Compute all type generalizations.
+    // A generalization G of type T is an unambiguous type such that G <: T.
+    // To compute G we widen all types in co-variant positions.
+    def generalizations(tpe: Type, polarity: Boolean): Seq[Type] = {
+      val varianceGeneralizations = tpe match {
+        case adt: ADTType =>
+          val tpss = (adt.getADT.definition.typeArgs zip adt.tps).foldLeft(Seq(Seq[Type]())) {
+            case (tpss, (tp, tpe)) => tpss.flatMap { tps =>
+              if (tp.isCovariant || tp.isContravariant) {
+                val newPolarity = if (tp.isCovariant) polarity else !polarity
+                generalizations(tpe, newPolarity).map(ntpe => tps :+ ntpe)
+              } else {
+                Seq(tps :+ tpe)
+              }
+            }
+          }
+
+          tpss.map(tps => adt.copy(tps = tps))
+
+        case ft: FunctionType =>
+          val froms = ft.from.foldLeft(Seq(Seq[Type]())) {
+            case (tpss, tpe) => tpss.flatMap {
+              tps => generalizations(tpe, !polarity).map(ntpe => tps :+ ntpe)
+            }
+          }
+
+          val tos = generalizations(ft.to, polarity)
+          froms.flatMap(from => tos.map(to => FunctionType(from, to)))
+
+        case _ => Seq(tpe)
+      }
+
+      val parentGeneralization = tpe match {
+        case adt: ADTType if adt.getADT.root != adt.getADT && polarity =>
+          Some(ADTType(adt.getADT.root.id, adt.tps))
+        case _ => None
+      }
+
+      varianceGeneralizations ++ parentGeneralization
+    }
+
+    val variables = deps.map(_._1)
+
+    // The type generalizations for a finite type lattice so the fixpoint will converge.
+    val liftedVariables = fixpoint { (vars: Seq[Variable]) =>
+      val newVarss = vars.foldLeft(Seq(Seq[Variable]())) {
+        case (varss, v) =>
+          val nvs = generalizations(v.tpe, true).map(ntpe => v.copy(tpe = ntpe))
+          varss.flatMap(vars => nvs.map(nv => vars :+ nv))
+      }
+
+      newVarss.filter(_ != vars).find { newVars =>
+        val liftedSubst = (variables zip newVars).toMap
+        def remainsTyped(e: Expr): Boolean = replaceFromSymbols(liftedSubst, e).isTyped
+        deps.forall(p => remainsTyped(p._2)) && remainsTyped(newExpr)
+      }.getOrElse(vars)
+    } (variables)
+
+    val liftedSubst = (variables zip liftedVariables).toMap
+    val liftedDeps = deps.map { case (v, e) =>
+      liftedSubst(v) -> replaceFromSymbols(liftedSubst, e)
+    }
+    val liftedExpr = replaceFromSymbols(liftedSubst, newExpr)
+
+    (bindings, liftedExpr, liftedDeps)
   }
 
   /** Wrapper around
