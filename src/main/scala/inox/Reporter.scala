@@ -121,7 +121,7 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
   final def debug(e: Throwable)(implicit section: DebugSection): Unit =
     debug(NoPosition, e.getMessage, e)
 
-  private def logTrace(severity: Severity, e: Throwable): Unit = {
+  private def logTrace(severity: Severity, e: Throwable): Unit = synchronized {
     var indent = 0
     def log(msg: Any) = emit(account(Message(severity, NoPosition, ("  " * indent) + msg)))
 
@@ -165,7 +165,7 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
     }
   }
 
-  def emit(msg: Message) = {
+  def emit(msg: Message) = synchronized {
     println(reline(severityToPrefix(msg.severity), smartPos(msg.position) + msg.msg.toString))
     printLineContent(msg.position)
   }
