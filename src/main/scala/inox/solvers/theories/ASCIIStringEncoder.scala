@@ -83,7 +83,7 @@ trait ASCIIStringEncoder extends SimpleEncoder {
 
     override def transform(e: Expr): Expr = e match {
       case ADT(String, Seq(StringLiteral(s))) =>
-        def unescape(s: String): String = if (s.isEmpty) s else {
+        def unescape(s: String): String = if (s.length < 2) s else {
           val (b1, s2) = decodeFirstByte(s)
           val (b2, s3) = decodeFirstByte(s2)
           val h: String = if (0 <= b1 && b1 <= 127 && b1 == b2) {
