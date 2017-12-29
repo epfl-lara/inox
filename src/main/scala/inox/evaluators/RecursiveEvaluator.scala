@@ -35,6 +35,24 @@ trait RecursiveEvaluator
     FiniteMap(els.toMap.toSeq.filter { case (_, value) => value != default }.sortBy(_._1.toString), default, from, to)
   }
 
+  /* ADTs with variant type parameters don't have a single value form, so we try
+   * to normalize them somewhat to get more predictable equality. */
+  private def specializeAdt(adt: ADTType, es: Seq[Expr]): ADT = {
+    val tadt = adt.getADT
+    val formalType = tupleTypeWrap(tadt.toConstructor.fields.map(_.tpe))
+    val actualType = tupleTypeWrap(es.map(_.getType))
+
+    instantiation_>:(formalType, actualType) match {
+      case Some(tmap) =>
+        val newTps = (tadt.definition.typeArgs zip adt.tps).map {
+          case (tp, tpe) => if (tp.isInvariant) tpe else tmap(tp)
+        }
+        ADT(ADTType(adt.id, newTps), es)
+
+      case None => ADT(adt, es)
+    }
+  }
+
   protected[evaluators] def e(expr: Expr)(implicit rctx: RC, gctx: GC): Expr = expr match {
     case v: Variable =>
       rctx.mappings.get(v.toVal) match {
@@ -126,7 +144,7 @@ trait RecursiveEvaluator
       BooleanLiteral(e(le) == e(re))
 
     case ADT(adt, args) =>
-      val cc = ADT(adt, args.map(e))
+      val cc = specializeAdt(adt, args.map(e))
       if (!ignoreContracts) adt.getADT.invariant.foreach { tfd =>
         val v = Variable.fresh("x", adt, true)
         e(tfd.applied(Seq(v)))(rctx.withNewVar(v.toVal, cc), gctx) match {
@@ -479,7 +497,16 @@ trait RecursiveEvaluator
         case (rctx, (v, dep)) => rctx.withNewVar(v.toVal, e(dep)(rctx, gctx))
       }
       val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
-      replaceFromSymbols(mapping, nl)
+      val ground = replaceFromSymbols(mapping, nl)
+
+      exprOps.postMap {
+        case ADT(adt, es) =>
+          Some(specializeAdt(adt, es))
+        case Let(vd, i, b) if vd.tpe != i.getType =>
+          val newVd = vd.copy(tpe = i.getType)
+          Some(Let(newVd, i, replaceFromSymbols(Map(vd -> newVd.toVariable), b)))
+        case _ => None
+      } (ground)
 
     case f: Forall => onForallInvocation {
       replaceFromSymbols(variablesOf(f).map(v => v -> e(v)).toMap, f).asInstanceOf[Forall]
