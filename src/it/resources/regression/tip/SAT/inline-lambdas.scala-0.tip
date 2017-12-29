@@ -1,0 +1,13 @@
+(declare-datatypes () ((Nat!1 (Succ!1 (n!6 Nat!1)) (Zero!1))))
+
+(define-fun z!9 () Nat!1 Zero!1)
+
+(declare-datatypes (A1!0 R!20) ((fun1!1 (fun1!2 (f!37 (=> A1!0 R!20)) (pre!11 (=> A1!0 Bool))))))
+
+(define-fun constantFunction!0 ((a!17 Nat!1)) (fun1!1 Nat!1 Nat!1) (fun1!2 (lambda ((x!56 Nat!1)) a!17) (lambda ((x!71 Nat!1)) true)))
+
+(assert (not (let ((b!14 z!9)) (not (= (constantFunction!0 b!14) (fun1!2 (lambda ((x!60 Nat!1)) b!14) (lambda ((x!72 Nat!1)) true)))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard
