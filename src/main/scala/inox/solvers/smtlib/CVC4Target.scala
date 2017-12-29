@@ -40,12 +40,28 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
         }
 
       // XXX @nv: CVC4 seems to return some weird representations for certain adt selectors
-      case (FunctionApplication(SimpleSymbol(s), Seq(e)), _) if s.name.endsWith("'") && selectors.containsB(SSymbol(s.name.init)) =>
-        super.fromSMT(FunctionApplication(SimpleSymbol(SSymbol(s.name.init)), Seq(e)), otpe)
+      case (FunctionApplication(SimpleSymbol(s), Seq(e)), _)
+      if s.name.endsWith("'") && selectors.containsB(SSymbol(s.name.init)) =>
+        fromSMT(FunctionApplication(SimpleSymbol(SSymbol(s.name.init)), Seq(e)), otpe)
 
       // XXX @nv: CVC4 seems to return some weird representations for certain adt constructors
-      case (FunctionApplication(SimpleSymbol(s), args), _) if s.name.endsWith("'") && constructors.containsB(SSymbol(s.name.init)) =>
-        super.fromSMT(FunctionApplication(SimpleSymbol(SSymbol(s.name.init)), args), otpe)
+      case (FunctionApplication(SimpleSymbol(s), args), _)
+      if s.name.endsWith("'") && constructors.containsB(SSymbol(s.name.init)) =>
+        fromSMT(FunctionApplication(SimpleSymbol(SSymbol(s.name.init)), args), otpe)
+
+      // XXX @nv: CVC4 seems to return bv literals instead of booleans sometimes
+      case (FixedSizeBitVectors.BitVectorLit(bs), Some(BooleanType())) if bs.size == 1 =>
+        BooleanLiteral(bs.head)
+      case (FixedSizeBitVectors.BitVectorConstant(n, size), Some(BooleanType())) if size == 1 =>
+        BooleanLiteral(n == 1)
+      case (Core.Equals(e1, e2), _) =>
+        fromSMTUnifyType(e1, e2, None)(Equals) match {
+          case Equals(IsTyped(lhs, BooleanType()), IsTyped(_, BVType(1))) =>
+            Equals(lhs, fromSMT(e2, BooleanType()))
+          case Equals(IsTyped(_, BVType(1)), IsTyped(rhs, BooleanType())) =>
+            Equals(fromSMT(e1, BooleanType()), rhs)
+          case expr => expr
+        }
 
       case (Sets.EmptySet(sort), Some(SetType(base))) => FiniteSet(Seq.empty, base)
       case (Sets.EmptySet(sort), _) => FiniteSet(Seq.empty, fromSMT(sort))

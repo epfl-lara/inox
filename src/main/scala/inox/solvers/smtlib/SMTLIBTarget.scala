@@ -618,12 +618,10 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case (FunctionApplication(SimpleSymbol(s), args), _) if constructors.containsB(s) =>
         constructors.toA(s) match {
           case adt: ADTType =>
-            val rargs = args.zip(adt.getADT.toConstructor.fields.map(_.getType)).map(fromSMT)
-            ADT(adt, rargs)
+            ADT(adt, (args zip adt.getADT.toConstructor.fieldsTypes) map fromSMT)
 
           case tt: TupleType =>
-            val rargs = args.zip(tt.bases).map(fromSMT)
-            tupleWrap(rargs)
+            tupleWrap((args zip tt.bases) map fromSMT)
 
           case tp: TypeParameter =>
             val IntegerLiteral(n) = fromSMT(args(0), IntegerType())
