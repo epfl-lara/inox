@@ -361,6 +361,9 @@ trait SymbolOps { self: TypeOps =>
 
         tpsGen ++ consGen
 
+      case TupleType(tps) =>
+        product(tps map (generalizations(_, polarity))) map TupleType
+
       case ft: FunctionType =>
         for {
           nfrom <- product(ft.from.map(generalizations(_, !polarity)))
