@@ -39,13 +39,13 @@ trait RecursiveEvaluator
    * to normalize them somewhat to get more predictable equality. */
   private def specializeAdt(adt: ADTType, es: Seq[Expr]): ADT = {
     val tadt = adt.getADT
-    val formalType = tupleTypeWrap(tadt.toConstructor.fields.map(_.tpe))
+    val formalType = tupleTypeWrap(tadt.toConstructor.definition.fields.map(_.tpe))
     val actualType = tupleTypeWrap(es.map(_.getType))
 
     instantiation_>:(formalType, actualType) match {
       case Some(tmap) =>
         val newTps = (tadt.definition.typeArgs zip adt.tps).map {
-          case (tp, tpe) => if (tp.isInvariant) tpe else tmap(tp)
+          case (tp, tpe) => if (tp.isInvariant) tpe else tmap.getOrElse(tp, tpe)
         }
         ADT(ADTType(adt.id, newTps), es)
 
@@ -145,8 +145,8 @@ trait RecursiveEvaluator
 
     case ADT(adt, args) =>
       val cc = specializeAdt(adt, args.map(e))
-      if (!ignoreContracts) adt.getADT.invariant.foreach { tfd =>
-        val v = Variable.fresh("x", adt, true)
+      if (!ignoreContracts) cc.adt.getADT.invariant.foreach { tfd =>
+        val v = Variable.fresh("x", cc.adt, true)
         e(tfd.applied(Seq(v)))(rctx.withNewVar(v.toVal, cc), gctx) match {
           case BooleanLiteral(true) =>
           case BooleanLiteral(false) =>
