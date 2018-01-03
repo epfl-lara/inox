@@ -171,34 +171,6 @@ trait Paths { self: SymbolOps with TypeOps =>
       new Path(outers) :+ Condition(not(fold[Expr](BooleanLiteral(true), let, trees.and(_, _))(rest)))
     }
 
-    /** Returns a new path which depends ONLY on provided ids.
-      *
-      * Let-bindings obviously depend on some `id` if it corresponds to the bound
-      * identifier. An expression depends on an `id` iff the identifier is
-      * contained within the expression.
-      *
-      * This method makes little sense on its own and will typically be used from
-      * within a fixpoint computation where the `ids` set is iteratively computed
-      * by performing [[filterByIds]] calls on some (unchaning) base [[Path]].
-      *
-      * @see [https://github.com/epfl-lara/stainless/blob/master/src/main/scala/stainless/extraction/innerfuns/FunctionClosure.scala](
-      *       FunctionClosure in stainless for an example usecase).
-      */
-    def filterByIds(ids: Set[Identifier]): Path = {
-      def containsIds(ids: Set[Identifier])(e: Expr): Boolean = exprOps.exists {
-        case Variable(id, _, _) => ids contains id
-        case _ => false
-      }(e)
-
-      val newElements = elements filter {
-        case CloseBound(vd, e) => (ids contains vd.id) || containsIds(ids)(e)
-        case OpenBound(vd) => ids contains vd.id
-        case Condition(e) => containsIds(ids)(e)
-      }
-
-      new Path(newElements)
-    }
-
     /** Free variables within the path */
     @inline def freeVariables: Set[Variable] = _free.get
     private[this] val _free: Lazy[Set[Variable]] = Lazy {
@@ -206,6 +178,16 @@ trait Paths { self: SymbolOps with TypeOps =>
         .collect { case Condition(e) => e case CloseBound(_, e) => e }
         .flatMap { e => exprOps.variablesOf(e) }
       val boundVars = bound map { _.toVariable }
+      allVars.toSet -- boundVars
+    }
+
+    /** Variables that aren't bound by a [[CloseBound]]. */
+    @inline def unboundVariables: Set[Variable] = _unbound.get
+    private[this] val _unbound: Lazy[Set[Variable]] = Lazy {
+      val allVars = elements
+        .collect { case Condition(e) => e case CloseBound(_, e) => e }
+        .flatMap { e => exprOps.variablesOf(e) }
+      val boundVars = bindings map { _._1.toVariable }
       allVars.toSet -- boundVars
     }
 
