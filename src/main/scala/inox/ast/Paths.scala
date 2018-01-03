@@ -181,7 +181,7 @@ trait Paths { self: SymbolOps with TypeOps =>
       allVars.toSet -- boundVars
     }
 
-    /** Variables that aren't bound by a [[CloseBound]]. */
+    /** Variables that aren't bound by a [[Path.CloseBound]]. */
     @inline def unboundVariables: Set[Variable] = _unbound.get
     private[this] val _unbound: Lazy[Set[Variable]] = Lazy {
       val allVars = elements
