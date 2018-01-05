@@ -195,16 +195,7 @@ trait Definitions { self: Trees =>
     }
 
     protected def ensureWellFormedFunction(fd: FunDef) = {
-      try {
       typeCheck(fd.fullBody, fd.returnType)
-      } catch {
-        case t: Throwable =>
-          implicit val opts = PrinterOptions(printUniqueIds = true, symbols = Some(this))
-          val str = explainTyping(fd.fullBody)
-          if (str.length < 10000) println(str)
-          println(fd.returnType.asString)
-          throw t
-      }
 
       val unbound: Seq[Variable] = collectWithPC(fd.fullBody, Path.empty withBounds fd.params) {
         case (v: Variable, path) if !(path isBound v.id) => v
