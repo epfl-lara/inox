@@ -492,13 +492,27 @@ trait RecursiveEvaluator
       finiteBag(els.map { case (k, v) => (e(k), e(v)) }, base)
 
     case l @ Lambda(_, _) =>
-      val (nl, deps) = normalizeStructure(l)
-      val newCtx = deps.foldLeft(rctx) {
-        case (rctx, (v, dep)) => rctx.withNewVar(v.toVal, e(dep)(rctx, gctx))
+      def normalizeLambda(l: Lambda, onlySimple: Boolean = false): Lambda = {
+        val (nl, deps) = normalizeStructure(l, onlySimple = onlySimple)
+        val newCtx = deps.foldLeft(rctx) {
+          case (rctx, (v, dep)) => rctx.withNewVar(v.toVal, e(dep)(rctx, gctx))
+        }
+        val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
+        replaceFromSymbols(mapping, nl).asInstanceOf[Lambda]
       }
-      val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
-      val ground = replaceFromSymbols(mapping, nl)
 
+      // We start by normalizing the structure of the lambda as in the solver to
+      // evaluate all normalizable ground expressions within its body.
+      val ground = normalizeLambda(l)
+
+      // Then, in order for nested lambdas to have fresh variables in their argument
+      // lists and let bindings, we re-normalize the identifiers by passing
+      // `onlySimple = true` to the call to `normalizeStructure` (this avoids lifting
+      // ground lambdas out in the deps).
+      val fresh = normalizeLambda(ground, onlySimple = true)
+
+      // Finally, we specialize the variant type parameters within the lambda's body
+      // to normalize against variable substitutions.
       exprOps.postMap {
         case ADT(adt, es) =>
           Some(specializeAdt(adt, es))
@@ -506,7 +520,7 @@ trait RecursiveEvaluator
           val newVd = vd.copy(tpe = i.getType)
           Some(Let(newVd, i, replaceFromSymbols(Map(vd -> newVd.toVariable), b)))
         case _ => None
-      } (ground)
+      } (fresh)
 
     case f: Forall => onForallInvocation {
       replaceFromSymbols(variablesOf(f).map(v => v -> e(v)).toMap, f).asInstanceOf[Forall]
