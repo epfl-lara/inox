@@ -213,6 +213,24 @@ trait Paths { self: SymbolOps with TypeOps =>
 
     def isBound(id: Identifier): Boolean = bound exists { _.id == id }
 
+    /** Free variables of the input expression under the current path
+      *
+      * See [[freeVariables]] for some more details about _free_ variables
+      */
+    def freeOf(e: Expr): Set[Variable] = freeOf(exprOps.variablesOf(e))
+
+    /** Free variables of the input variable set under the current path */
+    def freeOf(vs: Set[Variable]): Set[Variable] = vs -- bound.map(_.toVariable) ++ freeVariables
+
+    /** Unbound variables of the input expression under the current path
+      *
+      * See [[unboundVariables]] for some more details about _unbound_ variables
+      */
+    def unboundOf(e: Expr): Set[Variable] = unboundOf(exprOps.variablesOf(e))
+
+    /** Unbound variables of the input variable set under the current path */
+    def unboundOf(vs: Set[Variable]): Set[Variable] = vs -- closed.map(_.toVariable) ++ unboundVariables
+
     /** Fold the path elements
       *
       * This function takes two combiner functions, one for let bindings and one

@@ -1081,7 +1081,7 @@ trait SymbolOps { self: TypeOps =>
     var assumptions: Seq[Expr] = Seq.empty
 
     val newExpr = transformWithPC(expr)((e, env, op) => e match {
-      case Assume(pred, body) if (variablesOf(pred) -- env.closed ++ env.unboundVariables) subsetOf vars =>
+      case Assume(pred, body) if (env unboundOf pred) subsetOf vars =>
         assumptions :+= env implies pred
         op.rec(body, env withCond pred)
       case _ => op.superRec(e, env)
