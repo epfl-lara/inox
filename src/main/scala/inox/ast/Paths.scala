@@ -195,6 +195,14 @@ trait Paths { self: SymbolOps with TypeOps =>
     private[this] val _bindings: Lazy[Seq[(ValDef, Expr)]] =
       Lazy(elements.collect { case CloseBound(vd, e) => vd -> e })
 
+    @inline def open: Seq[ValDef] = _open.get
+    private[this] val _open: Lazy[Seq[ValDef]] =
+      Lazy(elements.collect { case OpenBound(vd) => vd })
+
+    @inline def closed: Seq[ValDef] = _closed.get
+    private[this] val _closed: Lazy[Seq[ValDef]] =
+      Lazy(elements.collect { case CloseBound(vd, _) => vd })
+
     @inline def bound: Seq[ValDef] = _bound.get
     private[this] val _bound: Lazy[Seq[ValDef]] =
       Lazy(elements.collect { case CloseBound(vd, _) => vd case OpenBound(vd) => vd })

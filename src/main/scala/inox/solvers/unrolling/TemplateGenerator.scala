@@ -347,13 +347,7 @@ trait TemplateGenerator { self: Templates =>
       }
 
       case l: Lambda =>
-        val (assumptions, without: Lambda) = liftAssumptions(l)
-
-        for (a <- assumptions) {
-          rec(pathVar, a, Some(true))
-        }
-
-        val template = LambdaTemplate(pathVar -> encodedCond(pathVar), without, localSubst)
+        val template = LambdaTemplate(pathVar -> encodedCond(pathVar), l, localSubst)
         registerLambda(template)
         template.ids._1
 
