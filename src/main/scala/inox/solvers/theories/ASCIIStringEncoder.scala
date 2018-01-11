@@ -84,23 +84,24 @@ trait ASCIIStringEncoder extends SimpleEncoder {
     override def transform(e: Expr): Expr = e match {
       case ADT(String, Seq(StringLiteral(s))) =>
         def unescape(s: String): String = if (s.isEmpty) s else {
-          val (b1, s2) = decodeFirstByte(s)
-          val (b2, s3) = decodeFirstByte(s2)
-          val h: String = if (0 <= b1 && b1 <= 127 && b1 == b2) {
-            b1.toChar.toString
-          } else if (0 <= b1 && b1 <= 127 && 0 <= b2 && b2 <= 127) {
-            new java.lang.String(Seq(
-              (0x00 | (b1 >> 1)).toByte,
-              (((b1 & 1) << 7) | b2).toByte
-            ).toArray, "UTF-8")
-          } else if ((b1 & 0xC0) != 0) {
-            new java.lang.String(Seq(b1, b2).toArray, "UTF-8")
-          } else {
-            // hopefully these are rare!
-            throw FatalError(s"Can't decode character ${encodeByte(b1)}${encodeByte(b2)}")
+            val (b1, s2) = decodeFirstByte(s)
+            if (s2.isEmpty) throw TheoryException("String doesn't satisfy invariant")
+            val (b2, s3) = decodeFirstByte(s2)
+            val h: String = if (0 <= b1 && b1 <= 127 && b1 == b2) {
+              b1.toChar.toString
+            } else if (0 <= b1 && b1 <= 127 && 0 <= b2 && b2 <= 127) {
+              new java.lang.String(Seq(
+                (0x00 | (b1 >> 1)).toByte,
+                (((b1 & 1) << 7) | b2).toByte
+              ).toArray, "UTF-8")
+            } else if ((b1 & 0xC0) != 0) {
+              new java.lang.String(Seq(b1, b2).toArray, "UTF-8")
+            } else {
+              // hopefully these are rare!
+              throw FatalError(s"Can't decode character ${encodeByte(b1)}${encodeByte(b2)}")
+            }
+            h + unescape(s3)
           }
-          h + unescape(s3)
-        }
 
         StringLiteral(unescape(s))
 

@@ -537,14 +537,24 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }
     }
 
+    /* The solver may return values that cannot be decoded by the theory encoder if they
+     * weren't constrained by the generated clauses (eg. default values for functions).
+     * We replace these by `simplestValue` instead of crashing as they won't have any influence
+     * on model evaluation. */
+    def decodeOrSimplest(e: t.Expr): s.Expr = try {
+      decode(e)
+    } catch {
+      case t: TheoryException => program.symbols.simplestValue(decode(e.getType))
+    }
+
     val initSeen: Map[FunctionType, Set[Encoded]] = Map.empty.withDefaultValue(Set.empty)
-    val exModel = wrapped.getModel((e, tpe) => decode(extractValue(e, encode(tpe), initSeen)))
+    val exModel = wrapped.getModel((e, tpe) => decodeOrSimplest(extractValue(e, encode(tpe), initSeen)))
     val exChooses = chooseExtractions.toMap.map { case (e, c) =>
       c -> lambdaExtractions.collectFirst {
         case (f, lambda) if bestRealType(lambda.getType) == bestRealType(c.res.tpe) && modelEq(f, e) => lambda
       }.get
     }
-    val chooses = exChooses.map(p => (p._1.res.id, Seq.empty[s.Type]) -> decode(p._2))
+    val chooses = exChooses.map(p => (p._1.res.id, Seq.empty[s.Type]) -> decodeOrSimplest(p._2))
     inox.Model(program, context)(exModel.vars, exModel.chooses ++ chooses)
   }
 
