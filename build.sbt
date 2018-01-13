@@ -39,7 +39,7 @@ resolvers ++= Seq(
 libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "3.0.1" % "test;it",
   "org.apache.commons" % "commons-lang3" % "3.4",
-  "com.regblanc" %% "scala-smtlib" % "0.2.2",
+  "com.regblanc" %% "scala-smtlib" % "0.2.2-7-g00a9686",
   "uuverifiers" %% "princess" % "2016-12-26"
 )
 
