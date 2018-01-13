@@ -1,0 +1,13 @@
+(declare-datatypes (R!19) ((fun0!21 (fun0!22 (f!49 (=> R!19)) (pre!21 (=> Bool))))))
+
+(declare-datatypes () ((Stream!7 (SCons!7 (s!17 (fun0!21 Stream!7))))))
+
+(define-fun-rec infiniteStream!0 () Stream!7 (let ((x$1!4 (SCons!7 (fun0!22 (lambda () (let ((x!56 infiniteStream!0)) (assume false x!56))) (lambda () true))))) (assume false x$1!4)))
+
+(datatype-invariant thiss!3 Stream!7 (=> (is-SCons!7 thiss!3) (@ (f!49 (fun0!22 (pre!21 (s!17 (assume (is-SCons!7 thiss!3) thiss!3))) (lambda () true))))))
+
+(assert (not (let ((x$1!6 (SCons!7 (fun0!22 (lambda () (let ((x!57 infiniteStream!0)) (assume false x!57))) (lambda () true))))) false)))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard
