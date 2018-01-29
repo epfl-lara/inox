@@ -75,9 +75,6 @@ trait TemplateGenerator { self: Templates =>
     substMap: Map[Variable, Encoded],
     onlySimple: Boolean = false
   ): (Expr, TemplateStructure, Map[Variable, Encoded]) = {
-    val (struct, depsByScope) = normalizeStructure(expr)
-    val deps = depsByScope.toMap
-
     lazy val isNormalForm: Boolean = {
       def extractBody(e: Expr): (Seq[ValDef], Expr) = e match {
         case Lambda(args, body) =>
@@ -86,35 +83,29 @@ trait TemplateGenerator { self: Templates =>
         case _ => (Seq.empty, e)
       }
 
-      val (params, app) = extractBody(struct)
-      !app.getType.isInstanceOf[FunctionType] && (ApplicationExtractor(app) exists {
-        case (caller: Variable, args) => (params.map(_.toVariable) == args) && (deps.get(caller) match {
-          case Some(_: Application | _: FunctionInvocation | _: Variable | _: ADTSelector) => true
-          case _ => false
-        })
-        case _ => false
-      })
+      val (params, app) = extractBody(expr)
+
+      val argsSet: Set[Seq[Expr]] =
+        (ApplicationExtractor(app) collect { case (_: Variable, args) => args }) ++
+        (InvocationExtractor(app) collect { case (_, _, args) => args })
+
+      val paramsAsVars = params.map(_.toVariable)
+      val argsAreParams = argsSet.exists { args =>
+        val (realArgs, paramArgs) = args.splitAt(args.size - params.size)
+        realArgs.forall(isSimple) && paramsAsVars == paramArgs
+      }
+
+      !app.getType.isInstanceOf[FunctionType] && argsAreParams
     }
 
-    type DepClauses = (
-      Map[Variable, Encoded],
-      Map[Variable, Encoded],
-      Map[Variable, Set[Variable]],
-      Clauses,
-      Calls,
-      Apps,
-      Matchers,
-      Equalities,
-      Seq[LambdaTemplate],
-      Seq[QuantificationTemplate],
-      Pointers
-    )
+    val (struct, depsByScope) = normalizeStructure(expr, onlySimple = isNormalForm)
+    val deps = depsByScope.toMap
 
     val (depSubst, depContents) =
       depsByScope.foldLeft(substMap, TemplateContents.empty(pathVar -> substMap(pathVar), Seq())) {
         case ((depSubst, contents), (v, expr)) =>
           if (!isSimple(expr)) {
-            val normalExpr = if (!isNormalForm) simplifyHOFunctions(expr) else expr
+            val normalExpr = simplifyHOFunctions(expr)
             val (e, cls) = mkExprClauses(pathVar, normalExpr, depSubst)
 
             // setup the full encoding substMap
