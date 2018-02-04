@@ -588,14 +588,20 @@ trait Templates
         case None => Left(encoder(arg))
       }
 
-      val calls = firstOrderCallsOf(expr).map { case (id, tps, args) =>
+      val calls = exprOps.collect[FunctionInvocation] {
+        case fi: FunctionInvocation => Set(fi)
+        case _ => Set.empty
+      } (expr).map { case FunctionInvocation(id, tps, args) =>
         Call(getFunction(id, tps), args.map(encodeArg))
       }.filter(i => Some(i) != optCall)
 
-      val apps = firstOrderAppsOf(expr).filter {
-        case (c, Seq(e1, e2)) => c != equalitySymbol(e1.getType)._1
+      val apps = exprOps.collect[Application] {
+        case app: Application => Set(app)
+        case _ => Set.empty
+      } (expr).filter {
+        case Application(c, Seq(e1, e2)) => c != equalitySymbol(e1.getType)._1
         case _ => true
-      }.map { case (c, args) =>
+      }.map { case Application(c, args) =>
         val tpe = bestRealType(c.getType).asInstanceOf[FunctionType]
         App(encoder(c), tpe, args.map(encodeArg), encoder(mkApplication(c, args)))
       }.filter(i => Some(i) != optApp)

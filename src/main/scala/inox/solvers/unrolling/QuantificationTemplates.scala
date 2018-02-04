@@ -21,19 +21,8 @@ trait QuantificationTemplates { self: Templates =>
   /* -- Extraction helpers -- */
 
   object QuantificationMatcher {
-    private def flatApplication(expr: Expr): Option[(Expr, Seq[Expr])] = expr match {
-      case Application(fi: FunctionInvocation, args) => None
-      case Application(caller: Application, args) => flatApplication(caller) match {
-        case Some((c, prevArgs)) => Some((c, prevArgs ++ args))
-        case None => None
-      }
-      case Application(caller, args) => Some((caller, args))
-      case _ => None
-    }
-
     def unapply(expr: Expr): Option[(Expr, Seq[Expr])] = expr match {
-      case IsTyped(a: Application, ft: FunctionType) => None
-      case Application(e, args) => flatApplication(expr)
+      case Application(e, args) => Some(e -> args)
       case MapApply(map, key) => Some(map -> Seq(key))
       case MapUpdated(map, key, value) => Some(map -> Seq(key))
       case MultiplicityInBag(elem, bag) => Some(bag -> Seq(elem))
@@ -46,19 +35,7 @@ trait QuantificationTemplates { self: Templates =>
   }
 
   object FunctionMatcher {
-    private def flatApplication(expr: Expr): Option[(TypedFunDef, Seq[Expr])] = expr match {
-      case Application(fi: FunctionInvocation, args) => Some((fi.tfd, fi.args ++ args))
-      case Application(caller: Application, args) => flatApplication(caller) match {
-        case Some((c, prevArgs)) => Some((c, prevArgs ++ args))
-        case None => None
-      }
-      case _ => None
-    }
-
     def unapply(expr: Expr): Option[(TypedFunDef, Seq[Expr])] = expr match {
-      case IsTyped(a: Application, ft: FunctionType) => None
-      case Application(e, args) => flatApplication(expr)
-      case IsTyped(fi: FunctionInvocation, ft: FunctionType) => None
       case fi @ FunctionInvocation(_, _, args) => Some((fi.tfd, args))
       case _ => None
     }

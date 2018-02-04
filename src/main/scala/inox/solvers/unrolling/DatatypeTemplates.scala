@@ -291,7 +291,10 @@ trait DatatypeTemplates { self: Templates =>
           var callInfos : Set[Call] = Set.empty
 
           for (e <- es) {
-            callInfos ++= firstOrderCallsOf(e).map { case (id, tps, args) =>
+            callInfos ++= exprOps.collect[FunctionInvocation] {
+              case fi: FunctionInvocation => Set(fi)
+              case _ => Set.empty
+            } (e).map { case FunctionInvocation(id, tps, args) =>
               Call(getFunction(id, tps), args.map(arg => Left(encoder(arg))))
             }
 

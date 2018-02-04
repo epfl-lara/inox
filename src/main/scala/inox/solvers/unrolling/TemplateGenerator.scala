@@ -75,38 +75,14 @@ trait TemplateGenerator { self: Templates =>
     substMap: Map[Variable, Encoded],
     onlySimple: Boolean = false
   ): (Expr, TemplateStructure, Map[Variable, Encoded]) = {
-    lazy val isNormalForm: Boolean = {
-      def extractBody(e: Expr): (Seq[ValDef], Expr) = e match {
-        case Lambda(args, body) =>
-          val (nextArgs, nextBody) = extractBody(body)
-          (args ++ nextArgs, nextBody)
-        case _ => (Seq.empty, e)
-      }
-
-      val (params, app) = extractBody(expr)
-
-      val argsSet: Set[Seq[Expr]] =
-        (ApplicationExtractor(app) collect { case (_: Variable, args) => args }) ++
-        (InvocationExtractor(app) collect { case (_, _, args) => args })
-
-      val paramsAsVars = params.map(_.toVariable)
-      val argsAreParams = argsSet.exists { args =>
-        val (realArgs, paramArgs) = args.splitAt(args.size - params.size)
-        realArgs.forall(isSimple) && paramsAsVars == paramArgs
-      }
-
-      !app.getType.isInstanceOf[FunctionType] && argsAreParams
-    }
-
-    val (struct, depsByScope) = normalizeStructure(expr, onlySimple = isNormalForm)
+    val (struct, depsByScope) = normalizeStructure(expr)
     val deps = depsByScope.toMap
 
     val (depSubst, depContents) =
       depsByScope.foldLeft(substMap, TemplateContents.empty(pathVar -> substMap(pathVar), Seq())) {
         case ((depSubst, contents), (v, expr)) =>
           if (!isSimple(expr)) {
-            val normalExpr = simplifyHOFunctions(expr)
-            val (e, cls) = mkExprClauses(pathVar, normalExpr, depSubst)
+            val (e, cls) = mkExprClauses(pathVar, expr, depSubst)
 
             // setup the full encoding substMap
             val (conds, exprs, chooses, tree, equals, lmbds, quants) = cls.proj
@@ -142,13 +118,9 @@ trait TemplateGenerator { self: Templates =>
     val dependencies = sortedDeps.map(p => depSubst(p._1))
     val structure = new TemplateStructure(struct, dependencies, depContents)
 
-    if (isNormalForm) {
-      (expr, structure, depSubst)
-    } else {
-      val freshSubst = exprOps.variablesOf(struct).map(v => v -> v.freshen).toMap
-      val freshDeps = depSubst.map { case (v, e) => freshSubst.getOrElse(v, v) -> e }
-      (exprOps.replaceFromSymbols(freshSubst, struct), structure, freshDeps)
-    }
+    val freshSubst = exprOps.variablesOf(struct).map(v => v -> v.freshen).toMap
+    val freshDeps = depSubst.map { case (v, e) => freshSubst.getOrElse(v, v) -> e }
+    (exprOps.replaceFromSymbols(freshSubst, struct), structure, freshDeps)
   }
 
   protected def mkExprClauses(

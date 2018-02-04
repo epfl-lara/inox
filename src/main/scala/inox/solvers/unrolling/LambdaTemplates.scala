@@ -57,7 +57,7 @@ trait LambdaTemplates { self: Templates =>
       lambda: Lambda,
       substMap: Map[Variable, Encoded]
     ): LambdaTemplate = {
-      val idArgs: Seq[Variable] = lambdaArguments(lambda)
+      val idArgs: Seq[Variable] = lambda.args.map(_.toVariable)
       val trArgs: Seq[Encoded] = idArgs.map(v => substMap.getOrElse(v, encodeSymbol(v)))
 
       val (realLambda, structure, depSubst) = mkExprStructure(pathVar._1, lambda, substMap)
@@ -65,12 +65,12 @@ trait LambdaTemplates { self: Templates =>
 
       val tpe = lambda.getType.asInstanceOf[FunctionType]
       val lid = Variable.fresh("lambda", tpe, true)
-      val appEqBody: Seq[(Expr, Expr)] = liftedEquals(lid, realLambda, idArgs, inlineFirst = true)
+      val app = Application(lid, idArgs)
 
       val clauseSubst: Map[Variable, Encoded] = depSubst ++ (idArgs zip trArgs)
-      val tmplClauses = appEqBody.foldLeft(emptyClauses) { case (clsSet, (app, body)) =>
-        val (p, cls) = mkExprClauses(pathVar._1, body, clauseSubst)
-        clsSet ++ cls + (pathVar._1 -> Equals(app, p))
+      val tmplClauses = {
+        val (p, cls) = mkExprClauses(pathVar._1, application(realLambda, idArgs), clauseSubst)
+        cls + (pathVar._1 -> Equals(app, p))
       }
 
       val lidT = encodeSymbol(lid)

@@ -927,155 +927,6 @@ trait SymbolOps { self: TypeOps =>
     postMap(transform, applyRec = true)(expr)
   }
 
-  private[inox] object InvocationExtractor {
-    type Invocation = (Identifier, Seq[Type], Seq[Expr])
-
-    private[SymbolOps] def flatInvocation(expr: Expr): Option[Invocation] = expr match {
-      case fi @ FunctionInvocation(id, tps, args) => Some((id, tps, args))
-      case Application(caller, args) => flatInvocation(caller) match {
-        case Some((id, tps, prevArgs)) => Some((id, tps, prevArgs ++ args))
-        case None => None
-      }
-      case _ => None
-    }
-
-    def apply(e: Expr): Set[Invocation] = {
-      var invocations: Set[Invocation] = Set.empty
-
-      def rec(e: Expr, extract: Boolean): Unit = e match {
-        case IsTyped(FunctionInvocation(_, _, args), _: FunctionType) =>
-          args.foreach(rec(_, true))
-
-        case IsTyped(Application(caller, args), _: FunctionType) =>
-          rec(caller, false)
-          args.foreach(rec(_, true))
-
-        case FunctionInvocation(id, tps, args) =>
-          args.foreach(rec(_, true))
-          if (extract) invocations += ((id, tps, args))
-
-        case f @ Application(caller, args) =>
-          rec(caller, false)
-          args.foreach(rec(_, true))
-          if (extract) invocations ++= flatInvocation(f)
-
-        case Operator(es, _) => es.foreach(rec(_, true))
-      }
-
-      rec(e, true)
-      invocations
-    }
-  }
-
-  private[inox] def firstOrderCallsOf(expr: Expr): Set[InvocationExtractor.Invocation] = InvocationExtractor(expr)
-
-  private[inox] object ApplicationExtractor {
-    private def flatApplication(expr: Expr): Option[(Expr, Seq[Expr])] = expr match {
-      case Application(caller: Application, args) => flatApplication(caller) match {
-        case Some((c, prevArgs)) => Some((c, prevArgs ++ args))
-        case None => None
-      }
-      case Application(caller, args) => Some((caller, args))
-      case _ => None
-    }
-
-    def apply(e: Expr): Set[(Expr, Seq[Expr])] = {
-      var applications: Set[(Expr, Seq[Expr])] = Set.empty
-
-      def rec(e: Expr, extract: Boolean): Unit = e match {
-        case IsTyped(Application(caller, args), _: FunctionType) =>
-          rec(caller, false)
-          args.foreach(rec(_, true))
-
-        case f @ Application(caller, args) =>
-          rec(caller, false)
-          args.foreach(rec(_, true))
-          if (extract && InvocationExtractor.flatInvocation(e).isEmpty)
-            applications ++= flatApplication(f)
-
-        case Operator(es, _) => es.foreach(rec(_, true))
-      }
-
-      rec(e, true)
-      applications
-    }
-  }
-
-  private[inox] def firstOrderAppsOf(expr: Expr): Set[(Expr, Seq[Expr])] = ApplicationExtractor(expr)
-
-  private[inox] def simplifyHOFunctions(expr: Expr): Expr = {
-
-    def pushDown(expr: Expr, recons: Expr => Expr): Expr = expr match {
-      case IfExpr(cond, thenn, elze) =>
-        IfExpr(cond, pushDown(thenn, recons), pushDown(elze, recons))
-      case Let(i, e, b) =>
-        Let(i, e, pushDown(b, recons))
-      case Assume(pred, body) =>
-        Assume(pred, pushDown(body, recons))
-      case _ => recons(expr)
-    }
-
-    def traverse(expr: Expr, lift: Expr => Expr): Expr = {
-      def extract(expr: Expr, build: Boolean) = if (build) lift(expr) else expr
-
-      def rec(expr: Expr, build: Boolean): Expr = extract(expr match {
-        case Application(caller, args) =>
-          val newArgs = args.map(rec(_, true))
-          val newCaller = rec(caller, false)
-          Application(newCaller, newArgs)
-        case FunctionInvocation(id, tps, args) =>
-          val newArgs = args.map(rec(_, true))
-          FunctionInvocation(id, tps, newArgs)
-        case l @ Lambda(args, body) =>
-          val newBody = rec(body, true)
-          Lambda(args, newBody)
-        case Operator(es, recons) => recons(es.map(rec(_, build)))
-      }, build)
-
-      rec(lift(expr), true)
-    }
-
-    def liftToLambdas(expr: Expr) = {
-      def lift(expr: Expr): Expr = expr.getType match {
-        case FunctionType(from, to) => expr match {
-          case _ : Lambda => expr
-          case _ : Variable => expr
-          case _ : ADTSelector => expr
-          case e =>
-            val args = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
-            val application = pushDown(expr, Application(_, args.map(_.toVariable)))
-            Lambda(args, lift(application))
-        }
-        case _ => expr
-      }
-
-      traverse(expr, lift)
-    }
-
-    def liftContainers(expr: Expr): Expr = expr match {
-      case IfExpr(cond, thenn, elze) => (liftContainers(thenn), liftContainers(elze)) match {
-        case (Tuple(es1), Tuple(es2)) =>
-          Tuple((es1 zip es2).map(p => ifExpr(cond, p._1, p._2)))
-        case (ADT(tpe1, es1), ADT(tpe2, es2)) if tpe1 == tpe2 =>
-          ADT(tpe1, (es1 zip es2).map(p => ifExpr(cond, p._1, p._2)))
-        case (e1, e2) => ifExpr(cond, e1, e2)
-      }
-      case _ => expr
-    }
-
-    def simplifyContainers(expr: Expr): Expr = postMap {
-      case ADTSelector(IsTyped(e, FunctionContainerType()), id) =>
-        val newExpr = pushDown(e, adtSelector(_, id))
-        if (newExpr != expr) Some(newExpr) else None
-      case TupleSelect(IsTyped(e, FunctionContainerType()), i) =>
-        val newExpr = pushDown(e, tupleSelect(_, i, true))
-        if (newExpr != expr) Some(newExpr) else None
-      case _ => None
-    } (expr)
-
-    liftToLambdas(simplifyContainers(liftContainers(expr)))
-  }
-
   private[inox] def liftAssumptions(expr: Expr): (Seq[Expr], Expr) = {
     val vars = variablesOf(expr)
     var assumptions: Seq[Expr] = Seq.empty
@@ -1270,14 +1121,13 @@ trait SymbolOps { self: TypeOps =>
     if (simpOpts.simplify) {
       val simp: Expr => Expr =
         ((e: Expr) => simplifyGround(e))      compose
-        ((e: Expr) => simplifyHOFunctions(e)) compose
         ((e: Expr) => simplifyExpr(e))        compose
         ((e: Expr) => simplifyForalls(e))     compose
         ((e: Expr) => simplifyAssumptions(e)) compose
         ((e: Expr) => mergeFunctions(e))
       simp(e)
     } else {
-      simplifyHOFunctions(e)
+      e
     }
   }
 
