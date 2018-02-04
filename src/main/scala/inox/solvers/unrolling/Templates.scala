@@ -507,15 +507,6 @@ trait Templates
     }
   }
 
-  private[unrolling] def mkApplication(caller: Expr, args: Seq[Expr]): Expr = caller.getType match {
-    case FunctionType(from, to) =>
-      val (curr, next) = args.splitAt(from.size)
-      mkApplication(Application(caller, curr), next)
-    case _ =>
-      assert(args.isEmpty, s"Non-function typed $caller applied to ${args.mkString(",")}")
-      caller
-  }
-
   object Template {
 
     def lambdaPointers(encoder: Expr => Encoded)(expr: Expr): Map[Encoded, Encoded] = {
@@ -601,9 +592,9 @@ trait Templates
       } (expr).filter {
         case Application(c, Seq(e1, e2)) => c != equalitySymbol(e1.getType)._1
         case _ => true
-      }.map { case Application(c, args) =>
+      }.map { case app @ Application(c, args) =>
         val tpe = bestRealType(c.getType).asInstanceOf[FunctionType]
-        App(encoder(c), tpe, args.map(encodeArg), encoder(mkApplication(c, args)))
+        App(encoder(c), tpe, args.map(encodeArg), encoder(app))
       }.filter(i => Some(i) != optApp)
 
       val matchers = exprToMatcher.values.toSet
