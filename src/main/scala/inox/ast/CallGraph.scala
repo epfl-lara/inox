@@ -3,6 +3,7 @@
 package inox
 package ast
 
+import utils.Lazy
 import utils.Graphs._
 
 trait CallGraph {
@@ -16,18 +17,15 @@ trait CallGraph {
     case _ => Set()
   }
 
-  private[this] var _graph: DiGraph[Identifier, SimpleEdge[Identifier]] = _
-  def graph: DiGraph[Identifier, SimpleEdge[Identifier]] = {
-    if (_graph eq null) {
-      var g = DiGraph[Identifier, SimpleEdge[Identifier]]()
+  @inline def graph: DiGraph[Identifier, SimpleEdge[Identifier]] = _graph.get
+  private[this] val _graph: Lazy[DiGraph[Identifier, SimpleEdge[Identifier]]] = Lazy {
+    var g = DiGraph[Identifier, SimpleEdge[Identifier]]()
 
-      for ((_, fd) <- symbols.functions; (from, to) <- collect(collectCalls(fd))(fd.fullBody)) {
-        g += SimpleEdge(from, to)
-      }
-
-      _graph = g
+    for ((_, fd) <- symbols.functions; (from, to) <- collect(collectCalls(fd))(fd.fullBody)) {
+      g += SimpleEdge(from, to)
     }
-    _graph
+
+    g
   }
 
   def allCalls = graph.E.map(e => e._1 -> e._2)
@@ -116,13 +114,9 @@ trait CallGraph {
     transitivelyCalls(from.id, to.id)
   }
 
-  private[this] var _sccs: DiGraph[Set[Identifier], SimpleEdge[Set[Identifier]]] = _
-  def sccs: DiGraph[Set[Identifier], SimpleEdge[Set[Identifier]]] = {
-    if (_sccs eq null) {
-      _sccs = graph.stronglyConnectedComponents
-    }
-    _sccs
-  }
+  @inline def sccs: DiGraph[Set[Identifier], SimpleEdge[Set[Identifier]]] = _sccs.get
+  private[this] val _sccs: Lazy[DiGraph[Set[Identifier], SimpleEdge[Set[Identifier]]]] =
+    Lazy(graph.stronglyConnectedComponents)
 
   object CallGraphOrderings {
     implicit object componentOrdering extends Ordering[Set[FunDef]] {

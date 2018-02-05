@@ -184,15 +184,12 @@ trait Definitions { self: Trees =>
       * - adt type parameter flags match between children and parents
       * - every variable is available in the scope of its usage
       */
-    private[this] var _tryWF: Try[Unit] = _
-    def ensureWellFormed: Unit = {
-      if (_tryWF eq null) _tryWF = Try({
-        for ((_, fd) <- functions) ensureWellFormedFunction(fd)
-        for ((_, adt) <- adts) ensureWellFormedAdt(adt)
-        ()
-      })
-      _tryWF.get
-    }
+    @inline def ensureWellFormed: Unit = _tryWF.get.get
+    private[this] val _tryWF: Lazy[Try[Unit]] = Lazy(Try({
+      for ((_, fd) <- functions) ensureWellFormedFunction(fd)
+      for ((_, adt) <- adts) ensureWellFormedAdt(adt)
+      ()
+    }))
 
     protected def ensureWellFormedFunction(fd: FunDef) = {
       typeCheck(fd.fullBody, fd.returnType)
