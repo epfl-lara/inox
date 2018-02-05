@@ -338,41 +338,6 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }
     }
 
-    object FiniteLambda {
-      def apply(params: Seq[Seq[ValDef]], mappings: Seq[(Expr, Expr)], dflt: Expr): Lambda = {
-        def rec(params: Seq[Seq[ValDef]], body: Expr): Expr = params match {
-          case curr +: rest => rec(rest, Lambda(curr, body))
-          case _ => body
-        }
-
-        val body = mappings.foldRight(dflt) { case ((cond, img), elze) => IfExpr(cond, img, elze) }
-        rec(params, body).asInstanceOf[Lambda]
-      }
-
-      def extract(paramss: Seq[Seq[ValDef]], l: Lambda): (Seq[(Expr, Expr)], Expr) = (paramss, l) match {
-        case (params +: rest, Lambda(args, body: Lambda)) if params == args => extract(rest, body)
-        case (_, body) =>
-          val params = paramss.flatten
-          def rec(e: Expr): Option[(Seq[(Expr, Expr)], Expr)] = e match {
-            case IfExpr(cond @ TopLevelAnds(es), thenn, elze) =>
-              val indexes = es.map {
-                case c @ Equals(v: Variable, _) => params.indexOf(v.toVal)
-                case c @ Equals(_, v: Variable) => params.indexOf(v.toVal)
-                case _ => -1
-              }
-
-              if (indexes.forall(_ >= 0) && indexes == indexes.sorted) {
-                rec(elze).map { case (imgs, dflt) => ((cond -> thenn) +: imgs, dflt) }
-              } else {
-                None
-              }
-            case dflt => Some(Seq.empty, dflt)
-          }
-
-          rec(body).getOrElse((Seq.empty, body))
-      }
-    }
-
     def extractFunction(f: Encoded, tpe: FunctionType, seen: Map[FunctionType, Set[Encoded]]): Expr = {
       val nextSeen = seen + (tpe -> (seen(tpe) + f))
 
@@ -393,85 +358,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
         }
       }
 
-      def extract(
-        caller: Encoded,
-        tpe: FunctionType,
-        params: Seq[Seq[ValDef]],
-        arguments: Seq[Seq[(Seq[Encoded], Expr)]],
-        dflt: Expr
-      ): (Lambda, Boolean) = {
-        extractLambda(caller, tpe).map(_ -> true).getOrElse {
-          if (tpe.from.isEmpty) {
-            val (result, real) = tpe.to match {
-              case ft: FunctionType =>
-                val nextParams = params.tail
-                val nextArguments = arguments.map(_.tail)
-                extract(templates.mkApp(caller, tpe, Seq.empty), ft, nextParams, nextArguments, dflt)
-              case _ =>
-                (extractValue(templates.mkApp(caller, tpe, Seq.empty), tpe.to, nextSeen), false)
-            }
-
-            val res = Lambda(Seq.empty, result)
-            lambdaExtractions :+= f -> res
-            (res, real)
-          } else {
-            val byCondition = arguments.groupBy(_.head._2).toSeq.sortBy(p => -exprOps.formulaSize(p._1))
-            val mappings = byCondition.flatMap {
-              case (currCond, arguments) => tpe.to match {
-                case ft: FunctionType =>
-                  val (currArgs, restArgs) = (arguments.head.head._1, arguments.map(_.tail))
-                  val newCaller = templates.mkApp(caller, tpe, currArgs)
-                  val (res, real) = extract(newCaller, ft, params.tail, restArgs, dflt)
-                  val mappings: Seq[(Expr, Expr)] = if (real) {
-                    Seq(BooleanLiteral(true) -> res)
-                  } else {
-                    FiniteLambda.extract(params.tail, res)._1
-                  }
-
-                  mappings.map(p => (and(currCond, p._1), p._2))
-
-                case _ =>
-                  val currArgs = arguments.head.head._1
-                  val res = extractValue(templates.mkApp(caller, tpe, currArgs), tpe.to, nextSeen)
-                  Seq(currCond -> res)
-              }
-            }
-
-            val lambda = FiniteLambda(params, mappings, dflt)
-
-            // make sure `lambda` is not equal to any other distinct extracted first-class function
-            val res = (lambdaExtractions.collectFirst {
-              case (e, img) if (
-                bestRealType(img.getType) == bestRealType(lambda.getType) &&
-                modelEq(e, f)
-              ) => Left(img)
-              case (encoded, `lambda`) => Right(encoded)
-            }) match {
-              case Some(Right(enc)) => wrapped.modelEval(enc, tpe).get match {
-                case Lambda(_, Let(_, Tuple(es), _)) =>
-                  uniquateClosure(if (es.size % 2 == 0) -es.size / 2 else es.size / 2, lambda)
-                case l => scala.sys.error("Unexpected extracted lambda format: " + l)
-              }
-              case Some(Left(img)) => img
-              case None => lambda
-            }
-
-            lambdaExtractions :+= f -> res
-
-            (res, false)
-          }
-        }
-      }
-
-      val params: Seq[Seq[ValDef]] = {
-        def rec(tpe: Type): Seq[Seq[ValDef]] = tpe match {
-          case FunctionType(from, to) => from.map(tpe => ValDef(FreshIdentifier("x", true), tpe)) +: rec(to)
-          case _ => Nil
-        }
-
-        rec(tpe)
-      }
-
+      val params: Seq[ValDef] = tpe.from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
       val arguments = templates.getGroundInstantiations(f, tpe).flatMap { case (b, eArgs) =>
         wrapped.modelEval(b, BooleanType()).filter(_ == BooleanLiteral(true)).map(_ => eArgs)
       }.distinct
@@ -487,22 +374,22 @@ trait AbstractUnrollingSolver extends Solver { self =>
           None
         }
       }.getOrElse {
-        if (arguments.isEmpty) {
-          val res = wrapped.modelEval(f, tpe).get.asInstanceOf[Lambda]
-          lambdaExtractions :+= f -> res
-          res
+        val res = if (arguments.isEmpty) {
+          wrapped.modelEval(f, tpe).get.asInstanceOf[Lambda]
+        } else if (tpe.from.isEmpty) {
+          Lambda(Seq.empty, extractValue(templates.mkApp(f, tpe, Seq.empty), tpe.to, nextSeen))
         } else {
-          val projections: Map[Type, Encoded] = (arguments.head zip params.flatten)
+          val projections: Map[Type, Encoded] = (arguments.head zip params)
             .groupBy(p => bestRealType(p._2.tpe))
             .mapValues(_.head._1)
 
           val exArguments = for (args <- arguments) yield {
-            (params.flatten zip args).map { case (vd, arg) => extractValue(arg, vd.tpe, nextSeen) }
+            (params zip args).map { case (vd, arg) => extractValue(arg, vd.tpe, nextSeen) }
           }
 
-          val flatArguments: Seq[(Seq[Encoded], Seq[Option[Expr]])] =
-            (for (subset <- params.flatten.toSet.subsets; (args, exArgs) <- arguments zip exArguments) yield {
-              val (concreteArgs, condOpts) = params.flatten.zipWithIndex.map { case (v, i) =>
+          val argumentsWithConds: Seq[(Seq[Encoded], Expr)] =
+            (for (subset <- params.toSet.subsets; (args, exArgs) <- arguments zip exArguments) yield {
+              val (concreteArgs, condOpts) = params.zipWithIndex.map { case (v, i) =>
                 if (!subset(v)) {
                   (args(i), Some(Equals(v.toVariable, exArgs(i))))
                 } else {
@@ -510,30 +397,45 @@ trait AbstractUnrollingSolver extends Solver { self =>
                 }
               }.unzip
 
-              (concreteArgs, condOpts)
+              (concreteArgs, andJoin(condOpts.flatten))
             }).toSeq
 
-          def unflatten[T](seq: Seq[T]): Seq[Seq[T]] = {
-            def rec(p: Seq[Int], seq: Seq[T]): Seq[Seq[T]] = p match {
-              case x +: xs => seq.take(x) +: rec(xs, seq.drop(x))
-              case _ => Nil
+          val withConds :+ ((concreteArgs, _)) = argumentsWithConds
+          val default = extractValue(templates.mkApp(f, tpe, concreteArgs), tpe.to, nextSeen)
+
+          val sortedArguments = withConds
+            .groupBy(_._2)
+            .mapValues(_.head._1)
+            .toSeq
+            .sortBy(p => -exprOps.formulaSize(p._1))
+
+          val mappings = sortedArguments.map { case (cond, arguments) =>
+            (cond, extractValue(templates.mkApp(f, tpe, arguments), tpe.to, nextSeen))
+          }
+
+          val lambda = Lambda(params, mappings.foldRight(default) {
+            case ((cond, img), elze) => IfExpr(cond, img, elze)
+          })
+
+          // make sure `lambda` is not equal to any other distinct extracted first-class function
+          (lambdaExtractions.collectFirst {
+            case (e, img) if (
+              bestRealType(img.getType) == bestRealType(lambda.getType) &&
+              modelEq(e, f)) => Left(img)
+            case (encoded, `lambda`) => Right(encoded)
+          }) match {
+            case Some(Right(enc)) => wrapped.modelEval(enc, tpe).get match {
+              case Lambda(_, Let(_, Tuple(es), _)) =>
+                uniquateClosure(if (es.size % 2 == 0) -es.size / 2 else es.size / 2, lambda)
+              case l => scala.sys.error("Unexpected extracted lambda format: " + l)
             }
-
-            rec(params.map(_.size), seq)
+            case Some(Left(img)) => img
+            case None => lambda
           }
-
-          val withConds :+ ((concreteArgs, _)) = flatArguments
-          val allArguments: Seq[Seq[(Seq[Encoded], Expr)]] = flatArguments.init.map {
-            p => (unflatten(p._1) zip unflatten(p._2)).map(p => (p._1, andJoin(p._2.flatten)))
-          }
-
-          val (app, to) = unflatten(flatArguments.last._1).foldLeft(f -> (tpe: Type)) {
-            case ((f, tpe: FunctionType), args) => (templates.mkApp(f, tpe, args), tpe.to)
-          }
-          val default = extractValue(app, to, nextSeen)
-
-          extract(f, tpe, params, allArguments, default)._1
         }
+
+        lambdaExtractions :+= f -> res
+        res
       }
     }
 
