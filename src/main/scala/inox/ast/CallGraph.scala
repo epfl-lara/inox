@@ -18,15 +18,13 @@ trait CallGraph {
   }
 
   @inline def graph: DiGraph[Identifier, SimpleEdge[Identifier]] = _graph.get
-  private[this] val _graph: Lazy[DiGraph[Identifier, SimpleEdge[Identifier]]] = Lazy {
+  private[this] val _graph: Lazy[DiGraph[Identifier, SimpleEdge[Identifier]]] = Lazy({
     var g = DiGraph[Identifier, SimpleEdge[Identifier]]()
-
     for ((_, fd) <- symbols.functions; (from, to) <- collect(collectCalls(fd))(fd.fullBody)) {
       g += SimpleEdge(from, to)
     }
-
     g
-  }
+  })
 
   def allCalls = graph.E.map(e => e._1 -> e._2)
 
