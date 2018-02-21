@@ -270,29 +270,32 @@ trait Expressions { self: Trees =>
     * @param ct The case class name and inherited attributes
     * @param args The arguments of the case class
     */
-  sealed case class ADT(adt: ADTType, args: Seq[Expr]) extends Expr with CachingTyped {
-    protected def computeType(implicit s: Symbols): Type = s.lookupADT(adt.id) match {
-      case Some(cons: ADTConstructor) if adt.tps.size == cons.tparams.size && args.size == cons.fields.size =>
-        val tcons = cons.typed(adt.tps)
-        checkParamTypes(args.map(_.getType), tcons.fieldsTypes, adt)
-      case _ => Untyped
-    }
+  sealed case class ADT(id: Identifier, tps: Seq[Type], args: Seq[Expr]) extends Expr with CachingTyped {
+
+    def getConstructor(implicit s: Symbols) = s.getConstructor(id, tps)
+
+    protected def computeType(implicit s: Symbols): Type =
+      s.lookupConstructor(id).flatMap { cons =>
+        s.lookupSort(cons.sort)
+          .filter(_.tparams.size == tps.size)
+          .flatMap { sort =>
+            sort.typed(tps).constructors
+              .find(_.id == id)
+              .filter(_.fields.size == args.size)
+              .map(tcons => checkParamTypes(args.map(_.getType), tcons.fieldsTypes, ADTType(sort.id, tps)))
+          }
+      }.getOrElse(Untyped)
   }
 
   /** $encodingof `.isInstanceOf[...]` */
-  sealed case class IsInstanceOf(expr: Expr, tpe: Type) extends Expr with CachingTyped {
-    protected def computeType(implicit s: Symbols): Type =
-      if (s.typesCompatible(expr.getType, tpe)) BooleanType() else Untyped
-  }
-
-  /** $encodingof `expr.asInstanceOf[tpe]`
-    *
-    * Introduced by matchToIfThenElse to transform match-cases to type-correct
-    * if bodies.
-    */
-  sealed case class AsInstanceOf(expr: Expr, tpe: Type) extends Expr with CachingTyped {
-    protected def computeType(implicit s: Symbols): Type =
-      if (s.typesCompatible(tpe, expr.getType)) tpe else Untyped
+  sealed case class IsConstructor(expr: Expr, id: Identifier) extends Expr with CachingTyped {
+    protected def computeType(implicit s: Symbols): Type = expr.getType match {
+      case ADTType(sort, _) => (s.lookupSort(sort), s.lookupConstructor(id)) match {
+        case (Some(sort), Some(cons)) if sort.id == cons.sort => BooleanType()
+        case _ => Untyped
+      }
+      case _ => Untyped
+    }
   }
 
   /** $encodingof `value.selector` where value is of a case class type
@@ -302,28 +305,24 @@ trait Expressions { self: Trees =>
     */
   sealed case class ADTSelector(adt: Expr, selector: Identifier) extends Expr with CachingTyped {
 
-    def selectorIndex(implicit s: Symbols) = constructor.map(_.definition.selectorID2Index(selector)).getOrElse {
-      throw FatalError("Not well formed selector: " + this)
+    def constructor(implicit s: Symbols) = {
+      val tpe = adt.getType.asInstanceOf[ADTType]
+      tpe.getSort.constructors.find(_.fields.exists(_.id == selector)).get
     }
 
-    def constructor(implicit s: Symbols) = adt.getType match {
-      case adt: ADTType => s.lookupADT(adt.id) match {
-        case Some(cons: ADTConstructor) if adt.tps.size == cons.tparams.size =>
-          Some(cons.typed(adt.tps))
-        case _ => None
-      }
-      case _ => None
-    }
+    def selectorIndex(implicit s: Symbols) = constructor.definition.selectorID2Index(selector)
 
-    protected def computeType(implicit s: Symbols): Type = constructor.flatMap { tccd =>
-      scala.util.Try(tccd.definition.selectorID2Index(selector)).toOption.map(tccd.fieldsTypes)
-    }.getOrElse(Untyped)
+    protected def computeType(implicit s: Symbols): Type = {
+      scala.util.Try(constructor.definition.selectorID2Index(selector)).toOption
+        .map(tccd.fieldsTypes)
+        .getOrElse(Untyped)
+    }
   }
 
   /** $encodingof `... == ...` */
   sealed case class Equals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type = {
-      if (s.typesCompatible(lhs.getType, rhs.getType)) BooleanType()
+      if (s.leastUpperBound(lhs.getType, rhs.getType) != Untyped) BooleanType()
       else {
         //println(s"Incompatible argument types: arguments: ($lhs, $rhs) types: ${lhs.getType}, ${rhs.getType}")
         Untyped

@@ -70,10 +70,6 @@ trait Types { self: Trees =>
   sealed case class TypeParameter(id: Identifier, flags: Set[Flag]) extends Type {
     def freshen = TypeParameter(id.freshen, flags)
 
-    def isCovariant = flags contains Variance(true)
-    def isContravariant = flags contains Variance(false)
-    def isInvariant = !isCovariant && !isContravariant
-
     override def equals(that: Any) = that match {
       case tp: TypeParameter => id == tp.id
       case _ => false
@@ -101,12 +97,14 @@ trait Types { self: Trees =>
   sealed case class FunctionType(from: Seq[Type], to: Type) extends Type
 
   sealed case class ADTType(id: Identifier, tps: Seq[Type]) extends Type {
-    def lookupADT(implicit s: Symbols): Option[TypedADTDefinition] = s.lookupADT(id, tps)
-    def getADT(implicit s: Symbols): TypedADTDefinition = s.getADT(id, tps)
+    def lookupSort(implicit s: Symbols): Option[TypedADTSort] = s.lookupSort(id, tps)
+    def getSort(implicit s: Symbols): TypedADTSort = s.getSort(id, tps)
 
-    def getField(selector: Identifier)(implicit s: Symbols): Option[ValDef] = lookupADT match {
-      case Some(tcons: TypedADTConstructor) =>
-        tcons.fields.collectFirst { case vd @ ValDef(`selector`, _, _) => vd }
+    def getField(selector: Identifier)(implicit s: Symbols): Option[ValDef] = lookupSort match {
+      case Some(tsort: TypedADTSort) =>
+        tsort.constructors.flatMap(_.fields).collectFirst {
+          case vd @ ValDef(`selector`, _, _) => vd
+        }
       case _ => None
     }
   }

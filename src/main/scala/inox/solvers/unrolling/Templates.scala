@@ -511,10 +511,8 @@ trait Templates
 
     def lambdaPointers(encoder: Expr => Encoded)(expr: Expr): Map[Encoded, Encoded] = {
       def collectSelectors(expr: Expr, ptr: Expr): Seq[(Expr, Variable)] = expr match {
-        case ADT(tpe, es) => (tpe.getADT.toConstructor.fields zip es).flatMap {
-          case (vd, e) =>
-            val ex = if (ptr.getType == tpe) ptr else AsInstanceOf(ptr, tpe)
-            collectSelectors(e, ADTSelector(ex, vd.id))
+        case adt @ ADT(id, tps, es) => (adt.getConstructor.fields zip es).flatMap {
+          case (vd, e) => collectSelectors(e, ADTSelector(ptr, vd.id))
         }
 
         case Tuple(es) => es.zipWithIndex.flatMap {
@@ -561,7 +559,7 @@ trait Templates
               case None => Left(encoder(arg))
             })
 
-            Some(expr -> Matcher(Left(encoder(c) -> bestRealType(c.getType)), encodedArgs, encoder(expr)))
+            Some(expr -> Matcher(Left(encoder(c) -> c.getType), encodedArgs, encoder(expr)))
           case FunctionMatcher(tfd, args) =>
             // see comment above
             val encodedArgs = args.map(arg => result.get(arg) match {
@@ -593,7 +591,7 @@ trait Templates
         case Application(c, Seq(e1, e2)) => c != equalitySymbol(e1.getType)._1
         case _ => true
       }.map { case app @ Application(c, args) =>
-        val tpe = bestRealType(c.getType).asInstanceOf[FunctionType]
+        val tpe = c.getType.asInstanceOf[FunctionType]
         App(encoder(c), tpe, args.map(encodeArg), encoder(app))
       }.filter(i => Some(i) != optApp)
 
@@ -624,8 +622,7 @@ trait Templates
 
       val optIdCall = optCall.map { tfd => Call(tfd, arguments.map(p => Left(p._2))) }
       val optIdApp = optApp.map { case (idT, tpe) =>
-        val encoded = mkApp(idT, tpe, arguments.map(_._2))
-        App(idT, bestRealType(tpe).asInstanceOf[FunctionType], arguments.map(p => Left(p._2)), encoded)
+        App(idT, tpe, arguments.map(p => Left(p._2)), mkApp(idT, tpe, arguments.map(_._2)))
       }
 
       val (clauses, blockers, applications, matchers, pointers) = {

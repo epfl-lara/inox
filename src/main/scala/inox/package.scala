@@ -40,10 +40,10 @@ package object inox {
   object InoxProgram {
     def apply(
       functions: Seq[inox.trees.FunDef],
-      adts: Seq[inox.trees.ADTDefinition]): InoxProgram =
+      sorts: Seq[inox.trees.ADTSort]): InoxProgram =
         Program(inox.trees)(new inox.trees.Symbols(
           functions.map(fd => fd.id -> fd).toMap,
-          adts.map(cd => cd.id -> cd).toMap))
+          sorts.map(s => s.id -> s).toMap))
 
     def apply(symbols: inox.trees.Symbols): InoxProgram = Program(inox.trees)(symbols)
   }
@@ -51,7 +51,7 @@ package object inox {
   object trees extends ast.Trees with ast.SimpleSymbols {
     case class Symbols(
       functions: Map[Identifier, FunDef],
-      adts: Map[Identifier, ADTDefinition]
+      sorts: Map[Identifier, ADTSort]
     ) extends SimpleSymbols
 
     object printer extends ast.Printer { val trees: inox.trees.type = inox.trees }

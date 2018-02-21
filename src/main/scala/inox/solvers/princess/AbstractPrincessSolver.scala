@@ -68,16 +68,10 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
   private[princess] val adtManager = new ADTManager
 
   def typeToSort(tpe: Type): (PADT, Seq[(Type, DataType)]) = {
-    val realType = bestRealType(tpe)
-    adtManager.declareADTs(realType, (adts: Seq[(Type, DataType)]) => {
+    adtManager.declareADTs(tpe, (adts: Seq[(Type, DataType)]) => {
       val indexMap: Map[Type, Int] = adts.map(_._1).zipWithIndex.toMap
 
-      def typeToSortRef(tt: Type): PADT.Sort = {
-        val tpe = tt match {
-          case adt: ADTType => adt.getADT.root.toType
-          case _ => tt
-        }
-
+      def typeToSortRef(tpe: Type): PADT.Sort = {
         if (indexMap contains tpe) {
           PADT.ADTSort(indexMap(tpe))
         } else {
@@ -97,7 +91,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       for ((tpe, _) <- adts) sorts += tpe -> ((adt, adts))
     })
 
-    sorts(realType)
+    sorts(tpe)
   }
 
   object inoxToPrincess {
@@ -166,17 +160,11 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       }
 
       // ADT INSTANCE OF
-      case IsInstanceOf(expr, ADTType(id, tps)) =>
-        val tpe = ADTType(id, tps.map(bestRealType))
-        val root = tpe.getADT.root
-
-        if (root.toType == tpe) {
-          true
-        } else {
-          val (sort, adts) = typeToSort(tpe)
-          val constructors = adts.flatMap(_._2.cases)
-          sort.hasCtor(parseTerm(expr), constructors.indexWhere(_.tpe == tpe))
-        }
+      case IsConstructor(expr, id) =>
+        val tpe = expr.getType.asInstanceOf[ADTType]
+        val (sort, adts) = typeToSort(tpe)
+        val constructors = adts.flatMap(_._2.cases)
+        sort.hasCtor(parseTerm(expr), constructors.indexWhere(_.tpe == ADTCons(id, tpe.tps)))
 
       case (_: FunctionInvocation) | (_: Application) | (_: ADTSelector) | (_: TupleSelect) =>
         parseTerm(expr) === 0
@@ -196,8 +184,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         IFunApp(f, pArgs)
 
       case Application(caller, args) =>
-        val realType = bestRealType(caller.getType).asInstanceOf[FunctionType]
-        val f = lambdas.cachedB(realType) {
+        val f = lambdas.cachedB(caller.getType.asInstanceOf[FunctionType]) {
           p.createFunction(FreshIdentifier("dynLambda").uniqueName, args.size + 1)
         }
         val pArgs = for (a <- caller +: args) yield parseTerm(a)
@@ -205,37 +192,37 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
       // ADT | Tuple
       case (_: ADT) | (_: Tuple) | (_: GenericValue) | (_: UnitLiteral) =>
-        val tpe = bestRealParameters(expr.getType)
-        val args = expr match {
-          case ADT(_, args) => args
-          case Tuple(args) => args
-          case GenericValue(_, i) => Seq(IntegerLiteral(i))
-          case UnitLiteral() => Seq.empty
-        }
+        val tpe = expr.getType
         val (sort, adts) = typeToSort(tpe)
-        val constructors = adts.flatMap(_._2.cases)
-        val constructor = (constructors zip sort.constructors).collectFirst {
-          case (cons, fun) if cons.tpe == tpe => fun
-        }.getOrElse(throw PrincessSolverException(s"Undefined constructor for $tpe!?"))
+        val (cons, args) = expr match {
+          case ADT(id, tps, args) => (ADTCons(id, tps), args)
+          case Tuple(args) => (TupleCons(args.map(_.getType)), args)
+          case GenericValue(tp, i) => (TypeParameterCons(tp), Seq(IntegerLiteral(i)))
+          case UnitLiteral() => (UnitCons, Seq.empty)
+        }
+        val constructor = sort.constructors(adts.flatMap(_._2.cases).indexWhere(_.tpe == cons))
         constructor(args.map(parseTerm) : _*)
 
       case (_: ADTSelector) | (_: TupleSelect) =>
-        val (rec, i) = expr match {
-          case s @ ADTSelector(adt, _) => (adt, s.selectorIndex)
-          case TupleSelect(tpl, i) => (tpl, i - 1)
+        val (cons, rec, i) = expr match {
+          case s @ ADTSelector(adt, _) =>
+            val tpe = adt.getType.asInstanceOf[ADTType]
+            val tcons = s.constructor.getOrElse(
+              throw PrincessSolverException(s"Undefined constructor for $s!?"))
+            (ADTCons(tcons.id, tpe.tps), adt, s.selectorIndex)
+          case TupleSelect(tpl, i) =>
+            val TupleType(tps) = tpl.getType
+            (TupleCons(tps), tpl, i - 1)
         }
 
-        val tpe = bestRealParameters(rec.getType)
+        val tpe = rec.getType
         val (sort, adts) = typeToSort(tpe)
+
         val constructors = adts.flatMap(_._2.cases)
         val selector = (constructors zip sort.selectors).collectFirst {
-          case (cons, sels) if cons.tpe == tpe => sels(i)
+          case (c, sels) if c.tpe == cons => sels(i)
         }.getOrElse(throw PrincessSolverException(s"Undefined selector for $expr!?"))
         selector(parseTerm(rec))
-
-      // I think we can ignore this since we do not type our variables
-      case AsInstanceOf(expr, tpe) =>
-        parseTerm(expr)
 
       case BooleanLiteral(true) => i(0)
       case BooleanLiteral(false) => i(1)
@@ -322,8 +309,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       case IntegerType() =>
         ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(i => IntegerLiteral(i.bigIntValue))
 
-      case t @ ((_: ADTType) | (_: TupleType) | (_: TypeParameter) | UnitType()) =>
-        val tpe = bestRealType(t)
+      case tpe @ ((_: ADTType) | (_: TupleType) | (_: TypeParameter) | UnitType()) =>
         val (sort, adts) = typeToSort(tpe)
 
         val optIndex = (adts.map(_._1) zip sort.ctorIds).collectFirst {
@@ -333,12 +319,12 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         optIndex.flatMap { index =>
           val constructors = adts.flatMap(_._2.cases)
           val (fieldsTypes, recons): (Seq[Type], Seq[Expr] => Expr) = constructors(index).tpe match {
-            case adt: ADTType => (adt.getADT.toConstructor.fieldsTypes, ADT(adt, _))
-            case TupleType(tps) => (tps, Tuple(_))
-            case tp: TypeParameter => (Seq(IntegerType()), (es: Seq[Expr]) => {
+            case ADTCons(id, tps) => (getConstructor(id, tps).fieldsTypes, ADT(id, tps, _))
+            case TupleCons(tps) => (tps, Tuple(_))
+            case TypeParameterCons(tp) => (Seq(IntegerType()), (es: Seq[Expr]) => {
               GenericValue(tp, es.head.asInstanceOf[IntegerLiteral].value.toInt)
             })
-            case UnitType() => (Seq(), _ => UnitLiteral())
+            case UnitCons => (Seq(), _ => UnitLiteral())
           }
 
           val optArgs = (sort.selectors(index) zip fieldsTypes).map {
@@ -355,7 +341,6 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         }
 
       case ft: FunctionType =>
-        val tpe @ FunctionType(from, to) = bestRealType(ft)
         val iterm = iexpr.asInstanceOf[ITerm]
         ctx.model.eval(iterm).flatMap { ideal =>
           val n = BigInt(ideal.bigIntValue)
@@ -366,13 +351,13 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
           } else {
             ctx.lambdas.get(n).orElse {
               for {
-                fun <- lambdas.getB(tpe)
+                fun <- lambdas.getB(ft)
                 newCtx = ctx.withSeen(n)
                 interps = ctx.model.interpretation.flatMap {
                   case (SimpleAPI.IntFunctionLoc(`fun`, ptr +: args), SimpleAPI.IntValue(res)) =>
                     if (ctx.model.eval(iterm === ptr) contains true) {
-                      val optArgs = (args zip from).map(p => parseExpr(p._1, p._2)(newCtx))
-                      val optRes = parseExpr(res, to)(newCtx)
+                      val optArgs = (args zip ft.from).map(p => parseExpr(p._1, p._2)(newCtx))
+                      val optRes = parseExpr(res, ft.to)(newCtx)
 
                       if (optArgs.forall(_.isDefined) && optRes.isDefined) {
                         Some(optArgs.map(_.get) -> optRes.get)
@@ -386,19 +371,19 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
                   case _ => None
                 }.toSeq.sortBy(_.toString)
               } yield {
-                val params = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
+                val params = ft.from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
                 uniquateClosure(n.intValue, if (interps.isEmpty) {
                   try {
-                    simplestValue(tpe, allowSolver = false).asInstanceOf[Lambda]
+                    simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
                   } catch {
                     case _: NoSimpleValue =>
-                      mkLambda(params, Choose(ValDef(FreshIdentifier("res"), to), BooleanLiteral(true)), tpe)
+                      Lambda(params, Choose(ValDef(FreshIdentifier("res"), ft.to), BooleanLiteral(true)))
                   }
                 } else {
                   val body = interps.foldRight(interps.head._2) { case ((args, res), elze) =>
                     IfExpr(andJoin((params zip args).map(p => Equals(p._1.toVariable, p._2))), res, elze)
                   }
-                  mkLambda(params, body, tpe)
+                  Lambda(params, body)
                 })
               }
             }

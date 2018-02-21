@@ -18,13 +18,40 @@ trait ADTManagers {
 
   case class DataType(sym: Identifier, cases: Seq[Constructor]) extends Printable {
     def asString(implicit opts: PrinterOptions) = {
-      "Datatype: " + sym.toString + "\n" + cases.map(c => " - " + c.asString(opts)).mkString("\n")
+      "Datatype: " + sym.asString(opts) + "\n" + cases.map(c => " - " + c.asString(opts)).mkString("\n")
     }
   }
 
-  case class Constructor(sym: Identifier, tpe: Type, fields: Seq[(Identifier, Type)]) extends Printable {
+  sealed abstract class ConsType extends Tree {
+    override def asString(implicit opts: PrinterOptions) = this match {
+      case ADTCons(id, tps) =>
+        id.asString(opts) +
+        (if (tps.nonEmpty) tps.map(_.asString(opts)).mkString("[", ",", "]") else "")
+      case TupleCons(tps) => TupleType(tps).asString(opts)
+      case TypeParameterCons(tp) => tp.asString(opts)
+      case UnitCons => UnitType().asString(opts)
+    }
+
+    def getType: Type
+  }
+  case class ADTCons(id: Identifier, tps: Seq[Type]) extends ConsType {
+    override def getType: ADTType = ADTType(getConstructor(id).sort, tps)
+  }
+  case class TupleCons(tps: Seq[Type]) extends ConsType {
+    override def getType: TupleType = TupleType(tps)
+  }
+  case class TypeParameterCons(tp: TypeParameter) extends ConsType {
+    override def getType: TypeParameter = tp
+  }
+  case object UnitCons extends ConsType {
+    override def getType: UnitType = UnitType()
+  }
+
+  case class Constructor(sym: Identifier, tpe: ConsType, fields: Seq[(Identifier, Type)]) extends Printable {
     def asString(implicit opts: PrinterOptions) = {
-      sym.toString + " [" + tpe.asString(opts) + "] " + fields.map(f => f._1.toString + ": " + f._2.toString).mkString("(", ", ", ")")
+      sym.asString(opts) +
+      " [" + tpe.asString(opts) + "] " +
+      fields.map(f => f._1.asString(opts) + ": " + f._2.asString(opts)).mkString("(", ", ", ")")
     }
   }
 
@@ -56,40 +83,33 @@ trait ADTManagers {
         case _ =>
       }
 
-      for (scc <- sccs.map(scc => scc.map(bestRealType))) {
+      for (scc <- sccs) {
 
         val declarations = (for (tpe <- scc if !declared(tpe)) yield (tpe match {
           case adt: ADTType =>
-            val tdef = adt.getADT
-            if (!tdef.definition.isWellFormed) {
-              unsupported(adt, "Not well-founded ADT:\n" + tdef.definition.asString)
+            val tsort = adt.getSort
+            if (!tsort.definition.isWellFormed) {
+              unsupported(adt, "Not well-founded ADT:\n" + tsort.definition.asString)
             }
 
-            val (root, deps) = tdef.root match {
-              case tsort: TypedADTSort =>
-                (tsort, tsort.constructors)
-              case tcons: TypedADTConstructor =>
-                (tcons, Seq(tcons))
-            }
-
-            Some(adt -> DataType(freshId(root.id), deps.map { tccd =>
-              Constructor(freshId(tccd.id), tccd.toType, tccd.fields.map(vd => freshId(vd.id) -> vd.tpe))
+            Some(adt -> DataType(freshId(tsort.id), tsort.constructors.map { tcons =>
+              Constructor(freshId(tcons.id), ADTCons(tcons.id, adt.tps), tcons.fields.map(vd => freshId(vd.id) -> vd.tpe))
             }))
 
           case TupleType(tps) =>
             val sym = freshId("tuple" + tps.size)
 
-            Some(tpe -> DataType(sym, Seq(Constructor(freshId(sym.name), tpe, tps.zipWithIndex.map {
+            Some(tpe -> DataType(sym, Seq(Constructor(freshId(sym.name), TupleCons(tps), tps.zipWithIndex.map {
               case (tpe, i) => (freshId("_" + (i + 1)), tpe)
             }))))
 
           case UnitType() =>
-            Some(tpe -> DataType(freshId("Unit"), Seq(Constructor(freshId("Unit"), tpe, Nil))))
+            Some(tpe -> DataType(freshId("Unit"), Seq(Constructor(freshId("Unit"), UnitCons, Nil))))
 
-          case TypeParameter(id, _) =>
+          case tp @ TypeParameter(id, _) =>
             val sym = freshId(id.name)
 
-            Some(tpe -> DataType(sym, Seq(Constructor(freshId(sym.name), tpe, List(
+            Some(tpe -> DataType(sym, Seq(Constructor(freshId(sym.name), TypeParameterCons(tp), List(
               (freshId("val"), IntegerType())
             )))))
 

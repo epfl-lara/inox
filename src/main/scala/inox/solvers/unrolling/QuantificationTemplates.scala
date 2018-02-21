@@ -1212,12 +1212,10 @@ trait QuantificationTemplates { self: Templates =>
   }
 
   def getGroundInstantiations(e: Encoded, tpe: Type): Seq[(Encoded, Seq[Encoded])] = {
-    val bestTpe = bestRealType(tpe)
-
     handledMatchers.toList.flatMap { case (bs, m) =>
       val enabler = encodeEnablers(bs)
       val optArgs = matcherKey(m) match {
-        case tp: TypedKey if bestTpe == tp.tpe => Some(m.args.map(_.encoded))
+        case tp: TypedKey if tpe == tp.tpe => Some(m.args.map(_.encoded))
         case _ => None
       }
 

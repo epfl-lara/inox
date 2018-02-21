@@ -173,31 +173,21 @@ trait DatatypeTemplates { self: Templates =>
           // nothing to do here!
 
         case adt: ADTType =>
-          val tadt = adt.getADT
+          val sort = adt.getSort
 
-          if (tadt.definition.isInductive && !state.recurseAdt) {
-            storeType(pathVar, ADTInfo(tadt), expr)
+          if (sort.definition.isInductive && !state.recurseAdt) {
+            storeType(pathVar, ADTInfo(sort), expr)
           } else {
-            val matchers = tadt.root match {
-              case (tsort: TypedADTSort) => tsort.constructors
-              case (tcons: TypedADTConstructor) => Seq(tcons)
-            }
+            for (tcons <- sort.constructors) {
+              val newBool: Variable = Variable.fresh("b", BooleanType(), true)
+              storeCond(pathVar, newBool)
 
-            for (tcons <- matchers) {
-              val tpe = tcons.toType
+              for (vd <- tcons.fields) {
+                rec(newBool, ADTSelector(expr, vd.id), state.copy(recurseAdt = false))
+              }
 
-              if (unroll(tpe)) {
-                val newBool: Variable = Variable.fresh("b", BooleanType(), true)
-                storeCond(pathVar, newBool)
-
-                for (vd <- tcons.fields) {
-                  val ex = if (adt != tpe) AsInstanceOf(expr, tpe) else expr
-                  rec(newBool, ADTSelector(ex, vd.id), state.copy(recurseAdt = false))
-                }
-
-                if (isRelevantBlocker(newBool)) {
-                  iff(and(pathVar, IsInstanceOf(expr, tpe)), newBool)
-                }
+              if (isRelevantBlocker(newBool)) {
+                iff(and(pathVar, isCons(expr, tcons.id)), newBool)
               }
             }
           }
@@ -325,16 +315,11 @@ trait DatatypeTemplates { self: Templates =>
 
     /** We recursively visit the ADT and its fields here to check whether we need to unroll. */
     abstract override def unroll(tpe: Type): Boolean = tpe match {
-      case adt: ADTType => adt.getADT match {
-        case tadt if checking(tadt.root) => false
-        case tadt =>
-          checking += tadt.root
-          val constructors = tadt.root match {
-            case tsort: TypedADTSort => tsort.constructors
-            case tcons: TypedADTConstructor => Seq(tcons)
-          }
-
-          constructors.exists(c => c.fieldsTypes.exists(unroll))
+      case adt: ADTType => adt.getSort match {
+        case sort if checking(sort) => false
+        case sort =>
+          checking += sort
+          sort.constructors.exists(c => c.fieldsTypes.exists(unroll))
       }
 
       case _ => super.unroll(tpe)
@@ -591,16 +576,15 @@ trait DatatypeTemplates { self: Templates =>
         (b.pathVar -> b.pathVarT, b.v -> b.idT, b.conds, b.exprs, b.tree, b.clauses, b.types, b.funs)
       })
 
-      val ctpe = bestRealType(containerType).asInstanceOf[FunctionType]
-      val container = Variable.fresh("container", ctpe, true)
+      val container = Variable.fresh("container", containerType, true)
       val containerT = encodeSymbol(container)
 
       val typeBlockers: TypeBlockers = types.map { case (blocker, tps) =>
-        blocker -> tps.map { case (info, arg) => TemplateTypeInfo(info, arg, Capture(containerT, ctpe)) }
+        blocker -> tps.map { case (info, arg) => TemplateTypeInfo(info, arg, Capture(containerT, containerType)) }
       }
 
       val orderClauses = funs.map { case (blocker, tpe, f) =>
-        mkImplies(blocker, lessThan(order(tpe)(f), order(ctpe)(containerT)))
+        mkImplies(blocker, lessThan(order(tpe)(f), order(containerType)(containerT)))
       }
 
       new CaptureTemplate(TemplateContents(

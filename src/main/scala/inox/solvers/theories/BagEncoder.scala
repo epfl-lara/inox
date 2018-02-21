@@ -14,30 +14,30 @@ trait BagEncoder extends SimpleEncoder {
     val program: sourceProgram.type
   }
 
-  val BagID = FreshIdentifier("Bag")
-  val SumID = FreshIdentifier("Sum")
+  val BagID  = FreshIdentifier("Bag")
+  val SumID  = FreshIdentifier("Sum")
   val ElemID = FreshIdentifier("Elem")
   val LeafID = FreshIdentifier("Leaf")
 
-  val left = FreshIdentifier("left")
+  val left  = FreshIdentifier("left")
   val right = FreshIdentifier("right")
-  val key = FreshIdentifier("key")
+  val key   = FreshIdentifier("key")
   val value = FreshIdentifier("value")
 
-  val Bag = T(BagID)
-  val Sum = T(SumID)
-  val Elem = T(ElemID)
-  val Leaf = T(LeafID)
+  val Bag  = T(BagID)
+  val Sum  = C(SumID)
+  val Elem = C(ElemID)
+  val Leaf = C(LeafID)
 
   val GetID = FreshIdentifier("get")
   val Get = mkFunDef(GetID)("T") { case Seq(aT) => (
     Seq("bag" :: Bag(aT), "x" :: aT), IntegerType(), {
-      case Seq(bag, x) => if_ (bag.isInstOf(Sum(aT))) {
-        E(GetID)(aT)(bag.asInstOf(Sum(aT)).getField(left), x) +
-          E(GetID)(aT)(bag.asInstOf(Sum(aT)).getField(right), x)
+      case Seq(bag, x) => if_ (bag is SumID) {
+        E(GetID)(aT)(bag.getField(left), x) +
+          E(GetID)(aT)(bag.getField(right), x)
       } else_ {
-        if_ (bag.isInstOf(Elem(aT)) && bag.asInstOf(Elem(aT)).getField(key) === x) {
-          bag.asInstOf(Elem(aT)).getField(value)
+        if_ (bag.is(ElemID) && bag.getField(key) === x) {
+          bag.getField(value)
         } else_ {
           E(BigInt(0))
         }
@@ -58,12 +58,12 @@ trait BagEncoder extends SimpleEncoder {
   val diff = FreshIdentifier("diffImpl")
   val DifferenceImpl = mkFunDef(diff)("T") { case Seq(aT) => (
     Seq("keys" :: Bag(aT), "b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), {
-      case Seq(keys, b1, b2) => if_ (keys.isInstOf(Sum(aT))) {
-        Sum(aT)(E(diff)(aT)(keys.asInstOf(Sum(aT)).getField(left), b1, b2),
-          E(diff)(aT)(keys.asInstOf(Sum(aT)).getField(right), b1, b2))
+      case Seq(keys, b1, b2) => if_ (keys is SumID) {
+        Sum(aT)(E(diff)(aT)(keys.getField(left), b1, b2),
+          E(diff)(aT)(keys.getField(right), b1, b2))
       } else_ {
-        if_ (keys.isInstOf(Elem(aT))) {
-          let("f" :: aT, keys.asInstOf(Elem(aT)).getField(key)) { f =>
+        if_ (keys is ElemID) {
+          let("f" :: aT, keys.getField(key)) { f =>
             let("d" :: IntegerType(), Get(aT)(b1, f) - Get(aT)(b2, f)) { d =>
               if_ (d < E(BigInt(0))) { Leaf(aT)() } else_ { Elem(aT)(f, d) }
             }
@@ -83,12 +83,12 @@ trait BagEncoder extends SimpleEncoder {
   val inter = FreshIdentifier("interImpl")
   val IntersectImpl = mkFunDef(inter)("T") { case Seq(aT) => (
     Seq("keys" :: Bag(aT), "b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), {
-      case Seq(keys, b1, b2) => if_ (keys.isInstOf(Sum(aT))) {
-        Sum(aT)(E(inter)(aT)(keys.asInstOf(Sum(aT)).getField(left), b1, b2),
-          E(inter)(aT)(keys.asInstOf(Sum(aT)).getField(right), b1, b2))
+      case Seq(keys, b1, b2) => if_ (keys is SumID) {
+        Sum(aT)(E(inter)(aT)(keys.getField(left), b1, b2),
+          E(inter)(aT)(keys.getField(right), b1, b2))
       } else_ {
-        if_ (keys.isInstOf(Elem(aT))) {
-          let("f" :: aT, keys.asInstOf(Elem(aT)).getField(key)) { f =>
+        if_ (keys is ElemID) {
+          let("f" :: aT, keys.getField(key)) { f =>
             let("v1" :: IntegerType(), Get(aT)(b1, f)) { v1 =>
               let("v2" :: IntegerType(), Get(aT)(b2, f)) { v2 =>
                 Elem(aT)(f, if_ (v1 <= v2) { v1 } else_ { v2 })
@@ -117,33 +117,26 @@ trait BagEncoder extends SimpleEncoder {
   val InvID = FreshIdentifier("inv")
   val BagInvariant = mkFunDef(InvID)("T") { case Seq(aT) => (
     Seq("bag" :: Bag(aT)), BooleanType(), {
-      case Seq(bag) => if_ (bag.isInstOf(Elem(aT))) {
-        bag.asInstOf(Elem(aT)).getField(value) >= E(BigInt(0))
+      case Seq(bag) => if_ (bag is ElemID) {
+        bag.getField(value) >= E(BigInt(0))
       } else_ {
         E(true)
       }
     })
   }
 
-  val bagADT = mkSort(BagID, HasADTEquality(EqualsID), HasADTInvariant(InvID))("T")(Seq(SumID, ElemID, LeafID))
-
-  val sumADT = mkConstructor(SumID)("T")(Some(BagID)) {
-    case Seq(aT) => Seq(ValDef(left, Bag(aT)), ValDef(right, Bag(aT)))
+  val bagADT = mkSort(BagID, HasADTEquality(EqualsID), HasADTInvariant(InvID))("T") {
+    case Seq(aT) => Seq(
+      (SumID, Seq(ValDef(left, Bag(aT)), ValDef(right, Bag(aT)))),
+      (ElemID, Seq(ValDef(key, aT), ValDef(value, IntegerType()))),
+      (LeafID, Seq())
+    )
   }
-
-  val elemADT = mkConstructor(ElemID)("T")(Some(BagID)) {
-    case Seq(aT) => Seq(ValDef(key, aT), ValDef(value, IntegerType()))
-  }
-
-  val leafADT = mkConstructor(LeafID)("T")(Some(BagID))(_ => Seq.empty)
-
 
   override val extraFunctions =
     Seq(Get, Add, Union, DifferenceImpl, Difference, IntersectImpl, Intersect, BagEquals, BagInvariant)
 
-  override val extraADTs =
-    Seq(bagADT, sumADT, elemADT, leafADT)
-
+  override val extraADTs = Seq(bagADT)
 
   protected object encoder extends SelfTreeTransformer {
     import sourceProgram._
@@ -195,7 +188,7 @@ trait BagEncoder extends SimpleEncoder {
     import evaluator.context._
 
     override def transform(e: Expr): Expr = e match {
-      case ADT(ADTType(SumID, Seq(tpe)), Seq(e1, e2)) =>
+      case ADT(SumID, Seq(tpe), Seq(e1, e2)) =>
         val fb1 @ FiniteBag(els1, _) = transform(e1)
         val fb2 @ FiniteBag(els2, _) = transform(e2)
 
@@ -217,10 +210,10 @@ trait BagEncoder extends SimpleEncoder {
           FiniteBag(els1 ++ els2, transform(tpe)).copiedFrom(e)
         }
 
-      case ADT(ADTType(ElemID, Seq(tpe)), Seq(key, value)) =>
+      case ADT(ElemID, Seq(tpe), Seq(key, value)) =>
         FiniteBag(Seq(transform(key) -> transform(value)), transform(tpe)).copiedFrom(e)
 
-      case ADT(ADTType(LeafID, Seq(tpe)), Seq()) =>
+      case ADT(LeafID, Seq(tpe), Seq()) =>
         FiniteBag(Seq.empty, transform(tpe)).copiedFrom(e)
 
       case FunctionInvocation(AddID, _, Seq(bag, elem)) =>

@@ -35,24 +35,6 @@ trait RecursiveEvaluator
     FiniteMap(els.toMap.toSeq.filter { case (_, value) => value != default }.sortBy(_._1.toString), default, from, to)
   }
 
-  /* ADTs with variant type parameters don't have a single value form, so we try
-   * to normalize them somewhat to get more predictable equality. */
-  private def specializeAdt(adt: ADTType, es: Seq[Expr]): ADT = {
-    val tadt = adt.getADT
-    val formalType = tupleTypeWrap(tadt.toConstructor.definition.fields.map(_.tpe))
-    val actualType = tupleTypeWrap(es.map(_.getType))
-
-    instantiation_>:(formalType, actualType) match {
-      case Some(tmap) =>
-        val newTps = (tadt.definition.typeArgs zip adt.tps).map {
-          case (tp, tpe) => if (tp.isInvariant) tpe else tmap.getOrElse(tp, tpe)
-        }
-        ADT(ADTType(adt.id, newTps), es)
-
-      case None => ADT(adt, es)
-    }
-  }
-
   protected[evaluators] def e(expr: Expr)(implicit rctx: RC, gctx: GC): Expr = expr match {
     case v: Variable =>
       rctx.mappings.get(v.toVal) match {
@@ -144,7 +126,7 @@ trait RecursiveEvaluator
       BooleanLiteral(e(le) == e(re))
 
     case ADT(adt, args) =>
-      val cc = specializeAdt(adt, args.map(e))
+      val cc = ADT(adt, args.map(e))
       if (!ignoreContracts) cc.adt.getADT.invariant.foreach { tfd =>
         val v = Variable.fresh("x", cc.adt, true)
         e(tfd.applied(Seq(v)))(rctx.withNewVar(v.toVal, cc), gctx) match {
@@ -492,35 +474,12 @@ trait RecursiveEvaluator
       finiteBag(els.map { case (k, v) => (e(k), e(v)) }, base)
 
     case l @ Lambda(_, _) =>
-      def normalizeLambda(l: Lambda, onlySimple: Boolean = false): Lambda = {
-        val (nl, deps) = normalizeStructure(l, onlySimple = onlySimple)
-        val newCtx = deps.foldLeft(rctx) {
-          case (rctx, (v, dep)) => rctx.withNewVar(v.toVal, e(dep)(rctx, gctx))
-        }
-        val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
-        replaceFromSymbols(mapping, nl).asInstanceOf[Lambda]
+      val (nl, deps) = normalizeStructure(l)
+      val newCtx = deps.foldLeft(rctx) {
+        case (rctx, (v, dep)) => rctx.withNewVar(v.toVal, e(dep)(rctx, gctx))
       }
-
-      // We start by normalizing the structure of the lambda as in the solver to
-      // evaluate all normalizable ground expressions within its body.
-      val ground = normalizeLambda(l)
-
-      // Then, in order for nested lambdas to have fresh variables in their argument
-      // lists and let bindings, we re-normalize the identifiers by passing
-      // `onlySimple = true` to the call to `normalizeStructure` (this avoids lifting
-      // ground lambdas out in the deps).
-      val fresh = normalizeLambda(ground, onlySimple = true)
-
-      // Finally, we specialize the variant type parameters within the lambda's body
-      // to normalize against variable substitutions.
-      exprOps.postMap {
-        case ADT(adt, es) =>
-          Some(specializeAdt(adt, es))
-        case Let(vd, i, b) if vd.tpe != i.getType =>
-          val newVd = vd.copy(tpe = i.getType)
-          Some(Let(newVd, i, replaceFromSymbols(Map(vd -> newVd.toVariable), b)))
-        case _ => None
-      } (fresh)
+      val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
+      replaceFromSymbols(mapping, nl)
 
     case f: Forall => onForallInvocation {
       replaceFromSymbols(variablesOf(f).map(v => v -> e(v)).toMap, f).asInstanceOf[Forall]

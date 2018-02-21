@@ -21,20 +21,15 @@ trait EqualityTemplates { self: Templates =>
 
   import equalityManager._
 
-  private val checking: MutableSet[TypedADTDefinition] = MutableSet.empty
+  private val checking: MutableSet[TypedADTSort] = MutableSet.empty
   private val unrollCache: MutableMap[Type, Boolean] = MutableMap.empty
 
   def unrollEquality(tpe: Type): Boolean = unrollCache.getOrElseUpdate(tpe, tpe match {
     case adt: ADTType =>
-      val root = adt.getADT.root
-      root.hasEquality || (!checking(root) && {
-        checking += root
-        val constructors = root match {
-          case tsort: TypedADTSort => tsort.constructors
-          case tcons: TypedADTConstructor => Seq(tcons)
-        }
-
-        constructors.exists(c => c.fieldsTypes.exists(unrollEquality))
+      val sort = adt.getSort
+      sort.hasEquality || (!checking(sort) && {
+        checking += sort
+        sort.constructors.exists(c => c.fieldsTypes.exists(unrollEquality))
       })
 
     case BooleanType() | UnitType() | CharType() | IntegerType() |
@@ -44,9 +39,8 @@ trait EqualityTemplates { self: Templates =>
   })
 
   def equalitySymbol(tpe: Type): (Variable, Encoded) = {
-    val rt = bestRealType(tpe)
-    typeSymbols.cached(rt) {
-      val v = Variable.fresh("eq" + rt, FunctionType(Seq(rt, rt), BooleanType()))
+    typeSymbols.cached(tpe) {
+      val v = Variable.fresh("eq" + tpe, FunctionType(Seq(tpe, tpe), BooleanType()))
       v -> encodeSymbol(v)
     }
   }
@@ -84,24 +78,14 @@ trait EqualityTemplates { self: Templates =>
 
       val tmplClauses = mkClauses(pathVar, Equals(Application(f, args), tpe match {
         case adt: ADTType =>
-          val root = adt.getADT.root
+          val sort = adt.getSort
 
-          if (root.hasEquality) {
-            root.equality.get.applied(args)
+          if (sort.hasEquality) {
+            sort.equality.get.applied(args)
           } else {
-            val constructors = root match {
-              case tsort: TypedADTSort => tsort.constructors
-              case tcons: TypedADTConstructor => Seq(tcons)
-            }
-
-            orJoin(constructors.map { tcons =>
-              val (instCond, asE1, asE2) = if (tcons == root) (BooleanLiteral(true), e1, e2) else (
-                and(IsInstanceOf(e1, tcons.toType), IsInstanceOf(e2, tcons.toType)),
-                AsInstanceOf(e1, tcons.toType),
-                AsInstanceOf(e2, tcons.toType)
-              )
-
-              val fieldConds = tcons.fields.map(vd => Equals(ADTSelector(asE1, vd.id), ADTSelector(asE2, vd.id)))
+            orJoin(sort.constructors.map { tcons =>
+              val instCond = and(isCons(e1, tcons.id), isCons(e2, tcons.id))
+              val fieldConds = tcons.fields.map(vd => Equals(ADTSelector(e1, vd.id), ADTSelector(e2, vd.id)))
               andJoin(instCond +: fieldConds)
             })
           }
@@ -162,7 +146,7 @@ trait EqualityTemplates { self: Templates =>
   }
 
   def registerEquality(blocker: Encoded, tpe: Type, e1: Encoded, e2: Encoded): Encoded = {
-    registerEquality(blocker, Equality(bestRealType(tpe), e1, e2))
+    registerEquality(blocker, Equality(tpe, e1, e2))
   }
 
   def registerEquality(blocker: Encoded, equality: Equality): Encoded = {

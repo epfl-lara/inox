@@ -24,241 +24,61 @@ trait TypeOps {
       subs.flatMap(typeParamsOf).toSet
   }
 
-  private class Unsolvable extends Exception
-  protected def unsolvable = throw new Unsolvable
-
-  /** Represents a sub-(or super if `!isUpper`)-typing constraint between
-    * type parameter `tp` with bound `bound` */
-  protected sealed abstract class Constraint
-  protected case class Subtyping(tp: TypeParameter, bound: Type, isUpper: Boolean) extends Constraint
-  protected case class Conjunction(constraints: Seq[Constraint]) extends Constraint
-  protected case class Disjunction(constraints: Seq[Constraint]) extends Constraint
-  protected val False = Disjunction(Seq())
-  protected val True = Conjunction(Seq())
-
-  protected def toDNF(c: Constraint): Seq[Seq[Subtyping]] = c match {
-    case Disjunction(cs) =>
-      val recs = cs.map(toDNF)
-      if (recs.exists(_.isEmpty)) Seq(Seq()) else recs.flatten
-    case Conjunction(cs) =>
-      cs.foldLeft(Seq(Seq()) : Seq[Seq[Subtyping]]) { (cnstrs, conj) =>
-        val subs = toDNF(conj)
-        cnstrs.flatMap(conjs => subs.map(conjs2 => conjs ++ conjs2))
-      }
-    case s: Subtyping => Seq(Seq(s))
-  }
-
-  /** Collects the constraints that need to be solved for `instantiation_<:>`.
-    * Note: this is an override point. */
-  protected def instantiationConstraints(toInst: Type, bound: Type, isUpper: Boolean): Constraint = (toInst, bound) match {
-    case (_, Untyped) => False
-    case (Untyped, _) => False
-    case (tp: TypeParameter, _) => Subtyping(tp, bound, isUpper)
-    case (adt: ADTType, _) if adt.lookupADT.isEmpty => False
-    case (_, adt: ADTType) if adt.lookupADT.isEmpty => False
-    case (adt1: ADTType, adt2: ADTType) =>
-      val (d1, d2) = (adt1.getADT.definition, adt2.getADT.definition)
-      val (al, ah) = if (isUpper) (d1, d2) else (d2, d1)
-      if (!((al == ah) || (al.root == ah))) False
-      else {
-        Conjunction(for {
-          (tp, (t1, t2)) <- d1.typeArgs zip (adt1.tps zip adt2.tps)
-          variance <- if (tp.isCovariant) Seq(isUpper) else if (tp.isContravariant) Seq(!isUpper) else Seq(true, false)
-        } yield instantiationConstraints(t1, t2, variance))
-      }
-
-    case (FunctionType(from1, to1), FunctionType(from2, to2)) if from1.size == from2.size =>
-      val in = (from1 zip from2).map { case (tp1, tp2) =>
-        instantiationConstraints(tp1, tp2, !isUpper) // Contravariant args
-      }
-      val out = instantiationConstraints(to1, to2, isUpper) // Covariant result
-      Conjunction(in :+ out)
-
-    case (TupleType(ts1), TupleType(ts2)) if ts1.size == ts2.size =>
-      Conjunction((ts1 zip ts2).map { case (tp1, tp2) =>
-        instantiationConstraints(tp1, tp2, isUpper) // Covariant tuples
-      })
-
-    case typeOps.Same(NAryType(ts1, _), NAryType(ts2, _)) if ts1.size == ts2.size =>
-      Conjunction(for {
-        (t1, t2) <- ts1 zip ts2
-        variance <- Seq(true, false)
-      } yield instantiationConstraints(t1, t2, variance))
-
-    case _ => False
-  }
-
-  /** Solves the constraints collected by [[instantiationConstraints]].
-    * Note: this is an override point. */
-  protected def instantiationSolution(constraint: Constraint): Map[TypeParameter, Type] = {
-    val disjuncts = toDNF(constraint)
-    disjuncts.view.map { conjuncts =>
-      val flattened = conjuncts.groupBy(_.tp)
-      flattened.foldLeft(Some(Map()): Option[Map[TypeParameter, Type]]) {
-        case (None, _) => None
-        case (Some(map), (tp, cons)) =>
-          val (supers, subs) = cons.partition(_.isUpper)
-          // Lub of the variable will be the glb of its upper bounds
-          val lub = leastUpperBound(subs.map(_.bound))
-          // Glb of the variable will be the lub of its lower bounds
-          val glb = greatestLowerBound(supers.map(_.bound))
-
-          val image = if (subs.isEmpty) Some(glb) // No lower bounds
-            else if (supers.isEmpty)    Some(lub) // No upper bounds
-            else if (isSubtypeOf(glb, lub)) Some(lub) // Both lower and upper bounds. If they are compatible, both are valid
-            else None                                 // Note: It is enough to use isSubtypeOf because lub and glb contain no type variables (of toInst)
-
-          image.map(tpe => map + (tp -> tpe))
-      }
-    }.collectFirst { case Some(map) => map }.getOrElse(unsolvable)
-  }
-
-  /** Produces an instantiation for a type so that it respects a type bound (upper or lower). */
-  private def instantiation_<:>(toInst: Type, bound: Type, isUpper: Boolean): Option[Map[TypeParameter, Type]] = {
-    try {
-      Some(instantiationSolution(instantiationConstraints(toInst, bound, isUpper)))
-    } catch {
-      case _: Unsolvable => None
-    }
-  }
-
-  /** Computes the tightest bound (upper or lower) of two types.
-    * Note: this is an override point. */
-  protected def typeBound(tp1: Type, tp2: Type, upper: Boolean): Type = (tp1, tp2) match {
-    case (adt: ADTType, _) if adt.lookupADT.isEmpty => Untyped
-    case (_, adt: ADTType) if adt.lookupADT.isEmpty => Untyped
-    case (adt1: ADTType, adt2: ADTType) =>
-      if (adt1.tps.size != adt2.tps.size) Untyped
-      else {
-        val def1 = adt1.getADT.definition
-        val def2 = adt2.getADT.definition
-        val an1 = Seq(def1, def1.root)
-        val an2 = Seq(def2, def2.root)
-
-        val tps = (def1.typeArgs zip (adt1.tps zip adt2.tps)).map { case (tp, (t1, t2)) =>
-          if (tp.isCovariant) typeBound(t1, t2, upper)
-          else if (tp.isContravariant) typeBound(t1, t2, !upper)
-          else if (t1 == t2) t1
-          else Untyped
-        }
-
-        val bound = if (upper) {
-          // Upper bound
-          (an1.reverse zip an2.reverse)
-            .takeWhile(((_: ADTDefinition) == (_: ADTDefinition)).tupled)
-            .lastOption.map(_._1)
-        } else {
-          // Lower bound
-          if (an1 contains def2) Some(def1)
-          else if (an2 contains def1) Some(def2)
-          else None
-        }
-
-        bound.map(_.typed(tps).toType).getOrElse(Untyped).unveilUntyped
-      }
-
-    case (FunctionType(from1, to1), FunctionType(from2, to2)) =>
-      if (from1.size != from2.size) Untyped
-      else {
-        val in = (from1 zip from2).map { case (tp1, tp2) =>
-          typeBound(tp1, tp2, !upper) // Contravariant args
-        }
-        val out = typeBound(to1, to2, upper) // Covariant result
-        FunctionType(in, out).unveilUntyped
-      }
-
-    case (TupleType(ts1), TupleType(ts2)) =>
-      if (ts1.size != ts2.size) Untyped
-      else {
-        val ts = (ts1 zip ts2).map { case (tp1, tp2) =>
-          typeBound(tp1, tp2, upper) // Covariant tuples
-        }
-        TupleType(ts).unveilUntyped
-      }
-
-    case (t1, t2) =>
-      // Everything else is invariant
-      if (t1 == t2) t1.unveilUntyped else Untyped
-  }
-
-  /** Computes the tightest bound (upper or lower) of a sequence of types */
-  private def typeBound(tps: Seq[Type], upper: Boolean): Type = {
-    if (tps.isEmpty) Untyped
-    else tps.reduceLeft(typeBound(_, _, upper))
-  }
-
-  def leastUpperBound(tp1: Type, tp2: Type): Type =
-    typeBound(tp1, tp2, true)
+  def leastUpperBound(tp1: Type, tp2: Type): Type = if (tp1 == tp2) tp1 else Untyped
 
   def leastUpperBound(tps: Seq[Type]): Type =
-    typeBound(tps, true)
+    if (tps.isEmpty) Untyped else tps.reduceLeft(leastUpperBound)
 
-  def greatestLowerBound(tp1: Type, tp2: Type): Type =
-    typeBound(tp1, tp2, false)
+  def greatestLowerBound(tp1: Type, tp2: Type): Type = if (tp1 == tp2) tp1 else Untyped
 
   def greatestLowerBound(tps: Seq[Type]): Type =
-    typeBound(tps, false)
+    if (tps.isEmpty) Untyped else tps.reduceLeft(greatestLowerBound)
 
-  def isSubtypeOf(t1: Type, t2: Type): Boolean = {
-    (!t1.isTyped && !t2.isTyped) || (t1.isTyped && t2.isTyped && leastUpperBound(t1, t2) == t2)
-  }
+  def isSubtypeOf(t1: Type, t2: Type): Boolean = t1 == t2
 
-  def typesCompatible(t1: Type, t2s: Type*) = {
-    leastUpperBound(t1 +: t2s) != Untyped
+  private type Instantiation = Map[TypeParameter, Type]
+  private def instantiation(from: Type, to: Type): Option[Instantiation] = {
+    class Failure extends RuntimeException
+
+    def unify(m1: Instantiation, m2: Instantiation): Instantiation = {
+      (m1.keys.toSet ++ m2.keys).map(k => (k, m1.get(k), m2.get(k))).map {
+        case (k, Some(v1), Some(v2)) if v1 == v2 => k -> v1
+        case (k, Some(v1), None) => k -> v1
+        case (k, None, Some(v2)) => k -> v2
+        case _ => throw new Failure
+      }.toMap
+    }
+
+    def rec(from: Type, to: Type): Instantiation = (from, to) match {
+      case (_, Untyped) => throw new Failure
+      case (Untyped, _) => throw new Failure
+      case (adt: ADTType, _) if adt.lookupSort.isEmpty => throw new Failure
+      case (_, adt: ADTType) if adt.lookupSort.isEmpty => throw new Failure
+      case (tp: TypeParameter, _) => Map(tp -> to)
+      case (adt1: ADTType, adt2: ADTType) =>
+        if (adt1.id != adt2.id || adt1.tps.size != adt2.tps.size) throw new Failure
+        (adt1.tps zip adt2.tps).foldLeft[Instantiation](Map.empty) {
+          case (inst, (tp1, tp2)) => unify(inst, rec(tp1, tp2))
+        }
+      case typeOps.Same(NAryType(ts1, _), NAryType(ts2, _)) if ts1.size == ts2.size =>
+        (ts1 zip ts2).foldLeft[Instantiation](Map.empty) {
+          case (inst, (tp1, tp2)) => unify(inst, rec(tp1, tp2))
+        }
+      case _ => throw new Failure
+    }
+
+    try {
+      Some(rec(from, to))
+    } catch {
+      case _: Failure => None
+    }
   }
 
   /** Instantiates a type so that it is subtype of another type */
-  def instantiation_<:(subT: Type, superT: Type) =
-    instantiation_<:>(subT, superT, isUpper = true)
+  def instantiation_<:(subT: Type, superT: Type) = instantiation(subT, superT)
 
   /** Instantiates a type so that it is supertype of another type */
-  def instantiation_>:(superT: Type, subT: Type) =
-    instantiation_<:>(superT, subT, isUpper = false)
-
-  /** Collects the constraints that need to be solved for [[unify]].
-    * Note: this is an override point. */
-  protected def unificationConstraints(t1: Type, t2: Type, free: Seq[TypeParameter]): List[(TypeParameter, Type)] = (t1, t2) match {
-    case _ if t1 == t2 => Nil
-    case (tp: TypeParameter, _) if !(typeParamsOf(t2) contains tp) && (free contains tp) => List(tp -> t2)
-    case (_, tp: TypeParameter) if !(typeParamsOf(t1) contains tp) && (free contains tp) => List(tp -> t1)
-    case (_: TypeParameter, _) => unsolvable
-    case (_, _: TypeParameter) => unsolvable
-    case (adt: ADTType, _) if adt.lookupADT.isEmpty => unsolvable
-    case (_, adt: ADTType) if adt.lookupADT.isEmpty => unsolvable
-    case (adt1: ADTType, adt2: ADTType) if adt1.getADT.definition == adt2.getADT.definition =>
-      (adt1.tps zip adt2.tps).toList flatMap (p => unificationConstraints(p._1, p._2, free))
-    case typeOps.Same(NAryType(ts1, _), NAryType(ts2, _)) if ts1.size == ts2.size =>
-      (ts1 zip ts2).toList flatMap (p => unificationConstraints(p._1, p._2, free))
-    case _ => unsolvable
-  }
-
-  /** Solves the constraints collected by [[unificationConstraints]].
-    * Note: this is an override point. */
-  protected def unificationSolution(const: List[(Type, Type)]): List[(TypeParameter, Type)] = const match {
-    case Nil => Nil
-    case (tp: TypeParameter, t) :: tl =>
-      val replaced = tl map { case (t1, t2) =>
-        (instantiateType(t1, Map(tp -> t)), instantiateType(t2, Map(tp -> t)))
-      }
-      (tp -> t) :: unificationSolution(replaced)
-    case (adt: ADTType, _) :: tl if adt.lookupADT.isEmpty => unsolvable
-    case (_, adt: ADTType) :: tl if adt.lookupADT.isEmpty => unsolvable
-    case (ADTType(id1, tps1), ADTType(id2, tps2)) :: tl if id1 == id2 =>
-      unificationSolution((tps1 zip tps2).toList ++ tl)
-    case typeOps.Same(NAryType(ts1, _), NAryType(ts2, _)) :: tl if ts1.size == ts2.size =>
-      unificationSolution((ts1 zip ts2).toList ++ tl)
-    case _ =>
-      unsolvable
-  }
-
-  /** Unifies two types, under a set of free variables */
-  def unify(t1: Type, t2: Type, free: Seq[TypeParameter]): Option[List[(TypeParameter, Type)]] = {
-    try {
-      Some(unificationSolution(unificationConstraints(t1, t2, free)))
-    } catch {
-      case _: Unsolvable => None
-    }
-  }
+  def instantiation_>:(superT: Type, subT: Type) = instantiation(superT, subT)
 
   def instantiateType(tpe: Type, tps: Map[TypeParameter, Type]): Type = {
     if (tps.isEmpty) {
@@ -279,26 +99,15 @@ trait TypeOps {
     }
   }
 
-  def bestRealType(t: Type): Type = t match {
-    case (adt: ADTType) => ADTType(adt.getADT.definition.root.id, adt.tps map bestRealType)
-    case NAryType(tps, builder) => builder(tps map bestRealType)
-  }
-
-  def bestRealParameters(t: Type): Type = t match {
-    case ADTType(id, tps) => ADTType(id, tps map bestRealType)
-    case NAryType(tps, builder) => builder(tps map bestRealType)
-  }
-
   def isParametricType(tpe: Type): Boolean = tpe match {
     case (tp: TypeParameter) => true
     case NAryType(tps, builder) => tps.exists(isParametricType)
   }
 
   def typeCardinality(tp: Type): Option[Int] = {
-    def cards(tps: Seq[Type]): Option[Seq[Int]] = {
-      val cardinalities = tps.flatMap(typeCardinality)
-      if (cardinalities.size == tps.size) {
-        Some(cardinalities)
+    def flatten(ints: Seq[Option[Int]]): Option[Seq[Int]] = {
+      if (ints.forall(_.isDefined)) {
+        Some(ints.map(_.get))
       } else {
         None
       }
@@ -309,8 +118,8 @@ trait TypeOps {
       case BooleanType() => Some(2)
       case UnitType() => Some(1)
       // TODO BVType => 2^size
-      case TupleType(tps) => cards(tps).map(_.product)
-      case SetType(base) => 
+      case TupleType(tps) => flatten(tps.map(typeCardinality)).map(_.product)
+      case SetType(base) =>
         typeCardinality(base).map(b => Math.pow(2, b).toInt)
       case FunctionType(Seq(), to) => typeCardinality(to)
       case FunctionType(_, to) if typeCardinality(to) == Some(0) => Some(0)
@@ -323,15 +132,12 @@ trait TypeOps {
         case Some(x) if x <= 1 => Some(1)
         case _ => None
       }
-      case adt: ADTType => adt.getADT match {
-        case tcons: TypedADTConstructor =>
-          cards(tcons.fieldsTypes).map(_.product)
-
-        case tsort: TypedADTSort =>
-          if (tsort.definition.isInductive) None else {
-            cards(tsort.constructors.map(_.toType)).map(_.sum)
-          }
-      }
+      case adt: ADTType =>
+        val sort = adt.getSort
+        if (sort.definition.isInductive) None
+        else flatten(sort.constructors.map { cons =>
+          flatten(cons.fieldsTypes.map(typeCardinality)).map(_.product)
+        }).map(_.sum)
       case _ => None
     }
   }
@@ -341,12 +147,9 @@ trait TypeOps {
 
     def rec(tpe: Type): Unit = if (!dependencies.isDefinedAt(tpe)) {
       val next = tpe match {
-        case adt: ADTType => adt.getADT match {
-          case tsort: TypedADTSort =>
-            tsort.constructors.map(_.toType)
-          case tcons: TypedADTConstructor =>
-            tcons.fieldsTypes ++ tcons.sort.map(_.toType)
-        }
+        case adt: ADTType =>
+          val sort = adt.getSort
+          sort.constructors.flatMap(_.fieldsTypes)
         case NAryType(tps, _) =>
           tps
       }

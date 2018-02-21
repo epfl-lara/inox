@@ -330,101 +330,7 @@ trait SymbolOps { self: TypeOps =>
       (variablesOf(subst(v)) & subst.keySet - v).toSeq.flatMap(rec) :+ v
     val deps = subst.keys.toSeq.flatMap(rec).distinct.map(v => v -> subst(v))
 
-    def product[T](els: Seq[Seq[T]]): Seq[Seq[T]] = els.foldLeft(Seq(Seq[T]())) {
-      case (elss, els2) => elss.flatMap(els => els2.map(el => els :+ el))
-    }
-
-    // Compute all type generalizations.
-    // A generalization G of type T is an unambiguous type such that G <: T.
-    // To compute G we widen all types in co-variant positions.
-    // We don't need to generalize the types in contra-variant positions as they
-    // should only occur in places where the types have been fully qualified.
-    def generalizations(tpe: Type, polarity: Boolean): Seq[Type] = tpe match {
-      case adt: ADTType =>
-        val tpss = product((adt.getADT.definition.typeArgs zip adt.tps).map { case (tp, tpe) =>
-          if (tp.isCovariant || tp.isContravariant) {
-            generalizations(tpe, if (tp.isCovariant) polarity else !polarity)
-          } else {
-            Seq(tpe)
-          }
-        })
-
-        // Note that `tpsGen` always contains `adt` as first element.
-        val tpsGen = tpss.map(tps => adt.copy(tps = tps))
-
-        val tadt = adt.getADT
-        val consGen = if (tadt.root != tadt && polarity) {
-          generalizations(ADTType(adt.getADT.root.id, adt.tps), polarity)
-        } else {
-          Seq.empty
-        }
-
-        tpsGen ++ consGen
-
-      case TupleType(tps) =>
-        product(tps map (generalizations(_, polarity))) map TupleType
-
-      case ft: FunctionType =>
-        for {
-          nfrom <- product(ft.from.map(generalizations(_, !polarity)))
-          nto <- generalizations(ft.to, polarity)
-        } yield {
-          FunctionType(nfrom, nto)
-        }
-
-      case _ => Seq(tpe)
-    }
-
-    // Compute some type parameter generalizations in sub-expressions of `e`.
-    // We mainly consider ADT type parameters here but also generalize the type
-    // of let-binding vals to support more normalizations.
-    def generalizeExpr(e: Expr): Seq[Expr] = e match {
-      case ADT(adt, es) =>
-        for {
-          nadt <- generalizations(adt, true).map(_.asInstanceOf[ADTType])
-          if nadt.id == adt.id
-          nes <- product(es.map(generalizeExpr))
-        } yield {
-          ADT(nadt, nes)
-        }
-
-      case Let(vd, i, b) =>
-        for {
-          nvd <- generalizations(vd.tpe, true).map(ntpe => vd.copy(tpe = ntpe))
-          ni <- generalizeExpr(i)
-          nb <- generalizeExpr(b)
-        } yield {
-          Let(nvd, ni, replaceFromSymbols(Map(vd.toVariable -> nvd.toVariable), nb))
-        }
-
-      case Operator(es, recons) =>
-        product(es.map(generalizeExpr)).map(recons)
-    }
-
-    val variables: Seq[Variable] = deps.map(_._1)
-    val newVarss = product(variables.map {
-      v => generalizations(v.tpe, true).map(ntpe => v.copy(tpe = ntpe))
-    })
-
-    val newExprs = generalizeExpr(newExpr)
-    val newPairs = newVarss.flatMap(vars => newExprs.map(expr => (vars, expr)))
-
-    // Since the two generalizations above form a lattice and are ordered by the
-    // lattice partial order, selecting the last pair will provide us with the
-    // most general pair.
-    val (liftedVariables, partialExpr) = newPairs.filter { case (newVars, newExpr) =>
-      val liftedSubst = (variables zip newVars).toMap
-      def remainsTyped(e: Expr): Boolean = replaceFromSymbols(liftedSubst, e).isTyped
-      deps.forall(p => remainsTyped(p._2)) && remainsTyped(newExpr)
-    }.last
-
-    val liftedSubst = (variables zip liftedVariables).toMap
-    val liftedDeps = deps.map { case (v, e) =>
-      liftedSubst(v) -> replaceFromSymbols(liftedSubst, e)
-    }
-    val liftedExpr = replaceFromSymbols(liftedSubst, partialExpr)
-
-    (bindings, liftedExpr, liftedDeps)
+    (bindings, newExpr, deps)
   }
 
   /** Wrapper around
@@ -1442,22 +1348,10 @@ trait SymbolOps { self: TypeOps =>
     }
   }
 
-  /** $encodingof expr.asInstanceOf[tpe], returns `expr` if it already is of type `tpe`.  */
-  def asInstOf(expr: Expr, tpe: Type) = {
-    if (symbols.isSubtypeOf(expr.getType, tpe)) {
-      expr
-    } else {
-      AsInstanceOf(expr, tpe).copiedFrom(expr)
-    }
-  }
-
   /** $encodingof expr.isInstanceOf[tpe], simplifies to `true` or `false` in clear cases. */
-  def isInstOf(expr: Expr, tpe: Type) = (expr.getType, tpe) match {
-    case (t1, t2) if symbols.isSubtypeOf(t1, t2) => BooleanLiteral(true).copiedFrom(expr)
-
-    case (t1: ADTType, t2: ADTType)
-    if t1.id != t2.id && !t1.getADT.definition.isSort && !t2.getADT.definition.isSort => BooleanLiteral(false).copiedFrom(expr)
-
-    case _ => IsInstanceOf(expr, tpe).copiedFrom(expr)
+  def isCons(expr: Expr, id: Identifier) = expr.getType match {
+    case adt: ADTType if adt.getSort.constructors.size == 1 =>
+      BooleanLiteral(true).copiedFrom(expr)
+    case _ => IsConstructor(expr, id)
   }
 }

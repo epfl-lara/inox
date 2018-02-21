@@ -170,7 +170,7 @@ trait TemplateGenerator { self: Templates =>
       val b = encodedCond(guardVar)
       val prev: Set[Equality] = equalities.getOrElse(b, Set.empty)
       val encoder: Expr => Encoded = mkEncoder(localSubst)
-      equalities += b -> (prev + Equality(bestRealType(e1.getType), encoder(e1), encoder(e2)))
+      equalities += b -> (prev + Equality(e1.getType, encoder(e1), encoder(e2)))
     }
 
     @inline def localSubst: Map[Variable, Encoded] =
@@ -344,7 +344,7 @@ trait TemplateGenerator { self: Templates =>
         andJoin(conjunctQs)
 
       case Equals(e1, e2) if unrollEquality(e1.getType) =>
-        val (v, _) = equalitySymbol(bestRealType(e1.getType))
+        val (v, _) = equalitySymbol(e1.getType)
         val re1 = rec(pathVar, e1, pol)
         val re2 = rec(pathVar, e2, pol)
         storeEquality(pathVar, re1, re2)

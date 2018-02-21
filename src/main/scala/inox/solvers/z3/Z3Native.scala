@@ -134,13 +134,8 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     val indexMap: Map[Type, Int] = adts.map(_._1).zipWithIndex.toMap
 
     def typeToSortRef(tt: Type): ADTSortReference = {
-      val tpe = tt match {
-        case adt: ADTType => adt.getADT.root.toType
-        case _ => tt
-      }
-
-      if (indexMap contains tpe) {
-        RecursiveType(indexMap(tpe))
+      if (indexMap contains tt) {
+        RecursiveType(indexMap(tt))
       } else {
         RegularSort(typeToSort(tt))
       }

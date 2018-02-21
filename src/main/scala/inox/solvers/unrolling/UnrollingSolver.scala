@@ -299,12 +299,12 @@ trait AbstractUnrollingSolver extends Solver { self =>
             }, Tuple)
 
           case tpe @ ADTType(sid, tps) =>
-            val adt = ADTType(wrapped.extractConstructor(v, tpe).get, tps)
-            val id = Variable.fresh("adt", adt)
+            val cons = wrapped.extractConstructor(v, tpe).get
+            val id = Variable.fresh("adt", tpe)
             val encoder = templates.mkEncoder(Map(id -> v)) _
-            reconstruct(adt.getADT.toConstructor.fields.map {
+            reconstruct(getConstructor(cons).fields.map {
               vd => rec(encoder(ADTSelector(id, vd.id)), vd.tpe)
-            }, ADT(adt, _))
+            }, ADT(cons, tps, _))
 
           case st @ SetType(base) =>
             val vs = wrapped.extractSet(v, st).get
@@ -332,7 +332,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
       if (ev.isDefined) {
         val (functions, recons) = functionsOf(v, tpe)
         recons(functions.map { case (f, tpe) =>
-          extractFunction(f, bestRealType(tpe).asInstanceOf[FunctionType], seen)
+          extractFunction(f, tpe, seen)
         })
       } else {
         encode(program.symbols.simplestValue(decode(tpe)))
@@ -381,7 +381,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
           Lambda(Seq.empty, extractValue(templates.mkApp(f, tpe, Seq.empty), tpe.to, nextSeen))
         } else {
           val projections: Map[Type, Encoded] = (arguments.head zip params)
-            .groupBy(p => bestRealType(p._2.tpe))
+            .groupBy(p => p._2.tpe)
             .mapValues(_.head._1)
 
           val exArguments = for (args <- arguments) yield {
@@ -394,7 +394,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
                 if (!subset(v)) {
                   (args(i), Some(Equals(v.toVariable, exArgs(i))))
                 } else {
-                  (projections(bestRealType(v.tpe)), None)
+                  (projections(v.tpe), None)
                 }
               }.unzip
 
@@ -420,9 +420,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
           // make sure `lambda` is not equal to any other distinct extracted first-class function
           (lambdaExtractions.collectFirst {
-            case (e, img) if (
-              bestRealType(img.getType) == bestRealType(lambda.getType) &&
-              modelEq(e, f)) => Left(img)
+            case (e, img) if img.getType == lambda.getType && modelEq(e, f) => Left(img)
             case (encoded, `lambda`) => Right(encoded)
           }) match {
             case Some(Right(enc)) => wrapped.modelEval(enc, tpe).get match {
@@ -454,7 +452,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
     val exModel = wrapped.getModel((e, tpe) => decodeOrSimplest(extractValue(e, encode(tpe), initSeen)))
     val exChooses = chooseExtractions.toMap.map { case (e, c) =>
       c -> lambdaExtractions.collectFirst {
-        case (f, lambda) if bestRealType(lambda.getType) == bestRealType(c.res.tpe) && modelEq(f, e) => lambda
+        case (f, lambda) if lambda.getType == c.res.tpe && modelEq(f, e) => lambda
       }.get
     }
     val chooses = exChooses.map(p => (p._1.res.id, Seq.empty[s.Type]) -> decodeOrSimplest(p._2))
@@ -768,7 +766,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     private def e(expr: t.Expr): Option[t.Expr] = modelEvaluator.eval(expr, model).result
 
     def extractConstructor(elem: t.Expr, tpe: t.ADTType): Option[Identifier] = e(elem) match {
-      case Some(t.ADT(t.ADTType(id, _), _)) => Some(id)
+      case Some(t.ADT(id, _, _)) => Some(id)
       case _ => None
     }
 

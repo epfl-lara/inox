@@ -296,11 +296,10 @@ trait Printer {
       }
 
     case (tfd: TypedFunDef) => p"typed def ${tfd.id}[${tfd.tps}]"
-    case (afd: TypedADTDefinition) => p"typed class ${afd.id}[${afd.tps}]"
+    case (afd: TypedADTSort) => p"typed class ${afd.id}[${afd.tps}]"
+    case (afd: TypedADTConstructor) => p"typed class ${afd.id}[${afd.tps}]"
 
     case tpd: TypeParameterDef =>
-      if (tpd.tp.isCovariant) p"+"
-      else if (tpd.tp.isContravariant) p"-"
       p"${tpd.tp}"
 
     case TypeParameter(id, flags) =>

@@ -75,7 +75,7 @@ trait LambdaTemplates { self: Templates =>
 
       val lidT = encodeSymbol(lid)
       val (contents, str) = Template.contents(pathVar, idArgs zip trArgs, tmplClauses,
-        substMap = depSubst + (lid -> lidT), optApp = Some(lidT -> bestRealType(tpe).asInstanceOf[FunctionType]))
+        substMap = depSubst + (lid -> lidT), optApp = Some(lidT -> tpe))
 
       val lambdaString : () => String = () => {
         "Template for lambda " + lid + ": " + lambda + " is :\n" + str()
@@ -94,7 +94,7 @@ trait LambdaTemplates { self: Templates =>
     private[unrolling] val stringRepr: () => String,
     private val isConcrete: Boolean) extends Template {
 
-    val tpe = bestRealType(ids._1.getType).asInstanceOf[FunctionType]
+    val tpe = ids._1.getType.asInstanceOf[FunctionType]
 
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): LambdaTemplate = new LambdaTemplate(
       ids._1 -> substituter(ids._2),
@@ -135,12 +135,11 @@ trait LambdaTemplates { self: Templates =>
 
   def registerFunction(b: Encoded, tpe: FunctionType, f: Encoded): Clauses = {
     reporter.debug(s"-> registering free function $b ==> $f: $tpe")
-    val ft = bestRealType(tpe).asInstanceOf[FunctionType]
-    freeFunctions += ft -> (freeFunctions(ft) + (b -> f))
+    freeFunctions += tpe -> (freeFunctions(tpe) + (b -> f))
 
     var clauses: Clauses = Seq.empty
     lazy val gen = nextGeneration(currentGeneration)
-    for (app @ (_, App(caller, _, args, _)) <- applications(ft)) {
+    for (app @ (_, App(caller, _, args, _)) <- applications(tpe)) {
       if (f == caller) {
         // We unroll this app immediately to increase performance for model finding with quantifiers
         val (lastB, nextB) = nextAppBlocker(app)
@@ -151,11 +150,11 @@ trait LambdaTemplates { self: Templates =>
       }
     }
 
-    if (ft.from.isEmpty) clauses ++= (for {
-      template <- byType(ft).values.toList
+    if (tpe.from.isEmpty) clauses ++= (for {
+      template <- byType(tpe).values.toList
       if canBeEqual(template.ids._2, f) && isPureTemplate(template)
     } yield {
-      val (tmplApp, fApp) = (mkApp(template.ids._2, ft, Seq.empty), mkApp(f, ft, Seq.empty))
+      val (tmplApp, fApp) = (mkApp(template.ids._2, tpe, Seq.empty), mkApp(f, tpe, Seq.empty))
       mkImplies(mkAnd(b, template.start, mkEquals(tmplApp, fApp)), mkEquals(template.ids._2, f))
     })
 

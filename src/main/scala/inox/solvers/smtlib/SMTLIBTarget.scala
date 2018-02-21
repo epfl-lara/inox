@@ -102,9 +102,9 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected def freshSym(name: String): SSymbol = id2sym(FreshIdentifier(name))
 
   /* Metadata for CC, and variables */
-  protected val constructors  = new IncrementalBijection[Type, SSymbol]
-  protected val selectors     = new IncrementalBijection[(Type, Int), SSymbol]
-  protected val testers       = new IncrementalBijection[Type, SSymbol]
+  protected val constructors  = new IncrementalBijection[ConsType, SSymbol]
+  protected val selectors     = new IncrementalBijection[(ConsType, Int), SSymbol]
+  protected val testers       = new IncrementalBijection[ConsType, SSymbol]
   protected val variables     = new IncrementalBijection[Variable, SSymbol]
   protected val sorts         = new IncrementalBijection[Type, Sort]
   protected val functions     = new IncrementalBijection[TypedFunDef, SSymbol]
@@ -134,8 +134,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     quantifiedTerm(quantifier, exprOps.variablesOf(body).toSeq.map(_.toVal), body)
   }
 
-  protected final def declareSort(t: Type): Sort = {
-    val tpe = bestRealType(t)
+  protected final def declareSort(tpe: Type): Sort = {
     sorts.cachedB(tpe)(computeSort(tpe))
   }
 
@@ -191,7 +190,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
   protected def declareStructuralSort(t: Type): Sort = {
     adtManager.declareADTs(t, declareDatatypes)
-    sorts.toB(bestRealType(t))
+    sorts.toB(t)
   }
 
   protected def declareVariable(v: Variable): SSymbol = {
@@ -220,14 +219,13 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   }
 
   protected def declareLambda(tpe: FunctionType): SSymbol = {
-    val realTpe = bestRealType(tpe).asInstanceOf[FunctionType]
-    lambdas.cachedB(realTpe) {
+    lambdas.cachedB(tpe) {
       val id = FreshIdentifier("dynLambda")
       val s = id2sym(id)
       emit(DeclareFun(
         s,
-        (realTpe +: realTpe.from).map(declareSort),
-        declareSort(realTpe.to)
+        (tpe +: tpe.from).map(declareSort),
+        declareSort(tpe.to)
       ))
       s
     }
@@ -285,30 +283,20 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           newBody)
 
       case s @ ADTSelector(e, id) =>
-        val ADTType(id, tps) = e.getType
-        val adt = ADTType(id, tps map bestRealType)
-        declareSort(adt)
-        val selector = selectors.toB(adt -> s.selectorIndex)
+        val tpe @ ADTType(_, tps) = e.getType
+        declareSort(tpe)
+        val selector = selectors.toB(ADTCons(s.constructor.get.id, tps) -> s.selectorIndex)
         FunctionApplication(selector, Seq(toSMT(e)))
 
-      case AsInstanceOf(expr, adt) =>
-        toSMT(expr)
+      case i @ IsConstructor(e, id) =>
+        val tpe @ ADTType(_, tps) = e.getType
+        declareSort(tpe)
+        val tester = testers.toB(ADTCons(id, tps))
+        FunctionApplication(tester, Seq(toSMT(e)))
 
-      case io @ IsInstanceOf(e, ADTType(id, tps)) =>
-        val adt = ADTType(id, tps map bestRealType)
-        declareSort(adt)
-        adt.getADT match {
-          case tcons: TypedADTConstructor =>
-            val tester = testers.toB(tcons.toType)
-            FunctionApplication(tester, Seq(toSMT(e)))
-          case _ =>
-            toSMT(BooleanLiteral(true))
-        }
-
-      case ADT(ADTType(id, tps), es) =>
-        val adt = ADTType(id, tps map bestRealType)
-        declareSort(adt)
-        val constructor = constructors.toB(adt)
+      case adt @ ADT(id, tps, es) =>
+        declareSort(adt.getType)
+        val constructor = constructors.toB(ADTCons(id, tps))
         if (es.isEmpty) {
           constructor
         } else {
@@ -316,15 +304,15 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         }
 
       case t @ Tuple(es) =>
-        val tpe = bestRealType(t.getType)
+        val tpe @ TupleType(tps) = t.getType
         declareSort(tpe)
-        val constructor = constructors.toB(tpe)
+        val constructor = constructors.toB(TupleCons(tps))
         FunctionApplication(constructor, es.map(toSMT))
 
       case ts @ TupleSelect(t, i) =>
-        val tpe = bestRealType(t.getType)
+        val tpe @ TupleType(tps) = t.getType
         declareSort(tpe)
-        val selector = selectors.toB((tpe, i - 1))
+        val selector = selectors.toB((TupleCons(tps), i - 1))
         FunctionApplication(selector, Seq(toSMT(t)))
 
       case al @ MapApply(a, i) =>
@@ -347,7 +335,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
       case gv @ GenericValue(tpe, n) =>
         declareSort(tpe)
-        val constructor = constructors.toB(tpe)
+        val constructor = constructors.toB(TypeParameterCons(tpe))
         FunctionApplication(constructor, Seq(toSMT(IntegerLiteral(n))))
 
       /**
@@ -578,51 +566,51 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
             val simpBody = simplifyByConstructors(dispatchedBody)
             assert(!(exprOps.variablesOf(simpBody) contains dispatcher.toVariable), "Dispatcher still in lambda body")
-            mkLambda(args, simpBody, ft)
+            Lambda(args, simpBody)
           }.getOrElse(try {
             simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
           } catch {
             case _: NoSimpleValue =>
               val args = ft.from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
-              mkLambda(args, Choose(ValDef(FreshIdentifier("res"), ft), BooleanLiteral(true)), ft)
+              Lambda(args, Choose(ValDef(FreshIdentifier("res"), ft), BooleanLiteral(true)))
           }))
       })
 
       case (SimpleSymbol(s), _) if constructors.containsB(s) =>
         constructors.toA(s) match {
-          case adt: ADTType =>
-            ADT(adt, Nil)
+          case ADTCons(id, tps) =>
+            ADT(id, tps, Nil)
           case t =>
             unsupported(t, "woot? for a single constructor for non-case-object")
         }
 
       case (FunctionApplication(SimpleSymbol(s), List(e)), _) if testers.containsB(s) =>
         testers.toA(s) match {
-          case adt: ADTType =>
-            IsInstanceOf(fromSMT(e, adt), adt)
+          case ac @ ADTCons(id, _) =>
+            IsConstructor(fromSMT(e, ac.getType), id)
           case t =>
             unsupported(t, "woot? tester for non-adt type")
         }
 
       case (FunctionApplication(SimpleSymbol(s), List(e)), _) if selectors.containsB(s) =>
         selectors.toA(s) match {
-          case (adt: ADTType, i) =>
-            ADTSelector(fromSMT(e, adt), adt.getADT.toConstructor.fields(i).id)
-          case (tt: TupleType, i) =>
-            TupleSelect(fromSMT(e, tt), i + 1)
+          case (ac @ ADTCons(id, _), i) =>
+            ADTSelector(fromSMT(e, ac.getType), getConstructor(id).fields(i).id)
+          case (tc @ TupleCons(_), i) =>
+            TupleSelect(fromSMT(e, tc.getType), i + 1)
           case (t, _) =>
             unsupported(t, "woot? selector for non-structural type")
         }
 
       case (FunctionApplication(SimpleSymbol(s), args), _) if constructors.containsB(s) =>
         constructors.toA(s) match {
-          case adt: ADTType =>
-            ADT(adt, (args zip adt.getADT.toConstructor.fieldsTypes) map fromSMT)
+          case ADTCons(id, tps) =>
+            ADT(id, tps, (args zip getConstructor(id, tps).fieldsTypes) map fromSMT)
 
-          case tt: TupleType =>
-            tupleWrap((args zip tt.bases) map fromSMT)
+          case TupleCons(tps) =>
+            tupleWrap((args zip tps) map fromSMT)
 
-          case tp: TypeParameter =>
+          case TypeParameterCons(tp) =>
             val IntegerLiteral(n) = fromSMT(args(0), IntegerType())
             GenericValue(tp, n.toInt)
 
@@ -634,12 +622,12 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case (Core.Equals(QualifiedIdentifier(SimpleIdentifier(sym), None), e), _)
       if (context.vars contains sym) && context.vars(sym).isTyped =>
         val v = context.vars(sym)
-        Equals(v, fromSMT(e, bestRealType(v.getType)))
+        Equals(v, fromSMT(e, v.getType))
 
       case (Core.Equals(e, QualifiedIdentifier(SimpleIdentifier(sym), None)), _)
       if (context.vars contains sym) && context.vars(sym).isTyped =>
         val v = context.vars(sym)
-        Equals(fromSMT(e, bestRealType(v.getType)), v)
+        Equals(fromSMT(e, v.getType), v)
 
       case _ => super.fromSMT(t, otpe)
     }

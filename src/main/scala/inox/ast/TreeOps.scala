@@ -73,19 +73,15 @@ trait TreeOps { self: Trees =>
       fd.flags.foreach(traverse)
     }
 
-    final def traverse(adt: ADTDefinition): Unit = adt match {
-      case sort: ADTSort =>
-        traverse(sort.id)
-        sort.tparams.foreach(traverse)
-        sort.cons.foreach(traverse)
-        sort.flags.foreach(traverse)
-
-      case cons: ADTConstructor =>
+    final def traverse(sort: ADTSort): Unit = {
+      traverse(sort.id)
+      sort.tparams.foreach(traverse)
+      sort.constructors.foreach { cons =>
         traverse(cons.id)
-        cons.tparams.foreach(traverse)
-        cons.sort.foreach(traverse)
+        traverse(cons.sort)
         cons.fields.foreach(traverse)
-        cons.flags.foreach(traverse)
+      }
+      sort.flags.foreach(traverse)
     }
   }
 }
@@ -241,22 +237,20 @@ trait TreeTransformer {
     ).copiedFrom(fd)
   }
 
-  final def transform(adt: s.ADTDefinition): t.ADTDefinition = (adt match {
-    case sort: s.ADTSort => new t.ADTSort(
+  final def transform(sort: s.ADTSort): t.ADTSort = {
+    new t.ADTSort(
       transform(sort.id),
       sort.tparams map transform,
-      sort.cons map transform,
+      sort.constructors map { cons =>
+        new t.ADTConstructor(
+          transform(cons.id),
+          transform(cons.sort),
+          cons.fields map transform
+        ).copiedFrom(cons)
+      },
       sort.flags map transform
-    )
-
-    case cons: s.ADTConstructor => new t.ADTConstructor(
-      transform(cons.id),
-      cons.tparams map transform,
-      cons.sort map transform,
-      cons.fields map transform,
-      cons.flags map transform
-    )
-  }).copiedFrom(adt)
+    ).copiedFrom(sort)
+  }
 
   protected trait TreeTransformerComposition extends TreeTransformer {
     protected val t1: TreeTransformer
@@ -345,11 +339,11 @@ trait SymbolTransformer { self =>
 
 trait SimpleSymbolTransformer extends SymbolTransformer { self =>
   protected def transformFunction(fd: s.FunDef): t.FunDef
-  protected def transformADT(adt: s.ADTDefinition): t.ADTDefinition
+  protected def transformSort(sort: s.ADTSort): t.ADTSort
 
   def transform(syms: s.Symbols): t.Symbols = t.NoSymbols
     .withFunctions(syms.functions.values.toSeq.map(transformFunction))
-    .withADTs(syms.adts.values.toSeq.map(transformADT))
+    .withSorts(syms.sorts.values.toSeq.map(transformSort))
 }
 
 object SymbolTransformer {
@@ -361,6 +355,6 @@ object SymbolTransformer {
     val t: trans.t.type = trans.t
 
     protected def transformFunction(fd: s.FunDef): t.FunDef = trans.transform(fd)
-    protected def transformADT(adt: s.ADTDefinition): t.ADTDefinition = trans.transform(adt)
+    protected def transformSort(sort: s.ADTSort): t.ADTSort = trans.transform(sort)
   }
 }

@@ -78,16 +78,7 @@ trait ConstraintSolvers { self: Interpolator =>
           collect(t, isPositive)
         }
         case TupleType(ts) => ts.foreach(collect(_, !isPositive))
-        case ADTType(id, ts) => {
-          val adtDef = symbols.getADT(id)
-
-          adtDef.tparams.zip(ts).foreach({
-            case (tpDef, tpe) =>
-              if (tpDef.tp.isCovariant) collect(tpe, isPositive)
-              else if (tpDef.tp.isContravariant) collect(tpe, !isPositive)
-              else traverser.traverse(tpe)
-          })
-        }
+        case ADTType(id, ts) => ts.foreach(traverser.traverse(_))
         case SetType(t) => traverser.traverse(t)
         case BagType(t) => traverser.traverse(t)
         case MapType(k, v) => {
@@ -206,21 +197,7 @@ trait ConstraintSolvers { self: Interpolator =>
             }
           }
 
-          sortCorrect && {
-            adtDef.tparams.zip(tps).forall {
-              case (tpDef, argTpe) => {
-                if (tpDef.tp.isCovariant) {
-                  isSurelyEnd(argTpe, top)
-                }
-                else if (tpDef.tp.isContravariant) {
-                  isSurelyEnd(argTpe, !top)
-                }
-                else {
-                  true
-                }
-              }
-            }
-          }
+          sortCorrect
         }
         case TupleType(ts) => ts.forall(isSurelyEnd(_, top))
         case FunctionType(fs, t) => fs.forall(isSurelyEnd(_, !top)) && isSurelyEnd(t, top)
@@ -341,23 +318,10 @@ trait ConstraintSolvers { self: Interpolator =>
               }
 
               assert(adtDef1.tparams.length == adtDef2.tparams.length)
-              assert(adtDef1.tparams.zip(adtDef2.tparams).forall({
-                case (tp1, tp2) => (tp1.tp.isCovariant == tp2.tp.isCovariant) &&
-                                   (tp1.tp.isContravariant == tp2.tp.isContravariant) &&
-                                   (tp1.tp.isInvariant == tp2.tp.isInvariant)
-              }))
 
               adtDef1.tparams.zip(t1s.zip(t2s)).foreach {
                 case (tpDef, (t1, t2)) => {
-                  if (tpDef.tp.isCovariant) {
-                    remaining +:= Subtype(t1, t2).setPos(constraint.pos)
-                  }
-                  if (tpDef.tp.isContravariant) {
-                    remaining +:= Subtype(t2, t1).setPos(constraint.pos)
-                  }
-                  if (tpDef.tp.isInvariant) {
-                    remaining +:= Equal(t1, t2).setPos(constraint.pos)
-                  }
+                  remaining +:= Equal(t1, t2).setPos(constraint.pos)
                 }
               }
             }
