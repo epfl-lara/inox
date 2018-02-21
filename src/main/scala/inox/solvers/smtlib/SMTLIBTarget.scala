@@ -562,10 +562,9 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
       case (Num(n), Some(ft: FunctionType)) => context.lambdas.getOrElseUpdate(n -> ft, {
         val count = if (n < 0) -2 * n.toInt else 2 * n.toInt + 1
-        val FirstOrderFunctionType(from, to) = ft
         uniquateClosure(count, lambdas.getB(ft)
           .flatMap { dynLambda =>
-            context.withSeen(n -> ft).getFunction(dynLambda, FunctionType(IntegerType() +: from, to))
+            context.withSeen(n -> ft).getFunction(dynLambda, FunctionType(IntegerType() +: ft.from, ft.to))
           }.map { case Lambda(dispatcher +: args, body) =>
             val dv = dispatcher.toVariable
 
@@ -584,7 +583,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
             simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
           } catch {
             case _: NoSimpleValue =>
-              val args = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
+              val args = ft.from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
               mkLambda(args, Choose(ValDef(FreshIdentifier("res"), ft), BooleanLiteral(true)), ft)
           }))
       })

@@ -185,7 +185,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
         .flatMap { case (tfd, calls) =>
           chooses.getChoose(tfd.fd).map { case (id, c, vds) =>
             val tpSubst = tfd.tpSubst.map(p => decode(p._1).asInstanceOf[TypeParameter] -> decode(p._2))
-            val t.FirstOrderFunctionType(from, to) = t.FunctionType(tfd.params.map(_.tpe), tfd.returnType)
+            val from = tfd.params.map(_.tpe)
+            val to = tfd.returnType
             import templates._
 
             val tvds = vds.map(vd => vd.copy(tpe = instantiateType(vd.tpe, tpSubst)))

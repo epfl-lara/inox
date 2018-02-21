@@ -128,16 +128,6 @@ trait Types { self: Trees =>
     }
   }
 
-  object FirstOrderFunctionType {
-    def unapply(tpe: FunctionType): Option[(Seq[Type], Type)] = tpe match {
-      case FunctionType(from, to: FunctionType) =>
-        val Some((toFrom, toTo)) = unapply(to)
-        Some((from ++ toFrom, toTo))
-      case FunctionType(from, to) =>
-        Some(from -> to)
-    }
-  }
-
   object typeOps extends {
     protected val sourceTrees: self.type = self
     protected val targetTrees: self.type = self

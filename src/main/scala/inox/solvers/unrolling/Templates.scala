@@ -624,7 +624,7 @@ trait Templates
 
       val optIdCall = optCall.map { tfd => Call(tfd, arguments.map(p => Left(p._2))) }
       val optIdApp = optApp.map { case (idT, tpe) =>
-        val encoded = mkFlatApp(idT, tpe, arguments.map(_._2))
+        val encoded = mkApp(idT, tpe, arguments.map(_._2))
         App(idT, bestRealType(tpe).asInstanceOf[FunctionType], arguments.map(p => Left(p._2)), encoded)
       }
 

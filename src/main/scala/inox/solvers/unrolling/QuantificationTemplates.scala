@@ -964,7 +964,7 @@ trait QuantificationTemplates { self: Templates =>
     } else {
       lambdaAxioms += template.structure
       val quantifiers = template.contents.arguments
-      val app = mkFlatApp(template.ids._2, template.tpe, quantifiers.map(_._2))
+      val app = mkApp(template.ids._2, template.tpe, quantifiers.map(_._2))
       val matcher = Matcher(Left(template.ids._2 -> template.tpe), quantifiers.map(p => Left(p._2)), app)
 
       val guard = encodeSymbol(Variable.fresh("guard", BooleanType(), true))

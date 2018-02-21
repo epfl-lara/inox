@@ -583,7 +583,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                 Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
               })
 
-              case ft @ FirstOrderFunctionType(fts, tt) => z3ToLambdas.getOrElseUpdate(t, {
+              case ft @ FunctionType(fts, tt) => z3ToLambdas.getOrElseUpdate(t, {
                 val n = t.toString.split("!").last.init.toInt
                 val args = fts.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
                 uniquateClosure(n, lambdas.getB(ft)

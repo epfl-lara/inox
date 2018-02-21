@@ -133,11 +133,6 @@ trait LambdaTemplates { self: Templates =>
     mkSubstituter(Map(vT -> caller) ++ (asT zip args))(app)
   }
 
-  def mkFlatApp(caller: Encoded, tpe: FunctionType, args: Seq[Encoded]): Encoded = tpe.to match {
-    case ft: FunctionType => mkFlatApp(mkApp(caller, tpe, args.take(tpe.from.size)), ft, args.drop(tpe.from.size))
-    case _ => mkApp(caller, tpe, args)
-  }
-
   def registerFunction(b: Encoded, tpe: FunctionType, f: Encoded): Clauses = {
     reporter.debug(s"-> registering free function $b ==> $f: $tpe")
     val ft = bestRealType(tpe).asInstanceOf[FunctionType]
@@ -264,7 +259,7 @@ trait LambdaTemplates { self: Templates =>
   }
 
   def instantiateApp(blocker: Encoded, app: App): Clauses = {
-    val App(caller, tpe @ FirstOrderFunctionType(from, to), args, encoded) = app
+    val App(caller, tpe @ FunctionType(from, to), args, encoded) = app
 
     val key = blocker -> app
     var clauses: Clauses = Seq.empty

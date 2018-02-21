@@ -355,7 +355,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         }
 
       case ft: FunctionType =>
-        val tpe @ FirstOrderFunctionType(from, to) = bestRealType(ft)
+        val tpe @ FunctionType(from, to) = bestRealType(ft)
         val iterm = iexpr.asInstanceOf[ITerm]
         ctx.model.eval(iterm).flatMap { ideal =>
           val n = BigInt(ideal.bigIntValue)
