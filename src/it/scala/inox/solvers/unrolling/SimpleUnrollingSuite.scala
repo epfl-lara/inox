@@ -17,17 +17,18 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
   val head = FreshIdentifier("head")
   val tail = FreshIdentifier("tail")
 
-  val List = mkSort(listID)("A")(Seq(consID, nilID))
-  val Nil  = mkConstructor(nilID)("A")(Some(listID))(_ => Seq.empty)
-  val Cons = mkConstructor(consID)("A")(Some(listID)) {
-    case Seq(aT) => Seq(ValDef(head, aT), ValDef(tail, T(listID)(aT)))
+  val List = mkSort(listID)("A") {
+    case Seq(aT) => Seq(
+      (nilID, Seq()),
+      (consID, Seq(ValDef(head, aT), ValDef(tail, T(listID)(aT))))
+    )
   }
 
   val sizeID = FreshIdentifier("size")
   val sizeFd = mkFunDef(sizeID)("A") { case Seq(aT) => (
     Seq("l" :: T(listID)(aT)), IntegerType(), { case Seq(l) =>
-      if_ (l.isInstOf(T(consID)(aT))) {
-        E(BigInt(1)) + E(sizeID)(aT)(l.asInstOf(T(consID)(aT)).getField(tail))
+      if_ (l is consID) {
+        E(BigInt(1)) + E(sizeID)(aT)(l.getField(tail))
       } else_ {
         E(BigInt(0))
       }
@@ -36,7 +37,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
 
   val symbols = new Symbols(
     Map(sizeID -> sizeFd),
-    Map(listID -> List, consID -> Cons, nilID -> Nil)
+    Map(listID -> List)
   )
 
   val program = InoxProgram(symbols)
@@ -50,7 +51,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     SimpleSolverAPI(program.getSolver).solveSAT(clause) match {
       case SatWithModel(model) =>
         model.vars.get(vd) match {
-          case Some(ADT(ADTType(`consID`, Seq(IntegerType())), _)) =>
+          case Some(ADT(`consID`, Seq(IntegerType()), _)) =>
             // success!!
           case r =>
             fail("Unexpected valuation: " + r)
@@ -69,7 +70,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     SimpleSolverAPI(program.getSolver).solveSAT(clause) match {
       case SatWithModel(model) =>
         model.vars.get(vd) match {
-          case Some(ADT(ADTType(`nilID`, Seq(`tp`)), Seq())) =>
+          case Some(ADT(`nilID`, Seq(`tp`), Seq())) =>
             // success!!
           case r =>
             fail("Unexpected valuation: " + r)

@@ -19,7 +19,8 @@ trait DatastructureUtils {
       (consID, Seq(ValDef(head, aT), ValDef(tail, T(listID)(aT))))
     )
   }
-
+  val Nil = List.constructors(0)
+  val Cons = List.constructors(1)
 
   val optionID = FreshIdentifier("Option")
   val someID   = FreshIdentifier("Some")

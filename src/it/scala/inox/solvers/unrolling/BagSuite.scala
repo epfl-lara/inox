@@ -27,10 +27,8 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
   val bagID = FreshIdentifier("bag")
   val bag = mkFunDef(bagID)("A") { case Seq(aT) => (
     Seq("l" :: List(aT)), BagType(aT), { case Seq(l) =>
-      if_ (l.isInstOf(Cons(aT))) {
-        let("c" :: Cons(aT), l.asInstOf(Cons(aT))) { c =>
-          BagAdd(E(bagID)(aT)(c.getField(tail)), c.getField(head))
-        }
+      if_ (l is consID) {
+        BagAdd(E(bagID)(aT)(l.getField(tail)), l.getField(head))
       } else_ {
         FiniteBag(Seq.empty, aT)
       }
@@ -42,13 +40,13 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
     Seq("l" :: List(aT)), T(List(aT), List(aT)), { case Seq(l) =>
       let(
         "res" :: T(List(aT), List(aT)),
-        if_ (l.isInstOf(Cons(aT)) && l.asInstOf(Cons(aT)).getField(tail).isInstOf(Cons(aT))) {
+        if_ ((l is consID) && (l.getField(tail) is consID)) {
           let(
             "tuple" :: T(List(aT), List(aT)),
-            E(splitID)(aT)(l.asInstOf(Cons(aT)).getField(tail).asInstOf(Cons(aT)).getField(tail))
+            E(splitID)(aT)(l.getField(tail).getField(tail))
           ) { tuple => E(
-            Cons(aT)(l.asInstOf(Cons(aT)).getField(head), tuple._1),
-            Cons(aT)(l.asInstOf(Cons(aT)).getField(tail).asInstOf(Cons(aT)).getField(head), tuple._2)
+            Cons(aT)(l.getField(head), tuple._1),
+            Cons(aT)(l.getField(tail).getField(head), tuple._2)
           )}
         } else_ {
           E(l, Nil(aT)())
@@ -62,13 +60,13 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
     Seq("l" :: List(aT)), T(List(aT), List(aT)), { case Seq(l) =>
       let(
         "res" :: T(List(aT), List(aT)),
-        if_ (l.isInstOf(Cons(aT)) && l.asInstOf(Cons(aT)).getField(tail).isInstOf(Cons(aT))) {
+        if_ ((l is consID) && (l.getField(tail) is consID)) {
           let(
             "tuple" :: T(List(aT), List(aT)),
-            E(splitID)(aT)(l.asInstOf(Cons(aT)).getField(tail).asInstOf(Cons(aT)).getField(tail))
+            E(splitID)(aT)(l.getField(tail).getField(tail))
           ) { tuple => E(
-            Cons(aT)(l.asInstOf(Cons(aT)).getField(head), tuple._1),
-            Cons(aT)(l.asInstOf(Cons(aT)).getField(tail).asInstOf(Cons(aT)).getField(head), tuple._2)
+            Cons(aT)(l.getField(head), tuple._1),
+            Cons(aT)(l.getField(tail).getField(head), tuple._2)
           )}
         } else_ {
           E(Nil(aT)(), Nil(aT)())

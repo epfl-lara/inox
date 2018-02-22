@@ -10,27 +10,30 @@ class FunctionEqualitySuite extends SolvingTestSuite with DatastructureUtils {
 
   val f = FreshIdentifier("f")
   val mmapID = FreshIdentifier("MMap")
-  val mmap = mkConstructor(mmapID)("A","B")(None) {
-    case Seq(aT, bT) => Seq(ValDef(f, aT =>: T(optionID)(bT)))
+  val mmapConsID = mmapID.freshen
+  val mmap = mkSort(mmapID)("A","B") {
+    case Seq(aT, bT) => Seq(
+      (mmapConsID, Seq(ValDef(f, aT =>: T(optionID)(bT))))
+    )
   }
 
   val containsID = FreshIdentifier("contains")
   val contains = mkFunDef(containsID)("A", "B") { case Seq(aT, bT) => (
     Seq("m" :: T(mmapID)(aT, bT), "k" :: aT), BooleanType(), { case Seq(m, k) =>
-      m.getField(f)(k).isInstOf(T(someID)(bT))
+      m.getField(f)(k) is someID
     })
   }
 
   val symbols = baseSymbols
     .withFunctions(Seq(contains))
-    .withADTs(Seq(mmap))
+    .withSorts(Seq(mmap))
 
   val program = InoxProgram(symbols)
 
   test("simple theorem") { implicit ctx =>
     val clause = let(
       "states" :: T(mmapID)(IntegerType(), IntegerType() =>: IntegerType()),
-      T(mmapID)(IntegerType(), IntegerType() =>: IntegerType())(\("i" :: IntegerType())(i => T(someID)(IntegerType() =>: IntegerType())(\("x" :: IntegerType())(x => IntegerLiteral(0)))))
+      C(mmapConsID)(IntegerType(), IntegerType() =>: IntegerType())(\("i" :: IntegerType())(i => C(someID)(IntegerType() =>: IntegerType())(\("x" :: IntegerType())(x => IntegerLiteral(0)))))
     )(states => contains(IntegerType(), IntegerType() =>: IntegerType())(states, IntegerLiteral(0)) && E(false))
 
     assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(clause)).isSAT)
