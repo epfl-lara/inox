@@ -109,7 +109,7 @@ trait SetEncoder extends SimpleEncoder {
     })
   }
 
-  val setADT = mkSort(SetID, HasADTEquality(EqualsID))("T") {
+  val setSort = mkSort(SetID, HasADTEquality(EqualsID))("T") {
     case Seq(aT) => Seq(
       (SumID, Seq(ValDef(left, Set(aT)), ValDef(right, Set(aT)))),
       (ElemID, Seq(ValDef(value, aT))),
@@ -118,7 +118,7 @@ trait SetEncoder extends SimpleEncoder {
   }
 
   override val extraFunctions = Seq(Contains, Remove, Add, Union, Difference, Intersect, SetEquals)
-  override val extraADTs = Seq(setADT)
+  override val extraSorts = Seq(setSort)
 
   protected object encoder extends SelfTreeTransformer {
     import sourceProgram._

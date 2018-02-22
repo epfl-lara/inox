@@ -222,9 +222,9 @@ trait ExpressionParsers { self: Interpolator =>
 
     lazy val fdTable = symbols.functions.keys.toSet
 
-    lazy val cstrTable = symbols.adts.toSeq.collect({
-      case (i, cstr: trees.ADTConstructor) => i
-    }).toSet
+    lazy val cstrTable = symbols.sorts.values.toSeq.flatMap {
+      sort => sort.constructors.map(_.id)
+    }.toSet
 
     lazy val symbolTable = fdTable ++ cstrTable
 

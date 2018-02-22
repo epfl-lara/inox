@@ -104,42 +104,42 @@ trait TypeOps {
     case NAryType(tps, builder) => tps.exists(isParametricType)
   }
 
-  def typeCardinality(tp: Type): Option[Int] = {
-    def flatten(ints: Seq[Option[Int]]): Option[Seq[Int]] = {
-      if (ints.forall(_.isDefined)) {
-        Some(ints.map(_.get))
-      } else {
-        None
-      }
+  private def flattenCardinalities(ints: Seq[Option[Int]]): Option[Seq[Int]] = {
+    if (ints.forall(_.isDefined)) {
+      Some(ints.map(_.get))
+    } else {
+      None
     }
+  }
 
-    tp match {
-      case Untyped => Some(0)
-      case BooleanType() => Some(2)
-      case UnitType() => Some(1)
-      // TODO BVType => 2^size
-      case TupleType(tps) => flatten(tps.map(typeCardinality)).map(_.product)
-      case SetType(base) =>
-        typeCardinality(base).map(b => Math.pow(2, b).toInt)
-      case FunctionType(Seq(), to) => typeCardinality(to)
-      case FunctionType(_, to) if typeCardinality(to) == Some(0) => Some(0)
-      case MapType(from, to) =>
-        for {
-          t <- typeCardinality(to)
-          f <- typeCardinality(from)
-        } yield Math.pow(t, f).toInt
-      case BagType(base) => typeCardinality(base) match {
-        case Some(x) if x <= 1 => Some(1)
-        case _ => None
-      }
-      case adt: ADTType =>
-        val sort = adt.getSort
-        if (sort.definition.isInductive) None
-        else flatten(sort.constructors.map { cons =>
-          flatten(cons.fieldsTypes.map(typeCardinality)).map(_.product)
-        }).map(_.sum)
+  def constructorCardinality(cons: TypedADTConstructor): Option[Int] = {
+    flattenCardinalities(cons.fieldsTypes.map(typeCardinality)).map(_.product)
+  }
+
+  def typeCardinality(tp: Type): Option[Int] = tp match {
+    case Untyped => Some(0)
+    case BooleanType() => Some(2)
+    case UnitType() => Some(1)
+    // TODO BVType => 2^size
+    case TupleType(tps) => flattenCardinalities(tps.map(typeCardinality)).map(_.product)
+    case SetType(base) =>
+      typeCardinality(base).map(b => Math.pow(2, b).toInt)
+    case FunctionType(Seq(), to) => typeCardinality(to)
+    case FunctionType(_, to) if typeCardinality(to) == Some(0) => Some(0)
+    case MapType(from, to) =>
+      for {
+        t <- typeCardinality(to)
+        f <- typeCardinality(from)
+      } yield Math.pow(t, f).toInt
+    case BagType(base) => typeCardinality(base) match {
+      case Some(x) if x <= 1 => Some(1)
       case _ => None
     }
+    case adt: ADTType =>
+      val sort = adt.getSort
+      if (sort.definition.isInductive) None
+      else flattenCardinalities(sort.constructors.map(constructorCardinality)).map(_.sum)
+    case _ => None
   }
 
   def typeDependencies(tpe: Type): Map[Type, Set[Type]] = {

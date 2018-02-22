@@ -33,14 +33,14 @@ trait DatatypeTemplates { self: Templates =>
   /** Represents the kind of datatype a given template is associated to. */
   sealed abstract class TypeInfo {
     def getType: Type = this match {
-      case ADTInfo(tadt) => tadt.toType
+      case ADTInfo(sort) => ADTType(sort.id, sort.tps)
       case SetInfo(base) => SetType(base)
       case BagInfo(base) => BagType(base)
       case MapInfo(from, to) => MapType(from, to)
     }
   }
 
-  case class ADTInfo(tadt: TypedADTDefinition) extends TypeInfo
+  case class ADTInfo(sort: TypedADTSort) extends TypeInfo
   case class SetInfo(base: Type) extends TypeInfo
   case class BagInfo(base: Type) extends TypeInfo
   case class MapInfo(from: Type, to: Type) extends TypeInfo
@@ -311,7 +311,7 @@ trait DatatypeTemplates { self: Templates =>
     * Note that the actual ADT unrolling takes place in [[TemplateGenerator.Builder.rec]].
     */
   protected trait ADTUnrolling extends TemplateGenerator {
-    private val checking: MutableSet[TypedADTDefinition] = MutableSet.empty
+    private val checking: MutableSet[TypedADTSort] = MutableSet.empty
 
     /** We recursively visit the ADT and its fields here to check whether we need to unroll. */
     abstract override def unroll(tpe: Type): Boolean = tpe match {
@@ -362,7 +362,7 @@ trait DatatypeTemplates { self: Templates =>
         val enc = encoder // forces super to call rec()
         functions.flatMap { case (b, fs) =>
           val bp = enc(b)
-          fs.map(expr => (bp, bestRealType(expr.getType).asInstanceOf[FunctionType], enc(expr)))
+          fs.map(expr => (bp, expr.getType.asInstanceOf[FunctionType], enc(expr)))
         }.toSet
       }
     }
@@ -397,19 +397,13 @@ trait DatatypeTemplates { self: Templates =>
        with ADTUnrolling
        with CachedUnrolling {
 
-    /** ADT unfolding is required when either:
-     * 1. a constructor type is required and it has a super-type (SMT solvers
-     *    are blind to this case), or
-     * 2. the ADT type has an ADT invariant.
-     *
-     * Note that clause generation in [[Builder.rec]] MUST correspond to the types
-     * that require unfolding as defined here.
-     */
+    /** ADT unfolding is required when the ADT type has an ADT invariant.
+      *
+      * Note that clause generation in [[Builder.rec]] MUST correspond to the types
+      * that require unfolding as defined here.
+      */
     override protected def unrollType(tpe: Type): Boolean = tpe match {
-      case adt: ADTType => adt.getADT match {
-        case tcons: TypedADTConstructor if tcons.sort.isDefined => true
-        case tdef => tdef.hasInvariant
-      }
+      case adt: ADTType => adt.getSort.hasInvariant
       case _ => false
     }
 
@@ -418,22 +412,13 @@ trait DatatypeTemplates { self: Templates =>
     protected trait Builder extends super.Builder {
       override protected def rec(pathVar: Variable, expr: Expr, state: RecursionState): Unit = expr.getType match {
         case adt: ADTType =>
-          val tadt = adt.getADT
+          val sort = adt.getSort
 
-          if (tadt.hasInvariant) {
-            storeGuarded(pathVar, tadt.invariant.get.applied(Seq(expr)))
+          if (sort.hasInvariant) {
+            storeGuarded(pathVar, sort.invariant.get.applied(Seq(expr)))
           }
 
-          if (tadt != tadt.root) {
-            storeGuarded(pathVar, IsInstanceOf(expr, tadt.toType))
-
-            val tpe = tadt.toType
-            for (vd <- tadt.toConstructor.fields) {
-              rec(pathVar, ADTSelector(AsInstanceOf(expr, tpe), vd.id), state.copy(recurseAdt = false))
-            }
-          } else {
-            super.rec(pathVar, expr, state)
-          }
+          super.rec(pathVar, expr, state)
 
         case _ => super.rec(pathVar, expr, state)
       }

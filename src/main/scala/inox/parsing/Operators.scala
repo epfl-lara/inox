@@ -42,6 +42,8 @@ object Operators {
 
     AnyAssoc("||"),
 
+    AnyAssoc("is"),
+
     RightAssoc(Seq("==>")),
 
     RightAssoc(Seq("->"))

@@ -42,14 +42,14 @@ trait TypeElaborators { self: Interpolator =>
     private lazy val basicInv = basic.map(_.swap)
 
     private lazy val parametric: Map[Value, (Int, Seq[trees.Type] => trees.Type)] =
-      (primitives ++ adts).toMap
+      (primitives ++ sorts).toMap
 
     private lazy val primitives = Seq(
       "Set" -> (1, (ts: Seq[trees.Type]) => trees.SetType(ts.head)),
       "Map" -> (2, (ts: Seq[trees.Type]) => trees.MapType(ts(0), ts(1))),
       "Bag" -> (1, (ts: Seq[trees.Type]) => trees.BagType(ts.head))).map({ case (n, v) => Name(n) -> v })
 
-    private lazy val adts = symbols.adts.toSeq.flatMap({
+    private lazy val sorts = symbols.sorts.toSeq.flatMap({
       case (i, d) => {
         val f = (d.tparams.length, (ts: Seq[trees.Type]) => trees.ADTType(i, ts))
 
@@ -103,7 +103,7 @@ trait TypeElaborators { self: Interpolator =>
         ){
           case (cons, tpes) => cons(tpes)
         }
-        
+
       case Literal(EmbeddedType(t)) => Right(t)
 
       case Literal(Name(BVType(size))) => Right(trees.BVType(size))

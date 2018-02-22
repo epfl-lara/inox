@@ -125,39 +125,34 @@ trait RecursiveEvaluator
     case Equals(le,re) =>
       BooleanLiteral(e(le) == e(re))
 
-    case ADT(adt, args) =>
-      val cc = ADT(adt, args.map(e))
-      if (!ignoreContracts) cc.adt.getADT.invariant.foreach { tfd =>
-        val v = Variable.fresh("x", cc.adt, true)
-        e(tfd.applied(Seq(v)))(rctx.withNewVar(v.toVal, cc), gctx) match {
-          case BooleanLiteral(true) =>
-          case BooleanLiteral(false) =>
-            throw RuntimeError("ADT invariant violation for " + cc.asString)
-          case other =>
-            throw RuntimeError(typeErrorMsg(other, BooleanType()))
+    case ADT(id, tps, args) =>
+      val cc = ADT(id, tps, args.map(e))
+      if (!ignoreContracts) {
+        val sort = cc.getConstructor.sort
+        sort.invariant.foreach { tfd =>
+          val v = Variable.fresh("x", ADTType(sort.id, sort.tps), true)
+          e(tfd.applied(Seq(v)))(rctx.withNewVar(v.toVal, cc), gctx) match {
+            case BooleanLiteral(true) =>
+            case BooleanLiteral(false) =>
+              throw RuntimeError("ADT invariant violation for " + cc.asString)
+            case other =>
+              throw RuntimeError(typeErrorMsg(other, BooleanType()))
+          }
         }
       }
       cc
 
-    case AsInstanceOf(expr, ct) =>
-      val le = e(expr)
-      if (isSubtypeOf(le.getType, ct)) {
-        le
-      } else {
-        throw RuntimeError("Cast error: cannot cast "+le.asString+" to "+ct.asString)
-      }
-
-    case IsInstanceOf(expr, ct) =>
-      val le = e(expr)
-      BooleanLiteral(isSubtypeOf(le.getType, ct))
+    case IsConstructor(expr, id) => e(expr) match {
+      case ADT(id, _, _) => BooleanLiteral(true)
+      case _ => BooleanLiteral(false)
+    }
 
     case ADTSelector(expr, sel) =>
       e(expr) match {
-        case ADT(adt, args) => args(adt.getADT.definition match {
-          case cons: ADTConstructor => cons.selectorID2Index(sel)
-          case _ => throw RuntimeError("Unexpected case class type")
-        })
-        case le => throw EvalError(typeErrorMsg(le, expr.getType))
+        case adt @ ADT(id, tps, args) =>
+          args(adt.getConstructor.definition.selectorID2Index(sel))
+        case le =>
+          throw EvalError(typeErrorMsg(le, expr.getType))
       }
 
     case Plus(l,r) =>

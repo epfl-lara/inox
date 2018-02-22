@@ -125,7 +125,7 @@ trait BagEncoder extends SimpleEncoder {
     })
   }
 
-  val bagADT = mkSort(BagID, HasADTEquality(EqualsID), HasADTInvariant(InvID))("T") {
+  val bagSort = mkSort(BagID, HasADTEquality(EqualsID), HasADTInvariant(InvID))("T") {
     case Seq(aT) => Seq(
       (SumID, Seq(ValDef(left, Bag(aT)), ValDef(right, Bag(aT)))),
       (ElemID, Seq(ValDef(key, aT), ValDef(value, IntegerType()))),
@@ -136,7 +136,7 @@ trait BagEncoder extends SimpleEncoder {
   override val extraFunctions =
     Seq(Get, Add, Union, DifferenceImpl, Difference, IntersectImpl, Intersect, BagEquals, BagInvariant)
 
-  override val extraADTs = Seq(bagADT)
+  override val extraSorts = Seq(bagSort)
 
   protected object encoder extends SelfTreeTransformer {
     import sourceProgram._

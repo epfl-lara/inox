@@ -202,25 +202,22 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     })
   }
 
-  private def isInstanceOf(e: Expr, tpe: ADTType, path: CNFPath): Option[Boolean] = {
-    val tadt = tpe.getADT
-    if (tadt.definition.isSort) {
+  private def isConstructor(e: Expr, id: Identifier, path: CNFPath): Option[Boolean] = {
+    if (path contains IsConstructor(e, id)) {
       Some(true)
-    } else if (path contains IsInstanceOf(e, tpe)) {
-      Some(true)
-    } else if (tadt.toConstructor.sort.isDefined) {
-      val tsort = tadt.toConstructor.sort.get
-      val alts = (tsort.constructors.toSet - tadt).map(_.toType)
+    } else {
+      val adt @ ADTType(_, tps) = e.getType
+      val sort = adt.getSort
+      val cons = getConstructor(id, tps)
+      val alts = (sort.constructors.toSet - cons).map(_.id)
 
-      if (alts exists (tpe => path contains IsInstanceOf(e, tpe))) {
+      if (alts exists (tpe => path contains IsConstructor(e, id))) {
         Some(false)
-      } else if (alts forall (tpe => path contains Not(IsInstanceOf(e, tpe)))) {
+      } else if (alts forall (tpe => path contains Not(IsConstructor(e, id)))) {
         Some(true)
       } else {
         None
       }
-    } else {
-      None
     }
   }
 
@@ -288,46 +285,63 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
         (Assume(rp, rb), opts.assumeChecked)
     }
 
-    case IsInstanceOf(ADT(tpe1, args), tpe2: ADTType) if !tpe2.getADT.definition.isSort =>
-      simplify((tpe1.getADT.toConstructor.fields zip args)
-        .foldRight(BooleanLiteral(tpe1.id == tpe2.id): Expr) {
+    case IsConstructor(adt @ ADT(id1, tps, args), id2) =>
+      simplify((adt.getConstructor.fields zip args)
+        .foldRight(BooleanLiteral(id1 == id1): Expr) {
           case ((vd, e), body) => Let(vd.freshen, e, body)
         }, path)
 
-    case IsInstanceOf(e, tpe: ADTType) =>
+    case IsConstructor(e, id) =>
       val (re, pe) = simplify(e, path)
-      if (tpe.getADT.definition.isSort) {
-        (BooleanLiteral(true), pe)
-      } else isInstanceOf(re, tpe, path) match {
+      isConstructor(re, id, path) match {
         case Some(b) => (BooleanLiteral(b), true)
-        case None => (IsInstanceOf(re, tpe), pe)
+        case None => (IsConstructor(re, id), pe)
       }
 
-    case AsInstanceOf(e, tpe: ADTType) =>
+    case s @ ADTSelector(e, sel) =>
       val (re, pe) = simplify(e, path)
-      val tadt = tpe.getADT
-      isInstanceOf(re, tpe, path) match {
-        case Some(true) => (AsInstanceOf(re, tpe), pe)
-        case _ => (AsInstanceOf(re, tpe), opts.assumeChecked)
+      isConstructor(re, s.constructor.id, path) match {
+        case Some(true) => (adtSelector(re, sel), pe)
+        case _ => (ADTSelector(re, sel), opts.assumeChecked)
       }
+
+    case adt @ ADT(id, tps, args) =>
+      val (rargs, pargs) = args.map(simplify(_, path)).unzip
+      val ls = (adt.getConstructor.fields zip rargs).collect {
+        case (vd, ADTSelector(e, id)) if vd.id == id => e
+      }
+
+      val newAdt = ls match {
+        case ls @ (e +: es) if (
+          ls.size == rargs.size &&
+          es.forall(_ == e) &&
+          (isConstructor(e, id, path) contains true)) => e
+        case _ => ADT(id, tps, rargs)
+      }
+      // Note that if `isConstructor(e, id, path)` holds for each ADTSelector argument
+      // in rargs, then these selectors will be marked as pure by the simplifier so we
+      // don't need to do any special recomputation of pargs
+      val pe = pargs.foldLeft(opts.assumeChecked || isImpureExpr(newAdt))(_ && _)
+      (newAdt, pe)
 
     case Let(vd, IfExpr(c1, t1, e1), IfExpr(c2, t2, e2)) if c1 == c2 =>
       simplify(IfExpr(c1, Let(vd, t1, t2), Let(vd, e1, e2)), path)
 
     case Let(vd, v: Variable, b) => simplify(replaceFromSymbols(Map(vd -> v), b), path)
 
-    case Let(vd, ADT(tpe, es), b) if (opts.assumeChecked || !tpe.getADT.hasInvariant) && {
-      val v = vd.toVariable
-      def rec(e: Expr): Boolean = e match {
-        case ADTSelector(`v`, id) => true
-        case `v` => false
-        case Operator(es, _) => es.forall(rec)
-      }
-      rec(b)
-    } =>
-      val tadt = tpe.getADT.toConstructor
-      val vds = tadt.fields.map(_.freshen)
-      val selectors = tadt.fields.map(f => ADTSelector(vd.toVariable, f.id))
+    case Let(vd, adt @ ADT(id, tps, es), b) if (
+      (opts.assumeChecked || !adt.getConstructor.sort.hasInvariant) && {
+        val v = vd.toVariable
+        def rec(e: Expr): Boolean = e match {
+          case ADTSelector(`v`, id) => true
+          case `v` => false
+          case Operator(es, _) => es.forall(rec)
+        }
+        rec(b)
+      }) =>
+      val cons = adt.getConstructor
+      val vds = cons.fields.map(_.freshen)
+      val selectors = cons.fields.map(f => ADTSelector(vd.toVariable, f.id))
       val selectorMap: Map[Expr, Expr] = (selectors zip vds.map(_.toVariable)).toMap
       simplify((vds zip es).foldRight(replace(selectorMap, b)) { case ((vd, e), b) => Let(vd, e, b) }, path)
 
@@ -392,9 +406,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       val (rargs, pargs) = args.map(simplify(_, path)).unzip
       (FunctionInvocation(id, tps, rargs), pargs.foldLeft(isPureFunction(id))(_ && _))
 
-    case ADT(tpe, args)      => simplifyAndCons(args, path, adt(tpe, _))
     case Tuple(es)           => simplifyAndCons(es, path, tupleWrap)
-    case ADTSelector(e, sel) => simplifyAndCons(Seq(e), path, es => adtSelector(es.head, sel))
     case UMinus(t)           => simplifyAndCons(Seq(t), path, es => uminus(es.head))
     case Plus(l, r)          => simplifyAndCons(Seq(l, r), path, es => plus(es(0), es(1)))
     case Minus(l, r)         => simplifyAndCons(Seq(l, r), path, es => minus(es(0), es(1)))

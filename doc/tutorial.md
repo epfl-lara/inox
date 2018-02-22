@@ -36,25 +36,14 @@ required definitions.
 
 ### ADT Definitions
 
-The dsl we just imported provides us with the following helper methods to define ADTs (see
+The dsl we just imported provides us with the following helper method to define ADTs (see
 the [Definitions](/doc/API.md#definitions) section in the API documentation for more details):
 
-1. For ADT sort definitions
-
-    ```scala
-    def mkSort(id: Identifier)
-              (tpNames: String*)
-              (cons: Seq[Identifier]): ADTSort
-    ```
-
-2. For ADT constructor definitions
-
-    ```scala
-    def mkConstructor(id: Identifier)
-                     (tpNames: String*)
-                     (sort: Option[Identifier])
-                     (fieldBuilder: Seq[TypeParameter] => Seq[ValDef]): ADTConstructor
-    ```
+```scala
+def mkSort(id: Identifier)
+          (tpNames: String*)
+          (consBuilder: Seq[TypeParameter] => Seq[(Identifier, Seq[ValDef])]): ADTSort
+```
 
 We therefore start by setting up the identifiers for the `List` sort
 ```scala
@@ -70,14 +59,16 @@ val tail: Identifier = FreshIdentifier("tail")
 
 Based on these, we can construct the relevant ADT sort and constructors
 ```scala
-val listSort = mkSort(list)("A")(Seq(cons, nil))
-val consConstructor = mkConstructor(cons)("A")(Some(list)) {
-  case Seq(tp) => /* `tp` is the type parameter required by the "A" argument to `mkConstructor`. */
-    /* We use the previously defined `head` and `tail` identifiers for the fields' symbols.
-     * The type `T(list)(tp)` is a shorthand for `ADTType(list, Seq(tp))`. */
-    Seq(ValDef(head, tp), ValDef(tail, T(list)(tp)))
+val listSort = mkSort(list)("A") {
+  case Seq(tp) => /* `tp` is the type parameter required by the "A" argument to `mkSort`. */
+    Seq(
+      /* We use the previously defined `head` and `tail` identifiers for the fields' symbols.
+       * The type `T(list)(tp)` is a shorthand for `ADTType(list, Seq(tp))`. */
+      (cons, Seq(ValDef(head, tp), ValDef(tail, T(list)(tp)))),
+      /* The Nil constructor takes no arguments, so we pass in an empty seq. */
+      (nil, Seq())
+    )
 }
-val nilConstructor = mkConstructor(nil)("A")(Some(list))(tps => Seq.empty)
 ```
 Note that we have defined a list *sort* with identifier `list` that has two constructors with identifiers
 `cons` and `nil`. All three definitions are parametric in a type "A" (Inox imposes the restriction that
@@ -99,7 +90,7 @@ We start by defining the conditional. Inox has no concept of pattern matching
 the pattern matching in our `size` definition to an __if__-expression. We can thus write the conditional in
 Inox as
 ```scala
-if_ (ls.isInstOf(T(cons)(tp))) {
+if_ (ls is cons) {
   ... /* `1 + size(ls.tail)` */
 } else_ {
   ... /* 0 */
@@ -108,12 +99,12 @@ if_ (ls.isInstOf(T(cons)(tp))) {
 We then complete the *then* and *else* expressions of the conditional as follows
 ```scala
 /* The `E(BigInt(i))` calls correspond to `IntegerLiteral(i)` ASTs. */
-if_ (ls.isInstOf(T(cons)(tp))) {
+if_ (ls is cons) {
   /* The recursive call to `size` written `E(size)(tp)(...)` corresponds to
    * the AST `FunctionInvocation(size, Seq(tp), Seq(...))`.
    * Note that we refer to the symbol `tail` of the `consConstructor`'s second
    * field when building the selector AST. */
-  E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(cons)(tp)).getField(tail))
+  E(BigInt(1)) + E(size)(tp)(ls.getField(tail))
 } else_ {
   E(BigInt(0))
 }
@@ -123,8 +114,8 @@ still lacking the inductive invariant. In Inox, one can use the `Assume` AST to 
 leading to the full `size` body:
 ```scala
 /* We use a `let` binding here to avoid dupplication. */
-let("res" :: IntegerType(), if_ (ls.isInstOf(T(cons)(tp))) {
-  E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(cons)(tp)).getField(tail))
+let("res" :: IntegerType(), if_ (ls is cons) {
+  E(BigInt(1)) + E(size)(tp)(ls.getField(tail))
 } else_ {
   E(BigInt(0))
 }) { res =>
@@ -153,8 +144,8 @@ val sizeFunction = mkFunDef(size)("A") { case Seq(tp) => (
    * The function we pass in here will receive instances of `Variable` corresponding
    * to the `ValDef` parameters specified above. */
   { case Seq(ls) =>
-    let("res" :: IntegerType(), if_ (ls.isInstOf(T(cons)(tp))) {
-      E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(cons)(tp)).getField(tail))
+    let("res" :: IntegerType(), if_ (ls is cons) {
+      E(BigInt(1)) + E(size)(tp)(ls.getField(tail))
     } else_ {
       E(BigInt(0))
     }) (res => Assume(res >= E(BigInt(0)), res))
@@ -169,11 +160,11 @@ A symbol table in Inox is an instance of `Symbols`. The easiest way to construct
 implicit val symbols = {
   NoSymbols
     .withFunctions(Seq(sizeFunction))
-    .withADTs(Seq(listSort, consConstructor, nilConstructor))
+    .withSorts(Seq(listSort))
 }
 ```
 We make the symbols value implicit as many methods in Inox require an implicit `Symbols` argument
-(such as `getType`, `getFunction`, `getADT`, etc.).
+(such as `getType`, `getFunction`, `getSort`, etc.).
 
 ## Verifying Properties
 
@@ -196,8 +187,8 @@ the `Assume` statement) satisfies the condition we are trying to prove. (Note th
 ```scala
 val tp: TypeParameter = TypeParameter.fresh("A")
 val ls: Variable = Variable.fresh("ls", T(list)(tp))
-val prop = (if_ (ls.isInstOf(T(cons)(tp))) {
-  E(BigInt(1)) + E(size)(tp)(ls.asInstOf(T(cons)(tp)).getField(tail))
+val prop = (if_ (ls is cons) {
+  E(BigInt(1)) + E(size)(tp)(ls.getField(tail))
 } else_ {
   E(BigInt(0))
 }) >= E(BigInt(0))

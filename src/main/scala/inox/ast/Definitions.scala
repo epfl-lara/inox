@@ -225,7 +225,7 @@ trait Definitions { self: Trees =>
     protected def ensureWellFormedAdt(sort: ADTSort) = {
       if (!sort.isWellFormed) throw NotWellFormedException(sort)
       if (!(sort.constructors forall (cons => cons.sort == sort.id))) throw NotWellFormedException(sort)
-      if (!(sort.constructors.flatMap(_.fields).groupBy(_.id).exists(_._2.size > 1))) throw NotWellFormedException(sort)
+      if (sort.constructors.flatMap(_.fields).groupBy(_.id).exists(_._2.size > 1)) throw NotWellFormedException(sort)
     }
 
     override def equals(that: Any): Boolean = that match {

@@ -71,26 +71,24 @@ __ADTs__
 
 Algebraic datatype definitions can be recursive and support type-parametric polymorphism,
 as in the named function case. An ADT can either correspond to a *sort*, or a *constructor*.
-Sorts can be seen as abstract classes with constructors resembling final classes.
+Sorts can be seen as abstract classes with constructors resembling final case classes.
 
 ADT sort definitions take place using the following class:
 ```scala
 class ADTSort(
   val id: Identifier,                 /* The symbol associated with this ADT sort. */
   val tparams: Seq[TypeParameterDef], /* The ADT's type parameters. */
-  val cons: Seq[Identifier],          /* The symbols of the sort's constructors. */
+  val cons: Seq[ADTConstructor],      /* The sort's constructors. */
   val flags: Set[Flag]                /* Annotations associated to this definition. */)
 ```
-Note that the sort will point to all its potential constructors.
+Note that the sort contains the definitions of all its constructors.
 
 ADT constructor definitions then take place using the class:
 ```scala
 class ADTConstructor(
   val id: Identifier,                 /* The symbol associated with this ADT sort. */
-  val tparams: Seq[TypeParameterDef], /* The ADT's type parameters. */
-  val sort: Option[Identifier],       /* The symbol of the constructor's (optional) sort. */
-  val fields: Seq[ValDef],            /* The fields associated to this constructor. */
-  val flags: Set[Flag]                /* Annotations associated to this definition. */)
+  val sort: Identifier,               /* The symbol of the constructor's sort. */
+  val fields: Seq[ValDef]             /* The fields associated to this constructor. */)
 ```
 
 Inox provides the utility types `TypedFunDef`, `TypedADTSort` and `TypedADTConstructor`

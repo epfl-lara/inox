@@ -53,8 +53,6 @@ trait ConstraintSolvers { self: Interpolator =>
       }
     }
 
-
-
     object UnknownCollectorVariance {
       var positives = Set[Unknown]()
       var negatives = Set[Unknown]()
@@ -126,7 +124,6 @@ trait ConstraintSolvers { self: Interpolator =>
       }).toSet
       var remaining: Seq[Constraint] = constraints
       var substitutions: Map[Unknown, Type] = Map()
-      var bounds: Map[Unknown, Bounds] = Map()
       var typeClasses: Map[Unknown, TypeClass] = Map()
       var tupleConstraints: Map[Unknown, Set[Constraint]] = Map()
 
@@ -137,23 +134,6 @@ trait ConstraintSolvers { self: Interpolator =>
         substitutions = substitutions.mapValues(subst(_))
         substitutions += (u -> t)
         tupleConstraints = tupleConstraints.mapValues(_.map(subst(_)))
-
-        bounds = bounds.mapValues {
-          case Bounds(ls, us) => Bounds(ls.map(subst(_)), us.map(subst(_)))
-        }
-
-        // If the variable we are substituting has bounds...
-        bounds.get(u).foreach {
-
-          // We reintroduce those bounds has constraints.
-          case Bounds(ls, us) => {
-            remaining ++= ls.map(Subtype(_, t).setPos(u.pos))
-            remaining ++= us.map(Subtype(t, _).setPos(u.pos))
-          }
-
-          // We remove the bounds of the variable.
-          bounds -= u
-        }
 
         // If the variable we are substituting has "tuple" constraints...
         tupleConstraints.get(u).foreach { (cs: Set[Constraint]) =>
@@ -174,34 +154,6 @@ trait ConstraintSolvers { self: Interpolator =>
           // Remove the entry for the variable.
           typeClasses -= u
         }
-      }
-
-      def verifyBounds(b: Bounds) {
-
-      }
-
-      def isSurelyEnd(tpe: Type, top: Boolean): Boolean = tpe match {
-        case _: Unknown => false
-        case NAryType(Seq(), _) => true
-        case ADTType(id, tps) => {
-          val adtDef = symbols.getADT(id)
-          assert(tps.length == tps.length)
-
-          val sortCorrect = if (top) {
-            adtDef.root(symbols) == adtDef
-          }
-          else {
-            adtDef.root(symbols) != adtDef || {
-              adtDef.isInstanceOf[ADTSort] &&
-              adtDef.asInstanceOf[ADTSort].cons.isEmpty
-            }
-          }
-
-          sortCorrect
-        }
-        case TupleType(ts) => ts.forall(isSurelyEnd(_, top))
-        case FunctionType(fs, t) => fs.forall(isSurelyEnd(_, !top)) && isSurelyEnd(t, top)
-        case BagType(_) | SetType(_) | MapType(_, _) => true // Those are invariant.
       }
 
       def className(c: TypeClass) = c match {
@@ -257,105 +209,6 @@ trait ConstraintSolvers { self: Interpolator =>
             }
             case _ => throw new ConstraintException("Types incompatible: " + a + ", " + b, constraint.pos)
           }
-          case Subtype(a, b) => (a, b) match {
-            case _ if (a == b) => ()
-            case (u1: Unknown, u2: Unknown) => {
-              val Bounds(l1s, u1s) = bounds.get(u1).getOrElse(Bounds(Set(), Set()))
-              val Bounds(l2s, u2s) = bounds.get(u2).getOrElse(Bounds(Set(), Set()))
-
-              bounds += (u1 -> Bounds(l1s, u1s + u2))
-              bounds += (u2 -> Bounds(l2s + u1, u2s))
-            }
-            case (u: Unknown, _) => {
-              val checker = new OccurChecker(u)
-              if (checker(b)) {
-                throw new ConstraintException("Occur check.", constraint.pos)
-              }
-
-              if (isSurelyEnd(b, false)) {
-                // If b is at the bottom of the subtyping chain...
-                remaining +:= Equal(a, b).setPos(constraint.pos)
-              }
-              else {
-                val Bounds(ls, us) = bounds.get(u).getOrElse(Bounds(Set(), Set()))
-                val nBounds = Bounds(ls, us + b)
-                verifyBounds(nBounds)
-                bounds += (u -> nBounds)
-              }
-            }
-            case (_, u: Unknown) => {
-              val checker = new OccurChecker(u)
-              if (checker(a)) {
-                throw new ConstraintException("Occur check.", constraint.pos)
-              }
-
-              if (isSurelyEnd(a, true)) {
-                // If a is at the top of the subtyping chain...
-                remaining +:= Equal(a, b).setPos(constraint.pos)
-              }
-              else {
-                val Bounds(ls, us) = bounds.get(u).getOrElse(Bounds(Set(), Set()))
-                val nBounds = Bounds(ls + a, us)
-                verifyBounds(nBounds)
-                bounds += (u -> nBounds)
-              }
-            }
-            case (ADTType(id1, t1s), ADTType(id2, t2s)) => {
-              val adtDef1 = symbols.lookupADT(id1).getOrElse {
-                throw new Error("Unknown ADT: " + id1)
-              }
-
-              val adtDef2 = symbols.lookupADT(id2).getOrElse {
-                throw new Error("Unknown ADT: " + id2)
-              }
-
-              if (adtDef1 != adtDef2 && adtDef1.root(symbols) != adtDef2) {
-                throw new ConstraintException("Type " + a + " can not be a subtype of " + b, constraint.pos)
-              }
-
-              if (t1s.length != t2s.length || t2s.length != adtDef1.tparams.length) {
-                throw new ConstraintException("Type " + a + " can not be a subtype of " + b, constraint.pos)
-              }
-
-              assert(adtDef1.tparams.length == adtDef2.tparams.length)
-
-              adtDef1.tparams.zip(t1s.zip(t2s)).foreach {
-                case (tpDef, (t1, t2)) => {
-                  remaining +:= Equal(t1, t2).setPos(constraint.pos)
-                }
-              }
-            }
-            case (TupleType(tas), TupleType(tbs)) if (tas.length == tbs.length) => {
-              tas.zip(tbs).foreach {
-                case (ta, tb) => remaining +:= Subtype(ta, tb).setPos(constraint.pos)
-              }
-            }
-            case (SetType(ta), SetType(tb)) => {
-              remaining +:= Equal(ta, tb).setPos(constraint.pos)  // Sets are invariant.
-            }
-            case (BagType(ta), BagType(tb)) => {
-              remaining +:= Equal(ta, tb).setPos(constraint.pos) // Bags are invariant.
-            }
-            case (MapType(fa, ta), MapType(fb, tb)) => {
-              remaining +:= Equal(fa, fb).setPos(constraint.pos) // Maps are invariant.
-              remaining +:= Equal(ta, tb).setPos(constraint.pos)
-            }
-            case (FunctionType(fas, ta), FunctionType(fbs, tb)) if (fas.length == fbs.length) => {
-              fas.zip(fbs).foreach {
-                case (fa, fb) => remaining +:= Subtype(fb, fa).setPos(constraint.pos)
-              }
-              remaining +:= Subtype(ta, tb).setPos(constraint.pos)
-            }
-            case (NAryType(Seq(), _), _) => {
-              remaining +:= Equal(a, b).setPos(constraint.pos)
-            }
-            case (_, NAryType(Seq(), _)) => {
-              remaining +:= Equal(a, b).setPos(constraint.pos)
-            }
-            case _ => {
-              throw new ConstraintException("Type " + a + " can not be a subtype of " + b, constraint.pos)
-            }
-          }
           case AtIndexEqual(a, b, i) => a match {
             case u: Unknown => {
               typeClasses.get(u).foreach {
@@ -378,15 +231,6 @@ trait ConstraintSolvers { self: Interpolator =>
           case HasClass(a, c) => {
             a match {
               case u: Unknown => {
-                bounds.get(u).foreach {
-                  case Bounds(ls, us) => {
-                    // Member of type classes are flat.
-                    remaining ++= ls.map(Equal(u, _).setPos(constraint.pos))
-                    remaining ++= us.map(Equal(u, _).setPos(constraint.pos))
-                  }
-
-                  bounds -= u
-                }
                 tupleConstraints.get(u).foreach {
                   case _ => throw new ConstraintException("Type " + a + " can not be both a tuple and " + className(c), constraint.pos)
                 }
@@ -408,45 +252,6 @@ trait ConstraintSolvers { self: Interpolator =>
           remaining = remaining.tail
           handle(constraint)
         }
-
-        // val (inUppersAll, inLowersAll) = bounds.toSeq.map({
-        //   case (u, Bounds(ls, us)) => {
-        //     val (plss, nlss) = ls.map(UnknownCollectorVariance(_)).unzip
-        //     val (puss, nuss) = us.map(UnknownCollectorVariance(_)).unzip
-
-        //     val pus = puss.fold(Set[Unknown]())(_ ++ _)
-        //     val nus = nuss.fold(Set[Unknown]())(_ ++ _)
-        //     val pls = plss.fold(Set[Unknown]())(_ ++ _)
-        //     val nls = nlss.fold(Set[Unknown]())(_ ++ _)
-
-        //     ((pus ++ nls) - u, (pls ++ nus) - u)
-        //   }
-        // }).unzip
-
-        // val inUppers = inUppersAll.fold(Set[Unknown]())(_ ++ _)
-        // val inLowers = inLowersAll.fold(Set[Unknown]())(_ ++ _)
-
-        bounds.foreach({
-          case (u, Bounds(ls, us)) => {
-            val uInUps = us.map(UnknownCollector(_)).fold(Set[Unknown]())(_ ++ _)
-            val uInLws = ls.map(UnknownCollector(_)).fold(Set[Unknown]())(_ ++ _)
-
-            if (!us.isEmpty && uInUps.isEmpty /* && !inLowers.contains(u) */) {
-              val bound = symbols.greatestLowerBound(us.toSeq)
-              if (bound == Untyped) {
-                throw new ConstraintException("The following types are incompatible: " + us, u.pos)
-              }
-              remaining +:= Equal(u, bound).setPos(u.pos)
-            }
-            else if (!ls.isEmpty && uInLws.isEmpty /* && !inUppers.contains(u) */) {
-              val bound = symbols.leastUpperBound(ls.toSeq)
-              if (bound == Untyped) {
-                throw new ConstraintException("The following types are incompatible: " + ls, u.pos)
-              }
-              remaining +:= Equal(u, bound).setPos(u.pos)
-            }
-          }
-        })
 
         if (remaining.isEmpty) {
           // Set the default instance for classes.

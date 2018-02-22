@@ -51,10 +51,8 @@ trait SymbolOps { self: TypeOps =>
     def step(e: Expr): Option[Expr] = e match {
       case Not(t) => Some(not(t))
       case UMinus(t) => Some(uminus(t))
-      case ADT(tpe, args) => Some(adt(tpe, args))
       case ADTSelector(e, sel) => Some(adtSelector(e, sel))
-      case AsInstanceOf(e, ct) => Some(asInstOf(e, ct))
-      case IsInstanceOf(e, ct) => Some(isInstOf(e, ct))
+      case IsConstructor(e, id) => Some(isCons(e, id))
       case Equals(t1, t2) => Some(equality(t1, t2))
       case Implies(t1, t2) => Some(implies(t1, t2))
       case Plus(t1, t2) => Some(plus(t1, t2))
@@ -119,8 +117,8 @@ trait SymbolOps { self: TypeOps =>
     case Assume(BooleanLiteral(true), _) => false
     case Choose(res, BooleanLiteral(true)) if hasInstance(res.tpe) == Some(true) => false
     case (_: Assume) | (_: Choose) | (_: Application) |
-         (_: Division) | (_: Remainder) | (_: Modulo) | (_: AsInstanceOf) => true
-    case ADT(tpe, _) => tpe.getADT.definition.hasInvariant
+         (_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector) => true
+    case adt: ADT => adt.getConstructor.sort.definition.hasInvariant
     case _ => false
   }
 
@@ -404,28 +402,22 @@ trait SymbolOps { self: TypeOps =>
       }
       Tuple(args)
 
-    case adt: ADTType => adt.getADT match {
-      case tcons: TypedADTConstructor =>
-        if (tcons.fieldsTypes.isEmpty) {
-          ADT(tcons.toType, Seq.empty)
-        } else {
-          val es = unwrapTuple(constructExpr(i, tupleTypeWrap(tcons.fieldsTypes)), tcons.fieldsTypes.size)
-          ADT(tcons.toType, es)
+    case adt: ADTType =>
+      val sort = adt.getSort
+      def rec(i: Int, conss: Seq[TypedADTConstructor]): (Int, TypedADTConstructor) = {
+        val cons +: rest = conss
+        constructorCardinality(cons) match {
+          case None => i -> cons
+          case Some(card) if card > i => i -> cons
+          case Some(card) => rec(i - card, rest)
         }
+      }
 
-      case tsort: TypedADTSort =>
-        def rec(i: Int, tconss: Seq[TypedADTConstructor]): (Int, TypedADTConstructor) = tconss match {
-          case tcons +: rest => typeCardinality(tcons.toType) match {
-            case None => i -> tcons
-            case Some(card) if card > i => i -> tcons
-            case Some(card) => rec(i - card, rest)
-          }
-          case _ => sys.error("Should never happen")
-        }
-
-        val (ni, tcons) = rec(i, tsort.constructors.sortBy(t => typeCardinality(t.toType).getOrElse(Int.MaxValue)))
-        constructExpr(ni, tcons.toType)
-    }
+      val (ni, cons) = rec(i, sort.constructors.sortBy(constructorCardinality(_).getOrElse(Int.MaxValue)))
+      ADT(cons.id, cons.tps, {
+        if (cons.fieldsTypes.isEmpty) Seq()
+        else unwrapTuple(constructExpr(i, tupleTypeWrap(cons.fieldsTypes)), cons.fieldsTypes.size)
+      })
 
     case SetType(base) => typeCardinality(base) match {
       case None => FiniteSet(Seq(constructExpr(i, base)), base)
@@ -625,7 +617,7 @@ trait SymbolOps { self: TypeOps =>
       FiniteMap(Seq(), _, _, _)    |
       FiniteBag(Seq(), _)          |
       FiniteSet(Seq(), _)          |
-      IsInstanceOf(_: Variable, _)
+      IsConstructor(_: Variable, _)
     ), b) => Some(replaceFromSymbols(Map(v -> ts), b))
 
     case _ => None
@@ -687,9 +679,9 @@ trait SymbolOps { self: TypeOps =>
     case MapType(_, to) => hasInstance(to)
     case TupleType(tpes) => if (tpes.forall(tp => hasInstance(tp) contains true)) Some(true) else None
     case adt: ADTType =>
-      val tadt = adt.getADT
-      if (tadt.hasInvariant) None
-      else if (!tadt.definition.isWellFormed) Some(false)
+      val sort = adt.getSort
+      if (sort.hasInvariant) None
+      else if (!sort.definition.isWellFormed) Some(false)
       else Some(true)
     case _ => Some(true)
   }
@@ -712,10 +704,12 @@ trait SymbolOps { self: TypeOps =>
       case TupleType(tpes)            => Tuple(tpes.map(rec(_, seen)))
 
       case adt @ ADTType(id, tps) =>
-        val tadt = adt.getADT
-        if (!tadt.definition.isWellFormed) throw NoSimpleValue(adt)
+        val sort = adt.getSort
+        if (!sort.definition.isWellFormed) throw NoSimpleValue(adt)
 
-        if (tadt.hasInvariant) {
+        if (seen(adt)) {
+          Choose(ValDef(FreshIdentifier("res"), adt), BooleanLiteral(true))
+        } else if (sort.hasInvariant) {
           if (!allowSolver) throw NoSimpleValue(adt)
 
           val p = Variable.fresh("p", FunctionType(Seq(adt), BooleanType()))
@@ -729,17 +723,8 @@ trait SymbolOps { self: TypeOps =>
             case _ => throw NoSimpleValue(adt)
           }
         } else {
-          val tconss = tadt match {
-            case tsort: TypedADTSort => tsort.constructors.filter(_.definition.isWellFormed)
-            case tcons: TypedADTConstructor => Seq(tcons)
-          }
-
-          tconss.filter(t => !seen(t.toType)).sortBy(_.fields.size).headOption match {
-            case Some(tcons) =>
-              ADT(tcons.toType, tcons.fieldsTypes.map(rec(_, seen + tcons.toType)))
-            case None =>
-              Choose(ValDef(FreshIdentifier("res"), adt), BooleanLiteral(true))
-          }
+          val cons = sort.constructors.sortBy(_.fields.size).head
+          ADT(cons.id, cons.tps, cons.fieldsTypes.map(rec(_, seen + adt)))
         }
 
       case tp: TypeParameter =>
@@ -793,12 +778,11 @@ trait SymbolOps { self: TypeOps =>
           prev flatMap { case seq => Stream(seq, seq :+ curr) }
         }.flatten
         cartesianProduct(seqs, valuesOf(to)) map { case (values, default) => FiniteMap(values, default, from, to) }
-      case adt: ADTType => adt.getADT match {
-        case tcons: TypedADTConstructor =>
-          cartesianProduct(tcons.fieldsTypes map valuesOf) map (ADT(adt, _))
-        case tsort: TypedADTSort =>
-          interleave(tsort.constructors.map(tcons => valuesOf(tcons.toType)))
-      }
+      case adt: ADTType =>
+        val sort = adt.getSort
+        interleave(sort.constructors.map {
+          cons => cartesianProduct(cons.fieldsTypes map valuesOf) map (ADT(cons.id, cons.tps, _))
+        })
     }
   }
 
@@ -1111,41 +1095,35 @@ trait SymbolOps { self: TypeOps =>
   }
 
   /** Returns true if expr is a value of type t */
-  def isValueOfType(e: Expr, t: Type): Boolean = {
-    def unWrapSome(s: Expr) = s match {
-      case ADT(_, Seq(a)) => a
-      case _ => s
-    }
-    (e, t) match {
-      case (StringLiteral(_), StringType()) => true
-      case (BVLiteral(_, s), BVType(t)) => s == t
-      case (IntegerLiteral(_), IntegerType()) => true
-      case (CharLiteral(_), CharType()) => true
-      case (FractionLiteral(_, _), RealType()) => true
-      case (BooleanLiteral(_), BooleanType()) => true
-      case (UnitLiteral(), UnitType()) => true
-      case (GenericValue(t, _), tp) => t == tp
-      case (Tuple(elems), TupleType(bases)) =>
-        elems zip bases forall (eb => isValueOfType(eb._1, eb._2))
-      case (FiniteSet(elems, tbase), SetType(base)) =>
-        tbase == base &&
-        (elems forall isValue)
-      case (FiniteBag(elements, fbtpe), BagType(tpe)) =>
-        fbtpe == tpe &&
-        elements.forall{ case (key, value) => isValueOfType(key, tpe) && isValueOfType(value, IntegerType()) }
-      case (FiniteMap(elems, default, kt, vt), MapType(from, to)) =>
-        (kt == from) < s"$kt not equal to $from" && (vt == to) < s"${default.getType} not equal to $to" &&
-        isValueOfType(default, to) < s"${default} not a value of type $to" &&
-        (elems forall (kv => isValueOfType(kv._1, from) < s"${kv._1} not a value of type $from" && isValueOfType(unWrapSome(kv._2), to) < s"${unWrapSome(kv._2)} not a value of type ${to}" ))
-      case (ADT(adt, args), adt2: ADTType) =>
-        isSubtypeOf(adt, adt2) < s"$adt not a subtype of $adt2" &&
-        ((args zip adt.getADT.toConstructor.fieldsTypes) forall (argstyped => isValueOfType(argstyped._1, argstyped._2) < s"${argstyped._1} not a value of type ${argstyped._2}" ))
-      case (Lambda(valdefs, body), FunctionType(ins, out)) =>
-        variablesOf(e).isEmpty &&
-        (valdefs zip ins forall (vdin => isSubtypeOf(vdin._2, vdin._1.getType) < s"${vdin._2} is not a subtype of ${vdin._1.getType}")) &&
-        isSubtypeOf(body.getType, out) < s"${body.getType} is not a subtype of $out"
-      case _ => false
-    }
+  def isValueOfType(e: Expr, t: Type): Boolean = (e, t) match {
+    case (StringLiteral(_), StringType()) => true
+    case (BVLiteral(_, s), BVType(t)) => s == t
+    case (IntegerLiteral(_), IntegerType()) => true
+    case (CharLiteral(_), CharType()) => true
+    case (FractionLiteral(_, _), RealType()) => true
+    case (BooleanLiteral(_), BooleanType()) => true
+    case (UnitLiteral(), UnitType()) => true
+    case (GenericValue(t, _), tp) => t == tp
+    case (Tuple(elems), TupleType(bases)) =>
+      elems zip bases forall (eb => isValueOfType(eb._1, eb._2))
+    case (FiniteSet(elems, tbase), SetType(base)) =>
+      tbase == base &&
+      (elems forall isValue)
+    case (FiniteBag(elements, fbtpe), BagType(tpe)) =>
+      fbtpe == tpe &&
+      elements.forall{ case (key, value) => isValueOfType(key, tpe) && isValueOfType(value, IntegerType()) }
+    case (FiniteMap(elems, default, kt, vt), MapType(from, to)) =>
+      (kt == from) < s"$kt not equal to $from" && (vt == to) < s"${default.getType} not equal to $to" &&
+      isValueOfType(default, to) < s"${default} not a value of type $to" &&
+      (elems forall (kv => isValueOfType(kv._1, from) < s"${kv._1} not a value of type $from" && isValueOfType(kv._2, to) < s"${kv._2} not a value of type ${to}" ))
+    case (adt @ ADT(id, tps, args), adt2: ADTType) =>
+      isSubtypeOf(adt.getType, adt2) < s"$adt not a subtype of $adt2" &&
+      ((args zip adt.getConstructor.fieldsTypes) forall (argstyped => isValueOfType(argstyped._1, argstyped._2) < s"${argstyped._1} not a value of type ${argstyped._2}" ))
+    case (Lambda(valdefs, body), FunctionType(ins, out)) =>
+      variablesOf(e).isEmpty &&
+      (valdefs zip ins forall (vdin => isSubtypeOf(vdin._2, vdin._1.getType) < s"${vdin._2} is not a subtype of ${vdin._1.getType}")) &&
+      isSubtypeOf(body.getType, out) < s"${body.getType} is not a subtype of $out"
+    case _ => false
   }
 
   /** Returns true if expr is a value. Stronger than isGround */
@@ -1318,21 +1296,8 @@ trait SymbolOps { self: TypeOps =>
     val actualType = tupleTypeWrap(args.map(_.getType))
 
     symbols.instantiation_>:(formalType, actualType) match {
-      case Some(tmap) => ADT(instantiateType(adt.typed.toType, tmap).asInstanceOf[ADTType], args)
+      case Some(tmap) => ADT(adt.id, adt.getSort.typeArgs.map(instantiateType(_, tmap)), args)
       case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
-    }
-  }
-
-  /** Simplifies the provided adt construction.
-    * @see [[Expressions.ADT ADT]] */
-  def adt(tpe: ADTType, args: Seq[Expr]): Expr = {
-    val ls = (tpe.getADT.toConstructor.fields zip args).collect {
-      case (vd, ADTSelector(e, id)) if vd.id == id => e
-    }
-
-    ls match {
-      case ls @ (e +: es) if ls.size == args.size && es.forall(_ == e) && tpe == e.getType => e
-      case _ => ADT(tpe, args).setPos(tpe.getPos)
     }
   }
 
@@ -1341,8 +1306,10 @@ trait SymbolOps { self: TypeOps =>
     */
   def adtSelector(adt: Expr, selector: Identifier): Expr = {
     adt match {
-      case a @ ADT(tp, fields) if !tp.getADT.hasInvariant =>
-        fields(tp.getADT.toConstructor.definition.selectorID2Index(selector))
+      case a @ ADT(id, tps, fields) =>
+        val cons = a.getConstructor
+        if (!cons.sort.hasInvariant) fields(cons.definition.selectorID2Index(selector))
+        else ADTSelector(adt, selector).copiedFrom(adt)
       case _ =>
         ADTSelector(adt, selector).copiedFrom(adt)
     }

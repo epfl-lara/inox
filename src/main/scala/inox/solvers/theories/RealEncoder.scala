@@ -29,7 +29,7 @@ trait RealEncoder extends SimpleEncoder {
   private val fractionCons = fraction.constructors.head
 
   override val extraFunctions = Seq(fraction_inv, fraction_eq)
-  override val extraADTs = Seq(fraction)
+  override val extraSorts = Seq(fraction)
 
   protected object encoder extends SelfTreeTransformer {
     import sourceProgram._

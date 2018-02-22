@@ -113,10 +113,6 @@ trait DSL {
       FunctionInvocation(fd.id, Seq.empty, args.toSeq)
   }
 
-  implicit class ADTTypeToExpr(adt: ADTType) {
-    def apply(args: Expr*) = ADT(adt, args)
-  }
-
   implicit class GenValue(tp: TypeParameter) {
     def ## (id: Int) = GenericValue(tp, id)
   }
@@ -228,17 +224,6 @@ trait DSL {
       FunctionType(Seq(from._1, from._2, from._3, from._4), to)
   }
 
-  // TODO remove this at some point
-  private def testTypes: Unit = {
-    val ct1 = FreshIdentifier("ct1")
-    val ct2 = FreshIdentifier("ct2")
-    T(
-      T(ct1)(),
-      T(ct1)(T(ct2)(), IntegerType()),
-      (T(ct1)(), T(ct2)()) =>: T(ct1)()
-    )
-  }
-
   /* Patterns */
   object C {
     def apply(id: Identifier): ADTConsIdentifier = new ADTConsIdentifier(id)
@@ -282,22 +267,5 @@ trait DSL {
     val tParamDefs = tParams map (TypeParameterDef(_))
     new ADTSort(id, tParamDefs, consBuilder(tParams).map(p => new ADTConstructor(p._1, id, p._2)), flags.toSet)
   }
-
-  // TODO: Remove this at some point
-  /* This defines
-    def f[A, B](i: BigInt, j: C[A], a: A): (BigInt, C[A]) = {
-      (42, C[A](a))
-    }
-  */
-  private def testDefs = {
-    val c = T(FreshIdentifier("c"))
-    val f = FreshIdentifier("f")
-    mkFunDef(f)("A", "B"){ case Seq(aT, bT) => (
-      Seq("i" :: IntegerType(), "j" :: c(aT), "a" :: aT),
-      T(IntegerType(), c(aT)),
-      { case Seq(i, j, a) => E(E(42), c(aT)(a)) }
-    )}
-  }
-
 }
 

@@ -70,7 +70,7 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
       elem => z3.getASTKind(elem) match {
         case Z3AppAST(decl, args) if underlying.constructors containsB decl =>
           underlying.constructors.toA(decl) match {
-            case t.ADTType(id, _) => Some(id)
+            case underlying.ADTCons(id, _) => Some(id)
             case _ => None
           }
         case _ => None

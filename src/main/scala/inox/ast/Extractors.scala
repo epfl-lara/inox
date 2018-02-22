@@ -59,13 +59,9 @@ trait TreeDeconstructor {
       val s.ADTSelector(e, sel) = expr
       (Seq(sel), Seq(), Seq(e), Seq(), (ids, _, es, _) => t.ADTSelector(es.head, ids.head))
     },
-    classOf[s.IsInstanceOf] -> { expr =>
-      val s.IsInstanceOf(e, ct) = expr
-      (Seq(), Seq(), Seq(e), Seq(ct), (_, _, es, tps) => t.IsInstanceOf(es.head, tps.head))
-    },
-    classOf[s.AsInstanceOf] -> { expr =>
-      val s.AsInstanceOf(e, ct) = expr
-      (Seq(), Seq(), Seq(e), Seq(ct), (_, _, es, tps) => t.AsInstanceOf(es.head, tps.head))
+    classOf[s.IsConstructor] -> { expr =>
+      val s.IsConstructor(e, id) = expr
+      (Seq(id), Seq(), Seq(e), Seq(), (ids, _, es, _) => t.IsConstructor(es.head, ids.head))
     },
     classOf[s.TupleSelect] -> { expr =>
       val s.TupleSelect(e, i) = expr
@@ -242,8 +238,8 @@ trait TreeDeconstructor {
       (Seq(), Seq(), caller +: args, Seq(), (_, _, es, _) => t.Application(es.head, es.tail))
     },
     classOf[s.ADT] -> { expr =>
-      val s.ADT(adt, args) = expr
-      (Seq(), Seq(), args, Seq(adt), (_, _, es, tps) => t.ADT(tps.head.asInstanceOf[t.ADTType], es))
+      val s.ADT(id, tps, args) = expr
+      (Seq(id), Seq(), args, tps, (ids, _, es, tps) => t.ADT(ids.head, tps, es))
     },
     classOf[s.And] -> { expr =>
       val s.And(args) = expr
@@ -485,37 +481,4 @@ trait Extractors { self: Trees =>
 
   def unwrapTupleType(tp: Type, expectedSize: Int): Seq[Type] =
     unwrapTupleType(tp, expectedSize > 1)
-
-  object RecordType {
-    def unapply(tpe: ADTType)(implicit s: Symbols): Option[TypedADTConstructor] = tpe.getADT match {
-      case tcons: TypedADTConstructor if !tcons.definition.isInductive => Some(tcons)
-      case tsort: TypedADTSort if tsort.constructors.size == 1 => unapply(tsort.constructors.head.toType)
-      case _ => None
-    }
-  }
-
-  object FunctionContainerType {
-    def unapply(tpe: Type)(implicit s: Symbols): Boolean = {
-      def rec(tpe: Type, first: Boolean = false): Boolean = tpe match {
-        case RecordType(tcons) => tcons.fieldsTypes.exists(rec(_))
-        case TupleType(tpes) => tpes.exists(rec(_))
-        case _: FunctionType if !first => true
-        case _ => false
-      }
-
-      rec(tpe, first = true)
-    }
-  }
-
-  object Container {
-    def unapply(e: Expr)(implicit s: Symbols): Option[(Seq[Expr], Seq[Expr] => Expr)] = e.getType match {
-      case adt @ RecordType(tcons) =>
-        Some((tcons.fields.map(vd => ADTSelector(e, vd.id)), es => ADT(adt, es)))
-
-      case TupleType(tps) =>
-        Some((tps.indices.map(i => TupleSelect(e, i + 1)).toSeq, es => Tuple(es)))
-
-      case _ => None
-    }
-  }
 }

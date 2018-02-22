@@ -81,8 +81,8 @@ trait Program { self =>
   def withFunctions(functions: Seq[trees.FunDef]): Program { val trees: self.trees.type } =
     Program(trees)(symbols withFunctions functions)
 
-  def withADTs(adts: Seq[trees.ADTDefinition]): Program { val trees: self.trees.type } =
-    Program(trees)(symbols withADTs adts)
+  def withSorts(sorts: Seq[trees.ADTSort]): Program { val trees: self.trees.type } =
+    Program(trees)(symbols withSorts sorts)
 
   def asString(implicit ctx: Context): String = trees.asString(symbols)
   override def toString: String = asString(Context.empty)

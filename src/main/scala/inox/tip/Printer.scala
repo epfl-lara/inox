@@ -71,7 +71,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
 
     val invariants = adtManager.types
       .collect { case adt: ADTType => adt }
-      .map(_.getADT.definition)
+      .map(_.getSort.definition)
       .flatMap(_.invariant)
 
     for (fd <- invariants) {
@@ -98,7 +98,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
 
   def emit(s: String): Unit = writer.write(s)
 
-  protected def liftADTType(adt: ADTType): Type = adt.getADT.definition.root.typed.toType
+  protected def liftADTType(adt: ADTType): Type = ADTType(adt.id, adt.getSort.definition.typeArgs)
 
   protected val tuples: MutableMap[Int, TupleType] = MutableMap.empty
 
@@ -147,7 +147,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
     }
 
     val (ours, externals) = adts.partition {
-      case (adt: ADTType, _) => adt == adt.getADT.definition.typed.toType
+      case (adt @ ADTType(_, tps), _) => tps == adt.getSort.definition.typeArgs
       case (tpe @ TupleType(tps), _) => Some(tpe) == tuples.get(tps.size)
       case _ => true
     }
@@ -318,12 +318,10 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
     case SubString(s, start, end) => Strings.Substring(toSMT(s), toSMT(start), toSMT(end))
     case StringLength(s) => Strings.Length(toSMT(s))
 
-    case ADT(tpe @ ADTType(id, tps), es) =>
-      val d = tpe.getADT.definition
-      val tcons = d.typed(d.root.typeArgs).toConstructor
-      val adt = tcons.toType
-      val sort = declareSort(tpe)
-      val constructor = constructors.toB(adt)
+    case adt @ ADT(id, tps, es) =>
+      val tcons = adt.getConstructor
+      val sort = declareSort(ADTType(tcons.sort.id, tps))
+      val constructor = constructors.toB(ADTCons(tcons.id, tcons.sort.definition.typeArgs))
       if (es.isEmpty) {
         if (tcons.tps.nonEmpty) QualifiedIdentifier(SMTIdentifier(constructor), Some(sort))
         else constructor
@@ -332,35 +330,29 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
       }
 
     case s @ ADTSelector(e, id) =>
-      val d = e.getType.asInstanceOf[ADTType].getADT.definition
-      val tcons = d.typed(d.root.typeArgs).toConstructor
-      val adt = tcons.toType
-      declareSort(adt)
-      val selector = selectors.toB(adt -> s.selectorIndex)
+      val cons = s.constructor.definition
+      val tpe = ADTType(cons.sort, cons.getSort.typeArgs)
+      declareSort(tpe)
+      val selector = selectors.toB(ADTCons(cons.id, tpe.tps) -> s.selectorIndex)
       FunctionApplication(selector, Seq(toSMT(e)))
 
-    case IsInstanceOf(e, t: ADTType) =>
-      val d = t.getADT.definition
-      val tdef = d.typed(d.root.typeArgs)
-      if (tdef.definition.isSort) {
-        toSMT(BooleanLiteral(true))
-      } else {
-        val adt = tdef.toConstructor.toType
-        declareSort(adt)
-        val tester = testers.toB(adt)
-        FunctionApplication(tester, Seq(toSMT(e)))
-      }
+    case IsConstructor(e, id) =>
+      val cons = getConstructor(id)
+      val tpe = ADTType(cons.sort, cons.getSort.typeArgs)
+      declareSort(tpe)
+      val tester = testers.toB(ADTCons(cons.id, tpe.tps))
+      FunctionApplication(tester, Seq(toSMT(e)))
 
     case t @ Tuple(es) =>
       declareSort(t.getType)
-      val tpe = tuples(es.size)
-      val constructor = constructors.toB(tpe)
+      val TupleType(tps) = tuples(es.size)
+      val constructor = constructors.toB(TupleCons(tps))
       FunctionApplication(constructor, es.map(toSMT))
 
     case ts @ TupleSelect(t, i) =>
       declareSort(t.getType)
-      val tpe = tuples(t.getType.asInstanceOf[TupleType].dimension)
-      val selector = selectors.toB((tpe, i - 1))
+      val TupleType(tps) = tuples(t.getType.asInstanceOf[TupleType].dimension)
+      val selector = selectors.toB((TupleCons(tps), i - 1))
       FunctionApplication(selector, Seq(toSMT(t)))
 
     case fi @ FunctionInvocation(id, tps, args) =>

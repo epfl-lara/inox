@@ -15,11 +15,13 @@ trait ASCIIStringEncoder extends SimpleEncoder {
   val value = FreshIdentifier("value")
   val inv = FreshIdentifier("inv")
 
-  val stringADT = mkConstructor(
-    FreshIdentifier("String"), HasADTInvariant(inv)
-  )()(None)(_ => Seq(ValDef(value, StringType())))
+  val stringSort = mkSort(FreshIdentifier("String"), HasADTInvariant(inv))()(_ => Seq(
+    (FreshIdentifier("String"), Seq(ValDef(value, StringType())))
+  ))
+  val stringCons = stringSort.constructors.head
+  val StringConsID = stringCons.id
 
-  val String: ADTType = T(stringADT.id)()
+  val String: ADTType = T(stringSort.id)()
 
   val invariant = mkFunDef(inv)()(_ => (
     Seq("s" :: String), BooleanType(), { case Seq(s) =>
@@ -27,7 +29,7 @@ trait ASCIIStringEncoder extends SimpleEncoder {
     }))
 
   override protected val extraFunctions = Seq(invariant)
-  override protected val extraADTs = Seq(stringADT)
+  override protected val extraSorts = Seq(stringSort)
 
   private def toHex(i: Int): String = {
     if (0 <= i && i <= 9) i.toString else (i + 55).toChar.toString
@@ -62,14 +64,14 @@ trait ASCIIStringEncoder extends SimpleEncoder {
   protected object encoder extends SelfTreeTransformer {
     override def transform(e: Expr): Expr = e match {
       case StringLiteral(v) =>
-        String(StringLiteral(v.flatMap(c => c.toString.getBytes.toSeq match {
+        stringCons(StringLiteral(v.flatMap(c => c.toString.getBytes.toSeq match {
           case Seq(b) if 32 <= b && b <= 127 => b.toChar.toString + b.toChar.toString
           case Seq(b) => encodeByte(b) + encodeByte(b)
           case Seq(b1, b2) => encodeByte(b1) + encodeByte(b2)
         })))
       case StringLength(a) => Division(StringLength(transform(a).getField(value)), TWO)
-      case StringConcat(a, b) => String(StringConcat(transform(a).getField(value), transform(b).getField(value)))
-      case SubString(a, start, end) => String(SubString(transform(a).getField(value), transform(start) * TWO, transform(end) * TWO))
+      case StringConcat(a, b) => stringCons(StringConcat(transform(a).getField(value), transform(b).getField(value)))
+      case SubString(a, start, end) => stringCons(SubString(transform(a).getField(value), transform(start) * TWO, transform(end) * TWO))
       case _ => super.transform(e)
     }
 
@@ -82,7 +84,7 @@ trait ASCIIStringEncoder extends SimpleEncoder {
   protected object decoder extends SelfTreeTransformer {
 
     override def transform(e: Expr): Expr = e match {
-      case ADT(String, Seq(StringLiteral(s))) =>
+      case ADT(StringConsID, Seq(), Seq(StringLiteral(s))) =>
         def unescape(s: String): String = if (s.isEmpty) s else {
             val (b1, s2) = decodeFirstByte(s)
             if (s2.isEmpty) throw TheoryException("String doesn't satisfy invariant")
@@ -110,10 +112,10 @@ trait ASCIIStringEncoder extends SimpleEncoder {
       case Division(StringLength(a), TWO) =>
         StringLength(transform(a))
 
-      case ADT(String, Seq(StringConcat(a, b))) =>
+      case ADT(StringConsID, Seq(), Seq(StringConcat(a, b))) =>
         StringConcat(transform(a), transform(b))
 
-      case ADT(String, Seq(SubString(a, Times(start, TWO), Times(end, TWO)))) =>
+      case ADT(StringConsID, Seq(), Seq(SubString(a, Times(start, TWO), Times(end, TWO)))) =>
         SubString(transform(a), transform(start), transform(end))
 
       case _ => super.transform(e)

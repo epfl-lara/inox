@@ -94,13 +94,12 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
 
     def extractConstructor(v: IExpression, tpe: t.ADTType): Option[Identifier] =
       model.eval(v.asInstanceOf[ITerm]).flatMap { elem =>
-        val realType = underlying.program.symbols.bestRealType(tpe).asInstanceOf[t.ADTType]
         val (sort, adts) = underlying.typeToSort(tpe)
         (adts.map(_._1) zip sort.ctorIds).collectFirst {
-          case (`realType`, fun) => model.eval(fun(v.asInstanceOf[ITerm])).map { i =>
+          case (`tpe`, fun) => model.eval(fun(v.asInstanceOf[ITerm])).map { i =>
             val index = i.intValue
             val constructors = adts.flatMap(_._2.cases)
-            constructors(index).tpe.asInstanceOf[t.ADTType].id
+            constructors(index).tpe.asInstanceOf[underlying.ADTCons].id
           }
         }.flatten
       }

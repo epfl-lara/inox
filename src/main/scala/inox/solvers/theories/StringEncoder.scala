@@ -17,7 +17,7 @@ trait StringEncoder extends SimpleEncoder {
   val head = FreshIdentifier("head")
   val tail = FreshIdentifier("tail")
 
-  val stringADT = mkSort(StringID)()(_ => Seq(
+  val stringSort = mkSort(StringID)()(_ => Seq(
     (StringNilID, Seq()),
     (StringConsID, Seq(ValDef(head, CharType()), ValDef(tail, ADTType(StringID, Seq.empty))))
   ))
@@ -80,7 +80,7 @@ trait StringEncoder extends SimpleEncoder {
     }))
 
   override val extraFunctions = Seq(Size, Take, Drop, Slice, Concat)
-  override val extraADTs = Seq(stringADT)
+  override val extraSorts = Seq(stringSort)
 
   private val stringBijection = new Bijection[String, Expr]()
 

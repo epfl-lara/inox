@@ -17,7 +17,7 @@ trait BitvectorEncoder extends SimpleEncoder {
     toBlasted: FunDef,
     invariant: FunDef
   ) {
-    def adts = Seq(bv, blasted)
+    def sorts = Seq(bv, blasted)
     def functions = Seq(toBV, toBlasted, invariant)
 
     val bvCons = bv.constructors.head
@@ -92,7 +92,7 @@ trait BitvectorEncoder extends SimpleEncoder {
   private val chars: BitvectorEncoding = mkEncoding(32)
 
   override val extraFunctions = (chars +: bitvectors.values.toSeq).flatMap(_.functions)
-  override val extraADTs = (chars +: bitvectors.values.toSeq).flatMap(_.adts)
+  override val extraSorts = (chars +: bitvectors.values.toSeq).flatMap(_.sorts)
 
   protected object encoder extends SelfTreeTransformer {
     import sourceProgram._

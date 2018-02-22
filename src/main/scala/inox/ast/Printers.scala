@@ -129,8 +129,8 @@ trait Printer {
       p"""|assume($pred)
           |$body"""
 
-    case e @ ADT(adt, args) =>
-      p"$adt($args)"
+    case e @ ADT(id, tps, args) =>
+      p"$id${nary(tps, ", ", "[", "]")}($args)"
 
     case And(exprs) => optP {
       p"${nary(exprs, " && ")}"
@@ -177,8 +177,7 @@ trait Printer {
     case GenericValue(tp, id) => p"$tp#$id"
     case Tuple(exprs) => p"($exprs)"
     case TupleSelect(t, i) => p"$t._$i"
-    case AsInstanceOf(e, ct) => p"""$e.asInstanceOf[$ct]"""
-    case IsInstanceOf(e, cct) => p"$e.isInstanceOf[$cct]"
+    case IsConstructor(e, id) => p"$e is $id"
     case ADTSelector(e, id) => p"$e.$id"
 
     case FunctionInvocation(id, tps, args) =>
@@ -347,18 +346,18 @@ trait Printer {
       for (an <- sort.flags) p"""|@${an.asString(ctx.opts)}
                                  |"""
       p"abstract class ${sort.id}${nary(sort.tparams, ", ", "[", "]")}"
+      for (cons <- sort.constructors) {
+        p"""|
+            |case class ${cons.id}"""
+        p"${nary(sort.tparams, ", ", "[", "]")}"
+        p"(${cons.fields})"
+        p" extends ${sort.id}${nary(sort.tparams, ", ", "[", "]")}"
+      }
 
     case cons: ADTConstructor =>
-      for (an <- cons.flags) p"""|@${an.asString(ctx.opts)}
-                                 |"""
       p"case class ${cons.id}"
-      p"${nary(cons.tparams, ", ", "[", "]")}"
       p"(${cons.fields})"
-
-      cons.sort.foreach { s =>
-        // Remember child and parents tparams are simple bijection
-        p" extends $s${nary(cons.tparams, ", ", "[", "]")}"
-      }
+      p" extends ${cons.sort}"
 
     case fd: FunDef =>
       for (an <- fd.flags) {

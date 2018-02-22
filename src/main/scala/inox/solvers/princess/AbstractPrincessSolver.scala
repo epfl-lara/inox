@@ -207,9 +207,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         val (cons, rec, i) = expr match {
           case s @ ADTSelector(adt, _) =>
             val tpe = adt.getType.asInstanceOf[ADTType]
-            val tcons = s.constructor.getOrElse(
-              throw PrincessSolverException(s"Undefined constructor for $s!?"))
-            (ADTCons(tcons.id, tpe.tps), adt, s.selectorIndex)
+            (ADTCons(s.constructor.id, tpe.tps), adt, s.selectorIndex)
           case TupleSelect(tpl, i) =>
             val TupleType(tps) = tpl.getType
             (TupleCons(tps), tpl, i - 1)

@@ -55,29 +55,40 @@ class Parser(file: File) {
 
   protected class Locals (
     funs: Map[SSymbol, Identifier],
-    adts: Map[SSymbol, Identifier],
+    sorts: Map[SSymbol, Identifier],
+    constructors: Map[SSymbol, Identifier],
     selectors: Map[SSymbol, Identifier],
     val vars: Map[SSymbol, Expr],
-    tps:  Map[SSymbol, TypeParameter],
+    tps: Map[SSymbol, TypeParameter],
     val symbols: Symbols) { self =>
 
-    def isADT(sym: SSymbol): Boolean = adts.isDefinedAt(sym)
-    def lookupADT(sym: SSymbol): Option[Identifier] = adts.get(sym)
-    def getADT(sym: SSymbol): Identifier = adts.get(sym).getOrElse {
-      throw new MissformedTIPException("unknown ADT " + sym, sym.optPos)
+    def isSort(sym: SSymbol): Boolean = sorts.isDefinedAt(sym)
+    def lookupSort(sym: SSymbol): Option[Identifier] = sorts.get(sym)
+    def getSort(sym: SSymbol): Identifier = sorts.get(sym).getOrElse {
+      throw new MissformedTIPException("unknown sort " + sym, sym.optPos)
     }
 
-    def withADT(sym: SSymbol, id: Identifier): Locals = withADTs(Seq(sym -> id))
-    def withADTs(seq: Seq[(SSymbol, Identifier)]): Locals =
-      new Locals(funs, adts ++ seq, selectors, vars, tps, symbols)
+    def isConstructor(sym: SSymbol): Boolean = constructors.isDefinedAt(sym)
+    def lookupConstructor(sym: SSymbol): Option[Identifier] = constructors.get(sym)
+    def getConstructor(sym: SSymbol): Identifier = constructors.get(sym).getOrElse {
+      throw new MissformedTIPException("unknown constructor " + sym, sym.optPos)
+    }
 
-    def isADTSelector(sym: SSymbol): Boolean = selectors.isDefinedAt(sym)
-    def getADTSelector(sym: SSymbol): Identifier = selectors.get(sym).getOrElse {
+    def withSort(sym: SSymbol, id: Identifier): Locals = withSorts(Seq(sym -> id))
+    def withSorts(seq: Seq[(SSymbol, Identifier)]): Locals =
+      new Locals(funs, sorts ++ seq, constructors, selectors, vars, tps, symbols)
+
+    def withConstructor(sym: SSymbol, id: Identifier): Locals = withConstructors(Seq(sym -> id))
+    def withConstructors(seq: Seq[(SSymbol, Identifier)]): Locals =
+      new Locals(funs, sorts, constructors ++ seq, selectors, vars, tps, symbols)
+
+    def isSelector(sym: SSymbol): Boolean = selectors.isDefinedAt(sym)
+    def getSelector(sym: SSymbol): Identifier = selectors.get(sym).getOrElse {
       throw new MissformedTIPException("unknown ADT selector " + sym, sym.optPos)
     }
 
-    def withADTSelectors(seq: Seq[(SSymbol, Identifier)]): Locals =
-      new Locals(funs, adts, selectors ++ seq, vars, tps, symbols)
+    def withSelectors(seq: Seq[(SSymbol, Identifier)]): Locals =
+      new Locals(funs, sorts, constructors, selectors ++ seq, vars, tps, symbols)
 
     def isGeneric(sym: SSymbol): Boolean = tps.isDefinedAt(sym)
     def getGeneric(sym: SSymbol): TypeParameter = tps.get(sym).getOrElse {
@@ -86,7 +97,7 @@ class Parser(file: File) {
 
     def withGeneric(sym: SSymbol, tp: TypeParameter): Locals = withGenerics(Seq(sym -> tp))
     def withGenerics(seq: Seq[(SSymbol, TypeParameter)]): Locals =
-      new Locals(funs, adts, selectors, vars, tps ++ seq, symbols)
+      new Locals(funs, sorts, constructors, selectors, vars, tps ++ seq, symbols)
 
     def isVariable(sym: SSymbol): Boolean = vars.isDefinedAt(sym)
     def getVariable(sym: SSymbol): Expr = vars.get(sym).getOrElse {
@@ -95,7 +106,7 @@ class Parser(file: File) {
 
     def withVariable(sym: SSymbol, v: Expr): Locals = withVariables(Seq(sym -> v))
     def withVariables(seq: Seq[(SSymbol, Expr)]): Locals =
-      new Locals(funs, adts, selectors, vars ++ seq, tps, symbols)
+      new Locals(funs, sorts, constructors, selectors, vars ++ seq, tps, symbols)
 
     def isFunction(sym: SSymbol): Boolean = funs.isDefinedAt(sym)
     def getFunction(sym: SSymbol): Identifier = funs.get(sym).getOrElse {
@@ -104,14 +115,14 @@ class Parser(file: File) {
 
     def withFunction(sym: SSymbol, fd: FunDef): Locals = withFunctions(Seq(sym -> fd))
     def withFunctions(fds: Seq[(SSymbol, FunDef)]): Locals =
-      new Locals(funs ++ fds.map(p => p._1 -> p._2.id), adts, selectors, vars, tps,
+      new Locals(funs ++ fds.map(p => p._1 -> p._2.id), sorts, constructors, selectors, vars, tps,
         symbols.withFunctions(fds.map(_._2)))
 
-    def registerADT(adt: ADTDefinition): Locals = registerADTs(Seq(adt))
-    def registerADTs(defs: Seq[ADTDefinition]): Locals =
-      new Locals(funs, adts, selectors, vars, tps, symbols.withADTs(defs))
+    def registerSort(sort: ADTSort): Locals = registerSorts(Seq(sort))
+    def registerSorts(seq: Seq[ADTSort]): Locals =
+      new Locals(funs, sorts, constructors, selectors, vars, tps, symbols.withSorts(seq))
 
-    def withSymbols(symbols: Symbols) = new Locals(funs, adts, selectors, vars, tps, symbols)
+    def withSymbols(symbols: Symbols) = new Locals(funs, sorts, constructors, selectors, vars, tps, symbols)
 
     object extractor extends {
       val symbols: self.symbols.type = self.symbols
@@ -122,7 +133,7 @@ class Parser(file: File) {
   }
 
   protected val NoLocals: Locals = new Locals(
-    Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, NoSymbols)
+    Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, NoSymbols)
 
   protected object DatatypeInvariantExtractor {
     def unapply(cmd: Command): Option[(Seq[SSymbol], SSymbol, Sort, Term)] = cmd match {
@@ -207,22 +218,17 @@ class Parser(file: File) {
       }))
 
     case DeclareDatatypesPar(tps, datatypes) =>
-      var locs = locals.withADTs(datatypes
-        .flatMap { case (sym, conss) =>
-          val tpeId = FreshIdentifier(sym.name)
-          val cids = if (conss.size == 1) {
-            Seq(conss.head.sym -> tpeId)
-          } else {
-            conss.map(c => c.sym -> FreshIdentifier(c.sym.name))
-          }
-          (sym -> tpeId) +: cids
+      var locs = locals
+        .withSorts(datatypes.map { case (sym, _) => sym -> FreshIdentifier(sym.name) })
+        .withConstructors(datatypes.flatMap { case (_, conss) =>
+          conss.map(c => c.sym -> FreshIdentifier(c.sym.name))
         })
 
       val generics = tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos))
       for ((sym, conss) <- datatypes) {
         val adtLocals = locs.withGenerics(generics)
         val children = for (Constructor(sym, fields) <- conss) yield {
-          val id = locs.getADT(sym)
+          val id = locs.getConstructor(sym)
           val vds = fields.map { case (s, sort) =>
             ValDef(FreshIdentifier(s.name), adtLocals.extractSort(sort)).setPos(s.optPos)
           }
@@ -230,7 +236,6 @@ class Parser(file: File) {
           (id, vds)
         }
 
-        val allVds: Set[ValDef] = children.flatMap(_._2).toSet
         val allTparams: Set[TypeParameter] = children.flatMap(_._2).toSet.flatMap {
           (vd: ValDef) => locs.symbols.typeParamsOf(vd.tpe): Set[TypeParameter]
         }
@@ -240,61 +245,47 @@ class Parser(file: File) {
           if (allTparams(tp)) Some(TypeParameterDef(tp).setPos(sym.optPos)) else None
         }
 
-        val parent = if (children.size > 1) {
-          val id = adtLocals.getADT(sym)
-          locs = locs.registerADT(
-            new ADTSort(id, tparams, children.map(_._1), Set.empty).setPos(sym.optPos))
-          Some(id)
-        } else {
-          None
-        }
+        val sortId = adtLocals.getSort(sym)
+        locs = locs.registerSort(new ADTSort(sortId, tparams, (conss zip children).map {
+          case (cons, (id, vds)) => new ADTConstructor(id, sortId, vds).setPos(cons.sym.optPos)
+        }, Set.empty).setPos(sym.optPos))
 
-        locs = locs.registerADTs((conss zip children).map { case (cons, (cid, vds)) =>
-          new ADTConstructor(cid, tparams, parent, vds, Set.empty).setPos(cons.sym.optPos)
-        }).withADTSelectors((conss zip children).flatMap { case (Constructor(_, fields), (_, vds)) =>
-          (fields zip vds).map(p => p._1._1 -> p._2.id)
+        locs = locs.withSelectors((conss zip children).flatMap {
+          case (Constructor(_, fields), (_, vds)) => (fields zip vds).map(p => p._1._1 -> p._2.id)
         })
       }
 
       (None, locs)
 
     case DeclareSort(sym, arity) =>
-      val id = FreshIdentifier(sym.name)
-      (None, locals.withADT(sym, id).registerADT {
+      val sortId = FreshIdentifier(sym.name)
+      val consId = sortId.freshen
+      (None, locals.withSort(sym, sortId).withConstructor(sym, consId).registerSort {
         val tparams = List.range(0, arity).map {
           i => TypeParameterDef(TypeParameter.fresh("A" + i).setPos(sym.optPos)).setPos(sym.optPos)
         }
         val field = ValDef(FreshIdentifier("val"), IntegerType().setPos(sym.optPos)).setPos(sym.optPos)
 
-        new ADTConstructor(id, tparams, None, Seq(field), Set.empty).setPos(sym.optPos)
+        new ADTSort(sortId, tparams, Seq(
+          new ADTConstructor(consId, sortId, Seq(field)).setPos(sym.optPos)
+        ), Set.empty).setPos(sym.optPos)
       })
 
     case DatatypeInvariantExtractor(syms, s, sort, pred) =>
       val tps = syms.map(s => TypeParameter.fresh(s.name).setPos(s.optPos))
       val adt = locals.withGenerics(syms zip tps).extractSort(sort) match {
-        case adt @ ADTType(id, typeArgs) if tps == typeArgs => adt.getADT(locals.symbols).definition
+        case adt @ ADTType(id, typeArgs) if tps == typeArgs => adt.getSort(locals.symbols).definition
         case _ => throw new MissformedTIPException(s"Unexpected type parameters $syms", sort.optPos)
       }
 
-      val root = adt.root(locals.symbols)
-      val rootType = root.typed(locals.symbols).toType
-      val vd = ValDef(FreshIdentifier(s.name), rootType).setPos(s.optPos)
+      val vd = ValDef(FreshIdentifier(s.name), ADTType(adt.id, adt.typeArgs)).setPos(s.optPos)
 
-      val body = if (root != adt) {
-        val adtType = adt.typed(root.typeArgs)(locals.symbols).toType
-        Implies(
-          IsInstanceOf(vd.toVariable, adtType).setPos(pred.optPos),
-          locals.withGenerics(syms zip root.typeArgs)
-            .withVariable(s, AsInstanceOf(vd.toVariable, adtType).setPos(s.optPos))
-            .extractTerm(pred)
-        ).setPos(pred.optPos)
-      } else {
-        locals.withGenerics(syms zip root.typeArgs)
-          .withVariable(s, vd.toVariable)
-          .extractTerm(pred)
-      }
+      val body = locals
+        .withGenerics(syms zip adt.typeArgs)
+        .withVariable(s, vd.toVariable)
+        .extractTerm(pred)
 
-      val (optAdt, fd) = root.invariant(locals.symbols) match {
+      val (optAdt, fd) = adt.invariant(locals.symbols) match {
         case Some(fd) =>
           val Seq(v) = fd.params
           val fullBody = and(
@@ -304,17 +295,14 @@ class Parser(file: File) {
           (None, fd.copy(fullBody = fullBody))
 
         case None =>
-          val id = FreshIdentifier("inv$" + root.id.name)
-          val newAdt = root match {
-            case sort: ADTSort => sort.copy(flags = sort.flags + HasADTInvariant(id))
-            case cons: ADTConstructor => cons.copy(flags = cons.flags + HasADTInvariant(id))
-          }
-          val fd = new FunDef(id, root.tparams, Seq(vd), BooleanType().setPos(s.optPos), body, Set.empty).setPos(s.optPos)
+          val id = FreshIdentifier("inv$" + adt.id.name)
+          val newAdt = adt.copy(flags = adt.flags + HasADTInvariant(id))
+          val fd = new FunDef(id, adt.tparams, Seq(vd), BooleanType().setPos(s.optPos), body, Set.empty).setPos(s.optPos)
           (Some(newAdt), fd)
       }
 
       (None, locals.withSymbols(
-        locals.symbols.withFunctions(Seq(fd)).withADTs(optAdt.toSeq)))
+        locals.symbols.withFunctions(Seq(fd)).withSorts(optAdt.toSeq)))
 
     case _ =>
       throw new MissformedTIPException("unknown TIP command " + cmd, cmd.optPos)
@@ -355,24 +343,12 @@ class Parser(file: File) {
     new FunDef(sig.id, sig.tparams, sig.params, sig.returnType, fullBody, Set.empty).setPos(fd.name.optPos)
   }
 
-  private def isInstanceOfSymbol(sym: SSymbol)(implicit locals: Locals): Option[Identifier] = {
+  private def isConstructorSymbol(sym: SSymbol)(implicit locals: Locals): Option[Identifier] = {
     if (sym.name.startsWith("is-")) {
       val adtSym = SSymbol(sym.name.split("-").tail.mkString("-"))
-      locals.lookupADT(adtSym)
+      locals.lookupConstructor(adtSym)
     } else {
       None
-    }
-  }
-
-  private def typeADTConstructor(id: Identifier, superType: Type)(implicit locals: Locals): ADTType = {
-    val tcons = locals.symbols.getADT(id).typed(locals.symbols).toConstructor
-    val troot = tcons.root.toType
-    locals.symbols.instantiation_>:(troot, superType) match {
-      case Some(tmap) => locals.symbols.instantiateType(tcons.toType, tmap).asInstanceOf[ADTType]
-      case None => throw new MissformedTIPException(
-        "cannot construct full typing for " + tcons,
-        superType.getPos
-      )
     }
   }
 
@@ -381,8 +357,8 @@ class Parser(file: File) {
     assert(formals.size == actuals.size)
 
     import locals.symbols._
-    val formal = bestRealType(tupleTypeWrap(formals))
-    val actual = bestRealType(tupleTypeWrap(actuals))
+    val formal = tupleTypeWrap(formals)
+    val actual = tupleTypeWrap(actuals)
 
     // freshen the type parameters in case we're building a substitution that includes params from `tps`
     val tpSubst: Map[Type, Type] = typeParamsOf(actual).map(tp => tp -> tp.freshen).toMap
@@ -401,16 +377,6 @@ class Parser(file: File) {
     }
   }
 
-  private def wrapAsInstanceOf(formals: Seq[Type], exprs: Seq[Expr])(implicit locals: Locals): Seq[Expr] = {
-    (formals zip exprs).map { case (tpe, e) =>
-      (tpe, e.getType(locals.symbols)) match {
-        case (tp1: ADTType, tp2: ADTType) if tp1 != tp2 && locals.symbols.isSubtypeOf(tp1, tp2) =>
-          AsInstanceOf(e, tp1)
-        case _ => e
-      }
-    }
-  }
-
   trait TermExtractor extends solvers.smtlib.SMTLIBParser {
     val trees: inox.trees.type = inox.trees
 
@@ -421,12 +387,16 @@ class Parser(file: File) {
       val vars = locals.vars
       def withVariable(sym: SSymbol, expr: Expr): Context = Context(locals.withVariable(sym, expr))
 
-      @inline def isADT(sym: SSymbol): Boolean = locals.isADT(sym)
-      @inline def lookupADT(sym: SSymbol): Option[Identifier] = locals.lookupADT(sym)
-      @inline def getADT(sym: SSymbol): Identifier = locals.getADT(sym)
+      @inline def isSort(sym: SSymbol): Boolean = locals.isSort(sym)
+      @inline def lookupSort(sym: SSymbol): Option[Identifier] = locals.lookupSort(sym)
+      @inline def getSort(sym: SSymbol): Identifier = locals.getSort(sym)
 
-      @inline def isADTSelector(sym: SSymbol): Boolean = locals.isADTSelector(sym)
-      @inline def getADTSelector(sym: SSymbol): Identifier = locals.getADTSelector(sym)
+      @inline def isConstructor(sym: SSymbol): Boolean = locals.isConstructor(sym)
+      @inline def lookupConstructor(sym: SSymbol): Option[Identifier] = locals.lookupConstructor(sym)
+      @inline def getConstructor(sym: SSymbol): Identifier = locals.getConstructor(sym)
+
+      @inline def isSelector(sym: SSymbol): Boolean = locals.isSelector(sym)
+      @inline def getSelector(sym: SSymbol): Identifier = locals.getSelector(sym)
 
       @inline def isGeneric(sym: SSymbol): Boolean = locals.isGeneric(sym)
       @inline def getGeneric(sym: SSymbol): TypeParameter = locals.getGeneric(sym)
@@ -479,28 +449,23 @@ class Parser(file: File) {
           case _ => Lambda(vds, fromSMT(term)(ctx.withVariables(bindings)))
         }
 
-      case QualifiedIdentifier(SimpleIdentifier(sym), optSort) if ctx.isADT(sym) =>
-        val cons = symbols.getADT(ctx.getADT(sym)).asInstanceOf[ADTConstructor]
-        val tpe = optSort match {
+      case QualifiedIdentifier(SimpleIdentifier(sym), optSort) if ctx.isConstructor(sym) =>
+        val cons = symbols.getConstructor(ctx.getConstructor(sym))
+        val tps = optSort match {
           case Some(sort) =>
-            val tps = instantiateTypeParams(
-              cons.tparams,
-              Seq(cons.typed.toType),
-              Seq(fromSMT(sort)))(ctx.locals)
-            cons.typed(tps).toType
+            fromSMT(sort).asInstanceOf[ADTType].tps
           case _ =>
-            assert(cons.tparams.isEmpty)
-            cons.typed.toType
+            assert(cons.getSort.tparams.isEmpty)
+            Seq.empty
         }
-        ADT(tpe, Seq.empty)
+        ADT(cons.id, tps, Seq.empty)
 
       case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), args)
-      if ctx.isADT(sym) =>
+      if ctx.isConstructor(sym) =>
         val es = args.map(fromSMT(_))
-        val cons = symbols.getADT(ctx.getADT(sym)).asInstanceOf[ADTConstructor]
-        val tps = instantiateTypeParams(cons.tparams, cons.fields.map(_.tpe), es.map(_.getType))(ctx.locals)
-        val tcons = cons.typed(tps)
-        ADT(tcons.toType, wrapAsInstanceOf(tcons.fieldsTypes, es)(ctx.locals))
+        val cons = symbols.getConstructor(ctx.getConstructor(sym))
+        val tps = instantiateTypeParams(cons.getSort.tparams, cons.fields.map(_.tpe), es.map(_.getType))(ctx.locals)
+        ADT(cons.id, tps, es)
 
       case QualifiedIdentifier(SimpleIdentifier(sym), optSort) if ctx.isFunction(sym) =>
         val fd = symbols.getFunction(ctx.getFunction(sym))
@@ -531,29 +496,18 @@ class Parser(file: File) {
           case None =>
             instantiateTypeParams(fd.tparams, fd.params.map(_.tpe), es.map(_.getType))(ctx.locals)
         }
-        val tfd = fd.typed(tps)
-        tfd.applied(wrapAsInstanceOf(tfd.params.map(_.tpe), es)(ctx.locals))
+        fd.typed(tps).applied(es)
 
       case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), Seq(term))
-      if isInstanceOfSymbol(sym)(ctx.locals).isDefined =>
+      if isConstructorSymbol(sym)(ctx.locals).isDefined =>
         val e = fromSMT(term)
-        val tpe = typeADTConstructor(isInstanceOfSymbol(sym)(ctx.locals).get, e.getType)(ctx.locals)
-        IsInstanceOf(e, tpe)
+        IsConstructor(e, isConstructorSymbol(sym)(ctx.locals).get)
 
       case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), Seq(term))
-      if ctx.isADTSelector(sym) =>
-        val id = ctx.getADTSelector(sym)
+      if ctx.isSelector(sym) =>
+        val id = ctx.getSelector(sym)
         val adt = fromSMT(term)
-        adt.getType match {
-          case tpe: ADTType => tpe.getADT match {
-            case tcons: TypedADTConstructor => ADTSelector(adt, id)
-            case tsort: TypedADTSort =>
-              val tcons = tsort.constructors.find(_.fields.exists(vd => vd.id == id)).getOrElse {
-                throw new MissformedTIPException("Coulnd't find corresponding constructor", sym.optPos)
-              }
-              ADTSelector(AsInstanceOf(adt, tcons.toType).setPos(term.optPos), id)
-          }
-        }
+        ADTSelector(adt, id)
 
       /* String theory extractors */
 
@@ -575,14 +529,14 @@ class Parser(file: File) {
       case Sets.EmptySet(sort) => FiniteSet(Seq.empty, fromSMT(sort))
       case Sets.Singleton(e) =>
         val elem = fromSMT(e)
-        FiniteSet(Seq(elem), bestRealType(elem.getType))
+        FiniteSet(Seq(elem), elem.getType)
 
       case Sets.Insert(set, es @ _*) =>
         es.foldLeft(fromSMT(set))((s,e) => SetAdd(s, fromSMT(e)))
 
       case Bags.Singleton(k, v) =>
         val key = fromSMT(k)
-        FiniteBag(Seq(key -> fromSMT(v)), bestRealType(key.getType))
+        FiniteBag(Seq(key -> fromSMT(v)), key.getType)
 
       case Bags.EmptyBag(sort) => FiniteBag(Seq.empty, fromSMT(sort))
       case Bags.Union(e1, e2) => BagUnion(fromSMT(e1), fromSMT(e2))
@@ -600,23 +554,20 @@ class Parser(file: File) {
             (None, fromSMT(cse.rhs))
 
           case CaseObject(sym) =>
-            val id = ctx.getADT(sym)
-            val tpe = typeADTConstructor(id, scrut.getType)(ctx.locals)
-            (Some(IsInstanceOf(scrut, tpe).setPos(sym.optPos)), fromSMT(cse.rhs))
+            val id = ctx.getConstructor(sym)
+            (Some(IsConstructor(scrut, id).setPos(sym.optPos)), fromSMT(cse.rhs))
 
           case CaseClass(sym, args) =>
-            val id = ctx.getADT(sym)
-            val tpe = typeADTConstructor(id, scrut.getType)(ctx.locals)
-
-            val tcons = tpe.getADT.toConstructor
+            val id = ctx.getConstructor(sym)
+            val tcons = getConstructor(id, scrut.getType.asInstanceOf[ADTType].tps)
             val bindings = (tcons.fields zip args).map { case (vd, sym) => (sym, vd.id, vd.freshen) }
 
             val expr = fromSMT(cse.rhs)(ctx.withVariables(bindings.map(p => p._1 -> p._3.toVariable)))
             val fullExpr = bindings.foldRight(expr) { case ((s, id, vd), e) =>
-              val selector = ADTSelector(AsInstanceOf(scrut, tpe).setPos(s.optPos), id).setPos(s.optPos)
+              val selector = ADTSelector(scrut, id).setPos(s.optPos)
               Let(vd, selector, e).setPos(s.optPos)
             }
-            (Some(IsInstanceOf(scrut, tpe).setPos(sym.optPos)), fullExpr)
+            (Some(IsConstructor(scrut, id).setPos(sym.optPos)), fullExpr)
         })
 
         val (withCond, withoutCond) = matchCases.partition(_._1.isDefined)
@@ -639,7 +590,7 @@ class Parser(file: File) {
       case Bags.BagSort(base) => BagType(fromSMT(base))
       case Sort(SimpleIdentifier(SSymbol("=>")), params :+ res) => FunctionType(params.map(fromSMT), fromSMT(res))
       case Sort(SimpleIdentifier(sym), Seq()) if ctx.isGeneric(sym) => ctx.getGeneric(sym)
-      case Sort(SimpleIdentifier(sym), tps) if ctx.isADT(sym) => ADTType(ctx.getADT(sym), tps.map(fromSMT))
+      case Sort(SimpleIdentifier(sym), tps) if ctx.isSort(sym) => ADTType(ctx.getSort(sym), tps.map(fromSMT))
       case _ => super.fromSMT(sort)
     }).setPos(sort.id.symbol.optPos)
   }

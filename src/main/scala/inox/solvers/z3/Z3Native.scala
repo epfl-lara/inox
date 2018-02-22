@@ -88,9 +88,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   private[z3] val lambdas   = new IncrementalBijection[FunctionType, Z3FuncDecl]()
   private[z3] val variables = new IncrementalBijection[Variable, Z3AST]()
 
-  private[z3] val constructors = new IncrementalBijection[Type, Z3FuncDecl]()
-  private[z3] val selectors    = new IncrementalBijection[(Type, Int), Z3FuncDecl]()
-  private[z3] val testers      = new IncrementalBijection[Type, Z3FuncDecl]()
+  private[z3] val constructors = new IncrementalBijection[ConsType, Z3FuncDecl]()
+  private[z3] val selectors    = new IncrementalBijection[(ConsType, Int), Z3FuncDecl]()
+  private[z3] val testers      = new IncrementalBijection[ConsType, Z3FuncDecl]()
 
   private[z3] val sorts     = new IncrementalMap[Type, Z3Sort]()
 
@@ -179,7 +179,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   sorts += StringType() -> z3.mkSeqSort(z3.mkBVSort(8))
 
   // assumes prepareSorts has been called....
-  protected def typeToSort(oldtt: Type): Z3Sort = bestRealType(oldtt) match {
+  protected def typeToSort(oldtt: Type): Z3Sort = oldtt match {
     case BooleanType() | IntegerType() | RealType() | CharType() | StringType() =>
       sorts(oldtt)
 
@@ -343,61 +343,44 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       }
 
       case u : UnitLiteral =>
-        val tpe = bestRealType(u.getType)
-        typeToSort(tpe)
-        val constructor = constructors.toB(tpe)
+        typeToSort(u.getType)
+        val constructor = constructors.toB(UnitCons)
         constructor()
 
       case t @ Tuple(es) =>
-        val tpe = bestRealType(t.getType)
+        val tpe @ TupleType(tps) = t.getType
         typeToSort(tpe)
-        val constructor = constructors.toB(tpe)
+        val constructor = constructors.toB(TupleCons(tps))
         constructor(es.map(rec): _*)
 
       case ts @ TupleSelect(t, i) =>
-        val tpe = bestRealType(t.getType)
+        val tpe @ TupleType(tps) = t.getType
         typeToSort(tpe)
-        val selector = selectors.toB((tpe, i-1))
+        val selector = selectors.toB((TupleCons(tps), i-1))
         selector(rec(t))
 
-      case c @ ADT(ADTType(id, tps), args) =>
-        val adt = ADTType(id, tps map bestRealType)
-        typeToSort(adt) // Making sure the sort is defined
-        val constructor = constructors.toB(adt)
+      case c @ ADT(id, tps, args) =>
+        typeToSort(c.getType) // Making sure the sort is defined
+        val constructor = constructors.toB(ADTCons(id, tps))
         constructor(args.map(rec): _*)
 
       case c @ ADTSelector(cc, sel) =>
-        val ADTType(id, tps) = cc.getType
-        val adt = ADTType(id, tps map bestRealType)
-        typeToSort(adt) // Making sure the sort is defined
-        val selector = selectors.toB(adt -> c.selectorIndex)
+        val tpe @ ADTType(_, tps) = cc.getType
+        typeToSort(tpe) // Making sure the sort is defined
+        val selector = selectors.toB(ADTCons(c.constructor.id, tps) -> c.selectorIndex)
         selector(rec(cc))
 
-      case AsInstanceOf(expr, adt) =>
-        rec(expr)
-
-      case IsInstanceOf(e, ADTType(id, tps)) =>
-        val adt = ADTType(id, tps map bestRealType)
-        adt.getADT match {
-          case tsort: TypedADTSort =>
-            tsort.constructors match {
-              case Seq(tcons) =>
-                rec(IsInstanceOf(e, tcons.toType))
-              case more =>
-                val v = Variable.fresh("e", adt, true)
-                rec(Let(v.toVal, e, orJoin(more map (tcons => IsInstanceOf(v, tcons.toType)))))
-            }
-          case tcons: TypedADTConstructor =>
-            typeToSort(adt)
-            val tester = testers.toB(adt)
-            tester(rec(e))
-        }
+      case IsConstructor(e, id) =>
+        val tpe @ ADTType(_, tps) = e.getType
+        typeToSort(tpe)
+        val tester = testers.toB(ADTCons(id, tps))
+        tester(rec(e))
 
       case f @ FunctionInvocation(id, tps, args) =>
         z3.mkApp(functionDefToDecl(getFunction(id, tps)), args.map(rec): _*)
 
       case fa @ Application(caller, args) =>
-        val ft @ FunctionType(froms, to) = bestRealType(caller.getType)
+        val ft @ FunctionType(froms, to) = caller.getType
         val funDecl = lambdas.cachedB(ft) {
           val sortSeq    = (ft +: froms).map(tpe => typeToSort(tpe))
           val returnSort = typeToSort(to)
@@ -493,7 +476,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
       case gv @ GenericValue(tp, id) =>
         typeToSort(tp)
-        val constructor = constructors.toB(tp)
+        val constructor = constructors.toB(TypeParameterCons(tp))
         constructor(rec(IntegerLiteral(id)))
 
       case other =>
@@ -556,16 +539,16 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
             FunctionInvocation(tfd.id, tfd.tps, args.zip(tfd.params).map{ case (a, p) => rec(a, p.getType, seen) })
           } else if (constructors containsB decl) {
             constructors.toA(decl) match {
-              case adt: ADTType =>
-                ADT(adt, args.zip(adt.getADT.toConstructor.fieldsTypes).map { case (a, t) => rec(a, t, seen) })
+              case ADTCons(id, tps) =>
+                ADT(id, tps, args.zip(getConstructor(id, tps).fieldsTypes).map { case (a, t) => rec(a, t, seen) })
 
-              case UnitType() =>
+              case UnitCons =>
                 UnitLiteral()
 
-              case TupleType(ts) =>
+              case TupleCons(ts) =>
                 tupleWrap(args.zip(ts).map { case (a, t) => rec(a, t, seen) })
 
-              case tp: TypeParameter =>
+              case TypeParameterCons(tp) =>
                 val IntegerLiteral(n) = rec(args(0), IntegerType(), seen)
                 GenericValue(tp, n.toInt)
 
@@ -596,12 +579,12 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                       }
                     }
 
-                    mkLambda(args, body, ft)
+                    Lambda(args, body)
                   }.getOrElse(try {
                     simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
                   } catch {
                     case _: NoSimpleValue =>
-                      mkLambda(args, Choose(ValDef(FreshIdentifier("res"), tt), BooleanLiteral(true)), ft)
+                      Lambda(args, Choose(ValDef(FreshIdentifier("res"), tt), BooleanLiteral(true)))
                   }))
               })
 
