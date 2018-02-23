@@ -403,6 +403,25 @@ trait Definitions { self: Trees =>
 
     @inline def hasEquality: Boolean = equality.isDefined
 
+    @inline def tpSubst: Map[TypeParameter, Type] = _tpSubst.get
+    private[this] val _tpSubst = Lazy((definition.typeArgs zip tps).toMap.filter(tt => tt._1 != tt._2))
+
+    /** A [[Types.Type Type]] instantiated with this [[TypedADTSort]]'s type instantiation */
+    def instantiate(t: Type): Type = symbols.instantiateType(t, tpSubst)
+
+    /** A [[Expressions.Expr Expr]] instantiated with this [[TypedADTSort]]'s type instantiation */
+    def instantiate(e: Expr): Expr = symbols.instantiateType(e, tpSubst)
+
+    /** A [[Definitions.Flag Flag]] instantiated with this [[TypedFunDef]]'s type instantiation */
+    def instantiate(f: Flag): Flag = {
+      val (ids, exprs, types, recons) = deconstructor.deconstruct(f)
+      recons(ids, exprs.map(instantiate), types.map(instantiate))
+    }
+
+    /** The flags of the respective [[FunDef]] instantiated with the real type parameters */
+    @inline def flags: Set[Flag] = _flags.get
+    private[this] val _flags = Lazy(definition.flags.map(instantiate))
+
     val constructors: Seq[TypedADTConstructor] =
       definition.constructors map (TypedADTConstructor(_, this))
   }
@@ -416,9 +435,11 @@ trait Definitions { self: Trees =>
 
     @inline def fields: Seq[ValDef] = _fields.get
     private[this] val _fields = Lazy({
-      val tpMap = (sort.definition.typeArgs zip sort.tps).toMap
-      if (tpMap.isEmpty) definition.fields
-      else definition.fields.map(vd => vd.copy(tpe = sort.symbols.instantiateType(vd.tpe, tpMap)))
+      if (sort.tpSubst.isEmpty) definition.fields
+      else definition.fields.map(vd => vd.copy(
+        tpe = sort.instantiate(vd.tpe),
+        flags = vd.flags.map(sort.instantiate)
+      ))
     })
 
     @inline def fieldsTypes: Seq[Type] = _fieldsTypes.get
@@ -497,6 +518,12 @@ trait Definitions { self: Trees =>
     /** A [[Expressions.Expr Expr]] instantiated with this [[TypedFunDef]]'s type instantiation */
     def instantiate(e: Expr): Expr = symbols.instantiateType(e, tpSubst)
 
+    /** A [[Definitions.Flag Flag]] instantiated with this [[TypedFunDef]]'s type instantiation */
+    def instantiate(f: Flag): Flag = {
+      val (ids, exprs, types, recons) = deconstructor.deconstruct(f)
+      recons(ids, exprs.map(instantiate), types.map(instantiate))
+    }
+
     /** A mapping from this [[TypedFunDef]]'s formal parameters to real arguments
       *
       * @param realArgs The arguments to which the formal arguments are mapped
@@ -527,7 +554,10 @@ trait Definitions { self: Trees =>
     @inline def params: Seq[ValDef] = _params.get
     private[this] val _params = Lazy({
       if (tpSubst.isEmpty) fd.params
-      else fd.params.map(vd => vd.copy(tpe = instantiate(vd.getType)))
+      else fd.params.map(vd => vd.copy(
+        tpe = instantiate(vd.tpe),
+        flags = vd.flags.map(instantiate)
+      ))
     })
 
     /** The function type corresponding to this [[TypedFunDef]]'s arguments and return type */
@@ -543,9 +573,6 @@ trait Definitions { self: Trees =>
 
     /** The flags of the respective [[FunDef]] instantiated with the real type parameters */
     @inline def flags: Set[Flag] = _flags.get
-    private[this] val _flags = Lazy(fd.flags.map { f =>
-      val (ids, exprs, types, recons) = deconstructor.deconstruct(f)
-      recons(ids, exprs.map(instantiate), types.map(instantiate))
-    })
+    private[this] val _flags = Lazy(fd.flags.map(instantiate))
   }
 }
