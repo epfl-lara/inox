@@ -1228,23 +1228,6 @@ trait SymbolOps { self: TypeOps =>
     case _ => IfExpr(c, t, e)
   }
 
-  /** Instantiates the type parameters of the function according to argument types
-    * @return A [[Expressions.FunctionInvocation FunctionInvocation]] if it type checks, else throws an error.
-    * @see [[Expressions.FunctionInvocation]]
-    */
-  def functionInvocation(fd: FunDef, args: Seq[Expr]) = {
-    require(fd.params.length == args.length, "Invoking function with incorrect number of arguments")
-
-    val formalType = tupleTypeWrap(fd.params map { _.getType })
-    val actualType = tupleTypeWrap(args map { _.getType })
-
-    symbols.instantiation_>:(formalType, actualType) match {
-      case Some(tmap) =>
-        FunctionInvocation(fd.id, fd.tparams map { tpd => tmap.getOrElse(tpd.tp, tpd.tp) }, args)
-      case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
-    }
-  }
-
   /** $encodingof simplified `fn(realArgs)` (function application).
    * Transforms
    * {{{ ((x: A, y: B) => g(x, y))(c, d) }}}
@@ -1284,22 +1267,6 @@ trait SymbolOps { self: TypeOps =>
       Application(fn, realArgs).copiedFrom(fn)
   }
 
-
-  /** Instantiates the type parameters of the ADT constructor according to argument types
-    * @return A [[Expressions.ADT ADT]] if it type checks, else throws an error
-    * @see [[Expressions.ADT]]
-    */
-  def adtConstruction(adt: ADTConstructor, args: Seq[Expr]) = {
-    require(adt.fields.length == args.length, "Constructing adt with incorrect number of arguments")
-
-    val formalType = tupleTypeWrap(adt.fields.map(_.tpe))
-    val actualType = tupleTypeWrap(args.map(_.getType))
-
-    symbols.instantiation_>:(formalType, actualType) match {
-      case Some(tmap) => ADT(adt.id, adt.getSort.typeArgs.map(instantiateType(_, tmap)), args)
-      case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
-    }
-  }
 
   /** Simplifies the provided adt selector.
     * @see [[Expressions.ADTSelector ADTSelector]]

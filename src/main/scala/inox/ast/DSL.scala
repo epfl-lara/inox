@@ -68,6 +68,7 @@ trait DSL {
     def apply(es: Expr*) = Application(e, es.toSeq)
 
     def is(id: Identifier) = IsConstructor(e, id)
+    def is(cons: ADTConstructor) = IsConstructor(e, cons.id)
   }
 
   // Literals
@@ -209,7 +210,7 @@ trait DSL {
   }
 
   implicit class ADTConsConstructor(adt: ADTConstructor) {
-    def apply(tps: Type*) = new ADTCons(adt.id, tps)
+    def apply(tp: Type, tps: Type*) = new ADTCons(adt.id, tp +: tps)
     def apply(args: Expr*) = new ADTCons(adt.id, Seq.empty).apply(args : _*)
   }
 

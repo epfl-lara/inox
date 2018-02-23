@@ -460,8 +460,6 @@ trait Definitions { self: Trees =>
     @inline def typeArgs: Seq[TypeParameter] = _typeArgs.get
     private[this] val _typeArgs = Lazy(tparams.map(_.tp))
 
-    /** Applies this function on some arguments; type parameters are inferred. */
-    def applied(args: Seq[Expr])(implicit s: Symbols): FunctionInvocation = s.functionInvocation(this, args)
     /** Applies this function on its formal parameters */
     @inline def applied = FunctionInvocation(id, typeArgs, params map (_.toVariable))
 
