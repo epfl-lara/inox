@@ -321,7 +321,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       // Note that if `isConstructor(e, id, path)` holds for each ADTSelector argument
       // in rargs, then these selectors will be marked as pure by the simplifier so we
       // don't need to do any special recomputation of pargs
-      val pe = pargs.foldLeft(opts.assumeChecked || isImpureExpr(newAdt))(_ && _)
+      val pe = pargs.foldLeft(opts.assumeChecked || !isImpureExpr(newAdt))(_ && _)
       (newAdt, pe)
 
     case Let(vd, IfExpr(c1, t1, e1), IfExpr(c2, t2, e2)) if c1 == c2 =>

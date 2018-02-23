@@ -143,7 +143,7 @@ trait RecursiveEvaluator
       cc
 
     case IsConstructor(expr, id) => e(expr) match {
-      case ADT(id, _, _) => BooleanLiteral(true)
+      case ADT(`id`, _, _) => BooleanLiteral(true)
       case _ => BooleanLiteral(false)
     }
 
@@ -469,12 +469,24 @@ trait RecursiveEvaluator
       finiteBag(els.map { case (k, v) => (e(k), e(v)) }, base)
 
     case l @ Lambda(_, _) =>
-      val (nl, deps) = normalizeStructure(l)
-      val newCtx = deps.foldLeft(rctx) {
-        case (rctx, (v, dep)) => rctx.withNewVar(v.toVal, e(dep)(rctx, gctx))
+      def normalizeLambda(l: Lambda, onlySimple: Boolean = false): Lambda = {
+        val (nl, deps) = normalizeStructure(l, onlySimple = onlySimple)
+        val newCtx = deps.foldLeft(rctx) {
+          case (rctx, (v, dep)) => rctx.withNewVar(v.toVal, e(dep)(rctx, gctx))
+        }
+        val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
+        replaceFromSymbols(mapping, nl).asInstanceOf[Lambda]
       }
-      val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
-      replaceFromSymbols(mapping, nl)
+
+      // We start by normalizing the structure of the lambda as in the solver to
+      // evaluate all normalizable ground expressions within its body.
+      val ground = normalizeLambda(l)
+
+      // Then, in order for nested lambdas to have fresh variables in their argument
+      // lists and let bindings, we re-normalize the identifiers by passing
+      // `onlySimple = true` to the call to `normalizeStructure` (this avoids lifting
+      // ground lambdas out in the deps).
+      normalizeLambda(ground, onlySimple = true)
 
     case f: Forall => onForallInvocation {
       replaceFromSymbols(variablesOf(f).map(v => v -> e(v)).toMap, f).asInstanceOf[Forall]

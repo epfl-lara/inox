@@ -18,7 +18,7 @@ trait ExpressionElaborators { self: Interpolator =>
     def functionArity(name: String, expected: Int, actual: Int, kind: String = "Function"): String =
       kind + " `" + name + "` takes " + expected + " argument" + plural(expected, "", "s") + ", " + 
         actual + " " + plural(actual, "was", "were") + " given."
-    
+
     def functionTypeArity(name: String, expected: Int, actual: Int, kind: String = "Function"): String =
       if (expected == 0) {
         kind + " `" + name + "` doesn't have any type parameters."

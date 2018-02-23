@@ -302,7 +302,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
             val cons = wrapped.extractConstructor(v, tpe).get
             val id = Variable.fresh("adt", tpe)
             val encoder = templates.mkEncoder(Map(id -> v)) _
-            reconstruct(getConstructor(cons).fields.map {
+            reconstruct(getConstructor(cons, tps).fields.map {
               vd => rec(encoder(ADTSelector(id, vd.id)), vd.tpe)
             }, ADT(cons, tps, _))
 
