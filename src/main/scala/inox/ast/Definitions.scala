@@ -540,5 +540,12 @@ trait Definitions { self: Trees =>
     /** The body of the respective [[FunDef]] instantiated with the real type parameters */
     @inline def fullBody: Expr = _fullBody.get
     private[this] val _fullBody = Lazy(instantiate(fd.fullBody))
+
+    /** The flags of the respective [[FunDef]] instantiated with the real type parameters */
+    @inline def flags: Set[Flag] = _flags.get
+    private[this] val _flags = Lazy(fd.flags.map { f =>
+      val (ids, exprs, types, recons) = deconstructor.deconstruct(f)
+      recons(ids, exprs.map(instantiate), types.map(instantiate))
+    })
   }
 }
