@@ -412,13 +412,13 @@ trait Definitions { self: Trees =>
     /** A [[Expressions.Expr Expr]] instantiated with this [[TypedADTSort]]'s type instantiation */
     def instantiate(e: Expr): Expr = symbols.instantiateType(e, tpSubst)
 
-    /** A [[Definitions.Flag Flag]] instantiated with this [[TypedFunDef]]'s type instantiation */
+    /** A [[Definitions.Flag Flag]] instantiated with this [[TypedADTSort]]'s type instantiation */
     def instantiate(f: Flag): Flag = {
       val (ids, exprs, types, recons) = deconstructor.deconstruct(f)
       recons(ids, exprs.map(instantiate), types.map(instantiate))
     }
 
-    /** The flags of the respective [[FunDef]] instantiated with the real type parameters */
+    /** The flags of the respective [[ADTSort]] instantiated with the real type parameters */
     @inline def flags: Set[Flag] = _flags.get
     private[this] val _flags = Lazy(definition.flags.map(instantiate))
 
