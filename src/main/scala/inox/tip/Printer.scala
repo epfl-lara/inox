@@ -62,7 +62,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
   protected val extraVars = new Bijection[Variable, SSymbol]
 
   def printScript(expr: Expr): Unit = {
-    val tparams = exprOps.collect(e => typeParamsOf(e.getType))(expr)
+    val tparams = typeParamsOf(expr)
     val cmd = if (tparams.nonEmpty) {
       AssertPar(tparams.map(tp => id2sym(tp.id)).toSeq, toSMT(expr)(Map.empty))
     } else {
@@ -163,7 +163,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
       sorts += tpe -> Sort(SMTIdentifier(id2sym(id)), tpSorts)
     }
 
-    val generics = ours.flatMap { case (tp, _) => typeParamsOf(tp) }.toSet
+    val generics = ours.flatMap { case (tp, _) => typeOps.typeParamsOf(tp) }.toSet
     val genericSyms = generics.map(tp => id2sym(tp.id))
 
     if (ours.nonEmpty) {
@@ -248,7 +248,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
     case v @ Variable(id, tp, flags) =>
       val sort = declareSort(tp)
       bindings.get(id) orElse variables.getB(v).map(s => s: Term) getOrElse {
-        val tps = typeParamsOf(tp).toSeq
+        val tps = typeOps.typeParamsOf(tp).toSeq
         val sym = extraVars.cachedB(v) {
           val sym = id2sym(id)
           emit(if (tps.nonEmpty) {
@@ -357,8 +357,8 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
 
     case fi @ FunctionInvocation(id, tps, args) =>
       val tfd = fi.tfd
-      val retTpArgs = typeParamsOf(tfd.fd.returnType)
-      val paramTpArgs = tfd.fd.params.flatMap(vd => typeParamsOf(vd.tpe)).toSet
+      val retTpArgs = typeOps.typeParamsOf(tfd.fd.returnType)
+      val paramTpArgs = tfd.fd.params.flatMap(vd => typeOps.typeParamsOf(vd.tpe)).toSet
       if ((retTpArgs -- paramTpArgs).nonEmpty) {
         val caller = QualifiedIdentifier(
           SMTIdentifier(declareFunction(tfd)),

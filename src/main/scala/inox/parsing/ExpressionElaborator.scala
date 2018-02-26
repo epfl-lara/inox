@@ -8,6 +8,7 @@ import scala.util.parsing.input._
 import Utils.plural
 
 trait ExpressionElaborators { self: Interpolator => 
+  import trees._
 
   trait ExpressionElaborator { inner: ExprIR.type =>
 
@@ -709,7 +710,7 @@ trait ExpressionElaborators { self: Interpolator =>
             (t: trees.TypeParameterDef) => t.tp -> Unknown.fresh
           })
 
-          val instantiator = new symbols.TypeInstantiator(typeParamToFresh.toMap)
+          val instantiator = new typeOps.TypeInstantiator(typeParamToFresh.toMap)
 
           val paramTypes = fd.params.map({
             (vd: trees.ValDef) => instantiator.transform(vd.tpe)
@@ -766,7 +767,7 @@ trait ExpressionElaborators { self: Interpolator =>
             (t: trees.TypeParameterDef) => t.tp -> Unknown.fresh
           })
 
-          val instantiator = new symbols.TypeInstantiator(typeParamToFresh.toMap)
+          val instantiator = new typeOps.TypeInstantiator(typeParamToFresh.toMap)
 
           val paramTypes = cons.fields.map({
             (vd: trees.ValDef) => instantiator.transform(vd.tpe)
@@ -1033,7 +1034,7 @@ trait ExpressionElaborators { self: Interpolator =>
             (t: trees.TypeParameterDef) => t.tp -> Unknown.fresh
           })
 
-          val instantiator = new symbols.TypeInstantiator(typeParamToFresh.toMap)
+          val instantiator = new typeOps.TypeInstantiator(typeParamToFresh.toMap)
 
           val fieldType = instantiator.transform(vd.tpe)
           val adtType = instantiator.transform(trees.ADTType(sort.id, sort.typeArgs))

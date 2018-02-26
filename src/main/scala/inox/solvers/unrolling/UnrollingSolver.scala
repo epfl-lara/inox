@@ -189,8 +189,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
             val to = tfd.returnType
             import templates._
 
-            val tvds = vds.map(vd => vd.copy(tpe = instantiateType(vd.tpe, tpSubst)))
-            val tc = instantiateType(c.copy(res = c.res.freshen), tpSubst)
+            val tvds = vds.map(vd => vd.copy(tpe = typeOps.instantiateType(vd.tpe, tpSubst)))
+            val tc = typeOps.instantiateType(c.copy(res = c.res.freshen), tpSubst)
 
             val mappings = calls.flatMap { call =>
               val optArgs = (call.args zip from).map(p => modelEval(p._1.encoded, p._2))

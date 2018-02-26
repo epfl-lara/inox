@@ -414,10 +414,10 @@ trait Definitions { self: Trees =>
     private[this] val _tpSubst = Lazy((definition.typeArgs zip tps).toMap.filter(tt => tt._1 != tt._2))
 
     /** A [[Types.Type Type]] instantiated with this [[TypedADTSort]]'s type instantiation */
-    def instantiate(t: Type): Type = symbols.instantiateType(t, tpSubst)
+    def instantiate(t: Type): Type = typeOps.instantiateType(t, tpSubst)
 
     /** A [[Expressions.Expr Expr]] instantiated with this [[TypedADTSort]]'s type instantiation */
-    def instantiate(e: Expr): Expr = symbols.instantiateType(e, tpSubst)
+    def instantiate(e: Expr): Expr = typeOps.instantiateType(e, tpSubst)
 
     /** A [[Definitions.Flag Flag]] instantiated with this [[TypedADTSort]]'s type instantiation */
     def instantiate(f: Flag): Flag = {
@@ -518,10 +518,10 @@ trait Definitions { self: Trees =>
     private[this] val _tpSubst = Lazy((fd.typeArgs zip tps).toMap.filter(tt => tt._1 != tt._2))
 
     /** A [[Types.Type Type]] instantiated with this [[TypedFunDef]]'s type instantiation */
-    def instantiate(t: Type): Type = symbols.instantiateType(t, tpSubst)
+    def instantiate(t: Type): Type = typeOps.instantiateType(t, tpSubst)
 
     /** A [[Expressions.Expr Expr]] instantiated with this [[TypedFunDef]]'s type instantiation */
-    def instantiate(e: Expr): Expr = symbols.instantiateType(e, tpSubst)
+    def instantiate(e: Expr): Expr = typeOps.instantiateType(e, tpSubst)
 
     /** A [[Definitions.Flag Flag]] instantiated with this [[TypedFunDef]]'s type instantiation */
     def instantiate(f: Flag): Flag = {

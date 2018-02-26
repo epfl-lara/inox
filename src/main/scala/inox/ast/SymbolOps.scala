@@ -1154,26 +1154,6 @@ trait SymbolOps { self: TypeOps =>
     }(e)
   }
 
-  def typeParamsOf(expr: Expr): Set[TypeParameter] = {
-    collect(e => typeParamsOf(e.getType))(expr)
-  }
-
-  // Helpers for instantiateType
-  class TypeInstantiator(tps: Map[TypeParameter, Type]) extends SelfTreeTransformer {
-    override def transform(tpe: Type): Type = tpe match {
-      case tp: TypeParameter => tps.getOrElse(tp, super.transform(tpe))
-      case _ => super.transform(tpe)
-    }
-  }
-
-  def instantiateType(e: Expr, tps: Map[TypeParameter, Type]): Expr = {
-    if (tps.isEmpty) {
-      e
-    } else {
-      new TypeInstantiator(tps).transform(e)
-    }
-  }
-
   /* ===================================================
    *        Constructors that require Symbols
    * =================================================== */

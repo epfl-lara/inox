@@ -237,7 +237,7 @@ class Parser(file: File) {
         }
 
         val allTparams: Set[TypeParameter] = children.flatMap(_._2).toSet.flatMap {
-          (vd: ValDef) => locs.symbols.typeParamsOf(vd.tpe): Set[TypeParameter]
+          (vd: ValDef) => typeOps.typeParamsOf(vd.tpe): Set[TypeParameter]
         }
 
         val tparams: Seq[TypeParameterDef] = tps.flatMap { sym =>
@@ -361,7 +361,7 @@ class Parser(file: File) {
     val actual = tupleTypeWrap(actuals)
 
     // freshen the type parameters in case we're building a substitution that includes params from `tps`
-    val tpSubst: Map[Type, Type] = typeParamsOf(actual).map(tp => tp -> tp.freshen).toMap
+    val tpSubst: Map[Type, Type] = typeOps.typeParamsOf(actual).map(tp => tp -> tp.freshen).toMap
     val tpRSubst = tpSubst.map(_.swap)
     val substActual = typeOps.replace(tpSubst, actual)
 

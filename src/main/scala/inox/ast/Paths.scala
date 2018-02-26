@@ -139,7 +139,7 @@ trait Paths { self: SymbolOps with TypeOps =>
       * the type associated to a let binder.
       */
     def instantiate(tps: Map[TypeParameter, Type]) = {
-      val t = new TypeInstantiator(tps)
+      val t = new typeOps.TypeInstantiator(tps)
       new Path(elements map {
         case CloseBound(vd, e) => CloseBound(t transform vd, t transform e)
         case OpenBound(vd) => OpenBound(t transform vd)

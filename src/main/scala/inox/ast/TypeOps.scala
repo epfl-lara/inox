@@ -18,10 +18,8 @@ trait TypeOps {
     def apply(obj: Expr, tpe: Type): TypeErrorException = apply(obj, Seq(tpe))
   }
 
-  def typeParamsOf(t: Type): Set[TypeParameter] = t match {
-    case tp: TypeParameter => Set(tp)
-    case NAryType(subs, _) =>
-      subs.flatMap(typeParamsOf).toSet
+  def typeParamsOf(expr: Expr): Set[TypeParameter] = {
+    exprOps.collect(e => typeOps.typeParamsOf(e.getType))(expr)
   }
 
   def leastUpperBound(tp1: Type, tp2: Type): Type = if (tp1 == tp2) tp1 else Untyped
@@ -80,28 +78,12 @@ trait TypeOps {
   /** Instantiates a type so that it is supertype of another type */
   def instantiation_>:(superT: Type, subT: Type) = instantiation(superT, subT)
 
-  def instantiateType(tpe: Type, tps: Map[TypeParameter, Type]): Type = {
-    if (tps.isEmpty) {
-      tpe
-    } else {
-      typeOps.postMap {
-        case tp: TypeParameter => tps.get(tp)
-        case _ => None
-      } (tpe)
-    }
-  }
-
   def typeCheck(obj: Expr, exps: Type*) = {
     val res = exps.exists(e => isSubtypeOf(obj.getType, e))
 
     if (!res) {
       throw TypeErrorException(obj, exps.toList)
     }
-  }
-
-  def isParametricType(tpe: Type): Boolean = tpe match {
-    case (tp: TypeParameter) => true
-    case NAryType(tps, builder) => tps.exists(isParametricType)
   }
 
   private def flattenCardinalities(ints: Seq[Option[Int]]): Option[Seq[Int]] = {

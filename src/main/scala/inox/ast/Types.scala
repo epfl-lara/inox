@@ -133,6 +133,44 @@ trait Types { self: Trees =>
     type Source = self.Type
     type Target = self.Type
     lazy val Deconstructor = NAryType
+
+    def typeParamsOf(t: Type): Set[TypeParameter] = t match {
+      case tp: TypeParameter => Set(tp)
+      case NAryType(subs, _) =>
+        subs.flatMap(typeParamsOf).toSet
+    }
+
+    def instantiateType(tpe: Type, tps: Map[TypeParameter, Type]): Type = {
+      if (tps.isEmpty) {
+        tpe
+      } else {
+        typeOps.postMap {
+          case tp: TypeParameter => tps.get(tp)
+          case _ => None
+        } (tpe)
+      }
+    }
+
+    // Helpers for instantiateType
+    class TypeInstantiator(tps: Map[TypeParameter, Type]) extends SelfTreeTransformer {
+      override def transform(tpe: Type): Type = tpe match {
+        case tp: TypeParameter => tps.getOrElse(tp, super.transform(tpe))
+        case _ => super.transform(tpe)
+      }
+    }
+
+    def instantiateType(e: Expr, tps: Map[TypeParameter, Type]): Expr = {
+      if (tps.isEmpty) {
+        e
+      } else {
+        new TypeInstantiator(tps).transform(e)
+      }
+    }
+
+    def isParametricType(tpe: Type): Boolean = tpe match {
+      case (tp: TypeParameter) => true
+      case NAryType(tps, builder) => tps.exists(isParametricType)
+    }
   }
 }
 
