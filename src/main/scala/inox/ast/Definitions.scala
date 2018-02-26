@@ -154,7 +154,7 @@ trait Definitions { self: Trees =>
       new java.util.concurrent.ConcurrentHashMap[(Identifier, Seq[Type]), Option[TypedADTSort]].asScala
     def lookupSort(id: Identifier): Option[ADTSort] = sorts.get(id)
     def lookupSort(id: Identifier, tps: Seq[Type]): Option[TypedADTSort] =
-      typedSortCache.getOrElseUpdate(id -> tps, lookupSort(id).map(_.typed(tps)))
+      typedSortCache.getOrElseUpdate(id -> tps, lookupSort(id).map(TypedADTSort(_, tps)))
 
     def getSort(id: Identifier): ADTSort =
       lookupSort(id).getOrElse(throw ADTLookupException(id))
@@ -180,7 +180,7 @@ trait Definitions { self: Trees =>
       new java.util.concurrent.ConcurrentHashMap[(Identifier, Seq[Type]), Option[TypedFunDef]].asScala
     def lookupFunction(id: Identifier): Option[FunDef] = functions.get(id)
     def lookupFunction(id: Identifier, tps: Seq[Type]): Option[TypedFunDef] =
-      typedFunctionCache.getOrElseUpdate(id -> tps, lookupFunction(id).map(_.typed(tps)(this)))
+      typedFunctionCache.getOrElseUpdate(id -> tps, lookupFunction(id).map(TypedFunDef(_, tps)))
 
     def getFunction(id: Identifier): FunDef =
       lookupFunction(id).getOrElse(throw FunctionLookupException(id))
@@ -348,11 +348,11 @@ trait Definitions { self: Trees =>
 
     def hasEquality(implicit s: Symbols): Boolean = equality.isDefined
 
+    /** Wraps this [[ADTSort]] in a in [[TypedADTSort]] with its own type parameters */
     def typed(implicit s: Symbols): TypedADTSort = typed(tparams.map(_.tp))
-    def typed(tps: Seq[Type])(implicit s: Symbols): TypedADTSort = {
-      require(tps.length == tparams.length)
-      TypedADTSort(this, tps)
-    }
+
+    /** Wraps this [[ADTSort]] in a in [[TypedADTSort]] with the specified type parameters */
+    def typed(tps: Seq[Type])(implicit s: Symbols): TypedADTSort = s.getSort(id, tps)
 
     def copy(id: Identifier = id,
              tparams: Seq[TypeParameterDef] = tparams,
@@ -382,13 +382,20 @@ trait Definitions { self: Trees =>
       } else index
     }
 
+    /** Wraps this [[ADTConstructor]] in a in [[TypedADTConstructor]] with its sort's type parameters */
+    def typed(implicit s: Symbols): TypedADTConstructor = typed(getSort.typeArgs)
+
+    /** Wraps this [[ADTConstructor]] in a in [[TypedADTConstructor]] with the specified type parameters */
+    def typed(tps: Seq[Type])(implicit s: Symbols): TypedADTConstructor = s.getConstructor(id, tps)
+
     def copy(id: Identifier = id,
              sort: Identifier = sort,
              fields: Seq[ValDef] = fields): ADTConstructor = new ADTConstructor(id, sort, fields)
   }
 
   /** Represents an [[ADTSort]] whose type parameters have been instantiated to ''tps'' */
-  case class TypedADTSort(definition: ADTSort, tps: Seq[Type])(implicit val symbols: Symbols) extends Tree {
+  case class TypedADTSort private(definition: ADTSort, tps: Seq[Type])(implicit val symbols: Symbols) extends Tree {
+    require(tps.length == definition.tparams.length)
     copiedFrom(definition)
 
     @inline def id: Identifier = definition.id
@@ -427,7 +434,7 @@ trait Definitions { self: Trees =>
   }
 
   /** Represents an [[ADTConstructor]] whose type parameters have been instantiated to ''tps'' */
-  case class TypedADTConstructor(definition: ADTConstructor, sort: TypedADTSort) extends Tree {
+  case class TypedADTConstructor private(definition: ADTConstructor, sort: TypedADTSort) extends Tree {
     copiedFrom(definition)
 
     @inline def id: Identifier = definition.id
@@ -465,14 +472,11 @@ trait Definitions { self: Trees =>
     val flags: Set[Flag]
   ) extends Definition {
 
-    /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with the specified type parameters */
-    def typed(tps: Seq[Type])(implicit s: Symbols): TypedFunDef = {
-      assert(tps.size == tparams.size)
-      TypedFunDef(this, tps)
-    }
-
     /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with its own type parameters */
     def typed(implicit s: Symbols): TypedFunDef = typed(tparams.map(_.tp))
+
+    /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with the specified type parameters */
+    def typed(tps: Seq[Type])(implicit s: Symbols): TypedFunDef = s.getFunction(id, tps)
 
     /* Auxiliary methods */
 
@@ -496,7 +500,8 @@ trait Definitions { self: Trees =>
 
 
   /** Represents a [[FunDef]] whose type parameters have been instantiated with the specified types */
-  case class TypedFunDef(fd: FunDef, tps: Seq[Type])(implicit val symbols: Symbols) extends Tree {
+  case class TypedFunDef private(fd: FunDef, tps: Seq[Type])(implicit val symbols: Symbols) extends Tree {
+    require(tps.length == fd.tparams.length)
     copiedFrom(fd)
 
     val id = fd.id
