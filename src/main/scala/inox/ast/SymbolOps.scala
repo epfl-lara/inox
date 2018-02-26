@@ -1255,8 +1255,11 @@ trait SymbolOps { self: TypeOps =>
     adt match {
       case a @ ADT(id, tps, fields) =>
         val cons = a.getConstructor
-        if (!cons.sort.hasInvariant) fields(cons.definition.selectorID2Index(selector))
-        else ADTSelector(adt, selector).copiedFrom(adt)
+        if (!cons.sort.hasInvariant && cons.fields.exists(_.id == selector)) {
+          fields(cons.definition.selectorID2Index(selector))
+        } else {
+          ADTSelector(adt, selector).copiedFrom(adt)
+        }
       case _ =>
         ADTSelector(adt, selector).copiedFrom(adt)
     }
