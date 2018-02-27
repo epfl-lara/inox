@@ -365,7 +365,7 @@ class Parser(file: File) {
     val tpRSubst = tpSubst.map(_.swap)
     val substActual = typeOps.replace(tpSubst, actual)
 
-    instantiation_>:(formal, substActual) match {
+    instantiation(formal, substActual) match {
       case Some(tmap) => tps.map(tpd => tmap.get(tpd.tp).map {
         tpe => typeOps.replace(tpRSubst, tpe)
       }.getOrElse(tpd.tp))

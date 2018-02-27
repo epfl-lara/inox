@@ -35,7 +35,7 @@ trait TypeOps {
   def isSubtypeOf(t1: Type, t2: Type): Boolean = t1 == t2
 
   private type Instantiation = Map[TypeParameter, Type]
-  private def instantiation(from: Type, to: Type): Option[Instantiation] = {
+  def instantiation(from: Type, to: Type): Option[Instantiation] = {
     class Failure extends RuntimeException
 
     def unify(m1: Instantiation, m2: Instantiation): Instantiation = {
@@ -71,12 +71,6 @@ trait TypeOps {
       case _: Failure => None
     }
   }
-
-  /** Instantiates a type so that it is subtype of another type */
-  def instantiation_<:(subT: Type, superT: Type) = instantiation(subT, superT)
-
-  /** Instantiates a type so that it is supertype of another type */
-  def instantiation_>:(superT: Type, subT: Type) = instantiation(superT, subT)
 
   def typeCheck(obj: Expr, exps: Type*) = {
     val res = exps.exists(e => isSubtypeOf(obj.getType, e))
