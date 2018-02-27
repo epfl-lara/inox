@@ -698,9 +698,13 @@ trait Expressions { self: Trees =>
   /* Bag operations */
 
   /** $encodingof `Bag[base](elements)` */
-  sealed case class FiniteBag(elements: Seq[(Expr, Expr)], base: Type) extends Expr {
+  sealed case class FiniteBag(elements: Seq[(Expr, Expr)], base: Type) extends Expr with CachingTyped {
     private[this] val tpe = BagType(base).unveilUntyped
-    def getType(implicit s: Symbols): Type = tpe
+    override protected def computeType(implicit s: Symbols): Type = {
+      checkParamTypes(
+        elements.map(_._1.getType) ++ elements.map(_._2.getType),
+        List.fill(elements.size)(base) ++ List.fill(elements.size)(IntegerType()), tpe)
+    }
   }
 
   /** $encodingof `bag + elem` */
