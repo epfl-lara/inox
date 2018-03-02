@@ -1147,6 +1147,19 @@ trait SymbolOps { self: TypeOps =>
               se.map(child => "\n  " + "\n".r.replaceAllIn(child, "\n  ")).mkString +
               s" but couldn't find function $id"
           }
+        case ADT(id, tps, args) =>
+          lookupConstructor(id, tps) match {
+            case Some(tcons) =>
+              s"${e.asString} is of type ${e.getType.asString}" +
+              se.map(child => "\n  " + "\n".r.replaceAllIn(child, "\n  ")).mkString +
+              s" because ${tcons.id.name} was instantiated with " +
+              s"${tcons.sort.definition.tparams.zip(tps).map(k => k._1.asString + ":=" + k._2.asString).mkString(",")} " +
+              s"with fields ${tcons.fields.map(_.getType.asString).mkString("(", ",", ")")}"
+            case None =>
+              s"${e.asString} is of type ${e.getType.asString}" +
+              se.map(child => "\n  " + "\n".r.replaceAllIn(child, "\n  ")).mkString +
+              s" but couldn't find constructor $id"
+          }
         case e =>
           s"${e.asString} is of type ${e.getType.asString}" +
           se.map(child => "\n  " + "\n".r.replaceAllIn(child, "\n  ")).mkString
