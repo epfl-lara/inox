@@ -90,18 +90,30 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
           case e => Seq(e)
         })
 
-        val clauseSet = clauses.map { case TopLevelOrs(es) => orJoin(es.distinct.sortBy(_.hashCode)) }.toSet
+        var clauseSet = clauses.map { case TopLevelOrs(es) => orJoin(es.distinct.sortBy(_.hashCode)) }.toSet
+        var changed = true
 
-        clauseSet.map { case TopLevelOrs(es) =>
-          val eSet = es.toSet
-          if (es.exists(e => conditions(e) || (eSet contains not(e)))) {
-            BooleanLiteral(true)
-          } else if (es.size > 1 && es.exists(e => clauseSet(e))) {
-            BooleanLiteral(true)
-          } else {
-            orJoin(es.filter(e => !clauseSet(not(e)) && !conditions(not(e))))
+        while (changed) {
+          changed = false
+          for (cls @ TopLevelOrs(es) <- clauseSet) {
+            val eSet = es.toSet
+            if (
+              cls == BooleanLiteral(true) ||
+              es.exists(e => conditions(e) || (eSet contains not(e))) ||
+              (es.size > 1 && es.exists(e => clauseSet(e)))
+            ) {
+              clauseSet -= cls
+            } else {
+              val newCls = orJoin(es.filter(e => !clauseSet(not(e)) && !conditions(not(e))))
+              if (newCls != cls) {
+                clauseSet = clauseSet - cls + newCls
+                changed = true
+              }
+            }
           }
-        }.toSeq.filterNot(_ == BooleanLiteral(true))
+        }
+
+        clauseSet.toSeq
       })
     })
 
@@ -143,7 +155,6 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       }
 
       val conds = newConditions ++ clauseSet - BooleanLiteral(true)
-
       new CNFPath(exprSubst, boolSubst, conds, cnfCache, simpCache)
     }
 
