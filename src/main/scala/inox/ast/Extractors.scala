@@ -35,37 +35,27 @@ trait TreeDeconstructor {
     * even slower than ordering the regular pattern matching cases according
     * to their frequencies.
     *
-    *     classOf[s.Not] -> { case s.Not(e) => /* ... */ }
+    *     classOf[s.Not] -> { case s.Not(e) => ??? }
+    *
+    * NOTE this is only valid if each Expression class has no subtypes!
+    * We keep expression types sealed to help ensure this issue doesn't ever appear.
     */
   private val exprTable: Map[Class[_], s.Expr => DeconstructedExpr] = HashMap(
-    /* Unary operators */
-    classOf[s.Not] -> { expr =>
-      val s.Not(e) = expr
-      (Seq(), Seq(), Seq(e), Seq(), (_, _, es, _) => t.Not(es.head))
+    classOf[s.Assume] -> { expr =>
+      val s.Assume(pred, body) = expr
+      (Seq(), Seq(), Seq(pred, body), Seq(), (_, _, es, _) => t.Assume(es(0), es(1)))
     },
-    classOf[s.BVNot] -> { expr =>
-      val s.BVNot(e) = expr
-      (Seq(), Seq(), Seq(e), Seq(), (_, _, es, _) => t.BVNot(es.head))
+    classOf[s.Variable] -> { expr =>
+      val v = expr.asInstanceOf[s.Variable]
+      (Seq(), Seq(v), Seq(), Seq(), (_,vs, _, _) => vs.head)
     },
-    classOf[s.UMinus] -> { expr =>
-      val s.UMinus(e) = expr
-      (Seq(), Seq(), Seq(e), Seq(), (_, _, es, _) => t.UMinus(es.head))
+    classOf[s.Let] -> { expr =>
+      val s.Let(binder, e, body) = expr
+      (Seq(), Seq(binder.toVariable), Seq(e, body), Seq(), (_,vs, es, _) => t.Let(vs.head.toVal, es(0), es(1)))
     },
-    classOf[s.StringLength] -> { expr =>
-      val s.StringLength(e) = expr
-      (Seq(), Seq(), Seq(e), Seq(), (_, _, es, _) => t.StringLength(es.head))
-    },
-    classOf[s.ADTSelector] -> { expr =>
-      val s.ADTSelector(e, sel) = expr
-      (Seq(sel), Seq(), Seq(e), Seq(), (ids, _, es, _) => t.ADTSelector(es.head, ids.head))
-    },
-    classOf[s.IsConstructor] -> { expr =>
-      val s.IsConstructor(e, id) = expr
-      (Seq(id), Seq(), Seq(e), Seq(), (ids, _, es, _) => t.IsConstructor(es.head, ids.head))
-    },
-    classOf[s.TupleSelect] -> { expr =>
-      val s.TupleSelect(e, i) = expr
-      (Seq(), Seq(), Seq(e), Seq(), (_, _, es, _) => t.TupleSelect(es.head, i))
+    classOf[s.Application] -> { expr =>
+      val s.Application(caller, args) = expr
+      (Seq(), Seq(), caller +: args, Seq(), (_, _, es, _) => t.Application(es.head, es.tail))
     },
     classOf[s.Lambda] -> { expr =>
       val s.Lambda(args, body) = expr
@@ -81,15 +71,90 @@ trait TreeDeconstructor {
       val s.Choose(res, pred) = expr
       (Seq(), Seq(res.toVariable), Seq(pred), Seq(), (_, vs, es, _) => t.Choose(vs.head.toVal, es.head))
     },
-
-    /* Binary operators */
+    classOf[s.FunctionInvocation] -> { expr =>
+      val s.FunctionInvocation(id, tps, args) = expr
+      (Seq(id), Seq(), args, tps, (ids, _, es, tps) => t.FunctionInvocation(ids.head, tps, es))
+    },
+    classOf[s.IfExpr] -> { expr =>
+      val s.IfExpr(cond, thenn, elze) = expr
+      (Seq(), Seq(), Seq(cond, thenn, elze), Seq(),
+      (_, _, es, _) => t.IfExpr(es(0), es(1), es(2)))
+    },
+    classOf[s.CharLiteral] -> { expr =>
+      val s.CharLiteral(ch) = expr
+      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.CharLiteral(ch))
+    },
+    classOf[s.BVLiteral] -> { expr =>
+      val s.BVLiteral(bits, size) = expr
+      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.BVLiteral(bits, size))
+    },
+    classOf[s.IntegerLiteral] -> { expr =>
+      val s.IntegerLiteral(i) = expr
+      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.IntegerLiteral(i))
+    },
+    classOf[s.FractionLiteral] -> { expr =>
+      val s.FractionLiteral(n, d) = expr
+      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.FractionLiteral(n, d))
+    },
+    classOf[s.BooleanLiteral] -> { expr =>
+      val s.BooleanLiteral(b) = expr
+      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.BooleanLiteral(b))
+    },
+    classOf[s.StringLiteral] -> { expr =>
+      val s.StringLiteral(st) = expr
+      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.StringLiteral(st))
+    },
+    classOf[s.UnitLiteral] -> { expr =>
+      val s.UnitLiteral() = expr
+      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.UnitLiteral())
+    },
+    classOf[s.GenericValue] -> { expr =>
+      val s.GenericValue(tp, id) = expr
+      (Seq(), Seq(), Seq(), Seq(tp), (_, _, _, tps) => t.GenericValue(tps.head.asInstanceOf[t.TypeParameter], id))
+    },
+    classOf[s.ADT] -> { expr =>
+      val s.ADT(id, tps, args) = expr
+      (Seq(id), Seq(), args, tps, (ids, _, es, tps) => t.ADT(ids.head, tps, es))
+    },
+    classOf[s.IsConstructor] -> { expr =>
+      val s.IsConstructor(e, id) = expr
+      (Seq(id), Seq(), Seq(e), Seq(), (ids, _, es, _) => t.IsConstructor(es.head, ids.head))
+    },
+    classOf[s.ADTSelector] -> { expr =>
+      val s.ADTSelector(e, sel) = expr
+      (Seq(sel), Seq(), Seq(e), Seq(), (ids, _, es, _) => t.ADTSelector(es.head, ids.head))
+    },
     classOf[s.Equals] -> { expr =>
       val s.Equals(t1, t2) = expr
       (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.Equals(es(0), es(1)))
     },
+    classOf[s.And] -> { expr =>
+      val s.And(args) = expr
+      (Seq(), Seq(), args, Seq(), (_, _, es, _) => t.And(es))
+    },
+    classOf[s.Or] -> { expr =>
+      val s.Or(args) = expr
+      (Seq(), Seq(), args, Seq(), (_, _, es, _) => t.Or(es))
+    },
     classOf[s.Implies] -> { expr =>
       val s.Implies(t1, t2) = expr
       (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.Implies(es(0), es(1)))
+    },
+    classOf[s.Not] -> { expr =>
+      val s.Not(e) = expr
+      (Seq(), Seq(), Seq(e), Seq(), (_, _, es, _) => t.Not(es.head))
+    },
+    classOf[s.StringConcat] -> { expr =>
+      val s.StringConcat(t1, t2) = expr
+      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.StringConcat(es(0), es(1)))
+    },
+    classOf[s.SubString] -> { expr =>
+      val s.SubString(t1, a, b) = expr
+      (Seq(), Seq(), t1 :: a :: b :: Nil, Seq(), (_, _, es, _) => t.SubString(es(0), es(1), es(2)))
+    },
+    classOf[s.StringLength] -> { expr =>
+      val s.StringLength(e) = expr
+      (Seq(), Seq(), Seq(e), Seq(), (_, _, es, _) => t.StringLength(es.head))
     },
     classOf[s.Plus] -> { expr =>
       val s.Plus(t1, t2) = expr
@@ -98,6 +163,10 @@ trait TreeDeconstructor {
     classOf[s.Minus] -> { expr =>
       val s.Minus(t1, t2) = expr
       (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.Minus(es(0), es(1)))
+    },
+    classOf[s.UMinus] -> { expr =>
+      val s.UMinus(e) = expr
+      (Seq(), Seq(), Seq(e), Seq(), (_, _, es, _) => t.UMinus(es.head))
     },
     classOf[s.Times] -> { expr =>
       val s.Times(t1, t2) = expr
@@ -131,13 +200,17 @@ trait TreeDeconstructor {
       val s.GreaterEquals(t1, t2) = expr
       (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.GreaterEquals(es(0), es(1)))
     },
-    classOf[s.BVOr] -> { expr =>
-      val s.BVOr(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.BVOr(es(0), es(1)))
+    classOf[s.BVNot] -> { expr =>
+      val s.BVNot(e) = expr
+      (Seq(), Seq(), Seq(e), Seq(), (_, _, es, _) => t.BVNot(es.head))
     },
     classOf[s.BVAnd] -> { expr =>
       val s.BVAnd(t1, t2) = expr
       (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.BVAnd(es(0), es(1)))
+    },
+    classOf[s.BVOr] -> { expr =>
+      val s.BVOr(t1, t2) = expr
+      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.BVOr(es(0), es(1)))
     },
     classOf[s.BVXor] -> { expr =>
       val s.BVXor(t1, t2) = expr
@@ -163,9 +236,17 @@ trait TreeDeconstructor {
       val s.BVWideningCast(e, bvt) = expr
       (Seq(), Seq(), Seq(e), Seq(bvt), (_, _, es, tps) => t.BVWideningCast(es(0), tps(0).asInstanceOf[t.BVType]))
     },
-    classOf[s.StringConcat] -> { expr =>
-      val s.StringConcat(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.StringConcat(es(0), es(1)))
+    classOf[s.Tuple] -> { expr =>
+      val s.Tuple(args) = expr
+      (Seq(), Seq(), args, Seq(), (_, _, es, _) => t.Tuple(es))
+    },
+    classOf[s.TupleSelect] -> { expr =>
+      val s.TupleSelect(e, i) = expr
+      (Seq(), Seq(), Seq(e), Seq(), (_, _, es, _) => t.TupleSelect(es.head, i))
+    },
+    classOf[s.FiniteSet] -> { expr =>
+      val s.FiniteSet(els, base) = expr
+      (Seq(), Seq(), els, Seq(base), (_, _, els, tps) => t.FiniteSet(els, tps.head))
     },
     classOf[s.SetAdd] -> { expr =>
       val s.SetAdd(t1, t2) = expr
@@ -191,6 +272,20 @@ trait TreeDeconstructor {
       val s.SetDifference(t1, t2) = expr
       (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.SetDifference(es(0), es(1)))
     },
+    classOf[s.FiniteBag] -> { expr =>
+      val s.FiniteBag(els, base) = expr
+      val subArgs = els.flatMap { case (k, v) => Seq(k, v) }
+      val builder = (ids: Seq[Identifier], vs: Seq[t.Variable], as: Seq[t.Expr], tps: Seq[t.Type]) => {
+        def rec(kvs: Seq[t.Expr]): Seq[(t.Expr, t.Expr)] = kvs match {
+          case Seq(k, v, t @ _*) =>
+            Seq(k -> v) ++ rec(t)
+          case Seq() => Seq()
+          case _ => sys.error("odd number of key/value expressions")
+        }
+        t.FiniteBag(rec(as), tps.head)
+      }
+      (Seq(), Seq(), subArgs, Seq(base), builder)
+    },
     classOf[s.BagAdd] -> { expr =>
       val s.BagAdd(e1, e2) = expr
       (Seq(), Seq(), Seq(e1, e2), Seq(), (_, _, es, _) => t.BagAdd(es(0), es(1)))
@@ -211,66 +306,6 @@ trait TreeDeconstructor {
       val s.BagDifference(e1, e2) = expr
       (Seq(), Seq(), Seq(e1, e2), Seq(), (_, _, es, _) => t.BagDifference(es(0), es(1)))
     },
-    classOf[s.MapUpdated] -> { expr =>
-      val s.MapUpdated(map, k, v) = expr
-      (Seq(), Seq(), Seq(map, k, v), Seq(), (_, _, es, _) => t.MapUpdated(es(0), es(1), es(2)))
-    },
-    classOf[s.MapApply] -> { expr =>
-      val s.MapApply(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.MapApply(es(0), es(1)))
-    },
-    classOf[s.Let] -> { expr =>
-      val s.Let(binder, e, body) = expr
-      (Seq(), Seq(binder.toVariable), Seq(e, body), Seq(), (_,vs, es, _) => t.Let(vs.head.toVal, es(0), es(1)))
-    },
-    classOf[s.Assume] -> { expr =>
-      val s.Assume(pred, body) = expr
-      (Seq(), Seq(), Seq(pred, body), Seq(), (_, _, es, _) => t.Assume(es(0), es(1)))
-    },
-
-    /* Other operators */
-    classOf[s.FunctionInvocation] -> { expr =>
-      val s.FunctionInvocation(id, tps, args) = expr
-      (Seq(id), Seq(), args, tps, (ids, _, es, tps) => t.FunctionInvocation(ids.head, tps, es))
-    },
-    classOf[s.Application] -> { expr =>
-      val s.Application(caller, args) = expr
-      (Seq(), Seq(), caller +: args, Seq(), (_, _, es, _) => t.Application(es.head, es.tail))
-    },
-    classOf[s.ADT] -> { expr =>
-      val s.ADT(id, tps, args) = expr
-      (Seq(id), Seq(), args, tps, (ids, _, es, tps) => t.ADT(ids.head, tps, es))
-    },
-    classOf[s.And] -> { expr =>
-      val s.And(args) = expr
-      (Seq(), Seq(), args, Seq(), (_, _, es, _) => t.And(es))
-    },
-    classOf[s.Or] -> { expr =>
-      val s.Or(args) = expr
-      (Seq(), Seq(), args, Seq(), (_, _, es, _) => t.Or(es))
-    },
-    classOf[s.SubString] -> { expr =>
-      val s.SubString(t1, a, b) = expr
-      (Seq(), Seq(), t1 :: a :: b :: Nil, Seq(), (_, _, es, _) => t.SubString(es(0), es(1), es(2)))
-    },
-    classOf[s.FiniteSet] -> { expr =>
-      val s.FiniteSet(els, base) = expr
-      (Seq(), Seq(), els, Seq(base), (_, _, els, tps) => t.FiniteSet(els, tps.head))
-    },
-    classOf[s.FiniteBag] -> { expr =>
-      val s.FiniteBag(els, base) = expr
-      val subArgs = els.flatMap { case (k, v) => Seq(k, v) }
-      val builder = (ids: Seq[Identifier], vs: Seq[t.Variable], as: Seq[t.Expr], tps: Seq[t.Type]) => {
-        def rec(kvs: Seq[t.Expr]): Seq[(t.Expr, t.Expr)] = kvs match {
-          case Seq(k, v, t @ _*) =>
-            Seq(k -> v) ++ rec(t)
-          case Seq() => Seq()
-          case _ => sys.error("odd number of key/value expressions")
-        }
-        t.FiniteBag(rec(as), tps.head)
-      }
-      (Seq(), Seq(), subArgs, Seq(base), builder)
-    },
     classOf[s.FiniteMap] -> { expr =>
       val s.FiniteMap(elems, default, kT, vT) = expr
       val subArgs = elems.flatMap { case (k, v) => Seq(k, v) } :+ default
@@ -286,52 +321,13 @@ trait TreeDeconstructor {
       }
       (Seq(), Seq(), subArgs, Seq(kT, vT), builder)
     },
-    classOf[s.Tuple] -> { expr =>
-      val s.Tuple(args) = expr
-      (Seq(), Seq(), args, Seq(), (_, _, es, _) => t.Tuple(es))
+    classOf[s.MapApply] -> { expr =>
+      val s.MapApply(t1, t2) = expr
+      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.MapApply(es(0), es(1)))
     },
-    classOf[s.IfExpr] -> { expr =>
-      val s.IfExpr(cond, thenn, elze) = expr
-      (Seq(), Seq(), Seq(cond, thenn, elze), Seq(),
-      (_, _, es, _) => t.IfExpr(es(0), es(1), es(2)))
-    },
-
-    classOf[s.Variable] -> { expr =>
-      val v = expr.asInstanceOf[s.Variable]
-      (Seq(), Seq(v), Seq(), Seq(), (_,vs, _, _) => vs.head)
-    },
-
-    classOf[s.GenericValue] -> { expr =>
-      val s.GenericValue(tp, id) = expr
-      (Seq(), Seq(), Seq(), Seq(tp), (_, _, _, tps) => t.GenericValue(tps.head.asInstanceOf[t.TypeParameter], id))
-    },
-    classOf[s.CharLiteral] -> { expr =>
-      val s.CharLiteral(ch) = expr
-      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.CharLiteral(ch))
-    },
-    classOf[s.BVLiteral] -> { expr =>
-      val s.BVLiteral(bits, size) = expr
-      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.BVLiteral(bits, size))
-    },
-    classOf[s.IntegerLiteral] -> { expr =>
-      val s.IntegerLiteral(i) = expr
-      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.IntegerLiteral(i))
-    },
-    classOf[s.FractionLiteral] -> { expr =>
-      val s.FractionLiteral(n, d) = expr
-      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.FractionLiteral(n, d))
-    },
-    classOf[s.BooleanLiteral] -> { expr =>
-      val s.BooleanLiteral(b) = expr
-      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.BooleanLiteral(b))
-    },
-    classOf[s.StringLiteral] -> { expr =>
-      val s.StringLiteral(st) = expr
-      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.StringLiteral(st))
-    },
-    classOf[s.UnitLiteral] -> { expr =>
-      val s.UnitLiteral() = expr
-      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.UnitLiteral())
+    classOf[s.MapUpdated] -> { expr =>
+      val s.MapUpdated(map, k, v) = expr
+      (Seq(), Seq(), Seq(map, k, v), Seq(), (_, _, es, _) => t.MapUpdated(es(0), es(1), es(2)))
     }
   )
 
