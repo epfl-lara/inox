@@ -5,10 +5,15 @@ package ast
 
 import utils.Position
 
+import scala.reflect._
+import scala.collection.immutable.HashMap
+
 trait TypeOps {
   protected val trees: Trees
   import trees._
+
   protected implicit val symbols: Symbols
+  import symbols._
 
   class TypeErrorException(msg: String, val pos: Position) extends Exception(msg)
 
@@ -31,6 +36,11 @@ trait TypeOps {
 
   def greatestLowerBound(tps: Seq[Type]): Type =
     if (tps.isEmpty) Untyped else tps.reduceLeft(greatestLowerBound)
+
+  /* Widens a type into it's narest outer Inox type.
+   * This is an override point for more complex type systems that provide refinement
+   * types or type parameter bounds that would not be compatible with Inox type checking. */
+  def widen(tpe: Type): Type = tpe
 
   def isSubtypeOf(t1: Type, t2: Type): Boolean = t1 == t2
 

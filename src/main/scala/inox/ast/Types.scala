@@ -109,6 +109,27 @@ trait Types { self: Trees =>
     }
   }
 
+  /* Utility methods for type checking */
+
+  protected final def checkParamType(real: Typed, formal: Typed, result: => Type)(implicit s: Symbols) = {
+    if (s.isSubtypeOf(real.getType, formal.getType)) result.unveilUntyped else Untyped
+  }
+
+  protected final def checkParamTypes(real: Seq[Typed], formal: Seq[Typed], result: => Type)(implicit s: Symbols) = {
+    if (
+      real.size == formal.size &&
+      (real zip formal forall (p => s.isSubtypeOf(p._1.getType, p._2.getType)))
+    ) result.unveilUntyped else Untyped
+  }
+
+  protected final def checkAllTypes(real: Seq[Typed], formal: Typed, result: => Type)(implicit s: Symbols) = {
+    checkParamTypes(real, List.fill(real.size)(formal), result)
+  }
+
+  protected implicit class TypeWrapper(tpe: Type) {
+    def orElse(other: => Type): Type = if (tpe == Untyped) other else tpe
+  }
+
   /** NAryType extractor to extract any Type in a consistent way.
     *
     * @see [[Extractors.Operator]] about why we can't have nice(r) things
