@@ -79,10 +79,10 @@ trait Constructors { self: Trees =>
     }
 
     var stop = false
-    val simpler = for(e <- flat if !stop && e != BooleanLiteral(false)) yield {
+    val simpler = (for(e <- flat if !stop && e != BooleanLiteral(false)) yield {
       if(e == BooleanLiteral(true)) stop = true
       e
-    }
+    }).distinct
 
     val defaultPos = exprs match {
       case Seq() => NoPosition
