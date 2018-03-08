@@ -273,7 +273,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `.isInstanceOf[...]` */
   sealed case class IsConstructor(expr: Expr, id: Identifier) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = expr.getType match {
+    override protected def computeType(implicit s: Symbols): Type = s.widen(expr.getType) match {
       case ADTType(sort, _) => (s.lookupSort(sort), s.lookupConstructor(id)) match {
         case (Some(sort), Some(cons)) if sort.id == cons.sort => BooleanType()
         case _ => Untyped
@@ -296,8 +296,14 @@ trait Expressions { self: Trees =>
 
     def selectorIndex(implicit s: Symbols) = constructor.definition.selectorID2Index(selector)
 
-    override protected def computeType(implicit s: Symbols): Type = {
-      scala.util.Try(constructor.fieldsTypes(selectorIndex)).toOption.getOrElse(Untyped)
+    override protected def computeType(implicit s: Symbols): Type = s.widen(adt.getType) match {
+      case ADTType(id, tps) =>
+        s.lookupSort(id)
+          .filter(_.tparams.size == tps.size)
+          .map(_.typed(tps)).toSeq
+          .flatMap(_.constructors.flatMap(_.fields))
+          .find(_.id == selector).map(_.tpe).getOrElse(Untyped)
+      case _ => Untyped
     }
   }
 
@@ -323,10 +329,8 @@ trait Expressions { self: Trees =>
     */
   sealed case class And(exprs: Seq[Expr]) extends Expr with CachingTyped {
     require(exprs.size >= 2)
-    override protected def computeType(implicit s: Symbols): Type = {
-      if (exprs forall (_.getType == BooleanType())) BooleanType()
-      else Untyped
-    }
+    override protected def computeType(implicit s: Symbols): Type =
+      checkParamTypes(exprs, List.fill(exprs.size)(BooleanType()), BooleanType())
   }
 
   object And {
@@ -341,10 +345,8 @@ trait Expressions { self: Trees =>
     */
   sealed case class Or(exprs: Seq[Expr]) extends Expr with CachingTyped {
     require(exprs.size >= 2)
-    override protected def computeType(implicit s: Symbols): Type = {
-      if (exprs forall (_.getType == BooleanType())) BooleanType()
-      else Untyped
-    }
+    override protected def computeType(implicit s: Symbols): Type =
+      checkParamTypes(exprs, List.fill(exprs.size)(BooleanType()), BooleanType())
   }
 
   object Or {
@@ -356,10 +358,8 @@ trait Expressions { self: Trees =>
     * @see [[Constructors.implies]]
     */
   sealed case class Implies(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = {
-      if(lhs.getType == BooleanType() && rhs.getType == BooleanType()) BooleanType()
-      else Untyped
-    }
+    override protected def computeType(implicit s: Symbols): Type =
+      checkAllTypes(Seq(lhs, rhs), BooleanType(), BooleanType())
   }
 
   /** $encodingof `!...`
@@ -367,10 +367,8 @@ trait Expressions { self: Trees =>
     * @see [[Constructors.not]]
     */
   sealed case class Not(expr: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = {
-      if (expr.getType == BooleanType()) BooleanType()
-      else Untyped
-    }
+    override protected def computeType(implicit s: Symbols): Type =
+      checkParamType(expr, BooleanType(), BooleanType())
   }
 
 
@@ -378,29 +376,20 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `lhs + rhs` for strings */
   sealed case class StringConcat(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = {
-      if (lhs.getType == StringType() && rhs.getType == StringType()) StringType()
-      else Untyped
-    }
+    override protected def computeType(implicit s: Symbols): Type =
+      checkAllTypes(Seq(lhs, rhs), StringType(), StringType())
   }
 
   /** $encodingof `lhs.subString(start, end)` for strings */
   sealed case class SubString(expr: Expr, start: Expr, end: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = {
-      val ext = expr.getType
-      val st = start.getType
-      val et = end.getType
-      if (ext == StringType() && st == IntegerType() && et == IntegerType()) StringType()
-      else Untyped
-    }
+    override protected def computeType(implicit s: Symbols): Type =
+      checkParamTypes(Seq(expr, start, end), Seq(StringType(), IntegerType(), IntegerType()), StringType())
   }
 
   /** $encodingof `lhs.length` for strings */
   sealed case class StringLength(expr: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = {
-      if (expr.getType == StringType()) IntegerType()
-      else Untyped
-    }
+    override protected def computeType(implicit s: Symbols): Type =
+      checkParamType(expr, StringType(), StringType())
   }
 
   /* General arithmetic */
@@ -615,9 +604,7 @@ trait Expressions { self: Trees =>
     require(index >= 1)
 
     override protected def computeType(implicit s: Symbols): Type = s.widen(tuple.getType) match {
-      case tp @ TupleType(ts) =>
-        require(index <= ts.size, s"Got index $index for '$tuple' of type '$tp")
-        ts(index - 1)
+      case tp @ TupleType(ts) if index <= ts.size => ts(index - 1)
       case _ => Untyped
     }
   }
