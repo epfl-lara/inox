@@ -345,19 +345,27 @@ trait Printer {
     case sort: ADTSort =>
       for (an <- sort.flags) p"""|@${an.asString(ctx.opts)}
                                  |"""
-      p"abstract class ${sort.id}${nary(sort.tparams, ", ", "[", "]")}"
+      p"abstract class ${sort.id}"
+      if (sort.tparams.nonEmpty) p"${nary(sort.tparams, ", ", "[", "]")}"
       for (cons <- sort.constructors) {
         p"""|
             |case class ${cons.id}"""
-        p"${nary(sort.tparams, ", ", "[", "]")}"
+        if (sort.tparams.nonEmpty) p"${nary(sort.tparams, ", ", "[", "]")}"
         p"(${cons.fields})"
-        p" extends ${sort.id}${nary(sort.tparams, ", ", "[", "]")}"
+        p" extends ${sort.id}"
+        if (sort.tparams.nonEmpty) p"${nary(sort.tparams.map(_.tp), ", ", "[", "]")}"
       }
 
     case cons: ADTConstructor =>
+      val optTparams =
+        ctx.opts.symbols.flatMap(_.lookupSort(cons.sort))
+          .map(_.tparams).filter(_.nonEmpty)
+
       p"case class ${cons.id}"
       p"(${cons.fields})"
+      optTparams.foreach(tparams => p"${nary(tparams, ", ", "[", "]")}")
       p" extends ${cons.sort}"
+      optTparams.foreach(tparams => p"${nary(tparams.map(_.tp), ", ", "[", "]")}")
 
     case fd: FunDef =>
       for (an <- fd.flags) {
