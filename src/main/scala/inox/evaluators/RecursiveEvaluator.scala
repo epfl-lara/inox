@@ -136,7 +136,7 @@ trait RecursiveEvaluator
             case BooleanLiteral(false) =>
               throw RuntimeError("ADT invariant violation for " + cc.asString)
             case other =>
-              throw RuntimeError(typeErrorMsg(other, BooleanType()))
+              throw RuntimeError("Invariant type error: " + typeErrorMsg(other, BooleanType()))
           }
         }
       }
