@@ -391,7 +391,7 @@ trait Expressions { self: Trees =>
   /** $encodingof `lhs.length` for strings */
   sealed case class StringLength(expr: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type =
-      checkParamType(expr, StringType(), StringType())
+      checkParamType(expr, StringType(), IntegerType())
   }
 
   /* General arithmetic */
