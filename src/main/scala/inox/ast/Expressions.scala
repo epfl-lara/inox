@@ -248,6 +248,8 @@ trait Expressions { self: Trees =>
     def getType(implicit s: Symbols): Type = tp
   }
 
+  /* Override point for Stainless to handle refinement types */
+  protected def constructorType(tcons: TypedADTConstructor): Type = ADTType(tcons.sort.id, tcons.tps)
 
   /** $encodingof `ct(args...)`
     *
@@ -266,7 +268,7 @@ trait Expressions { self: Trees =>
             sort.typed(tps).constructors
               .find(_.id == id)
               .filter(_.fields.size == args.size)
-              .map(tcons => checkParamTypes(args, tcons.fieldsTypes, ADTType(sort.id, tps)))
+              .map(tcons => checkParamTypes(args, tcons.fieldsTypes, constructorType(tcons)))
           }
       }.getOrElse(Untyped)
   }
