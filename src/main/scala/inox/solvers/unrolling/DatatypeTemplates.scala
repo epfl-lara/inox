@@ -156,7 +156,8 @@ trait DatatypeTemplates { self: Templates =>
       protected def isRelevantBlocker(v: Variable): Boolean = {
         (tpes contains v) ||
         (guardedExprs contains v) ||
-        guardedExprs.exists(_._2.exists(e => exprOps.variablesOf(e)(v)))
+        guardedExprs.exists(_._2.exists(e => exprOps.variablesOf(e)(v))) ||
+        equations.exists(e => exprOps.variablesOf(e)(v))
       }
 
       protected case class RecursionState(

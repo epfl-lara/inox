@@ -61,7 +61,7 @@ trait LambdaTemplates { self: Templates =>
       val trArgs: Seq[Encoded] = idArgs.map(v => substMap.getOrElse(v, encodeSymbol(v)))
 
       val (realLambda, structure, depSubst) = mkExprStructure(pathVar._1, lambda, substMap)
-      val depClosures = exprOps.variablesOf(lambda).flatMap(substMap.get)
+      val depClosures = exprOps.variablesOf(lambda).toSeq.sortBy(_.id.uniqueName).map(v => v -> substMap(v))
 
       val tpe = lambda.getType.asInstanceOf[FunctionType]
       val lid = Variable.fresh("lambda", tpe, true)
@@ -89,7 +89,7 @@ trait LambdaTemplates { self: Templates =>
     val ids: (Variable, Encoded),
     val contents: TemplateContents,
     val structure: TemplateStructure,
-    val closures: Set[Encoded],
+    val closures: Seq[(Variable, Encoded)],
     val lambda: Lambda,
     private[unrolling] val stringRepr: () => String,
     private val isConcrete: Boolean) extends Template {
@@ -100,7 +100,7 @@ trait LambdaTemplates { self: Templates =>
       ids._1 -> substituter(ids._2),
       contents.substitute(substituter, msubst),
       structure.substitute(substituter, msubst),
-      closures.map(substituter),
+      closures.map(p => p._1 -> substituter(p._2)),
       lambda, stringRepr, isConcrete)
 
     /** This must be called right before returning the clauses in [[structure]]`.instantiation` ! */
@@ -216,7 +216,7 @@ trait LambdaTemplates { self: Templates =>
       val idT = encodeSymbol(template.ids._1)
       val newTemplate = template.concretize(idT)
 
-      val orderingClauses = newTemplate.structure.locals.flatMap {
+      val orderingClauses = newTemplate.closures.flatMap {
         case (v, dep) => registerClosure(newTemplate.start, idT -> newTemplate.tpe, dep -> v.tpe)
       }
 

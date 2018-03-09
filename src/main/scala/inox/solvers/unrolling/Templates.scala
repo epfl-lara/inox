@@ -742,7 +742,7 @@ trait Templates
       val lambdaKeys = lambdas.map(lambda => lambda.ids._2 -> lambda).toMap
       def extractSubst(lambda: LambdaTemplate): Unit = {
         for {
-          dep <- lambda.closures flatMap lambdaKeys.get
+          dep <- lambda.closures.map(_._2) flatMap lambdaKeys.get
           if !seen(dep)
         } extractSubst(dep)
 
