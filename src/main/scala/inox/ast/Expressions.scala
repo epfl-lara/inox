@@ -292,7 +292,7 @@ trait Expressions { self: Trees =>
   sealed case class ADTSelector(adt: Expr, selector: Identifier) extends Expr with CachingTyped {
 
     def constructor(implicit s: Symbols) = {
-      val tpe = adt.getType.asInstanceOf[ADTType]
+      val tpe = s.widen(adt.getType).asInstanceOf[ADTType]
       tpe.getSort.constructors.find(_.fields.exists(_.id == selector)).get
     }
 
