@@ -8,29 +8,16 @@ import scala.concurrent.duration._
 package object solvers {
   import combinators._
 
-  sealed abstract class PurityOptions {
-    def assumeChecked = this != PurityOptions.Unchecked
-    def totalFunctions = this == PurityOptions.TotalFunctions
-  }
+  object optAssumeChecked extends FlagOptionDef("assume-checked", false)
+
+  class PurityOptions(val assumeChecked: Boolean)
 
   object PurityOptions {
-    case object Unchecked extends PurityOptions
-    case object AssumeChecked extends PurityOptions
-    case object TotalFunctions extends PurityOptions
+    def apply(ctx: Context) =
+      new PurityOptions(ctx.options.findOptionOrDefault(optAssumeChecked))
 
-    def apply(ctx: Context) = ctx.options.findOptionOrDefault(optAssumeChecked)
-  }
-
-  object optAssumeChecked extends OptionDef[PurityOptions] {
-    val name = "assume-checked"
-    val default = PurityOptions.Unchecked
-    val parser = (str: String) => str match {
-      case "false" => Some(PurityOptions.Unchecked)
-      case "" | "checked" => Some(PurityOptions.AssumeChecked)
-      case "total" => Some(PurityOptions.TotalFunctions)
-      case _ => None
-    }
-    val usageRhs = s"--$name=(false|checked|total)"
+    def assumeChecked = new PurityOptions(true)
+    def unchecked = new PurityOptions(false)
   }
 
   object optNoSimplifications extends FlagOptionDef("no-simplifications", false)

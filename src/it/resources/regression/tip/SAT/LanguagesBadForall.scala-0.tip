@@ -1,0 +1,21 @@
+(declare-datatypes (A!27) ((Lang!2 (Lang!3 (oo!1 Bool) (dd!1 (=> A!27 (Lang!2 A!27)))))))
+
+(declare-datatypes (T!0) ((List!3 (Cons!2 (h!46 T!0) (t!56 (List!3 T!0))) (Nil!2))))
+
+(define-fun-rec (par (A!32) (contains!1 ((thiss!56 (Lang!2 A!32)) (w!1 (List!3 A!32))) Bool (ite (is-Nil!2 w!1) (assume (is-Lang!3 thiss!56) (oo!1 thiss!56)) (contains!1 (@ (assume (is-Lang!3 thiss!56) (dd!1 thiss!56)) (h!46 w!1)) (t!56 w!1))))))
+
+(define-fun (par (A!30) (===!0 ((thiss!15 (Lang!2 A!30)) (that!16 (Lang!2 A!30))) Bool (forall ((w!0 (List!3 A!30))) (= (contains!1 thiss!15 w!0) (contains!1 that!16 w!0))))))
+
+(define-fun-rec (par (A!31) (+!1 ((thiss!23 (Lang!2 A!31)) (that!17 (Lang!2 A!31))) (Lang!2 A!31) (Lang!3 (or (assume (is-Lang!3 thiss!23) (oo!1 thiss!23)) (assume (is-Lang!3 that!17) (oo!1 that!17))) (lambda ((a!4 A!31)) (+!1 (@ (assume (is-Lang!3 thiss!23) (dd!1 thiss!23)) a!4) (@ (assume (is-Lang!3 that!17) (dd!1 that!17)) a!4)))))))
+
+(define-fun-rec (par (A!28) (zero!0 () (Lang!2 A!28) (Lang!3 false (lambda ((x$1!4 A!28)) (as zero!0 (Lang!2 A!28)))))))
+
+(define-fun (par (A!29) (one!0 () (Lang!2 A!29) (Lang!3 true (lambda ((x$2!4 A!29)) (as zero!0 (Lang!2 A!29)))))))
+
+(declare-datatypes () ((Object!2 (Object!3 (ptr!1 Int)))))
+
+(assert (not (===!0 (+!1 (as one!0 (Lang!2 Object!2)) (as zero!0 (Lang!2 Object!2))) (as zero!0 (Lang!2 Object!2)))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

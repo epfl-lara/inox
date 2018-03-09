@@ -13,12 +13,12 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     Seq(optSelectedSolvers(Set("nativez3")), optCheckModels(true)),
     Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true)),
     Seq(optSelectedSolvers(Set("smt-cvc4")), optCheckModels(true)),
-    Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true), optAssumeChecked(PurityOptions.AssumeChecked))
+    Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true), optAssumeChecked(true))
   )
 
   override protected def optionsString(options: Options): String = {
     "solver=" + options.findOptionOrDefault(optSelectedSolvers).head +
-    (if (options.findOptionOrDefault(optAssumeChecked).assumeChecked) " assumechecked" else "")
+    (if (options.findOptionOrDefault(optAssumeChecked)) " assumechecked" else "")
   }
 
   private def ignoreSAT(ctx: Context, file: java.io.File): FilterStatus = 
@@ -32,7 +32,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
         case ("smt-cvc4", "BinarySearchTreeQuant.scala-2.tip") => Ignore
         // this test only holds when assumeChecked=false
         case (_, "LambdaEquality2.scala-1.tip")
-        if ctx.options.findOptionOrDefault(optAssumeChecked).assumeChecked => Skip
+        if ctx.options.findOptionOrDefault(optAssumeChecked) => Skip
         case _ => Test
       }
 

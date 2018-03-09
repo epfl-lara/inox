@@ -104,7 +104,7 @@ trait SymbolOps { self: TypeOps =>
   /** Returns 'true' iff the evaluation of expression `expr` cannot lead to a crash. */
   def isPure(expr: Expr)(implicit opts: PurityOptions): Boolean = isPureIn(expr, Path.empty)
 
-  def isAlwaysPure(expr: Expr) = isPure(expr)(PurityOptions.Unchecked)
+  def isAlwaysPure(expr: Expr) = isPure(expr)(PurityOptions.unchecked)
 
   /** Returns 'true' iff the evaluation of expression `expr` cannot lead to a crash under the provided path. */
   def isPureIn(e: Expr, path: Path)(implicit opts: PurityOptions): Boolean = {
@@ -158,8 +158,8 @@ trait SymbolOps { self: TypeOps =>
           if (reportErrors) ctx.reporter.error(SimplifyGroundError(e, evaluated))
           evalChildren(e)
         }
-      case l: Lambda if !opts.totalFunctions =>
-        evalChildren(l)(PurityOptions.Unchecked)
+      case l: Lambda =>
+        evalChildren(l)(PurityOptions.unchecked)
       case e =>
         evalChildren(e)
     }
@@ -263,6 +263,19 @@ trait SymbolOps { self: TypeOps =>
         (tvars & tvs).isEmpty && (pathVars & tvs).isEmpty
       }
 
+      def containsChoose(e: Expr): Boolean =
+        exists { case c: Choose => true case _ => false } (e)
+
+      def containsRecursive(e: Expr): Boolean =
+        exists { case fi: FunctionInvocation => fi.tfd.fd.isRecursive case _ => false } (e)
+
+      def isLiftable(e: Expr, path: Path): Boolean = {
+        isLocal(e, path) &&
+        (isSimple(e) || !onlySimple) &&
+        !containsChoose(e) &&
+        ((isAlwaysPure(e) && !containsRecursive(e)) || (!inFunction && (isPure(e) || path.conditions.isEmpty)))
+      }
+
       transformWithPC(body)((e, env, op) => e match {
         case v @ Variable(id, tpe, flags) =>
           Variable(
@@ -279,25 +292,11 @@ trait SymbolOps { self: TypeOps =>
           val newEs = es.map(op.rec(_, env))
           recons(newEs)
 
-        case Let(vd, e, b) if (
-          isLocal(e, env) &&
-          (isSimple(e) || !onlySimple) &&
-          !exists { case c: Choose => true case _ => false } (e) && (
-            isAlwaysPure(e) ||
-            ((!inFunction || opts.totalFunctions) && (isPure(e) || env.conditions.isEmpty))
-          )
-        ) =>
+        case Let(vd, e, b) if isLiftable(e, env) =>
           subst += vd.toVariable -> e
           op.rec(b, env)
 
-        case expr if (
-          isLocal(expr, env) &&
-          (isSimple(expr) || !onlySimple) &&
-          !exists { case c: Choose => true case _ => false } (expr) && (
-            isAlwaysPure(expr) ||
-            ((!inFunction || opts.totalFunctions) && (isPure(expr) || env.conditions.isEmpty))
-          )
-        ) =>
+        case expr if isLiftable(expr, env) =>
           Variable(getId(expr), expr.getType, Set.empty)
 
         case f: Forall =>
@@ -463,7 +462,7 @@ trait SymbolOps { self: TypeOps =>
 
     case FunctionType(from, to) =>
       val l = Lambda(from.map(tpe => ValDef(FreshIdentifier("x", true), tpe)), constructExpr(0, to))
-      uniquateClosure(i, l)(PurityOptions.Unchecked)
+      uniquateClosure(i, l)(PurityOptions.unchecked)
   }
 
   /* Inline lambda lets that appear in forall bodies. For example,
@@ -1198,7 +1197,7 @@ trait SymbolOps { self: TypeOps =>
     * @see [[SymbolOps.isPure isPure]]
     */
   def let(vd: ValDef, e: Expr, bd: Expr) = {
-    if ((variablesOf(bd) contains vd.toVariable) || !isPure(e)(PurityOptions.Unchecked))
+    if ((variablesOf(bd) contains vd.toVariable) || !isPure(e)(PurityOptions.unchecked))
       Let(vd, e, bd).setPos(Position.between(vd.getPos, bd.getPos))
     else bd
   }
@@ -1207,7 +1206,7 @@ trait SymbolOps { self: TypeOps =>
     * @see [[Expressions.IfExpr IfExpr]]
     */
   def ifExpr(c: Expr, t: Expr, e: Expr): Expr = (t, e) match {
-    case (_, `t`) if isPure(c)(PurityOptions.Unchecked) => t
+    case (_, `t`) if isPure(c)(PurityOptions.unchecked) => t
     case (IfExpr(c2, thenn, `e`), _) => ifExpr(and(c, c2), thenn, e)
     case (_, IfExpr(c2, `t`, e2)) => ifExpr(or(c, c2), t, e2)
     case (BooleanLiteral(true), BooleanLiteral(false)) => c

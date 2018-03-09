@@ -374,12 +374,11 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
           lazy val inLambda = exists { case l: Lambda => variablesOf(l) contains v case _ => false }(rb)
           lazy val immediateCall = existsWithPC(rb) { case (`v`, path) => path.isEmpty case _ => false }
           lazy val containsLambda = exists { case l: Lambda => true case _ => false }(re)
-          lazy val realPE = opts match {
-            case solvers.PurityOptions.Unchecked => pe
-            case solvers.PurityOptions.TotalFunctions => pe
-            case _ =>
-              val simp = simplifier(solvers.PurityOptions.Unchecked)
-              simp.isPure(e, path.asInstanceOf[simp.CNFPath])
+          lazy val realPE = if (opts.assumeChecked) {
+            val simp = simplifier(solvers.PurityOptions.unchecked)
+            simp.isPure(e, path.asInstanceOf[simp.CNFPath])
+          } else {
+            pe
           }
 
           val (lete, letp) = if (
