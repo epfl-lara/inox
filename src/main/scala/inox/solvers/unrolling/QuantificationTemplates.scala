@@ -10,6 +10,7 @@ import evaluators._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet, Queue}
 
 trait QuantificationTemplates { self: Templates =>
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -20,19 +21,8 @@ trait QuantificationTemplates { self: Templates =>
   /* -- Extraction helpers -- */
 
   object QuantificationMatcher {
-    private def flatApplication(expr: Expr): Option[(Expr, Seq[Expr])] = expr match {
-      case Application(fi: FunctionInvocation, args) => None
-      case Application(caller: Application, args) => flatApplication(caller) match {
-        case Some((c, prevArgs)) => Some((c, prevArgs ++ args))
-        case None => None
-      }
-      case Application(caller, args) => Some((caller, args))
-      case _ => None
-    }
-
     def unapply(expr: Expr): Option[(Expr, Seq[Expr])] = expr match {
-      case IsTyped(a: Application, ft: FunctionType) => None
-      case Application(e, args) => flatApplication(expr)
+      case Application(e, args) => Some(e -> args)
       case MapApply(map, key) => Some(map -> Seq(key))
       case MapUpdated(map, key, value) => Some(map -> Seq(key))
       case MultiplicityInBag(elem, bag) => Some(bag -> Seq(elem))
@@ -45,18 +35,7 @@ trait QuantificationTemplates { self: Templates =>
   }
 
   object FunctionMatcher {
-    private def flatApplication(expr: Expr): Option[(TypedFunDef, Seq[Expr])] = expr match {
-      case Application(fi: FunctionInvocation, args) => Some((fi.tfd, args))
-      case Application(caller: Application, args) => flatApplication(caller) match {
-        case Some((c, prevArgs)) => Some((c, prevArgs ++ args))
-        case None => None
-      }
-      case _ => None
-    }
-
     def unapply(expr: Expr): Option[(TypedFunDef, Seq[Expr])] = expr match {
-      case IsTyped(a: Application, ft: FunctionType) => None
-      case Application(e, args) => flatApplication(expr)
       case fi @ FunctionInvocation(_, _, args) => Some((fi.tfd, args))
       case _ => None
     }
@@ -73,8 +52,8 @@ trait QuantificationTemplates { self: Templates =>
     def unapply(tpe: Type): Option[(Seq[Type], Type)] = tpe match {
       case FunctionType(from, to) => Some(flatType(tpe))
       case MapType(from, to) => Some(Seq(from) -> to)
-      case BagType(base) => Some(Seq(base) -> IntegerType)
-      case SetType(base) => Some(Seq(base) -> BooleanType)
+      case BagType(base) => Some(Seq(base) -> IntegerType())
+      case SetType(base) => Some(Seq(base) -> BooleanType())
       case _ => None
     }
   }
@@ -157,7 +136,7 @@ trait QuantificationTemplates { self: Templates =>
       substMap: Map[Variable, Encoded]
     ): (Option[Variable], QuantificationTemplate) = {
       val (Forall(args, body), structure, depSubst) =
-        mkExprStructure(pathVar._1, forall, substMap, onlySimple = !simplify)
+        mkExprStructure(pathVar._1, forall, substMap, onlySimple = !simpOpts.simplify)
 
       val quantifiers = args.map(_.toVariable).toSet
       val idQuantifiers: Seq[Variable] = args.map(_.toVariable)
@@ -174,22 +153,22 @@ trait QuantificationTemplates { self: Templates =>
         Map[Variable, Encoded]
       ) = optPol match {
         case Some(true) =>
-          val guard = encodeSymbol(Variable.fresh("guard", BooleanType, true))
+          val guard = encodeSymbol(Variable.fresh("guard", BooleanType(), true))
           val extraSubst = Map(pathVar._1 -> guard)
           val extraGuarded = Map(pathVar._1 -> Seq(p))
           (None, Positive(guard), extraGuarded, Seq.empty, extraSubst)
 
         case Some(false) =>
-          val inst: Variable = Variable.fresh("inst", BooleanType, true)
+          val inst: Variable = Variable.fresh("inst", BooleanType(), true)
           val insts = inst -> encodeSymbol(inst)
           val extraGuarded = Map(pathVar._1 -> Seq(Equals(inst, p)))
           (Some(inst), Negative(insts), extraGuarded, Seq.empty, Map(insts))
 
         case None =>
-          val q: Variable = Variable.fresh("q", BooleanType, true)
-          val q2: Variable = Variable.fresh("qo", BooleanType, true)
-          val inst: Variable = Variable.fresh("inst", BooleanType, true)
-          val guard = encodeSymbol(Variable.fresh("guard", BooleanType, true))
+          val q: Variable = Variable.fresh("q", BooleanType(), true)
+          val q2: Variable = Variable.fresh("qo", BooleanType(), true)
+          val inst: Variable = Variable.fresh("inst", BooleanType(), true)
+          val guard = encodeSymbol(Variable.fresh("guard", BooleanType(), true))
 
           val qs = q -> encodeSymbol(q)
           val q2s = q2 -> encodeSymbol(q2)
@@ -262,9 +241,9 @@ trait QuantificationTemplates { self: Templates =>
         ignoredMatchers -= e
       }
 
-      ctx.reporter.debug("Unrolling ignored matchers (" + clauses.size + ")")
+      reporter.debug("Unrolling ignored matchers (" + clauses.size + ")")
       for (cl <- clauses) {
-        ctx.reporter.debug("  . " + cl)
+        reporter.debug("  . " + cl)
       }
 
       if (abort || pause) return clauses.toSeq
@@ -279,9 +258,9 @@ trait QuantificationTemplates { self: Templates =>
         }
       }
 
-      ctx.reporter.debug("Unrolling ignored substitutions (" + suClauses.size + ")")
+      reporter.debug("Unrolling ignored substitutions (" + suClauses.size + ")")
       for (cl <- suClauses) {
-        ctx.reporter.debug("  . " + cl)
+        reporter.debug("  . " + cl)
       }
 
       clauses ++= suClauses
@@ -299,9 +278,9 @@ trait QuantificationTemplates { self: Templates =>
         }
       }
 
-      ctx.reporter.debug("Unrolling ignored grounds (" + grClauses.size + ")")
+      reporter.debug("Unrolling ignored grounds (" + grClauses.size + ")")
       for (cl <- grClauses) {
-        ctx.reporter.debug("  . " + cl)
+        reporter.debug("  . " + cl)
       }
 
       clauses ++= grClauses
@@ -329,7 +308,7 @@ trait QuantificationTemplates { self: Templates =>
       ignoredMatchers += ((currentGeneration, blockers, matcher))
       Seq.empty
     } else {
-      ctx.reporter.debug(" -> instantiating matcher " + blockers.mkString("{",",","}") + " ==> " + matcher)
+      reporter.debug(" -> instantiating matcher " + blockers.mkString("{",",","}") + " ==> " + matcher)
       handledMatchers += relevantBlockers -> matcher
       val qClauses: Clauses = quantifications.flatMap(_.instantiate(relevantBlockers, matcher, defer))
 
@@ -396,8 +375,133 @@ trait QuantificationTemplates { self: Templates =>
     correspond(matcherKey(m1), matcherKey(m2))
 
   private trait BlockedSet[Element] extends Iterable[(Set[Encoded], Element)] with IncrementalState {
-    private var map: MutableMap[Any, (Element, MutableSet[Set[Encoded]])] = MutableMap.empty
-    private var stack: List[MutableMap[Any, (Element, MutableSet[Set[Encoded]])]] = List.empty
+    import scala.collection.JavaConverters._
+
+    private[this] object BlockerTrie {
+      // A node within the BlockerTrie structure that enables maintaining a history
+      // of how many times a particular node has been accessed.
+      final class Node private(
+        private var _blockers: Set[Encoded],
+        private[this] var _next: BlockerTrie,
+        private var count: Int) extends Ordered[Node] {
+
+        def this(blockers: Set[Encoded]) = this(blockers, new BlockerTrie, 0)
+
+        @inline final def blockers: Set[Encoded] = _blockers
+        @inline final def next: BlockerTrie = _next
+
+        final def insert(bs: Set[Encoded]): Boolean = {
+          // If the blocker set is already within this trie, no need to do anything.
+          blockers == bs || {
+            val intersect = blockers & bs
+            intersect.nonEmpty && {
+              if (intersect == blockers) {
+                // If the intersection is exactly the current trie key, then we can simply
+                // recursively add the remaining blockers into the next trie.
+                next += bs -- blockers
+              } else { // we know intersect != bs as otherwise, es == bs would have held
+                // If the intersection is different from the current key, we need to change
+                // the current key to that intersection and update the child trie.
+                // 1. We start by adding the difference to all child trie keys.
+                val diff = blockers -- intersect
+                for (node <- next.trie.asScala) node._blockers ++= diff
+
+                // 2. We then add the new element into the child trie.
+                next += bs -- intersect
+
+                // 3. And finally, we update the current set of blockers.
+                _blockers = intersect
+              }
+              true
+            }
+          }
+        }
+
+        @inline final def containsSubset(bs: Set[Encoded]): Boolean =
+          (blockers subsetOf bs) && (next.isEmpty || (next containsSubset (bs -- blockers)))
+
+        @inline final def increment: Unit = count += 1
+
+        override final def compare(that: Node) = count - that.count
+        override final def clone: Node = new Node(blockers, next.clone, count)
+      }
+    }
+
+    import BlockerTrie._
+
+    // A trie set that is optimized for computing subset containement.
+    private[this] final class BlockerTrie private(
+      private val trie: java.util.ArrayList[Node]
+    ) extends Iterable[Set[Encoded]] {
+      def this() = this(new java.util.ArrayList)
+
+      @inline
+      override def isEmpty = trie.isEmpty
+
+      def containsSubset(bs: Set[Encoded]): Boolean = {
+        var found = false
+        var index = 0
+        while (index < trie.size && !found) {
+          found = trie.get(index) containsSubset bs
+          if (!found) index += 1
+        }
+
+        // We bubble up the successful node to the beginning of the list to make
+        // the linear search succeed earlier for common nodes.
+        if (found) {
+          val node = trie.get(index)
+          node.increment
+
+          while (index > 0 && (node compare trie.get(index - 1)) > 0) {
+            trie.set(index, trie.get(index - 1))
+            trie.set(index - 1, node)
+            index -= 1
+          }
+        }
+
+        found
+      }
+
+      def +=(bs: Set[Encoded]): Unit = {
+        var added = false
+        val it = trie.iterator
+        while (it.hasNext && !added) {
+          added = it.next.insert(bs)
+        }
+
+        if (!added) {
+          trie.add(new Node(bs))
+        }
+      }
+
+      override def clone: BlockerTrie = {
+        val newTrie = new java.util.ArrayList[Node](trie.size)
+        for (node <- trie.asScala) newTrie.add(node.clone)
+        new BlockerTrie(newTrie)
+      }
+
+      override def iterator: Iterator[Set[Encoded]] = new collection.AbstractIterator[Set[Encoded]] {
+        private val listIt: java.util.Iterator[Node] = BlockerTrie.this.trie.iterator
+        private var trieIt: Iterator[Set[Encoded]] = Iterator.empty
+        private var current: Set[Encoded] = _
+
+        override def hasNext = listIt.hasNext || trieIt.hasNext
+        override def next: Set[Encoded] = if (trieIt.hasNext) {
+          current ++ trieIt.next
+        } else {
+          val node = listIt.next
+          if (node.next.isEmpty) node.blockers
+          else {
+            current = node.blockers
+            trieIt = node.next.iterator
+            next // guaranteed to exist here
+          }
+        }
+      }
+    }
+
+    private[this] var map: MutableMap[Any, (Element, BlockerTrie)] = MutableMap.empty
+    private[this] var stack: List[MutableMap[Any, (Element, BlockerTrie)]] = List.empty
 
     /** Override point to determine the "key" associated to element [[e]].
       *
@@ -414,37 +518,29 @@ trait QuantificationTemplates { self: Templates =>
       */
     protected def merge(e1: Element, e2: Element): Element = e1
 
-    protected def contained(s: Set[Encoded], ss: Set[Encoded] => Boolean): Boolean = ss(s) || {
-      // we assume here that iterating through the powerset of `s`
-      // will be significantly faster then iterating through `ss`
-      s.subsets.exists(set => ss(set))
-    }
-
     @inline
-    protected def get(k: Any): Option[Set[Encoded] => Boolean] = map.get(k).map(_._2)
-
-    def apply(p: (Set[Encoded], Element)): Boolean = get(key(p._2)).exists {
-      blockerSets => contained(p._1, blockerSets)
+    protected final def containsSubset(k: Any, bs: Set[Encoded]): Boolean = {
+      map.get(k).exists(p => p._2 containsSubset bs)
     }
+
+    def apply(p: (Set[Encoded], Element)): Boolean = containsSubset(key(p._2), p._1)
 
     def +=(p: (Set[Encoded], Element)): Unit = {
       val k = key(p._2)
-      val (elem, blockerSets) = map.get(k) match {
-        case Some((elem, blockerSets)) =>
-          (merge(p._2, elem), blockerSets)
-        case None =>
-          (p._2, MutableSet.empty[Set[Encoded]])
+      val (elem, bt) = map.get(k) match {
+        case Some((elem, bt)) => (merge(p._2, elem), bt)
+        case None => (p._2, new BlockerTrie)
       }
 
-      if (!contained(p._1, blockerSets)) {
-        blockerSets += p._1
+      if (!(bt containsSubset p._1)) {
+        bt += p._1
       }
 
-      map(k) = (elem, blockerSets)
+      map(k) = (elem, bt)
     }
 
     def iterator: Iterator[(Set[Encoded], Element)] = new collection.AbstractIterator[(Set[Encoded], Element)] {
-      private val mapIt: Iterator[(Any, (Element, MutableSet[Set[Encoded]]))] = BlockedSet.this.map.iterator
+      private val mapIt: Iterator[(Any, (Element, BlockerTrie))] = BlockedSet.this.map.iterator
       private var setIt: Iterator[Set[Encoded]] = Iterator.empty
       private var current: Element = _
 
@@ -461,7 +557,7 @@ trait QuantificationTemplates { self: Templates =>
     }
 
     def push(): Unit = {
-      val newMap: MutableMap[Any, (Element, MutableSet[Set[Encoded]])] = MutableMap.empty
+      val newMap: MutableMap[Any, (Element, BlockerTrie)] = MutableMap.empty
       for ((k, (e, bss)) <- map) {
         newMap += k -> (e -> bss.clone)
       }
@@ -501,9 +597,7 @@ trait QuantificationTemplates { self: Templates =>
       else (ag1._1 -> (ag1._2 ++ ag2._2))
     }
 
-    def apply(bs: Set[Encoded], arg: Arg): Boolean = get(arg).exists {
-      blockerSets => contained(bs, blockerSets)
-    }
+    def apply(bs: Set[Encoded], arg: Arg): Boolean = containsSubset(arg, bs)
 
     @inline
     def +=(p: (Set[Encoded], Arg, Set[Int])): Unit = this += (p._1 -> (p._2 -> p._3))
@@ -870,10 +964,10 @@ trait QuantificationTemplates { self: Templates =>
     } else {
       lambdaAxioms += template.structure
       val quantifiers = template.contents.arguments
-      val app = mkFlatApp(template.ids._2, template.tpe, quantifiers.map(_._2))
+      val app = mkApp(template.ids._2, template.tpe, quantifiers.map(_._2))
       val matcher = Matcher(Left(template.ids._2 -> template.tpe), quantifiers.map(p => Left(p._2)), app)
 
-      val guard = encodeSymbol(Variable.fresh("guard", BooleanType, true))
+      val guard = encodeSymbol(Variable.fresh("guard", BooleanType(), true))
       val substituter = mkSubstituter(Map(template.start -> guard))
 
       val body: Expr = {
@@ -905,7 +999,7 @@ trait QuantificationTemplates { self: Templates =>
           (Map(qs._2 -> inst), Seq.empty[Encoded])
       }
     }.getOrElse {
-      ctx.reporter.debug("instantiating quantification " + template.body.asString)
+      reporter.debug("instantiating quantification " + template.body.asString)
 
       val newTemplate = template.concretize
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
@@ -1055,7 +1149,7 @@ trait QuantificationTemplates { self: Templates =>
       val (values, clause) = keyClause.getOrElse(key, {
         val insts = handledMatchers.toList.filter(hm => correspond(matcherKey(hm._2), key).isDefined)
 
-        val guard = Variable.fresh("guard", BooleanType, true)
+        val guard = Variable.fresh("guard", BooleanType(), true)
         val elems = argTypes.map(tpe => Variable.fresh("elem", tpe, true))
         val values = argTypes.map(tpe => Variable.fresh("value", tpe, true))
         val expr = andJoin(guard +: (elems zip values).map(p => Equals(p._1, p._2)))
@@ -1088,7 +1182,7 @@ trait QuantificationTemplates { self: Templates =>
     }
 
     for (q <- quantifications if ignoredSubsts.isDefinedAt(q)) {
-      val guard = Variable.fresh("guard", BooleanType, true)
+      val guard = Variable.fresh("guard", BooleanType(), true)
       val elems = q.quantifiers.map(_._1)
       val values = elems.map(v => v.freshen)
       val expr = andJoin(guard +: (elems zip values).map(p => Equals(p._1, p._2)))
@@ -1118,12 +1212,10 @@ trait QuantificationTemplates { self: Templates =>
   }
 
   def getGroundInstantiations(e: Encoded, tpe: Type): Seq[(Encoded, Seq[Encoded])] = {
-    val bestTpe = bestRealType(tpe)
-
     handledMatchers.toList.flatMap { case (bs, m) =>
       val enabler = encodeEnablers(bs)
       val optArgs = matcherKey(m) match {
-        case tp: TypedKey if bestTpe == tp.tpe => Some(m.args.map(_.encoded))
+        case tp: TypedKey if tpe == tp.tpe => Some(m.args.map(_.encoded))
         case _ => None
       }
 

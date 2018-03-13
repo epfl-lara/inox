@@ -1,0 +1,41 @@
+(declare-datatypes (A1!0 R!20) ((fun1!13 (fun1!14 (f!43 (=> A1!0 R!20)) (pre!17 (=> A1!0 Bool))))))
+
+(declare-datatypes (T!0) ((List!15 (Cons!13 (h!74 T!0) (t!125 (List!15 T!0))) (Nil!13))))
+
+(declare-datatypes (T!26) ((Option!12 (None!11) (Some!11 (v!18 T!26)))))
+
+(declare-datatypes () ((Core!13 (Core!14 (id!32 Int) (tasks!10 (List!15 Task!13)) (current!9 (Option!12 Task!13)))) (Task!13 (Task!14 (id!33 Int) (tick!9 Int) (core!36 Core!13)))))
+
+(declare-const core!5 (fun1!13 Int Core!13))
+
+(define-fun (par (T!34) (isEmpty!0 ((thiss!8 (List!15 T!34))) Bool (ite (is-Nil!13 thiss!8) true false))))
+
+(declare-const stealee!3 Int)
+
+(declare-const stealer!3 Int)
+
+(datatype-invariant thiss!6 Task!13 (>= (tick!9 thiss!6) 0))
+
+(define-fun-rec isSorted!1 ((tasks!3 (List!15 Task!13))) Bool (ite (is-Nil!13 tasks!3) true (ite (and (is-Cons!13 tasks!3) (is-Nil!13 (t!125 tasks!3))) true (and (<= (tick!9 (h!74 tasks!3)) (tick!9 (h!74 (t!125 tasks!3)))) (isSorted!1 (t!125 tasks!3))))))
+
+(define-fun-rec (par (T!33) (content!0 ((thiss!7 (List!15 T!33))) (Set T!33) (ite (is-Nil!13 thiss!7) (as emptyset T!33) (union (insert (as emptyset T!33) (h!74 thiss!7)) (content!0 (t!125 thiss!7)))))))
+
+(define-fun-rec (par (T!32) (contains!0 ((thiss!5 (List!15 T!32)) (v!0 T!32)) Bool (let ((x$2!2 (ite (is-Cons!13 thiss!5) (or (= (h!74 thiss!5) v!0) (contains!0 (t!125 thiss!5) v!0)) false))) (assume (= x$2!2 (member v!0 (content!0 thiss!5))) x$2!2)))))
+
+(define-fun-rec contains!1 ((tasks!1 (List!15 Task!13)) (v!7 Task!13)) Bool (let ((res!54 (ite (is-Cons!13 tasks!1) (or (= (id!33 (h!74 tasks!1)) (id!33 v!7)) (contains!1 (t!125 tasks!1) v!7)) false))) (assume (=> (not res!54) (not (contains!0 tasks!1 v!7))) res!54)))
+
+(define-fun-rec isUnique!0 ((tasks!2 (List!15 Task!13))) Bool (ite (is-Nil!13 tasks!2) true (ite (and (is-Cons!13 tasks!2) (is-Nil!13 (t!125 tasks!2))) true (and (not (contains!1 (t!125 tasks!2) (h!74 tasks!2))) (isUnique!0 (t!125 tasks!2))))))
+
+(define-fun (par (T!31) (isEmpty!1 ((thiss!4 (Option!12 T!31))) Bool (= thiss!4 (as None!11 (Option!12 T!31))))))
+
+(define-fun (par (T!29) (isDefined!0 ((thiss!0 (Option!12 T!29))) Bool (not (isEmpty!1 thiss!0)))))
+
+(define-fun (par (T!36) (get!0 ((thiss!10 (Option!12 T!36))) T!36 (v!18 thiss!10))))
+
+(datatype-invariant thiss!3 Core!13 (and (and (isSorted!1 (tasks!10 thiss!3)) (isUnique!0 (tasks!10 thiss!3))) (=> (isDefined!0 (current!9 thiss!3)) (not (contains!1 (tasks!10 thiss!3) (get!0 (current!9 thiss!3)))))))
+
+(assert (not (=> (and (forall ((x!64 Int)) (@ (f!43 (fun1!14 (pre!17 core!5) (lambda ((x!117 Int)) true))) x!64)) (not (isEmpty!0 (tasks!10 (@ (f!43 core!5) stealee!3)))) (not (= stealer!3 stealee!3))) (@ (f!43 (fun1!14 (pre!17 core!5) (lambda ((x!118 Int)) true))) stealer!3))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

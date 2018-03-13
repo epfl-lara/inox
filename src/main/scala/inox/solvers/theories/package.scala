@@ -7,6 +7,9 @@ import evaluators._
 
 package object theories {
 
+  case class TheoryException(msg: String)
+    extends RuntimeException(s"Theory encoding failed: $msg")
+
   def Z3(p: Program): ast.ProgramTransformer {
     val sourceProgram: p.type
     val targetProgram: Program { val trees: p.trees.type }
@@ -51,7 +54,7 @@ package object theories {
              (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }):
              DeterministicEvaluator { val program: enc.targetProgram.type } = new {
       val program: enc.targetProgram.type = enc.targetProgram
-      val options = ev.options
+      val context = ev.context
     } with DeterministicEvaluator {
       import program.trees._
       import EvaluationResults._

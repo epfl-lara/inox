@@ -15,6 +15,7 @@ case class AnyAssoc(op: String) extends Level {
 object Operators {
   val unaries: Seq[String] = Seq("-", "+", "!", "~")
   val binaries: Seq[Level] = Seq(
+    AnyAssoc("is"),
 
     LeftAssoc(Seq("*", "/", "%", "mod")),
 

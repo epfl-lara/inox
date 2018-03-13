@@ -1,0 +1,11 @@
+(declare-datatypes (R!31) ((fun0!9 (fun0!10 (f!94 (=> R!31)) (pre!15 (=> Bool))))))
+
+(define-fun a!0 () Bool (assume false (let ((holds!0 false)) (assume holds!0 holds!0))))
+
+(define-fun f!0 ((b!0 Bool)) (fun0!9 Bool) (ite b!0 (fun0!10 (lambda () a!0) (lambda () false)) (fun0!10 (lambda () true) (lambda () true))))
+
+(assert (not (@ (f!94 (fun0!10 (pre!15 (f!0 true)) (lambda () true))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

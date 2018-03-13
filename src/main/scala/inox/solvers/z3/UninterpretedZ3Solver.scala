@@ -18,6 +18,7 @@ import utils.IncrementalSet
 trait UninterpretedZ3Solver
   extends Solver { self =>
 
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -31,7 +32,7 @@ trait UninterpretedZ3Solver
 
   private object underlying extends {
     val program: self.program.type = self.program
-    val options = self.options
+    val context = self.context
   } with AbstractZ3Solver {
     val semantics = self.semantics
   }
@@ -64,7 +65,7 @@ trait UninterpretedZ3Solver
 
   private def completeModel(model: program.Model): program.Model = {
     val allVars = freeVars.map(v => v.toVal -> model.vars.getOrElse(v.toVal, simplestValue(v.getType))).toMap
-    inox.Model(program)(allVars, model.chooses)
+    inox.Model(program, context)(allVars, model.chooses)
   }
 
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =

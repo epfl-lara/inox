@@ -11,41 +11,36 @@ import scala.collection.mutable.{Set => MutableSet, Map => MutableMap}
 /** Incrementally unfolds equality relations between types for which the
   * SMT notion of equality is not relevant.
   *
-  * @see [[ast.Definitions.ADTDefinition.equality]] for such a case of equality
+  * @see [[ast.Definitions.ADTSort.equality]] for such a case of equality
   */
 trait EqualityTemplates { self: Templates =>
+  import context._
   import program._
   import program.trees._
   import program.symbols._
 
   import equalityManager._
 
-  private val checking: MutableSet[TypedADTDefinition] = MutableSet.empty
+  private val checking: MutableSet[TypedADTSort] = MutableSet.empty
   private val unrollCache: MutableMap[Type, Boolean] = MutableMap.empty
 
   def unrollEquality(tpe: Type): Boolean = unrollCache.getOrElseUpdate(tpe, tpe match {
     case adt: ADTType =>
-      val root = adt.getADT.root
-      root.hasEquality || (!checking(root) && {
-        checking += root
-        val constructors = root match {
-          case tsort: TypedADTSort => tsort.constructors
-          case tcons: TypedADTConstructor => Seq(tcons)
-        }
-
-        constructors.exists(c => c.fieldsTypes.exists(unrollEquality))
+      val sort = adt.getSort
+      sort.hasEquality || (!checking(sort) && {
+        checking += sort
+        sort.constructors.exists(c => c.fieldsTypes.exists(unrollEquality))
       })
 
-    case BooleanType | UnitType | CharType | IntegerType |
-         RealType | StringType | (_: BVType) | (_: TypeParameter) => false
+    case BooleanType() | UnitType() | CharType() | IntegerType() |
+         RealType() | StringType() | (_: BVType) | (_: TypeParameter) => false
 
     case NAryType(tpes, _) => tpes.exists(unrollEquality)
   })
 
   def equalitySymbol(tpe: Type): (Variable, Encoded) = {
-    val rt = bestRealType(tpe)
-    typeSymbols.cached(rt) {
-      val v = Variable.fresh("eq" + rt, FunctionType(Seq(rt, rt), BooleanType))
+    typeSymbols.cached(tpe) {
+      val v = Variable.fresh("eq" + tpe, FunctionType(Seq(tpe, tpe), BooleanType()))
       v -> encodeSymbol(v)
     }
   }
@@ -78,29 +73,19 @@ trait EqualityTemplates { self: Templates =>
       val args @ Seq(e1, e2) = Seq("e1", "e2").map(s => Variable.fresh(s, tpe))
       val argsT = args.map(encodeSymbol)
 
-      val pathVar = Variable.fresh("b", BooleanType, true)
+      val pathVar = Variable.fresh("b", BooleanType(), true)
       val pathVarT = encodeSymbol(pathVar)
 
       val tmplClauses = mkClauses(pathVar, Equals(Application(f, args), tpe match {
         case adt: ADTType =>
-          val root = adt.getADT.root
+          val sort = adt.getSort
 
-          if (root.hasEquality) {
-            root.equality.get.applied(args)
+          if (sort.hasEquality) {
+            sort.equality.get.applied(args)
           } else {
-            val constructors = root match {
-              case tsort: TypedADTSort => tsort.constructors
-              case tcons: TypedADTConstructor => Seq(tcons)
-            }
-
-            orJoin(constructors.map { tcons =>
-              val (instCond, asE1, asE2) = if (tcons == root) (BooleanLiteral(true), e1, e2) else (
-                and(IsInstanceOf(e1, tcons.toType), IsInstanceOf(e2, tcons.toType)),
-                AsInstanceOf(e1, tcons.toType),
-                AsInstanceOf(e2, tcons.toType)
-              )
-
-              val fieldConds = tcons.fields.map(vd => Equals(ADTSelector(asE1, vd.id), ADTSelector(asE2, vd.id)))
+            orJoin(sort.constructors.map { tcons =>
+              val instCond = and(isCons(e1, tcons.id), isCons(e2, tcons.id))
+              val fieldConds = tcons.fields.map(vd => Equals(ADTSelector(e1, vd.id), ADTSelector(e2, vd.id)))
               andJoin(instCond +: fieldConds)
             })
           }
@@ -113,7 +98,7 @@ trait EqualityTemplates { self: Templates =>
 
       val (contents, _) = Template.contents(
         pathVar -> pathVarT, args zip argsT, tmplClauses,
-        substMap = Map(f -> fT), optApp = Some(fT -> FunctionType(Seq(tpe, tpe), BooleanType))
+        substMap = Map(f -> fT), optApp = Some(fT -> FunctionType(Seq(tpe, tpe), BooleanType()))
       )
 
       new EqualityTemplate(tpe, contents)
@@ -127,7 +112,7 @@ trait EqualityTemplates { self: Templates =>
       clauses ++= EqualityTemplate(tpe).instantiate(blocker, e1, e2)
 
       val (_, f) = equalitySymbol(tpe)
-      val ft = FunctionType(Seq(tpe, tpe), BooleanType)
+      val ft = FunctionType(Seq(tpe, tpe), BooleanType())
 
       // congruence is transitive
       for ((tb, te1, te2) <- instantiated(tpe); cond = mkAnd(blocker, tb)) {
@@ -161,7 +146,7 @@ trait EqualityTemplates { self: Templates =>
   }
 
   def registerEquality(blocker: Encoded, tpe: Type, e1: Encoded, e2: Encoded): Encoded = {
-    registerEquality(blocker, Equality(bestRealType(tpe), e1, e2))
+    registerEquality(blocker, Equality(tpe, e1, e2))
   }
 
   def registerEquality(blocker: Encoded, equality: Equality): Encoded = {
@@ -177,7 +162,7 @@ trait EqualityTemplates { self: Templates =>
         equalityInfos += blocker -> (gen, gen, notBlocker, Set(equality))
     }
 
-    mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType), Seq(equality.e1, equality.e2))
+    mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType()), Seq(equality.e1, equality.e2))
   }
 
   private[unrolling] object equalityManager extends Manager {
@@ -215,9 +200,9 @@ trait EqualityTemplates { self: Templates =>
         newClauses ++= instantiateEquality(blocker, e)
       }
 
-      ctx.reporter.debug("Unrolling equalities (" + newClauses.size + ")")
+      reporter.debug("Unrolling equalities (" + newClauses.size + ")")
       for (cl <- newClauses) {
-        ctx.reporter.debug("  . " + cl)
+        reporter.debug("  . " + cl)
       }
 
       newClauses.toSeq

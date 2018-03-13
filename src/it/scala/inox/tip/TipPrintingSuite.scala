@@ -10,38 +10,36 @@ class TipPrintingSuite extends FunSuite with ResourceUtils {
 
   val ctx = TestContext.empty
 
-  val files = resourceFiles("regression/tip/SAT", _.endsWith(".tip")).toList.map("SAT" -> _) ++
-    resourceFiles("regression/tip/UNSAT", _.endsWith(".tip")).map("UNSAT" -> _)
-
-  private def checkScript(syms: Symbols, expr: Expr): Unit = {
-    for (fd <- syms.functions.values) {
-      assert(fd.fullBody.getType(syms) != Untyped)
-    }
-
-    assert(expr.getType(syms) != Untyped)
+  val filesWithCat = resourceFiles("regression/tip/", filter = _ endsWith ".tip", recursive = true) map { f =>
+    f.getParentFile.getName -> f
   }
 
-  for ((cat, file) <- files) {
+  private def checkScript(program: InoxProgram, expr: Expr): Unit = {
+    import program.symbols
+    symbols.ensureWellFormed
+
+    assert(expr.isTyped)
+  }
+
+  for ((cat, file) <- filesWithCat) {
     test(s"Parsing file $cat/${file.getName}") {
-      for ((syms, expr) <- new Parser(file).parseScript) {
-        checkScript(syms, expr)
+      for ((program, expr) <- new Parser(file).parseScript) {
+        checkScript(program, expr)
       }
     }
 
     test(s"Re-printing file $cat/${file.getName}") {
-      for ((syms, expr) <- new Parser(file).parseScript) {
-        val program = InoxProgram(ctx, syms)
-
+      for ((program, expr) <- new Parser(file).parseScript) {
         val file = java.io.File.createTempFile("test-output", ".tip")
+        file.deleteOnExit()
         val fw = new java.io.FileWriter(file, false)
-        val printer = new Printer(program, fw)
+        val printer = new Printer(program, ctx, fw)
         printer.printScript(expr)
         printer.emit(smtlib.trees.Commands.CheckSat())
         printer.free()
 
-        val Seq((newSyms, newExpr)) = new Parser(file).parseScript
-        file.delete()
-        checkScript(newSyms, newExpr)
+        val Seq((newProgram, newExpr)) = new Parser(file).parseScript
+        checkScript(newProgram, newExpr)
       }
     }
   }

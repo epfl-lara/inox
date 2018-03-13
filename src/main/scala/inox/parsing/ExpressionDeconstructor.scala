@@ -18,10 +18,8 @@ trait ExpressionDeconstructors { self: Interpolator =>
 
     object Field {
 
-      lazy val allFields = symbols.adts.toSeq.flatMap({
-        case (_, c: trees.ADTConstructor) => c.fields.map((vd: trees.ValDef) => (c, vd))
-        case _ => Seq()
-      })
+      lazy val allFields = symbols.sorts.values.toSeq
+        .flatMap(_.constructors.flatMap(c => c.fields.map(vd => (c, vd))))
 
       lazy val fieldsById = allFields.groupBy(_._2.id)
       lazy val fieldsByName = allFields.groupBy(_._2.id.name)
@@ -54,10 +52,7 @@ trait ExpressionDeconstructors { self: Interpolator =>
 
     object ConsDef {
 
-      lazy val allConstructors = symbols.adts.toSeq.flatMap({
-        case (_, c: trees.ADTConstructor) => Some(c)
-        case _ => None
-      })
+      lazy val allConstructors = symbols.sorts.values.toSeq.flatMap(_.constructors)
 
       lazy val consById = allConstructors.groupBy(_.id)
       lazy val consByName = allConstructors.groupBy(_.id.name)
@@ -370,16 +365,9 @@ trait ExpressionDeconstructors { self: Interpolator =>
       }
     }
 
-    object AsInstanceOfOperation {
-      def unapply(expr: Expression): Option[(Expression, Type)] = expr match {
-        case PrimitiveFunction(bi.AsInstanceOf, _, Seq(expr), Some(Seq(tpe))) => Some((expr, tpe))
-        case _ => None
-      }
-    }
-
-    object IsInstanceOfOperation {
-      def unapply(expr: Expression): Option[(Expression, Type)] = expr match {
-        case PrimitiveFunction(bi.IsInstanceOf, _, Seq(expr), Some(Seq(tpe))) => Some((expr, tpe))
+    object IsConstructorOperation {
+      def unapply(expr: Expression): Option[(Expression, trees.ADTConstructor)] = expr match {
+        case Operation("is", Seq(lhs, ConsDef(cons))) => Some((lhs, cons))
         case _ => None
       }
     }

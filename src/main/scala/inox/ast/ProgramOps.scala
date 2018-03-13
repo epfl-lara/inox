@@ -68,7 +68,7 @@ trait ProgramEncoder extends ProgramTransformer { self =>
   val t: Trees
 
   protected val extraFunctions: Seq[t.FunDef] = Seq.empty
-  protected val extraADTs: Seq[t.ADTDefinition] = Seq.empty
+  protected val extraSorts: Seq[t.ADTSort] = Seq.empty
 
   /** Override point for more complex program transformations */
   protected def encodedProgram: Program { val trees: t.type } = {
@@ -76,7 +76,7 @@ trait ProgramEncoder extends ProgramTransformer { self =>
   }
 
   lazy final val targetProgram: Program { val trees: t.type } = {
-    encodedProgram.withFunctions(extraFunctions).withADTs(extraADTs)
+    encodedProgram.withFunctions(extraFunctions).withSorts(extraSorts)
   }
 }
 

@@ -1,0 +1,11 @@
+(define-fun i!12 ((a!4 Int)) (=> Int Bool) (lambda ((b!3 Int)) (= a!4 b!3)))
+
+(declare-const a1!0 Int)
+
+(declare-const a2!0 Int)
+
+(assert (not (=> (= (i!12 a1!0) (i!12 a2!0)) (= a1!0 a2!0))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

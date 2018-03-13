@@ -19,7 +19,8 @@ import scala.collection.mutable.{Map => MutableMap}
 
 import utils._
 
-class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.SMTLIBTarget {
+class Printer(val program: InoxProgram, val context: Context, writer: Writer) extends solvers.smtlib.SMTLIBTarget {
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -61,7 +62,7 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
   protected val extraVars = new Bijection[Variable, SSymbol]
 
   def printScript(expr: Expr): Unit = {
-    val tparams = exprOps.collect(e => typeParamsOf(e.getType))(expr)
+    val tparams = typeParamsOf(expr)
     val cmd = if (tparams.nonEmpty) {
       AssertPar(tparams.map(tp => id2sym(tp.id)).toSeq, toSMT(expr)(Map.empty))
     } else {
@@ -70,7 +71,7 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
 
     val invariants = adtManager.types
       .collect { case adt: ADTType => adt }
-      .map(_.getADT.definition)
+      .map(_.getSort.definition)
       .flatMap(_.invariant)
 
     for (fd <- invariants) {
@@ -97,7 +98,7 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
 
   def emit(s: String): Unit = writer.write(s)
 
-  protected def liftADTType(adt: ADTType): Type = adt.getADT.definition.root.typed.toType
+  protected def liftADTType(adt: ADTType): Type = ADTType(adt.id, adt.getSort.definition.typeArgs)
 
   protected val tuples: MutableMap[Int, TupleType] = MutableMap.empty
 
@@ -111,7 +112,7 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
     case SetType(base) =>
       Sets.SetSort(declareSort(base))
 
-    case StringType =>
+    case StringType() =>
       Strings.StringSort()
 
     case _ => super.computeSort(t)
@@ -146,7 +147,7 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
     }
 
     val (ours, externals) = adts.partition {
-      case (adt: ADTType, _) => adt == adt.getADT.definition.typed.toType
+      case (adt @ ADTType(_, tps), _) => tps == adt.getSort.definition.typeArgs
       case (tpe @ TupleType(tps), _) => Some(tpe) == tuples.get(tps.size)
       case _ => true
     }
@@ -162,7 +163,7 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
       sorts += tpe -> Sort(SMTIdentifier(id2sym(id)), tpSorts)
     }
 
-    val generics = ours.flatMap { case (tp, _) => typeParamsOf(tp) }.toSet
+    val generics = ours.flatMap { case (tp, _) => typeOps.typeParamsOf(tp) }.toSet
     val genericSyms = generics.map(tp => id2sym(tp.id))
 
     if (ours.nonEmpty) {
@@ -192,7 +193,7 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
       case None =>
         functions += fd.typed -> id2sym(fd.id)
 
-        val scc = transitiveCallees(fd).filter(fd2 => transitivelyCalls(fd2, fd))
+        val scc = transitiveCallees(fd.id).filter(id2 => transitivelyCalls(id2, fd.id))
         if (scc.size <= 1) {
           val (sym, params, returnSort, body) = (
             id2sym(fd.id),
@@ -210,11 +211,12 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
             case (false, false) => DefineFunRecPar(tps, FunDef(sym, params, returnSort, body))
           })
         } else {
-          functions ++= scc.toList.map(fd => fd.typed -> id2sym(fd.id))
+          functions ++= scc.toList.map(id => getFunction(id).typed -> id2sym(id))
 
-          val (decs, bodies) = (for (fd <- scc.toList) yield {
+          val (decs, bodies) = (for (id <- scc.toList) yield {
+            val fd = getFunction(id)
             val (sym, params, returnSort) = (
-              id2sym(fd.id),
+              id2sym(id),
               fd.params.map(vd => SortedVar(id2sym(vd.id), declareSort(vd.tpe))),
               declareSort(fd.returnType)
             )
@@ -246,7 +248,7 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
     case v @ Variable(id, tp, flags) =>
       val sort = declareSort(tp)
       bindings.get(id) orElse variables.getB(v).map(s => s: Term) getOrElse {
-        val tps = typeParamsOf(tp).toSeq
+        val tps = typeOps.typeParamsOf(tp).toSeq
         val sym = extraVars.cachedB(v) {
           val sym = id2sym(id)
           emit(if (tps.nonEmpty) {
@@ -316,12 +318,10 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
     case SubString(s, start, end) => Strings.Substring(toSMT(s), toSMT(start), toSMT(end))
     case StringLength(s) => Strings.Length(toSMT(s))
 
-    case ADT(tpe @ ADTType(id, tps), es) =>
-      val d = tpe.getADT.definition
-      val tcons = d.typed(d.root.typeArgs).toConstructor
-      val adt = tcons.toType
-      val sort = declareSort(tpe)
-      val constructor = constructors.toB(adt)
+    case adt @ ADT(id, tps, es) =>
+      val tcons = adt.getConstructor
+      val sort = declareSort(ADTType(tcons.sort.id, tps))
+      val constructor = constructors.toB(ADTCons(tcons.id, tcons.sort.definition.typeArgs))
       if (es.isEmpty) {
         if (tcons.tps.nonEmpty) QualifiedIdentifier(SMTIdentifier(constructor), Some(sort))
         else constructor
@@ -330,41 +330,35 @@ class Printer(val program: InoxProgram, writer: Writer) extends solvers.smtlib.S
       }
 
     case s @ ADTSelector(e, id) =>
-      val d = e.getType.asInstanceOf[ADTType].getADT.definition
-      val tcons = d.typed(d.root.typeArgs).toConstructor
-      val adt = tcons.toType
-      declareSort(adt)
-      val selector = selectors.toB(adt -> s.selectorIndex)
+      val cons = s.constructor.definition
+      val tpe = ADTType(cons.sort, cons.getSort.typeArgs)
+      declareSort(tpe)
+      val selector = selectors.toB(ADTCons(cons.id, tpe.tps) -> s.selectorIndex)
       FunctionApplication(selector, Seq(toSMT(e)))
 
-    case IsInstanceOf(e, t: ADTType) =>
-      val d = t.getADT.definition
-      val tdef = d.typed(d.root.typeArgs)
-      if (tdef.definition.isSort) {
-        toSMT(BooleanLiteral(true))
-      } else {
-        val adt = tdef.toConstructor.toType
-        declareSort(adt)
-        val tester = testers.toB(adt)
-        FunctionApplication(tester, Seq(toSMT(e)))
-      }
+    case IsConstructor(e, id) =>
+      val cons = getConstructor(id)
+      val tpe = ADTType(cons.sort, cons.getSort.typeArgs)
+      declareSort(tpe)
+      val tester = testers.toB(ADTCons(cons.id, tpe.tps))
+      FunctionApplication(tester, Seq(toSMT(e)))
 
     case t @ Tuple(es) =>
       declareSort(t.getType)
-      val tpe = tuples(es.size)
-      val constructor = constructors.toB(tpe)
+      val TupleType(tps) = tuples(es.size)
+      val constructor = constructors.toB(TupleCons(tps))
       FunctionApplication(constructor, es.map(toSMT))
 
     case ts @ TupleSelect(t, i) =>
       declareSort(t.getType)
-      val tpe = tuples(t.getType.asInstanceOf[TupleType].dimension)
-      val selector = selectors.toB((tpe, i - 1))
+      val TupleType(tps) = tuples(t.getType.asInstanceOf[TupleType].dimension)
+      val selector = selectors.toB((TupleCons(tps), i - 1))
       FunctionApplication(selector, Seq(toSMT(t)))
 
     case fi @ FunctionInvocation(id, tps, args) =>
       val tfd = fi.tfd
-      val retTpArgs = typeParamsOf(tfd.fd.returnType)
-      val paramTpArgs = tfd.fd.params.flatMap(vd => typeParamsOf(vd.tpe)).toSet
+      val retTpArgs = typeOps.typeParamsOf(tfd.fd.returnType)
+      val paramTpArgs = tfd.fd.params.flatMap(vd => typeOps.typeParamsOf(vd.tpe)).toSet
       if ((retTpArgs -- paramTpArgs).nonEmpty) {
         val caller = QualifiedIdentifier(
           SMTIdentifier(declareFunction(tfd)),

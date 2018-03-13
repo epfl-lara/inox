@@ -10,12 +10,12 @@ class TimeoutSolverSuite extends FunSuite {
   import dsl._
 
   val ctx = TestContext.empty
-  val p = InoxProgram(ctx, NoSymbols)
+  val p = InoxProgram(NoSymbols)
 
   private class IdioticSolver extends Solver {
     val name = "Idiotic"
     val program: p.type = p
-    val options = ctx.options
+    val context = ctx
 
     var interrupted = false
 
@@ -47,12 +47,12 @@ class TimeoutSolverSuite extends FunSuite {
     assert(SimpleSolverAPI(sfactory).solveVALID(BooleanLiteral(true)) === None)
     assert(SimpleSolverAPI(sfactory).solveVALID(BooleanLiteral(false)) === None)
 
-    val x = Variable.fresh("x", IntegerType)
+    val x = Variable.fresh("x", IntegerType())
     assert(SimpleSolverAPI(sfactory).solveVALID(x === x) === None)
   }
 
   test("TimeoutSolver 2") {
-    val x = Variable.fresh("x", IntegerType)
+    val x = Variable.fresh("x", IntegerType())
     assert(SimpleSolverAPI(sfactory).solveVALID(x + E(BigInt(1)) === E(BigInt(1)) + x) === None)
     assert(SimpleSolverAPI(sfactory).solveVALID(x + E(BigInt(1)) === x) === None)
   }

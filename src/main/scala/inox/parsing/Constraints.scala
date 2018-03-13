@@ -44,17 +44,17 @@ trait Constraints { self: Interpolator =>
   }
   case object Comparable extends TypeClass {
     override def hasInstance(tpe: Type) = {
-      tpe == trees.CharType || Numeric.hasInstance(tpe)
+      tpe == trees.CharType() || Numeric.hasInstance(tpe)
     }
   }
   case object Numeric extends TypeClass {
     override def hasInstance(tpe: Type) = {
-      tpe == trees.RealType || Integral.hasInstance(tpe)
+      tpe == trees.RealType() || Integral.hasInstance(tpe)
     }
   }
   case object Integral extends TypeClass {
     override def hasInstance(tpe: Type) = {
-      tpe == trees.IntegerType || Bits.hasInstance(tpe)
+      tpe == trees.IntegerType() || Bits.hasInstance(tpe)
     }
   }
   case object Bits extends TypeClass {
@@ -75,7 +75,6 @@ trait Constraints { self: Interpolator =>
     def apply(tpe: Type): Type = instantiator.transform(tpe)
     def apply(c: Constraint): Constraint = c match {
       case Equal(a, b) => Equal(instantiator.transform(a), instantiator.transform(b)).setPos(c.pos)
-      case Subtype(a, b) => Subtype(instantiator.transform(a), instantiator.transform(b)).setPos(c.pos)
       case HasClass(a, cl) => HasClass(instantiator.transform(a), cl).setPos(c.pos)
       case AtIndexEqual(a, b, idx) => AtIndexEqual(instantiator.transform(a), instantiator.transform(b), idx).setPos(c.pos)
     }
@@ -84,14 +83,12 @@ trait Constraints { self: Interpolator =>
   /** Constraint on type(s). */
   abstract class Constraint(val types: Seq[Type]) extends Positional
   case class Equal(a: Type, b: Type) extends Constraint(Seq(a, b))
-  case class Subtype(sub: Type, sup: Type) extends Constraint(Seq(sub, sup))
   case class HasClass(a: Type, c: TypeClass) extends Constraint(Seq(a))
   case class AtIndexEqual(tup: Type, mem: Type, idx: Int) extends Constraint(Seq(tup, mem))
 
   object Constraint {
     def exist(a: Unknown)(implicit position: Position): Constraint = Equal(a, a).setPos(position)
     def equal(a: Type, b: Type)(implicit position: Position): Constraint = Equal(a, b).setPos(position)
-    def subtype(a: Type, b: Type)(implicit position: Position): Constraint = Subtype(a, b).setPos(position)
     def isNumeric(a: Type)(implicit position: Position): Constraint = HasClass(a, Numeric).setPos(position)
     def isIntegral(a: Type)(implicit position: Position): Constraint = HasClass(a, Integral).setPos(position)
     def isComparable(a: Type)(implicit position: Position): Constraint = HasClass(a, Comparable).setPos(position)

@@ -15,7 +15,7 @@ class ExtractorsSuite extends FunSuite {
     }
     assert(e1 === e2)
 
-    val e3 = Times(Variable.fresh("x", IntegerType), IntegerLiteral(1))
+    val e3 = Times(Variable.fresh("x", IntegerType()), IntegerLiteral(1))
     val e4 = e3 match {
       case Operator(es, builder) => builder(es)
     }
@@ -57,15 +57,15 @@ class ExtractorsSuite extends FunSuite {
 
 
   test("Extractors of map operations") {
-    val x = Variable.fresh("x", IntegerType)
-    val y = Variable.fresh("y", IntegerType)
-    val z = Variable.fresh("z", IntegerType)
+    val x = Variable.fresh("x", IntegerType())
+    val y = Variable.fresh("y", IntegerType())
+    val z = Variable.fresh("z", IntegerType())
 
     val a1 = FiniteMap(
       Seq(Int32Literal(0) -> x, Int32Literal(3) -> y, Int32Literal(5) -> z),
       IntegerLiteral(10),
-      Int32Type,
-      IntegerType)
+      Int32Type(),
+      IntegerType())
     val a2 = a1 match {
       case Operator(es, builder) => {
         assert(es === Seq(Int32Literal(0), x, Int32Literal(3), y, Int32Literal(5), z, IntegerLiteral(10)))

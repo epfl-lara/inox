@@ -8,6 +8,7 @@ import utils._
 import scala.collection.mutable.{Map => MutableMap}
 
 trait TemplateGenerator { self: Templates =>
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -74,47 +75,14 @@ trait TemplateGenerator { self: Templates =>
     substMap: Map[Variable, Encoded],
     onlySimple: Boolean = false
   ): (Expr, TemplateStructure, Map[Variable, Encoded]) = {
-    val (struct, depsByScope) = normalizeStructure(expr, onlySimple = onlySimple)
+    val (struct, depsByScope) = normalizeStructure(expr)
     val deps = depsByScope.toMap
-
-    lazy val isNormalForm: Boolean = {
-      def extractBody(e: Expr): (Seq[ValDef], Expr) = e match {
-        case Lambda(args, body) =>
-          val (nextArgs, nextBody) = extractBody(body)
-          (args ++ nextArgs, nextBody)
-        case _ => (Seq.empty, e)
-      }
-
-      val (params, app) = extractBody(struct)
-      !app.getType.isInstanceOf[FunctionType] && (ApplicationExtractor(app) exists {
-        case (caller: Variable, args) => (params.map(_.toVariable) == args) && (deps.get(caller) match {
-          case Some(_: Application | _: FunctionInvocation | _: Variable | _: ADTSelector) => true
-          case _ => false
-        })
-        case _ => false
-      })
-    }
-
-    type DepClauses = (
-      Map[Variable, Encoded],
-      Map[Variable, Encoded],
-      Map[Variable, Set[Variable]],
-      Clauses,
-      Calls,
-      Apps,
-      Matchers,
-      Equalities,
-      Seq[LambdaTemplate],
-      Seq[QuantificationTemplate],
-      Pointers
-    )
 
     val (depSubst, depContents) =
       depsByScope.foldLeft(substMap, TemplateContents.empty(pathVar -> substMap(pathVar), Seq())) {
         case ((depSubst, contents), (v, expr)) =>
           if (!isSimple(expr)) {
-            val normalExpr = if (!isNormalForm) simplifyHOFunctions(expr) else expr
-            val (e, cls) = mkExprClauses(pathVar, normalExpr, depSubst)
+            val (e, cls) = mkExprClauses(pathVar, expr, depSubst)
 
             // setup the full encoding substMap
             val (conds, exprs, chooses, tree, equals, lmbds, quants) = cls.proj
@@ -150,8 +118,9 @@ trait TemplateGenerator { self: Templates =>
     val dependencies = sortedDeps.map(p => depSubst(p._1))
     val structure = new TemplateStructure(struct, dependencies, depContents)
 
-    val res = if (isNormalForm) expr else struct
-    (res, structure, depSubst)
+    val freshSubst = exprOps.variablesOf(struct).map(v => v -> v.freshen).toMap
+    val freshDeps = depSubst.map { case (v, e) => freshSubst.getOrElse(v, v) -> e }
+    (exprOps.replaceFromSymbols(freshSubst, struct), structure, freshDeps)
   }
 
   protected def mkExprClauses(
@@ -179,7 +148,7 @@ trait TemplateGenerator { self: Templates =>
     //    id => expr && ... && expr
     var guardedExprs = Map[Variable, Seq[Expr]]()
     def storeGuarded(guardVar: Variable, expr: Expr): Unit = {
-      assert(expr.getType == BooleanType, expr.asString + " is not of type Boolean. " + explainTyping(expr))
+      assert(expr.getType == BooleanType(), expr.asString + " is not of type Boolean. " + explainTyping(expr))
 
       val prev = guardedExprs.getOrElse(guardVar, Nil)
       guardedExprs += guardVar -> (expr +: prev)
@@ -201,7 +170,7 @@ trait TemplateGenerator { self: Templates =>
       val b = encodedCond(guardVar)
       val prev: Set[Equality] = equalities.getOrElse(b, Set.empty)
       val encoder: Expr => Encoded = mkEncoder(localSubst)
-      equalities += b -> (prev + Equality(bestRealType(e1.getType), encoder(e1), encoder(e2)))
+      equalities += b -> (prev + Equality(e1.getType, encoder(e1), encoder(e2)))
     }
 
     @inline def localSubst: Map[Variable, Encoded] =
@@ -249,7 +218,7 @@ trait TemplateGenerator { self: Templates =>
         partitions.map(andJoin) match {
           case Seq(e) => e
           case seq =>
-            val newExpr: Variable = Variable.fresh("e", BooleanType, true)
+            val newExpr: Variable = Variable.fresh("e", BooleanType(), true)
             storeExpr(newExpr)
 
             def recAnd(pathVar: Variable, partitions: Seq[Expr]): Unit = partitions match {
@@ -257,13 +226,13 @@ trait TemplateGenerator { self: Templates =>
                 storeGuarded(pathVar, Equals(newExpr, rec(pathVar, x, pol)))
 
               case x :: xs =>
-                val newRes: Variable = Variable.fresh("res", BooleanType, true)
+                val newRes: Variable = Variable.fresh("res", BooleanType(), true)
                 storeExpr(newRes)
 
                 val xrec = rec(pathVar, x, pol)
                 storeGuarded(pathVar, Equals(newRes, xrec))
 
-                val newBool: Variable = Variable.fresh("b", BooleanType, true)
+                val newBool: Variable = Variable.fresh("b", BooleanType(), true)
                 storeCond(pathVar, newBool)
 
                 storeGuarded(pathVar, implies(not(newRes), not(newExpr)))
@@ -283,7 +252,7 @@ trait TemplateGenerator { self: Templates =>
         partitions.map(orJoin) match {
           case Seq(e) => e
           case seq =>
-            val newExpr: Variable = Variable.fresh("e", BooleanType, true)
+            val newExpr: Variable = Variable.fresh("e", BooleanType(), true)
             storeExpr(newExpr)
 
             def recOr(pathVar: Variable, partitions: Seq[Expr]): Unit = partitions match {
@@ -291,13 +260,13 @@ trait TemplateGenerator { self: Templates =>
                 storeGuarded(pathVar, Equals(newExpr, rec(pathVar, x, None)))
 
               case x :: xs =>
-                val newRes: Variable = Variable.fresh("res", BooleanType, true)
+                val newRes: Variable = Variable.fresh("res", BooleanType(), true)
                 storeExpr(newRes)
 
                 val xrec = rec(pathVar, x, None)
                 storeGuarded(pathVar, Equals(newRes, xrec))
 
-                val newBool: Variable = Variable.fresh("b", BooleanType, true)
+                val newBool: Variable = Variable.fresh("b", BooleanType(), true)
                 storeCond(pathVar, newBool)
 
                 storeGuarded(pathVar, implies(newRes, newExpr))
@@ -316,10 +285,10 @@ trait TemplateGenerator { self: Templates =>
         if (isSimple(i)) {
           i
         } else {
-          val newBool1 : Variable = Variable.fresh("b", BooleanType, true)
-          val newBool2 : Variable = Variable.fresh("b", BooleanType, true)
+          val newBool1 : Variable = Variable.fresh("b", BooleanType(), true)
+          val newBool2 : Variable = Variable.fresh("b", BooleanType(), true)
           val newExpr  : Variable = Variable.fresh("e", i.getType, true)
-          val condVar  : Variable = Variable.fresh("c", BooleanType, true)
+          val condVar  : Variable = Variable.fresh("c", BooleanType(), true)
 
           storeCond(pathVar, newBool1)
           storeCond(pathVar, newBool2)
@@ -341,13 +310,7 @@ trait TemplateGenerator { self: Templates =>
       }
 
       case l: Lambda =>
-        val (assumptions, without: Lambda) = liftAssumptions(l)
-
-        for (a <- assumptions) {
-          rec(pathVar, a, Some(true))
-        }
-
-        val template = LambdaTemplate(pathVar -> encodedCond(pathVar), without, localSubst)
+        val template = LambdaTemplate(pathVar -> encodedCond(pathVar), l, localSubst)
         registerLambda(template)
         template.ids._1
 
@@ -381,7 +344,7 @@ trait TemplateGenerator { self: Templates =>
         andJoin(conjunctQs)
 
       case Equals(e1, e2) if unrollEquality(e1.getType) =>
-        val (v, _) = equalitySymbol(bestRealType(e1.getType))
+        val (v, _) = equalitySymbol(e1.getType)
         val re1 = rec(pathVar, e1, pol)
         val re2 = rec(pathVar, e2, pol)
         storeEquality(pathVar, re1, re2)

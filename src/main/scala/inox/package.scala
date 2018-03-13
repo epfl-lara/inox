@@ -38,33 +38,26 @@ package object inox {
   type InoxProgram = Program { val trees: inox.trees.type }
 
   object InoxProgram {
-    def apply(ictx: Context,
+    def apply(
       functions: Seq[inox.trees.FunDef],
-      adts: Seq[inox.trees.ADTDefinition]): InoxProgram = new Program {
-        val trees = inox.trees
-        val ctx = ictx
-        val symbols = new inox.trees.Symbols(
+      sorts: Seq[inox.trees.ADTSort]): InoxProgram =
+        Program(inox.trees)(new inox.trees.Symbols(
           functions.map(fd => fd.id -> fd).toMap,
-          adts.map(cd => cd.id -> cd).toMap)
-      }
+          sorts.map(s => s.id -> s).toMap))
 
-    def apply(ictx: Context, sym: inox.trees.Symbols): InoxProgram = new Program {
-      val trees = inox.trees
-      val ctx = ictx
-      val symbols = sym
-    }
+    def apply(symbols: inox.trees.Symbols): InoxProgram = Program(inox.trees)(symbols)
   }
 
   object trees extends ast.Trees with ast.SimpleSymbols {
     case class Symbols(
       functions: Map[Identifier, FunDef],
-      adts: Map[Identifier, ADTDefinition]
+      sorts: Map[Identifier, ADTSort]
     ) extends SimpleSymbols
 
     object printer extends ast.Printer { val trees: inox.trees.type = inox.trees }
   }
 
-  implicit lazy val inoxSemantics: SemanticsProvider { val trees: inox.trees.type } = new SemanticsProvider {
+  implicit val inoxSemantics: SemanticsProvider { val trees: inox.trees.type } = new SemanticsProvider {
     val trees: inox.trees.type = inox.trees
 
     def getSemantics(p: Program { val trees: inox.trees.type }): p.Semantics = new inox.Semantics { self =>
@@ -75,14 +68,14 @@ package object inox {
       val program: Program { val trees: p.trees.type; val symbols: p.symbols.type } =
         p.asInstanceOf[Program { val trees: p.trees.type; val symbols: p.symbols.type }]
 
-      protected def createSolver(opts: Options): solvers.SolverFactory {
+      protected def createSolver(ctx: Context): solvers.SolverFactory {
         val program: self.program.type
         type S <: solvers.combinators.TimeoutSolver { val program: self.program.type }
-      } = solvers.SolverFactory(self.program, opts)
+      } = solvers.SolverFactory(self.program, ctx)
 
-      protected def createEvaluator(opts: Options): evaluators.DeterministicEvaluator {
+      protected def createEvaluator(ctx: Context): evaluators.DeterministicEvaluator {
         val program: self.program.type
-      } = evaluators.RecursiveEvaluator(self.program, opts)
+      } = evaluators.RecursiveEvaluator(self.program, ctx)
     }.asInstanceOf[p.Semantics]
   }
 }

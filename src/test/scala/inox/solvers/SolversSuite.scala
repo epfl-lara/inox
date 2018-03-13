@@ -13,7 +13,7 @@ class SolversSuite extends FunSuite {
     optCheckModels(true)
   )))
 
-  val p = InoxProgram(ctx, NoSymbols)
+  val p = InoxProgram(NoSymbols)
 
   import p._
   import p.symbols._
@@ -25,36 +25,36 @@ class SolversSuite extends FunSuite {
   }
 
   val types = Seq(
-    BooleanType,
-    UnitType,
-    CharType,
-    RealType,
-    IntegerType,
-    Int8Type,
+    BooleanType(),
+    UnitType(),
+    CharType(),
+    RealType(),
+    IntegerType(),
+    Int8Type(),
     BVType(13),
-    Int16Type,
-    Int32Type,
+    Int16Type(),
+    Int32Type(),
     BVType(33),
-    Int64Type,
-    StringType,
+    Int64Type(),
+    StringType(),
     TypeParameter.fresh("T"),
-    SetType(IntegerType),
-    BagType(IntegerType),
-    MapType(IntegerType, IntegerType),
-    FunctionType(Seq(IntegerType), IntegerType),
-    TupleType(Seq(IntegerType, BooleanType, Int32Type))
+    SetType(IntegerType()),
+    BagType(IntegerType()),
+    MapType(IntegerType(), IntegerType()),
+    FunctionType(Seq(IntegerType()), IntegerType()),
+    TupleType(Seq(IntegerType(), BooleanType(), Int32Type()))
   )
 
   val vs = types.map(tpe => Variable.fresh("v", tpe, true))
 
   // We need to make sure models are not co-finite
   val cnstrs = vs.map(v => v.getType match {
-    case UnitType =>
+    case UnitType() =>
       Equals(v, simplestValue(v.getType))
     case SetType(base) =>
       Not(ElementOfSet(simplestValue(base), v))
     case BagType(base) =>
-      Not(Equals(MultiplicityInBag(simplestValue(base), v), simplestValue(IntegerType)))
+      Not(Equals(MultiplicityInBag(simplestValue(base), v), simplestValue(IntegerType())))
     case MapType(from, to) =>
       Not(Equals(MapApply(v, simplestValue(from)), simplestValue(to)))
     case FunctionType(froms, to) =>
@@ -80,7 +80,7 @@ class SolversSuite extends FunSuite {
   // Check that we correctly extract several types from solver models
   for (sname <- solverNames) {
     test(s"Model Extraction in $sname") {
-      val sf = SolverFactory(sname, p, ctx.options)
+      val sf = SolverFactory(sname, p, ctx)
       checkSolver(sf, vs.toSet, andJoin(cnstrs))
     }
   }

@@ -30,6 +30,10 @@ trait TreeOps { self: Trees =>
   }
 
   trait TreeTraverser {
+    def traverse(id: Identifier): Unit = {
+      ()
+    }
+
     def traverse(vd: ValDef): Unit = {
       traverse(vd.tpe)
       vd.flags.foreach(traverse)
@@ -40,20 +44,23 @@ trait TreeOps { self: Trees =>
     }
 
     def traverse(e: Expr): Unit = {
-      val (vs, es, tps, _) = deconstructor.deconstruct(e)
+      val (ids, vs, es, tps, _) = deconstructor.deconstruct(e)
+      ids.foreach(traverse)
       vs.foreach(v => traverse(v.toVal))
       es.foreach(traverse)
       tps.foreach(traverse)
     }
 
     def traverse(tpe: Type): Unit = {
-      val (tps, flags, _) = deconstructor.deconstruct(tpe)
+      val (ids, tps, flags, _) = deconstructor.deconstruct(tpe)
+      ids.foreach(traverse)
       tps.foreach(traverse)
       flags.foreach(traverse)
     }
 
     def traverse(flag: Flag): Unit = {
-      val (es, tps, _) = deconstructor.deconstruct(flag)
+      val (ids, es, tps, _) = deconstructor.deconstruct(flag)
+      ids.foreach(traverse)
       es.foreach(traverse)
       tps.foreach(traverse)
     }
@@ -66,15 +73,15 @@ trait TreeOps { self: Trees =>
       fd.flags.foreach(traverse)
     }
 
-    final def traverse(adt: ADTDefinition): Unit = adt match {
-      case sort: ADTSort =>
-        sort.tparams.foreach(traverse)
-        sort.flags.foreach(traverse)
-
-      case cons: ADTConstructor =>
-        cons.tparams.foreach(traverse)
+    final def traverse(sort: ADTSort): Unit = {
+      traverse(sort.id)
+      sort.tparams.foreach(traverse)
+      sort.constructors.foreach { cons =>
+        traverse(cons.id)
+        traverse(cons.sort)
         cons.fields.foreach(traverse)
-        cons.flags.foreach(traverse)
+      }
+      sort.flags.foreach(traverse)
     }
   }
 }
@@ -88,7 +95,9 @@ trait TreeTransformer {
     val t: TreeTransformer.this.t.type
   } = s.getDeconstructor(t)
 
-  def transform(id: Identifier, tpe: s.Type): (Identifier, t.Type) = (id, transform(tpe))
+  def transform(id: Identifier): Identifier = id
+
+  def transform(id: Identifier, tpe: s.Type): (Identifier, t.Type) = (transform(id), transform(tpe))
 
   def transform(vd: s.ValDef): t.ValDef = {
     val s.ValDef(id, tpe, flags) = vd
@@ -119,9 +128,16 @@ trait TreeTransformer {
   }
 
   def transform(e: s.Expr): t.Expr = {
-    val (vs, es, tps, builder) = deconstructor.deconstruct(e)
+    val (ids, vs, es, tps, builder) = deconstructor.deconstruct(e)
 
     var changed = false
+
+    val newIds = for (id <- ids) yield {
+      val newId = transform(id)
+      if (id ne newId) changed = true
+      newId
+    }
+
     val newVs = for (v <- vs) yield {
       val vd = v.toVal
       val newVd = transform(vd)
@@ -142,16 +158,23 @@ trait TreeTransformer {
     }
 
     if (changed || (s ne t)) {
-      builder(newVs, newEs, newTps).copiedFrom(e)
+      builder(newIds, newVs, newEs, newTps).copiedFrom(e)
     } else {
       e.asInstanceOf[t.Expr]
     }
   }
 
   def transform(tpe: s.Type): t.Type = {
-    val (tps, flags, builder) = deconstructor.deconstruct(tpe)
+    val (ids, tps, flags, builder) = deconstructor.deconstruct(tpe)
 
     var changed = false
+
+    val newIds = for (id <- ids) yield {
+      val newId = transform(id)
+      if (id ne newId) changed = true
+      newId
+    }
+
     val newTps = for (tp <- tps) yield {
       val newTp = transform(tp)
       if (tp ne newTp) changed = true
@@ -164,17 +187,26 @@ trait TreeTransformer {
       newFlag
     }
 
+    val res =
     if (changed || (s ne t)) {
-      builder(newTps, newFlags).copiedFrom(tpe)
+      builder(newIds, newTps, newFlags).copiedFrom(tpe)
     } else {
       tpe.asInstanceOf[t.Type]
     }
+
+    res
   }
 
   def transform(flag: s.Flag): t.Flag = {
-    val (es, tps, builder) = deconstructor.deconstruct(flag)
+    val (ids, es, tps, builder) = deconstructor.deconstruct(flag)
 
     var changed = false
+    val newIds = for (id <- ids) yield {
+      val newId = transform(id)
+      if (id ne newId) changed = true
+      newId
+    }
+
     val newEs = for (e <- es) yield {
       val newE = transform(e)
       if (e ne newE) changed = true
@@ -188,7 +220,7 @@ trait TreeTransformer {
     }
 
     if (changed || (s ne t)) {
-      builder(newEs, newTps)
+      builder(newIds, newEs, newTps)
     } else {
       flag.asInstanceOf[t.Flag]
     }
@@ -196,7 +228,7 @@ trait TreeTransformer {
 
   final def transform(fd: s.FunDef): t.FunDef = {
     new t.FunDef(
-      fd.id,
+      transform(fd.id),
       fd.tparams map transform,
       fd.params map transform,
       transform(fd.returnType),
@@ -205,21 +237,19 @@ trait TreeTransformer {
     ).copiedFrom(fd)
   }
 
-  final def transform(adt: s.ADTDefinition): t.ADTDefinition = adt match {
-    case sort: s.ADTSort => new t.ADTSort(
-      sort.id,
+  final def transform(sort: s.ADTSort): t.ADTSort = {
+    new t.ADTSort(
+      transform(sort.id),
       sort.tparams map transform,
-      sort.cons,
+      sort.constructors map { cons =>
+        new t.ADTConstructor(
+          transform(cons.id),
+          transform(cons.sort),
+          cons.fields map transform
+        ).copiedFrom(cons)
+      },
       sort.flags map transform
-    )
-
-    case cons: s.ADTConstructor => new t.ADTConstructor(
-      cons.id,
-      cons.tparams map transform,
-      cons.sort,
-      cons.fields map transform,
-      cons.flags map transform
-    )
+    ).copiedFrom(sort)
   }
 
   protected trait TreeTransformerComposition extends TreeTransformer {
@@ -309,11 +339,11 @@ trait SymbolTransformer { self =>
 
 trait SimpleSymbolTransformer extends SymbolTransformer { self =>
   protected def transformFunction(fd: s.FunDef): t.FunDef
-  protected def transformADT(adt: s.ADTDefinition): t.ADTDefinition
+  protected def transformSort(sort: s.ADTSort): t.ADTSort
 
   def transform(syms: s.Symbols): t.Symbols = t.NoSymbols
     .withFunctions(syms.functions.values.toSeq.map(transformFunction))
-    .withADTs(syms.adts.values.toSeq.map(transformADT))
+    .withSorts(syms.sorts.values.toSeq.map(transformSort))
 }
 
 object SymbolTransformer {
@@ -325,6 +355,6 @@ object SymbolTransformer {
     val t: trans.t.type = trans.t
 
     protected def transformFunction(fd: s.FunDef): t.FunDef = trans.transform(fd)
-    protected def transformADT(adt: s.ADTDefinition): t.ADTDefinition = trans.transform(adt)
+    protected def transformSort(sort: s.ADTSort): t.ADTSort = trans.transform(sort)
   }
 }

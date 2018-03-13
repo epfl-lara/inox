@@ -8,6 +8,26 @@ import scala.concurrent.duration._
 package object solvers {
   import combinators._
 
+  object optAssumeChecked extends FlagOptionDef("assume-checked", false)
+
+  class PurityOptions(val assumeChecked: Boolean)
+
+  object PurityOptions {
+    def apply(ctx: Context) =
+      new PurityOptions(ctx.options.findOptionOrDefault(optAssumeChecked))
+
+    def assumeChecked = new PurityOptions(true)
+    def unchecked = new PurityOptions(false)
+  }
+
+  object optNoSimplifications extends FlagOptionDef("no-simplifications", false)
+
+  class SimplificationOptions(val simplify: Boolean)
+  object SimplificationOptions {
+    def apply(ctx: Context) =
+      new SimplificationOptions(!ctx.options.findOptionOrDefault(optNoSimplifications))
+  }
+
   /* XXX: We use an implicit conversion here instead of an implicit
    *      class in order for dependent types to work correctly. */
   implicit def factoryToTimeoutableFactory(sf: SolverFactory {

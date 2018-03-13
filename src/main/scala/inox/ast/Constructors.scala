@@ -31,8 +31,8 @@ trait Constructors { self: Trees =>
     * If the sequence is empty, the [[Types.UnitType UnitType]] is returned.
     * @see [[Types.TupleType]]
     */
-  def tupleTypeWrap(tps: Seq[Type]) = tps match {
-    case Seq() => UnitType
+  def tupleTypeWrap(tps: Seq[Type]): Type = tps match {
+    case Seq() => UnitType()
     case Seq(elem) => elem
     case more => TupleType(more)
   }
@@ -67,7 +67,7 @@ trait Constructors { self: Trees =>
   /** $encodingof `&&`-expressions with arbitrary number of operands as a sequence, and simplified.
     * @see [[Expressions.And And]]
     */
-  def andJoin(es: Seq[Expr]) = and(es :_*)
+  def andJoin(es: Seq[Expr]): Expr = and(es :_*)
 
   /** $encodingof `||`-expressions with arbitrary number of operands, and simplified.
     * @see [[Expressions.Or Or]]
@@ -79,10 +79,10 @@ trait Constructors { self: Trees =>
     }
 
     var stop = false
-    val simpler = for(e <- flat if !stop && e != BooleanLiteral(false)) yield {
+    val simpler = (for(e <- flat if !stop && e != BooleanLiteral(false)) yield {
       if(e == BooleanLiteral(true)) stop = true
       e
-    }
+    }).distinct
 
     val defaultPos = exprs match {
       case Seq() => NoPosition
@@ -99,7 +99,7 @@ trait Constructors { self: Trees =>
   /** $encodingof `||`-expressions with arbitrary number of operands as a sequence, and simplified.
     * @see [[Expressions.Or Or]]
     */
-  def orJoin(es: Seq[Expr]) = or(es :_*)
+  def orJoin(es: Seq[Expr]): Expr = or(es :_*)
 
   /** $encodingof simplified `!`-expressions .
     * @see [[Expressions.Not Not]]
@@ -232,12 +232,5 @@ trait Constructors { self: Trees =>
     case (bv: BVLiteral, _) if bv.toBigInt == 0 => lhs
     case (_, bv: BVLiteral) if bv.toBigInt == 0 => rhs
     case _ => Times(lhs, rhs)
-  }
-
-  def mkLambda(args: Seq[ValDef], body: Expr, tpe: FunctionType): Lambda = tpe match {
-    case FunctionType(from, to: FunctionType) =>
-      val (currArgs, restArgs) = args.splitAt(from.size)
-      Lambda(currArgs, mkLambda(restArgs, body, to))
-    case _ => Lambda(args, body)
   }
 }

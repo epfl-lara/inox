@@ -11,46 +11,46 @@ class TypeParserSuite extends FunSuite {
 
   test("Parsing basic types") {
 
-    assertResult(IntegerType) {
+    assertResult(IntegerType()) {
       t"BigInt"
     }
 
-    assertResult(BooleanType) {
+    assertResult(BooleanType()) {
       t"Boolean"
     }
 
-    assertResult(UnitType) {
+    assertResult(UnitType()) {
       t"Unit"
     }
 
-    assertResult(CharType) {
+    assertResult(CharType()) {
       t"Char"
     }
 
-    assertResult(StringType) {
+    assertResult(StringType()) {
       t"String"
     }
 
-    assertResult(Int32Type) {
+    assertResult(Int32Type()) {
       t"Int"
     }
 
-    assertResult(RealType) {
+    assertResult(RealType()) {
       t"Real"
     }
   }
 
   test("Parsing with parentheses") {
 
-    assertResult(IntegerType) {
+    assertResult(IntegerType()) {
       t"(BigInt)"
     }
 
-    assertResult(BooleanType) {
+    assertResult(BooleanType()) {
       t"((Boolean))"
     }
 
-    assertResult(UnitType) {
+    assertResult(UnitType()) {
       t"(((Unit)))"
     }
   }
@@ -80,67 +80,67 @@ class TypeParserSuite extends FunSuite {
 
   test("Parsing Set types") {
 
-    assertResult(SetType(IntegerType)) {
+    assertResult(SetType(IntegerType())) {
       t"Set[BigInt]"
     }
 
-    assertResult(SetType(BooleanType)) {
+    assertResult(SetType(BooleanType())) {
       t"Set[Boolean]"
     }
   }
 
   test("Parsing Bag types") {
 
-    assertResult(BagType(IntegerType)) {
+    assertResult(BagType(IntegerType())) {
       t"Bag[BigInt]"
     }
 
-    assertResult(BagType(BooleanType)) {
+    assertResult(BagType(BooleanType())) {
       t"Bag[Boolean]"
     }
   }
 
   test("Parsing Map types") {
 
-    assertResult(MapType(StringType, IntegerType)) {
+    assertResult(MapType(StringType(), IntegerType())) {
       t"Map[String, BigInt]"
     }
 
-    assertResult(MapType(UnitType, BooleanType)) {
+    assertResult(MapType(UnitType(), BooleanType())) {
       t"Map[Unit, Boolean]"
     }
   }
 
   test("Parsing Tuple types") {
 
-    assertResult(TupleType(Seq(StringType, IntegerType, CharType))) {
+    assertResult(TupleType(Seq(StringType(), IntegerType(), CharType()))) {
       t"(String, BigInt, Char)"
     }
 
-    assertResult(TupleType(Seq(UnitType, BooleanType))) {
+    assertResult(TupleType(Seq(UnitType(), BooleanType()))) {
       t"(Unit, Boolean)"
     }
   }
 
   test("Parsing Function types") {
 
-    assertResult(FunctionType(Seq(IntegerType), StringType)) {
+    assertResult(FunctionType(Seq(IntegerType()), StringType())) {
       t"BigInt => String"
     }
 
-    assertResult(FunctionType(Seq(IntegerType), StringType)) {
+    assertResult(FunctionType(Seq(IntegerType()), StringType())) {
       t"(BigInt) => String"
     }
 
-    assertResult(FunctionType(Seq(StringType, IntegerType, CharType), BooleanType)) {
+    assertResult(FunctionType(Seq(StringType(), IntegerType(), CharType()), BooleanType())) {
       t"(String, BigInt, Char) => Boolean"
     }
 
-    assertResult(FunctionType(Seq(TupleType(Seq(StringType, IntegerType, CharType))), BooleanType)) {
+    assertResult(FunctionType(Seq(TupleType(Seq(StringType(), IntegerType(), CharType()))), BooleanType())) {
       t"((String, BigInt, Char)) => Boolean"
     }
 
-    assertResult(FunctionType(Seq(IntegerType), FunctionType(Seq(UnitType), BooleanType))) {
+    assertResult(FunctionType(Seq(IntegerType()), FunctionType(Seq(UnitType()), BooleanType()))) {
       t"BigInt => Unit => Boolean"
     }
   }

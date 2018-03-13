@@ -13,7 +13,7 @@ trait ExpressionParsers { self: Interpolator =>
   class ExpressionParser extends TypeParser {
 
     import lexical.{Identifier => _, Quantifier => _, Hole => _, _}
-    
+
     import ExprIR._
 
     lazy val expression: Parser[Expression] = positioned(greedyRight | operatorExpr) withFailureMessage {
@@ -40,7 +40,7 @@ trait ExpressionParsers { self: Interpolator =>
     def withApplication(exprParser: Parser[Expression]): Parser[Expression] =
       for {
         expr <- exprParser
-        argss <- rep(arguments) 
+        argss <- rep(arguments)
       } yield {
         argss.foldLeft(expr) {
           case (acc, args) => Application(acc, args)
@@ -72,17 +72,17 @@ trait ExpressionParsers { self: Interpolator =>
       }
 
     lazy val selectionExpr: Parser[Expression] = {
-        
+
       val selector = (for {
         i <- positioned(selectorIdentifier)
         targs <- opt(typeArguments)
-        argss <- rep(arguments) 
+        argss <- rep(arguments)
       } yield { (expr: Expression) =>
         val zero: Expression = if (targs.isDefined) {
           TypeApplication(Selection(expr, i).setPos(i.pos), targs.get).setPos(i.pos)
         } else {
           Selection(expr, i).setPos(i.pos)
-        } 
+        }
 
         argss.foldLeft(zero) {
           case (acc, args) => Application(acc, args)
@@ -171,7 +171,7 @@ trait ExpressionParsers { self: Interpolator =>
       (p: Position) => withPos("Identifier expected.", p)
     }
 
-    lazy val parensExpr: Parser[Expression] = 
+    lazy val parensExpr: Parser[Expression] =
       (p('(') ~> commit(expression) <~ commit(p(')') withFailureMessage {
         (p: Position) => withPos("Missing `)`.", p)
       }))
@@ -193,7 +193,7 @@ trait ExpressionParsers { self: Interpolator =>
     }
 
     def rep1sepOnce[A, B](parser: Parser[A], sep: Parser[Any], once: Parser[B]): Parser[(Option[B], Seq[A])] =
-      { 
+      {
         for {
           a <- parser
           o <- opt(sep ~> rep1sepOnce(parser, sep, once))
@@ -231,7 +231,7 @@ trait ExpressionParsers { self: Interpolator =>
         e <- expression
       } yield (e, ot)
 
-    lazy val arguments: Parser[List[Expression]] = 
+    lazy val arguments: Parser[List[Expression]] =
       p('(') ~> repsep(exprEllipsis | (holeExprSeq | expression) ^^ {List(_)}, p(',')) <~ commit(p(')') withFailureMessage {
         (p: Position) => withPos("Missing ')' at the end of the arguments.", p)
       }) ^^ {

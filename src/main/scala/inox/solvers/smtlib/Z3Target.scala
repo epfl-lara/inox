@@ -15,9 +15,10 @@ import _root_.smtlib.theories.experimental._
 import utils._
 
 trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
+  import context._
   import program._
-  import trees._
-  import symbols._
+  import program.trees._
+  import program.symbols._
 
   def targetName = "z3"
 
@@ -28,9 +29,13 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
   protected val interpreter = {
     val opts = interpreterOpts
-    ctx.reporter.debug("Invoking solver "+targetName+" with "+opts.mkString(" "))
+    reporter.debug("Invoking solver "+targetName+" with "+opts.mkString(" "))
     new Z3Interpreter("z3", opts.toArray)
   }
+
+  // Z3 version 4.5.1 has disabled producing unsat assumptions by default,
+  // so make sure it is enabled at this point.
+  emit(SetOption(ProduceUnsatAssumptions(true)))
 
   protected val extSym = SSymbol("_")
 
@@ -50,9 +55,9 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
   override protected def computeSort(t: Type): Sort = t match {
     case SetType(base) =>
-      declareSort(BooleanType)
+      declareSort(BooleanType())
       Sort(SMTIdentifier(setSort), Seq(declareSort(base)))
-    case BagType(base) => declareSort(MapType(base, IntegerType))
+    case BagType(base) => declareSort(MapType(base, IntegerType()))
     case _ => super.computeSort(t)
   }
 
@@ -89,12 +94,12 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         extractCases(body)
 
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ SetType(base))) =>
-        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, BooleanType)))
+        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, BooleanType())))
         if (dflt != BooleanLiteral(false)) unsupported(fm, "Solver returned a co-finite set which is not supported")
         FiniteSet(cases.collect { case (k, BooleanLiteral(true)) => k }, base)
 
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ BagType(base))) =>
-        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, IntegerType)))
+        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, IntegerType())))
         if (dflt != IntegerLiteral(0)) unsupported(fm, "Solver returned a co-finite bag which is not supported")
         FiniteBag(cases.filter(_._2 != IntegerLiteral(BigInt(0))), base)
 
@@ -114,7 +119,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
         Seq(defV)
       ), Some(tpe @ SetType(base))) =>
-        val dflt = fromSMT(defV, Some(BooleanType))
+        val dflt = fromSMT(defV, Some(BooleanType()))
         if (dflt != BooleanLiteral(false)) unsupported(dflt, "Solver returned a co-finite set which is not supported")
         FiniteSet(Seq.empty, base)
 
@@ -123,7 +128,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         Seq(arr, key, elem)
       ), Some(st @ SetType(base))) =>
         val set = fromSMT(arr, st)
-        IfExpr(fromSMT(elem, BooleanType), SetAdd(set, fromSMT(key, base)), set)
+        IfExpr(fromSMT(elem, BooleanType()), SetAdd(set, fromSMT(key, base)), set)
 
       case (FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
@@ -143,7 +148,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
         Seq(defV)
       ), Some(tpe @ BagType(base))) =>
-        val dflt = fromSMT(defV, Some(IntegerType))
+        val dflt = fromSMT(defV, Some(IntegerType()))
         if (dflt != IntegerLiteral(BigInt(0))) unsupported(dflt, "Solver returned a co-finite bag which is not supported")
         FiniteBag(Seq.empty, base)
 
@@ -151,7 +156,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         QualifiedIdentifier(SMTIdentifier(SSymbol("store"), _), _),
         Seq(arr, key, elem)
       ), Some(bt @ BagType(base))) =>
-        BagUnion(fromSMT(arr, bt), FiniteBag(Seq(fromSMT(key, base) -> fromSMT(elem, IntegerType)), base))
+        BagUnion(fromSMT(arr, bt), FiniteBag(Seq(fromSMT(key, base) -> fromSMT(elem, IntegerType())), base))
 
       case (FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
@@ -179,7 +184,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
      */
     case fs @ FiniteSet(elems, base) =>
       declareSort(fs.getType)
-      toSMT(FiniteMap(elems map ((_, BooleanLiteral(true))), BooleanLiteral(false), base, BooleanType))
+      toSMT(FiniteMap(elems map ((_, BooleanLiteral(true))), BooleanLiteral(false), base, BooleanType()))
 
     case SubsetOf(ss, s) =>
       // a isSubset b   ==>   (a zip b).map(implies) == (* => true)
@@ -208,7 +213,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     case fb @ FiniteBag(elems, base) =>
       val BagType(t) = fb.getType
       declareSort(BagType(t))
-      toSMT(FiniteMap(elems, IntegerLiteral(0), t, IntegerType))
+      toSMT(FiniteMap(elems, IntegerLiteral(0), t, IntegerType()))
 
     case BagAdd(b, e) =>
       val bid = FreshIdentifier("b", true)
@@ -223,17 +228,17 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       ArraysEx.Select(toSMT(b), toSMT(e))
 
     case BagUnion(b1, b2) =>
-      val plus = SortedSymbol("+", List(IntegerType, IntegerType).map(declareSort), declareSort(IntegerType))
+      val plus = SortedSymbol("+", List(IntegerType(), IntegerType()).map(declareSort), declareSort(IntegerType()))
       ArrayMap(plus, toSMT(b1), toSMT(b2))
 
     case BagIntersection(b1, b2) =>
       toSMT(BagDifference(b1, BagDifference(b1, b2)))
 
     case BagDifference(b1, b2) =>
-      val abs   = SortedSymbol("abs", List(IntegerType).map(declareSort), declareSort(IntegerType))
-      val plus  = SortedSymbol("+", List(IntegerType, IntegerType).map(declareSort), declareSort(IntegerType))
-      val minus = SortedSymbol("-", List(IntegerType, IntegerType).map(declareSort), declareSort(IntegerType))
-      val div   = SortedSymbol("div", List(IntegerType, IntegerType).map(declareSort), declareSort(IntegerType))
+      val abs   = SortedSymbol("abs", List(IntegerType()).map(declareSort), declareSort(IntegerType()))
+      val plus  = SortedSymbol("+", List(IntegerType(), IntegerType()).map(declareSort), declareSort(IntegerType()))
+      val minus = SortedSymbol("-", List(IntegerType(), IntegerType()).map(declareSort), declareSort(IntegerType()))
+      val div   = SortedSymbol("div", List(IntegerType(), IntegerType()).map(declareSort), declareSort(IntegerType()))
 
       val did = FreshIdentifier("d", true)
       val dSym = id2sym(did)

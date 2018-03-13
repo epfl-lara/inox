@@ -39,7 +39,7 @@ resolvers ++= Seq(
 libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "3.0.1" % "test;it",
   "org.apache.commons" % "commons-lang3" % "3.4",
-  "com.regblanc" %% "scala-smtlib" % "0.2.2",
+  "com.regblanc" %% "scala-smtlib" % "0.2.2-7-g00a9686",
   "uuverifiers" %% "princess" % "2016-12-26"
 )
 
@@ -76,12 +76,13 @@ script := {
 
     val paths = res.getAbsolutePath +: out.getAbsolutePath +: cps.map(_.data.absolutePath)
     val cp = paths.mkString(System.getProperty("path.separator"))
-    IO.write(file, s"""|#!/bin/bash --posix
-                             |
-                             |SCALACLASSPATH=$cp
-                             |
-                             |java -Xmx2G -Xms512M -Xss64M -classpath "$${SCALACLASSPATH}" -Dscala.usejavacp=true inox.Main $$@ 2>&1
-                             |""".stripMargin)
+    IO.write(file, s"""|#!/usr/bin/env bash
+                       |set -o posix
+                       |
+                       |SCALACLASSPATH=$cp
+                       |
+                       |java -Xmx2G -Xms512M -Xss64M -classpath "$${SCALACLASSPATH}" -Dscala.usejavacp=true inox.Main $$@ 2>&1
+                       |""".stripMargin)
     file.setExecutable(true)
   } catch {
     case e: Throwable =>

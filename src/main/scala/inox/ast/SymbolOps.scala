@@ -4,8 +4,18 @@ package inox
 package ast
 
 import utils._
+import solvers.{PurityOptions, SimplificationOptions}
+import evaluators.EvaluationResults._
 
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
+
+object SymbolOps {
+  private[this] val identifiers = new scala.collection.mutable.ArrayBuffer[Identifier]
+  def getId(index: Int): Identifier = synchronized {
+    for (i <- identifiers.size to index) identifiers += FreshIdentifier("x", true)
+    identifiers(index)
+  }
+}
 
 /** Provides functions to manipulate [[Expressions.Expr]] in cases where
   * a symbol table is available (and required: see [[ExprOps]] for
@@ -18,12 +28,17 @@ trait SymbolOps { self: TypeOps =>
   import trees.exprOps._
   import symbols._
 
-  lazy val simplifier = new transformers.SimplifierWithPC {
+  protected class SimplifierWithPC(val opts: PurityOptions) extends transformers.SimplifierWithPC {
     val trees: self.trees.type = self.trees
     val symbols: self.symbols.type = self.symbols
-    // @nv: note that we make sure the initial env is fresh each time
-    //      (since agressive caching of cnf computations is taking place)
-    def initEnv = CNFPath.empty
+  }
+
+  /** Override point for simplifier creation */
+  protected def createSimplifier(opts: PurityOptions): SimplifierWithPC = new SimplifierWithPC(opts)
+
+  private var simplifierCache: MutableMap[PurityOptions, SimplifierWithPC] = MutableMap.empty
+  def simplifier(implicit purityOpts: PurityOptions): SimplifierWithPC = synchronized {
+    simplifierCache.getOrElseUpdate(purityOpts, createSimplifier(purityOpts))
   }
 
   /** Replace each node by its constructor
@@ -36,10 +51,8 @@ trait SymbolOps { self: TypeOps =>
     def step(e: Expr): Option[Expr] = e match {
       case Not(t) => Some(not(t))
       case UMinus(t) => Some(uminus(t))
-      case ADT(tpe, args) => Some(adt(tpe, args))
       case ADTSelector(e, sel) => Some(adtSelector(e, sel))
-      case AsInstanceOf(e, ct) => Some(asInstOf(e, ct))
-      case IsInstanceOf(e, ct) => Some(isInstOf(e, ct))
+      case IsConstructor(e, id) => Some(isCons(e, id))
       case Equals(t1, t2) => Some(equality(t1, t2))
       case Implies(t1, t2) => Some(implies(t1, t2))
       case Plus(t1, t2) => Some(plus(t1, t2))
@@ -55,19 +68,7 @@ trait SymbolOps { self: TypeOps =>
     postMap(step)(expr)
   }
 
-  def simpleSolve(e: Expr, path: Path): Option[Boolean] = {
-    val env = simplifier.CNFPath(path)
-    if (env contains BooleanLiteral(false)) {
-      Some(true)
-    } else {
-      simplifier.transform(e, env) match {
-        case BooleanLiteral(b) => Some(b)
-        case _ => None
-      }
-    }
-  }
-
-  def simplifyExpr(expr: Expr): Expr = simplifier.transform(expr)
+  def simplifyExpr(expr: Expr)(implicit opts: PurityOptions): Expr = simplifier.transform(expr)
 
   /** Normalizes the expression expr */
   def normalizeExpression(expr: Expr): Expr = {
@@ -101,36 +102,77 @@ trait SymbolOps { self: TypeOps =>
   }
 
   /** Returns 'true' iff the evaluation of expression `expr` cannot lead to a crash. */
-  def isPure(expr: Expr): Boolean = isPureIn(expr, Path.empty)
+  def isPure(expr: Expr)(implicit opts: PurityOptions): Boolean = isPureIn(expr, Path.empty)
+
+  def isAlwaysPure(expr: Expr) = isPure(expr)(PurityOptions.unchecked)
 
   /** Returns 'true' iff the evaluation of expression `expr` cannot lead to a crash under the provided path. */
-  def isPureIn(e: Expr, path: Path): Boolean = {
-    val env = simplifier.CNFPath(path)
-    if (env contains BooleanLiteral(false)) {
-      true
-    } else {
-      simplifier.isPure(e, env)
-    }
+  def isPureIn(e: Expr, path: Path)(implicit opts: PurityOptions): Boolean = {
+    val s = simplifier
+    val env = s.CNFPath(path)
+    (env contains BooleanLiteral(false)) || s.isPure(e, env)
   }
 
   def isImpureExpr(expr: Expr): Boolean = expr match {
     case Assume(BooleanLiteral(true), _) => false
     case Choose(res, BooleanLiteral(true)) if hasInstance(res.tpe) == Some(true) => false
     case (_: Assume) | (_: Choose) | (_: Application) |
-         (_: Division) | (_: Remainder) | (_: Modulo) | (_: AsInstanceOf) => true
-    case ADT(tpe, _) => tpe.getADT.definition.hasInvariant
+         (_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector) => true
+    case adt: ADT => adt.getConstructor.sort.definition.hasInvariant
     case _ => false
   }
 
-  private val typedIds: MutableMap[Type, List[Identifier]] =
-    MutableMap.empty.withDefaultValue(List.empty)
+  /** Simplify all the pure and ground sub-expressions of the given expression,
+    * by evaluating them using [[inox.evaluators.Evaluator]].
+    * If `force` is omitted, the given expression will only be evaluated if it is
+    * ground, pure, and does not contain choose or quantifiers.
+    */
+  def simplifyGround(expr: Expr, reportErrors: Boolean = false)(implicit sem: symbols.Semantics, ctx: Context): Expr = {
+    val evalCtx = ctx.withOpts(evaluators.optEvalQuantifiers(false))
+    val evaluator = sem.getEvaluator(evalCtx)
+
+    case class SimplifyGroundError(expr: Expr, result: Result[Expr]) {
+      def errMsg: String = result match {
+        case RuntimeError(msg) =>
+          s"runtime error: $msg"
+        case EvaluatorError(msg) =>
+          s"evaluator error: $msg"
+        case _ => ""
+      }
+      override def toString: String = {
+        s"Forced evaluation of expression @ ${expr.getPos} failed because of a $errMsg"
+      }
+    }
+
+    def evalChildren(e: Expr)(implicit opts: PurityOptions): Expr = e match {
+      case Operator(es, recons) => recons(es.map(rec))
+    }
+
+    // TODO: Should we run this within a fixpoint with simplifyByConstructor?
+    def rec(e: Expr)(implicit opts: PurityOptions): Expr = e match {
+      case e if isValue(e) =>
+        e
+      case e if isGround(e) && isPure(e) =>
+        val evaluated = evaluator.eval(e)
+        evaluated.result.map(exprOps.freshenLocals(_)).getOrElse {
+          if (reportErrors) ctx.reporter.error(SimplifyGroundError(e, evaluated))
+          evalChildren(e)
+        }
+      case l: Lambda =>
+        evalChildren(l)(PurityOptions.unchecked)
+      case e =>
+        evalChildren(e)
+    }
+
+    rec(expr)(PurityOptions(ctx))
+  }
 
   /** Normalizes identifiers in an expression to enable some notion of structural
     * equality between expressions on which usual equality doesn't make sense
     * (i.e. closures).
     *
-    * This function relies on the static map `typedIds` to ensure identical
-    * structures and must therefore be synchronized.
+    * This function relies on the static map `identifiers` to ensure identical
+    * structures.
     *
     * @param args The "arguments" (free variables) of `expr`
     * @param expr The expression to be normalized
@@ -151,26 +193,17 @@ trait SymbolOps { self: TypeOps =>
     preserveApps: Boolean,
     onlySimple: Boolean,
     inFunction: Boolean
-  ): (Seq[ValDef], Expr, Seq[(Variable, Expr)]) = synchronized {
+  )(implicit opts: PurityOptions): (Seq[ValDef], Expr, Seq[(Variable, Expr)]) = {
 
     val subst: MutableMap[Variable, Expr] = MutableMap.empty
     val varSubst: MutableMap[Identifier, Identifier] = MutableMap.empty
     val locals: MutableSet[Identifier] = MutableSet.empty
 
-    // Note: don't use clone here, we want to drop the `withDefaultValue` feature of [[typeIds]]
-    val remainingIds: MutableMap[Type, List[Identifier]] = MutableMap.empty ++ typedIds.toMap
-
+    var counter: Int = 0
     def getId(e: Expr, store: Boolean = true): Identifier = {
       val tpe = e.getType
-      val newId = remainingIds.get(tpe) match {
-        case Some(x :: xs) =>
-          remainingIds += tpe -> xs
-          x
-        case _ =>
-          val x = FreshIdentifier("x", true)
-          typedIds(tpe) = typedIds(tpe) :+ x
-          x
-      }
+      val newId = SymbolOps.getId(counter)
+      counter += 1
       if (store) subst += Variable(newId, tpe, Set.empty) -> e
       newId
     }
@@ -225,71 +258,66 @@ trait SymbolOps { self: TypeOps =>
 
       def isLocal(e: Expr, path: Path): Boolean = {
         val vs = variablesOf(e)
-        val tvs = vs.flatMap(v => varSubst.get(v.id).map(Variable(_, v.tpe, v.flags)))
-        (tvars & tvs).isEmpty && (path.bindings.map(_._1.toVariable).toSet & tvs).isEmpty
+        val tvs = vs flatMap { v => varSubst.get(v.id) map { Variable(_, v.tpe, v.flags) } }
+        val pathVars = path.bound.toSet map { vd: ValDef => vd.toVariable }
+        (tvars & tvs).isEmpty && (pathVars & tvs).isEmpty
       }
 
-      object normalizer extends transformers.TransformerWithPC {
-        val trees: self.trees.type = self.trees
-        val symbols: self.symbols.type = self.symbols
-        val initEnv = Path.empty
-        type Env = Path
+      def containsChoose(e: Expr): Boolean =
+        exists { case c: Choose => true case _ => false } (e)
 
-        override protected def rec(e: Expr, env: Env): Expr = e match {
-          case v @ Variable(id, tpe, flags) =>
-            Variable(
-              if (vars(v) || locals(id)) transformId(id, tpe, store = false)
-              else getId(v),
-              tpe, flags
-            )
+      def containsRecursive(e: Expr): Boolean =
+        exists { case fi: FunctionInvocation => fi.tfd.fd.isRecursive case _ => false } (e)
 
-          case (_: Application) | (_: MultiplicityInBag) | (_: ElementOfSet) | (_: MapApply) if (
-            !isLocal(e, env) &&
-            preserveApps
-          ) =>
-            val (es, recons) = extractMatcher(e)
-            val newEs = es.map(rec(_, env))
-            recons(newEs)
-
-          case Let(vd, e, b) if (
-            isLocal(e, env) &&
-            (isSimple(e) || !onlySimple) &&
-            (isPure(e) || (!inFunction && env.conditions.isEmpty)) &&
-            !exists { case c: Choose => true case _ => false } (e)
-          ) =>
-            val newId = getId(e)
-            rec(replaceFromSymbols(Map(vd.toVariable -> Variable(newId, vd.tpe, Set.empty)), b), env)
-
-          case expr if (
-            isLocal(expr, env) &&
-            (isSimple(expr) || !onlySimple) &&
-            (isPure(expr) || (!inFunction && env.conditions.isEmpty)) &&
-            !exists { case c: Choose => true case _ => false } (expr)
-          ) =>
-            Variable(getId(expr), expr.getType, Set.empty)
-
-          case f: Forall =>
-            val newBody = outer(vars ++ f.args.map(_.toVariable), f.body, false)
-            Forall(f.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
-
-          case l: Lambda =>
-            val newBody = outer(vars ++ l.args.map(_.toVariable), l.body, true)
-            Lambda(l.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
-
-          // @nv: we make sure NOT to normalize choose ids as we may need to
-          // report models for unnormalized chooses!
-          case c: Choose =>
-            val vs = variablesOf(c).map(v => v -> v.copy(id = transformId(v.id, v.tpe, store = false))).toMap
-            replaceFromSymbols(vs, c)
-
-          case _ =>
-            val (vs, es, tps, recons) = deconstructor.deconstruct(e)
-            val newVs = vs.map(v => v.copy(id = transformId(v.id, v.tpe, store = false)))
-            super.rec(recons(newVs, es, tps), env)
-        }
+      def isLiftable(e: Expr, path: Path): Boolean = {
+        isLocal(e, path) &&
+        (isSimple(e) || !onlySimple) &&
+        !containsChoose(e) &&
+        ((isAlwaysPure(e) && !containsRecursive(e)) || (!inFunction && (isPure(e) || path.conditions.isEmpty)))
       }
 
-      normalizer.transform(body)
+      transformWithPC(body)((e, env, op) => e match {
+        case v @ Variable(id, tpe, flags) =>
+          Variable(
+            if (vars(v) || locals(id)) transformId(id, tpe, store = false)
+            else getId(v),
+            tpe, flags
+          )
+
+        case (_: Application) | (_: MultiplicityInBag) | (_: ElementOfSet) | (_: MapApply) if (
+          !isLocal(e, env) &&
+          preserveApps
+        ) =>
+          val (es, recons) = extractMatcher(e)
+          val newEs = es.map(op.rec(_, env))
+          recons(newEs)
+
+        case Let(vd, e, b) if isLiftable(e, env) =>
+          subst += vd.toVariable -> e
+          op.rec(b, env)
+
+        case expr if isLiftable(expr, env) =>
+          Variable(getId(expr), expr.getType, Set.empty)
+
+        case f: Forall =>
+          val newBody = outer(vars ++ f.args.map(_.toVariable), f.body, false)
+          Forall(f.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
+
+        case l: Lambda =>
+          val newBody = outer(vars ++ l.args.map(_.toVariable), l.body, true)
+          Lambda(l.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
+
+        // @nv: we make sure NOT to normalize choose ids as we may need to
+        // report models for unnormalized chooses!
+        case c: Choose =>
+          val vs = variablesOf(c).map(v => v -> v.copy(id = transformId(v.id, v.tpe, store = false))).toMap
+          replaceFromSymbols(vs, c)
+
+        case _ =>
+          val (ids, vs, es, tps, recons) = deconstructor.deconstruct(e)
+          val newVs = vs.map(v => v.copy(id = transformId(v.id, v.tpe, store = false)))
+          op.superRec(recons(ids, newVs, es, tps), env)
+      })
     }
 
     val newExpr = outer(args.map(_.toVariable).toSet, expr, inFunction)
@@ -306,7 +334,8 @@ trait SymbolOps { self: TypeOps =>
     * [[normalizeStructure(args:Seq[SymbolOps\.this\.trees\.ValDef],expr:SymbolOps\.this\.trees\.Expr,preserveApps:Boolean,onlySimple:Boolean,inFunction:Boolean)* normalizeStructure]]
     * that is tailored for structural equality of [[Expressions.Lambda Lambda]] and [[Expressions.Forall Forall]] instances.
     */
-  def normalizeStructure(e: Expr, onlySimple: Boolean = false): (Expr, Seq[(Variable, Expr)]) = freshenLocals(e) match {
+  def normalizeStructure(e: Expr, onlySimple: Boolean = false)
+                        (implicit opts: PurityOptions): (Expr, Seq[(Variable, Expr)]) = freshenLocals(e) match {
     case lambda: Lambda =>
       val (args, body, subst) = normalizeStructure(lambda.args, lambda.body, false, onlySimple, true)
       (Lambda(args, body), subst)
@@ -323,7 +352,7 @@ trait SymbolOps { self: TypeOps =>
   /** Ensures the closure `res` can only be equal to some other closure if they share the same
     * integer identifier `id`. This method makes sure this property is preserved after going through
     * [[normalizeStructure(e:SymbolOps\.this\.trees\.Expr,onlySimple:Boolean)*]]. */
-  def uniquateClosure(id: Int, res: Lambda): Lambda = {
+  def uniquateClosure(id: Int, res: Lambda)(implicit opts: PurityOptions): Lambda = {
     def allArgs(l: Lambda): Seq[ValDef] = l.args ++ (l.body match {
       case l2: Lambda => allArgs(l2)
       case _ => Seq.empty
@@ -350,12 +379,12 @@ trait SymbolOps { self: TypeOps =>
   def constructExpr(i: Int, tpe: Type): Expr = tpe match {
     case _ if typeCardinality(tpe).exists(_ <= i) =>
       throw FatalError(s"Cardinality ${typeCardinality(tpe)} of type $tpe too high for index $i")
-    case BooleanType => BooleanLiteral(i == 0)
-    case IntegerType => IntegerLiteral(i)
+    case BooleanType() => BooleanLiteral(i == 0)
+    case IntegerType() => IntegerLiteral(i)
     case BVType(size) => BVLiteral(i, size)
-    case CharType => CharLiteral(i.toChar)
-    case RealType => FractionLiteral(i, 1)
-    case UnitType => UnitLiteral()
+    case CharType() => CharLiteral(i.toChar)
+    case RealType() => FractionLiteral(i, 1)
+    case UnitType() => UnitLiteral()
     case tp: TypeParameter => GenericValue(tp, i)
     case TupleType(tps) =>
       val (0, args) = tps.foldLeft((i, Seq[Expr]())) {
@@ -372,28 +401,22 @@ trait SymbolOps { self: TypeOps =>
       }
       Tuple(args)
 
-    case adt: ADTType => adt.getADT match {
-      case tcons: TypedADTConstructor =>
-        if (tcons.fieldsTypes.isEmpty) {
-          ADT(tcons.toType, Seq.empty)
-        } else {
-          val es = unwrapTuple(constructExpr(i, tupleTypeWrap(tcons.fieldsTypes)), tcons.fieldsTypes.size)
-          ADT(tcons.toType, es)
+    case adt: ADTType =>
+      val sort = adt.getSort
+      def rec(i: Int, conss: Seq[TypedADTConstructor]): (Int, TypedADTConstructor) = {
+        val cons +: rest = conss
+        constructorCardinality(cons) match {
+          case None => i -> cons
+          case Some(card) if card > i => i -> cons
+          case Some(card) => rec(i - card, rest)
         }
+      }
 
-      case tsort: TypedADTSort =>
-        def rec(i: Int, tconss: Seq[TypedADTConstructor]): (Int, TypedADTConstructor) = tconss match {
-          case tcons +: rest => typeCardinality(tcons.toType) match {
-            case None => i -> tcons
-            case Some(card) if card > i => i -> tcons
-            case Some(card) => rec(i - card, rest)
-          }
-          case _ => sys.error("Should never happen")
-        }
-
-        val (ni, tcons) = rec(i, tsort.constructors.sortBy(t => typeCardinality(t.toType).getOrElse(Int.MaxValue)))
-        constructExpr(ni, tcons.toType)
-    }
+      val (ni, cons) = rec(i, sort.constructors.sortBy(constructorCardinality(_).getOrElse(Int.MaxValue)))
+      ADT(cons.id, cons.tps, {
+        if (cons.fieldsTypes.isEmpty) Seq()
+        else unwrapTuple(constructExpr(i, tupleTypeWrap(cons.fieldsTypes)), cons.fieldsTypes.size)
+      })
 
     case SetType(base) => typeCardinality(base) match {
       case None => FiniteSet(Seq(constructExpr(i, base)), base)
@@ -438,7 +461,8 @@ trait SymbolOps { self: TypeOps =>
       Lambda(Seq.empty, constructExpr(i, to))
 
     case FunctionType(from, to) =>
-      uniquateClosure(i, Lambda(from.map(tpe => ValDef(FreshIdentifier("x", true), tpe)), constructExpr(0, to)))
+      val l = Lambda(from.map(tpe => ValDef(FreshIdentifier("x", true), tpe)), constructExpr(0, to))
+      uniquateClosure(i, l)(PurityOptions.unchecked)
   }
 
   /* Inline lambda lets that appear in forall bodies. For example,
@@ -476,25 +500,24 @@ trait SymbolOps { self: TypeOps =>
 
     def inlineFunctions(e: Expr): Expr = {
       val fds = functionCallsOf(e).flatMap { fi =>
-        val fd = fi.tfd.fd
-        transitiveCallees(fd) + fd
+        transitiveCallees(fi.id) + fi.id
       }
 
       val fdsToInline = fds
-        .filterNot(fd => transitivelyCalls(fd, fd))
-        .filter { fd =>
+        .filterNot(id => isRecursive(id))
+        .filter { id =>
           def existsSpec(e: Expr): Boolean = e match {
             case Assume(pred, body) => existsSpec(body)
             case _: Forall => true
             case Operator(es, _) => es.exists(existsSpec)
           }
 
-          existsSpec(fd.fullBody)
+          existsSpec(getFunction(id).fullBody)
         }
 
       def inline(e: Expr): Expr = {
         val subst = functionCallsOf(e)
-          .filter(fi => fdsToInline(fi.tfd.fd))
+          .filter(fi => fdsToInline(fi.id))
           .map(fi => fi -> fi.inlined)
         replace(subst.toMap, e)
       }
@@ -526,7 +549,7 @@ trait SymbolOps { self: TypeOps =>
               case MapApply(elem: Variable, set) => quantified(elem)
               case _ => false
             } (pred) && !exists {
-              case fi: FunctionInvocation => transitivelyCalls(fi.tfd.fd, tfd.fd)
+              case fi: FunctionInvocation => transitivelyCalls(fi.id, tfd.id)
               case _ => false
             } (pred) => Set(replaceFromSymbols(Map(res.toVariable -> fi), and(pred, inline(nextQuantified, pred))))
             case _ => Set.empty[Expr]
@@ -593,10 +616,8 @@ trait SymbolOps { self: TypeOps =>
       FiniteMap(Seq(), _, _, _)    |
       FiniteBag(Seq(), _)          |
       FiniteSet(Seq(), _)          |
-      IsInstanceOf(_: Variable, _)
+      IsConstructor(_: Variable, _)
     ), b) => Some(replaceFromSymbols(Map(v -> ts), b))
-
-    case l @ Let(v, e, b) => Some(Let(v, e, replace(Map(e -> v.toVariable), b)).copiedFrom(l))
 
     case _ => None
   } (expr)
@@ -657,9 +678,9 @@ trait SymbolOps { self: TypeOps =>
     case MapType(_, to) => hasInstance(to)
     case TupleType(tpes) => if (tpes.forall(tp => hasInstance(tp) contains true)) Some(true) else None
     case adt: ADTType =>
-      val tadt = adt.getADT
-      if (tadt.hasInvariant) None
-      else if (!tadt.definition.isWellFormed) Some(false)
+      val sort = adt.getSort
+      if (sort.hasInvariant) None
+      else if (!sort.definition.isWellFormed) Some(false)
       else Some(true)
     case _ => Some(true)
   }
@@ -667,28 +688,30 @@ trait SymbolOps { self: TypeOps =>
   case class NoSimpleValue(tpe: Type) extends Exception(s"No simple value found for type $tpe")
 
   /** Returns simplest value of a given type */
-  def simplestValue(tpe: Type, allowSolver: Boolean = true)(implicit sem: symbols.Semantics): Expr = {
+  def simplestValue(tpe: Type, allowSolver: Boolean = true)(implicit sem: symbols.Semantics, ctx: Context): Expr = {
     def rec(tpe: Type, seen: Set[Type]): Expr = tpe match {
-      case StringType                 => StringLiteral("")
+      case StringType()               => StringLiteral("")
       case BVType(size)               => BVLiteral(0, size)
-      case RealType                   => FractionLiteral(0, 1)
-      case IntegerType                => IntegerLiteral(0)
-      case CharType                   => CharLiteral('a')
-      case BooleanType                => BooleanLiteral(false)
-      case UnitType                   => UnitLiteral()
+      case RealType()                 => FractionLiteral(0, 1)
+      case IntegerType()              => IntegerLiteral(0)
+      case CharType()                 => CharLiteral('a')
+      case BooleanType()              => BooleanLiteral(false)
+      case UnitType()                 => UnitLiteral()
       case SetType(baseType)          => FiniteSet(Seq(), baseType)
       case BagType(baseType)          => FiniteBag(Seq(), baseType)
       case MapType(fromType, toType)  => FiniteMap(Seq(), rec(toType, seen), fromType, toType)
       case TupleType(tpes)            => Tuple(tpes.map(rec(_, seen)))
 
       case adt @ ADTType(id, tps) =>
-        val tadt = adt.getADT
-        if (!tadt.definition.isWellFormed) throw NoSimpleValue(adt)
+        val sort = adt.getSort
+        if (!sort.definition.isWellFormed) throw NoSimpleValue(adt)
 
-        if (tadt.hasInvariant) {
+        if (seen(adt)) {
+          Choose(ValDef(FreshIdentifier("res"), adt), BooleanLiteral(true))
+        } else if (sort.hasInvariant) {
           if (!allowSolver) throw NoSimpleValue(adt)
 
-          val p = Variable.fresh("p", FunctionType(Seq(adt), BooleanType))
+          val p = Variable.fresh("p", FunctionType(Seq(adt), BooleanType()))
           val res = Variable.fresh("v", adt)
 
           import solvers._
@@ -699,17 +722,8 @@ trait SymbolOps { self: TypeOps =>
             case _ => throw NoSimpleValue(adt)
           }
         } else {
-          val tconss = tadt match {
-            case tsort: TypedADTSort => tsort.constructors.filter(_.definition.isWellFormed)
-            case tcons: TypedADTConstructor => Seq(tcons)
-          }
-
-          tconss.filter(t => !seen(t.toType)).sortBy(_.fields.size).headOption match {
-            case Some(tcons) =>
-              ADT(tcons.toType, tcons.fieldsTypes.map(rec(_, seen + tcons.toType)))
-            case None =>
-              Choose(ValDef(FreshIdentifier("res"), adt), BooleanLiteral(true))
-          }
+          val cons = sort.constructors.sortBy(_.fields.size).head
+          ADT(cons.id, cons.tps, cons.fieldsTypes.map(rec(_, seen + adt)))
         }
 
       case tp: TypeParameter =>
@@ -727,19 +741,19 @@ trait SymbolOps { self: TypeOps =>
   def valuesOf(tp: Type): Stream[Expr] = {
     import utils.StreamUtils._
     tp match {
-      case BooleanType =>
+      case BooleanType() =>
         Stream(BooleanLiteral(false), BooleanLiteral(true))
       case BVType(size) =>
         val count = BigInt(2).pow(size - 1)
-        def rec(i: BigInt): Stream[BigInt] = 
+        def rec(i: BigInt): Stream[BigInt] =
           if (i <= count) Stream.cons(i, Stream.cons(-i - 1, rec(i + 1)))
           else Stream.empty
         rec(0) map (BVLiteral(_, size))
-      case IntegerType =>
+      case IntegerType() =>
         Stream.iterate(BigInt(0)) { prev =>
           if (prev > 0) -prev else -prev + 1
         } map IntegerLiteral
-      case UnitType =>
+      case UnitType() =>
         Stream(UnitLiteral())
       case tp: TypeParameter =>
         Stream.from(0) map (GenericValue(tp, _))
@@ -763,12 +777,11 @@ trait SymbolOps { self: TypeOps =>
           prev flatMap { case seq => Stream(seq, seq :+ curr) }
         }.flatten
         cartesianProduct(seqs, valuesOf(to)) map { case (values, default) => FiniteMap(values, default, from, to) }
-      case adt: ADTType => adt.getADT match {
-        case tcons: TypedADTConstructor =>
-          cartesianProduct(tcons.fieldsTypes map valuesOf) map (ADT(adt, _))
-        case tsort: TypedADTSort =>
-          interleave(tsort.constructors.map(tcons => valuesOf(tcons.toType)))
-      }
+      case adt: ADTType =>
+        val sort = adt.getSort
+        interleave(sort.constructors.map {
+          cons => cartesianProduct(cons.fieldsTypes map valuesOf) map (ADT(cons.id, cons.tps, _))
+        })
     }
   }
 
@@ -803,178 +816,21 @@ trait SymbolOps { self: TypeOps =>
     postMap(transform, applyRec = true)(expr)
   }
 
-  object InvocationExtractor {
-    type Invocation = (Identifier, Seq[Type], Seq[Expr])
-
-    private[SymbolOps] def flatInvocation(expr: Expr): Option[Invocation] = expr match {
-      case fi @ FunctionInvocation(id, tps, args) => Some((id, tps, args))
-      case Application(caller, args) => flatInvocation(caller) match {
-        case Some((id, tps, prevArgs)) => Some((id, tps, prevArgs ++ args))
-        case None => None
-      }
-      case _ => None
-    }
-
-    def apply(e: Expr): Set[Invocation] = {
-      var invocations: Set[Invocation] = Set.empty
-
-      def rec(e: Expr, extract: Boolean): Unit = e match {
-        case IsTyped(FunctionInvocation(_, _, args), _: FunctionType) =>
-          args.foreach(rec(_, true))
-
-        case IsTyped(Application(caller, args), _: FunctionType) =>
-          rec(caller, false)
-          args.foreach(rec(_, true))
-
-        case FunctionInvocation(id, tps, args) =>
-          args.foreach(rec(_, true))
-          if (extract) invocations += ((id, tps, args))
-
-        case f @ Application(caller, args) =>
-          rec(caller, false)
-          args.foreach(rec(_, true))
-          if (extract) invocations ++= flatInvocation(f)
-
-        case Operator(es, _) => es.foreach(rec(_, true))
-      }
-
-      rec(e, true)
-      invocations
-    }
-  }
-
-  def firstOrderCallsOf(expr: Expr): Set[InvocationExtractor.Invocation] = InvocationExtractor(expr)
-
-  object ApplicationExtractor {
-    private def flatApplication(expr: Expr): Option[(Expr, Seq[Expr])] = expr match {
-      case Application(caller: Application, args) => flatApplication(caller) match {
-        case Some((c, prevArgs)) => Some((c, prevArgs ++ args))
-        case None => None
-      }
-      case Application(caller, args) => Some((caller, args))
-      case _ => None
-    }
-
-    def apply(e: Expr): Set[(Expr, Seq[Expr])] = {
-      var applications: Set[(Expr, Seq[Expr])] = Set.empty
-
-      def rec(e: Expr, extract: Boolean): Unit = e match {
-        case IsTyped(Application(caller, args), _: FunctionType) =>
-          rec(caller, false)
-          args.foreach(rec(_, true))
-
-        case f @ Application(caller, args) =>
-          rec(caller, false)
-          args.foreach(rec(_, true))
-          if (extract && InvocationExtractor.flatInvocation(e).isEmpty)
-            applications ++= flatApplication(f)
-
-        case Operator(es, _) => es.foreach(rec(_, true))
-      }
-
-      rec(e, true)
-      applications
-    }
-  }
-
-  def firstOrderAppsOf(expr: Expr): Set[(Expr, Seq[Expr])] = ApplicationExtractor(expr)
-
-  def simplifyHOFunctions(expr: Expr): Expr = {
-
-    def pushDown(expr: Expr, recons: Expr => Expr): Expr = expr match {
-      case IfExpr(cond, thenn, elze) =>
-        IfExpr(cond, pushDown(thenn, recons), pushDown(elze, recons))
-      case Let(i, e, b) =>
-        Let(i, e, pushDown(b, recons))
-      case Assume(pred, body) =>
-        Assume(pred, pushDown(body, recons))
-      case _ => recons(expr)
-    }
-
-    def traverse(expr: Expr, lift: Expr => Expr): Expr = {
-      def extract(expr: Expr, build: Boolean) = if (build) lift(expr) else expr
-
-      def rec(expr: Expr, build: Boolean): Expr = extract(expr match {
-        case Application(caller, args) =>
-          val newArgs = args.map(rec(_, true))
-          val newCaller = rec(caller, false)
-          Application(newCaller, newArgs)
-        case FunctionInvocation(id, tps, args) =>
-          val newArgs = args.map(rec(_, true))
-          FunctionInvocation(id, tps, newArgs)
-        case l @ Lambda(args, body) =>
-          val newBody = rec(body, true)
-          Lambda(args, newBody)
-        case Operator(es, recons) => recons(es.map(rec(_, build)))
-      }, build)
-
-      rec(lift(expr), true)
-    }
-
-    def liftToLambdas(expr: Expr) = {
-      def lift(expr: Expr): Expr = expr.getType match {
-        case FunctionType(from, to) => expr match {
-          case _ : Lambda => expr
-          case _ : Variable => expr
-          case _ : ADTSelector => expr
-          case e =>
-            val args = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
-            val application = pushDown(expr, Application(_, args.map(_.toVariable)))
-            Lambda(args, lift(application))
-        }
-        case _ => expr
-      }
-
-      traverse(expr, lift)
-    }
-
-    def liftContainers(expr: Expr): Expr = expr match {
-      case IfExpr(cond, thenn, elze) => (liftContainers(thenn), liftContainers(elze)) match {
-        case (Tuple(es1), Tuple(es2)) =>
-          Tuple((es1 zip es2).map(p => ifExpr(cond, p._1, p._2)))
-        case (ADT(tpe1, es1), ADT(tpe2, es2)) if tpe1 == tpe2 =>
-          ADT(tpe1, (es1 zip es2).map(p => ifExpr(cond, p._1, p._2)))
-        case (e1, e2) => ifExpr(cond, e1, e2)
-      }
-      case _ => expr
-    }
-
-    def simplifyContainers(expr: Expr): Expr = postMap {
-      case ADTSelector(IsTyped(e, FunctionContainerType()), id) =>
-        val newExpr = pushDown(e, adtSelector(_, id))
-        if (newExpr != expr) Some(newExpr) else None
-      case TupleSelect(IsTyped(e, FunctionContainerType()), i) =>
-        val newExpr = pushDown(e, tupleSelect(_, i, true))
-        if (newExpr != expr) Some(newExpr) else None
-      case _ => None
-    } (expr)
-
-    liftToLambdas(simplifyContainers(liftContainers(expr)))
-  }
-
-  def liftAssumptions(expr: Expr): (Seq[Expr], Expr) = {
+  private[inox] def liftAssumptions(expr: Expr): (Seq[Expr], Expr) = {
     val vars = variablesOf(expr)
     var assumptions: Seq[Expr] = Seq.empty
 
-    object transformer extends transformers.TransformerWithPC {
-      val trees: self.trees.type = self.trees
-      val symbols: self.symbols.type = self.symbols
-      val initEnv = Path.empty
-      type Env = Path
+    val newExpr = transformWithPC(expr)((e, env, op) => e match {
+      case Assume(pred, body) if (env unboundOf pred) subsetOf vars =>
+        assumptions :+= env implies pred
+        op.rec(body, env withCond pred)
+      case _ => op.superRec(e, env)
+    })
 
-      override protected def rec(e: Expr, env: Env): Expr = e match {
-        case Assume(pred, body) if (variablesOf(pred) ++ env.variables) subsetOf vars =>
-          assumptions :+= env implies pred
-          rec(body, env withCond pred)
-        case _ => super.rec(e, env)
-      }
-    }
-
-    val newExpr = transformer.transform(expr)
     (assumptions, newExpr)
   }
 
-  def simplifyAssumptions(expr: Expr): Expr = postMap {
+  private def simplifyAssumptions(expr: Expr): Expr = postMap {
     case Assume(pred, body) =>
       val (predAssumptions, newPred) = liftAssumptions(pred)
       val (bodyAssumptions, newBody) = liftAssumptions(body)
@@ -982,11 +838,15 @@ trait SymbolOps { self: TypeOps =>
     case _ => None
   } (expr)
 
-  def mergeFunctions(expr: Expr): Expr = {
+  private def mergeFunctions(expr: Expr)(implicit opts: PurityOptions): Expr = {
     type Bindings = Seq[(ValDef, Expr)]
     implicit class BindingsWrapper(bindings: Bindings) {
       def merge(that: Bindings): Bindings = (bindings ++ that).distinct
-      def wrap(that: Expr): Expr = bindings.foldRight(that) { case ((vd, e), b) => let(vd, e, b) }
+      def wrap(that: Expr): Expr = bindings.foldRight(that) { case ((vd, e), b) =>
+        val freshVd = vd.freshen
+        val fb = replaceFromSymbols(Map(vd -> freshVd.toVariable), b)
+        let(freshVd, e, fb)
+      }
     }
 
     def liftCalls(e: Expr): Expr = {
@@ -1062,68 +922,49 @@ trait SymbolOps { self: TypeOps =>
     def mergeCalls(e: Expr): Expr = {
       def evCalls(e: Expr): Map[TypedFunDef, Set[(Path, Seq[Expr])]] = {
 
-        object collector extends transformers.CollectorWithPC {
-          val trees: self.trees.type = self.trees
-          val symbols: self.symbols.type = self.symbols
-          type Result = (Path, FunctionInvocation)
+        var inLambda = false
+        var pathFis: Seq[(Path, FunctionInvocation)] = Seq.empty
+        transformWithPC(e)((e, path, op) => e match {
+          case l: Lambda =>
+            val old = inLambda
+            inLambda = true
+            val nl = op.superRec(l, path)
+            inLambda = old
+            nl
 
-          private var inLambda: Boolean = false
+          case fi: FunctionInvocation =>
+            val problematic = utils.fixpoint((vs: Set[Variable]) => vs ++ path.bindings.collect {
+              case (vd, e) if (variablesOf(e) & vs).nonEmpty => vd.toVariable
+              case (vd, e) if exists { case fi: FunctionInvocation => true case _ => false }(e) => vd.toVariable
+            })(Set.empty)
 
-          override protected def rec(e: Expr, path: Path): Expr = e match {
-            case l: Lambda =>
-              val old = inLambda
-              inLambda = true
-              val res = super.rec(l, path)
-              inLambda = old
-              res
-            case _ => super.rec(e, path)
-          }
+            val allVars = variablesOf(fi) ++ path.conditions.flatMap(variablesOf)
+            if ((!inLambda || isPure(fi)) && (allVars & problematic).isEmpty) {
+              pathFis :+= (path -- problematic.map(_.toVal), fi)
+            }
+            op.superRec(fi, path)
 
-          protected def step(e: Expr, path: Path): List[Result] = e match {
-            case fi: FunctionInvocation =>
-              val problematic = utils.fixpoint((vs: Set[Variable]) => vs ++ path.bindings.collect {
-                case (vd, e) if (variablesOf(e) & vs).nonEmpty => vd.toVariable
-                case (vd, e) if exists { case fi: FunctionInvocation => true case _ => false }(e) => vd.toVariable
-              })(Set.empty)
+          case _ =>
+            op.superRec(e, path)
+        })
 
-              val allVars = variablesOf(fi) ++ path.conditions.flatMap(variablesOf)
-              if ((!inLambda || isPure(fi)) && (allVars & problematic).isEmpty) {
-                List((path -- problematic.map(_.toVal), fi))
-              } else {
-                Nil
-              }
-            case _ => Nil
-          }
-        }
-
-        val pathFis = collector.collect(e)
         pathFis.groupBy(_._2.tfd).mapValues(_.map(p => (p._1, p._2.args)).toSet)
       }
 
-      def replace(path: Path, oldE: Expr, newE: Expr, body: Expr): Expr = {
-        object transformer extends transformers.TransformerWithPC {
-          val trees: self.trees.type = self.trees
-          val symbols: self.symbols.type = self.symbols
-          val initEnv = Path.empty
-          type Env = Path
-
-          override protected def rec(e: Expr, env: Env): Expr = {
-            if ((path.bindings.toSet subsetOf env.bindings.toSet) &&
-                (path.conditions == env.conditions) &&
-                e == oldE) {
-              newE
-            } else {
-              super.rec(e, env)
-            }
+      def replace(path: Path, oldE: Expr, newE: Expr, body: Expr): Expr = transformWithPC(body) {
+        (e, env, op) =>
+          if ((path.bindings.toSet subsetOf env.bindings.toSet) &&
+            (path.bound.toSet subsetOf env.bound.toSet) &&
+            (path.conditions == env.conditions) && e == oldE) {
+            newE
+          } else {
+            op.superRec(e, env)
           }
-        }
-
-        transformer.transform(body)
       }
 
       postMap {
         case IfExpr(cond, thenn, elze) =>
-          val condVar = Variable.fresh("cond", BooleanType, true)
+          val condVar = Variable.fresh("cond", BooleanType(), true)
           val condPath = Path(condVar)
 
           def rec(bindings: Bindings, thenn: Expr, elze: Expr): (Bindings, Expr, Expr) = {
@@ -1136,7 +977,7 @@ trait SymbolOps { self: TypeOps =>
                 val (pathElse, argsElse) = elseCalls(tfd).toSeq.sortBy(_._1.elements.size).head
 
                 val v = Variable.fresh("res", tfd.returnType, true)
-                val condThen = Variable.fresh("condThen", BooleanType, true)
+                val condThen = Variable.fresh("condThen", BooleanType(), true)
 
                 val result = IfExpr(Or(condThen, (condPath.negate merge pathElse).toClause),
                   tfd.applied((argsThen zip argsElse).map { case (argThen, argElse) =>
@@ -1162,19 +1003,90 @@ trait SymbolOps { self: TypeOps =>
     mergeCalls(liftCalls(expr))
   }
 
-  def simplifyFormula(e: Expr, simplify: Boolean = true): Expr = {
-    if (simplify) {
+  private[inox] def simplifyFormula(e: Expr)(implicit ctx: Context, sem: symbols.Semantics): Expr = {
+    implicit val simpOpts = SimplificationOptions(ctx)
+    implicit val purityOpts = PurityOptions(ctx)
+
+    if (simpOpts.simplify) {
       val simp: Expr => Expr =
-        ((e: Expr) => simplifyHOFunctions(e)) compose
+        ((e: Expr) => simplifyGround(e))      compose
         ((e: Expr) => simplifyExpr(e))        compose
         ((e: Expr) => simplifyForalls(e))     compose
         ((e: Expr) => simplifyAssumptions(e)) compose
         ((e: Expr) => mergeFunctions(e))
       simp(e)
     } else {
-      simplifyHOFunctions(e)
+      e
     }
   }
+
+  class TransformerOp[P <: PathLike[P]](val rec: (Expr, P) => Expr, val superRec: (Expr, P) => Expr)
+
+  protected trait TransformerWithFun extends transformers.TransformerWithPC {
+    val trees: self.trees.type
+    val symbols: self.symbols.type
+
+    val path: Env
+    val f: (Expr, Env, TransformerOp[Env]) => Expr
+    val op = new TransformerOp[Env](rec _, super.rec _)
+
+    override protected def rec(e: Expr, env: Env): Expr = f(e, env, op)
+  }
+
+  protected class TransformerWithPC[P <: PathLike[P]](val path: P, val f: (Expr, P, TransformerOp[P]) => Expr)
+    extends transformers.TransformerWithPC { self0: TransformerWithFun =>
+
+    val trees: self.trees.type = self.trees
+    val symbols: self.symbols.type = self.symbols
+    val initEnv = path
+    type Env = P
+  }
+
+  /** Override point for transformer with PC creation */
+  protected def createTransformer[P <: PathLike[P]](path: P, f: (Expr, P, TransformerOp[P]) => Expr)
+                                                   (implicit pp: PathProvider[P]): TransformerWithPC[P] = {
+    new TransformerWithPC(path, f) with TransformerWithFun
+  }
+
+  def transformWithPC[P <: PathLike[P]](e: Expr, path: P)
+                                       (f: (Expr, P, TransformerOp[P]) => Expr)
+                                       (implicit pp: PathProvider[P]): Expr = {
+    createTransformer[P](path, f).transform(e)
+  }
+
+  def transformWithPC(e: Expr)(f: (Expr, Path, TransformerOp[Path]) => Expr): Expr =
+    transformWithPC(e, Path.empty)(f)
+
+  def collectWithPC[P <: PathLike[P], T](e: Expr, path: P)
+                                        (pf: PartialFunction[(Expr, P), T])
+                                        (implicit pp: PathProvider[P]): Seq[T] = {
+    var results: Seq[T] = Nil
+    var pfLift = pf.lift
+    transformWithPC(e, path) { (e, path, op) =>
+      results ++= pfLift(e, path)
+      op.superRec(e, path)
+    }
+    results
+  }
+
+  def collectWithPC[T](e: Expr)(pf: PartialFunction[(Expr, Path), T]): Seq[T] = collectWithPC(e, Path.empty)(pf)
+
+  def existsWithPC[P <: PathLike[P]](e: Expr, path: P)
+                                    (p: (Expr, P) => Boolean)
+                                    (implicit pp: PathProvider[P]): Boolean = {
+    var result = false
+    transformWithPC(e, path) { (e, path, op) =>
+      if (p(e, path)) {
+        result = true
+        e
+      } else {
+        op.superRec(e, path)
+      }
+    }
+    result
+  }
+
+  def existsWithPC(e: Expr)(p: (Expr, Path) => Boolean): Boolean = existsWithPC(e, Path.empty)(p)
 
   // Use this only to debug isValueOfType
   private implicit class BooleanAdder(b: Boolean) {
@@ -1182,41 +1094,35 @@ trait SymbolOps { self: TypeOps =>
   }
 
   /** Returns true if expr is a value of type t */
-  def isValueOfType(e: Expr, t: Type): Boolean = {
-    def unWrapSome(s: Expr) = s match {
-      case ADT(_, Seq(a)) => a
-      case _ => s
-    }
-    (e, t) match {
-      case (StringLiteral(_), StringType) => true
-      case (BVLiteral(_, s), BVType(t)) => s == t
-      case (IntegerLiteral(_), IntegerType) => true
-      case (CharLiteral(_), CharType) => true
-      case (FractionLiteral(_, _), RealType) => true
-      case (BooleanLiteral(_), BooleanType) => true
-      case (UnitLiteral(), UnitType) => true
-      case (GenericValue(t, _), tp) => t == tp
-      case (Tuple(elems), TupleType(bases)) =>
-        elems zip bases forall (eb => isValueOfType(eb._1, eb._2))
-      case (FiniteSet(elems, tbase), SetType(base)) =>
-        tbase == base &&
-        (elems forall isValue)
-      case (FiniteBag(elements, fbtpe), BagType(tpe)) =>
-        fbtpe == tpe &&
-        elements.forall{ case (key, value) => isValueOfType(key, tpe) && isValueOfType(value, IntegerType) }
-      case (FiniteMap(elems, default, kt, vt), MapType(from, to)) =>
-        (kt == from) < s"$kt not equal to $from" && (vt == to) < s"${default.getType} not equal to $to" &&
-        isValueOfType(default, to) < s"${default} not a value of type $to" &&
-        (elems forall (kv => isValueOfType(kv._1, from) < s"${kv._1} not a value of type $from" && isValueOfType(unWrapSome(kv._2), to) < s"${unWrapSome(kv._2)} not a value of type ${to}" ))
-      case (ADT(adt, args), adt2: ADTType) =>
-        isSubtypeOf(adt, adt2) < s"$adt not a subtype of $adt2" &&
-        ((args zip adt.getADT.toConstructor.fieldsTypes) forall (argstyped => isValueOfType(argstyped._1, argstyped._2) < s"${argstyped._1} not a value of type ${argstyped._2}" ))
-      case (Lambda(valdefs, body), FunctionType(ins, out)) =>
-        variablesOf(e).isEmpty &&
-        (valdefs zip ins forall (vdin => isSubtypeOf(vdin._2, vdin._1.getType) < s"${vdin._2} is not a subtype of ${vdin._1.getType}")) &&
-        isSubtypeOf(body.getType, out) < s"${body.getType} is not a subtype of $out"
-      case _ => false
-    }
+  def isValueOfType(e: Expr, t: Type): Boolean = (e, t) match {
+    case (StringLiteral(_), StringType()) => true
+    case (BVLiteral(_, s), BVType(t)) => s == t
+    case (IntegerLiteral(_), IntegerType()) => true
+    case (CharLiteral(_), CharType()) => true
+    case (FractionLiteral(_, _), RealType()) => true
+    case (BooleanLiteral(_), BooleanType()) => true
+    case (UnitLiteral(), UnitType()) => true
+    case (GenericValue(t, _), tp) => t == tp
+    case (Tuple(elems), TupleType(bases)) =>
+      elems zip bases forall (eb => isValueOfType(eb._1, eb._2))
+    case (FiniteSet(elems, tbase), SetType(base)) =>
+      tbase == base &&
+      (elems forall isValue)
+    case (FiniteBag(elements, fbtpe), BagType(tpe)) =>
+      fbtpe == tpe &&
+      elements.forall{ case (key, value) => isValueOfType(key, tpe) && isValueOfType(value, IntegerType()) }
+    case (FiniteMap(elems, default, kt, vt), MapType(from, to)) =>
+      (kt == from) < s"$kt not equal to $from" && (vt == to) < s"${default.getType} not equal to $to" &&
+      isValueOfType(default, to) < s"${default} not a value of type $to" &&
+      (elems forall (kv => isValueOfType(kv._1, from) < s"${kv._1} not a value of type $from" && isValueOfType(kv._2, to) < s"${kv._2} not a value of type ${to}" ))
+    case (adt @ ADT(id, tps, args), adt2: ADTType) =>
+      isSubtypeOf(adt.getType, adt2) < s"$adt not a subtype of $adt2" &&
+      ((args zip adt.getConstructor.fieldsTypes) forall (argstyped => isValueOfType(argstyped._1, argstyped._2) < s"${argstyped._1} not a value of type ${argstyped._2}" ))
+    case (Lambda(valdefs, body), FunctionType(ins, out)) =>
+      variablesOf(e).isEmpty &&
+      (valdefs zip ins forall (vdin => isSubtypeOf(vdin._2, vdin._1.getType) < s"${vdin._2} is not a subtype of ${vdin._1.getType}")) &&
+      isSubtypeOf(body.getType, out) < s"${body.getType} is not a subtype of $out"
+    case _ => false
   }
 
   /** Returns true if expr is a value. Stronger than isGround */
@@ -1240,31 +1146,24 @@ trait SymbolOps { self: TypeOps =>
               se.map(child => "\n  " + "\n".r.replaceAllIn(child, "\n  ")).mkString +
               s" but couldn't find function $id"
           }
+        case ADT(id, tps, args) =>
+          lookupConstructor(id, tps) match {
+            case Some(tcons) =>
+              s"${e.asString} is of type ${e.getType.asString}" +
+              se.map(child => "\n  " + "\n".r.replaceAllIn(child, "\n  ")).mkString +
+              s" because ${tcons.id.name} was instantiated with " +
+              s"${tcons.sort.definition.tparams.zip(tps).map(k => k._1.asString + ":=" + k._2.asString).mkString(",")} " +
+              s"with fields ${tcons.fields.map(_.getType.asString).mkString("(", ",", ")")}"
+            case None =>
+              s"${e.asString} is of type ${e.getType.asString}" +
+              se.map(child => "\n  " + "\n".r.replaceAllIn(child, "\n  ")).mkString +
+              s" but couldn't find constructor $id"
+          }
         case e =>
           s"${e.asString} is of type ${e.getType.asString}" +
           se.map(child => "\n  " + "\n".r.replaceAllIn(child, "\n  ")).mkString
       }
     }(e)
-  }
-
-  def typeParamsOf(expr: Expr): Set[TypeParameter] = {
-    collect(e => typeParamsOf(e.getType))(expr)
-  }
-
-  // Helpers for instantiateType
-  class TypeInstantiator(tps: Map[TypeParameter, Type]) extends SelfTreeTransformer {
-    override def transform(tpe: Type): Type = tpe match {
-      case tp: TypeParameter => tps.getOrElse(tp, super.transform(tpe))
-      case _ => super.transform(tpe)
-    }
-  }
-
-  def instantiateType(e: Expr, tps: Map[TypeParameter, Type]): Expr = {
-    if (tps.isEmpty) {
-      e
-    } else {
-      new TypeInstantiator(tps).transform(e)
-    }
   }
 
   /* ===================================================
@@ -1298,14 +1197,16 @@ trait SymbolOps { self: TypeOps =>
     * @see [[SymbolOps.isPure isPure]]
     */
   def let(vd: ValDef, e: Expr, bd: Expr) = {
-    if ((variablesOf(bd) contains vd.toVariable) || !isPure(e)) Let(vd, e, bd).setPos(Position.between(vd.getPos, bd.getPos)) else bd
+    if ((variablesOf(bd) contains vd.toVariable) || !isPure(e)(PurityOptions.unchecked))
+      Let(vd, e, bd).setPos(Position.between(vd.getPos, bd.getPos))
+    else bd
   }
 
   /** $encodingof simplified `if (c) t else e` (if-expression).
     * @see [[Expressions.IfExpr IfExpr]]
     */
   def ifExpr(c: Expr, t: Expr, e: Expr): Expr = (t, e) match {
-    case (_, `t`) if isPure(c) => t
+    case (_, `t`) if isPure(c)(PurityOptions.unchecked) => t
     case (IfExpr(c2, thenn, `e`), _) => ifExpr(and(c, c2), thenn, e)
     case (_, IfExpr(c2, `t`, e2)) => ifExpr(or(c, c2), t, e2)
     case (BooleanLiteral(true), BooleanLiteral(false)) => c
@@ -1317,23 +1218,6 @@ trait SymbolOps { self: TypeOps =>
     case _ if c == BooleanLiteral(true) => t
     case _ if c == BooleanLiteral(false) => e
     case _ => IfExpr(c, t, e)
-  }
-
-  /** Instantiates the type parameters of the function according to argument types
-    * @return A [[Expressions.FunctionInvocation FunctionInvocation]] if it type checks, else throws an error.
-    * @see [[Expressions.FunctionInvocation]]
-    */
-  def functionInvocation(fd: FunDef, args: Seq[Expr]) = {
-    require(fd.params.length == args.length, "Invoking function with incorrect number of arguments")
-
-    val formalType = tupleTypeWrap(fd.params map { _.getType })
-    val actualType = tupleTypeWrap(args map { _.getType })
-
-    symbols.instantiation_>:(formalType, actualType) match {
-      case Some(tmap) =>
-        FunctionInvocation(fd.id, fd.tparams map { tpd => tmap.getOrElse(tpd.tp, tpd.tp) }, args)
-      case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
-    }
   }
 
   /** $encodingof simplified `fn(realArgs)` (function application).
@@ -1372,67 +1256,31 @@ trait SymbolOps { self: TypeOps =>
       assume(pred, application(l, realArgs))
 
     case _ =>
-      Application(fn, realArgs)
+      Application(fn, realArgs).copiedFrom(fn)
   }
 
-
-  /** Instantiates the type parameters of the ADT constructor according to argument types
-    * @return A [[Expressions.ADT ADT]] if it type checks, else throws an error
-    * @see [[Expressions.ADT]]
-    */
-  def adtConstruction(adt: ADTConstructor, args: Seq[Expr]) = {
-    require(adt.fields.length == args.length, "Constructing adt with incorrect number of arguments")
-
-    val formalType = tupleTypeWrap(adt.fields.map(_.tpe))
-    val actualType = tupleTypeWrap(args.map(_.getType))
-
-    symbols.instantiation_>:(formalType, actualType) match {
-      case Some(tmap) => ADT(instantiateType(adt.typed.toType, tmap).asInstanceOf[ADTType], args)
-      case None => throw FatalError(s"$args:$actualType cannot be a subtype of $formalType!")
-    }
-  }
-
-  /** Simplifies the provided adt construction.
-    * @see [[Expressions.ADT ADT]] */
-  def adt(tpe: ADTType, args: Seq[Expr]): Expr = {
-    val ls = (tpe.getADT.toConstructor.fields zip args).collect {
-      case (vd, ADTSelector(e, id)) if vd.id == id => e
-    }
-
-    ls match {
-      case ls @ (e +: es) if ls.size == args.size && es.forall(_ == e) && tpe == e.getType => e
-      case _ => ADT(tpe, args)
-    }
-  }
 
   /** Simplifies the provided adt selector.
     * @see [[Expressions.ADTSelector ADTSelector]]
     */
   def adtSelector(adt: Expr, selector: Identifier): Expr = {
     adt match {
-      case a @ ADT(tp, fields) if !tp.getADT.hasInvariant =>
-        fields(tp.getADT.toConstructor.definition.selectorID2Index(selector))
+      case a @ ADT(id, tps, fields) =>
+        val cons = a.getConstructor
+        if (!cons.sort.hasInvariant && cons.fields.exists(_.id == selector)) {
+          fields(cons.definition.selectorID2Index(selector))
+        } else {
+          ADTSelector(adt, selector).copiedFrom(adt)
+        }
       case _ =>
-        ADTSelector(adt, selector)
-    }
-  }
-
-  /** $encodingof expr.asInstanceOf[tpe], returns `expr` if it already is of type `tpe`.  */
-  def asInstOf(expr: Expr, tpe: Type) = {
-    if (symbols.isSubtypeOf(expr.getType, tpe)) {
-      expr
-    } else {
-      AsInstanceOf(expr, tpe)
+        ADTSelector(adt, selector).copiedFrom(adt)
     }
   }
 
   /** $encodingof expr.isInstanceOf[tpe], simplifies to `true` or `false` in clear cases. */
-  def isInstOf(expr: Expr, tpe: Type) = (expr.getType, tpe) match {
-    case (t1, t2) if symbols.isSubtypeOf(t1, t2) => BooleanLiteral(true)
-
-    case (t1: ADTType, t2: ADTType)
-    if t1.id != t2.id && !t1.getADT.definition.isSort && !t2.getADT.definition.isSort => BooleanLiteral(false)
-
-    case _ => IsInstanceOf(expr, tpe)
+  def isCons(expr: Expr, id: Identifier) = expr.getType match {
+    case adt: ADTType if adt.getSort.constructors.size == 1 =>
+      BooleanLiteral(true).copiedFrom(expr)
+    case _ => IsConstructor(expr, id)
   }
 }

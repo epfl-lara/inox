@@ -12,18 +12,21 @@ import unrolling._
 import scala.collection.mutable.{Map => MutableMap}
 
 trait PrincessSolver extends AbstractUnrollingSolver { self =>
-
+  import context._
   import program._
   import program.trees._
   import program.symbols._
 
   override val name = "Princess"
 
-  protected lazy val theories = solvers.theories.Princess(fullEncoder)(semantics.getEvaluator)
+  protected lazy val theories: ast.ProgramTransformer {
+    val sourceProgram: fullEncoder.targetProgram.type
+    val targetProgram: Program { val trees: fullEncoder.targetProgram.trees.type }
+  } = solvers.theories.Princess(fullEncoder)(semantics.getEvaluator)
 
   protected object underlying extends {
     val program: targetProgram.type = targetProgram
-    val options = self.options
+    val context = self.context
   } with AbstractPrincessSolver {
     lazy val semantics = targetSemantics
   }
@@ -32,6 +35,8 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
 
   object templates extends {
     val program: targetProgram.type = targetProgram
+    val context = self.context
+    val semantics: targetProgram.Semantics = self.targetSemantics
   } with Templates {
     import program.trees._
 
@@ -89,13 +94,12 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
 
     def extractConstructor(v: IExpression, tpe: t.ADTType): Option[Identifier] =
       model.eval(v.asInstanceOf[ITerm]).flatMap { elem =>
-        val realType = underlying.program.symbols.bestRealType(tpe).asInstanceOf[t.ADTType]
         val (sort, adts) = underlying.typeToSort(tpe)
         (adts.map(_._1) zip sort.ctorIds).collectFirst {
-          case (`realType`, fun) => model.eval(fun(v.asInstanceOf[ITerm])).map { i =>
+          case (`tpe`, fun) => model.eval(fun(v.asInstanceOf[ITerm])).map { i =>
             val index = i.intValue
             val constructors = adts.flatMap(_._2.cases)
-            constructors(index).tpe.asInstanceOf[t.ADTType].id
+            constructors(index).tpe.asInstanceOf[underlying.ADTCons].id
           }
         }.flatten
       }
@@ -104,11 +108,9 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
     def extractBag(v: IExpression, tpe: t.BagType) = scala.sys.error("Should never happen")
     def extractMap(v: IExpression, tpe: t.MapType) = scala.sys.error("Should never happen")
 
-    def modelEval(elem: IExpression, tpe: t.Type): Option[t.Expr] = {
-      val timer = ctx.timers.solvers.princess.eval.start()
+    def modelEval(elem: IExpression, tpe: t.Type): Option[t.Expr] = timers.solvers.princess.eval.run {
       val (res, cs) = underlying.princessToInox(elem, tpe)(model)
       chooses ++= cs.map(p => p._1.res.id -> p._2)
-      timer.stop()
       res
     }
 

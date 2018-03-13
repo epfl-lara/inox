@@ -20,18 +20,18 @@ trait SetEncoder extends SimpleEncoder {
   val value = FreshIdentifier("value")
 
   val Set = T(SetID)
-  val Sum  = T(SumID)
-  val Elem = T(ElemID)
-  val Leaf = T(LeafID)
+  val Sum  = C(SumID)
+  val Elem = C(ElemID)
+  val Leaf = C(LeafID)
 
   val ContainsID = FreshIdentifier("contains")
   val Contains = mkFunDef(ContainsID)("T") { case Seq(aT) => (
-    Seq("set" :: Set(aT), "x" :: aT), BooleanType, {
-      case Seq(set, x) => !set.isInstOf(Leaf(aT)) && (if_ (set.isInstOf(Sum(aT))) {
-        E(ContainsID)(aT)(set.asInstOf(Sum(aT)).getField(left), x) ||
-        E(ContainsID)(aT)(set.asInstOf(Sum(aT)).getField(right), x)
+    Seq("set" :: Set(aT), "x" :: aT), BooleanType(), {
+      case Seq(set, x) => !set.is(LeafID) && (if_ (set.is(SumID)) {
+        E(ContainsID)(aT)(set.getField(left), x) ||
+        E(ContainsID)(aT)(set.getField(right), x)
       } else_ {
-        set.asInstOf(Elem(aT)).getField(value) === x
+        set.getField(value) === x
       })
     })
   }
@@ -39,11 +39,11 @@ trait SetEncoder extends SimpleEncoder {
   val RemoveID = FreshIdentifier("remove")
   val Remove = mkFunDef(RemoveID)("T") { case Seq(aT) => (
     Seq("set" :: Set(aT), "x" :: aT), Set(aT), {
-      case Seq(set, x) => if_ (set.isInstOf(Sum(aT))) {
-        Sum(aT)(E(RemoveID)(aT)(set.asInstOf(Sum(aT)).getField(left), x),
-          E(RemoveID)(aT)(set.asInstOf(Sum(aT)).getField(right), x))
+      case Seq(set, x) => if_ (set.is(SumID)) {
+        Sum(aT)(E(RemoveID)(aT)(set.getField(left), x),
+          E(RemoveID)(aT)(set.getField(right), x))
       } else_ {
-        if_ (set.isInstOf(Elem(aT)) && set.asInstOf(Elem(aT)).getField(value) === x) {
+        if_ (set.is(ElemID) && set.getField(value) === x) {
           Leaf(aT)()
         } else_ {
           set
@@ -69,14 +69,14 @@ trait SetEncoder extends SimpleEncoder {
   val DifferenceID = FreshIdentifier("difference")
   val Difference = mkFunDef(DifferenceID)("T") { case Seq(aT) => (
     Seq("s1" :: Set(aT), "s2" :: Set(aT)), Set(aT), {
-      case Seq(s1, s2) => if_ (s2.isInstOf(Sum(aT))) {
+      case Seq(s1, s2) => if_ (s2.is(SumID)) {
         E(DifferenceID)(aT)(
-          E(DifferenceID)(aT)(s1, s2.asInstOf(Sum(aT)).getField(left)),
-          s2.asInstOf(Sum(aT)).getField(right)
+          E(DifferenceID)(aT)(s1, s2.getField(left)),
+          s2.getField(right)
         )
       } else_ {
-        if_ (s2.isInstOf(Elem(aT))) {
-          E(RemoveID)(aT)(s1, s2.asInstOf(Elem(aT)).getField(value))
+        if_ (s2.is(ElemID)) {
+          E(RemoveID)(aT)(s1, s2.getField(value))
         } else_ {
           s1
         }
@@ -87,11 +87,11 @@ trait SetEncoder extends SimpleEncoder {
   val IntersectID = FreshIdentifier("intersect")
   val Intersect = mkFunDef(IntersectID)("T") { case Seq(aT) => (
     Seq("s1" :: Set(aT), "s2" :: Set(aT)), Set(aT), {
-      case Seq(s1, s2) => if_ (s1.isInstOf(Sum(aT))) {
-        Sum(aT)(E(IntersectID)(aT)(s1.asInstOf(Sum(aT)).getField(left), s2),
-          E(IntersectID)(aT)(s1.asInstOf(Sum(aT)).getField(right), s2))
+      case Seq(s1, s2) => if_ (s1.is(SumID)) {
+        Sum(aT)(E(IntersectID)(aT)(s1.getField(left), s2),
+          E(IntersectID)(aT)(s1.getField(right), s2))
       } else_ {
-        if_ (s1.isInstOf(Elem(aT)) && !E(ContainsID)(aT)(s2, s1.asInstOf(Elem(aT)).getField(value))) {
+        if_ (s1.is(ElemID) && !E(ContainsID)(aT)(s2, s1.getField(value))) {
           Leaf(aT)()
         } else_ {
           s1
@@ -102,27 +102,23 @@ trait SetEncoder extends SimpleEncoder {
 
   val EqualsID = FreshIdentifier("equals")
   val SetEquals = mkFunDef(EqualsID)("T") { case Seq(aT) => (
-    Seq("s1" :: Set(aT), "s2" :: Set(aT)), BooleanType, {
+    Seq("s1" :: Set(aT), "s2" :: Set(aT)), BooleanType(), {
       case Seq(s1, s2) => forall("y" :: aT) { y =>
         E(ContainsID)(aT)(s1, y) === E(ContainsID)(aT)(s2, y)
       }
     })
   }
 
-  val setADT = mkSort(SetID, HasADTEquality(EqualsID))("T")(Seq(SumID, ElemID, LeafID))
-
-  val sumADT = mkConstructor(SumID)("T")(Some(SetID)) {
-    case Seq(aT) => Seq(ValDef(left, Set(aT)), ValDef(right, Set(aT)))
+  val setSort = mkSort(SetID, HasADTEquality(EqualsID))("T") {
+    case Seq(aT) => Seq(
+      (SumID, Seq(ValDef(left, Set(aT)), ValDef(right, Set(aT)))),
+      (ElemID, Seq(ValDef(value, aT))),
+      (LeafID, Seq.empty)
+    )
   }
-
-  val elemADT = mkConstructor(ElemID)("T")(Some(SetID)) {
-    case Seq(aT) => Seq(ValDef(value, aT))
-  }
-
-  val leafADT = mkConstructor(LeafID)("T")(Some(SetID))(_ => Seq.empty)
 
   override val extraFunctions = Seq(Contains, Remove, Add, Union, Difference, Intersect, SetEquals)
-  override val extraADTs = Seq(setADT, sumADT, elemADT, leafADT)
+  override val extraSorts = Seq(setSort)
 
   protected object encoder extends SelfTreeTransformer {
     import sourceProgram._
@@ -168,15 +164,15 @@ trait SetEncoder extends SimpleEncoder {
     import targetProgram._
 
     override def transform(e: Expr): Expr = e match {
-      case ADT(ADTType(SumID, Seq(tpe)), Seq(e1, e2)) =>
+      case ADT(SumID, Seq(tpe), Seq(e1, e2)) =>
         val FiniteSet(els1, _) = transform(e1)
         val FiniteSet(els2, _) = transform(e2)
         FiniteSet(els1 ++ els2, transform(tpe)).copiedFrom(e)
 
-      case ADT(ADTType(ElemID, Seq(tpe)), Seq(e)) =>
+      case ADT(ElemID, Seq(tpe), Seq(e)) =>
         FiniteSet(Seq(transform(e)), transform(tpe)).copiedFrom(e)
 
-      case ADT(ADTType(LeafID, Seq(tpe)), Seq()) =>
+      case ADT(LeafID, Seq(tpe), Seq()) =>
         FiniteSet(Seq.empty, transform(tpe)).copiedFrom(e)
 
       case FunctionInvocation(AddID, _, Seq(set, elem)) =>
@@ -198,7 +194,7 @@ trait SetEncoder extends SimpleEncoder {
     }
 
     override def transform(tpe: Type): Type = tpe match {
-      case ADTType(SetID | SumID | ElemID | LeafID, Seq(base)) => SetType(transform(base)).copiedFrom(tpe)
+      case ADTType(SetID, Seq(base)) => SetType(transform(base)).copiedFrom(tpe)
       case _ => super.transform(tpe)
     }
   }

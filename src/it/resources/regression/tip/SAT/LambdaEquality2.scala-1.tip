@@ -1,0 +1,13 @@
+(declare-datatypes () ((Nat!3 (Zero!3) (Succ!3 (n!8 Nat!3)))))
+
+(define-fun-rec plus!0 ((a!0 Nat!3) (b!0 Nat!3)) Nat!3 (ite (is-Zero!3 a!0) b!0 (Succ!3 (plus!0 (n!8 a!0) b!0))))
+
+(declare-const a!2 Nat!3)
+
+(declare-datatypes (A1!0 R!32) ((fun1!5 (fun1!6 (f!91 (=> A1!0 R!32)) (pre!13 (=> A1!0 Bool))))))
+
+(assert (not (let ((p!0 (plus!0 a!2 Zero!3))) (let ((f1!1 (fun1!6 (lambda ((x!2 Nat!3)) a!2) (lambda ((x!217 Nat!3)) true)))) (let ((f2!1 (fun1!6 (lambda ((x!3 Nat!3)) p!0) (lambda ((x!218 Nat!3)) true)))) (not (= f1!1 f2!1)))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

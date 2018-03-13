@@ -66,14 +66,15 @@ object ASCIIHelpers {
 
     def render: String = {
       val colSizes = computeColumnSizes
-
-      val fullWidth = Math.max(colSizes.sum + colSizes.size*2, title.length + 7)
+      val titleWidth = trimNonPrintable(title).length
+      val fullWidth = Math.max(colSizes.sum + colSizes.size * 2, titleWidth + 7)
+      val padWidth = fullWidth - titleWidth - 5
 
       val sb = new StringBuffer
 
-      sb append "  ┌─"+("─"*title.length)+"─┐\n"
-      sb append "╔═╡ "+      title     +" ╞" + ("═" * (fullWidth-title.length-5)) + "╗\n"
-      sb append "║ └─"+("─"*title.length)+"─┘" + (" " * (fullWidth-title.length-5)) + "║\n"
+      sb append "  ┌─" + ("─" * titleWidth) + "─┐\n"
+      sb append "╔═╡ " +         title      + " ╞"  + ("═" * padWidth) + "╗\n"
+      sb append "║ └─" + ("─" * titleWidth) + "─┘"  + (" " * padWidth) + "║\n"
 
       for (r <- rows) r match {
         case Separator =>
@@ -125,26 +126,10 @@ object ASCIIHelpers {
     require(spanning >= 1)
 
     lazy val vString = v.toString
-    
+
     lazy val printableWidth = trimNonPrintable(vString).length
     lazy val fullWidth      = vString.length
     lazy val invisibleWidth = fullWidth-printableWidth
-  }
-
-  def title(str: String, width: Int = 80): String = {
-    line(str, "=", width)
-  }
-
-  def subTitle(str: String, width: Int = 80): String = {
-    line(str, "-", width)
-  }
-
-  def line(str: String, sep: String, width: Int = 80): String = {
-    val middle = " "+str+" "
-    val middlePrintable = trimNonPrintable(middle)
-
-    val remSize = width - middlePrintable.length
-    sep*math.floor(remSize/2).toInt+middle+sep*math.ceil(remSize/2).toInt
   }
 
   def trimNonPrintable(str: String): String = {

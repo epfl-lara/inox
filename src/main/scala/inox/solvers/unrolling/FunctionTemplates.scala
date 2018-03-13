@@ -9,6 +9,7 @@ import utils._
 import scala.collection.mutable.{Set => MutableSet, Map => MutableMap}
 
 trait FunctionTemplates { self: Templates =>
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -19,24 +20,19 @@ trait FunctionTemplates { self: Templates =>
     private val cache: MutableMap[TypedFunDef, FunctionTemplate] = MutableMap.empty
 
     def apply(tfd: TypedFunDef): FunctionTemplate = cache.getOrElseUpdate(tfd, {
-      val timer = ctx.timers.solvers.simplify.start()
-      val lambdaBody: Expr = simplifyFormula(tfd.fullBody, simplify)
-      timer.stop()
+      val body: Expr = timers.solvers.simplify.run { simplifyFormula(tfd.fullBody) }
 
       val fdArgs: Seq[Variable] = tfd.params.map(_.toVariable)
-      val lambdaArgs: Seq[Variable] = lambdaArguments(lambdaBody)
       val call: Expr = tfd.applied(fdArgs)
 
-      val callEqBody: Seq[(Expr, Expr)] = liftedEquals(call, lambdaBody, lambdaArgs) :+ (call -> lambdaBody)
-
-      val start = Variable.fresh("start", BooleanType, true)
+      val start = Variable.fresh("start", BooleanType(), true)
       val pathVar = start -> encodeSymbol(start)
-      val arguments = (fdArgs ++ lambdaArgs).map(v => v -> encodeSymbol(v))
+      val arguments = fdArgs.map(v => v -> encodeSymbol(v))
       val substMap = arguments.toMap + pathVar
 
-      val tmplClauses = callEqBody.foldLeft(emptyClauses) { case (clsSet, (app, body)) =>
+      val tmplClauses = {
         val (p, cls) = mkExprClauses(start, body, substMap)
-        clsSet ++ cls + (start -> Equals(app, p))
+        cls + (start -> Equals(call, p))
       }
 
       val (contents, str) = Template.contents(
@@ -82,51 +78,12 @@ trait FunctionTemplates { self: Templates =>
 
   def getCalls: Seq[(Encoded, Call)] = defBlockers.toList.map(p => p._2 -> p._1)
 
-  protected def lambdaArguments(expr: Expr): Seq[Variable] = expr match {
-    case Lambda(args, body) => args.map(_.toVariable.freshen) ++ lambdaArguments(body)
-    case Assume(pred, body) => lambdaArguments(body)
-    case IsTyped(_, FirstOrderFunctionType(from, to)) => from.map(tpe => Variable.fresh("x", tpe, true))
-    case _ => Seq.empty
-  }
-
-  protected def liftedEquals(call: Expr, body: Expr, args: Seq[Variable], inlineFirst: Boolean = false) = {
-    def rec(c: Expr, b: Expr, args: Seq[Variable], inline: Boolean): Seq[(Expr, Expr)] = c.getType match {
-      case FunctionType(from, to) =>
-        def apply(e: Expr, es: Seq[Expr]): Expr = e match {
-          case _: Lambda if inline => application(e, es)
-          case Assume(pred, l: Lambda) if inline => Assume(pred, application(l, es))
-          case _ => Application(e, es)
-        }
-
-        val (currArgs, nextArgs) = args.splitAt(from.size)
-        val (appliedCall, appliedBody) = (apply(c, currArgs), apply(b, currArgs))
-        rec(appliedCall, appliedBody, nextArgs, false) :+ (appliedCall -> appliedBody)
-      case _ =>
-        assert(args.isEmpty, "liftedEquals should consume all provided arguments")
-        Seq.empty
-    }
-
-    rec(call, body, args, inlineFirst)
-  }
-
-  protected def flatTypes(tfd: TypedFunDef): (Seq[Type], Type) = {
-    val (appTps, appRes) = tfd.returnType match {
-      case FirstOrderFunctionType(from, to) => (from, to)
-      case tpe => (Seq.empty, tpe)
-    }
-
-    (tfd.params.map(_.tpe) ++ appTps, appRes)
-  }
-
   private val callCache: MutableMap[TypedFunDef, (Seq[Encoded], Encoded)] = MutableMap.empty
   private[unrolling] def mkCall(tfd: TypedFunDef, args: Seq[Encoded]): Encoded = {
     val (asT, call) = callCache.getOrElseUpdate(tfd, {
-      val as = flatTypes(tfd)._1.map(tpe => Variable.fresh("x", tpe, true))
+      val as = tfd.params.map(vd => Variable.fresh("x", vd.tpe, true))
       val asT = as.map(encodeSymbol)
-
-      val (fdArgs, appArgs) = as.splitAt(tfd.params.size)
-      val call = mkApplication(tfd.applied(fdArgs), appArgs)
-      (asT, mkEncoder((as zip asT).toMap)(call))
+      (asT, mkEncoder((as zip asT).toMap)(tfd.applied(as)))
     })
 
     mkSubstituter((asT zip args).toMap)(call)
@@ -181,23 +138,21 @@ trait FunctionTemplates { self: Templates =>
 
           case None =>
             // we need to define this defBlocker and link it to definition
-            val defBlocker = encodeSymbol(Variable.fresh("d", BooleanType, true))
+            val defBlocker = encodeSymbol(Variable.fresh("d", BooleanType(), true))
 
             // we generate helper equality clauses that stem from purity
             for ((pcall, pblocker) <- defBlockers if pcall.tfd == tfd) {
-              val (argTpes, resTpe) = flatTypes(tfd)
-
               def makeEq(tpe: Type, e1: Encoded, e2: Encoded): Encoded =
                 if (!unrollEquality(tpe)) mkEquals(e1, e2) else {
-                  mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType), Seq(e1, e2))
+                  mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType()), Seq(e1, e2))
                 }
 
-              if (argTpes.exists(unrollEquality) || unrollEquality(resTpe)) {
+              if (tfd.params.exists(vd => unrollEquality(vd.tpe)) || unrollEquality(tfd.returnType)) {
                 val argPairs = (pcall.args zip args)
-                val cond = mkAnd((argTpes zip argPairs).map {
+                val cond = mkAnd((tfd.params.map(_.tpe) zip argPairs).map {
                   case (tpe, (e1, e2)) => makeEq(tpe, e1.encoded, e2.encoded)
                 } : _*)
-                val entail = makeEq(resTpe,
+                val entail = makeEq(tfd.returnType,
                   mkCall(tfd, pcall.args.map(_.encoded)),
                   mkCall(tfd, args.map(_.encoded)))
                 newClauses += mkImplies(mkAnd(pblocker, defBlocker, cond), entail)
@@ -216,9 +171,9 @@ trait FunctionTemplates { self: Templates =>
           newCls += mkImplies(blocker, defBlocker)
         }
 
-        ctx.reporter.debug("Unrolling behind "+call+" ("+newCls.size+")")
+        reporter.debug("Unrolling behind "+call+" ("+newCls.size+")")
         for (cl <- newCls) {
-          ctx.reporter.debug("  . "+cl)
+          reporter.debug("  . "+cl)
         }
 
         newClauses ++= newCls
@@ -229,7 +184,7 @@ trait FunctionTemplates { self: Templates =>
         case None => callInfos += b -> (gen, origGen, notB, calls)
       }
 
-      ctx.reporter.debug(s"   - ${newClauses.size} new clauses")
+      reporter.debug(s"   - ${newClauses.size} new clauses")
 
       newClauses.toSeq
     }

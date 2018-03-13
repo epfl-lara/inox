@@ -9,7 +9,7 @@ import unrolling._
 import z3.scala._
 
 trait Z3Unrolling extends AbstractUnrollingSolver { self =>
-
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -27,6 +27,8 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
 
   object templates extends {
     val program: targetProgram.type = targetProgram
+    val context = self.context
+    val semantics: targetProgram.Semantics = self.targetSemantics
   } with Templates {
     import program.trees._
 
@@ -68,7 +70,7 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
       elem => z3.getASTKind(elem) match {
         case Z3AppAST(decl, args) if underlying.constructors containsB decl =>
           underlying.constructors.toA(decl) match {
-            case t.ADTType(id, _) => Some(id)
+            case underlying.ADTCons(id, _) => Some(id)
             case _ => None
           }
         case _ => None
@@ -93,28 +95,25 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
     }
 
     /** WARNING this code is very similar to Z3Native.extractModel!!! */
-    def modelEval(elem: Z3AST, tpe: t.Type): Option[t.Expr] = {
-      val timer = ctx.timers.solvers.z3.eval.start()
-      val res = tpe match {
-        case t.BooleanType => model.evalAs[Boolean](elem).map(t.BooleanLiteral)
+    def modelEval(elem: Z3AST, tpe: t.Type): Option[t.Expr] = timers.solvers.z3.eval.run {
+      tpe match {
+        case t.BooleanType() => model.evalAs[Boolean](elem).map(t.BooleanLiteral)
 
-        case t.Int32Type => model.evalAs[Int](elem).map(t.Int32Literal(_)).orElse {
-          model.eval(elem).flatMap(term => ex.get(term, t.Int32Type))
+        case t.Int32Type() => model.evalAs[Int](elem).map(t.Int32Literal(_)).orElse {
+          model.eval(elem).flatMap(term => ex.get(term, t.Int32Type()))
         }
 
         /*
          * NOTE The following could be faster than the default case, but be carefull to
          *      fallback to the default when a BigInt doesn't fit in a regular Int.
          *
-         * case t.IntegerType => model.evalAs[Int](elem).map(t.IntegerLiteral(_)).orElse {
-         *   model.eval(elem).flatMap(ex.get(_, t.IntegerType))
+         * case t.IntegerType() => model.evalAs[Int](elem).map(t.IntegerLiteral(_)).orElse {
+         *   model.eval(elem).flatMap(ex.get(_, t.IntegerType()))
          * }
          */
 
         case other => model.eval(elem).flatMap(ex.get(_, other))
       }
-      timer.stop()
-      res
     }
 
     def getChoose(id: Identifier): Option[t.Expr] = ex.chooses.get(id)

@@ -9,6 +9,7 @@ import solvers.combinators._
 import scala.collection.mutable.{Map => MutableMap}
 
 trait SolvingEvaluator extends Evaluator { self =>
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -22,6 +23,8 @@ trait SolvingEvaluator extends Evaluator { self =>
     def default = MutableMap.empty
   }
 
+  lazy val evalQuantifiers = options.findOptionOrDefault(optEvalQuantifiers)
+
   private val chooseCache: MutableMap[Choose, Expr] = MutableMap.empty
 
   // @nv: this has to be visible otherwise the compiler just sets it to `null`
@@ -29,46 +32,55 @@ trait SolvingEvaluator extends Evaluator { self =>
     options.findOptionOrDefault(optForallCache)
   }
 
-  def onChooseInvocation(choose: Choose): Expr = chooseCache.getOrElseUpdate(choose, {
-    val timer = ctx.timers.evaluators.specs.start()
-
-    val sf = semantics.getSolver
-
-    import SolverResponses._
-
-    val api = SimpleSolverAPI(sf)
-    val res = api.solveSAT(choose.pred)
-    timer.stop()
-
-    res match {
-      case SatWithModel(model) =>
-        try {
-          model.vars.getOrElse(choose.res, simplestValue(choose.res.tpe, allowSolver = false))
-        } catch {
-          case _: NoSimpleValue => throw new RuntimeException("No simple value for choose " + choose.asString)
-        }
-
-      case _ =>
-        throw new RuntimeException("Failed to evaluate choose " + choose.asString)
+  def onChooseInvocation(choose: Choose): Expr = {
+    if (!evalQuantifiers) {
+      throw new RuntimeException(s"Evaluation of 'choose' expressions disabled @ ${choose.getPos}: $choose")
     }
-  })
 
-  def onForallInvocation(forall: Forall): Expr = {
-    BooleanLiteral(forallCache.getOrElse(forall, {
-      val timer = ctx.timers.evaluators.forall.start()
-
-      val sf = semantics.getSolver(ctx.options ++ Seq(
-        optSilentErrors(true),
-        optCheckModels(false), // model is checked manually!! (see below)
-        unrolling.optFeelingLucky(false),
-        optForallCache(forallCache) // this makes sure we have an `optForallCache` set!
-      ))
+    chooseCache.getOrElseUpdate(choose, {
+      import scala.language.existentials
+      val res = context.timers.evaluators.specs.run {
+        val sf = semantics.getSolver
+        val api = SimpleSolverAPI(sf)
+        api.solveSAT(choose.pred)
+      }
 
       import SolverResponses._
 
-      val api = SimpleSolverAPI(sf)
-      val res = api.solveSAT(Not(forall.body))
-      timer.stop()
+      res match {
+        case SatWithModel(model) =>
+          try {
+            model.vars.getOrElse(choose.res, simplestValue(choose.res.tpe, allowSolver = false))
+          } catch {
+            case _: NoSimpleValue => throw new RuntimeException("No simple value for choose " + choose.asString)
+          }
+
+        case _ =>
+          throw new RuntimeException("Failed to evaluate choose " + choose.asString)
+      }
+    })
+  }
+
+  def onForallInvocation(forall: Forall): Expr = {
+    if (!evalQuantifiers) {
+      throw new RuntimeException(s"Evaluation of 'forall' expressions disabled @ ${forall.getPos}: $forall")
+    }
+
+    BooleanLiteral(forallCache.getOrElse(forall, {
+      import scala.language.existentials
+      val res = context.timers.evaluators.forall.run {
+        val sf = semantics.getSolver(context.withOpts(
+          optSilentErrors(true),
+          optCheckModels(false), // model is checked manually!! (see below)
+          unrolling.optFeelingLucky(false),
+          optForallCache(forallCache) // this makes sure we have an `optForallCache` set!
+        ))
+
+        val api = SimpleSolverAPI(sf)
+        api.solveSAT(Not(forall.body))
+      }
+
+      import SolverResponses._
 
       res match {
         case Unsat =>

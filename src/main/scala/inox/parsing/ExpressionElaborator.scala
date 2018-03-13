@@ -7,7 +7,8 @@ import scala.util.parsing.input._
 
 import Utils.plural
 
-trait ExpressionElaborators { self: Interpolator => 
+trait ExpressionElaborators { self: Interpolator =>
+  import trees._
 
   trait ExpressionElaborator { inner: ExpressionConvertor =>
 
@@ -18,14 +19,14 @@ trait ExpressionElaborators { self: Interpolator =>
     //---- Errors ----//
 
     def functionArity(name: String, expected: Int, actual: Int, kind: String = "Function"): String =
-      kind + " `" + name + "` takes " + expected + " argument" + plural(expected, "", "s") + ", " + 
+      kind + " `" + name + "` takes " + expected + " argument" + plural(expected, "", "s") + ", " +
         actual + " " + plural(actual, "was", "were") + " given."
-    
+
     def functionTypeArity(name: String, expected: Int, actual: Int, kind: String = "Function"): String =
       if (expected == 0) {
         kind + " `" + name + "` doesn't have any type parameters."
       } else {
-        kind + " `" + name + "` takes " + expected + " type argument" + plural(expected, "", "s") + ", " + 
+        kind + " `" + name + "` takes " + expected + " type argument" + plural(expected, "", "s") + ", " +
           actual + " " + plural(actual, "was", "were") + " given."
       }
 
@@ -72,37 +73,37 @@ trait ExpressionElaborators { self: Interpolator =>
         case Literal(BooleanLiteral(value)) => Constrained.pure({
           trees.BooleanLiteral(value)
         }).addConstraint({
-          Constraint.equal(expected, trees.BooleanType)
+          Constraint.equal(expected, trees.BooleanType())
         })
 
         // Unit literal.
         case Literal(UnitLiteral) => Constrained.pure({
           trees.UnitLiteral()
         }).addConstraint({
-          Constraint.equal(expected, trees.UnitType)
+          Constraint.equal(expected, trees.UnitType())
         })
 
         // String literal.
         case Literal(StringLiteral(string)) => Constrained.pure({
           trees.StringLiteral(string)
         }).addConstraint({
-          Constraint.equal(expected, trees.StringType)
+          Constraint.equal(expected, trees.StringType())
         })
 
         // Char literal.
         case Literal(CharLiteral(character)) => Constrained.pure({
           trees.CharLiteral(character)
         }).addConstraint({
-          Constraint.equal(expected, trees.CharType)
+          Constraint.equal(expected, trees.CharType())
         })
 
         // Numeric literal.
         case Literal(NumericLiteral(string)) => Constrained.withUnifier({ (unifier: Unifier) =>
 
           unifier(expected) match {
-            case trees.IntegerType => trees.IntegerLiteral(BigInt(string))
+            case trees.IntegerType() => trees.IntegerLiteral(BigInt(string))
             case trees.BVType(n) => trees.BVLiteral(BigInt(string), n)
-            case trees.RealType => trees.FractionLiteral(BigInt(string), 1)
+            case trees.RealType() => trees.FractionLiteral(BigInt(string), 1)
             case tpe => throw new Exception("typeCheck: Unexpected type during elaboration: " + tpe)
           }
         }).addConstraint({
@@ -114,7 +115,7 @@ trait ExpressionElaborators { self: Interpolator =>
           val (n, d) = Utils.toFraction(whole, trailing, repeating)
           trees.FractionLiteral(n, d)
         }).addConstraint({
-          Constraint.equal(expected, trees.RealType)
+          Constraint.equal(expected, trees.RealType())
         })
 
         // Empty set literal.
@@ -157,37 +158,37 @@ trait ExpressionElaborators { self: Interpolator =>
             Constrained.pure({
               trees.BooleanLiteral(b)
             }).addConstraint({
-              Constraint.equal(expected, trees.BooleanType)
+              Constraint.equal(expected, trees.BooleanType())
             })
-          case n : Int => 
+          case n : Int =>
             Constrained.pure({
               trees.Int32Literal(n)
             }).addConstraint({
-              Constraint.equal(expected, trees.Int32Type)
+              Constraint.equal(expected, trees.Int32Type())
             })
           case n : BigInt =>
             Constrained.pure({
               trees.IntegerLiteral(n)
             }).addConstraint({
-              Constraint.equal(expected, trees.IntegerType)
+              Constraint.equal(expected, trees.IntegerType())
             })
           case c : Char =>
             Constrained.pure({
               trees.CharLiteral(c)
             }).addConstraint({
-              Constraint.equal(expected, trees.CharType)
+              Constraint.equal(expected, trees.CharType())
             })
           case s : String =>
             Constrained.pure({
               trees.StringLiteral(s)
             }).addConstraint({
-              Constraint.equal(expected, trees.StringType)
+              Constraint.equal(expected, trees.StringType())
             })
           case _ : Unit =>
             Constrained.pure({
               trees.UnitLiteral()
             }).addConstraint({
-              Constraint.equal(expected, trees.UnitType)
+              Constraint.equal(expected, trees.UnitType())
             })
           case _ => Constrained.fail("Unsupported embedded value: " + value + ".", expr.pos)
         }
@@ -239,7 +240,7 @@ trait ExpressionElaborators { self: Interpolator =>
         // Unary negation.
         case Operation("!", Seq(arg)) => {
           typeCheck(arg, expected).map(trees.Not(_)).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           })
         }
 
@@ -254,7 +255,7 @@ trait ExpressionElaborators { self: Interpolator =>
         case Operation(ComparableBinOp(op), args) => {
 
           val expectedArg = Unknown.fresh
-          
+
           Constrained.sequence({
             args.map(typeCheck(_, expectedArg))
           }).map({
@@ -264,7 +265,7 @@ trait ExpressionElaborators { self: Interpolator =>
           ).addConstraint({
             Constraint.isComparable(expectedArg)
           }).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           })
         }
 
@@ -283,7 +284,7 @@ trait ExpressionElaborators { self: Interpolator =>
 
         // Equality.
         case Operation("==", args) => {
-          
+
           val expectedArg = Unknown.fresh
 
           Constrained.sequence({
@@ -293,13 +294,13 @@ trait ExpressionElaborators { self: Interpolator =>
           }).checkImmediate(
             args.length == 2, wrongNumberOfArguments, expr.pos
           ).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           })
         }
 
         // Inequality.
         case Operation("!=", args) => {
-          
+
           val expectedArg = Unknown.fresh
 
           Constrained.sequence({
@@ -309,13 +310,13 @@ trait ExpressionElaborators { self: Interpolator =>
           }).checkImmediate(
             args.length == 2, wrongNumberOfArguments, expr.pos
           ).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           })
         }
 
         // Binary operations defined on booleans.
         case Operation(BooleanBinOp(op), args) => {
-          
+
           Constrained.sequence({
             args.map(typeCheck(_, expected))
           }).map({
@@ -323,13 +324,13 @@ trait ExpressionElaborators { self: Interpolator =>
           }).checkImmediate(
             args.length == 2, wrongNumberOfArguments, expr.pos
           ).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           })
         }
 
         // NAry operations defined on booleans.
         case BooleanNAryOperation(op, args) => {
-          
+
           Constrained.sequence({
             args.map(typeCheck(_, expected))
           }).map(
@@ -337,19 +338,19 @@ trait ExpressionElaborators { self: Interpolator =>
           ).checkImmediate(
             args.length >= 2, wrongNumberOfArguments, expr.pos
           ).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           })
         }
 
         //---- Arity Errors on Primitive Functions and Constructors ----//
 
-        case PrimitiveFunction(builtIn, name, args, otpes) if 
+        case PrimitiveFunction(builtIn, name, args, otpes) if
             ((builtIn.params.isDefined && args.length != builtIn.params.get) || (otpes.isDefined && otpes.get.length != builtIn.tparams)) => {
 
           val kind = if (builtIn.isConstructor) "Primitive constructor" else "Primitive function"
 
           val argsError = if (builtIn.params.isDefined && args.length != builtIn.params.get) Seq {
-            functionArity(name, builtIn.params.get, args.length, kind) 
+            functionArity(name, builtIn.params.get, args.length, kind)
           } else Seq()
 
           val typesError = if (otpes.isDefined && otpes.get.length != builtIn.tparams) Seq {
@@ -374,7 +375,7 @@ trait ExpressionElaborators { self: Interpolator =>
           }).map({
             case Seq(s1, s2) => trees.StringConcat(s1, s2)
           }).addConstraint({
-            Constraint.equal(expected, trees.StringType)
+            Constraint.equal(expected, trees.StringType())
           })
         }
 
@@ -389,9 +390,9 @@ trait ExpressionElaborators { self: Interpolator =>
           )).map({
             case Seq(s, a, b) => trees.SubString(s, a, b)
           }).addConstraint({
-            Constraint.equal(expected, trees.StringType)
+            Constraint.equal(expected, trees.StringType())
           }).addConstraint({
-            Constraint.equal(indexExpected, trees.IntegerType)
+            Constraint.equal(indexExpected, trees.IntegerType())
           })
         }
 
@@ -399,11 +400,11 @@ trait ExpressionElaborators { self: Interpolator =>
         case StringLengthOperation(s) => {
           val stringExpected = Unknown.fresh
           typeCheck(s, stringExpected).map({
-            case e => trees.StringLength(e) 
+            case e => trees.StringLength(e)
           }).addConstraint({
-            Constraint.equal(stringExpected, trees.StringType)
+            Constraint.equal(stringExpected, trees.StringType())
           }).addConstraint({
-            Constraint.equal(expected, trees.IntegerType)
+            Constraint.equal(expected, trees.IntegerType())
           })
         }
 
@@ -429,13 +430,13 @@ trait ExpressionElaborators { self: Interpolator =>
                   typeCheck(k, t).combine(typeCheck(v, countType))({
                     (a: trees.Expr, b: trees.Expr) => (a, b)
                   }).addConstraint({
-                    Constraint.subtype(t, elementType)
+                    Constraint.equal(t, elementType)
                   })
                 }
               })
             })
           }).addConstraint({
-            Constraint.equal(countType, trees.IntegerType)
+            Constraint.equal(countType, trees.IntegerType())
           }).addConstraint({
             Constraint.equal(expected, trees.BagType(elementType))
           })
@@ -450,9 +451,9 @@ trait ExpressionElaborators { self: Interpolator =>
           typeCheck(map, mapExpected).combine(typeCheck(key, keyExpected))({
             case (m, k) => trees.MultiplicityInBag(k, m)
           }).addConstraint({
-            Constraint.equal(expected, trees.IntegerType)
+            Constraint.equal(expected, trees.IntegerType())
           }).addConstraint({
-            Constraint.subtype(keyExpected, elementType)
+            Constraint.equal(keyExpected, elementType)
           }).addConstraint({
             Constraint.equal(mapExpected, trees.BagType(elementType))
           })
@@ -475,14 +476,14 @@ trait ExpressionElaborators { self: Interpolator =>
           val elementExpected = Unknown.fresh
           val elementType = otpe.map(getType).getOrElse(Unknown.fresh)
 
-          typeCheck(bag, expected).map({ (b: trees.Expr) => 
+          typeCheck(bag, expected).map({ (b: trees.Expr) =>
             (e: trees.Expr) => trees.BagAdd(b, e)
           }).app({
             typeCheck(elem, elementExpected)
           }).addConstraint({
             Constraint.equal(expected, trees.BagType(elementType))
           }).addConstraint({
-            Constraint.subtype(elementExpected, elementType)
+            Constraint.equal(elementExpected, elementType)
           })
         }
 
@@ -500,7 +501,7 @@ trait ExpressionElaborators { self: Interpolator =>
             case None => (None, None)
             case Some(Left(t)) => (Some(getType(t)), None)
             case Some(Right((t1, t2))) => (Some(getType(t1)), Some(getType(t2)))
-          } 
+          }
 
           val keyType = oKeyType.getOrElse(Unknown.fresh)
           val valueType = oValueType.getOrElse(Unknown.fresh)
@@ -508,7 +509,7 @@ trait ExpressionElaborators { self: Interpolator =>
           val freshs = Seq.fill(bs.length)((Unknown.fresh, Unknown.fresh))
 
           Constrained.withUnifier((unifier: Unifier) => {
-            (t: (trees.Expr, Seq[(trees.Expr, trees.Expr)])) => 
+            (t: (trees.Expr, Seq[(trees.Expr, trees.Expr)])) =>
               trees.FiniteMap(t._2, t._1, unifier(keyType), unifier(valueType))
           }).app({
             Constrained.sequence({
@@ -517,15 +518,15 @@ trait ExpressionElaborators { self: Interpolator =>
                   typeCheck(k, tk).combine(typeCheck(v, tv))({
                     (a: trees.Expr, b: trees.Expr) => (a, b)
                   }).addConstraint({
-                    Constraint.subtype(tk, keyType)
+                    Constraint.equal(tk, keyType)
                   }).addConstraint({
-                    Constraint.subtype(tv, valueType)
+                    Constraint.equal(tv, valueType)
                   })
                 }
               })
             }).combine({
               typeCheck(default, defaultFresh).addConstraint({
-                Constraint.subtype(defaultFresh, valueType)
+                Constraint.equal(defaultFresh, valueType)
               })
             })({
               case (es, e) => (e, es)
@@ -546,7 +547,7 @@ trait ExpressionElaborators { self: Interpolator =>
           typeCheck(map, mapExpected).combine(typeCheck(key, keyExpected))({
             case (m, k) => trees.MapApply(m, k)
           }).addConstraint({
-            Constraint.subtype(keyExpected, keyType)
+            Constraint.equal(keyExpected, keyType)
           }).addConstraint({
             Constraint.equal(expected, valueType)
           }).addConstraint({
@@ -571,9 +572,9 @@ trait ExpressionElaborators { self: Interpolator =>
           }).addConstraint({
             Constraint.equal(expected, trees.MapType(keyType, valueType))
           }).addConstraint({
-            Constraint.subtype(keyExpected, keyType)
+            Constraint.equal(keyExpected, keyType)
           }).addConstraint({
-            Constraint.subtype(valueExpected, valueType)
+            Constraint.equal(valueExpected, valueType)
           })
         }
 
@@ -584,12 +585,12 @@ trait ExpressionElaborators { self: Interpolator =>
           val upper = otpe.map(getType).getOrElse(Unknown.fresh)
           val lowers = Seq.fill(es.length) { Unknown.fresh }
 
-          Constrained.withUnifier({ (unifier: Unifier) => 
+          Constrained.withUnifier({ (unifier: Unifier) =>
             (elems: Seq[trees.Expr]) => trees.FiniteSet(elems, unifier(upper))
           }).app({
             Constrained.sequence(es.zip(lowers).map{
               case (e, lower) => typeCheck(e, lower).addConstraint({
-                Constraint.subtype(lower, upper)
+                Constraint.equal(lower, upper)
               })
             })
           }).addConstraint({
@@ -603,16 +604,16 @@ trait ExpressionElaborators { self: Interpolator =>
           val elementExpected = Unknown.fresh
           val elementType = otpe.map(getType).getOrElse(Unknown.fresh)
 
-          typeCheck(set, setType).map({ (s: trees.Expr) => 
+          typeCheck(set, setType).map({ (s: trees.Expr) =>
             (e: trees.Expr) => trees.ElementOfSet(e, s)
           }).app({
             typeCheck(elem, elementExpected)
           }).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           }).addConstraint({
             Constraint.equal(setType, trees.SetType(elementType))
           }).addConstraint({
-            Constraint.subtype(elementExpected, elementType)
+            Constraint.equal(elementExpected, elementType)
           })
         }
 
@@ -621,12 +622,12 @@ trait ExpressionElaborators { self: Interpolator =>
           val setType = Unknown.fresh
           val elementType = otpe.map(getType).getOrElse(Unknown.fresh)
 
-          typeCheck(set1, setType).map({ (s1: trees.Expr) => 
+          typeCheck(set1, setType).map({ (s1: trees.Expr) =>
             (s2: trees.Expr) => trees.SubsetOf(s1, s2)
           }).app({
             typeCheck(set2, setType)
           }).addConstraint({
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           }).addConstraint({
             Constraint.equal(setType, trees.SetType(elementType))
           })
@@ -636,7 +637,7 @@ trait ExpressionElaborators { self: Interpolator =>
         case SetBinaryOperation(set1, set2, f, otpe) => {
           val elementType = otpe.map(getType).getOrElse(Unknown.fresh)
 
-          typeCheck(set1, expected).map({ (s1: trees.Expr) => 
+          typeCheck(set1, expected).map({ (s1: trees.Expr) =>
             (s2: trees.Expr) => f(s1, s2)
           }).app({
             typeCheck(set2, expected)
@@ -650,14 +651,14 @@ trait ExpressionElaborators { self: Interpolator =>
           val elementExpected = Unknown.fresh
           val elementType = otpe.map(getType).getOrElse(Unknown.fresh)
 
-          typeCheck(set, expected).map({ (s: trees.Expr) => 
+          typeCheck(set, expected).map({ (s: trees.Expr) =>
             (e: trees.Expr) => trees.SetAdd(s, e)
           }).app({
             typeCheck(elem, elementExpected)
           }).addConstraint({
             Constraint.equal(expected, trees.SetType(elementType))
           }).addConstraint({
-            Constraint.subtype(elementExpected, elementType)
+            Constraint.equal(elementExpected, elementType)
           })
         }
 
@@ -665,7 +666,7 @@ trait ExpressionElaborators { self: Interpolator =>
 
         // Conditional expression.
         case Operation("IfThenElse", Seq(cond, thenn, elze)) => {
-          
+
           val expectedCond = Unknown.fresh
 
           Constrained.sequence(Seq(
@@ -675,7 +676,7 @@ trait ExpressionElaborators { self: Interpolator =>
           )).map({
             case Seq(condExpr, thennExpr, elzeExpr) => trees.IfExpr(condExpr, thennExpr, elzeExpr)
           }).addConstraint({
-            Constraint.equal(expectedCond, trees.BooleanType)
+            Constraint.equal(expectedCond, trees.BooleanType())
           })
         }
 
@@ -685,7 +686,7 @@ trait ExpressionElaborators { self: Interpolator =>
           typeCheck(p, booleanExpected).combine(typeCheck(e, expected))({
             case (pred, body) => trees.Assume(pred, body)
           }).addConstraint({
-            Constraint.equal(booleanExpected, trees.BooleanType)
+            Constraint.equal(booleanExpected, trees.BooleanType())
           })
         }
 
@@ -704,7 +705,7 @@ trait ExpressionElaborators { self: Interpolator =>
             (t: trees.TypeParameterDef) => t.tp -> Unknown.fresh
           })
 
-          val instantiator = new symbols.TypeInstantiator(typeParamToFresh.toMap)
+          val instantiator = new typeOps.TypeInstantiator(typeParamToFresh.toMap)
 
           val paramTypes = fd.params.map({
             (vd: trees.ValDef) => instantiator.transform(vd.tpe)
@@ -715,17 +716,17 @@ trait ExpressionElaborators { self: Interpolator =>
               case (_, u) => unifier(u)
             }), realArgs)
           })
-          
+
           val constrained = invok.app({
             constrainedArgs
           }).checkImmediate(
-            // Their should be the same number of argument applied than parameters of the function.
+            // There should be the same number of argument applied than parameters of the function.
             args.length == fd.params.length,
             functionArity(fd.id.name, fd.params.length, args.length),
             expr.pos
           ).addConstraints({
-            // The types of arguments should be subtype of the type of the parameters.
-            freshs.zip(paramTypes).map({ case (a, b) => Constraint.subtype(a, b)(a.pos) })
+            // The types of arguments should be equal to the type of the parameters.
+            freshs.zip(paramTypes).map({ case (a, b) => Constraint.equal(a, b)(a.pos) })
           }).addConstraint({
             // The return type of the function should be what is expected.
             Constraint.equal(instantiator.transform(fd.returnType), expected)
@@ -746,7 +747,7 @@ trait ExpressionElaborators { self: Interpolator =>
             }
           }
         }
-        
+
         // Constructor invocation.
         case Application(TypedConsDef(cons, optTpeArgs), args) => {
 
@@ -756,22 +757,23 @@ trait ExpressionElaborators { self: Interpolator =>
             args.zip(freshs).map({ case (e, t) => typeCheck(e, t) })
           }
 
-          val typeParamToFresh = cons.tparams.map({
+          val sort = cons.getSort
+          val typeParamToFresh = sort.tparams.map({
             (t: trees.TypeParameterDef) => t.tp -> Unknown.fresh
           })
 
-          val instantiator = new symbols.TypeInstantiator(typeParamToFresh.toMap)
+          val instantiator = new typeOps.TypeInstantiator(typeParamToFresh.toMap)
 
           val paramTypes = cons.fields.map({
             (vd: trees.ValDef) => instantiator.transform(vd.tpe)
           })
 
           val invok = Constrained.withUnifier({ (unifier: Unifier) =>
-            (realArgs: Seq[trees.Expr]) => trees.ADT(cons.typed(typeParamToFresh.map({
+            (realArgs: Seq[trees.Expr]) => trees.ADT(cons.id, typeParamToFresh.map({
               case (_, u) => unifier(u)
-            }))(symbols).toType, realArgs)
+            }), realArgs)
           })
-          
+
           val constrained = invok.app({
             constrainedArgs
           }).checkImmediate(
@@ -780,11 +782,11 @@ trait ExpressionElaborators { self: Interpolator =>
             functionArity(cons.id.name, cons.fields.length, args.length, "Constructor"),
             expr.pos
           ).addConstraints({
-            // The types of arguments should be subtypes of the parameters.
-            freshs.zip(paramTypes).map({ case (a, b) => Constraint.subtype(a, b)(a.pos) })
+            // The types of arguments should be equal to the type of the parameters.
+            freshs.zip(paramTypes).map({ case (a, b) => Constraint.equal(a, b)(a.pos) })
           }).addConstraint({
             // The return type of the constructor application should be what is expected.
-            Constraint.equal(cons.typed(typeParamToFresh.map(_._2))(symbols).toType, expected)
+            Constraint.equal(trees.ADTType(sort.id, typeParamToFresh.map(_._2)), expected)
           })
 
           optTpeArgs match {
@@ -795,8 +797,8 @@ trait ExpressionElaborators { self: Interpolator =>
                 tpeArgs.zip(typeParamToFresh.map(_._2)).map({ case (a, b) => Constraint.equal(getType(a), b) })
               }).checkImmediate(
                 // Their should be the same number of type applied than type parameters of the function.
-                tpeArgs.length == cons.tparams.length,
-                functionTypeArity(cons.id.name, cons.tparams.length, tpeArgs.length, "Constructor"),
+                tpeArgs.length == sort.tparams.length,
+                functionTypeArity(cons.id.name, sort.tparams.length, tpeArgs.length, "Constructor"),
                 expr.pos
               )
             }
@@ -855,7 +857,7 @@ trait ExpressionElaborators { self: Interpolator =>
           val constrained = toLet.app({
             args
           }).addConstraint({
-            Constraint.subtype(valueType, identType)
+            Constraint.equal(valueType, identType)
           })
 
           if (otype.isEmpty) {
@@ -878,10 +880,7 @@ trait ExpressionElaborators { self: Interpolator =>
             case (IdentifierHole(_), _) => throw new Error("Expression contains holes.")
           })
 
-          val subTypes = Seq.fill(bindings.size)(Unknown.fresh)
-          val superType = Unknown.fresh
-
-          Constrained.withUnifier({ (unifier: Unifier) => 
+          Constrained.withUnifier({ (unifier: Unifier) =>
             val vds = bs.map({ case (i, t) => trees.ValDef(i, unifier(t)) })
 
             (bodyExpr: trees.Expr) => trees.Lambda(vds, bodyExpr)
@@ -894,15 +893,7 @@ trait ExpressionElaborators { self: Interpolator =>
             })
           }).addConstraint({
             // The expected type should be a function.
-            Constraint.equal(expected, trees.FunctionType(subTypes, superType))
-          }).addConstraints({
-            // Type of arguments should be super types of expected type arguments.
-            bs.map(_._2).zip(subTypes).map({
-              case (sup, sub) => Constraint.subtype(sub, sup)
-            })
-          }).addConstraint({
-            // Return type of the function should be a subtype of the expected return type.
-            Constraint.subtype(expectedBody, superType)
+            Constraint.equal(expected, trees.FunctionType(bs.map(_._2), expectedBody))
           })
         }
 
@@ -915,7 +906,7 @@ trait ExpressionElaborators { self: Interpolator =>
             case (IdentifierHole(_), _) => throw new Error("Expression contains holes.")
           })
 
-          Constrained.withUnifier({ (unifier: Unifier) => 
+          Constrained.withUnifier({ (unifier: Unifier) =>
             val vds = bs.map({ case (i, t) => trees.ValDef(i, unifier(t)) })
 
             (bodyExpr: trees.Expr) => trees.Forall(vds, bodyExpr)
@@ -928,11 +919,11 @@ trait ExpressionElaborators { self: Interpolator =>
             })
           }).addConstraint({
             // The expected type should be boolean.
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           }).addConstraints({
             bs.map {
               case (_, fresh) => Constraint.exist(fresh)
-            }  
+            }
           })
         }
 
@@ -945,7 +936,7 @@ trait ExpressionElaborators { self: Interpolator =>
             case (IdentifierHole(_), _) => throw new Error("Expression contains holes.")
           })
 
-          Constrained.withUnifier({ (unifier: Unifier) => 
+          Constrained.withUnifier({ (unifier: Unifier) =>
             val vds = bs.map({ case (i, t) => trees.ValDef(i, unifier(t)) })
 
             (bodyExpr: trees.Expr) => trees.Not(trees.Forall(vds, trees.Not(bodyExpr)))
@@ -958,11 +949,11 @@ trait ExpressionElaborators { self: Interpolator =>
             })
           }).addConstraint({
             // The expected type should be boolean.
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           }).addConstraints({
             bs.map {
               case (_, fresh) => Constraint.exist(fresh)
-            }  
+            }
           })
         }
 
@@ -974,15 +965,15 @@ trait ExpressionElaborators { self: Interpolator =>
             case IdentifierName(name) => inox.FreshIdentifier(name)
             case IdentifierHole(_) => throw new Error("Expression contains holes.")
           }
-          
+
           val constrained = Constrained.withUnifier({ (unifier: Unifier) =>
             (pred: trees.Expr) => trees.Choose(trees.ValDef(inoxIdent, unifier(identType)), pred)
           }).app({
             typeCheck(body, predType)(store + (id.getName -> ((inoxIdent, identType))))
           }).addConstraint({
-            Constraint.equal(predType, trees.BooleanType)
+            Constraint.equal(predType, trees.BooleanType())
           }).addConstraint({
-            Constraint.subtype(identType, expected)
+            Constraint.equal(identType, expected)
           })
 
           otype match {
@@ -991,59 +982,33 @@ trait ExpressionElaborators { self: Interpolator =>
             })
             case _ => constrained
           }
-        } 
+        }
 
         //---- Type Casting ----//
 
         // Annotation.
         case TypeAnnotationOperation(expr, tpe) => {
           val inoxTpe = getType(tpe)
-          val sub = Unknown.fresh
 
-          typeCheck(expr, sub).addConstraint({
+          typeCheck(expr, expected).addConstraint({
             Constraint.equal(expected, inoxTpe)
-          }).addConstraint({
-            Constraint.subtype(sub, inoxTpe)
-          })
-        }
-
-        // Casting.
-        case AsInstanceOfOperation(expr, tpe) => {
-          val inoxTpe = getType(tpe)
-
-          val sup = Unknown.fresh
-          val sub = Unknown.fresh
-          typeCheck(expr, sub).map({
-            (e: trees.Expr) => trees.AsInstanceOf(e, inoxTpe)
-          }).addConstraint({
-            // The type of the casted expression is the expected type.
-            Constraint.equal(inoxTpe, expected)
-          }).addConstraint({
-            // There should exist a type which is a (non-strict) super type of the annotated type...
-            Constraint.subtype(inoxTpe, sup)
-          }).addConstraint({
-            // ... and a super type of the type of the expression being cast. 
-            Constraint.subtype(sub, sup)
           })
         }
 
         // Instance checking.
-        case IsInstanceOfOperation(expr, tpe) => {
-          val inoxTpe = getType(tpe)
+        case IsConstructorOperation(expr, cons) => {
+          val sort = cons.getSort
+          val tpe = Unknown.fresh
+          val tps = sort.tparams.map(_ => Unknown.fresh)
 
-          val sup = Unknown.fresh
-          val sub = Unknown.fresh
-          typeCheck(expr, sub).map({
-            (e: trees.Expr) => trees.IsInstanceOf(e, inoxTpe)
+          typeCheck(expr, tpe).map({
+            (e: trees.Expr) => trees.IsConstructor(e, cons.id)
           }).addConstraint({
             // The expected type should be Boolean.
-            Constraint.equal(expected, trees.BooleanType)
+            Constraint.equal(expected, trees.BooleanType())
           }).addConstraint({
-            // There should exist a type which is a (non-strict) super type of the annotated type...
-            Constraint.subtype(inoxTpe, sup)
-          }).addConstraint({
-            // ... and a super type of the type of the expression being checked. 
-            Constraint.subtype(sub, sup)
+            // The expression's type should be an ADT type (with free type parameters)
+            Constraint.equal(tpe, trees.ADTType(sort.id, tps))
           })
         }
 
@@ -1067,14 +1032,15 @@ trait ExpressionElaborators { self: Interpolator =>
         case Selection(expr, Field((cons, vd))) => {
           val expectedExpr = Unknown.fresh
 
-          val typeParamToFresh = cons.tparams.map({
+          val sort = cons.getSort
+          val typeParamToFresh = sort.tparams.map({
             (t: trees.TypeParameterDef) => t.tp -> Unknown.fresh
           })
 
-          val instantiator = new symbols.TypeInstantiator(typeParamToFresh.toMap)
+          val instantiator = new typeOps.TypeInstantiator(typeParamToFresh.toMap)
 
           val fieldType = instantiator.transform(vd.tpe)
-          val adtType = instantiator.transform(cons.typed(symbols).toType)
+          val adtType = instantiator.transform(trees.ADTType(sort.id, sort.typeArgs))
 
           typeCheck(expr, expectedExpr).map({
             (e: trees.Expr) => trees.ADTSelector(e, vd.id)
@@ -1094,9 +1060,7 @@ trait ExpressionElaborators { self: Interpolator =>
         // Function application.
         case Application(callee, args) => {
           val expectedCallee = Unknown.fresh
-          val argsUpperBounds = Seq.fill(args.length)(Unknown.fresh)
           val expectedArgs = Seq.fill(args.length)(Unknown.fresh)
-          val retType = Unknown.fresh
 
           Constrained.sequence({
             typeCheck(callee, expectedCallee) +: args.zip(expectedArgs).map({
@@ -1105,13 +1069,7 @@ trait ExpressionElaborators { self: Interpolator =>
           }).map({
             case exprs => trees.Application(exprs.head, exprs.tail)
           }).addConstraint({
-            Constraint.equal(expectedCallee, trees.FunctionType(argsUpperBounds, retType))
-          }).addConstraints({
-            expectedArgs.zip(argsUpperBounds).map({
-              case (e, u) => Constraint.subtype(e, u)
-            })
-          }).addConstraint({
-            Constraint.subtype(retType, expected)
+            Constraint.equal(expectedCallee, trees.FunctionType(expectedArgs, expected))
           })
         }
 
@@ -1123,7 +1081,7 @@ trait ExpressionElaborators { self: Interpolator =>
 
         case _ => {
           Constrained.fail(unknownConstruct, expr.pos)
-        } 
+        }
       }
     }
   }

@@ -12,7 +12,7 @@ class Identifier (
   val globalId: Int,
   val id: Int,
   private val alwaysShowUniqueID: Boolean = false
-) extends Ordered[Identifier] with Positioned {
+) extends Ordered[Identifier] {
 
   override def equals(other: Any): Boolean = other match {
     case null => false

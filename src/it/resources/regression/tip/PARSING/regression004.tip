@@ -1,0 +1,7 @@
+(declare-const x!81 Real)
+
+(assert (not (= (assume (not (= (/ 2 1) (/ 0 1))) (/ x!81 (/ 2 1))) (* x!81 (/ 1 2)))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

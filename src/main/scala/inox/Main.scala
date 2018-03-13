@@ -12,7 +12,7 @@ trait MainHelpers {
     solvers.DebugSectionSolver
   )
 
-  protected final lazy val debugSections = getDebugSections
+  protected final val debugSections = getDebugSections
 
   final object optDebug extends OptionDef[Set[DebugSection]] {
     import OptionParsers._
@@ -60,19 +60,20 @@ trait MainHelpers {
     ast.optPrintPositions -> Description(Printing, "Attach positions to trees when printing"),
     ast.optPrintUniqueIds -> Description(Printing, "Always print unique ids"),
     ast.optPrintTypes -> Description(Printing, "Attach types to trees when printing"),
+    solvers.optAssumeChecked -> Description(Solvers, "Assume that all impure expression have been checked"),
+    solvers.optNoSimplifications -> Description(Solvers, "Disable selector/quantifier simplifications in solvers"),
     solvers.optCheckModels -> Description(Solvers, "Double-check counter-examples with evaluator"),
     solvers.optSilentErrors -> Description(Solvers, "Fail silently into UNKNOWN when encountering an error"),
     solvers.unrolling.optUnrollFactor -> Description(Solvers, "Number of unrollings to perform in each unfold step"),
     solvers.unrolling.optFeelingLucky -> Description(Solvers, "Use evaluator to find counter-examples early"),
     solvers.unrolling.optUnrollAssumptions -> Description(Solvers, "Use unsat-assumptions to drive unfolding while remaining fair"),
-    solvers.unrolling.optNoSimplifications -> Description(Solvers, "Disable selector/quantifier simplifications in solvers"),
     solvers.unrolling.optModelFinding -> Description(Solvers, "Enhance model-finding capabilities of solvers by given aggresivity"),
     solvers.smtlib.optCVC4Options -> Description(Solvers, "Pass extra options to CVC4"),
     evaluators.optMaxCalls -> Description(Evaluators, "Maximum function invocations allowed during evaluation"),
     evaluators.optIgnoreContracts -> Description(Evaluators, "Don't fail on invalid contracts during evaluation")
   )
 
-  final lazy val options = getOptions
+  final val options = getOptions
 
   protected def getCategories: Seq[Category] = {
     General +: (options.map(_._2.category).toSet - General).toSeq.sortBy(_.toString)
@@ -200,13 +201,11 @@ object Main extends MainHelpers {
       exit(error = true)
     } else {
       var error: Boolean = false
-      for (file <- files;
-           (syms, expr) <- new tip.Parser(file).parseScript) {
-        val program = InoxProgram(ctx, syms)
+      for (file <- files; (program, expr) <- new tip.Parser(file).parseScript) {
+        import ctx._
         import program._
-        import program.ctx._
 
-        val sf = program.ctx.options.findOption(optTimeout) match {
+        val sf = ctx.options.findOption(optTimeout) match {
           case Some(to) => program.getSolver.withTimeout(to)
           case None => program.getSolver
         }
@@ -214,12 +213,12 @@ object Main extends MainHelpers {
         import SolverResponses._
         SimpleSolverAPI(sf).solveSAT(expr) match {
           case SatWithModel(model) =>
-            reporter.info(" => SAT")
+            reporter.info(file + " => SAT")
             reporter.info("  " + model.asString.replaceAll("\n", "\n  "))
           case Unsat =>
-            reporter.info(" => UNSAT")
+            reporter.info(file + " => UNSAT")
           case Unknown =>
-            reporter.info(" => UNKNOWN")
+            reporter.info(file + " => UNKNOWN")
             error = true
         }
       }

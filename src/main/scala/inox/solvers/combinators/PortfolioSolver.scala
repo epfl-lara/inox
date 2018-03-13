@@ -11,8 +11,9 @@ import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext.Implicits.global
 
 trait PortfolioSolver extends Solver { self =>
+  import context._
   import program._
-  import trees._
+  import program.trees._
 
   final type SubSolver = Solver { val program: self.program.type }
 

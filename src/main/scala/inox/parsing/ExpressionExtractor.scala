@@ -210,7 +210,7 @@ trait ExpressionExtractors { self: Interpolator =>
 
         // ADTs.
 
-        case trees.ADT(trees.ADTType(id, tpes), args) => template match {
+        case trees.ADT(id, tpes, args) => template match {
           case Application(TypedConsDef(cons, optTemplatesTypes), templateArgs) if (id == cons.id) => {
             optTemplatesTypes match {
               case None => extract(toExprObls(args -> templateArgs))
@@ -238,15 +238,9 @@ trait ExpressionExtractors { self: Interpolator =>
 
         // Instance checking and casting.
 
-        case trees.AsInstanceOf(inner, tpe) => template match {
-          case AsInstanceOfOperation(templateInner, templateType) =>
-            extract(toExprObl(inner -> templateInner), toTypeObl(tpe -> templateType))
-          case _ => fail
-        }
-
-        case trees.IsInstanceOf(inner, tpe) => template match {
-          case IsInstanceOfOperation(templateInner, templateType) =>
-            extract(toExprObl(inner -> templateInner), toTypeObl(tpe -> templateType))
+        case trees.IsConstructor(inner, id) => template match {
+          case IsConstructorOperation(templateInner, name) if id.name == name =>
+            extract(toExprObl(inner -> templateInner))
           case _ => fail
         }
 

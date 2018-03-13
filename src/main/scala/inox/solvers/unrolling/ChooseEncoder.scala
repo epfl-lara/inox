@@ -61,11 +61,8 @@ trait ChooseEncoder extends ast.ProgramTransformer {
     (allFunctions, allScopes)
   }
 
-  lazy val targetProgram: Program { val trees: sourceEncoder.targetProgram.trees.type } = new Program {
-    val trees: sourceEncoder.targetProgram.trees.type = sourceEncoder.targetProgram.trees
-    val symbols = sourceProgram.symbols.withFunctions(newFunctions)
-    val ctx = sourceProgram.ctx
-  }
+  lazy val targetProgram: Program { val trees: sourceEncoder.targetProgram.trees.type } =
+    Program(sourceEncoder.targetProgram.trees)(sourceProgram.symbols withFunctions newFunctions)
 
   protected object encoder extends ast.TreeTransformer {
     val s: sourceProgram.trees.type = sourceProgram.trees

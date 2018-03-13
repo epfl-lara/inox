@@ -11,15 +11,16 @@ import _root_.smtlib.theories._
 import _root_.smtlib.theories.experimental._
 
 trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
+  import context._
   import program._
-  import trees._
-  import symbols._
+  import program.trees._
+  import program.symbols._
 
   def targetName = "cvc4"
 
   protected lazy val interpreter = {
     val opts = interpreterOpts
-    ctx.reporter.debug("Invoking solver with "+opts.mkString(" "))
+    reporter.debug("Invoking solver with "+opts.mkString(" "))
     new CVC4Interpreter("cvc4", opts.toArray)
   }
 
@@ -31,7 +32,7 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
   override protected def fromSMT(t: Term, otpe: Option[Type] = None)(implicit context: Context): Expr = {
     (t, otpe) match {
       // EK: This hack is necessary for sygus which does not strictly follow smt-lib for negative literals
-      case (SimpleSymbol(SSymbol(v)), Some(IntegerType)) if v.startsWith("-") =>
+      case (SimpleSymbol(SSymbol(v)), Some(IntegerType())) if v.startsWith("-") =>
         try {
           IntegerLiteral(v.toInt)
         } catch {
@@ -39,12 +40,28 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
         }
 
       // XXX @nv: CVC4 seems to return some weird representations for certain adt selectors
-      case (FunctionApplication(SimpleSymbol(s), Seq(e)), _) if s.name.endsWith("'") && selectors.containsB(SSymbol(s.name.init)) =>
-        super.fromSMT(FunctionApplication(SimpleSymbol(SSymbol(s.name.init)), Seq(e)), otpe)
+      case (FunctionApplication(SimpleSymbol(s), Seq(e)), _)
+      if s.name.endsWith("'") && selectors.containsB(SSymbol(s.name.init)) =>
+        fromSMT(FunctionApplication(SimpleSymbol(SSymbol(s.name.init)), Seq(e)), otpe)
 
       // XXX @nv: CVC4 seems to return some weird representations for certain adt constructors
-      case (FunctionApplication(SimpleSymbol(s), args), _) if s.name.endsWith("'") && constructors.containsB(SSymbol(s.name.init)) =>
-        super.fromSMT(FunctionApplication(SimpleSymbol(SSymbol(s.name.init)), args), otpe)
+      case (FunctionApplication(SimpleSymbol(s), args), _)
+      if s.name.endsWith("'") && constructors.containsB(SSymbol(s.name.init)) =>
+        fromSMT(FunctionApplication(SimpleSymbol(SSymbol(s.name.init)), args), otpe)
+
+      // XXX @nv: CVC4 seems to return bv literals instead of booleans sometimes
+      case (FixedSizeBitVectors.BitVectorLit(bs), Some(BooleanType())) if bs.size == 1 =>
+        BooleanLiteral(bs.head)
+      case (FixedSizeBitVectors.BitVectorConstant(n, size), Some(BooleanType())) if size == 1 =>
+        BooleanLiteral(n == 1)
+      case (Core.Equals(e1, e2), _) =>
+        fromSMTUnifyType(e1, e2, None)(Equals) match {
+          case Equals(IsTyped(lhs, BooleanType()), IsTyped(_, BVType(1))) =>
+            Equals(lhs, fromSMT(e2, BooleanType()))
+          case Equals(IsTyped(_, BVType(1)), IsTyped(rhs, BooleanType())) =>
+            Equals(fromSMT(e1, BooleanType()), rhs)
+          case expr => expr
+        }
 
       case (Sets.EmptySet(sort), Some(SetType(base))) => FiniteSet(Seq.empty, base)
       case (Sets.EmptySet(sort), _) => FiniteSet(Seq.empty, fromSMT(sort))
@@ -52,7 +69,7 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
       case (Sets.Singleton(e), Some(SetType(base))) => FiniteSet(Seq(fromSMT(e, base)), base)
       case (Sets.Singleton(e), _) =>
         val elem = fromSMT(e)
-        FiniteSet(Seq(elem), bestRealType(elem.getType))
+        FiniteSet(Seq(elem), elem.getType)
 
       case (Sets.Insert(set, es @ _*), Some(SetType(base))) => es.foldLeft(fromSMT(set, SetType(base))) {
         case (FiniteSet(elems, base), e) =>
@@ -112,12 +129,17 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
       } else {
         val selems = elems.map(toSMT)
 
-        val sgt = Sets.Singleton(selems.head)
+        if (exprOps.variablesOf(elems.head).isEmpty) {
+          val sgt = Sets.Singleton(selems.head)
 
-        if (selems.size > 1) {
-          Sets.Insert(selems.tail :+ sgt)
+          if (selems.size > 1) {
+            Sets.Insert(selems.tail :+ sgt)
+          } else {
+            sgt
+          }
         } else {
-          sgt
+          val sgt = Sets.EmptySet(declareSort(fs.getType))
+          Sets.Insert(selems :+ sgt)
         }
       }
 

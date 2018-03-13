@@ -1,0 +1,7 @@
+(define-fun test!6 ((b!30 (_ BitVec 8))) (_ BitVec 32) (ite (bvsgt ((_ sign_extend 24) b!30) #b00000000000000000000000000000000) #b00000000000000000000000000000000 #b00000000000000000000000000000001))
+
+(assert (not (let ((b!29 #b01111111)) (= (test!6 b!29) #b00000000000000000000000000000000))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

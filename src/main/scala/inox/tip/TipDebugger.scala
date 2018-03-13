@@ -7,7 +7,6 @@ import utils._
 import solvers._
 
 trait TipDebugger extends Solver {
-  val program: Program
   import program._
   import program.trees._
   import SolverResponses._
@@ -25,8 +24,8 @@ trait TipDebugger extends Solver {
   }
 
   protected lazy val debugOut: Option[tip.Printer] = {
-    if (ctx.reporter.isDebugEnabled) {
-      val files = ctx.options.findOptionOrDefault(Main.optFiles)
+    if (context.reporter.isDebugEnabled) {
+      val files = context.options.findOptionOrDefault(Main.optFiles)
       if (files.nonEmpty && files.forall(_.getName.endsWith(".tip"))) {
         // don't output TIP when running on a TIP benchmark
         None
@@ -38,9 +37,9 @@ trait TipDebugger extends Solver {
         val javaFile = new java.io.File(fileName)
         javaFile.getParentFile.mkdirs()
 
-        ctx.reporter.debug(s"Outputting tip session into $fileName")
+        context.reporter.debug(s"Outputting tip session into $fileName")
         val fw = new java.io.FileWriter(javaFile, false)
-        Some(new tip.Printer(encoder.targetProgram, fw))
+        Some(new tip.Printer(encoder.targetProgram, context, fw))
       }
     } else {
       None

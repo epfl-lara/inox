@@ -7,9 +7,9 @@ import utils._
 import org.apache.commons.lang3.StringEscapeUtils
 import scala.language.implicitConversions
 
-object optPrintPositions extends FlagOptionDef("printpositions", false)
-object optPrintUniqueIds extends FlagOptionDef("printids",       false)
-object optPrintTypes     extends FlagOptionDef("printtypes",     false)
+object optPrintPositions extends FlagOptionDef("print-positions", false)
+object optPrintUniqueIds extends FlagOptionDef("print-ids",       false)
+object optPrintTypes     extends FlagOptionDef("print-types",     false)
 
 trait Printers { self: Trees =>
 
@@ -129,8 +129,8 @@ trait Printer {
       p"""|assume($pred)
           |$body"""
 
-    case e @ ADT(adt, args) =>
-      p"$adt($args)"
+    case e @ ADT(id, tps, args) =>
+      p"$id${nary(tps, ", ", "[", "]")}($args)"
 
     case And(exprs) => optP {
       p"${nary(exprs, " && ")}"
@@ -164,7 +164,7 @@ trait Printer {
     case FractionLiteral(n, d) =>
       if (d == 1) p"$n"
       else p"$n/$d"
-    case CharLiteral(v) => p"$v"
+    case CharLiteral(v) => p"'${StringEscapeUtils.escapeJava(v.toString)}'"
     case BooleanLiteral(v) => p"$v"
     case UnitLiteral() => p"()"
     case StringLiteral(v) =>
@@ -177,8 +177,7 @@ trait Printer {
     case GenericValue(tp, id) => p"$tp#$id"
     case Tuple(exprs) => p"($exprs)"
     case TupleSelect(t, i) => p"$t._$i"
-    case AsInstanceOf(e, ct) => p"""$e.asInstanceOf[$ct]"""
-    case IsInstanceOf(e, cct) => p"$e.isInstanceOf[$cct]"
+    case IsConstructor(e, id) => p"$e is $id"
     case ADTSelector(e, id) => p"$e.$id"
 
     case FunctionInvocation(id, tps, args) =>
@@ -250,14 +249,16 @@ trait Printer {
       p"$l >>> $r"
     }
 
-    case BVNarrowingCast(e, Int8Type)  => p"$e.toByte"
-    case BVNarrowingCast(e, Int16Type)  => p"$e.toShort"
-    case BVNarrowingCast(e, Int32Type) => p"$e.toInt"
-    case BVNarrowingCast(e, Int64Type)  => p"$e.toLong"
-    case BVWideningCast(e, Int8Type)   => p"$e.toByte"
-    case BVWideningCast(e, Int16Type)   => p"$e.toShort"
-    case BVWideningCast(e, Int32Type)  => p"$e.toInt"
-    case BVWideningCast(e, Int64Type)   => p"$e.toLong"
+    case BVNarrowingCast(e, Int8Type())  => p"$e.toByte"
+    case BVNarrowingCast(e, Int16Type())  => p"$e.toShort"
+    case BVNarrowingCast(e, Int32Type()) => p"$e.toInt"
+    case BVNarrowingCast(e, Int64Type())  => p"$e.toLong"
+    case BVNarrowingCast(e, BVType(size))  => p"$e.toBV($size)"
+    case BVWideningCast(e, Int8Type())   => p"$e.toByte"
+    case BVWideningCast(e, Int16Type())   => p"$e.toShort"
+    case BVWideningCast(e, Int32Type())  => p"$e.toInt"
+    case BVWideningCast(e, Int64Type())   => p"$e.toLong"
+    case BVWideningCast(e, BVType(size))   => p"$e.toBV($size)"
 
     case fs @ FiniteSet(rs, _) => p"{${rs}}"
     case fs @ FiniteBag(rs, _) => p"{${rs.toSeq}}"
@@ -294,11 +295,10 @@ trait Printer {
       }
 
     case (tfd: TypedFunDef) => p"typed def ${tfd.id}[${tfd.tps}]"
-    case (afd: TypedADTDefinition) => p"typed class ${afd.id}[${afd.tps}]"
+    case (afd: TypedADTSort) => p"typed class ${afd.id}[${afd.tps}]"
+    case (afd: TypedADTConstructor) => p"typed class ${afd.id}[${afd.tps}]"
 
     case tpd: TypeParameterDef =>
-      if (tpd.tp.isCovariant) p"+"
-      else if (tpd.tp.isContravariant) p"-"
       p"${tpd.tp}"
 
     case TypeParameter(id, flags) =>
@@ -323,16 +323,16 @@ trait Printer {
 
     // Types
     case Untyped => p"<untyped>"
-    case UnitType => p"Unit"
-    case Int8Type => p"Byte"
-    case Int16Type => p"Short"
-    case Int32Type => p"Int"
-    case Int64Type => p"Long"
-    case IntegerType => p"BigInt"
-    case RealType => p"Real"
-    case CharType => p"Char"
-    case BooleanType => p"Boolean"
-    case StringType => p"String"
+    case UnitType() => p"Unit"
+    case Int8Type() => p"Byte"
+    case Int16Type() => p"Short"
+    case Int32Type() => p"Int"
+    case Int64Type() => p"Long"
+    case IntegerType() => p"BigInt"
+    case RealType() => p"Real"
+    case CharType() => p"Char"
+    case BooleanType() => p"Boolean"
+    case StringType() => p"String"
     case SetType(bt) => p"Set[$bt]"
     case BagType(bt) => p"Bag[$bt]"
     case MapType(ft, tt) => p"Map[$ft, $tt]"
@@ -345,19 +345,27 @@ trait Printer {
     case sort: ADTSort =>
       for (an <- sort.flags) p"""|@${an.asString(ctx.opts)}
                                  |"""
-      p"abstract class ${sort.id}${nary(sort.tparams, ", ", "[", "]")}"
+      p"abstract class ${sort.id}"
+      if (sort.tparams.nonEmpty) p"${nary(sort.tparams, ", ", "[", "]")}"
+      for (cons <- sort.constructors) {
+        p"""|
+            |case class ${cons.id}"""
+        if (sort.tparams.nonEmpty) p"${nary(sort.tparams, ", ", "[", "]")}"
+        p"(${cons.fields})"
+        p" extends ${sort.id}"
+        if (sort.tparams.nonEmpty) p"${nary(sort.tparams.map(_.tp), ", ", "[", "]")}"
+      }
 
     case cons: ADTConstructor =>
-      for (an <- cons.flags) p"""|@${an.asString(ctx.opts)}
-                                 |"""
-      p"case class ${cons.id}"
-      p"${nary(cons.tparams, ", ", "[", "]")}"
-      p"(${cons.fields})"
+      val optTparams =
+        ctx.opts.symbols.flatMap(_.lookupSort(cons.sort))
+          .map(_.tparams).filter(_.nonEmpty)
 
-      cons.sort.foreach { s =>
-        // Remember child and parents tparams are simple bijection
-        p" extends $s${nary(cons.tparams, ", ", "[", "]")}"
-      }
+      p"case class ${cons.id}"
+      p"(${cons.fields})"
+      optTparams.foreach(tparams => p"${nary(tparams, ", ", "[", "]")}")
+      p" extends ${cons.sort}"
+      optTparams.foreach(tparams => p"${nary(tparams.map(_.tp), ", ", "[", "]")}")
 
     case fd: FunDef =>
       for (an <- fd.flags) {

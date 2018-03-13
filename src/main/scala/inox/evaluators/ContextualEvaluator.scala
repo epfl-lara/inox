@@ -3,9 +3,10 @@
 package inox
 package evaluators
 
-object optMaxCalls extends IntOptionDef("maxcalls", 50000, "<PosInt> | -1 (unbounded)")
+object optMaxCalls extends IntOptionDef("max-calls", 50000, "<PosInt> | -1 (unbounded)")
 
 trait ContextualEvaluator extends Evaluator {
+  import context._
   import program._
   import program.trees._
 
@@ -53,9 +54,8 @@ trait ContextualEvaluator extends Evaluator {
   case class RuntimeError(msg: String) extends Exception
   case class QuantificationError(msg: String) extends Exception
 
-  def eval(ex: Expr, model: program.Model) = {
+  def eval(ex: Expr, model: program.Model) = timers.evaluators.recursive.runtime.run {
     try {
-      ctx.timers.evaluators.recursive.runtime.start()
       EvaluationResults.Successful(e(ex)(initRC(model), initGC))
     } catch {
       case EvalError(msg) =>
@@ -66,8 +66,6 @@ trait ContextualEvaluator extends Evaluator {
         EvaluationResults.RuntimeError(msg)
       case jre: java.lang.RuntimeException =>
         EvaluationResults.RuntimeError(jre.getMessage)
-    } finally {
-      ctx.timers.evaluators.recursive.runtime.stop()
     }
   }
 

@@ -4,16 +4,18 @@ package inox
 package ast
 
 import inox.parsing.Interpolator
-import inox.utils.Position
+import inox.utils._
 
-import scala.collection.mutable.{Map => MutableMap}
+import scala.collection.concurrent.{Map => ConcurrentMap}
+import scala.collection.JavaConverters._
+import scala.util.Try
 
 /** Provides types that describe Inox definitions. */
 trait Definitions { self: Trees =>
 
   /** The base trait for Inox definitions */
   trait Definition extends Tree {
-    val id: Identifier
+    def id: Identifier
 
     override def equals(that: Any): Boolean = that match {
       case d: Definition => id == d.id
@@ -24,12 +26,12 @@ trait Definitions { self: Trees =>
   }
 
   abstract class LookupException(id: Identifier, what: String)
-    extends Exception("Lookup failed for " + what + " with symbol " + id)
+    extends Exception("Lookup failed for " + what + " with symbol `" + id.uniqueName + "`")
   case class FunctionLookupException(id: Identifier) extends LookupException(id, "function")
   case class ADTLookupException(id: Identifier) extends LookupException(id, "adt")
 
-  case class NotWellFormedException(d: Definition)
-    extends Exception(s"Not well formed definition $d")
+  case class NotWellFormedException(d: Definition, info: Option[String] = None)
+    extends Exception(s"Not well formed definition $d" + (info map { i => s" \n\tbecause $i" } getOrElse ""))
 
   /** Common super-type for [[ValDef]] and [[Expressions.Variable Variable]].
     *
@@ -37,9 +39,9 @@ trait Definitions { self: Trees =>
     * in a uniform manner can be useful in certain cases.
     */
   protected[ast] trait VariableSymbol extends Tree with Typed {
-    val id: Identifier
-    val tpe: Type
-    val flags: Set[Flag]
+    def id: Identifier
+    def tpe: Type
+    def flags: Set[Flag]
 
     def getType(implicit s: Symbols): Type = tpe
 
@@ -74,13 +76,13 @@ trait Definitions { self: Trees =>
     }
   }
 
-  /** 
+  /**
     * A ValDef declares a formal parameter (with symbol [[id]]) to be of a certain type.
     */
-  class ValDef(v: Variable) extends Definition with VariableSymbol {
-    lazy val id = v.id
-    lazy val tpe = v.tpe
-    lazy val flags = v.flags
+  sealed class ValDef(v: Variable) extends Definition with VariableSymbol {
+    @inline def id = v.id
+    @inline def tpe = v.tpe
+    @inline def flags = v.flags
 
     override def setPos(pos: Position): ValDef.this.type = {
       v.setPos(pos)
@@ -88,8 +90,8 @@ trait Definitions { self: Trees =>
     }
 
     /** Transform this [[ValDef]] into a [[Expressions.Variable Variable]] */
-    def toVariable: Variable = v
-    def freshen: ValDef = new ValDef(v.freshen).copiedFrom(this)
+    @inline def toVariable: Variable = v
+    @inline def freshen: ValDef = new ValDef(v.freshen).copiedFrom(this)
 
     override def equals(that: Any): Boolean = super[VariableSymbol].equals(that)
     override def hashCode: Int = super[VariableSymbol].hashCode
@@ -117,8 +119,12 @@ trait Definitions { self: Trees =>
         with CallGraph
         with Paths { self0: Symbols =>
 
-    val adts: Map[Identifier, ADTDefinition]
+    val sorts: Map[Identifier, ADTSort]
     val functions: Map[Identifier, FunDef]
+
+    @inline def constructors: Map[Identifier, ADTConstructor] = _constructors.get
+    private[this] val _constructors: Lazy[Map[Identifier, ADTConstructor]] =
+      Lazy(sorts.values.flatMap(_.constructors.map(cons => cons.id -> cons)).toMap)
 
     protected val trees: self.type = self
     protected val symbols: this.type = this
@@ -138,25 +144,46 @@ trait Definitions { self: Trees =>
     // for some mysterious reason.
     implicit def implicitSymbols: this.type = this
 
-    private[this] val typedADTCache: MutableMap[(Identifier, Seq[Type]), Option[TypedADTDefinition]] = MutableMap.empty
-    def lookupADT(id: Identifier): Option[ADTDefinition] = adts.get(id)
-    def lookupADT(id: Identifier, tps: Seq[Type]): Option[TypedADTDefinition] =
-      typedADTCache.getOrElseUpdate(id -> tps, lookupADT(id).map(_.typed(tps)))
+    private[this] val typedSortCache: ConcurrentMap[(Identifier, Seq[Type]), Option[TypedADTSort]] =
+      new java.util.concurrent.ConcurrentHashMap[(Identifier, Seq[Type]), Option[TypedADTSort]].asScala
+    def lookupSort(id: Identifier): Option[ADTSort] = sorts.get(id)
+    def lookupSort(id: Identifier, tps: Seq[Type]): Option[TypedADTSort] =
+      typedSortCache.getOrElseUpdate(id -> tps, lookupSort(id).map(TypedADTSort(_, tps)))
 
-    def getADT(id: Identifier): ADTDefinition = lookupADT(id).getOrElse(throw ADTLookupException(id))
-    def getADT(id: Identifier, tps: Seq[Type]): TypedADTDefinition = lookupADT(id, tps).getOrElse(throw ADTLookupException(id))
+    def getSort(id: Identifier): ADTSort =
+      lookupSort(id).getOrElse(throw ADTLookupException(id))
+    def getSort(id: Identifier, tps: Seq[Type]): TypedADTSort =
+      lookupSort(id, tps).getOrElse(throw ADTLookupException(id))
 
-    private[this] val typedFunctionCache: MutableMap[(Identifier, Seq[Type]), Option[TypedFunDef]] = MutableMap.empty
+    private[this] val typedConstructorCache: ConcurrentMap[(Identifier, Seq[Type]), Option[TypedADTConstructor]] =
+      new java.util.concurrent.ConcurrentHashMap[(Identifier, Seq[Type]), Option[TypedADTConstructor]].asScala
+    def lookupConstructor(id: Identifier): Option[ADTConstructor] = constructors.get(id)
+    def lookupConstructor(id: Identifier, tps: Seq[Type]): Option[TypedADTConstructor] =
+      typedConstructorCache.getOrElseUpdate(id -> tps, constructors.get(id).flatMap { cons =>
+        lookupSort(cons.sort, tps).flatMap(_.constructors.collectFirst {
+          case tcons if tcons.id == id => tcons
+        })
+      })
+
+    def getConstructor(id: Identifier): ADTConstructor =
+      lookupConstructor(id).getOrElse(throw ADTLookupException(id))
+    def getConstructor(id: Identifier, tps: Seq[Type]): TypedADTConstructor =
+      lookupConstructor(id, tps).getOrElse(throw ADTLookupException(id))
+
+    private[this] val typedFunctionCache: ConcurrentMap[(Identifier, Seq[Type]), Option[TypedFunDef]] =
+      new java.util.concurrent.ConcurrentHashMap[(Identifier, Seq[Type]), Option[TypedFunDef]].asScala
     def lookupFunction(id: Identifier): Option[FunDef] = functions.get(id)
     def lookupFunction(id: Identifier, tps: Seq[Type]): Option[TypedFunDef] =
-      typedFunctionCache.getOrElseUpdate(id -> tps, lookupFunction(id).map(_.typed(tps)(this)))
+      typedFunctionCache.getOrElseUpdate(id -> tps, lookupFunction(id).map(TypedFunDef(_, tps)))
 
-    def getFunction(id: Identifier): FunDef = lookupFunction(id).getOrElse(throw FunctionLookupException(id))
-    def getFunction(id: Identifier, tps: Seq[Type]): TypedFunDef = lookupFunction(id, tps).getOrElse(throw FunctionLookupException(id))
+    def getFunction(id: Identifier): FunDef =
+      lookupFunction(id).getOrElse(throw FunctionLookupException(id))
+    def getFunction(id: Identifier, tps: Seq[Type]): TypedFunDef =
+      lookupFunction(id, tps).getOrElse(throw FunctionLookupException(id))
 
     override def toString: String = asString(PrinterOptions.fromSymbols(this, Context.printNames))
     override def asString(implicit opts: PrinterOptions): String = {
-      adts.map(p => prettyPrint(p._2, opts)).mkString("\n\n") +
+      sorts.map(p => prettyPrint(p._2, opts)).mkString("\n\n") +
       "\n\n-----------\n\n" +
       functions.map(p => prettyPrint(p._2, opts)).mkString("\n\n")
     }
@@ -168,49 +195,49 @@ trait Definitions { self: Trees =>
       * - adt sorts and constructors point to each other correctly
       * - each adt type has at least one instance
       * - adt type parameter flags match between children and parents
+      * - every variable is available in the scope of its usage
       */
-    lazy val ensureWellFormed = {
-      for ((_, fd) <- functions) {
-        typeCheck(fd.fullBody, fd.returnType)
+    @inline def ensureWellFormed: Unit = _tryWF.get.get
+    private[this] val _tryWF: Lazy[Try[Unit]] = Lazy(Try({
+      for ((_, fd) <- functions) ensureWellFormedFunction(fd)
+      for ((_, sort) <- sorts) ensureWellFormedAdt(sort)
+      ()
+    }))
+
+    protected def ensureWellFormedFunction(fd: FunDef) = {
+      typeCheck(fd.fullBody, fd.returnType)
+
+      val unbound: Seq[Variable] = collectWithPC(fd.fullBody, Path.empty withBounds fd.params) {
+        case (v: Variable, path) if !(path isBound v.id) => v
       }
 
-      for ((_, adt) <- adts) {
-        if (!adt.isWellFormed) throw NotWellFormedException(adt)
-
-        adt match {
-          case sort: ADTSort =>
-            if (!sort.constructors.forall(cons => cons.sort == Some(sort.id)))
-              throw NotWellFormedException(adt)
-          case cons: ADTConstructor =>
-            cons.sort.map(getADT) match {
-              case None => // OK
-              case Some(sort: ADTSort) =>
-                if (!(sort.cons contains cons.id) ||
-                    cons.tparams.size != sort.tparams.size ||
-                    (cons.tparams zip sort.tparams).exists(p => p._1.flags != p._2.flags))
-                  throw NotWellFormedException(adt)
-              case _ => throw NotWellFormedException(cons)
-            }
-        }
+      if (unbound.nonEmpty) {
+        throw NotWellFormedException(fd, Some("Unknown variables: " + (unbound map { _.id.uniqueName } mkString ", ")))
       }
+    }
+
+    protected def ensureWellFormedAdt(sort: ADTSort) = {
+      if (!sort.isWellFormed) throw NotWellFormedException(sort)
+      if (!(sort.constructors forall (cons => cons.sort == sort.id))) throw NotWellFormedException(sort)
+      if (sort.constructors.flatMap(_.fields).groupBy(_.id).exists(_._2.size > 1)) throw NotWellFormedException(sort)
     }
 
     override def equals(that: Any): Boolean = that match {
-      case sym: AbstractSymbols => functions == sym.functions && adts == sym.adts
+      case sym: AbstractSymbols => functions == sym.functions && sorts == sym.sorts
       case _ => false
     }
 
-    override def hashCode: Int = functions.hashCode * 61 + adts.hashCode
+    override def hashCode: Int = functions.hashCode * 61 + sorts.hashCode
 
     def withFunctions(functions: Seq[FunDef]): Symbols
-    def withADTs(adts: Seq[ADTDefinition]): Symbols
+    def withSorts(sorts: Seq[ADTSort]): Symbols
   }
 
-  class TypeParameterDef(val tp: TypeParameter) extends Definition {
-    lazy val id = tp.id
-    lazy val flags = tp.flags
+  sealed class TypeParameterDef(val tp: TypeParameter) extends Definition {
+    @inline def id = tp.id
+    @inline def flags = tp.flags
 
-    def freshen = new TypeParameterDef(tp.freshen)
+    @inline def freshen = new TypeParameterDef(tp.freshen)
 
     override def equals(that: Any): Boolean = that match {
       case tpd: TypeParameterDef => tp == tpd.tp
@@ -229,7 +256,7 @@ trait Definitions { self: Trees =>
   }
 
   /** Represents source code annotations and some other meaningful flags.
-    * 
+    *
     * In order to enable transformations on [[Flag]] instances, there is an
     * implicit contract on `args` such that for each argument, either
     * {{{arg: Expr | Type}}}, or there exists no [[Expressions.Expr Expr]]
@@ -240,20 +267,16 @@ trait Definitions { self: Trees =>
     })
   }
 
-  /** Determines the variance of a [[Types.TypeParameter TypeParameter]]
-    * (should only be attached to those) */
-  case class Variance(variance: Boolean) extends Flag("variance", Seq(variance))
-
   /** Denotes that this adt is refined by invariant ''id'' */
-  case class HasADTInvariant(id: Identifier) extends Flag("invariant", Seq(id))
+  sealed case class HasADTInvariant(id: Identifier) extends Flag("invariant", Seq(id))
 
   /** Denotes that this adt has an overriden equality relation given by ''id'' */
-  case class HasADTEquality(id: Identifier) extends Flag("equality", Seq(id))
+  sealed case class HasADTEquality(id: Identifier) extends Flag("equality", Seq(id))
 
   /** Compiler annotations given in the source code as @annot.
-    * 
+    *
     * @see [[Flag]] for some notes on the actual type of [[args]]. */
-  case class Annotation(override val name: String, val args: Seq[Any]) extends Flag(name, args)
+  sealed case class Annotation(override val name: String, val args: Seq[Any]) extends Flag(name, args)
 
   def extractFlag(name: String, args: Seq[Any]): Flag = (name, args) match {
     case ("invariant", id: Identifier) => HasADTInvariant(id)
@@ -265,26 +288,24 @@ trait Definitions { self: Trees =>
     def contains(str: String): Boolean = flags.exists(_.name == str)
   }
 
-  /** Represents an ADT definition (either the ADT sort or a constructor). */
-  sealed trait ADTDefinition extends Definition {
-    val id: Identifier
-    val tparams: Seq[TypeParameterDef]
-    val flags: Set[Flag]
-
-    /** The root of the class hierarchy */
-    def root(implicit s: Symbols): ADTDefinition
+  /** Algebraic datatype sort definition.
+    * An ADT sort is linked to a series of constructors ([[ADTConstructor]]) for this particular sort. */
+  class ADTSort(val id: Identifier,
+                val tparams: Seq[TypeParameterDef],
+                val constructors: Seq[ADTConstructor],
+                val flags: Set[Flag]) extends Definition {
+    def typeArgs = tparams.map(_.tp)
 
     def isInductive(implicit s: Symbols): Boolean = {
       val base = typed
 
-      def rec(adt: TypedADTDefinition, seen: Set[TypedADTDefinition], first: Boolean = false): Boolean = {
-        if (!first && adt == base) true else if (seen(adt)) false else (adt match {
-          case tsort: TypedADTSort => tsort.constructors.exists(rec(_, seen + tsort))
-          case tcons: TypedADTConstructor => tcons.fieldsTypes.flatMap(tpe => typeOps.collect {
-            case t: ADTType => Set(t.getADT)
-            case _ => Set.empty[TypedADTDefinition]
-          } (tpe)).exists(rec(_, seen + tcons))
-        })
+      def rec(sort: TypedADTSort, seen: Set[TypedADTSort], first: Boolean = false): Boolean = {
+        if (!first && sort == base) true
+        else if (seen(sort)) false
+        else sort.constructors.exists(_.fieldsTypes.exists(tpe => typeOps.exists {
+          case t: ADTType => rec(t.getSort, seen + sort)
+          case _ => false
+        } (tpe)))
       }
 
       rec(base, Set.empty, first = true)
@@ -298,94 +319,50 @@ trait Definitions { self: Trees =>
         case head +: tail => head +: flatten(tail)
       }
 
-      def rec(adt: TypedADTDefinition, seen: Set[TypedADTDefinition]): Boolean = {
-        if (seen(adt)) false else (adt match {
-          case tsort: TypedADTSort =>
-            tsort.constructors.exists(rec(_, seen + tsort))
-
-          case tcons: TypedADTConstructor =>
-            flatten(tcons.fieldsTypes).flatMap{
-              case t: ADTType => Set(t.getADT)
-              case _ => Set.empty[TypedADTDefinition]
-            }.forall(rec(_, seen + tcons))
+      def rec(sort: TypedADTSort, seen: Set[TypedADTSort]): Boolean = {
+        if (seen(sort)) false
+        else sort.constructors.exists(cons => flatten(cons.fieldsTypes).forall {
+          case t: ADTType => rec(t.getSort, seen + sort)
+          case _ => true
         })
       }
 
       rec(typed, Set.empty)
     }
 
-    /** An invariant that refines this [[ADTDefinition]] */
-    def invariant(implicit s: Symbols): Option[FunDef] = {
-      val rt = root
-      if (rt ne this) rt.invariant
-      else flags.collectFirst { case HasADTInvariant(id) => s.getFunction(id) }
-    }
+    /** An invariant that refines this [[ADTSort]] */
+    def invariant(implicit s: Symbols): Option[FunDef] = 
+      flags.collectFirst { case HasADTInvariant(id) => s.getFunction(id) }
 
     def hasInvariant(implicit s: Symbols): Boolean = invariant.isDefined
 
-    /** An equality relation defined on this [[ADTDefinition]] */
-    def equality(implicit s: Symbols): Option[FunDef] = {
-      val rt = root
-      if (rt ne this) rt.equality
-      else flags.collectFirst { case HasADTEquality(id) => s.getFunction(id) }
-    }
+    /** An equality relation defined on this [[ADTSort]] */
+    def equality(implicit s: Symbols): Option[FunDef] =
+      flags.collectFirst { case HasADTEquality(id) => s.getFunction(id) }
 
     def hasEquality(implicit s: Symbols): Boolean = equality.isDefined
 
-    val isSort: Boolean
-
-    def typeArgs = tparams map (_.tp)
-
-    def typed(tps: Seq[Type])(implicit s: Symbols): TypedADTDefinition
-    def typed(implicit s: Symbols): TypedADTDefinition
-  }
-
-  /** Algebraic datatype sort definition.
-    * An ADT sort is linked to a series of constructors ([[ADTConstructor]]) for this particular sort. */
-  class ADTSort(val id: Identifier,
-                val tparams: Seq[TypeParameterDef],
-                val cons: Seq[Identifier],
-                val flags: Set[Flag]) extends ADTDefinition {
-    val isSort = true
-
-    def constructors(implicit s: Symbols): Seq[ADTConstructor] = cons
-      .map(id => s.getADT(id) match {
-        case cons: ADTConstructor => cons
-        case sort => throw NotWellFormedException(sort)
-      })
-
-    def root(implicit s: Symbols): ADTDefinition = this
-
+    /** Wraps this [[ADTSort]] in a in [[TypedADTSort]] with its own type parameters */
     def typed(implicit s: Symbols): TypedADTSort = typed(tparams.map(_.tp))
-    def typed(tps: Seq[Type])(implicit s: Symbols): TypedADTSort = {
-      require(tps.length == tparams.length)
-      TypedADTSort(this, tps)
-    }
 
-    def copy(
-      id: Identifier = this.id,
-      tparams: Seq[TypeParameterDef] = this.tparams,
-      cons: Seq[Identifier] = this.cons,
-      flags: Set[Flag] = this.flags
-    ): ADTSort = new ADTSort(id, tparams, cons, flags).copiedFrom(this)
+    /** Wraps this [[ADTSort]] in a in [[TypedADTSort]] with the specified type parameters */
+    def typed(tps: Seq[Type])(implicit s: Symbols): TypedADTSort = s.getSort(id, tps)
+
+    def copy(id: Identifier = id,
+             tparams: Seq[TypeParameterDef] = tparams,
+             constructors: Seq[ADTConstructor] = constructors,
+             flags: Set[Flag] = flags): ADTSort = new ADTSort(id, tparams, constructors, flags)
   }
 
   /** Case classes/ ADT constructors. For single-case classes these may coincide
     *
     * @param id      -- The identifier that refers to this ADT constructor.
-    * @param tparams -- The type parameters taken by this constructor.
-    *                   Note that these MUST match the type parameters taken by [[sort]] when it is defined.
-    * @param sort    -- The base sort of this constructor (corresponds to the abstract parent class).
-    * @param fields  -- The fields of this constructor (types may depend on [[tparams]]).
-    * @param flags   -- The Flags that annotate this constructor.
+    * @param fields  -- The fields of this constructor (types may depend on sorts type params).
     */
   class ADTConstructor(val id: Identifier,
-                       val tparams: Seq[TypeParameterDef],
-                       val sort: Option[Identifier],
-                       val fields: Seq[ValDef],
-                       val flags: Set[Flag]) extends ADTDefinition {
-
-    val isSort = false
+                       val sort: Identifier,
+                       val fields: Seq[ValDef]) extends Definition {
+    def getSort(implicit s: Symbols): ADTSort = s.getSort(sort)
 
     /** Returns the index of the field with the specified id */
     def selectorID2Index(id: Identifier) : Int = {
@@ -399,75 +376,75 @@ trait Definitions { self: Trees =>
       } else index
     }
 
-    def root(implicit s: Symbols): ADTDefinition = sort.map(id => s.getADT(id).root).getOrElse(this)
+    /** Wraps this [[ADTConstructor]] in a in [[TypedADTConstructor]] with its sort's type parameters */
+    def typed(implicit s: Symbols): TypedADTConstructor = typed(getSort.typeArgs)
 
-    def typed(implicit s: Symbols): TypedADTConstructor = typed(tparams.map(_.tp))
-    def typed(tps: Seq[Type])(implicit s: Symbols): TypedADTConstructor = {
-      require(tps.length == tparams.length)
-      TypedADTConstructor(this, tps)
-    }
+    /** Wraps this [[ADTConstructor]] in a in [[TypedADTConstructor]] with the specified type parameters */
+    def typed(tps: Seq[Type])(implicit s: Symbols): TypedADTConstructor = s.getConstructor(id, tps)
 
-    def copy(
-      id: Identifier = this.id,
-      tparams: Seq[TypeParameterDef] = this.tparams,
-      sort: Option[Identifier] = this.sort,
-      fields: Seq[ValDef] = this.fields,
-      flags: Set[Flag] = this.flags
-    ): ADTConstructor = new ADTConstructor(id, tparams, sort, fields, flags).copiedFrom(this)
-  }
-
-  /** Represents an [[ADTDefinition]] whose type parameters have been instantiated to ''tps'' */
-  sealed abstract class TypedADTDefinition extends Tree {
-    val definition: ADTDefinition
-    val tps: Seq[Type]
-    implicit val symbols: Symbols
-
-    lazy val id: Identifier = definition.id
-    /** The root of the class hierarchy */
-    lazy val root: TypedADTDefinition = definition.root.typed(tps)
-
-    lazy val invariant: Option[TypedFunDef] = definition.invariant.map(_.typed(tps))
-    lazy val hasInvariant: Boolean = invariant.isDefined
-
-    lazy val equality: Option[TypedFunDef] = definition.equality.map(_.typed(tps))
-    lazy val hasEquality: Boolean = equality.isDefined
-
-    def toType = ADTType(definition.id, tps)
-
-    def toConstructor = this match {
-      case tcons: TypedADTConstructor => tcons
-      case _ => throw NotWellFormedException(definition)
-    }
-
-    def toSort = this match {
-      case tsort: TypedADTSort => tsort
-      case _ => throw NotWellFormedException(definition)
-    }
+    def copy(id: Identifier = id,
+             sort: Identifier = sort,
+             fields: Seq[ValDef] = fields): ADTConstructor = new ADTConstructor(id, sort, fields)
   }
 
   /** Represents an [[ADTSort]] whose type parameters have been instantiated to ''tps'' */
-  case class TypedADTSort(definition: ADTSort, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedADTDefinition {
+  case class TypedADTSort private(definition: ADTSort, tps: Seq[Type])(implicit val symbols: Symbols) extends Tree {
+    require(tps.length == definition.tparams.length)
     copiedFrom(definition)
 
-    lazy val constructors: Seq[TypedADTConstructor] = definition.constructors.map(_.typed(tps))
+    @inline def id: Identifier = definition.id
+
+    @inline def invariant: Option[TypedFunDef] = _invariant.get
+    private[this] val _invariant = Lazy(definition.invariant.map(_.typed(tps)))
+
+    @inline def hasInvariant: Boolean = invariant.isDefined
+
+    @inline def equality: Option[TypedFunDef] = _equality.get
+    private[this] val _equality = Lazy(definition.equality.map(_.typed(tps)))
+
+    @inline def hasEquality: Boolean = equality.isDefined
+
+    @inline def tpSubst: Map[TypeParameter, Type] = _tpSubst.get
+    private[this] val _tpSubst = Lazy((definition.typeArgs zip tps).toMap.filter(tt => tt._1 != tt._2))
+
+    /** A [[Types.Type Type]] instantiated with this [[TypedADTSort]]'s type instantiation */
+    def instantiate(t: Type): Type = typeOps.instantiateType(t, tpSubst)
+
+    /** A [[Expressions.Expr Expr]] instantiated with this [[TypedADTSort]]'s type instantiation */
+    def instantiate(e: Expr): Expr = typeOps.instantiateType(e, tpSubst)
+
+    /** A [[Definitions.Flag Flag]] instantiated with this [[TypedADTSort]]'s type instantiation */
+    def instantiate(f: Flag): Flag = {
+      val (ids, exprs, types, recons) = deconstructor.deconstruct(f)
+      recons(ids, exprs.map(instantiate), types.map(instantiate))
+    }
+
+    /** The flags of the respective [[ADTSort]] instantiated with the real type parameters */
+    @inline def flags: Set[Flag] = _flags.get
+    private[this] val _flags = Lazy(definition.flags.map(instantiate))
+
+    val constructors: Seq[TypedADTConstructor] =
+      definition.constructors map (TypedADTConstructor(_, this))
   }
 
   /** Represents an [[ADTConstructor]] whose type parameters have been instantiated to ''tps'' */
-  case class TypedADTConstructor(definition: ADTConstructor, tps: Seq[Type])(implicit val symbols: Symbols) extends TypedADTDefinition {
+  case class TypedADTConstructor private(definition: ADTConstructor, sort: TypedADTSort) extends Tree {
     copiedFrom(definition)
 
-    lazy val fields: Seq[ValDef] = {
-      val tmap = (definition.typeArgs zip tps).toMap
-      if (tmap.isEmpty) definition.fields
-      else definition.fields.map(vd => vd.copy(tpe = symbols.instantiateType(vd.tpe, tmap)))
-    }
+    @inline def id: Identifier = definition.id
+    @inline def tps: Seq[Type] = sort.tps
 
-    lazy val fieldsTypes = fields.map(_.tpe)
-
-    lazy val sort: Option[TypedADTSort] = definition.sort.map(id => symbols.getADT(id) match {
-      case sort: ADTSort => TypedADTSort(sort, tps)
-      case cons => throw NotWellFormedException(cons)
+    @inline def fields: Seq[ValDef] = _fields.get
+    private[this] val _fields = Lazy({
+      if (sort.tpSubst.isEmpty) definition.fields
+      else definition.fields.map(vd => vd.copy(
+        tpe = sort.instantiate(vd.tpe),
+        flags = vd.flags.map(sort.instantiate)
+      ))
     })
+
+    @inline def fieldsTypes: Seq[Type] = _fieldsTypes.get
+    private[this] val _fieldsTypes = Lazy(fields.map(_.tpe))
   }
 
 
@@ -489,25 +466,21 @@ trait Definitions { self: Trees =>
     val flags: Set[Flag]
   ) extends Definition {
 
-    /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with the specified type parameters */
-    def typed(tps: Seq[Type])(implicit s: Symbols): TypedFunDef = {
-      assert(tps.size == tparams.size)
-      TypedFunDef(this, tps)
-    }
-
     /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with its own type parameters */
     def typed(implicit s: Symbols): TypedFunDef = typed(tparams.map(_.tp))
 
+    /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with the specified type parameters */
+    def typed(tps: Seq[Type])(implicit s: Symbols): TypedFunDef = s.getFunction(id, tps)
+
     /* Auxiliary methods */
 
-    def isRecursive(implicit s: Symbols) = s.transitiveCallees(this) contains this
+    def isRecursive(implicit s: Symbols) = s.isRecursive(id)
 
-    def typeArgs = tparams map (_.tp)
+    @inline def typeArgs: Seq[TypeParameter] = _typeArgs.get
+    private[this] val _typeArgs = Lazy(tparams.map(_.tp))
 
-    /** Applies this function on some arguments; type parameters are inferred. */
-    def applied(args: Seq[Expr])(implicit s: Symbols): FunctionInvocation = s.functionInvocation(this, args)
     /** Applies this function on its formal parameters */
-    def applied = FunctionInvocation(id, typeArgs, params map (_.toVariable))
+    @inline def applied = FunctionInvocation(id, typeArgs, params map (_.toVariable))
 
     def copy(
       id: Identifier = this.id,
@@ -521,7 +494,8 @@ trait Definitions { self: Trees =>
 
 
   /** Represents a [[FunDef]] whose type parameters have been instantiated with the specified types */
-  case class TypedFunDef(fd: FunDef, tps: Seq[Type])(implicit val symbols: Symbols) extends Tree {
+  case class TypedFunDef private(fd: FunDef, tps: Seq[Type])(implicit val symbols: Symbols) extends Tree {
+    require(tps.length == fd.tparams.length)
     copiedFrom(fd)
 
     val id = fd.id
@@ -534,15 +508,20 @@ trait Definitions { self: Trees =>
       }
     }
 
-    lazy val tpSubst: Map[TypeParameter, Type] = {
-      (fd.typeArgs zip tps).toMap.filter(tt => tt._1 != tt._2)
-    }
+    @inline def tpSubst: Map[TypeParameter, Type] = _tpSubst.get
+    private[this] val _tpSubst = Lazy((fd.typeArgs zip tps).toMap.filter(tt => tt._1 != tt._2))
 
     /** A [[Types.Type Type]] instantiated with this [[TypedFunDef]]'s type instantiation */
-    def instantiate(t: Type): Type = symbols.instantiateType(t, tpSubst)
+    def instantiate(t: Type): Type = typeOps.instantiateType(t, tpSubst)
 
     /** A [[Expressions.Expr Expr]] instantiated with this [[TypedFunDef]]'s type instantiation */
-    def instantiate(e: Expr): Expr = symbols.instantiateType(e, tpSubst)
+    def instantiate(e: Expr): Expr = typeOps.instantiateType(e, tpSubst)
+
+    /** A [[Definitions.Flag Flag]] instantiated with this [[TypedFunDef]]'s type instantiation */
+    def instantiate(f: Flag): Flag = {
+      val (ids, exprs, types, recons) = deconstructor.deconstruct(f)
+      recons(ids, exprs.map(instantiate), types.map(instantiate))
+    }
 
     /** A mapping from this [[TypedFunDef]]'s formal parameters to real arguments
       *
@@ -568,24 +547,31 @@ trait Definitions { self: Trees =>
     }
 
     /** Apply this [[inox.ast.Definitions.TypedFunDef]] on its formal parameters */
-    def applied: FunctionInvocation = applied(params map { _.toVariable })
+    @inline def applied: FunctionInvocation = applied(params map { _.toVariable })
 
     /** The paremeters of the respective [[FunDef]] instantiated with the real type parameters */
-    lazy val params: Seq[ValDef] = {
-      if (tpSubst.isEmpty) {
-        fd.params
-      } else {
-        fd.params.map(vd => vd.copy(tpe = instantiate(vd.getType)))
-      }
-    }
+    @inline def params: Seq[ValDef] = _params.get
+    private[this] val _params = Lazy({
+      if (tpSubst.isEmpty) fd.params
+      else fd.params.map(vd => vd.copy(
+        tpe = instantiate(vd.tpe),
+        flags = vd.flags.map(instantiate)
+      ))
+    })
 
     /** The function type corresponding to this [[TypedFunDef]]'s arguments and return type */
-    lazy val functionType = FunctionType(params.map(_.getType).toList, returnType)
+    @inline def functionType: FunctionType = FunctionType(params.map(_.tpe), returnType)
 
     /** The return type of the respective [[FunDef]] instantiated with the real type parameters */
-    lazy val returnType: Type = instantiate(fd.returnType)
+    @inline def returnType: Type = _returnType.get
+    private[this] val _returnType = Lazy(instantiate(fd.returnType))
 
     /** The body of the respective [[FunDef]] instantiated with the real type parameters */
-    lazy val fullBody = instantiate(fd.fullBody)
+    @inline def fullBody: Expr = _fullBody.get
+    private[this] val _fullBody = Lazy(instantiate(fd.fullBody))
+
+    /** The flags of the respective [[FunDef]] instantiated with the real type parameters */
+    @inline def flags: Set[Flag] = _flags.get
+    private[this] val _flags = Lazy(fd.flags.map(instantiate))
   }
 }

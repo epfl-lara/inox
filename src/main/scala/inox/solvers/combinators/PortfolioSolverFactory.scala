@@ -14,7 +14,7 @@ trait PortfolioSolverFactory extends SolverFactory { self =>
   def getNewSolver(): S = new {
     val program: self.program.type = self.program
     val solvers = sfs map (_.getNewSolver())
-    val options = solvers.head.options
+    val context = solvers.head.context
   } with PortfolioSolver with TimeoutSolver
 
   // Assumes s is a P/Solver with the correct subsolver types

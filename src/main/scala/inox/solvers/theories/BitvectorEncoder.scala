@@ -11,36 +11,42 @@ trait BitvectorEncoder extends SimpleEncoder {
   import trees.dsl._
 
   private case class BitvectorEncoding(
-    bv: ADTConstructor,
-    blasted: ADTConstructor,
+    bv: ADTSort,
+    blasted: ADTSort,
     toBV: FunDef,
     toBlasted: FunDef,
     invariant: FunDef
   ) {
-    def adts = Seq(bv, blasted)
+    def sorts = Seq(bv, blasted)
     def functions = Seq(toBV, toBlasted, invariant)
+
+    val bvCons = bv.constructors.head
+    val blastedCons = blasted.constructors.head
   }
 
   private def mkEncoding(size: Int): BitvectorEncoding = {
     val bvID = FreshIdentifier("bv" + size)
     val blastedID = FreshIdentifier("blasted" + size)
 
-    val bvField = ValDef(FreshIdentifier("value"), IntegerType)
-    val blastedFields = (1 to size).map(i => ValDef(FreshIdentifier("b" + i), BooleanType)).toSeq
+    val bvField = ValDef(FreshIdentifier("value"), IntegerType())
+    val blastedFields = (1 to size).map(i => ValDef(FreshIdentifier("b" + i), BooleanType())).toSeq
 
     val invID = FreshIdentifier("bv_inv" + size)
 
-    val bv = mkConstructor(bvID, HasADTInvariant(invID))()(None)(_ => Seq(bvField))
-    val blasted = mkConstructor(blastedID)()(None)(_ => blastedFields)
+    val bv = mkSort(bvID, HasADTInvariant(invID))()(_ => Seq((bvID.freshen, Seq(bvField))))
+    val bvCons = bv.constructors.head
+
+    val blasted = mkSort(blastedID)()(_ => Seq((blastedID.freshen, blastedFields)))
+    val blastedCons = blasted.constructors.head
 
     val toBV = mkFunDef(FreshIdentifier("toBV" + size))()(_ => (
       Seq("x" :: blasted()), bv(), { case Seq(x) =>
-        let("r" :: IntegerType, (0 until size - 1).map(i => if_ (x.getField(blastedFields(i).id)) {
+        let("r" :: IntegerType(), (0 until size - 1).map(i => if_ (x.getField(blastedFields(i).id)) {
           E(BigInt(2).pow(i))
         } else_ {
           E(BigInt(0))
         }: Expr).reduce(_ + _)) { r =>
-          bv()(if_ (x.getField(blastedFields(size - 1).id)) {
+          bvCons(if_ (x.getField(blastedFields(size - 1).id)) {
             E(BigInt(2).pow(size)) - r
           } else_ {
             r
@@ -52,9 +58,9 @@ trait BitvectorEncoder extends SimpleEncoder {
       Seq("x" :: bv()), blasted(), { case Seq(x) =>
         def rec(i: Int, last: Expr, vs: Seq[Expr]): Expr = {
           if (i == 0) {
-            ADT(blasted(), (last === E(BigInt(1))) +: vs)
+            blastedCons(((last === E(BigInt(1))) +: vs) : _*)
           } else {
-            let("tpl" :: T(IntegerType, BooleanType), if_ (last >= E(BigInt(2).pow(i))) {
+            let("tpl" :: T(IntegerType(), BooleanType()), if_ (last >= E(BigInt(2).pow(i))) {
               E(last - E(BigInt(2).pow(i)), E(true))
             } else_ {
               E(last, E(false))
@@ -72,7 +78,7 @@ trait BitvectorEncoder extends SimpleEncoder {
       }))
 
     val invariant = mkFunDef(invID)()(_ => (
-      Seq("bv" :: bv()), BooleanType, { case Seq(bv) =>
+      Seq("bv" :: bv()), BooleanType(), { case Seq(bv) =>
         E(BigInt(Int.MinValue)) <= bv.getField(bvField.id) && bv.getField(bvField.id) <= E(BigInt(Int.MaxValue))
       }))
 
@@ -86,7 +92,7 @@ trait BitvectorEncoder extends SimpleEncoder {
   private val chars: BitvectorEncoding = mkEncoding(32)
 
   override val extraFunctions = (chars +: bitvectors.values.toSeq).flatMap(_.functions)
-  override val extraADTs = (chars +: bitvectors.values.toSeq).flatMap(_.adts)
+  override val extraSorts = (chars +: bitvectors.values.toSeq).flatMap(_.sorts)
 
   protected object encoder extends SelfTreeTransformer {
     import sourceProgram._
@@ -114,8 +120,8 @@ trait BitvectorEncoder extends SimpleEncoder {
     protected def inLIA(i1: Expr, i2: Expr, size: Int, recons: (Expr, Expr) => Expr): Expr = {
       val encoding = bitvectors(size)
       import encoding._
-      bv()(recons(transform(i1).getField(bv.fields(0).id),
-        transform(i2).getField(bv.fields(0).id)))
+      bvCons(recons(transform(i1).getField(bvCons.fields(0).id),
+        transform(i2).getField(bvCons.fields(0).id)))
     }
 
     protected def inBlasted(i1: Expr, i2: Expr, size: Int, recons: (Expr, Expr) => Expr): Expr = {
@@ -124,22 +130,22 @@ trait BitvectorEncoder extends SimpleEncoder {
       let("bl" :: T(blasted(), blasted()),
         E(simplifyBlasted(transform(i1), size), simplifyBlasted(transform(i2), size))
       ) { bl =>
-        toBV(blasted()((0 until size).map { i =>
-          recons(bl._1.getField(blasted.fields(i).id), bl._2.getField(blasted.fields(i).id))
+        toBV(blastedCons((0 until size).map { i =>
+          recons(bl._1.getField(blastedCons.fields(i).id), bl._2.getField(blastedCons.fields(i).id))
         }.toSeq : _*))
       }
     }
 
     override def transform(e: Expr): Expr = e match {
-      case lit @ BVLiteral(_, size) => bitvectors(size).bv()(E(lit.toBigInt))
-      case lit @ CharLiteral(c) => chars.bv()(E(BigInt(c.toInt)))
+      case lit @ BVLiteral(_, size) => bitvectors(size).bvCons(E(lit.toBigInt))
+      case lit @ CharLiteral(c) => chars.bvCons(E(BigInt(c.toInt)))
       case Plus(IsTyped(i1, BVType(size)), i2) =>
         val encoding = bitvectors(size)
         import encoding._
-        let("sum" :: IntegerType,
-          transform(i1).getField(bv.fields(0).id) +
-          transform(i2).getField(bv.fields(0).id)) {
-            sum => bv()(simplifySum(sum, size))
+        let("sum" :: IntegerType(),
+          transform(i1).getField(bvCons.fields(0).id) +
+          transform(i2).getField(bvCons.fields(0).id)) {
+            sum => bvCons(simplifySum(sum, size))
           }
 
       case Minus(IsTyped(i1, _: BVType), i2) =>
@@ -148,15 +154,15 @@ trait BitvectorEncoder extends SimpleEncoder {
       case UMinus(IsTyped(i, BVType(size))) =>
         val encoding = bitvectors(size)
         import encoding._
-        bv()(simplifySum(- transform(i).getField(bv.fields(0).id), size))
+        bvCons(simplifySum(- transform(i).getField(bvCons.fields(0).id), size))
 
       case Times(IsTyped(i1, BVType(size)), i2) =>
         val encoding = bitvectors(size)
         import encoding._
-        let("prod" :: IntegerType,
-          transform(i1).getField(bv.fields(0).id) *
-          transform(i2).getField(bv.fields(0).id)) { prod =>
-            bv()(if_ (prod > E(BigInt(Int.MaxValue))) {
+        let("prod" :: IntegerType(),
+          transform(i1).getField(bvCons.fields(0).id) *
+          transform(i2).getField(bvCons.fields(0).id)) { prod =>
+            bvCons(if_ (prod > E(BigInt(Int.MaxValue))) {
               simplifySum(Modulo(prod, E(BigInt(2).pow(size))), size)
             } else_ {
               if_ (prod < E(BigInt(Int.MinValue))) {
@@ -179,7 +185,7 @@ trait BitvectorEncoder extends SimpleEncoder {
         val encoding = bitvectors(size)
         import encoding._
         let("bl" :: blasted(), simplifyBlasted(transform(i), size)) { bl =>
-          toBV(blasted()((0 until size).map(i => !bl.getField(blasted.fields(i).id)) : _*))
+          toBV(blastedCons((0 until size).map(i => !bl.getField(blastedCons.fields(i).id)) : _*))
         }
 
       case BVOr(IsTyped(i1, BVType(size)), i2) => inBlasted(i1, i2, size, Or(_, _))
@@ -190,10 +196,10 @@ trait BitvectorEncoder extends SimpleEncoder {
         val encoding = bitvectors(size)
         import encoding._
         let("bl" :: blasted(), simplifyBlasted(transform(i1), size)) { bl =>
-          let("count" :: IntegerType, transform(i2).getField(bv.fields(0).id)) { count =>
-            toBV((0 until size).foldRight(blasted()(List.fill(size)(E(false)) : _*): Expr) { (i, elze) =>
-              IfExpr(count === E(BigInt(i)), blasted()(
-                (size - i to 0 by -1).map(j => bl.getField(blasted.fields(j).id)) ++
+          let("count" :: IntegerType(), transform(i2).getField(bvCons.fields(0).id)) { count =>
+            toBV((0 until size).foldRight(blastedCons(List.fill(size)(E(false)) : _*): Expr) { (i, elze) =>
+              IfExpr(count === E(BigInt(i)), blastedCons(
+                (size - i to 0 by -1).map(j => bl.getField(blastedCons.fields(j).id)) ++
                 List.fill(i)(E(false)) : _*
               ), elze)
             })
@@ -204,12 +210,12 @@ trait BitvectorEncoder extends SimpleEncoder {
         val encoding = bitvectors(size)
         import encoding._
         let("bl" :: blasted(), simplifyBlasted(transform(i1), size)) { bl =>
-          let("count" :: IntegerType, transform(i2).getField(bv.fields(0).id)) { count =>
-            val default = bl.getField(blasted.fields(size - 1).id)
-            toBV((0 until size).foldRight(blasted()(List.fill(size)(default) : _*): Expr) { (i, elze) =>
-              IfExpr(count === E(BigInt(i)), blasted()(
+          let("count" :: IntegerType(), transform(i2).getField(bvCons.fields(0).id)) { count =>
+            val default = bl.getField(blastedCons.fields(size - 1).id)
+            toBV((0 until size).foldRight(blastedCons(List.fill(size)(default) : _*): Expr) { (i, elze) =>
+              IfExpr(count === E(BigInt(i)), blastedCons(
                 List.fill(i)(default) ++
-                (size - 1 to i by -1).map(j => bl.getField(blasted.fields(j).id)) : _*
+                (size - 1 to i by -1).map(j => bl.getField(blastedCons.fields(j).id)) : _*
               ), elze)
             })
           }
@@ -219,11 +225,11 @@ trait BitvectorEncoder extends SimpleEncoder {
         val encoding = bitvectors(size)
         import encoding._
         let("bl" :: blasted(), simplifyBlasted(transform(i1), size)) { bl =>
-          let("count" :: IntegerType, transform(i2).getField(bv.fields(0).id)) { count =>
-            toBV((0 until size).foldRight(blasted()(List.fill(size)(E(false)) : _*): Expr) { (i, elze) =>
-              IfExpr(count === E(BigInt(i)), blasted()(
+          let("count" :: IntegerType(), transform(i2).getField(bvCons.fields(0).id)) { count =>
+            toBV((0 until size).foldRight(blastedCons(List.fill(size)(E(false)) : _*): Expr) { (i, elze) =>
+              IfExpr(count === E(BigInt(i)), blastedCons(
                 List.fill(i)(E(false)) ++
-                (size - 1 to i by -1).map(j => bl.getField(blasted.fields(j).id)) : _*
+                (size - 1 to i by -1).map(j => bl.getField(blastedCons.fields(j).id)) : _*
               ), elze)
             })
           }
@@ -234,22 +240,28 @@ trait BitvectorEncoder extends SimpleEncoder {
 
     override def transform(tpe: Type): Type = tpe match {
       case BVType(size) => bitvectors(size).bv()
-      case CharType => chars.bv()
+      case CharType() => chars.bv()
       case _ => super.transform(tpe)
     }
   }
 
   private val tpeMap: Map[Type, (Int, BitvectorEncoding)] = {
     ((32 -> chars) +: bitvectors.toSeq).flatMap { case (size, e) =>
-      Seq(e.bv(), e.bv(), e.blasted()).map(_ -> ((size, e)))
+      Seq(e.bv(), e.blasted()).map(_ -> ((size, e)))
+    }.toMap
+  }
+
+  private val consMap: Map[Identifier, (Int, BitvectorEncoding)] = {
+    ((32 -> chars) +: bitvectors.toSeq).flatMap { case (size, e) =>
+      Seq(e.bvCons.id, e.blastedCons.id).map(_ -> ((size, e)))
     }.toMap
   }
 
   protected object decoder extends SelfTreeTransformer {
     override def transform(e: Expr): Expr = e match {
-      case ADT(tpe @ ADTType(id, _), args) => tpeMap.get(tpe) match {
+      case ADT(id, _, args) => consMap.get(id) match {
         case Some((size, e)) =>
-          val bi = if (id == e.bv.id) {
+          val bi = if (id == e.bvCons.id) {
             val IntegerLiteral(i) = transform(args(0))
             i
           } else {
@@ -268,7 +280,7 @@ trait BitvectorEncoder extends SimpleEncoder {
 
     override def transform(tpe: Type): Type = tpe match {
       case tpe: ADTType => tpeMap.get(tpe) match {
-        case Some((size, e)) => if (e == chars) CharType else BVType(size)
+        case Some((size, e)) => if (e == chars) CharType() else BVType(size)
         case None => super.transform(tpe)
       }
 

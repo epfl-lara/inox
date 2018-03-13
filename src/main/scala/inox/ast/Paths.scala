@@ -3,6 +3,8 @@
 package inox
 package ast
 
+import utils._
+
 trait Paths { self: SymbolOps with TypeOps =>
   import trees._
 
@@ -11,19 +13,23 @@ trait Paths { self: SymbolOps with TypeOps =>
     /** Add a binding to this `PathLike`. */
     def withBinding(p: (ValDef, Expr)): Self
 
-    def withBindings(ps: Iterable[(ValDef, Expr)]): Self = ps.foldLeft(self)(_ withBinding _)
+    final def withBindings(ps: Iterable[(ValDef, Expr)]): Self = ps.foldLeft(self)(_ withBinding _)
+
+    def withBound(b: ValDef): Self
+
+    final def withBounds(bs: Iterable[ValDef]): Self = bs.foldLeft(self)(_ withBound _)
 
     /** Add a condition to this `PathLike`. */
     def withCond(e: Expr): Self
 
     /** Add multiple conditions to this `PathLike`. */
-    def withConds(es: Iterable[Expr]): Self = es.foldLeft(self)(_ withCond _)
+    final def withConds(es: Iterable[Expr]): Self = es.foldLeft(self)(_ withCond _)
 
     /** Appends `that` path at the end of `this`. */
     def merge(that: Self): Self
 
     /** Appends `those` paths at the end of `this`. */
-    def merge(those: Traversable[Self]): Self = those.foldLeft(self)(_ merge _)
+    final def merge(those: Traversable[Self]): Self = those.foldLeft(self)(_ merge _)
 
     /** Returns the negation of this path. */
     def negate: Self
@@ -34,23 +40,31 @@ trait Paths { self: SymbolOps with TypeOps =>
   }
 
   implicit object Path extends PathProvider[Path] {
-    final type Element = Either[(ValDef, Expr), Expr]
+    sealed abstract class Element
+    case class CloseBound(vd: ValDef, v: Expr) extends Element
+    case class OpenBound(vd: ValDef) extends Element
+    case class Condition(e: Expr) extends Element
 
     def empty: Path = new Path(Seq.empty)
 
+    def apply(p: Element) = new Path(Seq(p))
+    def apply(p: Seq[Element]) = new Path(p)
+
     def apply(p: Expr): Path = p match {
-      case Let(i, e, b) => new Path(Seq(Left(i -> e))) merge apply(b)
-      case BooleanLiteral(true) => new Path(Seq.empty)
-      case _ => new Path(Seq(Right(p)))
+      case Let(i, e, b) => Path(CloseBound(i, e)) merge apply(b)
+      case BooleanLiteral(true) => empty
+      case _ => Path(Condition(p))
     }
 
-    def apply(p: (ValDef, Expr)): Path = new Path(Seq(Left(p)))
+    def apply(p: (ValDef, Expr)): Path = Path(CloseBound(p._1, p._2))
+    def apply(vd: ValDef): Path = Path(OpenBound(vd))
 
-    def apply(path: Seq[Expr]): Path = new Path(path.filterNot(_ == BooleanLiteral(true)).map(Right(_)))
+    def apply(path: Seq[Expr])(implicit d: DummyImplicit): Path =
+      new Path(path filterNot { _ == BooleanLiteral(true) } map Condition)
   }
 
   /** Encodes path conditions
-    * 
+    *
     * Paths are encoded as an (ordered) series of let-bindings and boolean
     * propositions. A path is satisfiable iff all propositions are true
     * in the context of the provided let-bindings.
@@ -59,60 +73,65 @@ trait Paths { self: SymbolOps with TypeOps =>
     * not defined, whereas an encoding of let-bindings with equalities
     * could introduce non-sensical equations.
     */
-  class Path protected(val elements: Seq[Path.Element]) extends Printable with PathLike[Path] {
-    import Path.Element
+  class Path protected(val elements: Seq[Path.Element])
+    extends Printable with PathLike[Path] {
+    import Path.{ Element, CloseBound, OpenBound, Condition }
+
+    private def :+(e: Element) = new Path(elements :+ e)
 
     /** Add a binding to this [[Path]] */
-    def withBinding(p: (ValDef, Expr)) = {
-      def exprOf(e: Element) = e match { case Right(e) => e; case Left((_, e)) => e }
-      val (before, after) = elements span (el => !exprOps.variablesOf(exprOf(el)).contains(p._1.toVariable))
-      new Path(before ++ Seq(Left(p)) ++ after)
+    override def withBinding(p: (ValDef, Expr)) = {
+      val (vd, value) = p
+      assert(elements collect {
+        case CloseBound(_, e) => e
+        case Condition(e) => e
+      } forall {
+        e => !(exprOps.variablesOf(e) contains vd.toVariable)
+      })
+      this :+ CloseBound(vd, value)
+    }
+
+    /** Add a bound to this [[Path]], a variable being defined but to an unknown/arbitrary value. */
+    override def withBound(b: ValDef) = {
+      assert(elements collect {
+        case CloseBound(_, e) => e
+        case Condition(e) => e
+      } forall {
+        e => !(exprOps.variablesOf(e) contains b.toVariable)
+      })
+      this :+ OpenBound(b)
     }
 
     /** Add a condition to this [[Path]] */
-    def withCond(e: Expr): Path = e match {
+    override def withCond(e: Expr): Path = e match {
+      case BooleanLiteral(true) => this
       case TopLevelAnds(es) if es.size > 1 => withConds(es)
-      case Not(TopLevelOrs(es)) if es.size > 1 => withConds(es.map(not(_)))
-      case _ =>
-        val notE = not(e)
-        val newElements = elements.map(_.right.map { e =>
-          simplifyByConstructors(exprOps.replace(Map(notE -> BooleanLiteral(false)), e))
-        }) :+ Right(simplifyByConstructors(conditions.foldLeft(e) { (e, c) =>
-          exprOps.replace(Map(not(c) -> BooleanLiteral(false)), e)
-        }))
-
-        new Path(newElements.filterNot(_.right.exists(_ == BooleanLiteral(true))))
+      case Not(TopLevelOrs(es)) if es.size > 1 => withConds(es map not)
+      case _ => this :+ Condition(e)
     }
 
     /** Remove bound variables from this [[Path]]
       * @param ids the bound variables to remove
       */
-    def --(vds: Set[ValDef]) = new Path(elements.filterNot(_.left.exists(p => vds(p._1))))
+    def --(vds: Set[ValDef]) = new Path(elements filter {
+      case OpenBound(vd) if vds contains vd => false
+      case CloseBound(vd, _) if vds contains vd => false
+      case _ => true
+    })
 
     /** Appends `that` path at the end of `this` */
-    def merge(that: Path): Path = new Path((elements ++ that.elements).distinct)
-
-    /** Transforms all expressions inside the path
-      *
-      * Expressions in a path appear both on the right-hand side of let binders
-      * and in boolean path conditions.
-      *
-      * @see [[map(fVal:Paths\.this\.trees\.ValDef=>Paths\.this\.trees\.ValDef,fExpr:Paths\.this\.trees\.Expr=>Paths\.this\.trees\.Expr):Paths\.this\.Path* map]]
-      *      for a map that can transform bindings as well
-      */
-    def map(f: Expr => Expr) = new Path(elements.map(_.left.map { case (vd, e) => vd -> f(e) }.right.map(f)))
+    override def merge(that: Path): Path = new Path((elements ++ that.elements).distinct)
 
     /** Transforms both let bindings and expressions inside the path
-      * 
+      *
       * The function `fVal` is applied to all values in [[bound]] and `fExpr` is applied
       * to both the bodies of the [[bindings]] as well as the [[conditions]].
-      *
-      * @see [[map(f:Paths\.this\.trees\.Expr=>Paths\.this\.trees\.Expr):Paths\.this\.Path* map]]
-      *      for a map defined only on expressions
       */
-    def map(fVal: ValDef => ValDef, fExpr: Expr => Expr) = new Path(
-      elements.map(_.left.map { case (vd, e) => fVal(vd) -> fExpr(e) }.right.map(fExpr))
-    )
+    def map(fVal: ValDef => ValDef, fExpr: Expr => Expr) = new Path(elements map {
+      case CloseBound(vd, e) => CloseBound(fVal(vd), fExpr(e))
+      case OpenBound(vd) => OpenBound(fVal(vd))
+      case Condition(c) => Condition(fExpr(c))
+    })
 
     /** Instantiates type parameters within the path
       *
@@ -120,35 +139,25 @@ trait Paths { self: SymbolOps with TypeOps =>
       * the type associated to a let binder.
       */
     def instantiate(tps: Map[TypeParameter, Type]) = {
-      val t = new TypeInstantiator(tps)
-      new Path(elements.map(_.left.map {
-        case (vd, e) => t.transform(vd) -> t.transform(e)
-      }.right.map(t.transform)))
-    }
-
-    /** Splits the path on predicate `p`
-      *
-      * The path is split into
-      * 1. the sub-path containing all conditions that pass `p` (and all let-bindings), and
-      * 2. the sequence of conditions that didn't pass `p`.
-      */
-    def partition(p: Expr => Boolean): (Path, Seq[Expr]) = {
-      val (passed, failed) = elements.partition {
-        case Right(e) => p(e)
-        case Left(_) => true
-      }
-
-      (new Path(passed), failed.flatMap(_.right.toOption))
+      val t = new typeOps.TypeInstantiator(tps)
+      new Path(elements map {
+        case CloseBound(vd, e) => CloseBound(t transform vd, t transform e)
+        case OpenBound(vd) => OpenBound(t transform vd)
+        case Condition(c) => Condition(t transform c)
+      })
     }
 
     /** Check if the path is empty
       *
       * A path is empty iff it contains no let-bindings and its path condition is trivial.
+      * Note that empty paths may contain open bounds.
       */
-    def isEmpty = elements.forall {
-      case Right(BooleanLiteral(true)) => true
+    @inline def isEmpty: Boolean = _isEmpty.get
+    private[this] val _isEmpty: Lazy[Boolean] = Lazy(elements forall {
+      case Condition(BooleanLiteral(true)) => true
+      case OpenBound(_) => true
       case _ => false
-    }
+    })
 
     /** Returns the negation of a path
       *
@@ -156,47 +165,71 @@ trait Paths { self: SymbolOps with TypeOps =>
       * However, all external let-binders can be preserved in the resulting path, thus
       * avoiding let-binding dupplication in future path foldings.
       */
-    def negate: Path = {
-      val (outers, rest) = elements.span(_.isLeft)
-      new Path(outers :+ Right(not(fold[Expr](BooleanLiteral(true), let, trees.and(_, _))(rest))))
-    }
-
-    /** Returns a new path which depends ONLY on provided ids.
-      *
-      * Let-bindings obviously depend on some `id` if it corresponds to the bound
-      * identifier. An expression depends on an `id` iff the identifier is
-      * contained within the expression.
-      *
-      * This method makes little sense on its own and will typically be used from
-      * within a fixpoint computation where the `ids` set is iteratively computed
-      * by performing [[filterByIds]] calls on some (unchaning) base [[Path]].
-      *
-      * @see [https://github.com/epfl-lara/stainless/blob/master/src/main/scala/stainless/extraction/innerfuns/FunctionClosure.scala](
-      *       FunctionClosure in stainless for an example usecase).
-      */
-    def filterByIds(ids: Set[Identifier]): Path = {
-      def containsIds(ids: Set[Identifier])(e: Expr): Boolean = exprOps.exists {
-        case Variable(id, _, _) => ids.contains(id)
-        case _ => false
-      }(e)
-
-      val newElements = elements.filter{
-        case Left((vd, e)) => ids.contains(vd.id) || containsIds(ids)(e)
-        case Right(e) => containsIds(ids)(e)
-      }
-      new Path(newElements)
+    override def negate: Path = _negate.get
+    private[this] val _negate: Lazy[Path] = Lazy {
+      val (outers, rest) = elements span { !_.isInstanceOf[Condition] }
+      new Path(outers) :+ Condition(not(fold[Expr](BooleanLiteral(true), let, trees.and(_, _))(rest)))
     }
 
     /** Free variables within the path */
-    lazy val variables: Set[Variable] = fold[Set[Variable]](Set.empty,
-      (vd, e, res) => res - vd.toVariable ++ exprOps.variablesOf(e), (e, res) => res ++ exprOps.variablesOf(e)
-    )(elements)
+    @inline def freeVariables: Set[Variable] = _free.get
+    private[this] val _free: Lazy[Set[Variable]] = Lazy {
+      val allVars = elements
+        .collect { case Condition(e) => e case CloseBound(_, e) => e }
+        .flatMap { e => exprOps.variablesOf(e) }
+      val boundVars = bound map { _.toVariable }
+      allVars.toSet -- boundVars
+    }
 
-    lazy val bindings: Seq[(ValDef, Expr)] = elements.collect { case Left(p) => p }
-    lazy val bound = bindings map (_._1)
-    lazy val conditions: Seq[Expr] = elements.collect { case Right(e) => e }
+    /** Variables that aren't bound by a [[Path.CloseBound]]. */
+    @inline def unboundVariables: Set[Variable] = _unbound.get
+    private[this] val _unbound: Lazy[Set[Variable]] = Lazy {
+      val allVars = elements
+        .collect { case Condition(e) => e case CloseBound(_, e) => e }
+        .flatMap { e => exprOps.variablesOf(e) }
+      val boundVars = bindings map { _._1.toVariable }
+      allVars.toSet -- boundVars
+    }
 
-    def isBound(id: Identifier): Boolean = bindings.exists(p => p._1.id == id)
+    @inline def bindings: Seq[(ValDef, Expr)] = _bindings.get
+    private[this] val _bindings: Lazy[Seq[(ValDef, Expr)]] =
+      Lazy(elements.collect { case CloseBound(vd, e) => vd -> e })
+
+    @inline def open: Seq[ValDef] = _open.get
+    private[this] val _open: Lazy[Seq[ValDef]] =
+      Lazy(elements.collect { case OpenBound(vd) => vd })
+
+    @inline def closed: Seq[ValDef] = _closed.get
+    private[this] val _closed: Lazy[Seq[ValDef]] =
+      Lazy(elements.collect { case CloseBound(vd, _) => vd })
+
+    @inline def bound: Seq[ValDef] = _bound.get
+    private[this] val _bound: Lazy[Seq[ValDef]] =
+      Lazy(elements.collect { case CloseBound(vd, _) => vd case OpenBound(vd) => vd })
+
+    @inline def conditions: Seq[Expr] = _conditions.get
+    private[this] val _conditions: Lazy[Seq[Expr]] =
+      Lazy(elements.collect { case Condition(e) => e })
+
+    def isBound(id: Identifier): Boolean = bound exists { _.id == id }
+
+    /** Free variables of the input expression under the current path
+      *
+      * See [[freeVariables]] for some more details about _free_ variables
+      */
+    def freeOf(e: Expr): Set[Variable] = freeOf(exprOps.variablesOf(e))
+
+    /** Free variables of the input variable set under the current path */
+    def freeOf(vs: Set[Variable]): Set[Variable] = vs -- bound.map(_.toVariable) ++ freeVariables
+
+    /** Unbound variables of the input expression under the current path
+      *
+      * See [[unboundVariables]] for some more details about _unbound_ variables
+      */
+    def unboundOf(e: Expr): Set[Variable] = unboundOf(exprOps.variablesOf(e))
+
+    /** Unbound variables of the input variable set under the current path */
+    def unboundOf(vs: Set[Variable]): Set[Variable] = vs -- closed.map(_.toVariable) ++ unboundVariables
 
     /** Fold the path elements
       *
@@ -205,20 +238,23 @@ trait Paths { self: SymbolOps with TypeOps =>
       */
     private def fold[T](base: T, combineLet: (ValDef, Expr, T) => T, combineCond: (Expr, T) => T)
                        (elems: Seq[Element]): T = elems.foldRight(base) {
-      case (Left((id, e)), res) => combineLet(id, e, res)
-      case (Right(e), res) => combineCond(e, res)
+      case (CloseBound(vd, e), res) => combineLet(vd, e, res)
+      case (Condition(e), res) => combineCond(e, res)
+      case (OpenBound(_), res) => res
     }
 
     /** Folds the path elements over a distributive proposition combinator [[combine]]
-      * 
+      *
       * Certain combiners can be distributive over let-binding folds. Namely, one
       * requires that `combine(let a = b in e1, e2)` be equivalent to
       * `let a = b in combine(e1, e2)` (where a \not\in FV(e2)). This is the case for
       * - conjunction [[and]]
       * - implication [[implies]]
+      *
+      * NOTE Open bounds are lost; i.e. the generated expression can contain free variables.
       */
     private def distributiveClause(base: Expr, combine: (Expr, Expr) => Expr): Expr = {
-      val (outers, rest) = elements.span(_.isLeft)
+      val (outers, rest) = elements span { !_.isInstanceOf[Condition] }
       val inner = fold[Expr](base, let, combine)(rest)
       fold[Expr](inner, let, (_,_) => scala.sys.error("Should never happen!"))(outers)
     }
@@ -242,11 +278,11 @@ trait Paths { self: SymbolOps with TypeOps =>
       * that implies further positions.
       */
     def withShared(es: Seq[Expr], recons: (Expr, Seq[Expr]) => Expr): Expr = {
-      val (outers, rest) = elements.span(_.isLeft)
+      val (outers, rest) = elements span { !_.isInstanceOf[Condition] }
+      val bindings = rest collect { case CloseBound(vd, e) => vd -> e }
       val cond = fold[Expr](BooleanLiteral(true), let, trees.and(_, _))(rest)
 
       def wrap(e: Expr): Expr = {
-        val bindings = rest.collect { case Left((vd, e)) => vd -> e }
         val subst = bindings.map(p => p._1 -> p._1.toVariable.freshen).toMap
         val replace = exprOps.replaceFromSymbols(subst, _: Expr)
         bindings.foldRight(replace(e)) { case ((vd, e), b) => let(subst(vd).toVal, replace(e), b) }
@@ -257,21 +293,14 @@ trait Paths { self: SymbolOps with TypeOps =>
     }
 
     /** Folds the path into the associated boolean proposition */
-    lazy val toClause: Expr = and(BooleanLiteral(true))
+    @inline def toClause: Expr = _clause.get
+    private[this] val _clause: Lazy[Expr] = Lazy(and(BooleanLiteral(true)))
 
     /** Like [[toClause]] but doesn't simplify final path through constructors
       * from [[Constructors]] */
-    lazy val fullClause: Expr = fold[Expr](BooleanLiteral(true), Let, And(_, _))(elements)
-
-    /** Folds the path into a boolean proposition where let-bindings are
-      * replaced by equations.
-      *
-      * CAUTION: Should only be used once INSIDE the solver!!
-      */
-    lazy val toPath: Expr = andJoin(elements.map {
-      case Left((id, e)) => Equals(id.toVariable, e)
-      case Right(e) => e
-    })
+    @inline def fullClause: Expr = _fullClause.get
+    private[this] val _fullClause: Lazy[Expr] =
+      Lazy(fold[Expr](BooleanLiteral(true), Let, And(_, _))(elements))
 
     override def equals(that: Any): Boolean = that match {
       case p: Path => elements == p.elements

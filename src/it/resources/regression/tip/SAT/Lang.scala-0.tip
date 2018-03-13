@@ -1,0 +1,25 @@
+(declare-datatypes (A1!0 R!20) ((fun1!3 (fun1!4 (f!46 (=> A1!0 R!20)) (pre!12 (=> A1!0 Bool))))))
+
+(declare-datatypes (T!0) ((List!4 (Cons!3 (h!55 T!0) (t!56 (List!4 T!0))) (Nil!3))))
+
+(declare-datatypes (T!29) ((Lang!2 (Lang!3 (f!45 (fun1!3 (List!4 T!29) Bool))))))
+
+(define-fun (par (T!94) (contains!1 ((thiss!64 (Lang!2 T!94)) (word!0 (List!4 T!94))) Bool (@ (f!46 (f!45 thiss!64)) word!0))))
+
+(define-fun-rec (par (T!51) (size!0 ((thiss!21 (List!4 T!51))) Int (let ((x$1!2 (ite (is-Nil!3 thiss!21) 0 (+ 1 (size!0 (t!56 thiss!21)))))) (assume (>= x$1!2 0) x$1!2)))))
+
+(define-fun-rec (par (T!88) (content!0 ((thiss!58 (List!4 T!88))) (Set T!88) (ite (is-Nil!3 thiss!58) (as emptyset T!88) (union (insert (as emptyset T!88) (h!55 thiss!58)) (content!0 (t!56 thiss!58)))))))
+
+(define-fun-rec (par (T!62) (take!0 ((thiss!32 (List!4 T!62)) (i!0 Int)) (List!4 T!62) (let ((res!3 (ite (is-Nil!3 thiss!32) (as Nil!3 (List!4 T!62)) (ite (<= i!0 0) (as Nil!3 (List!4 T!62)) (Cons!3 (h!55 thiss!32) (take!0 (t!56 thiss!32) (- i!0 1))))))) (assume (and (subset (content!0 res!3) (content!0 thiss!32)) (= (size!0 res!3) (ite (<= i!0 0) 0 (ite (>= i!0 (size!0 thiss!32)) (size!0 thiss!32) i!0)))) res!3)))))
+
+(define-fun-rec (par (T!101) (drop!0 ((thiss!71 (List!4 T!101)) (i!2 Int)) (List!4 T!101) (let ((res!4 (ite (is-Nil!3 thiss!71) (as Nil!3 (List!4 T!101)) (ite (<= i!2 0) (Cons!3 (h!55 thiss!71) (t!56 thiss!71)) (drop!0 (t!56 thiss!71) (- i!2 1)))))) (assume (and (subset (content!0 res!4) (content!0 thiss!71)) (= (size!0 res!4) (ite (<= i!2 0) (size!0 thiss!71) (ite (>= i!2 (size!0 thiss!71)) 0 (- (size!0 thiss!71) i!2))))) res!4)))))
+
+(define-fun (par (T!43) (concat!0 ((thiss!13 (Lang!2 T!43)) (that!16 (Lang!2 T!43))) (Lang!2 T!43) (Lang!3 (fun1!4 (lambda ((l!19 (List!4 T!43))) (exists ((i!12 Int)) (not (not (and (and (and (<= i!12 (size!0 l!19)) (>= i!12 0)) (contains!1 thiss!13 (take!0 l!19 i!12))) (contains!1 that!16 (drop!0 l!19 i!12))))))) (lambda ((l!20 (List!4 T!43))) true))))))
+
+(datatype-invariant (par (T!108) thiss!81 (Lang!2 T!108) (forall ((x!56 (List!4 T!108))) (@ (f!46 (fun1!4 (pre!12 (f!45 thiss!81)) (lambda ((x!93 (List!4 T!108))) true))) x!56))))
+
+(assert (not (contains!1 (concat!0 (Lang!3 (fun1!4 (lambda ((a!18 (List!4 (_ BitVec 32)))) (= a!18 (Cons!3 #b00000000000000000000000000000011 (as Nil!3 (List!4 (_ BitVec 32)))))) (lambda ((a!22 (List!4 (_ BitVec 32)))) true))) (Lang!3 (fun1!4 (lambda ((a!19 (List!4 (_ BitVec 32)))) (= a!19 (Cons!3 #b00000000000000000000000000000101 (as Nil!3 (List!4 (_ BitVec 32)))))) (lambda ((a!23 (List!4 (_ BitVec 32)))) true)))) (Cons!3 #b00000000000000000000000000000101 (Cons!3 #b00000000000000000000000000000011 (as Nil!3 (List!4 (_ BitVec 32))))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

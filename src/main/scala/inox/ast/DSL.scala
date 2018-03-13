@@ -67,8 +67,8 @@ trait DSL {
 
     def apply(es: Expr*) = Application(e, es.toSeq)
 
-    def isInstOf(tp: ADTType) = IsInstanceOf(e, tp)
-    def asInstOf(tp: ADTType) = AsInstanceOf(e, tp)
+    def is(id: Identifier) = IsConstructor(e, id)
+    def is(cons: ADTConstructor) = IsConstructor(e, cons.id)
   }
 
   // Literals
@@ -112,10 +112,6 @@ trait DSL {
       FunctionInvocation(fd.id, tp1 +: tps.toSeq, args.toSeq)
     def apply(args: Expr*) =
       FunctionInvocation(fd.id, Seq.empty, args.toSeq)
-  }
-
-  implicit class ADTTypeToExpr(adt: ADTType) {
-    def apply(args: Expr*) = ADT(adt, args)
   }
 
   implicit class GenValue(tp: TypeParameter) {
@@ -200,8 +196,22 @@ trait DSL {
     def apply(tps: Type*) = ADTType(id, tps.toSeq)
   }
 
-  implicit class ADTTypeBuilder(adt: ADTDefinition) {
+  implicit class ADTTypeBuilder(adt: ADTSort) {
     def apply(tps: Type*) = ADTType(adt.id, tps.toSeq)
+  }
+
+  class ADTCons(id: Identifier, tps: Seq[Type]) extends Tree {
+    def apply(args: Expr*) = ADT(id, tps, args).copiedFrom(this)
+  }
+
+  class ADTConsIdentifier(id: Identifier) extends Tree {
+    def apply(tps: Type*) = new ADTCons(id, tps).copiedFrom(this)
+    def apply(args: Expr*) = new ADTCons(id, Seq.empty).copiedFrom(this).apply(args : _*)
+  }
+
+  implicit class ADTConsConstructor(adt: ADTConstructor) {
+    def apply(tp: Type, tps: Type*) = new ADTCons(adt.id, tp +: tps)
+    def apply(args: Expr*) = new ADTCons(adt.id, Seq.empty).apply(args : _*)
   }
 
   implicit class FunctionTypeBuilder(to: Type) {
@@ -215,21 +225,12 @@ trait DSL {
       FunctionType(Seq(from._1, from._2, from._3, from._4), to)
   }
 
-  // TODO remove this at some point
-  private def testTypes: Unit = {
-    val ct1 = FreshIdentifier("ct1")
-    val ct2 = FreshIdentifier("ct2")
-    T(
-      T(ct1)(),
-      T(ct1)(T(ct2)(), IntegerType),
-      (T(ct1)(), T(ct2)()) =>: T(ct1)()
-    )
-  }
-
   /* Patterns */
   object C {
-    def unapplySeq(expr: Expr): Option[(Identifier, Seq[Expr])] = expr match {
-      case ADT(adt, exprs) => Some((adt.id, exprs))
+    def apply(id: Identifier): ADTConsIdentifier = new ADTConsIdentifier(id)
+    def apply(id: Identifier, tps: Seq[Type]): ADTCons = new ADTCons(id, tps)
+    def unapplySeq(expr: Expr): Option[(Identifier, Seq[Type], Seq[Expr])] = expr match {
+      case ADT(id, tps, exprs) => Some((id, tps, exprs))
       case _ => None
     }
   }
@@ -262,37 +263,10 @@ trait DSL {
 
   def mkSort(id: Identifier, flags: Flag*)
             (tParamNames: String*)
-            (cons: Seq[Identifier]) = {
+            (consBuilder: Seq[TypeParameter] => Seq[(Identifier, Seq[ValDef])]) = {
     val tParams = tParamNames map TypeParameter.fresh
     val tParamDefs = tParams map (TypeParameterDef(_))
-    new ADTSort(id, tParamDefs, cons, flags.toSet)
+    new ADTSort(id, tParamDefs, consBuilder(tParams).map(p => new ADTConstructor(p._1, id, p._2)), flags.toSet)
   }
-
-  def mkConstructor(id: Identifier, flags: Flag*)
-                   (tParamNames: String*)
-                   (sort: Option[Identifier])
-                   (fieldBuilder: Seq[TypeParameter] => Seq[ValDef]) = {
-    val tParams = tParamNames map TypeParameter.fresh
-    val tParamDefs = tParams map (TypeParameterDef(_))
-    val fields = fieldBuilder(tParams)
-    new ADTConstructor(id, tParamDefs, sort, fields, flags.toSet)
-  }
-
-  // TODO: Remove this at some point
-  /* This defines
-    def f[A, B](i: BigInt, j: C[A], a: A): (BigInt, C[A]) = {
-      (42, C[A](a))
-    }
-  */
-  private def testDefs = {
-    val c = T(FreshIdentifier("c"))
-    val f = FreshIdentifier("f")
-    mkFunDef(f)("A", "B"){ case Seq(aT, bT) => (
-      Seq("i" :: IntegerType, "j" :: c(aT), "a" :: aT),
-      T(IntegerType, c(aT)),
-      { case Seq(i, j, a) => E(E(42), c(aT)(a)) }
-    )}
-  }
-
 }
 

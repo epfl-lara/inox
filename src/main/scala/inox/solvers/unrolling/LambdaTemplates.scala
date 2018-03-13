@@ -8,6 +8,7 @@ import utils._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 trait LambdaTemplates { self: Templates =>
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -56,20 +57,20 @@ trait LambdaTemplates { self: Templates =>
       lambda: Lambda,
       substMap: Map[Variable, Encoded]
     ): LambdaTemplate = {
-      val idArgs: Seq[Variable] = lambdaArguments(lambda)
+      val idArgs: Seq[Variable] = lambda.args.map(_.toVariable)
       val trArgs: Seq[Encoded] = idArgs.map(v => substMap.getOrElse(v, encodeSymbol(v)))
 
       val (realLambda, structure, depSubst) = mkExprStructure(pathVar._1, lambda, substMap)
-      val depClosures = exprOps.variablesOf(lambda).flatMap(substMap.get)
+      val depClosures = exprOps.variablesOf(lambda).toSeq.sortBy(_.id.uniqueName).map(v => v -> substMap(v))
 
       val tpe = lambda.getType.asInstanceOf[FunctionType]
       val lid = Variable.fresh("lambda", tpe, true)
-      val appEqBody: Seq[(Expr, Expr)] = liftedEquals(lid, realLambda, idArgs, inlineFirst = true)
+      val app = Application(lid, idArgs)
 
       val clauseSubst: Map[Variable, Encoded] = depSubst ++ (idArgs zip trArgs)
-      val tmplClauses = appEqBody.foldLeft(emptyClauses) { case (clsSet, (app, body)) =>
-        val (p, cls) = mkExprClauses(pathVar._1, body, clauseSubst)
-        clsSet ++ cls + (pathVar._1 -> Equals(app, p))
+      val tmplClauses = {
+        val (p, cls) = mkExprClauses(pathVar._1, application(realLambda, idArgs), clauseSubst)
+        cls + (pathVar._1 -> Equals(app, p))
       }
 
       val lidT = encodeSymbol(lid)
@@ -88,18 +89,18 @@ trait LambdaTemplates { self: Templates =>
     val ids: (Variable, Encoded),
     val contents: TemplateContents,
     val structure: TemplateStructure,
-    val closures: Set[Encoded],
+    val closures: Seq[(Variable, Encoded)],
     val lambda: Lambda,
     private[unrolling] val stringRepr: () => String,
     private val isConcrete: Boolean) extends Template {
 
-    val tpe = bestRealType(ids._1.getType).asInstanceOf[FunctionType]
+    val tpe = ids._1.getType.asInstanceOf[FunctionType]
 
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): LambdaTemplate = new LambdaTemplate(
       ids._1 -> substituter(ids._2),
       contents.substitute(substituter, msubst),
       structure.substitute(substituter, msubst),
-      closures.map(substituter),
+      closures.map(p => p._1 -> substituter(p._2)),
       lambda, stringRepr, isConcrete)
 
     /** This must be called right before returning the clauses in [[structure]]`.instantiation` ! */
@@ -132,28 +133,32 @@ trait LambdaTemplates { self: Templates =>
     mkSubstituter(Map(vT -> caller) ++ (asT zip args))(app)
   }
 
-  def mkFlatApp(caller: Encoded, tpe: FunctionType, args: Seq[Encoded]): Encoded = tpe.to match {
-    case ft: FunctionType => mkFlatApp(mkApp(caller, tpe, args.take(tpe.from.size)), ft, args.drop(tpe.from.size))
-    case _ => mkApp(caller, tpe, args)
-  }
-
   def registerFunction(b: Encoded, tpe: FunctionType, f: Encoded): Clauses = {
-    val ft = bestRealType(tpe).asInstanceOf[FunctionType]
-    freeFunctions += ft -> (freeFunctions(ft) + (b -> f))
+    reporter.debug(s"-> registering free function $b ==> $f: $tpe")
+    freeFunctions += tpe -> (freeFunctions(tpe) + (b -> f))
 
+    var clauses: Clauses = Seq.empty
     lazy val gen = nextGeneration(currentGeneration)
-    for (app @ (_, App(caller, _, args, _)) <- applications(ft)) {
-      val cond = mkAnd(b, mkEquals(f, caller))
-      registerAppBlocker(gen, app, Right(f), cond, args)
+    for (app @ (_, App(caller, _, args, _)) <- applications(tpe)) {
+      if (f == caller) {
+        // We unroll this app immediately to increase performance for model finding with quantifiers
+        val (lastB, nextB) = nextAppBlocker(app)
+        clauses :+= mkEquals(lastB, mkOr(b, nextB))
+      } else {
+        val cond = mkAnd(b, mkEquals(f, caller))
+        registerAppInfo(gen, app, Right(f), cond, args)
+      }
     }
 
-    if (ft.from.nonEmpty) Seq.empty else for {
-      template <- byType(ft).values.toList
-      if canEqual(template.ids._2, f) && isPureTemplate(template)
+    if (tpe.from.isEmpty) clauses ++= (for {
+      template <- byType(tpe).values.toList
+      if canBeEqual(template.ids._2, f) && isPureTemplate(template)
     } yield {
-      val (tmplApp, fApp) = (mkApp(template.ids._2, ft, Seq.empty), mkApp(f, ft, Seq.empty))
+      val (tmplApp, fApp) = (mkApp(template.ids._2, tpe, Seq.empty), mkApp(f, tpe, Seq.empty))
       mkImplies(mkAnd(b, template.start, mkEquals(tmplApp, fApp)), mkEquals(template.ids._2, f))
-    }
+    })
+
+    clauses
   }
 
   private def isPureTemplate(template: LambdaTemplate): Boolean = template.structure.body match {
@@ -161,19 +166,29 @@ trait LambdaTemplates { self: Templates =>
     case _ => false
   }
 
-  private def registerAppBlocker(gen: Int, key: (Encoded, App), template: Either[LambdaTemplate, Encoded], equals: Encoded, args: Seq[Arg]): Unit = {
+  private def registerAppInfo(gen: Int, key: (Encoded, App), template: Either[LambdaTemplate, Encoded], equals: Encoded, args: Seq[Arg]): Unit = {
     val info = TemplateAppInfo(template, equals, args)
     appInfos.get(key) match {
-      case Some((exGen, origGen, b, notB, exInfo)) =>
+      case Some((exGen, origGen, exInfo)) =>
         val minGen = gen min exGen
-        appInfos += key -> (minGen, origGen, b, notB, exInfo + info)
+        appInfos += key -> (minGen, origGen, exInfo + info)
 
       case None =>
-        val b = appBlockers(key)
-        val notB = mkNot(b)
-        appInfos += key -> (gen, gen, b, notB, Set(info))
-        blockerToApps += b -> key
+        appInfos += key -> (gen, gen, Set(info))
     }
+  }
+
+  private def registerAppBlocker(app: (Encoded, App), blocker: Encoded): Unit = {
+    appBlockers.get(app).foreach(blockerToApps -= _)
+    appBlockers += app -> blocker
+    blockerToApps += blocker -> app
+  }
+
+  private def nextAppBlocker(app: (Encoded, App)): (Encoded, Encoded) = {
+    val nextB = encodeSymbol(Variable.fresh("b_lambda", BooleanType(), true))
+    val lastB = appBlockers(app)
+    registerAppBlocker(app, nextB)
+    (lastB, nextB)
   }
 
   def registerLambda(pointer: Encoded, target: Encoded): Boolean = byID.get(target) match {
@@ -181,8 +196,8 @@ trait LambdaTemplates { self: Templates =>
       byID += pointer -> template
       applications += template.tpe -> applications(template.tpe).filterNot(_._2.caller == pointer)
 
-      for ((key @ (_, app), (gen, origGen, b, notB, fis)) <- appInfos.toSeq if fis.nonEmpty && app.caller == pointer) {
-        appInfos += key -> (gen, origGen, b, notB, Set(TemplateAppInfo(template, trueT, app.args)))
+      for ((key @ (_, app), (gen, origGen, fis)) <- appInfos.toSeq if fis.nonEmpty && app.caller == pointer) {
+        appInfos += key -> (gen, origGen, Set(TemplateAppInfo(template, trueT, app.args)))
       }
 
       true
@@ -201,12 +216,12 @@ trait LambdaTemplates { self: Templates =>
       val idT = encodeSymbol(template.ids._1)
       val newTemplate = template.concretize(idT)
 
-      val orderingClauses = newTemplate.structure.locals.flatMap {
+      val orderingClauses = newTemplate.closures.flatMap {
         case (v, dep) => registerClosure(newTemplate.start, idT -> newTemplate.tpe, dep -> v.tpe)
       }
 
-      val extClauses = for ((oldB, freeF) <- freeBlockers(newTemplate.tpe).toList if canEqual(freeF, idT)) yield {
-        val nextB  = encodeSymbol(Variable.fresh("b_or", BooleanType, true))
+      val extClauses = for ((oldB, freeF) <- freeBlockers(newTemplate.tpe).toList if canBeEqual(freeF, idT)) yield {
+        val nextB  = encodeSymbol(Variable.fresh("b_or", BooleanType(), true))
         val ext = mkOr(mkAnd(newTemplate.start, mkEquals(idT, freeF)), nextB)
         freeBlockers += newTemplate.tpe -> (freeBlockers(newTemplate.tpe) - (oldB -> freeF) + (nextB -> freeF))
         mkEquals(oldB, ext)
@@ -216,7 +231,7 @@ trait LambdaTemplates { self: Templates =>
       val arglessEqClauses = if (newTemplate.tpe.from.nonEmpty || !isPureTemplate(newTemplate)) {
         Seq.empty[Encoded]
       } else {
-        for ((b,f) <- freeFunctions(newTemplate.tpe) if canEqual(idT, f)) yield {
+        for ((b,f) <- freeFunctions(newTemplate.tpe) if canBeEqual(idT, f)) yield {
           val (tmplApp, fApp) = (mkApp(idT, newTemplate.tpe, Seq.empty), mkApp(f, newTemplate.tpe, Seq.empty))
           mkImplies(mkAnd(b, newTemplate.start, mkEquals(tmplApp, fApp)), mkEquals(idT, f))
         }
@@ -235,7 +250,7 @@ trait LambdaTemplates { self: Templates =>
       val gen = nextGeneration(currentGeneration)
       for (app @ (_, App(caller, _, args, _)) <- applications(newTemplate.tpe)) {
         val cond = mkAnd(newTemplate.start, mkEquals(idT, caller))
-        registerAppBlocker(gen, app, Left(newTemplate), cond, args)
+        registerAppInfo(gen, app, Left(newTemplate), cond, args)
       }
 
       (idT, clauses)
@@ -243,59 +258,58 @@ trait LambdaTemplates { self: Templates =>
   }
 
   def instantiateApp(blocker: Encoded, app: App): Clauses = {
-    val App(caller, tpe @ FirstOrderFunctionType(from, to), args, encoded) = app
+    val App(caller, tpe @ FunctionType(from, to), args, encoded) = app
 
     val key = blocker -> app
-    if (instantiated(key)) Seq.empty else {
+    var clauses: Clauses = Seq.empty
+    if (!instantiated(key)) {
       instantiated += key
 
-      val freshAppClause = if (appBlockers.isDefinedAt(key)) None else {
-        val firstB = encodeSymbol(Variable.fresh("b_lambda", BooleanType, true))
-        val clause = mkImplies(mkNot(firstB), mkNot(blocker))
-
-        // blockerToApps will be updated by the following registerAppBlocker call
-        appBlockers += key -> firstB
-        Some(clause)
+      if (!appBlockers.isDefinedAt(key)) {
+        val firstB = encodeSymbol(Variable.fresh("b_lambda", BooleanType(), true))
+        registerAppBlocker(key, firstB)
+        clauses :+= mkImplies(mkNot(firstB), mkNot(blocker))
       }
 
-      val typeClauses: Clauses = if (byID contains caller) {
+      if (byID contains caller) {
         /* We register this app at the CURRENT generation to increase the performance
          * of fold-style higher-order functions (the first-class function will be
          * dispatched immediately after the fold-style function unrolling). */
-        registerAppBlocker(currentGeneration, key, Left(byID(caller)), trueT, args)
-
-        // don't unroll type as lambda is defined within the program
-        Seq.empty
+        registerAppInfo(currentGeneration, key, Left(byID(caller)), trueT, args)
       } else {
         lazy val gen = nextGeneration(currentGeneration)
-        for (template <- byType(tpe).values.toList if canEqual(caller, template.ids._2)) {
+        for (template <- byType(tpe).values.toList if canBeEqual(caller, template.ids._2)) {
           val cond = mkAnd(template.start, mkEquals(template.ids._2, caller))
-          registerAppBlocker(gen, key, Left(template), cond, args)
+          registerAppInfo(gen, key, Left(template), cond, args)
         }
 
-        for ((b,f) <- freeFunctions(tpe) if canEqual(caller, f)) {
-          val cond = mkAnd(b, mkEquals(f, caller))
-          registerAppBlocker(gen, key, Right(f), cond, args)
+        for ((b,f) <- freeFunctions(tpe) if canBeEqual(caller, f)) {
+          if (f == caller) {
+            // We unroll this app immediately to increase performance for model finding with quantifiers
+            val (lastB, nextB) = nextAppBlocker(key)
+            clauses :+= mkEquals(lastB, mkOr(b, nextB))
+          } else {
+            val cond = mkAnd(b, mkEquals(f, caller))
+            registerAppInfo(gen, key, Right(f), cond, args)
+          }
         }
 
         /* Make sure that if `app` DOES NOT correspond to a concrete closure defined
          * within the program, then the ADT invariants are asserted on its return values. */
-        val tpeClauses: Clauses = if (!DatatypeTemplate.unroll(to)) {
-          Seq.empty
-        } else typeBlockers.get(encoded) match {
+        if (DatatypeTemplate.unroll(to)) typeBlockers.get(encoded) match {
           case Some(typeBlocker) =>
             registerImplication(blocker, typeBlocker)
-            Seq(mkImplies(blocker, typeBlocker))
+            clauses :+= mkImplies(blocker, typeBlocker)
 
           case None =>
-            val typeBlocker = encodeSymbol(Variable.fresh("t", BooleanType))
+            val typeBlocker = encodeSymbol(Variable.fresh("t", BooleanType()))
             typeBlockers += encoded -> typeBlocker
 
-            val firstB = encodeSymbol(Variable.fresh("b_free", BooleanType, true))
-            val nextB  = encodeSymbol(Variable.fresh("b_or", BooleanType, true))
+            val firstB = encodeSymbol(Variable.fresh("b_free", BooleanType(), true))
+            val nextB  = encodeSymbol(Variable.fresh("b_or", BooleanType(), true))
             freeBlockers += tpe -> (freeBlockers(tpe) + (nextB -> caller))
 
-            val boundClauses = for (template <- byType(tpe).values if canEqual(caller, template.ids._2)) yield {
+            val boundClauses = for (template <- byType(tpe).values if canBeEqual(caller, template.ids._2)) yield {
               mkAnd(template.start, mkEquals(caller, template.ids._2))
             }
 
@@ -304,16 +318,14 @@ trait LambdaTemplates { self: Templates =>
             registerImplication(firstB, typeBlocker)
             val symClauses = registerSymbol(typeBlocker, encoded, to)
 
-            symClauses :+ extClause :+ mkImplies(firstB, typeBlocker)
+            clauses ++= symClauses :+ extClause :+ mkImplies(firstB, typeBlocker)
         }
 
         applications += tpe -> (applications(tpe) + key)
-
-        tpeClauses
       }
-
-      typeClauses ++ freshAppClause
     }
+
+    clauses
   }
 
   private def equalityClauses(template: LambdaTemplate): Clauses = {
@@ -349,7 +361,7 @@ trait LambdaTemplates { self: Templates =>
 
     // Keep which function invocation is guarded by which guard,
     // also specify the generation of the blocker.
-    private[LambdaTemplates] val appInfos      = new IncrementalMap[(Encoded, App), (Int, Int, Encoded, Encoded, Set[TemplateAppInfo])]()
+    private[LambdaTemplates] val appInfos      = new IncrementalMap[(Encoded, App), (Int, Int, Set[TemplateAppInfo])]()
     private[LambdaTemplates] val appBlockers   = new IncrementalMap[(Encoded, App), Encoded]()
     private[LambdaTemplates] val blockerToApps = new IncrementalMap[Encoded, (Encoded, App)]()
 
@@ -373,15 +385,19 @@ trait LambdaTemplates { self: Templates =>
       else Some(appInfos.values.map(_._1).min)
 
     private def assumptions: Seq[Encoded] = freeBlockers.toSeq.flatMap(_._2.map(p => mkNot(p._1)))
-    def satisfactionAssumptions = appInfos.map(_._2._4).toSeq ++ assumptions
+    def satisfactionAssumptions = appBlockers.map(p => mkNot(p._2)).toSeq ++ assumptions
     def refutationAssumptions = assumptions
 
     def promoteBlocker(b: Encoded): Boolean = {
       if (blockerToApps contains b) {
         val app = blockerToApps(b)
-        val (_, origGen, _, notB, infos) = appInfos(app)
-        appInfos += app -> (currentGeneration, origGen, b, notB, infos)
-        true
+        if (appInfos contains app) {
+          val (_, origGen, infos) = appInfos(app)
+          appInfos += app -> (currentGeneration, origGen, infos)
+          true
+        } else {
+          false
+        }
       } else {
         false
       }
@@ -390,26 +406,19 @@ trait LambdaTemplates { self: Templates =>
     def unroll: Clauses = if (appInfos.isEmpty) Seq.empty else {
       val newClauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-      val blockers = appInfos.values.filter(_._1 <= currentGeneration).toSeq.map(_._3)
-      val apps = blockers.flatMap(blocker => blockerToApps.get(blocker))
+      val apps = appInfos.toList.filter(_._2._1 <= currentGeneration).map(_._1)
       val thisAppInfos = apps.map(app => app -> {
-        val (gen, _, _, _, infos) = appInfos(app)
+        val (gen, _, infos) = appInfos(app)
         (gen, infos)
       })
 
       val remainingApps = MutableSet.empty ++ apps
 
-      blockerToApps --= blockers
+      blockerToApps --= apps.map(appBlockers)
       appInfos --= apps
 
       val newBlockers = (for ((app, (_, infos)) <- thisAppInfos if infos.nonEmpty) yield {
-        val nextB = encodeSymbol(Variable.fresh("b_lambda", BooleanType, true))
-        val lastB = appBlockers(app)
-
-        blockerToApps += nextB -> app
-        appBlockers += app -> nextB
-
-        app -> ((lastB, nextB))
+        app -> nextAppBlocker(app)
       }).toMap
 
       for ((app @ (b, _), (gen, infos)) <- thisAppInfos if infos.nonEmpty && !abort) {
@@ -425,7 +434,7 @@ trait LambdaTemplates { self: Templates =>
           }).toSeq :+ nextB) : _*)
 
           val clause = mkEquals(lastB, extension)
-          ctx.reporter.debug(" -> extending lambda blocker: " + clause)
+          reporter.debug(" -> extending lambda blocker: " + clause)
           newClauses += clause
 
           for (info @ TemplateAppInfo(tmpl, equals, args) <- infos if !abort; template <- tmpl.left) {
@@ -435,7 +444,7 @@ trait LambdaTemplates { self: Templates =>
               case Some(lambdaBlocker) => lambdaBlocker
 
               case None =>
-                val lambdaBlocker = encodeSymbol(Variable.fresh("d", BooleanType, true))
+                val lambdaBlocker = encodeSymbol(Variable.fresh("d", BooleanType(), true))
                 lambdaBlockers += info -> lambdaBlocker
 
                 val instClauses: Clauses = template.instantiate(lambdaBlocker, args)
@@ -448,9 +457,9 @@ trait LambdaTemplates { self: Templates =>
             registerImplication(b, lambdaBlocker)
             newCls += mkImplies(enabler, lambdaBlocker)
 
-            ctx.reporter.debug("Unrolling behind "+info+" ("+newCls.size+")")
+            reporter.debug("Unrolling behind "+info+" ("+newCls.size+")")
             for (cl <- newCls) {
-              ctx.reporter.debug("  . "+cl)
+              reporter.debug("  . "+cl)
             }
 
             newClauses ++= newCls
@@ -460,16 +469,15 @@ trait LambdaTemplates { self: Templates =>
 
       val remainingInfos = thisAppInfos.filter { case (app, _) => remainingApps(app) }
       for ((app, (gen, infos)) <- thisAppInfos if remainingApps(app)) appInfos.get(app) match {
-        case Some((newGen, origGen, b, notB, newInfos)) =>
-          appInfos += app -> (gen min newGen, origGen, b, notB, infos ++ newInfos)
+        case Some((newGen, origGen, newInfos)) =>
+          appInfos += app -> (gen min newGen, origGen, infos ++ newInfos)
 
         case None =>
-          val b = appBlockers(app)
-          val notB = mkNot(b)
-          appInfos += app -> (gen, gen, b, notB, infos)
+          appInfos += app -> (gen, gen, infos)
+          blockerToApps += appBlockers(app) -> app
       }
 
-      ctx.reporter.debug(s"   - ${newClauses.size} new clauses")
+      reporter.debug(s"   - ${newClauses.size} new clauses")
 
       newClauses
     }

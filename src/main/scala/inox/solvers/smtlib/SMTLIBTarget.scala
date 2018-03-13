@@ -28,12 +28,13 @@ import scala.collection.BitSet
 import scala.collection.mutable.{Map => MutableMap}
 
 trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
-  val program: Program
   lazy val trees: program.trees.type = program.trees
   lazy val symbols: program.symbols.type = program.symbols
+
+  import context._
   import program._
-  import trees._
-  import symbols._
+  import program.trees._
+  import program.symbols._
 
   def targetName: String
 
@@ -46,7 +47,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   /* Interruptible interface */
   private var aborted = false
 
-  ctx.interruptManager.registerForInterrupts(this)
+  interruptManager.registerForInterrupts(this)
 
   def interrupt(): Unit = {
     aborted = true
@@ -54,7 +55,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   }
 
   def free(): Unit = {
-    ctx.interruptManager.unregisterForInterrupts(this)
+    interruptManager.unregisterForInterrupts(this)
     interpreter.free()
   }
 
@@ -62,7 +63,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   def emit(cmd: SExpr, rawOut: Boolean = false): SExpr = {
     interpreter.eval(cmd) match {
       case err @ Error(msg) if !aborted && !rawOut =>
-        ctx.reporter.fatalError(s"Unexpected error from $targetName solver: $msg")
+        reporter.fatalError(s"Unexpected error from $targetName solver: $msg")
       case res =>
         res
     }
@@ -71,7 +72,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   def parseSuccess() = {
     val res = interpreter.parser.parseGenResponse
     if (res != Success) {
-      ctx.reporter.warning("Unnexpected result from " + targetName + ": " + res + " expected success")
+      reporter.warning("Unnexpected result from " + targetName + ": " + res + " expected success")
     }
   }
 
@@ -101,9 +102,9 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected def freshSym(name: String): SSymbol = id2sym(FreshIdentifier(name))
 
   /* Metadata for CC, and variables */
-  protected val constructors  = new IncrementalBijection[Type, SSymbol]
-  protected val selectors     = new IncrementalBijection[(Type, Int), SSymbol]
-  protected val testers       = new IncrementalBijection[Type, SSymbol]
+  protected val constructors  = new IncrementalBijection[ConsType, SSymbol]
+  protected val selectors     = new IncrementalBijection[(ConsType, Int), SSymbol]
+  protected val testers       = new IncrementalBijection[ConsType, SSymbol]
   protected val variables     = new IncrementalBijection[Variable, SSymbol]
   protected val sorts         = new IncrementalBijection[Type, Sort]
   protected val functions     = new IncrementalBijection[TypedFunDef, SSymbol]
@@ -133,18 +134,17 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     quantifiedTerm(quantifier, exprOps.variablesOf(body).toSeq.map(_.toVal), body)
   }
 
-  protected final def declareSort(t: Type): Sort = {
-    val tpe = bestRealType(t)
+  protected final def declareSort(tpe: Type): Sort = {
     sorts.cachedB(tpe)(computeSort(tpe))
   }
 
   protected def computeSort(t: Type): Sort = t match {
-    case BooleanType => Core.BoolSort()
-    case IntegerType => Ints.IntSort()
-    case RealType    => Reals.RealSort()
-    case BVType(l)   => FixedSizeBitVectors.BitVectorSort(l)
-    case CharType    => FixedSizeBitVectors.BitVectorSort(16)
-    case StringType  => Strings.StringSort()
+    case BooleanType() => Core.BoolSort()
+    case IntegerType() => Ints.IntSort()
+    case RealType()    => Reals.RealSort()
+    case BVType(l)     => FixedSizeBitVectors.BitVectorSort(l)
+    case CharType()    => FixedSizeBitVectors.BitVectorSort(16)
+    case StringType()  => Strings.StringSort()
 
     case mt @ MapType(from, to) =>
       Sort(SMTIdentifier(SSymbol("Array")), Seq(declareSort(from), declareSort(to)))
@@ -152,7 +152,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     case FunctionType(from, to) =>
       Ints.IntSort()
 
-    case tpe @ (_: ADTType | _: TupleType | _: TypeParameter | UnitType) =>
+    case tpe @ (_: ADTType | _: TupleType | _: TypeParameter | UnitType()) =>
       declareStructuralSort(tpe)
 
     case other =>
@@ -190,7 +190,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
   protected def declareStructuralSort(t: Type): Sort = {
     adtManager.declareADTs(t, declareDatatypes)
-    sorts.toB(bestRealType(t))
+    sorts.toB(t)
   }
 
   protected def declareVariable(v: Variable): SSymbol = {
@@ -219,14 +219,13 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   }
 
   protected def declareLambda(tpe: FunctionType): SSymbol = {
-    val realTpe = bestRealType(tpe).asInstanceOf[FunctionType]
-    lambdas.cachedB(realTpe) {
+    lambdas.cachedB(tpe) {
       val id = FreshIdentifier("dynLambda")
       val s = id2sym(id)
       emit(DeclareFun(
         s,
-        (realTpe +: realTpe.from).map(declareSort),
-        declareSort(realTpe.to)
+        (tpe +: tpe.from).map(declareSort),
+        declareSort(tpe.to)
       ))
       s
     }
@@ -248,6 +247,16 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     sortToSMT(declareSort(t))
   }
 
+  private def intToTerm(i: BigInt): Term = i match {
+    case i if i >= 0 => Ints.NumeralLit(i)
+    case i => Ints.Neg(Ints.NumeralLit(-i))
+  }
+
+  private def realToTerm(r: BigInt): Term = r match {
+    case r if r >= 0 => Reals.NumeralLit(r)
+    case r => Reals.Neg(Reals.NumeralLit(-r))
+  }
+
   protected def toSMT(e: Expr)(implicit bindings: Map[Identifier, Term]): Term = {
     e match {
       case v @ Variable(id, tp, flags) =>
@@ -255,12 +264,12 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         bindings.getOrElse(id, variables.toB(v))
 
       case UnitLiteral() =>
-        declareSort(UnitType)
-        declareVariable(Variable.fresh("Unit", UnitType))
+        declareSort(UnitType())
+        declareVariable(Variable.fresh("Unit", UnitType()))
 
-      case IntegerLiteral(i)     => if (i >= 0) Ints.NumeralLit(i) else Ints.Neg(Ints.NumeralLit(-i))
+      case IntegerLiteral(i)     => intToTerm(i)
       case BVLiteral(bits, size) => FixedSizeBitVectors.BitVectorLit(List.range(1, size + 1).map(i => bits(size + 1 - i)))
-      case FractionLiteral(n, d) => Reals.Div(Reals.NumeralLit(n), Reals.NumeralLit(d))
+      case FractionLiteral(n, d) => Reals.Div(realToTerm(n), realToTerm(d))
       case CharLiteral(c)        => FixedSizeBitVectors.BitVectorLit(Hexadecimal.fromShort(c.toShort))
       case BooleanLiteral(v)     => Core.BoolConst(v)
       case Let(b, d, e) =>
@@ -274,30 +283,20 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           newBody)
 
       case s @ ADTSelector(e, id) =>
-        val ADTType(id, tps) = e.getType
-        val adt = ADTType(id, tps map bestRealType)
-        declareSort(adt)
-        val selector = selectors.toB(adt -> s.selectorIndex)
+        val tpe @ ADTType(_, tps) = e.getType
+        declareSort(tpe)
+        val selector = selectors.toB(ADTCons(s.constructor.id, tps) -> s.selectorIndex)
         FunctionApplication(selector, Seq(toSMT(e)))
 
-      case AsInstanceOf(expr, adt) =>
-        toSMT(expr)
+      case i @ IsConstructor(e, id) =>
+        val tpe @ ADTType(_, tps) = e.getType
+        declareSort(tpe)
+        val tester = testers.toB(ADTCons(id, tps))
+        FunctionApplication(tester, Seq(toSMT(e)))
 
-      case io @ IsInstanceOf(e, ADTType(id, tps)) =>
-        val adt = ADTType(id, tps map bestRealType)
-        declareSort(adt)
-        adt.getADT match {
-          case tcons: TypedADTConstructor =>
-            val tester = testers.toB(tcons.toType)
-            FunctionApplication(tester, Seq(toSMT(e)))
-          case _ =>
-            toSMT(BooleanLiteral(true))
-        }
-
-      case ADT(ADTType(id, tps), es) =>
-        val adt = ADTType(id, tps map bestRealType)
-        declareSort(adt)
-        val constructor = constructors.toB(adt)
+      case adt @ ADT(id, tps, es) =>
+        declareSort(adt.getType)
+        val constructor = constructors.toB(ADTCons(id, tps))
         if (es.isEmpty) {
           constructor
         } else {
@@ -305,15 +304,15 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         }
 
       case t @ Tuple(es) =>
-        val tpe = bestRealType(t.getType)
+        val tpe @ TupleType(tps) = t.getType
         declareSort(tpe)
-        val constructor = constructors.toB(tpe)
+        val constructor = constructors.toB(TupleCons(tps))
         FunctionApplication(constructor, es.map(toSMT))
 
       case ts @ TupleSelect(t, i) =>
-        val tpe = bestRealType(t.getType)
+        val tpe @ TupleType(tps) = t.getType
         declareSort(tpe)
-        val selector = selectors.toB((tpe, i - 1))
+        val selector = selectors.toB((TupleCons(tps), i - 1))
         FunctionApplication(selector, Seq(toSMT(t)))
 
       case al @ MapApply(a, i) =>
@@ -322,7 +321,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case al @ MapUpdated(map, k, v) =>
         ArraysEx.Store(toSMT(map), toSMT(k), toSMT(v))
 
-      case ra @ FiniteMap(elems, default, keyTpe, valueType) =>
+      case ra @ FiniteMap(elems, default, _, _) =>
         val s = declareSort(ra.getType)
 
         var res: Term = FunctionApplication(
@@ -336,7 +335,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
       case gv @ GenericValue(tpe, n) =>
         declareSort(tpe)
-        val constructor = constructors.toB(tpe)
+        val constructor = constructors.toB(TypeParameterCons(tpe))
         FunctionApplication(constructor, Seq(toSMT(IntegerLiteral(n))))
 
       /**
@@ -349,32 +348,32 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case Not(u) => Core.Not(toSMT(u))
 
       case UMinus(u) => u.getType match {
-        case IntegerType => Ints.Neg(toSMT(u))
-        case BVType(_)   => FixedSizeBitVectors.Neg(toSMT(u))
-        case RealType    => Reals.Neg(toSMT(u))
+        case BVType(_)     => FixedSizeBitVectors.Neg(toSMT(u))
+        case IntegerType() => Ints.Neg(toSMT(u))
+        case RealType()    => Reals.Neg(toSMT(u))
       }
 
       case Equals(a, b)    => Core.Equals(toSMT(a), toSMT(b))
       case Implies(a, b)   => Core.Implies(toSMT(a), toSMT(b))
       case Plus(a, b)      => a.getType match {
-        case BVType(_)   => FixedSizeBitVectors.Add(toSMT(a), toSMT(b))
-        case IntegerType => Ints.Add(toSMT(a), toSMT(b))
-        case RealType    => Reals.Add(toSMT(a), toSMT(b))
+        case BVType(_)     => FixedSizeBitVectors.Add(toSMT(a), toSMT(b))
+        case IntegerType() => Ints.Add(toSMT(a), toSMT(b))
+        case RealType()    => Reals.Add(toSMT(a), toSMT(b))
       }
       case Minus(a, b)     => a.getType match {
-        case BVType(_)   => FixedSizeBitVectors.Sub(toSMT(a), toSMT(b))
-        case IntegerType => Ints.Sub(toSMT(a), toSMT(b))
-        case RealType    => Reals.Sub(toSMT(a), toSMT(b))
+        case BVType(_)     => FixedSizeBitVectors.Sub(toSMT(a), toSMT(b))
+        case IntegerType() => Ints.Sub(toSMT(a), toSMT(b))
+        case RealType()    => Reals.Sub(toSMT(a), toSMT(b))
       }
       case Times(a, b)     => a.getType match {
-        case BVType(_)   => FixedSizeBitVectors.Mul(toSMT(a), toSMT(b))
-        case IntegerType => Ints.Mul(toSMT(a), toSMT(b))
-        case RealType    => Reals.Mul(toSMT(a), toSMT(b))
+        case BVType(_)     => FixedSizeBitVectors.Mul(toSMT(a), toSMT(b))
+        case IntegerType() => Ints.Mul(toSMT(a), toSMT(b))
+        case RealType()    => Reals.Mul(toSMT(a), toSMT(b))
       }
 
       case Division(a, b)  => a.getType match {
         case BVType(_) => FixedSizeBitVectors.SDiv(toSMT(a), toSMT(b))
-        case IntegerType =>
+        case IntegerType() =>
           val ar = toSMT(a)
           val br = toSMT(b)
           Core.ITE(
@@ -382,12 +381,12 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
             Ints.Div(ar, br),
             Ints.Neg(Ints.Div(Ints.Neg(ar), br))
           )
-        case RealType => Reals.Div(toSMT(a), toSMT(b))
+        case RealType() => Reals.Div(toSMT(a), toSMT(b))
       }
 
       case Remainder(a, b) => a.getType match {
         case BVType(_) => FixedSizeBitVectors.SRem(toSMT(a), toSMT(b))
-        case IntegerType =>
+        case IntegerType() =>
           val q = toSMT(Division(a, b))
           Ints.Sub(toSMT(a), Ints.Mul(toSMT(b), q))
       }
@@ -405,32 +404,32 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
             )
           )
 
-        case IntegerType => Ints.Mod(toSMT(a), toSMT(b))
+        case IntegerType() => Ints.Mod(toSMT(a), toSMT(b))
       }
 
       case LessThan(a, b) => a.getType match {
-        case BVType(_)   => FixedSizeBitVectors.SLessThan(toSMT(a), toSMT(b))
-        case IntegerType => Ints.LessThan(toSMT(a), toSMT(b))
-        case RealType    => Reals.LessThan(toSMT(a), toSMT(b))
-        case CharType    => FixedSizeBitVectors.ULessThan(toSMT(a), toSMT(b))
+        case BVType(_)     => FixedSizeBitVectors.SLessThan(toSMT(a), toSMT(b))
+        case IntegerType() => Ints.LessThan(toSMT(a), toSMT(b))
+        case RealType()    => Reals.LessThan(toSMT(a), toSMT(b))
+        case CharType()    => FixedSizeBitVectors.ULessThan(toSMT(a), toSMT(b))
       }
       case LessEquals(a, b) => a.getType match {
-        case BVType(_)   => FixedSizeBitVectors.SLessEquals(toSMT(a), toSMT(b))
-        case IntegerType => Ints.LessEquals(toSMT(a), toSMT(b))
-        case RealType    => Reals.LessEquals(toSMT(a), toSMT(b))
-        case CharType    => FixedSizeBitVectors.ULessEquals(toSMT(a), toSMT(b))
+        case BVType(_)     => FixedSizeBitVectors.SLessEquals(toSMT(a), toSMT(b))
+        case IntegerType() => Ints.LessEquals(toSMT(a), toSMT(b))
+        case RealType()    => Reals.LessEquals(toSMT(a), toSMT(b))
+        case CharType()    => FixedSizeBitVectors.ULessEquals(toSMT(a), toSMT(b))
       }
       case GreaterThan(a, b) => a.getType match {
-        case BVType(_)   => FixedSizeBitVectors.SGreaterThan(toSMT(a), toSMT(b))
-        case IntegerType => Ints.GreaterThan(toSMT(a), toSMT(b))
-        case RealType    => Reals.GreaterThan(toSMT(a), toSMT(b))
-        case CharType    => FixedSizeBitVectors.UGreaterThan(toSMT(a), toSMT(b))
+        case BVType(_)     => FixedSizeBitVectors.SGreaterThan(toSMT(a), toSMT(b))
+        case IntegerType() => Ints.GreaterThan(toSMT(a), toSMT(b))
+        case RealType()    => Reals.GreaterThan(toSMT(a), toSMT(b))
+        case CharType()    => FixedSizeBitVectors.UGreaterThan(toSMT(a), toSMT(b))
       }
       case GreaterEquals(a, b) => a.getType match {
-        case BVType(_)   => FixedSizeBitVectors.SGreaterEquals(toSMT(a), toSMT(b))
-        case IntegerType => Ints.GreaterEquals(toSMT(a), toSMT(b))
-        case RealType    => Reals.GreaterEquals(toSMT(a), toSMT(b))
-        case CharType    => FixedSizeBitVectors.UGreaterEquals(toSMT(a), toSMT(b))
+        case BVType(_)     => FixedSizeBitVectors.SGreaterEquals(toSMT(a), toSMT(b))
+        case IntegerType() => Ints.GreaterEquals(toSMT(a), toSMT(b))
+        case RealType()    => Reals.GreaterEquals(toSMT(a), toSMT(b))
+        case CharType()    => FixedSizeBitVectors.UGreaterEquals(toSMT(a), toSMT(b))
       }
 
       case BVNot(u)                  => FixedSizeBitVectors.Not(toSMT(u))
@@ -462,7 +461,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       /** String operations */
       // FIXME: replace by Seq(BV(16)) once solvers can handle them
       case StringLiteral(v) =>
-        declareSort(StringType)
+        declareSort(StringType())
         Strings.StringLit(v)
 
       case StringLength(a) => Strings.Length(toSMT(a))
@@ -515,29 +514,29 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
     // Use as much information as there is, if there is an expected type, great, but it might not always be there
     (t, otpe) match {
-      case (_, Some(UnitType)) =>
+      case (_, Some(UnitType())) =>
         UnitLiteral()
 
-      case (FixedSizeBitVectors.BitVectorConstant(n, b), Some(CharType)) if b == BigInt(16) =>
+      case (FixedSizeBitVectors.BitVectorConstant(n, b), Some(CharType())) if b == BigInt(16) =>
         CharLiteral(n.toInt.toChar)
 
-      case (SHexadecimal(h), Some(CharType)) =>
+      case (SHexadecimal(h), Some(CharType())) =>
         CharLiteral(h.toInt.toChar)
 
 
-      case (Num(i), Some(IntegerType)) =>
+      case (Num(i), Some(IntegerType())) =>
         IntegerLiteral(i)
 
-      case (Num(i), Some(RealType)) =>
+      case (Num(i), Some(RealType())) =>
         exprOps.normalizeFraction(FractionLiteral(i, 1))
 
-      case (Reals.Div(SNumeral(n1), SNumeral(n2)), Some(RealType)) =>
+      case (Reals.Div(SNumeral(n1), SNumeral(n2)), Some(RealType())) =>
         exprOps.normalizeFraction(FractionLiteral(n1, n2))
 
-      case (Ints.Neg(Reals.Div(SNumeral(n1), SNumeral(n2))), Some(RealType)) =>
+      case (Ints.Neg(Reals.Div(SNumeral(n1), SNumeral(n2))), Some(RealType())) =>
         exprOps.normalizeFraction(FractionLiteral(-n1, n2))
 
-      case (Ints.Neg(SDecimal(value)), Some(RealType)) =>
+      case (Ints.Neg(SDecimal(value)), Some(RealType())) =>
         exprOps.normalizeFraction(FractionLiteral(
           value.bigDecimal.movePointRight(value.scale).toBigInteger.negate,
           BigInt(10).pow(value.scale)))
@@ -551,10 +550,9 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
       case (Num(n), Some(ft: FunctionType)) => context.lambdas.getOrElseUpdate(n -> ft, {
         val count = if (n < 0) -2 * n.toInt else 2 * n.toInt + 1
-        val FirstOrderFunctionType(from, to) = ft
         uniquateClosure(count, lambdas.getB(ft)
           .flatMap { dynLambda =>
-            context.withSeen(n -> ft).getFunction(dynLambda, FunctionType(IntegerType +: from, to))
+            context.withSeen(n -> ft).getFunction(dynLambda, FunctionType(IntegerType() +: ft.from, ft.to))
           }.map { case Lambda(dispatcher +: args, body) =>
             val dv = dispatcher.toVariable
 
@@ -568,54 +566,52 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
             val simpBody = simplifyByConstructors(dispatchedBody)
             assert(!(exprOps.variablesOf(simpBody) contains dispatcher.toVariable), "Dispatcher still in lambda body")
-            mkLambda(args, simpBody, ft)
+            Lambda(args, simpBody)
           }.getOrElse(try {
             simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
           } catch {
             case _: NoSimpleValue =>
-              val args = from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
-              mkLambda(args, Choose(ValDef(FreshIdentifier("res"), ft), BooleanLiteral(true)), ft)
+              val args = ft.from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
+              Lambda(args, Choose(ValDef(FreshIdentifier("res"), ft), BooleanLiteral(true)))
           }))
       })
 
       case (SimpleSymbol(s), _) if constructors.containsB(s) =>
         constructors.toA(s) match {
-          case adt: ADTType =>
-            ADT(adt, Nil)
+          case ADTCons(id, tps) =>
+            ADT(id, tps, Nil)
           case t =>
             unsupported(t, "woot? for a single constructor for non-case-object")
         }
 
       case (FunctionApplication(SimpleSymbol(s), List(e)), _) if testers.containsB(s) =>
         testers.toA(s) match {
-          case adt: ADTType =>
-            IsInstanceOf(fromSMT(e, adt), adt)
+          case ac @ ADTCons(id, _) =>
+            IsConstructor(fromSMT(e, ac.getType), id)
           case t =>
             unsupported(t, "woot? tester for non-adt type")
         }
 
       case (FunctionApplication(SimpleSymbol(s), List(e)), _) if selectors.containsB(s) =>
         selectors.toA(s) match {
-          case (adt: ADTType, i) =>
-            ADTSelector(fromSMT(e, adt), adt.getADT.toConstructor.fields(i).id)
-          case (tt: TupleType, i) =>
-            TupleSelect(fromSMT(e, tt), i + 1)
+          case (ac @ ADTCons(id, _), i) =>
+            ADTSelector(fromSMT(e, ac.getType), getConstructor(id).fields(i).id)
+          case (tc @ TupleCons(_), i) =>
+            TupleSelect(fromSMT(e, tc.getType), i + 1)
           case (t, _) =>
             unsupported(t, "woot? selector for non-structural type")
         }
 
       case (FunctionApplication(SimpleSymbol(s), args), _) if constructors.containsB(s) =>
         constructors.toA(s) match {
-          case adt: ADTType =>
-            val rargs = args.zip(adt.getADT.toConstructor.fields.map(_.getType)).map(fromSMT)
-            ADT(adt, rargs)
+          case ADTCons(id, tps) =>
+            ADT(id, tps, (args zip getConstructor(id, tps).fieldsTypes) map fromSMT)
 
-          case tt: TupleType =>
-            val rargs = args.zip(tt.bases).map(fromSMT)
-            tupleWrap(rargs)
+          case TupleCons(tps) =>
+            tupleWrap((args zip tps) map fromSMT)
 
-          case tp: TypeParameter =>
-            val IntegerLiteral(n) = fromSMT(args(0), IntegerType)
+          case TypeParameterCons(tp) =>
+            val IntegerLiteral(n) = fromSMT(args(0), IntegerType())
             GenericValue(tp, n.toInt)
 
           case t =>
@@ -626,12 +622,12 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case (Core.Equals(QualifiedIdentifier(SimpleIdentifier(sym), None), e), _)
       if (context.vars contains sym) && context.vars(sym).isTyped =>
         val v = context.vars(sym)
-        Equals(v, fromSMT(e, bestRealType(v.getType)))
+        Equals(v, fromSMT(e, v.getType))
 
       case (Core.Equals(e, QualifiedIdentifier(SimpleIdentifier(sym), None)), _)
       if (context.vars contains sym) && context.vars(sym).isTyped =>
         val v = context.vars(sym)
-        Equals(fromSMT(e, bestRealType(v.getType)), v)
+        Equals(fromSMT(e, v.getType), v)
 
       case _ => super.fromSMT(t, otpe)
     }

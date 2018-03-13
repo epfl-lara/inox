@@ -65,19 +65,19 @@ trait SMTLIBParser {
     case SMTForall(sv, svs, term) =>
       val vds = (sv +: svs).map(fromSMT)
       val bindings = ((sv +: svs) zip vds).map(p => p._1.name -> p._2.toVariable)
-      Forall(vds, fromSMT(term, BooleanType)(context.withVariables(bindings)))
+      Forall(vds, fromSMT(term, BooleanType())(context.withVariables(bindings)))
 
     case Exists(sv, svs, term) =>
       val vds = (sv +: svs).map(fromSMT)
       val bindings = ((sv +: svs) zip vds).map(p => p._1.name -> p._2.toVariable)
-      val body = fromSMT(term, BooleanType)(context.withVariables(bindings))
+      val body = fromSMT(term, BooleanType())(context.withVariables(bindings))
       Not(Forall(vds, Not(body).setPos(body)))
 
     case Core.ITE(cond, thenn, elze) =>
-      IfExpr(fromSMT(cond, BooleanType), fromSMT(thenn, otpe), fromSMT(elze, otpe))
+      IfExpr(fromSMT(cond, BooleanType()), fromSMT(thenn, otpe), fromSMT(elze, otpe))
 
     case SNumeral(n) => otpe match {
-      case Some(RealType) => FractionLiteral(n, 1)
+      case Some(RealType()) => FractionLiteral(n, 1)
       case _ => IntegerLiteral(n)
     }
 
@@ -113,10 +113,10 @@ trait SMTLIBParser {
 
     case Core.Equals(e1, e2) => fromSMTUnifyType(e1, e2, None)(Equals)
 
-    case Core.And(es @ _*) => And(es.map(fromSMT(_, BooleanType)))
-    case Core.Or(es @ _*) => Or(es.map(fromSMT(_, BooleanType)))
-    case Core.Implies(e1, e2) => Implies(fromSMT(e1, BooleanType), fromSMT(e2, BooleanType))
-    case Core.Not(e) => Not(fromSMT(e, BooleanType))
+    case Core.And(es @ _*) => And(es.map(fromSMT(_, BooleanType())))
+    case Core.Or(es @ _*) => Or(es.map(fromSMT(_, BooleanType())))
+    case Core.Implies(e1, e2) => Implies(fromSMT(e1, BooleanType()), fromSMT(e2, BooleanType()))
+    case Core.Not(e) => Not(fromSMT(e, BooleanType()))
 
     case Core.True() => BooleanLiteral(true)
     case Core.False() => BooleanLiteral(false)
@@ -128,10 +128,10 @@ trait SMTLIBParser {
     case Ints.Sub(e1, e2) => Minus(fromSMT(e1, otpe), fromSMT(e2, otpe))
     case Ints.Mul(e1, e2) => Times(fromSMT(e1, otpe), fromSMT(e2, otpe))
 
-    case Ints.Div(e1, e2) => Division(fromSMT(e1, IntegerType), fromSMT(e2, IntegerType))
-    case Ints.Mod(e1, e2) => Modulo(fromSMT(e1, IntegerType), fromSMT(e2, IntegerType))
+    case Ints.Div(e1, e2) => Division(fromSMT(e1, IntegerType()), fromSMT(e2, IntegerType()))
+    case Ints.Mod(e1, e2) => Modulo(fromSMT(e1, IntegerType()), fromSMT(e2, IntegerType()))
     case Ints.Abs(e) =>
-      val ie = fromSMT(e, IntegerType)
+      val ie = fromSMT(e, IntegerType())
       IfExpr(
         LessThan(ie, IntegerLiteral(BigInt(0)).setPos(ie)).setPos(ie),
         UMinus(ie).setPos(ie),
@@ -144,7 +144,7 @@ trait SMTLIBParser {
     case Ints.GreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, None)(GreaterEquals)
 
     case Reals.Div(SNumeral(n1), SNumeral(n2)) => FractionLiteral(n1, n2)
-    case Reals.Div(e1, e2) => Division(fromSMT(e1, RealType), fromSMT(e2, RealType))
+    case Reals.Div(e1, e2) => Division(fromSMT(e1, RealType()), fromSMT(e2, RealType()))
 
     case FixedSizeBitVectors.Not(e) => BVNot(fromSMT(e, otpe))
     case FixedSizeBitVectors.Neg(e) => UMinus(fromSMT(e, otpe))
@@ -165,6 +165,17 @@ trait SMTLIBParser {
     case FixedSizeBitVectors.ShiftLeft(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVShiftLeft)
     case FixedSizeBitVectors.AShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVAShiftRight)
     case FixedSizeBitVectors.LShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVLShiftRight)
+
+    case FixedSizeBitVectors.SignExtend(extend, e) =>
+      val ast = fromSMT(e)
+      val BVType(current) = ast.getType
+      val newSize = (current + extend).bigInteger.intValueExact
+      BVWideningCast(ast, BVType(newSize))
+
+    case FixedSizeBitVectors.Extract(i, j, e) =>
+      // Assume this is a Narrowing Cast, hence j must be 0
+      if (j != 0) throw new MissformedSMTException(term, "Unexpected 'extract' which is not a narrowing cast")
+      BVNarrowingCast(fromSMT(e), BVType((i + 1).bigInteger.intValueExact))
 
     case ArraysEx.Select(e1, e2) => otpe match {
       case Some(tpe) =>
@@ -189,16 +200,18 @@ trait SMTLIBParser {
 
     case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("const")), Some(sort)), Seq(dflt)) =>
       val d = fromSMT(dflt)
-      FiniteMap(Seq.empty, d, fromSMT(sort), bestRealType(d.getType))
+      val MapType(from, to) = fromSMT(sort)
+      FiniteMap(Seq.empty, d, from, to)
 
     case _ => throw new MissformedSMTException(term, "Unknown SMT term")
   }
 
   protected def fromSMT(sort: Sort)(implicit context: Context): Type = sort match {
     case Sort(SMTIdentifier(SSymbol("bitvector" | "BitVec"), Seq(SNumeral(n))), Seq()) => BVType(n.toInt)
-    case Sort(SimpleIdentifier(SSymbol("Bool")), Seq()) => BooleanType
-    case Sort(SimpleIdentifier(SSymbol("Int")), Seq()) => IntegerType
-    case Sort(SimpleIdentifier(SSymbol("String")), Seq()) => StringType
+    case Sort(SimpleIdentifier(SSymbol("Bool")), Seq()) => BooleanType()
+    case Sort(SimpleIdentifier(SSymbol("Int")), Seq()) => IntegerType()
+    case Sort(SimpleIdentifier(SSymbol("Real")), Seq()) => RealType()
+    case Sort(SimpleIdentifier(SSymbol("String")), Seq()) => StringType()
     case Sort(SimpleIdentifier(SSymbol("Array")), Seq(from, to)) => MapType(fromSMT(from), fromSMT(to))
     case _ => throw new MissformedSMTException(sort, "unexpected sort: " + sort)
   }

@@ -30,28 +30,28 @@ class QuantifiersSuite extends TestSuite {
 
   val isAssociativeID = FreshIdentifier("isAssociative")
   val isAssociative = mkFunDef(isAssociativeID)("A") { case Seq(aT) => (
-    Seq("f" :: ((aT, aT) =>: aT)), BooleanType, { case Seq(f) =>
+    Seq("f" :: ((aT, aT) =>: aT)), BooleanType(), { case Seq(f) =>
       forall("x" :: aT, "y" :: aT, "z" :: aT)((x,y,z) => f(f(x,y),z) === f(x,f(y,z)))
     })
   }
 
   val isCommutativeID = FreshIdentifier("isCommutative")
   val isCommutative = mkFunDef(isCommutativeID)("A") { case Seq(aT) => (
-    Seq("f" :: ((aT, aT) =>: aT)), BooleanType, { case Seq(f) =>
+    Seq("f" :: ((aT, aT) =>: aT)), BooleanType(), { case Seq(f) =>
       forall("x" :: aT, "y" :: aT)((x,y) => f(x,y) === f(y,x))
     })
   }
 
   val isRotateID = FreshIdentifier("isRotate")
   val isRotate = mkFunDef(isRotateID)("A") { case Seq(aT) => (
-    Seq("f" :: ((aT, aT) =>: aT)), BooleanType, { case Seq(f) =>
+    Seq("f" :: ((aT, aT) =>: aT)), BooleanType(), { case Seq(f) =>
       forall("x" :: aT, "y" :: aT, "z" :: aT)((x,y,z) => f(f(x,y),z) === f(f(y,z),x))
     })
   }
 
   val isIdempotentID = FreshIdentifier("isIdempotent")
   val isIdempotent = mkFunDef(isIdempotentID)("A") { case Seq(aT) => (
-    Seq("f" :: ((aT, aT) =>: aT)), BooleanType, { case Seq(f) =>
+    Seq("f" :: ((aT, aT) =>: aT)), BooleanType(), { case Seq(f) =>
       forall("x" :: aT, "y" :: aT)((x,y) => f(x,y) === f(x,f(x,y)))
     })
   }
@@ -63,9 +63,9 @@ class QuantifiersSuite extends TestSuite {
     isIdempotentID  -> isIdempotent
   ), Map.empty)
 
-  test("Pair of associative ==> associative pair") { ctx => 
-    val program = InoxProgram(ctx, symbols)
+  val program = InoxProgram(symbols)
 
+  test("Pair of associative ==> associative pair") { implicit ctx => 
     val (aT,bT) = (T("A"), T("B"))
     val Seq(f1,f2) = Seq("f1" :: ((aT, aT) =>: aT), "f2" :: ((bT, bT) =>: bT)).map(_.toVariable)
     val clause = isAssociative(aT)(f1) && isAssociative(bT)(f2) && !isAssociative(T(aT,bT)) {
@@ -75,9 +75,7 @@ class QuantifiersSuite extends TestSuite {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 
-  test("Commutative and rotate ==> associative") { ctx =>
-    val program = InoxProgram(ctx, symbols)
-
+  test("Commutative and rotate ==> associative") { implicit ctx =>
     val aT = T("A")
     val f = ("f" :: ((aT, aT) =>: aT)).toVariable
     val clause = isCommutative(aT)(f) && isRotate(aT)(f) && !isAssociative(aT)(f)
@@ -85,18 +83,14 @@ class QuantifiersSuite extends TestSuite {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 
-  test("Commutative and rotate ==> associative (integer type)") { ctx =>
-    val program = InoxProgram(ctx, symbols)
-
-    val f = ("f" :: ((IntegerType, IntegerType) =>: IntegerType)).toVariable
-    val clause = isCommutative(IntegerType)(f) && isRotate(IntegerType)(f) && !isAssociative(IntegerType)(f)
+  test("Commutative and rotate ==> associative (integer type)") { implicit ctx =>
+    val f = ("f" :: ((IntegerType(), IntegerType()) =>: IntegerType())).toVariable
+    val clause = isCommutative(IntegerType())(f) && isRotate(IntegerType())(f) && !isAssociative(IntegerType())(f)
 
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 
-  test("Associatve =!=> commutative") { ctx =>
-    val program = InoxProgram(ctx, symbols)
-
+  test("Associatve =!=> commutative") { implicit ctx =>
     val aT = T("A")
     val f = ("f" :: ((aT, aT) =>: aT)).toVariable
     val clause = isAssociative(aT)(f) && !isCommutative(aT)(f)
@@ -104,9 +98,7 @@ class QuantifiersSuite extends TestSuite {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("Commutative =!=> associative") { ctx =>
-    val program = InoxProgram(ctx, symbols)
-
+  test("Commutative =!=> associative") { implicit ctx =>
     val aT = T("A")
     val f = ("f" :: ((aT, aT) =>: aT)).toVariable
     val clause = isCommutative(aT)(f) && !isAssociative(aT)(f)
@@ -114,20 +106,16 @@ class QuantifiersSuite extends TestSuite {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("Commutative + idempotent satisfiable") { ctx =>
-    val program = InoxProgram(ctx, symbols)
-
-    val f = ("f" :: ((IntegerType, IntegerType) =>: IntegerType)).toVariable
-    val clause = isCommutative(IntegerType)(f) && isIdempotent(IntegerType)(f) &&
+  test("Commutative + idempotent satisfiable") { implicit ctx =>
+    val f = ("f" :: ((IntegerType(), IntegerType()) =>: IntegerType())).toVariable
+    val clause = isCommutative(IntegerType())(f) && isIdempotent(IntegerType())(f) &&
       !(f(E(BigInt(1)), E(BigInt(2))) ===
         f(f(E(BigInt(2)), E(BigInt(1))), E(BigInt(3))))
 
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("Unification is unsatisfiable") { ctx =>
-    val program = InoxProgram(ctx, symbols)
-
+  test("Unification is unsatisfiable") { implicit ctx =>
     val aT = T("A")
     val f = ("f" :: ((aT, aT) =>: aT)).toVariable
     val clause = forall("x" :: aT, "y" :: aT)((x,y) => !(f(x,y) === f(y,x)))

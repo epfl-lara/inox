@@ -51,9 +51,9 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
   }
 
   final def internalError(pos: Position, msg: Any) : Nothing = {
-    emit(account(Message(INTERNAL, pos, msg.toString + 
+    emit(account(Message(INTERNAL, pos, msg.toString +
       "\nPlease inform the authors of Inox about this message"
-    ))) 
+    )))
     onFatal(msg.toString)
   }
 
@@ -93,10 +93,18 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
   final def info(msg: Any): Unit          = info(NoPosition, msg)
   final def warning(msg: Any): Unit       = warning(NoPosition, msg)
   final def error(msg: Any): Unit         = error(NoPosition, msg)
+  final def error(e: Throwable): Unit     = logTrace(ERROR, e)
   final def title(msg: Any): Unit         = title(NoPosition, msg)
   final def fatalError(msg: Any): Nothing = fatalError(NoPosition, msg)
-  final def internalError(msg: Any) : Nothing = internalError(NoPosition, msg)
+
+  final def internalError(msg: Any): Nothing = internalError(NoPosition, msg)
+  final def internalError(e: Throwable): Nothing = {
+    logTrace(INTERNAL, e)
+    internalError(e.getMessage)
+  }
+
   final def internalAssertion(cond : Boolean, msg: Any) : Unit = internalAssertion(cond,NoPosition, msg)
+
   final def debug(msg: => Any)(implicit section: DebugSection): Unit = debug(NoPosition, msg)
   final def ifDebug(body: (Any => Unit) => Any)(implicit section: DebugSection): Unit =
     ifDebug(NoPosition, body)
@@ -104,10 +112,31 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
     whenDebug(NoPosition, section)(body)
 
   final def debug(pos: Position, msg: => Any, e: Throwable)(implicit section: DebugSection): Unit = {
-    debug(pos, msg)
-    debug(s"StackTrace:")
-    for (frame <- e.getStackTrace)
-      debug(frame)
+    if (isDebugEnabled(section)) {
+      debug(pos, msg)
+      logTrace(DEBUG(section), e)
+    }
+  }
+
+  final def debug(e: Throwable)(implicit section: DebugSection): Unit =
+    debug(NoPosition, e.getMessage, e)
+
+  private def logTrace(severity: Severity, e: Throwable): Unit = synchronized {
+    var indent = 0
+    def log(msg: Any) = emit(account(Message(severity, NoPosition, ("  " * indent) + msg)))
+
+    var ex = e
+    while (ex != null) {
+      val prefix = if (indent == 0) "Error" else "Cause"
+      log(s"$prefix: ${ex.getMessage}. Trace:")
+      for (frame <- ex.getStackTrace)
+        log(s"- $frame")
+
+      indent += 1
+
+      val cause = e.getCause
+      ex = if (cause ne ex) cause else null // don't loop forever on the same cause!
+    }
   }
 
 }
@@ -136,27 +165,15 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
     }
   }
 
-  def emit(msg: Message) = {
+  def emit(msg: Message) = synchronized {
     println(reline(severityToPrefix(msg.severity), smartPos(msg.position) + msg.msg.toString))
     printLineContent(msg.position)
   }
 
-  protected var linesOf = Map[java.io.File, List[String]]()
-
   def getLine(pos: Position): Option[String] = {
-    val lines = linesOf.get(pos.file) match {
-      case Some(lines) =>
-        lines
-      case None =>
-        val lines = if (pos == NoPosition) {
-          Nil
-        } else {
-          scala.io.Source.fromFile(pos.file).getLines.toList
-        }
-
-        linesOf += pos.file -> lines
-        lines
-    }
+    val lines =
+      if (pos == NoPosition) Nil
+      else scala.io.Source.fromFile(pos.file).getLines.toList
 
     if (lines.size >= pos.line && pos.line > 0) {
       Some(lines(pos.line - 1))

@@ -17,17 +17,18 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
   val head = FreshIdentifier("head")
   val tail = FreshIdentifier("tail")
 
-  val List = mkSort(listID)("A")(Seq(consID, nilID))
-  val Nil  = mkConstructor(nilID)("A")(Some(listID))(_ => Seq.empty)
-  val Cons = mkConstructor(consID)("A")(Some(listID)) {
-    case Seq(aT) => Seq(ValDef(head, aT), ValDef(tail, T(listID)(aT)))
+  val List = mkSort(listID)("A") {
+    case Seq(aT) => Seq(
+      (nilID, Seq()),
+      (consID, Seq(ValDef(head, aT), ValDef(tail, T(listID)(aT))))
+    )
   }
 
   val sizeID = FreshIdentifier("size")
   val sizeFd = mkFunDef(sizeID)("A") { case Seq(aT) => (
-    Seq("l" :: T(listID)(aT)), IntegerType, { case Seq(l) =>
-      if_ (l.isInstOf(T(consID)(aT))) {
-        E(BigInt(1)) + E(sizeID)(aT)(l.asInstOf(T(consID)(aT)).getField(tail))
+    Seq("l" :: T(listID)(aT)), IntegerType(), { case Seq(l) =>
+      if_ (l is consID) {
+        E(BigInt(1)) + E(sizeID)(aT)(l.getField(tail))
       } else_ {
         E(BigInt(0))
       }
@@ -36,21 +37,21 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
 
   val symbols = new Symbols(
     Map(sizeID -> sizeFd),
-    Map(listID -> List, consID -> Cons, nilID -> Nil)
+    Map(listID -> List)
   )
 
-  test("size(x) > 0 is satisfiable") { implicit ctx =>
-    val program = InoxProgram(ctx, symbols)
-    import program._
-    import program.symbols._
+  val program = InoxProgram(symbols)
+  import program._
+  import program.symbols._
 
-    val vd: ValDef = "x" :: T(listID)(IntegerType)
-    val clause = sizeFd(IntegerType)(vd.toVariable) > E(BigInt(0))
+  test("size(x) > 0 is satisfiable") { implicit ctx =>
+    val vd: ValDef = "x" :: T(listID)(IntegerType())
+    val clause = sizeFd(IntegerType())(vd.toVariable) > E(BigInt(0))
 
     SimpleSolverAPI(program.getSolver).solveSAT(clause) match {
       case SatWithModel(model) =>
         model.vars.get(vd) match {
-          case Some(ADT(ADTType(`consID`, Seq(IntegerType)), _)) =>
+          case Some(ADT(`consID`, Seq(IntegerType()), _)) =>
             // success!!
           case r =>
             fail("Unexpected valuation: " + r)
@@ -62,10 +63,6 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
   }
 
   test("size(x) == 0 is satisfiable") { implicit ctx =>
-    val program = InoxProgram(ctx, symbols)
-    import program._
-    import program.symbols._
-
     val tp = TypeParameter.fresh("A")
     val vd: ValDef = "x" :: T(listID)(tp)
     val clause = sizeFd(tp)(vd.toVariable) === E(BigInt(0))
@@ -73,7 +70,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     SimpleSolverAPI(program.getSolver).solveSAT(clause) match {
       case SatWithModel(model) =>
         model.vars.get(vd) match {
-          case Some(ADT(ADTType(`nilID`, Seq(`tp`)), Seq())) =>
+          case Some(ADT(`nilID`, Seq(`tp`), Seq())) =>
             // success!!
           case r =>
             fail("Unexpected valuation: " + r)
@@ -84,30 +81,25 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     }
   }
 
-  test("size(x) < 0 is not satisfiable (unknown)") { ctx =>
-    val program = InoxProgram(ctx, symbols)
-
-    val vd: ValDef = "x" :: T(listID)(IntegerType)
-    val clause = sizeFd(IntegerType)(vd.toVariable) < E(BigInt(0))
+  test("size(x) < 0 is not satisfiable (unknown)") { implicit ctx =>
+    val vd: ValDef = "x" :: T(listID)(IntegerType())
+    val clause = sizeFd(IntegerType())(vd.toVariable) < E(BigInt(0))
 
     assert(!SimpleSolverAPI(program.getSolver.withTimeout(100)).solveSAT(clause).isSAT)
   }
 
-  test("size(x) > size(y) is satisfiable") { ctx =>
-    val program = InoxProgram(ctx, symbols)
-
-    val x: ValDef = "x" :: T(listID)(IntegerType)
-    val y: ValDef = "y" :: T(listID)(IntegerType)
-    val clause = sizeFd(IntegerType)(x.toVariable) > sizeFd(IntegerType)(y.toVariable)
+  test("size(x) > size(y) is satisfiable") { implicit ctx =>
+    val x: ValDef = "x" :: T(listID)(IntegerType())
+    val y: ValDef = "y" :: T(listID)(IntegerType())
+    val clause = sizeFd(IntegerType())(x.toVariable) > sizeFd(IntegerType())(y.toVariable)
 
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("simple configuration is sound with quantifiers") { ctx =>
-    val program = InoxProgram(ctx, symbols)
+  test("simple configuration is sound with quantifiers") { implicit ctx =>
     val factory = program.getSolver
-    val c = Variable.fresh("c", IntegerType)
-    val x = Variable.fresh("x", IntegerType)
+    val c = Variable.fresh("c", IntegerType())
+    val x = Variable.fresh("x", IntegerType())
     val expr = Forall(Seq(x.toVal), And(Equals(c, x), Equals(c, IntegerLiteral(42))))
 
     for (config <- Seq(Simple, Model)) {

@@ -8,8 +8,6 @@ import utils._
 
 import scala.collection.generic.CanBuildFrom
 
-object optNoSimplifications extends FlagOptionDef("nosimplifications", false)
-
 trait Templates
   extends TemplateGenerator
      with FunctionTemplates
@@ -20,6 +18,10 @@ trait Templates
      with IncrementalStateWrapper {
 
   val program: Program
+  val context: Context
+  protected implicit val semantics: program.Semantics
+
+  import context._
   import program._
   import program.trees._
   import program.symbols._
@@ -46,8 +48,7 @@ trait Templates
   private[unrolling] lazy val trueT = mkEncoder(Map.empty)(BooleanLiteral(true))
   private[unrolling] lazy val falseT = mkEncoder(Map.empty)(BooleanLiteral(false))
 
-  protected lazy val simplify = !ctx.options.findOptionOrDefault(optNoSimplifications)
-  protected lazy val deferFactor =  3 * ctx.options.findOptionOrDefault(optModelFinding)
+  protected lazy val deferFactor =  3 * options.findOptionOrDefault(optModelFinding)
 
   private var currentGen: Int = 0
   protected def currentGeneration: Int = currentGen
@@ -74,7 +75,7 @@ trait Templates
   def unroll: Clauses = {
     assert(canUnroll, "Impossible to unroll further")
     currentGen = managers.flatMap(_.unrollGeneration).min + 1
-    ctx.reporter.debug("Unrolling generation [" + currentGen + "]")
+    reporter.debug("Unrolling generation [" + currentGen + "]")
     managers.flatMap(_.unroll)
   }
 
@@ -126,7 +127,7 @@ trait Templates
     subst
   }
 
-  private val sym = Variable.fresh("bs", BooleanType, true)
+  private val sym = Variable.fresh("bs", BooleanType(), true)
   protected def encodeBlockers(bs: Set[Encoded]): (Encoded, Clauses) = bs.toSeq match {
     case Seq(b) if (
       condImplies.isDefinedAt(b) || condImplied.isDefinedAt(b) ||
@@ -222,11 +223,21 @@ trait Templates
 
   /** Represents a named function call in the unfolding procedure */
   case class Call(tfd: TypedFunDef, args: Seq[Arg]) {
-    override def toString = tfd.signature +
-      (if (args.isEmpty) "" else args.map {
+    override def toString = tfd.signature + {
+      def pArgs(args: Seq[Arg]): String = args.map {
         case Right(m) => m.toString
         case Left(v) => asString(v)
-      }.mkString("(", ", ", ")"))
+      }.mkString("(", ", ", ")")
+
+      def rec(tpe: Type, args: Seq[Arg]): String = tpe match {
+        case ft: FunctionType =>
+          val (currArgs, nextArgs) = args.splitAt(ft.from.size)
+          pArgs(currArgs) + rec(ft.to, nextArgs)
+        case _ => pArgs(args)
+      }
+
+      rec(tfd.returnType, args)
+    }
 
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): Call = copy(
       args = args.map(_.substitute(substituter, msubst))
@@ -496,23 +507,12 @@ trait Templates
     }
   }
 
-  private[unrolling] def mkApplication(caller: Expr, args: Seq[Expr]): Expr = caller.getType match {
-    case FunctionType(from, to) =>
-      val (curr, next) = args.splitAt(from.size)
-      mkApplication(Application(caller, curr), next)
-    case _ =>
-      assert(args.isEmpty, s"Non-function typed $caller applied to ${args.mkString(",")}")
-      caller
-  }
-
   object Template {
 
     def lambdaPointers(encoder: Expr => Encoded)(expr: Expr): Map[Encoded, Encoded] = {
       def collectSelectors(expr: Expr, ptr: Expr): Seq[(Expr, Variable)] = expr match {
-        case ADT(tpe, es) => (tpe.getADT.toConstructor.fields zip es).flatMap {
-          case (vd, e) =>
-            val ex = if (ptr.getType == tpe) ptr else AsInstanceOf(ptr, tpe)
-            collectSelectors(e, ADTSelector(ex, vd.id))
+        case adt @ ADT(id, tps, es) => (adt.getConstructor.fields zip es).flatMap {
+          case (vd, e) => collectSelectors(e, ADTSelector(ptr, vd.id))
         }
 
         case Tuple(es) => es.zipWithIndex.flatMap {
@@ -559,7 +559,7 @@ trait Templates
               case None => Left(encoder(arg))
             })
 
-            Some(expr -> Matcher(Left(encoder(c) -> bestRealType(c.getType)), encodedArgs, encoder(expr)))
+            Some(expr -> Matcher(Left(encoder(c) -> c.getType), encodedArgs, encoder(expr)))
           case FunctionMatcher(tfd, args) =>
             // see comment above
             val encodedArgs = args.map(arg => result.get(arg) match {
@@ -577,16 +577,22 @@ trait Templates
         case None => Left(encoder(arg))
       }
 
-      val calls = firstOrderCallsOf(expr).map { case (id, tps, args) =>
+      val calls = exprOps.collect[FunctionInvocation] {
+        case fi: FunctionInvocation => Set(fi)
+        case _ => Set.empty
+      } (expr).map { case FunctionInvocation(id, tps, args) =>
         Call(getFunction(id, tps), args.map(encodeArg))
       }.filter(i => Some(i) != optCall)
 
-      val apps = firstOrderAppsOf(expr).filter {
-        case (c, Seq(e1, e2)) => c != equalitySymbol(e1.getType)._1
+      val apps = exprOps.collect[Application] {
+        case app: Application => Set(app)
+        case _ => Set.empty
+      } (expr).filter {
+        case Application(c, Seq(e1, e2)) => c != equalitySymbol(e1.getType)._1
         case _ => true
-      }.map { case (c, args) =>
-        val tpe = bestRealType(c.getType).asInstanceOf[FunctionType]
-        App(encoder(c), tpe, args.map(encodeArg), encoder(mkApplication(c, args)))
+      }.map { case app @ Application(c, args) =>
+        val tpe = c.getType.asInstanceOf[FunctionType]
+        App(encoder(c), tpe, args.map(encodeArg), encoder(app))
       }.filter(i => Some(i) != optApp)
 
       val matchers = exprToMatcher.values.toSet
@@ -616,8 +622,7 @@ trait Templates
 
       val optIdCall = optCall.map { tfd => Call(tfd, arguments.map(p => Left(p._2))) }
       val optIdApp = optApp.map { case (idT, tpe) =>
-        val encoded = mkFlatApp(idT, tpe, arguments.map(_._2))
-        App(idT, bestRealType(tpe).asInstanceOf[FunctionType], arguments.map(p => Left(p._2)), encoded)
+        App(idT, tpe, arguments.map(p => Left(p._2)), mkApp(idT, tpe, arguments.map(_._2)))
       }
 
       val (clauses, blockers, applications, matchers, pointers) = {
@@ -666,7 +671,7 @@ trait Templates
         }) +
         " * Application-blocks :" + (if (applications.isEmpty) "\n" else {
           "\n   " + applications.map(p => asString(p._1) + " ==> " + p._2).mkString("\n   ") + "\n"
-        }) + 
+        }) +
         " * Matchers           :" + (if (matchers.isEmpty) "\n" else {
           "\n   " + matchers.map(p => asString(p._1) + " ==> " + p._2).mkString("\n   ") + "\n"
         }) +
@@ -737,7 +742,7 @@ trait Templates
       val lambdaKeys = lambdas.map(lambda => lambda.ids._2 -> lambda).toMap
       def extractSubst(lambda: LambdaTemplate): Unit = {
         for {
-          dep <- lambda.closures flatMap lambdaKeys.get
+          dep <- lambda.closures.map(_._2) flatMap lambdaKeys.get
           if !seen(dep)
         } extractSubst(dep)
 
@@ -779,7 +784,6 @@ trait Templates
       equalities: Equalities,
       substMap: Map[Encoded, Arg]
     ): Clauses = {
-
       val substituter : Encoded => Encoded = mkSubstituter(substMap.mapValues(_.encoded))
       val msubst = substMap.collect { case (c, Right(m)) => c -> m }
 
@@ -807,14 +811,12 @@ trait Templates
   }
 
   def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {
-    val start = Variable.fresh("start", BooleanType, true)
+    val start = Variable.fresh("start", BooleanType(), true)
     val encodedStart = encodeSymbol(start)
 
     val tpeClauses = bindings.flatMap { case (v, s) => registerSymbol(encodedStart, s, v.getType) }.toSeq
 
-    val timer = ctx.timers.solvers.simplify.start()
-    val instExpr = simplifyFormula(expr, simplify)
-    timer.stop()
+    val instExpr = timers.solvers.simplify.run { simplifyFormula(expr) }
 
     val tmplClauses = mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
 
@@ -829,7 +831,7 @@ trait Templates
     val allClauses = encodedStart +: (tpeClauses ++ substClauses ++ templateClauses)
 
     for (cl <- allClauses) {
-      ctx.reporter.debug("  . " + cl)
+      reporter.debug("  . " + cl)
     }
 
     allClauses
