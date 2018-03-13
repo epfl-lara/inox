@@ -336,13 +336,13 @@ trait Definitions { self: Trees =>
       rec(typed, Set.empty)
     }
 
-    /** An invariant that refines this [[ADTDefinition]] */
+    /** An invariant that refines this [[ADTSort]] */
     def invariant(implicit s: Symbols): Option[FunDef] = 
       flags.collectFirst { case HasADTInvariant(id) => s.getFunction(id) }
 
     def hasInvariant(implicit s: Symbols): Boolean = invariant.isDefined
 
-    /** An equality relation defined on this [[ADTDefinition]] */
+    /** An equality relation defined on this [[ADTSort]] */
     def equality(implicit s: Symbols): Option[FunDef] =
       flags.collectFirst { case HasADTEquality(id) => s.getFunction(id) }
 

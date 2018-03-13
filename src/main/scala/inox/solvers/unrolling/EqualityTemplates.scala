@@ -11,7 +11,7 @@ import scala.collection.mutable.{Set => MutableSet, Map => MutableMap}
 /** Incrementally unfolds equality relations between types for which the
   * SMT notion of equality is not relevant.
   *
-  * @see [[ast.Definitions.ADTDefinition.equality]] for such a case of equality
+  * @see [[ast.Definitions.ADTSort.equality]] for such a case of equality
   */
 trait EqualityTemplates { self: Templates =>
   import context._
