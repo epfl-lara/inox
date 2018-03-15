@@ -1,0 +1,21 @@
+(declare-datatypes () ((Term!7 (Abs!7 (body!8 Term!7)) (App!7 (arg!8 Term!7)) (Var!7 (id!9 Int)))))
+
+(declare-const t!53 Term!7)
+
+(define-fun ignoreX!0 ((x!58 Int)) Bool true)
+
+(declare-datatypes () ((Unit!8 (Unit!9))))
+
+(declare-fun Unit!10 () Unit!8)
+
+(declare-fun Unit!11 () Unit!8)
+
+(declare-fun Unit!12 () Unit!8)
+
+(define-fun-rec f!21 ((t!53 Term!7)) Bool (let ((t!54 (ite (is-Var!7 t!53) (assume (ignoreX!0 (id!9 t!53)) Unit!10) (ite (is-Abs!7 t!53) (assume (f!21 (body!8 t!53)) Unit!11) (assume (forall ((x!59 Int)) (ignoreX!0 x!59)) (assume (f!21 (arg!8 t!53)) Unit!12)))))) true))
+
+(assert (not (=> (and (not (is-Var!7 t!53)) (not (is-Abs!7 t!53)) (is-App!7 t!53)) (=> (forall ((x!59 Int)) (ignoreX!0 x!59)) (f!21 (arg!8 t!53))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

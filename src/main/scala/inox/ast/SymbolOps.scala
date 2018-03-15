@@ -933,14 +933,27 @@ trait SymbolOps { self: TypeOps =>
             nl
 
           case fi: FunctionInvocation =>
-            val problematic = utils.fixpoint((vs: Set[Variable]) => vs ++ path.bindings.collect {
-              case (vd, e) if (variablesOf(e) & vs).nonEmpty => vd.toVariable
-              case (vd, e) if exists { case fi: FunctionInvocation => true case _ => false }(e) => vd.toVariable
-            })(Set.empty)
+            def freeVars(elements: Seq[Path.Element]): Set[Variable] = {
+              val path = Path(elements)
+              path.freeVariables ++ variablesOf(fi) -- path.bound.map(_.toVariable)
+            }
 
-            val allVars = variablesOf(fi) ++ path.conditions.flatMap(variablesOf)
-            if ((!inLambda || isPure(fi)) && (allVars & problematic).isEmpty) {
-              pathFis :+= (path -- problematic.map(_.toVal), fi)
+            val elements = path.elements.foldRight(Some(Seq[Path.Element]()): Option[Seq[Path.Element]]) {
+              case (_, None) => None
+              case (Path.OpenBound(vd), Some(elements)) =>
+                if (freeVars(elements) contains vd.toVariable) None
+                else Some(elements) // No need to keep open bounds as we'll flatten to a condition
+              case (cb @ Path.CloseBound(vd, e), Some(elements)) =>
+                if (exists { case fi: FunctionInvocation => true case _ => false }(e)) None
+                else if (freeVars(elements) contains vd.toVariable) Some(cb +: elements)
+                else Some(elements)
+              case (c @ Path.Condition(cond), Some(elements)) =>
+                if (exists { case fi: FunctionInvocation => true case _ => false }(cond)) None
+                else Some(c +: elements)
+            }
+
+            if ((!inLambda || isPure(fi)) && elements.isDefined) {
+              pathFis :+= Path(elements.get) -> fi
             }
             op.superRec(fi, path)
 
