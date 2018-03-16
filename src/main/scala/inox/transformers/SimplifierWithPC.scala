@@ -222,9 +222,9 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       val cons = getConstructor(id, tps)
       val alts = (sort.constructors.toSet - cons).map(_.id)
 
-      if (alts exists (tpe => path contains IsConstructor(e, id))) {
+      if (alts exists (id => path contains IsConstructor(e, id))) {
         Some(false)
-      } else if (alts forall (tpe => path contains Not(IsConstructor(e, id)))) {
+      } else if (alts forall (id => path contains Not(IsConstructor(e, id)))) {
         Some(true)
       } else {
         None
@@ -298,7 +298,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
     case IsConstructor(adt @ ADT(id1, tps, args), id2) =>
       simplify((adt.getConstructor.fields zip args)
-        .foldRight(BooleanLiteral(id1 == id1): Expr) {
+        .foldRight(BooleanLiteral(id1 == id2): Expr) {
           case ((vd, e), body) => Let(vd.freshen, e, body)
         }, path)
 
