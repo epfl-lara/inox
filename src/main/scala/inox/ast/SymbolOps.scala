@@ -992,12 +992,16 @@ trait SymbolOps { self: TypeOps =>
                 val v = Variable.fresh("res", tfd.returnType, true)
                 val condThen = Variable.fresh("condThen", BooleanType(), true)
 
-                val result = IfExpr(Or(condThen, (condPath.negate merge pathElse).toClause),
+                val result = IfExpr(Or(condThen, freshenLocals((condPath.negate merge pathElse).toClause)),
                   tfd.applied((argsThen zip argsElse).map { case (argThen, argElse) =>
                     ifExpr(condThen, pathThen.bindings wrap argThen, pathElse.bindings wrap argElse)
                   }), Choose(Variable.fresh("res", tfd.returnType).toVal, BooleanLiteral(true)))
 
-                val newBindings = bindings ++ Seq(condThen.toVal -> (condPath merge pathThen).toClause, v.toVal -> result)
+                val newBindings = bindings ++ Seq(
+                  condThen.toVal -> freshenLocals((condPath merge pathThen).toClause),
+                  v.toVal -> result
+                )
+
                 val newThen = replace(pathThen, tfd.applied(argsThen), v, thenn)
                 val newElse = replace(pathElse, tfd.applied(argsElse), v, elze)
                 rec(newBindings, newThen, newElse)
