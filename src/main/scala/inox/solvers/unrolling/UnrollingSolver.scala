@@ -645,11 +645,12 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
           // we always ask for a model here in order to give priority to blockers that
           // are keeping quantified clause instantiations from being considered
-          val res: SolverResponse[underlying.Model, Set[underlying.Trees]] = context.timers.solvers.unrolling.check.run {
-            underlying.checkAssumptions(config max Configuration(model = true))(
-              encodedAssumptions.toSet ++ templates.refutationAssumptions
-            )
-          }
+          val res: SolverResponse[underlying.Model, Set[underlying.Trees]] =
+            context.timers.solvers.unrolling.check.run {
+              underlying.checkAssumptions(config max Configuration(model = true))(
+                encodedAssumptions.toSet ++ templates.refutationAssumptions
+              )
+            }
 
           reporter.debug(" - Finished search without blocked literals")
 
