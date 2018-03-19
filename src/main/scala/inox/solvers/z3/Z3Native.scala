@@ -28,6 +28,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
   interruptManager.registerForInterrupts(this)
 
+  @volatile
+  private[this] var interrupted = false
+
   private[this] var freed = false
   private[this] val traceE = new Exception()
 
@@ -61,8 +64,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     interruptManager.unregisterForInterrupts(this)
   }
 
-  def interrupt(): Unit = {
-    if (z3 ne null) {
+  def interrupt(): Unit = synchronized {
+    if ((z3 ne null) && !interrupted) {
+      interrupted = true
       z3.interrupt()
     }
   }
