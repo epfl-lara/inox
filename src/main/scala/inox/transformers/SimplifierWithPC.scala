@@ -6,7 +6,7 @@ package transformers
 import utils._
 
 import scala.util.DynamicVariable
-import scala.collection.mutable.{Map => MutableMap}
+import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 trait SimplifierWithPC extends TransformerWithPC { self =>
   import trees._
@@ -18,20 +18,17 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
   class CNFPath private(
     private val exprSubst: Bijection[Variable, Expr],
-    private val boolSubst: Map[Variable, Seq[Expr]],
+    private val boolSubst: Map[Variable, Expr],
     private val conditions: Set[Expr],
     private val cnfCache: MutableMap[Expr, Seq[Expr]],
-    private val simpCache: MutableMap[Expr, Seq[Expr]]) extends PathLike[CNFPath] {
+    private val simpCache: MutableMap[Expr, Set[Expr]]) extends PathLike[CNFPath] {
 
     import exprOps._
 
     def subsumes(that: CNFPath): Boolean =
       (conditions subsetOf that.conditions) &&
       (exprSubst.forall { case (k, e) => that.exprSubst.getB(k).exists(_ == e) }) &&
-      (boolSubst.forall { case (k, es) =>
-        val eSet = es.toSet
-        that.boolSubst.get(k).exists(_.toSet == eSet)
-      })
+      (boolSubst.forall { case (k, e) => that.boolSubst.get(k).exists(_ == e) })
 
     private def unexpandLets(e: Expr, exprSubst: Bijection[Variable, Expr] = exprSubst): Expr = {
       postMap(exprSubst.getA)(e)
@@ -58,41 +55,18 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
     private def simplify(e: Expr): Expr = transform(e, this)
 
-    private def getClauses(e: Expr): Seq[Expr] = simpCache.getOrElseUpdate(e, {
+    private def simplifyClauses(e: Expr): Expr = andJoin(getClauses(e).toSeq.sortBy(_.hashCode))
+
+    private def getClauses(e: Expr): Set[Expr] = simpCache.getOrElseUpdate(e, {
       val (preds, newE) = liftAssumptions(simplifyLets(unexpandLets(e)))
       val expr = andJoin(newE +: preds)
       simpCache.getOrElseUpdate(expr, {
-        val clauses = new scala.collection.mutable.ListBuffer[Expr]
-        for (cl <- cnf(expr)) clauses ++= (simplify(cl) match {
-          case v: Variable =>
-            boolSubst.getOrElse(v, Seq(v))
+        val clauseSet: MutableSet[Expr] = MutableSet.empty
+        for (cl <- cnf(expr); TopLevelOrs(es) <- cnf(replaceFromSymbols(boolSubst, simplify(cl)))) {
+          clauseSet += orJoin(es.distinct.sortBy(_.hashCode))
+        }
 
-          case Not(v: Variable) =>
-            boolSubst.getOrElse(v, Seq(v)).foldLeft(Seq(BooleanLiteral(false): Expr)) {
-              case (ors, TopLevelOrs(es)) => es.flatMap(e => ors.map(d => or(d, not(e))))
-            }
-
-          case Or(disjuncts) =>
-            disjuncts.foldLeft(Seq(BooleanLiteral(false): Expr)) {
-              case (ors, d) => d match {
-                case v: Variable => boolSubst.getOrElse(v, Seq(v)).flatMap {
-                  vdisj => ors.map(d => or(d, vdisj))
-                }
-
-                case Not(v: Variable) => boolSubst.getOrElse(v, Seq(v)).foldLeft(ors) {
-                  case (ors, TopLevelOrs(es)) => es.flatMap(e => ors.map(d => or(d, not(e))))
-                }
-
-                case e => ors.map(d => or(d, e))
-              }
-            }
-
-          case e => Seq(e)
-        })
-
-        var clauseSet = clauses.map { case TopLevelOrs(es) => orJoin(es.distinct.sortBy(_.hashCode)) }.toSet
         var changed = true
-
         while (changed) {
           changed = false
           for (cls @ TopLevelOrs(es) <- clauseSet) {
@@ -106,14 +80,15 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
             } else {
               val newCls = orJoin(es.filter(e => !clauseSet(not(e)) && !conditions(not(e))))
               if (newCls != cls) {
-                clauseSet = clauseSet - cls + newCls
+                clauseSet -= cls
+                clauseSet += newCls
                 changed = true
               }
             }
           }
         }
 
-        clauseSet.toSeq
+        clauseSet.toSet
       })
     })
 
@@ -122,23 +97,17 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       if (formulaSize(expr) > 20) {
         this
       } else if (vd.tpe == BooleanType()) {
-        new CNFPath(exprSubst, boolSubst + (vd.toVariable -> getClauses(expr)), conditions, cnfCache, simpCache)
+        new CNFPath(exprSubst, boolSubst + (vd.toVariable -> simplifyClauses(expr)), conditions, cnfCache, simpCache)
       } else {
         val newSubst = exprSubst.clone += (vd.toVariable -> unexpandLets(expr))
-        val newBools = boolSubst.mapValues(_.map(unexpandLets(_, newSubst)))
+        val newBools = boolSubst.mapValues(e => simplifyClauses(unexpandLets(e, newSubst)))
         val newConds = conditions.map(unexpandLets(_, newSubst))
 
-        for ((k, v) <- cnfCache) {
-          val newK = unexpandLets(k, newSubst)
-          val newV = v.map(unexpandLets(_, newSubst))
-          cnfCache += newK -> newV
-        }
-
-        for ((k, v) <- simpCache) {
-          val newK = unexpandLets(k, newSubst)
-          val newV = v.map(unexpandLets(_, newSubst))
-          simpCache += newK -> newV
-        }
+        /* @nv: it seems the performance gain through extra cache hits is completely overshadowed by
+         *      the cost of traversing the caches to update them, so this optimization is now disabled.
+        cnfCache ++= cnfCache.map { case (k, v) => unexpandLets(k, newSubst) -> v.map(unexpandLets(_, newSubst)) }
+        simpCache ++= simpCache.map { case (k, v) => unexpandLets(k, newSubst) -> v.map(unexpandLets(_, newSubst)) }
+        */
 
         new CNFPath(newSubst, newBools, newConds, cnfCache, simpCache)
       }
@@ -148,13 +117,12 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
     override def withCond(e: Expr) = if (formulaSize(e) > 20) this else {
       val clauses = getClauses(e)
-      val clauseSet = clauses.toSet
       val newConditions = conditions.flatMap { case clause @ TopLevelOrs(es) =>
-        val newClause = orJoin(es.filterNot(e => clauseSet contains not(e)))
+        val newClause = orJoin(es.filterNot(e => clauses contains not(e)))
         if (newClause != clause) cnf(newClause) else Seq(clause)
       }
 
-      val conds = newConditions ++ clauseSet - BooleanLiteral(true)
+      val conds = newConditions ++ clauses - BooleanLiteral(true)
       new CNFPath(exprSubst, boolSubst, conds, cnfCache, simpCache)
     }
 
@@ -401,7 +369,6 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
           simplifyCache(let) = (path, lete, letp)
           (lete, letp)
         }
-
 
     case Equals(e1: Literal[_], e2: Literal[_]) =>
       (BooleanLiteral(e1 == e2), true)
