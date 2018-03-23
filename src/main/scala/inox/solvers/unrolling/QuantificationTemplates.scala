@@ -41,21 +41,12 @@ trait QuantificationTemplates { self: Templates =>
     }
   }
 
-  object QuantificationTypeMatcher {
-    private def flatType(tpe: Type): (Seq[Type], Type) = tpe match {
-      case FunctionType(from, to) =>
-        val (nextArgs, finalTo) = flatType(to)
-        (from ++ nextArgs, finalTo)
-      case _ => (Seq.empty, tpe)
-    }
-
-    def unapply(tpe: Type): Option[(Seq[Type], Type)] = tpe match {
-      case FunctionType(from, to) => Some(flatType(tpe))
-      case MapType(from, to) => Some(Seq(from) -> to)
-      case BagType(base) => Some(Seq(base) -> IntegerType())
-      case SetType(base) => Some(Seq(base) -> BooleanType())
-      case _ => None
-    }
+  private def matcherArgumentTypes(tpe: Type): (Seq[Type], Type) = tpe match {
+    case FunctionType(from, to) => from -> to
+    case MapType(from, to) => Seq(from) -> to
+    case BagType(base) => Seq(base) -> IntegerType()
+    case SetType(base) => Seq(base) -> BooleanType()
+    case _ => throw FatalError("Matcher argument type of unsupported type " + tpe)
   }
 
   /* -- Quantifier template definitions -- */
@@ -1135,15 +1126,8 @@ trait QuantificationTemplates { self: Templates =>
     for ((_, bs, m) <- ignoredMatchers.toList) {
       val key = matcherKey(m)
       val argTypes = key match {
-        case tk: TypedKey =>
-          val QuantificationTypeMatcher(argTypes, _) = tk.tpe
-          argTypes
-        case FunctionKey(tfd) =>
-          tfd.params.map(_.getType) ++ (tfd.returnType match {
-            case tpe @ QuantificationTypeMatcher(argTypes, _) if tpe.isInstanceOf[FunctionType] =>
-              argTypes
-            case _ => Seq.empty
-          })
+        case tk: TypedKey => matcherArgumentTypes(tk.tpe)._1
+        case FunctionKey(tfd) => tfd.params.map(_.getType)
       }
 
       val (values, clause) = keyClause.getOrElse(key, {
