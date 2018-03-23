@@ -164,7 +164,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
   private[this] val pureCache: MutableMap[Identifier, PurityCheck] = MutableMap.empty
 
-  private def isPureFunction(id: Identifier): Boolean = {
+  protected final def isPureFunction(id: Identifier): Boolean = {
     opts.assumeChecked ||
     synchronized(pureCache.get(id) match {
       case Some(Pure) => true
@@ -181,7 +181,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     })
   }
 
-  private def isConstructor(e: Expr, id: Identifier, path: CNFPath): Option[Boolean] = {
+  protected def isConstructor(e: Expr, id: Identifier, path: CNFPath): Option[Boolean] = {
     if (path contains IsConstructor(e, id)) {
       Some(true)
     } else {
@@ -204,7 +204,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
   private val simplifyCache = new LruCache[Expr, (CNFPath, Expr, Boolean)](100)
 
-  private def simplify(e: Expr, path: CNFPath): (Expr, Boolean) = e match {
+  protected def simplify(e: Expr, path: CNFPath): (Expr, Boolean) = e match {
     case e if path contains e => (BooleanLiteral(true), true)
     case e if path contains not(e) => (BooleanLiteral(false), true)
 
@@ -421,7 +421,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     (re, pe)
   }
 
-  override protected def rec(e: Expr, path: CNFPath): Expr = {
+  override protected final def rec(e: Expr, path: CNFPath): Expr = {
     dynStack.value = if (dynStack.value.isEmpty) Nil else (dynStack.value.head + 1) :: dynStack.value.tail
     val (re, pe) = simplify(e, path)
     dynPurity.value = if (dynStack.value.isEmpty) dynPurity.value else pe :: dynPurity.value

@@ -28,13 +28,15 @@ trait SymbolOps { self: TypeOps =>
   import trees.exprOps._
   import symbols._
 
-  protected class SimplifierWithPC(val opts: PurityOptions) extends transformers.SimplifierWithPC {
+  protected trait SimplifierWithPC extends transformers.SimplifierWithPC {
     val trees: self.trees.type = self.trees
     val symbols: self.symbols.type = self.symbols
   }
 
   /** Override point for simplifier creation */
-  protected def createSimplifier(opts: PurityOptions): SimplifierWithPC = new SimplifierWithPC(opts)
+  protected def createSimplifier(popts: PurityOptions): SimplifierWithPC = new {
+    val opts: PurityOptions = popts
+  } with SimplifierWithPC
 
   private var simplifierCache: MutableMap[PurityOptions, SimplifierWithPC] = MutableMap.empty
   def simplifier(implicit purityOpts: PurityOptions): SimplifierWithPC = synchronized {
