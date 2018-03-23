@@ -1,0 +1,21 @@
+(declare-datatypes (T!0) ((List!4 (Cons!3 (h!47 T!0) (t!62 (List!4 T!0))) (Nil!3))))
+
+(declare-datatypes () ((SharedState!2 (SharedState!3 (ready!1 (List!4 Int)) (procs!1 (=> Int Int))))))
+
+(define-fun-rec (par (T!101) (forall!0 ((thiss!72 (List!4 T!101)) (p!4 (=> T!101 Bool))) Bool (ite (is-Nil!3 thiss!72) true (and (@ p!4 (h!47 thiss!72)) (forall!0 (t!62 thiss!72) p!4))))))
+
+(define-fun updateProc!0 ((s!9 SharedState!2) (u!0 Int) (p!18 Int) (id!0 Int)) Int (ite (= id!0 u!0) p!18 (@ (assume (is-SharedState!3 s!9) (procs!1 s!9)) id!0)))
+
+(define-fun updateProcLemma!0 ((s!10 SharedState!2) (l!19 (List!4 Int)) (u!1 Int) (p!19 Int)) Bool (forall!0 l!19 (lambda ((t!53 Int)) (ite (not (= t!53 u!1)) (= (@ (assume (is-SharedState!3 s!10) (procs!1 s!10)) t!53) (updateProc!0 s!10 u!1 p!19 t!53)) true))))
+
+(declare-const s!11 SharedState!2)
+
+(declare-const u!2 Int)
+
+(declare-const p!20 Int)
+
+(assert (not (=> (updateProcLemma!0 s!11 (assume (is-SharedState!3 s!11) (ready!1 s!11)) u!2 p!20) (let ((res!166 (SharedState!3 (assume (is-SharedState!3 s!11) (ready!1 s!11)) (lambda ((id!4 Int)) (updateProc!0 s!11 u!2 p!20 id!4))))) (forall!0 (assume (is-SharedState!3 s!11) (ready!1 s!11)) (lambda ((t!59 Int)) (ite (not (= t!59 u!2)) (= (@ (assume (is-SharedState!3 s!11) (procs!1 s!11)) t!59) (@ (assume (is-SharedState!3 res!166) (procs!1 res!166)) t!59)) true)))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard
