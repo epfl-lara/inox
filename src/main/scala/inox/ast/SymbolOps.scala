@@ -222,34 +222,15 @@ trait SymbolOps { self: TypeOps =>
         }
       }
 
-    def extractMatcher(e: Expr): (Seq[Expr], Seq[Expr] => Expr) = e match {
-      case Application(caller, args) =>
-        val (es, recons) = extractMatcher(caller)
-        (args ++ es, es => {
-          val (newArgs, newEs) = es.splitAt(args.size)
-          Application(recons(newEs), newArgs)
-        })
-
-      case ADTSelector(adt, id) =>
-        val (es, recons) = extractMatcher(adt)
-        (es, es => ADTSelector(recons(es), id))
-
-      case ElementOfSet(elem, set) =>
-        val (es, recons) = extractMatcher(set)
-        (elem +: es, { case elem +: es => ElementOfSet(elem, recons(es)) })
-
-      case MultiplicityInBag(elem, bag) =>
-        val (es, recons) = extractMatcher(bag)
-        (elem +: es, { case elem +: es => MultiplicityInBag(elem, recons(es)) })
-
-      case MapApply(map, key) =>
-        val (es, recons) = extractMatcher(map)
-        (key +: es, { case key +: es => MapApply(recons(es), key) })
-
-      case FunctionInvocation(id, tps, args) =>
-        (args, es => FunctionInvocation(id, tps, es))
-
-      case _ => (Seq(e), es => es.head)
+    object Matcher {
+      def unapply(e: Expr): Option[Seq[Expr]] = e match {
+        case Application(_, args) => Some(args)
+        case ElementOfSet(elem, _) => Some(Seq(elem))
+        case MultiplicityInBag(elem, _) => Some(Seq(elem))
+        case MapApply(_, key) => Some(Seq(key))
+        case FunctionInvocation(_, _, args) => Some(args)
+        case _ => None
+      }
     }
 
     def outer(vars: Set[Variable], body: Expr, inFunction: Boolean): Expr = {
@@ -259,7 +240,7 @@ trait SymbolOps { self: TypeOps =>
       def isLocal(e: Expr, path: Path): Boolean = {
         val vs = variablesOf(e)
         val tvs = vs flatMap { v => varSubst.get(v.id) map { Variable(_, v.tpe, v.flags) } }
-        val pathVars = path.bound.toSet map { vd: ValDef => vd.toVariable }
+        val pathVars = path.bound.map(_.toVariable).toSet
         (tvars & tvs).isEmpty && (pathVars & tvs).isEmpty
       }
 
@@ -269,55 +250,112 @@ trait SymbolOps { self: TypeOps =>
       def containsRecursive(e: Expr): Boolean =
         exists { case fi: FunctionInvocation => fi.tfd.fd.isRecursive case _ => false } (e)
 
+      def isPureCondition(e: Expr, path: Path): Boolean = 
+        ((isAlwaysPure(e) && !containsRecursive(e)) || (!inFunction && (isPure(e) || path.conditions.isEmpty)))
+
       def isLiftable(e: Expr, path: Path): Boolean = {
         isLocal(e, path) &&
         (isSimple(e) || !onlySimple) &&
         !containsChoose(e) &&
-        ((isAlwaysPure(e) && !containsRecursive(e)) || (!inFunction && (isPure(e) || path.conditions.isEmpty)))
+        isPureCondition(e, path)
       }
 
-      transformWithPC(body)((e, env, op) => e match {
-        case v @ Variable(id, tpe, flags) =>
-          Variable(
-            if (vars(v) || locals(id)) transformId(id, tpe, store = false)
-            else getId(v),
-            tpe, flags
-          )
+      // We use `recCounts` to check that we aren't in the outer-most call to `transformWithPC`.
+      // This is necessary to avoid lifting a lambda's body into a new lambda with the exact same body
+      // (so only sub-expressions of `body` can be lifted into lambdas).
+      //
+      // @nv: this is a super ugly hack. If someone has a better way of checking this (while still
+      //      using `transformWithPC`), please change this horror!
+      var recCounts: Int = 0
+      transformWithPC(body) { (e, env, op) =>
+        // the first call increases `recCounts` to 1 so `recCounts == 1` iff we're in the first call
+        // We use an upper-bound of 2 to avoid integer overflow (although this will probably never happen).
+        if (recCounts < 2) recCounts += 1
 
-        case (_: Application) | (_: MultiplicityInBag) | (_: ElementOfSet) | (_: MapApply) if (
-          !isLocal(e, env) &&
-          preserveApps
-        ) =>
-          val (es, recons) = extractMatcher(e)
-          val newEs = es.map(op.rec(_, env))
-          recons(newEs)
+        e match {
+          case v @ Variable(id, tpe, flags) =>
+            Variable(
+              if (vars(v) || locals(id)) transformId(id, tpe, store = false)
+              else getId(v),
+              tpe, flags
+            )
 
-        case Let(vd, e, b) if isLiftable(e, env) =>
-          subst += vd.toVariable -> e
-          op.rec(b, env)
+          case Matcher(args) if (
+            args.exists { case v: Variable => vars(v) case _ => false } &&
+            preserveApps
+          ) =>
+            val Operator(es, recons) = e
+            recons(es.map(op.rec(_, env)))
 
-        case expr if isLiftable(expr, env) =>
-          Variable(getId(expr), expr.getType, Set.empty)
+          case Let(vd, e, b) if isLiftable(e, env) =>
+            subst += vd.toVariable -> e
+            op.rec(b, env)
 
-        case f: Forall =>
-          val newBody = outer(vars ++ f.args.map(_.toVariable), f.body, false)
-          Forall(f.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
+          case expr if isLiftable(expr, env) =>
+            Variable(getId(expr), expr.getType, Set.empty)
 
-        case l: Lambda =>
-          val newBody = outer(vars ++ l.args.map(_.toVariable), l.body, true)
-          Lambda(l.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
+          case f: Forall =>
+            val newBody = outer(vars ++ f.args.map(_.toVariable), f.body, false)
+            Forall(f.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
 
-        // @nv: we make sure NOT to normalize choose ids as we may need to
-        // report models for unnormalized chooses!
-        case c: Choose =>
-          val vs = variablesOf(c).map(v => v -> v.copy(id = transformId(v.id, v.tpe, store = false))).toMap
-          replaceFromSymbols(vs, c)
+          case l: Lambda =>
+            val newBody = outer(vars ++ l.args.map(_.toVariable), l.body, true)
+            Lambda(l.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
 
-        case _ =>
-          val (ids, vs, es, tps, recons) = deconstructor.deconstruct(e)
-          val newVs = vs.map(v => v.copy(id = transformId(v.id, v.tpe, store = false)))
-          op.superRec(recons(ids, newVs, es, tps), env)
-      })
+          // @nv: we make sure NOT to normalize choose ids as we may need to
+          //      report models for unnormalized chooses!
+          case c: Choose =>
+            val vs = variablesOf(c).map(v => v -> v.copy(id = transformId(v.id, v.tpe, store = false))).toMap
+            replaceFromSymbols(vs, c)
+
+          // Make sure we don't lift applications to applications when they have basic shapes
+          case Application(caller, args) if (
+            isLiftable(caller, env) &&
+            args.forall(!isLiftable(_, env))
+          ) =>
+            op.superRec(e, env)
+
+          // This case enables lifting of impure expressions into lambdas outside of the expression
+          // to normalize to improve normalized structure equality in the presence of impurity.
+          // For example:
+          //   (v: Int) => 1 + someImpureFunction(v)
+          // and
+          //   val f = (x: Int) => someImpureFunction(x)
+          //   (v: Int) => 1 + f(v)
+          // will have the same normalized structure thanks to this case.
+          case Operator(es, recons) if (
+            // We first make sure not to introduce new matchers in foralls
+            (!preserveApps || !es.exists { case v: Variable => vars(v) case _ => false }) &&
+            // Make sure we don't try to normalize outer-most expressions
+            // See above about how/why `recCount` is used.
+            recCounts > 1 &&
+            // Don't lift pure conditions as recursive normalizations will be better
+            !isPureCondition(e, env) &&
+            es.exists(isLiftable(_, env)) &&
+            es.exists(!isLiftable(_, env))
+          ) =>
+            val esWithParams = es.map(e => e -> {
+              if (isLiftable(e, env)) None
+              else Some(ValDef(FreshIdentifier("v"), e.getType))
+            })
+
+            val params = esWithParams.collect { case (_, Some(vd)) => vd }
+            val lambda = Lambda(params, recons(esWithParams.map {
+              case (_, Some(vd)) => vd.toVariable
+              case (e, _) => e
+            }))
+
+            Application(
+              Variable(getId(lambda), lambda.getType, Set.empty),
+              esWithParams.collect { case (e, Some(_)) => e }.map(op.rec(_, env))
+            )
+
+          case _ =>
+            val (ids, vs, es, tps, recons) = deconstructor.deconstruct(e)
+            val newVs = vs.map(v => v.copy(id = transformId(v.id, v.tpe, store = false)))
+            op.superRec(recons(ids, newVs, es, tps), env)
+        }
+      }
     }
 
     val newExpr = outer(args.map(_.toVariable).toSet, expr, inFunction)
