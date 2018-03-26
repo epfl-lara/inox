@@ -145,7 +145,7 @@ addArtifact(artifact in (ItTest, packageBin), packageBin in ItTest)
 
 pomIncludeRepository := { _ => false }
 
-licenses := Seq("GNU General Public License, Version 3" -> url("http://www.gnu.org/licenses/gpl-3.0.html"))
+licenses := Seq("GNU Affero General Public License, Version 3" -> url("http://www.gnu.org/licenses/agpl-3.0.html"))
 
 homepage := Some(url("https://github.com/epfl-lara/inox"))
 
