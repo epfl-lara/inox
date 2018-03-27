@@ -125,8 +125,8 @@ trait Constructors { self: Trees =>
   def equality(a: Expr, b: Expr): Expr = {
     if (a.isInstanceOf[Terminal] && a == b ) {
       BooleanLiteral(true)
-    } else if (a.isInstanceOf[Literal[_]] && b.isInstanceOf[Literal[_]] && a != b) {
-      BooleanLiteral(false)
+    } else if (a.isInstanceOf[Literal[_]] && b.isInstanceOf[Literal[_]]) {
+      BooleanLiteral(a == b)
     } else {
       Equals(a, b)
     }
