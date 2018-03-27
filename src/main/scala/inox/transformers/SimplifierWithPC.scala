@@ -181,8 +181,9 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     })
   }
 
-  protected def isConstructor(e: Expr, id: Identifier, path: CNFPath): Option[Boolean] = {
-    if (path contains IsConstructor(e, id)) {
+  protected def isConstructor(e: Expr, id: Identifier, path: CNFPath): Option[Boolean] = e match {
+    case ADT(id2, _, _) => Some(id == id2)
+    case _ => if (path contains IsConstructor(e, id)) {
       Some(true)
     } else {
       val adt @ ADTType(_, tps) = widen(e.getType)
@@ -370,20 +371,12 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
           (lete, letp)
         }
 
-    case Equals(e1: Literal[_], e2: Literal[_]) =>
-      (BooleanLiteral(e1 == e2), true)
-
-    case Equals(e1: Terminal, e2: Terminal) if e1 == e2 =>
-      (BooleanLiteral(true), true)
-
-    case Not(e) =>
-      val (re, pe) = simplify(e, path)
-      (not(re), pe)
-
     case FunctionInvocation(id, tps, args) =>
       val (rargs, pargs) = args.map(simplify(_, path)).unzip
       (FunctionInvocation(id, tps, rargs), pargs.foldLeft(isPureFunction(id))(_ && _))
 
+    case Not(e)              => simplifyAndCons(Seq(e), path, es => not(es.head))
+    case Equals(l, r)        => simplifyAndCons(Seq(l, r), path, es => equality(es(0), es(1)))
     case Tuple(es)           => simplifyAndCons(es, path, tupleWrap)
     case UMinus(t)           => simplifyAndCons(Seq(t), path, es => uminus(es.head))
     case Plus(l, r)          => simplifyAndCons(Seq(l, r), path, es => plus(es(0), es(1)))
