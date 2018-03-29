@@ -156,6 +156,9 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
   private[this] var dynStack: DynamicVariable[List[Int]] = new DynamicVariable(Nil)
   private[this] var dynPurity: DynamicVariable[List[Boolean]] = new DynamicVariable(Nil)
+  private[this] val dynUnfold: DynamicVariable[List[Set[Identifier]]] = new DynamicVariable(List(Set()))
+  private[this] val unfoldingSteps: DynamicVariable[Map[Identifier, Int]] = new DynamicVariable(Map().withDefault(_ => maxUnfoldingSteps))
+  private[this] val maxUnfoldingSteps: Int = 10
 
   private sealed abstract class PurityCheck
   private case object Pure extends PurityCheck
@@ -371,7 +374,17 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
           (lete, letp)
         }
 
-    case FunctionInvocation(id, tps, args) =>
+    case fi @ FunctionInvocation(id, tps, args) if canUnfold(fi) =>
+      val (rargs, pargs) = args.map(simplify(_, path)).unzip
+
+      unfold(fi, rargs, path).map(evalGround) match {
+        case Some(unfolded) =>
+          simplify(unfolded, path)
+        case None =>
+          (FunctionInvocation(id, tps, rargs), pargs.foldLeft(isPureFunction(id))(_ && _))
+      }
+
+    case fi @ FunctionInvocation(id, tps, args) =>
       val (rargs, pargs) = args.map(simplify(_, path)).unzip
       (FunctionInvocation(id, tps, rargs), pargs.foldLeft(isPureFunction(id))(_ && _))
 
@@ -413,6 +426,61 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     val pe = pes.foldLeft(opts.assumeChecked || !isImpureExpr(re))(_ && _)
     (re, pe)
   }
+
+  protected def canUnfold(fi: FunctionInvocation): Boolean = {
+    !fi.tfd.fd.flags.contains("extern") && !isUnfoldingInPath(fi)
+  }
+
+  protected def isUnfoldingInPath(fi: FunctionInvocation): Boolean = {
+    dynUnfold.value.head contains fi.id
+  }
+
+  protected def unfold(fi: FunctionInvocation, args: Seq[Expr], path: CNFPath): Option[Expr] = {
+    lazy val unfolded = exprOps.freshenLocals(fi.tfd.withParamSubst(args, fi.tfd.fullBody))
+    if (!isRecursive(fi.id) || unfoldingStepsLeft(fi.id) > 0 && isProductiveUnfolding(fi.id, unfolded, path)) {
+      decreaseUnfoldingStepsLeft(fi.id)
+      Some(unfolded)
+    } else {
+      None
+    }
+  }
+
+  private def decreaseUnfoldingStepsLeft(id: Identifier): Unit = {
+    val left = unfoldingStepsLeft(id)
+    unfoldingSteps.value = unfoldingSteps.value.updated(id, left - 1)
+  }
+
+  private def unfoldingStepsLeft(id: Identifier): Int = {
+    unfoldingSteps.value(id)
+  }
+
+  protected def preventUnfoldingOf[A](id: Identifier)(during: () => A): A = {
+    dynUnfold.value = (dynUnfold.value.head + id) :: dynUnfold.value
+    val res = during()
+    dynUnfold.value = dynUnfold.value.tail
+    res
+  }
+
+  protected def isProductiveUnfolding(id: Identifier, expr: Expr, path: CNFPath): Boolean = {
+    def isKnown(expr: Expr): Boolean = expr match {
+      case BooleanLiteral(_) => true
+      case _ => false
+    }
+
+    val invocationPaths = collectWithPC(expr) {
+      case (fi: FunctionInvocation, subPath) if fi.id == id || transitivelyCalls(fi.id, id) => subPath
+    }
+
+    preventUnfoldingOf(id) { () =>
+      invocationPaths.map(p => simplify(p.toClause, path)._1).forall(isKnown)
+    }
+  }
+
+  private def evalGround(expr: Expr): Expr = {
+    expr
+    // simplifyGround(expr)(semantics, context)
+  }
+
 
   override protected final def rec(e: Expr, path: CNFPath): Expr = {
     dynStack.value = if (dynStack.value.isEmpty) Nil else (dynStack.value.head + 1) :: dynStack.value.tail
