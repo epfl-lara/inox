@@ -235,7 +235,7 @@ trait SymbolOps { self: TypeOps =>
       }
     }
 
-    def outer(vars: Set[Variable], body: Expr, inFunction: Boolean): Expr = {
+    def outer(vars: Set[Variable], body: Expr, inFunction: Boolean, path: Path): Expr = {
       // this registers the argument images into subst
       val tvars = vars map (v => v.copy(id = transformId(v.id, v.tpe, store = false)))
 
@@ -269,7 +269,7 @@ trait SymbolOps { self: TypeOps =>
       // @nv: this is a super ugly hack. If someone has a better way of checking this (while still
       //      using `transformWithPC`), please change this horror!
       var recCounts: Int = 0
-      transformWithPC(body) { (e, env, op) =>
+      transformWithPC(body, path) { (e, env, op) =>
         // the first call increases `recCounts` to 1 so `recCounts == 1` iff we're in the first call
         // We use an upper-bound of 2 to avoid integer overflow (although this will probably never happen).
         if (recCounts < 2) recCounts += 1
@@ -297,11 +297,11 @@ trait SymbolOps { self: TypeOps =>
             Variable(getId(expr), expr.getType, Set.empty)
 
           case f: Forall =>
-            val newBody = outer(vars ++ f.args.map(_.toVariable), f.body, false)
+            val newBody = outer(vars ++ f.args.map(_.toVariable), f.body, false, env)
             Forall(f.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
 
           case l: Lambda =>
-            val newBody = outer(vars ++ l.args.map(_.toVariable), l.body, true)
+            val newBody = outer(vars ++ l.args.map(_.toVariable), l.body, true, env)
             Lambda(l.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
 
           // @nv: we make sure NOT to normalize choose ids as we may need to
@@ -360,7 +360,7 @@ trait SymbolOps { self: TypeOps =>
       }
     }
 
-    val newExpr = outer(args.map(_.toVariable).toSet, expr, inFunction)
+    val newExpr = outer(args.map(_.toVariable).toSet, expr, inFunction, Path.empty)
     val bindings = args.map(vd => vd.copy(id = varSubst(vd.id)))
 
     def rec(v: Variable): Seq[Variable] =
