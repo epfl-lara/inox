@@ -30,8 +30,8 @@ object PortfolioSolverFactory {
            (factories: Seq[SolverFactory { val program: p.type; type S <: TimeoutSolver }]):
             PortfolioSolverFactory { val program: p.type; type S <: TimeoutSolver } = new {
     val program: p.type = p
+    val sfs = factories
   } with PortfolioSolverFactory {
     type SF = SolverFactory { val program: p.type; type S <: TimeoutSolver }
-    val sfs: Seq[SF] = factories
   }
 }
