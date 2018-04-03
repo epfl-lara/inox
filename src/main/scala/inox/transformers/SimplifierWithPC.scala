@@ -222,7 +222,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     case c: Choose => (c, opts.assumeChecked)
 
     case Lambda(args, body) =>
-      val (rb, _) = simplify(body, path)
+      val (rb, _) = simplify(body, path.withNoUnfolding)
       (Lambda(args, rb), true)
 
     case Implies(l, r) => simplify(or(not(l), r), path)
