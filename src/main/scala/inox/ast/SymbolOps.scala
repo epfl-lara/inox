@@ -111,7 +111,7 @@ trait SymbolOps { self: TypeOps =>
   /** Returns 'true' iff the evaluation of expression `expr` cannot lead to a crash under the provided path. */
   def isPureIn(e: Expr, path: Path)(implicit opts: PurityOptions): Boolean = {
     val s = simplifier
-    val env = s.CNFPath(path)
+    val env = s.CNFPath(path).withNoUnfolding
     (env contains BooleanLiteral(false)) || s.isPure(e, env)
   }
 
