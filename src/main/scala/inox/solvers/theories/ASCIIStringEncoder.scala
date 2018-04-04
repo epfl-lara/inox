@@ -5,8 +5,7 @@ package solvers
 package theories
 
 import utils._
-
-import org.apache.commons.lang3.StringEscapeUtils
+import utils.StringUtils._
 
 trait ASCIIStringEncoder extends SimpleEncoder {
   import trees._
@@ -31,29 +30,9 @@ trait ASCIIStringEncoder extends SimpleEncoder {
   override protected val extraFunctions = Seq(invariant)
   override protected val extraSorts = Seq(stringSort)
 
-  private def toHex(i: Int): String = {
-    if (0 <= i && i <= 9) i.toString else (i + 55).toChar.toString
-  }
-
-  private def fromHex(c: Char): Int = {
-    if (c >= 'A' && c <= 'F') (c - 55).toInt
-    else if (c >= 'a' && c <= 'f') (c - 87).toInt
-    else c.toString.toInt
-  }
-
-  private def encodeByte(b: Byte): String = "\\x" + toHex((b >> 4) & 0xF) + toHex(b & 0xF)
-  private def decodeHex(s: String): Byte = ((fromHex(s.charAt(2)) << 4) + fromHex(s.charAt(3))).toByte
-
-  private val hex = """^\\x[0-9A-Fa-f]{2}""".r
-
-  private def decodeFirstByte(s: String): (Byte, String) = {
-    if (hex.findFirstIn(s).isDefined) {
-      val (head, s2) = s.splitAt(4)
-      (decodeHex(head), s2)
-    } else if (s.charAt(0) == '\\') {
-      val Seq(b) = StringEscapeUtils.unescapeJava(s.take(2)).getBytes.toSeq
-      (b, s.drop(2))
-    } else s.charAt(0).toString.getBytes.toSeq match {
+  private def decodeFirstByte(s: String): (Byte, String) = s match {
+    case JavaEncoded(head, s2) => (head, s2)
+    case _ => s.charAt(0).toString.getBytes.toSeq match {
       case Seq(b) => (b, s.tail)
       case Seq(b1, b2) => (b1, encodeByte(b2) + s.tail)
     }
