@@ -72,37 +72,6 @@ trait SymbolOps { self: TypeOps =>
 
   def simplifyExpr(expr: Expr)(implicit opts: PurityOptions): Expr = simplifier.transform(expr)
 
-  /** Normalizes the expression expr */
-  def normalizeExpression(expr: Expr): Expr = {
-    def rec(e: Expr): Option[Expr] = e match {
-      case TupleSelect(Let(id, v, b), ts) =>
-        Some(Let(id, v, tupleSelect(b, ts, true)))
-
-      case ADTSelector(cc: ADT, id) =>
-        Some(adtSelector(cc, id).copiedFrom(e))
-
-      case IfExpr(c, thenn, elze) if thenn == elze =>
-        Some(thenn)
-
-      case IfExpr(c, BooleanLiteral(true), BooleanLiteral(false)) =>
-        Some(c)
-
-      case IfExpr(Not(c), thenn, elze) =>
-        Some(IfExpr(c, elze, thenn).copiedFrom(e))
-
-      case IfExpr(c, BooleanLiteral(false), BooleanLiteral(true)) =>
-        Some(Not(c).copiedFrom(e))
-
-      case FunctionInvocation(id, tps, List(IfExpr(c, thenn, elze))) =>
-        Some(IfExpr(c, FunctionInvocation(id, tps, List(thenn)), FunctionInvocation(id, tps, List(elze))).copiedFrom(e))
-
-      case _ =>
-        None
-    }
-
-    fixpoint(postMap(rec))(expr)
-  }
-
   /** Returns 'true' iff the evaluation of expression `expr` cannot lead to a crash. */
   def isPure(expr: Expr)(implicit opts: PurityOptions): Boolean = isPureIn(expr, Path.empty)
 
@@ -516,7 +485,7 @@ trait SymbolOps { self: TypeOps =>
    *   forall((x: BigInt) => x + 1 == x + 1)
    * }}}
    */
-  def inlineLambdas(e: Expr): Expr = {
+  def inlineLambdas(e: Expr)(implicit opts: PurityOptions): Expr = {
     def rec(e: Expr, lambdas: Map[Variable, Lambda], inForall: Boolean): Expr = e match {
       case Let(vd, l: Lambda, b) =>
         val nl = l.copy(body = rec(l.body, lambdas, false))
@@ -536,7 +505,7 @@ trait SymbolOps { self: TypeOps =>
     * in order to increase the precision of polarity analysis for
     * quantification instantiations.
     */
-  def simplifyForalls(e: Expr): Expr = {
+  def simplifyForalls(e: Expr)(implicit opts: PurityOptions): Expr = {
 
     def inlineFunctions(e: Expr): Expr = {
       val fds = functionCallsOf(e).flatMap { fi =>
@@ -1133,7 +1102,7 @@ trait SymbolOps { self: TypeOps =>
                                     (implicit pp: PathProvider[P]): Boolean = {
     var result = false
     transformWithPC(e, path) { (e, path, op) =>
-      if (p(e, path)) {
+      if (result || p(e, path)) {
         result = true
         e
       } else {
@@ -1254,7 +1223,7 @@ trait SymbolOps { self: TypeOps =>
     * @see [[SymbolOps.isPure isPure]]
     */
   def let(vd: ValDef, e: Expr, bd: Expr) = {
-    if ((variablesOf(bd) contains vd.toVariable) || !isPure(e)(PurityOptions.unchecked))
+    if ((variablesOf(bd) contains vd.toVariable) || !isAlwaysPure(e))
       Let(vd, e, bd).setPos(Position.between(vd.getPos, bd.getPos))
     else bd
   }
@@ -1263,7 +1232,7 @@ trait SymbolOps { self: TypeOps =>
     * @see [[Expressions.IfExpr IfExpr]]
     */
   def ifExpr(c: Expr, t: Expr, e: Expr): Expr = (t, e) match {
-    case (_, `t`) if isPure(c)(PurityOptions.unchecked) => t
+    case (_, `t`) if isAlwaysPure(c) => t
     case (IfExpr(c2, thenn, `e`), _) => ifExpr(and(c, c2), thenn, e)
     case (_, IfExpr(c2, `t`, e2)) => ifExpr(or(c, c2), t, e2)
     case (BooleanLiteral(true), BooleanLiteral(false)) => c
@@ -1324,7 +1293,7 @@ trait SymbolOps { self: TypeOps =>
     adt match {
       case a @ ADT(id, tps, fields) =>
         val cons = a.getConstructor
-        if (!cons.sort.hasInvariant && cons.fields.exists(_.id == selector)) {
+        if (!cons.sort.hasInvariant && cons.fields.exists(_.id == selector) && fields.forall(isAlwaysPure)) {
           fields(cons.definition.selectorID2Index(selector))
         } else {
           ADTSelector(adt, selector).copiedFrom(adt)
