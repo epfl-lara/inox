@@ -176,38 +176,6 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
   private[this] val dynStack: DynamicVariable[List[Int]] = new DynamicVariable(Nil)
   private[this] val dynPurity: DynamicVariable[List[Boolean]] = new DynamicVariable(Nil)
-  private[this] val dynUnfoldEnabled: DynamicVariable[Boolean] = new DynamicVariable(true)
-  private[this] val dynUnfoldSteps: DynamicVariable[Map[Identifier, Int]] = new DynamicVariable(Map().withDefault(_ => maxUnfoldingSteps))
-  private[this] val maxUnfoldingSteps: Int = 10
-
-  private[this] val matcherChecked: MutableSet[Identifier] = MutableSet.empty
-  private[this] val matcherFunctions: MutableSet[Identifier] = MutableSet.empty
-
-  private def registerMatcherFunctions(expr: Expr): Unit = {
-    def rec(e: Expr, quantified: Set[Variable]): Unit = e match {
-      case Forall(args, body) =>
-        rec(body, quantified ++ args.map(_.toVariable))
-
-      case FunctionInvocation(id, _, args) =>
-        if (args.exists { case v: Variable => quantified(v) case _ => false }) {
-          matcherFunctions += id
-        }
-
-        if (!matcherChecked(id)) synchronized {
-          if (!matcherChecked(id)) {
-            matcherChecked += id
-            registerMatcherFunctions(getFunction(id).fullBody)
-          }
-        }
-
-        args.foreach(rec(_, quantified))
-
-      case Operator(es, _) =>
-        es.foreach(rec(_, quantified))
-    }
-
-    rec(expr, Set())
-  }
 
   private sealed abstract class PurityCheck
   private case object Pure extends PurityCheck
@@ -255,33 +223,20 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     }
   }
 
-  final def isPure(e: Expr, path: CNFPath): Boolean = {
-    registerMatcherFunctions(e)
-    simplify(e, path)._2
-  }
+  final def isPure(e: Expr, path: CNFPath): Boolean = simplify(e, path)._2
 
-  override final def transform(e: Expr, path: CNFPath): Expr = {
-    registerMatcherFunctions(e)
-    simplify(e, path)._1
-  }
-
-  private class SimplificationCache(cache: Cache[Expr, (CNFPath, Boolean, Map[Identifier, Int], Expr, Boolean)]) {
+  private class SimplificationCache(cache: Cache[Expr, (CNFPath, Expr, Boolean)]) {
     def cached(e: Expr, path: CNFPath)(body: => (Expr, Boolean)): (Expr, Boolean) =
       cache.get(e)
-        .filter { case (p, enabled, steps, _, _) =>
-          (p subsumes path) &&
-          (enabled || !dynUnfoldEnabled.value) &&
-          (steps forall (p => p._2 <= dynUnfoldSteps.value(p._1)))
-        }
-        .map { case (_, _, _, re, pe) => (re, pe) }
+        .filter { case (p, _, _) => (p subsumes path) }
+        .map { case (_, re, pe) => (re, pe) }
         .getOrElse {
           val (re, pe) = body
-          cache(e) = (path, dynUnfoldEnabled.value, dynUnfoldSteps.value, re, pe)
+          cache(e) = (path, re, pe)
           (re, pe)
         }
   }
 
-  private val simplifyCache = new SimplificationCache(new PriorityCache(100)(Ordering.by(formulaSize)))
   private val recentCache = new SimplificationCache(new LruCache(100))
 
   protected def simplify(e: Expr, path: CNFPath): (Expr, Boolean) = e match {
@@ -292,7 +247,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     case c: Choose => (c, opts.assumeChecked)
 
     case Lambda(args, body) =>
-      val (rb, _) = disableUnfolding(simplify(body, path))
+      val (rb, _) = simplify(body, path)
       (Lambda(args, rb), true)
 
     case Implies(l, r) => simplify(or(not(l), r), path)
@@ -463,78 +418,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
     case fi @ FunctionInvocation(id, tps, args) =>
       val (rargs, pargs) = args.map(simplify(_, path)).unzip
-
-      def default = (
-        FunctionInvocation(id, tps, rargs),
-        pargs.foldLeft(preventUnfoldingOf(id)(isPureFunction(id)))(_ && _)
-      )
-
-      def isProgressIndicator(e: Expr): Boolean = e match {
-        case v: Variable =>
-          val expanded = path.expand(v)
-          expanded != v && isProgressIndicator(expanded)
-        case (_: ADT | _: Tuple | _: Lambda) => true
-        case _ => false
-      }
-
-      if (dynUnfoldEnabled.value && !matcherFunctions(id) && dynUnfoldSteps.value(id) > 0 &&
-          (!isRecursive(id) || rargs.exists(isProgressIndicator))) simplifyCache.cached(e, path) {
-        val unfolded: Expr = {
-          val tfd = fi.tfd
-          val freshParams = tfd.params.map(_.freshen)
-          val freshBody = freshenLocals(replaceFromSymbols((tfd.params zip freshParams.map(_.toVariable)).toMap, tfd.fullBody))
-          (freshParams zip rargs).foldRight(freshBody) { case ((vd, e), b) => Let(vd, e, b).copiedFrom(e) }
-        }
-
-        // `isProductive contains true` iff there is a recursive call in `unfolded`
-        // that has a satisfiable path.
-        val isProductive = preventUnfoldingOf(id) {
-          def simplifyPath(subPath: Path): Option[Boolean] = {
-            def rec(elements: Seq[Path.Element], path: CNFPath): Option[Boolean] = elements match {
-              case Nil => Some(true)
-              case Path.OpenBound(_) :: xs => rec(xs, path)
-              case Path.CloseBound(vd, e) :: xs => rec(xs, path withBinding (vd -> e))
-              case Path.Condition(cond) :: xs => simplify(cond, path) match {
-                case (BooleanLiteral(true), _) => rec(xs, path)
-                case (BooleanLiteral(false), _) => Some(false)
-                case _ => None
-              }
-            }
-
-            rec(subPath.elements, path)
-          }
-
-          var simpCalls: Option[Boolean] = None
-          val pathsAreKnown = !existsWithPC(unfolded) {
-            case (fi @ FunctionInvocation(fid, _, _), subPath) if transitivelyCalls(fid, id) =>
-              simpCalls = simplifyPath(subPath).map(_ || simpCalls.getOrElse(false))
-              simpCalls.isEmpty
-            case (c: Choose, subPath) =>
-              simplifyPath(subPath) != Some(false)
-            case _ => false
-          }
-
-          if (pathsAreKnown) simpCalls orElse Some(false)
-          else None
-        }
-
-        if (isProductive.nonEmpty) {
-          val (ru, pu) = preventUnfoldingOf(id)(simplify(unfolded, path))
-          def continueUnfolding = {
-            if (isProductive contains true) decreaseUnfoldingStepsOf(id)(simplify(ru, path))
-            else (ru, pu)
-          }
-          ru match {
-            case (_: ADT | _: Lambda) => continueUnfolding
-            case _ if formulaSize(ru) <= formulaSize(fi) => continueUnfolding
-            case _ => default
-          }
-        } else {
-          default
-        }
-      } else {
-        default
-      }
+      (FunctionInvocation(id, tps, rargs), pargs.foldLeft(isPureFunction(id))(_ && _))
 
     case Not(e)              => simplifyAndCons(Seq(e), path, es => not(es.head))
     case Equals(l, r)        => simplifyAndCons(Seq(l, r), path, es => equality(es(0), es(1)))
@@ -568,30 +452,6 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     val re = cons(res)
     val pe = pes.foldLeft(opts.assumeChecked || !isImpureExpr(re))(_ && _)
     (re, pe)
-  }
-
-  protected def disableUnfolding[A](during: => A): A = {
-    val old = dynUnfoldEnabled.value
-    dynUnfoldEnabled.value = false
-    val res = during
-    dynUnfoldEnabled.value = old
-    res
-  }
-
-  protected def preventUnfoldingOf[A](id: Identifier)(during: => A): A = {
-    val old = dynUnfoldSteps.value
-    dynUnfoldSteps.value = old + (id -> 0)
-    val res = during
-    dynUnfoldSteps.value = old
-    res
-  }
-
-  private def decreaseUnfoldingStepsOf[A](id: Identifier)(during: => A): A = {
-    val old = dynUnfoldSteps.value
-    dynUnfoldSteps.value = old + (id -> (old(id) - 1))
-    val res = during
-    dynUnfoldSteps.value = old
-    res
   }
 
   override protected final def rec(e: Expr, path: CNFPath): Expr = {

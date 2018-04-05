@@ -25,7 +25,7 @@ trait Transformer {
   protected def rec(e: Expr, env: Env): Expr
 
   /** Transform an [[ast.Expressions.Expr Expr]] with the specified environment */
-  def transform(e: Expr, init: Env): Expr = rec(e, init)
+  final def transform(e: Expr, init: Env): Expr = rec(e, init)
 
   /** Transform an [[ast.Expressions.Expr Expr]] with the initial environment */
   final def transform(e: Expr): Expr    = transform(e, initEnv)
