@@ -15,11 +15,11 @@ trait TypeOps {
   protected implicit val symbols: Symbols
   import symbols._
 
-  class TypeErrorException(msg: String, val pos: Position) extends Exception(msg)
+  class TypeErrorException(msg: String, val obj: Expr, val pos: Position) extends Exception(msg)
 
   object TypeErrorException {
     def apply(obj: Expr, tpes: Seq[Type]): TypeErrorException =
-      new TypeErrorException(s"Type error: $obj, expected ${tpes.mkString(" or ")}, found ${obj.getType}", obj.getPos)
+      new TypeErrorException(s"Type error: $obj, expected ${tpes.mkString(" or ")}, found ${obj.getType}", obj, obj.getPos)
     def apply(obj: Expr, tpe: Type): TypeErrorException = apply(obj, Seq(tpe))
   }
 
