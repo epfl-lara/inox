@@ -24,7 +24,7 @@ trait ResourceUtils {
         }
       }
 
-      rec(baseDir).filter(f => filter(f.getPath)).toSeq.sortBy(_.getPath).reverse
+      rec(baseDir).filter(f => filter(f.getPath)).toSeq.sortBy(_.getPath)
     }
   }
 }
