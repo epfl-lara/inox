@@ -44,6 +44,7 @@ trait Templates
   def mkImplies(l: Encoded, r: Encoded): Encoded
 
   def extractNot(e: Encoded): Option[Encoded]
+  def decodePartial(e: Encoded, tpe: Type): Option[Expr]
 
   private[unrolling] lazy val trueT = mkEncoder(Map.empty)(BooleanLiteral(true))
   private[unrolling] lazy val falseT = mkEncoder(Map.empty)(BooleanLiteral(false))

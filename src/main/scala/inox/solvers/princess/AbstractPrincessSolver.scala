@@ -389,6 +389,56 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         }
     }
 
+    def asGround(iexpr: IExpression, tpe: Type): Option[Expr] = {
+      case class UnsoundException(iexpr: IExpression, msg: String)
+        extends Exception("Can't extract " + iexpr + " : " + msg)
+
+      def rec(iexpr: IExpression, tpe: Type): Expr = (iexpr, tpe) match {
+        case _ if variables containsB iexpr => variables.toA(iexpr)
+        case (Conj(a, b), BooleanType()) => And(rec(a, BooleanType()), rec(b, BooleanType()))
+        case (Disj(a, b), BooleanType()) => Or(rec(a, BooleanType()), rec(b, BooleanType()))
+        case (IBoolLit(b), _) => BooleanLiteral(b)
+        case (IIntLit(i), BooleanType()) => BooleanLiteral(i.intValue == 0)
+        case (IIntLit(i), IntegerType()) => IntegerLiteral(i.bigIntValue)
+        case (IFunApp(fun, args), _) if functions containsB fun =>
+          val tfd = functions.toA(fun)
+          FunctionInvocation(tfd.id, tfd.tps, (args zip tfd.params).map(p => rec(p._1, p._2.tpe)))
+        case (IFunApp(fun, args), _) if lambdas containsB fun =>
+          val ft @ FunctionType(from, _) = lambdas.toA(fun)
+          Application(rec(args.head, ft), (args.tail zip from).map(p => rec(p._1, p._2)))
+        case (IFunApp(fun, args), _) if sorts.values.exists(_._1.constructors contains fun) =>
+          val (sort, adts) = typeToSort(tpe)
+          val index = sort.constructors.indexWhere(_ == fun)
+          adts.flatMap(_._2.cases).apply(index).tpe match {
+            case ADTCons(id, tps) =>
+              ADT(id, tps, (args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.tpe)))
+            case TupleCons(tps) =>
+              Tuple((args zip tps).map(p => rec(p._1, p._2)))
+            case UnitCons =>
+              UnitLiteral()
+            case _ => throw UnsoundException(iexpr, "Unexpected constructor")
+          }
+        case (IFunApp(fun, Seq(arg)), _) if sorts.values.exists(_._1.selectors.exists(_ contains fun)) =>
+          val (sort, adts) = sorts.values.find(_._1.selectors.exists(_ contains fun)).get
+          val index = sort.selectors.indexWhere(_ contains fun)
+          val sindex = sort.selectors(index).indexWhere(_ == fun)
+          adts.flatMap(_._2.cases).apply(index).tpe match {
+            case c @ ADTCons(id, tps) =>
+              ADTSelector(rec(arg, c.getType), getConstructor(id).fields(sindex).id)
+            case c @ TupleCons(_) =>
+              TupleSelect(rec(arg, c.getType), sindex + 1)
+            case _ => throw UnsoundException(iexpr, "Unexpected selector")
+          }
+        case _ => throw UnsoundException(iexpr, "Unexpected tree")
+      }
+
+      try {
+        Some(rec(iexpr, tpe))
+      } catch {
+        case _: UnsoundException => None
+      }
+    }
+
     def apply(iexpr: IExpression, tpe: Type)(implicit model: Model) = {
       val ctx = new Context(model)
       val res = parseExpr(iexpr, tpe)(ctx)

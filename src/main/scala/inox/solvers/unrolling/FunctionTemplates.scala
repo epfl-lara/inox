@@ -15,6 +15,7 @@ trait FunctionTemplates { self: Templates =>
   import program.symbols._
 
   import functionsManager._
+  import lambdasManager._
 
   object FunctionTemplate {
     private val cache: MutableMap[TypedFunDef, FunctionTemplate] = MutableMap.empty
@@ -97,6 +98,8 @@ trait FunctionTemplates { self: Templates =>
     // also specify the generation of the blocker.
     private[FunctionTemplates] val callInfos   = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[Call])]()
 
+    private lazy val evaluator = semantics.getEvaluator(context.withOpts(evaluators.optEvalQuantifiers(false)))
+
     val incrementals: Seq[IncrementalState] = Seq(callInfos, defBlockers)
 
     def unrollGeneration: Option[Int] =
@@ -161,7 +164,45 @@ trait FunctionTemplates { self: Templates =>
 
             defBlockers += call -> defBlocker
 
-            newCls ++= FunctionTemplate(tfd).instantiate(defBlocker, args)
+            val groundArgs = (args zip tfd.params).map { p =>
+              decodePartial(p._1.encoded, p._2.tpe)
+                .map(e => exprOps.postMap {
+                  case IsTyped(v: Variable, ft: FunctionType) =>
+                    byID.values.find(_.ids._1 == v).map(_.lambda)
+                  case _ => None
+                } (e))
+                .filter(exprOps.variablesOf(_).isEmpty)
+            }
+
+            val groundCall =
+              if (groundArgs.forall(_.isDefined)) Some(tfd.applied(groundArgs.map(_.get)))
+              else None
+
+            newCls ++= groundCall
+              .filter(isPure)
+              .flatMap(e => evaluator.eval(e).result)
+              .map { body =>
+                val start = Variable.fresh("cs", BooleanType())
+                val (p, cls) = mkExprClauses(start, body, Map(start -> defBlocker))
+                val tmplClauses = cls + (start -> Equals(tfd.applied, p))
+
+                val encoding: (Clauses, Calls, Apps, Matchers, Pointers, () => String) = Template.encode(
+                  start -> defBlocker,
+                  tfd.params.map(_.toVariable) zip args.map(_.encoded),
+                  tmplClauses,
+                  optCall = Some(tfd)
+                )
+
+                val (clauses, calls, apps, matchers, pointers, _) = encoding
+                val (condVars, exprVars, chooseVars, condTree, equalities, lambdas, quants) = tmplClauses.proj
+                val (substClauses, substMap) = Template.substitution(
+                  condVars, exprVars, chooseVars, condTree, lambdas, quants, pointers, Map.empty, defBlocker)
+                val templateClauses = Template.instantiate(clauses, calls, apps, matchers, equalities, substMap)
+                substClauses ++ templateClauses
+              } getOrElse {
+                FunctionTemplate(tfd).instantiate(defBlocker, args)
+              }
+
             defBlocker
         }
 

@@ -87,7 +87,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   // ADT Manager
   private[z3] val adtManager = new ADTManager
 
-  // Bije[z3]ctions between Inox Types/Functions/Ids to Z3 Sorts/Decls/ASTs
+  // Bijections between Inox Types/Functions/Ids to Z3 Sorts/Decls/ASTs
   private[z3] val functions = new IncrementalBijection[TypedFunDef, Z3FuncDecl]()
   private[z3] val lambdas   = new IncrementalBijection[FunctionType, Z3FuncDecl]()
   private[z3] val variables = new IncrementalBijection[Variable, Z3AST]()
@@ -96,7 +96,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   private[z3] val selectors    = new IncrementalBijection[(ConsType, Int), Z3FuncDecl]()
   private[z3] val testers      = new IncrementalBijection[ConsType, Z3FuncDecl]()
 
-  private[z3] val sorts     = new IncrementalMap[Type, Z3Sort]()
+  private[z3] val sorts = new IncrementalMap[Type, Z3Sort]()
 
   def push(): Unit = {
     adtManager.push()
@@ -665,6 +665,87 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     val chooses = z3ToChooses.toMap.map { case (ast, c) => c -> z3ToLambdas(ast) }
 
     (res, chooses)
+  }
+
+  // Tries to convert a Z3AST into a *ground* Expr. Doesn't try very hard, because
+  //   1) we assume Z3 simplifies ground terms, so why match for +, etc, and
+  //   2) we use this precisely in one context, where we know function invocations won't show up, etc.
+  protected[z3] def asGround(tree: Z3AST, tpe: Type): Option[Expr] = {
+
+    def rec(t: Z3AST, tpe: Type): Expr = z3.getASTKind(t) match {
+      case Z3NumeralIntAST(Some(v)) =>
+        tpe match {
+          case BVType(size) => BVLiteral(BigInt(v), size)
+          case CharType() => CharLiteral(v.toChar)
+          case _ => IntegerLiteral(BigInt(v))
+        }
+
+      case Z3NumeralIntAST(None) =>
+        val ts = t.toString
+        tpe match {
+          case BVType(size) =>
+            if (ts.startsWith("#b")) BVLiteral(BigInt(ts.drop(2), 2), size)
+            else if (ts.startsWith("#x")) BVLiteral(BigInt(ts.drop(2), 16), size)
+            else if (ts.startsWith("#")) unsound(t, s"Unexpected format for BV value: $ts")
+            else BVLiteral(BigInt(ts, 10), size)
+
+          case _ =>
+            if (ts.startsWith("#")) unsound(t, s"Unexpected format for Integer value: $ts")
+            else IntegerLiteral(BigInt(ts, 10))
+        }
+
+      case Z3NumeralRealAST(n: BigInt, d: BigInt) => FractionLiteral(n, d)
+
+      case Z3AppAST(decl, args) => {
+        val argsSize = args.size
+        if (functions containsB decl) {
+          val tfd = functions.toA(decl)
+          FunctionInvocation(tfd.id, tfd.tps, (args zip tfd.params).map(p => rec(p._1, p._2.tpe)))
+        } else if (lambdas containsB decl) {
+          val ft @ FunctionType(from, _) = lambdas.toA(decl)
+          Application(rec(args.head, ft), (args.tail zip from).map(p => rec(p._1, p._2)))
+        } else if (argsSize == 0 && (variables containsB t)) {
+          variables.toA(t)
+        } else if (argsSize == 1 && (testers containsB decl)) {
+          testers.toA(decl) match {
+            case c @ ADTCons(id, tps) => IsConstructor(rec(args(0), c.getType), id)
+            case _ => BooleanLiteral(true)
+          }
+        } else if (argsSize == 1 && (selectors containsB decl)) {
+          selectors.toA(decl) match {
+            case (c @ ADTCons(id, tps), i) =>
+              ADTSelector(rec(args(0), c.getType), getConstructor(id).fields(i).id)
+            case (c @ TupleCons(tps), i) =>
+              TupleSelect(rec(args(0), c.getType), i + 1)
+            case _ => unsound(t, "Unexpected selector tree")
+          }
+        } else if (constructors containsB decl) {
+          constructors.toA(decl) match {
+            case c @ ADTCons(id, tps) =>
+              ADT(id, tps, (args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.tpe)))
+            case c @ TupleCons(tps) =>
+              Tuple((args zip tps).map(p => rec(p._1, p._2)))
+            case UnitCons => UnitLiteral()
+            case _ => unsound(t, "Unexpected constructor tree")
+          }
+        } else {
+          import Z3DeclKind._
+          z3.getDeclKind(decl) match {
+            case OpTrue => BooleanLiteral(true)
+            case OpFalse => BooleanLiteral(false)
+            case op => unsound(t, "Unexpected decl kind: " + op)
+          }
+        }
+      }
+
+      case _ => unsound(t, "Unexpected tree")
+    }
+
+    try {
+      Some(rec(tree, tpe))
+    } catch {
+      case _: UnsoundExtractionException => None
+    }
   }
 
   protected[z3] def softFromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type) : Option[(Expr, Map[Choose, Expr])] = {

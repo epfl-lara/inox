@@ -57,6 +57,8 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
     def mkImplies(l: Z3AST, r: Z3AST) = z3.mkImplies(l, r)
 
     def extractNot(e: Z3AST): Option[Z3AST] = underlying.extractNot(e)
+
+    def decodePartial(e: Z3AST, tpe: Type): Option[Expr] = underlying.asGround(e, tpe)
   }
 
   protected def declareVariable(v: t.Variable): Z3AST = underlying.declareVariable(v)

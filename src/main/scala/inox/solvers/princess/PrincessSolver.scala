@@ -82,6 +82,8 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
       case INot(e2) => Some(e2)
       case _ => None
     }
+
+    def decodePartial(e: Encoded, tpe: Type): Option[Expr] = underlying.princessToInox.asGround(e, tpe)
   }
 
   protected def declareVariable(v: t.Variable): IExpression = underlying.declareVariable(v)

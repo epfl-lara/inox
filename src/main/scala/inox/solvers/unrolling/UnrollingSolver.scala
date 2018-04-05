@@ -756,6 +756,8 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
       case Not(e2) => Some(e2)
       case _ => None
     }
+
+    def decodePartial(e: Expr, tpe: Type): Option[Expr] = Some(e)
   }
 
   protected lazy val modelEvaluator: DeterministicEvaluator { val program: self.targetProgram.type } =
