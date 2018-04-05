@@ -180,22 +180,34 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
   private[this] val dynUnfoldSteps: DynamicVariable[Map[Identifier, Int]] = new DynamicVariable(Map().withDefault(_ => maxUnfoldingSteps))
   private[this] val maxUnfoldingSteps: Int = 10
 
-  private def matcherFunctions(expr: Expr): Set[Identifier] = {
-    def rec(e: Expr, quantified: Set[Variable]): Set[Identifier] = e match {
-      case Forall(args, body) => rec(body, quantified ++ args.map(_.toVariable))
+  private[this] val matcherChecked: MutableSet[Identifier] = MutableSet.empty
+  private[this] val matcherFunctions: MutableSet[Identifier] = MutableSet.empty
+
+  private def registerMatcherFunctions(expr: Expr): Unit = {
+    def rec(e: Expr, quantified: Set[Variable]): Unit = e match {
+      case Forall(args, body) =>
+        rec(body, quantified ++ args.map(_.toVariable))
+
       case FunctionInvocation(id, _, args) =>
-        val matchers =
-          if (args.exists { case v: Variable => quantified(v) case _ => false }) Set(id)
-          else Set()
-          matchers ++ args.flatMap(rec(_, quantified))
-      case Operator(es, _) => es.flatMap(rec(_, quantified)).toSet
+        if (args.exists { case v: Variable => quantified(v) case _ => false }) {
+          matcherFunctions += id
+        }
+
+        if (!matcherChecked(id)) synchronized {
+          if (!matcherChecked(id)) {
+            matcherChecked += id
+            registerMatcherFunctions(getFunction(id).fullBody)
+          }
+        }
+
+        args.foreach(rec(_, quantified))
+
+      case Operator(es, _) =>
+        es.foreach(rec(_, quantified))
     }
 
     rec(expr, Set())
   }
-
-  private[this] lazy val dynMatcherFunctions: DynamicVariable[Set[Identifier]] =
-    new DynamicVariable(symbols.functions.values.toSeq.flatMap(fd => matcherFunctions(fd.fullBody)).toSet)
 
   private sealed abstract class PurityCheck
   private case object Pure extends PurityCheck
@@ -244,12 +256,12 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
   }
 
   final def isPure(e: Expr, path: CNFPath): Boolean = {
-    dynMatcherFunctions.value ++= matcherFunctions(e)
+    registerMatcherFunctions(e)
     simplify(e, path)._2
   }
 
   override final def transform(e: Expr, path: CNFPath): Expr = {
-    dynMatcherFunctions.value ++= matcherFunctions(e)
+    registerMatcherFunctions(e)
     simplify(e, path)._1
   }
 
@@ -447,7 +459,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
         pargs.foldLeft(preventUnfoldingOf(id)(isPureFunction(id)))(_ && _)
       )
 
-      if (dynUnfoldEnabled.value && !dynMatcherFunctions.value(id) && dynUnfoldSteps.value(id) > 0) {
+      if (dynUnfoldEnabled.value && !matcherFunctions(id) && dynUnfoldSteps.value(id) > 0) {
         val unfolded: Expr = {
           val tfd = fi.tfd
           val freshParams = tfd.params.map(_.freshen)
