@@ -265,7 +265,24 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     simplify(e, path)._1
   }
 
-  private val simplifyCache = new LruCache[Expr, (CNFPath, Expr, Boolean)](100)
+  private class SimplificationCache(cache: Cache[Expr, (CNFPath, Boolean, Map[Identifier, Int], Expr, Boolean)]) {
+    def cached(e: Expr, path: CNFPath)(body: => (Expr, Boolean)): (Expr, Boolean) =
+      cache.get(e)
+        .filter { case (p, enabled, steps, _, _) =>
+          (p subsumes path) &&
+          (enabled || !dynUnfoldEnabled.value) &&
+          (steps forall (p => p._2 <= dynUnfoldSteps.value(p._1)))
+        }
+        .map { case (_, _, _, re, pe) => (re, pe) }
+        .getOrElse {
+          val (re, pe) = body
+          cache(e) = (path, dynUnfoldEnabled.value, dynUnfoldSteps.value, re, pe)
+          (re, pe)
+        }
+  }
+
+  private val simplifyCache = new SimplificationCache(new PriorityCache(100)(Ordering.by(formulaSize)))
+  private val recentCache = new SimplificationCache(new LruCache(100))
 
   protected def simplify(e: Expr, path: CNFPath): (Expr, Boolean) = e match {
     case e if path contains e => (BooleanLiteral(true), true)
@@ -401,65 +418,67 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       }, path)
 
     // @nv: Simplifying lets can lead to exponential simplification cost.
-    //      The `simplifyCache` greatly reduces the cost of simplifying lets but
+    //      The `recentCache` greatly reduces the cost of simplifying lets but
     //      there are still corner cases that will make this expensive.
     //      In `assumeChecked` mode, the cost should be lower as most lets with
     //      `insts <= 1` will be inlined immediately.
-    case let @ Let(vd, e, b) =>
-      simplifyCache.get(let)
-        .filter(_._1.subsumes(path))
-        .map(p => (p._2, p._3))
-        .getOrElse {
-          val (re, pe) = simplify(e, path)
-          val (rb, pb) = simplify(b, path withBinding (vd -> re))
+    case let @ Let(vd, e, b) => recentCache.cached(let, path) {
+      val (re, pe) = simplify(e, path)
+      val (rb, pb) = simplify(b, path withBinding (vd -> re))
 
-          val v = vd.toVariable
-          lazy val insts = count { case `v` => 1 case _ => 0 }(rb)
-          lazy val inLambda = exists { case l: Lambda => variablesOf(l) contains v case _ => false }(rb)
-          lazy val immediateCall = existsWithPC(rb) { case (`v`, path) => path.isEmpty case _ => false }
-          lazy val containsLambda = exists { case l: Lambda => true case _ => false }(re)
-          lazy val realPE = if (opts.assumeChecked) {
-            val simp = simplifier(solvers.PurityOptions.unchecked)
-            simp.isPure(e, path.asInstanceOf[simp.CNFPath])
-          } else {
-            pe
-          }
+      val v = vd.toVariable
+      lazy val insts = count { case `v` => 1 case _ => 0 }(rb)
+      lazy val inLambda = exists { case l: Lambda => variablesOf(l) contains v case _ => false }(rb)
+      lazy val immediateCall = existsWithPC(rb) { case (`v`, path) => path.isEmpty case _ => false }
+      lazy val containsLambda = exists { case l: Lambda => true case _ => false }(re)
+      lazy val realPE = if (opts.assumeChecked) {
+        val simp = simplifier(solvers.PurityOptions.unchecked)
+        simp.isPure(e, path.asInstanceOf[simp.CNFPath])
+      } else {
+        pe
+      }
 
-          val (lete, letp) = if (
-            (((!inLambda && pe) || (inLambda && realPE && !containsLambda)) && insts <= 1) ||
-            (!inLambda && immediateCall && insts == 1)
-          ) {
-            val newExpr = replaceFromSymbols(Map(vd -> re), rb)
-            re match {
-              // If the bound expression was an ADT or variable, then `path.expand` has already
-              // made sure that all possible simplifications have taken place in `rb`.
-              case (_: ADT | _: Variable) => (newExpr, pe && pb)
-              case _ => simplify(newExpr, path)
-            }
-          } else {
-            val newLet = Let(vd, re, rb)
-            re match {
-              case l: Lambda =>
-                val inlined = inlineLambdas(newLet)
-                if (inlined != newLet) simplify(inlined, path)
-                else (newLet, pe && pb)
-              case _ => (newLet, pe && pb)
-            }
-          }
-
-          simplifyCache(let) = (path, lete, letp)
-          (lete, letp)
+      if (
+        (((!inLambda && pe) || (inLambda && realPE && !containsLambda)) && insts <= 1) ||
+        (!inLambda && immediateCall && insts == 1)
+      ) {
+        val newExpr = replaceFromSymbols(Map(vd -> re), rb)
+        re match {
+          // If the bound expression was an ADT or variable, then `path.expand` has already
+          // made sure that all possible simplifications have taken place in `rb`.
+          case (_: ADT | _: Variable) => (newExpr, pe && pb)
+          case _ => simplify(newExpr, path)
         }
+      } else {
+        val newLet = Let(vd, re, rb)
+        re match {
+          case l: Lambda =>
+            val inlined = inlineLambdas(newLet)
+            if (inlined != newLet) simplify(inlined, path)
+            else (newLet, pe && pb)
+          case _ => (newLet, pe && pb)
+        }
+      }
+    }
 
     case fi @ FunctionInvocation(id, tps, args) =>
       val (rargs, pargs) = args.map(simplify(_, path)).unzip
 
-      lazy val default = (
+      def default = (
         FunctionInvocation(id, tps, rargs),
         pargs.foldLeft(preventUnfoldingOf(id)(isPureFunction(id)))(_ && _)
       )
 
-      if (dynUnfoldEnabled.value && !matcherFunctions(id) && dynUnfoldSteps.value(id) > 0) {
+      def isProgressIndicator(e: Expr): Boolean = e match {
+        case v: Variable =>
+          val expanded = path.expand(v)
+          expanded != v && isProgressIndicator(expanded)
+        case (_: ADT | _: Tuple | _: Lambda) => true
+        case _ => false
+      }
+
+      if (dynUnfoldEnabled.value && !matcherFunctions(id) && dynUnfoldSteps.value(id) > 0 &&
+          (!isRecursive(id) || rargs.exists(isProgressIndicator))) simplifyCache.cached(e, path) {
         val unfolded: Expr = {
           val tfd = fi.tfd
           val freshParams = tfd.params.map(_.freshen)
@@ -467,6 +486,8 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
           (freshParams zip rargs).foldRight(freshBody) { case ((vd, e), b) => Let(vd, e, b).copiedFrom(e) }
         }
 
+        // `isProductive contains true` iff there is a recursive call in `unfolded`
+        // that has a satisfiable path.
         val isProductive = preventUnfoldingOf(id) {
           def simplifyPath(subPath: Path): Option[Boolean] = {
             def rec(elements: Seq[Path.Element], path: CNFPath): Option[Boolean] = elements match {
@@ -483,17 +504,31 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
             rec(subPath.elements, path)
           }
 
-          !existsWithPC(unfolded) {
+          var simpCalls: Option[Boolean] = None
+          val pathsAreKnown = !existsWithPC(unfolded) {
             case (fi @ FunctionInvocation(fid, _, _), subPath) if transitivelyCalls(fid, id) =>
-              simplifyPath(subPath).isEmpty
+              simpCalls = simplifyPath(subPath).map(_ || simpCalls.getOrElse(false))
+              simpCalls.isEmpty
             case (c: Choose, subPath) =>
               simplifyPath(subPath) != Some(false)
             case _ => false
           }
+
+          if (pathsAreKnown) simpCalls orElse Some(false)
+          else None
         }
 
-        if (isProductive) {
-          decreaseUnfoldingStepsOf(id)(simplify(unfolded, path))
+        if (isProductive.nonEmpty) {
+          val (ru, pu) = preventUnfoldingOf(id)(simplify(unfolded, path))
+          def continueUnfolding = {
+            if (isProductive contains true) decreaseUnfoldingStepsOf(id)(simplify(ru, path))
+            else (ru, pu)
+          }
+          ru match {
+            case (_: ADT | _: Lambda) => continueUnfolding
+            case _ if formulaSize(ru) <= formulaSize(fi) => continueUnfolding
+            case _ => default
+          }
         } else {
           default
         }
