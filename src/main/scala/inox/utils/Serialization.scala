@@ -147,22 +147,22 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     }
   }
 
-  protected final def classSerializer[T: ClassTag](id: Byte): (Class[_], ClassSerializer[T]) = {
+  protected final def classSerializer[T: ClassTag](id: Int): (Class[_], ClassSerializer[T]) = {
     classTag[T].runtimeClass -> new ClassSerializer[T](id)
   }
 
 
-  protected class MappingSerializer[T, U](id: Byte, f: T => U, fInv: U => T) extends Serializer[T](id) {
+  protected class MappingSerializer[T, U](id: Int, f: T => U, fInv: U => T) extends Serializer[T](id) {
     override protected def write(element: T, out: OutputStream): Unit = writeObject(f(element), out)
     override protected def read(in: InputStream): T = fInv(readObject(in).asInstanceOf[U])
   }
 
-  protected class MappingSerializerConstructor[T](id: Byte) {
+  protected class MappingSerializerConstructor[T](id: Int) {
     def apply[U](f: T => U)(fInv: U => T)(implicit ev: ClassTag[T]): (Class[_], MappingSerializer[T, U]) =
       classTag[T].runtimeClass -> new MappingSerializer[T,U](id, f, fInv)
   }
 
-  protected final def mappingSerializer[T](id: Byte): MappingSerializerConstructor[T] = {
+  protected final def mappingSerializer[T](id: Int): MappingSerializerConstructor[T] = {
     new MappingSerializerConstructor[T](id)
   }
 
@@ -360,7 +360,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   /** A mapping from `Class[_]` to `Serializer[_]` for classes that commonly
     * occur within Stainless programs.
     *
-    * The `Serializer[_]` identifiers in this mapping range from 10 to 123
+    * The `Serializer[_]` identifiers in this mapping range from 10 to 99
     * (ignoring special identifiers that are smaller than 10).
     *
     * NEXT ID: 100
