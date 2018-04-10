@@ -42,7 +42,7 @@ trait Serializer {
   *      even though much of this information is known at compile time.
   *      Changing this behavior could be a useful extension.
   */
-class InoxSerializer(val trees: ast.Trees) extends Serializer { self =>
+class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) extends Serializer { self =>
   import trees._
 
   private def writeId(id: Int, out: OutputStream): Unit = {
@@ -334,9 +334,7 @@ class InoxSerializer(val trees: ast.Trees) extends Serializer { self =>
         case (seq: Seq[_]) => SeqSerializer(seq, out)
         case (set: Set[_]) => SetSerializer(set, out)
         case (map: Map[_, _]) => MapSerializer(map, out)
-        case p: Product =>
-          // TODO: complain about this?
-          ProductSerializer(p, out)
+        case p: Product if serializeProducts => ProductSerializer(p, out)
         case _ => throw SerializationError(obj, "Unexpected input to serializer")
       })
   }
@@ -364,6 +362,8 @@ class InoxSerializer(val trees: ast.Trees) extends Serializer { self =>
     *
     * The `Serializer[_]` identifiers in this mapping range from 10 to 123
     * (ignoring special identifiers that are smaller than 10).
+    *
+    * NEXT ID: 100
     */
   protected def classSerializers: Map[Class[_], Serializer[_]] = Map(
     // Inox Expressions
@@ -392,6 +392,7 @@ class InoxSerializer(val trees: ast.Trees) extends Serializer { self =>
     classSerializer[Equals]            (30),
     classSerializer[And]               (31),
     classSerializer[Or]                (32),
+    classSerializer[Implies]           (99),
     classSerializer[Not]               (33),
     classSerializer[StringConcat]      (34),
     classSerializer[SubString]         (35),
@@ -472,8 +473,6 @@ class InoxSerializer(val trees: ast.Trees) extends Serializer { self =>
 }
 
 object Serializer {
-  def apply(t: ast.Trees): Serializer { val trees: t.type } =
+  def apply(t: ast.Trees, serializeProducts: Boolean = false): Serializer { val trees: t.type } =
     new InoxSerializer(t).asInstanceOf[Serializer { val trees: t.type }]
-
-  def apply(p: Program): Serializer { val trees: p.trees.type } = apply(p.trees)
 }
