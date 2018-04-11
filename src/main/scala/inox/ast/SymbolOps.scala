@@ -175,18 +175,18 @@ trait SymbolOps { self: TypeOps =>
       val tpe = e.getType
       val newId = SymbolOps.getId(counter)
       counter += 1
-      if (store) subst += Variable(newId, tpe, Set.empty) -> e
+      if (store) subst += Variable(newId, tpe, Seq.empty) -> e
       newId
     }
 
     def transformId(id: Identifier, tpe: Type, store: Boolean = true): Identifier =
-      subst.get(Variable(id, tpe, Set.empty)) match {
+      subst.get(Variable(id, tpe, Seq.empty)) match {
         case Some(Variable(newId, _, _)) => newId
         case Some(_) => id
         case None => varSubst.get(id) match {
           case Some(newId) => newId
           case None =>
-            val newId = getId(Variable(id, tpe, Set.empty), store = store)
+            val newId = getId(Variable(id, tpe, Seq.empty), store = store)
             if (!store) locals += id
             varSubst += id -> newId
             newId
@@ -263,7 +263,7 @@ trait SymbolOps { self: TypeOps =>
             op.rec(b, env)
 
           case expr if isLiftable(expr, env) =>
-            Variable(getId(expr), expr.getType, Set.empty)
+            Variable(getId(expr), expr.getType, Seq.empty)
 
           case f: Forall =>
             val newBody = outer(vars ++ f.args.map(_.toVariable), f.body, false, env)
@@ -317,7 +317,7 @@ trait SymbolOps { self: TypeOps =>
             }))
 
             Application(
-              Variable(getId(lambda), lambda.getType, Set.empty),
+              Variable(getId(lambda), lambda.getType, Seq.empty),
               esWithParams.collect { case (e, Some(_)) => e }.map(op.rec(_, env))
             )
 

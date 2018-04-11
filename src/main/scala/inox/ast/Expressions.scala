@@ -43,7 +43,7 @@ trait Expressions { self: Trees =>
     *
     * @param id The identifier of this variable
     */
-  sealed case class Variable(id: Identifier, tpe: Type, flags: Set[Flag])
+  sealed case class Variable(id: Identifier, tpe: Type, flags: Seq[Flag])
     extends Expr with Terminal with VariableSymbol {
 
     /** Transforms this [[Variable]] into a [[Definitions.ValDef ValDef]] */
@@ -53,13 +53,13 @@ trait Expressions { self: Trees =>
     override def equals(that: Any) = super[VariableSymbol].equals(that)
     override def hashCode = super[VariableSymbol].hashCode
 
-    def copy(id: Identifier = id, tpe: Type = tpe, flags: Set[Flag] = flags) =
+    def copy(id: Identifier = id, tpe: Type = tpe, flags: Seq[Flag] = flags) =
       Variable(id, tpe, flags).copiedFrom(this)
   }
 
   object Variable {
     def fresh(name: String, tpe: Type, alwaysShowUniqueID: Boolean = false) =
-      Variable(FreshIdentifier(name, alwaysShowUniqueID), tpe, Set.empty)
+      Variable(FreshIdentifier(name, alwaysShowUniqueID), tpe, Seq.empty)
   }
 
 

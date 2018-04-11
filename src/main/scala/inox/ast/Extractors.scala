@@ -349,7 +349,7 @@ trait TreeDeconstructor {
 
     case s.TypeParameter(id, flags) => (
       Seq(id), Seq(), flags.toSeq.sortBy(_.toString),
-      (ids, _, flags) => t.TypeParameter(ids.head, flags.toSet)
+      (ids, _, flags) => t.TypeParameter(ids.head, flags)
     )
 
     case s.BVType(size) => (Seq(), Seq(), Seq(), ((_, _, _) => t.BVType(size)))

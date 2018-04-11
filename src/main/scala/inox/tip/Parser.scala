@@ -248,7 +248,7 @@ class Parser(file: File) {
         val sortId = adtLocals.getSort(sym)
         locs = locs.registerSort(new ADTSort(sortId, tparams, (conss zip children).map {
           case (cons, (id, vds)) => new ADTConstructor(id, sortId, vds).setPos(cons.sym.optPos)
-        }, Set.empty).setPos(sym.optPos))
+        }, Seq.empty).setPos(sym.optPos))
 
         locs = locs.withSelectors((conss zip children).flatMap {
           case (Constructor(_, fields), (_, vds)) => (fields zip vds).map(p => p._1._1 -> p._2.id)
@@ -268,7 +268,7 @@ class Parser(file: File) {
 
         new ADTSort(sortId, tparams, Seq(
           new ADTConstructor(consId, sortId, Seq(field)).setPos(sym.optPos)
-        ), Set.empty).setPos(sym.optPos)
+        ), Seq.empty).setPos(sym.optPos)
       })
 
     case DatatypeInvariantExtractor(syms, s, sort, pred) =>
@@ -296,8 +296,8 @@ class Parser(file: File) {
 
         case None =>
           val id = FreshIdentifier("inv$" + adt.id.name)
-          val newAdt = adt.copy(flags = adt.flags + HasADTInvariant(id))
-          val fd = new FunDef(id, adt.tparams, Seq(vd), BooleanType().setPos(s.optPos), body, Set.empty).setPos(s.optPos)
+          val newAdt = adt.copy(flags = adt.flags :+ HasADTInvariant(id))
+          val fd = new FunDef(id, adt.tparams, Seq(vd), BooleanType().setPos(s.optPos), body, Seq.empty).setPos(s.optPos)
           (Some(newAdt), fd)
       }
 
@@ -320,7 +320,7 @@ class Parser(file: File) {
     val returnType = locals.extractSort(fd.returnSort)
     val body = Choose(ValDef(FreshIdentifier("res"), returnType), BooleanLiteral(true))
 
-    new FunDef(id, tparams, params, returnType, body, Set.empty).setPos(fd.name.optPos)
+    new FunDef(id, tparams, params, returnType, body, Seq.empty).setPos(fd.name.optPos)
   }
 
   private def extractSignature(fd: SMTFunDef, tps: Seq[SSymbol])(implicit locals: Locals): FunDef = {
@@ -340,7 +340,7 @@ class Parser(file: File) {
 
     val fullBody = bodyLocals.extractTerm(fd.body)
 
-    new FunDef(sig.id, sig.tparams, sig.params, sig.returnType, fullBody, Set.empty).setPos(fd.name.optPos)
+    new FunDef(sig.id, sig.tparams, sig.params, sig.returnType, fullBody, Seq.empty).setPos(fd.name.optPos)
   }
 
   private def isConstructorSymbol(sym: SSymbol)(implicit locals: Locals): Option[Identifier] = {

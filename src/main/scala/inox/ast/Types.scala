@@ -67,7 +67,7 @@ trait Types { self: Trees =>
   object Int32Type extends BVTypeExtractor(32)
   object Int64Type extends BVTypeExtractor(64)
 
-  sealed case class TypeParameter(id: Identifier, flags: Set[Flag]) extends Type {
+  sealed case class TypeParameter(id: Identifier, flags: Seq[Flag]) extends Type {
     def freshen = TypeParameter(id.freshen, flags)
 
     override def equals(that: Any) = that match {
@@ -79,7 +79,8 @@ trait Types { self: Trees =>
   }
 
   object TypeParameter {
-    def fresh(name: String) = TypeParameter(FreshIdentifier(name), Set.empty)
+    def fresh(name: String, flags: Seq[Flag] = Seq.empty) =
+      TypeParameter(FreshIdentifier(name), flags)
   }
 
   /* 

@@ -41,7 +41,7 @@ trait Definitions { self: Trees =>
   protected[ast] trait VariableSymbol extends Tree with Typed {
     def id: Identifier
     def tpe: Type
-    def flags: Set[Flag]
+    def flags: Seq[Flag]
 
     def getType(implicit s: Symbols): Type = tpe
 
@@ -98,13 +98,15 @@ trait Definitions { self: Trees =>
 
     override def toString: String = s"ValDef($id, $tpe, $flags)"
 
-    def copy(id: Identifier = id, tpe: Type = tpe, flags: Set[Flag] = flags): ValDef =
+    def copy(id: Identifier = id, tpe: Type = tpe, flags: Seq[Flag] = flags): ValDef =
       new ValDef(v.copy(id = id, tpe = tpe, flags = flags)).copiedFrom(this)
   }
 
   object ValDef {
-    def apply(id: Identifier, tpe: Type, flags: Set[Flag] = Set.empty) = new ValDef(Variable(id, tpe, flags))
-    def unapply(vd: ValDef): Option[(Identifier, Type, Set[Flag])] = Some((vd.id, vd.tpe, vd.flags))
+    def fresh(name: String, tpe: Type, alwaysShowUniqueID: Boolean = false) =
+      ValDef(FreshIdentifier(name, alwaysShowUniqueID), tpe)
+    def apply(id: Identifier, tpe: Type, flags: Seq[Flag] = Seq.empty) = new ValDef(Variable(id, tpe, flags))
+    def unapply(vd: ValDef): Option[(Identifier, Type, Seq[Flag])] = Some((vd.id, vd.tpe, vd.flags))
   }
 
   type Symbols >: Null <: AbstractSymbols
@@ -250,10 +252,12 @@ trait Definitions { self: Trees =>
   }
 
   object TypeParameterDef {
+    def fresh(name: String, flags: Seq[Flag] = Seq.empty) = TypeParameterDef(FreshIdentifier(name), flags)
     def apply(tp: TypeParameter) = new TypeParameterDef(tp)
-    def apply(id: Identifier, flags: Set[Flag] = Set.empty) = new TypeParameterDef(TypeParameter(id, flags))
-    def unapply(tpd: TypeParameterDef): Option[(Identifier, Set[Flag])] = Some((tpd.id, tpd.flags))
+    def apply(id: Identifier, flags: Seq[Flag] = Seq.empty) = new TypeParameterDef(TypeParameter(id, flags))
+    def unapply(tpd: TypeParameterDef): Option[(Identifier, Seq[Flag])] = Some((tpd.id, tpd.flags))
   }
+
 
   /** Represents source code annotations and some other meaningful flags.
     *
@@ -284,7 +288,7 @@ trait Definitions { self: Trees =>
     case _ => Annotation(name, args)
   }
 
-  implicit class FlagSetWrapper(flags: Set[Flag]) {
+  implicit class FlagSeqWrapper(flags: Seq[Flag]) {
     def contains(str: String): Boolean = flags.exists(_.name == str)
   }
 
@@ -293,7 +297,7 @@ trait Definitions { self: Trees =>
   class ADTSort(val id: Identifier,
                 val tparams: Seq[TypeParameterDef],
                 val constructors: Seq[ADTConstructor],
-                val flags: Set[Flag]) extends Definition {
+                val flags: Seq[Flag]) extends Definition {
     def typeArgs = tparams.map(_.tp)
 
     def isInductive(implicit s: Symbols): Boolean = {
@@ -351,7 +355,7 @@ trait Definitions { self: Trees =>
     def copy(id: Identifier = id,
              tparams: Seq[TypeParameterDef] = tparams,
              constructors: Seq[ADTConstructor] = constructors,
-             flags: Set[Flag] = flags): ADTSort = new ADTSort(id, tparams, constructors, flags)
+             flags: Seq[Flag] = flags): ADTSort = new ADTSort(id, tparams, constructors, flags)
   }
 
   /** Case classes/ ADT constructors. For single-case classes these may coincide
@@ -420,7 +424,7 @@ trait Definitions { self: Trees =>
     }
 
     /** The flags of the respective [[ADTSort]] instantiated with the real type parameters */
-    @inline def flags: Set[Flag] = _flags.get
+    @inline def flags: Seq[Flag] = _flags.get
     private[this] val _flags = Lazy(definition.flags.map(instantiate))
 
     val constructors: Seq[TypedADTConstructor] =
@@ -463,7 +467,7 @@ trait Definitions { self: Trees =>
     val params: Seq[ValDef],
     val returnType: Type,
     val fullBody: Expr,
-    val flags: Set[Flag]
+    val flags: Seq[Flag]
   ) extends Definition {
 
     /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with its own type parameters */
@@ -488,7 +492,7 @@ trait Definitions { self: Trees =>
       params: Seq[ValDef] = this.params,
       returnType: Type = this.returnType,
       fullBody: Expr = this.fullBody,
-      flags: Set[Flag] = this.flags
+      flags: Seq[Flag] = this.flags
     ): FunDef = new FunDef(id, tparams, params, returnType, fullBody, flags).copiedFrom(this)
   }
 
@@ -571,7 +575,7 @@ trait Definitions { self: Trees =>
     private[this] val _fullBody = Lazy(instantiate(fd.fullBody))
 
     /** The flags of the respective [[FunDef]] instantiated with the real type parameters */
-    @inline def flags: Set[Flag] = _flags.get
+    @inline def flags: Seq[Flag] = _flags.get
     private[this] val _flags = Lazy(fd.flags.map(instantiate))
   }
 }

@@ -253,20 +253,20 @@ trait DSL {
   def mkFunDef(id: Identifier, flags: Flag*)
               (tParamNames: String*)
               (builder: Seq[TypeParameter] => (Seq[ValDef], Type, Seq[Variable] => Expr)) = {
-    val tParams = tParamNames map TypeParameter.fresh
+    val tParams = tParamNames map (TypeParameter.fresh(_))
     val tParamDefs = tParams map (TypeParameterDef(_))
     val (params, retType, bodyBuilder) = builder(tParams)
     val body = bodyBuilder(params map (_.toVariable))
 
-    new FunDef(id, tParamDefs, params, retType, body, flags.toSet)
+    new FunDef(id, tParamDefs, params, retType, body, flags)
   }
 
   def mkSort(id: Identifier, flags: Flag*)
             (tParamNames: String*)
             (consBuilder: Seq[TypeParameter] => Seq[(Identifier, Seq[ValDef])]) = {
-    val tParams = tParamNames map TypeParameter.fresh
+    val tParams = tParamNames map (TypeParameter.fresh(_))
     val tParamDefs = tParams map (TypeParameterDef(_))
-    new ADTSort(id, tParamDefs, consBuilder(tParams).map(p => new ADTConstructor(p._1, id, p._2)), flags.toSet)
+    new ADTSort(id, tParamDefs, consBuilder(tParams).map(p => new ADTConstructor(p._1, id, p._2)), flags)
   }
 }
 

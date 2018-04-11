@@ -134,7 +134,7 @@ trait ExpressionElaborators { self: Interpolator =>
         // Variable.
         case Variable(variable) => Constrained.withUnifier({ (unifier: Unifier) =>
           val (i, t) = store(variable.getName)
-          trees.Variable(i, unifier(t), Set.empty)
+          trees.Variable(i, unifier(t), Seq.empty)
         }).checkImmediate(
           store.contains(variable.getName), "Unknown variable " + variable.getShortName + ".", expr.pos
         ).addConstraint({

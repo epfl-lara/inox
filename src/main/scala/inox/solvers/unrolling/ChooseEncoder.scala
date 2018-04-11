@@ -38,7 +38,7 @@ trait ChooseEncoder extends ast.ProgramTransformer {
 
           val newFd = new FunDef(
             FreshIdentifier("choose", true), fd.tparams, freshArgs,
-            c.res.tpe, Choose(c.res, substPred).copiedFrom(c), Set.empty)
+            c.res.tpe, Choose(c.res, substPred).copiedFrom(c), Seq.empty)
           fdChooses += ((c.res, newFd, args))
 
           FunctionInvocation(newFd.id, newFd.tparams.map(_.tp), args.map(_.toVariable)).copiedFrom(c)
