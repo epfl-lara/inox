@@ -19,60 +19,147 @@ trait Serializer { self =>
   val trees: ast.Trees
   import trees._
 
-  sealed trait SerializationProcedure[-T] {
-    def serialize(e: T, out: OutputStream): Unit
-  }
 
-  sealed trait DeserializationProcedure[+T] {
-    def deserialize(in: InputStream): T
-  }
+  /* -- Serializable/Deserializable Type Class --
+   *
+   * In order to provide type-safe serialization/deserialization for the set of types for
+   * which serialization is supported, we use a type classes [[Serializable]].
+   */
 
-  trait Procedure[T] extends SerializationProcedure[T] with DeserializationProcedure[T]
+  /** Type class that marks a type as serializable. */
+  class Serializable[-T]
 
-  implicit object SymbolsProcedure extends Procedure[Symbols] {
-    override def serialize(e: Symbols, out: OutputStream): Unit = {
-      writeObject(e.sorts.values.toSeq.sortBy(_.id.uniqueName), out)
-      writeObject(e.functions.values.toSeq.sortBy(_.id.uniqueName), out)
-    }
-    override def deserialize(in: InputStream): Symbols = {
-      val sorts = readObject(in).asInstanceOf[Seq[ADTSort]]
-      val functions = readObject(in).asInstanceOf[Seq[FunDef]]
-      NoSymbols.withSorts(sorts).withFunctions(functions)
-    }
-  }
+  implicit def identIsSerializable = new Serializable[Identifier]
+  implicit def treeIsSerializable = new Serializable[Tree]
 
-  class SimpleProcedure[T] extends Procedure[T] {
-    override def serialize(e: T, out: OutputStream): Unit = writeObject(e, out)
-    override def deserialize(in: InputStream): T = readObject(in).asInstanceOf[T]
-  }
+  implicit def tuple2IsSerializable[T1: Serializable, T2: Serializable] = new Serializable[(T1, T2)]
+  implicit def tuple3IsSerializable[T1: Serializable, T2: Serializable, T3: Serializable] = new Serializable[(T1, T2, T3)]
+  implicit def tuple4IsSerializable[T1: Serializable, T2: Serializable, T3: Serializable, T4: Serializable] = new Serializable[(T1, T2, T3, T4)]
 
-  implicit object IdentifierProcedure extends SimpleProcedure[Identifier]
-  implicit object TreeProcedure extends SimpleProcedure[Tree]
+  implicit def seqIsSerializable[T: Serializable] = new Serializable[Seq[T]]
+  implicit def setIsSerializable[T: Serializable] = new Serializable[Set[T]]
+  implicit def mapIsSerializable[T1: Serializable, T2: Serializable] = new Serializable[Map[T1, T2]]
 
-  implicit def tuple2Procedure[T1: Procedure, T2: Procedure] = new SimpleProcedure[(T1, T2)]
-  implicit def tuple3Procedure[T1: Procedure, T2: Procedure, T3: Procedure] = new SimpleProcedure[(T1, T2, T3)]
-  implicit def tuple4Procedure[T1: Procedure, T2: Procedure, T3: Procedure, T4: Procedure] = new SimpleProcedure[(T1, T2, T3, T4)]
+  implicit def resultIsSerializable = new Serializable[SerializationResult]
 
-  implicit def seqProcedure[T: Procedure] = new SimpleProcedure[Seq[T]]
-  implicit def setProcedure[T: Procedure] = new SimpleProcedure[Set[T]]
-  implicit def mapProcedure[T1: Procedure, T2: Procedure] = new SimpleProcedure[Map[T1, T2]]
-
-  implicit object BooleanProcedure extends SimpleProcedure[Boolean]
-  implicit object CharProcedure extends SimpleProcedure[Char]
-  implicit object ByteProcedure extends SimpleProcedure[Byte]
-  implicit object ShortProcedure extends SimpleProcedure[Short]
-  implicit object IntProcedure extends SimpleProcedure[Int]
-  implicit object LongProcedure extends SimpleProcedure[Long]
-  implicit object FloatProcedure extends SimpleProcedure[Float]
-  implicit object DoubleProcedure extends SimpleProcedure[Double]
-  implicit object StringProcedure extends SimpleProcedure[String]
-  implicit object BigIntProcedure extends SimpleProcedure[BigInt]
+  implicit object boolIsSerializable   extends Serializable[Boolean]
+  implicit object charIsSerializable   extends Serializable[Char]
+  implicit object byteIsSerializable   extends Serializable[Byte]
+  implicit object shortIsSerializable  extends Serializable[Short]
+  implicit object intIsSerializable    extends Serializable[Int]
+  implicit object longIsSerializable   extends Serializable[Long]
+  implicit object floatIsSerializable  extends Serializable[Float]
+  implicit object doubleIsSerializable extends Serializable[Double]
+  implicit object stringIsSerializable extends Serializable[String]
+  implicit object bigIntIsSerializable extends Serializable[BigInt]
 
   protected def writeObject(obj: Any, out: OutputStream): Unit
   protected def readObject(in: InputStream): Any
 
-  final def serialize[T](e: T, out: OutputStream)(implicit p: SerializationProcedure[T]): Unit = p.serialize(e, out)
-  final def deserialize[T](in: InputStream)(implicit p: DeserializationProcedure[T]): T = p.deserialize(in)
+
+
+  class SerializationResult private[utils](val bytes: Array[Byte]) {
+    override def equals(that: Any): Boolean = that match {
+      case s: SerializationResult => java.util.Arrays.equals(bytes, s.bytes)
+      case _ => false
+    }
+
+    override val hashCode: Int = java.util.Arrays.hashCode(bytes)
+  }
+
+
+  /* -- Serialization/Deserialization Procedures --
+   *
+   * An unfortunate limitation of the above type class is that it cannot handle serialization
+   * through a mapping into a serializable type.
+   *
+   * For example, we would like to provide a serialization procedure for [[Definitions.Symbols]]
+   * by mapping into {{{(Seq[FunDef], Seq[ADTSort])}}} (which is serializable). However, this
+   * must of course be done **before** entering the serializer.
+   *
+   * To enable this feature, we provide the [[SerializationProcedure]] interface that can be
+   * used to define serialization through mappings into serializable types.
+   */
+
+  /** Base trait that enables serialization of some type `T` into `SerializationResult`. */
+  sealed trait SerializationProcedure[-T] {
+    def serialize(e: T): SerializationResult
+    def deserialize(in: SerializationResult): T @scala.annotation.unchecked.uncheckedVariance
+  }
+
+  /** Everything that is serializable implies the existence of a corresponding serialization
+    * procedure that simply calls the serializer. */
+  implicit def serializableProcedure[T: Serializable] = new SerializationProcedure[T] {
+    def serialize(e: T): SerializationResult = {
+      val out = new java.io.ByteArrayOutputStream
+      writeObject(e, out)
+      new SerializationResult(out.toByteArray)
+    }
+    def deserialize(in: SerializationResult): T = {
+      readObject(new java.io.ByteArrayInputStream(in.bytes)).asInstanceOf[T]
+    }
+  }
+
+  protected def mappingProcedure[T1, T2: Serializable](f1: T1 => T2)(f2: T2 => T1) = new SerializationProcedure[T1] {
+    override def serialize(e: T1): SerializationResult = {
+      val out = new java.io.ByteArrayOutputStream
+      writeObject(f1(e), out)
+      new SerializationResult(out.toByteArray)
+    }
+    override def deserialize(in: SerializationResult): T1 = {
+      f2(readObject(new java.io.ByteArrayInputStream(in.bytes)).asInstanceOf[T2])
+    }
+  }
+
+  implicit def tuple2Procedure[T1, T2](
+    implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2]) =
+      mappingProcedure((p: (T1, T2)) => (p1.serialize(p._1), p2.serialize(p._2)))(
+        p => (p1.deserialize(p._1), p2.deserialize(p._2)))
+
+  implicit def tuple3Procedure[T1, T2, T3](
+    implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2], p3: SerializationProcedure[T3]) =
+      mappingProcedure((p: (T1, T2, T3)) => (p1.serialize(p._1), p2.serialize(p._2), p3.serialize(p._3)))(
+        p => (p1.deserialize(p._1), p2.deserialize(p._2), p3.deserialize(p._3)))
+
+  implicit def tuple4Procedure[T1, T2, T3, T4](
+    implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2], p3: SerializationProcedure[T3], p4: SerializationProcedure[T4]) =
+      mappingProcedure((p: (T1, T2, T3, T4)) => (p1.serialize(p._1), p2.serialize(p._2), p3.serialize(p._3), p4.serialize(p._4)))(
+        p => (p1.deserialize(p._1), p2.deserialize(p._2), p3.deserialize(p._3), p4.deserialize(p._4)))
+
+  implicit def seqProcedure[T](implicit p: SerializationProcedure[T]) =
+    mappingProcedure((seq: Seq[T]) => seq.map(p.serialize))(seq => seq.map(p.deserialize))
+
+  implicit def setProcedure[T](implicit p: SerializationProcedure[T]) =
+    mappingProcedure((set: Set[T]) => set.map(p.serialize))(set => set.map(p.deserialize))
+
+  implicit def mapProcedure[T1, T2](implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2]) =
+    mappingProcedure((map: Map[T1, T2]) => map.map(p => p1.serialize(p._1) -> p2.serialize(p._2)))(
+      map => map.map(p => p1.deserialize(p._1) -> p2.deserialize(p._2)))
+
+  implicit val symbolsProcedure = mappingProcedure(
+    (s: Symbols) => (s.functions.values.toSeq.sortBy(_.id.uniqueName), s.sorts.values.toSeq.sortBy(_.id.uniqueName)))(
+      p => NoSymbols.withFunctions(p._1).withSorts(p._2))
+
+
+  // Using the companion object here makes the `fromProcedure` implicit has lower priority
+  object SerializableOrProcedure {
+    implicit def fromProcedure[T](implicit ev: SerializationProcedure[T]) = SerializableOrProcedure(Right(ev))
+  }
+  implicit def fromSerializable[T](implicit ev: Serializable[T]) = SerializableOrProcedure(Left(ev))
+  case class SerializableOrProcedure[T](e: Either[Serializable[T], SerializationProcedure[T]])
+
+  final def serialize[T](e: T)(implicit p: SerializationProcedure[T]): SerializationResult = p.serialize(e)
+  final def deserialize[T](result: SerializationResult)(implicit p: SerializationProcedure[T]): T = p.deserialize(result)
+
+  final def serialize[T](e: T, out: OutputStream)(implicit p: SerializableOrProcedure[T]): Unit = p.e match {
+    case Left(_) => writeObject(e, out)
+    case Right(p) => writeObject(p.serialize(e), out)
+  }
+
+  final def deserialize[T](in: InputStream)(implicit p: SerializableOrProcedure[T]): T = p.e match {
+    case Left(_) => readObject(in).asInstanceOf[T]
+    case Right(p) => p.deserialize(readObject(in).asInstanceOf[SerializationResult])
+  }
 }
 
 /** Serialization utilities for Inox trees
@@ -364,6 +451,23 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   private final val tupleClasses: Set[Class[_]] = tupleSizeToClass.values.toSet
 
 
+  // SerializationResult id=7
+  protected final object ResultSerializer extends Serializer[SerializationResult](7) {
+    override protected def write(element: SerializationResult, out: OutputStream): Unit = {
+      writeObject(element.bytes.size, out)
+      out.write(element.bytes)
+    }
+    override protected def read(in: InputStream): SerializationResult = {
+      val size = readObject(in).asInstanceOf[Int]
+      val bytes = new Array[Byte](size)
+
+      var read = 0
+      while (read < size) read += in.read(bytes, read, size - read)
+      new SerializationResult(bytes)
+    }
+  }
+
+
   override protected def writeObject(obj: Any, out: OutputStream): Unit = {
     val runtimeClass = obj.getClass
     classToSerializer.get(runtimeClass)
@@ -389,6 +493,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
       case MapSerializer.id => MapSerializer.deserialize(in)
       case JavaSerializer.id => JavaSerializer.deserialize(in)
       case TupleSerializer.id => TupleSerializer.deserialize(in)
+      case ResultSerializer.id => ResultSerializer.deserialize(in)
       case i => idToSerializer.get(i).map(_.deserialize(in)).getOrElse(
         throw DeserializationError(i.toByte, "No class serializer found for given id"))
     }
@@ -509,7 +614,9 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     mappingSerializer[TypeParameterDef](95)(_.tp)(TypeParameterDef(_)),
     classSerializer[ADTSort]       (96),
     classSerializer[ADTConstructor](97),
-    classSerializer[FunDef]        (98)
+    classSerializer[FunDef]        (98),
+
+    classOf[SerializationResult] -> ResultSerializer
   )
 }
 

@@ -25,6 +25,8 @@ class TipSerializationSuite extends FunSpec with ResourceUtils {
     program: Program { val trees: inox.trees.type },
     expr: Expr
   ) = {
+    import serializer._
+
     val out = new java.io.ByteArrayOutputStream
     serializer.serialize(program.symbols, out)
     serializer.serialize(expr, out)
