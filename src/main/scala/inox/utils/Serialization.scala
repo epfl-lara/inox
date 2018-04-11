@@ -14,57 +14,65 @@ import scala.annotation.switch
 case class SerializationError(obj: Any, msg: String) extends Exception(s"Failed to serialize $obj: $msg")
 case class DeserializationError(byte: Byte, msg: String) extends Exception(s"Failed to deserialize [$byte,...]: $msg")
 
-/** A wrapper for the byte array resulting from some Inox serialization.
-  * This class ensures valid equality and hashing for the underlying binary representation.
-  */
-class Serialization(val bytes: Array[Byte]) extends Serializable {
-  override def equals(that: Any): Boolean = that match {
-    case s: Serialization => java.util.Arrays.equals(bytes, s.bytes)
-    case _ => false
-  }
-
-  override def hashCode: Int = java.util.Arrays.hashCode(bytes)
-}
-
-
-/** A builder for instances of [[Serialization]]. */
-trait SerializationBuilder {
-  protected val serializer: Serializer
-  import serializer.trees._
-
-  protected val out: java.io.ByteArrayOutputStream
-
-  def +=[T <: Tree](tree: T): Unit = serializer.serialize(tree, out)
-  def +=(symbols: Symbols): Unit = serializer.serialize(symbols, out)
-
-  def result: Serialization = new Serialization(out.toByteArray)
-}
-
-
+/** A generic serialization/deserialization API for Inox ASTs. */
 trait Serializer { self =>
   val trees: ast.Trees
   import trees._
 
+  sealed trait SerializationProcedure[-T] {
+    def serialize(e: T, out: OutputStream): Unit
+  }
+
+  sealed trait DeserializationProcedure[+T] {
+    def deserialize(in: InputStream): T
+  }
+
+  trait Procedure[T] extends SerializationProcedure[T] with DeserializationProcedure[T]
+
+  implicit object SymbolsProcedure extends Procedure[Symbols] {
+    override def serialize(e: Symbols, out: OutputStream): Unit = {
+      writeObject(e.sorts.values.toSeq.sortBy(_.id.uniqueName), out)
+      writeObject(e.functions.values.toSeq.sortBy(_.id.uniqueName), out)
+    }
+    override def deserialize(in: InputStream): Symbols = {
+      val sorts = readObject(in).asInstanceOf[Seq[ADTSort]]
+      val functions = readObject(in).asInstanceOf[Seq[FunDef]]
+      NoSymbols.withSorts(sorts).withFunctions(functions)
+    }
+  }
+
+  class SimpleProcedure[T] extends Procedure[T] {
+    override def serialize(e: T, out: OutputStream): Unit = writeObject(e, out)
+    override def deserialize(in: InputStream): T = readObject(in).asInstanceOf[T]
+  }
+
+  implicit object IdentifierProcedure extends SimpleProcedure[Identifier]
+  implicit object TreeProcedure extends SimpleProcedure[Tree]
+
+  implicit def tuple2Procedure[T1: Procedure, T2: Procedure] = new SimpleProcedure[(T1, T2)]
+  implicit def tuple3Procedure[T1: Procedure, T2: Procedure, T3: Procedure] = new SimpleProcedure[(T1, T2, T3)]
+  implicit def tuple4Procedure[T1: Procedure, T2: Procedure, T3: Procedure, T4: Procedure] = new SimpleProcedure[(T1, T2, T3, T4)]
+
+  implicit def seqProcedure[T: Procedure] = new SimpleProcedure[Seq[T]]
+  implicit def setProcedure[T: Procedure] = new SimpleProcedure[Set[T]]
+  implicit def mapProcedure[T1: Procedure, T2: Procedure] = new SimpleProcedure[Map[T1, T2]]
+
+  implicit object BooleanProcedure extends SimpleProcedure[Boolean]
+  implicit object CharProcedure extends SimpleProcedure[Char]
+  implicit object ByteProcedure extends SimpleProcedure[Byte]
+  implicit object ShortProcedure extends SimpleProcedure[Short]
+  implicit object IntProcedure extends SimpleProcedure[Int]
+  implicit object LongProcedure extends SimpleProcedure[Long]
+  implicit object FloatProcedure extends SimpleProcedure[Float]
+  implicit object DoubleProcedure extends SimpleProcedure[Double]
+  implicit object StringProcedure extends SimpleProcedure[String]
+  implicit object BigIntProcedure extends SimpleProcedure[BigInt]
+
   protected def writeObject(obj: Any, out: OutputStream): Unit
   protected def readObject(in: InputStream): Any
 
-  final def serialize[T <: Tree](tree: T, out: OutputStream): Unit = writeObject(tree, out)
-  final def serialize(symbols: trees.Symbols, out: OutputStream): Unit = {
-    writeObject(symbols.sorts.values.toSeq.sortBy(_.id.uniqueName), out)
-    writeObject(symbols.functions.values.toSeq.sortBy(_.id.uniqueName), out)
-  }
-
-  final def deserialize[T >: Null <: trees.Tree](in: InputStream): T = readObject(in).asInstanceOf[T]
-  final def deserialize[T >: Null <: trees.Symbols](in: InputStream)(implicit dummy: DummyImplicit): Symbols = {
-    val sorts = readObject(in).asInstanceOf[Seq[ADTSort]]
-    val functions = readObject(in).asInstanceOf[Seq[FunDef]]
-    NoSymbols.withSorts(sorts).withFunctions(functions)
-  }
-
-  def builder: SerializationBuilder { val serializer: self.type } = new SerializationBuilder {
-    protected val serializer: self.type = self
-    protected val out = new java.io.ByteArrayOutputStream
-  }
+  final def serialize[T](e: T, out: OutputStream)(implicit p: SerializationProcedure[T]): Unit = p.serialize(e, out)
+  final def deserialize[T](in: InputStream)(implicit p: DeserializationProcedure[T]): T = p.deserialize(in)
 }
 
 /** Serialization utilities for Inox trees
@@ -313,6 +321,8 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
 
   private final val javaClasses: Set[Class[_]] = Set(
     // Primitive types
+    classOf[Boolean],
+    classOf[Char],
     classOf[Byte],
     classOf[Short],
     classOf[Int],
@@ -320,18 +330,18 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classOf[Float],
     classOf[Double],
 
-    classOf[Boolean],
     classOf[String],
     classOf[BigInt],
 
     // Java boxed types
+    classOf[java.lang.Boolean],
+    classOf[java.lang.Character],
     classOf[java.lang.Byte],
     classOf[java.lang.Short],
     classOf[java.lang.Integer],
     classOf[java.lang.Long],
     classOf[java.lang.Float],
-    classOf[java.lang.Double],
-    classOf[java.lang.Boolean]
+    classOf[java.lang.Double]
   )
 
 
