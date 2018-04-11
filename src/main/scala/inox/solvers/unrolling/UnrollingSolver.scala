@@ -360,7 +360,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
         }
       }
 
-      val params: Seq[ValDef] = tpe.from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
+      val params: Seq[ValDef] = tpe.from.map(tpe => ValDef.fresh("x", tpe, true))
       val arguments = templates.getGroundInstantiations(f, tpe).flatMap { case (b, eArgs) =>
         wrapped.modelEval(b, BooleanType()).filter(_ == BooleanLiteral(true)).map(_ => eArgs)
       }.distinct

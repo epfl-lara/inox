@@ -230,7 +230,7 @@ class Parser(file: File) {
         val children = for (Constructor(sym, fields) <- conss) yield {
           val id = locs.getConstructor(sym)
           val vds = fields.map { case (s, sort) =>
-            ValDef(FreshIdentifier(s.name), adtLocals.extractSort(sort)).setPos(s.optPos)
+            ValDef.fresh(s.name, adtLocals.extractSort(sort)).setPos(s.optPos)
           }
 
           (id, vds)
@@ -264,7 +264,7 @@ class Parser(file: File) {
         val tparams = List.range(0, arity).map {
           i => TypeParameterDef(TypeParameter.fresh("A" + i).setPos(sym.optPos)).setPos(sym.optPos)
         }
-        val field = ValDef(FreshIdentifier("val"), IntegerType().setPos(sym.optPos)).setPos(sym.optPos)
+        val field = ValDef.fresh("val", IntegerType().setPos(sym.optPos)).setPos(sym.optPos)
 
         new ADTSort(sortId, tparams, Seq(
           new ADTConstructor(consId, sortId, Seq(field)).setPos(sym.optPos)
@@ -278,7 +278,7 @@ class Parser(file: File) {
         case _ => throw new MissformedTIPException(s"Unexpected type parameters $syms", sort.optPos)
       }
 
-      val vd = ValDef(FreshIdentifier(s.name), ADTType(adt.id, adt.typeArgs)).setPos(s.optPos)
+      val vd = ValDef.fresh(s.name, ADTType(adt.id, adt.typeArgs)).setPos(s.optPos)
 
       val body = locals
         .withGenerics(syms zip adt.typeArgs)
@@ -314,11 +314,11 @@ class Parser(file: File) {
     val tparams = tps.map(sym => TypeParameterDef(locals.getGeneric(sym)).setPos(sym.optPos))
 
     val params = fd.params.map { case SortedVar(s, sort) =>
-      ValDef(FreshIdentifier(s.name), locals.extractSort(sort)).setPos(s.optPos)
+      ValDef.fresh(s.name, locals.extractSort(sort)).setPos(s.optPos)
     }
 
     val returnType = locals.extractSort(fd.returnSort)
-    val body = Choose(ValDef(FreshIdentifier("res"), returnType), BooleanLiteral(true))
+    val body = Choose(ValDef.fresh("res", returnType), BooleanLiteral(true))
 
     new FunDef(id, tparams, params, returnType, body, Seq.empty).setPos(fd.name.optPos)
   }
@@ -423,14 +423,14 @@ class Parser(file: File) {
         Assume(fromSMT(pred), fromSMT(body))
 
       case SMTChoose(sym, sort, pred) =>
-        val vd = ValDef(FreshIdentifier(sym.name), fromSMT(sort))
+        val vd = ValDef.fresh(sym.name, fromSMT(sort))
         Choose(vd, fromSMT(pred)(ctx.withVariable(sym, vd.toVariable)))
 
       case SMTLet(binding, bindings, term) =>
         var context = ctx
         val mapping = for (VarBinding(name, term) <- (binding +: bindings)) yield {
           val e = fromSMT(term)(context)
-          val vd = ValDef(FreshIdentifier(name.name), e.getType).setPos(name.optPos)
+          val vd = ValDef.fresh(name.name, e.getType).setPos(name.optPos)
           context = context.withVariable(name, vd.toVariable)
           vd -> e
         }
@@ -441,7 +441,7 @@ class Parser(file: File) {
 
       case SMTLambda(svs, term) =>
         val (vds, bindings) = svs.map { case SortedVar(s, sort) =>
-          val vd = ValDef(FreshIdentifier(s.name), fromSMT(sort)).setPos(s.optPos)
+          val vd = ValDef.fresh(s.name, fromSMT(sort)).setPos(s.optPos)
           (vd, s -> vd.toVariable)
         }.unzip
         otpe match {

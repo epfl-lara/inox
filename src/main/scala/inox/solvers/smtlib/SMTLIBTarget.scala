@@ -488,7 +488,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
     def getFunction(sym: SSymbol, ft: FunctionType): Option[Lambda] = functions.get(sym).map {
       case df @ DefineFun(SMTFunDef(a, args, _, body)) =>
-        val vds = (args zip ft.from).map(p => ValDef(FreshIdentifier(p._1.name.name), p._2))
+        val vds = (args zip ft.from).map(p => ValDef.fresh(p._1.name.name, p._2))
         val exBody = fromSMT(body, ft.to)(withVariables(args.map(_.name) zip vds.map(_.toVariable)))
         Lambda(vds, exBody)
     }
@@ -574,8 +574,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
             simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
           } catch {
             case _: NoSimpleValue =>
-              val args = ft.from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
-              Lambda(args, Choose(ValDef(FreshIdentifier("res"), ft), BooleanLiteral(true)))
+              val args = ft.from.map(tpe => ValDef.fresh("x", tpe, true))
+              Lambda(args, Choose(ValDef.fresh("res", ft), BooleanLiteral(true)))
           }))
       })
 

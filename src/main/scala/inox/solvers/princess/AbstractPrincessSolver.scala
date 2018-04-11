@@ -369,13 +369,13 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
                   case _ => None
                 }.toSeq.sortBy(_.toString)
               } yield {
-                val params = ft.from.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
+                val params = ft.from.map(tpe => ValDef.fresh("x", tpe, true))
                 uniquateClosure(n.intValue, if (interps.isEmpty) {
                   try {
                     simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
                   } catch {
                     case _: NoSimpleValue =>
-                      Lambda(params, Choose(ValDef(FreshIdentifier("res"), ft.to), BooleanLiteral(true)))
+                      Lambda(params, Choose(ValDef.fresh("res", ft.to), BooleanLiteral(true)))
                   }
                 } else {
                   val body = interps.foldRight(interps.head._2) { case ((args, res), elze) =>

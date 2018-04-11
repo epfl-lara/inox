@@ -567,7 +567,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
               case ft @ FunctionType(fts, tt) => z3ToLambdas.getOrElseUpdate(t, {
                 val n = t.toString.split("!").last.init.toInt
-                val args = fts.map(tpe => ValDef(FreshIdentifier("x", true), tpe))
+                val args = fts.map(tpe => ValDef.fresh("x", tpe, true))
                 uniquateClosure(n, lambdas.getB(ft)
                   .flatMap(decl => model.getFuncInterpretations.find(_._1 == decl))
                   .map { case (_, mapping, elseValue) =>
@@ -588,7 +588,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                     simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
                   } catch {
                     case _: NoSimpleValue =>
-                      Lambda(args, Choose(ValDef(FreshIdentifier("res"), tt), BooleanLiteral(true)))
+                      Lambda(args, Choose(ValDef.fresh("res", tt), BooleanLiteral(true)))
                   }))
               })
 

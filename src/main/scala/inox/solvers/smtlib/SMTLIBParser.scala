@@ -33,7 +33,7 @@ trait SMTLIBParser {
 
   protected type Context <: AbstractContext
 
-  protected def fromSMT(sv: SortedVar)(implicit context: Context): ValDef = ValDef(FreshIdentifier(sv.name.name), fromSMT(sv.sort))
+  protected def fromSMT(sv: SortedVar)(implicit context: Context): ValDef = ValDef.fresh(sv.name.name, fromSMT(sv.sort))
 
   final protected def fromSMT(term: Term, tpe: Type)(implicit context: Context): Expr = fromSMT(term, Some(tpe))
   final protected def fromSMT(pair: (Term, Type))(implicit context: Context): Expr = fromSMT(pair._1, Some(pair._2))

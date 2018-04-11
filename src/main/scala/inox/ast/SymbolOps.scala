@@ -307,7 +307,7 @@ trait SymbolOps { self: TypeOps =>
           ) =>
             val esWithParams = es.map(e => e -> {
               if (isLiftable(e, env)) None
-              else Some(ValDef(FreshIdentifier("v"), e.getType))
+              else Some(ValDef.fresh("v", e.getType))
             })
 
             val params = esWithParams.collect { case (_, Some(vd)) => vd }
@@ -372,7 +372,7 @@ trait SymbolOps { self: TypeOps =>
       /* @nv: This is a hack to ensure that the notion of equality we define on closures
        *      is respected by those returned by the model. */
       Lambda(res.args, Let(
-        ValDef(FreshIdentifier("id"), tupleTypeWrap(List.fill(id)(resArgs.head.tpe))),
+        ValDef.fresh("id", tupleTypeWrap(List.fill(id)(resArgs.head.tpe))),
         tupleWrap(List.fill(id)(resArgs.head.toVariable)),
         res.body
       ))
@@ -470,7 +470,7 @@ trait SymbolOps { self: TypeOps =>
       Lambda(Seq.empty, constructExpr(i, to))
 
     case FunctionType(from, to) =>
-      val l = Lambda(from.map(tpe => ValDef(FreshIdentifier("x", true), tpe)), constructExpr(0, to))
+      val l = Lambda(from.map(tpe => ValDef.fresh("x", tpe, true)), constructExpr(0, to))
       uniquateClosure(i, l)(PurityOptions.unchecked)
   }
 
@@ -716,7 +716,7 @@ trait SymbolOps { self: TypeOps =>
         if (!sort.definition.isWellFormed) throw NoSimpleValue(adt)
 
         if (seen(adt)) {
-          Choose(ValDef(FreshIdentifier("res"), adt), BooleanLiteral(true))
+          Choose(ValDef.fresh("res", adt), BooleanLiteral(true))
         } else if (sort.hasInvariant) {
           if (!allowSolver) throw NoSimpleValue(adt)
 
@@ -739,7 +739,7 @@ trait SymbolOps { self: TypeOps =>
         GenericValue(tp, 0)
 
       case ft @ FunctionType(from, to) =>
-        Lambda(from.map(tpe => ValDef(FreshIdentifier("x", true), tpe)), rec(to, seen))
+        Lambda(from.map(tpe => ValDef.fresh("x", tpe, true)), rec(to, seen))
 
       case _ => throw NoSimpleValue(tpe)
     }

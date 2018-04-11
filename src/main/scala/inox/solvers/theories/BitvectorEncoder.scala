@@ -28,8 +28,8 @@ trait BitvectorEncoder extends SimpleEncoder {
     val bvID = FreshIdentifier("bv" + size)
     val blastedID = FreshIdentifier("blasted" + size)
 
-    val bvField = ValDef(FreshIdentifier("value"), IntegerType())
-    val blastedFields = (1 to size).map(i => ValDef(FreshIdentifier("b" + i), BooleanType())).toSeq
+    val bvField = ValDef.fresh("value", IntegerType())
+    val blastedFields = (1 to size).map(i => ValDef.fresh("b" + i, BooleanType())).toSeq
 
     val invID = FreshIdentifier("bv_inv" + size)
 
