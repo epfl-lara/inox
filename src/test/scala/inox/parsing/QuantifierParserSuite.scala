@@ -13,7 +13,7 @@ class QuantifierParserSuite extends FunSuite {
 
     e"forall x. x > 2" match {
       case Forall(Seq(ValDef(id, IntegerType(), _)), expr) =>
-        assertResult(GreaterThan(Variable(id, IntegerType(), Set()), IntegerLiteral(2))) {
+        assertResult(GreaterThan(Variable(id, IntegerType(), Seq()), IntegerLiteral(2))) {
           expr
         }
       case e => fail("Unexpected shape: " + e)
@@ -40,10 +40,10 @@ class QuantifierParserSuite extends FunSuite {
                       ValDef(idX, Int32Type(), _),
                       ValDef(idY, Int32Type(), _),
                       ValDef(idZ, Int32Type(), _)), expr) => {
-        val f = Variable(idF, FunctionType(Seq(Int32Type(), Int32Type()), Int32Type()), Set())
-        val x = Variable(idX, Int32Type(), Set())
-        val y = Variable(idY, Int32Type(), Set())
-        val z = Variable(idZ, Int32Type(), Set())
+        val f = Variable(idF, FunctionType(Seq(Int32Type(), Int32Type()), Int32Type()), Seq())
+        val x = Variable(idX, Int32Type(), Seq())
+        val y = Variable(idY, Int32Type(), Seq())
+        val z = Variable(idZ, Int32Type(), Seq())
 
         assertResult(Equals(Application(f, Seq(Application(f, Seq(x, y)), z)),
                             Application(f, Seq(x, Application(f, Seq(y, z)))))) {
@@ -57,7 +57,7 @@ class QuantifierParserSuite extends FunSuite {
 
     e"exists x. x > 2" match {
       case Not(Forall(Seq(ValDef(id, IntegerType(), _)), Not(expr))) =>
-        assertResult(GreaterThan(Variable(id, IntegerType(), Set()), IntegerLiteral(2))) {
+        assertResult(GreaterThan(Variable(id, IntegerType(), Seq()), IntegerLiteral(2))) {
           expr
         }
       case e => fail("Unexpected shape: " + e)
@@ -84,10 +84,10 @@ class QuantifierParserSuite extends FunSuite {
                           ValDef(idX, Int32Type(), _),
                           ValDef(idY, Int32Type(), _),
                           ValDef(idZ, Int32Type(), _)), Not(expr))) => {
-        val f = Variable(idF, FunctionType(Seq(Int32Type(), Int32Type()), Int32Type()), Set())
-        val x = Variable(idX, Int32Type(), Set())
-        val y = Variable(idY, Int32Type(), Set())
-        val z = Variable(idZ, Int32Type(), Set())
+        val f = Variable(idF, FunctionType(Seq(Int32Type(), Int32Type()), Int32Type()), Seq())
+        val x = Variable(idX, Int32Type(), Seq())
+        val y = Variable(idY, Int32Type(), Seq())
+        val z = Variable(idZ, Int32Type(), Seq())
 
         assertResult(Equals(Application(f, Seq(Application(f, Seq(x, y)), z)),
                             Application(f, Seq(x, Application(f, Seq(y, z)))))) {
@@ -101,7 +101,7 @@ class QuantifierParserSuite extends FunSuite {
 
     e"choose x. x > 2" match {
       case Choose(ValDef(id, IntegerType(), _), expr) =>
-        assertResult(GreaterThan(Variable(id, IntegerType(), Set()), IntegerLiteral(2))) {
+        assertResult(GreaterThan(Variable(id, IntegerType(), Seq()), IntegerLiteral(2))) {
           expr
         }
       case e => fail("Unexpected shape: " + e)
@@ -128,7 +128,7 @@ class QuantifierParserSuite extends FunSuite {
 
     e"lambda x. x > 2" match {
       case Lambda(Seq(ValDef(id, IntegerType(), _)), expr) =>
-        assertResult(GreaterThan(Variable(id, IntegerType(), Set()), IntegerLiteral(2))) {
+        assertResult(GreaterThan(Variable(id, IntegerType(), Seq()), IntegerLiteral(2))) {
           expr
         }
       case e => fail("Unexpected shape: " + e)
@@ -153,9 +153,9 @@ class QuantifierParserSuite extends FunSuite {
     e"(lambda x, y, z: BigInt. x * y + z)(1, 2, 3)" match {
       case Application(Lambda(Seq(ValDef(idX, IntegerType(), _), ValDef(idY, IntegerType(), _), ValDef(idZ, IntegerType(), _)), expr),
           Seq(vX, vY, vZ)) => {
-        val x = Variable(idX, IntegerType(), Set())
-        val y = Variable(idY, IntegerType(), Set())
-        val z = Variable(idZ, IntegerType(), Set())
+        val x = Variable(idX, IntegerType(), Seq())
+        val y = Variable(idY, IntegerType(), Seq())
+        val z = Variable(idZ, IntegerType(), Seq())
 
         assertResult(Plus(Times(x, y), z)) {
           expr

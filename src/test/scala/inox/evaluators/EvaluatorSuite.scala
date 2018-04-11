@@ -599,8 +599,8 @@ class EvaluatorSuite extends FunSuite {
   test("Nested lambdas") {
     val e = evaluator(ctx)
 
-    val ap = ValDef(FreshIdentifier("a"), StringType(), Set())
-    val bp = ValDef(FreshIdentifier("b"), StringType(), Set())
+    val ap = ValDef(FreshIdentifier("a"), StringType(), Seq())
+    val bp = ValDef(FreshIdentifier("b"), StringType(), Seq())
 
     val body = Application(Application(
       Lambda(
