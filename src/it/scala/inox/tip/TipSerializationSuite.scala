@@ -26,11 +26,11 @@ class TipSerializationSuite extends FunSpec with ResourceUtils {
     expr: Expr
   ) = {
     val out = new java.io.ByteArrayOutputStream
-    serializer.serializeSymbols(program.symbols, out)
+    serializer.serialize(program.symbols, out)
     serializer.serialize(expr, out)
 
     val in = new java.io.ByteArrayInputStream(out.toByteArray)
-    val newSymbols = serializer.deserializeSymbols(in)
+    val newSymbols = serializer.deserialize[Symbols](in)
     val newExpr = serializer.deserialize[Expr](in)
 
     assert(program.symbols == newSymbols)

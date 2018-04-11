@@ -14,7 +14,34 @@ import scala.annotation.switch
 case class SerializationError(obj: Any, msg: String) extends Exception(s"Failed to serialize $obj: $msg")
 case class DeserializationError(byte: Byte, msg: String) extends Exception(s"Failed to deserialize [$byte,...]: $msg")
 
-trait Serializer {
+/** A wrapper for the byte array resulting from some Inox serialization.
+  * This class ensures valid equality and hashing for the underlying binary representation.
+  */
+class Serialization(val bytes: Array[Byte]) extends Serializable {
+  override def equals(that: Any): Boolean = that match {
+    case s: Serialization => java.util.Arrays.equals(bytes, s.bytes)
+    case _ => false
+  }
+
+  override def hashCode: Int = java.util.Arrays.hashCode(bytes)
+}
+
+
+/** A builder for instances of [[Serialization]]. */
+trait SerializationBuilder {
+  protected val serializer: Serializer
+  import serializer.trees._
+
+  protected val out: java.io.ByteArrayOutputStream
+
+  def +=[T <: Tree](tree: T): Unit = serializer.serialize(tree, out)
+  def +=(symbols: Symbols): Unit = serializer.serialize(symbols, out)
+
+  def result: Serialization = new Serialization(out.toByteArray)
+}
+
+
+trait Serializer { self =>
   val trees: ast.Trees
   import trees._
 
@@ -22,17 +49,21 @@ trait Serializer {
   protected def readObject(in: InputStream): Any
 
   final def serialize[T <: Tree](tree: T, out: OutputStream): Unit = writeObject(tree, out)
-  final def deserialize[T <: Tree](in: InputStream): T = readObject(in).asInstanceOf[T]
-
-  def serializeSymbols(symbols: Symbols, out: OutputStream): Unit = {
+  final def serialize(symbols: trees.Symbols, out: OutputStream): Unit = {
     writeObject(symbols.sorts.values.toSeq.sortBy(_.id.uniqueName), out)
     writeObject(symbols.functions.values.toSeq.sortBy(_.id.uniqueName), out)
   }
 
-  def deserializeSymbols(in: InputStream): Symbols = {
+  final def deserialize[T >: Null <: trees.Tree](in: InputStream): T = readObject(in).asInstanceOf[T]
+  final def deserialize[T >: Null <: trees.Symbols](in: InputStream)(implicit dummy: DummyImplicit): Symbols = {
     val sorts = readObject(in).asInstanceOf[Seq[ADTSort]]
     val functions = readObject(in).asInstanceOf[Seq[FunDef]]
     NoSymbols.withSorts(sorts).withFunctions(functions)
+  }
+
+  def builder: SerializationBuilder { val serializer: self.type } = new SerializationBuilder {
+    protected val serializer: self.type = self
+    protected val out = new java.io.ByteArrayOutputStream
   }
 }
 
