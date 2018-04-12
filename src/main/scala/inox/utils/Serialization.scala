@@ -230,7 +230,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
 
     if (
       !classSymbol.isStatic &&
-      !(classSymbol.owner.isType && typeOf[trees.type] <:< classSymbol.owner.asType.toType)
+      !(classSymbol.owner.isClass && classSymbol.owner.asClass.selfType <:< typeOf[ast.Trees])
     ) throw SerializationError(runtimeClass, "Unexpected inner type")
 
     private val constructorSymbol = classSymbol.toType.members
@@ -248,7 +248,16 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
 
     override protected def write(element: T, out: OutputStream): Unit = {
       val elementMirror = rootMirror.reflect(element)
-      for (fd <- fields) writeObject(elementMirror.reflectField(fd).get, out)
+      for (fd <- fields) {
+        val fieldValue = try {
+          elementMirror.reflectField(fd).get
+        } catch {
+          // Scala case class constructor arguments that are super-class field overrides are not
+          // represented as Java fields, so we invoke their getter instead to get their value
+          case _: ScalaReflectionException => elementMirror.reflectMethod(fd.asMethod)()
+        }
+        writeObject(fieldValue, out)
+      }
     }
 
     private val instantiator: Seq[Any] => Any = {
@@ -314,7 +323,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
             .iterator.next
         )(fieldObjs: _*).asInstanceOf[Product]
       } else {
-        if (!classSymbol.owner.isType || !(typeOf[trees.type] <:< classSymbol.owner.asType.toType))
+        if (!classSymbol.owner.isType || !(classSymbol.owner.asClass.selfType <:< typeOf[ast.Trees]))
           throw SerializationError(classSymbol, "Unexpected inner class")
         // XXX @nv: Scala has a bug with nested class constructors (https://github.com/scala/bug/issues/9528)
         //          so we use the more crude Java reflection instead.
