@@ -11,7 +11,7 @@ import scala.reflect.runtime.universe._
 
 import scala.annotation.switch
 
-case class SerializationError(obj: Any, msg: String) extends Exception(s"Failed to serialize $obj: $msg")
+case class SerializationError(obj: Any, msg: String) extends Exception(s"Failed to serialize $obj[${obj.getClass}]: $msg")
 case class DeserializationError(byte: Byte, msg: String) extends Exception(s"Failed to deserialize [$byte,...]: $msg")
 
 /** A generic serialization/deserialization API for Inox ASTs. */
@@ -55,7 +55,6 @@ trait Serializer { self =>
 
   protected def writeObject(obj: Any, out: OutputStream): Unit
   protected def readObject(in: InputStream): Any
-
 
 
   class SerializationResult private[utils](val bytes: Array[Byte]) {
