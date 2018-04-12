@@ -495,6 +495,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
 
   override protected def readObject(in: InputStream): Any = {
     readId(in) match {
+      case -1 => throw new java.io.EOFException()
       case ProductSerializer.id => ProductSerializer.deserialize(in)
       case OptionSerializer.id => OptionSerializer.deserialize(in)
       case SeqSerializer.id => SeqSerializer.deserialize(in)
