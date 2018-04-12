@@ -282,16 +282,6 @@ trait Definitions { self: Trees =>
     * @see [[Flag]] for some notes on the actual type of [[args]]. */
   sealed case class Annotation(override val name: String, val args: Seq[Any]) extends Flag(name, args)
 
-  def extractFlag(name: String, args: Seq[Any]): Flag = (name, args) match {
-    case ("invariant", id: Identifier) => HasADTInvariant(id)
-    case ("equality", id: Identifier) => HasADTEquality(id)
-    case _ => Annotation(name, args)
-  }
-
-  implicit class FlagSeqWrapper(flags: Seq[Flag]) {
-    def contains(str: String): Boolean = flags.exists(_.name == str)
-  }
-
   /** Algebraic datatype sort definition.
     * An ADT sort is linked to a series of constructors ([[ADTConstructor]]) for this particular sort. */
   class ADTSort(val id: Identifier,
