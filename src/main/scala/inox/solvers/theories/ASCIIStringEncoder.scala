@@ -14,7 +14,7 @@ trait ASCIIStringEncoder extends SimpleEncoder {
   val value = FreshIdentifier("value")
   val inv = FreshIdentifier("inv")
 
-  val stringSort = mkSort(FreshIdentifier("String"), HasADTInvariant(inv))()(_ => Seq(
+  val stringSort = mkSort(FreshIdentifier("String"))()(_ => Seq(
     (FreshIdentifier("String"), Seq(ValDef(value, StringType())))
   ))
   val stringCons = stringSort.constructors.head
@@ -22,7 +22,7 @@ trait ASCIIStringEncoder extends SimpleEncoder {
 
   val String: ADTType = T(stringSort.id)()
 
-  val invariant = mkFunDef(inv)()(_ => (
+  val invariant = mkFunDef(inv, IsInvariantOf(stringSort.id))()(_ => (
     Seq("s" :: String), BooleanType(), { case Seq(s) =>
       StringLength(s.getField(value)) % E(BigInt(2)) === E(BigInt(0))
     }))

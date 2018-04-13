@@ -114,8 +114,16 @@ trait BagEncoder extends SimpleEncoder {
     })
   }
 
+  val bagSort = mkSort(BagID, HasADTEquality(EqualsID))("T") {
+    case Seq(aT) => Seq(
+      (SumID, Seq(ValDef(left, Bag(aT)), ValDef(right, Bag(aT)))),
+      (ElemID, Seq(ValDef(key, aT), ValDef(value, IntegerType()))),
+      (LeafID, Seq())
+    )
+  }
+
   val InvID = FreshIdentifier("inv")
-  val BagInvariant = mkFunDef(InvID)("T") { case Seq(aT) => (
+  val BagInvariant = mkFunDef(InvID, IsInvariantOf(bagSort.id))("T") { case Seq(aT) => (
     Seq("bag" :: Bag(aT)), BooleanType(), {
       case Seq(bag) => if_ (bag is ElemID) {
         bag.getField(value) >= E(BigInt(0))
@@ -125,13 +133,6 @@ trait BagEncoder extends SimpleEncoder {
     })
   }
 
-  val bagSort = mkSort(BagID, HasADTEquality(EqualsID), HasADTInvariant(InvID))("T") {
-    case Seq(aT) => Seq(
-      (SumID, Seq(ValDef(left, Bag(aT)), ValDef(right, Bag(aT)))),
-      (ElemID, Seq(ValDef(key, aT), ValDef(value, IntegerType()))),
-      (LeafID, Seq())
-    )
-  }
 
   override val extraFunctions =
     Seq(Get, Add, Union, DifferenceImpl, Difference, IntersectImpl, Intersect, BagEquals, BagInvariant)

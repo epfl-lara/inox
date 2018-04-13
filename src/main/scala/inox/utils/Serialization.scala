@@ -523,10 +523,10 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   /** A mapping from `Class[_]` to `Serializer[_]` for classes that commonly
     * occur within Stainless programs.
     *
-    * The `Serializer[_]` identifiers in this mapping range from 10 to 99
+    * The `Serializer[_]` identifiers in this mapping range from 10 to 100
     * (ignoring special identifiers that are smaller than 10).
     *
-    * NEXT ID: 100
+    * NEXT ID: 101
     */
   protected def classSerializers: Map[Class[_], Serializer[_]] = Map(
     // Inox Expressions
@@ -622,9 +622,9 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
       (p => new Identifier(p._1, p._2, p._3)),
 
     // Inox Flags
-    classSerializer[HasADTInvariant](91),
     classSerializer[HasADTEquality] (92),
     classSerializer[Annotation]     (93),
+    classSerializer[IsInvariantOf]  (100),
 
     // Inox Definitions
     mappingSerializer[ValDef](94)(_.toVariable)(_.toVal),
