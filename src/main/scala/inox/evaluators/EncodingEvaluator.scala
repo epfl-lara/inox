@@ -32,8 +32,8 @@ object EncodingEvaluator {
     new {
       val program: p.type = p
     } with EncodingEvaluator {
-      lazy val encoder: enc.type = enc
-      lazy val underlying = ev
+      val encoder: enc.type = enc
+      val underlying = ev
     }
   }
 }
