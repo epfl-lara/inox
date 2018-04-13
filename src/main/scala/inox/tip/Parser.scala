@@ -285,24 +285,21 @@ class Parser(file: File) {
         .withVariable(s, vd.toVariable)
         .extractTerm(pred)
 
-      val (optAdt, fd) = adt.invariant(locals.symbols) match {
+      val fd = adt.invariant(locals.symbols) match {
         case Some(fd) =>
           val Seq(v) = fd.params
           val fullBody = and(
             fd.fullBody,
             exprOps.replaceFromSymbols(Map(v.toVariable -> vd.toVariable), body).setPos(body)
           ).setPos(body)
-          (None, fd.copy(fullBody = fullBody))
+          fd.copy(fullBody = fullBody)
 
         case None =>
           val id = FreshIdentifier("inv$" + adt.id.name)
-          val newAdt = adt.copy(flags = adt.flags :+ HasADTInvariant(id))
-          val fd = new FunDef(id, adt.tparams, Seq(vd), BooleanType().setPos(s.optPos), body, Seq.empty).setPos(s.optPos)
-          (Some(newAdt), fd)
+          new FunDef(id, adt.tparams, Seq(vd), BooleanType().setPos(s.optPos), body, Seq(IsInvariantOf(adt.id))).setPos(s.optPos)
       }
 
-      (None, locals.withSymbols(
-        locals.symbols.withFunctions(Seq(fd)).withSorts(optAdt.toSeq)))
+      (None, locals.withSymbols(locals.symbols.withFunctions(Seq(fd))))
 
     case _ =>
       throw new MissformedTIPException("unknown TIP command " + cmd, cmd.optPos)

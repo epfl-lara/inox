@@ -271,8 +271,8 @@ trait Definitions { self: Trees =>
     })
   }
 
-  /** Denotes that this adt is refined by invariant ''id'' */
-  sealed case class HasADTInvariant(id: Identifier) extends Flag("invariant", Seq(id))
+  /** Denotes that this function is an invariant which refine the sort or  constructor with id ''id'' */
+  sealed case class IsInvariantOf(id: Identifier) extends Flag("invariant", Seq(id))
 
   /** Denotes that this adt has an overriden equality relation given by ''id'' */
   sealed case class HasADTEquality(id: Identifier) extends Flag("equality", Seq(id))
@@ -326,7 +326,7 @@ trait Definitions { self: Trees =>
 
     /** An invariant that refines this [[ADTSort]] */
     def invariant(implicit s: Symbols): Option[FunDef] = 
-      flags.collectFirst { case HasADTInvariant(id) => s.getFunction(id) }
+      s.functions.values.find { fd => fd.flags.exists { _ == IsInvariantOf(id) } }
 
     def hasInvariant(implicit s: Symbols): Boolean = invariant.isDefined
 

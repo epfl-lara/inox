@@ -33,7 +33,7 @@ trait BitvectorEncoder extends SimpleEncoder {
 
     val invID = FreshIdentifier("bv_inv" + size)
 
-    val bv = mkSort(bvID, HasADTInvariant(invID))()(_ => Seq((bvID.freshen, Seq(bvField))))
+    val bv = mkSort(bvID)()(_ => Seq((bvID.freshen, Seq(bvField))))
     val bvCons = bv.constructors.head
 
     val blasted = mkSort(blastedID)()(_ => Seq((blastedID.freshen, blastedFields)))
@@ -77,7 +77,7 @@ trait BitvectorEncoder extends SimpleEncoder {
         }
       }))
 
-    val invariant = mkFunDef(invID)()(_ => (
+    val invariant = mkFunDef(invID, IsInvariantOf(bv.id))()(_ => (
       Seq("bv" :: bv()), BooleanType(), { case Seq(bv) =>
         E(BigInt(Int.MinValue)) <= bv.getField(bvField.id) && bv.getField(bvField.id) <= E(BigInt(Int.MaxValue))
       }))

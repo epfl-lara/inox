@@ -371,8 +371,8 @@ trait TreeDeconstructor {
   protected type DeconstructedFlag = (Seq[Identifier], Seq[s.Expr], Seq[s.Type], FlagBuilder)
 
   def deconstruct(f: s.Flag): DeconstructedFlag = f match {
-    case s.HasADTInvariant(id) =>
-      (Seq(id), Seq(), Seq(), (ids, _, _) => t.HasADTInvariant(ids.head))
+    case s.IsInvariantOf(id) =>
+      (Seq(id), Seq(), Seq(), (ids, _, _) => t.IsInvariantOf(ids.head))
     case s.HasADTEquality(id) =>
       (Seq(id), Seq(), Seq(), (ids, _, _) => t.HasADTEquality(ids.head))
     case s.Annotation(name, args) =>
