@@ -88,7 +88,8 @@ ADT constructor definitions then take place using the class:
 class ADTConstructor(
   val id: Identifier,                 /* The symbol associated with this ADT sort. */
   val sort: Identifier,               /* The symbol of the constructor's sort. */
-  val fields: Seq[ValDef]             /* The fields associated to this constructor. */)
+  val fields: Seq[ValDef],            /* The fields associated to this constructor. */
+  val flags: Seq[Flag]                /* Annotations associated to this constructor. */)
 ```
 
 Inox provides the utility types `TypedFunDef`, `TypedADTSort` and `TypedADTConstructor`

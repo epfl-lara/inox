@@ -15,8 +15,8 @@ trait DatastructureUtils {
 
   val List = mkSort(listID)("A") {
     case Seq(aT) => Seq(
-      (nilID, Seq()),
-      (consID, Seq(ValDef(head, aT), ValDef(tail, T(listID)(aT))))
+      (nilID, Seq(), Seq()),
+      (consID, Seq(ValDef(head, aT), ValDef(tail, T(listID)(aT))), Seq())
     )
   }
   val Nil = List.constructors(0)
@@ -30,8 +30,8 @@ trait DatastructureUtils {
 
   val option = mkSort(optionID)("A") {
     case Seq(aT) => Seq(
-      (noneID, Seq()),
-      (someID, Seq(ValDef(v, aT)))
+      (noneID, Seq(), Seq()),
+      (someID, Seq(ValDef(v, aT)), Seq())
     )
   }
 

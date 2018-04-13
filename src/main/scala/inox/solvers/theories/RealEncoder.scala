@@ -23,7 +23,7 @@ trait RealEncoder extends SimpleEncoder {
     }))
 
   private val fraction = mkSort(fractionID)()(_ => Seq(
-    (fractionID.freshen, Seq(ValDef(num, IntegerType()), ValDef(denom, IntegerType())))
+    (fractionID.freshen, Seq(ValDef(num, IntegerType()), ValDef(denom, IntegerType())), Seq())
   ))
 
   private val fractionCons = fraction.constructors.head

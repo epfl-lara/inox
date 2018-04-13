@@ -42,7 +42,7 @@ the [Definitions](/doc/API.md#definitions) section in the API documentation for 
 ```scala
 def mkSort(id: Identifier)
           (tpNames: String*)
-          (consBuilder: Seq[TypeParameter] => Seq[(Identifier, Seq[ValDef])]): ADTSort
+          (consBuilder: Seq[TypeParameter] => Seq[(Identifier, Seq[ValDef], Seq[Flag])]): ADTSort
 ```
 
 We therefore start by setting up the identifiers for the `List` sort
@@ -64,9 +64,9 @@ val listSort = mkSort(list)("A") {
     Seq(
       /* We use the previously defined `head` and `tail` identifiers for the fields' symbols.
        * The type `T(list)(tp)` is a shorthand for `ADTType(list, Seq(tp))`. */
-      (cons, Seq(ValDef(head, tp), ValDef(tail, T(list)(tp)))),
+      (cons, Seq(ValDef(head, tp), ValDef(tail, T(list)(tp))), Seq()),
       /* The Nil constructor takes no arguments, so we pass in an empty seq. */
-      (nil, Seq())
+      (nil, Seq(), Seq())
     )
 }
 ```
