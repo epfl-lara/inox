@@ -33,10 +33,10 @@ trait BitvectorEncoder extends SimpleEncoder {
 
     val invID = FreshIdentifier("bv_inv" + size)
 
-    val bv = mkSort(bvID, HasADTInvariant(invID))()(_ => Seq((bvID.freshen, Seq(bvField))))
+    val bv = mkSort(bvID, HasADTInvariant(invID))()(_ => Seq((bvID.freshen, Seq(bvField), Seq())))
     val bvCons = bv.constructors.head
 
-    val blasted = mkSort(blastedID)()(_ => Seq((blastedID.freshen, blastedFields)))
+    val blasted = mkSort(blastedID)()(_ => Seq((blastedID.freshen, blastedFields, Seq())))
     val blastedCons = blasted.constructors.head
 
     val toBV = mkFunDef(FreshIdentifier("toBV" + size))()(_ => (

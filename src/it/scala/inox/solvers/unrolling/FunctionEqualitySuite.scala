@@ -13,7 +13,7 @@ class FunctionEqualitySuite extends SolvingTestSuite with DatastructureUtils {
   val mmapConsID = mmapID.freshen
   val mmap = mkSort(mmapID)("A","B") {
     case Seq(aT, bT) => Seq(
-      (mmapConsID, Seq(ValDef(f, aT =>: T(optionID)(bT))))
+      (mmapConsID, Seq(ValDef(f, aT =>: T(optionID)(bT))), Seq())
     )
   }
 

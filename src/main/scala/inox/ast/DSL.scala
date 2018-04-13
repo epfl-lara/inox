@@ -263,10 +263,10 @@ trait DSL {
 
   def mkSort(id: Identifier, flags: Flag*)
             (tParamNames: String*)
-            (consBuilder: Seq[TypeParameter] => Seq[(Identifier, Seq[ValDef])]) = {
+            (consBuilder: Seq[TypeParameter] => Seq[(Identifier, Seq[ValDef], Seq[Flag])]) = {
     val tParams = tParamNames map (TypeParameter.fresh(_))
     val tParamDefs = tParams map (TypeParameterDef(_))
-    new ADTSort(id, tParamDefs, consBuilder(tParams).map(p => new ADTConstructor(p._1, id, p._2)), flags)
+    new ADTSort(id, tParamDefs, consBuilder(tParams).map(p => new ADTConstructor(p._1, id, p._2, p._3)), flags)
   }
 }
 

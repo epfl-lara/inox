@@ -19,8 +19,8 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
 
   val List = mkSort(listID)("A") {
     case Seq(aT) => Seq(
-      (nilID, Seq()),
-      (consID, Seq(ValDef(head, aT), ValDef(tail, T(listID)(aT))))
+      (nilID, Seq(), Seq()),
+      (consID, Seq(ValDef(head, aT), ValDef(tail, T(listID)(aT))), Seq())
     )
   }
 

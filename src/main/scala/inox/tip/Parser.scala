@@ -247,7 +247,7 @@ class Parser(file: File) {
 
         val sortId = adtLocals.getSort(sym)
         locs = locs.registerSort(new ADTSort(sortId, tparams, (conss zip children).map {
-          case (cons, (id, vds)) => new ADTConstructor(id, sortId, vds).setPos(cons.sym.optPos)
+          case (cons, (id, vds)) => new ADTConstructor(id, sortId, vds, Seq.empty).setPos(cons.sym.optPos)
         }, Seq.empty).setPos(sym.optPos))
 
         locs = locs.withSelectors((conss zip children).flatMap {
@@ -267,7 +267,7 @@ class Parser(file: File) {
         val field = ValDef.fresh("val", IntegerType().setPos(sym.optPos)).setPos(sym.optPos)
 
         new ADTSort(sortId, tparams, Seq(
-          new ADTConstructor(consId, sortId, Seq(field)).setPos(sym.optPos)
+          new ADTConstructor(consId, sortId, Seq(field), Seq.empty).setPos(sym.optPos)
         ), Seq.empty).setPos(sym.optPos)
       })
 

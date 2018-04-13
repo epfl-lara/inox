@@ -18,8 +18,8 @@ trait StringEncoder extends SimpleEncoder {
   val tail = FreshIdentifier("tail")
 
   val stringSort = mkSort(StringID)()(_ => Seq(
-    (StringNilID, Seq()),
-    (StringConsID, Seq(ValDef(head, CharType()), ValDef(tail, ADTType(StringID, Seq.empty))))
+    (StringNilID, Seq(), Seq()),
+    (StringConsID, Seq(ValDef(head, CharType()), ValDef(tail, ADTType(StringID, Seq.empty))), Seq())
   ))
 
   val String     = T(StringID)()

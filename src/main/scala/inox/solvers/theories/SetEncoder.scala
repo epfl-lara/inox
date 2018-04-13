@@ -111,9 +111,9 @@ trait SetEncoder extends SimpleEncoder {
 
   val setSort = mkSort(SetID, HasADTEquality(EqualsID))("T") {
     case Seq(aT) => Seq(
-      (SumID, Seq(ValDef(left, Set(aT)), ValDef(right, Set(aT)))),
-      (ElemID, Seq(ValDef(value, aT))),
-      (LeafID, Seq.empty)
+      (SumID, Seq(ValDef(left, Set(aT)), ValDef(right, Set(aT))), Seq.empty),
+      (ElemID, Seq(ValDef(value, aT)), Seq.empty),
+      (LeafID, Seq.empty, Seq.empty)
     )
   }
 

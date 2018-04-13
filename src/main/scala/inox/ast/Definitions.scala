@@ -355,8 +355,15 @@ trait Definitions { self: Trees =>
     */
   class ADTConstructor(val id: Identifier,
                        val sort: Identifier,
-                       val fields: Seq[ValDef]) extends Definition {
+                       val fields: Seq[ValDef],
+                       val flags: Seq[Flag]) extends Definition {
     def getSort(implicit s: Symbols): ADTSort = s.getSort(sort)
+
+    /** An invariant that refines this [[ADTConstructor]] */
+    def invariant(implicit s: Symbols): Option[FunDef] = 
+      flags.collectFirst { case HasADTInvariant(id) => s.getFunction(id) }
+
+    def hasInvariant(implicit s: Symbols): Boolean = invariant.isDefined
 
     /** Returns the index of the field with the specified id */
     def selectorID2Index(id: Identifier) : Int = {
@@ -378,7 +385,8 @@ trait Definitions { self: Trees =>
 
     def copy(id: Identifier = id,
              sort: Identifier = sort,
-             fields: Seq[ValDef] = fields): ADTConstructor = new ADTConstructor(id, sort, fields)
+             fields: Seq[ValDef] = fields,
+             flags: Seq[Flag] = flags): ADTConstructor = new ADTConstructor(id, sort, fields, flags)
   }
 
   /** Represents an [[ADTSort]] whose type parameters have been instantiated to ''tps'' */
@@ -422,7 +430,9 @@ trait Definitions { self: Trees =>
   }
 
   /** Represents an [[ADTConstructor]] whose type parameters have been instantiated to ''tps'' */
-  case class TypedADTConstructor private(definition: ADTConstructor, sort: TypedADTSort) extends Tree {
+  case class TypedADTConstructor private(definition: ADTConstructor, sort: TypedADTSort)(implicit val symbols: Symbols)
+    extends Tree {
+
     copiedFrom(definition)
 
     @inline def id: Identifier = definition.id
@@ -439,6 +449,15 @@ trait Definitions { self: Trees =>
 
     @inline def fieldsTypes: Seq[Type] = _fieldsTypes.get
     private[this] val _fieldsTypes = Lazy(fields.map(_.tpe))
+
+    @inline def invariant: Option[TypedFunDef] = _invariant.get
+    private[this] val _invariant = Lazy(definition.invariant.map(_.typed(tps)))
+
+    @inline def hasInvariant: Boolean = invariant.isDefined
+
+    /** The flags of the respective [[ADTConstructor]] instantiated with the real type parameters */
+    @inline def flags: Seq[Flag] = _flags.get
+    private[this] val _flags = Lazy(definition.flags.map(sort.instantiate))
   }
 
 

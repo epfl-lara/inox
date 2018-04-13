@@ -245,7 +245,8 @@ trait TreeTransformer {
         new t.ADTConstructor(
           transform(cons.id),
           transform(cons.sort),
-          cons.fields map transform
+          cons.fields map transform,
+          cons.flags map transform
         ).copiedFrom(cons)
       },
       sort.flags map transform

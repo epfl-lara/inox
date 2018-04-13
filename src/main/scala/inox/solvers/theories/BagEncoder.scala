@@ -127,9 +127,9 @@ trait BagEncoder extends SimpleEncoder {
 
   val bagSort = mkSort(BagID, HasADTEquality(EqualsID), HasADTInvariant(InvID))("T") {
     case Seq(aT) => Seq(
-      (SumID, Seq(ValDef(left, Bag(aT)), ValDef(right, Bag(aT)))),
-      (ElemID, Seq(ValDef(key, aT), ValDef(value, IntegerType()))),
-      (LeafID, Seq())
+      (SumID, Seq(ValDef(left, Bag(aT)), ValDef(right, Bag(aT))), Seq.empty),
+      (ElemID, Seq(ValDef(key, aT), ValDef(value, IntegerType())), Seq.empty),
+      (LeafID, Seq(), Seq.empty)
     )
   }
 
