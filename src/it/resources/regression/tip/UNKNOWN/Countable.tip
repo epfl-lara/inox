@@ -1,0 +1,17 @@
+(declare-datatypes (T!29) ((Countable!7 (Open!7 (x!115 Int)))))
+
+(define-fun (par (T!30) (g!1 ((thiss!0 (Countable!7 T!30)) (x!59 Int)) T!30 (choose res!70 T!30 true))))
+
+(define-fun (par (T!32) (f!23 ((thiss!2 (Countable!7 T!32)) (x!58 T!32)) Int (choose res!75 Int true))))
+
+(define-fun (par (T!31) (inv!2 ((thiss!1 (Countable!7 T!31))) Bool (and (forall ((t!53 T!31)) (= (g!1 thiss!1 (f!23 thiss!1 t!53)) t!53)) (forall ((h!46 Int)) (= (f!23 thiss!1 (g!1 thiss!1 h!46)) h!46))))))
+
+(declare-const (par (T!29) (s!9 (Countable!7 T!29))))
+
+(datatype-invariant (par (T!31) thiss!1 (Countable!7 T!31) (and (forall ((t!53 T!31)) (= (g!1 thiss!1 (f!23 thiss!1 t!53)) t!53)) (forall ((h!46 Int)) (= (f!23 thiss!1 (g!1 thiss!1 h!46)) h!46)))))
+
+(assert (par (T!29) (inv!2 (as s!9 (Countable!7 T!29)))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

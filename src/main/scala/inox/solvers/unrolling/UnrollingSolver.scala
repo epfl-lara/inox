@@ -558,7 +558,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
             for (cl <- encodedAssumptions.toSeq ++ templates.satisfactionAssumptions ++ clauses) {
               underlying.assertCnstr(cl)
             }
-            val res = underlying.check(Model min config)
+            val res = underlying.check(Model)
             underlying.pop()
             res
           }
@@ -568,9 +568,6 @@ trait AbstractUnrollingSolver extends Solver { self =>
           res match {
             case Abort() =>
               CheckResult.cast(Unknown)
-
-            case Sat =>
-              CheckResult.cast(Sat)
 
             case SatWithModel(model) =>
               Validate(model)
