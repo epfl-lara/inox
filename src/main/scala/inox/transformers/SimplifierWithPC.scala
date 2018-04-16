@@ -25,6 +25,17 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
     import exprOps._
 
+    private[SimplifierWithPC] def in(that: SimplifierWithPC {
+      val trees: self.trees.type
+      val symbols: self.symbols.type
+    }): that.CNFPath = new that.CNFPath(
+      exprSubst.clone,
+      boolSubst,
+      conditions,
+      cnfCache.clone,
+      simpCache.clone
+    )
+
     def subsumes(that: CNFPath): Boolean =
       (conditions subsetOf that.conditions) &&
       (exprSubst.forall { case (k, e) => that.exprSubst.getB(k).exists(_ == e) }) &&
@@ -388,7 +399,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       lazy val containsLambda = exists { case l: Lambda => true case _ => false }(re)
       lazy val realPE = if (opts.assumeChecked) {
         val simp = simplifier(solvers.PurityOptions.unchecked)
-        simp.isPure(e, path.asInstanceOf[simp.CNFPath])
+        simp.isPure(e, path in simp)
       } else {
         pe
       }
