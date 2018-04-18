@@ -1033,21 +1033,41 @@ trait QuantificationTemplates { self: Templates =>
 
           val freshQuantifiers = newTemplate.quantifiers.map(p => encodeSymbol(p._1))
           val freshSubst = mkSubstituter((newTemplate.quantifiers.map(_._2) zip freshQuantifiers).toMap)
-          for ((b,ms) <- newTemplate.contents.matchers; m <- ms) {
-            clauses ++= instantiateMatcher(Set.empty[Encoded], m, false)
+
+          val sharedSymResults: Seq[Encoded] =
+            if (newTemplate.contents.matchers.exists(_._2.exists(m => !handledMatchers(Set() -> m)))) {
+              // We initially instantiate this template's matchers only once to share the free variables
+              // among multiple instantiations of the template for performance reasons.
+              for ((b,ms) <- newTemplate.contents.matchers; m <- ms) {
+                clauses ++= instantiateMatcher(Set.empty[Encoded], m, false)
+              }
+
+              for (((v,_), q) <- newTemplate.quantifiers zip freshQuantifiers) yield {
+                val (symResult, symClauses) = registerSymbol(newTemplate.start, q, v.tpe)
+                clauses ++= symClauses
+                symResult
+              }
+            } else {
+              Seq()
+            }
+
+          // In general, there are models that cannot be found when sharing free variables accross
+          // multiple instantiations, so we register deferred matchers to be instantiated later
+          // if no model has yet been found.
+          for ((b,ms) <- newTemplate.contents.matchers; m <- ms) yield {
             // it is very rare that such instantiations are actually required, so we defer them
             val gen = currentGeneration + 20
             ignoredMatchers += ((gen, Set(b), m.substitute(freshSubst, Map.empty)))
           }
 
-          val symResults = for (((v,_), q) <- newTemplate.quantifiers zip freshQuantifiers) yield {
+          val freshSymResults = for (((v,_), q) <- newTemplate.quantifiers zip freshQuantifiers) yield {
             val (symResult, symClauses) = registerSymbol(newTemplate.start, q, v.tpe)
             clauses ++= symClauses
             symResult
           }
 
           clauses ++= quantification.ensureGrounds
-          (mkImplies(mkAnd(symResults : _*), qT), Map(qs._2 -> qT))
+          (mkImplies(mkAnd(sharedSymResults ++ freshSymResults : _*), qT), Map(qs._2 -> qT))
       }
 
       clauses ++= templates.flatMap { case (key, (tmpl, tinst)) =>
