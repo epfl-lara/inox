@@ -1,4 +1,4 @@
-(declare-datatypes (T!29) ((Countable!7 (Open!7 (x!115 Int)))))
+(declare-datatypes (T!29) ((Countable!7 (Open!7 (x!115 T!29)))))
 
 (define-fun (par (T!30) (g!1 ((thiss!0 (Countable!7 T!30)) (x!59 Int)) T!30 (choose res!70 T!30 true))))
 
