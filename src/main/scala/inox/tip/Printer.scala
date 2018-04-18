@@ -146,13 +146,24 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
       case _ => false
     }
 
-    val (ours, externals) = adts.partition {
-      case (adt @ ADTType(_, tps), _) => tps == adt.getSort.definition.typeArgs
-      case (tpe @ TupleType(tps), _) => Some(tpe) == tuples.get(tps.size)
-      case _ => true
-    }
+    val newAdts: Seq[(Type, DataType)] = adts.map {
+      case (ADTType(id, tps), DataType(sym, cases)) =>
+        val tsort = getSort(id).typed
+        (ADTType(id, tsort.definition.typeArgs), DataType(sym,
+          (tsort.constructors zip cases).map { case (tcons, Constructor(sym, ADTCons(id, tps), fields)) =>
+            Constructor(sym, ADTCons(id, tsort.definition.typeArgs),
+              (tcons.fields zip fields).map { case (vd, (id, _)) => (id, vd.tpe) })
+          }))
 
-    for ((tpe, DataType(id, _)) <- ours) {
+      case (TupleType(tps), DataType(sym, Seq(Constructor(id, TupleCons(_), fields)))) =>
+        val TupleType(tparams) = tuples(tps.size)
+        (TupleType(tparams), DataType(sym, Seq(Constructor(id, TupleCons(tparams),
+          (fields zip tparams).map { case ((id, _), tpe) => (id, tpe) }))))
+
+      case p => p
+    }.filterNot(p => sorts containsA p._1)
+
+    for ((tpe, DataType(id, _)) <- newAdts) {
       val tparams: Seq[TypeParameter] = tpe match {
         case ADTType(_, tps) => tps.map(_.asInstanceOf[TypeParameter])
         case TupleType(tps) => tps.map(_.asInstanceOf[TypeParameter])
@@ -163,12 +174,12 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
       sorts += tpe -> Sort(SMTIdentifier(id2sym(id)), tpSorts)
     }
 
-    val generics = ours.flatMap { case (tp, _) => typeOps.typeParamsOf(tp) }.toSet
+    val generics = newAdts.flatMap { case (tp, _) => typeOps.typeParamsOf(tp) }.toSet
     val genericSyms = generics.map(tp => id2sym(tp.id))
 
-    if (ours.nonEmpty) {
+    if (newAdts.nonEmpty) {
       emit(DeclareDatatypesPar(genericSyms.toList,
-        (for ((tpe, DataType(sym, cases)) <- ours.toList) yield {
+        (for ((tpe, DataType(sym, cases)) <- newAdts.toList) yield {
           id2sym(sym) -> (for (c <- cases) yield {
             val s = id2sym(c.sym)
 
