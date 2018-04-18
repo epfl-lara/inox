@@ -27,7 +27,7 @@ object Bijection {
 class Bijection[A, B] extends Iterable[(A, B)] {
   protected val a2b = MutableMap[A, B]()
   protected val b2a = MutableMap[B, A]()
-  
+
   def iterator = a2b.iterator
 
   def +=(a: A, b: B): Unit = {
@@ -41,7 +41,7 @@ class Bijection[A, B] extends Iterable[(A, B)] {
     +=(t._1, t._2)
     this
   }
-  
+
   def ++=(t: Iterable[(A, B)]) = {
     (this /: t){ case (b, elem) => b += elem }
   }
@@ -84,7 +84,7 @@ class Bijection[A, B] extends Iterable[(A, B)] {
 
   def aSet = a2b.keySet
   def bSet = b2a.keySet
-  
+
   def composeA[C](c: A => C): Bijection[C, B] = {
     new Bijection[C, B] ++= this.a2b.map(kv => c(kv._1) -> kv._2)
   }
