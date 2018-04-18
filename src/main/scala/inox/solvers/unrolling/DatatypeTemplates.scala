@@ -28,7 +28,7 @@ trait DatatypeTemplates { self: Templates =>
 
   import datatypesManager._
 
-  type Functions = Set[(Encoded, FunctionType, Encoded)]
+  type Functions = Set[(Encoded, Encoded, FunctionType, Encoded)]
 
   /** Represents the kind of datatype a given template is associated to. */
   sealed abstract class TypeInfo {
@@ -49,15 +49,13 @@ trait DatatypeTemplates { self: Templates =>
     * template info is associated to. */
   sealed abstract class TemplateInstantiator {
     def substitute(substituter: Encoded => Encoded): TemplateInstantiator = this match {
-      case Datatype => Datatype
+      case Datatype(result) => Datatype(substituter(result))
       case Capture(encoded, tpe) => Capture(substituter(encoded), tpe)
-      case Invariant => Invariant
     }
   }
 
-  case object Datatype extends TemplateInstantiator
+  case class Datatype(result: Encoded) extends TemplateInstantiator
   case class Capture(encoded: Encoded, tpe: FunctionType) extends TemplateInstantiator
-  case object Invariant extends TemplateInstantiator
 
   /** Represents a type unfolding of a free variable (or input) in the unfolding procedure */
   case class TemplateTypeInfo(info: TypeInfo, arg: Encoded, instantiator: TemplateInstantiator) {
@@ -74,18 +72,14 @@ trait DatatypeTemplates { self: Templates =>
   }
 
   /** Sets up the relevant unfolding procedures for symbols that are free in the input expression */
-  def registerSymbol(start: Encoded, sym: Encoded, tpe: Type): Clauses = {
-    DatatypeTemplate(tpe).instantiate(start, sym)
+  def registerSymbol(start: Encoded, sym: Encoded, tpe: Type): (Encoded, Clauses) = {
+    val result = encodeSymbol(Variable.fresh("result", BooleanType(), true))
+    (result, DatatypeTemplate(tpe).instantiate(start, result, sym))
   }
 
   /** Sets up the relevant unfolding procedure for closure ordering */
   def registerClosure(start: Encoded, container: (Encoded, FunctionType), arg: (Encoded, Type)): Clauses = {
     CaptureTemplate(arg._2, container._2).instantiate(start, container._1, arg._1)
-  }
-
-  /** Sets up the relevant unfolding procedure for datatype invariant instantiation. */
-  def unrollInvariant(start: Encoded, sym: Encoded, tpe: Type): Clauses = {
-    InvariantTemplate(tpe).instantiate(start, sym)
   }
 
   /** Base trait for datatype unfolding template generators.
@@ -125,7 +119,8 @@ trait DatatypeTemplates { self: Templates =>
 
       val v = Variable.fresh("x", tpe, true)
       val pathVar = Variable.fresh("b", BooleanType(), true)
-      val (idT, pathVarT) = (encodeSymbol(v), encodeSymbol(pathVar))
+      val result = Variable.fresh("result", BooleanType(), true)
+      val (idT, pathVarT, resultT) = (encodeSymbol(v), encodeSymbol(pathVar), encodeSymbol(result))
 
       private var exprVars = Map[Variable, Encoded]()
       @inline protected def storeExpr(v: Variable): Unit = {
@@ -148,16 +143,13 @@ trait DatatypeTemplates { self: Templates =>
       private var equations = Seq[Expr]()
       @inline protected def iff(e1: Expr, e2: Expr): Unit = equations :+= Equals(e1, e2)
 
-      private var tpes = Map[Variable, Set[(TypeInfo, Expr)]]()
-      @inline protected def storeType(pathVar: Variable, info: TypeInfo, arg: Expr): Unit = {
-        tpes += pathVar -> (tpes.getOrElse(pathVar, Set.empty) + (info -> arg))
-      }
+      private var tpes = Map[Variable, Set[(Variable, TypeInfo, Expr)]]()
+      protected def storeType(pathVar: Variable, info: TypeInfo, arg: Expr): Variable = {
+        val typeCall: Variable = Variable.fresh("tp", BooleanType(), true)
+        storeExpr(typeCall)
 
-      protected def isRelevantBlocker(v: Variable): Boolean = {
-        (tpes contains v) ||
-        (guardedExprs contains v) ||
-        guardedExprs.exists(_._2.exists(e => exprOps.variablesOf(e)(v))) ||
-        equations.exists(e => exprOps.variablesOf(e)(v))
+        tpes += pathVar -> (tpes.getOrElse(pathVar, Set.empty) + ((typeCall, info, arg)))
+        typeCall
       }
 
       protected case class RecursionState(
@@ -169,9 +161,8 @@ trait DatatypeTemplates { self: Templates =>
 
       /** Generates the clauses and other bookkeeping relevant to a type unfolding template.
         * Subtypes of [[Builder]] can override this method to change clause generation. */
-      protected def rec(pathVar: Variable, expr: Expr, state: RecursionState): Unit = expr.getType match {
-        case tpe if !unroll(tpe) =>
-          // nothing to do here!
+      protected def rec(pathVar: Variable, expr: Expr, state: RecursionState): Expr = expr.getType match {
+        case tpe if !unroll(tpe) => BooleanLiteral(true) // nothing to do here!
 
         case adt: ADTType =>
           val sort = adt.getSort
@@ -179,24 +170,28 @@ trait DatatypeTemplates { self: Templates =>
           if (sort.definition.isInductive && !state.recurseAdt) {
             storeType(pathVar, ADTInfo(sort), expr)
           } else {
+            val newExpr = Variable.fresh("e", BooleanType(), true)
+            storeExpr(newExpr)
+
             for (tcons <- sort.constructors) {
               val newBool: Variable = Variable.fresh("b", BooleanType(), true)
               storeCond(pathVar, newBool)
 
-              for (vd <- tcons.fields) {
+              val recProp = andJoin(for (vd <- tcons.fields) yield {
                 rec(newBool, ADTSelector(expr, vd.id), state.copy(recurseAdt = false))
-              }
+              })
 
-              if (isRelevantBlocker(newBool)) {
-                iff(and(pathVar, isCons(expr, tcons.id)), newBool)
-              }
+              iff(and(pathVar, isCons(expr, tcons.id)), newBool)
+              storeGuarded(newBool, Equals(newExpr, recProp))
             }
+
+            newExpr
           }
 
         case TupleType(tpes) =>
-          for ((_, idx) <- tpes.zipWithIndex) {
+          andJoin(for ((_, idx) <- tpes.zipWithIndex) yield {
             rec(pathVar, TupleSelect(expr, idx + 1), state)
-          }
+          })
 
         case MapType(from, to) =>
           val newBool: Variable = Variable.fresh("b", BooleanType(), true)
@@ -206,9 +201,8 @@ trait DatatypeTemplates { self: Templates =>
           storeExpr(dfltExpr)
 
           iff(and(pathVar, Not(Equals(expr, FiniteMap(Seq.empty, dfltExpr, from, to)))), newBool)
-          rec(pathVar, dfltExpr, state)
 
-          if (!state.recurseMap) {
+          and(rec(pathVar, dfltExpr, state), if (!state.recurseMap) {
             storeType(newBool, MapInfo(from, to), expr)
           } else {
             val keyExpr: Variable = Variable.fresh("key", from, true)
@@ -219,10 +213,12 @@ trait DatatypeTemplates { self: Templates =>
             storeExpr(restExpr)
 
             storeGuarded(newBool, Equals(expr, MapUpdated(restExpr, keyExpr, valExpr)))
-            rec(newBool, restExpr, state.copy(recurseMap = false))
-            rec(newBool, keyExpr, state)
-            rec(newBool, valExpr, state)
-          }
+            and(
+              rec(newBool, restExpr, state.copy(recurseMap = false)),
+              rec(newBool, keyExpr, state),
+              rec(newBool, valExpr, state)
+            )
+          })
 
         case SetType(base) =>
           val newBool: Variable = Variable.fresh("b", BooleanType(), true)
@@ -239,8 +235,11 @@ trait DatatypeTemplates { self: Templates =>
             storeExpr(restExpr)
 
             storeGuarded(newBool, Equals(expr, SetUnion(FiniteSet(Seq(elemExpr), base), restExpr)))
-            rec(newBool, restExpr, state.copy(recurseSet = false))
-            rec(newBool, elemExpr, state)
+
+            and(
+              rec(newBool, restExpr, state.copy(recurseSet = false)),
+              rec(newBool, elemExpr, state)
+            )
           }
 
         case BagType(base) =>
@@ -261,8 +260,11 @@ trait DatatypeTemplates { self: Templates =>
 
             storeGuarded(newBool, Equals(expr, BagUnion(FiniteBag(Seq(elemExpr -> multExpr), base), restExpr)))
             storeGuarded(newBool, GreaterThan(multExpr, IntegerLiteral(0)))
-            rec(newBool, restExpr, state.copy(recurseBag = false))
-            rec(newBool, elemExpr, state)
+
+            and(
+              rec(newBool, restExpr, state.copy(recurseBag = false)),
+              rec(newBool, elemExpr, state)
+            )
           }
 
         case _ => throw FatalError("Unexpected unrollable")
@@ -271,9 +273,12 @@ trait DatatypeTemplates { self: Templates =>
       /* Calls [[rec]] and finalizes the bookkeeping collection before returning everything
        * necessary to a template creation. */
       lazy val (encoder, conds, exprs, tree, clauses, calls, types) = {
-        rec(pathVar, v, RecursionState(true, true, true, true))
+        val res = rec(pathVar, v, RecursionState(true, true, true, true))
+        storeGuarded(pathVar, Equals(result, res))
 
-        val encoder: Expr => Encoded = mkEncoder(exprVars ++ condVars + (v -> idT) + (pathVar -> pathVarT))
+        val encoder: Expr => Encoded = mkEncoder(
+          exprVars ++ condVars + (v -> idT) + (pathVar -> pathVarT) + (result -> resultT)
+        )
 
         var clauses: Clauses = Seq.empty
         var calls: CallBlockers  = Map.empty
@@ -297,8 +302,8 @@ trait DatatypeTemplates { self: Templates =>
 
         clauses ++= equations.map(encoder)
 
-        val encodedTypes: Map[Encoded, Set[(TypeInfo, Encoded)]] = tpes.map { case (b, tps) =>
-          encoder(b) -> tps.map { case (info, expr) => (info, encoder(expr)) }
+        val encodedTypes: Map[Encoded, Set[(Encoded, TypeInfo, Encoded)]] = tpes.map { case (b, tps) =>
+          encoder(b) -> tps.map { case (v, info, expr) => (encoder(v), info, encoder(expr)) }
         }
 
         (encoder, condVars, exprVars, condTree, clauses, calls, encodedTypes)
@@ -345,26 +350,25 @@ trait DatatypeTemplates { self: Templates =>
     /** The [[TemplateGenerator.Builder]] trait is extended to accumulate functions
       * during the clause generation. */
     protected trait Builder extends super.Builder {
-      private var functions = Map[Variable, Set[Expr]]()
-      @inline protected def storeFunction(pathVar: Variable, expr: Expr): Unit = {
-        functions += pathVar -> (functions.getOrElse(pathVar, Set.empty) + expr)
+      private var functions = Map[Variable, Set[(Variable, Expr)]]()
+      protected def storeFunction(pathVar: Variable, expr: Expr): Variable = {
+        val funCall: Variable = Variable.fresh("fun", BooleanType(), true)
+        storeExpr(funCall)
+
+        functions += pathVar -> (functions.getOrElse(pathVar, Set.empty) + ((funCall, expr)))
+        funCall
       }
 
-      override protected def isRelevantBlocker(v: Variable): Boolean = {
-        super.isRelevantBlocker(v) || (functions contains v)
-      }
-
-      override protected def rec(pathVar: Variable, expr: Expr, state: RecursionState): Unit = expr.getType match {
+      override protected def rec(pathVar: Variable, expr: Expr, state: RecursionState): Expr = expr.getType match {
         case _: FunctionType => storeFunction(pathVar, expr)
         case _ => super.rec(pathVar, expr, state)
       }
 
       lazy val funs: Functions = {
         val enc = encoder // forces super to call rec()
-        functions.flatMap { case (b, fs) =>
-          val bp = enc(b)
-          fs.map(expr => (bp, expr.getType.asInstanceOf[FunctionType], enc(expr)))
-        }.toSet
+        (for ((b, fs) <- functions; bp = enc(b); (v, expr) <- fs) yield {
+          (bp, enc(v), expr.getType.asInstanceOf[FunctionType], enc(expr))
+        }).toSet
       }
     }
   }
@@ -411,15 +415,12 @@ trait DatatypeTemplates { self: Templates =>
     /** Clause generation is specialized to handle ADT constructor types that require
       * type guards as well as ADT invariants. */
     protected trait Builder extends super.Builder {
-      override protected def rec(pathVar: Variable, expr: Expr, state: RecursionState): Unit = expr.getType match {
+      override protected def rec(pathVar: Variable, expr: Expr, state: RecursionState): Expr = expr.getType match {
         case adt: ADTType =>
-          val sort = adt.getSort
-
-          if (sort.hasInvariant) {
-            storeGuarded(pathVar, sort.invariant.get.applied(Seq(expr)))
-          }
-
-          super.rec(pathVar, expr, state)
+          and(
+            adt.getSort.invariant.map(_.applied(Seq(expr))).getOrElse(BooleanLiteral(true)),
+            super.rec(pathVar, expr, state)
+          )
 
         case _ => super.rec(pathVar, expr, state)
       }
@@ -435,7 +436,7 @@ trait DatatypeTemplates { self: Templates =>
       val substituter = mkSubstituter(substMap.mapValues(_.encoded))
 
       for ((b, tps) <- types; bp = substituter(b); tp <- tps) {
-        val stp = tp.copy(arg = substituter(tp.arg))
+        val stp = tp.substitute(substituter)
         val gen = nextGeneration(currentGeneration)
         val notBp = mkNot(bp)
 
@@ -458,15 +459,15 @@ trait DatatypeTemplates { self: Templates =>
     val types: Map[Encoded, Set[TemplateTypeInfo]],
     val functions: Functions) extends TypesTemplate {
 
-    def instantiate(blocker: Encoded, arg: Encoded): Clauses = {
-      instantiate(blocker, Seq(Left(arg)))
+    def instantiate(blocker: Encoded, result: Encoded, arg: Encoded): Clauses = {
+      instantiate(blocker, Seq(Left(result), Left(arg)))
     }
 
     override def instantiate(substMap: Map[Encoded, Arg]): Clauses = {
       val substituter = mkSubstituter(substMap.mapValues(_.encoded))
 
-      val clauses: Clauses = (for ((b,tpe,f) <- functions) yield {
-        registerFunction(substituter(b), tpe, substituter(f))
+      val clauses: Clauses = (for ((b,res,tpe,f) <- functions) yield {
+        registerFunction(substituter(b), substituter(res), tpe, substituter(f))
       }).flatten.toSeq
 
       clauses ++ super.instantiate(substMap)
@@ -484,11 +485,11 @@ trait DatatypeTemplates { self: Templates =>
         with super[InvariantGenerator].Builder
 
       val typeBlockers: TypeBlockers = b.types.map { case (blocker, tps) =>
-        blocker -> tps.map { case (info, arg) => TemplateTypeInfo(info, arg, Datatype) }
+        blocker -> tps.map { case (res, info, arg) => TemplateTypeInfo(info, arg, Datatype(res)) }
       }
 
       new DatatypeTemplate(TemplateContents(
-        b.pathVar -> b.pathVarT, Seq(b.v -> b.idT),
+        b.pathVar -> b.pathVarT, Seq(b.result -> b.resultT, b.v -> b.idT),
         b.conds, b.exprs, Map.empty, b.tree, b.clauses, b.calls,
         Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty, Map.empty), typeBlockers, b.funs)
     })
@@ -531,7 +532,7 @@ trait DatatypeTemplates { self: Templates =>
       Map[Variable, Encoded],
       Map[Variable, Set[Variable]],
       Clauses,
-      Map[Encoded, Set[(TypeInfo, Encoded)]],
+      Map[Encoded, Set[(Encoded, TypeInfo, Encoded)]],
       Functions
     )] = MutableMap.empty
 
@@ -557,38 +558,37 @@ trait DatatypeTemplates { self: Templates =>
 
     def apply(dtpe: Type, containerType: FunctionType): CaptureTemplate = cache.getOrElseUpdate(dtpe -> containerType, {
       val (ps, ids, condVars, exprVars, condTree, clauses, types, funs) = tmplCache.getOrElseUpdate(dtpe, {
-        object b extends { val tpe = dtpe } with super[FunctionUnrolling].Builder with super[ADTUnrolling].Builder
+        object b extends { val tpe = dtpe } with super[FunctionUnrolling].Builder with super[ADTUnrolling].Builder {
+          override val resultT = trueT
+        }
         assert(b.calls.isEmpty, "Captured function templates shouldn't have any calls: " + b.calls)
-        (b.pathVar -> b.pathVarT, b.v -> b.idT, b.conds, b.exprs, b.tree, b.clauses, b.types, b.funs)
+
+        // Capture templates must always be true, so we can substitute the result value by `true`
+        // immediately and ignore the result value in later instantiations.
+        val substituter = mkSubstituter(Map(b.resultT -> trueT))
+        val substClauses = b.clauses.map(substituter)
+
+        (b.pathVar -> b.pathVarT, b.v -> b.idT, b.conds, b.exprs, b.tree, substClauses, b.types, b.funs)
       })
 
       val container = Variable.fresh("container", containerType, true)
       val containerT = encodeSymbol(container)
 
       val typeBlockers: TypeBlockers = types.map { case (blocker, tps) =>
-        blocker -> tps.map { case (info, arg) => TemplateTypeInfo(info, arg, Capture(containerT, containerType)) }
+        blocker -> tps.map { case (_, info, arg) => TemplateTypeInfo(info, arg, Capture(containerT, containerType)) }
       }
 
-      val orderClauses = funs.map { case (blocker, tpe, f) =>
+      val funClauses = funs.map { case (blocker, r, _, _) => mkImplies(blocker, r) }
+      val orderClauses = funs.map { case (blocker, _, tpe, f) =>
         mkImplies(blocker, lessThan(order(tpe)(f), order(containerType)(containerT)))
       }
 
       new CaptureTemplate(TemplateContents(
         ps, Seq(container -> containerT, ids),
-        condVars, exprVars, Map.empty, condTree, clauses ++ orderClauses,
+        condVars, exprVars, Map.empty, condTree, clauses ++ funClauses ++ orderClauses,
         Map.empty, Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty, Map.empty
-      ), typeBlockers, funs.map(_._3))
+      ), typeBlockers, funs.map(_._4))
     })
-  }
-
-  /** Template used to unfold adts returned from functions or maps. */
-  class InvariantTemplate private[DatatypeTemplates] (
-    val contents: TemplateContents,
-    val types: Map[Encoded, Set[TemplateTypeInfo]]) extends TypesTemplate {
-
-    def instantiate(blocker: Encoded, arg: Encoded): Clauses = {
-      instantiate(blocker, Seq(Left(arg)))
-    }
   }
 
   /** Extends [[TemplateGenerator]] with functionalities for checking whether
@@ -599,24 +599,6 @@ trait DatatypeTemplates { self: Templates =>
       case TupleType(tps) => tps.exists(unroll)
       case _ => false
     }
-  }
-
-  /** Template generator for [[InvariantTemplate]] instances. */
-  object InvariantTemplate extends TemplateGenerator with FlatUnrolling with InvariantGenerator {
-    private val cache: MutableMap[Type, InvariantTemplate] = MutableMap.empty
-
-    def apply(dtpe: Type): InvariantTemplate = cache.getOrElseUpdate(dtpe, {
-      object b extends { val tpe = dtpe } with Builder
-      val typeBlockers: TypeBlockers = b.types.map { case (blocker, tps) =>
-        blocker -> tps.map { case (info, arg) => TemplateTypeInfo(info, arg, Invariant) }
-      }
-
-      new InvariantTemplate(TemplateContents(
-        b.pathVar -> b.pathVarT, Seq(b.v -> b.idT),
-        b.conds, b.exprs, Map.empty, b.tree, b.clauses, b.calls,
-        Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty, Map.empty
-      ), typeBlockers)
-    })
   }
 
   private[unrolling] object datatypesManager extends Manager {
@@ -659,15 +641,12 @@ trait DatatypeTemplates { self: Templates =>
       typeInfos --= typeBlockers
 
       for ((blocker, (gen, _, _, tps)) <- newTypeInfos; TemplateTypeInfo(info, arg, inst) <- tps) inst match {
-        case Datatype =>
+        case Datatype(result) =>
           val template = DatatypeTemplate(info.getType)
-          newClauses ++= template.instantiate(blocker, arg)
+          newClauses ++= template.instantiate(blocker, result, arg)
         case Capture(container, containerType) =>
           val template = CaptureTemplate(info.getType, containerType)
           newClauses ++= template.instantiate(blocker, container, arg)
-        case Invariant =>
-          val template = InvariantTemplate(info.getType)
-          newClauses ++= template.instantiate(blocker, arg)
       }
 
       reporter.debug("Unrolling datatypes (" + newClauses.size + ")")

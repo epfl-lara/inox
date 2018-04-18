@@ -731,7 +731,9 @@ trait Templates
       var clauses : Clauses = Seq.empty
 
       for ((v, vT) <- chooseVars) {
-        clauses ++= registerSymbol(aVar, freshSubst(vT), v.tpe)
+        val (symResult, symClauses) = registerSymbol(aVar, freshSubst(vT), v.tpe)
+        clauses ++= symClauses
+        clauses :+= mkImplies(aVar, symResult)
       }
 
       // /!\ CAREFUL /!\
@@ -815,7 +817,10 @@ trait Templates
     val start = Variable.fresh("start", BooleanType(), true)
     val encodedStart = encodeSymbol(start)
 
-    val tpeClauses = bindings.flatMap { case (v, s) => registerSymbol(encodedStart, s, v.getType) }.toSeq
+    val tpeClauses = bindings.flatMap { case (v, s) =>
+      val (symResult, symClauses) = registerSymbol(encodedStart, s, v.getType)
+      symResult +: symClauses
+    }.toSeq
 
     val instExpr = timers.solvers.simplify.run { simplifyFormula(expr) }
 

@@ -301,27 +301,7 @@ trait QuantificationTemplates { self: Templates =>
     } else {
       reporter.debug(" -> instantiating matcher " + blockers.mkString("{",",","}") + " ==> " + matcher)
       handledMatchers += relevantBlockers -> matcher
-      val qClauses: Clauses = quantifications.flatMap(_.instantiate(relevantBlockers, matcher, defer))
-
-      val mClauses: Clauses = matcherKey(matcher) match {
-        /* XXX @nv: this is actually unsound. Consider
-         * {{{
-         * def id(a: A): A = a
-         * case class A(i: Int) { require(id(this).i >= 0) }
-         * }}}
-         * We would assume `this.i >= 0` while trying to prove it!
-         *
-        case FunctionKey(tfd) =>
-          val (b, encClauses) = encodeBlockers(relevantBlockers)
-          encClauses ++ unrollInvariant(b, matcher.encoded, tfd.returnType)
-        case TypeKey(MapType(_, to)) =>
-          val (b, encClauses) = encodeBlockers(relevantBlockers)
-          encClauses ++ unrollInvariant(b, matcher.encoded, to)
-         */
-        case _ => Seq.empty
-      }
-
-      qClauses ++ mClauses
+      quantifications.flatMap(_.instantiate(relevantBlockers, matcher, defer))
     }
   }
 
@@ -752,7 +732,6 @@ trait QuantificationTemplates { self: Templates =>
         val groundsSet: Set[(Set[Encoded], Arg, Set[Int])] = grounds(q).unzipSet
         val newGrounds: Set[(Set[Encoded], Arg, Set[Int])] = {
           if (groundsSet.isEmpty) {
-            clauses ++= registerSymbol(contents.pathVar._2, q, v.tpe)
             Set((Set(), Left(q), Set()))
           } else {
             Set.empty
@@ -764,8 +743,11 @@ trait QuantificationTemplates { self: Templates =>
 
       /* Generate the sequence of all relevant instantiation mappings */
       var mappings: Seq[(Set[Encoded], Map[Encoded, Arg], Int)] = Seq.empty
-      for (q <- quantified if grounds(q).isEmpty) {
-        val init: Seq[(Set[Encoded], Map[Encoded, Arg], Set[Int], Int)] = Seq((Set(), Map(q -> Left(q)), Set(), 0))
+      for ((v,q) <- quantifiers if grounds(q).isEmpty) {
+        val (symResult, symClauses) = registerSymbol(contents.pathVar._2, q, v.tpe)
+        clauses ++= symClauses
+
+        val init: Seq[(Set[Encoded], Map[Encoded, Arg], Set[Int], Int)] = Seq((Set(symResult), Map(q -> Left(q)), Set(), 0))
         val newMappings = (quantified - q).foldLeft(init) { case (maps, oq) =>
           for ((bs, map, gens, c) <- maps; (ibs, inst, igens) <- quantToGround(oq)) yield {
             val delay = if (igens.isEmpty || (gens intersect igens).nonEmpty) 0 else 1
@@ -1025,11 +1007,13 @@ trait QuantificationTemplates { self: Templates =>
           // this will call `instantiateMatcher` on all matchers in `newTemplate.matchers`
           clauses ++= newTemplate.contents.instantiate(fullSubst)
 
-          for ((v,q) <- newTemplate.quantifiers.map(_._1) zip freshQuants) {
-            clauses ++= registerSymbol(newTemplate.contents.pathVar._2, q, v.tpe)
+          val symResults = for ((v,q) <- newTemplate.quantifiers.map(_._1) zip freshQuants) yield {
+            val (symResult, symClauses) = registerSymbol(newTemplate.contents.pathVar._2, q, v.tpe)
+            clauses ++= symClauses
+            symResult
           }
 
-          (instT, Map(insts._2 -> instT))
+          (mkImplies(mkAnd(symResults : _*), instT), Map(insts._2 -> instT))
 
         case Unknown(qs, q2s, insts, guard) =>
           val qT = encodeSymbol(qs._1)
@@ -1056,12 +1040,14 @@ trait QuantificationTemplates { self: Templates =>
             ignoredMatchers += ((gen, Set(b), m.substitute(freshSubst, Map.empty)))
           }
 
-          for (((v,_), q) <- newTemplate.quantifiers zip freshQuantifiers) {
-            clauses ++= registerSymbol(newTemplate.start, q, v.tpe)
+          val symResults = for (((v,_), q) <- newTemplate.quantifiers zip freshQuantifiers) yield {
+            val (symResult, symClauses) = registerSymbol(newTemplate.start, q, v.tpe)
+            clauses ++= symClauses
+            symResult
           }
 
           clauses ++= quantification.ensureGrounds
-          (qT, Map(qs._2 -> qT))
+          (mkImplies(mkAnd(symResults : _*), qT), Map(qs._2 -> qT))
       }
 
       clauses ++= templates.flatMap { case (key, (tmpl, tinst)) =>

@@ -296,8 +296,8 @@ trait TemplateGenerator { self: Templates =>
           storeExpr(condVar)
 
           val crec = rec(pathVar, cond, None)
-          val trec = rec(newBool1, thenn, None)
-          val erec = rec(newBool2, elze, None)
+          val trec = rec(newBool1, thenn, pol)
+          val erec = rec(newBool2, elze, pol)
 
           storeGuarded(pathVar, Equals(condVar, crec))
           iff(and(pathVar, condVar), newBool1)
