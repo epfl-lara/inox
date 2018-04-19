@@ -5,7 +5,7 @@ package solvers
 package unrolling
 
 class QuantifiersSuite extends TestSuite {
-  import inox.trees.{forall => _, _}
+  import inox.trees._
   import dsl._
 
   override def configurations = List(

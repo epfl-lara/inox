@@ -1309,4 +1309,45 @@ trait SymbolOps { self: TypeOps =>
       BooleanLiteral(true).copiedFrom(expr)
     case _ => IsConstructor(expr, id)
   }
+
+  /** $encodingof simplified `forall(args, body)` (universal quantification).
+   * @see [[Expressions.Forall Forall]]
+   */
+  def forall(args: Seq[ValDef], body: Expr): Expr = {
+    if (body == BooleanLiteral(true)) BooleanLiteral(true)
+    else if (args.isEmpty) body
+    else {
+      val vars = exprOps.variablesOf(body)
+      val newArgs = args.filter(vd => vars(vd.toVariable) || hasInstance(vd.tpe) != Some(true))
+      if (newArgs.size == args.size) Forall(args, body)
+      else forall(newArgs, body)
+    }
+  }
+
+  def simpForall(args: Seq[ValDef], body: Expr): Expr = {
+    def liftForalls(es: Seq[Expr], recons: Seq[Expr] => Expr): Expr = {
+      val (allArgs, allBodies) = es.map {
+        case f: Forall =>
+          val Forall(args, body) = exprOps.freshenLocals(f)
+          (args, body)
+        case e =>
+          (Seq[ValDef](), e)
+      }.unzip
+
+      val flatArgs = allArgs.flatten
+      if (flatArgs.isEmpty) {
+        forall(args, recons(allBodies))
+      } else {
+        simpForall(args ++ flatArgs, recons(allBodies))
+      }
+    }
+
+    body match {
+      case Forall(args2, body) => simpForall(args ++ args2, body)
+      case And(es) => liftForalls(es, andJoin)
+      case Or(es) => liftForalls(es, orJoin)
+      case Implies(l, r) => liftForalls(Seq(l, r), es => implies(es(0), es(1)))
+      case _ => forall(args, body)
+    }
+  }
 }

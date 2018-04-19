@@ -150,12 +150,10 @@ trait LambdaTemplates { self: Templates =>
       }
     }
 
-    val firstB = encodeSymbol(Variable.fresh("b_res", BooleanType(), true))
     val nextB  = encodeSymbol(Variable.fresh("b_and", BooleanType(), true))
     freeBlockers += tpe -> (freeBlockers(tpe) + (nextB -> f))
-    clauses :+= mkImplies(b, mkEquals(r, mkAnd(firstB, nextB)))
 
-    clauses :+= mkImplies(b, mkEquals(firstB, mkAnd((for {
+    clauses :+= mkImplies(b, mkEquals(r, mkAnd((for {
       app @ (_, App(caller, _, _, encoded)) <- applications(tpe)
       (b, res) <- typeBlockers.get(encoded)
     } yield {

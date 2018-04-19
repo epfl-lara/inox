@@ -321,15 +321,11 @@ trait TemplateGenerator { self: Templates =>
           rec(pathVar, a, Some(true))
         }
 
-        val argsSet = without.args.toSet
         val TopLevelAnds(conjuncts) = without.body
 
         val conjunctQs = conjuncts.map { conj =>
-          val conjArgs: Seq[ValDef] = {
-            var vds: Seq[ValDef] = Seq.empty
-            exprOps.preTraversal { case v: Variable if argsSet(v.toVal) => vds :+= v.toVal case _ => } (conj)
-            vds.distinct
-          }
+          val vars = exprOps.variablesOf(conj)
+          val conjArgs = without.args.filter(vd => vars(vd.toVariable) || hasInstance(vd.tpe) != Some(true))
 
           if (conjArgs.isEmpty) {
             rec(pathVar, conj, pol)

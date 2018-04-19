@@ -270,15 +270,16 @@ trait DatatypeTemplates { self: Templates =>
         case _ => throw FatalError("Unexpected unrollable")
       }
 
+      protected def encodingSubst: Map[Variable, Encoded] =
+        exprVars ++ condVars + (v -> idT) + (pathVar -> pathVarT) + (result -> resultT)
+
       /* Calls [[rec]] and finalizes the bookkeeping collection before returning everything
        * necessary to a template creation. */
       lazy val (encoder, conds, exprs, tree, clauses, calls, types) = {
         val res = rec(pathVar, v, RecursionState(true, true, true, true))
         storeGuarded(pathVar, Equals(result, res))
 
-        val encoder: Expr => Encoded = mkEncoder(
-          exprVars ++ condVars + (v -> idT) + (pathVar -> pathVarT) + (result -> resultT)
-        )
+        val encoder: Expr => Encoded = mkEncoder(encodingSubst)
 
         var clauses: Clauses = Seq.empty
         var calls: CallBlockers  = Map.empty
@@ -339,9 +340,6 @@ trait DatatypeTemplates { self: Templates =>
 
     /** The definition of [[unroll]] makes sure ALL functions are discovered. */
     def unroll(tpe: Type): Boolean = tpe match {
-      case BooleanType() | UnitType() | CharType() | IntegerType() |
-           RealType() | StringType() | (_: BVType) | (_: TypeParameter) => false
-
       case (_: FunctionType) | (_: BagType) | (_: SetType) => true
 
       case NAryType(tpes, _) => tpes.exists(unroll)
@@ -402,6 +400,8 @@ trait DatatypeTemplates { self: Templates =>
        with ADTUnrolling
        with CachedUnrolling {
 
+    private val tpSyms: MutableMap[TypeParameter, (Variable, Encoded)] = MutableMap.empty
+
     /** ADT unfolding is required when the ADT type has an ADT invariant.
       *
       * Note that clause generation in [[Builder.rec]] MUST correspond to the types
@@ -409,12 +409,23 @@ trait DatatypeTemplates { self: Templates =>
       */
     override protected def unrollType(tpe: Type): Boolean = tpe match {
       case adt: ADTType => adt.getSort.hasInvariant
+      case tp: TypeParameter => true
       case _ => false
     }
 
     /** Clause generation is specialized to handle ADT constructor types that require
       * type guards as well as ADT invariants. */
     protected trait Builder extends super.Builder {
+      private val tpSubst: MutableMap[Variable, Encoded] = MutableMap.empty
+      protected def storeTypeParameter(tp: TypeParameter): Expr = {
+        val (v, e) = tpSyms.getOrElseUpdate(tp, {
+          val v = Variable.fresh("tp_is_empty", BooleanType(), true)
+          v -> encodeSymbol(v)
+        })
+        tpSubst(v) = e
+        v
+      }
+
       override protected def rec(pathVar: Variable, expr: Expr, state: RecursionState): Expr = expr.getType match {
         case adt: ADTType =>
           and(
@@ -422,8 +433,13 @@ trait DatatypeTemplates { self: Templates =>
             super.rec(pathVar, expr, state)
           )
 
+        case tp: TypeParameter => storeTypeParameter(tp)
+
         case _ => super.rec(pathVar, expr, state)
       }
+
+      override protected def encodingSubst: Map[Variable, Encoded] =
+        super.encodingSubst ++ tpSubst
     }
   }
 
