@@ -171,21 +171,29 @@ trait DatatypeTemplates { self: Templates =>
             storeType(pathVar, ADTInfo(sort), expr)
           } else {
             val newExpr = Variable.fresh("e", BooleanType(), true)
-            storeExpr(newExpr)
 
-            for (tcons <- sort.constructors) {
+            val stored = for (tcons <- sort.constructors) yield {
               val newBool: Variable = Variable.fresh("b", BooleanType(), true)
-              storeCond(pathVar, newBool)
-
               val recProp = andJoin(for (vd <- tcons.fields) yield {
                 rec(newBool, ADTSelector(expr, vd.id), state.copy(recurseAdt = false))
               })
 
-              iff(and(pathVar, isCons(expr, tcons.id)), newBool)
-              storeGuarded(newBool, Equals(newExpr, recProp))
+              if (recProp != BooleanLiteral(true)) {
+                storeCond(pathVar, newBool)
+                iff(and(pathVar, isCons(expr, tcons.id)), newBool)
+                storeGuarded(newBool, Equals(newExpr, recProp))
+                true
+              } else {
+                false
+              }
             }
 
-            newExpr
+            if (stored.foldLeft(false)(_ || _)) {
+              storeExpr(newExpr)
+              newExpr
+            } else {
+              BooleanLiteral(true)
+            }
           }
 
         case TupleType(tpes) =>
