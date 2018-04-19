@@ -257,7 +257,7 @@ trait TemplateGenerator { self: Templates =>
 
             def recOr(pathVar: Variable, partitions: Seq[Expr]): Unit = partitions match {
               case x :: Nil =>
-                storeGuarded(pathVar, Equals(newExpr, rec(pathVar, x, None)))
+                storeGuarded(pathVar, Equals(newExpr, rec(pathVar, x, pol)))
 
               case x :: xs =>
                 val newRes: Variable = Variable.fresh("res", BooleanType(), true)

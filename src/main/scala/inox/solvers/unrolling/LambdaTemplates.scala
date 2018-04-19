@@ -230,13 +230,6 @@ trait LambdaTemplates { self: Templates =>
         case (v, dep) => registerClosure(newTemplate.start, idT -> newTemplate.tpe, dep -> v.tpe)
       }
 
-      val extClauses = for ((oldB, freeF) <- freeBlockers(newTemplate.tpe).toList if canBeEqual(freeF, idT)) yield {
-        val nextB  = encodeSymbol(Variable.fresh("b_or", BooleanType(), true))
-        val ext = mkOr(mkAnd(newTemplate.start, mkEquals(idT, freeF)), nextB)
-        freeBlockers += newTemplate.tpe -> (freeBlockers(newTemplate.tpe) - (oldB -> freeF) + (nextB -> freeF))
-        mkEquals(oldB, ext)
-      }
-
       // make sure we introduce sound equality constraints between closures that take no arguments
       val arglessEqClauses: Clauses = if (newTemplate.tpe.from.nonEmpty || !isPureTemplate(newTemplate)) {
         Seq.empty
@@ -251,7 +244,6 @@ trait LambdaTemplates { self: Templates =>
       val clauses = newTemplate.structure.instantiation ++
         equalityClauses(newTemplate) ++
         orderingClauses ++
-        extClauses ++
         arglessEqClauses
 
       byID += idT -> newTemplate

@@ -402,6 +402,8 @@ trait DatatypeTemplates { self: Templates =>
 
     private val tpSyms: MutableMap[TypeParameter, (Variable, Encoded)] = MutableMap.empty
 
+    def satisfactionAssumptions = tpSyms.values.toSeq.map(_._2)
+
     /** ADT unfolding is required when the ADT type has an ADT invariant.
       *
       * Note that clause generation in [[Builder.rec]] MUST correspond to the types
@@ -636,7 +638,9 @@ trait DatatypeTemplates { self: Templates =>
       if (typeInfos.isEmpty) None
       else Some(typeInfos.values.map(_._1).min)
 
-    def satisfactionAssumptions: Seq[Encoded] = typeInfos.map(_._2._3).toSeq
+    def satisfactionAssumptions: Seq[Encoded] =
+      typeInfos.map(_._2._3).toSeq ++ DatatypeTemplate.satisfactionAssumptions
+
     def refutationAssumptions: Seq[Encoded] = Seq.empty
 
     def promoteBlocker(b: Encoded): Boolean = {

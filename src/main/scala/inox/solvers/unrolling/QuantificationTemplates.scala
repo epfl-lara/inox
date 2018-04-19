@@ -1005,7 +1005,8 @@ trait QuantificationTemplates { self: Templates =>
           clauses ++= blockerClauses
 
           val instT = encodeSymbol(insts._1)
-          val (substClauses, substMap) = newTemplate.contents.substitution(blocker, Map(insts._2 -> Left(instT)))
+          val baseSubst = Map(insts._2 -> Left(instT), newTemplate.contents.pathVar._2 -> Left(blocker))
+          val (substClauses, substMap) = newTemplate.contents.substitution(blocker, baseSubst)
           clauses ++= substClauses
 
           val freshSubst = (newTemplate.quantifiers.map(_._2) zip freshQuants.map(Left(_))).toMap

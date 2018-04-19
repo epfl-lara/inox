@@ -24,9 +24,9 @@
 
 (define-fun-rec (par (T!0) (bag!0 ((list!0 (List!16 T!0))) (Bag T!0) (ite (is-Nil!13 list!0) (as empty!0 (Bag T!0)) (ite (is-Cons!13 list!0) (bag.insert (bag!0 (t!65 list!0)) (h!58 list!0)) (as |error: Match is non-exhaustive!68| (Bag T!0)))))))
 
-(define-fun-rec merge!0 ((l1!0 (List!16 Int)) (l2!0 (List!16 Int))) (List!16 Int) (assume (and (isSorted!0 l1!0) (isSorted!0 l2!0)) (let ((res!0 (ite (and (is-Cons!13 l1!0) (is-Cons!13 l2!0)) (ite (<= (h!58 l1!0) (h!58 l2!0)) (Cons!13 (h!58 l1!0) (merge!0 (t!65 l1!0) l2!0)) (Cons!13 (h!58 l2!0) (merge!0 l1!0 (t!65 l2!0)))) (++!0 l1!0 l2!0)))) (assume (and (and (isSorted!0 res!0) (= (bag!0 res!0) (bag.union (bag!0 l1!0) (bag!0 l2!0)))) (= (size!0 res!0) (+ (size!0 l1!0) (size!0 l2!0)))) res!0))))
+(define-fun-rec merge!0 ((l1!0 (List!16 Int)) (l2!0 (List!16 Int))) (List!16 Int) (assume (and (isSorted!0 l1!0) (isSorted!0 l2!0)) (let ((res!0 (ite (and (is-Cons!13 l1!0) (is-Cons!13 l2!0)) (ite (<= (h!58 l1!0) (h!58 l2!0)) (Cons!13 (h!58 l1!0) (merge!0 (t!65 l1!0) l2!0)) (Cons!13 (h!58 l2!0) (merge!0 l1!0 (t!65 l2!0)))) (++!0 l1!0 l2!0)))) (assume (and (and (isSorted!0 res!0) (= (size!0 res!0) (+ (size!0 l1!0) (size!0 l2!0)))) (= (bag!0 res!0) (bag.union (bag!0 l1!0) (bag!0 l2!0))) ) res!0))))
 
-(assert (not (=> (and (isSorted!0 l1!0) (isSorted!0 l2!0)) (let ((res!32 (ite (and (is-Cons!13 l1!0) (is-Cons!13 l2!0)) (ite (<= (h!58 l1!0) (h!58 l2!0)) (Cons!13 (h!58 l1!0) (merge!0 (t!65 l1!0) l2!0)) (Cons!13 (h!58 l2!0) (merge!0 l1!0 (t!65 l2!0)))) (++!0 l1!0 l2!0)))) (and (and (isSorted!0 res!32) (= (bag!0 res!32) (bag.union (bag!0 l1!0) (bag!0 l2!0)))) (= (size!0 res!32) (+ (size!0 l1!0) (size!0 l2!0))))))))
+(assert (not (=> (and (isSorted!0 l1!0) (isSorted!0 l2!0)) (let ((res!32 (ite (and (is-Cons!13 l1!0) (is-Cons!13 l2!0)) (ite (<= (h!58 l1!0) (h!58 l2!0)) (Cons!13 (h!58 l1!0) (merge!0 (t!65 l1!0) l2!0)) (Cons!13 (h!58 l2!0) (merge!0 l1!0 (t!65 l2!0)))) (++!0 l1!0 l2!0)))) (and (and (isSorted!0 res!32) (= (size!0 res!32) (+ (size!0 l1!0) (size!0 l2!0)))) (= (bag!0 res!32) (bag.union (bag!0 l1!0) (bag!0 l2!0))))))))
 
 (check-sat)
 
