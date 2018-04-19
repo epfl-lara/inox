@@ -42,7 +42,10 @@ object Graphs {
     def - (from: Edge): G
   }
 
-  case class DiGraph[Node, Edge <: EdgeLike[Node]](N: Set[Node] = Set[Node](), E: Set[Edge] = Set[Edge]()) extends DiGraphLike[Node, Edge, DiGraph[Node, Edge]] with DiGraphOps[Node, Edge, DiGraph[Node, Edge]]{
+  case class DiGraph[Node, Edge <: EdgeLike[Node]](N: Set[Node] = Set[Node](), E: Set[Edge] = Set[Edge]())
+    extends DiGraphLike[Node, Edge, DiGraph[Node, Edge]]
+       with DiGraphOps[Node, Edge, DiGraph[Node, Edge]]{
+
     def +(n: Node) = copy(N=N+n)
     def ++(ns: Traversable[Node]) = copy(N=N++ns)
     def +(e: Edge) = (this+e._1+e._2).copy(E = E + e)

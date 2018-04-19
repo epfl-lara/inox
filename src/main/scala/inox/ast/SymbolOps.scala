@@ -508,28 +508,41 @@ trait SymbolOps { self: TypeOps =>
   def simplifyForalls(e: Expr)(implicit opts: PurityOptions): Expr = {
 
     def inlineFunctions(e: Expr): Expr = {
-      val fds = functionCallsOf(e).flatMap { fi =>
-        transitiveCallees(fi.id) + fi.id
-      }
+      import utils.Graphs._
+      val initGraph = DiGraph[Identifier, SimpleEdge[Identifier]](functionCallsOf(e).map(_.id))
 
-      val fdsToInline = fds
-        .filterNot(id => isRecursive(id))
-        .filter { id =>
-          def existsSpec(e: Expr): Boolean = e match {
-            case Assume(pred, body) => existsSpec(body)
-            case _: Forall => true
-            case Operator(es, _) => es.exists(existsSpec)
-          }
+      val graph = fixpoint { graph: DiGraph[Identifier, SimpleEdge[Identifier]] =>
+        var newGraph = graph
+        for (id <- graph.N) {
+          preTraversal {
+            case fi: FunctionInvocation =>
+              newGraph += SimpleEdge(id, fi.id)
+            case Equals(IsTyped(e1, adt: ADTType), e2) if adt.getSort.hasEquality =>
+              newGraph += SimpleEdge(id, adt.getSort.equality.get.id)
+            case _ =>
+          } (getFunction(id).fullBody)
+        }
+        newGraph
+      } (initGraph)
 
-          existsSpec(getFunction(id).fullBody)
+      val toInline = graph.N.filter { id =>
+        def rec(e: Expr): Boolean = e match {
+          case _: Forall => true
+          case Assume(pred, body) => rec(body)
+          case Operator(es, _) => es.exists(rec)
         }
 
-      def inline(e: Expr): Expr = {
-        val subst = functionCallsOf(e)
-          .filter(fi => fdsToInline(fi.id))
-          .map(fi => fi -> fi.inlined)
-        replace(subst.toMap, e)
+        !graph.transitiveSucc(id)(id) && rec(getFunction(id).fullBody)
       }
+
+      def inline(e: Expr): Expr = postMap {
+        case fi: FunctionInvocation if toInline(fi.id) =>
+          Some(fi.inlined)
+        case Equals(IsTyped(e1, adt: ADTType), e2)
+        if adt.getSort.hasEquality && toInline(adt.getSort.equality.get.id) =>
+          Some(adt.getSort.equality.get.applied(Seq(e1, e2)).inlined)
+        case _ => None
+      } (e)
 
       fixpoint(inline)(e)
     }

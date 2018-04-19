@@ -823,6 +823,7 @@ trait Templates
     }.toSeq
 
     val instExpr = timers.solvers.simplify.run { simplifyFormula(expr) }
+    println(instExpr)
 
     val tmplClauses = mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
 

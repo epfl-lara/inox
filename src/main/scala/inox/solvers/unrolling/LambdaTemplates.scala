@@ -337,11 +337,7 @@ trait LambdaTemplates { self: Templates =>
           if (filtered.isEmpty) {
             equals
           } else {
-            val eqs = filtered.map { case ((v, e1), (_, e2)) =>
-              if (!unrollEquality(v.tpe)) mkEquals(e1, e2) else {
-                registerEquality(blocker, v.tpe, e1, e2)
-              }
-            }
+            val eqs = filtered.map { case ((v, e1), (_, e2)) => mkEqualities(v.tpe, e1, e2) }
             mkEquals(mkAnd(eqs : _*), equals)
           }
         } else {

@@ -32,7 +32,7 @@
 
 (define-fun-rec mergeSort!0 ((list!3 (List!8 Int))) (List!8 Int) (let ((res!2 (ite (and (is-Cons!5 list!3) (is-Cons!5 (t!57 list!3))) (let ((x$2!0 (tuple2!5 (_1!2 (split!0 list!3)) (_2!2 (split!0 list!3))))) (let ((s1!2 (_1!2 x$2!0))) (let ((s2!2 (_2!2 x$2!0))) (merge!0 (mergeSort!0 s1!2) (mergeSort!0 s2!2))))) list!3))) (assume (and (and (isSorted!0 res!2) (= (bag!0 res!2) (bag!0 list!3))) (= (size!0 res!2) (size!0 list!3))) res!2)))
 
-(assert (not (let ((res!34 (ite (and (is-Cons!5 list!3) (is-Cons!5 (t!57 list!3))) (let ((x$2!0 (tuple2!5 (_1!2 (split!0 list!3)) (_2!2 (split!0 list!3))))) (merge!0 (mergeSort!0 (_1!2 x$2!0)) (mergeSort!0 (_2!2 x$2!0)))) list!3))) (and (and (isSorted!0 res!34) (= (bag!0 res!34) (bag!0 list!3))) (= (size!0 res!34) (size!0 list!3))))))
+(assert (not (let ((res!34 (ite (and (is-Cons!5 list!3) (is-Cons!5 (t!57 list!3))) (let ((x$2!0 (tuple2!5 (_1!2 (split!0 list!3)) (_2!2 (split!0 list!3))))) (merge!0 (mergeSort!0 (_1!2 x$2!0)) (mergeSort!0 (_2!2 x$2!0)))) list!3))) (and (and (isSorted!0 res!34) (= (size!0 res!34) (size!0 list!3))) (= (bag!0 res!34) (bag!0 list!3))))))
 
 (check-sat)
 

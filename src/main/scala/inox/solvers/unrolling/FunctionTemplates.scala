@@ -145,17 +145,12 @@ trait FunctionTemplates { self: Templates =>
 
             // we generate helper equality clauses that stem from purity
             for ((pcall, pblocker) <- defBlockers if pcall.tfd == tfd) {
-              def makeEq(tpe: Type, e1: Encoded, e2: Encoded): Encoded =
-                if (!unrollEquality(tpe)) mkEquals(e1, e2) else {
-                  mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType()), Seq(e1, e2))
-                }
-
               if (tfd.params.exists(vd => unrollEquality(vd.tpe)) || unrollEquality(tfd.returnType)) {
                 val argPairs = (pcall.args zip args)
                 val cond = mkAnd((tfd.params.map(_.tpe) zip argPairs).map {
-                  case (tpe, (e1, e2)) => makeEq(tpe, e1.encoded, e2.encoded)
+                  case (tpe, (e1, e2)) => mkEqualities(tpe, e1.encoded, e2.encoded)
                 } : _*)
-                val entail = makeEq(tfd.returnType,
+                val entail = mkEqualities(tfd.returnType,
                   mkCall(tfd, pcall.args.map(_.encoded)),
                   mkCall(tfd, args.map(_.encoded)))
                 newClauses += mkImplies(mkAnd(pblocker, defBlocker, cond), entail)
