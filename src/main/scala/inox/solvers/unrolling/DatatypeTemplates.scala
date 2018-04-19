@@ -73,8 +73,12 @@ trait DatatypeTemplates { self: Templates =>
 
   /** Sets up the relevant unfolding procedures for symbols that are free in the input expression */
   def registerSymbol(start: Encoded, sym: Encoded, tpe: Type): (Encoded, Clauses) = {
-    val result = encodeSymbol(Variable.fresh("result", BooleanType(), true))
-    (result, DatatypeTemplate(tpe).instantiate(start, result, sym))
+    if (DatatypeTemplate.unroll(tpe)) {
+      val result = encodeSymbol(Variable.fresh("result", BooleanType(), true))
+      (result, DatatypeTemplate(tpe).instantiate(start, result, sym))
+    } else {
+      (trueT, Seq.empty)
+    }
   }
 
   /** Sets up the relevant unfolding procedure for closure ordering */

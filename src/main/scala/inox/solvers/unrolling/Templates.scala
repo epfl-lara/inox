@@ -129,7 +129,7 @@ trait Templates
   }
 
   private val sym = Variable.fresh("bs", BooleanType(), true)
-  protected def encodeBlockers(bs: Set[Encoded]): (Encoded, Clauses) = bs.toSeq match {
+  protected def encodeBlockers(bs: Set[Encoded]): (Encoded, Clauses) = bs.toSeq.filter(_ != trueT) match {
     case Seq(b) if (
       condImplies.isDefinedAt(b) || condImplied.isDefinedAt(b) ||
       potImplies.isDefinedAt(b) || potImplied.isDefinedAt(b) ||
@@ -170,7 +170,7 @@ trait Templates
   protected def blockerPath(bs: Set[Encoded]): Set[Encoded] = fixpoint((bs: Set[Encoded]) => bs.flatMap { b =>
     val equal = condEquals.getBorElse(b, Set.empty)
     if (equal.nonEmpty) equal else (condImplied(b) + b)
-  })(bs)
+  })(bs).filter(_ != trueT)
 
   def promoteBlocker(b: Encoded, force: Boolean = false): Boolean = {
     var seen: Set[Encoded] = Set.empty

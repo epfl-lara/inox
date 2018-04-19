@@ -745,9 +745,10 @@ trait QuantificationTemplates { self: Templates =>
       var mappings: Seq[(Set[Encoded], Map[Encoded, Arg], Int)] = Seq.empty
       for ((v,q) <- quantifiers if grounds(q).isEmpty) {
         val (symResult, symClauses) = registerSymbol(contents.pathVar._2, q, v.tpe)
+        val symBlockers = Set(symResult).filter(_ != trueT)
         clauses ++= symClauses
 
-        val init: Seq[(Set[Encoded], Map[Encoded, Arg], Set[Int], Int)] = Seq((Set(symResult), Map(q -> Left(q)), Set(), 0))
+        val init: Seq[(Set[Encoded], Map[Encoded, Arg], Set[Int], Int)] = Seq((symBlockers, Map(q -> Left(q)), Set(), 0))
         val newMappings = (quantified - q).foldLeft(init) { case (maps, oq) =>
           for ((bs, map, gens, c) <- maps; (ibs, inst, igens) <- quantToGround(oq)) yield {
             val delay = if (igens.isEmpty || (gens intersect igens).nonEmpty) 0 else 1
@@ -759,7 +760,7 @@ trait QuantificationTemplates { self: Templates =>
           (bs, map, c + (3 * map.values.collect { case Right(m) => totalDepth(m) }.sum))
         }
 
-        grounds(q) += ((Set.empty[Encoded], Left(q), Set.empty[Int]))
+        grounds(q) += ((symBlockers, Left(q), Set.empty[Int]))
       }
 
       clauses ++= instantiateSubsts(mappings)
