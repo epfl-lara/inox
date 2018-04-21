@@ -60,27 +60,27 @@ trait QuantificationTemplates { self: Templates =>
     */
   sealed abstract class Polarity {
     def substitute(substituter: Encoded => Encoded): Polarity = this match {
-      case Positive(guard) => Positive(guard)
+      case Positive => Positive
       case Negative(insts) => Negative(insts._1 -> substituter(insts._2))
-      case Unknown(qs, q2s, insts, guard) => Unknown(qs._1 -> substituter(qs._2), q2s, insts, guard)
+      case Unknown(neg, pos, path)  => Unknown(neg._1 -> substituter(neg._2), pos, path)
     }
   }
 
-  case class Positive(guard: Encoded) extends Polarity
+  case object Positive extends Polarity
   case class Negative(insts: (Variable, Encoded)) extends Polarity
 
   /** Unknown quantification polarity.
     *
     * Instantiations of unknown polarity quantification with body {{{p}}} follows the schema:
     * {{{
-    *    q == (q2 && inst)
-    *    inst == (guard ==> p)
+    *    neg ==> pos
+    *    pos == (enabler ==> p)
     * }}}
     * It is useful to keep the two clauses separate so that satisfying assignments can be
     * constructed where only certain `inst` variables are falsified. This is used to enable
     * a powerful unrolling heuristic in the presence of both quantifiers and recursive functions.
     */
-  case class Unknown(qs: (Variable, Encoded), q2s: (Variable, Encoded), insts: (Variable, Encoded), guard: Encoded) extends Polarity
+  case class Unknown(neg: (Variable, Encoded), pos: (Variable, Encoded), path: Encoded) extends Polarity
 
   class QuantificationTemplate private[QuantificationTemplates] (
     val polarity: Polarity,
@@ -94,9 +94,9 @@ trait QuantificationTemplates { self: Templates =>
 
     lazy val start = contents.pathVar._2
     lazy val mapping: Map[Variable, Encoded] = polarity match {
-      case Positive(_) => Map.empty
+      case Positive => Map.empty
       case Negative(insts) => Map(insts)
-      case Unknown(qs, _, _, _) => Map(qs)
+      case Unknown(neg, pos, guard) => Map(neg)
     }
 
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]) =
@@ -122,10 +122,10 @@ trait QuantificationTemplates { self: Templates =>
   object QuantificationTemplate {
     def apply(
       pathVar: (Variable, Encoded),
-      optPol: Option[Boolean],
+      pol: Option[Boolean],
       forall: Forall,
       substMap: Map[Variable, Encoded]
-    ): (Option[Variable], QuantificationTemplate) = {
+    ): (Expr, Seq[QuantificationTemplate]) = {
       val (Forall(args, body), structure, depSubst) =
         mkExprStructure(pathVar._1, forall, substMap, onlySimple = !simpOpts.simplify)
 
@@ -135,54 +135,62 @@ trait QuantificationTemplates { self: Templates =>
 
       val clauseSubst: Map[Variable, Encoded] = depSubst ++ (idQuantifiers zip trQuantifiers)
       val (p, tmplClauses) = mkExprClauses(pathVar._1, body, clauseSubst)
-
-      val (optVar, polarity, extraGuarded, extraEqs, extraSubst): (
-        Option[Variable],
-        Polarity,
-        Map[Variable, Seq[Expr]],
-        Seq[Expr],
-        Map[Variable, Encoded]
-      ) = optPol match {
-        case Some(true) =>
-          val guard = encodeSymbol(Variable.fresh("guard", BooleanType(), true))
-          val extraSubst = Map(pathVar._1 -> guard)
-          val extraGuarded = Map(pathVar._1 -> Seq(p))
-          (None, Positive(guard), extraGuarded, Seq.empty, extraSubst)
-
-        case Some(false) =>
-          val inst: Variable = Variable.fresh("inst", BooleanType(), true)
-          val insts = inst -> encodeSymbol(inst)
-          val extraGuarded = Map(pathVar._1 -> Seq(Equals(inst, p)))
-          (Some(inst), Negative(insts), extraGuarded, Seq.empty, Map(insts))
-
-        case None =>
-          val q: Variable = Variable.fresh("q", BooleanType(), true)
-          val q2: Variable = Variable.fresh("qo", BooleanType(), true)
-          val inst: Variable = Variable.fresh("inst", BooleanType(), true)
-          val guard = encodeSymbol(Variable.fresh("guard", BooleanType(), true))
-
-          val qs = q -> encodeSymbol(q)
-          val q2s = q2 -> encodeSymbol(q2)
-          val insts = inst -> encodeSymbol(inst)
-
-          val polarity = Unknown(qs, q2s, insts, guard)
-          val extraEqs = Seq(Equals(q, And(q2, inst)), Equals(inst, Implies(pathVar._1, p)))
-          (Some(q), polarity, Map.empty, extraEqs, Map(qs, q2s, insts) + (pathVar._1 -> guard))
-      }
-
       val (conds, exprs, chooses, tree, guarded, eqs, equalities, lambdas, quants) = tmplClauses
 
-      // Note @nv: some hacky shit is going on here...
-      // We are overriding the mapping of `pathVar._1` for certain polarities so that
-      // the encoded clauses use the `guard` as blocker instead of `pathVar._2`. This only
-      // works due to [[Template.encode]] injecting `pathVar` BEFORE `substMap` into the
-      // global encoding substitution.
-      val (contents, str) = Template.contents(pathVar, idQuantifiers zip trQuantifiers, (
-        conds, exprs, chooses, tree, extraGuarded merge guarded, extraEqs ++ eqs, equalities, lambdas, quants
-      ), depSubst ++ extraSubst)
+      def mkTemplate(
+        polarity: Polarity,
+        extraGuarded: Map[Variable, Seq[Expr]] = Map.empty,
+        extraEqs: Seq[Expr] = Seq.empty,
+        extraSubst: Map[Variable, Encoded] = Map.empty
+      ): QuantificationTemplate = {
+        val (contents, str) = Template.contents(pathVar, idQuantifiers zip trQuantifiers, (
+          conds, exprs, chooses, tree, extraGuarded merge guarded, extraEqs ++ eqs, equalities, lambdas, quants
+        ), depSubst ++ extraSubst)
+        new QuantificationTemplate(polarity, contents, structure,
+          body, () => "Template for " + forall.asString + " is :\n" + str(), false)
+      }
 
-      (optVar, new QuantificationTemplate(polarity, contents, structure,
-        body, () => "Template for " + forall.asString + " is :\n" + str(), false))
+      pol match {
+        case Some(true) => (
+          BooleanLiteral(true),
+          Seq(mkTemplate(Positive, extraGuarded = Map(pathVar._1 -> Seq(p))))
+        )
+
+        case Some(false) =>
+          val inst = Variable.fresh("inst", BooleanType(), true)
+          val insts = inst -> encodeSymbol(inst)
+          (inst, Seq(mkTemplate(
+            Negative(insts),
+            extraGuarded = Map(pathVar._1 -> Seq(Equals(inst, p))),
+            extraSubst = Map(insts)
+          )))
+
+        case None =>
+          val inst = Variable.fresh("inst", BooleanType(), true)
+          val insts = inst -> encodeSymbol(inst)
+
+          // @nv: this part is pretty much identical to a negative template instantiation
+          val negative: QuantificationTemplate = mkTemplate(
+            Negative(insts),
+            extraGuarded = Map(pathVar._1 -> Seq(Equals(inst, p))),
+            extraSubst = Map(insts)
+          )
+
+          val unknown: QuantificationTemplate = {
+            val pos = Variable.fresh("pos", BooleanType(), true)
+            val path = Variable.fresh("path", BooleanType(), true)
+            val (posT, pathT) = (encodeSymbol(pos), encodeSymbol(path))
+
+            mkTemplate(
+              Unknown(insts, pos -> posT, pathT),
+              extraGuarded = Map(path -> Seq(Implies(inst, pos))),
+              extraEqs = Seq(Equals(pos, Implies(pathVar._1, p))),
+              extraSubst = Map(insts, pos -> posT, path -> pathT)
+            )
+          }
+
+          (inst, Seq(negative, unknown))
+      }
     }
   }
 
@@ -601,7 +609,6 @@ trait QuantificationTemplates { self: Templates =>
     if (es.isEmpty) trueT else mkAnd(es.toSeq.sortBy(_.toString) : _*)
 
   private[solvers] trait Quantification extends IncrementalState {
-    val guard: Encoded
     val contents: TemplateContents
 
     val holds: Encoded
@@ -612,6 +619,8 @@ trait QuantificationTemplates { self: Templates =>
     lazy val quantifiers = contents.arguments
     lazy val quantified: Set[Encoded] = quantifiers.map(_._2).toSet
     lazy val pathBlockers = blockerPath(contents.pathVar._2)
+
+    lazy val guard: Encoded = contents.pathVar._2
 
     private val constraints: Seq[(Encoded, MatcherKey, Int)] = (for {
       (_, ms) <- contents.matchers
@@ -885,16 +894,15 @@ trait QuantificationTemplates { self: Templates =>
   }
 
   private class GeneralQuantification (
-    val qs: (Variable, Encoded),
-    val q2s: (Variable, Encoded),
-    val insts: (Variable, Encoded),
-    val guard: Encoded,
+    val neg: Encoded,
+    val pos: (Variable, Encoded),
+    val path: Encoded,
     val contents: TemplateContents,
     val body: Expr) extends Quantification {
 
     private var _currentQ2Var: Encoded = qs._2
     def currentQ2Var = _currentQ2Var
-    val holds = qs._2
+    val holds = neg
 
     def getPolarity = None
 
@@ -902,6 +910,8 @@ trait QuantificationTemplates { self: Templates =>
     def instantiations = _insts
 
     protected def instanceSubst(enabler: Encoded): Map[Encoded, Encoded] = {
+      val freshPos = encodeSymbol(pos._1)
+      val subst = Map(contents.pathVar._2 -> freshGuard)
       val nextQ2Var = encodeSymbol(q2s._1)
 
       val subst = Map(qs._2 -> currentQ2Var, guard -> enabler,
@@ -912,14 +922,13 @@ trait QuantificationTemplates { self: Templates =>
     }
 
     override def registerBlockers(substituter: Encoded => Encoded): Unit = {
-      val freshInst = substituter(insts._2)
+      val freshPos = substituter(pos._2)
       val bs = (contents.blockers.keys ++ contents.applications.keys).map(substituter).toSet
-      _insts += freshInst -> bs
+      _insts += freshPos -> bs
     }
   }
 
   private class Axiom (
-    val guard: Encoded,
     val contents: TemplateContents,
     val body: Expr) extends Quantification {
 
@@ -928,7 +937,7 @@ trait QuantificationTemplates { self: Templates =>
     def getPolarity = Some(true)
 
     protected def instanceSubst(enabler: Encoded): Map[Encoded, Encoded] = {
-      Map(guard -> enabler)
+      Map(contents.pathVar._2 -> enabler)
     }
   }
 
@@ -941,9 +950,6 @@ trait QuantificationTemplates { self: Templates =>
       val app = mkApp(template.ids._2, template.tpe, quantifiers.map(_._2))
       val matcher = Matcher(Left(template.ids._2 -> template.tpe), quantifiers.map(p => Left(p._2)), app)
 
-      val guard = encodeSymbol(Variable.fresh("guard", BooleanType(), true))
-      val substituter = mkSubstituter(Map(template.start -> guard))
-
       val body: Expr = {
         def rec(caller: Expr, body: Expr): Expr = body match {
           case Lambda(args, body) => rec(Application(caller, args.map(_.toVariable)), body)
@@ -953,9 +959,9 @@ trait QuantificationTemplates { self: Templates =>
       }
 
       instantiateQuantification(new QuantificationTemplate(
-        Positive(guard),
-        template.contents.substitute(substituter, Map.empty).copy(
-          matchers = template.contents.matchers merge Map(guard -> Set(matcher))
+        Positive,
+        template.contents.copy(
+          matchers = template.contents.matchers merge Map(template.start -> Set(matcher))
         ), template.structure, body, template.stringRepr, false))._2 // mapping is guaranteed empty!!
     }
   }
@@ -965,12 +971,14 @@ trait QuantificationTemplates { self: Templates =>
       templates.collectFirst { case (s, t) if s subsumes template.structure => t }
     }.map { case (tmpl, inst) =>
       template.polarity match {
-        case Positive(guard) =>
+        case Positive =>
           (Map.empty[Encoded, Encoded], Seq(mkImplies(template.contents.pathVar._2, inst)))
         case Negative(insts) =>
           (Map(insts._2 -> inst), Seq.empty[Encoded])
-        case Unknown(qs, q2s, insts, guard) =>
-          (Map(qs._2 -> inst), Seq.empty[Encoded])
+        case Unknown(_, _, _) =>
+          // 
+          (Map.empty[Encoded, Encoded], Seq.empty[Encoded])
+          (Map(neg._2 -> inst), Seq.empty[Encoded])
       }
     }.getOrElse {
       reporter.debug("instantiating quantification " + template.body.asString)
@@ -980,8 +988,8 @@ trait QuantificationTemplates { self: Templates =>
       clauses ++= newTemplate.structure.instantiation
 
       val (inst, mapping): (Encoded, Map[Encoded, Encoded]) = newTemplate.polarity match {
-        case Positive(guard) =>
-          val axiom = new Axiom(guard, newTemplate.contents, newTemplate.body)
+        case Positive =>
+          val axiom = new Axiom(newTemplate.contents, newTemplate.body)
           quantifications += axiom
 
           for ((bs,m) <- handledMatchers.toList) {
@@ -1018,60 +1026,49 @@ trait QuantificationTemplates { self: Templates =>
 
           (instT, Map(insts._2 -> instT))
 
-        case Unknown(qs, q2s, insts, guard) =>
-          val qT = encodeSymbol(qs._1)
-          val substituter = mkSubstituter(Map(qs._2 -> qT))
+        case Unknown(insts) =>
+          // XXX: Basically a combination of negative and positive cases!
 
-          val quantification = new GeneralQuantification(
-            qs._1 -> qT, q2s, insts, guard, newTemplate.contents.copy(
-              // one clause depends on 'qs._2' (and therefore 'qT')
-              clauses = newTemplate.contents.clauses map substituter
-            ), newTemplate.body)
+          val freshQuants = newTemplate.quantifiers.map(p => encodeSymbol(p._1))
+          val symResults = for ((v,q) <- newTemplate.quantifiers.map(_._1) zip freshQuants) yield {
+            val (symResult, symClauses) = registerSymbol(newTemplate.contents.pathVar._2, q, v.tpe)
+            clauses ++= symClauses
+            symResult
+          }
 
+          // We make sure that all clauses generated by this instantiation are blocked by
+          // the truthiness of ADT invariants on the quantified variables.
+          val (blocker, blockerClauses) = encodeBlockers(Set(newTemplate.contents.pathVar._2) ++ symResults)
+          clauses ++= blockerClauses
+
+          val instT = encodeSymbol(insts._1)
+          val baseSubst = Map(insts._2 -> Left(instT), newTemplate.contents.pathVar._2 -> Left(blocker))
+          val (substClauses, substMap) = newTemplate.contents.substitution(blocker, baseSubst)
+          clauses ++= substClauses
+
+          val freshSubst = (newTemplate.quantifiers.map(_._2) zip freshQuants.map(Left(_))).toMap
+          val fullSubst = substMap ++ freshSubst
+
+          // this will call `instantiateMatcher` on all matchers in `newTemplate.matchers`
+          clauses ++= newTemplate.contents.instantiate(fullSubst)
+
+          val guard = encodeSymbol(Variable.fresh("guard", BooleanType(), true))
+          val enabler = encodeSymbol(Variable.fresh("enabler", BooleanType(), true))
+          val trueContents = newTemplate.contents.substitute(mkSubstituter(Map(insts._2 -> trueT)), Map.empty)
+          val guardedContents = trueContents.copy(
+            clauses = mkImplies(instT, trueContents.pathVar._2) +:
+              mkEquals(trueContents.pathVar._2, guard, enabler) +:
+              trueContents.clauses
+          )
+
+          val quantification = new GeneralQuantification(guardedContents, newTemplate.body)
           quantifications += quantification
 
           for ((bs,m) <- handledMatchers.toList) {
             clauses ++= quantification.instantiate(bs, m)
           }
 
-          if (!newTemplate.contents.matchers.flatMap(_._2).forall(handledMatchers contains _)) {
-            val symResults = for ((v,q) <- newTemplate.quantifiers) yield {
-              val (symResult, symClauses) = registerSymbol(newTemplate.start, q, v.tpe)
-              clauses ++= symClauses
-              symResult
-            }
-
-            val (blocker, blockerClauses) = encodeBlockers(symResults.toSet)
-
-            // We initially instantiate this template's matchers only once to share the free variables
-            // among multiple instantiations of the template for performance reasons.
-            for ((b,ms) <- newTemplate.contents.matchers; m <- ms) {
-              clauses ++= instantiateMatcher(Set(blocker), m, false)
-            }
-          }
-
-          // In general, there are models that cannot be found when sharing free variables accross
-          // multiple instantiations, so we register deferred matchers to be instantiated later
-          // if no model has yet been found.
-          val freshQuants = newTemplate.quantifiers.map(p => encodeSymbol(p._1))
-          val freshSubst = mkSubstituter((newTemplate.quantifiers.map(_._2) zip freshQuants).toMap)
-          val freshSymResults = for (((v,_), q) <- newTemplate.quantifiers zip freshQuants) yield {
-            val (symResult, symClauses) = registerSymbol(newTemplate.start, q, v.tpe)
-            clauses ++= symClauses
-            symResult
-          }
-
-          val (freshBlocker, freshBlockerClauses) = encodeBlockers(freshSymResults.toSet)
-          clauses ++= freshBlockerClauses
-
-          for ((b,ms) <- newTemplate.contents.matchers; m <- ms) yield {
-            // it is very rare that such instantiations are actually required, so we defer them
-            val gen = currentGeneration + 20
-            ignoredMatchers += ((gen, Set(b, freshBlocker), m.substitute(freshSubst, Map.empty)))
-          }
-
-          clauses ++= quantification.ensureGrounds
-          (qT, Map(qs._2 -> qT))
+          (instT, Map(insts._2 -> instT))
       }
 
       clauses ++= templates.flatMap { case (key, (tmpl, tinst)) =>

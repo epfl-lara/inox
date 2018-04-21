@@ -331,9 +331,9 @@ trait TemplateGenerator { self: Templates =>
             rec(pathVar, conj, pol)
           } else {
             val forall = Forall(conjArgs, conj)
-            val (optVar, template) = QuantificationTemplate(pathVar -> encodedCond(pathVar), pol, forall, localSubst)
-            registerQuantification(template)
-            optVar.getOrElse(BooleanLiteral(true))
+            val (res, templates) = QuantificationTemplate(pathVar -> encodedCond(pathVar), pol, forall, localSubst)
+            for (tmpl <- templates) registerQuantification(tmpl)
+            res
           }
         }
 

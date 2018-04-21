@@ -763,7 +763,8 @@ trait Templates
 
       // instantiate positive quantifications last to avoid introducing
       // extra quantifier instantiations that arise due to empty domains
-      for (q <- quants.sortBy(_.polarity.isInstanceOf[Positive])) {
+      val (others, positives) = quants.partition(_.polarity != Positive)
+      for (q <- others ++ positives) {
         val substMap = subst.mapValues(_.encoded)
         val substQuant = q.substitute(mkSubstituter(substMap), matcherSubst)
         val (map, cls) = instantiateQuantification(substQuant)
