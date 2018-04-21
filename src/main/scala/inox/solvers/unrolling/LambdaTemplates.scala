@@ -326,10 +326,10 @@ trait LambdaTemplates { self: Templates =>
   }
 
   private def equalityClauses(template: LambdaTemplate): Clauses = {
-    byType(template.tpe).values.map { that =>
+    byType(template.tpe).values.flatMap { that =>
       val equals = mkEquals(template.ids._2, that.ids._2)
-      val blocker = mkAnd(template.start, that.start)
-      mkImplies(
+      val (blocker, blockerClauses) = encodeBlockers(Set(template.start, that.start))
+      blockerClauses :+ mkImplies(
         blocker,
         if (template.structure.body == that.structure.body) {
           val pairs = template.structure.locals zip that.structure.locals
@@ -337,7 +337,9 @@ trait LambdaTemplates { self: Templates =>
           if (filtered.isEmpty) {
             equals
           } else {
-            val eqs = filtered.map { case ((v, e1), (_, e2)) => mkEqualities(v.tpe, e1, e2) }
+            val eqs = filtered.map { case ((v, e1), (_, e2)) =>
+              mkEqualities(blocker, v.tpe, e1, e2, register = false)
+            }
             mkEquals(mkAnd(eqs : _*), equals)
           }
         } else {

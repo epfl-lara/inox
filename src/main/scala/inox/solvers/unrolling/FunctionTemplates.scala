@@ -148,9 +148,9 @@ trait FunctionTemplates { self: Templates =>
               if (tfd.params.exists(vd => unrollEquality(vd.tpe)) || unrollEquality(tfd.returnType)) {
                 val argPairs = (pcall.args zip args)
                 val cond = mkAnd((tfd.params.map(_.tpe) zip argPairs).map {
-                  case (tpe, (e1, e2)) => mkEqualities(tpe, e1.encoded, e2.encoded)
+                  case (tpe, (e1, e2)) => mkEqualities(pblocker, tpe, e1.encoded, e2.encoded)
                 } : _*)
-                val entail = mkEqualities(tfd.returnType,
+                val entail = mkEqualities(pblocker, tfd.returnType,
                   mkCall(tfd, pcall.args.map(_.encoded)),
                   mkCall(tfd, args.map(_.encoded)))
                 newClauses += mkImplies(mkAnd(pblocker, defBlocker, cond), entail)

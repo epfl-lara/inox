@@ -45,11 +45,17 @@ trait EqualityTemplates { self: Templates =>
     }
   }
 
-  private[unrolling] def mkEqualities(tpe: Type, e1: Encoded, e2: Encoded): Encoded =
-    if (!unrollEquality(tpe)) mkEquals(e1, e2) else mkOr(
-      mkEquals(e1, e2),
-      mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType()), Seq(e1, e2))
-    )
+  private[unrolling] def mkEqualities(
+    blocker: Encoded,
+    tpe: Type,
+    e1: Encoded,
+    e2: Encoded,
+    register: Boolean = true
+  ): Encoded = {
+    if (!unrollEquality(tpe)) mkEquals(e1, e2)
+    else if (register) registerEquality(blocker, tpe, e1, e2)
+    else mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType()), Seq(e1, e2))
+  }
 
   class EqualityTemplate private(val tpe: Type, val contents: TemplateContents) extends Template {
     def instantiate(aVar: Encoded, e1: Encoded, e2: Encoded): Clauses = {

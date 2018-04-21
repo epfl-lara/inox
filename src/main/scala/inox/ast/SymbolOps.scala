@@ -301,7 +301,7 @@ trait SymbolOps { self: TypeOps =>
             // See above about how/why `recCount` is used.
             recCounts > 1 &&
             // Don't lift pure conditions as recursive normalizations will be better
-            !isPureCondition(e, env) &&
+            isImpureExpr(e) &&
             es.exists(isLiftable(_, env)) &&
             es.exists(!isLiftable(_, env))
           ) =>
