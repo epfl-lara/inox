@@ -326,10 +326,12 @@ trait LambdaTemplates { self: Templates =>
   }
 
   private def equalityClauses(template: LambdaTemplate): Clauses = {
-    byType(template.tpe).values.flatMap { that =>
+    val clauses = new scala.collection.mutable.ListBuffer[Encoded]
+    for (that <- byType(template.tpe).values) {
       val equals = mkEquals(template.ids._2, that.ids._2)
       val (blocker, blockerClauses) = encodeBlockers(Set(template.start, that.start))
-      blockerClauses :+ mkImplies(
+      clauses ++= blockerClauses
+      clauses += mkImplies(
         blocker,
         if (template.structure.body == that.structure.body) {
           val pairs = template.structure.locals zip that.structure.locals
@@ -337,15 +339,18 @@ trait LambdaTemplates { self: Templates =>
           if (filtered.isEmpty) {
             equals
           } else {
-            val eqs = filtered.map { case ((v, e1), (_, e2)) =>
-              mkEqualities(blocker, v.tpe, e1, e2, register = false)
+            val equalities = filtered.map { case ((v, e1), (_, e2)) =>
+              val (equality, equalityClauses) = mkEqualities(blocker, v.tpe, e1, e2, register = false)
+              clauses ++= equalityClauses
+              equality
             }
-            mkEquals(mkAnd(eqs : _*), equals)
+            mkEquals(mkAnd(equalities : _*), equals)
           }
         } else {
           mkNot(equals)
         })
-    }.toSeq
+    }
+    clauses.toSeq
   }
 
   def getLambdaTemplates(tpe: FunctionType): Set[LambdaTemplate] = byType(tpe).values.toSet

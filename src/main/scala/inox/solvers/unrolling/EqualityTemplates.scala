@@ -51,10 +51,13 @@ trait EqualityTemplates { self: Templates =>
     e1: Encoded,
     e2: Encoded,
     register: Boolean = true
-  ): Encoded = {
-    if (!unrollEquality(tpe)) mkEquals(e1, e2)
-    else if (register) registerEquality(blocker, tpe, e1, e2)
-    else mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType()), Seq(e1, e2))
+  ): (Encoded, Clauses) = {
+    if (!unrollEquality(tpe)) (mkEquals(e1, e2), Seq())
+    else if (register) (registerEquality(blocker, tpe, e1, e2), Seq())
+    else {
+      val app = mkApp(equalitySymbol(tpe)._2, FunctionType(Seq(tpe, tpe), BooleanType()), Seq(e1, e2))
+      (app, Seq(mkImplies(mkAnd(blocker, mkEquals(e1, e2)), app)))
+    }
   }
 
   class EqualityTemplate private(val tpe: Type, val contents: TemplateContents) extends Template {
@@ -119,42 +122,63 @@ trait EqualityTemplates { self: Templates =>
 
   def instantiateEquality(blocker: Encoded, equality: Equality): Clauses = {
     val Equality(tpe, e1, e2) = equality
-    if (instantiated(tpe)((blocker, e1, e2))) Seq.empty else {
-      val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-      clauses ++= EqualityTemplate(tpe).instantiate(blocker, e1, e2)
+    val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-      val (_, f) = equalitySymbol(tpe)
-      val ft = FunctionType(Seq(tpe, tpe), BooleanType())
+    if (!instantiated(tpe)((blocker, e1, e2))) {
+      val eqBlocker = eqBlockers.get(equality) match {
+        case Some(eqBlocker) =>
+          eqBlocker
 
-      // congruence is transitive
-      for ((tb, te1, te2) <- instantiated(tpe); cond = mkAnd(blocker, tb)) {
-        if (e2 == te1) {
-          clauses += mkImplies(
-            mkAnd(cond, mkApp(f, ft, Seq(e1, e2)), mkApp(f, ft, Seq(e2, te2))),
-            mkApp(f, ft, Seq(e1, te2))
-          )
+        case None =>
+          val eqBlocker = encodeSymbol(Variable.fresh("q", BooleanType(), true))
+          eqBlockers += equality -> eqBlocker
 
-          instantiated += tpe -> (instantiated(tpe) + ((cond, e1, te2)))
-        }
+          clauses ++= EqualityTemplate(tpe).instantiate(eqBlocker, e1, e2)
 
-        if (te2 == e1) {
-          clauses += mkImplies(
-            mkAnd(cond, mkApp(f, ft, Seq(te1, te2)), mkApp(f, ft, Seq(te2, e2))),
-            mkApp(f, ft, Seq(te1, e2))
-          )
+          val (_, f) = equalitySymbol(tpe)
+          val ft = FunctionType(Seq(tpe, tpe), BooleanType())
 
-          instantiated += tpe -> (instantiated(tpe) + ((cond, te1, e2)))
-        }
+          // congruence is transitive
+          for ((tb, te1, te2) <- instantiated(tpe); cond = mkAnd(eqBlocker, tb)) {
+            if (e2 == te1) {
+              clauses += mkImplies(
+                mkAnd(cond, mkApp(f, ft, Seq(e1, e2)), mkApp(f, ft, Seq(e2, te2))),
+                mkApp(f, ft, Seq(e1, te2))
+              )
+
+              instantiated += tpe -> (instantiated(tpe) + ((cond, e1, te2)))
+            }
+
+            if (te2 == e1) {
+              clauses += mkImplies(
+                mkAnd(cond, mkApp(f, ft, Seq(te1, te2)), mkApp(f, ft, Seq(te2, e2))),
+                mkApp(f, ft, Seq(te1, e2))
+              )
+
+              instantiated += tpe -> (instantiated(tpe) + ((cond, te1, e2)))
+            }
+          }
+
+          // congruence is commutative
+          clauses += mkImplies(eqBlocker, mkEquals(mkApp(f, ft, Seq(e1, e2)), mkApp(f, ft, Seq(e2, e1))))
+          instantiated += tpe -> (instantiated(tpe) + ((eqBlocker, e1, e2)) + ((eqBlocker, e2, e1)))
+
+          clauses += mkImplies(mkEquals(e1, e2), mkApp(f, ft, Seq(e1, e2)))
+          eqBlocker
       }
 
-      // congruence is commutative
-      clauses += mkImplies(blocker, mkEquals(mkApp(f, ft, Seq(e1, e2)), mkApp(f, ft, Seq(e2, e1))))
-      instantiated += tpe -> (instantiated(tpe) + ((blocker, e1, e2)) + ((blocker, e2, e1)))
+      if (eqBlocker != blocker) {
+        registerImplication(blocker, eqBlocker)
+        clauses += mkImplies(blocker, eqBlocker)
+      }
 
-      clauses += mkImplies(mkEquals(e1, e2), mkApp(f, ft, Seq(e1, e2)))
-
-      clauses.toSeq
+      reporter.debug("Unrolling equality behind " + equality + " (" + clauses.size + ")")
+      for (cl <- clauses) {
+        reporter.debug("  . " + cl)
+      }
     }
+
+    clauses.toSeq
   }
 
   def registerEquality(blocker: Encoded, tpe: Type, e1: Encoded, e2: Encoded): Encoded = {
@@ -178,11 +202,12 @@ trait EqualityTemplates { self: Templates =>
   }
 
   private[unrolling] object equalityManager extends Manager {
+    private[EqualityTemplates] val eqBlockers = new IncrementalMap[Equality, Encoded]()
     private[EqualityTemplates] val typeSymbols = new IncrementalMap[Type, (Variable, Encoded)]
     private[EqualityTemplates] val equalityInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[Equality])]
     private[EqualityTemplates] val instantiated = new IncrementalMap[Type, Set[(Encoded, Encoded, Encoded)]].withDefaultValue(Set.empty)
 
-    val incrementals: Seq[IncrementalState] = Seq(typeSymbols, equalityInfos, instantiated)
+    val incrementals: Seq[IncrementalState] = Seq(eqBlockers, typeSymbols, equalityInfos, instantiated)
 
     def unrollGeneration: Option[Int] =
       if (equalityInfos.isEmpty) None

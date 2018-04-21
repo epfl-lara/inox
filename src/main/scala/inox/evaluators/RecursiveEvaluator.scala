@@ -150,7 +150,9 @@ trait RecursiveEvaluator
     case ADTSelector(expr, sel) =>
       e(expr) match {
         case adt @ ADT(id, tps, args) =>
-          args(adt.getConstructor.definition.selectorID2Index(sel))
+          if (adt.getConstructor.fields.exists(_.id == sel))
+            args(adt.getConstructor.definition.selectorID2Index(sel))
+          else throw EvalError(s"Constructor ${id.asString} has no field ${sel.asString}")
         case le =>
           throw EvalError(typeErrorMsg(le, expr.getType))
       }

@@ -1050,7 +1050,11 @@ trait QuantificationTemplates { self: Templates =>
           val (blocker, cls) = encodeBlockers(Set(newTemplate.contents.pathVar._2, tmpl.contents.pathVar._2))
           val eqConds = (newTemplate.structure.locals zip tmpl.structure.locals)
             .filter(p => p._1 != p._2)
-            .map { case ((v, e1), (_, e2)) => mkEqualities(blocker, v.tpe, e1, e2, register = false) }
+            .map { case ((v, e1), (_, e2)) =>
+              val (equality, equalityClauses) = mkEqualities(blocker, v.tpe, e1, e2, register = false)
+              clauses ++= equalityClauses
+              equality
+            }
           val cond = mkAnd(blocker +: eqConds : _*)
           cls :+ mkImplies(cond, mkEquals(inst, tinst))
         } else {

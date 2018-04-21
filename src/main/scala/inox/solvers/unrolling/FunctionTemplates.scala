@@ -142,22 +142,26 @@ trait FunctionTemplates { self: Templates =>
           case None =>
             // we need to define this defBlocker and link it to definition
             val defBlocker = encodeSymbol(Variable.fresh("d", BooleanType(), true))
+            defBlockers += call -> defBlocker
 
             // we generate helper equality clauses that stem from purity
             for ((pcall, pblocker) <- defBlockers if pcall.tfd == tfd) {
               if (tfd.params.exists(vd => unrollEquality(vd.tpe)) || unrollEquality(tfd.returnType)) {
                 val argPairs = (pcall.args zip args)
-                val cond = mkAnd((tfd.params.map(_.tpe) zip argPairs).map {
-                  case (tpe, (e1, e2)) => mkEqualities(pblocker, tpe, e1.encoded, e2.encoded)
-                } : _*)
-                val entail = mkEqualities(pblocker, tfd.returnType,
+                val equalities = (tfd.params.map(_.tpe) zip argPairs).map { case (tpe, (e1, e2)) =>
+                  val (equality, clauses) = mkEqualities(pblocker, tpe, e1.encoded, e2.encoded, register = false)
+                  newClauses ++= clauses
+                  equality
+                }
+
+                val (entail, entailClauses) = mkEqualities(pblocker, tfd.returnType,
                   mkCall(tfd, pcall.args.map(_.encoded)),
-                  mkCall(tfd, args.map(_.encoded)))
-                newClauses += mkImplies(mkAnd(pblocker, defBlocker, cond), entail)
+                  mkCall(tfd, args.map(_.encoded)), register = false)
+                newClauses ++= entailClauses
+
+                newClauses += mkImplies(mkAnd(pblocker +: defBlocker +: equalities : _*), entail)
               }
             }
-
-            defBlockers += call -> defBlocker
 
             val groundArgs = (args zip tfd.params).map { p =>
               decodePartial(p._1.encoded, p._2.tpe)
@@ -172,11 +176,17 @@ trait FunctionTemplates { self: Templates =>
             val groundCall =
               if (groundArgs.forall(_.isDefined)) Some(tfd.applied(groundArgs.map(_.get)))
               else None
+            val (inlining, skip) = context.timers.solvers.`eval-call`.run {
+              val inlining = groundCall.filter(isPure).map(e => evaluator.eval(e))
+              val skip = (groundArgs.flatten.map(evaluator.eval) ++ inlining).exists {
+                case evaluators.EvaluationResults.EvaluatorError(_) => true
+                case _ => false
+              }
+              (inlining, skip)
+            }
 
-            newCls ++= groundCall
-              .filter(isPure)
-              .flatMap(e => evaluator.eval(e).result)
-              .map { body =>
+            if (!skip) {
+              newCls ++= inlining.flatMap(_.result).map { body =>
                 val start = Variable.fresh("cs", BooleanType())
                 val (p, cls) = mkExprClauses(start, body, Map(start -> defBlocker))
                 val tmplClauses = cls + (start -> Equals(tfd.applied, p))
@@ -197,6 +207,7 @@ trait FunctionTemplates { self: Templates =>
               } getOrElse {
                 FunctionTemplate(tfd).instantiate(defBlocker, args)
               }
+            }
 
             defBlocker
         }
