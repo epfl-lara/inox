@@ -161,6 +161,9 @@ trait QuantificationTemplates { self: Templates =>
   private[unrolling] object quantificationsManager extends Manager {
     val quantifications = new IncrementalSeq[Quantification]
 
+    private[QuantificationTemplates] val matcherBlockers = new IncrementalMap[Matcher, Encoded]
+    private[QuantificationTemplates] val substBlockers   = new IncrementalMap[(Quantification, Map[Encoded, Arg]), Encoded]
+
     private[QuantificationTemplates] val ignoredMatchers = new IncrementalSeq[(Int, Set[Encoded], Matcher)]
 
     // to avoid [[MatcherSet]] escaping defining context, we must keep this ~private
@@ -174,7 +177,7 @@ trait QuantificationTemplates { self: Templates =>
     private[QuantificationTemplates] val templates       = new IncrementalMap[TemplateStructure, (QuantificationTemplate, Encoded)]
 
     val incrementals: Seq[IncrementalState] = Seq(quantifications, lambdaAxioms, templates,
-      ignoredMatchers, handledMatchers, ignoredSubsts, handledSubsts, ignoredGrounds)
+      matcherBlockers, substBlockers, ignoredMatchers, handledMatchers, ignoredSubsts, handledSubsts, ignoredGrounds)
 
     override def push(): Unit  = { super.push();  for (q <- quantifications) q.push()  }
     override def pop(): Unit   = { super.pop();   for (q <- quantifications) q.pop()   }
@@ -258,20 +261,44 @@ trait QuantificationTemplates { self: Templates =>
     subs ++ instantiateMatcher(Set(blocker), matcher, false)
   }
 
-  @inline
   private def instantiateMatcher(blockers: Set[Encoded], matcher: Matcher, defer: Boolean = false): Clauses = {
-    val relevantBlockers = blockerPath(blockers)
-
-    if (handledMatchers(relevantBlockers -> matcher)) {
-      Seq.empty
-    } else if (abort || pause) {
+    if (abort || pause) {
       ignoredMatchers += ((currentGeneration, blockers, matcher))
       Seq.empty
     } else {
-      reporter.debug(" -> instantiating matcher " + blockers.mkString("{",",","}") + " ==> " + matcher)
-      handledMatchers += relevantBlockers -> matcher
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for (q <- quantifications) clauses ++= q.instantiate(relevantBlockers, matcher, defer)
+
+      val matcherBlocker = matcherBlockers.get(matcher) match {
+        case Some(matcherBlocker) =>
+          matcherBlocker
+
+        case None =>
+          val matcherBlocker = encodeSymbol(Variable.fresh("m", BooleanType(), true))
+          matcherBlockers += matcher -> matcherBlocker
+
+          handledMatchers += Set(matcherBlocker) -> matcher
+
+          reporter.debug(" -> instantiating matcher " + matcherBlocker + " ==> " + matcher)
+          for (q <- quantifications) clauses ++= q.instantiate(Set(matcherBlocker), matcher, defer)
+          matcherBlocker
+      }
+
+      if (blockers != Set(matcherBlocker)) {
+        //val relevantBlockers = blockerPath(blockers)
+        val (blocker, blockerClauses) = encodeBlockers(blockers)
+        registerImplication(blocker, matcherBlocker)
+        clauses ++= blockerClauses
+        clauses += mkImplies(blocker, matcherBlocker)
+      }
+
+      /*
+      val relevantBlockers = blockerPath(blockers)
+      if (!handledMatchers(relevantBlockers -> matcher)) {
+        handledMatchers += relevantBlockers -> matcher
+        for (q <- quantifications) clauses ++= q.instantiate(relevantBlockers, matcher, defer)
+      }
+      */
+
       clauses.toSeq
     }
   }
@@ -532,6 +559,7 @@ trait QuantificationTemplates { self: Templates =>
     * to {{{g(1)}}} in our set of instantiations, we can forget about {{{g(1)}}} as {{{f(1)}}}
     * is "more certain". If we see {{{h(1)}}} and had {{{g(1)}}}, we can merge the two sets.
     */
+   /*
   private class GroundSet extends BlockedSet[(Arg, Set[Int])] {
     override protected def key(ag: (Arg, Set[Int])) = ag._1
     override protected def merge(ag1: (Arg, Set[Int]), ag2: (Arg, Set[Int])): (Arg, Set[Int]) = {
@@ -545,6 +573,30 @@ trait QuantificationTemplates { self: Templates =>
     def +=(p: (Set[Encoded], Arg, Set[Int])): Unit = this += (p._1 -> (p._2 -> p._3))
 
     def unzipSet: Set[(Set[Encoded], Arg, Set[Int])] = iterator.map(p => (p._1, p._2._1, p._2._2)).toSet
+  }
+  */
+
+  private class GroundSet extends Iterable[(Set[Encoded], Arg, Set[Int])] with IncrementalState {
+    private val state = new IncrementalMap[Arg, (Set[Encoded], Set[Int])]
+
+    def apply(bs: Set[Encoded], arg: Arg): Boolean = state.get(arg).exists(p => p._1 subsetOf bs)
+    def +=(p: (Set[Encoded], Arg, Set[Int])): Unit = state.get(p._2) match {
+      case Some((bs, gens)) =>
+        val newBs: Set[Encoded] = bs ++ p._1
+        val newGens: Set[Int] = if (gens.isEmpty || p._3.isEmpty) Set.empty else gens ++ p._3
+        state += p._2 -> (newBs -> newGens)
+
+      case None =>
+        state += p._2 -> (p._1 -> p._3)
+    }
+
+    def iterator: Iterator[(Set[Encoded], Arg, Set[Int])] =
+      state.iterator.map { case (arg, (bs, gens)) => (bs, arg, gens) }
+
+    def push(): Unit = state.push()
+    def pop(): Unit = state.pop()
+    def clear(): Unit = state.clear()
+    def reset(): Unit = state.reset()
   }
 
   private class MatcherSet extends BlockedSet[Matcher] {
@@ -635,7 +687,7 @@ trait QuantificationTemplates { self: Templates =>
       /* Build mappings from quantifiers to all potential ground values previously encountered. */
       val quantToGround: Map[Encoded, Set[(Set[Encoded], Arg, Set[Int])]] =
         for ((q, constraints) <- groupedConstraints) yield q -> {
-          grounds(q).unzipSet ++ constraints.flatMap {
+          grounds(q).toSet ++ constraints.flatMap {
             case (key, i) => correspond(matcherKey(m), key).map {
               p => (bs, m.args(i), if (p) Set.empty[Int] else Set(gen))
             }
@@ -702,7 +754,7 @@ trait QuantificationTemplates { self: Templates =>
       /* Build mappings from quantifiers to all potential ground values previously encountered
        * AND the constants we're introducing to make sure grounds are non-empty. */
       val quantToGround = (for ((v,q) <- quantifiers) yield {
-        val groundsSet: Set[(Set[Encoded], Arg, Set[Int])] = grounds(q).unzipSet
+        val groundsSet: Set[(Set[Encoded], Arg, Set[Int])] = grounds(q).toSet
         val newGrounds: Set[(Set[Encoded], Arg, Set[Int])] = {
           if (groundsSet.isEmpty) {
             Set((Set(), Left(q), Set()))
@@ -741,18 +793,47 @@ trait QuantificationTemplates { self: Templates =>
     }
 
     private def instantiateSubsts(substs: Seq[(Set[Encoded], Map[Encoded, Arg], Int)]): Clauses = {
-      val instantiation = new scala.collection.mutable.ListBuffer[Encoded]
+      val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
       for (p @ (bs, subst, delay) <- substs if !handledSubsts.get(this).exists(_ contains (bs -> subst))) {
         if (abort || pause || delay > 0) {
           val gen = currentGeneration + delay + (if (defer) 2 else 0)
           ignoredSubsts += this -> (ignoredSubsts.getOrElse(this, Set.empty) + ((gen, bs, subst)))
         } else {
-          instantiation ++= instantiateSubst(bs, subst, defer = false)
+          val substBlocker = substBlockers.get(this -> subst) match {
+            case Some(substBlocker) =>
+              substBlocker
+
+            case None =>
+              val substBlocker = encodeSymbol(Variable.fresh("s", BooleanType(), true))
+              substBlockers += (this -> subst) -> substBlocker
+              clauses ++= instantiateSubst(Set(substBlocker), subst, defer = false)
+              substBlocker
+          }
+
+          if (bs != Set(substBlocker)) {
+            //val relevantBlockers = blockerPath(blockers)
+            val (blocker, blockerClauses) = encodeBlockers(bs)
+            registerImplication(blocker, substBlocker)
+            clauses ++= blockerClauses
+            clauses += mkImplies(blocker, substBlocker)
+          }
         }
       }
 
-      instantiation.toSeq
+     /*
+      for (p @ (bs, subst, delay) <- substs if !handledSubsts.get(this).exists(_ contains (bs -> subst))) {
+        if (abort || pause || delay > 0) {
+          val gen = currentGeneration + delay + (if (defer) 2 else 0)
+          ignoredSubsts += this -> (ignoredSubsts.getOrElse(this, Set.empty) + ((gen, bs, subst)))
+        } else {
+          println("instantiatedSubsts: " + handledSubsts.map(_._2.size).sum)
+          clauses ++= instantiateSubst(bs, subst, defer = false)
+        }
+      }
+    */
+
+      clauses.toSeq
     }
 
     def instantiateSubst(bs: Set[Encoded], subst: Map[Encoded, Arg], defer: Boolean = false): Clauses = {
