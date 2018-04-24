@@ -699,6 +699,7 @@ trait SymbolOps { self: TypeOps =>
   }
 
   def hasInstance(tpe: Type): Option[Boolean] = tpe match {
+    case _: TypeParameter => None
     case MapType(_, to) => hasInstance(to)
     case TupleType(tpes) => if (tpes.forall(tp => hasInstance(tp) contains true)) Some(true) else None
     case adt: ADTType =>
