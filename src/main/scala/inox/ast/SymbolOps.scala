@@ -266,7 +266,8 @@ trait SymbolOps { self: TypeOps =>
             Variable(getId(expr), expr.getType, Seq.empty)
 
           case f: Forall =>
-            val newBody = outer(vars ++ f.args.map(_.toVariable), f.body, false, env)
+            val isInstantiated = f.args.forall(vd => hasInstance(vd.tpe) == Some(true))
+            val newBody = outer(vars ++ f.args.map(_.toVariable), f.body, !isInstantiated, env)
             Forall(f.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
 
           case l: Lambda =>
@@ -350,7 +351,8 @@ trait SymbolOps { self: TypeOps =>
       (Lambda(args, body), subst)
 
     case forall: Forall =>
-      val (args, body, subst) = normalizeStructure(forall.args, forall.body, true, onlySimple, false)
+      val isInstantiated = forall.args.forall(vd => hasInstance(vd.tpe) == Some(true))
+      val (args, body, subst) = normalizeStructure(forall.args, forall.body, true, onlySimple, !isInstantiated)
       (Forall(args, body), subst)
 
     case _ =>
