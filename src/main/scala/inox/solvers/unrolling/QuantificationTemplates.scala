@@ -147,19 +147,14 @@ trait QuantificationTemplates { self: Templates =>
     private[QuantificationTemplates] val substBlockers   = new IncrementalMap[(Quantification, Map[Encoded, Arg]), Encoded]
 
     private[QuantificationTemplates] val ignoredMatchers = new IncrementalSeq[(Int, Set[Encoded], Matcher)]
-
-    // to avoid [[MatcherSet]] escaping defining context, we must keep this ~private
-    private[QuantificationTemplates] val handledMatchers = new MatcherSet
-
     private[QuantificationTemplates] val ignoredSubsts   = new IncrementalMap[Quantification, Set[(Int, Set[Encoded], Map[Encoded,Arg])]]
-    private[QuantificationTemplates] val handledSubsts   = new IncrementalMap[Quantification, Set[(Set[Encoded], Map[Encoded,Arg])]]
     private[QuantificationTemplates] val ignoredGrounds  = new IncrementalMap[Int, Set[Quantification]]
 
     private[QuantificationTemplates] val lambdaAxioms    = new IncrementalSet[TemplateStructure]
     private[QuantificationTemplates] val templates       = new IncrementalMap[TemplateStructure, (QuantificationTemplate, Encoded)]
 
     val incrementals: Seq[IncrementalState] = Seq(quantifications, lambdaAxioms, templates,
-      matcherBlockers, substBlockers, ignoredMatchers, handledMatchers, ignoredSubsts, handledSubsts, ignoredGrounds)
+      matcherBlockers, substBlockers, ignoredMatchers, ignoredSubsts, ignoredGrounds)
 
     override def push(): Unit  = { super.push();  for (q <- quantifications) q.push()  }
     override def pop(): Unit   = { super.pop();   for (q <- quantifications) q.pop()   }
@@ -258,28 +253,17 @@ trait QuantificationTemplates { self: Templates =>
           val matcherBlocker = encodeSymbol(Variable.fresh("m", BooleanType(), true))
           matcherBlockers += matcher -> matcherBlocker
 
-          handledMatchers += Set(matcherBlocker) -> matcher
-
           reporter.debug(" -> instantiating matcher " + matcherBlocker + " ==> " + matcher)
-          for (q <- quantifications) clauses ++= q.instantiate(Set(matcherBlocker), matcher, defer)
+          for (q <- quantifications) clauses ++= q.instantiate(matcherBlocker, matcher, defer)
           matcherBlocker
       }
 
       if (blockers != Set(matcherBlocker)) {
-        //val relevantBlockers = blockerPath(blockers)
         val (blocker, blockerClauses) = encodeBlockers(blockers)
         registerImplication(blocker, matcherBlocker)
         clauses ++= blockerClauses
         clauses += mkImplies(blocker, matcherBlocker)
       }
-
-      /*
-      val relevantBlockers = blockerPath(blockers)
-      if (!handledMatchers(relevantBlockers -> matcher)) {
-        handledMatchers += relevantBlockers -> matcher
-        for (q <- quantifications) clauses ++= q.instantiate(relevantBlockers, matcher, defer)
-      }
-      */
 
       clauses.toSeq
     }
@@ -325,211 +309,6 @@ trait QuantificationTemplates { self: Templates =>
   protected def correspond(m1: Matcher, m2: Matcher): Option[Boolean] =
     correspond(matcherKey(m1), matcherKey(m2))
 
-  private trait BlockedSet[Element] extends Iterable[(Set[Encoded], Element)] with IncrementalState {
-    import scala.collection.JavaConverters._
-
-    private[this] object BlockerTrie {
-      // A node within the BlockerTrie structure that enables maintaining a history
-      // of how many times a particular node has been accessed.
-      final class Node private(
-        private var _blockers: Set[Encoded],
-        private[this] var _next: BlockerTrie,
-        private var count: Int) extends Ordered[Node] {
-
-        def this(blockers: Set[Encoded]) = this(blockers, new BlockerTrie, 0)
-
-        @inline final def blockers: Set[Encoded] = _blockers
-        @inline final def next: BlockerTrie = _next
-
-        final def insert(bs: Set[Encoded]): Boolean = {
-          // If the blocker set is already within this trie, no need to do anything.
-          blockers == bs || {
-            val intersect = blockers & bs
-            intersect.nonEmpty && {
-              if (intersect == blockers) {
-                // If the intersection is exactly the current trie key, then we can simply
-                // recursively add the remaining blockers into the next trie.
-                next += bs -- blockers
-              } else { // we know intersect != bs as otherwise, es == bs would have held
-                // If the intersection is different from the current key, we need to change
-                // the current key to that intersection and update the child trie.
-                // 1. We start by adding the difference to all child trie keys.
-                val diff = blockers -- intersect
-                for (node <- next.trie.asScala) node._blockers ++= diff
-
-                // 2. We then add the new element into the child trie.
-                next += bs -- intersect
-
-                // 3. And finally, we update the current set of blockers.
-                _blockers = intersect
-              }
-              true
-            }
-          }
-        }
-
-        @inline final def containsSubset(bs: Set[Encoded]): Boolean =
-          (blockers subsetOf bs) && (next.isEmpty || (next containsSubset (bs -- blockers)))
-
-        @inline final def increment: Unit = count += 1
-
-        override final def compare(that: Node) = count - that.count
-        override final def clone: Node = new Node(blockers, next.clone, count)
-      }
-    }
-
-    import BlockerTrie._
-
-    // A trie set that is optimized for computing subset containement.
-    private[this] final class BlockerTrie private(
-      private val trie: java.util.ArrayList[Node]
-    ) extends Iterable[Set[Encoded]] {
-      def this() = this(new java.util.ArrayList)
-
-      @inline
-      override def isEmpty = trie.isEmpty
-
-      def containsSubset(bs: Set[Encoded]): Boolean = {
-        var found = false
-        var index = 0
-        while (index < trie.size && !found) {
-          found = trie.get(index) containsSubset bs
-          if (!found) index += 1
-        }
-
-        // We bubble up the successful node to the beginning of the list to make
-        // the linear search succeed earlier for common nodes.
-        if (found) {
-          val node = trie.get(index)
-          node.increment
-
-          while (index > 0 && (node compare trie.get(index - 1)) > 0) {
-            trie.set(index, trie.get(index - 1))
-            trie.set(index - 1, node)
-            index -= 1
-          }
-        }
-
-        found
-      }
-
-      def +=(bs: Set[Encoded]): Unit = {
-        var added = false
-        val it = trie.iterator
-        while (it.hasNext && !added) {
-          added = it.next.insert(bs)
-        }
-
-        if (!added) {
-          trie.add(new Node(bs))
-        }
-      }
-
-      override def clone: BlockerTrie = {
-        val newTrie = new java.util.ArrayList[Node](trie.size)
-        for (node <- trie.asScala) newTrie.add(node.clone)
-        new BlockerTrie(newTrie)
-      }
-
-      override def iterator: Iterator[Set[Encoded]] = new collection.AbstractIterator[Set[Encoded]] {
-        private val listIt: java.util.Iterator[Node] = BlockerTrie.this.trie.iterator
-        private var trieIt: Iterator[Set[Encoded]] = Iterator.empty
-        private var current: Set[Encoded] = _
-
-        override def hasNext = listIt.hasNext || trieIt.hasNext
-        override def next: Set[Encoded] = if (trieIt.hasNext) {
-          current ++ trieIt.next
-        } else {
-          val node = listIt.next
-          if (node.next.isEmpty) node.blockers
-          else {
-            current = node.blockers
-            trieIt = node.next.iterator
-            next // guaranteed to exist here
-          }
-        }
-      }
-    }
-
-    private[this] var map: MutableMap[Any, (Element, BlockerTrie)] = MutableMap.empty
-    private[this] var stack: List[MutableMap[Any, (Element, BlockerTrie)]] = List.empty
-
-    /** Override point to determine the "key" associated to element [[e]].
-      *
-      * By default, simply returns the given element. */
-    protected def key(e: Element): Any = e
-
-    /** Override point to merge two elements [[e1]] and [[e2]] that share the same key.
-      *
-      * By default, simply returns the first element [[e1]]. Note that this is consistent
-      * with the default implementation of the [[key]] method since
-      * {{{key(e1) == key(e2)}}} iff {{{e1 == e2}}}.
-      *
-      * @see [[key]] for element key extraction
-      */
-    protected def merge(e1: Element, e2: Element): Element = e1
-
-    @inline
-    protected final def containsSubset(k: Any, bs: Set[Encoded]): Boolean = {
-      map.get(k).exists(p => p._2 containsSubset bs)
-    }
-
-    def apply(p: (Set[Encoded], Element)): Boolean = containsSubset(key(p._2), p._1)
-
-    def +=(p: (Set[Encoded], Element)): Unit = {
-      val k = key(p._2)
-      val (elem, bt) = map.get(k) match {
-        case Some((elem, bt)) => (merge(p._2, elem), bt)
-        case None => (p._2, new BlockerTrie)
-      }
-
-      if (!(bt containsSubset p._1)) {
-        bt += p._1
-      }
-
-      map(k) = (elem, bt)
-    }
-
-    def iterator: Iterator[(Set[Encoded], Element)] = new collection.AbstractIterator[(Set[Encoded], Element)] {
-      private val mapIt: Iterator[(Any, (Element, BlockerTrie))] = BlockedSet.this.map.iterator
-      private var setIt: Iterator[Set[Encoded]] = Iterator.empty
-      private var current: Element = _
-
-      def hasNext = mapIt.hasNext || setIt.hasNext
-      def next: (Set[Encoded], Element) = if (setIt.hasNext) {
-        val bs = setIt.next
-        bs -> current
-      } else {
-        val (_, (e, bss)) = mapIt.next
-        current = e
-        setIt = bss.iterator
-        next
-      }
-    }
-
-    def push(): Unit = {
-      val newMap: MutableMap[Any, (Element, BlockerTrie)] = MutableMap.empty
-      for ((k, (e, bss)) <- map) {
-        newMap += k -> (e -> bss.clone)
-      }
-      stack ::= map
-      map = newMap
-    }
-
-    def pop(): Unit = {
-      val (head :: tail) = stack
-      map = head
-      stack = tail
-    }
-
-    def clear(): Unit = {
-      stack = List.empty
-      map = MutableMap.empty
-    }
-
-    def reset(): Unit = clear()
-  }
-
   /** Ground instantiations are annotated with an {{{Set[Int]}}} value that specifies
     * the (optional) abstract generations at which this instantiation was added to the set.
     * The abstract generations exist iff the matchers do not exactly correspond (for example,
@@ -541,23 +320,6 @@ trait QuantificationTemplates { self: Templates =>
     * to {{{g(1)}}} in our set of instantiations, we can forget about {{{g(1)}}} as {{{f(1)}}}
     * is "more certain". If we see {{{h(1)}}} and had {{{g(1)}}}, we can merge the two sets.
     */
-   /*
-  private class GroundSet extends BlockedSet[(Arg, Set[Int])] {
-    override protected def key(ag: (Arg, Set[Int])) = ag._1
-    override protected def merge(ag1: (Arg, Set[Int]), ag2: (Arg, Set[Int])): (Arg, Set[Int]) = {
-      if (ag1._2.isEmpty || ag2._2.isEmpty) (ag1._1 -> Set.empty)
-      else (ag1._1 -> (ag1._2 ++ ag2._2))
-    }
-
-    def apply(bs: Set[Encoded], arg: Arg): Boolean = containsSubset(arg, bs)
-
-    @inline
-    def +=(p: (Set[Encoded], Arg, Set[Int])): Unit = this += (p._1 -> (p._2 -> p._3))
-
-    def unzipSet: Set[(Set[Encoded], Arg, Set[Int])] = iterator.map(p => (p._1, p._2._1, p._2._2)).toSet
-  }
-  */
-
   private class GroundSet extends Iterable[(Set[Encoded], Arg, Set[Int])] with IncrementalState {
     private val state = new IncrementalMap[Arg, (Set[Encoded], Set[Int])]
 
@@ -579,22 +341,6 @@ trait QuantificationTemplates { self: Templates =>
     def pop(): Unit = state.pop()
     def clear(): Unit = state.clear()
     def reset(): Unit = state.reset()
-  }
-
-  private class MatcherSet extends BlockedSet[Matcher] {
-    private val keys = new IncrementalSet[(MatcherKey, Seq[Arg])]
-    def contains(m: Matcher): Boolean = keys(matcherKey(m) -> m.args)
-    def containsAll(ms: Set[Matcher]): Boolean = ms.forall(contains)
-
-    override def +=(p: (Set[Encoded], Matcher)): Unit = {
-      keys += matcherKey(p._2) -> p._2.args
-      super.+=(p)
-    }
-
-    override def push(): Unit = { keys.push(); super.push() }
-    override def pop(): Unit  = { keys.pop();  super.pop()  }
-    override def clear(): Unit = { keys.clear(); super.clear() }
-    override def reset(): Unit = { keys.reset(); super.reset() }
   }
 
   private def totalDepth(m: Matcher): Int = 1 + m.args.map {
@@ -660,7 +406,7 @@ trait QuantificationTemplates { self: Templates =>
       allQuorums.foldLeft(Seq[Set[Matcher]]())((qs,q) => if (qs.exists(_ subsetOf q)) qs else qs :+ q)
     }
 
-    def instantiate(bs: Set[Encoded], m: Matcher, defer: Boolean = false): Clauses = {
+    def instantiate(b: Encoded, m: Matcher, defer: Boolean = false): Clauses = {
       if (!keys.exists(correspond(_, matcherKey(m)).nonEmpty)) return Seq.empty
 
       generationCounter += 1
@@ -671,7 +417,7 @@ trait QuantificationTemplates { self: Templates =>
         for ((q, constraints) <- groupedConstraints) yield q -> {
           grounds(q).toSet ++ constraints.flatMap {
             case (key, i) => correspond(matcherKey(m), key).map {
-              p => (bs, m.args(i), if (p) Set.empty[Int] else Set(gen))
+              p => (Set(b), m.args(i), if (p) Set.empty[Int] else Set(gen))
             }
           }
         }
@@ -683,7 +429,7 @@ trait QuantificationTemplates { self: Templates =>
            (key, i) <- constraints;
            perfect <- correspond(matcherKey(m), key)) {
         val initGens: Set[Int] = if (perfect && !defer) Set.empty else Set(gen)
-        val newMappings = (quantified - q).foldLeft(Seq((bs, Map(q -> m.args(i)), initGens, 0))) {
+        val newMappings = (quantified - q).foldLeft(Seq((Set(b), Map(q -> m.args(i)), initGens, 0))) {
           case (maps, oq) => for {
             (bs, map, gens, c) <- maps
             groundSet <- quantToGround.get(oq).toSeq
@@ -704,7 +450,7 @@ trait QuantificationTemplates { self: Templates =>
             val msubst = map.collect { case (q, Right(m)) => q -> m }
             val opts = optimizationQuorums.flatMap { ms =>
               val sms = ms.map(_.substitute(substituter, msubst))
-              if (handledMatchers.containsAll(sms)) sms.toList else Nil
+              if (sms.forall(sm => matcherBlockers contains sm)) sms.toList else Nil
             }
 
             if (opts.nonEmpty) {
@@ -722,7 +468,7 @@ trait QuantificationTemplates { self: Templates =>
         }
 
         // register ground instantiation for future instantiations
-        grounds(q) += ((bs, m.args(i), initGens))
+        grounds(q) += ((Set(b), m.args(i), initGens))
       }
 
       instantiateSubsts(mappings)
@@ -777,89 +523,78 @@ trait QuantificationTemplates { self: Templates =>
     private def instantiateSubsts(substs: Seq[(Set[Encoded], Map[Encoded, Arg], Int)]): Clauses = {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-      for (p @ (bs, subst, delay) <- substs if !handledSubsts.get(this).exists(_ contains (bs -> subst))) {
+      for (p @ (bs, subst, delay) <- substs if !substBlockers.get(this -> subst).exists(b => Set(b) == bs)) {
         if (abort || pause || delay > 0) {
           val gen = currentGeneration + delay + (if (defer) 2 else 0)
           ignoredSubsts += this -> (ignoredSubsts.getOrElse(this, Set.empty) + ((gen, bs, subst)))
         } else {
-          val substBlocker = substBlockers.get(this -> subst) match {
-            case Some(substBlocker) =>
-              substBlocker
-
-            case None =>
-              val substBlocker = encodeSymbol(Variable.fresh("s", BooleanType(), true))
-              substBlockers += (this -> subst) -> substBlocker
-              clauses ++= instantiateSubst(Set(substBlocker), subst, defer = false)
-              substBlocker
-          }
-
-          if (bs != Set(substBlocker)) {
-            //val relevantBlockers = blockerPath(blockers)
-            val (blocker, blockerClauses) = encodeBlockers(bs)
-            registerImplication(blocker, substBlocker)
-            clauses ++= blockerClauses
-            clauses += mkImplies(blocker, substBlocker)
-          }
-        }
-      }
-
-     /*
-      for (p @ (bs, subst, delay) <- substs if !handledSubsts.get(this).exists(_ contains (bs -> subst))) {
-        if (abort || pause || delay > 0) {
-          val gen = currentGeneration + delay + (if (defer) 2 else 0)
-          ignoredSubsts += this -> (ignoredSubsts.getOrElse(this, Set.empty) + ((gen, bs, subst)))
-        } else {
-          println("instantiatedSubsts: " + handledSubsts.map(_._2.size).sum)
           clauses ++= instantiateSubst(bs, subst, defer = false)
         }
       }
-    */
 
       clauses.toSeq
     }
 
     def instantiateSubst(bs: Set[Encoded], subst: Map[Encoded, Arg], defer: Boolean = false): Clauses = {
-      handledSubsts += this -> (handledSubsts.getOrElse(this, Set.empty) + (bs -> subst))
-      val instantiation = new scala.collection.mutable.ListBuffer[Encoded]
+      val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-      val (enabler, enablerClauses) = encodeBlockers(bs ++ pathBlockers)
-      instantiation ++= enablerClauses
+      val substBlocker = substBlockers.get(this -> subst) match {
+        case Some(substBlocker) =>
+          substBlocker
 
-      val baseSubst = subst ++ instanceSubst(enabler).mapValues(Left(_))
-      val (substClauses, substMap) = contents.substitution(enabler, baseSubst)
-      instantiation ++= substClauses
+        case None =>
+          val substBlocker = encodeSymbol(Variable.fresh("s", BooleanType(), true))
+          substBlockers += (this -> subst) -> substBlocker
 
-      val msubst = substMap.collect { case (c, Right(m)) => c -> m }
-      val substituter = mkSubstituter(substMap.mapValues(_.encoded))
-      registerBlockers(substituter)
+          val (enabler, enablerClauses) = encodeBlockers(pathBlockers + substBlocker)
+          clauses ++= enablerClauses
 
-      // matcher instantiation must be manually controlled here to avoid never-ending loops
-      instantiation ++= Template.instantiate(
-        contents.clauses, contents.blockers, contents.applications,
-        Map.empty, contents.equalities, substMap)
+          val baseSubst = subst ++ instanceSubst(enabler).mapValues(Left(_))
+          val (substClauses, substMap) = contents.substitution(enabler, baseSubst)
+          clauses ++= substClauses
 
-      for ((b,ms) <- contents.matchers; m <- ms) {
-        val sb = bs ++ (if (b == guard) Set.empty else Set(substituter(b)))
-        val sm = m.substitute(substituter, msubst)
+          val msubst = substMap.collect { case (c, Right(m)) => c -> m }
+          val substituter = mkSubstituter(substMap.mapValues(_.encoded))
+          registerBlockers(substituter)
 
-        if (abort || pause || b != guard) {
-          val gen = currentGeneration + 1
-          ignoredMatchers += ((gen, sb, sm))
-        } else {
-          instantiation ++= instantiateMatcher(sb, sm, defer = defer)
-        }
+          // matcher instantiation must be manually controlled here to avoid never-ending loops
+          clauses ++= Template.instantiate(
+            contents.clauses, contents.blockers, contents.applications,
+            Map.empty, contents.equalities, substMap)
+
+          for ((b,ms) <- contents.matchers; m <- ms) {
+            val sb = bs ++ (if (b == guard) Set.empty else Set(substituter(b)))
+            val sm = m.substitute(substituter, msubst)
+
+            if (abort || pause || b != guard) {
+              val gen = currentGeneration + 1
+              ignoredMatchers += ((gen, sb, sm))
+            } else {
+              clauses ++= instantiateMatcher(sb, sm, defer = defer)
+            }
+          }
+
+          for (tmpl <- contents.lambdas.map(t => byID(substituter(t.ids._2)))) {
+            clauses ++= instantiateAxiom(tmpl)
+          }
+
+          for ((_, apps) <- contents.applications;
+               App(caller, _, _, _) <- apps; tmpl <- byID.get(substituter(caller))) {
+            clauses ++= instantiateAxiom(tmpl)
+          }
+
+          substBlocker
       }
 
-      for (tmpl <- contents.lambdas.map(t => byID(substituter(t.ids._2)))) {
-        instantiation ++= instantiateAxiom(tmpl)
+      if (bs != Set(substBlocker)) {
+        //val relevantBlockers = blockerPath(blockers)
+        val (blocker, blockerClauses) = encodeBlockers(bs)
+        registerImplication(blocker, substBlocker)
+        clauses ++= blockerClauses
+        clauses += mkImplies(blocker, substBlocker)
       }
 
-      for ((_, apps) <- contents.applications;
-           App(caller, _, _, _) <- apps; tmpl <- byID.get(substituter(caller))) {
-        instantiation ++= instantiateAxiom(tmpl)
-      }
-
-      instantiation.toSeq
+      clauses.toSeq
     }
 
     protected def instanceSubst(enabler: Encoded): Map[Encoded, Encoded]
@@ -919,43 +654,6 @@ trait QuantificationTemplates { self: Templates =>
       }
     }
   }
-
-  /*
-  private class GeneralQuantification (
-    val neg: Encoded,
-    val pos: (Variable, Encoded),
-    val path: Encoded,
-    val contents: TemplateContents,
-    val body: Expr) extends Quantification {
-
-    private var _currentQ2Var: Encoded = qs._2
-    def currentQ2Var = _currentQ2Var
-    val holds = neg
-
-    def getPolarity = None
-
-    private var _insts: Map[Encoded, Set[Encoded]] = Map.empty
-    def instantiations = _insts
-
-    protected def instanceSubst(enabler: Encoded): Map[Encoded, Encoded] = {
-      val freshPos = encodeSymbol(pos._1)
-      val subst = Map(contents.pathVar._2 -> freshGuard)
-      val nextQ2Var = encodeSymbol(q2s._1)
-
-      val subst = Map(qs._2 -> currentQ2Var, guard -> enabler,
-        q2s._2 -> nextQ2Var, insts._2 -> encodeSymbol(insts._1))
-
-      _currentQ2Var = nextQ2Var
-      subst
-    }
-
-    override def registerBlockers(substituter: Encoded => Encoded): Unit = {
-      val freshPos = substituter(pos._2)
-      val bs = (contents.blockers.keys ++ contents.applications.keys).map(substituter).toSet
-      _insts += freshPos -> bs
-    }
-  }
-    */
 
   private class Axiom (
     val contents: TemplateContents,
@@ -1027,8 +725,8 @@ trait QuantificationTemplates { self: Templates =>
           val axiom = new Axiom(newTemplate.contents, newTemplate.body, newTemplate.isDeferred)
           quantifications += axiom
 
-          for ((bs,m) <- handledMatchers.toList) {
-            clauses ++= axiom.instantiate(bs, m)
+          for ((m,b) <- matcherBlockers.toList) {
+            clauses ++= axiom.instantiate(b, m)
           }
 
           val groundGen = currentGeneration + 3
@@ -1060,52 +758,6 @@ trait QuantificationTemplates { self: Templates =>
           clauses ++= newTemplate.contents.instantiate(fullSubst)
 
           (instT, Map(insts._2 -> instT))
-
-          /*
-        case Unknown(insts) =>
-          // XXX: Basically a combination of negative and positive cases!
-
-          val freshQuants = newTemplate.quantifiers.map(p => encodeSymbol(p._1))
-          val symResults = for ((v,q) <- newTemplate.quantifiers.map(_._1) zip freshQuants) yield {
-            val (symResult, symClauses) = registerSymbol(newTemplate.contents.pathVar._2, q, v.tpe)
-            clauses ++= symClauses
-            symResult
-          }
-
-          // We make sure that all clauses generated by this instantiation are blocked by
-          // the truthiness of ADT invariants on the quantified variables.
-          val (blocker, blockerClauses) = encodeBlockers(Set(newTemplate.contents.pathVar._2) ++ symResults)
-          clauses ++= blockerClauses
-
-          val instT = encodeSymbol(insts._1)
-          val baseSubst = Map(insts._2 -> Left(instT), newTemplate.contents.pathVar._2 -> Left(blocker))
-          val (substClauses, substMap) = newTemplate.contents.substitution(blocker, baseSubst)
-          clauses ++= substClauses
-
-          val freshSubst = (newTemplate.quantifiers.map(_._2) zip freshQuants.map(Left(_))).toMap
-          val fullSubst = substMap ++ freshSubst
-
-          // this will call `instantiateMatcher` on all matchers in `newTemplate.matchers`
-          clauses ++= newTemplate.contents.instantiate(fullSubst)
-
-          val guard = encodeSymbol(Variable.fresh("guard", BooleanType(), true))
-          val enabler = encodeSymbol(Variable.fresh("enabler", BooleanType(), true))
-          val trueContents = newTemplate.contents.substitute(mkSubstituter(Map(insts._2 -> trueT)), Map.empty)
-          val guardedContents = trueContents.copy(
-            clauses = mkImplies(instT, trueContents.pathVar._2) +:
-              mkEquals(trueContents.pathVar._2, guard, enabler) +:
-              trueContents.clauses
-          )
-
-          val quantification = new GeneralQuantification(guardedContents, newTemplate.body)
-          quantifications += quantification
-
-          for ((bs,m) <- handledMatchers.toList) {
-            clauses ++= quantification.instantiate(bs, m)
-          }
-
-          (instT, Map(insts._2 -> instT))
-          */
       }
 
       clauses ++= templates.flatMap { case (key, (tmpl, tinst)) =>
@@ -1176,7 +828,7 @@ trait QuantificationTemplates { self: Templates =>
       }
 
       val (values, clause) = keyClause.getOrElse(key, {
-        val insts = handledMatchers.toList.filter(hm => correspond(matcherKey(hm._2), key).isDefined)
+        val insts = matcherBlockers.toList.filter(p => correspond(matcherKey(p._1), key).isDefined)
 
         val guard = Variable.fresh("guard", BooleanType(), true)
         val elems = argTypes.map(tpe => Variable.fresh("elem", tpe, true))
@@ -1188,14 +840,14 @@ trait QuantificationTemplates { self: Templates =>
         val valuesP = values.map(v => v -> encodeSymbol(v))
         val exprT = mkEncoder(elemsP.toMap ++ valuesP + guardP)(expr)
 
-        val disjuncts = insts.map { case (bs, im) =>
+        val disjuncts = insts.map { case (im, b) =>
           val cond = (m.key, im.key) match {
             case (Left((mcaller, _)), Left((imcaller, _))) if mcaller != imcaller =>
               Some(mkEquals(mcaller, imcaller))
             case _ => None
           }
 
-          val bp = encodeEnablers(bs ++ cond)
+          val bp = encodeEnablers(Set(b) ++ cond)
           val subst = (elemsP.map(_._2) zip im.args.map(_.encoded)).toMap + (guardP._2 -> bp)
           mkSubstituter(subst)(exprT)
         }
@@ -1221,10 +873,9 @@ trait QuantificationTemplates { self: Templates =>
       val valuesP = values.map(v => v -> encodeSymbol(v))
       val exprT = mkEncoder(elemsP.toMap ++ valuesP + guardP)(expr)
 
-      val disjunction = handledSubsts.getOrElse(q, Set.empty) match {
-        case set if set.isEmpty => mkEncoder(Map.empty)(BooleanLiteral(false))
-        case set => mkOr(set.toSeq.map { case (enablers, subst) =>
-          val b = if (enablers.isEmpty) trueT else mkAnd(enablers.toSeq : _*)
+      val disjunction = substBlockers.toSeq.collect { case ((sq, subst), b) if q == sq => (b, subst) } match {
+        case Seq() => falseT
+        case seq => mkOr(seq.map { case (b, subst) =>
           val substMap = (elemsP.map(_._2) zip q.quantifiers.map(p => subst(p._2).encoded)).toMap + (guardP._2 -> b)
           mkSubstituter(substMap)(exprT)
         } : _*)
@@ -1241,14 +892,13 @@ trait QuantificationTemplates { self: Templates =>
   }
 
   def getGroundInstantiations(e: Encoded, tpe: Type): Seq[(Encoded, Seq[Encoded])] = {
-    handledMatchers.toList.flatMap { case (bs, m) =>
-      val enabler = encodeEnablers(bs)
+    matcherBlockers.toList.flatMap { case (m, b) =>
       val optArgs = matcherKey(m) match {
         case tp: TypedKey if tpe == tp.tpe => Some(m.args.map(_.encoded))
         case _ => None
       }
 
-      optArgs.map(args => enabler -> args)
+      optArgs.map(args => b -> args)
     }
   }
 }
