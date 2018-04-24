@@ -194,11 +194,22 @@ trait LambdaTemplates { self: Templates =>
     blockerToApps += blocker -> app
   }
 
+  private def removeAppBlocker(app: (Encoded, App)): Unit = {
+    appBlockers.get(app).foreach(blockerToApps -= _)
+    appBlockers -= app
+  }
+
   private def nextAppBlocker(app: (Encoded, App)): (Encoded, Encoded) = {
     val nextB = encodeSymbol(Variable.fresh("b_lambda", BooleanType(), true))
     val lastB = appBlockers(app)
     registerAppBlocker(app, nextB)
     (lastB, nextB)
+  }
+
+  private def lastAppBlocker(app: (Encoded, App)): Encoded = {
+    val lastB = appBlockers(app)
+    removeAppBlocker(app)
+    lastB
   }
 
   def registerLambda(pointer: Encoded, target: Encoded): Boolean = byID.get(target) match {
@@ -288,8 +299,8 @@ trait LambdaTemplates { self: Templates =>
         for ((b,f) <- freeFunctions(tpe) if canBeEqual(caller, f)) {
           if (f == caller) {
             // We unroll this app immediately to increase performance for model finding
-            val (lastB, nextB) = nextAppBlocker(key)
-            clauses :+= mkEquals(lastB, mkOr(b, nextB))
+            val lastB = lastAppBlocker(key)
+            clauses :+= mkEquals(lastB, b)
           } else {
             val cond = mkAnd(b, mkEquals(f, caller))
             registerAppInfo(gen, key, Right(f), cond, args)
@@ -465,6 +476,11 @@ trait LambdaTemplates { self: Templates =>
             case Left(template) => mkAnd(template.start, info.equals)
             case Right(_) => info.equals
           }).toSeq :+ nextB) : _*)
+
+          if (infos.exists(_.equals == trueT)) {
+            newClauses += mkEquals(nextB, trueT)
+            removeAppBlocker(app)
+          }
 
           val clause = mkEquals(lastB, extension)
           reporter.debug(" -> extending lambda blocker: " + clause)
