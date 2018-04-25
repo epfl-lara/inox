@@ -35,6 +35,9 @@ trait NativeZ3Optimizer extends AbstractUnrollingOptimizer with Z3Unrolling { se
     def assertCnstr(ast: Z3AST, weight: Int): Unit = optimizer.assertCnstr(ast, weight)
     def assertCnstr(ast: Z3AST, weight: Int, group: String): Unit = optimizer.assertCnstr(ast, weight, group)
 
+    // NOTE @nv: this is very similar to code in AbstractZ3Solver and UninterpretedZ3Solver but
+    //           is difficult to merge due to small API differences between the native Z3
+    //           solvers and optimizers.
     def check(config: CheckConfiguration) = config.cast(try {
       optimizer.check match {
         case Some(true) => if (config.withModel) SatWithModel(optimizer.getModel) else Sat
@@ -46,6 +49,9 @@ trait NativeZ3Optimizer extends AbstractUnrollingOptimizer with Z3Unrolling { se
       case e: Z3Exception if e.getMessage == "canceled" => Unknown
     })
 
+    // NOTE @nv: this is very similar to code in AbstractZ3Solver and UninterpretedZ3Solver but
+    //           is difficult to merge due to small API differences between the native Z3
+    //           solvers and optimizers.
     def checkAssumptions(config: Configuration)(assumptions: Set[Z3AST]) = {
       optimizer.push()
       for (a <- assumptions) optimizer.assertCnstr(a)

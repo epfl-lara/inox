@@ -3,6 +3,8 @@
 package inox
 package solvers.z3
 
+import com.microsoft.z3.Z3Exception
+
 import z3.scala._
 
 import solvers._
@@ -68,14 +70,21 @@ trait UninterpretedZ3Solver
     inox.Model(program, context)(allVars, model.chooses)
   }
 
+  private def tryResult(config: Configuration)
+                       (res: => config.Response[underlying.Model, underlying.Assumptions]) =
+    // @nv: Z3 sometimes throws an exception when check is called after Z3 has been canceled
+    try { res } catch {  case e: Z3Exception if e.getMessage == "canceled" => config.cast(Unknown) }
+
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
-    config.convert(underlying.check(config),
+    config.convert(
+      tryResult(config)(underlying.check(config)),
       (model: Z3Model) => completeModel(underlying.extractModel(model)),
       underlying.extractUnsatAssumptions)
 
   override def checkAssumptions(config: Configuration)
                                (assumptions: Set[Expr]): config.Response[Model, Assumptions] =
-    config.convert(underlying.checkAssumptions(config)(assumptions.map(underlying.toZ3Formula(_))),
+    config.convert(
+      tryResult(config)(underlying.checkAssumptions(config)(assumptions.map(underlying.toZ3Formula(_)))),
       (model: Z3Model) => completeModel(underlying.extractModel(model)),
       underlying.extractUnsatAssumptions)
 }

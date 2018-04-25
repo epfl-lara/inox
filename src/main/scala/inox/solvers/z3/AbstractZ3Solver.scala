@@ -36,6 +36,9 @@ trait AbstractZ3Solver
 
   def assertCnstr(ast: Z3AST): Unit = solver.assertCnstr(ast)
 
+  // NOTE @nv: this is very similar to code in NativeZ3Optimizer and UninterpretedZ3Solver but
+  //           is difficult to merge due to small API differences between the native Z3
+  //           solvers and optimizers.
   private def extractResult(config: Configuration)(res: => Option[Boolean]) = config.cast(try {
     res match {
       case Some(true) =>
