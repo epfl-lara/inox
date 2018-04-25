@@ -74,8 +74,9 @@ trait DatatypeTemplates { self: Templates =>
   /** Sets up the relevant unfolding procedures for symbols that are free in the input expression */
   def registerSymbol(start: Encoded, sym: Encoded, tpe: Type): (Encoded, Clauses) = {
     if (DatatypeTemplate.unroll(tpe)) {
-      val result = encodeSymbol(Variable.fresh("result", BooleanType(), true))
-      (result, DatatypeTemplate(tpe).instantiate(start, result, sym))
+      val result = results.cached(tpe)(encodeSymbol(Variable.fresh("result", BooleanType(), true)))
+      val clauses = DatatypeTemplate(tpe).instantiate(start, result, sym)
+      (result, clauses)
     } else {
       (trueT, Seq.empty)
     }
@@ -634,6 +635,7 @@ trait DatatypeTemplates { self: Templates =>
   private[unrolling] object datatypesManager extends Manager {
     private[DatatypeTemplates] val typeInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[TemplateTypeInfo])]
     private[DatatypeTemplates] val lessOrder = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
+    private[DatatypeTemplates] val results = new IncrementalMap[Type, Encoded]
 
     def canBeEqual(f1: Encoded, f2: Encoded): Boolean = {
       def transitiveLess(l: Encoded, r: Encoded): Boolean = {
@@ -644,7 +646,7 @@ trait DatatypeTemplates { self: Templates =>
       !transitiveLess(f1, f2) && !transitiveLess(f2, f1)
     }
 
-    val incrementals: Seq[IncrementalState] = Seq(typeInfos, lessOrder)
+    val incrementals: Seq[IncrementalState] = Seq(typeInfos, lessOrder, results)
 
     def unrollGeneration: Option[Int] =
       if (typeInfos.isEmpty) None
