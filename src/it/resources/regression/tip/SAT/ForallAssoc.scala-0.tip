@@ -1,0 +1,6 @@
+(declare-const f!23 (=> Int Int Int))
+
+(assert (not (=> (forall ((x!67 Int)(y!7 Int) (z!10 Int)) (= (@ f!23 x!67 (@ f!23 y!7 z!10)) (@ f!23 (@ f!23 x!67 y!7) z!10))) (= (@ f!23 1 (@ f!23 2 3)) 0))))
+
+(check-sat)
+

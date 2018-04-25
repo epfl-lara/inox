@@ -27,9 +27,9 @@ class TipTestSuite extends TestSuite with ResourceUtils {
         // test containing list of booleans, so CVC4 will crash on this
         // See http://church.cims.nyu.edu/bugzilla3/show_bug.cgi?id=500
         case ("smt-cvc4", "List-fold.tip") => Skip
-        // Z3 and CVC4 binaries are exceedingly slow on this benchmark
-        case ("smt-z3", "BinarySearchTreeQuant.scala-2.tip") => Ignore
-        case ("smt-cvc4", "BinarySearchTreeQuant.scala-2.tip") => Ignore
+        // Z3 and CVC4 binaries are exceedingly slow on these benchmarks
+        case ("smt-z3" | "smt-cvc4", "BinarySearchTreeQuant.scala-2.tip") => Ignore
+        case ("smt-z3" | "smt-cvc4", "ForallAssoc.scala-0.tip") => Ignore
         // this test only holds when assumeChecked=false
         case (_, "LambdaEquality2.scala-1.tip")
         if ctx.options.findOptionOrDefault(optAssumeChecked) => Skip
