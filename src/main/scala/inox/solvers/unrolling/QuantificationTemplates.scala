@@ -587,7 +587,6 @@ trait QuantificationTemplates { self: Templates =>
       }
 
       if (bs != Set(substBlocker)) {
-        //val relevantBlockers = blockerPath(blockers)
         val (blocker, blockerClauses) = encodeBlockers(bs)
         registerImplication(blocker, substBlocker)
         clauses ++= blockerClauses
