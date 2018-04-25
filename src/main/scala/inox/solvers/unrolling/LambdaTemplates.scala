@@ -140,19 +140,18 @@ trait LambdaTemplates { self: Templates =>
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
     // Add non-free blocker clause
-    val (isFree, clause) = {
-      val blocker = encodeSymbol(Variable.fresh("b_free", BooleanType(), true))
+    val isFree = encodeSymbol(Variable.fresh("b_free", BooleanType(), true))
+    clauses += {
       val nextB = encodeSymbol(Variable.fresh("b_next", BooleanType(), true))
-      nonFreeBlockers += f -> ((blocker, nextB))
+      nonFreeBlockers += f -> ((isFree, nextB))
 
-      (blocker, mkImplies(b, mkEquals(blocker, mkNot(mkOr((for {
+      mkImplies(b, mkEquals(isFree, mkNot(mkOr((for {
         template <- byType(tpe).values
         if canBeEqual(template.ids._2, f)
       } yield {
         mkAnd(template.start, mkEquals(template.ids._2, f))
-      }).toSeq :+ nextB : _*)))))
+      }).toSeq :+ nextB : _*))))
     }
-    clauses += clause
 
     // Add type blocker clause
     clauses += {
@@ -340,7 +339,7 @@ trait LambdaTemplates { self: Templates =>
             val freeAppClauses = for (old @ (oldB,f) <- freeBlockers(tpe).toList if canBeEqual(caller, f)) yield {
               val nextB  = encodeSymbol(Variable.fresh("b_and", BooleanType(), true))
               val ext = mkAnd(mkImplies(mkAnd(typeBlocker, mkEquals(caller, f)), symResult), nextB)
-              freeBlockers += tpe -> (freeBlockers(tpe) - (old) + (nextB -> f))
+              freeBlockers += tpe -> (freeBlockers(tpe) - old + (nextB -> f))
               mkEquals(oldB, ext)
             }
 
