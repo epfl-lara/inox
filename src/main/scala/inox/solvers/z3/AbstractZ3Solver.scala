@@ -34,13 +34,17 @@ trait AbstractZ3Solver
     solver.pop()
   }
 
-  def assertCnstr(ast: Z3AST): Unit = solver.assertCnstr(ast)
+  private def tryZ3[T](res: => T): Option[T] =
+    // @nv: Z3 sometimes throws an exceptiopn when functions are called after Z3 has been canceled
+    try { Some(res) } catch { case e: Z3Exception if e.getMessage == "canceled" => None }
+
+  def assertCnstr(ast: Z3AST): Unit = tryZ3(solver.assertCnstr(ast))
 
   // NOTE @nv: this is very similar to code in NativeZ3Optimizer and UninterpretedZ3Solver but
   //           is difficult to merge due to small API differences between the native Z3
   //           solvers and optimizers.
-  private def extractResult(config: Configuration)(res: => Option[Boolean]) = config.cast(try {
-    res match {
+  private def extractResult(config: Configuration)(res: => Option[Boolean]) =
+    config.cast(tryZ3(res match {
       case Some(true) =>
         if (config.withModel) SatWithModel(solver.getModel)
         else Sat
@@ -50,11 +54,7 @@ trait AbstractZ3Solver
         else Unsat
 
       case None => Unknown
-    }
-  } catch {
-    // @nv: Z3 sometimes throws an exceptiopn when check is called after Z3 has been canceled
-    case e: Z3Exception if e.getMessage == "canceled" => Unknown
-  })
+    }).getOrElse(Unknown))
 
   def check(config: CheckConfiguration) = extractResult(config)(solver.check)
   def checkAssumptions(config: Configuration)(assumptions: Set[Z3AST]) =

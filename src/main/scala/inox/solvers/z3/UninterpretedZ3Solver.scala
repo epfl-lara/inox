@@ -60,9 +60,9 @@ trait UninterpretedZ3Solver
 
   def interrupt(): Unit = underlying.interrupt()
 
-  def assertCnstr(expression: Expr) {
+  def assertCnstr(expression: Expr): Unit = {
     freeVars ++= exprOps.variablesOf(expression)
-    underlying.assertCnstr(underlying.toZ3Formula(expression))
+    tryZ3(underlying.assertCnstr(underlying.toZ3Formula(expression)))
   }
 
   private def completeModel(model: program.Model): program.Model = {
@@ -70,21 +70,21 @@ trait UninterpretedZ3Solver
     inox.Model(program, context)(allVars, model.chooses)
   }
 
-  private def tryResult(config: Configuration)
-                       (res: => config.Response[underlying.Model, underlying.Assumptions]) =
+  private def tryZ3[T](res: => T): Option[T] =
     // @nv: Z3 sometimes throws an exception when check is called after Z3 has been canceled
-    try { res } catch {  case e: Z3Exception if e.getMessage == "canceled" => config.cast(Unknown) }
+    try { Some(res) } catch {  case e: Z3Exception if e.getMessage == "canceled" => None }
 
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
     config.convert(
-      tryResult(config)(underlying.check(config)),
+      tryZ3(underlying.check(config)).getOrElse(config.cast(Unknown)),
       (model: Z3Model) => completeModel(underlying.extractModel(model)),
       underlying.extractUnsatAssumptions)
 
   override def checkAssumptions(config: Configuration)
                                (assumptions: Set[Expr]): config.Response[Model, Assumptions] =
     config.convert(
-      tryResult(config)(underlying.checkAssumptions(config)(assumptions.map(underlying.toZ3Formula(_)))),
+      tryZ3(underlying.checkAssumptions(config)(assumptions.map(underlying.toZ3Formula(_))))
+        .getOrElse(config.cast(Unknown)),
       (model: Z3Model) => completeModel(underlying.extractModel(model)),
       underlying.extractUnsatAssumptions)
 }

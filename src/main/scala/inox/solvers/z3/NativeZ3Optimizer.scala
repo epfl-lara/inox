@@ -31,23 +31,22 @@ trait NativeZ3Optimizer extends AbstractUnrollingOptimizer with Z3Unrolling { se
 
     private[this] val optimizer: ScalaZ3Optimizer = z3.mkOptimizer()
 
-    def assertCnstr(ast: Z3AST): Unit = optimizer.assertCnstr(ast)
-    def assertCnstr(ast: Z3AST, weight: Int): Unit = optimizer.assertCnstr(ast, weight)
-    def assertCnstr(ast: Z3AST, weight: Int, group: String): Unit = optimizer.assertCnstr(ast, weight, group)
+    private def tryZ3[T](res: => T): Option[T] =
+      // @nv: Z3 optimizer throws an exceptiopn when canceled instead of returning Unknown
+      try { Some(res) } catch { case e: Z3Exception if e.getMessage == "canceled" => None }
+
+    def assertCnstr(ast: Z3AST): Unit = tryZ3(optimizer.assertCnstr(ast))
+    def assertCnstr(ast: Z3AST, weight: Int): Unit = tryZ3(optimizer.assertCnstr(ast, weight))
+    def assertCnstr(ast: Z3AST, weight: Int, group: String): Unit = tryZ3(optimizer.assertCnstr(ast, weight, group))
 
     // NOTE @nv: this is very similar to code in AbstractZ3Solver and UninterpretedZ3Solver but
     //           is difficult to merge due to small API differences between the native Z3
     //           solvers and optimizers.
-    def check(config: CheckConfiguration) = config.cast(try {
-      optimizer.check match {
-        case Some(true) => if (config.withModel) SatWithModel(optimizer.getModel) else Sat
-        case Some(false) => Unsat
-        case None => Unknown
-      }
-    } catch {
-      // @nv: Z3 optimizer throws an exceptiopn when canceled instead of returning None
-      case e: Z3Exception if e.getMessage == "canceled" => Unknown
-    })
+    def check(config: CheckConfiguration) = config.cast(tryZ3(optimizer.check match {
+      case Some(true) => if (config.withModel) SatWithModel(optimizer.getModel) else Sat
+      case Some(false) => Unsat
+      case None => Unknown
+    }).getOrElse(Unknown))
 
     // NOTE @nv: this is very similar to code in AbstractZ3Solver and UninterpretedZ3Solver but
     //           is difficult to merge due to small API differences between the native Z3
@@ -55,16 +54,11 @@ trait NativeZ3Optimizer extends AbstractUnrollingOptimizer with Z3Unrolling { se
     def checkAssumptions(config: Configuration)(assumptions: Set[Z3AST]) = {
       optimizer.push()
       for (a <- assumptions) optimizer.assertCnstr(a)
-      val res: config.Response[Model, Assumptions] = config.cast(try {
-        optimizer.check match {
-          case Some(true) => if (config.withModel) SatWithModel(optimizer.getModel) else Sat
-          case Some(false) => if (config.withUnsatAssumptions) UnsatWithAssumptions(Set()) else Unsat
-          case None => Unknown
-        }
-      } catch {
-        // @nv: Z3 optimizer throws an exceptiopn when canceled instead of returning None
-        case e: Z3Exception if e.getMessage == "canceled" => Unknown
-      })
+      val res = config.cast(tryZ3[SolverResponse[Model, Assumptions]](optimizer.check match {
+        case Some(true) => if (config.withModel) SatWithModel(optimizer.getModel) else Sat
+        case Some(false) => if (config.withUnsatAssumptions) UnsatWithAssumptions(Set()) else Unsat
+        case None => Unknown
+      }).getOrElse(Unknown))
       optimizer.pop()
       res
     }
