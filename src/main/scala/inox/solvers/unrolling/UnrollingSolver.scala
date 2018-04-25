@@ -500,7 +500,16 @@ trait AbstractUnrollingSolver extends Solver { self =>
     }
 
     object Abort {
-      def unapply[A,B](resp: SolverResponse[A,B]): Boolean = resp == Unknown || abort || pause
+      def unapply[A,B](resp: SolverResponse[A,B]): Boolean = {
+        if (resp == Unknown) {
+          if (!silentErrors) {
+            reporter.error("Something went wrong. Underlying solver returned Unknown.")
+          }
+          true
+        } else {
+          abort || pause
+        }
+      }
     }
 
     var currentState: CheckState = ModelCheck
