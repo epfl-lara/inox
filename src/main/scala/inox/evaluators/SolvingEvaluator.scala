@@ -68,34 +68,58 @@ trait SolvingEvaluator extends Evaluator { self =>
 
     BooleanLiteral(forallCache.getOrElse(forall, {
       import scala.language.existentials
-      val res = context.timers.evaluators.forall.run {
-        val sf = semantics.getSolver(context.withOpts(
+      val sf = context.timers.evaluators.forall.run {
+        semantics.getSolver(context.withOpts(
           optSilentErrors(true),
           optCheckModels(false), // model is checked manually!! (see below)
           unrolling.optFeelingLucky(false),
           optForallCache(forallCache) // this makes sure we have an `optForallCache` set!
         ))
-
-        val api = SimpleSolverAPI(sf)
-        api.solveSAT(Not(forall.body))
       }
 
-      import SolverResponses._
+      val api = SimpleSolverAPI(sf)
 
-      res match {
-        case Unsat =>
-          forallCache(forall) = true
-          true
-
-        case SatWithModel(model) =>
-          forallCache(forall) = false
-          eval(Not(forall.body), model) match {
-            case EvaluationResults.Successful(BooleanLiteral(true)) => false
-            case _ => throw new RuntimeException("Forall model check failed")
+      // Check if one of the quantified types is empty, which makes the
+      // forall true by definition.
+      val quantifiesOverEmptyType: Boolean = {
+        val vars = exprOps.variablesOf(forall.body)
+        val emptyArgs = forall.args
+          .filter(vd => !vars(vd.toVariable) && !(hasInstance(vd.tpe) contains true))
+          .filter { vd =>
+            import SolverResponses._
+            val p = Variable.fresh("p", FunctionType(Seq(vd.tpe), BooleanType()))
+            val clause = Application(p, Seq(vd.toVariable))
+            context.timers.evaluators.forall.run(api.solveSAT(clause)) match {
+              case Unsat => true
+              case SatWithModel(model) => eval(clause, model) match {
+                case EvaluationResults.Successful(BooleanLiteral(true)) => false
+                case _ => throw new RuntimeException("Forall model check failed")
+              }
+              case _ =>
+                throw new RuntimeException("Failed to evaluate forall " + forall.asString)
+            }
           }
 
-        case _ =>
-          throw new RuntimeException("Failed to evaluate forall " + forall.asString)
+        emptyArgs.nonEmpty
+      }
+
+      quantifiesOverEmptyType || {
+        import SolverResponses._
+        context.timers.evaluators.forall.run(api.solveSAT(Not(forall.body))) match {
+          case Unsat =>
+            forallCache(forall) = true
+            true
+
+          case SatWithModel(model) =>
+            forallCache(forall) = false
+            eval(Not(forall.body), model) match {
+              case EvaluationResults.Successful(BooleanLiteral(true)) => false
+              case _ => throw new RuntimeException("Forall model check failed")
+            }
+
+          case _ =>
+            throw new RuntimeException("Failed to evaluate forall " + forall.asString)
+        }
       }
     }))
   }
