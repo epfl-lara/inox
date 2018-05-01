@@ -16,12 +16,12 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
   implicit val opts: solvers.PurityOptions
 
-  class CNFPath private(
-    private val exprSubst: Bijection[Variable, Expr],
-    private val boolSubst: Map[Variable, Expr],
-    private val conditions: Set[Expr],
-    private val cnfCache: MutableMap[Expr, Seq[Expr]],
-    private val simpCache: MutableMap[Expr, Set[Expr]]) extends PathLike[CNFPath] {
+  class CNFPath private[SimplifierWithPC] (
+    private[SimplifierWithPC] val exprSubst: Bijection[Variable, Expr],
+    private[SimplifierWithPC] val boolSubst: Map[Variable, Expr],
+    private[SimplifierWithPC] val conditions: Set[Expr],
+    private[SimplifierWithPC] val cnfCache: MutableMap[Expr, Seq[Expr]],
+    private[SimplifierWithPC] val simpCache: MutableMap[Expr, Set[Expr]]) extends PathLike[CNFPath] {
 
     import exprOps._
 
@@ -185,8 +185,8 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
   //      (since aggressive caching of cnf computations is taking place)
   def initEnv: CNFPath = CNFPath.empty
 
-  private[this] val dynStack: DynamicVariable[List[Int]] = new DynamicVariable(Nil)
-  private[this] val dynPurity: DynamicVariable[List[Boolean]] = new DynamicVariable(Nil)
+  private[this] val dynStack = new ThreadLocal[List[Int]] { override def initialValue = Nil }
+  private[this] val dynPurity = new ThreadLocal[List[Boolean]] { override def initialValue = Nil }
 
   private sealed abstract class PurityCheck
   private case object Pure extends PurityCheck
@@ -236,16 +236,50 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
   final def isPure(e: Expr, path: CNFPath): Boolean = simplify(e, path)._2
 
-  private class SimplificationCache(cache: Cache[Expr, (CNFPath, Expr, Boolean)]) {
-    def cached(e: Expr, path: CNFPath)(body: => (Expr, Boolean)): (Expr, Boolean) =
-      cache.get(e)
-        .filter { case (p, _, _) => (p subsumes path) }
-        .map { case (_, re, pe) => (re, pe) }
+  private class SimplificationCache(cache: Cache[Expr, (Set[Expr], Map[ValDef, Expr], Expr, Boolean)]) {
+    private def normalize(expr: Expr, path: CNFPath): (Expr, Set[Expr], Map[ValDef, Expr], Map[ValDef, ValDef]) = {
+      val subst: MutableMap[ValDef, ValDef] = MutableMap.empty
+      val bindings: MutableMap[ValDef, Expr] = MutableMap.empty
+
+      val transformer = new SelfTreeTransformer {
+        private var localCounter = 0
+        override def transform(vd: ValDef): ValDef = subst.getOrElse(vd, {
+          path.exprSubst.getB(vd.toVariable).orElse(path.boolSubst.get(vd.toVariable)) match {
+            case Some(expr) =>
+              localCounter = localCounter + 1
+              val newVd = vd.copy(id = new Identifier("x", localCounter, localCounter))
+              bindings(newVd) = transform(expr)
+              newVd
+            case None => vd
+          }
+        })
+      }
+
+      val newExpr = transformer.transform(expr)
+      val mapping = subst.toMap
+      val newConds = path.conditions.map(applySubst(mapping, _))
+      (newExpr, newConds, bindings.toMap, mapping)
+    }
+
+    private def applySubst(subst: Map[ValDef, ValDef], expr: Expr): Expr = new SelfTreeTransformer {
+      override def transform(vd: ValDef): ValDef = subst.getOrElse(vd, vd)
+    }.transform(expr)
+
+    def cached(e: Expr, path: CNFPath)(body: => (Expr, Boolean)): (Expr, Boolean) = {
+      val (normalized, conds, bindings, subst) = normalize(e, path)
+
+      cache.get(normalized)
+        .filter { case (cConds, cBindings, _, _) =>
+          (conds subsetOf cConds) &&
+          bindings.forall { case (k, v) => cBindings.get(k) == Some(v) }
+        }
+        .map { case (_, _, re, pe) => (applySubst(subst.map(_.swap), re), pe) }
         .getOrElse {
           val (re, pe) = body
-          cache(e) = (path, re, pe)
+          cache(e) = (conds, bindings, applySubst(subst, re), pe)
           (re, pe)
         }
+    }
   }
 
   private val recentCache = new SimplificationCache(new LruCache(100))
@@ -389,7 +423,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     //      In `assumeChecked` mode, the cost should be lower as most lets with
     //      `insts <= 1` will be inlined immediately.
     case let @ Let(vd, e, b) => recentCache.cached(let, path) {
-      val (re, pe) = simplify(e, path)
+      val (re, pe) = recentCache.cached(let, path)(simplify(e, path))
       val (rb, pb) = simplify(b, path withBinding (vd -> re))
 
       val v = vd.toVariable
@@ -408,13 +442,10 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
         (((!inLambda && pe) || (inLambda && realPE && !containsLambda)) && insts <= 1) ||
         (!inLambda && immediateCall && insts == 1)
       ) {
-        val newExpr = replaceFromSymbols(Map(vd -> re), rb)
-        re match {
-          // If the bound expression was an ADT or variable, then `path.expand` has already
-          // made sure that all possible simplifications have taken place in `rb`.
-          case (_: ADT | _: Variable) => (newExpr, pe && pb)
-          case _ => simplify(newExpr, path)
-        }
+        // We can assume here that all `important` simplifications have already taken place
+        // as if the bound expression was an ADT or variable, then `path.expand` has already
+        // made sure that all possible simplifications have taken place in `rb`.
+        (replaceFromSymbols(Map(vd -> re), rb), pe && pb)
       } else {
         val newLet = Let(vd, re, rb)
         re match {
@@ -449,12 +480,12 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     }
 
     case _ =>
-      dynStack.value = 0 :: dynStack.value
+      dynStack.set(0 :: dynStack.get)
       val re = super.rec(e, path)
-      val (rpure, rest) = dynPurity.value.splitAt(dynStack.value.head)
+      val (rpure, rest) = dynPurity.get.splitAt(dynStack.get.head)
       val pe = rpure.foldLeft(opts.assumeChecked || !isImpureExpr(re))(_ && _)
-      dynStack.value = dynStack.value.tail
-      dynPurity.value = rest
+      dynStack.set(dynStack.get.tail)
+      dynPurity.set(rest)
       (re, pe)
   }
 
@@ -466,9 +497,9 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
   }
 
   override protected final def rec(e: Expr, path: CNFPath): Expr = {
-    dynStack.value = if (dynStack.value.isEmpty) Nil else (dynStack.value.head + 1) :: dynStack.value.tail
+    dynStack.set(if (dynStack.get.isEmpty) Nil else (dynStack.get.head + 1) :: dynStack.get.tail)
     val (re, pe) = simplify(e, path)
-    dynPurity.value = if (dynStack.value.isEmpty) dynPurity.value else pe :: dynPurity.value
+    dynPurity.set(if (dynStack.get.isEmpty) dynPurity.get else pe :: dynPurity.get)
     re
   }
 }
