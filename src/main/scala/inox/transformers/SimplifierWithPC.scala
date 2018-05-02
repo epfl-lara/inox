@@ -16,174 +16,20 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
   implicit val opts: solvers.PurityOptions
 
-  class CNFPath private[SimplifierWithPC] (
-    private[SimplifierWithPC] val exprSubst: Bijection[Variable, Expr],
-    private[SimplifierWithPC] val boolSubst: Map[Variable, Expr],
-    private[SimplifierWithPC] val conditions: Set[Expr],
-    private[SimplifierWithPC] val cnfCache: MutableMap[Expr, Seq[Expr]],
-    private[SimplifierWithPC] val simpCache: MutableMap[Expr, Set[Expr]]) extends PathLike[CNFPath] {
+  trait SolvingPath { selfP: Env =>
+    def expand(expr: Expr): Expr = expr
+    def implies(expr: Expr): Boolean
 
-    import exprOps._
-
-    private[SimplifierWithPC] def in(that: SimplifierWithPC {
+    // @nv: Scala's type system is unfortunately not powerful enough to express
+    //      what we want here. The type should actually specify that the `that`
+    //      parameter is the same type as this simplifier.
+    def in(that: SimplifierWithPC {
       val trees: self.trees.type
       val symbols: self.symbols.type
-    }): that.CNFPath = new that.CNFPath(
-      exprSubst.clone,
-      boolSubst,
-      conditions,
-      cnfCache.clone,
-      simpCache.clone
-    )
-
-    def subsumes(that: CNFPath): Boolean =
-      (conditions subsetOf that.conditions) &&
-      (exprSubst.forall { case (k, e) => that.exprSubst.getB(k).exists(_ == e) }) &&
-      (boolSubst.forall { case (k, e) => that.boolSubst.get(k).exists(_ == e) })
-
-    private def unexpandLets(e: Expr, exprSubst: Bijection[Variable, Expr] = exprSubst): Expr = {
-      postMap(exprSubst.getA)(e)
-    }
-
-    def contains(e: Expr) = {
-      val TopLevelOrs(es) = unexpandLets(e)
-      conditions contains orJoin(es.distinct.sortBy(_.hashCode))
-    }
-
-    def expand(e: Expr): Expr = e match {
-      case v: Variable => (exprSubst getB v) orElse (boolSubst get v) match {
-        case Some(v2: Variable) => expand(v2)
-        case Some(e2 @ (_: ADT | _: Tuple)) => e2
-        case _ => e
-      }
-      case _ => e
-    }
-
-    private def cnf(e: Expr): Seq[Expr] = cnfCache.getOrElseUpdate(e, e match {
-      case Let(i, e, b) => cnf(b).map(Let(i, e, _))
-      case And(es) => es.flatMap(cnf)
-      case Or(es) => es.map(cnf).foldLeft(Seq(BooleanLiteral(false): Expr)) {
-        case (clauses, es) => es.flatMap(e => clauses.map(c => or(e, c)))
-      }
-      case IfExpr(c, t, e) => cnf(and(implies(c, t), implies(not(c), e)))
-      case Implies(l, r) => cnf(or(not(l), r))
-      case Not(Or(es)) => cnf(andJoin(es.map(not)))
-      case Not(Implies(l, r)) => cnf(and(l, not(r)))
-      case Not(Not(e)) => cnf(e)
-      case IsConstructor(e, id) =>
-        Seq(IsConstructor(e, id)) ++
-        getConstructor(id).getSort.constructors.filterNot(_.id == id).map(c => Not(IsConstructor(e, c.id)))
-      case e => Seq(e)
-    })
-
-    private def simplify(e: Expr): Expr = self.simplify(e, this)._1
-
-    private def simplifyClauses(e: Expr): Expr = andJoin(getClauses(e).toSeq.sortBy(_.hashCode))
-
-    private def getClauses(e: Expr): Set[Expr] = simpCache.getOrElseUpdate(e, {
-      val (preds, newE) = liftAssumptions(simplifyLets(unexpandLets(e)))
-      val expr = andJoin(newE +: preds)
-      simpCache.getOrElseUpdate(expr, {
-        val clauseSet: MutableSet[Expr] = MutableSet.empty
-        for (cl <- cnf(expr); TopLevelOrs(es) <- cnf(replaceFromSymbols(boolSubst, simplify(cl)))) {
-          clauseSet += orJoin(es.distinct.sortBy(_.hashCode))
-        }
-
-        var changed = true
-        while (changed) {
-          changed = false
-          for (cls @ TopLevelOrs(es) <- clauseSet) {
-            val eSet = es.toSet
-            if (
-              cls == BooleanLiteral(true) ||
-              es.exists(e => conditions(e) || (eSet contains not(e))) ||
-              (es.size > 1 && es.exists(e => clauseSet(e)))
-            ) {
-              clauseSet -= cls
-            } else {
-              val newCls = orJoin(es.filter(e => !clauseSet(not(e)) && !conditions(not(e))))
-              if (newCls != cls) {
-                clauseSet -= cls
-                clauseSet += newCls
-                changed = true
-              }
-            }
-          }
-        }
-
-        clauseSet.toSet
-      })
-    })
-
-    override def withBinding(p: (ValDef, Expr)) = {
-      val (vd, expr) = p
-
-      val extraConds: Set[Expr] = expr match {
-        case ADT(id, _, _) => cnf(IsConstructor(vd.toVariable, id)).toSet
-        case _ => Set()
-      }
-
-      if (formulaSize(expr) > 20) {
-        new CNFPath(exprSubst, boolSubst, conditions ++ extraConds, cnfCache, simpCache)
-      } else if (vd.tpe == BooleanType()) {
-        new CNFPath(exprSubst, boolSubst + (vd.toVariable -> simplifyClauses(expr)), conditions, cnfCache, simpCache)
-      } else {
-        val newSubst = exprSubst.clone += (vd.toVariable -> unexpandLets(expr))
-        val newBools = boolSubst.mapValues(e => simplifyClauses(unexpandLets(e, newSubst)))
-        val newConds = conditions.map(unexpandLets(_, newSubst))
-
-        /* @nv: it seems the performance gain through extra cache hits is completely overshadowed by
-         *      the cost of traversing the caches to update them, so this optimization is now disabled.
-        cnfCache ++= cnfCache.map { case (k, v) => unexpandLets(k, newSubst) -> v.map(unexpandLets(_, newSubst)) }
-        simpCache ++= simpCache.map { case (k, v) => unexpandLets(k, newSubst) -> v.map(unexpandLets(_, newSubst)) }
-        */
-
-        new CNFPath(newSubst, newBools, newConds ++ extraConds, cnfCache, simpCache)
-      }
-    }
-
-    override def withBound(b: ValDef) = this // NOTE CNFPath doesn't need to track such bounds.
-
-    override def withCond(e: Expr) = if (formulaSize(e) > 20) this else {
-      val clauses = getClauses(e)
-      val newConditions = conditions.flatMap { case clause @ TopLevelOrs(es) =>
-        val newClause = orJoin(es.filterNot(e => clauses contains not(e)))
-        if (newClause != clause) cnf(newClause) else Seq(clause)
-      }
-
-      val conds = newConditions ++ clauses - BooleanLiteral(true)
-      new CNFPath(exprSubst, boolSubst, conds, cnfCache, simpCache)
-    }
-
-    override def merge(that: CNFPath) = new CNFPath(
-      exprSubst.clone ++= that.exprSubst,
-      boolSubst ++ that.boolSubst,
-      conditions ++ that.conditions,
-      cnfCache ++= that.cnfCache,
-      simpCache ++= that.simpCache
-    )
-
-    override def negate = new CNFPath(exprSubst, boolSubst, Set(), cnfCache, simpCache) withConds conditions.map(not)
-
-    def asString(implicit opts: PrinterOptions): String = andJoin(conditions.toSeq.sortBy(_.hashCode)).asString
-
-    override def toString = asString(PrinterOptions.fromContext(Context.printNames))
+    }): that.Env = this.asInstanceOf[that.Env]
   }
 
-  implicit object CNFPath extends PathProvider[CNFPath] {
-    def empty = new CNFPath(new Bijection[Variable, Expr], Map.empty, Set.empty, MutableMap.empty, MutableMap.empty)
-    def apply(path: Path) = path.elements.foldLeft(empty) {
-      case (path, Path.CloseBound(vd, e)) => path withBinding (vd -> transform(e, path))
-      case (path, Path.OpenBound(_)) => path // NOTE CNFPath doesn't need to track such bounds.
-      case (path, Path.Condition(c)) => path withCond transform(c, path)
-    }
-  }
-
-  type Env = CNFPath
-
-  // @nv: note that we make sure the initial env is fresh each time
-  //      (since aggressive caching of cnf computations is taking place)
-  def initEnv: CNFPath = CNFPath.empty
+  type Env <: PathLike[Env] with SolvingPath
 
   private[this] val dynStack = new ThreadLocal[List[Int]] { override def initialValue = Nil }
   private[this] val dynPurity = new ThreadLocal[List[Boolean]] { override def initialValue = Nil }
@@ -206,17 +52,17 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
         false
       case None =>
         pureCache += id -> Checking
-        val p = isPure(getFunction(id).fullBody, CNFPath.empty)
+        val p = isPure(getFunction(id).fullBody, initEnv)
         pureCache += id -> (if (p) Pure else Impure)
         p
     })
   }
 
-  protected def isConstructor(e: Expr, id: Identifier, path: CNFPath): Option[Boolean] = e match {
+  protected def isConstructor(e: Expr, id: Identifier, path: Env): Option[Boolean] = e match {
     case ADT(id2, _, _) => Some(id == id2)
-    case _ => if (path contains IsConstructor(e, id)) {
+    case _ => if (path implies IsConstructor(e, id)) {
       Some(true)
-    } else if (path contains Not(IsConstructor(e, id))) {
+    } else if (path implies Not(IsConstructor(e, id))) {
       Some(false)
     } else {
       val adt @ ADTType(_, tps) = widen(e.getType)
@@ -224,9 +70,9 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       val cons = getConstructor(id, tps)
       val alts = (sort.constructors.toSet - cons).map(_.id)
 
-      if (alts exists (id => path contains IsConstructor(e, id))) {
+      if (alts exists (id => path implies IsConstructor(e, id))) {
         Some(false)
-      } else if (alts forall (id => path contains Not(IsConstructor(e, id)))) {
+      } else if (alts forall (id => path implies Not(IsConstructor(e, id)))) {
         Some(true)
       } else {
         None
@@ -234,59 +80,11 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     }
   }
 
-  final def isPure(e: Expr, path: CNFPath): Boolean = simplify(e, path)._2
+  final def isPure(e: Expr, path: Env): Boolean = simplify(e, path)._2
 
-  private class SimplificationCache(cache: Cache[Expr, (Set[Expr], Map[ValDef, Expr], Expr, Boolean)]) {
-    private def normalize(expr: Expr, path: CNFPath): (Expr, Set[Expr], Map[ValDef, Expr], Map[ValDef, ValDef]) = {
-      val subst: MutableMap[ValDef, ValDef] = MutableMap.empty
-      val bindings: MutableMap[ValDef, Expr] = MutableMap.empty
-
-      val transformer = new SelfTreeTransformer {
-        private var localCounter = 0
-        override def transform(vd: ValDef): ValDef = subst.getOrElse(vd, {
-          path.exprSubst.getB(vd.toVariable).orElse(path.boolSubst.get(vd.toVariable)) match {
-            case Some(expr) =>
-              localCounter = localCounter + 1
-              val newVd = vd.copy(id = new Identifier("x", localCounter, localCounter))
-              bindings(newVd) = transform(expr)
-              newVd
-            case None => vd
-          }
-        })
-      }
-
-      val newExpr = transformer.transform(expr)
-      val mapping = subst.toMap
-      val newConds = path.conditions.map(applySubst(mapping, _))
-      (newExpr, newConds, bindings.toMap, mapping)
-    }
-
-    private def applySubst(subst: Map[ValDef, ValDef], expr: Expr): Expr = new SelfTreeTransformer {
-      override def transform(vd: ValDef): ValDef = subst.getOrElse(vd, vd)
-    }.transform(expr)
-
-    def cached(e: Expr, path: CNFPath)(body: => (Expr, Boolean)): (Expr, Boolean) = {
-      val (normalized, conds, bindings, subst) = normalize(e, path)
-
-      cache.get(normalized)
-        .filter { case (cConds, cBindings, _, _) =>
-          (conds subsetOf cConds) &&
-          bindings.forall { case (k, v) => cBindings.get(k) == Some(v) }
-        }
-        .map { case (_, _, re, pe) => (applySubst(subst.map(_.swap), re), pe) }
-        .getOrElse {
-          val (re, pe) = body
-          cache(e) = (conds, bindings, applySubst(subst, re), pe)
-          (re, pe)
-        }
-    }
-  }
-
-  private val recentCache = new SimplificationCache(new LruCache(100))
-
-  protected def simplify(e: Expr, path: CNFPath): (Expr, Boolean) = e match {
-    case e if path contains e => (BooleanLiteral(true), true)
-    case e if path contains not(e) => (BooleanLiteral(false), true)
+  protected def simplify(e: Expr, path: Env): (Expr, Boolean) = e match {
+    case e if path implies e => (BooleanLiteral(true), true)
+    case e if path implies not(e) => (BooleanLiteral(false), true)
 
     case c @ Choose(res, BooleanLiteral(true)) if hasInstance(res.tpe) == Some(true) => (c, true)
     case c: Choose => (c, opts.assumeChecked)
@@ -295,7 +93,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       val (rb, _) = simplify(body, path)
       (Lambda(args, rb), true)
 
-    case Implies(l, r) => simplify(or(not(l), r), path)
+    case Implies(l, r) => simplify(Or(Not(l), r), path)
 
     case And(e +: es) => simplify(e, path) match {
       case (BooleanLiteral(true), true) => simplify(andJoin(es), path)
@@ -313,7 +111,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       case (BooleanLiteral(true), true) => (BooleanLiteral(true), true)
       case (BooleanLiteral(false), true) => simplify(orJoin(es), path)
       case (re, pe) =>
-        val (res, pes) = simplify(orJoin(es), path withCond not(re))
+        val (res, pes) = simplify(orJoin(es), path withCond Not(re))
         if (res == BooleanLiteral(true) && pe) {
           (BooleanLiteral(true), true)
         } else {
@@ -321,12 +119,12 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
         }
     }
 
-    case IfExpr(c, t, e) => simplify(c, path) match {
+    case ie @ IfExpr(c, t, e) => simplify(c, path) match {
       case (BooleanLiteral(true), true) => simplify(t, path)
       case (BooleanLiteral(false), true) => simplify(e, path)
       case (rc, pc) =>
         val (rt, pt) = simplify(t, path withCond rc)
-        val (re, pe) = simplify(e, path withCond not(rc))
+        val (re, pe) = simplify(e, path withCond Not(rc))
         if (rt == re && pc) {
           (rt, pt)
         } else {
@@ -345,7 +143,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     }
 
     case IsConstructor(e, id) =>
-      val (re, pe) = simplify(path.expand(e), path)
+      val (re, pe) = simplify(path expand e, path)
       isConstructor(re, id, path) match {
         case Some(b) if pe => (BooleanLiteral(b), true)
         case Some(b) => (Let("e" :: re.getType, re, BooleanLiteral(b)), pe)
@@ -353,7 +151,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       }
 
     case s @ ADTSelector(e, sel) =>
-      val (re, pe) = simplify(path.expand(e), path)
+      val (re, pe) = simplify(path expand e, path)
 
       if (isConstructor(re, s.constructor.id, path) == Some(true)) {
         val cons = s.constructor
@@ -393,7 +191,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       val pe = pargs.foldLeft(opts.assumeChecked || !isImpureExpr(newAdt))(_ && _)
       (newAdt, pe)
 
-    case TupleSelect(e, i) => simplify(path.expand(e), path) match {
+    case TupleSelect(e, i) => simplify(path expand e, path) match {
       case (Tuple(es), true) => (es(i - 1), true)
       case (Tuple(es), pe) =>
         (es.zipWithIndex.filter(_._2 != i - 1).foldRight(es(i - 1)) {
@@ -422,8 +220,8 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     //      there are still corner cases that will make this expensive.
     //      In `assumeChecked` mode, the cost should be lower as most lets with
     //      `insts <= 1` will be inlined immediately.
-    case let @ Let(vd, e, b) => recentCache.cached(let, path) {
-      val (re, pe) = recentCache.cached(let, path)(simplify(e, path))
+    case let @ Let(vd, e, b) =>
+      val (re, pe) = simplify(e, path)
       val (rb, pb) = simplify(b, path withBinding (vd -> re))
 
       val v = vd.toVariable
@@ -456,7 +254,6 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
           case _ => (newLet, pe && pb)
         }
       }
-    }
 
     case fi @ FunctionInvocation(id, tps, args) =>
       val (rargs, pargs) = args.map(simplify(_, path)).unzip
@@ -489,14 +286,14 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       (re, pe)
   }
 
-  private def simplifyAndCons(es: Seq[Expr], path: CNFPath, cons: Seq[Expr] => Expr): (Expr, Boolean) = {
+  private def simplifyAndCons(es: Seq[Expr], path: Env, cons: Seq[Expr] => Expr): (Expr, Boolean) = {
     val (res, pes) = es.map(simplify(_, path)).unzip
     val re = cons(res)
     val pe = pes.foldLeft(opts.assumeChecked || !isImpureExpr(re))(_ && _)
     (re, pe)
   }
 
-  override protected final def rec(e: Expr, path: CNFPath): Expr = {
+  override protected final def rec(e: Expr, path: Env): Expr = {
     dynStack.set(if (dynStack.get.isEmpty) Nil else (dynStack.get.head + 1) :: dynStack.get.tail)
     val (re, pe) = simplify(e, path)
     dynPurity.set(if (dynStack.get.isEmpty) dynPurity.get else pe :: dynPurity.get)
@@ -504,3 +301,50 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
   }
 }
 
+trait FastSimplifier extends SimplifierWithPC {
+  import trees._
+  import symbols._
+  import exprOps._
+  import dsl._
+
+  class Env private(
+    private val conditions: Set[Expr],
+    private val exprSubst: Map[Variable, Expr]
+  ) extends PathLike[Env] with SolvingPath {
+
+    override def withBinding(p: (ValDef, Expr)): Env = p match {
+      case (vd, expr @ (_: ADT | _: Tuple)) =>
+        new Env(conditions, exprSubst + (vd.toVariable -> expr))
+      case (vd, v: Variable) =>
+        val exp = expand(v)
+        if (v != exp) new Env(conditions, exprSubst + (vd.toVariable -> exp))
+        else this
+      case _ => this
+    }
+
+    override def withBound(vd: ValDef): Env = this // We don't need to track such bounds.
+
+    override def withCond(cond: Expr): Env = new Env(conditions + cond, exprSubst)
+
+    override def negate: Env =
+      new Env(Set(), exprSubst) withConds conditions.toSeq.map(not)
+
+    override def merge(that: Env): Env =
+      new Env(conditions ++ that.conditions, exprSubst ++ that.exprSubst)
+
+    override def expand(expr: Expr): Expr = expr match {
+      case v: Variable => exprSubst.getOrElse(v, v)
+      case _ => expr
+    }
+
+    override def implies(expr: Expr): Boolean = conditions contains expr
+
+    override def toString: String = conditions.toString
+  }
+
+  implicit object Env extends PathProvider[Env] {
+    def empty = new Env(Set(), Map())
+  }
+
+  override def initEnv = Env.empty
+}

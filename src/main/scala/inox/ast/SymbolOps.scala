@@ -36,7 +36,7 @@ trait SymbolOps { self: TypeOps =>
   /** Override point for simplifier creation */
   protected def createSimplifier(popts: PurityOptions): SimplifierWithPC = new {
     val opts: PurityOptions = popts
-  } with SimplifierWithPC
+  } with SimplifierWithPC with transformers.FastSimplifier
 
   private var simplifierCache: MutableMap[PurityOptions, SimplifierWithPC] = MutableMap.empty
   def simplifier(implicit purityOpts: PurityOptions): SimplifierWithPC = synchronized {
@@ -80,8 +80,13 @@ trait SymbolOps { self: TypeOps =>
   /** Returns 'true' iff the evaluation of expression `expr` cannot lead to a crash under the provided path. */
   def isPureIn(e: Expr, path: Path)(implicit opts: PurityOptions): Boolean = {
     val s = simplifier
-    val env = s.CNFPath(path)
-    (env contains BooleanLiteral(false)) || s.isPure(e, env)
+    val env = path.elements.foldLeft(s.initEnv) {
+      case (env, Path.CloseBound(vd, e)) => env withBinding (vd -> e)
+      case (env, Path.OpenBound(vd)) => env withBound vd
+      case (env, Path.Condition(cond)) => env withCond cond
+    }
+
+    (env implies BooleanLiteral(false)) || s.isPure(e, env)
   }
 
   def isImpureExpr(expr: Expr): Boolean = expr match {
@@ -619,11 +624,12 @@ trait SymbolOps { self: TypeOps =>
     } (e)
 
     val simp: Expr => Expr =
-      ((e: Expr) => normalizeClauses(e)) compose
-      ((e: Expr) => simplifyMatchers(e)) compose
-      ((e: Expr) => inlineLambdas(e))    compose
-      ((e: Expr) => inlinePosts(e))      compose
-      ((e: Expr) => inlineForalls(e))    compose
+      ((e: Expr) => normalizeClauses(e))    compose
+      ((e: Expr) => simplifyMatchers(e))    compose
+      ((e: Expr) => simplifyAssumptions(e)) compose
+      ((e: Expr) => inlineLambdas(e))       compose
+      ((e: Expr) => inlinePosts(e))         compose
+      ((e: Expr) => inlineForalls(e))       compose
       ((e: Expr) => inlineFunctions(e))
     simp(e)
   }
