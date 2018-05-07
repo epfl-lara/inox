@@ -24,10 +24,10 @@ import scala.language.implicitConversions
 class MissformedTIPException(reason: String, pos: Position)
   extends Exception("Missfomed TIP source @" + pos + ":\n" + reason)
 
-class Parser(file: File) {
+class Parser(reader: Reader, file: Option[File]) {
   import inox.trees._
 
-  protected val positions = new PositionProvider(new BufferedReader(new FileReader(file)), Some(file))
+  protected val positions = new PositionProvider(new BufferedReader(reader), file)
 
   protected implicit def smtlibPositionToPosition(pos: Option[_root_.smtlib.common.Position]): Position = {
     pos.map(p => positions.get(p.line, p.col)).getOrElse(NoPosition)
@@ -594,4 +594,9 @@ class Parser(file: File) {
       case _ => super.fromSMT(sort)
     }).setPos(sort.id.symbol.optPos)
   }
+}
+
+object Parser {
+  def apply(file: File): Parser = Parser(new FileReader(file), Some(file))
+  def apply(reader: Reader, file: Option[File] = None): Parser = new Parser(reader, file)
 }
