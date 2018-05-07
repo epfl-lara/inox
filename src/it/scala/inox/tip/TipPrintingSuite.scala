@@ -23,13 +23,13 @@ class TipPrintingSuite extends FunSuite with ResourceUtils {
 
   for ((cat, file) <- filesWithCat) {
     test(s"Parsing file $cat/${file.getName}") {
-      for ((program, expr) <- new Parser(file).parseScript) {
+      for ((program, expr) <- Parser(file).parseScript) {
         checkScript(program, expr)
       }
     }
 
     test(s"Re-printing file $cat/${file.getName}") {
-      for ((program, expr) <- new Parser(file).parseScript) {
+      for ((program, expr) <- Parser(file).parseScript) {
         val file = java.io.File.createTempFile("test-output", ".tip")
         file.deleteOnExit()
         val fw = new java.io.FileWriter(file, false)
@@ -38,7 +38,7 @@ class TipPrintingSuite extends FunSuite with ResourceUtils {
         printer.emit(smtlib.trees.Commands.CheckSat())
         printer.free()
 
-        val Seq((newProgram, newExpr)) = new Parser(file).parseScript
+        val Seq((newProgram, newExpr)) = Parser(file).parseScript
         checkScript(newProgram, newExpr)
       }
     }
