@@ -163,20 +163,21 @@ trait FunctionTemplates { self: Templates =>
               }
             }
 
-            val groundArgs = (args zip tfd.params).map { p =>
-              decodePartial(p._1.encoded, p._2.tpe)
-                .map(e => exprOps.postMap {
-                  case IsTyped(v: Variable, ft: FunctionType) =>
-                    byID.values.find(_.ids._1 == v).map(_.lambda)
-                  case _ => None
-                } (e))
-                .filter(exprOps.variablesOf(_).isEmpty)
-            }
-
-            val groundCall =
-              if (groundArgs.forall(_.isDefined)) Some(tfd.applied(groundArgs.map(_.get)))
-              else None
             val (inlining, skip) = context.timers.solvers.`eval-call`.run {
+              val groundArgs = (args zip tfd.params).map { p =>
+                decodePartial(p._1.encoded, p._2.tpe)
+                  .map(e => exprOps.postMap {
+                    case IsTyped(v: Variable, ft: FunctionType) =>
+                      byID.values.find(_.ids._1 == v).map(_.lambda)
+                    case _ => None
+                  } (e))
+                  .filter(exprOps.variablesOf(_).isEmpty)
+              }
+
+              val groundCall =
+                if (groundArgs.forall(_.isDefined)) Some(tfd.applied(groundArgs.map(_.get)))
+                else None
+
               val inlining = groundCall.filter(isPure).map(e => evaluator.eval(e))
               val skip = (groundArgs.flatten.map(evaluator.eval) ++ inlining).exists {
                 case evaluators.EvaluationResults.EvaluatorError(_) => true
@@ -185,7 +186,9 @@ trait FunctionTemplates { self: Templates =>
               (inlining, skip)
             }
 
-            if (!skip) {
+            if (skip) {
+              newCls += mkNot(defBlocker)
+            } else {
               newCls ++= inlining.flatMap(_.result).map { body =>
                 val start = Variable.fresh("cs", BooleanType())
                 val (p, cls) = mkExprClauses(start, body, Map(start -> defBlocker))
