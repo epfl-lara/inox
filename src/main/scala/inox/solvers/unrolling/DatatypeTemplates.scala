@@ -128,25 +128,25 @@ trait DatatypeTemplates { self: Templates =>
       val (idT, pathVarT, resultT) = (encodeSymbol(v), encodeSymbol(pathVar), encodeSymbol(result))
 
       private var exprVars = Map[Variable, Encoded]()
-      @inline protected def storeExpr(v: Variable): Unit = {
+      /*@`inline`*/ protected def storeExpr(v: Variable): Unit = {
         exprVars += v -> encodeSymbol(v)
       }
 
       private var condVars = Map[Variable, Encoded]()
       private var condTree = Map[Variable, Set[Variable]](pathVar -> Set.empty).withDefaultValue(Set.empty)
-      @inline protected def storeCond(pathVar: Variable, v: Variable): Unit = {
+      /*@`inline`*/ protected def storeCond(pathVar: Variable, v: Variable): Unit = {
         condVars += v -> encodeSymbol(v)
         condTree += pathVar -> (condTree(pathVar) + v)
       }
 
       private var guardedExprs = Map[Variable, Seq[Expr]]()
-      @inline protected def storeGuarded(pathVar: Variable, expr: Expr): Unit = {
+      /*@`inline`*/ protected def storeGuarded(pathVar: Variable, expr: Expr): Unit = {
         val prev = guardedExprs.getOrElse(pathVar, Nil)
         guardedExprs += pathVar -> (expr +: prev)
       }
 
       private var equations = Seq[Expr]()
-      @inline protected def iff(e1: Expr, e2: Expr): Unit = equations :+= Equals(e1, e2)
+      /*@`inline`*/ protected def iff(e1: Expr, e2: Expr): Unit = equations :+= Equals(e1, e2)
 
       private var tpes = Map[Variable, Set[(Variable, TypeInfo, Expr)]]()
       protected def storeType(pathVar: Variable, info: TypeInfo, arg: Expr): Variable = {

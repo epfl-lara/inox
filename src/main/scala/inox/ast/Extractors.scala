@@ -277,7 +277,7 @@ trait TreeDeconstructor {
       val subArgs = els.flatMap { case (k, v) => Seq(k, v) }
       val builder = (ids: Seq[Identifier], vs: Seq[t.Variable], as: Seq[t.Expr], tps: Seq[t.Type]) => {
         def rec(kvs: Seq[t.Expr]): Seq[(t.Expr, t.Expr)] = kvs match {
-          case Seq(k, v, t @ _*) =>
+          case Seq(k, v, t : _*) =>
             Seq(k -> v) ++ rec(t)
           case Seq() => Seq()
           case _ => sys.error("odd number of key/value expressions")
@@ -311,7 +311,7 @@ trait TreeDeconstructor {
       val subArgs = elems.flatMap { case (k, v) => Seq(k, v) } :+ default
       val builder = (ids: Seq[Identifier], vs: Seq[t.Variable], as: Seq[t.Expr], tps: Seq[t.Type]) => {
         def rec(kvs: Seq[t.Expr]): (Seq[(t.Expr, t.Expr)], t.Expr) = kvs match {
-          case Seq(k, v, t @ _*) =>
+          case Seq(k, v, t : _*) =>
             val (kvs, default) = rec(t)
             (Seq(k -> v) ++ kvs, default)
           case Seq(default) => (Seq(), default)

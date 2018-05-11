@@ -152,7 +152,7 @@ trait Paths { self: SymbolOps with TypeOps =>
       * A path is empty iff it contains no let-bindings and its path condition is trivial.
       * Note that empty paths may contain open bounds.
       */
-    @inline def isEmpty: Boolean = _isEmpty.get
+    /*@`inline`*/ def isEmpty: Boolean = _isEmpty.get
     private[this] val _isEmpty: Lazy[Boolean] = Lazy(elements forall {
       case Condition(BooleanLiteral(true)) => true
       case OpenBound(_) => true
@@ -172,7 +172,7 @@ trait Paths { self: SymbolOps with TypeOps =>
     }
 
     /** Free variables within the path */
-    @inline def freeVariables: Set[Variable] = _free.get
+    /*@`inline`*/ def freeVariables: Set[Variable] = _free.get
     private[this] val _free: Lazy[Set[Variable]] = Lazy {
       val allVars = elements
         .collect { case Condition(e) => e case CloseBound(_, e) => e }
@@ -182,7 +182,7 @@ trait Paths { self: SymbolOps with TypeOps =>
     }
 
     /** Variables that aren't bound by a [[Path.CloseBound]]. */
-    @inline def unboundVariables: Set[Variable] = _unbound.get
+    /*@`inline`*/ def unboundVariables: Set[Variable] = _unbound.get
     private[this] val _unbound: Lazy[Set[Variable]] = Lazy {
       val allVars = elements
         .collect { case Condition(e) => e case CloseBound(_, e) => e }
@@ -191,23 +191,23 @@ trait Paths { self: SymbolOps with TypeOps =>
       allVars.toSet -- boundVars
     }
 
-    @inline def bindings: Seq[(ValDef, Expr)] = _bindings.get
+    /*@`inline`*/ def bindings: Seq[(ValDef, Expr)] = _bindings.get
     private[this] val _bindings: Lazy[Seq[(ValDef, Expr)]] =
       Lazy(elements.collect { case CloseBound(vd, e) => vd -> e })
 
-    @inline def open: Seq[ValDef] = _open.get
+    /*@`inline`*/ def open: Seq[ValDef] = _open.get
     private[this] val _open: Lazy[Seq[ValDef]] =
       Lazy(elements.collect { case OpenBound(vd) => vd })
 
-    @inline def closed: Seq[ValDef] = _closed.get
+    /*@`inline`*/ def closed: Seq[ValDef] = _closed.get
     private[this] val _closed: Lazy[Seq[ValDef]] =
       Lazy(elements.collect { case CloseBound(vd, _) => vd })
 
-    @inline def bound: Seq[ValDef] = _bound.get
+    /*@`inline`*/ def bound: Seq[ValDef] = _bound.get
     private[this] val _bound: Lazy[Seq[ValDef]] =
       Lazy(elements.collect { case CloseBound(vd, _) => vd case OpenBound(vd) => vd })
 
-    @inline def conditions: Seq[Expr] = _conditions.get
+    /*@`inline`*/ def conditions: Seq[Expr] = _conditions.get
     private[this] val _conditions: Lazy[Seq[Expr]] =
       Lazy(elements.collect { case Condition(e) => e })
 
@@ -293,12 +293,12 @@ trait Paths { self: SymbolOps with TypeOps =>
     }
 
     /** Folds the path into the associated boolean proposition */
-    @inline def toClause: Expr = _clause.get
+    /*@`inline`*/ def toClause: Expr = _clause.get
     private[this] val _clause: Lazy[Expr] = Lazy(and(BooleanLiteral(true)))
 
     /** Like [[toClause]] but doesn't simplify final path through constructors
       * from [[Constructors]] */
-    @inline def fullClause: Expr = _fullClause.get
+    /*@`inline`*/ def fullClause: Expr = _fullClause.get
     private[this] val _fullClause: Lazy[Expr] =
       Lazy(fold[Expr](BooleanLiteral(true), Let, And(_, _))(elements))
 

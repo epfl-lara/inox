@@ -387,25 +387,25 @@ class Parser(file: File) {
       val vars = locals.vars
       def withVariable(sym: SSymbol, expr: Expr): Context = Context(locals.withVariable(sym, expr))
 
-      @inline def isSort(sym: SSymbol): Boolean = locals.isSort(sym)
-      @inline def lookupSort(sym: SSymbol): Option[Identifier] = locals.lookupSort(sym)
-      @inline def getSort(sym: SSymbol): Identifier = locals.getSort(sym)
+      /*@`inline`*/ def isSort(sym: SSymbol): Boolean = locals.isSort(sym)
+      /*@`inline`*/ def lookupSort(sym: SSymbol): Option[Identifier] = locals.lookupSort(sym)
+      /*@`inline`*/ def getSort(sym: SSymbol): Identifier = locals.getSort(sym)
 
-      @inline def isConstructor(sym: SSymbol): Boolean = locals.isConstructor(sym)
-      @inline def lookupConstructor(sym: SSymbol): Option[Identifier] = locals.lookupConstructor(sym)
-      @inline def getConstructor(sym: SSymbol): Identifier = locals.getConstructor(sym)
+      /*@`inline`*/ def isConstructor(sym: SSymbol): Boolean = locals.isConstructor(sym)
+      /*@`inline`*/ def lookupConstructor(sym: SSymbol): Option[Identifier] = locals.lookupConstructor(sym)
+      /*@`inline`*/ def getConstructor(sym: SSymbol): Identifier = locals.getConstructor(sym)
 
-      @inline def isSelector(sym: SSymbol): Boolean = locals.isSelector(sym)
-      @inline def getSelector(sym: SSymbol): Identifier = locals.getSelector(sym)
+      /*@`inline`*/ def isSelector(sym: SSymbol): Boolean = locals.isSelector(sym)
+      /*@`inline`*/ def getSelector(sym: SSymbol): Identifier = locals.getSelector(sym)
 
-      @inline def isGeneric(sym: SSymbol): Boolean = locals.isGeneric(sym)
-      @inline def getGeneric(sym: SSymbol): TypeParameter = locals.getGeneric(sym)
+      /*@`inline`*/ def isGeneric(sym: SSymbol): Boolean = locals.isGeneric(sym)
+      /*@`inline`*/ def getGeneric(sym: SSymbol): TypeParameter = locals.getGeneric(sym)
 
-      @inline def isVariable(sym: SSymbol): Boolean = locals.isVariable(sym)
-      @inline def getVariable(sym: SSymbol): Expr = locals.getVariable(sym)
+      /*@`inline`*/ def isVariable(sym: SSymbol): Boolean = locals.isVariable(sym)
+      /*@`inline`*/ def getVariable(sym: SSymbol): Expr = locals.getVariable(sym)
 
-      @inline def isFunction(sym: SSymbol): Boolean = locals.isFunction(sym)
-      @inline def getFunction(sym: SSymbol): Identifier = locals.getFunction(sym)
+      /*@`inline`*/ def isFunction(sym: SSymbol): Boolean = locals.isFunction(sym)
+      /*@`inline`*/ def getFunction(sym: SSymbol): Identifier = locals.getFunction(sym)
     }
 
     def extractTerm(term: Term)(implicit locals: Locals): Expr = fromSMT(term)(Context(locals))

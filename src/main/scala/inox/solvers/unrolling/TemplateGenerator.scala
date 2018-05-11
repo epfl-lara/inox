@@ -136,13 +136,13 @@ trait TemplateGenerator { self: Templates =>
       condTree += pathVar -> (condTree(pathVar) + id)
     }
 
-    @inline def encodedCond(id: Variable): Encoded = substMap.getOrElse(id, condVars(id))
+    /*@`inline`*/ def encodedCond(id: Variable): Encoded = substMap.getOrElse(id, condVars(id))
 
     var exprVars = Map[Variable, Encoded]()
-    @inline def storeExpr(id: Variable): Unit = exprVars += id -> encodeSymbol(id)
+    /*@`inline`*/ def storeExpr(id: Variable): Unit = exprVars += id -> encodeSymbol(id)
 
     var chooseVars = Map[Variable, Encoded]()
-    @inline def storeChoose(id: Variable): Unit = chooseVars += id -> encodeSymbol(id)
+    /*@`inline`*/ def storeChoose(id: Variable): Unit = chooseVars += id -> encodeSymbol(id)
 
     // Represents clauses of the form:
     //    id => expr && ... && expr
@@ -156,24 +156,24 @@ trait TemplateGenerator { self: Templates =>
 
     // Represents equations (simple formulas)
     var equations = Seq[Expr]()
-    @inline def iff(e1: Expr, e2: Expr): Unit = equations :+= Equals(e1, e2)
+    /*@`inline`*/ def iff(e1: Expr, e2: Expr): Unit = equations :+= Equals(e1, e2)
 
     var lambdas = Seq[LambdaTemplate]()
-    @inline def registerLambda(lambda: LambdaTemplate): Unit = lambdas :+= lambda
+    /*@`inline`*/ def registerLambda(lambda: LambdaTemplate): Unit = lambdas :+= lambda
 
     var quantifications = Seq[QuantificationTemplate]()
-    @inline def registerQuantification(quantification: QuantificationTemplate): Unit =
+    /*@`inline`*/ def registerQuantification(quantification: QuantificationTemplate): Unit =
       quantifications :+= quantification
 
     var equalities = Map[Encoded, Set[Equality]]()
-    @inline def storeEquality(guardVar: Variable, e1: Expr, e2: Expr): Unit = {
+    /*@`inline`*/ def storeEquality(guardVar: Variable, e1: Expr, e2: Expr): Unit = {
       val b = encodedCond(guardVar)
       val prev: Set[Equality] = equalities.getOrElse(b, Set.empty)
       val encoder: Expr => Encoded = mkEncoder(localSubst)
       equalities += b -> (prev + Equality(e1.getType, encoder(e1), encoder(e2)))
     }
 
-    @inline def localSubst: Map[Variable, Encoded] =
+    /*@`inline`*/ def localSubst: Map[Variable, Encoded] =
       substMap ++ condVars ++ exprVars ++ chooseVars ++ lambdas.map(_.ids)
 
     def rec(pathVar: Variable, expr: Expr, pol: Option[Boolean]): Expr = expr match {

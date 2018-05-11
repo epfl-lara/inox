@@ -98,7 +98,7 @@ object OptionParsers {
   }
 
   def seqParser[A](base: OptionParser[A]): OptionParser[Seq[A]] = s => {
-    @inline def foo: Option[Seq[A]] = Some(
+    /*@`inline`*/ def foo: Option[Seq[A]] = Some(
       s.split(",")
         .filter(_.nonEmpty)
         .map(base andThen (_.getOrElse(return None)))
@@ -178,7 +178,7 @@ case class Options(options: Seq[OptionValue[_]]) {
     options.filter(opt => !defs(opt.optionDef)) ++ newOpts
   }
 
-  @inline
+  /*@`inline`*/
   def ++(that: Options): Options = this ++ that.options
 }
 

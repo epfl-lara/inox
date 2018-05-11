@@ -17,7 +17,7 @@ trait CallGraph {
     case _ => Set()
   }
 
-  @inline def graph: DiGraph[Identifier, SimpleEdge[Identifier]] = _graph.get
+  /*@`inline`*/ def graph: DiGraph[Identifier, SimpleEdge[Identifier]] = _graph.get
   private[this] val _graph: Lazy[DiGraph[Identifier, SimpleEdge[Identifier]]] = Lazy({
     var g = DiGraph[Identifier, SimpleEdge[Identifier]]()
     for ((_, fd) <- symbols.functions; (from, to) <- collect(collectCalls(fd))(fd.fullBody)) {
@@ -112,7 +112,7 @@ trait CallGraph {
     transitivelyCalls(from.id, to.id)
   }
 
-  @inline def sccs: DiGraph[Set[Identifier], SimpleEdge[Set[Identifier]]] = _sccs.get
+  /*@`inline`*/ def sccs: DiGraph[Set[Identifier], SimpleEdge[Set[Identifier]]] = _sccs.get
   private[this] val _sccs: Lazy[DiGraph[Set[Identifier], SimpleEdge[Set[Identifier]]]] =
     Lazy(graph.stronglyConnectedComponents)
 

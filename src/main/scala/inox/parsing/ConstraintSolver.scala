@@ -17,7 +17,7 @@ trait ConstraintSolvers { self: Interpolator =>
       var unknowns = Set[Unknown]()
 
       private val traverser = new TreeTraverser {
-        override def traverse(t: Type) {
+        override def traverse(t: Type) = {
           t match {
             case u: Unknown => unknowns += u
             case _ => super.traverse(t)
@@ -36,7 +36,7 @@ trait ConstraintSolvers { self: Interpolator =>
       private var exists = false
 
       private val traverser = new TreeTraverser {
-        override def traverse(t: Type) {
+        override def traverse(t: Type) = {
           if (!exists) {
             t match {
               case _: Unknown => exists = true
@@ -58,7 +58,7 @@ trait ConstraintSolvers { self: Interpolator =>
       var negatives = Set[Unknown]()
 
       private val traverser = new TreeTraverser {
-        override def traverse(t: Type) {
+        override def traverse(t: Type) = {
           t match {
             case u: Unknown => {
               negatives += u
@@ -98,7 +98,7 @@ trait ConstraintSolvers { self: Interpolator =>
       var exists = false
 
       val traverser = new TreeTraverser {
-        override def traverse(t: Type) {
+        override def traverse(t: Type) = {
           t match {
             case u2: Unknown => {
               if (u == u2) exists = true
@@ -127,7 +127,7 @@ trait ConstraintSolvers { self: Interpolator =>
       var typeClasses: Map[Unknown, TypeClass] = Map()
       var tupleConstraints: Map[Unknown, Set[Constraint]] = Map()
 
-      def substitute(u: Unknown, t: Type) {
+      def substitute(u: Unknown, t: Type) = {
         val subst = new Unifier(Map(u -> t))
         unknowns -= u
         remaining = remaining.map(subst(_))

@@ -14,7 +14,7 @@ trait SolverFactory {
 
   def shutdown(): Unit = {}
 
-  def reclaim(s: S) {
+  def reclaim(s: S): Unit = {
     s.free()
   }
 

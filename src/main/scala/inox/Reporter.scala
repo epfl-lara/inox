@@ -77,7 +77,7 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
     }
   }
 
-  def whenDebug(pos: Position, section: DebugSection)(body: (Any => Unit) => Any) {
+  def whenDebug(pos: Position, section: DebugSection)(body: (Any => Unit) => Any): Unit = {
     if (isDebugEnabled(section)) {
       body( { (msg: Any) => emit(account(Message(DEBUG(section), pos, msg))) } )
     }

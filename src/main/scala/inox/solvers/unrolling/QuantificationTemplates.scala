@@ -296,7 +296,7 @@ trait QuantificationTemplates { self: Templates =>
       TypeKey(tpe)
   }
 
-  @inline
+  /*@`inline`*/
   private def matcherKey(m: Matcher): MatcherKey = matcherKey(m.key)
 
   protected def correspond(k1: MatcherKey, k2: MatcherKey): Option[Boolean] = (k1, k2) match {
@@ -305,7 +305,7 @@ trait QuantificationTemplates { self: Templates =>
     case _ => None
   }
 
-  @inline
+  /*@`inline`*/
   protected def correspond(m1: Matcher, m2: Matcher): Option[Boolean] =
     correspond(matcherKey(m1), matcherKey(m2))
 

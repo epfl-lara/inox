@@ -33,7 +33,7 @@ class InterruptManager(reporter: Reporter) extends Interruptible {
 
   val interrupted: AtomicBoolean = new AtomicBoolean(false)
 
-  @inline
+  /*@`inline`*/
   def isInterrupted = interrupted.get
 
   def interrupt() = synchronized {

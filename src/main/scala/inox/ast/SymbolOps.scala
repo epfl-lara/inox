@@ -537,7 +537,7 @@ trait SymbolOps { self: TypeOps =>
         !graph.transitiveSucc(id)(id) && rec(getFunction(id).fullBody)
       }
 
-      def inline(e: Expr): Expr = postMap {
+      def inlineStep(e: Expr): Expr = postMap {
         case fi: FunctionInvocation if toInline(fi.id) =>
           Some(fi.inlined)
         case Equals(IsTyped(e1, adt: ADTType), e2)
@@ -546,7 +546,7 @@ trait SymbolOps { self: TypeOps =>
         case _ => None
       } (e)
 
-      fixpoint(inline)(e)
+      fixpoint(inlineStep)(e)
     }
 
     def inlineForalls(e: Expr): Expr = postMap {
@@ -560,7 +560,7 @@ trait SymbolOps { self: TypeOps =>
         case _ => false
       }
 
-      def inline(quantified: Set[Variable], e: Expr): Expr = andJoin(collect {
+      def inlineStep(quantified: Set[Variable], e: Expr): Expr = andJoin(collect {
         case fi @ FunctionInvocation(_, _, args) if qArgs(quantified, args) =>
           val tfd = fi.tfd
           val nextQuantified = args.collect { case v: Variable if quantified(v) => v }.toSet
@@ -575,7 +575,7 @@ trait SymbolOps { self: TypeOps =>
             } (pred) && !exists {
               case fi: FunctionInvocation => transitivelyCalls(fi.id, tfd.id)
               case _ => false
-            } (pred) => Set(replaceFromSymbols(Map(res.toVariable -> fi), and(pred, inline(nextQuantified, pred))))
+            } (pred) => Set(replaceFromSymbols(Map(res.toVariable -> fi), and(pred, inlineStep(nextQuantified, pred))))
             case _ => Set.empty[Expr]
           }
         case _ => Set.empty[Expr]
@@ -584,7 +584,7 @@ trait SymbolOps { self: TypeOps =>
       postMap {
         case f @ Forall(args, body) =>
           Some(assume(
-            forall(args, inline(args.map(_.toVariable).toSet, body)),
+            forall(args, inlineStep(args.map(_.toVariable).toSet, body)),
             f
           ))
         case _ => None
@@ -1132,7 +1132,7 @@ trait SymbolOps { self: TypeOps =>
 
   // Use this only to debug isValueOfType
   private implicit class BooleanAdder(b: Boolean) {
-    @inline def <(msg: => String) = {/*if(!b) println(msg); */b}
+    /*@`inline`*/ def <(msg: => String) = {/*if(!b) println(msg); */b}
   }
 
   /** Returns true if expr is a value of type t */
