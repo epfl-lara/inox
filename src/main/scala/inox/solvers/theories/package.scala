@@ -8,7 +8,7 @@ import evaluators._
 package object theories {
 
   case class TheoryException(msg: String)
-    extends RuntimeException(s"Theory encoding failed: $msg")
+    extends Unsupported(s"Theory encoding failed: $msg")
 
   def Z3(p: Program): ast.ProgramTransformer {
     val sourceProgram: p.type

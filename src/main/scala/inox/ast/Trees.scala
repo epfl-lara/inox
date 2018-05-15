@@ -18,8 +18,8 @@ trait Trees
      with Printers
      with TreeOps { self =>
 
-  class Unsupported(t: Tree, msg: String)(implicit ctx: Context)
-    extends Exception(s"${t.asString(PrinterOptions.fromContext(ctx))}@${t.getPos} $msg")
+  class UnsupportedTree(t: Tree, msg: String)(implicit ctx: Context)
+    extends Unsupported(s"${t.asString(PrinterOptions.fromContext(ctx))}@${t.getPos} $msg")
 
   abstract class Tree extends utils.Positioned with Serializable {
     def copiedFrom(o: Trees#Tree): this.type = setPos(o)

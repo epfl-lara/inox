@@ -23,6 +23,8 @@ package object inox {
 
   case class FatalError(msg: String) extends Exception(msg)
 
+  class Unsupported(msg: String) extends Exception(msg)
+
   /** We provide aliases to [[ast.Identifier]] and [[ast.FreshIdentifier]] here
     * for a more natural import experience.
     * 

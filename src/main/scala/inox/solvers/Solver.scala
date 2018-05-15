@@ -35,7 +35,7 @@ trait AbstractSolver extends Interruptible {
   }
 
   case class SolverUnsupportedError(t: Tree, reason: Option[String] = None)
-    extends Unsupported(t, SolverUnsupportedError.msg(t,reason))
+    extends UnsupportedTree(t, SolverUnsupportedError.msg(t,reason))
 
   protected def unsupported(t: Tree): Nothing = {
     throw SolverUnsupportedError(t, None)

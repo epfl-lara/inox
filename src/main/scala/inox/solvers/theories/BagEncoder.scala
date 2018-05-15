@@ -194,8 +194,8 @@ trait BagEncoder extends SimpleEncoder {
 
         if (exprOps.variablesOf(fb1).isEmpty && exprOps.variablesOf(fb2).isEmpty) {
           def groundMap(els: Seq[(Expr, Expr)]): Map[Expr, Expr] = els.map { case (key, value) => (
-            evaluator.eval(key).result.getOrElse(throw new Unsupported(e, "Failed to evaluate bag contents")),
-            evaluator.eval(value).result.getOrElse(throw new Unsupported(e, "Failed to evaluate bag contents"))
+            evaluator.eval(key).result.getOrElse(throw new UnsupportedTree(e, "Failed to evaluate bag contents")),
+            evaluator.eval(value).result.getOrElse(throw new UnsupportedTree(e, "Failed to evaluate bag contents"))
           )}.toMap
 
           val map1 = groundMap(els1)

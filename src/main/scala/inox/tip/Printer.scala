@@ -28,7 +28,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
   def targetName = "tip"
 
   protected def unsupported(t: Tree, str: String): Nothing = {
-    throw new Unsupported(t, s"(of class ${t.getClass}) is unsupported by TIP printer:\n  " + str)
+    throw new UnsupportedTree(t, s"(of class ${t.getClass}) is unsupported by TIP printer:\n  " + str)
   }
 
   /* Note that we are NOT relying on a "real" interpreter here. We just
