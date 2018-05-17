@@ -119,18 +119,16 @@ object SolverFactory {
         val theoryEnc = theories.Z3(fullEnc.targetProgram)
         val progEnc = fullEnc andThen theoryEnc
 
-        () => new {
-          val program: p.type = p
-          val context = ctx
-          val encoder: enc.type = enc
-        } with z3.NativeZ3Solver with TimeoutSolver with tip.TipDebugger {
+        class SolverBase(val program: p.type, val context: Context, val encoder: enc.type, val chooses: chooseEnc.type)
+          extends z3.NativeZ3Solver with TimeoutSolver with tip.TipDebugger {
+
           val semantics = sem
-          val chooses: chooseEnc.type = chooseEnc
           override protected lazy val theories: theoryEnc.type = theoryEnc
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
           lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
         }
+        () => new SolverBase(p, ctx, enc, chooseEnc)
       })
 
       case "nativez3-opt" => create(p)(finalName, {
@@ -139,18 +137,16 @@ object SolverFactory {
         val theoryEnc = theories.Z3(fullEnc.targetProgram)
         val progEnc = fullEnc andThen theoryEnc
 
-        () => new {
-          val program: p.type = p
-          val context = ctx
-          val encoder: enc.type = enc
-        } with z3.NativeZ3Optimizer with TimeoutSolver {
+        class SolverBase(val program: p.type, val context: Context, val encoder: enc.type, val chooses: chooseEnc.type)
+          extends z3.NativeZ3Optimizer with TimeoutSolver {
+
           val semantics = sem
-          val chooses: chooseEnc.type = chooseEnc
           override protected lazy val theories: theoryEnc.type = theoryEnc
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
           lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
         }
+        () => new SolverBase(p, ctx, enc, chooseEnc)
       })
 
       case "unrollz3" => create(p)(finalName, {
@@ -160,25 +156,23 @@ object SolverFactory {
         val progEnc = fullEnc andThen theoryEnc
         val targetSem = progEnc.targetProgram.getSemantics
 
-        () => new {
-          val program: p.type = p
-          val context = ctx
-          val encoder: enc.type = enc
-        } with UnrollingSolver with TimeoutSolver with tip.TipDebugger {
+        class SolverBase(val program: p.type, val context: Context, val encoder: enc.type, val chooses: chooseEnc.type)
+          extends UnrollingSolver with TimeoutSolver with tip.TipDebugger {
+
           val semantics = sem
-          val chooses: chooseEnc.type = chooseEnc
           val theories: theoryEnc.type = theoryEnc
           val targetSemantics = targetSem
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
 
-          protected val underlying = new {
+          protected val underlying = new z3.UninterpretedZ3Solver {
             val program: progEnc.targetProgram.type = progEnc.targetProgram
             val context = ctx
-          } with z3.UninterpretedZ3Solver {
+
             val semantics: program.Semantics = targetSem
           }
         }
+        () => new SolverBase(p, ctx, enc, chooseEnc)
       })
 
       case "smt-z3" => create(p)(finalName, {
@@ -188,25 +182,23 @@ object SolverFactory {
         val progEnc = fullEnc andThen theoryEnc
         val targetSem = progEnc.targetProgram.getSemantics
 
-        () => new {
-          val program: p.type = p
-          val context = ctx
-          val encoder: enc.type = enc
-        } with UnrollingSolver with TimeoutSolver with tip.TipDebugger {
+        class SolverBase(val program: p.type, val context: Context, val encoder: enc.type, val chooses: chooseEnc.type)
+          extends UnrollingSolver with TimeoutSolver with tip.TipDebugger {
+
           val semantics = sem
-          val chooses: chooseEnc.type = chooseEnc
           val theories: theoryEnc.type = theoryEnc
           val targetSemantics = targetSem
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
 
-          protected val underlying = new {
+          protected val underlying = new smtlib.Z3Solver {
             val program: progEnc.targetProgram.type = progEnc.targetProgram
             val context = ctx
-          } with smtlib.Z3Solver {
+
             val semantics: program.Semantics = targetSem
           }
         }
+        () => new SolverBase(p, ctx, enc, chooseEnc)
       })
 
       case "smt-z3-opt" => create(p)(finalName, {
@@ -216,25 +208,25 @@ object SolverFactory {
         val progEnc = fullEnc andThen theoryEnc
         val targetSem = progEnc.targetProgram.getSemantics
 
-        () => new {
-          val program: p.type = p
-          val context = ctx
-          val encoder: enc.type = enc
-        } with UnrollingOptimizer with TimeoutSolver {
+        class SolverBase(val program: p.type, val context: Context, val encoder: enc.type, val chooses: chooseEnc.type)
+          extends UnrollingOptimizer with TimeoutSolver {
+
           val semantics = sem
-          val chooses: chooseEnc.type = chooseEnc
           val theories: theoryEnc.type = theoryEnc
           val targetSemantics = targetSem
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
 
-          protected val underlying = new {
-            val program: progEnc.targetProgram.type = progEnc.targetProgram
-            val context = ctx
-          } with smtlib.optimization.Z3Optimizer {
-            val semantics: program.Semantics = targetSem
+          protected val underlying = {
+            class UnderlyingSolverBase(val program: progEnc.targetProgram.type, val context: Context)
+              extends smtlib.optimization.Z3Optimizer {
+
+              val semantics: program.Semantics = targetSem
+            }
+            new UnderlyingSolverBase(progEnc.targetProgram, ctx)
           }
         }
+        () => new SolverBase(p, ctx, enc, chooseEnc)
       })
 
       case "smt-cvc4" => create(p)(finalName, {
