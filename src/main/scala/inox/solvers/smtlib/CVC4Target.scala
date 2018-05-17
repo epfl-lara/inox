@@ -71,14 +71,14 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
         val elem = fromSMT(e)
         FiniteSet(Seq(elem), elem.getType)
 
-      case (Sets.Insert(set, es @ _*), Some(SetType(base))) => es.foldLeft(fromSMT(set, SetType(base))) {
+      case (Sets.Insert(set, es : _*), Some(SetType(base))) => es.foldLeft(fromSMT(set, SetType(base))) {
         case (FiniteSet(elems, base), e) =>
           val elem = fromSMT(e, base)
           FiniteSet(elems.filter(_ != elem) :+ elem, base)
         case (s, e) => SetAdd(s, fromSMT(e, base))
       }
 
-      case (Sets.Insert(set, es @ _*), _) => es.foldLeft(fromSMT(set)) {
+      case (Sets.Insert(set, es : _*), _) => es.foldLeft(fromSMT(set)) {
         case (FiniteSet(elems, base), e) =>
           val elem = fromSMT(e, base)
           FiniteSet(elems.filter(_ != elem) :+ elem, base)

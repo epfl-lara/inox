@@ -42,7 +42,7 @@ trait ExpressionExtractors { self: Interpolator =>
         case (Seq(), Seq()) => Some(empty)
         case (Seq(), _) => None
         case (_, Seq()) => None
-        case (_, Seq(ExpressionSeqHole(i), templateRest @ _*)) => {
+        case (_, Seq(ExpressionSeqHole(i), templateRest : _*)) => {
           val n = pair._1.length - templateRest.length
 
           if (n < 0) {
@@ -56,7 +56,7 @@ trait ExpressionExtractors { self: Interpolator =>
             }
           }
         }
-        case (Seq(expr, exprRest @ _*), Seq(template, templateRest @ _*)) => for {
+        case (Seq(expr, exprRest : _*), Seq(template, templateRest : _*)) => for {
           matchingsHead <- extract(toExprObl(expr -> template))
           matchingsRest <- extract(toExprObls(exprRest -> templateRest))
         } yield matchingsHead ++ matchingsRest
@@ -134,7 +134,7 @@ trait ExpressionExtractors { self: Interpolator =>
         }
 
         case trees.Let(vd, value, body) => template match {
-          case Let(Seq((templateId, optTemplateType, templateValue), rest @ _*), templateBody) => {
+          case Let(Seq((templateId, optTemplateType, templateValue), rest : _*), templateBody) => {
 
             val templateRest = rest match {
               case Seq() => templateBody
@@ -169,7 +169,7 @@ trait ExpressionExtractors { self: Interpolator =>
         }
 
         case trees.Choose(arg, pred) => template match {
-          case Abstraction(Choose, Seq((templateId, optTemplateType), rest @ _*), templatePred) => {
+          case Abstraction(Choose, Seq((templateId, optTemplateType), rest : _*), templatePred) => {
             val templateRest = rest match {
               case Seq() => templatePred
               case _ => Abstraction(Choose, rest, templatePred)

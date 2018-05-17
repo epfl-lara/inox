@@ -113,8 +113,8 @@ trait SMTLIBParser {
 
     case Core.Equals(e1, e2) => fromSMTUnifyType(e1, e2, None)(Equals)
 
-    case Core.And(es @ _*) => And(es.map(fromSMT(_, BooleanType())))
-    case Core.Or(es @ _*) => Or(es.map(fromSMT(_, BooleanType())))
+    case Core.And(es : _*) => And(es.map(fromSMT(_, BooleanType())))
+    case Core.Or(es : _*) => Or(es.map(fromSMT(_, BooleanType())))
     case Core.Implies(e1, e2) => Implies(fromSMT(e1, BooleanType()), fromSMT(e2, BooleanType()))
     case Core.Not(e) => Not(fromSMT(e, BooleanType()))
 

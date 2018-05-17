@@ -13,7 +13,7 @@ trait TypeExtractors { self: Interpolator =>
       case (Seq(), Seq()) => Some(empty)
       case (Seq(), _) => None
       case (_, Seq()) => None
-      case (_, Seq(TypeSeqHole(i), templateRest @ _*)) => {
+      case (_, Seq(TypeSeqHole(i), templateRest : _*)) => {
         val n = tpes.length - templateRest.length
 
         if (n < 0) {
@@ -25,7 +25,7 @@ trait TypeExtractors { self: Interpolator =>
           extractSeq(rest, templateRest) map (_ ++ matching(i, matches))
         }
       }
-      case (Seq(tpe, tpeRest @ _*), Seq(template, templateRest @ _*)) => for {
+      case (Seq(tpe, tpeRest : _*), Seq(template, templateRest : _*)) => for {
         matchingsHead <- extract(tpe, template)
         matchingsRest <- extractSeq(tpeRest, templateRest)
       } yield matchingsHead ++ matchingsRest

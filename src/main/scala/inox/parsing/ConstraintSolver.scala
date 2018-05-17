@@ -163,7 +163,7 @@ trait ConstraintSolvers { self: Interpolator =>
         case Bits => "a bit vector"
       }
 
-      def handle(constraint: Constraint) {
+      def handle(constraint: Constraint): Unit = {
 
         constraint match {
           case Equal(a, b) => (a, b) match {
