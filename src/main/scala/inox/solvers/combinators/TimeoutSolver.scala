@@ -25,6 +25,8 @@ trait TimeoutSolver extends Solver {
     this
   }
 
+  // FIXME(gsps): [Dotty bug] java.lang.IncompatibleClassChangeError
+  /*
   abstract override def check(config: CheckConfiguration): config.Response[Model, Assumptions] = {
     optTimeout match {
       case Some(to) =>
@@ -47,5 +49,6 @@ trait TimeoutSolver extends Solver {
         super.checkAssumptions(config)(assumptions)
     }
   }
+  */
 
 }

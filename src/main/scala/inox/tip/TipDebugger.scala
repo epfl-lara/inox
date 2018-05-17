@@ -17,11 +17,14 @@ trait TipDebugger extends Solver {
   }
 
   implicit val debugSection: DebugSection
-
+  
+  // FIXME(gsps): [Dotty bug] java.lang.IncompatibleClassChangeError (maybe)
+  /*
   abstract override def free(): Unit = {
     super.free()
     debugOut.foreach(_.free())
   }
+  */
 
   protected lazy val debugOut: Option[tip.Printer] = {
     if (context.reporter.isDebugEnabled) {
@@ -46,6 +49,8 @@ trait TipDebugger extends Solver {
     }
   }
 
+  // FIXME(gsps): [Dotty bug] java.lang.IncompatibleClassChangeError
+  /*
   abstract override def assertCnstr(expr: Expr): Unit = {
     debugOut.foreach { o => o.printScript(encoder.encode(expr)) }
     super.assertCnstr(expr)
@@ -60,6 +65,7 @@ trait TipDebugger extends Solver {
     debugOut.foreach { o => o.emit("; check-assumptions required here, but not part of tip standard") }
     super.checkAssumptions(config)(assumptions)
   }
+  */
 }
 
 // Unique numbers
