@@ -10,7 +10,7 @@ object Graphs {
   }
 
   case class SimpleEdge[Node](_1: Node, _2: Node) extends EdgeLike[Node]
-  case class LabeledEdge[Label, Node](_1: Node, l: Label, _2: Node) extends EdgeLike[Node]
+  case class LabeledEdge[Label, Node](_1: Node, _2: Node, l: Label) extends EdgeLike[Node]
 
   trait DiGraphLike[Node, Edge <: EdgeLike[Node], G <: DiGraphLike[Node, Edge, G]] {
     // The vertices
