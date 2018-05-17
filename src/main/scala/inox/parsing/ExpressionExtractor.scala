@@ -239,7 +239,7 @@ trait ExpressionExtractors { self: Interpolator =>
         // Instance checking and casting.
 
         case trees.IsConstructor(inner, id) => template match {
-          case IsConstructorOperation(templateInner, name) if id.name == name =>
+          case IsConstructorOperation(templateInner, adtCons) if id.name == adtCons.id.name =>  // FIXME(gsps): [Inox issue] Correct fix?
             extract(toExprObl(inner -> templateInner))
           case _ => fail
         }
