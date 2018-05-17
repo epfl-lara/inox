@@ -265,7 +265,7 @@ trait GenTreeOps { self =>
   def simplePostTransform(post: Target => Target)(tree: Source) = {
     val newPost = (e: Target, c: Unit) => (post(e), ())
 
-    genericTransform[Unit]((e,c) => (e, None), newPost, noCombiner)(())(tree)._1
+    genericTransform[Unit]((e,c) => (e, ()), newPost, noCombiner)(())(tree)._1
   }
 
 
