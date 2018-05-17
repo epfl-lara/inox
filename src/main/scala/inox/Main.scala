@@ -46,7 +46,7 @@ trait MainHelpers {
     optSelectedSolvers -> Description(General, {
       "Use solvers s1,s2,...\nAvailable: " +
       solvers.SolverFactory.solverNames.toSeq.sortBy(_._1).map {
-        case (name, desc) => f"\n  $name%-14s : $desc"
+        case (name, desc) => String.format("\n  %-14s : %s", name, desc)
       }.mkString("")
     }),
     optDebug -> Description(General, {
