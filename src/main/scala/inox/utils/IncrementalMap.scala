@@ -17,6 +17,7 @@ class IncrementalMap[A, B] private(dflt: Option[B])
   def this() = this(None)
 
   private var stack: List[MMap[A, B]] = List(MMap())
+  override def repr = stack.head.toMap
 
   override def clear(): Unit = {
     stack = List(MMap())
