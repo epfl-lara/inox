@@ -6,14 +6,19 @@ git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
-scalaVersion := "2.11.8"
-
-crossScalaVersions := Seq("2.11.8", "2.12.1")
+val scalacVersion = "2.12.4"
+val dottyVersion = "0.8.0-bin-SNAPSHOT"
+// scalaVersion := scalacVersion
+scalaVersion := dottyVersion
+// crossScalaVersions := Seq("2.11.8", "2.12.1")
+// crossScalaVersions := Seq(scalacVersion, dottyVersion)
 
 scalacOptions ++= Seq(
   "-deprecation",
   "-unchecked",
-  "-feature"
+  "-feature",
+  "-language:Scala2"
+  // "-nowarn"
 )
 
 val osInf = Option(System.getProperty("os.name")).getOrElse("")
@@ -26,23 +31,7 @@ val osName = if (isWindows) "win" else if (isMac) "mac" else "unix"
 
 val osArch = System.getProperty("sun.arch.data.model")
 
-unmanagedJars in Compile += {
-  baseDirectory.value / "unmanaged" / s"scalaz3-$osName-$osArch-${scalaBinaryVersion.value}.jar"
-}
-
-resolvers ++= Seq(
-  "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
-  "Sonatype OSS Releases" at "https://oss.sonatype.org/content/repositories/releases",
-  "uuverifiers" at "http://logicrunch.it.uu.se:4096/~wv/maven"
-)
-
-libraryDependencies ++= Seq(
-  "org.scalatest" %% "scalatest" % "3.0.1" % "test;it",
-  "org.apache.commons" % "commons-lang3" % "3.4",
-  "org.scala-lang" % "scala-reflect" % scalaVersion.value,
-  "com.regblanc" %% "scala-smtlib" % "0.2.2-7-g00a9686",
-  "uuverifiers" %% "princess" % "2016-12-26"
-)
+/* ... snip */
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")
 
@@ -101,15 +90,14 @@ sourceGenerators in Compile += Def.task {
   Seq(file)
 }.taskValue
 
-lazy val genDoc = taskKey[Unit]("Typecheck and interpret the documentation")
+// lazy val genDoc = taskKey[Unit]("Typecheck and interpret the documentation")
+// 
+// enablePlugins(TutPlugin)
+// 
+// tutSourceDirectory := sourceDirectory.value / "main" / "doc"
+// tutTargetDirectory := baseDirectory.value / "doc"
 
-tutSettings
-
-tutSourceDirectory := sourceDirectory.value / "main" / "doc"
-tutTargetDirectory := baseDirectory.value / "doc"
-
-genDoc := { tutQuick.value; () }
-genDoc := (genDoc dependsOn (compile in Compile)).value
+// genDoc := (tut dependsOn (compile in Compile)).value
 
 Keys.fork in run := true
 
@@ -121,13 +109,39 @@ lazy val ItTest = config("it") extend (Test)
 testOptions in ItTest := Seq(Tests.Argument("-oDF"))
 
 lazy val root = (project in file("."))
+  // .settings((scalaVersion in Compile) := dottyVersion)
+  // .settings(scalaModuleInfo ~= (_.map(_.withOverrideScalaVersion(false))))
+  .settings(
+    scalaVersion := scalacVersion,
+
+    unmanagedJars in Compile += {
+      // baseDirectory.value / "unmanaged" / s"scalaz3-$osName-$osArch-${scalaBinaryVersion.value}.jar"
+      baseDirectory.value / "unmanaged" / s"scalaz3-$osName-$osArch-2.12.jar"
+    },
+
+    resolvers ++= Seq(
+      "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
+      "Sonatype OSS Releases" at "https://oss.sonatype.org/content/repositories/releases",
+      "uuverifiers" at "http://logicrunch.it.uu.se:4096/~wv/maven"
+    ),
+
+    libraryDependencies ++= Seq(
+      ("org.scalatest" %% "scalatest" % "3.0.1" % "test;it").withDottyCompat(scalaVersion.value),
+      ("org.apache.commons" % "commons-lang3" % "3.4").withDottyCompat(scalaVersion.value),
+      ("org.scala-lang" % "scala-reflect" % scalacVersion).withDottyCompat(scalaVersion.value),
+      ("com.regblanc" %% "scala-smtlib" % "0.2.2-7-g00a9686").withDottyCompat(scalaVersion.value),
+      ("uuverifiers" %% "princess" % "2016-12-26").withDottyCompat(scalaVersion.value)
+    // ).map(_.withDottyCompat(scalaVersion.value))
+    // ).map { x => val res = x.withDottyCompat(scalaVersion.value); println(s"* $x  [${x.crossVersion}]  ->  $res"); res }
+    )
+  )
   .configs(ItTest)
   .settings(Defaults.itSettings : _*)
   .settings(inConfig(ItTest)(Defaults.testTasks ++ Seq(
     logBuffered := false,
     parallelExecution := false
   )) : _*)
-  .settings(compile := ((compile in Compile) dependsOn script dependsOn genDoc).value)
+  .settings(compile := ((compile in Compile) dependsOn script).value)
 
 publishMavenStyle := true
 
