@@ -81,7 +81,8 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   }
 
   override protected def fromSMT(t: Term, otpe: Option[Type] = None)(implicit context: Context): Expr = {
-    (t, otpe) match {
+    // NOTE(gsps): [Dotty bug] Dotty's patmat phase gets hungs up on exhaustivity checking here, so we manually disable it for now.
+    ((t, otpe): @unchecked) match {
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ MapType(keyType, valueType))) =>
         val Some(Lambda(Seq(arg), body)) = context.getFunction(k, FunctionType(Seq(keyType), valueType))
 
