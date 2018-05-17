@@ -29,9 +29,9 @@ object EncodingEvaluator {
   def apply(p: Program)
            (enc: ast.ProgramTransformer { val sourceProgram: p.type })
            (ev: DeterministicEvaluator { val program: enc.targetProgram.type }) = {
-    new {
+    new EncodingEvaluator {
       val program: p.type = p
-    } with EncodingEvaluator {
+      
       val encoder: enc.type = enc
       val underlying = ev
     }

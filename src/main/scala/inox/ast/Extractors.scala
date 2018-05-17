@@ -419,10 +419,10 @@ trait Extractors { self: Trees =>
     * one need to simplify the tree, it is easy to write/call a simplification
     * function that would simply apply the corresponding constructor for each node.
     */
-  object Operator extends {
+  object Operator extends TreeExtractor {
     protected val s: self.type = self
     protected val t: self.type = self
-  } with TreeExtractor {
+
     type Source = Expr
     type Target = Expr
 

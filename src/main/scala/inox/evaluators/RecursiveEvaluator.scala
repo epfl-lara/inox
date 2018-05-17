@@ -539,10 +539,10 @@ trait RecursiveEvaluator
 
 object RecursiveEvaluator {
   def apply(p: InoxProgram, ctx: Context): RecursiveEvaluator { val program: p.type } = {
-    new {
+    new RecursiveEvaluator with HasDefaultGlobalContext with HasDefaultRecContext {
       val program: p.type = p
+      
       val context = ctx
-    } with RecursiveEvaluator with HasDefaultGlobalContext with HasDefaultRecContext {
       val semantics: p.Semantics = p.getSemantics
     }
   }

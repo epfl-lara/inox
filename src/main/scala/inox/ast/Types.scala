@@ -135,10 +135,10 @@ trait Types { self: Trees =>
     *
     * @see [[Extractors.Operator]] about why we can't have nice(r) things
     */
-  object NAryType extends {
+  object NAryType extends TreeExtractor {
     protected val s: self.type = self
     protected val t: self.type = self
-  } with TreeExtractor {
+
     type Source = Type
     type Target = Type
 
@@ -148,10 +148,10 @@ trait Types { self: Trees =>
     }
   }
 
-  object typeOps extends {
+  object typeOps extends GenTreeOps {
     protected val sourceTrees: self.type = self
     protected val targetTrees: self.type = self
-  } with GenTreeOps {
+
     type Source = self.Type
     type Target = self.Type
     lazy val Deconstructor = NAryType

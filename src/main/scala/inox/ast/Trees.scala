@@ -31,17 +31,18 @@ trait Trees
     override def toString = asString(PrinterOptions.fromContext(Context.printNames))
   }
 
-  val exprOps: ExprOps { val trees: Trees.this.type } = new {
-    protected val trees: Trees.this.type = Trees.this
-  } with ExprOps
+  val exprOps: ExprOps { val trees: self.type } = {
+    class ExprOpsBase(protected val trees: self.type) extends ExprOps
+    new ExprOpsBase(self)
+  }
 
-  val dsl: DSL { val trees: Trees.this.type } = new {
-    protected val trees: Trees.this.type = Trees.this
-  } with DSL
+  val dsl: DSL { val trees: self.type } = new DSL {
+    protected val trees: self.type = self
+  }
 
-  val interpolator: Interpolator { val trees: Trees.this.type } = new {
-    protected val trees: Trees.this.type = Trees.this
-  } with Interpolator
+  val interpolator: Interpolator { val trees: self.type } = new Interpolator {
+    protected val trees: self.type = self
+  }
 
   def aliased(id1: Identifier, id2: Identifier) = {
     id1.toString == id2.toString

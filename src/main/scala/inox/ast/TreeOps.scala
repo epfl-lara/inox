@@ -90,7 +90,7 @@ trait TreeTransformer {
   val s: Trees
   val t: Trees
 
-  lazy val deconstructor: TreeDeconstructor {
+  lazy final val deconstructor: TreeDeconstructor {
     val s: TreeTransformer.this.s.type
     val t: TreeTransformer.this.t.type
   } = s.getDeconstructor(t)
@@ -256,8 +256,8 @@ trait TreeTransformer {
     protected val t1: TreeTransformer
     protected val t2: TreeTransformer { val s: t1.t.type }
 
-    lazy val s: t1.s.type = t1.s
-    lazy val t: t2.t.type = t2.t
+    lazy final val s: t1.s.type = t1.s
+    lazy final val t: t2.t.type = t2.t
 
     override def transform(id: Identifier, tpe: s.Type): (Identifier, t.Type) = {
       val (id1, tp1) = t1.transform(id, tpe)
@@ -295,8 +295,8 @@ private[ast] trait SymbolTransformerComposition extends SymbolTransformer {
   protected val lhs: SymbolTransformer
   protected val rhs: SymbolTransformer { val t: lhs.s.type }
 
-  val s: rhs.s.type = rhs.s
-  val t: lhs.t.type = lhs.t
+  lazy final val s: rhs.s.type = rhs.s
+  lazy final val t: lhs.t.type = lhs.t
 
   override def transform(syms: s.Symbols): t.Symbols = lhs.transform(rhs.transform(syms))
 
@@ -318,10 +318,10 @@ trait SymbolTransformer { self =>
   def compose(that: SymbolTransformer { val t: self.s.type }): SymbolTransformer {
     val s: that.s.type
     val t: self.t.type
-  } = new {
+  } = new SymbolTransformerComposition {
     val rhs: that.type = that
     val lhs: self.type = self
-  } with SymbolTransformerComposition
+  }
 
   def andThen(that: SymbolTransformer {
     val s: self.t.type

@@ -5,7 +5,7 @@ package parsing
 
 trait BuiltIns { self: Interpolator =>
 
-  lazy val bi = new DefaultBuiltIns {}
+  lazy final val bi = new DefaultBuiltIns {}
 
   trait BuiltInNames { 
 

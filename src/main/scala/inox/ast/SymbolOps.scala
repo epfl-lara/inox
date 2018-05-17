@@ -34,9 +34,9 @@ trait SymbolOps { self: TypeOps =>
   }
 
   /** Override point for simplifier creation */
-  protected def createSimplifier(popts: PurityOptions): SimplifierWithPC = new {
+  protected def createSimplifier(popts: PurityOptions): SimplifierWithPC = new SimplifierWithPC {
     val opts: PurityOptions = popts
-  } with SimplifierWithPC
+  }
 
   private var simplifierCache: MutableMap[PurityOptions, SimplifierWithPC] = MutableMap.empty
   def simplifier(implicit purityOpts: PurityOptions): SimplifierWithPC = synchronized {
