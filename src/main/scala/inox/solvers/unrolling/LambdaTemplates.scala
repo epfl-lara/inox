@@ -442,7 +442,8 @@ trait LambdaTemplates { self: Templates =>
 
     val instantiated = new IncrementalSet[(Encoded, App)]
 
-    val incrementals: Seq[IncrementalState] = Seq(
+    // NOTE(gsps): [Dotty bug] Manual type application, since dotc infers a too small type.
+    val incrementals: Seq[IncrementalState] = Seq[IncrementalState](
       lambdaBlockers, appInfos, appBlockers, blockerToApps,
       byID, byType, applications, freeBlockers, nonFreeBlockers, freeFunctions,
       instantiated, typeBlockers)
