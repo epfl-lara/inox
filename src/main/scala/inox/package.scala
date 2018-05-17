@@ -54,6 +54,9 @@ package object inox {
       sorts: Map[Identifier, ADTSort]
     ) extends SimpleSymbols
 
+    def mkSymbols(functions: Map[Identifier, FunDef], sorts: Map[Identifier, ADTSort]): Symbols =
+      Symbols(functions, sorts)
+
     val printer = new ast.Printer { val trees: inox.trees.type = inox.trees }  // NOTE(gsps): [Bug] Dotty emits too precise accessor result type
   }
 
