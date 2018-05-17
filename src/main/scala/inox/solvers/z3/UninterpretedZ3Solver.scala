@@ -76,13 +76,14 @@ trait UninterpretedZ3Solver
 
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
     config.convert(
-      tryZ3(underlying.check(config)).getOrElse(config.cast(Unknown)),
+      tryZ3(underlying.check(config)).getOrElse(config.cast(Unknown))
+        .asInstanceOf[config.Response[Z3Model, Set[Z3AST]]],  // NOTE(gsps): [Dotty bug] Why can't dotty prove this on its own?
       (model: Z3Model) => completeModel(underlying.extractModel(model)),
       underlying.extractUnsatAssumptions)
 
   override def checkAssumptions(config: Configuration)
                                (assumptions: Set[Expr]): config.Response[Model, Assumptions] =
-    config.convert(
+    config.convert[Z3Model, Z3AST, Model, Expr](
       tryZ3(underlying.checkAssumptions(config)(assumptions.map(underlying.toZ3Formula(_))))
         .getOrElse(config.cast(Unknown)),
       (model: Z3Model) => completeModel(underlying.extractModel(model)),
