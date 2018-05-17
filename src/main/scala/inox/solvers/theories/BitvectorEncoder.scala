@@ -65,7 +65,7 @@ trait BitvectorEncoder extends SimpleEncoder {
             } else_ {
               E(last, E(false))
             }) { tpl =>
-              rec(i - 1, tpl._1, tpl._2 +: vs)
+              rec(i - 1, TupleSelect(tpl, 1), TupleSelect(tpl, 2) +: vs)
             }
           }
         }
@@ -131,7 +131,8 @@ trait BitvectorEncoder extends SimpleEncoder {
         E(simplifyBlasted(transform(i1), size), simplifyBlasted(transform(i2), size))
       ) { bl =>
         toBV(blastedCons((0 until size).map { i =>
-          recons(bl._1.getField(blastedCons.fields(i).id), bl._2.getField(blastedCons.fields(i).id))
+          recons(TupleSelect(bl, 1).getField(blastedCons.fields(i).id),
+            TupleSelect(bl, 2).getField(blastedCons.fields(i).id))
         }.toSeq : _*))
       }
     }
