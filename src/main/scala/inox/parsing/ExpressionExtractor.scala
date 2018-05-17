@@ -106,7 +106,7 @@ trait ExpressionExtractors { self: Interpolator =>
         case ExpressionHole(index) =>
           return Some(Map(index -> expr))
         case TypeAnnotationOperation(templateInner, templateType) =>
-          return extract(toTypeObl(expr.getType -> templateType), toExprObl(expr -> templateInner))
+          return extract(toTypeObl(expr.getType(symbols) -> templateType), toExprObl(expr -> templateInner))
         case _ => ()
       }
 
@@ -510,25 +510,25 @@ trait ExpressionExtractors { self: Interpolator =>
           case _ => fail
         }
 
-        case trees.MultiplicityInBag(element, bag) => (bag.getType, template) match {
+        case trees.MultiplicityInBag(element, bag) => (bag.getType(symbols), template) match {
           case (trees.BagType(tpe), BagMultiplicityOperation(templateBag, templateElement, optTemplateType)) =>
             extract(toExprObl(element -> templateElement), toExprObl(bag -> templateBag), toOptTypeObl(tpe -> optTemplateType))
           case _ => fail
         }
 
-        case trees.BagIntersection(left, right) => (left.getType, template) match {
+        case trees.BagIntersection(left, right) => (left.getType(symbols), template) match {
           case (trees.BagType(tpe), BagIntersectionOperation(templateLeft, templateRight, optTemplateType)) =>
             extract(toExprObl(left -> templateLeft), toExprObl(right -> templateRight), toOptTypeObl(tpe -> optTemplateType))
           case _ => fail
         }
 
-        case trees.BagUnion(left, right) => (left.getType, template) match {
+        case trees.BagUnion(left, right) => (left.getType(symbols), template) match {
           case (trees.BagType(tpe), BagUnionOperation(templateLeft, templateRight, optTemplateType)) =>
             extract(toExprObl(left -> templateLeft), toExprObl(right -> templateRight), toOptTypeObl(tpe -> optTemplateType))
           case _ => fail
         }
 
-        case trees.BagDifference(left, right) => (left.getType, template) match {
+        case trees.BagDifference(left, right) => (left.getType(symbols), template) match {
           case (trees.BagType(tpe), BagDifferenceOperation(templateLeft, templateRight, optTemplateType)) =>
             extract(toExprObl(left -> templateLeft), toExprObl(right -> templateRight), toOptTypeObl(tpe -> optTemplateType))
           case _ => fail
@@ -554,7 +554,7 @@ trait ExpressionExtractors { self: Interpolator =>
           case _ => fail
         }
 
-        case trees.MapApply(map, key) => (map.getType, template) match {
+        case trees.MapApply(map, key) => (map.getType(symbols), template) match {
           case (trees.MapType(keyType, valueType), MapApplyOperation(templateMap, templateKey, optTemplatesTypes)) => {
             val (optTemplateKeyType, optTemplateValueType) = optTemplatesTypes match {
               case Some((k, v)) => (Some(k), Some(v))
@@ -567,7 +567,7 @@ trait ExpressionExtractors { self: Interpolator =>
           case _ => fail
         }
 
-        case trees.MapUpdated(map, key, value) => (map.getType, template) match {
+        case trees.MapUpdated(map, key, value) => (map.getType(symbols), template) match {
           case (trees.MapType(keyType, valueType), MapUpdatedOperation(templateMap, templateKey, templateValue, optTemplatesTypes)) => {
             val (optTemplateKeyType, optTemplateValueType) = optTemplatesTypes match {
               case Some((k, v)) => (Some(k), Some(v))

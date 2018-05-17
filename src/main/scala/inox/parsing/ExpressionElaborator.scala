@@ -757,7 +757,7 @@ trait ExpressionElaborators { self: Interpolator =>
             args.zip(freshs).map({ case (e, t) => typeCheck(e, t) })
           }
 
-          val sort = cons.getSort
+          val sort = cons.getSort(symbols)
           val typeParamToFresh = sort.tparams.map({
             (t: trees.TypeParameterDef) => t.tp -> Unknown.fresh
           })
@@ -997,7 +997,7 @@ trait ExpressionElaborators { self: Interpolator =>
 
         // Instance checking.
         case IsConstructorOperation(expr, cons) => {
-          val sort = cons.getSort
+          val sort = cons.getSort(symbols)
           val tpe = Unknown.fresh
           val tps = sort.tparams.map(_ => Unknown.fresh)
 
@@ -1032,7 +1032,7 @@ trait ExpressionElaborators { self: Interpolator =>
         case Selection(expr, Field((cons, vd))) => {
           val expectedExpr = Unknown.fresh
 
-          val sort = cons.getSort
+          val sort = cons.getSort(symbols)
           val typeParamToFresh = sort.tparams.map({
             (t: trees.TypeParameterDef) => t.tp -> Unknown.fresh
           })
