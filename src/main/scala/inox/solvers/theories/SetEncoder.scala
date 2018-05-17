@@ -1,4 +1,4 @@
-/* Copyright 2009-2018 EPFL, Lausanne */
+/*/* Copyright 2009-2018 EPFL, Lausanne */
 
 package inox
 package solvers
@@ -201,7 +201,8 @@ trait SetEncoder extends SimpleEncoder {
 }
 
 object SetEncoder {
-  def apply(p: Program): SetEncoder { val sourceProgram: p.type } = new {
+  def apply(p: Program): SetEncoder { val sourceProgram: p.type } = new SetEncoder {
     val sourceProgram: p.type = p
-  } with SetEncoder
+  }
 }
+*/

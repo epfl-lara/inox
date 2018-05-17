@@ -15,6 +15,8 @@ package object theories {
     val targetProgram: Program { val trees: p.trees.type }
   } = ASCIIStringEncoder(p)
 
+  // FIXME(gsps): Reenable once issues in BagEncoder and SetEncoder are fixed.
+  /*
   def CVC4(enc: ast.ProgramTransformer)
           (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }): ast.ProgramTransformer {
     val sourceProgram: enc.targetProgram.type
@@ -48,6 +50,7 @@ package object theories {
     val e3 = e2 andThen bvEncoder
     e3 andThen realEncoder
   }
+  */
 
   object ReverseEvaluator {
     def apply(enc: ast.ProgramTransformer)

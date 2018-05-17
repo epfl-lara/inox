@@ -1,4 +1,4 @@
-/* Copyright 2009-2018 EPFL, Lausanne */
+/*/* Copyright 2009-2018 EPFL, Lausanne */
 
 package inox
 package solvers
@@ -47,6 +47,7 @@ trait BagEncoder extends SimpleEncoder {
 
   val AddID = FreshIdentifier("add")
   val Add = mkFunDef(AddID)("T") { case Seq(aT) => (
+    // NOTE(gsps): Broken (see dotty bug in DSL.scala)
     Seq("bag" :: Bag(aT), "x" :: aT), Bag(aT), { case Seq(bag, x) => Sum(aT)(bag, Elem(aT)(x, E(BigInt(1)))) })
   }
 
@@ -244,8 +245,10 @@ trait BagEncoder extends SimpleEncoder {
 object BagEncoder {
   def apply(enc: ast.ProgramTransformer)
            (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }):
-           BagEncoder { val sourceProgram: enc.targetProgram.type } = new {
-    val sourceProgram: enc.targetProgram.type = enc.targetProgram
-    val evaluator = ReverseEvaluator(enc)(ev)
-  } with BagEncoder
+           BagEncoder { val sourceProgram: enc.targetProgram.type } =
+    new BagEncoder {
+      val sourceProgram: enc.targetProgram.type = enc.targetProgram
+      val evaluator = ReverseEvaluator(enc)(ev)
+    }
 }
+*/

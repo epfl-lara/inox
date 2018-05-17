@@ -227,6 +227,9 @@ trait DSL {
 
   /* Patterns */
   object C {
+    // NOTE(gsps): [Dotty bug] Invoking apply on the resulting ADTConsIdentifier fails:
+    //    `C(someId)(someType)(...)`
+    //              ^^^^^^^^^^  method apply in class ADTConsIdentifier does not take more parameters
     def apply(id: Identifier): ADTConsIdentifier = new ADTConsIdentifier(id)
     def apply(id: Identifier, tps: Seq[Type]): ADTCons = new ADTCons(id, tps)
     def unapplySeq(expr: Expr): Option[(Identifier, Seq[Type], Seq[Expr])] = expr match {
