@@ -16,7 +16,7 @@ class PositionProvider(_reader: Reader, _file: Option[File]) {
 
       val buffer = new Array[Char](1024)
       var count: Int = 0
-      while ((count = _reader.read(buffer)) != -1) {
+      while ({ count = _reader.read(buffer); true }) {  // TODO(gsps): Check if this makes sense
         writer.write(buffer, 0, count)
       }
 
