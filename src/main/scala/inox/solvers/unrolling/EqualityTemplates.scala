@@ -15,7 +15,7 @@ import scala.collection.mutable.{Set => MutableSet, Map => MutableMap}
   */
 trait EqualityTemplates { self: Templates =>
   import context._
-  import program._
+  import program.{symbols => _, _}
   import program.trees._
   import program.symbols._
 

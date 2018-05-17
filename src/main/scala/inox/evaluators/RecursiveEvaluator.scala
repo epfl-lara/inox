@@ -11,7 +11,7 @@ trait RecursiveEvaluator
      with SolvingEvaluator {
 
   import context._
-  import program._
+  import program.{symbols => _, _}
   import program.trees._
   import program.symbols._
   import program.trees.exprOps._

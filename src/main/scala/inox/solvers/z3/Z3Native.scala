@@ -17,7 +17,7 @@ case class UnsoundExtractionException(ast: Z3AST, msg: String)
 // with a Z3 instance"
 trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   import context._
-  import program._
+  import program.{symbols => _, _}
   import program.trees._
   import program.symbols._
 

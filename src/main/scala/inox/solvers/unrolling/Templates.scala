@@ -22,7 +22,7 @@ trait Templates
   protected implicit val semantics: program.Semantics
 
   import context._
-  import program._
+  import program.{symbols => _, _}
   import program.trees._
   import program.symbols._
 

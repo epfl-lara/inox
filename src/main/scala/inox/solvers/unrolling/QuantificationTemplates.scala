@@ -11,7 +11,7 @@ import scala.collection.mutable.{Map => MutableMap, Set => MutableSet, Queue}
 
 trait QuantificationTemplates { self: Templates =>
   import context._
-  import program._
+  import program.{symbols => _, _}
   import program.trees._
   import program.symbols._
 

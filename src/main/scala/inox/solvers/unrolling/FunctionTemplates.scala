@@ -10,7 +10,7 @@ import scala.collection.mutable.{Set => MutableSet, Map => MutableMap}
 
 trait FunctionTemplates { self: Templates =>
   import context._
-  import program._
+  import program.{symbols => _, _}
   import program.trees._
   import program.symbols._
 

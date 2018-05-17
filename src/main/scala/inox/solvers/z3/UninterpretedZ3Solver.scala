@@ -21,7 +21,7 @@ trait UninterpretedZ3Solver
   extends Solver { self =>
 
   import context._
-  import program._
+  import program.{symbols => _, _}
   import program.trees._
   import program.symbols._
 

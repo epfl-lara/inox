@@ -15,7 +15,7 @@ class SolversSuite extends FunSuite {
 
   val p = InoxProgram(NoSymbols)
 
-  import p._
+  import p.{symbols => _, _}
   import p.symbols._
 
   val solverNames: Seq[String] = {

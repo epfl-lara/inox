@@ -22,7 +22,7 @@ import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
   */
 trait DatatypeTemplates { self: Templates =>
   import context._
-  import program._
+  import program.{symbols => _, _}  // TODO(gsps): Open an issue to add the shadowing behavior to dotty's scala2 mode
   import program.trees._
   import program.symbols._
 

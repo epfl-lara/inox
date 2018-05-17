@@ -9,7 +9,7 @@ import scala.collection.mutable.{Map => MutableMap}
 
 trait TemplateGenerator { self: Templates =>
   import context._
-  import program._
+  import program.{symbols => _, _}
   import program.trees._
   import program.symbols._
 

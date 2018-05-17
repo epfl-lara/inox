@@ -263,7 +263,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
   private def extractTotalModel(model: underlying.Model): program.Model = {
     val wrapped = wrapModel(model)
 
-    import targetProgram._
+    import targetProgram.{symbols => _, _}
     import targetProgram.trees._
     import targetProgram.symbols._
 
