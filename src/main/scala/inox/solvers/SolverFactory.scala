@@ -344,20 +344,26 @@ object SolverFactory {
   def apply(p: InoxProgram, ctx: Context): SolverFactory {
     val program: p.type
     type S <: TimeoutSolver { val program: p.type }
-  } = ctx.options.findOption(optSelectedSolvers) match {
-    case None => optSelectedSolvers.default.toSeq match {
-      case Seq() => throw FatalError("No selected solver")
-      case Seq(single) => apply(single, p, ctx, force = false)
-      case multiple => PortfolioSolverFactory(p) {
-        multiple.map(name => apply(name, p, ctx, force = false))
-      }
-    }
+  } = {
+    // NOTE(gsps): [Dotty bug] Dotc can't seem to figure this out on its own.
+    def applyMultiple(names: Seq[String], force: Boolean) =
+      names.map(name => apply(name, p, ctx, force = force)
+        .asInstanceOf[SolverFactory {
+          val program: p.type
+          type S <: TimeoutSolver { val program: p.type } }
+        ])
 
-    case Some(set) => set.toSeq match {
-      case Seq() => throw FatalError("No selected solver")
-      case Seq(single) => apply(single, p, ctx, force = true)
-      case multiple => PortfolioSolverFactory(p) {
-        multiple.map(name => apply(name, p, ctx, force = true))
+    ctx.options.findOption(optSelectedSolvers) match {
+      case None => optSelectedSolvers.default.toSeq match {
+        case Seq() => throw FatalError("No selected solver")
+        case Seq(single) => apply(single, p, ctx, force = false)
+        case multiple => PortfolioSolverFactory(p)(applyMultiple(multiple, force = false))
+      }
+
+      case Some(set) => set.toSeq match {
+        case Seq() => throw FatalError("No selected solver")
+        case Seq(single) => apply(single, p, ctx, force = true)
+        case multiple => PortfolioSolverFactory(p)(applyMultiple(multiple, force = true))
       }
     }
   }
