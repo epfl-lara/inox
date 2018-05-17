@@ -122,10 +122,11 @@ trait DatatypeTemplates { self: Templates =>
     protected trait Builder {
       val tpe: Type
 
-      val v = Variable.fresh("x", tpe, true)
-      val pathVar = Variable.fresh("b", BooleanType(), true)
-      val result = Variable.fresh("result", BooleanType(), true)
-      val (idT, pathVarT, resultT) = (encodeSymbol(v), encodeSymbol(pathVar), encodeSymbol(result))
+      // TODO(gsps): Just declare these here and initialize them in an ad-hoc base class at the instantiation
+      lazy val v = Variable.fresh("x", tpe, true)
+      lazy val pathVar = Variable.fresh("b", BooleanType(), true)
+      lazy val result = Variable.fresh("result", BooleanType(), true)
+      lazy val (idT, pathVarT, resultT) = (encodeSymbol(v), encodeSymbol(pathVar), encodeSymbol(result))
 
       private var exprVars = Map[Variable, Encoded]()
       /*@`inline`*/ protected def storeExpr(v: Variable): Unit = {
@@ -360,7 +361,7 @@ trait DatatypeTemplates { self: Templates =>
 
     /** The [[TemplateGenerator.Builder]] trait is extended to accumulate functions
       * during the clause generation. */
-    protected trait Builder extends super.Builder {
+    protected trait FunctionUnrollingBuilder extends Builder {
       private var functions = Map[Variable, Set[(Variable, Expr)]]()
       protected def storeFunction(pathVar: Variable, expr: Expr): Variable = {
         val funCall: Variable = Variable.fresh("fun", BooleanType(), true)
@@ -430,7 +431,7 @@ trait DatatypeTemplates { self: Templates =>
 
     /** Clause generation is specialized to handle ADT constructor types that require
       * type guards as well as ADT invariants. */
-    protected trait Builder extends super.Builder {
+    protected trait InvariantGeneratorBuilder extends Builder {
       private val tpSubst: MutableMap[Variable, Encoded] = MutableMap.empty
       protected def storeTypeParameter(tp: TypeParameter): Expr = {
         val (v, e) = tpSyms.getOrElseUpdate(tp, {
@@ -510,10 +511,9 @@ trait DatatypeTemplates { self: Templates =>
     private val cache: MutableMap[Type, DatatypeTemplate] = MutableMap.empty
 
     def apply(dtpe: Type): DatatypeTemplate = cache.getOrElseUpdate(dtpe, {
-      object b extends {
+      object b extends FunctionUnrollingBuilder with InvariantGeneratorBuilder {
         val tpe = dtpe
-      } with super[FunctionUnrolling].Builder
-        with super[InvariantGenerator].Builder
+      }
 
       val typeBlockers: TypeBlockers = b.types.map { case (blocker, tps) =>
         blocker -> tps.map { case (res, info, arg) => TemplateTypeInfo(info, arg, Datatype(res)) }
@@ -589,7 +589,9 @@ trait DatatypeTemplates { self: Templates =>
 
     def apply(dtpe: Type, containerType: FunctionType): CaptureTemplate = cache.getOrElseUpdate(dtpe -> containerType, {
       val (ps, ids, condVars, exprVars, condTree, clauses, types, funs) = tmplCache.getOrElseUpdate(dtpe, {
-        object b extends { val tpe = dtpe } with super[FunctionUnrolling].Builder with super[ADTUnrolling].Builder {
+        object b extends FunctionUnrollingBuilder {
+          val tpe = dtpe
+          
           override val resultT = trueT
         }
         assert(b.calls.isEmpty, "Captured function templates shouldn't have any calls: " + b.calls)
