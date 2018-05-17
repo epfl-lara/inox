@@ -54,7 +54,7 @@ package object inox {
       sorts: Map[Identifier, ADTSort]
     ) extends SimpleSymbols
 
-    object printer extends ast.Printer { val trees: inox.trees.type = inox.trees }
+    val printer = new ast.Printer { val trees: inox.trees.type = inox.trees }  // NOTE(gsps): [Bug] Dotty emits too precise accessor result type
   }
 
   implicit val inoxSemantics: SemanticsProvider { val trees: inox.trees.type } = new SemanticsProvider {
