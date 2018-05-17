@@ -44,7 +44,8 @@ trait AbstractZ3Solver
   //           is difficult to merge due to small API differences between the native Z3
   //           solvers and optimizers.
   private def extractResult(config: Configuration)(res: => Option[Boolean]) =
-    config.cast(tryZ3(res match {
+    // NOTE(gsps): [Dotty bug] Dotty gets confused about res' type, so we force its evaluation before matching.
+    config.cast(tryZ3({ val r = res; r match {
       case Some(true) =>
         if (config.withModel) SatWithModel(solver.getModel)
         else Sat
@@ -54,7 +55,7 @@ trait AbstractZ3Solver
         else Unsat
 
       case None => Unknown
-    }).getOrElse(Unknown))
+    } }).getOrElse(Unknown))
 
   def check(config: CheckConfiguration) = extractResult(config)(solver.check)
   def checkAssumptions(config: Configuration)(assumptions: Set[Z3AST]) =

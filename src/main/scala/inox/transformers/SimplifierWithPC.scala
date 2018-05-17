@@ -242,7 +242,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
         .filter { case (p, _, _) => (p subsumes path) }
         .map { case (_, re, pe) => (re, pe) }
         .getOrElse {
-          val (re, pe) = body
+          val (re, pe) = { val res = body; res }  // NOTE(gsps): [Dotty bug] By-name not evaluated
           cache(e) = (path, re, pe)
           (re, pe)
         }
