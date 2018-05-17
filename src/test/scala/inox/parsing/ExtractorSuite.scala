@@ -7,7 +7,7 @@ class ExtractorSuite extends FunSuite {
 
   import inox.trees._
   import interpolator._
-  implicit val symbols = NoSymbols
+  implicit val symbols: Symbols = NoSymbols
 
   test("Extracting entire expression") {
     val es = Seq(

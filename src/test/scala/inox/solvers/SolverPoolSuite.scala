@@ -11,7 +11,7 @@ class SolverPoolSuite extends FunSuite {
   import inox.trees._
   import SolverResponses._
 
-  implicit val ctx = TestContext.empty
+  implicit val ctx: Context = TestContext.empty
   val p = InoxProgram(NoSymbols)
   val sfactory: SolverFactory { val program: InoxProgram } = {
     SolverFactory.create(p)("dummy", () => new DummySolver {

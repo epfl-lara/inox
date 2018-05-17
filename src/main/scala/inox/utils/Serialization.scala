@@ -1,4 +1,4 @@
-/* Copyright 2009-2018 EPFL, Lausanne */
+/*/* Copyright 2009-2018 EPFL, Lausanne */
 
 package inox
 package utils
@@ -29,17 +29,17 @@ trait Serializer { self =>
   /** Type class that marks a type as serializable. */
   class Serializable[-T]
 
-  implicit def identIsSerializable = new Serializable[Identifier]
+  implicit def identIsSerializable: Serializable[Identifier] = new Serializable[Identifier]
 
-  implicit def tuple2IsSerializable[T1: Serializable, T2: Serializable] = new Serializable[(T1, T2)]
-  implicit def tuple3IsSerializable[T1: Serializable, T2: Serializable, T3: Serializable] = new Serializable[(T1, T2, T3)]
-  implicit def tuple4IsSerializable[T1: Serializable, T2: Serializable, T3: Serializable, T4: Serializable] = new Serializable[(T1, T2, T3, T4)]
+  implicit def tuple2IsSerializable[T1: Serializable, T2: Serializable]: Serializable[(T1, T2)] = new Serializable[(T1, T2)]
+  implicit def tuple3IsSerializable[T1: Serializable, T2: Serializable, T3: Serializable]: Serializable[(T1, T2, T3)] = new Serializable[(T1, T2, T3)]
+  implicit def tuple4IsSerializable[T1: Serializable, T2: Serializable, T3: Serializable, T4: Serializable]: Serializable[(T1, T2, T3, T4)] = new Serializable[(T1, T2, T3, T4)]
 
-  implicit def seqIsSerializable[T: Serializable] = new Serializable[Seq[T]]
-  implicit def setIsSerializable[T: Serializable] = new Serializable[Set[T]]
-  implicit def mapIsSerializable[T1: Serializable, T2: Serializable] = new Serializable[Map[T1, T2]]
+  implicit def seqIsSerializable[T: Serializable]: Serializable[Seq[T]] = new Serializable[Seq[T]]
+  implicit def setIsSerializable[T: Serializable]: Serializable[Set[T]] = new Serializable[Set[T]]
+  implicit def mapIsSerializable[T1: Serializable, T2: Serializable]: Serializable[Map[T1, T2]] = new Serializable[Map[T1, T2]]
 
-  implicit def resultIsSerializable = new Serializable[SerializationResult]
+  implicit def resultIsSerializable: Serializable[SerializationResult] = new Serializable[SerializationResult]
 
   implicit object boolIsSerializable   extends Serializable[Boolean]
   implicit object charIsSerializable   extends Serializable[Char]
@@ -54,7 +54,7 @@ trait Serializer { self =>
 
   // This has to be the last implicit for some reason, otherwise implicit expansion diverges
   // for `Serializable[Expr]` when using Scala 2.12
-  implicit def treeIsSerializable = new Serializable[Tree]
+  implicit def treeIsSerializable: Serializable[Tree] = new Serializable[Tree]
 
   protected def writeObject(obj: Any, out: OutputStream): Unit
   protected def readObject(in: InputStream): Any
@@ -94,7 +94,7 @@ trait Serializer { self =>
 
     /** Everything that is serializable implies the existence of a corresponding serialization
       * procedure that simply calls the serializer. */
-    implicit def serializableProcedure[T: Serializable] = new SerializationProcedure[T] {
+    implicit def serializableProcedure[T: Serializable]: SerializationProcedure[T] = new SerializationProcedure[T] {
       def serialize(e: T): SerializationResult = {
         val out = new java.io.ByteArrayOutputStream
         writeObject(e, out)
@@ -105,7 +105,7 @@ trait Serializer { self =>
       }
     }
 
-    protected def mappingProcedure[T1, T2: Serializable](f1: T1 => T2)(f2: T2 => T1) = new SerializationProcedure[T1] {
+    protected def mappingProcedure[T1, T2: Serializable](f1: T1 => T2)(f2: T2 => T1): SerializationProcedure[T1] = new SerializationProcedure[T1] {
       override def serialize(e: T1): SerializationResult = {
         val out = new java.io.ByteArrayOutputStream
         writeObject(f1(e), out)
@@ -117,27 +117,27 @@ trait Serializer { self =>
     }
 
     implicit def tuple2Procedure[T1, T2](
-      implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2]) =
+      implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2]): SerializationProcedure[(T1, T2)] =
         mappingProcedure((p: (T1, T2)) => (p1.serialize(p._1), p2.serialize(p._2)))(
           p => (p1.deserialize(p._1), p2.deserialize(p._2)))
 
     implicit def tuple3Procedure[T1, T2, T3](
-      implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2], p3: SerializationProcedure[T3]) =
+      implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2], p3: SerializationProcedure[T3]): SerializationProcedure[(T1, T2, T3)] =
         mappingProcedure((p: (T1, T2, T3)) => (p1.serialize(p._1), p2.serialize(p._2), p3.serialize(p._3)))(
           p => (p1.deserialize(p._1), p2.deserialize(p._2), p3.deserialize(p._3)))
 
     implicit def tuple4Procedure[T1, T2, T3, T4](
-      implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2], p3: SerializationProcedure[T3], p4: SerializationProcedure[T4]) =
+      implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2], p3: SerializationProcedure[T3], p4: SerializationProcedure[T4]): SerializationProcedure[(T1, T2, T3, T4)] =
         mappingProcedure((p: (T1, T2, T3, T4)) => (p1.serialize(p._1), p2.serialize(p._2), p3.serialize(p._3), p4.serialize(p._4)))(
           p => (p1.deserialize(p._1), p2.deserialize(p._2), p3.deserialize(p._3), p4.deserialize(p._4)))
 
-    implicit def seqProcedure[T](implicit p: SerializationProcedure[T]) =
+    implicit def seqProcedure[T](implicit p: SerializationProcedure[T]): SerializationProcedure[Seq[T]] =
       mappingProcedure((seq: Seq[T]) => seq.map(p.serialize))(seq => seq.map(p.deserialize))
 
-    implicit def setProcedure[T](implicit p: SerializationProcedure[T]) =
+    implicit def setProcedure[T](implicit p: SerializationProcedure[T]): SerializationProcedure[Set[T]] =
       mappingProcedure((set: Set[T]) => set.map(p.serialize))(set => set.map(p.deserialize))
 
-    implicit def mapProcedure[T1, T2](implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2]) =
+    implicit def mapProcedure[T1, T2](implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2]): SerializationProcedure[Map[T1, T2]] =
       mappingProcedure((map: Map[T1, T2]) => map.map(p => p1.serialize(p._1) -> p2.serialize(p._2)))(
         map => map.map(p => p1.deserialize(p._1) -> p2.deserialize(p._2)))
 
@@ -149,9 +149,11 @@ trait Serializer { self =>
 
   // Using the companion object here makes the `fromProcedure` implicit have lower priority
   object SerializableOrProcedure {
-    implicit def fromProcedure[T](implicit ev: SerializationProcedure[T]) = SerializableOrProcedure(Right(ev))
+    implicit def fromProcedure[T](implicit ev: SerializationProcedure[T]): SerializableOrProcedure[T] =
+      SerializableOrProcedure(Right(ev))
   }
-  implicit def fromSerializable[T](implicit ev: Serializable[T]) = SerializableOrProcedure(Left(ev))
+  implicit def fromSerializable[T](implicit ev: Serializable[T]): SerializableOrProcedure[T] =
+    SerializableOrProcedure(Left(ev))
   case class SerializableOrProcedure[T](e: Either[Serializable[T], SerializationProcedure[T]])
 
 
@@ -641,3 +643,4 @@ object Serializer {
   def apply(t: ast.Trees, serializeProducts: Boolean = false): Serializer { val trees: t.type } =
     new InoxSerializer(t).asInstanceOf[Serializer { val trees: t.type }]
 }
+*/

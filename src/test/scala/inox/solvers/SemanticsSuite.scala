@@ -10,7 +10,7 @@ class SemanticsSuite extends FunSuite {
   import inox.trees.dsl._
   import SolverResponses._
 
-  implicit val symbols = NoSymbols
+  implicit val symbols: Symbols = NoSymbols
   val program = InoxProgram(symbols)
 
   val solverNames: Seq[String] = {

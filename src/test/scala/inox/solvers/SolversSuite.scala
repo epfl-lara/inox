@@ -9,7 +9,7 @@ class SolversSuite extends FunSuite {
   import inox.trees._
   import SolverResponses._
 
-  implicit val ctx = TestContext.empty.copy(options = Options(Seq(
+  implicit val ctx: Context = TestContext.empty.copy(options = Options(Seq(
     optCheckModels(true)
   )))
 

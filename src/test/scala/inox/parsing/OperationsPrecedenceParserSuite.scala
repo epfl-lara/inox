@@ -7,7 +7,7 @@ class OperationsPrecedenceParserSuite extends FunSuite {
 
   import inox.trees._
   import interpolator._
-  implicit val symbols = NoSymbols
+  implicit val symbols: Symbols = NoSymbols
 
   test("Parsing a mix of boolean, comparison and arithmetic operations.") {
 

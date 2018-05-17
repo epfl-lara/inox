@@ -8,7 +8,7 @@ class ExprLiteralParserSuite extends FunSuite {
 
   import inox.trees._
   import interpolator._
-  implicit val symbols = NoSymbols
+  implicit val symbols: Symbols = NoSymbols
 
   test("Parsing Boolean literals.") {
 

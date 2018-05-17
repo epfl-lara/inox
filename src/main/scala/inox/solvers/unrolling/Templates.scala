@@ -203,7 +203,7 @@ trait Templates
     promoted
   }
 
-  implicit val debugSection = DebugSectionSolver
+  implicit val debugSection: DebugSection = DebugSectionSolver
 
   type Arg = Either[Encoded, Matcher]
 

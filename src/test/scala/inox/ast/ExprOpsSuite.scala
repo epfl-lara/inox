@@ -9,7 +9,7 @@ class ExprOpsSuite extends FunSuite {
   import inox.trees._
   import inox.trees.exprOps._
 
-  implicit val ctx0 = TestContext.empty
+  implicit val ctx0: Context = TestContext.empty
 
   private def foldConcatNames(e: Expr, subNames: Seq[String]): String = e match {
     case Variable(id, _, _) => subNames.mkString + id.name
