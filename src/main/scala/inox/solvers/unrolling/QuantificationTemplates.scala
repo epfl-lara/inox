@@ -299,14 +299,14 @@ trait QuantificationTemplates { self: Templates =>
   /*@`inline`*/
   private def matcherKey(m: Matcher): MatcherKey = matcherKey(m.key)
 
-  protected def correspond(k1: MatcherKey, k2: MatcherKey): Option[Boolean] = (k1, k2) match {
+  private def correspond(k1: MatcherKey, k2: MatcherKey): Option[Boolean] = (k1, k2) match {
     case (`k2`, _) => Some(true)
     case (tp1: TypedKey, tp2: TypedKey) if tp1.tpe == tp2.tpe => Some(false)
     case _ => None
   }
 
   /*@`inline`*/
-  protected def correspond(m1: Matcher, m2: Matcher): Option[Boolean] =
+  private def correspond(m1: Matcher, m2: Matcher): Option[Boolean] =
     correspond(matcherKey(m1), matcherKey(m2))
 
   /** Ground instantiations are annotated with an {{{Set[Int]}}} value that specifies
