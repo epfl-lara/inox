@@ -53,8 +53,11 @@ trait Expressions { self: Trees =>
     override def equals(that: Any) = super[VariableSymbol].equals(that)
     override def hashCode = super[VariableSymbol].hashCode
 
+    // FIXME(gsps): [Bug] Triggers some weird merge error in dotty. Restore once that's fixed.
+    /*
     def copy(id: Identifier = id, tpe: Type = tpe, flags: Seq[Flag] = flags) =
       Variable(id, tpe, flags).copiedFrom(this)
+    */
   }
 
   object Variable {
