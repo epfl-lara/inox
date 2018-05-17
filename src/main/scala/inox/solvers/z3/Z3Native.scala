@@ -37,7 +37,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   protected def unsound(ast: Z3AST, msg: String): Nothing =
     throw UnsoundExtractionException(ast, msg)
 
-  override def finalize() {
+  override def finalize(): Unit = {
     if (!freed) {
       println("!! Solver "+this.getClass.getName+"["+this.hashCode+"] not freed properly prior to GC:")
       traceE.printStackTrace()

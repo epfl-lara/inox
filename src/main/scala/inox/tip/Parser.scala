@@ -512,7 +512,7 @@ class Parser(file: File) {
       /* String theory extractors */
 
       case Strings.Length(s) => StringLength(fromSMT(s))
-      case Strings.Concat(e1, e2, es @ _*) =>
+      case Strings.Concat(e1, e2, es : _*) =>
         es.foldLeft(StringConcat(fromSMT(e1), fromSMT(e2)).setPos(term.optPos)) {
           (c,e) => StringConcat(c, fromSMT(e)).setPos(term.optPos)
         }
@@ -531,7 +531,7 @@ class Parser(file: File) {
         val elem = fromSMT(e)
         FiniteSet(Seq(elem), elem.getType)
 
-      case Sets.Insert(set, es @ _*) =>
+      case Sets.Insert(set, es : _*) =>
         es.foldLeft(fromSMT(set))((s,e) => SetAdd(s, fromSMT(e)))
 
       case Bags.Singleton(k, v) =>
@@ -544,7 +544,7 @@ class Parser(file: File) {
       case Bags.Difference(e1, e2) => BagDifference(fromSMT(e1), fromSMT(e2))
       case Bags.Multiplicity(e1, e2) => MultiplicityInBag(fromSMT(e1), fromSMT(e2))
 
-      case Bags.Insert(bag, es @ _*) =>
+      case Bags.Insert(bag, es : _*) =>
         es.foldLeft(fromSMT(bag))((b,e) => BagAdd(b, fromSMT(e)))
 
       case Match(s, cases) =>

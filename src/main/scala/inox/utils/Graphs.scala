@@ -132,7 +132,7 @@ object Graphs {
       var temp = Set[Node]()
       var perm = Set[Node]()
 
-      def visit(n: Node) {
+      def visit(n: Node): Unit = {
         if (temp(n)) {
           throw new IllegalArgumentException("Graph is not a DAG")
         } else if (!perm(n)) {

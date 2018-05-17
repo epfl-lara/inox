@@ -10,7 +10,7 @@ object GraphPrinters {
 
     def asString(g: G): String
 
-    def asFile(g: G, file: String) {
+    def asFile(g: G, file: String) = {
       import java.io.{BufferedWriter, FileWriter}
       val out = new BufferedWriter(new FileWriter(file))
       out.write(asString(g))

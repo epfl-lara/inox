@@ -49,7 +49,7 @@ object GraphOps {
    */
   def reachable[A](next : A => Set[A], source : A) : Set[A] = {
     var seen = Set[A]()
-    def rec(current : A) {
+    def rec(current : A): Unit = {
       val notSeen = next(current) -- seen
       seen ++= notSeen
       for (node <- notSeen) {

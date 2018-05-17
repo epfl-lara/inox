@@ -17,7 +17,7 @@ class InterruptManager(reporter: Reporter) extends Interruptible {
   private val exitWindow = 1000L
 
   private[this] val handler = new SignalHandler {
-    def handle(sig: Signal) {
+    def handle(sig: Signal) = {
       def now(): Long = System.currentTimeMillis()
       reporter.info("")
       if (now() - lastTimestamp.get < exitWindow) {
