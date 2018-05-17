@@ -1,4 +1,4 @@
-/* Copyright 2009-2018 EPFL, Lausanne */
+/*/* Copyright 2009-2018 EPFL, Lausanne */
 
 package inox
 package solvers
@@ -539,3 +539,4 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
   def interrupt() = interruptCheckSat = true
 }
+*/

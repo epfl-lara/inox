@@ -229,6 +229,9 @@ object SolverFactory {
         () => new SolverBase(p, ctx, enc, chooseEnc)
       })
 
+      // FIXME(gsps): No idea why CVC4Solver is not found here.
+      // FIXME(gsps): Probably have to move `chooses` and maybe `theories` into constructors.
+      /*
       case "smt-cvc4" => create(p)(finalName, {
         val ev = sem.getEvaluator(ctx)
         val chooseEnc = ChooseEncoder(p)(enc)
@@ -237,11 +240,11 @@ object SolverFactory {
         val progEnc = fullEnc andThen theoryEnc
         val targetSem = progEnc.targetProgram.getSemantics
 
-        () => new {
+        () => new UnrollingSolver with TimeoutSolver with tip.TipDebugger {
           val program: p.type = p
           val context = ctx
           val encoder: enc.type = enc
-        } with UnrollingSolver with TimeoutSolver with tip.TipDebugger {
+
           val semantics = sem
           val chooses: chooseEnc.type = chooseEnc
           val theories: theoryEnc.type = theoryEnc
@@ -250,15 +253,19 @@ object SolverFactory {
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
 
-          protected val underlying = new {
+          protected val underlying = inox.solvers.smtlib.CVC4Solver {
             val program: progEnc.targetProgram.type = progEnc.targetProgram
             val context = ctx
-          } with smtlib.CVC4Solver {
+
             val semantics: program.Semantics = targetSem
           }
         }
       })
+      */
 
+      // FIXME(gsps): AbstractPrincessSolver and PrincessSolver still have lots of errors.
+      // FIXME(gsps): Probably have to move `chooses` and maybe `theories` into constructors.
+      /*
       case "princess" => create(p)(finalName, {
         val ev = sem.getEvaluator(ctx)
         val chooseEnc = ChooseEncoder(p)(enc)
@@ -266,11 +273,11 @@ object SolverFactory {
         val theoryEnc = theories.Princess(fullEnc)(ev)
         val progEnc = fullEnc andThen theoryEnc
 
-        () => new {
+        () => new princess.PrincessSolver with TimeoutSolver {
           val program: p.type = p
           val context = ctx
           val encoder: enc.type = enc
-        } with princess.PrincessSolver with TimeoutSolver {
+
           val semantics = sem
           val chooses: chooseEnc.type = chooseEnc
           override protected lazy val theories: theoryEnc.type = theoryEnc
@@ -280,6 +287,7 @@ object SolverFactory {
           lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
         }
       })
+      */
 
       case _ => throw FatalError("Unknown solver: " + finalName)
     }

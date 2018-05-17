@@ -1,4 +1,4 @@
-/* Copyright 2009-2018 EPFL, Lausanne */
+/*/* Copyright 2009-2018 EPFL, Lausanne */
 
 package inox
 package solvers
@@ -24,20 +24,20 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
     val targetProgram: Program { val trees: fullEncoder.targetProgram.trees.type }
   } = solvers.theories.Princess(fullEncoder)(semantics.getEvaluator)
 
-  protected object underlying extends {
+  protected object underlying extends AbstractPrincessSolver {
     val program: targetProgram.type = targetProgram
     val context = self.context
-  } with AbstractPrincessSolver {
+
     lazy val semantics = targetSemantics
   }
 
   type Encoded = IExpression
 
-  object templates extends {
+  object templates extends Templates {
     val program: targetProgram.type = targetProgram
     val context = self.context
     val semantics: targetProgram.Semantics = self.targetSemantics
-  } with Templates {
+    
     import program.trees._
 
     type Encoded = self.Encoded
@@ -88,9 +88,9 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
 
   protected def declareVariable(v: t.Variable): IExpression = underlying.declareVariable(v)
 
-  protected def wrapModel(model: underlying.Model): super.ModelWrapper = ModelWrapper(model)
+  protected def wrapModel(model: underlying.Model): ModelWrapper = PrincessModelWrapper(model)
 
-  private case class ModelWrapper(model: underlying.Model) extends super.ModelWrapper {
+  private case class PrincessModelWrapper(model: underlying.Model) extends ModelWrapper {
     private val chooses: MutableMap[Identifier, t.Expr] = MutableMap.empty
     import IExpression._
 
@@ -146,3 +146,4 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
     underlying.free()
   }
 }
+*/
