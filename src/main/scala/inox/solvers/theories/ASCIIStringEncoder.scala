@@ -43,11 +43,14 @@ trait ASCIIStringEncoder extends SimpleEncoder {
   protected object encoder extends SelfTreeTransformer {
     override def transform(e: Expr): Expr = e match {
       case StringLiteral(v) =>
-        stringCons(StringLiteral(v.flatMap(c => c.toString.getBytes.toSeq match {
-          case Seq(b) if 32 <= b && b <= 127 => b.toChar.toString + b.toChar.toString
-          case Seq(b) => encodeByte(b) + encodeByte(b)
-          case Seq(b1, b2) => encodeByte(b1) + encodeByte(b2)
-        })))
+        // NOTE(gsps): [Bug] Workaround for erasure/adaptation bug in Dotty
+        def decode(c: Char): String =
+          c.toString.getBytes.toSeq match {
+            case Seq(b) if 32 <= b && b <= 127 => b.toChar.toString + b.toChar.toString
+            case Seq(b) => encodeByte(b) + encodeByte(b)
+            case Seq(b1, b2) => encodeByte(b1) + encodeByte(b2)
+          }
+        stringCons(StringLiteral(v.flatMap(decode)))
       case StringLength(a) => Division(StringLength(transform(a).getField(value)), TWO)
       case StringConcat(a, b) => stringCons(StringConcat(transform(a).getField(value), transform(b).getField(value)))
       case SubString(a, start, end) => stringCons(SubString(transform(a).getField(value), transform(start) * TWO, transform(end) * TWO))
