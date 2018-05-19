@@ -8,7 +8,7 @@ import utils._
 
 trait TheoryEncoder extends ast.ProgramTransformer { self =>
   val targetProgram: Program { val trees: sourceProgram.trees.type }
-  lazy val trees: sourceProgram.trees.type = sourceProgram.trees
+  lazy final val trees: sourceProgram.trees.type = sourceProgram.trees
 }
 
 trait SimpleEncoder extends TheoryEncoder with ast.ProgramEncoder {

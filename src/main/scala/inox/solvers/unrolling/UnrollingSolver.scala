@@ -32,7 +32,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   protected implicit val semantics: program.Semantics
 
-  protected lazy val evaluator: DeterministicEvaluator { val program: self.program.type } = semantics.getEvaluator
+  protected lazy final val evaluator: DeterministicEvaluator { val program: self.program.type } = semantics.getEvaluator
 
   protected type Encoded
 
@@ -47,11 +47,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
     val targetProgram: Program { val trees: fullEncoder.targetProgram.trees.type }
   }
 
-  protected lazy val programEncoder = fullEncoder andThen theories
+  protected lazy final val programEncoder = fullEncoder andThen theories
 
-  protected lazy val s: programEncoder.sourceProgram.trees.type = programEncoder.sourceProgram.trees
-  protected lazy val t: programEncoder.targetProgram.trees.type = programEncoder.targetProgram.trees
-  protected lazy val targetProgram: programEncoder.targetProgram.type = programEncoder.targetProgram
+  protected lazy final val s: programEncoder.sourceProgram.trees.type = programEncoder.sourceProgram.trees
+  protected lazy final val t: programEncoder.targetProgram.trees.type = programEncoder.targetProgram.trees
+  protected lazy final val targetProgram: programEncoder.targetProgram.type = programEncoder.targetProgram
 
   protected implicit val targetSemantics: targetProgram.Semantics
 

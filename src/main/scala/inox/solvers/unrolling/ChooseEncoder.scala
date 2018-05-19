@@ -8,10 +8,10 @@ trait ChooseEncoder extends ast.ProgramTransformer {
   val program: Program
   val sourceEncoder: ast.ProgramTransformer { val sourceProgram: program.type }
 
-  lazy val sourceProgram: sourceEncoder.targetProgram.type = sourceEncoder.targetProgram
+  lazy final val sourceProgram: sourceEncoder.targetProgram.type = sourceEncoder.targetProgram
   import sourceProgram.trees._
 
-  private lazy val chooses = {
+  private lazy final val chooses = {
     import program._
     import program.trees._
     program.symbols.functions.values.flatMap { fd =>
@@ -19,7 +19,7 @@ trait ChooseEncoder extends ast.ProgramTransformer {
     }.toMap
   }
 
-  private lazy val (newFunctions: Seq[FunDef], scopes: Map[ValDef, Seq[ValDef]]) = {
+  private lazy final val (newFunctions: Seq[FunDef], scopes: Map[ValDef, Seq[ValDef]]) = {
     var fdChooses: Set[(ValDef, FunDef, Seq[ValDef])] = Set.empty
 
     val newFds = sourceProgram.symbols.functions.values.toList.map { fd =>
@@ -61,7 +61,7 @@ trait ChooseEncoder extends ast.ProgramTransformer {
     (allFunctions, allScopes)
   }
 
-  lazy val targetProgram: Program { val trees: sourceEncoder.targetProgram.trees.type } =
+  lazy final val targetProgram: Program { val trees: sourceEncoder.targetProgram.trees.type } =
     Program(sourceEncoder.targetProgram.trees)(sourceProgram.symbols withFunctions newFunctions)
 
   protected object encoder extends ast.TreeTransformer {
