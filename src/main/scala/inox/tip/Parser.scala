@@ -124,9 +124,9 @@ class Parser(file: File) {
 
     def withSymbols(symbols: Symbols) = new Locals(funs, sorts, constructors, selectors, vars, tps, symbols)
 
-    object extractor extends {
+    object extractor extends TermExtractor {
       val symbols: self.symbols.type = self.symbols
-    } with TermExtractor
+    }
 
     def extractTerm(term: Term): Expr = extractor.extractTerm(term)(this)
     def extractSort(sort: Sort): Type = extractor.extractSort(sort)(this)

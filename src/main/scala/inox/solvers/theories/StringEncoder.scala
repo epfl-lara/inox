@@ -140,7 +140,8 @@ trait StringEncoder extends SimpleEncoder {
 }
 
 object StringEncoder {
-  def apply(p: Program): StringEncoder { val sourceProgram: p.type } = new {
-    val sourceProgram: p.type = p
-  } with StringEncoder
+  def apply(p: Program): StringEncoder { val sourceProgram: p.type } = {
+    class StringEncoderBase(val sourceProgram: p.type) extends StringEncoder
+    new StringEncoderBase(p)
+  }
 }

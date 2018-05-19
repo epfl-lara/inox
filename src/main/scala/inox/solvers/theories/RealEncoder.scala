@@ -102,7 +102,8 @@ trait RealEncoder extends SimpleEncoder {
 }
 
 object RealEncoder {
-  def apply(p: Program): RealEncoder { val sourceProgram: p.type } = new {
-    val sourceProgram: p.type = p
-  } with RealEncoder
+  def apply(p: Program): RealEncoder { val sourceProgram: p.type } = {
+    class RealEncoderBase(val sourceProgram: p.type) extends RealEncoder
+    new RealEncoderBase(p)
+  }
 }

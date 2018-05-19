@@ -733,11 +733,11 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
 
   override lazy val name = "U:"+underlying.name
 
-  object templates extends {
+  object templates extends Templates {
     val program: targetProgram.type = targetProgram
     val context = self.context
     val semantics: targetProgram.Semantics = self.targetSemantics
-  } with Templates {
+
     import program._
     import program.trees._
     import program.symbols._

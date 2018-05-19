@@ -291,7 +291,8 @@ trait BitvectorEncoder extends SimpleEncoder {
 }
 
 object BitvectorEncoder {
-  def apply(p: Program): BitvectorEncoder { val sourceProgram: p.type } = new {
-    val sourceProgram: p.type = p
-  } with BitvectorEncoder
+  def apply(p: Program): BitvectorEncoder { val sourceProgram: p.type } = {
+    class BitvectorEncoderBase(val sourceProgram: p.type) extends BitvectorEncoder
+    new BitvectorEncoderBase(p)
+  }
 }

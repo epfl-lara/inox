@@ -32,11 +32,11 @@ trait UninterpretedZ3Solver
   val name = "z3-u"
   val description = "Uninterpreted Z3 Solver"
 
-  private object underlying extends {
-    val program: self.program.type = self.program
-    val context = self.context
-  } with AbstractZ3Solver {
-    val semantics = self.semantics
+  private val underlying = {
+    class UnderlyingSolverBase(val program: self.program.type, val context: Context) extends AbstractZ3Solver {
+      val semantics = self.semantics
+    }
+    new UnderlyingSolverBase(self.program, self.context)
   }
 
   private val freeVars = new IncrementalSet[Variable]

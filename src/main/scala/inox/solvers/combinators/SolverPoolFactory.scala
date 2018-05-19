@@ -78,9 +78,8 @@ trait SolverPoolFactory extends SolverFactory { self =>
 }
 
 object SolverPoolFactory {
-  def apply(sf: SolverFactory): SolverPoolFactory {
-    val factory: sf.type
-  } = new {
-    val factory: sf.type = sf
-  } with SolverPoolFactory
+  def apply(sf: SolverFactory): SolverPoolFactory { val factory: sf.type } = {
+    class SolverPoolFactoryBase(val factory: sf.type) extends SolverPoolFactory
+    new SolverPoolFactoryBase(sf)
+  }
 }

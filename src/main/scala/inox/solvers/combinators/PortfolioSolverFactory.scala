@@ -11,11 +11,18 @@ trait PortfolioSolverFactory extends SolverFactory { self =>
 
   val sfs: Seq[SF]
 
-  def getNewSolver(): S = new {
-    val program: self.program.type = self.program
-    val solvers = sfs map (_.getNewSolver())
-    val context = solvers.head.context
-  } with PortfolioSolver with TimeoutSolver
+  def getNewSolver(): S = {
+    val newSolvers = sfs map (_.getNewSolver())
+
+    class SolverBase(
+      val program: self.program.type,
+      val context: Context) extends PortfolioSolver with TimeoutSolver {
+
+      val solvers = newSolvers.asInstanceOf[Seq[SubSolver]]
+    }
+
+    new SolverBase(self.program, newSolvers.head.context)
+  }
 
   // Assumes s is a P/Solver with the correct subsolver types
   override def reclaim(s: S) = sfs.zip(s.solvers).foreach { case (sf, s) =>
@@ -28,10 +35,11 @@ trait PortfolioSolverFactory extends SolverFactory { self =>
 object PortfolioSolverFactory {
   def apply(p: Program)
            (factories: Seq[SolverFactory { val program: p.type; type S <: TimeoutSolver }]):
-            PortfolioSolverFactory { val program: p.type; type S <: TimeoutSolver } = new {
-    val program: p.type = p
-    val sfs = factories
-  } with PortfolioSolverFactory {
-    type SF = SolverFactory { val program: p.type; type S <: TimeoutSolver }
-  }
+            PortfolioSolverFactory { val program: p.type; type S <: TimeoutSolver } =
+    new PortfolioSolverFactory {
+      val program: p.type = p
+      val sfs = factories
+
+      type SF = SolverFactory { val program: p.type; type S <: TimeoutSolver }
+    }
 }

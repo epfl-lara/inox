@@ -108,7 +108,8 @@ trait ASCIIStringEncoder extends SimpleEncoder {
 }
 
 object ASCIIStringEncoder {
-  def apply(p: Program): ASCIIStringEncoder { val sourceProgram: p.type } = new {
-    val sourceProgram: p.type = p
-  } with ASCIIStringEncoder
+  def apply(p: Program): ASCIIStringEncoder { val sourceProgram: p.type } = {
+    class ASCIIStringEncoderBase(val sourceProgram: p.type) extends ASCIIStringEncoder
+    new ASCIIStringEncoderBase(p)
+  }
 }

@@ -15,11 +15,11 @@ object EncodingSolverFactory {
              type S <: TimeoutSolver { val program: p.type }
            } = {
 
-    SolverFactory.create(p)("E:" + sf.name, () => new {
-      val program: p.type = p
-    } with EncodingSolver with TimeoutSolver {
-      val encoder: enc.type = enc
+    class SolverBase(val program: p.type, val encoder: enc.type)
+      extends EncodingSolver with TimeoutSolver {
+
       val underlying = sf.getNewSolver()
-    })
+    }
+    SolverFactory.create(p)("E:" + sf.name, () => new SolverBase(p, enc))
   }
 }

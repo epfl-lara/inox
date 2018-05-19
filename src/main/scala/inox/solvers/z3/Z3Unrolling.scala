@@ -25,40 +25,43 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
 
   protected lazy val z3 = underlying.z3
 
-  object templates extends {
-    val program: targetProgram.type = targetProgram
-    val context = self.context
-    val semantics: targetProgram.Semantics = self.targetSemantics
-  } with Templates {
-    import program.trees._
+  val templates = {
+    class TemplatesBase (
+      val program: targetProgram.type,
+      val context: Context,
+      val semantics: targetProgram.Semantics) extends Templates {
 
-    type Encoded = self.Encoded
+      import program.trees._
 
-    def asString(ast: Z3AST): String = ast.toString
-    def abort: Boolean = self.abort
-    def pause: Boolean = self.pause
+      type Encoded = self.Encoded
 
-    def encodeSymbol(v: Variable): Z3AST = underlying.symbolToFreshZ3Symbol(v)
+      def asString(ast: Z3AST): String = ast.toString
+      def abort: Boolean = self.abort
+      def pause: Boolean = self.pause
 
-    def mkEncoder(bindings: Map[Variable, Z3AST])(e: Expr): Z3AST = {
-      underlying.toZ3Formula(e, bindings)
+      def encodeSymbol(v: Variable): Z3AST = underlying.symbolToFreshZ3Symbol(v)
+
+      def mkEncoder(bindings: Map[Variable, Z3AST])(e: Expr): Z3AST = {
+        underlying.toZ3Formula(e, bindings)
+      }
+
+      def mkSubstituter(substMap: Map[Z3AST, Z3AST]): Z3AST => Z3AST = {
+        val (from, to) = substMap.unzip
+        val (fromArray, toArray) = (from.toArray, to.toArray)
+        (c: Z3AST) => z3.substitute(c, fromArray, toArray)
+      }
+
+      def mkNot(e: Z3AST) = z3.mkNot(e)
+      def mkOr(es: Z3AST*) = z3.mkOr(es : _*)
+      def mkAnd(es: Z3AST*) = z3.mkAnd(es : _*)
+      def mkEquals(l: Z3AST, r: Z3AST) = z3.mkEq(l, r)
+      def mkImplies(l: Z3AST, r: Z3AST) = z3.mkImplies(l, r)
+
+      def extractNot(e: Z3AST): Option[Z3AST] = underlying.extractNot(e)
+
+      def decodePartial(e: Z3AST, tpe: Type): Option[Expr] = underlying.asGround(e, tpe)
     }
-
-    def mkSubstituter(substMap: Map[Z3AST, Z3AST]): Z3AST => Z3AST = {
-      val (from, to) = substMap.unzip
-      val (fromArray, toArray) = (from.toArray, to.toArray)
-      (c: Z3AST) => z3.substitute(c, fromArray, toArray)
-    }
-
-    def mkNot(e: Z3AST) = z3.mkNot(e)
-    def mkOr(es: Z3AST*) = z3.mkOr(es : _*)
-    def mkAnd(es: Z3AST*) = z3.mkAnd(es : _*)
-    def mkEquals(l: Z3AST, r: Z3AST) = z3.mkEq(l, r)
-    def mkImplies(l: Z3AST, r: Z3AST) = z3.mkImplies(l, r)
-
-    def extractNot(e: Z3AST): Option[Z3AST] = underlying.extractNot(e)
-
-    def decodePartial(e: Z3AST, tpe: Type): Option[Expr] = underlying.asGround(e, tpe)
+    new TemplatesBase(targetProgram, self.context, self.targetSemantics)
   }
 
   protected def declareVariable(v: t.Variable): Z3AST = underlying.declareVariable(v)

@@ -12,10 +12,10 @@ trait NativeZ3Solver extends Z3Unrolling { self =>
 
   override val name = "nativez3"
 
-  protected val underlying = new {
-    val program: targetProgram.type = targetProgram
-    val context = self.context
-  } with AbstractZ3Solver {
-    lazy val semantics = targetSemantics
+  protected val underlying = {
+    class UnderlyingSolverBase(val program: targetProgram.type, val context: Context) extends AbstractZ3Solver {
+      lazy val semantics = targetSemantics
+    }
+    new UnderlyingSolverBase(targetProgram, self.context)
   }
 }

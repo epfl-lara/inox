@@ -55,10 +55,10 @@ package object theories {
   object ReverseEvaluator {
     def apply(enc: ast.ProgramTransformer)
              (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }):
-             DeterministicEvaluator { val program: enc.targetProgram.type } = new {
+             DeterministicEvaluator { val program: enc.targetProgram.type } = new DeterministicEvaluator {
       val program: enc.targetProgram.type = enc.targetProgram
       val context = ev.context
-    } with DeterministicEvaluator {
+      
       import program.trees._
       import EvaluationResults._
 
