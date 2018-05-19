@@ -770,9 +770,9 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     targetSemantics.getEvaluator(context.withOpts(optIgnoreContracts(true)))
 
   protected def declareVariable(v: t.Variable): t.Variable = v
-  protected def wrapModel(model: targetProgram.Model): super.ModelWrapper = ModelWrapper(model)
+  protected def wrapModel(model: targetProgram.Model): ModelWrapper = ConcreteModelWrapper(model)
 
-  private case class ModelWrapper(model: targetProgram.Model) extends super.ModelWrapper {
+  private case class ConcreteModelWrapper(model: targetProgram.Model) extends ModelWrapper {
     private def e(expr: t.Expr): Option[t.Expr] = modelEvaluator.eval(expr, model).result
 
     def extractConstructor(elem: t.Expr, tpe: t.ADTType): Option[Identifier] = e(elem) match {
