@@ -1,4 +1,4 @@
-/* Copyright 2009-2018 EPFL, Lausanne */
+/*/* Copyright 2009-2018 EPFL, Lausanne */
 
 package inox
 package solvers
@@ -129,3 +129,4 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(clause)).isSAT)
   }
 }
+*/

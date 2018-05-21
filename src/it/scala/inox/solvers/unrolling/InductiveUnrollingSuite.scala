@@ -1,4 +1,4 @@
-/* Copyright 2009-2018 EPFL, Lausanne */
+/*/* Copyright 2009-2018 EPFL, Lausanne */
 
 package inox
 package solvers
@@ -201,3 +201,4 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
   }
 
 }
+*/

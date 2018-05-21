@@ -1,4 +1,4 @@
-/* Copyright 2009-2018 EPFL, Lausanne */
+/*/* Copyright 2009-2018 EPFL, Lausanne */
 
 package inox
 package tip
@@ -92,3 +92,4 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     }
   }
 }
+*/

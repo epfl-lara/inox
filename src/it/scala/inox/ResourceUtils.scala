@@ -15,7 +15,7 @@ trait ResourceUtils {
     Option(getClass.getResource(s"/$dir")).toSeq.flatMap { url =>
       val baseDir = new File(url.getPath)
 
-      def rec(f: File): Seq[File] = Option(f.listFiles()).getOrElse(Array()).flatMap { f =>
+      def rec(f: File): Seq[File] = Option(f.listFiles()).getOrElse(Array[File]()).flatMap { f =>
         if (f.isDirectory) {
           if (recursive) rec(f)
           else Nil

@@ -1,4 +1,4 @@
-/* Copyright 2009-2018 EPFL, Lausanne */
+/*/* Copyright 2009-2018 EPFL, Lausanne */
 
 package inox
 package solvers
@@ -123,3 +123,4 @@ class QuantifiersSuite extends TestSuite {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 }
+*/
