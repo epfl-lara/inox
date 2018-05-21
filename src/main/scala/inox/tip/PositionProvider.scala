@@ -13,15 +13,18 @@ class PositionProvider(_reader: Reader, _file: Option[File]) {
     case None =>
       val file = File.createTempFile("tip-input", ".smt2")
       val writer = new BufferedWriter(new FileWriter(file))
+      val reader = new BufferedReader(_reader)
 
       val buffer = new Array[Char](1024)
-      var count: Int = 0
-      while ((count = _reader.read(buffer)) != -1) {
+      var count: Int = reader.read(buffer)
+      while (count != -1) {
         writer.write(buffer, 0, count)
+        count = reader.read(buffer)
       }
+      writer.close()
+      reader.close()
 
-      val reader = new BufferedReader(new FileReader(file))
-      (reader, file)
+      (new BufferedReader(new FileReader(file)), file)
   }
 
   private val fileLines: List[String] = scala.io.Source.fromFile(file).getLines.toList
