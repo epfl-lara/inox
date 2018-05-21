@@ -201,7 +201,7 @@ object Main extends MainHelpers {
       exit(error = true)
     } else {
       var error: Boolean = false
-      for (file <- files; (program, expr) <- new tip.Parser(file).parseScript) {
+      for (file <- files; (program, expr) <- tip.Parser(file).parseScript) {
         import ctx._
         import program._
 

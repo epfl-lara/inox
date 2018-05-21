@@ -66,7 +66,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
 
   for (file <- resourceFiles("regression/tip/SAT", _.endsWith(".tip"))) {
     test(s"SAT - ${file.getName}", ignoreSAT(_, file)) { implicit ctx =>
-      for ((program, expr) <- new Parser(file).parseScript) {
+      for ((program, expr) <- Parser(file).parseScript) {
         assert(SimpleSolverAPI(program.getSolver).solveSAT(expr).isSAT)
       }
     }
@@ -74,7 +74,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
 
   for (file <- resourceFiles("regression/tip/UNSAT", _.endsWith(".tip"))) {
     test(s"UNSAT - ${file.getName}", ignoreUNSAT(_, file)) { implicit ctx =>
-      for ((program, expr) <- new Parser(file).parseScript) {
+      for ((program, expr) <- Parser(file).parseScript) {
         assert(SimpleSolverAPI(program.getSolver).solveSAT(expr).isUNSAT)
       }
     }
@@ -83,7 +83,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
   for (file <- resourceFiles("regression/tip/UNKNOWN", _.endsWith(".tip"))) {
     test(s"UNKNOWN - ${file.getName}", ignoreUNKNOWN(_, file)) { ctx0 =>
       implicit val ctx = ctx0.copy(options = ctx0.options + optCheckModels(false))
-      for ((program, expr) <- new Parser(file).parseScript) {
+      for ((program, expr) <- Parser(file).parseScript) {
         val api = SimpleSolverAPI(program.getSolver)
         val res = api.solveSAT(expr)
         assert(!res.isSAT && !res.isUNSAT)

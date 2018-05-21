@@ -50,13 +50,13 @@ class TipSerializationSuite extends FunSpec with ResourceUtils {
     describe(s"Serializing/deserializing file $cat/${file.getName}") {
       it("with registered classes") {
         val serializer = utils.Serializer(inox.trees)
-        for ((program, expr) <- new Parser(file).parseScript) checkSerializer(serializer, program, expr)
+        for ((program, expr) <- Parser(file).parseScript) checkSerializer(serializer, program, expr)
       }
 
       it("with unregistered classes") {
         val serializer = new ProductSerializer(inox.trees)
           .asInstanceOf[utils.Serializer { val trees: inox.trees.type }]
-        for ((program, expr) <- new Parser(file).parseScript) checkSerializer(serializer, program, expr)
+        for ((program, expr) <- Parser(file).parseScript) checkSerializer(serializer, program, expr)
       }
     }
   }
