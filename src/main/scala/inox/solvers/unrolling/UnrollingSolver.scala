@@ -67,7 +67,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
   protected final def encode(tpe: Type): t.Type = programEncoder.encode(tpe)
   protected final def decode(tpe: t.Type): Type = programEncoder.decode(tpe)
 
-  protected val templates: Templates {
+  protected lazy val templates: Templates {
     val program: targetProgram.type
     type Encoded = self.Encoded
   }
@@ -733,37 +733,40 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
 
   override lazy val name = "U:"+underlying.name
 
-  object templates extends Templates {
-    val program: targetProgram.type = targetProgram
-    val context = self.context
-    val semantics: targetProgram.Semantics = self.targetSemantics
+  lazy val templates = {
+    class TemplatesBase (
+      val program: targetProgram.type,
+      val context: Context,
+      val semantics: targetProgram.Semantics) extends Templates {
 
-    import program._
-    import program.trees._
-    import program.symbols._
+      import program._
+      import program.trees._
+      import program.symbols._
 
-    type Encoded = Expr
+      type Encoded = Expr
 
-    def asString(expr: Expr): String = expr.asString
-    def abort: Boolean = self.abort
-    def pause: Boolean = self.pause
+      def asString(expr: Expr): String = expr.asString
+      def abort: Boolean = self.abort
+      def pause: Boolean = self.pause
 
-    def encodeSymbol(v: Variable): Expr = v.freshen
-    def mkEncoder(bindings: Map[Variable, Expr])(e: Expr): Expr = exprOps.replaceFromSymbols(bindings, e)
-    def mkSubstituter(substMap: Map[Expr, Expr]): Expr => Expr = (e: Expr) => exprOps.replace(substMap, e)
+      def encodeSymbol(v: Variable): Expr = v.freshen
+      def mkEncoder(bindings: Map[Variable, Expr])(e: Expr): Expr = exprOps.replaceFromSymbols(bindings, e)
+      def mkSubstituter(substMap: Map[Expr, Expr]): Expr => Expr = (e: Expr) => exprOps.replace(substMap, e)
 
-    def mkNot(e: Expr) = not(e)
-    def mkOr(es: Expr*) = orJoin(es)
-    def mkAnd(es: Expr*) = andJoin(es)
-    def mkEquals(l: Expr, r: Expr) = Equals(l, r)
-    def mkImplies(l: Expr, r: Expr) = implies(l, r)
+      def mkNot(e: Expr) = not(e)
+      def mkOr(es: Expr*) = orJoin(es)
+      def mkAnd(es: Expr*) = andJoin(es)
+      def mkEquals(l: Expr, r: Expr) = Equals(l, r)
+      def mkImplies(l: Expr, r: Expr) = implies(l, r)
 
-    def extractNot(e: Expr) = e match {
-      case Not(e2) => Some(e2)
-      case _ => None
+      def extractNot(e: Expr) = e match {
+        case Not(e2) => Some(e2)
+        case _ => None
+      }
+
+      def decodePartial(e: Expr, tpe: Type): Option[Expr] = Some(e)
     }
-
-    def decodePartial(e: Expr, tpe: Type): Option[Expr] = Some(e)
+    new TemplatesBase(targetProgram, self.context, self.targetSemantics)
   }
 
   protected lazy val modelEvaluator: DeterministicEvaluator { val program: self.targetProgram.type } =

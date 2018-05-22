@@ -25,7 +25,7 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
 
   protected lazy val z3 = underlying.z3
 
-  val templates = {
+  lazy val templates = {
     class TemplatesBase (
       val program: targetProgram.type,
       val context: Context,
