@@ -165,11 +165,13 @@ object SolverFactory {
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
 
-          protected val underlying = new z3.UninterpretedZ3Solver {
-            val program: progEnc.targetProgram.type = progEnc.targetProgram
-            val context = ctx
+          protected val underlying = {
+            class UnderlyingSolverBase(val program: progEnc.targetProgram.type, val context: Context)
+              extends z3.UninterpretedZ3Solver {
 
-            val semantics: program.Semantics = targetSem
+              val semantics: program.Semantics = targetSem
+            }
+            new UnderlyingSolverBase(progEnc.targetProgram, ctx)
           }
         }
         () => new SolverBase(p, ctx, enc, chooseEnc)
@@ -192,11 +194,13 @@ object SolverFactory {
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
 
-          protected val underlying = new smtlib.Z3Solver {
-            val program: progEnc.targetProgram.type = progEnc.targetProgram
-            val context = ctx
+          protected val underlying = {
+            class UnderlyingSolverBase(val program: progEnc.targetProgram.type, val context: Context)
+              extends smtlib.Z3Solver {
 
-            val semantics: program.Semantics = targetSem
+              val semantics: program.Semantics = targetSem
+            }
+            new UnderlyingSolverBase(progEnc.targetProgram, ctx)
           }
         }
         () => new SolverBase(p, ctx, enc)
@@ -253,12 +257,14 @@ object SolverFactory {
           override protected lazy val evaluator = ev
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
+          
+          protected val underlying = {
+            class UnderlyingSolverBase(val program: progEnc.targetProgram.type, val context: Context)
+              extends inox.solvers.smtlib.CVC4Solver {
 
-          protected val underlying = inox.solvers.smtlib.CVC4Solver {
-            val program: progEnc.targetProgram.type = progEnc.targetProgram
-            val context = ctx
-
-            val semantics: program.Semantics = targetSem
+              val semantics: program.Semantics = targetSem
+            }
+            new UnderlyingSolverBase(progEnc.targetProgram, ctx)
           }
         }
       })
