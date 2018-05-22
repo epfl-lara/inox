@@ -128,6 +128,7 @@ lazy val root = (project in file("."))
     libraryDependencies ++= Seq(
       ("org.scalatest" %% "scalatest" % "3.0.1" % "test;it").withDottyCompat(scalaVersion.value),
       ("org.apache.commons" % "commons-lang3" % "3.4").withDottyCompat(scalaVersion.value),
+      ("org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.0").withDottyCompat(scalaVersion.value),
       ("org.scala-lang" % "scala-reflect" % scalacVersion).withDottyCompat(scalaVersion.value),
       ("com.regblanc" %% "scala-smtlib" % "0.2.2-7-g00a9686").withDottyCompat(scalaVersion.value),
       ("uuverifiers" %% "princess" % "2016-12-26").withDottyCompat(scalaVersion.value)
