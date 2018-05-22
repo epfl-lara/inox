@@ -47,10 +47,10 @@ trait AbstractUnrollingSolver extends Solver { self =>
     val targetProgram: Program { val trees: fullEncoder.targetProgram.trees.type }
   }
 
-  protected lazy final val programEncoder = fullEncoder andThen theories
+  protected lazy val programEncoder = fullEncoder andThen theories
 
-  protected lazy final val s: programEncoder.sourceProgram.trees.type = programEncoder.sourceProgram.trees
-  protected lazy final val t: programEncoder.targetProgram.trees.type = programEncoder.targetProgram.trees
+  protected lazy val s: programEncoder.sourceProgram.trees.type = programEncoder.sourceProgram.trees
+  protected lazy val t: programEncoder.targetProgram.trees.type = programEncoder.targetProgram.trees
   protected lazy final val targetProgram: programEncoder.targetProgram.type = programEncoder.targetProgram
 
   protected implicit val targetSemantics: targetProgram.Semantics

@@ -182,10 +182,11 @@ object SolverFactory {
         val progEnc = fullEnc andThen theoryEnc
         val targetSem = progEnc.targetProgram.getSemantics
 
-        class SolverBase(val program: p.type, val context: Context, val encoder: enc.type, val chooses: chooseEnc.type)
+        class SolverBase(val program: p.type, val context: Context, val encoder: enc.type)
           extends UnrollingSolver with TimeoutSolver with tip.TipDebugger {
 
           val semantics = sem
+          val chooses: chooseEnc.type = chooseEnc
           val theories: theoryEnc.type = theoryEnc
           val targetSemantics = targetSem
           override protected lazy val fullEncoder = fullEnc
@@ -198,7 +199,7 @@ object SolverFactory {
             val semantics: program.Semantics = targetSem
           }
         }
-        () => new SolverBase(p, ctx, enc, chooseEnc)
+        () => new SolverBase(p, ctx, enc)
       })
 
       case "smt-z3-opt" => create(p)(finalName, {
