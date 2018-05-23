@@ -119,6 +119,7 @@ trait Definitions { self: Trees =>
         with TypeOps
         with SymbolOps
         with CallGraph
+        with DependencyGraph
         with Paths { self0: Symbols =>
 
     val sorts: Map[Identifier, ADTSort]

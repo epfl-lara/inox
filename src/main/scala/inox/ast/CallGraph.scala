@@ -12,36 +12,38 @@ trait CallGraph {
   import trees.exprOps._
   protected val symbols: Symbols
 
-  private def collectCalls(fd: FunDef)(e: Expr): Set[(Identifier, Identifier)] = e match {
-    case f @ FunctionInvocation(id, tps, _) => Set((fd.id, id))
+  private def collectCalls(e: Expr): Set[Identifier] = collect[Identifier] {
+    case FunctionInvocation(id, _, _) => Set(id)
     case _ => Set()
-  }
+  } (e)
 
-  @inline def graph: DiGraph[Identifier, SimpleEdge[Identifier]] = _graph.get
-  private[this] val _graph: Lazy[DiGraph[Identifier, SimpleEdge[Identifier]]] = Lazy({
+  protected def computeCallGraph: DiGraph[Identifier, SimpleEdge[Identifier]] = {
     var g = DiGraph[Identifier, SimpleEdge[Identifier]]()
-    for ((_, fd) <- symbols.functions; (from, to) <- collect(collectCalls(fd))(fd.fullBody)) {
-      g += SimpleEdge(from, to)
+    for ((_, fd) <- symbols.functions; to <- collectCalls(fd.fullBody)) {
+      g += SimpleEdge(fd.id, to)
     }
     g
-  })
+  }
 
-  def allCalls = graph.E.map(e => e._1 -> e._2)
+  @inline def callGraph: DiGraph[Identifier, SimpleEdge[Identifier]] = _callGraph.get
+  private[this] val _callGraph: Lazy[DiGraph[Identifier, SimpleEdge[Identifier]]] = Lazy(computeCallGraph)
+
+  def allCalls = callGraph.E.map(e => e._1 -> e._2)
 
   def isRecursive(id: Identifier): Boolean = {
-    graph.transitiveSucc(id) contains id
+    callGraph.transitiveSucc(id) contains id
   }
 
   def isSelfRecursive(id: Identifier): Boolean = {
-    graph.succ(id) contains id
+    callGraph.succ(id) contains id
   }
 
   def calls(from: Identifier, to: Identifier): Boolean = {
-    graph.E contains SimpleEdge(from, to)
+    callGraph.E contains SimpleEdge(from, to)
   }
 
   def callers(to: Identifier): Set[Identifier] = {
-    graph.pred(to)
+    callGraph.pred(to)
   }
 
   def callers(to: FunDef): Set[FunDef] = {
@@ -57,7 +59,7 @@ trait CallGraph {
   }
 
   def callees(from: Identifier): Set[Identifier] = {
-    graph.succ(from)
+    callGraph.succ(from)
   }
 
   def callees(from: FunDef): Set[FunDef] = {
@@ -73,7 +75,7 @@ trait CallGraph {
   }
 
   def transitiveCallers(to: Identifier): Set[Identifier] = {
-    graph.transitivePred(to)
+    callGraph.transitivePred(to)
   }
 
   def transitiveCallers(to: FunDef): Set[FunDef] = {
@@ -89,7 +91,7 @@ trait CallGraph {
   }
 
   def transitiveCallees(from: Identifier): Set[Identifier] = {
-    graph.transitiveSucc(from)
+    callGraph.transitiveSucc(from)
   }
 
   def transitiveCallees(from: FunDef): Set[FunDef] = {
@@ -105,7 +107,7 @@ trait CallGraph {
   }
 
   def transitivelyCalls(from: Identifier, to: Identifier): Boolean = {
-    graph.transitiveSucc(from) contains to
+    callGraph.transitiveSucc(from) contains to
   }
 
   def transitivelyCalls(from: FunDef, to: FunDef): Boolean = {
@@ -114,7 +116,7 @@ trait CallGraph {
 
   @inline def sccs: DiGraph[Set[Identifier], SimpleEdge[Set[Identifier]]] = _sccs.get
   private[this] val _sccs: Lazy[DiGraph[Set[Identifier], SimpleEdge[Set[Identifier]]]] =
-    Lazy(graph.stronglyConnectedComponents)
+    Lazy(callGraph.stronglyConnectedComponents)
 
   object CallGraphOrderings {
     implicit object componentOrdering extends Ordering[Set[FunDef]] {
