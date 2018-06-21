@@ -236,7 +236,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
     // we have to check case class constructors in model for ADT invariants
     val newExpr = model.vars.toSeq.foldLeft(expr) { case (e, (v, value)) => Let(v, value, e) }
 
-    evaluator.eval(newExpr, inox.Model(program, context)(Map.empty, model.chooses)) match {
+    val evalContext  = context.withOpts(optSilentErrors(silenceErrors))
+    evaluator.eval(newExpr, inox.Model(program, evalContext)(Map.empty, model.chooses)) match {
       case EvaluationResults.Successful(BooleanLiteral(true)) =>
         reporter.debug("- Model validated.")
         true
