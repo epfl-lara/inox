@@ -268,13 +268,18 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     case Times(l, r)         => simplifyAndCons(Seq(l, r), path, es => times(es(0), es(1)))
     case Forall(args, body)  => simplifyAndCons(Seq(body), path, es => simpForall(args, es.head))
 
-    case Application(e, es)  => simplify(e, path) match {
-      case (l: Lambda, _) => simplify(application(l, es), path)
-      case (Assume(pred, l: Lambda), _) => simplify(assume(pred, application(l, es)), path)
-      case (re, _) =>
-        val (res, _) = es.map(simplify(_, path)).unzip
-        (application(re, res), opts.assumeChecked)
-    }
+    case Application(e, es)  =>
+      val (caller, recons): (Expr, Expr => Expr) = simplify(e, path) match {
+        case (Assume(pred, e), _) => (e, assume(pred, _))
+        case (e, _) => (e, expr => expr)
+      }
+
+      path.expand(caller) match {
+        case (l: Lambda) => simplify(recons(application(l, es)), path)
+        case _ =>
+          val (res, _) = es.map(simplify(_, path)).unzip
+          (application(caller, res), opts.assumeChecked)
+      }
 
     case _ =>
       dynStack.set(0 :: dynStack.get)
@@ -313,7 +318,7 @@ trait FastSimplifier extends SimplifierWithPC {
   ) extends PathLike[Env] with SolvingPath {
 
     override def withBinding(p: (ValDef, Expr)): Env = p match {
-      case (vd, expr @ (_: ADT | _: Tuple)) =>
+      case (vd, expr @ (_: ADT | _: Tuple | _: Lambda)) =>
         new Env(conditions, exprSubst + (vd.toVariable -> expr))
       case (vd, v: Variable) =>
         val exp = expand(v)
