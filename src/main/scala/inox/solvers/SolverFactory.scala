@@ -118,18 +118,20 @@ object SolverFactory {
         val fullEnc = enc andThen chooseEnc
         val theoryEnc = theories.Z3(fullEnc.targetProgram)
         val progEnc = fullEnc andThen theoryEnc
+        val targetProg = progEnc.targetProgram
 
         () => new {
           val program: p.type = p
           val context = ctx
           val encoder: enc.type = enc
         } with z3.NativeZ3Solver with TimeoutSolver with tip.TipDebugger {
-          val semantics = sem
-          val chooses: chooseEnc.type = chooseEnc
+          override protected val semantics = sem
+          override protected val chooses: chooseEnc.type = chooseEnc
           override protected lazy val theories: theoryEnc.type = theoryEnc
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
-          lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
+          override protected lazy val targetProgram: targetProg.type = targetProg
+          override protected lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
         }
       })
 
@@ -138,18 +140,20 @@ object SolverFactory {
         val fullEnc = enc andThen chooseEnc
         val theoryEnc = theories.Z3(fullEnc.targetProgram)
         val progEnc = fullEnc andThen theoryEnc
+        val targetProg = progEnc.targetProgram
 
         () => new {
           val program: p.type = p
           val context = ctx
           val encoder: enc.type = enc
         } with z3.NativeZ3Optimizer with TimeoutSolver {
-          val semantics = sem
-          val chooses: chooseEnc.type = chooseEnc
+          override protected val semantics = sem
+          override protected val chooses: chooseEnc.type = chooseEnc
           override protected lazy val theories: theoryEnc.type = theoryEnc
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
-          lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
+          override protected lazy val targetProgram: targetProg.type = targetProg
+          override protected lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
         }
       })
 
@@ -158,19 +162,21 @@ object SolverFactory {
         val fullEnc = enc andThen chooseEnc
         val theoryEnc = theories.Z3(fullEnc.targetProgram)
         val progEnc = fullEnc andThen theoryEnc
-        val targetSem = progEnc.targetProgram.getSemantics
+        val targetProg = progEnc.targetProgram
+        val targetSem = targetProg.getSemantics
 
         () => new {
           val program: p.type = p
           val context = ctx
           val encoder: enc.type = enc
         } with UnrollingSolver with TimeoutSolver with tip.TipDebugger {
-          val semantics = sem
-          val chooses: chooseEnc.type = chooseEnc
-          val theories: theoryEnc.type = theoryEnc
-          val targetSemantics = targetSem
+          override protected val semantics = sem
+          override protected val chooses: chooseEnc.type = chooseEnc
+          override protected val theories: theoryEnc.type = theoryEnc
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
+          override protected lazy val targetProgram: targetProg.type = targetProg
+          override protected val targetSemantics = targetSem
 
           protected val underlying = new {
             val program: progEnc.targetProgram.type = progEnc.targetProgram
@@ -186,19 +192,21 @@ object SolverFactory {
         val fullEnc = enc andThen chooseEnc
         val theoryEnc = theories.Z3(fullEnc.targetProgram)
         val progEnc = fullEnc andThen theoryEnc
-        val targetSem = progEnc.targetProgram.getSemantics
+        val targetProg = progEnc.targetProgram
+        val targetSem = targetProg.getSemantics
 
         () => new {
           val program: p.type = p
           val context = ctx
           val encoder: enc.type = enc
         } with UnrollingSolver with TimeoutSolver with tip.TipDebugger {
-          val semantics = sem
-          val chooses: chooseEnc.type = chooseEnc
-          val theories: theoryEnc.type = theoryEnc
-          val targetSemantics = targetSem
+          override protected val semantics = sem
+          override protected val chooses: chooseEnc.type = chooseEnc
+          override protected val theories: theoryEnc.type = theoryEnc
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
+          override protected lazy val targetProgram: targetProg.type = targetProg
+          override protected val targetSemantics = targetSem
 
           protected val underlying = new {
             val program: progEnc.targetProgram.type = progEnc.targetProgram
@@ -214,19 +222,21 @@ object SolverFactory {
         val fullEnc = enc andThen chooseEnc
         val theoryEnc = theories.Z3(fullEnc.targetProgram)
         val progEnc = fullEnc andThen theoryEnc
-        val targetSem = progEnc.targetProgram.getSemantics
+        val targetProg = progEnc.targetProgram
+        val targetSem = targetProg.getSemantics
 
         () => new {
           val program: p.type = p
           val context = ctx
           val encoder: enc.type = enc
         } with UnrollingOptimizer with TimeoutSolver {
-          val semantics = sem
-          val chooses: chooseEnc.type = chooseEnc
-          val theories: theoryEnc.type = theoryEnc
-          val targetSemantics = targetSem
+          override protected val semantics = sem
+          override protected val chooses: chooseEnc.type = chooseEnc
+          override protected val theories: theoryEnc.type = theoryEnc
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
+          override protected lazy val targetProgram: targetProg.type = targetProg
+          override protected val targetSemantics = targetSem
 
           protected val underlying = new {
             val program: progEnc.targetProgram.type = progEnc.targetProgram
@@ -243,20 +253,22 @@ object SolverFactory {
         val fullEnc = enc andThen chooseEnc
         val theoryEnc = theories.CVC4(fullEnc)(ev)
         val progEnc = fullEnc andThen theoryEnc
-        val targetSem = progEnc.targetProgram.getSemantics
+        val targetProg = progEnc.targetProgram
+        val targetSem = targetProg.getSemantics
 
         () => new {
           val program: p.type = p
           val context = ctx
           val encoder: enc.type = enc
         } with UnrollingSolver with TimeoutSolver with tip.TipDebugger {
-          val semantics = sem
-          val chooses: chooseEnc.type = chooseEnc
-          val theories: theoryEnc.type = theoryEnc
-          val targetSemantics = targetSem
+          override protected val semantics = sem
+          override protected val chooses: chooseEnc.type = chooseEnc
+          override protected val theories: theoryEnc.type = theoryEnc
           override protected lazy val evaluator = ev
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
+          override protected lazy val targetProgram: targetProg.type = targetProg
+          override protected val targetSemantics = targetSem
 
           protected val underlying = new {
             val program: progEnc.targetProgram.type = progEnc.targetProgram
@@ -273,19 +285,21 @@ object SolverFactory {
         val fullEnc = enc andThen chooseEnc
         val theoryEnc = theories.Princess(fullEnc)(ev)
         val progEnc = fullEnc andThen theoryEnc
+        val targetProg = progEnc.targetProgram
 
         () => new {
           val program: p.type = p
           val context = ctx
           val encoder: enc.type = enc
         } with princess.PrincessSolver with TimeoutSolver {
-          val semantics = sem
-          val chooses: chooseEnc.type = chooseEnc
+          override protected val semantics = sem
+          override protected val chooses: chooseEnc.type = chooseEnc
           override protected lazy val theories: theoryEnc.type = theoryEnc
           override protected lazy val evaluator = ev
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
-          lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
+          override protected lazy val targetProgram: targetProg.type = targetProg
+          override protected lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
         }
       })
 
