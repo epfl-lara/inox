@@ -21,6 +21,9 @@ trait QuantificationTemplates { self: Templates =>
   /* -- Extraction helpers -- */
 
   object QuantificationMatcher {
+    // @nv: no need to match on FiniteMap and FiniteSet as
+    //      simplifyMatchers in SymbolOps will transform them to MapUpdated
+    //      and SetAdd (which generate matchers)
     def unapply(expr: Expr): Option[(Expr, Seq[Expr])] = expr match {
       case Application(e, args) => Some(e -> args)
       case MapApply(map, key) => Some(map -> Seq(key))
