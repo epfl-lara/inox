@@ -90,7 +90,7 @@ class QuantifiersSuite extends TestSuite {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 
-  test("Associatve =!=> commutative") { implicit ctx =>
+  test("Associative =!=> commutative") { implicit ctx =>
     val aT = T("A")
     val f = ("f" :: ((aT, aT) =>: aT)).toVariable
     val clause = isAssociative(aT)(f) && !isCommutative(aT)(f)
