@@ -31,8 +31,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
         case ("smt-z3" | "smt-cvc4", "BinarySearchTreeQuant.scala-2.tip") => Ignore
         case ("smt-z3" | "smt-cvc4", "ForallAssoc.scala-0.tip") => Ignore
         // this test only holds when assumeChecked=false
-        case (_, "LambdaEquality2.scala-1.tip")
-        if ctx.options.findOptionOrDefault(optAssumeChecked) => Skip
+        case (_, "LambdaEquality2.scala-1.tip") if ctx.options.findOptionOrDefault(optAssumeChecked) => Skip
         case _ => Test
       }
 
@@ -48,6 +47,8 @@ class TipTestSuite extends TestSuite with ResourceUtils {
         case ("smt-cvc4", "Instantiation.scala-0.tip") => Skip
         case ("smt-cvc4", "LetsInForall.tip") => Skip
         case ("smt-cvc4", "Weird.scala-0.tip") => Skip
+        // this test only holds when assumeChecked=true
+        case (_, "QuickSortFilter.scala-1.tip") if !ctx.options.findOptionOrDefault(optAssumeChecked) => Skip
         case _ => Test
       }
       case _ => Test

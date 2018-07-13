@@ -1,0 +1,49 @@
+(declare-datatypes (T!0) ((List!5 (Cons!4 (h!48 T!0) (t!58 (List!5 T!0))) (Nil!4))))
+
+(define-fun-rec isSorted!1 ((ls!7 (List!5 Int))) Bool (ite (and (is-Cons!4 ls!7) (is-Cons!4 (t!58 ls!7))) (and (<= (h!48 ls!7) (h!48 (t!58 ls!7))) (isSorted!1 (t!58 ls!7))) true))
+
+(define-fun-rec (par (T!46) (content!0 ((thiss!17 (List!5 T!46))) (Set T!46) (ite (is-Nil!4 thiss!17) (as emptyset T!46) (union (insert (as emptyset T!46) (h!48 thiss!17)) (content!0 (t!58 thiss!17)))))))
+
+(define-fun-rec (par (T!75) (size!0 ((thiss!46 (List!5 T!75))) Int (let ((x$1!2 (ite (is-Nil!4 thiss!46) 0 (+ 1 (size!0 (t!58 thiss!46)))))) (assume (>= x$1!2 0) x$1!2)))))
+
+(define-fun-rec (par (T!100) (++!0 ((thiss!71 (List!5 T!100)) (that!3 (List!5 T!100))) (List!5 T!100) (let ((res!0 (ite (is-Nil!4 thiss!71) that!3 (Cons!4 (h!48 thiss!71) (++!0 (t!58 thiss!71) that!3))))) (assume (and (and (= (content!0 res!0) (union (content!0 thiss!71) (content!0 that!3))) (= (size!0 res!0) (+ (size!0 thiss!71) (size!0 that!3)))) (or (not (= that!3 (as Nil!4 (List!5 T!100)))) (= res!0 thiss!71))) res!0)))))
+
+(define-fun-rec (par (T!57) (forall!0 ((thiss!28 (List!5 T!57)) (p!4 (=> T!57 Bool))) Bool (ite (is-Nil!4 thiss!28) true (and (@ p!4 (h!48 thiss!28)) (forall!0 (t!58 thiss!28) p!4))))))
+
+(define-fun-rec (par (T!101) (filter!0 ((thiss!72 (List!5 T!101)) (p!0 (=> T!101 Bool))) (List!5 T!101) (let ((res!19 (ite (is-Nil!4 thiss!72) (as Nil!4 (List!5 T!101)) (ite (and (is-Cons!4 thiss!72) (@ p!0 (h!48 thiss!72))) (Cons!4 (h!48 thiss!72) (filter!0 (t!58 thiss!72) p!0)) (filter!0 (t!58 thiss!72) p!0))))) (assume (and (and (<= (size!0 res!19) (size!0 thiss!72)) (subset (content!0 res!19) (content!0 thiss!72))) (forall!0 res!19 p!0)) res!19)))))
+
+(define-fun-rec quickSort!0 ((ls!6 (List!5 Int))) (List!5 Int) (ite (is-Nil!4 ls!6) (as Nil!4 (List!5 Int)) (ite (and (is-Cons!4 ls!6) (is-Nil!4 (t!58 ls!6))) ls!6 (++!0 (++!0 (quickSort!0 (filter!0 (t!58 ls!6) (lambda ((x$1!4 Int)) (< x$1!4 (h!48 ls!6))))) (Cons!4 (h!48 ls!6) (filter!0 (t!58 ls!6) (lambda ((x$2!4 Int)) (= x$2!4 (h!48 ls!6)))))) (quickSort!0 (filter!0 (t!58 ls!6) (lambda ((x$3!2 Int)) (> x$3!2 (h!48 ls!6)))))))))
+
+(declare-const ls!15 (List!5 Int))
+
+(define-fun filter_preserves_forall!0 ((ls!11 (List!5 Int)) (p1!0 (=> Int Bool)) (p2!0 (=> Int Bool))) Bool (assume (forall!0 ls!11 p2!0) (let ((holds!31 (forall!0 (filter!0 ls!11 p1!0) p2!0))) (assume holds!31 holds!31))))
+
+(define-fun append_preserves_forall!0 ((l1!13 (List!5 Int)) (l2!11 (List!5 Int)) (p!19 (=> Int Bool))) Bool (assume (and (forall!0 l1!13 p!19) (forall!0 l2!11 p!19)) (let ((holds!30 (forall!0 (++!0 l1!13 l2!11) p!19))) (assume holds!30 holds!30))))
+
+(define-fun-rec sort_preserves_forall!0 ((ls!14 (List!5 Int)) (p!20 (=> Int Bool))) Bool (assume (forall!0 ls!14 p!20) (let ((holds!34 (forall!0 (quickSort!0 ls!14) p!20))) (assume (and (ite (is-Nil!4 ls!14) true (ite (and (is-Cons!4 ls!14) (is-Nil!4 (t!58 ls!14))) true (let ((less!0 (filter!0 (t!58 ls!14) (lambda ((x$10!1 Int)) (< x$10!1 (h!48 ls!14)))))) (let ((equal!0 (Cons!4 (h!48 ls!14) (filter!0 (t!58 ls!14) (lambda ((x$11!1 Int)) (= x$11!1 (h!48 ls!14))))))) (let ((more!0 (filter!0 (t!58 ls!14) (lambda ((x$12!1 Int)) (> x$12!1 (h!48 ls!14)))))) (assume (and (and (filter_preserves_forall!0 (t!58 ls!14) (lambda ((x$13!1 Int)) (< x$13!1 (h!48 ls!14))) p!20) (filter_preserves_forall!0 (t!58 ls!14) (lambda ((x$14!1 Int)) (= x$14!1 (h!48 ls!14))) p!20)) (filter_preserves_forall!0 (t!58 ls!14) (lambda ((x$15!1 Int)) (> x$15!1 (h!48 ls!14))) p!20)) (assume (and (sort_preserves_forall!0 less!0 p!20) (sort_preserves_forall!0 more!0 p!20)) (and (append_preserves_forall!0 (quickSort!0 less!0) equal!0 p!20) (append_preserves_forall!0 (++!0 (quickSort!0 less!0) equal!0) (quickSort!0 more!0) p!20))))))))) holds!34) holds!34))))
+
+(define-fun (par (T!59) (isEmpty!0 ((thiss!30 (List!5 T!59))) Bool (ite (is-Nil!4 thiss!30) true false))))
+
+(define-fun-rec (par (T!37) (contains!0 ((thiss!8 (List!5 T!37)) (v!0 T!37)) Bool (let ((x$2!2 (ite (is-Cons!4 thiss!8) (or (= (h!48 thiss!8) v!0) (contains!0 (t!58 thiss!8) v!0)) false))) (assume (= x$2!2 (member v!0 (content!0 thiss!8))) x$2!2)))))
+
+(define-fun-rec (par (T!31) (last!0 ((thiss!2 (List!5 T!31))) T!31 (assume (not (isEmpty!0 thiss!2)) (let ((v!1 (ite (and (is-Cons!4 thiss!2) (is-Nil!4 (t!58 thiss!2))) (h!48 thiss!2) (last!0 (t!58 thiss!2))))) (assume (contains!0 thiss!2 v!1) v!1))))))
+
+(define-fun forall_last!0 ((ls!10 (List!5 Int)) (p!18 (=> Int Bool))) Bool (let ((holds!29 (=> (forall!0 ls!10 p!18) (or (isEmpty!0 ls!10) (@ p!18 (last!0 ls!10)))))) (assume holds!29 holds!29)))
+
+(define-fun cons_filter_equal_sorted!0 ((ls!9 (List!5 Int)) (x!65 Int)) Bool (let ((holds!28 (isSorted!1 (Cons!4 x!65 (filter!0 ls!9 (lambda ((x$5!1 Int)) (= x$5!1 x!65))))))) (assume holds!28 holds!28)))
+
+(define-fun (par (T!80) (head!0 ((thiss!51 (List!5 T!80))) T!80 (assume (not (= thiss!51 (as Nil!4 (List!5 T!80)))) (h!48 thiss!51)))))
+
+(define-fun append_sorted!0 ((l1!12 (List!5 Int)) (l2!10 (List!5 Int))) Bool (assume (and (and (isSorted!1 l1!12) (isSorted!1 l2!10)) (or (or (isEmpty!0 l1!12) (isEmpty!0 l2!10)) (<= (last!0 l1!12) (head!0 l2!10)))) (let ((holds!26 (isSorted!1 (++!0 l1!12 l2!10)))) (assume holds!26 holds!26))))
+
+(define-fun forall_lt_implies_le!0 ((ls!12 (List!5 Int)) (x!66 Int)) Bool (assume (forall!0 ls!12 (lambda ((x$6!1 Int)) (< x$6!1 x!66))) (let ((holds!32 (forall!0 ls!12 (lambda ((x$7!1 Int)) (<= x$7!1 x!66))))) (assume holds!32 holds!32))))
+
+(define-fun forall_eq_implies_le!0 ((ls!13 (List!5 Int)) (x!67 Int)) Bool (assume (forall!0 ls!13 (lambda ((x$8!1 Int)) (= x$8!1 x!67))) (let ((holds!33 (forall!0 ls!13 (lambda ((x$9!1 Int)) (<= x$9!1 x!67))))) (assume holds!33 holds!33))))
+
+(define-fun-rec sorted_lemma!0 ((ls!15 (List!5 Int))) Bool (let ((holds!35 (isSorted!1 (quickSort!0 ls!15)))) (assume (and (ite (is-Nil!4 ls!15) true (ite (and (is-Cons!4 ls!15) (is-Nil!4 (t!58 ls!15))) true (let ((less!1 (filter!0 (t!58 ls!15) (lambda ((x$16!1 Int)) (< x$16!1 (h!48 ls!15)))))) (let ((equal!1 (Cons!4 (h!48 ls!15) (filter!0 (t!58 ls!15) (lambda ((x$17!1 Int)) (= x$17!1 (h!48 ls!15))))))) (let ((more!1 (filter!0 (t!58 ls!15) (lambda ((x$18!1 Int)) (> x$18!1 (h!48 ls!15)))))) (and (assume (sorted_lemma!0 less!1) (assume (sort_preserves_forall!0 less!1 (lambda ((x$19!1 Int)) (< x$19!1 (h!48 ls!15)))) (assume (forall_last!0 (quickSort!0 less!1) (lambda ((x$20!1 Int)) (< x$20!1 (h!48 ls!15)))) (assume (cons_filter_equal_sorted!0 (t!58 ls!15) (h!48 ls!15)) (append_sorted!0 (quickSort!0 less!1) equal!1))))) (assume (forall_lt_implies_le!0 less!1 (h!48 ls!15)) (assume (sort_preserves_forall!0 less!1 (lambda ((x$21!1 Int)) (<= x$21!1 (h!48 ls!15)))) (assume (forall_eq_implies_le!0 equal!1 (h!48 ls!15)) (assume (append_preserves_forall!0 (quickSort!0 less!1) equal!1 (lambda ((x$22!1 Int)) (<= x$22!1 (h!48 ls!15)))) (assume (forall_last!0 (++!0 (quickSort!0 less!1) equal!1) (lambda ((x$23!1 Int)) (<= x$23!1 (h!48 ls!15)))) (assume (sorted_lemma!0 more!1) (assume (sort_preserves_forall!0 more!1 (lambda ((x$24!1 Int)) (> x$24!1 (h!48 ls!15)))) (append_sorted!0 (++!0 (quickSort!0 less!1) equal!1) (quickSort!0 more!1))))))))))))))) holds!35) holds!35)))
+
+(assert (not (let ((holds!35 (isSorted!1 (quickSort!0 ls!15)))) (=> (and (not (is-Nil!4 ls!15)) (or (not (is-Cons!4 ls!15)) (not (is-Nil!4 (t!58 ls!15)))) (is-Cons!4 ls!15)) (let ((xs!25 (t!58 ls!15))) (let ((less!1 (filter!0 xs!25 (lambda ((x$16!1 Int)) (< x$16!1 (h!48 ls!15)))))) (let ((equal!1 (Cons!4 (h!48 ls!15) (filter!0 xs!25 (lambda ((x$17!1 Int)) (= x$17!1 (h!48 ls!15))))))) (let ((more!1 (filter!0 xs!25 (lambda ((x$18!1 Int)) (> x$18!1 (h!48 ls!15)))))) (=> (and (sorted_lemma!0 less!1) (sort_preserves_forall!0 less!1 (lambda ((x$19!1 Int)) (< x$19!1 (h!48 ls!15)))) (forall_last!0 (quickSort!0 less!1) (lambda ((x$20!1 Int)) (< x$20!1 (h!48 ls!15)))) (cons_filter_equal_sorted!0 xs!25 (h!48 ls!15))) (and (isSorted!1 (quickSort!0 less!1)) (isSorted!1 equal!1) (or (or (isEmpty!0 (quickSort!0 less!1)) (isEmpty!0 equal!1)) (<= (last!0 (quickSort!0 less!1)) (head!0 equal!1)))))))))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard
