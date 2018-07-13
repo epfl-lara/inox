@@ -41,22 +41,19 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
   private[this] val pureCache: MutableMap[Identifier, PurityCheck] = MutableMap.empty
 
-  protected final def isPureFunction(id: Identifier): Boolean = {
-    opts.assumeChecked ||
-    synchronized(pureCache.get(id) match {
-      case Some(Pure) => true
-      case Some(Impure) => false
-      case Some(Checking) =>
-        // Function is recursive and cycles were not pruned by the simplifier.
-        // No need to update pureCache here as the update will take place in the next branch.
-        false
-      case None =>
-        pureCache += id -> Checking
-        val p = isPure(getFunction(id).fullBody, initEnv)
-        pureCache += id -> (if (p) Pure else Impure)
-        p
-    })
-  }
+  protected final def isPureFunction(id: Identifier): Boolean = synchronized(pureCache.get(id) match {
+    case Some(Pure) => true
+    case Some(Impure) => false
+    case Some(Checking) =>
+      // Function is recursive and cycles were not pruned by the simplifier.
+      // No need to update pureCache here as the update will take place in the next branch.
+      opts.assumeChecked
+    case None =>
+      pureCache += id -> Checking
+      val p = isPure(getFunction(id).fullBody, initEnv)
+      pureCache += id -> (if (p) Pure else Impure)
+      p
+  })
 
   protected def isConstructor(e: Expr, id: Identifier, path: Env): Option[Boolean] = e match {
     case ADT(id2, _, _) => Some(id == id2)
@@ -136,10 +133,10 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
       case (BooleanLiteral(true), true) => simplify(body, path)
       case (BooleanLiteral(false), true) =>
         val (rb, _) = simplify(body, path)
-        (Assume(BooleanLiteral(false), rb), opts.assumeChecked)
+        (Assume(BooleanLiteral(false), rb), false)
       case (rp, _) =>
         val (rb, _) = simplify(body, path withCond rp)
-        (Assume(rp, rb), opts.assumeChecked)
+        (Assume(rp, rb), false)
     }
 
     case IsConstructor(e, id) =>

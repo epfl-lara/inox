@@ -474,7 +474,9 @@ trait RecursiveEvaluator
       def normalizeLambda(l: Lambda, onlySimple: Boolean = false): Lambda = {
         val (nl, deps) = normalizeStructure(l, onlySimple = onlySimple)
         val newCtx = deps.foldLeft(rctx) {
-          case (rctx, (v, dep)) => rctx.withNewVar(v.toVal, e(dep)(rctx, gctx))
+          case (rctx, (v, dep, conds)) =>
+            if (conds.forall(e(_)(rctx, gctx) == BooleanLiteral(true))) rctx.withNewVar(v.toVal, e(dep)(rctx, gctx))
+            else rctx
         }
         val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
         replaceFromSymbols(mapping, nl).asInstanceOf[Lambda]

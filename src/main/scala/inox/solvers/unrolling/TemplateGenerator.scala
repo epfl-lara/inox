@@ -76,12 +76,21 @@ trait TemplateGenerator { self: Templates =>
     onlySimple: Boolean = false
   ): (Expr, TemplateStructure, Map[Variable, Encoded]) = {
     val (struct, depsByScope) = normalizeStructure(expr)
-    val deps = depsByScope.toMap
+    val deps = depsByScope.map { case (v, e, _) => v -> e }.toMap
 
     val (depSubst, depContents) =
       depsByScope.foldLeft(substMap, TemplateContents.empty(pathVar -> substMap(pathVar), Seq())) {
-        case ((depSubst, contents), (v, expr)) =>
-          if (!isSimple(expr)) {
+        case ((depSubst, contents), (v, expr, conditions)) =>
+          if (isSimple(expr)) {
+            // Note that we can ignore conditions in this case as the underlying
+            // solver is able to find satisfying assignments for all simple terms
+            val encoder = mkEncoder(depSubst) _
+            val ePointers = Template.lambdaPointers(encoder)(expr)
+            (depSubst + (v -> encoder(expr)), contents.copy(pointers = contents.pointers ++ ePointers))
+          } else if (!isSimple(expr) && conditions.isEmpty) {
+            // We optimize for the case where conditions is empty as the quantifier
+            // instantiation procedure relies on path condition variables staying the
+            // same whenever possible.
             val (e, cls) = mkExprClauses(pathVar, expr, depSubst)
 
             // setup the full encoding substMap
@@ -94,23 +103,33 @@ trait TemplateGenerator { self: Templates =>
               Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
 
             (depSubst + (v -> mkEncoder(clauseSubst)(e)), contents merge (
-              conds,
-              exprs,
-              chooses,
-              tree,
-              clsClauses,
+              conds, exprs, chooses, tree, clsClauses,
               clsCalls merge Map(substMap(pathVar) -> eCalls),
               clsApps merge Map(substMap(pathVar) -> eApps),
               clsMatchers merge Map(substMap(pathVar) -> eMatchers),
-              equals,
-              lmbds,
-              quants,
-              clsPointers ++ ePointers
+              equals, lmbds, quants, clsPointers ++ ePointers
             ))
           } else {
-            val encoder = mkEncoder(depSubst) _
-            val ePointers = Template.lambdaPointers(encoder)(expr)
-            (depSubst + (v -> encoder(expr)), contents.copy(pointers = contents.pointers ++ ePointers))
+            val condVar = Variable.fresh("p", BooleanType())
+            val exprVar = Variable.fresh("r", v.tpe)
+
+            val localSubst = depSubst + (condVar -> encodeSymbol(condVar)) + (exprVar -> encodeSymbol(exprVar))
+            val cls = mkClauses(pathVar, Equals(condVar, andJoin(conditions)), localSubst) ++
+              mkClauses(condVar, Equals(exprVar, expr), localSubst)
+
+            // setup the full encoding substMap
+            val (conds, exprs, chooses, tree, equals, lmbds, quants) = cls.proj
+            val clauseSubst: Map[Variable, Encoded] = localSubst ++ conds ++ exprs ++ chooses ++
+              lmbds.map(_.ids) ++ quants.flatMap(_.mapping) ++ equals.flatMap(_._2.map(_.symbols))
+
+            val (clsClauses, clsCalls, clsApps, clsMatchers, clsPointers, _) =
+              Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
+
+            (depSubst + (v -> localSubst(exprVar)), contents merge (
+              conds + (condVar -> localSubst(condVar)), exprs + (exprVar -> localSubst(exprVar)),
+              chooses, tree merge Map(pathVar -> Set(condVar)),
+              clsClauses, clsCalls, clsApps, clsMatchers, equals, lmbds, quants, clsPointers
+            ))
           }
       }
 

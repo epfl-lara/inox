@@ -357,7 +357,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
           val res = exprOps.replaceFromSymbols(localsSubst, tmpl.structure.body)
           val (nl, subst) = normalizeStructure(res, onlySimple = true)
-          exprOps.replaceFromSymbols(subst.toMap, nl).asInstanceOf[Lambda]
+          exprOps.replaceFromSymbols(subst.map { case (v, e, _) => v -> e }.toMap, nl).asInstanceOf[Lambda]
         }
       }
 

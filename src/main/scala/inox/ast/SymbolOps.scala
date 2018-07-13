@@ -169,29 +169,29 @@ trait SymbolOps { self: TypeOps =>
     preserveApps: Boolean,
     onlySimple: Boolean,
     inFunction: Boolean
-  )(implicit opts: PurityOptions): (Seq[ValDef], Expr, Seq[(Variable, Expr)]) = {
+  )(implicit opts: PurityOptions): (Seq[ValDef], Expr, Seq[(Variable, Expr, Seq[Expr])]) = {
 
-    val subst: MutableMap[Variable, Expr] = MutableMap.empty
+    val subst: MutableMap[Variable, (Expr, Seq[Expr])] = MutableMap.empty
     val varSubst: MutableMap[Identifier, Identifier] = MutableMap.empty
     val locals: MutableSet[Identifier] = MutableSet.empty
 
     var counter: Int = 0
-    def getId(e: Expr, store: Boolean = true): Identifier = {
+    def getId(e: Expr, conditions: Seq[Expr] = Seq(), store: Boolean = true): Identifier = {
       val tpe = e.getType
       val newId = SymbolOps.getId(counter)
       counter += 1
-      if (store) subst += Variable(newId, tpe, Seq.empty) -> e
+      if (store) subst(Variable(newId, tpe, Seq())) = (e, conditions)
       newId
     }
 
     def transformId(id: Identifier, tpe: Type, store: Boolean = true): Identifier =
-      subst.get(Variable(id, tpe, Seq.empty)) match {
-        case Some(Variable(newId, _, _)) => newId
+      subst.get(Variable(id, tpe, Seq())) match {
+        case Some((Variable(newId, _, _), _)) => newId
         case Some(_) => id
         case None => varSubst.get(id) match {
           case Some(newId) => newId
           case None =>
-            val newId = getId(Variable(id, tpe, Seq.empty), store = store)
+            val newId = getId(Variable(id, tpe, Seq()), store = store)
             if (!store) locals += id
             varSubst += id -> newId
             newId
@@ -213,11 +213,19 @@ trait SymbolOps { self: TypeOps =>
       // this registers the argument images into subst
       val tvars = vars map (v => v.copy(id = transformId(v.id, v.tpe, store = false)))
 
-      def isLocal(e: Expr, path: Path): Boolean = {
+      def isLocal(e: Expr, path: Path, unconditional: Boolean): Boolean = {
         val vs = variablesOf(e)
         val tvs = vs flatMap { v => varSubst.get(v.id) map { Variable(_, v.tpe, v.flags) } }
         val pathVars = path.bound.map(_.toVariable).toSet
-        (tvars & tvs).isEmpty && (pathVars & tvs).isEmpty
+
+        (tvars & tvs).isEmpty && (if (unconditional) {
+          // we will have `e` is always pure in this case
+          (tvs & path.bound.map(_.toVariable).toSet).isEmpty
+        } else {
+          // we will have `e` pure in `path`
+          val pathVars = path.bound.map(_.toVariable).toSet ++ path.conditions.flatMap(variablesOf)
+          (tvs & pathVars).isEmpty
+        })
       }
 
       def containsChoose(e: Expr): Boolean =
@@ -226,14 +234,22 @@ trait SymbolOps { self: TypeOps =>
       def containsRecursive(e: Expr): Boolean =
         exists { case fi: FunctionInvocation => fi.tfd.fd.isRecursive case _ => false } (e)
 
-      def isPureCondition(e: Expr, path: Path): Boolean = 
-        ((isAlwaysPure(e) && !containsRecursive(e)) || (!inFunction && (isPure(e) || path.conditions.isEmpty)))
+      class Liftable(path: Path) {
+        def unapply(e: Expr): Option[Seq[Expr]] = {
+          // The set of minimal conditions that must be met for an expression to be liftable
+          val minimal = 
+            (isSimple(e) || !onlySimple)           && // check whether we want only simple expression
+            !containsChoose(e)                     && // expressions containing chooses can't be lifted
+            (!inFunction || !containsRecursive(e))    // recursive functions can't be lifted from lambdas
 
-      def isLiftable(e: Expr, path: Path): Boolean = {
-        isLocal(e, path) &&
-        (isSimple(e) || !onlySimple) &&
-        !containsChoose(e) &&
-        isPureCondition(e, path)
+          // Whether the expression is guaranteed to be called, typically in foralls
+          val isCalled = !inFunction && args.forall(vd => hasInstance(vd.tpe) contains true)
+
+          if (!minimal) None
+          else if (isLocal(e, path, true) && isAlwaysPure(e)) Some(Seq())
+          else if (isLocal(e, path, false) && (isPureIn(e, path) || isCalled)) Some(path.conditions)
+          else None
+        }
       }
 
       // We use `recCounts` to check that we aren't in the outer-most call to `transformWithPC`.
@@ -247,6 +263,8 @@ trait SymbolOps { self: TypeOps =>
         // the first call increases `recCounts` to 1 so `recCounts == 1` iff we're in the first call
         // We use an upper-bound of 2 to avoid integer overflow (although this will probably never happen).
         if (recCounts < 2) recCounts += 1
+
+        val liftable = new Liftable(env)
 
         e match {
           case v @ Variable(id, tpe, flags) =>
@@ -263,12 +281,12 @@ trait SymbolOps { self: TypeOps =>
             val Operator(es, recons) = e
             recons(es.map(op.rec(_, env)))
 
-          case Let(vd, e, b) if isLiftable(e, env) =>
-            subst += vd.toVariable -> e
+          case Let(vd, liftable(conditions), b) =>
+            subst(vd.toVariable) = (e, conditions)
             op.rec(b, env)
 
-          case expr if isLiftable(expr, env) =>
-            Variable(getId(expr), expr.getType, Seq.empty)
+          case expr @ liftable(conditions) =>
+            Variable(getId(expr, conditions = conditions), expr.getType, Seq())
 
           case f: Forall =>
             val isInstantiated = f.args.forall(vd => hasInstance(vd.tpe) == Some(true))
@@ -286,10 +304,7 @@ trait SymbolOps { self: TypeOps =>
             replaceFromSymbols(vs, c)
 
           // Make sure we don't lift applications to applications when they have basic shapes
-          case Application(caller, args) if (
-            isLiftable(caller, env) &&
-            args.forall(!isLiftable(_, env))
-          ) =>
+          case Application(liftable(_), args) if args.forall(liftable.unapply(_).isEmpty) =>
             op.superRec(e, env)
 
           // This case enables lifting of impure expressions into lambdas outside of the expression
@@ -308,13 +323,17 @@ trait SymbolOps { self: TypeOps =>
             recCounts > 1 &&
             // Don't lift pure conditions as recursive normalizations will be better
             isImpureExpr(e) &&
-            es.exists(isLiftable(_, env)) &&
-            es.exists(!isLiftable(_, env))
+            es.exists(liftable.unapply(_).nonEmpty) &&
+            es.exists(liftable.unapply(_).isEmpty)
           ) =>
-            val esWithParams = es.map(e => e -> {
-              if (isLiftable(e, env)) None
-              else Some(ValDef.fresh("v", e.getType))
-            })
+            val conditions = es.collectFirst {
+              case liftable(conditions) if conditions.nonEmpty => conditions
+            }.getOrElse(Seq())
+
+            val esWithParams = es.map(e => e -> (e match {
+              case liftable(_) => None
+              case e => Some(ValDef.fresh("v", e.getType))
+            }))
 
             val params = esWithParams.collect { case (_, Some(vd)) => vd }
             val lambda = Lambda(params, recons(esWithParams.map {
@@ -323,7 +342,7 @@ trait SymbolOps { self: TypeOps =>
             }))
 
             Application(
-              Variable(getId(lambda), lambda.getType, Seq.empty),
+              Variable(getId(lambda, conditions = conditions), lambda.getType, Seq()),
               esWithParams.collect { case (e, Some(_)) => e }.map(op.rec(_, env))
             )
 
@@ -338,9 +357,19 @@ trait SymbolOps { self: TypeOps =>
     val newExpr = outer(args.map(_.toVariable).toSet, expr, inFunction, Path.empty)
     val bindings = args.map(vd => vd.copy(id = varSubst(vd.id)))
 
-    def rec(v: Variable): Seq[Variable] =
-      (variablesOf(subst(v)) & subst.keySet - v).toSeq.flatMap(rec) :+ v
-    val deps = subst.keys.toSeq.flatMap(rec).distinct.map(v => v -> subst(v))
+    // Reorder the dependencies to make sure inter-dependencies are satisfied
+    val deps: Seq[(Variable, Expr, Seq[Expr])] = {
+      def rec(v: Variable): Seq[Variable] = {
+        val (expr, conds) = subst(v)
+        val vars = variablesOf(expr) ++ conds.flatMap(variablesOf)
+        (vars & subst.keySet - v).toSeq.flatMap(rec) :+ v
+      }
+
+      subst.keys.toSeq.flatMap(rec).distinct.map { v =>
+        val (expr, conds) = subst(v)
+        (v, expr, conds)
+      }
+    }
 
     (bindings, newExpr, deps)
   }
@@ -350,7 +379,7 @@ trait SymbolOps { self: TypeOps =>
     * that is tailored for structural equality of [[Expressions.Lambda Lambda]] and [[Expressions.Forall Forall]] instances.
     */
   def normalizeStructure(e: Expr, onlySimple: Boolean = false)
-                        (implicit opts: PurityOptions): (Expr, Seq[(Variable, Expr)]) = freshenLocals(e) match {
+                        (implicit opts: PurityOptions): (Expr, Seq[(Variable, Expr, Seq[Expr])]) = freshenLocals(e) match {
     case lambda: Lambda =>
       val (args, body, subst) = normalizeStructure(lambda.args, lambda.body, false, onlySimple, true)
       (Lambda(args, body), subst)
@@ -361,7 +390,7 @@ trait SymbolOps { self: TypeOps =>
       (Forall(args, body), subst)
 
     case _ =>
-      val (_, body, subst) = normalizeStructure(Seq.empty, e, false, onlySimple, false)
+      val (_, body, subst) = normalizeStructure(Seq(), e, false, onlySimple, false)
       (body, subst)
   }
 
@@ -386,7 +415,7 @@ trait SymbolOps { self: TypeOps =>
     }
 
     val (nl, subst) = normalizeStructure(unique)
-    replaceFromSymbols(subst.toMap, nl).asInstanceOf[Lambda]
+    replaceFromSymbols(subst.map { case (v, e, _) => v -> e }.toMap, nl).asInstanceOf[Lambda]
   }
 
   /** Generates an instance of type `tpe` such that the following holds:
