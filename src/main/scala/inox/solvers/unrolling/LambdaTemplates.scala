@@ -13,8 +13,8 @@ trait LambdaTemplates { self: Templates =>
   import program.trees._
   import program.symbols._
 
+  import typesManager._
   import lambdasManager._
-  import datatypesManager._
   import quantificationsManager._
 
   /** Represents a POTENTIAL application of a first-class function in the unfolding procedure
@@ -414,7 +414,7 @@ trait LambdaTemplates { self: Templates =>
     val applications = new IncrementalMap[FunctionType, Set[(Encoded, App)]].withDefaultValue(Set.empty)
 
     /** This mapping is used to keep track of an instrumentation that makes sure that quantifying
-      * over empty function types won't lead to invalid proofs (see [[DatatypeTemplates.DatatypeTemplate]]).
+      * over empty function types won't lead to invalid proofs (see [[TypeTemplates.DatatypeTemplate]]).
       * The instrumentation basically associates some boolean variable with each free function
       * symbol within the quantified variable and if the function turns out to be empty (has an
       * empty return type) AND is applied somewhere, then the variable will be set to false.

@@ -11,10 +11,10 @@ import scala.collection.generic.CanBuildFrom
 trait Templates
   extends TemplateGenerator
      with FunctionTemplates
-     with DatatypeTemplates
-     with EqualityTemplates
      with LambdaTemplates
      with QuantificationTemplates
+     with EqualityTemplates
+     with TypeTemplates
      with IncrementalStateWrapper {
 
   val program: Program
@@ -66,7 +66,7 @@ trait Templates
 
   private val managers: Seq[Manager] = Seq(
     functionsManager,
-    datatypesManager,
+    typesManager,
     equalityManager,
     lambdasManager,
     quantificationsManager

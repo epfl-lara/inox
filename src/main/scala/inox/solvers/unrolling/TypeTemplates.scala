@@ -20,13 +20,13 @@ import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
   * @see [[LambdaTemplates]] for more discussions about input first-class functions
   *                          and the total ordering of closures.
   */
-trait DatatypeTemplates { self: Templates =>
+trait TypeTemplates { self: Templates =>
   import context._
   import program._
   import program.trees._
   import program.symbols._
 
-  import datatypesManager._
+  import typesManager._
 
   type Functions = Set[(Encoded, Encoded, FunctionType, Encoded)]
 
@@ -485,7 +485,7 @@ trait DatatypeTemplates { self: Templates =>
   }
 
   /** Template used to unfold free symbols in the input expression. */
-  class DatatypeTemplate private[DatatypeTemplates] (
+  class DatatypeTemplate private[TypeTemplates] (
     val contents: TemplateContents,
     val types: Map[Encoded, Set[TemplateTypeInfo]],
     val functions: Functions) extends TypesTemplate {
@@ -527,7 +527,7 @@ trait DatatypeTemplates { self: Templates =>
   }
 
   /** Template used to unfold ADT closures that may contain functions. */
-  class CaptureTemplate private[DatatypeTemplates](
+  class CaptureTemplate private[TypeTemplates](
     val contents: TemplateContents,
     val types: Map[Encoded, Set[TemplateTypeInfo]],
     val functions: Set[Encoded]) extends TypesTemplate {
@@ -632,10 +632,10 @@ trait DatatypeTemplates { self: Templates =>
     }
   }
 
-  private[unrolling] object datatypesManager extends Manager {
-    private[DatatypeTemplates] val typeInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[TemplateTypeInfo])]
-    private[DatatypeTemplates] val lessOrder = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
-    private[DatatypeTemplates] val results = new IncrementalMap[Type, Encoded]
+  private[unrolling] object typesManager extends Manager {
+    private[TypeTemplates] val typeInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[TemplateTypeInfo])]
+    private[TypeTemplates] val lessOrder = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
+    private[TypeTemplates] val results = new IncrementalMap[Type, Encoded]
 
     def canBeEqual(f1: Encoded, f2: Encoded): Boolean = {
       def transitiveLess(l: Encoded, r: Encoded): Boolean = {
