@@ -83,7 +83,7 @@ trait SolvingEvaluator extends Evaluator { self =>
       // forall true by definition.
       val quantifiesOverEmptyType: Boolean = {
         val vars = exprOps.variablesOf(forall.body)
-        val emptyArgs = forall.args
+        val emptyArgs = forall.params
           .filter(vd => !vars(vd.toVariable) && !(hasInstance(vd.tpe) contains true))
           .filter { vd =>
             import SolverResponses._

@@ -57,7 +57,7 @@ trait LambdaTemplates { self: Templates =>
       lambda: Lambda,
       substMap: Map[Variable, Encoded]
     ): LambdaTemplate = {
-      val idArgs: Seq[Variable] = lambda.args.map(_.toVariable)
+      val idArgs: Seq[Variable] = lambda.params.map(_.toVariable)
       val trArgs: Seq[Encoded] = idArgs.map(v => substMap.getOrElse(v, encodeSymbol(v)))
 
       val (realLambda, structure, depSubst) = mkExprStructure(pathVar._1, lambda, substMap)

@@ -344,7 +344,7 @@ trait TemplateGenerator { self: Templates =>
 
         val conjunctQs = conjuncts.map { conj =>
           val vars = exprOps.variablesOf(conj)
-          val conjArgs = without.args.filter(vd => vars(vd.toVariable) || hasInstance(vd.tpe) != Some(true))
+          val conjArgs = without.params.filter(vd => vars(vd.toVariable) || hasInstance(vd.tpe) != Some(true))
 
           if (conjArgs.isEmpty) {
             rec(pathVar, conj, pol)

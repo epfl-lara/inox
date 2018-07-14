@@ -118,7 +118,7 @@ trait QuantificationTemplates { self: Templates =>
 
       val quantifiers = args.map(_.toVariable).toSet
       val idQuantifiers: Seq[Variable] = args.map(_.toVariable)
-      val trQuantifiers: Seq[Encoded] = forall.args.map(v => encodeSymbol(v.toVariable))
+      val trQuantifiers: Seq[Encoded] = forall.params.map(v => encodeSymbol(v.toVariable))
 
       val clauseSubst: Map[Variable, Encoded] = depSubst ++ (idQuantifiers zip trQuantifiers)
       val (p, tmplClauses) = mkExprClauses(pathVar._1, body, clauseSubst)

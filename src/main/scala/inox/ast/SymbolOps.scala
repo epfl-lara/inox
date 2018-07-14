@@ -289,13 +289,13 @@ trait SymbolOps { self: TypeOps =>
             Variable(getId(expr, conditions = conditions), expr.getType, Seq())
 
           case f: Forall =>
-            val isInstantiated = f.args.forall(vd => hasInstance(vd.tpe) == Some(true))
-            val newBody = outer(vars ++ f.args.map(_.toVariable), f.body, !isInstantiated, env)
-            Forall(f.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
+            val isInstantiated = f.params.forall(vd => hasInstance(vd.tpe) == Some(true))
+            val newBody = outer(vars ++ f.params.map(_.toVariable), f.body, !isInstantiated, env)
+            Forall(f.params.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
 
           case l: Lambda =>
-            val newBody = outer(vars ++ l.args.map(_.toVariable), l.body, true, env)
-            Lambda(l.args.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
+            val newBody = outer(vars ++ l.params.map(_.toVariable), l.body, true, env)
+            Lambda(l.params.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
 
           // @nv: we make sure NOT to normalize choose ids as we may need to
           //      report models for unnormalized chooses!
@@ -381,12 +381,12 @@ trait SymbolOps { self: TypeOps =>
   def normalizeStructure(e: Expr, onlySimple: Boolean = false)
                         (implicit opts: PurityOptions): (Expr, Seq[(Variable, Expr, Seq[Expr])]) = freshenLocals(e) match {
     case lambda: Lambda =>
-      val (args, body, subst) = normalizeStructure(lambda.args, lambda.body, false, onlySimple, true)
+      val (args, body, subst) = normalizeStructure(lambda.params, lambda.body, false, onlySimple, true)
       (Lambda(args, body), subst)
 
     case forall: Forall =>
-      val isInstantiated = forall.args.forall(vd => hasInstance(vd.tpe) == Some(true))
-      val (args, body, subst) = normalizeStructure(forall.args, forall.body, true, onlySimple, !isInstantiated)
+      val isInstantiated = forall.params.forall(vd => hasInstance(vd.tpe) == Some(true))
+      val (args, body, subst) = normalizeStructure(forall.params, forall.body, true, onlySimple, !isInstantiated)
       (Forall(args, body), subst)
 
     case _ =>
@@ -398,7 +398,7 @@ trait SymbolOps { self: TypeOps =>
     * integer identifier `id`. This method makes sure this property is preserved after going through
     * [[normalizeStructure(e:SymbolOps\.this\.trees\.Expr,onlySimple:Boolean)*]]. */
   def uniquateClosure(id: Int, res: Lambda)(implicit opts: PurityOptions): Lambda = {
-    def allArgs(l: Lambda): Seq[ValDef] = l.args ++ (l.body match {
+    def allArgs(l: Lambda): Seq[ValDef] = l.params ++ (l.body match {
       case l2: Lambda => allArgs(l2)
       case _ => Seq.empty
     })
@@ -407,7 +407,7 @@ trait SymbolOps { self: TypeOps =>
     val unique = if (resArgs.isEmpty) res else {
       /* @nv: This is a hack to ensure that the notion of equality we define on closures
        *      is respected by those returned by the model. */
-      Lambda(res.args, Let(
+      Lambda(res.params, Let(
         ValDef.fresh("id", tupleTypeWrap(List.fill(id)(resArgs.head.tpe))),
         tupleWrap(List.fill(id)(resArgs.head.toVariable)),
         res.body

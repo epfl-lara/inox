@@ -26,7 +26,7 @@ trait ChooseEncoder extends ast.ProgramTransformer {
       def rec(e: Expr, args: Seq[ValDef]): Expr = e match {
         case l: Lambda =>
           val free = exprOps.variablesOf(l)
-          l.copy(body = rec(l.body, args.filter(vd => free(vd.toVariable)) ++ l.args)).copiedFrom(l)
+          l.copy(body = rec(l.body, args.filter(vd => free(vd.toVariable)) ++ l.params)).copiedFrom(l)
 
         case c: Choose =>
           val newPred = rec(c.pred, args)

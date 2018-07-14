@@ -86,13 +86,13 @@ trait Expressions { self: Trees =>
   }
 
   /** $encodingof `(args) => body` */
-  sealed case class Lambda(args: Seq[ValDef], body: Expr) extends Expr with CachingTyped {
+  sealed case class Lambda(params: Seq[ValDef], body: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type =
-      FunctionType(args.map(_.tpe), body.getType).unveilUntyped
+      FunctionType(params.map(_.tpe), body.getType).unveilUntyped
 
     def paramSubst(realArgs: Seq[Expr]) = {
-      require(realArgs.size == args.size)
-      (args zip realArgs).toMap
+      require(realArgs.size == params.size)
+      (params zip realArgs).toMap
     }
 
     def withParamSubst(realArgs: Seq[Expr], e: Expr) = {
@@ -101,7 +101,7 @@ trait Expressions { self: Trees =>
   }
 
   /** $encodingof `forall(...)` (universal quantification) */
-  sealed case class Forall(args: Seq[ValDef], body: Expr) extends Expr with CachingTyped {
+  sealed case class Forall(params: Seq[ValDef], body: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type = body.getType
   }
 
