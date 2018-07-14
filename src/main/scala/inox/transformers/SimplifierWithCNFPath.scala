@@ -134,7 +134,7 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
 
       if (formulaSize(expr) > 20) {
         new CNFPath(exprSubst, boolSubst, conditions ++ extraConds, cnfCache, simpCache)
-      } else if (vd.tpe == BooleanType()) {
+      } else if (isSubtypeOf(vd.getType, BooleanType())) {
         new CNFPath(exprSubst, boolSubst + (vd.toVariable -> simplifyClauses(expr)), conditions, cnfCache, simpCache)
       } else {
         val newSubst = exprSubst.clone += (vd.toVariable -> unexpandLets(expr))

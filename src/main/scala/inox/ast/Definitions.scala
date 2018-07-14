@@ -43,7 +43,7 @@ trait Definitions { self: Trees =>
     def tpe: Type
     def flags: Seq[Flag]
 
-    def getType(implicit s: Symbols): Type = tpe
+    def getType(implicit s: Symbols): Type = tpe.getType
 
     def to[A <: VariableSymbol](implicit ev: VariableConverter[A]): A = ev.convert(this)
 
@@ -297,10 +297,10 @@ trait Definitions { self: Trees =>
       def rec(sort: TypedADTSort, seen: Set[TypedADTSort], first: Boolean = false): Boolean = {
         if (!first && sort == base) true
         else if (seen(sort)) false
-        else sort.constructors.exists(_.fieldsTypes.exists(tpe => typeOps.exists {
+        else sort.constructors.exists(_.fields.exists(vd => typeOps.exists {
           case t: ADTType => rec(t.getSort, seen + sort)
           case _ => false
-        } (tpe)))
+        } (vd.getType)))
       }
 
       rec(base, Set.empty, first = true)
@@ -316,7 +316,7 @@ trait Definitions { self: Trees =>
 
       def rec(sort: TypedADTSort, seen: Set[TypedADTSort]): Boolean = {
         if (seen(sort)) false
-        else sort.constructors.exists(cons => flatten(cons.fieldsTypes).forall {
+        else sort.constructors.exists(cons => flatten(cons.fields.map(_.getType)).forall {
           case t: ADTType => rec(t.getSort, seen + sort)
           case _ => true
         })
@@ -437,9 +437,6 @@ trait Definitions { self: Trees =>
         flags = vd.flags.map(sort.instantiate)
       ))
     })
-
-    @inline def fieldsTypes: Seq[Type] = _fieldsTypes.get
-    private[this] val _fieldsTypes = Lazy(fields.map(_.tpe))
   }
 
 
@@ -476,6 +473,9 @@ trait Definitions { self: Trees =>
 
     /** Applies this function on its formal parameters */
     @inline def applied = FunctionInvocation(id, typeArgs, params map (_.toVariable))
+
+    /** The (non-dependent) return type of this function definition */
+    def getType(implicit s: Symbols) = returnType.getType
 
     def copy(
       id: Identifier = this.id,
@@ -560,6 +560,9 @@ trait Definitions { self: Trees =>
     /** The return type of the respective [[FunDef]] instantiated with the real type parameters */
     @inline def returnType: Type = _returnType.get
     private[this] val _returnType = Lazy(instantiate(fd.returnType))
+
+    /** The (non-dependent) return type of this typed function definition */
+    def getType = returnType.getType
 
     /** The body of the respective [[FunDef]] instantiated with the real type parameters */
     @inline def fullBody: Expr = _fullBody.get

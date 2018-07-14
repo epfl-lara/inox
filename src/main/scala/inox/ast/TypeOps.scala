@@ -37,11 +37,6 @@ trait TypeOps {
   def greatestLowerBound(tps: Seq[Type]): Type =
     if (tps.isEmpty) Untyped else tps.reduceLeft(greatestLowerBound)
 
-  /* Widens a type into it's narest outer Inox type.
-   * This is an override point for more complex type systems that provide refinement
-   * types or type parameter bounds that would not be compatible with Inox type checking. */
-  def widen(tpe: Type): Type = tpe
-
   def isSubtypeOf(t1: Type, t2: Type): Boolean = t1 == t2
 
   private type Instantiation = Map[TypeParameter, Type]
@@ -99,7 +94,7 @@ trait TypeOps {
   }
 
   def constructorCardinality(cons: TypedADTConstructor): Option[Int] = {
-    flattenCardinalities(cons.fieldsTypes.map(typeCardinality)).map(_.product)
+    flattenCardinalities(cons.fields.map(vd => typeCardinality(vd.getType))).map(_.product)
   }
 
   def typeCardinality(tp: Type): Option[Int] = tp match {
@@ -135,7 +130,7 @@ trait TypeOps {
       val next = tpe match {
         case adt: ADTType =>
           val sort = adt.getSort
-          sort.constructors.flatMap(_.fieldsTypes)
+          sort.constructors.flatMap(_.fields).map(_.getType)
         case NAryType(tps, _) =>
           tps
       }

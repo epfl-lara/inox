@@ -608,7 +608,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case (FunctionApplication(SimpleSymbol(s), args), _) if constructors.containsB(s) =>
         constructors.toA(s) match {
           case ADTCons(id, tps) =>
-            ADT(id, tps, (args zip getConstructor(id, tps).fieldsTypes) map fromSMT)
+            ADT(id, tps, (args zip getConstructor(id, tps).fields.map(_.getType)) map fromSMT)
 
           case TupleCons(tps) =>
             tupleWrap((args zip tps) map fromSMT)

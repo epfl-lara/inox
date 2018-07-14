@@ -317,7 +317,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         optIndex.flatMap { index =>
           val constructors = adts.flatMap(_._2.cases)
           val (fieldsTypes, recons): (Seq[Type], Seq[Expr] => Expr) = constructors(index).tpe match {
-            case ADTCons(id, tps) => (getConstructor(id, tps).fieldsTypes, ADT(id, tps, _))
+            case ADTCons(id, tps) => (getConstructor(id, tps).fields.map(_.getType), ADT(id, tps, _))
             case TupleCons(tps) => (tps, Tuple(_))
             case TypeParameterCons(tp) => (Seq(IntegerType()), (es: Seq[Expr]) => {
               GenericValue(tp, es.head.asInstanceOf[IntegerLiteral].value.toInt)

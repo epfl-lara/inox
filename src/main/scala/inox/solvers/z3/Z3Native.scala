@@ -544,7 +544,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
           } else if (constructors containsB decl) {
             constructors.toA(decl) match {
               case ADTCons(id, tps) =>
-                ADT(id, tps, args.zip(getConstructor(id, tps).fieldsTypes).map { case (a, t) => rec(a, t, seen) })
+                ADT(id, tps, args zip getConstructor(id, tps).fields map { case (a, vd) => rec(a, vd.getType, seen) })
 
               case UnitCons =>
                 UnitLiteral()

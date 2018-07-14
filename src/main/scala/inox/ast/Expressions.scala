@@ -79,7 +79,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `callee(args...)`, where [[callee]] is an expression of a function type (not a method) */
   sealed case class Application(callee: Expr, args: Seq[Expr]) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = s.widen(callee.getType) match {
+    override protected def computeType(implicit s: Symbols): Type = callee.getType match {
       case FunctionType(from, to) => checkParamTypes(args, from, to)
       case _ => Untyped
     }
@@ -88,7 +88,7 @@ trait Expressions { self: Trees =>
   /** $encodingof `(args) => body` */
   sealed case class Lambda(params: Seq[ValDef], body: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type =
-      FunctionType(params.map(_.tpe), body.getType).unveilUntyped
+      FunctionType(params.map(_.getType), body.getType).getType
 
     def paramSubst(realArgs: Seq[Expr]) = {
       require(realArgs.size == params.size)
@@ -108,7 +108,7 @@ trait Expressions { self: Trees =>
   /** $encodingof `choose(...)` (returns a value satisfying the provided predicate) */
   sealed case class Choose(res: ValDef, pred: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type =
-      checkParamType(pred, BooleanType(), res.tpe)
+      checkParamType(pred, BooleanType(), res.getType)
   }
 
   /* Control flow */
@@ -121,7 +121,7 @@ trait Expressions { self: Trees =>
       s.lookupFunction(id)
         .filter(fd => tps.size == fd.tparams.size && args.size == fd.params.size)
         .map(_.typed(tps))
-        .map(tfd => checkParamTypes(args, tfd.params.map(_.tpe), tfd.returnType))
+        .map(tfd => checkParamTypes(args, tfd.params.map(_.tpe), tfd.getType))
         .getOrElse(Untyped)
     }
 
@@ -245,11 +245,12 @@ trait Expressions { self: Trees =>
     * This is useful e.g. to present counterexamples of generic types.
     */
   sealed case class GenericValue(tp: TypeParameter, id: Int) extends Expr with Terminal {
-    def getType(implicit s: Symbols): Type = tp
+    def getType(implicit s: Symbols): Type = tp.getType
   }
 
   /* Override point for Stainless to handle refinement types */
-  protected def constructorType(tcons: TypedADTConstructor): Type = ADTType(tcons.sort.id, tcons.tps)
+  protected def constructorType(tcons: TypedADTConstructor): Type =
+    ADTType(tcons.sort.id, tcons.tps).getType(tcons.sort.symbols)
 
   /** $encodingof `ct(args...)`
     *
@@ -268,14 +269,14 @@ trait Expressions { self: Trees =>
             sort.typed(tps).constructors
               .find(_.id == id)
               .filter(_.fields.size == args.size)
-              .map(tcons => checkParamTypes(args, tcons.fieldsTypes, constructorType(tcons)))
+              .map(tcons => checkParamTypes(args, tcons.fields.map(_.getType), constructorType(tcons)))
           }
       }.getOrElse(Untyped)
   }
 
   /** $encodingof `.isInstanceOf[...]` */
   sealed case class IsConstructor(expr: Expr, id: Identifier) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = s.widen(expr.getType) match {
+    override protected def computeType(implicit s: Symbols): Type = expr.getType match {
       case ADTType(sort, _) => (s.lookupSort(sort), s.lookupConstructor(id)) match {
         case (Some(sort), Some(cons)) if sort.id == cons.sort => BooleanType()
         case _ => Untyped
@@ -292,19 +293,19 @@ trait Expressions { self: Trees =>
   sealed case class ADTSelector(adt: Expr, selector: Identifier) extends Expr with CachingTyped {
 
     def constructor(implicit s: Symbols) = {
-      val tpe = s.widen(adt.getType).asInstanceOf[ADTType]
+      val tpe = adt.getType.asInstanceOf[ADTType]
       tpe.getSort.constructors.find(_.fields.exists(_.id == selector)).get
     }
 
     def selectorIndex(implicit s: Symbols) = constructor.definition.selectorID2Index(selector)
 
-    override protected def computeType(implicit s: Symbols): Type = s.widen(adt.getType) match {
+    override protected def computeType(implicit s: Symbols): Type = adt.getType match {
       case ADTType(id, tps) =>
         s.lookupSort(id)
           .filter(_.tparams.size == tps.size)
           .map(_.typed(tps)).toSeq
           .flatMap(_.constructors.flatMap(_.fields))
-          .find(_.id == selector).map(_.tpe).getOrElse(Untyped)
+          .find(_.id == selector).map(_.getType).getOrElse(Untyped)
       case _ => Untyped
     }
   }
@@ -313,10 +314,7 @@ trait Expressions { self: Trees =>
   sealed case class Equals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type = {
       if (s.leastUpperBound(lhs.getType, rhs.getType) != Untyped) BooleanType()
-      else {
-        //println(s"Incompatible argument types: arguments: ($lhs, $rhs) types: ${lhs.getType}, ${rhs.getType}")
-        Untyped
-      }
+      else Untyped
     }
   }
 
@@ -402,7 +400,7 @@ trait Expressions { self: Trees =>
   private final def realType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type =
     checkAllTypes(tpe +: tpes, RealType(), RealType())
 
-  private final def bitVectorType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = s.widen(tpe.getType) match {
+  private final def bitVectorType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
     case bvt: BVType => checkAllTypes(tpes, bvt, bvt)
     case _ => Untyped
   }
@@ -555,7 +553,7 @@ trait Expressions { self: Trees =>
     }
 
     // Returns the pair of sizes from -> to
-    def cast(implicit s: Symbols): Option[(Int, Int)] = s.widen(expr.getType) match {
+    def cast(implicit s: Symbols): Option[(Int, Int)] = expr.getType match {
       case BVType(from) if from > newType.size => Some(from -> newType.size)
       case _ => None
     }
@@ -570,7 +568,7 @@ trait Expressions { self: Trees =>
     }
 
     // Returns the pair of sizes from -> to
-    def cast(implicit s: Symbols): Option[(Int, Int)] = s.widen(expr.getType) match {
+    def cast(implicit s: Symbols): Option[(Int, Int)] = expr.getType match {
       case BVType(from) if from < newType.size => Some(from -> newType.size)
       case _ => None
     }
@@ -590,8 +588,7 @@ trait Expressions { self: Trees =>
   sealed case class Tuple(exprs: Seq[Expr]) extends Expr with CachingTyped {
     require(exprs.size >= 2)
 
-    override protected def computeType(implicit s: Symbols): Type =
-      TupleType(exprs.map(_.getType)).unveilUntyped
+    override protected def computeType(implicit s: Symbols): Type = TupleType(exprs.map(_.getType)).getType
   }
 
   /** $encodingof `(tuple)._i`
@@ -605,7 +602,7 @@ trait Expressions { self: Trees =>
   sealed case class TupleSelect(tuple: Expr, index: Int) extends Expr with CachingTyped {
     require(index >= 1)
 
-    override protected def computeType(implicit s: Symbols): Type = s.widen(tuple.getType) match {
+    override protected def computeType(implicit s: Symbols): Type = tuple.getType match {
       case tp @ TupleType(ts) if index <= ts.size => ts(index - 1)
       case _ => Untyped
     }
@@ -622,7 +619,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `set + elem` */
   sealed case class SetAdd(set: Expr, elem: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = s.widen(set.getType) match {
+    override protected def computeType(implicit s: Symbols): Type = set.getType match {
       case SetType(base) => checkParamType(elem, base, SetType(base))
       case _ => Untyped
     }
@@ -630,7 +627,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `set.contains(element)` or `set(element)` */
   sealed case class ElementOfSet(element: Expr, set: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols) = s.widen(set.getType).unveilUntyped match {
+    override protected def computeType(implicit s: Symbols) = set.getType match {
       case SetType(base) => checkParamType(element, base, BooleanType())
       case _ => Untyped
     }
@@ -638,38 +635,34 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `set.subsetOf(set2)` */
   sealed case class SubsetOf(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type =
-      (s.widen(lhs.getType).unveilUntyped, s.widen(rhs.getType).unveilUntyped) match {
-        case (SetType(b1), SetType(b2)) if b1 == b2 => BooleanType()
-        case _ => Untyped
-      }
+    override protected def computeType(implicit s: Symbols): Type = (lhs.getType, rhs.getType) match {
+      case (SetType(b1), SetType(b2)) if b1 == b2 => BooleanType()
+      case _ => Untyped
+    }
   }
 
   /** $encodingof `set & set2` */
   sealed case class SetIntersection(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type =
-      (s.widen(lhs.getType).unveilUntyped, s.widen(rhs.getType).unveilUntyped) match {
-        case (SetType(b1), SetType(b2)) if b1 == b2 => SetType(b1)
-        case _ => Untyped
-      }
+    override protected def computeType(implicit s: Symbols): Type = (lhs.getType, rhs.getType) match {
+      case (SetType(b1), SetType(b2)) if b1 == b2 => SetType(b1)
+      case _ => Untyped
+    }
   }
 
   /** $encodingof `set ++ set2` */
   sealed case class SetUnion(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type =
-      (s.widen(lhs.getType).unveilUntyped, s.widen(rhs.getType).unveilUntyped) match {
-        case (SetType(b1), SetType(b2)) if b1 == b2 => SetType(b1)
-        case _ => Untyped
-      }
+    override protected def computeType(implicit s: Symbols): Type = (lhs.getType, rhs.getType) match {
+      case (SetType(b1), SetType(b2)) if b1 == b2 => SetType(b1)
+      case _ => Untyped
+    }
   }
 
   /** $encodingof `set -- set2` */
   sealed case class SetDifference(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type =
-      (s.widen(lhs.getType).unveilUntyped, s.widen(rhs.getType).unveilUntyped) match {
-        case (SetType(b1), SetType(b2)) if b1 == b2 => SetType(b1)
-        case _ => Untyped
-      }
+    override protected def computeType(implicit s: Symbols): Type = (lhs.getType, rhs.getType) match {
+      case (SetType(b1), SetType(b2)) if b1 == b2 => SetType(b1)
+      case _ => Untyped
+    }
   }
 
 
@@ -687,7 +680,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `bag + elem` */
   sealed case class BagAdd(bag: Expr, elem: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = s.widen(bag.getType) match {
+    override protected def computeType(implicit s: Symbols): Type = bag.getType match {
       case BagType(base) => checkParamType(elem, base, BagType(base))
       case _ => Untyped
     }
@@ -695,7 +688,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `bag.get(element)` or `bag(element)` */
   sealed case class MultiplicityInBag(element: Expr, bag: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = s.widen(bag.getType).unveilUntyped match {
+    override protected def computeType(implicit s: Symbols): Type = bag.getType match {
       case BagType(base) => checkParamType(element, base, IntegerType())
       case _ => Untyped
     }
@@ -703,29 +696,26 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `lhs & rhs` */
   sealed case class BagIntersection(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type =
-      (s.widen(lhs.getType).unveilUntyped, s.widen(rhs.getType).unveilUntyped) match {
-        case (BagType(b1), BagType(b2)) if b1 == b2 => BagType(b1)
-        case _ => Untyped
-      }
+    override protected def computeType(implicit s: Symbols): Type = (lhs.getType, rhs.getType) match {
+      case (BagType(b1), BagType(b2)) if b1 == b2 => BagType(b1)
+      case _ => Untyped
+    }
   }
 
   /** $encodingof `lhs ++ rhs` */
   sealed case class BagUnion(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type =
-      (s.widen(lhs.getType).unveilUntyped, s.widen(rhs.getType).unveilUntyped) match {
-        case (BagType(b1), BagType(b2)) if b1 == b2 => BagType(b1)
-        case _ => Untyped
-      }
+    override protected def computeType(implicit s: Symbols): Type = (lhs.getType, rhs.getType) match {
+      case (BagType(b1), BagType(b2)) if b1 == b2 => BagType(b1)
+      case _ => Untyped
+    }
   }
 
   /** $encodingof `lhs -- rhs` */
   sealed case class BagDifference(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type =
-      (s.widen(lhs.getType).unveilUntyped, s.widen(rhs.getType).unveilUntyped) match {
-        case (BagType(b1), BagType(b2)) if b1 == b2 => BagType(b1)
-        case _ => Untyped
-      }
+    override protected def computeType(implicit s: Symbols): Type = (lhs.getType, rhs.getType) match {
+      case (BagType(b1), BagType(b2)) if b1 == b2 => BagType(b1)
+      case _ => Untyped
+    }
   }
 
 
@@ -735,15 +725,16 @@ trait Expressions { self: Trees =>
   sealed case class FiniteMap(pairs: Seq[(Expr, Expr)], default: Expr, keyType: Type, valueType: Type)
     extends Expr with CachingTyped {
 
-    override protected def computeType(implicit s: Symbols): Type = MapType(
-      checkParamTypes(pairs.map(_._1.getType), List.fill(pairs.size)(keyType), keyType),
-      checkParamTypes(pairs.map(_._2.getType) :+ default.getType, List.fill(pairs.size + 1)(valueType), valueType)
-    ).unveilUntyped
+    override protected def computeType(implicit s: Symbols): Type = checkParamTypes(
+      pairs.map(_._1.getType) ++ pairs.map(_._2.getType) :+ default.getType,
+      List.fill(pairs.size)(keyType) ++ List.fill(pairs.size + 1)(valueType),
+      MapType(keyType, valueType)
+    )
   }
 
   /** $encodingof `map.apply(key)` (or `map(key)`) */
   sealed case class MapApply(map: Expr, key: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = s.widen(map.getType).unveilUntyped match {
+    override protected def computeType(implicit s: Symbols): Type = map.getType match {
       case MapType(from, to) => checkParamType(key, from, to)
       case _ => Untyped
     }
@@ -751,7 +742,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `map.updated(key, value)` (or `map + (key -> value)`) */
   sealed case class MapUpdated(map: Expr, key: Expr, value: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = s.widen(map.getType).unveilUntyped match {
+    override protected def computeType(implicit s: Symbols): Type = map.getType match {
       case mt @ MapType(from, to) => checkParamTypes(Seq(key, value), Seq(from, to), mt)
       case _ => Untyped
     }

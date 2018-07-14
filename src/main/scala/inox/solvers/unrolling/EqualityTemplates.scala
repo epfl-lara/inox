@@ -29,7 +29,7 @@ trait EqualityTemplates { self: Templates =>
       val sort = adt.getSort
       sort.hasEquality || (!checking(sort) && {
         checking += sort
-        sort.constructors.exists(c => c.fieldsTypes.exists(unrollEquality))
+        sort.constructors.exists(c => c.fields.exists(vd => unrollEquality(vd.getType)))
       })
 
     case BooleanType() | UnitType() | CharType() | IntegerType() |

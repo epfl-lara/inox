@@ -339,7 +339,7 @@ trait DatatypeTemplates { self: Templates =>
         case sort if checking(sort) => false
         case sort =>
           checking += sort
-          sort.constructors.exists(c => c.fieldsTypes.exists(unroll))
+          sort.constructors.exists(c => c.fields.exists(vd => unroll(vd.tpe)))
       }
 
       case _ => super.unroll(tpe)

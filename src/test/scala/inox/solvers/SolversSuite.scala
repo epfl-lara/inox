@@ -68,9 +68,9 @@ class SolversSuite extends FunSuite {
       case SatWithModel(model) =>
         for (v <- vs) model.vars.get(v.toVal) match {
           case Some(e) =>
-            assert(e.getType === v.tpe, s"Solver ${sf.name} - Extracting value of type ${v.tpe}")
+            assert(e.getType === v.getType, s"Solver ${sf.name} - Extracting value of type ${v.getType}")
           case _ =>
-            fail(s"Solver ${sf.name} - Model does not contain ${v.id.uniqueName} of type ${v.tpe}")
+            fail(s"Solver ${sf.name} - Model does not contain ${v.id.uniqueName} of type ${v.getType}")
         }
       case res =>
         fail(s"Solver ${sf.name} - Constraint ${cnstr.asString} is unsat!?")

@@ -25,16 +25,16 @@ trait Types { self: Trees =>
     protected def computeType(implicit s: Symbols): Type
   }
 
-  abstract class Type extends Tree with Typed {
-    def getType(implicit s: Symbols): Type = this
+  /* Widens a type into it's narest outer Inox type.
+   * This is an override point for more complex type systems that provide (for example)
+   * type parameter bounds that would not be compatible with Inox type checking. */
+  protected def widen(tpe: Type): Type = tpe
 
-    // Checks whether the subtypes of this type contain Untyped,
-    // and if so sets this to Untyped.
-    // Assumes the subtypes are correctly formed, so it does not descend 
-    // deep into the TypeTree.
-    def unveilUntyped: Type = this match {
-      case NAryType(tps, _) =>
-        if (tps contains Untyped) Untyped else this
+  abstract class Type extends Tree with CachingTyped {
+    override protected def computeType(implicit s: Symbols): Type = {
+      val NAryType(tps, recons) = this
+      val ntps = tps.map(_.getType)
+      if (ntps.forall(_.isTyped)) widen(recons(ntps)) else Untyped
     }
   }
 
@@ -110,17 +110,37 @@ trait Types { self: Trees =>
     }
   }
 
+  /* Dependent Types */
+
+  sealed case class PiType(params: Seq[ValDef], to: Type) extends Type {
+    override protected def computeType(implicit s: Symbols): Type =
+      FunctionType(params.map(_.getType), to.getType).getType
+  }
+
+  sealed case class SigmaType(params: Seq[ValDef]) extends Type {
+    val dimension: Int = params.length
+    require(dimension >= 2)
+
+    override protected def computeType(implicit s: Symbols): Type =
+      TupleType(params.map(_.getType)).getType
+  }
+
+  sealed case class RefinementType(vd: ValDef, prop: Expr) extends Type {
+    override protected def computeType(implicit s: Symbols): Type =
+      checkParamType(prop, BooleanType(), vd.getType)
+  }
+
   /* Utility methods for type checking */
 
   protected final def checkParamType(real: Typed, formal: Typed, result: => Type)(implicit s: Symbols) = {
-    if (s.isSubtypeOf(real.getType, formal.getType)) result.unveilUntyped else Untyped
+    if (s.isSubtypeOf(real.getType, formal.getType)) result.getType else Untyped
   }
 
   protected final def checkParamTypes(real: Seq[Typed], formal: Seq[Typed], result: => Type)(implicit s: Symbols) = {
     if (
       real.size == formal.size &&
       (real zip formal forall (p => s.isSubtypeOf(p._1.getType, p._2.getType)))
-    ) result.unveilUntyped else Untyped
+    ) result.getType else Untyped
   }
 
   protected final def checkAllTypes(real: Seq[Typed], formal: Typed, result: => Type)(implicit s: Symbols) = {

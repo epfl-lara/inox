@@ -459,8 +459,8 @@ trait SymbolOps { self: TypeOps =>
 
       val (ni, cons) = rec(i, sort.constructors.sortBy(constructorCardinality(_).getOrElse(Int.MaxValue)))
       ADT(cons.id, cons.tps, {
-        if (cons.fieldsTypes.isEmpty) Seq()
-        else unwrapTuple(constructExpr(i, tupleTypeWrap(cons.fieldsTypes)), cons.fieldsTypes.size)
+        if (cons.fields.isEmpty) Seq()
+        else unwrapTuple(constructExpr(i, tupleTypeWrap(cons.fields.map(_.getType))), cons.fields.size)
       })
 
     case SetType(base) => typeCardinality(base) match {
@@ -783,7 +783,7 @@ trait SymbolOps { self: TypeOps =>
           }
         } else {
           val cons = sort.constructors.sortBy(_.fields.size).head
-          ADT(cons.id, cons.tps, cons.fieldsTypes.map(rec(_, seen + adt)))
+          ADT(cons.id, cons.tps, cons.fields.map(vd => rec(vd.getType, seen + adt)))
         }
 
       case tp: TypeParameter =>
@@ -796,53 +796,6 @@ trait SymbolOps { self: TypeOps =>
     }
 
     rec(tpe, Set.empty)
-  }
-
-  def valuesOf(tp: Type): Stream[Expr] = {
-    import utils.StreamUtils._
-    tp match {
-      case BooleanType() =>
-        Stream(BooleanLiteral(false), BooleanLiteral(true))
-      case BVType(size) =>
-        val count = BigInt(2).pow(size - 1)
-        def rec(i: BigInt): Stream[BigInt] =
-          if (i <= count) Stream.cons(i, Stream.cons(-i - 1, rec(i + 1)))
-          else Stream.empty
-        rec(0) map (BVLiteral(_, size))
-      case IntegerType() =>
-        Stream.iterate(BigInt(0)) { prev =>
-          if (prev > 0) -prev else -prev + 1
-        } map IntegerLiteral
-      case UnitType() =>
-        Stream(UnitLiteral())
-      case tp: TypeParameter =>
-        Stream.from(0) map (GenericValue(tp, _))
-      case TupleType(stps) =>
-        cartesianProduct(stps map (tp => valuesOf(tp))) map Tuple
-      case SetType(base) =>
-        def elems = valuesOf(base)
-        elems.scanLeft(Stream(FiniteSet(Seq(), base): Expr)){ (prev, curr) =>
-          prev flatMap { case fs @ FiniteSet(elems, tp) => Stream(fs, FiniteSet(elems :+ curr, tp)) }
-        }.flatten
-      case BagType(base) =>
-        def elems = valuesOf(base)
-        def counts = Stream.iterate(BigInt(1))(prev => prev + 1) map IntegerLiteral
-        val pairs = interleave(elems.map(e => counts.map(c => e -> c)))
-        pairs.scanLeft(Stream(FiniteBag(Seq(), base): Expr)) { (prev, curr) =>
-          prev flatMap { case fs @ FiniteBag(elems, tp) => Stream(fs, FiniteBag(elems :+ curr, tp)) }
-        }.flatten
-      case MapType(from, to) =>
-        def elems = cartesianProduct(valuesOf(from), valuesOf(to))
-        val seqs = elems.scanLeft(Stream(Seq[(Expr, Expr)]())) { (prev, curr) =>
-          prev flatMap { case seq => Stream(seq, seq :+ curr) }
-        }.flatten
-        cartesianProduct(seqs, valuesOf(to)) map { case (values, default) => FiniteMap(values, default, from, to) }
-      case adt: ADTType =>
-        val sort = adt.getSort
-        interleave(sort.constructors.map {
-          cons => cartesianProduct(cons.fieldsTypes map valuesOf) map (ADT(cons.id, cons.tps, _))
-        })
-    }
   }
 
 
@@ -1194,7 +1147,7 @@ trait SymbolOps { self: TypeOps =>
       (elems forall (kv => isValueOfType(kv._1, from) < s"${kv._1} not a value of type $from" && isValueOfType(kv._2, to) < s"${kv._2} not a value of type ${to}" ))
     case (adt @ ADT(id, tps, args), adt2: ADTType) =>
       isSubtypeOf(adt.getType, adt2) < s"$adt not a subtype of $adt2" &&
-      ((args zip adt.getConstructor.fieldsTypes) forall (argstyped => isValueOfType(argstyped._1, argstyped._2) < s"${argstyped._1} not a value of type ${argstyped._2}" ))
+      ((args zip adt.getConstructor.fields.map(_.getType)) forall (argstyped => isValueOfType(argstyped._1, argstyped._2) < s"${argstyped._1} not a value of type ${argstyped._2}" ))
     case (Lambda(valdefs, body), FunctionType(ins, out)) =>
       variablesOf(e).isEmpty &&
       (valdefs zip ins forall (vdin => isSubtypeOf(vdin._2, vdin._1.getType) < s"${vdin._2} is not a subtype of ${vdin._1.getType}")) &&
