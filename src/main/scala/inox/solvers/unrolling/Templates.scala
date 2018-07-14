@@ -237,7 +237,7 @@ trait Templates
         case _ => pArgs(args)
       }
 
-      rec(tfd.returnType, args)
+      rec(tfd.getType, args)
     }
 
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): Call = copy(

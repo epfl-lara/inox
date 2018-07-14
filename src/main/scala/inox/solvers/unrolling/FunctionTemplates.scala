@@ -42,7 +42,7 @@ trait FunctionTemplates { self: Templates =>
       val funString : () => String = () => {
         "Template for def " + tfd.signature +
         "(" + tfd.params.map(a => a.id + " : " + a.getType).mkString(", ") + ") : " +
-        tfd.returnType + " is :\n" + str()
+        tfd.getType + " is :\n" + str()
       }
 
       new FunctionTemplate(contents, funString)
@@ -146,7 +146,7 @@ trait FunctionTemplates { self: Templates =>
 
             // we generate helper equality clauses that stem from purity
             for ((pcall, pblocker) <- defBlockers if pcall.tfd == tfd) {
-              if (tfd.params.exists(vd => unrollEquality(vd.getType)) || unrollEquality(tfd.returnType)) {
+              if (tfd.params.exists(vd => unrollEquality(vd.getType)) || unrollEquality(tfd.getType)) {
                 val argPairs = (pcall.args zip args)
                 val equalities = (tfd.params.map(_.getType) zip argPairs).map { case (tpe, (e1, e2)) =>
                   val (equality, clauses) = mkEqualities(pblocker, tpe, e1.encoded, e2.encoded, register = false)
@@ -154,7 +154,7 @@ trait FunctionTemplates { self: Templates =>
                   equality
                 }
 
-                val (entail, entailClauses) = mkEqualities(pblocker, tfd.returnType,
+                val (entail, entailClauses) = mkEqualities(pblocker, tfd.getType,
                   mkCall(tfd, pcall.args.map(_.encoded)),
                   mkCall(tfd, args.map(_.encoded)), register = false)
                 newClauses ++= entailClauses

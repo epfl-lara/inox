@@ -74,7 +74,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   def functionDefToDecl(tfd: TypedFunDef): Z3FuncDecl = {
     functions.cachedB(tfd) {
       val sortSeq    = tfd.params.map(vd => typeToSort(vd.getType))
-      val returnSort = typeToSort(tfd.returnType)
+      val returnSort = typeToSort(tfd.getType)
 
       z3.mkFreshFuncDecl(tfd.id.uniqueName, sortSeq, returnSort)
     }
@@ -826,7 +826,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
           val body = mapping.foldRight(c: Expr) { case ((args, res), elze) =>
             IfExpr(andJoin((tfd.params.map(_.toVariable) zip args).map {
               case (v, e) => Equals(v, ex(e, v.getType))
-            }), ex(res, tfd.returnType), elze)
+            }), ex(res, tfd.getType), elze)
           }
           chooses ++= ex.chooses.map(p => (p._1, tfd.tps) -> p._2)
           Some((c.res.id, tfd.tps) -> body)

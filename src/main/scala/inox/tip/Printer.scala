@@ -209,7 +209,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
           val (sym, params, returnSort, body) = (
             id2sym(fd.id),
             fd.params.map(vd => SortedVar(id2sym(vd.id), declareSort(vd.getType))),
-            declareSort(fd.returnType),
+            declareSort(fd.getType),
             toSMT(fd.fullBody)(fd.params.map(vd => vd.id -> (id2sym(vd.id): Term)).toMap)
           )
 
@@ -229,7 +229,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
             val (sym, params, returnSort) = (
               id2sym(id),
               fd.params.map(vd => SortedVar(id2sym(vd.id), declareSort(vd.getType))),
-              declareSort(fd.returnType)
+              declareSort(fd.getType)
             )
 
             val tps = fd.tparams.map(tpd => declareSort(tpd.tp).id.symbol)
@@ -368,12 +368,12 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
 
     case fi @ FunctionInvocation(id, tps, args) =>
       val tfd = fi.tfd
-      val retTpArgs = typeOps.typeParamsOf(tfd.fd.returnType)
+      val retTpArgs = typeOps.typeParamsOf(tfd.fd.getType)
       val paramTpArgs = tfd.fd.params.flatMap(vd => typeOps.typeParamsOf(vd.getType)).toSet
       if ((retTpArgs -- paramTpArgs).nonEmpty) {
         val caller = QualifiedIdentifier(
           SMTIdentifier(declareFunction(tfd)),
-          Some(declareSort(tfd.returnType))
+          Some(declareSort(tfd.getType))
         )
         if (args.isEmpty) caller
         else FunctionApplication(caller, args.map(toSMT))

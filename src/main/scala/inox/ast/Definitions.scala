@@ -208,7 +208,7 @@ trait Definitions { self: Trees =>
     }))
 
     protected def ensureWellFormedFunction(fd: FunDef) = {
-      typeCheck(fd.fullBody, fd.returnType)
+      typeCheck(fd.fullBody, fd.getType)
 
       val unbound: Seq[Variable] = collectWithPC(fd.fullBody, Path.empty withBounds fd.params) {
         case (v: Variable, path) if !(path isBound v.id) => v

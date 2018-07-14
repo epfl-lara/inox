@@ -213,7 +213,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       emit(DeclareFun(
         s,
         tfd.params.map((p: ValDef) => declareSort(p.getType)),
-        declareSort(tfd.returnType)))
+        declareSort(tfd.getType)))
       s
     }
   }

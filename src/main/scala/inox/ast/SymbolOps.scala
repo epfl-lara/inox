@@ -875,7 +875,7 @@ trait SymbolOps { self: TypeOps =>
           (recBody, ((argsBindings.flatten :+ (i -> FunctionInvocation(id, tps, recArgs).copiedFrom(fi))) ++ recBindings).distinct)
 
         case fi @ FunctionInvocation(id, tps, args) =>
-          val v = Variable.fresh("call", fi.tfd.returnType, true)
+          val v = Variable.fresh("call", fi.tfd.getType, true)
           val (recArgs, recBindings) = args.map(rec).unzip
           (v, recBindings.flatten.distinct :+ (v.toVal -> FunctionInvocation(id, tps, recArgs).copiedFrom(fi)))
 
@@ -1006,13 +1006,13 @@ trait SymbolOps { self: TypeOps =>
                 val (pathThen, argsThen) = thenCalls(tfd).toSeq.sortBy(_._1.elements.size).head
                 val (pathElse, argsElse) = elseCalls(tfd).toSeq.sortBy(_._1.elements.size).head
 
-                val v = Variable.fresh("res", tfd.returnType, true)
+                val v = Variable.fresh("res", tfd.getType, true)
                 val condThen = Variable.fresh("condThen", BooleanType(), true)
 
                 val result = IfExpr(Or(condThen, freshenLocals((condPath.negate merge pathElse).toClause)),
                   tfd.applied((argsThen zip argsElse).map { case (argThen, argElse) =>
                     ifExpr(condThen, pathThen.bindings wrap argThen, pathElse.bindings wrap argElse)
-                  }), Choose(Variable.fresh("res", tfd.returnType).toVal, BooleanLiteral(true)))
+                  }), Choose(Variable.fresh("res", tfd.getType).toVal, BooleanLiteral(true)))
 
                 val newBindings = bindings ++ Seq(
                   condThen.toVal -> freshenLocals((condPath merge pathThen).toClause),
@@ -1174,7 +1174,7 @@ trait SymbolOps { self: TypeOps =>
               s" because ${tfd.fd.id.name} was instantiated with " +
               s"${tfd.fd.tparams.zip(tps).map(k => k._1.asString + ":=" + k._2.asString).mkString(",")} " +
               s"with type ${tfd.fd.params.map(_.getType.asString).mkString("(", ",", ")")} => " +
-              s"${tfd.fd.returnType.asString}"
+              s"${tfd.fd.getType.asString}"
             case None =>
               s"${e.asString} is of type ${e.getType.asString}" +
               se.map(child => "\n  " + "\n".r.replaceAllIn(child, "\n  ")).mkString +

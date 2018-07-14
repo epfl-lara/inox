@@ -186,7 +186,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
           chooses.getChoose(tfd.fd).map { case (id, c, vds) =>
             val tpSubst = tfd.tpSubst.map(p => decode(p._1).asInstanceOf[TypeParameter] -> decode(p._2))
             val from = tfd.params.map(_.getType(tfd.symbols))
-            val to = tfd.returnType
+            val to = tfd.getType
             import templates._
 
             val inst = new typeOps.TypeInstantiator(tpSubst)

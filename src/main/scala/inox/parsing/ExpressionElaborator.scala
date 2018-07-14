@@ -729,7 +729,7 @@ trait ExpressionElaborators { self: Interpolator =>
             freshs.zip(paramTypes).map({ case (a, b) => Constraint.equal(a, b)(a.pos) })
           }).addConstraint({
             // The return type of the function should be what is expected.
-            Constraint.equal(instantiator.transform(fd.returnType), expected)
+            Constraint.equal(instantiator.transform(fd.getType), expected)
           })
 
           optTpeArgs match {

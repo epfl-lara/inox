@@ -84,7 +84,7 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
                     tfd.fullBody match {
                       case Choose(res, _) =>
                         val ctx = new Context(variables.bToA, modelFunDefs).withVariables(args.map(_.name) zip tfd.params.map(_.toVariable))
-                        val body = fromSMT(e, tfd.returnType)(ctx)
+                        val body = fromSMT(e, tfd.getType)(ctx)
                         chooses ++= ctx.getChooses.map(p => (p._1.res.id, tfd.tps) -> p._2)
                         Some((res.id, tfd.tps) -> body)
                       case _ => None
