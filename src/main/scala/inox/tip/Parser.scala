@@ -237,7 +237,7 @@ class Parser(reader: Reader, file: Option[File]) {
         }
 
         val allTparams: Set[TypeParameter] = children.flatMap(_._2).toSet.flatMap {
-          (vd: ValDef) => typeOps.typeParamsOf(vd.tpe): Set[TypeParameter]
+          (vd: ValDef) => typeOps.typeParamsOf(vd.getType(locs.symbols)): Set[TypeParameter]
         }
 
         val tparams: Seq[TypeParameterDef] = tps.flatMap { sym =>
@@ -464,7 +464,7 @@ class Parser(reader: Reader, file: Option[File]) {
       if ctx.isConstructor(sym) =>
         val es = args.map(fromSMT(_))
         val cons = symbols.getConstructor(ctx.getConstructor(sym))
-        val tps = instantiateTypeParams(cons.getSort.tparams, cons.fields.map(_.tpe), es.map(_.getType))(ctx.locals)
+        val tps = instantiateTypeParams(cons.getSort.tparams, cons.fields.map(_.getType), es.map(_.getType))(ctx.locals)
         ADT(cons.id, tps, es)
 
       case QualifiedIdentifier(SimpleIdentifier(sym), optSort) if ctx.isFunction(sym) =>
@@ -472,7 +472,7 @@ class Parser(reader: Reader, file: Option[File]) {
         val tfd = optSort match {
           case Some(sort) =>
             val tpe = fromSMT(sort)
-            val tps = instantiateTypeParams(fd.tparams, Seq(fd.returnType), Seq(tpe))(ctx.locals)
+            val tps = instantiateTypeParams(fd.tparams, Seq(fd.getType), Seq(tpe))(ctx.locals)
             fd.typed(tps)
 
           case None =>
@@ -489,12 +489,12 @@ class Parser(reader: Reader, file: Option[File]) {
             val tpe = fromSMT(sort)
             instantiateTypeParams(
               fd.tparams,
-              fd.params.map(_.tpe) :+ fd.returnType,
+              fd.params.map(_.getType) :+ fd.getType,
               es.map(_.getType) :+ tpe
             )(ctx.locals)
 
           case None =>
-            instantiateTypeParams(fd.tparams, fd.params.map(_.tpe), es.map(_.getType))(ctx.locals)
+            instantiateTypeParams(fd.tparams, fd.params.map(_.getType), es.map(_.getType))(ctx.locals)
         }
         fd.typed(tps).applied(es)
 

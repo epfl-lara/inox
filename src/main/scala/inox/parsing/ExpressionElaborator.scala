@@ -708,7 +708,7 @@ trait ExpressionElaborators { self: Interpolator =>
           val instantiator = new typeOps.TypeInstantiator(typeParamToFresh.toMap)
 
           val paramTypes = fd.params.map({
-            (vd: trees.ValDef) => instantiator.transform(vd.tpe)
+            (vd: trees.ValDef) => instantiator.transform(vd.getType)
           })
 
           val invok = Constrained.withUnifier({ (unifier: Unifier) =>
@@ -765,7 +765,7 @@ trait ExpressionElaborators { self: Interpolator =>
           val instantiator = new typeOps.TypeInstantiator(typeParamToFresh.toMap)
 
           val paramTypes = cons.fields.map({
-            (vd: trees.ValDef) => instantiator.transform(vd.tpe)
+            (vd: trees.ValDef) => instantiator.transform(vd.getType)
           })
 
           val invok = Constrained.withUnifier({ (unifier: Unifier) =>
@@ -1039,7 +1039,7 @@ trait ExpressionElaborators { self: Interpolator =>
 
           val instantiator = new typeOps.TypeInstantiator(typeParamToFresh.toMap)
 
-          val fieldType = instantiator.transform(vd.tpe)
+          val fieldType = instantiator.transform(vd.getType)
           val adtType = instantiator.transform(trees.ADTType(sort.id, sort.typeArgs))
 
           typeCheck(expr, expectedExpr).map({

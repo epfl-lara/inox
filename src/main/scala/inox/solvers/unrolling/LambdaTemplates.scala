@@ -245,7 +245,7 @@ trait LambdaTemplates { self: Templates =>
       val newTemplate = template.concretize(idT)
 
       val orderingClauses = newTemplate.closures.flatMap {
-        case (v, dep) => registerClosure(newTemplate.start, idT -> newTemplate.tpe, dep -> v.tpe)
+        case (v, dep) => registerClosure(newTemplate.start, idT -> newTemplate.tpe, dep -> v.getType)
       }
 
       // make sure we introduce sound equality constraints between closures that take no arguments
@@ -368,7 +368,7 @@ trait LambdaTemplates { self: Templates =>
             equals
           } else {
             val equalities = filtered.map { case ((v, e1), (_, e2)) =>
-              val (equality, equalityClauses) = mkEqualities(blocker, v.tpe, e1, e2, register = false)
+              val (equality, equalityClauses) = mkEqualities(blocker, v.getType, e1, e2, register = false)
               clauses ++= equalityClauses
               equality
             }

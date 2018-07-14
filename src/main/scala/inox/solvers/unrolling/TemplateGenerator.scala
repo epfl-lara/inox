@@ -111,7 +111,7 @@ trait TemplateGenerator { self: Templates =>
             ))
           } else {
             val condVar = Variable.fresh("p", BooleanType())
-            val exprVar = Variable.fresh("r", v.tpe)
+            val exprVar = Variable.fresh("r", v.getType)
 
             val localSubst = depSubst + (condVar -> encodeSymbol(condVar)) + (exprVar -> encodeSymbol(exprVar))
             val cls = mkClauses(pathVar, Equals(condVar, andJoin(conditions)), localSubst) ++

@@ -143,7 +143,7 @@ trait ExpressionExtractors { self: Interpolator =>
 
             extract(
               toExprObl(value -> templateValue), 
-              toOptTypeObl(vd.tpe -> optTemplateType),
+              toOptTypeObl(vd.getType -> optTemplateType),
               toIdObl(vd.id -> templateId),
               toExprObl(body -> templateRest))
           }
@@ -153,7 +153,7 @@ trait ExpressionExtractors { self: Interpolator =>
         case trees.Lambda(args, body) => template match {
           case Abstraction(Lambda, templateArgs, templateBody) =>
             extract(
-              toOptTypeObls(args.map(_.tpe) -> templateArgs.map(_._2)), 
+              toOptTypeObls(args.map(_.getType) -> templateArgs.map(_._2)), 
               toIdObls(args.map(_.id) -> templateArgs.map(_._1)),
               toExprObl(body -> templateBody))
           case _ => fail
@@ -162,7 +162,7 @@ trait ExpressionExtractors { self: Interpolator =>
         case trees.Forall(args, body) => template match {
           case Abstraction(Forall, templateArgs, templateBody) =>
             extract(
-              toOptTypeObls(args.map(_.tpe) -> templateArgs.map(_._2)), 
+              toOptTypeObls(args.map(_.getType) -> templateArgs.map(_._2)), 
               toIdObls(args.map(_.id) -> templateArgs.map(_._1)),
               toExprObl(body -> templateBody))
           case _ => fail
@@ -176,7 +176,7 @@ trait ExpressionExtractors { self: Interpolator =>
             }
 
             extract(
-              toOptTypeObl(arg.tpe -> optTemplateType),
+              toOptTypeObl(arg.getType -> optTemplateType),
               toIdObl(arg.id -> templateId),
               toExprObl(pred -> templateRest))
           }

@@ -87,7 +87,7 @@ trait SolvingEvaluator extends Evaluator { self =>
           .filter(vd => !vars(vd.toVariable) && !(hasInstance(vd.tpe) contains true))
           .filter { vd =>
             import SolverResponses._
-            val p = Variable.fresh("p", FunctionType(Seq(vd.tpe), BooleanType()))
+            val p = Variable.fresh("p", FunctionType(Seq(vd.getType), BooleanType()))
             val clause = Application(p, Seq(vd.toVariable))
             context.timers.evaluators.forall.run(api.solveSAT(clause)) match {
               case Unsat => true

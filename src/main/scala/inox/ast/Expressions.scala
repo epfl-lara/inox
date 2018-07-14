@@ -72,7 +72,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class Let(vd: ValDef, value: Expr, body: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type =
-      checkParamType(value, vd.tpe, body.getType)
+      checkParamType(value, vd.getType, body.getType)
   }
 
   /* Higher-order Functions */
@@ -121,7 +121,7 @@ trait Expressions { self: Trees =>
       s.lookupFunction(id)
         .filter(fd => tps.size == fd.tparams.size && args.size == fd.params.size)
         .map(_.typed(tps))
-        .map(tfd => checkParamTypes(args, tfd.params.map(_.tpe), tfd.getType))
+        .map(tfd => checkParamTypes(args, tfd.params.map(_.getType), tfd.getType))
         .getOrElse(Untyped)
     }
 

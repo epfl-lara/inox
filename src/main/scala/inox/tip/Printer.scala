@@ -79,7 +79,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
       if (fd.tparams.isEmpty) {
         emit(DatatypeInvariant(
           id2sym(vd.id),
-          declareSort(vd.tpe),
+          declareSort(vd.getType),
           toSMT(fd.fullBody)(Map(vd.id -> id2sym(vd.id)))
         ))
       } else {
@@ -87,7 +87,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
         emit(DatatypeInvariantPar(
           tps,
           id2sym(vd.id),
-          declareSort(vd.tpe),
+          declareSort(vd.getType),
           toSMT(fd.fullBody)(Map(vd.id -> id2sym(vd.id)))
         ))
       }
@@ -152,7 +152,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
         (ADTType(id, tsort.definition.typeArgs), DataType(sym,
           (tsort.constructors zip cases).map { case (tcons, Constructor(sym, ADTCons(id, tps), fields)) =>
             Constructor(sym, ADTCons(id, tsort.definition.typeArgs),
-              (tcons.fields zip fields).map { case (vd, (id, _)) => (id, vd.tpe) })
+              (tcons.fields zip fields).map { case (vd, (id, _)) => (id, vd.getType) })
           }))
 
       case (TupleType(tps), DataType(sym, Seq(Constructor(id, TupleCons(_), fields)))) =>
@@ -208,7 +208,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
         if (scc.size <= 1) {
           val (sym, params, returnSort, body) = (
             id2sym(fd.id),
-            fd.params.map(vd => SortedVar(id2sym(vd.id), declareSort(vd.tpe))),
+            fd.params.map(vd => SortedVar(id2sym(vd.id), declareSort(vd.getType))),
             declareSort(fd.returnType),
             toSMT(fd.fullBody)(fd.params.map(vd => vd.id -> (id2sym(vd.id): Term)).toMap)
           )
@@ -228,7 +228,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
             val fd = getFunction(id)
             val (sym, params, returnSort) = (
               id2sym(id),
-              fd.params.map(vd => SortedVar(id2sym(vd.id), declareSort(vd.tpe))),
+              fd.params.map(vd => SortedVar(id2sym(vd.id), declareSort(vd.getType))),
               declareSort(fd.returnType)
             )
 
@@ -277,21 +277,21 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
     case Lambda(args, body) =>
       val (newBindings, params) = args.map { vd =>
         val sym = id2sym(vd.id)
-        (vd.id -> (sym: Term), SortedVar(sym, declareSort(vd.tpe)))
+        (vd.id -> (sym: Term), SortedVar(sym, declareSort(vd.getType)))
       }.unzip
       SMTLambda(params, toSMT(body)(bindings ++ newBindings))
 
     case Forall(args, body) =>
       val (newBindings, param +: params) = args.map { vd =>
         val sym = id2sym(vd.id)
-        (vd.id -> (sym: Term), SortedVar(sym, declareSort(vd.tpe)))
+        (vd.id -> (sym: Term), SortedVar(sym, declareSort(vd.getType)))
       }.unzip
       SMTForall(param, params, toSMT(body)(bindings ++ newBindings))
 
     case Not(Forall(args, body)) =>
       val (newBindings, param +: params) = args.map { vd =>
         val sym = id2sym(vd.id)
-        (vd.id -> (sym: Term), SortedVar(sym, declareSort(vd.tpe)))
+        (vd.id -> (sym: Term), SortedVar(sym, declareSort(vd.getType)))
       }.unzip
       Exists(param, params, toSMT(Not(body))(bindings ++ newBindings))
 
@@ -369,7 +369,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
     case fi @ FunctionInvocation(id, tps, args) =>
       val tfd = fi.tfd
       val retTpArgs = typeOps.typeParamsOf(tfd.fd.returnType)
-      val paramTpArgs = tfd.fd.params.flatMap(vd => typeOps.typeParamsOf(vd.tpe)).toSet
+      val paramTpArgs = tfd.fd.params.flatMap(vd => typeOps.typeParamsOf(vd.getType)).toSet
       if ((retTpArgs -- paramTpArgs).nonEmpty) {
         val caller = QualifiedIdentifier(
           SMTIdentifier(declareFunction(tfd)),
@@ -383,8 +383,8 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
 
     case Choose(vd, pred) =>
       val sym = id2sym(vd.id)
-      val sort = declareSort(vd.tpe)
-      SMTChoose(sym, declareSort(vd.tpe), toSMT(pred)(bindings + (vd.id -> (sym: Term))))
+      val sort = declareSort(vd.getType)
+      SMTChoose(sym, declareSort(vd.getType), toSMT(pred)(bindings + (vd.id -> (sym: Term))))
 
     case _ => super.toSMT(e)
   }

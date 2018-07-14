@@ -82,7 +82,7 @@ trait FunctionTemplates { self: Templates =>
   private val callCache: MutableMap[TypedFunDef, (Seq[Encoded], Encoded)] = MutableMap.empty
   private[unrolling] def mkCall(tfd: TypedFunDef, args: Seq[Encoded]): Encoded = {
     val (asT, call) = callCache.getOrElseUpdate(tfd, {
-      val as = tfd.params.map(vd => Variable.fresh("x", vd.tpe, true))
+      val as = tfd.params.map(vd => Variable.fresh("x", vd.getType, true))
       val asT = as.map(encodeSymbol)
       (asT, mkEncoder((as zip asT).toMap)(tfd.applied(as)))
     })
@@ -146,9 +146,9 @@ trait FunctionTemplates { self: Templates =>
 
             // we generate helper equality clauses that stem from purity
             for ((pcall, pblocker) <- defBlockers if pcall.tfd == tfd) {
-              if (tfd.params.exists(vd => unrollEquality(vd.tpe)) || unrollEquality(tfd.returnType)) {
+              if (tfd.params.exists(vd => unrollEquality(vd.getType)) || unrollEquality(tfd.returnType)) {
                 val argPairs = (pcall.args zip args)
-                val equalities = (tfd.params.map(_.tpe) zip argPairs).map { case (tpe, (e1, e2)) =>
+                val equalities = (tfd.params.map(_.getType) zip argPairs).map { case (tpe, (e1, e2)) =>
                   val (equality, clauses) = mkEqualities(pblocker, tpe, e1.encoded, e2.encoded, register = false)
                   newClauses ++= clauses
                   equality
@@ -165,7 +165,7 @@ trait FunctionTemplates { self: Templates =>
 
             val (inlining, skip) = context.timers.solvers.`eval-call`.run {
               val groundArgs = (args zip tfd.params).map { p =>
-                decodePartial(p._1.encoded, p._2.tpe)
+                decodePartial(p._1.encoded, p._2.getType)
                   .map(e => exprOps.postMap {
                     case IsTyped(v: Variable, ft: FunctionType) =>
                       byID.values.find(_.ids._1 == v).map(_.lambda)

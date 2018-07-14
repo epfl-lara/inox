@@ -574,7 +574,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                     val body = mapping.foldLeft(rec(elseValue, tt, seen + t)) { case (elze, (z3Args, z3Result)) =>
                       if (t == z3Args.head) {
                         val cond = andJoin((args zip z3Args.tail).map { case (vd, z3Arg) =>
-                          Equals(vd.toVariable, rec(z3Arg, vd.tpe, seen + t))
+                          Equals(vd.toVariable, rec(z3Arg, vd.getType, seen + t))
                         })
 
                         IfExpr(cond, rec(z3Result, tt, seen + t), elze)
@@ -700,7 +700,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         val argsSize = args.size
         if (functions containsB decl) {
           val tfd = functions.toA(decl)
-          FunctionInvocation(tfd.id, tfd.tps, (args zip tfd.params).map(p => rec(p._1, p._2.tpe)))
+          FunctionInvocation(tfd.id, tfd.tps, (args zip tfd.params).map(p => rec(p._1, p._2.getType)))
         } else if (lambdas containsB decl) {
           val ft @ FunctionType(from, _) = lambdas.toA(decl)
           Application(rec(args.head, ft), (args.tail zip from).map(p => rec(p._1, p._2)))
@@ -722,7 +722,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         } else if (constructors containsB decl) {
           constructors.toA(decl) match {
             case c @ ADTCons(id, tps) =>
-              ADT(id, tps, (args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.tpe)))
+              ADT(id, tps, (args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.getType)))
             case c @ TupleCons(tps) =>
               Tuple((args zip tps).map(p => rec(p._1, p._2)))
             case UnitCons => UnitLiteral()
@@ -793,7 +793,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
     val vars = variables.aToB.flatMap {
       /** WARNING this code is very similar to Z3Unrolling.modelEval!!! */
-      case (v,z3ID) => (v.tpe match {
+      case (v,z3ID) => (v.getType match {
         case BooleanType() =>
           model.evalAs[Boolean](z3ID).map(BooleanLiteral)
 
@@ -825,7 +825,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
           val ex = new ModelExtractor(model)
           val body = mapping.foldRight(c: Expr) { case ((args, res), elze) =>
             IfExpr(andJoin((tfd.params.map(_.toVariable) zip args).map {
-              case (v, e) => Equals(v, ex(e, v.tpe))
+              case (v, e) => Equals(v, ex(e, v.getType))
             }), ex(res, tfd.returnType), elze)
           }
           chooses ++= ex.chooses.map(p => (p._1, tfd.tps) -> p._2)

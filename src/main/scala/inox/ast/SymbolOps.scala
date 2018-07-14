@@ -198,6 +198,12 @@ trait SymbolOps { self: TypeOps =>
         }
       }
 
+    def transformVar(v: Variable): Variable =
+      Variable(transformId(v.id, v.getType, store = false), v.getType, Seq())
+
+    def transformVal(vd: ValDef): ValDef =
+      ValDef(varSubst(vd.id), vd.getType, Seq())
+
     object Matcher {
       def unapply(e: Expr): Option[Seq[Expr]] = e match {
         case Application(_, args) => Some(args)
@@ -211,11 +217,11 @@ trait SymbolOps { self: TypeOps =>
 
     def outer(vars: Set[Variable], body: Expr, inFunction: Boolean, path: Path): Expr = {
       // this registers the argument images into subst
-      val tvars = vars map (v => v.copy(id = transformId(v.id, v.tpe, store = false)))
+      val tvars = vars map transformVar
 
       def isLocal(e: Expr, path: Path, unconditional: Boolean): Boolean = {
         val vs = variablesOf(e)
-        val tvs = vs flatMap { v => varSubst.get(v.id) map { Variable(_, v.tpe, v.flags) } }
+        val tvs = vs flatMap { v => varSubst.get(v.id) map { Variable(_, v.getType, Seq()) } }
         val pathVars = path.bound.map(_.toVariable).toSet
 
         (tvars & tvs).isEmpty && (if (unconditional) {
@@ -267,11 +273,10 @@ trait SymbolOps { self: TypeOps =>
         val liftable = new Liftable(env)
 
         e match {
-          case v @ Variable(id, tpe, flags) =>
+          case v @ Variable(id, _, _) =>
             Variable(
-              if (vars(v) || locals(id)) transformId(id, tpe, store = false)
-              else getId(v),
-              tpe, flags
+              if (vars(v) || locals(id)) transformId(id, v.getType, store = false)
+              else getId(v), v.getType, Seq()
             )
 
           case Matcher(args) if (
@@ -291,17 +296,16 @@ trait SymbolOps { self: TypeOps =>
           case f: Forall =>
             val isInstantiated = f.params.forall(vd => hasInstance(vd.tpe) == Some(true))
             val newBody = outer(vars ++ f.params.map(_.toVariable), f.body, !isInstantiated, env)
-            Forall(f.params.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
+            Forall(f.params map transformVal, newBody)
 
           case l: Lambda =>
             val newBody = outer(vars ++ l.params.map(_.toVariable), l.body, true, env)
-            Lambda(l.params.map(vd => vd.copy(id = varSubst(vd.id))), newBody)
+            Lambda(l.params map transformVal, newBody)
 
           // @nv: we make sure NOT to normalize choose ids as we may need to
           //      report models for unnormalized chooses!
           case c: Choose =>
-            val vs = variablesOf(c).map(v => v -> v.copy(id = transformId(v.id, v.tpe, store = false))).toMap
-            replaceFromSymbols(vs, c)
+            replaceFromSymbols(variablesOf(c).map(v => v -> transformVar(v)).toMap, c)
 
           // Make sure we don't lift applications to applications when they have basic shapes
           case Application(liftable(_), args) if args.forall(liftable.unapply(_).isEmpty) =>
@@ -348,14 +352,14 @@ trait SymbolOps { self: TypeOps =>
 
           case _ =>
             val (ids, vs, es, tps, recons) = deconstructor.deconstruct(e)
-            val newVs = vs.map(v => v.copy(id = transformId(v.id, v.tpe, store = false)))
+            val newVs = vs map transformVar
             op.superRec(recons(ids, newVs, es, tps), env)
         }
       }
     }
 
     val newExpr = outer(args.map(_.toVariable).toSet, expr, inFunction, Path.empty)
-    val bindings = args.map(vd => vd.copy(id = varSubst(vd.id)))
+    val bindings = args map transformVal
 
     // Reorder the dependencies to make sure inter-dependencies are satisfied
     val deps: Seq[(Variable, Expr, Seq[Expr])] = {
@@ -408,7 +412,7 @@ trait SymbolOps { self: TypeOps =>
       /* @nv: This is a hack to ensure that the notion of equality we define on closures
        *      is respected by those returned by the model. */
       Lambda(res.params, Let(
-        ValDef.fresh("id", tupleTypeWrap(List.fill(id)(resArgs.head.tpe))),
+        ValDef.fresh("id", tupleTypeWrap(List.fill(id)(resArgs.head.getType))),
         tupleWrap(List.fill(id)(resArgs.head.toVariable)),
         res.body
       ))

@@ -104,7 +104,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         bindings.getOrElse(v, declareVariable(v)).asInstanceOf[IFormula]
 
       case Let(vd, e, b) =>
-        parseFormula(b)(bindings + (vd.toVariable -> (vd.tpe match {
+        parseFormula(b)(bindings + (vd.toVariable -> (vd.getType match {
           case BooleanType() => parseFormula(e)
           case _ => parseTerm(e)
         })))
@@ -234,7 +234,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         bindings.getOrElse(v, declareVariable(v)).asInstanceOf[ITerm]
 
       case Let(vd, e, b) =>
-        parseTerm(b)(bindings + (vd.toVariable -> (vd.tpe match {
+        parseTerm(b)(bindings + (vd.toVariable -> (vd.getType match {
           case BooleanType() => parseFormula(e)
           case _ => parseTerm(e)
         })))
@@ -402,7 +402,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         case (IIntLit(i), IntegerType()) => IntegerLiteral(i.bigIntValue)
         case (IFunApp(fun, args), _) if functions containsB fun =>
           val tfd = functions.toA(fun)
-          FunctionInvocation(tfd.id, tfd.tps, (args zip tfd.params).map(p => rec(p._1, p._2.tpe)))
+          FunctionInvocation(tfd.id, tfd.tps, (args zip tfd.params).map(p => rec(p._1, p._2.getType)))
         case (IFunApp(fun, args), _) if lambdas containsB fun =>
           val ft @ FunctionType(from, _) = lambdas.toA(fun)
           Application(rec(args.head, ft), (args.tail zip from).map(p => rec(p._1, p._2)))
@@ -411,7 +411,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
           val index = sort.constructors.indexWhere(_ == fun)
           adts.flatMap(_._2.cases).apply(index).tpe match {
             case ADTCons(id, tps) =>
-              ADT(id, tps, (args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.tpe)))
+              ADT(id, tps, (args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.getType)))
             case TupleCons(tps) =>
               Tuple((args zip tps).map(p => rec(p._1, p._2)))
             case UnitCons =>
@@ -448,7 +448,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
   def declareVariable(v: Variable): IExpression = variables.cachedB(v)(freshSymbol(v))
 
-  def freshSymbol(v: Variable): IExpression = v.tpe match {
+  def freshSymbol(v: Variable): IExpression = v.getType match {
     case BooleanType() => p.createBooleanVariable(v.id.freshen.uniqueName)
     case _ => p.createConstant(v.id.freshen.uniqueName)
   }

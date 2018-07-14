@@ -176,7 +176,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
     }
 
     def getModel(extract: (Encoded, Type) => Expr): program.Model = {
-      val vs = freeVars.toMap.map { case (v, idT) => v.toVal -> extract(idT, v.tpe) }
+      val vs = freeVars.toMap.map { case (v, idT) => v.toVal -> extract(idT, v.getType) }
 
       val cs = templates.getCalls
         .filter(p => modelEval(p._1, t.BooleanType()) == Some(t.BooleanLiteral(true)))
@@ -185,7 +185,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
         .flatMap { case (tfd, calls) =>
           chooses.getChoose(tfd.fd).map { case (id, c, vds) =>
             val tpSubst = tfd.tpSubst.map(p => decode(p._1).asInstanceOf[TypeParameter] -> decode(p._2))
-            val from = tfd.params.map(_.tpe)
+            val from = tfd.params.map(_.getType(tfd.symbols))
             val to = tfd.returnType
             import templates._
 
@@ -213,7 +213,9 @@ trait AbstractUnrollingSolver extends Solver { self =>
           }
         }
 
-      val freeCs = freeChooses.toMap.map { case (c, idT) => (c.res.id, Seq.empty[Type]) -> extract(idT, c.res.tpe) }
+      val freeCs = freeChooses.toMap.map { case (c, idT) =>
+        (c.res.id, Seq.empty[Type]) -> extract(idT, c.res.getType)
+      }
 
       def choosesOf(e: Expr, tps: Seq[Type]): Map[(Identifier, Seq[Type]), Expr] = exprOps.collect {
         case c: Choose => getChoose(c.res.id).map(e => (c.res.id, tps) -> decode(e)).toSet
@@ -305,7 +307,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
             val id = Variable.fresh("adt", tpe)
             val encoder = templates.mkEncoder(Map(id -> v)) _
             reconstruct(getConstructor(cons, tps).fields.map {
-              vd => rec(encoder(ADTSelector(id, vd.id)), vd.tpe)
+              vd => rec(encoder(ADTSelector(id, vd.id)), vd.getType)
             }, ADT(cons, tps, _))
 
           case st @ SetType(base) =>
@@ -352,7 +354,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
         optEqTemplate.map { tmpl =>
           val localsSubst = tmpl.structure.locals.map { case (v, ev) =>
-            v -> extractValue(ev, v.tpe, nextSeen)
+            v -> extractValue(ev, v.getType, nextSeen)
           }.toMap
 
           val res = exprOps.replaceFromSymbols(localsSubst, tmpl.structure.body)
@@ -383,11 +385,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
           Lambda(Seq.empty, extractValue(templates.mkApp(f, tpe, Seq.empty), tpe.to, nextSeen))
         } else {
           val projections: Map[Type, Encoded] = (arguments.head zip params)
-            .groupBy(p => p._2.tpe)
+            .groupBy(p => p._2.getType)
             .mapValues(_.head._1)
 
           val exArguments = for (args <- arguments) yield {
-            (params zip args).map { case (vd, arg) => extractValue(arg, vd.tpe, nextSeen) }
+            (params zip args).map { case (vd, arg) => extractValue(arg, vd.getType, nextSeen) }
           }
 
           val argumentsWithConds: Seq[(Seq[Encoded], Expr)] =
@@ -396,7 +398,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
                 if (!subset(v)) {
                   (args(i), Some(Equals(v.toVariable, exArgs(i))))
                 } else {
-                  (projections(v.tpe), None)
+                  (projections(v.getType), None)
                 }
               }.unzip
 
@@ -454,7 +456,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
     val exModel = wrapped.getModel((e, tpe) => decodeOrSimplest(extractValue(e, encode(tpe), initSeen)))
     val exChooses = chooseExtractions.toMap.map { case (e, c) =>
       c -> lambdaExtractions.collectFirst {
-        case (f, lambda) if lambda.getType == c.res.tpe && modelEq(f, e) => lambda
+        case (f, lambda) if lambda.getType == c.res.getType && modelEq(f, e) => lambda
       }.get
     }
     val chooses = exChooses.map(p => (p._1.res.id, Seq.empty[s.Type]) -> decodeOrSimplest(p._2))

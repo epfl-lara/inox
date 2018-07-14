@@ -93,7 +93,10 @@ trait ADTManagers {
             }
 
             Some(adt -> DataType(freshId(tsort.id), tsort.constructors.map { tcons =>
-              Constructor(freshId(tcons.id), ADTCons(tcons.id, adt.tps), tcons.fields.map(vd => freshId(vd.id) -> vd.tpe))
+              Constructor(
+                freshId(tcons.id),
+                ADTCons(tcons.id, adt.tps),
+                tcons.fields.map(vd => freshId(vd.id) -> vd.getType))
             }))
 
           case TupleType(tps) =>

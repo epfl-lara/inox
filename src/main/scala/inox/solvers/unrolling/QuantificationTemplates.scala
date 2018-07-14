@@ -768,7 +768,7 @@ trait QuantificationTemplates { self: Templates =>
           val eqConds = (newTemplate.structure.locals zip tmpl.structure.locals)
             .filter(p => p._1 != p._2)
             .map { case ((v, e1), (_, e2)) =>
-              val (equality, equalityClauses) = mkEqualities(blocker, v.tpe, e1, e2, register = false)
+              val (equality, equalityClauses) = mkEqualities(blocker, v.getType, e1, e2, register = false)
               clauses ++= equalityClauses
               equality
             }
