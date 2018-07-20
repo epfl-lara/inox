@@ -351,9 +351,9 @@ trait SymbolOps { self: TypeOps =>
             )
 
           case _ =>
-            val (ids, vs, es, tps, recons) = deconstructor.deconstruct(e)
+            val (ids, vs, es, tps, flags, recons) = deconstructor.deconstruct(e)
             val newVs = vs map transformVar
-            op.superRec(recons(ids, newVs, es, tps), env)
+            op.superRec(recons(ids, newVs, es, tps, flags), env)
         }
       }
     }

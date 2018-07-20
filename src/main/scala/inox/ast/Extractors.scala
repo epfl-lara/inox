@@ -22,11 +22,17 @@ trait TreeDeconstructor {
   protected val s: Trees
   protected val t: Trees
 
-  /** Rebuild an expression from the given set of identifiers, variables, subexpressions and types */
-  protected type ExprBuilder = (Seq[Identifier], Seq[t.Variable], Seq[t.Expr], Seq[t.Type]) => t.Expr
+  /** Rebuild a tree from the given set of identifiers, variables, subexpressions and types */
+  protected type Builder[T <: t.Tree] = (Seq[Identifier], Seq[t.Variable], Seq[t.Expr], Seq[t.Type], Seq[t.Flag]) => T
 
-  /** Extracted subtrees from an expression as well as a "builder" */
-  protected type DeconstructedExpr = (Seq[Identifier], Seq[s.Variable], Seq[s.Expr], Seq[s.Type], ExprBuilder)
+  /** Extracted subtrees from a tree as well as a "builder" */
+  protected type Deconstructed[T <: t.Tree] = (Seq[Identifier], Seq[s.Variable], Seq[s.Expr], Seq[s.Type], Seq[s.Flag], Builder[T])
+
+  protected final val NoIdentifiers: Seq[Identifier] = Seq()
+  protected final val NoVariables: Seq[s.Variable] = Seq()
+  protected final val NoExpressions: Seq[s.Expr] = Seq()
+  protected final val NoTypes: Seq[s.Type] = Seq()
+  protected final val NoFlags: Seq[s.Flag] = Seq()
 
   /** Optimisation trick for large pattern matching sequence: jumps directly to the correct case based
     * on the type of the expression -- a kind of virtual table for pattern matching.
@@ -40,329 +46,446 @@ trait TreeDeconstructor {
     * NOTE this is only valid if each Expression class has no subtypes!
     * We keep expression types sealed to help ensure this issue doesn't ever appear.
     */
-  private val exprTable: Map[Class[_], s.Expr => DeconstructedExpr] = HashMap(
+  private val exprTable: Map[Class[_], s.Expr => Deconstructed[t.Expr]] = HashMap(
     classOf[s.Assume] -> { expr =>
       val s.Assume(pred, body) = expr
-      (Seq(), Seq(), Seq(pred, body), Seq(), (_, _, es, _) => t.Assume(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(pred, body), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.Assume(es(0), es(1)))
     },
     classOf[s.Variable] -> { expr =>
       val v = expr.asInstanceOf[s.Variable]
-      (Seq(), Seq(v), Seq(), Seq(), (_,vs, _, _) => vs.head)
+      (NoIdentifiers, Seq(v), NoExpressions, NoTypes, NoFlags,
+        (_,vs, _, _, _) => vs.head)
     },
     classOf[s.Let] -> { expr =>
       val s.Let(binder, e, body) = expr
-      (Seq(), Seq(binder.toVariable), Seq(e, body), Seq(), (_,vs, es, _) => t.Let(vs.head.toVal, es(0), es(1)))
+      (NoIdentifiers, Seq(binder.toVariable), Seq(e, body), NoTypes, NoFlags,
+        (_,vs, es, _, _) => t.Let(vs.head.toVal, es(0), es(1)))
     },
     classOf[s.Application] -> { expr =>
       val s.Application(caller, args) = expr
-      (Seq(), Seq(), caller +: args, Seq(), (_, _, es, _) => t.Application(es.head, es.tail))
+      (NoIdentifiers, NoVariables, caller +: args, NoTypes, NoFlags,
+        (_, _, es, _, _) => t.Application(es.head, es.tail))
     },
     classOf[s.Lambda] -> { expr =>
       val s.Lambda(args, body) = expr
-      (Seq(), args.map(_.toVariable), Seq(body), Seq(),
-      (_, vs, es, _) => t.Lambda(vs.map(_.toVal), es.head))
+      (NoIdentifiers, args.map(_.toVariable), Seq(body), NoTypes, NoFlags,
+        (_, vs, es, _, _) => t.Lambda(vs.map(_.toVal), es.head))
     },
     classOf[s.Forall] -> { expr =>
       val s.Forall(args, body) = expr
-      (Seq(), args.map(_.toVariable), Seq(body), Seq(),
-      (_, vs, es, _) => t.Forall(vs.map(_.toVal), es.head))
+      (NoIdentifiers, args.map(_.toVariable), Seq(body), NoTypes, NoFlags,
+        (_, vs, es, _, _) => t.Forall(vs.map(_.toVal), es.head))
     },
     classOf[s.Choose] -> { expr =>
       val s.Choose(res, pred) = expr
-      (Seq(), Seq(res.toVariable), Seq(pred), Seq(), (_, vs, es, _) => t.Choose(vs.head.toVal, es.head))
+      (NoIdentifiers, Seq(res.toVariable), Seq(pred), NoTypes, NoFlags,
+        (_, vs, es, _, _) => t.Choose(vs.head.toVal, es.head))
     },
     classOf[s.FunctionInvocation] -> { expr =>
       val s.FunctionInvocation(id, tps, args) = expr
-      (Seq(id), Seq(), args, tps, (ids, _, es, tps) => t.FunctionInvocation(ids.head, tps, es))
+      (Seq(id), NoVariables, args, tps, NoFlags,
+        (ids, _, es, tps, _) => t.FunctionInvocation(ids.head, tps, es))
     },
     classOf[s.IfExpr] -> { expr =>
       val s.IfExpr(cond, thenn, elze) = expr
-      (Seq(), Seq(), Seq(cond, thenn, elze), Seq(),
-      (_, _, es, _) => t.IfExpr(es(0), es(1), es(2)))
+      (NoIdentifiers, NoVariables, Seq(cond, thenn, elze), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.IfExpr(es(0), es(1), es(2)))
     },
     classOf[s.CharLiteral] -> { expr =>
       val s.CharLiteral(ch) = expr
-      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.CharLiteral(ch))
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.CharLiteral(ch))
     },
     classOf[s.BVLiteral] -> { expr =>
       val s.BVLiteral(bits, size) = expr
-      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.BVLiteral(bits, size))
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.BVLiteral(bits, size))
     },
     classOf[s.IntegerLiteral] -> { expr =>
       val s.IntegerLiteral(i) = expr
-      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.IntegerLiteral(i))
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.IntegerLiteral(i))
     },
     classOf[s.FractionLiteral] -> { expr =>
       val s.FractionLiteral(n, d) = expr
-      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.FractionLiteral(n, d))
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.FractionLiteral(n, d))
     },
     classOf[s.BooleanLiteral] -> { expr =>
       val s.BooleanLiteral(b) = expr
-      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.BooleanLiteral(b))
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.BooleanLiteral(b))
     },
     classOf[s.StringLiteral] -> { expr =>
       val s.StringLiteral(st) = expr
-      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.StringLiteral(st))
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.StringLiteral(st))
     },
     classOf[s.UnitLiteral] -> { expr =>
       val s.UnitLiteral() = expr
-      (Seq(), Seq(), Seq(), Seq(), (_, _, _, _) => t.UnitLiteral())
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.UnitLiteral())
     },
     classOf[s.GenericValue] -> { expr =>
       val s.GenericValue(tp, id) = expr
-      (Seq(), Seq(), Seq(), Seq(tp), (_, _, _, tps) => t.GenericValue(tps.head.asInstanceOf[t.TypeParameter], id))
+      (NoIdentifiers, NoVariables, NoExpressions, Seq(tp), NoFlags,
+        (_, _, _, tps, _) => t.GenericValue(tps.head.asInstanceOf[t.TypeParameter], id))
     },
     classOf[s.ADT] -> { expr =>
       val s.ADT(id, tps, args) = expr
-      (Seq(id), Seq(), args, tps, (ids, _, es, tps) => t.ADT(ids.head, tps, es))
+      (Seq(id), NoVariables, args, tps, NoFlags,
+        (ids, _, es, tps, _) => t.ADT(ids.head, tps, es))
     },
     classOf[s.IsConstructor] -> { expr =>
       val s.IsConstructor(e, id) = expr
-      (Seq(id), Seq(), Seq(e), Seq(), (ids, _, es, _) => t.IsConstructor(es.head, ids.head))
+      (Seq(id), NoVariables, Seq(e), NoTypes, NoFlags,
+        (ids, _, es, _, _) => t.IsConstructor(es.head, ids.head))
     },
     classOf[s.ADTSelector] -> { expr =>
       val s.ADTSelector(e, sel) = expr
-      (Seq(sel), Seq(), Seq(e), Seq(), (ids, _, es, _) => t.ADTSelector(es.head, ids.head))
+      (Seq(sel), NoVariables, Seq(e), NoTypes, NoFlags,
+        (ids, _, es, _, _) => t.ADTSelector(es.head, ids.head))
     },
     classOf[s.Equals] -> { expr =>
       val s.Equals(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.Equals(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.Equals(es(0), es(1)))
     },
     classOf[s.And] -> { expr =>
       val s.And(args) = expr
-      (Seq(), Seq(), args, Seq(), (_, _, es, _) => t.And(es))
+      (NoIdentifiers, NoVariables, args, NoTypes, NoFlags,
+        (_, _, es, _, _) => t.And(es))
     },
     classOf[s.Or] -> { expr =>
       val s.Or(args) = expr
-      (Seq(), Seq(), args, Seq(), (_, _, es, _) => t.Or(es))
+      (NoIdentifiers, NoVariables, args, NoTypes, NoFlags,
+        (_, _, es, _, _) => t.Or(es))
     },
     classOf[s.Implies] -> { expr =>
       val s.Implies(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.Implies(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.Implies(es(0), es(1)))
     },
     classOf[s.Not] -> { expr =>
       val s.Not(e) = expr
-      (Seq(), Seq(), Seq(e), Seq(), (_, _, es, _) => t.Not(es.head))
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.Not(es.head))
     },
     classOf[s.StringConcat] -> { expr =>
       val s.StringConcat(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.StringConcat(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.StringConcat(es(0), es(1)))
     },
     classOf[s.SubString] -> { expr =>
       val s.SubString(t1, a, b) = expr
-      (Seq(), Seq(), t1 :: a :: b :: Nil, Seq(), (_, _, es, _) => t.SubString(es(0), es(1), es(2)))
+      (NoIdentifiers, NoVariables, Seq(t1, a, b), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.SubString(es(0), es(1), es(2)))
     },
     classOf[s.StringLength] -> { expr =>
       val s.StringLength(e) = expr
-      (Seq(), Seq(), Seq(e), Seq(), (_, _, es, _) => t.StringLength(es.head))
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.StringLength(es.head))
     },
     classOf[s.Plus] -> { expr =>
       val s.Plus(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.Plus(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.Plus(es(0), es(1)))
     },
     classOf[s.Minus] -> { expr =>
       val s.Minus(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.Minus(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.Minus(es(0), es(1)))
     },
     classOf[s.UMinus] -> { expr =>
       val s.UMinus(e) = expr
-      (Seq(), Seq(), Seq(e), Seq(), (_, _, es, _) => t.UMinus(es.head))
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.UMinus(es.head))
     },
     classOf[s.Times] -> { expr =>
       val s.Times(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.Times(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.Times(es(0), es(1)))
     },
     classOf[s.Division] -> { expr =>
       val s.Division(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.Division(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.Division(es(0), es(1)))
     },
     classOf[s.Remainder] -> { expr =>
       val s.Remainder(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.Remainder(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.Remainder(es(0), es(1)))
     },
     classOf[s.Modulo] -> { expr =>
       val s.Modulo(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.Modulo(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.Modulo(es(0), es(1)))
     },
     classOf[s.LessThan] -> { expr =>
       val s.LessThan(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.LessThan(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.LessThan(es(0), es(1)))
     },
     classOf[s.GreaterThan] -> { expr =>
       val s.GreaterThan(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.GreaterThan(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.GreaterThan(es(0), es(1)))
     },
     classOf[s.LessEquals] -> { expr =>
       val s.LessEquals(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.LessEquals(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.LessEquals(es(0), es(1)))
     },
     classOf[s.GreaterEquals] -> { expr =>
       val s.GreaterEquals(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.GreaterEquals(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.GreaterEquals(es(0), es(1)))
     },
     classOf[s.BVNot] -> { expr =>
       val s.BVNot(e) = expr
-      (Seq(), Seq(), Seq(e), Seq(), (_, _, es, _) => t.BVNot(es.head))
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.BVNot(es.head))
     },
     classOf[s.BVAnd] -> { expr =>
       val s.BVAnd(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.BVAnd(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.BVAnd(es(0), es(1)))
     },
     classOf[s.BVOr] -> { expr =>
       val s.BVOr(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.BVOr(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.BVOr(es(0), es(1)))
     },
     classOf[s.BVXor] -> { expr =>
       val s.BVXor(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.BVXor(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.BVXor(es(0), es(1)))
     },
     classOf[s.BVShiftLeft] -> { expr =>
       val s.BVShiftLeft(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.BVShiftLeft(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.BVShiftLeft(es(0), es(1)))
     },
     classOf[s.BVAShiftRight] -> { expr =>
       val s.BVAShiftRight(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.BVAShiftRight(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.BVAShiftRight(es(0), es(1)))
     },
     classOf[s.BVLShiftRight] -> { expr =>
       val s.BVLShiftRight(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.BVLShiftRight(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.BVLShiftRight(es(0), es(1)))
     },
     classOf[s.BVNarrowingCast] -> { expr =>
       val s.BVNarrowingCast(e, bvt) = expr
-      (Seq(), Seq(), Seq(e), Seq(bvt), (_, _, es, tps) => t.BVNarrowingCast(es(0), tps(0).asInstanceOf[t.BVType]))
+      (NoIdentifiers, NoVariables, Seq(e), Seq(bvt), NoFlags,
+        (_, _, es, tps, _) => t.BVNarrowingCast(es(0), tps(0).asInstanceOf[t.BVType]))
     },
     classOf[s.BVWideningCast] -> { expr =>
       val s.BVWideningCast(e, bvt) = expr
-      (Seq(), Seq(), Seq(e), Seq(bvt), (_, _, es, tps) => t.BVWideningCast(es(0), tps(0).asInstanceOf[t.BVType]))
+      (NoIdentifiers, NoVariables, Seq(e), Seq(bvt), NoFlags,
+        (_, _, es, tps, _) => t.BVWideningCast(es(0), tps(0).asInstanceOf[t.BVType]))
     },
     classOf[s.Tuple] -> { expr =>
       val s.Tuple(args) = expr
-      (Seq(), Seq(), args, Seq(), (_, _, es, _) => t.Tuple(es))
+      (NoIdentifiers, NoVariables, args, NoTypes, NoFlags,
+        (_, _, es, _, _) => t.Tuple(es))
     },
     classOf[s.TupleSelect] -> { expr =>
       val s.TupleSelect(e, i) = expr
-      (Seq(), Seq(), Seq(e), Seq(), (_, _, es, _) => t.TupleSelect(es.head, i))
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.TupleSelect(es.head, i))
     },
     classOf[s.FiniteSet] -> { expr =>
       val s.FiniteSet(els, base) = expr
-      (Seq(), Seq(), els, Seq(base), (_, _, els, tps) => t.FiniteSet(els, tps.head))
+      (NoIdentifiers, NoVariables, els, Seq(base), NoFlags,
+        (_, _, els, tps, _) => t.FiniteSet(els, tps.head))
     },
     classOf[s.SetAdd] -> { expr =>
       val s.SetAdd(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.SetAdd(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.SetAdd(es(0), es(1)))
     },
     classOf[s.ElementOfSet] -> { expr =>
       val s.ElementOfSet(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.ElementOfSet(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.ElementOfSet(es(0), es(1)))
     },
     classOf[s.SubsetOf] -> { expr =>
       val s.SubsetOf(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.SubsetOf(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.SubsetOf(es(0), es(1)))
     },
     classOf[s.SetIntersection] -> { expr =>
       val s.SetIntersection(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.SetIntersection(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.SetIntersection(es(0), es(1)))
     },
     classOf[s.SetUnion] -> { expr =>
       val s.SetUnion(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.SetUnion(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.SetUnion(es(0), es(1)))
     },
     classOf[s.SetDifference] -> { expr =>
       val s.SetDifference(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.SetDifference(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.SetDifference(es(0), es(1)))
     },
     classOf[s.FiniteBag] -> { expr =>
       val s.FiniteBag(els, base) = expr
       val subArgs = els.flatMap { case (k, v) => Seq(k, v) }
-      val builder = (ids: Seq[Identifier], vs: Seq[t.Variable], as: Seq[t.Expr], tps: Seq[t.Type]) => {
-        def rec(kvs: Seq[t.Expr]): Seq[(t.Expr, t.Expr)] = kvs match {
-          case Seq(k, v, t @ _*) =>
-            Seq(k -> v) ++ rec(t)
-          case Seq() => Seq()
-          case _ => sys.error("odd number of key/value expressions")
-        }
-        t.FiniteBag(rec(as), tps.head)
-      }
-      (Seq(), Seq(), subArgs, Seq(base), builder)
+      (NoIdentifiers, NoVariables, subArgs, Seq(base), NoFlags,
+        (_, _, as: Seq[t.Expr], tps: Seq[t.Type], _) => {
+          def rec(kvs: Seq[t.Expr]): Seq[(t.Expr, t.Expr)] = kvs match {
+            case Seq(k, v, t @ _*) =>
+              Seq(k -> v) ++ rec(t)
+            case Seq() => Seq()
+            case _ => sys.error("odd number of key/value expressions")
+          }
+          t.FiniteBag(rec(as), tps.head)
+        })
     },
     classOf[s.BagAdd] -> { expr =>
       val s.BagAdd(e1, e2) = expr
-      (Seq(), Seq(), Seq(e1, e2), Seq(), (_, _, es, _) => t.BagAdd(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(e1, e2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.BagAdd(es(0), es(1)))
     },
     classOf[s.MultiplicityInBag] -> { expr =>
       val s.MultiplicityInBag(e1, e2) = expr
-      (Seq(), Seq(), Seq(e1, e2), Seq(), (_, _, es, _) => t.MultiplicityInBag(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(e1, e2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.MultiplicityInBag(es(0), es(1)))
     },
     classOf[s.BagIntersection] -> { expr =>
       val s.BagIntersection(e1, e2) = expr
-      (Seq(), Seq(), Seq(e1, e2), Seq(), (_, _, es, _) => t.BagIntersection(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(e1, e2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.BagIntersection(es(0), es(1)))
     },
     classOf[s.BagUnion] -> { expr =>
       val s.BagUnion(e1, e2) = expr
-      (Seq(), Seq(), Seq(e1, e2), Seq(), (_, _, es, _) => t.BagUnion(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(e1, e2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.BagUnion(es(0), es(1)))
     },
     classOf[s.BagDifference] -> { expr =>
       val s.BagDifference(e1, e2) = expr
-      (Seq(), Seq(), Seq(e1, e2), Seq(), (_, _, es, _) => t.BagDifference(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(e1, e2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.BagDifference(es(0), es(1)))
     },
     classOf[s.FiniteMap] -> { expr =>
       val s.FiniteMap(elems, default, kT, vT) = expr
       val subArgs = elems.flatMap { case (k, v) => Seq(k, v) } :+ default
-      val builder = (ids: Seq[Identifier], vs: Seq[t.Variable], as: Seq[t.Expr], tps: Seq[t.Type]) => {
-        def rec(kvs: Seq[t.Expr]): (Seq[(t.Expr, t.Expr)], t.Expr) = kvs match {
-          case Seq(k, v, t @ _*) =>
-            val (kvs, default) = rec(t)
-            (Seq(k -> v) ++ kvs, default)
-          case Seq(default) => (Seq(), default)
-        }
-        val (pairs, default) = rec(as)
-        t.FiniteMap(pairs, default, tps(0), tps(1))
-      }
-      (Seq(), Seq(), subArgs, Seq(kT, vT), builder)
+      (NoIdentifiers, NoVariables, subArgs, Seq(kT, vT), NoFlags,
+        (_, _, as: Seq[t.Expr], tps: Seq[t.Type], _) => {
+          def rec(kvs: Seq[t.Expr]): (Seq[(t.Expr, t.Expr)], t.Expr) = kvs match {
+            case Seq(k, v, t @ _*) =>
+              val (kvs, default) = rec(t)
+              (Seq(k -> v) ++ kvs, default)
+            case Seq(default) => (Seq(), default)
+          }
+          val (pairs, default) = rec(as)
+          t.FiniteMap(pairs, default, tps(0), tps(1))
+        })
     },
     classOf[s.MapApply] -> { expr =>
       val s.MapApply(t1, t2) = expr
-      (Seq(), Seq(), Seq(t1, t2), Seq(), (_, _, es, _) => t.MapApply(es(0), es(1)))
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.MapApply(es(0), es(1)))
     },
     classOf[s.MapUpdated] -> { expr =>
       val s.MapUpdated(map, k, v) = expr
-      (Seq(), Seq(), Seq(map, k, v), Seq(), (_, _, es, _) => t.MapUpdated(es(0), es(1), es(2)))
+      (NoIdentifiers, NoVariables, Seq(map, k, v), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.MapUpdated(es(0), es(1), es(2)))
     }
   )
 
-  def deconstruct(expr: s.Expr): DeconstructedExpr = exprTable(expr.getClass)(expr)
+  def deconstruct(expr: s.Expr): Deconstructed[t.Expr] = exprTable(expr.getClass)(expr)
 
-  /** Rebuild a type from the given set of identifiers, subtypes and flags */
-  protected type TypeBuilder = (Seq[Identifier], Seq[t.Type], Seq[t.Flag]) => t.Type
 
-  /** Extracted subtrees from a type as well as a "builder" */
-  protected type DeconstructedType = (Seq[Identifier], Seq[s.Type], Seq[s.Flag], TypeBuilder)
+  /** Same optimisation as for `deconstruct(expr: s.Expr)`. */
+  private val typeTable: Map[Class[_], s.Type => Deconstructed[t.Type]] = HashMap(
+    classOf[s.ADTType] -> { tpe =>
+      val s.ADTType(id, ts) = tpe
+      (Seq(id), NoVariables, NoExpressions, ts, NoFlags,
+        (ids, _, _, ts, _) => t.ADTType(ids.head, ts))
+    },
+    classOf[s.TupleType] -> { tpe =>
+      val s.TupleType(ts) = tpe
+      (NoIdentifiers, NoVariables, NoExpressions, ts, NoFlags,
+        (_, _, _, ts, _) => t.TupleType(ts))
+    },
+    classOf[s.SetType] -> { tpe =>
+      val s.SetType(tp) = tpe
+      (NoIdentifiers, NoVariables, NoExpressions, Seq(tp), NoFlags,
+        (_, _, _, ts, _) => t.SetType(ts.head))
+    },
+    classOf[s.BagType] -> { tpe =>
+      val s.BagType(tp) = tpe
+      (NoIdentifiers, NoVariables, NoExpressions, Seq(tp), NoFlags,
+        (_, _, _, ts, _) => t.BagType(ts.head))
+    },
+    classOf[s.MapType] -> { tpe =>
+      val s.MapType(from,to) = tpe
+      (NoIdentifiers, NoVariables, NoExpressions, Seq(from, to), NoFlags,
+        (_, _, _, ts, _) => t.MapType(ts(0), ts(1)))
+    },
+    classOf[s.FunctionType] -> { tpe =>
+      val s.FunctionType(fts, tt) = tpe
+      (NoIdentifiers, NoVariables, NoExpressions, tt +: fts, NoFlags,
+        (_, _, _, ts, _) => t.FunctionType(ts.tail.toList, ts.head))
+    },
+    classOf[s.TypeParameter] -> { tpe =>
+      val s.TypeParameter(id, flags) = tpe
+      (Seq(id), NoVariables, NoExpressions, NoTypes, flags,
+        (ids, _, _, _, flags) => t.TypeParameter(ids.head, flags))
+    },
+    classOf[s.BVType] -> { tpe =>
+      val s.BVType(size) = tpe
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.BVType(size))
+    },
 
-  def deconstruct(tp: s.Type): DeconstructedType = tp match {
-    case s.ADTType(id, ts) => (Seq(id), ts, Seq(), (ids, ts, _) => t.ADTType(ids.head, ts))
-    case s.TupleType(ts) => (Seq(), ts, Seq(), (_, ts, _) => t.TupleType(ts))
-    case s.SetType(tp) => (Seq(), Seq(tp), Seq(), (_, ts, _) => t.SetType(ts.head))
-    case s.BagType(tp) => (Seq(), Seq(tp), Seq(), (_, ts, _) => t.BagType(ts.head))
-    case s.MapType(from,to) => (Seq(), Seq(from, to), Seq(), (_, ts, _) => t.MapType(ts(0), ts(1)))
-    case s.FunctionType(fts, tt) => (Seq(), tt +: fts, Seq(),  (_, ts, _) => t.FunctionType(ts.tail.toList, ts.head))
+    // @nv: can't use `s.Untyped.getClass` as it is not yet created at this point
+    scala.reflect.classTag[s.Untyped.type].runtimeClass -> { _ =>
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags, (_, _, _, _, _) => t.Untyped)
+    },
 
-    case s.TypeParameter(id, flags) => (
-      Seq(id), Seq(), flags.toSeq.sortBy(_.toString),
-      (ids, _, flags) => t.TypeParameter(ids.head, flags)
-    )
+    classOf[s.BooleanType] -> { _ =>
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags, (_, _, _, _, _) => t.BooleanType())
+    },
+    classOf[s.UnitType] -> { _ =>
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags, (_, _, _, _, _) => t.UnitType())
+    },
+    classOf[s.CharType] -> { _ =>
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags, (_, _, _, _, _) => t.CharType())
+    },
+    classOf[s.IntegerType] -> { _ =>
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags, (_, _, _, _, _) => t.IntegerType())
+    },
+    classOf[s.RealType] -> { _ =>
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags, (_, _, _, _, _) => t.RealType())
+    },
+    classOf[s.StringType] -> { _ =>
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags, (_, _, _, _, _) => t.StringType())
+    },
 
-    case s.BVType(size) => (Seq(), Seq(), Seq(), ((_, _, _) => t.BVType(size)))
+    classOf[s.PiType] -> { tpe =>
+      val s.PiType(params, to) = tpe
+      (NoIdentifiers, params.map(_.toVariable), NoExpressions, Seq(to), NoFlags,
+        (_, vs, _, tps, _) => t.PiType(vs.map(_.toVal), tps.head))
+    },
+    classOf[s.SigmaType] -> { tpe =>
+      val s.SigmaType(params, to) = tpe
+      (NoIdentifiers, params.map(_.toVariable), NoExpressions, Seq(to), NoFlags,
+        (_, vs, _, tps, _) => t.SigmaType(vs.map(_.toVal), tps.head))
+    },
+    classOf[s.RefinementType] -> { tpe =>
+      val s.RefinementType(vd, pred) = tpe
+      (NoIdentifiers, Seq(vd.toVariable), Seq(pred), NoTypes, NoFlags,
+        (_, vs, es, _, _) => t.RefinementType(vs.head.toVal, es.head))
+    }
+  )
 
-    case s.Untyped => (Seq(), Seq(), Seq(), (_, _, _) => t.Untyped)
-
-    case s.BooleanType() => (Seq(), Seq(), Seq(), (_, _, _) => t.BooleanType())
-    case s.UnitType()    => (Seq(), Seq(), Seq(), (_, _, _) => t.UnitType())
-    case s.CharType()    => (Seq(), Seq(), Seq(), (_, _, _) => t.CharType())
-    case s.IntegerType() => (Seq(), Seq(), Seq(), (_, _, _) => t.IntegerType())
-    case s.RealType()    => (Seq(), Seq(), Seq(), (_, _, _) => t.RealType())
-    case s.StringType()  => (Seq(), Seq(), Seq(), (_, _, _) => t.StringType())
-  }
+  def deconstruct(tpe: s.Type): Deconstructed[t.Type] = typeTable(tpe.getClass)(tpe)
 
   /** Rebuild a flag from the given set of identifiers, expressions and types */
   protected type FlagBuilder = (Seq[Identifier], Seq[t.Expr], Seq[t.Type]) => t.Flag
@@ -427,8 +550,8 @@ trait Extractors { self: Trees =>
     type Target = Expr
 
     def unapply(e: Expr): Option[(Seq[Expr], Seq[Expr] => Expr)] = {
-      val (ids, vs, es, tps, builder) = deconstructor.deconstruct(e)
-      Some(es, ess => builder(ids, vs, ess, tps))
+      val (ids, vs, es, tps, flags, builder) = deconstructor.deconstruct(e)
+      Some(es, ess => builder(ids, vs, ess, tps, flags))
     }
   }
 

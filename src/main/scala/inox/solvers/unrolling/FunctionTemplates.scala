@@ -202,9 +202,9 @@ trait FunctionTemplates { self: Templates =>
                 )
 
                 val (clauses, calls, apps, matchers, pointers, _) = encoding
-                val (condVars, exprVars, chooseVars, condTree, equalities, lambdas, quants) = tmplClauses.proj
+                val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = tmplClauses.proj
                 val (substClauses, substMap) = Template.substitution(
-                  condVars, exprVars, chooseVars, condTree, lambdas, quants, pointers, Map.empty, defBlocker)
+                  condVars, exprVars, condTree, types, lambdas, quants, pointers, Map.empty, defBlocker)
                 val templateClauses = Template.instantiate(clauses, calls, apps, matchers, equalities, substMap)
                 substClauses ++ templateClauses
               } getOrElse {

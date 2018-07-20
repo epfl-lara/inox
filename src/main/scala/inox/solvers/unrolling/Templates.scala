@@ -300,10 +300,6 @@ trait Templates
     * This object provides helper methods to deal with the triplets
     * generated during unfolding.
     */
-  type Clauses       = Seq[Encoded]
-  type CallBlockers  = Map[Encoded, Set[Call]]
-  type TypeBlockers  = Map[Encoded, Set[TemplateTypeInfo]]
-  type AppBlockers   = Map[(Encoded, App), Set[TemplateAppInfo]]
 
   implicit class MapSetWrapper[A,B](map: Map[A,Set[B]]) {
     def merge(that: Map[A,Set[B]]): Map[A,Set[B]] = (map.keys ++ that.keys).map { k =>
@@ -328,15 +324,18 @@ trait Templates
     * [[Template]] is a super-type for all such clause sets that can be instantiated
     * given a concrete argument list and a blocker in the decision-tree.
     */
+  type Clauses    = Seq[Encoded]
   type Apps       = Map[Encoded, Set[App]]
   type Calls      = Map[Encoded, Set[Call]]
+  type Types      = Map[Encoded, Set[Typing]]
   type Matchers   = Map[Encoded, Set[Matcher]]
   type Equalities = Map[Encoded, Set[Equality]]
   type Pointers   = Map[Encoded, Encoded]
 
   object TemplateContents {
     def empty(pathVar: (Variable, Encoded), args: Seq[(Variable, Encoded)]) =
-      TemplateContents(pathVar, args, Map(), Map(), Map(), Map(), Seq(), Map(), Map(), Map(), Map(), Seq(), Seq(), Map())
+      TemplateContents(pathVar, args,
+        Map(), Map(), Map(), Seq(), Map(), Map(), Map(), Map(), Map(), Seq(), Seq(), Map())
   }
 
   case class TemplateContents(
@@ -345,10 +344,10 @@ trait Templates
 
     val condVars   : Map[Variable, Encoded],
     val exprVars   : Map[Variable, Encoded],
-    val chooseVars : Map[Variable, Encoded],
     val condTree   : Map[Variable, Set[Variable]],
 
     val clauses      : Clauses,
+    val types        : Types,
     val blockers     : Calls,
     val applications : Apps,
     val matchers     : Matchers,
@@ -364,8 +363,9 @@ trait Templates
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): TemplateContents =
       TemplateContents(
         pathVar._1 -> substituter(pathVar._2),
-        arguments, condVars, exprVars, chooseVars, condTree,
+        arguments, condVars, exprVars, condTree,
         clauses.map(substituter),
+        types.map { case (b, tps) => substituter(b) -> tps.map(_.substitute(substituter, msubst)) },
         blockers.map { case (b, fis) => substituter(b) -> fis.map(_.substitute(substituter, msubst)) },
         applications.map { case (b, apps) => substituter(b) -> apps.map(_.substitute(substituter, msubst)) },
         matchers.map { case (b, ms) => substituter(b) -> ms.map(_.substitute(substituter, msubst)) },
@@ -379,7 +379,7 @@ trait Templates
       substitution(aVar, (this.args zip args).toMap + (pathVar._2 -> Left(aVar)))
 
     def substitution(aVar: Encoded, substMap: Map[Encoded, Arg]): (Clauses, Map[Encoded, Arg]) =
-      Template.substitution(condVars, exprVars, chooseVars, condTree, lambdas, quantifications, pointers, substMap, aVar)
+      Template.substitution(condVars, exprVars, condTree, types, lambdas, quantifications, pointers, substMap, aVar)
 
     def instantiate(substMap: Map[Encoded, Arg]): Clauses =
       Template.instantiate(clauses, blockers, applications, matchers, equalities, substMap)
@@ -387,9 +387,9 @@ trait Templates
     def merge(
       condVars   : Map[Variable, Encoded],
       exprVars   : Map[Variable, Encoded],
-      chooseVars : Map[Variable, Encoded],
       condTree   : Map[Variable, Set[Variable]],
       clauses      : Clauses,
+      types        : Types,
       blockers     : Calls,
       applications : Apps,
       matchers     : Matchers,
@@ -402,9 +402,9 @@ trait Templates
       arguments,
       this.condVars ++ condVars,
       this.exprVars ++ exprVars,
-      this.chooseVars ++ chooseVars,
       this.condTree merge condTree,
       this.clauses ++ clauses,
+      this.types merge types,
       this.blockers merge blockers,
       this.applications merge applications,
       this.matchers merge matchers,
@@ -614,11 +614,12 @@ trait Templates
       optCall: Option[TypedFunDef] = None,
       optApp: Option[(Encoded, FunctionType)] = None
     ): (Clauses, Calls, Apps, Matchers, Pointers, () => String) = {
-      val (condVars, exprVars, chooseVars, condTree, guardedExprs, eqs, equalities, lambdas, quants) = tmplClauses
+      val (condVars, exprVars, _, guardedExprs, eqs, _, equalities, lambdas, quants) = tmplClauses
 
       val idToTrId : Map[Variable, Encoded] =
-        condVars ++ exprVars ++ chooseVars + pathVar ++ arguments ++ substMap ++
-        lambdas.map(_.ids) ++ quants.flatMap(_.mapping) ++ equalities.flatMap(_._2.map(_.symbols))
+        condVars ++ exprVars + pathVar ++ arguments ++ substMap ++
+        lambdas.map(_.ids) ++ quants.flatMap(_.mapping) ++ equalities.flatMap(_._2.map(_.symbols)) ++
+        typesManager.tpSubst
       val encoder: Expr => Encoded = mkEncoder(idToTrId)
 
       val optIdCall = optCall.map { tfd => Call(tfd, arguments.map(p => Left(p._2))) }
@@ -663,7 +664,6 @@ trait Templates
         " * Activating boolean : " + pathVar._1.asString + "\n" +
         " * Control booleans   : " + condVars.keys.map(_.asString).mkString(", ") + "\n" +
         " * Expression vars    : " + exprVars.keys.map(_.asString).mkString(", ") + "\n" +
-        " * Choose vars        : " + chooseVars.keys.map(_.asString).mkString(", ") + "\n" +
         " * Clauses            : " + (if (guardedExprs.isEmpty) "\n" else {
           "\n   " + (for ((b,es) <- guardedExprs; e <- es) yield (b.asString + " ==> " + e.asString)).mkString("\n   ") + "\n"
         }) +
@@ -696,13 +696,13 @@ trait Templates
       optApp: Option[(Encoded, FunctionType)] = None
     ): (TemplateContents, () => String) = {
 
-      val (condVars, exprVars, chooseVars, condTree, equalities, lambdas, quants) = tmplClauses.proj
+      val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = tmplClauses.proj
       val (clauses, blockers, applications, matchers, pointers, string) = Template.encode(
         pathVar, arguments, tmplClauses, substMap = substMap, optCall = optCall, optApp = optApp)
 
       val contents = TemplateContents(
-        pathVar, arguments, condVars, exprVars, chooseVars, condTree,
-        clauses, blockers, applications, matchers, equalities,
+        pathVar, arguments, condVars, exprVars, condTree,
+        clauses, types, blockers, applications, matchers, equalities,
         lambdas, quants, pointers
       )
 
@@ -712,8 +712,8 @@ trait Templates
     def substitution(
       condVars: Map[Variable, Encoded],
       exprVars: Map[Variable, Encoded],
-      chooseVars: Map[Variable, Encoded],
       condTree: Map[Variable, Set[Variable]],
+      types: Types,
       lambdas: Seq[LambdaTemplate],
       quants: Seq[QuantificationTemplate],
       pointers: Map[Encoded, Encoded],
@@ -722,7 +722,6 @@ trait Templates
     ): (Clauses, Map[Encoded, Arg]) = {
 
       val freshSubst = exprVars.map { case (v, vT) => vT -> encodeSymbol(v) } ++
-                       chooseVars.map { case (v, vT) => vT -> encodeSymbol(v) } ++
                        freshConds(aVar, condVars, condTree)
 
       val matcherSubst = baseSubst.collect { case (c, Right(m)) => c -> m }
@@ -730,10 +729,11 @@ trait Templates
       var subst = freshSubst.mapValues(Left(_)) ++ baseSubst
       var clauses : Clauses = Seq.empty
 
-      for ((v, vT) <- chooseVars) {
-        val (symResult, symClauses) = registerSymbol(aVar, freshSubst(vT), v.tpe)
-        clauses ++= symClauses
-        clauses :+= mkImplies(aVar, symResult)
+      // We instantiate types before quantifications in order to register functions
+      // before trying to instantiate matchers introduced by quantifications
+      val baseSubstituter = mkSubstituter(subst.mapValues(_.encoded))
+      for ((b, tps) <- types if !abort; bp = baseSubstituter(b); tp <- tps if !abort) {
+        clauses ++= instantiateType(bp, tp.substitute(baseSubstituter, matcherSubst))
       }
 
       // /!\ CAREFUL /!\
@@ -818,24 +818,24 @@ trait Templates
     val start = Variable.fresh("start", BooleanType(), true)
     val encodedStart = encodeSymbol(start)
 
-    val tpeClauses = bindings.flatMap { case (v, s) =>
-      val (symResult, symClauses) = registerSymbol(encodedStart, s, v.getType)
-      symResult +: symClauses
-    }.toSeq
-
     val instExpr = timers.solvers.simplify.run { simplifyFormula(expr) }
 
     val tmplClauses = mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
+    val tpeClauses = bindings.map { case (v, s) =>
+      mkClauses(start, v.tpe, v, bindings + (start -> encodedStart))(FreeGenerator)
+    }
+
+    val fullClauses = tpeClauses.foldLeft(tmplClauses)(_ ++ _)
 
     val (clauses, calls, apps, matchers, pointers, _) =
-      Template.encode(start -> encodedStart, bindings.toSeq, tmplClauses)
+      Template.encode(start -> encodedStart, bindings.toSeq, fullClauses)
 
-    val (condVars, exprVars, chooseVars, condTree, equalities, lambdas, quants) = tmplClauses.proj
+    val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = fullClauses.proj
     val (substClauses, substMap) = Template.substitution(
-      condVars, exprVars, chooseVars, condTree, lambdas, quants, pointers, Map.empty, encodedStart)
+      condVars, exprVars, condTree, types, lambdas, quants, pointers, Map.empty, encodedStart)
 
     val templateClauses = Template.instantiate(clauses, calls, apps, matchers, equalities, substMap)
-    val allClauses = encodedStart +: (tpeClauses ++ substClauses ++ templateClauses)
+    val allClauses = encodedStart +: (substClauses ++ templateClauses)
 
     for (cl <- allClauses) {
       reporter.debug("  . " + cl)

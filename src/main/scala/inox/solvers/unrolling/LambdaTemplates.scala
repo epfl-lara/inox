@@ -133,20 +133,65 @@ trait LambdaTemplates { self: Templates =>
     mkSubstituter(Map(vT -> caller) ++ (asT zip args))(app)
   }
 
-  def registerFunction(b: Encoded, r: Encoded, tpe: FunctionType, f: Encoded): Clauses = {
+  /* Generates (and caches) a type blocker for the pair `(f, app)`, and then generates the clauses
+   * corresponding to the type obtained by applying `f` to the arguments of `app`. Note that this
+   * is required for dependent types and ADT invariants.
+   *
+   * Note that the pair (f, app) uniquely determines b, tpe, and free so these don't need
+   * to be part of the cache key.
+   *
+   * @param b - the blocker under which `f` appeared
+   * @param f - the function that is being applied (either a free function from the input, or
+   *            a function that was output by some named function in the program)
+   * @param tpe - the type of the function `f`, either a [[FunctionType]] or a [[PiType]]
+   * @param app - the app for which we are instantiating type clauses
+   * @param closures - the closures that are bound in the type `tpe`
+   * @param free - whether `f` corresponds to a free function in the program or a result from
+   *               a named function
+   */
+  private def registerApplication(b: Encoded, f: Encoded, app: App, tpe: Type, closures: Seq[Arg], free: Boolean) = {
+    val clauses = new scala.collection.mutable.ListBuffer[Encoded]
+
+    val (typeBlocker, appResult) = typeBlockers.cached(f -> app) {
+      val typeBlocker = encodeSymbol(Variable.fresh("t", BooleanType()))
+      val freshBlocker = encodeSymbol(Variable.fresh("tb", BooleanType()))
+
+      registerImplication(typeBlocker, freshBlocker)
+      clauses += mkImplies(mkAnd(b, mkEquals(f, app.caller), typeBlocker), freshBlocker)
+
+      val vars = typeOps.variablesOf(tpe).toSeq.sortBy(_.id)
+      val (subst, to) = tpe match {
+        case PiType(params, to) => ((params.map(_.toVariable) zip app.args).toMap ++ (vars zip closures), to)
+        case FunctionType(_, to) => ((vars zip closures).toMap, to)
+        case _ => throw FatalError("Unexpected function type " + tpe.asString)
+      }
+
+      val toVars = typeOps.variablesOf(to).toSeq.sortBy(_.id)
+      val toClosures = toVars.map(subst)
+      val appResult = encodeSymbol(Variable.fresh("result", BooleanType(), true))
+      clauses ++= instantiateType(freshBlocker, Typing(to, app.encoded, Constraint(appResult, toClosures, free)))
+
+      (typeBlocker, appResult)
+    }
+
+    (typeBlocker, appResult, clauses.toSeq)
+  }
+
+  def registerFunction(b: Encoded, r: Encoded, tpe: Type, f: Encoded, closures: Seq[Arg], free: Boolean): Clauses = {
     reporter.debug(s"-> registering free function $b ==> $f: $tpe")
-    freeFunctions += tpe -> (freeFunctions(tpe) + (b -> f))
+    val ft @ FunctionType(_, _) = tpe.getType
+    freeFunctions += ft -> (freeFunctions(ft) + (b -> f))
 
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
     // Add non-free blocker clause
     val isFree = encodeSymbol(Variable.fresh("b_free", BooleanType(), true))
-    clauses += {
+    locally {
       val nextB = encodeSymbol(Variable.fresh("b_next", BooleanType(), true))
       nonFreeBlockers += f -> ((isFree, nextB))
 
-      mkImplies(b, mkEquals(isFree, mkNot(mkOr((for {
-        template <- byType(tpe).values
+      clauses += mkImplies(b, mkEquals(isFree, mkNot(mkOr((for {
+        template <- byType(ft).values
         if canBeEqual(template.ids._2, f)
       } yield {
         mkAnd(template.start, mkEquals(template.ids._2, f))
@@ -154,28 +199,33 @@ trait LambdaTemplates { self: Templates =>
     }
 
     // Add type blocker clause
-    clauses += {
+    locally {
       val nextB  = encodeSymbol(Variable.fresh("b_and", BooleanType(), true))
-      freeBlockers += tpe -> (freeBlockers(tpe) + (nextB -> f))
+      freeBlockers += ft -> (freeBlockers(ft) + ((nextB, b, tpe, f, closures, free)))
 
-      mkImplies(b, mkEquals(r, mkAnd((for {
-        app @ (_, App(caller, _, _, encoded)) <- applications(tpe)
-        (b, res) <- typeBlockers.get(encoded)
+      val blockedResults = for {
+        (bApp, app @ App(caller, _, _, _)) <- applications(ft)
+        if canBeEqual(caller, f)
       } yield {
-        mkImplies(mkAnd(b, mkEquals(caller, f)), res)
-      }).toSeq :+ nextB : _*)))
+        val (typeBlocker, appResult, appClauses) = registerApplication(b, f, app, tpe, closures, free)
+        clauses ++= appClauses
+        clauses += mkImplies(bApp, typeBlocker)
+        mkImplies(typeBlocker, appResult)
+      }
+
+      clauses += mkImplies(b, mkEquals(r, mkAnd(blockedResults.toSeq :+ nextB : _*)))
     }
 
-    if (tpe.from.isEmpty) clauses ++= (for {
-      template <- byType(tpe).values.toList
+    if (ft.from.isEmpty) clauses ++= (for {
+      template <- byType(ft).values.toList
       if canBeEqual(template.ids._2, f) && isPureTemplate(template)
     } yield {
-      val (tmplApp, fApp) = (mkApp(template.ids._2, tpe, Seq.empty), mkApp(f, tpe, Seq.empty))
+      val (tmplApp, fApp) = (mkApp(template.ids._2, ft, Seq.empty), mkApp(f, ft, Seq.empty))
       mkImplies(mkAnd(b, template.start, mkEquals(tmplApp, fApp)), mkEquals(template.ids._2, f))
     })
 
     lazy val gen = nextGeneration(currentGeneration)
-    for (app @ (_, App(caller, _, args, _)) <- applications(tpe)) {
+    for (app @ (_, App(caller, _, args, _)) <- applications(ft)) {
       if (f == caller) {
         // We unroll this app immediately to increase performance for model finding
         val cond = mkAnd(b, isFree)
@@ -287,7 +337,7 @@ trait LambdaTemplates { self: Templates =>
   }
 
   def instantiateApp(blocker: Encoded, app: App): Clauses = {
-    val App(caller, tpe @ FunctionType(from, to), args, encoded) = app
+    val App(caller, ft @ FunctionType(from, to), args, encoded) = app
 
     val key = blocker -> app
     var clauses: Clauses = Seq.empty
@@ -307,12 +357,12 @@ trait LambdaTemplates { self: Templates =>
         registerAppInfo(currentGeneration, key, Left(byID(caller)), trueT, args)
       } else {
         lazy val gen = nextGeneration(currentGeneration)
-        for (template <- byType(tpe).values.toList if canBeEqual(caller, template.ids._2)) {
+        for (template <- byType(ft).values.toList if canBeEqual(caller, template.ids._2)) {
           val cond = mkAnd(template.start, mkEquals(template.ids._2, caller))
           registerAppInfo(gen, key, Left(template), cond, args)
         }
 
-        for ((b,f) <- freeFunctions(tpe) if canBeEqual(caller, f)) {
+        for ((b,f) <- freeFunctions(ft) if canBeEqual(caller, f)) {
           val (isFree, _) = nonFreeBlockers(f)
           if (f == caller) {
             // We unroll this app immediately to increase performance for model finding
@@ -324,29 +374,25 @@ trait LambdaTemplates { self: Templates =>
           }
         }
 
-        /* Make sure that if `app` DOES NOT correspond to a concrete closure defined
-         * within the program, then the ADT invariants are asserted on its return values. */
-        if (DatatypeTemplate.unroll(to)) typeBlockers.get(encoded) match {
-          case Some((typeBlocker, _)) =>
-            registerImplication(blocker, typeBlocker)
-            clauses :+= mkImplies(blocker, typeBlocker)
+        /* Make sure that if `app` correspond to an input function, then the ADT
+         * invariants are asserted on its return values. */
+        for {
+          old @ (oldB, b, tpe, f, closures, free) <- freeBlockers(ft).toList
+          if canBeEqual(caller, f)
+        } {
+          val (typeBlocker, appResult, appClauses) = registerApplication(b, f, app, tpe, closures, free)
+          clauses ++= appClauses
 
-          case None =>
-            val typeBlocker = encodeSymbol(Variable.fresh("t", BooleanType()))
-            val (symResult, symClauses) = registerSymbol(typeBlocker, encoded, to)
-            typeBlockers += encoded -> ((typeBlocker, symResult))
+          registerImplication(blocker, typeBlocker)
+          clauses :+= mkImplies(blocker, typeBlocker)
 
-            val freeAppClauses = for (old @ (oldB,f) <- freeBlockers(tpe).toList if canBeEqual(caller, f)) yield {
-              val nextB  = encodeSymbol(Variable.fresh("b_and", BooleanType(), true))
-              val ext = mkAnd(mkImplies(mkAnd(typeBlocker, mkEquals(caller, f)), symResult), nextB)
-              freeBlockers += tpe -> (freeBlockers(tpe) - old + (nextB -> f))
-              mkEquals(oldB, ext)
-            }
-
-            clauses ++= symClauses ++ freeAppClauses :+ mkImplies(blocker, typeBlocker)
+          val nextB  = encodeSymbol(Variable.fresh("b_and", BooleanType(), true))
+          val ext = mkAnd(mkImplies(typeBlocker, appResult), nextB)
+          freeBlockers += ft -> (freeBlockers(ft) - old + ((nextB, b, tpe, f, closures, free)))
+          clauses :+= mkEquals(oldB, ext)
         }
 
-        applications += tpe -> (applications(tpe) + key)
+        applications += ft -> (applications(ft) + key)
       }
     }
 
@@ -413,13 +459,15 @@ trait LambdaTemplates { self: Templates =>
       */
     val applications = new IncrementalMap[FunctionType, Set[(Encoded, App)]].withDefaultValue(Set.empty)
 
-    /** This mapping is used to keep track of an instrumentation that makes sure that quantifying
-      * over empty function types won't lead to invalid proofs (see [[TypeTemplates.DatatypeTemplate]]).
-      * The instrumentation basically associates some boolean variable with each free function
-      * symbol within the quantified variable and if the function turns out to be empty (has an
-      * empty return type) AND is applied somewhere, then the variable will be set to false.
+    /** This is a mapping from function types to all known functions which require unfolding.
+      * The instrumentation associates some boolean variable with each free function symbol
+      * within the quantified variable and if the function turns out to be empty (has an empty
+      * return type) AND is applied somewhere, then the variable will be set to false.
+      *
+      * We rely on this mapping to keep track of an instrumentation that makes sure that quantifying
+      * over empty function types won't lead to invalid proofs (see [[TypeTemplates.ConstraintTemplate]]).
       */
-    val freeBlockers = new IncrementalMap[FunctionType, Set[(Encoded, Encoded)]].withDefaultValue(Set.empty)
+    val freeBlockers = new IncrementalMap[FunctionType, Set[(Encoded, Encoded, Type, Encoded, Seq[Arg], Boolean)]].withDefaultValue(Set.empty)
 
     /** This mapping is used to keep track of functions that ARE NOT equal to some lambda in the
       * program. We need this to make sure that applications of free functions that are equal to
@@ -431,9 +479,9 @@ trait LambdaTemplates { self: Templates =>
       * 1. to cache datatype unfoldings of free function application results, and
       * 2. to keep track of the boolean variable that must be set to false as described above in
       *    [[freeBlockers]].
-      * The map is keyed by the encoding field of an `App` (which is unique for each `App`).
+      * The map is keyed by a free function and an app.
       */
-    val typeBlockers = new IncrementalMap[Encoded, (Encoded, Encoded)]()
+    val typeBlockers = new IncrementalMap[(Encoded, App), (Encoded, Encoded)]()
 
     /** This mapping maintains the set of all known free functions within the input formula
       * and is used to ensure sound models for functions that take no arguments.

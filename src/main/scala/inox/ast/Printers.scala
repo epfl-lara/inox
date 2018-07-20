@@ -159,7 +159,7 @@ trait Printer {
     case Int16Literal(v) => p"$v"
     case Int32Literal(v) => p"$v"
     case Int64Literal(v) => p"$v"
-    case BVLiteral(bits, size) => p"x${(size to 1 by -1).map(i => if (bits(i)) "1" else "0")}"
+    case BVLiteral(bits, size) => p"x${(size to 1 by -1).map(i => if (bits(i)) "1" else "0").mkString("")}"
     case IntegerLiteral(v) => p"$v"
     case FractionLiteral(n, d) =>
       if (d == 1) p"$n"
@@ -328,6 +328,7 @@ trait Printer {
     case Int16Type() => p"Short"
     case Int32Type() => p"Int"
     case Int64Type() => p"Long"
+    case BVType(size) => p"Int$size"
     case IntegerType() => p"BigInt"
     case RealType() => p"Real"
     case CharType() => p"Char"

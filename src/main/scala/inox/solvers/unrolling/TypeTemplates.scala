@@ -28,57 +28,81 @@ trait TypeTemplates { self: Templates =>
 
   import typesManager._
 
-  type Functions = Set[(Encoded, Encoded, FunctionType, Encoded)]
+  /** Determines whether a given type should be unrolled, depending on the kind of type unrolling,
+    * namely free variable type unrolling (dependent types and ADT invariants), contract
+    * type unrolling (dependent types), and capture unrolling (function closure ordering). */
+  private sealed abstract class TypeUnrolling {
+    private[this] val unrollCache: MutableMap[TypedADTSort, Boolean] = MutableMap.empty
 
-  /** Represents the kind of datatype a given template is associated to. */
-  sealed abstract class TypeInfo {
-    def getType: Type = this match {
-      case ADTInfo(sort) => ADTType(sort.id, sort.tps)
-      case SetInfo(base) => SetType(base)
-      case BagInfo(base) => BagType(base)
-      case MapInfo(from, to) => MapType(from, to)
+    def unroll(tpe: Type): Boolean = tpe match {
+      case adt: ADTType =>
+        val sort = adt.getSort
+        (this == FreeUnrolling && sort.invariant.nonEmpty) ||
+        (unrollCache.get(sort) match {
+          case Some(b) => b
+          case None =>
+            unrollCache(sort) = false
+            val res = sort.constructors.exists(c => c.fields.exists(vd => unroll(vd.tpe)))
+            unrollCache(sort) = res
+            res
+        })
+
+      case (_: BagType | _: SetType) if this != ContractUnrolling => true
+      case (_: FunctionType | _: PiType) => true
+      case RefinementType(vd, _) => this != CaptureUnrolling || unroll(vd.tpe)
+      case SigmaType(params, to) => params.exists(vd => unroll(vd.tpe)) || unroll(to)
+      case tp: TypeParameter => this == FreeUnrolling
+      case NAryType(tpes, _) => tpes.exists(unroll)
     }
   }
 
-  case class ADTInfo(sort: TypedADTSort) extends TypeInfo
-  case class SetInfo(base: Type) extends TypeInfo
-  case class BagInfo(base: Type) extends TypeInfo
-  case class MapInfo(from: Type, to: Type) extends TypeInfo
- 
+  private case object FreeUnrolling extends TypeUnrolling
+  private case object ContractUnrolling extends TypeUnrolling
+  private case object CaptureUnrolling extends TypeUnrolling
+
+
+  sealed abstract class TypingGenerator(unrolling: TypeUnrolling) {
+    def unroll(tpe: Type): Boolean = unrolling unroll tpe
+  }
+
+  case object FreeGenerator extends TypingGenerator(FreeUnrolling)
+  case object ContractGenerator extends TypingGenerator(ContractUnrolling)
+  case class CaptureGenerator(container: Encoded, tpe: FunctionType) extends TypingGenerator(ContractUnrolling)
+
+
   /** Represents the kind of instantiator (@see [[TypesTemplate]]) a given
     * template info is associated to. */
   sealed abstract class TemplateInstantiator {
-    def substitute(substituter: Encoded => Encoded): TemplateInstantiator = this match {
-      case Datatype(result) => Datatype(substituter(result))
-      case Capture(encoded, tpe) => Capture(substituter(encoded), tpe)
-    }
+    def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): TemplateInstantiator
   }
 
-  case class Datatype(result: Encoded) extends TemplateInstantiator
-  case class Capture(encoded: Encoded, tpe: FunctionType) extends TemplateInstantiator
+  case class Constraint(result: Encoded, closures: Seq[Arg], free: Boolean) extends TemplateInstantiator {
+    override def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): TemplateInstantiator =
+      Constraint(substituter(result), closures map (_.substitute(substituter, msubst)), free)
+  }
+
+  case class Capture(encoded: Encoded, tpe: FunctionType) extends TemplateInstantiator {
+    override def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): TemplateInstantiator =
+      Capture(substituter(encoded), tpe)
+  }
+
 
   /** Represents a type unfolding of a free variable (or input) in the unfolding procedure */
-  case class TemplateTypeInfo(info: TypeInfo, arg: Encoded, instantiator: TemplateInstantiator) {
+  case class Typing(tpe: Type, arg: Encoded, instantiator: TemplateInstantiator) {
     override def toString: String =
-      info + "(" + asString(arg) + ")" + (instantiator match {
+      tpe.asString + "(" + asString(arg) + ")" + (instantiator match {
         case Capture(f, tpe) => " in " + asString(f)
         case _ => ""
       })
 
-    def substitute(substituter: Encoded => Encoded): TemplateTypeInfo = copy(
+    def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): Typing = copy(
       arg = substituter(arg),
-      instantiator = instantiator.substitute(substituter)
+      instantiator = instantiator.substitute(substituter, msubst)
     )
-  }
 
-  /** Sets up the relevant unfolding procedures for symbols that are free in the input expression */
-  def registerSymbol(start: Encoded, sym: Encoded, tpe: Type): (Encoded, Clauses) = {
-    if (DatatypeTemplate.unroll(tpe)) {
-      val result = results.cached(tpe)(encodeSymbol(Variable.fresh("result", BooleanType(), true)))
-      val clauses = DatatypeTemplate(tpe).instantiate(start, result, sym)
-      (result, clauses)
-    } else {
-      (trueT, Seq.empty)
+    def unroll: Boolean = instantiator match {
+      case Constraint(_, _, free) => (if (free) FreeUnrolling else ContractUnrolling) unroll tpe
+      case Capture(_, _) => CaptureUnrolling unroll tpe
     }
   }
 
@@ -87,450 +111,74 @@ trait TypeTemplates { self: Templates =>
     CaptureTemplate(arg._2, container._2).instantiate(start, container._1, arg._1)
   }
 
-  /** Base trait for datatype unfolding template generators.
-    *
-    * This trait provides a useful interface for building datatype unfolding
-    * templates. The interesting override points are:
-    *
-    * - [[unroll]]:
-    *   determines whether a given type requires unfolding.
-    *   @see [[ADTUnrolling.unroll]]
-    *   @see [[FunctionUnrolling.unroll]]
-    *   @see [[FlatUnrolling.unroll]]
-    *   @see [[CachedUnrolling.unroll]]
-    *
-    * - [[Builder.rec]]:
-    *   can be overriden to provide finer controll of what clauses should be generated during
-    *   template construction. The [[Builder]] class itself can't be overriden, so one must be
-    *   careful to use the overriding class when construction a template! We use a [[Builder]]
-    *   class here so that the [[Builder.rec]] method can refer to the current [[Builder]]
-    *   state while still providing an override point.
-    *   @see [[DatatypeTemplate.Builder.rec]]
-    *   @see [[CaptureTemplate.Builder.rec]]
-    *
-    * @see [[DatatypeTemplate$]]
-    * @see [[CaptureTemplate$]]
-    */
-  sealed protected trait TemplateGenerator {
-    /** Determines whether a given [[ast.Types.Type Type]] needs to be considered during ADT unfolding. */
-    def unroll(tpe: Type): Boolean
+  private def instantiateTyping(blocker: Encoded, typing: Typing): Clauses = typing match {
+    case Typing(tpe, arg, Constraint(result, closures, free)) => tpe match {
+      case (_: FunctionType | _: PiType) =>
+        registerFunction(blocker, result, tpe, arg, closures, free)
+      case _ =>
+        ConstraintTemplate(tpe, free).instantiate(blocker, result, arg, closures)
+    }
+    case Typing(tpe, arg, Capture(container, containerType)) =>
+      CaptureTemplate(tpe, containerType).instantiate(blocker, container, arg)
+  }
 
-    /** Stateful template generating trait. Provides the [[rec]] override point so that
-      * subclasses of [[TemplateGenerator]] can override [[rec]] while still using
-      * stateful clause generation.
-      */
-    protected trait Builder {
-      val tpe: Type
+  def instantiateType(blocker: Encoded, typing: Typing): Clauses = typing.tpe match {
+    case _ if !typing.unroll =>
+      typing.instantiator match {
+        case Constraint(res, _, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
+        case _ => Seq.empty
+      }
+    case (_: FunctionType | _: PiType) => instantiateTyping(blocker, typing)
+    case adt: ADTType if !adt.getSort.definition.isInductive => instantiateTyping(blocker, typing)
+    case _ =>
+      val gen = nextGeneration(currentGeneration)
+      val notBlocker = mkNot(blocker)
 
-      val v = Variable.fresh("x", tpe, true)
+      typeInfos.get(blocker) match {
+        case Some((exGen, origGen, _, exTps)) =>
+          val minGen = gen min exGen
+          typeInfos += blocker -> (minGen, origGen, notBlocker, exTps + typing)
+        case None =>
+          typeInfos += blocker -> (gen, gen, notBlocker, Set(typing))
+      }
+
+      Seq.empty
+  }
+
+  /** Template used to unfold free symbols in the input expression. */
+  class ConstraintTemplate private[TypeTemplates] (val contents: TemplateContents) extends Template {
+    def instantiate(blocker: Encoded, result: Encoded, arg: Encoded, closures: Seq[Arg]): Clauses = {
+      instantiate(blocker, Seq(Left(result), Left(arg)) ++ closures)
+    }
+  }
+
+  /** Generator for [[ConstraintTemplate]] instances. */
+  object ConstraintTemplate {
+    private val cache: MutableMap[(Type, Boolean), ConstraintTemplate] = MutableMap.empty
+
+    def apply(tpe: Type, free: Boolean): ConstraintTemplate = cache.getOrElseUpdate(tpe -> free, {
+      val v = Variable.fresh("x", tpe.getType, true)
       val pathVar = Variable.fresh("b", BooleanType(), true)
       val result = Variable.fresh("result", BooleanType(), true)
       val (idT, pathVarT, resultT) = (encodeSymbol(v), encodeSymbol(pathVar), encodeSymbol(result))
 
-      private var exprVars = Map[Variable, Encoded]()
-      @inline protected def storeExpr(v: Variable): Unit = {
-        exprVars += v -> encodeSymbol(v)
-      }
+      val arguments = typeOps.variablesOf(tpe).toSeq.sortBy(_.id).map(v => v -> encodeSymbol(v))
 
-      private var condVars = Map[Variable, Encoded]()
-      private var condTree = Map[Variable, Set[Variable]](pathVar -> Set.empty).withDefaultValue(Set.empty)
-      @inline protected def storeCond(pathVar: Variable, v: Variable): Unit = {
-        condVars += v -> encodeSymbol(v)
-        condTree += pathVar -> (condTree(pathVar) + v)
-      }
+      val substMap = Map(v -> idT, pathVar -> pathVarT) ++ arguments
 
-      private var guardedExprs = Map[Variable, Seq[Expr]]()
-      @inline protected def storeGuarded(pathVar: Variable, expr: Expr): Unit = {
-        val prev = guardedExprs.getOrElse(pathVar, Nil)
-        guardedExprs += pathVar -> (expr +: prev)
-      }
+      implicit val generator = if (free) FreeGenerator else ContractGenerator
+      val (p, tmplClauses) = mkTypeClauses(pathVar, tpe, v, substMap)
+      val (contents, _) = Template.contents(
+        pathVar -> pathVarT, Seq(result -> resultT, v -> idT) ++ arguments,
+        tmplClauses + (pathVar -> Equals(result, p)))
 
-      private var equations = Seq[Expr]()
-      @inline protected def iff(e1: Expr, e2: Expr): Unit = equations :+= Equals(e1, e2)
-
-      private var tpes = Map[Variable, Set[(Variable, TypeInfo, Expr)]]()
-      protected def storeType(pathVar: Variable, info: TypeInfo, arg: Expr): Variable = {
-        val typeCall: Variable = Variable.fresh("tp", BooleanType(), true)
-        storeExpr(typeCall)
-
-        tpes += pathVar -> (tpes.getOrElse(pathVar, Set.empty) + ((typeCall, info, arg)))
-        typeCall
-      }
-
-      protected case class RecursionState(
-        recurseAdt: Boolean, // visit adt children/fields
-        recurseMap: Boolean, // unroll map definition
-        recurseSet: Boolean, // unroll set definition
-        recurseBag: Boolean  // unroll bag definition
-      )
-
-      /** Generates the clauses and other bookkeeping relevant to a type unfolding template.
-        * Subtypes of [[Builder]] can override this method to change clause generation. */
-      protected def rec(pathVar: Variable, expr: Expr, state: RecursionState): Expr = expr.getType match {
-        case tpe if !unroll(tpe) => BooleanLiteral(true) // nothing to do here!
-
-        case adt: ADTType =>
-          val sort = adt.getSort
-
-          if (sort.definition.isInductive && !state.recurseAdt) {
-            storeType(pathVar, ADTInfo(sort), expr)
-          } else {
-            val newExpr = Variable.fresh("e", BooleanType(), true)
-
-            val stored = for (tcons <- sort.constructors) yield {
-              val newBool: Variable = Variable.fresh("b", BooleanType(), true)
-              val recProp = andJoin(for (vd <- tcons.fields) yield {
-                rec(newBool, ADTSelector(expr, vd.id), state.copy(recurseAdt = false))
-              })
-
-              if (recProp != BooleanLiteral(true)) {
-                storeCond(pathVar, newBool)
-                iff(and(pathVar, isCons(expr, tcons.id)), newBool)
-                storeGuarded(newBool, Equals(newExpr, recProp))
-                true
-              } else {
-                false
-              }
-            }
-
-            if (stored.foldLeft(false)(_ || _)) {
-              storeExpr(newExpr)
-              newExpr
-            } else {
-              BooleanLiteral(true)
-            }
-          }
-
-        case TupleType(tpes) =>
-          andJoin(for ((_, idx) <- tpes.zipWithIndex) yield {
-            rec(pathVar, TupleSelect(expr, idx + 1), state)
-          })
-
-        case MapType(from, to) =>
-          val newBool: Variable = Variable.fresh("b", BooleanType(), true)
-          storeCond(pathVar, newBool)
-
-          val dfltExpr: Variable = Variable.fresh("dlft", to, true)
-          storeExpr(dfltExpr)
-
-          iff(and(pathVar, Not(Equals(expr, FiniteMap(Seq.empty, dfltExpr, from, to)))), newBool)
-
-          and(rec(pathVar, dfltExpr, state), if (!state.recurseMap) {
-            storeType(newBool, MapInfo(from, to), expr)
-          } else {
-            val keyExpr: Variable = Variable.fresh("key", from, true)
-            val valExpr: Variable = Variable.fresh("val", to, true)
-            val restExpr: Variable = Variable.fresh("rest", MapType(from, to), true)
-            storeExpr(keyExpr)
-            storeExpr(valExpr)
-            storeExpr(restExpr)
-
-            storeGuarded(newBool, Equals(expr, MapUpdated(restExpr, keyExpr, valExpr)))
-            and(
-              rec(newBool, restExpr, state.copy(recurseMap = false)),
-              rec(newBool, keyExpr, state),
-              rec(newBool, valExpr, state)
-            )
-          })
-
-        case SetType(base) =>
-          val newBool: Variable = Variable.fresh("b", BooleanType(), true)
-          storeCond(pathVar, newBool)
-
-          iff(and(pathVar, Not(Equals(expr, FiniteSet(Seq.empty, base)))), newBool)
-
-          if (!state.recurseSet) {
-            storeType(newBool, SetInfo(base), expr)
-          } else {
-            val elemExpr: Variable = Variable.fresh("elem", base, true)
-            val restExpr: Variable = Variable.fresh("rest", SetType(base), true)
-            storeExpr(elemExpr)
-            storeExpr(restExpr)
-
-            storeGuarded(newBool, Equals(expr, SetUnion(FiniteSet(Seq(elemExpr), base), restExpr)))
-
-            and(
-              rec(newBool, restExpr, state.copy(recurseSet = false)),
-              rec(newBool, elemExpr, state)
-            )
-          }
-
-        case BagType(base) =>
-          val newBool: Variable = Variable.fresh("b", BooleanType(), true)
-          storeCond(pathVar, newBool)
-
-          iff(and(pathVar, Not(Equals(expr, FiniteBag(Seq.empty, base)))), newBool)
-
-          if (!state.recurseBag) {
-            storeType(pathVar, BagInfo(base), expr)
-          } else {
-            val elemExpr: Variable = Variable.fresh("elem", base, true)
-            val multExpr: Variable = Variable.fresh("mult", IntegerType(), true)
-            val restExpr: Variable = Variable.fresh("rest", BagType(base), true)
-            storeExpr(elemExpr)
-            storeExpr(multExpr)
-            storeExpr(restExpr)
-
-            storeGuarded(newBool, Equals(expr, BagUnion(FiniteBag(Seq(elemExpr -> multExpr), base), restExpr)))
-            storeGuarded(newBool, GreaterThan(multExpr, IntegerLiteral(0)))
-
-            and(
-              rec(newBool, restExpr, state.copy(recurseBag = false)),
-              rec(newBool, elemExpr, state)
-            )
-          }
-
-        case _ => throw FatalError("Unexpected unrollable")
-      }
-
-      protected def encodingSubst: Map[Variable, Encoded] =
-        exprVars ++ condVars + (v -> idT) + (pathVar -> pathVarT) + (result -> resultT)
-
-      /* Calls [[rec]] and finalizes the bookkeeping collection before returning everything
-       * necessary to a template creation. */
-      lazy val (encoder, conds, exprs, tree, clauses, calls, types) = {
-        val res = rec(pathVar, v, RecursionState(true, true, true, true))
-        storeGuarded(pathVar, Equals(result, res))
-
-        val encoder: Expr => Encoded = mkEncoder(encodingSubst)
-
-        var clauses: Clauses = Seq.empty
-        var calls: CallBlockers  = Map.empty
-
-        for ((b, es) <- guardedExprs) {
-          var callInfos : Set[Call] = Set.empty
-
-          for (e <- es) {
-            callInfos ++= exprOps.collect[FunctionInvocation] {
-              case fi: FunctionInvocation => Set(fi)
-              case _ => Set.empty
-            } (e).map { case FunctionInvocation(id, tps, args) =>
-              Call(getFunction(id, tps), args.map(arg => Left(encoder(arg))))
-            }
-
-            clauses :+= encoder(Implies(b, e))
-          }
-
-          if (callInfos.nonEmpty) calls += encoder(b) -> callInfos
-        }
-
-        clauses ++= equations.map(encoder)
-
-        val encodedTypes: Map[Encoded, Set[(Encoded, TypeInfo, Encoded)]] = tpes.map { case (b, tps) =>
-          encoder(b) -> tps.map { case (v, info, expr) => (encoder(v), info, encoder(expr)) }
-        }
-
-        (encoder, condVars, exprVars, condTree, clauses, calls, encodedTypes)
-      }
-    }
-  }
-
-  /** Extends [[TemplateGenerator]] with functionalities for checking whether
-    * ADTs need to be unrolled.
-    *
-    * Note that the actual ADT unrolling takes place in [[TemplateGenerator.Builder.rec]].
-    */
-  protected trait ADTUnrolling extends TemplateGenerator {
-    private val checking: MutableSet[TypedADTSort] = MutableSet.empty
-
-    /** We recursively visit the ADT and its fields here to check whether we need to unroll. */
-    abstract override def unroll(tpe: Type): Boolean = tpe match {
-      case adt: ADTType => adt.getSort match {
-        case sort if checking(sort) => false
-        case sort =>
-          checking += sort
-          sort.constructors.exists(c => c.fields.exists(vd => unroll(vd.tpe)))
-      }
-
-      case _ => super.unroll(tpe)
-    }
-  }
-
-  /** Extends [[TemplateGenerator]] with functionalities to accumulate the set
-    * of functions contained within a datastructure.
-    */
-  protected trait FunctionUnrolling extends TemplateGenerator {
-
-    /** The definition of [[unroll]] makes sure ALL functions are discovered. */
-    def unroll(tpe: Type): Boolean = tpe match {
-      case (_: FunctionType) | (_: BagType) | (_: SetType) => true
-
-      case NAryType(tpes, _) => tpes.exists(unroll)
-    }
-
-    /** The [[TemplateGenerator.Builder]] trait is extended to accumulate functions
-      * during the clause generation. */
-    protected trait Builder extends super.Builder {
-      private var functions = Map[Variable, Set[(Variable, Expr)]]()
-      protected def storeFunction(pathVar: Variable, expr: Expr): Variable = {
-        val funCall: Variable = Variable.fresh("fun", BooleanType(), true)
-        storeExpr(funCall)
-
-        functions += pathVar -> (functions.getOrElse(pathVar, Set.empty) + ((funCall, expr)))
-        funCall
-      }
-
-      override protected def rec(pathVar: Variable, expr: Expr, state: RecursionState): Expr = expr.getType match {
-        case _: FunctionType => storeFunction(pathVar, expr)
-        case _ => super.rec(pathVar, expr, state)
-      }
-
-      lazy val funs: Functions = {
-        val enc = encoder // forces super to call rec()
-        (for ((b, fs) <- functions; bp = enc(b); (v, expr) <- fs) yield {
-          (bp, enc(v), expr.getType.asInstanceOf[FunctionType], enc(expr))
-        }).toSet
-      }
-    }
-  }
-
-  /** Template generator that ensures [[unroll]] call results are cached. */
-  protected trait CachedUnrolling extends TemplateGenerator {
-    private val unrollCache: MutableMap[Type, Boolean] = MutableMap.empty
-
-    /** Determines whether a given [[ast.Types.Type Type]] needs to be considered during ADT unfolding.
-      * 
-      * This function DOES NOT correspond to an override point (hence the `final` modifier).
-      * One should look at [[unrollType]] to change the behavior of [[unroll]].
-      */
-    abstract override final def unroll(tpe: Type): Boolean = unrollCache.getOrElseUpdate(tpe, {
-      unrollType(tpe) || super.unroll(tpe)
-    })
-
-    /** Override point to determine whether a given type should be unfolded.
-      *
-      * This methods shouldn't be recursive as the ADT traversal already takes place
-      * within the [[unroll]] method.
-      *
-      * By default, returns `false`.
-      */
-    protected def unrollType(tpe: Type): Boolean = false
-  }
-
-  /** Template generator that generates clauses for ADT invariant assertion. */
-  protected trait InvariantGenerator
-    extends TemplateGenerator
-       with ADTUnrolling
-       with CachedUnrolling {
-
-    private val tpSyms: MutableMap[TypeParameter, (Variable, Encoded)] = MutableMap.empty
-
-    def satisfactionAssumptions = tpSyms.values.toSeq.map(_._2)
-
-    /** ADT unfolding is required when the ADT type has an ADT invariant.
-      *
-      * Note that clause generation in [[Builder.rec]] MUST correspond to the types
-      * that require unfolding as defined here.
-      */
-    override protected def unrollType(tpe: Type): Boolean = tpe match {
-      case adt: ADTType => adt.getSort.hasInvariant
-      case tp: TypeParameter => true
-      case _ => false
-    }
-
-    /** Clause generation is specialized to handle ADT constructor types that require
-      * type guards as well as ADT invariants. */
-    protected trait Builder extends super.Builder {
-      private val tpSubst: MutableMap[Variable, Encoded] = MutableMap.empty
-      protected def storeTypeParameter(tp: TypeParameter): Expr = {
-        val (v, e) = tpSyms.getOrElseUpdate(tp, {
-          val v = Variable.fresh("tp_is_empty", BooleanType(), true)
-          v -> encodeSymbol(v)
-        })
-        tpSubst(v) = e
-        v
-      }
-
-      override protected def rec(pathVar: Variable, expr: Expr, state: RecursionState): Expr = expr.getType match {
-        case adt: ADTType =>
-          and(
-            adt.getSort.invariant.map(_.applied(Seq(expr))).getOrElse(BooleanLiteral(true)),
-            super.rec(pathVar, expr, state)
-          )
-
-        case tp: TypeParameter => storeTypeParameter(tp)
-
-        case _ => super.rec(pathVar, expr, state)
-      }
-
-      override protected def encodingSubst: Map[Variable, Encoded] =
-        super.encodingSubst ++ tpSubst
-    }
-  }
-
-  /** Base type for datatype unfolding templates. */
-  trait TypesTemplate extends Template {
-    val contents: TemplateContents
-    val types: Map[Encoded, Set[TemplateTypeInfo]]
-
-    override def instantiate(substMap: Map[Encoded, Arg]): Clauses = {
-      val substituter = mkSubstituter(substMap.mapValues(_.encoded))
-
-      for ((b, tps) <- types; bp = substituter(b); tp <- tps) {
-        val stp = tp.substitute(substituter)
-        val gen = nextGeneration(currentGeneration)
-        val notBp = mkNot(bp)
-
-        typeInfos.get(bp) match {
-          case Some((exGen, origGen, _, exTps)) =>
-            val minGen = gen min exGen
-            typeInfos += bp -> (minGen, origGen, notBp, exTps + stp)
-          case None =>
-            typeInfos += bp -> (gen, gen, notBp, Set(stp))
-        }
-      }
-
-      super.instantiate(substMap)
-    }
-  }
-
-  /** Template used to unfold free symbols in the input expression. */
-  class DatatypeTemplate private[TypeTemplates] (
-    val contents: TemplateContents,
-    val types: Map[Encoded, Set[TemplateTypeInfo]],
-    val functions: Functions) extends TypesTemplate {
-
-    def instantiate(blocker: Encoded, result: Encoded, arg: Encoded): Clauses = {
-      instantiate(blocker, Seq(Left(result), Left(arg)))
-    }
-
-    override def instantiate(substMap: Map[Encoded, Arg]): Clauses = {
-      val substituter = mkSubstituter(substMap.mapValues(_.encoded))
-
-      val clauses: Clauses = (for ((b,res,tpe,f) <- functions) yield {
-        registerFunction(substituter(b), substituter(res), tpe, substituter(f))
-      }).flatten.toSeq
-
-      clauses ++ super.instantiate(substMap)
-    }
-  }
-
-  /** Generator for [[DatatypeTemplate]] instances. */
-  object DatatypeTemplate extends FunctionUnrolling with InvariantGenerator {
-    private val cache: MutableMap[Type, DatatypeTemplate] = MutableMap.empty
-
-    def apply(dtpe: Type): DatatypeTemplate = cache.getOrElseUpdate(dtpe, {
-      object b extends {
-        val tpe = dtpe
-      } with super[FunctionUnrolling].Builder
-        with super[InvariantGenerator].Builder
-
-      val typeBlockers: TypeBlockers = b.types.map { case (blocker, tps) =>
-        blocker -> tps.map { case (res, info, arg) => TemplateTypeInfo(info, arg, Datatype(res)) }
-      }
-
-      new DatatypeTemplate(TemplateContents(
-        b.pathVar -> b.pathVarT, Seq(b.result -> b.resultT, b.v -> b.idT),
-        b.conds, b.exprs, Map.empty, b.tree, b.clauses, b.calls,
-        Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty, Map.empty), typeBlockers, b.funs)
+      new ConstraintTemplate(contents)
     })
   }
 
   /** Template used to unfold ADT closures that may contain functions. */
   class CaptureTemplate private[TypeTemplates](
-    val contents: TemplateContents,
-    val types: Map[Encoded, Set[TemplateTypeInfo]],
-    val functions: Set[Encoded]) extends TypesTemplate {
+    val contents: TemplateContents, val functions: Set[Encoded]) extends Template {
 
     val Seq((_, container), _) = contents.arguments
 
@@ -551,21 +199,7 @@ trait TypeTemplates { self: Templates =>
   }
 
   /** Template generator for [[CaptureTemplate]] instances. */
-  object CaptureTemplate
-    extends FunctionUnrolling
-       with ADTUnrolling
-       with CachedUnrolling {
-
-    private val tmplCache: MutableMap[Type, (
-      (Variable, Encoded),
-      (Variable, Encoded),
-      Map[Variable, Encoded],
-      Map[Variable, Encoded],
-      Map[Variable, Set[Variable]],
-      Clauses,
-      Map[Encoded, Set[(Encoded, TypeInfo, Encoded)]],
-      Functions
-    )] = MutableMap.empty
+  object CaptureTemplate {
 
     private val cache: MutableMap[(Type, FunctionType), CaptureTemplate] = MutableMap.empty
     private val ordCache: MutableMap[FunctionType, Encoded => Encoded] = MutableMap.empty
@@ -587,55 +221,61 @@ trait TypeTemplates { self: Templates =>
       (na: Encoded) => mkSubstituter(Map(aT -> na))(encoded)
     })
 
-    def apply(dtpe: Type, containerType: FunctionType): CaptureTemplate = cache.getOrElseUpdate(dtpe -> containerType, {
-      val (ps, ids, condVars, exprVars, condTree, clauses, types, funs) = tmplCache.getOrElseUpdate(dtpe, {
-        object b extends { val tpe = dtpe } with super[FunctionUnrolling].Builder with super[ADTUnrolling].Builder {
-          override val resultT = trueT
-        }
-        assert(b.calls.isEmpty, "Captured function templates shouldn't have any calls: " + b.calls)
+    def apply(tpe: Type, containerType: FunctionType): CaptureTemplate = cache.getOrElseUpdate(tpe -> containerType, {
+      val v = Variable.fresh("x", tpe.getType, true)
+      val pathVar = Variable.fresh("b", BooleanType(), true)
+      val (idT, pathVarT) = (encodeSymbol(v), encodeSymbol(pathVar))
 
-        // Capture templates must always be true, so we can substitute the result value by `true`
-        // immediately and ignore the result value in later instantiations.
-        val substituter = mkSubstituter(Map(b.resultT -> trueT))
-        val substClauses = b.clauses.map(substituter)
-
-        (b.pathVar -> b.pathVarT, b.v -> b.idT, b.conds, b.exprs, b.tree, substClauses, b.types, b.funs)
-      })
+      val substMap = Map(v -> idT, pathVar -> pathVarT)
 
       val container = Variable.fresh("container", containerType, true)
       val containerT = encodeSymbol(container)
 
-      val typeBlockers: TypeBlockers = types.map { case (blocker, tps) =>
-        blocker -> tps.map { case (_, info, arg) => TemplateTypeInfo(info, arg, Capture(containerT, containerType)) }
+      implicit val generator = CaptureGenerator(containerT, containerType)
+      val (p, tmplClauses) = mkTypeClauses(pathVar, tpe, v, substMap)
+      val (condVars, exprVars, _, _, _, types, equalities, lambdas, quants) = tmplClauses
+      assert(equalities.isEmpty && lambdas.isEmpty && quants.isEmpty,
+        "Unexpected complex template clauses in capture template")
+
+      val (contents, _) = Template.contents(
+        pathVar -> pathVarT, Seq(v -> idT), tmplClauses + (pathVar -> p))
+
+      val fullSubst = substMap ++ condVars ++ exprVars
+
+      val encoder: Expr => Encoded = mkEncoder(fullSubst)
+
+      var typeBlockers: Types = Map.empty
+      var funClauses: Clauses = Seq.empty
+      var functions: Set[Encoded] = Set.empty
+
+      for ((b, tps) <- types; tp <- tps) tp match {
+        case Typing(ft: FunctionType, arg, Capture(containerT, containerType)) =>
+          funClauses :+= mkImplies(b, lessThan(order(ft)(arg), order(containerType)(containerT)))
+          functions += arg
+        case _ => typeBlockers += b -> (typeBlockers.getOrElse(b, Set.empty) + tp)
       }
 
-      val funClauses = funs.map { case (blocker, r, _, _) => mkImplies(blocker, r) }
-      val orderClauses = funs.map { case (blocker, _, tpe, f) =>
-        mkImplies(blocker, lessThan(order(tpe)(f), order(containerType)(containerT)))
-      }
-
-      new CaptureTemplate(TemplateContents(
-        ps, Seq(container -> containerT, ids),
-        condVars, exprVars, Map.empty, condTree, clauses ++ funClauses ++ orderClauses,
-        Map.empty, Map.empty, Map.empty, Map.empty, Seq.empty, Seq.empty, Map.empty
-      ), typeBlockers, funs.map(_._4))
+      new CaptureTemplate(contents.copy(
+        arguments = (container -> containerT) +: contents.arguments,
+        clauses = contents.clauses ++ funClauses,
+        types = typeBlockers
+      ), functions)
     })
   }
 
-  /** Extends [[TemplateGenerator]] with functionalities for checking whether
-    * tuples need to be unrolled. This trait will typically be mixed in with
-    * the [[ADTUnrolling]] trait. */
-  trait FlatUnrolling extends TemplateGenerator {
-    def unroll(tpe: Type): Boolean = tpe match {
-      case TupleType(tps) => tps.exists(unroll)
-      case _ => false
-    }
-  }
-
   private[unrolling] object typesManager extends Manager {
-    private[TypeTemplates] val typeInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[TemplateTypeInfo])]
+    private[TypeTemplates] val typeInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[Typing])]
     private[TypeTemplates] val lessOrder = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
-    private[TypeTemplates] val results = new IncrementalMap[Type, Encoded]
+    private[TypeTemplates] val results = new IncrementalMap[(Type, Seq[Arg], Boolean), Encoded]
+
+    private val tpSyms: MutableMap[TypeParameter, Variable] = MutableMap.empty
+    private[unrolling] val tpSubst: MutableMap[Variable, Encoded] = MutableMap.empty
+    private[unrolling] def storeTypeParameter(tp: TypeParameter): Variable =
+      tpSyms.getOrElseUpdate(tp, {
+        val v = Variable.fresh("tp_is_empty", BooleanType(), true)
+        tpSubst(v) = encodeSymbol(v)
+        v
+      })
 
     def canBeEqual(f1: Encoded, f2: Encoded): Boolean = {
       def transitiveLess(l: Encoded, r: Encoded): Boolean = {
@@ -653,7 +293,7 @@ trait TypeTemplates { self: Templates =>
       else Some(typeInfos.values.map(_._1).min)
 
     def satisfactionAssumptions: Seq[Encoded] =
-      typeInfos.map(_._2._3).toSeq ++ DatatypeTemplate.satisfactionAssumptions
+      typeInfos.map(_._2._3).toSeq ++ tpSubst.values
 
     def refutationAssumptions: Seq[Encoded] = Seq.empty
 
@@ -674,16 +314,11 @@ trait TypeTemplates { self: Templates =>
       val newTypeInfos = typeBlockers.flatMap(id => typeInfos.get(id).map(id -> _))
       typeInfos --= typeBlockers
 
-      for ((blocker, (gen, _, _, tps)) <- newTypeInfos; TemplateTypeInfo(info, arg, inst) <- tps) inst match {
-        case Datatype(result) =>
-          val template = DatatypeTemplate(info.getType)
-          newClauses ++= template.instantiate(blocker, result, arg)
-        case Capture(container, containerType) =>
-          val template = CaptureTemplate(info.getType, containerType)
-          newClauses ++= template.instantiate(blocker, container, arg)
+      for ((blocker, (gen, _, _, tps)) <- newTypeInfos; tp <- tps) {
+        newClauses ++= instantiateTyping(blocker, tp)
       }
 
-      reporter.debug("Unrolling datatypes (" + newClauses.size + ")")
+      reporter.debug("Unrolling types (" + newClauses.size + ")")
       for (cl <- newClauses) {
         reporter.debug("  . " + cl)
       }

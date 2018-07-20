@@ -16,44 +16,44 @@ trait TemplateGenerator { self: Templates =>
   protected type TemplateClauses = (
     Map[Variable, Encoded],
     Map[Variable, Encoded],
-    Map[Variable, Encoded],
     Map[Variable, Set[Variable]],
     Map[Variable, Seq[Expr]],
     Seq[Expr],
+    Types,
     Equalities,
     Seq[LambdaTemplate],
     Seq[QuantificationTemplate]
   )
 
   protected def emptyClauses: TemplateClauses =
-    (Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Seq.empty, Map.empty, Seq.empty, Seq.empty)
+    (Map.empty, Map.empty, Map.empty, Map.empty, Seq.empty, Map.empty, Map.empty, Seq.empty, Seq.empty)
 
   protected implicit class ClausesWrapper(clauses: TemplateClauses) {
     def ++(that: TemplateClauses): TemplateClauses = {
-      val (thisConds, thisExprs, thisChooses, thisTree, thisGuarded, thisEqs, thisEqualities, thisLambdas, thisQuants) = clauses
-      val (thatConds, thatExprs, thatChooses, thatTree, thatGuarded, thatEqs, thatEqualities, thatLambdas, thatQuants) = that
+      val (thisConds, thisExprs, thisTree, thisGuarded, thisEqs, thisTps, thisEqualities, thisLambdas, thisQuants) = clauses
+      val (thatConds, thatExprs, thatTree, thatGuarded, thatEqs, thatTps, thatEqualities, thatLambdas, thatQuants) = that
 
-      (thisConds ++ thatConds, thisExprs ++ thatExprs, thisChooses ++ thatChooses,
-        thisTree merge thatTree, thisGuarded merge thatGuarded, thisEqs ++ thatEqs,
+      (thisConds ++ thatConds, thisExprs ++ thatExprs, thisTree merge thatTree,
+        thisGuarded merge thatGuarded, thisEqs ++ thatEqs, thisTps merge thatTps,
         thisEqualities merge thatEqualities, thisLambdas ++ thatLambdas, thisQuants ++ thatQuants)
     }
 
     def +(pair: (Variable, Expr)): TemplateClauses = {
-      val (thisConds, thisExprs, thisChooses, thisTree, thisGuarded, thisEqs, thisEqualities, thisLambdas, thisQuants) = clauses
-      (thisConds, thisExprs, thisChooses, thisTree, thisGuarded merge pair, thisEqs, thisEqualities, thisLambdas, thisQuants)
+      val (thisConds, thisExprs, thisTree, thisGuarded, thisEqs, thisTps, thisEqualities, thisLambdas, thisQuants) = clauses
+      (thisConds, thisExprs, thisTree, thisGuarded merge pair, thisEqs, thisTps, thisEqualities, thisLambdas, thisQuants)
     }
 
     def proj: (
       Map[Variable, Encoded],
       Map[Variable, Encoded],
-      Map[Variable, Encoded],
       Map[Variable, Set[Variable]],
+      Types,
       Equalities,
       Seq[LambdaTemplate],
       Seq[QuantificationTemplate]
     ) = {
-      val (thisConds, thisExprs, thisChooses, thisTree, thisGuarded, thisEqs, thisEqualities, thisLambdas, thisQuants) = clauses
-      (thisConds, thisExprs, thisChooses, thisTree, thisEqualities, thisLambdas, thisQuants)
+      val (thisConds, thisExprs, thisTree, _, _, thisTypes, thisEqualities, thisLambdas, thisQuants) = clauses
+      (thisConds, thisExprs, thisTree, thisTypes, thisEqualities, thisLambdas, thisQuants)
     }
   }
 
@@ -65,8 +65,14 @@ trait TemplateGenerator { self: Templates =>
   }
 
   def mkClauses(pathVar: Variable, expr: Expr, substMap: Map[Variable, Encoded], polarity: Option[Boolean] = None): TemplateClauses = {
-    val (p, (conds, exprs, chooses, tree, guarded, eqs, equalities, lambdas, quants)) = mkExprClauses(pathVar, expr, substMap, polarity)
-    (conds, exprs, chooses, tree, guarded merge (pathVar -> p), eqs, equalities, lambdas, quants)
+    val (p, tmplClauses) = mkExprClauses(pathVar, expr, substMap, polarity)
+    tmplClauses + (pathVar -> p)
+  }
+
+  def mkClauses(pathVar: Variable, tpe: Type, expr: Expr, substMap: Map[Variable, Encoded])
+               (implicit generator: TypingGenerator): TemplateClauses = {
+    val (p, tmplClauses) = mkTypeClauses(pathVar, tpe, expr, substMap)
+    tmplClauses + (pathVar -> p)
   }
 
   protected def mkExprStructure(
@@ -94,8 +100,8 @@ trait TemplateGenerator { self: Templates =>
             val (e, cls) = mkExprClauses(pathVar, expr, depSubst)
 
             // setup the full encoding substMap
-            val (conds, exprs, chooses, tree, equals, lmbds, quants) = cls.proj
-            val clauseSubst: Map[Variable, Encoded] = depSubst ++ conds ++ exprs ++ chooses ++
+            val (conds, exprs, tree, types, equals, lmbds, quants) = cls.proj
+            val clauseSubst: Map[Variable, Encoded] = depSubst ++ conds ++ exprs ++
               lmbds.map(_.ids) ++ quants.flatMap(_.mapping) ++ equals.flatMap(_._2.map(_.symbols))
 
             val (eCalls, eApps, eMatchers, ePointers) = Template.extractCalls(e, clauseSubst)
@@ -103,7 +109,7 @@ trait TemplateGenerator { self: Templates =>
               Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
 
             (depSubst + (v -> mkEncoder(clauseSubst)(e)), contents merge (
-              conds, exprs, chooses, tree, clsClauses,
+              conds, exprs, tree, clsClauses, types,
               clsCalls merge Map(substMap(pathVar) -> eCalls),
               clsApps merge Map(substMap(pathVar) -> eApps),
               clsMatchers merge Map(substMap(pathVar) -> eMatchers),
@@ -118,17 +124,18 @@ trait TemplateGenerator { self: Templates =>
               mkClauses(condVar, Equals(exprVar, expr), localSubst)
 
             // setup the full encoding substMap
-            val (conds, exprs, chooses, tree, equals, lmbds, quants) = cls.proj
-            val clauseSubst: Map[Variable, Encoded] = localSubst ++ conds ++ exprs ++ chooses ++
+            val (conds, exprs, tree, types, equals, lmbds, quants) = cls.proj
+            val clauseSubst: Map[Variable, Encoded] = localSubst ++ conds ++ exprs ++
               lmbds.map(_.ids) ++ quants.flatMap(_.mapping) ++ equals.flatMap(_._2.map(_.symbols))
 
             val (clsClauses, clsCalls, clsApps, clsMatchers, clsPointers, _) =
               Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
 
             (depSubst + (v -> localSubst(exprVar)), contents merge (
-              conds + (condVar -> localSubst(condVar)), exprs + (exprVar -> localSubst(exprVar)),
-              chooses, tree merge Map(pathVar -> Set(condVar)),
-              clsClauses, clsCalls, clsApps, clsMatchers, equals, lmbds, quants, clsPointers
+              conds + (condVar -> localSubst(condVar)),
+              exprs + (exprVar -> localSubst(exprVar)),
+              tree merge Map(pathVar -> Set(condVar)),
+              clsClauses, types, clsCalls, clsApps, clsMatchers, equals, lmbds, quants, clsPointers
             ))
           }
       }
@@ -142,26 +149,18 @@ trait TemplateGenerator { self: Templates =>
     (exprOps.replaceFromSymbols(freshSubst, struct), structure, freshDeps)
   }
 
-  protected def mkExprClauses(
-    pathVar: Variable,
-    expr: Expr,
-    substMap: Map[Variable, Encoded],
-    polarity: Option[Boolean] = None
-  ): (Expr, TemplateClauses) = {
+  final private class Builder(pathVar: Variable, substMap: Map[Variable, Encoded]) {
     var condVars = Map[Variable, Encoded]()
-    var condTree = Map[Variable, Set[Variable]](pathVar -> Set.empty).withDefaultValue(Set.empty)
+    var condTree = Map[Variable, Set[Variable]](pathVar -> Set.empty)
     def storeCond(pathVar: Variable, id: Variable): Unit = {
       condVars += id -> encodeSymbol(id)
-      condTree += pathVar -> (condTree(pathVar) + id)
+      condTree += pathVar -> (condTree.getOrElse(pathVar, Set.empty) + id)
     }
 
     @inline def encodedCond(id: Variable): Encoded = substMap.getOrElse(id, condVars(id))
 
     var exprVars = Map[Variable, Encoded]()
     @inline def storeExpr(id: Variable): Unit = exprVars += id -> encodeSymbol(id)
-
-    var chooseVars = Map[Variable, Encoded]()
-    @inline def storeChoose(id: Variable): Unit = chooseVars += id -> encodeSymbol(id)
 
     // Represents clauses of the form:
     //    id => expr && ... && expr
@@ -171,6 +170,28 @@ trait TemplateGenerator { self: Templates =>
 
       val prev = guardedExprs.getOrElse(guardVar, Nil)
       guardedExprs += guardVar -> (expr +: prev)
+    }
+
+    var types = Map[Encoded, Set[Typing]]()
+    def storeType(pathVar: Variable, tpe: Type, arg: Expr)(implicit generator: TypingGenerator): Expr = {
+      val b = encodedCond(pathVar)
+      val encoder = mkEncoder(localSubst) _
+      val closures = typeOps.variablesOf(tpe).toSeq.sortBy(_.id).map(encoder).map(Left(_))
+      val (result, typing) = generator match {
+        case FreeGenerator | ContractGenerator=>
+          val typeCall: Variable = Variable.fresh("tp", BooleanType(), true)
+          storeExpr(typeCall)
+
+          (typeCall, Typing(tpe, encoder(arg), Constraint(exprVars(typeCall), closures, generator == FreeGenerator)))
+
+        case CaptureGenerator(container, containerType) =>
+          // @nv: note that we only store the non-dependent type here as we don't need
+          //      to consider dependent types when looking at captures
+          (BooleanLiteral(true), Typing(tpe.getType, encoder(arg), Capture(container, containerType)))
+      }
+
+      types += b -> (types.getOrElse(b, Set.empty) + typing)
+      result
     }
 
     // Represents equations (simple formulas)
@@ -193,7 +214,34 @@ trait TemplateGenerator { self: Templates =>
     }
 
     @inline def localSubst: Map[Variable, Encoded] =
-      substMap ++ condVars ++ exprVars ++ chooseVars ++ lambdas.map(_.ids)
+      substMap ++ condVars ++ exprVars ++ lambdas.map(_.ids)
+
+    def result: TemplateClauses =
+      (condVars, exprVars, condTree, guardedExprs, equations, types, equalities, lambdas, quantifications)
+
+    def ++=(that: TemplateClauses): this.type = {
+      val (conds, exprs, tree, guarded, eqs, tpes, equls, lmbds, quants) = that
+      condVars ++= conds
+      exprVars ++= exprs
+      condTree = condTree merge tree
+      guardedExprs = guardedExprs merge guarded
+      equations ++= eqs
+      types = types merge tpes
+      equalities ++= equls
+      lambdas ++= lmbds
+      quantifications ++= quants
+      this
+    }
+  }
+
+  protected def mkExprClauses(
+    pathVar: Variable,
+    expr: Expr,
+    substMap: Map[Variable, Encoded],
+    polarity: Option[Boolean] = None
+  ): (Expr, TemplateClauses) = {
+    val builder = new Builder(pathVar, substMap)
+    import builder._
 
     def rec(pathVar: Variable, expr: Expr, pol: Option[Boolean]): Expr = expr match {
       case a @ Assume(cond, body) =>
@@ -203,7 +251,11 @@ trait TemplateGenerator { self: Templates =>
 
       case c @ Choose(res, pred) =>
         val newExpr = res.toVariable.freshen
-        storeChoose(newExpr)
+        storeExpr(newExpr)
+
+        val (tpeExpr, tmplClauses) = mkTypeClauses(pathVar, res.tpe, newExpr, localSubst)(FreeGenerator)
+        storeGuarded(pathVar, tpeExpr)
+        builder ++= tmplClauses
 
         val p = rec(pathVar, exprOps.replace(Map(res.toVariable -> newExpr), pred), Some(true))
         storeGuarded(pathVar, p)
@@ -215,7 +267,7 @@ trait TemplateGenerator { self: Templates =>
         rb
 
       case l @ Let(i, e, b) =>
-        val newExpr : Variable = Variable.fresh("lt", i.getType, true)
+        val newExpr: Variable = Variable.fresh("lt", i.getType, true)
         storeExpr(newExpr)
         val re = rec(pathVar, e, None)
         storeGuarded(pathVar, Equals(newExpr, re))
@@ -330,7 +382,7 @@ trait TemplateGenerator { self: Templates =>
 
       case l: Lambda =>
         val template = LambdaTemplate(pathVar -> encodedCond(pathVar), l, localSubst)
-        registerLambda(template)
+        builder.registerLambda(template)
         template.ids._1
 
       case f: Forall =>
@@ -383,6 +435,180 @@ trait TemplateGenerator { self: Templates =>
     }
 
     val p = rec(pathVar, expr, polarity)
-    (p, (condVars, exprVars, chooseVars, condTree, guardedExprs, equations, equalities, lambdas, quantifications))
+    (p, builder.result)
+  }
+
+  /** Generates the clauses and other bookkeeping relevant to a type unfolding template. */
+  protected def mkTypeClauses(
+    pathVar: Variable,
+    tpe: Type,
+    expr: Expr,
+    substMap: Map[Variable, Encoded]
+  )(implicit generator: TypingGenerator): (Expr, TemplateClauses) = {
+    val builder = new Builder(pathVar, substMap)
+    import builder._
+
+    case class RecursionState(
+      recurseAdt: Boolean, // visit adt children/fields
+      recurseMap: Boolean, // unroll map definition
+      recurseSet: Boolean, // unroll set definition
+      recurseBag: Boolean  // unroll bag definition
+    )
+
+    def rec(pathVar: Variable, tpe: Type, expr: Expr, state: RecursionState): Expr = tpe match {
+      case tpe if !(generator unroll tpe) => BooleanLiteral(true) // nothing to do here!
+
+      case (_: FunctionType | _: PiType) => storeType(pathVar, tpe, expr)
+
+      case tp: TypeParameter if generator == FreeGenerator => typesManager.storeTypeParameter(tp)
+
+      case RefinementType(vd, pred) =>
+        val newExpr: Variable = Variable.fresh("lt", vd.getType, true)
+        storeExpr(newExpr)
+
+        val (p, predClauses) = mkExprClauses(pathVar,
+          exprOps.replaceFromSymbols(Map(vd -> newExpr), pred), localSubst)
+        builder ++= predClauses
+
+        and(rec(pathVar, vd.tpe, expr, state), p)
+
+      case SigmaType(params, to) =>
+        val (newExprs, recParams) = params.zipWithIndex.map { case (vd, i) =>
+          val newExpr: Variable = Variable.fresh("lt", vd.getType, true)
+          storeExpr(newExpr)
+
+          storeGuarded(pathVar, Equals(newExpr, TupleSelect(expr, i + 1)))
+          (newExpr, rec(pathVar, vd.tpe, newExpr, state))
+        }.unzip
+
+        val recTo = rec(pathVar,
+          typeOps.replaceFromSymbols((params zip newExprs).toMap, to),
+          TupleSelect(expr, params.size + 1), state)
+
+        andJoin(recParams :+ recTo)
+
+      case adt: ADTType =>
+        val sort = adt.getSort
+
+        and(
+          sort.invariant
+            .filter(_ => generator == FreeGenerator)
+            .map(_.applied(Seq(expr)))
+            .getOrElse(BooleanLiteral(true)),
+          if (sort.definition.isInductive && !state.recurseAdt) {
+            storeType(pathVar, tpe, expr)
+          } else {
+            val newExpr = Variable.fresh("e", BooleanType(), true)
+            storeExpr(newExpr)
+
+            val stored = for (tcons <- sort.constructors) yield {
+              val newBool: Variable = Variable.fresh("b", BooleanType(), true)
+              storeCond(pathVar, newBool)
+
+              val recProp = andJoin(for (vd <- tcons.fields) yield {
+                rec(newBool, vd.tpe, ADTSelector(expr, vd.id), state.copy(recurseAdt = false))
+              })
+
+              if (recProp != BooleanLiteral(true)) {
+                iff(and(pathVar, isCons(expr, tcons.id)), newBool)
+                storeGuarded(newBool, Equals(newExpr, recProp))
+                true
+              } else {
+                false
+              }
+            }
+
+            if (stored.foldLeft(false)(_ || _)) {
+              newExpr
+            } else {
+              BooleanLiteral(true)
+            }
+          }
+        )
+
+      case TupleType(tpes) =>
+        andJoin(for ((tpe, idx) <- tpes.zipWithIndex) yield {
+          rec(pathVar, tpe, TupleSelect(expr, idx + 1), state)
+        })
+
+      case MapType(from, to) =>
+        val newBool: Variable = Variable.fresh("b", BooleanType(), true)
+        storeCond(pathVar, newBool)
+
+        val dfltExpr: Variable = Variable.fresh("dlft", to, true)
+        storeExpr(dfltExpr)
+
+        iff(and(pathVar, Not(Equals(expr, FiniteMap(Seq.empty, dfltExpr, from, to)))), newBool)
+
+        and(rec(pathVar, to, dfltExpr, state), if (!state.recurseMap) {
+          storeType(newBool, tpe, expr)
+        } else {
+          val keyExpr: Variable = Variable.fresh("key", from, true)
+          val valExpr: Variable = Variable.fresh("val", to, true)
+          val restExpr: Variable = Variable.fresh("rest", tpe, true)
+          storeExpr(keyExpr)
+          storeExpr(valExpr)
+          storeExpr(restExpr)
+
+          storeGuarded(newBool, Equals(expr, MapUpdated(restExpr, keyExpr, valExpr)))
+          and(
+            rec(newBool, tpe, restExpr, state.copy(recurseMap = false)),
+            rec(newBool, from, keyExpr, state),
+            rec(newBool, to, valExpr, state)
+          )
+        })
+
+      case SetType(base) =>
+        val newBool: Variable = Variable.fresh("b", BooleanType(), true)
+        storeCond(pathVar, newBool)
+
+        iff(and(pathVar, Not(Equals(expr, FiniteSet(Seq.empty, base)))), newBool)
+
+        if (!state.recurseSet) {
+          storeType(newBool, tpe, expr)
+        } else {
+          val elemExpr: Variable = Variable.fresh("elem", base, true)
+          val restExpr: Variable = Variable.fresh("rest", tpe, true)
+          storeExpr(elemExpr)
+          storeExpr(restExpr)
+
+          storeGuarded(newBool, Equals(expr, SetUnion(FiniteSet(Seq(elemExpr), base), restExpr)))
+
+          and(
+            rec(newBool, tpe, restExpr, state.copy(recurseSet = false)),
+            rec(newBool, base, elemExpr, state)
+          )
+        }
+
+      case BagType(base) =>
+        val newBool: Variable = Variable.fresh("b", BooleanType(), true)
+        storeCond(pathVar, newBool)
+
+        iff(and(pathVar, Not(Equals(expr, FiniteBag(Seq.empty, base)))), newBool)
+
+        if (!state.recurseBag) {
+          storeType(pathVar, tpe, expr)
+        } else {
+          val elemExpr: Variable = Variable.fresh("elem", base, true)
+          val multExpr: Variable = Variable.fresh("mult", IntegerType(), true)
+          val restExpr: Variable = Variable.fresh("rest", BagType(base), true)
+          storeExpr(elemExpr)
+          storeExpr(multExpr)
+          storeExpr(restExpr)
+
+          storeGuarded(newBool, Equals(expr, BagUnion(FiniteBag(Seq(elemExpr -> multExpr), base), restExpr)))
+          storeGuarded(newBool, GreaterThan(multExpr, IntegerLiteral(0)))
+
+          and(
+            rec(newBool, tpe, restExpr, state.copy(recurseBag = false)),
+            rec(newBool, base, elemExpr, state)
+          )
+        }
+
+      case _ => throw FatalError("Unexpected unrollable")
+    }
+
+    val p = rec(pathVar, tpe, expr, RecursionState(true, true, true, true))
+    (p, builder.result)
   }
 }

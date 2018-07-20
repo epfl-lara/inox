@@ -30,11 +30,31 @@ trait Types { self: Trees =>
    * type parameter bounds that would not be compatible with Inox type checking. */
   protected def widen(tpe: Type): Type = tpe
 
-  abstract class Type extends Tree with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = {
+  protected def unveilUntyped(tpe: Type): Type = {
+    val NAryType(tps, _) = tpe
+    if (tps exists (_ == Untyped)) Untyped else tpe
+  }
+
+  abstract class Type extends Tree with Typed {
+    private[this] var simple: Boolean = false
+    private[this] var cache: (Symbols, Type) = (null, null)
+
+    private def setSimple(): this.type = { simple = true; this }
+
+    final def getType(implicit s: Symbols): Type = {
+      if (simple) this else {
+        val (symbols, tpe) = cache
+        if (s eq symbols) tpe else {
+          val tpe = computeType
+          cache = s -> tpe.setSimple()
+          tpe
+        }
+      }
+    }
+
+    protected def computeType(implicit s: Symbols): Type = {
       val NAryType(tps, recons) = this
-      val ntps = tps.map(_.getType)
-      if (ntps.forall(_.isTyped)) widen(recons(ntps)) else Untyped
+      unveilUntyped(widen(recons(tps.map(_.getType))))
     }
   }
 
@@ -113,16 +133,17 @@ trait Types { self: Trees =>
   /* Dependent Types */
 
   sealed case class PiType(params: Seq[ValDef], to: Type) extends Type {
+    require(params.nonEmpty)
+
     override protected def computeType(implicit s: Symbols): Type =
-      FunctionType(params.map(_.getType), to.getType).getType
+      unveilUntyped(FunctionType(params.map(_.getType), to.getType))
   }
 
-  sealed case class SigmaType(params: Seq[ValDef]) extends Type {
-    val dimension: Int = params.length
-    require(dimension >= 2)
+  sealed case class SigmaType(params: Seq[ValDef], to: Type) extends Type {
+    require(params.nonEmpty)
 
     override protected def computeType(implicit s: Symbols): Type =
-      TupleType(params.map(_.getType)).getType
+      unveilUntyped(TupleType(params.map(_.getType) :+ to.getType))
   }
 
   sealed case class RefinementType(vd: ValDef, prop: Expr) extends Type {
@@ -163,8 +184,8 @@ trait Types { self: Trees =>
     type Target = Type
 
     def unapply(t: Type): Option[(Seq[Type], Seq[Type] => Type)] = {
-      val (ids, tps, flags, recons) = deconstructor.deconstruct(t)
-      Some((tps, tps => recons(ids, tps, flags)))
+      val (ids, vs, es, tps, flags, recons) = deconstructor.deconstruct(t)
+      Some((tps, tps => recons(ids, vs, es, tps, flags)))
     }
   }
 
@@ -212,6 +233,26 @@ trait Types { self: Trees =>
     def isParametricType(tpe: Type): Boolean = tpe match {
       case (tp: TypeParameter) => true
       case NAryType(tps, builder) => tps.exists(isParametricType)
+    }
+
+    def replaceFromSymbols[V <: VariableSymbol](subst: Map[V, Expr], tpe: Type)
+                                               (implicit ev: VariableConverter[V]): Type = {
+      new SelfTreeTransformer {
+        override def transform(expr: Expr): Expr = expr match {
+          case v: Variable => subst.getOrElse(v.to[V], v)
+          case _ => super.transform(expr)
+        }
+      }.transform(tpe)
+    }
+
+    def variablesOf(tpe: Type): Set[Variable] = tpe match {
+      case PiType(params, to) =>
+        variablesOf(to) -- params.map(_.toVariable) ++ params.flatMap(vd => variablesOf(vd.tpe))
+      case SigmaType(params, to) =>
+        variablesOf(to) -- params.map(_.toVariable) ++ params.flatMap(vd => variablesOf(vd.tpe))
+      case RefinementType(vd, pred) =>
+        exprOps.variablesOf(pred) - vd.toVariable
+      case NAryType(tpes, _) => tpes.flatMap(variablesOf).toSet
     }
   }
 }

@@ -44,16 +44,19 @@ trait TreeOps { self: Trees =>
     }
 
     def traverse(e: Expr): Unit = {
-      val (ids, vs, es, tps, _) = deconstructor.deconstruct(e)
+      val (ids, vs, es, tps, flags, _) = deconstructor.deconstruct(e)
       ids.foreach(traverse)
       vs.foreach(v => traverse(v.toVal))
       es.foreach(traverse)
       tps.foreach(traverse)
+      flags.foreach(traverse)
     }
 
     def traverse(tpe: Type): Unit = {
-      val (ids, tps, flags, _) = deconstructor.deconstruct(tpe)
+      val (ids, vs, es, tps, flags, _) = deconstructor.deconstruct(tpe)
       ids.foreach(traverse)
+      vs.foreach(v => traverse(v.toVal))
+      es.foreach(traverse)
       tps.foreach(traverse)
       flags.foreach(traverse)
     }
@@ -128,7 +131,7 @@ trait TreeTransformer {
   }
 
   def transform(e: s.Expr): t.Expr = {
-    val (ids, vs, es, tps, builder) = deconstructor.deconstruct(e)
+    val (ids, vs, es, tps, flags, builder) = deconstructor.deconstruct(e)
 
     var changed = false
 
@@ -157,15 +160,21 @@ trait TreeTransformer {
       newTp
     }
 
+    val newFlags = for (flag <- flags) yield {
+      val newFlag = transform(flag)
+      if (flag ne newFlag) changed = true
+      newFlag
+    }
+
     if (changed || (s ne t)) {
-      builder(newIds, newVs, newEs, newTps).copiedFrom(e)
+      builder(newIds, newVs, newEs, newTps, newFlags).copiedFrom(e)
     } else {
       e.asInstanceOf[t.Expr]
     }
   }
 
   def transform(tpe: s.Type): t.Type = {
-    val (ids, tps, flags, builder) = deconstructor.deconstruct(tpe)
+    val (ids, vs, es, tps, flags, builder) = deconstructor.deconstruct(tpe)
 
     var changed = false
 
@@ -173,6 +182,19 @@ trait TreeTransformer {
       val newId = transform(id)
       if (id ne newId) changed = true
       newId
+    }
+
+    val newVs = for (v <- vs) yield {
+      val vd = v.toVal
+      val newVd = transform(vd)
+      if (vd ne newVd) changed = true
+      newVd.toVariable
+    }
+
+    val newEs = for (e <- es) yield {
+      val newE = transform(e)
+      if (e ne newE) changed = true
+      newE
     }
 
     val newTps = for (tp <- tps) yield {
@@ -189,7 +211,7 @@ trait TreeTransformer {
 
     val res =
     if (changed || (s ne t)) {
-      builder(newIds, newTps, newFlags).copiedFrom(tpe)
+      builder(newIds, newVs, newEs, newTps, newFlags).copiedFrom(tpe)
     } else {
       tpe.asInstanceOf[t.Type]
     }

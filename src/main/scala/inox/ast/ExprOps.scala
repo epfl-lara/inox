@@ -3,6 +3,8 @@
 package inox
 package ast
 
+import scala.collection.mutable.{Map => MutableMap}
+
 /** Provides functions to manipulate [[Expressions.Expr]].
   *
   * This object provides a few generic operations on Inox expressions,
@@ -36,21 +38,17 @@ trait ExprOps extends GenTreeOps {
 
   /** Replaces bottom-up variables by looking up for them in a map */
   def replaceFromSymbols[V <: VariableSymbol](substs: Map[V, Expr], expr: Expr)(implicit ev: VariableConverter[V]): Expr = {
-    postMap {
-      case v: Variable => substs.get(v.to[V])
-      case _ => None
-    } (expr)
+    new SelfTreeTransformer {
+      override def transform(expr: Expr): Expr = expr match {
+        case v: Variable => substs.getOrElse(v.to[V], super.transform(v))
+        case _ => super.transform(expr)
+      }
+    }.transform(expr)
   }
-
-  /** Replaces bottom-up variables by looking them up in a map from [[Definitions.ValDef ValDef]] to expressions */
-  def replaceFromSymbols(substs: Map[ValDef, Expr], expr: Expr): Expr = postMap {
-    case v: Variable => substs.get(v.toVal)
-    case _ => None
-  } (expr)
 
   object VariableExtractor {
     def unapply(e: Expr): Option[Set[Variable]] = {
-      val (_, vs, _, _, _) = deconstructor.deconstruct(e)
+      val (_, vs, _, _, _, _) = deconstructor.deconstruct(e)
       Some(vs.toSet)
     }
   }
@@ -72,17 +70,23 @@ trait ExprOps extends GenTreeOps {
     * and used to lookup their images within models!
     */
   def freshenLocals(expr: Expr, freshenChooses: Boolean = false): Expr = {
-    def rec(expr: Expr, bindings: Map[Variable, Variable]): Expr = expr match {
-      case v: Variable => bindings(v)
-      case c: Choose if !freshenChooses => replaceFromSymbols(bindings, c)
-      case _ =>
-        val (ids, vs, es, tps, recons) = deconstructor.deconstruct(expr)
-        val newVs = vs.map(_.freshen)
-        val newBindings = bindings ++ (vs zip newVs)
-        recons(ids, newVs, es map (rec(_, newBindings)), tps).copiedFrom(expr)
-    }
+    val subst: MutableMap[Variable, Variable] = MutableMap.empty
+    variablesOf(expr).foreach(v => subst(v) = v)
 
-    rec(expr, variablesOf(expr).map(v => v -> v).toMap)
+    new SelfTreeTransformer {
+      override def transform(vd: ValDef): ValDef = subst.getOrElseUpdate(vd.toVariable, {
+        super.transform(vd).freshen.toVariable
+      }).toVal
+
+      override def transform(expr: Expr): Expr = expr match {
+        case v: Variable => transform(v.toVal).toVariable
+        case Choose(res, pred) if !freshenChooses =>
+          val newVd = super.transform(res)
+          subst(res.toVariable) = newVd.toVariable
+          Choose(newVd, transform(pred))
+        case _ => super.transform(expr)
+      }
+    }.transform(expr)
   }
 
   /** Returns true if the expression contains a function call */
