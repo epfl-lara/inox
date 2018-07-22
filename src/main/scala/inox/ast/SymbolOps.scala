@@ -741,11 +741,14 @@ trait SymbolOps { self: TypeOps =>
     case _: TypeParameter => None
     case MapType(_, to) => hasInstance(to)
     case TupleType(tpes) => if (tpes.forall(tp => hasInstance(tp) contains true)) Some(true) else None
+    case SigmaType(params, to) =>
+      if ((params.map(_.tpe) :+ to).forall(tp => hasInstance(tp) contains true)) Some(true) else None
     case adt: ADTType =>
       val sort = adt.getSort
       if (sort.hasInvariant) None
       else if (!sort.definition.isWellFormed) Some(false)
       else Some(true)
+    case _: RefinementType => None
     case _ => Some(true)
   }
 
