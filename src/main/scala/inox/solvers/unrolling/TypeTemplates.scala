@@ -123,13 +123,21 @@ trait TypeTemplates { self: Templates =>
   }
 
   def instantiateType(blocker: Encoded, typing: Typing): Clauses = typing.tpe match {
+    // If no unrolling is necessary, we don't need to register this typing
     case _ if !typing.unroll =>
       typing.instantiator match {
         case Constraint(res, _, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
         case _ => Seq.empty
       }
+
+    // In certain non-recursive cases, we want to instantiate the typing
+    // immediately to improve unrolling performance
     case (_: FunctionType | _: PiType) => instantiateTyping(blocker, typing)
+    case (_: TypeParameter) => instantiateTyping(blocker, typing)
     case adt: ADTType if !adt.getSort.definition.isInductive => instantiateTyping(blocker, typing)
+
+    // In the default case, we simply register the typing for unrolling at
+    // a later generation.
     case _ =>
       val gen = nextGeneration(currentGeneration)
       val notBlocker = mkNot(blocker)
