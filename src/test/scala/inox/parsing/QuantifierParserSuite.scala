@@ -167,5 +167,13 @@ class QuantifierParserSuite extends FunSuite {
       }
       case e => fail("Unexpected shape: " + e)
     }
+
+    e"x => x + 1" match {
+      case Lambda(Seq(vd @ ValDef(idX, IntegerType(), _)), Plus(v, IntegerLiteral(i))) =>
+        assert(vd.toVariable == v)
+        assert(i == 1)
+
+      case e => fail("Unexpected shape: " + e)
+    }
   }
 }

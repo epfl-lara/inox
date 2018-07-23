@@ -128,6 +128,10 @@ class TypeParserSuite extends FunSuite {
       t"BigInt => String"
     }
 
+    assertResult(FunctionType(Seq(), StringType())) {
+      t"() => String"
+    }
+
     assertResult(FunctionType(Seq(IntegerType()), StringType())) {
       t"(BigInt) => String"
     }
