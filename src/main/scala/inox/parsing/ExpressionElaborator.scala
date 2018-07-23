@@ -12,7 +12,7 @@ trait ExpressionElaborators { self: Interpolator =>
 
   trait ExpressionElaborator { inner: ExpressionConvertor =>
 
-    lazy val solver = new Solver(symbols)
+    lazy val solver = new Solver
 
     import ExprIR._
 

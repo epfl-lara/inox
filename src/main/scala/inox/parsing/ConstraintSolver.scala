@@ -6,8 +6,8 @@ package parsing
 import scala.util.parsing.input._
 
 trait ConstraintSolvers { self: Interpolator =>
-  
-  class Solver(symbols: trees.Symbols) {
+
+  class Solver {
 
     import trees._
 
@@ -21,7 +21,7 @@ trait ConstraintSolvers { self: Interpolator =>
           t match {
             case u: Unknown => unknowns += u
             case _ => super.traverse(t)
-          } 
+          }
         }
       }
 
@@ -65,7 +65,7 @@ trait ConstraintSolvers { self: Interpolator =>
               positives += u
             }
             case _ => super.traverse(t)
-          } 
+          }
         }
       }
 
@@ -84,7 +84,7 @@ trait ConstraintSolvers { self: Interpolator =>
           traverser.traverse(v)
         }
         case _ => ()
-      } 
+      }
 
       def apply(t: Type): (Set[Unknown], Set[Unknown]) = {
         positives = Set[Unknown]()
@@ -106,7 +106,7 @@ trait ConstraintSolvers { self: Interpolator =>
             case _ => {
               super.traverse(t)
             }
-          } 
+          }
         }
       }
 
@@ -190,7 +190,7 @@ trait ConstraintSolvers { self: Interpolator =>
             case (FunctionType(fas, ta), FunctionType(fbs, tb)) if (fbs.length == fas.length) => {
               remaining ++= fas.zip(fbs).map({ case (fa, fb) => Equal(fa, fb).setPos(constraint.pos) })
               remaining +:= Equal(ta, tb).setPos(constraint.pos)
-            } 
+            }
             case (TupleType(tas), TupleType(tbs)) if (tas.length == tbs.length) => {
               remaining ++= tas.zip(tbs).map({ case (ta, tb) => Equal(ta, tb).setPos(constraint.pos) })
             }
