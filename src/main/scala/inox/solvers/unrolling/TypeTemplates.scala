@@ -48,7 +48,8 @@ trait TypeTemplates { self: Templates =>
         })
 
       case (_: BagType | _: SetType) if this != ContractUnrolling => true
-      case (_: FunctionType | _: PiType) => true
+      case FunctionType(_, to) => this != ContractUnrolling || unroll(to)
+      case PiType(_, to) => this != ContractUnrolling || unroll(to)
       case RefinementType(vd, _) => this != CaptureUnrolling || unroll(vd.tpe)
       case SigmaType(params, to) => params.exists(vd => unroll(vd.tpe)) || unroll(to)
       case tp: TypeParameter => this == FreeUnrolling
