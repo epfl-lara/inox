@@ -31,7 +31,7 @@ trait TypeTemplates { self: Templates =>
   /** Determines whether a given type should be unrolled, depending on the kind of type unrolling,
     * namely free variable type unrolling (dependent types and ADT invariants), contract
     * type unrolling (dependent types), and capture unrolling (function closure ordering). */
-  private sealed abstract class TypeUnrolling {
+  protected sealed abstract class TypeUnrolling {
     private[this] val unrollCache: MutableMap[TypedADTSort, Boolean] = MutableMap.empty
 
     def unroll(tpe: Type): Boolean = tpe match {
@@ -56,18 +56,19 @@ trait TypeTemplates { self: Templates =>
     }
   }
 
-  private case object FreeUnrolling extends TypeUnrolling
-  private case object ContractUnrolling extends TypeUnrolling
-  private case object CaptureUnrolling extends TypeUnrolling
+  protected case object FreeUnrolling extends TypeUnrolling
+  protected case object ContractUnrolling extends TypeUnrolling
+  protected case object CaptureUnrolling extends TypeUnrolling
 
 
-  sealed abstract class TypingGenerator(unrolling: TypeUnrolling) {
+  protected sealed abstract class TypingGenerator(unrolling: TypeUnrolling) {
     def unroll(tpe: Type): Boolean = unrolling unroll tpe
   }
 
-  case object FreeGenerator extends TypingGenerator(FreeUnrolling)
-  case object ContractGenerator extends TypingGenerator(ContractUnrolling)
-  case class CaptureGenerator(container: Encoded, tpe: FunctionType) extends TypingGenerator(ContractUnrolling)
+  protected case object FreeGenerator extends TypingGenerator(FreeUnrolling)
+  protected case object ContractGenerator extends TypingGenerator(ContractUnrolling)
+  protected case class CaptureGenerator(container: Encoded, tpe: FunctionType)
+    extends TypingGenerator(ContractUnrolling)
 
 
   /** Represents the kind of instantiator (@see [[TypesTemplate]]) a given
@@ -111,7 +112,7 @@ trait TypeTemplates { self: Templates =>
     CaptureTemplate(arg._2, container._2).instantiate(start, container._1, arg._1)
   }
 
-  private def instantiateTyping(blocker: Encoded, typing: Typing): Clauses = typing match {
+  private[this] def instantiateTyping(blocker: Encoded, typing: Typing): Clauses = typing match {
     case Typing(tpe, arg, Constraint(result, closures, free)) => tpe match {
       case (_: FunctionType | _: PiType) =>
         registerFunction(blocker, result, tpe, arg, closures, free)

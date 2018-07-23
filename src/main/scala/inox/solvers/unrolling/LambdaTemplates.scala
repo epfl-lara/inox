@@ -149,32 +149,38 @@ trait LambdaTemplates { self: Templates =>
    * @param free - whether `f` corresponds to a free function in the program or a result from
    *               a named function
    */
-  private def registerApplication(b: Encoded, f: Encoded, app: App, tpe: Type, closures: Seq[Arg], free: Boolean) = {
-    val clauses = new scala.collection.mutable.ListBuffer[Encoded]
+  private def registerApplication(
+    b: Encoded, f: Encoded, app: App, tpe: Type, closures: Seq[Arg], free: Boolean
+  ): Option[(Encoded, Encoded, Clauses)] = {
+    if ((if (free) FreeUnrolling else ContractUnrolling) unroll tpe) {
+      val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-    val (typeBlocker, appResult) = typeBlockers.cached(f -> app) {
-      val typeBlocker = encodeSymbol(Variable.fresh("t", BooleanType()))
-      val freshBlocker = encodeSymbol(Variable.fresh("tb", BooleanType()))
+      val (typeBlocker, appResult) = typeBlockers.cached(f -> app) {
+        val typeBlocker = encodeSymbol(Variable.fresh("t", BooleanType()))
+        val freshBlocker = encodeSymbol(Variable.fresh("tb", BooleanType()))
 
-      registerImplication(typeBlocker, freshBlocker)
-      clauses += mkImplies(mkAnd(b, mkEquals(f, app.caller), typeBlocker), freshBlocker)
+        registerImplication(typeBlocker, freshBlocker)
+        clauses += mkImplies(mkAnd(b, mkEquals(f, app.caller), typeBlocker), freshBlocker)
 
-      val vars = typeOps.variablesOf(tpe).toSeq.sortBy(_.id)
-      val (subst, to) = tpe match {
-        case PiType(params, to) => ((params.map(_.toVariable) zip app.args).toMap ++ (vars zip closures), to)
-        case FunctionType(_, to) => ((vars zip closures).toMap, to)
-        case _ => throw FatalError("Unexpected function type " + tpe.asString)
+        val vars = typeOps.variablesOf(tpe).toSeq.sortBy(_.id)
+        val (subst, to) = tpe match {
+          case PiType(params, to) => ((params.map(_.toVariable) zip app.args).toMap ++ (vars zip closures), to)
+          case FunctionType(_, to) => ((vars zip closures).toMap, to)
+          case _ => throw FatalError("Unexpected function type " + tpe.asString)
+        }
+
+        val toVars = typeOps.variablesOf(to).toSeq.sortBy(_.id)
+        val toClosures = toVars.map(subst)
+        val appResult = encodeSymbol(Variable.fresh("result", BooleanType(), true))
+        clauses ++= instantiateType(freshBlocker, Typing(to, app.encoded, Constraint(appResult, toClosures, free)))
+
+        (typeBlocker, appResult)
       }
 
-      val toVars = typeOps.variablesOf(to).toSeq.sortBy(_.id)
-      val toClosures = toVars.map(subst)
-      val appResult = encodeSymbol(Variable.fresh("result", BooleanType(), true))
-      clauses ++= instantiateType(freshBlocker, Typing(to, app.encoded, Constraint(appResult, toClosures, free)))
-
-      (typeBlocker, appResult)
+      Some((typeBlocker, appResult, clauses.toSeq))
+    } else {
+      None
     }
-
-    (typeBlocker, appResult, clauses.toSeq)
   }
 
   def registerFunction(b: Encoded, r: Encoded, tpe: Type, f: Encoded, closures: Seq[Arg], free: Boolean): Clauses = {
@@ -206,8 +212,8 @@ trait LambdaTemplates { self: Templates =>
       val blockedResults = for {
         (bApp, app @ App(caller, _, _, _)) <- applications(ft)
         if canBeEqual(caller, f)
+        (typeBlocker, appResult, appClauses) <- registerApplication(b, f, app, tpe, closures, free)
       } yield {
-        val (typeBlocker, appResult, appClauses) = registerApplication(b, f, app, tpe, closures, free)
         clauses ++= appClauses
         clauses += mkImplies(bApp, typeBlocker)
         mkImplies(typeBlocker, appResult)
@@ -379,8 +385,8 @@ trait LambdaTemplates { self: Templates =>
         for {
           old @ (oldB, b, tpe, f, closures, free) <- freeBlockers(ft).toList
           if canBeEqual(caller, f)
+          (typeBlocker, appResult, appClauses) <- registerApplication(b, f, app, tpe, closures, free)
         } {
-          val (typeBlocker, appResult, appClauses) = registerApplication(b, f, app, tpe, closures, free)
           clauses ++= appClauses
 
           registerImplication(blocker, typeBlocker)

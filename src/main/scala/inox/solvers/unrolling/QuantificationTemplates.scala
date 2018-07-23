@@ -18,6 +18,18 @@ trait QuantificationTemplates { self: Templates =>
   import lambdasManager._
   import quantificationsManager._
 
+  /* In this context, we know that all `Typing` instances correspond
+   * to free constraint typings, so we are ensured that a result field
+   * exists. The following helper implicit enables simplified access to
+   * that field.
+   */
+  private implicit class TypingWrapper(tp: Typing) {
+    def result: Encoded = {
+      val Typing(_, _, Constraint(res, _, _)) = tp
+      res
+    }
+  }
+
   /* -- Extraction helpers -- */
 
   object QuantificationMatcher {
@@ -72,7 +84,7 @@ trait QuantificationTemplates { self: Templates =>
     val polarity: Polarity,
     val contents: TemplateContents,
     val structure: TemplateStructure,
-    val typings: Seq[(Encoded, Typing)],
+    val typings: Map[Encoded, Typing],
     val body: Expr,
     stringRepr: () => String,
     private val isConcrete: Boolean,
@@ -91,7 +103,7 @@ trait QuantificationTemplates { self: Templates =>
         polarity.substitute(substituter),
         contents.substitute(substituter, msubst),
         structure.substitute(substituter, msubst),
-        typings.map { case (res, tp) => substituter(res) -> tp.substitute(substituter, msubst) },
+        typings.map { case (q, tp) => substituter(q) -> tp.substitute(substituter, msubst) },
         body, stringRepr, isConcrete, isDeferred
       )
 
@@ -134,20 +146,22 @@ trait QuantificationTemplates { self: Templates =>
         (inst, Negative(insts, guardT), Map(pathVar._1 -> Seq(Equals(inst, Implies(guard, p)))), Map(insts, guards))
       }
 
-      val (results, resultTs, typings) = (idQuantifiers zip trQuantifiers).map { case (v, e) =>
-        val closures = typeOps.variablesOf(v.tpe).toSeq.sortBy(_.id).map(v => Left(clauseSubst(v)))
-        val result = Variable.fresh("result", BooleanType(), true)
-        val resultT = encodeSymbol(result)
-        (result, resultT, Typing(v.tpe, e, Constraint(resultT, closures, true)))
-      }.unzip3
+      val (results, typings) = (idQuantifiers zip trQuantifiers)
+        .filter { case (v, _) => FreeUnrolling unroll v.tpe }
+        .map { case (v, e) =>
+          val closures = typeOps.variablesOf(v.tpe).toSeq.sortBy(_.id).map(v => Left(clauseSubst(v)))
+          val result = Variable.fresh("result", BooleanType(), true)
+          val resultT = encodeSymbol(result)
+          (result -> resultT, e -> Typing(v.tpe, e, Constraint(resultT, closures, true)))
+        }.unzip
 
-      val allExprs = exprs ++ (results zip resultTs)
+      val allExprs = exprs ++ results
       val allGuarded = extraGuarded merge guarded
       val (contents, str) = Template.contents(pathVar, idQuantifiers zip trQuantifiers, (
         conds, allExprs, tree, allGuarded, eqs, types, equalities, lambdas, quants
       ), depSubst ++ extraSubst)
 
-      val template = new QuantificationTemplate(polarity, contents, structure, resultTs zip typings,
+      val template = new QuantificationTemplate(polarity, contents, structure, typings.toMap,
         body, () => "Template for " + forall.asString + " is :\n" + str(), false, defer)
 
       (res, template)
@@ -367,7 +381,7 @@ trait QuantificationTemplates { self: Templates =>
 
   private[solvers] trait Quantification extends IncrementalState {
     val contents: TemplateContents
-    val typings: Seq[(Encoded, Typing)]
+    val typings: Map[Encoded, Typing]
 
     val holds: Encoded
     val body: Expr
@@ -511,10 +525,16 @@ trait QuantificationTemplates { self: Templates =>
 
       /* Generate the sequence of all relevant instantiation mappings */
       var mappings: Seq[(Set[Encoded], Map[Encoded, Arg], Int)] = Seq.empty
-      for (((v,q),(res, tp)) <- quantifiers zip typings if grounds(q).isEmpty) {
-        clauses ++= instantiateType(contents.pathVar._2, tp)
+      for ((v,q) <- quantifiers if grounds(q).isEmpty) {
+        val res: Set[Encoded] = typings.get(q) match {
+          case Some(tp) =>
+            clauses ++= instantiateType(contents.pathVar._2, tp)
+            Set(tp.result)
+          case None =>
+            Set.empty
+        }
 
-        val init: Seq[(Set[Encoded], Map[Encoded, Arg], Set[Int], Int)] = Seq((Set(res), Map(q -> Left(q)), Set(), 0))
+        val init: Seq[(Set[Encoded], Map[Encoded, Arg], Set[Int], Int)] = Seq((res, Map(q -> Left(q)), Set(), 0))
         val newMappings = (quantified - q).foldLeft(init) { case (maps, oq) =>
           for ((bs, map, gens, c) <- maps; (ibs, inst, igens) <- quantToGround(oq)) yield {
             val delay = if (igens.isEmpty || (gens intersect igens).nonEmpty) 0 else 1
@@ -526,7 +546,7 @@ trait QuantificationTemplates { self: Templates =>
           (bs, map, c + (3 * map.values.collect { case Right(m) => totalDepth(m) }.sum))
         }
 
-        grounds(q) += ((Set(res), Left(q), Set.empty[Int]))
+        grounds(q) += ((res, Left(q), Set.empty[Int]))
       }
 
       clauses ++= instantiateSubsts(mappings)
@@ -669,7 +689,7 @@ trait QuantificationTemplates { self: Templates =>
 
   private class Axiom (
     val contents: TemplateContents,
-    val typings: Seq[(Encoded, Typing)],
+    val typings: Map[Encoded, Typing],
     val body: Expr,
     val defer: Boolean) extends Quantification {
 
@@ -712,7 +732,7 @@ trait QuantificationTemplates { self: Templates =>
         Positive,
         template.contents.copy(
           matchers = template.contents.matchers merge Map(template.start -> Set(matcher))
-        ), template.structure, Seq(), body, template.stringRepr, false, false))._2 // mapping is guaranteed empty!!
+        ), template.structure, Map(), body, template.stringRepr, false, false))._2 // mapping is guaranteed empty!!
     }
   }
 
@@ -748,9 +768,12 @@ trait QuantificationTemplates { self: Templates =>
 
         case Negative(insts, guard) =>
           val freshQuants = newTemplate.quantifiers.map(p => encodeSymbol(p._1))
-          val results = for ((q2, (res, tp)) <- freshQuants zip template.typings) yield {
+          val results = for {
+            ((_, q), q2) <- newTemplate.quantifiers zip freshQuants
+            tp <- newTemplate.typings get q
+          } yield {
             clauses ++= instantiateType(newTemplate.contents.pathVar._2, tp.copy(arg = q2))
-            res
+            tp.result
           }
 
           // We make sure that all clauses generated by this instantiation are blocked by
