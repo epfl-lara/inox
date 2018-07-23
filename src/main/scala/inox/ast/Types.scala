@@ -3,6 +3,8 @@
 package inox
 package ast
 
+import scala.collection.mutable.{Map => MutableMap}
+
 trait Types { self: Trees =>
 
   trait Typed extends Printable {
@@ -132,11 +134,43 @@ trait Types { self: Trees =>
 
   /* Dependent Types */
 
+  private object TypeNormalization {
+    private class TypeNormalizer extends SelfTreeTransformer {
+      private val subst: MutableMap[Variable, Variable] = MutableMap.empty
+      private var counter: Int = 0
+
+      override def transform(expr: Expr): Expr = expr match {
+        case v: Variable => subst.getOrElse(v, super.transform(v))
+        case _ => super.transform(expr)
+      }
+
+      override def transform(vd: ValDef): ValDef = {
+        val nid = new Identifier("x", counter, counter, false)
+        counter += 1
+
+        val newVd = ValDef(nid, transform(vd.tpe), vd.flags map transform).copiedFrom(vd)
+        subst(vd.toVariable) = newVd.toVariable
+        newVd
+      }
+    }
+
+    def apply(tpe: Type): Type = (new TypeNormalizer).transform(tpe)
+  }
+
   sealed case class PiType(params: Seq[ValDef], to: Type) extends Type {
     require(params.nonEmpty)
 
     override protected def computeType(implicit s: Symbols): Type =
       unveilUntyped(FunctionType(params.map(_.getType), to.getType))
+
+    private final val normalized = TypeNormalization(this)
+
+    override def equals(that: Any): Boolean = that match {
+      case pi: PiType => normalized == pi.normalized
+      case _ => false
+    }
+
+    override def hashCode: Int = normalized.hashCode
   }
 
   sealed case class SigmaType(params: Seq[ValDef], to: Type) extends Type {
@@ -144,11 +178,29 @@ trait Types { self: Trees =>
 
     override protected def computeType(implicit s: Symbols): Type =
       unveilUntyped(TupleType(params.map(_.getType) :+ to.getType))
+
+    private final val normalized = TypeNormalization(this)
+
+    override def equals(that: Any): Boolean = that match {
+      case sigma: SigmaType => normalized == sigma.normalized
+      case _ => false
+    }
+
+    override def hashCode: Int = normalized.hashCode
   }
 
   sealed case class RefinementType(vd: ValDef, prop: Expr) extends Type {
     override protected def computeType(implicit s: Symbols): Type =
       checkParamType(prop, BooleanType(), vd.getType)
+
+    private final val normalized = TypeNormalization(this)
+
+    override def equals(that: Any): Boolean = that match {
+      case ref: RefinementType => normalized == ref.normalized
+      case _ => false
+    }
+
+    override def hashCode: Int = normalized.hashCode
   }
 
   /* Utility methods for type checking */
