@@ -31,9 +31,20 @@ trait FunctionTemplates { self: Templates =>
       val arguments = fdArgs.map(v => v -> encodeSymbol(v))
       val substMap = arguments.toMap + pathVar
 
-      val tmplClauses = {
-        val (p, cls) = mkExprClauses(start, body, substMap)
-        cls + (start -> Equals(call, p))
+      val tmplClauses: TemplateClauses = {
+        val (p, tmplClauses) = mkExprClauses(start, body, substMap)
+        val clauses = tmplClauses + (start -> Equals(call, p))
+
+        // Register the function's return as a contract typing to enable
+        // induction with refinement types
+        if (ContractUnrolling unroll tfd.returnType) {
+          val (conds, exprs, tree, guarded, eqs, tps, equals, lambdas, quants) = clauses
+          val closures = typeOps.variablesOf(tfd.returnType).toSeq.sortBy(_.id).map(v => Left(substMap(v)))
+          val typing = Typing(tfd.returnType, mkCall(tfd, arguments.map(_._2)), Constraint(trueT, closures, false))
+          (conds, exprs, tree, guarded, eqs, tps merge Map(pathVar._2 -> Set(typing)), equals, lambdas, quants)
+        } else {
+          clauses
+        }
       }
 
       val (contents, str) = Template.contents(
