@@ -70,6 +70,7 @@ trait Lexers { self: Interpolator =>
       '∀' ^^^ Quantifier("forall") |
       '∃' ^^^ Quantifier("exists") |
       'λ' ^^^ Quantifier("lambda") |
+      '\\' ^^^ Quantifier("lambda") |
       acceptSeq("forall") ^^^ Quantifier("forall") |
       acceptSeq("exists") ^^^ Quantifier("exists") |
       acceptSeq("lambda") ^^^ Quantifier("lambda") |
@@ -82,7 +83,7 @@ trait Lexers { self: Interpolator =>
       }
 
     val parens: Parser[Token] = accept("parenthesis", {
-        case c@('[' | ']' | '(' | ')' | '{' | '}') => Parenthesis(c)
+        case c @ ('[' | ']' | '(' | ')' | '{' | '}') => Parenthesis(c)
       })
 
     override def argToToken(x: Any): Token = x match {

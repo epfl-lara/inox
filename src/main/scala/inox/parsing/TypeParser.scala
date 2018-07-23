@@ -48,7 +48,8 @@ trait TypeParsers { self: Interpolator =>
       (p: Position) => withPos("Type expected.", p)
     }
 
-    lazy val betweenArrows: Parser[List[Expression]] = (argumentTypes('(', ')') | uniqueType) withFailureMessage {
+    lazy val betweenArrows: Parser[List[Expression]] =
+      (((p('(') ~ p(')')) ^^ (_ => Nil)) | argumentTypes('(', ')') | uniqueType) withFailureMessage {
       (p: Position) => withPos("Expected type or group of types.", p)
     }
 
@@ -65,10 +66,11 @@ trait TypeParsers { self: Interpolator =>
         (p: Position) => withPos("Single type, or embedded sequence of types followed by `...`, expected.", p)
       }
 
-      (p(open) ~> commit(rep1sep(typeOrEllipsis, p(',')) <~ endOfGroup(close))) ^^ (_.flatten) withFailureMessage {
+      (p(open) ~> commit(repsep(typeOrEllipsis, p(',')) <~ endOfGroup(close))) ^^ (_.flatten) withFailureMessage {
         (p: Position) => withPos("Group of arguments expected.", p)
       }
     }
+
     lazy val parensType: Parser[Expression] = p('(') ~> typeExpression <~ p(')')
 
     lazy val name: Parser[Expression] = positioned(acceptMatch("Name", {

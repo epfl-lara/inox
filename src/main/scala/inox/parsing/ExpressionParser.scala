@@ -104,7 +104,7 @@ trait ExpressionParsers { self: Interpolator =>
       case lexical.Hole(i) => FieldHole(i)
     })
 
-    lazy val greedyRight: Parser[Expression] = quantifierExpr | ifExpr | letExpr | assumeExpr
+    lazy val greedyRight: Parser[Expression] = lambdaExpr | quantifierExpr | ifExpr | letExpr | assumeExpr
 
     lazy val assumeExpr: Parser[Expression] = for {
       _ <- kw("assume")
@@ -257,7 +257,7 @@ trait ExpressionParsers { self: Interpolator =>
       otype <- opt(p(':') ~> commit(typeExpression))
     } yield (i, otype)
 
-    def quantifierExpr: Parser[Expression] = for {
+    lazy val quantifierExpr: Parser[Expression] = for {
       q <- quantifier
       vds <- rep1sep(commit(valDef), p(','))
       _ <- commit(p('.') withFailureMessage {
@@ -265,6 +265,14 @@ trait ExpressionParsers { self: Interpolator =>
       })
       e <- commit(expression)
     } yield Abstraction(q, vds, e)
+
+    lazy val lambdaExpr: Parser[Expression] = for {
+      vds <- p('(') ~> repsep(valDef, p(',')) <~ p(')') | identifier ^^ (id => Seq((id, None)))
+      _ <- kw("=>") withFailureMessage {
+        (p: Position) => "Missing `=>` between bindings and lambda body."
+      }
+      e <- commit(expression)
+    } yield Abstraction(Lambda, vds, e)
 
     lazy val operatorExpr: Parser[Expression] = {
 
