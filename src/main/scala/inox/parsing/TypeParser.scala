@@ -66,7 +66,7 @@ trait TypeParsers { self: Interpolator =>
         (p: Position) => withPos("Single type, or embedded sequence of types followed by `...`, expected.", p)
       }
 
-      (p(open) ~> commit(repsep(typeOrEllipsis, p(',')) <~ endOfGroup(close))) ^^ (_.flatten) withFailureMessage {
+      (p(open) ~> commit(rep1sep(typeOrEllipsis, p(',')) <~ endOfGroup(close))) ^^ (_.flatten) withFailureMessage {
         (p: Position) => withPos("Group of arguments expected.", p)
       }
     }
