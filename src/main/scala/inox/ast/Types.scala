@@ -154,53 +154,58 @@ trait Types { self: Trees =>
       }
     }
 
-    def apply(tpe: Type): Type = (new TypeNormalizer).transform(tpe)
+    def apply[T <: Type](tpe: T): T = (new TypeNormalizer).transform(tpe).asInstanceOf[T]
   }
 
-  sealed case class PiType(params: Seq[ValDef], to: Type) extends Type {
+  protected sealed trait TypeNormalization { self: Type with Product =>
+    @inline
+    private def elements: List[Any] = _elements.get
+    private[this] val _elements: utils.Lazy[List[Any]] = utils.Lazy({
+      // @nv: note that we can't compare `normalized` directly as we are
+      //      overriding the `equals` method and this would lead to non-termination.
+      val normalized = TypeNormalization(this)
+      normalized.productIterator.toList
+    })
+
+    protected final def same(that: TypeNormalization): Boolean = elements == that.elements
+    protected final def code: Int = elements.hashCode
+  }
+
+  sealed case class PiType(params: Seq[ValDef], to: Type) extends Type with TypeNormalization {
     require(params.nonEmpty)
 
     override protected def computeType(implicit s: Symbols): Type =
       unveilUntyped(FunctionType(params.map(_.getType), to.getType))
 
-    private final val normalized = TypeNormalization(this)
-
+    override val hashCode: Int = 31 * code
     override def equals(that: Any): Boolean = that match {
-      case pi: PiType => normalized == pi.normalized
+      case pi: PiType => this same pi
       case _ => false
     }
-
-    override def hashCode: Int = normalized.hashCode
   }
 
-  sealed case class SigmaType(params: Seq[ValDef], to: Type) extends Type {
+  sealed case class SigmaType(params: Seq[ValDef], to: Type) extends Type with TypeNormalization {
     require(params.nonEmpty)
 
     override protected def computeType(implicit s: Symbols): Type =
       unveilUntyped(TupleType(params.map(_.getType) :+ to.getType))
 
-    private final val normalized = TypeNormalization(this)
-
+    override val hashCode: Int = 53 * code
     override def equals(that: Any): Boolean = that match {
-      case sigma: SigmaType => normalized == sigma.normalized
+      case sigma: SigmaType => this same sigma
       case _ => false
     }
-
-    override def hashCode: Int = normalized.hashCode
   }
 
-  sealed case class RefinementType(vd: ValDef, prop: Expr) extends Type {
+  sealed case class RefinementType(vd: ValDef, prop: Expr) extends Type with TypeNormalization {
     override protected def computeType(implicit s: Symbols): Type =
       checkParamType(prop, BooleanType(), vd.getType)
 
-    private final val normalized = TypeNormalization(this)
-
+    override val hashCode: Int = 79 * code
     override def equals(that: Any): Boolean = that match {
-      case ref: RefinementType => normalized == ref.normalized
+      case ref: RefinementType => this same ref
       case _ => false
     }
-
-    override def hashCode: Int = normalized.hashCode
   }
 
   /* Utility methods for type checking */
