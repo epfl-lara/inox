@@ -22,12 +22,15 @@ trait TypeIRs extends TypeConvertors { self: Interpolator =>
     sealed abstract class Operator
     case object Group extends Operator
     case object Tuple extends Operator
+    case object Sigma extends Operator
     case object Arrow extends Operator
+    case object Pi    extends Operator
 
     case class TypeHole(index: Int) extends Expression("TypeHole")
     case class NameHole(index: Int) extends Expression("NameHole")
     case class TypeSeqHole(index: Int) extends Expression("TypeSeqHole")
 
     case class Refinement(id: Option[ExprIR.Identifier], tpe: Expression, pred: ExprIR.Expression) extends Expression("RefinementType")
+    case class TypeBinding(id: ExprIR.Identifier, tpe: Expression) extends Expression("TypeBinding")
   }
 }

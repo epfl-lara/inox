@@ -36,24 +36,38 @@ trait TypeParsers { self: Interpolator =>
       (p: Position) => withPos("Unexpected character. Arrow `=>` or end of type expected.", p)
     }
 
-    lazy val typeExpression: Parser[Expression] = positioned(rep1sep(betweenArrows, arrow) ^^ {
+    lazy val typeExpression: Parser[Expression] = positioned(rep1sep(betweenArrows, arrow) flatMap {
       case tss => tss.reverse match {
-        case returnTypes :: rest => {
-          val retType = returnTypes match {
-            case Seq(TypeSeqHole(i)) => Operation(Tuple, Seq(TypeSeqHole(i)))
-            case Seq(t) => t
-            case ts     => Operation(Tuple, ts)
+        case returnTypes :: rest =>
+          if (returnTypes.isEmpty) {
+            failure("Illegal empty list of types.")
+          } else if (returnTypes.lastOption.exists(_.isInstanceOf[TypeBinding])) {
+            failure("Illegal type binding in last return type position.")
+          } else {
+            val retType = returnTypes match {
+              case Seq(TypeSeqHole(i)) => Operation(Tuple, Seq(TypeSeqHole(i)))
+              case Seq(t) => t
+              case ts if ts.exists(_.isInstanceOf[TypeBinding]) => Operation(Sigma, ts)
+              case ts => Operation(Tuple, ts)
+            }
+
+            success(rest.foldLeft(retType) {
+              case (to, froms) => Operation(
+                if (froms.exists(_.isInstanceOf[TypeBinding])) Pi else Arrow,
+                Seq(Operation(Group, froms), to)
+              )
+            })
           }
-          rest.foldLeft(retType) { case (to, froms) => Operation(Arrow, Seq(Operation(Group, froms), to)) }
-        }
         case Nil => throw new IllegalStateException("Empty list of types.")  // Should never happen.
       }
     }) withFailureMessage {
       (p: Position) => withPos("Type expected.", p)
     }
 
-    lazy val betweenArrows: Parser[List[Expression]] =
-      (((p('(') ~ p(')')) ^^ (_ => Nil)) | argumentTypes('(', ')') | uniqueType) withFailureMessage {
+    lazy val betweenArrows: Parser[List[Expression]] = (
+      ((p('(') ~ p(')')) ^^ (_ => Nil)) |
+      argumentTypes('(', ')', allowNamed = true) |
+      uniqueType) withFailureMessage {
       (p: Position) => withPos("Expected type or group of types.", p)
     }
 
@@ -65,8 +79,9 @@ trait TypeParsers { self: Interpolator =>
       (p: Position) => withPos("Expected character `" + c + "`, or more types (separated by `,`).", p)
     }
 
-    def argumentTypes(open: Char, close: Char): Parser[List[Expression]] = {
-      val typeOrEllipsis = (((typeSeqHole | typeExpression) ^^ (List(_))) | typeEllipsis) withFailureMessage {
+    def argumentTypes(open: Char, close: Char, allowNamed: Boolean = false): Parser[List[Expression]] = {
+      val typeOrHole = if (allowNamed) typeSeqHole | typeExpression | typeBinding else typeSeqHole | typeExpression
+      val typeOrEllipsis = ((typeOrHole ^^ (List(_))) | typeEllipsis) withFailureMessage {
         (p: Position) => withPos("Single type, or embedded sequence of types followed by `...`, expected.", p)
       }
 
@@ -118,5 +133,11 @@ trait TypeParsers { self: Interpolator =>
       pred <- commit(expression)
       _ <- commit(p('}'))
     } yield Refinement(oid, tpe, pred)
+
+    lazy val typeBinding: Parser[Expression] = for {
+      id <- identifier
+      _ <- p(':')
+      tpe <- commit(typeExpression)
+    } yield TypeBinding(id, tpe)
   }
 }
