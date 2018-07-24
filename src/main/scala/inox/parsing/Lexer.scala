@@ -48,8 +48,9 @@ trait Lexers { self: Interpolator =>
 
     val comma: Parser[Token] = ',' ^^^ Punctuation(',')
     val dot: Parser[Token] = '.' ^^^ Punctuation('.')
+    val pipe: Parser[Token] = '|' ^^^ Punctuation('|')
     val colon: Parser[Token] = ':' ^^^ Punctuation(':')
-    val punctuation: Parser[Token] = comma | dot | colon
+    val punctuation: Parser[Token] = comma | dot | pipe | colon
 
     val number = opt('-') ~ rep1(digit) ~ opt('.' ~> afterDot) ^^ {
       case s ~ ds ~ None     => NumericLit(s.map(x => "-").getOrElse("") + ds.mkString)

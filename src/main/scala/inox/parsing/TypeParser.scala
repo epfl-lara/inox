@@ -10,7 +10,10 @@ import scala.util.parsing.input._
 
 trait TypeParsers { self: Interpolator =>
 
-  class TypeParser extends StdTokenParsers with PositionalErrors with StringContextParsers {
+  class TypeParser
+    extends StdTokenParsers
+       with PositionalErrors
+       with StringContextParsers { self: ExpressionParser =>
 
     type Tokens = Lexer.type
 
@@ -24,6 +27,7 @@ trait TypeParsers { self: Interpolator =>
     def p(c: Char): Parser[Token] = (elem(Parenthesis(c)) | elem(Punctuation(c))) withFailureMessage {
       (p: Position) => withPos("Expected character: " + c, p)
     }
+
     def kw(s: String): Parser[Token] = elem(Keyword(s)) withFailureMessage {
       (p: Position) => withPos("Expected keyword: " + s, p)
     }
@@ -106,5 +110,13 @@ trait TypeParsers { self: Interpolator =>
       case None => n
       case Some(args) => Application(n, args)
     }
+
+    lazy val refinementType: Parser[Expression] = for {
+      _ <- p('{')
+      (oid ~ tpe) <- commit(opt(identifier <~ p(':')) ~ typeExpression)
+      _ <- commit(p('|'))
+      pred <- commit(expression)
+      _ <- commit(p('}'))
+    } yield Refinement(oid, tpe, pred)
   }
 }

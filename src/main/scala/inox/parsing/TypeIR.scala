@@ -27,5 +27,7 @@ trait TypeIRs extends TypeConvertors { self: Interpolator =>
     case class TypeHole(index: Int) extends Expression("TypeHole")
     case class NameHole(index: Int) extends Expression("NameHole")
     case class TypeSeqHole(index: Int) extends Expression("TypeSeqHole")
+
+    case class Refinement(id: Option[ExprIR.Identifier], tpe: Expression, pred: ExprIR.Expression) extends Expression("RefinementType")
   }
 }
