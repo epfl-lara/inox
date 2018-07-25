@@ -71,7 +71,7 @@ trait TypeParsers { self: Interpolator =>
       (p: Position) => withPos("Expected type or group of types.", p)
     }
 
-    lazy val uniqueType: Parser[List[Expression]] = (typeHole | appliedType | parensType) ^^ {
+    lazy val uniqueType: Parser[List[Expression]] = (typeHole | appliedType | parensType | refinementType) ^^ {
       case t => List(t)
     }
 
@@ -129,7 +129,7 @@ trait TypeParsers { self: Interpolator =>
     lazy val refinementType: Parser[Expression] = for {
       _ <- p('{')
       (oid ~ tpe) <- commit(opt(identifier <~ p(':')) ~ typeExpression)
-      _ <- commit(p('|'))
+      _ <- commit(elem(Operator("|")))
       pred <- commit(expression)
       _ <- commit(p('}'))
     } yield Refinement(oid, tpe, pred)

@@ -182,7 +182,7 @@ trait TypeElaborators { self: Interpolator =>
           val (newStore, vds) = getTypeBindings(Seq(ident -> tpe))
 
           val u = Unknown.fresh
-          vds.combine(getExpr(pred, u))({
+          vds.combine(getExpr(pred, u)(newStore))({
             case (Seq(vd), pred) => trees.RefinementType(vd, pred)
           }).addConstraint({
             Constraint.equal(u, trees.BooleanType())
