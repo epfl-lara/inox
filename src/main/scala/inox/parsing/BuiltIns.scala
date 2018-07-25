@@ -3,7 +3,7 @@
 package inox
 package parsing
 
-trait BuiltIns { self: Interpolator =>
+trait BuiltIns {
 
   lazy val bi = new DefaultBuiltIns {}
 

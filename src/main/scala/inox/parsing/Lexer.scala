@@ -9,7 +9,7 @@ import scala.util.parsing.combinator.token._
 
 import inox.InoxProgram
 
-trait Lexers { self: Interpolator =>
+trait Lexers {
 
   object Lexer extends StdLexical with StringContextLexer {
 

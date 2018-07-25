@@ -3,9 +3,10 @@
 package inox
 package parsing
 
-trait ExpressionDeconstructors { self: Interpolator =>
+trait ExpressionDeconstructors extends IRs {
 
-  trait ExpressionDeconstructor { inner: Elaborator =>
+  trait ExpressionDeconstructor {
+    implicit val symbols: trees.Symbols
 
     import ExprIR._
 

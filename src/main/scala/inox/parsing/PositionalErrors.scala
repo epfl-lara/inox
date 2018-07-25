@@ -6,10 +6,10 @@ package parsing
 import scala.util.parsing.combinator._
 import scala.util.parsing.input._
 
-trait PositionalErrors { self: Parsers =>
-  
+trait PositionalErrors { self: scala.util.parsing.combinator.Parsers =>
+
   implicit class PositionalErrorsDecorator[A](parser: Parser[A]) {
-    
+
     def withErrorMessage(onError: Position => String): Parser[A] = new Parser[A] {
       override def apply(input: Input) = parser(input) match {
         case s @ Success(_, _) => s

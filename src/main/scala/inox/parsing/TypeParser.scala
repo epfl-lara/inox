@@ -8,7 +8,7 @@ import scala.util.parsing.combinator.syntactical._
 import scala.util.parsing.combinator.token._
 import scala.util.parsing.input._
 
-trait TypeParsers { self: Interpolator =>
+trait TypeParsers { self: Parsers =>
 
   class TypeParser
     extends StdTokenParsers

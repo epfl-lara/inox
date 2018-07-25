@@ -10,9 +10,34 @@ import scala.language.implicitConversions
 /** Contains description of (type-checking) constraints and
  *  and constrained values.
  */
-trait Constraints { self: Interpolator =>
+trait Elaborators
+  extends IRs
+     with ExpressionDeconstructors
+     with TypeDeconstructors
+     with ExpressionElaborators
+     with TypeElaborators
+     with ConstraintSolvers {
 
   import trees.Type
+
+  class ElaborationException(errors: Seq[ErrorLocation])
+    extends Exception(errors.map(_.toString).mkString("\n\n"))
+
+  trait Elaborator
+    extends ExpressionDeconstructor
+       with TypeDeconstructor
+       with ExpressionElaborator
+       with TypeElaborator {
+
+    lazy val solver = new Solver
+
+    def elaborate[A](c: Constrained[A]): A = c match {
+      case Unsatisfiable(es) => throw new ElaborationException(es)
+      case WithConstraints(ev, constraints) =>
+        implicit val u = solver.solveConstraints(constraints)
+        ev
+    }
+  }
 
   /** Represents a meta type-parameter. */
   class Unknown(val param: BigInt) extends trees.Type with Positional {

@@ -7,39 +7,13 @@ import scala.util.parsing.input._
 
 import Utils.plural
 
-trait TypeElaborators { self: Interpolator => 
+trait TypeElaborators { self: Elaborators => 
 
   import Utils.{either, traverse, plural}
 
-  trait TypeElaborator { self: Elaborator with TypeConverter =>
+  trait TypeElaborator { self: Elaborator =>
 
     import TypeIR._
-
-    object BVType {
-      def apply(size: Int): String = {
-        require(size > 0)
-
-        "Int" + size
-      }
-
-      def unapply(name: String): Option[Int] = {
-        if (name.startsWith("Int")) {
-          scala.util.Try(name.drop(3).toInt).toOption.filter(_ > 0)
-        }
-        else {
-          None
-        }
-      }
-    }
-
-    lazy val basic: Map[Value, trees.Type] = Seq(
-      "Boolean" -> trees.BooleanType(),
-      "BigInt"  -> trees.IntegerType(),
-      "Char"    -> trees.CharType(),
-      "Int"     -> trees.Int32Type(),
-      "Real"    -> trees.RealType(),
-      "String"  -> trees.StringType(),
-      "Unit"    -> trees.UnitType()).map({ case (n, v) => Name(n) -> v }).toMap
 
     private lazy val basicInv = basic.map(_.swap)
 
@@ -64,7 +38,7 @@ trait TypeElaborators { self: Interpolator =>
     def getSimpleType(tpe: Expression): trees.Type = {
       toSimpleType(tpe) match {
         case Right(inoxType) => inoxType
-        case Left(errors) => throw new TypeElaborationException(errors)
+        case Left(errors) => throw new ElaborationException(errors)
       }
     }
 

@@ -7,7 +7,7 @@ import scala.util.parsing.input._
 
 import Utils.plural
 
-trait ExpressionElaborators { self: Interpolator =>
+trait ExpressionElaborators { self: Elaborators =>
   import trees._
 
   trait ExpressionElaborator { self0: Elaborator =>

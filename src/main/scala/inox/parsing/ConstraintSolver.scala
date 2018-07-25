@@ -5,7 +5,10 @@ package parsing
 
 import scala.util.parsing.input._
 
-trait ConstraintSolvers { self: Interpolator =>
+trait ConstraintSolvers { self: Elaborators =>
+
+  case class ConstraintException(error: String, position: Position)
+    extends ElaborationException(Seq(ErrorLocation(error, position)))
 
   class Solver {
 

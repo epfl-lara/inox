@@ -8,7 +8,7 @@ import scala.util.parsing.combinator.syntactical._
 import scala.util.parsing.combinator.token._
 import scala.util.parsing.input.Position
 
-trait ExpressionParsers { self: Interpolator =>
+trait ExpressionParsers { self: Parsers =>
 
   class ExpressionParser extends TypeParser {
 
@@ -19,6 +19,7 @@ trait ExpressionParsers { self: Interpolator =>
     lazy val expression: Parser[Expression] = positioned(greedyRight | operatorExpr) withFailureMessage {
       (p: Position) => withPos("Expression expected.", p)
     }
+
     lazy val nonOperatorExpr: Parser[Expression] = positioned(withPrefix(greedyRight | withTypeAnnotation(selectionExpr))) withFailureMessage {
       (p: Position) => withPos("Expression expected.", p)
     }

@@ -3,9 +3,9 @@
 package inox
 package parsing
 
-trait ExpressionExtractors { self: Interpolator =>
+trait ExpressionExtractors { self: Extractors =>
 
-  trait ExpressionExtractor extends Extractor { self0: Elaborator =>
+  trait ExpressionExtractor { self0: Extractor =>
 
     import ExprIR._
 

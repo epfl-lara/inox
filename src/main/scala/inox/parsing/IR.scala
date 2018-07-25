@@ -1,9 +1,13 @@
-/* Copyright 2017 EPFL, Lausanne */
+/* Copyright 2009-2018 EPFL, Lausanne */
 
 package inox
 package parsing
 
 import scala.util.parsing.input.Positional
+
+trait IRs extends BuiltIns with ExprIRs with TypeIRs {
+  protected val trees: ast.Trees
+}
 
 /** Contains abstract Intermediate Representation (IR) language. */ 
 trait IR {
