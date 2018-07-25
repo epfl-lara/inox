@@ -69,7 +69,7 @@ trait TypeTemplates { self: Templates =>
   protected case object FreeGenerator extends TypingGenerator(FreeUnrolling)
   protected case object ContractGenerator extends TypingGenerator(ContractUnrolling)
   protected case class CaptureGenerator(container: Encoded, tpe: FunctionType)
-    extends TypingGenerator(ContractUnrolling)
+    extends TypingGenerator(CaptureUnrolling)
 
 
   /** Represents the kind of instantiator (@see [[TypesTemplate]]) a given
@@ -259,7 +259,8 @@ trait TypeTemplates { self: Templates =>
       var functions: Set[Encoded] = Set.empty
 
       for ((b, tps) <- types; tp <- tps) tp match {
-        case Typing(ft: FunctionType, arg, Capture(containerT, containerType)) =>
+        case Typing(t @ (_: FunctionType | _: PiType), arg, Capture(containerT, containerType)) =>
+          val ft = t.getType.asInstanceOf[FunctionType]
           funClauses :+= mkImplies(b, lessThan(order(ft)(arg), order(containerType)(containerT)))
           functions += arg
         case _ => typeBlockers += b -> (typeBlockers.getOrElse(b, Set.empty) + tp)
