@@ -168,7 +168,9 @@ trait Types { self: Trees =>
     })
 
     protected final def same(that: TypeNormalization): Boolean = elements == that.elements
-    protected final def code: Int = elements.hashCode
+
+    private[this] val _code: utils.Lazy[Int] = utils.Lazy(elements.hashCode)
+    protected final def code: Int = _code.get
   }
 
   sealed case class PiType(params: Seq[ValDef], to: Type) extends Type with TypeNormalization {
@@ -177,7 +179,7 @@ trait Types { self: Trees =>
     override protected def computeType(implicit s: Symbols): Type =
       unveilUntyped(FunctionType(params.map(_.getType), to.getType))
 
-    override val hashCode: Int = 31 * code
+    override def hashCode: Int = 31 * code
     override def equals(that: Any): Boolean = that match {
       case pi: PiType => this same pi
       case _ => false
@@ -190,7 +192,7 @@ trait Types { self: Trees =>
     override protected def computeType(implicit s: Symbols): Type =
       unveilUntyped(TupleType(params.map(_.getType) :+ to.getType))
 
-    override val hashCode: Int = 53 * code
+    override def hashCode: Int = 53 * code
     override def equals(that: Any): Boolean = that match {
       case sigma: SigmaType => this same sigma
       case _ => false
@@ -201,7 +203,7 @@ trait Types { self: Trees =>
     override protected def computeType(implicit s: Symbols): Type =
       checkParamType(prop, BooleanType(), vd.getType)
 
-    override val hashCode: Int = 79 * code
+    override def hashCode: Int = 79 * code
     override def equals(that: Any): Boolean = that match {
       case ref: RefinementType => this same ref
       case _ => false
