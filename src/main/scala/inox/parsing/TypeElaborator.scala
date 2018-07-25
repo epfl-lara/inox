@@ -75,12 +75,9 @@ trait TypeElaborators { self: Interpolator =>
           case tpe => toSimpleType(tpe)
         }).left.map(_.flatten).right.map(trees.TupleType(_))
 
-      case Operation(Arrow | Pi, Seq(from, to)) => 
+      case Operation(Arrow | Pi, Seq(Operation(Group, froms), to)) => 
         either(
-          traverse((from match {
-            case Operation(Group, froms) => froms
-            case from => Seq(from)
-          }).map {
+          traverse(froms.map {
             case TypeBinding(_, tpe) => toSimpleType(tpe)
             case tpe => toSimpleType(tpe)
           }).left.map(_.flatten),
@@ -163,22 +160,14 @@ trait TypeElaborators { self: Interpolator =>
             case (params, to) => trees.SigmaType(params, to)
           })
 
-        case Operation(Arrow, Seq(from, to)) =>
+        case Operation(Arrow, Seq(Operation(Group, froms), to)) =>
           Constrained.sequence({
-            (from match {
-              case Operation(Group, froms) => froms
-              case from => Seq(from)
-            }).map(getType(_))
+            froms.map(getType(_))
           }).combine(getType(to))({
             case (from, to) => trees.FunctionType(from, to)
           })
 
-        case Operation(Pi, Seq(from, to)) =>
-          val froms = from match {
-            case Operation(Group, froms) => froms
-            case from => Seq(from)
-          }
-
+        case Operation(Pi, Seq(Operation(Group, froms), to)) =>
           val (newStore, bindings) = getTypeBindings(froms.map {
             case TypeBinding(id, tpe) => (Some(id), tpe)
             case tpe => (None, tpe)

@@ -11,7 +11,7 @@ trait ExpressionExtractors { self: Interpolator =>
 
     private type MatchObligation = Option[Match]
 
-    private def toIdObl(pair: (inox.Identifier, Identifier)): MatchObligation = {
+    protected def toIdObl(pair: (inox.Identifier, Identifier)): MatchObligation = {
       val (id, templateId) = pair
 
       templateId match {
