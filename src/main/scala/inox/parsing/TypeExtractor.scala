@@ -5,7 +5,7 @@ package parsing
 
 trait TypeExtractors { self: Interpolator =>
 
-  trait TypeExtractor extends Extractor { self: TypeConvertor =>
+  trait TypeExtractor extends Extractor { self: TypeConverter =>
 
     import TypeIR._
 

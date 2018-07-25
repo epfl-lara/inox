@@ -18,20 +18,41 @@ trait Interpolator extends BuiltIns
 
   import trees._
 
+  class Elaborator(implicit val symbols: trees.Symbols)
+    extends ExpressionElaborator
+       with TypeElaborator
+       with ExpressionConverter
+       with TypeConverter {
+
+    lazy val solver = new Solver
+
+    class ElaborationException(val errors: Seq[ErrorLocation])
+      extends Exception(errors.map(_.toString).mkString("\n\n"))
+
+    def elaborate[A](c: Constrained[A]): A = c match {
+      case Unsatisfiable(es) => throw new ElaborationException(es)
+      case WithConstraints(ev, constraints) =>
+        implicit val u = solver.solveConstraints(constraints)
+        ev
+    }
+  }
+
   implicit class ExpressionInterpolator(sc: StringContext)(implicit symbols: trees.Symbols = trees.NoSymbols) {
 
-    private lazy val convertor = new ExpressionConvertor(symbols)
+    private lazy val elaborator = new Elaborator()
     private lazy val parser = new ExpressionParser()
 
     object e {
       def apply(args: Any*): Expr = {
-        convertor.getExpr(ir(args : _*))
+        val ire = ir(args : _*)
+        val expr = elaborator.getExpr(ire, Unknown.fresh(ire.pos))(Store.empty)
+        elaborator.elaborate(expr)
       }
 
       def unapplySeq(expr: Expr): Option[Seq[Any]] = {
         val args = Seq.tabulate(sc.parts.length - 1)(MatchPosition(_))
         val ir = parser.getFromSC(sc, args)(parser.phrase(parser.expression))
-        convertor.extract(expr, ir) match {
+        elaborator.extract(expr, ir) match {
           case Some(mappings) if mappings.size == sc.parts.length - 1 => Some(mappings.toSeq.sortBy(_._1).map(_._2))
           case _ => None
         }
@@ -44,7 +65,8 @@ trait Interpolator extends BuiltIns
 
     def v(args: Any*): ValDef = {
       val (id, ir) = parser.getFromSC(sc, args)(parser.phrase(parser.inoxValDef))
-      trees.ValDef(id, convertor.getType(ir))
+      val tpe = elaborator.getType(ir)(Store.empty)
+      trees.ValDef(id, elaborator.elaborate(tpe))
     }
 
     def r(args: Any*): Seq[Lexer.Token] = {
@@ -63,13 +85,14 @@ trait Interpolator extends BuiltIns
     object t {
       def apply(args: Any*): Type = {
         val ir = parser.getFromSC(sc, args)(parser.phrase(parser.typeExpression))
-        convertor.getType(ir)
+        val tpe = elaborator.getType(ir)(Store.empty)
+        elaborator.elaborate(tpe)
       }
 
       def unapplySeq(tpe: Type): Option[Seq[Any]] = {
         val args = Seq.tabulate(sc.parts.length - 1)(MatchPosition(_))
         val ir = parser.getFromSC(sc, args)(parser.phrase(parser.typeExpression))
-        convertor.extract(tpe, ir) match {
+        elaborator.extract(tpe, ir) match {
           case Some(mappings) if mappings.size == sc.parts.length - 1 => Some(mappings.toSeq.sortBy(_._1).map(_._2))
           case _ => None
         }

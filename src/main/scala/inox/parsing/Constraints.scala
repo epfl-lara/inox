@@ -5,6 +5,8 @@ package parsing
 
 import scala.util.parsing.input._
 
+import scala.language.implicitConversions
+
 /** Contains description of (type-checking) constraints and
  *  and constrained values.
  */
@@ -63,16 +65,18 @@ trait Constraints { self: Interpolator =>
   }
 
   /** Maps meta type-parameters to actual types. */
-  class Unifier(mappings: Map[Unknown, Type]) {
+  class Unifier(subst: Map[Unknown, Type]) {
 
     val instantiator = new trees.SelfTreeTransformer {
       override def transform(tpe: Type) = tpe match {
-        case u: Unknown => if (mappings.contains(u)) mappings(u) else u
+        case u: Unknown => subst.getOrElse(u, u)
         case _ => super.transform(tpe)
       }
     }
 
-    def apply(tpe: Type): Type = instantiator.transform(tpe)
+    def apply(tpe: trees.Type): trees.Type = instantiator.transform(tpe)
+    def apply(expr: trees.Expr): trees.Expr = instantiator.transform(expr)
+    def apply(vd: trees.ValDef): trees.ValDef = instantiator.transform(vd)
     def apply(c: Constraint): Constraint = c match {
       case Equal(a, b) => Equal(instantiator.transform(a), instantiator.transform(b)).setPos(c.pos)
       case HasClass(a, cl) => HasClass(instantiator.transform(a), cl).setPos(c.pos)
@@ -96,6 +100,29 @@ trait Constraints { self: Interpolator =>
     def atIndex(tup: Type, mem: Type, idx: Int)(implicit position: Position) = AtIndexEqual(tup, mem, idx).setPos(position)
   }
 
+  case class Eventual[+A](fun: Unifier => A)
+
+  implicit def eventualToValue[A](e: Eventual[A])(implicit unifier: Unifier): A = e.fun(unifier)
+
+  case class Store(store: Map[String, (Identifier, Type, Eventual[Type])]) {
+    def apply(name: String): (Identifier, Type, Eventual[Type]) = store(name)
+    def contains(name: String): Boolean = store contains name
+
+    def +(p: (String, Identifier, Type, Eventual[Type])): Store = this + (p._1, p._2, p._3, p._4)
+    def +(name: String, id: Identifier, simple: Type, tpe: Eventual[Type]): Store =
+      Store(store + (name -> ((id, simple, tpe))))
+  }
+
+  def getIdentifier(id: ExprIR.Identifier): Identifier = id match {
+    case ExprIR.IdentifierIdentifier(i) => i
+    case ExprIR.IdentifierName(name) => inox.FreshIdentifier(name)
+    case ExprIR.IdentifierHole(_) => throw new Error("Expression contains holes.")
+  }
+
+  object Store {
+    def empty: Store = Store(Map())
+  }
+
   /** Represents a set of constraints with a value.
    *
    * The value contained is not directly available,
@@ -107,49 +134,62 @@ trait Constraints { self: Interpolator =>
    */
   sealed abstract class Constrained[+A] {
 
-    def map[B](f: A => B): Constrained[B] = this match {
-      case WithConstraints(v, cs) => WithConstraints(v andThen f, cs)
-      case Unsatifiable(es) => Unsatifiable(es)
+    def map[B](f: A => (Unifier => B)): Constrained[B] = this match {
+      case Unsatisfiable(es) => Unsatisfiable(es)
+      case WithConstraints(v, cs) => WithConstraints(Eventual(implicit u => f(v)(u)), cs)
+    }
+
+    def flatMap[B](f: (Eventual[A]) => Constrained[B]): Constrained[B] = this match {
+      case Unsatisfiable(es) => Unsatisfiable(es)
+      case WithConstraints(fA, csA) => f(fA) match {
+        case Unsatisfiable(fs) => Unsatisfiable(fs)
+        case WithConstraints(fB, csB) => WithConstraints(fB, csA ++ csB)
+      }
+    }
+
+    def transform[B](f: A => B): Constrained[B] = this match {
+      case Unsatisfiable(es) => Unsatisfiable(es)
+      case WithConstraints(v, cs) => WithConstraints(Eventual(implicit u => f(v)), cs)
     }
 
     def combine[B, C](that: Constrained[B])(f: (A, B) => C): Constrained[C] = (this, that) match {
-      case (WithConstraints(vA, csA), WithConstraints(vB, csB)) => WithConstraints((u: Unifier) => f(vA(u), vB(u)), csA ++ csB)
-      case (Unsatifiable(es), Unsatifiable(fs)) => Unsatifiable(es ++ fs)
-      case (Unsatifiable(es), _) => Unsatifiable(es)
-      case (_, Unsatifiable(fs)) => Unsatifiable(fs)
+      case (WithConstraints(vA, csA), WithConstraints(vB, csB)) => WithConstraints(Eventual(implicit u => f(vA, vB)), csA ++ csB)
+      case (Unsatisfiable(es), Unsatisfiable(fs)) => Unsatisfiable(es ++ fs)
+      case (Unsatisfiable(es), _) => Unsatisfiable(es)
+      case (_, Unsatisfiable(fs)) => Unsatisfiable(fs)
     }
 
     def app[B, C](that: Constrained[B])(implicit ev: A <:< (B => C)): Constrained[C] =
       this.combine(that)((f: A, x: B) => ev(f)(x))
 
     def get(implicit unifier: Unifier): A = this match {
-      case WithConstraints(vA, cs) => vA(unifier)
-      case Unsatifiable(_) => throw new Exception("Unsatifiable.get")
+      case WithConstraints(vA, cs) => vA
+      case Unsatisfiable(_) => throw new Exception("Unsatisfiable.get")
     }
 
     def addConstraint(constraint: => Constraint): Constrained[A] = addConstraints(Seq(constraint))
 
     def addConstraints(constraints: => Seq[Constraint]): Constrained[A] = this match {
       case WithConstraints(vA, cs) => WithConstraints(vA, constraints ++ cs)
-      case Unsatifiable(es) => Unsatifiable(es)
+      case Unsatisfiable(es) => Unsatisfiable(es)
     }
     def checkImmediate(condition: Boolean, error: String, location: Position): Constrained[A] = this match {
-      case Unsatifiable(es) if (!condition) => Unsatifiable(es :+ ErrorLocation(error, location))
-      case WithConstraints(_, _) if (!condition) => Unsatifiable(Seq(ErrorLocation(error, location)))
+      case Unsatisfiable(es) if (!condition) => Unsatisfiable(es :+ ErrorLocation(error, location))
+      case WithConstraints(_, _) if (!condition) => Unsatisfiable(Seq(ErrorLocation(error, location)))
       case _ => this
     }
   }
-  case class Unsatifiable(errors: Seq[ErrorLocation]) extends Constrained[Nothing]
-  case class WithConstraints[A](value: Unifier => A, constraints: Seq[Constraint]) extends Constrained[A]
+  case class Unsatisfiable(errors: Seq[ErrorLocation]) extends Constrained[Nothing]
+  case class WithConstraints[A](value: Eventual[A], constraints: Seq[Constraint]) extends Constrained[A]
 
   object Constrained {
-    def fail(error: String, location: Position) = Unsatifiable(Seq(ErrorLocation(error, location)))
+    def fail(error: String, location: Position) = Unsatisfiable(Seq(ErrorLocation(error, location)))
     def fail(errors: Seq[(String, Position)]) = {
       assert(!errors.isEmpty)
-      Unsatifiable(errors.map({ case (error, location) => ErrorLocation(error, location)}))
+      Unsatisfiable(errors.map({ case (error, location) => ErrorLocation(error, location)}))
     }
-    def pure[A](x: A): Constrained[A] = WithConstraints((u: Unifier) => x, Seq())
-    def withUnifier[A](f: Unifier => A) = WithConstraints(f, Seq())
+    def pure[A](x: A): Constrained[A] = WithConstraints(Eventual(implicit u => x), Seq())
+    def unify[A](f: Unifier => A): Constrained[A] = WithConstraints(Eventual(f), Seq())
 
     def sequence[A](cs: Seq[Constrained[A]]): Constrained[Seq[A]] = {
       val zero: Constrained[Seq[A]] = pure(Seq[A]())

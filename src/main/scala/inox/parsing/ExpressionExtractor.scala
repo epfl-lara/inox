@@ -5,7 +5,7 @@ package parsing
 
 trait ExpressionExtractors { self: Interpolator =>
 
-  trait ExpressionExtractor extends Extractor { inner: ExpressionConvertor =>
+  trait ExpressionExtractor extends Extractor { self0: Elaborator =>
 
     import ExprIR._
 

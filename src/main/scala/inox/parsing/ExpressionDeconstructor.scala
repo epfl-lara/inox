@@ -5,7 +5,7 @@ package parsing
 
 trait ExpressionDeconstructors { self: Interpolator =>
 
-  trait ExpressionDeconstructor { inner: ExpressionConvertor =>
+  trait ExpressionDeconstructor { inner: Elaborator =>
 
     import ExprIR._
 

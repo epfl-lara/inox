@@ -11,7 +11,7 @@ trait TypeElaborators { self: Interpolator =>
 
   import Utils.{either, traverse, plural}
 
-  trait TypeElaborator { self: TypeConvertor =>
+  trait TypeElaborator { self: Elaborator with TypeConverter =>
 
     import TypeIR._
 
@@ -61,35 +61,37 @@ trait TypeElaborators { self: Interpolator =>
       }
     })
 
-    def getType(tpe: Expression): trees.Type = {
-      toInoxType(tpe) match {
+    def getSimpleType(tpe: Expression): trees.Type = {
+      toSimpleType(tpe) match {
         case Right(inoxType) => inoxType
         case Left(errors) => throw new TypeElaborationException(errors)
       }
     }
 
-    def toInoxType(expr: Expression): Either[Seq[ErrorLocation], trees.Type] = expr match {
+    def toSimpleType(expr: Expression): Either[Seq[ErrorLocation], trees.Type] = expr match {
+      case Operation(Tuple | Sigma, irs) if irs.size >= 2 =>
+        traverse(irs.map {
+          case TypeBinding(_, tpe) => toSimpleType(tpe)
+          case tpe => toSimpleType(tpe)
+        }).left.map(_.flatten).right.map(trees.TupleType(_))
 
-      case Operation(Tuple, irs) if irs.size >= 2 =>
-        traverse(irs.map(toInoxType(_))).left.map(_.flatten).right.map(trees.TupleType(_))
-
-      case Operation(Arrow, Seq(Operation(Group, froms), to)) => 
+      case Operation(Arrow | Pi, Seq(from, to)) => 
         either(
-          traverse(froms.map(toInoxType(_))).left.map(_.flatten),
-          toInoxType(to)
+          traverse((from match {
+            case Operation(Group, froms) => froms
+            case from => Seq(from)
+          }).map {
+            case TypeBinding(_, tpe) => toSimpleType(tpe)
+            case tpe => toSimpleType(tpe)
+          }).left.map(_.flatten),
+          toSimpleType(to)
         ){
           case (argTpes, retTpe) => trees.FunctionType(argTpes, retTpe)
         }
 
-      case Operation(Arrow, Seq(from, to)) =>
-        either(
-          toInoxType(from),
-          toInoxType(to)
-        ){
-          case (argTpe, retTpe) => trees.FunctionType(Seq(argTpe), retTpe)
-        }
+      case Refinement(_, tpe, _) => toSimpleType(tpe)
 
-      case Application(l@Literal(value), irs) =>
+      case Application(l @ Literal(value), irs) =>
         either(
           parametric.get(value) match {
             case None => Left(Seq(ErrorLocation("Unknown type constructor: " + value, l.pos)))
@@ -101,7 +103,7 @@ trait TypeElaborators { self: Interpolator =>
                 irs.length + " " + plural(irs.length, "was", "were") + " given.", l.pos)))
             }
           },
-          traverse(irs.map(toInoxType(_))).left.map(_.flatten)
+          traverse(irs.map(toSimpleType(_))).left.map(_.flatten)
         ){
           case (cons, tpes) => cons(tpes)
         }
@@ -110,12 +112,118 @@ trait TypeElaborators { self: Interpolator =>
 
       case Literal(Name(BVType(size))) => Right(trees.BVType(size))
 
-      case l@Literal(value) => basic.get(value) match {
+      case l @ Literal(value) => basic.get(value) match {
         case None => Left(Seq(ErrorLocation("Unknown type: " + value, l.pos)))
         case Some(t) => Right(t)
       }
 
       case _ => Left(Seq(ErrorLocation("Invalid type.", expr.pos)))
+    }
+
+    private def getTypeBindings(tps: Seq[(Option[ExprIR.Identifier], Expression)])
+                               (implicit store: Store): (Store, Constrained[Seq[trees.ValDef]]) = {
+      val (newStore, vds) = tps.foldLeft((store, Seq[Constrained[trees.ValDef]]())) {
+        case ((store, vds), (oid, tpe)) =>
+          getType(tpe)(store) match {
+            case unsat: Unsatisfiable => (store, vds :+ unsat)
+            case c @ WithConstraints(ev, cs) => oid match {
+              case Some(ident) =>
+                val id = getIdentifier(ident)
+                val newStore = store + (ident.getName, id, getSimpleType(tpe), ev)
+                val newVds = vds :+ c.transform(tp => trees.ValDef(id, tp))
+                (newStore, newVds)
+              case None =>
+                (store, vds :+ c.transform(tp => trees.ValDef.fresh("x", tp)))
+            }
+          }
+      }
+
+      (newStore, Constrained.sequence(vds))
+    }
+
+    def getType(expr: Expression, bound: Option[String] = None)
+               (implicit store: Store): Constrained[trees.Type] = {
+      implicit val position: Position = expr.pos
+
+      expr match {
+        case Operation(Tuple, irs) if irs.size >= 2 =>
+          Constrained.sequence({
+            irs.map(getType(_))
+          }).transform({
+            trees.TupleType(_)
+          })
+
+        case Operation(Sigma, irs) if irs.size >= 2 =>
+          val (newStore, bindings) = getTypeBindings(irs.init.map {
+            case TypeBinding(id, tpe) => (Some(id), tpe)
+            case tpe => (None, tpe)
+          })
+
+          bindings.combine(getType(irs.last)(newStore))({
+            case (params, to) => trees.SigmaType(params, to)
+          })
+
+        case Operation(Arrow, Seq(from, to)) =>
+          Constrained.sequence({
+            (from match {
+              case Operation(Group, froms) => froms
+              case from => Seq(from)
+            }).map(getType(_))
+          }).combine(getType(to))({
+            case (from, to) => trees.FunctionType(from, to)
+          })
+
+        case Operation(Pi, Seq(from, to)) =>
+          val froms = from match {
+            case Operation(Group, froms) => froms
+            case from => Seq(from)
+          }
+
+          val (newStore, bindings) = getTypeBindings(froms.map {
+            case TypeBinding(id, tpe) => (Some(id), tpe)
+            case tpe => (None, tpe)
+          })
+
+          bindings.combine(getType(to)(newStore))({
+            case (params, to) => trees.PiType(params, to)
+          })
+
+        case Refinement(oid, tpe, pred) =>
+          val ident = oid orElse bound.map(ExprIR.IdentifierName(_))
+          val (newStore, vds) = getTypeBindings(Seq(ident -> tpe))
+
+          val u = Unknown.fresh
+          vds.combine(getExpr(pred, u))({
+            case (Seq(vd), pred) => trees.RefinementType(vd, pred)
+          }).addConstraint({
+            Constraint.equal(u, trees.BooleanType())
+          })
+
+        case Application(l @ Literal(value), irs) =>
+          (parametric.get(value) match {
+            case None => Constrained.fail("Unknown type constructor: " + value, l.pos)
+            case Some((n, cons)) => if (n == irs.length) {
+              Constrained.pure(cons)
+            } else {
+              Constrained.fail("Type constructor " + value + " takes " +
+                n + " " + plural(n, "argument", "arguments") + ", " +
+                irs.length + " " + plural(irs.length, "was", "were") + " given.", l.pos)
+            }
+          }).combine(Constrained.sequence(irs.map(getType(_))))({
+            case (cons, tpes) => cons(tpes)
+          })
+
+        case Literal(EmbeddedType(t)) => Constrained.pure(t)
+
+        case Literal(Name(BVType(size))) => Constrained.pure(trees.BVType(size))
+
+        case l @ Literal(value) => basic.get(value) match {
+          case None => Constrained.fail("Unknown type: " + value, l.pos)
+          case Some(t) => Constrained.pure(t)
+        }
+
+        case _ => Constrained.fail("Invalid type.", expr.pos)
+      }
     }
   }
 }

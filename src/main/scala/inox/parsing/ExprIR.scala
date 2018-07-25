@@ -5,7 +5,7 @@ package parsing
 
 import scala.util.parsing.input._
 
-trait ExprIRs extends ExpressionConvertors { self: Interpolator =>
+trait ExprIRs extends ExpressionConverters { self: Interpolator =>
 
   /** IR for expressions. */
   object ExprIR extends IR {

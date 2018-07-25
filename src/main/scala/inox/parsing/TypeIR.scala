@@ -5,7 +5,7 @@ package parsing
 
 import scala.util.parsing.input.Position
 
-trait TypeIRs extends TypeConvertors { self: Interpolator =>
+trait TypeIRs extends TypeConverters { self: Interpolator =>
 
   object TypeIR extends IR {
 
