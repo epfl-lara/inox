@@ -80,7 +80,7 @@ trait TypeParsers { self: Interpolator =>
     }
 
     def argumentTypes(open: Char, close: Char, allowNamed: Boolean = false): Parser[List[Expression]] = {
-      val typeOrHole = if (allowNamed) typeSeqHole | typeExpression | typeBinding else typeSeqHole | typeExpression
+      val typeOrHole = if (allowNamed) typeSeqHole | typeBinding | typeExpression else typeSeqHole | typeExpression
       val typeOrEllipsis = ((typeOrHole ^^ (List(_))) | typeEllipsis) withFailureMessage {
         (p: Position) => withPos("Single type, or embedded sequence of types followed by `...`, expected.", p)
       }

@@ -71,4 +71,35 @@ class ExtractorSuite extends FunSuite {
       }
     }
   }
+
+  test("Matching dependent types.") {
+    t"{ x: BigInt | x > 0 }" match {
+      case t"{ y: $t | $e }" => fail("Did match.")
+      case t"{ $t | $e }" =>
+        assert(t == IntegerType())
+        e match {
+          case GreaterThan(Variable(id, IntegerType(), _), IntegerLiteral(i)) =>
+            assert(id.name == "x")
+            assert(i == 0)
+          case _ => fail("Invalid extraction.")
+        }
+      case _ => fail("Did not match.")
+    }
+
+    t"{ y: Unit | true }" match {
+      case t"{ $t | false }" => fail("Did match.")
+      case t"{ y: $t | $p }" =>
+        assert(t == UnitType())
+        assert(p == BooleanLiteral(true))
+      case _ => fail("Did not match.")
+    }
+
+    t"(x: Int) => { y: Int | x < y }" match {
+      case t"Int => Int" => fail("Did match.")
+      case t"Int => $t" => fail("Did match.")
+      case t"(x: $t) => $t2" =>
+        assert(t == Int32Type())
+      case _ => fail("Did not match.")
+    }
+  }
 }
