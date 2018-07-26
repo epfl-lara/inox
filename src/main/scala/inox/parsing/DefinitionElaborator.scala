@@ -105,7 +105,8 @@ trait DefinitionElaborators { self: Elaborators =>
             }
 
             Constrained.sequence({
-              (td.constructors zip sort.constructors).map { case ((_, params), cons) =>
+              td.constructors.map { case (id, params) =>
+                val (_, cons) = newStore getConstructor id.getName
                 val (_, _, vds) = getExprBindings((params zip cons.fields).map {
                   case ((_, tpe), vd) => (ExprIR.IdentifierIdentifier(vd.id), Some(tpe))
                 })(tpStore, position)
