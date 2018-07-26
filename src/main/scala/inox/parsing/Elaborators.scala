@@ -236,7 +236,7 @@ trait Elaborators
       case WithConstraints(vA, cs) => WithConstraints(vA, constraints ++ cs)
       case Unsatisfiable(es) => Unsatisfiable(es)
     }
-    def checkImmediate(condition: Boolean, error: String, location: Position): Constrained[A] = this match {
+    def checkImmediate(condition: Boolean, error: => String, location: => Position): Constrained[A] = this match {
       case Unsatisfiable(es) if (!condition) => Unsatisfiable(es :+ ErrorLocation(error, location))
       case WithConstraints(_, _) if (!condition) => Unsatisfiable(Seq(ErrorLocation(error, location)))
       case _ => this
