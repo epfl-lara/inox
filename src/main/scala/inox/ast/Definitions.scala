@@ -16,6 +16,7 @@ trait Definitions { self: Trees =>
   /** The base trait for Inox definitions */
   trait Definition extends Tree {
     def id: Identifier
+    def flags: Seq[Flag]
 
     override def equals(that: Any): Boolean = that match {
       case d: Definition => id == d.id
@@ -354,9 +355,13 @@ trait Definitions { self: Trees =>
     * @param id      -- The identifier that refers to this ADT constructor.
     * @param fields  -- The fields of this constructor (types may depend on sorts type params).
     */
-  class ADTConstructor(val id: Identifier,
-                       val sort: Identifier,
-                       val fields: Seq[ValDef]) extends Definition {
+  class ADTConstructor(
+    val id: Identifier,
+    val sort: Identifier,
+    val fields: Seq[ValDef],
+    val flags: Seq[Flag] = Seq.empty
+  ) extends Definition {
+
     def getSort(implicit s: Symbols): ADTSort = s.getSort(sort)
 
     /** Returns the index of the field with the specified id */
