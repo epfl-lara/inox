@@ -48,7 +48,7 @@ trait DefinitionParsers { self: Parsers =>
 
     lazy val constructor: Parser[(Identifier, Seq[(Identifier, Type)])] = (for {
       id <- commit(identifier) withFailureMessage { (p: Position) => withPos("Constructor name expected.", p) }
-      ps <- commit(params)
+      ps <- opt(params) ^^ (_.getOrElse(Seq()))
     } yield (id, ps)) withFailureMessage {
       (p: Position) => withPos("Constructor declaration expected.", p)
     }
@@ -65,8 +65,10 @@ trait DefinitionParsers { self: Parsers =>
       _ <- kw("def")
       id <- commit(identifier)
       tps <- commit(tparams)
-      ps <- commit(params)
-      _ <- commit(p(':'))
+      ps <- opt(params) ^^ (_.getOrElse(Seq()))
+      _ <- commit(p(':') withFailureMessage { (p: Position) =>
+        withPos("Parameter list, or character `:`, expected.", p)
+      })
       tpe <- commit(typeExpression)
       _ <- commit(kw("="))
       body <- commit(expression)
