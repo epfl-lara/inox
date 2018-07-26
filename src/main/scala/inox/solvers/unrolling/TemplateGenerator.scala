@@ -502,14 +502,14 @@ trait TemplateGenerator { self: Templates =>
             storeExpr(newExpr)
 
             val stored = for (tcons <- sort.constructors) yield {
-              val newBool: Variable = Variable.fresh("b", BooleanType(), true)
-              storeCond(pathVar, newBool)
+              if (tcons.fields.exists(vd => generator unroll vd.tpe)) {
+                val newBool: Variable = Variable.fresh("b", BooleanType(), true)
+                storeCond(pathVar, newBool)
 
-              val recProp = andJoin(for (vd <- tcons.fields) yield {
-                rec(newBool, vd.tpe, ADTSelector(expr, vd.id), state.copy(recurseAdt = false))
-              })
+                val recProp = andJoin(for (vd <- tcons.fields) yield {
+                  rec(newBool, vd.tpe, ADTSelector(expr, vd.id), state.copy(recurseAdt = false))
+                })
 
-              if (recProp != BooleanLiteral(true)) {
                 iff(and(pathVar, isCons(expr, tcons.id)), newBool)
                 storeGuarded(newBool, Equals(newExpr, recProp))
                 true
