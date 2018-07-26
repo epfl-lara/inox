@@ -86,5 +86,13 @@ trait Interpolator
         converter.elaborate(srt)
       }
     }
+
+    object fd {
+      def apply(args: Any*): FunDef = {
+        val ir = parser.getFromSC(sc, args)(parser.phrase(parser.function))
+        val fundef = converter.getFunction(ir)(Store.empty)
+        converter.elaborate(fundef)
+      }
+    }
   }
 }
