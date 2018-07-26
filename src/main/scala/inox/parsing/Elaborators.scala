@@ -114,6 +114,7 @@ trait Elaborators
   case class Equal(a: Type, b: Type) extends Constraint(Seq(a, b))
   case class HasClass(a: Type, c: TypeClass) extends Constraint(Seq(a))
   case class AtIndexEqual(tup: Type, mem: Type, idx: Int) extends Constraint(Seq(tup, mem))
+  case class HasSortIn(a: Type, sorts: Seq[(inox.Identifier, Type => Seq[Constraint])]) extends Constraint(Seq(a))
 
   object Constraint {
     def exist(a: Unknown)(implicit position: Position): Constraint = Equal(a, a).setPos(position)
@@ -123,6 +124,7 @@ trait Elaborators
     def isComparable(a: Type)(implicit position: Position): Constraint = HasClass(a, Comparable).setPos(position)
     def isBitVector(a: Type)(implicit position: Position): Constraint = HasClass(a, Bits).setPos(position)
     def atIndex(tup: Type, mem: Type, idx: Int)(implicit position: Position) = AtIndexEqual(tup, mem, idx).setPos(position)
+    def hasSortIn(a: Type, sorts: (inox.Identifier, Type => Seq[Constraint])*)(implicit position: Position) = HasSortIn(a, sorts).setPos(position)
   }
 
   case class Eventual[+A](fun: Unifier => A)
