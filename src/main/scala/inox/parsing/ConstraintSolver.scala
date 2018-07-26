@@ -14,8 +14,6 @@ trait ConstraintSolvers { self: Elaborators =>
 
     import trees._
 
-    case class Bounds(lowers: Set[Type], uppers: Set[Type])
-
     object UnknownCollector {
       var unknowns = Set[Unknown]()
 
@@ -32,68 +30,6 @@ trait ConstraintSolvers { self: Elaborators =>
         unknowns = Set()
         traverser.traverse(tpe)
         unknowns
-      }
-    }
-
-    object UnknownChecker {
-      private var exists = false
-
-      private val traverser = new TreeTraverser {
-        override def traverse(t: Type) {
-          if (!exists) {
-            t match {
-              case _: Unknown => exists = true
-              case _ => super.traverse(t)
-            }
-          }
-        }
-      }
-
-      def apply(t: Type): Boolean = {
-        exists = false
-        traverser.traverse(t)
-        exists
-      }
-    }
-
-    object UnknownCollectorVariance {
-      var positives = Set[Unknown]()
-      var negatives = Set[Unknown]()
-
-      private val traverser = new TreeTraverser {
-        override def traverse(t: Type) {
-          t match {
-            case u: Unknown => {
-              negatives += u
-              positives += u
-            }
-            case _ => super.traverse(t)
-          }
-        }
-      }
-
-      private def collect(tpe: Type, isPositive: Boolean): Unit = tpe match {
-        case u: Unknown => if (isPositive) positives += u else negatives += u
-        case FunctionType(fs, t) => {
-          fs.foreach(collect(_, !isPositive))
-          collect(t, isPositive)
-        }
-        case TupleType(ts) => ts.foreach(collect(_, !isPositive))
-        case ADTType(id, ts) => ts.foreach(traverser.traverse(_))
-        case SetType(t) => traverser.traverse(t)
-        case BagType(t) => traverser.traverse(t)
-        case MapType(k, v) => {
-          traverser.traverse(k)
-          traverser.traverse(v)
-        }
-        case _ => ()
-      }
-
-      def apply(t: Type): (Set[Unknown], Set[Unknown]) = {
-        positives = Set[Unknown]()
-        negatives = Set[Unknown]()
-        collect(t, true)
-        (positives, negatives)
       }
     }
 
