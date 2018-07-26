@@ -10,7 +10,7 @@ import scala.util.parsing.input._
 
 /** Contains methods for lexical parsing of StringContext objects and their arguments. */
 trait StringContextLexer extends { self: Lexical =>
-  
+
   /** Converts an argument of the StringContext to a Token. */
   def argToToken(x: Any): Token
 
@@ -22,7 +22,7 @@ trait StringContextLexer extends { self: Lexical =>
     val stringReaders = sc.parts.zipWithIndex.map {
       case (string, index) => toPartReader(string, sc, index)
     }
-    
+
     // All readers (both for parts and args).
     val readers = if (args.isEmpty) {
 
