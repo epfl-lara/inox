@@ -20,7 +20,7 @@ trait Interpolator
   implicit class ExpressionInterpolator(sc: StringContext)(implicit symbols: trees.Symbols = trees.NoSymbols) {
 
     private lazy val converter = new Converter()
-    private lazy val parser = new ExpressionParser()
+    private lazy val parser = new DefinitionParser()
 
     object e {
       def apply(args: Any*): Expr = {
@@ -52,7 +52,7 @@ trait Interpolator
     def r(args: Any*): Seq[Lexer.Token] = {
       val reader = Lexer.getReader(sc, args)
 
-      import scala.util.parsing.input.Reader 
+      import scala.util.parsing.input.Reader
 
       def go[A](r: Reader[A]): Seq[A] = {
         if (r.atEnd) Seq()
@@ -76,6 +76,14 @@ trait Interpolator
           case Some(mappings) if mappings.size == sc.parts.length - 1 => Some(mappings.toSeq.sortBy(_._1).map(_._2))
           case _ => None
         }
+      }
+    }
+
+    object td {
+      def apply(args: Any*): ADTSort = {
+        val ir = parser.getFromSC(sc, args)(parser.phrase(parser.datatype))
+        val srt = converter.getSort(ir)(Store.empty)
+        converter.elaborate(srt)
       }
     }
   }
