@@ -65,14 +65,18 @@ trait ConstraintSolvers { self: Elaborators =>
       var substitutions: Map[Unknown, Type] = Map()
       var typeClasses: Map[Unknown, TypeClass] = Map()
       var tupleConstraints: Map[Unknown, Set[Constraint]] = Map()
+      var sortConstraints: Map[Unknown, Map[ADTSort, Type => Seq[Constraint]]] = Map()
 
       def substitute(u: Unknown, t: Type) {
         val subst = new Unifier(Map(u -> t))
         unknowns -= u
         remaining = remaining.map(subst(_))
-        substitutions = substitutions.mapValues(subst(_))
+        substitutions = substitutions.mapValues(subst(_)).view.force
         substitutions += (u -> t)
-        tupleConstraints = tupleConstraints.mapValues(_.map(subst(_)))
+        tupleConstraints = tupleConstraints.mapValues(_.map(subst(_))).view.force
+        sortConstraints = sortConstraints.mapValues(_.mapValues(
+          _.andThen(_.map(subst(_)))
+        ).view.force).view.force
 
         // If the variable we are substituting has "tuple" constraints...
         tupleConstraints.get(u).foreach { (cs: Set[Constraint]) =>
@@ -92,6 +96,13 @@ trait ConstraintSolvers { self: Elaborators =>
 
           // Remove the entry for the variable.
           typeClasses -= u
+        }
+
+        // If the variable we are substituting has a sort constraint...
+        sortConstraints.get(u).foreach { (sorts: Map[ADTSort, Type => Seq[Constraint]]) =>
+          remaining +:= HasSortIn(t, sorts).setPos(u.pos)
+
+          sortConstraints -= u
         }
       }
 
@@ -153,6 +164,9 @@ trait ConstraintSolvers { self: Elaborators =>
               typeClasses.get(u).foreach {
                 case c => throw new ConstraintException("Type " + a + " can not be both a tuple and " + className(c), constraint.pos)
               }
+              sortConstraints.get(u).foreach {
+                case _ => throw new ConstraintException("Type " + a + " can not be both a tuple and an ADT", constraint.pos)
+              }
               tupleConstraints += (u -> (tupleConstraints.get(u).getOrElse(Set()) + constraint))
             }
             case TupleType(tps) => {
@@ -173,6 +187,9 @@ trait ConstraintSolvers { self: Elaborators =>
                 tupleConstraints.get(u).foreach {
                   case _ => throw new ConstraintException("Type " + a + " can not be both a tuple and " + className(c), constraint.pos)
                 }
+                sortConstraints.get(u).foreach {
+                  case _ => throw new ConstraintException("Type " + a + " can not be both an ADT and " + className(c), constraint.pos)
+                }
                 typeClasses += (u -> { typeClasses.get(u) match {
                   case None => c
                   case Some(c2) => c & c2
@@ -180,6 +197,49 @@ trait ConstraintSolvers { self: Elaborators =>
               }
               case _ if c.hasInstance(a) => ()
               case _ => throw new ConstraintException("Type " + a + " is not " + className(c), constraint.pos)
+            }
+          }
+          case HasSortIn(a, sorts) => {
+            val n = sorts.size
+            if (n == 0) {
+              throw new ConstraintException("Type " + a + " has no valid ADT sort", constraint.pos)
+            }
+            if (n == 1) {
+              val (sort, rest) = sorts.toSeq.head
+              val typeArgs = sort.tparams.map(x => Unknown.fresh(constraint.pos))
+              val expectedType = ADTType(sort.id, typeArgs)
+
+              remaining +:= Equal(a, expectedType)
+              remaining ++= rest(expectedType)
+            }
+            else {
+              a match {
+                case u: Unknown => {
+                  sortConstraints.get(u) match {
+                    case None => sortConstraints += u -> sorts
+                    case Some(otherSorts) => {
+                      val intersection = sorts.keySet.intersect(otherSorts.keySet).map { (k: ADTSort) =>
+                        (k, (tpe: Type) => sorts(k)(tpe) ++ otherSorts(k)(tpe))
+                      }.toMap
+
+                      remaining +:= HasSortIn(u, intersection)
+                      sortConstraints -= u
+                    }
+                  }
+                }
+                case ADTType(id, _) => {
+                  val rest = sorts.collectFirst({
+                    case (sort, rest) if (sort.id == id) => rest
+                  }).getOrElse({
+                    throw new ConstraintException("Type " + a + " has not a valid sort", constraint.pos)
+                  })
+
+                  remaining ++= rest(a)
+                }
+                case _ => {
+                  throw new ConstraintException("Type " + a + " is not an ADT", constraint.pos)
+                }
+              }
             }
           }
         }
