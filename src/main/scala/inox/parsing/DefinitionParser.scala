@@ -30,7 +30,9 @@ trait DefinitionParsers { self: Parsers =>
     }
 
     lazy val params: Parser[Seq[(Identifier, Type)]] =
-      (p('(') ~> repsep(param, p(',')) <~ p(')')) withFailureMessage {
+      (p('(') ~> repsep(param, p(',')) <~ commit(p(')') withFailureMessage {
+        (p: Position) => withPos("Expected character `)`, or additional parameters (separated by `,`).", p) }
+      )) withFailureMessage {
         (p: Position) => withPos("Parameter list expected.", p)
       }
 
@@ -40,7 +42,7 @@ trait DefinitionParsers { self: Parsers =>
         (p: Position) => withPos("Type parameters expected.", p)
       }
       _ <- commit(p(']')) withFailureMessage {
-        (p: Position) => withPos("Expected character `]`, or more type parameters (separated by `,`).", p)
+        (p: Position) => withPos("Expected character `]`, or additional type parameters (separated by `,`).", p)
       }
     } yield ids) ^^ (_.toSeq.flatten)) withFailureMessage {
       (p: Position) => withPos("Type parameter list expected (or no type parameters).", p)
