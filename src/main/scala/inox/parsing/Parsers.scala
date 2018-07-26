@@ -8,3 +8,4 @@ trait Parsers
      with IRs
      with ExpressionParsers
      with TypeParsers
+     with DefinitionParsers

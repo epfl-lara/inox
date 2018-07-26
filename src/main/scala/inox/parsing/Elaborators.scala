@@ -16,6 +16,7 @@ trait Elaborators
      with TypeDeconstructors
      with ExpressionElaborators
      with TypeElaborators
+     with DefinitionElaborators
      with ConstraintSolvers {
 
   import trees.Type
@@ -28,6 +29,7 @@ trait Elaborators
     extends ExpressionDeconstructor
        with TypeDeconstructor
        with ExpressionElaborator
+       with DefinitionElaborator
        with TypeElaborator {
 
     lazy val solver = new Solver
