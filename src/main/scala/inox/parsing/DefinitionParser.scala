@@ -22,7 +22,7 @@ trait DefinitionParsers { self: Parsers =>
     }
 
     lazy val param: Parser[(Identifier, Type)] = (for {
-      id <- commit(identifier)
+      id <- identifier
       _ <- commit(p(':'))
       tp <- commit(typeExpression)
     } yield (id, tp)) withFailureMessage {
