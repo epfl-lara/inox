@@ -42,6 +42,20 @@ trait DefinitionElaborators { self: Elaborators =>
         symbols.functions.keySet.map(_.name)
       )
 
+      val duplicateFields: Option[ExprIR.IdentifierIdentifier] = (
+        definitions
+          .flatMap {
+            case td: TypeDef => td.constructors.flatMap(_._2.map(_._1))
+            case _ => Seq()
+          }.collect { case ident @ ExprIR.IdentifierIdentifier(_) => ident } ++
+        symbols.sorts.values.toSeq
+          .flatMap(_.constructors.flatMap(_.fields.map(_.id)))
+          .map(id => ExprIR.IdentifierIdentifier(id)))
+        .groupBy(id => id)
+        .filter(_._2.size > 1)
+        .map { case (id, ids) => ids.find(_.pos != NoPosition).getOrElse(id) }
+        .headOption
+
       val sortsStore = definitions.foldLeft(Store.empty) {
         case (store, TypeDef(ident, tparams, _)) =>
           store + (ident.getName, new trees.ADTSort(
@@ -134,6 +148,10 @@ trait DefinitionElaborators { self: Elaborators =>
         duplicateFunctionNames.isEmpty,
         "Multiple function definitions with name " + duplicateFunctionNames.get._1 + ".",
         duplicateFunctionNames.get._2
+      ).checkImmediate(
+        duplicateFields.isEmpty,
+        "Duplicate field identifiers with name " + duplicateFields.get.getName + ".",
+        duplicateFields.get.pos
       )
     }
   }
