@@ -20,14 +20,14 @@ trait ExpressionExtractors { self: Extractors =>
         case _ => None
       }
     }
-    private def toExprObl(pair: (trees.Expr, Expression)): MatchObligation = {
+    protected def toExprObl(pair: (trees.Expr, Expression)): MatchObligation = {
       extract(pair._1, pair._2)
     }
-    private def toTypeObl(pair: (trees.Type, Type)): MatchObligation = {
+    protected def toTypeObl(pair: (trees.Type, Type)): MatchObligation = {
       val (tpe, template) = pair
       extract(tpe, template)
     }
-    private def toOptTypeObl(pair: (trees.Type, Option[Type])): MatchObligation = {
+    protected def toOptTypeObl(pair: (trees.Type, Option[Type])): MatchObligation = {
       val (tpe, optTemplateType) = pair
 
       if (optTemplateType.isEmpty) {
@@ -37,7 +37,7 @@ trait ExpressionExtractors { self: Extractors =>
         toTypeObl(tpe -> optTemplateType.get)
       }
     }
-    private def toExprObls(pair: (Seq[trees.Expr], Seq[Expression])): MatchObligation = {
+    protected def toExprObls(pair: (Seq[trees.Expr], Seq[Expression])): MatchObligation = {
       pair match {
         case (Seq(), Seq()) => Some(empty)
         case (Seq(), _) => None
@@ -62,16 +62,16 @@ trait ExpressionExtractors { self: Extractors =>
         } yield matchingsHead ++ matchingsRest
       }
     }
-    private def toTypeObls(pair: (Seq[trees.Type], Seq[Type])): MatchObligation = {
+    protected def toTypeObls(pair: (Seq[trees.Type], Seq[Type])): MatchObligation = {
       extractSeq(pair._1, pair._2)
     }
-    private def toOptTypeObls(pair: (Seq[trees.Type], Seq[Option[Type]])): MatchObligation = {
+    protected def toOptTypeObls(pair: (Seq[trees.Type], Seq[Option[Type]])): MatchObligation = {
       val pairs = pair._1.zip(pair._2).collect {
         case (tpe, Some(template)) => toTypeObl(tpe -> template)
       }
       extract(pairs : _*)
     }
-    private def toIdObls(pair: (Seq[inox.Identifier], Seq[Identifier])): MatchObligation = {
+    protected def toIdObls(pair: (Seq[inox.Identifier], Seq[Identifier])): MatchObligation = {
 
       // TODO: Change this.
       val (ids, templatesIds) = pair
@@ -84,7 +84,7 @@ trait ExpressionExtractors { self: Extractors =>
       }
     }
 
-    private def extract(pairs: MatchObligation*): MatchObligation = {
+    protected def extract(pairs: MatchObligation*): MatchObligation = {
 
       val zero: MatchObligation = Some(empty)
 
