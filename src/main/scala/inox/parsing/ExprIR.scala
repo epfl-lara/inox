@@ -12,21 +12,21 @@ trait ExprIRs { self: IRs =>
 
     sealed abstract class Identifier extends Positional {
       def getName: String
-      def getShortName: String
+      def getFullName: String
 
-      override def toString = pos + "@" + getName
+      override def toString = pos + "@" + getFullName
     }
     case class IdentifierName(name: String) extends Identifier {
       override def getName = name
-      override def getShortName = name
+      override def getFullName = name
     }
     case class IdentifierIdentifier(identifier: inox.Identifier) extends Identifier {
-      override def getName = identifier.uniqueName
-      override def getShortName = identifier.toString
+      override def getName = identifier.name
+      override def getFullName = identifier.uniqueName
     }
     case class IdentifierHole(index: Int) extends Identifier {
       override def getName = "$" + index
-      override def getShortName = "$" + index
+      override def getFullName = "$" + index
     }
 
     type Operator = String

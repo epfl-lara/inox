@@ -131,7 +131,7 @@ trait ExpressionParsers { self: Parsers =>
       bs <- commit(rep1sep(for {
           v <- valDef
           _ <- commit(kw("=") withFailureMessage {
-              (p: Position) => withPos("Missing assignment to variable `" + v._1.getShortName +"`. Use `=` to assign a value to the variable.", p)
+              (p: Position) => withPos("Missing assignment to variable `" + v._1.getName +"`. Use `=` to assign a value to the variable.", p)
             })
           e <- commit(expression)
         } yield (v._1, v._2, e), p(',')) withFailureMessage {

@@ -92,8 +92,9 @@ trait ExpressionElaborators { self: Elaborators =>
     }
 
     object Fields {
-      def unapplySeq(field: Field)(implicit store: Store): Option[Seq[(trees.ADTSort, trees.ValDef)]] =
+      def unapply(field: Field)(implicit store: Store): Option[Seq[(trees.ADTSort, trees.ValDef)]] =
         Field.unapplySeq(field)
+          .filter(_.nonEmpty)
           .map(_.map { case (cons, vd) => (cons.getSort, vd) })
           .orElse(field match {
             case FieldName(name) if store isField name =>
@@ -220,7 +221,7 @@ trait ExpressionElaborators { self: Elaborators =>
           val (i, _, tpe) = store getVariable variable.getName
           trees.Variable(i, tpe, Seq.empty)
         }).checkImmediate(
-          store isVariable variable.getName, "Unknown variable " + variable.getShortName + ".", expr.pos
+          store isVariable variable.getName, "Unknown variable " + variable.getName + ".", expr.pos
         ).addConstraint({
           Constraint.equal((store getVariable variable.getName)._2, expected)
         })
@@ -1034,26 +1035,31 @@ trait ExpressionElaborators { self: Elaborators =>
         }
 
         // Field Selection.
-        case Selection(expr, Field((cons, vd))) => {
+        case Selection(expr, f @ Fields(fields)) => {
           val expectedExpr = Unknown.fresh
 
-          val sort = cons.getSort
-          val tfreshs = sort.tparams.map(_ => Unknown.fresh)
+          (for {
+            e <- getExpr(expr, expectedExpr)
+          } yield { implicit u =>
+            val trees.ADTType(id, tps) = u(expectedExpr)
+            val sort = symbols.lookupSort(id).getOrElse(store getSort id.name)
+            val vd = sort.constructors.flatMap(_.fields).find(vd => f match {
+              case FieldName(name) => vd.id.name == name
+              case FieldIdentifier(id) => vd.id == id
+              case _ => false
+            }).getOrElse {
+              throw new Exception("getExpr: Unexpected unification result for field: " + f)
+            }
 
-          val instantiator = new typeOps.TypeInstantiator((sort.tparams.map(_.tp) zip tfreshs).toMap)
-
-          val fieldType = instantiator.transform(vd.getType)
-          val adtType = instantiator.transform(trees.ADTType(sort.id, sort.typeArgs))
-
-          getExpr(expr, expectedExpr).transform({
-            trees.ADTSelector(_, vd.id)
+            trees.ADTSelector(e, vd.id)
           }).addConstraint({
-            // The field type should be what is expected.
-            Constraint.equal(fieldType, expected)
-          }).addConstraint({
-            // The type of the expression being selected should be exactly
-            // that of the ADT constructor.
-            Constraint.equal(adtType, expectedExpr)
+            Constraint.hasSortIn(expectedExpr, fields.map { case (sort, vd) =>
+              sort -> { (tpe: trees.Type) =>
+                val ADTType(_, tps) = tpe
+                val instantiator = new typeOps.TypeInstantiator((sort.typeArgs zip tps).toMap)
+                Seq(Constraint.equal(instantiator.transform(vd.getType), expected))
+              }
+            } : _*)
           })
         }
 
