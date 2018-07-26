@@ -152,7 +152,7 @@ trait Elaborators
     def getConstructor(name: String): (trees.ADTSort, trees.ADTConstructor) = constructors(name)
     def isConstructor(name: String): Boolean = constructors contains name
 
-    def getField(name: String): Seq[(trees.ADTSort, trees.ADTConstructor, trees.ValDef)] = fields(name)
+    def getFields(name: String): Seq[(trees.ADTSort, trees.ADTConstructor, trees.ValDef)] = fields(name)
     def isField(name: String): Boolean = fields contains name
 
     def getSort(name: String): trees.ADTSort = sorts(name)

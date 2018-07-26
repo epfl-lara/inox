@@ -91,6 +91,29 @@ trait ExpressionElaborators { self: Elaborators =>
       }
     }
 
+    object Fields {
+      def unapplySeq(field: Field)(implicit store: Store): Option[Seq[(trees.ADTSort, trees.ValDef)]] =
+        Field.unapplySeq(field)
+          .map(_.map { case (cons, vd) => (cons.getSort, vd) })
+          .orElse(field match {
+            case FieldName(name) if store isField name =>
+              Some((store getFields name).map { case (sort, cons, vd) => (sort, vd) })
+
+            case FieldIdentifier(id) =>
+              val matchingCons = (store getFields id.name).filter {
+                case (sort, cons, vd) => cons.fields.exists(_.id == id)
+              }
+
+              if (matchingCons.nonEmpty) {
+                Some(matchingCons.map { case (sort, cons, vd) => (sort, vd) })
+              } else {
+                None
+              }
+
+            case _ => None
+          })
+    }
+
     def getExprBindings(es: Seq[(ExprIR.Identifier, Option[TypeIR.Expression])])
                                (implicit store: Store, pos: Position): (Store, Seq[trees.Type], Constrained[Seq[trees.ValDef]]) = {
       val (newStore, tps, vds) = es.foldLeft((store, Seq[trees.Type](), Seq[Constrained[trees.ValDef]]())) {
