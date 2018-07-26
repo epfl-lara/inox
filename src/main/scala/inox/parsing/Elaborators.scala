@@ -132,13 +132,48 @@ trait Elaborators
 
   implicit def eventualToValue[A](e: Eventual[A])(implicit unifier: Unifier): A = e.fun(unifier)
 
-  case class Store(store: Map[String, (Identifier, Type, Eventual[Type])]) {
-    def apply(name: String): (Identifier, Type, Eventual[Type]) = store(name)
-    def contains(name: String): Boolean = store contains name
+  class Store private(
+    variables: Map[String, (Identifier, Type, Eventual[Type])],
+    types: Map[String, trees.TypeParameter],
+    functions: Map[String, trees.FunDef],
+    constructors: Map[String, (trees.ADTSort, trees.ADTConstructor)],
+    fields: Map[String, Seq[(trees.ADTSort, trees.ADTConstructor, trees.ValDef)]],
+    sorts: Map[String, trees.ADTSort]) {
+
+    def getVariable(name: String): (Identifier, Type, Eventual[Type]) = variables(name)
+    def isVariable(name: String): Boolean = variables contains name
+
+    def getTypeParameter(name: String): trees.TypeParameter = types(name)
+    def isTypeParameter(name: String): Boolean = types contains name
+
+    def getFunction(name: String): trees.FunDef = functions(name)
+    def isFunction(name: String): Boolean = functions contains name
+
+    def getConstructor(name: String): (trees.ADTSort, trees.ADTConstructor) = constructors(name)
+    def isConstructor(name: String): Boolean = constructors contains name
+
+    def getField(name: String): Seq[(trees.ADTSort, trees.ADTConstructor, trees.ValDef)] = fields(name)
+    def isField(name: String): Boolean = fields contains name
+
+    def getSort(name: String): trees.ADTSort = sorts(name)
+    def isSort(name: String): Boolean = sorts contains name
 
     def +(p: (String, Identifier, Type, Eventual[Type])): Store = this + (p._1, p._2, p._3, p._4)
     def +(name: String, id: Identifier, simple: Type, tpe: Eventual[Type]): Store =
-      Store(store + (name -> ((id, simple, tpe))))
+      new Store(variables + (name -> ((id, simple, tpe))), types, functions, constructors, fields, sorts)
+
+    def +(name: String, tp: trees.TypeParameter): Store =
+      new Store(variables, types + (name -> tp), functions, constructors, fields, sorts)
+
+    def +(name: String, fd: trees.FunDef): Store =
+      new Store(variables, types, functions + (name -> fd), constructors, fields, sorts)
+    def +(name: String, sort: trees.ADTSort, cons: trees.ADTConstructor): Store =
+      new Store(variables, types, functions, constructors + (name -> ((sort, cons))), fields, sorts)
+    def +(name: String, sort: trees.ADTSort, cons: trees.ADTConstructor, vd: trees.ValDef): Store =
+      new Store(variables, types, functions, constructors,
+        fields + (name -> (fields.getOrElse(name, Seq()) :+ ((sort, cons, vd)))), sorts)
+    def +(name: String, sort: trees.ADTSort): Store =
+      new Store(variables, types, functions, constructors, fields, sorts + (name -> sort))
   }
 
   def getIdentifier(id: ExprIR.Identifier): Identifier = id match {
@@ -148,7 +183,7 @@ trait Elaborators
   }
 
   object Store {
-    def empty: Store = Store(Map())
+    def empty: Store = new Store(Map(), Map(), Map(), Map(), Map(), Map())
   }
 
   /** Represents a set of constraints with a value.

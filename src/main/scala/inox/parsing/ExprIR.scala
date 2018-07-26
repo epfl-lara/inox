@@ -30,7 +30,7 @@ trait ExprIRs { self: IRs =>
     }
 
     type Operator = String
-    
+
     sealed abstract class Field extends Positional
     case class FieldName(name: String) extends Field
     case class FieldIdentifier(identifier: inox.Identifier) extends Field

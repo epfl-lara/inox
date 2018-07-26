@@ -35,14 +35,14 @@ trait TypeElaborators { self: Elaborators =>
       }
     })
 
-    def getSimpleType(tpe: Expression): trees.Type = {
+    def getSimpleType(tpe: Expression)(implicit store: Store): trees.Type = {
       toSimpleType(tpe) match {
         case Right(inoxType) => inoxType
         case Left(errors) => throw new ElaborationException(errors)
       }
     }
 
-    def toSimpleType(expr: Expression): Either[Seq[ErrorLocation], trees.Type] = expr match {
+    def toSimpleType(expr: Expression)(implicit store: Store): Either[Seq[ErrorLocation], trees.Type] = expr match {
       case Operation(Tuple | Sigma, irs) if irs.size >= 2 =>
         traverse(irs.map {
           case TypeBinding(_, tpe) => toSimpleType(tpe)
@@ -64,15 +64,22 @@ trait TypeElaborators { self: Elaborators =>
 
       case Application(l @ Literal(value), irs) =>
         either(
-          parametric.get(value) match {
-            case None => Left(Seq(ErrorLocation("Unknown type constructor: " + value, l.pos)))
-            case Some((n, cons)) => if (n == irs.length) {
+          parametric.get(value).orElse(value match {
+            case Name(name) if store isTypeParameter name => None
+            case Name(name) if store isSort name =>
+              val sort = store getSort name
+              Some((sort.tparams.length, (tps: Seq[trees.Type]) => trees.ADTType(sort.id, tps)))
+            case _ => None
+          }).map { case (n, cons) =>
+            if (n == irs.length) {
               Right(cons)
             } else {
               Left(Seq(ErrorLocation("Type constructor " + value + " takes " +
                 n + " " + plural(n, "argument", "arguments") + ", " +
                 irs.length + " " + plural(irs.length, "was", "were") + " given.", l.pos)))
             }
+          }.getOrElse {
+            Left(Seq(ErrorLocation("Unknown type constructor: " + value, l.pos)))
           },
           traverse(irs.map(toSimpleType(_))).left.map(_.flatten)
         ){
@@ -83,10 +90,28 @@ trait TypeElaborators { self: Elaborators =>
 
       case Literal(Name(BVType(size))) => Right(trees.BVType(size))
 
-      case l @ Literal(value) => basic.get(value) match {
-        case None => Left(Seq(ErrorLocation("Unknown type: " + value, l.pos)))
-        case Some(t) => Right(t)
-      }
+      case l @ Literal(value) =>
+        basic.get(value)
+          .map(tpe => (0 -> ((tps: Seq[trees.Type]) => tpe)))
+          .orElse(parametric.get(value))
+          .orElse(value match {
+            case Name(name) if store isTypeParameter name =>
+              val tp = store getTypeParameter name
+              Some((0, (tps: Seq[trees.Type]) => tp))
+            case Name(name) if store isSort name =>
+              val sort = store getSort name
+              Some((sort.tparams.length, (tps: Seq[trees.Type]) => trees.ADTType(sort.id, tps)))
+            case _ => None
+          }).map { case (n, cons) =>
+            if (n == 0) {
+              Right(cons(Seq()))
+            } else {
+              Left(Seq(ErrorLocation("Type " + value + " expects " +
+                n + " " + plural(n, "argument", "arguments") + ", none were given", l.pos)))
+            }
+          }.getOrElse {
+            Left(Seq(ErrorLocation("Unknown type: " + value, l.pos)))
+          }
 
       case _ => Left(Seq(ErrorLocation("Invalid type.", expr.pos)))
     }
@@ -100,7 +125,7 @@ trait TypeElaborators { self: Elaborators =>
             case c @ WithConstraints(ev, cs) => oid match {
               case Some(ident) =>
                 val id = getIdentifier(ident)
-                val newStore = store + (ident.getName, id, getSimpleType(tpe), ev)
+                val newStore = store + (ident.getName, id, getSimpleType(tpe)(store), ev)
                 val newVds = vds :+ c.transform(tp => trees.ValDef(id, tp))
                 (newStore, newVds)
               case None =>
@@ -163,15 +188,22 @@ trait TypeElaborators { self: Elaborators =>
           })
 
         case Application(l @ Literal(value), irs) =>
-          (parametric.get(value) match {
-            case None => Constrained.fail("Unknown type constructor: " + value, l.pos)
-            case Some((n, cons)) => if (n == irs.length) {
+          (parametric.get(value).orElse(value match {
+            case Name(name) if store isTypeParameter name => None
+            case Name(name) if store isSort name =>
+              val sort = store getSort name
+              Some((sort.tparams.length, (tps: Seq[trees.Type]) => trees.ADTType(sort.id, tps)))
+            case _ => None
+          }).map { case (n, cons) =>
+            if (n == irs.length) {
               Constrained.pure(cons)
             } else {
               Constrained.fail("Type constructor " + value + " takes " +
                 n + " " + plural(n, "argument", "arguments") + ", " +
                 irs.length + " " + plural(irs.length, "was", "were") + " given.", l.pos)
             }
+          }.getOrElse {
+            Constrained.fail("Unknown type constructor: " + value, l.pos)
           }).combine(Constrained.sequence(irs.map(getType(_))))({
             case (cons, tpes) => cons(tpes)
           })
@@ -180,10 +212,28 @@ trait TypeElaborators { self: Elaborators =>
 
         case Literal(Name(BVType(size))) => Constrained.pure(trees.BVType(size))
 
-        case l @ Literal(value) => basic.get(value) match {
-          case None => Constrained.fail("Unknown type: " + value, l.pos)
-          case Some(t) => Constrained.pure(t)
-        }
+        case l @ Literal(value) =>
+          basic.get(value)
+            .map(tpe => (0 -> ((tps: Seq[trees.Type]) => tpe)))
+            .orElse(parametric.get(value))
+            .orElse(value match {
+              case Name(name) if store isTypeParameter name =>
+                val tp = store getTypeParameter name
+                Some((0, (tps: Seq[trees.Type]) => tp))
+              case Name(name) if store isSort name =>
+                val sort = store getSort name
+                Some((sort.tparams.length, (tps: Seq[trees.Type]) => trees.ADTType(sort.id, tps)))
+              case _ => None
+            }).map { case (n, cons) =>
+              if (n == 0) {
+                Constrained.pure(cons(Seq()))
+              } else {
+                Constrained.fail("Type " + value + " expects " +
+                  n + " " + plural(n, "argument", "arguments") + ", none were given", l.pos)
+              }
+            }.getOrElse {
+              Constrained.fail("Unknown type: " + value, l.pos)
+            }
 
         case _ => Constrained.fail("Invalid type.", expr.pos)
       }

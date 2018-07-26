@@ -5,7 +5,7 @@ package parsing
 
 import scala.util.parsing.input.Positional
 
-trait IRs extends BuiltIns with ExprIRs with TypeIRs {
+trait IRs extends BuiltIns with ExprIRs with TypeIRs with DefinitionIRs {
   protected val trees: ast.Trees
 }
 

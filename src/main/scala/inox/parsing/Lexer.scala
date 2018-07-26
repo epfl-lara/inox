@@ -13,7 +13,7 @@ trait Lexers {
 
   object Lexer extends StdLexical with StringContextLexer {
 
-    reserved ++= Seq("true", "false", "if", "else", "exists", "forall", "lambda", "choose", "let", "in", "assume")
+    reserved ++= Seq("true", "false", "if", "else", "exists", "forall", "lambda", "choose", "let", "in", "assume", "def", "type")
 
     val unaryOps: Seq[String] = Operators.unaries
     val opTable: Seq[Level] = Operators.binaries 
@@ -44,7 +44,9 @@ trait Lexers {
       acceptSeq("let") <~ not(identChar | digit) ^^^ Keyword("let") |
       acceptSeq("in") <~ not(identChar | digit) ^^^ Keyword("in") |
       acceptSeq("assume") <~ not(identChar | digit) ^^^ Keyword("assume") |
-      acceptSeq("=") ^^^ Keyword("=")
+      acceptSeq("=") ^^^ Keyword("=") |
+      acceptSeq("def") ^^^ Keyword("def") |
+      acceptSeq("type") ^^^ Keyword("type")
 
     val comma: Parser[Token] = ',' ^^^ Punctuation(',')
     val dot: Parser[Token] = '.' ^^^ Punctuation('.')

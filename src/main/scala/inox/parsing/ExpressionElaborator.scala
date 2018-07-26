@@ -1,4 +1,4 @@
-/* Copyright 2017 EPFL, Lausanne */
+/* Copyright 2009-2018 EPFL, Lausanne */
 
 package inox
 package parsing
@@ -41,7 +41,57 @@ trait ExpressionElaborators { self: Elaborators =>
 
     lazy val wrongNumberOfArguments: String = "Wrong number of arguments."
 
-    private def getExprBindings(es: Seq[(ExprIR.Identifier, Option[TypeIR.Expression])])
+    object LocalFunction {
+      def unapply(expression: Expression)(implicit store: Store): Option[(trees.FunDef, Option[Seq[Type]])] = expression match {
+        case TypeApplication(Variable(id), targs) if store isFunction id.getName => Some((store getFunction id.getName, Some(targs)))
+        case Variable(id) if store isFunction id.getName => Some((store getFunction id.getName, None))
+        case _ => None
+      }
+    }
+
+    object LocalConstructor {
+      def unapply(expression: Expression)(implicit store: Store): Option[(trees.ADTSort, trees.ADTConstructor, Option[Seq[Type]])] = expression match {
+        case TypeApplication(Variable(id), targs) if store isConstructor id.getName =>
+          val (sort, cons) = store getConstructor id.getName
+          Some((sort, cons, Some(targs)))
+        case Variable(id) if store isConstructor id.getName =>
+          val (sort, cons) = store getConstructor id.getName
+          Some((sort, cons, None))
+        case _ => None
+      }
+    }
+
+    object TypedDefinition {
+      def unapply(expression: Expression)(implicit store: Store): Option[(
+        inox.Identifier,
+        Seq[trees.TypeParameter],
+        Seq[trees.ValDef],
+        trees.Type,
+        Boolean,
+        Option[Seq[Type]]
+      )] = expression match {
+        case LocalFunction(fd, otpe) =>
+          Some((fd.id, fd.typeArgs, fd.params, fd.getType, true, otpe))
+        case LocalConstructor(sort, cons, otpe) =>
+          Some((cons.id, sort.typeArgs, cons.fields, trees.ADTType(sort.id, sort.typeArgs), false, otpe))
+        case TypedFunDef(fd, otps) =>
+          Some((fd.id, fd.typeArgs, fd.params, fd.getType, true, otps))
+        case TypedConsDef(cons, otps) =>
+          val sort = cons.getSort
+          Some((cons.id, sort.typeArgs, cons.fields, trees.ADTType(sort.id, sort.typeArgs), false, otps))
+        case _ => None
+      }
+    }
+
+    object IsConstructor {
+      def unapply(expr: Expression)(implicit store: Store): Option[(Expression, trees.ADTSort, trees.ADTConstructor)] = expr match {
+        case IsConstructorOperation(expr, cons) => Some((expr, cons.getSort, cons))
+        case Operation("is", Seq(lhs, LocalConstructor(sort, cons, None))) => Some((lhs, sort, cons))
+        case _ => None
+      }
+    }
+
+    def getExprBindings(es: Seq[(ExprIR.Identifier, Option[TypeIR.Expression])])
                                (implicit store: Store, pos: Position): (Store, Seq[trees.Type], Constrained[Seq[trees.ValDef]]) = {
       val (newStore, tps, vds) = es.foldLeft((store, Seq[trees.Type](), Seq[Constrained[trees.ValDef]]())) {
         case ((store, tps, vds), (ident, otpe)) =>
@@ -52,7 +102,7 @@ trait ExpressionElaborators { self: Elaborators =>
               val tpe = Unknown.fresh
               (tpe, Constrained.unify(u => u(tpe)))
             case Some(tpe) =>
-              (getSimpleType(tpe), getType(tpe, bound = Some(ident.getName))(store))
+              (getSimpleType(tpe)(store), getType(tpe, bound = Some(ident.getName))(store))
           }
 
           ctpe match {
@@ -144,12 +194,12 @@ trait ExpressionElaborators { self: Elaborators =>
 
         // Variable.
         case Variable(variable) => Constrained.unify({ implicit u =>
-          val (i, _, tpe) = store(variable.getName)
+          val (i, _, tpe) = store getVariable variable.getName
           trees.Variable(i, tpe, Seq.empty)
         }).checkImmediate(
-          store contains variable.getName, "Unknown variable " + variable.getShortName + ".", expr.pos
+          store isVariable variable.getName, "Unknown variable " + variable.getShortName + ".", expr.pos
         ).addConstraint({
-          Constraint.equal(store(variable.getName)._2, expected)
+          Constraint.equal((store getVariable variable.getName)._2, expected)
         })
 
         //---- Embedded values ----//
@@ -745,11 +795,11 @@ trait ExpressionElaborators { self: Elaborators =>
 
         //---- Functions ----//
 
-        // Function invocation.
-        case Application(TypedFunDef(fd, optTpeArgs), args) => {
+        // Function and constructor invocation.
+        case Application(TypedDefinition(id, tparams, params, resultType, isFun, optTpeArgs), args) => {
 
           val freshs = args.map({ a => Unknown.fresh(a.pos) })
-          val tfreshs = fd.tparams.map({ tp => Unknown.fresh })
+          val tfreshs = tparams.map({ tp => Unknown.fresh })
 
           val constrainedArgs = Constrained.sequence({
             args.zip(freshs).map({ case (e, t) => getExpr(e, t) })
@@ -766,25 +816,26 @@ trait ExpressionElaborators { self: Elaborators =>
                 tpeArgs.zip(tfreshs).map({ case (a, b) => Constraint.equal(getSimpleType(a), b) })
               }).checkImmediate(
                 // Their should be the same number of type applied than type parameters of the function.
-                tpeArgs.length == fd.tparams.length,
-                functionTypeArity(fd.id.name, fd.tparams.length, tpeArgs.length),
+                tpeArgs.length == tparams.length,
+                functionTypeArity(id.name, tparams.length, tpeArgs.length),
                 expr.pos
               )
             }
           }
 
-          val instantiator = new typeOps.TypeInstantiator((fd.tparams.map(_.tp) zip tfreshs).toMap)
-          val paramTypes = fd.params.map(vd => instantiator.transform(vd.getType))
+          val instantiator = new typeOps.TypeInstantiator((tparams zip tfreshs).toMap)
+          val paramTypes = params.map(vd => instantiator.transform(vd.getType))
 
           (for {
             tpArgs <- constrainedTpArgs
             args <- constrainedArgs
           } yield { implicit u =>
-            trees.FunctionInvocation(fd.id, tpArgs, args)
+            if (isFun) trees.FunctionInvocation(id, tpArgs, args)
+            else trees.ADT(id, tpArgs, args)
           }).checkImmediate(
             // There should be the same number of argument applied than parameters of the function.
-            args.length == fd.params.length,
-            functionArity(fd.id.name, fd.params.length, args.length),
+            args.length == params.length,
+            functionArity(id.name, params.length, args.length),
             expr.pos
           ).addConstraints({
             // The types of arguments should be equal to the type of the parameters.
@@ -793,61 +844,7 @@ trait ExpressionElaborators { self: Elaborators =>
             tfreshs.map(Constraint.exist)
           }).addConstraint({
             // The return type of the function should be what is expected.
-            Constraint.equal(instantiator.transform(fd.getType), expected)
-          })
-        }
-
-        // Constructor invocation.
-        case Application(TypedConsDef(cons, optTpeArgs), args) => {
-
-          val freshs = args.map({ case a => Unknown.fresh(a.pos) })
-
-          val sort = cons.getSort
-          val tfreshs = sort.tparams.map({ tp => Unknown.fresh })
-
-          val constrainedArgs = Constrained.sequence({
-            args.zip(freshs).map({ case (e, t) => getExpr(e, t) })
-          })
-
-          val constrainedTpArgs = optTpeArgs match {
-            case None =>
-              Constrained.sequence(tfreshs.map(tp => Constrained.unify(u => u(tp))))
-            case Some(tpeArgs) => {
-              Constrained.sequence({
-                tpeArgs.map(getType(_))
-              }).addConstraints({
-                // The annotated types should correspond to the type of the parameters.
-                tpeArgs.zip(tfreshs).map({ case (a, b) => Constraint.equal(getSimpleType(a), b) })
-              }).checkImmediate(
-                // Their should be the same number of type applied than type parameters of the function.
-                tpeArgs.length == sort.tparams.length,
-                functionTypeArity(cons.id.name, sort.tparams.length, tpeArgs.length, "Constructor"),
-                expr.pos
-              )
-            }
-          }
-
-          val instantiator = new typeOps.TypeInstantiator((sort.tparams.map(_.tp) zip tfreshs).toMap)
-          val paramTypes = cons.fields.map(vd => instantiator.transform(vd.getType))
-
-          (for {
-            tpArgs <- constrainedTpArgs
-            args <- constrainedArgs
-          } yield { implicit u =>
-            trees.ADT(cons.id, tpArgs, args)
-          }).checkImmediate(
-            // Their should be the same number of argument applied than parameters of the constructor.
-            args.length == cons.fields.length,
-            functionArity(cons.id.name, cons.fields.length, args.length, "Constructor"),
-            expr.pos
-          ).addConstraints({
-            // The types of arguments should be equal to the type of the parameters.
-            freshs.zip(paramTypes).map({ case (a, b) => Constraint.equal(a, b)(a.pos) }) ++
-            // The type parameter unknown must exist or we won't assign anything to them
-            tfreshs.map(Constraint.exist)
-          }).addConstraint({
-            // The return type of the constructor application should be what is expected.
-            Constraint.equal(trees.ADTType(sort.id, tfreshs), expected)
+            Constraint.equal(instantiator.transform(resultType), expected)
           })
         }
 
@@ -982,8 +979,7 @@ trait ExpressionElaborators { self: Elaborators =>
         }
 
         // Instance checking.
-        case IsConstructorOperation(expr, cons) => {
-          val sort = cons.getSort
+        case IsConstructor(expr, sort, cons) => {
           val tpe = Unknown.fresh
           val tps = sort.tparams.map(_ => Unknown.fresh)
 

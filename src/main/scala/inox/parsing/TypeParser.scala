@@ -128,7 +128,9 @@ trait TypeParsers { self: Parsers =>
 
     lazy val refinementType: Parser[Expression] = for {
       _ <- p('{')
-      (oid ~ tpe) <- commit(opt(identifier <~ p(':')) ~ typeExpression)
+      (oid ~ tpe) <- commit(opt(identifier <~ p(':')) ~ typeExpression) withFailureMessage {
+        (p: Position) => withPos("Expected (possibly bound) refinement base type.", p)
+      }
       _ <- commit(elem(Operator("|")))
       pred <- commit(expression)
       _ <- commit(p('}'))
