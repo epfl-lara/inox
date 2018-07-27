@@ -114,12 +114,21 @@ trait TypeTemplates { self: Templates =>
   }
 
   private[this] def instantiateTyping(blocker: Encoded, typing: Typing): Clauses = typing match {
-    case Typing(tpe, arg, Constraint(result, closures, free)) => tpe match {
-      case (_: FunctionType | _: PiType) =>
-        registerFunction(blocker, result, tpe, arg, closures, free)
-      case _ =>
-        ConstraintTemplate(tpe, free).instantiate(blocker, result, arg, closures)
-    }
+    case Typing(tpe, arg, Constraint(result, closures, free)) =>
+      val key = (tpe, arg, closures, free)
+      results.get(key) match {
+        case Some(res) =>
+          Seq(mkEquals(result, res))
+        case None =>
+          results += key -> result
+          tpe match {
+            case (_: FunctionType | _: PiType) =>
+              registerFunction(blocker, result, tpe, arg, closures, free)
+            case _ =>
+              ConstraintTemplate(tpe, free).instantiate(blocker, result, arg, closures)
+          }
+      }
+
     case Typing(tpe, arg, Capture(container, containerType)) =>
       CaptureTemplate(tpe, containerType).instantiate(blocker, container, arg)
   }
@@ -277,7 +286,7 @@ trait TypeTemplates { self: Templates =>
   private[unrolling] object typesManager extends Manager {
     private[TypeTemplates] val typeInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[Typing])]
     private[TypeTemplates] val lessOrder = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
-    private[TypeTemplates] val results = new IncrementalMap[(Type, Seq[Arg], Boolean), Encoded]
+    private[TypeTemplates] val results = new IncrementalMap[(Type, Encoded, Seq[Arg], Boolean), Encoded]
 
     private val tpSyms: MutableMap[TypeParameter, Variable] = MutableMap.empty
     private[unrolling] val tpSubst: MutableMap[Variable, Encoded] = MutableMap.empty
