@@ -306,11 +306,15 @@ trait Types { self: Trees =>
 
     def variablesOf(tpe: Type): Set[Variable] = tpe match {
       case PiType(params, to) =>
-        variablesOf(to) -- params.map(_.toVariable) ++ params.flatMap(vd => variablesOf(vd.tpe))
+        params.foldRight(variablesOf(to)) {
+          case (vd, vars) => vars - vd.toVariable ++ variablesOf(vd.tpe)
+        }
       case SigmaType(params, to) =>
-        variablesOf(to) -- params.map(_.toVariable) ++ params.flatMap(vd => variablesOf(vd.tpe))
+        params.foldRight(variablesOf(to)) {
+          case (vd, vars) => vars - vd.toVariable ++ variablesOf(vd.tpe)
+        }
       case RefinementType(vd, pred) =>
-        exprOps.variablesOf(pred) - vd.toVariable
+        exprOps.variablesOf(pred) - vd.toVariable ++ variablesOf(vd.tpe)
       case NAryType(tpes, _) => tpes.flatMap(variablesOf).toSet
     }
   }

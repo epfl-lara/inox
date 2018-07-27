@@ -172,37 +172,30 @@ trait SymbolOps { self: TypeOps =>
   )(implicit opts: PurityOptions): (Seq[ValDef], Expr, Seq[(Variable, Expr, Seq[Expr])]) = {
 
     val subst: MutableMap[Variable, (Expr, Seq[Expr])] = MutableMap.empty
-    val varSubst: MutableMap[Identifier, Identifier] = MutableMap.empty
-    val locals: MutableSet[Identifier] = MutableSet.empty
+    val varSubst: MutableMap[Variable, Variable] = MutableMap.empty
+    val locals: MutableSet[Variable] = MutableSet.empty
 
     var counter: Int = 0
-    def getId(e: Expr, conditions: Seq[Expr] = Seq(), store: Boolean = true): Identifier = {
-      val tpe = e.getType
+    def getVariable(e: Expr, tpe: Type, conditions: Seq[Expr] = Seq(), store: Boolean = true): Variable = {
+      //val tpe = e.getType
       val newId = SymbolOps.getId(counter)
       counter += 1
       if (store) subst(Variable(newId, tpe, Seq())) = (e, conditions)
-      newId
+      Variable(newId, tpe, Seq())
     }
 
-    def transformId(id: Identifier, tpe: Type, store: Boolean = true): Identifier =
-      subst.get(Variable(id, tpe, Seq())) match {
-        case Some((Variable(newId, _, _), _)) => newId
-        case Some(_) => id
-        case None => varSubst.get(id) match {
-          case Some(newId) => newId
-          case None =>
-            val newId = getId(Variable(id, tpe, Seq()), store = store)
-            if (!store) locals += id
-            varSubst += id -> newId
-            newId
-        }
+    def transformVar(v: Variable): Variable = subst.get(v) match {
+      case Some((newV: Variable, _)) => newV
+      case Some(_) => v
+      case None => varSubst.get(v) match {
+        case Some(newV) => newV
+        case None =>
+          val newV = getVariable(v, v.getType, store = false)
+          locals += v
+          varSubst += v -> newV
+          newV
       }
-
-    def transformVar(v: Variable): Variable =
-      Variable(transformId(v.id, v.getType, store = false), v.getType, Seq())
-
-    def transformVal(vd: ValDef): ValDef =
-      ValDef(varSubst(vd.id), vd.getType, Seq())
+    }
 
     object Matcher {
       def unapply(e: Expr): Option[Seq[Expr]] = e match {
@@ -215,13 +208,49 @@ trait SymbolOps { self: TypeOps =>
       }
     }
 
-    def outer(vars: Set[Variable], body: Expr, inFunction: Boolean, path: Path): Expr = {
+    def transformVal(vars: Set[Variable], vd: ValDef, inFunction: Boolean, path: Path): ValDef = {
+      varSubst.getOrElse(vd.toVariable, {
+        val newType = transformType(vars, vd.tpe, inFunction, path)
+        val newV = getVariable(vd.toVariable, newType, store = false)
+        locals += vd.toVariable
+        varSubst += vd.toVariable -> newV
+        newV
+      }).toVal
+    }
+
+    def transformType(vars: Set[Variable], tpe: Type, inFunction: Boolean, path: Path): Type = {
+      val tvars = vars map transformVar
+
+      def rec(tpe: Type): Type = tpe match {
+        case RefinementType(vd, pred) =>
+          val newVd = transformVal(vars, vd, inFunction, path)
+          val newPred = transformExpr(vars + vd.toVariable, pred, inFunction, path)
+          RefinementType(newVd, newPred)
+        case SigmaType(params, to) =>
+          val toVars = typeOps.variablesOf(to)
+          val newParams = params.map { vd =>
+            if (toVars(vd.toVariable)) transformVal(vars, vd, inFunction, path)
+            else transformVar(vd.toVariable).toVal
+          }
+          val newTo = transformType(vars ++ params.map(_.toVariable), to, inFunction, path)
+          SigmaType(newParams, newTo)
+        case PiType(params, to) =>
+          val newTo = transformType(vars ++ params.map(_.toVariable), to, true, path)
+          PiType(params map (vd => transformVar(vd.toVariable).toVal), newTo)
+        case NAryType(tps, recons) =>
+          recons(tps.map(rec))
+      }
+
+      rec(tpe)
+    }
+
+    def transformExpr(vars: Set[Variable], body: Expr, inFunction: Boolean, path: Path): Expr = {
       // this registers the argument images into subst
       val tvars = vars map transformVar
 
       def isLocal(e: Expr, path: Path, unconditional: Boolean): Boolean = {
         val vs = variablesOf(e)
-        val tvs = vs flatMap { v => varSubst.get(v.id) map { Variable(_, v.getType, Seq()) } }
+        val tvs = vs flatMap { v => varSubst.get(v) }
         val pathVars = path.bound.map(_.toVariable).toSet
 
         (tvars & tvs).isEmpty && (if (unconditional) {
@@ -273,11 +302,9 @@ trait SymbolOps { self: TypeOps =>
         val liftable = new Liftable(env)
 
         e match {
-          case v @ Variable(id, _, _) =>
-            Variable(
-              if (vars(v) || locals(id)) transformId(id, v.getType, store = false)
-              else getId(v), v.getType, Seq()
-            )
+          case v: Variable =>
+            if (vars(v) || locals(v)) transformVar(v)
+            else getVariable(v, v.getType)
 
           case Matcher(args) if (
             args.exists { case v: Variable => vars(v) case _ => false } &&
@@ -291,16 +318,17 @@ trait SymbolOps { self: TypeOps =>
             op.rec(b, env)
 
           case expr @ liftable(conditions) =>
-            Variable(getId(expr, conditions = conditions), expr.getType, Seq())
+            getVariable(expr, expr.getType, conditions = conditions)
 
           case f: Forall =>
             val isInstantiated = f.params.forall(vd => hasInstance(vd.tpe) == Some(true))
-            val newBody = outer(vars ++ f.params.map(_.toVariable), f.body, !isInstantiated, env)
-            Forall(f.params map transformVal, newBody)
+            val newParams = f.params.map(vd => transformVal(vars, vd, inFunction, path))
+            val newBody = transformExpr(vars ++ f.params.map(_.toVariable), f.body, !isInstantiated, env)
+            Forall(newParams, newBody)
 
           case l: Lambda =>
-            val newBody = outer(vars ++ l.params.map(_.toVariable), l.body, true, env)
-            Lambda(l.params map transformVal, newBody)
+            val newBody = transformExpr(vars ++ l.params.map(_.toVariable), l.body, true, env)
+            Lambda(l.params map (vd => transformVar(vd.toVariable).toVal), newBody)
 
           // @nv: we make sure NOT to normalize choose ids as we may need to
           //      report models for unnormalized chooses!
@@ -346,7 +374,7 @@ trait SymbolOps { self: TypeOps =>
             }))
 
             Application(
-              Variable(getId(lambda, conditions = conditions), lambda.getType, Seq()),
+              getVariable(lambda, lambda.getType, conditions = conditions),
               esWithParams.collect { case (e, Some(_)) => e }.map(op.rec(_, env))
             )
 
@@ -358,8 +386,8 @@ trait SymbolOps { self: TypeOps =>
       }
     }
 
-    val newExpr = outer(args.map(_.toVariable).toSet, expr, inFunction, Path.empty)
-    val bindings = args map transformVal
+    val newExpr = transformExpr(args.map(_.toVariable).toSet, expr, inFunction, Path.empty)
+    val bindings = args map (vd => transformVar(vd.toVariable).toVal)
 
     // Reorder the dependencies to make sure inter-dependencies are satisfied
     val deps: Seq[(Variable, Expr, Seq[Expr])] = {

@@ -59,7 +59,11 @@ trait ExprOps extends GenTreeOps {
       val subvs = subs.flatten.toSet
       e match {
         case v: Variable => subvs + v
-        case VariableExtractor(vs) => subvs -- vs
+        case _ =>
+          val (_, vs, _, tps, _, _) = deconstructor.deconstruct(e)
+          vs.foldRight(subvs ++ tps.flatMap(typeOps.variablesOf)) {
+            case (v, vars) => vars - v ++ typeOps.variablesOf(v.tpe)
+          }
       }
     }(expr)
   }
