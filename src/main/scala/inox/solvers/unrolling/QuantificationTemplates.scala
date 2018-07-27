@@ -169,25 +169,25 @@ trait QuantificationTemplates { self: Templates =>
   }
 
   private[unrolling] object quantificationsManager extends Manager {
-    val quantifications = new IncrementalSeq[Quantification]
+    private[QuantificationTemplates] val axioms = new IncrementalSeq[Axiom]
 
     private[QuantificationTemplates] val matcherBlockers = new IncrementalMap[Matcher, Encoded]
-    private[QuantificationTemplates] val substBlockers   = new IncrementalMap[(Quantification, Map[Encoded, Arg]), Encoded]
+    private[QuantificationTemplates] val substBlockers   = new IncrementalMap[(Axiom, Map[Encoded, Arg]), Encoded]
 
     private[QuantificationTemplates] val ignoredMatchers = new IncrementalSeq[(Int, Set[Encoded], Matcher)]
-    private[QuantificationTemplates] val ignoredSubsts   = new IncrementalMap[Quantification, Set[(Int, Set[Encoded], Map[Encoded,Arg])]]
-    private[QuantificationTemplates] val ignoredGrounds  = new IncrementalMap[Int, Set[Quantification]]
+    private[QuantificationTemplates] val ignoredSubsts   = new IncrementalMap[Axiom, Set[(Int, Set[Encoded], Map[Encoded,Arg])]]
+    private[QuantificationTemplates] val ignoredGrounds  = new IncrementalMap[Int, Set[Axiom]]
 
     private[QuantificationTemplates] val lambdaAxioms    = new IncrementalSet[TemplateStructure]
     private[QuantificationTemplates] val templates       = new IncrementalMap[TemplateStructure, (QuantificationTemplate, Encoded)]
 
-    val incrementals: Seq[IncrementalState] = Seq(quantifications, lambdaAxioms, templates,
+    val incrementals: Seq[IncrementalState] = Seq(axioms, lambdaAxioms, templates,
       matcherBlockers, substBlockers, ignoredMatchers, ignoredSubsts, ignoredGrounds)
 
-    override def push(): Unit  = { super.push();  for (q <- quantifications) q.push()  }
-    override def pop(): Unit   = { super.pop();   for (q <- quantifications) q.pop()   }
-    override def clear(): Unit = { super.clear(); for (q <- quantifications) q.clear() }
-    override def reset(): Unit = { super.reset(); for (q <- quantifications) q.reset() }
+    override def push(): Unit  = { super.push();  for (q <- axioms) q.push()  }
+    override def pop(): Unit   = { super.pop();   for (q <- axioms) q.pop()   }
+    override def clear(): Unit = { super.clear(); for (q <- axioms) q.clear() }
+    override def reset(): Unit = { super.reset(); for (q <- axioms) q.reset() }
 
     override def satisfactionAssumptions = Seq()
     override def refutationAssumptions = Seq()
@@ -217,7 +217,7 @@ trait QuantificationTemplates { self: Templates =>
       if (abort || pause) return clauses.toSeq
 
       val suClauses = new scala.collection.mutable.ListBuffer[Encoded]
-      for (q <- quantifications.toSeq if ignoredSubsts.isDefinedAt(q) && !abort && !pause) {
+      for (q <- axioms.toSeq if ignoredSubsts.isDefinedAt(q) && !abort && !pause) {
         val (release, keep) = ignoredSubsts(q).partition(_._1 <= currentGeneration)
         ignoredSubsts += q -> keep
 
@@ -282,7 +282,7 @@ trait QuantificationTemplates { self: Templates =>
           matcherBlockers += matcher -> matcherBlocker
 
           reporter.debug(" -> instantiating matcher " + matcherBlocker + " ==> " + matcher)
-          for (q <- quantifications) clauses ++= q.instantiate(matcherBlocker, matcher, defer)
+          for (q <- axioms) clauses ++= q.instantiate(matcherBlocker, matcher, defer)
           matcherBlocker
       }
 
@@ -297,11 +297,10 @@ trait QuantificationTemplates { self: Templates =>
     }
   }
 
-  def hasQuantifiers: Boolean = quantifications.nonEmpty
+  def hasAxioms: Boolean = axioms.nonEmpty
+  def getAxioms: Seq[Axiom] = axioms.toSeq
 
-  def getQuantifications: Seq[Quantification] = quantifications.toSeq
-
-  def getInstantiationsWithBlockers = quantifications.toSeq.flatMap {
+  def getInstantiationsWithBlockers = axioms.toSeq.flatMap {
     case a: Axiom => a.instantiations.toSeq
     case _ => Seq.empty
   }
@@ -379,13 +378,20 @@ trait QuantificationTemplates { self: Templates =>
   private def encodeEnablers(es: Set[Encoded]): Encoded =
     if (es.isEmpty) trueT else mkAnd(es.toSeq.sortBy(_.toString) : _*)
 
-  private[solvers] trait Quantification extends IncrementalState {
-    val contents: TemplateContents
-    val typings: Map[Encoded, Typing]
+  private[solvers] class Axiom(
+    contents: TemplateContents,
+    typings: Map[Encoded, Typing],
+    val body: Expr,
+    defer: Boolean) extends IncrementalState {
 
-    val holds: Encoded
-    val body: Expr
-    val defer: Boolean
+    private var _insts: Map[Encoded, Set[Encoded]] = Map.empty
+    def instantiations = _insts
+
+    private def registerBlockers(substituter: Encoded => Encoded): Unit = {
+      val enabler = substituter(contents.pathVar._2)
+      val bs = (contents.blockers.keys ++ contents.applications.keys).map(substituter).toSet
+      _insts += enabler -> bs
+    }
 
     lazy val quantifiers = contents.arguments
     lazy val quantified: Set[Encoded] = quantifiers.map(_._2).toSet
@@ -582,7 +588,7 @@ trait QuantificationTemplates { self: Templates =>
           val (enabler, enablerClauses) = encodeBlockers(pathBlockers + substBlocker)
           clauses ++= enablerClauses
 
-          val baseSubst = subst ++ instanceSubst(enabler).mapValues(Left(_))
+          val baseSubst = subst + (contents.pathVar._2 -> Left(enabler))
           val (substClauses, substMap) = contents.substitution(enabler, baseSubst)
           clauses ++= substClauses
 
@@ -628,10 +634,6 @@ trait QuantificationTemplates { self: Templates =>
 
       clauses.toSeq
     }
-
-    protected def instanceSubst(enabler: Encoded): Map[Encoded, Encoded]
-
-    protected def registerBlockers(substituter: Encoded => Encoded): Unit = ()
 
     def checkForall(modelEq: (Encoded, Encoded) => Boolean): Option[String] = {
       val quantified = quantifiers.map(_._1).toSet
@@ -687,30 +689,6 @@ trait QuantificationTemplates { self: Templates =>
     }
   }
 
-  private class Axiom (
-    val contents: TemplateContents,
-    val typings: Map[Encoded, Typing],
-    val body: Expr,
-    val defer: Boolean) extends Quantification {
-
-    val holds = trueT
-
-    def getPolarity = Some(true)
-
-    private var _insts: Map[Encoded, Set[Encoded]] = Map.empty
-    def instantiations = _insts
-
-    protected def instanceSubst(enabler: Encoded): Map[Encoded, Encoded] = {
-      Map(contents.pathVar._2 -> enabler)
-    }
-
-    override def registerBlockers(substituter: Encoded => Encoded): Unit = {
-      val enabler = substituter(contents.pathVar._2)
-      val bs = (contents.blockers.keys ++ contents.applications.keys).map(substituter).toSet
-      _insts += enabler -> bs
-    }
-  }
-
   def instantiateAxiom(template: LambdaTemplate): Clauses = {
     if (lambdaAxioms(template.structure) || lambdaAxioms.exists(s => s.subsumes(template.structure))) {
       Seq.empty
@@ -756,7 +734,7 @@ trait QuantificationTemplates { self: Templates =>
       val (inst, mapping): (Encoded, Map[Encoded, Encoded]) = newTemplate.polarity match {
         case Positive =>
           val axiom = new Axiom(newTemplate.contents, newTemplate.typings, newTemplate.body, newTemplate.isDeferred)
-          quantifications += axiom
+          axioms += axiom
 
           for ((m,b) <- matcherBlockers.toList) {
             clauses ++= axiom.instantiate(b, m)
@@ -836,7 +814,7 @@ trait QuantificationTemplates { self: Templates =>
       ignoredMatchers += ((gen - diff, bs, m))
     }
 
-    for (q <- quantifications if ignoredSubsts.isDefinedAt(q)) {
+    for (q <- axioms if ignoredSubsts.isDefinedAt(q)) {
       ignoredSubsts += q -> ignoredSubsts(q).map { case (gen, bs, subst) => (gen - diff, bs, subst) }
     }
   }
@@ -897,7 +875,7 @@ trait QuantificationTemplates { self: Templates =>
       clauses += mkSubstituter(substMap)(mkImplies(b, clause))
     }
 
-    for (q <- quantifications if ignoredSubsts.isDefinedAt(q)) {
+    for (q <- axioms if ignoredSubsts.isDefinedAt(q)) {
       val guard = Variable.fresh("guard", BooleanType(), true)
       val elems = q.quantifiers.map(_._1)
       val values = elems.map(v => v.freshen)

@@ -524,7 +524,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
         case ModelCheck =>
           reporter.debug(" - Running search...")
 
-          val getModel = !templates.requiresFiniteRangeCheck || checkModels || templates.hasQuantifiers
+          val getModel = !templates.requiresFiniteRangeCheck || checkModels || templates.hasAxioms
           val checkConfig = config
             .max(Configuration(model = getModel, unsatAssumptions = unrollAssumptions && templates.canUnroll))
 
@@ -606,10 +606,10 @@ trait AbstractUnrollingSolver extends Solver { self =>
               reporter.error("for formula " + andJoin(assumptionsSeq ++ constraints).asString)
             }
             CheckResult cast Unknown
-          } else if (templates.hasQuantifiers) {
+          } else if (templates.hasAxioms) {
             val wrapped = wrapModel(umodel)
-            val optError = templates.getQuantifications.view.flatMap { q =>
-              if (wrapped.modelEval(q.holds, t.BooleanType()) != Some(t.BooleanLiteral(false))) {
+            val optError = templates.getAxioms.view.flatMap { q =>
+              if (wrapped.modelEval(q.guard, t.BooleanType()) != Some(t.BooleanLiteral(false))) {
                 q.checkForall { (e1, e2) =>
                   wrapped.modelEval(templates.mkEquals(e1, e2), t.BooleanType()) == Some(t.BooleanLiteral(true))
                 }.map(err => q.body -> err)
