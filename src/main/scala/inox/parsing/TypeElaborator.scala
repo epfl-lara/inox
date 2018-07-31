@@ -15,6 +15,27 @@ trait TypeElaborators { self: Elaborators =>
 
     import TypeIR._
 
+    def replaceHoles(tpe: Expression)(implicit holes: HoleValues, dummy: DummyImplicit): Expression = tpe match {
+      case TypeHole(i) => Literal(EmbeddedType(holes.getType(i).get))
+      case Operation(operator, args) => Operation(operator, args.flatMap(replaceHolesSeq(_)))
+      case Application(callee, args) => {
+        val replacedCallee = callee match {
+          case NameHole(i) => Literal(EmbeddedIdentifier(holes.getIdentifier(i).get))
+          case _ => replaceHoles(callee)
+        }
+
+        Application(replacedCallee, args.flatMap(replaceHolesSeq(_)))
+      }
+      case Refinement(optId, tpe, pred) => Refinement(optId.map(replaceHoles(_)), replaceHoles(tpe), replaceHoles(pred))
+      case TypeBinding(id, tpe) => TypeBinding(replaceHoles(id), replaceHoles(tpe))
+      case Literal(_) => tpe
+    }
+
+    def replaceHolesSeq(tpe: Expression)(implicit holes: HoleValues, dummy: DummyImplicit): Seq[Expression] = tpe match {
+      case TypeSeqHole(i) => holes.getTypeSeq(i).get.map(t => Literal(EmbeddedType(t)))
+      case _ => Seq(replaceHoles(tpe))
+    }
+
     private lazy val basicInv = basic.map(_.swap)
 
     private lazy val parametric: Map[Value, (Int, Seq[trees.Type] => trees.Type)] =

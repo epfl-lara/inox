@@ -41,6 +41,45 @@ trait ExpressionElaborators { self: Elaborators =>
 
     lazy val wrongNumberOfArguments: String = "Wrong number of arguments."
 
+    def replaceHoles(identifier: Identifier)(implicit holes: HoleValues): Identifier = identifier match {
+      case IdentifierHole(i) => IdentifierIdentifier(holes.getIdentifier(i).get)
+      case _ => identifier
+    }
+
+    def replaceHoles(field: Field)(implicit holes: HoleValues): Field = field match {
+      case FieldHole(i) => FieldIdentifier(holes.getIdentifier(i).get)
+      case _ => field
+    }
+
+    def replaceHoles(expr: Expression)(implicit holes: HoleValues): Expression = expr match {
+      case ExpressionHole(i) => Literal(EmbeddedExpr(holes.getExpression(i).get))
+      case Variable(identifier) => Variable(replaceHoles(identifier))
+      case Operation(operator, args) => Operation(operator, args.flatMap(replaceHolesSeq(_)))
+      case Selection(structure, field) => Selection(replaceHoles(structure), replaceHoles(field))
+      case Abstraction(quantifier, bindings, body) => {
+        val replacedBindings = bindings.map { case (identifier, optType) =>
+          (replaceHoles(identifier), optType.map(replaceHoles(_)))
+        }
+
+        Abstraction(quantifier, replacedBindings, replaceHoles(body))
+      }
+      case Let(bindings, body) => {
+        val replacedBindings = bindings.map { case (identifier, optType, value) =>
+          (replaceHoles(identifier), optType.map(replaceHoles(_)), replaceHoles(value))
+        }
+
+        Let(replacedBindings, replaceHoles(body))
+      }
+      case Application(callee, args) => Application(replaceHoles(callee), args.flatMap(replaceHolesSeq(_)))
+      case TypeApplication(callee, args) => TypeApplication(replaceHoles(callee), args.flatMap(replaceHolesSeq(_)))
+      case _ => expr
+    }
+
+    def replaceHolesSeq(expr: Expression)(implicit holes: HoleValues): Seq[Expression] = expr match {
+      case ExpressionSeqHole(i) => holes.getExpressionSeq(i).get.map(e => Literal(EmbeddedExpr(e)))
+      case _ => Seq(replaceHoles(expr))
+    }
+
     object LocalFunction {
       def unapply(expression: Expression)(implicit store: Store): Option[(trees.FunDef, Option[Seq[Type]])] = expression match {
         case TypeApplication(Variable(id), targs) if store isFunction id.getName => Some((store getFunction id.getName, Some(targs)))
