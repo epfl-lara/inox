@@ -85,6 +85,15 @@ trait Interpolator
         val srt = converter.getSort(ir)(Store.empty)
         converter.elaborate(srt)
       }
+
+      def unapplySeq(sort: ADTSort): Option[Seq[Any]] = {
+        val args = Seq.tabulate(sc.parts.length - 1)(MatchPosition(_))
+        val ir = parser.getFromSC(sc, args)(parser.phrase(parser.datatype))
+        converter.extract(sort, ir) match {
+          case Some(mappings) if mappings.size == sc.parts.length - 1 => Some(mappings.toSeq.sortBy(_._1).map(_._2))
+          case _ => None
+        }
+      }
     }
 
     object fd {
@@ -92,6 +101,15 @@ trait Interpolator
         val ir = parser.getFromSC(sc, args)(parser.phrase(parser.function))
         val fundef = converter.getFunction(ir)(Store.empty)
         converter.elaborate(fundef)
+      }
+
+      def unapplySeq(fun: FunDef): Option[Seq[Any]] = {
+        val args = Seq.tabulate(sc.parts.length - 1)(MatchPosition(_))
+        val ir = parser.getFromSC(sc, args)(parser.phrase(parser.function))
+        converter.extract(fun, ir) match {
+          case Some(mappings) if mappings.size == sc.parts.length - 1 => Some(mappings.toSeq.sortBy(_._1).map(_._2))
+          case _ => None
+        }
       }
     }
   }

@@ -8,12 +8,14 @@ trait Extractors
      with ExpressionDeconstructors
      with TypeDeconstructors
      with ExpressionExtractors
+     with DefinitionExtractors
      with TypeExtractors {
 
   trait Extractor
     extends ExpressionDeconstructor
        with TypeDeconstructor
        with ExpressionExtractor
+       with DefinitionExtractor
        with TypeExtractor {
 
     type Match = Map[Int, Any]
