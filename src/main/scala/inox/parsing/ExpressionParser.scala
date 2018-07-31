@@ -145,7 +145,7 @@ trait ExpressionParsers { self: Parsers =>
 
     lazy val holeExpr: Parser[Expression] = acceptMatch("Hole", {
       case lexical.Hole(i) => ExpressionHole(i)
-    })
+    }) <~ not(p('('))
 
     lazy val holeExprSeq: Parser[Expression] = acceptMatch("Hole with ellipsis", {
       case lexical.Hole(i) => ExpressionSeqHole(i)
