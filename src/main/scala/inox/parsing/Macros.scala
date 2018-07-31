@@ -138,6 +138,55 @@ class Macros(val c: Context) extends Parsers with IRs {
     """
   }
 
+  def t_unapply(arg: c.Expr[trees.Type]): c.Tree = {
+
+    val Select(self, _) = c.prefix.tree
+
+    def getString(expr: c.Tree): String = expr match {
+      case Literal(Constant(s : String)) => s
+    }
+
+    val parts = self match {
+      case Block(ValDef(_, _, _, Apply(_, ls)) :: _, _) => ls.map(getString)
+    }
+
+    val sc = StringContext(parts: _*)
+
+    val n = sc.parts.length - 1
+
+    val argsplaceholders = Seq.tabulate(n)(MatchPosition(_))
+    val ir = parser.getFromSC(sc, argsplaceholders)(parser.phrase(parser.typeExpression))
+
+    if (n >= 1) {
+      val holeTypes = TypeIR.getHoleTypes(ir)
+
+      val types = Seq.tabulate(n) { (i: Int) => holeTypeToType(holeTypes(i)) }
+
+      val tupleType = tq"(..$types)"
+
+      val accessAll = {
+        val elems = Seq.tabulate(n) { (i: Int) => q"x($i).asInstanceOf[${types(i)}]" }
+        q"(x: Map[Int, Any]) => (..$elems)"
+      }
+
+      q"""
+        new {
+          val ir: _root_.inox.parsing.MacroInterpolator.TypeIR.Expression = $ir
+
+          def unapply(t: ${c.typeOf[trees.Type]}): Option[$tupleType] = { $self.converter.extract(t, ir).map($accessAll) }
+        }.unapply($arg)
+      """
+    } else {
+      q"""
+        new {
+          val ir: _root_.inox.parsing.MacroInterpolator.TypeIR.Expression = $ir
+
+          def unapplySeq(t: ${c.typeOf[trees.Type]}): Option[Seq[Any]] = { $self.converter.extract(t, ir).map(_ => Seq[Any]()) }
+        }.unapplySeq($arg)
+      """
+    }
+  }
+
   def e_apply(args: c.Expr[Any]*): c.Tree = {
 
     val Select(self, _) = c.prefix.tree

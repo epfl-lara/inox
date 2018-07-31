@@ -22,6 +22,8 @@ object MacroInterpolator
 
     object t {
       def apply(args: Any*): Type = macro Macros.t_apply
+
+      def unapply(arg: Type): Option[Any] = macro Macros.t_unapply
     }
 
     object e {
