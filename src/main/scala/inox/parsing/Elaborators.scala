@@ -188,6 +188,37 @@ trait Elaborators
     def empty: Store = new Store(Map(), Map(), Map(), Map(), Map(), Map())
   }
 
+  class HoleValues(args: Seq[Any]) {
+    private val get: Int => Option[Any] = args.lift
+
+    def getIdentifier(i: Int): Option[inox.Identifier] = for {
+      id <- get(i)
+      if id.isInstanceOf[inox.Identifier]
+    } yield id.asInstanceOf[inox.Identifier]
+
+    def getExpression(i: Int): Option[trees.Expr] = for {
+      e <- get(i)
+      if e.isInstanceOf[trees.Expr]
+    } yield e.asInstanceOf[trees.Expr]
+
+    def getType(i: Int): Option[trees.Type] = for {
+      t <- get(i)
+      if t.isInstanceOf[trees.Type]
+    } yield t.asInstanceOf[trees.Type]
+
+    def getExpressionSeq(i: Int): Option[Seq[trees.Expr]] = for {
+      es <- get(i)
+      if es.isInstanceOf[Iterable[_]]
+      if es.asInstanceOf[Iterable[_]].forall(_.isInstanceOf[trees.Expr])
+    } yield es.asInstanceOf[Iterable[trees.Expr]].toSeq
+
+    def getTypeSeq(i: Int): Option[Seq[trees.Type]] = for {
+      ts <- get(i)
+      if ts.isInstanceOf[Iterable[_]]
+      if ts.asInstanceOf[Iterable[_]].forall(_.isInstanceOf[trees.Type])
+    } yield ts.asInstanceOf[Iterable[trees.Type]].toSeq
+  }
+
   /** Represents a set of constraints with a value.
    *
    * The value contained is not directly available,
