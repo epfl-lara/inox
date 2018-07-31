@@ -19,28 +19,30 @@ class Macros(val c: Context) extends Parsers with IRs {
   implicit lazy val fieldLiftable = Liftable[ExprIR.Field] {
     case ExprIR.FieldName(name) => q"_root_.inox.parsing.MacroInterpolator.ExprIR.FieldName($name)"
     case ExprIR.FieldHole(index) => q"_root_.inox.parsing.MacroInterpolator.ExprIR.FieldHole($index)"
+    case _ => throw new Error("Unexpected construct.")
   }
 
   implicit lazy val identifierLiftable = Liftable[ExprIR.Identifier] {
     case ExprIR.IdentifierName(name) => q"_root_.inox.parsing.MacroInterpolator.ExprIR.IdentifierName($name)"
     case ExprIR.IdentifierHole(index) => q"_root_.inox.parsing.MacroInterpolator.ExprIR.IdentifierHole($index)"
+    case _ => throw new Error("Unexpected construct.")
   }
 
   implicit lazy val exprIRLiftable: Liftable[ExprIR.Expression] = Liftable[ExprIR.Expression] {
     case ExprIR.Variable(id) =>
       q"_root_.inox.parsing.MacroInterpolator.ExprIR.Variable($id)"
     case ExprIR.Application(callee, args) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Application($callee, scala.collection.immutable.Seq(..$args))"
+      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Application($callee, _root_.scala.collection.immutable.Seq(..$args))"
     case ExprIR.Abstraction(quantifier, bindings, body) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Abstraction($quantifier, scala.collection.immutable.Seq(..$bindings), $body)"
+      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Abstraction($quantifier, _root_.scala.collection.immutable.Seq(..$bindings), $body)"
     case ExprIR.Operation(operator, args) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Operation($operator, scala.collection.immutable.Seq(..$args))"
+      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Operation($operator, _root_.scala.collection.immutable.Seq(..$args))"
     case ExprIR.Selection(structure, field) =>
       q"_root_.inox.parsing.MacroInterpolator.ExprIR.Selection($structure, $field)"
     case ExprIR.TypeApplication(callee, args) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.TypeApplication($callee, scala.collection.immutable.Seq(..$args))"
+      q"_root_.inox.parsing.MacroInterpolator.ExprIR.TypeApplication($callee, _root_.scala.collection.immutable.Seq(..$args))"
     case ExprIR.Let(bindings, body) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Let(scala.collection.immutable.Seq(..$bindings), $body)"
+      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Let(_root_.scala.collection.immutable.Seq(..$bindings), $body)"
     case ExprIR.Literal(ExprIR.NumericLiteral(value)) =>
       q"_root_.inox.parsing.MacroInterpolator.ExprIR.Literal(_root_.inox.parsing.MacroInterpolator.ExprIR.NumericLiteral($value))"
     case ExprIR.Literal(ExprIR.DecimalLiteral(whole, trailing, repeating)) =>
@@ -71,9 +73,9 @@ class Macros(val c: Context) extends Parsers with IRs {
     case TypeIR.Literal(TypeIR.Name(name)) =>
       q"_root_.inox.parsing.MacroInterpolator.TypeIR.Literal(_root_.inox.parsing.MacroInterpolator.TypeIR.Name($name))"
     case TypeIR.Application(callee, args) =>
-      q"_root_.inox.parsing.MacroInterpolator.TypeIR.Application($callee, scala.collection.immutable.Seq(..$args))"
+      q"_root_.inox.parsing.MacroInterpolator.TypeIR.Application($callee, _root_.scala.collection.immutable.Seq(..$args))"
     case TypeIR.Operation(operator, args) =>
-      q"_root_.inox.parsing.MacroInterpolator.TypeIR.Operation($operator, scala.collection.immutable.Seq(..$args))"
+      q"_root_.inox.parsing.MacroInterpolator.TypeIR.Operation($operator, _root_.scala.collection.immutable.Seq(..$args))"
     case TypeIR.TypeHole(index) =>
       q"_root_.inox.parsing.MacroInterpolator.TypeIR.TypeHole($index)"
     case TypeIR.NameHole(index) =>
