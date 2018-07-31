@@ -131,7 +131,8 @@ class Macros(val c: Context) extends Parsers with IRs {
         import _root_.inox.parsing.MacroInterpolator._
 
         val self = $self
-        val tpe = self.converter.getType($ir)(Store.empty)
+        val ir = self.converter.replaceHoles($ir)(new HoleValues(_root_.scala.collection.immutable.Seq(..$args)), new DummyImplicit)
+        val tpe = self.converter.getType(ir)(Store.empty)
         self.converter.elaborate(tpe)
       }
     """
@@ -169,7 +170,8 @@ class Macros(val c: Context) extends Parsers with IRs {
         import _root_.inox.parsing.MacroInterpolator._
 
         val self = $self
-        val ir = $ir
+        val ir = self.converter.replaceHoles($ir)(new HoleValues(_root_.scala.collection.immutable.Seq(..$args)))
+
         val expr = self.converter.getExpr(ir, Unknown.fresh(ir.pos))(Store.empty)
         self.converter.elaborate(expr)
       }
