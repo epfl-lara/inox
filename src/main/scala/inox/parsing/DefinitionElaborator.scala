@@ -19,7 +19,7 @@ trait DefinitionElaborators { self: Elaborators =>
       for (ds <- getDefinitions(Seq(td))) yield { implicit u => ds.head.asInstanceOf[trees.ADTSort] }
     }
 
-    def getDefinitions(definitions: Seq[Definition]): Constrained[Seq[trees.Definition]] = {
+    def getDefinitions(definitions: Seq[Definition])(implicit store: Store): Constrained[Seq[trees.Definition]] = {
 
       // Check for duplicate definitions
       def duplicates(names: Seq[(String, Position)], symbols: Set[String]): Option[(String, Position)] = {
@@ -56,7 +56,7 @@ trait DefinitionElaborators { self: Elaborators =>
         .map { case (id, ids) => ids.find(_.pos != NoPosition).getOrElse(id) }
         .headOption
 
-      val sortsStore = definitions.foldLeft(Store.empty) {
+      val sortsStore = definitions.foldLeft(store) {
         case (store, TypeDef(ident, tparams, _)) =>
           store + (ident.getName, new trees.ADTSort(
             getIdentifier(ident),
