@@ -32,5 +32,16 @@ trait TypeIRs { self: IRs =>
 
     case class Refinement(id: Option[ExprIR.Identifier], tpe: Expression, pred: ExprIR.Expression) extends Expression("RefinementType")
     case class TypeBinding(id: ExprIR.Identifier, tpe: Expression) extends Expression("TypeBinding")
+
+    def getHoleTypes(expr: Expression): Map[Int, HoleType] = expr match {
+        case Application(callee, args) => args.map(getHoleTypes(_)).fold(getHoleTypes(callee))(_ ++ _)
+        case Operation(_, args) => args.map(getHoleTypes(_)).fold(Map[Int, HoleType]())(_ ++ _)
+        case Refinement(id, tpe, pred) => id.map(ExprIR.getHoleTypes(_)).getOrElse(Map()) ++ getHoleTypes(tpe) ++ ExprIR.getHoleTypes(pred)
+        case TypeBinding(id, tpe) => ExprIR.getHoleTypes(id) ++ getHoleTypes(tpe)
+        case TypeHole(i) => Map(i -> TypeHoleType)
+        case NameHole(i) => Map(i -> IdentifierHoleType)
+        case TypeSeqHole(i) => Map(i -> SeqHoleType(TypeHoleType))
+        case Literal(_) => Map()
+    }
   }
 }
