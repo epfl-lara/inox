@@ -7,7 +7,7 @@ import scala.util.parsing.input._
 
 import Utils.plural
 
-trait TypeElaborators { self: Elaborators => 
+trait TypeElaborators { self: Elaborators =>
 
   import Utils.{either, traverse, plural}
 
@@ -70,7 +70,7 @@ trait TypeElaborators { self: Elaborators =>
           case tpe => toSimpleType(tpe)
         }).left.map(_.flatten).right.map(trees.TupleType(_))
 
-      case Operation(Arrow | Pi, Seq(Operation(Group, froms), to)) => 
+      case Operation(Arrow | Pi, Seq(Operation(Group, froms), to)) =>
         either(
           traverse(froms.map {
             case TypeBinding(_, tpe) => toSimpleType(tpe)
@@ -107,7 +107,7 @@ trait TypeElaborators { self: Elaborators =>
           case (cons, tpes) => cons(tpes)
         }
 
-      case Literal(EmbeddedType(t)) => Right(t)
+      case Literal(EmbeddedType(t)) => Right(t)  // This seems wrong. What if t is not simple ?
 
       case Literal(Name(BVType(size))) => Right(trees.BVType(size))
 
