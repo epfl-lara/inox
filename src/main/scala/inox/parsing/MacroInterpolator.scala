@@ -1,6 +1,8 @@
 package inox
 package parsing
 
+import scala.reflect.macros.whitebox.Context
+
 import scala.language.experimental.macros
 
 object MacroInterpolator
@@ -16,20 +18,27 @@ object MacroInterpolator
     extends Elaborator
        with Extractor
 
-  implicit class ExpressionInterpolator(sc: StringContext)(implicit val symbols: Symbols = NoSymbols) {
+  implicit class Interpolator(sc: StringContext)(implicit val symbols: Symbols = NoSymbols) {
 
     val converter = new Converter()
 
     object t {
-      def apply(args: Any*): Type = macro Macros.t_apply
+      def apply(args: Any*): Type = macro MacroInterpolatorImpl.t_apply
 
-      def unapply(arg: Type): Option[Any] = macro Macros.t_unapply
+      def unapply(arg: Type): Option[Any] = macro MacroInterpolatorImpl.t_unapply
     }
 
     object e {
-      def apply(args: Any*): Expr = macro Macros.e_apply
+      def apply(args: Any*): Expr = macro MacroInterpolatorImpl.e_apply
 
-      def unapply(arg: Expr): Option[Any] = macro Macros.e_unapply
+      def unapply(arg: Expr): Option[Any] = macro MacroInterpolatorImpl.e_unapply
     }
   }
+}
+
+private class MacroInterpolatorImpl(context: Context) extends Macros(context) {
+  import c.universe._
+  override protected val trees = inox.trees
+  override protected lazy val targetTrees: c.Tree = q"_root_.inox.trees"
+  override protected val interpolator: c.Tree = q"_root_.inox.parsing.MacroInterpolator"
 }

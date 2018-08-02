@@ -5,90 +5,98 @@ import scala.reflect.macros.whitebox.Context
 import scala.language.experimental.macros
 
 
-class Macros(val c: Context) extends Parsers with IRs {
+abstract class Macros(final val c: Context) extends Parsers with IRs {
 
   import c.universe._
 
+  protected val interpolator: c.Tree
+
+  protected lazy val targetTrees: c.Tree = q"$interpolator.trees"
+
   implicit lazy val quantifierLiftable = Liftable[ExprIR.Quantifier] {
-    case ExprIR.Lambda => q"_root_.inox.parsing.MacroInterpolator.ExprIR.Lambda"
-    case ExprIR.Forall => q"_root_.inox.parsing.MacroInterpolator.ExprIR.Forall"
-    case ExprIR.Exists => q"_root_.inox.parsing.MacroInterpolator.ExprIR.Exists"
-    case ExprIR.Choose => q"_root_.inox.parsing.MacroInterpolator.ExprIR.Choose"
+    case ExprIR.Lambda => q"$interpolator.ExprIR.Lambda"
+    case ExprIR.Forall => q"$interpolator.ExprIR.Forall"
+    case ExprIR.Exists => q"$interpolator.ExprIR.Exists"
+    case ExprIR.Choose => q"$interpolator.ExprIR.Choose"
   }
 
   implicit lazy val fieldLiftable = Liftable[ExprIR.Field] {
-    case ExprIR.FieldName(name) => q"_root_.inox.parsing.MacroInterpolator.ExprIR.FieldName($name)"
-    case ExprIR.FieldHole(index) => q"_root_.inox.parsing.MacroInterpolator.ExprIR.FieldHole($index)"
-    case _ => throw new Error("Unexpected construct.")
+    case ExprIR.FieldName(name) => q"$interpolator.ExprIR.FieldName($name)"
+    case ExprIR.FieldHole(index) => q"$interpolator.ExprIR.FieldHole($index)"
+    case _ => c.abort(c.enclosingPosition, "Unexpected construct.")
   }
 
   implicit lazy val identifierLiftable = Liftable[ExprIR.Identifier] {
-    case ExprIR.IdentifierName(name) => q"_root_.inox.parsing.MacroInterpolator.ExprIR.IdentifierName($name)"
-    case ExprIR.IdentifierHole(index) => q"_root_.inox.parsing.MacroInterpolator.ExprIR.IdentifierHole($index)"
-    case _ => throw new Error("Unexpected construct.")
+    case ExprIR.IdentifierName(name) => q"$interpolator.ExprIR.IdentifierName($name)"
+    case ExprIR.IdentifierHole(index) => q"$interpolator.ExprIR.IdentifierHole($index)"
+    case _ => c.abort(c.enclosingPosition, "Unexpected construct.")
+  }
+
+  implicit lazy val valueLiftable = Liftable[ExprIR.Value] {
+    case ExprIR.NumericLiteral(value) =>
+      q"$interpolator.ExprIR.NumericLiteral($value)"
+    case ExprIR.DecimalLiteral(whole, trailing, repeating) =>
+      q"$interpolator.ExprIR.DecimalLiteral($whole, $trailing, $repeating)"
+    case ExprIR.StringLiteral(value) =>
+      q"$interpolator.ExprIR.StringLiteral($value)"
+    case ExprIR.BooleanLiteral(value) =>
+      q"$interpolator.ExprIR.BooleanLiteral($value)"
+    case ExprIR.CharLiteral(value) =>
+      q"$interpolator.ExprIR.CharLiteral($value)"
+    case ExprIR.UnitLiteral =>
+      q"$interpolator.ExprIR.UnitLiteral"
+    case _ => c.abort(c.enclosingPosition, "Unexpected construct.")
   }
 
   implicit lazy val exprIRLiftable: Liftable[ExprIR.Expression] = Liftable[ExprIR.Expression] {
     case ExprIR.Variable(id) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Variable($id)"
+      q"$interpolator.ExprIR.Variable($id)"
     case ExprIR.Application(callee, args) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Application($callee, _root_.scala.collection.immutable.Seq(..$args))"
+      q"$interpolator.ExprIR.Application($callee, _root_.scala.collection.immutable.Seq(..$args))"
     case ExprIR.Abstraction(quantifier, bindings, body) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Abstraction($quantifier, _root_.scala.collection.immutable.Seq(..$bindings), $body)"
+      q"$interpolator.ExprIR.Abstraction($quantifier, _root_.scala.collection.immutable.Seq(..$bindings), $body)"
     case ExprIR.Operation(operator, args) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Operation($operator, _root_.scala.collection.immutable.Seq(..$args))"
+      q"$interpolator.ExprIR.Operation($operator, _root_.scala.collection.immutable.Seq(..$args))"
     case ExprIR.Selection(structure, field) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Selection($structure, $field)"
+      q"$interpolator.ExprIR.Selection($structure, $field)"
     case ExprIR.TypeApplication(callee, args) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.TypeApplication($callee, _root_.scala.collection.immutable.Seq(..$args))"
+      q"$interpolator.ExprIR.TypeApplication($callee, _root_.scala.collection.immutable.Seq(..$args))"
     case ExprIR.Let(bindings, body) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Let(_root_.scala.collection.immutable.Seq(..$bindings), $body)"
-    case ExprIR.Literal(ExprIR.NumericLiteral(value)) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Literal(_root_.inox.parsing.MacroInterpolator.ExprIR.NumericLiteral($value))"
-    case ExprIR.Literal(ExprIR.DecimalLiteral(whole, trailing, repeating)) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Literal(_root_.inox.parsing.MacroInterpolator.ExprIR.DecimalLiteral($whole, $trailing, $repeating))"
-    case ExprIR.Literal(ExprIR.StringLiteral(value)) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Literal(_root_.inox.parsing.MacroInterpolator.ExprIR.StringLiteral($value))"
-    case ExprIR.Literal(ExprIR.BooleanLiteral(value)) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Literal(_root_.inox.parsing.MacroInterpolator.ExprIR.BooleanLiteral($value))"
-    case ExprIR.Literal(ExprIR.CharLiteral(value)) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Literal(_root_.inox.parsing.MacroInterpolator.ExprIR.CharLiteral($value))"
-    case ExprIR.Literal(ExprIR.UnitLiteral) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.Literal(_root_.inox.parsing.MacroInterpolator.ExprIR.UnitLiteral)"
+      q"$interpolator.ExprIR.Let(_root_.scala.collection.immutable.Seq(..$bindings), $body)"
+    case ExprIR.Literal(value) =>
+      q"$interpolator.ExprIR.Literal($value)"
     case ExprIR.ExpressionHole(index) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.ExpressionHole($index)"
+      q"$interpolator.ExprIR.ExpressionHole($index)"
     case ExprIR.ExpressionSeqHole(index) =>
-      q"_root_.inox.parsing.MacroInterpolator.ExprIR.ExpressionSeqHole($index)"
+      q"$interpolator.ExprIR.ExpressionSeqHole($index)"
   }
 
   implicit lazy val typeOperatorLiftable = Liftable[TypeIR.Operator] {
-    case TypeIR.Group => q"_root_.inox.parsing.MacroInterpolator.TypeIR.Group"
-    case TypeIR.Tuple => q"_root_.inox.parsing.MacroInterpolator.TypeIR.Tuple"
-    case TypeIR.Sigma => q"_root_.inox.parsing.MacroInterpolator.TypeIR.Sigma"
-    case TypeIR.Arrow => q"_root_.inox.parsing.MacroInterpolator.TypeIR.Arrow"
-    case TypeIR.Pi => q"_root_.inox.parsing.MacroInterpolator.TypeIR.Pi"
+    case TypeIR.Group => q"$interpolator.TypeIR.Group"
+    case TypeIR.Tuple => q"$interpolator.TypeIR.Tuple"
+    case TypeIR.Sigma => q"$interpolator.TypeIR.Sigma"
+    case TypeIR.Arrow => q"$interpolator.TypeIR.Arrow"
+    case TypeIR.Pi => q"$interpolator.TypeIR.Pi"
   }
 
   implicit lazy val typeIRLiftable: Liftable[TypeIR.Expression] = Liftable[TypeIR.Expression] {
     case TypeIR.Literal(TypeIR.Name(name)) =>
-      q"_root_.inox.parsing.MacroInterpolator.TypeIR.Literal(_root_.inox.parsing.MacroInterpolator.TypeIR.Name($name))"
+      q"$interpolator.TypeIR.Literal($interpolator.TypeIR.Name($name))"
     case TypeIR.Application(callee, args) =>
-      q"_root_.inox.parsing.MacroInterpolator.TypeIR.Application($callee, _root_.scala.collection.immutable.Seq(..$args))"
+      q"$interpolator.TypeIR.Application($callee, _root_.scala.collection.immutable.Seq(..$args))"
     case TypeIR.Operation(operator, args) =>
-      q"_root_.inox.parsing.MacroInterpolator.TypeIR.Operation($operator, _root_.scala.collection.immutable.Seq(..$args))"
+      q"$interpolator.TypeIR.Operation($operator, _root_.scala.collection.immutable.Seq(..$args))"
     case TypeIR.TypeHole(index) =>
-      q"_root_.inox.parsing.MacroInterpolator.TypeIR.TypeHole($index)"
+      q"$interpolator.TypeIR.TypeHole($index)"
     case TypeIR.NameHole(index) =>
-      q"_root_.inox.parsing.MacroInterpolator.TypeIR.NameHole($index)"
+      q"$interpolator.TypeIR.NameHole($index)"
     case TypeIR.TypeSeqHole(index) =>
-      q"_root_.inox.parsing.MacroInterpolator.TypeIR.TypeSeqHole($index)"
+      q"$interpolator.TypeIR.TypeSeqHole($index)"
     case TypeIR.Refinement(id, tpe, pred) =>
-      q"_root_.inox.parsing.MacroInterpolator.TypeIR.Refinement($id, $tpe, $pred)"
+      q"$interpolator.TypeIR.Refinement($id, $tpe, $pred)"
     case TypeIR.TypeBinding(id, tpe) =>
-      q"_root_.inox.parsing.MacroInterpolator.TypeIR.TypeBinding($id, $tpe)"
+      q"$interpolator.TypeIR.TypeBinding($id, $tpe)"
   }
-
-  val trees = inox.trees
 
   private val parser = new DefinitionParser()
 
@@ -106,7 +114,7 @@ class Macros(val c: Context) extends Parsers with IRs {
     val ls = self match {
       case Block(ValDef(_, _, _, Apply(_, ls)) :: _, _) => {
         // TODO: Should we issue a warning ?
-        // c.warning(c.enclosingPosition, "No implicit inox.trees.Symbols in scope. Using NoSymbols by default.")
+        // c.warning(c.enclosingPosition, "No implicit Symbols in scope. Using NoSymbols by default.")
         ls  // In case of default symbols.
       }
       case Apply(Apply(_, Apply(_, ls) :: _), _) => ls  // In case of implicit symbols.
@@ -128,10 +136,14 @@ class Macros(val c: Context) extends Parsers with IRs {
   private def getTypes(holeTypes: Map[Int, HoleType]): Seq[c.Type] =
     Seq.tabulate(holeTypes.size) { (i: Int) => holeTypeToType(holeTypes(i)) }
 
+  private lazy val identType = typeOf[inox.Identifier]
+  private lazy val exprType = c.typecheck(tq"$targetTrees.Expr", c.TYPEmode).tpe
+  private lazy val typeType = c.typecheck(tq"$targetTrees.Type", c.TYPEmode).tpe
+
   private def holeTypeToType(holeType: HoleType): c.Type = holeType match {
-    case IdentifierHoleType => typeOf[inox.Identifier]
-    case ExpressionHoleType => typeOf[inox.trees.Expr]
-    case TypeHoleType => typeOf[inox.trees.Type]
+    case IdentifierHoleType => identType
+    case ExpressionHoleType => exprType
+    case TypeHoleType => typeType
     case SeqHoleType(holeType) => c.typecheck(tq"_root_.scala.collection.Seq[${holeTypeToType(holeType)}]", c.TYPEmode).tpe
   }
 
@@ -164,7 +176,7 @@ class Macros(val c: Context) extends Parsers with IRs {
 
     q"""
       {
-        import _root_.inox.parsing.MacroInterpolator._
+        import $interpolator._
 
         val self = $self
         val ir = self.converter.replaceHoles($ir)(new HoleValues(_root_.scala.collection.immutable.Seq(..$args)), new DummyImplicit)
@@ -174,7 +186,7 @@ class Macros(val c: Context) extends Parsers with IRs {
     """
   }
 
-  def t_unapply(arg: c.Expr[trees.Type]): c.Tree = {
+  def t_unapply(arg: c.Tree): c.Tree = {
 
     val ir = parse(parser.typeExpression)
 
@@ -183,17 +195,21 @@ class Macros(val c: Context) extends Parsers with IRs {
 
       q"""
         new {
-          val ir: _root_.inox.parsing.MacroInterpolator.TypeIR.Expression = $ir
+          val ir: $interpolator.TypeIR.Expression = $ir
 
-          def unapply(t: ${c.typeOf[trees.Type]}): Option[${tupleType(types)}] = { $self.converter.extract(t, ir).map(${accessAll(types)}) }
+          def unapply(t: $typeType): _root_.scala.Option[${tupleType(types)}] = {
+            $self.converter.extract(t, ir).map(${accessAll(types)})
+          }
         }.unapply($arg)
       """
     } else {
       q"""
         new {
-          val ir: _root_.inox.parsing.MacroInterpolator.TypeIR.Expression = $ir
+          val ir: $interpolator.TypeIR.Expression = $ir
 
-          def unapplySeq(t: ${c.typeOf[trees.Type]}): Option[Seq[Any]] = { $self.converter.extract(t, ir).map(_ => Seq[Any]()) }
+          def unapplySeq(t: $typeType): _root_.scala.Option[_root_.scala.collection.Seq[_root_.scala.Nothing]] = {
+            $self.converter.extract(t, ir).map(_ => _root_.scala.collection.Seq[_root_.scala.Nothing]())
+          }
         }.unapplySeq($arg)
       """
     }
@@ -208,7 +224,7 @@ class Macros(val c: Context) extends Parsers with IRs {
 
     q"""
       {
-        import _root_.inox.parsing.MacroInterpolator._
+        import $interpolator._
 
         val self = $self
         val ir = self.converter.replaceHoles($ir)(new HoleValues(_root_.scala.collection.immutable.Seq(..$args)))
@@ -219,7 +235,7 @@ class Macros(val c: Context) extends Parsers with IRs {
     """
   }
 
-  def e_unapply(arg: c.Expr[trees.Expr]): c.Tree = {
+  def e_unapply(arg: c.Tree): c.Tree = {
 
     val ir = parse(parser.expression)
 
@@ -228,17 +244,21 @@ class Macros(val c: Context) extends Parsers with IRs {
 
       q"""
         new {
-          val ir: _root_.inox.parsing.MacroInterpolator.ExprIR.Expression = $ir
+          val ir: $interpolator.ExprIR.Expression = $ir
 
-          def unapply(t: ${c.typeOf[trees.Expr]}): Option[${tupleType(types)}] = { $self.converter.extract(t, ir).map(${accessAll(types)}) }
+          def unapply(t: $exprType): _root_.scala.Option[${tupleType(types)}] = {
+            $self.converter.extract(t, ir).map(${accessAll(types)})
+          }
         }.unapply($arg)
       """
     } else {
       q"""
         new {
-          val ir: _root_.inox.parsing.MacroInterpolator.ExprIR.Expression = $ir
+          val ir: $interpolator.ExprIR.Expression = $ir
 
-          def unapplySeq(t: ${c.typeOf[trees.Expr]}): Option[Seq[Any]] = { $self.converter.extract(t, ir).map(_ => Seq[Any]()) }
+          def unapplySeq(t: $exprType): _root_.scala.Option[_root_.scala.collection.Seq[_root_.scala.Nothing]] = {
+            $self.converter.extract(t, ir).map(_ => _root_.scala.collection.Seq[_root_.scala.Nothing]())
+          }
         }.unapplySeq($arg)
       """
     }
