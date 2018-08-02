@@ -218,4 +218,29 @@ class Macros(val c: Context) extends Parsers with IRs {
       }
     """
   }
+
+  def e_unapply(arg: c.Expr[trees.Expr]): c.Tree = {
+
+    val ir = parse(parser.expression)
+
+    if (holes.size >= 1) {
+      val types = getTypes(ExprIR.getHoleTypes(ir))
+
+      q"""
+        new {
+          val ir: _root_.inox.parsing.MacroInterpolator.ExprIR.Expression = $ir
+
+          def unapply(t: ${c.typeOf[trees.Expr]}): Option[${tupleType(types)}] = { $self.converter.extract(t, ir).map(${accessAll(types)}) }
+        }.unapply($arg)
+      """
+    } else {
+      q"""
+        new {
+          val ir: _root_.inox.parsing.MacroInterpolator.ExprIR.Expression = $ir
+
+          def unapplySeq(t: ${c.typeOf[trees.Expr]}): Option[Seq[Any]] = { $self.converter.extract(t, ir).map(_ => Seq[Any]()) }
+        }.unapplySeq($arg)
+      """
+    }
+  }
 }

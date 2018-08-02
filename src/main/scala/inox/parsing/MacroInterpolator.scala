@@ -28,6 +28,8 @@ object MacroInterpolator
 
     object e {
       def apply(args: Any*): Expr = macro Macros.e_apply
+
+      def unapply(arg: Expr): Option[Any] = macro Macros.e_unapply
     }
   }
 }
