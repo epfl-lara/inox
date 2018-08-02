@@ -13,6 +13,7 @@ trait TypeIRs { self: IRs =>
     type Type = Nothing
     type Field = Nothing
     type Quantifier = Nothing
+    type Binding = Nothing
 
     sealed abstract class Value
     case class Name(name: String) extends Value { override def toString = name }

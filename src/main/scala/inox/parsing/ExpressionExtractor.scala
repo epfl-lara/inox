@@ -134,7 +134,7 @@ trait ExpressionExtractors { self: Extractors =>
         }
 
         case trees.Let(vd, value, body) => template match {
-          case Let(Seq((templateId, optTemplateType, templateValue), rest @ _*), templateBody) => {
+          case Let(Seq(((templateId, optTemplateType), templateValue), rest @ _*), templateBody) => {
 
             val templateRest = rest match {
               case Seq() => templateBody
@@ -142,7 +142,7 @@ trait ExpressionExtractors { self: Extractors =>
             }
 
             extract(
-              toExprObl(value -> templateValue), 
+              toExprObl(value -> templateValue),
               toOptTypeObl(vd.getType -> optTemplateType),
               toIdObl(vd.id -> templateId),
               toExprObl(body -> templateRest))
@@ -153,7 +153,7 @@ trait ExpressionExtractors { self: Extractors =>
         case trees.Lambda(args, body) => template match {
           case Abstraction(Lambda, templateArgs, templateBody) =>
             extract(
-              toOptTypeObls(args.map(_.getType) -> templateArgs.map(_._2)), 
+              toOptTypeObls(args.map(_.getType) -> templateArgs.map(_._2)),
               toIdObls(args.map(_.id) -> templateArgs.map(_._1)),
               toExprObl(body -> templateBody))
           case _ => fail
@@ -162,7 +162,7 @@ trait ExpressionExtractors { self: Extractors =>
         case trees.Forall(args, body) => template match {
           case Abstraction(Forall, templateArgs, templateBody) =>
             extract(
-              toOptTypeObls(args.map(_.getType) -> templateArgs.map(_._2)), 
+              toOptTypeObls(args.map(_.getType) -> templateArgs.map(_._2)),
               toIdObls(args.map(_.id) -> templateArgs.map(_._1)),
               toExprObl(body -> templateBody))
           case _ => fail
@@ -248,7 +248,7 @@ trait ExpressionExtractors { self: Extractors =>
 
         case trees.CharLiteral(char) => template match {
           case Literal(CharLiteral(`char`)) => success
-          case _ => fail 
+          case _ => fail
         }
 
         case trees.UnitLiteral() => template match {
@@ -268,7 +268,7 @@ trait ExpressionExtractors { self: Extractors =>
           case Literal(BooleanLiteral(`bool`)) => success
           case _ => fail
         }
-        
+
         case trees.And(exprs) => template match {
           case BooleanAndOperation(templates) =>
             extract(toExprObls(exprs -> templates))
@@ -542,13 +542,13 @@ trait ExpressionExtractors { self: Extractors =>
             val (optTemplateKeyType, optTemplateValueType) = optTemplatesTypes match {
               case Some(Right((k, v))) => (Some(k), Some(v))
               case Some(Left(k)) => (Some(k), None)
-              case None => (None, None) 
+              case None => (None, None)
             }
 
             val (keys, values) = pairs.unzip
             val (templatesKeys, templatesValues) = templatesPairs.unzip
 
-            extract(toExprObls(keys -> templatesKeys), toExprObls(values -> templatesValues), 
+            extract(toExprObls(keys -> templatesKeys), toExprObls(values -> templatesValues),
               toOptTypeObl(keyType -> optTemplateKeyType), toOptTypeObl(valueType -> optTemplateValueType), toExprObl(default -> templateDefault))
           }
           case _ => fail
@@ -574,7 +574,7 @@ trait ExpressionExtractors { self: Extractors =>
               case None => (None, None)
             }
 
-            extract(toExprObl(map -> templateMap), toExprObl(key -> templateKey), toOptTypeObl(keyType -> optTemplateKeyType), 
+            extract(toExprObl(map -> templateMap), toExprObl(key -> templateKey), toOptTypeObl(keyType -> optTemplateKeyType),
               toExprObl(value -> templateValue), toOptTypeObl(valueType -> optTemplateValueType))
           }
           case _ => fail

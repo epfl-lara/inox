@@ -134,7 +134,7 @@ trait ExpressionParsers { self: Parsers =>
               (p: Position) => withPos("Missing assignment to variable `" + v._1.getName +"`. Use `=` to assign a value to the variable.", p)
             })
           e <- commit(expression)
-        } yield (v._1, v._2, e), p(',')) withFailureMessage {
+        } yield (v, e), p(',')) withFailureMessage {
           (p: Position) => withPos("Binding expected. Bindings take the form `variable = expression`, and are separated by `,`.", p)
         })
       _  <- commit(kw("in") withFailureMessage {

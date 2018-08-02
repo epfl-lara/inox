@@ -46,6 +46,10 @@ trait ExpressionElaborators { self: Elaborators =>
       case _ => identifier
     }
 
+    def replaceHoles(binding: Binding)(implicit holes: HoleValues): Binding = binding match {
+      case (identifier, optType) => (replaceHoles(identifier), optType.map(replaceHoles(_)))
+    }
+
     def replaceHoles(field: Field)(implicit holes: HoleValues): Field = field match {
       case FieldHole(i) => FieldIdentifier(holes.getIdentifier(i).get)
       case _ => field
@@ -56,16 +60,10 @@ trait ExpressionElaborators { self: Elaborators =>
       case Variable(identifier) => Variable(replaceHoles(identifier))
       case Operation(operator, args) => Operation(operator, args.flatMap(replaceHolesSeq(_)))
       case Selection(structure, field) => Selection(replaceHoles(structure), replaceHoles(field))
-      case Abstraction(quantifier, bindings, body) => {
-        val replacedBindings = bindings.map { case (identifier, optType) =>
-          (replaceHoles(identifier), optType.map(replaceHoles(_)))
-        }
-
-        Abstraction(quantifier, replacedBindings, replaceHoles(body))
-      }
+      case Abstraction(quantifier, bindings, body) => Abstraction(quantifier, bindings.map(replaceHoles(_)), replaceHoles(body))
       case Let(bindings, body) => {
-        val replacedBindings = bindings.map { case (identifier, optType, value) =>
-          (replaceHoles(identifier), optType.map(replaceHoles(_)), replaceHoles(value))
+        val replacedBindings = bindings.map { case (binding, value) =>
+          (replaceHoles(binding), replaceHoles(value))
         }
 
         Let(replacedBindings, replaceHoles(body))
@@ -934,7 +932,7 @@ trait ExpressionElaborators { self: Elaborators =>
         // Let binding.
         case Let(bs, body) if (!bs.isEmpty) => {
 
-          val (ident, otype, value) = bs.head
+          val ((ident, otype), value) = bs.head
           val rest = if (bs.tail.isEmpty) body else Let(bs.tail, body)
 
           val id = getIdentifier(ident)

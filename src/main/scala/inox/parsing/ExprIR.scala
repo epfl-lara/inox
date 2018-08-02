@@ -54,6 +54,8 @@ trait ExprIRs { self: IRs =>
     case object Exists extends Quantifier
     case object Choose extends Quantifier
 
+    type Binding = (Identifier, Option[Type])
+
     case class ExpressionHole(index: Int) extends Expression("ExpressionHole")
     case class ExpressionSeqHole(index: Int) extends Expression("ExpressionSeqHole")
 
@@ -65,6 +67,10 @@ trait ExprIRs { self: IRs =>
     def getHoleTypes(field: Field): Map[Int, HoleType] = field match {
       case FieldHole(i) => Map(i -> IdentifierHoleType)
       case _ => Map()
+    }
+
+    def getHoleTypes(binding: Binding): Map[Int, HoleType] = binding match {
+      case (identifier, optType) => getHoleTypes(identifier) ++ optType.map(TypeIR.getHoleTypes(_)).getOrElse(Map())
     }
 
     def getHoleTypes(expr: Expression): Map[Int, HoleType] = expr match {
@@ -80,7 +86,7 @@ trait ExprIRs { self: IRs =>
       }).fold(getHoleTypes(body))(_ ++ _)
       case TypeApplication(callee, args) => args.map(TypeIR.getHoleTypes(_)).fold(getHoleTypes(callee))(_ ++ _)
       case Let(bindings, body) => bindings.map({
-        case (identifier, optType, expr) => getHoleTypes(identifier) ++ optType.map(TypeIR.getHoleTypes(_)).getOrElse(Map()) ++ getHoleTypes(expr)
+        case ((identifier, optType), expr) => getHoleTypes(identifier) ++ optType.map(TypeIR.getHoleTypes(_)).getOrElse(Map()) ++ getHoleTypes(expr)
       }).fold(getHoleTypes(body))(_ ++ _)
     }
   }

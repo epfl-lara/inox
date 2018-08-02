@@ -9,7 +9,7 @@ trait IRs extends BuiltIns with ExprIRs with TypeIRs with DefinitionIRs {
   protected val trees: ast.Trees
 }
 
-/** Contains abstract Intermediate Representation (IR) language. */ 
+/** Contains abstract Intermediate Representation (IR) language. */
 trait IR {
 
   type Identifier  // Identifier of the language.
@@ -18,16 +18,17 @@ trait IR {
   type Value       // Literal values.
   type Field       // Fields.
   type Quantifier  // Quantifiers.
+  type Binding
 
   abstract class Expression(pre: String) extends Positional with Product {
     override def productPrefix = pos + "@" + pre
   }
   case class Variable(identifier: Identifier) extends Expression("Variable")
   case class Application(callee: Expression, args: Seq[Expression]) extends Expression("Application")
-  case class Abstraction(quantifier: Quantifier, bindings: Seq[(Identifier, Option[Type])], body: Expression) extends Expression("Abstraction")
+  case class Abstraction(quantifier: Quantifier, bindings: Seq[Binding], body: Expression) extends Expression("Abstraction")
   case class Operation(operator: Operator, args: Seq[Expression]) extends Expression("Operation")
   case class Selection(structure: Expression, field: Field) extends Expression("Selection")
   case class Literal(value: Value) extends Expression("Literal")
   case class TypeApplication(callee: Expression, args: Seq[Type]) extends Expression("TypeApplication")
-  case class Let(bindings: Seq[(Identifier, Option[Type], Expression)], body: Expression) extends Expression("Let")
+  case class Let(bindings: Seq[(Binding, Expression)], body: Expression) extends Expression("Let")
 }
