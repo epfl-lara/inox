@@ -256,7 +256,7 @@ trait ExpressionParsers { self: Parsers =>
     lazy val holeValDef: Parser[Binding] = acceptMatch("Binding expected.", {
       case lexical.Hole(i) => BindingHole(i)
       case lexical.Embedded(vd: trees.ValDef) => EmbeddedValDef(vd)
-    })
+    }) <~ not(p(':'))
 
     lazy val valDef: Parser[Binding] = holeValDef | (for {
       i <- identifier

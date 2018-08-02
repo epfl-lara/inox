@@ -165,6 +165,7 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
   private lazy val identType = typeOf[inox.Identifier]
   private lazy val exprType = c.typecheck(tq"$targetTrees.Expr", c.TYPEmode).tpe
   private lazy val typeType = c.typecheck(tq"$targetTrees.Type", c.TYPEmode).tpe
+  private lazy val valDefType = c.typecheck(tq"$targetTrees.ValDef", c.TYPEmode).tpe
   private lazy val funDefType = c.typecheck(tq"$targetTrees.FunDef", c.TYPEmode).tpe
   private lazy val adtSortType = c.typecheck(tq"$targetTrees.ADTSort", c.TYPEmode).tpe
 
@@ -172,6 +173,7 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
     case IdentifierHoleType => identType
     case ExpressionHoleType => exprType
     case TypeHoleType => typeType
+    case ValDefHoleType => valDefType
     case SeqHoleType(holeType) => c.typecheck(tq"_root_.scala.collection.Seq[${holeTypeToType(holeType)}]", c.TYPEmode).tpe
   }
 
