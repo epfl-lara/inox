@@ -5,7 +5,7 @@ import scala.reflect.macros.whitebox.Context
 
 import scala.language.experimental.macros
 
-object MacroInterpolator
+object MacroInterpolators
   extends Interpolators
      with Elaborators
      with Extractors {
@@ -23,22 +23,22 @@ object MacroInterpolator
     val converter = new Converter()
 
     object t {
-      def apply(args: Any*): Type = macro MacroInterpolatorImpl.t_apply
+      def apply(args: Any*): Type = macro MacroInterpolatorsImpl.t_apply
 
-      def unapply(arg: Type): Option[Any] = macro MacroInterpolatorImpl.t_unapply
+      def unapply(arg: Type): Option[Any] = macro MacroInterpolatorsImpl.t_unapply
     }
 
     object e {
-      def apply(args: Any*): Expr = macro MacroInterpolatorImpl.e_apply
+      def apply(args: Any*): Expr = macro MacroInterpolatorsImpl.e_apply
 
-      def unapply(arg: Expr): Option[Any] = macro MacroInterpolatorImpl.e_unapply
+      def unapply(arg: Expr): Option[Any] = macro MacroInterpolatorsImpl.e_unapply
     }
   }
 }
 
-private class MacroInterpolatorImpl(context: Context) extends Macros(context) {
+private class MacroInterpolatorsImpl(context: Context) extends Macros(context) {
   import c.universe._
   override protected val trees = inox.trees
   override protected lazy val targetTrees: c.Tree = q"_root_.inox.trees"
-  override protected val interpolator: c.Tree = q"_root_.inox.parsing.MacroInterpolator"
+  override protected val interpolator: c.Tree = q"_root_.inox.parsing.MacroInterpolators"
 }

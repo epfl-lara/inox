@@ -58,7 +58,7 @@ package object inox {
 
     object printer extends ast.Printer { val trees: inox.trees.type = inox.trees }
 
-    override val interpolator = inox.parsing.MacroInterpolator
+    override val interpolator = inox.parsing.MacroInterpolators
   }
 
   implicit val inoxSemantics: SemanticsProvider { val trees: inox.trees.type } = new SemanticsProvider {
