@@ -103,7 +103,15 @@ class Macros(val c: Context) extends Parsers with IRs {
       case Literal(Constant(s : String)) => s
     }
 
-    val Block(ValDef(_, _, _, Apply(_, ls)) :: _, _) = self
+    val ls = self match {
+      case Block(ValDef(_, _, _, Apply(_, ls)) :: _, _) => {
+        c.warning(c.enclosingPosition, "No implicit inox.trees.Symbols in scope. Using NoSymbols by default.")
+        ls  // In case of default symbols.
+      }
+      case Apply(Apply(_, Apply(_, ls) :: _), _) => ls  // In case of implicit symbols.
+      case _ => c.abort(c.enclosingPosition, "Unexpected macro use.")
+    }
+
     ls.map(getString)
   }: _*)
 
