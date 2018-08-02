@@ -105,7 +105,8 @@ class Macros(val c: Context) extends Parsers with IRs {
 
     val ls = self match {
       case Block(ValDef(_, _, _, Apply(_, ls)) :: _, _) => {
-        c.warning(c.enclosingPosition, "No implicit inox.trees.Symbols in scope. Using NoSymbols by default.")
+        // TODO: Should we issue a warning ?
+        // c.warning(c.enclosingPosition, "No implicit inox.trees.Symbols in scope. Using NoSymbols by default.")
         ls  // In case of default symbols.
       }
       case Apply(Apply(_, Apply(_, ls) :: _), _) => ls  // In case of implicit symbols.
