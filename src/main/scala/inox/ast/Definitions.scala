@@ -3,7 +3,6 @@
 package inox
 package ast
 
-import inox.parsing.Interpolator
 import inox.utils._
 
 import scala.collection.concurrent.{Map => ConcurrentMap}
@@ -326,7 +325,7 @@ trait Definitions { self: Trees =>
     }
 
     /** An invariant that refines this [[ADTSort]] */
-    def invariant(implicit s: Symbols): Option[FunDef] = 
+    def invariant(implicit s: Symbols): Option[FunDef] =
       flags.collectFirst { case HasADTInvariant(id) => s.getFunction(id) }
 
     def hasInvariant(implicit s: Symbols): Boolean = invariant.isDefined
