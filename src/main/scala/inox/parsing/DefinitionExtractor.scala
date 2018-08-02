@@ -9,7 +9,7 @@ trait DefinitionExtractors { self: Extractors =>
 
     import DefinitionIR._
 
-    def extract(fd: trees.FunDef, template: FunDef): Option[Match] = extract(
+    def extract(fd: trees.FunDef, template: FunctionDefinition): Option[Match] = extract(
       toIdObl(fd.id -> template.id),
       toIdObls(fd.tparams.map(_.id) -> template.tparams),
       toIdObls(fd.params.map(_.id) -> template.params.map(_._1)),
@@ -17,7 +17,7 @@ trait DefinitionExtractors { self: Extractors =>
       toTypeObl(fd.getType -> template.returnType),
       toExprObl(fd.fullBody -> template.body))
 
-    def extract(sort: trees.ADTSort, template: TypeDef): Option[Match] = extract(
+    def extract(sort: trees.ADTSort, template: TypeDefinition): Option[Match] = extract(
       toIdObl(sort.id -> template.id),
       toIdObls(sort.tparams.map(_.id) -> template.tparams),
       toIdObls(sort.constructors.map(_.id) -> template.constructors.map(_._1)),

@@ -11,11 +11,31 @@ trait DefinitionElaborators { self: Elaborators =>
 
     import DefinitionIR._
 
-    def getFunction(fd: FunDef)(implicit store: Store): Constrained[trees.FunDef] = {
+    def replaceHoles(definition: FunctionDefinition)(implicit holes: HoleValues): FunctionDefinition = definition match {
+      case FunctionDefinition(id, tparams, params, returnType, body) => FunctionDefinition(
+        replaceHoles(id),
+        tparams.map(replaceHoles(_)),
+        params.map { case (pid, ptype) => (replaceHoles(pid), replaceHoles(ptype)) },
+        replaceHoles(returnType),
+        replaceHoles(body))
+    }
+
+    def replaceHoles(definition: TypeDefinition)(implicit holes: HoleValues): TypeDefinition = definition match {
+      case TypeDefinition(id, tparams, constructors) => TypeDefinition(
+        replaceHoles(id),
+        tparams.map(replaceHoles(_)),
+        constructors.map {
+          case (cid, cparams) => (replaceHoles(cid), cparams.map {
+            case (pid, ptype) => (replaceHoles(pid), replaceHoles(ptype))
+          })
+        })
+    }
+
+    def getFunction(fd: FunctionDefinition)(implicit store: Store): Constrained[trees.FunDef] = {
       for (ds <- getDefinitions(Seq(fd))) yield { implicit u => ds.head.asInstanceOf[trees.FunDef] }
     }
 
-    def getSort(td: TypeDef)(implicit store: Store): Constrained[trees.ADTSort] = {
+    def getSort(td: TypeDefinition)(implicit store: Store): Constrained[trees.ADTSort] = {
       for (ds <- getDefinitions(Seq(td))) yield { implicit u => ds.head.asInstanceOf[trees.ADTSort] }
     }
 
@@ -29,14 +49,14 @@ trait DefinitionElaborators { self: Elaborators =>
       }
 
       val duplicateTypeNames = duplicates(
-        definitions.collect { case td: TypeDef => td.id.getName -> td.pos },
+        definitions.collect { case td: TypeDefinition => td.id.getName -> td.pos },
         symbols.sorts.keySet.map(_.name)
       )
 
       val duplicateFunctionNames = duplicates(
         definitions.flatMap {
-          case fd: FunDef => Seq(fd.id.getName -> fd.pos)
-          case td: TypeDef => td.constructors.map(p => p._1.getName -> td.pos)
+          case fd: FunctionDefinition => Seq(fd.id.getName -> fd.pos)
+          case td: TypeDefinition => td.constructors.map(p => p._1.getName -> td.pos)
         },
         symbols.sorts.values.flatMap(_.constructors.map(_.id.name)).toSet ++
         symbols.functions.keySet.map(_.name)
@@ -45,7 +65,7 @@ trait DefinitionElaborators { self: Elaborators =>
       val duplicateFields: Option[ExprIR.IdentifierIdentifier] = (
         definitions
           .flatMap {
-            case td: TypeDef => td.constructors.flatMap(_._2.map(_._1))
+            case td: TypeDefinition => td.constructors.flatMap(_._2.map(_._1))
             case _ => Seq()
           }.collect { case ident @ ExprIR.IdentifierIdentifier(_) => ident } ++
         symbols.sorts.values.toSeq
@@ -57,7 +77,7 @@ trait DefinitionElaborators { self: Elaborators =>
         .headOption
 
       val sortsStore = definitions.foldLeft(store) {
-        case (store, TypeDef(ident, tparams, _)) =>
+        case (store, TypeDefinition(ident, tparams, _)) =>
           store + (ident.getName, new trees.ADTSort(
             getIdentifier(ident),
             tparams.map(id => trees.TypeParameterDef(trees.TypeParameter(getIdentifier(id), Seq()))),
@@ -67,7 +87,7 @@ trait DefinitionElaborators { self: Elaborators =>
       }
 
       val newStore = definitions.foldLeft(sortsStore) {
-        case (store, td: TypeDef) =>
+        case (store, td: TypeDefinition) =>
           val sort = sortsStore getSort td.id.getName
           val tpStore = (td.tparams zip sort.typeArgs).foldLeft(store) {
             case (store, (id, tp)) => store + (id.getName, tp)
@@ -81,7 +101,7 @@ trait DefinitionElaborators { self: Elaborators =>
             store + (ident.getName, sort, new trees.ADTConstructor(id, sort.id, fields))
           }
 
-        case (store, fd: FunDef) =>
+        case (store, fd: FunctionDefinition) =>
           val id = getIdentifier(fd.id)
           val tparams = fd.tparams.map(id => trees.TypeParameter(getIdentifier(id), Seq()))
           val tpds = tparams.map(trees.TypeParameterDef(_))
@@ -97,7 +117,7 @@ trait DefinitionElaborators { self: Elaborators =>
 
       Constrained.sequence({
         definitions.map {
-          case td: TypeDef =>
+          case td: TypeDefinition =>
             implicit val position: Position = td.pos
             val sort = newStore getSort td.id.getName
             val tpStore = (td.tparams zip sort.typeArgs).foldLeft(newStore) {
@@ -118,7 +138,7 @@ trait DefinitionElaborators { self: Elaborators =>
               }, Seq())
             })
 
-          case fd: FunDef =>
+          case fd: FunctionDefinition =>
             implicit val position: Position = fd.pos
             val signature = newStore getFunction fd.id.getName
             val initStore = (fd.tparams zip signature.typeArgs).foldLeft(newStore) {

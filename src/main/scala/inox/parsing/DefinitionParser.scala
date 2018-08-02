@@ -55,15 +55,15 @@ trait DefinitionParsers { self: Parsers =>
       (p: Position) => withPos("Constructor declaration expected.", p)
     }
 
-    lazy val datatype: Parser[TypeDef] = for {
+    lazy val datatype: Parser[TypeDefinition] = for {
       _ <- kw("type")
       id <- commit(identifier)
       tps <- commit(tparams)
       _ <- commit(kw("="))
       conss <- commit(rep1sep(constructor, pipe))
-    } yield TypeDef(id, tps, conss)
+    } yield TypeDefinition(id, tps, conss)
 
-    lazy val function: Parser[FunDef] = for {
+    lazy val function: Parser[FunctionDefinition] = for {
       _ <- kw("def")
       id <- commit(identifier)
       tps <- commit(tparams)
@@ -74,6 +74,6 @@ trait DefinitionParsers { self: Parsers =>
       tpe <- commit(typeExpression)
       _ <- commit(kw("="))
       body <- commit(expression)
-    } yield FunDef(id, tps, ps, tpe, body)
+    } yield FunctionDefinition(id, tps, ps, tpe, body)
   }
 }

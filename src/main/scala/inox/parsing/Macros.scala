@@ -98,6 +98,20 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
       q"$interpolator.TypeIR.TypeBinding($id, $tpe)"
   }
 
+  implicit lazy val functionDefinitionLiftable = Liftable[DefinitionIR.FunctionDefinition] {
+    case DefinitionIR.FunctionDefinition(id, tparams, params, returnType, body) =>
+      q"$interpolator.DefinitionIR.FunctionDefinition($id, _root_.scala.collection.immutable.Seq(..$tparams), _root_.scala.collection.immutable.Seq(..$params), $returnType, $body)"
+  }
+
+  implicit lazy val typeDefinitionLiftable = Liftable[DefinitionIR.TypeDefinition] {
+    case DefinitionIR.TypeDefinition(id, tparams, constructors) => {
+      val liftedCons = constructors.map {
+        case (cid, cparams) => q"($cid, _root_.scala.collection.immutable.Seq(..$cparams))"
+      }
+      q"$interpolator.DefinitionIR.TypeDefinition($id, _root_.scala.collection.immutable.Seq(..$tparams), _root_.scala.collection.immutable.Seq(..$liftedCons))"
+    }
+  }
+
   private val parser = new DefinitionParser()
 
   private val self = {
@@ -139,6 +153,8 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
   private lazy val identType = typeOf[inox.Identifier]
   private lazy val exprType = c.typecheck(tq"$targetTrees.Expr", c.TYPEmode).tpe
   private lazy val typeType = c.typecheck(tq"$targetTrees.Type", c.TYPEmode).tpe
+  private lazy val funDefType = c.typecheck(tq"$targetTrees.FunDef", c.TYPEmode).tpe
+  private lazy val adtSortType = c.typecheck(tq"$targetTrees.ADTSort", c.TYPEmode).tpe
 
   private def holeTypeToType(holeType: HoleType): c.Type = holeType match {
     case IdentifierHoleType => identType
@@ -257,6 +273,104 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
           val ir: $interpolator.ExprIR.Expression = $ir
 
           def unapplySeq(t: $exprType): _root_.scala.Option[_root_.scala.collection.Seq[_root_.scala.Nothing]] = {
+            $self.converter.extract(t, ir).map(_ => _root_.scala.collection.Seq[_root_.scala.Nothing]())
+          }
+        }.unapplySeq($arg)
+      """
+    }
+  }
+
+  def td_apply(args: c.Expr[Any]*): c.Tree = {
+
+    val ir = parse(parser.datatype)
+    val types = getTypes(DefinitionIR.getHoleTypes(ir))
+
+    verifyArgTypes(args, types)
+
+    q"""
+      {
+        import $interpolator._
+
+        val self = $self
+        val ir = self.converter.replaceHoles($ir)(new HoleValues(_root_.scala.collection.immutable.Seq(..$args)))
+
+        val sort = self.converter.getSort(ir)(Store.empty)
+        self.converter.elaborate(sort)
+      }
+    """
+  }
+
+  def td_unapply(arg: c.Tree): c.Tree = {
+
+    val ir = parse(parser.datatype)
+
+    if (holes.size >= 1) {
+      val types = getTypes(DefinitionIR.getHoleTypes(ir))
+
+      q"""
+        new {
+          val ir: $interpolator.DefinitionIR.TypeDefinition = $ir
+
+          def unapply(t: $adtSortType): _root_.scala.Option[${tupleType(types)}] = {
+            $self.converter.extract(t, ir).map(${accessAll(types)})
+          }
+        }.unapply($arg)
+      """
+    } else {
+      q"""
+        new {
+          val ir: $interpolator.DefinitionIR.TypeDefinition = $ir
+
+          def unapplySeq(t: $adtSortType): _root_.scala.Option[_root_.scala.collection.Seq[_root_.scala.Nothing]] = {
+            $self.converter.extract(t, ir).map(_ => _root_.scala.collection.Seq[_root_.scala.Nothing]())
+          }
+        }.unapplySeq($arg)
+      """
+    }
+  }
+
+  def fd_apply(args: c.Expr[Any]*): c.Tree = {
+
+    val ir = parse(parser.function)
+    val types = getTypes(DefinitionIR.getHoleTypes(ir))
+
+    verifyArgTypes(args, types)
+
+    q"""
+      {
+        import $interpolator._
+
+        val self = $self
+        val ir = self.converter.replaceHoles($ir)(new HoleValues(_root_.scala.collection.immutable.Seq(..$args)))
+
+        val function = self.converter.getFunction(ir)(Store.empty)
+        self.converter.elaborate(function)
+      }
+    """
+  }
+
+  def fd_unapply(arg: c.Tree): c.Tree = {
+
+    val ir = parse(parser.function)
+
+    if (holes.size >= 1) {
+      val types = getTypes(DefinitionIR.getHoleTypes(ir))
+
+      q"""
+        new {
+          val ir: $interpolator.DefinitionIR.FunctionDefinition = $ir
+
+          def unapply(t: $funDefType): _root_.scala.Option[${tupleType(types)}] = {
+            $self.converter.extract(t, ir).map(${accessAll(types)})
+          }
+        }.unapply($arg)
+      """
+    } else {
+      q"""
+        new {
+          val ir: $interpolator.DefinitionIR.FunctionDefinition = $ir
+
+          def unapplySeq(t: $funDefType): _root_.scala.Option[_root_.scala.collection.Seq[_root_.scala.Nothing]] = {
             $self.converter.extract(t, ir).map(_ => _root_.scala.collection.Seq[_root_.scala.Nothing]())
           }
         }.unapplySeq($arg)

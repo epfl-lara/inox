@@ -33,6 +33,18 @@ object MacroInterpolators
 
       def unapply(arg: Expr): Option[Any] = macro MacroInterpolatorsImpl.e_unapply
     }
+
+    object td {
+      def apply(args: Any*): ADTSort = macro MacroInterpolatorsImpl.td_apply
+
+      def unapply(arg: ADTSort): Option[Any] = macro MacroInterpolatorsImpl.td_unapply
+    }
+
+    object fd {
+      def apply(args: Any*): FunDef = macro MacroInterpolatorsImpl.fd_apply
+
+      def unapply(arg: FunDef): Option[Any] = macro MacroInterpolatorsImpl.fd_unapply
+    }
   }
 }
 
