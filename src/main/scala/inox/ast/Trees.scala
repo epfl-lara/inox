@@ -39,7 +39,7 @@ trait Trees
     protected val trees: Trees.this.type = Trees.this
   } with DSL
 
-  val interpolator: Interpolator { val trees: Trees.this.type } = new {
+  val interpolator: Any { val trees: Trees.this.type } = new {
     protected val trees: Trees.this.type = Trees.this
   } with Interpolator
 

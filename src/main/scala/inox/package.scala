@@ -27,7 +27,7 @@ package object inox {
 
   /** We provide aliases to [[ast.Identifier]] and [[ast.FreshIdentifier]] here
     * for a more natural import experience.
-    * 
+    *
     * Indeed, as Inox typically follows a pattern of nesting package clauses with
     * the outer-most being {{{package inox}}}, including these basic definitions
     * in the default imports makes my (@nv) life easier.
@@ -57,6 +57,8 @@ package object inox {
     ) extends SimpleSymbols
 
     object printer extends ast.Printer { val trees: inox.trees.type = inox.trees }
+
+    override val interpolator = inox.parsing.MacroInterpolator
   }
 
   implicit val inoxSemantics: SemanticsProvider { val trees: inox.trees.type } = new SemanticsProvider {
