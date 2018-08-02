@@ -20,7 +20,7 @@ trait DefinitionIRs { self: IRs =>
     case class FunctionDefinition(
       id: Identifier,
       tparams: Seq[Identifier],
-      params: Seq[(Identifier, Type)],
+      params: Seq[ExprIR.Binding],
       returnType: Type,
       body: Expression
     ) extends Definition("Function")
@@ -28,16 +28,14 @@ trait DefinitionIRs { self: IRs =>
     case class TypeDefinition(
       id: Identifier,
       tparams: Seq[Identifier],
-      constructors: Seq[(Identifier, Seq[(Identifier, Type)])]
+      constructors: Seq[(Identifier, Seq[ExprIR.Binding])]
     ) extends Definition("Type")
 
     def getHoleTypes(definition: Definition): Map[Int, HoleType] = definition match {
       case FunctionDefinition(id, tparams, params, returnType, body) => {
         val idMap = ExprIR.getHoleTypes(id)
         val tparamsMaps = tparams.map(ExprIR.getHoleTypes(_))
-        val paramsMaps = params.map {
-          case (pid, ptype) => ExprIR.getHoleTypes(pid) ++ TypeIR.getHoleTypes(ptype)
-        }
+        val paramsMaps = params.map(ExprIR.getHoleTypes(_))
         val returnTypeMap = TypeIR.getHoleTypes(returnType)
         val bodyMap = ExprIR.getHoleTypes(body)
 
@@ -49,9 +47,7 @@ trait DefinitionIRs { self: IRs =>
         val constructorsMaps = constructors.map {
           case (cid, cparams) => {
             val cidMap = ExprIR.getHoleTypes(cid)
-            val cparamsMaps = cparams.map {
-              case (pid, ptype) => ExprIR.getHoleTypes(pid) ++ TypeIR.getHoleTypes(ptype)
-            }
+            val cparamsMaps = cparams.map(ExprIR.getHoleTypes(_))
             cparamsMaps.fold(cidMap)(_ ++ _)
           }
         }

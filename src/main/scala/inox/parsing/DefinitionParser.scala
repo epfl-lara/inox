@@ -13,7 +13,7 @@ trait DefinitionParsers { self: Parsers =>
   class DefinitionParser extends ExpressionParser {
 
     import TypeIR.{Expression => Type}
-    import ExprIR.{Identifier, Expression}
+    import ExprIR.{Identifier, Expression, TypedBinding}
     import DefinitionIR._
     import lexical._
 
@@ -21,15 +21,15 @@ trait DefinitionParsers { self: Parsers =>
       withPos("Unexpected character. Separator `|` or end of constructor list expected.", p)
     }
 
-    lazy val param: Parser[(Identifier, Type)] = (for {
+    lazy val param: Parser[TypedBinding] = (for {
       id <- identifier
       _ <- commit(p(':'))
       tp <- commit(typeExpression)
-    } yield (id, tp)) withFailureMessage {
+    } yield TypedBinding(id, tp)) withFailureMessage {
       (p: Position) => withPos("Parameter declaration expected.", p)
     }
 
-    lazy val params: Parser[Seq[(Identifier, Type)]] =
+    lazy val params: Parser[Seq[TypedBinding]] =
       (p('(') ~> repsep(param, p(',')) <~ commit(p(')') withFailureMessage {
         (p: Position) => withPos("Expected character `)`, or additional parameters (separated by `,`).", p) }
       )) withFailureMessage {
@@ -48,7 +48,7 @@ trait DefinitionParsers { self: Parsers =>
       (p: Position) => withPos("Type parameter list expected (or no type parameters).", p)
     }
 
-    lazy val constructor: Parser[(Identifier, Seq[(Identifier, Type)])] = (for {
+    lazy val constructor: Parser[(Identifier, Seq[TypedBinding])] = (for {
       id <- commit(identifier) withFailureMessage { (p: Position) => withPos("Constructor name expected.", p) }
       ps <- opt(params) ^^ (_.getOrElse(Seq()))
     } yield (id, ps)) withFailureMessage {

@@ -12,8 +12,7 @@ trait DefinitionExtractors { self: Extractors =>
     def extract(fd: trees.FunDef, template: FunctionDefinition): Option[Match] = extract(
       toIdObl(fd.id -> template.id),
       toIdObls(fd.tparams.map(_.id) -> template.tparams),
-      toIdObls(fd.params.map(_.id) -> template.params.map(_._1)),
-      toTypeObls(fd.params.map(_.getType) -> template.params.map(_._2)),
+      toBindingObls(fd.params, template.params),
       toTypeObl(fd.getType -> template.returnType),
       toExprObl(fd.fullBody -> template.body))
 
@@ -22,10 +21,7 @@ trait DefinitionExtractors { self: Extractors =>
       toIdObls(sort.tparams.map(_.id) -> template.tparams),
       toIdObls(sort.constructors.map(_.id) -> template.constructors.map(_._1)),
       extract((sort.constructors zip template.constructors).map { case (cons, (_, fields)) =>
-        extract(
-          toIdObls(cons.fields.map(_.id) -> fields.map(_._1)),
-          toTypeObls(cons.fields.map(_.getType) -> fields.map(_._2))
-        )
+        toBindingObls(cons.fields -> fields)
       } : _*))
   }
 }

@@ -131,7 +131,7 @@ trait ExpressionParsers { self: Parsers =>
       bs <- commit(rep1sep(for {
           v <- valDef
           _ <- commit(kw("=") withFailureMessage {
-              (p: Position) => withPos("Missing assignment to variable `" + v._1.getName +"`. Use `=` to assign a value to the variable.", p)
+              (p: Position) => withPos("Missing assignment to variable. Use `=` to assign a value to the variable.", p)
             })
           e <- commit(expression)
         } yield (v, e), p(',')) withFailureMessage {
@@ -253,10 +253,18 @@ trait ExpressionParsers { self: Parsers =>
       case lexical.Quantifier("choose") => Choose
     })
 
-    lazy val valDef: Parser[(Identifier, Option[Type])] = for {
+    lazy val holeValDef: Parser[Binding] = acceptMatch("Binding expected.", {
+      case lexical.Hole(i) => BindingHole(i)
+      case lexical.Embedded(vd: trees.ValDef) => EmbeddedValDef(vd)
+    })
+
+    lazy val valDef: Parser[Binding] = holeValDef | (for {
       i <- identifier
       otype <- opt(p(':') ~> commit(typeExpression))
-    } yield (i, otype)
+    } yield otype match {
+      case Some(tpe) => TypedBinding(i, tpe)
+      case None => UntypedBinding(i)
+    })
 
     lazy val quantifierExpr: Parser[Expression] = for {
       q <- quantifier
@@ -268,7 +276,7 @@ trait ExpressionParsers { self: Parsers =>
     } yield Abstraction(q, vds, e)
 
     lazy val lambdaExpr: Parser[Expression] = for {
-      vds <- p('(') ~> repsep(valDef, p(',')) <~ p(')') | identifier ^^ (id => Seq((id, None)))
+      vds <- p('(') ~> repsep(valDef, p(',')) <~ p(')') | identifier ^^ (id => Seq(UntypedBinding(id)))
       _ <- kw("=>") withFailureMessage {
         (p: Position) => "Missing `=>` between bindings and lambda body."
       }

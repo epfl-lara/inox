@@ -47,7 +47,15 @@ trait ExpressionElaborators { self: Elaborators =>
     }
 
     def replaceHoles(binding: Binding)(implicit holes: HoleValues): Binding = binding match {
-      case (identifier, optType) => (replaceHoles(identifier), optType.map(replaceHoles(_)))
+      case TypedBinding(identifier, tpe) => TypedBinding(replaceHoles(identifier), replaceHoles(tpe))
+      case UntypedBinding(identifier) => UntypedBinding(replaceHoles(identifier))
+      case BindingHole(index) => EmbeddedValDef(holes.getValDef(index).get)
+      case _ => binding
+    }
+
+    def replaceHolesSeq(binding: Binding)(implicit holes: HoleValues): Seq[Binding] = binding match {
+      case BindingSeqHole(index) => holes.getValDefSeq(index).get.map(EmbeddedValDef(_))
+      case _ => Seq(replaceHoles(binding))
     }
 
     def replaceHoles(field: Field)(implicit holes: HoleValues): Field = field match {
@@ -60,7 +68,7 @@ trait ExpressionElaborators { self: Elaborators =>
       case Variable(identifier) => Variable(replaceHoles(identifier))
       case Operation(operator, args) => Operation(operator, args.flatMap(replaceHolesSeq(_)))
       case Selection(structure, field) => Selection(replaceHoles(structure), replaceHoles(field))
-      case Abstraction(quantifier, bindings, body) => Abstraction(quantifier, bindings.map(replaceHoles(_)), replaceHoles(body))
+      case Abstraction(quantifier, bindings, body) => Abstraction(quantifier, bindings.flatMap(replaceHolesSeq(_)), replaceHoles(body))
       case Let(bindings, body) => {
         val replacedBindings = bindings.map { case (binding, value) =>
           (replaceHoles(binding), replaceHoles(value))
@@ -152,24 +160,26 @@ trait ExpressionElaborators { self: Elaborators =>
           })
     }
 
-    def getExprBindings(es: Seq[(ExprIR.Identifier, Option[TypeIR.Expression])])
+    def getExprBindings(es: Seq[ExprIR.Binding])
                                (implicit store: Store, pos: Position): (Store, Seq[trees.Type], Constrained[Seq[trees.ValDef]]) = {
       val (newStore, tps, vds) = es.foldLeft((store, Seq[trees.Type](), Seq[Constrained[trees.ValDef]]())) {
-        case ((store, tps, vds), (ident, otpe)) =>
-          val id = getIdentifier(ident)
+        case ((store, tps, vds), binding) =>
+          val id = getIdentifier(binding)
 
-          val (tpe, ctpe) = otpe match {
-            case None =>
+          val (tpe, ctpe) = getAnnotatedType(binding) match {
+            case Left(None) =>
               val tpe = Unknown.fresh
               (tpe, Constrained.unify(u => u(tpe)))
-            case Some(tpe) =>
-              (getSimpleType(tpe)(store), getType(tpe, bound = Some(ident.getName))(store))
+            case Left(Some(tpe)) =>
+              (getSimpleType(tpe)(store), getType(tpe, bound = Some(id.name))(store))
+            case Right(tpe) =>
+              (tpe, Constrained.pure(tpe))
           }
 
           ctpe match {
             case unsat: Unsatisfiable => (store, tps :+ tpe, vds :+ unsat)
             case c @ WithConstraints(ev, cs) =>
-              val newStore = store + (ident.getName, id, tpe, ev)
+              val newStore = store + (id.name, id, tpe, ev)
               val newVds = vds :+ c.transform(tp => trees.ValDef(id, tp))
               (newStore, tps :+ tpe, newVds)
           }
@@ -932,17 +942,19 @@ trait ExpressionElaborators { self: Elaborators =>
         // Let binding.
         case Let(bs, body) if (!bs.isEmpty) => {
 
-          val ((ident, otype), value) = bs.head
+          val (binding, value) = bs.head
           val rest = if (bs.tail.isEmpty) body else Let(bs.tail, body)
 
-          val id = getIdentifier(ident)
+          val id = getIdentifier(binding)
 
-          val (lt, letType) = otype match {
-            case None =>
+          val (lt, letType) = getAnnotatedType(binding) match {
+            case Left(None) =>
               val lt = Unknown.fresh
               (lt, Constrained.unify(u => u(lt)))
-            case Some(tpe) =>
-              (getSimpleType(tpe), getType(tpe, bound = Some(ident.getName)))
+            case Left(Some(tpe)) =>
+              (getSimpleType(tpe), getType(tpe, bound = Some(id.name)))
+            case Right(tpe) =>
+              (tpe, Constrained.pure(tpe))
           }
 
           val valueType = Unknown.fresh
@@ -950,7 +962,7 @@ trait ExpressionElaborators { self: Elaborators =>
           (for {
             v <- getExpr(value, valueType)
             tpe <- letType
-            r <- getExpr(rest, expected)(store + (ident.getName, id, lt, tpe))
+            r <- getExpr(rest, expected)(store + (id.name, id, lt, tpe))
           } yield { implicit u =>
             trees.Let(trees.ValDef(id, tpe), v, r)
           }).addConstraint({
@@ -1011,7 +1023,7 @@ trait ExpressionElaborators { self: Elaborators =>
           })
         }
 
-        case Abstraction(Choose, bindings @ Seq((id, otype)), body) => {
+        case Abstraction(Choose, bindings @ Seq(binding), body) => {
           val predType = Unknown.fresh
 
           val (newStore, Seq(tp), cvds) = getExprBindings(bindings)

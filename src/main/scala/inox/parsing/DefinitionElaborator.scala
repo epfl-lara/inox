@@ -15,7 +15,7 @@ trait DefinitionElaborators { self: Elaborators =>
       case FunctionDefinition(id, tparams, params, returnType, body) => FunctionDefinition(
         replaceHoles(id),
         tparams.map(replaceHoles(_)),
-        params.map { case (pid, ptype) => (replaceHoles(pid), replaceHoles(ptype)) },
+        params.map(replaceHoles(_)),
         replaceHoles(returnType),
         replaceHoles(body))
     }
@@ -25,9 +25,7 @@ trait DefinitionElaborators { self: Elaborators =>
         replaceHoles(id),
         tparams.map(replaceHoles(_)),
         constructors.map {
-          case (cid, cparams) => (replaceHoles(cid), cparams.map {
-            case (pid, ptype) => (replaceHoles(pid), replaceHoles(ptype))
-          })
+          case (cid, cparams) => (replaceHoles(cid), cparams.map(replaceHoles(_)))
         })
     }
 
@@ -62,18 +60,18 @@ trait DefinitionElaborators { self: Elaborators =>
         symbols.functions.keySet.map(_.name)
       )
 
-      val duplicateFields: Option[ExprIR.IdentifierIdentifier] = (
+      val duplicateFields: Option[ExprIR.Binding] = (
         definitions
           .flatMap {
-            case td: TypeDefinition => td.constructors.flatMap(_._2.map(_._1))
+            case td: TypeDefinition => td.constructors.flatMap(_._2)
             case _ => Seq()
-          }.collect { case ident @ ExprIR.IdentifierIdentifier(_) => ident } ++
+          } ++
         symbols.sorts.values.toSeq
           .flatMap(_.constructors.flatMap(_.fields.map(_.id)))
-          .map(id => ExprIR.IdentifierIdentifier(id)))
-        .groupBy(id => id)
+          .map(id => ExprIR.UntypedBinding(ExprIR.IdentifierIdentifier(id))))
+        .groupBy(binding => getIdentifier(binding))
         .filter(_._2.size > 1)
-        .map { case (id, ids) => ids.find(_.pos != NoPosition).getOrElse(id) }
+        .map { case (id, ids) => ids.find(_.pos != NoPosition).getOrElse(ids.head) }
         .headOption
 
       val sortsStore = definitions.foldLeft(store) {
@@ -95,8 +93,13 @@ trait DefinitionElaborators { self: Elaborators =>
 
           td.constructors.foldLeft(store) { case (store, (ident, params)) =>
             val id = getIdentifier(ident)
-            val fields = params.map { case (ident, tpe) =>
-              trees.ValDef(getIdentifier(ident), getSimpleType(tpe)(tpStore))
+            val fields = params.map { binding =>
+              val tpe = getAnnotatedType(binding) match {
+                case Left(Some(t)) => getSimpleType(t)(tpStore)
+                case Right(t) => t
+                case _ => throw new Error("Unexpected untyped binding.")
+              }
+              trees.ValDef(getIdentifier(binding), tpe)
             }
             store + (ident.getName, sort, new trees.ADTConstructor(id, sort.id, fields))
           }
@@ -109,7 +112,14 @@ trait DefinitionElaborators { self: Elaborators =>
             case (store, (id, tp)) => store + (id.getName, tp)
           }
 
-          val params = fd.params.map(p => trees.ValDef(getIdentifier(p._1), getSimpleType(p._2)(tpStore)))
+          val params = fd.params.map { binding =>
+            val tpe = getAnnotatedType(binding) match {
+              case Left(Some(t)) => getSimpleType(t)(tpStore)
+              case Right(t) => t
+              case _ => throw new Error("Unexpected untyped binding.")
+            }
+            trees.ValDef(getIdentifier(binding), tpe)
+          }
           val resultType = getSimpleType(fd.returnType)(tpStore)
           val body = trees.Choose(trees.ValDef.fresh("res", resultType), trees.BooleanLiteral(true))
           store + (fd.id.getName, new trees.FunDef(id, tpds, params, resultType, body, Seq()))
@@ -128,7 +138,11 @@ trait DefinitionElaborators { self: Elaborators =>
               td.constructors.map { case (id, params) =>
                 val (_, cons) = newStore getConstructor id.getName
                 val (_, _, vds) = getExprBindings((params zip cons.fields).map {
-                  case ((_, tpe), vd) => (ExprIR.IdentifierIdentifier(vd.id), Some(tpe))
+                  case (binding, vd) => binding match {
+                    case ExprIR.TypedBinding(_, tpe) => ExprIR.TypedBinding(ExprIR.IdentifierIdentifier(vd.id), tpe)
+                    case ExprIR.UntypedBinding(_) => ExprIR.UntypedBinding(ExprIR.IdentifierIdentifier(vd.id))
+                    case _ => throw new Error("Unexpected untyped binding.")
+                  }
                 })(tpStore, position)
                 vds.transform(cons.id -> _)
               }
@@ -146,7 +160,11 @@ trait DefinitionElaborators { self: Elaborators =>
             }
 
             val (bodyStore, _, vds) = getExprBindings((fd.params zip signature.params).map {
-              case ((_, tpe), vd) => (ExprIR.IdentifierIdentifier(vd.id), Some(tpe))
+              case (binding, vd) => binding match {
+                case ExprIR.TypedBinding(_, tpe) => ExprIR.TypedBinding(ExprIR.IdentifierIdentifier(vd.id), tpe)
+                case ExprIR.UntypedBinding(_) => ExprIR.UntypedBinding(ExprIR.IdentifierIdentifier(vd.id))
+                case _ => throw new Error("Unexpected untyped binding.")
+              }
             })(initStore, position)
 
             val returnType = Unknown.fresh
@@ -171,7 +189,7 @@ trait DefinitionElaborators { self: Elaborators =>
         duplicateFunctionNames.get._2
       ).checkImmediate(
         duplicateFields.isEmpty,
-        "Duplicate field identifiers with name " + duplicateFields.get.getName + ".",
+        "Duplicate field identifiers with name " + getIdentifier(duplicateFields.get).name + ".",
         duplicateFields.get.pos
       )
     }

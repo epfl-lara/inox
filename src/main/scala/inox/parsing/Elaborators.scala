@@ -184,6 +184,20 @@ trait Elaborators
     case ExprIR.IdentifierHole(_) => throw new Error("Expression contains holes.")
   }
 
+  def getIdentifier(binding: ExprIR.Binding): Identifier = binding match {
+    case ExprIR.TypedBinding(identifier, _) => getIdentifier(identifier)
+    case ExprIR.UntypedBinding(identifier) => getIdentifier(identifier)
+    case ExprIR.EmbeddedValDef(vd) => vd.id
+    case _ => throw new Error("Expression contains holes.")
+  }
+
+  def getAnnotatedType(binding: ExprIR.Binding): Either[Option[ExprIR.Type], Type] = binding match {
+    case ExprIR.TypedBinding(_, tpe) => Left(Some(tpe))
+    case ExprIR.UntypedBinding(_) => Left(None)
+    case ExprIR.EmbeddedValDef(vd) => Right(vd.tpe)
+    case _ => throw new Error("Expression contains holes.")
+  }
+
   object Store {
     def empty: Store = new Store(Map(), Map(), Map(), Map(), Map(), Map())
   }
@@ -206,6 +220,11 @@ trait Elaborators
       if t.isInstanceOf[trees.Type]
     } yield t.asInstanceOf[trees.Type]
 
+    def getValDef(i: Int): Option[trees.ValDef] = for {
+      vd <- get(i)
+      if vd.isInstanceOf[trees.ValDef]
+    } yield vd.asInstanceOf[trees.ValDef]
+
     def getExpressionSeq(i: Int): Option[Seq[trees.Expr]] = for {
       es <- get(i)
       if es.isInstanceOf[Iterable[_]]
@@ -217,6 +236,12 @@ trait Elaborators
       if ts.isInstanceOf[Iterable[_]]
       if ts.asInstanceOf[Iterable[_]].forall(_.isInstanceOf[trees.Type])
     } yield ts.asInstanceOf[Iterable[trees.Type]].toSeq
+
+    def getValDefSeq(i: Int): Option[Seq[trees.ValDef]] = for {
+      vds <- get(i)
+      if vds.isInstanceOf[Iterable[_]]
+      if vds.asInstanceOf[Iterable[_]].forall(_.isInstanceOf[trees.ValDef])
+    } yield vds.asInstanceOf[Iterable[trees.ValDef]].toSeq
   }
 
   /** Represents a set of constraints with a value.

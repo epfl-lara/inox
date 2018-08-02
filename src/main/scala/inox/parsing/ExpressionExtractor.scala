@@ -11,6 +11,44 @@ trait ExpressionExtractors { self: Extractors =>
 
     private type MatchObligation = Option[Match]
 
+    protected def toBindingObl(pair: (trees.ValDef, Binding)): MatchObligation = {
+      val vd = pair._1
+      val binding = pair._2
+
+      binding match {
+        case UntypedBinding(id) => toIdObl(vd.id -> id)
+        case TypedBinding(id, tpe) => extract(toIdObl(vd.id -> id), toTypeObl(vd.tpe -> tpe))
+        case BindingHole(index) => Some(matching(index, vd))
+        case _ => None
+      }
+    }
+
+    protected def toBindingObls(pair: (Seq[trees.ValDef], Seq[Binding])): MatchObligation = {
+      pair match {
+        case (Seq(), Seq()) => Some(empty)
+        case (_, Seq()) => None
+        case (Seq(), _) => None
+        case (_, Seq(BindingSeqHole(i), templateRest @ _*)) => {
+          val n = pair._1.length - templateRest.length
+
+          if (n < 0) {
+            None
+          }
+          else {
+            val (matches, rest) = pair._1.splitAt(n)
+
+            toBindingObls(rest -> templateRest) map {
+              case matchings => matching(i, matches) ++ matchings
+            }
+          }
+        }
+        case (Seq(vd, vdRest @ _*), Seq(template, templateRest @ _*)) => for {
+          matchingsHead <- extract(toBindingObl(vd -> template))
+          matchingsRest <- extract(toBindingObls(vdRest -> templateRest))
+        } yield matchingsHead ++ matchingsRest
+      }
+    }
+
     protected def toIdObl(pair: (inox.Identifier, Identifier)): MatchObligation = {
       val (id, templateId) = pair
 
@@ -134,7 +172,7 @@ trait ExpressionExtractors { self: Extractors =>
         }
 
         case trees.Let(vd, value, body) => template match {
-          case Let(Seq(((templateId, optTemplateType), templateValue), rest @ _*), templateBody) => {
+          case Let(Seq((templateBinding, templateValue), rest @ _*), templateBody) => {
 
             val templateRest = rest match {
               case Seq() => templateBody
@@ -143,8 +181,7 @@ trait ExpressionExtractors { self: Extractors =>
 
             extract(
               toExprObl(value -> templateValue),
-              toOptTypeObl(vd.getType -> optTemplateType),
-              toIdObl(vd.id -> templateId),
+              toBindingObl(vd -> templateBinding),
               toExprObl(body -> templateRest))
           }
           case _ => fail
@@ -153,8 +190,7 @@ trait ExpressionExtractors { self: Extractors =>
         case trees.Lambda(args, body) => template match {
           case Abstraction(Lambda, templateArgs, templateBody) =>
             extract(
-              toOptTypeObls(args.map(_.getType) -> templateArgs.map(_._2)),
-              toIdObls(args.map(_.id) -> templateArgs.map(_._1)),
+              toBindingObls((args, templateArgs)),
               toExprObl(body -> templateBody))
           case _ => fail
         }
@@ -162,22 +198,20 @@ trait ExpressionExtractors { self: Extractors =>
         case trees.Forall(args, body) => template match {
           case Abstraction(Forall, templateArgs, templateBody) =>
             extract(
-              toOptTypeObls(args.map(_.getType) -> templateArgs.map(_._2)),
-              toIdObls(args.map(_.id) -> templateArgs.map(_._1)),
+              toBindingObls((args, templateArgs)),
               toExprObl(body -> templateBody))
           case _ => fail
         }
 
         case trees.Choose(arg, pred) => template match {
-          case Abstraction(Choose, Seq((templateId, optTemplateType), rest @ _*), templatePred) => {
+          case Abstraction(Choose, Seq(templateBinding, rest @ _*), templatePred) => {
             val templateRest = rest match {
               case Seq() => templatePred
               case _ => Abstraction(Choose, rest, templatePred)
             }
 
             extract(
-              toOptTypeObl(arg.getType -> optTemplateType),
-              toIdObl(arg.id -> templateId),
+              toBindingObl(arg -> templateBinding),
               toExprObl(pred -> templateRest))
           }
           case _ => fail

@@ -54,7 +54,12 @@ trait ExprIRs { self: IRs =>
     case object Exists extends Quantifier
     case object Choose extends Quantifier
 
-    type Binding = (Identifier, Option[Type])
+    sealed abstract class Binding extends Positional
+    case class UntypedBinding(identifier: Identifier) extends Binding
+    case class TypedBinding(identifier: Identifier, tpe: Type) extends Binding
+    case class EmbeddedValDef(valDef: trees.ValDef) extends Binding
+    case class BindingHole(index: Int) extends Binding
+    case class BindingSeqHole(index: Int) extends Binding
 
     case class ExpressionHole(index: Int) extends Expression("ExpressionHole")
     case class ExpressionSeqHole(index: Int) extends Expression("ExpressionSeqHole")
@@ -70,7 +75,11 @@ trait ExprIRs { self: IRs =>
     }
 
     def getHoleTypes(binding: Binding): Map[Int, HoleType] = binding match {
-      case (identifier, optType) => getHoleTypes(identifier) ++ optType.map(TypeIR.getHoleTypes(_)).getOrElse(Map())
+      case TypedBinding(identifier, tpe) => getHoleTypes(identifier) ++ TypeIR.getHoleTypes(tpe)
+      case UntypedBinding(identifier) => getHoleTypes(identifier)
+      case BindingHole(index) => Map(index -> ValDefHoleType)
+      case BindingSeqHole(index) => Map(index -> SeqHoleType(ValDefHoleType))
+      case _ => Map()
     }
 
     def getHoleTypes(expr: Expression): Map[Int, HoleType] = expr match {
@@ -81,12 +90,10 @@ trait ExprIRs { self: IRs =>
       case Operation(_, args) => args.map(getHoleTypes(_)).fold(Map[Int, HoleType]())(_ ++ _)
       case Application(callee, args) => args.map(getHoleTypes(_)).fold(getHoleTypes(callee))(_ ++ _)
       case Literal(_) => Map()
-      case Abstraction(_, bindings, body) => bindings.map({
-        case (identifier, optType) => getHoleTypes(identifier) ++ optType.map(TypeIR.getHoleTypes(_)).getOrElse(Map())
-      }).fold(getHoleTypes(body))(_ ++ _)
+      case Abstraction(_, bindings, body) => bindings.map(getHoleTypes(_)).fold(getHoleTypes(body))(_ ++ _)
       case TypeApplication(callee, args) => args.map(TypeIR.getHoleTypes(_)).fold(getHoleTypes(callee))(_ ++ _)
       case Let(bindings, body) => bindings.map({
-        case ((identifier, optType), expr) => getHoleTypes(identifier) ++ optType.map(TypeIR.getHoleTypes(_)).getOrElse(Map()) ++ getHoleTypes(expr)
+        case (binding, expr) => getHoleTypes(binding) ++ getHoleTypes(expr)
       }).fold(getHoleTypes(body))(_ ++ _)
     }
   }

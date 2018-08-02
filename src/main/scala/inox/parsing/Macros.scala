@@ -48,6 +48,18 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
     case _ => c.abort(c.enclosingPosition, "Unexpected construct.")
   }
 
+  implicit lazy val bindingLiftable = Liftable[ExprIR.Binding] {
+    case ExprIR.TypedBinding(id, tpe) =>
+      q"$interpolator.ExprIR.TypedBinding($id, $tpe)"
+    case ExprIR.UntypedBinding(id) =>
+      q"$interpolator.ExprIR.UntypedBinding($id)"
+    case ExprIR.BindingHole(index) =>
+      q"$interpolator.ExprIR.BindingHole($index)"
+    case ExprIR.BindingSeqHole(index) =>
+      q"$interpolator.ExprIR.BindingSeqHole($index)"
+    case _ => c.abort(c.enclosingPosition, "Unexpected construct.")
+  }
+
   implicit lazy val exprIRLiftable: Liftable[ExprIR.Expression] = Liftable[ExprIR.Expression] {
     case ExprIR.Variable(id) =>
       q"$interpolator.ExprIR.Variable($id)"
