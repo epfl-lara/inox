@@ -90,41 +90,68 @@ class Macros(val c: Context) extends Parsers with IRs {
 
   val trees = inox.trees
 
-  val parser = new DefinitionParser()
+  private val parser = new DefinitionParser()
 
-  def holeTypeToType(holeType: HoleType): c.Type = holeType match {
-    case IdentifierHoleType => typeOf[inox.Identifier]
-    case ExpressionHoleType => typeOf[inox.trees.Expr]
-    case TypeHoleType => typeOf[inox.trees.Type]
-    case SeqHoleType(holeType) => c.typecheck(tq"_root_.scala.collection.Traversable[${holeTypeToType(holeType)}]", c.TYPEmode).tpe
+  private val self = {
+    val Select(self, _) = c.prefix.tree
+    self
   }
 
-  def t_apply(args: c.Expr[Any]*): c.Tree = {
-
-    val Select(self, _) = c.prefix.tree
+  private val sc = StringContext({
 
     def getString(expr: c.Tree): String = expr match {
       case Literal(Constant(s : String)) => s
     }
 
-    val parts = self match {
-      case Block(ValDef(_, _, _, Apply(_, ls)) :: _, _) => ls.map(getString)
+    val Block(ValDef(_, _, _, Apply(_, ls)) :: _, _) = self
+    ls.map(getString)
+  }: _*)
+
+  private val holes = Seq.tabulate(sc.parts.size - 1)(MatchPosition(_))
+
+  private def parse[A](p: parser.Parser[A]): A = {
+    parser.fromSC(sc, holes)(parser.phrase(p)) match {
+      case Right(v) => v
+      case Left(e) => c.abort(c.enclosingPosition, e)
     }
+  }
 
-    val sc = StringContext(parts: _*)
+  private def getTypes(holeTypes: Map[Int, HoleType]): Seq[c.Type] =
+    Seq.tabulate(holeTypes.size) { (i: Int) => holeTypeToType(holeTypes(i)) }
 
-    val argsplaceholders = Seq.tabulate(sc.parts.length - 1)(MatchPosition(_))
-    val ir = parser.getFromSC(sc, argsplaceholders)(parser.phrase(parser.typeExpression))
+  private def holeTypeToType(holeType: HoleType): c.Type = holeType match {
+    case IdentifierHoleType => typeOf[inox.Identifier]
+    case ExpressionHoleType => typeOf[inox.trees.Expr]
+    case TypeHoleType => typeOf[inox.trees.Type]
+    case SeqHoleType(holeType) => c.typecheck(tq"_root_.scala.collection.Seq[${holeTypeToType(holeType)}]", c.TYPEmode).tpe
+  }
 
-    val holeTypes = TypeIR.getHoleTypes(ir)
+  private def tupleType(types: Seq[c.Type]): c.Tree = tq"(..$types)"
 
-    for (i <- 0 until args.size) {
-      val actual = args(i).actualType
-      val expected = holeTypeToType(holeTypes(i))
-      if (!(actual weak_<:< expected)) {
-        c.error(args(i).tree.pos, s"Invalid argument of type $actual. Expected an argument of type $expected.")
+  private def accessAll(types: Seq[c.Type]): c.Tree = {
+    val elems = types.zipWithIndex.map {
+      case (tpe, i) => q"x($i).asInstanceOf[$tpe]"
+    }
+    q"(x: Map[Int, Any]) => (..$elems)"
+  }
+
+  private def verifyArgTypes(args: Seq[c.Expr[Any]], types: Seq[c.Type]) {
+    assert(args.size == types.size)
+
+    for ((arg, expectedType) <- args.zip(types)) {
+      val actualType = arg.actualType
+      if (!(actualType weak_<:< expectedType)) {
+        c.error(arg.tree.pos, s"Invalid argument of type $actualType. Expected an argument of type $expectedType.")
       }
     }
+  }
+
+  def t_apply(args: c.Expr[Any]*): c.Tree = {
+
+    val ir = parse(parser.typeExpression)
+    val types = getTypes(TypeIR.getHoleTypes(ir))
+
+    verifyArgTypes(args, types)
 
     q"""
       {
@@ -140,40 +167,16 @@ class Macros(val c: Context) extends Parsers with IRs {
 
   def t_unapply(arg: c.Expr[trees.Type]): c.Tree = {
 
-    val Select(self, _) = c.prefix.tree
+    val ir = parse(parser.typeExpression)
 
-    def getString(expr: c.Tree): String = expr match {
-      case Literal(Constant(s : String)) => s
-    }
-
-    val parts = self match {
-      case Block(ValDef(_, _, _, Apply(_, ls)) :: _, _) => ls.map(getString)
-    }
-
-    val sc = StringContext(parts: _*)
-
-    val n = sc.parts.length - 1
-
-    val argsplaceholders = Seq.tabulate(n)(MatchPosition(_))
-    val ir = parser.getFromSC(sc, argsplaceholders)(parser.phrase(parser.typeExpression))
-
-    if (n >= 1) {
-      val holeTypes = TypeIR.getHoleTypes(ir)
-
-      val types = Seq.tabulate(n) { (i: Int) => holeTypeToType(holeTypes(i)) }
-
-      val tupleType = tq"(..$types)"
-
-      val accessAll = {
-        val elems = Seq.tabulate(n) { (i: Int) => q"x($i).asInstanceOf[${types(i)}]" }
-        q"(x: Map[Int, Any]) => (..$elems)"
-      }
+    if (holes.size >= 1) {
+      val types = getTypes(TypeIR.getHoleTypes(ir))
 
       q"""
         new {
           val ir: _root_.inox.parsing.MacroInterpolator.TypeIR.Expression = $ir
 
-          def unapply(t: ${c.typeOf[trees.Type]}): Option[$tupleType] = { $self.converter.extract(t, ir).map($accessAll) }
+          def unapply(t: ${c.typeOf[trees.Type]}): Option[${tupleType(types)}] = { $self.converter.extract(t, ir).map(${accessAll(types)}) }
         }.unapply($arg)
       """
     } else {
@@ -189,30 +192,10 @@ class Macros(val c: Context) extends Parsers with IRs {
 
   def e_apply(args: c.Expr[Any]*): c.Tree = {
 
-    val Select(self, _) = c.prefix.tree
+    val ir = parse(parser.expression)
+    val types = getTypes(ExprIR.getHoleTypes(ir))
 
-    def getString(expr: c.Tree): String = expr match {
-      case Literal(Constant(s : String)) => s
-    }
-
-    val parts = self match {
-      case Block(ValDef(_, _, _, Apply(_, ls)) :: _, _) => ls.map(getString)
-    }
-
-    val sc = StringContext(parts: _*)
-
-    val argsplaceholders = Seq.tabulate(sc.parts.length - 1)(MatchPosition(_))
-    val ir = parser.getFromSC(sc, argsplaceholders)(parser.phrase(parser.expression))
-
-    val holeTypes = ExprIR.getHoleTypes(ir)
-
-    for (i <- 0 until args.size) {
-      val actual = args(i).actualType
-      val expected = holeTypeToType(holeTypes(i))
-      if (!(actual weak_<:< expected)) {
-        c.error(args(i).tree.pos, s"Invalid argument of type $actual. Expected an argument of type $expected.")
-      }
-    }
+    verifyArgTypes(args, types)
 
     q"""
       {

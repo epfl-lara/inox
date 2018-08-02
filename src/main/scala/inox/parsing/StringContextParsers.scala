@@ -14,4 +14,11 @@ trait StringContextParsers { self: TokenParsers { type Tokens <: StringContextLe
       case NoSuccess(msg, _) => throw ParsingException(msg)
       case Success(value, _) => value
     }
+
+  def fromSC[A](sc: StringContext, args: Seq[Any])(parser: Parser[A]): Either[String, A] = {
+    parser(lexical.getReader(sc, args)) match {
+      case NoSuccess(msg, _) => Left(msg)
+      case Success(value, _) => Right(value)
+    }
+  }
 }
