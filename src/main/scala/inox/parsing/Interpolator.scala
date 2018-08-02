@@ -5,8 +5,15 @@ package parsing
 
 import ast._
 
-trait Interpolator
-  extends Parsers
+trait Interpolators {
+  protected val trees: inox.ast.Trees
+
+  type Interpolator
+}
+
+trait DefaultInterpolators
+  extends Interpolators
+     with Parsers
      with Elaborators
      with Extractors
      with ConstraintSolvers {
@@ -17,7 +24,7 @@ trait Interpolator
     extends Elaborator
        with Extractor
 
-  implicit class ExpressionInterpolator(sc: StringContext)(implicit symbols: trees.Symbols = trees.NoSymbols) {
+  implicit class Interpolator(sc: StringContext)(implicit symbols: trees.Symbols = trees.NoSymbols) {
 
     private lazy val converter = new Converter()
     private lazy val parser = new DefinitionParser()

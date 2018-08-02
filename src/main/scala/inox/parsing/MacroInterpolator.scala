@@ -4,9 +4,9 @@ package parsing
 import scala.language.experimental.macros
 
 object MacroInterpolator
-  extends Elaborators
-     with Extractors
-     with ConstraintSolvers {
+  extends Interpolators
+     with Elaborators
+     with Extractors {
 
   val trees = inox.trees
 
