@@ -103,27 +103,29 @@ trait Constraints { self: SimpleTypes =>
     } yield AtIndexIs(s, index, v)
   }
 
+  type Error = String
 
-  class Constrained[+A] private(val eventual: Eventual[A], val constraints: Seq[Constraint]) {
-    def map[B](f: Eventual[A] => Eventual[B]): Constrained[B] =
-      new Constrained(f(eventual), constraints)
+  class Constrained[+A] private(get: Either[Error, (A, Seq[Constraint])]) {
+    def map[B](f: A => B): Constrained[B] =
+      new Constrained(get.right.map { case (v, cs) => (f(v), cs) })
 
-    def flatMap[B](f: Eventual[A] => Constrained[B]): Constrained[B] = {
-      val other = f(eventual)
-      new Constrained(other.eventual, constraints ++ other.constraints)
+    def flatMap[B](f: A => Constrained[B]): Constrained[B] = value match {
+      new Constrained(get.right.flatMap { case (v1, cs1) =>
+        val other = f(v)
+        other.right.map { case (v2, cs2) => (v2, cs1 ++ cs2) }
+      })
     }
+
+    def addConstraint(constraint: Constraint): Constrained[A] =
+      new Constrained(get.right.map { case (v, cs) => (v, cs :+ constraint) })
+
+    def checkImmediate(condition: Boolean, error => Error): Constrained[A] =
+      if (condition) this else Constrained.fail(error)
   }
 
   object Constrained {
-    def eventual[A](x: => A): Constrained[A] = {
-      lazy val res: A = x
-      new Constrained(Eventual.withUnifier((unifier: Unifier) => res), Seq())
-    }
     def pure[A](x: A): Constrained[A] = {
       new Constrained(Eventual.pure(x), Seq())
-    }
-    def withUnifier[A](f: Unifier => A): Constrained[A] = {
-      new Constrained(Eventual.withUnifier(f), Seq())
     }
     def fail(error: String): Constrained[Nothing] = throw new Exception(error)
   }
