@@ -65,12 +65,25 @@ trait Matchings {
     //     }
     //   }
 
+    def collect[A](scrutinee: A)(fun: PartialFunction[A, Matching]): Matching =
+      fun.lift(scrutinee).getOrElse(Matching.fail)
+
+    def conditionally[A](condition: Boolean): Matching =
+      if (condition) success else fail
+
     def apply(pairs: (Int, Any)*): Matching = new Matching {
       override def getMatches(
         global: Map[String, inox.Identifier],
         local: Map[String, inox.Identifier]):
           Option[(Map[String, Identifier], Map[Int, Any])] =
         Some((global, Map(pairs: _*)))
+    }
+
+    val success: Matching = new Matching {
+      override def getMatches(
+        global: Map[String, inox.Identifier],
+        local: Map[String, inox.Identifier]):
+          Option[(Map[String, Identifier], Map[Int, Any])] = Some(global, Map())
     }
 
     val fail: Matching = new Matching {

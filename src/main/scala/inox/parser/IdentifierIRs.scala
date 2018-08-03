@@ -1,7 +1,7 @@
 package inox
 package parser
 
-class IdentifierIRs { self: IRs =>
+trait IdentifierIRs { self: IRs =>
 
   trait IdentifierIR extends IR[Unit, inox.Identifier]
 
