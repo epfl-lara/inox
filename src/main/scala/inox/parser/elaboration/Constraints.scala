@@ -1,17 +1,19 @@
 package inox
 package parser
+package elaboration
 
 trait Constraints { self: SimpleTypes =>
 
   import SimpleTypes._
+  import TypeClasses.TypeClass
 
   sealed trait Constraint
   object Constraints {
-    case class Exists(elem: SimpleType) extends Constraint
-    case class Equals(left: SimpleType, right: SimpleType) extends Constraint
-    case class HasClass(elem: SimpleType, typeClass: TypeClass) extends Constraint
-    case class HasSortIn(sorts: Seq[(inox.Identifier, SimpleType => Seq[Constraint])]) extends Constraint
-    case class AtIndexIs(scrutinee: SimpleType, index: Int, value: SimpleType) extends Constraint
+    case class Exists(elem: Type) extends Constraint
+    case class Equals(left: Type, right: Type) extends Constraint
+    case class HasClass(elem: Type, typeClass: TypeClass) extends Constraint
+    case class HasSortIn(sorts: Seq[(inox.Identifier, Type => Seq[Constraint])]) extends Constraint
+    case class AtIndexIs(scrutinee: Type, index: Int, value: Type) extends Constraint
   }
   import Constraints._
 
@@ -34,10 +36,10 @@ trait Constraints { self: SimpleTypes =>
       ev.unify(value)
   }
 
-  class Unifier(mapping: Map[Unknown, SimpleType]) {
-    def get(unknown: Unknown): SimpleType = mapping(unknown)
+  class Unifier(mapping: Map[Unknown, Type]) {
+    def get(unknown: Unknown): Type = mapping(unknown)
 
-    def +(pair: (Unknown, SimpleType)): Unifier =
+    def +(pair: (Unknown, Type)): Unifier =
       new Unifier(mapping + pair)
 
     def apply[A](value: A)(implicit unifiable: Unifiable[A]) =
@@ -54,7 +56,7 @@ trait Constraints { self: SimpleTypes =>
     }
   }
 
-  implicit lazy val simpleTypeUnifiable: Unifiable[SimpleType] = Unifiable {
+  implicit lazy val simpleTypeUnifiable: Unifiable[Type] = Unifiable {
     case u: Unknown => Eventual.withUnifier(_.get(u))
     case FunctionType(froms, to) => for {
       fs <- Eventual.sequence(froms.map(Eventual.unify(_)))
@@ -105,28 +107,28 @@ trait Constraints { self: SimpleTypes =>
 
   type Error = String
 
-  class Constrained[+A] private(get: Either[Error, (A, Seq[Constraint])]) {
+  class Constrained[+A] private(private val get: Either[Error, (A, Seq[Constraint])]) {
     def map[B](f: A => B): Constrained[B] =
       new Constrained(get.right.map { case (v, cs) => (f(v), cs) })
 
-    def flatMap[B](f: A => Constrained[B]): Constrained[B] = value match {
+    def flatMap[B](f: A => Constrained[B]): Constrained[B] =
       new Constrained(get.right.flatMap { case (v1, cs1) =>
-        val other = f(v)
+        val other = f(v1).get
         other.right.map { case (v2, cs2) => (v2, cs1 ++ cs2) }
       })
-    }
 
     def addConstraint(constraint: Constraint): Constrained[A] =
       new Constrained(get.right.map { case (v, cs) => (v, cs :+ constraint) })
 
-    def checkImmediate(condition: Boolean, error => Error): Constrained[A] =
+    def checkImmediate(condition: Boolean, error: => Error): Constrained[A] =
       if (condition) this else Constrained.fail(error)
   }
 
   object Constrained {
     def pure[A](x: A): Constrained[A] = {
-      new Constrained(Eventual.pure(x), Seq())
+      new Constrained(Right((x, Seq())))
     }
-    def fail(error: String): Constrained[Nothing] = throw new Exception(error)
+    def fail(error: String): Constrained[Nothing] =
+      new Constrained(Left(error))
   }
 }

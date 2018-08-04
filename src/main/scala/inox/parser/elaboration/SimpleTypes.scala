@@ -1,5 +1,6 @@
 package inox
 package parser
+package elaboration
 
 trait SimpleTypes {
 
@@ -39,46 +40,48 @@ trait SimpleTypes {
 
   import SimpleTypes._
 
-  sealed abstract class TypeClass {
-    val name: String
+  object TypeClasses {
+    sealed abstract class TypeClass {
+      val name: String
 
-    def &(that: TypeClass) = (this, that) match {
-      case (Bits, _) => Bits
-      case (_, Bits) => Bits
-      case (Integral, _) => Integral
-      case (_, Integral) => Integral
-      case (Numeric, _) => Numeric
-      case (_, Numeric) => Numeric
-      case _ => Comparable
+      def &(that: TypeClass) = (this, that) match {
+        case (Bits, _) => Bits
+        case (_, Bits) => Bits
+        case (Integral, _) => Integral
+        case (_, Integral) => Integral
+        case (Numeric, _) => Numeric
+        case (_, Numeric) => Numeric
+        case _ => Comparable
+      }
+
+      def hasInstance(tpe: Type): Boolean
     }
+    case object Comparable extends TypeClass {
+      override val name = "Comparable"
 
-    def hasInstance(tpe: Type): Boolean
-  }
-  case object Comparable extends TypeClass {
-    override val name = "Comparable"
-
-    override def hasInstance(tpe: Type) = {
-      tpe == CharType() || Numeric.hasInstance(tpe)
+      override def hasInstance(tpe: Type) = {
+        tpe == CharType() || Numeric.hasInstance(tpe)
+      }
     }
-  }
-  case object Numeric extends TypeClass {
-    override val name = "Numeric"
+    case object Numeric extends TypeClass {
+      override val name = "Numeric"
 
-    override def hasInstance(tpe: Type) = {
-      tpe == RealType() || Integral.hasInstance(tpe)
+      override def hasInstance(tpe: Type) = {
+        tpe == RealType() || Integral.hasInstance(tpe)
+      }
     }
-  }
-  case object Integral extends TypeClass {
-    override val name = "Integral"
+    case object Integral extends TypeClass {
+      override val name = "Integral"
 
-    override def hasInstance(tpe: Type) = {
-      tpe == IntegerType() || Bits.hasInstance(tpe)
+      override def hasInstance(tpe: Type) = {
+        tpe == IntegerType() || Bits.hasInstance(tpe)
+      }
     }
-  }
-  case object Bits extends TypeClass {
-    override val name = "Bits"
+    case object Bits extends TypeClass {
+      override val name = "Bits"
 
-    override def hasInstance(tpe: Type) =
-      tpe.isInstanceOf[BitVectorType]
+      override def hasInstance(tpe: Type) =
+        tpe.isInstanceOf[BitVectorType]
+    }
   }
 }

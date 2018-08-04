@@ -1,18 +1,19 @@
 package inox
 package parser
+package extraction
 
 trait Matchings {
   sealed abstract class Matching { self =>
     def getMatches(
       global: Map[String, inox.Identifier],
       local: Map[String, inox.Identifier]):
-        Option[(Map[String, Identifier], Map[Int, Any])]
+        Option[(Map[String, inox.Identifier], Map[Int, Any])]
 
     def extendLocal(name: String, identifier: inox.Identifier): Matching = new Matching {
       override def getMatches(
         global: Map[String, inox.Identifier],
         local: Map[String, inox.Identifier]):
-          Option[(Map[String, Identifier], Map[Int, Any])] = {
+          Option[(Map[String, inox.Identifier], Map[Int, Any])] = {
 
         self.getMatches(global, local + (name -> identifier))
       }
@@ -22,7 +23,7 @@ trait Matchings {
       override def getMatches(
         global: Map[String, inox.Identifier],
         local: Map[String, inox.Identifier]):
-          Option[(Map[String, Identifier], Map[Int, Any])] = {
+          Option[(Map[String, inox.Identifier], Map[Int, Any])] = {
 
         for {
           (newGlobal, firstMap) <- self.getMatches(global, local)
@@ -38,7 +39,7 @@ trait Matchings {
         override def getMatches(
           global: Map[String, inox.Identifier],
           local: Map[String, inox.Identifier]):
-            Option[(Map[String, Identifier], Map[Int, Any])] = {
+            Option[(Map[String, inox.Identifier], Map[Int, Any])] = {
 
           local.get(name).orElse(global.get(name)) match {
             case None => Some((global + (name -> identifier), Map()))
@@ -46,24 +47,6 @@ trait Matchings {
           }
         }
       }
-
-    // def lookup(name: String, ifFresh: => Option[(Int, inox.Identifier)])(ifBound: inox.Identifier => Option[Int]) =
-    //   new Matching {
-    //     override def getMatches(
-    //       global: Map[String, inox.Identifier],
-    //       local: Map[String, inox.Identifier]):
-    //         Option[(Map[String, Identifier], Map[Int, Any])] = {
-
-    //       local.get(name).orElse(global.get(name))) match {
-    //         case None => ifFresh.map {
-    //           case (index, identifier) => Some((global + (name -> identifier), Map(index -> identifier)))
-    //         }
-    //         case Some(identifier) => ifBound(identifier).map {
-    //           case index => Some((global, Map(index -> identifier)))
-    //         }
-    //       }
-    //     }
-    //   }
 
     def collect[A](scrutinee: A)(fun: PartialFunction[A, Matching]): Matching =
       fun.lift(scrutinee).getOrElse(Matching.fail)
@@ -75,7 +58,7 @@ trait Matchings {
       override def getMatches(
         global: Map[String, inox.Identifier],
         local: Map[String, inox.Identifier]):
-          Option[(Map[String, Identifier], Map[Int, Any])] =
+          Option[(Map[String, inox.Identifier], Map[Int, Any])] =
         Some((global, Map(pairs: _*)))
     }
 
@@ -83,14 +66,14 @@ trait Matchings {
       override def getMatches(
         global: Map[String, inox.Identifier],
         local: Map[String, inox.Identifier]):
-          Option[(Map[String, Identifier], Map[Int, Any])] = Some(global, Map())
+          Option[(Map[String, inox.Identifier], Map[Int, Any])] = Some(global, Map())
     }
 
     val fail: Matching = new Matching {
       override def getMatches(
         global: Map[String, inox.Identifier],
         local: Map[String, inox.Identifier]):
-          Option[(Map[String, Identifier], Map[Int, Any])] = None
+          Option[(Map[String, inox.Identifier], Map[Int, Any])] = None
     }
   }
 }
