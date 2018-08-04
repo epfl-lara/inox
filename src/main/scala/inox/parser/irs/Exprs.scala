@@ -8,5 +8,7 @@ trait Exprs { self: IRs =>
     sealed trait Expr extends IR {
       override def getHoles: Seq[Hole] = ???
     }
+
+    type ExprSeq = HSeq[Expr]
   }
 }

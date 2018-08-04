@@ -7,7 +7,9 @@ trait IdentifierElaborators { self: Elaborators =>
 
   import Identifiers._
 
-  object IdE {
-    def elaborate(template: Identifier)(implicit store: Store): Constrained[inox.Identifier] = ???
+  implicit object IdE extends Elaborator[Identifier, Unit, inox.Identifier] {
+    override def elaborate(template: Identifier, context: Unit)(implicit store: Store): Constrained[inox.Identifier] = ???
   }
+
+  implicit object IdSeqE extends HSeqE(IdE)
 }

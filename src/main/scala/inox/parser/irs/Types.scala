@@ -37,5 +37,7 @@ trait Types { self: IRs =>
     case class TypeBinding(identifier: Identifiers.Identifier, underlying: Type) extends Type
     case class RefinementType(identifier: Option[Identifiers.Identifier], underlying: Type, pred: Exprs.Expr) extends Type
     case class HoleType(index: Int) extends Type
+
+    type TypeSeq = HSeq[Type]
   }
 }

@@ -130,5 +130,15 @@ trait Constraints { self: SimpleTypes =>
     }
     def fail(error: String): Constrained[Nothing] =
       new Constrained(Left(error))
+
+    def sequence[A](constraineds: Seq[Constrained[A]]): Constrained[Seq[A]] = {
+      constraineds.foldLeft(Constrained.pure(Seq[A]())) {
+        case (acc, constrained) => for {
+          xs <- acc
+          x <- constrained
+        } yield xs :+ x
+      }
+    }
+
   }
 }

@@ -13,5 +13,7 @@ trait Bindings { self: IRs =>
     }
     case class ValDef(identifier: Identifiers.Identifier, tpe: Types.Type) extends Binding
     case class BindingHole(index: Int) extends Binding
+
+    type BindingSeq = HSeq[Binding]
   }
 }

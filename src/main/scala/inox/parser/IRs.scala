@@ -22,4 +22,11 @@ trait IRs
   trait IR {
     def getHoles: Seq[Hole]
   }
+
+  class HSeq[A <: IR](val elems: Seq[Either[Int, A]], holeType: HoleType) extends IR {
+    override def getHoles: Seq[Hole] = elems.flatMap {
+      case Left(index) => Seq(Hole(index, HoleTypes.Sequence(holeType)))
+      case Right(x) => x.getHoles
+    }
+  }
 }
