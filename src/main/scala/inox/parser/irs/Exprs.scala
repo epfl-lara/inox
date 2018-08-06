@@ -38,6 +38,10 @@ trait Exprs { self: IRs =>
       case object Difference extends Operator
     }
 
+    object NAry {
+      sealed abstract class Operator
+    }
+
     sealed trait Expr extends IR {
       override def getHoles: Seq[Hole] = this match {
         case ExprHole(index) => Seq(Hole(index, HoleTypes.Expr))
@@ -68,6 +72,7 @@ trait Exprs { self: IRs =>
     case class Variable(id: Identifiers.Identifier) extends Expr
     case class UnaryOperation(operator: Unary.Operator, expr: Expr) extends Expr
     case class BinaryOperation(operator: Binary.Operator, lhs: Expr, rhs: Expr) extends Expr
+    case class Operation(operator: NAry.Operator, args: ExprSeq) extends Expr
     case class Invocation(id: Identifiers.Identifier, typeArgs: Types.TypeSeq, args: ExprSeq) extends Expr
     case class Application(callee: Expr, args: ExprSeq) extends Expr
     case class Abstraction(quantifier: Quantifier, bindings: Bindings.BindingSeq, body: Expr) extends Expr

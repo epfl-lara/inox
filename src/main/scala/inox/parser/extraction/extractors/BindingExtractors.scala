@@ -5,19 +5,17 @@ package extractors
 
 trait BindingExtractors { self: Extractors =>
   import Bindings._
-  implicit object BindingX extends Extractor[Binding, trees.ValDef] {
-    override def extract(template: Binding, scrutinee: trees.ValDef): Matching = template match {
+  implicit object BindingX extends Extractor[Binding, trees.ValDef, Option[(String, inox.Identifier)]] {
+    override def extract(template: Binding, scrutinee: trees.ValDef): Matching[Option[(String, inox.Identifier)]] = template match {
       case BindingHole(index) =>
-        Matching(index -> scrutinee)
+        Matching(index -> scrutinee).withValue(None)
       case InferredValDef(identifier) =>
-        IdX.extract(identifier, scrutinee.id)
+        IdX.extract(identifier, scrutinee.id).shadowing
       case ExplicitValDef(identifier, tpe) =>
-        IdX.extract(identifier, scrutinee.id) <>
-        TypeX.extract(tpe, scrutinee.tpe)
-      case UnnamedValDef(tpe) =>
+        IdX.extract(identifier, scrutinee.id).shadowing <<
         TypeX.extract(tpe, scrutinee.tpe)
     }
   }
 
-  implicit object BindingSeqX extends HSeqX(BindingX)
+  implicit object BindingSeqX extends HSeqX[Binding, trees.ValDef, Option[(String, inox.Identifier)]](BindingX, None)
 }

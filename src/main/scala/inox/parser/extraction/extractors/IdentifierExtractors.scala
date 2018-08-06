@@ -5,12 +5,10 @@ package extractors
 
 trait IdentifierExtractors { self: Extractors =>
   import Identifiers._
-  implicit object IdX extends Extractor[Identifier, inox.Identifier] {
-    override def extract(template: Identifier, scrutinee: inox.Identifier): Matching = template match {
-      case IdentifierHole(index) => Matching(index -> scrutinee)
+  implicit object IdX extends Extractor[Identifier, inox.Identifier, Option[(String, inox.Identifier)]] {
+    override def extract(template: Identifier, scrutinee: inox.Identifier): Matching[Option[(String, inox.Identifier)]] = template match {
+      case IdentifierHole(index) => Matching(index -> scrutinee).withValue(None)
       case IdentifierName(name) => Matching.ensureConsistent(name, scrutinee)
     }
   }
-
-  implicit object IdSeqX extends HSeqX(IdX)
 }

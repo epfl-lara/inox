@@ -13,12 +13,12 @@ trait Extractors
      with BindingExtractors
      with ExprExtractors {
 
-  trait Extractor[-A <: IR, -B] {
-    def extract(template: A, scrutinee: B): Matching
+  trait Extractor[-A <: IR, -B, +R] {
+    def extract(template: A, scrutinee: B): Matching[R]
   }
 
-  class HSeqX[-A <: IR, -B](extractor: Extractor[A, B]) extends Extractor[HSeq[A], Seq[B]] {
-    override def extract(template: HSeq[A], scrutinee: Seq[B]): Matching = {
+  class HSeqX[-A <: IR, -B, +R](extractor: Extractor[A, B, R], default: R) extends Extractor[HSeq[A], Seq[B], Seq[R]] {
+    override def extract(template: HSeq[A], scrutinee: Seq[B]): Matching[Seq[R]] = {
       val elems = template.elems
       val minSize = elems.count(_.isRight)
       if (scrutinee.size < minSize) {
@@ -41,16 +41,16 @@ trait Extractors
 
           val (firstParts, restParts) = suffixParts.splitAt(minSize - prefix.size)
 
-          val (restMatchings, Seq()) = rest.foldLeft((Seq[Matching](), restParts)) {
-            case ((acc, rest), Left(index)) => (acc :+ Matching(index -> Seq()), rest)
+          val (restMatchings, Seq()) = rest.foldLeft((Seq[Matching[R]](), restParts)) {
+            case ((acc, rest), Left(index)) => (acc :+ Matching(index -> Seq()).withValue(default), rest)
             case ((acc, rest), Right(elem)) => (acc :+ extractor.extract(elem, rest.head), rest.tail)
           }
 
-          prefixMatchings ++ (Matching(firstIndex -> firstParts) +: restMatchings)
+          prefixMatchings ++ (Matching(firstIndex -> firstParts).withValue(default) +: restMatchings)
         }
 
 
-        matchings.fold(Matching.success)(_ <> _)
+        Matching.sequence(matchings)
       }
     }
   }

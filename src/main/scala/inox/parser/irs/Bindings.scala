@@ -11,12 +11,10 @@ trait Bindings { self: IRs =>
         case BindingHole(index) => Seq(Hole(index, HoleTypes.ValDef))
         case ExplicitValDef(identifier, tpe) => identifier.getHoles ++ tpe.getHoles
         case InferredValDef(identifier) => identifier.getHoles
-        case UnnamedValDef(tpe) => tpe.getHoles
       }
     }
 
     case class InferredValDef(identifier: Identifiers.Identifier) extends Binding
-    case class UnnamedValDef(tpe: Types.Type) extends Binding
     case class ExplicitValDef(identifier: Identifiers.Identifier, tpe: Types.Type) extends Binding
     case class BindingHole(index: Int) extends Binding
 
