@@ -19,7 +19,7 @@ trait Elaborators
     def getIdentifier(name: String): Option[inox.Identifier]
     def getVariable(identifier: inox.Identifier): Option[(SimpleTypes.Type, Eventual[trees.Type])]
     def getType(identifier: inox.Identifier): Option[(SimpleTypes.Type, Eventual[trees.Type])]
-    def getTypeConstructor(identifier: inox.Identifier): Option[(Int, Seq[SimpleTypes.Type] => SimpleTypes.Type, Eventual[Seq[trees.Type] => trees.Type])]
+    def getTypeConstructor(identifier: inox.Identifier): Option[Int]
     def getHole[A: Manifest](index: Int): Option[A]
     val getSymbols: trees.Symbols
 
