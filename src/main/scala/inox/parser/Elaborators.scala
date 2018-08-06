@@ -9,6 +9,7 @@ trait Elaborators
      with IRs
      with Constraints
      with SimpleTypes
+     with SimpleBindings
      with BindingElaborators
      with ExprElaborators
      with TypeElaborators
@@ -16,9 +17,14 @@ trait Elaborators
 
   trait Store {
     def getIdentifier(name: String): Option[inox.Identifier]
-    def getSort(identifier: inox.Identifier): Option[trees.ADTSort]
+    def getVariable(identifier: inox.Identifier): Option[(SimpleTypes.Type, Eventual[trees.Type])]
+    def getType(identifier: inox.Identifier): Option[(SimpleTypes.Type, Eventual[trees.Type])]
+    def getTypeConstructor(identifier: inox.Identifier): Option[(Int, Seq[SimpleTypes.Type] => SimpleTypes.Type, Eventual[Seq[trees.Type] => trees.Type])]
     def getHole[A: Manifest](index: Int): Option[A]
-    def getSymbols: trees.Symbols
+    val getSymbols: trees.Symbols
+
+    def addVariable(id: inox.Identifier, simpleType: SimpleTypes.Type, eventualType: Eventual[trees.Type]): Store
+    def addVariables(triples: Seq[(inox.Identifier, SimpleTypes.Type, Eventual[trees.Type])]): Store
   }
 
   trait Elaborator[-A <: IR, -C, +R] {

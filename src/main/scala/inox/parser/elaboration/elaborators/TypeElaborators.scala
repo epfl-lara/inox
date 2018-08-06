@@ -10,23 +10,19 @@ trait TypeElaborators { self: Elaborators =>
   implicit object TypeE extends Elaborator[Type, Option[inox.Identifier], (SimpleTypes.Type, Eventual[trees.Type])] {
     override def elaborate(template: Type, context: Option[inox.Identifier])
                           (implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Type])] = template match {
-      case UnitType() => Constrained.pure((SimpleTypes.UnitType(), Eventual.pure(trees.UnitType())))
-      case BooleanType() => Constrained.pure((SimpleTypes.BooleanType(), Eventual.pure(trees.BooleanType())))
-      case BitVectorType(size) => Constrained.pure((SimpleTypes.BitVectorType(size), Eventual.pure(trees.BVType(size))))
-      case CharType() => Constrained.pure((SimpleTypes.CharType(), Eventual.pure(trees.CharType())))
-      case StringType() => Constrained.pure((SimpleTypes.StringType(), Eventual.pure(trees.StringType())))
-      case IntegerType() => Constrained.pure((SimpleTypes.IntegerType(), Eventual.pure(trees.IntegerType())))
-      case RealType() => Constrained.pure((SimpleTypes.RealType(), Eventual.pure(trees.RealType())))
-      case SetType(tpe) => for {
-        (st, et) <- TypeE.elaborate(tpe, None)
-      } yield (SimpleTypes.SetType(st), et.map(trees.SetType(_)))
-      case BagType(tpe) => for {
-        (st, et) <- TypeE.elaborate(tpe, None)
-      } yield (SimpleTypes.BagType(st), et.map(trees.BagType(_)))
-      case MapType(from, to) => for {
-        (sf, ef) <- TypeE.elaborate(from, None)
-        (st, et) <- TypeE.elaborate(from, None)
-      } yield (SimpleTypes.MapType(sf, st), Eventual.withUnifier(implicit u => trees.MapType(ef.get, et.get)))
+      case Variable(id) => for {
+        i <- IdE.elaborate(id, Modes.Use)
+        (st, et) <- Constrained.attempt(store.getType(i), "TODO: Error: i is not a type.")
+      } yield (st, et)
+      case Invocation(id, args) => for {
+        i <- IdE.elaborate(id, Modes.Use)
+        (n, stc, etc) <- Constrained.attempt(store.getTypeConstructor(i), "TODO: Error: i is not a type constructor.")
+        zas <- TypeSeqE.elaborate(args, Seq.fill(args.size)(None))
+        _ <- Constrained.checkImmediate(n == zas.size, "TODO: Error: wrong number of arguments.")
+        (sas, eas) = zas.unzip
+      } yield (stc(sas), Eventual.withUnifier { implicit u =>
+        etc.get.apply(eas.map(_.get))
+      })
       case TupleType(elems) => for {
         zes <- TypeSeqE.elaborate(elems, Seq.fill(elems.size)(None))
         (ses, ees) = zes.unzip
@@ -36,16 +32,29 @@ trait TypeElaborators { self: Elaborators =>
         (sfs, efs) = zfs.unzip
         (st, et) <- TypeE.elaborate(to, None)
       } yield (SimpleTypes.FunctionType(sfs, st), Eventual.withUnifier(implicit u => trees.FunctionType(efs.map(_.get), et.get)))
-      case TypeParameter(id) => for {
-        i <- IdE.elaborate(id, Modes.Use)
-      } yield (SimpleTypes.TypeParameter(i), Eventual.pure(trees.TypeParameter(i, Seq())))
-      case RefinementType(binding, pred) => {
-        for {
-          (st, ev) <- BindingE.elaborate(binding, context.map(_.name).getOrElse("x"))
-          (pt, ep) <- ExprE.elaborate(pred, ()) // TODO: Update store.
-          _ <- Constrained(Constraint.equal(pt, SimpleTypes.BooleanType()))
-        } yield (st, Eventual.withUnifier(implicit u => trees.RefinementType(ev.get, ep.get)))
-      }
+      case RefinementType(binding, pred) => for {
+        (sb, ev) <- BindingE.elaborate(binding, context.map(_.name).getOrElse("x"))
+        (pt, ep) <- ExprE.elaborate(pred, ())(store.addVariable(sb.id, sb.tpe, ev.map(_.tpe)))
+        _ <- Constrained(Constraint.equal(pt, SimpleTypes.BooleanType()))
+      } yield (sb.tpe, Eventual.withUnifier(implicit u => trees.RefinementType(ev.get, ep.get)))
+      case SigmaType(bindings, to) => for {
+        zs <- BindingSeqE.elaborate(bindings, Seq.tabulate(bindings.size) { (i: Int) => (s"x$i") })
+        triples = zs.map {
+          case (sb, evd) => (sb.id, sb.tpe, evd.map(_.tpe))
+        }
+        (st, et) <- TypeE.elaborate(to, None)(store.addVariables(triples))
+      } yield (SimpleTypes.TupleType(zs.map(_._1.tpe) :+ st), Eventual.withUnifier { implicit u =>
+        trees.SigmaType(zs.map(_._2.get), et.get)
+      })
+      case PiType(bindings, to) => for {
+        zs <- BindingSeqE.elaborate(bindings, Seq.tabulate(bindings.size) { (i: Int) => (s"x$i") })
+        triples = zs.map {
+          case (sb, evd) => (sb.id, sb.tpe, evd.map(_.tpe))
+        }
+        (st, et) <- TypeE.elaborate(to, None)(store.addVariables(triples))
+      } yield (SimpleTypes.FunctionType(zs.map(_._1.tpe), st), Eventual.withUnifier { implicit u =>
+        trees.PiType(zs.map(_._2.get), et.get)
+      })
     }
   }
 

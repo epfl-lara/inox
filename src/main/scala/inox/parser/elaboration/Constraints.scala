@@ -155,7 +155,7 @@ trait Constraints { self: IRs with SimpleTypes =>
     def pure[A](x: A): Constrained[A] = {
       new Constrained(Right((x, Seq())))
     }
-    def fail(error: String): Constrained[Nothing] =
+    def fail(error: Error): Constrained[Nothing] =
       new Constrained(Left(error))
 
     def sequence[A](constraineds: Seq[Constrained[A]]): Constrained[Seq[A]] = {
@@ -166,6 +166,14 @@ trait Constraints { self: IRs with SimpleTypes =>
         } yield xs :+ x
       }
     }
+
+    def attempt[A](opt: Option[A], error: => Error): Constrained[A] = opt match {
+      case Some(x) => Constrained.pure(x)
+      case None => Constrained.fail(error)
+    }
+
+    def checkImmediate(condition: Boolean, error: => Error): Constrained[Unit] =
+      if (condition) Constrained.pure(()) else Constrained.fail(error)
   }
 
   object TypeClasses {
