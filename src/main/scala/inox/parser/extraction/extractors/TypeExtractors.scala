@@ -48,7 +48,7 @@ trait TypeExtractors { self: Extractors =>
       }
       case Invocation(id, args) => scrutinee match {
         case trees.ADTType(sId, sArgs) =>
-          IdX.extract(id, sId) >> TypeSeqX.extract(args, sArgs).withValue(())
+          UseIdX.extract(id, sId) >> TypeSeqX.extract(args, sArgs).withValue(())
         case _ =>
           Matching.fail
       }
@@ -62,7 +62,7 @@ trait TypeExtractors { self: Extractors =>
       }
       case Variable(id) => scrutinee match {
         case trees.TypeParameter(sId, _) =>
-          IdX.extract(id, sId).withValue(())
+          UseIdX.extract(id, sId).withValue(())
         case _ =>
           Matching.fail
       }

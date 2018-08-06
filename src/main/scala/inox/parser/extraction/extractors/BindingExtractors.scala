@@ -10,9 +10,9 @@ trait BindingExtractors { self: Extractors =>
       case BindingHole(index) =>
         Matching(index -> scrutinee).withValue(None)
       case InferredValDef(identifier) =>
-        IdX.extract(identifier, scrutinee.id).shadowing
+        DefIdX.extract(identifier, scrutinee.id)
       case ExplicitValDef(identifier, tpe) =>
-        IdX.extract(identifier, scrutinee.id).shadowing <<
+        DefIdX.extract(identifier, scrutinee.id) <<
         TypeX.extract(tpe, scrutinee.tpe)
     }
   }
