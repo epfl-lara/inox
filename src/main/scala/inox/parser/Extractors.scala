@@ -10,17 +10,14 @@ trait Extractors
      with Matchings
      with IdentifierExtractors
      with TypeExtractors
+     with BindingExtractors
      with ExprExtractors {
 
   trait Extractor[-A <: IR, -B] {
     def extract(template: A, scrutinee: B): Matching
   }
 
-  implicit class ExtractorDecorator[-A <: IR, -B](template: A)(implicit extractor: Extractor[A, B]) {
-    def extract(scrutinee: B): Matching = extractor.extract(template, scrutinee)
-  }
-
-  class HSeqX[A <: IR, B](extractor: Extractor[A, B]) extends Extractor[HSeq[A], Seq[B]] {
+  class HSeqX[-A <: IR, -B](extractor: Extractor[A, B]) extends Extractor[HSeq[A], Seq[B]] {
     override def extract(template: HSeq[A], scrutinee: Seq[B]): Matching = {
       val elems = template.elems
       val minSize = elems.count(_.isRight)

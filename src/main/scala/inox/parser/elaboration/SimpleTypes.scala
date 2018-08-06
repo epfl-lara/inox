@@ -2,28 +2,13 @@ package inox
 package parser
 package elaboration
 
-trait SimpleTypes {
+trait SimpleTypes { self: Trees =>
 
   object SimpleTypes {
 
     sealed abstract class Type
-
-    final class Unknown private(private val identifier: Int) extends Type {
-      override def equals(that: Any): Boolean =
-        that.isInstanceOf[Unknown] && that.asInstanceOf[Unknown].identifier == identifier
-    }
-
-    object Unknown {
-      private var next: Int = 0
-
-
-      def fresh: Unknown = synchronized {
-        val ret = next
-        next += 1
-        new Unknown(ret)
-      }
-    }
     case class UnitType() extends Type
+    case class BooleanType() extends Type
     case class BitVectorType(size: Int) extends Type
     case class IntegerType() extends Type
     case class StringType() extends Type
@@ -36,52 +21,23 @@ trait SimpleTypes {
     case class TupleType(elems: Seq[Type]) extends Type
     case class ADTType(identifier: inox.Identifier, args: Seq[Type]) extends Type
     case class TypeParameter(identifier: inox.Identifier) extends Type
-  }
 
-  import SimpleTypes._
-
-  object TypeClasses {
-    sealed abstract class TypeClass {
-      val name: String
-
-      def &(that: TypeClass) = (this, that) match {
-        case (Bits, _) => Bits
-        case (_, Bits) => Bits
-        case (Integral, _) => Integral
-        case (_, Integral) => Integral
-        case (Numeric, _) => Numeric
-        case (_, Numeric) => Numeric
-        case _ => Comparable
-      }
-
-      def hasInstance(tpe: Type): Boolean
+    final class Unknown private(private val identifier: Int) extends Type {
+      override def equals(that: Any): Boolean =
+        that.isInstanceOf[Unknown] && that.asInstanceOf[Unknown].identifier == identifier
     }
-    case object Comparable extends TypeClass {
-      override val name = "Comparable"
 
-      override def hasInstance(tpe: Type) = {
-        tpe == CharType() || Numeric.hasInstance(tpe)
+    object Unknown {
+      private var next: Int = 0
+
+      def fresh: Unknown = synchronized {
+        val ret = next
+        next += 1
+        new Unknown(ret)
       }
     }
-    case object Numeric extends TypeClass {
-      override val name = "Numeric"
 
-      override def hasInstance(tpe: Type) = {
-        tpe == RealType() || Integral.hasInstance(tpe)
-      }
-    }
-    case object Integral extends TypeClass {
-      override val name = "Integral"
-
-      override def hasInstance(tpe: Type) = {
-        tpe == IntegerType() || Bits.hasInstance(tpe)
-      }
-    }
-    case object Bits extends TypeClass {
-      override val name = "Bits"
-
-      override def hasInstance(tpe: Type) =
-        tpe.isInstanceOf[BitVectorType]
-    }
+    def fromInox(tpe: trees.Type): Type = ???
+    def toInox(tpe: Type): trees.Type = ???
   }
 }

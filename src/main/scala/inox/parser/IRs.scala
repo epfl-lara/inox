@@ -6,6 +6,7 @@ import irs._
 trait IRs
   extends Exprs
      with Identifiers
+     with Bindings
      with Types {
 
   sealed trait HoleType
@@ -23,7 +24,9 @@ trait IRs
     def getHoles: Seq[Hole]
   }
 
-  class HSeq[A <: IR](val elems: Seq[Either[Int, A]], holeType: HoleType) extends IR {
+  class HSeq[+A <: IR](val elems: Seq[Either[Int, A]], val holeType: HoleType) extends IR {
+    def size = elems.size
+
     override def getHoles: Seq[Hole] = elems.flatMap {
       case Left(index) => Seq(Hole(index, HoleTypes.Sequence(holeType)))
       case Right(x) => x.getHoles
