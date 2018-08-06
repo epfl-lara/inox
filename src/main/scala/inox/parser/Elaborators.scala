@@ -31,10 +31,6 @@ trait Elaborators
     def elaborate(template: A, context: C)(implicit store: Store): Constrained[R]
   }
 
-  implicit class ElaborateDecorator[-A <: IR, -C, +R](template: A)(implicit elaborator: Elaborator[A, C, R]) {
-    def elaborate(context: C)(implicit store: Store): Constrained[R] = elaborator.elaborate(template, context)(store)
-  }
-
   abstract class HSeqE[-A <: IR, -C, H: Manifest, +R] extends Elaborator[HSeq[A], Seq[C], Seq[R]] {
     val elaborator: Elaborator[A, C, R]
 

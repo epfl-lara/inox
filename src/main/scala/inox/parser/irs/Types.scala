@@ -24,5 +24,12 @@ trait Types { self: IRs =>
     case class RefinementType(binding: Bindings.Binding, pred: Exprs.Expr) extends Type
     case class PiType(bindings: Bindings.BindingSeq, to: Type) extends Type
     case class SigmaType(bindings: Bindings.BindingSeq, to: Type) extends Type
+
+    implicit object holeTypableType extends HoleTypable[Type] {
+      override val holeType = HoleTypes.Type
+    }
+
+    type TypeSeq = HSeq[Type]
+
   }
 }

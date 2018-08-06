@@ -15,6 +15,7 @@ trait IRs
     case object Type extends HoleType
     case object Expr extends HoleType
     case object ValDef extends HoleType
+    case class Pair(lhs: HoleType, rhs: HoleType) extends HoleType
     case class Sequence(inner: HoleType) extends HoleType
   }
 
@@ -24,11 +25,17 @@ trait IRs
     def getHoles: Seq[Hole]
   }
 
-  class HSeq[+A <: IR](val elems: Seq[Either[Int, A]], val holeType: HoleType) extends IR {
+  trait HoleTypable[A <: IR] {
+    val holeType: HoleType
+  }
+
+  final class HSeq[+A <: IR : HoleTypable](val elems: Seq[Either[Int, A]]) extends IR {
+
     def size = elems.size
+    private val holeType = HoleTypes.Sequence(implicitly[HoleTypable[A]].holeType)
 
     override def getHoles: Seq[Hole] = elems.flatMap {
-      case Left(index) => Seq(Hole(index, HoleTypes.Sequence(holeType)))
+      case Left(index) => Seq(Hole(index, holeType))
       case Right(x) => x.getHoles
     }
   }
