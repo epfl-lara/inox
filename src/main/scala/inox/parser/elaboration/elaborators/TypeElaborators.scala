@@ -11,7 +11,8 @@ trait TypeElaborators { self: Elaborators =>
     override def elaborate(template: Type)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Type])] = template match {
       case TypeHole(index) => for {
         t <- Constrained.attempt(store.getHole[trees.Type](index), "TODO: Error: Argument is not a type.")
-      } yield (SimpleTypes.fromInox(t), Eventual.pure(t))
+        st <- Constrained.attempt(SimpleTypes.fromInox(t), "TODO: Error")
+      } yield (st, Eventual.pure(t))
       case Variable(id) => for {
         i <- UseIdE.elaborate(id)
         (st, et) <- Constrained.attempt(store.getType(i), "TODO: Error: i is not a type.")
@@ -113,7 +114,7 @@ trait TypeElaborators { self: Elaborators =>
   object TypeSeqE extends HSeqE[Type, trees.Type, (SimpleTypes.Type, Eventual[trees.Type])] {
     override val elaborator = TypeE
 
-    override def wrap(tpe: trees.Type)(implicit store: Store): (SimpleTypes.Type, Eventual[trees.Type]) =
-      (SimpleTypes.fromInox(tpe), Eventual.pure(tpe))
+    override def wrap(tpe: trees.Type)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Type])] =
+      Constrained.attempt(SimpleTypes.fromInox(tpe), "TODO: Error.").map { st => (st, Eventual.pure(tpe)) }
   }
 }

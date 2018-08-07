@@ -9,8 +9,10 @@ trait ExprElaborators { self: Elaborators =>
 
   object ExprE extends Elaborator[Expr, (SimpleTypes.Type, Eventual[trees.Expr])] {
     override def elaborate(template: Expr)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Expr])] = template match {
-      case ExprHole(index) => Constrained.attempt(store.getHole[trees.Expr](index), "TODO: Error").map { expr =>
-        (SimpleTypes.fromInox(expr.getType(store.getSymbols)), Eventual.pure(expr))
+      case ExprHole(index) => Constrained.attempt(store.getHole[trees.Expr](index), "TODO: Error").flatMap { expr =>
+        Constrained.attempt(SimpleTypes.fromInox(expr.getType(store.getSymbols)), "TODO: Error").map { st =>
+          (st, Eventual.pure(expr))
+        }
       }
       case Variable(id) => for {
         i <- UseIdE.elaborate(id)
@@ -22,7 +24,6 @@ trait ExprElaborators { self: Elaborators =>
         Constrained.pure((SimpleTypes.BooleanType(), Eventual.pure(trees.BooleanLiteral(value))))
       case IntegerLiteral(value) => {
         val u = SimpleTypes.Unknown.fresh
-
         val v = Eventual.withUnifier { unifier =>
           unifier.get(u) match {
             case SimpleTypes.BitVectorType(size) => trees.BVLiteral(value, size)
@@ -31,7 +32,6 @@ trait ExprElaborators { self: Elaborators =>
             case _ => throw new IllegalStateException("Unifier returned unexpected value.")
           }
         }
-
         Constrained.pure((u, v)).addConstraint(Constraint.isNumeric(u))
       }
       case FractionLiteral(numerator, denominator) =>
@@ -464,18 +464,20 @@ trait ExprElaborators { self: Elaborators =>
 
   object ExprSeqE extends HSeqE[Expr, trees.Expr, (SimpleTypes.Type, Eventual[trees.Expr])] {
     override val elaborator = ExprE
-    override def wrap(expr: trees.Expr)(implicit store: Store): (SimpleTypes.Type, Eventual[trees.Expr]) =
-      (SimpleTypes.fromInox(expr.getType(store.getSymbols)), Eventual.pure(expr))
+    override def wrap(expr: trees.Expr)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Expr])] =
+      Constrained.attempt(SimpleTypes.fromInox(expr.getType(store.getSymbols)).map { st =>
+        (st, Eventual.pure(expr))
+      }, "TODO: Error")
   }
 
   object ExprPairE extends Elaborator[ExprPair, ((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])] {
     override def elaborate(pair: ExprPair)(implicit store: Store):
         Constrained[((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])] = pair match {
-      case PairHole(index) => Constrained.attempt(store.getHole[(trees.Expr, trees.Expr)](index), "TODO: Error").map {
-        case p@(lhs, rhs) => (
-          (SimpleTypes.fromInox(lhs.getType(store.getSymbols)), SimpleTypes.fromInox(rhs.getType(store.getSymbols))),
-          Eventual.pure(p)
-        )
+      case PairHole(index) => Constrained.attempt(store.getHole[(trees.Expr, trees.Expr)](index), "TODO: Error").flatMap {
+        case p@(lhs, rhs) => for {
+          stl <- Constrained.attempt(SimpleTypes.fromInox(lhs.getType(store.getSymbols)), "TODO: Error")
+          str <- Constrained.attempt(SimpleTypes.fromInox(rhs.getType(store.getSymbols)), "TODO: Error")
+        } yield ((stl, str), Eventual.pure(p))
       }
       case Pair(lhs, rhs) => for {
         (stl, evl) <- ExprE.elaborate(lhs)
@@ -487,9 +489,9 @@ trait ExprElaborators { self: Elaborators =>
   object ExprPairSeqE extends HSeqE[ExprPair, (trees.Expr, trees.Expr), ((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])] {
     override val elaborator = ExprPairE
     override def wrap(pair: (trees.Expr, trees.Expr))(implicit store: Store):
-        ((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)]) = (
-          (SimpleTypes.fromInox(pair._1.getType(store.getSymbols)), SimpleTypes.fromInox(pair._2.getType(store.getSymbols))),
-          Eventual.pure(pair)
-        )
+        Constrained[((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])] = for {
+      stl <- Constrained.attempt(SimpleTypes.fromInox(pair._1.getType(store.getSymbols)), "TODO: Error")
+      str <- Constrained.attempt(SimpleTypes.fromInox(pair._2.getType(store.getSymbols)), "TODO: Error")
+    } yield ((stl, str), Eventual.pure(pair))
   }
 }

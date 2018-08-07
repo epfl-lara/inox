@@ -41,7 +41,7 @@ trait Elaborators
   abstract class HSeqE[-A <: IR, H: Manifest, +R] extends Elaborator[HSeq[A], Seq[R]] {
     val elaborator: Elaborator[A, R]
 
-    def wrap(value: H)(implicit store: Store): R
+    def wrap(value: H)(implicit store: Store): Constrained[R]
 
     override def elaborate(template: HSeq[A])(implicit store: Store): Constrained[Seq[R]] = {
       val elems = template.elems
@@ -49,7 +49,7 @@ trait Elaborators
       Constrained.sequence(elems.map {
         case Left(index) => store.getHole[Seq[H]](index) match {
           case None => Constrained.fail("TODO: Error")
-          case Some(xs) => Constrained.pure(xs.map(wrap(_)))
+          case Some(xs) => Constrained.sequence(xs.map(wrap(_)))
         }
         case Right(t) => elaborator.elaborate(t).map(Seq(_))
       }).map(_.flatten)
