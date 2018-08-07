@@ -14,7 +14,7 @@ trait Extractors
      with ExprExtractors
      with NumberUtils {
 
-  trait Extractor[-A <: IR, -B, +R] {
+  trait Extractor[-A, -B, +R] {
     def extract(template: A, scrutinee: B): Matching[R]
   }
 

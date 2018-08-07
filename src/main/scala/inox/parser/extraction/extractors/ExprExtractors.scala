@@ -56,16 +56,19 @@ trait ExprExtractors { self: Extractors =>
         case trees.Assume(sPred, sBody) =>
           ExprX.extract(pred, sPred) <> ExprX.extract(body, sBody)
       }
-      case SetConstruction(elems) => Matching.collect(scrutinee) {
-        case trees.FiniteSet(sElems, _) =>
-          ExprSeqX.extract(elems, sElems).withValue(())
+      case SetConstruction(optType, elems) => Matching.collect(scrutinee) {
+        case trees.FiniteSet(sElems, sType) =>
+          Matching.optionally(optType.map(TypeX.extract(_, sType))) <>
+          ExprSeqX.extract(elems, sElems)
       }
-      case BagConstruction(elems) => Matching.collect(scrutinee) {
-        case trees.FiniteBag(sElems, _) =>
-          ExprPairSeqX.extract(elems, sElems).withValue(())
+      case BagConstruction(optType, elems) => Matching.collect(scrutinee) {
+        case trees.FiniteBag(sElems, sType) =>
+          Matching.optionally(optType.map(TypeX.extract(_, sType))) <>
+          ExprPairSeqX.extract(elems, sElems)
       }
-      case MapConstruction(elems, default) => Matching.collect(scrutinee) {
-        case trees.FiniteMap(sElems, sDefault, _, _) =>
+      case MapConstruction(optTypes, elems, default) => Matching.collect(scrutinee) {
+        case trees.FiniteMap(sElems, sDefault, sFrom, sTo) =>
+          Matching.optionally(optTypes.map(TypeSeqX.extract(_, Seq(sFrom, sTo)))) <>
           ExprPairSeqX.extract(elems, sElems) <> ExprX.extract(default, sDefault)
       }
       case Let(binding, value, body) => Matching.collect(scrutinee) {
@@ -128,28 +131,6 @@ trait ExprExtractors { self: Extractors =>
             ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (BVLShiftRight, trees.BVLShiftRight(sLhs, sRhs)) =>
             ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
-          case (SetAdd, trees.SetAdd(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
-          case (ElementOfSet, trees.ElementOfSet(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
-          case (SetIntersection, trees.SetIntersection(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
-          case (SetUnion, trees.SetUnion(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
-          case (SetDifference, trees.SetDifference(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
-          case (BagAdd, trees.BagAdd(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
-          case (MultiplicityInBag, trees.MultiplicityInBag(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
-          case (BagIntersection, trees.BagIntersection(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
-          case (BagUnion, trees.BagUnion(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
-          case (BagDifference, trees.BagDifference(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
-          case (MapApply, trees.MapApply(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (StringConcat, trees.StringConcat(sLhs, sRhs)) =>
             ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
         }
@@ -159,8 +140,6 @@ trait ExprExtractors { self: Extractors =>
 
         Matching.collect((operator, scrutinee)) {
           case (SubString, trees.SubString(sLhs, sMid, sRhs)) =>
-            ExprX.extract(lhs, sLhs) <> ExprX.extract(mid, sMid) <> ExprX.extract(rhs, sRhs)
-          case (MapUpdated, trees.MapUpdated(sLhs, sMid, sRhs)) =>
             ExprX.extract(lhs, sLhs) <> ExprX.extract(mid, sMid) <> ExprX.extract(rhs, sRhs)
         }
       }
@@ -196,15 +175,54 @@ trait ExprExtractors { self: Extractors =>
             ExprX.extract(body, sBody).extendLocal(opt.toSeq)
           }
       }
-      case Invocation(id, typeArgs, args) => Matching.collect(scrutinee) {
+      case Invocation(id, optTypeArgs, args) => Matching.collect(scrutinee) {
         case trees.FunctionInvocation(sId, sTypeArgs, sArgs) =>
           UseIdX.extract(id, sId) <>
-          TypeSeqX.extract(typeArgs, sTypeArgs) <>
+          Matching.optionally(optTypeArgs.map(TypeSeqX.extract(_, sTypeArgs))) <>
           ExprSeqX.extract(args, sArgs)
         case trees.ADT(sId, sTypeArgs, sArgs) =>
           UseIdX.extract(id, sId) <>
-          TypeSeqX.extract(typeArgs, sTypeArgs) <>
+          Matching.optionally(optTypeArgs.map(TypeSeqX.extract(_, sTypeArgs))) <>
           ExprSeqX.extract(args, sArgs)
+      }
+      case PrimitiveInvocation(fun, optTypeArgs, args) => {
+        import Primitive._
+
+        Matching.withSymbols { symbols =>
+          Matching.collect(scrutinee.getType(symbols)) {
+            case trees.SetType(tpe) => Matching.pure(Seq(tpe))
+            case trees.BagType(tpe) => Matching.pure(Seq(tpe))
+            case trees.MapType(from, to) => Matching.pure(Seq(from, to))
+          }
+        }.flatMap { (sTypeArgs) =>
+          Matching.optionally(optTypeArgs.map(TypeSeqX.extract(_, sTypeArgs))) <>
+          Matching.collect((fun, scrutinee)) {
+            case (SetAdd, trees.SetAdd(sLhs, sRhs)) =>
+              ExprSeqX.extract(args, Seq(sLhs, sRhs))
+            case (ElementOfSet, trees.ElementOfSet(sLhs, sRhs)) =>
+              ExprSeqX.extract(args, Seq(sLhs, sRhs))
+            case (SetIntersection, trees.SetIntersection(sLhs, sRhs)) =>
+              ExprSeqX.extract(args, Seq(sLhs, sRhs))
+            case (SetUnion, trees.SetUnion(sLhs, sRhs)) =>
+              ExprSeqX.extract(args, Seq(sLhs, sRhs))
+            case (SetDifference, trees.SetDifference(sLhs, sRhs)) =>
+              ExprSeqX.extract(args, Seq(sLhs, sRhs))
+            case (BagAdd, trees.BagAdd(sLhs, sRhs)) =>
+              ExprSeqX.extract(args, Seq(sLhs, sRhs))
+            case (MultiplicityInBag, trees.MultiplicityInBag(sLhs, sRhs)) =>
+              ExprSeqX.extract(args, Seq(sLhs, sRhs))
+            case (BagIntersection, trees.BagIntersection(sLhs, sRhs)) =>
+              ExprSeqX.extract(args, Seq(sLhs, sRhs))
+            case (BagUnion, trees.BagUnion(sLhs, sRhs)) =>
+              ExprSeqX.extract(args, Seq(sLhs, sRhs))
+            case (BagDifference, trees.BagDifference(sLhs, sRhs)) =>
+              ExprSeqX.extract(args, Seq(sLhs, sRhs))
+            case (MapApply, trees.MapApply(sLhs, sRhs)) =>
+              ExprSeqX.extract(args, Seq(sLhs, sRhs))
+            case (MapUpdated, trees.MapUpdated(sLhs, sMid, sRhs)) =>
+              ExprSeqX.extract(args, Seq(sLhs, sMid, sRhs))
+          }
+        }
       }
       case IsConstructor(expr, id) => Matching.collect(scrutinee) {
         case trees.IsConstructor(sExpr, sId) =>

@@ -96,7 +96,21 @@ trait TypeElaborators { self: Elaborators =>
     }
   }
 
-  implicit object TypeSeqE extends HSeqE[Type, trees.Type, (SimpleTypes.Type, Eventual[trees.Type])] {
+  object OptTypeE extends Elaborator[Option[Type], (SimpleTypes.Type, Eventual[trees.Type])] {
+    override def elaborate(optType: Option[Type])(implicit store: Store):
+        Constrained[(SimpleTypes.Type, Eventual[trees.Type])] = optType match {
+      case Some(tpe) => TypeE.elaborate(tpe)
+      case None => {
+        val u = SimpleTypes.Unknown.fresh
+
+        Constrained
+          .pure((u, Eventual.withUnifier { unifier => SimpleTypes.toInox(unifier.get(u)) }))
+          .addConstraint(Constraint.exist(u))
+      }
+    }
+  }
+
+  object TypeSeqE extends HSeqE[Type, trees.Type, (SimpleTypes.Type, Eventual[trees.Type])] {
     override val elaborator = TypeE
 
     override def wrap(tpe: trees.Type)(implicit store: Store): (SimpleTypes.Type, Eventual[trees.Type]) =

@@ -5,7 +5,7 @@ package elaboration
 trait Constraints { self: IRs with SimpleTypes =>
 
   import SimpleTypes._
-  import TypeClasses.TypeClass
+  import TypeClasses._
   import Constraints._
 
   sealed trait Constraint
@@ -13,13 +13,27 @@ trait Constraints { self: IRs with SimpleTypes =>
     case class Exists(elem: Type) extends Constraint
     case class Equals(left: Type, right: Type) extends Constraint
     case class HasClass(elem: Type, typeClass: TypeClass) extends Constraint
-    case class HasSortIn(sorts: Seq[(inox.Identifier, Type => Seq[Constraint])]) extends Constraint
+    case class HasSortIn(elem: Type, sorts: Seq[(inox.Identifier, Type => Seq[Constraint])]) extends Constraint
     case class AtIndexIs(scrutinee: Type, index: Int, value: Type) extends Constraint
   }
 
   object Constraint {
     def exist(elem: Unknown): Constraint = Exists(elem)
     def equal(left: Type, right: Type): Constraint = Equals(left, right)
+    def isNumeric(elem: Type): Constraint = HasClass(elem, Numeric)
+    def isIntegral(elem: Type): Constraint = HasClass(elem, Integral)
+    def isComparable(elem: Type): Constraint = HasClass(elem, Comparable)
+    def isBits(elem: Type, lower: Option[Int] = None, upper: Option[Int] = None) =
+      HasClass(elem, Bits((lower, upper) match {
+        case (None, None) => NoSpec
+        case (Some(l), None) => GreaterEquals(l)
+        case (None, Some(u)) => LessEquals(u)
+        case (Some(l), Some(u)) => Between(l, u).validate.getOrElse {
+          throw new IllegalArgumentException("Invalid bounds.")
+        }
+      }))
+    def atIndexIs(scrutinee: Type, index: Int, value: Type): Constraint = AtIndexIs(scrutinee, index, value)
+    def hasSortIn(elem: Type, sorts: Seq[(inox.Identifier, Type => Seq[Constraint])]): Constraint = HasSortIn(elem, sorts)
   }
 
   class Eventual[+A] private(private val fun: Unifier => A) {
@@ -97,13 +111,14 @@ trait Constraints { self: IRs with SimpleTypes =>
     case HasClass(elem, typeClass) => for {
       e <- Eventual.unify(elem)
     } yield HasClass(e, typeClass)
-    case HasSortIn(sorts) => for {
+    case HasSortIn(elem, sorts) => for {
+      e <- Eventual.unify(elem)
       ss <- Eventual.sequence(sorts.map {
         case (identifier, function) => Eventual.withUnifier {
           (unifier: Unifier) => (identifier, function andThen (_.map(unifier(_))))
         }
       })
-    } yield HasSortIn(ss)
+    } yield HasSortIn(e, ss)
     case AtIndexIs(scrutinee, index, value) => for {
       s <- Eventual.unify(scrutinee)
       v <- Eventual.unify(value)
@@ -129,8 +144,16 @@ trait Constraints { self: IRs with SimpleTypes =>
     def addConstraint(constraint: Constraint): Constrained[A] =
       new Constrained(get.right.map { case (v, cs) => (v, cs :+ constraint) })
 
+    def addConstraints(constraints: Seq[Constraint]): Constrained[A] =
+      constraints.foldLeft(this) { case (acc, c) => acc.addConstraint(c) }
+
     def checkImmediate(condition: Boolean, error: => Error): Constrained[A] =
       if (condition) this else Constrained.fail(error)
+
+    def checkImmediate(condition: A => Boolean, error: => Error): Constrained[A] =
+      flatMap { x =>
+        if (condition(x)) Constrained.pure(x) else Constrained.fail(error)
+      }
 
     def withFilter(pred: A => Boolean): Constrained[A] = new Constrained(get match {
       case Right((a, _)) if !pred(a) => Left("TODO: Error.")

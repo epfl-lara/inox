@@ -18,9 +18,15 @@ trait Elaborators
 
   trait Store {
     def getIdentifier(name: String): Option[inox.Identifier]
+    def getField(name: String): Seq[(inox.Identifier, inox.Identifier)]
+    def getField(identifier: Identifier): Seq[inox.Identifier]
+    def getTypeOfField(sortId: inox.Identifier, fieldId: inox.Identifier): Seq[SimpleTypes.Type] => SimpleTypes.Type
     def getVariable(identifier: inox.Identifier): Option[(SimpleTypes.Type, Eventual[trees.Type])]
     def getType(identifier: inox.Identifier): Option[(SimpleTypes.Type, Eventual[trees.Type])]
     def getTypeConstructor(identifier: inox.Identifier): Option[Int]
+    def getFunction(identifier: inox.Identifier): Option[(Int, Seq[SimpleTypes.Type] => (Seq[SimpleTypes.Type], SimpleTypes.Type))]
+    def getConstructor(identifier: inox.Identifier): Option[(Int, Seq[SimpleTypes.Type] => (Seq[SimpleTypes.Type], SimpleTypes.Type))]
+    def getSortOfConstructor(identifier: inox.Identifier): Option[inox.Identifier]
     def getHole[A: Manifest](index: Int): Option[A]
     val getSymbols: trees.Symbols
 
@@ -28,7 +34,7 @@ trait Elaborators
     def addVariables(triples: Seq[(inox.Identifier, SimpleTypes.Type, Eventual[trees.Type])]): Store
   }
 
-  trait Elaborator[-A <: IR, +R] {
+  trait Elaborator[-A, +R] {
     def elaborate(template: A)(implicit store: Store): Constrained[R]
   }
 

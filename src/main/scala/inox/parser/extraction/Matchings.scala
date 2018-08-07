@@ -125,6 +125,12 @@ trait Matchings { self: Trees =>
     def conditionally(condition: Boolean): Matching[Unit] =
       if (condition) success else fail
 
+    def optionally[A](option: Option[Matching[A]]): Matching[Unit] =
+      option.map(_.withValue(())).getOrElse(Matching.success)
+
+    def optionally[A](option: Option[Matching[A]], default: => A): Matching[A] =
+      option.getOrElse(Matching.pure(default))
+
     def apply(pairs: (Int, Any)*): Matching[Unit] = new Matching[Unit] {
       override def getMatches(
         symbols: trees.Symbols,

@@ -37,30 +37,34 @@ trait Exprs { self: IRs =>
       case object BVShiftLeft extends Operator
       case object BVAShiftRight extends Operator
       case object BVLShiftRight extends Operator
-      case object SetAdd extends Operator
-      case object ElementOfSet extends Operator
-      case object SetIntersection extends Operator
-      case object SetUnion extends Operator
-      case object SetDifference extends Operator
-      case object BagAdd extends Operator
-      case object MultiplicityInBag extends Operator
-      case object BagIntersection extends Operator
-      case object BagUnion extends Operator
-      case object BagDifference extends Operator
-      case object MapApply extends Operator
       case object StringConcat extends Operator
     }
 
     object Ternary {
       sealed abstract class Operator
       case object SubString extends Operator
-      case object MapUpdated extends Operator
     }
 
     object NAry {
       sealed abstract class Operator
       case object And extends Operator
       case object Or extends Operator
+    }
+
+    object Primitive {
+      sealed abstract class Function(val typeArgs: Int, val args: Int)
+      case object SetAdd extends Function(1, 2)
+      case object ElementOfSet extends Function(1, 2)
+      case object SetIntersection extends Function(1, 2)
+      case object SetUnion extends Function(1, 2)
+      case object SetDifference extends Function(1, 2)
+      case object BagAdd extends Function(1, 2)
+      case object MultiplicityInBag extends Function(1, 2)
+      case object BagIntersection extends Function(1, 2)
+      case object BagUnion extends Function(1, 2)
+      case object BagDifference extends Function(1, 2)
+      case object MapApply extends Function(2, 2)
+      case object MapUpdated extends Function(2, 3)
     }
 
     object Casts {
@@ -72,15 +76,16 @@ trait Exprs { self: IRs =>
     sealed trait Expr extends IR {
       override def getHoles: Seq[Hole] = this match {
         case ExprHole(index) => Seq(Hole(index, HoleTypes.Expr))
-        case SetConstruction(elems) => elems.getHoles
-        case BagConstruction(elems) => elems.getHoles
-        case MapConstruction(elems, default) => elems.getHoles ++ default.getHoles
+        case SetConstruction(optType, elems) => optType.toSeq.flatMap(_.getHoles) ++ elems.getHoles
+        case BagConstruction(optType, elems) => optType.toSeq.flatMap(_.getHoles) ++ elems.getHoles
+        case MapConstruction(optTypes, elems, default) => optTypes.toSeq.flatMap(_.getHoles) ++ elems.getHoles ++ default.getHoles
         case Variable(id) => id.getHoles
         case UnaryOperation(_, expr) => expr.getHoles
         case BinaryOperation(_, lhs, rhs) => lhs.getHoles ++ rhs.getHoles
         case TernaryOperation(_, lhs, mid, rhs) => lhs.getHoles ++ mid.getHoles ++ rhs.getHoles
         case NaryOperation(_, args) => args.getHoles
-        case Invocation(id, typeArgs, args) => id.getHoles ++ typeArgs.getHoles ++ args.getHoles
+        case Invocation(id, typeArgs, args) => id.getHoles ++ typeArgs.toSeq.flatMap(_.getHoles) ++ args.getHoles
+        case PrimitiveInvocation(_, typeArgs, args) => typeArgs.toSeq.flatMap(_.getHoles) ++ args.getHoles
         case Application(callee, args) => callee.getHoles ++ args.getHoles
         case Abstraction(_, bindings, body) => bindings.getHoles ++ body.getHoles
         case Let(binding, value, body) => binding.getHoles ++ value.getHoles ++ body.getHoles
@@ -103,15 +108,16 @@ trait Exprs { self: IRs =>
     case class FractionLiteral(numerator: BigInt, denominator: BigInt) extends Expr
     case class StringLiteral(value: String) extends Expr
     case class CharLiteral(value: Char) extends Expr
-    case class SetConstruction(elems: ExprSeq) extends Expr
-    case class BagConstruction(elems: ExprPairSeq) extends Expr
-    case class MapConstruction(elems: ExprPairSeq, default: Expr) extends Expr
+    case class SetConstruction(optType: Option[Types.Type], elems: ExprSeq) extends Expr
+    case class BagConstruction(optType: Option[Types.Type], elems: ExprPairSeq) extends Expr
+    case class MapConstruction(optTypes: Option[Types.TypeSeq], elems: ExprPairSeq, default: Expr) extends Expr
     case class Variable(id: Identifiers.Identifier) extends Expr
     case class UnaryOperation(operator: Unary.Operator, expr: Expr) extends Expr
     case class BinaryOperation(operator: Binary.Operator, lhs: Expr, rhs: Expr) extends Expr
     case class TernaryOperation(operator: Ternary.Operator, lhs: Expr, mid: Expr, rhs: Expr) extends Expr
     case class NaryOperation(operator: NAry.Operator, args: ExprSeq) extends Expr
-    case class Invocation(id: Identifiers.Identifier, typeArgs: Types.TypeSeq, args: ExprSeq) extends Expr
+    case class Invocation(id: Identifiers.Identifier, typeArgs: Option[Types.TypeSeq], args: ExprSeq) extends Expr
+    case class PrimitiveInvocation(fun: Primitive.Function, typeArgs: Option[Types.TypeSeq], args: ExprSeq) extends Expr
     case class Application(callee: Expr, args: ExprSeq) extends Expr
     case class Abstraction(quantifier: Quantifier, bindings: Bindings.BindingSeq, body: Expr) extends Expr
     case class Let(binding: Bindings.Binding, value: Expr, body: Expr) extends Expr
