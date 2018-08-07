@@ -171,21 +171,65 @@ trait Constraints { self: IRs with SimpleTypes =>
 
   object TypeClasses {
 
+    sealed abstract class SizeSpec {
+      def combine(that: SizeSpec): Option[SizeSpec]
+
+      def accepts(value: Int) = this match {
+        case LessEquals(upper) => value <= upper
+        case GreaterEquals(lower) => value >= lower
+        case Between(lower, upper) => value >= lower && value <= upper
+        case NoSpec => true
+      }
+    }
+    case object NoSpec extends SizeSpec {
+      override def combine(that: SizeSpec): Option[SizeSpec] = Some(that)
+    }
+    case class LessEquals(value: Int) extends SizeSpec {
+      override def combine(that: SizeSpec): Option[SizeSpec] = that match {
+        case LessEquals(other) => Some(LessEquals(Math.min(value, other)))
+        case GreaterEquals(other) => Between(value, other).validate
+        case Between(low, high) => Between(low, Math.min(value, high)).validate
+        case NoSpec => Some(this)
+      }
+    }
+    case class GreaterEquals(value: Int) extends SizeSpec {
+      override def combine(that: SizeSpec): Option[SizeSpec] = that match {
+        case LessEquals(other) => Between(other, value).validate
+        case GreaterEquals(other) => Some(GreaterEquals(Math.max(value, other)))
+        case Between(low, high) => Between(Math.max(value, low), high).validate
+        case NoSpec => Some(this)
+      }
+    }
+    case class Between(low: Int, high: Int) extends SizeSpec {
+      def validate: Option[Between] = if (high >= low) Some(this) else None
+
+      override def combine(that: SizeSpec): Option[SizeSpec] = that match {
+        case LessEquals(other) => Between(low, Math.min(high, other)).validate
+        case GreaterEquals(other) => Between(Math.max(low, other), high).validate
+        case Between(otherLow, otherHigh) => Between(Math.max(low, otherLow), Math.min(high, otherHigh)).validate
+        case NoSpec => Some(this)
+      }
+    }
+
+
+
     sealed abstract class TypeClass {
       val name: String
 
-      def &(that: TypeClass) = (this, that) match {
-        case (Bits, _) => Bits
-        case (_, Bits) => Bits
-        case (Integral, _) => Integral
-        case (_, Integral) => Integral
-        case (Numeric, _) => Numeric
-        case (_, Numeric) => Numeric
-        case _ => Comparable
+      def combine(that: TypeClass): Option[TypeClass] = (this, that) match {
+        case (Bits(s1), Bits(s2)) => s1.combine(s2).map(Bits(_))
+        case (b: Bits, _) => Some(b)
+        case (_, b: Bits) => Some(b)
+        case (Integral, _) => Some(Integral)
+        case (_, Integral) => Some(Integral)
+        case (Numeric, _) => Some(Numeric)
+        case (_, Numeric) => Some(Numeric)
+        case _ => Some(Comparable)
       }
 
       def hasInstance(tpe: Type): Boolean
     }
+
     case object Comparable extends TypeClass {
       override val name = "Comparable"
 
@@ -204,14 +248,14 @@ trait Constraints { self: IRs with SimpleTypes =>
       override val name = "Integral"
 
       override def hasInstance(tpe: Type) = {
-        tpe == IntegerType() || Bits.hasInstance(tpe)
+        tpe == IntegerType() || Bits(NoSpec).hasInstance(tpe)
       }
     }
-    case object Bits extends TypeClass {
+    case class Bits(size: SizeSpec) extends TypeClass {
       override val name = "Bits"
 
       override def hasInstance(tpe: Type) = tpe match {
-        case BitVectorType(_) => true
+        case BitVectorType(value) => size.accepts(value)
         case _ => false
       }
     }
