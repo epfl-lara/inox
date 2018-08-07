@@ -50,11 +50,11 @@ trait ExprExtractors { self: Extractors =>
       }
       case Application(callee, args) => Matching.collect(scrutinee) {
         case trees.Application(sCallee, sArgs) =>
-          ExprX.extract(callee, sCallee) << ExprSeqX.extract(args, sArgs)
+          ExprX.extract(callee, sCallee) <> ExprSeqX.extract(args, sArgs)
       }
       case Assume(pred, body) => Matching.collect(scrutinee) {
         case trees.Assume(sPred, sBody) =>
-          ExprX.extract(pred, sPred) << ExprX.extract(body, sBody)
+          ExprX.extract(pred, sPred) <> ExprX.extract(body, sBody)
       }
       case SetConstruction(elems) => Matching.collect(scrutinee) {
         case trees.FiniteSet(sElems, _) =>
@@ -66,12 +66,12 @@ trait ExprExtractors { self: Extractors =>
       }
       case MapConstruction(elems, default) => Matching.collect(scrutinee) {
         case trees.FiniteMap(sElems, sDefault, _, _) =>
-          ExprPairSeqX.extract(elems, sElems) >> ExprX.extract(default, sDefault)
+          ExprPairSeqX.extract(elems, sElems) <> ExprX.extract(default, sDefault)
       }
       case Let(binding, value, body) => Matching.collect(scrutinee) {
         case trees.Let(sBinding, sValue, sBody) =>
           BindingX.extract(binding, sBinding).flatMap { opt =>
-            ExprX.extract(value, sValue) >> (ExprX.extract(body, sBody).extendLocal(opt.toSeq))
+            ExprX.extract(value, sValue) <> (ExprX.extract(body, sBody).extendLocal(opt.toSeq))
           }
       }
       case UnaryOperation(operator, expr) => {
@@ -93,65 +93,65 @@ trait ExprExtractors { self: Extractors =>
 
         Matching.collect((operator, scrutinee)) {
           case (Plus, trees.Plus(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (Minus, trees.Minus(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (Times, trees.Times(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (Division, trees.Division(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (Remainder, trees.Remainder(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (Modulo, trees.Modulo(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (Implies, trees.Implies(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (Equals, trees.Equals(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (LessEquals, trees.LessEquals(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (LessThan, trees.LessThan(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (GreaterEquals, trees.GreaterEquals(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (GreaterThan, trees.GreaterThan(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (BVAnd, trees.BVAnd(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (BVOr, trees.BVOr(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (BVXor, trees.BVXor(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (BVShiftLeft, trees.BVShiftLeft(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (BVAShiftRight, trees.BVAShiftRight(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (BVLShiftRight, trees.BVLShiftRight(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (SetAdd, trees.SetAdd(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (ElementOfSet, trees.ElementOfSet(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (SetIntersection, trees.SetIntersection(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (SetUnion, trees.SetUnion(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (SetDifference, trees.SetDifference(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (BagAdd, trees.BagAdd(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (MultiplicityInBag, trees.MultiplicityInBag(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (BagIntersection, trees.BagIntersection(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (BagUnion, trees.BagUnion(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (BagDifference, trees.BagDifference(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (MapApply, trees.MapApply(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (StringConcat, trees.StringConcat(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
         }
       }
       case TernaryOperation(operator, lhs, mid, rhs) => {
@@ -159,18 +159,77 @@ trait ExprExtractors { self: Extractors =>
 
         Matching.collect((operator, scrutinee)) {
           case (SubString, trees.SubString(sLhs, sMid, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(mid, sMid) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(mid, sMid) <> ExprX.extract(rhs, sRhs)
           case (MapUpdated, trees.MapUpdated(sLhs, sMid, sRhs)) =>
-            ExprX.extract(lhs, sLhs) >> ExprX.extract(mid, sMid) >> ExprX.extract(rhs, sRhs)
+            ExprX.extract(lhs, sLhs) <> ExprX.extract(mid, sMid) <> ExprX.extract(rhs, sRhs)
         }
       }
+      case NaryOperation(operator, args) => {
+        import NAry._
+
+        Matching.collect((operator, scrutinee)) {
+          case (And, trees.And(sArgs)) =>
+            ExprSeqX.extract(args, sArgs)
+          case (Or, trees.Or(sArgs)) =>
+            ExprSeqX.extract(args, sArgs)
+        }.withValue(())
+      }
+      case If(condition, thenn, elze) => Matching.collect(scrutinee) {
+        case trees.IfExpr(sCondition, sThenn, sElze) =>
+          ExprX.extract(condition, sCondition) <>
+          ExprX.extract(thenn, sThenn) <>
+          ExprX.extract(elze, sElze)
+      }
+      case Cast(mode, expr, size) => {
+        import Casts._
+
+        Matching.collect((mode, scrutinee)) {
+          case (Widen, trees.BVWideningCast(sExpr, trees.BVType(sSize))) if size == sSize =>
+            ExprX.extract(expr, sExpr)
+          case (Narrow, trees.BVNarrowingCast(sExpr, trees.BVType(sSize))) if size == sSize =>
+            ExprX.extract(expr, sExpr)
+        }
+      }
+      case Choose(binding, body) => Matching.collect(scrutinee) {
+        case trees.Choose(sBinding, sBody) =>
+          BindingX.extract(binding, sBinding).flatMap { opt =>
+            ExprX.extract(body, sBody).extendLocal(opt.toSeq)
+          }
+      }
+      case Invocation(id, typeArgs, args) => Matching.collect(scrutinee) {
+        case trees.FunctionInvocation(sId, sTypeArgs, sArgs) =>
+          UseIdX.extract(id, sId) <>
+          TypeSeqX.extract(typeArgs, sTypeArgs) <>
+          ExprSeqX.extract(args, sArgs)
+        case trees.ADT(sId, sTypeArgs, sArgs) =>
+          UseIdX.extract(id, sId) <>
+          TypeSeqX.extract(typeArgs, sTypeArgs) <>
+          ExprSeqX.extract(args, sArgs)
+      }
+      case IsConstructor(expr, id) => Matching.collect(scrutinee) {
+        case trees.IsConstructor(sExpr, sId) =>
+          ExprX.extract(expr, sExpr) <>
+          UseIdX.extract(id, sId)
+      }
+      case Selection(expr, id) => Matching.collect(scrutinee) {
+        case trees.ADTSelector(sExpr, sId) =>
+          ExprX.extract(expr, sExpr) <> FieldIdX.extract(id, sId)
+      }
+      case TupleSelection(expr, index) => Matching.collect(scrutinee) {
+        case trees.TupleSelect(sExpr, sIndex) if index == sIndex =>
+          ExprX.extract(expr, sExpr)
+      }
+      case TypeAnnotation(expr, tpe) =>
+        Matching.withSymbols { implicit s: trees.Symbols =>
+          ExprX.extract(expr, scrutinee) <> TypeX.extract(tpe, scrutinee.getType)
+        }
     }
   }
 
   object ExprPairX extends Extractor[ExprPair, (trees.Expr, trees.Expr), Unit] {
     override def extract(template: ExprPair, scrutinee: (trees.Expr, trees.Expr)): Matching[Unit] = template match {
       case PairHole(index) => Matching(index -> scrutinee)
-      case Pair(lhs, rhs) => ExprX.extract(lhs, scrutinee._1) >> ExprX.extract(rhs, scrutinee._2)
+      case Pair(lhs, rhs) => ExprX.extract(lhs, scrutinee._1) <> ExprX.extract(rhs, scrutinee._2)
     }
   }
 

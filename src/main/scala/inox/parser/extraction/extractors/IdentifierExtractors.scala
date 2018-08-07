@@ -18,4 +18,11 @@ trait IdentifierExtractors { self: Extractors =>
       case IdentifierName(name) => Matching.pure(Some(name -> scrutinee))
     }
   }
+
+  object FieldIdX extends Extractor[Identifier, inox.Identifier, Unit] {
+    override def extract(template: Identifier, scrutinee: inox.Identifier): Matching[Unit] = template match {
+      case IdentifierHole(index) => Matching(index -> scrutinee)
+      case IdentifierName(name) => Matching.conditionally(scrutinee.name == name)
+    }
+  }
 }

@@ -78,15 +78,20 @@ trait Exprs { self: IRs =>
         case Variable(id) => id.getHoles
         case UnaryOperation(_, expr) => expr.getHoles
         case BinaryOperation(_, lhs, rhs) => lhs.getHoles ++ rhs.getHoles
+        case TernaryOperation(_, lhs, mid, rhs) => lhs.getHoles ++ mid.getHoles ++ rhs.getHoles
+        case NaryOperation(_, args) => args.getHoles
         case Invocation(id, typeArgs, args) => id.getHoles ++ typeArgs.getHoles ++ args.getHoles
         case Application(callee, args) => callee.getHoles ++ args.getHoles
         case Abstraction(_, bindings, body) => bindings.getHoles ++ body.getHoles
         case Let(binding, value, body) => binding.getHoles ++ value.getHoles ++ body.getHoles
         case If(condition, thenn, elze) => condition.getHoles ++ thenn.getHoles ++ elze.getHoles
         case Selection(structure, id) => structure.getHoles ++ id.getHoles
+        case TupleSelection(tuple, _) => tuple.getHoles
         case TypeAnnotation(expr, tpe) => expr.getHoles ++ tpe.getHoles
         case Choose(binding, body) => binding.getHoles ++ body.getHoles
         case Assume(pred, body) => pred.getHoles ++ body.getHoles
+        case IsConstructor(expr, id) => expr.getHoles ++ id.getHoles
+        case Cast(_, expr, _) => expr.getHoles
         case _ => Seq()
       }
     }
@@ -105,7 +110,7 @@ trait Exprs { self: IRs =>
     case class UnaryOperation(operator: Unary.Operator, expr: Expr) extends Expr
     case class BinaryOperation(operator: Binary.Operator, lhs: Expr, rhs: Expr) extends Expr
     case class TernaryOperation(operator: Ternary.Operator, lhs: Expr, mid: Expr, rhs: Expr) extends Expr
-    case class Operation(operator: NAry.Operator, args: ExprSeq) extends Expr
+    case class NaryOperation(operator: NAry.Operator, args: ExprSeq) extends Expr
     case class Invocation(id: Identifiers.Identifier, typeArgs: Types.TypeSeq, args: ExprSeq) extends Expr
     case class Application(callee: Expr, args: ExprSeq) extends Expr
     case class Abstraction(quantifier: Quantifier, bindings: Bindings.BindingSeq, body: Expr) extends Expr
