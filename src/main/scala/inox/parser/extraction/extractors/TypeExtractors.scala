@@ -18,7 +18,6 @@ trait TypeExtractors { self: Extractors =>
           case (BVType(size1), trees.BVType(size2)) if size1 == size2 => Matching.success
           case (RealType, trees.RealType()) => Matching.success
           case (BooleanType, trees.BooleanType()) => Matching.success
-          case _ => Matching.fail
         }
       }
       case FunctionType(froms, to) => Matching.collect(scrutinee) {

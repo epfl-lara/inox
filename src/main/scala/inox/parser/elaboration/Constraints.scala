@@ -15,7 +15,6 @@ trait Constraints { self: IRs with SimpleTypes =>
     case class HasClass(elem: Type, typeClass: TypeClass) extends Constraint
     case class HasSortIn(sorts: Seq[(inox.Identifier, Type => Seq[Constraint])]) extends Constraint
     case class AtIndexIs(scrutinee: Type, index: Int, value: Type) extends Constraint
-    case class IsSetLike(elem: Type) extends Constraint
   }
 
   object Constraint {
@@ -109,9 +108,6 @@ trait Constraints { self: IRs with SimpleTypes =>
       s <- Eventual.unify(scrutinee)
       v <- Eventual.unify(value)
     } yield AtIndexIs(s, index, v)
-    case IsSetLike(elem) => for {
-      e <- Eventual.unify(elem)
-    } yield IsSetLike(e)
   }
 
   implicit def seqUnifiable[A](implicit inner: Unifiable[A]): Unifiable[Seq[A]] = Unifiable { xs: Seq[A] =>

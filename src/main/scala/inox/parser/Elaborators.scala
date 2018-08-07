@@ -13,7 +13,8 @@ trait Elaborators
      with BindingElaborators
      with ExprElaborators
      with TypeElaborators
-     with IdentifierElaborators {
+     with IdentifierElaborators
+     with NumberUtils {
 
   trait Store {
     def getIdentifier(name: String): Option[inox.Identifier]
