@@ -13,8 +13,6 @@ trait Constraints { self: IRs with SimpleTypes =>
     case class Exists(elem: Type) extends Constraint
     case class Equals(left: Type, right: Type) extends Constraint
     case class HasClass(elem: Type, typeClass: TypeClass) extends Constraint
-    case class HasSortIn(elem: Type, sorts: Seq[(inox.Identifier, Type => Seq[Constraint])]) extends Constraint
-    case class AtIndexIs(scrutinee: Type, index: Int, value: Type) extends Constraint
   }
 
   object Constraint {
@@ -32,8 +30,17 @@ trait Constraints { self: IRs with SimpleTypes =>
           throw new IllegalArgumentException("Invalid bounds.")
         }
       }))
-    def atIndexIs(scrutinee: Type, index: Int, value: Type): Constraint = AtIndexIs(scrutinee, index, value)
-    def hasSortIn(elem: Type, sorts: Seq[(inox.Identifier, Type => Seq[Constraint])]): Constraint = HasSortIn(elem, sorts)
+    def atIndexIs(scrutinee: Type, index: Int, value: Type): Constraint =
+      HasClass(scrutinee, WithIndices(Map(index -> value)))
+    def hasFields(elem: Type, fields: Set[String], sorts: Seq[(inox.Identifier, Type => Seq[Constraint])]): Constraint = {
+      val mapping = sorts.foldLeft(Map[inox.Identifier, Type => Seq[Constraint]]()) {
+        case (acc, (id, f)) => acc.get(id) match {
+          case None => acc + (id -> f)
+          case Some(f2) => acc + (id -> { (t: Type) => f2(t) ++ f(t) })
+        }
+      }
+      HasClass(elem, WithFields(fields, mapping))
+    }
   }
 
   class Eventual[+A] private(private val fun: Unifier => A) {
@@ -51,18 +58,24 @@ trait Constraints { self: IRs with SimpleTypes =>
     def withUnifier[A](f: Unifier => A) = new Eventual(f)
     def sequence[A](eventuals: Seq[Eventual[A]]): Eventual[Seq[A]] =
       new Eventual((u: Unifier) => eventuals.map(_.get(u)))
+    def sequence[K, A](eventuals: Map[K, Eventual[A]]): Eventual[Map[K, A]] =
+      new Eventual((u: Unifier) => eventuals.mapValues(_.get(u)))
     def unify[A](value: A)(implicit ev: Unifiable[A]): Eventual[A] =
       ev.unify(value)
   }
 
-  class Unifier(mapping: Map[Unknown, Type]) {
+  class Unifier private(mapping: Map[Unknown, Type]) {
     def get(unknown: Unknown): Type = mapping(unknown)
 
     def +(pair: (Unknown, Type)): Unifier =
-      new Unifier(mapping + pair)
+      new Unifier(mapping.mapValues(Unifier(pair).apply(_)).view.force + pair)
 
     def apply[A](value: A)(implicit unifiable: Unifiable[A]): A =
       unifiable.unify(value).get(this)
+  }
+  object Unifier {
+    def apply(pair: (Unknown, Type)): Unifier = new Unifier(Map(pair))
+    def empty: Unifier = new Unifier(Map())
   }
 
   trait Unifiable[A] {
@@ -110,23 +123,30 @@ trait Constraints { self: IRs with SimpleTypes =>
     } yield Equals(l, r)
     case HasClass(elem, typeClass) => for {
       e <- Eventual.unify(elem)
-    } yield HasClass(e, typeClass)
-    case HasSortIn(elem, sorts) => for {
-      e <- Eventual.unify(elem)
-      ss <- Eventual.sequence(sorts.map {
-        case (identifier, function) => Eventual.withUnifier {
-          (unifier: Unifier) => (identifier, function andThen (_.map(unifier(_))))
+      t <- Eventual.unify(typeClass)
+    } yield HasClass(e, t)
+  }
+
+  implicit lazy val typeClassUnifiable: Unifiable[TypeClass] = Unifiable {
+    case WithFields(fields, sorts) => for {
+      ss <- Eventual.sequence(sorts.mapValues { (function: Type => Seq[Constraint]) =>
+        Eventual.withUnifier { (unifier: Unifier) =>
+          function andThen (_.map(unifier(_)))
         }
-      })
-    } yield HasSortIn(e, ss)
-    case AtIndexIs(scrutinee, index, value) => for {
-      s <- Eventual.unify(scrutinee)
-      v <- Eventual.unify(value)
-    } yield AtIndexIs(s, index, v)
+      }.view.force)
+    } yield WithFields(fields, ss)
+    case WithIndices(indices) => for {
+      is <- Eventual.sequence(indices.mapValues(Eventual.unify(_)).view.force)
+    } yield WithIndices(is)
+    case x => Eventual.pure(x)
   }
 
   implicit def seqUnifiable[A](implicit inner: Unifiable[A]): Unifiable[Seq[A]] = Unifiable { xs: Seq[A] =>
     Eventual.sequence(xs.map(inner.unify(_)))
+  }
+
+  implicit def mapUnifiable[K, A](implicit inner: Unifiable[A]): Unifiable[Map[K, A]] = Unifiable { xs: Map[K, A] =>
+    Eventual.sequence(xs.mapValues(inner.unify(_)).view.force)
   }
 
   type Error = String
@@ -234,52 +254,96 @@ trait Constraints { self: IRs with SimpleTypes =>
       }
     }
 
-
-
     sealed abstract class TypeClass {
-      val name: String
 
-      def combine(that: TypeClass): Option[TypeClass] = (this, that) match {
-        case (Bits(s1), Bits(s2)) => s1.combine(s2).map(Bits(_))
-        case (b: Bits, _) => Some(b)
-        case (_, b: Bits) => Some(b)
-        case (Integral, _) => Some(Integral)
-        case (_, Integral) => Some(Integral)
-        case (Numeric, _) => Some(Numeric)
-        case (_, Numeric) => Some(Numeric)
-        case _ => Some(Comparable)
+      def combine(that: TypeClass)(tpe: Type): Option[Seq[Constraint]] = (this, that) match {
+        case (WithFields(fs1, s1), WithFields(fs2, s2)) => {
+          val intersect: Seq[inox.Identifier] = s1.keySet.intersect(s2.keySet).toSeq
+
+          val size = intersect.size
+          if (size == 0) {
+            None
+          }
+          if (size == 1) {
+            val id = intersect.head
+            Some(s1(id)(tpe) ++ s2(id)(tpe))
+          }
+          else {
+            Some(Seq(HasClass(tpe, WithFields(fs1 union fs2, intersect.map { id =>
+              id -> ((t: Type) => s1(id)(t) ++ s2(id)(t))
+            }.toMap))))
+          }
+        }
+        case (_, WithFields(_, _)) => None
+        case (WithFields(_, _), _) => None
+        case (WithIndices(is1), WithIndices(is2)) => {
+          val union: Seq[Int] = is1.keySet.union(is2.keySet).toSeq
+          val intersect: Seq[Int] = is1.keySet.intersect(is2.keySet).toSeq
+
+          val is3 = union.map { k =>
+            k -> is1.getOrElse(k, is2(k))
+          }.toMap
+
+          Some(HasClass(tpe, WithIndices(is3)) +: intersect.map { (i: Int) => Equals(is1(i), is2(i)) })
+        }
+        case (_, WithIndices(_)) => None
+        case (WithIndices(_), _) => None
+        case (Bits(s1), Bits(s2)) => s1.combine(s2).map {
+          case Between(low, high) if low == high => Seq(Equals(tpe, BitVectorType(low)))
+          case s3 => Seq(HasClass(tpe, Bits(s3)))
+        }
+        case (b: Bits, _) => Some(Seq(HasClass(tpe, b)))
+        case (_, b: Bits) => Some(Seq(HasClass(tpe, b)))
+        case (Integral, _) => Some(Seq(HasClass(tpe, Integral)))
+        case (_, Integral) => Some(Seq(HasClass(tpe, Integral)))
+        case (Numeric, _) => Some(Seq(HasClass(tpe, Numeric)))
+        case (_, Numeric) => Some(Seq(HasClass(tpe, Numeric)))
+        case _ => Some(Seq(HasClass(tpe, Comparable)))
       }
 
-      def hasInstance(tpe: Type): Boolean
+      def accepts(tpe: Type): Option[Seq[Constraint]]
+    }
+
+    case class WithFields(fields: Set[String], sorts: Map[inox.Identifier, Type => Seq[Constraint]]) extends TypeClass {
+      override def accepts(tpe: Type) = tpe match {
+        case ADTType(id, _) => sorts.get(id).map{_.apply(tpe)}
+        case _ => None
+      }
+    }
+
+    case class WithIndices(indices: Map[Int, Type]) extends TypeClass {
+      override def accepts(tpe: Type) = tpe match {
+        case TupleType(es) => indices.toSeq.map { case (k, v) =>
+          if (es.size <= k) None else Some(Equals(es(k), v))
+        }.foldLeft(Option(Seq[Constraint]())) {
+          case (acc, constraint) => acc.flatMap { xs => constraint.map { x => xs :+ x }}
+        }
+        case _ => None
+      }
     }
 
     case object Comparable extends TypeClass {
-      override val name = "Comparable"
-
-      override def hasInstance(tpe: Type) = {
-        tpe == CharType() || Numeric.hasInstance(tpe)
+      override def accepts(tpe: Type) = tpe match {
+        case CharType() => Some(Seq())
+        case _ => Numeric.accepts(tpe)
       }
     }
     case object Numeric extends TypeClass {
-      override val name = "Numeric"
-
-      override def hasInstance(tpe: Type) = {
-        tpe == RealType() || Integral.hasInstance(tpe)
+      override def accepts(tpe: Type) = tpe match {
+        case RealType() => Some(Seq())
+        case _ => Integral.accepts(tpe)
       }
     }
     case object Integral extends TypeClass {
-      override val name = "Integral"
-
-      override def hasInstance(tpe: Type) = {
-        tpe == IntegerType() || Bits(NoSpec).hasInstance(tpe)
+      override def accepts(tpe: Type) = tpe match {
+        case IntegerType() => Some(Seq())
+        case _ => Bits(NoSpec).accepts(tpe)
       }
     }
     case class Bits(size: SizeSpec) extends TypeClass {
-      override val name = "Bits"
-
-      override def hasInstance(tpe: Type) = tpe match {
-        case BitVectorType(value) => size.accepts(value)
-        case _ => false
+      override def accepts(tpe: Type) = tpe match {
+        case BitVectorType(value) => if (size.accepts(value)) Some(Seq()) else None
+        case _ => None
       }
     }
   }

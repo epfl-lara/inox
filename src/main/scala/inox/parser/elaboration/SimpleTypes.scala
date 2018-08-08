@@ -17,6 +17,17 @@ trait SimpleTypes { self: Trees =>
         case ADTType(_, args) => args.exists(_.contains(unknown))
         case _ => false
       }
+
+      def unknowns: Set[Unknown] = this match {
+        case unknown: Unknown => Set(unknown)
+        case FunctionType(froms, to) => froms.map(_.unknowns).fold(to.unknowns)(_ union _)
+        case MapType(from, to) => from.unknowns union to.unknowns
+        case SetType(elem) => elem.unknowns
+        case BagType(elem) => elem.unknowns
+        case TupleType(elems) => elems.map(_.unknowns).fold(Set[Unknown]())(_ union _)
+        case ADTType(_, args) => args.map(_.unknowns).fold(Set[Unknown]())(_ union _)
+        case _ => Set()
+      }
     }
     case class UnitType() extends Type
     case class BooleanType() extends Type
@@ -36,6 +47,7 @@ trait SimpleTypes { self: Trees =>
     final class Unknown private(private val identifier: Int) extends Type {
       override def equals(that: Any): Boolean =
         that.isInstanceOf[Unknown] && that.asInstanceOf[Unknown].identifier == identifier
+      override def hashCode(): Int = identifier
     }
 
     object Unknown {

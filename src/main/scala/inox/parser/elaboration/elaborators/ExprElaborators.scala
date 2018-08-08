@@ -284,7 +284,7 @@ trait ExprElaborators { self: Elaborators =>
         pis <- FieldIdE.elaborate(id)
         adtType = SimpleTypes.Unknown.fresh
         retType = SimpleTypes.Unknown.fresh
-        _ <- Constrained(Constraint.hasSortIn(st, pis.map {
+        _ <- Constrained(Constraint.hasFields(st, pis.map(_._2.name).toSet, pis.map {
           case (sortId, fieldId) => (sortId, (tpe: SimpleTypes.Type) => {
             val n = store.getTypeConstructor(sortId).getOrElse {
               throw new IllegalStateException("Inconsistent store.")
