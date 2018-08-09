@@ -68,7 +68,7 @@ trait Constraints { self: IRs with SimpleTypes =>
     def get(unknown: Unknown): Type = mapping(unknown)
 
     def +(pair: (Unknown, Type)): Unifier =
-      new Unifier(mapping.mapValues(Unifier(pair).apply(_)).view.force + pair)
+      new Unifier(Unifier(pair)(mapping) + pair)
 
     def apply[A](value: A)(implicit unifiable: Unifiable[A]): A =
       unifiable.unify(value).get(this)

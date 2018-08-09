@@ -10,28 +10,84 @@ trait Elaborators
      with Constraints
      with SimpleTypes
      with SimpleBindings
+     with SimpleFunctions
      with BindingElaborators
      with ExprElaborators
      with TypeElaborators
      with IdentifierElaborators
      with NumberUtils {
 
-  trait Store {
-    def getIdentifier(name: String): Option[inox.Identifier]
-    def getField(name: String): Seq[(inox.Identifier, inox.Identifier)]
-    def getField(identifier: Identifier): Seq[inox.Identifier]
-    def getTypeOfField(sortId: inox.Identifier, fieldId: inox.Identifier): Seq[SimpleTypes.Type] => SimpleTypes.Type
-    def getVariable(identifier: inox.Identifier): Option[(SimpleTypes.Type, Eventual[trees.Type])]
-    def getType(identifier: inox.Identifier): Option[(SimpleTypes.Type, Eventual[trees.Type])]
-    def getTypeConstructor(identifier: inox.Identifier): Option[Int]
-    def getFunction(identifier: inox.Identifier): Option[(Int, Seq[SimpleTypes.Type] => (Seq[SimpleTypes.Type], SimpleTypes.Type))]
-    def getConstructor(identifier: inox.Identifier): Option[(Int, Seq[SimpleTypes.Type] => (Seq[SimpleTypes.Type], SimpleTypes.Type))]
-    def getSortOfConstructor(identifier: inox.Identifier): Option[inox.Identifier]
-    def getHole[A: Manifest](index: Int): Option[A]
-    val getSymbols: trees.Symbols
+  type Signature = (Int, Seq[SimpleTypes.Type] => (Seq[SimpleTypes.Type], SimpleTypes.Type))
 
-    def addVariable(id: inox.Identifier, simpleType: SimpleTypes.Type, eventualType: Eventual[trees.Type]): Store
-    def addVariables(triples: Seq[(inox.Identifier, SimpleTypes.Type, Eventual[trees.Type])]): Store
+
+  case class FunctionStore(
+    functions: Map[inox.Identifier, Signature]) {
+
+    def addFunction(identifier: inox.Identifier, signature: Signature): FunctionStore =
+      copy(functions=functions + (identifier -> signature))
+    def addFunctions(pairs: Seq[(inox.Identifier, Signature)]): FunctionStore =
+      copy(functions=functions ++ pairs)
+  }
+
+  case class ADTStore(
+    sortArities: Map[inox.Identifier, Int],
+    constructors: Map[inox.Identifier, Signature],
+    fieldIdsByName: Map[String, Seq[inox.Identifier]],
+    fieldTypeByConsType: Map[Identifier, Seq[SimpleTypes.Type] => SimpleTypes.Type],
+    sortIdByFieldId: Map[inox.Identifier, inox.Identifier],
+    sortIdByConstructorId: Map[inox.Identifier, inox.Identifier])
+
+  case class Store(
+    symbols: trees.Symbols,
+    identifierByName: Map[String, inox.Identifier],
+    variables: Map[inox.Identifier, (SimpleTypes.Type, Eventual[trees.Type])],
+    adtStore: ADTStore,
+    funStore: FunctionStore,
+    args: Seq[Any]) {
+
+    def getSymbols = symbols
+    def getIdentifier(name: String): Option[inox.Identifier] = identifierByName.get(name)
+    def getFieldByName(name: String): Seq[(inox.Identifier, inox.Identifier)] = for {
+      fid <- adtStore.fieldIdsByName.getOrElse(name, Seq())
+      sid <- adtStore.sortIdByFieldId.get(fid)
+    } yield (sid, fid)
+    def getSortByField(identifier: Identifier): Option[inox.Identifier] = adtStore.sortIdByFieldId.get(identifier)
+    def getTypeOfField(identifier: inox.Identifier): Seq[SimpleTypes.Type] => SimpleTypes.Type = adtStore.fieldTypeByConsType(identifier)
+    def getVariable(identifier: inox.Identifier): Option[(SimpleTypes.Type, Eventual[trees.Type])] = variables.get(identifier)
+    def getType(identifier: inox.Identifier): Option[(SimpleTypes.Type, Eventual[trees.Type])] = variables.get(identifier)
+    def getTypeConstructor(identifier: inox.Identifier): Option[Int] = adtStore.sortArities.get(identifier)
+    def getFunction(identifier: inox.Identifier): Option[Signature] = funStore.functions.get(identifier)
+    def getConstructor(identifier: inox.Identifier): Option[Signature] = adtStore.constructors.get(identifier)
+    def getSortOfConstructor(identifier: inox.Identifier): Option[inox.Identifier] = adtStore.sortIdByConstructorId.get(identifier)
+    def getHole[A: Manifest](index: Int): Option[A] = {
+      if (args.size <= index) None
+      else args(index) match {
+        case x: A => Some(x)
+        case _ => None
+      }
+    }
+
+    def addBinding(binding: SimpleBindings.Binding): Store =
+      copy(
+        variables=variables + (binding.id -> (binding.tpe, binding.evTpe)),
+        identifierByName=identifierByName ++ binding.name.map(_ -> binding.id))
+    def addBindings(bindings: Seq[SimpleBindings.Binding]): Store =
+      copy(
+        variables=variables ++ bindings.map(binding => (binding.id -> (binding.tpe, binding.evTpe))),
+        identifierByName=identifierByName ++ bindings.flatMap(binding => binding.name.map(_ -> binding.id)))
+    def addTypeBinding(binding: SimpleBindings.TypeBinding): Store =
+      copy(
+        variables=variables + (binding.id -> (binding.tpe, binding.evTpe)),
+        identifierByName=identifierByName ++ binding.name.map(_ -> binding.id))
+    def addTypeBindings(bindings: Seq[SimpleBindings.TypeBinding]): Store =
+      copy(
+        variables=variables ++ bindings.map(binding => (binding.id -> (binding.tpe, binding.evTpe))),
+        identifierByName=identifierByName ++ bindings.flatMap(binding => binding.name.map(_ -> binding.id)))
+    def addFunction(identifier: inox.Identifier, signature: Signature): Store =
+      copy(funStore=funStore.addFunction(identifier, signature))
+    def addFunctions(pairs: Seq[(inox.Identifier, Signature)]): Store =
+      copy(funStore=funStore.addFunctions(pairs))
+    def addSort(identifier: inox.Identifier, arity: Int): Store = ???
   }
 
   trait Elaborator[-A, +R] {

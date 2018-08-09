@@ -7,7 +7,8 @@ trait IRs
   extends Exprs
      with Identifiers
      with Bindings
-     with Types {
+     with Types
+     with Functions {
 
   sealed trait HoleType
   object HoleTypes {

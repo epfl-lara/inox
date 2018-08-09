@@ -13,5 +13,7 @@ trait Identifiers { self: IRs =>
     }
     case class IdentifierName(name: String) extends Identifier
     case class IdentifierHole(index: Int) extends Identifier
+
+    type IdentifierSeq = HSeq[Identifier]
   }
 }

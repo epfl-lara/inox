@@ -74,20 +74,16 @@ trait ExprElaborators { self: Elaborators =>
         trees.FiniteMap(evps.map(_.get), ed.get, etf.get, ett.get)
       })
       case Abstraction(quantifier, bindings, body) => for {
-        zs <- BindingSeqE.elaborate(bindings)
-        newStore = store.addVariables(zs.map {
-          case (SimpleBindings.Binding(i, st), evd) =>
-            (i, st, evd.map(_.tpe))
-        })
-        (stb, evb) <- ExprE.elaborate(body)(newStore)
+        bs <- BindingSeqE.elaborate(bindings)
+        (stb, evb) <- ExprE.elaborate(body)(store.addBindings(bs))
       } yield quantifier match {
         case Lambda =>
-          (SimpleTypes.FunctionType(zs.map(_._1.tpe), stb), Eventual.withUnifier { implicit unifier =>
-            trees.Lambda(zs.map(_._2.get), evb.get)
+          (SimpleTypes.FunctionType(bs.map(_.tpe), stb), Eventual.withUnifier { implicit unifier =>
+            trees.Lambda(bs.map(_.evValDef.get), evb.get)
           })
         case Forall =>
           (SimpleTypes.BooleanType(), Eventual.withUnifier { implicit unifier =>
-            trees.Forall(zs.map(_._2.get), evb.get)
+            trees.Forall(bs.map(_.evValDef.get), evb.get)
           })
       }
       case Application(callee, args) => {
@@ -115,10 +111,10 @@ trait ExprElaborators { self: Elaborators =>
         _ <- Constrained(Constraint.isBits(st, lower=Some(size + 1)))
       } yield (SimpleTypes.BitVectorType(size), ev.map(trees.BVNarrowingCast(_, trees.BVType(size))))
       case Choose(binding, body) => for {
-        (sb, evd) <- BindingE.elaborate(binding)
-        (st, evb) <- ExprE.elaborate(body)(store.addVariable(sb.id, sb.tpe, evd.map(_.tpe)))
+        sb <- BindingE.elaborate(binding)
+        (st, evb) <- ExprE.elaborate(body)(store.addBinding(sb))
       } yield (st, Eventual.withUnifier { implicit unifier =>
-        trees.Choose(evd.get, evb.get)
+        trees.Choose(sb.evValDef.get, evb.get)
       })
       case If(condition, thenn, elze) => for {
         (stc, evc) <- ExprE.elaborate(condition)
@@ -267,12 +263,12 @@ trait ExprElaborators { self: Elaborators =>
         _ <- Constrained(Constraint.equal(st, SimpleTypes.ADTType(i, Seq.fill(n)(SimpleTypes.Unknown.fresh))))
       } yield (SimpleTypes.BooleanType(), ev.map(trees.IsConstructor(_, i)))
       case Let(binding, value, expr) => for {
-        (sb, evd) <- BindingE.elaborate(binding)
+        sb <- BindingE.elaborate(binding)
         (stv, ev) <- ExprE.elaborate(value)
-        (ste, ee) <- ExprE.elaborate(expr)(store.addVariable(sb.id, sb.tpe, evd.map(_.tpe)))
+        (ste, ee) <- ExprE.elaborate(expr)(store.addBinding(sb))
           .addConstraint(Constraint.equal(sb.tpe, stv))
       } yield (ste, Eventual.withUnifier { implicit unifier =>
-        trees.Let(evd.get, ev.get, ee.get)
+        trees.Let(sb.evValDef.get, ev.get, ee.get)
       })
       case TupleSelection(expr, index) => for {
         (st, ev) <- ExprE.elaborate(expr)
@@ -290,7 +286,7 @@ trait ExprElaborators { self: Elaborators =>
               throw new IllegalStateException("Inconsistent store.")
             }
             val as = Seq.fill(n)(SimpleTypes.Unknown.fresh)
-            val r = store.getTypeOfField(sortId, fieldId)(as)
+            val r = store.getTypeOfField(fieldId)(as)
             Seq(
               Constraint.equal(adtType, tpe),
               Constraint.equal(r, retType),

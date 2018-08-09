@@ -28,6 +28,17 @@ trait SimpleTypes { self: Trees =>
         case ADTType(_, args) => args.map(_.unknowns).fold(Set[Unknown]())(_ union _)
         case _ => Set()
       }
+
+      def replaceTypeParams(mapping: Map[inox.Identifier, Type]): Type = this match {
+        case TypeParameter(id) => mapping.getOrElse(id, this)
+        case FunctionType(froms, to) => FunctionType(froms.map(_.replaceTypeParams(mapping)), to.replaceTypeParams(mapping))
+        case MapType(from, to) => MapType(from.replaceTypeParams(mapping), to.replaceTypeParams(mapping))
+        case SetType(elem) => SetType(elem.replaceTypeParams(mapping))
+        case BagType(elem) => BagType(elem.replaceTypeParams(mapping))
+        case TupleType(elems) => TupleType(elems.map(_.replaceTypeParams(mapping)))
+        case ADTType(id, elems) => ADTType(id, elems.map(_.replaceTypeParams(mapping)))
+        case _ => this
+      }
     }
     case class UnitType() extends Type
     case class BooleanType() extends Type
