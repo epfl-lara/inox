@@ -19,6 +19,8 @@ trait IdentifierExtractors { self: Extractors =>
     }
   }
 
+  implicit object DefIdSeqX extends HSeqX[Identifier, inox.Identifier, Option[(String, inox.Identifier)]](DefIdX, None)
+
   object FieldIdX extends Extractor[Identifier, inox.Identifier, Unit] {
     override def extract(template: Identifier, scrutinee: inox.Identifier): Matching[Unit] = template match {
       case IdentifierHole(index) => Matching(index -> scrutinee)

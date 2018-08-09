@@ -12,6 +12,7 @@ trait Extractors
      with TypeExtractors
      with BindingExtractors
      with ExprExtractors
+     with FunctionExtractors
      with NumberUtils {
 
   trait Extractor[-A, -B, +R] {

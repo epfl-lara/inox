@@ -9,6 +9,7 @@ trait Functions { self: IRs =>
       identifier: Identifiers.Identifier,
       typeParams: Identifiers.IdentifierSeq,
       params: Bindings.BindingSeq,
+      returnType: Option[Types.Type],
       body: Exprs.Expr) extends IR {
 
       override def getHoles =
