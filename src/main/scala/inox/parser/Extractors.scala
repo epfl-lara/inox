@@ -13,6 +13,7 @@ trait Extractors
      with BindingExtractors
      with ExprExtractors
      with FunctionExtractors
+     with ADTsExtractors
      with NumberUtils {
 
   trait Extractor[-A, -B, +R] {

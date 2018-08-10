@@ -4,8 +4,10 @@ package extraction
 package extractors
 
 trait TypeExtractors { self: Extractors =>
+
   import Types._
-  implicit object TypeX extends Extractor[Type, trees.Type, Unit] {
+
+  object TypeX extends Extractor[Type, trees.Type, Unit] {
     override def extract(template: Type, scrutinee: trees.Type): Matching[Unit] = template match {
       case TypeHole(index) => Matching(index -> scrutinee)
       case Primitive(tpe) => {
@@ -69,5 +71,5 @@ trait TypeExtractors { self: Extractors =>
     }
   }
 
-  implicit object TypeSeqX extends HSeqX[Type, trees.Type, Unit](TypeX, ())
+  object TypeSeqX extends HSeqX[Type, trees.Type, Unit](TypeX, ())
 }

@@ -6,12 +6,14 @@ package elaborators
 trait FunctionElaborators { self: Elaborators =>
 
   import Functions._
+
   object SingleFunctionE extends Elaborator[Function, Eventual[trees.FunDef]] {
     override def elaborate(function: Function)(implicit store: Store): Constrained[Eventual[trees.FunDef]] = for {
       sf <- SignatureE.elaborate(function)
       (st, ev) <- ExprE.elaborate(function.body)(store
+        .addFunction(sf)
         .addTypeBindings(sf.typeParams)
-        .addBindings(sf.params))  // TODO: Add function itself.
+        .addBindings(sf.params))
       _ <- Constrained(Constraint.equal(st, sf.retTpe))
     } yield Eventual.withUnifier { implicit unifier =>
       new trees.FunDef(

@@ -16,6 +16,8 @@ trait Elaborators
      with ExprElaborators
      with TypeElaborators
      with IdentifierElaborators
+     with FunctionElaborators
+     with ADTsElaborators
      with NumberUtils {
 
   type Signature = (Int, Seq[SimpleTypes.Type] => (Seq[SimpleTypes.Type], SimpleTypes.Type))
@@ -97,14 +99,22 @@ trait Elaborators
       fid <- adtStore.fieldIdsByName.getOrElse(name, Seq())
       sid <- adtStore.sortIdByFieldId.get(fid)
     } yield (sid, fid)
-    def getSortByField(identifier: Identifier): Option[inox.Identifier] = adtStore.sortIdByFieldId.get(identifier)
-    def getTypeOfField(identifier: inox.Identifier): Seq[SimpleTypes.Type] => SimpleTypes.Type = adtStore.fieldTypeByConsType(identifier)
-    def getVariable(identifier: inox.Identifier): Option[(SimpleTypes.Type, Eventual[trees.Type])] = variables.get(identifier)
-    def getType(identifier: inox.Identifier): Option[(SimpleTypes.Type, Eventual[trees.Type])] = variables.get(identifier)
-    def getTypeConstructor(identifier: inox.Identifier): Option[Int] = adtStore.sortArities.get(identifier)
-    def getFunction(identifier: inox.Identifier): Option[Signature] = funStore.signatures.get(identifier)
-    def getConstructor(identifier: inox.Identifier): Option[Signature] = adtStore.constructors.get(identifier)
-    def getSortOfConstructor(identifier: inox.Identifier): Option[inox.Identifier] = adtStore.sortIdByConstructorId.get(identifier)
+    def getSortByField(identifier: Identifier): Option[inox.Identifier] =
+      adtStore.sortIdByFieldId.get(identifier)
+    def getTypeOfField(identifier: inox.Identifier): Seq[SimpleTypes.Type] => SimpleTypes.Type =
+      adtStore.fieldTypeByConsType(identifier)
+    def getVariable(identifier: inox.Identifier): Option[(SimpleTypes.Type, Eventual[trees.Type])] =
+      variables.get(identifier)
+    def getType(identifier: inox.Identifier): Option[(SimpleTypes.Type, Eventual[trees.Type])] =
+      variables.get(identifier)
+    def getTypeConstructor(identifier: inox.Identifier): Option[Int] =
+      adtStore.sortArities.get(identifier)
+    def getFunction(identifier: inox.Identifier): Option[Signature] =
+      funStore.signatures.get(identifier)
+    def getConstructor(identifier: inox.Identifier): Option[Signature] =
+      adtStore.constructors.get(identifier)
+    def getSortOfConstructor(identifier: inox.Identifier): Option[inox.Identifier] =
+      adtStore.sortIdByConstructorId.get(identifier)
     def getHole[A: Manifest](index: Int): Option[A] = {
       if (args.size <= index) None
       else args(index) match {
@@ -142,15 +152,13 @@ trait Elaborators
         adtStore=adtStore.addSort(sort),
         names=names ++
           sort.optName.map((_, sort.id)) ++
-          sort.constructors.flatMap(c => c.optName.map((_, c.id))) ++
-          sort.constructors.flatMap(c => c.params.flatMap(f => f.name.map((_, f.id)))))
+          sort.constructors.flatMap(c => c.optName.map((_, c.id))))
     def addSorts(sorts: Seq[SimpleADTs.Sort]): Store =
       copy(
         adtStore=adtStore.addSorts(sorts),
         names=names ++
           sorts.flatMap(sort => sort.optName.map((_, sort.id))) ++
-          sorts.flatMap(sort => sort.constructors.flatMap(c => c.optName.map((_, c.id)))) ++
-          sorts.flatMap(sort => sort.constructors.flatMap(c => c.params.flatMap(f => f.name.map((_, f.id))))))
+          sorts.flatMap(sort => sort.constructors.flatMap(c => c.optName.map((_, c.id)))))
   }
 
   def createStore(symbols: trees.Symbols, args: Seq[Any]): Store = {

@@ -4,8 +4,10 @@ package extraction
 package extractors
 
 trait ExprExtractors { self: Extractors =>
+
   import Exprs._
-  implicit object ExprX extends Extractor[Expr, trees.Expr, Unit] {
+
+  object ExprX extends Extractor[Expr, trees.Expr, Unit] {
     override def extract(template: Expr, scrutinee: trees.Expr): Matching[Unit] = template match {
       case ExprHole(index) => Matching(index -> scrutinee)
       case UnitLiteral() => Matching.collect(scrutinee) {

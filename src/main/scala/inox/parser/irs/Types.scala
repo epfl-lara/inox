@@ -49,11 +49,10 @@ trait Types { self: IRs =>
     case class PiType(bindings: Bindings.BindingSeq, to: Type) extends Type
     case class SigmaType(bindings: Bindings.BindingSeq, to: Type) extends Type
 
-    implicit object holeTypableType extends HoleTypable[Type] {
-      override val holeType = HoleTypes.Type
-    }
-
     type TypeSeq = HSeq[Type]
+  }
 
+  implicit object holeTypableType extends HoleTypable[Types.Type] {
+    override val holeType = HoleTypes.Type
   }
 }

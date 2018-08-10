@@ -8,7 +8,8 @@ trait IRs
      with Identifiers
      with Bindings
      with Types
-     with Functions {
+     with Functions
+     with ADTs {
 
   sealed trait HoleType
   object HoleTypes {
@@ -16,6 +17,7 @@ trait IRs
     case object Type extends HoleType
     case object Expr extends HoleType
     case object ValDef extends HoleType
+    case object Constructor extends HoleType
     case class Pair(lhs: HoleType, rhs: HoleType) extends HoleType
     case class Sequence(inner: HoleType) extends HoleType
   }

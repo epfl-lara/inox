@@ -18,10 +18,11 @@ trait Bindings { self: IRs =>
     case class ExplicitValDef(identifier: Identifiers.Identifier, tpe: Types.Type) extends Binding
     case class BindingHole(index: Int) extends Binding
 
-    implicit object holeTypableBinding extends HoleTypable[Binding] {
-      override val holeType = HoleTypes.ValDef
-    }
-
     type BindingSeq = HSeq[Binding]
   }
+
+  implicit object holeTypableBinding extends HoleTypable[Bindings.Binding] {
+    override val holeType = HoleTypes.ValDef
+  }
+
 }

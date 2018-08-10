@@ -130,10 +130,6 @@ trait Exprs { self: IRs =>
     case class IsConstructor(expr: Expr, constructor: Identifiers.Identifier) extends Expr
     case class Cast(mode: Casts.Mode, expr: Expr, target: Int) extends Expr
 
-    implicit object holeTypableExpr extends HoleTypable[Expr] {
-      override val holeType = HoleTypes.Expr
-    }
-
     type ExprSeq = HSeq[Expr]
 
     sealed abstract class ExprPair extends IR {
@@ -146,10 +142,14 @@ trait Exprs { self: IRs =>
     case class Pair(lhs: Expr, rhs: Expr) extends ExprPair
     case class PairHole(index: Int) extends ExprPair
 
-    implicit object holeTypableExprPair extends HoleTypable[ExprPair] {
-      override val holeType = HoleTypes.Pair(HoleTypes.Expr, HoleTypes.Expr)
-    }
-
     type ExprPairSeq = HSeq[ExprPair]
+  }
+
+  implicit object holeTypableExpr extends HoleTypable[Exprs.Expr] {
+    override val holeType = HoleTypes.Expr
+  }
+
+  implicit object holeTypableExprPair extends HoleTypable[Exprs.ExprPair] {
+    override val holeType = HoleTypes.Pair(HoleTypes.Expr, HoleTypes.Expr)
   }
 }

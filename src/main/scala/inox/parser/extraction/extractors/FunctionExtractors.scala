@@ -6,7 +6,8 @@ package extractors
 trait FunctionExtractors { self: Extractors =>
 
   import Functions.Function
-  implicit object FunctionX extends Extractor[Function, trees.FunDef, Unit] {
+
+  object FunctionX extends Extractor[Function, trees.FunDef, Unit] {
     override def extract(template: Function, scrutinee: trees.FunDef): Matching[Unit] = {
       DefIdX.extract(template.identifier, scrutinee.id).flatMap { optName =>
         DefIdSeqX.extract(template.typeParams, scrutinee.tparams.map(_.id)).flatMap { optTypeParams =>

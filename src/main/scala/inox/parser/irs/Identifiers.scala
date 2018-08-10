@@ -16,4 +16,8 @@ trait Identifiers { self: IRs =>
 
     type IdentifierSeq = HSeq[Identifier]
   }
+
+  implicit object holeTypableIdentifier extends HoleTypable[Identifiers.Identifier] {
+    override val holeType = HoleTypes.Identifier
+  }
 }
