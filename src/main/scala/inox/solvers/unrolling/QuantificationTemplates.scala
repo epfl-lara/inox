@@ -144,8 +144,6 @@ trait QuantificationTemplates { self: Templates =>
 
       val clauses = tmplClauses ++ tpeClauses
       val (res, polarity, contents, str) = if (pol) {
-        val vars = quantifiers.flatMap(v => typeOps.variablesOf(v.tpe))
-
         val subst = quantifiers.flatMap(v => typeOps.variablesOf(v.tpe)).map(v => v -> Left(clauseSubst(v))).toMap
 
         val (contents, str) = Template.contents(pathVar, idQuantifiers zip trQuantifiers,
