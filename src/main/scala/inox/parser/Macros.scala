@@ -8,6 +8,7 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
   import c.universe.{Type => _, Function => _, Expr => _, If => _,  _}
 
   protected val interpolator: c.Tree
+  protected lazy val targetTrees: c.Tree = q"$interpolator.trees"
 
   private val self = {
     val Select(self, _) = c.prefix.tree
@@ -45,8 +46,9 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
   }
 
   implicit def hseqLiftable[A <: IR](implicit ev: Liftable[A]) = Liftable[HSeq[A]] {
-    case HSeq(es) =>
-      q"$interpolator.HSeq.fromSeq(_root_.scala.collection.immutable.Seq(..$es))"
+    case HSeq(es) => {
+      q"{ import $interpolator._; $interpolator.HSeq(..$es) }"
+    }
   }
 
   implicit lazy val identifiersLiftable: Liftable[Identifier] = Liftable[Identifier] {
@@ -302,5 +304,111 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
       q"$interpolator.Exprs.Forall"
     case Lambda =>
       q"$interpolator.Exprs.Lambda"
+  }
+
+  private def parse[A](p: Parser[A]): A = {
+    parseSC(sc)(phrase(p)) match {
+      case Right(v) => v
+      case Left(e) => c.abort(c.enclosingPosition, e)
+    }
+  }
+
+  private lazy val identType = typeOf[inox.Identifier]
+  private lazy val exprType = c.typecheck(tq"$targetTrees.Expr", c.TYPEmode).tpe
+  private lazy val typeType = c.typecheck(tq"$targetTrees.Type", c.TYPEmode).tpe
+  private lazy val valDefType = c.typecheck(tq"$targetTrees.ValDef", c.TYPEmode).tpe
+  private lazy val funDefType = c.typecheck(tq"$targetTrees.FunDef", c.TYPEmode).tpe
+  private lazy val adtSortType = c.typecheck(tq"$targetTrees.ADTSort", c.TYPEmode).tpe
+  private lazy val constructorType = c.typecheck(tq"$targetTrees.ADTConstructor", c.TYPEmode).tpe
+
+  private def tupleType(types: Seq[c.Type]): c.Tree = tq"(..$types)"
+
+  private def accessAll(types: Seq[c.Type]): c.Tree = {
+    val elems = types.zipWithIndex.map {
+      case (tpe, i) => q"x($i).asInstanceOf[$tpe]"
+    }
+    q"(x: Map[Int, Any]) => (..$elems)"
+  }
+
+  private def getTypes(holes: Seq[Hole]): Seq[c.Type] = {
+
+    def holeTypeToType(holeType: HoleType): c.Type = holeType match {
+      case HoleTypes.Identifier => identType
+      case HoleTypes.Expr => exprType
+      case HoleTypes.Type => typeType
+      case HoleTypes.ValDef => valDefType
+      case HoleTypes.Constructor => constructorType
+      case HoleTypes.Pair(lhs, rhs) => c.typecheck(tq"(${holeTypeToType(lhs)}, ${holeTypeToType(rhs)})", c.TYPEmode).tpe
+      case HoleTypes.Sequence(holeType) => c.typecheck(tq"_root_.scala.collection.Seq[${holeTypeToType(holeType)}]", c.TYPEmode).tpe
+    }
+
+    val holeTypes = holes.map(h => h.index -> h.holeType).toMap
+    Seq.tabulate(holeTypes.size) { (i: Int) => holeTypeToType(holeTypes(i)) }
+  }
+
+  private def verifyArgTypes(args: Seq[c.Expr[Any]], types: Seq[c.Type]) {
+    assert(args.size == types.size)
+
+    for ((arg, expectedType) <- args.zip(types)) {
+      val actualType = arg.actualType
+      if (!(actualType <:< expectedType)) {
+        c.error(arg.tree.pos, s"Invalid argument of type $actualType. Expected an argument of type $expectedType.")
+      }
+    }
+  }
+
+  def t_apply(args: c.Expr[Any]*): c.Tree = {
+
+    val ir = parse(typeParser)
+    val types = getTypes(ir.getHoles)
+
+    verifyArgTypes(args, types)
+
+    q"""
+      {
+        val ir = $ir
+        val self = $self
+        val res: $typeType = $interpolator.TypeE.elaborate(ir)($interpolator.createStore(self.symbols, _root_.scala.collection.Seq(..$args))).get match {
+          case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+          case _root_.scala.util.Right(((_, ev), cs)) => $interpolator.solve(cs) match {
+            case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+            case _root_.scala.util.Right(u) => ev.get(u)
+          }
+        }
+        res
+      }
+    """
+  }
+
+  def t_unapply(arg: c.Tree): c.Tree = {
+
+    val ir = parse(typeParser)
+    val holes = ir.getHoles
+
+    if (holes.size >= 1) {
+      val types = getTypes(holes)
+
+      q"""
+        new {
+          val ir = $ir
+          val self = $self
+
+          def unapply(t: $typeType): _root_.scala.Option[${tupleType(types)}] = {
+            $interpolator.TypeX.extract(ir, t).getMatches(self.symbols).map(${accessAll(types)})
+          }
+        }.unapply($arg)
+      """
+    } else {
+      q"""
+        new {
+          val ir = $ir
+          val self = $self
+
+          def unapplySeq(t: $typeType): _root_.scala.Option[_root_.scala.collection.Seq[_root_.scala.Nothing]] = {
+            $interpolator.TypeX.extract(ir, t).getMatches(self.symbols).map(_ => _root_.scala.collection.Seq[_root_.scala.Nothing]())
+          }
+        }.unapplySeq($arg)
+      """
+    }
   }
 }

@@ -1,14 +1,19 @@
 package inox
 package parser
 
+import scala.reflect.macros.whitebox.Context
+
+import scala.language.experimental.macros
+
 trait Interpolators {
   protected val trees: inox.ast.Trees
 
   type Interpolator
 }
 
-trait RuntimeInterpolators
-  extends Elaborators
+trait RunTimeInterpolators
+  extends Interpolators
+     with Elaborators
      with Extractors
      with Parsers {
 
@@ -143,6 +148,25 @@ trait RuntimeInterpolators
   }
 }
 
-object InoxInterpolators extends RuntimeInterpolators {
+object CompileTimeInterpolators
+  extends Interpolators
+     with Elaborators
+     with Extractors {
+
   override protected val trees = inox.trees
+  import trees._
+
+  implicit class Interpolator(sc: StringContext)(implicit val symbols: Symbols = NoSymbols) {
+
+    object t {
+      def apply(args: Any*): Type = macro CompileTimeInterpolatorsImpl.t_apply
+      def unapply(arg: Type): Option[Any] = macro CompileTimeInterpolatorsImpl.t_unapply
+    }
+  }
+}
+
+private class CompileTimeInterpolatorsImpl(context: Context) extends Macros(context) {
+  import c.universe._
+  override protected lazy val targetTrees: c.Tree = q"_root_.inox.trees"
+  override protected val interpolator: c.Tree = q"_root_.inox.parser.CompileTimeInterpolators"
 }

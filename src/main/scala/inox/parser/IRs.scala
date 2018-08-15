@@ -30,7 +30,7 @@ trait IRs
     def getHoles: Seq[Hole]
   }
 
-  trait HoleTypable[A <: IR] {
+  trait HoleTypable[-A <: IR] {
     val holeType: HoleType
   }
 
@@ -57,7 +57,9 @@ trait IRs
   object HSeq {
     def fromSeq[A <: IR : HoleTypable](xs: Seq[A]): HSeq[A] = new HSeq(xs.map(Right(_)))
 
-    def unapplySeq[A <: IR](arg: HSeq[A]): Option[Seq[Either[Int, A]]] =
+    def apply[A <: IR : HoleTypable](xs: Either[Int, A]*): HSeq[A] = new HSeq(xs)
+
+    def unapply[A <: IR](arg: HSeq[A]): Option[Seq[Either[Int, A]]] =
       Some(arg.elems)
   }
 }
