@@ -58,6 +58,7 @@ trait Exprs { self: IRs =>
       case object SetIntersection extends Function(1, 2)
       case object SetUnion extends Function(1, 2)
       case object SetDifference extends Function(1, 2)
+      case object Subset extends Function(1, 2)
       case object BagAdd extends Function(1, 2)
       case object MultiplicityInBag extends Function(1, 2)
       case object BagIntersection extends Function(1, 2)
@@ -91,6 +92,7 @@ trait Exprs { self: IRs =>
         case Let(binding, value, body) => binding.getHoles ++ value.getHoles ++ body.getHoles
         case If(condition, thenn, elze) => condition.getHoles ++ thenn.getHoles ++ elze.getHoles
         case Selection(structure, id) => structure.getHoles ++ id.getHoles
+        case Tuple(exprs) => exprs.getHoles
         case TupleSelection(tuple, _) => tuple.getHoles
         case TypeAnnotation(expr, tpe) => expr.getHoles ++ tpe.getHoles
         case Choose(binding, body) => binding.getHoles ++ body.getHoles
@@ -123,6 +125,7 @@ trait Exprs { self: IRs =>
     case class Let(binding: Bindings.Binding, value: Expr, body: Expr) extends Expr
     case class If(condition: Expr, thenn: Expr, elze: Expr) extends Expr
     case class Selection(structure: Expr, id: Identifiers.Identifier) extends Expr
+    case class Tuple(exprs: ExprSeq) extends Expr
     case class TupleSelection(tuple: Expr, index: Int) extends Expr
     case class TypeAnnotation(expr: Expr, tpe: Types.Type) extends Expr
     case class Choose(binding: Bindings.Binding, body: Expr) extends Expr

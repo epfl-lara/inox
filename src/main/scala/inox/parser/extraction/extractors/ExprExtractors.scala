@@ -223,6 +223,8 @@ trait ExprExtractors { self: Extractors =>
               ExprSeqX.extract(args, Seq(sLhs, sRhs))
             case (MapUpdated, trees.MapUpdated(sLhs, sMid, sRhs)) =>
               ExprSeqX.extract(args, Seq(sLhs, sMid, sRhs))
+            case (Subset, trees.SubsetOf(sLhs, sRhs)) =>
+              ExprSeqX.extract(args, Seq(sLhs, sRhs))
           }
         }
       }
@@ -234,6 +236,10 @@ trait ExprExtractors { self: Extractors =>
       case Selection(expr, id) => Matching.collect(scrutinee) {
         case trees.ADTSelector(sExpr, sId) =>
           ExprX.extract(expr, sExpr) <> FieldIdX.extract(id, sId)
+      }
+      case Tuple(exprs) => Matching.collect(scrutinee) {
+        case trees.Tuple(sExprs) =>
+          ExprSeqX.extract(exprs, sExprs).withValue(())
       }
       case TupleSelection(expr, index) => Matching.collect(scrutinee) {
         case trees.TupleSelect(sExpr, sIndex) if index == sIndex =>

@@ -2,15 +2,15 @@ package inox
 package parser
 package elaboration
 
-trait Solvers { self: Constraints with SimpleTypes =>
+trait Solvers { self: Constraints with SimpleTypes with IRs =>
 
   import SimpleTypes._
   import TypeClasses._
   import Constraints._
 
-  def solve(constraints: Seq[Constraint]): Either[Error, Unifier] = {
+  def solve(constraints: Seq[Constraint]): Either[ErrorMessage, Unifier] = {
 
-    case class UnificationError(message: Error) extends Exception(message)
+    case class UnificationError(message: ErrorMessage) extends Exception(message)
 
     var unknowns: Set[Unknown] = Set()
     var remaining: Seq[Constraint] = constraints
@@ -69,6 +69,7 @@ trait Solvers { self: Constraints with SimpleTypes =>
       }
       case HasClass(tpe, tc) => tpe match {
         case u: Unknown => {
+          unknowns += u
           typeClasses.get(u) match {
             case None => typeClasses += (u -> tc)
             case Some(tc2) => tc.combine(tc2)(tpe) match {
@@ -88,7 +89,7 @@ trait Solvers { self: Constraints with SimpleTypes =>
     }
 
     try {
-      while (unknowns.nonEmpty && remaining.nonEmpty) {
+      while (unknowns.nonEmpty || remaining.nonEmpty) {
 
         while (remaining.nonEmpty) {
           val constraint = remaining.head

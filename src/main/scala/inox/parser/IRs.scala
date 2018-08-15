@@ -11,6 +11,8 @@ trait IRs
      with Functions
      with ADTs {
 
+  type ErrorMessage = String
+
   sealed trait HoleType
   object HoleTypes {
     case object Identifier extends HoleType
@@ -41,5 +43,18 @@ trait IRs
       case Left(index) => Seq(Hole(index, holeType))
       case Right(x) => x.getHoles
     }
+
+    override def toString: String = {
+      def go(x: Either[Int, A]): String = x match {
+        case Left(index) => "$" + index + "..."
+        case Right(elem) => elem.toString
+      }
+
+      "HSeq(" + elems.map(go).mkString(",") + ")"
+    }
+  }
+
+  object HSeq {
+    def fromSeq[A <: IR : HoleTypable](xs: Seq[A]): HSeq[A] = new HSeq(xs.map(Right(_)))
   }
 }

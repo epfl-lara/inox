@@ -3,6 +3,9 @@ package parser
 
 trait Matchings { self: Trees =>
   sealed abstract class Matching[+A] { self =>
+    final def getMatches(symbols: trees.Symbols): Option[Map[Int, Any]] =
+      getMatches(symbols, Map.empty, Map.empty).map(_._2)
+
     def getMatches(
       symbols: trees.Symbols,
       global: Map[String, inox.Identifier],

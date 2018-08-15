@@ -20,17 +20,19 @@ trait BindingElaborators { self: Elaborators =>
       } yield SimpleBindings.Binding(i, st, Eventual.withUnifier { implicit unifier =>
         trees.ValDef(i, et.get)
       }, on)
-      case InferredValDef(id) => for {
-        (i, on) <- DefIdE.elaborate(id)
-      } yield {
-
+      case InferredValDef(id) => {
         val u = SimpleTypes.Unknown.fresh
-        val vd = Eventual.withUnifier { unifier =>
-          trees.ValDef(i, SimpleTypes.toInox(unifier.get(u)))
-        }
-        val sb = SimpleBindings.Binding(i, u, vd, on)
+        for {
+          (i, on) <- DefIdE.elaborate(id).addConstraint(Constraint.exist(u))
+        } yield {
 
-        sb
+          val vd = Eventual.withUnifier { unifier =>
+            trees.ValDef(i, SimpleTypes.toInox(unifier.get(u)))
+          }
+          val sb = SimpleBindings.Binding(i, u, vd, on)
+
+          sb
+        }
       }
     }
   }

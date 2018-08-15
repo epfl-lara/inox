@@ -18,7 +18,8 @@ trait Elaborators
      with IdentifierElaborators
      with FunctionElaborators
      with ADTsElaborators
-     with NumberUtils {
+     with NumberUtils
+     with Solvers {
 
   type Signature = (Int, Seq[SimpleTypes.Type] => (Seq[SimpleTypes.Type], SimpleTypes.Type))
 

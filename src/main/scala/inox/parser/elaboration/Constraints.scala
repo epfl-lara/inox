@@ -65,7 +65,7 @@ trait Constraints { self: IRs with SimpleTypes =>
   }
 
   class Unifier private(mapping: Map[Unknown, Type]) {
-    def get(unknown: Unknown): Type = mapping(unknown)
+    def get(unknown: Unknown): Type = mapping.getOrElse(unknown, unknown)
 
     def +(pair: (Unknown, Type)): Unifier =
       new Unifier(Unifier(pair)(mapping) + pair)
@@ -149,9 +149,7 @@ trait Constraints { self: IRs with SimpleTypes =>
     Eventual.sequence(xs.mapValues(inner.unify(_)).view.force)
   }
 
-  type Error = String
-
-  class Constrained[+A] private(private val get: Either[Error, (A, Seq[Constraint])]) {
+  class Constrained[+A] private(val get: Either[ErrorMessage, (A, Seq[Constraint])]) {
     def map[B](f: A => B): Constrained[B] =
       new Constrained(get.right.map { case (v, cs) => (f(v), cs) })
 
@@ -167,16 +165,16 @@ trait Constraints { self: IRs with SimpleTypes =>
     def addConstraints(constraints: Seq[Constraint]): Constrained[A] =
       constraints.foldLeft(this) { case (acc, c) => acc.addConstraint(c) }
 
-    def checkImmediate(condition: Boolean, error: => Error): Constrained[A] =
+    def checkImmediate(condition: Boolean, error: => ErrorMessage): Constrained[A] =
       if (condition) this else Constrained.fail(error)
 
-    def checkImmediate(condition: A => Boolean, error: => Error): Constrained[A] =
+    def checkImmediate(condition: A => Boolean, error: => ErrorMessage): Constrained[A] =
       flatMap { x =>
         if (condition(x)) Constrained.pure(x) else Constrained.fail(error)
       }
 
     def withFilter(pred: A => Boolean): Constrained[A] = new Constrained(get match {
-      case Right((a, _)) if !pred(a) => Left("TODO: Error.")
+      case Right((a, _)) if !pred(a) => Left("TODO: ErrorMessage.")
       case _ => get
     })
   }
@@ -191,7 +189,7 @@ trait Constraints { self: IRs with SimpleTypes =>
     def pure[A](x: A): Constrained[A] = {
       new Constrained(Right((x, Seq())))
     }
-    def fail(error: Error): Constrained[Nothing] =
+    def fail(error: ErrorMessage): Constrained[Nothing] =
       new Constrained(Left(error))
 
     def sequence[A](constraineds: Seq[Constrained[A]]): Constrained[Seq[A]] = {
@@ -203,12 +201,12 @@ trait Constraints { self: IRs with SimpleTypes =>
       }
     }
 
-    def attempt[A](opt: Option[A], error: => Error): Constrained[A] = opt match {
+    def attempt[A](opt: Option[A], error: => ErrorMessage): Constrained[A] = opt match {
       case Some(x) => Constrained.pure(x)
       case None => Constrained.fail(error)
     }
 
-    def checkImmediate(condition: Boolean, error: => Error): Constrained[Unit] =
+    def checkImmediate(condition: Boolean, error: => ErrorMessage): Constrained[Unit] =
       if (condition) Constrained.pure(()) else Constrained.fail(error)
   }
 

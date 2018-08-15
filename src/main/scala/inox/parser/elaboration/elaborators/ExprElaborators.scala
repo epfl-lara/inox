@@ -201,6 +201,13 @@ trait ExprElaborators { self: Elaborators =>
                   }))
                   .addConstraint(Constraint.equal(sts(0), SimpleTypes.SetType(typeArgs(0))))
                   .addConstraint(Constraint.equal(sts(1), SimpleTypes.SetType(typeArgs(0))))
+              case Subset =>
+                Constrained
+                  .pure((SimpleTypes.BooleanType(), Eventual.withUnifier { implicit unifier =>
+                    trees.SubsetOf(evs(0).get, evs(1).get)
+                  }))
+                  .addConstraint(Constraint.equal(sts(0), SimpleTypes.SetType(typeArgs(0))))
+                  .addConstraint(Constraint.equal(sts(1), SimpleTypes.SetType(typeArgs(0))))
               case BagAdd =>
                 Constrained
                   .pure((SimpleTypes.BagType(typeArgs(0)), Eventual.withUnifier { implicit unifier =>
@@ -269,6 +276,11 @@ trait ExprElaborators { self: Elaborators =>
           .addConstraint(Constraint.equal(sb.tpe, stv))
       } yield (ste, Eventual.withUnifier { implicit unifier =>
         trees.Let(sb.evValDef.get, ev.get, ee.get)
+      })
+      case Tuple(exprs) => for {
+        (sts, evs) <- ExprSeqE.elaborate(exprs).map(_.unzip)
+      } yield (SimpleTypes.TupleType(sts), Eventual.withUnifier { implicit unifier =>
+        trees.Tuple(evs.map(_.get))
       })
       case TupleSelection(expr, index) => for {
         (st, ev) <- ExprE.elaborate(expr)

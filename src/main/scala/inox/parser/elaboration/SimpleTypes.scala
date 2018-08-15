@@ -59,6 +59,7 @@ trait SimpleTypes { self: Trees =>
       override def equals(that: Any): Boolean =
         that.isInstanceOf[Unknown] && that.asInstanceOf[Unknown].identifier == identifier
       override def hashCode(): Int = identifier
+      override def toString: String = "Unknown(" + identifier + ")"
     }
 
     object Unknown {
