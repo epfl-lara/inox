@@ -358,9 +358,7 @@ trait Definitions { self: Trees =>
   class ADTConstructor(
     val id: Identifier,
     val sort: Identifier,
-    val fields: Seq[ValDef],
-    val flags: Seq[Flag] = Seq.empty
-  ) extends Definition {
+    val fields: Seq[ValDef]) extends Tree {
 
     def getSort(implicit s: Symbols): ADTSort = s.getSort(sort)
 
@@ -385,6 +383,13 @@ trait Definitions { self: Trees =>
     def copy(id: Identifier = id,
              sort: Identifier = sort,
              fields: Seq[ValDef] = fields): ADTConstructor = new ADTConstructor(id, sort, fields)
+
+    override def equals(that: Any): Boolean = that match {
+      case c: ADTConstructor => id == c.id
+      case _ => false
+    }
+
+    override def hashCode: Int = id.hashCode
   }
 
   /** Represents an [[ADTSort]] whose type parameters have been instantiated to ''tps'' */
