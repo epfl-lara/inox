@@ -57,6 +57,8 @@ class TipTestSuite extends TestSuite with ResourceUtils {
   private def ignoreUNKNOWN(ctx: Context, file: java.io.File): FilterStatus = 
     ctx.options.findOptionOrDefault(optSelectedSolvers).headOption match {
       case Some(solver) => (solver, file.getName) match {
+        // non-linear operations are too slow on smt-z3
+        case ("smt-z3", "Soundness2.scala-0.tip") => Ignore
         // use non-linear operators that aren't supported in CVC4
         case ("smt-cvc4", "Soundness.scala-0.tip") => Skip
         case ("smt-cvc4", "Soundness2.scala-0.tip") => Skip
