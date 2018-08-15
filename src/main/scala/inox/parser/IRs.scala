@@ -56,5 +56,8 @@ trait IRs
 
   object HSeq {
     def fromSeq[A <: IR : HoleTypable](xs: Seq[A]): HSeq[A] = new HSeq(xs.map(Right(_)))
+
+    def unapplySeq[A <: IR](arg: HSeq[A]): Option[Seq[Either[Int, A]]] =
+      Some(arg.elems)
   }
 }

@@ -8,7 +8,7 @@ import scala.util.parsing.input._
 
 import inox.parser.sc.StringContextParsers
 
-trait Parsers extends StringContextParsers with StdTokenParsers with IRs with NumberUtils {
+trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils { self: IRs =>
 
   type Tokens = Lexer.type
   override val lexical = Lexer
