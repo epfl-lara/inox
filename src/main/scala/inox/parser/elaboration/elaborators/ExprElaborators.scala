@@ -15,7 +15,7 @@ trait ExprElaborators { self: Elaborators =>
         }
       }
       case Variable(id) => for {
-        i <- UseIdE.elaborate(id)
+        i <- ExprUseIdE.elaborate(id)
         (st, et) <- Constrained.attempt(store.getVariable(i), "TODO: Error, i is not a variable.")
       } yield (st, et.map(trees.Variable(i, _, Seq())))
       case UnitLiteral() =>
@@ -125,7 +125,7 @@ trait ExprElaborators { self: Elaborators =>
         trees.IfExpr(evc.get, evt.get, eve.get)
       })
       case Invocation(id, optTypeArgs, args) => for {
-        i <- UseIdE.elaborate(id)
+        i <- ExprUseIdE.elaborate(id)
         ((n, f), isFun) <- Constrained.attempt(
           store.getFunction(i).map((_, true)).orElse(store.getConstructor(i).map((_, false))),
           "TODO: Error: i is not a function nor a constructor.")
@@ -264,7 +264,7 @@ trait ExprElaborators { self: Elaborators =>
       }
       case IsConstructor(expr, id) => for {
         (st, ev) <- ExprE.elaborate(expr)
-        i <- UseIdE.elaborate(id)
+        i <- ExprUseIdE.elaborate(id)
         s <- Constrained.attempt(store.getSortOfConstructor(i), "TODO: Error: i is not a constructor.")
         n = store.getTypeConstructor(s).getOrElse { throw new IllegalStateException("Inconsistent store.") }
         _ <- Constrained(Constraint.equal(st, SimpleTypes.ADTType(i, Seq.fill(n)(SimpleTypes.Unknown.fresh))))

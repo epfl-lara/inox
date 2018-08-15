@@ -7,10 +7,17 @@ trait IdentifierExtractors { self: Extractors =>
 
   import Identifiers._
 
-  object UseIdX extends Extractor[Identifier, inox.Identifier, Unit] {
+  object ExprUseIdX extends Extractor[Identifier, inox.Identifier, Unit] {
     override def extract(template: Identifier, scrutinee: inox.Identifier): Matching[Unit] = template match {
       case IdentifierHole(index) => Matching(index -> scrutinee)
-      case IdentifierName(name) => Matching.ensureConsistent(name, scrutinee)
+      case IdentifierName(name) => Matching.ensureConsistent(name, scrutinee, isType=false)
+    }
+  }
+
+  object TypeUseIdX extends Extractor[Identifier, inox.Identifier, Unit] {
+    override def extract(template: Identifier, scrutinee: inox.Identifier): Matching[Unit] = template match {
+      case IdentifierHole(index) => Matching(index -> scrutinee)
+      case IdentifierName(name) => Matching.ensureConsistent(name, scrutinee, isType=true)
     }
   }
 

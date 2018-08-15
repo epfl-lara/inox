@@ -14,7 +14,7 @@ trait TypeElaborators { self: Elaborators =>
         st <- Constrained.attempt(SimpleTypes.fromInox(t), "TODO: Error")
       } yield (st, Eventual.pure(t))
       case Variable(id) => for {
-        i <- UseIdE.elaborate(id)
+        i <- TypeUseIdE.elaborate(id)
         (st, et) <- Constrained.attempt(store.getType(i), "TODO: Error: i is not a type.")
       } yield (st, et)
       case Primitive(tpe) => {
@@ -54,7 +54,7 @@ trait TypeElaborators { self: Elaborators =>
         })
       }
       case Invocation(id, args) => for {
-        i <- UseIdE.elaborate(id)
+        i <- TypeUseIdE.elaborate(id)
         n <- Constrained.attempt(store.getTypeConstructor(i), "TODO: Error: i is not a type constructor.")
         zas <- TypeSeqE.elaborate(args)
         _ <- Constrained.checkImmediate(n == zas.size, "TODO: Error: wrong number of arguments.")

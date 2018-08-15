@@ -14,7 +14,7 @@ trait ExprExtractors { self: Extractors =>
         case trees.UnitLiteral() => Matching.success
       }
       case Variable(id) => Matching.collect(scrutinee) {
-        case trees.Variable(sId, _, _) => UseIdX.extract(id, sId)
+        case trees.Variable(sId, _, _) => ExprUseIdX.extract(id, sId)
       }
       case IntegerLiteral(number) => Matching.collect(scrutinee) {
         case trees.BVLiteral(value, base) =>
@@ -179,11 +179,11 @@ trait ExprExtractors { self: Extractors =>
       }
       case Invocation(id, optTypeArgs, args) => Matching.collect(scrutinee) {
         case trees.FunctionInvocation(sId, sTypeArgs, sArgs) =>
-          UseIdX.extract(id, sId) <>
+          ExprUseIdX.extract(id, sId) <>
           Matching.optionally(optTypeArgs.map(TypeSeqX.extract(_, sTypeArgs))) <>
           ExprSeqX.extract(args, sArgs)
         case trees.ADT(sId, sTypeArgs, sArgs) =>
-          UseIdX.extract(id, sId) <>
+          ExprUseIdX.extract(id, sId) <>
           Matching.optionally(optTypeArgs.map(TypeSeqX.extract(_, sTypeArgs))) <>
           ExprSeqX.extract(args, sArgs)
       }
@@ -231,7 +231,7 @@ trait ExprExtractors { self: Extractors =>
       case IsConstructor(expr, id) => Matching.collect(scrutinee) {
         case trees.IsConstructor(sExpr, sId) =>
           ExprX.extract(expr, sExpr) <>
-          UseIdX.extract(id, sId)
+          ExprUseIdX.extract(id, sId)
       }
       case Selection(expr, id) => Matching.collect(scrutinee) {
         case trees.ADTSelector(sExpr, sId) =>

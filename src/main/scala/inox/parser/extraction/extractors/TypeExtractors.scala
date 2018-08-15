@@ -44,7 +44,7 @@ trait TypeExtractors { self: Extractors =>
       }
       case Invocation(id, args) => Matching.collect(scrutinee) {
         case trees.ADTType(sId, sArgs) =>
-          UseIdX.extract(id, sId) <> TypeSeqX.extract(args, sArgs)
+          TypeUseIdX.extract(id, sId) <> TypeSeqX.extract(args, sArgs)
       }
       case RefinementType(binding, pred) => Matching.collect(scrutinee) {
         case trees.RefinementType(sBinding, sPred) =>
@@ -54,7 +54,7 @@ trait TypeExtractors { self: Extractors =>
       }
       case Variable(id) => Matching.collect(scrutinee) {
         case trees.TypeParameter(sId, _) =>
-          UseIdX.extract(id, sId)
+          TypeUseIdX.extract(id, sId)
       }
       case PiType(bindings, to) => Matching.collect(scrutinee) {
         case trees.PiType(sBindings, sTo) =>

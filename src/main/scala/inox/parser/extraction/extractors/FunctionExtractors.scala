@@ -13,8 +13,10 @@ trait FunctionExtractors { self: Extractors =>
         DefIdSeqX.extract(template.typeParams, scrutinee.tparams.map(_.id)).flatMap { optTypeParams =>
           BindingSeqX.extract(template.params, scrutinee.params).flatMap { optParams =>
             Matching.optionally(template.returnType.map(st => TypeX.extract(st, scrutinee.returnType))) <>
-            ExprX.extract(template.body, scrutinee.fullBody).extendLocal(optParams.flatten).extendLocal(optName.toSeq)
-          }.extendLocal(optTypeParams.flatten)
+            ExprX.extract(template.body, scrutinee.fullBody)
+              .extendLocal(optParams.flatten)
+              .extendLocal(optName.toSeq)
+          }.extendLocal(optTypeParams.flatten, isType=true)
         }
       }
     }

@@ -8,38 +8,27 @@ trait Matchings { self: Trees =>
 
     def getMatches(
       symbols: trees.Symbols,
-      global: Map[String, inox.Identifier],
-      local: Map[String, inox.Identifier]):
-        Option[(Map[String, inox.Identifier], Map[Int, Any], A)]
+      global: Map[(String, Boolean), inox.Identifier],
+      local: Map[(String, Boolean), inox.Identifier]):
+        Option[(Map[(String, Boolean), inox.Identifier], Map[Int, Any], A)]
 
-    def extendLocal(name: String, identifier: inox.Identifier): Matching[A] = new Matching[A] {
+    def extendLocal(pairs: Seq[(String, inox.Identifier)], isType: Boolean=false): Matching[A] = new Matching[A] {
       override def getMatches(
         symbols: trees.Symbols,
-        global: Map[String, inox.Identifier],
-        local: Map[String, inox.Identifier]):
-          Option[(Map[String, inox.Identifier], Map[Int, Any], A)] = {
+        global: Map[(String, Boolean), inox.Identifier],
+        local: Map[(String, Boolean), inox.Identifier]):
+          Option[(Map[(String, Boolean), inox.Identifier], Map[Int, Any], A)] = {
 
-        self.getMatches(symbols, global, local + (name -> identifier))
-      }
-    }
-
-    def extendLocal(pairs: Seq[(String, inox.Identifier)]): Matching[A] = new Matching[A] {
-      override def getMatches(
-        symbols: trees.Symbols,
-        global: Map[String, inox.Identifier],
-        local: Map[String, inox.Identifier]):
-          Option[(Map[String, inox.Identifier], Map[Int, Any], A)] = {
-
-        self.getMatches(symbols, global, pairs.foldLeft(local) { case (acc, pair) => acc + pair })
+        self.getMatches(symbols, global, pairs.foldLeft(local) { case (acc, pair) => acc + ((pair._1, isType) -> pair._2) })
       }
     }
 
     def <>[B](that: Matching[B]): Matching[Unit] = new Matching[Unit] {
       override def getMatches(
         symbols: trees.Symbols,
-        global: Map[String, inox.Identifier],
-        local: Map[String, inox.Identifier]):
-          Option[(Map[String, inox.Identifier], Map[Int, Any], Unit)] = {
+        global: Map[(String, Boolean), inox.Identifier],
+        local: Map[(String, Boolean), inox.Identifier]):
+          Option[(Map[(String, Boolean), inox.Identifier], Map[Int, Any], Unit)] = {
 
         for {
           (newGlobal, firstMap, _) <- self.getMatches(symbols, global, local)
@@ -51,9 +40,9 @@ trait Matchings { self: Trees =>
     def >>[B](that: Matching[B]): Matching[B] = new Matching[B] {
       override def getMatches(
         symbols: trees.Symbols,
-        global: Map[String, inox.Identifier],
-        local: Map[String, inox.Identifier]):
-          Option[(Map[String, inox.Identifier], Map[Int, Any], B)] = {
+        global: Map[(String, Boolean), inox.Identifier],
+        local: Map[(String, Boolean), inox.Identifier]):
+          Option[(Map[(String, Boolean), inox.Identifier], Map[Int, Any], B)] = {
 
         for {
           (newGlobal, firstMap, _) <- self.getMatches(symbols, global, local)
@@ -65,9 +54,9 @@ trait Matchings { self: Trees =>
     def <<[B](that: Matching[B]): Matching[A] = new Matching[A] {
       override def getMatches(
         symbols: trees.Symbols,
-        global: Map[String, inox.Identifier],
-        local: Map[String, inox.Identifier]):
-          Option[(Map[String, inox.Identifier], Map[Int, Any], A)] = {
+        global: Map[(String, Boolean), inox.Identifier],
+        local: Map[(String, Boolean), inox.Identifier]):
+          Option[(Map[(String, Boolean), inox.Identifier], Map[Int, Any], A)] = {
 
         for {
           (newGlobal, firstMap, v) <- self.getMatches(symbols, global, local)
@@ -79,9 +68,9 @@ trait Matchings { self: Trees =>
     def map[B](f: A => B): Matching[B] = new Matching[B] {
       override def getMatches(
         symbols: trees.Symbols,
-        global: Map[String, inox.Identifier],
-        local: Map[String, inox.Identifier]):
-          Option[(Map[String, inox.Identifier], Map[Int, Any], B)] = {
+        global: Map[(String, Boolean), inox.Identifier],
+        local: Map[(String, Boolean), inox.Identifier]):
+          Option[(Map[(String, Boolean), inox.Identifier], Map[Int, Any], B)] = {
 
         for {
           (newGlobal, mapping, v) <- self.getMatches(symbols, global, local)
@@ -92,9 +81,9 @@ trait Matchings { self: Trees =>
     def flatMap[B](that: A => Matching[B]): Matching[B] = new Matching[B] {
       override def getMatches(
         symbols: trees.Symbols,
-        global: Map[String, inox.Identifier],
-        local: Map[String, inox.Identifier]):
-          Option[(Map[String, inox.Identifier], Map[Int, Any], B)] = {
+        global: Map[(String, Boolean), inox.Identifier],
+        local: Map[(String, Boolean), inox.Identifier]):
+          Option[(Map[(String, Boolean), inox.Identifier], Map[Int, Any], B)] = {
 
         for {
           (newGlobal, firstMap, v1) <- self.getMatches(symbols, global, local)
@@ -107,16 +96,16 @@ trait Matchings { self: Trees =>
   }
 
   object Matching {
-    def ensureConsistent(name: String, identifier: inox.Identifier): Matching[Unit] =
+    def ensureConsistent(name: String, identifier: inox.Identifier, isType: Boolean=false): Matching[Unit] =
       new Matching[Unit] {
         override def getMatches(
           symbols: trees.Symbols,
-          global: Map[String, inox.Identifier],
-          local: Map[String, inox.Identifier]):
-            Option[(Map[String, inox.Identifier], Map[Int, Any], Unit)] = {
+          global: Map[(String, Boolean), inox.Identifier],
+          local: Map[(String, Boolean), inox.Identifier]):
+            Option[(Map[(String, Boolean), inox.Identifier], Map[Int, Any], Unit)] = {
 
-          local.get(name).orElse(global.get(name)) match {
-            case None => Some((global + (name -> identifier), Map(), ()))
+          local.get((name, isType)).orElse(global.get((name, isType))) match {
+            case None => Some((global + ((name, isType) -> identifier), Map(), ()))
             case Some(otherIdentifier) => if (identifier != otherIdentifier) None else Some((global, Map(), ()))
           }
         }
@@ -137,42 +126,42 @@ trait Matchings { self: Trees =>
     def apply(pairs: (Int, Any)*): Matching[Unit] = new Matching[Unit] {
       override def getMatches(
         symbols: trees.Symbols,
-        global: Map[String, inox.Identifier],
-        local: Map[String, inox.Identifier]):
-          Option[(Map[String, inox.Identifier], Map[Int, Any], Unit)] =
+        global: Map[(String, Boolean), inox.Identifier],
+        local: Map[(String, Boolean), inox.Identifier]):
+          Option[(Map[(String, Boolean), inox.Identifier], Map[Int, Any], Unit)] =
         Some((global, Map(pairs: _*), ()))
     }
 
     def pure[A](x: A): Matching[A] = new Matching[A] {
       override def getMatches(
         symbols: trees.Symbols,
-        global: Map[String, inox.Identifier],
-        local: Map[String, inox.Identifier]):
-          Option[(Map[String, inox.Identifier], Map[Int, Any], A)] = Some((global, Map(), x))
+        global: Map[(String, Boolean), inox.Identifier],
+        local: Map[(String, Boolean), inox.Identifier]):
+          Option[(Map[(String, Boolean), inox.Identifier], Map[Int, Any], A)] = Some((global, Map(), x))
     }
 
     val success: Matching[Unit] = new Matching[Unit] {
       override def getMatches(
         symbols: trees.Symbols,
-        global: Map[String, inox.Identifier],
-        local: Map[String, inox.Identifier]):
-          Option[(Map[String, inox.Identifier], Map[Int, Any], Unit)] = Some((global, Map(), ()))
+        global: Map[(String, Boolean), inox.Identifier],
+        local: Map[(String, Boolean), inox.Identifier]):
+          Option[(Map[(String, Boolean), inox.Identifier], Map[Int, Any], Unit)] = Some((global, Map(), ()))
     }
 
     val fail: Matching[Nothing] = new Matching[Nothing] {
       override def getMatches(
         symbols: trees.Symbols,
-        global: Map[String, inox.Identifier],
-        local: Map[String, inox.Identifier]):
-          Option[(Map[String, inox.Identifier], Map[Int, Any], Nothing)] = None
+        global: Map[(String, Boolean), inox.Identifier],
+        local: Map[(String, Boolean), inox.Identifier]):
+          Option[(Map[(String, Boolean), inox.Identifier], Map[Int, Any], Nothing)] = None
     }
 
     def withSymbols[A](f: trees.Symbols => Matching[A]): Matching[A] = new Matching[A] {
       override def getMatches(
         symbols: trees.Symbols,
-        global: Map[String, inox.Identifier],
-        local: Map[String, inox.Identifier]):
-          Option[(Map[String, inox.Identifier], Map[Int, Any], A)] =
+        global: Map[(String, Boolean), inox.Identifier],
+        local: Map[(String, Boolean), inox.Identifier]):
+          Option[(Map[(String, Boolean), inox.Identifier], Map[Int, Any], A)] =
             f(symbols).getMatches(symbols, global, local)
     }
 

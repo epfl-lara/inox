@@ -89,13 +89,15 @@ trait Elaborators
   case class Store(
     symbols: trees.Symbols,
     names: Map[String, inox.Identifier],
+    typeNames: Map[String, inox.Identifier],
     variables: Map[inox.Identifier, (SimpleTypes.Type, Eventual[trees.Type])],
     adtStore: ADTStore,
     funStore: FunctionStore,
     args: Seq[Any]) {
 
     def getSymbols = symbols
-    def getIdentifier(name: String): Option[inox.Identifier] = names.get(name)
+    def getExprIdentifier(name: String): Option[inox.Identifier] = names.get(name)
+    def getTypeIdentifier(name: String): Option[inox.Identifier] = typeNames.get(name)
     def getFieldByName(name: String): Seq[(inox.Identifier, inox.Identifier)] = for {
       fid <- adtStore.fieldIdsByName.getOrElse(name, Seq())
       sid <- adtStore.sortIdByFieldId.get(fid)
@@ -135,11 +137,11 @@ trait Elaborators
     def addTypeBinding(binding: SimpleBindings.TypeBinding): Store =
       copy(
         variables=variables + (binding.id -> (binding.tpe, binding.evTpe)),
-        names=names ++ binding.name.map(_ -> binding.id))
+        typeNames=typeNames ++ binding.name.map(_ -> binding.id))
     def addTypeBindings(bindings: Seq[SimpleBindings.TypeBinding]): Store =
       copy(
         variables=variables ++ bindings.map(binding => (binding.id -> (binding.tpe, binding.evTpe))),
-        names=names ++ bindings.flatMap(binding => binding.name.map(_ -> binding.id)))
+        typeNames=typeNames ++ bindings.flatMap(binding => binding.name.map(_ -> binding.id)))
     def addFunction(function: SimpleFunctions.Function): Store =
       copy(
         funStore=funStore.addFunction(function),
@@ -151,15 +153,13 @@ trait Elaborators
     def addSort(sort: SimpleADTs.Sort): Store =
       copy(
         adtStore=adtStore.addSort(sort),
-        names=names ++
-          sort.optName.map((_, sort.id)) ++
-          sort.constructors.flatMap(c => c.optName.map((_, c.id))))
+        typeNames=typeNames ++ sort.optName.map((_, sort.id)),
+        names=names ++ sort.constructors.flatMap(c => c.optName.map((_, c.id))))
     def addSorts(sorts: Seq[SimpleADTs.Sort]): Store =
       copy(
         adtStore=adtStore.addSorts(sorts),
-        names=names ++
-          sorts.flatMap(sort => sort.optName.map((_, sort.id))) ++
-          sorts.flatMap(sort => sort.constructors.flatMap(c => c.optName.map((_, c.id)))))
+        typeNames=typeNames ++ sorts.flatMap(sort => sort.optName.map((_, sort.id))),
+        names=names ++ sorts.flatMap(sort => sort.constructors.flatMap(c => c.optName.map((_, c.id)))))
   }
 
   def createStore(symbols: trees.Symbols, args: Seq[Any]): Store = {
@@ -168,7 +168,7 @@ trait Elaborators
 
     val funStore: FunctionStore = FunctionStore(Map())
 
-    Store(symbols, Map(), Map(), adtStore, funStore, args)
+    Store(symbols, Map(), Map(), Map(), adtStore, funStore, args)
       .addFunctions(symbols.functions.values.flatMap(SimpleFunctions.fromInox(_)).toSeq)
       .addSorts(symbols.sorts.values.flatMap(SimpleADTs.fromInox(_)).toSeq)
   }

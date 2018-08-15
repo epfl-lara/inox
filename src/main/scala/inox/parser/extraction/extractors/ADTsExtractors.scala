@@ -11,7 +11,7 @@ trait ADTsExtractors { self: Extractors =>
       DefIdX.extract(template.identifier, scrutinee.id).flatMap { optPair =>
         DefIdSeqX.extract(template.typeParams, scrutinee.tparams.map(_.id)).flatMap { optPairs =>
           ConstructorSeqX.extract(template.constructors, scrutinee.constructors)
-            .extendLocal(optPair.toSeq ++ optPairs.flatten)
+            .extendLocal(optPair.toSeq ++ optPairs.flatten, isType=true)
             .withValue(())
         }
       }
