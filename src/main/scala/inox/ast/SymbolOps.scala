@@ -313,7 +313,7 @@ trait SymbolOps { self: TypeOps =>
             val Operator(es, recons) = e
             recons(es.map(op.rec(_, env)))
 
-          case Let(vd, liftable(conditions), b) =>
+          case Let(vd, e @ liftable(conditions), b) =>
             subst(vd.toVariable) = (e, conditions)
             op.rec(b, env)
 
