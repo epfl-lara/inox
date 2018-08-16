@@ -411,4 +411,59 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
       """
     }
   }
+
+  def e_apply(args: c.Expr[Any]*): c.Tree = {
+
+    val ir = parse(exprParser)
+    val types = getTypes(ir.getHoles)
+
+    verifyArgTypes(args, types)
+
+    q"""
+      {
+        val ir = $ir
+        val self = $self
+        val res: $exprType = $interpolator.ExprE.elaborate(ir)($interpolator.createStore(self.symbols, _root_.scala.collection.Seq(..$args))).get match {
+          case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+          case _root_.scala.util.Right(((_, ev), cs)) => $interpolator.solve(cs) match {
+            case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+            case _root_.scala.util.Right(u) => ev.get(u)
+          }
+        }
+        res
+      }
+    """
+  }
+
+  def e_unapply(arg: c.Tree): c.Tree = {
+
+    val ir = parse(exprParser)
+    val holes = ir.getHoles
+
+    if (holes.size >= 1) {
+      val types = getTypes(holes)
+
+      q"""
+        new {
+          val ir = $ir
+          val self = $self
+
+          def unapply(t: $exprType): _root_.scala.Option[${tupleType(types)}] = {
+            $interpolator.ExprX.extract(ir, t).getMatches(self.symbols).map(${accessAll(types)})
+          }
+        }.unapply($arg)
+      """
+    } else {
+      q"""
+        new {
+          val ir = $ir
+          val self = $self
+
+          def unapplySeq(t: $exprType): _root_.scala.Option[_root_.scala.collection.Seq[_root_.scala.Nothing]] = {
+            $interpolator.ExprX.extract(ir, t).getMatches(self.symbols).map(_ => _root_.scala.collection.Seq[_root_.scala.Nothing]())
+          }
+        }.unapplySeq($arg)
+      """
+    }
+  }
 }

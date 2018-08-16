@@ -162,6 +162,11 @@ object CompileTimeInterpolators
       def apply(args: Any*): Type = macro CompileTimeInterpolatorsImpl.t_apply
       def unapply(arg: Type): Option[Any] = macro CompileTimeInterpolatorsImpl.t_unapply
     }
+
+    object e {
+      def apply(args: Any*): Expr = macro CompileTimeInterpolatorsImpl.e_apply
+      def unapply(arg: Expr): Option[Any] = macro CompileTimeInterpolatorsImpl.e_unapply
+    }
   }
 }
 
