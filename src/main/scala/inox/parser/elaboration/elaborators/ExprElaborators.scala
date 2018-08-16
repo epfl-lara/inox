@@ -267,7 +267,7 @@ trait ExprElaborators { self: Elaborators =>
         i <- ExprUseIdE.elaborate(id)
         s <- Constrained.attempt(store.getSortOfConstructor(i), "TODO: Error: i is not a constructor.")
         n = store.getTypeConstructor(s).getOrElse { throw new IllegalStateException("Inconsistent store.") }
-        _ <- Constrained(Constraint.equal(st, SimpleTypes.ADTType(i, Seq.fill(n)(SimpleTypes.Unknown.fresh))))
+        _ <- Constrained(Constraint.equal(st, SimpleTypes.ADTType(s, Seq.fill(n)(SimpleTypes.Unknown.fresh))))
       } yield (SimpleTypes.BooleanType(), ev.map(trees.IsConstructor(_, i)))
       case Let(binding, value, expr) => for {
         sb <- BindingE.elaborate(binding)
