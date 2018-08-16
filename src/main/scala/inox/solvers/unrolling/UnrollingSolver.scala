@@ -125,8 +125,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
   private[this] var reported = false
 
   def assertCnstr(expression: Expr): Unit = context.timers.solvers.assert.run {
-    symbols.ensureWellFormed // make sure that the current program is well-formed
-    typeCheck(expression, BooleanType()) // make sure we've asserted a boolean-typed expression
+    context.timers.solvers.assert.sanity.run {
+      symbols.ensureWellFormed // make sure that the current program is well-formed
+      typeCheck(expression, BooleanType()) // make sure we've asserted a boolean-typed expression
+    }
+
     // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
     context.interruptManager.registerForInterrupts(this)
 
@@ -145,13 +148,17 @@ trait AbstractUnrollingSolver extends Solver { self =>
       case _ => None
     } (expression)
 
-    val newClauses = templates.instantiateExpr(
-      encode(withoutChooses),
-      (freeBindings ++ chooseBindings).map(p => encode(p._1) -> p._2)
-    )
+    val newClauses = context.timers.solvers.assert.clauses.run {
+      templates.instantiateExpr(
+        encode(withoutChooses),
+        (freeBindings ++ chooseBindings).map(p => encode(p._1) -> p._2)
+      )
+    }
 
-    for (cl <- newClauses) {
-      underlying.assertCnstr(cl)
+    context.timers.solvers.assert.underlying.run {
+      for (cl <- newClauses) {
+        underlying.assertCnstr(cl)
+      }
     }
   }
 
