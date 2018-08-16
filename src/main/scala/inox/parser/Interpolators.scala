@@ -140,7 +140,24 @@ trait RunTimeInterpolators
         }
       }
     }
+
+    def p(args: Any*): Seq[Definition] = {
+      parseSC(sc)(phrase(programParser)) match {
+        case Left(err) => throw new Exception(err)
+        case Right(ir) => ProgramE.elaborate(ir)(createStore(symbols, args)).get match {
+          case Left(err) => throw new Exception(err)
+          case Right((evs, cs)) => solve(cs) match {
+            case Left(err) => throw new Exception(err)
+            case Right(u) => evs.map(_.get(u))
+          }
+        }
+      }
+    }
   }
+}
+
+object InoxRuntimeInterpolators extends RunTimeInterpolators {
+  override protected val trees = inox.trees
 }
 
 object CompileTimeInterpolators {
@@ -178,6 +195,10 @@ object CompileTimeInterpolators {
     object td {
       def apply(args: Any*): ADTSort = macro CompileTimeInterpolatorsImpl.td_apply
       def unapply(arg: ADTSort): Option[Any] = macro CompileTimeInterpolatorsImpl.td_unapply
+    }
+
+    object p {
+      def apply(args: Any*): Seq[Definition] = macro CompileTimeInterpolatorsImpl.p_apply
     }
   }
 }

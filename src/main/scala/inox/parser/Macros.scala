@@ -40,6 +40,7 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
   import Functions._
   import Types._
   import Exprs._
+  import Programs._
 
   implicit lazy val bigIntLiftable: Liftable[BigInt] = Liftable[BigInt] {
     case n => q"_root_.scala.math.BigInt(${n.toString})"
@@ -310,6 +311,11 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
       q"$interpolator.Exprs.Lambda"
   }
 
+  implicit lazy val programLiftable: Liftable[Program] = Liftable[Program] {
+    case Program(es) =>
+      q"$interpolator.Programs.Program(_root_.scala.collection.Seq(..$es))"
+  }
+
   private def parse[A](p: Parser[A]): A = {
     parseSC(sc)(phrase(p)) match {
       case Right(v) => v
@@ -324,6 +330,7 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
   private lazy val funDefType = c.typecheck(tq"$targetTrees.FunDef", c.TYPEmode).tpe
   private lazy val adtSortType = c.typecheck(tq"$targetTrees.ADTSort", c.TYPEmode).tpe
   private lazy val constructorType = c.typecheck(tq"$targetTrees.ADTConstructor", c.TYPEmode).tpe
+  private lazy val defSeqType = c.typecheck(tq"_root_.scala.collection.Seq[$targetTrees.Definition]", c.TYPEmode).tpe
 
   private def tupleType(types: Seq[c.Type]): c.Tree = tq"(..$types)"
 
@@ -634,5 +641,28 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
         }.unapplySeq($arg)
       """
     }
+  }
+
+  def p_apply(args: c.Expr[Any]*): c.Tree = {
+
+    val ir = parse(programParser)
+    val types = getTypes(ir.getHoles)
+
+    verifyArgTypes(args, types)
+
+    q"""
+      {
+        val ir = $ir
+        val self = $self
+        val res: $defSeqType = $interpolator.ProgramE.elaborate(ir)($interpolator.createStore(self.symbols, _root_.scala.collection.Seq(..$args))).get match {
+          case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+          case _root_.scala.util.Right((evs, cs)) => $interpolator.solve(cs) match {
+            case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+            case _root_.scala.util.Right(u) => evs.map(_.get(u))
+          }
+        }
+        res
+      }
+    """
   }
 }

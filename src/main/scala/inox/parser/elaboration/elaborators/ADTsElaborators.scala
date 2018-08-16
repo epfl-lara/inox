@@ -7,21 +7,26 @@ trait ADTsElaborators { self: Elaborators =>
 
   import ADTs._
 
-  object SortE extends Elaborator[Sort, (SimpleADTs.Sort, Eventual[trees.ADTSort])] {
-    override def elaborate(sort: Sort)(implicit store: Store): Constrained[(SimpleADTs.Sort, Eventual[trees.ADTSort])] = for {
+  object EmptySortE extends Elaborator[Sort, SimpleADTs.Sort] {
+    override def elaborate(sort: Sort)(implicit store: Store): Constrained[SimpleADTs.Sort] = for {
       (i, optName) <- DefIdE.elaborate(sort.identifier)
       typeBindings <- DefIdSeqE.elaborate(sort.typeParams).map(_.map({
         case (varId, optVarName) => SimpleBindings.TypeBinding(
           varId, SimpleTypes.TypeParameter(varId), Eventual.pure(trees.TypeParameter(varId, Seq())), optVarName)
       }))
-      sortWithoutCons = SimpleADTs.Sort(i, optName, typeBindings, Seq())
-      (scs, ecs) <- new ConstructorSeqE(i).elaborate(sort.constructors)({
+    } yield SimpleADTs.Sort(i, optName, typeBindings, Seq())
+  }
+
+  object SortE extends Elaborator[Sort, (SimpleADTs.Sort, Eventual[trees.ADTSort])] {
+    override def elaborate(sort: Sort)(implicit store: Store): Constrained[(SimpleADTs.Sort, Eventual[trees.ADTSort])] = for {
+      s <- EmptySortE.elaborate(sort)
+      (scs, ecs) <- new ConstructorSeqE(s.id).elaborate(sort.constructors)({
         store
-          .addSort(sortWithoutCons)
-          .addTypeBindings(typeBindings)
+          .addSort(s)
+          .addTypeBindings(s.typeParams)
         }).map(_.unzip)
-    } yield (sortWithoutCons.copy(constructors=scs), Eventual.withUnifier { implicit unifier =>
-        new trees.ADTSort(i, typeBindings.map(tb => trees.TypeParameterDef(tb.id, Seq())), ecs.map(_.get), Seq()) })
+    } yield (s.copy(constructors=scs), Eventual.withUnifier { implicit unifier =>
+        new trees.ADTSort(s.id, s.typeParams.map(tb => trees.TypeParameterDef(tb.id, Seq())), ecs.map(_.get), Seq()) })
   }
 
   class ConstructorE(sortId: inox.Identifier) extends Elaborator[Constructor, (SimpleADTs.Constructor, Eventual[trees.ADTConstructor])] {

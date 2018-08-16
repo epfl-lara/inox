@@ -9,7 +9,8 @@ trait IRs
      with Bindings
      with Types
      with Functions
-     with ADTs {
+     with ADTs
+     with Programs {
 
   type ErrorMessage = String
 

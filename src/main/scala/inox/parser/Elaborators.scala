@@ -18,6 +18,7 @@ trait Elaborators
      with IdentifierElaborators
      with FunctionElaborators
      with ADTsElaborators
+     with ProgramElaborators
      with NumberUtils
      with Solvers {
 

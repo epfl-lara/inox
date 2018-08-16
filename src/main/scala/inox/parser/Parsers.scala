@@ -19,6 +19,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
   import Types.{Invocation => TypeInvocation, Operators => TypeOperators, _}
   import Functions._
   import ADTs._
+  import Programs._
 
   def p(c: Char): Parser[lexical.Token] =
     elem(lexical.Parenthesis(c)) | elem(lexical.Punctuation(c))
@@ -41,16 +42,16 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
     }
   }
 
-  lazy val identifierParser: Parser[Identifier] = acceptMatch("identifier", {
+  lazy val identifierParser: PackratParser[Identifier] = acceptMatch("identifier", {
     case lexical.Identifier(name) => IdentifierName(name)
     case lexical.Hole(index) => IdentifierHole(index)
   })
 
-  lazy val holeParser: Parser[Int] = acceptMatch("hole", {
+  lazy val holeParser: PackratParser[Int] = acceptMatch("hole", {
     case lexical.Hole(index) => index
   })
 
-  lazy val typeParser: Parser[Type] = contextTypeParser(None)
+  lazy val typeParser: PackratParser[Type] = contextTypeParser(None)
 
   def contextTypeParser(context: Option[String]): Parser[Type] = {
 
@@ -155,7 +156,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
     ret
   }
 
-  lazy val exprParser: Parser[Expr] = {
+  lazy val exprParser: PackratParser[Expr] = {
 
     val exprHoleParser: Parser[Expr] =
       holeParser ^^ { i => ExprHole(i) }
@@ -412,7 +413,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
     operatorParser
   }
 
-  lazy val functionDefinitionParser: Parser[Function] = for {
+  lazy val functionDefinitionParser: PackratParser[Function] = for {
     _  <- kw("def")
     i  <- identifierParser
     ts <- opt(p('[') ~> hseqParser(identifierParser, p(',')) <~ p(']'))
@@ -422,7 +423,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
     b  <- exprParser
   } yield Function(i, ts.getOrElse(HSeq.fromSeq(Seq[Identifier]())), ps, ot, b)
 
-  lazy val adtDefinitionParser: Parser[Sort] = {
+  lazy val adtDefinitionParser: PackratParser[Sort] = {
     val constructorParser: Parser[Constructor] = for {
       i  <- identifierParser
       ps <- p('(') ~> hseqParser(bindingParser(explicitOnly=true), p(','), allowEmpty=true) <~ p(')')
@@ -460,4 +461,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
       }
     }
   }
+
+  lazy val programParser: PackratParser[Program] =
+    rep1(adtDefinitionParser.map(Left(_)) | functionDefinitionParser.map(Right(_))).map(Program(_))
 }
