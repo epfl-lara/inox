@@ -167,6 +167,11 @@ object CompileTimeInterpolators
       def apply(args: Any*): Expr = macro CompileTimeInterpolatorsImpl.e_apply
       def unapply(arg: Expr): Option[Any] = macro CompileTimeInterpolatorsImpl.e_unapply
     }
+
+    object fd {
+      def apply(args: Any*): FunDef = macro CompileTimeInterpolatorsImpl.fd_apply
+      def unapply(arg: FunDef): Option[Any] = macro CompileTimeInterpolatorsImpl.fd_unapply
+    }
   }
 }
 

@@ -403,7 +403,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils
     _  <- kw("def")
     i  <- identifierParser
     ts <- opt(p('[') ~> hseqParser(identifierParser, p(',')) <~ p(']'))
-    ps <- p('(') ~> hseqParser(bindingParser(explicitOnly=false), p(',')) <~ p(')')
+    ps <- p('(') ~> hseqParser(bindingParser(explicitOnly=true), p(',')) <~ p(')')
     ot <- opt(p(':') ~> typeParser)
     _  <- kw("=")
     b  <- exprParser
