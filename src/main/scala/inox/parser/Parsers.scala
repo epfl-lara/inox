@@ -190,25 +190,25 @@ trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils
     } yield Let(b, v, e)
 
     val lambdaParser: Parser[Expr] = for {
-      _ <- kw("lambda")
-      p <- hseqParser(bindingParser(explicitOnly=false), p(','))
-      _ <- kw(".")
-      e <- exprParser
-    } yield Abstraction(Lambda, p, e)
+      _  <- kw("lambda")
+      ps <- hseqParser(bindingParser(explicitOnly=false), p(','))
+      _  <- p('.')
+      e  <- exprParser
+    } yield Abstraction(Lambda, ps, e)
 
     val forallParser: Parser[Expr] = for {
-      _ <- kw("forall")
-      p <- hseqParser(bindingParser(explicitOnly=false), p(','))
-      _ <- kw(".")
-      e <- exprParser
-    } yield Abstraction(Forall, p, e)
+      _  <- kw("forall")
+      ps <- hseqParser(bindingParser(explicitOnly=false), p(','))
+      _  <- p('.')
+      e  <- exprParser
+    } yield Abstraction(Forall, ps, e)
 
     val chooseParser: Parser[Expr] = for {
       _ <- kw("choose")
-      p <- bindingParser(explicitOnly=false)
-      _ <- kw(".")
+      b <- bindingParser(explicitOnly=false)
+      _ <- p('.')
       e <- exprParser
-    } yield Choose(p, e)
+    } yield Choose(b, e)
 
 
     val primitiveFunctions = Map(
@@ -420,7 +420,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils
       i  <- identifierParser
       ts <- opt(p('[') ~> hseqParser(identifierParser, p(',')) <~ p(']'))
       _  <- kw("=")
-      cs <- hseqParser(constructorParser, p('|'))
+      cs <- hseqParser(constructorParser, operator("|"))
     } yield Sort(i, ts.getOrElse(HSeq.fromSeq(Seq[Identifier]())), cs)
   }
 

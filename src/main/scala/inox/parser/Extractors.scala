@@ -42,7 +42,7 @@ trait Extractors
           val firstIndex = suffix.head.left.get
           val rest = suffix.tail
 
-          val (firstParts, restParts) = suffixParts.splitAt(minSize - prefix.size)
+          val (firstParts, restParts) = suffixParts.splitAt(scrutinee.size - minSize)
 
           val (restMatchings, Seq()) = rest.foldLeft((Seq[Matching[R]](), restParts)) {
             case ((acc, rest), Left(index)) => (acc :+ Matching(index -> Seq()).withValue(default), rest)
