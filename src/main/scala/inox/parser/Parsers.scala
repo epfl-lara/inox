@@ -8,7 +8,7 @@ import scala.util.parsing.input._
 
 import inox.parser.sc.StringContextParsers
 
-trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils { self: IRs =>
+trait Parsers extends StringContextParsers with StdTokenParsers with PackratParsers with NumberUtils { self: IRs =>
 
   type Tokens = Lexer.type
   override val lexical = Lexer
@@ -27,12 +27,18 @@ trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils
 
   def operator(s: String): Parser[lexical.Token] = elem(lexical.Operator(s))
 
-  def hseqParser[A <: IR](rep: Parser[A], sep: Parser[Any])(implicit ev: HoleTypable[A]): Parser[HSeq[A]] = {
+  def hseqParser[A <: IR](rep: Parser[A], sep: Parser[Any], allowEmpty: Boolean=false)(implicit ev: HoleTypable[A]): Parser[HSeq[A]] = {
     val holeSeq: Parser[Either[Int, A]] = acceptMatch("hole", {
       case lexical.Hole(index) => Left(index)
     }) <~ elem(lexical.Keyword("..."))
 
-    rep1sep(holeSeq | rep.map(Right(_)), sep).map(new HSeq[A](_))
+    val nonEmpty = rep1sep(holeSeq | rep.map(Right(_)), sep).map(new HSeq[A](_))
+    if (allowEmpty) {
+      opt(nonEmpty).map(_.getOrElse(HSeq[A]()))
+    }
+    else {
+      nonEmpty
+    }
   }
 
   lazy val identifierParser: Parser[Identifier] = acceptMatch("identifier", {
@@ -44,7 +50,9 @@ trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils
     case lexical.Hole(index) => index
   })
 
-  lazy val typeParser: Parser[Type] = {
+  lazy val typeParser: Parser[Type] = contextTypeParser(None)
+
+  def contextTypeParser(context: Option[String]): Parser[Type] = {
 
     import Primitives.{Type => _, _}
     import TypeOperators._
@@ -96,11 +104,6 @@ trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils
         case id ~ args => TypeInvocation(id, args)
       }
 
-    val refinementTypeParser: Parser[Type] =
-      p('{') ~> commit(bindingParser(explicitOnly=true)) ~ commit(p('|') ~> exprParser) <~ commit(p('}')) ^^ {
-        case binding ~ expr => RefinementType(binding, expr)
-      }
-
     val inParensParser: Parser[Type] =
       p('(') ~> hseqParser(typeParser, p(',')) <~ p(')') ^^ {
         xs => if (xs.elems.size == 1 && xs.elems.head.isRight) xs.elems.head.right.get else TupleType(xs)
@@ -115,7 +118,17 @@ trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils
       case i => Types.Variable(i)
     }
 
-    val singleTypeParser: Parser[Type] =
+    lazy val defaultNamedBinding: Parser[Binding] = context match {
+      case None => failure("no default names available")
+      case Some(name) => ret.map(tpe => ExplicitValDef(IdentifierName(name), tpe))
+    }
+
+    lazy val refinementTypeParser: Parser[Type] =
+      p('{') ~> (bindingParser(explicitOnly=true) | defaultNamedBinding) ~ (operator("|") ~> exprParser) <~ p('}') ^^ {
+        case binding ~ expr => RefinementType(binding, expr)
+      }
+
+    lazy val singleTypeParser: Parser[Type] =
       typeHoleParser       |
       primitiveParser      |
       operationParser      |
@@ -125,21 +138,21 @@ trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils
       inParensParser       |
       sigmaTypeParser
 
-    val typesGroup: Parser[HSeq[Type]] =
-      (p('(') ~> p(')') ^^^ new HSeq[Type](Seq())) |
-      (p('(') ~> hseqParser(typeParser, p(',')) <~ p(')')) |
+    lazy val typesGroup: Parser[HSeq[Type]] =
+      (p('(') ~> hseqParser(typeParser, p(','), allowEmpty=true) <~ p(')')) |
       singleTypeParser ^^ { tpe => new HSeq[Type](Seq(Right(tpe))) }
 
-    val depTypesGroup: Parser[HSeq[Binding]] =
-      (p('(') ~> p(')') ^^^ new HSeq[Binding](Seq())) |
-      (p('(') ~> hseqParser(bindingParser(explicitOnly=true), p(',')) <~ p(')'))
+    lazy val depTypesGroup: Parser[HSeq[Binding]] =
+      (p('(') ~> hseqParser(bindingParser(explicitOnly=true), p(','), allowEmpty=true) <~ p(')'))
 
-    rep((typesGroup.map(Right(_)) <~ kw("=>")) | (depTypesGroup.map(Left(_)) <~ (kw("->") | kw("=>")))) ~ singleTypeParser ^^ { case as ~ b =>
+    lazy val ret = rep((typesGroup.map(Right(_)) <~ kw("=>")) | (depTypesGroup.map(Left(_)) <~ (kw("->") | kw("=>")))) ~ singleTypeParser ^^ { case as ~ b =>
       as.foldRight(b) {
         case (Left(xs), acc) => PiType(xs, acc)
         case (Right(xs), acc) => FunctionType(xs, acc)
       }
     }
+
+    ret
   }
 
   lazy val exprParser: Parser[Expr] = {
@@ -191,7 +204,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils
 
     val lambdaParser: Parser[Expr] = for {
       _  <- kw("lambda")
-      ps <- hseqParser(bindingParser(explicitOnly=false), p(','))
+      ps <- hseqParser(bindingParser(explicitOnly=false), p(','), allowEmpty=true)
       _  <- p('.')
       e  <- exprParser
     } yield Abstraction(Lambda, ps, e)
@@ -233,13 +246,13 @@ trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils
     val primitiveInvocationParser: Parser[Expr] = for {
       f   <- primitiveNameParser
       tps <- opt(p('[') ~> hseqParser(typeParser, p(',')) <~ p(']'))
-      ps  <- p('(') ~> hseqParser(exprParser, p(',')) <~ p(')')
+      ps  <- p('(') ~> hseqParser(exprParser, p(','), allowEmpty=true) <~ p(')')
     } yield PrimitiveInvocation(f, tps, ps)
 
     val invocationParser: Parser[Expr] = for {
       i   <- identifierParser
       tps <- opt(p('[') ~> hseqParser(typeParser, p(',')) <~ p(']'))
-      ps  <- p('(') ~> hseqParser(exprParser, p(',')) <~ p(')')
+      ps  <- p('(') ~> hseqParser(exprParser, p(','), allowEmpty=true) <~ p(')')
     } yield Invocation(i, tps, ps)
 
     val variableParser: Parser[Expr] = identifierParser ^^ {
@@ -276,7 +289,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils
 
       val fieldParser = kw(".") ~> (tupleSelectorParser.map(Left(_)) | identifierParser.map(Right(_)))
 
-      val argsParser = p('(') ~> hseqParser(exprParser, p(',')) <~p(')')
+      val argsParser = p('(') ~> hseqParser(exprParser, p(','), allowEmpty=true) <~p(')')
 
       val asParser = kw("as") ~> typeParser
 
@@ -403,7 +416,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils
     _  <- kw("def")
     i  <- identifierParser
     ts <- opt(p('[') ~> hseqParser(identifierParser, p(',')) <~ p(']'))
-    ps <- p('(') ~> hseqParser(bindingParser(explicitOnly=true), p(',')) <~ p(')')
+    ps <- p('(') ~> hseqParser(bindingParser(explicitOnly=true), p(','), allowEmpty=true) <~ p(')')
     ot <- opt(p(':') ~> typeParser)
     _  <- kw("=")
     b  <- exprParser
@@ -412,7 +425,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils
   lazy val adtDefinitionParser: Parser[Sort] = {
     val constructorParser: Parser[Constructor] = for {
       i  <- identifierParser
-      ps <- p('(') ~> hseqParser(bindingParser(explicitOnly=true), p(',')) <~ p(')')
+      ps <- p('(') ~> hseqParser(bindingParser(explicitOnly=true), p(','), allowEmpty=true) <~ p(')')
     } yield Constructor(i, ps)
 
     for {
@@ -425,15 +438,25 @@ trait Parsers extends StringContextParsers with StdTokenParsers with NumberUtils
   }
 
   def bindingParser(explicitOnly: Boolean=false): Parser[Binding] = holeParser.map(BindingHole(_)) | {
+
+    def typeParserOf(id: Identifier): Parser[Type] = id match {
+      case IdentifierHole(_) => typeParser
+      case IdentifierName(name) => contextTypeParser(Some(name))
+    }
+
     if (explicitOnly) {
-      identifierParser ~ (p(':') ~> typeParser) ^^ {
-        case i ~ tpe => ExplicitValDef(i, tpe)
-      }
+      for {
+        i <- identifierParser
+        tpe <- p(':') ~> typeParserOf(i)
+      } yield ExplicitValDef(i, tpe)
     }
     else {
-      identifierParser ~ opt(p(':') ~> typeParser) ^^ {
-        case i ~ None => InferredValDef(i)
-        case i ~ Some(tpe) => ExplicitValDef(i, tpe)
+      for {
+        i <- identifierParser
+        optTpe <- opt(p(':') ~> typeParserOf(i))
+      } yield optTpe match {
+        case None      => InferredValDef(i)
+        case Some(tpe) => ExplicitValDef(i, tpe)
       }
     }
   }
