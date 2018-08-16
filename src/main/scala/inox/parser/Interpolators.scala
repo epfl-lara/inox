@@ -5,17 +5,12 @@ import scala.reflect.macros.whitebox.Context
 
 import scala.language.experimental.macros
 
-trait Interpolators {
-  protected val trees: inox.ast.Trees
-
-  type Interpolator
-}
-
 trait RunTimeInterpolators
-  extends Interpolators
-     with Elaborators
+  extends Elaborators
      with Extractors
      with Parsers {
+
+  protected val trees: inox.ast.Trees
 
   import trees._
 
@@ -148,15 +143,17 @@ trait RunTimeInterpolators
   }
 }
 
-object CompileTimeInterpolators
-  extends Interpolators
-     with Elaborators
-     with Extractors {
+object CompileTimeInterpolators {
 
-  override protected val trees = inox.trees
-  import trees._
+  object Interpolator
+    extends Elaborators
+       with Extractors {
+    override protected val trees = inox.trees
+  }
 
-  implicit class Interpolator(sc: StringContext)(implicit val symbols: Symbols = NoSymbols) {
+  import inox.trees._
+
+  implicit class Interpolator(sc: StringContext)(implicit val symbols: inox.trees.Symbols = inox.trees.NoSymbols) {
 
     object t {
       def apply(args: Any*): Type = macro CompileTimeInterpolatorsImpl.t_apply
@@ -188,5 +185,5 @@ object CompileTimeInterpolators
 private class CompileTimeInterpolatorsImpl(context: Context) extends Macros(context) {
   import c.universe._
   override protected lazy val targetTrees: c.Tree = q"_root_.inox.trees"
-  override protected val interpolator: c.Tree = q"_root_.inox.parser.CompileTimeInterpolators"
+  override protected val interpolator: c.Tree = q"_root_.inox.parser.CompileTimeInterpolators.Interpolator"
 }
