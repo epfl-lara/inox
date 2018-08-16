@@ -168,9 +168,19 @@ object CompileTimeInterpolators
       def unapply(arg: Expr): Option[Any] = macro CompileTimeInterpolatorsImpl.e_unapply
     }
 
+    object vd {
+      def apply(args: Any*): ValDef = macro CompileTimeInterpolatorsImpl.vd_apply
+      def unapply(arg: ValDef): Option[Any] = macro CompileTimeInterpolatorsImpl.vd_unapply
+    }
+
     object fd {
       def apply(args: Any*): FunDef = macro CompileTimeInterpolatorsImpl.fd_apply
       def unapply(arg: FunDef): Option[Any] = macro CompileTimeInterpolatorsImpl.fd_unapply
+    }
+
+    object td {
+      def apply(args: Any*): ADTSort = macro CompileTimeInterpolatorsImpl.td_apply
+      def unapply(arg: ADTSort): Option[Any] = macro CompileTimeInterpolatorsImpl.td_unapply
     }
   }
 }

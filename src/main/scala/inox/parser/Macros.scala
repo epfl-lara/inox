@@ -471,6 +471,61 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
     }
   }
 
+  def vd_apply(args: c.Expr[Any]*): c.Tree = {
+
+    val ir = parse(bindingParser(explicitOnly=true))
+    val types = getTypes(ir.getHoles)
+
+    verifyArgTypes(args, types)
+
+    q"""
+      {
+        val ir = $ir
+        val self = $self
+        val res: $valDefType = $interpolator.BindingE.elaborate(ir)($interpolator.createStore(self.symbols, _root_.scala.collection.Seq(..$args))).get match {
+          case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+          case _root_.scala.util.Right((ev, cs)) => $interpolator.solve(cs) match {
+            case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+            case _root_.scala.util.Right(u) => ev.evValDef.get(u)
+          }
+        }
+        res
+      }
+    """
+  }
+
+  def vd_unapply(arg: c.Tree): c.Tree = {
+
+    val ir = parse(bindingParser(explicitOnly=true))
+    val holes = ir.getHoles
+
+    if (holes.size >= 1) {
+      val types = getTypes(holes)
+
+      q"""
+        new {
+          val ir = $ir
+          val self = $self
+
+          def unapply(t: $valDefType): _root_.scala.Option[${tupleType(types)}] = {
+            $interpolator.BindingX.extract(ir, t).getMatches(self.symbols).map(${accessAll(types)})
+          }
+        }.unapply($arg)
+      """
+    } else {
+      q"""
+        new {
+          val ir = $ir
+          val self = $self
+
+          def unapplySeq(t: $valDefType): _root_.scala.Option[_root_.scala.collection.Seq[_root_.scala.Nothing]] = {
+            $interpolator.BindingX.extract(ir, t).getMatches(self.symbols).map(_ => _root_.scala.collection.Seq[_root_.scala.Nothing]())
+          }
+        }.unapplySeq($arg)
+      """
+    }
+  }
+
   def fd_apply(args: c.Expr[Any]*): c.Tree = {
 
     val ir = parse(functionDefinitionParser)
@@ -496,7 +551,7 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
 
   def fd_unapply(arg: c.Tree): c.Tree = {
 
-    val ir = parse(exprParser)
+    val ir = parse(functionDefinitionParser)
     val holes = ir.getHoles
 
     if (holes.size >= 1) {
@@ -520,6 +575,61 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
 
           def unapplySeq(t: $funDefType): _root_.scala.Option[_root_.scala.collection.Seq[_root_.scala.Nothing]] = {
             $interpolator.FunctionX.extract(ir, t).getMatches(self.symbols).map(_ => _root_.scala.collection.Seq[_root_.scala.Nothing]())
+          }
+        }.unapplySeq($arg)
+      """
+    }
+  }
+
+  def td_apply(args: c.Expr[Any]*): c.Tree = {
+
+    val ir = parse(adtDefinitionParser)
+    val types = getTypes(ir.getHoles)
+
+    verifyArgTypes(args, types)
+
+    q"""
+      {
+        val ir = $ir
+        val self = $self
+        val res: $adtSortType = $interpolator.SortE.elaborate(ir)($interpolator.createStore(self.symbols, _root_.scala.collection.Seq(..$args))).get match {
+          case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+          case _root_.scala.util.Right(((_, ev), cs)) => $interpolator.solve(cs) match {
+            case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+            case _root_.scala.util.Right(u) => ev.get(u)
+          }
+        }
+        res
+      }
+    """
+  }
+
+  def td_unapply(arg: c.Tree): c.Tree = {
+
+    val ir = parse(adtDefinitionParser)
+    val holes = ir.getHoles
+
+    if (holes.size >= 1) {
+      val types = getTypes(holes)
+
+      q"""
+        new {
+          val ir = $ir
+          val self = $self
+
+          def unapply(t: $adtSortType): _root_.scala.Option[${tupleType(types)}] = {
+            $interpolator.SortX.extract(ir, t).getMatches(self.symbols).map(${accessAll(types)})
+          }
+        }.unapply($arg)
+      """
+    } else {
+      q"""
+        new {
+          val ir = $ir
+          val self = $self
+
+          def unapplySeq(t: $adtSortType): _root_.scala.Option[_root_.scala.collection.Seq[_root_.scala.Nothing]] = {
+            $interpolator.SortX.extract(ir, t).getMatches(self.symbols).map(_ => _root_.scala.collection.Seq[_root_.scala.Nothing]())
           }
         }.unapplySeq($arg)
       """
