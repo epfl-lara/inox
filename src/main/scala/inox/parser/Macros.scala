@@ -45,9 +45,13 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
     case n => q"_root_.scala.math.BigInt(${n.toString})"
   }
 
-  implicit def hseqLiftable[A <: IR](implicit ev: Liftable[A]) = Liftable[HSeq[A]] {
+  implicit def hseqLiftable[A <: IR : TypeTag](implicit ev: Liftable[A]) = Liftable[HSeq[A]] {
     case HSeq(es) => {
-      q"{ import $interpolator._; $interpolator.HSeq(..$es) }"
+      val tpe = typeOf[A] match {
+        case TypeRef(SingleType(_, o), t, _) => c.typecheck(tq"$interpolator.$o.$t", c.TYPEmode).tpe
+      }
+
+      q"$interpolator.HSeq[$tpe](..$es)"
     }
   }
 
