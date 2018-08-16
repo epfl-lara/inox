@@ -32,8 +32,6 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   protected implicit val semantics: program.Semantics
 
-  protected lazy val evaluator: DeterministicEvaluator { val program: self.program.type } = semantics.getEvaluator
-
   protected type Encoded
 
   protected val encoder: ast.ProgramTransformer { val sourceProgram: program.type }
@@ -232,7 +230,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
       val modelCs = vs.values.toSeq.flatMap(e => choosesOf(e, Seq.empty)) ++
         (cs ++ freeCs).flatMap { case ((id, tps), e) => choosesOf(e, tps) }
 
-      inox.Model(program, context)(vs, cs ++ freeCs ++ modelCs)
+      inox.Model(program)(vs, cs ++ freeCs ++ modelCs)
     }
   }
 
@@ -245,8 +243,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
     // we have to check case class constructors in model for ADT invariants
     val newExpr = model.vars.toSeq.foldLeft(expr) { case (e, (v, value)) => Let(v, value, e) }
 
-    val evalContext  = context.withOpts(optSilentErrors(silenceErrors))
-    evaluator.eval(newExpr, inox.Model(program, evalContext)(Map.empty, model.chooses)) match {
+    val evaluator = semantics.getEvaluator(context.withOpts(optSilentErrors(silenceErrors)))
+    evaluator.eval(newExpr, inox.Model(program)(Map.empty, model.chooses)) match {
       case EvaluationResults.Successful(BooleanLiteral(true)) =>
         reporter.debug("- Model validated.")
         true
@@ -467,7 +465,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }.get
     }
     val chooses = exChooses.map(p => (p._1.res.id, Seq.empty[s.Type]) -> decodeOrSimplest(p._2))
-    inox.Model(program, context)(exModel.vars, exModel.chooses ++ chooses)
+    inox.Model(program)(exModel.vars, exModel.chooses ++ chooses)
   }
 
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] =
@@ -810,7 +808,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
       case ((cid, tps), e) if cid == id && tps.isEmpty => e
     }
 
-    override def toString = model.asString
+    override def toString = model.asString(targetProgram.printerOpts)
   }
 
   override def dbg(msg: => Any) = underlying.dbg(msg)

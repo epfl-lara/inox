@@ -264,7 +264,6 @@ object SolverFactory {
           override protected val semantics = sem
           override protected val chooses: chooseEnc.type = chooseEnc
           override protected val theories: theoryEnc.type = theoryEnc
-          override protected lazy val evaluator = ev
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
           override protected lazy val targetProgram: targetProg.type = targetProg
@@ -295,7 +294,6 @@ object SolverFactory {
           override protected val semantics = sem
           override protected val chooses: chooseEnc.type = chooseEnc
           override protected lazy val theories: theoryEnc.type = theoryEnc
-          override protected lazy val evaluator = ev
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
           override protected lazy val targetProgram: targetProg.type = targetProg

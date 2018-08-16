@@ -20,7 +20,7 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
     config.cast(super.extractResponse(config, res) match {
       case SatWithModel(model) =>
         val evaluations = model.vars.map { case (k, v) => k -> evaluator.eval(v).result }
-        SatWithModel(inox.Model(program, context)(
+        SatWithModel(inox.Model(program)(
           evaluations.collect { case (k, Some(v)) => k -> v },
           model.chooses
         ))

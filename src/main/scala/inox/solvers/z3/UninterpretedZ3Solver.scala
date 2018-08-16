@@ -67,7 +67,7 @@ trait UninterpretedZ3Solver
 
   private def completeModel(model: program.Model): program.Model = {
     val allVars = freeVars.map(v => v.toVal -> model.vars.getOrElse(v.toVal, simplestValue(v.getType))).toMap
-    inox.Model(program, context)(allVars, model.chooses)
+    inox.Model(program)(allVars, model.chooses)
   }
 
   private def tryZ3[T](res: => T): Option[T] =

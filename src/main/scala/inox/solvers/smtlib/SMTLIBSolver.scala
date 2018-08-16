@@ -96,7 +96,7 @@ trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
                 case _ => None
               }.toMap
 
-              SatWithModel(inox.Model(program, context)(vars, chooses.toMap))
+              SatWithModel(inox.Model(program)(vars, chooses.toMap))
 
             case _ =>
               Unknown

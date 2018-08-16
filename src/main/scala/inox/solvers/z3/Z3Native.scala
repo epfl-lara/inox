@@ -834,7 +834,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       })
     }.toMap
 
-    inox.Model(program, context)(vars, chooses.toMap)
+    inox.Model(program)(vars, chooses.toMap)
   }
 
   def extractUnsatAssumptions(cores: Set[Z3AST]): Set[Expr] = {
