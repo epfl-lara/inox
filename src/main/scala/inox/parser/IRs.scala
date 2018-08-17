@@ -1,6 +1,8 @@
 package inox
 package parser
 
+import scala.util.parsing.input.Positional
+
 import irs._
 
 trait IRs
@@ -27,15 +29,19 @@ trait IRs
 
   case class Hole(index: Int, holeType: HoleType)
 
-  trait IR {
+  trait IR extends Positional with Product {
     def getHoles: Seq[Hole]
+
+    override def toString: String = {
+      productPrefix + "(" + productIterator.map(_.toString).mkString(",") + ")@" + pos.toString
+    }
   }
 
   trait HoleTypable[-A <: IR] {
     val holeType: HoleType
   }
 
-  final class HSeq[+A <: IR : HoleTypable](val elems: Seq[Either[Int, A]]) extends IR {
+  case class HSeq[+A <: IR : HoleTypable](elems: Seq[Either[Int, A]]) extends IR {
 
     def size = elems.size
     private val holeType = HoleTypes.Sequence(implicitly[HoleTypable[A]].holeType)
@@ -51,16 +57,11 @@ trait IRs
         case Right(elem) => elem.toString
       }
 
-      "HSeq(" + elems.map(go).mkString(",") + ")"
+      "HSeq(" + elems.map(go).mkString(",") + ")@" + pos.toString
     }
   }
 
   object HSeq {
-    def fromSeq[A <: IR : HoleTypable](xs: Seq[A]): HSeq[A] = new HSeq(xs.map(Right(_)))
-
-    def apply[A <: IR : HoleTypable](xs: Either[Int, A]*): HSeq[A] = new HSeq(xs)
-
-    def unapply[A <: IR](arg: HSeq[A]): Option[Seq[Either[Int, A]]] =
-      Some(arg.elems)
+    def fromSeq[A <: IR : HoleTypable](xs: Seq[A]): HSeq[A] = HSeq(xs.map(Right(_)))
   }
 }

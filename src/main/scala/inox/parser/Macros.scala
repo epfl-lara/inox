@@ -1,8 +1,11 @@
 package inox
 package parser
 
+import scala.util.parsing._
 import scala.reflect.macros.whitebox.Context
 import scala.language.experimental.macros
+
+import inox.parser.sc._
 
 abstract class Macros(final val c: Context) extends Parsers with IRs {
   import c.universe.{Type => _, Function => _, Expr => _, If => _,  _}
@@ -42,72 +45,89 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
   import Exprs._
   import Programs._
 
+  implicit lazy val stringContextLiftable: Liftable[StringContext] = Liftable[StringContext] {
+    case sc =>
+      q"_root_.scala.StringContext(..${sc.parts})"
+  }
+
+  implicit lazy val positionLiftable: Liftable[input.Position] = Liftable[input.Position] {
+    case input.NoPosition =>
+      q"_root_.scala.util.parsing.input.NoPosition"
+    case input.OffsetPosition(source, offset) =>
+      q"_root_.scala.util.parsing.input.OffsetPosition(${source.toString}, $offset)"
+    case InArgumentPosition(arg, context) =>
+      q"_root_.inox.parser.sc.InArgumentPosition($arg, $context)"
+    case InPartPosition(part, context, partLine, partColumn) =>
+      q"_root_.inox.parser.sc.InPartPosition($part, $context, $partLine, $partColumn)"
+  }
+
   implicit lazy val bigIntLiftable: Liftable[BigInt] = Liftable[BigInt] {
     case n => q"_root_.scala.math.BigInt(${n.toString})"
   }
 
   implicit def hseqLiftable[A <: IR : TypeTag](implicit ev: Liftable[A]) = Liftable[HSeq[A]] {
-    case HSeq(es) => {
+    case ir@HSeq(es) => {
       val tpe = typeOf[A] match {
         case TypeRef(SingleType(_, o), t, _) => c.typecheck(tq"$interpolator.$o.$t", c.TYPEmode).tpe
       }
+      val elems: Seq[Either[Int, A]] = es
 
-      q"$interpolator.HSeq[$tpe](..$es)"
+      q"$interpolator.HSeq[$tpe](_root_.scala.collection.Seq(..$elems)).setPos(${ir.pos})"
     }
   }
 
   implicit lazy val identifiersLiftable: Liftable[Identifier] = Liftable[Identifier] {
-    case IdentifierName(name) =>
-      q"$interpolator.Identifiers.IdentifierName($name)"
-    case IdentifierHole(index) =>
-      q"$interpolator.Identifiers.IdentifierHole($index)"
+    case ir@IdentifierName(name) =>
+      q"$interpolator.Identifiers.IdentifierName($name).setPos(${ir.pos})"
+    case ir@IdentifierHole(index) =>
+      q"$interpolator.Identifiers.IdentifierHole($index).setPos(${ir.pos})"
   }
 
   implicit lazy val bindingsLiftable: Liftable[Binding] = Liftable[Binding] {
-    case InferredValDef(id) =>
-      q"$interpolator.Bindings.InferredValDef($id)"
-    case ExplicitValDef(id, tpe) =>
-      q"$interpolator.Bindings.ExplicitValDef($id, $tpe)"
-    case BindingHole(index) =>
-      q"$interpolator.Bindings.BindingHole($index)"
+    case ir@InferredValDef(id) =>
+      q"$interpolator.Bindings.InferredValDef($id).setPos(${ir.pos})"
+    case ir@ExplicitValDef(id, tpe) =>
+      q"$interpolator.Bindings.ExplicitValDef($id, $tpe).setPos(${ir.pos})"
+    case ir@BindingHole(index) =>
+      q"$interpolator.Bindings.BindingHole($index).setPos(${ir.pos})"
   }
 
   implicit lazy val sortsLiftable: Liftable[Sort] = Liftable[Sort] {
-    case Sort(id, tps, cs) =>
-      q"$interpolator.ADTs.Sort($id, $tps, $cs)"
+    case ir@Sort(id, tps, cs) =>
+      q"$interpolator.ADTs.Sort($id, $tps, $cs).setPos(${ir.pos})"
   }
 
   implicit lazy val constructorsLiftable: Liftable[Constructor] = Liftable[Constructor] {
-    case Constructor(id, ps) =>
-      q"$interpolator.ADTs.Constructor($id, $ps)"
+    case ir@Constructor(id, ps) =>
+      q"$interpolator.ADTs.Constructor($id, $ps).setPos(${ir.pos})"
   }
 
   implicit lazy val functionsLiftable: Liftable[Function] = Liftable[Function] {
-    case Function(id, tps, ps, rt, b) =>
-      q"$interpolator.Functions.Function($id, $tps, $ps, $rt, $b)"
+    case ir@Function(id, tps, ps, rt, b) =>
+      q"$interpolator.Functions.Function($id, $tps, $ps, $rt, $b).setPos(${ir.pos})"
   }
 
   implicit lazy val typesLiftable: Liftable[Type] = Liftable[Type] {
-    case TypeHole(index) =>
-      q"$interpolator.Types.TypeHole($index)"
-    case Types.Primitive(prim) =>
-      q"$interpolator.Types.Primitive($prim)"
-    case Operation(op, elems) =>
-      q"$interpolator.Types.Operation($op, $elems)"
-    case FunctionType(froms, to) =>
-      q"$interpolator.Types.FunctionType($froms, $to)"
-    case TupleType(elems) =>
-      q"$interpolator.Types.TupleType($elems)"
-    case Types.Invocation(id, args) =>
-      q"$interpolator.Types.Invocation($id, $args)"
-    case Types.Variable(id) =>
-      q"$interpolator.Types.Variable($id)"
-    case RefinementType(b, p) =>
-      q"$interpolator.Types.RefinementType($b, $p)"
-    case PiType(bs, to) =>
-      q"$interpolator.Types.PiType($bs, $to)"
-    case SigmaType(bs, to) =>
-      q"$interpolator.Types.SigmaType($bs, $to)"
+    case ir@TypeHole(index) =>
+      q"$interpolator.Types.TypeHole($index).setPos(${ir.pos})"
+    case ir@Types.Primitive(prim) =>
+      q"$interpolator.Types.Primitive($prim).setPos(${ir.pos})"
+    case ir@Operation(op, elems) =>
+      q"$interpolator.Types.Operation($op, $elems).setPos(${ir.pos})"
+    case ir@FunctionType(froms, to) =>
+      q"$interpolator.Types.FunctionType($froms, $to).setPos(${ir.pos})"
+    case ir@TupleType(elems) =>
+      q"$interpolator.Types.TupleType($elems).setPos(${ir.pos})"
+    case ir@Types.Invocation(id, args) =>
+      q"$interpolator.Types.Invocation($id, $args).setPos(${ir.pos})"
+    case ir@Types.Variable(id) =>
+      q"$interpolator.Types.Variable($id).setPos(${ir.pos})"
+    case ir@RefinementType(b, p) =>
+      q"$interpolator.Types.RefinementType($b, $p).setPos(${ir.pos})"
+    case ir@PiType(bs, to) =>
+      q"$interpolator.Types.PiType($bs, $to).setPos(${ir.pos})"
+    case ir@SigmaType(bs, to) =>
+      q"$interpolator.Types.SigmaType($bs, $to).setPos(${ir.pos})"
   }
 
   implicit lazy val typePrimitivesLiftable: Liftable[Types.Primitives.Type] = Liftable[Types.Primitives.Type] {
@@ -137,71 +157,71 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
   }
 
   implicit lazy val exprsLiftable: Liftable[Expr] = Liftable[Expr] {
-    case ExprHole(index) =>
-      q"$interpolator.Exprs.ExprHole($index)"
-    case UnitLiteral() =>
-      q"$interpolator.Exprs.UnitLiteral()"
-    case BooleanLiteral(value) =>
-      q"$interpolator.Exprs.BooleanLiteral($value)"
-    case IntegerLiteral(value) =>
-      q"$interpolator.Exprs.IntegerLiteral($value)"
-    case FractionLiteral(num, denom) =>
-      q"$interpolator.Exprs.FractionLiteral($num, $denom)"
-    case StringLiteral(value) =>
-      q"$interpolator.Exprs.StringLiteral($value)"
-    case CharLiteral(value) =>
-      q"$interpolator.Exprs.CharLiteral($value)"
-    case SetConstruction(t, es) =>
-      q"$interpolator.Exprs.SetConstruction($t, $es)"
-    case BagConstruction(t, ps) =>
-      q"$interpolator.Exprs.BagConstruction($t, $ps)"
-    case MapConstruction(ts, ps, d) =>
-      q"$interpolator.Exprs.MapConstruction($ts, $ps, $d)"
-    case Exprs.Variable(id) =>
-      q"$interpolator.Exprs.Variable($id)"
-    case UnaryOperation(op, expr) =>
-      q"$interpolator.Exprs.UnaryOperation($op, $expr)"
-    case BinaryOperation(op, lhs, rhs) =>
-      q"$interpolator.Exprs.BinaryOperation($op, $lhs, $rhs)"
-    case TernaryOperation(op, lhs, mid, rhs) =>
-      q"$interpolator.Exprs.TernaryOperation($op, $lhs, $mid, $rhs)"
-    case NaryOperation(op, args) =>
-      q"$interpolator.Exprs.NaryOperation($op, $args)"
-    case Exprs.Invocation(id, tps, args) =>
-      q"$interpolator.Exprs.Invocation($id, $tps, $args)"
-    case PrimitiveInvocation(id, tps, args) =>
-      q"$interpolator.Exprs.PrimitiveInvocation($id, $tps, $args)"
-    case Application(callee, args) =>
-      q"$interpolator.Exprs.Application($callee, $args)"
-    case Abstraction(q, bs, b) =>
-      q"$interpolator.Exprs.Abstraction($q, $bs, $b)"
-    case Let(b, v, e) =>
-      q"$interpolator.Exprs.Let($b, $v, $e)"
-    case If(c, t, e) =>
-      q"$interpolator.Exprs.If($c, $t, $e)"
-    case Selection(s, f) =>
-      q"$interpolator.Exprs.Selection($s, $f)"
-    case Tuple(es) =>
-      q"$interpolator.Exprs.Tuple($es)"
-    case TupleSelection(t, index) =>
-      q"$interpolator.Exprs.TupleSelection($t, $index)"
-    case TypeAnnotation(e, t) =>
-      q"$interpolator.Exprs.TypeAnnotation($e, $t)"
-    case Choose(b, p) =>
-      q"$interpolator.Exprs.Choose($b, $p)"
-    case Assume(p, b) =>
-      q"$interpolator.Exprs.Assume($p, $b)"
-    case IsConstructor(e, c) =>
-      q"$interpolator.Exprs.IsConstructor($e, $c)"
-    case Cast(m, e, t) =>
-      q"$interpolator.Exprs.Cast($m, $e, $t)"
+    case ir@ExprHole(index) =>
+      q"$interpolator.Exprs.ExprHole($index).setPos(${ir.pos})"
+    case ir@UnitLiteral() =>
+      q"$interpolator.Exprs.UnitLiteral().setPos(${ir.pos})"
+    case ir@BooleanLiteral(value) =>
+      q"$interpolator.Exprs.BooleanLiteral($value).setPos(${ir.pos})"
+    case ir@IntegerLiteral(value) =>
+      q"$interpolator.Exprs.IntegerLiteral($value).setPos(${ir.pos})"
+    case ir@FractionLiteral(num, denom) =>
+      q"$interpolator.Exprs.FractionLiteral($num, $denom).setPos(${ir.pos})"
+    case ir@StringLiteral(value) =>
+      q"$interpolator.Exprs.StringLiteral($value).setPos(${ir.pos})"
+    case ir@CharLiteral(value) =>
+      q"$interpolator.Exprs.CharLiteral($value).setPos(${ir.pos})"
+    case ir@SetConstruction(t, es) =>
+      q"$interpolator.Exprs.SetConstruction($t, $es).setPos(${ir.pos})"
+    case ir@BagConstruction(t, ps) =>
+      q"$interpolator.Exprs.BagConstruction($t, $ps).setPos(${ir.pos})"
+    case ir@MapConstruction(ts, ps, d) =>
+      q"$interpolator.Exprs.MapConstruction($ts, $ps, $d).setPos(${ir.pos})"
+    case ir@Exprs.Variable(id) =>
+      q"$interpolator.Exprs.Variable($id).setPos(${ir.pos})"
+    case ir@UnaryOperation(op, expr) =>
+      q"$interpolator.Exprs.UnaryOperation($op, $expr).setPos(${ir.pos})"
+    case ir@BinaryOperation(op, lhs, rhs) =>
+      q"$interpolator.Exprs.BinaryOperation($op, $lhs, $rhs).setPos(${ir.pos})"
+    case ir@TernaryOperation(op, lhs, mid, rhs) =>
+      q"$interpolator.Exprs.TernaryOperation($op, $lhs, $mid, $rhs).setPos(${ir.pos})"
+    case ir@NaryOperation(op, args) =>
+      q"$interpolator.Exprs.NaryOperation($op, $args).setPos(${ir.pos})"
+    case ir@Exprs.Invocation(id, tps, args) =>
+      q"$interpolator.Exprs.Invocation($id, $tps, $args).setPos(${ir.pos})"
+    case ir@PrimitiveInvocation(id, tps, args) =>
+      q"$interpolator.Exprs.PrimitiveInvocation($id, $tps, $args).setPos(${ir.pos})"
+    case ir@Application(callee, args) =>
+      q"$interpolator.Exprs.Application($callee, $args).setPos(${ir.pos})"
+    case ir@Abstraction(q, bs, b) =>
+      q"$interpolator.Exprs.Abstraction($q, $bs, $b).setPos(${ir.pos})"
+    case ir@Let(b, v, e) =>
+      q"$interpolator.Exprs.Let($b, $v, $e).setPos(${ir.pos})"
+    case ir@If(c, t, e) =>
+      q"$interpolator.Exprs.If($c, $t, $e).setPos(${ir.pos})"
+    case ir@Selection(s, f) =>
+      q"$interpolator.Exprs.Selection($s, $f).setPos(${ir.pos})"
+    case ir@Tuple(es) =>
+      q"$interpolator.Exprs.Tuple($es).setPos(${ir.pos})"
+    case ir@TupleSelection(t, index) =>
+      q"$interpolator.Exprs.TupleSelection($t, $index).setPos(${ir.pos})"
+    case ir@TypeAnnotation(e, t) =>
+      q"$interpolator.Exprs.TypeAnnotation($e, $t).setPos(${ir.pos})"
+    case ir@Choose(b, p) =>
+      q"$interpolator.Exprs.Choose($b, $p).setPos(${ir.pos})"
+    case ir@Assume(p, b) =>
+      q"$interpolator.Exprs.Assume($p, $b).setPos(${ir.pos})"
+    case ir@IsConstructor(e, c) =>
+      q"$interpolator.Exprs.IsConstructor($e, $c).setPos(${ir.pos})"
+    case ir@Cast(m, e, t) =>
+      q"$interpolator.Exprs.Cast($m, $e, $t).setPos(${ir.pos})"
   }
 
   implicit lazy val exprPairsLiftable: Liftable[ExprPair] = Liftable[ExprPair] {
-    case Pair(lhs, rhs) =>
-      q"$interpolator.Exprs.Pair($lhs, $rhs)"
-    case PairHole(index) =>
-      q"$interpolator.Exprs.PairHole($index)"
+    case ir@Pair(lhs, rhs) =>
+      q"$interpolator.Exprs.Pair($lhs, $rhs).setPos(${ir.pos})"
+    case ir@PairHole(index) =>
+      q"$interpolator.Exprs.PairHole($index).setPos(${ir.pos})"
   }
 
   implicit lazy val exprCastsLiftable: Liftable[Casts.Mode] = Liftable[Casts.Mode] {
@@ -312,13 +332,13 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
   }
 
   implicit lazy val programLiftable: Liftable[Program] = Liftable[Program] {
-    case Program(es) =>
-      q"$interpolator.Programs.Program(_root_.scala.collection.Seq(..$es))"
+    case ir@Program(es) =>
+      q"$interpolator.Programs.Program(_root_.scala.collection.Seq(..$es)).setPos(${ir.pos})"
   }
 
   private def parse[A](p: Parser[A]): A = {
     parseSC(sc)(phrase(p)) match {
-      case Right(v) => v
+      case Right(v) => { println(v); v }
       case Left(e) => c.abort(c.enclosingPosition, e)
     }
   }
