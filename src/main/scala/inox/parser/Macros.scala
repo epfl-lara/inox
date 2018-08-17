@@ -146,7 +146,7 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
     case IntegerLiteral(value) =>
       q"$interpolator.Exprs.IntegerLiteral($value)"
     case FractionLiteral(num, denom) =>
-      q"$interpolator.Exprs.FractionLiteral($num, denom)"
+      q"$interpolator.Exprs.FractionLiteral($num, $denom)"
     case StringLiteral(value) =>
       q"$interpolator.Exprs.StringLiteral($value)"
     case CharLiteral(value) =>
