@@ -181,11 +181,6 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
 
   implicit object CNFPath extends PathProvider[CNFPath] {
     def empty = new CNFPath(new Bijection[Variable, Expr], Map.empty, Set.empty, MutableMap.empty, MutableMap.empty)
-    def apply(path: Path) = path.elements.foldLeft(empty) {
-      case (path, Path.CloseBound(vd, e)) => path withBinding (vd -> transform(e, path))
-      case (path, Path.OpenBound(_)) => path // NOTE CNFPath doesn't need to track such bounds.
-      case (path, Path.Condition(c)) => path withCond transform(c, path)
-    }
   }
 
   type Env = CNFPath

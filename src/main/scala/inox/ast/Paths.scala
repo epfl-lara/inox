@@ -37,6 +37,12 @@ trait Paths { self: SymbolOps with TypeOps =>
 
   trait PathProvider[P <: PathLike[P]] {
     def empty: P
+
+    def apply(path: Path): P = path.elements.foldLeft(empty) {
+      case (env, Path.CloseBound(vd, e)) => env withBinding (vd -> e)
+      case (env, Path.OpenBound(vd)) => env withBound vd
+      case (env, Path.Condition(cond)) => env withCond cond
+    }
   }
 
   implicit object Path extends PathProvider[Path] {

@@ -5,8 +5,7 @@ package transformers
 
 import utils._
 
-import scala.util.DynamicVariable
-import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
+import scala.collection.mutable.{Map => MutableMap}
 
 trait SimplifierWithPC extends TransformerWithPC { self =>
   import trees._
@@ -23,6 +22,9 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     // @nv: Scala's type system is unfortunately not powerful enough to express
     //      what we want here. The type should actually specify that the `that`
     //      parameter is the same type as this simplifier.
+    // NOTE: we also rely on the fact that the SolvingPath instance doesn't refer
+    //       to the outer simplifier here, otherwise the cast would lead to wrong
+    //       simplifications!
     def in(that: SimplifierWithPC {
       val trees: self.trees.type
       val symbols: self.symbols.type
@@ -301,52 +303,4 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     dynPurity.set(if (dynStack.get.isEmpty) dynPurity.get else pe :: dynPurity.get)
     re
   }
-}
-
-trait FastSimplifier extends SimplifierWithPC {
-  import trees._
-  import symbols._
-  import exprOps._
-  import dsl._
-
-  class Env private(
-    private val conditions: Set[Expr],
-    private val exprSubst: Map[Variable, Expr]
-  ) extends PathLike[Env] with SolvingPath {
-
-    override def withBinding(p: (ValDef, Expr)): Env = p match {
-      case (vd, expr @ (_: ADT | _: Tuple | _: Lambda)) =>
-        new Env(conditions, exprSubst + (vd.toVariable -> expr))
-      case (vd, v: Variable) =>
-        val exp = expand(v)
-        if (v != exp) new Env(conditions, exprSubst + (vd.toVariable -> exp))
-        else this
-      case _ => this
-    }
-
-    override def withBound(vd: ValDef): Env = this // We don't need to track such bounds.
-
-    override def withCond(cond: Expr): Env = new Env(conditions + cond, exprSubst)
-
-    override def negate: Env =
-      new Env(Set(), exprSubst) withConds conditions.toSeq.map(not)
-
-    override def merge(that: Env): Env =
-      new Env(conditions ++ that.conditions, exprSubst ++ that.exprSubst)
-
-    override def expand(expr: Expr): Expr = expr match {
-      case v: Variable => exprSubst.getOrElse(v, v)
-      case _ => expr
-    }
-
-    override def implies(expr: Expr): Boolean = conditions contains expr
-
-    override def toString: String = conditions.toString
-  }
-
-  implicit object Env extends PathProvider[Env] {
-    def empty = new Env(Set(), Map())
-  }
-
-  override def initEnv = Env.empty
 }
