@@ -41,7 +41,7 @@ trait ADTsElaborators { self: Elaborators =>
 
     override val elaborator = new ConstructorE(sortId)
 
-    def wrap(c: trees.ADTConstructor)(implicit store: Store): Constrained[(SimpleADTs.Constructor, Eventual[trees.ADTConstructor])] =
+    def wrap(c: trees.ADTConstructor, where: IR)(implicit store: Store): Constrained[(SimpleADTs.Constructor, Eventual[trees.ADTConstructor])] =
       Constrained.attempt(SimpleADTs.fromInox(c).map(sc => (sc, Eventual.pure(c))), "TODO: Error: Invalid constructor.")
   }
 }

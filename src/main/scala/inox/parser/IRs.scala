@@ -41,23 +41,17 @@ trait IRs
     val holeType: HoleType
   }
 
-  case class HSeq[+A <: IR : HoleTypable](elems: Seq[Either[Int, A]]) extends IR {
+  case class RepHole[+A <: IR : HoleTypable](index: Int) extends IR {
+    override def getHoles = Seq(Hole(index, HoleTypes.Sequence(implicitly[HoleTypable[A]].holeType)))
+  }
+
+  case class HSeq[+A <: IR : HoleTypable](elems: Seq[Either[RepHole[A], A]]) extends IR {
 
     def size = elems.size
-    private val holeType = HoleTypes.Sequence(implicitly[HoleTypable[A]].holeType)
 
     override def getHoles: Seq[Hole] = elems.flatMap {
-      case Left(index) => Seq(Hole(index, holeType))
+      case Left(r) => r.getHoles
       case Right(x) => x.getHoles
-    }
-
-    override def toString: String = {
-      def go(x: Either[Int, A]): String = x match {
-        case Left(index) => "$" + index + "..."
-        case Right(elem) => elem.toString
-      }
-
-      "HSeq(" + elems.map(go).mkString(",") + ")@" + pos.toString
     }
   }
 

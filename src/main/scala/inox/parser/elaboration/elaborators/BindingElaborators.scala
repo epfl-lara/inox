@@ -40,7 +40,7 @@ trait BindingElaborators { self: Elaborators =>
   object BindingSeqE extends HSeqE[Binding, trees.ValDef, SimpleBindings.Binding] {
 
     override val elaborator = BindingE
-    override def wrap(vd: trees.ValDef)(implicit store: Store): Constrained[SimpleBindings.Binding] =
+    override def wrap(vd: trees.ValDef, where: IR)(implicit store: Store): Constrained[SimpleBindings.Binding] =
       Constrained.attempt(SimpleBindings.fromInox(vd).map(_.forgetName), "TODO: Error")
   }
 }

@@ -65,12 +65,22 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
     case n => q"_root_.scala.math.BigInt(${n.toString})"
   }
 
+  implicit def repHoleLiftable[A <: IR : TypeTag] = Liftable[RepHole[A]] {
+    case ir@RepHole(index) => {
+      val tpe = typeOf[A] match {
+        case TypeRef(SingleType(_, o), t, _) => c.typecheck(tq"$interpolator.$o.$t", c.TYPEmode).tpe
+      }
+
+      q"$interpolator.RepHole[$tpe]($index).setPos(${ir.pos})"
+    }
+  }
+
   implicit def hseqLiftable[A <: IR : TypeTag](implicit ev: Liftable[A]) = Liftable[HSeq[A]] {
     case ir@HSeq(es) => {
       val tpe = typeOf[A] match {
         case TypeRef(SingleType(_, o), t, _) => c.typecheck(tq"$interpolator.$o.$t", c.TYPEmode).tpe
       }
-      val elems: Seq[Either[Int, A]] = es
+      val elems: Seq[Either[RepHole[A], A]] = es
 
       q"$interpolator.HSeq[$tpe](_root_.scala.collection.Seq(..$elems)).setPos(${ir.pos})"
     }

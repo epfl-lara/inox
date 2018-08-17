@@ -101,6 +101,7 @@ trait SimpleTypes { self: Trees =>
         case (acc, vd) => acc.flatMap(xs => fromInox(vd.tpe).map(x => xs :+ x))
       }.flatMap(sfs => fromInox(t).map(st => TupleType(sfs :+ st)))
       case trees.RefinementType(vd, _) => fromInox(vd.tpe)
+      case _ => None
     }
 
     def toInox(tpe: Type): trees.Type = tpe match {

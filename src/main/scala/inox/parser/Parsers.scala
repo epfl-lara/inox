@@ -51,9 +51,9 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
   def operator(s: String): Parser[lexical.Token] = elem(lexical.Operator(s)).withError(Errors.expectedString(s))
 
   def hseqParser[A <: IR](rep: Parser[A], sep: Parser[Any], allowEmpty: Boolean=false)(implicit ev: HoleTypable[A]): Parser[HSeq[A]] = {
-    val holeSeq: Parser[Either[Int, A]] = acceptMatch("hole", {
-      case lexical.Hole(index) => Left(index)
-    }) <~ elem(lexical.Keyword("..."))
+    val holeSeq: Parser[Either[RepHole[A], A]] = positioned(acceptMatch("hole", {
+      case lexical.Hole(index) => RepHole[A](index)
+    }) <~ elem(lexical.Keyword("..."))).map(Left(_))
 
     val nonEmpty = rep1sep(holeSeq | rep.map(Right(_)), sep).map(HSeq[A](_))
     positioned(if (allowEmpty) {

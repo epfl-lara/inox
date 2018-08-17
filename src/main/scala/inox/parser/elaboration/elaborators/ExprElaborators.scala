@@ -491,7 +491,7 @@ trait ExprElaborators { self: Elaborators =>
 
   object ExprSeqE extends HSeqE[Expr, trees.Expr, (SimpleTypes.Type, Eventual[trees.Expr])] {
     override val elaborator = ExprE
-    override def wrap(expr: trees.Expr)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Expr])] =
+    override def wrap(expr: trees.Expr, where: IR)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Expr])] =
       Constrained.attempt(SimpleTypes.fromInox(expr.getType(store.getSymbols)).map { st =>
         (st, Eventual.pure(expr))
       }, "TODO: Error")
@@ -515,7 +515,7 @@ trait ExprElaborators { self: Elaborators =>
 
   object ExprPairSeqE extends HSeqE[ExprPair, (trees.Expr, trees.Expr), ((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])] {
     override val elaborator = ExprPairE
-    override def wrap(pair: (trees.Expr, trees.Expr))(implicit store: Store):
+    override def wrap(pair: (trees.Expr, trees.Expr), where: IR)(implicit store: Store):
         Constrained[((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])] = for {
       stl <- Constrained.attempt(SimpleTypes.fromInox(pair._1.getType(store.getSymbols)), "TODO: Error")
       str <- Constrained.attempt(SimpleTypes.fromInox(pair._2.getType(store.getSymbols)), "TODO: Error")

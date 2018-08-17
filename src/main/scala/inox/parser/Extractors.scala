@@ -39,13 +39,13 @@ trait Extractors
           prefixMatchings
         }
         else {
-          val firstIndex = suffix.head.left.get
+          val firstIndex = suffix.head.left.get.index
           val rest = suffix.tail
 
           val (firstParts, restParts) = suffixParts.splitAt(scrutinee.size - minSize)
 
           val (restMatchings, Seq()) = rest.foldLeft((Seq[Matching[R]](), restParts)) {
-            case ((acc, rest), Left(index)) => (acc :+ Matching(index -> Seq()).withValue(default), rest)
+            case ((acc, rest), Left(r)) => (acc :+ Matching(r.index -> Seq()).withValue(default), rest)
             case ((acc, rest), Right(elem)) => (acc :+ extractor.extract(elem, rest.head), rest.tail)
           }
 

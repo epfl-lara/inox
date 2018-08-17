@@ -10,12 +10,12 @@ trait TypeElaborators { self: Elaborators =>
   object TypeE extends Elaborator[Type, (SimpleTypes.Type, Eventual[trees.Type])] {
     override def elaborate(template: Type)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Type])] = template match {
       case TypeHole(index) => for {
-        t <- Constrained.attempt(store.getHole[trees.Type](index), "TODO: Error: Argument is not a type.")
-        st <- Constrained.attempt(SimpleTypes.fromInox(t), "TODO: Error")
+        t <- Constrained.attempt(store.getHole[trees.Type](index), template, Errors.invalidHoleType("Type"))
+        st <- Constrained.attempt(SimpleTypes.fromInox(t), template, Errors.invalidInoxType(t))
       } yield (st, Eventual.pure(t))
       case Variable(id) => for {
         i <- TypeUseIdE.elaborate(id)
-        (st, et) <- Constrained.attempt(store.getType(i), "TODO: Error: i is not a type.")
+        (st, et) <- Constrained.attempt(store.getType(i), template, Errors.sortUsedAsTypeVariable(i.name))
       } yield (st, et)
       case Primitive(tpe) => {
         import Primitives._
@@ -32,21 +32,21 @@ trait TypeElaborators { self: Elaborators =>
       }
       case Operation(Operators.Set, args) => for {
         zs <- TypeSeqE.elaborate(args)
-        _ <- Constrained.checkImmediate(zs.size == 1, "TODO: Error: Too many arguments for Set.")
+        _ <- Constrained.checkImmediate(zs.size == 1, template, Errors.wrongNumberOfTypeArguments("Set", 1, zs.size))
       } yield {
         val Seq((st, et)) = zs
         (SimpleTypes.SetType(st), et.map(trees.SetType(_)))
       }
       case Operation(Operators.Bag, args) => for {
         zs <- TypeSeqE.elaborate(args)
-        _ <- Constrained.checkImmediate(zs.size == 1, "TODO: Error: Too many arguments for Bag.")
+        _ <- Constrained.checkImmediate(zs.size == 1, template, Errors.wrongNumberOfTypeArguments("Bag", 1, zs.size))
       } yield {
         val Seq((st, et)) = zs
         (SimpleTypes.BagType(st), et.map(trees.BagType(_)))
       }
       case Operation(Operators.Map, args) => for {
         zs <- TypeSeqE.elaborate(args)
-        _ <- Constrained.checkImmediate(zs.size == 2, "TODO: Error: Too many arguments for Map.")
+        _ <- Constrained.checkImmediate(zs.size == 2, template, Errors.wrongNumberOfTypeArguments("Map", 2, zs.size))
       } yield {
         val Seq((sf, ef), (st, et)) = zs
         (SimpleTypes.MapType(sf, st), Eventual.withUnifier { implicit u =>
@@ -55,9 +55,9 @@ trait TypeElaborators { self: Elaborators =>
       }
       case Invocation(id, args) => for {
         i <- TypeUseIdE.elaborate(id)
-        n <- Constrained.attempt(store.getTypeConstructor(i), "TODO: Error: i is not a type constructor.")
+        n <- Constrained.attempt(store.getTypeConstructor(i), template, Errors.typeVariableUsedAsSort(i.name))
         zas <- TypeSeqE.elaborate(args)
-        _ <- Constrained.checkImmediate(n == zas.size, "TODO: Error: wrong number of arguments.")
+        _ <- Constrained.checkImmediate(n == zas.size, template, Errors.wrongNumberOfTypeArguments(i.name, n, zas.size))
         (sas, eas) = zas.unzip
       } yield (SimpleTypes.ADTType(i, sas), Eventual.withUnifier { implicit u =>
         trees.ADTType(i, eas.map(_.get))
@@ -108,7 +108,7 @@ trait TypeElaborators { self: Elaborators =>
   object TypeSeqE extends HSeqE[Type, trees.Type, (SimpleTypes.Type, Eventual[trees.Type])] {
     override val elaborator = TypeE
 
-    override def wrap(tpe: trees.Type)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Type])] =
-      Constrained.attempt(SimpleTypes.fromInox(tpe), "TODO: Error.").map { st => (st, Eventual.pure(tpe)) }
+    override def wrap(tpe: trees.Type, where: IR)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Type])] =
+      Constrained.attempt(SimpleTypes.fromInox(tpe), where, Errors.invalidInoxType(tpe)).map { st => (st, Eventual.pure(tpe)) }
   }
 }

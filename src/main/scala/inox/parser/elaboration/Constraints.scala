@@ -2,6 +2,8 @@ package inox
 package parser
 package elaboration
 
+import scala.util.parsing.input.Position
+
 trait Constraints { self: IRs with SimpleTypes =>
 
   import SimpleTypes._
@@ -173,6 +175,14 @@ trait Constraints { self: IRs with SimpleTypes =>
         if (condition(x)) Constrained.pure(x) else Constrained.fail(error)
       }
 
+    def checkImmediate(condition: Boolean, where: IR, error: Position => String): Constrained[A] =
+      if (condition) this else Constrained.fail(error(where.pos))
+
+    def checkImmediate(condition: A => Boolean, where: IR, error: Position => String): Constrained[A] =
+      flatMap { x =>
+        if (condition(x)) Constrained.pure(x) else Constrained.fail(error(where.pos))
+      }
+
     def withFilter(pred: A => Boolean): Constrained[A] = new Constrained(get match {
       case Right((a, _)) if !pred(a) => Left("TODO: ErrorMessage.")
       case _ => get
@@ -206,8 +216,16 @@ trait Constraints { self: IRs with SimpleTypes =>
       case None => Constrained.fail(error)
     }
 
+    def attempt[A](opt: Option[A], where: IR, error: Position => ErrorMessage): Constrained[A] = opt match {
+      case Some(x) => Constrained.pure(x)
+      case None => Constrained.fail(error(where.pos))
+    }
+
     def checkImmediate(condition: Boolean, error: => ErrorMessage): Constrained[Unit] =
       if (condition) Constrained.pure(()) else Constrained.fail(error)
+
+    def checkImmediate(condition: Boolean, where: IR, error: Position => String): Constrained[Unit] =
+      if (condition) Constrained.pure(()) else Constrained.fail(error(where.pos))
   }
 
   object TypeClasses {
