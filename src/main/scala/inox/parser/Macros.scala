@@ -338,8 +338,8 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
 
   private def parse[A](p: Parser[A]): A = {
     parseSC(sc)(phrase(p)) match {
-      case Right(v) => { println(v); v }
-      case Left(e) => c.abort(c.enclosingPosition, e)
+      case Right(v) => v
+      case Left(e) => c.abort(c.enclosingPosition, "Parsing error in quasiquoted inox expression:\n" + e)
     }
   }
 

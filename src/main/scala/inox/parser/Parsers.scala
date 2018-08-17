@@ -15,8 +15,16 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
     def withError(onError: Position => String): Parser[A] = new Parser[A] {
       override def apply(input: Input) = parser(input) match {
         case s @ Success(_, _) => s
-        case e @ Error(_, rest) => Error(onError(input.pos), rest)
-        case f @ Failure(_, rest) => Failure(onError(input.pos), rest)
+        case e @ Error(_, rest) => if (input.pos < rest.pos) {
+          e
+        } else {
+          Error(onError(input.pos), rest)
+        }
+        case f @ Failure(_, rest) => if (input.pos < rest.pos) {
+          f
+        } else {
+          Failure(onError(input.pos), rest)
+        }
       }
     }
   }
@@ -34,11 +42,13 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
   import Programs._
 
   def p(c: Char): Parser[lexical.Token] =
-    elem(lexical.Parenthesis(c)) | elem(lexical.Punctuation(c))
+    (elem(lexical.Parenthesis(c)) | elem(lexical.Punctuation(c))).withError(Errors.expectedString(c.toString))
 
-  def kw(s: String): Parser[lexical.Token] = elem(lexical.Keyword(s))
+  def kw(s: String): Parser[lexical.Token] = elem(lexical.Keyword(s)).withError(Errors.expectedString(s))
 
-  def operator(s: String): Parser[lexical.Token] = elem(lexical.Operator(s))
+  def kws(ss: String*): Parser[lexical.Token] = ss.map(s => elem(lexical.Keyword(s))).reduce(_ | _).withError(Errors.expectedOneOfStrings(ss : _*))
+
+  def operator(s: String): Parser[lexical.Token] = elem(lexical.Operator(s)).withError(Errors.expectedString(s))
 
   def hseqParser[A <: IR](rep: Parser[A], sep: Parser[Any], allowEmpty: Boolean=false)(implicit ev: HoleTypable[A]): Parser[HSeq[A]] = {
     val holeSeq: Parser[Either[Int, A]] = acceptMatch("hole", {
@@ -57,7 +67,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
   lazy val identifierParser: PackratParser[Identifier] = positioned(acceptMatch("identifier", {
     case lexical.Identifier(name) => IdentifierName(name)
     case lexical.Hole(index) => IdentifierHole(index)
-  }))
+  })).withError(Errors.expected("an identifier"))
 
   lazy val holeParser: PackratParser[Int] = acceptMatch("hole", {
     case lexical.Hole(index) => index
@@ -132,12 +142,12 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
     }
 
     lazy val defaultNamedBinding: Parser[Binding] = context match {
-      case None => failure("no default names available")
-      case Some(name) => ret.map(tpe => ExplicitValDef(IdentifierName(name), tpe))
+      case None => failure("no default names available").withError(Errors.expected("a binding"))
+      case Some(name) => ret.map(tpe => ExplicitValDef(IdentifierName(name), tpe)).withError(Errors.expected("a binding or a type"))
     }
 
     lazy val refinementTypeParser: Parser[Type] =
-      p('{') ~> (bindingParser(explicitOnly=true) | defaultNamedBinding) ~ (operator("|") ~> exprParser) <~ p('}') ^^ {
+      p('{') ~> commit(bindingParser(explicitOnly=true) | defaultNamedBinding) ~ commit(operator("|") ~> exprParser <~ p('}')) ^^ {
         case binding ~ expr => RefinementType(binding, expr)
       }
 
@@ -149,16 +159,16 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
       variableParser       |
       refinementTypeParser |
       inParensParser       |
-      sigmaTypeParser)
+      sigmaTypeParser) withError(Errors.expected("a type"))
 
     lazy val typesGroup: Parser[HSeq[Type]] =
-      (p('(') ~> hseqParser(typeParser, p(','), allowEmpty=true) <~ p(')')) |
+      (p('(') ~> hseqParser(typeParser, p(','), allowEmpty=true) <~ (p(')'))) |
       singleTypeParser ^^ { tpe => HSeq[Type](Seq(Right(tpe))) }
 
     lazy val depTypesGroup: Parser[HSeq[Binding]] =
-      (p('(') ~> hseqParser(bindingParser(explicitOnly=true), p(','), allowEmpty=true) <~ p(')'))
+      (p('(') ~> hseqParser(bindingParser(explicitOnly=true), p(','), allowEmpty=true) <~ (p(')')))
 
-    lazy val ret = positioned(rep((typesGroup.map(Right(_)) <~ kw("=>")) | (depTypesGroup.map(Left(_)) <~ (kw("->") | kw("=>")))) ~ singleTypeParser ^^ { case as ~ b =>
+    lazy val ret = positioned(rep((typesGroup.map(Right(_)) <~ kw("=>")) | (depTypesGroup.map(Left(_)) <~ kws("->", "=>"))) ~ singleTypeParser ^^ { case as ~ b =>
       as.foldRight(b) {
         case (Left(xs), acc) => PiType(xs, acc)
         case (Right(xs), acc) => FunctionType(xs, acc)
@@ -259,7 +269,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
     val primitiveInvocationParser: Parser[Expr] = for {
       f   <- primitiveNameParser
       tps <- opt(p('[') ~> hseqParser(typeParser, p(',')) <~ p(']'))
-      ps  <- p('(') ~> hseqParser(exprParser, p(','), allowEmpty=true) <~ p(')')
+      ps  <- (p('(') ~> hseqParser(exprParser, p(','), allowEmpty=true) <~ p(')'))
     } yield PrimitiveInvocation(f, tps, ps)
 
     val invocationParser: Parser[Expr] = for {
@@ -284,7 +294,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
       letParser                 |
       lambdaParser              |
       forallParser              |
-      chooseParser)
+      chooseParser).withError(Errors.expected("an expression"))
 
     val postfixedParser: Parser[Expr] = positioned({
 
@@ -422,7 +432,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
       }
     }
 
-    positioned(operatorParser)
+    positioned(operatorParser) withError(Errors.expected("an expression"))
   }
 
   lazy val functionDefinitionParser: PackratParser[Function] = positioned(for {
@@ -450,7 +460,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
     } yield Sort(i, ts.getOrElse(HSeq.fromSeq(Seq[Identifier]())), cs)
   })
 
-  def bindingParser(explicitOnly: Boolean=false): Parser[Binding] = holeParser.map(BindingHole(_)) | {
+  def bindingParser(explicitOnly: Boolean=false): Parser[Binding] = (holeParser.map(BindingHole(_)) | {
 
     def typeParserOf(id: Identifier): Parser[Type] = id match {
       case IdentifierHole(_) => typeParser
@@ -472,7 +482,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
         case Some(tpe) => ExplicitValDef(i, tpe)
       }
     })
-  }
+  }).withError(Errors.expected("a binding"))
 
   lazy val programParser: PackratParser[Program] =
     positioned(rep1(adtDefinitionParser.map(Left(_)) | functionDefinitionParser.map(Right(_))).map(Program(_)))
