@@ -186,6 +186,10 @@ trait ExprExtractors { self: Extractors =>
           ExprUseIdX.extract(id, sId) <>
           Matching.optionally(optTypeArgs.map(TypeSeqX.extract(_, sTypeArgs))) <>
           ExprSeqX.extract(args, sArgs)
+        case trees.Application(trees.Variable(sId, _, _), sArgs) =>
+          ExprUseIdX.extract(id, sId) <>
+          Matching.conditionally(optTypeArgs.isEmpty) <>
+          ExprSeqX.extract(args, sArgs)
       }
       case PrimitiveInvocation(fun, optTypeArgs, args) => {
         import Primitive._

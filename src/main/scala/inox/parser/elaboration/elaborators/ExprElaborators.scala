@@ -124,31 +124,50 @@ trait ExprElaborators { self: Elaborators =>
       } yield (stt, Eventual.withUnifier { implicit unifier =>
         trees.IfExpr(evc.get, evt.get, eve.get)
       })
-      case Invocation(id, optTypeArgs, args) => for {
-        i <- ExprUseIdE.elaborate(id)
-        ((n, f), isFun) <- Constrained.attempt(
-          store.getFunction(i).map((_, true)).orElse(store.getConstructor(i).map((_, false))),
-          "TODO: Error: i is not a function nor a constructor.")
-        (sts, ets) <- optTypeArgs
-          .map(TypeSeqE.elaborate(_))
-          .getOrElse(Constrained.sequence(Seq.fill(n) {
-            OptTypeE.elaborate(None)
-          }))
-          .checkImmediate(_.size == n, "TODO: Error: Wrong number of type arguments for constructor/function.")
-          .map(_.unzip)
-        (ests, rst) = f(sts)
-        (stas, evas) <- ExprSeqE.elaborate(args)
-          .checkImmediate(_.size == ests.size, "TODO: Error: Wrong number of arguments for constructor/function.")
-          .map(_.unzip)
-        _ <- Constrained(ests.zip(stas).map { case (est, ast) => Constraint.equal(est, ast) } : _*)
-      } yield (rst, Eventual.withUnifier { implicit unifier =>
-        if (isFun) {
-          trees.FunctionInvocation(i, ets.map(_.get), evas.map(_.get))
+      case Invocation(id, optTypeArgs, args) => {
+
+        ExprUseIdE.elaborate(id).flatMap { i =>
+          Constrained.attempt(
+            store.getFunction(i).map(x => Left((x, true)))
+              .orElse(store.getConstructor(i).map(x => Left((x, false))))
+              .orElse(store.getVariable(i).map(x => Right(x))),
+            "TODO: Error: i is not a function nor a constructor.").flatMap {
+
+            case Left(((n, f), isFun)) => for {
+              (sts, ets) <- optTypeArgs
+                .map(TypeSeqE.elaborate(_))
+                .getOrElse(Constrained.sequence(Seq.fill(n) {
+                  OptTypeE.elaborate(None)
+                }))
+                .checkImmediate(_.size == n, "TODO: Error: Wrong number of type arguments for constructor/function.")
+                .map(_.unzip)
+              (ests, rst) = f(sts)
+              (stas, evas) <- ExprSeqE.elaborate(args)
+                .checkImmediate(_.size == ests.size, "TODO: Error: Wrong number of arguments for constructor/function.")
+                .map(_.unzip)
+              _ <- Constrained(ests.zip(stas).map { case (est, ast) => Constraint.equal(est, ast) } : _*)
+            } yield (rst, Eventual.withUnifier { implicit unifier =>
+              if (isFun) {
+                trees.FunctionInvocation(i, ets.map(_.get), evas.map(_.get))
+              }
+              else {
+                trees.ADT(i, ets.map(_.get), evas.map(_.get))
+              }
+            })
+            case Right((st, et)) => {
+              val retTpe = SimpleTypes.Unknown.fresh
+              for {
+                (stas, evas) <- ExprSeqE.elaborate(args)
+                  .checkImmediate(optTypeArgs.isEmpty, "TODO: Error: Function values can not have type parameters.")
+                  .map(_.unzip)
+                _ <- Constrained(Constraint.equal(st, SimpleTypes.FunctionType(stas, retTpe)))
+              } yield (retTpe, Eventual.withUnifier { implicit unifier =>
+                trees.Application(trees.Variable(i, et.get, Seq()), evas.map(_.get))
+              })
+            }
+          }
         }
-        else {
-          trees.ADT(i, ets.map(_.get), evas.map(_.get))
-        }
-      })
+      }
       case PrimitiveInvocation(fun, optTypeArgs, args) => {
         import Primitive._
 
