@@ -43,17 +43,17 @@ trait IdentifierElaborators { self: Elaborators =>
     }
   }
 
-  object FieldIdE extends Elaborator[Identifier, Seq[(inox.Identifier, inox.Identifier)]] {
-    override def elaborate(template: Identifier)(implicit store: Store): Constrained[Seq[(inox.Identifier, inox.Identifier)]] = template match {
+  object FieldIdE extends Elaborator[Identifier, (String, Seq[(inox.Identifier, inox.Identifier)])] {
+    override def elaborate(template: Identifier)(implicit store: Store): Constrained[(String, Seq[(inox.Identifier, inox.Identifier)])] = template match {
       case IdentifierHole(index) => store.getHole[inox.Identifier](index) match {
         case None => Constrained.fail(Errors.invalidHoleType("Identifier")(template.pos))
-        case Some(id) => Constrained.pure(store.getSortByField(id).toSeq.map((_, id)))
+        case Some(id) => Constrained.pure((id.name, store.getSortByField(id).toSeq.map((_, id))))
       }
-      case IdentifierName(name) => Constrained.pure(store.getFieldByName(name))
+      case IdentifierName(name) => Constrained.pure((name, store.getFieldByName(name)))
     }
   }
 
-  object DefIdSeqE extends HSeqE[Identifier, inox.Identifier, (inox.Identifier, Option[String])] {
+  object DefIdSeqE extends HSeqE[Identifier, inox.Identifier, (inox.Identifier, Option[String])]("Identifier") {
     override val elaborator = DefIdE
 
     override def wrap(id: inox.Identifier, where: IR)(implicit store: Store): Constrained[(inox.Identifier, Option[String])] =
@@ -72,7 +72,7 @@ trait IdentifierElaborators { self: Elaborators =>
     }
   }
 
-  object TypeVarDefSeqE extends HSeqE[Identifier, inox.Identifier, SimpleBindings.TypeBinding] {
+  object TypeVarDefSeqE extends HSeqE[Identifier, inox.Identifier, SimpleBindings.TypeBinding]("Identifier") {
     override val elaborator = TypeVarDefE
 
     override def wrap(id: inox.Identifier, where: IR)(implicit store: Store): Constrained[SimpleBindings.TypeBinding] =

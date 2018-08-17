@@ -9,14 +9,14 @@ trait ExprElaborators { self: Elaborators =>
 
   object ExprE extends Elaborator[Expr, (SimpleTypes.Type, Eventual[trees.Expr])] {
     override def elaborate(template: Expr)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Expr])] = template match {
-      case ExprHole(index) => Constrained.attempt(store.getHole[trees.Expr](index), "TODO: Error").flatMap { expr =>
-        Constrained.attempt(SimpleTypes.fromInox(expr.getType(store.getSymbols)), "TODO: Error").map { st =>
+      case ExprHole(index) => Constrained.attempt(store.getHole[trees.Expr](index), template, Errors.invalidHoleType("Expr")).flatMap { expr =>
+        Constrained.attempt(SimpleTypes.fromInox(expr.getType(store.getSymbols)), template, Errors.invalidInoxExpr(expr)).map { st =>
           (st, Eventual.pure(expr))
         }
       }
       case Variable(id) => for {
         i <- ExprUseIdE.elaborate(id)
-        (st, et) <- Constrained.attempt(store.getVariable(i), "TODO: Error, i is not a variable.")
+        (st, et) <- Constrained.attempt(store.getVariable(i), template, Errors.functionUsedAsVariable(i.name))
       } yield (st, et.map(trees.Variable(i, _, Seq())))
       case UnitLiteral() =>
         Constrained.pure((SimpleTypes.UnitType(), Eventual.pure(trees.UnitLiteral())))
@@ -62,7 +62,7 @@ trait ExprElaborators { self: Elaborators =>
           .getOrElse(Constrained.sequence(Seq.fill(2) {
             OptTypeE.elaborate(None)
           }))
-          .checkImmediate(_.size == 2, "TODO: Error: Wrong number arguments for Map.")
+          .checkImmediate(_.size == 2, template, xs => Errors.wrongNumberOfTypeArguments("Map", 2, xs.size))
           .map(_.unzip)
         (stps, evps) <- ExprPairSeqE.elaborate(elems).map(_.unzip)
         (sks, sts) = stps.unzip
@@ -131,7 +131,9 @@ trait ExprElaborators { self: Elaborators =>
             store.getFunction(i).map(x => Left((x, true)))
               .orElse(store.getConstructor(i).map(x => Left((x, false))))
               .orElse(store.getVariable(i).map(x => Right(x))),
-            "TODO: Error: i is not a function nor a constructor.").flatMap {
+            template,
+            Errors.identifierNotCallable(i.name)
+          ).flatMap {
 
             case Left(((n, f), isFun)) => for {
               (sts, ets) <- optTypeArgs
@@ -139,11 +141,11 @@ trait ExprElaborators { self: Elaborators =>
                 .getOrElse(Constrained.sequence(Seq.fill(n) {
                   OptTypeE.elaborate(None)
                 }))
-                .checkImmediate(_.size == n, "TODO: Error: Wrong number of type arguments for constructor/function.")
+                .checkImmediate(_.size == n, template, xs => Errors.wrongNumberOfTypeArguments(i.name, n, xs.size))
                 .map(_.unzip)
               (ests, rst) = f(sts)
               (stas, evas) <- ExprSeqE.elaborate(args)
-                .checkImmediate(_.size == ests.size, "TODO: Error: Wrong number of arguments for constructor/function.")
+                .checkImmediate(_.size == ests.size, template, xs => Errors.wrongNumberOfArguments(i.name, n, xs.size))
                 .map(_.unzip)
               _ <- Constrained(ests.zip(stas).map { case (est, ast) => Constraint.equal(est, ast) } : _*)
             } yield (rst, Eventual.withUnifier { implicit unifier =>
@@ -158,7 +160,7 @@ trait ExprElaborators { self: Elaborators =>
               val retTpe = SimpleTypes.Unknown.fresh
               for {
                 (stas, evas) <- ExprSeqE.elaborate(args)
-                  .checkImmediate(optTypeArgs.isEmpty, "TODO: Error: Function values can not have type parameters.")
+                  .checkImmediate(optTypeArgs.isEmpty, template, Errors.functionValuesCanNotHaveTypeParameters(i.name))
                   .map(_.unzip)
                 _ <- Constrained(Constraint.equal(st, SimpleTypes.FunctionType(stas, retTpe)))
               } yield (retTpe, Eventual.withUnifier { implicit unifier =>
@@ -176,13 +178,13 @@ trait ExprElaborators { self: Elaborators =>
           .getOrElse(Constrained.sequence(Seq.fill(fun.typeArgs) {
             OptTypeE.elaborate(None)
           }))
-          .checkImmediate(_.size == fun.typeArgs, "TODO: Error: Wrong number of type arguments for primitive function.")
+          .checkImmediate(_.size == fun.typeArgs, template, xs => Errors.wrongNumberOfTypeArguments(fun.name, fun.typeArgs, xs.size))
           .map(_.map(_._1))
           .flatMap { (typeArgs) =>
 
           ExprSeqE
             .elaborate(args)
-            .checkImmediate(_.size == fun.args, "TODO: Error: Wrong number of arguments for primitive function.")
+            .checkImmediate(_.size == fun.args, template, xs => Errors.wrongNumberOfArguments(fun.name, fun.args, xs.size))
             .map(_.unzip)
             .flatMap { case (sts, evs) => fun match {
               case SetAdd =>
@@ -284,7 +286,7 @@ trait ExprElaborators { self: Elaborators =>
       case IsConstructor(expr, id) => for {
         (st, ev) <- ExprE.elaborate(expr)
         i <- ExprUseIdE.elaborate(id)
-        s <- Constrained.attempt(store.getSortOfConstructor(i), "TODO: Error: i is not a constructor.")
+        s <- Constrained.attempt(store.getSortOfConstructor(i), template, Errors.identifierNotConstructor(i.name))
         n = store.getTypeConstructor(s).getOrElse { throw new IllegalStateException("Inconsistent store.") }
         _ <- Constrained(Constraint.equal(st, SimpleTypes.ADTType(s, Seq.fill(n)(SimpleTypes.Unknown.fresh))))
       } yield (SimpleTypes.BooleanType(), ev.map(trees.IsConstructor(_, i)))
@@ -308,7 +310,8 @@ trait ExprElaborators { self: Elaborators =>
       } yield (u, ev.map(trees.TupleSelect(_, index)))
       case Selection(expr, id) => for {
         (st, ev) <- ExprE.elaborate(expr)
-        pis <- FieldIdE.elaborate(id)
+        (name, pis) <- FieldIdE.elaborate(id)
+        _ <- Constrained.checkImmediate(pis.size > 0, id, Errors.noFieldNamed(name))
         adtType = SimpleTypes.Unknown.fresh
         retType = SimpleTypes.Unknown.fresh
         _ <- Constrained(Constraint.hasFields(st, pis.map(_._2.name).toSet, pis.map {
@@ -489,21 +492,21 @@ trait ExprElaborators { self: Elaborators =>
     }
   }
 
-  object ExprSeqE extends HSeqE[Expr, trees.Expr, (SimpleTypes.Type, Eventual[trees.Expr])] {
+  object ExprSeqE extends HSeqE[Expr, trees.Expr, (SimpleTypes.Type, Eventual[trees.Expr])]("Expr") {
     override val elaborator = ExprE
     override def wrap(expr: trees.Expr, where: IR)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Expr])] =
       Constrained.attempt(SimpleTypes.fromInox(expr.getType(store.getSymbols)).map { st =>
         (st, Eventual.pure(expr))
-      }, "TODO: Error")
+      }, where, Errors.invalidInoxExpr(expr))
   }
 
   object ExprPairE extends Elaborator[ExprPair, ((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])] {
     override def elaborate(pair: ExprPair)(implicit store: Store):
         Constrained[((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])] = pair match {
-      case PairHole(index) => Constrained.attempt(store.getHole[(trees.Expr, trees.Expr)](index), "TODO: Error").flatMap {
+      case PairHole(index) => Constrained.attempt(store.getHole[(trees.Expr, trees.Expr)](index), pair, Errors.invalidHoleType("(Expr, Expr)")).flatMap {
         case p@(lhs, rhs) => for {
-          stl <- Constrained.attempt(SimpleTypes.fromInox(lhs.getType(store.getSymbols)), "TODO: Error")
-          str <- Constrained.attempt(SimpleTypes.fromInox(rhs.getType(store.getSymbols)), "TODO: Error")
+          stl <- Constrained.attempt(SimpleTypes.fromInox(lhs.getType(store.getSymbols)), pair, Errors.invalidInoxExpr(lhs))
+          str <- Constrained.attempt(SimpleTypes.fromInox(rhs.getType(store.getSymbols)), pair, Errors.invalidInoxExpr(rhs))
         } yield ((stl, str), Eventual.pure(p))
       }
       case Pair(lhs, rhs) => for {
@@ -513,12 +516,12 @@ trait ExprElaborators { self: Elaborators =>
     }
   }
 
-  object ExprPairSeqE extends HSeqE[ExprPair, (trees.Expr, trees.Expr), ((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])] {
+  object ExprPairSeqE extends HSeqE[ExprPair, (trees.Expr, trees.Expr), ((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])]("(Expr, Expr)") {
     override val elaborator = ExprPairE
     override def wrap(pair: (trees.Expr, trees.Expr), where: IR)(implicit store: Store):
         Constrained[((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])] = for {
-      stl <- Constrained.attempt(SimpleTypes.fromInox(pair._1.getType(store.getSymbols)), "TODO: Error")
-      str <- Constrained.attempt(SimpleTypes.fromInox(pair._2.getType(store.getSymbols)), "TODO: Error")
+      stl <- Constrained.attempt(SimpleTypes.fromInox(pair._1.getType(store.getSymbols)), where, Errors.invalidInoxExpr(pair._1))
+      str <- Constrained.attempt(SimpleTypes.fromInox(pair._2.getType(store.getSymbols)), where, Errors.invalidInoxExpr(pair._2))
     } yield ((stl, str), Eventual.pure(pair))
   }
 }

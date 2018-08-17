@@ -11,8 +11,8 @@ trait BindingElaborators { self: Elaborators =>
 
     override def elaborate(template: Binding)(implicit store: Store): Constrained[SimpleBindings.Binding] = template match {
       case BindingHole(index) => store.getHole[trees.ValDef](index) match {
-        case None => Constrained.fail("TODO: Error")
-        case Some(vd) => Constrained.attempt(SimpleBindings.fromInox(vd).map(_.forgetName), "TODO: Error")
+        case None => Constrained.fail(Errors.invalidHoleType("ValDef")(template.pos))
+        case Some(vd) => Constrained.attempt(SimpleBindings.fromInox(vd).map(_.forgetName), template, Errors.invalidInoxValDef(vd))
       }
       case ExplicitValDef(id, tpe) => for {
         (i, on) <- DefIdE.elaborate(id)
@@ -37,10 +37,10 @@ trait BindingElaborators { self: Elaborators =>
     }
   }
 
-  object BindingSeqE extends HSeqE[Binding, trees.ValDef, SimpleBindings.Binding] {
+  object BindingSeqE extends HSeqE[Binding, trees.ValDef, SimpleBindings.Binding]("ValDef") {
 
     override val elaborator = BindingE
     override def wrap(vd: trees.ValDef, where: IR)(implicit store: Store): Constrained[SimpleBindings.Binding] =
-      Constrained.attempt(SimpleBindings.fromInox(vd).map(_.forgetName), "TODO: Error")
+      Constrained.attempt(SimpleBindings.fromInox(vd).map(_.forgetName), where, Errors.invalidInoxValDef(vd))
   }
 }

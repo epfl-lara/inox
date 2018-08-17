@@ -37,7 +37,7 @@ trait ADTsElaborators { self: Elaborators =>
         new trees.ADTConstructor(id, sortId, params.map(_.evValDef.get)) })
   }
 
-  class ConstructorSeqE(sortId: inox.Identifier) extends HSeqE[Constructor, trees.ADTConstructor, (SimpleADTs.Constructor, Eventual[trees.ADTConstructor])] {
+  class ConstructorSeqE(sortId: inox.Identifier) extends HSeqE[Constructor, trees.ADTConstructor, (SimpleADTs.Constructor, Eventual[trees.ADTConstructor])]("ADTConstructor") {
 
     override val elaborator = new ConstructorE(sortId)
 

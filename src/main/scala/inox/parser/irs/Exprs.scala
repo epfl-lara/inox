@@ -52,20 +52,20 @@ trait Exprs { self: IRs =>
     }
 
     object Primitive {
-      sealed abstract class Function(val typeArgs: Int, val args: Int)
-      case object SetAdd extends Function(1, 2)
-      case object ElementOfSet extends Function(1, 2)
-      case object SetIntersection extends Function(1, 2)
-      case object SetUnion extends Function(1, 2)
-      case object SetDifference extends Function(1, 2)
-      case object Subset extends Function(1, 2)
-      case object BagAdd extends Function(1, 2)
-      case object MultiplicityInBag extends Function(1, 2)
-      case object BagIntersection extends Function(1, 2)
-      case object BagUnion extends Function(1, 2)
-      case object BagDifference extends Function(1, 2)
-      case object MapApply extends Function(2, 2)
-      case object MapUpdated extends Function(2, 3)
+      sealed abstract class Function(val name: String, val typeArgs: Int, val args: Int)
+      case object SetAdd extends Function("setAdd", 1, 2)
+      case object ElementOfSet extends Function("elementOfSet", 1, 2)
+      case object SetIntersection extends Function("setIntersection", 1, 2)
+      case object SetUnion extends Function("setUnion", 1, 2)
+      case object SetDifference extends Function("setDifference", 1, 2)
+      case object Subset extends Function("subset", 1, 2)
+      case object BagAdd extends Function("bagAdd", 1, 2)
+      case object MultiplicityInBag extends Function("multiplicityInBag", 1, 2)
+      case object BagIntersection extends Function("bagIntersection", 1, 2)
+      case object BagUnion extends Function("bagUnion", 1, 2)
+      case object BagDifference extends Function("bagDifference", 1, 2)
+      case object MapApply extends Function("mapApply", 2, 2)
+      case object MapUpdated extends Function("mapUpdated", 2, 3)
     }
 
     object Casts {

@@ -105,7 +105,7 @@ trait TypeElaborators { self: Elaborators =>
     }
   }
 
-  object TypeSeqE extends HSeqE[Type, trees.Type, (SimpleTypes.Type, Eventual[trees.Type])] {
+  object TypeSeqE extends HSeqE[Type, trees.Type, (SimpleTypes.Type, Eventual[trees.Type])]("Type") {
     override val elaborator = TypeE
 
     override def wrap(tpe: trees.Type, where: IR)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Type])] =

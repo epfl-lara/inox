@@ -55,4 +55,30 @@ object Errors {
 
   def wrongNumberOfTypeArguments(callee: String, expected: Int, actual: Int): Position => String =
     withPosition("Wrong number of type arguments for " + callee + ", expected " + expected + ", got " + actual + ".")
+
+  def invalidInoxValDef(vd: inox.ast.Trees#ValDef): Position => String =
+    withPosition("Invalid ValDef " + vd + ".")
+
+  def functionUsedAsVariable(name: String): Position => String =
+    withPosition(name + " is a function or a constructor, not a variable.")
+
+  def identifierNotCallable(name: String): Position => String =
+    withPosition(name + " is not callable.")
+
+  def functionValuesCanNotHaveTypeParameters(name: String): Position => String =
+    withPosition(name + " is a function value and therefore can not accept type parameters.")
+
+  def identifierNotConstructor(name: String): Position => String =
+    withPosition(name + " is not a constructor.")
+
+  def invalidInoxExpr(expr: inox.ast.Trees#Expr): Position => String =
+    withPosition("Invalid Expr " + expr + ".")
+
+  def noFieldNamed(name: String): Position => String =
+    withPosition(name + " is not a known field.")
+
+  /* Misc: */
+
+  val filterError: String =
+    "Filter error."
 }

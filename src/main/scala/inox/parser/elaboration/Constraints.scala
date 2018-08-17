@@ -178,13 +178,13 @@ trait Constraints { self: IRs with SimpleTypes =>
     def checkImmediate(condition: Boolean, where: IR, error: Position => String): Constrained[A] =
       if (condition) this else Constrained.fail(error(where.pos))
 
-    def checkImmediate(condition: A => Boolean, where: IR, error: Position => String): Constrained[A] =
+    def checkImmediate(condition: A => Boolean, where: IR, error: A => Position => String): Constrained[A] =
       flatMap { x =>
-        if (condition(x)) Constrained.pure(x) else Constrained.fail(error(where.pos))
+        if (condition(x)) Constrained.pure(x) else Constrained.fail(error(x)(where.pos))
       }
 
     def withFilter(pred: A => Boolean): Constrained[A] = new Constrained(get match {
-      case Right((a, _)) if !pred(a) => Left("TODO: ErrorMessage.")
+      case Right((a, _)) if !pred(a) => Left(Errors.filterError)
       case _ => get
     })
   }
@@ -330,7 +330,7 @@ trait Constraints { self: IRs with SimpleTypes =>
     case class WithIndices(indices: Map[Int, Type]) extends TypeClass {
       override def accepts(tpe: Type) = tpe match {
         case TupleType(es) => indices.toSeq.map { case (k, v) =>
-          if (es.size <= k) None else Some(Equals(es(k), v))
+          if (es.size < k) None else Some(Equals(es(k - 1), v))
         }.foldLeft(Option(Seq[Constraint]())) {
           case (acc, constraint) => acc.flatMap { xs => constraint.map { x => xs :+ x }}
         }

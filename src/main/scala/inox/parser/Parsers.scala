@@ -326,7 +326,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
 
       nonOperatorParser ~ rep(postfixParser) ^^ {
         case e ~ fs => fs.foldLeft(e) {
-          case (acc, Left(Left(Left(i))))  => TupleSelection(acc, i - 1)
+          case (acc, Left(Left(Left(i))))  => TupleSelection(acc, i)
           case (acc, Left(Left(Right(i)))) => Selection(acc, i)
           case (acc, Left(Right(xs)))      => Application(acc, xs)
           case (acc, Right(Left(tpe)))     => TypeAnnotation(acc, tpe)
