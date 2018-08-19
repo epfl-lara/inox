@@ -869,8 +869,11 @@ trait SymbolOps { self: TypeOps =>
     var assumptions: Seq[Expr] = Seq.empty
 
     val newExpr = transformWithPC(expr)((e, env, op) => e match {
-      case Assume(pred, body) if (env unboundOf pred) subsetOf vars =>
-        assumptions :+= env implies pred
+      case Assume(pred, body) if (
+        ((env unboundOf pred) subsetOf vars) &&
+        (env.conditions ++ env.bindings.map(_._2)).forall(isSimple)
+      ) =>
+        assumptions :+= freshenLocals(env implies pred)
         op.rec(body, env withCond pred)
       case _ => op.superRec(e, env)
     })
