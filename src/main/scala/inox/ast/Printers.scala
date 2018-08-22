@@ -344,7 +344,11 @@ trait Printer {
     case adt: ADTType =>
       p"${adt.id}${nary(adt.tps, ", ", "[", "]")}"
 
-    case RefinementType(vd, pred) => p"{ $vd | $pred }"
+    case RefinementType(vd, pred) =>
+      p"|{ $vd "
+      ctx.sb.append("|")
+      p"| $pred }"
+
     case PiType(params, to) => p"($params) => $to"
     case SigmaType(params, to) => p"($params, $to)"
 
