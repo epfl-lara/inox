@@ -68,7 +68,8 @@ trait TreeOps { self: Trees =>
       tps.foreach(traverse)
     }
 
-    final def traverse(fd: FunDef): Unit = {
+    def traverse(fd: FunDef): Unit = {
+      traverse(fd.id)
       fd.tparams.foreach(traverse)
       fd.params.foreach(traverse)
       traverse(fd.returnType)
@@ -76,7 +77,7 @@ trait TreeOps { self: Trees =>
       fd.flags.foreach(traverse)
     }
 
-    final def traverse(sort: ADTSort): Unit = {
+    def traverse(sort: ADTSort): Unit = {
       traverse(sort.id)
       sort.tparams.foreach(traverse)
       sort.constructors.foreach { cons =>
@@ -248,7 +249,7 @@ trait TreeTransformer {
     }
   }
 
-  final def transform(fd: s.FunDef): t.FunDef = {
+  def transform(fd: s.FunDef): t.FunDef = {
     new t.FunDef(
       transform(fd.id),
       fd.tparams map transform,
@@ -259,7 +260,7 @@ trait TreeTransformer {
     ).copiedFrom(fd)
   }
 
-  final def transform(sort: s.ADTSort): t.ADTSort = {
+  def transform(sort: s.ADTSort): t.ADTSort = {
     new t.ADTSort(
       transform(sort.id),
       sort.tparams map transform,
