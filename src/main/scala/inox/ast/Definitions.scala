@@ -235,6 +235,12 @@ trait Definitions { self: Trees =>
 
     def withFunctions(functions: Seq[FunDef]): Symbols
     def withSorts(sorts: Seq[ADTSort]): Symbols
+
+    def filterObjects(objs: Set[String]) = {
+      NoSymbols.
+        withFunctions(this.functions.values.toSeq.filter { fd => objs.contains(fd.id.name) }).
+        withSorts(this.sorts.values.toSeq.filter { s => objs.contains(s.id.name) })
+    }
   }
 
   sealed class TypeParameterDef(val tp: TypeParameter) extends Definition {
