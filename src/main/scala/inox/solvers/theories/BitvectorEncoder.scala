@@ -137,9 +137,9 @@ trait BitvectorEncoder extends SimpleEncoder {
     }
 
     override def transform(e: Expr): Expr = e match {
-      case lit @ BVLiteral(_, size) => bitvectors(size).bvCons(E(lit.toBigInt))
+      case lit @ BVLiteral(_, _, size) => bitvectors(size).bvCons(E(lit.toBigInt))
       case lit @ CharLiteral(c) => chars.bvCons(E(BigInt(c.toInt)))
-      case Plus(IsTyped(i1, BVType(size)), i2) =>
+      case Plus(IsTyped(i1, BVType(_, size)), i2) =>
         val encoding = bitvectors(size)
         import encoding._
         let("sum" :: IntegerType(),
@@ -151,12 +151,12 @@ trait BitvectorEncoder extends SimpleEncoder {
       case Minus(IsTyped(i1, _: BVType), i2) =>
         transform(Plus(i1, UMinus(i2)))
 
-      case UMinus(IsTyped(i, BVType(size))) =>
+      case UMinus(IsTyped(i, BVType(_, size))) =>
         val encoding = bitvectors(size)
         import encoding._
         bvCons(simplifySum(- transform(i).getField(bvCons.fields(0).id), size))
 
-      case Times(IsTyped(i1, BVType(size)), i2) =>
+      case Times(IsTyped(i1, BVType(_, size)), i2) =>
         val encoding = bitvectors(size)
         import encoding._
         let("prod" :: IntegerType(),
@@ -173,26 +173,26 @@ trait BitvectorEncoder extends SimpleEncoder {
             })
           }
 
-      case Division(IsTyped(i1, BVType(size)), i2) => inLIA(i1, i2, size, Division(_, _))
-      case Remainder(IsTyped(i1, BVType(size)), i2) => inLIA(i1, i2, size, Remainder(_, _))
-      case Modulo(IsTyped(i1, BVType(size)), i2) => inLIA(i1, i2, size, Modulo(_, _))
-      case LessThan(IsTyped(i1, BVType(size)), i2) => inLIA(i1, i2, size, LessThan)
-      case LessEquals(IsTyped(i1, BVType(size)), i2) => inLIA(i1, i2, size, LessEquals)
-      case GreaterThan(IsTyped(i1, BVType(size)), i2) => inLIA(i1, i2, size, GreaterThan)
-      case GreaterEquals(IsTyped(i1, BVType(size)), i2) => inLIA(i1, i2, size, GreaterEquals)
+      case Division(IsTyped(i1, BVType(true, size)), i2) => inLIA(i1, i2, size, Division(_, _))
+      case Remainder(IsTyped(i1, BVType(true, size)), i2) => inLIA(i1, i2, size, Remainder(_, _))
+      case Modulo(IsTyped(i1, BVType(true, size)), i2) => inLIA(i1, i2, size, Modulo(_, _))
+      case LessThan(IsTyped(i1, BVType(true, size)), i2) => inLIA(i1, i2, size, LessThan)
+      case LessEquals(IsTyped(i1, BVType(true, size)), i2) => inLIA(i1, i2, size, LessEquals)
+      case GreaterThan(IsTyped(i1, BVType(true, size)), i2) => inLIA(i1, i2, size, GreaterThan)
+      case GreaterEquals(IsTyped(i1, BVType(true, size)), i2) => inLIA(i1, i2, size, GreaterEquals)
 
-      case BVNot(IsTyped(i, BVType(size))) =>
+      case BVNot(IsTyped(i, BVType(_, size))) =>
         val encoding = bitvectors(size)
         import encoding._
         let("bl" :: blasted(), simplifyBlasted(transform(i), size)) { bl =>
           toBV(blastedCons((0 until size).map(i => !bl.getField(blastedCons.fields(i).id)) : _*))
         }
 
-      case BVOr(IsTyped(i1, BVType(size)), i2) => inBlasted(i1, i2, size, Or(_, _))
-      case BVAnd(IsTyped(i1, BVType(size)), i2) => inBlasted(i1, i2, size, And(_, _))
-      case BVXor(IsTyped(i1, BVType(size)), i2) => inBlasted(i1, i2, size, (b1,b2) => (b1 && !b2) || (!b1 && b2))
+      case BVOr(IsTyped(i1, BVType(_, size)), i2) => inBlasted(i1, i2, size, Or(_, _))
+      case BVAnd(IsTyped(i1, BVType(_, size)), i2) => inBlasted(i1, i2, size, And(_, _))
+      case BVXor(IsTyped(i1, BVType(_, size)), i2) => inBlasted(i1, i2, size, (b1,b2) => (b1 && !b2) || (!b1 && b2))
 
-      case BVShiftLeft(IsTyped(i1, BVType(size)), i2) =>
+      case BVShiftLeft(IsTyped(i1, BVType(_, size)), i2) =>
         val encoding = bitvectors(size)
         import encoding._
         let("bl" :: blasted(), simplifyBlasted(transform(i1), size)) { bl =>
@@ -206,7 +206,7 @@ trait BitvectorEncoder extends SimpleEncoder {
           }
         }
 
-      case BVAShiftRight(IsTyped(i1, BVType(size)), i2) =>
+      case BVAShiftRight(IsTyped(i1, BVType(_, size)), i2) =>
         val encoding = bitvectors(size)
         import encoding._
         let("bl" :: blasted(), simplifyBlasted(transform(i1), size)) { bl =>
@@ -221,7 +221,7 @@ trait BitvectorEncoder extends SimpleEncoder {
           }
         }
 
-      case BVLShiftRight(IsTyped(i1, BVType(size)), i2) =>
+      case BVLShiftRight(IsTyped(i1, BVType(_, size)), i2) =>
         val encoding = bitvectors(size)
         import encoding._
         let("bl" :: blasted(), simplifyBlasted(transform(i1), size)) { bl =>
@@ -239,7 +239,7 @@ trait BitvectorEncoder extends SimpleEncoder {
     }
 
     override def transform(tpe: Type): Type = tpe match {
-      case BVType(size) => bitvectors(size).bv()
+      case BVType(true, size) => bitvectors(size).bv()
       case CharType() => chars.bv()
       case _ => super.transform(tpe)
     }
@@ -265,7 +265,7 @@ trait BitvectorEncoder extends SimpleEncoder {
             val IntegerLiteral(i) = transform(args(0))
             i
           } else {
-            BVLiteral(args.zipWithIndex.foldLeft(BitSet.empty) {
+            BVLiteral(true, args.zipWithIndex.foldLeft(BitSet.empty) {
               case (bits, (v, i)) => if (v == E(true)) bits + (i + 1) else bits
             }, size).toBigInt
           }
@@ -280,7 +280,7 @@ trait BitvectorEncoder extends SimpleEncoder {
 
     override def transform(tpe: Type): Type = tpe match {
       case tpe: ADTType => tpeMap.get(tpe) match {
-        case Some((size, e)) => if (e == chars) CharType() else BVType(size)
+        case Some((size, e)) => if (e == chars) CharType() else BVType(true, size)
         case None => super.transform(tpe)
       }
 

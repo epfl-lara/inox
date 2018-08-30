@@ -396,8 +396,8 @@ trait ExpressionExtractors { self: Extractors =>
 
         // Bit vectors.
 
-        case v@trees.BVLiteral(value, base) => template match {
-          case Literal(NumericLiteral(string)) if (scala.util.Try(trees.BVLiteral(BigInt(string), base)).toOption == Some(v)) => success
+        case v@trees.BVLiteral(signed, value, base) => template match {
+          case Literal(NumericLiteral(string)) if (scala.util.Try(trees.BVLiteral(signed, BigInt(string), base)).toOption == Some(v)) => success
           case _ => fail
         }
 

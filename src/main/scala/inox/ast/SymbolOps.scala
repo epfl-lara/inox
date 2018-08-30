@@ -458,7 +458,7 @@ trait SymbolOps { self: TypeOps =>
       throw FatalError(s"Cardinality ${typeCardinality(tpe)} of type $tpe too high for index $i")
     case BooleanType() => BooleanLiteral(i == 0)
     case IntegerType() => IntegerLiteral(i)
-    case BVType(size) => BVLiteral(i, size)
+    case BVType(signed, size) => BVLiteral(signed, i, size)
     case CharType() => CharLiteral(i.toChar)
     case RealType() => FractionLiteral(i, 1)
     case UnitType() => UnitLiteral()
@@ -786,7 +786,7 @@ trait SymbolOps { self: TypeOps =>
   def simplestValue(tpe: Type, allowSolver: Boolean = true)(implicit sem: symbols.Semantics, ctx: Context): Expr = {
     def rec(tpe: Type, seen: Set[Type]): Expr = tpe match {
       case StringType()               => StringLiteral("")
-      case BVType(size)               => BVLiteral(0, size)
+      case BVType(signed, size)       => BVLiteral(signed, 0, size)
       case RealType()                 => FractionLiteral(0, 1)
       case IntegerType()              => IntegerLiteral(0)
       case CharType()                 => CharLiteral('a')
@@ -1164,7 +1164,7 @@ trait SymbolOps { self: TypeOps =>
   /** Returns true if expr is a value of type t */
   def isValueOfType(e: Expr, t: Type): Boolean = (e, t) match {
     case (StringLiteral(_), StringType()) => true
-    case (BVLiteral(_, s), BVType(t)) => s == t
+    case (BVLiteral(signed, _, s), BVType(signed2, t)) => signed == signed2 && s == t
     case (IntegerLiteral(_), IntegerType()) => true
     case (CharLiteral(_), CharType()) => true
     case (FractionLiteral(_, _), RealType()) => true

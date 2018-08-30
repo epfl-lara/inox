@@ -88,7 +88,7 @@ trait TypeElaborators { self: Elaborators =>
 
       case Literal(EmbeddedType(t)) => Right(t)
 
-      case Literal(Name(BVType(size))) => Right(trees.BVType(size))
+      case Literal(Name(BVType(signed, size))) => Right(trees.BVType(signed, size))
 
       case l @ Literal(value) =>
         basic.get(value)
@@ -210,7 +210,7 @@ trait TypeElaborators { self: Elaborators =>
 
         case Literal(EmbeddedType(t)) => Constrained.pure(t)
 
-        case Literal(Name(BVType(size))) => Constrained.pure(trees.BVType(size))
+        case Literal(Name(BVType(signed, size))) => Constrained.pure(trees.BVType(signed, size))
 
         case l @ Literal(value) =>
           basic.get(value)

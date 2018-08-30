@@ -69,18 +69,18 @@ trait Types { self: Trees =>
   case class RealType()    extends Type
   case class StringType()  extends Type
 
-  sealed case class BVType(size: Int) extends Type {
-    override def toString: String = size match {
-      case 8  => "Int8Type"
-      case 16 => "Int16Type"
-      case 32 => "Int32Type"
-      case 64 => "Int64Type"
+  sealed case class BVType(signed: Boolean, size: Int) extends Type {
+    override def toString: String = (signed, size) match {
+      case (true, 8)  => "Int8Type"
+      case (true, 16) => "Int16Type"
+      case (true, 32) => "Int32Type"
+      case (true, 64) => "Int64Type"
       case _ => super.toString
     }
   }
 
   sealed abstract class BVTypeExtractor(size: Int) {
-    def apply(): BVType = BVType(size)
+    def apply(): BVType = BVType(true, size)
     def unapply(tpe: BVType): Boolean = tpe.size == size
   }
 

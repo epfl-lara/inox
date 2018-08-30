@@ -187,7 +187,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     case BooleanType() | IntegerType() | RealType() | CharType() | StringType() =>
       sorts(oldtt)
 
-    case tt @ BVType(i) =>
+    case tt @ BVType(_, i) =>
       sorts.cached(tt) {
         z3.mkBVSort(i)
       }
@@ -246,22 +246,22 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case Implies(l, r) => z3.mkImplies(rec(l), rec(r))
       case Not(Equals(l, r)) => z3.mkDistinct(rec(l), rec(r))
       case Not(e) => z3.mkNot(rec(e))
-      case bv @ BVLiteral(_, _) => z3.mkNumeral(bv.toBigInt.toString, typeToSort(bv.getType))
+      case bv @ BVLiteral(true, _, _) => z3.mkNumeral(bv.toBigInt.toString, typeToSort(bv.getType))
       case IntegerLiteral(v) => z3.mkNumeral(v.toString, typeToSort(IntegerType()))
       case FractionLiteral(n, d) => z3.mkNumeral(s"$n / $d", typeToSort(RealType()))
       case CharLiteral(c) => z3.mkInt(c, typeToSort(CharType()))
       case BooleanLiteral(v) => if (v) z3.mkTrue() else z3.mkFalse()
       case Equals(l, r) => z3.mkEq(rec( l ), rec( r ) )
       case Plus(l, r) => l.getType match {
-        case BVType(_) => z3.mkBVAdd(rec(l), rec(r))
+        case BVType(_,_) => z3.mkBVAdd(rec(l), rec(r))
         case _ => z3.mkAdd(rec(l), rec(r))
       }
       case Minus(l, r) => l.getType match {
-        case BVType(_) => z3.mkBVSub(rec(l), rec(r))
+        case BVType(_,_) => z3.mkBVSub(rec(l), rec(r))
         case _ => z3.mkSub(rec(l), rec(r))
       }
       case Times(l, r) => l.getType match {
-        case BVType(_) => z3.mkBVMul(rec(l), rec(r))
+        case BVType(_,_) => z3.mkBVMul(rec(l), rec(r))
         case _ => z3.mkMul(rec(l), rec(r))
       }
       case Division(l, r) =>
@@ -273,18 +273,18 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
               z3.mkDiv(rl, rr),
               z3.mkUnaryMinus(z3.mkDiv(z3.mkUnaryMinus(rl), rr))
             )
-          case BVType(_) => z3.mkBVSdiv(rl, rr)
+          case BVType(true,_) => z3.mkBVSdiv(rl, rr)
           case _ => z3.mkDiv(rl, rr)
         }
       case Remainder(l, r) => l.getType match {
-        case BVType(_) => z3.mkBVSrem(rec(l), rec(r))
+        case BVType(true,_) => z3.mkBVSrem(rec(l), rec(r))
         case _ =>
           val q = rec(Division(l, r))
           z3.mkSub(rec(l), z3.mkMul(rec(r), q))
       }
 
       case Modulo(l, r) => l.getType match {
-        case BVType(size) => // we want x mod |y|
+        case BVType(true,size) => // we want x mod |y|
           val lr = rec(l)
           val rr = rec(r)
           z3.mkBVSmod(
@@ -301,7 +301,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       }
 
       case UMinus(e) => e.getType match {
-        case BVType(_) => z3.mkBVNeg(rec(e))
+        case BVType(_,_) => z3.mkBVNeg(rec(e))
         case _ => z3.mkUnaryMinus(rec(e))
       }
 
@@ -324,25 +324,25 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case LessThan(l, r) => l.getType match {
         case IntegerType() => z3.mkLT(rec(l), rec(r))
         case RealType() => z3.mkLT(rec(l), rec(r))
-        case BVType(_) => z3.mkBVSlt(rec(l), rec(r))
+        case BVType(true,_) => z3.mkBVSlt(rec(l), rec(r))
         case CharType() => z3.mkBVUlt(rec(l), rec(r))
       }
       case LessEquals(l, r) => l.getType match {
         case IntegerType() => z3.mkLE(rec(l), rec(r))
         case RealType() => z3.mkLE(rec(l), rec(r))
-        case BVType(_) => z3.mkBVSle(rec(l), rec(r))
+        case BVType(true,_) => z3.mkBVSle(rec(l), rec(r))
         case CharType() => z3.mkBVUle(rec(l), rec(r))
       }
       case GreaterThan(l, r) => l.getType match {
         case IntegerType() => z3.mkGT(rec(l), rec(r))
         case RealType() => z3.mkGT(rec(l), rec(r))
-        case BVType(_) => z3.mkBVSgt(rec(l), rec(r))
+        case BVType(true,_) => z3.mkBVSgt(rec(l), rec(r))
         case CharType() => z3.mkBVUgt(rec(l), rec(r))
       }
       case GreaterEquals(l, r) => l.getType match {
         case IntegerType() => z3.mkGE(rec(l), rec(r))
         case RealType() => z3.mkGE(rec(l), rec(r))
-        case BVType(_) => z3.mkBVSge(rec(l), rec(r))
+        case BVType(true,_) => z3.mkBVSge(rec(l), rec(r))
         case CharType() => z3.mkBVUge(rec(l), rec(r))
       }
 
@@ -508,7 +508,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       kind match {
         case Z3NumeralIntAST(Some(v)) =>
           tpe match {
-            case BVType(size) => BVLiteral(BigInt(v), size)
+            case BVType(true,size) => BVLiteral(true,BigInt(v), size)
             case CharType() => CharLiteral(v.toChar)
             case IntegerType() => IntegerLiteral(BigInt(v))
 
@@ -518,7 +518,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         case Z3NumeralIntAST(None) =>
           val ts = t.toString
           tpe match {
-            case BVType(size) =>
+            case BVType(true,size) =>
               if (ts.startsWith("#b")) BVLiteral(BigInt(ts.drop(2), 2), size)
               else if (ts.startsWith("#x")) BVLiteral(BigInt(ts.drop(2), 16), size)
               else if (ts.startsWith("#")) reporter.fatalError(s"Unexpected format for BV value: $ts")
@@ -675,7 +675,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     def rec(t: Z3AST, tpe: Type): Expr = z3.getASTKind(t) match {
       case Z3NumeralIntAST(Some(v)) =>
         tpe match {
-          case BVType(size) => BVLiteral(BigInt(v), size)
+          case BVType(true,size) => BVLiteral(BigInt(v), size)
           case CharType() => CharLiteral(v.toChar)
           case _ => IntegerLiteral(BigInt(v))
         }
@@ -683,7 +683,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case Z3NumeralIntAST(None) =>
         val ts = t.toString
         tpe match {
-          case BVType(size) =>
+          case BVType(true,size) =>
             if (ts.startsWith("#b")) BVLiteral(BigInt(ts.drop(2), 2), size)
             else if (ts.startsWith("#x")) BVLiteral(BigInt(ts.drop(2), 16), size)
             else if (ts.startsWith("#")) unsound(t, s"Unexpected format for BV value: $ts")

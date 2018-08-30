@@ -98,9 +98,9 @@ trait TreeDeconstructor {
         (_, _, _, _, _) => t.CharLiteral(ch))
     },
     classOf[s.BVLiteral] -> { expr =>
-      val s.BVLiteral(bits, size) = expr
+      val s.BVLiteral(signed, bits, size) = expr
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
-        (_, _, _, _, _) => t.BVLiteral(bits, size))
+        (_, _, _, _, _) => t.BVLiteral(signed, bits, size))
     },
     classOf[s.IntegerLiteral] -> { expr =>
       val s.IntegerLiteral(i) = expr
@@ -439,9 +439,9 @@ trait TreeDeconstructor {
         (ids, _, _, _, flags) => t.TypeParameter(ids.head, flags))
     },
     classOf[s.BVType] -> { tpe =>
-      val s.BVType(size) = tpe
+      val s.BVType(signed, size) = tpe
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
-        (_, _, _, _, _) => t.BVType(size))
+        (_, _, _, _, _) => t.BVType(signed, size))
     },
 
     // @nv: can't use `s.Untyped.getClass` as it is not yet created at this point

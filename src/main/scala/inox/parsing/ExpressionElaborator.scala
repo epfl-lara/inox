@@ -187,7 +187,7 @@ trait ExpressionElaborators { self: Elaborators =>
         case Literal(NumericLiteral(string)) => Constrained.unify({ (unifier: Unifier) =>
           unifier(expected) match {
             case trees.IntegerType() => trees.IntegerLiteral(BigInt(string))
-            case trees.BVType(n) => trees.BVLiteral(BigInt(string), n)
+            case trees.BVType(signed, n) => trees.BVLiteral(signed, BigInt(string), n)
             case trees.RealType() => trees.FractionLiteral(BigInt(string), 1)
             case tpe => throw new Exception("getExpr: Unexpected type during elaboration: " + tpe)
           }

@@ -56,7 +56,7 @@ trait TypeExtractors { self: Extractors =>
     def extract(tpe: trees.Type, template: Expression): Option[Match] = (template, tpe) match {
       case (TypeHole(i), _) => Some(matching(i, tpe))
       case (_, trees.Untyped) => fail
-      case (Literal(Name(BVType(templateSize))), trees.BVType(size)) => if (templateSize == size) success else fail
+      case (Literal(Name(BVType(templateSigned, templateSize))), trees.BVType(signed, size)) => if (templateSize == size && templateSigned == signed) success else fail
       case (Literal(name), _) if (basic.get(name) == Some(tpe)) => success
       case (Operation(Tuple, templates), trees.TupleType(tpes)) => extractSeq(tpes, templates)
       case (Operation(Sigma, templatesFroms :+ templateTo), trees.SigmaType(params, to)) =>

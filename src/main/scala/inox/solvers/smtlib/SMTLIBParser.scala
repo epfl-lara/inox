@@ -82,10 +82,10 @@ trait SMTLIBParser {
     }
 
     case FixedSizeBitVectors.BitVectorLit(bs) =>
-      BVLiteral(BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
+      BVLiteral(true, BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
 
     case FixedSizeBitVectors.BitVectorConstant(n, size) =>
-      BVLiteral(n, size.intValue)
+      BVLiteral(true, n, size.intValue)
 
     case SDecimal(value) =>
       exprOps.normalizeFraction(FractionLiteral(
@@ -168,14 +168,14 @@ trait SMTLIBParser {
 
     case FixedSizeBitVectors.SignExtend(extend, e) =>
       val ast = fromSMT(e)
-      val BVType(current) = ast.getType
+      val BVType(signed, current) = ast.getType
       val newSize = (current + extend).bigInteger.intValueExact
-      BVWideningCast(ast, BVType(newSize))
+      BVWideningCast(ast, BVType(signed, newSize))
 
     case FixedSizeBitVectors.Extract(i, j, e) =>
       // Assume this is a Narrowing Cast, hence j must be 0
       if (j != 0) throw new MissformedSMTException(term, "Unexpected 'extract' which is not a narrowing cast")
-      BVNarrowingCast(fromSMT(e), BVType((i + 1).bigInteger.intValueExact))
+      BVNarrowingCast(fromSMT(e), BVType(true, (i + 1).bigInteger.intValueExact))
 
     case ArraysEx.Select(e1, e2) => otpe match {
       case Some(tpe) =>
@@ -207,7 +207,7 @@ trait SMTLIBParser {
   }
 
   protected def fromSMT(sort: Sort)(implicit context: Context): Type = sort match {
-    case Sort(SMTIdentifier(SSymbol("bitvector" | "BitVec"), Seq(SNumeral(n))), Seq()) => BVType(n.toInt)
+    case Sort(SMTIdentifier(SSymbol("bitvector" | "BitVec"), Seq(SNumeral(n))), Seq()) => BVType(true, n.toInt)
     case Sort(SimpleIdentifier(SSymbol("Bool")), Seq()) => BooleanType()
     case Sort(SimpleIdentifier(SSymbol("Int")), Seq()) => IntegerType()
     case Sort(SimpleIdentifier(SSymbol("Real")), Seq()) => RealType()

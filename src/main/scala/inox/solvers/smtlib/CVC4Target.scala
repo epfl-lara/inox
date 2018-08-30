@@ -56,9 +56,9 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
         BooleanLiteral(n == 1)
       case (Core.Equals(e1, e2), _) =>
         fromSMTUnifyType(e1, e2, None)(Equals) match {
-          case Equals(IsTyped(lhs, BooleanType()), IsTyped(_, BVType(1))) =>
+          case Equals(IsTyped(lhs, BooleanType()), IsTyped(_, BVType(true, 1))) =>
             Equals(lhs, fromSMT(e2, BooleanType()))
-          case Equals(IsTyped(_, BVType(1)), IsTyped(rhs, BooleanType())) =>
+          case Equals(IsTyped(_, BVType(true, 1)), IsTyped(rhs, BooleanType())) =>
             Equals(fromSMT(e1, BooleanType()), rhs)
           case expr => expr
         }
