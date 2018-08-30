@@ -106,23 +106,23 @@ class ExprLiteralParserSuite extends FunSuite {
       e"-1 : Int4"
     }
 
-    assertResult(BVLiteral(BitSet(), 2)) {
+    assertResult(BVLiteral(true, BitSet(), 2)) {
       e"4 : Int2"
     }
 
-    assertResult(BVLiteral(BitSet(1), 2)) {
+    assertResult(BVLiteral(true, BitSet(1), 2)) {
       e"1 : Int2"
     }
 
-    assertResult(BVLiteral(BitSet(2), 2)) {
+    assertResult(BVLiteral(true, BitSet(2), 2)) {
       e"2 : Int2"
     }
 
-    assertResult(BVLiteral(BitSet(1, 2), 2)) {
+    assertResult(BVLiteral(true, BitSet(1, 2), 2)) {
       e"3 : Int2"
     }
 
-    assertResult(BVLiteral(BitSet(1, 2), 2)) {
+    assertResult(BVLiteral(true, BitSet(1, 2), 2)) {
       e"-1 : Int2"
     }
   }

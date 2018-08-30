@@ -116,22 +116,22 @@ class SemanticsSuite extends FunSuite {
     val s = solver(ctx)
     val b: Byte = 1
 
-    check(s, BVWideningCast(Int8Literal(0), Int32Type()),       Int32Literal(0))
-    check(s, BVWideningCast(Int8Literal(1), Int32Type()),       Int32Literal(1))
-    check(s, BVWideningCast(BVLiteral(2, 3), BVType(4)),        BVLiteral(2, 4))
-    check(s, BVWideningCast(Int8Literal(1), BVType(9)),         BVLiteral(1, 9))
-    check(s, BVWideningCast(BVLiteral(1, 2), Int32Type()),      Int32Literal(1))
-    check(s, BVWideningCast(BVLiteral(1, 1), Int32Type()),      Int32Literal(-1)) // 2's complement on 1 bit
-    check(s, BVWideningCast(Int8Literal(-1), Int32Type()),      Int32Literal(-1))
-    check(s, BVWideningCast(Int8Literal(-128), Int32Type()),    Int32Literal(-128))
+    check(s, BVWideningCast(Int8Literal(0), Int32Type()),             Int32Literal(0))
+    check(s, BVWideningCast(Int8Literal(1), Int32Type()),             Int32Literal(1))
+    check(s, BVWideningCast(BVLiteral(true, 2, 3), BVType(true, 4)),  BVLiteral(true, 2, 4))
+    check(s, BVWideningCast(Int8Literal(1), BVType(true, 9)),         BVLiteral(true, 1, 9))
+    check(s, BVWideningCast(BVLiteral(true, 1, 2), Int32Type()),      Int32Literal(1))
+    check(s, BVWideningCast(BVLiteral(true, 1, 1), Int32Type()),      Int32Literal(-1)) // 2's complement on 1 bit
+    check(s, BVWideningCast(Int8Literal(-1), Int32Type()),            Int32Literal(-1))
+    check(s, BVWideningCast(Int8Literal(-128), Int32Type()),          Int32Literal(-128))
 
-    check(s, BVNarrowingCast(Int8Literal(1), BVType(7)),        BVLiteral(1, 7))
-    check(s, BVNarrowingCast(Int32Literal(1), Int8Type()),      Int8Literal(1))
-    check(s, BVNarrowingCast(BVLiteral(1, 33), Int32Type()),    Int32Literal(1))
-    check(s, BVNarrowingCast(Int32Literal(-1), Int8Type()),     Int8Literal(-1))
-    check(s, BVNarrowingCast(Int32Literal(-128), Int8Type()),   Int8Literal(-128))
-    check(s, BVNarrowingCast(Int32Literal(-129), Int8Type()),   Int8Literal(127))
-    check(s, BVNarrowingCast(Int32Literal(128), Int8Type()),    Int8Literal(-128))
+    check(s, BVNarrowingCast(Int8Literal(1), BVType(true, 7)),        BVLiteral(true, 1, 7))
+    check(s, BVNarrowingCast(Int32Literal(1), Int8Type()),            Int8Literal(1))
+    check(s, BVNarrowingCast(BVLiteral(true, 1, 33), Int32Type()),    Int32Literal(1))
+    check(s, BVNarrowingCast(Int32Literal(-1), Int8Type()),           Int8Literal(-1))
+    check(s, BVNarrowingCast(Int32Literal(-128), Int8Type()),         Int8Literal(-128))
+    check(s, BVNarrowingCast(Int32Literal(-129), Int8Type()),         Int8Literal(127))
+    check(s, BVNarrowingCast(Int32Literal(128), Int8Type()),          Int8Literal(-128))
 
     check(s, Plus(Int32Literal(1), BVWideningCast(Int8Literal(1), Int32Type())), Int32Literal(2))
 
