@@ -82,10 +82,20 @@ trait SMTLIBParser {
     }
 
     case FixedSizeBitVectors.BitVectorLit(bs) =>
-      BVLiteral(true, BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
+      otpe match {
+        case Some(BVType(signed, _)) =>
+          BVLiteral(signed, BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
+        case _ =>
+          BVLiteral(true, BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
+      }
 
-    case FixedSizeBitVectors.BitVectorConstant(n, size) =>
-      BVLiteral(true, n, size.intValue)
+    case FixedSizeBitVectors.BitVectorConstant(n, size) => 
+      otpe match {
+        case Some(BVType(signed, _)) =>
+          BVLiteral(signed, n, size.intValue)
+        case _ =>
+          BVLiteral(true, n, size.intValue)
+      }
 
     case SDecimal(value) =>
       exprOps.normalizeFraction(FractionLiteral(

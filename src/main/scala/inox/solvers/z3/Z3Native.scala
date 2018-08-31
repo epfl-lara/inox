@@ -246,7 +246,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case Implies(l, r) => z3.mkImplies(rec(l), rec(r))
       case Not(Equals(l, r)) => z3.mkDistinct(rec(l), rec(r))
       case Not(e) => z3.mkNot(rec(e))
-      case bv @ BVLiteral(true, _, _) => z3.mkNumeral(bv.toBigInt.toString, typeToSort(bv.getType))
+      case bv @ BVLiteral(_, _, _) => z3.mkNumeral(bv.toBigInt.toString, typeToSort(bv.getType))
       case IntegerLiteral(v) => z3.mkNumeral(v.toString, typeToSort(IntegerType()))
       case FractionLiteral(n, d) => z3.mkNumeral(s"$n / $d", typeToSort(RealType()))
       case CharLiteral(c) => z3.mkInt(c, typeToSort(CharType()))
@@ -273,18 +273,21 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
               z3.mkDiv(rl, rr),
               z3.mkUnaryMinus(z3.mkDiv(z3.mkUnaryMinus(rl), rr))
             )
-          case BVType(true,_) => z3.mkBVSdiv(rl, rr)
+          case BVType(true, _) => z3.mkBVSdiv(rl, rr)
+          case BVType(false, _) => z3.mkBVUdiv(rl, rr)
           case _ => z3.mkDiv(rl, rr)
         }
       case Remainder(l, r) => l.getType match {
-        case BVType(true,_) => z3.mkBVSrem(rec(l), rec(r))
+        case BVType(true, _) => z3.mkBVSrem(rec(l), rec(r))
+        case BVType(false, _) => z3.mkBVUrem(rec(l), rec(r))
         case _ =>
           val q = rec(Division(l, r))
           z3.mkSub(rec(l), z3.mkMul(rec(r), q))
       }
 
       case Modulo(l, r) => l.getType match {
-        case BVType(true,size) => // we want x mod |y|
+        case BVType(false, _) => z3.mkBVUrem(rec(l), rec(r))
+        case BVType(true, size) => // we want x mod |y|
           val lr = rec(l)
           val rr = rec(r)
           z3.mkBVSmod(
@@ -499,7 +502,6 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   }
 
   protected[z3] def fromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type): (Expr, Map[Choose, Expr]) = {
-
     val z3ToChooses: MutableMap[Z3AST, Choose] = MutableMap.empty
     val z3ToLambdas: MutableMap[Z3AST, Lambda] = MutableMap.empty
 
@@ -508,21 +510,20 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       kind match {
         case Z3NumeralIntAST(Some(v)) =>
           tpe match {
-            case BVType(true,size) => BVLiteral(true,BigInt(v), size)
+            case BVType(signed, size) => BVLiteral(signed, BigInt(v), size)
             case CharType() => CharLiteral(v.toChar)
             case IntegerType() => IntegerLiteral(BigInt(v))
-
             case other => unsupported(other, s"Unexpected target type for value $v")
           }
 
         case Z3NumeralIntAST(None) =>
           val ts = t.toString
           tpe match {
-            case BVType(true,size) =>
-              if (ts.startsWith("#b")) BVLiteral(true, BigInt(ts.drop(2), 2), size)
-              else if (ts.startsWith("#x")) BVLiteral(true, BigInt(ts.drop(2), 16), size)
+            case BVType(signed, size) =>
+              if (ts.startsWith("#b")) BVLiteral(signed, BigInt(ts.drop(2), 2), size)
+              else if (ts.startsWith("#x")) BVLiteral(signed, BigInt(ts.drop(2), 16), size)
               else if (ts.startsWith("#")) reporter.fatalError(s"Unexpected format for BV value: $ts")
-              else BVLiteral(true, BigInt(ts, 10), size)
+              else BVLiteral(signed, BigInt(ts, 10), size)
 
             case IntegerType() =>
               if (ts.startsWith("#")) reporter.fatalError(s"Unexpected format for Integer value: $ts")
@@ -675,7 +676,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     def rec(t: Z3AST, tpe: Type): Expr = z3.getASTKind(t) match {
       case Z3NumeralIntAST(Some(v)) =>
         tpe match {
-          case BVType(true,size) => BVLiteral(true, BigInt(v), size)
+          case BVType(signed, size) => BVLiteral(signed, BigInt(v), size)
           case CharType() => CharLiteral(v.toChar)
           case _ => IntegerLiteral(BigInt(v))
         }
@@ -683,11 +684,11 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case Z3NumeralIntAST(None) =>
         val ts = t.toString
         tpe match {
-          case BVType(true, size) =>
-            if (ts.startsWith("#b")) BVLiteral(true, BigInt(ts.drop(2), 2), size)
-            else if (ts.startsWith("#x")) BVLiteral(true, BigInt(ts.drop(2), 16), size)
+          case BVType(signed, size) =>
+            if (ts.startsWith("#b")) BVLiteral(signed, BigInt(ts.drop(2), 2), size)
+            else if (ts.startsWith("#x")) BVLiteral(signed, BigInt(ts.drop(2), 16), size)
             else if (ts.startsWith("#")) unsound(t, s"Unexpected format for BV value: $ts")
-            else BVLiteral(true, BigInt(ts, 10), size)
+            else BVLiteral(signed, BigInt(ts, 10), size)
 
           case _ =>
             if (ts.startsWith("#")) unsound(t, s"Unexpected format for Integer value: $ts")
