@@ -324,7 +324,7 @@ trait RecursiveEvaluator
 
     case LessThan(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(true, _, s1), b2 @ BVLiteral(true, _, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(è, _, s1), b2 @ BVLiteral(è, _, s2)) if s1 == s2 =>
           BooleanLiteral(b1.toBigInt < b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 < i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
@@ -336,7 +336,7 @@ trait RecursiveEvaluator
 
     case GreaterThan(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(true, _, s1), b2 @ BVLiteral(true, _, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(è, _, s1), b2 @ BVLiteral(è, _, s2)) if s1 == s2 =>
           BooleanLiteral(b1.toBigInt > b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 > i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
@@ -348,7 +348,7 @@ trait RecursiveEvaluator
 
     case LessEquals(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(true, _, s1), b2 @ BVLiteral(true, _, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(è, _, s1), b2 @ BVLiteral(è, _, s2)) if s1 == s2 =>
           BooleanLiteral(b1.toBigInt <= b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 <= i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
@@ -360,7 +360,7 @@ trait RecursiveEvaluator
 
     case GreaterEquals(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(true, _, s1), b2 @ BVLiteral(true, _, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(è, _, s1), b2 @ BVLiteral(è, _, s2)) if s1 == s2 =>
           BooleanLiteral(b1.toBigInt >= b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 >= i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
