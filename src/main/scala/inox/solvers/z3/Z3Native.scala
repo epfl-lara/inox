@@ -328,24 +328,28 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         case IntegerType() => z3.mkLT(rec(l), rec(r))
         case RealType() => z3.mkLT(rec(l), rec(r))
         case BVType(true,_) => z3.mkBVSlt(rec(l), rec(r))
+        case BVType(false,_) => z3.mkBVUlt(rec(l), rec(r))
         case CharType() => z3.mkBVUlt(rec(l), rec(r))
       }
       case LessEquals(l, r) => l.getType match {
         case IntegerType() => z3.mkLE(rec(l), rec(r))
         case RealType() => z3.mkLE(rec(l), rec(r))
         case BVType(true,_) => z3.mkBVSle(rec(l), rec(r))
+        case BVType(false,_) => z3.mkBVUle(rec(l), rec(r))
         case CharType() => z3.mkBVUle(rec(l), rec(r))
       }
       case GreaterThan(l, r) => l.getType match {
         case IntegerType() => z3.mkGT(rec(l), rec(r))
         case RealType() => z3.mkGT(rec(l), rec(r))
         case BVType(true,_) => z3.mkBVSgt(rec(l), rec(r))
+        case BVType(false,_) => z3.mkBVUgt(rec(l), rec(r))
         case CharType() => z3.mkBVUgt(rec(l), rec(r))
       }
       case GreaterEquals(l, r) => l.getType match {
         case IntegerType() => z3.mkGE(rec(l), rec(r))
         case RealType() => z3.mkGE(rec(l), rec(r))
         case BVType(true,_) => z3.mkBVSge(rec(l), rec(r))
+        case BVType(false,_) => z3.mkBVUge(rec(l), rec(r))
         case CharType() => z3.mkBVUge(rec(l), rec(r))
       }
 
