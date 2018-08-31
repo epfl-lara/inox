@@ -169,7 +169,7 @@ trait Expressions { self: Trees =>
 
   object BVLiteral {
     def apply(signed: Boolean, bi: BigInt, size: Int): BVLiteral = {
-      assert(bi >= 0 || signed, "You can only create an unsigned BVLiteral from a positive number")
+      assert(bi >= 0 || signed, "You can only create an unsigned BVLiteral from a non-negative number.")
       def extract(bi: BigInt): BitSet = (1 to size).foldLeft(BitSet.empty) {
         case (res, i) => if ((bi & BigInt(2).pow(i-1)) > 0) res + i else res
       }

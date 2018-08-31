@@ -68,7 +68,7 @@ class EvaluatorSuite extends FunSuite {
 
     eval(e, Plus(BVLiteral(false, 3, 13), BVLiteral(false, 5, 13)))               === BVLiteral(false, 8, 13)
     eval(e, Plus(BVLiteral(false, 3, 16), BVLiteral(false, 5, 16)))               === BVLiteral(false, 8, 16)
-    eval(e, Plus(BVLiteral(false, Short.MaxValue, 16), BVLiteral(false, 1, 16)))  === BVLiteral(false, Short.MinValue, 16)
+    eval(e, Plus(BVLiteral(false, Short.MaxValue, 16), BVLiteral(false, 1, 16)))  === BVLiteral(false, BigInt(Short.MaxValue) + 1, 16)
 
     eval(e, BVWideningCast(Int8Literal(0), Int32Type()))            === Int32Literal(0)
     eval(e, BVWideningCast(Int8Literal(1), Int32Type()))            === Int32Literal(1)
