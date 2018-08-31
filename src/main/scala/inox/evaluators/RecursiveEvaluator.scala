@@ -220,9 +220,9 @@ trait RecursiveEvaluator
 
     case Division(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(true, _, s1), b2 @ BVLiteral(true, _, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(signed1, _, s1), b2 @ BVLiteral(signed2, _, s2)) if s1 == s2 && signed1 == signed2 =>
           val bi2 = b2.toBigInt
-          if (bi2 != 0) BVLiteral(true, b1.toBigInt / bi2, s1) else throw RuntimeError("Division by 0.")
+          if (bi2 != 0) BVLiteral(signed1, b1.toBigInt / bi2, s1) else throw RuntimeError("Division by 0.")
         case (IntegerLiteral(i1), IntegerLiteral(i2)) =>
           if(i2 != BigInt(0)) IntegerLiteral(i1 / i2) else throw RuntimeError("Division by 0.")
         case (FractionLiteral(ln, ld), FractionLiteral(rn, rd)) =>
@@ -234,9 +234,9 @@ trait RecursiveEvaluator
 
     case Remainder(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(true, _, s1), b2 @ BVLiteral(true, _, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(signed1, _, s1), b2 @ BVLiteral(signed2, _, s2)) if s1 == s2 && signed1 == signed2 =>
           val bi2 = b2.toBigInt
-          if (bi2 != 0) BVLiteral(true, b1.toBigInt % bi2, s1) else throw RuntimeError("Division by 0.")
+          if (bi2 != 0) BVLiteral(signed1, b1.toBigInt % bi2, s1) else throw RuntimeError("Division by 0.")
         case (IntegerLiteral(i1), IntegerLiteral(i2)) =>
           if(i2 != BigInt(0)) IntegerLiteral(i1 % i2) else throw RuntimeError("Remainder of division by 0.")
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") rem (" + re.asString + ")")
@@ -244,12 +244,14 @@ trait RecursiveEvaluator
 
     case Modulo(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(true, _, s1), b2 @ BVLiteral(true, _, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(signed1, _, s1), b2 @ BVLiteral(signed2, _, s2)) if s1 == s2 && signed1 == signed2 =>
           val bi2 = b2.toBigInt
-          if (bi2 < 0)
+          if (bi2 < 0) {
+            assert(signed1, "Only signed bitvectors can contain negative values.")
             BVLiteral(true, b1.toBigInt mod (-bi2), s1)
+          }
           else if (bi2 != 0)
-            BVLiteral(true, b1.toBigInt mod bi2, s1)
+            BVLiteral(signed1, b1.toBigInt mod bi2, s1)
           else
             throw RuntimeError("Modulo of division by 0.")
         case (IntegerLiteral(i1), IntegerLiteral(i2)) =>
@@ -324,7 +326,7 @@ trait RecursiveEvaluator
 
     case LessThan(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(_, _, s1), b2 @ BVLiteral(_, _, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(signed1, _, s1), b2 @ BVLiteral(signed2, _, s2)) if s1 == s2 && signed1 == signed2 =>
           BooleanLiteral(b1.toBigInt < b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 < i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
@@ -336,7 +338,7 @@ trait RecursiveEvaluator
 
     case GreaterThan(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(_, _, s1), b2 @ BVLiteral(_, _, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(signed1, _, s1), b2 @ BVLiteral(signed2, _, s2)) if s1 == s2 && signed1 == signed2 =>
           BooleanLiteral(b1.toBigInt > b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 > i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
@@ -348,7 +350,7 @@ trait RecursiveEvaluator
 
     case LessEquals(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(_, _, s1), b2 @ BVLiteral(_, _, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(signed1, _, s1), b2 @ BVLiteral(signed2, _, s2)) if s1 == s2 && signed1 == signed2 =>
           BooleanLiteral(b1.toBigInt <= b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 <= i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
@@ -360,7 +362,7 @@ trait RecursiveEvaluator
 
     case GreaterEquals(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(_, _, s1), b2 @ BVLiteral(_, _, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(signed1, _, s1), b2 @ BVLiteral(signed2, _, s2)) if s1 == s2 && signed1 == signed2 =>
           BooleanLiteral(b1.toBigInt >= b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 >= i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
