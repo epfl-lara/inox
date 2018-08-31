@@ -28,7 +28,7 @@ class ExtractorsSuite extends FunSuite {
     assert(e5 === e6)
 
     val size = 13
-    val e7 = Plus(BVLiteral(1, size), BVLiteral(1, size))
+    val e7 = Plus(BVLiteral(true, 1, size), BVLiteral(true, 1, size))
     val e8 = e7 match {
       case Operator(es, builder) => builder(es)
     }

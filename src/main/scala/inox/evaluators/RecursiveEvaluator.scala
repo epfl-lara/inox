@@ -200,7 +200,7 @@ trait RecursiveEvaluator
 
     case UMinus(ex) =>
       e(ex) match {
-        case b @ BVLiteral(true, _, s) => BVLiteral(-b.toBigInt, s)
+        case b @ BVLiteral(true, _, s) => BVLiteral(true, -b.toBigInt, s)
         case IntegerLiteral(i) => IntegerLiteral(-i)
         case FractionLiteral(n, d) => FractionLiteral(-n, d)
         case re => throw EvalError("Unexpected operation: -(" + re.asString + ")")
@@ -222,7 +222,7 @@ trait RecursiveEvaluator
       (e(l), e(r)) match {
         case (b1 @ BVLiteral(true, _, s1), b2 @ BVLiteral(true, _, s2)) if s1 == s2 =>
           val bi2 = b2.toBigInt
-          if (bi2 != 0) BVLiteral(b1.toBigInt / bi2, s1) else throw RuntimeError("Division by 0.")
+          if (bi2 != 0) BVLiteral(true, b1.toBigInt / bi2, s1) else throw RuntimeError("Division by 0.")
         case (IntegerLiteral(i1), IntegerLiteral(i2)) =>
           if(i2 != BigInt(0)) IntegerLiteral(i1 / i2) else throw RuntimeError("Division by 0.")
         case (FractionLiteral(ln, ld), FractionLiteral(rn, rd)) =>
@@ -236,7 +236,7 @@ trait RecursiveEvaluator
       (e(l), e(r)) match {
         case (b1 @ BVLiteral(true, _, s1), b2 @ BVLiteral(true, _, s2)) if s1 == s2 =>
           val bi2 = b2.toBigInt
-          if (bi2 != 0) BVLiteral(b1.toBigInt % bi2, s1) else throw RuntimeError("Division by 0.")
+          if (bi2 != 0) BVLiteral(true, b1.toBigInt % bi2, s1) else throw RuntimeError("Division by 0.")
         case (IntegerLiteral(i1), IntegerLiteral(i2)) =>
           if(i2 != BigInt(0)) IntegerLiteral(i1 % i2) else throw RuntimeError("Remainder of division by 0.")
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") rem (" + re.asString + ")")
@@ -247,9 +247,9 @@ trait RecursiveEvaluator
         case (b1 @ BVLiteral(true, _, s1), b2 @ BVLiteral(true, _, s2)) if s1 == s2 =>
           val bi2 = b2.toBigInt
           if (bi2 < 0)
-            BVLiteral(b1.toBigInt mod (-bi2), s1)
+            BVLiteral(true, b1.toBigInt mod (-bi2), s1)
           else if (bi2 != 0)
-            BVLiteral(b1.toBigInt mod bi2, s1)
+            BVLiteral(true, b1.toBigInt mod bi2, s1)
           else
             throw RuntimeError("Modulo of division by 0.")
         case (IntegerLiteral(i1), IntegerLiteral(i2)) =>

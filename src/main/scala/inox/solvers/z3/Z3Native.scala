@@ -290,7 +290,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
           z3.mkBVSmod(
             lr,
             z3.mkITE(
-              z3.mkBVSle(rr, rec(BVLiteral(0, size))),
+              z3.mkBVSle(rr, rec(BVLiteral(true, 0, size))),
               z3.mkBVNeg(rr),
               rr
             )
@@ -519,10 +519,10 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
           val ts = t.toString
           tpe match {
             case BVType(true,size) =>
-              if (ts.startsWith("#b")) BVLiteral(BigInt(ts.drop(2), 2), size)
-              else if (ts.startsWith("#x")) BVLiteral(BigInt(ts.drop(2), 16), size)
+              if (ts.startsWith("#b")) BVLiteral(true, BigInt(ts.drop(2), 2), size)
+              else if (ts.startsWith("#x")) BVLiteral(true, BigInt(ts.drop(2), 16), size)
               else if (ts.startsWith("#")) reporter.fatalError(s"Unexpected format for BV value: $ts")
-              else BVLiteral(BigInt(ts, 10), size)
+              else BVLiteral(true, BigInt(ts, 10), size)
 
             case IntegerType() =>
               if (ts.startsWith("#")) reporter.fatalError(s"Unexpected format for Integer value: $ts")
@@ -675,7 +675,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     def rec(t: Z3AST, tpe: Type): Expr = z3.getASTKind(t) match {
       case Z3NumeralIntAST(Some(v)) =>
         tpe match {
-          case BVType(true,size) => BVLiteral(BigInt(v), size)
+          case BVType(true,size) => BVLiteral(true, BigInt(v), size)
           case CharType() => CharLiteral(v.toChar)
           case _ => IntegerLiteral(BigInt(v))
         }
@@ -683,11 +683,11 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case Z3NumeralIntAST(None) =>
         val ts = t.toString
         tpe match {
-          case BVType(true,size) =>
-            if (ts.startsWith("#b")) BVLiteral(BigInt(ts.drop(2), 2), size)
-            else if (ts.startsWith("#x")) BVLiteral(BigInt(ts.drop(2), 16), size)
+          case BVType(true, size) =>
+            if (ts.startsWith("#b")) BVLiteral(true, BigInt(ts.drop(2), 2), size)
+            else if (ts.startsWith("#x")) BVLiteral(true, BigInt(ts.drop(2), 16), size)
             else if (ts.startsWith("#")) unsound(t, s"Unexpected format for BV value: $ts")
-            else BVLiteral(BigInt(ts, 10), size)
+            else BVLiteral(true, BigInt(ts, 10), size)
 
           case _ =>
             if (ts.startsWith("#")) unsound(t, s"Unexpected format for Integer value: $ts")

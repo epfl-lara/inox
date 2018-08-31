@@ -398,7 +398,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           FixedSizeBitVectors.SMod(
             ar,
             Core.ITE(
-              FixedSizeBitVectors.SLessThan(br, toSMT(BVLiteral(0, size))),
+              FixedSizeBitVectors.SLessThan(br, toSMT(BVLiteral(true, 0, size))),
               FixedSizeBitVectors.Neg(br),
               br
             )

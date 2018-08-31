@@ -62,7 +62,7 @@ class ExtractorSuite extends FunSuite {
   }
 
   test("Matching against polymorphic values.") {
-    val es = Seq(IntegerLiteral(1), Int32Literal(1), FractionLiteral(1, 1), BVLiteral(1, 12))
+    val es = Seq(IntegerLiteral(1), Int32Literal(1), FractionLiteral(1, 1), BVLiteral(true, 1, 12))
 
     for (e <- es) {
       e match {

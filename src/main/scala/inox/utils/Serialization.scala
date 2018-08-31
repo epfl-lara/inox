@@ -542,7 +542,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[CharLiteral]       (19),
     // BVLiteral id=20
     // Bitvector literals are treated specially to avoid having to serialize BitSets
-    mappingSerializer[BVLiteral](20)(bv => (bv.size, bv.toBigInt))(p => BVLiteral(p._2, p._1)),
+    mappingSerializer[BVLiteral](20)(bv => (bv.signed, bv.toBigInt, bv.size))(p => BVLiteral(p._1, p._2, p._3)),
     classSerializer[IntegerLiteral]    (21),
     classSerializer[FractionLiteral]   (22),
     classSerializer[BooleanLiteral]    (23),

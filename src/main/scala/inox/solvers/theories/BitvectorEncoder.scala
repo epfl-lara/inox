@@ -270,7 +270,7 @@ trait BitvectorEncoder extends SimpleEncoder {
             }, size).toBigInt
           }
 
-          if (e == chars) CharLiteral(bi.toChar) else BVLiteral(bi, size)
+          if (e == chars) CharLiteral(bi.toChar) else BVLiteral(true, bi, size)
 
         case None => super.transform(e)
       }

@@ -32,10 +32,13 @@ class EvaluatorSuite extends FunSuite {
     eval(e, Int64Literal(58))       === Int64Literal(58)
     eval(e, Int64Literal(-1))       === Int64Literal(-1)
     eval(e, Int64Literal(4294967296L)) === Int64Literal(4294967296L)
-    eval(e, BVLiteral(0, 13))       === BVLiteral(0, 13)
-    eval(e, BVLiteral(261, 13))     === BVLiteral(261, 13)
-    eval(e, BVLiteral(-1, 33))      === BVLiteral(-1, 33)
-    eval(e, BVLiteral(4294967296L, 33)) === BVLiteral(4294967296L, 33) // 2^32 fits in 33 bits!
+    eval(e, BVLiteral(true, 0, 13))       === BVLiteral(true, 0, 13)
+    eval(e, BVLiteral(true, 261, 13))     === BVLiteral(true, 261, 13)
+    eval(e, BVLiteral(true, -1, 33))      === BVLiteral(true, -1, 33)
+    eval(e, BVLiteral(true, 4294967296L, 33)) === BVLiteral(true, 4294967296L, 33) // 2^32 fits in 33 bits!
+    eval(e, BVLiteral(false, 0, 13))       === BVLiteral(false, 0, 13)
+    eval(e, BVLiteral(false, 261, 13))     === BVLiteral(false, 261, 13)
+    eval(e, BVLiteral(false, 4294967296L, 33)) === BVLiteral(false, 4294967296L, 33) // 2^32 fits in 33 bits!
     eval(e, UnitLiteral())          === UnitLiteral()
     eval(e, IntegerLiteral(0))      === IntegerLiteral(0)
     eval(e, IntegerLiteral(42))     === IntegerLiteral(42)
@@ -59,16 +62,20 @@ class EvaluatorSuite extends FunSuite {
     eval(e, Plus(Int32Literal(Int.MaxValue), Int32Literal(1)))  === Int32Literal(Int.MinValue)
     eval(e, Times(Int32Literal(3), Int32Literal(3)))            === Int32Literal(9)
 
-    eval(e, Plus(BVLiteral(3, 13), BVLiteral(5, 13)))               === BVLiteral(8, 13)
-    eval(e, Plus(BVLiteral(3, 16), BVLiteral(5, 16)))               === BVLiteral(8, 16)
-    eval(e, Plus(BVLiteral(Short.MaxValue, 16), BVLiteral(1, 16)))  === BVLiteral(Short.MinValue, 16)
+    eval(e, Plus(BVLiteral(true, 3, 13), BVLiteral(true, 5, 13)))               === BVLiteral(true, 8, 13)
+    eval(e, Plus(BVLiteral(true, 3, 16), BVLiteral(true, 5, 16)))               === BVLiteral(true, 8, 16)
+    eval(e, Plus(BVLiteral(true, Short.MaxValue, 16), BVLiteral(true, 1, 16)))  === BVLiteral(true, Short.MinValue, 16)
+
+    eval(e, Plus(BVLiteral(false, 3, 13), BVLiteral(false, 5, 13)))               === BVLiteral(false, 8, 13)
+    eval(e, Plus(BVLiteral(false, 3, 16), BVLiteral(false, 5, 16)))               === BVLiteral(false, 8, 16)
+    eval(e, Plus(BVLiteral(false, Short.MaxValue, 16), BVLiteral(false, 1, 16)))  === BVLiteral(false, Short.MinValue, 16)
 
     eval(e, BVWideningCast(Int8Literal(0), Int32Type()))            === Int32Literal(0)
     eval(e, BVWideningCast(Int8Literal(1), Int32Type()))            === Int32Literal(1)
     eval(e, BVWideningCast(BVLiteral(true, 2, 3), BVType(true,4)))  === BVLiteral(true, 2, 4)
     eval(e, BVWideningCast(Int8Literal(1), BVType(true, 9)))        === BVLiteral(true, 1, 9)
-    eval(e, BVWideningCast(BVLiteral(1, 2), Int32Type()))           === Int32Literal(1)
-    eval(e, BVWideningCast(BVLiteral(1, 1), Int32Type()))           === Int32Literal(-1) // 2's complement on 1 bit
+    eval(e, BVWideningCast(BVLiteral(true, 1, 2), Int32Type()))     === Int32Literal(1)
+    eval(e, BVWideningCast(BVLiteral(true, 1, 1), Int32Type()))     === Int32Literal(-1) // 2's complement on 1 bit
     eval(e, BVWideningCast(Int8Literal(-1), Int32Type()))           === Int32Literal(-1)
     eval(e, BVWideningCast(Int8Literal(-128), Int32Type()))         === Int32Literal(-128)
 
@@ -132,13 +139,21 @@ class EvaluatorSuite extends FunSuite {
               Int8Type())
     ) === Int8Literal(0)
 
-    def bvl(x: BigInt) = BVLiteral(x, 11)
+    def bvl(x: BigInt) = BVLiteral(true, x, 11)
     eval(e, BVAnd(bvl(3), bvl(1)))          === bvl(1)
     eval(e, BVOr(bvl(5), bvl(3)))           === bvl(7)
     eval(e, BVXor(bvl(3), bvl(1)))          === bvl(2)
     eval(e, BVNot(bvl(1)))                  === bvl(-2)
     eval(e, BVShiftLeft(bvl(3), bvl(1)))    === bvl(6)
     eval(e, BVAShiftRight(bvl(8), bvl(1)))  === bvl(4)
+
+    def ubvl(x: BigInt) = BVLiteral(false, x, 11)
+    eval(e, BVAnd(ubvl(3), ubvl(1)))          === ubvl(1)
+    eval(e, BVOr(ubvl(5), ubvl(3)))           === ubvl(7)
+    eval(e, BVXor(ubvl(3), ubvl(1)))          === ubvl(2)
+    eval(e, BVNot(ubvl(1)))                   === ubvl(2046)
+    eval(e, BVShiftLeft(ubvl(3), ubvl(1)))    === ubvl(6)
+    eval(e, BVAShiftRight(ubvl(8), ubvl(1)))  === ubvl(4)
   }
 
   test("BigInt Arithmetic") {
@@ -224,11 +239,17 @@ class EvaluatorSuite extends FunSuite {
     eval(e, LessThan(Int32Literal(7), Int32Literal(7)))       === BooleanLiteral(false)
     eval(e, LessThan(Int32Literal(4), Int32Literal(7)))       === BooleanLiteral(true)
 
-    def bvl(x: BigInt) = BVLiteral(x, 13)
+    def bvl(x: BigInt) = BVLiteral(true, x, 13)
     eval(e, GreaterEquals(bvl(7), bvl(4)))  === BooleanLiteral(true)
     eval(e, GreaterThan(bvl(7), bvl(7)))    === BooleanLiteral(false)
     eval(e, LessEquals(bvl(7), bvl(7)))     === BooleanLiteral(true)
     eval(e, LessThan(bvl(4), bvl(7)))       === BooleanLiteral(true)
+
+    def ubvl(x: BigInt) = BVLiteral(false, x, 13)
+    eval(e, GreaterEquals(ubvl(7), ubvl(4)))  === BooleanLiteral(true)
+    eval(e, GreaterThan(ubvl(7), ubvl(7)))    === BooleanLiteral(false)
+    eval(e, LessEquals(ubvl(7), ubvl(7)))     === BooleanLiteral(true)
+    eval(e, LessThan(ubvl(4), ubvl(7)))       === BooleanLiteral(true)
   }
 
   test("BitVector Division, Remainder and Modulo") {
@@ -263,11 +284,16 @@ class EvaluatorSuite extends FunSuite {
     eval(e, Remainder(Int64Literal(-1), Int64Literal(3)))   === Int64Literal(-1)
     eval(e, Modulo(Int64Literal(-1), Int64Literal(3)))      === Int64Literal(2)
 
-    def bvl(x: BigInt) = BVLiteral(x, 13)
+    def bvl(x: BigInt) = BVLiteral(true, x, 13)
     eval(e, Division(bvl(1), bvl(-3)))    === bvl(0)
     eval(e, Remainder(bvl(1), bvl(-3)))   === bvl(1)
     eval(e, Remainder(bvl(-1), bvl(3)))   === bvl(-1)
     eval(e, Modulo(bvl(-1), bvl(3)))      === bvl(2)
+
+    def ubvl(x: BigInt) = BVLiteral(false, x, 13)
+    eval(e, Division(ubvl(1), ubvl(3)))    === ubvl(0)
+    eval(e, Remainder(ubvl(1), ubvl(3)))   === ubvl(1)
+    eval(e, Modulo(ubvl(8191), ubvl(3)))   === ubvl(1)
   }
 
   test("Boolean Operations") {

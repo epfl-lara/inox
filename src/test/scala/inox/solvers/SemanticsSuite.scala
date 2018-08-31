@@ -80,10 +80,10 @@ class SemanticsSuite extends FunSuite {
     val s = solver(ctx)
 
     // Test the literals that princess doesn't support.
-    check(s, BVLiteral(0, 13),           BVLiteral(0, 13))
-    check(s, BVLiteral(-1, 13),          BVLiteral(-1, 13))
-    check(s, BVLiteral(-1, 33),          BVLiteral(-1, 33))
-    check(s, BVLiteral(4294967296L, 33), BVLiteral(4294967296L, 33)) // 2^32 fits in 33 bits!
+    check(s, BVLiteral(true, 0, 13),           BVLiteral(true, 0, 13))
+    check(s, BVLiteral(true, -1, 13),          BVLiteral(true, -1, 13))
+    check(s, BVLiteral(true, -1, 33),          BVLiteral(true, -1, 33))
+    check(s, BVLiteral(true, 4294967296L, 33), BVLiteral(true, 4294967296L, 33)) // 2^32 fits in 33 bits!
     check(s, Int64Literal(-1),           Int64Literal(-1))
     check(s, Int64Literal(4294967296L),  Int64Literal(4294967296L))
 
@@ -107,9 +107,12 @@ class SemanticsSuite extends FunSuite {
   test("BitVector Arithmetic Bis", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
 
-    check(s, Plus(BVLiteral(3, 13), BVLiteral(5, 13)),              BVLiteral(8, 13))
-    check(s, Plus(BVLiteral(3, 16), BVLiteral(5, 16)),              BVLiteral(8, 16))
-    check(s, Plus(BVLiteral(Short.MaxValue, 16), BVLiteral(1, 16)), BVLiteral(Short.MinValue, 16))
+    check(s, Plus(BVLiteral(true, 3, 13), BVLiteral(true, 5, 13)),              BVLiteral(true, 8, 13))
+    check(s, Plus(BVLiteral(true, 3, 16), BVLiteral(true, 5, 16)),              BVLiteral(true, 8, 16))
+    check(s, Plus(BVLiteral(false, 3, 13), BVLiteral(false, 5, 13)),            BVLiteral(false, 8, 13))
+    check(s, Plus(BVLiteral(false, 3, 16), BVLiteral(false, 5, 16)),            BVLiteral(false, 8, 16))
+    check(s, Plus(BVLiteral(true, Short.MaxValue, 16), BVLiteral(true, 1, 16)), BVLiteral(true, Short.MinValue, 16))
+    check(s, Plus(BVLiteral(false, Short.MaxValue, 16), BVLiteral(false, 1, 16)), BVLiteral(false, BigInt(Short.MaxValue) + 1, 16))
   }
 
   test("BitVector Casts", filterSolvers(_, princess = true)) { ctx =>
@@ -186,11 +189,19 @@ class SemanticsSuite extends FunSuite {
               Int8Type()
             ), Int8Literal(0))
 
-    def bvl(x: BigInt) = BVLiteral(x, 11)
+    def bvl(x: BigInt) = BVLiteral(true, x, 11)
     check(s, BVAnd(bvl(3), bvl(1)),          bvl(1))
     check(s, BVOr(bvl(5), bvl(3)),           bvl(7))
     check(s, BVXor(bvl(3), bvl(1)),          bvl(2))
     check(s, BVNot(bvl(1)),                  bvl(-2))
+    check(s, BVShiftLeft(bvl(3), bvl(1)),    bvl(6))
+    check(s, BVAShiftRight(bvl(8), bvl(1)),  bvl(4))
+
+    def ubvl(x: BigInt) = BVLiteral(false, x, 11)
+    check(s, BVAnd(bvl(3), bvl(1)),          bvl(1))
+    check(s, BVOr(bvl(5), bvl(3)),           bvl(7))
+    check(s, BVXor(bvl(3), bvl(1)),          bvl(2))
+    check(s, BVNot(bvl(1)),                  bvl(2046))
     check(s, BVShiftLeft(bvl(3), bvl(1)),    bvl(6))
     check(s, BVAShiftRight(bvl(8), bvl(1)),  bvl(4))
   }
@@ -278,11 +289,17 @@ class SemanticsSuite extends FunSuite {
     check(s, LessThan(Int32Literal(7), Int32Literal(7)),      BooleanLiteral(false))
     check(s, LessThan(Int32Literal(4), Int32Literal(7)),      BooleanLiteral(true))
 
-    def bvl(x: BigInt) = BVLiteral(x, 13)
+    def bvl(x: BigInt) = BVLiteral(true, x, 13)
     check(s, GreaterEquals(bvl(7), bvl(4)), BooleanLiteral(true))
     check(s, GreaterThan(bvl(7), bvl(7)),   BooleanLiteral(false))
     check(s, LessEquals(bvl(7), bvl(7)),    BooleanLiteral(true))
     check(s, LessThan(bvl(4), bvl(7)),      BooleanLiteral(true))
+
+    def ubvl(x: BigInt) = BVLiteral(false, x, 13)
+    check(s, GreaterEquals(ubvl(7), ubvl(4)), BooleanLiteral(true))
+    check(s, GreaterThan(ubvl(7), ubvl(7)),   BooleanLiteral(false))
+    check(s, LessEquals(ubvl(7), ubvl(7)),    BooleanLiteral(true))
+    check(s, LessThan(ubvl(4), ubvl(7)),      BooleanLiteral(true))
   }
 
   test("BitVector Division, Remainder and Modulo", filterSolvers(_, princess = true)) { ctx =>
@@ -317,11 +334,16 @@ class SemanticsSuite extends FunSuite {
     check(s, Remainder(Int64Literal(-1), Int64Literal(3)),  Int64Literal(-1))
     check(s, Modulo(Int64Literal(-1), Int64Literal(3)),     Int64Literal(2))
 
-    def bvl(x: BigInt) = BVLiteral(x, 13)
+    def bvl(x: BigInt) = BVLiteral(true, x, 13)
     check(s, Division(bvl(1), bvl(-3)),  bvl(0))
     check(s, Remainder(bvl(1), bvl(-3)), bvl(1))
     check(s, Remainder(bvl(-1), bvl(3)), bvl(-1))
     check(s, Modulo(bvl(-1), bvl(3)),    bvl(2))
+
+    def ubvl(x: BigInt) = BVLiteral(false, x, 13)
+    check(s, Division(ubvl(1), ubvl(3)),  ubvl(0))
+    check(s, Remainder(ubvl(1), ubvl(3)), ubvl(1))
+    check(s, Modulo(ubvl(8191), ubvl(3)), ubvl(1))
   }
 
   test("Boolean Operations") { ctx =>

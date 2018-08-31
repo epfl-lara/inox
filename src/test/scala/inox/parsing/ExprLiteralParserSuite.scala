@@ -94,15 +94,15 @@ class ExprLiteralParserSuite extends FunSuite {
 
   test("Parsing BV literals.") {
 
-    assertResult(BVLiteral(0, 8)) {
+    assertResult(BVLiteral(true, 0, 8)) {
       e"0 : Int8"
     }
 
-    assertResult(BVLiteral(7, 64)) {
+    assertResult(BVLiteral(true, 7, 64)) {
       e"7 : Int64"
     }
 
-    assertResult(BVLiteral(-1, 4)) {
+    assertResult(BVLiteral(true, -1, 4)) {
       e"-1 : Int4"
     }
 
