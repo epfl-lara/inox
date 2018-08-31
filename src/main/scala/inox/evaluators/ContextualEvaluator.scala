@@ -71,7 +71,12 @@ trait ContextualEvaluator extends Evaluator {
 
   protected def e(expr: Expr)(implicit rctx: RC, gctx: GC): Value
 
-  def typeErrorMsg(tree: Expr, expected: Type): String = s"Type error : expected ${expected.asString}, found ${tree.asString} of type ${tree.getType}."
+  def typeErrorMsg(tree: Expr, expected: Type): String = 
+    s"""|Type error : expected ${expected.asString}, found ${tree.asString} of type ${tree.getType}.
+        |
+        |Type explanation:
+        |${symbols.explainTyping(tree)(new PrinterOptions())}
+        """.stripMargin
 }
 
 trait HasDefaultRecContext extends ContextualEvaluator {
