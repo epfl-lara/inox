@@ -29,7 +29,7 @@ trait SimplifierWithPath extends SimplifierWithPC {
     override def withCond(cond: Expr): Env = new Env(conditions + cond, exprSubst)
 
     override def negate: Env =
-      new Env(Set(), exprSubst) withConds conditions.toSeq.map(not)
+      new Env(Set(), exprSubst) withCond not(and(conditions.toSeq: _*))
 
     override def merge(that: Env): Env =
       new Env(conditions ++ that.conditions, exprSubst ++ that.exprSubst)
