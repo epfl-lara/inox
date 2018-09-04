@@ -172,7 +172,7 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
       simpCache ++= that.simpCache
     )
 
-    override def negate = new CNFPath(exprSubst, boolSubst, Set(), cnfCache, simpCache) withConds conditions.map(not)
+    override def negate = new CNFPath(exprSubst, boolSubst, Set(), cnfCache, simpCache) withCond not(and(conditions.toSeq: _*))
 
     def asString(implicit opts: PrinterOptions): String = andJoin(conditions.toSeq.sortBy(_.hashCode)).asString
 
