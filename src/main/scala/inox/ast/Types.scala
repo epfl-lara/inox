@@ -69,25 +69,17 @@ trait Types { self: Trees =>
   case class RealType()    extends Type
   case class StringType()  extends Type
 
-  sealed case class BVType(signed: Boolean, size: Int) extends Type {
-    override def toString: String = (signed, size) match {
-      case (true, 8)  => "Int8Type"
-      case (true, 16) => "Int16Type"
-      case (true, 32) => "Int32Type"
-      case (true, 64) => "Int64Type"
-      case _ => super.toString
-    }
+  sealed case class BVType(signed: Boolean, size: Int) extends Type
+
+  sealed abstract class BVTypeExtractor(signed: Boolean, size: Int) {
+    def apply(): BVType = BVType(signed, size)
+    def unapply(tpe: BVType): Boolean = tpe.signed == signed && tpe.size == size
   }
 
-  sealed abstract class BVTypeExtractor(size: Int) {
-    def apply(): BVType = BVType(true, size)
-    def unapply(tpe: BVType): Boolean = tpe.size == size
-  }
-
-  object Int8Type  extends BVTypeExtractor(8)
-  object Int16Type extends BVTypeExtractor(16)
-  object Int32Type extends BVTypeExtractor(32)
-  object Int64Type extends BVTypeExtractor(64)
+  object Int8Type  extends BVTypeExtractor(true, 8)
+  object Int16Type extends BVTypeExtractor(true, 16)
+  object Int32Type extends BVTypeExtractor(true, 32)
+  object Int64Type extends BVTypeExtractor(true, 64)
 
   sealed case class TypeParameter(id: Identifier, flags: Seq[Flag]) extends Type {
     def freshen = TypeParameter(id.freshen, flags)
