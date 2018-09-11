@@ -81,21 +81,17 @@ trait SMTLIBParser {
       case _ => IntegerLiteral(n)
     }
 
-    case FixedSizeBitVectors.BitVectorLit(bs) =>
-      otpe match {
-        case Some(BVType(signed, _)) =>
-          BVLiteral(signed, BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
-        case _ =>
-          BVLiteral(true, BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
-      }
+    case FixedSizeBitVectors.BitVectorLit(bs) => otpe match {
+      case Some(BVType(signed, _)) =>
+        BVLiteral(signed, BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
+      case _ =>
+        BVLiteral(true, BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
+    }
 
-    case FixedSizeBitVectors.BitVectorConstant(n, size) => 
-      otpe match {
-        case Some(BVType(signed, _)) =>
-          BVLiteral(signed, n, size.intValue)
-        case _ =>
-          BVLiteral(true, n, size.intValue)
-      }
+    case FixedSizeBitVectors.BitVectorConstant(n, size) => otpe match {
+      case Some(BVType(signed, _)) => BVLiteral(signed, n, size.intValue)
+      case _ => BVLiteral(true, n, size.intValue)
+    }
 
     case SDecimal(value) =>
       exprOps.normalizeFraction(FractionLiteral(
@@ -165,12 +161,19 @@ trait SMTLIBParser {
     case FixedSizeBitVectors.Sub(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Minus)
     case FixedSizeBitVectors.Mul(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Times)
     case FixedSizeBitVectors.SDiv(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Division)
+    case FixedSizeBitVectors.UDiv(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Division)
     case FixedSizeBitVectors.SRem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Remainder)
+    case FixedSizeBitVectors.URem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Remainder)
 
     case FixedSizeBitVectors.SLessThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessThan)
     case FixedSizeBitVectors.SLessEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessEquals)
     case FixedSizeBitVectors.SGreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterThan)
     case FixedSizeBitVectors.SGreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterEquals)
+
+    case FixedSizeBitVectors.ULessThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessThan)
+    case FixedSizeBitVectors.ULessEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessEquals)
+    case FixedSizeBitVectors.UGreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterThan)
+    case FixedSizeBitVectors.UGreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterEquals)
 
     case FixedSizeBitVectors.ShiftLeft(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVShiftLeft)
     case FixedSizeBitVectors.AShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVAShiftRight)
@@ -185,7 +188,10 @@ trait SMTLIBParser {
     case FixedSizeBitVectors.Extract(i, j, e) =>
       // Assume this is a Narrowing Cast, hence j must be 0
       if (j != 0) throw new MissformedSMTException(term, "Unexpected 'extract' which is not a narrowing cast")
-      BVNarrowingCast(fromSMT(e), BVType(true, (i + 1).bigInteger.intValueExact))
+      BVNarrowingCast(fromSMT(e), BVType(otpe match {
+        case Some(BVType(signed, _)) => signed
+        case _ => true
+      }, (i + 1).bigInteger.intValueExact))
 
     case ArraysEx.Select(e1, e2) => otpe match {
       case Some(tpe) =>
