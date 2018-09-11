@@ -252,15 +252,15 @@ trait Printer {
     }
 
     case BVNarrowingCast(e, Int8Type())  => p"$e.toByte"
-    case BVNarrowingCast(e, Int16Type())  => p"$e.toShort"
+    case BVNarrowingCast(e, Int16Type()) => p"$e.toShort"
     case BVNarrowingCast(e, Int32Type()) => p"$e.toInt"
-    case BVNarrowingCast(e, Int64Type())  => p"$e.toLong"
-    case BVNarrowingCast(e, BVType(true, size))  => p"$e.toBV($size)"
-    case BVWideningCast(e, Int8Type())   => p"$e.toByte"
-    case BVWideningCast(e, Int16Type())   => p"$e.toShort"
-    case BVWideningCast(e, Int32Type())  => p"$e.toInt"
-    case BVWideningCast(e, Int64Type())   => p"$e.toLong"
-    case BVWideningCast(e, BVType(true, size))   => p"$e.toBV($size)"
+    case BVNarrowingCast(e, Int64Type()) => p"$e.toLong"
+    case BVNarrowingCast(e, BVType(_, size)) => p"$e.toBV($size)"
+    case BVWideningCast(e, Int8Type())  => p"$e.toByte"
+    case BVWideningCast(e, Int16Type()) => p"$e.toShort"
+    case BVWideningCast(e, Int32Type()) => p"$e.toInt"
+    case BVWideningCast(e, Int64Type()) => p"$e.toLong"
+    case BVWideningCast(e, BVType(_, size)) => p"$e.toBV($size)"
 
     case fs @ FiniteSet(rs, _) => p"{${rs}}"
     case fs @ FiniteBag(rs, _) => p"{${rs.toSeq}}"

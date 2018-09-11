@@ -558,7 +558,7 @@ trait Expressions { self: Trees =>
 
     // Returns the pair of sizes from -> to
     def cast(implicit s: Symbols): Option[(Int, Int)] = expr.getType match {
-      case BVType(true, from) if from > newType.size => Some(from -> newType.size)
+      case BVType(s, from) if s == newType.signed && from > newType.size => Some(from -> newType.size)
       case _ => None
     }
   }
@@ -573,7 +573,7 @@ trait Expressions { self: Trees =>
 
     // Returns the pair of sizes from -> to
     def cast(implicit s: Symbols): Option[(Int, Int)] = expr.getType match {
-      case BVType(true, from) if from < newType.size => Some(from -> newType.size)
+      case BVType(s, from) if s == newType.signed && from < newType.size => Some(from -> newType.size)
       case _ => None
     }
   }
