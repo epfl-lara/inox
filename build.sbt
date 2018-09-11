@@ -33,7 +33,7 @@ unmanagedJars in Compile += {
 resolvers ++= Seq(
   "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
   "Sonatype OSS Releases" at "https://oss.sonatype.org/content/repositories/releases",
-  "uuverifiers" at "http://logicrunch.it.uu.se:4096/~wv/maven"
+  "uuverifiers" at "http://logicrunch.research.it.uu.se/maven"
 )
 
 libraryDependencies ++= Seq(
@@ -41,7 +41,7 @@ libraryDependencies ++= Seq(
   "org.apache.commons" % "commons-lang3" % "3.4",
   "org.scala-lang" % "scala-reflect" % scalaVersion.value,
   "com.regblanc" %% "scala-smtlib" % "0.2.2-7-g00a9686",
-  "uuverifiers" %% "princess" % "2016-12-26"
+  "uuverifiers" %% "princess" % "2018-02-26"
 )
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")

@@ -63,19 +63,31 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
   private[princess] val variables = new IncrementalBijection[Variable, IExpression]
   private[princess] val functions = new IncrementalBijection[TypedFunDef, IFunction]
   private[princess] val lambdas = new IncrementalBijection[FunctionType, IFunction]
-  private[princess] val sorts = new IncrementalMap[Type, (PADT, Seq[(Type, DataType)])]
+
+  private[princess] val constructors = new IncrementalBijection[ConsType, IFunction]
+  private[princess] val selectors    = new IncrementalBijection[(ConsType, Int), IFunction]
+  private[princess] val testers      = new IncrementalBijection[ConsType, (PADT, Int)]
+
+  private[princess] val sorts = new IncrementalMap[Type, Sort]
 
   private[princess] val adtManager = new ADTManager
 
-  def typeToSort(tpe: Type): (PADT, Seq[(Type, DataType)]) = {
+  def typeToSort(tpe: Type): Sort = tpe match {
+    case tpe @ (_: ADTType | _: TupleType | _: TypeParameter | UnitType()) =>
+      if (!sorts.contains(tpe)) declareStructuralSort(tpe)
+      sorts(tpe)
+
+  }
+
+  private def declareStructuralSort(tpe: Type): Unit = {
     adtManager.declareADTs(tpe, (adts: Seq[(Type, DataType)]) => {
       val indexMap: Map[Type, Int] = adts.map(_._1).zipWithIndex.toMap
 
-      def typeToSortRef(tpe: Type): PADT.Sort = {
+      def typeToSortRef(tpe: Type): PADT.CtorArgSort = {
         if (indexMap contains tpe) {
           PADT.ADTSort(indexMap(tpe))
         } else {
-          PADT.IntSort
+          PADT.OtherSort(typeToSort(tpe))
         }
       }
 
@@ -88,7 +100,14 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         })
       )
 
-      for ((tpe, _) <- adts) sorts += tpe -> ((adt, adts))
+      for (((tpe, _), sort) <- (adts zip adt.sorts)) sorts += tpe -> sort
+
+      for ((cse, i) <- adts.flatMap(_._2.cases).zipWithIndex) {
+        constructors += cse.tpe -> adt.constructors(i)
+        testers += cse.tpe -> (adt -> i)
+
+        for ((sel, i) <- adt.selectors(i).zipWithIndex) selectors += (cse.tpe, i) -> sel
+      }
     })
 
     sorts(tpe)
@@ -161,10 +180,10 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
       // ADT INSTANCE OF
       case IsConstructor(expr, id) =>
-        val tpe = expr.getType.asInstanceOf[ADTType]
-        val (sort, adts) = typeToSort(tpe)
-        val constructors = adts.flatMap(_._2.cases)
-        sort.hasCtor(parseTerm(expr), constructors.indexWhere(_.tpe == ADTCons(id, tpe.tps)))
+        val tpe @ ADTType(_, tps) = expr.getType
+        typeToSort(tpe)
+        val (sort, tester) = testers.toB(ADTCons(id, tps))
+        sort.hasCtor(parseTerm(expr), tester)
 
       case (_: FunctionInvocation) | (_: Application) | (_: ADTSelector) | (_: TupleSelect) =>
         parseTerm(expr) === 0
@@ -193,14 +212,14 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       // ADT | Tuple
       case (_: ADT) | (_: Tuple) | (_: GenericValue) | (_: UnitLiteral) =>
         val tpe = expr.getType
-        val (sort, adts) = typeToSort(tpe)
+        typeToSort(tpe)
         val (cons, args) = expr match {
           case ADT(id, tps, args) => (ADTCons(id, tps), args)
           case Tuple(args) => (TupleCons(args.map(_.getType)), args)
           case GenericValue(tp, i) => (TypeParameterCons(tp), Seq(IntegerLiteral(i)))
           case UnitLiteral() => (UnitCons, Seq.empty)
         }
-        val constructor = sort.constructors(adts.flatMap(_._2.cases).indexWhere(_.tpe == cons))
+        val constructor = constructors.toB(cons)
         constructor(args.map(parseTerm) : _*)
 
       case (_: ADTSelector) | (_: TupleSelect) =>
@@ -214,12 +233,8 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         }
 
         val tpe = rec.getType
-        val (sort, adts) = typeToSort(tpe)
-
-        val constructors = adts.flatMap(_._2.cases)
-        val selector = (constructors zip sort.selectors).collectFirst {
-          case (c, sels) if c.tpe == cons => sels(i)
-        }.getOrElse(throw PrincessSolverException(s"Undefined selector for $expr!?"))
+        typeToSort(tpe)
+        val selector = selectors.toB(cons -> i)
         selector(parseTerm(rec))
 
       case BooleanLiteral(true) => i(0)
@@ -512,6 +527,11 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
     variables.pop()
     functions.pop()
     lambdas.pop()
+
+    constructors.pop()
+    selectors.pop()
+    testers.pop()
+
     sorts.pop()
 
     p.pop
@@ -522,6 +542,11 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
     variables.push()
     functions.push()
     lambdas.push()
+
+    constructors.push()
+    selectors.push()
+    testers.push()
+
     sorts.push()
 
     p.push
@@ -532,6 +557,11 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
     variables.clear()
     functions.clear()
     lambdas.clear()
+
+    constructors.clear()
+    selectors.clear()
+    testers.clear()
+
     sorts.clear()
 
     p.reset
