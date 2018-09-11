@@ -1164,7 +1164,7 @@ trait SymbolOps { self: TypeOps =>
   /** Returns true if expr is a value of type t */
   def isValueOfType(e: Expr, t: Type): Boolean = (e, t) match {
     case (StringLiteral(_), StringType()) => true
-    case (BVLiteral(signed, _, s), BVType(signed2, t)) => signed == signed2 && s == t
+    case (BVLiteral(s1, _, s), BVType(s2, t)) => s1 == s2 && s == t
     case (IntegerLiteral(_), IntegerType()) => true
     case (CharLiteral(_), CharType()) => true
     case (FractionLiteral(_, _), RealType()) => true
