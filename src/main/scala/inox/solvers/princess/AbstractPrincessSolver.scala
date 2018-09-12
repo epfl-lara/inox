@@ -292,7 +292,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
       case Minus(lhs, rhs) => lhs.getType match {
         case BVType(_, _) => Mod.bvsub(parseTerm(lhs), parseTerm(rhs))
-        case IntegerType() => parseTerm(lhs) + parseTerm(rhs)
+        case IntegerType() => parseTerm(lhs) - parseTerm(rhs)
         case _ => unsupported(expr)
       }
 
@@ -385,107 +385,126 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       def withSeen(n: BigInt): Context = new Context(model, seen + n, chooses, lambdas)
     }
 
-    def parseExpr(iexpr: IExpression, tpe: Type)(implicit ctx: Context): Option[Expr] = tpe match {
-      case BooleanType() => iexpr match {
-        case iterm: ITerm => ctx.model.eval(iterm).map(i => BooleanLiteral(i.intValue == 0))
-        case iformula: IFormula => ctx.model.eval(iformula).map(BooleanLiteral)
+    // For some reason, various trees are not evaluated in the resulting Princess model,
+    // so we traverse the term and replace all such trees with ground sub-trees by the
+    // appropriate simplified value
+    private[princess] def simplify(iexpr: IExpression)(model: Model): IExpression = {
+      val visitor = new CollectingVisitor[Unit, IExpression] {
+        def postVisit(t: IExpression, arg: Unit, subres: Seq[IExpression]) : IExpression =
+          IExpression.updateAndSimplify(t, subres) match {
+            case app @ IFunApp(fun, Seq(arg)) if selectors containsB fun =>
+              evalToTerm(arg)(model) match {
+                case Some(IFunApp(_, args)) => args(selectors.toA(fun)._2)
+                case _ => app
+              }
+            case e => e
+          }
       }
 
-      case IntegerType() =>
-        ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(i => IntegerLiteral(i.bigIntValue))
+      visitor.visit(iexpr, ())
+    }
 
-      case BVType(signed, size) =>
-        ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(i => BVLiteral(signed, i.bigIntValue, size))
+    private def evalToTerm(iexpr: IExpression)(model: Model): Option[IExpression] = iexpr match {
+      case app @ IFunApp(_, _) => Some(app)
+      case it: ITerm => model.evalToTerm(it)
+      case _ => None
+    }
 
-      case CharType() =>
-        ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(i => CharLiteral(i.intValue.toChar))
+    def parseExpr(iexpr: IExpression, tpe: Type)(implicit ctx: Context): Option[Expr] = {
 
-      case tpe @ ((_: ADTType) | (_: TupleType) | (_: TypeParameter) | UnitType()) =>
-        val conss = tpe match {
-          case ADTType(id, tps) => getSort(id).constructors.map(cons => ADTCons(cons.id, tps))
-          case TupleType(tps) => Seq(TupleCons(tps))
-          case tp: TypeParameter => Seq(TypeParameterCons(tp))
-          case UnitType() => Seq(UnitCons)
+      def rec(iexpr: IExpression, tpe: Type)(implicit ctx: Context): Option[Expr] = tpe match {
+        case BooleanType() => iexpr match {
+          case iterm: ITerm => ctx.model.eval(iterm).map(i => BooleanLiteral(i.intValue == 0))
+          case iformula: IFormula => ctx.model.eval(iformula).map(BooleanLiteral)
         }
 
-        val optCons = conss.flatMap { cons =>
-          val (sort, tester) = testers.toB(cons)
-          ctx.model.eval(sort.hasCtor(iexpr.asInstanceOf[ITerm], tester))
-            .flatMap(is => if (is) Some(cons) else None)
-        }.headOption
+        case IntegerType() =>
+          ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(i => IntegerLiteral(i.bigIntValue))
 
-        optCons.flatMap { cons =>
-          val (fieldsTypes, recons): (Seq[Type], Seq[Expr] => Expr) = cons match {
-            case ADTCons(id, tps) => (getConstructor(id, tps).fields.map(_.getType), ADT(id, tps, _))
-            case TupleCons(tps) => (tps, Tuple(_))
-            case TypeParameterCons(tp) => (Seq(IntegerType()), (es: Seq[Expr]) => {
-              GenericValue(tp, es.head.asInstanceOf[IntegerLiteral].value.toInt)
-            })
-            case UnitCons => (Seq(), _ => UnitLiteral())
-          }
-
-          val optArgs = fieldsTypes.zipWithIndex.map { case (tpe, i) =>
-            parseExpr(selectors.toB(cons -> i)(iexpr.asInstanceOf[ITerm]), tpe)
-          }
-
-          if (optArgs.forall(_.isDefined)) {
-            Some(recons(optArgs.map(_.get)))
-          } else {
-            None
-          }
-        }.orElse {
-          ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(n => constructExpr(n.intValue, tpe))
+        case BVType(signed, size) => evalToTerm(iexpr)(ctx.model).collect {
+          case IFunApp(Mod.mod_cast, Seq(_, _, IIntLit(i))) => BVLiteral(signed, i.bigIntValue, size)
+          case IIntLit(i) => BVLiteral(signed, i.bigIntValue, size)
         }
 
-      case ft: FunctionType =>
-        val iterm = iexpr.asInstanceOf[ITerm]
-        ctx.model.eval(iterm).flatMap { ideal =>
-          val n = BigInt(ideal.bigIntValue)
-          if (ctx.seen(n)) {
-            Some(ctx.chooses.getOrElseUpdate(n, {
-              Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
-            }))
-          } else {
-            ctx.lambdas.get(n).orElse {
-              for {
-                fun <- lambdas.getB(ft)
-                newCtx = ctx.withSeen(n)
-                interps = ctx.model.interpretation.flatMap {
-                  case (SimpleAPI.IntFunctionLoc(`fun`, ptr +: args), SimpleAPI.IntValue(res)) =>
-                    if (ctx.model.eval(iterm === ptr) contains true) {
-                      val optArgs = (args zip ft.from).map(p => parseExpr(p._1, p._2)(newCtx))
-                      val optRes = parseExpr(res, ft.to)(newCtx)
+        case CharType() => evalToTerm(iexpr)(ctx.model).collect {
+          case IFunApp(Mod.mod_cast, Seq(_, _, IIntLit(i))) => CharLiteral(i.intValue.toChar)
+          case IIntLit(i) => CharLiteral(i.intValue.toChar)
+        }
 
-                      if (optArgs.forall(_.isDefined) && optRes.isDefined) {
-                        Some(optArgs.map(_.get) -> optRes.get)
+        case tpe @ ((_: ADTType) | (_: TupleType) | (_: TypeParameter) | UnitType()) =>
+          evalToTerm(iexpr)(ctx.model).collect { case IFunApp(fun, args) if constructors containsB fun =>
+            val (fieldsTypes, recons): (Seq[Type], Seq[Expr] => Expr) = constructors.toA(fun) match {
+              case ADTCons(id, tps) => (getConstructor(id, tps).fields.map(_.getType), ADT(id, tps, _))
+              case TupleCons(tps) => (tps, Tuple(_))
+              case TypeParameterCons(tp) => (Seq(IntegerType()), (es: Seq[Expr]) => {
+                GenericValue(tp, es.head.asInstanceOf[IntegerLiteral].value.toInt)
+              })
+              case UnitCons => (Seq(), _ => UnitLiteral())
+            }
+
+            val optArgs = (args zip fieldsTypes).map { case (arg, tpe) => rec(arg, tpe) }
+
+            if (optArgs.forall(_.isDefined)) {
+              Some(recons(optArgs.map(_.get)))
+            } else {
+              None
+            }
+          }.flatten.orElse {
+            ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(n => constructExpr(n.intValue, tpe))
+          }
+
+        case ft: FunctionType =>
+          val iterm = iexpr.asInstanceOf[ITerm]
+          ctx.model.eval(iterm).flatMap { ideal =>
+            val n = BigInt(ideal.bigIntValue)
+            if (ctx.seen(n)) {
+              Some(ctx.chooses.getOrElseUpdate(n, {
+                Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
+              }))
+            } else {
+              ctx.lambdas.get(n).orElse {
+                for {
+                  fun <- lambdas.getB(ft)
+                  newCtx = ctx.withSeen(n)
+                  interps = ctx.model.interpretation.flatMap {
+                    case (SimpleAPI.IntFunctionLoc(`fun`, ptr +: args), SimpleAPI.IntValue(res)) =>
+                      if (ctx.model.eval(iterm === ptr) contains true) {
+                        val optArgs = (args zip ft.from).map(p => rec(p._1, p._2)(newCtx))
+                        val optRes = rec(res, ft.to)(newCtx)
+
+                        if (optArgs.forall(_.isDefined) && optRes.isDefined) {
+                          Some(optArgs.map(_.get) -> optRes.get)
+                        } else {
+                          None
+                        }
                       } else {
                         None
                       }
-                    } else {
-                      None
-                    }
 
-                  case _ => None
-                }.toSeq.sortBy(_.toString)
-              } yield {
-                val params = ft.from.map(tpe => ValDef.fresh("x", tpe, true))
-                uniquateClosure(n.intValue, if (interps.isEmpty) {
-                  try {
-                    simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
-                  } catch {
-                    case _: NoSimpleValue =>
-                      Lambda(params, Choose(ValDef.fresh("res", ft.to), BooleanLiteral(true)))
-                  }
-                } else {
-                  val body = interps.foldRight(interps.head._2) { case ((args, res), elze) =>
-                    IfExpr(andJoin((params zip args).map(p => Equals(p._1.toVariable, p._2))), res, elze)
-                  }
-                  Lambda(params, body)
-                })
+                    case _ => None
+                  }.toSeq.sortBy(_.toString)
+                } yield {
+                  val params = ft.from.map(tpe => ValDef.fresh("x", tpe, true))
+                  uniquateClosure(n.intValue, if (interps.isEmpty) {
+                    try {
+                      simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
+                    } catch {
+                      case _: NoSimpleValue =>
+                        Lambda(params, Choose(ValDef.fresh("res", ft.to), BooleanLiteral(true)))
+                    }
+                  } else {
+                    val body = interps.foldRight(interps.head._2) { case ((args, res), elze) =>
+                      IfExpr(andJoin((params zip args).map(p => Equals(p._1.toVariable, p._2))), res, elze)
+                    }
+                    Lambda(params, body)
+                  })
+                }
               }
             }
           }
-        }
+      }
+
+      rec(simplify(iexpr)(ctx.model), tpe)
     }
 
     def asGround(iexpr: IExpression, tpe: Type): Option[Expr] = {
