@@ -162,28 +162,36 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       }
 
       // INTEGER COMPARISON
-      case LessThan(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        pLhs < pRhs
+      case LessThan(lhs, rhs) => lhs.getType match {
+        case BVType(true, _) => Mod.bvslt(parseTerm(lhs), parseTerm(rhs))
+        case BVType(false, _) => Mod.bvult(parseTerm(lhs), parseTerm(rhs))
+        case CharType() => Mod.bvult(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => parseTerm(lhs) < parseTerm(rhs)
+        case _ => unsupported(expr)
       }
 
-      case GreaterThan(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        pLhs > pRhs
+      case GreaterThan(lhs, rhs) => lhs.getType match {
+        case BVType(true, _) => Mod.bvsgt(parseTerm(lhs), parseTerm(rhs))
+        case BVType(false, _) => Mod.bvugt(parseTerm(lhs), parseTerm(rhs))
+        case CharType() => Mod.bvugt(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => parseTerm(lhs) > parseTerm(rhs)
+        case _ => unsupported(expr)
       }
 
-      case LessEquals(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        pLhs <= pRhs
+      case LessEquals(lhs, rhs) => lhs.getType match {
+        case BVType(true, _) => Mod.bvsle(parseTerm(lhs), parseTerm(rhs))
+        case BVType(false, _) => Mod.bvule(parseTerm(lhs), parseTerm(rhs))
+        case CharType() => Mod.bvule(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => parseTerm(lhs) <= parseTerm(rhs)
+        case _ => unsupported(expr)
       }
 
-      case GreaterEquals(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        pLhs >= pRhs
+      case GreaterEquals(lhs, rhs) => lhs.getType match {
+        case BVType(true, _) => Mod.bvsge(parseTerm(lhs), parseTerm(rhs))
+        case BVType(false, _) => Mod.bvuge(parseTerm(lhs), parseTerm(rhs))
+        case CharType() => Mod.bvuge(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => parseTerm(lhs) >= parseTerm(rhs)
+        case _ => unsupported(expr)
       }
 
       // ADT INSTANCE OF
