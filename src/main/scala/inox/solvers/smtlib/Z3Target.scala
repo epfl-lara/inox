@@ -6,6 +6,7 @@ package smtlib
 
 import _root_.smtlib.trees.Terms.{Identifier => SMTIdentifier, Let => SMTLet, _}
 import _root_.smtlib.trees.Commands.{FunDef => SMTFunDef, _}
+import _root_.smtlib.trees.CommandsResponses._
 import _root_.smtlib.interpreters.Z3Interpreter
 import _root_.smtlib.theories.Core.{Equals => SMTEquals, _}
 import _root_.smtlib.theories.Operations._
@@ -36,6 +37,27 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   // Z3 version 4.5.1 has disabled producing unsat assumptions by default,
   // so make sure it is enabled at this point.
   emit(SetOption(ProduceUnsatAssumptions(true)))
+
+  protected class Version(val major: Int, val minor: Int, rest: String) extends Ordered[Version] {
+    override def compare(that: Version): Int = {
+      import scala.math.Ordering.Implicits._
+      implicitly[Ordering[(Int, Int)]].compare((major, minor), (that.major, that.minor))
+    }
+
+    override def toString: String = s"$major.$minor.$rest"
+  }
+
+  protected object Version {
+    def apply(major: Int, minor: Int): Version = new Version(major, minor, "")
+  }
+
+  protected val version = emit(GetInfo(VersionInfoFlag())) match {
+    case GetInfoResponseSuccess(VersionInfoResponse(version), _) =>
+      val major +: minor +: rest = version.split("\\.").toSeq
+      new Version(major.toInt, minor.toInt, rest.mkString("."))
+    case r =>
+      reporter.fatalError("Couldn't obtain smt-z3 solver version: " + r)
+  }
 
   protected val extSym = SSymbol("_")
 
@@ -82,6 +104,17 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
   override protected def fromSMT(t: Term, otpe: Option[Type] = None)(implicit context: Context): Expr = {
     (t, otpe) match {
+      case (FunctionApplication(
+        QualifiedIdentifier(SMTIdentifier(SSymbol("is"), Seq(SSymbol(name))), None),
+        Seq(e)
+      ), _) if version >= Version(4, 6) && testers.containsB(SSymbol("is-" + name)) =>
+        testers.toA(SSymbol("is-" + name)) match {
+          case ac @ ADTCons(id, _) =>
+            IsConstructor(fromSMT(e, ac.getType), id)
+          case t =>
+            unsupported(t, "woot? tester for non-adt type")
+        }
+
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ MapType(keyType, valueType))) =>
         val Some(Lambda(Seq(arg), body)) = context.getFunction(k, FunctionType(Seq(keyType), valueType))
 
@@ -178,6 +211,15 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   }
 
   override protected def toSMT(e: Expr)(implicit bindings: Map[Identifier, Term]): Term = e match {
+
+    case IsConstructor(e, id) if version >= Version(4, 6) =>
+      val tpe @ ADTType(_, tps) = e.getType
+      declareSort(tpe)
+      val SSymbol(name) = testers.toB(ADTCons(id, tps))
+      FunctionApplication(
+        QualifiedIdentifier(SMTIdentifier(SSymbol("is"), Seq(SSymbol(name.drop(3)))), None),
+        Seq(toSMT(e))
+      )
 
     /**
      * ===== Set operations =====
