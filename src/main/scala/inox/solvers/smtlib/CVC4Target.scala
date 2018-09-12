@@ -150,6 +150,12 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
     case SetAdd(a, b)           => Sets.Insert(toSMT(b), toSMT(a))
     case SetIntersection(a, b)  => Sets.Intersection(toSMT(a), toSMT(b))
 
+    case FiniteMap(_, default, _, _) if !isValue(default) || exprOps.exists {
+      case _: Lambda => true
+      case _ => false
+    } (default) =>
+      unsupported(e, "Cannot encode map with non-constant default value")
+
     case _ =>
       super.toSMT(e)
   }
