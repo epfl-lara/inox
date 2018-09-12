@@ -522,8 +522,6 @@ trait Printer {
 
         if (expressions.hasNext) {
           val e = expressions.next
-          if (e == "||")
-            println("Seen Expression: " + e)
 
           e match {
             case (t1, t2) =>
