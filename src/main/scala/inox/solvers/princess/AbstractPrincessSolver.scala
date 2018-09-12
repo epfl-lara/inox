@@ -15,7 +15,9 @@ package princess
 
 import ap._
 import ap.parser._
+import ap.basetypes._
 import ap.theories.{ADT => PADT, _}
+import ap.theories.{ModuloArithmetic => Mod}
 
 import utils._
 import SolverResponses._
@@ -76,7 +78,13 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
     case tpe @ (_: ADTType | _: TupleType | _: TypeParameter | UnitType()) =>
       if (!sorts.contains(tpe)) declareStructuralSort(tpe)
       sorts(tpe)
-
+    case BooleanType() => sorts.cached(tpe)(Sort.Bool)
+    case IntegerType() => sorts.cached(tpe)(Sort.Integer)
+    case ft: FunctionType => sorts.cached(ft)(new Sort.InfUninterpreted(ft.toString))
+    case CharType() => sorts.cached(tpe)(Mod.UnsignedBVSort(16))
+    case BVType(true, size) => sorts.cached(tpe)(Mod.SignedBVSort(size))
+    case BVType(false, size) => sorts.cached(tpe)(Mod.UnsignedBVSort(size))
+    case _ => unsupported(tpe)
   }
 
   private def declareStructuralSort(tpe: Type): Unit = {
@@ -323,15 +331,21 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(i => IntegerLiteral(i.bigIntValue))
 
       case tpe @ ((_: ADTType) | (_: TupleType) | (_: TypeParameter) | UnitType()) =>
-        val (sort, adts) = typeToSort(tpe)
+        val conss = tpe match {
+          case ADTType(id, tps) => getSort(id).constructors.map(cons => ADTCons(cons.id, tps))
+          case TupleType(tps) => Seq(TupleCons(tps))
+          case tp: TypeParameter => Seq(TypeParameterCons(tp))
+          case UnitType() => Seq(UnitCons)
+        }
 
-        val optIndex = (adts.map(_._1) zip sort.ctorIds).collectFirst {
-          case (`tpe`, fun) => ctx.model.eval(fun(iexpr.asInstanceOf[ITerm])).map(_.intValue)
-        }.flatten
+        val optCons = conss.flatMap { cons =>
+          val (sort, tester) = testers.toB(cons)
+          ctx.model.eval(sort.hasCtor(iexpr.asInstanceOf[ITerm], tester))
+            .flatMap(is => if (is) Some(cons) else None)
+        }.headOption
 
-        optIndex.flatMap { index =>
-          val constructors = adts.flatMap(_._2.cases)
-          val (fieldsTypes, recons): (Seq[Type], Seq[Expr] => Expr) = constructors(index).tpe match {
+        optCons.flatMap { cons =>
+          val (fieldsTypes, recons): (Seq[Type], Seq[Expr] => Expr) = cons match {
             case ADTCons(id, tps) => (getConstructor(id, tps).fields.map(_.getType), ADT(id, tps, _))
             case TupleCons(tps) => (tps, Tuple(_))
             case TypeParameterCons(tp) => (Seq(IntegerType()), (es: Seq[Expr]) => {
@@ -340,8 +354,8 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
             case UnitCons => (Seq(), _ => UnitLiteral())
           }
 
-          val optArgs = (sort.selectors(index) zip fieldsTypes).map {
-            case (fun, tpe) => parseExpr(fun(iexpr.asInstanceOf[ITerm]), tpe)
+          val optArgs = fieldsTypes.zipWithIndex.map { case (tpe, i) =>
+            parseExpr(selectors.toB(cons -> i)(iexpr.asInstanceOf[ITerm]), tpe)
           }
 
           if (optArgs.forall(_.isDefined)) {
@@ -421,29 +435,23 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         case (IFunApp(fun, args), _) if lambdas containsB fun =>
           val ft @ FunctionType(from, _) = lambdas.toA(fun)
           Application(rec(args.head, ft), (args.tail zip from).map(p => rec(p._1, p._2)))
-        case (IFunApp(fun, args), _) if sorts.values.exists(_._1.constructors contains fun) =>
-          val (sort, adts) = typeToSort(tpe)
-          val index = sort.constructors.indexWhere(_ == fun)
-          adts.flatMap(_._2.cases).apply(index).tpe match {
-            case ADTCons(id, tps) =>
-              ADT(id, tps, (args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.getType)))
-            case TupleCons(tps) =>
-              Tuple((args zip tps).map(p => rec(p._1, p._2)))
-            case UnitCons =>
-              UnitLiteral()
-            case _ => throw UnsoundException(iexpr, "Unexpected constructor")
-          }
-        case (IFunApp(fun, Seq(arg)), _) if sorts.values.exists(_._1.selectors.exists(_ contains fun)) =>
-          val (sort, adts) = sorts.values.find(_._1.selectors.exists(_ contains fun)).get
-          val index = sort.selectors.indexWhere(_ contains fun)
-          val sindex = sort.selectors(index).indexWhere(_ == fun)
-          adts.flatMap(_._2.cases).apply(index).tpe match {
-            case c @ ADTCons(id, tps) =>
-              ADTSelector(rec(arg, c.getType), getConstructor(id).fields(sindex).id)
-            case c @ TupleCons(_) =>
-              TupleSelect(rec(arg, c.getType), sindex + 1)
-            case _ => throw UnsoundException(iexpr, "Unexpected selector")
-          }
+        case (IFunApp(fun, args), _) if constructors containsB fun => constructors.toA(fun) match {
+          case ADTCons(id, tps) =>
+            ADT(id, tps, (args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.getType)))
+          case TupleCons(tps) =>
+            Tuple((args zip tps).map(p => rec(p._1, p._2)))
+          case UnitCons =>
+            UnitLiteral()
+          case _ => throw UnsoundException(iexpr, "Unexpected constructor")
+        }
+        case (IFunApp(fun, Seq(arg)), _) if selectors containsB fun => selectors.toA(fun) match {
+          case (ac @ ADTCons(id, tps), i) =>
+            ADTSelector(rec(arg, ac.getType), getConstructor(id).fields(i).id)
+          case (tc @ TupleCons(tps), i) =>
+            TupleSelect(rec(arg, tc.getType), i + 1)
+          case _ => throw UnsoundException(iexpr, "Unexpected selector")
+        }
+        case (ITermITE(c, t, e), _) => IfExpr(rec(c, BooleanType()), rec(t, tpe), rec(e, tpe))
         case _ => throw UnsoundException(iexpr, "Unexpected tree")
       }
 
@@ -465,7 +473,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
   def freshSymbol(v: Variable): IExpression = v.getType match {
     case BooleanType() => p.createBooleanVariable(v.id.freshen.uniqueName)
-    case _ => p.createConstant(v.id.freshen.uniqueName)
+    case _ => p.createConstant(v.id.freshen.uniqueName, typeToSort(v.tpe))
   }
 
   def assertCnstr(formula: Trees): Unit = p !! formula.asInstanceOf[IFormula]

@@ -96,14 +96,11 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
 
     def extractConstructor(v: IExpression, tpe: t.ADTType): Option[Identifier] =
       model.eval(v.asInstanceOf[ITerm]).flatMap { elem =>
-        val (sort, adts) = underlying.typeToSort(tpe)
-        (adts.map(_._1) zip sort.ctorIds).collectFirst {
-          case (`tpe`, fun) => model.eval(fun(v.asInstanceOf[ITerm])).map { i =>
-            val index = i.intValue
-            val constructors = adts.flatMap(_._2.cases)
-            constructors(index).tpe.asInstanceOf[underlying.ADTCons].id
-          }
-        }.flatten
+        getSort(tpe.id).constructors.map(_.id).find { id =>
+          underlying.testers.getB(underlying.ADTCons(id, tpe.tps))
+            .flatMap { case (sort, i) => model.eval(sort.hasCtor(v.asInstanceOf[ITerm], i)) }
+            .contains(true)
+        }
       }
 
     def extractSet(v: IExpression, tpe: t.SetType) = scala.sys.error("Should never happen")
