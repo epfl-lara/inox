@@ -319,7 +319,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
       case c @ BVWideningCast(e, _)  =>
         val Some((from, to)) = c.cast
-        z3.mkSignExt(to - from, rec(e))
+        val BVType(signed, _) = e.getType
+        if (signed) z3.mkSignExt(to - from, rec(e))
+        else z3.mkZeroExt(to - from, rec(e))
 
       case c @ BVNarrowingCast(e, _) =>
         val Some((from, to)) = c.cast

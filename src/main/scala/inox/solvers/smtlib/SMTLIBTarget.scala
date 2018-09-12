@@ -449,7 +449,9 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
       case c @ BVWideningCast(e, _)  =>
         val Some((from, to)) = c.cast
-        FixedSizeBitVectors.SignExtend(to - from, toSMT(e))
+        val BVType(signed, _) = e.getType
+        if (signed) FixedSizeBitVectors.SignExtend(to - from, toSMT(e))
+        else FixedSizeBitVectors.ZeroExtend(to - from, toSMT(e))
 
       case c @ BVNarrowingCast(e, _) =>
         val Some((from, to)) = c.cast
