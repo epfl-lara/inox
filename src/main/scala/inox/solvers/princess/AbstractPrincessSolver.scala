@@ -324,6 +324,38 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         case IntegerType() => p.mulTheory.eMod(parseTerm(lhs), parseTerm(rhs))
       }
 
+      // BITVECTOR OPERATIONS
+      case BVNot(e) =>
+        Mod.bvnot(parseTerm(e))
+
+      case BVAnd(lhs, rhs) =>
+        Mod.bvand(parseTerm(lhs), parseTerm(rhs))
+
+      case BVOr(lhs, rhs) =>
+        Mod.bvor(parseTerm(lhs), parseTerm(rhs))
+
+      case BVXor(lhs, rhs) =>
+        Mod.bvxor(parseTerm(lhs), parseTerm(rhs))
+
+      case BVShiftLeft(lhs, rhs) =>
+        Mod.bvshl(parseTerm(lhs), parseTerm(rhs))
+
+      case BVAShiftRight(lhs, rhs) =>
+        Mod.bvashr(parseTerm(lhs), parseTerm(rhs))
+
+      case BVLShiftRight(lhs, rhs) =>
+        Mod.bvlshr(parseTerm(lhs), parseTerm(rhs))
+
+      case c @ BVWideningCast(e, _) =>
+        val Some((from, to)) = c.cast
+        val BVType(signed, _) = e.getType
+        if (signed) Mod.sign_extend(to - from, parseTerm(e))
+        else Mod.zero_extend(to - from, parseTerm(e))
+
+      case c @ BVNarrowingCast(e, _) =>
+        val Some((from, to)) = c.cast
+        Mod.extract(to - 1, 0, parseTerm(e))
+
       case _ => unsupported(expr, "Unexpected formula " + expr)
     }
 
