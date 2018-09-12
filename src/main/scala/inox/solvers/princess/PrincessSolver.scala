@@ -96,7 +96,7 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
 
     def extractConstructor(v: IExpression, tpe: t.ADTType): Option[Identifier] =
       model.eval(v.asInstanceOf[ITerm]).flatMap { elem =>
-        getSort(tpe.id).constructors.map(_.id).find { id =>
+        underlying.program.symbols.getSort(tpe.id).constructors.map(_.id).find { id =>
           underlying.testers.getB(underlying.ADTCons(id, tpe.tps))
             .flatMap { case (sort, i) => model.eval(sort.hasCtor(v.asInstanceOf[ITerm], i)) }
             .contains(true)
