@@ -394,6 +394,12 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       case IntegerType() =>
         ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(i => IntegerLiteral(i.bigIntValue))
 
+      case BVType(signed, size) =>
+        ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(i => BVLiteral(signed, i.bigIntValue, size))
+
+      case CharType() =>
+        ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(i => CharLiteral(i.intValue.toChar))
+
       case tpe @ ((_: ADTType) | (_: TupleType) | (_: TypeParameter) | UnitType()) =>
         val conss = tpe match {
           case ADTType(id, tps) => getSort(id).constructors.map(cons => ADTCons(cons.id, tps))
