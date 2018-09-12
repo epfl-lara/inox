@@ -38,15 +38,12 @@ package object theories {
 
     val setEncoder = SetEncoder(bagEncoder.targetProgram)
 
-    val bvEncoder = BitvectorEncoder(setEncoder.targetProgram)
-
-    val realEncoder = RealEncoder(bvEncoder.targetProgram)
+    val realEncoder = RealEncoder(setEncoder.targetProgram)
 
     // @nv: Required due to limitations in scalac existential types
     val e1 = stringEncoder andThen bagEncoder
     val e2 = e1 andThen setEncoder
-    val e3 = e2 andThen bvEncoder
-    e3 andThen realEncoder
+    e2 andThen realEncoder
   }
 
   object ReverseEvaluator {
