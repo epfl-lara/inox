@@ -268,37 +268,61 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       // LITERALS
       case IntegerLiteral(value) => value.toInt
 
+      case bv @ BVLiteral(signed, bits, size) =>
+        if (signed) Mod.cast2SignedBV(size, IdealInt(bv.toBigInt.bigInteger))
+        else Mod.cast2UnsignedBV(size, IdealInt(bv.toBigInt.bigInteger))
+
+      case CharLiteral(c) =>
+        Mod.cast2UnsignedBV(16, c.toInt)
+
       // INTEGER ARITHMETIC
-      case Plus(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        pLhs + pRhs
+      case Plus(lhs, rhs) => lhs.getType match {
+        case BVType(_, _) => Mod.bvadd(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => parseTerm(lhs) + parseTerm(rhs)
+        case _ => unsupported(expr)
       }
 
-      case Minus(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        pLhs - pRhs
+      case Minus(lhs, rhs) => lhs.getType match {
+        case BVType(_, _) => Mod.bvsub(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => parseTerm(lhs) + parseTerm(rhs)
+        case _ => unsupported(expr)
       }
 
-      case Times(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        p.mult(pLhs, pRhs)
+      case Times(lhs, rhs) => lhs.getType match {
+        case BVType(_, _) => Mod.bvmul(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => p.mult(parseTerm(lhs), parseTerm(rhs))
+        case _ => unsupported(expr)
       }
 
-      case UMinus(e) =>
-        - parseTerm(e)
+      case UMinus(e) => e.getType match {
+        case BVType(_, _) => Mod.bvneg(parseTerm(e))
+        case IntegerType() => - parseTerm(e)
+        case _ => unsupported(expr)
+      }
 
-      case Division(lhs, rhs) =>
-        p.mulTheory.tDiv(parseTerm(lhs), parseTerm(rhs))
+      case Division(lhs, rhs) => lhs.getType match {
+        case BVType(true, _) => Mod.bvsdiv(parseTerm(lhs), parseTerm(rhs))
+        case BVType(false, _) => Mod.bvudiv(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => p.mulTheory.tDiv(parseTerm(lhs), parseTerm(rhs))
+        case _ => unsupported(expr)
+      }
 
-      case Remainder(lhs, rhs) =>
-        val q = parseTerm(Division(lhs, rhs))
-        parseTerm(lhs) - (parseTerm(rhs) * q)
+      case Remainder(lhs, rhs) => lhs.getType match {
+        case BVType(true, _) => Mod.bvsrem(parseTerm(lhs), parseTerm(rhs))
+        case BVType(false, _) => Mod.bvurem(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() =>
+          val q = parseTerm(Division(lhs, rhs))
+          parseTerm(lhs) - (parseTerm(rhs) * q)
+      }
 
-      case Modulo(lhs, rhs) =>
-        p.mulTheory.eMod(parseTerm(lhs), parseTerm(rhs))
+      case Modulo(lhs, rhs) => lhs.getType match {
+        case BVType(true, size) => // we want x mod |y|
+          val a = parseTerm(lhs)
+          val b = parseTerm(rhs)
+          Mod.bvsmod(a, ITermITE(Mod.bvslt(b, parseTerm(BVLiteral(true, 0, size))), Mod.bvneg(b), b))
+        case BVType(false, _) => Mod.bvurem(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => p.mulTheory.eMod(parseTerm(lhs), parseTerm(rhs))
+      }
 
       case _ => unsupported(expr, "Unexpected formula " + expr)
     }
