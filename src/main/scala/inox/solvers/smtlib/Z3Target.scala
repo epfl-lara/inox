@@ -78,12 +78,12 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     def apply(major: Int, minor: Int): Version = new Version(major, minor, "")
   }
 
-  protected val version = emit(GetInfo(VersionInfoFlag())) match {
+  protected lazy val version = emit(GetInfo(VersionInfoFlag())) match {
     case GetInfoResponseSuccess(VersionInfoResponse(version), _) =>
       val major +: minor +: rest = version.split("\\.").toSeq
       new Version(major.toInt, minor.toInt, rest.mkString("."))
     case r =>
-      reporter.fatalError("Couldn't obtain smt-z3 solver version: " + r)
+      Version(0, 0) // We use 0.0 as an unknown default version
   }
 
   protected val extSym = SSymbol("_")
