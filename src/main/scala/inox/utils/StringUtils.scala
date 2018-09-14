@@ -42,4 +42,9 @@ object StringUtils {
       }
     }
   }
+
+  def decode(s: String): String = if (s.isEmpty) s else (s match {
+    case JavaEncoded(b, s2) => (b & 0xFF).toChar + decode(s2)
+    case _ => s.head + decode(s.tail)
+  })
 }

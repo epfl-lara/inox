@@ -99,7 +99,7 @@ trait SMTLIBParser {
         BigInt(10).pow(value.scale)))
 
     case SString(value) =>
-      StringLiteral(value)
+      StringLiteral(utils.StringUtils.decode(value))
 
     case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("distinct")), None), args) =>
       val es = args.map(fromSMT(_))

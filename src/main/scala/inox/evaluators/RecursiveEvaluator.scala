@@ -526,12 +526,7 @@ trait RecursiveEvaluator
     }
 
     case StringLiteral(str) =>
-      import utils.StringUtils._
-      def decode(s: String): String = if (s.isEmpty) s else (s match {
-        case JavaEncoded(b, s2) => b.toChar + decode(s2)
-        case _ => s.head + decode(s.tail)
-      })
-      StringLiteral(decode(str))
+      StringLiteral(utils.StringUtils.decode(str))
 
     case gl: GenericValue => gl
     case fl : FractionLiteral => normalizeFraction(fl)

@@ -629,7 +629,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                     FiniteSet(elems.toSeq, dt)
                 }
 
-              case StringType() => StringLiteral(z3.getString(t))
+              case StringType() => StringLiteral(utils.StringUtils.decode(z3.getString(t)))
 
               case _ =>
                 import Z3DeclKind._

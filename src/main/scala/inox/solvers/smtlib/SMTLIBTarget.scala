@@ -553,7 +553,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           value.bigDecimal.movePointRight(value.scale).toBigInteger.negate,
           BigInt(10).pow(value.scale)))
 
-      case (SString(v), _) => StringLiteral(v)
+      case (SString(v), _) =>
+        StringLiteral(utils.StringUtils.decode(v))
 
       case (Num(n), Some(ft: FunctionType)) if context.seen(n -> ft) =>
         context.chooses.getOrElseUpdate(n -> ft, {
