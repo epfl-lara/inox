@@ -33,7 +33,9 @@ trait ASCIIStringEncoder extends SimpleEncoder {
   private object FirstBytes {
     def unapply(s: String): Option[(Byte, Byte, String)] = s match {
       case JavaEncoded(b1, JavaEncoded(b2, s2)) => Some((b1, b2, s2))
+      case _ if s.isEmpty => None
       case _ => s.charAt(0).toString.getBytes("UTF-8").toSeq match {
+        case Seq(_) if s.length == 1 => None
         case Seq(b1) => s.charAt(1).toString.getBytes("UTF-8").toSeq match {
           case Seq(b2) => Some((b1, b2, s.drop(2)))
           case _ => None
@@ -41,7 +43,7 @@ trait ASCIIStringEncoder extends SimpleEncoder {
         case Seq(b1, b2) =>
           val i1 = new java.lang.String(Seq(b1, b2).toArray, "UTF-8").charAt(0).toInt
           if ((i1 & 0xFFFFFFE0) == 0xC0) {
-            s.charAt(1).toString.getBytes("UTF-8").toSeq match {
+            if (s.length == 1) None else s.charAt(1).toString.getBytes("UTF-8").toSeq match {
               case Seq(b3, b4) =>
                 val i2 = new java.lang.String(Seq(b3, b4).toArray, "UTF-8").charAt(0).toInt
                 if ((i2 & 0xFFFFFFC0) == 0x80) Some((i1.toByte, i2.toByte, s.drop(2)))
@@ -97,6 +99,9 @@ trait ASCIIStringEncoder extends SimpleEncoder {
               throw TheoryException(s"Can't decode character ${encodeByte(b1)}${encodeByte(b2)}")
             }
             h + unescape(s2)
+
+          case _ =>
+            throw TheoryException(s"Can't decode string $s")
         })
 
         StringLiteral(unescape(s))
