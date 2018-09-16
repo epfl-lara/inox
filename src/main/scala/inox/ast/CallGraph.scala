@@ -12,15 +12,44 @@ trait CallGraph {
   import trees.exprOps._
   protected val symbols: Symbols
 
-  private def collectCalls(e: Expr): Set[Identifier] = collect[Identifier] {
-    case FunctionInvocation(id, _, _) => Set(id)
-    case _ => Set()
-  } (e)
+  protected class Collector extends TreeTraverser {
+    private[this] var ids: Set[Identifier] = Set.empty
+
+    protected def register(id: Identifier): Unit = ids += id
+    def result: Set[Identifier] = ids
+  }
+
+  protected class FunctionCollector extends Collector {
+    override def traverse(expr: Expr): Unit = expr match {
+      case FunctionInvocation(id, _, _) =>
+        register(id)
+        super.traverse(expr)
+      case _ =>
+        super.traverse(expr)
+    }
+  }
+
+  protected def getFunctionCollector: FunctionCollector = new FunctionCollector
+
+  private def collectCalls(fd: FunDef): Set[Identifier] = {
+    val collector = getFunctionCollector
+    collector.traverse(fd)
+    collector.result
+  }
+
+  private def collectCalls(sort: ADTSort): Set[Identifier] = {
+    val collector = getFunctionCollector
+    collector.traverse(sort)
+    collector.result
+  }
 
   protected def computeCallGraph: DiGraph[Identifier, SimpleEdge[Identifier]] = {
     var g = DiGraph[Identifier, SimpleEdge[Identifier]]()
-    for ((_, fd) <- symbols.functions; to <- collectCalls(fd.fullBody)) {
-      g += SimpleEdge(fd.id, to)
+    for ((_, fd) <- symbols.functions; id <- collectCalls(fd)) {
+      g += SimpleEdge(fd.id, id)
+    }
+    for ((_, sort) <- symbols.sorts; id <- collectCalls(sort)) {
+      g += SimpleEdge(sort.id, id)
     }
     g
   }

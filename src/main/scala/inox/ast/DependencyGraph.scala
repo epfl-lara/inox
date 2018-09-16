@@ -9,12 +9,10 @@ import utils.Graphs._
 trait DependencyGraph extends CallGraph {
   import trees._
 
-  private class SortCollector extends TreeTraverser {
-    var sorts: Set[Identifier] = Set.empty
-
+  protected class SortCollector extends Collector {
     override def traverse(tpe: Type): Unit = tpe match {
       case ADTType(id, _) =>
-        sorts += id
+        register(id)
         super.traverse(tpe)
       case _ =>
         super.traverse(tpe)
@@ -22,23 +20,25 @@ trait DependencyGraph extends CallGraph {
 
     override def traverse(expr: Expr): Unit = expr match {
       case ADT(id, _, _) =>
-        sorts += symbols.getConstructor(id).sort
+        register(symbols.getConstructor(id).sort)
         super.traverse(expr)
       case _ =>
         super.traverse(expr)
     }
   }
 
+  protected def getSortCollector: SortCollector = new SortCollector
+
   private def collectSorts(fd: FunDef): Set[Identifier] = {
-    val collector = new SortCollector
+    val collector = getSortCollector
     collector.traverse(fd)
-    collector.sorts
+    collector.result
   }
 
   private def collectSorts(sort: ADTSort): Set[Identifier] = {
-    val collector = new SortCollector
+    val collector = getSortCollector
     collector.traverse(sort)
-    collector.sorts
+    collector.result
   }
 
   protected def computeDependencyGraph: DiGraph[Identifier, SimpleEdge[Identifier]] = {
