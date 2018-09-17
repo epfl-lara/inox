@@ -466,6 +466,8 @@ trait TemplateGenerator { self: Templates =>
         val newExpr: Variable = Variable.fresh("lt", vd.getType, true)
         storeExpr(newExpr)
 
+        storeGuarded(pathVar, Equals(newExpr, expr))
+
         val (p, predClauses) = mkExprClauses(pathVar,
           exprOps.replaceFromSymbols(Map(vd -> newExpr), pred), localSubst)
         builder ++= predClauses
