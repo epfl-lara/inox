@@ -41,13 +41,20 @@ trait DependencyGraph extends CallGraph {
     collector.result
   }
 
+  private def collectCalls(sort: ADTSort): Set[Identifier] = {
+    val collector = getFunctionCollector
+    collector.traverse(sort)
+    collector.result
+  }
+
   protected def computeDependencyGraph: DiGraph[Identifier, SimpleEdge[Identifier]] = {
     var g = callGraph
     for ((_, fd) <- symbols.functions; id <- collectSorts(fd)) {
       g += SimpleEdge(fd.id, id)
     }
-    for ((_, sort) <- symbols.sorts; id <- collectSorts(sort)) {
-      g += SimpleEdge(sort.id, id)
+    for ((_, sort) <- symbols.sorts) {
+      for (id <- collectSorts(sort)) g += SimpleEdge(sort.id, id)
+      for (id <- collectCalls(sort)) g += SimpleEdge(sort.id, id)
     }
     g
   }

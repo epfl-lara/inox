@@ -48,9 +48,6 @@ trait CallGraph {
     for ((_, fd) <- symbols.functions; id <- collectCalls(fd)) {
       g += SimpleEdge(fd.id, id)
     }
-    for ((_, sort) <- symbols.sorts; id <- collectCalls(sort)) {
-      g += SimpleEdge(sort.id, id)
-    }
     g
   }
 
