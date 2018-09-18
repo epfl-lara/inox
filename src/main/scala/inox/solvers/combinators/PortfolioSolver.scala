@@ -24,6 +24,10 @@ trait PortfolioSolver extends Solver { self =>
 
   override def getResultSolver = resultSolver
 
+  def declare(vd: ValDef): Unit = {
+    solvers.foreach(_.declare(vd))
+  }
+
   def assertCnstr(expression: Expr): Unit = {
     solvers.foreach(_.assertCnstr(expression))
   }

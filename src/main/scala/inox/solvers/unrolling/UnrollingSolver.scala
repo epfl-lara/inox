@@ -120,7 +120,41 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   protected def declareVariable(v: t.Variable): Encoded
 
-  private[this] var reported = false
+  private def removeChooses(expr: Expr): (Expr, Map[Variable, Encoded]) = {
+    var chooseBindings: Map[Variable, Encoded] = Map.empty
+    val withoutChooses = exprOps.postMap {
+      case c: Choose =>
+        val v = c.res.toVariable
+        chooseBindings += v -> freeChooses.cached(c)(declareVariable(encode(v)))
+        Some(Assume(c.pred, v))
+      case _ => None
+    } (expr)
+
+    (withoutChooses, chooseBindings)
+  }
+
+  def declare(vd: ValDef): Unit = {
+    context.timers.solvers.declare.sanity.run {
+      assert(vd.getType.isTyped)
+    }
+
+    // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
+    context.interruptManager.registerForInterrupts(this)
+
+    val freeBindings: Map[Variable, Encoded] = (typeOps.variablesOf(vd.tpe) + vd.toVariable).map {
+      v => v -> freeVars.cached(v)(declareVariable(encode(v)))
+    }.toMap
+
+    val newClauses = context.timers.solvers.declare.clauses.run {
+      templates.instantiateVariable(encode(vd.toVariable), freeBindings.map(p => encode(p._1) -> p._2))
+    }
+
+    context.timers.solvers.declare.underlying.run {
+      for (cl <- newClauses) {
+        underlying.assertCnstr(cl)
+      }
+    }
+  }
 
   def assertCnstr(expression: Expr): Unit = context.timers.solvers.assert.run {
     context.timers.solvers.assert.sanity.run {
@@ -133,18 +167,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
     constraints += expression
 
-    val freeBindings: Map[Variable, Encoded] = exprOps.variablesOf(expression).map {
+    val (withoutChooses, chooseBindings) = removeChooses(expression)
+
+    val freeBindings: Map[Variable, Encoded] = exprOps.variablesOf(withoutChooses).map {
       v => v -> freeVars.cached(v)(declareVariable(encode(v)))
     }.toMap
-
-    var chooseBindings: Map[Variable, Encoded] = Map.empty
-    val withoutChooses = exprOps.postMap {
-      case c: Choose =>
-        val v = c.res.toVariable
-        chooseBindings += v -> freeChooses.cached(c)(declareVariable(encode(v)))
-        Some(Assume(c.pred, v))
-      case _ => None
-    } (expression)
 
     val newClauses = context.timers.solvers.assert.clauses.run {
       templates.instantiateExpr(
@@ -740,7 +767,11 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
   import program.symbols._
 
   type Encoded = t.Expr
-  protected val underlying: Solver { val program: targetProgram.type }
+  protected val underlying: AbstractSolver {
+    val program: targetProgram.type
+    type Trees = t.Expr
+    type Model = targetProgram.Model
+  }
 
   override lazy val name = "U:"+underlying.name
 

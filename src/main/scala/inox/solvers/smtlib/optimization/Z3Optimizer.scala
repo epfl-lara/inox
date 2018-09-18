@@ -7,7 +7,7 @@ package optimization
 
 import Commands._
 
-trait Z3Optimizer extends Z3Solver with Optimizer {
+trait Z3Optimizer extends Z3Solver with AbstractOptimizer {
   import program._
   import program.trees._
   import program.symbols._

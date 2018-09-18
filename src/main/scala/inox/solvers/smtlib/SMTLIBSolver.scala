@@ -10,13 +10,16 @@ import _root_.smtlib.trees.CommandsResponses._
 
 import scala.collection.mutable.{Map => MutableMap}
 
-trait SMTLIBSolver extends Solver with SMTLIBTarget with SMTLIBDebugger {
+trait SMTLIBSolver extends AbstractSolver with SMTLIBTarget with SMTLIBDebugger {
   import context._
   import program._
   import program.trees._
   import program.symbols._
   import exprOps.variablesOf
   import SolverResponses._
+
+  override type Trees = Expr
+  override type Model = program.Model
 
   /* Solver name */
   def targetName: String

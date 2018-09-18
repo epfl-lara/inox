@@ -18,12 +18,15 @@ import utils.IncrementalSet
  *  Results should come back very quickly.
  */
 trait UninterpretedZ3Solver
-  extends Solver { self =>
+  extends AbstractSolver { self =>
 
   import context._
   import program._
   import program.trees._
   import program.symbols._
+
+  type Trees = Expr
+  type Model = program.Model
 
   import SolverResponses._
 

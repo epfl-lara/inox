@@ -29,7 +29,11 @@ trait AbstractUnrollingOptimizer extends AbstractUnrollingSolver with Optimizer 
 
 trait UnrollingOptimizer extends AbstractUnrollingOptimizer with UnrollingSolver {
 
-  protected val underlying: Optimizer { val program: targetProgram.type }
+  protected val underlying: AbstractOptimizer {
+    val program: targetProgram.type
+    type Trees = t.Expr
+    type Model = targetProgram.Model
+  }
 
   override lazy val name = "UO:" + underlying.name
 }

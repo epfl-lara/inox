@@ -46,7 +46,6 @@ trait AbstractSolver extends Interruptible {
   }
 
   def assertCnstr(expression: Trees): Unit
-
   def check(config: CheckConfiguration): config.Response[Model, Assumptions]
   def checkAssumptions(config: Configuration)(assumptions: Set[Trees]): config.Response[Model, Assumptions]
 
@@ -67,8 +66,10 @@ trait AbstractSolver extends Interruptible {
 trait Solver extends AbstractSolver { self =>
   import program.trees._
 
-  type Trees = Expr
-  type Model = program.Model
+  override type Trees = Expr
+  override type Model = program.Model
+
+  def declare(vd: ValDef): Unit
 
   def getResultSolver: Option[Solver] = Some(this)
 }
