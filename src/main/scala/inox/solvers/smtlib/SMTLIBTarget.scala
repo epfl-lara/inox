@@ -296,7 +296,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
       case adt @ ADT(id, tps, es) =>
         declareSort(adt.getType)
-        val constructor = constructors.toB(ADTCons(id, tps))
+        val constructor = constructors.toB(ADTCons(id, tps.map(_.getType)))
         if (es.isEmpty) {
           constructor
         } else {

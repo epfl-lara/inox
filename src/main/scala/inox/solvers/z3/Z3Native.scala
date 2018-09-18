@@ -375,7 +375,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
       case c @ ADT(id, tps, args) =>
         typeToSort(c.getType) // Making sure the sort is defined
-        val constructor = constructors.toB(ADTCons(id, tps))
+        val constructor = constructors.toB(ADTCons(id, tps.map(_.getType)))
         constructor(args.map(rec): _*)
 
       case c @ ADTSelector(cc, sel) =>

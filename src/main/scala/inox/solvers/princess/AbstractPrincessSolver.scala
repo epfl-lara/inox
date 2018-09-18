@@ -230,7 +230,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         val tpe = expr.getType
         typeToSort(tpe)
         val (cons, args) = expr match {
-          case ADT(id, tps, args) => (ADTCons(id, tps), args)
+          case ADT(id, tps, args) => (ADTCons(id, tps.map(_.getType)), args)
           case Tuple(args) => (TupleCons(args.map(_.getType)), args)
           case GenericValue(tp, i) => (TypeParameterCons(tp), Seq(IntegerLiteral(i)))
           case UnitLiteral() => (UnitCons, Seq.empty)
