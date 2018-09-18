@@ -95,8 +95,11 @@ trait Templates
 
   private val condEquals  = new IncrementalBijection[Encoded, Set[Encoded]]
 
+  // Set of variables that have already been declared in this solver
+  private val declared = new IncrementalSet[(Variable, Encoded)]
+
   val incrementals: Seq[IncrementalState] = managers ++ Seq(
-    condImplies, condImplied, potImplies, potImplied, condEquals
+    condImplies, condImplied, potImplies, potImplied, condEquals, declared
   )
 
   protected def freshConds(
@@ -814,23 +817,19 @@ trait Templates
     }
   }
 
-  def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {
+  private[this] def instantiate(
+    bindings: Map[Variable, Encoded],
+    gen: (Variable, Encoded) => TemplateClauses
+  ): Clauses = {
     val start = Variable.fresh("start", BooleanType(), true)
     val encodedStart = encodeSymbol(start)
 
-    val instExpr = timers.solvers.simplify.run { simplifyFormula(expr) }
-
-    val tmplClauses = mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
-    val tpeClauses = bindings.map { case (v, s) =>
-      mkClauses(start, v.tpe, v, bindings + (start -> encodedStart))(FreeGenerator)
-    }
-
-    val fullClauses = tpeClauses.foldLeft(tmplClauses)(_ ++ _)
+    val tmplClauses = gen(start, encodedStart)
 
     val (clauses, calls, apps, matchers, pointers, _) =
-      Template.encode(start -> encodedStart, bindings.toSeq, fullClauses)
+      Template.encode(start -> encodedStart, bindings.toSeq, tmplClauses)
 
-    val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = fullClauses.proj
+    val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = tmplClauses.proj
     val (substClauses, substMap) = Template.substitution(
       condVars, exprVars, condTree, types, lambdas, quants, pointers, Map.empty, encodedStart)
 
@@ -842,5 +841,30 @@ trait Templates
     }
 
     allClauses
+  }
+
+  def instantiateVariable(v: Variable, bindings: Map[Variable, Encoded]): Clauses = {
+    if (declared contains (v -> bindings(v))) {
+      Seq.empty
+    } else {
+      declared += v -> bindings(v)
+      instantiate(bindings, { (start, encodedStart) =>
+        mkClauses(start, v.tpe, v, bindings + (start -> encodedStart))(FreeGenerator)
+      })
+    }
+  }
+
+  def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {
+    instantiate(bindings, { (start, encodedStart) =>
+      val instExpr = timers.solvers.simplify.run { simplifyFormula(expr) }
+
+      val tmplClauses = mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
+      val tpeClauses = bindings.filterNot(declared contains _).map { case (v, s) =>
+        declared += v -> s
+        mkClauses(start, v.tpe, v, bindings + (start -> encodedStart))(FreeGenerator)
+      }
+
+      tpeClauses.foldLeft(tmplClauses)(_ ++ _)
+    })
   }
 }
