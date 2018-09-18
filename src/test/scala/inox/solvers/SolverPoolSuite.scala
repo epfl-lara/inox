@@ -25,6 +25,7 @@ class SolverPoolSuite extends FunSuite {
     val description = "dummy"
     val program: InoxProgram
 
+    def declare(vd: ValDef) = ()
     def assertCnstr(e: Expr) = ()
     def check(config: CheckConfiguration): config.Response[Model, Assumptions] = config.cast(Unknown)
     def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = config.cast(Unknown)

@@ -32,6 +32,7 @@ class TimeoutSolverSuite extends FunSuite {
 
     def interrupt(): Unit = { interrupted = true }
 
+    def declare(vd: ValDef) = ()
     def assertCnstr(e: Expr) = ()
 
     def push(): Unit = ()
