@@ -594,50 +594,57 @@ trait AbstractUnrollingSolver extends Solver { self =>
           }
 
         case Validate(umodel) =>
-          val model = extractTotalModel(umodel)
-
-          lazy val satResult = config cast (if (config.withModel) SatWithModel(model) else Sat)
-
-          val valid = !checkModels || validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
-
-          if (checkModels && valid) {
-            CheckResult(config cast satResult)
-          } else if (abort || pause) {
-            CheckResult cast Unknown
-          } else if (checkModels && !valid) {
-            if (!silentErrors) {
-              reporter.error("Something went wrong. The model should have been valid, yet we got this:")
-              reporter.error("  " + model.asString.replaceAll("\n", "\n  "))
-              reporter.error("for formula " + andJoin(assumptionsSeq ++ constraints).asString)
-            }
-            CheckResult cast Unknown
-          } else if (templates.hasAxioms) {
-            val wrapped = wrapModel(umodel)
-            val optError = templates.getAxioms.view.flatMap { q =>
-              if (wrapped.modelEval(q.guard, t.BooleanType()) != Some(t.BooleanLiteral(false))) {
-                q.checkForall { (e1, e2) =>
-                  wrapped.modelEval(templates.mkEquals(e1, e2), t.BooleanType()) == Some(t.BooleanLiteral(true))
-                }.map(err => q.body -> err)
-              } else {
-                None
+          (try { Some(extractTotalModel(umodel)) } catch {
+            case NoSimpleValue(tpe) =>
+              if (!silentErrors) {
+                reporter.error("No simple value found for type " + tpe.asString)
               }
-            }.headOption
+              None
+          }).map { model =>
+            lazy val sat = CheckResult(config cast (if (config.withModel) SatWithModel(model) else Sat))
+            lazy val unknown = CheckResult cast Unknown
 
-            optError match {
-              case Some((expr, err)) =>
-                if (!silentErrors) {
-                  reporter.error("Quantification " + expr.asString(templates.program.printerOpts) +
-                    " does not fit in supported fragment.\n  Reason: " + err)
-                  reporter.error("Model obtained was:")
-                  reporter.error("  " + model.asString.replaceAll("\n", "\n  "))
+            val valid = !checkModels || validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
+
+            if (checkModels && valid) {
+              sat
+            } else if (abort || pause) {
+              unknown
+            } else if (checkModels && !valid) {
+              if (!silentErrors) {
+                reporter.error("Something went wrong. The model should have been valid, yet we got this:")
+                reporter.error("  " + model.asString.replaceAll("\n", "\n  "))
+                reporter.error("for formula " + andJoin(assumptionsSeq ++ constraints).asString)
+              }
+              unknown
+            } else if (templates.hasAxioms) {
+              val wrapped = wrapModel(umodel)
+              val optError = templates.getAxioms.view.flatMap { q =>
+                if (wrapped.modelEval(q.guard, t.BooleanType()) != Some(t.BooleanLiteral(false))) {
+                  q.checkForall { (e1, e2) =>
+                    wrapped.modelEval(templates.mkEquals(e1, e2), t.BooleanType()) == Some(t.BooleanLiteral(true))
+                  }.map(err => q.body -> err)
+                } else {
+                  None
                 }
-                CheckResult cast Unknown
-              case None =>
-                CheckResult(satResult)
+              }.headOption
+
+              optError match {
+                case Some((expr, err)) =>
+                  if (!silentErrors) {
+                    reporter.error("Quantification " + expr.asString(templates.program.printerOpts) +
+                      " does not fit in supported fragment.\n  Reason: " + err)
+                    reporter.error("Model obtained was:")
+                    reporter.error("  " + model.asString.replaceAll("\n", "\n  "))
+                  }
+                  unknown
+                case None =>
+                  sat
+              }
+            } else {
+              sat
             }
-          } else {
-            CheckResult(satResult)
-          }
+          }.getOrElse(CheckResult cast Unknown)
 
         case InstantiateQuantifiers =>
           if (templates.quantificationsManager.unrollGeneration.isEmpty) {
@@ -677,12 +684,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
             case SatWithModel(model) =>
               lazy val luckyModel = if (!feelingLucky) None else {
-                val exModel = extractSimpleModel(model)
-                if (validateModel(exModel, assumptionsSeq, silenceErrors = true)) {
-                  Some(exModel)
-                } else {
-                  None
-                }
+                (try { Some(extractSimpleModel(model)) } catch { case _: NoSimpleValue => None })
+                  .filter(exModel => validateModel(exModel, assumptionsSeq, silenceErrors = true))
               }
 
               if (luckyModel.isDefined) {
