@@ -391,7 +391,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         tester(rec(e))
 
       case f @ FunctionInvocation(id, tps, args) =>
-        z3.mkApp(functionDefToDecl(getFunction(id, tps)), args.map(rec): _*)
+        z3.mkApp(functionDefToDecl(getFunction(id, tps.map(_.getType))), args.map(rec): _*)
 
       case fa @ Application(caller, args) =>
         val ft @ FunctionType(froms, to) = caller.getType

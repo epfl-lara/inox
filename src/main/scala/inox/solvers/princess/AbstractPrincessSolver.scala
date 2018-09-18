@@ -212,7 +212,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
     def parseTerm(expr: Expr)(implicit bindings: Map[Variable, IExpression]): ITerm = expr match {
       case FunctionInvocation(id, tps, args) =>
-        val f = functions.cachedB(getFunction(id, tps)) {
+        val f = functions.cachedB(getFunction(id, tps.map(_.getType))) {
           p.createFunction(id.uniqueName, args.size)
         }
         val pArgs = for (a <- args) yield parseTerm(a)
