@@ -6,6 +6,8 @@ package tip
 import utils._
 import solvers._
 
+case object DebugSectionTip extends DebugSection("tip")
+
 trait TipDebugger extends Solver {
   import program._
   import program.trees._
@@ -16,7 +18,7 @@ trait TipDebugger extends Solver {
     val targetProgram: Program { val trees: inox.trees.type }
   }
 
-  implicit val debugSection: DebugSection
+  override implicit val debugSection: DebugSection = DebugSectionTip
 
   abstract override def free(): Unit = {
     super.free()

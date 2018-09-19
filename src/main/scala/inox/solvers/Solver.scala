@@ -56,7 +56,7 @@ trait AbstractSolver extends Interruptible {
   def push(): Unit
   def pop(): Unit
 
-  implicit val debugSection = DebugSectionSolver
+  implicit val debugSection: DebugSection = DebugSectionSolver
 
   private[solvers] def debugS(msg: String) = {
     reporter.debug("["+name+"] "+msg)
