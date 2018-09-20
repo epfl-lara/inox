@@ -6,7 +6,7 @@ Extending the Trees
 Inox trees are designed to be extensible with minimal pain and maximal gain.
 By extending the [```Trees```](/src/main/scala/inox/ast/Trees.scala) trait,
 one can introduce new `Tree` subtypes and extend the supported language.
-```scala
+```tut:silent
 trait Trees extends inox.ast.Trees {
   // new Expressions and Types and stuff
 }
@@ -17,17 +17,19 @@ trait Trees extends inox.ast.Trees {
 Alongside the tree definitions, one must provide a *deconstructor* for the
 new ASTs by extending
 [`TreeDeconstructor`](/src/main/scala/inox/ast/Extractors.scala):
-```scala
+```tut:silent
 trait TreeDeconstructor extends inox.ast.TreeDeconstructor {
   protected val s: Trees
   protected val t: Trees
+
+  import inox.ast.Identifier
   
   // Deconstructs expression trees into their constituent parts.
   // The sequence of `s.Variable` returned is used to automatically
   // compute the free variables in your new trees.
   override def deconstruct(e: s.Expr): (
-    Seq[s.Variable], Seq[s.Expr], Seq[s.Type],
-    (Seq[t.Variable], Seq[t.Expr], Seq[t.Type]) => t.Expr
+    Seq[Identifier], Seq[s.Variable], Seq[s.Expr], Seq[s.Type], Seq[s.Flag],
+    (Seq[Identifier], Seq[t.Variable], Seq[t.Expr], Seq[t.Type], Seq[t.Flag]) => t.Expr
   ) = e match {
     // cases that deconstruct your new expression trees
     case _ => super.deconstruct(e)
@@ -38,8 +40,8 @@ trait TreeDeconstructor extends inox.ast.TreeDeconstructor {
   // flags attached to them, so these should be deconstructed here
   // as well.
   override def deconstruct(tpe: s.Type): (
-    Seq[s.Type], Seq[s.Flag],
-    (Seq[t.Type], Seq[t.Flag]) => t.Type
+    Seq[Identifier], Seq[s.Variable], Seq[s.Expr], Seq[s.Type], Seq[s.Flag],
+    (Seq[Identifier], Seq[t.Variable], Seq[t.Expr], Seq[t.Type], Seq[t.Flag]) => t.Type
   ) = tpe match {
     // cases that deconstruct your new type trees
     case _ => super.deconstruct(tpe)
@@ -48,8 +50,8 @@ trait TreeDeconstructor extends inox.ast.TreeDeconstructor {
   // Deconstructs flags into their constituent parts.
   // Flags can contain both expressions and types.
   override def deconstruct(f: s.Flag): (
-    Seq[s.Expr], Seq[s.Type],
-    (Seq[t.Expr], Seq[t.Type]) => t.Flag
+    Seq[Identifier], Seq[s.Expr], Seq[s.Type],
+    (Seq[Identifier], Seq[t.Expr], Seq[t.Type]) => t.Flag
   ) = f match {
     // cases that deconstruct your new flags
     case _ => super.deconstruct(f)
