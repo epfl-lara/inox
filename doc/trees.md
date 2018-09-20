@@ -21,13 +21,15 @@ new ASTs by extending
 trait TreeDeconstructor extends inox.ast.TreeDeconstructor {
   protected val s: Trees
   protected val t: Trees
+
+  import inox.ast.Identifier
   
   // Deconstructs expression trees into their constituent parts.
   // The sequence of `s.Variable` returned is used to automatically
   // compute the free variables in your new trees.
   override def deconstruct(e: s.Expr): (
-    Seq[s.Variable], Seq[s.Expr], Seq[s.Type],
-    (Seq[t.Variable], Seq[t.Expr], Seq[t.Type]) => t.Expr
+    Seq[Identifier], Seq[s.Variable], Seq[s.Expr], Seq[s.Type], Seq[s.Flag],
+    (Seq[Identifier], Seq[t.Variable], Seq[t.Expr], Seq[t.Type], Seq[t.Flag]) => t.Expr
   ) = e match {
     // cases that deconstruct your new expression trees
     case _ => super.deconstruct(e)
@@ -38,8 +40,8 @@ trait TreeDeconstructor extends inox.ast.TreeDeconstructor {
   // flags attached to them, so these should be deconstructed here
   // as well.
   override def deconstruct(tpe: s.Type): (
-    Seq[s.Type], Seq[s.Flag],
-    (Seq[t.Type], Seq[t.Flag]) => t.Type
+    Seq[Identifier], Seq[s.Variable], Seq[s.Expr], Seq[s.Type], Seq[s.Flag],
+    (Seq[Identifier], Seq[t.Variable], Seq[t.Expr], Seq[t.Type], Seq[t.Flag]) => t.Type
   ) = tpe match {
     // cases that deconstruct your new type trees
     case _ => super.deconstruct(tpe)
@@ -48,8 +50,8 @@ trait TreeDeconstructor extends inox.ast.TreeDeconstructor {
   // Deconstructs flags into their constituent parts.
   // Flags can contain both expressions and types.
   override def deconstruct(f: s.Flag): (
-    Seq[s.Expr], Seq[s.Type],
-    (Seq[t.Expr], Seq[t.Type]) => t.Flag
+    Seq[Identifier], Seq[s.Expr], Seq[s.Type],
+    (Seq[Identifier], Seq[t.Expr], Seq[t.Type]) => t.Flag
   ) = f match {
     // cases that deconstruct your new flags
     case _ => super.deconstruct(f)
@@ -113,26 +115,38 @@ interfaces for such cases:
 1. [TreeTransformer](/src/main/scala/inox/ast/TreeOps.scala):
    as long as the transformation can be performed without any extra context
    (*i.e.* symbol table or program), one should create an instance of `TreeTransformer`:
-    ```scala
-    new inox.ast.TreeTransformer {
-      val s: source.type = source
-      val t: target.type = target
-      
-      override def transform(e: s.Expr): t.Expr = e match {
-        // do some useful expression transformations
-        case _ => super.transform(e)
-      }
-      
-      override def transform(tpe: s.Type): t.Type = tpe match {
-        // do some useful type transformations
-        case _ => super.transform(tpe)
-      }
-      
-      override def transform(f: s.Flag): t.Flag = f match {
-        // do some useful flag transformations
-        case _ => super.transform(f)
-      }
-    }
+    ```tut:silent
+scala>     new inox.ast.TreeTransformer {
+     |       val s: source.type = source
+     |       val t: target.type = target
+     |       
+     |       override def transform(e: s.Expr): t.Expr = e match {
+     |         // do some useful expression transformations
+     |         case _ => super.transform(e)
+     |       }
+     |       
+     |       override def transform(tpe: s.Type): t.Type = tpe match {
+     |         // do some useful type transformations
+     |         case _ => super.transform(tpe)
+     |       }
+     |       
+     |       override def transform(f: s.Flag): t.Flag = f match {
+     |         // do some useful flag transformations
+     |         case _ => super.transform(f)
+     |       }
+     |     }
+<console>:14: error: not found: value source
+             val s: source.type = source
+                    ^
+<console>:15: error: not found: value target
+             val t: target.type = target
+                    ^
+<console>:14: error: not found: value source
+             val s: source.type = source
+                                  ^
+<console>:15: error: not found: value target
+             val t: target.type = target
+                                  ^
     ```
     
 2. [SymbolTransformer](/src/main/scala/inox/ast/TreeOps.scala):
