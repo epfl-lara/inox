@@ -126,7 +126,7 @@ trait RecursiveEvaluator
       BooleanLiteral(e(le) == e(re))
 
     case ADT(id, tps, args) =>
-      val cc = ADT(id, tps, args.map(e))
+      val cc = ADT(id, tps.map(_.getType), args.map(e))
       if (!ignoreContracts) {
         val sort = cc.getConstructor.sort
         sort.invariant.foreach { tfd =>
@@ -408,7 +408,7 @@ trait RecursiveEvaluator
     }
 
     case f @ FiniteSet(els, base) =>
-      finiteSet(els.map(e), base)
+      finiteSet(els.map(e), base.getType)
 
     case BagAdd(bag, elem) => (e(bag), e(elem)) match {
       case (FiniteBag(els, tpe), evElem) =>
@@ -471,7 +471,7 @@ trait RecursiveEvaluator
     }
 
     case FiniteBag(els, base) =>
-      finiteBag(els.map { case (k, v) => (e(k), e(v)) }, base)
+      finiteBag(els.map { case (k, v) => (e(k), e(v)) }, base.getType)
 
     case l @ Lambda(_, _) =>
       def normalizeLambda(l: Lambda, onlySimple: Boolean = false): Lambda = {
@@ -482,7 +482,7 @@ trait RecursiveEvaluator
             else rctx
         }
         val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
-        replaceFromSymbols(mapping, nl).asInstanceOf[Lambda]
+        typeOps.simplify(replaceFromSymbols(mapping, nl)).asInstanceOf[Lambda]
       }
 
       // We start by normalizing the structure of the lambda as in the solver to
@@ -508,7 +508,7 @@ trait RecursiveEvaluator
       }
 
     case f @ FiniteMap(ss, dflt, kT, vT) =>
-      finiteMap(ss.map{ case (k, v) => (e(k), e(v)) }, e(dflt), kT, vT)
+      finiteMap(ss.map{ case (k, v) => (e(k), e(v)) }, e(dflt), kT.getType, vT.getType)
 
     case g @ MapApply(m,k) => (e(m), e(k)) match {
       case (FiniteMap(ss, dflt, _, _), e) =>
