@@ -309,6 +309,15 @@ trait Types { self: Trees =>
         exprOps.variablesOf(pred) - vd.toVariable ++ variablesOf(vd.tpe)
       case NAryType(tpes, _) => tpes.flatMap(variablesOf).toSet
     }
+
+    class TypeSimplifier(implicit symbols: Symbols) extends SelfTreeTransformer {
+      override def transform(tpe: Type): Type = tpe match {
+        case (_: PiType | _: SigmaType | _: FunctionType) => tpe.getType
+        case _ => super.transform(tpe)
+      }
+    }
+
+    def simplify(expr: Expr)(implicit symbols: Symbols): Expr = new TypeSimplifier().transform(expr)
   }
 }
 
