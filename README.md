@@ -7,11 +7,13 @@ features such as:
 - ADTs, integers, bitvectors, strings, set-multiset-map abstractions
 - Quantifiers
 - ADT invariants
+- Dependent types
 
 Interfacing with the solver can take place through the Scala API by constructing the AST
 corresponding to the query of interest and then feeding it to one of the solvers. For more
 information, see:
 - The usage [tutorial](doc/tutorial.md) gives some insight on how to use Inox as a library.
+- The tree [interpolators](doc/interpolations.md) provide easy tree construction/extraction for library use.
 - A more detailed description of the available solver/evaluator [API](doc/API.md) calls.
 - A description of the [trees](doc/trees.md) API and how to extend them.
 
@@ -91,7 +93,7 @@ written and tested improvements to the information below.
   **Note:** this is *only* required for version computation and
   you can avoid installing Git by using JGit (see the
   [related documentation](https://github.com/sbt/sbt-git#using-jgit)
-  in `sbt-git`.
+  in `sbt-git`).
 
 ### Linux & Mac OS-X
 
