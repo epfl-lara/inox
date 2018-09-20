@@ -482,7 +482,7 @@ trait RecursiveEvaluator
             else rctx
         }
         val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
-        typeOps.simplify(replaceFromSymbols(mapping, nl)).asInstanceOf[Lambda]
+        replaceFromSymbols(mapping, nl).asInstanceOf[Lambda]
       }
 
       // We start by normalizing the structure of the lambda as in the solver to

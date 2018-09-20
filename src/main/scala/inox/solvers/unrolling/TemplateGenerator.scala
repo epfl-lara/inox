@@ -142,7 +142,7 @@ trait TemplateGenerator { self: Templates =>
 
     val sortedDeps = exprOps.variablesOf(struct).map(v => v -> deps(v)).toSeq.sortBy(_._1.id.uniqueName)
     val dependencies = sortedDeps.map(p => depSubst(p._1))
-    val structure = new TemplateStructure(typeOps.simplify(struct), dependencies, depContents)
+    val structure = new TemplateStructure(struct, dependencies, depContents)
 
     val freshSubst = exprOps.variablesOf(struct).map(v => v -> v.freshen).toMap
     val freshDeps = depSubst.map { case (v, e) => freshSubst.getOrElse(v, v) -> e }
