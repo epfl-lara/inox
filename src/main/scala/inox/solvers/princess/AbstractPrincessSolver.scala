@@ -455,51 +455,48 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
         case ft: FunctionType =>
           val iterm = iexpr.asInstanceOf[ITerm]
-          ctx.model.eval(iterm).flatMap { ideal =>
+          ctx.model.eval(iterm).map { ideal =>
             val n = BigInt(ideal.bigIntValue)
             if (ctx.seen(n)) {
-              Some(ctx.chooses.getOrElseUpdate(n, {
+              ctx.chooses.getOrElseUpdate(n, {
                 Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
-              }))
+              })
             } else {
-              ctx.lambdas.get(n).orElse {
-                for {
-                  fun <- lambdas.getB(ft)
-                  newCtx = ctx.withSeen(n)
-                  interps = ctx.model.interpretation.flatMap {
-                    case (SimpleAPI.IntFunctionLoc(`fun`, ptr +: args), SimpleAPI.IntValue(res)) =>
-                      if (ctx.model.eval(iterm === ptr) contains true) {
-                        val optArgs = (args zip ft.from).map(p => rec(p._1, p._2)(newCtx))
-                        val optRes = rec(res, ft.to)(newCtx)
+              ctx.lambdas.getOrElseUpdate(n, {
+                val newCtx = ctx.withSeen(n)
+                val params = ft.from.map(tpe => ValDef.fresh("x", tpe, true))
+                uniquateClosure(n.intValue, lambdas.getB(ft)
+                  .flatMap { fun =>
+                    val interps = ctx.model.interpretation.flatMap {
+                      case (SimpleAPI.IntFunctionLoc(`fun`, ptr +: args), SimpleAPI.IntValue(res)) =>
+                        if (ctx.model.eval(iterm === ptr) contains true) {
+                          val optArgs = (args zip ft.from).map(p => rec(p._1, p._2)(newCtx))
+                          val optRes = rec(res, ft.to)(newCtx)
 
-                        if (optArgs.forall(_.isDefined) && optRes.isDefined) {
-                          Some(optArgs.map(_.get) -> optRes.get)
+                          if (optArgs.forall(_.isDefined) && optRes.isDefined) {
+                            Some(optArgs.map(_.get) -> optRes.get)
+                          } else {
+                            None
+                          }
                         } else {
                           None
                         }
-                      } else {
-                        None
-                      }
 
-                    case _ => None
-                  }.toSeq.sortBy(_.toString)
-                } yield {
-                  val params = ft.from.map(tpe => ValDef.fresh("x", tpe, true))
-                  uniquateClosure(n.intValue, if (interps.isEmpty) {
-                    try {
-                      simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
-                    } catch {
-                      case _: NoSimpleValue =>
-                        Lambda(params, Choose(ValDef.fresh("res", ft.to), BooleanLiteral(true)))
-                    }
-                  } else {
-                    val body = interps.foldRight(interps.head._2) { case ((args, res), elze) =>
+                      case _ => None
+                    }.toSeq.sortBy(_.toString)
+
+                    if (interps.nonEmpty) Some(interps) else None
+                  }.map { interps =>
+                    Lambda(params, interps.foldRight(interps.head._2) { case ((args, res), elze) =>
                       IfExpr(andJoin((params zip args).map(p => Equals(p._1.toVariable, p._2))), res, elze)
-                    }
-                    Lambda(params, body)
-                  })
-                }
-              }
+                    })
+                  }.getOrElse(try {
+                    simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
+                  } catch {
+                    case _: NoSimpleValue =>
+                      Lambda(params, Choose(ValDef.fresh("res", ft.to), BooleanLiteral(true)))
+                  }))
+              })
             }
           }
       }
