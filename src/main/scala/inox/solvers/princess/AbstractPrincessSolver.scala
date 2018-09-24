@@ -559,7 +559,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
   def freshSymbol(v: Variable): IExpression = v.getType match {
     case BooleanType() => p.createBooleanVariable(v.id.freshen.uniqueName)
-    case _ => p.createConstant(v.id.freshen.uniqueName, typeToSort(v.tpe))
+    case tpe => p.createConstant(v.id.freshen.uniqueName, typeToSort(tpe))
   }
 
   def assertCnstr(formula: Trees): Unit = p !! formula.asInstanceOf[IFormula]

@@ -233,20 +233,6 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
   /* Translate a Inox Expr to an SMTLIB term */
 
-  def sortToSMT(s: Sort): SExpr = {
-    s match {
-      case Sort(id, Nil) =>
-        id.symbol
-
-      case Sort(id, subs) =>
-        SList((id.symbol +: subs.map(sortToSMT)).toList)
-    }
-  }
-
-  protected def toSMT(t: Type): SExpr = {
-    sortToSMT(declareSort(t))
-  }
-
   private def intToTerm(i: BigInt): Term = i match {
     case i if i >= 0 => Ints.NumeralLit(i)
     case i => Ints.Neg(Ints.NumeralLit(-i))
@@ -260,7 +246,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected def toSMT(e: Expr)(implicit bindings: Map[Identifier, Term]): Term = {
     e match {
       case v @ Variable(id, tp, flags) =>
-        declareSort(tp)
+        declareSort(v.getType)
         bindings.getOrElse(id, variables.toB(v))
 
       case UnitLiteral() =>

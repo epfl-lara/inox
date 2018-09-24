@@ -149,7 +149,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     val defs = for ((_, DataType(sym, cases)) <- adts) yield {(
       sym.uniqueName,
       cases.map(c => c.sym.uniqueName),
-      cases.map(c => c.fields.map { case(id, tpe) => (id.uniqueName, typeToSortRef(tpe))})
+      cases.map(c => c.fields.map { case (id, tpe) => (id.uniqueName, typeToSortRef(tpe))})
     )}
 
     val resultingZ3Info = z3.mkADTSorts(defs)
@@ -408,7 +408,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
        * ===== Set operations =====
        */
       case f @ FiniteSet(elems, base) =>
-        elems.foldLeft(z3.mkEmptySet(typeToSort(base)))((ast, el) => z3.mkSetAdd(ast, rec(el)))
+        elems.foldLeft(z3.mkEmptySet(typeToSort(base.getType)))((ast, el) => z3.mkSetAdd(ast, rec(el)))
 
       case ElementOfSet(e, s) => z3.mkSetMember(rec(e), rec(s))
 
@@ -464,7 +464,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         z3.mkStore(rec(a), rec(i), rec(e))
 
       case FiniteMap(elems, default, keyTpe, valueType) =>
-        val ar = z3.mkConstArray(typeToSort(keyTpe), rec(default))
+        val ar = z3.mkConstArray(typeToSort(keyTpe.getType), rec(default))
 
         elems.foldLeft(ar) {
           case (array, (k, v)) => z3.mkStore(array, rec(k), rec(v))
