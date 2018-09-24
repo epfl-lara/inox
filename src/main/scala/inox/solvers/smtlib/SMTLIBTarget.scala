@@ -95,7 +95,10 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected val adtManager = new ADTManager
 
   protected def id2sym(id: Identifier): SSymbol = {
-    SSymbol(id.uniqueNameDelimited("!").replace("|", "$pipe").replace("\\", "$backslash"))
+    SSymbol(id.uniqueNameDelimited("!")
+      .replace("|", "$pipe")
+      .replace(":", "$colon")
+      .replace("\\", "$backslash"))
   }
 
   protected def freshSym(id: Identifier): SSymbol = freshSym(id.name)
