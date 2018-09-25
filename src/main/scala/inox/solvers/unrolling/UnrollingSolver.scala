@@ -267,8 +267,47 @@ trait AbstractUnrollingSolver extends Solver { self =>
   private def validateModel(model: program.Model, assumptions: Seq[Expr], silenceErrors: Boolean): Boolean = {
     val expr = andJoin(assumptions ++ constraints)
 
+    val typingCond = andJoin(model.vars.toSeq.map { case (v, value) =>
+      def rec(e: Expr, tpe: Type): Expr = (e, tpe) match {
+        case (ADT(id, _, args), adt @ ADTType(_, tps)) =>
+          andJoin((args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.tpe)))
+        case (Tuple(es), TupleType(tps)) =>
+          andJoin((es zip tps).map(p => rec(p._1, p._2)))
+        case (FiniteSet(elems, _), SetType(base)) =>
+          andJoin(elems.map(e => rec(e, base)))
+        case (FiniteBag(elems, _), BagType(base)) =>
+          andJoin(elems.map(p => and(rec(p._1, base), rec(p._2, IntegerType()))))
+        case (FiniteMap(elems, dflt, _, _), MapType(from, to)) =>
+          andJoin(elems.map(p => and(rec(p._1, from), rec(p._2, to))) :+ rec(dflt, to))
+        case (Lambda(params, body), FunctionType(from, to)) =>
+          val nparams = (params zip from).map { case (vd, tpe) => vd.copy(tpe = tpe) }
+          forall(nparams, rec(
+            exprOps.replaceFromSymbols((params zip nparams.map(_.toVariable)).toMap, body), to))
+        case (_, RefinementType(vd, pred)) =>
+          and(rec(e, vd.tpe), Let(vd, e, pred).copiedFrom(e))
+        case (Lambda(params, body), PiType(nparams, to)) =>
+          forall(nparams, rec(
+            exprOps.replaceFromSymbols((params zip nparams.map(_.toVariable)).toMap, body), to))
+        case (Tuple(es), SigmaType(nparams, to)) =>
+          andJoin(
+            (es.init zip nparams).map(p => rec(p._1, p._2.tpe)) ++ (rec(es.last, to) match {
+              case BooleanLiteral(true) => None
+              case p => Some((nparams zip es.init).foldRight(p) {
+                case ((vd, e), p) => Let(vd, e, p).copiedFrom(p)
+              })
+            })
+          )
+        case (c: Choose, _) => BooleanLiteral(false) // can't typecheck this
+        case _ => BooleanLiteral(true)
+      }
+
+      rec(value, v.tpe)
+    })
+
     // we have to check case class constructors in model for ADT invariants
-    val newExpr = model.vars.toSeq.foldLeft(expr) { case (e, (v, value)) => Let(v, value, e) }
+    val newExpr = model.vars.toSeq.foldRight(and(typingCond, expr)) {
+      case ((v, value), e) => Let(v, value, e)
+    }
 
     val evaluator = semantics.getEvaluator(context.withOpts(optSilentErrors(silenceErrors)))
     evaluator.eval(newExpr, inox.Model(program)(Map.empty, model.chooses)) match {
