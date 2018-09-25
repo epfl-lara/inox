@@ -61,7 +61,7 @@ trait LambdaTemplates { self: Templates =>
       val trArgs: Seq[Encoded] = idArgs.map(v => substMap.getOrElse(v, encodeSymbol(v)))
 
       val (realLambda, structure, depSubst) = mkExprStructure(pathVar._1, lambda, substMap)
-      val depClosures = exprOps.variablesOf(lambda).toSeq.sortBy(_.id.uniqueName).map(v => v -> substMap(v))
+      val depClosures = exprOps.variablesOf(lambda).toSeq.sortBy(_.id).map(v => v -> substMap(v))
 
       val tpe = lambda.getType.asInstanceOf[FunctionType]
       val lid = Variable.fresh("lambda", tpe, true)

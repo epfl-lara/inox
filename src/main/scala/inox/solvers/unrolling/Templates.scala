@@ -494,7 +494,7 @@ trait Templates
       val deps = dependencies.map(substituter)
       val key = (body, blockerPath(contents.pathVar._2), deps)
 
-      val sortedDeps = exprOps.variablesOf(body).toSeq.sortBy(_.id.uniqueName)
+      val sortedDeps = exprOps.variablesOf(body).toSeq.sortBy(_.id)
       val locals = sortedDeps zip deps
       (key, instantiation, locals, substMap.mapValues(_.encoded))
     }

@@ -142,7 +142,7 @@ trait Serializer { self =>
         map => map.map(p => p1.deserialize(p._1) -> p2.deserialize(p._2)))
 
     implicit def symbolsProcedure: SerializationProcedure[Symbols] = mappingProcedure(
-      (s: Symbols) => (s.functions.values.toSeq.sortBy(_.id.uniqueName), s.sorts.values.toSeq.sortBy(_.id.uniqueName)))(
+      (s: Symbols) => (s.functions.values.toSeq.sortBy(_.id), s.sorts.values.toSeq.sortBy(_.id)))(
         p => NoSymbols.withFunctions(p._1).withSorts(p._2))
   }
 
