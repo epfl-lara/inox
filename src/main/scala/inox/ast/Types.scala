@@ -244,6 +244,25 @@ trait Types { self: Trees =>
     case _ => Untyped
   }
 
+  protected def getTupleType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+    case tt: TupleType => checkAllTypes(tpes, tt, tt)
+    case _ => Untyped
+  }
+
+  protected def getSetType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+    case st: SetType => checkAllTypes(tpes, st, st)
+    case _ => Untyped
+  }
+
+  protected def getBagType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+    case bt: BagType => checkAllTypes(tpes, bt, bt)
+    case _ => Untyped
+  }
+
+  protected def getMapType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+    case mt: MapType => checkAllTypes(tpes, mt, mt)
+    case _ => Untyped
+  }
 
   /** NAryType extractor to extract any Type in a consistent way.
     *
