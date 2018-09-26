@@ -223,6 +223,28 @@ trait Types { self: Trees =>
     def orElse(other: => Type): Type = if (tpe == Untyped) other else tpe
   }
 
+  /* Override points for supporting more complex types */
+
+  protected final def getIntegerType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type =
+    checkAllTypes(tpe +: tpes, IntegerType(), IntegerType())
+
+  protected final def getRealType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type =
+    checkAllTypes(tpe +: tpes, RealType(), RealType())
+
+  protected def getBVType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+    case bv: BVType => checkAllTypes(tpes, bv, bv)
+    case _ => Untyped
+  }
+
+  protected final def getCharType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type =
+    checkAllTypes(tpe +: tpes, CharType(), CharType())
+
+  protected def getADTType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+    case adt: ADTType => checkAllTypes(tpes, adt, adt)
+    case _ => Untyped
+  }
+
+
   /** NAryType extractor to extract any Type in a consistent way.
     *
     * @see [[Extractors.Operator]] about why we can't have nice(r) things

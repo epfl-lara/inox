@@ -252,10 +252,6 @@ trait Expressions { self: Trees =>
     def getType(implicit s: Symbols): Type = tp.getType
   }
 
-  /* Override point for Stainless to handle refinement types */
-  protected def constructorType(tcons: TypedADTConstructor): Type =
-    ADTType(tcons.sort.id, tcons.tps).getType(tcons.sort.symbols)
-
   /** $encodingof `ct(args...)`
     *
     * @param ct The case class name and inherited attributes
@@ -273,14 +269,14 @@ trait Expressions { self: Trees =>
             sort.typed(tps).constructors
               .find(_.id == id)
               .filter(_.fields.size == args.size)
-              .map(tcons => checkParamTypes(args, tcons.fields.map(_.getType), constructorType(tcons)))
+              .map(tcons => checkParamTypes(args, tcons.fields.map(_.getType), ADTType(sort.id, tps)))
           }
       }.getOrElse(Untyped)
   }
 
   /** $encodingof `.isInstanceOf[...]` */
   sealed case class IsConstructor(expr: Expr, id: Identifier) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = expr.getType match {
+    override protected def computeType(implicit s: Symbols): Type = getADTType(expr) match {
       case ADTType(sort, _) => (s.lookupSort(sort), s.lookupConstructor(id)) match {
         case (Some(sort), Some(cons)) if sort.id == cons.sort => BooleanType()
         case _ => Untyped
@@ -297,13 +293,13 @@ trait Expressions { self: Trees =>
   sealed case class ADTSelector(adt: Expr, selector: Identifier) extends Expr with CachingTyped {
 
     def constructor(implicit s: Symbols) = {
-      val tpe = adt.getType.asInstanceOf[ADTType]
+      val tpe = getADTType(adt).asInstanceOf[ADTType]
       tpe.getSort.constructors.find(_.fields.exists(_.id == selector)).get
     }
 
     def selectorIndex(implicit s: Symbols) = constructor.definition.selectorID2Index(selector)
 
-    override protected def computeType(implicit s: Symbols): Type = adt.getType match {
+    override protected def computeType(implicit s: Symbols): Type = getADTType(adt) match {
       case ADTType(id, tps) =>
         s.lookupSort(id)
           .filter(_.tparams.size == tps.size)
@@ -398,42 +394,28 @@ trait Expressions { self: Trees =>
 
   /* General arithmetic */
 
-  private final def integerType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type =
-    checkAllTypes(tpe +: tpes, IntegerType(), IntegerType())
-
-  private final def realType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type =
-    checkAllTypes(tpe +: tpes, RealType(), RealType())
-
-  private final def bitVectorType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
-    case bvt: BVType => checkAllTypes(tpes, bvt, bvt)
-    case _ => Untyped
-  }
-
-  private final def charType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type =
-    checkAllTypes(tpe +: tpes, CharType(), CharType())
-
   /** $encodingof `... +  ...` */
   sealed case class Plus(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type =
-      integerType(lhs, rhs) orElse realType(lhs, rhs) orElse bitVectorType(lhs, rhs)
+      getIntegerType(lhs, rhs) orElse getRealType(lhs, rhs) orElse getBVType(lhs, rhs)
   }
 
   /** $encodingof `... -  ...` */
   sealed case class Minus(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type =
-      integerType(lhs, rhs) orElse realType(lhs, rhs) orElse bitVectorType(lhs, rhs)
+      getIntegerType(lhs, rhs) orElse getRealType(lhs, rhs) orElse getBVType(lhs, rhs)
   }
 
   /** $encodingof `- ...` */
   sealed case class UMinus(expr: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type =
-      integerType(expr) orElse realType(expr) orElse bitVectorType(expr)
+      getIntegerType(expr) orElse getRealType(expr) orElse getBVType(expr)
   }
 
   /** $encodingof `... * ...` */
   sealed case class Times(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type =
-      integerType(lhs, rhs) orElse realType(lhs, rhs) orElse bitVectorType(lhs, rhs)
+      getIntegerType(lhs, rhs) orElse getRealType(lhs, rhs) orElse getBVType(lhs, rhs)
   }
 
   /** $encodingof `... /  ...`
@@ -449,7 +431,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class Division(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type =
-      integerType(lhs, rhs) orElse realType(lhs, rhs) orElse bitVectorType(lhs, rhs)
+      getIntegerType(lhs, rhs) orElse getRealType(lhs, rhs) orElse getBVType(lhs, rhs)
   }
 
   /** $encodingof `... %  ...` (can return negative numbers)
@@ -458,7 +440,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class Remainder(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type =
-      integerType(lhs, rhs) orElse bitVectorType(lhs, rhs)
+      getIntegerType(lhs, rhs) orElse getBVType(lhs, rhs)
   }
 
   /** $encodingof `... mod  ...` (cannot return negative numbers)
@@ -467,46 +449,46 @@ trait Expressions { self: Trees =>
     */
   sealed case class Modulo(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type =
-      integerType(lhs, rhs) orElse bitVectorType(lhs, rhs)
+      getIntegerType(lhs, rhs) orElse getBVType(lhs, rhs)
   }
 
   /** $encodingof `... < ...`*/
   sealed case class LessThan(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type = if (
-      integerType(lhs, rhs).isTyped ||
-      realType(lhs, rhs).isTyped ||
-      bitVectorType(lhs, rhs).isTyped ||
-      charType(lhs, rhs).isTyped
+      getIntegerType(lhs, rhs).isTyped ||
+      getRealType(lhs, rhs).isTyped ||
+      getBVType(lhs, rhs).isTyped ||
+      getCharType(lhs, rhs).isTyped
     ) BooleanType() else Untyped
   }
 
   /** $encodingof `... > ...`*/
   sealed case class GreaterThan(lhs: Expr, rhs: Expr) extends Expr with CachingTyped{
     override protected def computeType(implicit s: Symbols): Type = if (
-      integerType(lhs, rhs).isTyped ||
-      realType(lhs, rhs).isTyped ||
-      bitVectorType(lhs, rhs).isTyped ||
-      charType(lhs, rhs).isTyped
+      getIntegerType(lhs, rhs).isTyped ||
+      getRealType(lhs, rhs).isTyped ||
+      getBVType(lhs, rhs).isTyped ||
+      getCharType(lhs, rhs).isTyped
     ) BooleanType() else Untyped
   }
 
   /** $encodingof `... <= ...`*/
   sealed case class LessEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type = if (
-      integerType(lhs, rhs).isTyped ||
-      realType(lhs, rhs).isTyped ||
-      bitVectorType(lhs, rhs).isTyped ||
-      charType(lhs, rhs).isTyped
+      getIntegerType(lhs, rhs).isTyped ||
+      getRealType(lhs, rhs).isTyped ||
+      getBVType(lhs, rhs).isTyped ||
+      getCharType(lhs, rhs).isTyped
     ) BooleanType() else Untyped
   }
 
   /** $encodingof `... >= ...`*/
   sealed case class GreaterEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type = if (
-      integerType(lhs, rhs).isTyped ||
-      realType(lhs, rhs).isTyped ||
-      bitVectorType(lhs, rhs).isTyped ||
-      charType(lhs, rhs).isTyped
+      getIntegerType(lhs, rhs).isTyped ||
+      getRealType(lhs, rhs).isTyped ||
+      getBVType(lhs, rhs).isTyped ||
+      getCharType(lhs, rhs).isTyped
     ) BooleanType() else Untyped
   }
 
@@ -515,37 +497,37 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `~...` $noteBitvector */
   sealed case class BVNot(e: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = bitVectorType(e)
+    override protected def computeType(implicit s: Symbols): Type = getBVType(e)
   }
 
   /** $encodingof `... & ...` $noteBitvector */
   sealed case class BVAnd(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = bitVectorType(lhs, rhs)
+    override protected def computeType(implicit s: Symbols): Type = getBVType(lhs, rhs)
   }
 
   /** $encodingof `... | ...` $noteBitvector */
   sealed case class BVOr(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = bitVectorType(lhs, rhs)
+    override protected def computeType(implicit s: Symbols): Type = getBVType(lhs, rhs)
   }
 
   /** $encodingof `... ^ ...` $noteBitvector */
   sealed case class BVXor(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = bitVectorType(lhs, rhs)
+    override protected def computeType(implicit s: Symbols): Type = getBVType(lhs, rhs)
   }
 
   /** $encodingof `... << ...` $noteBitvector */
   sealed case class BVShiftLeft(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = bitVectorType(lhs, rhs)
+    override protected def computeType(implicit s: Symbols): Type = getBVType(lhs, rhs)
   }
 
   /** $encodingof `... >> ...` $noteBitvector (arithmetic shift, sign-preserving) */
   sealed case class BVAShiftRight(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = bitVectorType(lhs, rhs)
+    override protected def computeType(implicit s: Symbols): Type = getBVType(lhs, rhs)
   }
 
   /** $encodingof `... >>> ...` $noteBitvector (logical shift) */
   sealed case class BVLShiftRight(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = bitVectorType(lhs, rhs)
+    override protected def computeType(implicit s: Symbols): Type = getBVType(lhs, rhs)
   }
 
   /** $encodingof `... .toByte` and other narrowing casts */
@@ -557,7 +539,7 @@ trait Expressions { self: Trees =>
     }
 
     // Returns the pair of sizes from -> to
-    def cast(implicit s: Symbols): Option[(Int, Int)] = expr.getType match {
+    def cast(implicit s: Symbols): Option[(Int, Int)] = getBVType(expr) match {
       case BVType(s, from) if s == newType.signed && from > newType.size => Some(from -> newType.size)
       case _ => None
     }
@@ -572,7 +554,7 @@ trait Expressions { self: Trees =>
     }
 
     // Returns the pair of sizes from -> to
-    def cast(implicit s: Symbols): Option[(Int, Int)] = expr.getType match {
+    def cast(implicit s: Symbols): Option[(Int, Int)] = getBVType(expr) match {
       case BVType(s, from) if s == newType.signed && from < newType.size => Some(from -> newType.size)
       case _ => None
     }
