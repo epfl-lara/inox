@@ -16,7 +16,7 @@ import scala.collection.immutable.HashMap
   * means of applying generic transformations to arbitrary extensions of
   * the [[Trees.Tree]] interface.
   *
-  * @see [[Extractors]] for some interesting use cases
+  * @see [[Deconstructors]] for some interesting use cases
   */
 trait TreeDeconstructor {
   protected val s: Trees
@@ -514,7 +514,7 @@ trait TreeDeconstructor {
 
 /** Provides extraction capabilities to [[Trees]] based on a
   * [[TreeDeconstructor]] instance. */
-trait Extractors { self: Trees =>
+trait Deconstructors { self: Trees =>
 
   def getDeconstructor(that: Trees): TreeDeconstructor {
     val s: self.type

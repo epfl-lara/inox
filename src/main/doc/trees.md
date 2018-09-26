@@ -16,7 +16,7 @@ trait Trees extends inox.ast.Trees {
 
 Alongside the tree definitions, one must provide a *deconstructor* for the
 new ASTs by extending
-[`TreeDeconstructor`](/src/main/scala/inox/ast/Extractors.scala):
+[`TreeDeconstructor`](/src/main/scala/inox/ast/Deconstructors.scala):
 ```tut:silent
 trait TreeDeconstructor extends inox.ast.TreeDeconstructor {
   protected val s: Trees

@@ -16,7 +16,7 @@ trait Trees extends inox.ast.Trees {
 
 Alongside the tree definitions, one must provide a *deconstructor* for the
 new ASTs by extending
-[`TreeDeconstructor`](/src/main/scala/inox/ast/Extractors.scala):
+[`TreeDeconstructor`](/src/main/scala/inox/ast/Deconstructors.scala):
 ```scala
 trait TreeDeconstructor extends inox.ast.TreeDeconstructor {
   protected val s: Trees
@@ -115,38 +115,26 @@ interfaces for such cases:
 1. [TreeTransformer](/src/main/scala/inox/ast/TreeOps.scala):
    as long as the transformation can be performed without any extra context
    (*i.e.* symbol table or program), one should create an instance of `TreeTransformer`:
-    ```tut:silent
-scala>     new inox.ast.TreeTransformer {
-     |       val s: source.type = source
-     |       val t: target.type = target
-     |       
-     |       override def transform(e: s.Expr): t.Expr = e match {
-     |         // do some useful expression transformations
-     |         case _ => super.transform(e)
-     |       }
-     |       
-     |       override def transform(tpe: s.Type): t.Type = tpe match {
-     |         // do some useful type transformations
-     |         case _ => super.transform(tpe)
-     |       }
-     |       
-     |       override def transform(f: s.Flag): t.Flag = f match {
-     |         // do some useful flag transformations
-     |         case _ => super.transform(f)
-     |       }
-     |     }
-<console>:14: error: not found: value source
-             val s: source.type = source
-                    ^
-<console>:15: error: not found: value target
-             val t: target.type = target
-                    ^
-<console>:14: error: not found: value source
-             val s: source.type = source
-                                  ^
-<console>:15: error: not found: value target
-             val t: target.type = target
-                                  ^
+    ```scala
+    new inox.ast.TreeTransformer {
+      val s: source.type = source
+      val t: target.type = target
+      
+      override def transform(e: s.Expr): t.Expr = e match {
+        // do some useful expression transformations
+        case _ => super.transform(e)
+      }
+      
+      override def transform(tpe: s.Type): t.Type = tpe match {
+        // do some useful type transformations
+        case _ => super.transform(tpe)
+      }
+      
+      override def transform(f: s.Flag): t.Flag = f match {
+        // do some useful flag transformations
+        case _ => super.transform(f)
+      }
+    }
     ```
     
 2. [SymbolTransformer](/src/main/scala/inox/ast/TreeOps.scala):

@@ -12,7 +12,7 @@ case object DebugSectionTrees extends DebugSection("trees")
 trait Trees
   extends Expressions
      with Constructors
-     with Extractors
+     with Deconstructors
      with Types
      with Definitions
      with Printers
