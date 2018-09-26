@@ -297,7 +297,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
               })
             })
           )
-        case (c: Choose, _) => BooleanLiteral(false) // can't typecheck this
+        case (c: Choose, tpe) =>
+          BooleanLiteral(
+            c.res.tpe == tpe && tpe == tpe.getType && // choose is for a simple type
+            (model.chooses contains (c.res.id -> Seq())) // the model contains a mapping for the choose
+          )
         case _ => BooleanLiteral(true)
       }
 
