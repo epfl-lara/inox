@@ -266,7 +266,7 @@ trait Types { self: Trees =>
 
   /** NAryType extractor to extract any Type in a consistent way.
     *
-    * @see [[Extractors.Operator]] about why we can't have nice(r) things
+    * @see [[Deconstructors.Operator]] about why we can't have nice(r) things
     */
   object NAryType extends {
     protected val s: self.type = self
