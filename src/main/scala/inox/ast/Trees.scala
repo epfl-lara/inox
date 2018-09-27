@@ -7,8 +7,6 @@ import scala.language.implicitConversions
 
 import inox.parsing.Interpolator
 
-case object DebugSectionTrees extends DebugSection("trees")
-
 trait Trees
   extends Expressions
      with Constructors

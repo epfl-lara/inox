@@ -7,7 +7,6 @@ import solvers._
 trait MainHelpers {
 
   protected def getDebugSections: Set[DebugSection] = Set(
-    ast.DebugSectionTrees,
     utils.DebugSectionTimers,
     solvers.DebugSectionSolver,
     tip.DebugSectionTip
