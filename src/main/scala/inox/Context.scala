@@ -24,13 +24,4 @@ object Context {
     val reporter = new DefaultReporter(Set())
     Context(reporter, new InterruptManager(reporter))
   }
-
-  def printNames = {
-    val reporter = new DefaultReporter(Set())
-    Context(
-      reporter,
-      new InterruptManager(reporter),
-      options = Options.empty + Main.optDebug(Set(ast.DebugSectionTrees: DebugSection))
-    )
-  }
 }

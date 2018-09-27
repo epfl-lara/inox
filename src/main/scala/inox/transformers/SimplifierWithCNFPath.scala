@@ -177,7 +177,7 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
 
     def asString(implicit opts: PrinterOptions): String = andJoin(conditions.toSeq.sortBy(_.hashCode)).asString
 
-    override def toString = asString(PrinterOptions.fromContext(Context.printNames))
+    override def toString = asString(PrinterOptions(symbols = Some(symbols)))
   }
 
   implicit object CNFPath extends PathProvider[CNFPath] {

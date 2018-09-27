@@ -290,7 +290,7 @@ trait Paths { self: SymbolOps with TypeOps =>
 
     override def hashCode: Int = elements.hashCode
 
-    override def toString = asString(PrinterOptions.fromContext(Context.printNames))
+    override def toString = asString(PrinterOptions(symbols = Some(symbols)))
     def asString(implicit opts: PrinterOptions): String = fullClause.asString
   }
 }

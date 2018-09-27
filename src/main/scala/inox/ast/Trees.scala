@@ -28,7 +28,7 @@ trait Trees
 
     def asString(implicit opts: PrinterOptions): String = prettyPrint(this, opts)
 
-    override def toString = asString(PrinterOptions.fromContext(Context.printNames))
+    override def toString = asString(PrinterOptions())
   }
 
   val exprOps: ExprOps { val trees: Trees.this.type } = new {

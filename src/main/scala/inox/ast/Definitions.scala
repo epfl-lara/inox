@@ -185,7 +185,7 @@ trait Definitions { self: Trees =>
     def getFunction(id: Identifier, tps: Seq[Type]): TypedFunDef =
       lookupFunction(id, tps).getOrElse(throw FunctionLookupException(id))
 
-    override def toString: String = asString(PrinterOptions.fromSymbols(this, Context.printNames))
+    override def toString: String = asString(PrinterOptions(symbols = Some(this)))
     override def asString(implicit opts: PrinterOptions): String = {
       sorts.map(p => prettyPrint(p._2, opts)).mkString("\n\n") +
       "\n\n-----------\n\n" +

@@ -93,5 +93,5 @@ trait Model { self =>
     }
   }
 
-  override def toString: String = asString(PrinterOptions.fromContext(Context.printNames))
+  override def toString: String = asString(PrinterOptions(symbols = Some(symbols)))
 }
