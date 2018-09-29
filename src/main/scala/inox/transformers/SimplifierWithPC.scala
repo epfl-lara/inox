@@ -158,11 +158,15 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
         re match {
           case ADT(_, _, es) if pe =>
             (es(index), true)
-          case adt @ ADT(_, _, es) /*if !adt.getConstructor.sort.hasInvariant*/ =>
+
+          // Note: no need to check invariant as if the ADT constructor is in
+          //       the path, then its invariant has already been checked.
+          case adt @ ADT(_, _, es) =>
             val value = es(index)
             val freshFields = cons.fields.map(_.freshen)
             val bindings = (freshFields zip es).filter(_._2 != value)
             simplify(bindings.foldRight(value) { case ((vd, e), b) => Let(vd, e, b) }, path)
+
           case _ =>
             (ADTSelector(re, sel), pe)
         }
