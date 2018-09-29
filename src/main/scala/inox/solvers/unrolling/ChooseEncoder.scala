@@ -15,35 +15,39 @@ trait ChooseEncoder extends ast.ProgramTransformer {
     import program._
     import program.trees._
     program.symbols.functions.values.flatMap { fd =>
-      exprOps.collect { case c: Choose => Set(c) case _ => Set.empty[Choose] } (fd.fullBody).map(c => c.res -> c)
+      exprOps.collect { case c: Choose => Set(c) case _ => Set.empty[Choose] } (fd.fullBody)
+        .map(c => c.res.id -> c)
     }.toMap
   }
 
-  private lazy val (newFunctions: Seq[FunDef], scopes: Map[ValDef, Seq[ValDef]]) = {
-    var fdChooses: Set[(ValDef, FunDef, Seq[ValDef])] = Set.empty
+  private lazy val (newFunctions: Seq[FunDef], scopes: Map[Identifier, Seq[ValDef]]) = {
+    var fdChooses: Set[(Identifier, FunDef, Seq[ValDef])] = Set.empty
 
     val newFds = sourceProgram.symbols.functions.values.toList.map { fd =>
-      def rec(e: Expr, args: Seq[ValDef]): Expr = e match {
+      def rec(e: Expr, params: Seq[ValDef]): Expr = e match {
         case l: Lambda =>
           val free = exprOps.variablesOf(l)
-          l.copy(body = rec(l.body, args.filter(vd => free(vd.toVariable)) ++ l.params)).copiedFrom(l)
+          l.copy(body = rec(l.body, params.filter(vd => free(vd.toVariable)) ++ l.params)).copiedFrom(l)
 
         case c: Choose =>
-          val newPred = rec(c.pred, args)
-          val freshArgs = args.map(_.freshen)
+          val (substMap, freshParams) = params.foldLeft((Map[ValDef, Expr](), Seq[ValDef]())) {
+            case ((substMap, vds), vd) =>
+              val ntpe = typeOps.replaceFromSymbols(substMap, vd.tpe)
+              val nvd = ValDef(vd.id.freshen, ntpe, vd.flags).copiedFrom(vd)
+              (substMap + (vd -> nvd.toVariable), vds :+ nvd)
+          }
 
-          val substPred = exprOps.replaceFromSymbols(
-            (args zip freshArgs.map(_.toVariable)).toMap,
-            newPred)
+          val newPred = exprOps.replaceFromSymbols(substMap, rec(c.pred, params))
+          val returnType = typeOps.replaceFromSymbols(substMap, c.res.tpe)
 
           val newFd = new FunDef(
-            FreshIdentifier("choose", true), fd.tparams, freshArgs,
-            c.res.tpe, Choose(c.res, substPred).copiedFrom(c), Seq.empty)
-          fdChooses += ((c.res, newFd, args))
+            FreshIdentifier("choose", true), fd.tparams, freshParams,
+            returnType, Choose(c.res.copy(tpe = returnType), newPred).copiedFrom(c), Seq.empty)
+          fdChooses += ((c.res.id, newFd, params))
 
-          FunctionInvocation(newFd.id, newFd.tparams.map(_.tp), args.map(_.toVariable)).copiedFrom(c)
+          FunctionInvocation(newFd.id, newFd.tparams.map(_.tp), params.map(_.toVariable)).copiedFrom(c)
 
-        case Operator(es, recons) => recons(es.map(rec(_, args))).copiedFrom(e)
+        case Operator(es, recons) => recons(es.map(rec(_, params))).copiedFrom(e)
       }
 
       fd.copy(fullBody = fd.fullBody match {
@@ -54,7 +58,7 @@ trait ChooseEncoder extends ast.ProgramTransformer {
 
     val allFunctions = newFds ++ fdChooses.map(_._2)
     val allScopes = fdChooses.map(p => p._1 -> p._3).toMap ++ newFds.flatMap(fd => fd.fullBody match {
-      case c: Choose => Some(c.res -> fd.params)
+      case c: Choose => Some(c.res.id -> fd.params)
       case _ => None
     })
 
@@ -76,9 +80,8 @@ trait ChooseEncoder extends ast.ProgramTransformer {
 
   def getChoose(fd: targetProgram.trees.FunDef): Option[(Identifier, program.trees.Choose, Seq[program.trees.ValDef])] = fd.fullBody match {
     case targetProgram.trees.Choose(res, _) =>
-      scopes.get(res).flatMap { vds =>
-        val dres = sourceEncoder.decode(decoder.transform(res))
-        chooses.get(dres).map(c => (res.id, c, vds.map(sourceEncoder.decode(_))))
+      scopes.get(res.id).flatMap { vds =>
+        chooses.get(res.id).map(c => (res.id, c, vds.map(sourceEncoder.decode(_))))
       }
     case _ => None
   }
