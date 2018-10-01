@@ -295,22 +295,19 @@ trait Types { self: Trees =>
         subs.flatMap(typeParamsOf).toSet
     }
 
-    def instantiateType(tpe: Type, tps: Map[TypeParameter, Type]): Type = {
-      if (tps.isEmpty) {
-        tpe
-      } else {
-        typeOps.postMap {
-          case tp: TypeParameter => tps.get(tp)
-          case _ => None
-        } (tpe)
-      }
-    }
-
     // Helpers for instantiateType
     class TypeInstantiator(tps: Map[TypeParameter, Type]) extends SelfTreeTransformer {
       override def transform(tpe: Type): Type = tpe match {
         case tp: TypeParameter => tps.getOrElse(tp, super.transform(tpe))
         case _ => super.transform(tpe)
+      }
+    }
+
+    def instantiateType(tpe: Type, tps: Map[TypeParameter, Type]): Type = {
+      if (tps.isEmpty) {
+        tpe
+      } else {
+        new TypeInstantiator(tps).transform(tpe)
       }
     }
 
