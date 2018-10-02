@@ -202,11 +202,12 @@ trait Definitions { self: Trees =>
       * - every variable is available in the scope of its usage
       */
     @inline def ensureWellFormed: Unit = _tryWF.get.get
-    private[this] val _tryWF: Lazy[Try[Unit]] = Lazy(Try({
+    private[this] val _tryWF: Lazy[Try[Unit]] = Lazy(Try(ensureWellFormedSymbols))
+
+    protected def ensureWellFormedSymbols: Unit = {
       for ((_, fd) <- functions) ensureWellFormedFunction(fd)
-      for ((_, sort) <- sorts) ensureWellFormedAdt(sort)
-      ()
-    }))
+      for ((_, sort) <- sorts) ensureWellFormedSort(sort)
+    }
 
     protected def ensureWellFormedFunction(fd: FunDef) = {
       typeCheck(fd.fullBody, fd.getType)
@@ -220,7 +221,7 @@ trait Definitions { self: Trees =>
       }
     }
 
-    protected def ensureWellFormedAdt(sort: ADTSort) = {
+    protected def ensureWellFormedSort(sort: ADTSort) = {
       if (!sort.isWellFormed) throw NotWellFormedException(sort)
       if (!(sort.constructors forall (cons => cons.sort == sort.id))) throw NotWellFormedException(sort)
       if (sort.constructors.flatMap(_.fields).groupBy(_.id).exists(_._2.size > 1)) throw NotWellFormedException(sort)
