@@ -89,6 +89,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
   private val constraints = new IncrementalSeq[Expr]()
   private val freeChooses = new IncrementalMap[Choose, Encoded]()
 
+  protected var failure: Option[InternalSolverError] = None
   protected var abort: Boolean = false
   protected var pause: Boolean = false
 
@@ -105,6 +106,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
   }
 
   def reset() = {
+    failure = None
     abort = false
     pause = false
 
@@ -133,7 +135,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
     (withoutChooses, chooseBindings)
   }
 
-  def declare(vd: ValDef): Unit = {
+  def declare(vd: ValDef): Unit = context.timers.solvers.declare.run(try {
     context.timers.solvers.declare.sanity.run {
       assert(vd.getType.isTyped)
     }
@@ -154,9 +156,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
         underlying.assertCnstr(cl)
       }
     }
-  }
+  } catch {
+    case (e: InternalSolverError) => failure = failure orElse Some(e)
+  })
 
-  def assertCnstr(expression: Expr): Unit = context.timers.solvers.assert.run {
+  def assertCnstr(expression: Expr): Unit = context.timers.solvers.assert.run(try {
     context.timers.solvers.assert.sanity.run {
       symbols.ensureWellFormed // make sure that the current program is well-formed
       typeCheck(expression, BooleanType()) // make sure we've asserted a boolean-typed expression
@@ -185,7 +189,9 @@ trait AbstractUnrollingSolver extends Solver { self =>
         underlying.assertCnstr(cl)
       }
     }
-  }
+  } catch {
+    case (e: InternalSolverError) => failure = failure orElse Some(e)
+  })
 
   protected def wrapModel(model: underlying.Model): ModelWrapper
 
@@ -539,7 +545,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
   }
 
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] =
-      context.timers.solvers.unrolling.run {
+      context.timers.solvers.unrolling.run(scala.util.Try({
+
+    // throw error immediately if a previous call has already failed
+    if (failure.nonEmpty) throw failure.get
+
     // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
     context.interruptManager.registerForInterrupts(this)
 
@@ -579,7 +589,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
     object Abort {
       def unapply[A,B](resp: SolverResponse[A,B]): Boolean = {
-        if (abort || pause) {
+        if (failure.nonEmpty || abort || pause) {
           true
         } else if (resp == Unknown) {
           if (!silentErrors) {
@@ -595,7 +605,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
     var currentState: CheckState = ModelCheck
     while (!currentState.isInstanceOf[CheckResult]) {
       currentState = currentState match {
-        case _ if abort || pause =>
+        case Abort() =>
           CheckResult.cast(Unknown)
 
         case ModelCheck =>
@@ -802,7 +812,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
     val CheckResult(res) = currentState
     res
-  }
+  }).recover {
+    case e: InternalSolverError =>
+      if (!silentErrors) reporter.error(e.getMessage)
+      config.cast(Unknown)
+  }.get)
 }
 
 trait UnrollingSolver extends AbstractUnrollingSolver { self =>
