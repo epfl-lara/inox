@@ -505,7 +505,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
             case Some(Right(enc)) => wrapped.modelEval(enc, tpe).get match {
               case Lambda(_, Let(_, Tuple(es), _)) =>
                 uniquateClosure(if (es.size % 2 == 0) -es.size / 2 else es.size / 2, lambda)
-              case l => reporter.fatalError("Unexpected extracted lambda format: " + l)
+              case l => throw new InternalSolverError(name, "Unexpected extracted lambda format: " + l.asString)
             }
             case Some(Left(img)) => img
             case None => lambda

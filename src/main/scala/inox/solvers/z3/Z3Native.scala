@@ -529,11 +529,11 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
             case BVType(signed, size) =>
               if (ts.startsWith("#b")) BVLiteral(signed, BigInt(ts.drop(2), 2), size)
               else if (ts.startsWith("#x")) BVLiteral(signed, BigInt(ts.drop(2), 16), size)
-              else if (ts.startsWith("#")) reporter.fatalError(s"Unexpected format for BV value: $ts")
+              else if (ts.startsWith("#")) throw new InternalSolverError("z3", s"Unexpected format for BV value: $ts")
               else BVLiteral(signed, BigInt(ts, 10), size)
 
             case IntegerType() =>
-              if (ts.startsWith("#")) reporter.fatalError(s"Unexpected format for Integer value: $ts")
+              if (ts.startsWith("#")) throw new InternalSolverError("z3", s"Unexpected format for Integer value: $ts")
               else IntegerLiteral(BigInt(ts, 10))
 
             case other => unsupported(other, s"Unexpected target type for value $ts")

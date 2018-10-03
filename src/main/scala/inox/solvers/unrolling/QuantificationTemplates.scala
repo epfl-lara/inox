@@ -61,7 +61,7 @@ trait QuantificationTemplates { self: Templates =>
     case MapType(from, to) => Seq(from) -> to
     case BagType(base) => Seq(base) -> IntegerType()
     case SetType(base) => Seq(base) -> BooleanType()
-    case _ => throw FatalError("Matcher argument type of unsupported type " + tpe)
+    case _ => throw new InternalSolverError("Matcher argument type of unsupported type " + tpe.asString)
   }
 
   /* -- Quantifier template definitions -- */
@@ -748,7 +748,7 @@ trait QuantificationTemplates { self: Templates =>
   def promoteQuantifications: Unit = {
     val optGen = quantificationsManager.unrollGeneration
     if (optGen.isEmpty)
-      throw FatalError("Attempting to promote inexistent quantifiers")
+      throw new InternalSolverError("Attempting to promote inexistent quantifiers")
 
     val diff = (currentGeneration - optGen.get) max 0
 

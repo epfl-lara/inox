@@ -607,7 +607,7 @@ trait TemplateGenerator { self: Templates =>
           )
         }
 
-      case _ => throw FatalError("Unexpected unrollable")
+      case _ => throw new InternalSolverError(s"Unexpected unrollable: ${tpe.asString}")
     }
 
     val p = rec(pathVar, tpe, expr, RecursionState(true, true, true, true))

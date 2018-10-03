@@ -63,7 +63,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   def emit(cmd: SExpr, rawOut: Boolean = false): SExpr = {
     interpreter.eval(cmd) match {
       case err @ Error(msg) if !aborted && !rawOut =>
-        reporter.fatalError(s"Unexpected error from $targetName solver: $msg")
+        throw new InternalSolverError(targetName, msg)
       case res =>
         res
     }

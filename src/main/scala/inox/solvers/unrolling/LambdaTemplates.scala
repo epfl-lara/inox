@@ -166,7 +166,7 @@ trait LambdaTemplates { self: Templates =>
         val (subst, to) = tpe match {
           case PiType(params, to) => ((params.map(_.toVariable) zip app.args).toMap ++ (vars zip closures), to)
           case FunctionType(_, to) => ((vars zip closures).toMap, to)
-          case _ => throw FatalError("Unexpected function type " + tpe.asString)
+          case _ => throw new InternalSolverError("Unexpected function type " + tpe.asString)
         }
 
         val toVars = typeOps.variablesOf(to).toSeq.sortBy(_.id)
