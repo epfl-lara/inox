@@ -38,6 +38,13 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
     * send the command to the underlying smtlib solver.
     */
   override def checkAssumptions(config: Configuration)(assumptions: Set[Expr]) = {
+    // make sure assumptions are well-formed and contain only declared variables
+    assumptions.foreach {
+      case Not(v: Variable) => declareVariable(v)
+      case v: Variable => declareVariable(v)
+      case t => unsupported(t, "Assumptions must be either variables or their negation")
+    }
+
     val cmd = SList(SSymbol("check-sat") +: assumptions.toSeq.map(as => toSMT(as)(Map.empty)) : _*)
     val res = emit(cmd) match {
       case SSymbol("sat") => CheckSatStatus(SatStatus)

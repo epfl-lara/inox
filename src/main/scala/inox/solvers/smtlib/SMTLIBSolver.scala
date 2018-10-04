@@ -136,8 +136,8 @@ trait SMTLIBSolver extends AbstractSolver with SMTLIBTarget with SMTLIBDebugger 
 
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
     val props = assumptions.toSeq.map {
-      case Not(v: Variable) => PropLiteral(variables.toB(v), false)
-      case v: Variable => PropLiteral(variables.toB(v), true)
+      case Not(v: Variable) => PropLiteral(declareVariable(v), false)
+      case v: Variable => PropLiteral(declareVariable(v), true)
       case t => unsupported(t, "Assumptions must be either variables or their negation")
     }
 
