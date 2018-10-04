@@ -113,7 +113,7 @@ object OptionParsers {
 
 object OptionsHelpers {
 
-  private val matcher = s"--(.*)=(.*)".r
+  private val matcher = s"--(.*?)=(.*)".r
   private val matcherWithout = s"--(.*)".r
 
   def nameValue(s: String) = s match {
