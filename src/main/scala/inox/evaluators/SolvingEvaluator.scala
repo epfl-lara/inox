@@ -24,6 +24,7 @@ trait SolvingEvaluator extends Evaluator { self =>
   }
 
   lazy val evalQuantifiers = options.findOptionOrDefault(optEvalQuantifiers)
+  lazy val checkModels = options.findOptionOrDefault(optCheckModels)
 
   private val chooseCache: MutableMap[Choose, Expr] = MutableMap.empty
 
@@ -49,7 +50,9 @@ trait SolvingEvaluator extends Evaluator { self =>
 
       res match {
         case SatWithModel(model) =>
-          try {
+          if (model.chooses.nonEmpty && checkModels) {
+            throw new RuntimeException("Cannot guarantee model for dependent choose " + choose.asString)
+          } else try {
             model.vars.getOrElse(choose.res, simplestValue(choose.res.tpe, allowSolver = false))
           } catch {
             case _: NoSimpleValue => throw new RuntimeException("No simple value for choose " + choose.asString)

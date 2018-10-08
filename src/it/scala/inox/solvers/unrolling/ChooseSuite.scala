@@ -59,7 +59,14 @@ class ChooseSuite extends SolvingTestSuite {
       }
     }))
 
-  val symbols = NoSymbols.withFunctions(Seq(fun1, fun2, fun3, fun4))
+  // Function containing a dependent choose (a choose that depends on some other choose)
+  val fun5 = mkFunDef(FreshIdentifier("fun5"))() { _ => (
+    Seq("x" :: IntegerType()), IntegerType(), { case Seq(x) =>
+      choose("r" :: IntegerType())(r => fun3(IntegerType())(x, E(true)) !== IntegerLiteral(0))
+    })
+  }
+
+  val symbols = NoSymbols.withFunctions(Seq(fun1, fun2, fun3, fun4, fun5))
   val program = InoxProgram(symbols)
 
   test("simple choose") { implicit ctx =>
@@ -98,5 +105,14 @@ class ChooseSuite extends SolvingTestSuite {
 
     val clause3 = fun4(IntegerLiteral(2), IntegerLiteral(2)) === IntegerLiteral(5)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause3).isUNSAT)
+  }
+
+  test("dependent choose doesn't feel lucky") { ctx0 =>
+    val clause = let("x" :: IntegerType(), fun5(IntegerLiteral(0))) { x =>
+      fun3(IntegerType())(IntegerLiteral(0), E(true)) === IntegerLiteral(0)
+    }
+
+    implicit val ctx = ctx0.withOpts(optFeelingLucky(true), optCheckModels(false))
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 }

@@ -319,7 +319,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
       case ((v, value), e) => Let(v, value, e)
     }
 
-    val evaluator = semantics.getEvaluator(context.withOpts(optSilentErrors(silenceErrors)))
+    val evaluator = semantics.getEvaluator(context.withOpts(
+      optSilentErrors(silenceErrors),
+      optCheckModels(checkModels || feelingLucky)
+    ))
+
     evaluator.eval(newExpr, inox.Model(program)(Map.empty, model.chooses)) match {
       case EvaluationResults.Successful(BooleanLiteral(true)) =>
         reporter.debug("- Model validated.")
