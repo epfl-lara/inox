@@ -10,7 +10,7 @@ import theories._
 import evaluators._
 import combinators._
 
-import scala.collection.mutable.{Map => MutableMap}
+import scala.collection.mutable.{Map => MutableMap, ListBuffer}
 
 object optUnrollFactor      extends IntOptionDef("unroll-factor", default = 1, "<PosInt>")
 object optFeelingLucky      extends FlagOptionDef("feeling-lucky", false)
@@ -89,7 +89,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
   private val constraints = new IncrementalSeq[Expr]()
   private val freeChooses = new IncrementalMap[Choose, Encoded]()
 
-  protected var failure: Option[InternalSolverError] = None
+  protected var failures: ListBuffer[Throwable] = new ListBuffer
   protected var abort: Boolean = false
   protected var pause: Boolean = false
 
@@ -106,7 +106,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
   }
 
   def reset() = {
-    failure = None
+    failures.clear()
     abort = false
     pause = false
 
@@ -157,7 +157,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }
     }
   } catch {
-    case (e: InternalSolverError) => failure = failure orElse Some(e)
+    case e @ (_: InternalSolverError | _: Unsupported) => failures += e
   })
 
   def assertCnstr(expression: Expr): Unit = context.timers.solvers.assert.run(try {
@@ -190,7 +190,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }
     }
   } catch {
-    case (e: InternalSolverError) => failure = failure orElse Some(e)
+    case e @ (_: InternalSolverError | _: Unsupported) => failures += e
   })
 
   protected def wrapModel(model: underlying.Model): ModelWrapper
@@ -552,7 +552,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
       context.timers.solvers.unrolling.run(scala.util.Try({
 
     // throw error immediately if a previous call has already failed
-    if (failure.nonEmpty) throw failure.get
+    if (failures.nonEmpty) throw failures.head
 
     // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
     context.interruptManager.registerForInterrupts(this)
@@ -593,7 +593,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
     object Abort {
       def unapply[A,B](resp: SolverResponse[A,B]): Boolean = {
-        if (failure.nonEmpty || abort || pause) {
+        if (failures.nonEmpty || abort || pause) {
           true
         } else if (resp == Unknown) {
           if (!silentErrors) {
@@ -817,7 +817,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
     val CheckResult(res) = currentState
     res
   }).recover {
-    case e: InternalSolverError =>
+    case e @ (_: InternalSolverError | _: Unsupported) =>
       if (reporter.isDebugEnabled) reporter.debug(e)
       else if (!silentErrors) reporter.error(e.getMessage)
       config.cast(Unknown)
