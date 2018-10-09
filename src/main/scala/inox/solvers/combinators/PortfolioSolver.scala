@@ -22,16 +22,18 @@ trait PortfolioSolver extends Solver { self =>
 
   protected var resultSolver: Option[Solver] = None
 
-  private[this] var task: Future[Unit] = Future(())
+  private[this] var tasks: Future[Unit] = Future(())
+
+  private[combinators] def perform(task: => Unit): Unit = tasks = tasks map (_ => task)
 
   override def getResultSolver = resultSolver
 
   def declare(vd: ValDef): Unit = {
-    task = task map { _ => solvers.foreach(_.declare(vd)) }
+    perform { solvers.foreach(_.declare(vd)) }
   }
 
   def assertCnstr(expression: Expr): Unit = {
-    task = task map { _ => solvers.foreach(_.assertCnstr(expression)) }
+    perform { solvers.foreach(_.assertCnstr(expression)) }
   }
 
   override def dbg(msg: => Any) = solvers foreach (_.dbg(msg))
@@ -39,7 +41,7 @@ trait PortfolioSolver extends Solver { self =>
   private def genericCheck(config: Configuration)
                           (f: SubSolver => config.Response[Model, Assumptions]):
                            config.Response[Model, Assumptions] = {
-    Await.result(task, Duration.Inf)
+    Await.result(tasks, Duration.Inf)
     reporter.debug("Running portfolio check")
 
     // solving
@@ -56,7 +58,7 @@ trait PortfolioSolver extends Solver { self =>
       }
     }
 
-    task = task.flatMap(_ => Future.sequence(fs).map(_ => ()))
+    tasks = Future.sequence(fs).map(_ => ())
 
     val result = Future.find(fs.toList)(_._2 != Unknown)
 
@@ -90,15 +92,15 @@ trait PortfolioSolver extends Solver { self =>
   }
 
   def push(): Unit = {
-    task = task map { _ => solvers.foreach(_.push()) }
+    perform { solvers.foreach(_.push()) }
   }
 
   def pop(): Unit = {
-    task = task map { _ => solvers.foreach(_.pop()) }
+    perform { solvers.foreach(_.pop()) }
   }
 
   def free() = {
-    task = task map { _ => solvers.foreach(_.free()) }
+    perform { solvers.foreach(_.free()) }
   }
 
   def interrupt(): Unit = {
@@ -106,6 +108,6 @@ trait PortfolioSolver extends Solver { self =>
   }
 
   def reset() = {
-    task = task map { _ => solvers.foreach(_.reset()) }
+    perform { solvers.foreach(_.reset()) }
   }
 }
