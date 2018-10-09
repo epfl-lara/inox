@@ -61,6 +61,8 @@ trait AbstractSolver extends Interruptible {
   private[solvers] def debugS(msg: String) = {
     reporter.debug("["+name+"] "+msg)
   }
+
+  override def toString: String = name
 }
 
 trait Solver extends AbstractSolver { self =>
