@@ -55,7 +55,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   // Well... actually maybe not, but let's just leave it here to be sure
   toggleWarningMessages(true)
 
-  def free(): Unit = {
+  def free(): Unit = synchronized {
     freed = true
     if (z3 ne null) {
       z3.delete()

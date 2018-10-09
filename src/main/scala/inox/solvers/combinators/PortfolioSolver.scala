@@ -22,23 +22,26 @@ trait PortfolioSolver extends Solver { self =>
 
   protected var resultSolver: Option[Solver] = None
 
+  private[this] var task: Future[Unit] = Future(())
+
   override def getResultSolver = resultSolver
 
   def declare(vd: ValDef): Unit = {
-    solvers.foreach(_.declare(vd))
+    task = task map { _ => solvers.foreach(_.declare(vd)) }
   }
 
   def assertCnstr(expression: Expr): Unit = {
-    solvers.foreach(_.assertCnstr(expression))
+    task = task map { _ => solvers.foreach(_.assertCnstr(expression)) }
   }
 
   override def dbg(msg: => Any) = solvers foreach (_.dbg(msg))
 
-
   private def genericCheck(config: Configuration)
                           (f: SubSolver => config.Response[Model, Assumptions]):
                            config.Response[Model, Assumptions] = {
+    Await.result(task, Duration.Inf)
     reporter.debug("Running portfolio check")
+
     // solving
     val fs: Seq[Future[(SubSolver, config.Response[Model, Assumptions])]] = solvers.map { s =>
       Future {
@@ -52,6 +55,8 @@ trait PortfolioSolver extends Solver { self =>
         }
       }
     }
+
+    task = task.flatMap(_ => Future.sequence(fs).map(_ => ()))
 
     val result = Future.find(fs.toList)(_._2 != Unknown)
 
@@ -85,15 +90,15 @@ trait PortfolioSolver extends Solver { self =>
   }
 
   def push(): Unit = {
-    solvers.foreach(_.push())
+    task = task map { _ => solvers.foreach(_.push()) }
   }
 
   def pop(): Unit = {
-    solvers.foreach(_.pop())
+    task = task map { _ => solvers.foreach(_.pop()) }
   }
 
   def free() = {
-    solvers.foreach(_.free())
+    task = task map { _ => solvers.foreach(_.free()) }
   }
 
   def interrupt(): Unit = {
@@ -101,6 +106,6 @@ trait PortfolioSolver extends Solver { self =>
   }
 
   def reset() = {
-    solvers.foreach(_.reset())
+    task = task map { _ => solvers.foreach(_.reset()) }
   }
 }
