@@ -211,6 +211,9 @@ trait TreeTransformer extends Transformer {
   def transform(vd: s.ValDef): t.ValDef = super.transform(vd, ())
   override final def transform(vd: s.ValDef, env: Env): t.ValDef = transform(vd)
 
+  def transform(tpd: s.TypeParameterDef): t.TypeParameterDef = super.transform(tpd, ())
+  override final def transform(tpd: s.TypeParameterDef, env: Env): t.TypeParameterDef = transform(tpd)
+
   def transform(e: s.Expr): t.Expr = super.transform(e, ())
   override final def transform(e: s.Expr, env: Env): t.Expr = transform(e)
 
