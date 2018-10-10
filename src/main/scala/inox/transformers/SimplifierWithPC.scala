@@ -7,7 +7,7 @@ import utils._
 
 import scala.collection.mutable.{Map => MutableMap}
 
-trait SimplifierWithPC extends TransformerWithPostPC { self =>
+trait SimplifierWithPC extends Transformer { self =>
   val trees: ast.Trees
   val symbols: trees.Symbols
 
@@ -88,37 +88,37 @@ trait SimplifierWithPC extends TransformerWithPostPC { self =>
   final def isPure(e: Expr, path: Env): Boolean = simplify(e, path)._2
 
   protected def simplify(e: Expr, path: Env): (Expr, Boolean) = e match {
-    case e if path implies e => (BooleanLiteral(true), true)
-    case e if path implies not(e) => (BooleanLiteral(false), true)
+    case e if path implies e => (BooleanLiteral(true).copiedFrom(e), true)
+    case e if path implies not(e) => (BooleanLiteral(false).copiedFrom(e), true)
 
     case c @ Choose(res, BooleanLiteral(true)) if hasInstance(res.tpe) == Some(true) => (c, true)
     case c: Choose => (c, opts.assumeChecked)
 
-    case Lambda(args, body) =>
+    case Lambda(params, body) =>
       val (rb, _) = simplify(body, path)
-      (Lambda(args, rb), true)
+      (Lambda(params, rb).copiedFrom(e), true)
 
-    case Implies(l, r) => simplify(Or(Not(l), r), path)
+    case Implies(l, r) => simplify(Or(Not(l).copiedFrom(l), r).copiedFrom(e), path)
 
-    case And(e +: es) => simplify(e, path) match {
-      case (BooleanLiteral(true), true) => simplify(andJoin(es), path)
-      case (BooleanLiteral(false), true) => (BooleanLiteral(false), true)
+    case a @ And(e +: es) => simplify(e, path) match {
+      case (BooleanLiteral(true), true) => simplify(andJoin(es).copiedFrom(a), path)
+      case (BooleanLiteral(false), true) => (BooleanLiteral(false).copiedFrom(a), true)
       case (re, pe) =>
-        val (res, pes) = simplify(andJoin(es), path withCond re)
+        val (res, pes) = simplify(andJoin(es).copiedFrom(a), path withCond re)
         if (res == BooleanLiteral(false) && pe) {
-          (BooleanLiteral(false), true)
+          (BooleanLiteral(false).copiedFrom(a), true)
         } else {
           (and(re, res), pe && pes)
         }
     }
 
-    case Or(e +: es) => simplify(e, path) match {
-      case (BooleanLiteral(true), true) => (BooleanLiteral(true), true)
-      case (BooleanLiteral(false), true) => simplify(orJoin(es), path)
+    case o @ Or(e +: es) => simplify(e, path) match {
+      case (BooleanLiteral(true), true) => (BooleanLiteral(true).copiedFrom(o), true)
+      case (BooleanLiteral(false), true) => simplify(orJoin(es).copiedFrom(o), path)
       case (re, pe) =>
-        val (res, pes) = simplify(orJoin(es), path withCond Not(re))
+        val (res, pes) = simplify(orJoin(es).copiedFrom(o), path withCond Not(re).copiedFrom(re))
         if (res == BooleanLiteral(true) && pe) {
-          (BooleanLiteral(true), true)
+          (BooleanLiteral(true).copiedFrom(o), true)
         } else {
           (or(re, res), pe && pes)
         }
@@ -129,7 +129,7 @@ trait SimplifierWithPC extends TransformerWithPostPC { self =>
       case (BooleanLiteral(false), true) => simplify(e, path)
       case (rc, pc) =>
         val (rt, pt) = simplify(t, path withCond rc)
-        val (re, pe) = simplify(e, path withCond Not(rc))
+        val (re, pe) = simplify(e, path withCond Not(rc).copiedFrom(rc))
         if (rt == re && pc) {
           (rt, pt)
         } else {
@@ -141,18 +141,18 @@ trait SimplifierWithPC extends TransformerWithPostPC { self =>
       case (BooleanLiteral(true), true) => simplify(body, path)
       case (BooleanLiteral(false), true) =>
         val (rb, _) = simplify(body, path)
-        (Assume(BooleanLiteral(false), rb), false)
+        (Assume(BooleanLiteral(false).copiedFrom(pred), rb).copiedFrom(e), false)
       case (rp, _) =>
         val (rb, _) = simplify(body, path withCond rp)
-        (Assume(rp, rb), false)
+        (Assume(rp, rb).copiedFrom(e), false)
     }
 
-    case IsConstructor(e, id) =>
+    case ic @ IsConstructor(e, id) =>
       val (re, pe) = simplify(path expand e, path)
       isConstructor(re, id, path) match {
-        case Some(b) if pe => (BooleanLiteral(b), true)
-        case Some(b) => (Let("e" :: re.getType, re, BooleanLiteral(b)), pe)
-        case None => (IsConstructor(re, id), pe)
+        case Some(b) if pe => (BooleanLiteral(b).copiedFrom(ic), true)
+        case Some(b) => (Let("e" :: re.getType, re, BooleanLiteral(b).copiedFrom(ic)).copiedFrom(ic), pe)
+        case None => (IsConstructor(re, id).copiedFrom(ic), pe)
       }
 
     case s @ ADTSelector(e, sel) =>
@@ -171,13 +171,13 @@ trait SimplifierWithPC extends TransformerWithPostPC { self =>
             val value = es(index)
             val freshFields = cons.fields.map(_.freshen)
             val bindings = (freshFields zip es).filter(_._2 != value)
-            simplify(bindings.foldRight(value) { case ((vd, e), b) => Let(vd, e, b) }, path)
+            simplify(bindings.foldRight(value) { case ((vd, e), b) => Let(vd, e, b).copiedFrom(s) }, path)
 
           case _ =>
-            (ADTSelector(re, sel), pe)
+            (ADTSelector(re, sel).copiedFrom(s), pe)
         }
       } else {
-        (ADTSelector(re, sel), opts.assumeChecked)
+        (ADTSelector(re, sel).copiedFrom(s), opts.assumeChecked)
       }
 
     case adt @ ADT(id, tps, args) =>
@@ -192,36 +192,36 @@ trait SimplifierWithPC extends TransformerWithPostPC { self =>
           es.forall(_ == e) &&
           e.getType == adt.getType &&
           (isConstructor(e, id, path) contains true)) => e
-        case _ => ADT(id, tps, rargs)
+        case _ => ADT(id, tps, rargs).copiedFrom(adt)
       }
+
       // Note that if `isConstructor(e, id, path)` holds for each ADTSelector argument
       // in rargs, then these selectors will be marked as pure by the simplifier so we
       // don't need to do any special recomputation of pargs
-      val pe = pargs.foldLeft(opts.assumeChecked || !isImpureExpr(newAdt))(_ && _)
-      (newAdt, pe)
+      (newAdt, pargs.foldLeft(opts.assumeChecked || !isImpureExpr(newAdt))(_ && _))
 
-    case TupleSelect(e, i) => simplify(path expand e, path) match {
+    case ts @ TupleSelect(e, i) => simplify(path expand e, path) match {
       case (Tuple(es), true) => (es(i - 1), true)
       case (Tuple(es), pe) =>
         (es.zipWithIndex.filter(_._2 != i - 1).foldRight(es(i - 1)) {
-          case ((e, _), b) => Let("e" :: e.getType, e, b)
+          case ((e, _), b) => Let("e" :: e.getType, e, b).copiedFrom(ts)
         }, pe)
-      case (re, pe) => (TupleSelect(re, i), pe)
+      case (re, pe) => (TupleSelect(re, i).copiedFrom(ts), pe)
     }
 
     case Let(vd, IfExpr(c1, t1, e1), IfExpr(c2, t2, e2)) if c1 == c2 =>
-      simplify(IfExpr(c1, Let(vd, t1, t2), Let(vd, e1, e2)), path)
+      simplify(IfExpr(c1, Let(vd, t1, t2).copiedFrom(e), Let(vd, e1, e2).copiedFrom(e)).copiedFrom(e), path)
 
     case Let(vd, v: Variable, b) => simplify(replaceFromSymbols(Map(vd -> v), b), path)
 
-    case Let(vd, adt @ ADT(id, tps, es), b) if es.exists { case _: ADT => true case _ => false } =>
+    case let @ Let(vd, adt @ ADT(id, tps, es), b) if es.exists { case _: ADT => true case _ => false } =>
       val (nes, bindings) = (adt.getConstructor.fields.map(_.freshen) zip es).map {
         case (vd, a: ADT) => (vd.toVariable, Some(vd -> a))
         case (_, e) => (e, None)
       }.unzip
 
-      simplify(bindings.flatten.foldRight(Let(vd, ADT(id, tps, nes), b)) {
-        case ((vd, e), b) => Let(vd, e, b)
+      simplify(bindings.flatten.foldRight(Let(vd, ADT(id, tps, nes).copiedFrom(adt), b).copiedFrom(let)) {
+        case ((vd, e), b) => Let(vd, e, b).copiedFrom(let)
       }, path)
 
     case let @ Let(vd, e, b) =>
@@ -249,7 +249,7 @@ trait SimplifierWithPC extends TransformerWithPostPC { self =>
         // made sure that all possible simplifications have taken place in `rb`.
         (replaceFromSymbols(Map(vd -> re), rb), pe && pb)
       } else {
-        val newLet = Let(vd, re, rb)
+        val newLet = Let(vd, re, rb).copiedFrom(let)
         re match {
           case l: Lambda =>
             val inlined = inlineLambdas(newLet)
@@ -261,20 +261,20 @@ trait SimplifierWithPC extends TransformerWithPostPC { self =>
 
     case fi @ FunctionInvocation(id, tps, args) =>
       val (rargs, pargs) = args.map(simplify(_, path)).unzip
-      (FunctionInvocation(id, tps, rargs), pargs.foldLeft(isPureFunction(id))(_ && _))
+      (FunctionInvocation(id, tps, rargs).copiedFrom(fi), pargs.foldLeft(isPureFunction(id))(_ && _))
 
-    case Not(e)              => simplifyAndCons(Seq(e), path, es => not(es.head))
-    case Equals(l, r)        => simplifyAndCons(Seq(l, r), path, es => equality(es(0), es(1)))
-    case Tuple(es)           => simplifyAndCons(es, path, tupleWrap)
-    case UMinus(t)           => simplifyAndCons(Seq(t), path, es => uminus(es.head))
-    case Plus(l, r)          => simplifyAndCons(Seq(l, r), path, es => plus(es(0), es(1)))
-    case Minus(l, r)         => simplifyAndCons(Seq(l, r), path, es => minus(es(0), es(1)))
-    case Times(l, r)         => simplifyAndCons(Seq(l, r), path, es => times(es(0), es(1)))
-    case Forall(args, body)  => simplifyAndCons(Seq(body), path, es => simpForall(args, es.head))
+    case n @ Not(e)           => simplifyAndCons(Seq(e), path, es => not(es.head).copiedFrom(n))
+    case Equals(l, r)         => simplifyAndCons(Seq(l, r), path, es => equality(es(0), es(1)).copiedFrom(e))
+    case Tuple(es)            => simplifyAndCons(es, path, es => tupleWrap(es).copiedFrom(e))
+    case UMinus(t)            => simplifyAndCons(Seq(t), path, es => uminus(es.head).copiedFrom(e))
+    case Plus(l, r)           => simplifyAndCons(Seq(l, r), path, es => plus(es(0), es(1)).copiedFrom(e))
+    case Minus(l, r)          => simplifyAndCons(Seq(l, r), path, es => minus(es(0), es(1)).copiedFrom(e))
+    case Times(l, r)          => simplifyAndCons(Seq(l, r), path, es => times(es(0), es(1)).copiedFrom(e))
+    case Forall(params, body) => simplifyAndCons(Seq(body), path, es => simpForall(params, es.head).copiedFrom(e))
 
-    case Application(e, es)  =>
+    case app @ Application(e, es)  =>
       val (caller, recons): (Expr, Expr => Expr) = simplify(e, path) match {
-        case (Assume(pred, e), _) => (e, assume(pred, _))
+        case (ra @ Assume(pred, e), _) => (e, assume(pred, _).copiedFrom(ra))
         case (e, _) => (e, expr => expr)
       }
 
@@ -282,7 +282,7 @@ trait SimplifierWithPC extends TransformerWithPostPC { self =>
         case (l: Lambda) => simplify(recons(application(l, es)), path)
         case _ =>
           val (res, _) = es.map(simplify(_, path)).unzip
-          (application(caller, res), opts.assumeChecked)
+          (application(caller, res).copiedFrom(app), opts.assumeChecked)
       }
 
     case _ =>

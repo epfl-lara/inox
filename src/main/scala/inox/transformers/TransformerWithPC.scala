@@ -4,8 +4,7 @@ package inox
 package transformers
 
 /** A [[Transformer]] that uses the path condition _before transformation_ as environment */
-trait TransformerWithPrePC extends Transformer {
-
+trait TransformerWithPC extends Transformer {
   type Env <: s.PathLike[Env]
 
   override def transform(e: s.Expr, env: Env): t.Expr = e match {
@@ -55,78 +54,6 @@ trait TransformerWithPrePC extends Transformer {
 
     case s.Implies(lhs, rhs) =>
       t.Implies(transform(lhs, env), transform(rhs, env withCond lhs)).copiedFrom(e)
-
-    case _ => super.transform(e, env)
-  }
-}
-
-/** A [[Transformer]] that uses the path condition _after transformation_ as environment */
-trait TransformerWithPostPC extends Transformer {
-
-  type Env <: t.PathLike[Env]
-
-  override def transform(e: s.Expr, env: Env): t.Expr = e match {
-    case s.Let(i, v, b) =>
-      val si = transform(i, env)
-      val se = transform(v, env)
-      val sb = transform(b, env withBinding (si -> se))
-      t.Let(si, se, sb).copiedFrom(e)
-
-    case s.Lambda(params, b) =>
-      val (sparams, senv) = params.foldLeft((Seq[t.ValDef](), env)) {
-        case ((sparams, env), vd) =>
-          val svd = transform(vd, env)
-          (sparams :+ svd, env withBound svd)
-      }
-      val sb = transform(b, senv)
-      t.Lambda(sparams, sb).copiedFrom(e)
-
-    case s.Forall(params, b) =>
-      val (sparams, senv) = params.foldLeft((Seq[t.ValDef](), env)) {
-        case ((sparams, env), vd) =>
-          val svd = transform(vd, env)
-          (sparams :+ svd, env withBound svd)
-      }
-      val sb = transform(b, senv)
-      t.Forall(sparams, sb).copiedFrom(e)
-
-    case s.Choose(res, p) =>
-      val sres = transform(res, env)
-      val sp = transform(p, env withBound sres)
-      t.Choose(sres, sp).copiedFrom(e)
-
-    case s.Assume(pred, body) =>
-      val sp = transform(pred, env)
-      val sb = transform(body, env withCond sp)
-      t.Assume(sp, sb).copiedFrom(e)
-
-    case s.IfExpr(cond, thenn, elze) =>
-      val rc = transform(cond, env)
-      t.IfExpr(
-        rc,
-        transform(thenn, env withCond rc),
-        transform(elze, env withCond t.Not(rc).copiedFrom(rc))
-      ).copiedFrom(e)
-
-    case s.And(es) =>
-      var soFar = env
-      t.andJoin(for(e <- es) yield {
-        val se = transform(e, soFar)
-        soFar = soFar withCond se
-        se
-      }).copiedFrom(e)
-
-    case s.Or(es) =>
-      var soFar = env
-      t.orJoin(for(e <- es) yield {
-        val se = transform(e, soFar)
-        soFar = soFar withCond t.Not(se).copiedFrom(se)
-        se
-      }).copiedFrom(e)
-
-    case s.Implies(lhs, rhs) =>
-      val rc = transform(lhs, env)
-      t.Implies(rc, transform(rhs, env withCond rc)).copiedFrom(e)
 
     case _ => super.transform(e, env)
   }

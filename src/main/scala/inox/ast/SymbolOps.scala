@@ -1103,7 +1103,7 @@ trait SymbolOps { self: TypeOps =>
   protected class TransformerWithPC[P <: PathLike[P]](
     val initEnv: P,
     val exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr
-  ) extends transformers.TransformerWithPrePC { self0: TransformerWithExprOp =>
+  ) extends transformers.TransformerWithPC { self0: TransformerWithExprOp =>
     override val s: self.trees.type = self.trees
     override val t: self.trees.type = self.trees
     override type Env = P
