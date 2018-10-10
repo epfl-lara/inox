@@ -73,7 +73,7 @@ trait Program { self =>
   } = getSemantics.getEvaluator(ctx)
 
 
-  def transform(t: Transformer { val s: self.trees.type }): Program { val trees: t.t.type } =
+  def transform(t: DefinitionTransformer { val s: self.trees.type }): Program { val trees: t.t.type } =
     Program(t.t)(symbols transform t)
 
   def transform(t: SymbolTransformer { val s: self.trees.type }): Program { val trees: t.t.type } =

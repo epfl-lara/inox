@@ -8,7 +8,6 @@ trait Transformer {
   val t: ast.Trees
 
   type Env
-  def initEnv: Env
 
   lazy val deconstructor: ast.TreeDeconstructor {
     val s: Transformer.this.s.type
@@ -166,6 +165,10 @@ trait Transformer {
       flag.asInstanceOf[t.Flag]
     }
   }
+}
+
+trait DefinitionTransformer extends Transformer {
+  def initEnv: Env
 
   def transform(fd: s.FunDef): t.FunDef = {
     val env = initEnv
@@ -198,7 +201,7 @@ trait Transformer {
   }
 }
 
-trait TreeTransformer extends Transformer {
+trait TreeTransformer extends DefinitionTransformer {
   override final type Env = Unit
   override final val initEnv: Unit = ()
 

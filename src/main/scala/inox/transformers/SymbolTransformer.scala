@@ -60,7 +60,7 @@ trait SimpleSymbolTransformer extends SymbolTransformer { self =>
 }
 
 object SymbolTransformer {
-  def apply(trans: Transformer): SymbolTransformer {
+  def apply(trans: DefinitionTransformer): SymbolTransformer {
     val s: trans.s.type
     val t: trans.t.type
   } = new SimpleSymbolTransformer {

@@ -39,6 +39,8 @@ trait SimplifierWithPC extends Transformer { self =>
 
   type Env <: PathLike[Env] with SolvingPath
 
+  def initEnv: Env
+
   private[this] val dynStack = new ThreadLocal[List[Int]] { override def initialValue = Nil }
   private[this] val dynPurity = new ThreadLocal[List[Boolean]] { override def initialValue = Nil }
 

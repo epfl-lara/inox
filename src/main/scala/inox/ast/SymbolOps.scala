@@ -1109,13 +1109,19 @@ trait SymbolOps { self: TypeOps =>
     override type Env = P
   }
 
-  /** Override point for transformer with PC creation */
+  /** Override point for transformer with PC creation
+    * 
+    * Note that we don't actually need the `PathProvider[P]` here but it will
+    * become useful in the Stainless overrides. */
   protected def createTransformer[P <: PathLike[P]](
     path: P, exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr
-  ): TransformerWithPC[P] = new TransformerWithPC(path, exprOp) with TransformerWithExprOp
+  )(implicit pp: PathProvider[P]): TransformerWithPC[P] = {
+    new TransformerWithPC(path, exprOp) with TransformerWithExprOp
+  }
 
   def transformWithPC[P <: PathLike[P]](e: Expr, path: P)
-                                       (exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr): Expr = {
+                                       (exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr)
+                                       (implicit pp: PathProvider[P]): Expr = {
     createTransformer[P](path, exprOp).transform(e, path)
   }
 
@@ -1123,7 +1129,8 @@ trait SymbolOps { self: TypeOps =>
     transformWithPC(e, Path.empty)(exprOp)
 
   def collectWithPC[P <: PathLike[P], T](e: Expr, path: P)
-                                        (pf: PartialFunction[(Expr, P), T]): Seq[T] = {
+                                        (pf: PartialFunction[(Expr, P), T])
+                                        (implicit pp: PathProvider[P]): Seq[T] = {
     var results: Seq[T] = Nil
     var pfLift = pf.lift
     transformWithPC(e, path) { (e, path, op) =>
@@ -1136,7 +1143,8 @@ trait SymbolOps { self: TypeOps =>
   def collectWithPC[T](e: Expr)(pf: PartialFunction[(Expr, Path), T]): Seq[T] = collectWithPC(e, Path.empty)(pf)
 
   def existsWithPC[P <: PathLike[P]](e: Expr, path: P)
-                                    (p: (Expr, P) => Boolean): Boolean = {
+                                    (p: (Expr, P) => Boolean)
+                                    (implicit pp: PathProvider[P]): Boolean = {
     var result = false
     transformWithPC(e, path) { (e, path, op) =>
       if (result || p(e, path)) {

@@ -192,7 +192,9 @@ trait Definitions { self: Trees =>
       functions.map(p => prettyPrint(p._2, opts)).mkString("\n\n")
     }
 
-    def transform(t: Transformer { val s: self.type }): t.t.Symbols = SymbolTransformer(t).transform(this)
+    def transform(t: DefinitionTransformer { val s: self.type }): t.t.Symbols = {
+      SymbolTransformer(t).transform(this)
+    }
 
     /** Makes sure these symbols pass a certain number of well-formedness checks, such as
       * - function definition bodies satisfy the declared return types
