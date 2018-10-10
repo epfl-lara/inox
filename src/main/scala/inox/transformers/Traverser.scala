@@ -85,6 +85,9 @@ trait TreeTraverser extends Traverser {
   def traverse(vd: ValDef): Unit = super.traverse(vd, ())
   override final def traverse(vd: ValDef, env: Env): Unit = traverse(vd)
 
+  def traverse(tpd: TypeParameterDef): Unit = super.traverse(tpd, ())
+  override final def traverse(tpd: TypeParameterDef, env: Env): Unit = traverse(tpd)
+
   def traverse(e: Expr): Unit = super.traverse(e, ())
   override final def traverse(e: Expr, env: Env): Unit = traverse(e)
 
