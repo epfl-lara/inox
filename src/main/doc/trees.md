@@ -112,31 +112,37 @@ Given tree extensions (and thus multiple tree types), transforming from one tree
 to another becomes a relevant feature. Inox provides two different transformation
 interfaces for such cases:
 
-1. [TreeTransformer](/src/main/scala/inox/ast/TreeOps.scala):
-   as long as the transformation can be performed without any extra context
-   (*i.e.* symbol table or program), one should create an instance of `TreeTransformer`:
+1. [Transformer and TreeTransformer](/src/main/scala/inox/transformers/Transformer.scala):
+   the `Transformer` class allows for transformations with a context parameter
     ```scala
-    new inox.ast.TreeTransformer {
+    new inox.transformers.Transformer {
       val s: source.type = source
       val t: target.type = target
-      
-      override def transform(e: s.Expr): t.Expr = e match {
+      type Env = EnvironmentType
+
+      override def transform(e: s.Expr, env: Env): t.Expr = e match {
         // do some useful expression transformations
-        case _ => super.transform(e)
+        case _ => super.transform(e, env)
       }
-      
+
+      // override some more transformers
+    }
+    ```
+   whereas `TreeTransformer` focusses on context-less transformations
+    ```scala
+    new inox.transformers.TreeTransformer {
+      val s: source.type = source
+      val t: target.type = target
+
       override def transform(tpe: s.Type): t.Type = tpe match {
         // do some useful type transformations
         case _ => super.transform(tpe)
       }
-      
-      override def transform(f: s.Flag): t.Flag = f match {
-        // do some useful flag transformations
-        case _ => super.transform(f)
-      }
+
+      // override some more transformers
     }
     ```
-    
+
 2. [SymbolTransformer](/src/main/scala/inox/ast/TreeOps.scala):
    if one needs extra context for the transformation or wants to add/remove definitions
    from the symbol table, one should create an instance of `SymbolTransformer`:
@@ -144,11 +150,11 @@ interfaces for such cases:
     new inox.ast.SymbolTransformer {
       val s: source.type = source
       val t: target.type = target
-      
+
       override def transform(syms: s.Symbols): t.Symbols = { /* ... stuff ... */ }
     }
     ```
-    
+
 It is sometimes useful to have a bidirectional translation between two sorts of trees.
 Inox provides a mechanism to maintain an encoder/decoder pair alongside a pair of
 source and target programs through an instance of
@@ -174,7 +180,7 @@ our new tree definitions, two different approaches can be taken:
    translated back and forth, however only *values* need be decodable. See the
    `InoxEncoder` and `SolverFactory` definitions in
    [Stainless](https://github.com/epfl-lara/stainless) for some examples of this option.
-   
+
 In order for the `getSemantics` method on `Program { val trees: yourTrees.type }` to be
 available, it remains to define an implicit instance of
 `SemanticsProvider { val trees: yourTrees.type }` (see
