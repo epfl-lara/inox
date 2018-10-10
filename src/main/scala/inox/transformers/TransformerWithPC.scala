@@ -57,5 +57,24 @@ trait TransformerWithPC extends Transformer {
 
     case _ => super.transform(e, env)
   }
+
+  override def transform(tpe: s.Type, env: Env): t.Type = tpe match {
+    case s.RefinementType(vd, prop) =>
+      t.RefinementType(transform(vd, env), transform(prop, env withBound vd)).copiedFrom(tpe)
+
+    case s.PiType(params, to) =>
+      val (sparams, senv) = params.foldLeft((Seq[t.ValDef](), env)) {
+        case ((sparams, env), vd) => (sparams :+ transform(vd, env), env withBound vd)
+      }
+      t.PiType(sparams, transform(to, senv)).copiedFrom(tpe)
+
+    case s.SigmaType(params, to) =>
+      val (sparams, senv) = params.foldLeft((Seq[t.ValDef](), env)) {
+        case ((sparams, env), vd) => (sparams :+ transform(vd, env), env withBound vd)
+      }
+      t.SigmaType(sparams, transform(to, senv)).copiedFrom(tpe)
+
+    case _ => super.transform(tpe, env)
+  }
 }
 
