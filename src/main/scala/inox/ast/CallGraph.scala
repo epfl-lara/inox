@@ -12,14 +12,14 @@ trait CallGraph {
   import trees.exprOps._
   protected val symbols: Symbols
 
-  protected class Collector extends TreeTraverser {
+  protected trait Collector extends TreeTraverser {
     private[this] var ids: Set[Identifier] = Set.empty
 
     protected def register(id: Identifier): Unit = ids += id
     def result: Set[Identifier] = ids
   }
 
-  protected class FunctionCollector extends Collector {
+  protected trait FunctionCollector extends Collector {
     override def traverse(expr: Expr): Unit = expr match {
       case FunctionInvocation(id, _, _) =>
         register(id)
@@ -29,7 +29,7 @@ trait CallGraph {
     }
   }
 
-  protected def getFunctionCollector: FunctionCollector = new FunctionCollector
+  protected def getFunctionCollector: Collector = new FunctionCollector {}
 
   private def collectCalls(fd: FunDef): Set[Identifier] = {
     val collector = getFunctionCollector

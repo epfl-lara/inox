@@ -9,7 +9,7 @@ import utils.Graphs._
 trait DependencyGraph extends CallGraph {
   import trees._
 
-  protected class SortCollector extends Collector {
+  protected trait SortCollector extends Collector {
     override def traverse(tpe: Type): Unit = tpe match {
       case ADTType(id, _) =>
         register(id)
@@ -27,7 +27,7 @@ trait DependencyGraph extends CallGraph {
     }
   }
 
-  protected def getSortCollector: SortCollector = new SortCollector
+  protected def getSortCollector: Collector = new SortCollector {}
 
   private def collectSorts(fd: FunDef): Set[Identifier] = {
     val collector = getSortCollector
