@@ -6,6 +6,7 @@ package ast
 import utils._
 import solvers.{PurityOptions, SimplificationOptions}
 import evaluators.EvaluationResults._
+import transformers._
 
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
@@ -70,7 +71,18 @@ trait SymbolOps { self: TypeOps =>
     postMap(step)(expr)
   }
 
-  def simplifyExpr(expr: Expr)(implicit opts: PurityOptions): Expr = simplifier.transform(expr)
+  def simplifyExpr(expr: Expr)(implicit opts: PurityOptions): Expr = simplifyIn(expr, Path.empty)
+
+  def simplifyIn(e: Expr, path: Path)(implicit opts: PurityOptions): Expr = {
+    val s = simplifier
+    val env = path.elements.foldLeft(s.initEnv) {
+      case (env, Path.CloseBound(vd, e)) => env withBinding (vd -> e)
+      case (env, Path.OpenBound(vd)) => env withBound vd
+      case (env, Path.Condition(cond)) => env withCond cond
+    }
+
+    s.transform(e, env)
+  }
 
   /** Returns 'true' iff the evaluation of expression `expr` cannot lead to a crash. */
   def isPure(expr: Expr)(implicit opts: PurityOptions): Boolean = isPureIn(expr, Path.empty)
@@ -311,11 +323,11 @@ trait SymbolOps { self: TypeOps =>
             preserveApps
           ) =>
             val Operator(es, recons) = e
-            recons(es.map(op.rec(_, env)))
+            recons(es.map(op(_, env)))
 
           case Let(vd, e @ liftable(conditions), b) =>
             subst(vd.toVariable) = (e, conditions)
-            op.rec(b, env)
+            op(b, env)
 
           case expr @ liftable(conditions) =>
             getVariable(expr, expr.getType, conditions = conditions)
@@ -337,7 +349,7 @@ trait SymbolOps { self: TypeOps =>
 
           // Make sure we don't lift applications to applications when they have basic shapes
           case Application(liftable(_), args) if args.forall(liftable.unapply(_).isEmpty) =>
-            op.superRec(e, env)
+            op.sup(e, env)
 
           // This case enables lifting of impure expressions into lambdas outside of the expression
           // to normalize to improve normalized structure equality in the presence of impurity.
@@ -375,13 +387,13 @@ trait SymbolOps { self: TypeOps =>
 
             Application(
               getVariable(lambda, lambda.getType, conditions = conditions),
-              esWithParams.collect { case (e, Some(_)) => e }.map(op.rec(_, env))
+              esWithParams.collect { case (e, Some(_)) => e }.map(op(_, env))
             )
 
           case _ =>
             val (ids, vs, es, tps, flags, recons) = deconstructor.deconstruct(e)
             val newVs = vs map transformVar
-            op.superRec(recons(ids, newVs, es, tps, flags), env)
+            op.sup(recons(ids, newVs, es, tps, flags), env)
         }
       }
     }
@@ -874,8 +886,8 @@ trait SymbolOps { self: TypeOps =>
         (env.conditions ++ env.bindings.map(_._2)).forall(isSimple)
       ) =>
         assumptions :+= freshenLocals(env implies pred)
-        op.rec(body, env withCond pred)
-      case _ => op.superRec(e, env)
+        op(body, env withCond pred)
+      case _ => op.sup(e, env)
     })
 
     (assumptions, newExpr)
@@ -979,7 +991,7 @@ trait SymbolOps { self: TypeOps =>
           case l: Lambda =>
             val old = inLambda
             inLambda = true
-            val nl = op.superRec(l, path)
+            val nl = op.sup(l, path)
             inLambda = old
             nl
 
@@ -1006,10 +1018,10 @@ trait SymbolOps { self: TypeOps =>
             if ((!inLambda || isPure(fi)) && elements.isDefined) {
               pathFis :+= Path(elements.get) -> fi
             }
-            op.superRec(fi, path)
+            op.sup(fi, path)
 
           case _ =>
-            op.superRec(e, path)
+            op.sup(e, path)
         })
 
         pathFis.groupBy(_._2.tfd).mapValues(_.map(p => (p._1, p._2.args)).toSet)
@@ -1022,7 +1034,7 @@ trait SymbolOps { self: TypeOps =>
             (path.conditions == env.conditions) && e == oldE) {
             newE
           } else {
-            op.superRec(e, env)
+            op.sup(e, env)
           }
       }
 
@@ -1088,51 +1100,35 @@ trait SymbolOps { self: TypeOps =>
     }
   }
 
-  class TransformerOp[P <: PathLike[P]](val rec: (Expr, P) => Expr, val superRec: (Expr, P) => Expr)
-
-  protected trait TransformerWithFun extends transformers.TransformerWithPC {
-    val trees: self.trees.type
-    val symbols: self.symbols.type
-
-    val path: Env
-    val f: (Expr, Env, TransformerOp[Env]) => Expr
-    val op = new TransformerOp[Env](rec _, super.rec _)
-
-    override protected def rec(e: Expr, env: Env): Expr = f(e, env, op)
-  }
-
-  protected class TransformerWithPC[P <: PathLike[P]](val path: P, val f: (Expr, P, TransformerOp[P]) => Expr)
-    extends transformers.TransformerWithPC { self0: TransformerWithFun =>
-
-    val trees: self.trees.type = self.trees
-    val symbols: self.symbols.type = self.symbols
-    val initEnv = path
-    type Env = P
+  protected class TransformerWithPC[P <: PathLike[P]](
+    val initEnv: P,
+    val exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr
+  ) extends transformers.TransformerWithPrePC { self0: TransformerWithExprOp =>
+    override val s: self.trees.type = self.trees
+    override val t: self.trees.type = self.trees
+    override type Env = P
   }
 
   /** Override point for transformer with PC creation */
-  protected def createTransformer[P <: PathLike[P]](path: P, f: (Expr, P, TransformerOp[P]) => Expr)
-                                                   (implicit pp: PathProvider[P]): TransformerWithPC[P] = {
-    new TransformerWithPC(path, f) with TransformerWithFun
-  }
+  protected def createTransformer[P <: PathLike[P]](
+    path: P, exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr
+  ): TransformerWithPC[P] = new TransformerWithPC(path, exprOp) with TransformerWithExprOp
 
   def transformWithPC[P <: PathLike[P]](e: Expr, path: P)
-                                       (f: (Expr, P, TransformerOp[P]) => Expr)
-                                       (implicit pp: PathProvider[P]): Expr = {
-    createTransformer[P](path, f).transform(e)
+                                       (exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr): Expr = {
+    createTransformer[P](path, exprOp).transform(e, path)
   }
 
-  def transformWithPC(e: Expr)(f: (Expr, Path, TransformerOp[Path]) => Expr): Expr =
-    transformWithPC(e, Path.empty)(f)
+  def transformWithPC(e: Expr)(exprOp: (Expr, Path, TransformerOp[Expr, Path, Expr]) => Expr): Expr =
+    transformWithPC(e, Path.empty)(exprOp)
 
   def collectWithPC[P <: PathLike[P], T](e: Expr, path: P)
-                                        (pf: PartialFunction[(Expr, P), T])
-                                        (implicit pp: PathProvider[P]): Seq[T] = {
+                                        (pf: PartialFunction[(Expr, P), T]): Seq[T] = {
     var results: Seq[T] = Nil
     var pfLift = pf.lift
     transformWithPC(e, path) { (e, path, op) =>
       results ++= pfLift(e, path)
-      op.superRec(e, path)
+      op.sup(e, path)
     }
     results
   }
@@ -1140,15 +1136,14 @@ trait SymbolOps { self: TypeOps =>
   def collectWithPC[T](e: Expr)(pf: PartialFunction[(Expr, Path), T]): Seq[T] = collectWithPC(e, Path.empty)(pf)
 
   def existsWithPC[P <: PathLike[P]](e: Expr, path: P)
-                                    (p: (Expr, P) => Boolean)
-                                    (implicit pp: PathProvider[P]): Boolean = {
+                                    (p: (Expr, P) => Boolean): Boolean = {
     var result = false
     transformWithPC(e, path) { (e, path, op) =>
       if (result || p(e, path)) {
         result = true
         e
       } else {
-        op.superRec(e, path)
+        op.sup(e, path)
       }
     }
     result

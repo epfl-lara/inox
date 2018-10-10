@@ -4,6 +4,7 @@ package inox
 package ast
 
 import inox.parsing.Interpolator
+import inox.transformers._
 import inox.utils._
 
 import scala.collection.concurrent.{Map => ConcurrentMap}
@@ -120,8 +121,7 @@ trait Definitions { self: Trees =>
         with TypeOps
         with SymbolOps
         with CallGraph
-        with DependencyGraph
-        with Paths { self0: Symbols =>
+        with DependencyGraph { self0: Symbols =>
 
     val sorts: Map[Identifier, ADTSort]
     val functions: Map[Identifier, FunDef]
@@ -192,7 +192,7 @@ trait Definitions { self: Trees =>
       functions.map(p => prettyPrint(p._2, opts)).mkString("\n\n")
     }
 
-    def transform(t: TreeTransformer { val s: self.type }): t.t.Symbols = SymbolTransformer(t).transform(this)
+    def transform(t: Transformer { val s: self.type }): t.t.Symbols = SymbolTransformer(t).transform(this)
 
     /** Makes sure these symbols pass a certain number of well-formedness checks, such as
       * - function definition bodies satisfy the declared return types

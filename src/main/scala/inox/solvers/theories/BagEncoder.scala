@@ -242,7 +242,7 @@ trait BagEncoder extends SimpleEncoder {
 }
 
 object BagEncoder {
-  def apply(enc: ast.ProgramTransformer)
+  def apply(enc: transformers.ProgramTransformer)
            (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }):
            BagEncoder { val sourceProgram: enc.targetProgram.type } = new {
     val sourceProgram: enc.targetProgram.type = enc.targetProgram

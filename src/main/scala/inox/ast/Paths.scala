@@ -5,8 +5,7 @@ package ast
 
 import utils._
 
-trait Paths { self: SymbolOps with TypeOps =>
-  import trees._
+trait Paths { self: Trees =>
 
   trait PathLike[Self <: PathLike[Self]] { self: Self =>
 
@@ -188,7 +187,7 @@ trait Paths { self: SymbolOps with TypeOps =>
     override def negate: Path = _negate.get
     private[this] val _negate: Lazy[Path] = Lazy {
       val (outers, rest) = elements span { !_.isInstanceOf[Condition] }
-      new Path(outers) :+ Condition(not(fold[Expr](BooleanLiteral(true), let, trees.and(_, _))(rest)))
+      new Path(outers) :+ Condition(not(fold[Expr](BooleanLiteral(true), Let, self.and(_, _))(rest)))
     }
 
     /** Free variables within the path */
@@ -263,15 +262,15 @@ trait Paths { self: SymbolOps with TypeOps =>
       */
     private def distributiveClause(base: Expr, combine: (Expr, Expr) => Expr): Expr = {
       val (outers, rest) = elements span { !_.isInstanceOf[Condition] }
-      val inner = fold[Expr](base, let, combine)(rest)
-      fold[Expr](inner, let, (_,_) => scala.sys.error("Should never happen!"))(outers)
+      val inner = fold[Expr](base, Let, combine)(rest)
+      fold[Expr](inner, Let, (_,_) => scala.sys.error("Should never happen!"))(outers)
     }
 
     /** Folds the path into a conjunct with the expression `base` */
-    def and(base: Expr) = distributiveClause(base, trees.and(_, _))
+    def and(base: Expr) = distributiveClause(base, self.and(_, _))
 
     /** Fold the path into an implication of `base`, namely `path ==> base` */
-    def implies(base: Expr) = distributiveClause(base, trees.implies)
+    def implies(base: Expr) = distributiveClause(base, self.implies)
 
     /** Folds the path into the associated boolean proposition */
     @inline def toClause: Expr = _clause.get
@@ -290,7 +289,7 @@ trait Paths { self: SymbolOps with TypeOps =>
 
     override def hashCode: Int = elements.hashCode
 
-    override def toString = asString(PrinterOptions(symbols = Some(symbols)))
+    override def toString = asString(PrinterOptions())
     def asString(implicit opts: PrinterOptions): String = fullClause.asString
   }
 }

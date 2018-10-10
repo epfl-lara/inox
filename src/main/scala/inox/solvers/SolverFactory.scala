@@ -3,6 +3,8 @@
 package inox
 package solvers
 
+import transformers._
+
 trait SolverFactory {
   val program: Program
 
@@ -86,7 +88,7 @@ object SolverFactory {
 
   def getFromName(name: String, force: Boolean = false)
                  (p: Program, ctx: Context)
-                 (enc: ast.ProgramTransformer {
+                 (enc: ProgramTransformer {
                     val sourceProgram: p.type
                     val targetProgram: Program { val trees: inox.trees.type }
                   })(implicit sem: p.Semantics): SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } } = {
@@ -308,7 +310,7 @@ object SolverFactory {
   val solvers: Set[String] = solverNames.map(_._1).toSet
 
   def getFromSettings(p: Program, ctx: Context)
-                     (enc: ast.ProgramTransformer {
+                     (enc: ProgramTransformer {
                         val sourceProgram: p.type
                         val targetProgram: Program { val trees: inox.trees.type }
                       })(implicit sem: p.Semantics): SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } } = {
@@ -340,7 +342,7 @@ object SolverFactory {
       case Seq() => throw FatalError("No selected solver")
       case Seq(single) =>
         val name = if (single.endsWith("-opt")) single else single + "-opt"
-        getFromName(name, force = solversOpt.isDefined)(p, ctx)(ast.ProgramEncoder.empty(p))(p.getSemantics).asInstanceOf[SolverFactory {
+        getFromName(name, force = solversOpt.isDefined)(p, ctx)(ProgramEncoder.empty(p))(p.getSemantics).asInstanceOf[SolverFactory {
           val program: p.type
           type S <: Optimizer with TimeoutSolver { val program: p.type }
         }]
@@ -351,7 +353,7 @@ object SolverFactory {
   def apply(name: String, p: InoxProgram, ctx: Context, force: Boolean = false): SolverFactory {
     val program: p.type
     type S <: TimeoutSolver { val program: p.type }
-  } = getFromName(name, force = force)(p, ctx)(ast.ProgramEncoder.empty(p))(p.getSemantics)
+  } = getFromName(name, force = force)(p, ctx)(ProgramEncoder.empty(p))(p.getSemantics)
 
   def apply(p: InoxProgram, ctx: Context): SolverFactory {
     val program: p.type

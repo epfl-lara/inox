@@ -13,7 +13,7 @@ trait TipDebugger extends Solver {
   import program.trees._
   import SolverResponses._
 
-  protected val encoder: ast.ProgramTransformer {
+  protected val encoder: transformers.ProgramTransformer {
     val sourceProgram: program.type
     val targetProgram: Program { val trees: inox.trees.type }
   }

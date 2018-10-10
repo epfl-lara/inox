@@ -6,12 +6,12 @@ package theories
 
 import utils._
 
-trait TheoryEncoder extends ast.ProgramTransformer { self =>
+trait TheoryEncoder extends transformers.ProgramTransformer { self =>
   val targetProgram: Program { val trees: sourceProgram.trees.type }
   lazy val trees: sourceProgram.trees.type = sourceProgram.trees
 }
 
-trait SimpleEncoder extends TheoryEncoder with ast.ProgramEncoder {
+trait SimpleEncoder extends TheoryEncoder with transformers.ProgramEncoder {
   val t: sourceProgram.trees.type = sourceProgram.trees
 }
 

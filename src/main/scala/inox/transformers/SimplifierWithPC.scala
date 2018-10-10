@@ -7,7 +7,13 @@ import utils._
 
 import scala.collection.mutable.{Map => MutableMap}
 
-trait SimplifierWithPC extends TransformerWithPC { self =>
+trait SimplifierWithPC extends TransformerWithPostPC { self =>
+  val trees: ast.Trees
+  val symbols: trees.Symbols
+
+  lazy val s: trees.type = trees
+  lazy val t: trees.type = trees
+
   import trees._
   import symbols._
   import exprOps._
@@ -286,7 +292,7 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
 
     case _ =>
       dynStack.set(0 :: dynStack.get)
-      val re = super.rec(e, path)
+      val re = super.transform(e, path)
       val (rpure, rest) = dynPurity.get.splitAt(dynStack.get.head)
       val pe = rpure.foldLeft(opts.assumeChecked || !isImpureExpr(re))(_ && _)
       dynStack.set(dynStack.get.tail)
@@ -301,10 +307,14 @@ trait SimplifierWithPC extends TransformerWithPC { self =>
     (re, pe)
   }
 
-  override protected final def rec(e: Expr, path: Env): Expr = {
+  override final def transform(e: Expr, path: Env): Expr = {
     dynStack.set(if (dynStack.get.isEmpty) Nil else (dynStack.get.head + 1) :: dynStack.get.tail)
     val (re, pe) = simplify(e, path)
     dynPurity.set(if (dynStack.get.isEmpty) dynPurity.get else pe :: dynPurity.get)
     re
   }
+
+  // We make sure to not simplify refinements as this could lead to
+  // variable and definition miss-matches during simplification
+  override def transform(tpe: Type, path: Env): Type = tpe
 }

@@ -32,7 +32,7 @@ trait Model { self =>
 
   def isEmpty: Boolean = vars.isEmpty && chooses.isEmpty
 
-  def encode(t: ast.ProgramTransformer {
+  def encode(t: transformers.ProgramTransformer {
     val sourceProgram: program.type
   }): t.targetProgram.Model = new inox.Model {
     val program: t.targetProgram.type = t.targetProgram

@@ -3,6 +3,7 @@
 package inox
 
 import ast._
+import transformers._
 
 /** Contains all definitions required to construct a complete Inox program.
   *
@@ -72,7 +73,7 @@ trait Program { self =>
   } = getSemantics.getEvaluator(ctx)
 
 
-  def transform(t: TreeTransformer { val s: self.trees.type }): Program { val trees: t.t.type } =
+  def transform(t: Transformer { val s: self.trees.type }): Program { val trees: t.t.type } =
     Program(t.t)(symbols transform t)
 
   def transform(t: SymbolTransformer { val s: self.trees.type }): Program { val trees: t.t.type } =

@@ -14,7 +14,8 @@ trait Trees
      with Types
      with Definitions
      with Printers
-     with TreeOps { self =>
+     with TreeOps
+     with Paths { self =>
 
   class UnsupportedTree(t: Tree, msg: String)(implicit ctx: Context)
     extends Unsupported(s"${t.asString(PrinterOptions.fromContext(ctx))}@${t.getPos} $msg")

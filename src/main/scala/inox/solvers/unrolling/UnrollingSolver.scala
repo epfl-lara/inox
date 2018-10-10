@@ -34,13 +34,13 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   protected type Encoded
 
-  protected val encoder: ast.ProgramTransformer { val sourceProgram: program.type }
+  protected val encoder: transformers.ProgramTransformer { val sourceProgram: program.type }
 
   protected val chooses: ChooseEncoder { val program: self.program.type; val sourceEncoder: self.encoder.type }
 
   protected lazy val fullEncoder = encoder andThen chooses
 
-  protected val theories: ast.ProgramTransformer {
+  protected val theories: transformers.ProgramTransformer {
     val sourceProgram: fullEncoder.targetProgram.type
     val targetProgram: Program { val trees: fullEncoder.targetProgram.trees.type }
   }

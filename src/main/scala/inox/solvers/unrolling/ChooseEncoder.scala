@@ -4,9 +4,9 @@ package inox
 package solvers
 package unrolling
 
-trait ChooseEncoder extends ast.ProgramTransformer {
+trait ChooseEncoder extends transformers.ProgramTransformer {
   val program: Program
-  val sourceEncoder: ast.ProgramTransformer { val sourceProgram: program.type }
+  val sourceEncoder: transformers.ProgramTransformer { val sourceProgram: program.type }
 
   lazy val sourceProgram: sourceEncoder.targetProgram.type = sourceEncoder.targetProgram
   import sourceProgram.trees._
@@ -68,12 +68,12 @@ trait ChooseEncoder extends ast.ProgramTransformer {
   lazy val targetProgram: Program { val trees: sourceEncoder.targetProgram.trees.type } =
     Program(sourceEncoder.targetProgram.trees)(sourceProgram.symbols withFunctions newFunctions)
 
-  protected object encoder extends ast.TreeTransformer {
+  protected object encoder extends transformers.TreeTransformer {
     val s: sourceProgram.trees.type = sourceProgram.trees
     val t: targetProgram.trees.type = targetProgram.trees
   }
 
-  protected object decoder extends ast.TreeTransformer {
+  protected object decoder extends transformers.TreeTransformer {
     val s: targetProgram.trees.type = targetProgram.trees
     val t: sourceProgram.trees.type = sourceProgram.trees
   }
@@ -88,7 +88,7 @@ trait ChooseEncoder extends ast.ProgramTransformer {
 }
 
 object ChooseEncoder {
-  def apply(p: Program)(enc: ast.ProgramTransformer { val sourceProgram: p.type }): ChooseEncoder {
+  def apply(p: Program)(enc: transformers.ProgramTransformer { val sourceProgram: p.type }): ChooseEncoder {
     val program: p.type
     val sourceEncoder: enc.type
   } = new ChooseEncoder {

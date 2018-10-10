@@ -19,7 +19,7 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
 
   override val name = "Princess"
 
-  protected lazy val theories: ast.ProgramTransformer {
+  protected lazy val theories: transformers.ProgramTransformer {
     val sourceProgram: fullEncoder.targetProgram.type
     val targetProgram: Program { val trees: fullEncoder.targetProgram.trees.type }
   } = solvers.theories.Princess(fullEncoder)(semantics.getEvaluator)
