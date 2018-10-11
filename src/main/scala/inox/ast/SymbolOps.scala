@@ -96,35 +96,57 @@ trait SymbolOps { self: TypeOps =>
     typeOp: (Type, Path, TransformerOp[Type, Path, Type]) => Type
   ): Expr = transformWithOps(e, Path.empty)(exprOp, typeOp)
 
+  def transformWithPC[P <: PathLike[P]](e: Expr, path: P, inTypes: Boolean)(
+    exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr
+  )(implicit pp: PathProvider[P]): Expr = {
+    val typeOp: (Type, P, TransformerOp[Type, P, Type]) => Type =
+      if (inTypes) (tpe: Type, env: P, op: TransformerOp[Type, P, Type]) => op.sup(tpe, env)
+      else (tpe: Type, env: P, op: TransformerOp[Type, P, Type]) => tpe
+    transformerWithPC[P](path, exprOp, typeOp).transform(e, path)
+  }
+
   def transformWithPC[P <: PathLike[P]](e: Expr, path: P)(
     exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr
   )(implicit pp: PathProvider[P]): Expr = {
-    transformerWithPC[P](path, exprOp, (tpe, env, op) => op.sup(tpe, env)).transform(e, path)
+    transformWithPC(e, path, false)(exprOp)
   }
+
+  def transformWithPC(e: Expr, inTypes: Boolean)(
+    exprOp: (Expr, Path, TransformerOp[Expr, Path, Expr]) => Expr
+  ): Expr = transformWithPC(e, Path.empty, inTypes)(exprOp)
 
   def transformWithPC(e: Expr)(
     exprOp: (Expr, Path, TransformerOp[Expr, Path, Expr]) => Expr
-  ): Expr = transformWithPC(e, Path.empty)(exprOp)
+  ): Expr = transformWithPC(e, false)(exprOp)
 
-  def collectWithPC[P <: PathLike[P], T](e: Expr, path: P)
+
+  def collectWithPC[P <: PathLike[P], T](e: Expr, path: P, inTypes: Boolean)
                                         (pf: PartialFunction[(Expr, P), T])
                                         (implicit pp: PathProvider[P]): Seq[T] = {
     var results: Seq[T] = Nil
     var pfLift = pf.lift
-    transformWithPC(e, path) { (e, path, op) =>
+    transformWithPC(e, path, inTypes) { (e, path, op) =>
       results ++= pfLift(e, path)
       op.sup(e, path)
     }
     results
   }
 
-  def collectWithPC[T](e: Expr)(pf: PartialFunction[(Expr, Path), T]): Seq[T] = collectWithPC(e, Path.empty)(pf)
+  def collectWithPC[P <: PathLike[P], T](e: Expr, path: P)
+                                        (pf: PartialFunction[(Expr, P), T])
+                                        (implicit pp: PathProvider[P]): Seq[T] = collectWithPC(e, path, false)(pf)
 
-  def existsWithPC[P <: PathLike[P]](e: Expr, path: P)
+  def collectWithPC[T](e: Expr, inTypes: Boolean)(pf: PartialFunction[(Expr, Path), T]): Seq[T] =
+    collectWithPC(e, Path.empty, inTypes)(pf)
+
+  def collectWithPC[T](e: Expr)(pf: PartialFunction[(Expr, Path), T]): Seq[T] = collectWithPC(e, false)(pf)
+
+
+  def existsWithPC[P <: PathLike[P]](e: Expr, path: P, inTypes: Boolean)
                                     (p: (Expr, P) => Boolean)
                                     (implicit pp: PathProvider[P]): Boolean = {
     var result = false
-    transformWithPC(e, path) { (e, path, op) =>
+    transformWithPC(e, path, inTypes) { (e, path, op) =>
       if (result || p(e, path)) {
         result = true
         e
@@ -135,7 +157,14 @@ trait SymbolOps { self: TypeOps =>
     result
   }
 
-  def existsWithPC(e: Expr)(p: (Expr, Path) => Boolean): Boolean = existsWithPC(e, Path.empty)(p)
+  def existsWithPC[P <: PathLike[P]](e: Expr, path: P)
+                                    (p: (Expr, P) => Boolean)
+                                    (implicit pp: PathProvider[P]): Boolean = existsWithPC(e, path, false)(p)
+
+  def existsWithPC(e: Expr, inTypes: Boolean)(p: (Expr, Path) => Boolean): Boolean =
+    existsWithPC(e, Path.empty, inTypes)(p)
+
+  def existsWithPC(e: Expr)(p: (Expr, Path) => Boolean): Boolean = existsWithPC(e, false)(p)
 
 
   /** Replace each node by its constructor
@@ -964,19 +993,16 @@ trait SymbolOps { self: TypeOps =>
     val vars = variablesOf(expr)
     var assumptions: Seq[Expr] = Seq.empty
 
-    val newExpr = transformWithOps(expr)(
-      (e, env, op) => e match {
-        case Assume(pred, body) if (
-          ((env unboundOf pred) subsetOf vars) &&
-          (env.conditions ++ env.bindings.map(_._2)).forall(isSimple)
-        ) =>
-          assumptions :+= freshenLocals(env implies pred)
-          op(body, env withCond pred)
-        case _ => op.sup(e, env)
-      },
-      // avoid transforming types to make sure var/vals types match
-      (tpe, env, op) => tpe
-    )
+    // Note that we avoid transforming types to make sure var/vals types match
+    val newExpr = transformWithPC(expr, false)((e, env, op) => e match {
+      case Assume(pred, body) if (
+        ((env unboundOf pred) subsetOf vars) &&
+        (env.conditions ++ env.bindings.map(_._2)).forall(isSimple)
+      ) =>
+        assumptions :+= freshenLocals(env implies pred)
+        op(body, env withCond pred)
+      case _ => op.sup(e, env)
+    })
 
     (assumptions, newExpr)
   }
@@ -1075,52 +1101,48 @@ trait SymbolOps { self: TypeOps =>
 
         var inLambda = false
         var pathFis: Seq[(Path, FunctionInvocation)] = Seq.empty
-        transformWithOps(e)(
-          (e, path, op) => e match {
-            case l: Lambda =>
-              val old = inLambda
-              inLambda = true
-              val nl = op.sup(l, path)
-              inLambda = old
-              nl
+        transformWithPC(e, false /* ignore calls within types */)((e, path, op) => e match {
+          case l: Lambda =>
+            val old = inLambda
+            inLambda = true
+            val nl = op.sup(l, path)
+            inLambda = old
+            nl
 
-            case fi: FunctionInvocation =>
-              def freeVars(elements: Seq[Path.Element]): Set[Variable] = {
-                val path = Path(elements)
-                path.freeVariables ++ variablesOf(fi) -- path.bound.map(_.toVariable)
-              }
+          case fi: FunctionInvocation =>
+            def freeVars(elements: Seq[Path.Element]): Set[Variable] = {
+              val path = Path(elements)
+              path.freeVariables ++ variablesOf(fi) -- path.bound.map(_.toVariable)
+            }
 
-              val elements = path.elements.foldRight(Some(Seq[Path.Element]()): Option[Seq[Path.Element]]) {
-                case (_, None) => None
-                case (Path.OpenBound(vd), Some(elements)) =>
-                  if (freeVars(elements) contains vd.toVariable) None
-                  else Some(elements) // No need to keep open bounds as we'll flatten to a condition
-                case (cb @ Path.CloseBound(vd, e), Some(elements)) =>
-                  if (exists { case fi: FunctionInvocation => true case _ => false }(e)) None
-                  else if (freeVars(elements) contains vd.toVariable) Some(cb +: elements)
-                  else Some(elements)
-                case (c @ Path.Condition(cond), Some(elements)) =>
-                  if (exists { case fi: FunctionInvocation => true case _ => false }(cond)) None
-                  else Some(c +: elements)
-              }
+            val elements = path.elements.foldRight(Some(Seq[Path.Element]()): Option[Seq[Path.Element]]) {
+              case (_, None) => None
+              case (Path.OpenBound(vd), Some(elements)) =>
+                if (freeVars(elements) contains vd.toVariable) None
+                else Some(elements) // No need to keep open bounds as we'll flatten to a condition
+              case (cb @ Path.CloseBound(vd, e), Some(elements)) =>
+                if (exists { case fi: FunctionInvocation => true case _ => false }(e)) None
+                else if (freeVars(elements) contains vd.toVariable) Some(cb +: elements)
+                else Some(elements)
+              case (c @ Path.Condition(cond), Some(elements)) =>
+                if (exists { case fi: FunctionInvocation => true case _ => false }(cond)) None
+                else Some(c +: elements)
+            }
 
-              if ((!inLambda || isPure(fi)) && elements.isDefined) {
-                pathFis :+= Path(elements.get) -> fi
-              }
-              op.sup(fi, path)
+            if ((!inLambda || isPure(fi)) && elements.isDefined) {
+              pathFis :+= Path(elements.get) -> fi
+            }
+            op.sup(fi, path)
 
-            case _ =>
-              op.sup(e, path)
-          },
-          // ignore calls within types
-          (tpe, path, op) => tpe
-        )
+          case _ =>
+            op.sup(e, path)
+        })
 
         pathFis.groupBy(_._2.tfd).mapValues(_.map(p => (p._1, p._2.args)).toSet)
       }
 
-      def replace(path: Path, oldE: Expr, newE: Expr, body: Expr): Expr = transformWithOps(body)(
-        (e, env, op) => {
+      def replace(path: Path, oldE: Expr, newE: Expr, body: Expr): Expr =
+        transformWithPC(body, false /* ignore calls within types */)((e, env, op) => {
           if ((path.bindings.toSet subsetOf env.bindings.toSet) &&
             (path.bound.toSet subsetOf env.bound.toSet) &&
             (path.conditions == env.conditions) && e == oldE) {
@@ -1128,10 +1150,7 @@ trait SymbolOps { self: TypeOps =>
           } else {
             op.sup(e, env)
           }
-        },
-        // ignore calls within types
-        (tpe, env, op) => tpe
-      )
+        })
 
       postMap {
         case IfExpr(cond, thenn, elze) =>
