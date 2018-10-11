@@ -132,7 +132,7 @@ trait Types { self: Trees =>
       private var counter: Int = 0
 
       override def transform(expr: Expr): Expr = expr match {
-        case v: Variable => subst.getOrElse(v, super.transform(v))
+        case v: Variable => subst.getOrElse(v, v)
         case _ => super.transform(expr)
       }
 
@@ -151,7 +151,7 @@ trait Types { self: Trees =>
 
   protected sealed trait TypeNormalization { self: Type with Product =>
     @inline
-    private def elements: List[Any] = _elements.get
+    private final def elements: List[Any] = _elements.get
     private[this] val _elements: utils.Lazy[List[Any]] = utils.Lazy({
       // @nv: note that we can't compare `normalized` directly as we are
       //      overriding the `equals` method and this would lead to non-termination.
