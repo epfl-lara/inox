@@ -35,13 +35,13 @@ trait SymbolOps { self: TypeOps =>
   }
 
   /** Override point for simplifier creation */
-  protected def createSimplifier(popts: PurityOptions): SimplifierWithPC = new {
+  def simplifierWithPC(popts: PurityOptions): SimplifierWithPC = new {
     val opts: PurityOptions = popts
   } with SimplifierWithPC with transformers.SimplifierWithPath
 
   private var simplifierCache: MutableMap[PurityOptions, SimplifierWithPC] = MutableMap.empty
   def simplifier(implicit purityOpts: PurityOptions): SimplifierWithPC = synchronized {
-    simplifierCache.getOrElseUpdate(purityOpts, createSimplifier(purityOpts))
+    simplifierCache.getOrElseUpdate(purityOpts, simplifierWithPC(purityOpts))
   }
 
   /** Replace each node by its constructor
@@ -1102,8 +1102,11 @@ trait SymbolOps { self: TypeOps =>
 
   protected class TransformerWithPC[P <: PathLike[P]](
     val initEnv: P,
-    val exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr
-  ) extends transformers.TransformerWithPC { self0: TransformerWithExprOp =>
+    val exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr,
+    val typeOp: (Type, P, TransformerOp[Type, P, Type]) => Type
+  ) extends transformers.TransformerWithPC {
+    self0: TransformerWithExprOp with TransformerWithTypeOp =>
+
     override val s: self.trees.type = self.trees
     override val t: self.trees.type = self.trees
     override type Env = P
@@ -1113,16 +1116,20 @@ trait SymbolOps { self: TypeOps =>
     * 
     * Note that we don't actually need the `PathProvider[P]` here but it will
     * become useful in the Stainless overrides. */
-  protected def createTransformer[P <: PathLike[P]](
-    path: P, exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr
+  def transformerWithPC[P <: PathLike[P]](
+    path: P,
+    exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr,
+    typeOp: (Type, P, TransformerOp[Type, P, Type]) => Type
   )(implicit pp: PathProvider[P]): TransformerWithPC[P] = {
-    new TransformerWithPC(path, exprOp) with TransformerWithExprOp
+    new TransformerWithPC(path, exprOp, typeOp)
+      with TransformerWithExprOp
+      with TransformerWithTypeOp
   }
 
-  def transformWithPC[P <: PathLike[P]](e: Expr, path: P)
-                                       (exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr)
-                                       (implicit pp: PathProvider[P]): Expr = {
-    createTransformer[P](path, exprOp).transform(e, path)
+  def transformWithPC[P <: PathLike[P]](e: Expr, path: P)(
+    exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr
+  )(implicit pp: PathProvider[P]): Expr = {
+    transformerWithPC[P](path, exprOp, (tpe, env, op) => op.sup(tpe, env)).transform(e, path)
   }
 
   def transformWithPC(e: Expr)(exprOp: (Expr, Path, TransformerOp[Expr, Path, Expr]) => Expr): Expr =
