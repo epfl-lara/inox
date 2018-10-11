@@ -3,7 +3,6 @@
 package inox
 package ast
 
-import transformers._
 import scala.collection.mutable.{Map => MutableMap}
 
 trait Types { self: Trees =>
@@ -265,8 +264,17 @@ trait Types { self: Trees =>
     case _ => Untyped
   }
 
-  /** NAryType extractor to extract any Type in a consistent way. */
-  object NAryType {
+  /** NAryType extractor to extract any Type in a consistent way.
+    *
+    * @see [[Deconstructors.Operator]] about why we can't have nice(r) things
+    */
+  object NAryType extends {
+    protected val s: self.type = self
+    protected val t: self.type = self
+  } with TreeExtractor {
+    type Source = Type
+    type Target = Type
+
     def unapply(t: Type): Option[(Seq[Type], Seq[Type] => Type)] = {
       val (ids, vs, es, tps, flags, recons) = deconstructor.deconstruct(t)
       Some((tps, tps => recons(ids, vs, es, tps, flags)))
@@ -279,23 +287,7 @@ trait Types { self: Trees =>
   } with GenTreeOps {
     type Source = self.Type
     type Target = self.Type
-
-    override def transform[E](tpe: Type, env: E)(op: (Type, E, TransformerOp[Type, E, Type]) => Type): Type = {
-      new TransformerWithTypeOp {
-        override val s: self.type = self
-        override val t: self.type = self
-        override val typeOp = op
-        override type Env = E
-      }.transform(tpe, env)
-    }
-
-    override def traverse[E](tpe: Type, env: E)(op: (Type, E, TraverserOp[Type, E]) => Unit): Unit = {
-      new TraverserWithTypeOp {
-        override val trees: self.type = self
-        override val typeOp = op
-        override type Env = E
-      }.traverse(tpe, env)
-    }
+    lazy val Deconstructor = NAryType
 
     def typeParamsOf(t: Type): Set[TypeParameter] = t match {
       case tp: TypeParameter => Set(tp)

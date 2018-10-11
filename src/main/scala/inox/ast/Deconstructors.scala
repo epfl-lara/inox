@@ -542,7 +542,13 @@ trait Deconstructors { self: Trees =>
     * one need to simplify the tree, it is easy to write/call a simplification
     * function that would simply apply the corresponding constructor for each node.
     */
-  object Operator {
+  object Operator extends {
+    protected val s: self.type = self
+    protected val t: self.type = self
+  } with TreeExtractor {
+    type Source = Expr
+    type Target = Expr
+
     def unapply(e: Expr): Option[(Seq[Expr], Seq[Expr] => Expr)] = {
       val (ids, vs, es, tps, flags, builder) = deconstructor.deconstruct(e)
       Some(es, ess => builder(ids, vs, ess, tps, flags))
