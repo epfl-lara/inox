@@ -28,7 +28,7 @@ trait TipDebugger extends Solver {
 
     import inox.trees._
 
-    protected object checker extends TreeTraverser {
+    protected object checker extends SelfTreeTraverser {
       override def traverse(tpe: Type): Unit = tpe match {
         case (_: PiType | _: SigmaType | _: RefinementType) =>
           unsupported(tpe, "Dependent types cannot be expressed in TIP")

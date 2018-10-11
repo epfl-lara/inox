@@ -20,7 +20,8 @@ trait FunctionTemplates { self: Templates =>
   protected def variableSeq(tpe: Type): Seq[Variable] = {
     val free = typeOps.variablesOf(tpe)
     val vars = new scala.collection.mutable.ListBuffer[Variable]
-    new TreeTraverser {
+
+    new SelfTreeTraverser {
       override def traverse(e: Expr): Unit = e match {
         case v: Variable if free(v) => vars += v
         case _ => super.traverse(e)

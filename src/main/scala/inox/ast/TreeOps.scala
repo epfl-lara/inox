@@ -31,9 +31,11 @@ trait TreeOps { self: Trees =>
     override def transform(syms: s.Symbols): t.Symbols = syms
   }
 
-  trait Traverser extends transformers.Traverser {
+  trait SelfTraverser extends transformers.Traverser {
     val trees: self.type = self
   }
 
-  trait TreeTraverser extends transformers.TreeTraverser with Traverser
+  trait SelfTreeTraverser extends transformers.TreeTraverser {
+    val trees: self.type = self
+  }
 }

@@ -17,7 +17,7 @@ trait ConstraintSolvers { self: Elaborators =>
     object UnknownCollector {
       var unknowns = Set[Unknown]()
 
-      private val traverser = new TreeTraverser {
+      private val traverser = new SelfTreeTraverser {
         override def traverse(t: Type) {
           t match {
             case u: Unknown => unknowns += u
@@ -36,7 +36,7 @@ trait ConstraintSolvers { self: Elaborators =>
     class OccurChecker(u: Unknown) {
       var exists = false
 
-      val traverser = new TreeTraverser {
+      val traverser = new SelfTreeTraverser {
         override def traverse(t: Type) {
           t match {
             case u2: Unknown => {

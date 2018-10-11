@@ -12,7 +12,7 @@ trait CallGraph {
   import trees.exprOps._
   protected val symbols: Symbols
 
-  protected trait Collector extends TreeTraverser {
+  protected trait Collector extends SelfTreeTraverser {
     private[this] var ids: Set[Identifier] = Set.empty
 
     protected def register(id: Identifier): Unit = ids += id
