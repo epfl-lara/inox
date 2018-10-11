@@ -230,7 +230,7 @@ trait Paths { self: Trees =>
     private[this] val _conditions: Lazy[Seq[Expr]] =
       Lazy(elements.collect { case Condition(e) => e })
 
-    def isBound(id: Identifier): Boolean = bound exists { _.id == id }
+    def isBound(v: Variable): Boolean = bound exists { _.toVariable == v }
 
     /** Free variables of the input expression under the current path
       *

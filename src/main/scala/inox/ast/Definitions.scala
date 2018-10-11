@@ -215,7 +215,7 @@ trait Definitions { self: Trees =>
       typeCheck(fd.fullBody, fd.getType)
 
       val unbound: Seq[Variable] = collectWithPC(fd.fullBody, Path.empty withBounds fd.params) {
-        case (v: Variable, path) if !(path isBound v.id) => v
+        case (v: Variable, path) if !(path isBound v) => v
       }
 
       if (unbound.nonEmpty) {
