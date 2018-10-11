@@ -70,18 +70,13 @@ trait ExprOps extends GenTreeOps {
   }
 
   /** Returns the set of free variables in an expression */
-  def variablesOf(expr: Expr): Set[Variable] = {
-    fold[Set[Variable]] { case (e, subs) =>
-      val subvs = subs.flatten.toSet
-      e match {
-        case v: Variable => subvs + v
-        case _ =>
-          val (_, vs, _, tps, _, _) = deconstructor.deconstruct(e)
-          vs.foldRight(subvs ++ tps.flatMap(typeOps.variablesOf)) {
-            case (v, vars) => vars - v ++ typeOps.variablesOf(v.tpe)
-          }
+  def variablesOf(expr: Expr): Set[Variable] = expr match {
+    case v: Variable => Set(v)
+    case _ =>
+      val (_, vs, es, tps, _, _) = deconstructor.deconstruct(expr)
+      vs.foldRight(es.flatMap(variablesOf).toSet ++ tps.flatMap(typeOps.variablesOf)) {
+        case (v, vars) => vars - v ++ typeOps.variablesOf(v.tpe)
       }
-    }(expr)
   }
 
   /** Freshens all local variables
