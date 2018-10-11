@@ -858,7 +858,7 @@ trait SymbolOps { self: TypeOps =>
     def transform(expr: Expr): Option[Expr] = expr match {
       case IfExpr(c, t, e) => None
 
-      case nop @ Deconstructor(ts, op) => {
+      case nop @ Operator(ts, op) => {
         val iteIndex = ts.indexWhere{ case IfExpr(_, _, _) => true case _ => false }
         if(iteIndex == -1) None else {
           val (beforeIte, startIte) = ts.splitAt(iteIndex)

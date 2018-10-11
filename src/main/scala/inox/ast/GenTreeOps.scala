@@ -4,22 +4,7 @@ package inox
 package ast
 
 import utils._
-
-/** A type that pattern matches agains a type of `Sources` and extracts its components,
-  * and a builder that given a set of `Target` components, reconstructs a `Target` tree
-  * that corresponds to the initially deconstructed tree.
-  *
-  * @tparam Source The type of the tree to deconstruct
-  * @tparam Target The type of the tree to reconstruct
-  */
-trait TreeExtractor {
-  protected val s: Trees
-  protected val t: Trees
-
-  type Source <: s.Tree
-  type Target <: t.Tree
-  def unapply(e: Source): Option[(Seq[Source], Seq[Target] => Target)]
-}
+import transformers._
 
 /** Generic tree traversals based on a deconstructor of a specific tree type
   *
@@ -33,13 +18,11 @@ trait GenTreeOps { self =>
   type Source <: sourceTrees.Tree
   type Target <: targetTrees.Tree
 
-  /** An extractor for [[Source]]*/
-  val Deconstructor: TreeExtractor {
-    val s: self.sourceTrees.type
-    val t: self.targetTrees.type
-    type Source = self.Source
-    type Target = self.Target
-  }
+  /** A transformer from [[Source]] to [[Target]] */
+  def transform[E](src: Source, env: E)(op: (Source, E, TransformerOp[Source, E, Target]) => Target): Target
+
+  /** A traverser for [[Source]] trees */
+  def traverse[E](src: Source, env: E)(op: (Source, E, TraverserOp[Source, E]) => Unit): Unit
 
   /* ========
    * Core API
@@ -61,12 +44,19 @@ trait GenTreeOps { self =>
     * @note the computation is lazy, hence you should not rely on side-effects of `f`
     */
   def fold[T](f: (Source, Seq[T]) => T)(e: Source): T = {
-    val rec = fold(f) _
-    val Deconstructor(es, _) = e
+    var stack: List[Int] = Nil
+    var res: List[T] = Nil
 
-    //Usages of views makes the computation lazy. (which is useful for
-    //contains-like operations)
-    f(e, es.view.map(rec))
+    traverse(e, ()) { (e, env, op) =>
+      if (stack.nonEmpty) stack = (stack.head + 1) :: stack.tail
+      stack = 0 :: stack
+      op.sup(e, env)
+      val (rres, rest) = res.splitAt(stack.head)
+      stack = stack.tail
+      res = f(e, rres.reverse) :: rest
+    }
+
+    res.head
   }
 
 
@@ -88,10 +78,10 @@ trait GenTreeOps { self =>
     * @param e the expression to traverse
     */
   def preTraversal(f: Source => Unit)(e: Source): Unit = {
-    val rec = preTraversal(f) _
-    val Deconstructor(es, _) = e
-    f(e)
-    es.foreach(rec)
+    traverse(e, ()) { (e, env, op) =>
+      f(e)
+      op.sup(e, env)
+    }
   }
 
   /** Post-traversal of the tree.
@@ -112,10 +102,10 @@ trait GenTreeOps { self =>
     * @param e the expression to traverse
     */
   def postTraversal(f: Source => Unit)(e: Source): Unit = {
-    val rec = postTraversal(f) _
-    val Deconstructor(es, _) = e
-    es.foreach(rec)
-    f(e)
+    traverse(e, ()) { (e, env, op) =>
+      op.sup(e, env)
+      f(e)
+    }
   }
 
   /** Pre-transformation of the tree.
@@ -149,12 +139,12 @@ trait GenTreeOps { self =>
     *
     * @note The mode with applyRec true can diverge if f is not well formed
     */
-  def preMap(f: Source => Option[Source], applyRec : Boolean = false)(e: Source): Target = {
-    def g(t: Source, u: Unit): (Option[Source], Unit) = (f(t), ())
-    preMapWithContext[Unit](g, applyRec)(e, ())
+  def preMap(f: Source => Option[Source], applyRec: Boolean = false)(e: Source): Target = {
+    transform(e, ()) { (e, env, op) =>
+      op.sup(if (applyRec) fixpoint[Source](e => f(e).getOrElse(e))(e) else f(e).getOrElse(e), env)
+    }
   }
-  
-  
+
   /** Post-transformation of the tree.
     *
     * Takes a partial function of replacements.
@@ -184,24 +174,10 @@ trait GenTreeOps { self =>
     *
     * @note The mode with applyRec true can diverge if f is not well formed (i.e. not convergent)
     */
-  def postMap(f: Target => Option[Target], applyRec : Boolean = false)(e: Source): Target = {
-    val rec = postMap(f, applyRec) _
-
-    val Deconstructor(es, builder) = e
-    val newEs = es.map(rec)
-    val newV: Target = {
-      if ((newEs zip es).exists { case (bef, aft) => aft ne bef } || (sourceTrees ne targetTrees)) {
-        builder(newEs).copiedFrom(e)
-      } else {
-        e.asInstanceOf[Target]
-      }
-    }
-
-    if (applyRec) {
-      // Apply f as long as it returns Some()
-      fixpoint { e : Target => f(e) getOrElse e } (newV)
-    } else {
-      f(newV) getOrElse newV
+  def postMap(f: Target => Option[Target], applyRec: Boolean = false)(e: Source): Target = {
+    transform(e, ()) { (e, env, op) =>
+      val re = op.sup(e, env)
+      if (applyRec) fixpoint[Target](e => f(e).getOrElse(e))(re) else f(re).getOrElse(re)
     }
   }
 
@@ -224,23 +200,33 @@ trait GenTreeOps { self =>
     */
   def genericTransform[C](pre:  (Source, C) => (Source, C),
                           post: (Target, C) => (Target, C),
-                          combiner: (Target, Seq[C]) => C)(init: C)(expr: Source) = {
+                          combiner: (Target, Seq[C]) => C)(init: C)(expr: Source): (Target, C) = {
 
-    def rec(eIn: Source, cIn: C): (Target, C) = {
+    var stack: List[Int] = Nil
+    var res: List[C] = Nil
 
-      val (expr, ctx) = pre(eIn, cIn)
-      val Deconstructor(es, builder) = expr
-      val (newExpr, newC) = {
-        val (nes, cs) = es.map{ rec(_, ctx)}.unzip
-        val newE = builder(nes).copiedFrom(expr)
+    val resE = transform(expr, init) { (e, env, op) =>
+      val (preE, preEnv) = pre(e, env)
 
-        (newE, combiner(newE, cs))
-      }
+      // Count this node in the stack and setup for recursion
+      if (stack.nonEmpty) stack = (stack.head + 1) :: stack.tail
+      stack = 0 :: stack
 
-      post(newExpr, newC)
+      // Recurse on the node's children
+      val recE = op.sup(preE, preEnv)
+
+      // Recover the sub-contexts from the stack
+      val (recEnvs, rest) = res.splitAt(stack.head)
+      val recEnv = combiner(recE, recEnvs.reverse)
+
+      val (postE, postEnv) = post(recE, recEnv)
+
+      stack = stack.tail
+      res = postEnv :: rest
+      postE
     }
 
-    rec(expr, init)
+    (resE, res.head)
   }
 
   def noCombiner(e: Target, subCs: Seq[Unit]) = ()
@@ -280,49 +266,40 @@ trait GenTreeOps { self =>
     */
   def preMapWithContext[C](f: (Source, C) => (Option[Source], C), applyRec: Boolean = false)
                           (e: Source, c: C): Target = {
-
-    def rec(expr: Source, context: C): Target = {
-
-      val (newV, newCtx) = {
-        if(applyRec) {
-          var ctx = context
-          val finalV = fixpoint{ e: Source => {
-            val res = f(e, ctx)
-            ctx = res._2
-            res._1.getOrElse(e)
-          }} (expr)
-          (finalV, ctx)
-        } else {
-          val res = f(expr, context)
-          (res._1.getOrElse(expr), res._2)
-        }
-      }
-
-      val Deconstructor(es, builder) = newV
-      val newEs = es.map(e => rec(e, newCtx))
-
-      if ((newEs zip es).exists { case (bef, aft) => aft ne bef } || (sourceTrees ne targetTrees)) {
-        builder(newEs).copiedFrom(newV)
+    transform(e, c) { (e, env, op) =>
+      val (re, renv) = if (applyRec) {
+        var ctx = env
+        val finalV = fixpoint{ (e: Source) =>
+          val res = f(e, ctx)
+          ctx = res._2
+          res._1.getOrElse(e)
+        } (e)
+        (finalV, ctx)
       } else {
-        newV.asInstanceOf[Target]
+        val res = f(e, env)
+        (res._1.getOrElse(e), res._2)
       }
 
+      op.sup(re, renv)
     }
-
-    rec(e, c)
   }
 
   def preFoldWithContext[C](f: (Source, C) => C, combiner: (Source, C, Seq[C]) => C)
                            (e: Source, c: C): C = {
+    var stack: List[Int] = Nil
+    var res: List[C] = Nil
 
-    def rec(eIn: Source, cIn: C): C = {
-      val ctx = f(eIn, cIn)
-      val Deconstructor(es, _) = eIn
-      val cs = es.map{ rec(_, ctx) }
-      combiner(eIn, ctx, cs)
+    traverse(e, c) { (e, env, op) =>
+      if (stack.nonEmpty) stack = (stack.head + 1) :: stack.tail
+      stack = 0 :: stack
+      val renv = f(e, env)
+      op.sup(e, renv)
+      val (rres, rest) = res.splitAt(stack.head)
+      stack = stack.tail
+      res = combiner(e, env, rres.reverse) :: rest
     }
 
-    rec(e, c)
+    res.head
   }
 
   /*
@@ -335,16 +312,31 @@ trait GenTreeOps { self =>
 
   /** Checks if the predicate holds in some sub-expression */
   def exists(matcher: Source => Boolean)(e: Source): Boolean = {
-    fold[Boolean]({ (e, subs) =>  matcher(e) || subs.contains(true) } )(e)
+    var result: Boolean = false
+    traverse(e, ()) { (e, env, op) =>
+      if (matcher(e)) result = true
+      else if (!result) op.sup(e, env)
+    }
+    result
   }
 
   /** Collects a set of objects from all sub-expressions */
   def collect[T](matcher: Source => Set[T])(e: Source): Set[T] = {
-    fold[Set[T]]({ (e, subs) => matcher(e) ++ subs.flatten } )(e)
+    val result = scala.collection.mutable.Set.empty[T]
+    traverse(e, ()) { (e, env, op) =>
+      result ++= matcher(e)
+      op.sup(e, env)
+    }
+    result.toSet
   }
 
   def collectPreorder[T](matcher: Source => Seq[T])(e: Source): Seq[T] = {
-    fold[Seq[T]]({ (e, subs) => matcher(e) ++ subs.flatten } )(e)
+    val result = new scala.collection.mutable.ListBuffer[T]
+    traverse(e, ()) { (e, env, op) =>
+      result ++= matcher(e)
+      op.sup(e, env)
+    }
+    result.toSeq
   }
 
   /** Returns a set of all sub-expressions matching the predicate */
@@ -354,7 +346,12 @@ trait GenTreeOps { self =>
 
   /** Counts how many times the predicate holds in sub-expressions */
   def count(matcher: Source => Int)(e: Source): Int = {
-    fold[Int]({ (e, subs) => matcher(e) + subs.sum } )(e)
+    var result: Int = 0
+    traverse(e, ()) { (e, env, op) =>
+      result += matcher(e)
+      op.sup(e, env)
+    }
+    result
   }
 
   /** Replaces bottom-up sub-expressions by looking up for them in a map */
@@ -363,40 +360,33 @@ trait GenTreeOps { self =>
   }
 
   /** Computes the size of a tree */
-  def formulaSize(t: Source): Int = {
-    val Deconstructor(ts, _) = t
-    ts.map(formulaSize).sum + 1
-  }
+  def formulaSize(t: Source): Int = count(_ => 1)(t)
 
   /** Computes the depth of the tree */
   def depth(e: Source): Int = {
     fold[Int]{ (_, sub) => 1 + (0 +: sub).max }(e)
   }
 
-  /** Given a tree `toSearch` present in `treeToLookInto`, if `treeToLookInto` has the same shape as `treeToExtract`,
-   *  returns the matching expression in `treeToExtract``.*/
-  def lookup[T](checker: Source => Boolean, toExtract: Source => T)(treeToLookInto: Source, treeToExtract: Source): Option[T] = {
-    if(checker(treeToLookInto)) return Some(toExtract(treeToExtract))
-    
-    val Deconstructor(childrenToLookInto, _) = treeToLookInto
-    val Deconstructor(childrenToReturn, _) = treeToExtract
-    if(childrenToLookInto.size != childrenToReturn.size) return None
-    for((l, r) <- childrenToLookInto.zip(childrenToReturn)) {
-      lookup(checker, toExtract)(l, r) match {
-        case s@Some(n) => return s
-        case _ =>
-      }
-    }
-    None
-  }
-
   object Same {
     def unapply(tt: (Source, Target))
                (implicit ev1: Source =:= Target, ev2: Target =:= Source): Option[(Source, Target)] = {
-      val Deconstructor(es1, recons1) = tt._1
-      val Deconstructor(es2, recons2) = ev2(tt._2)
 
-      if (es1.size == es2.size && scala.util.Try(recons2(es1.map(ev1))).toOption == Some(ev2(tt._1))) {
+      // start by collecting the children of `tt._1` ...
+      var results: Seq[Source] = Nil
+      traverse(tt._1, true) { (e, env, op) =>
+        if (env) op.sup(e, false) else results :+= e
+      }
+
+      // ... and then inject them into `tt._2`
+      val res = scala.util.Try(transform(ev2(tt._2), true) { (e, env, op) =>
+        if (env) op.sup(e, false) else {
+          val res = results.head
+          results = results.tail
+          ev2(res)
+        }
+      })
+
+      if (results.isEmpty && res.toOption == Some(ev2(tt._1))) {
         Some(tt)
       } else {
         None

@@ -8,7 +8,6 @@ trait Traverser {
   import trees._
 
   type Env
-  def initEnv: Env
 
   def traverse(id: Identifier, env: Env): Unit = {
     ()
@@ -47,6 +46,11 @@ trait Traverser {
     es.foreach(traverse(_, env))
     tps.foreach(traverse(_, env))
   }
+}
+
+trait DefinitionTraverser extends Traverser {
+  def initEnv: Env
+  import trees._
 
   def traverse(fd: FunDef): Unit = {
     val env = initEnv
@@ -73,7 +77,7 @@ trait Traverser {
   }
 }
 
-trait TreeTraverser extends Traverser {
+trait TreeTraverser extends DefinitionTraverser {
   override final type Env = Unit
   override final val initEnv: Unit = ()
 

@@ -3,6 +3,7 @@
 package inox
 package ast
 
+import transformers._
 import scala.collection.mutable.{Map => MutableMap}
 
 /** Provides functions to manipulate [[Expressions.Expr]].
@@ -34,7 +35,22 @@ trait ExprOps extends GenTreeOps {
   type Source = Expr
   type Target = Expr
 
-  lazy val Deconstructor = Operator
+  override def transform[E](e: Expr, env: E)(op: (Expr, E, TransformerOp[Expr, E, Expr]) => Expr): Expr = {
+    new TransformerWithExprOp {
+      override val s: trees.type = trees
+      override val t: trees.type = trees
+      override val exprOp = op
+      override type Env = E
+    }.transform(e, env)
+  }
+
+  override def traverse[E](e: Expr, env: E)(op: (Expr, E, TraverserOp[Expr, E]) => Unit): Unit = {
+    new TraverserWithExprOp {
+      override val trees: ExprOps.this.trees.type = ExprOps.this.trees
+      override val exprOp = op
+      override type Env = E
+    }.traverse(e, env)
+  }
 
   /** Replaces bottom-up variables by looking up for them in a map */
   def replaceFromSymbols[V <: VariableSymbol](substs: Map[V, Expr], expr: Expr)(implicit ev: VariableConverter[V]): Expr = {
