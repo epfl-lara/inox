@@ -198,6 +198,9 @@ object optTimeout extends OptionDef[Duration] {
 object optSelectedSolvers extends OptionDef[Set[String]] {
   val name = "solvers"
   val default = Set("nativez3")
-  val parser = setParser(stringParser)
+  val parser: OptionParser[Set[String]] = { s =>
+    setParser(stringParser)(s).filter(_.forall(solvers.SolverFactory.solverNames contains _))
+  }
+
   val usageRhs = "s1,s2,..."
 }
