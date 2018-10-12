@@ -27,11 +27,6 @@ trait Types { self: Trees =>
     protected def computeType(implicit s: Symbols): Type
   }
 
-  /* Widens a type into it's narest outer Inox type.
-   * This is an override point for more complex type systems that provide (for example)
-   * type parameter bounds that would not be compatible with Inox type checking. */
-  protected def widen(tpe: Type): Type = tpe
-
   protected def unveilUntyped(tpe: Type): Type = {
     val NAryType(tps, _) = tpe
     if (tps exists (_ == Untyped)) Untyped else tpe
@@ -56,7 +51,7 @@ trait Types { self: Trees =>
 
     protected def computeType(implicit s: Symbols): Type = {
       val NAryType(tps, recons) = this
-      unveilUntyped(widen(recons(tps.map(_.getType))))
+      unveilUntyped(recons(tps.map(_.getType)))
     }
   }
 
