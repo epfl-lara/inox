@@ -108,7 +108,7 @@ trait MainHelpers {
       first = false
 
       reporter.title(category)
-      for ((opt, Description(_, desc)) <- opts) {
+      for ((opt, Description(_, desc)) <- opts.toSeq.sortBy(_._1.name)) {
         reporter.info(s"%-${margin}s".format(opt.usageDesc) + desc.replaceAll("\n", "\n" + " " * margin))
       }
     }
