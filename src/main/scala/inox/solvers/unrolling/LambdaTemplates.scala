@@ -413,7 +413,7 @@ trait LambdaTemplates { self: Templates =>
       clauses ++= blockerClauses
       clauses += mkImplies(
         blocker,
-        if (equivalent(template.structure.body, that.structure.body)) {
+        if (typeOps.simplify(template.structure.body) == typeOps.simplify(that.structure.body)) {
           val pairs = template.structure.locals zip that.structure.locals
           val filtered = pairs.filter(p => p._1 != p._2)
           if (filtered.isEmpty) {

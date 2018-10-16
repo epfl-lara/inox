@@ -724,7 +724,7 @@ trait QuantificationTemplates { self: Templates =>
       }
 
       clauses ++= templates.flatMap { case (key, (tmpl, tinst)) =>
-        if (equivalent(newTemplate.structure.body, tmpl.structure.body)) {
+        if (typeOps.simplify(newTemplate.structure.body) == typeOps.simplify(tmpl.structure.body)) {
           val (blocker, cls) = encodeBlockers(Set(newTemplate.contents.pathVar._2, tmpl.contents.pathVar._2))
           val eqConds = (newTemplate.structure.locals zip tmpl.structure.locals)
             .filter(p => p._1 != p._2)
