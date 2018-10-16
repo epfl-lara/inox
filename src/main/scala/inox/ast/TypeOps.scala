@@ -32,10 +32,6 @@ trait TypeOps {
     def apply(obj: Expr, tpe: Type): TypeErrorException = apply(obj, Seq(tpe))
   }
 
-  def typeParamsOf(expr: Expr): Set[TypeParameter] = {
-    exprOps.collect(e => typeOps.typeParamsOf(e.getType))(expr)
-  }
-
   def leastUpperBound(tp1: Type, tp2: Type): Type = if (tp1 == tp2) tp1 else Untyped
 
   def leastUpperBound(tps: Seq[Type]): Type =

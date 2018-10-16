@@ -3,7 +3,7 @@
 package inox
 package ast
 
-import scala.collection.mutable.{Map => MutableMap}
+import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 trait Types { self: Trees =>
 
@@ -284,10 +284,30 @@ trait Types { self: Trees =>
     type Target = self.Type
     lazy val Deconstructor = NAryType
 
-    def typeParamsOf(t: Type): Set[TypeParameter] = t match {
-      case tp: TypeParameter => Set(tp)
-      case NAryType(subs, _) =>
-        subs.flatMap(typeParamsOf).toSet
+    // Helper for typeParamsOf
+    class TypeCollector extends SelfTreeTraverser {
+      private[this] val typeParams: MutableSet[TypeParameter] = MutableSet.empty
+      def getResult: Set[TypeParameter] = typeParams.toSet
+
+      override def traverse(tpe: Type): Unit = tpe match {
+        case tp: TypeParameter =>
+          typeParams += tp
+          super.traverse(tp)
+        case _ =>
+          super.traverse(tpe)
+      }
+    }
+
+    def typeParamsOf(e: Expr): Set[TypeParameter] = {
+      val collector = new TypeCollector
+      collector.traverse(e)
+      collector.getResult
+    }
+
+    def typeParamsOf(t: Type): Set[TypeParameter] = {
+      val collector = new TypeCollector
+      collector.traverse(t)
+      collector.getResult
     }
 
     // Helpers for instantiateType
