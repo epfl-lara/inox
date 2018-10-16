@@ -290,12 +290,19 @@ trait Types { self: Trees =>
       def getResult: Set[TypeParameter] = typeParams.toSet
 
       override def traverse(tpe: Type): Unit = tpe match {
-        case tp: TypeParameter =>
-          typeParams += tp
-          super.traverse(tp)
-        case _ =>
-          super.traverse(tpe)
+        case tp: TypeParameter => typeParams += tp
+        case _ => super.traverse(tpe)
       }
+
+      override def traverse(e: Expr): Unit = e match {
+        case v: Variable => ()
+        case _ => super.traverse(e)
+      }
+    }
+
+    def typeParamsOf2(t: Type): Set[TypeParameter] = t match {
+      case tp: TypeParameter => Set(tp)
+      case NAryType(tps, _) => tps.flatMap(typeParamsOf).toSet
     }
 
     def typeParamsOf(e: Expr): Set[TypeParameter] = {
