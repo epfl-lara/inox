@@ -30,7 +30,6 @@ trait Printers { self: Trees =>
                             printTypes: Boolean = false,
                             printChooses: Boolean = false,
                             symbols: Option[Symbols] = None) {
-
     require(
       !printTypes || symbols.isDefined,
       "Can't print types without an available symbol table"
@@ -38,19 +37,19 @@ trait Printers { self: Trees =>
   }
 
   object PrinterOptions {
-    def fromContext(ctx: Context): PrinterOptions = {
+    def fromContext(ctx: Context, symbols: Option[Symbols] = None): PrinterOptions = {
       PrinterOptions(
         baseIndent = 0,
         printPositions = ctx.options.findOptionOrDefault(optPrintPositions),
         printUniqueIds = ctx.options.findOptionOrDefault(optPrintUniqueIds),
-        printTypes = ctx.options.findOptionOrDefault(optPrintTypes),
+        printTypes = ctx.options.findOptionOrDefault(optPrintTypes) && symbols.isDefined,
         printChooses = ctx.options.findOptionOrDefault(optPrintChooses),
-        symbols = None
+        symbols = symbols
       )
     }
 
     def fromSymbols(s: Symbols, ctx: Context): PrinterOptions = {
-      fromContext(ctx).copy(symbols = Some(s))
+      fromContext(ctx, symbols = Some(s))
     }
   }
 
