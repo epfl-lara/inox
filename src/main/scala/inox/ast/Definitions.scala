@@ -214,6 +214,9 @@ trait Definitions { self: Trees =>
     protected def ensureWellFormedFunction(fd: FunDef) = {
       typeCheck(fd.fullBody, fd.getType)
 
+      if (!fd.getType.isTyped) throw NotWellFormedException(fd)
+      if (!(fd.params forall (_.isTyped))) throw NotWellFormedException(fd)
+
       val unbound: Seq[Variable] = collectWithPC(fd.fullBody, Path.empty withBounds fd.params) {
         case (v: Variable, path) if !(path isBound v) => v
       }
@@ -226,6 +229,7 @@ trait Definitions { self: Trees =>
     protected def ensureWellFormedSort(sort: ADTSort) = {
       if (!sort.isWellFormed) throw NotWellFormedException(sort)
       if (!(sort.constructors forall (cons => cons.sort == sort.id))) throw NotWellFormedException(sort)
+      if (!(sort.constructors forall (_.fields forall (_.isTyped)))) throw NotWellFormedException(sort)
       if (sort.constructors.flatMap(_.fields).groupBy(_.id).exists(_._2.size > 1)) throw NotWellFormedException(sort)
     }
 
