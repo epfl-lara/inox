@@ -83,7 +83,7 @@ trait ExprOps extends GenTreeOps {
         case Choose(res, pred) if !freshenChooses =>
           val newVd = super.transform(res)
           subst(res.toVariable) = newVd.toVariable
-          Choose(newVd, transform(pred))
+          Choose(newVd, transform(pred)).copiedFrom(expr)
         case _ => super.transform(expr)
       }
     }.transform(expr)
