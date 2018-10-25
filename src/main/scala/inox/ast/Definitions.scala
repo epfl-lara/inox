@@ -245,6 +245,8 @@ trait Definitions { self: Trees =>
   }
 
   sealed class TypeParameterDef(val tp: TypeParameter) extends Definition {
+    copiedFrom(tp)
+
     @inline def id = tp.id
     @inline def flags = tp.flags
 
