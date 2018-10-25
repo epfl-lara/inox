@@ -149,6 +149,9 @@ trait MainHelpers {
       df.parse(value)(initReporter)
     }
 
+    for ((optDef, values) <- inoxOptions.groupBy(_.optionDef) if values.size > 1)
+      initReporter.fatalError(s"Duplicate option: ${optDef.name}")
+
     val reporter = new DefaultReporter(
       inoxOptions.collectFirst {
         case OptionValue(`optDebug`, sections) => sections.asInstanceOf[Set[DebugSection]]
