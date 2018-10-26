@@ -20,7 +20,8 @@ trait Elaborators
      with ADTsElaborators
      with ProgramElaborators
      with NumberUtils
-     with Solvers {
+     with Solvers
+     with ElaborationErrors {
 
   type Signature = (Int, Seq[SimpleTypes.Type] => (Seq[SimpleTypes.Type], SimpleTypes.Type))
 
@@ -188,7 +189,7 @@ trait Elaborators
 
       Constrained.sequence(elems.map {
         case Left(r) => store.getHole[Seq[H]](r.index) match {
-          case None => Constrained.fail(Errors.invalidHoleType("Seq[" + underlying + "]")(r.pos))
+          case None => Constrained.fail(invalidHoleType("Seq[" + underlying + "]")(r.pos))
           case Some(xs) => Constrained.sequence(xs.map(wrap(_, r)))
         }
         case Right(t) => elaborator.elaborate(t).map(Seq(_))

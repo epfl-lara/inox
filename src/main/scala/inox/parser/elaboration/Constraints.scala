@@ -4,7 +4,7 @@ package elaboration
 
 import scala.util.parsing.input.Position
 
-trait Constraints { self: IRs with SimpleTypes =>
+trait Constraints { self: IRs with SimpleTypes with ElaborationErrors =>
 
   import SimpleTypes._
   import TypeClasses._
@@ -184,7 +184,7 @@ trait Constraints { self: IRs with SimpleTypes =>
       }
 
     def withFilter(pred: A => Boolean): Constrained[A] = new Constrained(get match {
-      case Right((a, _)) if !pred(a) => Left(Errors.filterError)
+      case Right((a, _)) if !pred(a) => Left(filterError)
       case _ => get
     })
   }

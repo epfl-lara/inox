@@ -2,7 +2,9 @@ package inox
 package parser
 package elaboration
 
-trait Solvers { self: Constraints with SimpleTypes with IRs =>
+import scala.util.parsing.input.Position
+
+trait Solvers { self: Constraints with SimpleTypes with IRs with ElaborationErrors =>
 
   import SimpleTypes._
   import TypeClasses._
@@ -10,7 +12,7 @@ trait Solvers { self: Constraints with SimpleTypes with IRs =>
 
   def solve(constraints: Seq[Constraint]): Either[ErrorMessage, Unifier] = {
 
-    case class UnificationError(message: ErrorMessage) extends Exception(message)
+    case class UnificationError(message: Seq[Position] => ErrorMessage, positions: Seq[Position]) extends Exception(message(positions))
 
     var unknowns: Set[Unknown] = Set()
     var remaining: Seq[Constraint] = constraints
@@ -41,8 +43,8 @@ trait Solvers { self: Constraints with SimpleTypes with IRs =>
       }
       case Equals(tpe1, tpe2) => (tpe1, tpe2) match {
         case (u1: Unknown, u2: Unknown) => if (u1 != u2) unify(u1, u2) else unknowns += u1
-        case (u1: Unknown, _) => if (!tpe2.contains(u1)) unify(u1, tpe2) else throw UnificationError("TODO: Error: Occur check.")
-        case (_, u2: Unknown) => if (!tpe1.contains(u2)) unify(u2, tpe1) else throw UnificationError("TODO: Error: Occur check.")
+        case (u1: Unknown, _) => if (!tpe2.contains(u1)) unify(u1, tpe2) else throw UnificationError(unificationImpossible(tpe1, tpe2), Seq(tpe1.pos, tpe2.pos))
+        case (_, u2: Unknown) => if (!tpe1.contains(u2)) unify(u2, tpe1) else throw UnificationError(unificationImpossible(tpe1, tpe2), Seq(tpe1.pos, tpe2.pos))
         case (UnitType(), UnitType()) => ()
         case (IntegerType(), IntegerType()) => ()
         case (BitVectorType(s1), BitVectorType(s2)) if s1 == s2 => ()
@@ -65,7 +67,7 @@ trait Solvers { self: Constraints with SimpleTypes with IRs =>
         case (ADTType(i1, as1), ADTType(i2, as2)) if i1 == i2 && as1.size == as2.size =>
           remaining ++= as1.zip(as2).map { case (a1, a2) => Equals(a1, a2) }
         case (TypeParameter(i1), TypeParameter(i2)) if i1 == i2 => ()
-        case _ => throw UnificationError("TODO: Non-compatible types.")
+        case _ => throw UnificationError(unificationImpossible(tpe1, tpe2), Seq(tpe1.pos, tpe2.pos))
       }
       case HasClass(tpe, tc) => tpe match {
         case u: Unknown => {
@@ -73,7 +75,7 @@ trait Solvers { self: Constraints with SimpleTypes with IRs =>
           typeClasses.get(u) match {
             case None => typeClasses += (u -> tc)
             case Some(tc2) => tc.combine(tc2)(tpe) match {
-              case None => throw UnificationError("TODO: Error: Incompatible type classes.")
+              case None => throw UnificationError(incompatibleTypeClasses(tc, tc2), Seq(tpe.pos))
               case Some(cs) => {
                 typeClasses -= u
                 remaining ++= cs
@@ -82,7 +84,7 @@ trait Solvers { self: Constraints with SimpleTypes with IRs =>
           }
         }
         case _ => tc.accepts(tpe) match {
-          case None => throw UnificationError("TODO: Error: Type is not a member of tc.")
+          case None => throw UnificationError(notMemberOfTypeClasses(tpe, tc), Seq(tpe.pos))
           case Some(cs) => remaining ++= cs
         }
       }
@@ -109,7 +111,7 @@ trait Solvers { self: Constraints with SimpleTypes with IRs =>
           }
 
           if (defaults.isEmpty) {
-            throw UnificationError("TODO: Error: Ambiguous result.")
+            throw UnificationError(ambiguousTypes, unknowns.toSeq.map(_.pos))
           }
         }
       }
@@ -117,7 +119,7 @@ trait Solvers { self: Constraints with SimpleTypes with IRs =>
       Right(unifier)
     }
     catch {
-      case UnificationError(error) => Left(error)
+      case UnificationError(error, positions) => Left(error(positions))
     }
   }
 }

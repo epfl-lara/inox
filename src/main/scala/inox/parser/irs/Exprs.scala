@@ -110,8 +110,8 @@ trait Exprs { self: IRs =>
     case class FractionLiteral(numerator: BigInt, denominator: BigInt) extends Expr
     case class StringLiteral(value: String) extends Expr
     case class CharLiteral(value: Char) extends Expr
-    case class SetConstruction(optType: Option[Types.Type], elems: ExprSeq) extends Expr
-    case class BagConstruction(optType: Option[Types.Type], elems: ExprPairSeq) extends Expr
+    case class SetConstruction(optType: Option[Types.TypeSeq], elems: ExprSeq) extends Expr
+    case class BagConstruction(optType: Option[Types.TypeSeq], elems: ExprPairSeq) extends Expr
     case class MapConstruction(optTypes: Option[Types.TypeSeq], elems: ExprPairSeq, default: Expr) extends Expr
     case class Variable(id: Identifiers.Identifier) extends Expr
     case class UnaryOperation(operator: Unary.Operator, expr: Expr) extends Expr

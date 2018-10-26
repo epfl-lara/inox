@@ -2,11 +2,33 @@ package inox
 package parser
 package elaboration
 
+import scala.util.parsing.input._
+
 trait SimpleTypes { self: Trees =>
 
   object SimpleTypes {
 
-    sealed abstract class Type {
+    sealed abstract class Type extends Positional {
+
+      def withPos(pos: Position): Type = this match {
+        case UnitType() => UnitType().setPos(pos)
+        case BooleanType() => BooleanType().setPos(pos)
+        case BitVectorType(size) => BitVectorType(size).setPos(pos)
+        case IntegerType() => IntegerType().setPos(pos)
+        case StringType() => StringType().setPos(pos)
+        case CharType() => CharType().setPos(pos)
+        case RealType() => RealType().setPos(pos)
+        case FunctionType(f, t) => FunctionType(f, t).setPos(pos)
+        case SetType(t) => SetType(t).setPos(pos)
+        case BagType(t) => BagType(t).setPos(pos)
+        case MapType(f, t) => MapType(f, t).setPos(pos)
+        case TupleType(ts) => TupleType(ts).setPos(pos)
+        case ADTType(i, as) => ADTType(i, as).setPos(pos)
+        case TypeParameter(id) => TypeParameter(id).setPos(pos)
+        case u: Unknown => u.copy().setPos(pos)
+        case _ => this
+      }
+
       def contains(unknown: Unknown): Boolean = this match {
         case other: Unknown => unknown == other
         case FunctionType(froms, to) => froms.exists(_.contains(unknown)) || to.contains(unknown)
@@ -60,6 +82,8 @@ trait SimpleTypes { self: Trees =>
         that.isInstanceOf[Unknown] && that.asInstanceOf[Unknown].identifier == identifier
       override def hashCode(): Int = identifier
       override def toString: String = "Unknown(" + identifier + ")"
+
+      def copy(): Unknown = new Unknown(identifier)
     }
 
     object Unknown {

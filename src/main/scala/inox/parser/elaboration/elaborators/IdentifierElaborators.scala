@@ -10,7 +10,7 @@ trait IdentifierElaborators { self: Elaborators =>
   object DefIdE extends Elaborator[Identifier, (inox.Identifier, Option[String])] {
     override def elaborate(template: Identifier)(implicit store: Store): Constrained[(inox.Identifier, Option[String])] = template match {
       case IdentifierHole(index) => store.getHole[inox.Identifier](index) match {
-        case None => Constrained.fail(Errors.invalidHoleType("Identifier")(template.pos))
+        case None => Constrained.fail(invalidHoleType("Identifier")(template.pos))
         case Some(id) => Constrained.pure((id, None))
       }
       case IdentifierName(name) => Constrained.pure((inox.FreshIdentifier(name), Some(name)))
@@ -20,11 +20,11 @@ trait IdentifierElaborators { self: Elaborators =>
   object ExprUseIdE extends Elaborator[Identifier, inox.Identifier] {
     override def elaborate(template: Identifier)(implicit store: Store): Constrained[inox.Identifier] = template match {
       case IdentifierHole(index) => store.getHole[inox.Identifier](index) match {
-        case None => Constrained.fail(Errors.invalidHoleType("Identifier")(template.pos))
+        case None => Constrained.fail(invalidHoleType("Identifier")(template.pos))
         case Some(id) => Constrained.pure(id)
       }
       case IdentifierName(name) => store.getExprIdentifier(name) match {
-        case None => Constrained.fail(Errors.noExprInScope(name)(template.pos))
+        case None => Constrained.fail(noExprInScope(name)(template.pos))
         case Some(id) => Constrained.pure(id)
       }
     }
@@ -33,11 +33,11 @@ trait IdentifierElaborators { self: Elaborators =>
   object TypeUseIdE extends Elaborator[Identifier, inox.Identifier] {
     override def elaborate(template: Identifier)(implicit store: Store): Constrained[inox.Identifier] = template match {
       case IdentifierHole(index) => store.getHole[inox.Identifier](index) match {
-        case None => Constrained.fail(Errors.invalidHoleType("Identifier")(template.pos))
+        case None => Constrained.fail(invalidHoleType("Identifier")(template.pos))
         case Some(id) => Constrained.pure(id)
       }
       case IdentifierName(name) => store.getTypeIdentifier(name) match {
-        case None => Constrained.fail(Errors.noTypeInScope(name)(template.pos))
+        case None => Constrained.fail(noTypeInScope(name)(template.pos))
         case Some(id) => Constrained.pure(id)
       }
     }
@@ -46,7 +46,7 @@ trait IdentifierElaborators { self: Elaborators =>
   object FieldIdE extends Elaborator[Identifier, (String, Seq[(inox.Identifier, inox.Identifier)])] {
     override def elaborate(template: Identifier)(implicit store: Store): Constrained[(String, Seq[(inox.Identifier, inox.Identifier)])] = template match {
       case IdentifierHole(index) => store.getHole[inox.Identifier](index) match {
-        case None => Constrained.fail(Errors.invalidHoleType("Identifier")(template.pos))
+        case None => Constrained.fail(invalidHoleType("Identifier")(template.pos))
         case Some(id) => Constrained.pure((id.name, store.getSortByField(id).toSeq.map((_, id))))
       }
       case IdentifierName(name) => Constrained.pure((name, store.getFieldByName(name)))

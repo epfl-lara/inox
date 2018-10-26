@@ -58,14 +58,14 @@ trait ExprExtractors { self: Extractors =>
         case trees.Assume(sPred, sBody) =>
           ExprX.extract(pred, sPred) <> ExprX.extract(body, sBody)
       }
-      case SetConstruction(optType, elems) => Matching.collect(scrutinee) {
+      case SetConstruction(optTypes, elems) => Matching.collect(scrutinee) {
         case trees.FiniteSet(sElems, sType) =>
-          Matching.optionally(optType.map(TypeX.extract(_, sType))) <>
+          Matching.optionally(optTypes.map(TypeSeqX.extract(_, Seq(sType)))) <>
           ExprSeqX.extract(elems, sElems)
       }
-      case BagConstruction(optType, elems) => Matching.collect(scrutinee) {
+      case BagConstruction(optTypes, elems) => Matching.collect(scrutinee) {
         case trees.FiniteBag(sElems, sType) =>
-          Matching.optionally(optType.map(TypeX.extract(_, sType))) <>
+          Matching.optionally(optTypes.map(TypeSeqX.extract(_, Seq(sType)))) <>
           ExprPairSeqX.extract(elems, sElems)
       }
       case MapConstruction(optTypes, elems, default) => Matching.collect(scrutinee) {

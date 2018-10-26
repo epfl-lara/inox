@@ -32,7 +32,10 @@ trait FunctionElaborators { self: Elaborators =>
       tpbs <- TypeVarDefSeqE.elaborate(function.typeParams)
       storeWithTypeParams = store.addTypeBindings(tpbs)
       bs <- BindingSeqE.elaborate(function.params)(storeWithTypeParams)
-      (stRet, evRet) <- OptTypeE.elaborate(function.returnType)(storeWithTypeParams)
+      (stRet, evRet) <- OptTypeE.elaborate(function.returnType match {
+        case Some(tpe) => Right(tpe)
+        case None => Left(function.pos)
+      })(storeWithTypeParams)
     } yield SimpleFunctions.Function(i, optName, tpbs, bs, stRet, evRet)
   }
 
