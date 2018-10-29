@@ -28,8 +28,8 @@ trait Printers { self: Trees =>
                             printPositions: Boolean = false,
                             printUniqueIds: Boolean = false,
                             printTypes: Boolean = false,
+                            printChooses: Boolean = false,
                             symbols: Option[Symbols] = None) {
-
     require(
       !printTypes || symbols.isDefined,
       "Can't print types without an available symbol table"
@@ -37,18 +37,19 @@ trait Printers { self: Trees =>
   }
 
   object PrinterOptions {
-    def fromContext(ctx: Context): PrinterOptions = {
+    def fromContext(ctx: Context, symbols: Option[Symbols] = None): PrinterOptions = {
       PrinterOptions(
         baseIndent = 0,
         printPositions = ctx.options.findOptionOrDefault(optPrintPositions),
         printUniqueIds = ctx.options.findOptionOrDefault(optPrintUniqueIds),
-        printTypes = ctx.options.findOptionOrDefault(optPrintTypes),
-        symbols = None
+        printTypes = ctx.options.findOptionOrDefault(optPrintTypes) && symbols.isDefined,
+        printChooses = ctx.options.findOptionOrDefault(optPrintChooses),
+        symbols = symbols
       )
     }
 
     def fromSymbols(s: Symbols, ctx: Context): PrinterOptions = {
-      fromContext(ctx).copy(symbols = Some(s))
+      fromContext(ctx, symbols = Some(s))
     }
   }
 
@@ -159,7 +160,7 @@ trait Printer {
     case Int16Literal(v) => p"$v"
     case Int32Literal(v) => p"$v"
     case Int64Literal(v) => p"$v"
-    case BVLiteral(bits, size) => p"x${(size to 1 by -1).map(i => if (bits(i)) "1" else "0").mkString("")}"
+    case BVLiteral(_, bits, size) => p"x${(size to 1 by -1).map(i => if (bits(i)) "1" else "0").mkString("")}"
     case IntegerLiteral(v) => p"$v"
     case FractionLiteral(n, d) =>
       if (d == 1) p"$n"
@@ -250,15 +251,15 @@ trait Printer {
     }
 
     case BVNarrowingCast(e, Int8Type())  => p"$e.toByte"
-    case BVNarrowingCast(e, Int16Type())  => p"$e.toShort"
+    case BVNarrowingCast(e, Int16Type()) => p"$e.toShort"
     case BVNarrowingCast(e, Int32Type()) => p"$e.toInt"
-    case BVNarrowingCast(e, Int64Type())  => p"$e.toLong"
-    case BVNarrowingCast(e, BVType(size))  => p"$e.toBV($size)"
-    case BVWideningCast(e, Int8Type())   => p"$e.toByte"
-    case BVWideningCast(e, Int16Type())   => p"$e.toShort"
-    case BVWideningCast(e, Int32Type())  => p"$e.toInt"
-    case BVWideningCast(e, Int64Type())   => p"$e.toLong"
-    case BVWideningCast(e, BVType(size))   => p"$e.toBV($size)"
+    case BVNarrowingCast(e, Int64Type()) => p"$e.toLong"
+    case BVNarrowingCast(e, BVType(_, size)) => p"$e.toBV($size)"
+    case BVWideningCast(e, Int8Type())  => p"$e.toByte"
+    case BVWideningCast(e, Int16Type()) => p"$e.toShort"
+    case BVWideningCast(e, Int32Type()) => p"$e.toInt"
+    case BVWideningCast(e, Int64Type()) => p"$e.toLong"
+    case BVWideningCast(e, BVType(_, size)) => p"$e.toBV($size)"
 
     case fs @ FiniteSet(rs, _) => p"{${rs}}"
     case fs @ FiniteBag(rs, _) => p"{${rs.toSeq}}"
@@ -328,7 +329,8 @@ trait Printer {
     case Int16Type() => p"Short"
     case Int32Type() => p"Int"
     case Int64Type() => p"Long"
-    case BVType(size) => p"Int$size"
+    case BVType(true, size) => p"Int$size"
+    case BVType(false, size) => p"UInt$size"
     case IntegerType() => p"BigInt"
     case RealType() => p"Real"
     case CharType() => p"Char"
@@ -341,6 +343,14 @@ trait Printer {
     case FunctionType(fts, tt) => p"($fts) => $tt"
     case adt: ADTType =>
       p"${adt.id}${nary(adt.tps, ", ", "[", "]")}"
+
+    case RefinementType(vd, pred) =>
+      p"|{ $vd "
+      ctx.sb.append("|")
+      p"| $pred }"
+
+    case PiType(params, to) => p"($params) => $to"
+    case SigmaType(params, to) => p"($params, $to)"
 
     // Definitions
     case sort: ADTSort =>
@@ -511,8 +521,6 @@ trait Printer {
 
         if (expressions.hasNext) {
           val e = expressions.next
-          if (e == "||")
-            println("Seen Expression: " + e)
 
           e match {
             case (t1, t2) =>

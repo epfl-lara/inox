@@ -107,7 +107,11 @@ scala> val intLit = e"1 as Int"
 intLit: inox.trees.Expr = 1
 
 scala> intLit.getType
+<<<<<<< HEAD
 res6: inox.trees.Type = Int32Type
+=======
+res6: inox.trees.interpolator.trees.Type = Int
+>>>>>>> origin/master
 ```
 
 ```scala

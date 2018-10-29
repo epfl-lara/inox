@@ -57,23 +57,23 @@ class TypeParserSuite extends FunSuite {
 
   test("Parsing BitVector types") {
 
-    assertResult(BVType(32)) {
+    assertResult(BVType(true, 32)) {
       t"Int32"
     }
 
-    assertResult(BVType(64)) {
+    assertResult(BVType(true, 64)) {
       t"Int64"
     }
 
-    assertResult(BVType(17)) {
+    assertResult(BVType(true, 17)) {
       t"Int17"
     }
 
-    assertResult(BVType(1273)) {
+    assertResult(BVType(true, 1273)) {
       t"Int1273"
     }
 
-    assertResult(BVType(1)) {
+    assertResult(BVType(true, 1)) {
       t"Int1"
     }
   }

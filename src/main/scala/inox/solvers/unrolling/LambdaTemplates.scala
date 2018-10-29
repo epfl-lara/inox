@@ -61,7 +61,7 @@ trait LambdaTemplates { self: Templates =>
       val trArgs: Seq[Encoded] = idArgs.map(v => substMap.getOrElse(v, encodeSymbol(v)))
 
       val (realLambda, structure, depSubst) = mkExprStructure(pathVar._1, lambda, substMap)
-      val depClosures = exprOps.variablesOf(lambda).toSeq.sortBy(_.id.uniqueName).map(v => v -> substMap(v))
+      val depClosures = exprOps.variablesOf(lambda).toSeq.sortBy(_.id).map(v => v -> substMap(v))
 
       val tpe = lambda.getType.asInstanceOf[FunctionType]
       val lid = Variable.fresh("lambda", tpe, true)
@@ -166,7 +166,7 @@ trait LambdaTemplates { self: Templates =>
         val (subst, to) = tpe match {
           case PiType(params, to) => ((params.map(_.toVariable) zip app.args).toMap ++ (vars zip closures), to)
           case FunctionType(_, to) => ((vars zip closures).toMap, to)
-          case _ => throw FatalError("Unexpected function type " + tpe.asString)
+          case _ => throw new InternalSolverError("Unexpected function type " + tpe.asString)
         }
 
         val toVars = typeOps.variablesOf(to).toSeq.sortBy(_.id)
@@ -413,7 +413,7 @@ trait LambdaTemplates { self: Templates =>
       clauses ++= blockerClauses
       clauses += mkImplies(
         blocker,
-        if (template.structure.body == that.structure.body) {
+        if (typeOps.simplify(template.structure.body) == typeOps.simplify(that.structure.body)) {
           val pairs = template.structure.locals zip that.structure.locals
           val filtered = pairs.filter(p => p._1 != p._2)
           if (filtered.isEmpty) {

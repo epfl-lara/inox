@@ -3,62 +3,78 @@
 package inox
 package transformers
 
-/** A [[Transformer]] which uses path conditions as environment */
+/** A [[Transformer]] that uses the path condition _before transformation_ as environment */
 trait TransformerWithPC extends Transformer {
-  val symbols: trees.Symbols
-  import trees._
-  import symbols._
+  type Env <: s.PathLike[Env]
 
-  type Env <: PathLike[Env]
+  override def transform(e: s.Expr, env: Env): t.Expr = e match {
+    case s.Let(i, v, b) =>
+      t.Let(transform(i, env), transform(v, env), transform(b, env withBinding (i -> v))).copiedFrom(e)
 
-  protected def rec(e: Expr, env: Env): Expr = e match {
-    case Let(i, v, b) =>
-      val se = rec(v, env)
-      val sb = rec(b, env withBinding (i -> se))
-      Let(i, se, sb).copiedFrom(e)
+    case s.Lambda(params, b) =>
+      val (sparams, senv) = params.foldLeft((Seq[t.ValDef](), env)) {
+        case ((sparams, env), vd) => (sparams :+ transform(vd, env), env withBound vd)
+      }
+      t.Lambda(sparams, transform(b, senv)).copiedFrom(e)
 
-    case Lambda(args, b) =>
-      val sb = rec(b, env withBounds args)
-      Lambda(args, sb).copiedFrom(e)
+    case s.Forall(params, b) =>
+      val (sparams, senv) = params.foldLeft((Seq[t.ValDef](), env)) {
+        case ((sparams, env), vd) => (sparams :+ transform(vd, env), env withBound vd)
+      }
+      t.Forall(sparams, transform(b, senv)).copiedFrom(e)
 
-    case Forall(args, b) =>
-      val sb = rec(b, env withBounds args)
-      Forall(args, sb).copiedFrom(e)
+    case s.Choose(res, p) =>
+      t.Choose(transform(res, env), transform(p, env withBound res)).copiedFrom(e)
 
-    case Choose(arg, p) =>
-      val sp = rec(p, env withBound arg)
-      Choose(arg, sp).copiedFrom(e)
+    case s.Assume(pred, body) =>
+      t.Assume(transform(pred, env), transform(body, env withCond pred)).copiedFrom(e)
 
-    case Assume(pred, body) =>
-      val sp = rec(pred, env)
-      val sb = rec(body, env withCond sp)
-      Assume(sp, sb).copiedFrom(e)
+    case s.IfExpr(cond, thenn, elze) =>
+      t.IfExpr(
+        transform(cond, env),
+        transform(thenn, env withCond cond),
+        transform(elze, env withCond s.Not(cond).copiedFrom(cond))
+      ).copiedFrom(e)
 
-    case IfExpr(cond, thenn, elze) =>
-      val rc = rec(cond, env)
-      IfExpr(rc, rec(thenn, env withCond rc), rec(elze, env withCond Not(rc))).copiedFrom(e)
-
-    case And(es) =>
+    case s.And(es) =>
       var soFar = env
-      andJoin(for(e <- es) yield {
-        val se = rec(e, soFar)
-        soFar = soFar withCond se
+      t.andJoin(for(e <- es) yield {
+        val se = transform(e, soFar)
+        soFar = soFar withCond e
         se
       }).copiedFrom(e)
 
-    case Or(es) =>
+    case s.Or(es) =>
       var soFar = env
-      orJoin(for(e <- es) yield {
-        val se = rec(e, soFar)
-        soFar = soFar withCond Not(se)
+      t.orJoin(for(e <- es) yield {
+        val se = transform(e, soFar)
+        soFar = soFar withCond s.Not(e).copiedFrom(e)
         se
       }).copiedFrom(e)
 
-    case i @ Implies(lhs, rhs) =>
-      val rc = rec(lhs, env)
-      Implies(rc, rec(rhs, env withCond rc)).copiedFrom(i)
+    case s.Implies(lhs, rhs) =>
+      t.Implies(transform(lhs, env), transform(rhs, env withCond lhs)).copiedFrom(e)
 
-    case o @ Operator(es, builder) =>
-      builder(es.map(rec(_, env))).copiedFrom(o)
+    case _ => super.transform(e, env)
+  }
+
+  override def transform(tpe: s.Type, env: Env): t.Type = tpe match {
+    case s.RefinementType(vd, prop) =>
+      t.RefinementType(transform(vd, env), transform(prop, env withBound vd)).copiedFrom(tpe)
+
+    case s.PiType(params, to) =>
+      val (sparams, senv) = params.foldLeft((Seq[t.ValDef](), env)) {
+        case ((sparams, env), vd) => (sparams :+ transform(vd, env), env withBound vd)
+      }
+      t.PiType(sparams, transform(to, senv)).copiedFrom(tpe)
+
+    case s.SigmaType(params, to) =>
+      val (sparams, senv) = params.foldLeft((Seq[t.ValDef](), env)) {
+        case ((sparams, env), vd) => (sparams :+ transform(vd, env), env withBound vd)
+      }
+      t.SigmaType(sparams, transform(to, senv)).copiedFrom(tpe)
+
+    case _ => super.transform(tpe, env)
   }
 }
+

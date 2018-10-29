@@ -8,7 +8,7 @@ trait EncodingSolver extends Solver {
   import program.trees._
   import SolverResponses._
 
-  protected val encoder: ast.ProgramTransformer { val sourceProgram: program.type }
+  protected val encoder: transformers.ProgramTransformer { val sourceProgram: program.type }
   protected lazy val t: encoder.targetProgram.trees.type = encoder.targetProgram.trees
 
   protected val underlying: Solver {
@@ -17,6 +17,8 @@ trait EncodingSolver extends Solver {
 
   lazy val name = "E:" + underlying.name
   lazy val context = underlying.context
+
+  def declare(vd: ValDef) = underlying.declare(encoder.encode(vd))
 
   def assertCnstr(expr: Expr) = underlying.assertCnstr(encoder.encode(expr))
 

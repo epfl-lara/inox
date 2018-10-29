@@ -104,7 +104,7 @@ trait SimpleTypes { self: Trees =>
       case trees.IntegerType() => Some(IntegerType())
       case trees.RealType() => Some(RealType())
       case trees.StringType() => Some(StringType())
-      case trees.BVType(size) => Some(BitVectorType(size))
+      case trees.BVType(true, size) => Some(BitVectorType(size))
       case trees.TypeParameter(id, _) => Some(TypeParameter(id))
       case trees.TupleType(ts) => ts.foldLeft(Option(Seq[Type]())) {
         case (acc, t) => acc.flatMap(xs => fromInox(t).map(x => xs :+ x))
@@ -132,7 +132,7 @@ trait SimpleTypes { self: Trees =>
       case u: Unknown => throw new IllegalArgumentException("Unexpected Unknown.")
       case UnitType() => trees.UnitType()
       case BooleanType() => trees.BooleanType()
-      case BitVectorType(size) => trees.BVType(size)
+      case BitVectorType(size) => trees.BVType(true, size)
       case IntegerType() => trees.IntegerType()
       case StringType() => trees.StringType()
       case CharType() => trees.CharType()

@@ -7,16 +7,15 @@ import scala.language.implicitConversions
 
 import inox.parser._
 
-case object DebugSectionTrees extends DebugSection("trees")
-
 trait Trees
   extends Expressions
      with Constructors
-     with Extractors
+     with Deconstructors
      with Types
      with Definitions
      with Printers
-     with TreeOps { self =>
+     with TreeOps
+     with Paths { self =>
 
   class UnsupportedTree(t: Tree, msg: String)(implicit ctx: Context)
     extends Unsupported(s"${t.asString(PrinterOptions.fromContext(ctx))}@${t.getPos} $msg")
@@ -28,7 +27,7 @@ trait Trees
 
     def asString(implicit opts: PrinterOptions): String = prettyPrint(this, opts)
 
-    override def toString = asString(PrinterOptions.fromContext(Context.printNames))
+    override def toString = asString(PrinterOptions())
   }
 
   val exprOps: ExprOps { val trees: Trees.this.type } = new {

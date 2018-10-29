@@ -39,5 +39,5 @@ trait NumberUtils {
   }
 
   def toBitSet(value: BigInt, base: Int): BitSet =
-    inox.trees.BVLiteral(value, base).value // Ugly, but works...
+    inox.trees.BVLiteral(true, value, base).value // Ugly, but works...
 }

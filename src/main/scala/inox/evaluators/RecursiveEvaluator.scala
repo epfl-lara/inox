@@ -126,7 +126,7 @@ trait RecursiveEvaluator
       BooleanLiteral(e(le) == e(re))
 
     case ADT(id, tps, args) =>
-      val cc = ADT(id, tps, args.map(e))
+      val cc = ADT(id, tps.map(_.getType), args.map(e))
       if (!ignoreContracts) {
         val sort = cc.getConstructor.sort
         sort.invariant.foreach { tfd =>
@@ -159,8 +159,8 @@ trait RecursiveEvaluator
 
     case Plus(l,r) =>
       (e(l), e(r)) match {
-        case (BVLiteral(i1, s1), BVLiteral(i2, s2)) if s1 == s2 => BVLiteral(
-          (1 to s1).foldLeft((BitSet.empty, false)) { case ((res, carry), i) =>
+        case (BVLiteral(sig1, i1, s1), BVLiteral(sig2, i2, s2)) if sig1 == sig2 && s1 == s2 =>
+          BVLiteral(sig1, (1 to s1).foldLeft((BitSet.empty, false)) { case ((res, carry), i) =>
             val (b1, b2) = (i1(i), i2(i))
             val nextCarry = (b1 && b2) || (b1 && carry) || (b2 && carry)
             val ri = b1 ^ b2 ^ carry
@@ -200,7 +200,8 @@ trait RecursiveEvaluator
 
     case UMinus(ex) =>
       e(ex) match {
-        case b @ BVLiteral(_, s) => BVLiteral(-b.toBigInt, s)
+        case b @ BVLiteral(sig, _, s) =>
+          BVLiteral(sig, if (sig) -b.toBigInt else BigInt(2).pow(s) - b.toBigInt, s)
         case IntegerLiteral(i) => IntegerLiteral(-i)
         case FractionLiteral(n, d) => FractionLiteral(-n, d)
         case re => throw EvalError("Unexpected operation: -(" + re.asString + ")")
@@ -208,9 +209,9 @@ trait RecursiveEvaluator
 
     case Times(l,r) =>
       (e(l), e(r)) match {
-        case (BVLiteral(i1, s1), BVLiteral(i2, s2)) if s1 == s2 =>
-          i1.foldLeft(BVLiteral(0, s1): Expr) { case (res, i) =>
-            e(Plus(res, BVLiteral(shift(i2, s2, i-1), s1)))
+        case (BVLiteral(sig1, i1, s1), BVLiteral(sig2, i2, s2)) if sig1 == sig2 && s1 == s2 =>
+          i1.foldLeft(BVLiteral(sig1, 0, s1): Expr) { case (res, i) =>
+            e(Plus(res, BVLiteral(sig1, shift(i2, s2, i-1), s1)))
           }
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => IntegerLiteral(i1 * i2)
         case (FractionLiteral(ln, ld), FractionLiteral(rn, rd)) =>
@@ -220,9 +221,9 @@ trait RecursiveEvaluator
 
     case Division(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(_, s1), b2 @ BVLiteral(_, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
           val bi2 = b2.toBigInt
-          if (bi2 != 0) BVLiteral(b1.toBigInt / bi2, s1) else throw RuntimeError("Division by 0.")
+          if (bi2 != 0) BVLiteral(sig1, b1.toBigInt / bi2, s1) else throw RuntimeError("Division by 0.")
         case (IntegerLiteral(i1), IntegerLiteral(i2)) =>
           if(i2 != BigInt(0)) IntegerLiteral(i1 / i2) else throw RuntimeError("Division by 0.")
         case (FractionLiteral(ln, ld), FractionLiteral(rn, rd)) =>
@@ -234,9 +235,9 @@ trait RecursiveEvaluator
 
     case Remainder(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(_, s1), b2 @ BVLiteral(_, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
           val bi2 = b2.toBigInt
-          if (bi2 != 0) BVLiteral(b1.toBigInt % bi2, s1) else throw RuntimeError("Division by 0.")
+          if (bi2 != 0) BVLiteral(sig1, b1.toBigInt % bi2, s1) else throw RuntimeError("Division by 0.")
         case (IntegerLiteral(i1), IntegerLiteral(i2)) =>
           if(i2 != BigInt(0)) IntegerLiteral(i1 % i2) else throw RuntimeError("Remainder of division by 0.")
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") rem (" + re.asString + ")")
@@ -244,14 +245,16 @@ trait RecursiveEvaluator
 
     case Modulo(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(_, s1), b2 @ BVLiteral(_, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
           val bi2 = b2.toBigInt
-          if (bi2 < 0)
-            BVLiteral(b1.toBigInt mod (-bi2), s1)
-          else if (bi2 != 0)
-            BVLiteral(b1.toBigInt mod bi2, s1)
-          else
+          if (bi2 < 0) {
+            assert(sig1, "Only signed bitvectors can contain negative values.")
+            BVLiteral(true, b1.toBigInt mod (-bi2), s1)
+          } else if (bi2 != 0) {
+            BVLiteral(sig1, b1.toBigInt mod bi2, s1)
+          } else {
             throw RuntimeError("Modulo of division by 0.")
+          }
         case (IntegerLiteral(i1), IntegerLiteral(i2)) =>
           if(i2 < 0)
             IntegerLiteral(i1 mod (-i2))
@@ -264,67 +267,67 @@ trait RecursiveEvaluator
 
     case BVNot(b) =>
       e(b) match {
-        case BVLiteral(bs, s) =>
-          BVLiteral(BitSet.empty ++ (1 to s).flatMap(i => if (bs(i)) None else Some(i)), s)
+        case BVLiteral(signed, bs, s) =>
+          BVLiteral(signed, BitSet.empty ++ (1 to s).flatMap(i => if (bs(i)) None else Some(i)), s)
         case other => throw EvalError("Unexpected operation: ~(" + other.asString + ")")
       }
 
     case BVAnd(l, r) =>
       (e(l), e(r)) match {
-        case (BVLiteral(i1, s1), BVLiteral(i2, s2)) if s1 == s2 => BVLiteral(i1 & i2, s1)
+        case (BVLiteral(sig1, i1, s1), BVLiteral(sig2, i2, s2)) if sig1 == sig2 && s1 == s2 => BVLiteral(sig1, i1 & i2, s1)
         case (le, re) => throw EvalError("Unexpected operation: (" + le.asString + ") & (" + re.asString + ")")
       }
 
     case BVOr(l, r) =>
       (e(l), e(r)) match {
-        case (BVLiteral(i1, s1), BVLiteral(i2, s2)) if s1 == s2 => BVLiteral(i1 | i2, s1)
+        case (BVLiteral(sig1, i1, s1), BVLiteral(sig2, i2, s2)) if sig1 == sig2 && s1 == s2 => BVLiteral(sig1, i1 | i2, s1)
         case (le, re) => throw EvalError("Unexpected operation: (" + le.asString + ") | (" + re.asString + ")")
       }
 
     case BVXor(l,r) =>
       (e(l), e(r)) match {
-        case (BVLiteral(i1, s1), BVLiteral(i2, s2)) if s1 == s2 => BVLiteral(i1 ^ i2, s1)
+        case (BVLiteral(sig1, i1, s1), BVLiteral(sig2, i2, s2)) if sig1 == sig2 && s1 == s2 => BVLiteral(sig1, i1 ^ i2, s1)
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") ^ (" + re.asString + ")")
       }
 
     case BVShiftLeft(l,r) =>
       (e(l), e(r)) match {
-        case (BVLiteral(i1, s1), b2 @ BVLiteral(_, s2)) if s1 == s2 =>
-          BVLiteral(shift(i1, s1, b2.toBigInt.toInt), s1)
+        case (BVLiteral(sig1, i1, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
+          BVLiteral(sig1, shift(i1, s1, b2.toBigInt.toInt), s1)
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") << (" + re.asString + ")")
       }
 
     case BVAShiftRight(l,r) =>
       (e(l), e(r)) match {
-        case (BVLiteral(i1, s1), b2 @ BVLiteral(_, s2)) if s1 == s2 =>
+        case (BVLiteral(sig1, i1, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
           val shiftCount = b2.toBigInt.toInt
           val shifted = shift(i1, s1, -shiftCount)
-          BVLiteral(if (i1(s1)) shifted ++ ((s1 - shiftCount) to s1) else shifted, s1)
+          BVLiteral(sig1, if (i1(s1)) shifted ++ ((s1 - shiftCount) to s1) else shifted, s1)
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") >> (" + re.asString + ")")
       }
 
     case BVLShiftRight(l,r) =>
       (e(l), e(r)) match {
-        case (BVLiteral(i1, s1), b2 @ BVLiteral(_, s2)) if s1 == s2 =>
-          BVLiteral(shift(i1, s1, -b2.toBigInt.toInt), s1)
+        case (BVLiteral(sig1, i1, s1), b2 @ BVLiteral(sig2, _, s2)) if s1 == s2 && sig1 == sig2 =>
+          BVLiteral(sig1, shift(i1, s1, -b2.toBigInt.toInt), s1)
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") >>> (" + re.asString + ")")
       }
 
     case BVNarrowingCast(expr, bvt) =>
       e(expr) match {
-        case bv @ BVLiteral(_, _) => BVLiteral(bv.toBigInt, bvt.size)
-        case x => throw EvalError(typeErrorMsg(x, BVType(bvt.size + 1))) // or any larger BVType
+        case bv @ BVLiteral(signed, _, _) => BVLiteral(signed, bv.toBigInt, bvt.size)
+        case x => throw EvalError(typeErrorMsg(x, BVType(bvt.signed, bvt.size + 1))) // or any larger BVType
       }
 
     case BVWideningCast(expr, bvt) =>
       e(expr) match {
-        case bv @ BVLiteral(_, _) => BVLiteral(bv.toBigInt, bvt.size)
-        case x => throw EvalError(typeErrorMsg(x, BVType(bvt.size - 1))) // or any smaller BVType
+        case bv @ BVLiteral(signed, _, _) => BVLiteral(signed, bv.toBigInt, bvt.size)
+        case x => throw EvalError(typeErrorMsg(x, BVType(bvt.signed, bvt.size - 1))) // or any smaller BVType
       }
 
     case LessThan(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(_, s1), b2 @ BVLiteral(_, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
           BooleanLiteral(b1.toBigInt < b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 < i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
@@ -336,7 +339,7 @@ trait RecursiveEvaluator
 
     case GreaterThan(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(_, s1), b2 @ BVLiteral(_, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
           BooleanLiteral(b1.toBigInt > b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 > i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
@@ -348,7 +351,7 @@ trait RecursiveEvaluator
 
     case LessEquals(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(_, s1), b2 @ BVLiteral(_, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
           BooleanLiteral(b1.toBigInt <= b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 <= i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
@@ -360,7 +363,7 @@ trait RecursiveEvaluator
 
     case GreaterEquals(l,r) =>
       (e(l), e(r)) match {
-        case (b1 @ BVLiteral(_, s1), b2 @ BVLiteral(_, s2)) if s1 == s2 =>
+        case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
           BooleanLiteral(b1.toBigInt >= b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 >= i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
@@ -405,7 +408,7 @@ trait RecursiveEvaluator
     }
 
     case f @ FiniteSet(els, base) =>
-      finiteSet(els.map(e), base)
+      finiteSet(els.map(e), base.getType)
 
     case BagAdd(bag, elem) => (e(bag), e(elem)) match {
       case (FiniteBag(els, tpe), evElem) =>
@@ -468,7 +471,7 @@ trait RecursiveEvaluator
     }
 
     case FiniteBag(els, base) =>
-      finiteBag(els.map { case (k, v) => (e(k), e(v)) }, base)
+      finiteBag(els.map { case (k, v) => (e(k), e(v)) }, base.getType)
 
     case l @ Lambda(_, _) =>
       def normalizeLambda(l: Lambda, onlySimple: Boolean = false): Lambda = {
@@ -505,7 +508,7 @@ trait RecursiveEvaluator
       }
 
     case f @ FiniteMap(ss, dflt, kT, vT) =>
-      finiteMap(ss.map{ case (k, v) => (e(k), e(v)) }, e(dflt), kT, vT)
+      finiteMap(ss.map{ case (k, v) => (e(k), e(v)) }, e(dflt), kT.getType, vT.getType)
 
     case g @ MapApply(m,k) => (e(m), e(k)) match {
       case (FiniteMap(ss, dflt, _, _), e) =>
@@ -523,12 +526,7 @@ trait RecursiveEvaluator
     }
 
     case StringLiteral(str) =>
-      import utils.StringUtils._
-      def decode(s: String): String = if (s.isEmpty) s else (s match {
-        case JavaEncoded(b, s2) => b.toChar + decode(s2)
-        case _ => s.head + decode(s.tail)
-      })
-      StringLiteral(decode(str))
+      StringLiteral(utils.StringUtils.decode(str))
 
     case gl: GenericValue => gl
     case fl : FractionLiteral => normalizeFraction(fl)

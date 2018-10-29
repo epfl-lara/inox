@@ -1,18 +1,18 @@
 /* Copyright 2009-2018 EPFL, Lausanne */
 
 package inox
-package ast
+package transformers
 
 trait ProgramTransformer { self =>
   val sourceProgram: Program
   val targetProgram: Program
 
-  protected val encoder: TreeTransformer {
+  protected val encoder: transformers.TreeTransformer {
     val s: self.sourceProgram.trees.type
     val t: self.targetProgram.trees.type
   }
 
-  protected val decoder: TreeTransformer {
+  protected val decoder: transformers.TreeTransformer {
     val s: self.targetProgram.trees.type
     val t: self.sourceProgram.trees.type
   }
@@ -65,7 +65,7 @@ trait ProgramTransformer { self =>
 
 trait ProgramEncoder extends ProgramTransformer { self =>
   lazy final val s: sourceProgram.trees.type = sourceProgram.trees
-  val t: Trees
+  val t: ast.Trees
 
   protected val extraFunctions: Seq[t.FunDef] = Seq.empty
   protected val extraSorts: Seq[t.ADTSort] = Seq.empty

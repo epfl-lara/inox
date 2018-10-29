@@ -5,8 +5,7 @@ package ast
 
 import utils._
 
-trait Paths { self: SymbolOps with TypeOps =>
-  import trees._
+trait Paths { self: Trees =>
 
   trait PathLike[Self <: PathLike[Self]] { self: Self =>
 
@@ -37,6 +36,12 @@ trait Paths { self: SymbolOps with TypeOps =>
 
   trait PathProvider[P <: PathLike[P]] {
     def empty: P
+
+    def apply(path: Path): P = path.elements.foldLeft(empty) {
+      case (env, Path.CloseBound(vd, e)) => env withBinding (vd -> e)
+      case (env, Path.OpenBound(vd)) => env withBound vd
+      case (env, Path.Condition(cond)) => env withCond cond
+    }
   }
 
   implicit object Path extends PathProvider[Path] {
@@ -61,6 +66,18 @@ trait Paths { self: SymbolOps with TypeOps =>
 
     def apply(path: Seq[Expr])(implicit d: DummyImplicit): Path =
       new Path(path filterNot { _ == BooleanLiteral(true) } map Condition)
+
+    /** Fold the path elements
+      *
+      * This function takes two combiner functions, one for let bindings and one
+      * for proposition expressions.
+      */
+    def fold[T](base: T, combineLet: (ValDef, Expr, T) => T, combineCond: (Expr, T) => T)
+               (elems: Seq[Element]): T = elems.foldRight(base) {
+      case (CloseBound(vd, e), res) => combineLet(vd, e, res)
+      case (Condition(e), res) => combineCond(e, res)
+      case (OpenBound(_), res) => res
+    }
   }
 
   /** Encodes path conditions
@@ -74,8 +91,10 @@ trait Paths { self: SymbolOps with TypeOps =>
     * could introduce non-sensical equations.
     */
   class Path protected(val elements: Seq[Path.Element])
-    extends Printable with PathLike[Path] {
-    import Path.{ Element, CloseBound, OpenBound, Condition }
+    extends Printable
+       with PathLike[Path] {
+
+    import Path._
 
     private def :+(e: Element) = new Path(elements :+ e)
 
@@ -168,7 +187,7 @@ trait Paths { self: SymbolOps with TypeOps =>
     override def negate: Path = _negate.get
     private[this] val _negate: Lazy[Path] = Lazy {
       val (outers, rest) = elements span { !_.isInstanceOf[Condition] }
-      new Path(outers) :+ Condition(not(fold[Expr](BooleanLiteral(true), let, trees.and(_, _))(rest)))
+      new Path(outers) :+ Condition(not(fold[Expr](BooleanLiteral(true), Let, self.and(_, _))(rest)))
     }
 
     /** Free variables within the path */
@@ -211,7 +230,7 @@ trait Paths { self: SymbolOps with TypeOps =>
     private[this] val _conditions: Lazy[Seq[Expr]] =
       Lazy(elements.collect { case Condition(e) => e })
 
-    def isBound(id: Identifier): Boolean = bound exists { _.id == id }
+    def isBound(v: Variable): Boolean = bound exists { _.toVariable == v }
 
     /** Free variables of the input expression under the current path
       *
@@ -231,18 +250,6 @@ trait Paths { self: SymbolOps with TypeOps =>
     /** Unbound variables of the input variable set under the current path */
     def unboundOf(vs: Set[Variable]): Set[Variable] = vs -- closed.map(_.toVariable) ++ unboundVariables
 
-    /** Fold the path elements
-      *
-      * This function takes two combiner functions, one for let bindings and one
-      * for proposition expressions.
-      */
-    private def fold[T](base: T, combineLet: (ValDef, Expr, T) => T, combineCond: (Expr, T) => T)
-                       (elems: Seq[Element]): T = elems.foldRight(base) {
-      case (CloseBound(vd, e), res) => combineLet(vd, e, res)
-      case (Condition(e), res) => combineCond(e, res)
-      case (OpenBound(_), res) => res
-    }
-
     /** Folds the path elements over a distributive proposition combinator [[combine]]
       *
       * Certain combiners can be distributive over let-binding folds. Namely, one
@@ -255,42 +262,15 @@ trait Paths { self: SymbolOps with TypeOps =>
       */
     private def distributiveClause(base: Expr, combine: (Expr, Expr) => Expr): Expr = {
       val (outers, rest) = elements span { !_.isInstanceOf[Condition] }
-      val inner = fold[Expr](base, let, combine)(rest)
-      fold[Expr](inner, let, (_,_) => scala.sys.error("Should never happen!"))(outers)
+      val inner = fold[Expr](base, Let, combine)(rest)
+      fold[Expr](inner, Let, (_,_) => scala.sys.error("Should never happen!"))(outers)
     }
 
     /** Folds the path into a conjunct with the expression `base` */
-    def and(base: Expr) = distributiveClause(base, trees.and(_, _))
+    def and(base: Expr) = distributiveClause(base, self.and(_, _))
 
     /** Fold the path into an implication of `base`, namely `path ==> base` */
-    def implies(base: Expr) = distributiveClause(base, trees.implies)
-
-    /** Folds the path into an expression that shares the path's outer lets
-      *
-      * The folding shares all outer bindings in an wrapping sequence of
-      * let-expressions. The inner condition is then passed as the first
-      * argument of the `recons` function and must be shared out between
-      * the reconstructions of `es` which will only feature the bindings
-      * from the current path.
-      *
-      * This method is useful to reconstruct if-expressions or assumptions
-      * where the condition can be added to the expression in a position
-      * that implies further positions.
-      */
-    def withShared(es: Seq[Expr], recons: (Expr, Seq[Expr]) => Expr): Expr = {
-      val (outers, rest) = elements span { !_.isInstanceOf[Condition] }
-      val bindings = rest collect { case CloseBound(vd, e) => vd -> e }
-      val cond = fold[Expr](BooleanLiteral(true), let, trees.and(_, _))(rest)
-
-      def wrap(e: Expr): Expr = {
-        val subst = bindings.map(p => p._1 -> p._1.toVariable.freshen).toMap
-        val replace = exprOps.replaceFromSymbols(subst, _: Expr)
-        bindings.foldRight(replace(e)) { case ((vd, e), b) => let(subst(vd).toVal, replace(e), b) }
-      }
-
-      val full = recons(cond, es.map(wrap))
-      fold[Expr](full, let, (_, _) => scala.sys.error("Should never happen!"))(outers)
-    }
+    def implies(base: Expr) = distributiveClause(base, self.implies)
 
     /** Folds the path into the associated boolean proposition */
     @inline def toClause: Expr = _clause.get
@@ -309,7 +289,7 @@ trait Paths { self: SymbolOps with TypeOps =>
 
     override def hashCode: Int = elements.hashCode
 
-    override def toString = asString(PrinterOptions.fromContext(Context.printNames))
+    override def toString = asString(PrinterOptions())
     def asString(implicit opts: PrinterOptions): String = fullClause.asString
   }
 }

@@ -56,9 +56,9 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
         BooleanLiteral(n == 1)
       case (Core.Equals(e1, e2), _) =>
         fromSMTUnifyType(e1, e2, None)(Equals) match {
-          case Equals(IsTyped(lhs, BooleanType()), IsTyped(_, BVType(1))) =>
+          case Equals(IsTyped(lhs, BooleanType()), IsTyped(_, BVType(true, 1))) =>
             Equals(lhs, fromSMT(e2, BooleanType()))
-          case Equals(IsTyped(_, BVType(1)), IsTyped(rhs, BooleanType())) =>
+          case Equals(IsTyped(_, BVType(true, 1)), IsTyped(rhs, BooleanType())) =>
             Equals(fromSMT(e1, BooleanType()), rhs)
           case expr => expr
         }
@@ -149,6 +149,12 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
     case SetUnion(a, b)         => Sets.Union(toSMT(a), toSMT(b))
     case SetAdd(a, b)           => Sets.Insert(toSMT(b), toSMT(a))
     case SetIntersection(a, b)  => Sets.Intersection(toSMT(a), toSMT(b))
+
+    case FiniteMap(_, default, _, _) if !isValue(default) || exprOps.exists {
+      case _: Lambda => true
+      case _ => false
+    } (default) =>
+      unsupported(e, "Cannot encode map with non-constant default value")
 
     case _ =>
       super.toSMT(e)

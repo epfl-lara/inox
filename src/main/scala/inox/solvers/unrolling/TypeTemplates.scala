@@ -72,7 +72,7 @@ trait TypeTemplates { self: Templates =>
     extends TypingGenerator(CaptureUnrolling)
 
 
-  /** Represents the kind of instantiator (@see [[TypesTemplate]]) a given
+  /** Represents the kind of instantiator (@see [[ConstraintTemplate]] and [[CaptureTemplate]]) a given
     * template info is associated to. */
   sealed abstract class TemplateInstantiator {
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): TemplateInstantiator

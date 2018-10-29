@@ -15,7 +15,9 @@ package princess
 
 import ap._
 import ap.parser._
+import ap.basetypes._
 import ap.theories.{ADT => PADT, _}
+import ap.theories.{ModuloArithmetic => Mod}
 
 import utils._
 import SolverResponses._
@@ -63,19 +65,37 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
   private[princess] val variables = new IncrementalBijection[Variable, IExpression]
   private[princess] val functions = new IncrementalBijection[TypedFunDef, IFunction]
   private[princess] val lambdas = new IncrementalBijection[FunctionType, IFunction]
-  private[princess] val sorts = new IncrementalMap[Type, (PADT, Seq[(Type, DataType)])]
+
+  private[princess] val constructors = new IncrementalBijection[ConsType, IFunction]
+  private[princess] val selectors    = new IncrementalBijection[(ConsType, Int), IFunction]
+  private[princess] val testers      = new IncrementalBijection[ConsType, (PADT, Int)]
+
+  private[princess] val sorts = new IncrementalMap[Type, Sort]
 
   private[princess] val adtManager = new ADTManager
 
-  def typeToSort(tpe: Type): (PADT, Seq[(Type, DataType)]) = {
+  def typeToSort(tpe: Type): Sort = tpe match {
+    case tpe @ (_: ADTType | _: TupleType | _: TypeParameter | UnitType()) =>
+      if (!sorts.contains(tpe)) declareStructuralSort(tpe)
+      sorts(tpe)
+    case BooleanType() => sorts.cached(tpe)(Sort.Bool)
+    case IntegerType() => sorts.cached(tpe)(Sort.Integer)
+    case ft: FunctionType => sorts.cached(ft)(new Sort.InfUninterpreted(ft.toString))
+    case CharType() => sorts.cached(tpe)(Mod.UnsignedBVSort(16))
+    case BVType(true, size) => sorts.cached(tpe)(Mod.SignedBVSort(size))
+    case BVType(false, size) => sorts.cached(tpe)(Mod.UnsignedBVSort(size))
+    case _ => unsupported(tpe)
+  }
+
+  private def declareStructuralSort(tpe: Type): Unit = {
     adtManager.declareADTs(tpe, (adts: Seq[(Type, DataType)]) => {
       val indexMap: Map[Type, Int] = adts.map(_._1).zipWithIndex.toMap
 
-      def typeToSortRef(tpe: Type): PADT.Sort = {
+      def typeToSortRef(tpe: Type): PADT.CtorArgSort = {
         if (indexMap contains tpe) {
           PADT.ADTSort(indexMap(tpe))
         } else {
-          PADT.IntSort
+          PADT.OtherSort(typeToSort(tpe))
         }
       }
 
@@ -88,7 +108,14 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         })
       )
 
-      for ((tpe, _) <- adts) sorts += tpe -> ((adt, adts))
+      for (((tpe, _), sort) <- (adts zip adt.sorts)) sorts += tpe -> sort
+
+      for ((cse, i) <- adts.flatMap(_._2.cases).zipWithIndex) {
+        constructors += cse.tpe -> adt.constructors(i)
+        testers += cse.tpe -> (adt -> i)
+
+        for ((sel, i) <- adt.selectors(i).zipWithIndex) selectors += (cse.tpe, i) -> sel
+      }
     })
 
     sorts(tpe)
@@ -135,36 +162,44 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       }
 
       // INTEGER COMPARISON
-      case LessThan(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        pLhs < pRhs
+      case LessThan(lhs, rhs) => lhs.getType match {
+        case BVType(true, _) => Mod.bvslt(parseTerm(lhs), parseTerm(rhs))
+        case BVType(false, _) => Mod.bvult(parseTerm(lhs), parseTerm(rhs))
+        case CharType() => Mod.bvult(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => parseTerm(lhs) < parseTerm(rhs)
+        case _ => unsupported(expr)
       }
 
-      case GreaterThan(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        pLhs > pRhs
+      case GreaterThan(lhs, rhs) => lhs.getType match {
+        case BVType(true, _) => Mod.bvsgt(parseTerm(lhs), parseTerm(rhs))
+        case BVType(false, _) => Mod.bvugt(parseTerm(lhs), parseTerm(rhs))
+        case CharType() => Mod.bvugt(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => parseTerm(lhs) > parseTerm(rhs)
+        case _ => unsupported(expr)
       }
 
-      case LessEquals(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        pLhs <= pRhs
+      case LessEquals(lhs, rhs) => lhs.getType match {
+        case BVType(true, _) => Mod.bvsle(parseTerm(lhs), parseTerm(rhs))
+        case BVType(false, _) => Mod.bvule(parseTerm(lhs), parseTerm(rhs))
+        case CharType() => Mod.bvule(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => parseTerm(lhs) <= parseTerm(rhs)
+        case _ => unsupported(expr)
       }
 
-      case GreaterEquals(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        pLhs >= pRhs
+      case GreaterEquals(lhs, rhs) => lhs.getType match {
+        case BVType(true, _) => Mod.bvsge(parseTerm(lhs), parseTerm(rhs))
+        case BVType(false, _) => Mod.bvuge(parseTerm(lhs), parseTerm(rhs))
+        case CharType() => Mod.bvuge(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => parseTerm(lhs) >= parseTerm(rhs)
+        case _ => unsupported(expr)
       }
 
       // ADT INSTANCE OF
       case IsConstructor(expr, id) =>
-        val tpe = expr.getType.asInstanceOf[ADTType]
-        val (sort, adts) = typeToSort(tpe)
-        val constructors = adts.flatMap(_._2.cases)
-        sort.hasCtor(parseTerm(expr), constructors.indexWhere(_.tpe == ADTCons(id, tpe.tps)))
+        val tpe @ ADTType(_, tps) = expr.getType
+        typeToSort(tpe)
+        val (sort, tester) = testers.toB(ADTCons(id, tps))
+        sort.hasCtor(parseTerm(expr), tester)
 
       case (_: FunctionInvocation) | (_: Application) | (_: ADTSelector) | (_: TupleSelect) =>
         parseTerm(expr) === 0
@@ -177,7 +212,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
     def parseTerm(expr: Expr)(implicit bindings: Map[Variable, IExpression]): ITerm = expr match {
       case FunctionInvocation(id, tps, args) =>
-        val f = functions.cachedB(getFunction(id, tps)) {
+        val f = functions.cachedB(getFunction(id, tps.map(_.getType))) {
           p.createFunction(id.uniqueName, args.size)
         }
         val pArgs = for (a <- args) yield parseTerm(a)
@@ -193,14 +228,14 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       // ADT | Tuple
       case (_: ADT) | (_: Tuple) | (_: GenericValue) | (_: UnitLiteral) =>
         val tpe = expr.getType
-        val (sort, adts) = typeToSort(tpe)
+        typeToSort(tpe)
         val (cons, args) = expr match {
-          case ADT(id, tps, args) => (ADTCons(id, tps), args)
+          case ADT(id, tps, args) => (ADTCons(id, tps.map(_.getType)), args)
           case Tuple(args) => (TupleCons(args.map(_.getType)), args)
           case GenericValue(tp, i) => (TypeParameterCons(tp), Seq(IntegerLiteral(i)))
           case UnitLiteral() => (UnitCons, Seq.empty)
         }
-        val constructor = sort.constructors(adts.flatMap(_._2.cases).indexWhere(_.tpe == cons))
+        val constructor = constructors.toB(cons)
         constructor(args.map(parseTerm) : _*)
 
       case (_: ADTSelector) | (_: TupleSelect) =>
@@ -214,12 +249,8 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         }
 
         val tpe = rec.getType
-        val (sort, adts) = typeToSort(tpe)
-
-        val constructors = adts.flatMap(_._2.cases)
-        val selector = (constructors zip sort.selectors).collectFirst {
-          case (c, sels) if c.tpe == cons => sels(i)
-        }.getOrElse(throw PrincessSolverException(s"Undefined selector for $expr!?"))
+        typeToSort(tpe)
+        val selector = selectors.toB(cons -> i)
         selector(parseTerm(rec))
 
       case BooleanLiteral(true) => i(0)
@@ -245,37 +276,93 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       // LITERALS
       case IntegerLiteral(value) => value.toInt
 
+      case bv @ BVLiteral(signed, bits, size) =>
+        if (signed) Mod.cast2SignedBV(size, IdealInt(bv.toBigInt.bigInteger))
+        else Mod.cast2UnsignedBV(size, IdealInt(bv.toBigInt.bigInteger))
+
+      case CharLiteral(c) =>
+        Mod.cast2UnsignedBV(16, c.toInt)
+
       // INTEGER ARITHMETIC
-      case Plus(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        pLhs + pRhs
+      case Plus(lhs, rhs) => lhs.getType match {
+        case BVType(_, _) => Mod.bvadd(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => parseTerm(lhs) + parseTerm(rhs)
+        case _ => unsupported(expr)
       }
 
-      case Minus(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        pLhs - pRhs
+      case Minus(lhs, rhs) => lhs.getType match {
+        case BVType(_, _) => Mod.bvsub(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => parseTerm(lhs) - parseTerm(rhs)
+        case _ => unsupported(expr)
       }
 
-      case Times(lhs, rhs) => {
-        val pLhs = parseTerm(lhs)
-        val pRhs = parseTerm(rhs)
-        p.mult(pLhs, pRhs)
+      case Times(lhs, rhs) => lhs.getType match {
+        case BVType(_, _) => Mod.bvmul(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => p.mult(parseTerm(lhs), parseTerm(rhs))
+        case _ => unsupported(expr)
       }
 
-      case UMinus(e) =>
-        - parseTerm(e)
+      case UMinus(e) => e.getType match {
+        case BVType(_, _) => Mod.bvneg(parseTerm(e))
+        case IntegerType() => - parseTerm(e)
+        case _ => unsupported(expr)
+      }
 
-      case Division(lhs, rhs) =>
-        p.mulTheory.tDiv(parseTerm(lhs), parseTerm(rhs))
+      case Division(lhs, rhs) => lhs.getType match {
+        case BVType(true, _) => Mod.bvsdiv(parseTerm(lhs), parseTerm(rhs))
+        case BVType(false, _) => Mod.bvudiv(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => p.mulTheory.tDiv(parseTerm(lhs), parseTerm(rhs))
+        case _ => unsupported(expr)
+      }
 
-      case Remainder(lhs, rhs) =>
-        val q = parseTerm(Division(lhs, rhs))
-        parseTerm(lhs) - (parseTerm(rhs) * q)
+      case Remainder(lhs, rhs) => lhs.getType match {
+        case BVType(true, _) => Mod.bvsrem(parseTerm(lhs), parseTerm(rhs))
+        case BVType(false, _) => Mod.bvurem(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() =>
+          val q = parseTerm(Division(lhs, rhs))
+          parseTerm(lhs) - (parseTerm(rhs) * q)
+      }
 
-      case Modulo(lhs, rhs) =>
-        p.mulTheory.eMod(parseTerm(lhs), parseTerm(rhs))
+      case Modulo(lhs, rhs) => lhs.getType match {
+        case BVType(true, size) => // we want x mod |y|
+          val a = parseTerm(lhs)
+          val b = parseTerm(rhs)
+          Mod.bvsmod(a, ITermITE(Mod.bvslt(b, parseTerm(BVLiteral(true, 0, size))), Mod.bvneg(b), b))
+        case BVType(false, _) => Mod.bvurem(parseTerm(lhs), parseTerm(rhs))
+        case IntegerType() => p.mulTheory.eMod(parseTerm(lhs), parseTerm(rhs))
+      }
+
+      // BITVECTOR OPERATIONS
+      case BVNot(e) =>
+        Mod.bvnot(parseTerm(e))
+
+      case BVAnd(lhs, rhs) =>
+        Mod.bvand(parseTerm(lhs), parseTerm(rhs))
+
+      case BVOr(lhs, rhs) =>
+        Mod.bvor(parseTerm(lhs), parseTerm(rhs))
+
+      case BVXor(lhs, rhs) =>
+        Mod.bvxor(parseTerm(lhs), parseTerm(rhs))
+
+      case BVShiftLeft(lhs, rhs) =>
+        Mod.bvshl(parseTerm(lhs), parseTerm(rhs))
+
+      case BVAShiftRight(lhs, rhs) =>
+        Mod.bvashr(parseTerm(lhs), parseTerm(rhs))
+
+      case BVLShiftRight(lhs, rhs) =>
+        Mod.bvlshr(parseTerm(lhs), parseTerm(rhs))
+
+      case c @ BVWideningCast(e, _) =>
+        val Some((from, to)) = c.cast
+        val BVType(signed, _) = e.getType
+        if (signed) Mod.sign_extend(to - from, parseTerm(e))
+        else Mod.zero_extend(to - from, parseTerm(e))
+
+      case c @ BVNarrowingCast(e, _) =>
+        val Some((from, to)) = c.cast
+        Mod.extract(to - 1, 0, parseTerm(e))
 
       case _ => unsupported(expr, "Unexpected formula " + expr)
     }
@@ -298,95 +385,123 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       def withSeen(n: BigInt): Context = new Context(model, seen + n, chooses, lambdas)
     }
 
-    def parseExpr(iexpr: IExpression, tpe: Type)(implicit ctx: Context): Option[Expr] = tpe match {
-      case BooleanType() => iexpr match {
-        case iterm: ITerm => ctx.model.eval(iterm).map(i => BooleanLiteral(i.intValue == 0))
-        case iformula: IFormula => ctx.model.eval(iformula).map(BooleanLiteral)
+    // For some reason, various trees are not evaluated in the resulting Princess model,
+    // so we traverse the term and replace all such trees with ground sub-trees by the
+    // appropriate simplified value
+    private[princess] def simplify(iexpr: IExpression)(model: Model): IExpression = {
+      val visitor = new CollectingVisitor[Unit, IExpression] {
+        def postVisit(t: IExpression, arg: Unit, subres: Seq[IExpression]) : IExpression =
+          IExpression.updateAndSimplify(t, subres) match {
+            case app @ IFunApp(fun, Seq(arg)) if selectors containsB fun =>
+              evalToTerm(arg)(model) match {
+                case Some(IFunApp(_, args)) => args(selectors.toA(fun)._2)
+                case _ => app
+              }
+            case e => e
+          }
       }
 
-      case IntegerType() =>
-        ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(i => IntegerLiteral(i.bigIntValue))
+      visitor.visit(iexpr, ())
+    }
 
-      case tpe @ ((_: ADTType) | (_: TupleType) | (_: TypeParameter) | UnitType()) =>
-        val (sort, adts) = typeToSort(tpe)
+    private def evalToTerm(iexpr: IExpression)(model: Model): Option[IExpression] = iexpr match {
+      case app @ IFunApp(_, _) => Some(app)
+      case it: ITerm => model.evalToTerm(it)
+      case _ => None
+    }
 
-        val optIndex = (adts.map(_._1) zip sort.ctorIds).collectFirst {
-          case (`tpe`, fun) => ctx.model.eval(fun(iexpr.asInstanceOf[ITerm])).map(_.intValue)
-        }.flatten
+    def parseExpr(iexpr: IExpression, tpe: Type)(implicit ctx: Context): Option[Expr] = {
 
-        optIndex.flatMap { index =>
-          val constructors = adts.flatMap(_._2.cases)
-          val (fieldsTypes, recons): (Seq[Type], Seq[Expr] => Expr) = constructors(index).tpe match {
-            case ADTCons(id, tps) => (getConstructor(id, tps).fields.map(_.getType), ADT(id, tps, _))
-            case TupleCons(tps) => (tps, Tuple(_))
-            case TypeParameterCons(tp) => (Seq(IntegerType()), (es: Seq[Expr]) => {
-              GenericValue(tp, es.head.asInstanceOf[IntegerLiteral].value.toInt)
-            })
-            case UnitCons => (Seq(), _ => UnitLiteral())
-          }
-
-          val optArgs = (sort.selectors(index) zip fieldsTypes).map {
-            case (fun, tpe) => parseExpr(fun(iexpr.asInstanceOf[ITerm]), tpe)
-          }
-
-          if (optArgs.forall(_.isDefined)) {
-            Some(recons(optArgs.map(_.get)))
-          } else {
-            None
-          }
-        }.orElse {
-          ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(n => constructExpr(n.intValue, tpe))
+      def rec(iexpr: IExpression, tpe: Type)(implicit ctx: Context): Option[Expr] = tpe match {
+        case BooleanType() => iexpr match {
+          case iterm: ITerm => ctx.model.eval(iterm).map(i => BooleanLiteral(i.intValue == 0))
+          case iformula: IFormula => ctx.model.eval(iformula).map(BooleanLiteral)
         }
 
-      case ft: FunctionType =>
-        val iterm = iexpr.asInstanceOf[ITerm]
-        ctx.model.eval(iterm).flatMap { ideal =>
-          val n = BigInt(ideal.bigIntValue)
-          if (ctx.seen(n)) {
-            Some(ctx.chooses.getOrElseUpdate(n, {
-              Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
-            }))
-          } else {
-            ctx.lambdas.get(n).orElse {
-              for {
-                fun <- lambdas.getB(ft)
-                newCtx = ctx.withSeen(n)
-                interps = ctx.model.interpretation.flatMap {
-                  case (SimpleAPI.IntFunctionLoc(`fun`, ptr +: args), SimpleAPI.IntValue(res)) =>
-                    if (ctx.model.eval(iterm === ptr) contains true) {
-                      val optArgs = (args zip ft.from).map(p => parseExpr(p._1, p._2)(newCtx))
-                      val optRes = parseExpr(res, ft.to)(newCtx)
+        case IntegerType() =>
+          ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(i => IntegerLiteral(i.bigIntValue))
 
-                      if (optArgs.forall(_.isDefined) && optRes.isDefined) {
-                        Some(optArgs.map(_.get) -> optRes.get)
-                      } else {
-                        None
-                      }
-                    } else {
-                      None
-                    }
+        case BVType(signed, size) => evalToTerm(iexpr)(ctx.model).collect {
+          case IFunApp(Mod.mod_cast, Seq(_, _, IIntLit(i))) => BVLiteral(signed, i.bigIntValue, size)
+          case IIntLit(i) => BVLiteral(signed, i.bigIntValue, size)
+        }
 
-                  case _ => None
-                }.toSeq.sortBy(_.toString)
-              } yield {
+        case CharType() => evalToTerm(iexpr)(ctx.model).collect {
+          case IFunApp(Mod.mod_cast, Seq(_, _, IIntLit(i))) => CharLiteral(i.intValue.toChar)
+          case IIntLit(i) => CharLiteral(i.intValue.toChar)
+        }
+
+        case tpe @ ((_: ADTType) | (_: TupleType) | (_: TypeParameter) | UnitType()) =>
+          evalToTerm(iexpr)(ctx.model).collect { case IFunApp(fun, args) if constructors containsB fun =>
+            val (fieldsTypes, recons): (Seq[Type], Seq[Expr] => Expr) = constructors.toA(fun) match {
+              case ADTCons(id, tps) => (getConstructor(id, tps).fields.map(_.getType), ADT(id, tps, _))
+              case TupleCons(tps) => (tps, Tuple(_))
+              case TypeParameterCons(tp) => (Seq(IntegerType()), (es: Seq[Expr]) => {
+                GenericValue(tp, es.head.asInstanceOf[IntegerLiteral].value.toInt)
+              })
+              case UnitCons => (Seq(), _ => UnitLiteral())
+            }
+
+            val optArgs = (args zip fieldsTypes).map { case (arg, tpe) => rec(arg, tpe) }
+
+            if (optArgs.forall(_.isDefined)) {
+              Some(recons(optArgs.map(_.get)))
+            } else {
+              None
+            }
+          }.flatten.orElse {
+            ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(n => constructExpr(n.intValue, tpe))
+          }
+
+        case ft: FunctionType =>
+          val iterm = iexpr.asInstanceOf[ITerm]
+          ctx.model.eval(iterm).map { ideal =>
+            val n = BigInt(ideal.bigIntValue)
+            if (ctx.seen(n)) {
+              ctx.chooses.getOrElseUpdate(n, {
+                Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
+              })
+            } else {
+              ctx.lambdas.getOrElseUpdate(n, {
+                val newCtx = ctx.withSeen(n)
                 val params = ft.from.map(tpe => ValDef.fresh("x", tpe, true))
-                uniquateClosure(n.intValue, if (interps.isEmpty) {
-                  try {
+                uniquateClosure(n.intValue, lambdas.getB(ft)
+                  .flatMap { fun =>
+                    val interps = ctx.model.interpretation.flatMap {
+                      case (SimpleAPI.IntFunctionLoc(`fun`, ptr +: args), SimpleAPI.IntValue(res)) =>
+                        if (ctx.model.eval(iterm === ptr) contains true) {
+                          val optArgs = (args zip ft.from).map(p => rec(p._1, p._2)(newCtx))
+                          val optRes = rec(res, ft.to)(newCtx)
+
+                          if (optArgs.forall(_.isDefined) && optRes.isDefined) {
+                            Some(optArgs.map(_.get) -> optRes.get)
+                          } else {
+                            None
+                          }
+                        } else {
+                          None
+                        }
+
+                      case _ => None
+                    }.toSeq.sortBy(_.toString)
+
+                    if (interps.nonEmpty) Some(interps) else None
+                  }.map { interps =>
+                    Lambda(params, interps.foldRight(interps.head._2) { case ((args, res), elze) =>
+                      IfExpr(andJoin((params zip args).map(p => Equals(p._1.toVariable, p._2))), res, elze)
+                    })
+                  }.getOrElse(try {
                     simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
                   } catch {
                     case _: NoSimpleValue =>
                       Lambda(params, Choose(ValDef.fresh("res", ft.to), BooleanLiteral(true)))
-                  }
-                } else {
-                  val body = interps.foldRight(interps.head._2) { case ((args, res), elze) =>
-                    IfExpr(andJoin((params zip args).map(p => Equals(p._1.toVariable, p._2))), res, elze)
-                  }
-                  Lambda(params, body)
-                })
-              }
+                  }))
+              })
             }
           }
-        }
+      }
+
+      rec(simplify(iexpr)(ctx.model), tpe)
     }
 
     def asGround(iexpr: IExpression, tpe: Type): Option[Expr] = {
@@ -406,29 +521,23 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         case (IFunApp(fun, args), _) if lambdas containsB fun =>
           val ft @ FunctionType(from, _) = lambdas.toA(fun)
           Application(rec(args.head, ft), (args.tail zip from).map(p => rec(p._1, p._2)))
-        case (IFunApp(fun, args), _) if sorts.values.exists(_._1.constructors contains fun) =>
-          val (sort, adts) = typeToSort(tpe)
-          val index = sort.constructors.indexWhere(_ == fun)
-          adts.flatMap(_._2.cases).apply(index).tpe match {
-            case ADTCons(id, tps) =>
-              ADT(id, tps, (args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.getType)))
-            case TupleCons(tps) =>
-              Tuple((args zip tps).map(p => rec(p._1, p._2)))
-            case UnitCons =>
-              UnitLiteral()
-            case _ => throw UnsoundException(iexpr, "Unexpected constructor")
-          }
-        case (IFunApp(fun, Seq(arg)), _) if sorts.values.exists(_._1.selectors.exists(_ contains fun)) =>
-          val (sort, adts) = sorts.values.find(_._1.selectors.exists(_ contains fun)).get
-          val index = sort.selectors.indexWhere(_ contains fun)
-          val sindex = sort.selectors(index).indexWhere(_ == fun)
-          adts.flatMap(_._2.cases).apply(index).tpe match {
-            case c @ ADTCons(id, tps) =>
-              ADTSelector(rec(arg, c.getType), getConstructor(id).fields(sindex).id)
-            case c @ TupleCons(_) =>
-              TupleSelect(rec(arg, c.getType), sindex + 1)
-            case _ => throw UnsoundException(iexpr, "Unexpected selector")
-          }
+        case (IFunApp(fun, args), _) if constructors containsB fun => constructors.toA(fun) match {
+          case ADTCons(id, tps) =>
+            ADT(id, tps, (args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.getType)))
+          case TupleCons(tps) =>
+            Tuple((args zip tps).map(p => rec(p._1, p._2)))
+          case UnitCons =>
+            UnitLiteral()
+          case _ => throw UnsoundException(iexpr, "Unexpected constructor")
+        }
+        case (IFunApp(fun, Seq(arg)), _) if selectors containsB fun => selectors.toA(fun) match {
+          case (ac @ ADTCons(id, tps), i) =>
+            ADTSelector(rec(arg, ac.getType), getConstructor(id).fields(i).id)
+          case (tc @ TupleCons(tps), i) =>
+            TupleSelect(rec(arg, tc.getType), i + 1)
+          case _ => throw UnsoundException(iexpr, "Unexpected selector")
+        }
+        case (ITermITE(c, t, e), _) => IfExpr(rec(c, BooleanType()), rec(t, tpe), rec(e, tpe))
         case _ => throw UnsoundException(iexpr, "Unexpected tree")
       }
 
@@ -450,7 +559,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
   def freshSymbol(v: Variable): IExpression = v.getType match {
     case BooleanType() => p.createBooleanVariable(v.id.freshen.uniqueName)
-    case _ => p.createConstant(v.id.freshen.uniqueName)
+    case tpe => p.createConstant(v.id.freshen.uniqueName, typeToSort(tpe))
   }
 
   def assertCnstr(formula: Trees): Unit = p !! formula.asInstanceOf[IFormula]
@@ -512,6 +621,11 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
     variables.pop()
     functions.pop()
     lambdas.pop()
+
+    constructors.pop()
+    selectors.pop()
+    testers.pop()
+
     sorts.pop()
 
     p.pop
@@ -522,6 +636,11 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
     variables.push()
     functions.push()
     lambdas.push()
+
+    constructors.push()
+    selectors.push()
+    testers.push()
+
     sorts.push()
 
     p.push
@@ -532,6 +651,11 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
     variables.clear()
     functions.clear()
     lambdas.clear()
+
+    constructors.clear()
+    selectors.clear()
+    testers.clear()
+
     sorts.clear()
 
     p.reset

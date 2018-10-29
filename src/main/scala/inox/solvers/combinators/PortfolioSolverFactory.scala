@@ -18,8 +18,10 @@ trait PortfolioSolverFactory extends SolverFactory { self =>
   } with PortfolioSolver with TimeoutSolver
 
   // Assumes s is a P/Solver with the correct subsolver types
-  override def reclaim(s: S) = sfs.zip(s.solvers).foreach { case (sf, s) =>
-    sf.reclaim(s.asInstanceOf[sf.S])
+  override def reclaim(s: S) = s perform {
+    sfs.zip(s.solvers).foreach { case (sf, s) =>
+      sf.reclaim(s.asInstanceOf[sf.S])
+    }
   }
 
   val name = sfs.map(_.name).mkString("Pfolio(", ",", ")")

@@ -172,20 +172,16 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
       simpCache ++= that.simpCache
     )
 
-    override def negate = new CNFPath(exprSubst, boolSubst, Set(), cnfCache, simpCache) withConds conditions.map(not)
+    override def negate =
+      new CNFPath(exprSubst, boolSubst, Set(), cnfCache, simpCache) withCond not(and(conditions.toSeq: _*))
 
     def asString(implicit opts: PrinterOptions): String = andJoin(conditions.toSeq.sortBy(_.hashCode)).asString
 
-    override def toString = asString(PrinterOptions.fromContext(Context.printNames))
+    override def toString = asString(PrinterOptions(symbols = Some(symbols)))
   }
 
   implicit object CNFPath extends PathProvider[CNFPath] {
     def empty = new CNFPath(new Bijection[Variable, Expr], Map.empty, Set.empty, MutableMap.empty, MutableMap.empty)
-    def apply(path: Path) = path.elements.foldLeft(empty) {
-      case (path, Path.CloseBound(vd, e)) => path withBinding (vd -> transform(e, path))
-      case (path, Path.OpenBound(_)) => path // NOTE CNFPath doesn't need to track such bounds.
-      case (path, Path.Condition(c)) => path withCond transform(c, path)
-    }
   }
 
   type Env = CNFPath

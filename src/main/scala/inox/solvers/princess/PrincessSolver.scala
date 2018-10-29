@@ -19,7 +19,7 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
 
   override val name = "Princess"
 
-  protected lazy val theories: ast.ProgramTransformer {
+  protected lazy val theories: transformers.ProgramTransformer {
     val sourceProgram: fullEncoder.targetProgram.type
     val targetProgram: Program { val trees: fullEncoder.targetProgram.trees.type }
   } = solvers.theories.Princess(fullEncoder)(semantics.getEvaluator)
@@ -94,17 +94,18 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
     private val chooses: MutableMap[Identifier, t.Expr] = MutableMap.empty
     import IExpression._
 
-    def extractConstructor(v: IExpression, tpe: t.ADTType): Option[Identifier] =
-      model.eval(v.asInstanceOf[ITerm]).flatMap { elem =>
-        val (sort, adts) = underlying.typeToSort(tpe)
-        (adts.map(_._1) zip sort.ctorIds).collectFirst {
-          case (`tpe`, fun) => model.eval(fun(v.asInstanceOf[ITerm])).map { i =>
-            val index = i.intValue
-            val constructors = adts.flatMap(_._2.cases)
-            constructors(index).tpe.asInstanceOf[underlying.ADTCons].id
-          }
-        }.flatten
+    def extractConstructor(v: IExpression, tpe: t.ADTType): Option[Identifier] = {
+      val optFun = underlying.princessToInox.simplify(v)(model) match {
+        case IFunApp(fun, _) if underlying.constructors containsB fun => Some(fun)
+        case it: ITerm => model.evalToTerm(it) match {
+          case Some(IFunApp(fun, _)) => Some(fun)
+          case _ => None
+        }
+        case _ => None
       }
+
+      optFun.map(fun => underlying.constructors.toA(fun).asInstanceOf[underlying.ADTCons].id)
+    }
 
     def extractSet(v: IExpression, tpe: t.SetType) = scala.sys.error("Should never happen")
     def extractBag(v: IExpression, tpe: t.BagType) = scala.sys.error("Should never happen")

@@ -17,7 +17,7 @@ trait TypeExtractors { self: Extractors =>
           case (CharType, trees.CharType()) => Matching.success
           case (StringType, trees.StringType()) => Matching.success
           case (IntegerType, trees.IntegerType()) => Matching.success
-          case (BVType(size1), trees.BVType(size2)) if size1 == size2 => Matching.success
+          case (BVType(size1), trees.BVType(true, size2)) if size1 == size2 => Matching.success
           case (RealType, trees.RealType()) => Matching.success
           case (BooleanType, trees.BooleanType()) => Matching.success
         }

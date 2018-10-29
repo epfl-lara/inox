@@ -4,19 +4,20 @@ package inox
 package solvers
 
 import evaluators._
+import transformers._
 
 package object theories {
 
   case class TheoryException(msg: String)
     extends Unsupported(s"Theory encoding failed: $msg")
 
-  def Z3(p: Program): ast.ProgramTransformer {
+  def Z3(p: Program): ProgramTransformer {
     val sourceProgram: p.type
     val targetProgram: Program { val trees: p.trees.type }
   } = ASCIIStringEncoder(p)
 
-  def CVC4(enc: ast.ProgramTransformer)
-          (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }): ast.ProgramTransformer {
+  def CVC4(enc: ProgramTransformer)
+          (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }): ProgramTransformer {
     val sourceProgram: enc.targetProgram.type
     val targetProgram: Program { val trees: enc.targetProgram.trees.type }
   } = {
@@ -26,8 +27,8 @@ package object theories {
     stringEncoder andThen bagEncoder
   }
 
-  def Princess(enc: ast.ProgramTransformer)
-              (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }): ast.ProgramTransformer {
+  def Princess(enc: ProgramTransformer)
+              (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }): ProgramTransformer {
     val sourceProgram: enc.targetProgram.type
     val targetProgram: Program { val trees: enc.targetProgram.trees.type }
   } = {
@@ -38,19 +39,16 @@ package object theories {
 
     val setEncoder = SetEncoder(bagEncoder.targetProgram)
 
-    val bvEncoder = BitvectorEncoder(setEncoder.targetProgram)
-
-    val realEncoder = RealEncoder(bvEncoder.targetProgram)
+    val realEncoder = RealEncoder(setEncoder.targetProgram)
 
     // @nv: Required due to limitations in scalac existential types
     val e1 = stringEncoder andThen bagEncoder
     val e2 = e1 andThen setEncoder
-    val e3 = e2 andThen bvEncoder
-    e3 andThen realEncoder
+    e2 andThen realEncoder
   }
 
   object ReverseEvaluator {
-    def apply(enc: ast.ProgramTransformer)
+    def apply(enc: ProgramTransformer)
              (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }):
              DeterministicEvaluator { val program: enc.targetProgram.type } = new {
       val program: enc.targetProgram.type = enc.targetProgram

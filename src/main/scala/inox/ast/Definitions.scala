@@ -3,6 +3,7 @@
 package inox
 package ast
 
+import inox.transformers._
 import inox.utils._
 
 import scala.collection.concurrent.{Map => ConcurrentMap}
@@ -15,6 +16,7 @@ trait Definitions { self: Trees =>
   /** The base trait for Inox definitions */
   trait Definition extends Tree {
     def id: Identifier
+    def flags: Seq[Flag]
 
     override def equals(that: Any): Boolean = that match {
       case d: Definition => id == d.id
@@ -118,8 +120,7 @@ trait Definitions { self: Trees =>
         with TypeOps
         with SymbolOps
         with CallGraph
-        with DependencyGraph
-        with Paths { self0: Symbols =>
+        with DependencyGraph { self0: Symbols =>
 
     val sorts: Map[Identifier, ADTSort]
     val functions: Map[Identifier, FunDef]
@@ -183,14 +184,16 @@ trait Definitions { self: Trees =>
     def getFunction(id: Identifier, tps: Seq[Type]): TypedFunDef =
       lookupFunction(id, tps).getOrElse(throw FunctionLookupException(id))
 
-    override def toString: String = asString(PrinterOptions.fromSymbols(this, Context.printNames))
+    override def toString: String = asString(PrinterOptions(symbols = Some(this)))
     override def asString(implicit opts: PrinterOptions): String = {
       sorts.map(p => prettyPrint(p._2, opts)).mkString("\n\n") +
       "\n\n-----------\n\n" +
       functions.map(p => prettyPrint(p._2, opts)).mkString("\n\n")
     }
 
-    def transform(t: TreeTransformer { val s: self.type }): t.t.Symbols = SymbolTransformer(t).transform(this)
+    def transform(t: DefinitionTransformer { val s: self.type }): t.t.Symbols = {
+      SymbolTransformer(t).transform(this)
+    }
 
     /** Makes sure these symbols pass a certain number of well-formedness checks, such as
       * - function definition bodies satisfy the declared return types
@@ -200,17 +203,21 @@ trait Definitions { self: Trees =>
       * - every variable is available in the scope of its usage
       */
     @inline def ensureWellFormed: Unit = _tryWF.get.get
-    private[this] val _tryWF: Lazy[Try[Unit]] = Lazy(Try({
+    private[this] val _tryWF: Lazy[Try[Unit]] = Lazy(Try(ensureWellFormedSymbols))
+
+    protected def ensureWellFormedSymbols: Unit = {
       for ((_, fd) <- functions) ensureWellFormedFunction(fd)
-      for ((_, sort) <- sorts) ensureWellFormedAdt(sort)
-      ()
-    }))
+      for ((_, sort) <- sorts) ensureWellFormedSort(sort)
+    }
 
     protected def ensureWellFormedFunction(fd: FunDef) = {
       typeCheck(fd.fullBody, fd.getType)
 
+      if (!fd.getType.isTyped) throw NotWellFormedException(fd)
+      if (!(fd.params forall (_.isTyped))) throw NotWellFormedException(fd)
+
       val unbound: Seq[Variable] = collectWithPC(fd.fullBody, Path.empty withBounds fd.params) {
-        case (v: Variable, path) if !(path isBound v.id) => v
+        case (v: Variable, path) if !(path isBound v) => v
       }
 
       if (unbound.nonEmpty) {
@@ -218,9 +225,10 @@ trait Definitions { self: Trees =>
       }
     }
 
-    protected def ensureWellFormedAdt(sort: ADTSort) = {
+    protected def ensureWellFormedSort(sort: ADTSort) = {
       if (!sort.isWellFormed) throw NotWellFormedException(sort)
       if (!(sort.constructors forall (cons => cons.sort == sort.id))) throw NotWellFormedException(sort)
+      if (!(sort.constructors forall (_.fields forall (_.isTyped)))) throw NotWellFormedException(sort)
       if (sort.constructors.flatMap(_.fields).groupBy(_.id).exists(_._2.size > 1)) throw NotWellFormedException(sort)
     }
 
@@ -236,6 +244,8 @@ trait Definitions { self: Trees =>
   }
 
   sealed class TypeParameterDef(val tp: TypeParameter) extends Definition {
+    copiedFrom(tp)
+
     @inline def id = tp.id
     @inline def flags = tp.flags
 
@@ -353,9 +363,11 @@ trait Definitions { self: Trees =>
     * @param id      -- The identifier that refers to this ADT constructor.
     * @param fields  -- The fields of this constructor (types may depend on sorts type params).
     */
-  class ADTConstructor(val id: Identifier,
-                       val sort: Identifier,
-                       val fields: Seq[ValDef]) extends Definition {
+  class ADTConstructor(
+    val id: Identifier,
+    val sort: Identifier,
+    val fields: Seq[ValDef]) extends Tree {
+
     def getSort(implicit s: Symbols): ADTSort = s.getSort(sort)
 
     /** Returns the index of the field with the specified id */
@@ -379,6 +391,13 @@ trait Definitions { self: Trees =>
     def copy(id: Identifier = id,
              sort: Identifier = sort,
              fields: Seq[ValDef] = fields): ADTConstructor = new ADTConstructor(id, sort, fields)
+
+    override def equals(that: Any): Boolean = that match {
+      case c: ADTConstructor => id == c.id
+      case _ => false
+    }
+
+    override def hashCode: Int = id.hashCode
   }
 
   /** Represents an [[ADTSort]] whose type parameters have been instantiated to ''tps'' */

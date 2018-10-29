@@ -17,18 +17,32 @@ trait FunctionTemplates { self: Templates =>
   import functionsManager._
   import lambdasManager._
 
+  protected def variableSeq(tpe: Type): Seq[Variable] = {
+    val free = typeOps.variablesOf(tpe)
+    val vars = new scala.collection.mutable.ListBuffer[Variable]
+
+    new SelfTreeTraverser {
+      override def traverse(e: Expr): Unit = e match {
+        case v: Variable if free(v) => vars += v
+        case _ => super.traverse(e)
+      }
+    }.traverse(tpe)
+    vars.toSeq.distinct
+  }
+
   object FunctionTemplate {
     private val cache: MutableMap[TypedFunDef, FunctionTemplate] = MutableMap.empty
 
     def apply(tfd: TypedFunDef): FunctionTemplate = cache.getOrElseUpdate(tfd, {
       val body: Expr = timers.solvers.simplify.run { simplifyFormula(tfd.fullBody) }
 
+      val tpVars = tfd.tps.flatMap(variableSeq).distinct
       val fdArgs: Seq[Variable] = tfd.params.map(_.toVariable)
       val call: Expr = tfd.applied(fdArgs)
 
       val start = Variable.fresh("start", BooleanType(), true)
       val pathVar = start -> encodeSymbol(start)
-      val arguments = fdArgs.map(v => v -> encodeSymbol(v))
+      val arguments = (fdArgs ++ tpVars).map(v => v -> encodeSymbol(v))
       val substMap = arguments.toMap + pathVar
 
       val tmplClauses: TemplateClauses = {
@@ -142,7 +156,7 @@ trait FunctionTemplates { self: Templates =>
 
       for ((blocker, (gen, _, _, calls)) <- thisCallInfos if calls.nonEmpty && !abort && !pause;
            _ = remainingBlockers -= blocker;
-           call @ Call(tfd, args) <- calls if !abort) {
+           call @ Call(tfd, args, tpSubst) <- calls if !abort) {
         val newCls = new scala.collection.mutable.ListBuffer[Encoded]
 
         val defBlocker = defBlockers.get(call) match {
@@ -219,7 +233,7 @@ trait FunctionTemplates { self: Templates =>
                 val templateClauses = Template.instantiate(clauses, calls, apps, matchers, equalities, substMap)
                 substClauses ++ templateClauses
               } getOrElse {
-                FunctionTemplate(tfd).instantiate(defBlocker, args)
+                FunctionTemplate(tfd).instantiate(defBlocker, args ++ tpSubst)
               }
             }
 

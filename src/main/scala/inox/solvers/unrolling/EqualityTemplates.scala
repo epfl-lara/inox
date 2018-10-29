@@ -108,7 +108,7 @@ trait EqualityTemplates { self: Templates =>
         case TupleType(tps) =>
           andJoin(tps.indices.map(i => Equals(TupleSelect(e1, i + 1), TupleSelect(e2, i + 1))))
 
-        case _ => throw FatalError(s"Why does $tpe require equality unrolling!?")
+        case _ => throw new InternalSolverError(s"Why does $tpe require equality unrolling!?")
       }), (args zip argsT).toMap + (f -> fT) + (pathVar -> encodeSymbol(pathVar)))
 
       val (contents, _) = Template.contents(

@@ -7,9 +7,9 @@ import solvers._
 trait MainHelpers {
 
   protected def getDebugSections: Set[DebugSection] = Set(
-    ast.DebugSectionTrees,
     utils.DebugSectionTimers,
-    solvers.DebugSectionSolver
+    solvers.DebugSectionSolver,
+    tip.DebugSectionTip
   )
 
   protected final val debugSections = getDebugSections
@@ -108,7 +108,7 @@ trait MainHelpers {
       first = false
 
       reporter.title(category)
-      for ((opt, Description(_, desc)) <- opts) {
+      for ((opt, Description(_, desc)) <- opts.toSeq.sortBy(_._1.name)) {
         reporter.info(s"%-${margin}s".format(opt.usageDesc) + desc.replaceAll("\n", "\n" + " " * margin))
       }
     }
@@ -148,6 +148,9 @@ trait MainHelpers {
 
       df.parse(value)(initReporter)
     }
+
+    for ((optDef, values) <- inoxOptions.groupBy(_.optionDef) if values.size > 1)
+      initReporter.fatalError(s"Duplicate option: ${optDef.name}")
 
     val reporter = new DefaultReporter(
       inoxOptions.collectFirst {

@@ -18,12 +18,15 @@ import utils.IncrementalSet
  *  Results should come back very quickly.
  */
 trait UninterpretedZ3Solver
-  extends Solver { self =>
+  extends AbstractSolver { self =>
 
   import context._
   import program._
   import program.trees._
   import program.symbols._
+
+  type Trees = Expr
+  type Model = program.Model
 
   import SolverResponses._
 
@@ -67,7 +70,7 @@ trait UninterpretedZ3Solver
 
   private def completeModel(model: program.Model): program.Model = {
     val allVars = freeVars.map(v => v.toVal -> model.vars.getOrElse(v.toVal, simplestValue(v.getType))).toMap
-    inox.Model(program, context)(allVars, model.chooses)
+    inox.Model(program)(allVars, model.chooses)
   }
 
   private def tryZ3[T](res: => T): Option[T] =

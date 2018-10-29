@@ -10,7 +10,7 @@ import theories._
 import evaluators._
 import combinators._
 
-import scala.collection.mutable.{Map => MutableMap}
+import scala.collection.mutable.{Map => MutableMap, ListBuffer}
 
 object optUnrollFactor      extends IntOptionDef("unroll-factor", default = 1, "<PosInt>")
 object optFeelingLucky      extends FlagOptionDef("feeling-lucky", false)
@@ -32,17 +32,15 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   protected implicit val semantics: program.Semantics
 
-  protected lazy val evaluator: DeterministicEvaluator { val program: self.program.type } = semantics.getEvaluator
-
   protected type Encoded
 
-  protected val encoder: ast.ProgramTransformer { val sourceProgram: program.type }
+  protected val encoder: transformers.ProgramTransformer { val sourceProgram: program.type }
 
   protected val chooses: ChooseEncoder { val program: self.program.type; val sourceEncoder: self.encoder.type }
 
   protected lazy val fullEncoder = encoder andThen chooses
 
-  protected val theories: ast.ProgramTransformer {
+  protected val theories: transformers.ProgramTransformer {
     val sourceProgram: fullEncoder.targetProgram.type
     val targetProgram: Program { val trees: fullEncoder.targetProgram.trees.type }
   }
@@ -91,6 +89,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
   private val constraints = new IncrementalSeq[Expr]()
   private val freeChooses = new IncrementalMap[Choose, Encoded]()
 
+  protected var failures: ListBuffer[Throwable] = new ListBuffer
   protected var abort: Boolean = false
   protected var pause: Boolean = false
 
@@ -107,6 +106,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
   }
 
   def reset() = {
+    failures.clear()
     abort = false
     pause = false
 
@@ -122,20 +122,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   protected def declareVariable(v: t.Variable): Encoded
 
-  private[this] var reported = false
-
-  def assertCnstr(expression: Expr): Unit = context.timers.solvers.assert.run {
-    symbols.ensureWellFormed // make sure that the current program is well-formed
-    typeCheck(expression, BooleanType()) // make sure we've asserted a boolean-typed expression
-    // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
-    context.interruptManager.registerForInterrupts(this)
-
-    constraints += expression
-
-    val freeBindings: Map[Variable, Encoded] = exprOps.variablesOf(expression).map {
-      v => v -> freeVars.cached(v)(declareVariable(encode(v)))
-    }.toMap
-
+  private def removeChooses(expr: Expr): (Expr, Map[Variable, Encoded]) = {
     var chooseBindings: Map[Variable, Encoded] = Map.empty
     val withoutChooses = exprOps.postMap {
       case c: Choose =>
@@ -143,17 +130,68 @@ trait AbstractUnrollingSolver extends Solver { self =>
         chooseBindings += v -> freeChooses.cached(c)(declareVariable(encode(v)))
         Some(Assume(c.pred, v))
       case _ => None
-    } (expression)
+    } (expr)
 
-    val newClauses = templates.instantiateExpr(
-      encode(withoutChooses),
-      (freeBindings ++ chooseBindings).map(p => encode(p._1) -> p._2)
-    )
-
-    for (cl <- newClauses) {
-      underlying.assertCnstr(cl)
-    }
+    (withoutChooses, chooseBindings)
   }
+
+  def declare(vd: ValDef): Unit = context.timers.solvers.declare.run(try {
+    context.timers.solvers.declare.sanity.run {
+      assert(vd.getType.isTyped)
+    }
+
+    // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
+    context.interruptManager.registerForInterrupts(this)
+
+    val freeBindings: Map[Variable, Encoded] = (typeOps.variablesOf(vd.tpe) + vd.toVariable).map {
+      v => v -> freeVars.cached(v)(declareVariable(encode(v)))
+    }.toMap
+
+    val newClauses = context.timers.solvers.declare.clauses.run {
+      templates.instantiateVariable(encode(vd.toVariable), freeBindings.map(p => encode(p._1) -> p._2))
+    }
+
+    context.timers.solvers.declare.underlying.run {
+      for (cl <- newClauses) {
+        underlying.assertCnstr(cl)
+      }
+    }
+  } catch {
+    case e @ (_: InternalSolverError | _: Unsupported) => failures += e
+  })
+
+  def assertCnstr(expression: Expr): Unit = context.timers.solvers.assert.run(try {
+    context.timers.solvers.assert.sanity.run {
+      symbols.ensureWellFormed // make sure that the current program is well-formed
+      typeCheck(expression, BooleanType()) // make sure we've asserted a boolean-typed expression
+    }
+
+    // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
+    context.interruptManager.registerForInterrupts(this)
+
+    constraints += expression
+
+    val (withoutChooses, chooseBindings) = removeChooses(expression)
+
+    val freeBindings: Map[Variable, Encoded] = exprOps.variablesOf(withoutChooses).map {
+      v => v -> freeVars.cached(v)(declareVariable(encode(v)))
+    }.toMap
+
+    val newClauses = context.timers.solvers.assert.clauses.run {
+      templates.instantiateExpr(
+        encode(withoutChooses),
+        (freeBindings ++ chooseBindings).map(p => encode(p._1) -> p._2)
+      )
+    }
+
+    context.timers.solvers.assert.underlying.run {
+      for (cl <- newClauses) {
+        underlying.assertCnstr(cl)
+      }
+    }
+  } catch {
+    case e @ (_: InternalSolverError | _: Unsupported) => failures += e
+  })
 
   protected def wrapModel(model: underlying.Model): ModelWrapper
 
@@ -225,7 +263,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
       val modelCs = vs.values.toSeq.flatMap(e => choosesOf(e, Seq.empty)) ++
         (cs ++ freeCs).flatMap { case ((id, tps), e) => choosesOf(e, tps) }
 
-      inox.Model(program, context)(vs, cs ++ freeCs ++ modelCs)
+      inox.Model(program)(vs, cs ++ freeCs ++ modelCs)
     }
   }
 
@@ -235,11 +273,58 @@ trait AbstractUnrollingSolver extends Solver { self =>
   private def validateModel(model: program.Model, assumptions: Seq[Expr], silenceErrors: Boolean): Boolean = {
     val expr = andJoin(assumptions ++ constraints)
 
-    // we have to check case class constructors in model for ADT invariants
-    val newExpr = model.vars.toSeq.foldLeft(expr) { case (e, (v, value)) => Let(v, value, e) }
+    val typingCond = andJoin(model.vars.toSeq.map { case (v, value) =>
+      def rec(e: Expr, tpe: Type): Expr = (e, tpe) match {
+        case (ADT(id, _, args), adt @ ADTType(_, tps)) =>
+          andJoin((args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.tpe)))
+        case (Tuple(es), TupleType(tps)) =>
+          andJoin((es zip tps).map(p => rec(p._1, p._2)))
+        case (FiniteSet(elems, _), SetType(base)) =>
+          andJoin(elems.map(e => rec(e, base)))
+        case (FiniteBag(elems, _), BagType(base)) =>
+          andJoin(elems.map(p => and(rec(p._1, base), rec(p._2, IntegerType()))))
+        case (FiniteMap(elems, dflt, _, _), MapType(from, to)) =>
+          andJoin(elems.map(p => and(rec(p._1, from), rec(p._2, to))) :+ rec(dflt, to))
+        case (Lambda(params, body), FunctionType(from, to)) =>
+          val nparams = (params zip from).map { case (vd, tpe) => vd.copy(tpe = tpe) }
+          forall(nparams, rec(
+            exprOps.replaceFromSymbols((params zip nparams.map(_.toVariable)).toMap, body), to))
+        case (_, RefinementType(vd, pred)) =>
+          and(rec(e, vd.tpe), Let(vd, e, pred).copiedFrom(e))
+        case (Lambda(params, body), PiType(nparams, to)) =>
+          forall(nparams, rec(
+            exprOps.replaceFromSymbols((params zip nparams.map(_.toVariable)).toMap, body), to))
+        case (Tuple(es), SigmaType(nparams, to)) =>
+          andJoin(
+            (es.init zip nparams).map(p => rec(p._1, p._2.tpe)) ++ (rec(es.last, to) match {
+              case BooleanLiteral(true) => None
+              case p => Some((nparams zip es.init).foldRight(p) {
+                case ((vd, e), p) => Let(vd, e, p).copiedFrom(p)
+              })
+            })
+          )
+        case (c: Choose, tpe) =>
+          BooleanLiteral(
+            c.res.tpe == tpe && tpe == tpe.getType && // choose is for a simple type
+            (model.chooses contains (c.res.id -> Seq())) // the model contains a mapping for the choose
+          )
+        case _ => BooleanLiteral(true)
+      }
 
-    val evalContext  = context.withOpts(optSilentErrors(silenceErrors))
-    evaluator.eval(newExpr, inox.Model(program, evalContext)(Map.empty, model.chooses)) match {
+      rec(value, v.tpe)
+    })
+
+    // we have to check case class constructors in model for ADT invariants
+    val newExpr = model.vars.toSeq.foldRight(and(typingCond, expr)) {
+      case ((v, value), e) => Let(v, value, e)
+    }
+
+    val evaluator = semantics.getEvaluator(context.withOpts(
+      optSilentErrors(silenceErrors),
+      optCheckModels(checkModels || feelingLucky)
+    ))
+
+    evaluator.eval(newExpr, inox.Model(program)(Map.empty, model.chooses)) match {
       case EvaluationResults.Successful(BooleanLiteral(true)) =>
         reporter.debug("- Model validated.")
         true
@@ -430,7 +515,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
             case Some(Right(enc)) => wrapped.modelEval(enc, tpe).get match {
               case Lambda(_, Let(_, Tuple(es), _)) =>
                 uniquateClosure(if (es.size % 2 == 0) -es.size / 2 else es.size / 2, lambda)
-              case l => scala.sys.error("Unexpected extracted lambda format: " + l)
+              case l => throw new InternalSolverError(name, "Unexpected extracted lambda format: " + l.asString)
             }
             case Some(Left(img)) => img
             case None => lambda
@@ -460,11 +545,15 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }.get
     }
     val chooses = exChooses.map(p => (p._1.res.id, Seq.empty[s.Type]) -> decodeOrSimplest(p._2))
-    inox.Model(program, context)(exModel.vars, exModel.chooses ++ chooses)
+    inox.Model(program)(exModel.vars, exModel.chooses ++ chooses)
   }
 
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] =
-      context.timers.solvers.unrolling.run {
+      context.timers.solvers.unrolling.run(scala.util.Try({
+
+    // throw error immediately if a previous call has already failed
+    if (failures.nonEmpty) throw failures.head
+
     // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
     context.interruptManager.registerForInterrupts(this)
 
@@ -504,13 +593,15 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
     object Abort {
       def unapply[A,B](resp: SolverResponse[A,B]): Boolean = {
-        if (resp == Unknown) {
+        if (failures.nonEmpty || abort || pause) {
+          true
+        } else if (resp == Unknown) {
           if (!silentErrors) {
             reporter.error("Something went wrong. Underlying solver returned Unknown.")
           }
           true
         } else {
-          abort || pause
+          false
         }
       }
     }
@@ -518,7 +609,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
     var currentState: CheckState = ModelCheck
     while (!currentState.isInstanceOf[CheckResult]) {
       currentState = currentState match {
-        case _ if abort || pause =>
+        case Abort() =>
           CheckResult.cast(Unknown)
 
         case ModelCheck =>
@@ -589,50 +680,57 @@ trait AbstractUnrollingSolver extends Solver { self =>
           }
 
         case Validate(umodel) =>
-          val model = extractTotalModel(umodel)
-
-          lazy val satResult = config cast (if (config.withModel) SatWithModel(model) else Sat)
-
-          val valid = !checkModels || validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
-
-          if (checkModels && valid) {
-            CheckResult(config cast satResult)
-          } else if (abort || pause) {
-            CheckResult cast Unknown
-          } else if (checkModels && !valid) {
-            if (!silentErrors) {
-              reporter.error("Something went wrong. The model should have been valid, yet we got this:")
-              reporter.error("  " + model.asString.replaceAll("\n", "\n  "))
-              reporter.error("for formula " + andJoin(assumptionsSeq ++ constraints).asString)
-            }
-            CheckResult cast Unknown
-          } else if (templates.hasAxioms) {
-            val wrapped = wrapModel(umodel)
-            val optError = templates.getAxioms.view.flatMap { q =>
-              if (wrapped.modelEval(q.guard, t.BooleanType()) != Some(t.BooleanLiteral(false))) {
-                q.checkForall { (e1, e2) =>
-                  wrapped.modelEval(templates.mkEquals(e1, e2), t.BooleanType()) == Some(t.BooleanLiteral(true))
-                }.map(err => q.body -> err)
-              } else {
-                None
+          (try { Some(extractTotalModel(umodel)) } catch {
+            case NoSimpleValue(tpe) =>
+              if (!silentErrors) {
+                reporter.error("No simple value found for type " + tpe.asString)
               }
-            }.headOption
+              None
+          }).map { model =>
+            lazy val sat = CheckResult(config cast (if (config.withModel) SatWithModel(model) else Sat))
+            lazy val unknown = CheckResult cast Unknown
 
-            optError match {
-              case Some((expr, err)) =>
-                if (!silentErrors) {
-                  reporter.error("Quantification " + expr.asString(templates.program.printerOpts) +
-                    " does not fit in supported fragment.\n  Reason: " + err)
-                  reporter.error("Model obtained was:")
-                  reporter.error("  " + model.asString.replaceAll("\n", "\n  "))
+            val valid = !checkModels || validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
+
+            if (checkModels && valid) {
+              sat
+            } else if (abort || pause) {
+              unknown
+            } else if (checkModels && !valid) {
+              if (!silentErrors) {
+                reporter.error("Something went wrong. The model should have been valid, yet we got this:")
+                reporter.error("  " + model.asString.replaceAll("\n", "\n  "))
+                reporter.error("for formula " + andJoin(assumptionsSeq ++ constraints).asString)
+              }
+              unknown
+            } else if (templates.hasAxioms) {
+              val wrapped = wrapModel(umodel)
+              val optError = templates.getAxioms.view.flatMap { q =>
+                if (wrapped.modelEval(q.guard, t.BooleanType()) != Some(t.BooleanLiteral(false))) {
+                  q.checkForall { (e1, e2) =>
+                    wrapped.modelEval(templates.mkEquals(e1, e2), t.BooleanType()) == Some(t.BooleanLiteral(true))
+                  }.map(err => q.body -> err)
+                } else {
+                  None
                 }
-                CheckResult cast Unknown
-              case None =>
-                CheckResult(satResult)
+              }.headOption
+
+              optError match {
+                case Some((expr, err)) =>
+                  if (!silentErrors) {
+                    reporter.error("Quantification " + expr.asString(templates.program.printerOpts) +
+                      " does not fit in supported fragment.\n  Reason: " + err)
+                    reporter.error("Model obtained was:")
+                    reporter.error("  " + model.asString.replaceAll("\n", "\n  "))
+                  }
+                  unknown
+                case None =>
+                  sat
+              }
+            } else {
+              sat
             }
-          } else {
-            CheckResult(satResult)
-          }
+          }.getOrElse(CheckResult cast Unknown)
 
         case InstantiateQuantifiers =>
           if (templates.quantificationsManager.unrollGeneration.isEmpty) {
@@ -672,12 +770,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
             case SatWithModel(model) =>
               lazy val luckyModel = if (!feelingLucky) None else {
-                val exModel = extractSimpleModel(model)
-                if (validateModel(exModel, assumptionsSeq, silenceErrors = true)) {
-                  Some(exModel)
-                } else {
-                  None
-                }
+                (try { Some(extractSimpleModel(model)) } catch { case _: NoSimpleValue => None })
+                  .filter(exModel => validateModel(exModel, assumptionsSeq, silenceErrors = true))
               }
 
               if (luckyModel.isDefined) {
@@ -722,7 +816,12 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
     val CheckResult(res) = currentState
     res
-  }
+  }).recover {
+    case e @ (_: InternalSolverError | _: Unsupported) =>
+      if (reporter.isDebugEnabled) reporter.debug(e)
+      else if (!silentErrors) reporter.error(e.getMessage)
+      config.cast(Unknown)
+  }.get)
 }
 
 trait UnrollingSolver extends AbstractUnrollingSolver { self =>
@@ -732,7 +831,11 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
   import program.symbols._
 
   type Encoded = t.Expr
-  protected val underlying: Solver { val program: targetProgram.type }
+  protected val underlying: AbstractSolver {
+    val program: targetProgram.type
+    type Trees = t.Expr
+    type Model = targetProgram.Model
+  }
 
   override lazy val name = "U:"+underlying.name
 
@@ -803,7 +906,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
       case ((cid, tps), e) if cid == id && tps.isEmpty => e
     }
 
-    override def toString = model.asString
+    override def toString = model.asString(targetProgram.printerOpts)
   }
 
   override def dbg(msg: => Any) = underlying.dbg(msg)

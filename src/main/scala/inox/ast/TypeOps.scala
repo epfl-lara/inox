@@ -19,12 +19,17 @@ trait TypeOps {
 
   object TypeErrorException {
     def apply(obj: Expr, tpes: Seq[Type]): TypeErrorException =
-      new TypeErrorException(s"Type error: $obj, expected ${tpes.mkString(" or ")}, found ${obj.getType}", obj, obj.getPos)
-    def apply(obj: Expr, tpe: Type): TypeErrorException = apply(obj, Seq(tpe))
-  }
+      new TypeErrorException(
+        s"""Type error: $obj, expected ${tpes.mkString(" or ")}, 
+           |found ${obj.getType}
+           |
+           |Typing explanation:
+           |${explainTyping(obj)(new PrinterOptions())}""".stripMargin, 
+        obj, 
+        obj.getPos
+      )
 
-  def typeParamsOf(expr: Expr): Set[TypeParameter] = {
-    exprOps.collect(e => typeOps.typeParamsOf(e.getType))(expr)
+    def apply(obj: Expr, tpe: Type): TypeErrorException = apply(obj, Seq(tpe))
   }
 
   def leastUpperBound(tp1: Type, tp2: Type): Type = if (tp1 == tp2) tp1 else Untyped
@@ -37,7 +42,7 @@ trait TypeOps {
   def greatestLowerBound(tps: Seq[Type]): Type =
     if (tps.isEmpty) Untyped else tps.reduceLeft(greatestLowerBound)
 
-  def isSubtypeOf(t1: Type, t2: Type): Boolean = t1 == t2
+  def isSubtypeOf(t1: Type, t2: Type): Boolean = t1.getType == t2.getType
 
   private type Instantiation = Map[TypeParameter, Type]
   def instantiation(from: Type, to: Type): Option[Instantiation] = {

@@ -142,7 +142,7 @@ trait Serializer { self =>
         map => map.map(p => p1.deserialize(p._1) -> p2.deserialize(p._2)))
 
     implicit def symbolsProcedure: SerializationProcedure[Symbols] = mappingProcedure(
-      (s: Symbols) => (s.functions.values.toSeq.sortBy(_.id.uniqueName), s.sorts.values.toSeq.sortBy(_.id.uniqueName)))(
+      (s: Symbols) => (s.functions.values.toSeq.sortBy(_.id), s.sorts.values.toSeq.sortBy(_.id)))(
         p => NoSymbols.withFunctions(p._1).withSorts(p._2))
   }
 
@@ -523,10 +523,10 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   /** A mapping from `Class[_]` to `Serializer[_]` for classes that commonly
     * occur within Stainless programs.
     *
-    * The `Serializer[_]` identifiers in this mapping range from 10 to 99
+    * The `Serializer[_]` identifiers in this mapping range from 10 to 102
     * (ignoring special identifiers that are smaller than 10).
     *
-    * NEXT ID: 100
+    * NEXT ID: 103
     */
   protected def classSerializers: Map[Class[_], Serializer[_]] = Map(
     // Inox Expressions
@@ -542,7 +542,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[CharLiteral]       (19),
     // BVLiteral id=20
     // Bitvector literals are treated specially to avoid having to serialize BitSets
-    mappingSerializer[BVLiteral](20)(bv => (bv.size, bv.toBigInt))(p => BVLiteral(p._2, p._1)),
+    mappingSerializer[BVLiteral](20)(bv => (bv.signed, bv.toBigInt, bv.size))(p => BVLiteral(p._1, p._2, p._3)),
     classSerializer[IntegerLiteral]    (21),
     classSerializer[FractionLiteral]   (22),
     classSerializer[BooleanLiteral]    (23),
@@ -615,6 +615,10 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[MapType]      (87),
     classSerializer[FunctionType] (88),
     classSerializer[ADTType]      (89),
+
+    classSerializer[RefinementType](100),
+    classSerializer[PiType]        (101),
+    classSerializer[SigmaType]     (102),
 
     // Identifier
     mappingSerializer[Identifier](90)

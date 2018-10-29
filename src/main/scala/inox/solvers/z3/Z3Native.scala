@@ -55,7 +55,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   // Well... actually maybe not, but let's just leave it here to be sure
   toggleWarningMessages(true)
 
-  def free(): Unit = {
+  def free(): Unit = synchronized {
     freed = true
     if (z3 ne null) {
       z3.delete()
@@ -149,7 +149,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     val defs = for ((_, DataType(sym, cases)) <- adts) yield {(
       sym.uniqueName,
       cases.map(c => c.sym.uniqueName),
-      cases.map(c => c.fields.map { case(id, tpe) => (id.uniqueName, typeToSortRef(tpe))})
+      cases.map(c => c.fields.map { case (id, tpe) => (id.uniqueName, typeToSortRef(tpe))})
     )}
 
     val resultingZ3Info = z3.mkADTSorts(defs)
@@ -187,7 +187,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     case BooleanType() | IntegerType() | RealType() | CharType() | StringType() =>
       sorts(oldtt)
 
-    case tt @ BVType(i) =>
+    case tt @ BVType(_, i) =>
       sorts.cached(tt) {
         z3.mkBVSort(i)
       }
@@ -246,22 +246,23 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case Implies(l, r) => z3.mkImplies(rec(l), rec(r))
       case Not(Equals(l, r)) => z3.mkDistinct(rec(l), rec(r))
       case Not(e) => z3.mkNot(rec(e))
-      case bv @ BVLiteral(_, _) => z3.mkNumeral(bv.toBigInt.toString, typeToSort(bv.getType))
+      case bv @ BVLiteral(_, _, _) =>
+        z3.mkNumeral(bv.copy(signed = true).toBigInt.toString, typeToSort(bv.getType))
       case IntegerLiteral(v) => z3.mkNumeral(v.toString, typeToSort(IntegerType()))
       case FractionLiteral(n, d) => z3.mkNumeral(s"$n / $d", typeToSort(RealType()))
       case CharLiteral(c) => z3.mkInt(c, typeToSort(CharType()))
       case BooleanLiteral(v) => if (v) z3.mkTrue() else z3.mkFalse()
       case Equals(l, r) => z3.mkEq(rec( l ), rec( r ) )
       case Plus(l, r) => l.getType match {
-        case BVType(_) => z3.mkBVAdd(rec(l), rec(r))
+        case BVType(_,_) => z3.mkBVAdd(rec(l), rec(r))
         case _ => z3.mkAdd(rec(l), rec(r))
       }
       case Minus(l, r) => l.getType match {
-        case BVType(_) => z3.mkBVSub(rec(l), rec(r))
+        case BVType(_,_) => z3.mkBVSub(rec(l), rec(r))
         case _ => z3.mkSub(rec(l), rec(r))
       }
       case Times(l, r) => l.getType match {
-        case BVType(_) => z3.mkBVMul(rec(l), rec(r))
+        case BVType(_,_) => z3.mkBVMul(rec(l), rec(r))
         case _ => z3.mkMul(rec(l), rec(r))
       }
       case Division(l, r) =>
@@ -273,24 +274,27 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
               z3.mkDiv(rl, rr),
               z3.mkUnaryMinus(z3.mkDiv(z3.mkUnaryMinus(rl), rr))
             )
-          case BVType(_) => z3.mkBVSdiv(rl, rr)
+          case BVType(true, _) => z3.mkBVSdiv(rl, rr)
+          case BVType(false, _) => z3.mkBVUdiv(rl, rr)
           case _ => z3.mkDiv(rl, rr)
         }
       case Remainder(l, r) => l.getType match {
-        case BVType(_) => z3.mkBVSrem(rec(l), rec(r))
+        case BVType(true, _) => z3.mkBVSrem(rec(l), rec(r))
+        case BVType(false, _) => z3.mkBVUrem(rec(l), rec(r))
         case _ =>
           val q = rec(Division(l, r))
           z3.mkSub(rec(l), z3.mkMul(rec(r), q))
       }
 
       case Modulo(l, r) => l.getType match {
-        case BVType(size) => // we want x mod |y|
+        case BVType(false, _) => z3.mkBVUrem(rec(l), rec(r))
+        case BVType(true, size) => // we want x mod |y|
           val lr = rec(l)
           val rr = rec(r)
           z3.mkBVSmod(
             lr,
             z3.mkITE(
-              z3.mkBVSle(rr, rec(BVLiteral(0, size))),
+              z3.mkBVSle(rr, rec(BVLiteral(true, 0, size))),
               z3.mkBVNeg(rr),
               rr
             )
@@ -301,7 +305,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       }
 
       case UMinus(e) => e.getType match {
-        case BVType(_) => z3.mkBVNeg(rec(e))
+        case BVType(_,_) => z3.mkBVNeg(rec(e))
         case _ => z3.mkUnaryMinus(rec(e))
       }
 
@@ -315,7 +319,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
       case c @ BVWideningCast(e, _)  =>
         val Some((from, to)) = c.cast
-        z3.mkSignExt(to - from, rec(e))
+        val BVType(signed, _) = e.getType
+        if (signed) z3.mkSignExt(to - from, rec(e))
+        else z3.mkZeroExt(to - from, rec(e))
 
       case c @ BVNarrowingCast(e, _) =>
         val Some((from, to)) = c.cast
@@ -324,25 +330,29 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case LessThan(l, r) => l.getType match {
         case IntegerType() => z3.mkLT(rec(l), rec(r))
         case RealType() => z3.mkLT(rec(l), rec(r))
-        case BVType(_) => z3.mkBVSlt(rec(l), rec(r))
+        case BVType(true,_) => z3.mkBVSlt(rec(l), rec(r))
+        case BVType(false,_) => z3.mkBVUlt(rec(l), rec(r))
         case CharType() => z3.mkBVUlt(rec(l), rec(r))
       }
       case LessEquals(l, r) => l.getType match {
         case IntegerType() => z3.mkLE(rec(l), rec(r))
         case RealType() => z3.mkLE(rec(l), rec(r))
-        case BVType(_) => z3.mkBVSle(rec(l), rec(r))
+        case BVType(true,_) => z3.mkBVSle(rec(l), rec(r))
+        case BVType(false,_) => z3.mkBVUle(rec(l), rec(r))
         case CharType() => z3.mkBVUle(rec(l), rec(r))
       }
       case GreaterThan(l, r) => l.getType match {
         case IntegerType() => z3.mkGT(rec(l), rec(r))
         case RealType() => z3.mkGT(rec(l), rec(r))
-        case BVType(_) => z3.mkBVSgt(rec(l), rec(r))
+        case BVType(true,_) => z3.mkBVSgt(rec(l), rec(r))
+        case BVType(false,_) => z3.mkBVUgt(rec(l), rec(r))
         case CharType() => z3.mkBVUgt(rec(l), rec(r))
       }
       case GreaterEquals(l, r) => l.getType match {
         case IntegerType() => z3.mkGE(rec(l), rec(r))
         case RealType() => z3.mkGE(rec(l), rec(r))
-        case BVType(_) => z3.mkBVSge(rec(l), rec(r))
+        case BVType(true,_) => z3.mkBVSge(rec(l), rec(r))
+        case BVType(false,_) => z3.mkBVUge(rec(l), rec(r))
         case CharType() => z3.mkBVUge(rec(l), rec(r))
       }
 
@@ -365,7 +375,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
       case c @ ADT(id, tps, args) =>
         typeToSort(c.getType) // Making sure the sort is defined
-        val constructor = constructors.toB(ADTCons(id, tps))
+        val constructor = constructors.toB(ADTCons(id, tps.map(_.getType)))
         constructor(args.map(rec): _*)
 
       case c @ ADTSelector(cc, sel) =>
@@ -381,7 +391,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         tester(rec(e))
 
       case f @ FunctionInvocation(id, tps, args) =>
-        z3.mkApp(functionDefToDecl(getFunction(id, tps)), args.map(rec): _*)
+        z3.mkApp(functionDefToDecl(getFunction(id, tps.map(_.getType))), args.map(rec): _*)
 
       case fa @ Application(caller, args) =>
         val ft @ FunctionType(froms, to) = caller.getType
@@ -398,7 +408,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
        * ===== Set operations =====
        */
       case f @ FiniteSet(elems, base) =>
-        elems.foldLeft(z3.mkEmptySet(typeToSort(base)))((ast, el) => z3.mkSetAdd(ast, rec(el)))
+        elems.foldLeft(z3.mkEmptySet(typeToSort(base.getType)))((ast, el) => z3.mkSetAdd(ast, rec(el)))
 
       case ElementOfSet(e, s) => z3.mkSetMember(rec(e), rec(s))
 
@@ -454,7 +464,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         z3.mkStore(rec(a), rec(i), rec(e))
 
       case FiniteMap(elems, default, keyTpe, valueType) =>
-        val ar = z3.mkConstArray(typeToSort(keyTpe), rec(default))
+        val ar = z3.mkConstArray(typeToSort(keyTpe.getType), rec(default))
 
         elems.foldLeft(ar) {
           case (array, (k, v)) => z3.mkStore(array, rec(k), rec(v))
@@ -499,7 +509,6 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   }
 
   protected[z3] def fromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type): (Expr, Map[Choose, Expr]) = {
-
     val z3ToChooses: MutableMap[Z3AST, Choose] = MutableMap.empty
     val z3ToLambdas: MutableMap[Z3AST, Lambda] = MutableMap.empty
 
@@ -508,24 +517,23 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       kind match {
         case Z3NumeralIntAST(Some(v)) =>
           tpe match {
-            case BVType(size) => BVLiteral(BigInt(v), size)
+            case BVType(signed, size) => BVLiteral(signed, BigInt(v), size)
             case CharType() => CharLiteral(v.toChar)
             case IntegerType() => IntegerLiteral(BigInt(v))
-
             case other => unsupported(other, s"Unexpected target type for value $v")
           }
 
         case Z3NumeralIntAST(None) =>
           val ts = t.toString
           tpe match {
-            case BVType(size) =>
-              if (ts.startsWith("#b")) BVLiteral(BigInt(ts.drop(2), 2), size)
-              else if (ts.startsWith("#x")) BVLiteral(BigInt(ts.drop(2), 16), size)
-              else if (ts.startsWith("#")) reporter.fatalError(s"Unexpected format for BV value: $ts")
-              else BVLiteral(BigInt(ts, 10), size)
+            case BVType(signed, size) =>
+              if (ts.startsWith("#b")) BVLiteral(signed, BigInt(ts.drop(2), 2), size)
+              else if (ts.startsWith("#x")) BVLiteral(signed, BigInt(ts.drop(2), 16), size)
+              else if (ts.startsWith("#")) throw new InternalSolverError("z3", s"Unexpected format for BV value: $ts")
+              else BVLiteral(signed, BigInt(ts, 10), size)
 
             case IntegerType() =>
-              if (ts.startsWith("#")) reporter.fatalError(s"Unexpected format for Integer value: $ts")
+              if (ts.startsWith("#")) throw new InternalSolverError("z3", s"Unexpected format for Integer value: $ts")
               else IntegerLiteral(BigInt(ts, 10))
 
             case other => unsupported(other, s"Unexpected target type for value $ts")
@@ -621,7 +629,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                     FiniteSet(elems.toSeq, dt)
                 }
 
-              case StringType() => StringLiteral(z3.getString(t))
+              case StringType() => StringLiteral(utils.StringUtils.decode(z3.getString(t)))
 
               case _ =>
                 import Z3DeclKind._
@@ -675,7 +683,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     def rec(t: Z3AST, tpe: Type): Expr = z3.getASTKind(t) match {
       case Z3NumeralIntAST(Some(v)) =>
         tpe match {
-          case BVType(size) => BVLiteral(BigInt(v), size)
+          case BVType(signed, size) => BVLiteral(signed, BigInt(v), size)
           case CharType() => CharLiteral(v.toChar)
           case _ => IntegerLiteral(BigInt(v))
         }
@@ -683,11 +691,11 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case Z3NumeralIntAST(None) =>
         val ts = t.toString
         tpe match {
-          case BVType(size) =>
-            if (ts.startsWith("#b")) BVLiteral(BigInt(ts.drop(2), 2), size)
-            else if (ts.startsWith("#x")) BVLiteral(BigInt(ts.drop(2), 16), size)
+          case BVType(signed, size) =>
+            if (ts.startsWith("#b")) BVLiteral(signed, BigInt(ts.drop(2), 2), size)
+            else if (ts.startsWith("#x")) BVLiteral(signed, BigInt(ts.drop(2), 16), size)
             else if (ts.startsWith("#")) unsound(t, s"Unexpected format for BV value: $ts")
-            else BVLiteral(BigInt(ts, 10), size)
+            else BVLiteral(signed, BigInt(ts, 10), size)
 
           case _ =>
             if (ts.startsWith("#")) unsound(t, s"Unexpected format for Integer value: $ts")
@@ -834,7 +842,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       })
     }.toMap
 
-    inox.Model(program, context)(vars, chooses.toMap)
+    inox.Model(program)(vars, chooses.toMap)
   }
 
   def extractUnsatAssumptions(cores: Set[Z3AST]): Set[Expr] = {

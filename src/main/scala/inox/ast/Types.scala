@@ -3,7 +3,7 @@
 package inox
 package ast
 
-import scala.collection.mutable.{Map => MutableMap}
+import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 trait Types { self: Trees =>
 
@@ -26,11 +26,6 @@ trait Types { self: Trees =>
 
     protected def computeType(implicit s: Symbols): Type
   }
-
-  /* Widens a type into it's narest outer Inox type.
-   * This is an override point for more complex type systems that provide (for example)
-   * type parameter bounds that would not be compatible with Inox type checking. */
-  protected def widen(tpe: Type): Type = tpe
 
   protected def unveilUntyped(tpe: Type): Type = {
     val NAryType(tps, _) = tpe
@@ -56,7 +51,7 @@ trait Types { self: Trees =>
 
     protected def computeType(implicit s: Symbols): Type = {
       val NAryType(tps, recons) = this
-      unveilUntyped(widen(recons(tps.map(_.getType))))
+      unveilUntyped(recons(tps.map(_.getType)))
     }
   }
 
@@ -69,28 +64,20 @@ trait Types { self: Trees =>
   case class RealType()    extends Type
   case class StringType()  extends Type
 
-  sealed case class BVType(size: Int) extends Type {
-    override def toString: String = size match {
-      case 8  => "Int8Type"
-      case 16 => "Int16Type"
-      case 32 => "Int32Type"
-      case 64 => "Int64Type"
-      case _ => super.toString
-    }
+  sealed case class BVType(signed: Boolean, size: Int) extends Type
+
+  sealed abstract class BVTypeExtractor(signed: Boolean, size: Int) {
+    def apply(): BVType = BVType(signed, size)
+    def unapply(tpe: BVType): Boolean = tpe.signed == signed && tpe.size == size
   }
 
-  sealed abstract class BVTypeExtractor(size: Int) {
-    def apply(): BVType = BVType(size)
-    def unapply(tpe: BVType): Boolean = tpe.size == size
-  }
-
-  object Int8Type  extends BVTypeExtractor(8)
-  object Int16Type extends BVTypeExtractor(16)
-  object Int32Type extends BVTypeExtractor(32)
-  object Int64Type extends BVTypeExtractor(64)
+  object Int8Type  extends BVTypeExtractor(true, 8)
+  object Int16Type extends BVTypeExtractor(true, 16)
+  object Int32Type extends BVTypeExtractor(true, 32)
+  object Int64Type extends BVTypeExtractor(true, 64)
 
   sealed case class TypeParameter(id: Identifier, flags: Seq[Flag]) extends Type {
-    def freshen = TypeParameter(id.freshen, flags)
+    def freshen = TypeParameter(id.freshen, flags).copiedFrom(this)
 
     override def equals(that: Any) = that match {
       case tp: TypeParameter => id == tp.id
@@ -140,7 +127,7 @@ trait Types { self: Trees =>
       private var counter: Int = 0
 
       override def transform(expr: Expr): Expr = expr match {
-        case v: Variable => subst.getOrElse(v, super.transform(v))
+        case v: Variable => subst.getOrElse(v, v)
         case _ => super.transform(expr)
       }
 
@@ -159,7 +146,7 @@ trait Types { self: Trees =>
 
   protected sealed trait TypeNormalization { self: Type with Product =>
     @inline
-    private def elements: List[Any] = _elements.get
+    private final def elements: List[Any] = _elements.get
     private[this] val _elements: utils.Lazy[List[Any]] = utils.Lazy({
       // @nv: note that we can't compare `normalized` directly as we are
       //      overriding the `equals` method and this would lead to non-termination.
@@ -231,9 +218,50 @@ trait Types { self: Trees =>
     def orElse(other: => Type): Type = if (tpe == Untyped) other else tpe
   }
 
+  /* Override points for supporting more complex types */
+
+  protected final def getIntegerType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type =
+    checkAllTypes(tpe +: tpes, IntegerType(), IntegerType())
+
+  protected final def getRealType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type =
+    checkAllTypes(tpe +: tpes, RealType(), RealType())
+
+  protected def getBVType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+    case bv: BVType => checkAllTypes(tpes, bv, bv)
+    case _ => Untyped
+  }
+
+  protected final def getCharType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type =
+    checkAllTypes(tpe +: tpes, CharType(), CharType())
+
+  protected def getADTType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+    case adt: ADTType => checkAllTypes(tpes, adt, adt)
+    case _ => Untyped
+  }
+
+  protected def getTupleType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+    case tt: TupleType => checkAllTypes(tpes, tt, tt)
+    case _ => Untyped
+  }
+
+  protected def getSetType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+    case st: SetType => checkAllTypes(tpes, st, st)
+    case _ => Untyped
+  }
+
+  protected def getBagType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+    case bt: BagType => checkAllTypes(tpes, bt, bt)
+    case _ => Untyped
+  }
+
+  protected def getMapType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+    case mt: MapType => checkAllTypes(tpes, mt, mt)
+    case _ => Untyped
+  }
+
   /** NAryType extractor to extract any Type in a consistent way.
     *
-    * @see [[Extractors.Operator]] about why we can't have nice(r) things
+    * @see [[Deconstructors.Operator]] about why we can't have nice(r) things
     */
   object NAryType extends {
     protected val s: self.type = self
@@ -256,21 +284,27 @@ trait Types { self: Trees =>
     type Target = self.Type
     lazy val Deconstructor = NAryType
 
-    def typeParamsOf(t: Type): Set[TypeParameter] = t match {
-      case tp: TypeParameter => Set(tp)
-      case NAryType(subs, _) =>
-        subs.flatMap(typeParamsOf).toSet
+    // Helper for typeParamsOf
+    class TypeCollector extends SelfTreeTraverser {
+      private[this] val typeParams: MutableSet[TypeParameter] = MutableSet.empty
+      def getResult: Set[TypeParameter] = typeParams.toSet
+
+      override def traverse(tpe: Type): Unit = tpe match {
+        case tp: TypeParameter => typeParams += tp
+        case _ => super.traverse(tpe)
+      }
     }
 
-    def instantiateType(tpe: Type, tps: Map[TypeParameter, Type]): Type = {
-      if (tps.isEmpty) {
-        tpe
-      } else {
-        typeOps.postMap {
-          case tp: TypeParameter => tps.get(tp)
-          case _ => None
-        } (tpe)
-      }
+    def typeParamsOf(e: Expr): Set[TypeParameter] = {
+      val collector = new TypeCollector
+      collector.traverse(e)
+      collector.getResult
+    }
+
+    def typeParamsOf(t: Type): Set[TypeParameter] = {
+      val collector = new TypeCollector
+      collector.traverse(t)
+      collector.getResult
     }
 
     // Helpers for instantiateType
@@ -278,6 +312,14 @@ trait Types { self: Trees =>
       override def transform(tpe: Type): Type = tpe match {
         case tp: TypeParameter => tps.getOrElse(tp, super.transform(tpe))
         case _ => super.transform(tpe)
+      }
+    }
+
+    def instantiateType(tpe: Type, tps: Map[TypeParameter, Type]): Type = {
+      if (tps.isEmpty) {
+        tpe
+      } else {
+        new TypeInstantiator(tps).transform(tpe)
       }
     }
 
@@ -317,6 +359,15 @@ trait Types { self: Trees =>
         exprOps.variablesOf(pred) - vd.toVariable ++ variablesOf(vd.tpe)
       case NAryType(tpes, _) => tpes.flatMap(variablesOf).toSet
     }
+
+    class TypeSimplifier(implicit symbols: Symbols) extends SelfTreeTransformer {
+      override def transform(tpe: Type): Type = tpe match {
+        case (_: PiType | _: SigmaType | _: FunctionType) => tpe.getType
+        case _ => super.transform(tpe)
+      }
+    }
+
+    def simplify(expr: Expr)(implicit symbols: Symbols): Expr = new TypeSimplifier().transform(expr)
   }
 }
 

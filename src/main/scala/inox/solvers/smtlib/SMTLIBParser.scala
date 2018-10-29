@@ -81,11 +81,17 @@ trait SMTLIBParser {
       case _ => IntegerLiteral(n)
     }
 
-    case FixedSizeBitVectors.BitVectorLit(bs) =>
-      BVLiteral(BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
+    case FixedSizeBitVectors.BitVectorLit(bs) => otpe match {
+      case Some(BVType(signed, _)) =>
+        BVLiteral(signed, BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
+      case _ =>
+        BVLiteral(true, BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
+    }
 
-    case FixedSizeBitVectors.BitVectorConstant(n, size) =>
-      BVLiteral(n, size.intValue)
+    case FixedSizeBitVectors.BitVectorConstant(n, size) => otpe match {
+      case Some(BVType(signed, _)) => BVLiteral(signed, n, size.intValue)
+      case _ => BVLiteral(true, n, size.intValue)
+    }
 
     case SDecimal(value) =>
       exprOps.normalizeFraction(FractionLiteral(
@@ -93,7 +99,7 @@ trait SMTLIBParser {
         BigInt(10).pow(value.scale)))
 
     case SString(value) =>
-      StringLiteral(value)
+      StringLiteral(utils.StringUtils.decode(value))
 
     case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("distinct")), None), args) =>
       val es = args.map(fromSMT(_))
@@ -155,12 +161,19 @@ trait SMTLIBParser {
     case FixedSizeBitVectors.Sub(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Minus)
     case FixedSizeBitVectors.Mul(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Times)
     case FixedSizeBitVectors.SDiv(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Division)
+    case FixedSizeBitVectors.UDiv(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Division)
     case FixedSizeBitVectors.SRem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Remainder)
+    case FixedSizeBitVectors.URem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Remainder)
 
     case FixedSizeBitVectors.SLessThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessThan)
     case FixedSizeBitVectors.SLessEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessEquals)
     case FixedSizeBitVectors.SGreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterThan)
     case FixedSizeBitVectors.SGreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterEquals)
+
+    case FixedSizeBitVectors.ULessThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessThan)
+    case FixedSizeBitVectors.ULessEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessEquals)
+    case FixedSizeBitVectors.UGreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterThan)
+    case FixedSizeBitVectors.UGreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterEquals)
 
     case FixedSizeBitVectors.ShiftLeft(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVShiftLeft)
     case FixedSizeBitVectors.AShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVAShiftRight)
@@ -168,14 +181,17 @@ trait SMTLIBParser {
 
     case FixedSizeBitVectors.SignExtend(extend, e) =>
       val ast = fromSMT(e)
-      val BVType(current) = ast.getType
+      val BVType(signed, current) = ast.getType
       val newSize = (current + extend).bigInteger.intValueExact
-      BVWideningCast(ast, BVType(newSize))
+      BVWideningCast(ast, BVType(signed, newSize))
 
     case FixedSizeBitVectors.Extract(i, j, e) =>
       // Assume this is a Narrowing Cast, hence j must be 0
       if (j != 0) throw new MissformedSMTException(term, "Unexpected 'extract' which is not a narrowing cast")
-      BVNarrowingCast(fromSMT(e), BVType((i + 1).bigInteger.intValueExact))
+      BVNarrowingCast(fromSMT(e), BVType(otpe match {
+        case Some(BVType(signed, _)) => signed
+        case _ => true
+      }, (i + 1).bigInteger.intValueExact))
 
     case ArraysEx.Select(e1, e2) => otpe match {
       case Some(tpe) =>
@@ -207,7 +223,7 @@ trait SMTLIBParser {
   }
 
   protected def fromSMT(sort: Sort)(implicit context: Context): Type = sort match {
-    case Sort(SMTIdentifier(SSymbol("bitvector" | "BitVec"), Seq(SNumeral(n))), Seq()) => BVType(n.toInt)
+    case Sort(SMTIdentifier(SSymbol("bitvector" | "BitVec"), Seq(SNumeral(n))), Seq()) => BVType(true, n.toInt)
     case Sort(SimpleIdentifier(SSymbol("Bool")), Seq()) => BooleanType()
     case Sort(SimpleIdentifier(SSymbol("Int")), Seq()) => IntegerType()
     case Sort(SimpleIdentifier(SSymbol("Real")), Seq()) => RealType()

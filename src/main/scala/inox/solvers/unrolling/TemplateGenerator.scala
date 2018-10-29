@@ -140,7 +140,7 @@ trait TemplateGenerator { self: Templates =>
           }
       }
 
-    val sortedDeps = exprOps.variablesOf(struct).map(v => v -> deps(v)).toSeq.sortBy(_._1.id.uniqueName)
+    val sortedDeps = exprOps.variablesOf(struct).map(v => v -> deps(v)).toSeq.sortBy(_._1.id)
     val dependencies = sortedDeps.map(p => depSubst(p._1))
     val structure = new TemplateStructure(struct, dependencies, depContents)
 
@@ -466,6 +466,8 @@ trait TemplateGenerator { self: Templates =>
         val newExpr: Variable = Variable.fresh("lt", vd.getType, true)
         storeExpr(newExpr)
 
+        storeGuarded(pathVar, Equals(newExpr, expr))
+
         val (p, predClauses) = mkExprClauses(pathVar,
           exprOps.replaceFromSymbols(Map(vd -> newExpr), pred), localSubst)
         builder ++= predClauses
@@ -605,7 +607,7 @@ trait TemplateGenerator { self: Templates =>
           )
         }
 
-      case _ => throw FatalError("Unexpected unrollable")
+      case _ => throw new InternalSolverError(s"Unexpected unrollable: ${tpe.asString}")
     }
 
     val p = rec(pathVar, tpe, expr, RecursionState(true, true, true, true))

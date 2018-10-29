@@ -62,7 +62,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
   protected val extraVars = new Bijection[Variable, SSymbol]
 
   def printScript(expr: Expr): Unit = {
-    val tparams = typeParamsOf(expr)
+    val tparams = typeOps.typeParamsOf(expr)
     val cmd = if (tparams.nonEmpty) {
       AssertPar(tparams.map(tp => id2sym(tp.id)).toSeq, toSMT(expr)(Map.empty))
     } else {
@@ -163,7 +163,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
       case p => p
     }.filterNot(p => sorts containsA p._1)
 
-    for ((tpe, DataType(id, _)) <- newAdts) {
+    val generics = (for ((tpe, DataType(id, _)) <- newAdts) yield {
       val tparams: Seq[TypeParameter] = tpe match {
         case ADTType(_, tps) => tps.map(_.asInstanceOf[TypeParameter])
         case TupleType(tps) => tps.map(_.asInstanceOf[TypeParameter])
@@ -172,13 +172,13 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
 
       val tpSorts = tparams.map(tp => Sort(SMTIdentifier(id2sym(tp.id))))
       sorts += tpe -> Sort(SMTIdentifier(id2sym(id)), tpSorts)
-    }
+      tparams
+    }).flatten
 
-    val generics = newAdts.flatMap { case (tp, _) => typeOps.typeParamsOf(tp) }.toSet
     val genericSyms = generics.map(tp => id2sym(tp.id))
 
     if (newAdts.nonEmpty) {
-      emit(DeclareDatatypesPar(genericSyms.toList,
+      emit(DeclareDatatypesPar(genericSyms,
         (for ((tpe, DataType(sym, cases)) <- newAdts.toList) yield {
           id2sym(sym) -> (for (c <- cases) yield {
             val s = id2sym(c.sym)

@@ -95,8 +95,11 @@ trait Templates
 
   private val condEquals  = new IncrementalBijection[Encoded, Set[Encoded]]
 
+  // Set of variables that have already been declared in this solver
+  private val declared = new IncrementalSet[(Variable, Encoded)]
+
   val incrementals: Seq[IncrementalState] = managers ++ Seq(
-    condImplies, condImplied, potImplies, potImplied, condEquals
+    condImplies, condImplied, potImplies, potImplied, condEquals, declared
   )
 
   protected def freshConds(
@@ -223,8 +226,8 @@ trait Templates
   }
 
   /** Represents a named function call in the unfolding procedure */
-  case class Call(tfd: TypedFunDef, args: Seq[Arg]) {
-    override def toString = tfd.signature + {
+  case class Call(tfd: TypedFunDef, args: Seq[Arg], tpSubst: Seq[Arg]) {
+    override def toString: String = {
       def pArgs(args: Seq[Arg]): String = args.map {
         case Right(m) => m.toString
         case Left(v) => asString(v)
@@ -237,11 +240,12 @@ trait Templates
         case _ => pArgs(args)
       }
 
-      rec(tfd.getType, args)
+      tfd.signature + rec(tfd.getType, args) + pArgs(tpSubst)
     }
 
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): Call = copy(
-      args = args.map(_.substitute(substituter, msubst))
+      args = args.map(_.substitute(substituter, msubst)),
+      tpSubst = tpSubst.map(_.substitute(substituter, msubst))
     )
   }
 
@@ -491,7 +495,7 @@ trait Templates
       val deps = dependencies.map(substituter)
       val key = (body, blockerPath(contents.pathVar._2), deps)
 
-      val sortedDeps = exprOps.variablesOf(body).toSeq.sortBy(_.id.uniqueName)
+      val sortedDeps = exprOps.variablesOf(body).toSeq.sortBy(_.id)
       val locals = sortedDeps zip deps
       (key, instantiation, locals, substMap.mapValues(_.encoded))
     }
@@ -540,7 +544,7 @@ trait Templates
     def extractCalls(
       expr: Expr,
       substMap: Map[Variable, Encoded] = Map.empty[Variable, Encoded],
-      optCall: Option[Call] = None,
+      optCall: Option[(TypedFunDef, Seq[Arg])] = None,
       optApp: Option[App] = None
     ): (Set[Call], Set[App], Set[Matcher], Pointers) = {
       val encoder : Expr => Encoded = mkEncoder(substMap)
@@ -582,8 +586,11 @@ trait Templates
         case fi: FunctionInvocation => Set(fi)
         case _ => Set.empty
       } (expr).map { case FunctionInvocation(id, tps, args) =>
-        Call(getFunction(id, tps), args.map(encodeArg))
-      }.filter(i => Some(i) != optCall)
+        val tpVars = tps.flatMap(variableSeq).distinct
+        Call(getFunction(id, tps), args.map(encodeArg), tpVars.map(encodeArg))
+      }.filter { case Call(tfd, args, _) =>
+        !optCall.exists(p => p._1 == tfd && p._2 == args)
+      }
 
       val apps = exprOps.collect[Application] {
         case app: Application => Set(app)
@@ -599,7 +606,7 @@ trait Templates
       val matchers = exprToMatcher.values.toSet
         .filter(i => Some(i.encoded) != optApp.map(_.encoded))
         .filter {
-          case Matcher(Right(tfd), args, _) => Some(Call(tfd, args)) != optCall
+          case Matcher(Right(tfd), args, _) => !optCall.exists(p => p._1 == tfd && p._2 == args)
           case _ => true
         }
 
@@ -622,7 +629,7 @@ trait Templates
         typesManager.tpSubst
       val encoder: Expr => Encoded = mkEncoder(idToTrId)
 
-      val optIdCall = optCall.map { tfd => Call(tfd, arguments.map(p => Left(p._2))) }
+      val optIdCall = optCall.map { tfd => (tfd, arguments.map(p => Left(p._2))) }
       val optIdApp = optApp.map { case (idT, tpe) =>
         App(idT, tpe, arguments.map(p => Left(p._2)), mkApp(idT, tpe, arguments.map(_._2)))
       }
@@ -814,23 +821,19 @@ trait Templates
     }
   }
 
-  def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {
+  private[this] def instantiate(
+    bindings: Map[Variable, Encoded],
+    gen: (Variable, Encoded) => TemplateClauses
+  ): Clauses = {
     val start = Variable.fresh("start", BooleanType(), true)
     val encodedStart = encodeSymbol(start)
 
-    val instExpr = timers.solvers.simplify.run { simplifyFormula(expr) }
-
-    val tmplClauses = mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
-    val tpeClauses = bindings.map { case (v, s) =>
-      mkClauses(start, v.tpe, v, bindings + (start -> encodedStart))(FreeGenerator)
-    }
-
-    val fullClauses = tpeClauses.foldLeft(tmplClauses)(_ ++ _)
+    val tmplClauses = gen(start, encodedStart)
 
     val (clauses, calls, apps, matchers, pointers, _) =
-      Template.encode(start -> encodedStart, bindings.toSeq, fullClauses)
+      Template.encode(start -> encodedStart, bindings.toSeq, tmplClauses)
 
-    val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = fullClauses.proj
+    val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = tmplClauses.proj
     val (substClauses, substMap) = Template.substitution(
       condVars, exprVars, condTree, types, lambdas, quants, pointers, Map.empty, encodedStart)
 
@@ -842,5 +845,30 @@ trait Templates
     }
 
     allClauses
+  }
+
+  def instantiateVariable(v: Variable, bindings: Map[Variable, Encoded]): Clauses = {
+    if (declared contains (v -> bindings(v))) {
+      Seq.empty
+    } else {
+      declared += v -> bindings(v)
+      instantiate(bindings, { (start, encodedStart) =>
+        mkClauses(start, v.tpe, v, bindings + (start -> encodedStart))(FreeGenerator)
+      })
+    }
+  }
+
+  def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {
+    instantiate(bindings, { (start, encodedStart) =>
+      val instExpr = timers.solvers.simplify.run { simplifyFormula(expr) }
+
+      val tmplClauses = mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
+      val tpeClauses = bindings.filterNot(declared contains _).map { case (v, s) =>
+        declared += v -> s
+        mkClauses(start, v.tpe, v, bindings + (start -> encodedStart))(FreeGenerator)
+      }
+
+      tpeClauses.foldLeft(tmplClauses)(_ ++ _)
+    })
   }
 }

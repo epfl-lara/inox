@@ -16,7 +16,7 @@ import scala.collection.immutable.HashMap
   * means of applying generic transformations to arbitrary extensions of
   * the [[Trees.Tree]] interface.
   *
-  * @see [[Extractors]] for some interesting use cases
+  * @see [[Deconstructors]] for some interesting use cases
   */
 trait TreeDeconstructor {
   protected val s: Trees
@@ -98,9 +98,9 @@ trait TreeDeconstructor {
         (_, _, _, _, _) => t.CharLiteral(ch))
     },
     classOf[s.BVLiteral] -> { expr =>
-      val s.BVLiteral(bits, size) = expr
+      val s.BVLiteral(signed, bits, size) = expr
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
-        (_, _, _, _, _) => t.BVLiteral(bits, size))
+        (_, _, _, _, _) => t.BVLiteral(signed, bits, size))
     },
     classOf[s.IntegerLiteral] -> { expr =>
       val s.IntegerLiteral(i) = expr
@@ -439,9 +439,9 @@ trait TreeDeconstructor {
         (ids, _, _, _, flags) => t.TypeParameter(ids.head, flags))
     },
     classOf[s.BVType] -> { tpe =>
-      val s.BVType(size) = tpe
+      val s.BVType(signed, size) = tpe
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
-        (_, _, _, _, _) => t.BVType(size))
+        (_, _, _, _, _) => t.BVType(signed, size))
     },
 
     // @nv: can't use `s.Untyped.getClass` as it is not yet created at this point
@@ -514,7 +514,7 @@ trait TreeDeconstructor {
 
 /** Provides extraction capabilities to [[Trees]] based on a
   * [[TreeDeconstructor]] instance. */
-trait Extractors { self: Trees =>
+trait Deconstructors { self: Trees =>
 
   def getDeconstructor(that: Trees): TreeDeconstructor {
     val s: self.type

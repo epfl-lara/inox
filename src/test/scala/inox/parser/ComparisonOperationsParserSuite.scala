@@ -39,7 +39,7 @@ class ComparisonOperationsParserSuite extends FunSuite {
       e"`A` == `B`"
     }
 
-    assertResult(Equals(BVLiteral(1, 17), BVLiteral(4, 17))) {
+    assertResult(Equals(BVLiteral(true, 1, 17), BVLiteral(true, 4, 17))) {
       e"1 as Int17 == 4 as Int17"
     }
   }
@@ -74,7 +74,7 @@ class ComparisonOperationsParserSuite extends FunSuite {
       e"`A` <= `B`"
     }
 
-    assertResult(LessEquals(BVLiteral(1, 17), BVLiteral(4, 17))) {
+    assertResult(LessEquals(BVLiteral(true, 1, 17), BVLiteral(true, 4, 17))) {
       e"1 as Int17 <= 4 as Int17"
     }
   }
@@ -109,7 +109,7 @@ class ComparisonOperationsParserSuite extends FunSuite {
       e"`A` >= `B`"
     }
 
-    assertResult(GreaterEquals(BVLiteral(1, 17), BVLiteral(4, 17))) {
+    assertResult(GreaterEquals(BVLiteral(true, 1, 17), BVLiteral(true, 4, 17))) {
       e"1 as Int17 >= 4 as Int17"
     }
   }
@@ -144,7 +144,7 @@ class ComparisonOperationsParserSuite extends FunSuite {
       e"`A` < `B`"
     }
 
-    assertResult(LessThan(BVLiteral(1, 17), BVLiteral(4, 17))) {
+    assertResult(LessThan(BVLiteral(true, 1, 17), BVLiteral(true, 4, 17))) {
       e"1 as Int17 < 4 as Int17"
     }
   }
@@ -179,7 +179,7 @@ class ComparisonOperationsParserSuite extends FunSuite {
       e"`A` > `B`"
     }
 
-    assertResult(GreaterThan(BVLiteral(1, 17), BVLiteral(4, 17))) {
+    assertResult(GreaterThan(BVLiteral(true, 1, 17), BVLiteral(true, 4, 17))) {
       e"1 as Int17 > 4 as Int17"
     }
   }

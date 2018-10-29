@@ -17,7 +17,7 @@ trait ExprExtractors { self: Extractors =>
         case trees.Variable(sId, _, _) => ExprUseIdX.extract(id, sId)
       }
       case IntegerLiteral(number) => Matching.collect(scrutinee) {
-        case trees.BVLiteral(value, base) =>
+        case trees.BVLiteral(true, value, base) =>
           Matching.conditionally(toBitSet(number, base) == value)
         case trees.IntegerLiteral(value) =>
           Matching.conditionally(value == number)
@@ -153,9 +153,9 @@ trait ExprExtractors { self: Extractors =>
         import Casts._
 
         Matching.collect((mode, scrutinee)) {
-          case (Widen, trees.BVWideningCast(sExpr, trees.BVType(sSize))) if size == sSize =>
+          case (Widen, trees.BVWideningCast(sExpr, trees.BVType(true, sSize))) if size == sSize =>
             ExprX.extract(expr, sExpr)
-          case (Narrow, trees.BVNarrowingCast(sExpr, trees.BVType(sSize))) if size == sSize =>
+          case (Narrow, trees.BVNarrowingCast(sExpr, trees.BVType(true, sSize))) if size == sSize =>
             ExprX.extract(expr, sExpr)
         }
       }

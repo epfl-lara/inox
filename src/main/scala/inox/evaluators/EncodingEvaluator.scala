@@ -6,7 +6,7 @@ package evaluators
 trait EncodingEvaluator extends DeterministicEvaluator { self =>
   import program.trees._
 
-  protected val encoder: ast.ProgramTransformer { val sourceProgram: program.type }
+  protected val encoder: transformers.ProgramTransformer { val sourceProgram: program.type }
 
   protected val underlying: DeterministicEvaluator {
     val program: encoder.targetProgram.type
@@ -27,7 +27,7 @@ trait EncodingEvaluator extends DeterministicEvaluator { self =>
 
 object EncodingEvaluator {
   def apply(p: Program)
-           (enc: ast.ProgramTransformer { val sourceProgram: p.type })
+           (enc: transformers.ProgramTransformer { val sourceProgram: p.type })
            (ev: DeterministicEvaluator { val program: enc.targetProgram.type }) = {
     new {
       val program: p.type = p

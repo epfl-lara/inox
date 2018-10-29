@@ -61,7 +61,7 @@ trait QuantificationTemplates { self: Templates =>
     case MapType(from, to) => Seq(from) -> to
     case BagType(base) => Seq(base) -> IntegerType()
     case SetType(base) => Seq(base) -> BooleanType()
-    case _ => throw FatalError("Matcher argument type of unsupported type " + tpe)
+    case _ => throw new InternalSolverError("Matcher argument type of unsupported type " + tpe.asString)
   }
 
   /* -- Quantifier template definitions -- */
@@ -144,8 +144,6 @@ trait QuantificationTemplates { self: Templates =>
 
       val clauses = tmplClauses ++ tpeClauses
       val (res, polarity, contents, str) = if (pol) {
-        val vars = quantifiers.flatMap(v => typeOps.variablesOf(v.tpe))
-
         val subst = quantifiers.flatMap(v => typeOps.variablesOf(v.tpe)).map(v => v -> Left(clauseSubst(v))).toMap
 
         val (contents, str) = Template.contents(pathVar, idQuantifiers zip trQuantifiers,
@@ -726,7 +724,7 @@ trait QuantificationTemplates { self: Templates =>
       }
 
       clauses ++= templates.flatMap { case (key, (tmpl, tinst)) =>
-        if (newTemplate.structure.body == tmpl.structure.body) {
+        if (typeOps.simplify(newTemplate.structure.body) == typeOps.simplify(tmpl.structure.body)) {
           val (blocker, cls) = encodeBlockers(Set(newTemplate.contents.pathVar._2, tmpl.contents.pathVar._2))
           val eqConds = (newTemplate.structure.locals zip tmpl.structure.locals)
             .filter(p => p._1 != p._2)
@@ -750,7 +748,7 @@ trait QuantificationTemplates { self: Templates =>
   def promoteQuantifications: Unit = {
     val optGen = quantificationsManager.unrollGeneration
     if (optGen.isEmpty)
-      throw FatalError("Attempting to promote inexistent quantifiers")
+      throw new InternalSolverError("Attempting to promote inexistent quantifiers")
 
     val diff = (currentGeneration - optGen.get) max 0
 

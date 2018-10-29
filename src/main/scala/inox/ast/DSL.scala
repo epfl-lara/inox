@@ -225,6 +225,46 @@ trait DSL {
       FunctionType(Seq(from._1, from._2, from._3, from._4), to)
   }
 
+  def pi(vd: ValDef)(body: Variable => Type) = PiType(Seq(vd), body(vd.toVariable))
+
+  def pi(vd1: ValDef, vd2: ValDef)
+        (body: (Variable, Variable) => Type) = {
+    PiType(Seq(vd1, vd2), body(vd1.toVariable, vd2.toVariable))
+  }
+
+  def pi(vd1: ValDef, vd2: ValDef, vd3: ValDef)
+        (body: (Variable, Variable, Variable) => Type) = {
+    PiType(Seq(vd1, vd2, vd3), body(vd1.toVariable, vd2.toVariable, vd3.toVariable))
+  }
+
+  def pi(vd1: ValDef, vd2: ValDef, vd3: ValDef, vd4: ValDef)
+        (body: (Variable, Variable, Variable, Variable) => Type) = {
+    PiType(
+      Seq(vd1, vd2, vd3, vd4),
+      body(vd1.toVariable, vd2.toVariable, vd3.toVariable, vd4.toVariable))
+  }
+
+  def sigma(vd: ValDef)(body: Variable => Type) = SigmaType(Seq(vd), body(vd.toVariable))
+
+  def sigma(vd1: ValDef, vd2: ValDef)
+           (body: (Variable, Variable) => Type) = {
+    SigmaType(Seq(vd1, vd2), body(vd1.toVariable, vd2.toVariable))
+  }
+
+  def sigma(vd1: ValDef, vd2: ValDef, vd3: ValDef)
+           (body: (Variable, Variable, Variable) => Type) = {
+    SigmaType(Seq(vd1, vd2, vd3), body(vd1.toVariable, vd2.toVariable, vd3.toVariable))
+  }
+
+  def sigma(vd1: ValDef, vd2: ValDef, vd3: ValDef, vd4: ValDef)
+           (body: (Variable, Variable, Variable, Variable) => Type) = {
+    SigmaType(
+      Seq(vd1, vd2, vd3, vd4),
+      body(vd1.toVariable, vd2.toVariable, vd3.toVariable, vd4.toVariable))
+  }
+
+  def refinement(vd: ValDef)(body: Variable => Expr) = RefinementType(vd, body(vd.toVariable))
+
   /* Patterns */
   object C {
     def apply(id: Identifier): ADTConsIdentifier = new ADTConsIdentifier(id)
