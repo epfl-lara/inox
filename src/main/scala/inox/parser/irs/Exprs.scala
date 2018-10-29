@@ -14,7 +14,6 @@ trait Exprs { self: IRs =>
       case object Minus extends Operator
       case object Not extends Operator
       case object BVNot extends Operator
-      case object StringLength extends Operator
     }
 
     object Binary {
@@ -37,12 +36,6 @@ trait Exprs { self: IRs =>
       case object BVShiftLeft extends Operator
       case object BVAShiftRight extends Operator
       case object BVLShiftRight extends Operator
-      case object StringConcat extends Operator
-    }
-
-    object Ternary {
-      sealed abstract class Operator
-      case object SubString extends Operator
     }
 
     object NAry {
@@ -66,6 +59,9 @@ trait Exprs { self: IRs =>
       case object BagDifference extends Function("bagDifference", 1, 2)
       case object MapApply extends Function("mapApply", 2, 2)
       case object MapUpdated extends Function("mapUpdated", 2, 3)
+      case object StringConcat extends Function("concatenate", 0, 2)
+      case object StringLength extends Function("length", 0, 1)
+      case object SubString extends Function("substring", 0, 3)
     }
 
     object Casts {
@@ -83,7 +79,6 @@ trait Exprs { self: IRs =>
         case Variable(id) => id.getHoles
         case UnaryOperation(_, expr) => expr.getHoles
         case BinaryOperation(_, lhs, rhs) => lhs.getHoles ++ rhs.getHoles
-        case TernaryOperation(_, lhs, mid, rhs) => lhs.getHoles ++ mid.getHoles ++ rhs.getHoles
         case NaryOperation(_, args) => args.getHoles
         case Invocation(id, typeArgs, args) => id.getHoles ++ typeArgs.toSeq.flatMap(_.getHoles) ++ args.getHoles
         case PrimitiveInvocation(_, typeArgs, args) => typeArgs.toSeq.flatMap(_.getHoles) ++ args.getHoles
@@ -116,7 +111,6 @@ trait Exprs { self: IRs =>
     case class Variable(id: Identifiers.Identifier) extends Expr
     case class UnaryOperation(operator: Unary.Operator, expr: Expr) extends Expr
     case class BinaryOperation(operator: Binary.Operator, lhs: Expr, rhs: Expr) extends Expr
-    case class TernaryOperation(operator: Ternary.Operator, lhs: Expr, mid: Expr, rhs: Expr) extends Expr
     case class NaryOperation(operator: NAry.Operator, args: ExprSeq) extends Expr
     case class Invocation(id: Identifiers.Identifier, typeArgs: Option[Types.TypeSeq], args: ExprSeq) extends Expr
     case class PrimitiveInvocation(fun: Primitive.Function, typeArgs: Option[Types.TypeSeq], args: ExprSeq) extends Expr

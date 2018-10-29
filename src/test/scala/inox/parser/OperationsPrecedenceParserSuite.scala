@@ -1,5 +1,5 @@
 package inox
-package parsing
+package parser
 
 import org.scalatest._
 
@@ -16,7 +16,7 @@ class OperationsPrecedenceParserSuite extends FunSuite {
         Or(
           Equals(
             Plus(
-              IntegerLiteral(1), 
+              IntegerLiteral(1),
               Times(
                 IntegerLiteral(2),
                 IntegerLiteral(3))),

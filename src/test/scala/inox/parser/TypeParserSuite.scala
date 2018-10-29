@@ -1,5 +1,5 @@
 package inox
-package parsing
+package parser
 
 import org.scalatest._
 
@@ -12,7 +12,7 @@ class TypeParserSuite extends FunSuite {
   test("Parsing basic types") {
 
     assertResult(IntegerType()) {
-      t"BigInt"
+      t"Integer"
     }
 
     assertResult(BooleanType()) {
@@ -43,7 +43,7 @@ class TypeParserSuite extends FunSuite {
   test("Parsing with parentheses") {
 
     assertResult(IntegerType()) {
-      t"(BigInt)"
+      t"(Integer)"
     }
 
     assertResult(BooleanType()) {
@@ -81,7 +81,7 @@ class TypeParserSuite extends FunSuite {
   test("Parsing Set types") {
 
     assertResult(SetType(IntegerType())) {
-      t"Set[BigInt]"
+      t"Set[Integer]"
     }
 
     assertResult(SetType(BooleanType())) {
@@ -92,7 +92,7 @@ class TypeParserSuite extends FunSuite {
   test("Parsing Bag types") {
 
     assertResult(BagType(IntegerType())) {
-      t"Bag[BigInt]"
+      t"Bag[Integer]"
     }
 
     assertResult(BagType(BooleanType())) {
@@ -103,7 +103,7 @@ class TypeParserSuite extends FunSuite {
   test("Parsing Map types") {
 
     assertResult(MapType(StringType(), IntegerType())) {
-      t"Map[String, BigInt]"
+      t"Map[String, Integer]"
     }
 
     assertResult(MapType(UnitType(), BooleanType())) {
@@ -114,7 +114,7 @@ class TypeParserSuite extends FunSuite {
   test("Parsing Tuple types") {
 
     assertResult(TupleType(Seq(StringType(), IntegerType(), CharType()))) {
-      t"(String, BigInt, Char)"
+      t"(String, Integer, Char)"
     }
 
     assertResult(TupleType(Seq(UnitType(), BooleanType()))) {
@@ -125,7 +125,7 @@ class TypeParserSuite extends FunSuite {
   test("Parsing Function types") {
 
     assertResult(FunctionType(Seq(IntegerType()), StringType())) {
-      t"BigInt => String"
+      t"Integer => String"
     }
 
     assertResult(FunctionType(Seq(), StringType())) {
@@ -133,19 +133,19 @@ class TypeParserSuite extends FunSuite {
     }
 
     assertResult(FunctionType(Seq(IntegerType()), StringType())) {
-      t"(BigInt) => String"
+      t"(Integer) => String"
     }
 
     assertResult(FunctionType(Seq(StringType(), IntegerType(), CharType()), BooleanType())) {
-      t"(String, BigInt, Char) => Boolean"
+      t"(String, Integer, Char) => Boolean"
     }
 
     assertResult(FunctionType(Seq(TupleType(Seq(StringType(), IntegerType(), CharType()))), BooleanType())) {
-      t"((String, BigInt, Char)) => Boolean"
+      t"((String, Integer, Char)) => Boolean"
     }
 
     assertResult(FunctionType(Seq(IntegerType()), FunctionType(Seq(UnitType()), BooleanType()))) {
-      t"BigInt => Unit => Boolean"
+      t"Integer => Unit => Boolean"
     }
   }
 }

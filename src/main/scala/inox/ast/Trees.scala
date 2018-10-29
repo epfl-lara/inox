@@ -5,7 +5,7 @@ package ast
 
 import scala.language.implicitConversions
 
-import inox.parsing.{Interpolators, DefaultInterpolators}
+import inox.parser._
 
 case object DebugSectionTrees extends DebugSection("trees")
 
@@ -41,7 +41,7 @@ trait Trees
 
   val interpolator: Interpolators { val trees: Trees.this.type } = new {
     protected val trees: Trees.this.type = Trees.this
-  } with DefaultInterpolators
+  } with RunTimeInterpolators
 
   def aliased(id1: Identifier, id2: Identifier) = {
     id1.toString == id2.toString

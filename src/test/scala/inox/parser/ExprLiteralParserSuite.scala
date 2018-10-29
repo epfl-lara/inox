@@ -1,5 +1,5 @@
 package inox
-package parsing
+package parser
 
 import scala.collection.BitSet
 import org.scalatest._
@@ -70,7 +70,7 @@ class ExprLiteralParserSuite extends FunSuite {
 
     val large = "123456789012345678901234567890"
 
-    assert(BigInt(BigInt(large).toInt) != BigInt(large)) 
+    assert(BigInt(BigInt(large).toInt) != BigInt(large))
 
     assertResult(IntegerLiteral(BigInt(large))) {
       e"123456789012345678901234567890"
@@ -80,50 +80,50 @@ class ExprLiteralParserSuite extends FunSuite {
   test("Parsing Int literals.") {
 
     assertResult(Int32Literal(0)) {
-      e"0 : Int"
+      e"0 as Int"
     }
 
     assertResult(Int32Literal(217)) {
-      e"217 : Int"
+      e"217 as Int"
     }
 
     assertResult(Int32Literal(-12)) {
-      e"-12 : Int"
+      e"-12 as Int"
     }
   }
 
   test("Parsing BV literals.") {
 
     assertResult(BVLiteral(0, 8)) {
-      e"0 : Int8"
+      e"0 as Int8"
     }
 
     assertResult(BVLiteral(7, 64)) {
-      e"7 : Int64"
+      e"7 as Int64"
     }
 
     assertResult(BVLiteral(-1, 4)) {
-      e"-1 : Int4"
+      e"-1 as Int4"
     }
 
     assertResult(BVLiteral(BitSet(), 2)) {
-      e"4 : Int2"
+      e"4 as Int2"
     }
 
     assertResult(BVLiteral(BitSet(1), 2)) {
-      e"1 : Int2"
+      e"1 as Int2"
     }
 
     assertResult(BVLiteral(BitSet(2), 2)) {
-      e"2 : Int2"
+      e"2 as Int2"
     }
 
     assertResult(BVLiteral(BitSet(1, 2), 2)) {
-      e"3 : Int2"
+      e"3 as Int2"
     }
 
     assertResult(BVLiteral(BitSet(1, 2), 2)) {
-      e"-1 : Int2"
+      e"-1 as Int2"
     }
   }
 
@@ -138,7 +138,7 @@ class ExprLiteralParserSuite extends FunSuite {
     }
 
     assertResult(FractionLiteral(7, 1)) {
-      e"7 : Real"
+      e"7 as Real"
     }
 
     assertResult(FractionLiteral(7, 2)) {
@@ -170,7 +170,7 @@ class ExprLiteralParserSuite extends FunSuite {
     }
 
     assertResult(FractionLiteral(-7, 1)) {
-      e"-7 : Real"
+      e"-7 as Real"
     }
 
     assertResult(FractionLiteral(-7, 2)) {

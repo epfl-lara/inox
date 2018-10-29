@@ -5,12 +5,13 @@ import scala.reflect.macros.whitebox.Context
 
 import scala.language.experimental.macros
 
+trait Interpolators extends Trees
+
 trait RunTimeInterpolators
-  extends Elaborators
+  extends Interpolators
+     with Elaborators
      with Extractors
      with Parsers {
-
-  protected val trees: inox.ast.Trees
 
   import trees._
 
@@ -19,11 +20,11 @@ trait RunTimeInterpolators
     object e {
       def apply(args: Any*): Expr = {
         parseSC(sc)(phrase(exprParser)) match {
-          case Left(err) => throw new Exception(err)
+          case Left(err) => throw new InterpolatorException(err)
           case Right(ir) => ExprE.elaborate(ir)(createStore(symbols, args)).get match {
-            case Left(err) => throw new Exception(err)
+            case Left(err) => throw new InterpolatorException(err)
             case Right(((_, ev), cs)) => solve(cs) match {
-              case Left(err) => throw new Exception(err)
+              case Left(err) => throw new InterpolatorException(err)
               case Right(u) => ev.get(u)
             }
           }
@@ -44,11 +45,11 @@ trait RunTimeInterpolators
     object t {
       def apply(args: Any*): Type = {
         parseSC(sc)(phrase(typeParser)) match {
-          case Left(err) => throw new Exception(err)
+          case Left(err) => throw new InterpolatorException(err)
           case Right(ir) => TypeE.elaborate(ir)(createStore(symbols, args)).get match {
-            case Left(err) => throw new Exception(err)
+            case Left(err) => throw new InterpolatorException(err)
             case Right(((_, ev), cs)) => solve(cs) match {
-              case Left(err) => throw new Exception(err)
+              case Left(err) => throw new InterpolatorException(err)
               case Right(u) => ev.get(u)
             }
           }
@@ -69,11 +70,11 @@ trait RunTimeInterpolators
     object vd {
       def apply(args: Any*): ValDef = {
         parseSC(sc)(phrase(bindingParser(explicitOnly=true))) match {
-          case Left(err) => throw new Exception(err)
+          case Left(err) => throw new InterpolatorException(err)
           case Right(ir) => BindingE.elaborate(ir)(createStore(symbols, args)).get match {
-            case Left(err) => throw new Exception(err)
+            case Left(err) => throw new InterpolatorException(err)
             case Right((sb, cs)) => solve(cs) match {
-              case Left(err) => throw new Exception(err)
+              case Left(err) => throw new InterpolatorException(err)
               case Right(u) => sb.evValDef.get(u)
             }
           }
@@ -94,11 +95,11 @@ trait RunTimeInterpolators
     object fd {
       def apply(args: Any*): FunDef = {
         parseSC(sc)(phrase(functionDefinitionParser)) match {
-          case Left(err) => throw new Exception(err)
+          case Left(err) => throw new InterpolatorException(err)
           case Right(ir) => SingleFunctionE.elaborate(ir)(createStore(symbols, args)).get match {
-            case Left(err) => throw new Exception(err)
+            case Left(err) => throw new InterpolatorException(err)
             case Right((ev, cs)) => solve(cs) match {
-              case Left(err) => throw new Exception(err)
+              case Left(err) => throw new InterpolatorException(err)
               case Right(u) => ev.get(u)
             }
           }
@@ -119,11 +120,11 @@ trait RunTimeInterpolators
     object td {
       def apply(args: Any*): ADTSort = {
         parseSC(sc)(phrase(adtDefinitionParser)) match {
-          case Left(err) => throw new Exception(err)
+          case Left(err) => throw new InterpolatorException(err)
           case Right(ir) => SortE.elaborate(ir)(createStore(symbols, args)).get match {
-            case Left(err) => throw new Exception(err)
+            case Left(err) => throw new InterpolatorException(err)
             case Right(((_, ev), cs)) => solve(cs) match {
-              case Left(err) => throw new Exception(err)
+              case Left(err) => throw new InterpolatorException(err)
               case Right(u) => ev.get(u)
             }
           }
@@ -143,11 +144,11 @@ trait RunTimeInterpolators
 
     def p(args: Any*): Seq[Definition] = {
       parseSC(sc)(phrase(programParser)) match {
-        case Left(err) => throw new Exception(err)
+        case Left(err) => throw new InterpolatorException(err)
         case Right(ir) => ProgramE.elaborate(ir)(createStore(symbols, args)).get match {
-          case Left(err) => throw new Exception(err)
+          case Left(err) => throw new InterpolatorException(err)
           case Right((evs, cs)) => solve(cs) match {
-            case Left(err) => throw new Exception(err)
+            case Left(err) => throw new InterpolatorException(err)
             case Right(u) => evs.map(_.get(u))
           }
         }
@@ -156,11 +157,13 @@ trait RunTimeInterpolators
   }
 }
 
-object InoxRuntimeInterpolators extends RunTimeInterpolators {
+object InoxRunTimeInterpolators extends RunTimeInterpolators {
   override protected val trees = inox.trees
 }
 
-object CompileTimeInterpolators {
+object CompileTimeInterpolators extends Interpolators {
+
+  override protected val trees = inox.trees
 
   object Interpolator
     extends Elaborators

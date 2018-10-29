@@ -89,8 +89,6 @@ trait ExprExtractors { self: Extractors =>
             ExprX.extract(expr, sExpr)
           case (BVNot, trees.BVNot(sExpr)) =>
             ExprX.extract(expr, sExpr)
-          case (StringLength, trees.StringLength(sExpr)) =>
-            ExprX.extract(expr, sExpr)
         }
       }
       case BinaryOperation(operator, lhs, rhs) => {
@@ -133,16 +131,6 @@ trait ExprExtractors { self: Extractors =>
             ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
           case (BVLShiftRight, trees.BVLShiftRight(sLhs, sRhs)) =>
             ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
-          case (StringConcat, trees.StringConcat(sLhs, sRhs)) =>
-            ExprX.extract(lhs, sLhs) <> ExprX.extract(rhs, sRhs)
-        }
-      }
-      case TernaryOperation(operator, lhs, mid, rhs) => {
-        import Ternary._
-
-        Matching.collect((operator, scrutinee)) {
-          case (SubString, trees.SubString(sLhs, sMid, sRhs)) =>
-            ExprX.extract(lhs, sLhs) <> ExprX.extract(mid, sMid) <> ExprX.extract(rhs, sRhs)
         }
       }
       case NaryOperation(operator, args) => {
@@ -229,6 +217,12 @@ trait ExprExtractors { self: Extractors =>
               ExprSeqX.extract(args, Seq(sLhs, sMid, sRhs))
             case (Subset, trees.SubsetOf(sLhs, sRhs)) =>
               ExprSeqX.extract(args, Seq(sLhs, sRhs))
+            case (SubString, trees.SubString(sLhs, sMid, sRhs)) =>
+              ExprSeqX.extract(args, Seq(sLhs, sMid, sRhs))
+            case (StringConcat, trees.StringConcat(sLhs, sRhs)) =>
+              ExprSeqX.extract(args, Seq(sLhs, sRhs))
+            case (StringLength, trees.StringLength(sExpr)) =>
+              ExprSeqX.extract(args, Seq(sExpr))
           }
         }
       }

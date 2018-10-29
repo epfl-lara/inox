@@ -1,5 +1,5 @@
 package inox
-package parsing
+package parser
 
 import org.scalatest._
 
@@ -79,7 +79,7 @@ class ArithmeticParserSuite extends FunSuite {
     assertResult(Plus(IntegerLiteral(4), Times(IntegerLiteral(5), IntegerLiteral(6)))) {
       e"4 + 5 * 6"
     }
-    
+
     assertResult(Plus(Times(IntegerLiteral(4), IntegerLiteral(5)), IntegerLiteral(6))) {
       e"4 * 5 + 6"
     }

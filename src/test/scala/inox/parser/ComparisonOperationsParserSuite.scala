@@ -1,5 +1,5 @@
 package inox
-package parsing
+package parser
 
 import org.scalatest._
 
@@ -20,11 +20,11 @@ class ComparisonOperationsParserSuite extends FunSuite {
     }
 
     assertResult(Equals(Int32Literal(1), Int32Literal(2))) {
-      e"1 == 2 : Int"
+      e"1 == 2 as Int"
     }
 
     assertResult(Equals(FractionLiteral(1, 1), FractionLiteral(2, 1))) {
-      e"1 : Real == 2"
+      e"1 as Real == 2"
     }
 
     assertResult(Equals(FractionLiteral(3, 2), FractionLiteral(2, 1))) {
@@ -40,13 +40,13 @@ class ComparisonOperationsParserSuite extends FunSuite {
     }
 
     assertResult(Equals(BVLiteral(1, 17), BVLiteral(4, 17))) {
-      e"1 : Int17 == 4 : Int17"
+      e"1 as Int17 == 4 as Int17"
     }
   }
 
   test("Parsing less-or-equals.") {
 
-    assertThrows[ElaborationException] {
+    assertThrows[InterpolatorException] {
       e"true <= false"
     }
 
@@ -55,18 +55,18 @@ class ComparisonOperationsParserSuite extends FunSuite {
     }
 
     assertResult(LessEquals(Int32Literal(1), Int32Literal(2))) {
-      e"1 <= 2 : Int"
+      e"1 <= 2 as Int"
     }
 
     assertResult(LessEquals(FractionLiteral(1, 1), FractionLiteral(2, 1))) {
-      e"1 : Real <= 2"
+      e"1 as Real <= 2"
     }
 
     assertResult(LessEquals(FractionLiteral(3, 2), FractionLiteral(2, 1))) {
       e"1.5 <= 2.0"
     }
 
-    assertThrows[ElaborationException] {
+    assertThrows[InterpolatorException] {
       e"'hello' <= 'world'"
     }
 
@@ -75,13 +75,13 @@ class ComparisonOperationsParserSuite extends FunSuite {
     }
 
     assertResult(LessEquals(BVLiteral(1, 17), BVLiteral(4, 17))) {
-      e"1 : Int17 <= 4 : Int17"
+      e"1 as Int17 <= 4 as Int17"
     }
   }
 
   test("Parsing greater-or-equals.") {
 
-    assertThrows[ElaborationException] {
+    assertThrows[InterpolatorException] {
       e"true >= false"
     }
 
@@ -90,18 +90,18 @@ class ComparisonOperationsParserSuite extends FunSuite {
     }
 
     assertResult(GreaterEquals(Int32Literal(1), Int32Literal(2))) {
-      e"1 >= 2 : Int"
+      e"1 >= 2 as Int"
     }
 
     assertResult(GreaterEquals(FractionLiteral(1, 1), FractionLiteral(2, 1))) {
-      e"1 : Real >= 2"
+      e"1 as Real >= 2"
     }
 
     assertResult(GreaterEquals(FractionLiteral(3, 2), FractionLiteral(2, 1))) {
       e"1.5 >= 2.0"
     }
 
-    assertThrows[ElaborationException] {
+    assertThrows[InterpolatorException] {
       e"'hello' >= 'world'"
     }
 
@@ -110,13 +110,13 @@ class ComparisonOperationsParserSuite extends FunSuite {
     }
 
     assertResult(GreaterEquals(BVLiteral(1, 17), BVLiteral(4, 17))) {
-      e"1 : Int17 >= 4 : Int17"
+      e"1 as Int17 >= 4 as Int17"
     }
   }
 
   test("Parsing less-than.") {
 
-    assertThrows[ElaborationException] {
+    assertThrows[InterpolatorException] {
       e"true < false"
     }
 
@@ -125,18 +125,18 @@ class ComparisonOperationsParserSuite extends FunSuite {
     }
 
     assertResult(LessThan(Int32Literal(1), Int32Literal(2))) {
-      e"1 < 2 : Int"
+      e"1 < 2 as Int"
     }
 
     assertResult(LessThan(FractionLiteral(1, 1), FractionLiteral(2, 1))) {
-      e"1 : Real < 2"
+      e"1 as Real < 2"
     }
 
     assertResult(LessThan(FractionLiteral(3, 2), FractionLiteral(2, 1))) {
       e"1.5 < 2.0"
     }
 
-    assertThrows[ElaborationException] {
+    assertThrows[InterpolatorException] {
       e"'hello' < 'world'"
     }
 
@@ -145,13 +145,13 @@ class ComparisonOperationsParserSuite extends FunSuite {
     }
 
     assertResult(LessThan(BVLiteral(1, 17), BVLiteral(4, 17))) {
-      e"1 : Int17 < 4 : Int17"
+      e"1 as Int17 < 4 as Int17"
     }
   }
 
   test("Parsing greater-than.") {
 
-    assertThrows[ElaborationException] {
+    assertThrows[InterpolatorException] {
       e"true > false"
     }
 
@@ -160,18 +160,18 @@ class ComparisonOperationsParserSuite extends FunSuite {
     }
 
     assertResult(GreaterThan(Int32Literal(1), Int32Literal(2))) {
-      e"1 > 2 : Int"
+      e"1 > 2 as Int"
     }
 
     assertResult(GreaterThan(FractionLiteral(1, 1), FractionLiteral(2, 1))) {
-      e"1 : Real > 2"
+      e"1 as Real > 2"
     }
 
     assertResult(GreaterThan(FractionLiteral(3, 2), FractionLiteral(2, 1))) {
       e"1.5 > 2.0"
     }
 
-    assertThrows[ElaborationException] {
+    assertThrows[InterpolatorException] {
       e"'hello' > 'world'"
     }
 
@@ -180,7 +180,7 @@ class ComparisonOperationsParserSuite extends FunSuite {
     }
 
     assertResult(GreaterThan(BVLiteral(1, 17), BVLiteral(4, 17))) {
-      e"1 : Int17 > 4 : Int17"
+      e"1 as Int17 > 4 as Int17"
     }
   }
 }

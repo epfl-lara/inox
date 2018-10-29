@@ -1,5 +1,5 @@
 package inox
-package parsing
+package parser
 
 import org.scalatest._
 
@@ -51,8 +51,8 @@ class ExtractorSuite extends FunSuite {
 
     e"2 + 4 - 3 / 5 * 2" match {
       case e"$x * $y" => fail("Did match.")
-      case e"$x : Real - (3 / $y) * $z" => fail("Did match.")
-      case e"$x - (3 : BigInt / $y) * $z" => {
+      case e"$x as Real - (3 / $y) * $z" => fail("Did match.")
+      case e"$x - (3 as Integer / $y) * $z" => {
         assert(x == Plus(IntegerLiteral(2), IntegerLiteral(4)))
         assert(y == IntegerLiteral(5))
         assert(z == IntegerLiteral(2))
@@ -73,9 +73,8 @@ class ExtractorSuite extends FunSuite {
   }
 
   test("Matching dependent types.") {
-    t"{ x: BigInt | x > 0 }" match {
-      case t"{ y: $t | $e }" => fail("Did match.")
-      case t"{ $t | $e }" =>
+    t"{ x: Integer | x > 0 }" match {
+      case t"{ $v: $t | $e }" =>
         assert(t == IntegerType())
         e match {
           case GreaterThan(Variable(id, IntegerType(), _), IntegerLiteral(i)) =>
@@ -88,7 +87,7 @@ class ExtractorSuite extends FunSuite {
 
     t"{ y: Unit | true }" match {
       case t"{ $t | false }" => fail("Did match.")
-      case t"{ y: $t | $p }" =>
+      case t"{ x: $t | $p }" =>
         assert(t == UnitType())
         assert(p == BooleanLiteral(true))
       case _ => fail("Did not match.")

@@ -193,8 +193,6 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
       q"$interpolator.Exprs.UnaryOperation($op, $expr).setPos(${ir.pos})"
     case ir@BinaryOperation(op, lhs, rhs) =>
       q"$interpolator.Exprs.BinaryOperation($op, $lhs, $rhs).setPos(${ir.pos})"
-    case ir@TernaryOperation(op, lhs, mid, rhs) =>
-      q"$interpolator.Exprs.TernaryOperation($op, $lhs, $mid, $rhs).setPos(${ir.pos})"
     case ir@NaryOperation(op, args) =>
       q"$interpolator.Exprs.NaryOperation($op, $args).setPos(${ir.pos})"
     case ir@Exprs.Invocation(id, tps, args) =>
@@ -248,8 +246,6 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
       q"$interpolator.Exprs.Unary.Not"
     case Unary.BVNot =>
       q"$interpolator.Exprs.Unary.BVNot"
-    case Unary.StringLength =>
-      q"$interpolator.Exprs.Unary.StringLength"
   }
 
   implicit lazy val exprBinaryLiftable: Liftable[Binary.Operator] = Liftable[Binary.Operator] {
@@ -289,13 +285,6 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
       q"$interpolator.Exprs.Binary.BVAShiftRight"
     case Binary.BVLShiftRight =>
       q"$interpolator.Exprs.Binary.BVLShiftRight"
-    case Binary.StringConcat =>
-      q"$interpolator.Exprs.Binary.StringConcat"
-  }
-
-  implicit lazy val exprTernaryLiftable: Liftable[Ternary.Operator] = Liftable[Ternary.Operator] {
-    case Ternary.SubString =>
-      q"$interpolator.Exprs.Ternary.SubString"
   }
 
   implicit lazy val exprNAryLiftable: Liftable[NAry.Operator] = Liftable[NAry.Operator] {
@@ -332,6 +321,12 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
       q"$interpolator.Exprs.Primitive.MapApply"
     case Exprs.Primitive.MapUpdated =>
       q"$interpolator.Exprs.Primitive.MapUpdated"
+    case Exprs.Primitive.StringConcat =>
+      q"$interpolator.Exprs.Primitive.StringConcat"
+    case Exprs.Primitive.SubString =>
+      q"$interpolator.Exprs.Primitive.SubString"
+    case Exprs.Primitive.StringLength =>
+      q"$interpolator.Exprs.Primitive.StringLength"
   }
 
   implicit lazy val quantifiersLiftable: Liftable[Quantifier] = Liftable[Quantifier] {
@@ -410,9 +405,9 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
         val ir = $ir
         val self = $self
         val res: $typeType = $interpolator.TypeE.elaborate(ir)($interpolator.createStore(self.symbols, _root_.scala.collection.Seq(..$args))).get match {
-          case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+          case _root_.scala.util.Left(err) => throw _root_.inox.parser.InterpolatorException(err)
           case _root_.scala.util.Right(((_, ev), cs)) => $interpolator.solve(cs) match {
-            case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+            case _root_.scala.util.Left(err) => throw _root_.inox.parser.InterpolatorException(err)
             case _root_.scala.util.Right(u) => ev.get(u)
           }
         }
@@ -465,9 +460,9 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
         val ir = $ir
         val self = $self
         val res: $exprType = $interpolator.ExprE.elaborate(ir)($interpolator.createStore(self.symbols, _root_.scala.collection.Seq(..$args))).get match {
-          case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+          case _root_.scala.util.Left(err) => throw _root_.inox.parser.InterpolatorException(err)
           case _root_.scala.util.Right(((_, ev), cs)) => $interpolator.solve(cs) match {
-            case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+            case _root_.scala.util.Left(err) => throw _root_.inox.parser.InterpolatorException(err)
             case _root_.scala.util.Right(u) => ev.get(u)
           }
         }
@@ -520,9 +515,9 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
         val ir = $ir
         val self = $self
         val res: $valDefType = $interpolator.BindingE.elaborate(ir)($interpolator.createStore(self.symbols, _root_.scala.collection.Seq(..$args))).get match {
-          case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+          case _root_.scala.util.Left(err) => throw _root_.inox.parser.InterpolatorException(err)
           case _root_.scala.util.Right((ev, cs)) => $interpolator.solve(cs) match {
-            case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+            case _root_.scala.util.Left(err) => throw _root_.inox.parser.InterpolatorException(err)
             case _root_.scala.util.Right(u) => ev.evValDef.get(u)
           }
         }
@@ -575,9 +570,9 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
         val ir = $ir
         val self = $self
         val res: $funDefType = $interpolator.SingleFunctionE.elaborate(ir)($interpolator.createStore(self.symbols, _root_.scala.collection.Seq(..$args))).get match {
-          case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+          case _root_.scala.util.Left(err) => throw _root_.inox.parser.InterpolatorException(err)
           case _root_.scala.util.Right((ev, cs)) => $interpolator.solve(cs) match {
-            case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+            case _root_.scala.util.Left(err) => throw _root_.inox.parser.InterpolatorException(err)
             case _root_.scala.util.Right(u) => ev.get(u)
           }
         }
@@ -630,9 +625,9 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
         val ir = $ir
         val self = $self
         val res: $adtSortType = $interpolator.SortE.elaborate(ir)($interpolator.createStore(self.symbols, _root_.scala.collection.Seq(..$args))).get match {
-          case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+          case _root_.scala.util.Left(err) => throw _root_.inox.parser.InterpolatorException(err)
           case _root_.scala.util.Right(((_, ev), cs)) => $interpolator.solve(cs) match {
-            case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+            case _root_.scala.util.Left(err) => throw _root_.inox.parser.InterpolatorException(err)
             case _root_.scala.util.Right(u) => ev.get(u)
           }
         }
@@ -685,9 +680,9 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
         val ir = $ir
         val self = $self
         val res: $defSeqType = $interpolator.ProgramE.elaborate(ir)($interpolator.createStore(self.symbols, _root_.scala.collection.Seq(..$args))).get match {
-          case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+          case _root_.scala.util.Left(err) => throw _root_.inox.parser.InterpolatorException(err)
           case _root_.scala.util.Right((evs, cs)) => $interpolator.solve(cs) match {
-            case _root_.scala.util.Left(err) => throw new _root_.java.lang.Exception(err)
+            case _root_.scala.util.Left(err) => throw _root_.inox.parser.InterpolatorException(err)
             case _root_.scala.util.Right(u) => evs.map(_.get(u))
           }
         }

@@ -147,7 +147,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
     }
 
     lazy val refinementTypeParser: Parser[Type] =
-      p('{') ~> commit(bindingParser(explicitOnly=true) | defaultNamedBinding) ~ commit(operator("|") ~> exprParser <~ p('}')) ^^ {
+      p('{') ~> (bindingParser(explicitOnly=true) | defaultNamedBinding) ~ (operator("|") ~> exprParser <~ p('}')) ^^ {
         case binding ~ expr => RefinementType(binding, expr)
       }
 
@@ -298,7 +298,10 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
       "bagUnion" -> PrimitiveFunctions.BagUnion,
       "bagDifference" -> PrimitiveFunctions.BagDifference,
       "apply" -> PrimitiveFunctions.MapApply,
-      "updated" -> PrimitiveFunctions.MapUpdated)
+      "updated" -> PrimitiveFunctions.MapUpdated,
+      "concatenate" -> PrimitiveFunctions.StringConcat,
+      "substring" -> PrimitiveFunctions.SubString,
+      "length" -> PrimitiveFunctions.StringLength)
 
     val primitiveNameParser: Parser[PrimitiveFunctions.Function] = acceptMatch("primitive function name", {
       case lexical.Identifier(name) if primitiveFunctions.contains(name) => primitiveFunctions(name)
@@ -377,14 +380,16 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
     val operatorParser: Parser[Expr] = {
 
       val unaryParser: Parser[Expr] = {
-        opt(Operators.unaries.map(operator(_)).reduce(_ | _)) ~ postfixedParser ^^ {
-          case None ~ e => e
-          case Some(lexical.Operator(o)) ~ e => o match {
-            case "+" => e
-            case "-" => UnaryOperation(Unary.Minus, e)
-            case "~" => UnaryOperation(Unary.BVNot, e)
-            case "!" => UnaryOperation(Unary.Not, e)
-            case _ => throw new IllegalArgumentException("Unknown operator: " + o)
+        rep(Operators.unaries.map(operator(_)).reduce(_ | _)) ~ postfixedParser ^^ { case os ~ e =>
+          os.foldRight(e) {
+            case (lexical.Operator(o), acc) => o match {
+              case "+" => e
+              case "-" => UnaryOperation(Unary.Minus, acc)
+              case "~" => UnaryOperation(Unary.BVNot, acc)
+              case "!" => UnaryOperation(Unary.Not, acc)
+              case _ => throw new IllegalArgumentException("Unknown operator: " + o)
+            }
+            case (tk, _) => throw new IllegalArgumentException("Unexpected token: " + tk)
           }
         }
       }
@@ -430,7 +435,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
               case (acc, lexical.Operator(">>>") ~ elem) =>
                 BinaryOperation(Binary.BVLShiftRight, acc, elem)
               case (acc, lexical.Operator("++") ~ elem) =>
-                BinaryOperation(Binary.StringConcat, acc, elem)
+                PrimitiveInvocation(PrimitiveFunctions.StringConcat, None, HSeq.fromSeq(Seq(acc, elem)))
               case (acc, lexical.Operator("∪") ~ elem) =>
                 PrimitiveInvocation(PrimitiveFunctions.SetUnion, None, HSeq.fromSeq(Seq(acc, elem)))
               case (acc, lexical.Operator("∩") ~ elem) =>
@@ -499,29 +504,31 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
     } yield Sort(i, ts.getOrElse(HSeq.fromSeq(Seq[Identifier]())), cs)
   })
 
-  def bindingParser(explicitOnly: Boolean=false): Parser[Binding] = (holeParser.map(BindingHole(_)) | {
+  def bindingParser(explicitOnly: Boolean=false): Parser[Binding] = {
 
     def typeParserOf(id: Identifier): Parser[Type] = id match {
       case IdentifierHole(_) => typeParser
       case IdentifierName(name) => contextTypeParser(Some(name))
     }
 
-    positioned(if (explicitOnly) {
-      for {
-        i <- identifierParser
-        tpe <- p(':') ~> typeParserOf(i)
-      } yield ExplicitValDef(i, tpe)
-    }
-    else {
-      for {
-        i <- identifierParser
-        optTpe <- opt(p(':') ~> typeParserOf(i))
-      } yield optTpe match {
-        case None      => InferredValDef(i)
-        case Some(tpe) => ExplicitValDef(i, tpe)
+    val explicitBinding = for {
+      i <- identifierParser
+      tpe <- p(':') ~> typeParserOf(i)
+    } yield ExplicitValDef(i, tpe)
+
+    val holeBinding = holeParser.map(BindingHole(_))
+
+    val implicitBinding = identifierParser.map(InferredValDef(_))
+
+    positioned({
+      if (explicitOnly) {
+        explicitBinding | holeBinding
+      }
+      else {
+        explicitBinding | holeBinding | implicitBinding
       }
     })
-  }).withError(expected("a binding"))
+  }.withError(expected("a binding"))
 
   lazy val programParser: PackratParser[Program] =
     positioned(rep1(adtDefinitionParser.map(Left(_)) | functionDefinitionParser.map(Right(_))).map(Program(_)))

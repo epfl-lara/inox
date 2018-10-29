@@ -125,7 +125,8 @@ trait ExprElaborators { self: Elaborators =>
       case Choose(binding, body) => for {
         sb <- BindingE.elaborate(binding)
         (st, evb) <- ExprE.elaborate(body)(store.addBinding(sb))
-      } yield (st, Eventual.withUnifier { implicit unifier =>
+        _ <- Constrained(Constraint.equal(st, SimpleTypes.BooleanType().setPos(template.pos)))
+      } yield (sb.tpe.withPos(template.pos), Eventual.withUnifier { implicit unifier =>
         trees.Choose(sb.evValDef.get, evb.get)
       })
       case If(condition, thenn, elze) => for {
@@ -291,6 +292,25 @@ trait ExprElaborators { self: Elaborators =>
                   .addConstraint(Constraint.equal(sts(0), SimpleTypes.MapType(typeArgs(0), typeArgs(1)).setPos(template.pos)))
                   .addConstraint(Constraint.equal(sts(1), typeArgs(0)))
                   .addConstraint(Constraint.equal(sts(2), typeArgs(1)))
+              case StringConcat =>
+                Constrained
+                  .pure((SimpleTypes.StringType().setPos(template.pos), Eventual.withUnifier { implicit unifier =>
+                    trees.StringConcat(evs(0).get, evs(1).get)
+                  }))
+                  .addConstraint(Constraint.equal(sts(0), SimpleTypes.StringType().setPos(template.pos)))
+                  .addConstraint(Constraint.equal(sts(1), SimpleTypes.StringType().setPos(template.pos)))
+              case SubString =>
+                Constrained
+                  .pure((SimpleTypes.StringType().setPos(template.pos), Eventual.withUnifier { implicit unifier =>
+                    trees.SubString(evs(0).get, evs(1).get, evs(2).get)
+                  }))
+                  .addConstraint(Constraint.equal(sts(0), SimpleTypes.StringType().setPos(template.pos)))
+                  .addConstraint(Constraint.equal(sts(1), SimpleTypes.IntegerType().setPos(template.pos)))
+                  .addConstraint(Constraint.equal(sts(2), SimpleTypes.IntegerType().setPos(template.pos)))
+              case StringLength =>
+                Constrained
+                  .pure((SimpleTypes.IntegerType().setPos(template.pos), evs(0).map(trees.StringLength(_))))
+                  .addConstraint(Constraint.equal(sts(0), SimpleTypes.StringType().setPos(template.pos)))
             }
           }
         }
@@ -370,10 +390,6 @@ trait ExprElaborators { self: Elaborators =>
             Constrained
               .pure((st, ev.map(trees.BVNot(_))))
               .addConstraint(Constraint.isBits(st))
-          case StringLength =>
-            Constrained
-              .pure((SimpleTypes.IntegerType().setPos(template.pos), ev.map(trees.StringLength(_))))
-              .addConstraint(Constraint.equal(st, SimpleTypes.StringType().setPos(template.pos)))
         }
       }
       case BinaryOperation(op, arg1, arg2) => ExprE.elaborate(arg1).flatMap { case (st1, ev1) =>
@@ -469,24 +485,9 @@ trait ExprElaborators { self: Elaborators =>
                 .pure((st1, Eventual.withUnifier { implicit unifier => trees.BVLShiftRight(ev1.get, ev2.get) }))
                 .addConstraint(Constraint.equal(st1, st2))
                 .addConstraint(Constraint.isBits(st1))
-            case StringConcat =>
-              Constrained
-                .pure((SimpleTypes.StringType().setPos(template.pos), Eventual.withUnifier { implicit unifier => trees.StringConcat(ev1.get, ev2.get) }))
-                .addConstraint(Constraint.equal(st1, SimpleTypes.StringType().setPos(template.pos)))
-                .addConstraint(Constraint.equal(st2, SimpleTypes.StringType().setPos(template.pos)))
           }
         }
       }
-      case TernaryOperation(Ternary.SubString, arg1, arg2, arg3) => for {
-        (st1, ev1) <- ExprE.elaborate(arg1)
-        (st2, ev2) <- ExprE.elaborate(arg2)
-        (st3, ev3) <- ExprE.elaborate(arg3)
-        _ <- Constrained(Constraint.equal(st1, SimpleTypes.StringType().setPos(template.pos)))
-        _ <- Constrained(Constraint.equal(st2, SimpleTypes.IntegerType().setPos(template.pos)))
-        _ <- Constrained(Constraint.equal(st3, SimpleTypes.IntegerType().setPos(template.pos)))
-      } yield (SimpleTypes.StringType().setPos(template.pos), Eventual.withUnifier { implicit unifier =>
-        trees.SubString(ev1.get, ev2.get, ev3.get)
-      })
       case NaryOperation(op, args) => ExprSeqE.elaborate(args).map(_.unzip).flatMap { case (sts, evs) =>
         import NAry._
 
