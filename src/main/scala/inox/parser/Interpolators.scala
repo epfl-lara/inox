@@ -7,6 +7,49 @@ import scala.language.experimental.macros
 
 trait Interpolators extends Trees
 
+trait MacrosInterpolators extends Interpolators { self =>
+
+  import trees._
+
+  object Factory
+    extends Elaborators
+       with Extractors {
+    override val trees: self.trees.type = self.trees
+  }
+
+  implicit class Interpolator(sc: StringContext)(implicit val symbols: trees.Symbols = trees.NoSymbols) {
+
+    object t {
+      def apply(args: Any*): Type = macro Macros.t_apply
+      def unapply(arg: Type): Option[Any] = macro Macros.t_unapply
+    }
+
+    object e {
+      def apply(args: Any*): Expr = macro Macros.e_apply
+      def unapply(arg: Expr): Option[Any] = macro Macros.e_unapply
+    }
+
+    object vd {
+      def apply(args: Any*): ValDef = macro Macros.vd_apply
+      def unapply(arg: ValDef): Option[Any] = macro Macros.vd_unapply
+    }
+
+    object fd {
+      def apply(args: Any*): FunDef = macro Macros.fd_apply
+      def unapply(arg: FunDef): Option[Any] = macro Macros.fd_unapply
+    }
+
+    object td {
+      def apply(args: Any*): ADTSort = macro Macros.td_apply
+      def unapply(arg: ADTSort): Option[Any] = macro Macros.td_unapply
+    }
+
+    object p {
+      def apply(args: Any*): Seq[Definition] = macro Macros.p_apply
+    }
+  }
+}
+
 trait RunTimeInterpolators
   extends Interpolators
      with Elaborators
@@ -155,59 +198,4 @@ trait RunTimeInterpolators
       }
     }
   }
-}
-
-object InoxRunTimeInterpolators extends RunTimeInterpolators {
-  override protected val trees = inox.trees
-}
-
-object CompileTimeInterpolators extends Interpolators {
-
-  override protected val trees = inox.trees
-
-  object Interpolator
-    extends Elaborators
-       with Extractors {
-    override protected val trees = inox.trees
-  }
-
-  import inox.trees._
-
-  implicit class Interpolator(sc: StringContext)(implicit val symbols: inox.trees.Symbols = inox.trees.NoSymbols) {
-
-    object t {
-      def apply(args: Any*): Type = macro CompileTimeInterpolatorsImpl.t_apply
-      def unapply(arg: Type): Option[Any] = macro CompileTimeInterpolatorsImpl.t_unapply
-    }
-
-    object e {
-      def apply(args: Any*): Expr = macro CompileTimeInterpolatorsImpl.e_apply
-      def unapply(arg: Expr): Option[Any] = macro CompileTimeInterpolatorsImpl.e_unapply
-    }
-
-    object vd {
-      def apply(args: Any*): ValDef = macro CompileTimeInterpolatorsImpl.vd_apply
-      def unapply(arg: ValDef): Option[Any] = macro CompileTimeInterpolatorsImpl.vd_unapply
-    }
-
-    object fd {
-      def apply(args: Any*): FunDef = macro CompileTimeInterpolatorsImpl.fd_apply
-      def unapply(arg: FunDef): Option[Any] = macro CompileTimeInterpolatorsImpl.fd_unapply
-    }
-
-    object td {
-      def apply(args: Any*): ADTSort = macro CompileTimeInterpolatorsImpl.td_apply
-      def unapply(arg: ADTSort): Option[Any] = macro CompileTimeInterpolatorsImpl.td_unapply
-    }
-
-    object p {
-      def apply(args: Any*): Seq[Definition] = macro CompileTimeInterpolatorsImpl.p_apply
-    }
-  }
-}
-
-private class CompileTimeInterpolatorsImpl(context: Context) extends Macros(context) {
-  import c.universe._
-  override protected lazy val targetTrees: c.Tree = q"_root_.inox.trees"
-  override protected val interpolator: c.Tree = q"_root_.inox.parser.CompileTimeInterpolators.Interpolator"
 }

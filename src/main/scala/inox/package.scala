@@ -57,8 +57,6 @@ package object inox {
     ) extends SimpleSymbols
 
     object printer extends ast.Printer { val trees: inox.trees.type = inox.trees }
-
-    override val interpolator = inox.parser.CompileTimeInterpolators
   }
 
   implicit val inoxSemantics: SemanticsProvider { val trees: inox.trees.type } = new SemanticsProvider {

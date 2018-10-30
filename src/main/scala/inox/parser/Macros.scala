@@ -7,10 +7,10 @@ import scala.language.experimental.macros
 
 import inox.parser.sc._
 
-abstract class Macros(final val c: Context) extends Parsers with IRs {
+class Macros(final val c: Context) extends Parsers with IRs {
   import c.universe.{Type => _, Function => _, Expr => _, If => _,  _}
 
-  protected val interpolator: c.Tree
+  protected lazy val interpolator: c.Tree = q"$pckg.Factory"
   protected lazy val targetTrees: c.Tree = q"$interpolator.trees"
 
   private val self = {
@@ -18,24 +18,19 @@ abstract class Macros(final val c: Context) extends Parsers with IRs {
     self
   }
 
-  private val sc = StringContext({
+  private def getString(expr: c.Tree): String = expr match {
+    case Literal(Constant(s : String)) => s
+  }
 
-    def getString(expr: c.Tree): String = expr match {
-      case Literal(Constant(s : String)) => s
+  private val (pckg, sc) = self match {
+    case Block(ValDef(_, _, _, Apply(_, ls)) :: _, Apply(Apply(Select(pckg, _), _), _)) => {
+      // TODO: Should we issue a warning ?
+      // c.warning(c.enclosingPosition, "No implicit Symbols in scope. Using NoSymbols by default.")
+      (pckg, StringContext(ls.map(getString): _*))  // In case of default symbols.
     }
-
-    val ls = self match {
-      case Block(ValDef(_, _, _, Apply(_, ls)) :: _, _) => {
-        // TODO: Should we issue a warning ?
-        // c.warning(c.enclosingPosition, "No implicit Symbols in scope. Using NoSymbols by default.")
-        ls  // In case of default symbols.
-      }
-      case Apply(Apply(_, Apply(_, ls) :: _), _) => ls  // In case of implicit symbols.
-      case _ => c.abort(c.enclosingPosition, "Unexpected macro use.")
-    }
-
-    ls.map(getString)
-  }: _*)
+    case Apply(Apply(Select(pckg, _), Apply(_, ls) :: _), _) => (pckg, StringContext(ls.map(getString): _*))  // In case of implicit symbols.
+    case _ => c.abort(c.enclosingPosition, "Unexpected macro use.")
+  }
 
   import Identifiers._
   import Bindings._
