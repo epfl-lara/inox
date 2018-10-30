@@ -17,37 +17,51 @@ trait MacrosInterpolators extends Interpolators { self =>
     override val trees: self.trees.type = self.trees
   }
 
-  implicit class Interpolator(sc: StringContext)(implicit val symbols: trees.Symbols = trees.NoSymbols) {
+  class Interpolator(sc: StringContext)(implicit val symbols: trees.Symbols) {
 
-    object t {
+    class TypeExtractor {
       def apply(args: Any*): Type = macro Macros.t_apply
       def unapply(arg: Type): Option[Any] = macro Macros.t_unapply
     }
 
-    object e {
+    val t = new TypeExtractor
+
+    class ExprExtractor {
       def apply(args: Any*): Expr = macro Macros.e_apply
       def unapply(arg: Expr): Option[Any] = macro Macros.e_unapply
     }
 
-    object vd {
+    val e = new ExprExtractor
+
+    class ValDefExtractor {
       def apply(args: Any*): ValDef = macro Macros.vd_apply
       def unapply(arg: ValDef): Option[Any] = macro Macros.vd_unapply
     }
 
-    object fd {
+    val vd = new ValDefExtractor
+
+    class FunDefExtractor {
       def apply(args: Any*): FunDef = macro Macros.fd_apply
       def unapply(arg: FunDef): Option[Any] = macro Macros.fd_unapply
     }
 
-    object td {
+    val fd = new FunDefExtractor
+
+    class TypeDefExtractor {
       def apply(args: Any*): ADTSort = macro Macros.td_apply
       def unapply(arg: ADTSort): Option[Any] = macro Macros.td_unapply
     }
 
-    object p {
+    val td = new TypeDefExtractor
+
+    class ProgramExtractor {
       def apply(args: Any*): Seq[Definition] = macro Macros.p_apply
     }
+
+    val p = new ProgramExtractor
   }
+
+  implicit def Interpolator(sc: StringContext)(implicit symbols: trees.Symbols = trees.NoSymbols): Interpolator = new Interpolator(sc)
 }
 
 trait RunTimeInterpolators
