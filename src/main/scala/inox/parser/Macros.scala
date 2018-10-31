@@ -7,7 +7,7 @@ import scala.language.experimental.macros
 
 import inox.parser.sc._
 
-class Macros(final val c: Context) extends Parsers with IRs {
+class Macros(final val c: Context) extends Parsers with IRs with Errors {
   import c.universe.{Type => _, Function => _, Expr => _, If => _,  _}
 
   protected lazy val interpolator: c.Tree = q"$pckg.Factory"
@@ -103,8 +103,10 @@ class Macros(final val c: Context) extends Parsers with IRs {
   }
 
   implicit lazy val constructorsLiftable: Liftable[Constructor] = Liftable[Constructor] {
-    case ir@Constructor(id, ps) =>
-      q"$interpolator.ADTs.Constructor($id, $ps).setPos(${ir.pos})"
+    case ir@ConstructorValue(id, ps) =>
+      q"$interpolator.ADTs.ConstructorValue($id, $ps).setPos(${ir.pos})"
+    case ir@ConstructorHole(index) =>
+      q"$interpolator.ADTs.ConstructorHole($index).setPos(${ir.pos})"
   }
 
   implicit lazy val functionsLiftable: Liftable[Function] = Liftable[Function] {
@@ -361,6 +363,12 @@ class Macros(final val c: Context) extends Parsers with IRs {
     q"(x: Map[Int, Any]) => (..$elems)"
   }
 
+  private def verifyElaborationHoleTypes(holes: Seq[Hole]) {
+    if (holes.exists(_.holeType == HoleTypes.Constructor)) {
+      c.error(c.enclosingPosition, unsupportedHoleTypeForElaboration("ADTConstructor")(scala.util.parsing.input.NoPosition))
+    }
+  }
+
   private def getTypes(holes: Seq[Hole]): Seq[c.Type] = {
 
     def holeTypeToType(holeType: HoleType): c.Type = holeType match {
@@ -391,7 +399,11 @@ class Macros(final val c: Context) extends Parsers with IRs {
   def t_apply(args: c.Expr[Any]*): c.Tree = {
 
     val ir = parse(typeParser)
-    val types = getTypes(ir.getHoles)
+    val holes = ir.getHoles
+
+    verifyElaborationHoleTypes(holes)
+
+    val types = getTypes(holes)
 
     verifyArgTypes(args, types)
 
@@ -446,7 +458,11 @@ class Macros(final val c: Context) extends Parsers with IRs {
   def e_apply(args: c.Expr[Any]*): c.Tree = {
 
     val ir = parse(exprParser)
-    val types = getTypes(ir.getHoles)
+    val holes = ir.getHoles
+
+    verifyElaborationHoleTypes(holes)
+
+    val types = getTypes(holes)
 
     verifyArgTypes(args, types)
 
@@ -470,6 +486,8 @@ class Macros(final val c: Context) extends Parsers with IRs {
 
     val ir = parse(exprParser)
     val holes = ir.getHoles
+
+    println(ir)
 
     if (holes.size >= 1) {
       val types = getTypes(holes)
@@ -501,7 +519,11 @@ class Macros(final val c: Context) extends Parsers with IRs {
   def vd_apply(args: c.Expr[Any]*): c.Tree = {
 
     val ir = parse(bindingParser(explicitOnly=true))
-    val types = getTypes(ir.getHoles)
+    val holes = ir.getHoles
+
+    verifyElaborationHoleTypes(holes)
+
+    val types = getTypes(holes)
 
     verifyArgTypes(args, types)
 
@@ -556,7 +578,11 @@ class Macros(final val c: Context) extends Parsers with IRs {
   def fd_apply(args: c.Expr[Any]*): c.Tree = {
 
     val ir = parse(functionDefinitionParser)
-    val types = getTypes(ir.getHoles)
+    val holes = ir.getHoles
+
+    verifyElaborationHoleTypes(holes)
+
+    val types = getTypes(holes)
 
     verifyArgTypes(args, types)
 
@@ -611,7 +637,11 @@ class Macros(final val c: Context) extends Parsers with IRs {
   def td_apply(args: c.Expr[Any]*): c.Tree = {
 
     val ir = parse(adtDefinitionParser)
-    val types = getTypes(ir.getHoles)
+    val holes = ir.getHoles
+
+    verifyElaborationHoleTypes(holes)
+
+    val types = getTypes(holes)
 
     verifyArgTypes(args, types)
 
@@ -666,7 +696,11 @@ class Macros(final val c: Context) extends Parsers with IRs {
   def p_apply(args: c.Expr[Any]*): c.Tree = {
 
     val ir = parse(programParser)
-    val types = getTypes(ir.getHoles)
+    val holes = ir.getHoles
+
+    verifyElaborationHoleTypes(holes)
+
+    val types = getTypes(holes)
 
     verifyArgTypes(args, types)
 

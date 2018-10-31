@@ -101,4 +101,11 @@ class ExtractorSuite extends FunSuite {
       case _ => fail("Did not match.")
     }
   }
+
+  test("Matching primitive invocations.") {
+    e"concatenate('hello', 'world')" match {
+      case e"$x('hello', 'world')" => fail("Did match.")
+      case e"concatenate('hello', 'world')" => ()
+    }
+  }
 }

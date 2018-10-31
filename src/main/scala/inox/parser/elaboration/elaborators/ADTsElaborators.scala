@@ -30,11 +30,14 @@ trait ADTsElaborators { self: Elaborators =>
   }
 
   class ConstructorE(sortId: inox.Identifier) extends Elaborator[Constructor, (SimpleADTs.Constructor, Eventual[trees.ADTConstructor])] {
-    override def elaborate(constructor: Constructor)(implicit store: Store): Constrained[(SimpleADTs.Constructor, Eventual[trees.ADTConstructor])] = for {
-      (id, optName) <- DefIdE.elaborate(constructor.identifier)
-      params <- BindingSeqE.elaborate(constructor.params)
-    } yield (SimpleADTs.Constructor(id, optName, params, sortId), Eventual.withUnifier { implicit unifier =>
-        new trees.ADTConstructor(id, sortId, params.map(_.evValDef.get)) })
+    override def elaborate(constructor: Constructor)(implicit store: Store): Constrained[(SimpleADTs.Constructor, Eventual[trees.ADTConstructor])] = constructor match {
+      case ConstructorValue(identifier, parameters) => for {
+        (id, optName) <- DefIdE.elaborate(identifier)
+        params <- BindingSeqE.elaborate(parameters)
+      } yield (SimpleADTs.Constructor(id, optName, params, sortId), Eventual.withUnifier { implicit unifier =>
+          new trees.ADTConstructor(id, sortId, params.map(_.evValDef.get)) })
+      case ConstructorHole(index) => Constrained.fail(unsupportedHoleTypeForElaboration("ADTConstructor")(constructor.pos))
+    }
   }
 
   class ConstructorSeqE(sortId: inox.Identifier) extends HSeqE[Constructor, trees.ADTConstructor, (SimpleADTs.Constructor, Eventual[trees.ADTConstructor])]("ADTConstructor") {
@@ -42,6 +45,6 @@ trait ADTsElaborators { self: Elaborators =>
     override val elaborator = new ConstructorE(sortId)
 
     def wrap(c: trees.ADTConstructor, where: IR)(implicit store: Store): Constrained[(SimpleADTs.Constructor, Eventual[trees.ADTConstructor])] =
-      Constrained.attempt(SimpleADTs.fromInox(c).map(sc => (sc, Eventual.pure(c))), where, invalidADTConstructor(c))
+      Constrained.fail(unsupportedHoleTypeForElaboration("ADTConstructor")(where.pos))
   }
 }

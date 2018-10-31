@@ -53,6 +53,8 @@ trait TypeExtractors { self: Extractors =>
           }
       }
       case Variable(id) => Matching.collect(scrutinee) {
+        case trees.ADTType(sId, Seq()) =>
+          TypeUseIdX.extract(id, sId)
         case trees.TypeParameter(sId, _) =>
           TypeUseIdX.extract(id, sId)
       }

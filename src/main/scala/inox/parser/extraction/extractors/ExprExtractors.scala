@@ -187,6 +187,7 @@ trait ExprExtractors { self: Extractors =>
             case trees.SetType(tpe) => Matching.pure(Seq(tpe))
             case trees.BagType(tpe) => Matching.pure(Seq(tpe))
             case trees.MapType(from, to) => Matching.pure(Seq(from, to))
+            case _ => Matching.pure(Seq())
           }
         }.flatMap { (sTypeArgs) =>
           Matching.optionally(optTypeArgs.map(TypeSeqX.extract(_, sTypeArgs))) <>

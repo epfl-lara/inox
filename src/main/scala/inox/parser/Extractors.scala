@@ -22,9 +22,11 @@ trait Extractors
 
   class HSeqX[-A <: IR, -B, +R](extractor: Extractor[A, B, R], default: R) extends Extractor[HSeq[A], Seq[B], Seq[R]] {
     override def extract(template: HSeq[A], scrutinee: Seq[B]): Matching[Seq[R]] = {
+
       val elems = template.elems
       val minSize = elems.count(_.isRight)
-      if (scrutinee.size < minSize) {
+      val isRigid = minSize == elems.size
+      if (scrutinee.size < minSize || (isRigid && scrutinee.size != elems.size)) {
         Matching.fail
       }
       else {

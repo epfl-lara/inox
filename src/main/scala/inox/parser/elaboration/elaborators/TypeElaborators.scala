@@ -17,7 +17,10 @@ trait TypeElaborators { self: Elaborators =>
       } yield (st, Eventual.pure(t))
       case Variable(id) => for {
         i <- TypeUseIdE.elaborate(id)
-        (st, et) <- Constrained.attempt(store.getType(i), template, sortUsedAsTypeVariable(i.name))
+        (st, et) <- Constrained.attempt(store.getType(i).orElse(store.getTypeConstructor(i).flatMap { (n: Int) =>
+          if (n == 0) Some((SimpleTypes.ADTType(i, Seq()), Eventual.pure(trees.ADTType(i, Seq()))))
+          else None
+        }), template, typeConstructorUsedAsTypeVariable(i.name))
       } yield (st.withPos(template.pos), et)
       case Primitive(tpe) => {
         import Primitives._
@@ -57,7 +60,7 @@ trait TypeElaborators { self: Elaborators =>
       }
       case Invocation(id, args) => for {
         i <- TypeUseIdE.elaborate(id)
-        n <- Constrained.attempt(store.getTypeConstructor(i), template, typeVariableUsedAsSort(i.name))
+        n <- Constrained.attempt(store.getTypeConstructor(i), template, typeVariableUsedAsTypeConstructor(i.name))
         zas <- TypeSeqE.elaborate(args)
         _ <- Constrained.checkImmediate(n == zas.size, template, wrongNumberOfTypeArguments(i.name, n, zas.size))
         (sas, eas) = zas.unzip

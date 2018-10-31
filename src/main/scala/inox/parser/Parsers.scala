@@ -490,10 +490,10 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
   } yield Function(i, ts.getOrElse(HSeq.fromSeq(Seq[Identifier]())), ps, ot, b))
 
   lazy val adtDefinitionParser: PackratParser[Sort] = positioned({
-    val constructorParser: Parser[Constructor] = positioned(for {
+    val constructorParser: Parser[Constructor] = positioned((for {
       i  <- identifierParser
       ps <- p('(') ~> hseqParser(bindingParser(explicitOnly=true), p(','), allowEmpty=true) <~ p(')')
-    } yield Constructor(i, ps))
+    } yield ConstructorValue(i, ps)) | holeParser.map(ConstructorHole(_)))
 
     for {
       _  <- kw("type")

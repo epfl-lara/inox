@@ -16,13 +16,19 @@ trait ADTs { self: IRs =>
         constructors.getHoles
     }
 
-    case class Constructor(
+    sealed abstract class Constructor extends IR
+
+    case class ConstructorValue(
       identifier: Identifiers.Identifier,
-      params: Bindings.BindingSeq) extends IR {
+      params: Bindings.BindingSeq) extends Constructor {
 
       override def getHoles =
         identifier.getHoles ++
         params.getHoles
+    }
+
+    case class ConstructorHole(index: Int) extends Constructor {
+      override def getHoles = Seq(Hole(index, HoleTypes.Constructor))
     }
 
     type ConstructorSeq = HSeq[Constructor]

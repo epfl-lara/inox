@@ -4,11 +4,16 @@ package parser
 import scala.util.parsing.input._
 
 trait Errors {
-  def withPosition(error: String): Position => String =
-    (pos: Position) => error + "\n" + pos.longString
+  def withPosition(error: String): Position => String = {
+    case NoPosition => error
+    case pos => error + "\n" + pos.longString
+  }
 
   def withPositions(error: String): Seq[Position] => String =
-    (positions: Seq[Position]) => error + "\n" + positions.map(_.longString).mkString("\n")
+    (positions: Seq[Position]) => error + positions.filter(_ != NoPosition).map("\n" + _.longString).mkString("")
+
+  def unsupportedHoleTypeForElaboration(tpe: String): Position => String =
+    withPosition("Holes of type " + tpe + " are not supported for elaboration.")
 }
 
 trait ElaborationErrors extends Errors { self: Elaborators =>
@@ -30,11 +35,11 @@ trait ElaborationErrors extends Errors { self: Elaborators =>
   def noExprInScope(name: String): Position => String =
     withPosition("No expression named " + name + " is available in scope.")
 
-  def sortUsedAsTypeVariable(name: String): Position => String =
-    withPosition(name + " is a sort, not a type variable.")
+  def typeConstructorUsedAsTypeVariable(name: String): Position => String =
+    withPosition(name + " is a type constructor, not a type.")
 
-  def typeVariableUsedAsSort(name: String): Position => String =
-    withPosition(name + " is a type variable, not a sort.")
+  def typeVariableUsedAsTypeConstructor(name: String): Position => String =
+    withPosition(name + " is a type, not a type constructor.")
 
   def wrongNumberOfArguments(callee: String, expected: Int, actual: Int): Position => String =
     withPosition("Wrong number of arguments for " + callee + ", expected " + expected + ", got " + actual + ".")

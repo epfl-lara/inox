@@ -18,9 +18,12 @@ trait ADTsExtractors { self: Extractors =>
   }
 
   object ConstructorX extends Extractor[Constructor, trees.ADTConstructor, Unit] {
-    override def extract(template: Constructor, scrutinee: trees.ADTConstructor): Matching[Unit] =
-      DefIdX.extract(template.identifier, scrutinee.id) <>
-      BindingSeqX.extract(template.params, scrutinee.fields)
+    override def extract(template: Constructor, scrutinee: trees.ADTConstructor): Matching[Unit] = template match {
+      case ConstructorValue(templateIdentifier, templateParams) =>
+        DefIdX.extract(templateIdentifier, scrutinee.id) <>
+        BindingSeqX.extract(templateParams, scrutinee.fields)
+      case ConstructorHole(index) => Matching(index -> scrutinee)
+    }
   }
 
   object ConstructorSeqX extends HSeqX[Constructor, trees.ADTConstructor, Unit](ConstructorX, ())
