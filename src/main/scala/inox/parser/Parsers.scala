@@ -324,12 +324,12 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
     }
 
     val nonOperatorParser: Parser[Expr] = positioned(
-      exprHoleParser             |
       literalParser              |
       unitLiteralParser          |
       primitiveConstructorParser |
       primitiveInvocationParser  |
       invocationParser           |
+      exprHoleParser             |
       variableParser             |
       tupleParser                |
       ifParser                   |
