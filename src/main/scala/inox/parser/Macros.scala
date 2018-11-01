@@ -487,8 +487,6 @@ class Macros(final val c: Context) extends Parsers with IRs with Errors {
     val ir = parse(exprParser)
     val holes = ir.getHoles
 
-    println(ir)
-
     if (holes.size >= 1) {
       val types = getTypes(holes)
 
