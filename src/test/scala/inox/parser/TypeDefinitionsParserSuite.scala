@@ -108,6 +108,22 @@ class TypeDefinitionsParserSuite extends FunSuite {
     assert(getRightField.tpe == bTypeParamDef.tp)
   }
 
+  test("Elaborating with holes.") {
+    val idSort = FreshIdentifier("IDSort")
+    val idCons = FreshIdentifier("IDCons")
+    val idField = FreshIdentifier("idField")
+    val typeField = t"Integer"
+
+    val sort = td"type $idSort = $idCons($idField: $typeField)"
+
+    assert(sort.id == idSort)
+    assert(sort.constructors.size == 1)
+    assert(sort.constructors(0).id == idCons)
+    assert(sort.constructors(0).fields.size == 1)
+    assert(sort.constructors(0).fields(0).id == idField)
+    assert(sort.constructors(0).fields(0).tpe == typeField)
+  }
+
   test("Matching against type definitions.") {
     val lensSort = td"type Lens[S, A] = Lens(view: S => A, update: (S, A) => S)"
 
