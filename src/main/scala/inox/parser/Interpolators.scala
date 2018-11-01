@@ -4,6 +4,7 @@ package parser
 import scala.reflect.macros.whitebox.Context
 
 import scala.language.experimental.macros
+import scala.language.implicitConversions
 
 trait Interpolators extends Trees
 
