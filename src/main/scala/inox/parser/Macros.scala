@@ -10,9 +10,6 @@ import inox.parser.sc._
 class Macros(final val c: Context) extends Parsers with IRs with Errors {
   import c.universe.{Type => _, Function => _, Expr => _, If => _,  _}
 
-  protected lazy val interpolator: c.Tree = q"$pckg.Factory"
-  protected lazy val targetTrees: c.Tree = q"$interpolator.trees"
-
   private val self = {
     val Select(self, _) = c.prefix.tree
     self
@@ -31,6 +28,25 @@ class Macros(final val c: Context) extends Parsers with IRs with Errors {
     case Apply(Apply(Select(pckg, _), Apply(_, ls) :: _), _) => (pckg, StringContext(ls.map(getString): _*))  // In case of implicit symbols.
     case _ => c.abort(c.enclosingPosition, "Unexpected macro use.")
   }
+
+  private lazy val longTargetTrees = q"$interpolator.trees"
+  protected lazy val interpolator: c.Tree = q"$pckg.Factory"
+  protected lazy val targetTrees: c.Tree = pckg match {
+    case Select(candidateTrees, _) => {
+
+      val longTargetTreesType = c.typecheck(longTargetTrees).tpe
+      val candidateTreesType = c.typecheck(candidateTrees).tpe
+
+      if (longTargetTreesType =:= candidateTreesType) {
+        candidateTrees
+      }
+      else {
+        longTargetTrees
+      }
+    }
+    case _ => longTargetTrees
+  }
+
 
   import Identifiers._
   import Bindings._
