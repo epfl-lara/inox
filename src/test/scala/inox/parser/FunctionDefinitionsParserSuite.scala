@@ -42,4 +42,46 @@ class FunctionDefinitionsParserSuite extends FunSuite {
       case _ => fail("Did not match.")
     }
   }
+
+  test("Parsing rep.") {
+    val repFunDef = fd"def rep[A](f: A => A, n: Int) = if (n == 0) lambda x. x else lambda x. f(rep(f, n - 1)(x))"
+
+    assert(repFunDef.id.name == "rep")
+    assert(repFunDef.tparams.size == 1)
+    assert(repFunDef.tparams(0).id.name == "A")
+    assert(repFunDef.params.size == 2)
+    assert(repFunDef.params(0).id.name == "f")
+    assert(repFunDef.params(0).tpe == FunctionType(Seq(repFunDef.tparams(0).tp), repFunDef.tparams(0).tp))
+    assert(repFunDef.params(1).id.name == "n")
+    assert(repFunDef.params(1).tpe == Int32Type())
+    assert(repFunDef.returnType == FunctionType(Seq(repFunDef.tparams(0).tp), repFunDef.tparams(0).tp))
+  }
+
+  test("Matching against function definitions.") {
+    val fooFunDef = fd"def foo[A, B, C](x: A, y: B, f: (A, B) => C): C = f(x, y)"
+
+    fooFunDef match {
+      case fd"def foo($xs...) = $e" => fail("Did match.")
+      case fd"def foo[$ts...]($xs...): $t = $e" => {
+        assert(ts.size == 3)
+        assert(xs.size == 3)
+      }
+      case _ => fail("Did not match.")
+    }
+
+    val barFunDef = fd"def bar(x: Integer) = x + x + x"
+
+    barFunDef match {
+      case fd"def foo[$ts...](x: Integer) = x + x + x" => assert(ts.isEmpty)
+      case _ => fail("Did not match.")
+    }
+
+    barFunDef match {
+      case fd"def foo(x: Integer) = x + x * x" => fail("Did match.")
+      case fd"def foo($x): Integer = x + ${y : Variable} + x" => {
+        assert(x.id == y.id)
+      }
+      case _ => fail("Did not match.")
+    }
+  }
 }
