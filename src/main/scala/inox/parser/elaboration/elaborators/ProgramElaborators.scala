@@ -6,11 +6,19 @@ package elaborators
 trait ProgramElaborators { self: Elaborators =>
 
   import Programs._
+  import ADTs._
+  import Functions._
 
   object ProgramE extends Elaborator[Program, Seq[Eventual[trees.Definition]]] {
     override def elaborate(program: Program)(implicit store: Store): Constrained[Seq[Eventual[trees.Definition]]] = {
       val sorts = program.defs.filter(_.isLeft).map(_.left.get)
       val funs = program.defs.filter(_.isRight).map(_.right.get)
+
+      def rebuild[A](defs: Seq[Either[Sort, Function]], xs: Seq[A], ys: Seq[A]): Seq[A] = defs.foldLeft((Seq[A](), xs, ys)) {
+        case ((acc, x :: xs, ys), Left(_)) => (acc :+ x, xs, ys)
+        case ((acc, xs, y :: ys), Right(_)) => (acc :+ y, xs, ys)
+        case _ => throw new IllegalStateException("Unreachable.")
+      }._1
 
       for {
         emptySimpleSorts <- Constrained.sequence(sorts.map(s => EmptySortE.elaborate(s)))
@@ -41,7 +49,7 @@ trait ProgramElaborators { self: Elaborators =>
               Seq())
           }
         })
-      } yield evSorts ++ evFunsDefs
+      } yield rebuild(program.defs, evSorts, evFunsDefs)
     }
   }
 }
