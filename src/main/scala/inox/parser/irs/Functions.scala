@@ -16,6 +16,7 @@ trait Functions { self: IRs =>
         identifier.getHoles ++
         typeParams.getHoles ++
         params.getHoles ++
+        returnType.toSeq.flatMap(_.getHoles) ++
         body.getHoles
     }
   }
