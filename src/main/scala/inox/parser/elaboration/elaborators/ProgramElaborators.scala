@@ -9,7 +9,7 @@ trait ProgramElaborators { self: Elaborators =>
   import ADTs._
   import Functions._
 
-  object ProgramE extends Elaborator[Program, Seq[Eventual[trees.Definition]]] {
+  class ProgramE extends Elaborator[Program, Seq[Eventual[trees.Definition]]] {
     override def elaborate(program: Program)(implicit store: Store): Constrained[Seq[Eventual[trees.Definition]]] = {
       val sorts = program.defs.filter(_.isLeft).map(_.left.get)
       val funs = program.defs.filter(_.isRight).map(_.right.get)
@@ -52,4 +52,5 @@ trait ProgramElaborators { self: Elaborators =>
       } yield rebuild(program.defs, evSorts, evFunsDefs)
     }
   }
+  val ProgramE = new ProgramE
 }

@@ -7,7 +7,7 @@ trait FunctionElaborators { self: Elaborators =>
 
   import Functions._
 
-  object SingleFunctionE extends Elaborator[Function, Eventual[trees.FunDef]] {
+  class SingleFunctionE extends Elaborator[Function, Eventual[trees.FunDef]] {
     override def elaborate(function: Function)(implicit store: Store): Constrained[Eventual[trees.FunDef]] = for {
       sf <- SignatureE.elaborate(function)
       (st, ev) <- ExprE.elaborate(function.body)(store
@@ -25,8 +25,9 @@ trait FunctionElaborators { self: Elaborators =>
         Seq())
     }
   }
+  val SingleFunctionE = new SingleFunctionE
 
-  object SignatureE extends Elaborator[Function, SimpleFunctions.Function] {
+  class SignatureE extends Elaborator[Function, SimpleFunctions.Function] {
     override def elaborate(function: Function)(implicit store: Store): Constrained[SimpleFunctions.Function] = for {
       (i, optName) <- DefIdE.elaborate(function.identifier)
       tpbs <- TypeVarDefSeqE.elaborate(function.typeParams)
@@ -38,5 +39,5 @@ trait FunctionElaborators { self: Elaborators =>
       })(storeWithTypeParams)
     } yield SimpleFunctions.Function(i, optName, tpbs, bs, stRet, evRet)
   }
-
+  val SignatureE = new SignatureE
 }

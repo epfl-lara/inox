@@ -7,33 +7,38 @@ trait IdentifierExtractors { self: Extractors =>
 
   import Identifiers._
 
-  object ExprUseIdX extends Extractor[Identifier, inox.Identifier, Unit] {
+  class ExprUseIdX extends Extractor[Identifier, inox.Identifier, Unit] {
     override def extract(template: Identifier, scrutinee: inox.Identifier): Matching[Unit] = template match {
       case IdentifierHole(index) => Matching(index -> scrutinee)
       case IdentifierName(name) => Matching.ensureConsistent(name, scrutinee, isType=false)
     }
   }
+  val ExprUseIdX = new ExprUseIdX
 
-  object TypeUseIdX extends Extractor[Identifier, inox.Identifier, Unit] {
+  class TypeUseIdX extends Extractor[Identifier, inox.Identifier, Unit] {
     override def extract(template: Identifier, scrutinee: inox.Identifier): Matching[Unit] = template match {
       case IdentifierHole(index) => Matching(index -> scrutinee)
       case IdentifierName(name) => Matching.ensureConsistent(name, scrutinee, isType=true)
     }
   }
+  val TypeUseIdX = new TypeUseIdX
 
-  object DefIdX extends Extractor[Identifier, inox.Identifier, Option[(String, inox.Identifier)]] {
+  class DefIdX extends Extractor[Identifier, inox.Identifier, Option[(String, inox.Identifier)]] {
     override def extract(template: Identifier, scrutinee: inox.Identifier): Matching[Option[(String, inox.Identifier)]] = template match {
       case IdentifierHole(index) => Matching(index -> scrutinee).withValue(None)
       case IdentifierName(name) => Matching.pure(Some(name -> scrutinee))
     }
   }
+  val DefIdX = new DefIdX
 
-  object DefIdSeqX extends HSeqX[Identifier, inox.Identifier, Option[(String, inox.Identifier)]](DefIdX, None)
+  class DefIdSeqX extends HSeqX[Identifier, inox.Identifier, Option[(String, inox.Identifier)]](DefIdX, None)
+  val DefIdSeqX = new DefIdSeqX
 
-  object FieldIdX extends Extractor[Identifier, inox.Identifier, Unit] {
+  class FieldIdX extends Extractor[Identifier, inox.Identifier, Unit] {
     override def extract(template: Identifier, scrutinee: inox.Identifier): Matching[Unit] = template match {
       case IdentifierHole(index) => Matching(index -> scrutinee)
       case IdentifierName(name) => Matching.conditionally(scrutinee.name == name)
     }
   }
+  val FieldIdX = new FieldIdX
 }

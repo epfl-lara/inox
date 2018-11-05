@@ -7,7 +7,7 @@ trait IdentifierElaborators { self: Elaborators =>
 
   import Identifiers._
 
-  object DefIdE extends Elaborator[Identifier, (inox.Identifier, Option[String])] {
+  class DefIdE extends Elaborator[Identifier, (inox.Identifier, Option[String])] {
     override def elaborate(template: Identifier)(implicit store: Store): Constrained[(inox.Identifier, Option[String])] = template match {
       case IdentifierHole(index) => store.getHole[inox.Identifier](index) match {
         case None => Constrained.fail(invalidHoleType("Identifier")(template.pos))
@@ -16,8 +16,9 @@ trait IdentifierElaborators { self: Elaborators =>
       case IdentifierName(name) => Constrained.pure((inox.FreshIdentifier(name), Some(name)))
     }
   }
+  val DefIdE = new DefIdE
 
-  object ExprUseIdE extends Elaborator[Identifier, inox.Identifier] {
+  class ExprUseIdE extends Elaborator[Identifier, inox.Identifier] {
     override def elaborate(template: Identifier)(implicit store: Store): Constrained[inox.Identifier] = template match {
       case IdentifierHole(index) => store.getHole[inox.Identifier](index) match {
         case None => Constrained.fail(invalidHoleType("Identifier")(template.pos))
@@ -29,8 +30,9 @@ trait IdentifierElaborators { self: Elaborators =>
       }
     }
   }
+  val ExprUseIdE = new ExprUseIdE
 
-  object TypeUseIdE extends Elaborator[Identifier, inox.Identifier] {
+  class TypeUseIdE extends Elaborator[Identifier, inox.Identifier] {
     override def elaborate(template: Identifier)(implicit store: Store): Constrained[inox.Identifier] = template match {
       case IdentifierHole(index) => store.getHole[inox.Identifier](index) match {
         case None => Constrained.fail(invalidHoleType("Identifier")(template.pos))
@@ -42,8 +44,9 @@ trait IdentifierElaborators { self: Elaborators =>
       }
     }
   }
+  val TypeUseIdE = new TypeUseIdE
 
-  object FieldIdE extends Elaborator[Identifier, (String, Seq[(inox.Identifier, inox.Identifier)])] {
+  class FieldIdE extends Elaborator[Identifier, (String, Seq[(inox.Identifier, inox.Identifier)])] {
     override def elaborate(template: Identifier)(implicit store: Store): Constrained[(String, Seq[(inox.Identifier, inox.Identifier)])] = template match {
       case IdentifierHole(index) => store.getHole[inox.Identifier](index) match {
         case None => Constrained.fail(invalidHoleType("Identifier")(template.pos))
@@ -52,15 +55,17 @@ trait IdentifierElaborators { self: Elaborators =>
       case IdentifierName(name) => Constrained.pure((name, store.getFieldByName(name)))
     }
   }
+  val FieldIdE = new FieldIdE
 
-  object DefIdSeqE extends HSeqE[Identifier, inox.Identifier, (inox.Identifier, Option[String])]("Identifier") {
+  class DefIdSeqE extends HSeqE[Identifier, inox.Identifier, (inox.Identifier, Option[String])]("Identifier") {
     override val elaborator = DefIdE
 
     override def wrap(id: inox.Identifier, where: IR)(implicit store: Store): Constrained[(inox.Identifier, Option[String])] =
       Constrained.pure((id, None))
   }
+  val DefIdSeqE = new DefIdSeqE
 
-  object TypeVarDefE extends Elaborator[Identifier, SimpleBindings.TypeBinding] {
+  class TypeVarDefE extends Elaborator[Identifier, SimpleBindings.TypeBinding] {
     override def elaborate(template: Identifier)(implicit store: Store): Constrained[SimpleBindings.TypeBinding] = {
       DefIdE.elaborate(template).map { case (id, optName) =>
         SimpleBindings.TypeBinding(
@@ -71,8 +76,9 @@ trait IdentifierElaborators { self: Elaborators =>
       }
     }
   }
+  val TypeVarDefE = new TypeVarDefE
 
-  object TypeVarDefSeqE extends HSeqE[Identifier, inox.Identifier, SimpleBindings.TypeBinding]("Identifier") {
+  class TypeVarDefSeqE extends HSeqE[Identifier, inox.Identifier, SimpleBindings.TypeBinding]("Identifier") {
     override val elaborator = TypeVarDefE
 
     override def wrap(id: inox.Identifier, where: IR)(implicit store: Store): Constrained[SimpleBindings.TypeBinding] =
@@ -82,4 +88,5 @@ trait IdentifierElaborators { self: Elaborators =>
         Eventual.pure(trees.TypeParameter(id, Seq())),
         None))
   }
+  val TypeVarDefSeqE = new TypeVarDefSeqE
 }

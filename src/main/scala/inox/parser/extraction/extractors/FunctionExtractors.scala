@@ -7,7 +7,7 @@ trait FunctionExtractors { self: Extractors =>
 
   import Functions.Function
 
-  object FunctionX extends Extractor[Function, trees.FunDef, Unit] {
+  class FunctionX extends Extractor[Function, trees.FunDef, Unit] {
     override def extract(template: Function, scrutinee: trees.FunDef): Matching[Unit] = {
       DefIdX.extract(template.identifier, scrutinee.id).flatMap { optName =>
         DefIdSeqX.extract(template.typeParams, scrutinee.tparams.map(_.id)).flatMap { optTypeParams =>
@@ -21,4 +21,5 @@ trait FunctionExtractors { self: Extractors =>
       }
     }
   }
+  val FunctionX = new FunctionX
 }

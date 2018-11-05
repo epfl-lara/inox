@@ -7,7 +7,7 @@ trait BindingExtractors { self: Extractors =>
 
   import Bindings._
 
-  object BindingX extends Extractor[Binding, trees.ValDef, Option[(String, inox.Identifier)]] {
+  class BindingX extends Extractor[Binding, trees.ValDef, Option[(String, inox.Identifier)]] {
     override def extract(template: Binding, scrutinee: trees.ValDef): Matching[Option[(String, inox.Identifier)]] = template match {
       case BindingHole(index) =>
         Matching(index -> scrutinee).withValue(None)
@@ -18,6 +18,8 @@ trait BindingExtractors { self: Extractors =>
         TypeX.extract(tpe, scrutinee.tpe)
     }
   }
+  val BindingX = new BindingX
 
-  object BindingSeqX extends HSeqX[Binding, trees.ValDef, Option[(String, inox.Identifier)]](BindingX, None)
+  class BindingSeqX extends HSeqX[Binding, trees.ValDef, Option[(String, inox.Identifier)]](BindingX, None)
+  val BindingSeqX = new BindingSeqX
 }

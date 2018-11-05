@@ -6,7 +6,7 @@ package extractors
 trait ADTsExtractors { self: Extractors =>
 
   import ADTs._
-  object SortX extends Extractor[Sort, trees.ADTSort, Unit] {
+  class SortX extends Extractor[Sort, trees.ADTSort, Unit] {
     override def extract(template: Sort, scrutinee: trees.ADTSort): Matching[Unit] =
       DefIdX.extract(template.identifier, scrutinee.id).flatMap { optPair =>
         DefIdSeqX.extract(template.typeParams, scrutinee.tparams.map(_.id)).flatMap { optPairs =>
@@ -16,8 +16,9 @@ trait ADTsExtractors { self: Extractors =>
         }
       }
   }
+  val SortX = new SortX
 
-  object ConstructorX extends Extractor[Constructor, trees.ADTConstructor, Unit] {
+  class ConstructorX extends Extractor[Constructor, trees.ADTConstructor, Unit] {
     override def extract(template: Constructor, scrutinee: trees.ADTConstructor): Matching[Unit] = template match {
       case ConstructorValue(templateIdentifier, templateParams) =>
         DefIdX.extract(templateIdentifier, scrutinee.id) <>
@@ -25,6 +26,8 @@ trait ADTsExtractors { self: Extractors =>
       case ConstructorHole(index) => Matching(index -> scrutinee)
     }
   }
+  val ConstructorX = new ConstructorX
 
-  object ConstructorSeqX extends HSeqX[Constructor, trees.ADTConstructor, Unit](ConstructorX, ())
+  class ConstructorSeqX extends HSeqX[Constructor, trees.ADTConstructor, Unit](ConstructorX, ())
+  val ConstructorSeqX = new ConstructorSeqX
 }

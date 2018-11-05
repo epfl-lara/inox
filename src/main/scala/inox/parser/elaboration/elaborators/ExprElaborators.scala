@@ -7,7 +7,7 @@ trait ExprElaborators { self: Elaborators =>
 
   import Exprs._
 
-  object ExprE extends Elaborator[Expr, (SimpleTypes.Type, Eventual[trees.Expr])] {
+  class ExprE extends Elaborator[Expr, (SimpleTypes.Type, Eventual[trees.Expr])] {
     override def elaborate(template: Expr)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Expr])] = template match {
       case ExprHole(index) => Constrained.attempt(store.getHole[trees.Expr](index), template, invalidHoleType("Expr")).flatMap { expr =>
         Constrained.attempt(SimpleTypes.fromInox(expr.getType(store.getSymbols)).map(_.setPos(template.pos)), template, invalidInoxExpr(expr)).map { st =>
@@ -504,16 +504,18 @@ trait ExprElaborators { self: Elaborators =>
       }
     }
   }
+  val ExprE = new ExprE
 
-  object ExprSeqE extends HSeqE[Expr, trees.Expr, (SimpleTypes.Type, Eventual[trees.Expr])]("Expr") {
+  class ExprSeqE extends HSeqE[Expr, trees.Expr, (SimpleTypes.Type, Eventual[trees.Expr])]("Expr") {
     override val elaborator = ExprE
     override def wrap(expr: trees.Expr, where: IR)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Expr])] =
       Constrained.attempt(SimpleTypes.fromInox(expr.getType(store.getSymbols)).map { st =>
         (st.setPos(where.pos), Eventual.pure(expr))
       }, where, invalidInoxExpr(expr))
   }
+  val ExprSeqE = new ExprSeqE
 
-  object ExprPairE extends Elaborator[ExprPair, ((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])] {
+  class ExprPairE extends Elaborator[ExprPair, ((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])] {
     override def elaborate(pair: ExprPair)(implicit store: Store):
         Constrained[((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])] = pair match {
       case PairHole(index) => Constrained.attempt(store.getHole[(trees.Expr, trees.Expr)](index), pair, invalidHoleType("(Expr, Expr)")).flatMap {
@@ -528,8 +530,9 @@ trait ExprElaborators { self: Elaborators =>
       } yield ((stl, str), Eventual.withUnifier { implicit unifier => (evl.get, evr.get) })
     }
   }
+  val ExprPairE = new ExprPairE
 
-  object ExprPairSeqE extends HSeqE[ExprPair, (trees.Expr, trees.Expr), ((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])]("(Expr, Expr)") {
+  class ExprPairSeqE extends HSeqE[ExprPair, (trees.Expr, trees.Expr), ((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])]("(Expr, Expr)") {
     override val elaborator = ExprPairE
     override def wrap(pair: (trees.Expr, trees.Expr), where: IR)(implicit store: Store):
         Constrained[((SimpleTypes.Type, SimpleTypes.Type), Eventual[(trees.Expr, trees.Expr)])] = for {
@@ -537,4 +540,5 @@ trait ExprElaborators { self: Elaborators =>
       str <- Constrained.attempt(SimpleTypes.fromInox(pair._2.getType(store.getSymbols)).map(_.setPos(where.pos)), where, invalidInoxExpr(pair._2))
     } yield ((stl, str), Eventual.pure(pair))
   }
+  val ExprPairSeqE = new ExprPairSeqE
 }

@@ -7,7 +7,7 @@ trait ExprExtractors { self: Extractors =>
 
   import Exprs._
 
-  object ExprX extends Extractor[Expr, trees.Expr, Unit] {
+  class ExprX extends Extractor[Expr, trees.Expr, Unit] {
     override def extract(template: Expr, scrutinee: trees.Expr): Matching[Unit] = template match {
       case ExprHole(index) => Matching(index -> scrutinee)
       case UnitLiteral() => Matching.collect(scrutinee) {
@@ -250,15 +250,19 @@ trait ExprExtractors { self: Extractors =>
         }
     }
   }
+  val ExprX = new ExprX
 
-  object ExprPairX extends Extractor[ExprPair, (trees.Expr, trees.Expr), Unit] {
+  class ExprPairX extends Extractor[ExprPair, (trees.Expr, trees.Expr), Unit] {
     override def extract(template: ExprPair, scrutinee: (trees.Expr, trees.Expr)): Matching[Unit] = template match {
       case PairHole(index) => Matching(index -> scrutinee)
       case Pair(lhs, rhs) => ExprX.extract(lhs, scrutinee._1) <> ExprX.extract(rhs, scrutinee._2)
     }
   }
+  val ExprPairX = new ExprPairX
 
-  object ExprSeqX extends HSeqX[Expr, trees.Expr, Unit](ExprX, ())
+  class ExprSeqX extends HSeqX[Expr, trees.Expr, Unit](ExprX, ())
+  val ExprSeqX = new ExprSeqX
 
-  object ExprPairSeqX extends HSeqX[ExprPair, (trees.Expr, trees.Expr), Unit](ExprPairX, ())
+  class ExprPairSeqX extends HSeqX[ExprPair, (trees.Expr, trees.Expr), Unit](ExprPairX, ())
+  val ExprPairSeqX = new ExprPairSeqX
 }

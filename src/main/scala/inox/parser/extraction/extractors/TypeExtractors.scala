@@ -7,7 +7,7 @@ trait TypeExtractors { self: Extractors =>
 
   import Types._
 
-  object TypeX extends Extractor[Type, trees.Type, Unit] {
+  class TypeX extends Extractor[Type, trees.Type, Unit] {
     override def extract(template: Type, scrutinee: trees.Type): Matching[Unit] = template match {
       case TypeHole(index) => Matching(index -> scrutinee)
       case Primitive(tpe) => {
@@ -72,6 +72,8 @@ trait TypeExtractors { self: Extractors =>
       }
     }
   }
+  val TypeX = new TypeX
 
-  object TypeSeqX extends HSeqX[Type, trees.Type, Unit](TypeX, ())
+  class TypeSeqX extends HSeqX[Type, trees.Type, Unit](TypeX, ())
+  val TypeSeqX = new TypeSeqX
 }

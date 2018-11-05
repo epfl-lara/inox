@@ -7,7 +7,7 @@ trait BindingElaborators { self: Elaborators =>
 
   import Bindings._
 
-  object BindingE extends Elaborator[Binding, SimpleBindings.Binding] {
+  class BindingE extends Elaborator[Binding, SimpleBindings.Binding] {
 
     override def elaborate(template: Binding)(implicit store: Store): Constrained[SimpleBindings.Binding] = template match {
       case BindingHole(index) => store.getHole[trees.ValDef](index) match {
@@ -36,11 +36,13 @@ trait BindingElaborators { self: Elaborators =>
       }
     }
   }
+  val BindingE = new BindingE
 
-  object BindingSeqE extends HSeqE[Binding, trees.ValDef, SimpleBindings.Binding]("ValDef") {
+  class BindingSeqE extends HSeqE[Binding, trees.ValDef, SimpleBindings.Binding]("ValDef") {
 
     override val elaborator = BindingE
     override def wrap(vd: trees.ValDef, where: IR)(implicit store: Store): Constrained[SimpleBindings.Binding] =
       Constrained.attempt(SimpleBindings.fromInox(vd).map(_.forgetName), where, invalidInoxValDef(vd))
   }
+  val BindingSeqE = new BindingSeqE
 }

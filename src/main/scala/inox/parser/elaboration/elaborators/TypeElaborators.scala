@@ -9,7 +9,7 @@ trait TypeElaborators { self: Elaborators =>
 
   import Types._
 
-  object TypeE extends Elaborator[Type, (SimpleTypes.Type, Eventual[trees.Type])] {
+  class TypeE extends Elaborator[Type, (SimpleTypes.Type, Eventual[trees.Type])] {
     override def elaborate(template: Type)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Type])] = template match {
       case TypeHole(index) => for {
         t <- Constrained.attempt(store.getHole[trees.Type](index), template, invalidHoleType("Type"))
@@ -95,8 +95,9 @@ trait TypeElaborators { self: Elaborators =>
       })
     }
   }
+  val TypeE = new TypeE
 
-  object OptTypeE extends Elaborator[Either[Position, Type], (SimpleTypes.Type, Eventual[trees.Type])] {
+  class OptTypeE extends Elaborator[Either[Position, Type], (SimpleTypes.Type, Eventual[trees.Type])] {
     override def elaborate(optType: Either[Position, Type])(implicit store: Store):
         Constrained[(SimpleTypes.Type, Eventual[trees.Type])] = optType match {
       case Right(tpe) => TypeE.elaborate(tpe)
@@ -109,11 +110,13 @@ trait TypeElaborators { self: Elaborators =>
       }
     }
   }
+  val OptTypeE = new OptTypeE
 
-  object TypeSeqE extends HSeqE[Type, trees.Type, (SimpleTypes.Type, Eventual[trees.Type])]("Type") {
+  class TypeSeqE extends HSeqE[Type, trees.Type, (SimpleTypes.Type, Eventual[trees.Type])]("Type") {
     override val elaborator = TypeE
 
     override def wrap(tpe: trees.Type, where: IR)(implicit store: Store): Constrained[(SimpleTypes.Type, Eventual[trees.Type])] =
       Constrained.attempt(SimpleTypes.fromInox(tpe).map(_.setPos(where.pos)), where, invalidInoxType(tpe)).map { st => (st, Eventual.pure(tpe)) }
   }
+  val TypeSeqE = new TypeSeqE
 }
