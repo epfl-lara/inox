@@ -8,7 +8,13 @@ import scala.util.parsing.input._
 
 import inox.parser.sc.StringContextParsers
 
-trait Parsers extends StringContextParsers with StdTokenParsers with PackratParsers with NumberUtils with ParsingErrors { self: IRs =>
+trait Parsers extends StringContextParsers
+                 with StdTokenParsers
+                 with PackratParsers
+                 with Operators
+                 with NumberUtils
+                 with ParsingErrors
+                 with Lexers { self: IRs =>
 
   implicit class PositionalErrorsDecorator[A](parser: Parser[A]) {
 
@@ -29,9 +35,8 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
     }
   }
 
-
-  type Tokens = Lexer.type
-  override val lexical = Lexer
+  override val lexical = new InoxLexer
+  type Tokens = InoxLexer
 
   import Identifiers._
   import Bindings._
@@ -380,7 +385,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
     val operatorParser: Parser[Expr] = {
 
       val unaryParser: Parser[Expr] = {
-        rep(Operators.unaries.map(operator(_)).reduce(_ | _)) ~ postfixedParser ^^ { case os ~ e =>
+        rep(unaries.map(operator(_)).reduce(_ | _)) ~ postfixedParser ^^ { case os ~ e =>
           os.foldRight(e) {
             case (lexical.Operator(o), acc) => o match {
               case "+" => e
@@ -394,7 +399,7 @@ trait Parsers extends StringContextParsers with StdTokenParsers with PackratPars
         }
       }
 
-      Operators.binaries.foldLeft(unaryParser) {
+      binaries.foldLeft(unaryParser) {
         case (acc, LeftAssoc(ops)) => acc ~ rep(ops.map(operator(_) ~ acc).reduce(_ | _)) ^^ {
           case first ~ pairs => {
             pairs.foldLeft(first) {

@@ -11,7 +11,7 @@ case class AnyAssoc(op: String) extends Level {
   override val ops = Seq(op)
 }
 
-object Operators {
+trait Operators {
   val unaries: Seq[String] = Seq("-", "+", "!", "~")
   val binaries: Seq[Level] = Seq(
 
