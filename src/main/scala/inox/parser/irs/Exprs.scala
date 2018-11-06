@@ -5,19 +5,19 @@ package irs
 trait Exprs { self: IRs =>
 
   object Exprs {
-    sealed abstract class Quantifier
+    abstract class Quantifier
     case object Forall extends Quantifier
     case object Lambda extends Quantifier
 
     object Unary {
-      sealed abstract class Operator
+      abstract class Operator
       case object Minus extends Operator
       case object Not extends Operator
       case object BVNot extends Operator
     }
 
     object Binary {
-      sealed abstract class Operator
+      abstract class Operator
       case object Plus extends Operator
       case object Minus extends Operator
       case object Times extends Operator
@@ -39,13 +39,13 @@ trait Exprs { self: IRs =>
     }
 
     object NAry {
-      sealed abstract class Operator
+      abstract class Operator
       case object And extends Operator
       case object Or extends Operator
     }
 
     object Primitive {
-      sealed abstract class Function(val name: String, val typeArgs: Int, val args: Int)
+      abstract class Function(val name: String, val typeArgs: Int, val args: Int)
       case object SetAdd extends Function("setAdd", 1, 2)
       case object ElementOfSet extends Function("elementOfSet", 1, 2)
       case object SetIntersection extends Function("setIntersection", 1, 2)
@@ -65,12 +65,12 @@ trait Exprs { self: IRs =>
     }
 
     object Casts {
-      sealed abstract class Mode
+      abstract class Mode
       case object Widen extends Mode
       case object Narrow extends Mode
     }
 
-    sealed trait Expr extends IR {
+    abstract class Expr extends IR {
       override def getHoles: Seq[Hole] = this match {
         case ExprHole(index) => Seq(Hole(index, HoleTypes.Expr))
         case SetConstruction(optType, elems) => optType.toSeq.flatMap(_.getHoles) ++ elems.getHoles
@@ -129,7 +129,7 @@ trait Exprs { self: IRs =>
 
     type ExprSeq = HSeq[Expr]
 
-    sealed abstract class ExprPair extends IR {
+    abstract class ExprPair extends IR {
       override def getHoles: Seq[Hole] = this match {
         case Pair(lhs, rhs) => lhs.getHoles ++ rhs.getHoles
         case PairHole(index) => Seq(Hole(index, HoleTypes.Pair(HoleTypes.Expr, HoleTypes.Expr)))

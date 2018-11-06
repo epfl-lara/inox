@@ -5,7 +5,7 @@ package irs
 trait Identifiers { self: IRs =>
 
   object Identifiers {
-    sealed trait Identifier extends IR {
+    abstract class Identifier extends IR {
       override def getHoles = this match {
         case IdentifierHole(index) => Seq(Hole(index, HoleTypes.Identifier))
         case _ => Seq()

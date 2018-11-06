@@ -5,7 +5,7 @@ package irs
 trait Types { self: IRs =>
 
   object Types {
-    sealed abstract class Type extends IR {
+    abstract class Type extends IR {
       override def getHoles: Seq[Hole] = this match {
         case TypeHole(index) => Seq(Hole(index, HoleTypes.Type))
         case Primitive(_) => Seq()
@@ -21,14 +21,14 @@ trait Types { self: IRs =>
     }
 
     object Operators {
-      sealed trait Operator
+      abstract class Operator
       case object Set extends Operator
       case object Map extends Operator
       case object Bag extends Operator
     }
 
     object Primitives {
-      sealed trait Type
+      abstract class Type
       case class BVType(size: Int) extends Type
       case object IntegerType extends Type
       case object StringType extends Type

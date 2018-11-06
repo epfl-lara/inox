@@ -16,7 +16,7 @@ trait ADTs { self: IRs =>
         constructors.getHoles
     }
 
-    sealed abstract class Constructor extends IR
+    abstract class Constructor extends IR
 
     case class ConstructorValue(
       identifier: Identifiers.Identifier,

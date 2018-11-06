@@ -6,7 +6,7 @@ trait Bindings { self: IRs =>
 
   object Bindings {
 
-    sealed abstract class Binding extends IR {
+    abstract class Binding extends IR {
       override def getHoles: Seq[Hole] = this match {
         case BindingHole(index) => Seq(Hole(index, HoleTypes.ValDef))
         case ExplicitValDef(identifier, tpe) => identifier.getHoles ++ tpe.getHoles
