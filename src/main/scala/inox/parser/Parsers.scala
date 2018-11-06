@@ -318,6 +318,32 @@ trait Parsers extends StringContextParsers
       ps  <- (p('(') ~> hseqParser(exprParser, p(','), allowEmpty=true) <~ p(')'))
     } yield PrimitiveInvocation(f, tps, ps)
 
+
+    val castName: Parser[(Casts.Mode, Int)] = {
+
+      class CastName(name: String) {
+        def unapply(x: String): Option[Int] = for {
+          t <- Some(x.startsWith(name))
+          if t
+          bi <- scala.util.Try(BigInt(x.drop(name.size))).toOption
+          if bi.isValidInt
+        } yield bi.intValue
+      }
+
+      object NarrowName extends CastName("narrow")
+      object WidenName extends CastName("widen")
+
+      acceptMatch("cast function name", {
+        case lexical.Identifier(NarrowName(size)) => (Casts.Narrow, size)
+        case lexical.Identifier(WidenName(size)) => (Casts.Widen, size)
+      })
+    }
+
+    val castParser: Parser[Expr] = for {
+      (mode, size) <- castName
+      arg <- p('(') ~> exprParser <~ p(')')
+    } yield Cast(mode, arg, size)
+
     val invocationParser: Parser[Expr] = for {
       i   <- identifierParser
       tps <- opt(p('[') ~> hseqParser(typeParser, p(',')) <~ p(']'))
@@ -333,6 +359,7 @@ trait Parsers extends StringContextParsers
       unitLiteralParser          |
       primitiveConstructorParser |
       primitiveInvocationParser  |
+      castParser                 |
       invocationParser           |
       exprHoleParser             |
       variableParser             |
