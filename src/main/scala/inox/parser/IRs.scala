@@ -16,7 +16,7 @@ trait IRs
 
   type ErrorMessage = String
 
-  sealed trait HoleType
+  trait HoleType
   object HoleTypes {
     case object Identifier extends HoleType
     case object Type extends HoleType
