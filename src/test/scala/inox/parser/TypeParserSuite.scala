@@ -78,6 +78,29 @@ class TypeParserSuite extends FunSuite {
     }
   }
 
+  test("Parsing unsigned BitVector types") {
+
+    assertResult(BVType(false, 32)) {
+      t"UInt32"
+    }
+
+    assertResult(BVType(false, 64)) {
+      t"UInt64"
+    }
+
+    assertResult(BVType(false, 17)) {
+      t"UInt17"
+    }
+
+    assertResult(BVType(false, 1273)) {
+      t"UInt1273"
+    }
+
+    assertResult(BVType(false, 1)) {
+      t"UInt1"
+    }
+  }
+
   test("Parsing Set types") {
 
     assertResult(SetType(IntegerType())) {

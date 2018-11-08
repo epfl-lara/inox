@@ -47,7 +47,7 @@ trait Solvers { self: Constraints with SimpleTypes with IRs with ElaborationErro
         case (_, u2: Unknown) => if (!tpe1.contains(u2)) unify(u2, tpe1) else throw UnificationError(unificationImpossible(tpe1, tpe2), Seq(tpe1.pos, tpe2.pos))
         case (UnitType(), UnitType()) => ()
         case (IntegerType(), IntegerType()) => ()
-        case (BitVectorType(s1), BitVectorType(s2)) if s1 == s2 => ()
+        case (BitVectorType(signed1, size1), BitVectorType(signed2, size2)) if signed1 == signed2 && size1 == size2 => ()
         case (BooleanType(), BooleanType()) => ()
         case (StringType(), StringType()) => ()
         case (CharType(), CharType()) => ()

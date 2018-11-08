@@ -26,7 +26,17 @@ trait ExprElaborators { self: Elaborators =>
         val u = SimpleTypes.Unknown.fresh.setPos(template.pos)
         val v = Eventual.withUnifier { unifier =>
           unifier.get(u) match {
-            case SimpleTypes.BitVectorType(size) => trees.BVLiteral(true, value, size)
+            case SimpleTypes.BitVectorType(true, size) => trees.BVLiteral(true, value, size)
+            case SimpleTypes.BitVectorType(false, size) => {
+              if (value >= 0) {
+                trees.BVLiteral(false, value, size)
+              }
+              else {
+                val bound = BigInt(2).pow(size)
+                val complement = (bound + value) mod bound
+                trees.BVLiteral(false, complement, size)
+              }
+            }
             case SimpleTypes.IntegerType() => trees.IntegerLiteral(value)
             case SimpleTypes.RealType() => trees.FractionLiteral(value, 1)
             case _ => throw new IllegalStateException("Unifier returned unexpected value.")
@@ -117,11 +127,11 @@ trait ExprElaborators { self: Elaborators =>
       case Cast(Casts.Widen, expr, size) => for {
         (st, ev) <- ExprE.elaborate(expr)
         _ <- Constrained(Constraint.isBits(st, upper=Some(size - 1)))
-      } yield (SimpleTypes.BitVectorType(size).setPos(template.pos), ev.map(trees.BVWideningCast(_, trees.BVType(true, size))))
+      } yield (SimpleTypes.BitVectorType(true, size).setPos(template.pos), ev.map(trees.BVWideningCast(_, trees.BVType(true, size))))
       case Cast(Casts.Narrow, expr, size) => for {
         (st, ev) <- ExprE.elaborate(expr)
         _ <- Constrained(Constraint.isBits(st, lower=Some(size + 1)))
-      } yield (SimpleTypes.BitVectorType(size).setPos(template.pos), ev.map(trees.BVNarrowingCast(_, trees.BVType(true, size))))
+      } yield (SimpleTypes.BitVectorType(true, size).setPos(template.pos), ev.map(trees.BVNarrowingCast(_, trees.BVType(true, size))))
       case Choose(binding, body) => for {
         sb <- BindingE.elaborate(binding)
         (st, evb) <- ExprE.elaborate(body)(store.addBinding(sb))

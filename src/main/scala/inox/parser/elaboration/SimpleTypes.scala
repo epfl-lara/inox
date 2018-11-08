@@ -13,7 +13,7 @@ trait SimpleTypes { self: Trees =>
       def withPos(pos: Position): Type = this match {
         case UnitType() => UnitType().setPos(pos)
         case BooleanType() => BooleanType().setPos(pos)
-        case BitVectorType(size) => BitVectorType(size).setPos(pos)
+        case BitVectorType(signed, size) => BitVectorType(signed, size).setPos(pos)
         case IntegerType() => IntegerType().setPos(pos)
         case StringType() => StringType().setPos(pos)
         case CharType() => CharType().setPos(pos)
@@ -64,7 +64,7 @@ trait SimpleTypes { self: Trees =>
     }
     case class UnitType() extends Type
     case class BooleanType() extends Type
-    case class BitVectorType(size: Int) extends Type
+    case class BitVectorType(signed: Boolean, size: Int) extends Type
     case class IntegerType() extends Type
     case class StringType() extends Type
     case class CharType() extends Type
@@ -104,7 +104,7 @@ trait SimpleTypes { self: Trees =>
       case trees.IntegerType() => Some(IntegerType())
       case trees.RealType() => Some(RealType())
       case trees.StringType() => Some(StringType())
-      case trees.BVType(true, size) => Some(BitVectorType(size))
+      case trees.BVType(signed, size) => Some(BitVectorType(signed, size))
       case trees.TypeParameter(id, _) => Some(TypeParameter(id))
       case trees.TupleType(ts) => ts.foldLeft(Option(Seq[Type]())) {
         case (acc, t) => acc.flatMap(xs => fromInox(t).map(x => xs :+ x))
@@ -132,7 +132,7 @@ trait SimpleTypes { self: Trees =>
       case u: Unknown => throw new IllegalArgumentException("Unexpected Unknown.")
       case UnitType() => trees.UnitType()
       case BooleanType() => trees.BooleanType()
-      case BitVectorType(size) => trees.BVType(true, size)
+      case BitVectorType(signed, size) => trees.BVType(signed, size)
       case IntegerType() => trees.IntegerType()
       case StringType() => trees.StringType()
       case CharType() => trees.CharType()

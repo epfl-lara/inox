@@ -90,7 +90,7 @@ trait Parsers extends StringContextParsers
 
     object PrimitiveType {
       def unapply(arg: String): Option[Primitives.Type] = arg match {
-        case "Int" => Some(BVType(32))
+        case "Int" => Some(BVType(true, 32))
         case "Integer" => Some(IntegerType)
         case "Real" => Some(RealType)
         case "Boolean" => Some(BooleanType)
@@ -99,7 +99,11 @@ trait Parsers extends StringContextParsers
         case "Unit" => Some(UnitType)
         case _ if arg.startsWith("Int") => scala.util.Try {
           val size = BigInt(arg.drop(3))
-          BVType(size.toInt)
+          BVType(true, size.toInt)
+        }.toOption
+        case _ if arg.startsWith("UInt") => scala.util.Try {
+          val size = BigInt(arg.drop(4))
+          BVType(false, size.toInt)
         }.toOption
         case _ => None
       }

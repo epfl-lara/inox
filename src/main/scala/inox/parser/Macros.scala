@@ -154,8 +154,8 @@ class Macros(final val c: Context) extends Parsers with IRs with Errors {
   }
 
   implicit lazy val typePrimitivesLiftable: Liftable[Types.Primitives.Type] = Liftable[Types.Primitives.Type] {
-    case Primitives.BVType(size) =>
-      q"$interpolator.Types.Primitives.BVType($size)"
+    case Primitives.BVType(signed, size) =>
+      q"$interpolator.Types.Primitives.BVType($signed, $size)"
     case Primitives.IntegerType =>
       q"$interpolator.Types.Primitives.IntegerType"
     case Primitives.StringType =>

@@ -29,7 +29,7 @@ trait Types { self: IRs =>
 
     object Primitives {
       abstract class Type
-      case class BVType(size: Int) extends Type
+      case class BVType(signed: Boolean, size: Int) extends Type
       case object IntegerType extends Type
       case object StringType extends Type
       case object CharType extends Type

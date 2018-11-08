@@ -127,6 +127,49 @@ class ExprLiteralParserSuite extends FunSuite {
     }
   }
 
+  test("Parsing unsigned BV literals.") {
+
+    assertResult(BVLiteral(false, 0, 8)) {
+      e"0 as UInt8"
+    }
+
+    assertResult(BVLiteral(false, 2, 8)) {
+      e"258 as UInt8"
+    }
+
+    assertResult(BVLiteral(false, 3, 5)) {
+      e"1027 as UInt5"
+    }
+
+    assertResult(BVLiteral(false, 7, 64)) {
+      e"7 as UInt64"
+    }
+
+    assertResult(BVLiteral(false, 15, 4)) {
+      e"-1 as UInt4"
+    }
+
+    assertResult(BVLiteral(false, BitSet(), 2)) {
+      e"4 as UInt2"
+    }
+
+    assertResult(BVLiteral(false, BitSet(1), 2)) {
+      e"1 as UInt2"
+    }
+
+    assertResult(BVLiteral(false, BitSet(2), 2)) {
+      e"2 as UInt2"
+    }
+
+    assertResult(BVLiteral(false, BitSet(1, 2), 2)) {
+      e"3 as UInt2"
+    }
+
+    assertResult(BVLiteral(true, BitSet(1, 2), 2)) {
+      e"-1 as Int2"
+    }
+  }
+
   test("Parsing Real literals.") {
 
     assertResult(FractionLiteral(0, 1)) {

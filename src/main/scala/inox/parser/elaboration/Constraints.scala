@@ -23,8 +23,8 @@ trait Constraints { self: IRs with SimpleTypes with ElaborationErrors =>
     def isNumeric(elem: Type): Constraint = HasClass(elem, Numeric)
     def isIntegral(elem: Type): Constraint = HasClass(elem, Integral)
     def isComparable(elem: Type): Constraint = HasClass(elem, Comparable)
-    def isBits(elem: Type, lower: Option[Int] = None, upper: Option[Int] = None) =
-      HasClass(elem, Bits((lower, upper) match {
+    def isBits(elem: Type, lower: Option[Int] = None, upper: Option[Int] = None, signed: Boolean = true) =
+      HasClass(elem, Bits(signed, (lower, upper) match {
         case (None, None) => NoSpec
         case (Some(l), None) => GreaterEquals(l)
         case (None, Some(u)) => LessEquals(u)
@@ -304,9 +304,10 @@ trait Constraints { self: IRs with SimpleTypes with ElaborationErrors =>
         }
         case (_, WithIndices(_)) => None
         case (WithIndices(_), _) => None
-        case (Bits(s1), Bits(s2)) => s1.combine(s2).map {
-          case Between(low, high) if low == high => Seq(Equals(tpe, BitVectorType(low)))
-          case s3 => Seq(HasClass(tpe, Bits(s3)))
+        case (Bits(signed1, _), Bits(signed2, _)) if signed1 != signed2 => None
+        case (Bits(signed, size1), Bits(_, size2)) => size1.combine(size2).map {
+          case Between(low, high) if low == high => Seq(Equals(tpe, BitVectorType(signed, low)))
+          case s3 => Seq(HasClass(tpe, Bits(signed, s3)))
         }
         case (b: Bits, _) => Some(Seq(HasClass(tpe, b)))
         case (_, b: Bits) => Some(Seq(HasClass(tpe, b)))
@@ -353,12 +354,12 @@ trait Constraints { self: IRs with SimpleTypes with ElaborationErrors =>
     case object Integral extends TypeClass {
       override def accepts(tpe: Type) = tpe match {
         case IntegerType() => Some(Seq())
-        case _ => Bits(NoSpec).accepts(tpe)
+        case _ => Bits(true, NoSpec).accepts(tpe).orElse(Bits(false, NoSpec).accepts(tpe))
       }
     }
-    case class Bits(size: SizeSpec) extends TypeClass {
+    case class Bits(signed: Boolean, size: SizeSpec) extends TypeClass {
       override def accepts(tpe: Type) = tpe match {
-        case BitVectorType(value) => if (size.accepts(value)) Some(Seq()) else None
+        case BitVectorType(`signed`, value) => if (size.accepts(value)) Some(Seq()) else None
         case _ => None
       }
     }
