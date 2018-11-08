@@ -32,8 +32,7 @@ trait ExprElaborators { self: Elaborators =>
                 trees.BVLiteral(false, value, size)
               }
               else {
-                val bound = BigInt(2).pow(size)
-                val complement = (bound + value) mod bound
+                val complement = value.mod(BigInt(2).pow(size))
                 trees.BVLiteral(false, complement, size)
               }
             }
