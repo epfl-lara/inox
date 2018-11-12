@@ -66,7 +66,7 @@ trait Types { self: Trees =>
 
   sealed case class BVType(signed: Boolean, size: Int) extends Type
 
-  sealed abstract class BVTypeExtractor(signed: Boolean, size: Int) {
+  abstract class BVTypeExtractor(signed: Boolean, size: Int) {
     def apply(): BVType = BVType(signed, size)
     def unapply(tpe: BVType): Boolean = tpe.signed == signed && tpe.size == size
   }
