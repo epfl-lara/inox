@@ -93,10 +93,10 @@ class ExtractorSuite extends FunSuite {
       case _ => fail("Did not match.")
     }
 
-    t"(x: Int) => { y: Int | x < y }" match {
+    t"Pi (x: Int) => { y: Int | x < y }" match {
       case t"Int => Int" => fail("Did match.")
       case t"Int => $t" => fail("Did match.")
-      case t"(x: $t) => $t2" =>
+      case t"Pi (x: $t) => $t2" =>
         assert(t == Int32Type())
       case _ => fail("Did not match.")
     }

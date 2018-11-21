@@ -141,11 +141,6 @@ trait Parsers extends StringContextParsers
         xs => if (xs.elems.size == 1 && xs.elems.head.isRight) xs.elems.head.right.get else TupleType(xs)
       }
 
-    val sigmaTypeParser: Parser[Type] =
-      p('(') ~> hseqParser(bindingParser(explicitOnly=true), p(',')) ~ (kw("->") ~> typeParser) <~ p(')') ^^ {
-        case bs ~ tpe => SigmaType(bs, tpe)
-      }
-
     val variableParser: Parser[Type] = identifierParser ^^ {
       case i => Types.Variable(i)
     }
@@ -167,8 +162,7 @@ trait Parsers extends StringContextParsers
       invocationParser     |
       variableParser       |
       refinementTypeParser |
-      inParensParser       |
-      sigmaTypeParser) withError(expected("a type"))
+      inParensParser) withError(expected("a type"))
 
     lazy val typesGroup: Parser[HSeq[Type]] =
       (p('(') ~> hseqParser(typeParser, p(','), allowEmpty=true) <~ (p(')'))) |
@@ -177,10 +171,14 @@ trait Parsers extends StringContextParsers
     lazy val depTypesGroup: Parser[HSeq[Binding]] =
       (p('(') ~> hseqParser(bindingParser(explicitOnly=true), p(','), allowEmpty=true) <~ (p(')')))
 
-    lazy val ret = positioned(rep((typesGroup.map(Right(_)) <~ kw("=>")) | (depTypesGroup.map(Left(_)) <~ kws("->", "=>"))) ~ singleTypeParser ^^ { case as ~ b =>
-      as.foldRight(b) {
-        case (Left(xs), acc) => PiType(xs, acc)
-        case (Right(xs), acc) => FunctionType(xs, acc)
+    lazy val arrowLeft: Parser[Type => Type] =
+      (typesGroup ^^ (lhs => (rhs: Type) => FunctionType(lhs, rhs))) |
+      (kw("Pi") ~> depTypesGroup ^^ (lhs => (rhs: Type) => PiType(lhs, rhs))) |
+      (kw("Sigma") ~> depTypesGroup ^^ (lhs => (rhs: Type) => SigmaType(lhs, rhs)))
+
+    lazy val ret = positioned(rep(arrowLeft <~ kw("=>")) ~ singleTypeParser ^^ { case fs ~ x =>
+      fs.foldRight(x) {
+        case (f, acc) => f(acc)
       }
     })
 
@@ -230,7 +228,7 @@ trait Parsers extends StringContextParsers
       b <- bindingParser(explicitOnly=false)
       _ <- kw("=")
       v <- exprParser
-      _ <- kw("in")
+      _ <- p(';')
       e <- exprParser
     } yield Let(b, v, e)
 

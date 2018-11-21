@@ -22,7 +22,7 @@ trait Lexers extends Operators {
     case class Hole(pos: Int) extends Token { def chars = "$" + pos }
     case class Primitive(name: String) extends Token { def chars = name }
 
-    reserved ++= Seq("true", "false", "if", "else", "forall", "lambda", "choose", "let", "in", "assume", "def", "type", "is", "as")
+    reserved ++= Seq("true", "false", "if", "else", "forall", "lambda", "choose", "let", "assume", "def", "type", "is", "as", "Pi", "Sigma")
 
     val operators = (binaries.flatMap(_.ops) ++ unaries).distinct
 
@@ -43,7 +43,6 @@ trait Lexers extends Operators {
       acceptSeq("if") <~ not(identChar | digit) ^^^ Keyword("if") |
       acceptSeq("else") <~ not(identChar | digit) ^^^ Keyword("else") |
       acceptSeq("let") <~ not(identChar | digit) ^^^ Keyword("let") |
-      acceptSeq("in") <~ not(identChar | digit) ^^^ Keyword("in") |
       acceptSeq("assume") <~ not(identChar | digit) ^^^ Keyword("assume") |
       acceptSeq("=") ^^^ Keyword("=") |
       acceptSeq("def") ^^^ Keyword("def") |
@@ -54,12 +53,17 @@ trait Lexers extends Operators {
       acceptSeq("lambda") ^^^ Keyword("lambda") |
       acceptSeq("forall") ^^^ Keyword("forall") |
       '∀' ^^^ Keyword("forall") |
-      'λ' ^^^ Keyword("lambda")
+      'λ' ^^^ Keyword("lambda") |
+      acceptSeq("Pi") ^^^ Keyword("Pi") |
+      acceptSeq("Sigma") ^^^ Keyword("Sigma") |
+      'Π' ^^^ Keyword("Pi") |
+      'Σ' ^^^ Keyword("Sigma")
 
     val comma: Parser[Token] = ',' ^^^ Punctuation(',')
     val dot: Parser[Token] = '.' ^^^ Punctuation('.')
     val colon: Parser[Token] = ':' ^^^ Punctuation(':')
-    val punctuation: Parser[Token] = comma | dot | colon
+    val semicolon: Parser[Token] = ';' ^^^ Punctuation(';')
+    val punctuation: Parser[Token] = comma | dot | colon | semicolon
 
     val number = opt('-') ~ rep1(digit) ~ opt('.' ~> afterDot) ^^ {
       case s ~ ds ~ None => NumericLit(s.map(x => "-").getOrElse("") + ds.mkString)
