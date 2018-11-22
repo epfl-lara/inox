@@ -235,23 +235,23 @@ trait Parsers extends StringContextParsers
     } yield Let(b, v, e)
 
     val lambdaParser: Parser[Expr] = for {
-      _  <- kw("lambda")
-      ps <- hseqParser(bindingParser(explicitOnly=false), p(','), allowEmpty=true)
-      _  <- p('.')
+      _  <- opt(kw("lambda"))
+      ps <- p('(') ~> hseqParser(bindingParser(explicitOnly=false), p(','), allowEmpty=true) <~ p(')')
+      _  <- kw("=>")
       e  <- exprParser
     } yield Abstraction(Lambda, ps, e)
 
     val forallParser: Parser[Expr] = for {
       _  <- kw("forall")
-      ps <- hseqParser(bindingParser(explicitOnly=false), p(','))
-      _  <- p('.')
+      ps <- p('(') ~> hseqParser(bindingParser(explicitOnly=false), p(',')) <~ p(')')
+      _  <- kw("=>")
       e  <- exprParser
     } yield Abstraction(Forall, ps, e)
 
     val chooseParser: Parser[Expr] = for {
       _ <- kw("choose")
-      b <- bindingParser(explicitOnly=false)
-      _ <- p('.')
+      b <- p('(') ~> bindingParser(explicitOnly=false) <~ p(')')
+      _ <- kw("=>")
       e <- exprParser
     } yield Choose(b, e)
 
