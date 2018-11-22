@@ -223,6 +223,8 @@ trait Parsers extends StringContextParsers
       if (xs.elems.size == 1 && xs.elems.head.isRight) xs.elems.head.right.get else Tuple(xs)
     }
 
+    val blockParser: Parser[Expr] = p('{') ~> exprParser <~ p('}')
+
     val letParser: Parser[Expr] = for {
       _ <- kw("let")
       b <- bindingParser(explicitOnly=false)
@@ -366,6 +368,7 @@ trait Parsers extends StringContextParsers
       exprHoleParser             |
       variableParser             |
       tupleParser                |
+      blockParser                |
       ifParser                   |
       letParser                  |
       lambdaParser               |
