@@ -7,7 +7,7 @@ Inox String Interpolation
 
 - ***[Introduction](#introduction)***
   - [Importing](#importing)
-- ***[Syntax](#syntax)***
+- ***[Expressions](#expressions)***
   - [Literals](#literals)
     - [Boolean](#boolean-literals)
     - [Numeric](#numeric-literals)
@@ -61,12 +61,12 @@ It is also possible to embed types and expressions:
 ```scala
 scala> e"let x: $tpe = $expr; !x"
 res1: inox.trees.Expr =
-val x: Boolean = 1 + 1 == 2
-¬x
+let x: Boolean = 1 + 1 == 2;
+!x
 ```
 
-<a name="syntax"></a>
-# Syntax
+<a name="expressions"></a>
+# Expressions
 
 <a name="literals"></a>
 ## Literals
@@ -97,7 +97,7 @@ scala> val bigIntLit = e"1"
 bigIntLit: inox.trees.Expr = 1
 
 scala> bigIntLit.getType
-res5: inox.trees.Type = BigInt
+res5: inox.trees.Type = Integer
 ```
 
 It is however possible to annotate the desired type.
@@ -171,8 +171,8 @@ if (1 == 2) {
 ```scala
 scala> e"let word: String = 'World!'; concatenate('Hello ', word)"
 res13: inox.trees.Expr =
-val word: String = "World!"
-"Hello " + word
+let word: String = "World!";
+concatenate("Hello ", word)
 ```
 
 <a name="lambda-expressions"></a>
@@ -180,21 +180,21 @@ val word: String = "World!"
 
 ```scala
 scala> e"lambda (x: Integer, y: Integer) => x + y"
-res14: inox.trees.Expr = (x: BigInt, y: BigInt) => x + y
+res14: inox.trees.Expr = (x: Integer, y: Integer) => x + y
 ```
 
 It is also possible to use the Unicode `λ` symbol.
 
 ```scala
 scala> e"λ(x: Integer, y: Integer) => x + y"
-res15: inox.trees.Expr = (x: BigInt, y: BigInt) => x + y
+res15: inox.trees.Expr = (x: Integer, y: Integer) => x + y
 ```
 
 Or even use this syntax:
 
 ```scala
 scala> e"(x: Integer, y: Integer) => x + y"
-res16: inox.trees.Expr = (x: BigInt, y: BigInt) => x + y
+res16: inox.trees.Expr = (x: Integer, y: Integer) => x + y
 ```
 
 Type annotations can be omitted for any of the parameters if their type can be inferred.
@@ -212,10 +212,10 @@ res17: inox.trees.Expr = (x: Real) => x * 1/2
 
 ```scala
 scala> e"forall (x: Int) => x > 0"
-res18: inox.trees.Expr = ∀x: Int. (x > 0)
+res18: inox.trees.Expr = ∀ (x: Int) => (x > 0)
 
 scala> e"∀(x) => x || true"
-res19: inox.trees.Expr = ∀x: Boolean. (x || true)
+res19: inox.trees.Expr = ∀ (x: Boolean) => (x || true)
 ```
 
 <a name="choose"></a>
@@ -223,10 +223,10 @@ res19: inox.trees.Expr = ∀x: Boolean. (x || true)
 
 ```scala
 scala> e"choose (x) => x * 3 < 17"
-res20: inox.trees.Expr = choose((x: BigInt) => x * 3 < 17)
+res20: inox.trees.Expr = choose (x: Integer) => x * 3 < 17
 
 scala> e"choose (x: String) => length(x) == 10"
-res21: inox.trees.Expr = choose((x: String) => x.length == 10)
+res21: inox.trees.Expr = choose (x: String) => length(x) == 10
 ```
 
 <a name="primitives"></a>
@@ -321,3 +321,29 @@ res21: inox.trees.Expr = choose((x: String) => x.length == 10)
 | -------- | ---- | ----------- | ---------------- |
 | `apply[K, V]` | `(Map[K, V], K) => V` | Returns the value associated to the given key. | `MapApply` |
 | `updated[K, V]` | `(Map[K, V], K, V) => Map[K, V]` | Returns the map with a bidding from the key to the value added. | `MapUpdated` |
+
+<a name="type-definitions"></a>
+# Type Definitions
+
+```scala
+scala> td"type List[A] = Cons(head: A, tail: List[A]) | Nil()"
+res22: inox.trees.ADTSort = type List[A] = Cons(head: A, tail: List[A]) | Nil()
+```
+
+```scala
+scala> td"type Option[A] = Some(value: A) | None()"
+res23: inox.trees.ADTSort = type Option[A] = Some(value: A) | None()
+```
+
+<a name="type-definitions"></a>
+# Function Definitions
+
+```scala
+scala> fd"def id[A](x: A): A = x"
+res24: inox.trees.FunDef = def id[A](x: A): A = x
+```
+
+```scala
+scala> fd"def twice[A](f: A => A): A => A = (x: A) => f(f(x))"
+res25: inox.trees.FunDef = def twice[A](f: (A) => A): (A) => A = (x: A) => f(f(x))
+```

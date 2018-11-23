@@ -7,7 +7,7 @@ Inox String Interpolation
 
 - ***[Introduction](#introduction)***
   - [Importing](#importing)
-- ***[Syntax](#syntax)***
+- ***[Expressions](#expressions)***
   - [Literals](#literals)
     - [Boolean](#boolean-literals)
     - [Numeric](#numeric-literals)
@@ -59,8 +59,8 @@ It is also possible to embed types and expressions:
 e"let x: $tpe = $expr; !x"
 ```
 
-<a name="syntax"></a>
-# Syntax
+<a name="expressions"></a>
+# Expressions
 
 <a name="literals"></a>
 ## Literals
@@ -279,3 +279,25 @@ e"choose (x: String) => length(x) == 10"
 | -------- | ---- | ----------- | ---------------- |
 | `apply[K, V]` | `(Map[K, V], K) => V` | Returns the value associated to the given key. | `MapApply` |
 | `updated[K, V]` | `(Map[K, V], K, V) => Map[K, V]` | Returns the map with a bidding from the key to the value added. | `MapUpdated` |
+
+<a name="type-definitions"></a>
+# Type Definitions
+
+```tut
+td"type List[A] = Cons(head: A, tail: List[A]) | Nil()"
+```
+
+```tut
+td"type Option[A] = Some(value: A) | None()"
+```
+
+<a name="type-definitions"></a>
+# Function Definitions
+
+```tut
+fd"def id[A](x: A): A = x"
+```
+
+```tut
+fd"def twice[A](f: A => A): A => A = (x: A) => f(f(x))"
+```
