@@ -234,6 +234,13 @@ trait Parsers extends StringContextParsers
       e <- exprParser
     } yield Let(b, v, e)
 
+    val assumeParser: Parser[Expr] = for {
+      _ <- kw("assume")
+      v <- p('(') ~> exprParser <~ p(')')
+      _ <- p(';')
+      e <- exprParser
+    } yield Assume(v, e)
+
     val lambdaParser: Parser[Expr] = for {
       _  <- opt(kw("lambda"))
       ps <- p('(') ~> hseqParser(bindingParser(explicitOnly=false), p(','), allowEmpty=true) <~ p(')')
@@ -371,6 +378,7 @@ trait Parsers extends StringContextParsers
       blockParser                |
       ifParser                   |
       letParser                  |
+      assumeParser               |
       lambdaParser               |
       forallParser               |
       chooseParser).withError(expected("an expression"))

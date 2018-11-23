@@ -133,4 +133,15 @@ class ExprParserSuite extends FunSuite {
     assert(i.thenn == StringLiteral("Hello."))
     assert(i.elze == StringLiteral("Hi!"))
   }
+
+  test("Parsing assume.") {
+    val e = e"assume(3 > 4); 7"
+
+    assert(e.isInstanceOf[Assume])
+
+    val a = e.asInstanceOf[Assume]
+
+    assert(a.pred == GreaterThan(IntegerLiteral(3), IntegerLiteral(4)))
+    assert(a.body == IntegerLiteral(7))
+  }
 }
