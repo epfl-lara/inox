@@ -100,7 +100,6 @@ class ExprParserSuite extends FunSuite {
     assert(l3.body == Equals(StringLength(l3.params(0).toVariable), l3.params(1).toVariable))
   }
 
-
   test("Parsing choose expressions.") {
     val e1 = e"choose (x: Int) => x > 0"
 
@@ -121,5 +120,17 @@ class ExprParserSuite extends FunSuite {
     assert(l2.res.id.name == "x")
     assert(l2.res.tpe == IntegerType())
     assert(l2.pred == Equals(l2.res.toVariable, IntegerLiteral(1)))
+  }
+
+  test("Parsing if-expressions.") {
+    val e = e"if (3 > 4) 'Hello.' else 'Hi!'"
+
+    assert(e.isInstanceOf[IfExpr])
+
+    val i = e.asInstanceOf[IfExpr]
+
+    assert(i.cond == GreaterThan(IntegerLiteral(3), IntegerLiteral(4)))
+    assert(i.thenn == StringLiteral("Hello."))
+    assert(i.elze == StringLiteral("Hi!"))
   }
 }
