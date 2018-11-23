@@ -13,8 +13,8 @@ class ExtractorSuite extends FunSuite {
     val es = Seq(
       e"true",
       e"12 + 3",
-      e"forall x. x + x > 12.0",
-      e"choose x. x * x == 2.0")
+      e"forall (x) => x + x > 12.0",
+      e"choose (x) => x * x == 2.0")
 
     for (e <- es) {
       e match {

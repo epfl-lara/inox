@@ -44,7 +44,7 @@ class FunctionDefinitionsParserSuite extends FunSuite {
   }
 
   test("Parsing rep.") {
-    val repFunDef = fd"def rep[A](f: A => A, n: Int) = if (n == 0) lambda x. x else lambda x. f(rep(f, n - 1)(x))"
+    val repFunDef = fd"def rep[A](f: A => A, n: Int) = if (n == 0) lambda (x) => x else lambda (x) => f(rep(f, n - 1)(x))"
 
     assert(repFunDef.id.name == "rep")
     assert(repFunDef.tparams.size == 1)

@@ -11,7 +11,7 @@ class QuantifierParserSuite extends FunSuite {
 
   test("Parsing forall.") {
 
-    e"forall x. x > 2" match {
+    e"forall (x) => x > 2" match {
       case Forall(Seq(ValDef(id, IntegerType(), _)), expr) =>
         assertResult(GreaterThan(Variable(id, IntegerType(), Seq()), IntegerLiteral(2))) {
           expr
@@ -19,7 +19,7 @@ class QuantifierParserSuite extends FunSuite {
       case e => fail("Unexpected shape: " + e)
     }
 
-    e"forall x: Integer. false ==> true" match {
+    e"forall (x: Integer) => false ==> true" match {
       case Forall(Seq(ValDef(id, IntegerType(), _)), expr) =>
         assertResult(Implies(BooleanLiteral(false), BooleanLiteral(true))) {
           expr
@@ -27,7 +27,7 @@ class QuantifierParserSuite extends FunSuite {
       case e => fail("Unexpected shape: " + e)
     }
 
-    e"true && forall x: Integer. false ==> true" match {
+    e"true && forall (x: Integer) => false ==> true" match {
       case And(Seq(BooleanLiteral(true), Forall(Seq(ValDef(id, IntegerType(), _)), expr))) =>
         assertResult(Implies(BooleanLiteral(false), BooleanLiteral(true))) {
           expr
@@ -35,7 +35,7 @@ class QuantifierParserSuite extends FunSuite {
       case e => fail("Unexpected shape: " + e)
     }
 
-    e"forall f, x: Int, y, z. f(f(x, y), z) == f(x, f(y, z))" match {
+    e"forall (f, x: Int, y, z) => f(f(x, y), z) == f(x, f(y, z))" match {
       case Forall(Seq(ValDef(idF, FunctionType(Seq(Int32Type(), Int32Type()), Int32Type()), _),
                       ValDef(idX, Int32Type(), _),
                       ValDef(idY, Int32Type(), _),
@@ -55,7 +55,7 @@ class QuantifierParserSuite extends FunSuite {
 
   test("Parsing choose.") {
 
-    e"choose x. x > 2" match {
+    e"choose (x) => x > 2" match {
       case Choose(ValDef(id, IntegerType(), _), expr) =>
         assertResult(GreaterThan(Variable(id, IntegerType(), Seq()), IntegerLiteral(2))) {
           expr
@@ -63,7 +63,7 @@ class QuantifierParserSuite extends FunSuite {
       case e => fail("Unexpected shape: " + e)
     }
 
-    e"choose x: Integer. false ==> true" match {
+    e"choose (x: Integer) => false ==> true" match {
       case Choose(ValDef(id, IntegerType(), _), expr) =>
         assertResult(Implies(BooleanLiteral(false), BooleanLiteral(true))) {
           expr
@@ -71,7 +71,7 @@ class QuantifierParserSuite extends FunSuite {
       case e => fail("Unexpected shape: " + e)
     }
 
-    e"4 + choose x: Integer. false ==> true" match {
+    e"4 + choose (x: Integer) => false ==> true" match {
       case Plus(IntegerLiteral(_), Choose(ValDef(id, IntegerType(), _), expr)) =>
         assertResult(Implies(BooleanLiteral(false), BooleanLiteral(true))) {
           expr
@@ -82,7 +82,7 @@ class QuantifierParserSuite extends FunSuite {
 
   test("Parsing lambda.") {
 
-    e"lambda x. x > 2" match {
+    e"lambda (x) => x > 2" match {
       case Lambda(Seq(ValDef(id, IntegerType(), _)), expr) =>
         assertResult(GreaterThan(Variable(id, IntegerType(), Seq()), IntegerLiteral(2))) {
           expr
@@ -90,7 +90,7 @@ class QuantifierParserSuite extends FunSuite {
       case e => fail("Unexpected shape: " + e)
     }
 
-    e"lambda x: Integer. false ==> true" match {
+    e"lambda (x: Integer) => false ==> true" match {
       case Lambda(Seq(ValDef(id, IntegerType(), _)), expr) =>
         assertResult(Implies(BooleanLiteral(false), BooleanLiteral(true))) {
           expr
@@ -98,7 +98,7 @@ class QuantifierParserSuite extends FunSuite {
       case e => fail("Unexpected shape: " + e)
     }
 
-    e"(lambda x: Integer. false ==> true)(17)" match {
+    e"((x: Integer) => false ==> true)(17)" match {
       case Application(Lambda(Seq(ValDef(id, IntegerType(), _)), expr), Seq(IntegerLiteral(_))) =>
         assertResult(Implies(BooleanLiteral(false), BooleanLiteral(true))) {
           expr
@@ -106,7 +106,7 @@ class QuantifierParserSuite extends FunSuite {
       case e => fail("Unexpected shape: " + e)
     }
 
-    e"(lambda x, y, z: Integer. x * y + z)(1, 2, 3)" match {
+    e"(lambda (x, y, z: Integer) => x * y + z)(1, 2, 3)" match {
       case Application(Lambda(Seq(ValDef(idX, IntegerType(), _), ValDef(idY, IntegerType(), _), ValDef(idZ, IntegerType(), _)), expr),
           Seq(vX, vY, vZ)) => {
         val x = Variable(idX, IntegerType(), Seq())
