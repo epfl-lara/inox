@@ -82,6 +82,22 @@ class QuantifierParserSuite extends FunSuite {
 
   test("Parsing lambda.") {
 
+    e"lambda x => x * 2" match {
+      case Lambda(Seq(ValDef(id, IntegerType(), _)), expr) =>
+        assertResult(Times(Variable(id, IntegerType(), Seq()), IntegerLiteral(2))) {
+          expr
+        }
+      case e => fail("Unexpected shape: " + e)
+    }
+
+    e"x => x * x" match {
+      case Lambda(Seq(ValDef(id, IntegerType(), _)), expr) =>
+        assertResult(Times(Variable(id, IntegerType(), Seq()), Variable(id, IntegerType(), Seq()))) {
+          expr
+        }
+      case e => fail("Unexpected shape: " + e)
+    }
+
     e"lambda (x) => x > 2" match {
       case Lambda(Seq(ValDef(id, IntegerType(), _)), expr) =>
         assertResult(GreaterThan(Variable(id, IntegerType(), Seq()), IntegerLiteral(2))) {

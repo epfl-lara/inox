@@ -241,23 +241,33 @@ trait Parsers extends StringContextParsers
       e <- exprParser
     } yield Assume(v, e)
 
+    val quantifierParameters: Parser[HSeq[Binding]] = {
+
+      val withParens = p('(') ~> hseqParser(bindingParser(explicitOnly=false), p(','), allowEmpty=true) <~ p(')')
+
+      val uniqueUntyped = identifierParser.map((x: Identifier) => HSeq.fromSeq(Seq(InferredValDef(x))))
+
+      positioned(withParens | uniqueUntyped)
+    }
+
     val lambdaParser: Parser[Expr] = for {
       _  <- opt(kw("lambda"))
-      ps <- p('(') ~> hseqParser(bindingParser(explicitOnly=false), p(','), allowEmpty=true) <~ p(')')
+      ps <- quantifierParameters
       _  <- kw("=>")
       e  <- exprParser
     } yield Abstraction(Lambda, ps, e)
 
     val forallParser: Parser[Expr] = for {
       _  <- kw("forall")
-      ps <- p('(') ~> hseqParser(bindingParser(explicitOnly=false), p(',')) <~ p(')')
+      ps <- quantifierParameters
       _  <- kw("=>")
       e  <- exprParser
     } yield Abstraction(Forall, ps, e)
 
     val chooseParser: Parser[Expr] = for {
       _ <- kw("choose")
-      b <- p('(') ~> bindingParser(explicitOnly=false) <~ p(')')
+      b <- (p('(') ~> bindingParser(explicitOnly=false) <~ p(')')) |
+           identifierParser.map(InferredValDef(_))
       _ <- kw("=>")
       e <- exprParser
     } yield Choose(b, e)
@@ -366,6 +376,7 @@ trait Parsers extends StringContextParsers
     }
 
     val nonOperatorParser: Parser[Expr] = positioned(
+      lambdaParser               |
       literalParser              |
       unitLiteralParser          |
       primitiveConstructorParser |
@@ -379,7 +390,6 @@ trait Parsers extends StringContextParsers
       ifParser                   |
       letParser                  |
       assumeParser               |
-      lambdaParser               |
       forallParser               |
       chooseParser).withError(expected("an expression"))
 
