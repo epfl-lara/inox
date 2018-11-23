@@ -56,7 +56,7 @@ val expr = e"1 + 1 == 2"
 It is also possible to embed types and expressions:
 
 ```tut
-e"let x: $tpe = $expr in !x"
+e"let x: $tpe = $expr; !x"
 ```
 
 <a name="syntax"></a>
@@ -140,26 +140,32 @@ e"if (1 == 2) 'foo' else 'bar'"
 ## Let bindings
 
 ```tut
-e"let word: String = 'World!' in concatenate('Hello ', word)"
+e"let word: String = 'World!'; concatenate('Hello ', word)"
 ```
 
 <a name="lambda-expressions"></a>
 ## Lambda expressions
 
 ```tut
-e"lambda x: Integer, y: Integer. x + y"
+e"lambda (x: Integer, y: Integer) => x + y"
 ```
 
 It is also possible to use the Unicode `λ` symbol.
 
 ```tut
-e"λx: Integer, y: Integer. x + y"
+e"λ(x: Integer, y: Integer) => x + y"
+```
+
+Or even use this syntax:
+
+```tut
+e"(x: Integer, y: Integer) => x + y"
 ```
 
 Type annotations can be omitted for any of the parameters if their type can be inferred.
 
 ```tut
-e"lambda x. x * 0.5"
+e"lambda (x) => x * 0.5"
 ```
 
 <a name="quantifiers"></a>
@@ -169,16 +175,16 @@ e"lambda x. x * 0.5"
 ### Universal Quantifier
 
 ```tut
-e"forall x: Int. x > 0"
-e"∀x. x || true"
+e"forall (x: Int) => x > 0"
+e"∀(x) => x || true"
 ```
 
 <a name="choose"></a>
 ## Choose
 
 ```tut
-e"choose x. x * 3 < 17"
-e"choose x: String. true"
+e"choose (x) => x * 3 < 17"
+e"choose (x: String) => length(x) == 10"
 ```
 
 <a name="primitives"></a>

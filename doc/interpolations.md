@@ -59,7 +59,7 @@ expr: inox.trees.Expr = 1 + 1 == 2
 It is also possible to embed types and expressions:
 
 ```scala
-scala> e"let x: $tpe = $expr in !x"
+scala> e"let x: $tpe = $expr; !x"
 res1: inox.trees.Expr =
 val x: Boolean = 1 + 1 == 2
 ¬x
@@ -169,7 +169,7 @@ if (1 == 2) {
 ## Let bindings
 
 ```scala
-scala> e"let word: String = 'World!' in concatenate('Hello ', word)"
+scala> e"let word: String = 'World!'; concatenate('Hello ', word)"
 res13: inox.trees.Expr =
 val word: String = "World!"
 "Hello " + word
@@ -179,22 +179,29 @@ val word: String = "World!"
 ## Lambda expressions
 
 ```scala
-scala> e"lambda x: Integer, y: Integer. x + y"
+scala> e"lambda (x: Integer, y: Integer) => x + y"
 res14: inox.trees.Expr = (x: BigInt, y: BigInt) => x + y
 ```
 
 It is also possible to use the Unicode `λ` symbol.
 
 ```scala
-scala> e"λx: Integer, y: Integer. x + y"
+scala> e"λ(x: Integer, y: Integer) => x + y"
 res15: inox.trees.Expr = (x: BigInt, y: BigInt) => x + y
+```
+
+Or even use this syntax:
+
+```scala
+scala> e"(x: Integer, y: Integer) => x + y"
+res16: inox.trees.Expr = (x: BigInt, y: BigInt) => x + y
 ```
 
 Type annotations can be omitted for any of the parameters if their type can be inferred.
 
 ```scala
-scala> e"lambda x. x * 0.5"
-res16: inox.trees.Expr = (x: Real) => x * 1/2
+scala> e"lambda (x) => x * 0.5"
+res17: inox.trees.Expr = (x: Real) => x * 1/2
 ```
 
 <a name="quantifiers"></a>
@@ -204,22 +211,22 @@ res16: inox.trees.Expr = (x: Real) => x * 1/2
 ### Universal Quantifier
 
 ```scala
-scala> e"forall x: Int. x > 0"
-res17: inox.trees.Expr = ∀x: Int. (x > 0)
+scala> e"forall (x: Int) => x > 0"
+res18: inox.trees.Expr = ∀x: Int. (x > 0)
 
-scala> e"∀x. x || true"
-res18: inox.trees.Expr = ∀x: Boolean. (x || true)
+scala> e"∀(x) => x || true"
+res19: inox.trees.Expr = ∀x: Boolean. (x || true)
 ```
 
 <a name="choose"></a>
 ## Choose
 
 ```scala
-scala> e"choose x. x * 3 < 17"
-res19: inox.trees.Expr = choose((x: BigInt) => x * 3 < 17)
+scala> e"choose (x) => x * 3 < 17"
+res20: inox.trees.Expr = choose((x: BigInt) => x * 3 < 17)
 
-scala> e"choose x: String. true"
-res20: inox.trees.Expr = choose((x: String) => true)
+scala> e"choose (x: String) => length(x) == 10"
+res21: inox.trees.Expr = choose((x: String) => x.length == 10)
 ```
 
 <a name="primitives"></a>
