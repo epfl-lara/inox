@@ -150,7 +150,7 @@ class TypeDefinitionsParserSuite extends FunSuite {
       case _ => fail("No match.")
     }
 
-    val weirdSort = td"type Weird[A, B, C] = AB(a: A, b: B) | B() | BC(b: B, c: C)"
+    val weirdSort = td"type Weird[A, B, C] = AB(a: A, b: B) | B() | BC(b2: B, c: C)"
 
     weirdSort match {
       case td"type $x[$ts...] = $cs..." => {
