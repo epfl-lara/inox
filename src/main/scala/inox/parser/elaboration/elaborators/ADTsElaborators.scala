@@ -26,6 +26,8 @@ trait ADTsElaborators { self: Elaborators =>
           .addSort(s)
           .addTypeBindings(s.typeParams)
         }).map(_.unzip)
+      fieldNames = scs.flatMap(_.params.flatMap(_.name))
+      _ <- Constrained.checkImmediate(fieldNames.toSet.size == fieldNames.size, sort, fieldsNotDistincts)
     } yield (s.copy(constructors=scs), Eventual.withUnifier { implicit unifier =>
         new trees.ADTSort(s.id, s.typeParams.map(tb => trees.TypeParameterDef(tb.id, Seq())), ecs.map(_.get), Seq()) })
   }

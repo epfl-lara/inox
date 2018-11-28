@@ -77,6 +77,9 @@ trait ElaborationErrors extends Errors { self: Elaborators =>
   val ambiguousTypes: Seq[Position] => String =
     withPositions("The following positions have ambiguous types.")
 
+  val fieldsNotDistincts: Position => String =
+    withPosition("The fields of the various constructors should have unique names.")
+
   def incompatibleTypeClasses(tc1: TypeClass, tc2: TypeClass): Seq[Position] => String = (tc1, tc2) match {
     case (WithFields(fs1, _), WithFields(fs2, _)) => withPositions("No existing class has all the following fields: " + (fs1 union fs2).toSeq.mkString(", ") + ".")
     case (WithFields(_, _), _) => withPositions("Classes can not be " + typeClassName(tc2) + ".")

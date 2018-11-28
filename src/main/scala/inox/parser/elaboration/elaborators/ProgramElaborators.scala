@@ -27,6 +27,8 @@ trait ProgramElaborators { self: Elaborators =>
           case (sort, ss) => for {
             (scs, ecs) <- new ConstructorSeqE(ss.id)
               .elaborate(sort.constructors)(storeWithEmptySorts.addTypeBindings(ss.typeParams)).map(_.unzip)
+            fieldNames = scs.flatMap(_.params.flatMap(_.name))
+            _ <- Constrained.checkImmediate(fieldNames.toSet.size == fieldNames.size, sort, fieldsNotDistincts)
           } yield (ss.copy(constructors=scs), Eventual.withUnifier { implicit unifier =>
             new trees.ADTSort(ss.id, ss.typeParams.map(tb => trees.TypeParameterDef(tb.id, Seq())), ecs.map(_.get), Seq()) })
         }).map(_.unzip)
