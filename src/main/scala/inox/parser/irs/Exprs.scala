@@ -98,13 +98,15 @@ trait Exprs { self: IRs =>
       }
     }
 
-    case class ExprHole(index: Int) extends Expr
-    case class UnitLiteral() extends Expr
-    case class BooleanLiteral(value: Boolean) extends Expr
-    case class IntegerLiteral(value: BigInt) extends Expr
-    case class FractionLiteral(numerator: BigInt, denominator: BigInt) extends Expr
-    case class StringLiteral(value: String) extends Expr
-    case class CharLiteral(value: Char) extends Expr
+    trait Literal
+
+    case class ExprHole(index: Int) extends Expr with Literal
+    case class UnitLiteral() extends Expr with Literal
+    case class BooleanLiteral(value: Boolean) extends Expr with Literal
+    case class IntegerLiteral(value: BigInt) extends Expr with Literal
+    case class FractionLiteral(numerator: BigInt, denominator: BigInt) extends Expr with Literal
+    case class StringLiteral(value: String) extends Expr with Literal
+    case class CharLiteral(value: Char) extends Expr with Literal
     case class SetConstruction(optType: Option[Types.TypeSeq], elems: ExprSeq) extends Expr
     case class BagConstruction(optType: Option[Types.TypeSeq], elems: ExprPairSeq) extends Expr
     case class MapConstruction(optTypes: Option[Types.TypeSeq], elems: ExprPairSeq, default: Expr) extends Expr
