@@ -36,7 +36,7 @@ trait FunctionElaborators { self: Elaborators =>
       (stRet, evRet) <- OptTypeE.elaborate(function.returnType match {
         case Some(tpe) => Right(tpe)
         case None => Left(function.pos)
-      })(storeWithTypeParams)
+      })(storeWithTypeParams.addBindings(bs))
     } yield SimpleFunctions.Function(i, optName, tpbs, bs, stRet, evRet)
   }
   val SignatureE = new SignatureE

@@ -57,6 +57,53 @@ class FunctionDefinitionsParserSuite extends FunSuite {
     assert(repFunDef.returnType == FunctionType(Seq(repFunDef.tparams(0).tp), repFunDef.tparams(0).tp))
   }
 
+  test("Parsing function with dependant parameters.") {
+    val fooFunDef = fd"def foo(n: Int, m: { Int | n < m }) = n + m"
+
+    assert(fooFunDef.params(0).id.name == "n")
+
+    assert(fooFunDef.params(1).id.name == "m")
+
+    assert(fooFunDef.params(1).tpe.isInstanceOf[RefinementType])
+
+    val reTpe = fooFunDef.params(1).tpe.asInstanceOf[RefinementType]
+
+    assert(reTpe.vd.id.name == fooFunDef.params(1).id.name)
+    assert(reTpe.vd.id != fooFunDef.params(1).id)
+    assert(reTpe.prop == LessThan(fooFunDef.params(0).toVariable, reTpe.vd.toVariable))
+  }
+
+  test("Parsing function with dependant parameters and type parameters.") {
+    val barFunDef = fd"def bar[A, B](x: A, y: A, f: { A => B | f(x) == f(y) }): { r: Boolean | r ==> x != y } = x != y"
+
+    assert(barFunDef.tparams.size == 2)
+
+    assert(barFunDef.params.size == 3)
+
+    assert(barFunDef.fullBody == Not(Equals(barFunDef.params(0).toVariable, barFunDef.params(1).toVariable)))
+
+    assert(barFunDef.params(2).tpe.isInstanceOf[RefinementType])
+
+    val reTpe = barFunDef.params(2).tpe.asInstanceOf[RefinementType]
+
+    assert(reTpe.vd.tpe == FunctionType(Seq(barFunDef.tparams(0).tp), barFunDef.tparams(1).tp))
+
+    assert(reTpe.vd.id.name == barFunDef.params(2).id.name)
+    assert(reTpe.vd.id != barFunDef.params(2).id)
+    assert(reTpe.prop == Equals(
+      Application(reTpe.vd.toVariable, Seq(barFunDef.params(0).toVariable)),
+      Application(reTpe.vd.toVariable, Seq(barFunDef.params(1).toVariable))))
+
+
+    assert(barFunDef.returnType.isInstanceOf[RefinementType])
+    val retReTpe = barFunDef.returnType.asInstanceOf[RefinementType]
+
+    assert(retReTpe.vd.id.name == "r")
+    assert(retReTpe.vd.tpe == BooleanType())
+    assert(retReTpe.prop == Implies(retReTpe.vd.toVariable,
+      Not(Equals(barFunDef.params(0).toVariable, barFunDef.params(1).toVariable))))
+  }
+
   test("Matching against function definitions.") {
     val fooFunDef = fd"def foo[A, B, C](x: A, y: B, f: (A, B) => C): C = f(x, y)"
 

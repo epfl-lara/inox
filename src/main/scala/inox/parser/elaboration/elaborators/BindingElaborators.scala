@@ -43,6 +43,30 @@ trait BindingElaborators { self: Elaborators =>
     override val elaborator = BindingE
     override def wrap(vd: trees.ValDef, where: IR)(implicit store: Store): Constrained[SimpleBindings.Binding] =
       Constrained.attempt(SimpleBindings.fromInox(vd).map(_.forgetName), where, invalidInoxValDef(vd))
+
+    override def elaborate(template: HSeq[Binding])(implicit store: Store): Constrained[Seq[SimpleBindings.Binding]] = {
+      val elems = template.elems
+
+      val sequence = elems.foldRight((store: Store) => Constrained.pure(Seq[SimpleBindings.Binding]())) {
+        case (x, f) => (store: Store) => x match {
+          case Left(r) => {
+            val c: Constrained[Seq[SimpleBindings.Binding]] = store.getHole[Seq[trees.ValDef]](r.index) match {
+              case None => Constrained.fail(invalidHoleType("Seq[ValDef]")(r.pos))
+              case Some(xs) => Constrained.sequence(xs.map(wrap(_, r)(store)))
+            }
+
+            c.flatMap { (as: Seq[SimpleBindings.Binding]) =>
+              f(store).map((bs: Seq[SimpleBindings.Binding]) => as ++ bs)
+            }
+          }
+          case Right(t) => elaborator.elaborate(t)(store).flatMap { (b: SimpleBindings.Binding) =>
+            f(store.addBinding(b)).map((bs: Seq[SimpleBindings.Binding]) => b +: bs)
+          }
+        }
+      }
+
+      sequence(store)
+    }
   }
   val BindingSeqE = new BindingSeqE
 }
