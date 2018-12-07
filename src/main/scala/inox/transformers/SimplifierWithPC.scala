@@ -267,11 +267,22 @@ trait SimplifierWithPC extends Transformer { self =>
 
     case n @ Not(e)   => simplifyAndCons(Seq(e), path, es => not(es.head).copiedFrom(n))
     case Equals(l, r) => simplifyAndCons(Seq(l, r), path, es => equality(es(0), es(1)).copiedFrom(e))
-    case Tuple(es)    => simplifyAndCons(es, path, es => tupleWrap(es).copiedFrom(e))
     case UMinus(t)    => simplifyAndCons(Seq(t), path, es => uminus(es.head).copiedFrom(e))
     case Plus(l, r)   => simplifyAndCons(Seq(l, r), path, es => plus(es(0), es(1)).copiedFrom(e))
     case Minus(l, r)  => simplifyAndCons(Seq(l, r), path, es => minus(es(0), es(1)).copiedFrom(e))
     case Times(l, r)  => simplifyAndCons(Seq(l, r), path, es => times(es(0), es(1)).copiedFrom(e))
+
+    case Tuple(es)    =>
+      val (res, pes) = es.map(simplify(_, path)).unzip
+      (res.zipWithIndex.collect { case (TupleSelect(e, idx), i) if idx == i + 1 => e } match {
+        case ls @ (x +: xs) if ls.size == es.size && xs.forall(_ == x) =>
+          x.getType match {
+            case TupleType(ts) if ts.size == es.size => x
+            case _ => Tuple(es)
+          }
+        case _ => Tuple(es)
+      },
+      pes.foldLeft(false)(_ || _))
 
     case Forall(params, body) =>
       simplifyAndCons(Seq(body), path withBounds params, es => simpForall(params, es.head).copiedFrom(e))
