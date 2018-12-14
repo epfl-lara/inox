@@ -137,12 +137,6 @@ trait Constraints { self: IRs with SimpleTypes with ElaborationErrors =>
       } yield Constraints.OneOf(t, goal)
   }
 
-  implicit lazy val typeOptionsUnifiable: Unifiable[Seq[SimpleTypes.Type]] = Unifiable {
-    a: Seq[SimpleTypes.Type] =>
-      for {
-        seq <- Eventual.sequence(a.map(Eventual.unify(_)))
-      } yield seq
-  }
 
   implicit lazy val typeClassUnifiable: Unifiable[TypeClass] = Unifiable {
     case WithFields(fields, sorts) => for {
@@ -156,6 +150,12 @@ trait Constraints { self: IRs with SimpleTypes with ElaborationErrors =>
       is <- Eventual.sequence(indices.mapValues(Eventual.unify(_)).view.force)
     } yield WithIndices(is)
     case x => Eventual.pure(x)
+  }
+
+  implicit lazy val typeSequenceUnifiable: Unifiable[Seq[SimpleTypes.Type]] = Unifiable {
+    a: Seq[SimpleTypes.Type] => for {
+      ss <- Eventual.sequence(a.map(tpe => Eventual.withUnifier { implicit unifier => unifier(tpe)}))
+    } yield ss
   }
 
   implicit def seqUnifiable[A](implicit inner: Unifiable[A]): Unifiable[Seq[A]] = Unifiable { xs: Seq[A] =>

@@ -150,15 +150,14 @@ trait Elaborators
     def addFunction(function: SimpleFunctions.Function): Store =
       copy(
         funStore=funStore.addFunction(function),
-        functionNames=functionNames + (function.id.name -> (functionNames.getOrElse(function.id.name, Seq()) :+ function.id)),
-        names=names ++ function.optName.map((_, function.id)))
+        functionNames=functionNames + (function.id.name -> (functionNames.getOrElse(function.id.name, Seq()) :+ function.id))
+        )
     def addFunctions(functions: Seq[SimpleFunctions.Function]): Store =
       copy(
         funStore=funStore.addFunctions(functions),
         functionNames=functions.foldLeft(functionNames)((namesMap, fun)=>
           namesMap + (fun.id.name -> (namesMap.getOrElse(fun.id.name, Seq()) :+ fun.id))
-        ),
-        names=names ++ functions.flatMap(f => f.optName.map((_, f.id))))
+        ))
     def addSort(sort: SimpleADTs.Sort): Store =
       copy(
         adtStore=adtStore.addSort(sort),

@@ -146,52 +146,143 @@ trait ExprElaborators { self: Elaborators =>
       } yield (stt, Eventual.withUnifier { implicit unifier =>
         trees.IfExpr(evc.get, evt.get, eve.get)
       })
-      case Invocation(id, optTypeArgs, args) => {
 
-        ExprUseIdE.elaborate(id).flatMap { i =>
-          Constrained.attempt(
-            store.getFunction(i).map(x => Left((x, true)))
-              .orElse(store.getConstructor(i).map(x => Left((x, false))))
-              .orElse(store.getVariable(i).map(x => Right(x))),
-            template,
-            identifierNotCallable(i.name)
-          ).flatMap {
-
-            case Left(((n, f), isFun)) => for {
-              (sts, ets) <- optTypeArgs
-                .map(TypeSeqE.elaborate(_))
-                .getOrElse(Constrained.sequence(Seq.fill(n) {
-                  OptTypeE.elaborate(Left(template.pos))
+      case Exprs.Invocation(id, optTypeArgs, args) =>
+        val identUnknownType = SimpleTypes.Unknown.fresh.setPos(id.pos)
+        val resType = SimpleTypes.Unknown.fresh.setPos(template.pos)
+        for {
+          // get a sequence of identifiers
+          identifierSequence: Seq[inox.Identifier] <- ExprUseIDOverloadE.elaborate(id)
+          // if there are any type parameters elaborate them
+          (sts, ets) <- optTypeArgs.map(TypeSeqE.elaborate(_)).getOrElse(
+            Constrained.sequence(Seq.empty[Constrained[(SimpleTypes.Type, Eventual[trees.Type])]])).map(_.unzip)
+          // elaborate all of the arguments
+          (stas, evas) <- ExprSeqE.elaborate(args).map(_.unzip)
+          // get all mappings from type eventual tree which invokes the need function, constructor or callable variable
+          mapped: Seq[Constrained[(SimpleTypes.Type, SimpleTypes.Type, Eventual[trees.Expr])]] = identifierSequence.flatMap(ident => {
+            store.getFunction(ident).map(x => Left((x, true)))
+              .orElse(store.getConstructor(ident).map(x => Left((x, false))))
+              .orElse(store.getVariable(ident).map(x => Right(x))).map {
+              case Left(((n, f), true)) =>
+                if (sts.isEmpty) {
+                  val dummyUnknown = Seq.fill(n) {SimpleTypes.Unknown.fresh.setPos(template.pos)}
+                  val pair = f(dummyUnknown)
+                  if (pair._1.size == stas.size)
+                    Some(
+                      for {
+                        (sts, ets) <- Constrained.sequence(Seq.fill(n) {
+                          val unknown = SimpleTypes.Unknown.fresh.setPos(template.pos)
+                          Constrained.pure(unknown, Eventual.withUnifier { implicit unifier =>
+                            SimpleTypes.toInox(unifier.get(unknown))
+                          })
+                        }).map(_.unzip)
+                        (ests, rst) = f(sts)
+                        _ <- Constrained(ests.zip(stas).map { case (est, ast) => Constraint.equal(est, ast) }: _*)
+                      } yield (rst, SimpleTypes.FunctionType(ests, rst), Eventual.withUnifier { implicit unifier =>
+                        trees.FunctionInvocation(ident, ets.map(_.get), evas.map(_.get))
+                      }))
+                  else
+                    None
+                } else if (sts.size == n) {
+                  val (ests, rst) = f(sts)
+                  Some(Constrained.pure((rst, SimpleTypes.FunctionType(ests, rst), Eventual.withUnifier { implicit unifier =>
+                    trees.FunctionInvocation(ident, ets.map(_.get), evas.map(_.get))
+                  })).addConstraints(ests.zip(stas).map { case (est, ast) => Constraint.equal(est, ast) }))
+                } else
+                  None
+              case Left(((n, f), false)) =>
+                if (sts.isEmpty) {
+                  Some(
+                    for {
+                      (sts, ets) <- Constrained.sequence(Seq.fill(n) {
+                        val unknown = SimpleTypes.Unknown.fresh.setPos(template.pos)
+                        Constrained.pure(unknown, Eventual.withUnifier { implicit unifier =>
+                          SimpleTypes.toInox(unifier.get(unknown))
+                        })
+                      }).map(_.unzip)
+                      (ests, rst) = f(sts)
+                      if stas.size == ests.size
+                      _ <- Constrained(ests.zip(stas).map { case (est, ast) => Constraint.equal(est, ast) }: _*)
+                    } yield (rst, rst, Eventual.withUnifier { implicit unifier =>
+                      trees.ADT(ident, ets.map(_.get), evas.map(_.get))
+                    }))
+                } else if (sts.size == n) {
+                  val (ests, rst) = f(sts)
+                  Some(Constrained.pure((rst, rst, Eventual.withUnifier { implicit unifier =>
+                    trees.ADT(ident, ets.map(_.get), evas.map(_.get))
+                  })).addConstraints(ests.zip(stas).map { case (est, ast) => Constraint.equal(est, ast) }))
+                } else
+                  None
+              case Right((st, et)) => {
+                val retTpe = SimpleTypes.Unknown.fresh.setPos(template.pos)
+                Some(for {
+                  _ <- Constrained(Constraint.equal(st, SimpleTypes.FunctionType(stas, retTpe)))
+                    .checkImmediate(optTypeArgs.isEmpty, template, functionValuesCanNotHaveTypeParameters(ident.name))
+                } yield (retTpe, SimpleTypes.FunctionType(stas, retTpe), Eventual.withUnifier { implicit unifier =>
+                  trees.Application(trees.Variable(ident, et.get, Seq()), evas.map(_.get))
                 }))
-                .checkImmediate(_.size == n, template, xs => wrongNumberOfTypeArguments(i.name, n, xs.size))
-                .map(_.unzip)
-              (ests, rst) = f(sts)
-              (stas, evas) <- ExprSeqE.elaborate(args)
-                .checkImmediate(_.size == ests.size, template, xs => wrongNumberOfArguments(i.name, ests.size, xs.size))
-                .map(_.unzip)
-              _ <- Constrained(ests.zip(stas).map { case (est, ast) => Constraint.equal(est, ast) } : _*)
-            } yield (rst, Eventual.withUnifier { implicit unifier =>
-              if (isFun) {
-                trees.FunctionInvocation(i, ets.map(_.get), evas.map(_.get))
               }
-              else {
-                trees.ADT(i, ets.map(_.get), evas.map(_.get))
-              }
-            })
-            case Right((st, et)) => {
-              val retTpe = SimpleTypes.Unknown.fresh.setPos(template.pos)
-              for {
-                (stas, evas) <- ExprSeqE.elaborate(args)
-                  .checkImmediate(optTypeArgs.isEmpty, template, functionValuesCanNotHaveTypeParameters(i.name))
-                  .map(_.unzip)
-                _ <- Constrained(Constraint.equal(st, SimpleTypes.FunctionType(stas, retTpe)))
-              } yield (retTpe, Eventual.withUnifier { implicit unifier =>
-                trees.Application(trees.Variable(i, et.get, Seq()), evas.map(_.get))
-              })
             }
+          }).flatten
+          options <- Constrained.sequence(mapped)
+          resOptions = options.map(_._1)
+          idOptions = options.map(_._2)
+          _ <- Constrained(Constraint.oneOf(resType, resOptions), Constraint.oneOf(identUnknownType, idOptions))
+        } yield (resType, Eventual.withUnifier { implicit unifier =>
+          val unifiedFinal = unifier.get(resType)
+          val unfierIdType = unifier.get(identUnknownType)
+          val eventualOption = options.find(option => unifier(option._1) == unifiedFinal && unifier(option._2) == unfierIdType)
+          eventualOption match {
+            case None => throw new Exception("Should not happen that unification finished")
+            case Some(eventual) => eventual._3.get
           }
-        }
-      }
+        })
+//      case Invocation(id, optTypeArgs, args) => {
+//
+//        ExprUseIdE.elaborate(id).flatMap { i =>
+//          Constrained.attempt(
+//            store.getFunction(i).map(x => Left((x, true)))
+//              .orElse(store.getConstructor(i).map(x => Left((x, false))))
+//              .orElse(store.getVariable(i).map(x => Right(x))),
+//            template,
+//            identifierNotCallable(i.name)
+//          ).flatMap {
+//
+//            case Left(((n, f), isFun)) => for {
+//              (sts, ets) <- optTypeArgs
+//                .map(TypeSeqE.elaborate(_))
+//                .getOrElse(Constrained.sequence(Seq.fill(n) {
+//                  OptTypeE.elaborate(Left(template.pos))
+//                }))
+//                .checkImmediate(_.size == n, template, xs => wrongNumberOfTypeArguments(i.name, n, xs.size))
+//                .map(_.unzip)
+//              (ests, rst) = f(sts)
+//              (stas, evas) <- ExprSeqE.elaborate(args)
+//                .checkImmediate(_.size == ests.size, template, xs => wrongNumberOfArguments(i.name, ests.size, xs.size))
+//                .map(_.unzip)
+//              _ <- Constrained(ests.zip(stas).map { case (est, ast) => Constraint.equal(est, ast) } : _*)
+//            } yield (rst, Eventual.withUnifier { implicit unifier =>
+//              if (isFun) {
+//                trees.FunctionInvocation(i, ets.map(_.get), evas.map(_.get))
+//              }
+//              else {
+//                trees.ADT(i, ets.map(_.get), evas.map(_.get))
+//              }
+//            })
+//            case Right((st, et)) => {
+//              val retTpe = SimpleTypes.Unknown.fresh.setPos(template.pos)
+//              for {
+//                (stas, evas) <- ExprSeqE.elaborate(args)
+//                  .checkImmediate(optTypeArgs.isEmpty, template, functionValuesCanNotHaveTypeParameters(i.name))
+//                  .map(_.unzip)
+//                _ <- Constrained(Constraint.equal(st, SimpleTypes.FunctionType(stas, retTpe)))
+//              } yield (retTpe, Eventual.withUnifier { implicit unifier =>
+//                trees.Application(trees.Variable(i, et.get, Seq()), evas.map(_.get))
+//              })
+//            }
+//          }
+//        }
+//      }
       case PrimitiveInvocation(fun, optTypeArgs, args) => {
         import Primitive._
 

@@ -180,8 +180,10 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
       }
 
       case OneOf(tpe, typeOptions) => tpe match {
-        case u: Unknown =>
+        case u: Unknown if typeOptions.size > 1=>
           typeOptionsMap += (u -> typeOptions)
+        case u: Unknown =>
+          remaining :+= Equals(u, typeOptions.head)
         case _ =>
           expandOneOf(tpe, typeOptions)
       }
