@@ -156,14 +156,16 @@ trait ExprElaborators { self: Elaborators =>
           // if there are any type parameters elaborate them
           (sts, ets) <- optTypeArgs.map(TypeSeqE.elaborate(_)).getOrElse(
             Constrained.sequence(Seq.empty[Constrained[(SimpleTypes.Type, Eventual[trees.Type])]])).map(_.unzip)
-          // elaborate all of the arguments
+          // elaborate arguments
           (stas, evas) <- ExprSeqE.elaborate(args).map(_.unzip)
-          // get all mappings from type eventual tree which invokes the need function, constructor or callable variable
+          // for all functions with the identifier name collect the result type, function type of the identifier and the eventual expression
           mapped: Seq[Constrained[(SimpleTypes.Type, SimpleTypes.Type, Eventual[trees.Expr])]] = identifierSequence.flatMap(ident => {
             store.getFunction(ident).map(x => Left((x, true)))
               .orElse(store.getConstructor(ident).map(x => Left((x, false))))
               .orElse(store.getVariable(ident).map(x => Right(x))).map {
+              // case for functions
               case Left(((n, f), true)) =>
+                // when there are no type arguments
                 if (sts.isEmpty) {
                   Some(
                     for {
@@ -177,13 +179,16 @@ trait ExprElaborators { self: Elaborators =>
                     } yield (rst, SimpleTypes.FunctionType(ests, rst), Eventual.withUnifier { implicit unifier =>
                       trees.FunctionInvocation(ident, ets.map(_.get), evas.map(_.get))
                     }))
+                // if the number of type arguments is the same as the number of type parameters
                 } else if (sts.size == n) {
                   val (ests, rst) = f(sts)
                   Some(Constrained.pure((rst, SimpleTypes.FunctionType(ests, rst), Eventual.withUnifier { implicit unifier =>
                     trees.FunctionInvocation(ident, ets.map(_.get), evas.map(_.get))
                   })))
+                // in other cases there result is None
                 } else
                   None
+              // case for constructors
               case Left(((n, f), false)) =>
                 if (sts.isEmpty) {
                   Some(
@@ -206,7 +211,8 @@ trait ExprElaborators { self: Elaborators =>
                   })))
                 } else
                   None
-              case Right((st, et)) => {
+              // variable which has a function type
+              case Right((st, et)) =>
                 val retTpe = SimpleTypes.Unknown.fresh.setPos(template.pos)
                 Some(for {
                   _ <- Constrained(Constraint.equal(st, SimpleTypes.FunctionType(stas, retTpe)))
@@ -214,7 +220,6 @@ trait ExprElaborators { self: Elaborators =>
                 } yield (retTpe, SimpleTypes.FunctionType(stas, retTpe), Eventual.withUnifier { implicit unifier =>
                   trees.Application(trees.Variable(ident, et.get, Seq()), evas.map(_.get))
                 }))
-              }
             }
           }).flatten
           options <- Constrained.sequence(mapped)
@@ -225,8 +230,8 @@ trait ExprElaborators { self: Elaborators =>
         } yield (resType, Eventual.withUnifier { implicit unifier =>
 
           val unifiedFinal = unifier.get(resType)
-          val unfierIdType = unifier.get(identUnknownType)
-          val eventualOption = options.find(option => unifier(option._1) == unifiedFinal && unifier(option._2) == unfierIdType)
+          val unifierIdType = unifier.get(identUnknownType)
+          val eventualOption = options.find(option => unifier(option._1) == unifiedFinal && unifier(option._2) == unifierIdType)
           eventualOption match {
             case None => throw new Exception("Should not happen that unification finished")
             case Some(eventual) => eventual._3.get
