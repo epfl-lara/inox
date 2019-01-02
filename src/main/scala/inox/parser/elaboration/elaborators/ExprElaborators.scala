@@ -223,6 +223,7 @@ trait ExprElaborators { self: Elaborators =>
           _ <- Constrained(Constraint.oneOf(resType, resOptions), Constraint.oneOf(identUnknownType, idOptions),
             Constraint.equal(identUnknownType, SimpleTypes.FunctionType(stas, resType)), Constraint.exist(resType), Constraint.exist(identUnknownType))
         } yield (resType, Eventual.withUnifier { implicit unifier =>
+
           val unifiedFinal = unifier.get(resType)
           val unfierIdType = unifier.get(identUnknownType)
           val eventualOption = options.find(option => unifier(option._1) == unifiedFinal && unifier(option._2) == unfierIdType)
