@@ -116,7 +116,7 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
         case _ => throw new Exception("Two types are not compatible!!! Should never happen")
       }
 
-      val possibleOptions = typeOptions.filter(isCompatible(tpe, _))
+      val possibleOptions = typeOptions.filter(isCompatible(tpe, _)).distinct
       if (possibleOptions.isEmpty)
         throw new Exception("OneOf has no possible type options")
       else if (possibleOptions.size == 1)

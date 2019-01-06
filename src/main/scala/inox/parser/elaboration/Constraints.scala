@@ -154,8 +154,8 @@ trait Constraints { self: IRs with SimpleTypes with ElaborationErrors =>
 
   implicit lazy val typeSequenceUnifiable: Unifiable[Seq[SimpleTypes.Type]] = Unifiable {
     a: Seq[SimpleTypes.Type] => for {
-      ss <- Eventual.sequence(a.map(tpe => Eventual.withUnifier { implicit unifier => unifier(tpe)}))
-    } yield ss
+      ss <- Eventual.sequence(a.map(tpe => Eventual.withUnifier { implicit unifier => unifier(tpe) }))
+    } yield ss.distinct
   }
 
   implicit def seqUnifiable[A](implicit inner: Unifiable[A]): Unifiable[Seq[A]] = Unifiable { xs: Seq[A] =>
