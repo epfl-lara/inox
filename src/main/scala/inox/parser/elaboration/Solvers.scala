@@ -51,7 +51,7 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
     var typeClasses: Map[Unknown, TypeClass] = Map()
     var unifier: Unifier = Unifier.empty
     // unknown to its' option sequence map, if a mapping exists sequence size is greater than 1
-    var typeOptionsMap: Map[SimpleTypes.Type, Seq[SimpleTypes.Type]] = Map()
+    var typeOptionsMap: Map[SimpleTypes.Unknown, (SimpleTypes.Type, Seq[SimpleTypes.Type])] = Map()
 
     def unify(unknown: Unknown, value: Type) {
 
@@ -61,7 +61,7 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
       typeClasses -= unknown
 
       typeOptionsMap.get(unknown).foreach { options =>
-        simplifyTypeOptions(unknown, value, options)
+        simplifyTypeOptions(unknown, value, None, Some(options))
       }
 
 
@@ -83,7 +83,8 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
       * @param typeOptions possible type options
       * @return
       */
-    def simplifyTypeOptions(unknown: SimpleTypes.Type, value: SimpleTypes.Type, typeOptions: Seq[SimpleTypes.Type]):Unit = {
+    def simplifyTypeOptions(unknown: SimpleTypes.Unknown, value: SimpleTypes.Type, newOptions: Option[Seq[SimpleTypes.Type]],
+                            existing: Option[(SimpleTypes.Type, Seq[SimpleTypes.Type])]): Unit = {
       var mappings: Map[Unknown, Seq[SimpleTypes.Type]] = Map()
 
       def collectOptions(tpe: Type, typeOption: Type): Unit = (tpe, typeOption) match {
@@ -117,11 +118,25 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
         case _ => throw new Exception("Two types are not compatible!!! Should never happen")
       }
 
-      val existing = typeOptionsMap.getOrElse(unknown, Seq.empty)
 
-      val allOptions = typeOptions.filter(isCompatible(value, _)) ++ existing.filter(isCompatible(value, _))
+      val possibleOptions = existing match {
+        case None =>
+          val allOptions = newOptions.getOrElse(Seq.empty)
+            .filter(a => isCompatible(value, a))
 
-      val possibleOptions = allOptions.distinct
+          allOptions.distinct
+        case Some((tpe, options)) =>
+          if (!isCompatible(value, tpe))
+            unificationImpossible(tpe, value)
+          val allOptions = newOptions.getOrElse(Seq.empty)
+            .filter(a => isCompatible(value, a) && isCompatible(tpe, a)) ++
+            options.filter(a => isCompatible(value, a) && isCompatible(tpe, a))
+
+          allOptions.distinct
+      }
+
+
+
 
       if (possibleOptions.isEmpty)
         throw new Exception("OneOf has no possible type options")
@@ -131,7 +146,7 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
         typeOptionsMap = typeOptionsMap - unknown
       } else {
         typeOptionsMap = typeOptionsMap - unknown
-        typeOptionsMap = typeOptionsMap + (value -> possibleOptions)
+        typeOptionsMap = typeOptionsMap + (unknown -> (value, possibleOptions))
       }
 
     }
@@ -189,13 +204,14 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
         }
       }
 
-      case OneOf(tpe, typeOptions) => tpe match {
+      case OneOf(unknown, tpe, typeOptions) => tpe match {
         case u: Unknown if typeOptions.size > 1=>
-          typeOptionsMap += (u -> typeOptions)
+          typeOptionsMap += (u -> (tpe, typeOptions))
         case u: Unknown =>
+          remaining :+= Equals(u, tpe)
           remaining :+= Equals(u, typeOptions.head)
         case _ =>
-          simplifyTypeOptions(tpe, tpe, typeOptions)
+          simplifyTypeOptions(unknown, tpe, None, Some((tpe, typeOptions)))
       }
     }
 

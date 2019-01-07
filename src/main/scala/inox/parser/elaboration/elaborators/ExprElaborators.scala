@@ -225,7 +225,7 @@ trait ExprElaborators { self: Elaborators =>
           options <- Constrained.sequence(mapped)
           resOptions = options.map(_._1).distinct
           idOptions = options.map(_._2).distinct
-          _ <- Constrained(Constraint.oneOf(resType, resOptions), Constraint.oneOf(identUnknownType, idOptions),
+          _ <- Constrained(Constraint.oneOf(resType, resType, resOptions), Constraint.oneOf(identUnknownType, identUnknownType, idOptions),
             Constraint.equal(identUnknownType, SimpleTypes.FunctionType(stas, resType)), Constraint.exist(resType), Constraint.exist(identUnknownType))
         } yield (resType, Eventual.withUnifier { implicit unifier =>
 

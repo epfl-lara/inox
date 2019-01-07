@@ -15,7 +15,7 @@ trait Constraints { self: IRs with SimpleTypes with ElaborationErrors =>
     case class Exists(elem: Type) extends Constraint
     case class Equals(left: Type, right: Type) extends Constraint
     case class HasClass(elem: Type, typeClass: TypeClass) extends Constraint
-    case class OneOf(tpe: Type, typeOptions: Seq[Type]) extends Constraint
+    case class OneOf(unknown: Unknown, tpe: Type, typeOptions: Seq[Type]) extends Constraint
   }
 
   object Constraint {
@@ -44,8 +44,8 @@ trait Constraints { self: IRs with SimpleTypes with ElaborationErrors =>
       }
       HasClass(elem, WithFields(fields, mapping))
     }
-    def oneOf(tpe: Type, typeOptions: Seq[Type]): Constraint =
-      OneOf(tpe, typeOptions)
+    def oneOf(unknown: Unknown, tpe: Type, typeOptions: Seq[Type]): Constraint =
+      OneOf(unknown, tpe, typeOptions)
   }
 
   class Eventual[+A] private(private val fun: Unifier => A) {
@@ -130,11 +130,11 @@ trait Constraints { self: IRs with SimpleTypes with ElaborationErrors =>
       e <- Eventual.unify(elem)
       t <- Eventual.unify(typeClass)
     } yield Constraints.HasClass(e, t)
-    case OneOf(tpe, typeOptions) =>
+    case OneOf(unknown, tpe, typeOptions) =>
       for {
         t <- Eventual.unify(tpe)
         goal <- Eventual.sequence(typeOptions.map(Eventual.unify(_)))
-      } yield Constraints.OneOf(t, goal)
+      } yield Constraints.OneOf(unknown, t, goal)
   }
 
 
@@ -156,6 +156,13 @@ trait Constraints { self: IRs with SimpleTypes with ElaborationErrors =>
     a: Seq[SimpleTypes.Type] => for {
       ss <- Eventual.sequence(a.map(tpe => Eventual.withUnifier { implicit unifier => unifier(tpe) }))
     } yield ss
+  }
+
+  implicit lazy val oneOfValueUnifiable: Unifiable[(SimpleTypes.Type, Seq[SimpleTypes.Type])] = Unifiable {
+    a: (SimpleTypes.Type, Seq[SimpleTypes.Type]) => for {
+      t <- Eventual.unify(a._1)
+      ss <- Eventual.unify(a._2)
+    } yield (t, ss)
   }
 
   implicit def seqUnifiable[A](implicit inner: Unifiable[A]): Unifiable[Seq[A]] = Unifiable { xs: Seq[A] =>
