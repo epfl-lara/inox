@@ -42,6 +42,21 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
   }
 
 
+  def noUnknown(tpe: SimpleTypes.Type): Boolean = tpe match {
+    case _ :Unknown =>
+      false
+    case FunctionType(fs1, t1) =>
+      fs1.forall(a => noUnknown(a)) && noUnknown(t1)
+    case TupleType(es1) =>
+      es1.forall(noUnknown)
+    case MapType(f1, t1) => noUnknown(f1) && noUnknown(t1)
+    case SetType(e1) => noUnknown(e1)
+    case BagType(e1) => noUnknown(e1)
+    case ADTType(i1, as1)=>
+      as1.forall(noUnknown)
+    case _ => true
+  }
+
   def solve(constraints: Seq[Constraint]): Either[ErrorMessage, Unifier] = {
 
     case class UnificationError(message: Seq[Position] => ErrorMessage, positions: Seq[Position]) extends Exception(message(positions))
@@ -235,9 +250,12 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
               if (opt.isEmpty) {
                 unificationImpossible(key, tpe)
                 None
+              } else if (noUnknown(tpe)) {
+                remaining ++= opt.map(Equals(tpe, _))
+                Some((key, tpe))
               } else if (opt.size == 1) {
-                remaining :+= Equals(key, opt.head)
-                Some((tpe, opt.head))
+                remaining :+= Equals(tpe, opt.head)
+                Some((key, tpe))
               } else {
                 typeOptionsMap = typeOptionsMap.updated(key, (tpe, opt))
                 None
