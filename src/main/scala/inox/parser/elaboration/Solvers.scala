@@ -127,10 +127,11 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
         throw new Exception("OneOf has no possible type options")
       else if (possibleOptions.size == 1) {
         remaining :+= Constraint.equal(value, possibleOptions.head)
+//        remaining :+= Constraint.equal(unknown, value)
         typeOptionsMap = typeOptionsMap - unknown
       } else {
         typeOptionsMap = typeOptionsMap - unknown
-        typeOptionsMap + (value -> possibleOptions)
+        typeOptionsMap = typeOptionsMap + (value -> possibleOptions)
       }
 
     }
