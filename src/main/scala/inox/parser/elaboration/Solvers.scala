@@ -139,9 +139,10 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
 
 
       if (possibleOptions.isEmpty)
-        throw new Exception("OneOf has no possible type options")
+        unificationImpossible(unknown, value)
       else if (possibleOptions.size == 1) {
         remaining :+= Constraint.equal(value, possibleOptions.head)
+        remaining :+= Constraint.equal(unknown, value)
 //        remaining :+= Constraint.equal(unknown, value)
         typeOptionsMap = typeOptionsMap - unknown
       } else {
@@ -227,16 +228,36 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
         }
 
         if (unknowns.nonEmpty) {
+          val oneOfSolved = typeOptionsMap.map {
+            case (key: SimpleTypes.Unknown, (tpe: SimpleTypes.Type, options: Seq[SimpleTypes.Type])) =>
+              val opt = options.filter(isCompatible(tpe, _))
+              typeOptionsMap = typeOptionsMap - key
+              if (opt.isEmpty) {
+                unificationImpossible(key, tpe)
+                None
+              } else if (opt.size == 1) {
+                remaining :+= Equals(key, opt.head)
+                Some((tpe, opt.head))
+              } else {
+                typeOptionsMap = typeOptionsMap.updated(key, (tpe, opt))
+                None
+              }
+          }.flatten.toSeq
+
           val defaults = typeClasses.collect {
             case (u, Integral) => u -> IntegerType()
             case (u, Numeric) => u -> IntegerType()
           }.toSeq
 
+          oneOfSolved.foreach {
+            case (u, t) => remaining :+= Equals(u, t)
+          }
+
           defaults.foreach {
             case (u, t) => remaining :+= Equals(u, t)
           }
 
-          if (defaults.isEmpty) {
+          if (defaults.isEmpty && oneOfSolved.isEmpty) {
             throw UnificationError(ambiguousTypes, unknowns.toSeq.map(_.pos))
           }
         }
