@@ -546,13 +546,15 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         StringLiteral(utils.StringUtils.decode(v))
 
       case (Num(n), Some(ft: FunctionType)) if context.seen(n -> ft) =>
-        context.chooses.getOrElseUpdate(n -> ft, {
-          Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
+        context.chooses.getOrElse(n -> ft, {
+          val res = Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
+          context.chooses(n -> ft) = res
+          res
         })
 
-      case (Num(n), Some(ft: FunctionType)) => context.lambdas.getOrElseUpdate(n -> ft, {
+      case (Num(n), Some(ft: FunctionType)) => context.lambdas.getOrElse(n -> ft, {
         val count = if (n < 0) -2 * n.toInt else 2 * n.toInt + 1
-        uniquateClosure(count, lambdas.getB(ft)
+        val res = uniquateClosure(count, lambdas.getB(ft)
           .flatMap { dynLambda =>
             context.withSeen(n -> ft).getFunction(dynLambda, FunctionType(IntegerType() +: ft.from, ft.to))
           }.map { case Lambda(dispatcher +: args, body) =>
@@ -576,6 +578,9 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
               val args = ft.from.map(tpe => ValDef.fresh("x", tpe, true))
               Lambda(args, Choose(ValDef.fresh("res", ft), BooleanLiteral(true)))
           }))
+
+        context.lambdas(n -> ft) = res
+        res
       })
 
       case (SimpleSymbol(s), _) if constructors.containsB(s) =>

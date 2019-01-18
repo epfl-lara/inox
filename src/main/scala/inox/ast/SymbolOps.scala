@@ -41,7 +41,11 @@ trait SymbolOps { self: TypeOps =>
 
   private var simplifierCache: MutableMap[PurityOptions, SimplifierWithPC] = MutableMap.empty
   def simplifier(implicit purityOpts: PurityOptions): SimplifierWithPC = synchronized {
-    simplifierCache.getOrElseUpdate(purityOpts, simplifierWithPC(purityOpts))
+    simplifierCache.getOrElse(purityOpts, {
+      val res = simplifierWithPC(purityOpts)
+      simplifierCache(purityOpts) = res
+      res
+    })
   }
 
   def simplifyExpr(expr: Expr)(implicit opts: PurityOptions): Expr = simplifyIn(expr, Path.empty)

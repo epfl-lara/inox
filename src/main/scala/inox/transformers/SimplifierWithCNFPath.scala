@@ -62,37 +62,41 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
       case _ => e
     }
 
-    private def cnf(e: Expr): Seq[Expr] = cnfCache.getOrElseUpdate(e, e match {
-      case Let(i, e, b) => cnf(b).map(Let(i, e, _))
-      case And(es) => es.flatMap(cnf)
-      case Or(es) =>
-        val esCnf = es.map(cnf)
-        if (esCnf.map(_.size).product > 10) Seq(e)
-        else esCnf.foldLeft(Seq(BooleanLiteral(false): Expr)) {
-          case (clauses, es) => es.flatMap(e => clauses.map(c => or(e, c)))
+    private def cnf(e: Expr): Seq[Expr] = cnfCache.getOrElse(e, {
+      val res = e match {
+        case Let(i, e, b) => cnf(b).map(Let(i, e, _))
+        case And(es) => es.flatMap(cnf)
+        case Or(es) =>
+          val esCnf = es.map(cnf)
+          if (esCnf.map(_.size).product > 10) Seq(e)
+          else esCnf.foldLeft(Seq(BooleanLiteral(false): Expr)) {
+            case (clauses, es) => es.flatMap(e => clauses.map(c => or(e, c)))
+          }
+        case Implies(l, r) => cnf(or(not(l), r))
+        case IfExpr(c, t, e) => cnf(and(trees.implies(c, t), trees.implies(not(c), e)))
+        case Not(neg) => neg match {
+          case And(es) => cnf(orJoin(es.map(not)))
+          case Or(es) => cnf(andJoin(es.map(not)))
+          case Implies(l, r) => cnf(and(l, not(r)))
+          case IfExpr(c, t, e) => cnf(and(trees.implies(c, not(t)), trees.implies(not(c), not(e))))
+          case Not(e) => cnf(e)
+          case BooleanLiteral(b) => Seq(BooleanLiteral(!b))
+          case _ => Seq(e)
         }
-      case Implies(l, r) => cnf(or(not(l), r))
-      case IfExpr(c, t, e) => cnf(and(trees.implies(c, t), trees.implies(not(c), e)))
-      case Not(neg) => neg match {
-        case And(es) => cnf(orJoin(es.map(not)))
-        case Or(es) => cnf(andJoin(es.map(not)))
-        case Implies(l, r) => cnf(and(l, not(r)))
-        case IfExpr(c, t, e) => cnf(and(trees.implies(c, not(t)), trees.implies(not(c), not(e))))
-        case Not(e) => cnf(e)
-        case BooleanLiteral(b) => Seq(BooleanLiteral(!b))
-        case _ => Seq(e)
+        case e => Seq(e)
       }
-      case e => Seq(e)
+      cnfCache(e) = res
+      res
     })
 
     private def simplify(e: Expr): Expr = self.simplify(e, this)._1
 
     private def simplifyClauses(e: Expr): Expr = andJoin(getClauses(e).toSeq.sortBy(_.hashCode))
 
-    private def getClauses(e: Expr): Set[Expr] = simpCache.getOrElseUpdate(e, {
+    private def getClauses(e: Expr): Set[Expr] = simpCache.getOrElse(e, {
       val (preds, newE) = liftAssumptions(simplifyLets(unexpandLets(e)))
       val expr = andJoin(newE +: preds)
-      simpCache.getOrElseUpdate(expr, {
+      val res = simpCache.getOrElse(expr, {
         val clauseSet: MutableSet[Expr] = MutableSet.empty
         for (cl <- cnf(expr); TopLevelOrs(es) <- cnf(replaceFromSymbols(boolSubst, simplify(cl)))) {
           clauseSet += orJoin(es.distinct.sortBy(_.hashCode))
@@ -120,8 +124,12 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
           }
         }
 
-        clauseSet.toSet
+        val res = clauseSet.toSet
+        simpCache(expr) = res
+        res
       })
+      simpCache(e) = res
+      res
     })
 
     override def withBinding(p: (ValDef, Expr)) = {

@@ -569,14 +569,16 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
             }
           } else {
             tpe match {
-              case ft: FunctionType if seen(t) => z3ToChooses.getOrElseUpdate(t, {
-                Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
+              case ft: FunctionType if seen(t) => z3ToChooses.getOrElse(t, {
+                val res = Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
+                z3ToChooses(t) = res
+                res
               })
 
-              case ft @ FunctionType(fts, tt) => z3ToLambdas.getOrElseUpdate(t, {
+              case ft @ FunctionType(fts, tt) => z3ToLambdas.getOrElse(t, {
                 val n = t.toString.split("!").last.init.toInt
                 val args = fts.map(tpe => ValDef.fresh("x", tpe, true))
-                uniquateClosure(n, lambdas.getB(ft)
+                val res = uniquateClosure(n, lambdas.getB(ft)
                   .flatMap(decl => model.getFuncInterpretations.find(_._1 == decl))
                   .map { case (_, mapping, elseValue) =>
                     val body = mapping.foldLeft(rec(elseValue, tt, seen + t)) { case (elze, (z3Args, z3Result)) =>
@@ -598,6 +600,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                     case _: NoSimpleValue =>
                       Lambda(args, Choose(ValDef.fresh("res", tt), BooleanLiteral(true)))
                   }))
+
+                z3ToLambdas(t) = res
+                res
               })
 
               case MapType(from, to) =>

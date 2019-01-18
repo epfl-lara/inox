@@ -127,8 +127,10 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
       Sort(id, tpSorts)
 
     case TupleType(ts) =>
-      val tpe = tuples.getOrElseUpdate(ts.size, {
-        TupleType(List.range(0, ts.size).map(i => TypeParameter.fresh("A" + i)))
+      val tpe = tuples.getOrElse(ts.size, {
+        val res = TupleType(List.range(0, ts.size).map(i => TypeParameter.fresh("A" + i)))
+        tuples(ts.size) = res
+        res
       })
       adtManager.declareADTs(tpe, declareDatatypes)
       val tpSorts = ts.map(declareSort)

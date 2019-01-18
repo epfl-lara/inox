@@ -458,14 +458,16 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
           ctx.model.eval(iterm).map { ideal =>
             val n = BigInt(ideal.bigIntValue)
             if (ctx.seen(n)) {
-              ctx.chooses.getOrElseUpdate(n, {
-                Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
+              ctx.chooses.getOrElse(n, {
+                val res = Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
+                ctx.chooses(n) = res
+                res
               })
             } else {
-              ctx.lambdas.getOrElseUpdate(n, {
+              ctx.lambdas.getOrElse(n, {
                 val newCtx = ctx.withSeen(n)
                 val params = ft.from.map(tpe => ValDef.fresh("x", tpe, true))
-                uniquateClosure(n.intValue, lambdas.getB(ft)
+                val res = uniquateClosure(n.intValue, lambdas.getB(ft)
                   .flatMap { fun =>
                     val interps = ctx.model.interpretation.flatMap {
                       case (SimpleAPI.IntFunctionLoc(`fun`, ptr +: args), SimpleAPI.IntValue(res)) =>
@@ -496,6 +498,8 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
                     case _: NoSimpleValue =>
                       Lambda(params, Choose(ValDef.fresh("res", ft.to), BooleanLiteral(true)))
                   }))
+                  ctx.lambdas(n) = res
+                  res
               })
             }
           }

@@ -24,18 +24,23 @@ trait EqualityTemplates { self: Templates =>
   private val checking: MutableSet[TypedADTSort] = MutableSet.empty
   private val unrollCache: MutableMap[Type, Boolean] = MutableMap.empty
 
-  def unrollEquality(tpe: Type): Boolean = unrollCache.getOrElseUpdate(tpe, tpe match {
-    case adt: ADTType =>
-      val sort = adt.getSort
-      sort.hasEquality || (!checking(sort) && {
-        checking += sort
-        sort.constructors.exists(c => c.fields.exists(vd => unrollEquality(vd.getType)))
-      })
+  def unrollEquality(tpe: Type): Boolean = unrollCache.getOrElse(tpe, {
+    val res = tpe match {
+      case adt: ADTType =>
+        val sort = adt.getSort
+        sort.hasEquality || (!checking(sort) && {
+          checking += sort
+          sort.constructors.exists(c => c.fields.exists(vd => unrollEquality(vd.getType)))
+        })
 
-    case BooleanType() | UnitType() | CharType() | IntegerType() |
-         RealType() | StringType() | (_: BVType) | (_: TypeParameter) => false
+      case BooleanType() | UnitType() | CharType() | IntegerType() |
+           RealType() | StringType() | (_: BVType) | (_: TypeParameter) => false
 
-    case NAryType(tpes, _) => tpes.exists(unrollEquality)
+      case NAryType(tpes, _) => tpes.exists(unrollEquality)
+    }
+
+    unrollCache(tpe) = res
+    res
   })
 
   def equalitySymbol(tpe: Type): (Variable, Encoded) = {
@@ -83,7 +88,7 @@ trait EqualityTemplates { self: Templates =>
   object EqualityTemplate {
     private val cache: MutableMap[Type, EqualityTemplate] = MutableMap.empty
 
-    def apply(tpe: Type): EqualityTemplate = cache.getOrElseUpdate(tpe, {
+    def apply(tpe: Type): EqualityTemplate = cache.getOrElse(tpe, {
       val (f, fT) = equalitySymbol(tpe)
       val args @ Seq(e1, e2) = Seq("e1", "e2").map(s => Variable.fresh(s, tpe))
       val argsT = args.map(encodeSymbol)
@@ -116,7 +121,9 @@ trait EqualityTemplates { self: Templates =>
         substMap = Map(f -> fT), optApp = Some(fT -> FunctionType(Seq(tpe, tpe), BooleanType()))
       )
 
-      new EqualityTemplate(tpe, contents)
+      val res = new EqualityTemplate(tpe, contents)
+      cache(tpe) = res
+      res
     })
   }
 

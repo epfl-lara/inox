@@ -38,9 +38,9 @@ trait SolvingEvaluator extends Evaluator { self =>
       throw new RuntimeException(s"Evaluation of 'choose' expressions disabled @ ${choose.getPos}: $choose")
     }
 
-    chooseCache.getOrElseUpdate(choose, {
+    chooseCache.getOrElse(choose, {
       import scala.language.existentials
-      val res = context.timers.evaluators.specs.run {
+      val satRes = context.timers.evaluators.specs.run {
         val sf = semantics.getSolver
         val api = SimpleSolverAPI(sf)
         api.solveSAT(choose.pred)
@@ -48,7 +48,7 @@ trait SolvingEvaluator extends Evaluator { self =>
 
       import SolverResponses._
 
-      res match {
+      val res = satRes match {
         case SatWithModel(model) =>
           if (model.chooses.nonEmpty && checkModels) {
             throw new RuntimeException("Cannot guarantee model for dependent choose " + choose.asString)
@@ -61,6 +61,9 @@ trait SolvingEvaluator extends Evaluator { self =>
         case _ =>
           throw new RuntimeException("Failed to evaluate choose " + choose.asString)
       }
+
+      chooseCache(choose) = res
+      res
     })
   }
 

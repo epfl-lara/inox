@@ -123,11 +123,13 @@ trait LambdaTemplates { self: Templates =>
 
   private val appCache: MutableMap[FunctionType, (Encoded, Seq[Encoded], Encoded)] = MutableMap.empty
   private[unrolling] def mkApp(caller: Encoded, tpe: FunctionType, args: Seq[Encoded]): Encoded = {
-    val (vT, asT, app) = appCache.getOrElseUpdate(tpe, {
+    val (vT, asT, app) = appCache.getOrElse(tpe, {
       val v = Variable.fresh("f", tpe)
       val as = tpe.from.map(tp => Variable.fresh("x", tp, true))
       val (vT, asT) = (encodeSymbol(v), as.map(encodeSymbol))
-      (vT, asT, mkEncoder(Map(v -> vT) ++ (as zip asT))(Application(v, as)))
+      val res = (vT, asT, mkEncoder(Map(v -> vT) ++ (as zip asT))(Application(v, as)))
+      appCache(tpe) = res
+      res
     })
 
     mkSubstituter(Map(vT -> caller) ++ (asT zip args))(app)

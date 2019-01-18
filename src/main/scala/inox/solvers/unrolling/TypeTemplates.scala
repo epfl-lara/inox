@@ -175,7 +175,7 @@ trait TypeTemplates { self: Templates =>
   object ConstraintTemplate {
     private val cache: MutableMap[(Type, Boolean), ConstraintTemplate] = MutableMap.empty
 
-    def apply(tpe: Type, free: Boolean): ConstraintTemplate = cache.getOrElseUpdate(tpe -> free, {
+    def apply(tpe: Type, free: Boolean): ConstraintTemplate = cache.getOrElse(tpe -> free, {
       val v = Variable.fresh("x", tpe.getType, true)
       val pathVar = Variable.fresh("b", BooleanType(), true)
       val result = Variable.fresh("result", BooleanType(), true)
@@ -191,7 +191,9 @@ trait TypeTemplates { self: Templates =>
         pathVar -> pathVarT, Seq(result -> resultT, v -> idT) ++ arguments,
         tmplClauses + (pathVar -> Equals(result, p)))
 
-      new ConstraintTemplate(contents)
+      val res = new ConstraintTemplate(contents)
+      cache(tpe -> free) = res
+      res
     })
   }
 
@@ -232,15 +234,17 @@ trait TypeTemplates { self: Templates =>
       (nl: Encoded, nr: Encoded) => mkSubstituter(Map(lT -> nl, rT -> nr))(encoded)
     }
 
-    private def order(tpe: FunctionType): Encoded => Encoded = ordCache.getOrElseUpdate(tpe, {
+    private def order(tpe: FunctionType): Encoded => Encoded = ordCache.getOrElse(tpe, {
       val a = Variable.fresh("arg", tpe)
       val o = Variable.fresh("order", FunctionType(Seq(tpe), IntegerType()), true)
       val (aT, oT) = (encodeSymbol(a), encodeSymbol(o))
       val encoded = mkEncoder(Map(a -> aT, o -> oT))(Application(o, Seq(a)))
-      (na: Encoded) => mkSubstituter(Map(aT -> na))(encoded)
+      val res = (na: Encoded) => mkSubstituter(Map(aT -> na))(encoded)
+      ordCache(tpe) = res
+      res
     })
 
-    def apply(tpe: Type, containerType: FunctionType): CaptureTemplate = cache.getOrElseUpdate(tpe -> containerType, {
+    def apply(tpe: Type, containerType: FunctionType): CaptureTemplate = cache.getOrElse(tpe -> containerType, {
       val v = Variable.fresh("x", tpe.getType, true)
       val pathVar = Variable.fresh("b", BooleanType(), true)
       val (idT, pathVarT) = (encodeSymbol(v), encodeSymbol(pathVar))
@@ -275,11 +279,14 @@ trait TypeTemplates { self: Templates =>
         case _ => typeBlockers += b -> (typeBlockers.getOrElse(b, Set.empty) + tp)
       }
 
-      new CaptureTemplate(contents.copy(
+      val res = new CaptureTemplate(contents.copy(
         arguments = (container -> containerT) +: contents.arguments,
         clauses = contents.clauses ++ funClauses,
         types = typeBlockers
       ), functions)
+
+      cache(tpe -> containerType) = res
+      res
     })
   }
 
@@ -291,9 +298,10 @@ trait TypeTemplates { self: Templates =>
     private val tpSyms: MutableMap[TypeParameter, Variable] = MutableMap.empty
     private[unrolling] val tpSubst: MutableMap[Variable, Encoded] = MutableMap.empty
     private[unrolling] def storeTypeParameter(tp: TypeParameter): Variable =
-      tpSyms.getOrElseUpdate(tp, {
+      tpSyms.getOrElse(tp, {
         val v = Variable.fresh("tp_is_empty", BooleanType(), true)
         tpSubst(v) = encodeSymbol(v)
+        tpSyms(tp) = v
         v
       })
 

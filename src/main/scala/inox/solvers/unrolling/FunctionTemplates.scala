@@ -33,7 +33,7 @@ trait FunctionTemplates { self: Templates =>
   object FunctionTemplate {
     private val cache: MutableMap[TypedFunDef, FunctionTemplate] = MutableMap.empty
 
-    def apply(tfd: TypedFunDef): FunctionTemplate = cache.getOrElseUpdate(tfd, {
+    def apply(tfd: TypedFunDef): FunctionTemplate = cache.getOrElse(tfd, {
       val body: Expr = timers.solvers.simplify.run { simplifyFormula(tfd.fullBody) }
 
       val tpVars = tfd.tps.flatMap(variableSeq).distinct
@@ -70,7 +70,9 @@ trait FunctionTemplates { self: Templates =>
         tfd.getType + " is :\n" + str()
       }
 
-      new FunctionTemplate(contents, funString)
+      val res = new FunctionTemplate(contents, funString)
+      cache(tfd) = res
+      res
     })
   }
 
@@ -106,10 +108,12 @@ trait FunctionTemplates { self: Templates =>
 
   private val callCache: MutableMap[TypedFunDef, (Seq[Encoded], Encoded)] = MutableMap.empty
   private[unrolling] def mkCall(tfd: TypedFunDef, args: Seq[Encoded]): Encoded = {
-    val (asT, call) = callCache.getOrElseUpdate(tfd, {
+    val (asT, call) = callCache.getOrElse(tfd, {
       val as = tfd.params.map(vd => Variable.fresh("x", vd.getType, true))
       val asT = as.map(encodeSymbol)
-      (asT, mkEncoder((as zip asT).toMap)(tfd.applied(as)))
+      val res = (asT, mkEncoder((as zip asT).toMap)(tfd.applied(as)))
+      callCache(tfd) = res
+      res
     })
 
     mkSubstituter((asT zip args).toMap)(call)

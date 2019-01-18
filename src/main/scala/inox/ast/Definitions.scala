@@ -151,8 +151,13 @@ trait Definitions { self: Trees =>
     private[this] val typedSortCache: ConcurrentMap[(Identifier, Seq[Type]), Option[TypedADTSort]] =
       new java.util.concurrent.ConcurrentHashMap[(Identifier, Seq[Type]), Option[TypedADTSort]].asScala
     def lookupSort(id: Identifier): Option[ADTSort] = sorts.get(id)
-    def lookupSort(id: Identifier, tps: Seq[Type]): Option[TypedADTSort] =
-      typedSortCache.getOrElseUpdate(id -> tps, lookupSort(id).map(TypedADTSort(_, tps)))
+    def lookupSort(id: Identifier, tps: Seq[Type]): Option[TypedADTSort] = {
+      typedSortCache.getOrElse(id -> tps, {
+        val res = lookupSort(id).map(TypedADTSort(_, tps))
+        typedSortCache(id -> tps) = res
+        res
+      })
+    }
 
     def getSort(id: Identifier): ADTSort =
       lookupSort(id).getOrElse(throw ADTLookupException(id))
@@ -163,10 +168,14 @@ trait Definitions { self: Trees =>
       new java.util.concurrent.ConcurrentHashMap[(Identifier, Seq[Type]), Option[TypedADTConstructor]].asScala
     def lookupConstructor(id: Identifier): Option[ADTConstructor] = constructors.get(id)
     def lookupConstructor(id: Identifier, tps: Seq[Type]): Option[TypedADTConstructor] =
-      typedConstructorCache.getOrElseUpdate(id -> tps, constructors.get(id).flatMap { cons =>
-        lookupSort(cons.sort, tps).flatMap(_.constructors.collectFirst {
-          case tcons if tcons.id == id => tcons
-        })
+      typedConstructorCache.getOrElse(id -> tps, {
+        val res = constructors.get(id).flatMap { cons =>
+          lookupSort(cons.sort, tps).flatMap(_.constructors.collectFirst {
+            case tcons if tcons.id == id => tcons
+          })
+        }
+        typedConstructorCache(id -> tps) = res
+        res
       })
 
     def getConstructor(id: Identifier): ADTConstructor =
@@ -178,7 +187,11 @@ trait Definitions { self: Trees =>
       new java.util.concurrent.ConcurrentHashMap[(Identifier, Seq[Type]), Option[TypedFunDef]].asScala
     def lookupFunction(id: Identifier): Option[FunDef] = functions.get(id)
     def lookupFunction(id: Identifier, tps: Seq[Type]): Option[TypedFunDef] =
-      typedFunctionCache.getOrElseUpdate(id -> tps, lookupFunction(id).map(TypedFunDef(_, tps)))
+      typedFunctionCache.getOrElse(id -> tps, {
+        val res = lookupFunction(id).map(TypedFunDef(_, tps))
+        typedFunctionCache(id -> tps) = res
+        res
+      })
 
     def getFunction(id: Identifier): FunDef =
       lookupFunction(id).getOrElse(throw FunctionLookupException(id))
