@@ -74,8 +74,10 @@ trait ExprOps extends GenTreeOps {
     variablesOf(expr).foreach(v => subst(v) = v)
 
     new SelfTreeTransformer {
-      override def transform(vd: ValDef): ValDef = subst.getOrElseUpdate(vd.toVariable, {
-        super.transform(vd).freshen.toVariable
+      override def transform(vd: ValDef): ValDef = subst.getOrElse(vd.toVariable, {
+        val res = super.transform(vd).freshen.toVariable
+        subst(vd.toVariable) = res
+        res
       }).toVal
 
       override def transform(expr: Expr): Expr = expr match {
