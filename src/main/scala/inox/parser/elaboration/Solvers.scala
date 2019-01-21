@@ -247,9 +247,6 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
               typeOptionsMap = typeOptionsMap - key
               if (opt.isEmpty) {
                 throw UnificationError(unificationImpossible(key, tpe), Seq(key.pos, tpe.pos))
-              } else if (noUnknown(tpe)) {
-                remaining ++= opt.map(Equals(tpe, _))
-                remaining :+= Equals(key, tpe)
               } else if (opt.size == 1) {
                 remaining :+= Equals(tpe, opt.head)
                 remaining :+= Equals(key, tpe)
