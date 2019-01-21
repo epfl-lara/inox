@@ -770,7 +770,7 @@ trait Templates
 
       // instantiate positive quantifications last to avoid introducing
       // extra quantifier instantiations that arise due to empty domains
-      val (others, positives) = quants.partition(_.polarity != Positive)
+      val (others, positives) = quants.partition(_.polarity.isNegative)
       for (q <- others ++ positives) {
         val substMap = subst.mapValues(_.encoded)
         val substQuant = q.substitute(mkSubstituter(substMap), matcherSubst)

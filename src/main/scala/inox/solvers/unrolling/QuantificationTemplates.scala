@@ -70,15 +70,17 @@ trait QuantificationTemplates { self: Templates =>
     * formula. Positive and negative polarity enable optimizations during
     * quantifier instantiation.
     */
-  sealed abstract class Polarity {
+  sealed abstract class Polarity(val isPositive: Boolean) {
+    val isNegative: Boolean = !isPositive
+
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): Polarity = this match {
       case Positive(subst) => Positive(subst.map(p => p._1 -> p._2.substitute(substituter, msubst)))
       case Negative(insts) => Negative(insts._1 -> substituter(insts._2))
     }
   }
 
-  case class Positive(subst: Map[Variable, Arg]) extends Polarity
-  case class Negative(insts: (Variable, Encoded)) extends Polarity
+  case class Positive(subst: Map[Variable, Arg]) extends Polarity(true)
+  case class Negative(insts: (Variable, Encoded)) extends Polarity(false)
 
   class QuantificationTemplate private[QuantificationTemplates] (
     val polarity: Polarity,
