@@ -151,10 +151,8 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
       }
 
 
-
-
       if (possibleOptions.isEmpty)
-        unificationImpossible(unknown, value)
+        throw UnificationError(unificationImpossible(unknown, value), Seq(unknown.pos))
       else if (possibleOptions.size == 1) {
         remaining :+= Constraint.equal(value, possibleOptions.head)
         remaining :+= Constraint.equal(unknown, value)
@@ -222,10 +220,10 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
 
       case OneOf(unknown, tpe, typeOptions) => tpe match {
         case u: Unknown if typeOptions.size > 1=>
-          typeOptionsMap += (u -> (tpe, typeOptions))
+          typeOptionsMap += (unknown -> (tpe, typeOptions))
         case u: Unknown =>
-          remaining :+= Equals(u, tpe)
-          remaining :+= Equals(u, typeOptions.head)
+          remaining :+= Equals(unknown, tpe)
+          remaining :+= Equals(unknown, typeOptions.head)
         case _ =>
           simplifyTypeOptions(unknown, tpe, None, Some((tpe, typeOptions)))
       }
@@ -242,40 +240,36 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
           handle(constraint)
         }
 
-        if (unknowns.nonEmpty) {
-          val oneOfSolved = typeOptionsMap.map {
+        if (typeOptionsMap.nonEmpty) {
+          typeOptionsMap.foreach {
             case (key: SimpleTypes.Unknown, (tpe: SimpleTypes.Type, options: Seq[SimpleTypes.Type])) =>
               val opt = options.filter(isCompatible(tpe, _))
               typeOptionsMap = typeOptionsMap - key
               if (opt.isEmpty) {
-                unificationImpossible(key, tpe)
-                None
+                throw UnificationError(unificationImpossible(key, tpe), Seq(key.pos, tpe.pos))
               } else if (noUnknown(tpe)) {
                 remaining ++= opt.map(Equals(tpe, _))
-                Some((key, tpe))
+                remaining :+= Equals(key, tpe)
               } else if (opt.size == 1) {
                 remaining :+= Equals(tpe, opt.head)
-                Some((key, tpe))
+                remaining :+= Equals(key, tpe)
               } else {
                 typeOptionsMap = typeOptionsMap.updated(key, (tpe, opt))
-                None
               }
-          }.flatten.toSeq
+          }
+        }
 
+        if (remaining.isEmpty && unknowns.nonEmpty) {
           val defaults = typeClasses.collect {
             case (u, Integral) => u -> IntegerType()
             case (u, Numeric) => u -> IntegerType()
           }.toSeq
 
-          oneOfSolved.foreach {
-            case (u, t) => remaining :+= Equals(u, t)
-          }
-
           defaults.foreach {
             case (u, t) => remaining :+= Equals(u, t)
           }
 
-          if (defaults.isEmpty && oneOfSolved.isEmpty) {
+          if (defaults.isEmpty) {
             throw UnificationError(ambiguousTypes, unknowns.toSeq.map(_.pos))
           }
         }
