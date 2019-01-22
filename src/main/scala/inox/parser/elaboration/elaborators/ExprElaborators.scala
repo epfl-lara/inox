@@ -228,9 +228,11 @@ trait ExprElaborators { self: Elaborators =>
           _ <- Constrained(Constraint.oneOf(resType, resType, resOptions), Constraint.oneOf(identUnknownType, identUnknownType, idOptions),
             Constraint.equal(identUnknownType, SimpleTypes.FunctionType(stas, resType)), Constraint.exist(resType), Constraint.exist(identUnknownType))
         } yield (resType, Eventual.withUnifier { implicit unifier =>
-
           val unifiedFinal = unifier.get(resType)
           val unifierIdType = unifier.get(identUnknownType)
+          val possibleOptions = options.count(option => unifier(option._1) == unifiedFinal && unifier(option._2) == unifierIdType)
+          if (possibleOptions > 1)
+            throw new Exception(ambiguousTypes(Seq(id.pos)))
           val eventualOption = options.find(option => unifier(option._1) == unifiedFinal && unifier(option._2) == unifierIdType)
           eventualOption match {
             case None => throw new Exception("Should not happen that unification finished")
