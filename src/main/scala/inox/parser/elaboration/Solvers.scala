@@ -272,6 +272,10 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
         }
       }
 
+      if (typeOptionsMap.nonEmpty) {
+        throw UnificationError(ambiguousTypes, typeOptionsMap.keySet.toSeq.map(_.pos))
+      }
+
       Right(unifier)
     }
     catch {
