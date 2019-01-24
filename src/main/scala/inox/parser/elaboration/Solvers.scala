@@ -3,7 +3,8 @@ package inox.parser.elaboration
 import inox.parser.{ElaborationErrors, IRs}
 import scala.util.parsing.input.Position
 
-trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationErrors =>
+trait Solvers {
+  self: Constraints with SimpleTypes with IRs with ElaborationErrors =>
 
   import SimpleTypes._
   import TypeClasses._
@@ -11,15 +12,14 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
 
   /**
     * Checks if two types are compatible in the type option sense
+    *
     * @param ltpe left hand side type
     * @param rtpe right hand side type
     * @return
     */
   private def isCompatible(ltpe: SimpleTypes.Type, rtpe: SimpleTypes.Type): Boolean = (ltpe, rtpe) match {
-    case (_: Unknown, _) =>
-      true
-    case (_, _: Unknown) =>
-      true
+    case (_: Unknown, _) => true
+    case (_, _: Unknown) => true
     case (UnitType(), UnitType()) => true
     case (IntegerType(), IntegerType()) => true
     case (BitVectorType(signed1, size1), BitVectorType(signed2, size2)) if signed1 == signed2 && size1 == size2 => true
@@ -29,9 +29,8 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
     case (RealType(), RealType()) => true
     case (FunctionType(fs1, t1), FunctionType(fs2, t2)) if fs1.size == fs2.size =>
       fs1.zip(fs2).forall(a => isCompatible(a._1, a._2)) && isCompatible(t1, t2)
-
     case (TupleType(es1), TupleType(es2)) if es1.size == es2.size =>
-      es1.zip(es2).forall(a =>isCompatible(a._1, a._2))
+      es1.zip(es2).forall(a => isCompatible(a._1, a._2))
     case (MapType(f1, t1), MapType(f2, t2)) => isCompatible(f1, f2) && isCompatible(t1, t2)
     case (SetType(e1), SetType(e2)) => isCompatible(e1, e2)
     case (BagType(e1), BagType(e2)) => isCompatible(e1, e2)
@@ -43,7 +42,7 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
 
 
   def noUnknown(tpe: SimpleTypes.Type): Boolean = tpe match {
-    case _ :Unknown =>
+    case _: Unknown =>
       false
     case FunctionType(fs1, t1) =>
       fs1.forall(a => noUnknown(a)) && noUnknown(t1)
@@ -52,7 +51,7 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
     case MapType(f1, t1) => noUnknown(f1) && noUnknown(t1)
     case SetType(e1) => noUnknown(e1)
     case BagType(e1) => noUnknown(e1)
-    case ADTType(i1, as1)=>
+    case ADTType(_, as1) =>
       as1.forall(noUnknown)
     case _ => true
   }
@@ -91,12 +90,14 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
       unifier += (unknown -> value)
     }
 
+
     /**
-      * Based on the input type and its' possible options simplifies the option constraint or raises an exption
-      * if input type is nor compatible with any of the possible options
-      * @param tpe input type
-      * @param typeOptions possible type options
-      * @return
+      * Tries to simplify the currently processed OneOf as much as possible, possibly using the fact that there allready
+      * exists a mapping for a type
+      * @param unknown type for which we have a OneOf constraint
+      * @param value new template which the unknown should have
+      * @param newOptions type options of the new OneOF
+      * @param existing mapping inside the typeOptionsMap
       */
     def simplifyTypeOptions(unknown: SimpleTypes.Unknown, value: SimpleTypes.Type, newOptions: Option[Seq[SimpleTypes.Type]],
                             existing: Option[(SimpleTypes.Type, Seq[SimpleTypes.Type])]): Unit = {
@@ -156,7 +157,7 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
       else if (possibleOptions.size == 1) {
         remaining :+= Constraint.equal(value, possibleOptions.head)
         remaining :+= Constraint.equal(unknown, value)
-//        remaining :+= Constraint.equal(unknown, value)
+        //        remaining :+= Constraint.equal(unknown, value)
         typeOptionsMap = typeOptionsMap - unknown
       } else {
         typeOptionsMap = typeOptionsMap - unknown
@@ -219,9 +220,9 @@ trait Solvers{ self: Constraints with SimpleTypes with IRs with ElaborationError
       }
 
       case OneOf(unknown, tpe, typeOptions) => tpe match {
-        case u: Unknown if typeOptions.size > 1=>
+        case _: Unknown if typeOptions.size > 1 =>
           typeOptionsMap += (unknown -> (tpe, typeOptions))
-        case u: Unknown =>
+        case _: Unknown =>
           remaining :+= Equals(unknown, tpe)
           remaining :+= Equals(unknown, typeOptions.head)
         case _ =>
