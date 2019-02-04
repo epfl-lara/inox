@@ -129,8 +129,11 @@ trait MainHelpers {
     val parser = { (_: String) => throw FatalError("Unparsable option \"files\"") }
   }
 
+  protected def newReporter(debugSections: Set[DebugSection]): inox.Reporter =
+    new DefaultReporter(debugSections)
+
   protected def processOptions(args: Seq[String]): Context = {
-    val initReporter = new DefaultReporter(Set())
+    val initReporter = newReporter(Set())
 
     val opts = args.filter(_.startsWith("--"))
 
@@ -152,7 +155,7 @@ trait MainHelpers {
     for ((optDef, values) <- inoxOptions.groupBy(_.optionDef) if values.size > 1)
       initReporter.fatalError(s"Duplicate option: ${optDef.name}")
 
-    val reporter = new DefaultReporter(
+    val reporter = newReporter(
       inoxOptions.collectFirst {
         case OptionValue(`optDebug`, sections) => sections.asInstanceOf[Set[DebugSection]]
       }.getOrElse(Set[DebugSection]())
