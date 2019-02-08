@@ -32,6 +32,25 @@ trait IdentifierElaborators { self: Elaborators =>
   }
   val ExprUseIdE = new ExprUseIdE
 
+  class ExprUseIDOverloadE extends Elaborator[Identifier, Seq[inox.Identifier]] {
+    override def elaborate(template: Identifier)(implicit store: Store): Constrained[Seq[inox.Identifier]] = template match {
+      case IdentifierHole(index) => store.getHole[inox.Identifier](index) match {
+        case None => Constrained.fail(invalidHoleType("Identifier")(template.pos))
+        case Some(id) => Constrained.pure(Seq(id))
+      }
+      case IdentifierName(name) =>
+        store.getExprIdentifier(name) match {
+          case None => store.getFunctions(name) match {
+            case None => Constrained.fail(noExprInScope(name)(template.pos))
+            case Some(identSequence) => Constrained.pure(identSequence)
+          }
+          case Some(a) => Constrained.pure(Seq(a))
+        }
+    }
+  }
+
+  val ExprUseIDOverloadE = new ExprUseIDOverloadE
+
   class TypeUseIdE extends Elaborator[Identifier, inox.Identifier] {
     override def elaborate(template: Identifier)(implicit store: Store): Constrained[inox.Identifier] = template match {
       case IdentifierHole(index) => store.getHole[inox.Identifier](index) match {

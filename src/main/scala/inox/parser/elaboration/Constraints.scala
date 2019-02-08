@@ -15,6 +15,7 @@ trait Constraints { self: IRs with SimpleTypes with ElaborationErrors =>
     case class Exists(elem: Type) extends Constraint
     case class Equals(left: Type, right: Type) extends Constraint
     case class HasClass(elem: Type, typeClass: TypeClass) extends Constraint
+    case class OneOf(unknown: Unknown, tpe: Type, typeOptions: Seq[Type]) extends Constraint
   }
 
   object Constraint {
@@ -43,6 +44,8 @@ trait Constraints { self: IRs with SimpleTypes with ElaborationErrors =>
       }
       HasClass(elem, WithFields(fields, mapping))
     }
+    def oneOf(unknown: Unknown, tpe: Type, typeOptions: Seq[Type]): Constraint =
+      OneOf(unknown, tpe, typeOptions)
   }
 
   class Eventual[+A] private(private val fun: Unifier => A) {
@@ -116,18 +119,24 @@ trait Constraints { self: IRs with SimpleTypes with ElaborationErrors =>
   }
 
   implicit lazy val constraintUnifiable: Unifiable[Constraint] = Unifiable {
-    case Exists(elem) => for {
+    case Constraints.Exists(elem) => for {
       e <- Eventual.unify(elem)
-    } yield Exists(e)
-    case Equals(left, right) => for {
+    } yield Constraints.Exists(e)
+    case Constraints.Equals(left, right) => for {
       l <- Eventual.unify(left)
       r <- Eventual.unify(right)
-    } yield Equals(l, r)
-    case HasClass(elem, typeClass) => for {
+    } yield Constraints.Equals(l, r)
+    case Constraints.HasClass(elem, typeClass) => for {
       e <- Eventual.unify(elem)
       t <- Eventual.unify(typeClass)
-    } yield HasClass(e, t)
+    } yield Constraints.HasClass(e, t)
+    case OneOf(unknown, tpe, typeOptions) =>
+      for {
+        t <- Eventual.unify(tpe)
+        goal <- Eventual.sequence(typeOptions.map(Eventual.unify(_)))
+      } yield Constraints.OneOf(unknown, t, goal)
   }
+
 
   implicit lazy val typeClassUnifiable: Unifiable[TypeClass] = Unifiable {
     case WithFields(fields, sorts) => for {
@@ -141,6 +150,14 @@ trait Constraints { self: IRs with SimpleTypes with ElaborationErrors =>
       is <- Eventual.sequence(indices.mapValues(Eventual.unify(_)).view.force)
     } yield WithIndices(is)
     case x => Eventual.pure(x)
+  }
+
+
+  implicit def pairUnifiable[A: Unifiable, B: Unifiable]: Unifiable[(A, B)] = Unifiable {
+    a: (A, B) => for {
+      first <- Eventual.unify(a._1)
+      second <- Eventual.unify(a._2)
+    } yield (first, second)
   }
 
   implicit def seqUnifiable[A](implicit inner: Unifiable[A]): Unifiable[Seq[A]] = Unifiable { xs: Seq[A] =>
