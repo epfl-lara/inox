@@ -68,11 +68,7 @@ final class TimerStorage private(val _name: Option[String])
   def selectDynamic(name: String): TimerStorage = get(name)
 
   def get(name: String): TimerStorage = synchronized {
-    db.getOrElse(name, {
-      val res = new TimerStorage(Some(name))
-      db(name) = res
-      res
-    })
+    db.getOrElseUpdate(name, new TimerStorage(Some(name)))
   }
 
   /**
