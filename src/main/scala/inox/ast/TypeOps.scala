@@ -18,18 +18,21 @@ trait TypeOps {
   class TypeErrorException(msg: String, val obj: Expr, val pos: Position) extends Exception(msg)
 
   object TypeErrorException {
-    def apply(obj: Expr, tpes: Seq[Type]): TypeErrorException =
+    def apply(obj: Expr, tpes: Seq[Type])(implicit ctx: Context): TypeErrorException = {
+      implicit val popts = PrinterOptions.fromContext(ctx)
+
       new TypeErrorException(
-        s"""Type error: $obj, expected ${tpes.mkString(" or ")}, 
-           |found ${obj.getType}
+        s"""Type error: ${obj.asString}, expected ${tpes.map(_.asString).mkString(" or ")},
+           |found ${obj.getType.asString}
            |
            |Typing explanation:
-           |${explainTyping(obj)(new PrinterOptions())}""".stripMargin, 
-        obj, 
+           |${explainTyping(obj)}""".stripMargin,
+        obj,
         obj.getPos
       )
+    }
 
-    def apply(obj: Expr, tpe: Type): TypeErrorException = apply(obj, Seq(tpe))
+    def apply(obj: Expr, tpe: Type)(implicit ctx: Context): TypeErrorException = apply(obj, Seq(tpe))
   }
 
   def leastUpperBound(tp1: Type, tp2: Type): Type = if (tp1 == tp2) tp1 else Untyped
@@ -82,7 +85,7 @@ trait TypeOps {
     }
   }
 
-  def typeCheck(obj: Expr, exps: Type*) = {
+  def typeCheck(obj: Expr, exps: Type*)(implicit ctx: Context) = {
     val res = exps.exists(e => isSubtypeOf(obj.getType, e))
 
     if (!res) {

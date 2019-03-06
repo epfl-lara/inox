@@ -216,15 +216,17 @@ trait Definitions { self: Trees =>
       * - adt type parameter flags match between children and parents
       * - every variable is available in the scope of its usage
       */
-    @inline def ensureWellFormed: Unit = _tryWF.get.get
-    private[this] val _tryWF: Lazy[Try[Unit]] = Lazy(Try(ensureWellFormedSymbols))
+    @inline def ensureWellFormed(implicit ctx: Context): Unit = _tryWF.get(ctx).get
 
-    protected def ensureWellFormedSymbols: Unit = {
+    private[this] val _tryWF: Lazy1[Context, Try[Unit]] =
+      Lazy1(ctx => Try(ensureWellFormedSymbols(ctx)))
+
+    protected def ensureWellFormedSymbols(implicit ctx: Context): Unit = {
       for ((_, fd) <- functions) ensureWellFormedFunction(fd)
       for ((_, sort) <- sorts) ensureWellFormedSort(sort)
     }
 
-    protected def ensureWellFormedFunction(fd: FunDef) = {
+    protected def ensureWellFormedFunction(fd: FunDef)(implicit ctx: Context) = {
       typeCheck(fd.fullBody, fd.getType)
 
       if (!fd.getType.isTyped) throw NotWellFormedException(fd)
