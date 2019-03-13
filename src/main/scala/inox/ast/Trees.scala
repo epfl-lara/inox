@@ -5,7 +5,7 @@ package ast
 
 import scala.language.implicitConversions
 
-import inox.parsing.Interpolator
+import inox.parser._
 
 trait Trees
   extends Expressions
@@ -38,9 +38,9 @@ trait Trees
     protected val trees: Trees.this.type = Trees.this
   } with DSL
 
-  val interpolator: Interpolator { val trees: Trees.this.type } = new {
+  val interpolator: MacrosInterpolators { val trees: Trees.this.type } = new {
     protected val trees: Trees.this.type = Trees.this
-  } with Interpolator
+  } with MacrosInterpolators
 
   def aliased(id1: Identifier, id2: Identifier) = {
     id1.toString == id2.toString

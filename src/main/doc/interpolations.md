@@ -7,7 +7,7 @@ Inox String Interpolation
 
 - ***[Introduction](#introduction)***
   - [Importing](#importing)
-- ***[Syntax](#syntax)***
+- ***[Expressions](#expressions)***
   - [Literals](#literals)
     - [Boolean](#boolean-literals)
     - [Numeric](#numeric-literals)
@@ -20,7 +20,6 @@ Inox String Interpolation
   - [Lambda expressions](#lambda-expressions)
   - [Quantifiers](#quantifiers)
     - [Universal quantifiers](#universal-quantifiers)
-    - [Existential quantifiers](#existential-quantifiers)
   - [Choose](#choose)
 
 - ***[Primitives](#primitives)***
@@ -57,11 +56,11 @@ val expr = e"1 + 1 == 2"
 It is also possible to embed types and expressions:
 
 ```tut
-e"let x: $tpe = $expr in !x"
+e"let x: $tpe = $expr; !x"
 ```
 
-<a name="syntax"></a>
-# Syntax
+<a name="expressions"></a>
+# Expressions
 
 <a name="literals"></a>
 ## Literals
@@ -81,7 +80,7 @@ e"false"
 e"1"
 ```
 
-Note that the type of numeric expressions is inferred. In case of ambiguity, `BigInt` is chosen by default.
+Note that the type of numeric expressions is inferred. In case of ambiguity, `Integer` is chosen by default.
 
 ```tut
 val bigIntLit = e"1"
@@ -91,12 +90,12 @@ bigIntLit.getType
 It is however possible to annotate the desired type.
 
 ```tut
-val intLit = e"1 : Int"
+val intLit = e"1 as Int"
 intLit.getType
 ```
 
 ```tut
-val realLit = e"1 : Real"
+val realLit = e"1 as Real"
 realLit.getType
 ```
 
@@ -141,26 +140,32 @@ e"if (1 == 2) 'foo' else 'bar'"
 ## Let bindings
 
 ```tut
-e"let word: String = 'World!' in concatenate('Hello ', word)"
+e"let word: String = 'World!'; concatenate('Hello ', word)"
 ```
 
 <a name="lambda-expressions"></a>
 ## Lambda expressions
 
 ```tut
-e"lambda x: BigInt, y: BigInt. x + y"
+e"lambda (x: Integer, y: Integer) => x + y"
 ```
 
 It is also possible to use the Unicode `λ` symbol.
 
 ```tut
-e"λx: BigInt, y: BigInt. x + y"
+e"λ(x: Integer, y: Integer) => x + y"
+```
+
+Or even use this syntax:
+
+```tut
+e"(x: Integer, y: Integer) => x + y"
 ```
 
 Type annotations can be omitted for any of the parameters if their type can be inferred.
 
 ```tut
-e"lambda x. x * 0.5"
+e"lambda (x) => x * 0.5"
 ```
 
 <a name="quantifiers"></a>
@@ -170,24 +175,16 @@ e"lambda x. x * 0.5"
 ### Universal Quantifier
 
 ```tut
-e"forall x: Int. x > 0"
-e"∀x. x || true"
-```
-
-<a name="existential-quantifiers"></a>
-### Existential Quantifier
-
-```tut
-e"exists x: BigInt. x < 0"
-e"∃x, y. x + y == 0"
+e"forall (x: Int) => x > 0"
+e"∀(x) => x || true"
 ```
 
 <a name="choose"></a>
 ## Choose
 
 ```tut
-e"choose x. x * 3 < 17"
-e"choose x: String. true"
+e"choose (x) => x * 3 < 17"
+e"choose (x: String) => length(x) == 10"
 ```
 
 <a name="primitives"></a>
@@ -208,9 +205,9 @@ e"choose x: String. true"
 
 | Function | Type | Description | Inox Constructor |
 | -------- | ---- | ----------- | ---------------- |
-| `length`   | `String => BigInt` | Returns the length of the string. | `StringLength` |
+| `length`   | `String => Integer` | Returns the length of the string. | `StringLength` |
 | `concatenate` | `(String, String) => String` | Returns the concatenation of the two strings. | `StringConcat` |
-| `substring` | `(String, BigInt, BigInt) => String` | Returns the substring from the first index inclusive to the second index exclusive. | `SubString ` |
+| `substring` | `(String, Integer, Integer) => String` | Returns the substring from the first index inclusive to the second index exclusive. | `SubString ` |
 
 ### Operators
 
@@ -226,14 +223,6 @@ e"choose x: String. true"
 | Constructor | Description | Inox Constructor |
 | ----------- | ----------- | ---------------- |
 | `Set[A](elements: A*)` | Returns a set containing the given `elements`. | `FiniteSet` |
-
-### Literal Syntax
-
-```
-{}
-{1, 2, 3}
-{'foo', 'bar', 'baz'}
-```
 
 ### Functions
 
@@ -263,20 +252,13 @@ e"choose x: String. true"
 
 | Constructor | Description | Inox Constructor |
 | ----------- | ----------- | ---------------- |
-| `Bag[A](bindings: (A -> BigInt)*)` | Returns a bag containing the given `bindings`. | `FiniteBag` |
-
-### Literal Syntax
-
-```
-{1 -> 2, 2 -> 4, 3 -> 6}
-{'foo' -> 5, 'bar' -> 2, 'baz' -> 2}
-```
+| `Bag[A](bindings: (A -> Integer)*)` | Returns a bag containing the given `bindings`. | `FiniteBag` |
 
 ### Functions
 
 | Function | Type | Description | Inox Constructor |
 | -------- | ---- | ----------- | ---------------- |
-| `multiplicity[A]` | `(Bag[A], A) => BigInt` | Returns the number of occurrences in the given bag of the given value. | `MultiplicityInBag` |
+| `multiplicity[A]` | `(Bag[A], A) => Integer` | Returns the number of occurrences in the given bag of the given value. | `MultiplicityInBag` |
 | `bagAdd[A]` | `(Bag[A], A) => Bag[A]` | Returns the bag with an element added. | `BagAdd` |
 | `bagUnion[A]` | `(Bag[A], Bag[A]) => Bag[A]` | Returns the unions of the two bags. | `BagUnion` |
 | `bagIntersection[A]` | `(Bag[A], Bag[A]) => Bag[A]` | Returns the intersection of the two bags. | `BagIntersection` |
@@ -289,14 +271,7 @@ e"choose x: String. true"
 
 | Constructor | Description | Inox Constructor |
 | ----------- | ----------- | ---------------- |
-| `Map[A](default: A, bindings: (A -> BigInt)*)` | Returns a map with default value `default` containing the given `bindings`. | `FiniteMap` |
-
-### Literal syntax
-
-```
-{*: Int -> 42}
-{* -> '???', 'hello' -> 'HELLO', 'world' -> 'WORLD'}
-```
+| `Map[A](default: A, bindings: (A -> Integer)*)` | Returns a map with default value `default` containing the given `bindings`. | `FiniteMap` |
 
 ### Functions
 
@@ -304,3 +279,25 @@ e"choose x: String. true"
 | -------- | ---- | ----------- | ---------------- |
 | `apply[K, V]` | `(Map[K, V], K) => V` | Returns the value associated to the given key. | `MapApply` |
 | `updated[K, V]` | `(Map[K, V], K, V) => Map[K, V]` | Returns the map with a bidding from the key to the value added. | `MapUpdated` |
+
+<a name="type-definitions"></a>
+# Type Definitions
+
+```tut
+td"type List[A] = Cons(head: A, tail: List[A]) | Nil()"
+```
+
+```tut
+td"type Option[A] = Some(value: A) | None()"
+```
+
+<a name="type-definitions"></a>
+# Function Definitions
+
+```tut
+fd"def id[A](x: A): A = x"
+```
+
+```tut
+fd"def twice[A](f: A => A): A => A = (x: A) => f(f(x))"
+```

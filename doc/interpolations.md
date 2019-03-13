@@ -7,7 +7,7 @@ Inox String Interpolation
 
 - ***[Introduction](#introduction)***
   - [Importing](#importing)
-- ***[Syntax](#syntax)***
+- ***[Expressions](#expressions)***
   - [Literals](#literals)
     - [Boolean](#boolean-literals)
     - [Numeric](#numeric-literals)
@@ -20,7 +20,6 @@ Inox String Interpolation
   - [Lambda expressions](#lambda-expressions)
   - [Quantifiers](#quantifiers)
     - [Universal quantifiers](#universal-quantifiers)
-    - [Existential quantifiers](#existential-quantifiers)
   - [Choose](#choose)
 
 - ***[Primitives](#primitives)***
@@ -51,23 +50,23 @@ Once imported, it is possible to build Inox types and expressions using a friend
 
 ```scala
 scala> val tpe = t"Boolean"
-tpe: inox.trees.interpolator.trees.Type = Boolean
+tpe: inox.trees.Type = Boolean
 
 scala> val expr = e"1 + 1 == 2"
-expr: inox.trees.interpolator.trees.Expr = 1 + 1 == 2
+expr: inox.trees.Expr = 1 + 1 == 2
 ```
 
 It is also possible to embed types and expressions:
 
 ```scala
-scala> e"let x: $tpe = $expr in !x"
-res1: inox.trees.interpolator.trees.Expr =
-val x: Boolean = 1 + 1 == 2
-¬x
+scala> e"let x: $tpe = $expr; !x"
+res1: inox.trees.Expr =
+let x: Boolean = 1 + 1 == 2;
+!x
 ```
 
-<a name="syntax"></a>
-# Syntax
+<a name="expressions"></a>
+# Expressions
 
 <a name="literals"></a>
 ## Literals
@@ -77,10 +76,10 @@ val x: Boolean = 1 + 1 == 2
 
 ```scala
 scala> e"true"
-res2: inox.trees.interpolator.trees.Expr = true
+res2: inox.trees.Expr = true
 
 scala> e"false"
-res3: inox.trees.interpolator.trees.Expr = false
+res3: inox.trees.Expr = false
 ```
 
 <a name="numeric-literals"></a>
@@ -88,35 +87,35 @@ res3: inox.trees.interpolator.trees.Expr = false
 
 ```scala
 scala> e"1"
-res4: inox.trees.interpolator.trees.Expr = 1
+res4: inox.trees.Expr = 1
 ```
 
-Note that the type of numeric expressions is inferred. In case of ambiguity, `BigInt` is chosen by default.
+Note that the type of numeric expressions is inferred. In case of ambiguity, `Integer` is chosen by default.
 
 ```scala
 scala> val bigIntLit = e"1"
-bigIntLit: inox.trees.interpolator.trees.Expr = 1
+bigIntLit: inox.trees.Expr = 1
 
 scala> bigIntLit.getType
-res5: inox.trees.interpolator.trees.Type = BigInt
+res5: inox.trees.Type = Integer
 ```
 
 It is however possible to annotate the desired type.
 
 ```scala
-scala> val intLit = e"1 : Int"
-intLit: inox.trees.interpolator.trees.Expr = 1
+scala> val intLit = e"1 as Int"
+intLit: inox.trees.Expr = 1
 
 scala> intLit.getType
-res6: inox.trees.interpolator.trees.Type = Int
+res6: inox.trees.Type = Int
 ```
 
 ```scala
-scala> val realLit = e"1 : Real"
-realLit: inox.trees.interpolator.trees.Expr = 1
+scala> val realLit = e"1 as Real"
+realLit: inox.trees.Expr = 1
 
 scala> realLit.getType
-res7: inox.trees.interpolator.trees.Type = Real
+res7: inox.trees.Type = Real
 ```
 
 <a name="real-literals"></a>
@@ -124,7 +123,7 @@ res7: inox.trees.interpolator.trees.Type = Real
 
 ```scala
 scala> e"3.75"
-res8: inox.trees.interpolator.trees.Expr = 15/4
+res8: inox.trees.Expr = 15/4
 ```
 
 <a name="string-literals"></a>
@@ -132,7 +131,7 @@ res8: inox.trees.interpolator.trees.Expr = 15/4
 
 ```scala
 scala> e"'Hello world!'"
-res9: inox.trees.interpolator.trees.Expr = "Hello world!"
+res9: inox.trees.Expr = "Hello world!"
 ```
 
 <a name="character-literals"></a>
@@ -140,7 +139,7 @@ res9: inox.trees.interpolator.trees.Expr = "Hello world!"
 
 ```scala
 scala> e"`a`"
-res10: inox.trees.interpolator.trees.Expr = 'a'
+res10: inox.trees.Expr = 'a'
 ```
 
 <a name="arithmetic"></a>
@@ -150,7 +149,7 @@ Arithmetic operators are infix and have there usual associativity and priority.
 
 ```scala
 scala> e"1 + 2 * 5 + 6 - 7 / 17"
-res11: inox.trees.interpolator.trees.Expr = ((1 + 2 * 5) + 6) - 7 / 17
+res11: inox.trees.Expr = ((1 + 2 * 5) + 6) - 7 / 17
 ```
 
 <a name="conditionals"></a>
@@ -158,7 +157,7 @@ res11: inox.trees.interpolator.trees.Expr = ((1 + 2 * 5) + 6) - 7 / 17
 
 ```scala
 scala> e"if (1 == 2) 'foo' else 'bar'"
-res12: inox.trees.interpolator.trees.Expr =
+res12: inox.trees.Expr =
 if (1 == 2) {
   "foo"
 } else {
@@ -170,32 +169,39 @@ if (1 == 2) {
 ## Let bindings
 
 ```scala
-scala> e"let word: String = 'World!' in concatenate('Hello ', word)"
-res13: inox.trees.interpolator.trees.Expr =
-val word: String = "World!"
-"Hello " + word
+scala> e"let word: String = 'World!'; concatenate('Hello ', word)"
+res13: inox.trees.Expr =
+let word: String = "World!";
+concatenate("Hello ", word)
 ```
 
 <a name="lambda-expressions"></a>
 ## Lambda expressions
 
 ```scala
-scala> e"lambda x: BigInt, y: BigInt. x + y"
-res14: inox.trees.interpolator.trees.Expr = (x: BigInt, y: BigInt) => x + y
+scala> e"lambda (x: Integer, y: Integer) => x + y"
+res14: inox.trees.Expr = (x: Integer, y: Integer) => x + y
 ```
 
 It is also possible to use the Unicode `λ` symbol.
 
 ```scala
-scala> e"λx: BigInt, y: BigInt. x + y"
-res15: inox.trees.interpolator.trees.Expr = (x: BigInt, y: BigInt) => x + y
+scala> e"λ(x: Integer, y: Integer) => x + y"
+res15: inox.trees.Expr = (x: Integer, y: Integer) => x + y
+```
+
+Or even use this syntax:
+
+```scala
+scala> e"(x: Integer, y: Integer) => x + y"
+res16: inox.trees.Expr = (x: Integer, y: Integer) => x + y
 ```
 
 Type annotations can be omitted for any of the parameters if their type can be inferred.
 
 ```scala
-scala> e"lambda x. x * 0.5"
-res16: inox.trees.interpolator.trees.Expr = (x: Real) => x * 1/2
+scala> e"lambda (x) => x * 0.5"
+res17: inox.trees.Expr = (x: Real) => x * 1/2
 ```
 
 <a name="quantifiers"></a>
@@ -205,33 +211,22 @@ res16: inox.trees.interpolator.trees.Expr = (x: Real) => x * 1/2
 ### Universal Quantifier
 
 ```scala
-scala> e"forall x: Int. x > 0"
-res17: inox.trees.interpolator.trees.Expr = ∀x: Int. (x > 0)
+scala> e"forall (x: Int) => x > 0"
+res18: inox.trees.Expr = ∀ (x: Int) => (x > 0)
 
-scala> e"∀x. x || true"
-res18: inox.trees.interpolator.trees.Expr = ∀x: Boolean. (x || true)
-```
-
-<a name="existential-quantifiers"></a>
-### Existential Quantifier
-
-```scala
-scala> e"exists x: BigInt. x < 0"
-res19: inox.trees.interpolator.trees.Expr = ¬∀x: BigInt. ¬(x < 0)
-
-scala> e"∃x, y. x + y == 0"
-res20: inox.trees.interpolator.trees.Expr = ¬∀x: BigInt, y: BigInt. (x + y ≠ 0)
+scala> e"∀(x) => x || true"
+res19: inox.trees.Expr = ∀ (x: Boolean) => (x || true)
 ```
 
 <a name="choose"></a>
 ## Choose
 
 ```scala
-scala> e"choose x. x * 3 < 17"
-res21: inox.trees.interpolator.trees.Expr = choose((x: BigInt) => x * 3 < 17)
+scala> e"choose (x) => x * 3 < 17"
+res20: inox.trees.Expr = choose (x: Integer) => x * 3 < 17
 
-scala> e"choose x: String. true"
-res22: inox.trees.interpolator.trees.Expr = choose((x: String) => true)
+scala> e"choose (x: String) => length(x) == 10"
+res21: inox.trees.Expr = choose (x: String) => length(x) == 10
 ```
 
 <a name="primitives"></a>
@@ -252,9 +247,9 @@ res22: inox.trees.interpolator.trees.Expr = choose((x: String) => true)
 
 | Function | Type | Description | Inox Constructor |
 | -------- | ---- | ----------- | ---------------- |
-| `length`   | `String => BigInt` | Returns the length of the string. | `StringLength` |
+| `length`   | `String => Integer` | Returns the length of the string. | `StringLength` |
 | `concatenate` | `(String, String) => String` | Returns the concatenation of the two strings. | `StringConcat` |
-| `substring` | `(String, BigInt, BigInt) => String` | Returns the substring from the first index inclusive to the second index exclusive. | `SubString ` |
+| `substring` | `(String, Integer, Integer) => String` | Returns the substring from the first index inclusive to the second index exclusive. | `SubString ` |
 
 ### Operators
 
@@ -270,14 +265,6 @@ res22: inox.trees.interpolator.trees.Expr = choose((x: String) => true)
 | Constructor | Description | Inox Constructor |
 | ----------- | ----------- | ---------------- |
 | `Set[A](elements: A*)` | Returns a set containing the given `elements`. | `FiniteSet` |
-
-### Literal Syntax
-
-```
-{}
-{1, 2, 3}
-{'foo', 'bar', 'baz'}
-```
 
 ### Functions
 
@@ -307,20 +294,13 @@ res22: inox.trees.interpolator.trees.Expr = choose((x: String) => true)
 
 | Constructor | Description | Inox Constructor |
 | ----------- | ----------- | ---------------- |
-| `Bag[A](bindings: (A -> BigInt)*)` | Returns a bag containing the given `bindings`. | `FiniteBag` |
-
-### Literal Syntax
-
-```
-{1 -> 2, 2 -> 4, 3 -> 6}
-{'foo' -> 5, 'bar' -> 2, 'baz' -> 2}
-```
+| `Bag[A](bindings: (A -> Integer)*)` | Returns a bag containing the given `bindings`. | `FiniteBag` |
 
 ### Functions
 
 | Function | Type | Description | Inox Constructor |
 | -------- | ---- | ----------- | ---------------- |
-| `multiplicity[A]` | `(Bag[A], A) => BigInt` | Returns the number of occurrences in the given bag of the given value. | `MultiplicityInBag` |
+| `multiplicity[A]` | `(Bag[A], A) => Integer` | Returns the number of occurrences in the given bag of the given value. | `MultiplicityInBag` |
 | `bagAdd[A]` | `(Bag[A], A) => Bag[A]` | Returns the bag with an element added. | `BagAdd` |
 | `bagUnion[A]` | `(Bag[A], Bag[A]) => Bag[A]` | Returns the unions of the two bags. | `BagUnion` |
 | `bagIntersection[A]` | `(Bag[A], Bag[A]) => Bag[A]` | Returns the intersection of the two bags. | `BagIntersection` |
@@ -333,14 +313,7 @@ res22: inox.trees.interpolator.trees.Expr = choose((x: String) => true)
 
 | Constructor | Description | Inox Constructor |
 | ----------- | ----------- | ---------------- |
-| `Map[A](default: A, bindings: (A -> BigInt)*)` | Returns a map with default value `default` containing the given `bindings`. | `FiniteMap` |
-
-### Literal syntax
-
-```
-{*: Int -> 42}
-{* -> '???', 'hello' -> 'HELLO', 'world' -> 'WORLD'}
-```
+| `Map[A](default: A, bindings: (A -> Integer)*)` | Returns a map with default value `default` containing the given `bindings`. | `FiniteMap` |
 
 ### Functions
 
@@ -348,3 +321,29 @@ res22: inox.trees.interpolator.trees.Expr = choose((x: String) => true)
 | -------- | ---- | ----------- | ---------------- |
 | `apply[K, V]` | `(Map[K, V], K) => V` | Returns the value associated to the given key. | `MapApply` |
 | `updated[K, V]` | `(Map[K, V], K, V) => Map[K, V]` | Returns the map with a bidding from the key to the value added. | `MapUpdated` |
+
+<a name="type-definitions"></a>
+# Type Definitions
+
+```scala
+scala> td"type List[A] = Cons(head: A, tail: List[A]) | Nil()"
+res22: inox.trees.ADTSort = type List[A] = Cons(head: A, tail: List[A]) | Nil()
+```
+
+```scala
+scala> td"type Option[A] = Some(value: A) | None()"
+res23: inox.trees.ADTSort = type Option[A] = Some(value: A) | None()
+```
+
+<a name="type-definitions"></a>
+# Function Definitions
+
+```scala
+scala> fd"def id[A](x: A): A = x"
+res24: inox.trees.FunDef = def id[A](x: A): A = x
+```
+
+```scala
+scala> fd"def twice[A](f: A => A): A => A = (x: A) => f(f(x))"
+res25: inox.trees.FunDef = def twice[A](f: (A) => A): (A) => A = (x: A) => f(f(x))
+```
