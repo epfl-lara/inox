@@ -1,14 +1,14 @@
 name := "inox"
 
-enablePlugins(GitVersioning)
+enablePlugins(GitVersioning, TutPlugin)
 
 git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
-scalaVersion := "2.11.8"
+scalaVersion := "2.12.8"
 
-crossScalaVersions := Seq("2.11.8", "2.12.1")
+crossScalaVersions := Seq("2.11.8", "2.12.8")
 
 scalacOptions ++= Seq(
   "-deprecation",
@@ -102,8 +102,6 @@ sourceGenerators in Compile += Def.task {
 }.taskValue
 
 lazy val genDoc = taskKey[Unit]("Typecheck and interpret the documentation")
-
-tutSettings
 
 tutSourceDirectory := sourceDirectory.value / "main" / "doc"
 tutTargetDirectory := baseDirectory.value / "doc"

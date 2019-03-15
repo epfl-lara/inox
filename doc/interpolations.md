@@ -61,7 +61,7 @@ It is also possible to embed types and expressions:
 
 ```scala
 scala> e"let x: $tpe = $expr in !x"
-res1: inox.trees.interpolator.trees.Expr =
+res0: inox.trees.interpolator.trees.Expr =
 val x: Boolean = 1 + 1 == 2
 ¬x
 ```
@@ -77,10 +77,10 @@ val x: Boolean = 1 + 1 == 2
 
 ```scala
 scala> e"true"
-res2: inox.trees.interpolator.trees.Expr = true
+res1: inox.trees.interpolator.trees.Expr = true
 
 scala> e"false"
-res3: inox.trees.interpolator.trees.Expr = false
+res2: inox.trees.interpolator.trees.Expr = false
 ```
 
 <a name="numeric-literals"></a>
@@ -88,7 +88,7 @@ res3: inox.trees.interpolator.trees.Expr = false
 
 ```scala
 scala> e"1"
-res4: inox.trees.interpolator.trees.Expr = 1
+res3: inox.trees.interpolator.trees.Expr = 1
 ```
 
 Note that the type of numeric expressions is inferred. In case of ambiguity, `BigInt` is chosen by default.
@@ -98,7 +98,7 @@ scala> val bigIntLit = e"1"
 bigIntLit: inox.trees.interpolator.trees.Expr = 1
 
 scala> bigIntLit.getType
-res5: inox.trees.interpolator.trees.Type = BigInt
+res4: inox.trees.interpolator.trees.Type = BigInt
 ```
 
 It is however possible to annotate the desired type.
@@ -108,7 +108,7 @@ scala> val intLit = e"1 : Int"
 intLit: inox.trees.interpolator.trees.Expr = 1
 
 scala> intLit.getType
-res6: inox.trees.interpolator.trees.Type = Int
+res5: inox.trees.interpolator.trees.Type = Int
 ```
 
 ```scala
@@ -116,7 +116,7 @@ scala> val realLit = e"1 : Real"
 realLit: inox.trees.interpolator.trees.Expr = 1
 
 scala> realLit.getType
-res7: inox.trees.interpolator.trees.Type = Real
+res6: inox.trees.interpolator.trees.Type = Real
 ```
 
 <a name="real-literals"></a>
@@ -124,7 +124,7 @@ res7: inox.trees.interpolator.trees.Type = Real
 
 ```scala
 scala> e"3.75"
-res8: inox.trees.interpolator.trees.Expr = 15/4
+res7: inox.trees.interpolator.trees.Expr = 15/4
 ```
 
 <a name="string-literals"></a>
@@ -132,7 +132,7 @@ res8: inox.trees.interpolator.trees.Expr = 15/4
 
 ```scala
 scala> e"'Hello world!'"
-res9: inox.trees.interpolator.trees.Expr = "Hello world!"
+res8: inox.trees.interpolator.trees.Expr = "Hello world!"
 ```
 
 <a name="character-literals"></a>
@@ -140,7 +140,7 @@ res9: inox.trees.interpolator.trees.Expr = "Hello world!"
 
 ```scala
 scala> e"`a`"
-res10: inox.trees.interpolator.trees.Expr = 'a'
+res9: inox.trees.interpolator.trees.Expr = 'a'
 ```
 
 <a name="arithmetic"></a>
@@ -150,7 +150,7 @@ Arithmetic operators are infix and have there usual associativity and priority.
 
 ```scala
 scala> e"1 + 2 * 5 + 6 - 7 / 17"
-res11: inox.trees.interpolator.trees.Expr = ((1 + 2 * 5) + 6) - 7 / 17
+res10: inox.trees.interpolator.trees.Expr = ((1 + 2 * 5) + 6) - 7 / 17
 ```
 
 <a name="conditionals"></a>
@@ -158,7 +158,7 @@ res11: inox.trees.interpolator.trees.Expr = ((1 + 2 * 5) + 6) - 7 / 17
 
 ```scala
 scala> e"if (1 == 2) 'foo' else 'bar'"
-res12: inox.trees.interpolator.trees.Expr =
+res11: inox.trees.interpolator.trees.Expr =
 if (1 == 2) {
   "foo"
 } else {
@@ -171,7 +171,7 @@ if (1 == 2) {
 
 ```scala
 scala> e"let word: String = 'World!' in concatenate('Hello ', word)"
-res13: inox.trees.interpolator.trees.Expr =
+res12: inox.trees.interpolator.trees.Expr =
 val word: String = "World!"
 "Hello " + word
 ```
@@ -181,21 +181,21 @@ val word: String = "World!"
 
 ```scala
 scala> e"lambda x: BigInt, y: BigInt. x + y"
-res14: inox.trees.interpolator.trees.Expr = (x: BigInt, y: BigInt) => x + y
+res13: inox.trees.interpolator.trees.Expr = (x: BigInt, y: BigInt) => x + y
 ```
 
 It is also possible to use the Unicode `λ` symbol.
 
 ```scala
 scala> e"λx: BigInt, y: BigInt. x + y"
-res15: inox.trees.interpolator.trees.Expr = (x: BigInt, y: BigInt) => x + y
+res14: inox.trees.interpolator.trees.Expr = (x: BigInt, y: BigInt) => x + y
 ```
 
 Type annotations can be omitted for any of the parameters if their type can be inferred.
 
 ```scala
 scala> e"lambda x. x * 0.5"
-res16: inox.trees.interpolator.trees.Expr = (x: Real) => x * 1/2
+res15: inox.trees.interpolator.trees.Expr = (x: Real) => x * 1/2
 ```
 
 <a name="quantifiers"></a>
@@ -206,10 +206,10 @@ res16: inox.trees.interpolator.trees.Expr = (x: Real) => x * 1/2
 
 ```scala
 scala> e"forall x: Int. x > 0"
-res17: inox.trees.interpolator.trees.Expr = ∀x: Int. (x > 0)
+res16: inox.trees.interpolator.trees.Expr = ∀x: Int. (x > 0)
 
 scala> e"∀x. x || true"
-res18: inox.trees.interpolator.trees.Expr = ∀x: Boolean. (x || true)
+res17: inox.trees.interpolator.trees.Expr = ∀x: Boolean. (x || true)
 ```
 
 <a name="existential-quantifiers"></a>
@@ -217,10 +217,10 @@ res18: inox.trees.interpolator.trees.Expr = ∀x: Boolean. (x || true)
 
 ```scala
 scala> e"exists x: BigInt. x < 0"
-res19: inox.trees.interpolator.trees.Expr = ¬∀x: BigInt. ¬(x < 0)
+res18: inox.trees.interpolator.trees.Expr = ¬∀x: BigInt. ¬(x < 0)
 
 scala> e"∃x, y. x + y == 0"
-res20: inox.trees.interpolator.trees.Expr = ¬∀x: BigInt, y: BigInt. (x + y ≠ 0)
+res19: inox.trees.interpolator.trees.Expr = ¬∀x: BigInt, y: BigInt. (x + y ≠ 0)
 ```
 
 <a name="choose"></a>
@@ -228,10 +228,10 @@ res20: inox.trees.interpolator.trees.Expr = ¬∀x: BigInt, y: BigInt. (x + y �
 
 ```scala
 scala> e"choose x. x * 3 < 17"
-res21: inox.trees.interpolator.trees.Expr = choose((x: BigInt) => x * 3 < 17)
+res20: inox.trees.interpolator.trees.Expr = choose((x: BigInt) => x * 3 < 17)
 
 scala> e"choose x: String. true"
-res22: inox.trees.interpolator.trees.Expr = choose((x: String) => true)
+res21: inox.trees.interpolator.trees.Expr = choose((x: String) => true)
 ```
 
 <a name="primitives"></a>
