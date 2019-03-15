@@ -4,6 +4,8 @@ package inox
 
 import solvers._
 
+import java.io.File
+
 trait MainHelpers {
 
   protected def getDebugSections: Set[DebugSection] = Set(
@@ -119,12 +121,12 @@ trait MainHelpers {
   /** The current files on which Inox is running.
     *
     * This option cannot be filled through option parsing and must always be
-    * instantiated manually (see [[processOptions]]). We therefore MUST NOT add
+    * instantiated manually (see [[parseArguments]]). We therefore MUST NOT add
     * it to the [[options]] map!
     */
-  final object optFiles extends OptionDef[Seq[java.io.File]] {
+  final object optFiles extends OptionDef[Seq[File]] {
     val name = "files"
-    val default = Seq[java.io.File]()
+    val default = Seq[File]()
     val usageRhs = "No possible usage"
     val parser = { (_: String) => throw FatalError("Unparsable option \"files\"") }
   }
@@ -132,12 +134,10 @@ trait MainHelpers {
   protected def newReporter(debugSections: Set[DebugSection]): inox.Reporter =
     new DefaultReporter(debugSections)
 
-  protected def processOptions(args: Seq[String]): Context = {
-    val initReporter = newReporter(Set())
-
+  protected def parseArguments(args: Seq[String])(implicit initReporter: Reporter): Context = {
     val opts = args.filter(_.startsWith("--"))
 
-    val files = args.filterNot(_.startsWith("-")).map(new java.io.File(_))
+    val files = args.filterNot(_.startsWith("-")).map(new File(_))
 
     val inoxOptions: Seq[OptionValue[_]] = opts.map { opt =>
       val (name, value) = OptionsHelpers.nameValue(opt) getOrElse initReporter.fatalError(
@@ -149,8 +149,14 @@ trait MainHelpers {
         s"Unknown option: $name\nTry the --help option for more information."
       )
 
-      df.parse(value)(initReporter)
+      df.parse(value)
     }
+
+    processOptions(files, inoxOptions)
+  }
+
+  protected def processOptions(files: Seq[File], inoxOptions: Seq[OptionValue[_]])
+                              (implicit initReporter: Reporter): Context = {
 
     for ((optDef, values) <- inoxOptions.groupBy(_.optionDef) if values.size > 1)
       initReporter.fatalError(s"Duplicate option: ${optDef.name}")
@@ -176,8 +182,10 @@ trait MainHelpers {
   def exit(error: Boolean) = sys.exit(if (error) 1 else 0)
 
   def setup(args: Array[String]): Context = {
+    val initReporter = newReporter(Set())
+
     val ctx = try {
-      processOptions(args.toList)
+      parseArguments(args.toList)(initReporter)
     } catch {
       case FatalError(msg) =>
         exit(error = true)
