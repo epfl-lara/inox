@@ -94,7 +94,7 @@ trait SimplifierWithPC extends Transformer { self =>
     case e if path implies not(e) => (BooleanLiteral(false).copiedFrom(e), true)
 
     case c @ Choose(res, BooleanLiteral(true)) if hasInstance(res.tpe) == Some(true) => (c, true)
-    case c: Choose => (c, opts.assumeChecked)
+    case c: Choose => (c, false)
 
     case Lambda(params, body) =>
       val (rb, _) = simplify(body, path withBounds params)
