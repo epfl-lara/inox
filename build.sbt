@@ -149,10 +149,6 @@ licenses := Seq("GNU Affero General Public License, Version 3" -> url("http://ww
 homepage := Some(url("https://github.com/epfl-lara/inox"))
 
 pomExtra := (
-  <scm>
-    <url>git@github.com:epfl-lara/inox.git</url>
-    <connection>scm:git:git@github.com:epfl-lara/inox.git</connection>
-  </scm>
   <developers>
     <developer>
       <id>epfl-lara</id>
