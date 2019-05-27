@@ -5,10 +5,12 @@ package solvers
 package smtlib
 
 import _root_.smtlib.trees.Terms.{Identifier => SMTIdentifier, Let => SMTLet, _}
+import _root_.smtlib.extensions.tip.Terms.{Lambda => SMTLambda, _}
 import _root_.smtlib.trees.Commands.{FunDef => SMTFunDef, _}
 import _root_.smtlib.trees.CommandsResponses._
-import _root_.smtlib.parser.Parser
-import _root_.smtlib.lexer.{Lexer, Tokens}
+import _root_.smtlib.extensions.tip.Parser
+import _root_.smtlib.extensions.tip.Lexer
+import _root_.smtlib.lexer.Tokens
 import _root_.smtlib.interpreters.Z3Interpreter
 import _root_.smtlib.theories.Core.{Equals => SMTEquals, _}
 import _root_.smtlib.theories.Operations._
@@ -159,6 +161,28 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         FiniteSet(cases.collect { case (k, BooleanLiteral(true)) => k }, base)
 
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ BagType(base))) =>
+        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, IntegerType())))
+        if (dflt != IntegerLiteral(0)) unsupported(fm, "Solver returned a co-finite bag which is not supported")
+        FiniteBag(cases.filter(_._2 != IntegerLiteral(BigInt(0))), base)
+
+      case (SMTLambda(Seq(SortedVar(s, sort)), term), Some(tpe @ MapType(keyType, valueType))) =>
+        val arg = ValDef.fresh(s.name, fromSMT(sort))
+        val body = fromSMT(term)(context.withVariables(Seq(s -> arg.toVariable)))
+
+        def extractCases(e: Expr): FiniteMap = e match {
+          case IfExpr(Equals(argV, k), v, e) if argV == arg.toVariable =>
+            val FiniteMap(elems, default, from, to) = extractCases(e)
+            FiniteMap(elems :+ (k, v), default, from, to)
+          case e => FiniteMap(Seq.empty, e, keyType, valueType)
+        }
+        extractCases(body)
+
+      case (SMTLambda(Seq(arg), body), Some(tpe @ SetType(base))) =>
+        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, BooleanType())))
+        if (dflt != BooleanLiteral(false)) unsupported(fm, "Solver returned a co-finite set which is not supported")
+        FiniteSet(cases.collect { case (k, BooleanLiteral(true)) => k }, base)
+
+      case (SMTLambda(Seq(arg), body), Some(tpe @ BagType(base))) =>
         val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, IntegerType())))
         if (dflt != IntegerLiteral(0)) unsupported(fm, "Solver returned a co-finite bag which is not supported")
         FiniteBag(cases.filter(_._2 != IntegerLiteral(BigInt(0))), base)
