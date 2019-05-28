@@ -91,7 +91,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   protected val extSym = SSymbol("_")
 
   protected lazy val setSort: SSymbol = {
-    val s = SSymbol("Set")
+    val s = SSymbol("InoxSet")
     val t = SSymbol("T")
 
     val arraySort = Sort(
