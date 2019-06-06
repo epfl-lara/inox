@@ -282,7 +282,7 @@ trait SimplifierWithPC extends Transformer { self =>
           }
         case _ => Tuple(es)
       },
-      pes.foldLeft(false)(_ || _))
+      pes.foldLeft(true)(_ && _))
 
     case Forall(params, body) =>
       simplifyAndCons(Seq(body), path withBounds params, es => simpForall(params, es.head).copiedFrom(e))
