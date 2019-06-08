@@ -157,7 +157,7 @@ val sizeFunction = mkFunDef(size)("A") { case Seq(tp) => (
 
 A symbol table in Inox is an instance of `Symbols`. The easiest way to construct one is to use
 ```tut:silent
-implicit val symbols = {
+implicit val symbols: trees.Symbols = {
   NoSymbols
     .withFunctions(Seq(sizeFunction))
     .withSorts(Seq(listSort))
@@ -198,8 +198,8 @@ __Note__: Inox will assume the inductive invariant on the recursive call to `siz
 In order to verify the property, we get an instance of an Inox solver (see
 [Programs](/doc/API.md#programs) and [Solvers](/doc/API.md#solvers) for more details):
 ```tut:silent
-implicit val ctx = Context.empty
-val program = InoxProgram(symbols)
+implicit val ctx: Context = Context.empty
+val program = inox.Program(inox.trees)(symbols)
 val solver = program.getSolver.getNewSolver
 solver.assertCnstr(Not(prop))
 solver.check(SolverResponses.Simple) // Should return `Unsat`

@@ -44,7 +44,7 @@ import inox._
 import inox.trees._
 import inox.trees.interpolator._
 
-implicit val mySymbols = NoSymbols
+implicit val symbols: trees.Symbols = trees.NoSymbols
 ```
 
 Once imported, it is possible to build Inox types and expressions using a friendlier syntax:
@@ -84,20 +84,17 @@ e"1"
 Note that the type of numeric expressions is inferred. In case of ambiguity, `BigInt` is chosen by default.
 
 ```tut
-val bigIntLit = e"1"
-bigIntLit.getType
+e"1".getType
 ```
 
 It is however possible to annotate the desired type.
 
 ```tut
-val intLit = e"1 : Int"
-intLit.getType
+e"1 : Int".getType
 ```
 
 ```tut
-val realLit = e"1 : Real"
-realLit.getType
+e"1 : Real".getType
 ```
 
 <a name="real-literals"></a>

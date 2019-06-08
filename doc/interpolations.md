@@ -44,7 +44,7 @@ import inox._
 import inox.trees._
 import inox.trees.interpolator._
 
-implicit val mySymbols = NoSymbols
+implicit val symbols: trees.Symbols = trees.NoSymbols
 ```
 
 Once imported, it is possible to build Inox types and expressions using a friendlier syntax:
@@ -94,28 +94,19 @@ res3: inox.trees.interpolator.trees.Expr = 1
 Note that the type of numeric expressions is inferred. In case of ambiguity, `BigInt` is chosen by default.
 
 ```scala
-scala> val bigIntLit = e"1"
-bigIntLit: inox.trees.interpolator.trees.Expr = 1
-
-scala> bigIntLit.getType
+scala> e"1".getType
 res4: inox.trees.interpolator.trees.Type = BigInt
 ```
 
 It is however possible to annotate the desired type.
 
 ```scala
-scala> val intLit = e"1 : Int"
-intLit: inox.trees.interpolator.trees.Expr = 1
-
-scala> intLit.getType
+scala> e"1 : Int".getType
 res5: inox.trees.interpolator.trees.Type = Int
 ```
 
 ```scala
-scala> val realLit = e"1 : Real"
-realLit: inox.trees.interpolator.trees.Expr = 1
-
-scala> realLit.getType
+scala> e"1 : Real".getType
 res6: inox.trees.interpolator.trees.Type = Real
 ```
 
