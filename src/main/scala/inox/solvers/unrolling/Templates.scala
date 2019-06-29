@@ -26,6 +26,8 @@ trait Templates
   import program.trees._
   import program.symbols._
 
+  implicit val debugSection = DebugSectionSolver
+
   type Encoded
 
   def asString(e: Encoded): String
@@ -205,8 +207,6 @@ trait Templates
 
     promoted
   }
-
-  implicit val debugSection = DebugSectionSolver
 
   type Arg = Either[Encoded, Matcher]
 
