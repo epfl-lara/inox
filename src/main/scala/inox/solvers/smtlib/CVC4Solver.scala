@@ -6,10 +6,10 @@ package smtlib
 
 import inox.OptionParsers._
 
-object optCVC4Options extends OptionDef[Set[String]] {
+object optCVC4Options extends SetOptionDef[String] {
   val name = "solver:cvc4"
   val default = Set[String]()
-  val parser = setParser(stringParser)
+  val elementParser = stringParser
   val usageRhs = "<cvc4-opt>"
 }
 

@@ -21,10 +21,12 @@ abstract class OptionDef[A] {
     else s"--$name=$usageRhs"
   }
 
+  def formatDefault: String = default.toString
+
   private def parseValue(s: String)(implicit reporter: Reporter): A = {
     parser(s).getOrElse(
       reporter.fatalError(
-        s"Invalid option usage: --$name\n" +
+        s"Invalid option usage: --$name=$s\n" +
         "Try '--help' for more information."
       )
     )
@@ -48,7 +50,16 @@ abstract class OptionDef[A] {
 
 case class FlagOptionDef(name: String, default: Boolean) extends OptionDef[Boolean] {
   val parser = booleanParser
+  val usageRhs = "true|false"
+  override def usageDesc = {
+    s"--$name[=$usageRhs]"
+  }
+}
+
+case class SimpleFlagOptionDef(name: String, default: Boolean) extends OptionDef[Boolean] {
+  val parser = booleanParser
   val usageRhs = ""
+  override def formatDefault = ""
 }
 
 case class StringOptionDef(name: String, default: String, usageRhs: String) extends OptionDef[String] {
@@ -65,6 +76,18 @@ case class IntOptionDef(name: String, default: Int, usageRhs: String) extends Op
 
 case class DoubleOptionDef(name: String, default: Double, usageRhs: String) extends OptionDef[Double] {
   val parser = doubleParser
+}
+
+abstract class SetOptionDef[A] extends OptionDef[Set[A]] {
+  val elementParser: OptionParser[A]
+  val parser = setParser(elementParser)
+  override def formatDefault = if (default.isEmpty) "<none>" else default.mkString(",")
+}
+
+abstract class SeqOptionDef[A] extends OptionDef[Seq[A]] {
+  val elementParser: OptionParser[A]
+  val parser = seqParser(elementParser)
+  override def formatDefault = if (default.isEmpty) "<none>" else default.mkString(",")
 }
 
 class OptionValue[A] private (val optionDef: OptionDef[A], val value: A) {
@@ -195,12 +218,15 @@ object optTimeout extends OptionDef[Duration] {
   def apply(secs: Double): OptionValue[Duration] = apply(secs.seconds)
 }
 
-object optSelectedSolvers extends OptionDef[Set[String]] {
+object optSelectedSolvers extends SetOptionDef[String] {
   val name = "solvers"
   val default = Set("nativez3")
-  val parser: OptionParser[Set[String]] = { s =>
-    setParser(stringParser)(s).filter(_.forall(solvers.SolverFactory.solverNames contains _))
+  val elementParser: OptionParser[String] = { s =>
+    stringParser(s).filter(solvers.SolverFactory.solverNames contains _)
   }
 
   val usageRhs = "s1,s2,..."
+
+  override def formatDefault: String = default.mkString(",")
 }
+

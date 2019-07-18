@@ -16,23 +16,26 @@ trait MainHelpers {
 
   protected final val debugSections = getDebugSections
 
-  final object optDebug extends OptionDef[Set[DebugSection]] {
+  final object optDebug extends SetOptionDef[DebugSection] {
     import OptionParsers._
     val name = "debug"
     val default = Set[DebugSection]()
     val usageRhs = "d1,d2,..."
+    val elementParser = { (_: String) =>
+      throw FatalError("Unparsable individual element option \"debug\"")
+    }
 
     private val debugParser: OptionParser[Set[DebugSection]] = s => {
       if (s == "all") Some(debugSections)
       else debugSections.find(_.name == s).map(Set(_))
     }
 
-    val parser: String => Option[Set[DebugSection]] = {
+    override val parser: String => Option[Set[DebugSection]] = {
       setParser[Set[DebugSection]](debugParser)(_).map(_.flatten)
     }
   }
 
-  final object optHelp extends FlagOptionDef("help", false)
+  final object optHelp extends SimpleFlagOptionDef("help", false)
 
   abstract class Category
   case object General extends Category
@@ -40,7 +43,15 @@ trait MainHelpers {
   case object Evaluators extends Category
   case object Printing extends Category
 
-  protected case class Description(category: Category, description: String)
+  protected case class Description(category: Category, description: String) {
+    def withDefault(opt: OptionDef[_]): String = {
+      val default = if (opt.formatDefault.isEmpty) "" else s" (default: ${opt.formatDefault})"
+      if (description.contains('\n')) {
+        val first :: rest = description.split('\n').toList
+        ((first ++ default) :: rest).mkString("\n")
+      } else description ++ default
+    }
+  }
 
   protected def getOptions: Map[OptionDef[_], Description] = Map(
     optHelp -> Description(General, "Show help message"),
@@ -110,8 +121,9 @@ trait MainHelpers {
       first = false
 
       reporter.title(category)
-      for ((opt, Description(_, desc)) <- opts.toSeq.sortBy(_._1.name)) {
-        reporter.info(s"%-${margin}s".format(opt.usageDesc) + desc.replaceAll("\n", "\n" + " " * margin))
+      for ((opt, desc) <- opts.toSeq.sortBy(_._1.name)) {
+        val paddedDesc = desc.withDefault(opt).replaceAll("\n", "\n" + " " * margin)
+        reporter.info(s"%-${margin}s".format(opt.usageDesc) ++ paddedDesc)
       }
     }
 
