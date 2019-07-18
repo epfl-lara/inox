@@ -476,13 +476,15 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
   protected class Context(
     val vars: Map[SSymbol, Expr],
+    val smtVars: Map[SSymbol, Term],
     val functions: Map[SSymbol, DefineFun],
     val seen: Set[(BigInt, Type)] = Set.empty,
     private[SMTLIBTarget] val chooses: MutableMap[(BigInt, Type), Choose] = MutableMap.empty,
     private[SMTLIBTarget] val lambdas: MutableMap[(BigInt, Type), Lambda] = MutableMap.empty
   ) extends super.AbstractContext {
-    def withSeen(n: (BigInt, Type)): Context = new Context(vars, functions, seen + n, chooses, lambdas)
-    def withVariable(sym: SSymbol, expr: Expr): Context = new Context(vars + (sym -> expr), functions, seen, chooses, lambdas)
+    def withSeen(n: (BigInt, Type)): Context = new Context(vars, smtVars, functions, seen + n, chooses, lambdas)
+    def withVariable(sym: SSymbol, expr: Expr): Context = new Context(vars + (sym -> expr), smtVars, functions, seen, chooses, lambdas)
+    def withSMTVariable(sym: SSymbol, term: Term): Context = new Context(vars, smtVars + (sym -> term), functions, seen, chooses, lambdas)
 
     def getFunction(sym: SSymbol, ft: FunctionType): Option[Lambda] = functions.get(sym).map {
       case df @ DefineFun(SMTFunDef(a, args, _, body)) =>

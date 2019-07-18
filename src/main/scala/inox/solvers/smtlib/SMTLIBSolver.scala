@@ -65,7 +65,7 @@ trait SMTLIBSolver extends AbstractSolver with SMTLIBTarget with SMTLIBDebugger 
                 a -> me
             }.toMap
 
-            val ctx = new Context(variables.bToA, modelFunDefs)
+            val ctx = new Context(variables.bToA, Map(), modelFunDefs)
 
             val vars = smodel.flatMap {
               case DefineFun(SMTFunDef(s, _, _, e)) if syms(s) =>
@@ -89,7 +89,7 @@ trait SMTLIBSolver extends AbstractSolver with SMTLIBTarget with SMTLIBDebugger 
                   val tfd = functions.toA(s)
                   tfd.fullBody match {
                     case Choose(res, _) =>
-                      val ctx = new Context(variables.bToA, modelFunDefs).withVariables(args.map(_.name) zip tfd.params.map(_.toVariable))
+                      val ctx = new Context(variables.bToA, Map(), modelFunDefs).withVariables(args.map(_.name) zip tfd.params.map(_.toVariable))
                       val body = fromSMT(e, tfd.getType)(ctx)
                       chooses ++= ctx.getChooses.map(p => (p._1.res.id, tfd.tps) -> p._2)
                       Some((res.id, tfd.tps) -> body)

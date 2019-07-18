@@ -27,8 +27,11 @@ trait SMTLIBParser {
 
   protected trait AbstractContext { self: Context =>
     val vars: Map[SSymbol, Expr]
+    val smtVars: Map[SSymbol, Term]
     def withVariable(sym: SSymbol, expr: Expr): Context
     def withVariables(vars: Seq[(SSymbol, Expr)]): Context = vars.foldLeft(this)((ctx, p) => ctx withVariable (p._1, p._2))
+    def withSMTVariable(sym: SSymbol, expr: Term): Context
+    def withSMTVariables(vars: Seq[(SSymbol, Term)]): Context = vars.foldLeft(this)((ctx, p) => ctx withSMTVariable (p._1, p._2))
   }
 
   protected type Context <: AbstractContext
@@ -56,11 +59,13 @@ trait SMTLIBParser {
   protected def fromSMT(term: Term, otpe: Option[Type] = None)(implicit context: Context): Expr = term match {
     case QualifiedIdentifier(SimpleIdentifier(sym), None) if context.vars contains sym => context.vars(sym)
 
+    case QualifiedIdentifier(SimpleIdentifier(sym), None) if context.smtVars contains sym =>
+      fromSMT(context.smtVars(sym), otpe)
+
     case SMTLet(binding, bindings, term) =>
-      val newContext = (binding +: bindings).foldLeft(context) {
-        case (context, VarBinding(name, term)) => context.withVariable(name, fromSMT(term)(context))
-      }
-      fromSMT(term, otpe)(newContext)
+      fromSMT(term, otpe)(context.withSMTVariables((binding +: bindings).map {
+        case VarBinding(name, term) => name -> term
+      }))
 
     case SMTForall(sv, svs, term) =>
       val vds = (sv +: svs).map(fromSMT)
