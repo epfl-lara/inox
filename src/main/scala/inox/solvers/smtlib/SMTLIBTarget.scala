@@ -485,6 +485,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     def withSeen(n: (BigInt, Type)): Context = new Context(vars, smtVars, functions, seen + n, chooses, lambdas)
     def withVariable(sym: SSymbol, expr: Expr): Context = new Context(vars + (sym -> expr), smtVars, functions, seen, chooses, lambdas)
     def withSMTVariable(sym: SSymbol, term: Term): Context = new Context(vars, smtVars + (sym -> term), functions, seen, chooses, lambdas)
+    def withSMTVariables(bindings: Seq[(SSymbol, Term)]): Context = bindings.foldLeft(this)((ctx, p) => ctx.withSMTVariable(p._1, p._2))
 
     def getFunction(sym: SSymbol, ft: FunctionType): Option[Lambda] = functions.get(sym).map {
       case df @ DefineFun(SMTFunDef(a, args, _, body)) =>
@@ -525,7 +526,6 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
       case (SHexadecimal(h), Some(CharType())) =>
         CharLiteral(h.toInt.toChar)
-
 
       case (Num(i), Some(IntegerType())) =>
         IntegerLiteral(i)
@@ -626,6 +626,15 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           case t =>
             unsupported(t, "Woot? structural type that is non-structural")
         }
+
+      // @nv and @jad: hack to extract values with let-bindings from Z3 models
+      case (QualifiedIdentifier(SimpleIdentifier(sym), None), _) if context.smtVars contains sym =>
+        fromSMT(context.smtVars(sym), otpe)
+
+      case (SMTLet(binding, bindings, term), _) =>
+        fromSMT(term, otpe)(context.withSMTVariables((binding +: bindings).map {
+          case VarBinding(name, term) => name -> term
+        }))
 
       // @nv: useful hack for dynLambda extraction
       case (Core.Equals(QualifiedIdentifier(SimpleIdentifier(sym), None), e), _)

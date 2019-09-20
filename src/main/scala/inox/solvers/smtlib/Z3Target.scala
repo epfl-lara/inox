@@ -122,6 +122,92 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     }
   }
 
+  override protected def toSMT(e: Expr)(implicit bindings: Map[Identifier, Term]): Term = e match {
+
+    case IsConstructor(e, id) if version >= Version(4, 6) =>
+      val tpe @ ADTType(_, tps) = e.getType
+      declareSort(tpe)
+      val SSymbol(name) = testers.toB(ADTCons(id, tps))
+      FunctionApplication(
+        QualifiedIdentifier(SMTIdentifier(SSymbol("is"), Seq(SSymbol(name.drop(3)))), None),
+        Seq(toSMT(e))
+      )
+
+    /**
+     * ===== Set operations =====
+     */
+    case fs @ FiniteSet(elems, base) =>
+      declareSort(fs.getType)
+      toSMT(FiniteMap(elems map ((_, BooleanLiteral(true))), BooleanLiteral(false), base, BooleanType()))
+
+    case SubsetOf(ss, s) =>
+      // a isSubset b   ==>   (a zip b).map(implies) == (* => true)
+      val allTrue = ArrayConst(declareSort(s.getType), True())
+      SMTEquals(ArrayMap(SSymbol("implies"), toSMT(ss), toSMT(s)), allTrue)
+
+    case SetAdd(s, e) =>
+      ArraysEx.Store(toSMT(s), toSMT(e), True())
+
+    case ElementOfSet(e, s) =>
+      ArraysEx.Select(toSMT(s), toSMT(e))
+
+    case SetDifference(a, b) =>
+      // a -- b
+      // becomes:
+      // a && not(b)
+
+      ArrayMap(SSymbol("and"), toSMT(a), ArrayMap(SSymbol("not"), toSMT(b)))
+
+    case SetUnion(l, r) =>
+      ArrayMap(SSymbol("or"), toSMT(l), toSMT(r))
+
+    case SetIntersection(l, r) =>
+      ArrayMap(SSymbol("and"), toSMT(l), toSMT(r))
+
+    case fb @ FiniteBag(elems, base) =>
+      val BagType(t) = fb.getType
+      declareSort(BagType(t))
+      toSMT(FiniteMap(elems, IntegerLiteral(0), t, IntegerType()))
+
+    case BagAdd(b, e) =>
+      val bid = FreshIdentifier("b", true)
+      val eid = FreshIdentifier("e", true)
+      val (bSym, eSym) = (id2sym(bid), id2sym(eid))
+      SMTLet(
+        VarBinding(bSym, toSMT(b)), Seq(VarBinding(eSym, toSMT(e))),
+        ArraysEx.Store(bSym, eSym, Ints.Add(ArraysEx.Select(bSym, eSym), Ints.NumeralLit(1)))
+      )
+
+    case MultiplicityInBag(e, b) =>
+      ArraysEx.Select(toSMT(b), toSMT(e))
+
+    case BagUnion(b1, b2) =>
+      val plus = SortedSymbol("+", List(IntegerType(), IntegerType()).map(declareSort), declareSort(IntegerType()))
+      ArrayMap(plus, toSMT(b1), toSMT(b2))
+
+    case BagIntersection(b1, b2) =>
+      toSMT(BagDifference(b1, BagDifference(b1, b2)))
+
+    case BagDifference(b1, b2) =>
+      val abs   = SortedSymbol("abs", List(IntegerType()).map(declareSort), declareSort(IntegerType()))
+      val plus  = SortedSymbol("+", List(IntegerType(), IntegerType()).map(declareSort), declareSort(IntegerType()))
+      val minus = SortedSymbol("-", List(IntegerType(), IntegerType()).map(declareSort), declareSort(IntegerType()))
+      val div   = SortedSymbol("div", List(IntegerType(), IntegerType()).map(declareSort), declareSort(IntegerType()))
+
+      val did = FreshIdentifier("d", true)
+      val dSym = id2sym(did)
+
+      val all2 = ArrayConst(declareSort(b1.getType), Ints.NumeralLit(2))
+
+      SMTLet(
+        VarBinding(dSym, ArrayMap(minus, toSMT(b1), toSMT(b2))), Seq(),
+        ArrayMap(div, ArrayMap(plus, dSym, ArrayMap(abs, dSym)), all2)
+      )
+
+    case _ =>
+      super.toSMT(e)
+  }
+
   protected def extractSet(e: Expr): Expr = e match {
     case FiniteMap(els, dflt, base, _) =>
       if (dflt != BooleanLiteral(false)) unsupported(dflt, "Solver returned a co-finite set which is not supported")
@@ -259,92 +345,6 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       case _ =>
         super.fromSMT(t, otpe)
     }
-  }
-
-  override protected def toSMT(e: Expr)(implicit bindings: Map[Identifier, Term]): Term = e match {
-
-    case IsConstructor(e, id) if version >= Version(4, 6) =>
-      val tpe @ ADTType(_, tps) = e.getType
-      declareSort(tpe)
-      val SSymbol(name) = testers.toB(ADTCons(id, tps))
-      FunctionApplication(
-        QualifiedIdentifier(SMTIdentifier(SSymbol("is"), Seq(SSymbol(name.drop(3)))), None),
-        Seq(toSMT(e))
-      )
-
-    /**
-     * ===== Set operations =====
-     */
-    case fs @ FiniteSet(elems, base) =>
-      declareSort(fs.getType)
-      toSMT(FiniteMap(elems map ((_, BooleanLiteral(true))), BooleanLiteral(false), base, BooleanType()))
-
-    case SubsetOf(ss, s) =>
-      // a isSubset b   ==>   (a zip b).map(implies) == (* => true)
-      val allTrue = ArrayConst(declareSort(s.getType), True())
-      SMTEquals(ArrayMap(SSymbol("implies"), toSMT(ss), toSMT(s)), allTrue)
-
-    case SetAdd(s, e) =>
-      ArraysEx.Store(toSMT(s), toSMT(e), True())
-
-    case ElementOfSet(e, s) =>
-      ArraysEx.Select(toSMT(s), toSMT(e))
-
-    case SetDifference(a, b) =>
-      // a -- b
-      // becomes:
-      // a && not(b)
-
-      ArrayMap(SSymbol("and"), toSMT(a), ArrayMap(SSymbol("not"), toSMT(b)))
-
-    case SetUnion(l, r) =>
-      ArrayMap(SSymbol("or"), toSMT(l), toSMT(r))
-
-    case SetIntersection(l, r) =>
-      ArrayMap(SSymbol("and"), toSMT(l), toSMT(r))
-
-    case fb @ FiniteBag(elems, base) =>
-      val BagType(t) = fb.getType
-      declareSort(BagType(t))
-      toSMT(FiniteMap(elems, IntegerLiteral(0), t, IntegerType()))
-
-    case BagAdd(b, e) =>
-      val bid = FreshIdentifier("b", true)
-      val eid = FreshIdentifier("e", true)
-      val (bSym, eSym) = (id2sym(bid), id2sym(eid))
-      SMTLet(
-        VarBinding(bSym, toSMT(b)), Seq(VarBinding(eSym, toSMT(e))),
-        ArraysEx.Store(bSym, eSym, Ints.Add(ArraysEx.Select(bSym, eSym), Ints.NumeralLit(1)))
-      )
-
-    case MultiplicityInBag(e, b) =>
-      ArraysEx.Select(toSMT(b), toSMT(e))
-
-    case BagUnion(b1, b2) =>
-      val plus = SortedSymbol("+", List(IntegerType(), IntegerType()).map(declareSort), declareSort(IntegerType()))
-      ArrayMap(plus, toSMT(b1), toSMT(b2))
-
-    case BagIntersection(b1, b2) =>
-      toSMT(BagDifference(b1, BagDifference(b1, b2)))
-
-    case BagDifference(b1, b2) =>
-      val abs   = SortedSymbol("abs", List(IntegerType()).map(declareSort), declareSort(IntegerType()))
-      val plus  = SortedSymbol("+", List(IntegerType(), IntegerType()).map(declareSort), declareSort(IntegerType()))
-      val minus = SortedSymbol("-", List(IntegerType(), IntegerType()).map(declareSort), declareSort(IntegerType()))
-      val div   = SortedSymbol("div", List(IntegerType(), IntegerType()).map(declareSort), declareSort(IntegerType()))
-
-      val did = FreshIdentifier("d", true)
-      val dSym = id2sym(did)
-
-      val all2 = ArrayConst(declareSort(b1.getType), Ints.NumeralLit(2))
-
-      SMTLet(
-        VarBinding(dSym, ArrayMap(minus, toSMT(b1), toSMT(b2))), Seq(),
-        ArrayMap(div, ArrayMap(plus, dSym, ArrayMap(abs, dSym)), all2)
-      )
-
-    case _ =>
-      super.toSMT(e)
   }
 
   protected object SortedSymbol {
