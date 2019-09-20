@@ -56,6 +56,12 @@ trait SMTLIBParser {
   protected def fromSMT(term: Term, otpe: Option[Type] = None)(implicit context: Context): Expr = term match {
     case QualifiedIdentifier(SimpleIdentifier(sym), None) if context.vars contains sym => context.vars(sym)
 
+    case SMTLet(binding, bindings, term) =>
+      val newContext = (binding +: bindings).foldLeft(context) {
+        case (context, VarBinding(name, term)) => context.withVariable(name, fromSMT(term)(context))
+      }
+      fromSMT(term, otpe)(newContext)
+
     case SMTForall(sv, svs, term) =>
       val vds = (sv +: svs).map(fromSMT)
       val bindings = ((sv +: svs) zip vds).map(p => p._1.name -> p._2.toVariable)

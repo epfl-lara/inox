@@ -385,10 +385,7 @@ class Parser(reader: Reader, file: Option[File]) {
 
     protected case class Context(locals: Locals) extends super.AbstractContext {
       val vars = locals.vars
-      val smtVars: Map[SSymbol, Term] = Map()
       def withVariable(sym: SSymbol, expr: Expr): Context = Context(locals.withVariable(sym, expr))
-      def withSMTVariable(sym: SSymbol, term: Term): Context =
-        throw new Exception("Function `withSMTVariable` is only meant to be used in `fromSMT` context.")
 
       @inline def isSort(sym: SSymbol): Boolean = locals.isSort(sym)
       @inline def lookupSort(sym: SSymbol): Option[Identifier] = locals.lookupSort(sym)
