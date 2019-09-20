@@ -56,8 +56,9 @@ case class FlagOptionDef(name: String, default: Boolean) extends OptionDef[Boole
   }
 }
 
-case class SimpleFlagOptionDef(name: String, default: Boolean) extends OptionDef[Boolean] {
-  val parser = booleanParser
+case class MarkerOptionDef(name: String) extends OptionDef[Boolean] {
+  val default = false
+  val parser = (s: String) => if (s.isEmpty) Some(true) else None
   val usageRhs = ""
   override def formatDefault = ""
 }
