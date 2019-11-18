@@ -67,7 +67,7 @@ trait MainHelpers {
     solvers.optCheckModels -> Description(Solvers, "Double-check counter-examples with evaluator"),
     solvers.optSilentErrors -> Description(Solvers, "Fail silently into UNKNOWN when encountering an error"),
     solvers.unrolling.optUnrollBound -> Description(Solvers, "Maximum number of unroll steps to perform"),
-    solvers.unrolling.optUnrollFactor -> Description(Solvers, "Number of unrollings to perform in each unroll step"),
+    solvers.unrolling.optUnrollFactor -> Description(Solvers, "Number of unrollings to perform between each interaction with the SMT solver"),
     solvers.unrolling.optFeelingLucky -> Description(Solvers, "Use evaluator to find counter-examples early"),
     solvers.unrolling.optUnrollAssumptions -> Description(Solvers, "Use unsat-assumptions to drive unfolding while remaining fair"),
     solvers.unrolling.optModelFinding -> Description(Solvers, "Enhance model-finding capabilities of solvers by given aggressivity"),
