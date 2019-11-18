@@ -12,6 +12,7 @@ import combinators._
 
 import scala.collection.mutable.{Map => MutableMap, ListBuffer}
 
+object optUnrollBound       extends IntOptionDef("unroll-bound", default = -1, "<Int> | -1 (unbounded)")
 object optUnrollFactor      extends IntOptionDef("unroll-factor", default = 1, "<PosInt>")
 object optFeelingLucky      extends FlagOptionDef("feeling-lucky", false)
 object optUnrollAssumptions extends FlagOptionDef("unroll-assumptions", false)
@@ -77,6 +78,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   lazy val checkModels = options.findOptionOrDefault(optCheckModels)
   lazy val silentErrors = options.findOptionOrDefault(optSilentErrors)
+  lazy val unrollBound = options.findOptionOrDefault(optUnrollBound)
   lazy val unrollFactor = options.findOptionOrDefault(optUnrollFactor)
   lazy val feelingLucky = options.findOptionOrDefault(optFeelingLucky)
   lazy val unrollAssumptions = options.findOptionOrDefault(optUnrollAssumptions)
@@ -606,6 +608,10 @@ trait AbstractUnrollingSolver extends Solver { self =>
       }
     }
 
+    var unrollCount: Int = 0
+
+    def canUnroll: Boolean = unrollBound < 0 || unrollCount < unrollBound
+
     var currentState: CheckState = ModelCheck
     while (!currentState.isInstanceOf[CheckResult]) {
       currentState = currentState match {
@@ -797,10 +803,14 @@ trait AbstractUnrollingSolver extends Solver { self =>
               }
           }
 
+        case Unroll if !canUnroll =>
+          reporter.debug(s"- We need to keep going, but reached unroll bound ($unrollBound)")
+          CheckResult.cast(Unknown)
+
         case Unroll => context.timers.solvers.unrolling.unroll.run {
           reporter.debug("- We need to keep going")
 
-          // unfolling `unrollFactor` times
+          // Unrolling `unrollFactor` times
           for (i <- 1 to unrollFactor.toInt if templates.canUnroll && !abort && !pause) {
             val newClauses = templates.unroll
             for (ncl <- newClauses) {
@@ -808,7 +818,9 @@ trait AbstractUnrollingSolver extends Solver { self =>
             }
           }
 
-          reporter.debug(" - finished unrolling")
+          unrollCount += 1
+
+          reporter.debug(" - Finished unrolling")
           ModelCheck
         }
       }
