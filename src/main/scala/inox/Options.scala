@@ -219,7 +219,7 @@ object optTimeout extends OptionDef[Duration] {
   def apply(secs: Double): OptionValue[Duration] = apply(secs.seconds)
 }
 
-object optSelectedSolvers extends SetOptionDef[String] {
+object optSelectedSolvers extends {
   val name = "solvers"
   val default = Set("nativez3")
   val elementParser: OptionParser[String] = { s =>
@@ -227,7 +227,6 @@ object optSelectedSolvers extends SetOptionDef[String] {
   }
 
   val usageRhs = "s1,s2,..."
-
+} with SetOptionDef[String] {
   override def formatDefault: String = default.mkString(",")
 }
-
