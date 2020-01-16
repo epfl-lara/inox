@@ -1,0 +1,15 @@
+[package]
+name = "stainless-interop"
+version = "0.0.1"
+edition = "2018"
+authors = ["Georg Schmid <georg.schmid@epfl.ch>"]
+description = "Data structures and serializer for Stainless ASTs"
+license = "Apache"
+repository = "https://github.com/lara-epfl/inox"
+categories = ["development-tools"]
+
+[dependencies]
+env_logger = "0.7"
+
+[features]
+default = []
