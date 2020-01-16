@@ -4,6 +4,7 @@ package inox
 package utils
 
 import java.io.{OutputStream, InputStream}
+import java.nio.charset.StandardCharsets
 
 import scala.reflect._
 import scala.reflect.runtime._
@@ -414,25 +415,55 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     }
   }
 
-  // Types that are serialized with Java's serializer are prefixed with id=5
-  protected final object JavaSerializer extends Serializer[AnyRef](5) {
-    override protected def write(element: AnyRef, out: OutputStream): Unit =
-      new java.io.ObjectOutputStream(out).writeObject(element)
-    override protected def read(in: InputStream): AnyRef =
-      new java.io.ObjectInputStream(in).readObject()
+  // Basic Java types that are serialized primitively are prefixed with id=5
+  protected final object PrimitiveSerializer extends Serializer[AnyRef](5) {
+    override protected def write(element: AnyRef, out: OutputStream): Unit = {
+      val objOut = new java.io.ObjectOutputStream(out)
+      def writeBytes(id: Byte, bytes: Array[Byte]): Unit = {
+        objOut.writeByte(id)
+        objOut.writeInt(bytes.length)
+        objOut.write(bytes)
+      }
+
+      element match {
+        case v: java.lang.Boolean   => objOut.writeByte(0); objOut.writeBoolean(v)
+        case v: java.lang.Character => objOut.writeByte(1); objOut.writeChar(v.toChar)
+        case v: java.lang.Byte      => objOut.writeByte(2); objOut.writeByte(v.toByte)
+        case v: java.lang.Short     => objOut.writeByte(3); objOut.writeShort(v.toShort)
+        case v: java.lang.Integer   => objOut.writeByte(4); objOut.writeInt(v)
+        case v: java.lang.Long      => objOut.writeByte(5); objOut.writeLong(v)
+        case v: java.lang.Float     => objOut.writeByte(6); objOut.writeFloat(v)
+        case v: java.lang.Double    => objOut.writeByte(7); objOut.writeDouble(v)
+        case v: java.lang.String    => writeBytes(8, v.getBytes(StandardCharsets.UTF_8))
+        case v: BigInt              => writeBytes(9, v.toByteArray)
+      }
+      objOut.flush()
+    }
+    override protected def read(in: InputStream): AnyRef = {
+      val objIn = new java.io.ObjectInputStream(in)
+      def readBytes(): Array[Byte] = {
+        val length = objIn.readInt()
+        val bytes = new Array[Byte](length)
+        (0 until length).foreach { i => bytes(i) = objIn.readByte() }
+        bytes
+      }
+
+      objIn.readByte() match {
+        case 0 => objIn.readBoolean(): java.lang.Boolean
+        case 1 => objIn.readChar(): java.lang.Character
+        case 2 => objIn.readByte(): java.lang.Byte
+        case 3 => objIn.readShort(): java.lang.Short
+        case 4 => objIn.readInt(): java.lang.Integer
+        case 5 => objIn.readLong(): java.lang.Long
+        case 6 => objIn.readFloat(): java.lang.Float
+        case 7 => objIn.readDouble(): java.lang.Double
+        case 8 => new String(readBytes(), StandardCharsets.UTF_8)
+        case 9 => BigInt(readBytes())
+      }
+    }
   }
 
-  private final val javaClasses: Set[Class[_]] = Set(
-    // Primitive types
-    classOf[Boolean],
-    classOf[Char],
-    classOf[Byte],
-    classOf[Short],
-    classOf[Int],
-    classOf[Long],
-    classOf[Float],
-    classOf[Double],
-
+  private final val primitiveClasses: Set[Class[_]] = Set(
     classOf[String],
     classOf[BigInt],
 
@@ -488,7 +519,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     val runtimeClass = obj.getClass
     classToSerializer.get(runtimeClass)
       .collect { case (s: Serializer[t]) => s(obj.asInstanceOf[t], out) }
-      .orElse(if (javaClasses(runtimeClass)) Some(JavaSerializer(obj.asInstanceOf[AnyRef], out)) else None)
+      .orElse(if (primitiveClasses(runtimeClass)) Some(PrimitiveSerializer(obj.asInstanceOf[AnyRef], out)) else None)
       .orElse(if (tupleClasses(runtimeClass)) Some(TupleSerializer(obj.asInstanceOf[Product], out)) else None)
       .getOrElse(obj match {
         case (opt: Option[_]) => OptionSerializer(opt, out)
@@ -508,7 +539,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
       case SeqSerializer.id => SeqSerializer.deserialize(in)
       case SetSerializer.id => SetSerializer.deserialize(in)
       case MapSerializer.id => MapSerializer.deserialize(in)
-      case JavaSerializer.id => JavaSerializer.deserialize(in)
+      case PrimitiveSerializer.id => PrimitiveSerializer.deserialize(in)
       case TupleSerializer.id => TupleSerializer.deserialize(in)
       case ResultSerializer.id => ResultSerializer.deserialize(in)
       case i => idToSerializer.get(i).map(_.deserialize(in)).getOrElse(
