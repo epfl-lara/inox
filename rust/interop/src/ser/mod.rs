@@ -2,12 +2,14 @@
 
 extern crate num_bigint;
 
-use std::io::{self, Write};
+use std::io::{self, /*Read,*/ Write};
 
 mod serializable;
-mod serializable_generated;
+// mod deserializable;
+mod generated;
 
-use serializable::Serializable;
+pub use serializable::Serializable;
+// pub use deserializable::Deserializable;
 
 /** == Type mapping ==
  * Boolean <-> bool
@@ -23,7 +25,7 @@ use serializable::Serializable;
  *
  * Stainless AST class ... auto-generated struct
  */
-mod types {
+pub mod types {
   pub type Boolean = bool;
   pub type Int = i32;
   pub type BigInt = num_bigint::BigInt;
@@ -119,6 +121,69 @@ pub trait Serializer: Sized {
     Ok(())
   }
 }
+
+/*// Deserializer, a trait that encapsulates raw deserialization operations
+
+type DeserializationResult<T> = Result<T, io::Error>;
+
+macro_rules! make_read_raw {
+  ($id:ident, $t:ty) => {
+    fn $id(&mut self) -> DeserializationResult<$t> {
+      let mut buffer = [0; std::mem::size_of::<$t>()];
+      self.reader().read_exact(&mut buffer)?;
+      let v = <$t>::from_be_bytes(buffer);
+      Ok(v)
+    }
+  }
+}
+
+pub trait Deserializer: Sized {
+  type Reader: Read;
+
+  fn reader(&mut self) -> &mut Self::Reader;
+
+  // Raw reading
+
+  fn read(&mut self, length: usize) -> DeserializationResult<Vec<u8>> {
+    let mut res: Vec<u8> = vec![];
+    self.reader().by_ref().take(length as u64).read_to_end(&mut res)?;
+    Ok(res)
+  }
+
+  make_read_raw!(read_u8, u8);
+  make_read_raw!(read_i8, i8);
+  make_read_raw!(read_u16, u16);
+  make_read_raw!(read_i16, i16);
+  make_read_raw!(read_u32, u32);
+  make_read_raw!(read_i32, i32);
+  make_read_raw!(read_u64, u64);
+  make_read_raw!(read_i64, i64);
+  make_read_raw!(read_f32, f32);
+  make_read_raw!(read_f64, f64);
+
+  fn read_bool(&mut self) -> DeserializationResult<bool> {
+    let v = self.read_u8()?;
+    Ok(v == 1)
+  }
+
+  // Particulars of the stainless serializer
+
+  fn read_marker(&mut self) -> DeserializationResult<MarkerId> {
+    let v = self.read_u8()?;
+    assert!(v != 255);
+    Ok(MarkerId(v as u32))
+  }
+
+  fn read_length(&mut self) -> DeserializationResult<usize> {
+    let v1 = self.read_u8()?;
+    if v1 < 255 {
+      Ok(v1 as usize)
+    } else {
+      let v2 = types::Int::deserialize(self)?;
+      Ok(v2 as usize)
+    }
+  }
+}*/
 
 // BufferSerializer, a simple serializer writing to a vector
 pub struct BufferSerializer {
