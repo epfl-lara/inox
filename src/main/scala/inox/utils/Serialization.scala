@@ -36,6 +36,7 @@ trait Serializer { self =>
   implicit def tuple3IsSerializable[T1: Serializable, T2: Serializable, T3: Serializable] = new Serializable[(T1, T2, T3)]
   implicit def tuple4IsSerializable[T1: Serializable, T2: Serializable, T3: Serializable, T4: Serializable] = new Serializable[(T1, T2, T3, T4)]
 
+  implicit def optionIsSerializable[T: Serializable] = new Serializable[Option[T]]
   implicit def seqIsSerializable[T: Serializable] = new Serializable[Seq[T]]
   implicit def setIsSerializable[T: Serializable] = new Serializable[Set[T]]
   implicit def mapIsSerializable[T1: Serializable, T2: Serializable] = new Serializable[Map[T1, T2]]
@@ -418,7 +419,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   // Basic Java types that are serialized primitively are prefixed with id=5
   protected final object PrimitiveSerializer extends Serializer[AnyRef](5) {
     override protected def write(element: AnyRef, out: OutputStream): Unit = {
-      val objOut = new java.io.ObjectOutputStream(out)
+      val objOut = new java.io.DataOutputStream(out)
       def writeBytes(id: Byte, bytes: Array[Byte]): Unit = {
         objOut.writeByte(id)
         objOut.writeInt(bytes.length)
@@ -440,7 +441,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
       objOut.flush()
     }
     override protected def read(in: InputStream): AnyRef = {
-      val objIn = new java.io.ObjectInputStream(in)
+      val objIn = new java.io.DataInputStream(in)
       def readBytes(): Array[Byte] = {
         val length = objIn.readInt()
         val bytes = new Array[Byte](length)
