@@ -34,6 +34,8 @@ pub mod types {
   pub type Seq<T> = std::vec::Vec<T>;
   pub type Set<T> = std::collections::HashSet<T>;
   pub type Map<K, V> = std::collections::HashMap<K, V>;
+
+  pub use num_bigint::ToBigInt;
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Debug)]
