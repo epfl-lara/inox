@@ -2,101 +2,86 @@
 
 extern crate num_bigint;
 
-use std::io;
-use std::string::String;
-use num_bigint::BigInt;
+use std::io::{self, Write};
 
 mod serializable;
 mod serializable_generated;
 
+use serializable::Serializable;
+
 /** == Type mapping ==
-  * Boolean <-> bool
-  * Integer <-> i32
-  * String  <-> std::string::String
-  * BigInt  <-> num_bigint::BigInt
-  *
-  * TupleN  <-> (T1, ..., Tn)
-  * Seq[T]  <-> std::vec::Vec<T>
-  * Set[T]  <-> std::collections::HashSet
-  *
-  * SerializationResult <-> SerializationResult
-  *
-  * Stainless AST class ... auto-generated struct
-  */
-
-
-#[derive(PartialEq,Eq,PartialOrd,Debug)]
-pub enum Marker {
-  Product,
-  Option,
-  Seq,
-  Set,
-  Map,
-  Primitive,
-  Tuple,
-  SerializationResult,
-  Generated(MarkerId)
+ * Boolean <-> bool
+ * Int     <-> i32
+ * String  <-> std::string::String
+ * BigInt  <-> num_bigint::BigInt
+ *
+ * TupleN  <-> (T1, ..., Tn)
+ * Seq[T]  <-> std::vec::Vec<T>
+ * Set[T]  <-> std::collections::HashSet
+ *
+ * SerializationResult <-> SerializationResult
+ *
+ * Stainless AST class ... auto-generated struct
+ */
+mod types {
+  pub type Boolean = bool;
+  pub type Int = i32;
+  pub type BigInt = num_bigint::BigInt;
+  pub type String = std::string::String;
+  pub type Option<T> = std::option::Option<T>;
+  pub type Seq<T> = std::vec::Vec<T>;
+  pub type Set<T> = std::collections::HashSet<T>;
+  pub type Map<K, V> = std::collections::HashMap<K, V>;
 }
 
-#[derive(PartialEq,Eq,PartialOrd,Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Debug)]
 pub struct MarkerId(u32);
 
-impl Marker {
-  fn to_id(self) -> MarkerId {
-    match self {
-      Marker::Product => MarkerId(0),
-      Marker::Option => MarkerId(1),
-      Marker::Seq => MarkerId(2),
-      Marker::Set => MarkerId(3),
-      Marker::Map => MarkerId(4),
-      Marker::Primitive => MarkerId(5),
-      Marker::Tuple => MarkerId(6),
-      Marker::SerializationResult => MarkerId(7),
-      Marker::Generated(marker_id) => marker_id
-    }
-  }
+// Some of the common marker ids
+mod marker_ids {
+  use super::MarkerId;
+  pub const PRODUCT: MarkerId = MarkerId(0);
+  pub const OPTION: MarkerId = MarkerId(1);
+  pub const SEQ: MarkerId = MarkerId(2);
+  pub const SET: MarkerId = MarkerId(3);
+  pub const MAP: MarkerId = MarkerId(4);
+  pub const PRIMITIVE: MarkerId = MarkerId(5);
+  pub const TUPLE: MarkerId = MarkerId(6);
+  pub const SERIALIZATIONRESULT: MarkerId = MarkerId(7);
 }
 
-impl MarkerId {
-  fn to_marker(marker_id: MarkerId) -> Marker {
-    match marker_id.0 {
-      0 => Marker::Product,
-      1 => Marker::Option,
-      2 => Marker::Seq,
-      3 => Marker::Set,
-      4 => Marker::Map,
-      5 => Marker::Primitive,
-      6 => Marker::Tuple,
-      7 => Marker::SerializationResult,
-      _ => Marker::Generated(marker_id)
-    }
-  }
+// Additional ids to differentiate primitive values
+mod primitive_ids {
+  pub const BOOLEAN: u8 = 0;
+  pub const INTEGER: u8 = 4;
+  pub const STRING: u8 = 8;
+  pub const BIGINT: u8 = 9;
 }
 
-
-pub struct Serializer<W: io::Write> {
-  writer: W
-}
+// Serializer, a trait that encapsulates raw serialization operations
 
 type SerializationResult = Result<(), io::Error>;
 
 macro_rules! make_write_raw {
   ($id:ident, $t:ty) => {
     fn $id(&mut self, v: $t) -> SerializationResult {
-      self.writer.write(&v.to_be_bytes())?;
+      self.write(&v.to_be_bytes())?;
       Ok(())
     }
   }
 }
 
-impl<W: io::Write> Serializer<W> {
-  fn new(writer: W) -> Serializer<W> {
-    Serializer {
-      writer
-    }
-  }
+pub trait Serializer: Sized {
+  type Writer: Write;
+
+  fn writer(&mut self) -> &mut Self::Writer;
 
   // Raw writing
+
+  fn write(&mut self, data: &[u8]) -> SerializationResult {
+    self.writer().write(data)?;
+    Ok(())
+  }
 
   make_write_raw!(write_u8, u8);
   make_write_raw!(write_i8, i8);
@@ -110,49 +95,64 @@ impl<W: io::Write> Serializer<W> {
   make_write_raw!(write_f64, f64);
 
   fn write_bool(&mut self, v: bool) -> SerializationResult {
-    self.writer.write(&[v as u8])?;
+    self.write(&[v as u8])?;
     Ok(())
   }
 
-  fn write_marker(&mut self, marker: Marker) -> SerializationResult {
-    self.write_u32(marker.to_id().0)?;
+  // Particulars of the stainless serializer
+
+  fn write_marker(&mut self, marker: MarkerId) -> SerializationResult {
+    let id: u32 = marker.0;
+    assert!(id < 255);
+    self.write_u8(id as u8)?;
     Ok(())
   }
 
-  // Primitives
-
-  fn write_boolean(&mut self, v: bool) -> SerializationResult {
-    self.write_marker(Marker::Primitive)?;
-    self.write_u8(0)?;
-    self.write_bool(v)?;
-    Ok(())
-  }
-
-  fn write_integer(&mut self, v: i32) -> SerializationResult {
-    self.write_marker(Marker::Primitive)?;
-    self.write_u8(4)?;
-    self.write_i32(v)?;
-    Ok(())
-  }
-
-  fn write_string(&mut self, v: String) -> SerializationResult {
-    self.write_marker(Marker::Primitive)?;
-    self.write_u8(8)?;
-    self.writer.write(v.as_bytes())?; 
-    Ok(())
-  }
-
-  fn write_bigint(&mut self, v: BigInt) -> SerializationResult {
-    self.write_marker(Marker::Primitive)?;
-    self.write_u8(9)?;
-    self.writer.write(v.to_signed_bytes_be().as_slice())?; 
+  fn write_length(&mut self, len: usize) -> SerializationResult {
+    assert!(len <= (std::i32::MAX as usize));
+    if len < 255 {
+      self.write_u8(len as u8)?;
+    } else {
+      self.write_u8(255)?;
+      (len as types::Int).serialize(self)?;
+    }
     Ok(())
   }
 }
 
+// BufferSerializer, a simple serializer writing to a vector
+pub struct BufferSerializer {
+  writer: Vec<u8>,
+}
 
-pub trait Serializable {
-  const MARKER: Marker;
+impl BufferSerializer {
+  pub fn new() -> Self {
+    Self { writer: vec![] }
+  }
 
-  fn serialize<W: io::Write>(&self, s: Serializer<W>);
+  pub fn as_slice(&self) -> &[u8] {
+    self.writer.as_slice()
+  }
+}
+
+impl Serializer for BufferSerializer {
+  type Writer = Vec<u8>;
+
+  fn writer(&mut self) -> &mut Self::Writer {
+    &mut self.writer
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_serialize1() {
+    let mut s = BufferSerializer::new();
+    assert!(true.serialize(&mut s).is_ok());
+    assert!(123.serialize(&mut s).is_ok());
+    assert!(String::from("foo").serialize(&mut s).is_ok());
+    assert_eq!(s.as_slice().len(), (2 + 1) + (2 + 4) + (2 + 4 + 3));
+  }
 }
