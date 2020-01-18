@@ -17,13 +17,14 @@ pub use serializable::Serializable;
  * String  <-> std::string::String
  * BigInt  <-> num_bigint::BigInt
  *
- * TupleN  <-> (T1, ..., Tn)
- * Seq[T]  <-> std::vec::Vec<T>
- * Set[T]  <-> std::collections::HashSet
+ * TupleN    <-> (T1, ..., Tn)
+ * Option[T] <-> std::option::Option<T>
+ * Seq[T]    <-> std::vec::Vec<T>
+ * Set[T]    <-> std::collections::HashSet<T>
+ * Map[K,V]  <-> std::collections::HashMap<K,V>
  *
- * SerializationResult <-> SerializationResult
- *
- * Stainless AST class ... auto-generated struct
+ * SerializationResult <-> SerializationBuffer
+ * Stainless AST class <-> auto-generated struct
  */
 pub mod types {
   pub type Boolean = bool;
@@ -51,7 +52,7 @@ mod marker_ids {
   pub const MAP: MarkerId = MarkerId(4);
   pub const PRIMITIVE: MarkerId = MarkerId(5);
   pub const TUPLE: MarkerId = MarkerId(6);
-  pub const SERIALIZATIONRESULT: MarkerId = MarkerId(7);
+  pub const SERIALIZATION_BUFFER: MarkerId = MarkerId(7);
 }
 
 // Additional ids to differentiate primitive values
@@ -61,6 +62,9 @@ mod primitive_ids {
   pub const STRING: u8 = 8;
   pub const BIGINT: u8 = 9;
 }
+
+#[derive(PartialEq, Eq, PartialOrd, Debug)]
+pub struct SerializationBuffer(Vec<u8>);
 
 // Serializer, a trait that encapsulates raw serialization operations
 
@@ -105,6 +109,7 @@ pub trait Serializer: Sized {
 
   // Particulars of the stainless serializer
 
+  // TODO: Support values >= 255 (see inox serializer)
   fn write_marker(&mut self, marker: MarkerId) -> SerializationResult {
     let id: u32 = marker.0;
     assert!(id < 255);
@@ -112,6 +117,7 @@ pub trait Serializer: Sized {
     Ok(())
   }
 
+  // A way of writing lengths biased towards small values
   fn write_length(&mut self, len: usize) -> SerializationResult {
     assert!(len <= (std::i32::MAX as usize));
     if len < 255 {
@@ -189,16 +195,20 @@ pub trait Deserializer: Sized {
 
 // BufferSerializer, a simple serializer writing to a vector
 pub struct BufferSerializer {
-  writer: Vec<u8>,
+  buffer: Vec<u8>,
 }
 
 impl BufferSerializer {
   pub fn new() -> Self {
-    Self { writer: vec![] }
+    Self { buffer: vec![] }
   }
 
   pub fn as_slice(&self) -> &[u8] {
-    self.writer.as_slice()
+    self.buffer.as_slice()
+  }
+
+  pub fn to_buffer(&self) -> SerializationBuffer {
+    SerializationBuffer(self.buffer.to_vec())
   }
 }
 
@@ -206,7 +216,7 @@ impl Serializer for BufferSerializer {
   type Writer = Vec<u8>;
 
   fn writer(&mut self) -> &mut Self::Writer {
-    &mut self.writer
+    &mut self.buffer
   }
 }
 

@@ -1,4 +1,6 @@
-use super::{marker_ids, primitive_ids, SerializationResult, Serializer, types};
+use super::{
+  marker_ids, primitive_ids, types, SerializationBuffer, SerializationResult, Serializer,
+};
 
 // Serializable, a trait for types that can be serialized
 pub trait Serializable {
@@ -92,6 +94,15 @@ impl<K: Serializable, V: Serializable> Serializable for types::Map<K, V> {
       k.serialize(s)?;
       v.serialize(s)?;
     }
+    Ok(())
+  }
+}
+
+impl Serializable for SerializationBuffer {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(marker_ids::SERIALIZATION_BUFFER)?;
+    (self.0.len() as types::Int).serialize(s)?;
+    s.write(self.0.as_slice())?;
     Ok(())
   }
 }
