@@ -1,16 +1,40 @@
 #![allow(non_snake_case)]
 
+#[macro_use]
+mod macros;
+
 mod generated;
 pub use generated::*;
 
-use std::hash::{Hasher, Hash};
-use crate::ser::types::*;
-use crate::ser::{MarkerId, SerializationResult, Serializable, Serializer};
+use std::hash::{Hash, Hasher};
 
+use crate::ser::types::*;
+use crate::ser::{BufferSerializer, MarkerId, Serializable, SerializationResult, Serializer};
+
+use bumpalo::Bump;
+// use std::mem::Phan
+
+/// A factory for easily allocating AST nodes in an arena
+#[derive(Debug)]
+pub struct Factory {
+  bump: Bump,
+}
+
+impl Factory {
+  pub fn new() -> Self {
+    Factory { bump: Bump::new() }
+  }
+
+  pub fn alloc<T>(&self, v: T) -> &mut T {
+    self.bump.alloc(v)
+  }
+}
+
+/// inox.trees.Symbols
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Symbols<'a> {
-  sorts: Map<&'a Identifier, &'a ADTSort<'a>>,
-  functions: Map<&'a Identifier, &'a FunDef<'a>>
+  pub sorts: Map<&'a Identifier, &'a ADTSort<'a>>,
+  pub functions: Map<&'a Identifier, &'a FunDef<'a>>,
 }
 
 impl<'a> Hash for Symbols<'a> {
@@ -23,6 +47,22 @@ impl<'a> Hash for Symbols<'a> {
     functions.iter().for_each(|function| function.hash(state));
   }
 }
+
+impl<'a> Serializable for Symbols<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    let mut sorts: Vec<_> = self.sorts.values().collect();
+    sorts.sort();
+    let mut functions: Vec<_> = self.functions.values().collect();
+    functions.sort();
+
+    let mut inner_s = BufferSerializer::new();
+    (functions, sorts).serialize(&mut inner_s)?;
+    inner_s.to_buffer().serialize(s)?;
+    Ok(())
+  }
+}
+
+// Various trait implementations that are significantly different from the rest
 
 impl<'a> Serializable for ValDef<'a> {
   fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
@@ -37,14 +77,6 @@ impl<'a> Serializable for TypeParameterDef<'a> {
     s.write_marker(MarkerId(95))?;
     self.tp.serialize(s)?;
     Ok(())
-  }
-}
-
-pub fn Int32Literal(value: Int) -> BVLiteral {
-  BVLiteral {
-    signed: true,
-    value: value.to_bigint().unwrap(),
-    size: 32
   }
 }
 
@@ -64,6 +96,42 @@ impl Serializable for Identifier {
   }
 }
 
+// Additional helpers that mirror those in Inox
+
+pub fn Int32Literal(value: Int) -> BVLiteral {
+  BVLiteral {
+    signed: true,
+    value: value.to_bigint().unwrap(),
+    size: 32,
+  }
+}
+
 pub fn Int32Type() -> BVType {
-  BVType { signed: true, size: 32 }
+  BVType {
+    signed: true,
+    size: 32,
+  }
+}
+
+impl Factory {
+  pub fn Int32Literal<'a>(&'a self, value: Int) -> &'a mut BVLiteral {
+    self.bump.alloc(Int32Literal(value))
+  }
+
+  pub fn Int32Type<'a>(&'a self) -> &'a mut BVType {
+    self.bump.alloc(Int32Type())
+  }
+
+  pub fn ADTConstructor<'a>(
+    &'a self,
+    id: &'a Identifier,
+    sort: &'a Identifier,
+    fields: Seq<&'a ValDef<'a>>,
+  ) -> &'a mut ADTConstructor<'a> {
+    self.bump.alloc(ADTConstructor { id, sort, fields })
+  }
+
+  pub fn Identifier<'a>(&'a self, name: String, globalId: Int, id: Int) -> &'a mut Identifier {
+    self.bump.alloc(Identifier { name, globalId, id })
+  }
 }

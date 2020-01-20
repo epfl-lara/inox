@@ -9,6 +9,7 @@ repository = "https://github.com/lara-epfl/inox"
 categories = ["development-tools"]
 
 [dependencies]
+bumpalo = "3.1.2"
 env_logger = "0.7"
 num-bigint = "0.2.5"
 

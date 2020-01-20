@@ -28,6 +28,13 @@ class RustInteropSuite extends FunSpec with ResourceUtils {
         assert(data == expected)
       }
 
+      def makeIdentity(): FunDef = {
+        val idX = new Identifier("x", 1, 1)
+        val idF = new Identifier("f", 2, 1)
+        val varX = Variable(idX, Int32Type(), Seq.empty)
+        new FunDef(idF, Seq.empty, Seq(varX.toVal), Int32Type(), varX, Seq.empty)
+      }
+
       it(s"deserializes $name") {
         name match {
           case "seq_of_ints.inoxser" =>
@@ -45,16 +52,16 @@ class RustInteropSuite extends FunSpec with ResourceUtils {
           case "arithmetic_expr.inoxser" =>
             test(Times(Plus(Int32Literal(1), Int32Literal(1)), Int32Literal(1)))
           case "identity_fundef.inoxser" =>
-            val idX = new Identifier("x", 1, 1)
-            val idF = new Identifier("f", 2, 1)
-            val varX = Variable(idX, Int32Type(), Seq.empty)
-            test(new FunDef(idF, Seq.empty, Seq(varX.toVal), Int32Type(), varX, Seq.empty))
+            test(makeIdentity())
+          case "identity_symbols.inoxser" =>
+            test(NoSymbols.withFunctions(Seq(makeIdentity())))
           case _ => fail(s"Unknown test case: $name")
         }
       }
     }
   }
 
+  // A Rust-code generator Inox classes and corresponding serializers
   // TODO: Migrate this to a seperate script or sbt task
   describe("Generate code for rust-interop") {
     it("generates") {
@@ -67,6 +74,7 @@ class RustInteropSuite extends FunSpec with ResourceUtils {
       val ExprT = typeOf[inox.trees.Expr]
       val TypeT = typeOf[inox.trees.Type]
 
+      val IdentifierT = typeOf[inox.ast.Identifier]
       val VariableT = typeOf[inox.trees.Variable]
       val BigIntT = typeOf[scala.math.BigInt]
 
@@ -86,6 +94,7 @@ class RustInteropSuite extends FunSpec with ResourceUtils {
 
       val serializer = new utils.InoxSerializer(inox.trees) {
         def generateRustInterop() = {
+          // Collect the list of Inox classes to generate Rust code for
           classSerializers.foreach { case (runtimeClass, serializer) =>
             val rootMirror = scala.reflect.runtime.universe.runtimeMirror(runtimeClass.getClassLoader)
             val classSymbol = rootMirror.classSymbol(runtimeClass)
@@ -157,20 +166,28 @@ class RustInteropSuite extends FunSpec with ResourceUtils {
           typeClasses = typeClasses.sortBy(_.classSymbol.name.toString)
           otherClasses = otherClasses.sortBy(_.classSymbol.name.toString)
 
-          val allClasses = definitionClasses ++ flagClasses ++ exprClasses ++ typeClasses ++ otherClasses
+          // Helpers for computing which annotations are required in the generated Rust code
 
+          val allClasses = definitionClasses ++ flagClasses ++ exprClasses ++ typeClasses ++ otherClasses
+          val abstractClassTypes = Set(TreeT, DefinitionT, FlagT, ExprT, TypeT).map(_.typeSymbol)
+
+          def isInoxType(tpe: Type): Boolean =
+            (tpe.baseClasses.toSet & Set(TreeT.typeSymbol, FlagT.typeSymbol)).nonEmpty ||
+            tpe.typeSymbol == IdentifierT.typeSymbol
           def isAllocType(tpe: Type): Boolean =
-            tpe.baseClasses.contains(TreeT.typeSymbol) || tpe.typeSymbol.name.toString == "Identifier"
+            isInoxType(tpe) && !abstractClassTypes.contains(tpe.typeSymbol)
+
+          def inoxTypesInType(tpe: Type): Set[Type] =
+            if (isInoxType(tpe)) Set(tpe) else tpe.typeArgs.flatMap(inoxTypesInType).toSet
           def allocTypesInType(tpe: Type): Set[Type] =
-            if (isAllocType(tpe)) Set(tpe)
-            else tpe.typeArgs.flatMap(allocTypesInType).toSet
+            if (isAllocType(tpe)) Set(tpe) else tpe.typeArgs.flatMap(allocTypesInType).toSet
 
           val classIsDirectPartOf = {
             val result =
               MutableMap[ClassSymbol, MutableSet[ClassSymbol]]().withDefaultValue(MutableSet.empty)
             for { clazz <- allClasses
                   field <- clazz.fields
-                  fieldTpe <- allocTypesInType(field.tpe)
+                  fieldTpe <- inoxTypesInType(field.tpe)
                   fieldSym = fieldTpe.typeSymbol if fieldSym.isClass
                 }
               result(fieldSym.asClass) += clazz.classSymbol
@@ -214,18 +231,49 @@ class RustInteropSuite extends FunSpec with ResourceUtils {
             s"$prefix$name$suffix"
           }
 
+          def renderType(tpe: Type, asRef: Boolean): String = tpe match {
+            case TypeRef(_, constr, args) if args.nonEmpty =>
+              val argsStr = args.map(renderType(_, asRef)).mkString(", ")
+              if (constr.name.toString.startsWith("Tuple")) {
+                s"($argsStr)"
+              } else {
+                s"${constr.name}<${args.map(renderType(_, asRef)).mkString(", ")}>"
+              }
+            case _ =>
+              renderSimpleType(tpe, asRef)
+          }
+
+          // Generate an enum grouping AST classes together
           def printAbstractClass(absClassType: Type, classes: ArrayBuffer[Class]) = {
             val absClassSymbol = absClassType.typeSymbol
-            val nameStr = renderSimpleType(absClassType, asRef=false)
+            val simpleName = absClassSymbol.name.toString
+            val name = renderSimpleType(absClassType, asRef=false)
+
+            // Enum definition
             val variantStrs = classes.map { c =>
-              s"${c.classSymbol.name}(${renderSimpleType(c.classSymbol.toType, asRef=false)})"
+              s"${c.classSymbol.name}(${renderSimpleType(c.classSymbol.toType, asRef=true)})"
             }
             println(s"/// ${absClassSymbol.fullName}")
-            println("#[derive(Clone, Debug, PartialEq, Eq, Hash)]")
-            println(s"pub enum $nameStr {${variantStrs.mkString("\n  ", ",\n  ", "\n")}}\n")
+            println("#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]")
+            println(s"pub enum $name {${variantStrs.mkString("\n  ", ",\n  ", "\n")}}\n")
 
-            val simpleName = absClassSymbol.name.toString
-            println(s"impl${renderLifetimeFor(absClassType)} Serializable for $nameStr {")
+            // Factory methods
+            println(s"impl Factory {")
+            for (clazz <- classes) {
+              val simpleVariantName = clazz.classSymbol.name.toString
+              val variantName = renderSimpleType(clazz.classSymbol.toType, asRef=false)
+              val paramStrs = clazz.fields.map{ f => s"${f.name}: ${renderType(f.tpe, asRef=true)}" }
+              println(s"  pub fn $simpleVariantName<'a>(&'a self, ${paramStrs.mkString(", ")}) -> &'a mut $variantName {")
+              println(s"    self.bump.alloc($simpleVariantName {")
+              for (f <- clazz.fields)
+                println(s"      ${f.name},")
+              println("    })")
+              println("  }\n")
+            }
+            println("}\n")
+
+            // Serializable trait implementation
+            println(s"impl<'a> Serializable for $name {")
             println("  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {")
             println("    match self {")
             for (clazz <- classes) {
@@ -236,61 +284,58 @@ class RustInteropSuite extends FunSpec with ResourceUtils {
             println("    Ok(())")
             println("  }")
             println("}\n")
+
+            // From trait implementations
+            for (clazz <- classes) {
+              val variantName = renderSimpleType(clazz.classSymbol.toType, asRef=false)
+              println(s"derive_conversions_for_ast!($name, $variantName);")
+            }
+            println("")
           }
 
+          // Generate a concrete AST classes
           def printClasses(classes: ArrayBuffer[Class]) = {
             classes.foreach { c =>
-              def renderType(tpe: Type, asRef: Boolean): String = tpe match {
-                case TypeRef(_, constr, args) if args.nonEmpty =>
-                  val argsStr = args.map(renderType(_, asRef)).mkString(", ")
-                  if (constr.name.toString.startsWith("Tuple")) {
-                    s"($argsStr)"
-                  } else {
-                    s"${constr.name}<${args.map(renderType(_, asRef)).mkString(", ")}>"
-                  }
-                case _ =>
-                  renderSimpleType(tpe, asRef)
-              }
-
-              val className = c.classSymbol.fullName
               val classType = c.classSymbol.toType
-              val nameStr = renderSimpleType(classType, asRef=false)
+              val name = renderSimpleType(classType, asRef=false)
+
+              // Struct definition
               val fieldStrs = c.fields.map{ f => s"pub ${f.name}: ${renderType(f.tpe, asRef=true)}" }
               val derives =
                 Seq("Clone", "Debug") ++
                 (if (c.customIdentity.isDefined) Seq() else Seq("PartialEq", "Eq", "Hash"))
-
-              println(s"/// $className")
+              println(s"/// ${c.classSymbol.fullName}")
               println(s"#[derive(${derives.mkString(", ")})]")
-              println(s"pub struct $nameStr {${fieldStrs.mkString("\n  ", ",\n  ", "\n")}}\n")
+              println(s"pub struct $name {${fieldStrs.mkString("\n  ", ",\n  ", "\n")}}\n")
 
+              // Eq, Ord and Hash trait implementations
               if (c.customIdentity.isDefined) {
                 val path = c.customIdentity.get
-                println(s"impl${renderLifetimeFor(classType)} PartialEq for $nameStr {")
+                println(s"impl${renderLifetimeFor(classType)} PartialEq for $name {")
                 println(s"  fn eq(&self, other: &Self) -> bool { self.$path == other.$path }")
                 println("}")
-                println(s"impl${renderLifetimeFor(classType)} Eq for $nameStr {}")
-                println(s"impl${renderLifetimeFor(classType)} PartialOrd for $nameStr {")
+                println(s"impl${renderLifetimeFor(classType)} Eq for $name {}")
+                println(s"impl${renderLifetimeFor(classType)} PartialOrd for $name {")
                 println(s"  fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }")
                 println("}")
-                println(s"impl${renderLifetimeFor(classType)} Ord for $nameStr {")
+                println(s"impl${renderLifetimeFor(classType)} Ord for $name {")
                 println(s"  fn cmp(&self, other: &Self) -> Ordering { self.$path.cmp(&other.$path) }")
                 println("}")
-                println(s"impl${renderLifetimeFor(classType)} Hash for $nameStr {")
+                println(s"impl${renderLifetimeFor(classType)} Hash for $name {")
                 println(s"  fn hash<H: Hasher>(&self, state: &mut H) { self.$path.hash(state); }")
-                println("}")
-                println("")
+                println("}\n")
               }
 
+              // Serializable trait implementation
               if (c.needsSerializable) {
-                println(s"impl${renderLifetimeFor(classType)} Serializable for $nameStr {")
+                println(s"impl${renderLifetimeFor(classType)} Serializable for $name {")
                 println("  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {")
                 println(s"    s.write_marker(MarkerId(${c.markerId}))?;")
                 for (field <- c.fields)
                   println(s"    self.${field.name}.serialize(s)?;")
                 println(s"    Ok(())")
                 println("  }")
-                println("}")
+                println("}\n")
               }
             }
           }
@@ -300,12 +345,13 @@ class RustInteropSuite extends FunSpec with ResourceUtils {
 
           println("// AUTO-GENERATED FROM STAINLESS")
           println("#![allow(non_snake_case)]")
-          println("use crate::ser::{MarkerId, Serializable, SerializationResult, Serializer};")
+          println("use super::Factory;")
           println("use crate::ser::types::*;")
+          println("use crate::ser::{MarkerId, Serializable, SerializationResult, Serializer};")
           println("use std::cmp::Ordering;")
           println("use std::hash::{Hash, Hasher};")
 
-          printCaption("Definition")
+          printCaption("Definitions")
           printAbstractClass(DefinitionT, definitionClasses)
           printClasses(definitionClasses)
 
