@@ -6,13 +6,13 @@ use std::io::{self, /*Read,*/ Write};
 
 mod serializable;
 // mod deserializable;
-mod generated;
 
 pub use serializable::Serializable;
 // pub use deserializable::Deserializable;
 
 /** == Type mapping ==
  * Boolean <-> bool
+ * Char    <-> char
  * Int     <-> i32
  * String  <-> std::string::String
  * BigInt  <-> num_bigint::BigInt
@@ -28,6 +28,7 @@ pub use serializable::Serializable;
  */
 pub mod types {
   pub type Boolean = bool;
+  pub type Char = char; // FIXME: This doesn't really match JVM semantics
   pub type Int = i32;
   pub type BigInt = num_bigint::BigInt;
   pub type String = std::string::String;
@@ -40,7 +41,7 @@ pub mod types {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Debug)]
-pub struct MarkerId(u32);
+pub struct MarkerId(pub u32);
 
 // Some of the common marker ids
 mod marker_ids {
@@ -58,6 +59,7 @@ mod marker_ids {
 // Additional ids to differentiate primitive values
 mod primitive_ids {
   pub const BOOLEAN: u8 = 0;
+  pub const CHAR: u8 = 1;
   pub const INTEGER: u8 = 4;
   pub const STRING: u8 = 8;
   pub const BIGINT: u8 = 9;
@@ -68,7 +70,7 @@ pub struct SerializationBuffer(Vec<u8>);
 
 // Serializer, a trait that encapsulates raw serialization operations
 
-type SerializationResult = Result<(), io::Error>;
+pub type SerializationResult = Result<(), io::Error>;
 
 macro_rules! make_write_raw {
   ($id:ident, $t:ty) => {

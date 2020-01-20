@@ -231,6 +231,18 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     protected def read(in: InputStream): T
   }
 
+  protected def fieldsForClassSymbol(classSymbol: ClassSymbol) = {
+    val constructorSymbol = classSymbol.toType.members
+      .filter(_.isMethod).map(_.asMethod).filter(m => m.isConstructor && m.isPrimaryConstructor)
+      .iterator.next
+    val paramNames = constructorSymbol.paramLists.flatten.map(_.name)
+    classSymbol.toType.decls
+      .filter(d => d.isTerm && d.isPublic && !d.isSynthetic)
+      .map(_.asTerm)
+      .filter(_.isStable)
+      .filter(s => paramNames contains s.name)
+  }
+
   protected class ClassSerializer[T: ClassTag](id: Int) extends Serializer[T](id) {
     private val tag = classTag[T]
     private val runtimeClass = tag.runtimeClass
@@ -242,18 +254,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
       !(classSymbol.owner.isClass && classSymbol.owner.asClass.selfType <:< typeOf[ast.Trees])
     ) throw SerializationError(runtimeClass, "Unexpected inner type")
 
-    private val constructorSymbol = classSymbol.toType.members
-      .filter(_.isMethod).map(_.asMethod).filter(m => m.isConstructor && m.isPrimaryConstructor)
-      .iterator.next
-
-    private val fields = {
-      val paramNames = constructorSymbol.paramLists.flatten.map(_.name)
-      classSymbol.toType.decls
-        .filter(d => d.isTerm && d.isPublic && !d.isSynthetic)
-        .map(_.asTerm)
-        .filter(_.isStable)
-        .filter(s => paramNames contains s.name)
-    }
+    protected val fields = fieldsForClassSymbol(classSymbol)
 
     override protected def write(element: T, out: OutputStream): Unit = {
       val elementMirror = rootMirror.reflect(element)

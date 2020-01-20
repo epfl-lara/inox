@@ -7,11 +7,28 @@ pub trait Serializable {
   fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult;
 }
 
+impl<'a, T: Serializable> Serializable for &'a T {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    (**self).serialize(s)?;
+    Ok(())
+  }
+}
+
 impl Serializable for types::Boolean {
   fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
     s.write_marker(marker_ids::PRIMITIVE)?;
     s.write_u8(primitive_ids::BOOLEAN)?;
     s.write_bool(*self)?;
+    Ok(())
+  }
+}
+
+impl Serializable for types::Char {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(marker_ids::PRIMITIVE)?;
+    s.write_u8(primitive_ids::CHAR)?;
+    // FIXME: This doesn't really match JVM semantics
+    s.write_u16((*self) as u16)?;
     Ok(())
   }
 }
