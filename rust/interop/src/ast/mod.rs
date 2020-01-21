@@ -6,6 +6,7 @@ mod macros;
 mod generated;
 pub use generated::*;
 
+use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 
 use crate::ser::types::*;
@@ -58,6 +59,54 @@ impl<'a> Serializable for Symbols<'a> {
     let mut inner_s = BufferSerializer::new();
     (functions, sorts).serialize(&mut inner_s)?;
     inner_s.to_buffer().serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Symbol
+#[derive(Debug)]
+pub struct Symbol {
+  pub path: Seq<String>,
+  id: Int,
+}
+
+/// stainless.ast.SymbolIdentifier
+#[derive(Debug)]
+pub struct SymbolIdentifier {
+  pub id: Identifier,
+  pub symbol: Symbol,
+}
+
+impl PartialEq for SymbolIdentifier {
+  fn eq(&self, other: &Self) -> bool {
+    self.symbol.id == other.symbol.id
+  }
+}
+
+impl Eq for SymbolIdentifier {}
+
+impl PartialOrd for SymbolIdentifier {
+  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    Some(self.cmp(other))
+  }
+}
+
+impl Ord for SymbolIdentifier {
+  fn cmp(&self, other: &Self) -> Ordering {
+    self.symbol.id.cmp(&other.symbol.id)
+  }
+}
+
+impl<'a> Hash for SymbolIdentifier {
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    self.symbol.id.hash(state);
+  }
+}
+
+impl Serializable for SymbolIdentifier {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(145))?;
+    (self.id.globalId, self.id.id, &self.symbol.path, self.symbol.id).serialize(s)?;
     Ok(())
   }
 }
