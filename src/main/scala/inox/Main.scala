@@ -193,6 +193,15 @@ trait MainHelpers {
 
   def exit(error: Boolean) = sys.exit(if (error) 1 else 0)
 
+  def getFilesOrExit(ctx: Context): Seq[File] = {
+    val files = ctx.options.findOptionOrDefault(optFiles)
+    if (files.isEmpty) {
+      ctx.reporter.error(s"Input file was not specified.\nTry the --help option for more information.")
+      exit(error = true)
+    }
+    files
+  }
+
   def setup(args: Array[String]): Context = {
     val initReporter = newReporter(Set())
 
@@ -214,27 +223,50 @@ trait MainHelpers {
       ctx
     }
   }
+
+  protected def deserializerMain(ctx: Context): Unit = {
+    import java.io._
+
+    for (file <- getFilesOrExit(ctx)) {
+      import inox.trees._
+      import ctx._
+
+      val program =
+        try {
+          val serializer = utils.Serializer(inox.trees)
+          val in = new FileInputStream(file)
+          InoxProgram(serializer.deserialize[Symbols](in))
+        } catch {
+          case e: FileNotFoundException =>
+            ctx.reporter.error(s"Input file was not found:\n  $file")
+            exit(error = true)
+          case e: IOException =>
+            ctx.reporter.error(s"Error reading from file:\n  $file")
+            exit(error = true)
+        }
+
+      ctx.reporter.info(s"Program in $file:\n\n")
+      ctx.reporter.info(program)
+    }
+
+    exit(error = false)
+  }
 }
 
 object Main extends MainHelpers {
 
   def main(args: Array[String]): Unit = {
     val ctx = setup(args)
-
-    val files = ctx.options.findOptionOrDefault(optFiles)
-    if (files.isEmpty) {
-      ctx.reporter.error(s"Input file was not specified.\nTry the --help option for more information.")
-      exit(error = true)
-    } else if (ctx.options.findOptionOrDefault(optDeserialize)) {
-      deserializerMain(ctx, files)
+    if (ctx.options.findOptionOrDefault(optDeserialize)) {
+      deserializerMain(ctx)
     } else {
-      tipMain(ctx, files)
+      tipMain(ctx)
     }
   }
 
-  protected def tipMain(ctx: Context, files: Seq[File]): Unit = {
+  protected def tipMain(ctx: Context): Unit = {
     var error: Boolean = false
-    for (file <- files; (program, expr) <- tip.Parser(file).parseScript) {
+    for (file <- getFilesOrExit(ctx); (program, expr) <- tip.Parser(file).parseScript) {
       import ctx._
       import program._
 
@@ -260,35 +292,6 @@ object Main extends MainHelpers {
       ctx.reporter.whenDebug(utils.DebugSectionTimers) { debug =>
         ctx.timers.outputTable(debug, asciiOnly)
       }
-
-    exit(error = error)
-  }
-
-  protected def deserializerMain(ctx: Context, files: Seq[File]): Unit = {
-    import java.io._
-
-    var error: Boolean = false
-    for (file <- files) {
-      import inox.trees._
-      import ctx._
-
-      val program =
-        try {
-          val serializer = utils.Serializer(inox.trees)
-          val in = new FileInputStream(file)
-          InoxProgram(serializer.deserialize[Symbols](in))
-        } catch {
-          case e: FileNotFoundException =>
-            ctx.reporter.error(s"Input file was not found:\n  $file")
-            exit(error = true)
-          case e: IOException =>
-            ctx.reporter.error(s"Error reading from file:\n  $file")
-            exit(error = true)
-        }
-
-      ctx.reporter.info(s"Program in $file:\n\n")
-      ctx.reporter.info(program)
-    }
 
     exit(error = error)
   }
