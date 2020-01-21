@@ -12,7 +12,13 @@ use std::hash::{Hash, Hasher};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Definition<'a> {
   ADTSort(&'a ADTSort<'a>),
+  ClassDef(&'a ClassDef<'a>),
   FunDef(&'a FunDef<'a>),
+  LocalClassDef(&'a LocalClassDef<'a>),
+  LocalFunDef(&'a LocalFunDef<'a>),
+  LocalMethodDef(&'a LocalMethodDef<'a>),
+  LocalTypeDef(&'a LocalTypeDef<'a>),
+  TypeDef(&'a TypeDef<'a>),
   TypeParameterDef(&'a TypeParameterDef<'a>),
   ValDef(&'a ValDef<'a>),
 }
@@ -29,6 +35,23 @@ impl Factory {
       id,
       tparams,
       constructors,
+      flags,
+    })
+  }
+
+  pub fn ClassDef<'a>(
+    &'a self,
+    id: &'a Identifier,
+    tparams: Seq<&'a TypeParameterDef<'a>>,
+    parents: Seq<&'a ClassType<'a>>,
+    fields: Seq<&'a ValDef<'a>>,
+    flags: Seq<Flag<'a>>,
+  ) -> &'a mut ClassDef<'a> {
+    self.bump.alloc(ClassDef {
+      id,
+      tparams,
+      parents,
+      fields,
       flags,
     })
   }
@@ -52,6 +75,95 @@ impl Factory {
     })
   }
 
+  pub fn LocalClassDef<'a>(
+    &'a self,
+    id: &'a Identifier,
+    tparams: Seq<&'a TypeParameterDef<'a>>,
+    parents: Seq<Type<'a>>,
+    fields: Seq<&'a ValDef<'a>>,
+    methods: Seq<&'a LocalMethodDef<'a>>,
+    typeMembers: Seq<&'a LocalTypeDef<'a>>,
+    flags: Seq<Flag<'a>>,
+  ) -> &'a mut LocalClassDef<'a> {
+    self.bump.alloc(LocalClassDef {
+      id,
+      tparams,
+      parents,
+      fields,
+      methods,
+      typeMembers,
+      flags,
+    })
+  }
+
+  pub fn LocalFunDef<'a>(
+    &'a self,
+    id: &'a Identifier,
+    tparams: Seq<&'a TypeParameterDef<'a>>,
+    params: Seq<&'a ValDef<'a>>,
+    returnType: Type<'a>,
+    fullBody: Expr<'a>,
+    flags: Seq<Flag<'a>>,
+  ) -> &'a mut LocalFunDef<'a> {
+    self.bump.alloc(LocalFunDef {
+      id,
+      tparams,
+      params,
+      returnType,
+      fullBody,
+      flags,
+    })
+  }
+
+  pub fn LocalMethodDef<'a>(
+    &'a self,
+    id: &'a Identifier,
+    tparams: Seq<&'a TypeParameterDef<'a>>,
+    params: Seq<&'a ValDef<'a>>,
+    returnType: Type<'a>,
+    fullBody: Expr<'a>,
+    flags: Seq<Flag<'a>>,
+  ) -> &'a mut LocalMethodDef<'a> {
+    self.bump.alloc(LocalMethodDef {
+      id,
+      tparams,
+      params,
+      returnType,
+      fullBody,
+      flags,
+    })
+  }
+
+  pub fn LocalTypeDef<'a>(
+    &'a self,
+    id: &'a Identifier,
+    tparams: Seq<&'a TypeParameterDef<'a>>,
+    rhs: Type<'a>,
+    flags: Seq<Flag<'a>>,
+  ) -> &'a mut LocalTypeDef<'a> {
+    self.bump.alloc(LocalTypeDef {
+      id,
+      tparams,
+      rhs,
+      flags,
+    })
+  }
+
+  pub fn TypeDef<'a>(
+    &'a self,
+    id: &'a Identifier,
+    tparams: Seq<&'a TypeParameterDef<'a>>,
+    rhs: Type<'a>,
+    flags: Seq<Flag<'a>>,
+  ) -> &'a mut TypeDef<'a> {
+    self.bump.alloc(TypeDef {
+      id,
+      tparams,
+      rhs,
+      flags,
+    })
+  }
+
   pub fn TypeParameterDef<'a>(&'a self, tp: &'a TypeParameter<'a>) -> &'a mut TypeParameterDef<'a> {
     self.bump.alloc(TypeParameterDef { tp })
   }
@@ -65,7 +177,13 @@ impl<'a> Serializable for Definition<'a> {
   fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
     match self {
       Definition::ADTSort(v) => v.serialize(s)?,
+      Definition::ClassDef(v) => v.serialize(s)?,
       Definition::FunDef(v) => v.serialize(s)?,
+      Definition::LocalClassDef(v) => v.serialize(s)?,
+      Definition::LocalFunDef(v) => v.serialize(s)?,
+      Definition::LocalMethodDef(v) => v.serialize(s)?,
+      Definition::LocalTypeDef(v) => v.serialize(s)?,
+      Definition::TypeDef(v) => v.serialize(s)?,
       Definition::TypeParameterDef(v) => v.serialize(s)?,
       Definition::ValDef(v) => v.serialize(s)?,
     };
@@ -74,7 +192,13 @@ impl<'a> Serializable for Definition<'a> {
 }
 
 derive_conversions_for_ast!(Definition<'a>, ADTSort<'a>);
+derive_conversions_for_ast!(Definition<'a>, ClassDef<'a>);
 derive_conversions_for_ast!(Definition<'a>, FunDef<'a>);
+derive_conversions_for_ast!(Definition<'a>, LocalClassDef<'a>);
+derive_conversions_for_ast!(Definition<'a>, LocalFunDef<'a>);
+derive_conversions_for_ast!(Definition<'a>, LocalMethodDef<'a>);
+derive_conversions_for_ast!(Definition<'a>, LocalTypeDef<'a>);
+derive_conversions_for_ast!(Definition<'a>, TypeDef<'a>);
 derive_conversions_for_ast!(Definition<'a>, TypeParameterDef<'a>);
 derive_conversions_for_ast!(Definition<'a>, ValDef<'a>);
 
@@ -115,6 +239,28 @@ impl<'a> Serializable for ADTSort<'a> {
     self.id.serialize(s)?;
     self.tparams.serialize(s)?;
     self.constructors.serialize(s)?;
+    self.flags.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.oo.Definitions.ClassDef
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ClassDef<'a> {
+  pub id: &'a Identifier,
+  pub tparams: Seq<&'a TypeParameterDef<'a>>,
+  pub parents: Seq<&'a ClassType<'a>>,
+  pub fields: Seq<&'a ValDef<'a>>,
+  pub flags: Seq<Flag<'a>>,
+}
+
+impl<'a> Serializable for ClassDef<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(222))?;
+    self.id.serialize(s)?;
+    self.tparams.serialize(s)?;
+    self.parents.serialize(s)?;
+    self.fields.serialize(s)?;
     self.flags.serialize(s)?;
     Ok(())
   }
@@ -161,6 +307,120 @@ impl<'a> Serializable for FunDef<'a> {
     self.params.serialize(s)?;
     self.returnType.serialize(s)?;
     self.fullBody.serialize(s)?;
+    self.flags.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.innerclasses.Definitions.LocalClassDef
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LocalClassDef<'a> {
+  pub id: &'a Identifier,
+  pub tparams: Seq<&'a TypeParameterDef<'a>>,
+  pub parents: Seq<Type<'a>>,
+  pub fields: Seq<&'a ValDef<'a>>,
+  pub methods: Seq<&'a LocalMethodDef<'a>>,
+  pub typeMembers: Seq<&'a LocalTypeDef<'a>>,
+  pub flags: Seq<Flag<'a>>,
+}
+
+impl<'a> Serializable for LocalClassDef<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(233))?;
+    self.id.serialize(s)?;
+    self.tparams.serialize(s)?;
+    self.parents.serialize(s)?;
+    self.fields.serialize(s)?;
+    self.methods.serialize(s)?;
+    self.typeMembers.serialize(s)?;
+    self.flags.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.innerfuns.Definitions.LocalFunDef
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LocalFunDef<'a> {
+  pub id: &'a Identifier,
+  pub tparams: Seq<&'a TypeParameterDef<'a>>,
+  pub params: Seq<&'a ValDef<'a>>,
+  pub returnType: Type<'a>,
+  pub fullBody: Expr<'a>,
+  pub flags: Seq<Flag<'a>>,
+}
+
+impl<'a> Serializable for LocalFunDef<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(183))?;
+    self.id.serialize(s)?;
+    self.tparams.serialize(s)?;
+    self.params.serialize(s)?;
+    self.returnType.serialize(s)?;
+    self.fullBody.serialize(s)?;
+    self.flags.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.innerclasses.Definitions.LocalMethodDef
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LocalMethodDef<'a> {
+  pub id: &'a Identifier,
+  pub tparams: Seq<&'a TypeParameterDef<'a>>,
+  pub params: Seq<&'a ValDef<'a>>,
+  pub returnType: Type<'a>,
+  pub fullBody: Expr<'a>,
+  pub flags: Seq<Flag<'a>>,
+}
+
+impl<'a> Serializable for LocalMethodDef<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(234))?;
+    self.id.serialize(s)?;
+    self.tparams.serialize(s)?;
+    self.params.serialize(s)?;
+    self.returnType.serialize(s)?;
+    self.fullBody.serialize(s)?;
+    self.flags.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.innerclasses.Definitions.LocalTypeDef
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LocalTypeDef<'a> {
+  pub id: &'a Identifier,
+  pub tparams: Seq<&'a TypeParameterDef<'a>>,
+  pub rhs: Type<'a>,
+  pub flags: Seq<Flag<'a>>,
+}
+
+impl<'a> Serializable for LocalTypeDef<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(246))?;
+    self.id.serialize(s)?;
+    self.tparams.serialize(s)?;
+    self.rhs.serialize(s)?;
+    self.flags.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.oo.Definitions.TypeDef
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TypeDef<'a> {
+  pub id: &'a Identifier,
+  pub tparams: Seq<&'a TypeParameterDef<'a>>,
+  pub rhs: Type<'a>,
+  pub flags: Seq<Flag<'a>>,
+}
+
+impl<'a> Serializable for TypeDef<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(244))?;
+    self.id.serialize(s)?;
+    self.tparams.serialize(s)?;
+    self.rhs.serialize(s)?;
     self.flags.serialize(s)?;
     Ok(())
   }
@@ -228,13 +488,68 @@ impl<'a> Hash for ValDef<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Flag<'a> {
   Annotation(&'a Annotation<'a>),
+  Bounds(&'a Bounds<'a>),
+  Derived(&'a Derived<'a>),
+  Erasable(&'a Erasable),
+  Extern(&'a Extern),
+  Final(&'a Final),
+  Ghost(&'a Ghost),
   HasADTEquality(&'a HasADTEquality<'a>),
   HasADTInvariant(&'a HasADTInvariant<'a>),
+  Ignore(&'a Ignore),
+  IndexedAt(&'a IndexedAt<'a>),
+  Inline(&'a Inline),
+  InlineOnce(&'a InlineOnce),
+  IsAbstract(&'a IsAbstract),
+  IsAccessor(&'a IsAccessor<'a>),
+  IsCaseObject(&'a IsCaseObject),
+  IsField(&'a IsField),
+  IsInvariant(&'a IsInvariant),
+  IsMethodOf(&'a IsMethodOf<'a>),
+  IsMutable(&'a IsMutable),
+  IsPure(&'a IsPure),
+  IsSealed(&'a IsSealed),
+  IsUnapply(&'a IsUnapply<'a>),
+  IsVar(&'a IsVar),
+  Law(&'a Law),
+  Library(&'a Library),
+  Opaque(&'a Opaque),
+  PartialEval(&'a PartialEval),
+  Private(&'a Private),
+  Synthetic(&'a Synthetic),
+  Unchecked(&'a Unchecked),
+  ValueClass(&'a ValueClass),
+  Variance(&'a Variance),
+  Wrapping(&'a Wrapping),
 }
 
 impl Factory {
   pub fn Annotation<'a>(&'a self, name: String, args: Seq<Expr<'a>>) -> &'a mut Annotation<'a> {
     self.bump.alloc(Annotation { name, args })
+  }
+
+  pub fn Bounds<'a>(&'a self, lo: Type<'a>, hi: Type<'a>) -> &'a mut Bounds<'a> {
+    self.bump.alloc(Bounds { lo, hi })
+  }
+
+  pub fn Derived<'a>(&'a self, id: &'a Identifier) -> &'a mut Derived<'a> {
+    self.bump.alloc(Derived { id })
+  }
+
+  pub fn Erasable<'a>(&'a self) -> &'a mut Erasable {
+    self.bump.alloc(Erasable {})
+  }
+
+  pub fn Extern<'a>(&'a self) -> &'a mut Extern {
+    self.bump.alloc(Extern {})
+  }
+
+  pub fn Final<'a>(&'a self) -> &'a mut Final {
+    self.bump.alloc(Final {})
+  }
+
+  pub fn Ghost<'a>(&'a self) -> &'a mut Ghost {
+    self.bump.alloc(Ghost {})
   }
 
   pub fn HasADTEquality<'a>(&'a self, id: &'a Identifier) -> &'a mut HasADTEquality<'a> {
@@ -244,22 +559,188 @@ impl Factory {
   pub fn HasADTInvariant<'a>(&'a self, id: &'a Identifier) -> &'a mut HasADTInvariant<'a> {
     self.bump.alloc(HasADTInvariant { id })
   }
+
+  pub fn Ignore<'a>(&'a self) -> &'a mut Ignore {
+    self.bump.alloc(Ignore {})
+  }
+
+  pub fn IndexedAt<'a>(&'a self, e: Expr<'a>) -> &'a mut IndexedAt<'a> {
+    self.bump.alloc(IndexedAt { e })
+  }
+
+  pub fn Inline<'a>(&'a self) -> &'a mut Inline {
+    self.bump.alloc(Inline {})
+  }
+
+  pub fn InlineOnce<'a>(&'a self) -> &'a mut InlineOnce {
+    self.bump.alloc(InlineOnce {})
+  }
+
+  pub fn IsAbstract<'a>(&'a self) -> &'a mut IsAbstract {
+    self.bump.alloc(IsAbstract {})
+  }
+
+  pub fn IsAccessor<'a>(&'a self, id: Option<&'a Identifier>) -> &'a mut IsAccessor<'a> {
+    self.bump.alloc(IsAccessor { id })
+  }
+
+  pub fn IsCaseObject<'a>(&'a self) -> &'a mut IsCaseObject {
+    self.bump.alloc(IsCaseObject {})
+  }
+
+  pub fn IsField<'a>(&'a self, isLazy: Boolean) -> &'a mut IsField {
+    self.bump.alloc(IsField { isLazy })
+  }
+
+  pub fn IsInvariant<'a>(&'a self) -> &'a mut IsInvariant {
+    self.bump.alloc(IsInvariant {})
+  }
+
+  pub fn IsMethodOf<'a>(&'a self, id: &'a Identifier) -> &'a mut IsMethodOf<'a> {
+    self.bump.alloc(IsMethodOf { id })
+  }
+
+  pub fn IsMutable<'a>(&'a self) -> &'a mut IsMutable {
+    self.bump.alloc(IsMutable {})
+  }
+
+  pub fn IsPure<'a>(&'a self) -> &'a mut IsPure {
+    self.bump.alloc(IsPure {})
+  }
+
+  pub fn IsSealed<'a>(&'a self) -> &'a mut IsSealed {
+    self.bump.alloc(IsSealed {})
+  }
+
+  pub fn IsUnapply<'a>(
+    &'a self,
+    isEmpty: &'a Identifier,
+    get: &'a Identifier,
+  ) -> &'a mut IsUnapply<'a> {
+    self.bump.alloc(IsUnapply { isEmpty, get })
+  }
+
+  pub fn IsVar<'a>(&'a self) -> &'a mut IsVar {
+    self.bump.alloc(IsVar {})
+  }
+
+  pub fn Law<'a>(&'a self) -> &'a mut Law {
+    self.bump.alloc(Law {})
+  }
+
+  pub fn Library<'a>(&'a self) -> &'a mut Library {
+    self.bump.alloc(Library {})
+  }
+
+  pub fn Opaque<'a>(&'a self) -> &'a mut Opaque {
+    self.bump.alloc(Opaque {})
+  }
+
+  pub fn PartialEval<'a>(&'a self) -> &'a mut PartialEval {
+    self.bump.alloc(PartialEval {})
+  }
+
+  pub fn Private<'a>(&'a self) -> &'a mut Private {
+    self.bump.alloc(Private {})
+  }
+
+  pub fn Synthetic<'a>(&'a self) -> &'a mut Synthetic {
+    self.bump.alloc(Synthetic {})
+  }
+
+  pub fn Unchecked<'a>(&'a self) -> &'a mut Unchecked {
+    self.bump.alloc(Unchecked {})
+  }
+
+  pub fn ValueClass<'a>(&'a self) -> &'a mut ValueClass {
+    self.bump.alloc(ValueClass {})
+  }
+
+  pub fn Variance<'a>(&'a self, variance: Boolean) -> &'a mut Variance {
+    self.bump.alloc(Variance { variance })
+  }
+
+  pub fn Wrapping<'a>(&'a self) -> &'a mut Wrapping {
+    self.bump.alloc(Wrapping {})
+  }
 }
 
 impl<'a> Serializable for Flag<'a> {
   fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
     match self {
       Flag::Annotation(v) => v.serialize(s)?,
+      Flag::Bounds(v) => v.serialize(s)?,
+      Flag::Derived(v) => v.serialize(s)?,
+      Flag::Erasable(v) => v.serialize(s)?,
+      Flag::Extern(v) => v.serialize(s)?,
+      Flag::Final(v) => v.serialize(s)?,
+      Flag::Ghost(v) => v.serialize(s)?,
       Flag::HasADTEquality(v) => v.serialize(s)?,
       Flag::HasADTInvariant(v) => v.serialize(s)?,
+      Flag::Ignore(v) => v.serialize(s)?,
+      Flag::IndexedAt(v) => v.serialize(s)?,
+      Flag::Inline(v) => v.serialize(s)?,
+      Flag::InlineOnce(v) => v.serialize(s)?,
+      Flag::IsAbstract(v) => v.serialize(s)?,
+      Flag::IsAccessor(v) => v.serialize(s)?,
+      Flag::IsCaseObject(v) => v.serialize(s)?,
+      Flag::IsField(v) => v.serialize(s)?,
+      Flag::IsInvariant(v) => v.serialize(s)?,
+      Flag::IsMethodOf(v) => v.serialize(s)?,
+      Flag::IsMutable(v) => v.serialize(s)?,
+      Flag::IsPure(v) => v.serialize(s)?,
+      Flag::IsSealed(v) => v.serialize(s)?,
+      Flag::IsUnapply(v) => v.serialize(s)?,
+      Flag::IsVar(v) => v.serialize(s)?,
+      Flag::Law(v) => v.serialize(s)?,
+      Flag::Library(v) => v.serialize(s)?,
+      Flag::Opaque(v) => v.serialize(s)?,
+      Flag::PartialEval(v) => v.serialize(s)?,
+      Flag::Private(v) => v.serialize(s)?,
+      Flag::Synthetic(v) => v.serialize(s)?,
+      Flag::Unchecked(v) => v.serialize(s)?,
+      Flag::ValueClass(v) => v.serialize(s)?,
+      Flag::Variance(v) => v.serialize(s)?,
+      Flag::Wrapping(v) => v.serialize(s)?,
     };
     Ok(())
   }
 }
 
 derive_conversions_for_ast!(Flag<'a>, Annotation<'a>);
+derive_conversions_for_ast!(Flag<'a>, Bounds<'a>);
+derive_conversions_for_ast!(Flag<'a>, Derived<'a>);
+derive_conversions_for_ast!(Flag<'a>, Erasable);
+derive_conversions_for_ast!(Flag<'a>, Extern);
+derive_conversions_for_ast!(Flag<'a>, Final);
+derive_conversions_for_ast!(Flag<'a>, Ghost);
 derive_conversions_for_ast!(Flag<'a>, HasADTEquality<'a>);
 derive_conversions_for_ast!(Flag<'a>, HasADTInvariant<'a>);
+derive_conversions_for_ast!(Flag<'a>, Ignore);
+derive_conversions_for_ast!(Flag<'a>, IndexedAt<'a>);
+derive_conversions_for_ast!(Flag<'a>, Inline);
+derive_conversions_for_ast!(Flag<'a>, InlineOnce);
+derive_conversions_for_ast!(Flag<'a>, IsAbstract);
+derive_conversions_for_ast!(Flag<'a>, IsAccessor<'a>);
+derive_conversions_for_ast!(Flag<'a>, IsCaseObject);
+derive_conversions_for_ast!(Flag<'a>, IsField);
+derive_conversions_for_ast!(Flag<'a>, IsInvariant);
+derive_conversions_for_ast!(Flag<'a>, IsMethodOf<'a>);
+derive_conversions_for_ast!(Flag<'a>, IsMutable);
+derive_conversions_for_ast!(Flag<'a>, IsPure);
+derive_conversions_for_ast!(Flag<'a>, IsSealed);
+derive_conversions_for_ast!(Flag<'a>, IsUnapply<'a>);
+derive_conversions_for_ast!(Flag<'a>, IsVar);
+derive_conversions_for_ast!(Flag<'a>, Law);
+derive_conversions_for_ast!(Flag<'a>, Library);
+derive_conversions_for_ast!(Flag<'a>, Opaque);
+derive_conversions_for_ast!(Flag<'a>, PartialEval);
+derive_conversions_for_ast!(Flag<'a>, Private);
+derive_conversions_for_ast!(Flag<'a>, Synthetic);
+derive_conversions_for_ast!(Flag<'a>, Unchecked);
+derive_conversions_for_ast!(Flag<'a>, ValueClass);
+derive_conversions_for_ast!(Flag<'a>, Variance);
+derive_conversions_for_ast!(Flag<'a>, Wrapping);
 
 /// inox.ast.Definitions.Annotation
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -273,6 +754,80 @@ impl<'a> Serializable for Annotation<'a> {
     s.write_marker(MarkerId(93))?;
     self.name.serialize(s)?;
     self.args.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.oo.Definitions.Bounds
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Bounds<'a> {
+  pub lo: Type<'a>,
+  pub hi: Type<'a>,
+}
+
+impl<'a> Serializable for Bounds<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(226))?;
+    self.lo.serialize(s)?;
+    self.hi.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.Derived
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Derived<'a> {
+  pub id: &'a Identifier,
+}
+
+impl<'a> Serializable for Derived<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(142))?;
+    self.id.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.Erasable
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Erasable {}
+
+impl Serializable for Erasable {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(155))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.Extern
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Extern {}
+
+impl Serializable for Extern {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(139))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.Final
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Final {}
+
+impl Serializable for Final {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(149))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.Ghost
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Ghost {}
+
+impl Serializable for Ghost {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(147))?;
     Ok(())
   }
 }
@@ -305,6 +860,301 @@ impl<'a> Serializable for HasADTInvariant<'a> {
   }
 }
 
+/// stainless.extraction.xlang.Trees.Ignore
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Ignore {}
+
+impl Serializable for Ignore {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(218))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.IndexedAt
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct IndexedAt<'a> {
+  pub e: Expr<'a>,
+}
+
+impl<'a> Serializable for IndexedAt<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(156))?;
+    self.e.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.inlining.Trees.Inline
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Inline {}
+
+impl Serializable for Inline {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(181))?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.inlining.Trees.InlineOnce
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct InlineOnce {}
+
+impl Serializable for InlineOnce {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(228))?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.oo.Definitions.IsAbstract
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct IsAbstract {}
+
+impl Serializable for IsAbstract {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(224))?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.methods.Trees.IsAccessor
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct IsAccessor<'a> {
+  pub id: Option<&'a Identifier>,
+}
+
+impl<'a> Serializable for IsAccessor<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(231))?;
+    self.id.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.oo.Definitions.IsCaseObject
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct IsCaseObject {}
+
+impl Serializable for IsCaseObject {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(229))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.IsField
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct IsField {
+  pub isLazy: Boolean,
+}
+
+impl Serializable for IsField {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(143))?;
+    self.isLazy.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.oo.Definitions.IsInvariant
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct IsInvariant {}
+
+impl Serializable for IsInvariant {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(223))?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.methods.Trees.IsMethodOf
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct IsMethodOf<'a> {
+  pub id: &'a Identifier,
+}
+
+impl<'a> Serializable for IsMethodOf<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(217))?;
+    self.id.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.IsMutable
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct IsMutable {}
+
+impl Serializable for IsMutable {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(199))?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.IsPure
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct IsPure {}
+
+impl Serializable for IsPure {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(230))?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.oo.Definitions.IsSealed
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct IsSealed {}
+
+impl Serializable for IsSealed {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(225))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.IsUnapply
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct IsUnapply<'a> {
+  pub isEmpty: &'a Identifier,
+  pub get: &'a Identifier,
+}
+
+impl<'a> Serializable for IsUnapply<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(144))?;
+    self.isEmpty.serialize(s)?;
+    self.get.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.IsVar
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct IsVar {}
+
+impl Serializable for IsVar {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(198))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.Law
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Law {}
+
+impl Serializable for Law {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(150))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.Library
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Library {}
+
+impl Serializable for Library {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(158))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.Opaque
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Opaque {}
+
+impl Serializable for Opaque {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(140))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.PartialEval
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct PartialEval {}
+
+impl Serializable for PartialEval {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(146))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.Private
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Private {}
+
+impl Serializable for Private {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(148))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.Synthetic
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Synthetic {}
+
+impl Serializable for Synthetic {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(182))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.Unchecked
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Unchecked {}
+
+impl Serializable for Unchecked {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(141))?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.methods.Trees.ValueClass
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ValueClass {}
+
+impl Serializable for ValueClass {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(243))?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.oo.Definitions.Variance
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Variance {
+  pub variance: Boolean,
+}
+
+impl Serializable for Variance {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(227))?;
+    self.variance.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Definitions.Wrapping
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Wrapping {}
+
+impl Serializable for Wrapping {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(159))?;
+    Ok(())
+  }
+}
+
 // === Expressions ===
 
 /// inox.ast.Expressions.Expr
@@ -313,7 +1163,16 @@ pub enum Expr<'a> {
   ADT(&'a ADT<'a>),
   ADTSelector(&'a ADTSelector<'a>),
   And(&'a And<'a>),
+  Annotated(&'a Annotated<'a>),
   Application(&'a Application<'a>),
+  ApplyLetRec(&'a ApplyLetRec<'a>),
+  ArrayLength(&'a ArrayLength<'a>),
+  ArraySelect(&'a ArraySelect<'a>),
+  ArrayUpdate(&'a ArrayUpdate<'a>),
+  ArrayUpdated(&'a ArrayUpdated<'a>),
+  AsInstanceOf(&'a AsInstanceOf<'a>),
+  Assert(&'a Assert<'a>),
+  Assignment(&'a Assignment<'a>),
   Assume(&'a Assume<'a>),
   BVAShiftRight(&'a BVAShiftRight<'a>),
   BVAnd(&'a BVAnd<'a>),
@@ -329,12 +1188,23 @@ pub enum Expr<'a> {
   BagDifference(&'a BagDifference<'a>),
   BagIntersection(&'a BagIntersection<'a>),
   BagUnion(&'a BagUnion<'a>),
+  Block(&'a Block<'a>),
+  BoolBitwiseAnd(&'a BoolBitwiseAnd<'a>),
+  BoolBitwiseOr(&'a BoolBitwiseOr<'a>),
+  BoolBitwiseXor(&'a BoolBitwiseXor<'a>),
   BooleanLiteral(&'a BooleanLiteral),
   CharLiteral(&'a CharLiteral),
   Choose(&'a Choose<'a>),
+  ClassConstructor(&'a ClassConstructor<'a>),
+  ClassSelector(&'a ClassSelector<'a>),
+  Decreases(&'a Decreases<'a>),
   Division(&'a Division<'a>),
   ElementOfSet(&'a ElementOfSet<'a>),
+  Ensuring(&'a Ensuring<'a>),
   Equals(&'a Equals<'a>),
+  Error(&'a Error<'a>),
+  FieldAssignment(&'a FieldAssignment<'a>),
+  FiniteArray(&'a FiniteArray<'a>),
   FiniteBag(&'a FiniteBag<'a>),
   FiniteMap(&'a FiniteMap<'a>),
   FiniteSet(&'a FiniteSet<'a>),
@@ -348,34 +1218,62 @@ pub enum Expr<'a> {
   Implies(&'a Implies<'a>),
   IntegerLiteral(&'a IntegerLiteral),
   IsConstructor(&'a IsConstructor<'a>),
+  IsInstanceOf(&'a IsInstanceOf<'a>),
   Lambda(&'a Lambda<'a>),
+  LargeArray(&'a LargeArray<'a>),
   LessEquals(&'a LessEquals<'a>),
   LessThan(&'a LessThan<'a>),
   Let(&'a Let<'a>),
+  LetClass(&'a LetClass<'a>),
+  LetRec(&'a LetRec<'a>),
+  LetVar(&'a LetVar<'a>),
+  LocalClassConstructor(&'a LocalClassConstructor<'a>),
+  LocalClassSelector(&'a LocalClassSelector<'a>),
+  LocalMethodInvocation(&'a LocalMethodInvocation<'a>),
+  LocalThis(&'a LocalThis<'a>),
   MapApply(&'a MapApply<'a>),
   MapUpdated(&'a MapUpdated<'a>),
+  MatchExpr(&'a MatchExpr<'a>),
+  MethodInvocation(&'a MethodInvocation<'a>),
   Minus(&'a Minus<'a>),
   Modulo(&'a Modulo<'a>),
   MultiplicityInBag(&'a MultiplicityInBag<'a>),
+  MutableMapApply(&'a MutableMapApply<'a>),
+  MutableMapDuplicate(&'a MutableMapDuplicate<'a>),
+  MutableMapUpdate(&'a MutableMapUpdate<'a>),
+  MutableMapUpdated(&'a MutableMapUpdated<'a>),
+  MutableMapWithDefault(&'a MutableMapWithDefault<'a>),
+  NoTree(&'a NoTree<'a>),
   Not(&'a Not<'a>),
+  Old(&'a Old<'a>),
   Or(&'a Or<'a>),
+  Passes(&'a Passes<'a>),
   Plus(&'a Plus<'a>),
   Remainder(&'a Remainder<'a>),
+  Require(&'a Require<'a>),
   SetAdd(&'a SetAdd<'a>),
   SetDifference(&'a SetDifference<'a>),
   SetIntersection(&'a SetIntersection<'a>),
   SetUnion(&'a SetUnion<'a>),
+  SizedADT(&'a SizedADT<'a>),
+  Snapshot(&'a Snapshot<'a>),
   StringConcat(&'a StringConcat<'a>),
   StringLength(&'a StringLength<'a>),
   StringLiteral(&'a StringLiteral),
   SubString(&'a SubString<'a>),
   SubsetOf(&'a SubsetOf<'a>),
+  Super(&'a Super<'a>),
+  This(&'a This<'a>),
+  Throw(&'a Throw<'a>),
+  Throwing(&'a Throwing<'a>),
   Times(&'a Times<'a>),
+  Try(&'a Try<'a>),
   Tuple(&'a Tuple<'a>),
   TupleSelect(&'a TupleSelect<'a>),
   UMinus(&'a UMinus<'a>),
   UnitLiteral(&'a UnitLiteral),
   Variable(&'a Variable<'a>),
+  While(&'a While<'a>),
 }
 
 impl Factory {
@@ -400,12 +1298,84 @@ impl Factory {
     self.bump.alloc(And { exprs })
   }
 
+  pub fn Annotated<'a>(&'a self, body: Expr<'a>, flags: Seq<Flag<'a>>) -> &'a mut Annotated<'a> {
+    self.bump.alloc(Annotated { body, flags })
+  }
+
   pub fn Application<'a>(
     &'a self,
     callee: Expr<'a>,
     args: Seq<Expr<'a>>,
   ) -> &'a mut Application<'a> {
     self.bump.alloc(Application { callee, args })
+  }
+
+  pub fn ApplyLetRec<'a>(
+    &'a self,
+    id: &'a Identifier,
+    tparams: Seq<&'a TypeParameter<'a>>,
+    tpe: &'a FunctionType<'a>,
+    tps: Seq<Type<'a>>,
+    args: Seq<Expr<'a>>,
+  ) -> &'a mut ApplyLetRec<'a> {
+    self.bump.alloc(ApplyLetRec {
+      id,
+      tparams,
+      tpe,
+      tps,
+      args,
+    })
+  }
+
+  pub fn ArrayLength<'a>(&'a self, array: Expr<'a>) -> &'a mut ArrayLength<'a> {
+    self.bump.alloc(ArrayLength { array })
+  }
+
+  pub fn ArraySelect<'a>(&'a self, array: Expr<'a>, index: Expr<'a>) -> &'a mut ArraySelect<'a> {
+    self.bump.alloc(ArraySelect { array, index })
+  }
+
+  pub fn ArrayUpdate<'a>(
+    &'a self,
+    array: Expr<'a>,
+    index: Expr<'a>,
+    value: Expr<'a>,
+  ) -> &'a mut ArrayUpdate<'a> {
+    self.bump.alloc(ArrayUpdate {
+      array,
+      index,
+      value,
+    })
+  }
+
+  pub fn ArrayUpdated<'a>(
+    &'a self,
+    array: Expr<'a>,
+    index: Expr<'a>,
+    value: Expr<'a>,
+  ) -> &'a mut ArrayUpdated<'a> {
+    self.bump.alloc(ArrayUpdated {
+      array,
+      index,
+      value,
+    })
+  }
+
+  pub fn AsInstanceOf<'a>(&'a self, expr: Expr<'a>, tpe: Type<'a>) -> &'a mut AsInstanceOf<'a> {
+    self.bump.alloc(AsInstanceOf { expr, tpe })
+  }
+
+  pub fn Assert<'a>(
+    &'a self,
+    pred: Expr<'a>,
+    error: Option<String>,
+    body: Expr<'a>,
+  ) -> &'a mut Assert<'a> {
+    self.bump.alloc(Assert { pred, error, body })
+  }
+
+  pub fn Assignment<'a>(&'a self, v: &'a Variable<'a>, value: Expr<'a>) -> &'a mut Assignment<'a> {
+    self.bump.alloc(Assignment { v, value })
   }
 
   pub fn Assume<'a>(&'a self, pred: Expr<'a>, body: Expr<'a>) -> &'a mut Assume<'a> {
@@ -484,6 +1454,22 @@ impl Factory {
     self.bump.alloc(BagUnion { lhs, rhs })
   }
 
+  pub fn Block<'a>(&'a self, exprs: Seq<Expr<'a>>, last: Expr<'a>) -> &'a mut Block<'a> {
+    self.bump.alloc(Block { exprs, last })
+  }
+
+  pub fn BoolBitwiseAnd<'a>(&'a self, lhs: Expr<'a>, rhs: Expr<'a>) -> &'a mut BoolBitwiseAnd<'a> {
+    self.bump.alloc(BoolBitwiseAnd { lhs, rhs })
+  }
+
+  pub fn BoolBitwiseOr<'a>(&'a self, lhs: Expr<'a>, rhs: Expr<'a>) -> &'a mut BoolBitwiseOr<'a> {
+    self.bump.alloc(BoolBitwiseOr { lhs, rhs })
+  }
+
+  pub fn BoolBitwiseXor<'a>(&'a self, lhs: Expr<'a>, rhs: Expr<'a>) -> &'a mut BoolBitwiseXor<'a> {
+    self.bump.alloc(BoolBitwiseXor { lhs, rhs })
+  }
+
   pub fn BooleanLiteral<'a>(&'a self, value: Boolean) -> &'a mut BooleanLiteral {
     self.bump.alloc(BooleanLiteral { value })
   }
@@ -496,6 +1482,26 @@ impl Factory {
     self.bump.alloc(Choose { res, pred })
   }
 
+  pub fn ClassConstructor<'a>(
+    &'a self,
+    ct: &'a ClassType<'a>,
+    args: Seq<Expr<'a>>,
+  ) -> &'a mut ClassConstructor<'a> {
+    self.bump.alloc(ClassConstructor { ct, args })
+  }
+
+  pub fn ClassSelector<'a>(
+    &'a self,
+    expr: Expr<'a>,
+    selector: &'a Identifier,
+  ) -> &'a mut ClassSelector<'a> {
+    self.bump.alloc(ClassSelector { expr, selector })
+  }
+
+  pub fn Decreases<'a>(&'a self, measure: Expr<'a>, body: Expr<'a>) -> &'a mut Decreases<'a> {
+    self.bump.alloc(Decreases { measure, body })
+  }
+
   pub fn Division<'a>(&'a self, lhs: Expr<'a>, rhs: Expr<'a>) -> &'a mut Division<'a> {
     self.bump.alloc(Division { lhs, rhs })
   }
@@ -504,8 +1510,37 @@ impl Factory {
     self.bump.alloc(ElementOfSet { element, set })
   }
 
+  pub fn Ensuring<'a>(&'a self, body: Expr<'a>, pred: &'a Lambda<'a>) -> &'a mut Ensuring<'a> {
+    self.bump.alloc(Ensuring { body, pred })
+  }
+
   pub fn Equals<'a>(&'a self, lhs: Expr<'a>, rhs: Expr<'a>) -> &'a mut Equals<'a> {
     self.bump.alloc(Equals { lhs, rhs })
+  }
+
+  pub fn Error<'a>(&'a self, tpe: Type<'a>, description: String) -> &'a mut Error<'a> {
+    self.bump.alloc(Error { tpe, description })
+  }
+
+  pub fn FieldAssignment<'a>(
+    &'a self,
+    obj: Expr<'a>,
+    selector: &'a Identifier,
+    value: Expr<'a>,
+  ) -> &'a mut FieldAssignment<'a> {
+    self.bump.alloc(FieldAssignment {
+      obj,
+      selector,
+      value,
+    })
+  }
+
+  pub fn FiniteArray<'a>(
+    &'a self,
+    elems: Seq<Expr<'a>>,
+    base: Type<'a>,
+  ) -> &'a mut FiniteArray<'a> {
+    self.bump.alloc(FiniteArray { elems, base })
   }
 
   pub fn FiniteBag<'a>(
@@ -600,8 +1635,27 @@ impl Factory {
     self.bump.alloc(IsConstructor { expr, id })
   }
 
+  pub fn IsInstanceOf<'a>(&'a self, expr: Expr<'a>, tpe: Type<'a>) -> &'a mut IsInstanceOf<'a> {
+    self.bump.alloc(IsInstanceOf { expr, tpe })
+  }
+
   pub fn Lambda<'a>(&'a self, params: Seq<&'a ValDef<'a>>, body: Expr<'a>) -> &'a mut Lambda<'a> {
     self.bump.alloc(Lambda { params, body })
+  }
+
+  pub fn LargeArray<'a>(
+    &'a self,
+    elems: Map<Int, Expr<'a>>,
+    default: Expr<'a>,
+    size: Expr<'a>,
+    base: Type<'a>,
+  ) -> &'a mut LargeArray<'a> {
+    self.bump.alloc(LargeArray {
+      elems,
+      default,
+      size,
+      base,
+    })
   }
 
   pub fn LessEquals<'a>(&'a self, lhs: Expr<'a>, rhs: Expr<'a>) -> &'a mut LessEquals<'a> {
@@ -616,6 +1670,69 @@ impl Factory {
     self.bump.alloc(Let { vd, value, body })
   }
 
+  pub fn LetClass<'a>(
+    &'a self,
+    classes: Seq<&'a LocalClassDef<'a>>,
+    body: Expr<'a>,
+  ) -> &'a mut LetClass<'a> {
+    self.bump.alloc(LetClass { classes, body })
+  }
+
+  pub fn LetRec<'a>(&'a self, fds: Seq<&'a LocalFunDef<'a>>, body: Expr<'a>) -> &'a mut LetRec<'a> {
+    self.bump.alloc(LetRec { fds, body })
+  }
+
+  pub fn LetVar<'a>(
+    &'a self,
+    vd: &'a ValDef<'a>,
+    value: Expr<'a>,
+    body: Expr<'a>,
+  ) -> &'a mut LetVar<'a> {
+    self.bump.alloc(LetVar { vd, value, body })
+  }
+
+  pub fn LocalClassConstructor<'a>(
+    &'a self,
+    lct: &'a LocalClassType<'a>,
+    args: Seq<Expr<'a>>,
+  ) -> &'a mut LocalClassConstructor<'a> {
+    self.bump.alloc(LocalClassConstructor { lct, args })
+  }
+
+  pub fn LocalClassSelector<'a>(
+    &'a self,
+    expr: Expr<'a>,
+    selector: &'a Identifier,
+    tpe: Type<'a>,
+  ) -> &'a mut LocalClassSelector<'a> {
+    self.bump.alloc(LocalClassSelector {
+      expr,
+      selector,
+      tpe,
+    })
+  }
+
+  pub fn LocalMethodInvocation<'a>(
+    &'a self,
+    receiver: Expr<'a>,
+    method: &'a Variable<'a>,
+    tparams: Seq<&'a TypeParameter<'a>>,
+    tps: Seq<Type<'a>>,
+    args: Seq<Expr<'a>>,
+  ) -> &'a mut LocalMethodInvocation<'a> {
+    self.bump.alloc(LocalMethodInvocation {
+      receiver,
+      method,
+      tparams,
+      tps,
+      args,
+    })
+  }
+
+  pub fn LocalThis<'a>(&'a self, lct: &'a LocalClassType<'a>) -> &'a mut LocalThis<'a> {
+    self.bump.alloc(LocalThis { lct })
+  }
+
   pub fn MapApply<'a>(&'a self, map: Expr<'a>, key: Expr<'a>) -> &'a mut MapApply<'a> {
     self.bump.alloc(MapApply { map, key })
   }
@@ -627,6 +1744,29 @@ impl Factory {
     value: Expr<'a>,
   ) -> &'a mut MapUpdated<'a> {
     self.bump.alloc(MapUpdated { map, key, value })
+  }
+
+  pub fn MatchExpr<'a>(
+    &'a self,
+    scrutinee: Expr<'a>,
+    cases: Seq<&'a MatchCase<'a>>,
+  ) -> &'a mut MatchExpr<'a> {
+    self.bump.alloc(MatchExpr { scrutinee, cases })
+  }
+
+  pub fn MethodInvocation<'a>(
+    &'a self,
+    receiver: Expr<'a>,
+    id: &'a Identifier,
+    tps: Seq<Type<'a>>,
+    args: Seq<Expr<'a>>,
+  ) -> &'a mut MethodInvocation<'a> {
+    self.bump.alloc(MethodInvocation {
+      receiver,
+      id,
+      tps,
+      args,
+    })
   }
 
   pub fn Minus<'a>(&'a self, lhs: Expr<'a>, rhs: Expr<'a>) -> &'a mut Minus<'a> {
@@ -645,12 +1785,68 @@ impl Factory {
     self.bump.alloc(MultiplicityInBag { element, bag })
   }
 
+  pub fn MutableMapApply<'a>(
+    &'a self,
+    map: Expr<'a>,
+    key: Expr<'a>,
+  ) -> &'a mut MutableMapApply<'a> {
+    self.bump.alloc(MutableMapApply { map, key })
+  }
+
+  pub fn MutableMapDuplicate<'a>(&'a self, map: Expr<'a>) -> &'a mut MutableMapDuplicate<'a> {
+    self.bump.alloc(MutableMapDuplicate { map })
+  }
+
+  pub fn MutableMapUpdate<'a>(
+    &'a self,
+    map: Expr<'a>,
+    key: Expr<'a>,
+    value: Expr<'a>,
+  ) -> &'a mut MutableMapUpdate<'a> {
+    self.bump.alloc(MutableMapUpdate { map, key, value })
+  }
+
+  pub fn MutableMapUpdated<'a>(
+    &'a self,
+    map: Expr<'a>,
+    key: Expr<'a>,
+    value: Expr<'a>,
+  ) -> &'a mut MutableMapUpdated<'a> {
+    self.bump.alloc(MutableMapUpdated { map, key, value })
+  }
+
+  pub fn MutableMapWithDefault<'a>(
+    &'a self,
+    from: Type<'a>,
+    to: Type<'a>,
+    default: Expr<'a>,
+  ) -> &'a mut MutableMapWithDefault<'a> {
+    self.bump.alloc(MutableMapWithDefault { from, to, default })
+  }
+
+  pub fn NoTree<'a>(&'a self, tpe: Type<'a>) -> &'a mut NoTree<'a> {
+    self.bump.alloc(NoTree { tpe })
+  }
+
   pub fn Not<'a>(&'a self, expr: Expr<'a>) -> &'a mut Not<'a> {
     self.bump.alloc(Not { expr })
   }
 
+  pub fn Old<'a>(&'a self, e: Expr<'a>) -> &'a mut Old<'a> {
+    self.bump.alloc(Old { e })
+  }
+
   pub fn Or<'a>(&'a self, exprs: Seq<Expr<'a>>) -> &'a mut Or<'a> {
     self.bump.alloc(Or { exprs })
+  }
+
+  pub fn Passes<'a>(
+    &'a self,
+    in_: Expr<'a>,
+    out: Expr<'a>,
+    cases: Seq<&'a MatchCase<'a>>,
+  ) -> &'a mut Passes<'a> {
+    self.bump.alloc(Passes { in_, out, cases })
   }
 
   pub fn Plus<'a>(&'a self, lhs: Expr<'a>, rhs: Expr<'a>) -> &'a mut Plus<'a> {
@@ -659,6 +1855,10 @@ impl Factory {
 
   pub fn Remainder<'a>(&'a self, lhs: Expr<'a>, rhs: Expr<'a>) -> &'a mut Remainder<'a> {
     self.bump.alloc(Remainder { lhs, rhs })
+  }
+
+  pub fn Require<'a>(&'a self, pred: Expr<'a>, body: Expr<'a>) -> &'a mut Require<'a> {
+    self.bump.alloc(Require { pred, body })
   }
 
   pub fn SetAdd<'a>(&'a self, set: Expr<'a>, elem: Expr<'a>) -> &'a mut SetAdd<'a> {
@@ -679,6 +1879,25 @@ impl Factory {
 
   pub fn SetUnion<'a>(&'a self, lhs: Expr<'a>, rhs: Expr<'a>) -> &'a mut SetUnion<'a> {
     self.bump.alloc(SetUnion { lhs, rhs })
+  }
+
+  pub fn SizedADT<'a>(
+    &'a self,
+    id: &'a Identifier,
+    tps: Seq<Type<'a>>,
+    args: Seq<Expr<'a>>,
+    size: Expr<'a>,
+  ) -> &'a mut SizedADT<'a> {
+    self.bump.alloc(SizedADT {
+      id,
+      tps,
+      args,
+      size,
+    })
+  }
+
+  pub fn Snapshot<'a>(&'a self, e: Expr<'a>) -> &'a mut Snapshot<'a> {
+    self.bump.alloc(Snapshot { e })
   }
 
   pub fn StringConcat<'a>(&'a self, lhs: Expr<'a>, rhs: Expr<'a>) -> &'a mut StringConcat<'a> {
@@ -706,8 +1925,37 @@ impl Factory {
     self.bump.alloc(SubsetOf { lhs, rhs })
   }
 
+  pub fn Super<'a>(&'a self, ct: &'a ClassType<'a>) -> &'a mut Super<'a> {
+    self.bump.alloc(Super { ct })
+  }
+
+  pub fn This<'a>(&'a self, ct: &'a ClassType<'a>) -> &'a mut This<'a> {
+    self.bump.alloc(This { ct })
+  }
+
+  pub fn Throw<'a>(&'a self, ex: Expr<'a>) -> &'a mut Throw<'a> {
+    self.bump.alloc(Throw { ex })
+  }
+
+  pub fn Throwing<'a>(&'a self, body: Expr<'a>, pred: &'a Lambda<'a>) -> &'a mut Throwing<'a> {
+    self.bump.alloc(Throwing { body, pred })
+  }
+
   pub fn Times<'a>(&'a self, lhs: Expr<'a>, rhs: Expr<'a>) -> &'a mut Times<'a> {
     self.bump.alloc(Times { lhs, rhs })
+  }
+
+  pub fn Try<'a>(
+    &'a self,
+    body: Expr<'a>,
+    cases: Seq<&'a MatchCase<'a>>,
+    finallizer: Option<Expr<'a>>,
+  ) -> &'a mut Try<'a> {
+    self.bump.alloc(Try {
+      body,
+      cases,
+      finallizer,
+    })
   }
 
   pub fn Tuple<'a>(&'a self, exprs: Seq<Expr<'a>>) -> &'a mut Tuple<'a> {
@@ -734,6 +1982,15 @@ impl Factory {
   ) -> &'a mut Variable<'a> {
     self.bump.alloc(Variable { id, tpe, flags })
   }
+
+  pub fn While<'a>(
+    &'a self,
+    cond: Expr<'a>,
+    body: Expr<'a>,
+    pred: Option<Expr<'a>>,
+  ) -> &'a mut While<'a> {
+    self.bump.alloc(While { cond, body, pred })
+  }
 }
 
 impl<'a> Serializable for Expr<'a> {
@@ -742,7 +1999,16 @@ impl<'a> Serializable for Expr<'a> {
       Expr::ADT(v) => v.serialize(s)?,
       Expr::ADTSelector(v) => v.serialize(s)?,
       Expr::And(v) => v.serialize(s)?,
+      Expr::Annotated(v) => v.serialize(s)?,
       Expr::Application(v) => v.serialize(s)?,
+      Expr::ApplyLetRec(v) => v.serialize(s)?,
+      Expr::ArrayLength(v) => v.serialize(s)?,
+      Expr::ArraySelect(v) => v.serialize(s)?,
+      Expr::ArrayUpdate(v) => v.serialize(s)?,
+      Expr::ArrayUpdated(v) => v.serialize(s)?,
+      Expr::AsInstanceOf(v) => v.serialize(s)?,
+      Expr::Assert(v) => v.serialize(s)?,
+      Expr::Assignment(v) => v.serialize(s)?,
       Expr::Assume(v) => v.serialize(s)?,
       Expr::BVAShiftRight(v) => v.serialize(s)?,
       Expr::BVAnd(v) => v.serialize(s)?,
@@ -758,12 +2024,23 @@ impl<'a> Serializable for Expr<'a> {
       Expr::BagDifference(v) => v.serialize(s)?,
       Expr::BagIntersection(v) => v.serialize(s)?,
       Expr::BagUnion(v) => v.serialize(s)?,
+      Expr::Block(v) => v.serialize(s)?,
+      Expr::BoolBitwiseAnd(v) => v.serialize(s)?,
+      Expr::BoolBitwiseOr(v) => v.serialize(s)?,
+      Expr::BoolBitwiseXor(v) => v.serialize(s)?,
       Expr::BooleanLiteral(v) => v.serialize(s)?,
       Expr::CharLiteral(v) => v.serialize(s)?,
       Expr::Choose(v) => v.serialize(s)?,
+      Expr::ClassConstructor(v) => v.serialize(s)?,
+      Expr::ClassSelector(v) => v.serialize(s)?,
+      Expr::Decreases(v) => v.serialize(s)?,
       Expr::Division(v) => v.serialize(s)?,
       Expr::ElementOfSet(v) => v.serialize(s)?,
+      Expr::Ensuring(v) => v.serialize(s)?,
       Expr::Equals(v) => v.serialize(s)?,
+      Expr::Error(v) => v.serialize(s)?,
+      Expr::FieldAssignment(v) => v.serialize(s)?,
+      Expr::FiniteArray(v) => v.serialize(s)?,
       Expr::FiniteBag(v) => v.serialize(s)?,
       Expr::FiniteMap(v) => v.serialize(s)?,
       Expr::FiniteSet(v) => v.serialize(s)?,
@@ -777,34 +2054,62 @@ impl<'a> Serializable for Expr<'a> {
       Expr::Implies(v) => v.serialize(s)?,
       Expr::IntegerLiteral(v) => v.serialize(s)?,
       Expr::IsConstructor(v) => v.serialize(s)?,
+      Expr::IsInstanceOf(v) => v.serialize(s)?,
       Expr::Lambda(v) => v.serialize(s)?,
+      Expr::LargeArray(v) => v.serialize(s)?,
       Expr::LessEquals(v) => v.serialize(s)?,
       Expr::LessThan(v) => v.serialize(s)?,
       Expr::Let(v) => v.serialize(s)?,
+      Expr::LetClass(v) => v.serialize(s)?,
+      Expr::LetRec(v) => v.serialize(s)?,
+      Expr::LetVar(v) => v.serialize(s)?,
+      Expr::LocalClassConstructor(v) => v.serialize(s)?,
+      Expr::LocalClassSelector(v) => v.serialize(s)?,
+      Expr::LocalMethodInvocation(v) => v.serialize(s)?,
+      Expr::LocalThis(v) => v.serialize(s)?,
       Expr::MapApply(v) => v.serialize(s)?,
       Expr::MapUpdated(v) => v.serialize(s)?,
+      Expr::MatchExpr(v) => v.serialize(s)?,
+      Expr::MethodInvocation(v) => v.serialize(s)?,
       Expr::Minus(v) => v.serialize(s)?,
       Expr::Modulo(v) => v.serialize(s)?,
       Expr::MultiplicityInBag(v) => v.serialize(s)?,
+      Expr::MutableMapApply(v) => v.serialize(s)?,
+      Expr::MutableMapDuplicate(v) => v.serialize(s)?,
+      Expr::MutableMapUpdate(v) => v.serialize(s)?,
+      Expr::MutableMapUpdated(v) => v.serialize(s)?,
+      Expr::MutableMapWithDefault(v) => v.serialize(s)?,
+      Expr::NoTree(v) => v.serialize(s)?,
       Expr::Not(v) => v.serialize(s)?,
+      Expr::Old(v) => v.serialize(s)?,
       Expr::Or(v) => v.serialize(s)?,
+      Expr::Passes(v) => v.serialize(s)?,
       Expr::Plus(v) => v.serialize(s)?,
       Expr::Remainder(v) => v.serialize(s)?,
+      Expr::Require(v) => v.serialize(s)?,
       Expr::SetAdd(v) => v.serialize(s)?,
       Expr::SetDifference(v) => v.serialize(s)?,
       Expr::SetIntersection(v) => v.serialize(s)?,
       Expr::SetUnion(v) => v.serialize(s)?,
+      Expr::SizedADT(v) => v.serialize(s)?,
+      Expr::Snapshot(v) => v.serialize(s)?,
       Expr::StringConcat(v) => v.serialize(s)?,
       Expr::StringLength(v) => v.serialize(s)?,
       Expr::StringLiteral(v) => v.serialize(s)?,
       Expr::SubString(v) => v.serialize(s)?,
       Expr::SubsetOf(v) => v.serialize(s)?,
+      Expr::Super(v) => v.serialize(s)?,
+      Expr::This(v) => v.serialize(s)?,
+      Expr::Throw(v) => v.serialize(s)?,
+      Expr::Throwing(v) => v.serialize(s)?,
       Expr::Times(v) => v.serialize(s)?,
+      Expr::Try(v) => v.serialize(s)?,
       Expr::Tuple(v) => v.serialize(s)?,
       Expr::TupleSelect(v) => v.serialize(s)?,
       Expr::UMinus(v) => v.serialize(s)?,
       Expr::UnitLiteral(v) => v.serialize(s)?,
       Expr::Variable(v) => v.serialize(s)?,
+      Expr::While(v) => v.serialize(s)?,
     };
     Ok(())
   }
@@ -813,7 +2118,16 @@ impl<'a> Serializable for Expr<'a> {
 derive_conversions_for_ast!(Expr<'a>, ADT<'a>);
 derive_conversions_for_ast!(Expr<'a>, ADTSelector<'a>);
 derive_conversions_for_ast!(Expr<'a>, And<'a>);
+derive_conversions_for_ast!(Expr<'a>, Annotated<'a>);
 derive_conversions_for_ast!(Expr<'a>, Application<'a>);
+derive_conversions_for_ast!(Expr<'a>, ApplyLetRec<'a>);
+derive_conversions_for_ast!(Expr<'a>, ArrayLength<'a>);
+derive_conversions_for_ast!(Expr<'a>, ArraySelect<'a>);
+derive_conversions_for_ast!(Expr<'a>, ArrayUpdate<'a>);
+derive_conversions_for_ast!(Expr<'a>, ArrayUpdated<'a>);
+derive_conversions_for_ast!(Expr<'a>, AsInstanceOf<'a>);
+derive_conversions_for_ast!(Expr<'a>, Assert<'a>);
+derive_conversions_for_ast!(Expr<'a>, Assignment<'a>);
 derive_conversions_for_ast!(Expr<'a>, Assume<'a>);
 derive_conversions_for_ast!(Expr<'a>, BVAShiftRight<'a>);
 derive_conversions_for_ast!(Expr<'a>, BVAnd<'a>);
@@ -829,12 +2143,23 @@ derive_conversions_for_ast!(Expr<'a>, BagAdd<'a>);
 derive_conversions_for_ast!(Expr<'a>, BagDifference<'a>);
 derive_conversions_for_ast!(Expr<'a>, BagIntersection<'a>);
 derive_conversions_for_ast!(Expr<'a>, BagUnion<'a>);
+derive_conversions_for_ast!(Expr<'a>, Block<'a>);
+derive_conversions_for_ast!(Expr<'a>, BoolBitwiseAnd<'a>);
+derive_conversions_for_ast!(Expr<'a>, BoolBitwiseOr<'a>);
+derive_conversions_for_ast!(Expr<'a>, BoolBitwiseXor<'a>);
 derive_conversions_for_ast!(Expr<'a>, BooleanLiteral);
 derive_conversions_for_ast!(Expr<'a>, CharLiteral);
 derive_conversions_for_ast!(Expr<'a>, Choose<'a>);
+derive_conversions_for_ast!(Expr<'a>, ClassConstructor<'a>);
+derive_conversions_for_ast!(Expr<'a>, ClassSelector<'a>);
+derive_conversions_for_ast!(Expr<'a>, Decreases<'a>);
 derive_conversions_for_ast!(Expr<'a>, Division<'a>);
 derive_conversions_for_ast!(Expr<'a>, ElementOfSet<'a>);
+derive_conversions_for_ast!(Expr<'a>, Ensuring<'a>);
 derive_conversions_for_ast!(Expr<'a>, Equals<'a>);
+derive_conversions_for_ast!(Expr<'a>, Error<'a>);
+derive_conversions_for_ast!(Expr<'a>, FieldAssignment<'a>);
+derive_conversions_for_ast!(Expr<'a>, FiniteArray<'a>);
 derive_conversions_for_ast!(Expr<'a>, FiniteBag<'a>);
 derive_conversions_for_ast!(Expr<'a>, FiniteMap<'a>);
 derive_conversions_for_ast!(Expr<'a>, FiniteSet<'a>);
@@ -848,34 +2173,62 @@ derive_conversions_for_ast!(Expr<'a>, IfExpr<'a>);
 derive_conversions_for_ast!(Expr<'a>, Implies<'a>);
 derive_conversions_for_ast!(Expr<'a>, IntegerLiteral);
 derive_conversions_for_ast!(Expr<'a>, IsConstructor<'a>);
+derive_conversions_for_ast!(Expr<'a>, IsInstanceOf<'a>);
 derive_conversions_for_ast!(Expr<'a>, Lambda<'a>);
+derive_conversions_for_ast!(Expr<'a>, LargeArray<'a>);
 derive_conversions_for_ast!(Expr<'a>, LessEquals<'a>);
 derive_conversions_for_ast!(Expr<'a>, LessThan<'a>);
 derive_conversions_for_ast!(Expr<'a>, Let<'a>);
+derive_conversions_for_ast!(Expr<'a>, LetClass<'a>);
+derive_conversions_for_ast!(Expr<'a>, LetRec<'a>);
+derive_conversions_for_ast!(Expr<'a>, LetVar<'a>);
+derive_conversions_for_ast!(Expr<'a>, LocalClassConstructor<'a>);
+derive_conversions_for_ast!(Expr<'a>, LocalClassSelector<'a>);
+derive_conversions_for_ast!(Expr<'a>, LocalMethodInvocation<'a>);
+derive_conversions_for_ast!(Expr<'a>, LocalThis<'a>);
 derive_conversions_for_ast!(Expr<'a>, MapApply<'a>);
 derive_conversions_for_ast!(Expr<'a>, MapUpdated<'a>);
+derive_conversions_for_ast!(Expr<'a>, MatchExpr<'a>);
+derive_conversions_for_ast!(Expr<'a>, MethodInvocation<'a>);
 derive_conversions_for_ast!(Expr<'a>, Minus<'a>);
 derive_conversions_for_ast!(Expr<'a>, Modulo<'a>);
 derive_conversions_for_ast!(Expr<'a>, MultiplicityInBag<'a>);
+derive_conversions_for_ast!(Expr<'a>, MutableMapApply<'a>);
+derive_conversions_for_ast!(Expr<'a>, MutableMapDuplicate<'a>);
+derive_conversions_for_ast!(Expr<'a>, MutableMapUpdate<'a>);
+derive_conversions_for_ast!(Expr<'a>, MutableMapUpdated<'a>);
+derive_conversions_for_ast!(Expr<'a>, MutableMapWithDefault<'a>);
+derive_conversions_for_ast!(Expr<'a>, NoTree<'a>);
 derive_conversions_for_ast!(Expr<'a>, Not<'a>);
+derive_conversions_for_ast!(Expr<'a>, Old<'a>);
 derive_conversions_for_ast!(Expr<'a>, Or<'a>);
+derive_conversions_for_ast!(Expr<'a>, Passes<'a>);
 derive_conversions_for_ast!(Expr<'a>, Plus<'a>);
 derive_conversions_for_ast!(Expr<'a>, Remainder<'a>);
+derive_conversions_for_ast!(Expr<'a>, Require<'a>);
 derive_conversions_for_ast!(Expr<'a>, SetAdd<'a>);
 derive_conversions_for_ast!(Expr<'a>, SetDifference<'a>);
 derive_conversions_for_ast!(Expr<'a>, SetIntersection<'a>);
 derive_conversions_for_ast!(Expr<'a>, SetUnion<'a>);
+derive_conversions_for_ast!(Expr<'a>, SizedADT<'a>);
+derive_conversions_for_ast!(Expr<'a>, Snapshot<'a>);
 derive_conversions_for_ast!(Expr<'a>, StringConcat<'a>);
 derive_conversions_for_ast!(Expr<'a>, StringLength<'a>);
 derive_conversions_for_ast!(Expr<'a>, StringLiteral);
 derive_conversions_for_ast!(Expr<'a>, SubString<'a>);
 derive_conversions_for_ast!(Expr<'a>, SubsetOf<'a>);
+derive_conversions_for_ast!(Expr<'a>, Super<'a>);
+derive_conversions_for_ast!(Expr<'a>, This<'a>);
+derive_conversions_for_ast!(Expr<'a>, Throw<'a>);
+derive_conversions_for_ast!(Expr<'a>, Throwing<'a>);
 derive_conversions_for_ast!(Expr<'a>, Times<'a>);
+derive_conversions_for_ast!(Expr<'a>, Try<'a>);
 derive_conversions_for_ast!(Expr<'a>, Tuple<'a>);
 derive_conversions_for_ast!(Expr<'a>, TupleSelect<'a>);
 derive_conversions_for_ast!(Expr<'a>, UMinus<'a>);
 derive_conversions_for_ast!(Expr<'a>, UnitLiteral);
 derive_conversions_for_ast!(Expr<'a>, Variable<'a>);
+derive_conversions_for_ast!(Expr<'a>, While<'a>);
 
 /// inox.ast.Expressions.ADT
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -925,6 +2278,22 @@ impl<'a> Serializable for And<'a> {
   }
 }
 
+/// stainless.ast.Expressions.Annotated
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Annotated<'a> {
+  pub body: Expr<'a>,
+  pub flags: Seq<Flag<'a>>,
+}
+
+impl<'a> Serializable for Annotated<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(123))?;
+    self.body.serialize(s)?;
+    self.flags.serialize(s)?;
+    Ok(())
+  }
+}
+
 /// inox.ast.Expressions.Application
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Application<'a> {
@@ -937,6 +2306,144 @@ impl<'a> Serializable for Application<'a> {
     s.write_marker(MarkerId(13))?;
     self.callee.serialize(s)?;
     self.args.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.innerfuns.Trees.ApplyLetRec
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ApplyLetRec<'a> {
+  pub id: &'a Identifier,
+  pub tparams: Seq<&'a TypeParameter<'a>>,
+  pub tpe: &'a FunctionType<'a>,
+  pub tps: Seq<Type<'a>>,
+  pub args: Seq<Expr<'a>>,
+}
+
+impl<'a> Serializable for ApplyLetRec<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(185))?;
+    self.id.serialize(s)?;
+    self.tparams.serialize(s)?;
+    self.tpe.serialize(s)?;
+    self.tps.serialize(s)?;
+    self.args.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.ArrayLength
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ArrayLength<'a> {
+  pub array: Expr<'a>,
+}
+
+impl<'a> Serializable for ArrayLength<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(137))?;
+    self.array.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.ArraySelect
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ArraySelect<'a> {
+  pub array: Expr<'a>,
+  pub index: Expr<'a>,
+}
+
+impl<'a> Serializable for ArraySelect<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(135))?;
+    self.array.serialize(s)?;
+    self.index.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.ArrayUpdate
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ArrayUpdate<'a> {
+  pub array: Expr<'a>,
+  pub index: Expr<'a>,
+  pub value: Expr<'a>,
+}
+
+impl<'a> Serializable for ArrayUpdate<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(193))?;
+    self.array.serialize(s)?;
+    self.index.serialize(s)?;
+    self.value.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.ArrayUpdated
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ArrayUpdated<'a> {
+  pub array: Expr<'a>,
+  pub index: Expr<'a>,
+  pub value: Expr<'a>,
+}
+
+impl<'a> Serializable for ArrayUpdated<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(136))?;
+    self.array.serialize(s)?;
+    self.index.serialize(s)?;
+    self.value.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.oo.Trees.AsInstanceOf
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct AsInstanceOf<'a> {
+  pub expr: Expr<'a>,
+  pub tpe: Type<'a>,
+}
+
+impl<'a> Serializable for AsInstanceOf<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(203))?;
+    self.expr.serialize(s)?;
+    self.tpe.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.Assert
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Assert<'a> {
+  pub pred: Expr<'a>,
+  pub error: Option<String>,
+  pub body: Expr<'a>,
+}
+
+impl<'a> Serializable for Assert<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(125))?;
+    self.pred.serialize(s)?;
+    self.error.serialize(s)?;
+    self.body.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.Assignment
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Assignment<'a> {
+  pub v: &'a Variable<'a>,
+  pub value: Expr<'a>,
+}
+
+impl<'a> Serializable for Assignment<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(190))?;
+    self.v.serialize(s)?;
+    self.value.serialize(s)?;
     Ok(())
   }
 }
@@ -1171,6 +2678,70 @@ impl<'a> Serializable for BagUnion<'a> {
   }
 }
 
+/// stainless.extraction.imperative.Trees.Block
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Block<'a> {
+  pub exprs: Seq<Expr<'a>>,
+  pub last: Expr<'a>,
+}
+
+impl<'a> Serializable for Block<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(188))?;
+    self.exprs.serialize(s)?;
+    self.last.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.BoolBitwiseAnd
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct BoolBitwiseAnd<'a> {
+  pub lhs: Expr<'a>,
+  pub rhs: Expr<'a>,
+}
+
+impl<'a> Serializable for BoolBitwiseAnd<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(195))?;
+    self.lhs.serialize(s)?;
+    self.rhs.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.BoolBitwiseOr
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct BoolBitwiseOr<'a> {
+  pub lhs: Expr<'a>,
+  pub rhs: Expr<'a>,
+}
+
+impl<'a> Serializable for BoolBitwiseOr<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(196))?;
+    self.lhs.serialize(s)?;
+    self.rhs.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.BoolBitwiseXor
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct BoolBitwiseXor<'a> {
+  pub lhs: Expr<'a>,
+  pub rhs: Expr<'a>,
+}
+
+impl<'a> Serializable for BoolBitwiseXor<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(197))?;
+    self.lhs.serialize(s)?;
+    self.rhs.serialize(s)?;
+    Ok(())
+  }
+}
+
 /// inox.ast.Expressions.BooleanLiteral
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BooleanLiteral {
@@ -1215,6 +2786,54 @@ impl<'a> Serializable for Choose<'a> {
   }
 }
 
+/// stainless.extraction.oo.Trees.ClassConstructor
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ClassConstructor<'a> {
+  pub ct: &'a ClassType<'a>,
+  pub args: Seq<Expr<'a>>,
+}
+
+impl<'a> Serializable for ClassConstructor<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(200))?;
+    self.ct.serialize(s)?;
+    self.args.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.oo.Trees.ClassSelector
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ClassSelector<'a> {
+  pub expr: Expr<'a>,
+  pub selector: &'a Identifier,
+}
+
+impl<'a> Serializable for ClassSelector<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(201))?;
+    self.expr.serialize(s)?;
+    self.selector.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.Decreases
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Decreases<'a> {
+  pub measure: Expr<'a>,
+  pub body: Expr<'a>,
+}
+
+impl<'a> Serializable for Decreases<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(180))?;
+    self.measure.serialize(s)?;
+    self.body.serialize(s)?;
+    Ok(())
+  }
+}
+
 /// inox.ast.Expressions.Division
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Division<'a> {
@@ -1247,6 +2866,22 @@ impl<'a> Serializable for ElementOfSet<'a> {
   }
 }
 
+/// stainless.ast.Expressions.Ensuring
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Ensuring<'a> {
+  pub body: Expr<'a>,
+  pub pred: &'a Lambda<'a>,
+}
+
+impl<'a> Serializable for Ensuring<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(124))?;
+    self.body.serialize(s)?;
+    self.pred.serialize(s)?;
+    Ok(())
+  }
+}
+
 /// inox.ast.Expressions.Equals
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Equals<'a> {
@@ -1259,6 +2894,56 @@ impl<'a> Serializable for Equals<'a> {
     s.write_marker(MarkerId(30))?;
     self.lhs.serialize(s)?;
     self.rhs.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.Error
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Error<'a> {
+  pub tpe: Type<'a>,
+  pub description: String,
+}
+
+impl<'a> Serializable for Error<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(121))?;
+    self.tpe.serialize(s)?;
+    self.description.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.FieldAssignment
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct FieldAssignment<'a> {
+  pub obj: Expr<'a>,
+  pub selector: &'a Identifier,
+  pub value: Expr<'a>,
+}
+
+impl<'a> Serializable for FieldAssignment<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(191))?;
+    self.obj.serialize(s)?;
+    self.selector.serialize(s)?;
+    self.value.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.FiniteArray
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct FiniteArray<'a> {
+  pub elems: Seq<Expr<'a>>,
+  pub base: Type<'a>,
+}
+
+impl<'a> Serializable for FiniteArray<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(133))?;
+    self.elems.serialize(s)?;
+    self.base.serialize(s)?;
     Ok(())
   }
 }
@@ -1477,6 +3162,22 @@ impl<'a> Serializable for IsConstructor<'a> {
   }
 }
 
+/// stainless.extraction.oo.Trees.IsInstanceOf
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct IsInstanceOf<'a> {
+  pub expr: Expr<'a>,
+  pub tpe: Type<'a>,
+}
+
+impl<'a> Serializable for IsInstanceOf<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(202))?;
+    self.expr.serialize(s)?;
+    self.tpe.serialize(s)?;
+    Ok(())
+  }
+}
+
 /// inox.ast.Expressions.Lambda
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Lambda<'a> {
@@ -1489,6 +3190,26 @@ impl<'a> Serializable for Lambda<'a> {
     s.write_marker(MarkerId(14))?;
     self.params.serialize(s)?;
     self.body.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.LargeArray
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LargeArray<'a> {
+  pub elems: Map<Int, Expr<'a>>,
+  pub default: Expr<'a>,
+  pub size: Expr<'a>,
+  pub base: Type<'a>,
+}
+
+impl<'a> Serializable for LargeArray<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(134))?;
+    self.elems.serialize(s)?;
+    self.default.serialize(s)?;
+    self.size.serialize(s)?;
+    self.base.serialize(s)?;
     Ok(())
   }
 }
@@ -1543,6 +3264,126 @@ impl<'a> Serializable for Let<'a> {
   }
 }
 
+/// stainless.extraction.innerclasses.Trees.LetClass
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LetClass<'a> {
+  pub classes: Seq<&'a LocalClassDef<'a>>,
+  pub body: Expr<'a>,
+}
+
+impl<'a> Serializable for LetClass<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(232))?;
+    self.classes.serialize(s)?;
+    self.body.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.innerfuns.Trees.LetRec
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LetRec<'a> {
+  pub fds: Seq<&'a LocalFunDef<'a>>,
+  pub body: Expr<'a>,
+}
+
+impl<'a> Serializable for LetRec<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(184))?;
+    self.fds.serialize(s)?;
+    self.body.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.LetVar
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LetVar<'a> {
+  pub vd: &'a ValDef<'a>,
+  pub value: Expr<'a>,
+  pub body: Expr<'a>,
+}
+
+impl<'a> Serializable for LetVar<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(189))?;
+    self.vd.serialize(s)?;
+    self.value.serialize(s)?;
+    self.body.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.innerclasses.Trees.LocalClassConstructor
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LocalClassConstructor<'a> {
+  pub lct: &'a LocalClassType<'a>,
+  pub args: Seq<Expr<'a>>,
+}
+
+impl<'a> Serializable for LocalClassConstructor<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(235))?;
+    self.lct.serialize(s)?;
+    self.args.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.innerclasses.Trees.LocalClassSelector
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LocalClassSelector<'a> {
+  pub expr: Expr<'a>,
+  pub selector: &'a Identifier,
+  pub tpe: Type<'a>,
+}
+
+impl<'a> Serializable for LocalClassSelector<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(241))?;
+    self.expr.serialize(s)?;
+    self.selector.serialize(s)?;
+    self.tpe.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.innerclasses.Trees.LocalMethodInvocation
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LocalMethodInvocation<'a> {
+  pub receiver: Expr<'a>,
+  pub method: &'a Variable<'a>,
+  pub tparams: Seq<&'a TypeParameter<'a>>,
+  pub tps: Seq<Type<'a>>,
+  pub args: Seq<Expr<'a>>,
+}
+
+impl<'a> Serializable for LocalMethodInvocation<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(240))?;
+    self.receiver.serialize(s)?;
+    self.method.serialize(s)?;
+    self.tparams.serialize(s)?;
+    self.tps.serialize(s)?;
+    self.args.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.innerclasses.Trees.LocalThis
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LocalThis<'a> {
+  pub lct: &'a LocalClassType<'a>,
+}
+
+impl<'a> Serializable for LocalThis<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(242))?;
+    self.lct.serialize(s)?;
+    Ok(())
+  }
+}
+
 /// inox.ast.Expressions.MapApply
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct MapApply<'a> {
@@ -1573,6 +3414,42 @@ impl<'a> Serializable for MapUpdated<'a> {
     self.map.serialize(s)?;
     self.key.serialize(s)?;
     self.value.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.MatchExpr
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct MatchExpr<'a> {
+  pub scrutinee: Expr<'a>,
+  pub cases: Seq<&'a MatchCase<'a>>,
+}
+
+impl<'a> Serializable for MatchExpr<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(126))?;
+    self.scrutinee.serialize(s)?;
+    self.cases.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.methods.Trees.MethodInvocation
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct MethodInvocation<'a> {
+  pub receiver: Expr<'a>,
+  pub id: &'a Identifier,
+  pub tps: Seq<Type<'a>>,
+  pub args: Seq<Expr<'a>>,
+}
+
+impl<'a> Serializable for MethodInvocation<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(216))?;
+    self.receiver.serialize(s)?;
+    self.id.serialize(s)?;
+    self.tps.serialize(s)?;
+    self.args.serialize(s)?;
     Ok(())
   }
 }
@@ -1625,6 +3502,104 @@ impl<'a> Serializable for MultiplicityInBag<'a> {
   }
 }
 
+/// stainless.extraction.imperative.Trees.MutableMapApply
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct MutableMapApply<'a> {
+  pub map: Expr<'a>,
+  pub key: Expr<'a>,
+}
+
+impl<'a> Serializable for MutableMapApply<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(234))?;
+    self.map.serialize(s)?;
+    self.key.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.MutableMapDuplicate
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct MutableMapDuplicate<'a> {
+  pub map: Expr<'a>,
+}
+
+impl<'a> Serializable for MutableMapDuplicate<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(237))?;
+    self.map.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.MutableMapUpdate
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct MutableMapUpdate<'a> {
+  pub map: Expr<'a>,
+  pub key: Expr<'a>,
+  pub value: Expr<'a>,
+}
+
+impl<'a> Serializable for MutableMapUpdate<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(235))?;
+    self.map.serialize(s)?;
+    self.key.serialize(s)?;
+    self.value.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.MutableMapUpdated
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct MutableMapUpdated<'a> {
+  pub map: Expr<'a>,
+  pub key: Expr<'a>,
+  pub value: Expr<'a>,
+}
+
+impl<'a> Serializable for MutableMapUpdated<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(236))?;
+    self.map.serialize(s)?;
+    self.key.serialize(s)?;
+    self.value.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.MutableMapWithDefault
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct MutableMapWithDefault<'a> {
+  pub from: Type<'a>,
+  pub to: Type<'a>,
+  pub default: Expr<'a>,
+}
+
+impl<'a> Serializable for MutableMapWithDefault<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(233))?;
+    self.from.serialize(s)?;
+    self.to.serialize(s)?;
+    self.default.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.NoTree
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct NoTree<'a> {
+  pub tpe: Type<'a>,
+}
+
+impl<'a> Serializable for NoTree<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(120))?;
+    self.tpe.serialize(s)?;
+    Ok(())
+  }
+}
+
 /// inox.ast.Expressions.Not
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Not<'a> {
@@ -1639,6 +3614,20 @@ impl<'a> Serializable for Not<'a> {
   }
 }
 
+/// stainless.extraction.imperative.Trees.Old
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Old<'a> {
+  pub e: Expr<'a>,
+}
+
+impl<'a> Serializable for Old<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(194))?;
+    self.e.serialize(s)?;
+    Ok(())
+  }
+}
+
 /// inox.ast.Expressions.Or
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Or<'a> {
@@ -1649,6 +3638,24 @@ impl<'a> Serializable for Or<'a> {
   fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
     s.write_marker(MarkerId(32))?;
     self.exprs.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.Passes
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Passes<'a> {
+  pub in_: Expr<'a>,
+  pub out: Expr<'a>,
+  pub cases: Seq<&'a MatchCase<'a>>,
+}
+
+impl<'a> Serializable for Passes<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(158))?;
+    self.in_.serialize(s)?;
+    self.out.serialize(s)?;
+    self.cases.serialize(s)?;
     Ok(())
   }
 }
@@ -1681,6 +3688,22 @@ impl<'a> Serializable for Remainder<'a> {
     s.write_marker(MarkerId(42))?;
     self.lhs.serialize(s)?;
     self.rhs.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.Require
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Require<'a> {
+  pub pred: Expr<'a>,
+  pub body: Expr<'a>,
+}
+
+impl<'a> Serializable for Require<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(122))?;
+    self.pred.serialize(s)?;
+    self.body.serialize(s)?;
     Ok(())
   }
 }
@@ -1745,6 +3768,40 @@ impl<'a> Serializable for SetUnion<'a> {
     s.write_marker(MarkerId(64))?;
     self.lhs.serialize(s)?;
     self.rhs.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.SizedADT
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SizedADT<'a> {
+  pub id: &'a Identifier,
+  pub tps: Seq<Type<'a>>,
+  pub args: Seq<Expr<'a>>,
+  pub size: Expr<'a>,
+}
+
+impl<'a> Serializable for SizedADT<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(154))?;
+    self.id.serialize(s)?;
+    self.tps.serialize(s)?;
+    self.args.serialize(s)?;
+    self.size.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.Snapshot
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Snapshot<'a> {
+  pub e: Expr<'a>,
+}
+
+impl<'a> Serializable for Snapshot<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(239))?;
+    self.e.serialize(s)?;
     Ok(())
   }
 }
@@ -1827,6 +3884,64 @@ impl<'a> Serializable for SubsetOf<'a> {
   }
 }
 
+/// stainless.extraction.methods.Trees.Super
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Super<'a> {
+  pub ct: &'a ClassType<'a>,
+}
+
+impl<'a> Serializable for Super<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(215))?;
+    self.ct.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.methods.Trees.This
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct This<'a> {
+  pub ct: &'a ClassType<'a>,
+}
+
+impl<'a> Serializable for This<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(214))?;
+    self.ct.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.throwing.Trees.Throw
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Throw<'a> {
+  pub ex: Expr<'a>,
+}
+
+impl<'a> Serializable for Throw<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(212))?;
+    self.ex.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.throwing.Trees.Throwing
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Throwing<'a> {
+  pub body: Expr<'a>,
+  pub pred: &'a Lambda<'a>,
+}
+
+impl<'a> Serializable for Throwing<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(211))?;
+    self.body.serialize(s)?;
+    self.pred.serialize(s)?;
+    Ok(())
+  }
+}
+
 /// inox.ast.Expressions.Times
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Times<'a> {
@@ -1839,6 +3954,24 @@ impl<'a> Serializable for Times<'a> {
     s.write_marker(MarkerId(40))?;
     self.lhs.serialize(s)?;
     self.rhs.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.throwing.Trees.Try
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Try<'a> {
+  pub body: Expr<'a>,
+  pub cases: Seq<&'a MatchCase<'a>>,
+  pub finallizer: Option<Expr<'a>>,
+}
+
+impl<'a> Serializable for Try<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(213))?;
+    self.body.serialize(s)?;
+    self.cases.serialize(s)?;
+    self.finallizer.serialize(s)?;
     Ok(())
   }
 }
@@ -1916,34 +4049,81 @@ impl<'a> Serializable for Variable<'a> {
   }
 }
 
+/// stainless.extraction.imperative.Trees.While
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct While<'a> {
+  pub cond: Expr<'a>,
+  pub body: Expr<'a>,
+  pub pred: Option<Expr<'a>>,
+}
+
+impl<'a> Serializable for While<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(192))?;
+    self.cond.serialize(s)?;
+    self.body.serialize(s)?;
+    self.pred.serialize(s)?;
+    Ok(())
+  }
+}
+
 // === Types ===
 
 /// inox.ast.Types.Type
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Type<'a> {
   ADTType(&'a ADTType<'a>),
+  AnnotatedType(&'a AnnotatedType<'a>),
+  AnyType(&'a AnyType),
+  ArrayType(&'a ArrayType<'a>),
   BVType(&'a BVType),
   BagType(&'a BagType<'a>),
   BooleanType(&'a BooleanType),
   CharType(&'a CharType),
+  ClassType(&'a ClassType<'a>),
   FunctionType(&'a FunctionType<'a>),
   IntegerType(&'a IntegerType),
+  LocalClassType(&'a LocalClassType<'a>),
   MapType(&'a MapType<'a>),
+  MutableMapType(&'a MutableMapType<'a>),
+  NothingType(&'a NothingType),
   PiType(&'a PiType<'a>),
   RealType(&'a RealType),
+  RecursiveType(&'a RecursiveType<'a>),
   RefinementType(&'a RefinementType<'a>),
   SetType(&'a SetType<'a>),
   SigmaType(&'a SigmaType<'a>),
   StringType(&'a StringType),
   TupleType(&'a TupleType<'a>),
+  TypeApply(&'a TypeApply<'a>),
+  TypeBounds(&'a TypeBounds<'a>),
   TypeParameter(&'a TypeParameter<'a>),
+  TypeSelect(&'a TypeSelect<'a>),
   UnitType(&'a UnitType),
+  UnknownType(&'a UnknownType),
   Untyped(&'a Untyped),
+  ValueType(&'a ValueType<'a>),
 }
 
 impl Factory {
   pub fn ADTType<'a>(&'a self, id: &'a Identifier, tps: Seq<Type<'a>>) -> &'a mut ADTType<'a> {
     self.bump.alloc(ADTType { id, tps })
+  }
+
+  pub fn AnnotatedType<'a>(
+    &'a self,
+    tpe: Type<'a>,
+    flags: Seq<Flag<'a>>,
+  ) -> &'a mut AnnotatedType<'a> {
+    self.bump.alloc(AnnotatedType { tpe, flags })
+  }
+
+  pub fn AnyType<'a>(&'a self) -> &'a mut AnyType {
+    self.bump.alloc(AnyType {})
+  }
+
+  pub fn ArrayType<'a>(&'a self, base: Type<'a>) -> &'a mut ArrayType<'a> {
+    self.bump.alloc(ArrayType { base })
   }
 
   pub fn BVType<'a>(&'a self, signed: Boolean, size: Int) -> &'a mut BVType {
@@ -1962,6 +4142,10 @@ impl Factory {
     self.bump.alloc(CharType {})
   }
 
+  pub fn ClassType<'a>(&'a self, id: &'a Identifier, tps: Seq<Type<'a>>) -> &'a mut ClassType<'a> {
+    self.bump.alloc(ClassType { id, tps })
+  }
+
   pub fn FunctionType<'a>(&'a self, from: Seq<Type<'a>>, to: Type<'a>) -> &'a mut FunctionType<'a> {
     self.bump.alloc(FunctionType { from, to })
   }
@@ -1970,8 +4154,31 @@ impl Factory {
     self.bump.alloc(IntegerType {})
   }
 
+  pub fn LocalClassType<'a>(
+    &'a self,
+    id: &'a Identifier,
+    tparams: Seq<&'a TypeParameterDef<'a>>,
+    tps: Seq<Type<'a>>,
+    ancestors: Seq<Type<'a>>,
+  ) -> &'a mut LocalClassType<'a> {
+    self.bump.alloc(LocalClassType {
+      id,
+      tparams,
+      tps,
+      ancestors,
+    })
+  }
+
   pub fn MapType<'a>(&'a self, from: Type<'a>, to: Type<'a>) -> &'a mut MapType<'a> {
     self.bump.alloc(MapType { from, to })
+  }
+
+  pub fn MutableMapType<'a>(&'a self, from: Type<'a>, to: Type<'a>) -> &'a mut MutableMapType<'a> {
+    self.bump.alloc(MutableMapType { from, to })
+  }
+
+  pub fn NothingType<'a>(&'a self) -> &'a mut NothingType {
+    self.bump.alloc(NothingType {})
   }
 
   pub fn PiType<'a>(&'a self, params: Seq<&'a ValDef<'a>>, to: Type<'a>) -> &'a mut PiType<'a> {
@@ -1980,6 +4187,15 @@ impl Factory {
 
   pub fn RealType<'a>(&'a self) -> &'a mut RealType {
     self.bump.alloc(RealType {})
+  }
+
+  pub fn RecursiveType<'a>(
+    &'a self,
+    id: &'a Identifier,
+    tps: Seq<Type<'a>>,
+    index: Expr<'a>,
+  ) -> &'a mut RecursiveType<'a> {
+    self.bump.alloc(RecursiveType { id, tps, index })
   }
 
   pub fn RefinementType<'a>(
@@ -2010,6 +4226,23 @@ impl Factory {
     self.bump.alloc(TupleType { bases })
   }
 
+  pub fn TypeApply<'a>(
+    &'a self,
+    selector: &'a TypeSelect<'a>,
+    tps: Seq<Type<'a>>,
+  ) -> &'a mut TypeApply<'a> {
+    self.bump.alloc(TypeApply { selector, tps })
+  }
+
+  pub fn TypeBounds<'a>(
+    &'a self,
+    lo: Type<'a>,
+    hi: Type<'a>,
+    flags: Seq<Flag<'a>>,
+  ) -> &'a mut TypeBounds<'a> {
+    self.bump.alloc(TypeBounds { lo, hi, flags })
+  }
+
   pub fn TypeParameter<'a>(
     &'a self,
     id: &'a Identifier,
@@ -2018,12 +4251,28 @@ impl Factory {
     self.bump.alloc(TypeParameter { id, flags })
   }
 
+  pub fn TypeSelect<'a>(
+    &'a self,
+    expr: Option<Expr<'a>>,
+    selector: &'a Identifier,
+  ) -> &'a mut TypeSelect<'a> {
+    self.bump.alloc(TypeSelect { expr, selector })
+  }
+
   pub fn UnitType<'a>(&'a self) -> &'a mut UnitType {
     self.bump.alloc(UnitType {})
   }
 
+  pub fn UnknownType<'a>(&'a self, isPure: Boolean) -> &'a mut UnknownType {
+    self.bump.alloc(UnknownType { isPure })
+  }
+
   pub fn Untyped<'a>(&'a self) -> &'a mut Untyped {
     self.bump.alloc(Untyped {})
+  }
+
+  pub fn ValueType<'a>(&'a self, tpe: Type<'a>) -> &'a mut ValueType<'a> {
+    self.bump.alloc(ValueType { tpe })
   }
 }
 
@@ -2031,46 +4280,72 @@ impl<'a> Serializable for Type<'a> {
   fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
     match self {
       Type::ADTType(v) => v.serialize(s)?,
+      Type::AnnotatedType(v) => v.serialize(s)?,
+      Type::AnyType(v) => v.serialize(s)?,
+      Type::ArrayType(v) => v.serialize(s)?,
       Type::BVType(v) => v.serialize(s)?,
       Type::BagType(v) => v.serialize(s)?,
       Type::BooleanType(v) => v.serialize(s)?,
       Type::CharType(v) => v.serialize(s)?,
+      Type::ClassType(v) => v.serialize(s)?,
       Type::FunctionType(v) => v.serialize(s)?,
       Type::IntegerType(v) => v.serialize(s)?,
+      Type::LocalClassType(v) => v.serialize(s)?,
       Type::MapType(v) => v.serialize(s)?,
+      Type::MutableMapType(v) => v.serialize(s)?,
+      Type::NothingType(v) => v.serialize(s)?,
       Type::PiType(v) => v.serialize(s)?,
       Type::RealType(v) => v.serialize(s)?,
+      Type::RecursiveType(v) => v.serialize(s)?,
       Type::RefinementType(v) => v.serialize(s)?,
       Type::SetType(v) => v.serialize(s)?,
       Type::SigmaType(v) => v.serialize(s)?,
       Type::StringType(v) => v.serialize(s)?,
       Type::TupleType(v) => v.serialize(s)?,
+      Type::TypeApply(v) => v.serialize(s)?,
+      Type::TypeBounds(v) => v.serialize(s)?,
       Type::TypeParameter(v) => v.serialize(s)?,
+      Type::TypeSelect(v) => v.serialize(s)?,
       Type::UnitType(v) => v.serialize(s)?,
+      Type::UnknownType(v) => v.serialize(s)?,
       Type::Untyped(v) => v.serialize(s)?,
+      Type::ValueType(v) => v.serialize(s)?,
     };
     Ok(())
   }
 }
 
 derive_conversions_for_ast!(Type<'a>, ADTType<'a>);
+derive_conversions_for_ast!(Type<'a>, AnnotatedType<'a>);
+derive_conversions_for_ast!(Type<'a>, AnyType);
+derive_conversions_for_ast!(Type<'a>, ArrayType<'a>);
 derive_conversions_for_ast!(Type<'a>, BVType);
 derive_conversions_for_ast!(Type<'a>, BagType<'a>);
 derive_conversions_for_ast!(Type<'a>, BooleanType);
 derive_conversions_for_ast!(Type<'a>, CharType);
+derive_conversions_for_ast!(Type<'a>, ClassType<'a>);
 derive_conversions_for_ast!(Type<'a>, FunctionType<'a>);
 derive_conversions_for_ast!(Type<'a>, IntegerType);
+derive_conversions_for_ast!(Type<'a>, LocalClassType<'a>);
 derive_conversions_for_ast!(Type<'a>, MapType<'a>);
+derive_conversions_for_ast!(Type<'a>, MutableMapType<'a>);
+derive_conversions_for_ast!(Type<'a>, NothingType);
 derive_conversions_for_ast!(Type<'a>, PiType<'a>);
 derive_conversions_for_ast!(Type<'a>, RealType);
+derive_conversions_for_ast!(Type<'a>, RecursiveType<'a>);
 derive_conversions_for_ast!(Type<'a>, RefinementType<'a>);
 derive_conversions_for_ast!(Type<'a>, SetType<'a>);
 derive_conversions_for_ast!(Type<'a>, SigmaType<'a>);
 derive_conversions_for_ast!(Type<'a>, StringType);
 derive_conversions_for_ast!(Type<'a>, TupleType<'a>);
+derive_conversions_for_ast!(Type<'a>, TypeApply<'a>);
+derive_conversions_for_ast!(Type<'a>, TypeBounds<'a>);
 derive_conversions_for_ast!(Type<'a>, TypeParameter<'a>);
+derive_conversions_for_ast!(Type<'a>, TypeSelect<'a>);
 derive_conversions_for_ast!(Type<'a>, UnitType);
+derive_conversions_for_ast!(Type<'a>, UnknownType);
 derive_conversions_for_ast!(Type<'a>, Untyped);
+derive_conversions_for_ast!(Type<'a>, ValueType<'a>);
 
 /// inox.ast.Types.ADTType
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -2084,6 +4359,47 @@ impl<'a> Serializable for ADTType<'a> {
     s.write_marker(MarkerId(89))?;
     self.id.serialize(s)?;
     self.tps.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.AnnotatedType
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct AnnotatedType<'a> {
+  pub tpe: Type<'a>,
+  pub flags: Seq<Flag<'a>>,
+}
+
+impl<'a> Serializable for AnnotatedType<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(157))?;
+    self.tpe.serialize(s)?;
+    self.flags.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.oo.Trees.AnyType
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct AnyType {}
+
+impl Serializable for AnyType {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(207))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Types.ArrayType
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ArrayType<'a> {
+  pub base: Type<'a>,
+}
+
+impl<'a> Serializable for ArrayType<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(138))?;
+    self.base.serialize(s)?;
     Ok(())
   }
 }
@@ -2140,6 +4456,22 @@ impl Serializable for CharType {
   }
 }
 
+/// stainless.extraction.oo.Trees.ClassType
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ClassType<'a> {
+  pub id: &'a Identifier,
+  pub tps: Seq<Type<'a>>,
+}
+
+impl<'a> Serializable for ClassType<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(206))?;
+    self.id.serialize(s)?;
+    self.tps.serialize(s)?;
+    Ok(())
+  }
+}
+
 /// inox.ast.Types.FunctionType
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FunctionType<'a> {
@@ -2167,6 +4499,26 @@ impl Serializable for IntegerType {
   }
 }
 
+/// stainless.extraction.innerclasses.Types.LocalClassType
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LocalClassType<'a> {
+  pub id: &'a Identifier,
+  pub tparams: Seq<&'a TypeParameterDef<'a>>,
+  pub tps: Seq<Type<'a>>,
+  pub ancestors: Seq<Type<'a>>,
+}
+
+impl<'a> Serializable for LocalClassType<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(236))?;
+    self.id.serialize(s)?;
+    self.tparams.serialize(s)?;
+    self.tps.serialize(s)?;
+    self.ancestors.serialize(s)?;
+    Ok(())
+  }
+}
+
 /// inox.ast.Types.MapType
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct MapType<'a> {
@@ -2179,6 +4531,33 @@ impl<'a> Serializable for MapType<'a> {
     s.write_marker(MarkerId(87))?;
     self.from.serialize(s)?;
     self.to.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.imperative.Trees.MutableMapType
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct MutableMapType<'a> {
+  pub from: Type<'a>,
+  pub to: Type<'a>,
+}
+
+impl<'a> Serializable for MutableMapType<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(232))?;
+    self.from.serialize(s)?;
+    self.to.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.oo.Trees.NothingType
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct NothingType {}
+
+impl Serializable for NothingType {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(208))?;
     Ok(())
   }
 }
@@ -2206,6 +4585,24 @@ pub struct RealType {}
 impl Serializable for RealType {
   fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
     s.write_marker(MarkerId(80))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.RecursiveType
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RecursiveType<'a> {
+  pub id: &'a Identifier,
+  pub tps: Seq<Type<'a>>,
+  pub index: Expr<'a>,
+}
+
+impl<'a> Serializable for RecursiveType<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(152))?;
+    self.id.serialize(s)?;
+    self.tps.serialize(s)?;
+    self.index.serialize(s)?;
     Ok(())
   }
 }
@@ -2281,6 +4678,40 @@ impl<'a> Serializable for TupleType<'a> {
   }
 }
 
+/// stainless.extraction.oo.Trees.TypeApply
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TypeApply<'a> {
+  pub selector: &'a TypeSelect<'a>,
+  pub tps: Seq<Type<'a>>,
+}
+
+impl<'a> Serializable for TypeApply<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(238))?;
+    self.selector.serialize(s)?;
+    self.tps.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.oo.Trees.TypeBounds
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TypeBounds<'a> {
+  pub lo: Type<'a>,
+  pub hi: Type<'a>,
+  pub flags: Seq<Flag<'a>>,
+}
+
+impl<'a> Serializable for TypeBounds<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(209))?;
+    self.lo.serialize(s)?;
+    self.hi.serialize(s)?;
+    self.flags.serialize(s)?;
+    Ok(())
+  }
+}
+
 /// inox.ast.Types.TypeParameter
 #[derive(Clone, Debug)]
 pub struct TypeParameter<'a> {
@@ -2319,6 +4750,22 @@ impl<'a> Serializable for TypeParameter<'a> {
   }
 }
 
+/// stainless.extraction.oo.Trees.TypeSelect
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TypeSelect<'a> {
+  pub expr: Option<Expr<'a>>,
+  pub selector: &'a Identifier,
+}
+
+impl<'a> Serializable for TypeSelect<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(237))?;
+    self.expr.serialize(s)?;
+    self.selector.serialize(s)?;
+    Ok(())
+  }
+}
+
 /// inox.ast.Types.UnitType
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct UnitType {}
@@ -2330,6 +4777,20 @@ impl Serializable for UnitType {
   }
 }
 
+/// stainless.extraction.oo.Trees.UnknownType
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct UnknownType {
+  pub isPure: Boolean,
+}
+
+impl Serializable for UnknownType {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(245))?;
+    self.isPure.serialize(s)?;
+    Ok(())
+  }
+}
+
 /// inox.ast.Types.Untyped
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Untyped {}
@@ -2337,6 +4798,20 @@ pub struct Untyped {}
 impl Serializable for Untyped {
   fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
     s.write_marker(MarkerId(75))?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.ValueType
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ValueType<'a> {
+  pub tpe: Type<'a>,
+}
+
+impl<'a> Serializable for ValueType<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(153))?;
+    self.tpe.serialize(s)?;
     Ok(())
   }
 }
@@ -2383,6 +4858,44 @@ impl<'a> Serializable for ADTConstructor<'a> {
   }
 }
 
+/// stainless.ast.Expressions.ADTPattern
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ADTPattern<'a> {
+  pub binder: Option<&'a ValDef<'a>>,
+  pub id: &'a Identifier,
+  pub tps: Seq<Type<'a>>,
+  pub subPatterns: Seq<Expr<'a>>,
+}
+
+impl<'a> Serializable for ADTPattern<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(129))?;
+    self.binder.serialize(s)?;
+    self.id.serialize(s)?;
+    self.tps.serialize(s)?;
+    self.subPatterns.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.oo.Trees.ClassPattern
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ClassPattern<'a> {
+  pub binder: Option<&'a ValDef<'a>>,
+  pub tpe: &'a ClassType<'a>,
+  pub subPatterns: Seq<Expr<'a>>,
+}
+
+impl<'a> Serializable for ClassPattern<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(204))?;
+    self.binder.serialize(s)?;
+    self.tpe.serialize(s)?;
+    self.subPatterns.serialize(s)?;
+    Ok(())
+  }
+}
+
 /// inox.ast.Identifier
 #[derive(Clone, Debug)]
 pub struct Identifier {
@@ -2393,7 +4906,7 @@ pub struct Identifier {
 
 impl PartialEq for Identifier {
   fn eq(&self, other: &Self) -> bool {
-    self.id == other.id
+    self.globalId == other.globalId
   }
 }
 impl Eq for Identifier {}
@@ -2404,11 +4917,232 @@ impl PartialOrd for Identifier {
 }
 impl Ord for Identifier {
   fn cmp(&self, other: &Self) -> Ordering {
-    self.id.cmp(&other.id)
+    self.globalId.cmp(&other.globalId)
   }
 }
 impl Hash for Identifier {
   fn hash<H: Hasher>(&self, state: &mut H) {
-    self.id.hash(state);
+    self.globalId.hash(state);
+  }
+}
+
+/// stainless.extraction.xlang.Trees.Import
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Import {
+  pub path: Seq<String>,
+  pub isWildcard: Boolean,
+}
+
+impl Serializable for Import {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(219))?;
+    self.path.serialize(s)?;
+    self.isWildcard.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.innerfuns.Definitions.Inner
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Inner<'a> {
+  pub fd: &'a LocalFunDef<'a>,
+}
+
+impl<'a> Serializable for Inner<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(187))?;
+    self.fd.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.oo.Trees.InstanceOfPattern
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct InstanceOfPattern<'a> {
+  pub binder: Option<&'a ValDef<'a>>,
+  pub tpe: Type<'a>,
+}
+
+impl<'a> Serializable for InstanceOfPattern<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(205))?;
+    self.binder.serialize(s)?;
+    self.tpe.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.LiteralPattern
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LiteralPattern<'a> {
+  pub binder: Option<&'a ValDef<'a>>,
+  pub lit: Expr<'a>,
+}
+
+impl<'a> Serializable for LiteralPattern<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(131))?;
+    self.binder.serialize(s)?;
+    self.lit.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.MatchCase
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct MatchCase<'a> {
+  pub pattern: Expr<'a>,
+  pub optGuard: Option<Expr<'a>>,
+  pub rhs: Expr<'a>,
+}
+
+impl<'a> Serializable for MatchCase<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(127))?;
+    self.pattern.serialize(s)?;
+    self.optGuard.serialize(s)?;
+    self.rhs.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.xlang.Trees.ModuleDef
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ModuleDef<'a> {
+  pub id: &'a Identifier,
+  pub imports: Seq<&'a Import>,
+  pub classes: Seq<&'a Identifier>,
+  pub functions: Seq<&'a Identifier>,
+  pub typeDefs: Seq<&'a Identifier>,
+  pub modules: Seq<&'a ModuleDef<'a>>,
+}
+
+impl<'a> Serializable for ModuleDef<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(221))?;
+    self.id.serialize(s)?;
+    self.imports.serialize(s)?;
+    self.classes.serialize(s)?;
+    self.functions.serialize(s)?;
+    self.typeDefs.serialize(s)?;
+    self.modules.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.innerfuns.Definitions.Outer
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Outer<'a> {
+  pub fd: &'a FunDef<'a>,
+}
+
+impl<'a> Serializable for Outer<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(186))?;
+    self.fd.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.SymbolIdentifier
+#[derive(Clone, Debug)]
+pub struct SymbolIdentifier<'a> {
+  pub id: &'a Identifier,
+  pub symbol_path: Seq<String>,
+}
+
+impl<'a> PartialEq for SymbolIdentifier<'a> {
+  fn eq(&self, other: &Self) -> bool {
+    self.id.globalId == other.id.globalId
+  }
+}
+impl<'a> Eq for SymbolIdentifier<'a> {}
+impl<'a> PartialOrd for SymbolIdentifier<'a> {
+  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    Some(self.cmp(other))
+  }
+}
+impl<'a> Ord for SymbolIdentifier<'a> {
+  fn cmp(&self, other: &Self) -> Ordering {
+    self.id.globalId.cmp(&other.id.globalId)
+  }
+}
+impl<'a> Hash for SymbolIdentifier<'a> {
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    self.id.globalId.hash(state);
+  }
+}
+
+/// stainless.ast.Expressions.TuplePattern
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TuplePattern<'a> {
+  pub binder: Option<&'a ValDef<'a>>,
+  pub subPatterns: Seq<Expr<'a>>,
+}
+
+impl<'a> Serializable for TuplePattern<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(130))?;
+    self.binder.serialize(s)?;
+    self.subPatterns.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.UnapplyPattern
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct UnapplyPattern<'a> {
+  pub binder: Option<&'a ValDef<'a>>,
+  pub recs: Seq<Expr<'a>>,
+  pub id: &'a Identifier,
+  pub tps: Seq<Type<'a>>,
+  pub subPatterns: Seq<Expr<'a>>,
+}
+
+impl<'a> Serializable for UnapplyPattern<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(132))?;
+    self.binder.serialize(s)?;
+    self.recs.serialize(s)?;
+    self.id.serialize(s)?;
+    self.tps.serialize(s)?;
+    self.subPatterns.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.extraction.xlang.Trees.UnitDef
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct UnitDef<'a> {
+  pub id: &'a Identifier,
+  pub imports: Seq<&'a Import>,
+  pub classes: Seq<&'a Identifier>,
+  pub modules: Seq<&'a ModuleDef<'a>>,
+  pub isMain: Boolean,
+}
+
+impl<'a> Serializable for UnitDef<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(220))?;
+    self.id.serialize(s)?;
+    self.imports.serialize(s)?;
+    self.classes.serialize(s)?;
+    self.modules.serialize(s)?;
+    self.isMain.serialize(s)?;
+    Ok(())
+  }
+}
+
+/// stainless.ast.Expressions.WildcardPattern
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct WildcardPattern<'a> {
+  pub binder: Option<&'a ValDef<'a>>,
+}
+
+impl<'a> Serializable for WildcardPattern<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(128))?;
+    self.binder.serialize(s)?;
+    Ok(())
   }
 }
