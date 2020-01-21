@@ -32,6 +32,7 @@ trait RustInteropGeneration { self: InoxSerializer =>
       fields: List[Field],
       customIdentity: Option[String],
       markerId: Int,
+      needsHash: Boolean,
       needsSerializable: Boolean)
 
     var definitionClasses = ArrayBuffer[Class]()
@@ -40,6 +41,15 @@ trait RustInteropGeneration { self: InoxSerializer =>
     var typeClasses = ArrayBuffer[Class]()
     var otherClasses = ArrayBuffer[Class]()
 
+    def replacePatternByExprT(tpe: Type): Type = tpe match {
+      case TypeRef(_, constr, args) if args.nonEmpty =>
+        appliedType(constr, args.map(replacePatternByExprT))
+      case TypeRef(_, sym, _) if sym.name.toString == "Pattern" =>
+        ExprT
+      case tpe =>
+        tpe
+    }
+
     // Collect the list of Inox classes to generate Rust code for
     classSerializers.foreach { case (runtimeClass, serializer) =>
       val rootMirror = scala.reflect.runtime.universe.runtimeMirror(runtimeClass.getClassLoader)
@@ -47,11 +57,16 @@ trait RustInteropGeneration { self: InoxSerializer =>
 
       val rawFields = fieldsForClassSymbol(classSymbol)
       var fields: List[Field] = rawFields.map { field =>
+        var name = field.name.toString
+        if (name == "in")
+          name = "in_" // `in` is a rust keyword
         val tpe = field.info match {
           case NullaryMethodType(tpe) => tpe
           case tpe => tpe
         }
-        Field(field.name.toString, tpe)
+        // To avoid separate abstract class Pattern
+        val patternFreeTpe = replacePatternByExprT(tpe)
+        Field(name, patternFreeTpe)
       } .toList
 
       val baseClasses = classSymbol.toType.baseClasses
@@ -63,8 +78,15 @@ trait RustInteropGeneration { self: InoxSerializer =>
       val name = classSymbol.name.toString
 
       var customIdentity: Option[String] = None
+      var needsHash = true
       var needsSerializable = true
       var ignore = false
+
+      def replaceFieldType(name: String, newTpe: Type): Unit =
+        fields = fields.map {
+          case f if f.name == name => f.copy(tpe = newTpe)
+          case f => f
+        }
 
       name match {
         case "ADTSort" | "FunDef" =>
@@ -81,26 +103,32 @@ trait RustInteropGeneration { self: InoxSerializer =>
         case "ADTConstructor" =>
           customIdentity = Some("id")
         case "Annotation" =>
-          fields = fields.map {
-            case f if f.name == "args" => f.copy(tpe = typeOf[Seq[inox.trees.Expr]])
-            case f => f
-          }
+          // TODO: Support Seq[Any] rather than only Seq[Expr] in Annotation
+          replaceFieldType("args", typeOf[Seq[inox.trees.Expr]])
         case "BVLiteral" =>
-          fields = fields.map {
-            case f if f.name == "value" => f.copy(tpe = BigIntT)
-            case f => f
-          }
+          replaceFieldType("value", BigIntT) // to avoid BitSet
           needsSerializable = false
+        case "LiteralPattern" =>
+          replaceFieldType("lit", ExprT) // to avoid generic Literal[T]
+        case "LargeArray" =>
+          needsHash = false
         case "Identifier" =>
+          customIdentity = Some("globalId")
+          needsSerializable = false
+        case "SymbolIdentifier" =>
+          fields = List(Field("id", IdentifierT), Field("symbol_path", typeOf[Seq[String]]))
+          customIdentity = Some("id.globalId")
+          needsSerializable = false
+        case "Symbol" =>
           customIdentity = Some("id")
           needsSerializable = false
-        case "SerializationResult" | "SymbolIdentifier" | "Symbol" =>
+        case "SerializationResult" =>
           ignore = true
         case _ =>
       }
 
       if (!ignore) {
-        val clazz = Class(classSymbol, fields, customIdentity, serializer.id, needsSerializable)
+        val clazz = Class(classSymbol, fields, customIdentity, serializer.id, needsHash, needsSerializable)
         if (isDefinition) definitionClasses += clazz
         else if (isFlag) flagClasses += clazz
         else if (isExpr) exprClasses += clazz
@@ -119,6 +147,9 @@ trait RustInteropGeneration { self: InoxSerializer =>
 
     val allClasses = definitionClasses ++ flagClasses ++ exprClasses ++ typeClasses ++ otherClasses
     val abstractClassTypes = Set(TreeT, DefinitionT, FlagT, ExprT, TypeT).map(_.typeSymbol)
+
+    def shouldIgnoreTypeArgs(tpe: Type): Boolean =
+      tpe.typeSymbol.name.toString == "LiteralPattern"
 
     def isInoxType(tpe: Type): Boolean =
       (tpe.baseClasses.toSet & Set(TreeT.typeSymbol, FlagT.typeSymbol)).nonEmpty ||
@@ -173,7 +204,7 @@ trait RustInteropGeneration { self: InoxSerializer =>
       if (typeNeedsLifetime(tpe)) "<'a>" else ""
 
     def renderSimpleType(tpe: Type, asRef: Boolean): String = {
-      assert(tpe.typeArgs.isEmpty, s"$tpe")
+      assert(tpe.typeArgs.isEmpty || shouldIgnoreTypeArgs(tpe), s"$tpe")
       val prefix = if (asRef && isAllocType(tpe)) "&'a " else ""
       val suffix = renderLifetimeFor(tpe)
       val name = tpe.typeSymbol.name.toString
@@ -251,8 +282,12 @@ trait RustInteropGeneration { self: InoxSerializer =>
         // Struct definition
         val fieldStrs = c.fields.map{ f => s"pub ${f.name}: ${renderType(f.tpe, asRef=true)}" }
         val derives =
-          Seq("Clone", "Debug") ++
-          (if (c.customIdentity.isDefined) Seq() else Seq("PartialEq", "Eq", "Hash"))
+          Seq("Clone", "Debug") ++ (
+            if (c.customIdentity.isDefined) Seq()
+            else (
+              Seq("PartialEq", "Eq") ++ (if (c.needsHash) Seq("Hash") else Seq())
+            )
+          )
         write(s"/// ${c.classSymbol.fullName}")
         write(s"#[derive(${derives.mkString(", ")})]")
         write(s"pub struct $name {${fieldStrs.mkString("\n  ", ",\n  ", "\n")}}\n")
@@ -270,9 +305,11 @@ trait RustInteropGeneration { self: InoxSerializer =>
           write(s"impl${renderLifetimeFor(classType)} Ord for $name {")
           write(s"  fn cmp(&self, other: &Self) -> Ordering { self.$path.cmp(&other.$path) }")
           write("}")
-          write(s"impl${renderLifetimeFor(classType)} Hash for $name {")
-          write(s"  fn hash<H: Hasher>(&self, state: &mut H) { self.$path.hash(state); }")
-          write("}\n")
+          if (c.needsHash) {
+            write(s"impl${renderLifetimeFor(classType)} Hash for $name {")
+            write(s"  fn hash<H: Hasher>(&self, state: &mut H) { self.$path.hash(state); }")
+            write("}\n")
+          }
         }
 
         // Serializable trait implementation
@@ -337,4 +374,4 @@ class RustInteropGenerator {
   }
 }
 
-object rustInteropGenerator extends RustInteropGenerator
+object RustInteropGeneratorTool extends RustInteropGenerator

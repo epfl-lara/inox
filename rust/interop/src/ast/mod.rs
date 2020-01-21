@@ -6,7 +6,6 @@ mod macros;
 mod generated;
 pub use generated::*;
 
-use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 
 use crate::ser::types::*;
@@ -63,54 +62,6 @@ impl<'a> Serializable for Symbols<'a> {
   }
 }
 
-/// stainless.ast.Symbol
-#[derive(Debug)]
-pub struct Symbol {
-  pub path: Seq<String>,
-  id: Int,
-}
-
-/// stainless.ast.SymbolIdentifier
-#[derive(Debug)]
-pub struct SymbolIdentifier {
-  pub id: Identifier,
-  pub symbol: Symbol,
-}
-
-impl PartialEq for SymbolIdentifier {
-  fn eq(&self, other: &Self) -> bool {
-    self.symbol.id == other.symbol.id
-  }
-}
-
-impl Eq for SymbolIdentifier {}
-
-impl PartialOrd for SymbolIdentifier {
-  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-    Some(self.cmp(other))
-  }
-}
-
-impl Ord for SymbolIdentifier {
-  fn cmp(&self, other: &Self) -> Ordering {
-    self.symbol.id.cmp(&other.symbol.id)
-  }
-}
-
-impl<'a> Hash for SymbolIdentifier {
-  fn hash<H: Hasher>(&self, state: &mut H) {
-    self.symbol.id.hash(state);
-  }
-}
-
-impl Serializable for SymbolIdentifier {
-  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
-    s.write_marker(MarkerId(145))?;
-    (self.id.globalId, self.id.id, &self.symbol.path, self.symbol.id).serialize(s)?;
-    Ok(())
-  }
-}
-
 // Various trait implementations that are significantly different from the rest
 
 impl<'a> Serializable for ValDef<'a> {
@@ -142,6 +93,29 @@ impl Serializable for Identifier {
     s.write_marker(MarkerId(90))?;
     (&self.name, self.globalId, self.id).serialize(s)?;
     Ok(())
+  }
+}
+
+// TODO: Conditional on stainless build
+impl<'a> Serializable for SymbolIdentifier<'a> {
+  fn serialize<S: Serializer>(&self, s: &mut S) -> SerializationResult {
+    s.write_marker(MarkerId(145))?;
+    // NOTE: We deviate from Stainless here in that we reuse the Identifier's globalId
+    // as the Symbol's id.
+    (self.id.globalId, self.id.id, &self.symbol_path, self.id.globalId).serialize(s)?;
+    Ok(())
+  }
+}
+
+// TODO: Conditional on stainless build
+impl<'a> Hash for LargeArray<'a> {
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    let mut elems: Vec<(&Int, &Expr<'a>)> = self.elems.iter().collect();
+    elems.sort_by(|&(i1, _), &(i2, _)| { i1.cmp(&i2) });
+    elems.iter().for_each(|elem| elem.hash(state));
+    self.default.hash(state);
+    self.size.hash(state);
+    self.base.hash(state);
   }
 }
 
