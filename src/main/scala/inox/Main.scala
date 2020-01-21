@@ -34,6 +34,7 @@ trait MainHelpers {
   }
 
   final object optHelp extends MarkerOptionDef("help")
+  final object optDeserialize extends FlagOptionDef("deserialize", false)
 
   abstract class Category
   case object General extends Category
@@ -61,6 +62,7 @@ trait MainHelpers {
         "  " + first.mkString(", ") + ",\n" +
         "  " + second.mkString(", ")
     }),
+    optDeserialize -> Description(General, "Deserialize a given file containing a program and print it"),
     optPrintChooses -> Description(Printing, "Display partial models for chooses when printing models"),
     ast.optPrintPositions -> Description(Printing, "Attach positions to trees when printing"),
     ast.optPrintUniqueIds -> Description(Printing, "Always print unique ids"),
@@ -223,36 +225,71 @@ object Main extends MainHelpers {
     if (files.isEmpty) {
       ctx.reporter.error(s"Input file was not specified.\nTry the --help option for more information.")
       exit(error = true)
+    } else if (ctx.options.findOptionOrDefault(optDeserialize)) {
+      deserializerMain(ctx, files)
     } else {
-      var error: Boolean = false
-      for (file <- files; (program, expr) <- tip.Parser(file).parseScript) {
-        import ctx._
-        import program._
+      tipMain(ctx, files)
+    }
+  }
 
-        val sf = ctx.options.findOption(optTimeout) match {
-          case Some(to) => program.getSolver.withTimeout(to)
-          case None => program.getSolver
-        }
+  protected def tipMain(ctx: Context, files: Seq[File]): Unit = {
+    var error: Boolean = false
+    for (file <- files; (program, expr) <- tip.Parser(file).parseScript) {
+      import ctx._
+      import program._
 
-        import SolverResponses._
-        SimpleSolverAPI(sf).solveSAT(expr) match {
-          case SatWithModel(model) =>
-            reporter.info(file + " => SAT")
-            reporter.info("  " + model.asString.replaceAll("\n", "\n  "))
-          case Unsat =>
-            reporter.info(file + " => UNSAT")
-          case Unknown =>
-            reporter.info(file + " => UNKNOWN")
-            error = true
-        }
+      val sf = ctx.options.findOption(optTimeout) match {
+        case Some(to) => program.getSolver.withTimeout(to)
+        case None => program.getSolver
       }
+
+      import SolverResponses._
+      SimpleSolverAPI(sf).solveSAT(expr) match {
+        case SatWithModel(model) =>
+          reporter.info(file + " => SAT")
+          reporter.info("  " + model.asString.replaceAll("\n", "\n  "))
+        case Unsat =>
+          reporter.info(file + " => UNSAT")
+        case Unknown =>
+          reporter.info(file + " => UNKNOWN")
+          error = true
+      }
+    }
 
       val asciiOnly = ctx.options.findOptionOrDefault(optNoColors)
       ctx.reporter.whenDebug(utils.DebugSectionTimers) { debug =>
         ctx.timers.outputTable(debug, asciiOnly)
       }
 
-      exit(error = error)
+    exit(error = error)
+  }
+
+  protected def deserializerMain(ctx: Context, files: Seq[File]): Unit = {
+    import java.io._
+
+    var error: Boolean = false
+    for (file <- files) {
+      import inox.trees._
+      import ctx._
+
+      val program =
+        try {
+          val serializer = utils.Serializer(inox.trees)
+          val in = new FileInputStream(file)
+          InoxProgram(serializer.deserialize[Symbols](in))
+        } catch {
+          case e: FileNotFoundException =>
+            ctx.reporter.error(s"Input file was not found:\n  $file")
+            exit(error = true)
+          case e: IOException =>
+            ctx.reporter.error(s"Error reading from file:\n  $file")
+            exit(error = true)
+        }
+
+      ctx.reporter.info(s"Program in $file:\n\n")
+      ctx.reporter.info(program)
     }
+
+    exit(error = error)
   }
 }
