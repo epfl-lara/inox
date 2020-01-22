@@ -12,7 +12,6 @@ use crate::ser::types::*;
 use crate::ser::{BufferSerializer, MarkerId, Serializable, SerializationResult, Serializer};
 
 use bumpalo::Bump;
-// use std::mem::Phan
 
 /// A factory for easily allocating AST nodes in an arena
 #[derive(Debug)]

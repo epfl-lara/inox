@@ -1,9 +1,20 @@
+extern crate lazy_static;
+
+use lazy_static::lazy_static;
 use stainless_interop::ast::*;
 use stainless_interop::ser::*;
-use std::fs;
 use types::*;
 
-const PATH_PREFIX: &'static str = "/home/gs/epfl/lara/inox/src/it/resources/regression/rust/";
+lazy_static! {
+  static ref PATH_PREFIX: String = {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 2 {
+      eprintln!("Usage: {} path/to/write/tests/", args[0]);
+      std::process::exit(1);
+    }
+    args[1].clone()
+  };
+}
 const PATH_SUFFIX: &'static str = ".inoxser";
 
 macro_rules! test_gen {
@@ -12,8 +23,8 @@ macro_rules! test_gen {
       let mut s = BufferSerializer::new();
       let $s = &mut s;
       $body
-      let path = format!("{}{}{}", PATH_PREFIX, stringify!($name), PATH_SUFFIX);
-      fs::write(path, s.as_slice()).expect("Unable to write file");
+      let path = format!("{}{}{}", *PATH_PREFIX, stringify!($name), PATH_SUFFIX);
+      std::fs::write(path, s.as_slice()).expect("Unable to write file");
     }
   };
 }
