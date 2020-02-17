@@ -13,8 +13,8 @@ object DebugSectionOptions extends DebugSection("options")
 abstract class OptionDef[A] {
   val name: String
   def default: A
-  val parser: OptionParser[A]
-  val usageRhs: String
+  def parser: OptionParser[A]
+  def usageRhs: String
 
   def usageDesc = {
     if (usageRhs.isEmpty) s"--$name"
@@ -81,13 +81,13 @@ case class DoubleOptionDef(name: String, default: Double, usageRhs: String) exte
 
 abstract class SetOptionDef[A] extends OptionDef[Set[A]] {
   val elementParser: OptionParser[A]
-  val parser = setParser(elementParser)
+  def parser = setParser(elementParser)
   override def formatDefault = if (default.isEmpty) "<none>" else default.mkString(",")
 }
 
 abstract class SeqOptionDef[A] extends OptionDef[Seq[A]] {
   val elementParser: OptionParser[A]
-  val parser = seqParser(elementParser)
+  def parser = seqParser(elementParser)
   override def formatDefault = if (default.isEmpty) "<none>" else default.mkString(",")
 }
 
