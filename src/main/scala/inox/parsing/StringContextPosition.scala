@@ -88,7 +88,7 @@ sealed trait StringContextPosition extends Position {
   }
 
   override def lineContents = {
-    val it = scToString(context).lines.drop(line - 1)
+    val it = augmentString(scToString(context)).lines.drop(line - 1)
     if (it.hasNext) it.next else ""
   }
 }
