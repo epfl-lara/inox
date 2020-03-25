@@ -9,6 +9,9 @@ import scala.reflect.runtime.universe._
 import scala.collection.mutable.{ArrayBuffer, HashMap => MutableMap, HashSet => MutableSet}
 
 trait RustInteropGeneration { self: InoxSerializer =>
+  // Used to replace `Identifier`, if present
+  protected val optSymbolIdentifierT: Option[Type] = None
+
   def generateRustInterop(file: File) = {
     val writer = new FileWriter(file)
     def write(s: String) = {
@@ -41,11 +44,21 @@ trait RustInteropGeneration { self: InoxSerializer =>
     var typeClasses = ArrayBuffer[Class]()
     var otherClasses = ArrayBuffer[Class]()
 
-    def replacePatternByExprT(tpe: Type): Type = tpe match {
+    // For some fields Stainless trees require types that are more
+    // specific than can (easily) be represented in Rust.
+    // We fix two cases:
+    // - To avoid a separate abstract class Pattern, we replace them by Expr
+    // - To avoid distinguishing the union of Identifier and SymbolIdentifier,
+    //    we always require the more specific SymbolIdentifier (Stainless only)
+    def fixUnrepresentableTypes(tpe: Type): Type = tpe match {
       case TypeRef(_, constr, args) if args.nonEmpty =>
-        appliedType(constr, args.map(replacePatternByExprT))
-      case TypeRef(_, sym, _) if sym.name.toString == "Pattern" =>
-        ExprT
+        appliedType(constr, args.map(fixUnrepresentableTypes))
+      case TypeRef(_, sym, _) =>
+        sym.name.toString match {
+          case "Pattern" => ExprT
+          case "Identifier" => optSymbolIdentifierT.getOrElse(tpe)
+          case _ => tpe
+        }
       case tpe =>
         tpe
     }
@@ -64,9 +77,7 @@ trait RustInteropGeneration { self: InoxSerializer =>
           case NullaryMethodType(tpe) => tpe
           case tpe => tpe
         }
-        // To avoid separate abstract class Pattern
-        val patternFreeTpe = replacePatternByExprT(tpe)
-        Field(name, patternFreeTpe)
+        Field(name, fixUnrepresentableTypes(tpe))
       } .toList
 
       val baseClasses = classSymbol.toType.baseClasses
@@ -153,7 +164,8 @@ trait RustInteropGeneration { self: InoxSerializer =>
 
     def isInoxType(tpe: Type): Boolean =
       (tpe.baseClasses.toSet & Set(TreeT.typeSymbol, FlagT.typeSymbol)).nonEmpty ||
-      tpe.typeSymbol == IdentifierT.typeSymbol
+      tpe.typeSymbol == IdentifierT.typeSymbol ||
+      optSymbolIdentifierT.map(tpe.typeSymbol == _.typeSymbol).getOrElse(false)
     def isAllocType(tpe: Type): Boolean =
       isInoxType(tpe) && !abstractClassTypes.contains(tpe.typeSymbol)
 
