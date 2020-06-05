@@ -12,6 +12,9 @@ trait RustInteropGeneration { self: InoxSerializer =>
   // Used to replace `Identifier`, if present
   protected val optSymbolIdentifierT: Option[Type] = None
 
+  // The `Pattern` type, if any
+  protected val optPatternT: Option[Type] = None
+
   def generateRustInterop(file: File) = {
     val writer = new FileWriter(file)
     def write(s: String) = {
@@ -42,6 +45,7 @@ trait RustInteropGeneration { self: InoxSerializer =>
     var flagClasses = ArrayBuffer[Class]()
     var exprClasses = ArrayBuffer[Class]()
     var typeClasses = ArrayBuffer[Class]()
+    var patternClasses = ArrayBuffer[Class]()
     var otherClasses = ArrayBuffer[Class]()
 
     // For some fields Stainless trees require types that are more
@@ -55,7 +59,6 @@ trait RustInteropGeneration { self: InoxSerializer =>
         appliedType(constr, args.map(fixUnrepresentableTypes))
       case TypeRef(_, sym, _) =>
         sym.name.toString match {
-          case "Pattern" => ExprT
           case "Identifier" => optSymbolIdentifierT.getOrElse(tpe)
           case _ => tpe
         }
@@ -85,6 +88,7 @@ trait RustInteropGeneration { self: InoxSerializer =>
       val isFlag = baseClasses.contains(FlagT.typeSymbol)
       val isExpr = baseClasses.contains(ExprT.typeSymbol)
       val isType = baseClasses.contains(TypeT.typeSymbol)
+      val isPattern = optPatternT.map(tpe => baseClasses.contains(tpe.typeSymbol)).getOrElse(false)
 
       val name = classSymbol.name.toString
 
@@ -140,24 +144,26 @@ trait RustInteropGeneration { self: InoxSerializer =>
 
       if (!ignore) {
         val clazz = Class(classSymbol, fields, customIdentity, serializer.id, needsHash, needsSerializable)
-        if (isDefinition) definitionClasses += clazz
-        else if (isFlag) flagClasses += clazz
-        else if (isExpr) exprClasses += clazz
-        else if (isType) typeClasses += clazz
-        else otherClasses += clazz
+        if (isDefinition)   definitionClasses += clazz
+        else if (isFlag)    flagClasses += clazz
+        else if (isExpr)    exprClasses += clazz
+        else if (isType)    typeClasses += clazz
+        else if (isPattern) patternClasses += clazz
+        else                otherClasses += clazz
       }
     }
 
     definitionClasses = definitionClasses.sortBy(_.classSymbol.name.toString)
-    flagClasses = flagClasses.sortBy(_.classSymbol.name.toString)
-    exprClasses = exprClasses.sortBy(_.classSymbol.name.toString)
-    typeClasses = typeClasses.sortBy(_.classSymbol.name.toString)
-    otherClasses = otherClasses.sortBy(_.classSymbol.name.toString)
+    flagClasses       = flagClasses.sortBy(_.classSymbol.name.toString)
+    exprClasses       = exprClasses.sortBy(_.classSymbol.name.toString)
+    typeClasses       = typeClasses.sortBy(_.classSymbol.name.toString)
+    patternClasses    = patternClasses.sortBy(_.classSymbol.name.toString)
+    otherClasses      = otherClasses.sortBy(_.classSymbol.name.toString)
 
     // Helpers for computing which annotations are required in the generated Rust code
 
-    val allClasses = definitionClasses ++ flagClasses ++ exprClasses ++ typeClasses ++ otherClasses
-    val abstractClassTypes = Set(TreeT, DefinitionT, FlagT, ExprT, TypeT).map(_.typeSymbol)
+    val allClasses = definitionClasses ++ flagClasses ++ exprClasses ++ typeClasses ++ patternClasses ++ otherClasses
+    val abstractClassTypes = (Set(TreeT, DefinitionT, FlagT, ExprT, TypeT) ++ optPatternT).map(_.typeSymbol)
 
     def shouldIgnoreTypeArgs(tpe: Type): Boolean =
       tpe.typeSymbol.name.toString == "LiteralPattern"
@@ -192,6 +198,7 @@ trait RustInteropGeneration { self: InoxSerializer =>
       addParent(FlagT, flagClasses)
       addParent(ExprT, exprClasses)
       addParent(TypeT, typeClasses)
+      optPatternT.foreach { PatternT => addParent(PatternT, patternClasses) }
 
       result
     }
@@ -364,6 +371,12 @@ trait RustInteropGeneration { self: InoxSerializer =>
     printCaption("Types")
     printAbstractClass(TypeT, typeClasses)
     printClasses(typeClasses)
+
+    optPatternT.foreach { PatternT =>
+      printCaption("Patterns")
+      printAbstractClass(PatternT, patternClasses)
+      printClasses(patternClasses)
+    }
 
     printCaption("Other")
     printClasses(otherClasses)
