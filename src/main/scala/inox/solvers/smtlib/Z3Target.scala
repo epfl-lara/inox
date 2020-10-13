@@ -260,6 +260,14 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       ), None) =>
         MapUpdated(fromSMT(arr), fromSMT(key), fromSMT(elem))
 
+      case (FunctionApplication(
+        QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
+          List(SList(List(SSymbol("ite"), SList(List(SSymbol("Bool"), maskT, map1T, map2T)), resT)))), None),
+        Seq(mask, map1, map2)
+      ), _) =>
+        // TODO: unify the types maskT, map1T, map2T and resT, because they should all be equal
+        MapMerge(fromSMT(mask, otpe), fromSMT(map1, otpe), fromSMT(map2, otpe))
+
       case _ =>
         super.fromSMT(t, otpe)
     }
@@ -303,6 +311,10 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
     case SetUnion(l, r) =>
       ArrayMap(SSymbol("or"), toSMT(l), toSMT(r))
+
+    case MapMerge(mask, map1, map2) =>
+      val s = declareSort(map1.getType.asInstanceOf[MapType].to)
+      ArrayMap(SortedSymbol("ite", List(BoolSort(), s), s), toSMT(mask), toSMT(map1), toSMT(map2))
 
     case SetIntersection(l, r) =>
       ArrayMap(SSymbol("and"), toSMT(l), toSMT(r))

@@ -284,6 +284,7 @@ trait Printer {
     case MultiplicityInBag(e, b) => p"$b($e)"
     case MapApply(m, k) => p"$m($k)"
     case MapUpdated(m, k, v) => p"$m.updated($k, $v)"
+    case MapMerge(m, m1, m2) => p"internals.mapMerge($m, $m1, $m2)"
 
     case Not(expr) => p"\u00AC$expr"
 
