@@ -547,6 +547,9 @@ class Parser(reader: Reader, file: Option[File]) {
       case Bags.Insert(bag, es @ _*) =>
         es.foldLeft(fromSMT(bag))((b,e) => BagAdd(b, fromSMT(e)))
 
+      case MapExtensions.Merge(mask, map1, map2) =>
+        MapMerge(fromSMT(mask), fromSMT(map1), fromSMT(map2))
+
       case Match(s, cases) =>
         val scrut = fromSMT(s)
         val matchCases: Seq[(Option[Expr], Expr)] = cases.map(cse => cse.pattern match {

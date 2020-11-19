@@ -326,6 +326,9 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
     case SetUnion(s1, s2) => Sets.Union(toSMT(s1), toSMT(s2))
     case SetDifference(s1, s2) => Sets.Setminus(toSMT(s1), toSMT(s2))
 
+    case MapMerge(mask, map1, map2) =>
+      MapExtensions.Merge(toSMT(mask), toSMT(map1), toSMT(map2))
+
     case StringLiteral(value) => Strings.StringLit(value)
     case StringConcat(s1, s2) => Strings.Concat(toSMT(s1), toSMT(s2))
     case SubString(s, start, end) => Strings.Substring(toSMT(s), toSMT(start), toSMT(end))
