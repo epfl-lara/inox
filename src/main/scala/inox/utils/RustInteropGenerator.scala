@@ -104,7 +104,7 @@ trait RustInteropGeneration { self: InoxSerializer =>
         }
 
       name match {
-        case "ADTSort" | "FunDef" =>
+        case "ADTSort" | "FunDef" | "ClassDef" =>
           customIdentity = Some("id")
         case "TypeParameterDef" =>
           customIdentity = Some("tp.id")
