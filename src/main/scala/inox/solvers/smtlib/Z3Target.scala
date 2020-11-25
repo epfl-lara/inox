@@ -262,11 +262,10 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
       case (FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
-          List(SList(List(SSymbol("ite"), SList(List(SSymbol("Bool"), maskT, map1T, map2T)), resT)))), None),
+          List(SList(List(SSymbol("ite"), SList(List(SSymbol("Bool"), _, _, _)), _)))), None),
         Seq(mask, map1, map2)
       ), _) =>
-        // TODO: unify the types maskT, map1T, map2T and resT, because they should all be equal
-        MapMerge(fromSMT(mask, otpe), fromSMT(map1, otpe), fromSMT(map2, otpe))
+        MapMerge(fromSMT(mask), fromSMT(map1), fromSMT(map2))
 
       case _ =>
         super.fromSMT(t, otpe)

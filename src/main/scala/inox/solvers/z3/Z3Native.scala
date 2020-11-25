@@ -471,6 +471,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         }
 
       case MapMerge(mask, map1, map2) =>
+        // TODO: This should move to scala-z3
         def getIteFuncDecl(valueTpe: Type) = {
           val valueSort = typeToSort(valueTpe)
           val app = z3.mkITE(
