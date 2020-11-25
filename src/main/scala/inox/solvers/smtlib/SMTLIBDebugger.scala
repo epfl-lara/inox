@@ -22,7 +22,7 @@ trait SMTLIBDebugger extends SMTLIBTarget {
 
   /* Printing VCs */
   protected lazy val debugOut: Option[java.io.FileWriter] = {
-    if (reporter.isDebugEnabled) {
+    if (reporter.isDebugEnabled || true) {
       val file = options.findOptionOrDefault(Main.optFiles).headOption.map(_.getName).getOrElse("NA")
       val n = DebugFileNumbers.next(targetName + file)
       val fileName = s"smt-sessions/$targetName-$file-$n.smt2"
