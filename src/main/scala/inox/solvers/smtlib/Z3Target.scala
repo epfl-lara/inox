@@ -148,6 +148,8 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         val Some(Lambda(Seq(arg), body)) = context.getFunction(k, FunctionType(Seq(keyType), valueType))
 
         def extractCases(e: Expr): FiniteMap = e match {
+          case Equals(argV, k) if valueType == BooleanType() && argV == arg.toVariable =>
+            FiniteMap(Seq((k, BooleanLiteral(true))), BooleanLiteral(false), keyType, valueType)
           case IfExpr(Equals(argV, k), v, e) if argV == arg.toVariable =>
             val FiniteMap(elems, default, from, to) = extractCases(e)
             FiniteMap(elems :+ (k, v), default, from, to)
@@ -167,9 +169,11 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
       case (SMTLambda(Seq(SortedVar(s, sort)), term), Some(tpe @ MapType(keyType, valueType))) =>
         val arg = ValDef.fresh(s.name, fromSMT(sort))
-        val body = fromSMT(term)(context.withVariables(Seq(s -> arg.toVariable)))
+        val body = fromSMT(term, Some(valueType))(context.withVariables(Seq(s -> arg.toVariable)))
 
         def extractCases(e: Expr): FiniteMap = e match {
+          case Equals(argV, k) if valueType == BooleanType() && argV == arg.toVariable =>
+            FiniteMap(Seq((k, BooleanLiteral(true))), BooleanLiteral(false), keyType, valueType)
           case IfExpr(Equals(argV, k), v, e) if argV == arg.toVariable =>
             val FiniteMap(elems, default, from, to) = extractCases(e)
             FiniteMap(elems :+ (k, v), default, from, to)

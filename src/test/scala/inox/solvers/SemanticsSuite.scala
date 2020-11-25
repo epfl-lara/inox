@@ -534,6 +534,16 @@ class SemanticsSuite extends FunSuite {
     )) contains true)
   }
 
+  test("Z3 Set Extraction", filterSolvers(_, princess = true, cvc4 = true)) { ctx =>
+    val s = solver(ctx)
+
+    // Singleton set inside of a map is translated to (lambda ((x Int)) (= x 0))
+    check(s,
+      FiniteMap(Seq(), FiniteSet(Seq(IntegerLiteral(0)), IntegerType()), IntegerType(), SetType(IntegerType())),
+      FiniteMap(Seq(), FiniteSet(Seq(IntegerLiteral(0)), IntegerType()), IntegerType(), SetType(IntegerType()))
+    )
+  }
+
   test("Simple Bag Operations", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
 
