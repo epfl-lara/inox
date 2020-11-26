@@ -526,7 +526,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     * The `Serializer[_]` identifiers in this mapping range from 10 to 102
     * (ignoring special identifiers that are smaller than 10).
     *
-    * NEXT ID: 103
+    * NEXT ID: 104
     */
   protected def classSerializers: Map[Class[_], Serializer[_]] = Map(
     // Inox Expressions
@@ -636,6 +636,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[ADTSort]       (96),
     classSerializer[ADTConstructor](97),
     classSerializer[FunDef]        (98),
+    classSerializer[MapMerge]      (103),
 
     classOf[SerializationResult] -> ResultSerializer
   )

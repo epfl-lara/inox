@@ -395,6 +395,11 @@ trait TreeDeconstructor {
       val s.MapUpdated(map, k, v) = expr
       (NoIdentifiers, NoVariables, Seq(map, k, v), NoTypes, NoFlags,
         (_, _, es, _, _) => t.MapUpdated(es(0), es(1), es(2)))
+    },
+    classOf[s.MapMerge] -> { expr =>
+      val s.MapMerge(mask, map1, map2) = expr
+      (NoIdentifiers, NoVariables, Seq(mask, map1, map2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.MapMerge(es(0), es(1), es(2)))
     }
   )
 

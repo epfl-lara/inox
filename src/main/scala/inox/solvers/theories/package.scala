@@ -24,7 +24,10 @@ package object theories {
     val stringEncoder = ASCIIStringEncoder(enc.targetProgram)
     val encAndString = enc andThen stringEncoder
     val bagEncoder = BagEncoder(encAndString)(ev)
-    stringEncoder andThen bagEncoder
+    val mapMergeEncoder = MapMergeEncoder(bagEncoder.targetProgram)
+
+    val e1 = stringEncoder andThen bagEncoder
+    e1 andThen mapMergeEncoder
   }
 
   def Princess(enc: ProgramTransformer)
@@ -36,15 +39,17 @@ package object theories {
 
     val encAndString = enc andThen stringEncoder
     val bagEncoder = BagEncoder(encAndString)(ev)
+    val mapMergeEncoder = MapMergeEncoder(bagEncoder.targetProgram)
 
-    val setEncoder = SetEncoder(bagEncoder.targetProgram)
+    val setEncoder = SetEncoder(mapMergeEncoder.targetProgram)
 
     val realEncoder = RealEncoder(setEncoder.targetProgram)
 
     // @nv: Required due to limitations in scalac existential types
     val e1 = stringEncoder andThen bagEncoder
-    val e2 = e1 andThen setEncoder
-    e2 andThen realEncoder
+    val e2 = e1 andThen mapMergeEncoder
+    val e3 = e2 andThen setEncoder
+    e3 andThen realEncoder
   }
 
   object ReverseEvaluator {

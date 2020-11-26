@@ -397,6 +397,16 @@ trait RecursiveEvaluator
         case (le,re) => throw EvalError(typeErrorMsg(le, s1.getType))
       }
 
+    case MapMerge(cond, map1, map2) =>
+      (e(cond), e(map1), e(map2)) match {
+        case (FiniteSet(keys, kT), FiniteMap(kvs1, dflt1, _, vT), FiniteMap(kvs2, dflt2, _, _)) =>
+          val fromFstMap = keys.map((_ -> dflt1)).toMap ++ (kvs1.toMap.filterKeys(keys.contains(_)))
+          val fromSndMap = kvs2.toMap -- keys
+          finiteMap((fromFstMap ++ fromSndMap).toSeq, dflt2, kT, vT)
+        case (c, m1, m2) =>
+          throw EvalError(typeErrorMsg(c, cond.getType))
+      }
+
     case ElementOfSet(el,s) => (e(el), e(s)) match {
       case (e, FiniteSet(els, _)) => BooleanLiteral(els.contains(e))
       case (l,r) => throw EvalError(typeErrorMsg(r, SetType(l.getType)))

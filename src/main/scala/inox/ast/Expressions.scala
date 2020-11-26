@@ -709,4 +709,16 @@ trait Expressions { self: Trees =>
       case _ => Untyped
     }
   }
+
+  /**
+   * Special operation that merges two maps using a set.
+   * The resulting map is a map that contains the key-value pairs of map1 for all keys that are in the mask,
+   * and the key-value pairs of map2 for all keys that are not in the mask.
+   */
+  case class MapMerge(mask: Expr, map1: Expr, map2: Expr) extends Expr with CachingTyped {
+    override protected def computeType(implicit s: Symbols): Type = (getMapType(map1, map2), getSetType(mask)) match {
+      case (mt @ MapType(from, to), SetType(mask)) => checkParamType(mask, from, mt)
+      case _ => Untyped
+    }
+  }
 }

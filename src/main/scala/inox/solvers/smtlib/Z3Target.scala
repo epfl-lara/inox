@@ -260,6 +260,13 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       ), None) =>
         MapUpdated(fromSMT(arr), fromSMT(key), fromSMT(elem))
 
+      case (FunctionApplication(
+        QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
+          List(SList(List(SSymbol("ite"), SList(List(SSymbol("Bool"), _, _, _)), _)))), None),
+        Seq(mask, map1, map2)
+      ), _) =>
+        MapMerge(fromSMT(mask), fromSMT(map1), fromSMT(map2))
+
       case _ =>
         super.fromSMT(t, otpe)
     }
@@ -303,6 +310,10 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
     case SetUnion(l, r) =>
       ArrayMap(SSymbol("or"), toSMT(l), toSMT(r))
+
+    case MapMerge(mask, map1, map2) =>
+      val s = declareSort(map1.getType.asInstanceOf[MapType].to)
+      ArrayMap(SortedSymbol("ite", List(BoolSort(), s, s), s), toSMT(mask), toSMT(map1), toSMT(map2))
 
     case SetIntersection(l, r) =>
       ArrayMap(SSymbol("and"), toSMT(l), toSMT(r))

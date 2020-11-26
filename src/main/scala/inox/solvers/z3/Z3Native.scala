@@ -470,6 +470,23 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
           case (array, (k, v)) => z3.mkStore(array, rec(k), rec(v))
         }
 
+      case MapMerge(mask, map1, map2) =>
+        // TODO: This should move to scala-z3
+        def getIteFuncDecl(valueTpe: Type) = {
+          val valueSort = typeToSort(valueTpe)
+          val app = z3.mkITE(
+            z3.mkFreshConst("b", typeToSort(BooleanType())),
+            z3.mkFreshConst("v1", valueSort),
+            z3.mkFreshConst("v2", valueSort))
+          z3.getASTKind(app) match {
+            case Z3AppAST(decl, _) => decl
+            case _ => error("Unexpected non-app AST " + app)
+          }
+        }
+
+        val MapType(_, valueTpe) = map1.getType
+        z3.mkArrayMap(getIteFuncDecl(valueTpe), rec(mask), rec(map1), rec(map2))
+
       /* ====== String operations ====
        * FIXME: replace z3 strings with sequences once they are fixed (in z3)
        */
