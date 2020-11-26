@@ -16,7 +16,7 @@ trait MapMergeEncoder extends SimpleEncoder {
         choose("map" :: mapTpe) { map =>
           forall("x" :: keyT) { x =>
             MapApply(map, x) ===
-            (if_ (ElementOfSet(mask, x)) {
+            (if_ (ElementOfSet(x, mask)) {
               MapApply(map1, x)
             } else_ {
               MapApply(map2, x)
