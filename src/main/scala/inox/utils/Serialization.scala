@@ -182,7 +182,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     // We optimize here for small ids, which corresponds to few registered serializers.
     // We assume this number shouldn't be larger than 255 anyway.
     var currId = id
-    while (currId > 255) {
+    while (currId >= 255) {
       out.write(255.toByte)
       currId -= 255
     }
