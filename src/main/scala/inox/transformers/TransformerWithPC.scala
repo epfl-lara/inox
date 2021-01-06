@@ -37,20 +37,14 @@ trait TransformerWithPC extends Transformer {
       ).copiedFrom(e)
 
     case s.And(es) =>
-      var soFar = env
-      t.andJoin(for(e <- es) yield {
-        val se = transform(e, soFar)
-        soFar = soFar withCond e
-        se
-      }).copiedFrom(e)
+      t.And(es.foldLeft((env, List[t.Expr]())) { case ((soFar, res), e) =>
+        (soFar withCond e, res :+ transform(e, soFar))
+      }._2).copiedFrom(e)
 
     case s.Or(es) =>
-      var soFar = env
-      t.orJoin(for(e <- es) yield {
-        val se = transform(e, soFar)
-        soFar = soFar withCond s.Not(e).copiedFrom(e)
-        se
-      }).copiedFrom(e)
+      t.Or(es.foldLeft((env, List[t.Expr]())) { case ((soFar, res), e) =>
+        (soFar withCond s.Not(e).copiedFrom(e), res :+ transform(e, soFar))
+      }._2).copiedFrom(e)
 
     case s.Implies(lhs, rhs) =>
       t.Implies(transform(lhs, env), transform(rhs, env withCond lhs)).copiedFrom(e)
