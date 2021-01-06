@@ -61,11 +61,15 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
     if (!cond) internalError(pos,msg)
   }
 
+  def reset() = {
+    _errorCount = 0
+    _warningCount = 0
+  }
+
   def terminateIfError() = {
     if (errorCount > 0) {
-      _errorCount = 0
-      _warningCount = 0
-      fatalError("There were errors.")
+      try { fatalError("There were errors.") }
+      finally { reset() }
     }
   }
 
