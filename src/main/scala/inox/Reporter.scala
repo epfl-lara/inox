@@ -67,6 +67,7 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
   def reset() = {
     _errorCount = 0
     _warningCount = 0
+    _fatalCount = 0
   }
 
   def terminateIfFatal() = {
