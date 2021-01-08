@@ -20,14 +20,17 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
 
   private var _errorCount : Int = 0
   private var _warningCount : Int = 0
+  private var _fatalCount : Int = 0
 
   final def errorCount : Int = _errorCount
   final def warningCount : Int = _warningCount
+  final def fatalCount : Int = _fatalCount
 
   def account(msg: Message): Message = {
     msg.severity match {
       case WARNING                  => _warningCount += 1
-      case ERROR | FATAL | INTERNAL => _errorCount += 1
+      case ERROR                    => _errorCount += 1
+      case FATAL | INTERNAL         => _fatalCount += 1
       case _                        =>
     }
 
@@ -66,8 +69,15 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
     _warningCount = 0
   }
 
+  def terminateIfFatal() = {
+    if (fatalCount > 0) {
+      try { fatalError("There were fatal errors.") }
+      finally { reset() }
+    }
+  }
+
   def terminateIfError() = {
-    if (errorCount > 0) {
+    if (errorCount > 0 || fatalCount > 0) {
       try { fatalError("There were errors.") }
       finally { reset() }
     }
