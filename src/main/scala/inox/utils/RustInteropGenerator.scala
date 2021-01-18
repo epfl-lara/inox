@@ -139,6 +139,8 @@ trait RustInteropGeneration { self: InoxSerializer =>
           needsSerializable = false
         case "SerializationResult" =>
           ignore = true
+        case "TerminationStatus" | "Unknown" | "Terminating" | "NonTerminating" =>
+          ignore = true
         case _ =>
       }
 
