@@ -194,8 +194,11 @@ trait Paths { self: Trees =>
     @inline def freeVariables: Set[Variable] = _free.get
     private[this] val _free: Lazy[Set[Variable]] = Lazy {
       val allVars = elements
-        .collect { case Condition(e) => e case CloseBound(_, e) => e }
-        .flatMap { e => exprOps.variablesOf(e) }
+        .flatMap {
+          case Condition(e) => exprOps.variablesOf(e)
+          case CloseBound(vd, e) => typeOps.variablesOf(vd.tpe) ++ exprOps.variablesOf(e)
+          case OpenBound(vd) => typeOps.variablesOf(vd.tpe)
+        }
       val boundVars = bound map { _.toVariable }
       allVars.toSet -- boundVars
     }
