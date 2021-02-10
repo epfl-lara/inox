@@ -534,31 +534,41 @@ trait TemplateGenerator { self: Templates =>
         })
 
       case MapType(from, to) =>
-        val newBool: Variable = Variable.fresh("b", BooleanType(), true)
-        storeCond(pathVar, newBool)
-
-        val dfltExpr: Variable = Variable.fresh("dlft", to, true)
-        storeExpr(dfltExpr)
-
-        iff(and(pathVar, Not(Equals(expr, FiniteMap(Seq.empty, dfltExpr, from, to)))), newBool)
-
-        and(rec(pathVar, to, dfltExpr, state), if (!state.recurseMap) {
-          storeType(newBool, tpe, expr)
+        if (!state.recurseMap) {
+          storeType(pathVar, tpe, expr)
         } else {
-          val keyExpr: Variable = Variable.fresh("key", from, true)
-          val valExpr: Variable = Variable.fresh("val", to, true)
-          val restExpr: Variable = Variable.fresh("rest", tpe, true)
+          val newBool1 : Variable = Variable.fresh("mapIsEmpty", BooleanType(), true)
+          val newBool2 : Variable = Variable.fresh("mapNonEmpty", BooleanType(), true)
+          storeCond(pathVar, newBool1)
+          storeCond(pathVar, newBool2)
+
+          val condVar  : Variable = Variable.fresh("condMapEmpty", BooleanType(), true)
+          val newExpr = Variable.fresh("mapRes", BooleanType(), true)
+          val keyExpr: Variable = Variable.fresh("mapKey", from, true)
+          val valueExpr: Variable = Variable.fresh("mapValue", to, true)
+          val defaultExpr: Variable = Variable.fresh("mapDefault", to, true)
+          val restExpr: Variable = Variable.fresh("mapRest", tpe, true)
+          storeExpr(condVar)
+          storeExpr(newExpr)
           storeExpr(keyExpr)
-          storeExpr(valExpr)
+          storeExpr(valueExpr)
+          storeExpr(defaultExpr)
           storeExpr(restExpr)
 
-          storeGuarded(newBool, Equals(expr, MapUpdated(restExpr, keyExpr, valExpr)))
-          and(
-            rec(newBool, tpe, restExpr, state.copy(recurseMap = false)),
-            rec(newBool, from, keyExpr, state),
-            rec(newBool, to, valExpr, state)
-          )
-        })
+          storeGuarded(pathVar, Equals(condVar, Equals(expr, FiniteMap(Seq(), defaultExpr, from, to))))
+          iff(and(pathVar, condVar), newBool1)
+          iff(and(pathVar, not(condVar)), newBool2)
+
+          storeGuarded(newBool1, newExpr)
+          storeGuarded(newBool2, Equals(expr, MapUpdated(restExpr, keyExpr, valueExpr)))
+          storeGuarded(newBool2, Equals(newExpr, and(
+            rec(newBool2, tpe, restExpr, state.copy(recurseMap = false)),
+            rec(newBool2, from, keyExpr, state),
+            rec(newBool2, to, valueExpr, state)
+          )))
+
+          and(rec(pathVar, to, defaultExpr, state), newExpr)
+        }
 
       case SetType(base) =>
         if (!state.recurseSet) {
@@ -621,7 +631,8 @@ trait TemplateGenerator { self: Templates =>
           storeGuarded(newBool2, GreaterThan(multExpr, IntegerLiteral(0)))
           storeGuarded(newBool2, Equals(newExpr, and(
             rec(newBool2, tpe, restExpr, state.copy(recurseBag = false)),
-            rec(newBool2, base, elemExpr, state)
+            rec(newBool2, base, elemExpr, state),
+            rec(newBool2, IntegerType(), multExpr, state)
           )))
 
           newExpr
