@@ -104,10 +104,10 @@ class SetBagMapSuite extends SolvingTestSuite with DatastructureUtils {
     assert(value > 2000)
   }
 
-  test("Maps with empty key type don't exist") { implicit ctx =>
+  test("Maps with empty key type exist") { implicit ctx =>
     val clause = Equals(map2, map2)
     val result = SimpleSolverAPI(program.getSolver).solveSAT(clause)
-    assert(!result.isSAT)
+    assert(result.isSAT)
   }
 
   test("Maps with empty value type don't exist") { implicit ctx =>
