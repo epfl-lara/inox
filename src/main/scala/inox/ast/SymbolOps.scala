@@ -756,7 +756,10 @@ trait SymbolOps { self: TypeOps =>
       }
 
       def inline(quantified: Set[Variable], e: Expr): Expr = andJoin(collectWithPC (e) {
-        case (fi @ FunctionInvocation(_, _, args), path) if qArgs(quantified, args) =>
+        case (fi @ FunctionInvocation(_, _, args), path)
+          if qArgs(quantified, args) &&
+             !path.elements.exists(_.isInstanceOf[Path.OpenBound])
+            =>
           val tfd = fi.tfd
           val nextQuantified = args.collect { case v: Variable if quantified(v) => v }.toSet
           tfd.withParamSubst(args, tfd.fullBody) match {
@@ -771,7 +774,9 @@ trait SymbolOps { self: TypeOps =>
               case fi: FunctionInvocation => transitivelyCalls(fi.id, tfd.id)
               case _ => false
             } (pred) =>
-              Seq[Expr](path implies replaceFromSymbols(Map(res.toVariable -> fi), and(pred, inline(nextQuantified, pred))))
+              Seq[Expr](
+                path implies replaceFromSymbols(Map(res.toVariable -> fi), and(pred, inline(nextQuantified, pred)))
+              )
             case _ => Seq.empty[Expr]
           }
         case _ => Seq.empty[Expr]
@@ -780,7 +785,7 @@ trait SymbolOps { self: TypeOps =>
       postMap {
         case f @ Forall(args, body) =>
           Some(assume(
-            forall(args, inline(args.map(_.toVariable).toSet, body)),
+            freshenLocals(forall(args, inline(args.map(_.toVariable).toSet, body))),
             f
           ))
         case _ => None
