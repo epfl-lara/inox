@@ -92,7 +92,7 @@ trait Definitions { self: Trees =>
     }
 
     /** Transform this [[ValDef]] into a [[Expressions.Variable Variable]] */
-    @inline def toVariable: Variable = v
+    @inline def toVariable: Variable = v.copy().copiedFrom(v)
     @inline def freshen: ValDef = new ValDef(v.freshen).copiedFrom(this)
 
     override def equals(that: Any): Boolean = super[VariableSymbol].equals(that)
