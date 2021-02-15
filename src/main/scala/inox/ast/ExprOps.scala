@@ -41,7 +41,7 @@ trait ExprOps extends GenTreeOps {
   def replaceFromSymbols[V <: VariableSymbol](substs: Map[V, Expr], expr: Expr)(implicit ev: VariableConverter[V]): Expr = {
     new SelfTreeTransformer {
       override def transform(expr: Expr): Expr = expr match {
-        case v: Variable => substs.getOrElse(v.to[V], super.transform(v))
+        case v: Variable => freshenLocals(substs.getOrElse(v.to[V], super.transform(v)))
         case _ => super.transform(expr)
       }
     }.transform(expr)
@@ -70,21 +70,21 @@ trait ExprOps extends GenTreeOps {
     * and used to lookup their images within models!
     */
   def freshenLocals(expr: Expr, freshenChooses: Boolean = false): Expr = {
-    val subst: MutableMap[Variable, Variable] = MutableMap.empty
-    variablesOf(expr).foreach(v => subst(v) = v)
+    val subst: MutableMap[Identifier, Identifier] = MutableMap.empty
+    variablesOf(expr).foreach(v => subst(v.id) = v.id)
 
     new SelfTreeTransformer {
-      override def transform(vd: ValDef): ValDef = subst.getOrElse(vd.toVariable, {
-        val res = super.transform(vd).freshen.toVariable
-        subst(vd.toVariable) = res
+      override def transform(vd: ValDef): ValDef = {
+        val res = super.transform(vd).freshen
+        subst(vd.id) = res.id
         res
-      }).toVal
+      }
 
       override def transform(expr: Expr): Expr = expr match {
-        case v: Variable => transform(v.toVal).toVariable
+        case v: Variable => v.copy(id = subst(v.id)).copiedFrom(v)
         case Choose(res, pred) if !freshenChooses =>
           val newVd = super.transform(res)
-          subst(res.toVariable) = newVd.toVariable
+          subst(res.id) = newVd.id
           Choose(newVd, transform(pred)).copiedFrom(expr)
         case _ => super.transform(expr)
       }
