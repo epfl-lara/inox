@@ -340,7 +340,7 @@ trait Types { self: Trees =>
                                                (implicit ev: VariableConverter[V]): Type = {
       new SelfTreeTransformer {
         override def transform(expr: Expr): Expr = expr match {
-          case v: Variable => exprOps.freshenLocals(subst.getOrElse(v.to[V], v))
+          case v: Variable => subst.getOrElse(v.to[V], v)
           case _ => super.transform(expr)
         }
       }.transform(tpe)

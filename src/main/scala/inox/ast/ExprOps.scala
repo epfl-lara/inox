@@ -41,7 +41,7 @@ trait ExprOps extends GenTreeOps {
   def replaceFromSymbols[V <: VariableSymbol](substs: Map[V, Expr], expr: Expr)(implicit ev: VariableConverter[V]): Expr = {
     new SelfTreeTransformer {
       override def transform(expr: Expr): Expr = expr match {
-        case v: Variable => freshenLocals(substs.getOrElse(v.to[V], super.transform(v)))
+        case v: Variable => substs.getOrElse(v.to[V], super.transform(v))
         case _ => super.transform(expr)
       }
     }.transform(expr)
@@ -65,30 +65,70 @@ trait ExprOps extends GenTreeOps {
   }
 
   /** Freshens all local variables
-    * 
+    *
     * Note that we don't freshen choose ids as these are considered global
     * and used to lookup their images within models!
     */
-  def freshenLocals(expr: Expr, freshenChooses: Boolean = false): Expr = {
-    val subst: MutableMap[Identifier, Identifier] = MutableMap.empty
-    variablesOf(expr).foreach(v => subst(v.id) = v.id)
+  object Freshener extends SelfTransformer {
+    type Env = Map[Identifier, Identifier]
 
-    new SelfTreeTransformer {
-      override def transform(vd: ValDef): ValDef = {
-        val res = super.transform(vd).freshen
-        subst(vd.id) = res.id
-        res
-      }
+    override def transform(e: Expr, env: Env): Expr = e match {
+      case v: Variable => v.copy(id = env.getOrElse(v.id, v.id)).copiedFrom(v)
 
-      override def transform(expr: Expr): Expr = expr match {
-        case v: Variable => v.copy(id = subst(v.id)).copiedFrom(v)
-        case Choose(res, pred) if !freshenChooses =>
-          val newVd = super.transform(res)
-          subst(res.id) = newVd.id
-          Choose(newVd, transform(pred)).copiedFrom(expr)
-        case _ => super.transform(expr)
-      }
-    }.transform(expr)
+      case Let(vd, v, b) =>
+        val freshVd = vd.freshen
+        Let(transform(freshVd, env), transform(v, env), transform(b, env.updated(vd.id, freshVd.id))).copiedFrom(e)
+
+      case Lambda(params, b) =>
+        val (sparams, senv) = params.foldLeft((Seq[t.ValDef](), env)) {
+          case ((sparams, env), vd) =>
+            val freshVd = vd.freshen
+            (sparams :+ transform(freshVd, env), env.updated(vd.id, freshVd.id))
+        }
+        Lambda(sparams, transform(b, senv)).copiedFrom(e)
+
+      case Forall(params, b) =>
+        val (sparams, senv) = params.foldLeft((Seq[t.ValDef](), env)) {
+          case ((sparams, env), vd) =>
+            val freshVd = vd.freshen
+            (sparams :+ transform(freshVd, env), env.updated(vd.id, freshVd.id))
+        }
+        Forall(sparams, transform(b, senv)).copiedFrom(e)
+
+      case Choose(res, pred) =>
+        Choose(transform(res, env), transform(pred, env)).copiedFrom(e)
+
+      case _ =>
+        super.transform(e, env)
+    }
+
+    override def transform(tpe: s.Type, env: Env): t.Type = tpe match {
+      case RefinementType(vd, prop) =>
+        val freshVd = vd.freshen
+        RefinementType(transform(freshVd, env), transform(prop, env.updated(vd.id, freshVd.id))).copiedFrom(tpe)
+
+      case PiType(params, to) =>
+        val (sparams, senv) = params.foldLeft((Seq[t.ValDef](), env)) {
+          case ((sparams, env), vd) =>
+            val freshVd = vd.freshen
+            (sparams :+ transform(freshVd, env), env.updated(vd.id, freshVd.id))
+        }
+        PiType(sparams, transform(to, senv)).copiedFrom(tpe)
+
+      case SigmaType(params, to) =>
+        val (sparams, senv) = params.foldLeft((Seq[t.ValDef](), env)) {
+          case ((sparams, env), vd) =>
+            val freshVd = vd.freshen
+            (sparams :+ transform(freshVd, env), env.updated(vd.id, freshVd.id))
+        }
+        SigmaType(sparams, transform(to, senv)).copiedFrom(tpe)
+
+      case _ => super.transform(tpe, env)
+    }
+  }
+
+  def freshenLocals(expr: Expr): Expr = {
+    Freshener.transform(expr, Map[Identifier, Identifier]())
   }
 
   /** Returns true if the expression contains a function call */
