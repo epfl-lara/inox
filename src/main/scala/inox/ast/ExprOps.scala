@@ -69,7 +69,7 @@ trait ExprOps extends GenTreeOps {
     * Note that we don't freshen choose ids as these are considered global
     * and used to lookup their images within models!
     */
-  object Freshener extends SelfTransformer {
+  class Freshener(freshenChooses: Boolean = false) extends SelfTransformer {
     type Env = Map[Identifier, Identifier]
 
     override def transform(e: Expr, env: Env): Expr = e match {
@@ -95,8 +95,12 @@ trait ExprOps extends GenTreeOps {
         }
         Forall(sparams, transform(b, senv)).copiedFrom(e)
 
-      case Choose(res, pred) =>
-        Choose(transform(res, env), transform(pred, env)).copiedFrom(e)
+      case Choose(vd, pred) if !freshenChooses =>
+        Choose(transform(vd, env), transform(pred, env)).copiedFrom(e)
+
+      case Choose(vd, pred) if freshenChooses =>
+        val freshVd = vd.freshen
+        Choose(transform(freshVd, env), transform(pred, env.updated(vd.id, freshVd.id))).copiedFrom(e)
 
       case _ =>
         super.transform(e, env)
@@ -127,8 +131,12 @@ trait ExprOps extends GenTreeOps {
     }
   }
 
-  def freshenLocals(expr: Expr): Expr = {
-    Freshener.transform(expr, Map[Identifier, Identifier]())
+  val freshenerNoChooses = new Freshener(false)
+  val freshenerWithChooses = new Freshener(true)
+
+  def freshenLocals(expr: Expr, freshenChooses: Boolean = false): Expr = {
+    if (freshenChooses) freshenerWithChooses.transform(expr, Map.empty[Identifier, Identifier])
+    else freshenerNoChooses.transform(expr, Map.empty[Identifier, Identifier])
   }
 
   /** Returns true if the expression contains a function call */

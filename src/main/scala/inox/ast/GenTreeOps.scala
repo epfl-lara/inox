@@ -282,7 +282,6 @@ trait GenTreeOps { self =>
                           (e: Source, c: C): Target = {
 
     def rec(expr: Source, context: C): Target = {
-
       val (newV, newCtx) = {
         if(applyRec) {
           var ctx = context
