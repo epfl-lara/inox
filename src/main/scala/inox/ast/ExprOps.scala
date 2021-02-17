@@ -72,9 +72,11 @@ trait ExprOps extends GenTreeOps {
   class Freshener(freshenChooses: Boolean = false) extends SelfTransformer {
     type Env = Map[Identifier, Identifier]
 
-    override def transform(e: Expr, env: Env): Expr = e match {
-      case v: Variable => v.copy(id = env.getOrElse(v.id, v.id)).copiedFrom(v)
+    override def transform(id: Identifier, env: Env): Identifier = {
+      env.getOrElse(id, id)
+    }
 
+    override def transform(e: Expr, env: Env): Expr = e match {
       case Let(vd, v, b) =>
         val freshVd = vd.freshen
         Let(transform(freshVd, env), transform(v, env), transform(b, env.updated(vd.id, freshVd.id))).copiedFrom(e)
