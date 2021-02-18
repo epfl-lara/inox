@@ -43,7 +43,7 @@ class Bijection[A, B] extends Iterable[(A, B)] {
   }
 
   def ++=(t: Iterable[(A, B)]) = {
-    (this /: t){ case (b, elem) => b += elem }
+    t.foldLeft(this){ case (b, elem) => b += elem }
   }
 
   def clear(): Unit = {

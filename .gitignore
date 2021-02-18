@@ -59,3 +59,10 @@ out-classes
 
 # VS Code
 .vscode
+
+# metals and bloop
+.bloop/
+.bsp/
+project/.bloop/
+project/metals.sbt
+project/project/

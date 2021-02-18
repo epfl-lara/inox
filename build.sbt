@@ -1,14 +1,14 @@
 name := "inox"
 
-enablePlugins(GitVersioning, TutPlugin)
+enablePlugins(GitVersioning, MdocPlugin)
 
 git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
-scalaVersion := "2.12.8"
+scalaVersion := "2.12.13"
 
-crossScalaVersions := Seq("2.11.8", "2.12.8")
+crossScalaVersions := Seq("2.11.8", "2.12.13")
 
 scalacOptions ++= Seq(
   "-deprecation",
@@ -103,10 +103,10 @@ sourceGenerators in Compile += Def.task {
 
 lazy val genDoc = taskKey[Unit]("Typecheck and interpret the documentation")
 
-tutSourceDirectory := sourceDirectory.value / "main" / "doc"
-tutTargetDirectory := baseDirectory.value / "doc"
+mdocIn  := sourceDirectory.value / "main" / "doc"
+mdocOut := baseDirectory.value / "doc"
 
-genDoc := { tutQuick.value; () }
+genDoc := { () }
 genDoc := (genDoc dependsOn (compile in Compile)).value
 
 Keys.fork in run := true
