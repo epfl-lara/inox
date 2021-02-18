@@ -31,8 +31,8 @@ unmanagedJars in Compile += {
 }
 
 resolvers ++= Seq(
-  ("Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots").withAllowInsecureProtocol(true),
-  ("Sonatype OSS Releases" at "https://oss.sonatype.org/content/repositories/releases").withAllowInsecureProtocol(true),
+  "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
+  "Sonatype OSS Releases" at "https://oss.sonatype.org/content/repositories/releases",
   ("uuverifiers" at "http://logicrunch.research.it.uu.se/maven").withAllowInsecureProtocol(true)
 )
 
