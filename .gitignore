@@ -57,5 +57,5 @@ out-classes
 /libz3java.dll
 /libz3java.lib
 
-# vscode
+# VS Code
 .vscode

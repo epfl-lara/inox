@@ -755,8 +755,11 @@ trait SymbolOps { self: TypeOps =>
         case _ => false
       }
 
-      def inline(quantified: Set[Variable], e: Expr): Expr = andJoin(collect {
-        case fi @ FunctionInvocation(_, _, args) if qArgs(quantified, args) =>
+      def inline(quantified: Set[Variable], e: Expr): Expr = andJoin(collectWithPC (e) {
+        case (fi @ FunctionInvocation(_, _, args), path)
+          if qArgs(quantified, args) &&
+             !path.elements.exists(_.isInstanceOf[Path.OpenBound])
+            =>
           val tfd = fi.tfd
           val nextQuantified = args.collect { case v: Variable if quantified(v) => v }.toSet
           tfd.withParamSubst(args, tfd.fullBody) match {
@@ -770,16 +773,19 @@ trait SymbolOps { self: TypeOps =>
             } (pred) && !exists {
               case fi: FunctionInvocation => transitivelyCalls(fi.id, tfd.id)
               case _ => false
-            } (pred) => Set(replaceFromSymbols(Map(res.toVariable -> fi), and(pred, inline(nextQuantified, pred))))
-            case _ => Set.empty[Expr]
+            } (pred) =>
+              Seq[Expr](
+                path implies replaceFromSymbols(Map(res.toVariable -> fi), and(pred, inline(nextQuantified, pred)))
+              )
+            case _ => Seq.empty[Expr]
           }
-        case _ => Set.empty[Expr]
-      } (e).toSeq)
+        case _ => Seq.empty[Expr]
+      }.flatten)
 
       postMap {
         case f @ Forall(args, body) =>
           Some(assume(
-            forall(args, inline(args.map(_.toVariable).toSet, body)),
+            freshenLocals(forall(args, inline(args.map(_.toVariable).toSet, body))),
             f
           ))
         case _ => None

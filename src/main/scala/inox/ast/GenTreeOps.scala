@@ -133,7 +133,7 @@ trait GenTreeOps { self =>
     *   }}}
     *   will yield:
     *   {{{
-    *     Add(a, d)   // And not Add(a, f) because it only substitute once for each level.
+    *     Add(a, d)   // And not Add(a, f) because it only substitutes once for each level.
     *   }}}
     *
     *   - If applyRec is true, it will substitute multiple times on each level:
@@ -147,18 +147,18 @@ trait GenTreeOps { self =>
     *   Add(a, f)
     *   }}}
     *
-    * @note The mode with applyRec true can diverge if f is not well formed
+    * @note The function can diverge whether `applyRec` is true or false
     */
   def preMap(f: Source => Option[Source], applyRec : Boolean = false)(e: Source): Target = {
     def g(t: Source, u: Unit): (Option[Source], Unit) = (f(t), ())
     preMapWithContext[Unit](g, applyRec)(e, ())
   }
-  
-  
+
+
   /** Post-transformation of the tree.
     *
     * Takes a partial function of replacements.
-    * Substitutes '''after''' recurring down the trees.
+    * Substitutes '''after''' recursing down the trees.
     *
     * Supports two modes :
     *
@@ -282,7 +282,6 @@ trait GenTreeOps { self =>
                           (e: Source, c: C): Target = {
 
     def rec(expr: Source, context: C): Target = {
-
       val (newV, newCtx) = {
         if(applyRec) {
           var ctx = context
