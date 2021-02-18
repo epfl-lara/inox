@@ -100,24 +100,32 @@ trait Paths { self: Trees =>
 
     /** Add a binding to this [[Path]] */
     override def withBinding(p: (ValDef, Expr)) = {
+      // print unique ids in assertion error
+      implicit val printerOpts = new PrinterOptions(printUniqueIds = true)
       val (vd, value) = p
       assert(elements collect {
         case CloseBound(_, e) => e
         case Condition(e) => e
       } forall {
         e => !(exprOps.variablesOf(e) contains vd.toVariable)
-      })
+      }, s"Cannot add already used variable ${vd.asString} to path:\n" +
+        this.asString
+      )
       this :+ CloseBound(vd, value)
     }
 
     /** Add a bound to this [[Path]], a variable being defined but to an unknown/arbitrary value. */
     override def withBound(b: ValDef) = {
+      // print unique ids in assertion error
+      implicit val printerOpts = new PrinterOptions(printUniqueIds = true)
       assert(elements collect {
         case CloseBound(_, e) => e
         case Condition(e) => e
       } forall {
         e => !(exprOps.variablesOf(e) contains b.toVariable)
-      })
+      }, s"Cannot add already used variable ${b.asString} to path:\n" +
+        this.asString
+      )
       this :+ OpenBound(b)
     }
 
