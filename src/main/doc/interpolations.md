@@ -49,14 +49,14 @@ implicit val symbols: inox.trees.Symbols = inox.trees.NoSymbols
 
 Once imported, it is possible to build Inox types and expressions using a friendlier syntax:
 
-```scala mdoc
+```scala mdoc:to-string
 val tpe = t"Boolean"
 val expr = e"1 + 1 == 2"
 ```
 
 It is also possible to embed types and expressions:
 
-```scala mdoc
+```scala mdoc:to-string
 e"let x: $tpe = $expr in !x"
 ```
 
@@ -69,7 +69,7 @@ e"let x: $tpe = $expr in !x"
 <a name="boolean-literals"></a>
 ### Boolean literals
 
-```scala mdoc
+```scala mdoc:to-string
 e"true"
 e"false"
 ```
@@ -77,44 +77,44 @@ e"false"
 <a name="numeric-literals"></a>
 ### Numeric literal
 
-```scala mdoc
+```scala mdoc:to-string
 e"1"
 ```
 
 Note that the type of numeric expressions is inferred. In case of ambiguity, `BigInt` is chosen by default.
 
-```scala mdoc
+```scala mdoc:to-string
 e"1".getType
 ```
 
 It is however possible to annotate the desired type.
 
-```scala mdoc
+```scala mdoc:to-string
 e"1 : Int".getType
 ```
 
-```scala mdoc
+```scala mdoc:to-string
 e"1 : Real".getType
 ```
 
 <a name="real-literals"></a>
 #### Real literals
 
-```scala mdoc
+```scala mdoc:to-string
 e"3.75"
 ```
 
 <a name="string-literals"></a>
 ### String literals
 
-```scala mdoc
+```scala mdoc:to-string
 e"'Hello world!'"
 ```
 
 <a name="character-literals"></a>
 ### Character literals
 
-```scala mdoc
+```scala mdoc:to-string
 e"`a`"
 ```
 
@@ -123,40 +123,40 @@ e"`a`"
 
 Arithmetic operators are infix and have there usual associativity and priority.
 
-```scala mdoc
+```scala mdoc:to-string
 e"1 + 2 * 5 + 6 - 7 / 17"
 ```
 
 <a name="conditionals"></a>
 ## Conditionals
 
-```scala mdoc
+```scala mdoc:to-string
 e"if (1 == 2) 'foo' else 'bar'"
 ```
 
 <a name="let-bindings"></a>
 ## Let bindings
 
-```scala mdoc
+```scala mdoc:to-string
 e"let word: String = 'World!' in concatenate('Hello ', word)"
 ```
 
 <a name="lambda-expressions"></a>
 ## Lambda expressions
 
-```scala mdoc
+```scala mdoc:to-string
 e"lambda x: BigInt, y: BigInt. x + y"
 ```
 
 It is also possible to use the Unicode `λ` symbol.
 
-```scala mdoc
+```scala mdoc:to-string
 e"λx: BigInt, y: BigInt. x + y"
 ```
 
 Type annotations can be omitted for any of the parameters if their type can be inferred.
 
-```scala mdoc
+```scala mdoc:to-string
 e"lambda x. x * 0.5"
 ```
 
@@ -166,7 +166,7 @@ e"lambda x. x * 0.5"
 <a name="universal-quantifiers"></a>
 ### Universal Quantifier
 
-```scala mdoc
+```scala mdoc:to-string
 e"forall x: Int. x > 0"
 e"∀x. x || true"
 ```
@@ -174,7 +174,7 @@ e"∀x. x || true"
 <a name="existential-quantifiers"></a>
 ### Existential Quantifier
 
-```scala mdoc
+```scala mdoc:to-string
 e"exists x: BigInt. x < 0"
 e"∃x, y. x + y == 0"
 ```
@@ -182,7 +182,7 @@ e"∃x, y. x + y == 0"
 <a name="choose"></a>
 ## Choose
 
-```scala mdoc
+```scala mdoc:to-string
 e"choose x. x * 3 < 17"
 e"choose x: String. true"
 ```

@@ -53,21 +53,15 @@ Once imported, it is possible to build Inox types and expressions using a friend
 val tpe = t"Boolean"
 // tpe: Type = Boolean
 val expr = e"1 + 1 == 2"
-// expr: Expr = Equals(
-//   Plus(IntegerLiteral(1), IntegerLiteral(1)),
-//   IntegerLiteral(2)
-// )
+// expr: Expr = 1 + 1 == 2
 ```
 
 It is also possible to embed types and expressions:
 
 ```scala
 e"let x: $tpe = $expr in !x"
-// res0: Expr = Let(
-//   ValDef(x, Boolean, List()),
-//   Equals(Plus(IntegerLiteral(1), IntegerLiteral(1)), IntegerLiteral(2)),
-//   Not(Variable(x, Boolean, List()))
-// )
+// res0: Expr = val x: Boolean = 1 + 1 == 2
+// ¬x
 ```
 
 <a name="syntax"></a>
@@ -81,9 +75,9 @@ e"let x: $tpe = $expr in !x"
 
 ```scala
 e"true"
-// res1: Expr = BooleanLiteral(true)
+// res1: Expr = true
 e"false"
-// res2: Expr = BooleanLiteral(false)
+// res2: Expr = false
 ```
 
 <a name="numeric-literals"></a>
@@ -91,7 +85,7 @@ e"false"
 
 ```scala
 e"1"
-// res3: Expr = IntegerLiteral(1)
+// res3: Expr = 1
 ```
 
 Note that the type of numeric expressions is inferred. In case of ambiguity, `BigInt` is chosen by default.
@@ -105,7 +99,7 @@ It is however possible to annotate the desired type.
 
 ```scala
 e"1 : Int".getType
-// res5: Type = BVType(true, 32)
+// res5: Type = Int
 ```
 
 ```scala
@@ -118,7 +112,7 @@ e"1 : Real".getType
 
 ```scala
 e"3.75"
-// res7: Expr = FractionLiteral(15, 4)
+// res7: Expr = 15/4
 ```
 
 <a name="string-literals"></a>
@@ -126,7 +120,7 @@ e"3.75"
 
 ```scala
 e"'Hello world!'"
-// res8: Expr = StringLiteral("Hello world!")
+// res8: Expr = "Hello world!"
 ```
 
 <a name="character-literals"></a>
@@ -134,7 +128,7 @@ e"'Hello world!'"
 
 ```scala
 e"`a`"
-// res9: Expr = CharLiteral('a')
+// res9: Expr = 'a'
 ```
 
 <a name="arithmetic"></a>
@@ -144,13 +138,7 @@ Arithmetic operators are infix and have there usual associativity and priority.
 
 ```scala
 e"1 + 2 * 5 + 6 - 7 / 17"
-// res10: Expr = Minus(
-//   Plus(
-//     Plus(IntegerLiteral(1), Times(IntegerLiteral(2), IntegerLiteral(5))),
-//     IntegerLiteral(6)
-//   ),
-//   Division(IntegerLiteral(7), IntegerLiteral(17))
-// )
+// res10: Expr = ((1 + 2 * 5) + 6) - 7 / 17
 ```
 
 <a name="conditionals"></a>
@@ -158,11 +146,11 @@ e"1 + 2 * 5 + 6 - 7 / 17"
 
 ```scala
 e"if (1 == 2) 'foo' else 'bar'"
-// res11: Expr = IfExpr(
-//   Equals(IntegerLiteral(1), IntegerLiteral(2)),
-//   StringLiteral("foo"),
-//   StringLiteral("bar")
-// )
+// res11: Expr = if (1 == 2) {
+//   "foo"
+// } else {
+//   "bar"
+// }
 ```
 
 <a name="let-bindings"></a>
@@ -170,11 +158,8 @@ e"if (1 == 2) 'foo' else 'bar'"
 
 ```scala
 e"let word: String = 'World!' in concatenate('Hello ', word)"
-// res12: Expr = Let(
-//   ValDef(word, String, List()),
-//   StringLiteral("World!"),
-//   StringConcat(StringLiteral("Hello "), Variable(word, String, List()))
-// )
+// res12: Expr = val word: String = "World!"
+// "Hello " + word
 ```
 
 <a name="lambda-expressions"></a>
@@ -182,30 +167,21 @@ e"let word: String = 'World!' in concatenate('Hello ', word)"
 
 ```scala
 e"lambda x: BigInt, y: BigInt. x + y"
-// res13: Expr = Lambda(
-//   List(ValDef(x, BigInt, List()), ValDef(y, BigInt, List())),
-//   Plus(Variable(x, BigInt, List()), Variable(y, BigInt, List()))
-// )
+// res13: Expr = (x: BigInt, y: BigInt) => x + y
 ```
 
 It is also possible to use the Unicode `λ` symbol.
 
 ```scala
 e"λx: BigInt, y: BigInt. x + y"
-// res14: Expr = Lambda(
-//   List(ValDef(x, BigInt, List()), ValDef(y, BigInt, List())),
-//   Plus(Variable(x, BigInt, List()), Variable(y, BigInt, List()))
-// )
+// res14: Expr = (x: BigInt, y: BigInt) => x + y
 ```
 
 Type annotations can be omitted for any of the parameters if their type can be inferred.
 
 ```scala
 e"lambda x. x * 0.5"
-// res15: Expr = Lambda(
-//   List(ValDef(x, Real, List())),
-//   Times(Variable(x, Real, List()), FractionLiteral(1, 2))
-// )
+// res15: Expr = (x: Real) => x * 1/2
 ```
 
 <a name="quantifiers"></a>
@@ -216,18 +192,9 @@ e"lambda x. x * 0.5"
 
 ```scala
 e"forall x: Int. x > 0"
-// res16: Expr = Forall(
-//   List(ValDef(x, Int, List())),
-//   GreaterThan(
-//     Variable(x, BVType(true, 32), List()),
-//     BVLiteral(true, BitSet(), 32)
-//   )
-// )
+// res16: Expr = ∀x: Int. (x > 0)
 e"∀x. x || true"
-// res17: Expr = Forall(
-//   List(ValDef(x, Boolean, List())),
-//   Or(List(Variable(x, Boolean, List()), BooleanLiteral(true)))
-// )
+// res17: Expr = ∀x: Boolean. (x || true)
 ```
 
 <a name="existential-quantifiers"></a>
@@ -235,24 +202,9 @@ e"∀x. x || true"
 
 ```scala
 e"exists x: BigInt. x < 0"
-// res18: Expr = Not(
-//   Forall(
-//     List(ValDef(x, BigInt, List())),
-//     Not(LessThan(Variable(x, BigInt, List()), IntegerLiteral(0)))
-//   )
-// )
+// res18: Expr = ¬∀x: BigInt. ¬(x < 0)
 e"∃x, y. x + y == 0"
-// res19: Expr = Not(
-//   Forall(
-//     List(ValDef(x, BigInt, List()), ValDef(y, BigInt, List())),
-//     Not(
-//       Equals(
-//         Plus(Variable(x, BigInt, List()), Variable(y, BigInt, List())),
-//         IntegerLiteral(0)
-//       )
-//     )
-//   )
-// )
+// res19: Expr = ¬∀x: BigInt, y: BigInt. (x + y ≠ 0)
 ```
 
 <a name="choose"></a>
@@ -260,15 +212,9 @@ e"∃x, y. x + y == 0"
 
 ```scala
 e"choose x. x * 3 < 17"
-// res20: Expr = Choose(
-//   ValDef(x, BigInt, List()),
-//   LessThan(
-//     Times(Variable(x, BigInt, List()), IntegerLiteral(3)),
-//     IntegerLiteral(17)
-//   )
-// )
+// res20: Expr = choose((x: BigInt) => x * 3 < 17)
 e"choose x: String. true"
-// res21: Expr = Choose(ValDef(x, String, List()), BooleanLiteral(true))
+// res21: Expr = choose((x: String) => true)
 ```
 
 <a name="primitives"></a>
