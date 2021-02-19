@@ -105,6 +105,7 @@ lazy val genDoc = taskKey[Unit]("Typecheck and interpret the documentation")
 
 mdocIn  := sourceDirectory.value / "main" / "doc"
 mdocOut := baseDirectory.value / "doc"
+mdocExtraArguments := Seq("--no-link-hygiene")
 
 genDoc := { () }
 genDoc := (genDoc dependsOn (compile in Compile)).value
