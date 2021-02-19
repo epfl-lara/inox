@@ -158,7 +158,7 @@ interfaces for such cases:
 It is sometimes useful to have a bidirectional translation between two sorts of trees.
 Inox provides a mechanism to maintain an encoder/decoder pair alongside a pair of
 source and target programs through an instance of
-[ProgramTransformer](/src/main/scala/inox/ast/ProgramEncoder.scala).
+[ProgramTransformer](/src/main/scala/inox/transformers/ProgramTransformer.scala).
 
 ## Providing new semantics
 
