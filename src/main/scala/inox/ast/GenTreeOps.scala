@@ -64,9 +64,7 @@ trait GenTreeOps { self =>
     val rec = fold(f) _
     val Deconstructor(es, _) = e
 
-    //Usages of views makes the computation lazy. (which is useful for
-    //contains-like operations)
-    f(e, es.view.map(rec))
+    f(e, es.map(rec))
   }
 
 
