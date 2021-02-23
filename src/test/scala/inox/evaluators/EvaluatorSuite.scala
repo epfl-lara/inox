@@ -311,7 +311,7 @@ class EvaluatorSuite extends FunSuite {
     eval(e, Not(BooleanLiteral(true)))                            === BooleanLiteral(false)
   }
 
-  test("Real Arightmetic") {
+  test("Real Arithmetic") {
     val e = evaluator(ctx)
 
     eval(e, Plus(FractionLiteral(2, 3), FractionLiteral(1, 3))) === FractionLiteral(1, 1)

@@ -152,9 +152,12 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
       case (ADTType(id, tps), DataType(sym, cases)) =>
         val tsort = getSort(id).typed
         (ADTType(id, tsort.definition.typeArgs), DataType(sym,
-          (tsort.constructors zip cases).map { case (tcons, Constructor(sym, ADTCons(id, tps), fields)) =>
-            Constructor(sym, ADTCons(id, tsort.definition.typeArgs),
-              (tcons.fields zip fields).map { case (vd, (id, _)) => (id, vd.getType) })
+          (tsort.constructors zip cases).map {
+            case (tcons, Constructor(sym, ADTCons(id, tps), fields)) =>
+              Constructor(sym, ADTCons(id, tsort.definition.typeArgs),
+                (tcons.fields zip fields).map { case (vd, (id, _)) => (id, vd.getType) })
+            case _ =>
+              context.reporter.internalError("match should be exhaustive")
           }))
 
       case (TupleType(tps), DataType(sym, Seq(Constructor(id, TupleCons(_), fields)))) =>

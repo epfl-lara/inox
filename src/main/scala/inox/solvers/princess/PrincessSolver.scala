@@ -69,8 +69,8 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
     private implicit def exprToFormula(iexpr: IExpression): IFormula = iexpr.asInstanceOf[IFormula]
 
     def mkNot(e: IExpression) = ! e
-    def mkAnd(es: IExpression*) = (es.head /: es.tail)((p,q) => p & q)
-    def mkOr(es: IExpression*) = (es.head /: es.tail)((p,q) => p | q)
+    def mkAnd(es: IExpression*) = es.tail.foldLeft(es.head)((p,q) => p & q)
+    def mkOr(es: IExpression*) = es.tail.foldLeft(es.head)((p,q) => p | q)
     def mkImplies(e1: IExpression, e2: IExpression) = e1 ==> e2
     def mkEquals(e1: IExpression, e2: IExpression) = (e1, e2) match {
       case (f1: IFormula, f2: IFormula) => f1 <=> f2

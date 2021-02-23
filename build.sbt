@@ -1,14 +1,14 @@
 name := "inox"
 
-enablePlugins(GitVersioning, TutPlugin)
+enablePlugins(GitVersioning, MdocPlugin)
 
 git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
-scalaVersion := "2.12.8"
+scalaVersion := "2.12.13"
 
-crossScalaVersions := Seq("2.11.8", "2.12.8")
+crossScalaVersions := Seq("2.11.8", "2.12.13")
 
 scalacOptions ++= Seq(
   "-deprecation",
@@ -33,7 +33,7 @@ unmanagedJars in Compile += {
 resolvers ++= Seq(
   "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
   "Sonatype OSS Releases" at "https://oss.sonatype.org/content/repositories/releases",
-  "uuverifiers" at "http://logicrunch.research.it.uu.se/maven"
+  ("uuverifiers" at "http://logicrunch.research.it.uu.se/maven").withAllowInsecureProtocol(true)
 )
 
 libraryDependencies ++= Seq(
@@ -103,10 +103,11 @@ sourceGenerators in Compile += Def.task {
 
 lazy val genDoc = taskKey[Unit]("Typecheck and interpret the documentation")
 
-tutSourceDirectory := sourceDirectory.value / "main" / "doc"
-tutTargetDirectory := baseDirectory.value / "doc"
+mdocIn  := sourceDirectory.value / "main" / "doc"
+mdocOut := baseDirectory.value / "doc"
+mdocExtraArguments := Seq("--no-link-hygiene")
 
-genDoc := { tutQuick.value; () }
+genDoc := { () }
 genDoc := (genDoc dependsOn (compile in Compile)).value
 
 Keys.fork in run := true

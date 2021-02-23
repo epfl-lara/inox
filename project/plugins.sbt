@@ -1,5 +1,5 @@
 
-addSbtPlugin("org.tpolecat" % "tut-plugin" % "0.6.11")
+addSbtPlugin("org.scalameta" % "sbt-mdoc" % "2.2.18")
 
 addSbtPlugin("com.typesafe.sbt" % "sbt-git" % "1.0.0")
 

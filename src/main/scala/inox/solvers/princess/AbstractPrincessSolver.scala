@@ -142,11 +142,11 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
       case And(exprs) =>
         val subExprs = for (e <- exprs) yield parseFormula(e)
-        (subExprs.head /: subExprs.tail)((p, q) => p & q)
+        subExprs.tail.foldLeft(subExprs.head)((p, q) => p & q)
 
       case Or(exprs) => {
         val subExprs = for (e <- exprs) yield parseFormula(e)
-        (subExprs.head /: subExprs.tail)((p, q) => p | q)
+        subExprs.tail.foldLeft(subExprs.head)((p, q) => p | q)
       }
 
       case Implies(lhs, rhs) => {
