@@ -364,6 +364,12 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         val Some((from, to)) = c.cast
         Mod.extract(to - 1, 0, parseTerm(e))
 
+      case BVUnsignedToSigned(e) =>
+        parseTerm(e)
+
+      case BVSignedToUnsigned(e) =>
+        parseTerm(e)
+
       case _ => unsupported(expr, "Unexpected formula " + expr)
     }
 

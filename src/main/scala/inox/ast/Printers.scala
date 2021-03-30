@@ -260,6 +260,8 @@ trait Printer {
     case BVWideningCast(e, Int32Type()) => p"$e.toInt"
     case BVWideningCast(e, Int64Type()) => p"$e.toLong"
     case BVWideningCast(e, BVType(_, size)) => p"$e.toBV($size)"
+    case BVUnsignedToSigned(e) => p"$e.toSigned"
+    case BVSignedToUnsigned(e) => p"$e.toUnsigned"
 
     case fs @ FiniteSet(rs, _) => p"{${rs}}"
     case fs @ FiniteBag(rs, _) => p"{${rs.toSeq}}"

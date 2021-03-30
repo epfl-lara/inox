@@ -446,6 +446,9 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         val Some((from, to)) = c.cast
         FixedSizeBitVectors.Extract(to - 1, 0, toSMT(e))
 
+      case BVUnsignedToSigned(e) => toSMT(e)
+      case BVSignedToUnsigned(e) => toSMT(e)
+
       case And(sub)                  => SmtLibConstructors.and(sub.map(toSMT))
       case Or(sub)                   => SmtLibConstructors.or(sub.map(toSMT))
       case IfExpr(cond, thenn, elze) => Core.ITE(toSMT(cond), toSMT(thenn), toSMT(elze))
