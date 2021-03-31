@@ -182,7 +182,7 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
 
   def emit(msg: Message) = synchronized {
     println(reline(severityToPrefix(msg.severity), smartPos(msg.position) + msg.msg.toString))
-    printLineContent(msg.position)
+    printLineContent(msg.position, false)
   }
 
   def getLine(pos: Position): Option[String] = {
@@ -201,7 +201,7 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
 
   val blankPrefix = " " * prefixSize
 
-  def printLineContent(pos: Position): Unit = {
+  def printLineContent(pos: Position, asciiOnly: Boolean): Unit = {
     getLine(pos) match {
       case Some(line) =>
         println(blankPrefix+line)
@@ -218,10 +218,16 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
               ("^" * width)+"..."
             }
 
-            println(blankPrefix+(" " * (bp.col - 1) + Console.RED+carret+Console.RESET))
+            if (asciiOnly)
+              println(blankPrefix+(" " * (bp.col - 1) + carret))
+            else
+              println(blankPrefix+(" " * (bp.col - 1) + Console.RED+carret+Console.RESET))
 
           case op: OffsetPosition =>
-            println(blankPrefix+(" " * (op.col - 1) + Console.RED+"^"+Console.RESET))
+            if (asciiOnly)
+              println(blankPrefix+(" " * (op.col - 1) + "^"))
+            else
+              println(blankPrefix+(" " * (op.col - 1) + Console.RED+"^"+Console.RESET))
         }
       case None =>
     }
@@ -234,12 +240,26 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
 }
 
 class PlainTextReporter(debugSections: Set[DebugSection]) extends DefaultReporter(debugSections) {
-  override protected def severityToPrefix(sev: Severity): String = sev match {
-    case ERROR    => "[ Error  ]"
-    case WARNING  => "[Warning ]"
-    case INFO     => "[  Info  ]"
-    case FATAL    => "[ Fatal  ]"
-    case INTERNAL => "[Internal]"
-    case DEBUG(_) => "[ Debug  ]"
+  override protected def severityToPrefix(sev: Severity): String = ""
+
+  protected def severityToString(sev: Severity): String = sev match {
+    case ERROR    => "error"
+    case WARNING  => "warning"
+    case INFO     => "info"
+    case FATAL    => "fatal"
+    case INTERNAL => "internal"
+    case DEBUG(_) => "debug"
+  }
+
+  override def emit(msg: Message) = synchronized {
+    if (msg.severity == ERROR || msg.severity == FATAL || msg.severity == INTERNAL)
+      println(smartPos(msg.position) + "error: " + msg.msg.toString)
+    else if (msg.severity == WARNING)
+      println(smartPos(msg.position) + "warning: " + msg.msg.toString)
+    else if (msg.severity.isInstanceOf[DEBUG])
+      println(smartPos(msg.position) + "debug: " + msg.msg.toString)
+    else
+      println(smartPos(msg.position) + msg.msg.toString)
+    printLineContent(msg.position, true)
   }
 }
