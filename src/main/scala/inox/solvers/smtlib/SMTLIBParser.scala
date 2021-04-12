@@ -81,15 +81,20 @@ trait SMTLIBParser {
       case _ => IntegerLiteral(n)
     }
 
-    case FixedSizeBitVectors.BitVectorLit(bs) => otpe match {
-      case Some(BVType(signed, _)) =>
-        BVLiteral(signed, BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
-      case _ =>
-        BVLiteral(true, BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
-    }
+    case FixedSizeBitVectors.BitVectorLit(bs) =>
+      otpe match {
+        case Some(BVType(signed, _)) =>
+          BVLiteral(signed, BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
+        case Some(CharType()) =>
+          val bv = BVLiteral(true, BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, 16)
+          CharLiteral(bv.toBigInt.toInt.toChar)
+        case _ =>
+          BVLiteral(true, BitSet.empty ++ bs.reverse.zipWithIndex.collect { case (true, i) => i + 1 }, bs.size)
+      }
 
     case FixedSizeBitVectors.BitVectorConstant(n, size) => otpe match {
       case Some(BVType(signed, _)) => BVLiteral(signed, n, size.intValue)
+      case Some(CharType()) => CharLiteral(n.toChar)
       case _ => BVLiteral(true, n, size.intValue)
     }
 
