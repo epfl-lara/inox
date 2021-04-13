@@ -325,6 +325,18 @@ trait RecursiveEvaluator
         case x => throw EvalError(typeErrorMsg(x, BVType(bvt.signed, bvt.size - 1))) // or any smaller BVType
       }
 
+    case BVUnsignedToSigned(expr) =>
+      e(expr) match {
+        case BVLiteral(false, bits, size) => BVLiteral(true, bits, size)
+        case x => throw EvalError("Expected unsigned bitvector type")
+      }
+
+    case BVSignedToUnsigned(expr) =>
+      e(expr) match {
+        case BVLiteral(true, bits, size) => BVLiteral(false, bits, size)
+        case x => throw EvalError("Expected signed bitvector type")
+      }
+
     case LessThan(l,r) =>
       (e(l), e(r)) match {
         case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>

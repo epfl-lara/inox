@@ -287,6 +287,16 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(e), Seq(bvt), NoFlags,
         (_, _, es, tps, _) => t.BVWideningCast(es(0), tps(0).asInstanceOf[t.BVType]))
     },
+    classOf[s.BVUnsignedToSigned] -> { expr =>
+      val s.BVUnsignedToSigned(e) = expr
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.BVUnsignedToSigned(es(0)))
+    },
+    classOf[s.BVSignedToUnsigned] -> { expr =>
+      val s.BVSignedToUnsigned(e) = expr
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.BVSignedToUnsigned(es(0)))
+    },
     classOf[s.Tuple] -> { expr =>
       val s.Tuple(args) = expr
       (NoIdentifiers, NoVariables, args, NoTypes, NoFlags,

@@ -532,7 +532,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `... .toByte` and other narrowing casts */
   sealed case class BVNarrowingCast(expr: Expr, newType: BVType) extends Expr with CachingTyped {
-    // The expression is well types iff `expr` is well typed and the BVTypes' size match a narrowing cast.
+    // The expression is well typed iff `expr` is well typed and the BVTypes' size match a narrowing cast.
     override protected def computeType(implicit s: Symbols): Type = cast match {
       case Some((from, to)) => newType
       case _ => Untyped
@@ -547,7 +547,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `... .toInt` and other widening casts */
   sealed case class BVWideningCast(expr: Expr, newType: BVType) extends Expr with CachingTyped {
-    // The expression is well types iff `expr` is well typed and the BVTypes' size match a widening cast.
+    // The expression is well typed iff `expr` is well typed and the BVTypes' size match a widening cast.
     override protected def computeType(implicit s: Symbols): Type = cast match {
       case Some((from, to)) => newType
       case _ => Untyped
@@ -557,6 +557,22 @@ trait Expressions { self: Trees =>
     def cast(implicit s: Symbols): Option[(Int, Int)] = getBVType(expr) match {
       case BVType(s, from) if s == newType.signed && from < newType.size => Some(from -> newType.size)
       case _ => None
+    }
+  }
+
+  /** Bitvector conversion from unsigned to signed */
+  sealed case class BVUnsignedToSigned(expr: Expr) extends Expr with CachingTyped {
+    override protected def computeType(implicit s: Symbols): Type = getBVType(expr) match {
+      case BVType(false, size) => BVType(true, size)
+      case _ => Untyped
+    }
+  }
+
+  /** Bitvector conversion from signed to unsigned */
+  sealed case class BVSignedToUnsigned(expr: Expr) extends Expr with CachingTyped {
+    override protected def computeType(implicit s: Symbols): Type = getBVType(expr) match {
+      case BVType(true, size) => BVType(false, size)
+      case _ => Untyped
     }
   }
 

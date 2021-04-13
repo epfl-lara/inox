@@ -327,6 +327,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         val Some((from, to)) = c.cast
         z3.mkExtract(to - 1, 0, rec(e))
 
+      case BVUnsignedToSigned(e) => rec(e)
+      case BVSignedToUnsigned(e) => rec(e)
+
       case LessThan(l, r) => l.getType match {
         case IntegerType() => z3.mkLT(rec(l), rec(r))
         case RealType() => z3.mkLT(rec(l), rec(r))
