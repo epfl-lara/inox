@@ -204,7 +204,9 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
   def printLineContent(pos: Position, asciiOnly: Boolean): Unit = {
     getLine(pos) match {
       case Some(line) =>
-        println(blankPrefix+line)
+        // Scala positions probably assume 1 tab = 8 spaces, so we replaces tabs
+        // for the carret (^) computed below to be aligned
+        println(blankPrefix+line.replace("\t", " " * 8))
         pos match {
           case rp: RangePosition =>
             val bp = rp.focusBegin
