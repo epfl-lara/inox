@@ -64,7 +64,7 @@ object ASCIIHelpers {
       (0 until cellsPerRow).map(i => constraints.getOrElse((i, i), 1))
     }
 
-    def render: String = {
+    def render(asciiOnly: Boolean): String = {
       val colSizes = computeColumnSizes
       val titleWidth = trimNonPrintable(title).length
       val fullWidth = Math.max(colSizes.sum + colSizes.size * 2, titleWidth + 7)
@@ -72,16 +72,34 @@ object ASCIIHelpers {
 
       val sb = new StringBuffer
 
-      sb append "  ┌─" + ("─" * titleWidth) + "─┐\n"
-      sb append "╔═╡ " +         title      + " ╞"  + ("═" * padWidth) + "╗\n"
-      sb append "║ └─" + ("─" * titleWidth) + "─┘"  + (" " * padWidth) + "║\n"
+      val barH = if (asciiOnly) "#" else "─"
+      val topLeft = if (asciiOnly) "#" else "┌"
+      val topRight = if (asciiOnly) "#" else "┐"
+      val bottomLeft = if (asciiOnly) "#" else "└"
+      val bottomRight = if (asciiOnly) "#" else "┘"
+      val dots = if (asciiOnly) "." else "┄"
+      val doubleBarH = if (asciiOnly) "#" else "═"
+      val doubleBarV = if (asciiOnly) "#" else "║"
+      val doubleTopLeft = if (asciiOnly) "#" else "╔"
+      val doubleTopRight = if (asciiOnly) "#" else "╗"
+      val doubleBottomLeft = if (asciiOnly) "#" else "╚"
+      val doubleBottomRight = if (asciiOnly) "#" else "╝"
+
+      val leftConnect = if (asciiOnly) "#" else "╡"
+      val rightConnect = if (asciiOnly) "#" else "╞"
+      val doubleRightConnect = if (asciiOnly) "#" else "╟"
+      val doubleLeftConnect = if (asciiOnly) "#" else "╢"
+
+      sb append s"  $topLeft$barH" + (barH * titleWidth) + s"$barH$topRight\n"
+      sb append s"$doubleTopLeft$doubleBarH$leftConnect " + title + s" $rightConnect" + (doubleBarH * padWidth) + s"$doubleTopRight\n"
+      sb append s"$doubleBarV $bottomLeft$barH" + (barH * titleWidth) + s"$barH$bottomRight"  + (" " * padWidth) + s"$doubleBarV\n"
 
       for (r <- rows) r match {
         case Separator =>
-          sb append "╟" + ("┄" * fullWidth) + "╢\n"
+          sb append doubleRightConnect + (dots * fullWidth) + s"$doubleLeftConnect\n"
 
         case Row(cells) =>
-          sb append "║ "
+          sb append s"$doubleBarV "
           var i = 0
           for (c <- cells) {
             if (i > 0) {
@@ -102,10 +120,10 @@ object ASCIIHelpers {
 
             i += c.spanning
           }
-          sb append " ║\n"
+          sb append s" $doubleBarV\n"
       }
 
-      sb append "╚" + ("═" * fullWidth) + "╝"
+      sb append doubleBottomLeft + (doubleBarH * fullWidth) + doubleBottomRight
 
       sb.toString
     }

@@ -231,3 +231,4 @@ object optSelectedSolvers extends SetOptionDef[String] {
   override def formatDefault: String = default.mkString(",")
 }
 
+object optNoColors extends inox.FlagOptionDef("no-colors", false)

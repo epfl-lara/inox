@@ -100,7 +100,7 @@ final class TimerStorage private(val _name: Option[String])
    *
    * NOTE All timers must have been stopped before calling this method.
    */
-  def outputTable(printer: String => Unit): Unit = {
+  def outputTable(printer: String => Unit, asciiOnly: Boolean): Unit = {
     import utils.ASCIIHelpers.{ Cell, Right, Row, Separator, Table }
 
     var table = Table("Timers")
@@ -148,7 +148,7 @@ final class TimerStorage private(val _name: Option[String])
     }
 
     rec("", this)
-    printer(table.render)
+    printer(table.render(asciiOnly))
   }
 }
 
