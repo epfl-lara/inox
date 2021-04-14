@@ -18,10 +18,13 @@ information, see:
 - A description of the [trees](doc/trees.md) API and how to extend them.
 
 To import Inox into your project, add the following lines to your `build.sbt`:
+
 ```scala
-resolvers += "Sonatype OSS Releases" at "https://oss.sonatype.org/content/repositories/releases"
+
+resolvers += "jitpack" at "https://jitpack.io"
 resolvers += "uuverifiers" at "http://logicrunch.it.uu.se:4096/~wv/maven"
-libraryDependencies += "ch.epfl.lara" %% "inox" % "1.0.2"
+
+libraryDependencies += "com.github.epfl-lara" % "inox" % "6dfb351eee"
 ```
 
 Alternatively, one can use Inox through command-line by using the [TIP](https://tip-org.github.io/) format
