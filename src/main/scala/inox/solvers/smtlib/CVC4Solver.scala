@@ -24,7 +24,6 @@ trait CVC4Solver extends SMTLIBSolver with CVC4Target {
       "--produce-models",
       "--incremental",
       // "--dt-rewrite-error-sel", // Removing since it causes CVC4 to segfault on some inputs
-      "--rewrite-divk",
       "--print-success",
       "--lang", "smt2.5"
     ) ++ options.findOptionOrDefault(optCVC4Options)
