@@ -17,17 +17,41 @@ information, see:
 - A more detailed description of the available solver/evaluator [API](doc/API.md) calls.
 - A description of the [trees](doc/trees.md) API and how to extend them.
 
-To import Inox into your project, add the following lines to your `build.sbt`:
+### Add Inox as a dependency
+
+To add Inox as a dependency of your project, add the following lines to your `build.sbt`,
+where `VERSION` can be replaced by a tag (eg. `v1.1.5`), a branch name (eg. `rust-interop`)
+or a commit hash (eg. `6dfb351eee`).
 
 ```scala
-
 resolvers += "jitpack" at "https://jitpack.io"
 resolvers += "uuverifiers" at "http://logicrunch.it.uu.se:4096/~wv/maven"
 
-libraryDependencies += "com.github.epfl-lara" % "inox" % "6dfb351eee"
+libraryDependencies += "com.github.epfl-lara" % "inox" % "VERSION"
 ```
 
-Alternatively, one can use Inox through command-line by using the [TIP](https://tip-org.github.io/) format
+Please see the [releases page](https://github.com/epfl-lara/inox/releases) for the latest Inox release.
+
+**Use without the jitpack.io resolver**
+
+Alternatively, one can depend on Inox without using the [jitpack.io](jitpack.io) resolver
+in the following way:
+
+```scala
+resolvers += "uuverifiers" at "http://logicrunch.it.uu.se:4096/~wv/maven"
+
+def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
+
+lazy val inox = ghProject(
+  "https://github.com/epfl-lara/inox.git",
+  "6dfb351eeee44a3f13152bf510aceba7936d0e4d"
+)
+```
+
+Command-line Interface
+----------------------
+
+One can also use Inox through command-line by using the [TIP](https://tip-org.github.io/) format
 to describe the relevant query. The easiest way to use the Inox command line is to simply
 [build](#building-inox) the project and use the generated script.
 
