@@ -72,23 +72,23 @@ object ASCIIHelpers {
 
       val sb = new StringBuffer
 
-      val barH = if (asciiOnly) "#" else "─"
-      val topLeft = if (asciiOnly) "#" else "┌"
-      val topRight = if (asciiOnly) "#" else "┐"
-      val bottomLeft = if (asciiOnly) "#" else "└"
-      val bottomRight = if (asciiOnly) "#" else "┘"
+      val barH = if (asciiOnly) "" else "─"
+      val topLeft = if (asciiOnly) "" else "┌"
+      val topRight = if (asciiOnly) "" else "┐"
+      val bottomLeft = if (asciiOnly) "" else "└"
+      val bottomRight = if (asciiOnly) "" else "┘"
       val dots = if (asciiOnly) "." else "┄"
-      val doubleBarH = if (asciiOnly) "#" else "═"
-      val doubleBarV = if (asciiOnly) "#" else "║"
-      val doubleTopLeft = if (asciiOnly) "#" else "╔"
-      val doubleTopRight = if (asciiOnly) "#" else "╗"
-      val doubleBottomLeft = if (asciiOnly) "#" else "╚"
-      val doubleBottomRight = if (asciiOnly) "#" else "╝"
+      val doubleBarH = if (asciiOnly) "" else "═"
+      val doubleBarV = if (asciiOnly) "" else "║"
+      val doubleTopLeft = if (asciiOnly) "" else "╔"
+      val doubleTopRight = if (asciiOnly) "" else "╗"
+      val doubleBottomLeft = if (asciiOnly) "" else "╚"
+      val doubleBottomRight = if (asciiOnly) "" else "╝"
 
-      val leftConnect = if (asciiOnly) "#" else "╡"
-      val rightConnect = if (asciiOnly) "#" else "╞"
-      val doubleRightConnect = if (asciiOnly) "#" else "╟"
-      val doubleLeftConnect = if (asciiOnly) "#" else "╢"
+      val leftConnect = if (asciiOnly) "" else "╡"
+      val rightConnect = if (asciiOnly) "" else "╞"
+      val doubleRightConnect = if (asciiOnly) "" else "╟"
+      val doubleLeftConnect = if (asciiOnly) "" else "╢"
 
       sb append s"  $topLeft$barH" + (barH * titleWidth) + s"$barH$topRight\n"
       sb append s"$doubleTopLeft$doubleBarH$leftConnect " + title + s" $rightConnect" + (doubleBarH * padWidth) + s"$doubleTopRight\n"
@@ -99,7 +99,7 @@ object ASCIIHelpers {
           sb append doubleRightConnect + (dots * fullWidth) + s"$doubleLeftConnect\n"
 
         case Row(cells) =>
-          sb append s"$doubleBarV "
+          if (!asciiOnly) sb append s"$doubleBarV "
           var i = 0
           for (c <- cells) {
             if (i > 0) {
