@@ -58,7 +58,7 @@ trait PortfolioSolver extends Solver { self =>
       }
     }
 
-    inox.utils.findFirst(fs)(_._2 != Unknown) match {
+    inox.utils.FutureUtils.findFirst(fs)(_._2 != Unknown) match {
       case Some((s, r)) =>
         resultSolver = s.getResultSolver
         resultSolver.foreach { solv =>
