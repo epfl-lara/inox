@@ -17,15 +17,17 @@ object StringUtils {
   }
 
   def encodeByte(b: Byte): String = "\\x" + toHex((b >> 4) & 0xF) + toHex(b & 0xF)
-  def decodeHex(s: String): Byte = ((fromHex(s.charAt(2)) << 4) + fromHex(s.charAt(3))).toByte
+  def decodeHex(s: String): Byte = ((fromHex(s.charAt(0)) << 4) + fromHex(s.charAt(1))).toByte
 
   private val hex = """^\\x[0-9A-Fa-f]{2}""".r
+  private val uhex1 = """(?s)^\\u\{([0-9A-Fa-f])\}(.*)""".r
+  private val uhex2 = """(?s)^\\u\{([0-9A-Fa-f]{2})\}(.*)""".r
 
   object Hex {
     def unapply(s: String): Option[(Byte, String)] = {
       if (hex.findFirstIn(s).isDefined) {
         val (head, s2) = s.splitAt(4)
-        Some((decodeHex(head), s2))
+        Some((decodeHex(head.drop(2)), s2))
       } else {
         None
       }
@@ -44,6 +46,8 @@ object StringUtils {
   }
 
   def decode(s: String): String = if (s.isEmpty) s else (s match {
+    case uhex1(head, s2) => (fromHex(head.charAt(0)) & 0xF).toChar + decode(s2)
+    case uhex2(head, s2) => (decodeHex(head) & 0xFF).toChar + decode(s2)
     case JavaEncoded(b, s2) => (b & 0xFF).toChar + decode(s2)
     case _ => s.head + decode(s.tail)
   })
