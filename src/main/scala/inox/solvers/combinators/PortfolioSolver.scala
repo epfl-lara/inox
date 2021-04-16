@@ -58,11 +58,7 @@ trait PortfolioSolver extends Solver { self =>
       }
     }
 
-    tasks = Future.sequence(fs).map(_ => ())
-
-    val result = Future.find(fs.toList)(_._2 != Unknown)
-
-    val res = Await.result(result, Duration.Inf) match {
+    inox.utils.findFirst(fs)(_._2 != Unknown) match {
       case Some((s, r)) =>
         resultSolver = s.getResultSolver
         resultSolver.foreach { solv =>
@@ -72,14 +68,13 @@ trait PortfolioSolver extends Solver { self =>
         r
       case None =>
         reporter.debug("No solver succeeded")
-        //fs.foreach(f => println(f.value))
         config.cast(Unknown)
     }
 
     // TODO: Decide if we really want to wait for all the solvers.
     // I understand we interrupt them, but what if one gets stuck
     // fs foreach { Await.ready(_, Duration.Inf) }
-    res
+    // res
   }
 
 
