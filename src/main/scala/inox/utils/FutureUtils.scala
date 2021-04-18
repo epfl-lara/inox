@@ -20,8 +20,8 @@ object FutureUtils {
         case Success(res) if cond(res) =>
           p.trySuccess(Some(res))
         case _ =>
-          synchronized { i.getAndIncrement() }
-          if (i.get == n) p.trySuccess(None)
+          val finished = i.incrementAndGet()
+          if (finished == n) p.trySuccess(None)
       })
     }
     Await.result(p.future, Duration.Inf)
