@@ -35,6 +35,21 @@ abstract class Position extends Ordered[Position] {
 }
 
 object Position {
+
+  def smartPos(p: Position): String = {
+    if (p == NoPosition) {
+      ""
+    } else {
+      val target = p.file.getAbsolutePath()
+      val here   = new java.io.File(".").getAbsolutePath().stripSuffix(".")
+      val diff   = target.stripPrefix(here)
+
+      val filePos = diff+":"
+
+      filePos + p + ": "
+    }
+  }
+
   def between(a: Position, b: Position): Position = {
     if (a.file == b.file) {
       if (a.line == b.line && a.col == b.col) {

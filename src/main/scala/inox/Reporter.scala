@@ -3,6 +3,7 @@
 package inox
 
 import utils._
+import Position.smartPos
 
 abstract class DebugSection(val name: String)
 
@@ -164,20 +165,6 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
     case FATAL    => "["+Console.RED+Console.BOLD +" Fatal  "+Console.RESET+"]"
     case INTERNAL => "["+            Console.BOLD +"Internal"+Console.RESET+"]"
     case DEBUG(_) => "["+Console.MAGENTA          +" Debug  "+Console.RESET+"]"
-  }
-
-  def smartPos(p: Position): String = {
-    if (p == NoPosition) {
-      ""
-    } else {
-      val target = p.file.getAbsolutePath()
-      val here   = new java.io.File(".").getAbsolutePath().stripSuffix(".")
-      val diff   = target.stripPrefix(here)
-
-      val filePos = diff+":"
-
-      filePos + p + ": "
-    }
   }
 
   def emit(msg: Message) = synchronized {
