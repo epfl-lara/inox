@@ -514,23 +514,32 @@ trait Templates
 
   object Template {
 
-    def lambdaPointers(encoder: Expr => Encoded)(expr: Expr): Map[Encoded, Encoded] = {
-      def collectSelectors(expr: Expr, ptr: Expr): Seq[(Expr, Variable)] = expr match {
-        case adt @ ADT(id, tps, es) => (adt.getConstructor.fields zip es).flatMap {
-          case (vd, e) => collectSelectors(e, ADTSelector(ptr, vd.id))
-        }
-
-        case Tuple(es) => es.zipWithIndex.flatMap {
-          case (e, i) => collectSelectors(e, TupleSelect(ptr, i + 1))
-        }
-
-        case IsTyped(v: Variable, _: FunctionType) => Seq(ptr -> v)
-        case _ => Seq.empty
+    def collectSelectors(expr: Expr, ptr: Expr): Seq[(Expr, Variable)] = expr match {
+      case adt @ ADT(id, tps, es) => (adt.getConstructor.fields zip es).flatMap {
+        case (vd, e) => collectSelectors(e, ADTSelector(ptr, vd.id))
       }
 
+      case Tuple(es) => es.zipWithIndex.flatMap {
+        case (e, i) => collectSelectors(e, TupleSelect(ptr, i + 1))
+      }
+
+      case IsTyped(v: Variable, _: FunctionType) => Seq(ptr -> v)
+      case _ => Seq.empty
+    }
+
+    def resultPointers(encoder: Expr => Encoded)(expr: Expr): Map[Encoded, Encoded] = {
+      val pointers = expr match {
+        case Equals(v @ (_: Variable | _: FunctionInvocation | _: Application), e) => collectSelectors(e, v).toMap
+        case Equals(e, v @ (_: Variable | _: FunctionInvocation | _: Application)) => collectSelectors(e, v).toMap
+        case _ => Map.empty[Expr, Variable]
+      }
+
+      pointers.map(p => encoder(p._1) -> encoder(p._2))
+    }
+
+    def lambdaPointers(encoder: Expr => Encoded)(expr: Expr): Map[Encoded, Encoded] = {
+
       val pointers = exprOps.collect {
-        case Equals(v @ (_: Variable | _: FunctionInvocation | _: Application), e) => collectSelectors(e, v).toSet
-        case Equals(e, v @ (_: Variable | _: FunctionInvocation | _: Application)) => collectSelectors(e, v).toSet
         case FunctionInvocation(_, _, es) => es.flatMap(e => collectSelectors(e, e)).toSet
         case Application(_, es) => es.flatMap(e => collectSelectors(e, e)).toSet
         case e: Tuple => collectSelectors(e, e).toSet
@@ -659,6 +668,10 @@ trait Templates
           if (calls.nonEmpty) blockers += bp -> calls
           if (apps.nonEmpty) applications += bp -> apps
           if (matchs.nonEmpty) matchers += bp -> matchs
+        }
+
+        for (e <- guardedExprs.getOrElse(pv, Set.empty)) {
+          pointers ++= resultPointers(encoder)(e)
         }
 
         clauses ++= (for ((b,es) <- guardedExprs; e <- es) yield encoder(Implies(b, e)))
