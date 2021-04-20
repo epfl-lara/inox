@@ -1,0 +1,6 @@
+(define-fun f () (=> Int Int) (lambda ((loc Int)) 0))
+(declare-datatypes () ((S (N) (C (r Int) (e Int)))))
+(declare-datatypes () ((T (TT (body S)))))
+(define-fun t () T (TT (C 22 5)))
+(assert (not (let ((g f)) (= (@ (ite (is-C (body t)) (lambda ((r2 Int)) (ite (= r2 (r (body t))) (e (body t)) (@ g r2))) g) 22) 5))))
+(check-sat)
