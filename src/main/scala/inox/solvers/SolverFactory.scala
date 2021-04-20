@@ -221,7 +221,7 @@ object SolverFactory {
         }
       })
 
-      case _ if finalName.startsWith("smt-z3") => create(p)(finalName, {
+      case _ if finalName == "smt-z3" || finalName.startsWith("smt-z3:") => create(p)(finalName, {
         val chooseEnc = ChooseEncoder(p)(enc)
         val fullEnc = enc andThen chooseEnc
         val theoryEnc = theories.Z3(fullEnc.targetProgram)
