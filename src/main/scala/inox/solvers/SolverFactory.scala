@@ -191,6 +191,36 @@ object SolverFactory {
         }
       })
 
+      case "smt-z3-opt" => create(p)(finalName, {
+        val chooseEnc = ChooseEncoder(p)(enc)
+        val fullEnc = enc andThen chooseEnc
+        val theoryEnc = theories.Z3(fullEnc.targetProgram)
+        val progEnc = fullEnc andThen theoryEnc
+        val targetProg = progEnc.targetProgram
+        val targetSem = targetProg.getSemantics
+
+        () => new {
+          val program: p.type = p
+          val context = ctx
+          val encoder: enc.type = enc
+        } with UnrollingOptimizer with TimeoutSolver {
+          override protected val semantics = sem
+          override protected val chooses: chooseEnc.type = chooseEnc
+          override protected val theories: theoryEnc.type = theoryEnc
+          override protected lazy val fullEncoder = fullEnc
+          override protected lazy val programEncoder = progEnc
+          override protected lazy val targetProgram: targetProg.type = targetProg
+          override protected val targetSemantics = targetSem
+
+          protected val underlying = new {
+            val program: progEnc.targetProgram.type = progEnc.targetProgram
+            val context = ctx
+          } with smtlib.optimization.Z3Optimizer {
+            val semantics: program.Semantics = targetSem
+          }
+        }
+      })
+
       case _ if finalName.startsWith("smt-z3") => create(p)(finalName, {
         val chooseEnc = ChooseEncoder(p)(enc)
         val fullEnc = enc andThen chooseEnc
@@ -219,36 +249,6 @@ object SolverFactory {
           } with smtlib.Z3Solver {
             val semantics: program.Semantics = targetSem
             override def targetName = executableName
-          }
-        }
-      })
-
-      case "smt-z3-opt" => create(p)(finalName, {
-        val chooseEnc = ChooseEncoder(p)(enc)
-        val fullEnc = enc andThen chooseEnc
-        val theoryEnc = theories.Z3(fullEnc.targetProgram)
-        val progEnc = fullEnc andThen theoryEnc
-        val targetProg = progEnc.targetProgram
-        val targetSem = targetProg.getSemantics
-
-        () => new {
-          val program: p.type = p
-          val context = ctx
-          val encoder: enc.type = enc
-        } with UnrollingOptimizer with TimeoutSolver {
-          override protected val semantics = sem
-          override protected val chooses: chooseEnc.type = chooseEnc
-          override protected val theories: theoryEnc.type = theoryEnc
-          override protected lazy val fullEncoder = fullEnc
-          override protected lazy val programEncoder = progEnc
-          override protected lazy val targetProgram: targetProg.type = targetProg
-          override protected val targetSemantics = targetSem
-
-          protected val underlying = new {
-            val program: progEnc.targetProgram.type = progEnc.targetProgram
-            val context = ctx
-          } with smtlib.optimization.Z3Optimizer {
-            val semantics: program.Semantics = targetSem
           }
         }
       })
