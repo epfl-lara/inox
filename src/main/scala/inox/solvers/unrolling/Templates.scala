@@ -514,7 +514,7 @@ trait Templates
 
   object Template {
 
-    def collectSelectors(expr: Expr, ptr: Expr): Seq[(Expr, Variable)] = expr match {
+    private def collectSelectors(expr: Expr, ptr: Expr): Seq[(Expr, Variable)] = expr match {
       case adt @ ADT(id, tps, es) => (adt.getConstructor.fields zip es).flatMap {
         case (vd, e) => collectSelectors(e, ADTSelector(ptr, vd.id))
       }
@@ -527,7 +527,7 @@ trait Templates
       case _ => Seq.empty
     }
 
-    def resultPointers(encoder: Expr => Encoded)(expr: Expr): Map[Encoded, Encoded] = {
+    private def resultPointers(encoder: Expr => Encoded)(expr: Expr): Map[Encoded, Encoded] = {
       val pointers = expr match {
         case Equals(v @ (_: Variable | _: FunctionInvocation | _: Application), e) => collectSelectors(e, v).toMap
         case Equals(e, v @ (_: Variable | _: FunctionInvocation | _: Application)) => collectSelectors(e, v).toMap
