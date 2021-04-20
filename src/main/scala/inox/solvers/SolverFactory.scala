@@ -71,6 +71,7 @@ object SolverFactory {
     "smt-cvc4"     -> "CVC4 through SMT-LIB",
     "smt-z3"       -> "Z3 through SMT-LIB",
     "smt-z3-opt"   -> "Z3 optimizer through SMT-LIB",
+    "smt-z3:EXEC"  -> "Z3 through SMT-LIB with custom executable name",
     "princess"     -> "Princess with inox unrolling"
   )
 
@@ -109,6 +110,7 @@ object SolverFactory {
           replacement
 
         case Some(_) => name
+        case None if name.startsWith("smt-z3:") => name
 
         case _ => throw FatalError("Unknown solver: " + name)
       }
@@ -189,13 +191,14 @@ object SolverFactory {
         }
       })
 
-      case "smt-z3" => create(p)(finalName, {
+      case _ if finalName.startsWith("smt-z3") => create(p)(finalName, {
         val chooseEnc = ChooseEncoder(p)(enc)
         val fullEnc = enc andThen chooseEnc
         val theoryEnc = theories.Z3(fullEnc.targetProgram)
         val progEnc = fullEnc andThen theoryEnc
         val targetProg = progEnc.targetProgram
         val targetSem = targetProg.getSemantics
+        val executableName = if (finalName == "smt-z3") "z3" else finalName.drop(7)
 
         () => new {
           val program: p.type = p
@@ -215,6 +218,7 @@ object SolverFactory {
             val context = ctx
           } with smtlib.Z3Solver {
             val semantics: program.Semantics = targetSem
+            override def targetName = executableName
           }
         }
       })
