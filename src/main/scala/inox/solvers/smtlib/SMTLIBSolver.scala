@@ -114,8 +114,8 @@ trait SMTLIBSolver extends AbstractSolver with SMTLIBTarget with SMTLIBDebugger 
       if (config.withUnsatAssumptions) {
         emit(GetUnsatAssumptions()) match {
           case GetUnsatAssumptionsResponseSuccess(syms) =>
-            UnsatWithAssumptions(syms.flatMap { s =>
-              variables.getA(s).flatMap { v =>
+            UnsatWithAssumptions(syms.flatMap { lit =>
+              variables.getA(lit.symbol).flatMap { v =>
                 if (assumptions(v)) Some(v)
                 else if (assumptions(Not(v))) Some(Not(v))
                 else None

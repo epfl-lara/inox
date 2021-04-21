@@ -48,7 +48,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
               Error(msg)
             case t =>
               val props = parseUntil(Tokens.CParen)(parsePropLit _)
-              GetUnsatAssumptionsResponseSuccess(props.map(_.symbol))
+              GetUnsatAssumptionsResponseSuccess(props)
           }
         }
       }
