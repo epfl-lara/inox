@@ -460,7 +460,10 @@ trait SymbolOps { self: TypeOps =>
             // @nv: we make sure NOT to normalize choose ids as we may need to
             //      report models for unnormalized chooses!
             case c: Choose =>
-              replaceFromSymbols(variablesOf(c).map(v => v -> transformVar(v)).toMap, c)
+              replaceFromSymbols(variablesOf(c).map(v => v -> {
+                if (vars(v) || locals(v)) transformVar(v)
+                else getVariable(v, v.getType)
+              }).toMap, c)
 
             // Make sure we don't lift applications to applications when they have basic shapes
             case Application(liftable(_), args) if args.forall(liftable.unapply(_).isEmpty) =>
