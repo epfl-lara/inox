@@ -65,13 +65,14 @@ object SolverFactory {
   import unrolling._
 
   val solverNames = Map(
-    "nativez3"     -> "Native Z3 with z3-templates for unrolling",
-    "nativez3-opt" -> "Native Z3 optimizer with z3-templates for unrolling",
-    "unrollz3"     -> "Native Z3 with inox-templates for unrolling",
-    "smt-cvc4"     -> "CVC4 through SMT-LIB",
-    "smt-z3"       -> "Z3 through SMT-LIB",
-    "smt-z3-opt"   -> "Z3 optimizer through SMT-LIB",
-    "princess"     -> "Princess with inox unrolling"
+    "nativez3"      -> "Native Z3 with z3-templates for unrolling",
+    "nativez3-opt"  -> "Native Z3 optimizer with z3-templates for unrolling",
+    "unrollz3"      -> "Native Z3 with inox-templates for unrolling",
+    "smt-cvc4"      -> "CVC4 through SMT-LIB",
+    "smt-z3"        -> "Z3 through SMT-LIB",
+    "smt-z3-opt"    -> "Z3 optimizer through SMT-LIB",
+    "smt-z3:<exec>" -> "Z3 through SMT-LIB with custom executable name",
+    "princess"      -> "Princess with inox unrolling"
   )
 
   private val fallbacks = Map(
@@ -85,6 +86,9 @@ object SolverFactory {
   )
 
   private var reported: Boolean = false
+
+  // extract <exec> in "smt-z3:<exec>"
+  private def getZ3Executable(name: String): String = name.drop(7)
 
   def getFromName(name: String, force: Boolean = false)
                  (p: Program, ctx: Context)
@@ -109,6 +113,17 @@ object SolverFactory {
           replacement
 
         case Some(_) => name
+        case None if name.startsWith("smt-z3:") =>
+          val z3Exec = getZ3Executable(name)
+          val hasZ3Exec = try {
+            new Z3Interpreter(z3Exec, Array("-in", "-smt2"))
+            true
+          } catch {
+            case _: java.io.IOException => false
+          }
+
+          if (hasZ3Exec) name
+          else throw FatalError("Unknown solver: " + z3Exec)
 
         case _ => throw FatalError("Unknown solver: " + name)
       }
@@ -189,36 +204,6 @@ object SolverFactory {
         }
       })
 
-      case "smt-z3" => create(p)(finalName, {
-        val chooseEnc = ChooseEncoder(p)(enc)
-        val fullEnc = enc andThen chooseEnc
-        val theoryEnc = theories.Z3(fullEnc.targetProgram)
-        val progEnc = fullEnc andThen theoryEnc
-        val targetProg = progEnc.targetProgram
-        val targetSem = targetProg.getSemantics
-
-        () => new {
-          val program: p.type = p
-          val context = ctx
-          val encoder: enc.type = enc
-        } with UnrollingSolver with TimeoutSolver with tip.TipDebugger {
-          override protected val semantics = sem
-          override protected val chooses: chooseEnc.type = chooseEnc
-          override protected val theories: theoryEnc.type = theoryEnc
-          override protected lazy val fullEncoder = fullEnc
-          override protected lazy val programEncoder = progEnc
-          override protected lazy val targetProgram: targetProg.type = targetProg
-          override protected val targetSemantics = targetSem
-
-          protected val underlying = new {
-            val program: progEnc.targetProgram.type = progEnc.targetProgram
-            val context = ctx
-          } with smtlib.Z3Solver {
-            val semantics: program.Semantics = targetSem
-          }
-        }
-      })
-
       case "smt-z3-opt" => create(p)(finalName, {
         val chooseEnc = ChooseEncoder(p)(enc)
         val fullEnc = enc andThen chooseEnc
@@ -245,6 +230,38 @@ object SolverFactory {
             val context = ctx
           } with smtlib.optimization.Z3Optimizer {
             val semantics: program.Semantics = targetSem
+          }
+        }
+      })
+
+      case _ if finalName == "smt-z3" || finalName.startsWith("smt-z3:") => create(p)(finalName, {
+        val chooseEnc = ChooseEncoder(p)(enc)
+        val fullEnc = enc andThen chooseEnc
+        val theoryEnc = theories.Z3(fullEnc.targetProgram)
+        val progEnc = fullEnc andThen theoryEnc
+        val targetProg = progEnc.targetProgram
+        val targetSem = targetProg.getSemantics
+        val executableName = if (finalName == "smt-z3") "z3" else getZ3Executable(finalName)
+
+        () => new {
+          val program: p.type = p
+          val context = ctx
+          val encoder: enc.type = enc
+        } with UnrollingSolver with TimeoutSolver with tip.TipDebugger {
+          override protected val semantics = sem
+          override protected val chooses: chooseEnc.type = chooseEnc
+          override protected val theories: theoryEnc.type = theoryEnc
+          override protected lazy val fullEncoder = fullEnc
+          override protected lazy val programEncoder = progEnc
+          override protected lazy val targetProgram: targetProg.type = targetProg
+          override protected val targetSemantics = targetSem
+
+          protected val underlying = new {
+            val program: progEnc.targetProgram.type = progEnc.targetProgram
+            val context = ctx
+          } with smtlib.Z3Solver {
+            val semantics: program.Semantics = targetSem
+            override def targetName = executableName
           }
         }
       })
@@ -307,7 +324,7 @@ object SolverFactory {
     }
   }
 
-  val solvers: Set[String] = solverNames.map(_._1).toSet
+  def supportedSolver(s: String) = solverNames.contains(s) || s.startsWith("smt-z3:")
 
   def getFromSettings(p: Program, ctx: Context)
                      (enc: ProgramTransformer {

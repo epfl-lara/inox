@@ -223,7 +223,7 @@ object optSelectedSolvers extends SetOptionDef[String] {
   val name = "solvers"
   val default = Set("nativez3")
   val elementParser: OptionParser[String] = { s =>
-    stringParser(s).filter(solvers.SolverFactory.solverNames contains _)
+    stringParser(s).filter(solvers.SolverFactory.supportedSolver)
   }
 
   val usageRhs = "s1,s2,..."

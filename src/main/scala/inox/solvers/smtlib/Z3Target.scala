@@ -58,7 +58,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   protected val interpreter = {
     val opts = interpreterOpts
     reporter.debug("Invoking solver "+targetName+" with "+opts.mkString(" "))
-    new Z3Interpreter("z3", opts.toArray) {
+    new Z3Interpreter(targetName, opts.toArray) {
       override lazy val parser: Z3Parser = new Z3Parser(new Lexer(out))
     }
   }
