@@ -1,9 +1,9 @@
 package inox
 package parsing
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 
-class QuantifierParserSuite extends FunSuite {
+class QuantifierParserSuite extends AnyFunSuite {
 
   import inox.trees._
   import interpolator._

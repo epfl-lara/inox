@@ -37,7 +37,7 @@ resolvers ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  "org.scalatest" %% "scalatest" % "3.0.1" % "test;it",
+  "org.scalatest" %% "scalatest" % "3.2.7" % "test;it",
   "org.apache.commons" % "commons-lang3" % "3.4",
   "org.scala-lang" % "scala-reflect" % scalaVersion.value,
   "uuverifiers" %% "princess" % "2018-02-26"

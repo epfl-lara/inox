@@ -2,11 +2,11 @@
 
 package inox.utils
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 
 import Graphs._
 
-class GraphsSuite extends FunSuite {
+class GraphsSuite extends AnyFunSuite {
   abstract class Node
   case object A extends Node
   case object B extends Node

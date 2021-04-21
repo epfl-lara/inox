@@ -3,9 +3,10 @@
 package inox
 package solvers
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.Tag
 
-class SemanticsSuite extends FunSuite {
+class SemanticsSuite extends AnyFunSuite {
   import inox.trees._
   import inox.trees.dsl._
   import SolverResponses._

@@ -2,7 +2,7 @@
 
 package inox
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.concurrent._
 
 import java.io.File

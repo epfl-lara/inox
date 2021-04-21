@@ -3,9 +3,9 @@
 package inox
 package solvers
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 
-class SolversSuite extends FunSuite {
+class SolversSuite extends AnyFunSuite {
   import inox.trees._
   import SolverResponses._
 

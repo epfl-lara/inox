@@ -2,9 +2,9 @@
 
 package inox.utils
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 
-class BijectionSuite extends FunSuite {
+class BijectionSuite extends AnyFunSuite {
 
   test("Empty Bijection returns None") {
     val b = new Bijection[Int, Int]

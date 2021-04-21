@@ -3,11 +3,11 @@
 package inox
 package solvers
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 
 import inox.solvers.combinators._
 
-class SolverPoolSuite extends FunSuite {
+class SolverPoolSuite extends AnyFunSuite {
   import inox.trees._
   import SolverResponses._
 

@@ -2,9 +2,9 @@ package inox
 package parsing
 
 import scala.collection.BitSet
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 
-class ExprLiteralParserSuite extends FunSuite {
+class ExprLiteralParserSuite extends AnyFunSuite {
 
   import inox.trees._
   import interpolator._

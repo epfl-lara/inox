@@ -3,9 +3,9 @@
 package inox
 package tip
 
-import org.scalatest._
+import org.scalatest.funspec.AnyFunSpec
 
-class TipSerializationSuite extends FunSpec with ResourceUtils {
+class TipSerializationSuite extends AnyFunSpec with ResourceUtils {
   import inox.trees._
 
   val ctx = TestContext.empty

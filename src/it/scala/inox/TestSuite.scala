@@ -2,12 +2,15 @@
 
 package inox
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.concurrent._
+import org.scalatest.matchers.should.Matchers
+import org.scalatest.Tag
+import org.scalatest.exceptions
 
 import utils._
 
-trait TestSuite extends FunSuite with Matchers with TimeLimits {
+trait TestSuite extends AnyFunSuite with Matchers with TimeLimits {
 
   protected def configurations: Seq[Seq[OptionValue[_]]] = Seq(Seq.empty)
 

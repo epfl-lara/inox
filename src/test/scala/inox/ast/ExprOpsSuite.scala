@@ -3,9 +3,9 @@
 package inox
 package ast
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 
-class ExprOpsSuite extends FunSuite {
+class ExprOpsSuite extends AnyFunSuite {
   import inox.trees._
   import inox.trees.exprOps._
 

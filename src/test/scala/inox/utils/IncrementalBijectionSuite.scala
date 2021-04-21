@@ -2,9 +2,9 @@
 
 package inox.utils
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 
-class IncrementalBijectionSuite extends FunSuite {
+class IncrementalBijectionSuite extends AnyFunSuite {
 
   test("Empty IncrementalBijection returns None") {
     val b = new IncrementalBijection[Int, Int]

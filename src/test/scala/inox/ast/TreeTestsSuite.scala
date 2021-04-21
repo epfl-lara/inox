@@ -3,11 +3,11 @@
 package inox
 package ast
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 
 import inox.trees._
 
-class TreeTestsSuite extends FunSuite {
+class TreeTestsSuite extends AnyFunSuite {
 
   test("And- and Or- simplifications") {
     val x = Variable.fresh("x", BooleanType())
