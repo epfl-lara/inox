@@ -97,8 +97,40 @@ object SolverFactory {
                     val targetProgram: Program { val trees: inox.trees.type }
                   })(implicit sem: p.Semantics): SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } } = {
 
+    val nonIncremental = ctx.options.findOptionOrDefault(optNonIncremental)
+    def nonIncrementalWrap[T, M](targetProgram: Program)(
+      nme: String,
+      targetSem: targetProgram.Semantics,
+      underlyingSolver: () => AbstractSolver {
+        val program: targetProgram.type
+        type Trees = T
+        type Model = M
+    }):
+      AbstractSolver {
+        val program: targetProgram.type
+        type Trees = T
+        type Model = M
+      } = {
+
+      if (nonIncremental) {
+        new {
+          val program: targetProgram.type = targetProgram
+          val context = ctx
+        } with NonIncrementalSolver {
+          type Trees = T
+          type Model = M
+          val semantics: targetProgram.Semantics = targetSem
+          def name = s"no-inc:$nme"
+
+          def underlying() = underlyingSolver()
+        }
+      } else {
+        underlyingSolver()
+      }
+    }
+
     val finalName = if (force) {
-      name 
+      name
     } else {
       fallbacks.get(name) match {
         case Some((guard, names, requirement)) if !guard() =>
@@ -128,6 +160,15 @@ object SolverFactory {
         case _ => throw FatalError("Unknown solver: " + name)
       }
     }
+
+    if (
+      nonIncremental &&
+      finalName != "smt-cvc4" &&
+      finalName != "unrollz3" &&
+      finalName != "smt-z3" &&
+      !finalName.startsWith("smt-z3:")
+    )
+      throw FatalError(s"Option --no-incremental is not compatible with solver $finalName")
 
     finalName match {
       case "nativez3" => create(p)(finalName, {
@@ -195,12 +236,12 @@ object SolverFactory {
           override protected lazy val targetProgram: targetProg.type = targetProg
           override protected val targetSemantics = targetSem
 
-          protected val underlying = new {
+          protected val underlying = nonIncrementalWrap(progEnc.targetProgram)(finalName, targetSem, () => new {
             val program: progEnc.targetProgram.type = progEnc.targetProgram
             val context = ctx
           } with z3.UninterpretedZ3Solver {
             val semantics: program.Semantics = targetSem
-          }
+          })
         }
       })
 
@@ -256,13 +297,13 @@ object SolverFactory {
           override protected lazy val targetProgram: targetProg.type = targetProg
           override protected val targetSemantics = targetSem
 
-          protected val underlying = new {
+          protected val underlying = nonIncrementalWrap(progEnc.targetProgram)(finalName, targetSem, () => new {
             val program: progEnc.targetProgram.type = progEnc.targetProgram
             val context = ctx
           } with smtlib.Z3Solver {
             val semantics: program.Semantics = targetSem
             override def targetName = executableName
-          }
+          })
         }
       })
 
@@ -288,12 +329,12 @@ object SolverFactory {
           override protected lazy val targetProgram: targetProg.type = targetProg
           override protected val targetSemantics = targetSem
 
-          protected val underlying = new {
+          protected val underlying = nonIncrementalWrap(progEnc.targetProgram)(finalName, targetSem, () => new {
             val program: progEnc.targetProgram.type = progEnc.targetProgram
             val context = ctx
           } with smtlib.CVC4Solver {
             val semantics: program.Semantics = targetSem
-          }
+          })
         }
       })
 

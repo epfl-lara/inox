@@ -11,6 +11,7 @@ trait MainHelpers {
   protected def getDebugSections: Set[DebugSection] = Set(
     utils.DebugSectionTimers,
     solvers.DebugSectionSolver,
+    solvers.smtlib.DebugSectionSMT,
     tip.DebugSectionTip
   )
 
@@ -45,6 +46,7 @@ trait MainHelpers {
   protected def getOptions: Map[OptionDef[_], Description] = Map(
     optHelp -> Description(General, "Show help message"),
     optNoColors -> Description(General, "Disable colored output and non-ascii characters (enable this option for better support in IDEs)"),
+    optNonIncremental -> Description(General, "Disable incremental mode in solvers"),
     optTimeout -> Description(General, "Set a timeout for the solver (in sec.)"),
     optSelectedSolvers -> Description(General, {
       "Use solvers s1,s2,...\nAvailable: " +

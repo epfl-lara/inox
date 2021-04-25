@@ -13,12 +13,14 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     Seq(optSelectedSolvers(Set("nativez3")), optCheckModels(true)),
     Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true)),
     Seq(optSelectedSolvers(Set("smt-cvc4")), optCheckModels(true)),
-    Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true), optAssumeChecked(true))
+    Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true), optAssumeChecked(true)),
+    Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true), optNonIncremental(true))
   )
 
   override protected def optionsString(options: Options): String = {
     "solver=" + options.findOptionOrDefault(optSelectedSolvers).head +
-    (if (options.findOptionOrDefault(optAssumeChecked)) " assumechecked" else "")
+    (if (options.findOptionOrDefault(optAssumeChecked)) " assumechecked" else "") +
+    (if (options.findOptionOrDefault(optNonIncremental)) " --no-incremental" else "")
   }
 
   private def ignoreSAT(ctx: Context, file: java.io.File): FilterStatus = 

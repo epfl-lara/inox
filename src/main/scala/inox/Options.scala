@@ -232,3 +232,5 @@ object optSelectedSolvers extends SetOptionDef[String] {
 }
 
 object optNoColors extends inox.FlagOptionDef("no-colors", false)
+
+object optNonIncremental extends inox.FlagOptionDef("no-incremental", false)
