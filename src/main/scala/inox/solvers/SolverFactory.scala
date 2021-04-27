@@ -90,29 +90,32 @@ object SolverFactory {
   // extract <exec> in "smt-z3:<exec>"
   private def getZ3Executable(name: String): String = name.drop(7)
 
-  def getFromName(noIncName: String, force: Boolean = false)
+  // extract solver in "no-inc:solver"
+  private def removeNoInc(name: String): String = name.drop(7)
+
+  def getFromName(name: String, force: Boolean = false)
                  (p: Program, ctx: Context)
                  (enc: ProgramTransformer {
                     val sourceProgram: p.type
                     val targetProgram: Program { val trees: inox.trees.type }
                   })(implicit sem: p.Semantics): SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } } = {
 
-    val nonIncremental = noIncName.startsWith("no-inc:")
-    val name = if (nonIncremental) noIncName.drop(7) else noIncName
+    val nonIncremental = name.startsWith("no-inc:")
+    val noPrefixName = if (nonIncremental) removeNoInc(name) else name
 
     if (
       nonIncremental &&
-      name != "smt-cvc4" &&
-      name != "unrollz3" &&
-      name != "smt-z3" &&
-      !name.startsWith("smt-z3:")
+      noPrefixName != "smt-cvc4" &&
+      noPrefixName != "unrollz3" &&
+      noPrefixName != "smt-z3" &&
+      !noPrefixName.startsWith("smt-z3:")
     )
       throw FatalError(s"Non incremental mode is not available for solver $name")
 
     val finalName = if (force) {
-      name
+      noPrefixName
     } else {
-      fallbacks.get(name) match {
+      fallbacks.get(noPrefixName) match {
         case Some((guard, names, requirement)) if !guard() =>
           val replacement = names.collectFirst {
             case name if fallbacks(name)._1() => name
@@ -124,9 +127,9 @@ object SolverFactory {
           }
           replacement
 
-        case Some(_) => name
-        case None if name.startsWith("smt-z3:") =>
-          val z3Exec = getZ3Executable(name)
+        case Some(_) => noPrefixName
+        case None if noPrefixName.startsWith("smt-z3:") =>
+          val z3Exec = getZ3Executable(noPrefixName)
           val hasZ3Exec = try {
             new Z3Interpreter(z3Exec, Array("-in", "-smt2"))
             true
@@ -134,10 +137,10 @@ object SolverFactory {
             case _: java.io.IOException => false
           }
 
-          if (hasZ3Exec) name
+          if (hasZ3Exec) noPrefixName
           else throw FatalError("Unknown solver: " + z3Exec)
 
-        case _ => throw FatalError("Unknown solver: " + name)
+        case _ => throw FatalError("Unknown solver: " + noPrefixName)
       }
     }
 
@@ -367,9 +370,13 @@ object SolverFactory {
     }
   }
 
-  private def supportedSolverRaw(s: String) = solverNames.contains(s) || s.startsWith("smt-z3:")
   def supportedSolver(s: String) =
-    supportedSolverRaw(s) || (s.startsWith("no-inc:") && supportedSolverRaw(s.drop(7)))
+    solverNames.contains(s) ||
+    s.startsWith("smt-z3:") ||
+    s.startsWith("no-inc:smt-z3:") ||
+    s == "no-inc:smt-z3" ||
+    s == "no-inc:smt-cvc4" ||
+    s == "no-inc:unrollz3"
 
   def getFromSettings(p: Program, ctx: Context)
                      (enc: ProgramTransformer {

@@ -29,25 +29,31 @@ trait NonIncrementalSolver extends AbstractSolver { self =>
 
   override def check(config: CheckConfiguration): config.Response[Model, Assumptions] = {
     val newSolver = underlying()
-    currentSolver = Some(newSolver)
-    for (expression <- assertions)
-      newSolver.assertCnstr(expression)
-    val res = newSolver.check(config)
-    newSolver.free()
-    currentSolver = None
-    res
+    try {
+      currentSolver = Some(newSolver)
+      for (expression <- assertions)
+        newSolver.assertCnstr(expression)
+      val res = newSolver.check(config)
+      currentSolver = None
+      res
+    } finally {
+      newSolver.free()
+    }
   }
 
   override def checkAssumptions(config: Configuration)
                                (assumptions: Set[Trees]): config.Response[Model, Assumptions] = {
     val newSolver = underlying()
-    currentSolver = Some(newSolver)
-    for (expression <- assertions)
-      newSolver.assertCnstr(expression)
-    val res = newSolver.checkAssumptions(config)(assumptions)
-    newSolver.free()
-    currentSolver = None
-    res
+    try {
+      currentSolver = Some(newSolver)
+      for (expression <- assertions)
+        newSolver.assertCnstr(expression)
+      val res = newSolver.checkAssumptions(config)(assumptions)
+      currentSolver = None
+      res
+    } finally {
+      newSolver.free()
+    }
   }
 
   def push(): Unit = assertions.push()
