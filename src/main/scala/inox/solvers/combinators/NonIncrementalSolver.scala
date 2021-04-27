@@ -18,30 +18,36 @@ trait NonIncrementalSolver extends AbstractSolver { self =>
     type Model = self.Model
   }
 
-  val assertions: IncrementalSet[Trees] = new IncrementalSet[Trees]
+  val assertions: IncrementalSeq[Trees] = new IncrementalSeq[Trees]
 
-  val allSolvers: ArrayBuffer[AbstractSolver] = ArrayBuffer()
+  var currentSolver: Option[AbstractSolver] = None
 
   def assertCnstr(expression: Trees): Unit = assertions += expression
   def reset(): Unit = assertions.clear()
-  def free(): Unit = for (solver <- allSolvers) solver.free()
-  def interrupt(): Unit = for (solver <- allSolvers) solver.interrupt()
+  def free(): Unit = for (solver <- currentSolver) solver.free()
+  def interrupt(): Unit = for (solver <- currentSolver) solver.interrupt()
 
   override def check(config: CheckConfiguration): config.Response[Model, Assumptions] = {
     val newSolver = underlying()
-    allSolvers.append(newSolver)
+    currentSolver = Some(newSolver)
     for (expression <- assertions)
       newSolver.assertCnstr(expression)
-    newSolver.check(config)
+    val res = newSolver.check(config)
+    newSolver.free()
+    currentSolver = None
+    res
   }
 
   override def checkAssumptions(config: Configuration)
                                (assumptions: Set[Trees]): config.Response[Model, Assumptions] = {
     val newSolver = underlying()
-    allSolvers.append(newSolver)
+    currentSolver = Some(newSolver)
     for (expression <- assertions)
       newSolver.assertCnstr(expression)
-    newSolver.checkAssumptions(config)(assumptions)
+    val res = newSolver.checkAssumptions(config)(assumptions)
+    newSolver.free()
+    currentSolver = None
+    res
   }
 
   def push(): Unit = assertions.push()
