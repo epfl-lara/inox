@@ -46,13 +46,13 @@ trait MainHelpers {
   protected def getOptions: Map[OptionDef[_], Description] = Map(
     optHelp -> Description(General, "Show help message"),
     optNoColors -> Description(General, "Disable colored output and non-ascii characters (enable this option for better support in IDEs)"),
-    optNonIncremental -> Description(General, "Disable incremental mode in solvers"),
     optTimeout -> Description(General, "Set a timeout for the solver (in sec.)"),
     optSelectedSolvers -> Description(General, {
       "Use solvers s1,s2,...\nAvailable: " +
       solvers.SolverFactory.solverNames.toSeq.sortBy(_._1).map {
         case (name, desc) => f"\n  $name%-14s : $desc"
-      }.mkString("")
+      }.mkString("") +
+      "\nYou can prefix the solvers unrollz3, smt-z3, smt-z3:<exec>, smt-cvc4, with 'noinc:' to use them in non-incremental mode"
     }),
     optDebug -> Description(General, {
       val sects = debugSections.toSeq.map(_.name).sorted

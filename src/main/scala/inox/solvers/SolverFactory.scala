@@ -90,44 +90,24 @@ object SolverFactory {
   // extract <exec> in "smt-z3:<exec>"
   private def getZ3Executable(name: String): String = name.drop(7)
 
-  def getFromName(name: String, force: Boolean = false)
+  def getFromName(noIncName: String, force: Boolean = false)
                  (p: Program, ctx: Context)
                  (enc: ProgramTransformer {
                     val sourceProgram: p.type
                     val targetProgram: Program { val trees: inox.trees.type }
                   })(implicit sem: p.Semantics): SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } } = {
 
-    val nonIncremental = ctx.options.findOptionOrDefault(optNonIncremental)
-    def nonIncrementalWrap[T, M](targetProgram: Program)(
-      nme: String,
-      targetSem: targetProgram.Semantics,
-      underlyingSolver: () => AbstractSolver {
-        val program: targetProgram.type
-        type Trees = T
-        type Model = M
-    }):
-      AbstractSolver {
-        val program: targetProgram.type
-        type Trees = T
-        type Model = M
-      } = {
+    val nonIncremental = noIncName.startsWith("no-inc:")
+    val name = if (nonIncremental) noIncName.drop(7) else noIncName
 
-      if (nonIncremental) {
-        new {
-          val program: targetProgram.type = targetProgram
-          val context = ctx
-        } with NonIncrementalSolver {
-          type Trees = T
-          type Model = M
-          val semantics: targetProgram.Semantics = targetSem
-          def name = s"no-inc:$nme"
-
-          def underlying() = underlyingSolver()
-        }
-      } else {
-        underlyingSolver()
-      }
-    }
+    if (
+      nonIncremental &&
+      name != "smt-cvc4" &&
+      name != "unrollz3" &&
+      name != "smt-z3" &&
+      !name.startsWith("smt-z3:")
+    )
+      throw FatalError(s"Non incremental mode is not available for solver $name")
 
     val finalName = if (force) {
       name
@@ -161,14 +141,36 @@ object SolverFactory {
       }
     }
 
-    if (
-      nonIncremental &&
-      finalName != "smt-cvc4" &&
-      finalName != "unrollz3" &&
-      finalName != "smt-z3" &&
-      !finalName.startsWith("smt-z3:")
-    )
-      throw FatalError(s"Option --no-incremental is not compatible with solver $finalName")
+    def nonIncrementalWrap[T, M](targetProgram: Program)(
+      nme: String,
+      targetSem: targetProgram.Semantics,
+      underlyingSolver: () => AbstractSolver {
+        val program: targetProgram.type
+        type Trees = T
+        type Model = M
+    }): AbstractSolver {
+          val program: targetProgram.type
+          type Trees = T
+          type Model = M
+        } = {
+
+      if (nonIncremental) {
+        new {
+          val program: targetProgram.type = targetProgram
+          val context = ctx
+        } with NonIncrementalSolver {
+          type Trees = T
+          type Model = M
+          val semantics: targetProgram.Semantics = targetSem
+          def name = s"no-inc:$nme"
+
+          def underlying() = underlyingSolver()
+        }
+      } else {
+        underlyingSolver()
+      }
+    }
+
 
     finalName match {
       case "nativez3" => create(p)(finalName, {
@@ -365,7 +367,9 @@ object SolverFactory {
     }
   }
 
-  def supportedSolver(s: String) = solverNames.contains(s) || s.startsWith("smt-z3:")
+  private def supportedSolverRaw(s: String) = solverNames.contains(s) || s.startsWith("smt-z3:")
+  def supportedSolver(s: String) =
+    supportedSolverRaw(s) || (s.startsWith("no-inc:") && supportedSolverRaw(s.drop(7)))
 
   def getFromSettings(p: Program, ctx: Context)
                      (enc: ProgramTransformer {
