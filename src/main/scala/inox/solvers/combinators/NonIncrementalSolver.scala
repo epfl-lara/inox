@@ -28,6 +28,8 @@ trait NonIncrementalSolver extends AbstractSolver { self =>
   def interrupt(): Unit = for (solver <- currentSolver) solver.interrupt()
 
   override def check(config: CheckConfiguration): config.Response[Model, Assumptions] = {
+    assert(currentSolver.isEmpty,
+      "`currentSolver` should be empty when invoking `check` in NonIncrementalSolver")
     val newSolver = underlying()
     try {
       currentSolver = Some(newSolver)
@@ -43,6 +45,8 @@ trait NonIncrementalSolver extends AbstractSolver { self =>
 
   override def checkAssumptions(config: Configuration)
                                (assumptions: Set[Trees]): config.Response[Model, Assumptions] = {
+    assert(currentSolver.isEmpty,
+      "`currentSolver` should be empty when invoking `checkAssumptions` in NonIncrementalSolver")
     val newSolver = underlying()
     try {
       currentSolver = Some(newSolver)
