@@ -150,6 +150,9 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       case (QualifiedIdentifier(SimpleIdentifier(SSymbol("#unspecified")), None), Some(tpe)) =>
         Choose(ValDef.fresh("unspecified", tpe), BooleanLiteral(true))
 
+      case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("seq.unit")), None), Seq(SHexadecimal(hex))), _) =>
+        StringLiteral(utils.StringUtils.decode(hex.repr))
+
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ MapType(keyType, valueType))) =>
         val Some(Lambda(Seq(arg), body)) = context.getFunction(k, FunctionType(Seq(keyType), valueType))
 

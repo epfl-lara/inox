@@ -106,9 +106,6 @@ trait SMTLIBParser {
     case SString(value) =>
       StringLiteral(utils.StringUtils.decode(value))
 
-    case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("seq.unit")), None), Seq(SHexadecimal(hex))) =>
-      StringLiteral(utils.StringUtils.decode(hex.repr))
-
     case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("distinct")), None), args) =>
       val es = args.map(fromSMT(_))
       val tpEs = (if (es.exists(_.getType == Untyped) && es.exists(_.getType != Untyped)) {
