@@ -106,6 +106,9 @@ trait SMTLIBParser {
     case SString(value) =>
       StringLiteral(utils.StringUtils.decode(value))
 
+    case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("seq.unit")), None), Seq(SHexadecimal(hex))) =>
+      StringLiteral(utils.StringUtils.decode(hex.repr))
+
     case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("distinct")), None), args) =>
       val es = args.map(fromSMT(_))
       val tpEs = (if (es.exists(_.getType == Untyped) && es.exists(_.getType != Untyped)) {
@@ -224,7 +227,9 @@ trait SMTLIBParser {
       val MapType(from, to) = fromSMT(sort)
       FiniteMap(Seq.empty, d, from, to)
 
-    case _ => throw new MissformedSMTException(term, "Unknown SMT term")
+    case _ => throw new MissformedSMTException(term,
+      " Unknown SMT term of class: " + term.getClass
+    )
   }
 
   protected def fromSMT(sort: Sort)(implicit context: Context): Type = sort match {
