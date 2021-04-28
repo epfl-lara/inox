@@ -3,9 +3,9 @@
 package inox
 package solvers
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 
-class TimeoutSolverSuite extends FunSuite {
+class TimeoutSolverSuite extends AnyFunSuite {
   import inox.trees._
   import dsl._
 

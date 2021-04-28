@@ -3,9 +3,9 @@
 package inox
 package ast
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 
-class ExtractorsSuite extends FunSuite {
+class ExtractorsSuite extends AnyFunSuite {
   import inox.trees._
 
   test("Extractors do not simplify basic arithmetic") {

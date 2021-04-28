@@ -11,6 +11,7 @@ trait MainHelpers {
   protected def getDebugSections: Set[DebugSection] = Set(
     utils.DebugSectionTimers,
     solvers.DebugSectionSolver,
+    solvers.smtlib.DebugSectionSMT,
     tip.DebugSectionTip
   )
 
@@ -50,7 +51,8 @@ trait MainHelpers {
       "Use solvers s1,s2,...\nAvailable: " +
       solvers.SolverFactory.solverNames.toSeq.sortBy(_._1).map {
         case (name, desc) => f"\n  $name%-14s : $desc"
-      }.mkString("")
+      }.mkString("") +
+      "\nYou can prefix the solvers unrollz3, smt-z3, smt-z3:<exec> and smt-cvc4, with 'no-inc:' to use them in non-incremental mode"
     }),
     optDebug -> Description(General, {
       val sects = debugSections.toSeq.map(_.name).sorted

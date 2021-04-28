@@ -2,9 +2,9 @@
 
 package inox.utils
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 
-class UtilsSuite extends FunSuite {
+class UtilsSuite extends AnyFunSuite {
 
   test("fixpoint computes correct fixpoint of function that increments up to a max") {
     def f(x: Int): Int = if(x < 10) x + 1 else 10

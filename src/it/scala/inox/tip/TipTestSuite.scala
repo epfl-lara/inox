@@ -10,10 +10,11 @@ import scala.language.existentials
 class TipTestSuite extends TestSuite with ResourceUtils {
 
   override def configurations = Seq(
-    Seq(optSelectedSolvers(Set("nativez3")), optCheckModels(true)),
-    Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true)),
-    Seq(optSelectedSolvers(Set("smt-cvc4")), optCheckModels(true)),
-    Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true), optAssumeChecked(true))
+    Seq(optSelectedSolvers(Set("nativez3")),      optCheckModels(true)),
+    Seq(optSelectedSolvers(Set("smt-z3")),        optCheckModels(true)),
+    Seq(optSelectedSolvers(Set("smt-cvc4")),      optCheckModels(true)),
+    Seq(optSelectedSolvers(Set("smt-z3")),        optCheckModels(true), optAssumeChecked(true)),
+    Seq(optSelectedSolvers(Set("no-inc:smt-z3")), optCheckModels(true))
   )
 
   override protected def optionsString(options: Options): String = {

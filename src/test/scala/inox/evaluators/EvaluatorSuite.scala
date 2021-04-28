@@ -3,9 +3,9 @@
 package inox
 package evaluators
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 
-class EvaluatorSuite extends FunSuite {
+class EvaluatorSuite extends AnyFunSuite {
   import inox.trees._
 
   val ctx = TestContext.empty

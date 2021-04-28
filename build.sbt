@@ -37,12 +37,15 @@ resolvers ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  "org.scalatest" %% "scalatest" % "3.0.1" % "test;it",
+  "org.scalatest" %% "scalatest" % "3.2.7" % "test;it",
   "org.apache.commons" % "commons-lang3" % "3.4",
   "org.scala-lang" % "scala-reflect" % scalaVersion.value,
-  "com.regblanc" %% "scala-smtlib" % "0.2.2-7-g00a9686",
   "uuverifiers" %% "princess" % "2018-02-26"
 )
+
+def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
+// lazy val smtlib = RootProject(file("../scala-smtlib"))
+lazy val smtlib = ghProject("https://github.com/epfl-lara/scala-smtlib.git", "5b9503e13d69c7116039a243025b2ce657c32c77")
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")
 
@@ -127,6 +130,8 @@ lazy val root = (project in file("."))
     parallelExecution := false
   )) : _*)
   .settings(compile := ((compile in Compile) dependsOn script dependsOn genDoc).value)
+  .dependsOn(smtlib)
+  
 
 publishMavenStyle := true
 

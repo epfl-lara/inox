@@ -2,11 +2,11 @@
 
 package inox.utils
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 
 import StreamUtils._
 
-class StreamsSuite extends FunSuite {
+class StreamsSuite extends AnyFunSuite {
 
   test("Cartesian Product 1") {
     val s1 = 1 #::

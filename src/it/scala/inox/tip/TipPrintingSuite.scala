@@ -3,9 +3,9 @@
 package inox
 package tip
 
-import org.scalatest._
+import org.scalatest.funsuite.AnyFunSuite
 
-class TipPrintingSuite extends FunSuite with ResourceUtils {
+class TipPrintingSuite extends AnyFunSuite with ResourceUtils {
   import inox.trees._
 
   val ctx = TestContext.empty
