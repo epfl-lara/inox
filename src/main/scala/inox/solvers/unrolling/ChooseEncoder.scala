@@ -25,6 +25,10 @@ trait ChooseEncoder extends transformers.ProgramTransformer {
 
     val newFds = sourceProgram.symbols.functions.values.toList.map { fd =>
       def rec(e: Expr, params: Seq[ValDef]): Expr = e match {
+        case l: Let =>
+          val free = exprOps.variablesOf(l)
+          l.copy(body = rec(l.body, params.filter(vd => free(vd.toVariable)) :+ l.vd)).copiedFrom(l)
+
         case l: Lambda =>
           val free = exprOps.variablesOf(l)
           l.copy(body = rec(l.body, params.filter(vd => free(vd.toVariable)) ++ l.params)).copiedFrom(l)
