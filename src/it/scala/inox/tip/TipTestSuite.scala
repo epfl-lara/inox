@@ -25,12 +25,8 @@ class TipTestSuite extends TestSuite with ResourceUtils {
   private def ignoreSAT(ctx: Context, file: java.io.File): FilterStatus = 
     ctx.options.findOptionOrDefault(optSelectedSolvers).headOption match {
       case Some(solver) => (solver, file.getName) match {
-        // test containing list of booleans, so CVC4 will crash on this
-        // See http://church.cims.nyu.edu/bugzilla3/show_bug.cgi?id=500
-        case ("smt-cvc4", "List-fold.tip") => Skip
         // Z3 and CVC4 binaries are exceedingly slow on these benchmarks
-        case ("smt-z3" | "smt-cvc4", "BinarySearchTreeQuant.scala-2.tip") => Ignore
-        case ("smt-z3" | "smt-cvc4", "ForallAssoc.scala-0.tip") => Ignore
+        case ("no-inc:smt-z3" | "smt-z3" | "smt-cvc4", "ForallAssoc.scala-0.tip") => Ignore
         // this test only holds when assumeChecked=false
         case (_, "LambdaEquality2.scala-1.tip") if ctx.options.findOptionOrDefault(optAssumeChecked) => Skip
         case _ => Test
