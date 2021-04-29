@@ -41,7 +41,7 @@ trait ChooseEncoder extends transformers.ProgramTransformer {
               (substMap + (vd -> nvd.toVariable), vds :+ nvd)
           }
 
-          val newPred = exprOps.replaceFromSymbols(substMap, rec(c.pred, params))
+          val newPred = exprOps.replaceFromSymbols(substMap, rec(c.pred, params :+ c.res))
           val returnType = typeOps.replaceFromSymbols(substMap, c.res.tpe)
 
           val newFd = new FunDef(
