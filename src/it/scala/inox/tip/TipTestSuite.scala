@@ -39,7 +39,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     ctx.options.findOptionOrDefault(optSelectedSolvers).headOption match {
       case Some(solver) => (solver, file.getName) match {
         // Z3 binary will predictably segfault on certain permutations of this problem
-        case ("smt-z3", "MergeSort2.scala-1.tip") => Ignore
+        case ("no-inc:smt-z3" | "smt-z3", "MergeSort2.scala-1.tip") => Ignore
         // use non-linear operators that aren't supported in CVC4
         case ("smt-cvc4", "Instantiation.scala-0.tip") => Skip
         case ("smt-cvc4", "LetsInForall.tip") => Skip
