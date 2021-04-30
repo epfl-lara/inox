@@ -164,15 +164,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   def assertCnstr(expression: Expr): Unit = context.timers.solvers.assert.run(try {
     context.timers.solvers.assert.sanity.run {
-      try {
-        symbols.ensureWellFormed // make sure that the current program is well-formed
-        typeCheck(expression, BooleanType()) // make sure we've asserted a boolean-typed expression
-      } catch {
-        case _: Throwable =>
-          context.reporter.internalError(
-            "Error while ensuring well-formedness of symbols and expression in `assertCnstr` in `UnrollingSolver`"
-          )
-      }
+      symbols.ensureWellFormed // make sure that the current program is well-formed
+      typeCheck(expression, BooleanType()) // make sure we've asserted a boolean-typed expression
     }
 
     // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
