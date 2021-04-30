@@ -40,6 +40,8 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
 
   def emit(msg: Message): Unit
 
+  def infoContinue(msg: Any): Unit
+
   def onFatal(msg: String = ""): Nothing = throw FatalError(msg)
 
   def onCompilerProgress(current: Int, total: Int) = {}
@@ -167,7 +169,21 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
     case DEBUG(_) => "["+Console.MAGENTA          +" Debug  "+Console.RESET+"]"
   }
 
+  var startedLine: Boolean = false
+  def infoContinue(msg: Any): Unit = synchronized {
+    if (startedLine)
+      print(msg)
+    else {
+      print(reline(severityToPrefix(INFO), smartPos(NoPosition) + msg.toString))
+      startedLine = true
+    }
+  }
+
   def emit(msg: Message) = synchronized {
+    if (startedLine) {
+      startedLine = false
+      println()
+    }
     println(reline(severityToPrefix(msg.severity), smartPos(msg.position) + msg.msg.toString))
     printLineContent(msg.position, false)
   }
@@ -240,7 +256,21 @@ class PlainTextReporter(debugSections: Set[DebugSection]) extends DefaultReporte
     case DEBUG(_) => "debug"
   }
 
+  override def infoContinue(msg: Any): Unit = synchronized {
+    if (startedLine)
+      print(msg)
+    else {
+      print(msg.toString)
+      startedLine = true
+    }
+  }
+
+
   override def emit(msg: Message) = synchronized {
+    if (startedLine) {
+      startedLine = false
+      println()
+    }
     if (msg.severity == ERROR || msg.severity == FATAL || msg.severity == INTERNAL)
       println(smartPos(msg.position) + "error: " + msg.msg.toString)
     else if (msg.severity == WARNING)

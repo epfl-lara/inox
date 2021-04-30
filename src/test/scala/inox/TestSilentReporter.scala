@@ -5,7 +5,9 @@ package inox
 class TestSilentReporter extends DefaultReporter(Set()) {
   var lastErrors: List[String] = Nil
 
-  override def emit(msg: Message): Unit = msg match { 
+  override def infoContinue(msg: Any): Unit = { }
+
+  override def emit(msg: Message): Unit = msg match {
     case Message(ERROR, _, msg) => lastErrors ++= List(msg.toString)
     case Message(FATAL, _, msg) => lastErrors ++= List(msg.toString)
     case _ =>
