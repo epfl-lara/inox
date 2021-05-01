@@ -831,7 +831,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
   }).recover {
     case e @ (_: InternalSolverError | _: Unsupported) =>
       if (reporter.isDebugEnabled) reporter.debug(e)
-      else if (!silentErrors) reporter.error(e.getMessage)
+      else if (!silentErrors && !abort) reporter.error(e.getMessage)
       config.cast(Unknown)
   }.get)
 }
