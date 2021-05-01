@@ -36,14 +36,14 @@ object SolverFactory {
   import _root_.smtlib.interpreters._
 
   lazy val hasZ3 = try {
-    new Z3Interpreter("z3", Array("-in", "-smt2"))
+    new Z3Interpreter("z3", Array("-in", "-smt2")).interrupt()
     true
   } catch {
     case _: java.io.IOException => false
   }
 
   lazy val hasCVC4 = try {
-    new CVC4Interpreter("cvc4", Array("-q", "--lang", "smt2.5"))
+    new CVC4Interpreter("cvc4", Array("-q", "--lang", "smt2.5")).interrupt()
     true
   } catch {
     case _: java.io.IOException => false
@@ -131,7 +131,7 @@ object SolverFactory {
         case None if noPrefixName.startsWith("smt-z3:") =>
           val z3Exec = getZ3Executable(noPrefixName)
           val hasZ3Exec = try {
-            new Z3Interpreter(z3Exec, Array("-in", "-smt2"))
+            new Z3Interpreter(z3Exec, Array("-in", "-smt2")).interrupt()
             true
           } catch {
             case _: java.io.IOException => false
