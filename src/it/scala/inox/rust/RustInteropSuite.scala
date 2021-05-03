@@ -3,13 +3,13 @@
 package inox
 package rust
 
-import org.scalatest._
+import org.scalatest.funspec.AnyFunSpec
 
 import java.io.FileInputStream
 
 import scala.reflect.ClassTag
 
-class RustInteropSuite extends FunSpec with ResourceUtils {
+class RustInteropSuite extends AnyFunSpec with ResourceUtils {
   import inox.trees._
 
   val ctx = TestContext.empty
