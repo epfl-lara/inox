@@ -93,7 +93,7 @@ trait TemplateGenerator { self: Templates =>
       exprOps.replace(Map(call -> newExpr), e)
 
     def getCalls(guardedExprs: Map[Variable, Seq[Expr]]): Map[TypedFunDef, Seq[(FunctionInvocation, Set[Variable])]] =
-      (for { (b, es) <- guardedExprs; e <- es; fi <- collectCalls(e) } yield (b -> fi))
+      (for { (b, es) <- guardedExprs.toSeq; e <- es; fi <- collectCalls(e) } yield (b -> fi))
       .groupBy(_._2)
       .mapValues(_.map(_._1).toSet)
       .toSeq
@@ -455,9 +455,9 @@ trait TemplateGenerator { self: Templates =>
 
           val (trec, tClauses) = mkExprClauses(newBool1, thenn, localSubst, pol)
           val (erec, eClauses) = mkExprClauses(newBool2, elze, localSubst, pol)
-          builder ++= mergeCalls(pathVar, condVar, localSubst,
-                                tClauses + (newBool1 -> Equals(newExpr, trec)),
-                                eClauses + (newBool2 -> Equals(newExpr, erec)))
+          builder ++=  mergeCalls(pathVar, condVar, localSubst,
+                                  tClauses + (newBool1 -> Equals(newExpr, trec)),
+                                  eClauses + (newBool2 -> Equals(newExpr, erec)))
 
           newExpr
         }
