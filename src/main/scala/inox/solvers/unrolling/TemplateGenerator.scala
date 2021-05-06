@@ -132,7 +132,6 @@ trait TemplateGenerator { self: Templates =>
       ))
 
       val newBlocker: Variable = Variable.fresh("bm", BooleanType(), true)
-      // TODO: make this a method in Builder similar to storeCond
       builder.storeConds(thenBlockers ++ elseBlockers, newBlocker)
       builder.iff(orJoin((thenBlockers ++ elseBlockers).toSeq), newBlocker)
 
@@ -450,16 +449,16 @@ trait TemplateGenerator { self: Templates =>
           storeExpr(condVar)
 
           val crec = rec(pathVar, cond, None)
-          val (trec, tClauses) = mkExprClauses(newBool1, thenn, localSubst, pol)
-          val (erec, eClauses) = mkExprClauses(newBool2, elze, localSubst, pol)
-          builder ++= mergeCalls(pathVar, condVar, localSubst, tClauses, eClauses)
-
           storeGuarded(pathVar, Equals(condVar, crec))
           iff(and(pathVar, condVar), newBool1)
           iff(and(pathVar, not(condVar)), newBool2)
 
-          storeGuarded(newBool1, Equals(newExpr, trec))
-          storeGuarded(newBool2, Equals(newExpr, erec))
+          val (trec, tClauses) = mkExprClauses(newBool1, thenn, localSubst, pol)
+          val (erec, eClauses) = mkExprClauses(newBool2, elze, localSubst, pol)
+          builder ++= mergeCalls(pathVar, condVar, localSubst,
+                                tClauses + (newBool1 -> Equals(newExpr, trec)),
+                                eClauses + (newBool2 -> Equals(newExpr, erec)))
+
           newExpr
         }
       }
