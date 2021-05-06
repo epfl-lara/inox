@@ -85,7 +85,7 @@ script := {
                        |
                        |SCALACLASSPATH=$cp
                        |
-                       |java -Xmx2G -Xms512M -Xss64M -classpath "$${SCALACLASSPATH}" -Dscala.usejavacp=true inox.Main $$@ 2>&1
+                       |java -Xmx2G -Xms512M -Xss64M -classpath "$${SCALACLASSPATH}" -Dscala.usejavacp=true inox.Main "$$@" 2>&1
                        |""".stripMargin)
     file.setExecutable(true)
   } catch {
