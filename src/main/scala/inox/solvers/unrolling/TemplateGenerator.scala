@@ -136,7 +136,7 @@ trait TemplateGenerator { self: Templates =>
       builder.iff(orJoin((thenBlockers ++ elseBlockers).toSeq), newBlocker)
 
       val newArgs = (thenCall.args zip elseCall.args).map { case (thenArg, elseArg) =>
-        val (newArg, argClauses) = mkExprClauses(newBlocker, IfExpr(condVar, thenArg, elseArg), builder.localSubst)
+        val (newArg, argClauses) = mkExprClauses(newBlocker, ifExpr(condVar, thenArg, elseArg), builder.localSubst)
         builder ++= argClauses
         newArg
       }
