@@ -75,6 +75,81 @@ trait TemplateGenerator { self: Templates =>
     tmplClauses + (pathVar -> p)
   }
 
+  def mergeCalls(pathVar: Variable, condVar: Variable, substMap: Map[Variable, Encoded],
+                thenClauses: TemplateClauses, elseClauses: TemplateClauses): TemplateClauses = {
+    val builder = new Builder(pathVar, substMap)
+    builder ++= thenClauses
+    builder ++= elseClauses
+
+    // Clear all guardedExprs in builder since we're going to transform them by merging calls.
+    // The transformed guardedExprs will be added to builder at the end of the function.
+    builder.guardedExprs = Map.empty
+
+    def collectCalls(expr: Expr): Set[FunctionInvocation] =
+      exprOps.collect { case fi: FunctionInvocation => Set(fi) case _ => Set.empty[FunctionInvocation] }(expr)
+    def countCalls(expr: Expr): Int =
+      exprOps.count { case fi: FunctionInvocation => 1 case _ => 0}(expr)
+    def replaceCall(call: FunctionInvocation, newExpr: Expr)(e: Expr): Expr =
+      exprOps.replace(Map(call -> newExpr), e)
+
+    def getCalls(guardedExprs: Map[Variable, Seq[Expr]]): Map[TypedFunDef, Seq[(FunctionInvocation, Set[Variable])]] =
+      (for { (b, es) <- guardedExprs.toSeq; e <- es; fi <- collectCalls(e) } yield (b -> fi))
+      .groupBy(_._2)
+      .mapValues(_.map(_._1).toSet)
+      .toSeq
+      .groupBy(_._1.tfd)
+      .mapValues(_.toList.distinct.sortBy(p => countCalls(p._1)))  // place inner calls first
+      .toMap
+
+    var thenGuarded = thenClauses._4
+    var elseGuarded = elseClauses._4
+
+    val thenCalls = getCalls(thenGuarded)
+    val elseCalls = getCalls(elseGuarded)
+
+    // We sort common function calls in order to merge nested calls first.
+    var toMerge: Seq[((FunctionInvocation, Set[Variable]), (FunctionInvocation, Set[Variable]))] =
+      (thenCalls.keySet & elseCalls.keySet)
+        .flatMap(tfd => thenCalls(tfd) zip elseCalls(tfd))
+        .toSeq
+        .sortBy(p => countCalls(p._1._1) + countCalls(p._2._1))
+
+    while (toMerge.nonEmpty) {
+      val ((thenCall, thenBlockers), (elseCall, elseBlockers)) = toMerge.head
+      toMerge = toMerge.tail
+
+      val newExpr: Variable = Variable.fresh("call", thenCall.tfd.getType, true)
+      builder.storeExpr(newExpr)
+
+      val replaceThen = replaceCall(thenCall, newExpr) _
+      val replaceElse = replaceCall(elseCall, newExpr) _
+
+      thenGuarded = thenGuarded.mapValues(_.map(replaceThen))
+      elseGuarded = elseGuarded.mapValues(_.map(replaceElse))
+      toMerge = toMerge.map(p => (
+        (replaceThen(p._1._1).asInstanceOf[FunctionInvocation], p._1._2),
+        (replaceElse(p._2._1).asInstanceOf[FunctionInvocation], p._2._2)
+      ))
+
+      val newBlocker: Variable = Variable.fresh("bm", BooleanType(), true)
+      builder.storeConds(thenBlockers ++ elseBlockers, newBlocker)
+      builder.iff(orJoin((thenBlockers ++ elseBlockers).toSeq), newBlocker)
+
+      val newArgs = (thenCall.args zip elseCall.args).map { case (thenArg, elseArg) =>
+        val (newArg, argClauses) = mkExprClauses(newBlocker, ifExpr(condVar, thenArg, elseArg), builder.localSubst)
+        builder ++= argClauses
+        newArg
+      }
+
+      val newCall = thenCall.tfd.applied(newArgs)
+      builder.storeGuarded(newBlocker, Equals(newExpr, newCall))
+    }
+
+    for ((b, es) <- thenGuarded; e <- es) builder.storeGuarded(b, e)
+    for ((b, es) <- elseGuarded; e <- es) builder.storeGuarded(b, e)
+    builder.result
+  }
+
   protected def mkExprStructure(
     pathVar: Variable,
     expr: Expr,
@@ -155,6 +230,13 @@ trait TemplateGenerator { self: Templates =>
     def storeCond(pathVar: Variable, id: Variable): Unit = {
       condVars += id -> encodeSymbol(id)
       condTree += pathVar -> (condTree.getOrElse(pathVar, Set.empty) + id)
+    }
+
+    def storeConds(pathVars: Set[Variable], id: Variable): Unit = {
+      condVars += id -> encodeSymbol(id)
+      for (pathVar <- pathVars) {
+        condTree += pathVar -> (condTree.getOrElse(pathVar, Set.empty) + id)
+      }
     }
 
     @inline def encodedCond(id: Variable): Encoded = substMap.getOrElse(id, condVars(id))
@@ -367,15 +449,16 @@ trait TemplateGenerator { self: Templates =>
           storeExpr(condVar)
 
           val crec = rec(pathVar, cond, None)
-          val trec = rec(newBool1, thenn, pol)
-          val erec = rec(newBool2, elze, pol)
-
           storeGuarded(pathVar, Equals(condVar, crec))
           iff(and(pathVar, condVar), newBool1)
           iff(and(pathVar, not(condVar)), newBool2)
 
-          storeGuarded(newBool1, Equals(newExpr, trec))
-          storeGuarded(newBool2, Equals(newExpr, erec))
+          val (trec, tClauses) = mkExprClauses(newBool1, thenn, localSubst, pol)
+          val (erec, eClauses) = mkExprClauses(newBool2, elze, localSubst, pol)
+          builder ++=  mergeCalls(pathVar, condVar, localSubst,
+                                  tClauses + (newBool1 -> Equals(newExpr, trec)),
+                                  eClauses + (newBool2 -> Equals(newExpr, erec)))
+
           newExpr
         }
       }
