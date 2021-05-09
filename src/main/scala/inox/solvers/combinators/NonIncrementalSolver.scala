@@ -52,7 +52,9 @@ trait NonIncrementalSolver extends AbstractSolver { self =>
       currentSolver = Some(newSolver)
       for (expression <- assertions)
         newSolver.assertCnstr(expression)
-      val res = newSolver.checkAssumptions(config)(assumptions)
+      for (assumption <- assumptions)
+        newSolver.assertCnstr(assumption)
+      val res = newSolver.checkAssumptions(config)(Set())
       currentSolver = None
       res
     } finally {
