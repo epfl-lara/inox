@@ -912,7 +912,8 @@ trait SymbolOps { self: TypeOps =>
     case adt: ADTType =>
       val sort = adt.getSort
       val cons = sort.constructors.sortBy(_.fields.size).head
-      if (sort.hasInvariant) None
+      if (seen(adt)) None
+      else if (sort.hasInvariant) None
       else if (!sort.definition.isWellFormed) Some(false)
       else if (sort.constructors.sortBy(_.fields.size).exists(cons =>
               cons.fields.forall(vd => hasInstance(vd.tpe, seen + adt) contains true)))
@@ -945,8 +946,9 @@ trait SymbolOps { self: TypeOps =>
       val sort = adt.getSort
       if (!sort.definition.isWellFormed) throw NoSimpleValue(adt)
 
-      if (seen(adt) && inLambda) {
-        Choose(ValDef.fresh("res", adt), BooleanLiteral(true))
+      if (seen(adt)) {
+        if (inLambda) Choose(ValDef.fresh("res", adt), BooleanLiteral(true))
+        else throw NoSimpleValue(adt)
       } else if (sort.hasInvariant) {
         if (!allowSolver) throw NoSimpleValue(adt)
 
