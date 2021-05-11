@@ -911,12 +911,11 @@ trait SymbolOps { self: TypeOps =>
       if ((params.map(_.tpe) :+ to).forall(tp => hasInstance(tp, seen) contains true)) Some(true) else None
     case adt: ADTType =>
       val sort = adt.getSort
-      val cons = sort.constructors.sortBy(_.fields.size).head
       if (seen(adt)) None
       else if (sort.hasInvariant) None
       else if (!sort.definition.isWellFormed) Some(false)
       else if (sort.constructors.sortBy(_.fields.size).exists(cons =>
-              cons.fields.forall(vd => hasInstance(vd.tpe, seen + adt) contains true)))
+                cons.fields.forall(vd => hasInstance(vd.tpe, seen + adt) contains true)))
         Some(true)
       else None
     case _: RefinementType => None
