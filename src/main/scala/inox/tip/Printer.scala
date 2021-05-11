@@ -118,6 +118,14 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
     case _ => super.computeSort(t)
   }
 
+  private def getGenericTupleType(n: Int): TupleType = {
+    tuples.getOrElse(n, {
+      val res = TupleType(List.range(0, n).map(i => TypeParameter.fresh("A" + i)))
+      tuples(n) = res
+      res
+    })
+  }
+
   override protected def declareStructuralSort(t: Type): Sort = t match {
     case adt: ADTType =>
       val tpe = liftADTType(adt)
@@ -127,11 +135,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
       Sort(id, tpSorts)
 
     case TupleType(ts) =>
-      val tpe = tuples.getOrElse(ts.size, {
-        val res = TupleType(List.range(0, ts.size).map(i => TypeParameter.fresh("A" + i)))
-        tuples(ts.size) = res
-        res
-      })
+      val tpe = getGenericTupleType(ts.size)
       adtManager.declareADTs(tpe, declareDatatypes)
       val tpSorts = ts.map(declareSort)
       Sort(sorts.toB(tpe).id, tpSorts)
@@ -161,7 +165,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
           }))
 
       case (TupleType(tps), DataType(sym, Seq(Constructor(id, TupleCons(_), fields)))) =>
-        val TupleType(tparams) = tuples(tps.size)
+        val TupleType(tparams) = getGenericTupleType(tps.size)
         (TupleType(tparams), DataType(sym, Seq(Constructor(id, TupleCons(tparams),
           (fields zip tparams).map { case ((id, _), tpe) => (id, tpe) }))))
 
