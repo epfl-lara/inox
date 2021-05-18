@@ -34,7 +34,26 @@ trait MainHelpers {
   }
 
   final object optHelp extends MarkerOptionDef("help")
-  final object optDeserialize extends FlagOptionDef("deserialize", false)
+  final object optPrintProgram extends FlagOptionDef("print-program", false)
+
+  abstract class Format
+  case object Tip extends Format
+  case class Binary(methodName: Option[String]) extends Format
+
+  final object optFormat extends OptionDef[Format] {
+    val name: String = "format"
+    val usageRhs: String = "tip | binary[:method-name]"
+    val default: Format = Tip
+
+    private val BinaryRegex = """binary:?(.+)?""".r
+
+    override def parser: OptionParsers.OptionParser[Format] = {
+      case "tip" => Some(Tip)
+      // Option.apply takes care of potential null in regex match
+      case BinaryRegex(methodName) => Some(Binary(Option(methodName)))
+      case _ => None
+    }
+  }
 
   abstract class Category
   case object General extends Category
@@ -62,7 +81,8 @@ trait MainHelpers {
         "  " + first.mkString(", ") + ",\n" +
         "  " + second.mkString(", ")
     }),
-    optDeserialize -> Description(General, "Deserialize a given file containing a program and print it"),
+    optFormat -> Description(General, "Choose input format (if 'binary' also choose method to use as expression)"),
+    optPrintProgram -> Description(Printing, "Print the entire program"),
     optPrintChooses -> Description(Printing, "Display partial models for chooses when printing models"),
     ast.optPrintPositions -> Description(Printing, "Attach positions to trees when printing"),
     ast.optPrintUniqueIds -> Description(Printing, "Always print unique ids"),
@@ -223,76 +243,89 @@ trait MainHelpers {
       ctx
     }
   }
-
-  protected def deserializerMain(ctx: Context): Unit = {
-    import java.io._
-
-    for (file <- getFilesOrExit(ctx)) {
-      import inox.trees._
-      import ctx._
-
-      val program =
-        try {
-          val serializer = utils.Serializer(inox.trees)
-          val in = new FileInputStream(file)
-          InoxProgram(serializer.deserialize[Symbols](in))
-        } catch {
-          case e: FileNotFoundException =>
-            ctx.reporter.error(s"Input file was not found:\n  $file")
-            exit(error = true)
-          case e: IOException =>
-            ctx.reporter.error(s"Error reading from file:\n  $file")
-            exit(error = true)
-        }
-
-      ctx.reporter.info(s"Program in $file:\n\n")
-      ctx.reporter.info(program)
-    }
-
-    exit(error = false)
-  }
 }
 
 object Main extends MainHelpers {
+  import inox.trees._
 
   def main(args: Array[String]): Unit = {
     val ctx = setup(args)
-    if (ctx.options.findOptionOrDefault(optDeserialize)) {
-      deserializerMain(ctx)
-    } else {
-      tipMain(ctx)
-    }
-  }
-
-  protected def tipMain(ctx: Context): Unit = {
     var error: Boolean = false
-    for (file <- getFilesOrExit(ctx); (program, expr) <- tip.Parser(file).parseScript) {
+
+    for {
+      file <- getFilesOrExit(ctx)
+      (program, exprOpt) <- parse(ctx, file)
+    } {
       import ctx._
       import program._
 
-      val sf = ctx.options.findOption(optTimeout) match {
-        case Some(to) => program.getSolver.withTimeout(to)
-        case None => program.getSolver
+      if (ctx.options.findOptionOrDefault(optPrintProgram)) {
+        ctx.reporter.info(s"Program in $file:\n\n")
+        ctx.reporter.info(program)
       }
 
-      import SolverResponses._
-      SimpleSolverAPI(sf).solveSAT(expr) match {
-        case SatWithModel(model) =>
-          reporter.info(file + " => SAT")
-          reporter.info("  " + model.asString.replaceAll("\n", "\n  "))
-        case Unsat =>
-          reporter.info(file + " => UNSAT")
-        case Unknown =>
-          reporter.info(file + " => UNKNOWN")
-          error = true
+      exprOpt.foreach { expr =>
+        val sf = ctx.options.findOption(optTimeout) match {
+          case Some(to) => program.getSolver.withTimeout(to)
+          case None => program.getSolver
+        }
+
+        import SolverResponses._
+        SimpleSolverAPI(sf).solveSAT(expr) match {
+          case SatWithModel(model) =>
+            reporter.info(file + " => SAT")
+            reporter.info("  " + model.asString.replaceAll("\n", "\n  "))
+          case Unsat =>
+            reporter.info(file + " => UNSAT")
+          case Unknown =>
+            reporter.info(file + " => UNKNOWN")
+            error = true
+        }
       }
     }
 
-      val asciiOnly = ctx.options.findOptionOrDefault(optNoColors)
-      ctx.reporter.whenDebug(utils.DebugSectionTimers) { debug =>
-        ctx.timers.outputTable(debug, asciiOnly)
-      }
+    val asciiOnly = ctx.options.findOptionOrDefault(optNoColors)
+    ctx.reporter.whenDebug(utils.DebugSectionTimers) { debug =>
+      ctx.timers.outputTable(debug, asciiOnly)
+    }
 
-    exit(error = error)
+    exit(error)
+  }
+
+  protected def parse(ctx: Context, file: File): Seq[(InoxProgram, Option[Expr])] =
+    ctx.options.findOptionOrDefault(optFormat) match {
+      case Tip =>
+        tip.Parser(file).parseScript.map{ case (p, e) => (p, Some(e)) }
+
+      case Binary(None) =>
+        Seq((InoxProgram(deserializeSymbols(ctx, file)), None))
+
+      case Binary(Some(methodName)) =>
+        val symbols = deserializeSymbols(ctx, file)
+        val checkFunction = symbols.functions.find(_._1.name == methodName)
+        val otherFunctions = symbols.functions.filterKeys(_.name != methodName)
+        Seq(
+          (
+            InoxProgram(symbols.copy(functions = otherFunctions)),
+            checkFunction.map(_._2.fullBody)
+          )
+        )
+
+    }
+
+  private def deserializeSymbols(ctx: Context, file: File): Symbols = {
+    import java.io._
+    try {
+      val serializer = utils.Serializer(inox.trees)
+      val in = new FileInputStream(file)
+      serializer.deserialize[Symbols](in)
+    } catch {
+      case _: FileNotFoundException =>
+        ctx.reporter.error(s"Input file was not found:\n  $file")
+        exit(error = true)
+      case _: IOException =>
+        ctx.reporter.error(s"Error reading from file:\n  $file")
+        exit(error = true)
+    }
   }
 }
