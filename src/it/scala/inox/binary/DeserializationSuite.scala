@@ -1,7 +1,7 @@
 /* Copyright 2009-2018 EPFL, Lausanne */
 
 package inox
-package rust
+package binary
 
 import org.scalatest.funspec.AnyFunSpec
 
@@ -9,14 +9,14 @@ import java.io.FileInputStream
 
 import scala.reflect.ClassTag
 
-class RustInteropSuite extends AnyFunSpec with ResourceUtils {
+class DeserializationSuite extends AnyFunSpec with ResourceUtils {
   import inox.trees._
 
   val ctx = TestContext.empty
 
-  val files = resourceFiles("regression/rust", filter = _ endsWith ".inoxser", recursive = false)
+  val files = resourceFiles("regression/binary", filter = _ endsWith ".inoxser", recursive = false)
 
-  describe("Deserializing from rust") {
+  describe("Deserializing from binary files") {
     for (file <- files) {
       val name = file.getName
       val fis = new FileInputStream(file)

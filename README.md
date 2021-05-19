@@ -20,7 +20,7 @@ information, see:
 ### Add Inox as a dependency
 
 To add Inox as a dependency of your project, add the following lines to your `build.sbt`,
-where `VERSION` can be replaced by a tag (eg. `v1.1.5`), a branch name (eg. `rust-interop`)
+where `VERSION` can be replaced by a tag (eg. `v1.1.5`), a branch name (eg. `master`)
 or a commit hash (eg. `6dfb351eee`).
 
 ```scala
