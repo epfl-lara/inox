@@ -133,6 +133,8 @@ lazy val root = (project in file("."))
   .dependsOn(smtlib)
   
 
+mainClass in (Compile, run) := Some("inox.Main")
+
 publishMavenStyle := true
 
 publishTo := {

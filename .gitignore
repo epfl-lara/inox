@@ -34,6 +34,10 @@ Inox.eml
 Inox.iml
 /.idea_modules
 
+#vscode and metals
+.vscode/
+.metals/
+
 #scripts
 out-classes
 

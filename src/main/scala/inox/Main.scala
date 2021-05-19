@@ -34,6 +34,26 @@ trait MainHelpers {
   }
 
   final object optHelp extends MarkerOptionDef("help")
+  final object optPrintProgram extends FlagOptionDef("print-program", false)
+
+  abstract class Format
+  case object Tip extends Format
+  case class Binary(methodName: Option[String]) extends Format
+
+  final object optFormat extends OptionDef[Format] {
+    val name: String = "format"
+    val usageRhs: String = "tip|binary[:<method-name>]"
+    val default: Format = Tip
+
+    private val BinaryRegex = """binary:?(.+)?""".r
+
+    override def parser: OptionParsers.OptionParser[Format] = s => s.toLowerCase match {
+      case "tip" => Some(Tip)
+      // Option.apply takes care of potential null in regex match
+      case BinaryRegex(methodName) => Some(Binary(Option(methodName)))
+      case _ => None
+    }
+  }
 
   abstract class Category
   case object General extends Category
@@ -61,6 +81,8 @@ trait MainHelpers {
         "  " + first.mkString(", ") + ",\n" +
         "  " + second.mkString(", ")
     }),
+    optFormat -> Description(General, "Choose input format (if 'binary' also choose method to use as expression)"),
+    optPrintProgram -> Description(Printing, "Print the entire program"),
     optPrintChooses -> Description(Printing, "Display partial models for chooses when printing models"),
     ast.optPrintPositions -> Description(Printing, "Attach positions to trees when printing"),
     ast.optPrintUniqueIds -> Description(Printing, "Always print unique ids"),
@@ -191,6 +213,15 @@ trait MainHelpers {
 
   def exit(error: Boolean) = sys.exit(if (error) 1 else 0)
 
+  def getFilesOrExit(ctx: Context): Seq[File] = {
+    val files = ctx.options.findOptionOrDefault(optFiles)
+    if (files.isEmpty) {
+      ctx.reporter.error(s"Input file was not specified.\nTry the --help option for more information.")
+      exit(error = true)
+    }
+    files
+  }
+
   def setup(args: Array[String]): Context = {
     val initReporter = newReporter(Set())
 
@@ -215,20 +246,25 @@ trait MainHelpers {
 }
 
 object Main extends MainHelpers {
+  import inox.trees._
 
   def main(args: Array[String]): Unit = {
     val ctx = setup(args)
+    var error: Boolean = false
 
-    val files = ctx.options.findOptionOrDefault(optFiles)
-    if (files.isEmpty) {
-      ctx.reporter.error(s"Input file was not specified.\nTry the --help option for more information.")
-      exit(error = true)
-    } else {
-      var error: Boolean = false
-      for (file <- files; (program, expr) <- tip.Parser(file).parseScript) {
-        import ctx._
-        import program._
+    for {
+      file <- getFilesOrExit(ctx)
+      (program, exprOpt) <- parse(ctx, file)
+    } {
+      import ctx._
+      import program._
 
+      if (ctx.options.findOptionOrDefault(optPrintProgram)) {
+        ctx.reporter.info(s"Program in $file:\n\n")
+        ctx.reporter.info(program.asString(ctx))
+      }
+
+      exprOpt.foreach { expr =>
         val sf = ctx.options.findOption(optTimeout) match {
           case Some(to) => program.getSolver.withTimeout(to)
           case None => program.getSolver
@@ -246,13 +282,48 @@ object Main extends MainHelpers {
             error = true
         }
       }
+    }
 
-      val asciiOnly = ctx.options.findOptionOrDefault(optNoColors)
-      ctx.reporter.whenDebug(utils.DebugSectionTimers) { debug =>
-        ctx.timers.outputTable(debug, asciiOnly)
-      }
+    val asciiOnly = ctx.options.findOptionOrDefault(optNoColors)
+    ctx.reporter.whenDebug(utils.DebugSectionTimers) { debug =>
+      ctx.timers.outputTable(debug, asciiOnly)
+    }
 
-      exit(error = error)
+    exit(error)
+  }
+
+  protected def parse(ctx: Context, file: File): Seq[(InoxProgram, Option[Expr])] =
+    ctx.options.findOptionOrDefault(optFormat) match {
+      case Tip =>
+        tip.Parser(file).parseScript.map{ case (p, e) => (p, Some(e)) }
+
+      case Binary(None) =>
+        Seq((InoxProgram(deserializeSymbols(ctx, file)), None))
+
+      case Binary(Some(methodName)) =>
+        val symbols = deserializeSymbols(ctx, file)
+        Seq(
+          (
+            InoxProgram(symbols),
+            symbols.functions.find(_._1.name == methodName).map(_._2.fullBody)
+          )
+        )
+
+    }
+
+  private def deserializeSymbols(ctx: Context, file: File): Symbols = {
+    import java.io._
+    try {
+      val serializer = utils.Serializer(inox.trees)
+      val in = new FileInputStream(file)
+      serializer.deserialize[Symbols](in)
+    } catch {
+      case _: FileNotFoundException =>
+        ctx.reporter.error(s"Input file was not found:\n  $file")
+        exit(error = true)
+      case _: IOException =>
+        ctx.reporter.error(s"Error reading from file:\n  $file")
+        exit(error = true)
     }
   }
 }
