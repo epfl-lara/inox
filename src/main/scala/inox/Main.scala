@@ -42,12 +42,12 @@ trait MainHelpers {
 
   final object optFormat extends OptionDef[Format] {
     val name: String = "format"
-    val usageRhs: String = "tip | binary[:method-name]"
+    val usageRhs: String = "tip|binary[:<method-name>]"
     val default: Format = Tip
 
     private val BinaryRegex = """binary:?(.+)?""".r
 
-    override def parser: OptionParsers.OptionParser[Format] = {
+    override def parser: OptionParsers.OptionParser[Format] = s => s.toLowerCase match {
       case "tip" => Some(Tip)
       // Option.apply takes care of potential null in regex match
       case BinaryRegex(methodName) => Some(Binary(Option(methodName)))
@@ -302,12 +302,10 @@ object Main extends MainHelpers {
 
       case Binary(Some(methodName)) =>
         val symbols = deserializeSymbols(ctx, file)
-        val checkFunction = symbols.functions.find(_._1.name == methodName)
-        val otherFunctions = symbols.functions.filterKeys(_.name != methodName)
         Seq(
           (
-            InoxProgram(symbols.copy(functions = otherFunctions)),
-            checkFunction.map(_._2.fullBody)
+            InoxProgram(symbols),
+            symbols.functions.find(_._1.name == methodName).map(_._2.fullBody)
           )
         )
 
