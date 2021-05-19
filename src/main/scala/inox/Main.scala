@@ -261,7 +261,7 @@ object Main extends MainHelpers {
 
       if (ctx.options.findOptionOrDefault(optPrintProgram)) {
         ctx.reporter.info(s"Program in $file:\n\n")
-        ctx.reporter.info(program)
+        ctx.reporter.info(program.asString(ctx))
       }
 
       exprOpt.foreach { expr =>
