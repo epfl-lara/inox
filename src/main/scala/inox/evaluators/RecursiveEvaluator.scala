@@ -21,7 +21,7 @@ trait RecursiveEvaluator
   lazy val ignoreContracts = options.findOptionOrDefault(optIgnoreContracts)
 
   private def shift(b: BitSet, size: Int, i: Int): BitSet =
-    b.map(_ + i).filter(bit => bit >= 1 && bit <= size)
+    b.filter(bit => bit + i >= 1 && bit + i <= size).map(_ + i)
 
   protected def finiteSet(els: Iterable[Expr], tpe: Type): FiniteSet = {
     FiniteSet(els.toSeq.distinct.sortBy(_.toString), tpe)
