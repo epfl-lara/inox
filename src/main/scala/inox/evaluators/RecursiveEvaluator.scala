@@ -302,7 +302,7 @@ trait RecursiveEvaluator
         case (BVLiteral(sig1, i1, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
           val shiftCount = b2.toBigInt.toInt
           val shifted = shift(i1, s1, -shiftCount)
-          BVLiteral(sig1, if (i1(s1)) shifted ++ ((s1 - shiftCount) to s1) else shifted, s1)
+          BVLiteral(sig1, if (i1(s1) && sig1) shifted ++ ((s1 - shiftCount) to s1) else shifted, s1)
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") >> (" + re.asString + ")")
       }
 
