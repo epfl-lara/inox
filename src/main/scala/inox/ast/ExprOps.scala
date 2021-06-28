@@ -38,10 +38,17 @@ trait ExprOps extends GenTreeOps {
   lazy val Deconstructor = Operator
 
   /** Replaces bottom-up variables by looking up for them in a map */
-  def replaceFromSymbols[V <: VariableSymbol](substs: Map[V, Expr], expr: Expr)(implicit ev: VariableConverter[V]): Expr = {
+  def replaceFromSymbols[V <: VariableSymbol](
+    substs: Map[V, Expr],
+    expr: Expr,
+    copyPositions: Boolean = false
+  )(implicit ev: VariableConverter[V]): Expr = {
     new SelfTreeTransformer {
       override def transform(expr: Expr): Expr = expr match {
-        case v: Variable => substs.getOrElse(v.to[V], super.transform(v))
+        case v: Variable =>
+          val res = substs.getOrElse(v.to[V], super.transform(v))
+          if (copyPositions) res.copiedFrom(v)
+          else res
         case _ => super.transform(expr)
       }
     }.transform(expr)

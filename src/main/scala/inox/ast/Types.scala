@@ -336,11 +336,15 @@ trait Types { self: Trees =>
       case NAryType(tps, builder) => tps.exists(isParametricType)
     }
 
-    def replaceFromSymbols[V <: VariableSymbol](subst: Map[V, Expr], tpe: Type)
-                                               (implicit ev: VariableConverter[V]): Type = {
+    def replaceFromSymbols[V <: VariableSymbol]
+      (subst: Map[V, Expr], tpe: Type, copyPositions: Boolean = false)
+      (implicit ev: VariableConverter[V]): Type = {
       new SelfTreeTransformer {
         override def transform(expr: Expr): Expr = expr match {
-          case v: Variable => subst.getOrElse(v.to[V], v)
+          case v: Variable =>
+            val res = subst.getOrElse(v.to[V], v)
+            if (copyPositions) res.copiedFrom(v)
+            else res
           case _ => super.transform(expr)
         }
       }.transform(tpe)
