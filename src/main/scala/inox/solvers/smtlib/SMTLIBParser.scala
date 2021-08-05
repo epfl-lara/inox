@@ -224,7 +224,9 @@ trait SMTLIBParser {
       val MapType(from, to) = fromSMT(sort)
       FiniteMap(Seq.empty, d, from, to)
 
-    case _ => throw new MissformedSMTException(term, "Unknown SMT term of class: " + term.getClass)
+    case _ => throw new MissformedSMTException(term,
+      s"Unknown SMT term of class: ${term.getClass}:\n$term"
+    )
   }
 
   protected def fromSMT(sort: Sort)(implicit context: Context): Type = sort match {

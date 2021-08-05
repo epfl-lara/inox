@@ -153,10 +153,16 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("seq.unit")), None), Seq(SHexadecimal(hex))), _) =>
         StringLiteral(utils.StringUtils.decode(hex.repr))
 
+      case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("seq.unit")), None), args), Some(StringType())) =>
+        StringLiteral(args.map(fromSMT(_, Some(CharType())).asInstanceOf[CharLiteral].value).mkString)
+
       case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("str.++")), None), strs), _) =>
         val strings = strs.map(fromSMT(_, Some(StringType())))
         if (strings.isEmpty) StringLiteral("")
         else strings.tail.foldRight(strings.head)(StringConcat(_, _))
+
+      case (QualifiedIdentifier(SMTIdentifier(SSymbol("Char"), Seq(SNumeral(n))), None), Some(CharType())) =>
+        CharLiteral(n.toChar)
 
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ MapType(keyType, valueType))) =>
         val Some(Lambda(Seq(arg), body)) = context.getFunction(k, FunctionType(Seq(keyType), valueType))
