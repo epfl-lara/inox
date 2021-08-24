@@ -66,7 +66,7 @@ trait RecursiveEvaluator
 
     case Assume(cond, body) =>
       if (!ignoreContracts && e(cond) != BooleanLiteral(true))
-        throw RuntimeError("Assumption did not hold @" + expr.getPos) 
+        throw RuntimeError("Assumption did not hold @" + expr.getPos)
       e(body)
 
     case IfExpr(cond, thenn, elze) =>
@@ -83,11 +83,12 @@ trait RecursiveEvaluator
       }
       gctx.stepsLeft -= 1
 
-      val tfd = getFunction(id, tps)
+      val tpsErased = tps.map(_.getType)
+      val tfd = getFunction(id, tpsErased)
       val evArgs = args map e
 
       // build a mapping for the function...
-      val frame = rctx.withNewVars(tfd.paramSubst(evArgs)).newTypes(tps)
+      val frame = rctx.withNewVars(tfd.paramSubst(evArgs)).newTypes(tpsErased)
 
       e(tfd.fullBody)(frame, gctx)
 
@@ -387,25 +388,25 @@ trait RecursiveEvaluator
 
     case SetAdd(s1, elem) =>
       (e(s1), e(elem)) match {
-        case (FiniteSet(els1, tpe), evElem) => finiteSet(els1 :+ evElem, tpe)
+        case (FiniteSet(els1, tpe), evElem) => finiteSet(els1 :+ evElem, tpe.getType)
         case (le, re) => throw EvalError(typeErrorMsg(le, s1.getType))
       }
 
     case SetUnion(s1,s2) =>
       (e(s1), e(s2)) match {
-        case (FiniteSet(els1, tpe), FiniteSet(els2, _)) => finiteSet(els1 ++ els2, tpe)
+        case (FiniteSet(els1, tpe), FiniteSet(els2, _)) => finiteSet(els1 ++ els2, tpe.getType)
         case (le, re) => throw EvalError(typeErrorMsg(le, s1.getType))
       }
 
     case SetIntersection(s1,s2) =>
       (e(s1), e(s2)) match {
-        case (FiniteSet(els1, tpe), FiniteSet(els2, _)) => finiteSet(els1 intersect els2, tpe)
+        case (FiniteSet(els1, tpe), FiniteSet(els2, _)) => finiteSet(els1 intersect els2, tpe.getType)
         case (le,re) => throw EvalError(typeErrorMsg(le, s1.getType))
       }
 
     case SetDifference(s1,s2) =>
       (e(s1), e(s2)) match {
-        case (FiniteSet(els1, tpe), FiniteSet(els2, _)) => finiteSet(els1.toSet -- els2, tpe)
+        case (FiniteSet(els1, tpe), FiniteSet(els2, _)) => finiteSet(els1.toSet -- els2, tpe.getType)
         case (le,re) => throw EvalError(typeErrorMsg(le, s1.getType))
       }
 
@@ -414,7 +415,7 @@ trait RecursiveEvaluator
         case (FiniteSet(keys, kT), FiniteMap(kvs1, dflt1, _, vT), FiniteMap(kvs2, dflt2, _, _)) =>
           val fromFstMap = keys.map((_ -> dflt1)).toMap ++ (kvs1.toMap.filterKeys(keys.contains(_)))
           val fromSndMap = kvs2.toMap -- keys
-          finiteMap((fromFstMap ++ fromSndMap).toSeq, dflt2, kT, vT)
+          finiteMap((fromFstMap ++ fromSndMap).toSeq, dflt2, kT.getType, vT.getType)
         case (c, m1, m2) =>
           throw EvalError(typeErrorMsg(c, cond.getType))
       }
@@ -438,7 +439,7 @@ trait RecursiveEvaluator
         finiteBag(rest :+ (evElem -> matching.lastOption.map {
           case (_, IntegerLiteral(i)) => IntegerLiteral(i + 1)
           case (_, e) => throw EvalError(typeErrorMsg(e, IntegerType()))
-        }.getOrElse(IntegerLiteral(1))), tpe)
+        }.getOrElse(IntegerLiteral(1))), tpe.getType)
 
       case (le, re) => throw EvalError(typeErrorMsg(le, bag.getType))
     }
@@ -459,7 +460,7 @@ trait RecursiveEvaluator
           }
 
           if (i <= 0) None else Some(k -> IntegerLiteral(i))
-        }, tpe)
+        }, tpe.getType)
 
       case (le, re) => throw EvalError(typeErrorMsg(le, b1.getType))
     }
@@ -472,7 +473,7 @@ trait RecursiveEvaluator
             case (IntegerLiteral(i1), IntegerLiteral(i2)) => IntegerLiteral(i1 + i2)
             case (le, re) => throw EvalError(typeErrorMsg(le, IntegerType()))
           })
-        }.toSeq, tpe)
+        }.toSeq, tpe.getType)
 
       case (le, re) => throw EvalError(typeErrorMsg(le, b1.getType))
     }
@@ -487,7 +488,7 @@ trait RecursiveEvaluator
           }
 
           if (i <= 0) None else Some(k -> IntegerLiteral(i))
-        }, tpe)
+        }, tpe.getType)
 
       case (le, re) => throw EvalError(typeErrorMsg(le, b1.getType))
     }
@@ -541,7 +542,7 @@ trait RecursiveEvaluator
 
     case g @ MapUpdated(m, k, v) => (e(m), e(k), e(v)) match {
       case (FiniteMap(ss, dflt, kT, vT), ek, ev) =>
-        finiteMap((ss.toMap + (ek -> ev)).toSeq, dflt, kT, vT)
+        finiteMap((ss.toMap + (ek -> ev)).toSeq, dflt, kT.getType, vT.getType)
       case (m,l,r) =>
         throw EvalError("Unexpected operation: " + m.asString +
           ".updated(" + l.asString + ", " + r.asString + ")")
