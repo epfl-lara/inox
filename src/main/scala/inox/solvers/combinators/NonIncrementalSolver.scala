@@ -25,41 +25,55 @@ trait NonIncrementalSolver extends AbstractSolver { self =>
   def assertCnstr(expression: Trees): Unit = assertions += expression
   def reset(): Unit = assertions.clear()
   def free(): Unit = for (solver <- currentSolver) solver.free()
-  def interrupt(): Unit = for (solver <- currentSolver) solver.interrupt()
+
+  var interrupted = false
+
+  def interrupt(): Unit = {
+    interrupted = true
+    for (solver <- currentSolver) solver.interrupt()
+  }
 
   override def check(config: CheckConfiguration): config.Response[Model, Assumptions] = {
-    assert(currentSolver.isEmpty,
-      "`currentSolver` should be empty when invoking `check` in NonIncrementalSolver")
-    val newSolver = underlying()
-    try {
-      currentSolver = Some(newSolver)
-      for (expression <- assertions)
-        newSolver.assertCnstr(expression)
-      val res = newSolver.check(config)
-      currentSolver = None
-      res
-    } finally {
-      newSolver.free()
+    if (!interrupted) {
+      assert(currentSolver.isEmpty,
+        "`currentSolver` should be empty when invoking `check` in NonIncrementalSolver")
+      val newSolver = underlying()
+      try {
+        currentSolver = Some(newSolver)
+        for (expression <- assertions)
+          newSolver.assertCnstr(expression)
+        val res = newSolver.check(config)
+        currentSolver = None
+        res
+      } finally {
+        newSolver.free()
+      }
+    } else {
+      config.cast(SolverResponses.Unknown)
     }
   }
 
   override def checkAssumptions(config: Configuration)
                                (assumptions: Set[Trees]): config.Response[Model, Assumptions] = {
-    assert(currentSolver.isEmpty,
-      "`currentSolver` should be empty when invoking `checkAssumptions` in NonIncrementalSolver")
-    val newSolver = underlying()
-    try {
-      currentSolver = Some(newSolver)
-      for (expression <- assertions)
-        newSolver.assertCnstr(expression)
-      // we assert the assumptions to address: https://github.com/Z3Prover/z3/issues/5257
-      for (assumption <- assumptions)
-        newSolver.assertCnstr(assumption)
-      val res = newSolver.checkAssumptions(config)(Set())
-      currentSolver = None
-      res
-    } finally {
-      newSolver.free()
+    if (!interrupted) {
+      assert(currentSolver.isEmpty,
+        "`currentSolver` should be empty when invoking `checkAssumptions` in NonIncrementalSolver")
+      val newSolver = underlying()
+      try {
+        currentSolver = Some(newSolver)
+        for (expression <- assertions)
+          newSolver.assertCnstr(expression)
+        // we assert the assumptions to address: https://github.com/Z3Prover/z3/issues/5257
+        for (assumption <- assumptions)
+          newSolver.assertCnstr(assumption)
+        val res = newSolver.checkAssumptions(config)(Set())
+        currentSolver = None
+        res
+      } finally {
+        newSolver.free()
+      }
+    } else {
+      config.cast(SolverResponses.Unknown)
     }
   }
 
