@@ -410,6 +410,11 @@ trait TreeDeconstructor {
       val s.MapMerge(mask, map1, map2) = expr
       (NoIdentifiers, NoVariables, Seq(mask, map1, map2), NoTypes, NoFlags,
         (_, _, es, _, _) => t.MapMerge(es(0), es(1), es(2)))
+    },
+    classOf[s.MapEqualValueKeys] -> { expr =>
+      val s.MapEqualValueKeys(map1, map2) = expr
+      (NoIdentifiers, NoVariables, Seq(map1, map2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.MapEqualValueKeys(es(0), es(1)))
     }
   )
 

@@ -160,9 +160,9 @@ trait Expressions { self: Trees =>
     def getType(implicit s: Symbols): Type = BVType(signed, size)
     def toBigInt: BigInt = {
       val res = value.foldLeft(BigInt(0))((res, i) => res + BigInt(2).pow(i-1))
-      if (signed && value(size)) 
-        res - BigInt(2).pow(size) 
-      else 
+      if (signed && value(size))
+        res - BigInt(2).pow(size)
+      else
         res
     }
   }
@@ -660,7 +660,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `Bag[base](elements)` */
   sealed case class FiniteBag(elements: Seq[(Expr, Expr)], base: Type) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = 
+    override protected def computeType(implicit s: Symbols): Type =
       checkParamTypes(
         elements.map(_._1.getType) ++ elements.map(_._2.getType),
         List.fill(elements.size)(base) ++ List.fill(elements.size)(IntegerType()),
@@ -734,6 +734,14 @@ trait Expressions { self: Trees =>
   case class MapMerge(mask: Expr, map1: Expr, map2: Expr) extends Expr with CachingTyped {
     override protected def computeType(implicit s: Symbols): Type = (getMapType(map1, map2), getSetType(mask)) match {
       case (mt @ MapType(from, to), SetType(mask)) => checkParamType(mask, from, mt)
+      case _ => Untyped
+    }
+  }
+
+  /** $encodingof the set of keys on which the two given maps agree by equality of values */
+  case class MapEqualValueKeys(map1: Expr, map2: Expr) extends Expr with CachingTyped {
+    override protected def computeType(implicit s: Symbols): Type = getMapType(map1, map2) match {
+      case MapType(from, _) => SetType(from)
       case _ => Untyped
     }
   }

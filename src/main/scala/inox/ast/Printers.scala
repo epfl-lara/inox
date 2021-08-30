@@ -287,6 +287,7 @@ trait Printer {
     case MapApply(m, k) => p"$m($k)"
     case MapUpdated(m, k, v) => p"$m.updated($k, $v)"
     case MapMerge(mask, m1, m2) => p"$mask.mapMerge($m1, $m2)"
+    case MapEqualValueKeys(m1, m2) => p"$m1.equalValueKeys($m2)"
 
     case Not(expr) => p"\u00AC$expr"
 

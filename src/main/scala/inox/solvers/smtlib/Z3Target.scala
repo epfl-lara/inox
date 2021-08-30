@@ -335,6 +335,10 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       val s = declareSort(map1.getType.asInstanceOf[MapType].to)
       ArrayMap(SortedSymbol("ite", List(BoolSort(), s, s), s), toSMT(mask), toSMT(map1), toSMT(map2))
 
+    case MapEqualValueKeys(map1, map2) =>
+      val s = declareSort(map1.getType.asInstanceOf[MapType].to)
+      ArrayMap(SortedSymbol("=", List(s, s), BoolSort()), toSMT(map1), toSMT(map2))
+
     case SetIntersection(l, r) =>
       ArrayMap(SSymbol("and"), toSMT(l), toSMT(r))
 

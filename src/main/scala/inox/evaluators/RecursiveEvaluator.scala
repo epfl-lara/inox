@@ -66,7 +66,7 @@ trait RecursiveEvaluator
 
     case Assume(cond, body) =>
       if (!ignoreContracts && e(cond) != BooleanLiteral(true))
-        throw RuntimeError("Assumption did not hold @" + expr.getPos) 
+        throw RuntimeError("Assumption did not hold @" + expr.getPos)
       e(body)
 
     case IfExpr(cond, thenn, elze) =>
@@ -417,6 +417,22 @@ trait RecursiveEvaluator
           finiteMap((fromFstMap ++ fromSndMap).toSeq, dflt2, kT, vT)
         case (c, m1, m2) =>
           throw EvalError(typeErrorMsg(c, cond.getType))
+      }
+
+    case MapEqualValueKeys(map1, map2) =>
+      (e(map1), e(map2)) match {
+        case (FiniteMap(kvs1, dflt1, kT, _), FiniteMap(kvs2, dflt2, _, _)) =>
+          if (dflt1 != dflt2) {
+            val equalKeys = kvs1.intersect(kvs2).map(_._1)
+            val dflt1In2 = kvs2.collectFirst { case (k, v) if v == dflt1 => k }
+            val dflt2In1 = kvs1.collectFirst { case (k, v) if v == dflt2 => k }
+            finiteSet(equalKeys ++ dflt1In2 ++ dflt2In1, kT)
+          } else {
+            throw EvalError("Set of equally-valued keys in maps (" + map1.asString + ") and (" +
+              map2.asString + ") is co-finite")
+          }
+        case (m1, m2) =>
+          throw EvalError(typeErrorMsg(m2, m1.getType))
       }
 
     case ElementOfSet(el,s) => (e(el), e(s)) match {
