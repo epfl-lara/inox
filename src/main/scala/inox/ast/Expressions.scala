@@ -160,9 +160,9 @@ trait Expressions { self: Trees =>
     def getType(implicit s: Symbols): Type = BVType(signed, size)
     def toBigInt: BigInt = {
       val res = value.foldLeft(BigInt(0))((res, i) => res + BigInt(2).pow(i-1))
-      if (signed && value(size)) 
-        res - BigInt(2).pow(size) 
-      else 
+      if (signed && value(size))
+        res - BigInt(2).pow(size)
+      else
         res
     }
   }
@@ -621,7 +621,10 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `set + elem` */
   sealed case class SetAdd(set: Expr, elem: Expr) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = getSetType(set, SetType(elem.getType))
+    override protected def computeType(implicit s: Symbols): Type = getSetType(set) match {
+      case st @ SetType(base) => checkParamType(elem, base, st)
+      case _ => Untyped
+    }
   }
 
   /** $encodingof `set.contains(element)` or `set(element)` */
@@ -660,7 +663,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `Bag[base](elements)` */
   sealed case class FiniteBag(elements: Seq[(Expr, Expr)], base: Type) extends Expr with CachingTyped {
-    override protected def computeType(implicit s: Symbols): Type = 
+    override protected def computeType(implicit s: Symbols): Type =
       checkParamTypes(
         elements.map(_._1.getType) ++ elements.map(_._2.getType),
         List.fill(elements.size)(base) ++ List.fill(elements.size)(IntegerType()),
