@@ -12,6 +12,7 @@ trait MainHelpers {
     utils.DebugSectionTimers,
     solvers.DebugSectionSolver,
     solvers.smtlib.DebugSectionSMT,
+    solvers.unrolling.DebugSectionBlockerGraph,
     tip.DebugSectionTip
   )
 

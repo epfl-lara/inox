@@ -23,6 +23,10 @@ object optModelFinding      extends IntOptionDef("model-finding", 0, "<PosInt> |
   })
 }
 
+object DebugSectionBlockerGraph extends inox.DebugSection("blocker-graph")
+
+private[unrolling] object DebugBlockerGraphFileNumbers extends UniqueCounter[String]
+
 trait AbstractUnrollingSolver extends Solver { self =>
 
   import context._
@@ -824,6 +828,29 @@ trait AbstractUnrollingSolver extends Solver { self =>
           ModelCheck
         }
       }
+    }
+
+    reporter.whenDebug(DebugSectionBlockerGraph) { debug =>
+      val file = options.findOptionOrDefault(Main.optFiles).headOption.map(_.getName).getOrElse("NA")
+      val n = DebugBlockerGraphFileNumbers.next(file)
+      val fileName = s"blocker-graphs/$file-$n.dot"
+
+      val javaFile = new java.io.File(fileName)
+      javaFile.getParentFile.mkdirs()
+
+      debug(s"Outputting blocker graph into $fileName")
+
+      val calls = templates.getCalls
+      val callsMap = calls.toMap
+      assert(calls.size == callsMap.size)
+
+      type Graph = Graphs.DiGraph[Encoded, Graphs.SimpleEdge[Encoded]]
+      val printer = new GraphPrinters.DotPrinter[Encoded, Graphs.SimpleEdge[Encoded], Graph]()
+      printer.setNodeLabel { n =>
+        val callStr = callsMap.get(n).map(call => s"\n(${call.tfd.id} @ ${call.getPos})").getOrElse("")
+        s"$n$callStr"
+      }
+      printer.asFile(templates.blockerGraph(strict = false), fileName)
     }
 
     val CheckResult(res) = currentState

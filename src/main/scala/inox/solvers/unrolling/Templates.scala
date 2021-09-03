@@ -177,6 +177,18 @@ trait Templates
     if (equal.nonEmpty) equal else (condImplied(b) + b)
   })(bs).filter(_ != trueT)
 
+  def blockerGraph(strict: Boolean = true): Graphs.DiGraph[Encoded, Graphs.SimpleEdge[Encoded]] = {
+    var implies = condImplies.toSeq.toMap
+    if (!strict)
+      implies = implies merge potImplies.toSeq.toMap
+    val nodes = implies.keySet ++ implies.values.flatten
+    val edges = implies.iterator
+      .flatMap(imp => imp._2.map(imp._1 -> _))
+      .map(e => Graphs.SimpleEdge(e._1, e._2))
+      .toSet
+    Graphs.DiGraph(nodes, edges)
+  }
+
   def promoteBlocker(b: Encoded, force: Boolean = false): Boolean = {
     var seen: Set[Encoded] = Set.empty
     var promoted: Boolean = false
@@ -226,7 +238,7 @@ trait Templates
   }
 
   /** Represents a named function call in the unfolding procedure */
-  case class Call(tfd: TypedFunDef, args: Seq[Arg], tpSubst: Seq[Arg]) {
+  case class Call(tfd: TypedFunDef, args: Seq[Arg], tpSubst: Seq[Arg]) extends utils.Positioned {
     override def toString: String = {
       def pArgs(args: Seq[Arg]): String = args.map {
         case Right(m) => m.toString
@@ -246,7 +258,7 @@ trait Templates
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): Call = copy(
       args = args.map(_.substitute(substituter, msubst)),
       tpSubst = tpSubst.map(_.substitute(substituter, msubst))
-    )
+    ).setPos(this.getPos)
   }
 
   /** Represents an application of a first-class function in the unfolding procedure */
@@ -594,9 +606,10 @@ trait Templates
       val calls = exprOps.collect[FunctionInvocation] {
         case fi: FunctionInvocation => Set(fi)
         case _ => Set.empty
-      } (expr).map { case FunctionInvocation(id, tps, args) =>
+      } (expr).map { case fi @ FunctionInvocation(id, tps, args) =>
         val tpVars = tps.flatMap(variableSeq).distinct
         Call(getFunction(id, tps), args.map(encodeArg), tpVars.map(encodeArg))
+          .setPos(fi.getPos)
       }.filter { case Call(tfd, args, _) =>
         !optCall.exists(p => p._1 == tfd && p._2 == args)
       }

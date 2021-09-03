@@ -63,7 +63,7 @@ trait SymbolOps { self: TypeOps =>
 
 
   /** Override point for transformer with PC creation
-    * 
+    *
     * Note that we don't actually need the `PathProvider[P]` here but it will
     * become useful in the Stainless overrides. */
   protected def transformerWithPC[P <: PathLike[P]](
@@ -247,7 +247,7 @@ trait SymbolOps { self: TypeOps =>
     }
 
     def evalChildren(e: Expr)(implicit opts: PurityOptions): Expr = e match {
-      case Operator(es, recons) => recons(es.map(rec))
+      case Operator(es, recons) => recons(es.map(rec)).copiedFrom(e)
     }
 
     // TODO: Should we run this within a fixpoint with simplifyByConstructor?
@@ -398,7 +398,7 @@ trait SymbolOps { self: TypeOps =>
       class Liftable(path: Path) {
         def unapply(e: Expr): Option[Seq[Expr]] = {
           // The set of minimal conditions that must be met for an expression to be liftable
-          val minimal = 
+          val minimal =
             (isSimple(e) || !onlySimple)           && // check whether we want only simple expression
             !containsChoose(e)                     && // expressions containing chooses can't be lifted
             (!inFunction || !containsRecursive(e))    // recursive functions can't be lifted from lambdas
@@ -438,7 +438,7 @@ trait SymbolOps { self: TypeOps =>
               preserveApps
             ) =>
               val Operator(es, recons) = e
-              recons(es.map(op(_, env)))
+              recons(es.map(op(_, env))).copiedFrom(e)
 
             case Let(vd, e @ liftable(conditions), b) =>
               subst(vd.toVariable) = (e, conditions)
@@ -501,7 +501,7 @@ trait SymbolOps { self: TypeOps =>
               val lambda = Lambda(params, recons(esWithParams.map {
                 case (_, Some(vd)) => vd.toVariable
                 case (e, _) => e
-              }))
+              }).copiedFrom(e))
 
               Application(
                 getVariable(lambda, lambda.getType, conditions = conditions),
@@ -511,7 +511,7 @@ trait SymbolOps { self: TypeOps =>
             case _ =>
               val (ids, vs, es, tps, flags, recons) = deconstructor.deconstruct(e)
               val newVs = vs map transformVar
-              op.sup(recons(ids, newVs, es, tps, flags), env)
+              op.sup(recons(ids, newVs, es, tps, flags).copiedFrom(e), env)
           }
         },
         (tpe, env, op) => transformType(vars, tpe, inFunction, env)
@@ -695,7 +695,7 @@ trait SymbolOps { self: TypeOps =>
       case Forall(args, body) =>
         Forall(args, rec(body, lambdas, true))
       case Operator(es, recons) =>
-        recons(es.map(rec(_, lambdas, inForall)))
+        recons(es.map(rec(_, lambdas, inForall))).copiedFrom(e)
     }
 
     rec(e, Map.empty, false)
