@@ -29,38 +29,48 @@ trait NonIncrementalSolver extends AbstractSolver { self =>
   var interrupted = false
 
   def interrupt(): Unit = {
-    interrupted = true
-    for (solver <- currentSolver) solver.interrupt()
+    val optSolver = synchronized {
+      interrupted = true
+      currentSolver
+    }
+    for (solver <- optSolver) solver.interrupt()
   }
 
   override def check(config: CheckConfiguration): config.Response[Model, Assumptions] = {
-    if (!interrupted) {
-      assert(currentSolver.isEmpty,
-        "`currentSolver` should be empty when invoking `check` in NonIncrementalSolver")
-      val newSolver = underlying()
-      try {
+    assert(currentSolver.isEmpty,
+      "`currentSolver` should be empty when invoking `check` in NonIncrementalSolver")
+    val newSolver = underlying()
+    try {
+      val runCheck = synchronized {
         currentSolver = Some(newSolver)
+        !interrupted
+      }
+      if (runCheck) {
         for (expression <- assertions)
           newSolver.assertCnstr(expression)
         val res = newSolver.check(config)
         currentSolver = None
         res
-      } finally {
-        newSolver.free()
+      } else {
+        currentSolver = None
+        config.cast(SolverResponses.Unknown)
       }
-    } else {
-      config.cast(SolverResponses.Unknown)
+    } finally {
+      newSolver.free()
     }
   }
 
   override def checkAssumptions(config: Configuration)
                                (assumptions: Set[Trees]): config.Response[Model, Assumptions] = {
-    if (!interrupted) {
-      assert(currentSolver.isEmpty,
-        "`currentSolver` should be empty when invoking `checkAssumptions` in NonIncrementalSolver")
-      val newSolver = underlying()
-      try {
+    assert(currentSolver.isEmpty,
+      "`currentSolver` should be empty when invoking `checkAssumptions` in NonIncrementalSolver")
+    val newSolver = underlying()
+    try {
+      val runCheck = synchronized {
         currentSolver = Some(newSolver)
+        !interrupted
+      }
+      if (runCheck) {
         for (expression <- assertions)
           newSolver.assertCnstr(expression)
         // we assert the assumptions to address: https://github.com/Z3Prover/z3/issues/5257
@@ -69,11 +79,12 @@ trait NonIncrementalSolver extends AbstractSolver { self =>
         val res = newSolver.checkAssumptions(config)(Set())
         currentSolver = None
         res
-      } finally {
-        newSolver.free()
+      } else {
+        currentSolver = None
+        config.cast(SolverResponses.Unknown)
       }
-    } else {
-      config.cast(SolverResponses.Unknown)
+    } finally {
+      newSolver.free()
     }
   }
 
