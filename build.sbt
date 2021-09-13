@@ -6,9 +6,7 @@ git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
-scalaVersion := "2.12.13"
-
-crossScalaVersions := Seq("2.11.8", "2.12.13")
+scalaVersion := "2.13.6"
 
 scalacOptions ++= Seq(
   "-deprecation",
@@ -26,7 +24,7 @@ val osName = if (isWindows) "win" else if (isMac) "mac" else "unix"
 
 val osArch = System.getProperty("sun.arch.data.model")
 
-unmanagedJars in Compile += {
+Compile / unmanagedJars += {
   baseDirectory.value / "unmanaged" / s"scalaz3-$osName-$osArch-${scalaBinaryVersion.value}.jar"
 }
 
@@ -40,12 +38,13 @@ libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "3.2.7" % "test;it",
   "org.apache.commons" % "commons-lang3" % "3.4",
   "org.scala-lang" % "scala-reflect" % scalaVersion.value,
-  "uuverifiers" %% "princess" % "2018-02-26"
+  "uuverifiers" %% "princess" % "2020-03-12",
+  "org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.2"
 )
 
 def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
-// lazy val smtlib = RootProject(file("../scala-smtlib"))
-lazy val smtlib = ghProject("https://github.com/epfl-lara/scala-smtlib.git", "95b5d1ed2ee9c0c1ec5cabb3c0303d27a48131cd")
+
+lazy val smtlib = ghProject("https://github.com/epfl-lara/scala-smtlib.git", "7a439fb5289d628f9f6cdbecfe0c4d4aa9dbe18f")
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")
 
@@ -67,9 +66,9 @@ script := {
   val s = streams.value
   val file = scriptFile.value
   try {
-    val cps = (dependencyClasspath in Compile).value
-    val out = (classDirectory      in Compile).value
-    val res = (resourceDirectory   in Compile).value
+    val cps = (Compile / dependencyClasspath).value
+    val out = (Compile / classDirectory).value
+    val res = (Compile / resourceDirectory).value
 
     if (file.exists) {
       s.log.info("Regenerating '" + file.getName + "' script")
@@ -94,8 +93,8 @@ script := {
   }
 }
 
-sourceGenerators in Compile += Def.task {
-  val file = (sourceManaged in Compile).value / "inox" / "Build.scala"
+Compile / sourceGenerators += Def.task {
+  val file = (Compile / sourceManaged).value / "inox" / "Build.scala"
   IO.write(file, s"""|package inox
                      |
                      |object Build {
@@ -111,16 +110,16 @@ mdocOut := baseDirectory.value / "doc"
 mdocExtraArguments := Seq("--no-link-hygiene")
 
 genDoc := { () }
-genDoc := (genDoc dependsOn (compile in Compile)).value
+genDoc := (genDoc dependsOn (Compile / compile)).value
 
-Keys.fork in run := true
+run / Keys.fork := true
 
-testOptions in Test := Seq(Tests.Argument("-oDF"))
+Test / testOptions := Seq(Tests.Argument("-oDF"))
 
 // Note that we can't use IntegrationTest because it is already defined in sbt._
 lazy val ItTest = config("it") extend (Test)
 
-testOptions in ItTest := Seq(Tests.Argument("-oDF"))
+ItTest / testOptions := Seq(Tests.Argument("-oDF"))
 
 lazy val root = (project in file("."))
   .configs(ItTest)
@@ -129,11 +128,11 @@ lazy val root = (project in file("."))
     logBuffered := false,
     parallelExecution := false
   )) : _*)
-  .settings(compile := ((compile in Compile) dependsOn script dependsOn genDoc).value)
+  .settings(compile := ((Compile / compile) dependsOn script dependsOn genDoc).value)
   .dependsOn(smtlib)
   
 
-mainClass in (Compile, run) := Some("inox.Main")
+Compile / run / mainClass := Some("inox.Main")
 
 publishMavenStyle := true
 
@@ -144,11 +143,11 @@ publishTo := {
   else                                         Some("releases"  at nexus + "service/local/staging/deploy/maven2")
 }
 
-publishArtifact in (Test, packageBin) := true
+Test / packageBin / publishArtifact := true
 
-publishArtifact in (ItTest, packageBin) := true
+ItTest / packageBin / publishArtifact := true
 
-addArtifact(artifact in (ItTest, packageBin), packageBin in ItTest)
+addArtifact(ItTest / packageBin / artifact, ItTest / packageBin)
 
 pomIncludeRepository := { _ => false }
 

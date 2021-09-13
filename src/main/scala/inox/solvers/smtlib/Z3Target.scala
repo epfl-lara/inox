@@ -36,9 +36,9 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     // Z3 uses a non-standard version of get-unsat-assumptions-response that
     // returns prop literals instead of symbols directly
     override def parseGetUnsatAssumptionsResponse: GetUnsatAssumptionsResponse = {
-      nextToken match {
+      nextToken() match {
         case Tokens.SymbolLit("unsupported") => Unsupported
-        case t => {
+        case t =>
           check(t, Tokens.OParen)
           peekToken match {
             case Tokens.SymbolLit("error") =>
@@ -46,11 +46,10 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
               val msg = parseString.value
               eat(Tokens.CParen)
               Error(msg)
-            case t =>
-              val props = parseUntil(Tokens.CParen)(parsePropLit _)
+            case _ =>
+              val props = parseUntil(Tokens.CParen)(() => parsePropLit)
               GetUnsatAssumptionsResponseSuccess(props)
           }
-        }
       }
     }
   }

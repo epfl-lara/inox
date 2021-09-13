@@ -47,7 +47,7 @@ trait TypeElaborators { self: Elaborators =>
         traverse(irs.map {
           case TypeBinding(_, tpe) => toSimpleType(tpe)
           case tpe => toSimpleType(tpe)
-        }).left.map(_.flatten).right.map(trees.TupleType(_))
+        }).left.map(_.flatten).map(trees.TupleType(_))
 
       case Operation(Arrow | Pi, Seq(Operation(Group, froms), to)) => 
         either(

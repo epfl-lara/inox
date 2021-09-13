@@ -66,7 +66,7 @@ trait FunctionTemplates { self: Templates =>
 
       val funString : () => String = () => {
         "Template for def " + tfd.signature +
-        "(" + tfd.params.map(a => a.id + " : " + a.getType).mkString(", ") + ") : " +
+        "(" + tfd.params.map(a => a.id.toString + " : " + a.getType).mkString(", ") + ") : " +
         tfd.getType + " is :\n" + str()
       }
 

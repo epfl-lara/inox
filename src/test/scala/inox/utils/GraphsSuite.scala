@@ -188,7 +188,7 @@ class GraphsSuite extends AnyFunSuite {
     assert(gs.N === Set(Set(A, B, E, F), Set(C, G), Set(D), Set(H)))
   }
 
-  def assertBefore[T](s: Seq[T])(n1: T, n2: T) {
+  def assertBefore[T](s: Seq[T])(n1: T, n2: T): Unit = {
     assert(s.indexOf(n1) < s.indexOf(n2), s"Node '$n1' should be before '$n2'");
   }
 

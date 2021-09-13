@@ -14,7 +14,7 @@ trait ExprIRs { self: IRs =>
       def getName: String
       def getFullName: String
 
-      override def toString = pos + "@" + getFullName
+      override def toString = s"$pos@$getFullName"
     }
     case class IdentifierName(name: String) extends Identifier {
       override def getName = name

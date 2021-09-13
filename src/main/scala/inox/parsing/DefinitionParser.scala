@@ -3,9 +3,6 @@
 package inox
 package parsing
 
-import scala.util.parsing.combinator._
-import scala.util.parsing.combinator.syntactical._
-import scala.util.parsing.combinator.token._
 import scala.util.parsing.input.Position
 
 trait DefinitionParsers { self: Parsers =>

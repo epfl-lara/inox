@@ -59,6 +59,8 @@ class TipTestSuite extends TestSuite with ResourceUtils {
         // use non-linear operators that aren't supported in CVC4
         case ("smt-cvc4", "Soundness.scala-0.tip") => Skip
         case ("smt-cvc4", "Soundness2.scala-0.tip") => Skip
+        // Takes ~8 minutes to complete
+        case ("no-inc:smt-z3", "Soundness3.scala-0.tip") => Skip
         case _ => Test
       }
       case _ => Test

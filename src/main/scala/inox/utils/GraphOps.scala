@@ -18,7 +18,7 @@ object GraphOps {
         else Left(hasPreds.keySet)
       } else {
         val found : Seq[A] = noPreds.keys.toSeq
-        tSort(hasPreds mapValues { _ -- found }, found ++ done)    
+        tSort(hasPreds.view.mapValues { _ -- found }.toMap, found ++ done)
       }
     }
     tSort(toPreds, Seq())
@@ -49,7 +49,7 @@ object GraphOps {
    */
   def reachable[A](next : A => Set[A], source : A) : Set[A] = {
     var seen = Set[A]()
-    def rec(current : A) {
+    def rec(current : A): Unit = {
       val notSeen = next(current) -- seen
       seen ++= notSeen
       for (node <- notSeen) {

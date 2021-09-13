@@ -37,7 +37,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   protected def unsound(ast: Z3AST, msg: String): Nothing =
     throw UnsoundExtractionException(ast, msg)
 
-  override def finalize() {
+  override def finalize(): Unit = {
     if (!freed) {
       println("!! Solver "+this.getClass.getName+"["+this.hashCode+"] not freed properly prior to GC:")
       traceE.printStackTrace()
@@ -175,9 +175,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
   // Prepare some of the Z3 sorts, but *not* the tuple sorts; these are created on-demand.
   sorts += CharType() -> z3.mkBVSort(16)
-  sorts += IntegerType() -> z3.mkIntSort
-  sorts += RealType() -> z3.mkRealSort
-  sorts += BooleanType() -> z3.mkBoolSort
+  sorts += IntegerType() -> z3.mkIntSort()
+  sorts += RealType() -> z3.mkRealSort()
+  sorts += BooleanType() -> z3.mkBoolSort()
 
   // FIXME: change to `z3.mkSeqSort(z3.mkBVSort(16))` once sequence support is fixed in z3
   sorts += StringType() -> z3.mkSeqSort(z3.mkBVSort(8))

@@ -63,9 +63,9 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
 
   protected def declareVariable(v: t.Variable): Z3AST = underlying.declareVariable(v)
 
-  protected def wrapModel(model: Z3Model): super.ModelWrapper = ModelWrapper(model)
+  protected def wrapModel(model: Z3Model): super.ModelWrapper = ModelWrapperImpl(model)
 
-  private case class ModelWrapper(model: Z3Model) extends super.ModelWrapper {
+  private case class ModelWrapperImpl(model: Z3Model) extends super.ModelWrapper {
     private val ex = new underlying.ModelExtractor(model)
 
     def extractConstructor(v: Z3AST, tpe: t.ADTType): Option[Identifier] = model.eval(v).flatMap {

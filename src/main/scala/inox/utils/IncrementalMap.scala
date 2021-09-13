@@ -2,14 +2,11 @@
 
 package inox.utils
 
-import scala.collection.mutable.{Map => MMap, Builder}
-import scala.collection.generic.Shrinkable
-import scala.collection.IterableLike
+import scala.collection.mutable.{Map => MMap, Builder, Shrinkable}
 
 class IncrementalMap[A, B] private(dflt: Option[B])
   extends IncrementalState
      with Iterable[(A,B)]
-     with IterableLike[(A,B), Map[A,B]]
      with Builder[(A,B), IncrementalMap[A, B]]
      with Shrinkable[A]
      with (A => B) {
@@ -22,11 +19,11 @@ class IncrementalMap[A, B] private(dflt: Option[B])
     stack = List(MMap())
   }
 
-  def reset(): Unit = {
+  override def reset(): Unit = {
     clear()
   }
 
-  def push(): Unit = {
+  override def push(): Unit = {
     val last = MMap[A,B]() ++ stack.head
 
     val withDefault = dflt match {
@@ -37,7 +34,7 @@ class IncrementalMap[A, B] private(dflt: Option[B])
     stack ::= withDefault
   }
 
-  def pop(): Unit = {
+  override def pop(): Unit = {
     stack = stack.tail
   }
 
@@ -49,7 +46,7 @@ class IncrementalMap[A, B] private(dflt: Option[B])
   }
 
   def get(k: A) = stack.head.get(k)
-  def apply(k: A) = stack.head.apply(k)
+  override def apply(k: A) = stack.head.apply(k)
   def contains(k: A) = stack.head.contains(k)
   def isDefinedAt(k: A) = stack.head.isDefinedAt(k)
   def getOrElse[B1 >: B](k: A, e: => B1) = stack.head.getOrElse(k, e)
@@ -61,11 +58,11 @@ class IncrementalMap[A, B] private(dflt: Option[B])
     ev
   })
 
-  def iterator = stack.head.iterator
-  def +=(kv: (A, B)) = { stack.head += kv; this }
-  def -=(k: A) = { stack.head -= k; this }
+  override def iterator = stack.head.iterator
+  override def addOne(kv: (A, B)) = { stack.head += kv; this }
+  override def subtractOne(k: A) = { stack.head -= k; this }
 
-  override def seq = stack.head.seq
-  override def newBuilder = new scala.collection.mutable.MapBuilder(Map.empty[A,B])
-  def result = this
+  override def knownSize: Int = stack.head.size
+
+  override def result() = this
 }

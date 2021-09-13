@@ -3,9 +3,7 @@
 package inox
 package parsing
 
-import scala.util.parsing.combinator._
 import scala.util.parsing.combinator.syntactical._
-import scala.util.parsing.combinator.token._
 import scala.util.parsing.input._
 
 trait TypeParsers { self: Parsers =>
@@ -112,7 +110,7 @@ trait TypeParsers { self: Parsers =>
     }
 
     lazy val typeEllipsis: Parser[List[Expression]] = acceptMatch("Multiple embedded types", {
-      case Embedded(ts: Traversable[_]) if ts.forall(_.isInstanceOf[trees.Type]) =>
+      case Embedded(ts: Iterable[_]) if ts.forall(_.isInstanceOf[trees.Type]) =>
         ts.map((t: Any) => Literal(EmbeddedType(t.asInstanceOf[trees.Type]))).toList
     }) <~ commit(kw("...") withFailureMessage {
       (p: Position) => withPos("Missing `...` after embedded sequence of types.", p)
