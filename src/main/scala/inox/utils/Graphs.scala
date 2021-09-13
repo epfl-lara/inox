@@ -3,6 +3,7 @@
 package inox
 package utils
 
+import scala.Iterable
 object Graphs {
   trait EdgeLike[Node] {
     def _1: Node
@@ -31,13 +32,13 @@ object Graphs {
     // Adds a new vertex
     def + (n: Node): G
     // Adds new vertices
-    def ++ (ns: Traversable[Node]): G
+    def ++ (ns: Iterable[Node]): G
     // Adds a new edge
     def + (e: Edge): G
     // Removes a vertex from the graph
     def - (from: Node): G
     // Removes a number of vertices from the graph
-    def -- (from: Traversable[Node]): G
+    def -- (from: Iterable[Node]): G
     // Removes an edge from the graph
     def - (from: Edge): G
   }
@@ -47,11 +48,11 @@ object Graphs {
        with DiGraphOps[Node, Edge, DiGraph[Node, Edge]]{
 
     def +(n: Node) = copy(N=N+n)
-    def ++(ns: Traversable[Node]) = copy(N=N++ns)
+    def ++(ns: Iterable[Node]) = copy(N=N++ns)
     def +(e: Edge) = (this+e._1+e._2).copy(E = E + e)
 
     def -(n: Node) = copy(N = N-n, E = E.filterNot(e => e._1 == n || e._2 == n))
-    def --(ns: Traversable[Node]) = {
+    def --(ns: Iterable[Node]) = {
       val toRemove = ns.toSet
       copy(N = N--ns, E = E.filterNot(e => toRemove.contains(e._1) || toRemove.contains(e._2)))
     }
@@ -132,7 +133,7 @@ object Graphs {
       var temp = Set[Node]()
       var perm = Set[Node]()
 
-      def visit(n: Node) {
+      def visit(n: Node): Unit = {
         if (temp(n)) {
           throw new IllegalArgumentException("Graph is not a DAG")
         } else if (!perm(n)) {
@@ -172,7 +173,7 @@ object Graphs {
     }
 
     def fold[T](from: Node)(
-      follow: Node => Traversable[Node],
+      follow: Node => Iterable[Node],
       map: Node => T,
       compose: List[T] => T): T = {
 
@@ -222,7 +223,7 @@ object Graphs {
       queue += from
 
       while(queue.nonEmpty) {
-        val n = queue.dequeue
+        val n = queue.dequeue()
         visited += n
         f(n)
         for (n2 <- succ(n) if !visited(n2)) {

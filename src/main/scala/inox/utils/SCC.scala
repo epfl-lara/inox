@@ -17,7 +17,7 @@ object SCC {
     var components : List[Set[T]] = Nil
     var s : List[T] = Nil
 
-    def strongConnect(v: T) {
+    def strongConnect(v: T): Unit = {
       indices  = indices.updated(v, index)
       lowLinks = lowLinks.updated(v, index)
       index += 1

@@ -146,7 +146,7 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
         new CNFPath(exprSubst, boolSubst + (vd.toVariable -> simplifyClauses(expr)), conditions, cnfCache, simpCache)
       } else {
         val newSubst = exprSubst.clone += (vd.toVariable -> unexpandLets(expr))
-        val newBools = boolSubst.mapValues(e => simplifyClauses(unexpandLets(e, newSubst)))
+        val newBools = boolSubst.view.mapValues(e => simplifyClauses(unexpandLets(e, newSubst))).toMap
         val newConds = conditions.map(unexpandLets(_, newSubst))
 
         /* @nv: it seems the performance gain through extra cache hits is completely overshadowed by

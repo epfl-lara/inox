@@ -500,7 +500,7 @@ trait Printer {
       var firstElem = true
 
       while (strings.hasNext) {
-        val currval = strings.next
+        val currval = strings.next()
         val s = if (currval != " || ") {
           currval.stripMargin
         } else currval
@@ -523,7 +523,7 @@ trait Printer {
         val nctx = ctx.copy(lvl = ctx.lvl + extraInd)
 
         if (expressions.hasNext) {
-          val e = expressions.next
+          val e = expressions.next()
 
           e match {
             case (t1, t2) =>

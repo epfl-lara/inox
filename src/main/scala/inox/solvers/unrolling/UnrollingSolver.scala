@@ -473,14 +473,14 @@ trait AbstractUnrollingSolver extends Solver { self =>
         } else {
           val projections: Map[Type, Encoded] = (arguments.head zip params)
             .groupBy(p => p._2.getType)
-            .mapValues(_.head._1)
+            .view.mapValues(_.head._1).toMap
 
           val exArguments = for (args <- arguments) yield {
             (params zip args).map { case (vd, arg) => extractValue(arg, vd.getType, nextSeen) }
           }
 
           val argumentsWithConds: Seq[(Seq[Encoded], Expr)] =
-            (for (subset <- params.toSet.subsets; (args, exArgs) <- arguments zip exArguments) yield {
+            (for (subset <- params.toSet.subsets(); (args, exArgs) <- arguments zip exArguments) yield {
               val (concreteArgs, condOpts) = params.zipWithIndex.map { case (v, i) =>
                 if (!subset(v)) {
                   (args(i), Some(Equals(v.toVariable, exArgs(i))))
@@ -497,7 +497,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
           val sortedArguments = withConds
             .groupBy(_._2)
-            .mapValues(_.head._1)
+            .view.mapValues(_.head._1)
             .toSeq
             .sortBy(p => -exprOps.formulaSize(p._1))
 
@@ -888,9 +888,9 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     targetSemantics.getEvaluator(context.withOpts(optIgnoreContracts(true)))
 
   protected def declareVariable(v: t.Variable): t.Variable = v
-  protected def wrapModel(model: targetProgram.Model): super.ModelWrapper = ModelWrapper(model)
+  protected def wrapModel(model: targetProgram.Model): super.ModelWrapper = ModelWrapperImpl(model)
 
-  private case class ModelWrapper(model: targetProgram.Model) extends super.ModelWrapper {
+  private case class ModelWrapperImpl(model: targetProgram.Model) extends super.ModelWrapper {
     private def e(expr: t.Expr): Option[t.Expr] = modelEvaluator.eval(expr, model).result
 
     def extractConstructor(elem: t.Expr, tpe: t.ADTType): Option[Identifier] = e(elem) match {

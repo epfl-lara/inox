@@ -14,7 +14,7 @@ import _root_.smtlib.theories.experimental._
 import _root_.smtlib.extensions.tip.Terms.{Lambda => SMTLambda, Application => SMTApplication, _}
 import _root_.smtlib.extensions.tip.Commands._
 
-import scala.collection.BitSet
+import scala.collection.immutable.BitSet
 
 class MissformedSMTException(term: _root_.smtlib.trees.Tree, reason: String)
   extends Exception("Missfomed SMT source in " + term + ":\n" + reason)

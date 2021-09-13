@@ -256,7 +256,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
           emit(if (decs.exists(_.isLeft)) {
             DefineFunsRecPar(decs, bodies)
           } else {
-            DefineFunsRec(decs.map(_.right.get), bodies)
+            DefineFunsRec(decs.map(_.getOrElse(throw new NoSuchElementException("Either.get on Left"))), bodies)
           })
         }
 

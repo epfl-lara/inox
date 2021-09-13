@@ -4,6 +4,7 @@ package inox
 package ast
 
 import utils._
+import scala.Iterable
 
 trait Paths { self: Trees =>
 
@@ -28,7 +29,7 @@ trait Paths { self: Trees =>
     def merge(that: Self): Self
 
     /** Appends `those` paths at the end of `this`. */
-    final def merge(those: Traversable[Self]): Self = those.foldLeft(self)(_ merge _)
+    final def merge(those: Iterable[Self]): Self = those.foldLeft(self)(_ merge _)
 
     /** Returns the negation of this path. */
     def negate: Self

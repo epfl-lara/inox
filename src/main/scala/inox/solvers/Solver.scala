@@ -26,7 +26,7 @@ trait AbstractSolver extends Interruptible {
   import SolverResponses._
 
   // This is ugly, but helpful for smtlib solvers
-  def dbg(msg: => Any) {}
+  def dbg(msg: => Any): Unit = {}
 
   object SolverUnsupportedError {
     def msg(t: Tree, reason: Option[String]) = {

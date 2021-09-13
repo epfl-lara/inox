@@ -45,14 +45,14 @@ class Parser(lexer: Lexer) extends parser.Parser(lexer) {
 
       val optWeight = getPeekToken match {
         case t @ LT.Keyword("weight") =>
-          nextToken
+          nextToken()
           Some(parseNumeral)
         case _ => None
       }
 
       val optGroup = getPeekToken match {
         case t @ LT.Keyword("id") =>
-          nextToken
+          nextToken()
           Some(parseSymbol)
         case _ => None
       }

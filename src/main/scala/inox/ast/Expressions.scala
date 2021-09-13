@@ -3,7 +3,7 @@
 package inox
 package ast
 
-import scala.collection.BitSet
+import scala.collection.immutable.BitSet
 
 /** Expression definitions for Pure Scala.
   *

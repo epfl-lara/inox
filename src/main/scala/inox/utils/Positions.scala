@@ -77,8 +77,8 @@ object Position {
 }
 
 abstract class DefinedPosition extends Position {
-  override def toString = line+":"+col
-  override def fullString = path+":"+line+":"+col
+  override def toString = s"$line:$col"
+  override def fullString = s"$path:$line:$col"
   override def isDefined = true
 
   def focusBegin: OffsetPosition

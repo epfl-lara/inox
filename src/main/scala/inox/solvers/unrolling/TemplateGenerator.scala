@@ -95,10 +95,10 @@ trait TemplateGenerator { self: Templates =>
     def getCalls(guardedExprs: Map[Variable, Seq[Expr]]): Map[TypedFunDef, Seq[(FunctionInvocation, Set[Variable])]] =
       (for { (b, es) <- guardedExprs.toSeq; e <- es; fi <- collectCalls(e) } yield (b -> fi))
       .groupBy(_._2)
-      .mapValues(_.map(_._1).toSet)
+      .view.mapValues(_.map(_._1).toSet)
       .toSeq
       .groupBy(_._1.tfd)
-      .mapValues(_.toList.distinct.sortBy(p => countCalls(p._1)))  // place inner calls first
+      .view.mapValues(_.toList.distinct.sortBy(p => countCalls(p._1)))  // place inner calls first
       .toMap
 
     var thenGuarded = thenClauses._4
@@ -124,8 +124,8 @@ trait TemplateGenerator { self: Templates =>
       val replaceThen = replaceCall(thenCall, newExpr) _
       val replaceElse = replaceCall(elseCall, newExpr) _
 
-      thenGuarded = thenGuarded.mapValues(_.map(replaceThen))
-      elseGuarded = elseGuarded.mapValues(_.map(replaceElse))
+      thenGuarded = thenGuarded.view.mapValues(_.map(replaceThen)).toMap
+      elseGuarded = elseGuarded.view.mapValues(_.map(replaceElse)).toMap
       toMerge = toMerge.map(p => (
         (replaceThen(p._1._1).asInstanceOf[FunctionInvocation], p._1._2),
         (replaceElse(p._2._1).asInstanceOf[FunctionInvocation], p._2._2)

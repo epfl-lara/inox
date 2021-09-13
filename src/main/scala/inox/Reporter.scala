@@ -93,7 +93,7 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
     }
   }
 
-  def whenDebug(pos: Position, section: DebugSection)(body: (Any => Unit) => Any) {
+  def whenDebug(pos: Position, section: DebugSection)(body: (Any => Unit) => Any): Unit = {
     if (isDebugEnabled(section)) {
       body( { (msg: Any) => emit(account(Message(DEBUG(section), pos, msg))) } )
     }
@@ -175,7 +175,7 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
   def getLine(pos: Position): Option[String] = {
     val lines =
       if (pos == NoPosition) Nil
-      else scala.io.Source.fromFile(pos.file).getLines.toList
+      else scala.io.Source.fromFile(pos.file).getLines().toList
 
     if (lines.size >= pos.line && pos.line > 0) {
       Some(lines(pos.line - 1))

@@ -234,7 +234,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   protected def fieldsForClassSymbol(classSymbol: ClassSymbol) = {
     val constructorSymbol = classSymbol.toType.members
       .filter(_.isMethod).map(_.asMethod).filter(m => m.isConstructor && m.isPrimaryConstructor)
-      .iterator.next
+      .iterator.next()
     val paramNames = constructorSymbol.paramLists.flatten.map(_.name)
     classSymbol.toType.decls
       .filter(d => d.isTerm && d.isPublic && !d.isSynthetic)
@@ -275,7 +275,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
         val constructor = currentMirror.reflectClass(classSymbol).reflectConstructor(
           classSymbol.toType.members
             .filter(_.isMethod).map(_.asMethod).filter(m => m.isConstructor && m.isPrimaryConstructor)
-            .iterator.next)
+            .iterator.next())
         (fieldObjs: Seq[Any]) => constructor(fieldObjs: _*)
       } else {
         // XXX @nv: Scala has a bug with nested class constructors (https://github.com/scala/bug/issues/9528)
@@ -330,7 +330,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
         currentMirror.reflectClass(classSymbol).reflectConstructor(
           classSymbol.toType.members
             .filter(_.isMethod).map(_.asMethod).filter(m => m.isConstructor && m.isPrimaryConstructor)
-            .iterator.next
+            .iterator.next()
         )(fieldObjs: _*).asInstanceOf[Product]
       } else {
         if (!classSymbol.owner.isType || !(classSymbol.owner.asClass.selfType <:< typeOf[ast.Trees]))

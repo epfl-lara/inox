@@ -18,7 +18,7 @@ trait ConstraintSolvers { self: Elaborators =>
       var unknowns = Set[Unknown]()
 
       private val traverser = new SelfTreeTraverser {
-        override def traverse(t: Type) {
+        override def traverse(t: Type): Unit = {
           t match {
             case u: Unknown => unknowns += u
             case _ => super.traverse(t)
@@ -37,7 +37,7 @@ trait ConstraintSolvers { self: Elaborators =>
       var exists = false
 
       val traverser = new SelfTreeTraverser {
-        override def traverse(t: Type) {
+        override def traverse(t: Type): Unit = {
           t match {
             case u2: Unknown => {
               if (u == u2) exists = true
@@ -67,16 +67,16 @@ trait ConstraintSolvers { self: Elaborators =>
       var tupleConstraints: Map[Unknown, Set[Constraint]] = Map()
       var sortConstraints: Map[Unknown, Map[ADTSort, Type => Seq[Constraint]]] = Map()
 
-      def substitute(u: Unknown, t: Type) {
+      def substitute(u: Unknown, t: Type): Unit = {
         val subst = new Unifier(Map(u -> t))
         unknowns -= u
         remaining = remaining.map(subst(_))
-        substitutions = substitutions.mapValues(subst(_)).view.force
+        substitutions = substitutions.view.mapValues(subst(_)).toMap
         substitutions += (u -> t)
-        tupleConstraints = tupleConstraints.mapValues(_.map(subst(_))).view.force
-        sortConstraints = sortConstraints.mapValues(_.mapValues(
+        tupleConstraints = tupleConstraints.view.mapValues(_.map(subst(_))).toMap
+        sortConstraints = sortConstraints.view.mapValues(_.view.mapValues(
           _.andThen(_.map(subst(_)))
-        ).view.force).view.force
+        ).toMap).toMap
 
         // If the variable we are substituting has "tuple" constraints...
         tupleConstraints.get(u).foreach { (cs: Set[Constraint]) =>
@@ -113,7 +113,7 @@ trait ConstraintSolvers { self: Elaborators =>
         case Bits => "a bit vector"
       }
 
-      def handle(constraint: Constraint) {
+      def handle(constraint: Constraint): Unit = {
 
         constraint match {
           case Equal(a, b) => (a, b) match {

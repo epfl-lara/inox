@@ -19,7 +19,7 @@ abstract class FreeableIterator[T] extends Iterator[T] {
 
   def computeNext(): Option[T]
 
-  def free()
+  def free(): Unit
 
   override def map[B](f: T => B): FreeableIterator[B] = {
     new FreeableIterator[B] {

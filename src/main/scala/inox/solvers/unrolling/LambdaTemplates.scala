@@ -605,7 +605,7 @@ trait LambdaTemplates { self: Templates =>
 
       reporter.debug(s"   - ${newClauses.size} new clauses")
 
-      newClauses
+      newClauses.toSeq
     }
   }
 }
