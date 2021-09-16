@@ -18,6 +18,7 @@ import ap.parser._
 import ap.basetypes._
 import ap.theories.{ADT => PADT, _}
 import ap.theories.{ModuloArithmetic => Mod}
+import ap.types.UninterpretedSortTheory
 
 import utils._
 import SolverResponses._
@@ -80,7 +81,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       sorts(tpe)
     case BooleanType() => sorts.cached(tpe)(Sort.Bool)
     case IntegerType() => sorts.cached(tpe)(Sort.Integer)
-    case ft: FunctionType => sorts.cached(ft)(new Sort.InfUninterpreted(ft.toString))
+    case ft: FunctionType => sorts.cached(ft)(Sort.createInfUninterpretedSort(ft.toString))
     case CharType() => sorts.cached(tpe)(Mod.UnsignedBVSort(16))
     case BVType(true, size) => sorts.cached(tpe)(Mod.SignedBVSort(size))
     case BVType(false, size) => sorts.cached(tpe)(Mod.UnsignedBVSort(size))
@@ -461,7 +462,29 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
         case ft: FunctionType =>
           val iterm = iexpr.asInstanceOf[ITerm]
-          ctx.model.eval(iterm).map { ideal =>
+          // Try to obtain the internal integer representation of the function
+          // iterm in two manners.
+          // The first is to simply call model.eval on iterm (byEval). If it succeeds,
+          // we obtain the integer repr. of the function.
+          // Otherwise, it could happen that iterm evaluates to some constant,
+          // in which case the repr. of the function can be retrieved by traversing
+          // the `individuals` fields of the InfUninterpretedSort of the constant in question.
+          def byEval = ctx.model.eval(iterm)
+          def byIndividuals = ctx.model.evalExpression(iterm) match {
+            case Some(ct: IConstant) =>
+              val s = typeToSort(ft)
+              s match {
+                case sort: UninterpretedSortTheory.InfUninterpretedSort =>
+                  // Constants are numbered, it suffices to apply the reverse operation done in
+                  // InfUninterpretedSort#decodeToTerm.
+                  val idx = sort.individuals.indexOf(ct)
+                  if (idx % 2 == 0) Some(IdealInt.int2idealInt(idx / 2))
+                  else Some(IdealInt.int2idealInt(-(idx + 1) / 2))
+                case _ => None // Should not happen, but if it does, we simply return None
+              }
+            case _ => None
+          }
+          byEval.orElse(byIndividuals).map { ideal =>
             val n = BigInt(ideal.bigIntValue)
             if (ctx.seen(n)) {
               ctx.chooses.getOrElse(n, {
@@ -476,8 +499,8 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
                 val res = uniquateClosure(n.intValue, lambdas.getB(ft)
                   .flatMap { fun =>
                     val interps = ctx.model.interpretation.flatMap {
-                      case (SimpleAPI.IntFunctionLoc(`fun`, ptr +: args), SimpleAPI.IntValue(res)) =>
-                        if (ctx.model.eval(iterm === ptr) contains true) {
+                      case (IFunApp(`fun`, ptr +: args), res: IIntLit) =>
+                        if (ctx.model.eval(ptr === IIntLit(ideal) | iterm === ptr) contains true) {
                           val optArgs = (args zip ft.from).map(p => rec(p._1, p._2)(newCtx))
                           val optRes = rec(res, ft.to)(newCtx)
 

@@ -25,7 +25,7 @@ import scala.collection.mutable.{Map => MutableMap}
   * operations on Inox expressions.
   *
   */
-trait ExprOps extends GenTreeOps {
+trait ExprOps extends GenTreeOps { self =>
   protected val trees: Trees
   val sourceTrees: trees.type = trees
   val targetTrees: trees.type = trees
@@ -329,5 +329,33 @@ trait ExprOps extends GenTreeOps {
     case Not(Not(e)) => toCNF(e)
     case Not(e) => Seq(not(e))
     case e => Seq(e)
+  }
+
+  /**
+    * Does `vd` occurs free in the expression `e`?
+    */
+  def occursIn(vd: ValDef, e: Expr): Boolean = {
+    var occurs = false
+    val traverser = new Traverser {
+      override val trees: self.trees.type = self.trees
+      override type Env = Unit
+
+      override def traverse(vd2: trees.ValDef, env: Unit): Unit =
+        occurs |= vd == vd2
+
+      override def traverse(e: trees.Expr, env: Unit): Unit = {
+        if (occurs) return
+
+        e match {
+          case Lambda(params, _) if params.contains(vd) => ()
+          case Forall(params, _) if params.contains(vd) => ()
+          case Choose(res, _) if res == vd => ()
+          case Let(binder, _, _) if binder == vd => ()
+          case _ => super.traverse(e, ())
+        }
+      }
+    }
+    traverser.traverse(e, ())
+    occurs
   }
 }

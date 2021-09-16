@@ -45,10 +45,11 @@ object StringUtils {
     }
   }
 
-  def decode(s: String): String = if (s.isEmpty) s else (s match {
-    case uhex1(head, s2) => (fromHex(head.charAt(0)) & 0xF).toChar + decode(s2)
-    case uhex2(head, s2) => (decodeHex(head) & 0xFF).toChar + decode(s2)
-    case JavaEncoded(b, s2) => (b & 0xFF).toChar + decode(s2)
-    case _ => s.head + decode(s.tail)
-  })
+  def decode(s: String): String = if (s.isEmpty) s else s match {
+    // Do not call toString on the char but rather String.valueOf because toString messes things up with UTF-8 codepoints
+    case uhex1(head, s2) => String.valueOf((fromHex(head.charAt(0)) & 0xF).toChar) + decode(s2)
+    case uhex2(head, s2) => String.valueOf((decodeHex(head) & 0xFF).toChar) + decode(s2)
+    case JavaEncoded(b, s2) => String.valueOf((b & 0xFF).toChar) + decode(s2)
+    case _ => String.valueOf(s.head) + decode(s.tail)
+  }
 }

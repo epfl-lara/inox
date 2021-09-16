@@ -88,9 +88,9 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
 
   protected def declareVariable(v: t.Variable): IExpression = underlying.declareVariable(v)
 
-  protected def wrapModel(model: underlying.Model): super.ModelWrapper = ModelWrapper(model)
+  protected def wrapModel(model: underlying.Model): super.ModelWrapper = ModelWrapperImpl(model)
 
-  private case class ModelWrapper(model: underlying.Model) extends super.ModelWrapper {
+  private case class ModelWrapperImpl(model: underlying.Model) extends super.ModelWrapper {
     private val chooses: MutableMap[Identifier, t.Expr] = MutableMap.empty
     import IExpression._
 

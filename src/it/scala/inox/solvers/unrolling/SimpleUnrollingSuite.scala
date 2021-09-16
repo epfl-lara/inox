@@ -103,7 +103,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
     val expr = Forall(Seq(x.toVal), And(Equals(c, x), Equals(c, IntegerLiteral(42))))
 
     for (config <- Seq(Simple, Model)) {
-      val solver = factory.getNewSolver
+      val solver = factory.getNewSolver()
       try {
         solver.assertCnstr(expr)
         val result = solver.check(config)

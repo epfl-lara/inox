@@ -8,7 +8,7 @@ import inox.transformers._
 import inox.utils._
 
 import scala.collection.concurrent.{Map => ConcurrentMap}
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.util.Try
 
 /** Provides types that describe Inox definitions. */

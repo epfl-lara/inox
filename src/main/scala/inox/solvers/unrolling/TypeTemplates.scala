@@ -208,7 +208,7 @@ trait TypeTemplates { self: Templates =>
     }
 
     override def instantiate(substMap: Map[Encoded, Arg]): Clauses = {
-      val substituter = mkSubstituter(substMap.mapValues(_.encoded))
+      val substituter = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
 
       val sc = substituter(container)
       val sfuns = functions.map(substituter)

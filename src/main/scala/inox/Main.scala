@@ -273,12 +273,12 @@ object Main extends MainHelpers {
         import SolverResponses._
         SimpleSolverAPI(sf).solveSAT(expr) match {
           case SatWithModel(model) =>
-            reporter.info(file + " => SAT")
+            reporter.info(s"$file => SAT")
             reporter.info("  " + model.asString.replaceAll("\n", "\n  "))
           case Unsat =>
-            reporter.info(file + " => UNSAT")
+            reporter.info(s"$file => UNSAT")
           case Unknown =>
-            reporter.info(file + " => UNKNOWN")
+            reporter.info(s"$file => UNKNOWN")
             error = true
         }
       }

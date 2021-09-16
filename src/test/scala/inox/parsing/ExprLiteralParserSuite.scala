@@ -1,7 +1,7 @@
 package inox
 package parsing
 
-import scala.collection.BitSet
+import scala.collection.immutable.BitSet
 import org.scalatest.funsuite.AnyFunSuite
 
 class ExprLiteralParserSuite extends AnyFunSuite {
