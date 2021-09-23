@@ -85,7 +85,8 @@ trait StringEncoder extends SimpleEncoder {
   private val stringBijection = new Bijection[String, Expr]()
 
   private def convertToString(e: Expr): String  = stringBijection.cachedA(e)(e match {
-    case ADT(StringConsID, Seq(), Seq(CharLiteral(c), l)) => (if(c < 31) (c + 97).toChar else c) + convertToString(l)
+    // Do not call toString on the char but rather String.valueOf because toString messes things up with UTF-8 codepoints
+    case ADT(StringConsID, Seq(), Seq(CharLiteral(c), l)) => java.lang.String.valueOf(if(c < 31) (c + 97).toChar else c) + convertToString(l)
     case ADT(StringNilID, Seq(), Seq()) => ""
   })
 

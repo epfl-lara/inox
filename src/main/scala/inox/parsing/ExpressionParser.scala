@@ -3,9 +3,6 @@
 package inox
 package parsing
 
-import scala.util.parsing.combinator._
-import scala.util.parsing.combinator.syntactical._
-import scala.util.parsing.combinator.token._
 import scala.util.parsing.input.Position
 
 trait ExpressionParsers { self: Parsers =>
@@ -240,7 +237,7 @@ trait ExpressionParsers { self: Parsers =>
       }
 
     lazy val exprEllipsis: Parser[List[Expression]] = acceptMatch("Multiple embedded expressions", {
-      case Embedded(es: Traversable[_]) if es.forall(_.isInstanceOf[trees.Expr]) =>
+      case Embedded(es: Iterable[_]) if es.forall(_.isInstanceOf[trees.Expr]) =>
         es.map((e: Any) => Literal(EmbeddedExpr(e.asInstanceOf[trees.Expr]))).toList
     }) <~ commit(kw("...") withFailureMessage {
       (p: Position) => withPos("Missing `...` after embedded sequence of expressions.", p)

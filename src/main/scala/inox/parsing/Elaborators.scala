@@ -44,7 +44,7 @@ trait Elaborators
 
   /** Represents a meta type-parameter. */
   class Unknown(val param: BigInt) extends trees.Type with Positional {
-    override def toString: String = pos + "@MetaParam(" + param + ")"
+    override def toString: String = s"$pos@MetaParam($param)"
   }
 
   object Unknown {

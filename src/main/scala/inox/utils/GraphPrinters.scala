@@ -10,7 +10,7 @@ object GraphPrinters {
 
     def asString(g: G): String
 
-    def asFile(g: G, file: String) {
+    def asFile(g: G, file: String): Unit = {
       import java.io.{BufferedWriter, FileWriter}
       val out = new BufferedWriter(new FileWriter(file))
       out.write(asString(g))
@@ -113,7 +113,7 @@ object GraphPrinters {
 
     def nextColor = {
       _nextColor += 1
-      val colornumber: String = if((_nextColor/bgColors.size)%3 == 0) "" else ((_nextColor/bgColors.size)%3)+""
+      val colornumber: String = if ((_nextColor/bgColors.size)%3 == 0) "" else ((_nextColor/bgColors.size)%3).toString
       bgColors(_nextColor%bgColors.size)+colornumber
     }
 

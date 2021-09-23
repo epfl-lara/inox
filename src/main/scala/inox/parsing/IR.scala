@@ -20,7 +20,7 @@ trait IR {
   type Quantifier  // Quantifiers.
 
   abstract class Expression(pre: String) extends Positional with Product {
-    override def productPrefix = pos + "@" + pre
+    override def productPrefix = s"$pos@$pre"
   }
   case class Variable(identifier: Identifier) extends Expression("Variable")
   case class Application(callee: Expression, args: Seq[Expression]) extends Expression("Application")

@@ -14,7 +14,7 @@ trait DefinitionIRs { self: IRs =>
     import TypeIR.{Expression => Type}
 
     sealed abstract class Definition(pre: String) extends Positional with Product {
-      override def productPrefix = pos + "@" + pre
+      override def productPrefix = s"$pos@$pre"
     }
 
     case class FunDef(

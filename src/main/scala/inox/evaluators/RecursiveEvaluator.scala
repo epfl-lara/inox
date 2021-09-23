@@ -3,7 +3,10 @@
 package inox
 package evaluators
 
-import scala.collection.BitSet
+import inox.ast.Trees
+import inox.transformers.TreeTransformer
+
+import scala.collection.immutable.BitSet
 
 trait RecursiveEvaluator
   extends ContextualEvaluator
@@ -42,8 +45,8 @@ trait RecursiveEvaluator
         case None => throw EvalError("No value for variable " + v + " in mapping " + rctx.mappings)
       }
 
-    case Application(caller, args) =>
-      e(caller) match {
+    case Application(callee, args) =>
+      e(callee) match {
         case l @ Lambda(params, body) =>
           val newArgs = args.map(e)
           val mapping = l.paramSubst(newArgs)
@@ -412,7 +415,7 @@ trait RecursiveEvaluator
     case MapMerge(cond, map1, map2) =>
       (e(cond), e(map1), e(map2)) match {
         case (FiniteSet(keys, kT), FiniteMap(kvs1, dflt1, _, vT), FiniteMap(kvs2, dflt2, _, _)) =>
-          val fromFstMap = keys.map((_ -> dflt1)).toMap ++ (kvs1.toMap.filterKeys(keys.contains(_)))
+          val fromFstMap = keys.map(_ -> dflt1).toMap ++ kvs1.toMap.view.filterKeys(keys.contains(_)).toMap
           val fromSndMap = kvs2.toMap -- keys
           finiteMap((fromFstMap ++ fromSndMap).toSeq, dflt2, kT, vT)
         case (c, m1, m2) =>
@@ -515,7 +518,8 @@ trait RecursiveEvaluator
       // lists and let bindings, we re-normalize the identifiers by passing
       // `onlySimple = true` to the call to `normalizeStructure` (this avoids lifting
       // ground lambdas out in the deps).
-      normalizeLambda(ground, onlySimple = true)
+      val normalized = normalizeLambda(ground, onlySimple = true)
+      simplifyTrivialApps(normalized)
 
     case f: Forall => onForallInvocation {
       replaceFromSymbols(variablesOf(f).map(v => v -> e(v)).toMap, f).asInstanceOf[Forall]
@@ -556,6 +560,37 @@ trait RecursiveEvaluator
 
     case other =>
       throw EvalError("Unhandled case in Evaluator : [" + other.getClass + "] " + other.asString)
+  }
+
+  /**
+    * Simplifies "trivial" lambdas appearing within `expr`.
+    * In this context, a "trivial lambda" is one that does not make use of its formal parameters.
+    * Example:
+    *   The expression:
+    *     (x: BigInt) => ((y: BigInt) => 0)(x)
+    *   is simplified into:
+    *     (x: BigInt) => 0
+    */
+  private def simplifyTrivialApps(expr: Expr)(implicit rctx: RC, gctx: GC): Expr = {
+    def isLambdaTrivial(l: Lambda): Boolean =
+      l.params.forall(vd => !occursIn(vd, l.body))
+
+    val transformer = new SelfTreeTransformer {
+      override def transform(expr: Expr): Expr = expr match {
+        case Application(l@Lambda(_, body), _) if isLambdaTrivial(l) =>
+          body
+        case Application(v: Variable, _) =>
+          rctx.mappings.get(v.toVal) match {
+            case Some(l@Lambda(_, body)) if isLambdaTrivial(l) =>
+              body
+            case _ =>
+              // Fallback to recursive transformation of the *original* expression
+              super.transform(expr)
+          }
+        case _ => super.transform(expr)
+      }
+    }
+    transformer.transform(expr)
   }
 }
 

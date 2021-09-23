@@ -7,6 +7,7 @@ import OptionParsers._
 import scala.util.Try
 import scala.reflect.ClassTag
 import scala.concurrent.duration._
+import scala.Iterable
 
 object DebugSectionOptions extends DebugSection("options")
 
@@ -124,6 +125,7 @@ object OptionParsers {
   def seqParser[A](base: OptionParser[A]): OptionParser[Seq[A]] = s => {
     @inline def foo: Option[Seq[A]] = Some(
       s.split(",")
+        .toSeq
         .filter(_.nonEmpty)
         .map(base andThen (_.getOrElse(return None)))
     )
@@ -148,7 +150,7 @@ object OptionsHelpers {
 
   // helper for options that include patterns
 
-  def matcher(patterns: Traversable[String]): String => Boolean = {
+  def matcher(patterns: Iterable[String]): String => Boolean = {
     val regexPatterns = patterns map { s =>
       import java.util.regex.Pattern
 

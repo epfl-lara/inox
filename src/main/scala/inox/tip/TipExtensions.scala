@@ -114,7 +114,7 @@ class TipParser(lexer: TipLexer) extends SMTParser(lexer) {
         case LT.OParen =>
           eat(LT.OParen)
           eat(LT.Par)
-          val tps = parseMany(parseSymbol _)
+          val tps = parseMany(() => parseSymbol)
           val name = parseSymbol
           val sort = parseSort
           val pred = parseTerm

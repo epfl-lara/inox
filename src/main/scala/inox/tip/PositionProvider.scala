@@ -27,7 +27,7 @@ class PositionProvider(_reader: Reader, _file: Option[File]) {
       (new BufferedReader(new FileReader(file)), file)
   }
 
-  private val fileLines: List[String] = scala.io.Source.fromFile(file).getLines.toList
+  private val fileLines: List[String] = scala.io.Source.fromFile(file).getLines().toList
 
   def get(line: Int, col: Int): OffsetPosition = {
     val point = fileLines.take(line).map(_.length).sum + col

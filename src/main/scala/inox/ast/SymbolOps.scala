@@ -526,7 +526,7 @@ trait SymbolOps { self: TypeOps =>
       def rec(v: Variable): Seq[Variable] = {
         val (expr, conds) = subst(v)
         val vars = variablesOf(expr) ++ conds.flatMap(variablesOf)
-        (vars & subst.keySet - v).toSeq.flatMap(rec) :+ v
+        (vars & subst.keySet.toSet - v).toSeq.flatMap(rec) :+ v
       }
 
       subst.keys.toSeq.flatMap(rec).distinct.map { v =>

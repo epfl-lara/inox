@@ -42,8 +42,8 @@ trait NativeZ3Optimizer extends AbstractUnrollingOptimizer with Z3Unrolling { se
     // NOTE @nv: this is very similar to code in AbstractZ3Solver and UninterpretedZ3Solver but
     //           is difficult to merge due to small API differences between the native Z3
     //           solvers and optimizers.
-    def check(config: CheckConfiguration) = config.cast(tryZ3(optimizer.check match {
-      case Some(true) => if (config.withModel) SatWithModel(optimizer.getModel) else Sat
+    def check(config: CheckConfiguration) = config.cast(tryZ3(optimizer.check() match {
+      case Some(true) => if (config.withModel) SatWithModel(optimizer.getModel()) else Sat
       case Some(false) => Unsat
       case None => Unknown
     }).getOrElse(Unknown))
@@ -54,8 +54,8 @@ trait NativeZ3Optimizer extends AbstractUnrollingOptimizer with Z3Unrolling { se
     def checkAssumptions(config: Configuration)(assumptions: Set[Z3AST]) = {
       optimizer.push()
       for (a <- assumptions) optimizer.assertCnstr(a)
-      val res = config.cast(tryZ3[SolverResponse[Model, Assumptions]](optimizer.check match {
-        case Some(true) => if (config.withModel) SatWithModel(optimizer.getModel) else Sat
+      val res = config.cast(tryZ3[SolverResponse[Model, Assumptions]](optimizer.check() match {
+        case Some(true) => if (config.withModel) SatWithModel(optimizer.getModel()) else Sat
         case Some(false) => if (config.withUnsatAssumptions) UnsatWithAssumptions(Set()) else Unsat
         case None => Unknown
       }).getOrElse(Unknown))
