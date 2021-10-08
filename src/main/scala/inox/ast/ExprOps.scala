@@ -25,21 +25,23 @@ import scala.collection.mutable.{Map => MutableMap}
   * operations on Inox expressions.
   *
   */
-trait ExprOps extends GenTreeOps { self =>
-  protected val trees: Trees
-  val sourceTrees: trees.type = trees
-  val targetTrees: trees.type = trees
+class ExprOps private(val trees: Trees)
+                     (override val sourceTrees: trees.type,
+                      override val targetTrees: trees.type)
+  extends GenTreeOps { self =>
+
+  def this(trees: Trees) = this(trees)(trees, trees)
 
   import trees._
 
   type Source = Expr
   type Target = Expr
 
-  lazy val Deconstructor = Operator
+  val Deconstructor = Operator
 
   /** Replaces bottom-up variables by looking up for them in a map */
-  def replaceFromSymbols[V <: VariableSymbol](substs: Map[V, Expr], expr: Expr)(implicit ev: VariableConverter[V]): Expr = {
-    new SelfTreeTransformer {
+  def replaceFromSymbols[V <: VariableSymbol](substs: Map[V, Expr], expr: Expr)(using VariableConverter[V]): Expr = {
+    new ConcreteSelfTreeTransformer {
       override def transform(expr: Expr): Expr = expr match {
         case v: Variable => substs.getOrElse(v.to[V], super.transform(v))
         case _ => super.transform(expr)
@@ -69,7 +71,7 @@ trait ExprOps extends GenTreeOps { self =>
     * Note that we don't freshen choose ids as these are considered global
     * and used to lookup their images within models!
     */
-  protected class Freshener(freshenChooses: Boolean) extends SelfTransformer {
+  protected class Freshener(freshenChooses: Boolean) extends ConcreteSelfTransformer {
     type Env = Map[Identifier, Identifier]
 
     override def transform(id: Identifier, env: Env): Identifier = {
@@ -335,9 +337,7 @@ trait ExprOps extends GenTreeOps { self =>
     * Does `vd` occurs free in the expression `e`?
     */
   def occursIn(vd: ValDef, e: Expr): Boolean = {
-    var occurs = false
-    val traverser = new Traverser {
-      override val trees: self.trees.type = self.trees
+    class OccursIn(override val trees: self.trees.type, var occurs: Boolean) extends Traverser {
       override type Env = Unit
 
       override def traverse(vd2: trees.ValDef, env: Unit): Unit =
@@ -355,7 +355,8 @@ trait ExprOps extends GenTreeOps { self =>
         }
       }
     }
-    traverser.traverse(e, ())
-    occurs
+    val occ = new OccursIn(self.trees, false)
+    occ.traverse(e, ())
+    occ.occurs
   }
 }

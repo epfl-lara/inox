@@ -22,10 +22,10 @@ import java.io.{Reader, File, BufferedReader, FileReader}
 import scala.language.implicitConversions
 
 class MissformedTIPException(reason: String, pos: Position)
-  extends Exception("Missfomed TIP source @" + pos + ":\n" + reason)
+  extends Exception("Missformed TIP source @" + pos + ":\n" + reason)
 
 class Parser(reader: Reader, file: Option[File]) {
-  import inox.trees._
+  import inox.trees.{given, _}
 
   protected val positions = new PositionProvider(new BufferedReader(reader), file)
 
@@ -38,7 +38,7 @@ class Parser(reader: Reader, file: Option[File]) {
     val script = parser.parseScript
 
     var assertions: Seq[Expr] = Seq.empty
-    implicit var locals: Locals = NoLocals
+    var locals: Locals = NoLocals
 
     (for (cmd <- script.commands) yield cmd match {
       case CheckSat() =>
@@ -46,7 +46,7 @@ class Parser(reader: Reader, file: Option[File]) {
         Some((InoxProgram(locals.symbols), expr))
 
       case _ =>
-        val (newAssertions, newLocals) = extractCommand(cmd)
+        val (newAssertions, newLocals) = extractCommand(cmd)(using locals)
         assertions ++= newAssertions
         locals = newLocals
         None
@@ -124,12 +124,10 @@ class Parser(reader: Reader, file: Option[File]) {
 
     def withSymbols(symbols: Symbols) = new Locals(funs, sorts, constructors, selectors, vars, tps, symbols)
 
-    object extractor extends {
-      val symbols: self.symbols.type = self.symbols
-    } with TermExtractor
+    object extractor extends TermExtractor(self.symbols)
 
-    def extractTerm(term: Term): Expr = extractor.extractTerm(term)(this)
-    def extractSort(sort: Sort): Type = extractor.extractSort(sort)(this)
+    def extractTerm(term: Term): Expr = extractor.extractTerm(term)(using this)
+    def extractSort(sort: Sort): Type = extractor.extractSort(sort)(using this)
   }
 
   protected val NoLocals: Locals = new Locals(
@@ -144,7 +142,7 @@ class Parser(reader: Reader, file: Option[File]) {
   }
 
   protected def extractCommand(cmd: Command)
-                              (implicit locals: Locals): (Option[Expr], Locals) = cmd match {
+                              (using locals: Locals): (Option[Expr], Locals) = cmd match {
     case Assert(term) =>
       (Some(locals.extractTerm(term)), locals)
 
@@ -170,7 +168,7 @@ class Parser(reader: Reader, file: Option[File]) {
       val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
       (None, locals.withFunction(name, extractSignature(FunDec(name, sorts.map {
         sort => SortedVar(SSymbol(FreshIdentifier("x").uniqueName).setPos(sort), sort).setPos(sort)
-      }, returnSort), tps)(tpsLocals)))
+      }, returnSort), tps)(using tpsLocals)))
 
     case DefineFun(funDef) =>
       val fd = extractFunction(funDef, Seq.empty)
@@ -178,18 +176,18 @@ class Parser(reader: Reader, file: Option[File]) {
 
     case DefineFunPar(tps, funDef) =>
       val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
-      val fd = extractFunction(funDef, tps)(tpsLocals)
+      val fd = extractFunction(funDef, tps)(using tpsLocals)
       (None, locals.withFunction(funDef.name, fd))
 
     case DefineFunRec(funDef) =>
       val fdsLocals = locals.withFunction(funDef.name, extractSignature(funDef, Seq.empty))
-      val fd = extractFunction(funDef, Seq.empty)(fdsLocals)
+      val fd = extractFunction(funDef, Seq.empty)(using fdsLocals)
       (None, locals.withFunction(funDef.name, fd))
 
     case DefineFunRecPar(tps, funDef) =>
       val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
-      val fdsLocals = tpsLocals.withFunction(funDef.name, extractSignature(funDef, tps)(tpsLocals))
-      val fd = extractFunction(funDef, tps)(fdsLocals)
+      val fdsLocals = tpsLocals.withFunction(funDef.name, extractSignature(funDef, tps)(using tpsLocals))
+      val fd = extractFunction(funDef, tps)(using fdsLocals)
       (None, locals.withFunction(funDef.name, fd))
 
     case DefineFunsRec(funDecs, bodies) =>
@@ -200,7 +198,7 @@ class Parser(reader: Reader, file: Option[File]) {
         funDef.name -> extractSignature(funDef, Seq.empty)
       })
       (None, locals.withFunctions(for (funDef <- funDefs) yield {
-        funDef.name -> extractFunction(funDef, Seq.empty)(bodyLocals)
+        funDef.name -> extractFunction(funDef, Seq.empty)(using bodyLocals)
       }))
 
     case DefineFunsRecPar(funDecs, bodies) =>
@@ -210,11 +208,11 @@ class Parser(reader: Reader, file: Option[File]) {
       })
       val bodyLocals = locals.withFunctions(for ((tps, funDef) <- funDefs) yield {
         val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
-        funDef.name -> extractSignature(funDef, tps)(tpsLocals)
+        funDef.name -> extractSignature(funDef, tps)(using tpsLocals)
       })
       (None, locals.withFunctions(for ((tps, funDef) <- funDefs) yield {
         val tpsLocals = bodyLocals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
-        funDef.name -> extractFunction(funDef, tps)(tpsLocals)
+        funDef.name -> extractFunction(funDef, tps)(using tpsLocals)
       }))
 
     case DeclareDatatypesPar(tps, datatypes) =>
@@ -237,7 +235,7 @@ class Parser(reader: Reader, file: Option[File]) {
         }
 
         val allTparams: Set[TypeParameter] = children.flatMap(_._2).toSet.flatMap {
-          (vd: ValDef) => typeOps.typeParamsOf(vd.getType(locs.symbols)): Set[TypeParameter]
+          (vd: ValDef) => typeOps.typeParamsOf(vd.getType(using locs.symbols)): Set[TypeParameter]
         }
 
         val tparams: Seq[TypeParameterDef] = tps.flatMap { sym =>
@@ -274,7 +272,7 @@ class Parser(reader: Reader, file: Option[File]) {
     case DatatypeInvariantExtractor(syms, s, sort, pred) =>
       val tps = syms.map(s => TypeParameter.fresh(s.name).setPos(s.optPos))
       val adt = locals.withGenerics(syms zip tps).extractSort(sort) match {
-        case adt @ ADTType(id, typeArgs) if tps == typeArgs => adt.getSort(locals.symbols).definition
+        case adt @ ADTType(id, typeArgs) if tps == typeArgs => adt.getSort(using locals.symbols).definition
         case _ => throw new MissformedTIPException(s"Unexpected type parameters $syms", sort.optPos)
       }
 
@@ -285,7 +283,7 @@ class Parser(reader: Reader, file: Option[File]) {
         .withVariable(s, vd.toVariable)
         .extractTerm(pred)
 
-      val (optAdt, fd) = adt.invariant(locals.symbols) match {
+      val (optAdt, fd) = adt.invariant(using locals.symbols) match {
         case Some(fd) =>
           val Seq(v) = fd.params
           val fullBody = and(
@@ -308,7 +306,7 @@ class Parser(reader: Reader, file: Option[File]) {
       throw new MissformedTIPException("unknown TIP command " + cmd, cmd.optPos)
   }
 
-  private def extractSignature(fd: FunDec, tps: Seq[SSymbol])(implicit locals: Locals): FunDef = {
+  private def extractSignature(fd: FunDec, tps: Seq[SSymbol])(using locals: Locals): FunDef = {
     assert(!locals.isFunction(fd.name))
     val id = FreshIdentifier(fd.name.name)
     val tparams = tps.map(sym => TypeParameterDef(locals.getGeneric(sym)).setPos(sym.optPos))
@@ -323,11 +321,11 @@ class Parser(reader: Reader, file: Option[File]) {
     new FunDef(id, tparams, params, returnType, body, Seq.empty).setPos(fd.name.optPos)
   }
 
-  private def extractSignature(fd: SMTFunDef, tps: Seq[SSymbol])(implicit locals: Locals): FunDef = {
+  private def extractSignature(fd: SMTFunDef, tps: Seq[SSymbol])(using locals: Locals): FunDef = {
     extractSignature(FunDec(fd.name, fd.params, fd.returnSort), tps)
   }
 
-  private def extractFunction(fd: SMTFunDef, tps: Seq[SSymbol])(implicit locals: Locals): FunDef = {
+  private def extractFunction(fd: SMTFunDef, tps: Seq[SSymbol])(using locals: Locals): FunDef = {
     val sig = if (locals.isFunction(fd.name)) {
       locals.symbols.getFunction(locals.getFunction(fd.name))
     } else {
@@ -343,7 +341,7 @@ class Parser(reader: Reader, file: Option[File]) {
     new FunDef(sig.id, sig.tparams, sig.params, sig.returnType, fullBody, Seq.empty).setPos(fd.name.optPos)
   }
 
-  private def isConstructorSymbol(sym: SSymbol)(implicit locals: Locals): Option[Identifier] = {
+  private def isConstructorSymbol(sym: SSymbol)(using locals: Locals): Option[Identifier] = {
     if (sym.name.startsWith("is-")) {
       val adtSym = SSymbol(sym.name.split("-").tail.mkString("-"))
       locals.lookupConstructor(adtSym)
@@ -353,10 +351,10 @@ class Parser(reader: Reader, file: Option[File]) {
   }
 
   private def instantiateTypeParams(tps: Seq[TypeParameterDef], formals: Seq[Type], actuals: Seq[Type])
-                                   (implicit locals: Locals): Seq[Type] = {
+                                   (using locals: Locals): Seq[Type] = {
     assert(formals.size == actuals.size)
 
-    import locals.symbols._
+    import locals.symbols.{given, _}
     val formal = tupleTypeWrap(formals)
     val actual = tupleTypeWrap(actuals)
 
@@ -377,11 +375,12 @@ class Parser(reader: Reader, file: Option[File]) {
     }
   }
 
-  trait TermExtractor extends solvers.smtlib.SMTLIBParser {
-    val trees: inox.trees.type = inox.trees
+  class TermExtractor private(override val trees: inox.trees.type,
+                              override val symbols: Symbols) extends solvers.smtlib.SMTLIBParser {
+    def this(symbols: Symbols) = this(inox.trees, symbols)
 
-    import trees._
-    import symbols._
+    import trees.{given, _}
+    import symbols.{given, _}
 
     protected case class Context(locals: Locals) extends super.AbstractContext {
       val vars = locals.vars
@@ -408,10 +407,10 @@ class Parser(reader: Reader, file: Option[File]) {
       @inline def getFunction(sym: SSymbol): Identifier = locals.getFunction(sym)
     }
 
-    def extractTerm(term: Term)(implicit locals: Locals): Expr = fromSMT(term)(Context(locals))
-    def extractSort(sort: Sort)(implicit locals: Locals): Type = fromSMT(sort)(Context(locals))
+    def extractTerm(term: Term)(using locals: Locals): Expr = fromSMT(term)(using Context(locals))
+    def extractSort(sort: Sort)(using locals: Locals): Type = fromSMT(sort)(using Context(locals))
 
-    override protected def fromSMT(term: Term, otpe: Option[Type] = None)(implicit ctx: Context): Expr = (term match {
+    override protected def fromSMT(term: Term, otpe: Option[Type] = None)(using ctx: Context): Expr = (term match {
       case QualifiedIdentifier(SimpleIdentifier(sym), None) if ctx.isVariable(sym) =>
         ctx.getVariable(sym)
 
@@ -424,17 +423,17 @@ class Parser(reader: Reader, file: Option[File]) {
 
       case SMTChoose(sym, sort, pred) =>
         val vd = ValDef.fresh(sym.name, fromSMT(sort))
-        Choose(vd, fromSMT(pred)(ctx.withVariable(sym, vd.toVariable)))
+        Choose(vd, fromSMT(pred)(using ctx.withVariable(sym, vd.toVariable)))
 
       case SMTLet(binding, bindings, term) =>
         var context = ctx
         val mapping = for (VarBinding(name, term) <- (binding +: bindings)) yield {
-          val e = fromSMT(term)(context)
+          val e = fromSMT(term)(using context)
           val vd = ValDef.fresh(name.name, e.getType).setPos(name.optPos)
           context = context.withVariable(name, vd.toVariable)
           vd -> e
         }
-        mapping.foldRight(fromSMT(term)(context)) { case ((vd, e), body) => Let(vd, e, body).setPos(vd) }
+        mapping.foldRight(fromSMT(term)(using context)) { case ((vd, e), body) => Let(vd, e, body).setPos(vd) }
 
       case SMTApplication(caller, args) =>
         Application(fromSMT(caller), args.map(fromSMT(_)))
@@ -445,8 +444,8 @@ class Parser(reader: Reader, file: Option[File]) {
           (vd, s -> vd.toVariable)
         }.unzip
         otpe match {
-          case Some(FunctionType(_, to)) => Lambda(vds, fromSMT(term, to)(ctx.withVariables(bindings)))
-          case _ => Lambda(vds, fromSMT(term)(ctx.withVariables(bindings)))
+          case Some(FunctionType(_, to)) => Lambda(vds, fromSMT(term, to)(using ctx.withVariables(bindings)))
+          case _ => Lambda(vds, fromSMT(term)(using ctx.withVariables(bindings)))
         }
 
       case QualifiedIdentifier(SimpleIdentifier(sym), optSort) if ctx.isConstructor(sym) =>
@@ -464,7 +463,7 @@ class Parser(reader: Reader, file: Option[File]) {
       if ctx.isConstructor(sym) =>
         val es = args.map(fromSMT(_))
         val cons = symbols.getConstructor(ctx.getConstructor(sym))
-        val tps = instantiateTypeParams(cons.getSort.tparams, cons.fields.map(_.getType), es.map(_.getType))(ctx.locals)
+        val tps = instantiateTypeParams(cons.getSort.tparams, cons.fields.map(_.getType), es.map(_.getType))(using ctx.locals)
         ADT(cons.id, tps, es)
 
       case QualifiedIdentifier(SimpleIdentifier(sym), optSort) if ctx.isFunction(sym) =>
@@ -472,7 +471,7 @@ class Parser(reader: Reader, file: Option[File]) {
         val tfd = optSort match {
           case Some(sort) =>
             val tpe = fromSMT(sort)
-            val tps = instantiateTypeParams(fd.tparams, Seq(fd.getType), Seq(tpe))(ctx.locals)
+            val tps = instantiateTypeParams(fd.tparams, Seq(fd.getType), Seq(tpe))(using ctx.locals)
             fd.typed(tps)
 
           case None =>
@@ -491,17 +490,17 @@ class Parser(reader: Reader, file: Option[File]) {
               fd.tparams,
               fd.params.map(_.getType) :+ fd.getType,
               es.map(_.getType) :+ tpe
-            )(ctx.locals)
+            )(using ctx.locals)
 
           case None =>
-            instantiateTypeParams(fd.tparams, fd.params.map(_.getType), es.map(_.getType))(ctx.locals)
+            instantiateTypeParams(fd.tparams, fd.params.map(_.getType), es.map(_.getType))(using ctx.locals)
         }
         fd.typed(tps).applied(es)
 
       case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), Seq(term))
-      if isConstructorSymbol(sym)(ctx.locals).isDefined =>
+      if isConstructorSymbol(sym)(using ctx.locals).isDefined =>
         val e = fromSMT(term)
-        IsConstructor(e, isConstructorSymbol(sym)(ctx.locals).get)
+        IsConstructor(e, isConstructorSymbol(sym)(using ctx.locals).get)
 
       case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), Seq(term))
       if ctx.isSelector(sym) =>
@@ -565,7 +564,7 @@ class Parser(reader: Reader, file: Option[File]) {
             val tcons = getConstructor(id, scrut.getType.asInstanceOf[ADTType].tps)
             val bindings = (tcons.fields zip args).map { case (vd, sym) => (sym, vd.id, vd.freshen) }
 
-            val expr = fromSMT(cse.rhs)(ctx.withVariables(bindings.map(p => p._1 -> p._3.toVariable)))
+            val expr = fromSMT(cse.rhs)(using ctx.withVariables(bindings.map(p => p._1 -> p._3.toVariable)))
             val fullExpr = bindings.foldRight(expr) { case ((s, id, vd), e) =>
               val selector = ADTSelector(scrut, id).setPos(s.optPos)
               Let(vd, selector, e).setPos(s.optPos)
@@ -588,7 +587,7 @@ class Parser(reader: Reader, file: Option[File]) {
       case _ => super.fromSMT(term, otpe)
     }).setPos(term.optPos)
 
-    override protected def fromSMT(sort: Sort)(implicit ctx: Context): Type = (sort match {
+    override protected def fromSMT(sort: Sort)(using ctx: Context): Type = (sort match {
       case Sets.SetSort(base) => SetType(fromSMT(base))
       case Bags.BagSort(base) => BagType(fromSMT(base))
       case Sort(SimpleIdentifier(SSymbol("=>")), params :+ res) => FunctionType(params.map(fromSMT), fromSMT(res))

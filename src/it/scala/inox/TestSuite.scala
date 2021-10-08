@@ -26,9 +26,8 @@ trait TestSuite extends AnyFunSuite with Matchers with TimeLimits {
     "assum=" + options.findOptionOrDefault(solvers.unrolling.optUnrollAssumptions)
   }
 
-  protected def test(name: String, tags: Tag*)(body: Context => Unit): Unit = {
+  protected def test(name: String, tags: Tag*)(body: Context ?=> Unit): Unit =
     test(name, _ => Test, tags : _*)(body)
-  }
 
   sealed abstract class FilterStatus
   case object Test extends FilterStatus
@@ -36,7 +35,14 @@ trait TestSuite extends AnyFunSuite with Matchers with TimeLimits {
   case object Skip extends FilterStatus
   case class WithContext(ctx: Context) extends FilterStatus
 
-  protected def test(name: String, filter: Context => FilterStatus, tags: Tag*)(body: Context => Unit): Unit = {
+  protected def test(name: String, filter: Context => FilterStatus, tags: Tag*)(body: Context ?=> Unit): Unit = {
+    // Workaround for a compiler crash caused by calling super.ignore
+    def superIgnore(self: AnyFunSuite, testName: String)(body: => Unit): Unit =
+      self.ignore(testName)(body)
+    // Ditto
+    def superTest(self: AnyFunSuite, testName: String)(body: => Unit): Unit =
+      self.test(testName)(body)
+
     for (config <- configurations) {
       val ctx = createContext(Options(config))
       import ctx.reporter
@@ -54,10 +60,10 @@ trait TestSuite extends AnyFunSuite with Matchers with TimeLimits {
             (sname == "smt-z3" || sname == "smt-z3-opt") && !solvers.SolverFactory.hasZ3 ||
             sname == "smt-cvc4" && !solvers.SolverFactory.hasCVC4
           }) {
-            super.ignore(f"$index%3d: $name ${optionsString(newCtx.options)}")(())
+            superIgnore(this, f"$index%3d: $name ${optionsString(newCtx.options)}")(())
           } else {
             try {
-              super.test(f"$index%3d: $name ${optionsString(newCtx.options)}")(body(newCtx))
+              superTest(this, f"$index%3d: $name ${optionsString(newCtx.options)}")(body(using newCtx))
             } catch {
               case err: FatalError =>
                 reporter.error(err.msg)
@@ -72,14 +78,12 @@ trait TestSuite extends AnyFunSuite with Matchers with TimeLimits {
     }
   }
 
-  protected def ignore(name: String, tags: Tag*)(body: Context => Unit): Unit = {
+  protected def ignore(name: String, tags: Tag*)(body: Context ?=> Unit): Unit =
     test(name, _ => Ignore, tags : _*)(body)
-  }
 
-  protected def ignore(name: String, filter: Context => FilterStatus, tags: Tag*)(body: Context => Unit): Unit = {
+  protected def ignore(name: String, filter: Context => FilterStatus, tags: Tag*)(body: Context ?=> Unit): Unit =
     test(name, ctx => filter(ctx) match {
       case Skip => Skip
       case _ => Ignore
     }, tags : _*)(body)
-  }
 }

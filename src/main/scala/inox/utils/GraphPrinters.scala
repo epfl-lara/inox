@@ -45,7 +45,7 @@ object GraphPrinters {
     def highlight(f: N => Boolean) = colorize(f, "red")
 
 
-    def drawNode(n: N)(implicit res: StringBuffer): Unit = {
+    def drawNode(n: N)(using res: StringBuffer): Unit = {
       var opts = Map[String, String]()
       opts += "label" -> ("\"" + dot.escape(nToLabel(n)) + "\"")
 
@@ -64,7 +64,7 @@ object GraphPrinters {
       dot.uniqueName("e", e)
     }
 
-    def drawEdge(e: E)(implicit res: StringBuffer): Unit = {
+    def drawEdge(e: E)(using res: StringBuffer): Unit = {
       e match {
         case le: LabeledEdge[_, N] =>
           res append dot.box(eToS(e), le.l.toString)
@@ -76,8 +76,8 @@ object GraphPrinters {
     }
 
     def asString(g: G): String = {
-      implicit val res = new StringBuffer()
-
+      val res = new StringBuffer()
+      given StringBuffer = res
       res append "digraph D {\n"
 
       g.N.foreach(drawNode)

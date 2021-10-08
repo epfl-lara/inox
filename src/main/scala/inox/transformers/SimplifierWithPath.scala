@@ -7,7 +7,7 @@ import utils._
 
 trait SimplifierWithPath extends SimplifierWithPC {
   import trees._
-  import symbols._
+  import symbols.{given, _}
 
   class Env private(
     private val conditions: Set[Expr],
@@ -43,7 +43,7 @@ trait SimplifierWithPath extends SimplifierWithPC {
     override def toString: String = conditions.toString
   }
 
-  implicit object Env extends PathProvider[Env] {
+  object Env extends PathProvider[Env] {
     def empty = new Env(Set(), Map())
   }
 

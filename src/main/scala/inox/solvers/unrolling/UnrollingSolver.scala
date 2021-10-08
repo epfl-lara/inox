@@ -23,36 +23,92 @@ object optModelFinding      extends IntOptionDef("model-finding", 0, "<PosInt> |
   })
 }
 
-trait AbstractUnrollingSolver extends Solver { self =>
+object AbstractUnrollingSolver {
 
-  import context._
+  private def computeProgramEncoder(prog: Program,
+                                    enc: transformers.ProgramTransformer {val sourceProgram: prog.type},
+                                    chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type},
+                                    theoriesCtor: transformers.ProgramTransformer {
+                                      val sourceProgram: prog.type
+                                      val targetProgram: chooses.targetProgram.type
+                                    } => transformers.ProgramTransformer {
+                                      val sourceProgram: chooses.targetProgram.type
+                                      val targetProgram: Program {val trees: enc.targetProgram.trees.type}
+                                    }):
+  (transformers.ProgramTransformer {
+    val sourceProgram: prog.type
+    val targetProgram: Program {val trees: enc.targetProgram.trees.type}
+  }) = {
+    val fullEncoder = enc andThen chooses
+    val theories = theoriesCtor(fullEncoder)
+    fullEncoder andThen theories
+  }
+}
+
+abstract class AbstractUnrollingSolver private
+  (override val program: Program,
+   override val context: Context)
+  // Alias for `program`, as there are some places where `program` is shadowed.
+  (val prog: program.type)
+  (val enc: transformers.ProgramTransformer {val sourceProgram: program.type})
+  (val chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type})
+  (val programEncoder: transformers.ProgramTransformer {
+    val sourceProgram: program.type
+    val targetProgram: Program { val trees: enc.targetProgram.trees.type }
+  })
+  (using val semantics: program.Semantics,
+   val targetSemantics: programEncoder.targetProgram.Semantics)
+  extends Solver { self =>
+
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
   import SolverResponses._
-
-  protected implicit val semantics: program.Semantics
 
   protected type Encoded
 
-  protected val encoder: transformers.ProgramTransformer { val sourceProgram: program.type }
+  private def this(prog: Program,
+                   context: Context,
+                   enc: transformers.ProgramTransformer {val sourceProgram: prog.type},
+                   chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type},
+                   programEncoder: transformers.ProgramTransformer {
+                     val sourceProgram: prog.type
+                     val targetProgram: Program {val trees: enc.targetProgram.trees.type}
+                   })
+                  (using semantics: prog.Semantics,
+                   semanticsProvider: SemanticsProvider {val trees: enc.targetProgram.trees.type}) =
+    this(prog, context)(prog)(enc)(chooses)(programEncoder)(using semantics, programEncoder.targetProgram.getSemantics(using semanticsProvider))
 
-  protected val chooses: ChooseEncoder { val program: self.program.type; val sourceEncoder: self.encoder.type }
+  def this(prog: Program,
+           context: Context,
+           enc: transformers.ProgramTransformer {val sourceProgram: prog.type},
+           chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type})
+          // Given a `fullEncoder` (constructed by `enc andThen chooses`), produce a theory
+          (theoriesCtor: transformers.ProgramTransformer {
+            val sourceProgram: prog.type
+            val targetProgram: chooses.targetProgram.type
+          } => transformers.ProgramTransformer {
+            val sourceProgram: chooses.targetProgram.type
+            val targetProgram: Program {val trees: enc.targetProgram.trees.type}
+          })
+          (using semantics: prog.Semantics,
+           semanticsProvider: SemanticsProvider {val trees: enc.targetProgram.trees.type}) =
+    this(prog, context, enc, chooses, AbstractUnrollingSolver.computeProgramEncoder(prog, enc, chooses, theoriesCtor))
 
-  protected lazy val fullEncoder = encoder andThen chooses
+  protected final val s: programEncoder.sourceProgram.trees.type = programEncoder.sourceProgram.trees
+  protected final val t: programEncoder.targetProgram.trees.type = programEncoder.targetProgram.trees
+  protected final val targetProgram: programEncoder.targetProgram.type = programEncoder.targetProgram
 
-  protected val theories: transformers.ProgramTransformer {
-    val sourceProgram: fullEncoder.targetProgram.type
-    val targetProgram: Program { val trees: fullEncoder.targetProgram.trees.type }
+  protected val templates: Templates {
+    val program: targetProgram.type
+    type Encoded = self.Encoded
   }
 
-  protected lazy val programEncoder = fullEncoder andThen theories
-
-  protected lazy val s: programEncoder.sourceProgram.trees.type = programEncoder.sourceProgram.trees
-  protected lazy val t: programEncoder.targetProgram.trees.type = programEncoder.targetProgram.trees
-  protected lazy val targetProgram: programEncoder.targetProgram.type = programEncoder.targetProgram
-
-  protected implicit val targetSemantics: targetProgram.Semantics
+  protected val underlying: AbstractSolver {
+    val program: targetProgram.type
+    type Trees = Encoded
+  }
 
   protected final def encode(vd: ValDef): t.ValDef = programEncoder.encode(vd)
   protected final def decode(vd: t.ValDef): ValDef = programEncoder.decode(vd)
@@ -65,16 +121,6 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
   protected final def encode(tpe: Type): t.Type = programEncoder.encode(tpe)
   protected final def decode(tpe: t.Type): Type = programEncoder.decode(tpe)
-
-  protected val templates: Templates {
-    val program: targetProgram.type
-    type Encoded = self.Encoded
-  }
-
-  protected val underlying: AbstractSolver {
-    val program: targetProgram.type
-    type Trees = Encoded
-  }
 
   lazy val checkModels = options.findOptionOrDefault(optCheckModels)
   lazy val silentErrors = options.findOptionOrDefault(optSilentErrors)
@@ -225,7 +271,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
         .flatMap { case (tfd, calls) =>
           chooses.getChoose(tfd.fd).map { case (id, c, vds) =>
             val tpSubst = tfd.tpSubst.map(p => decode(p._1).asInstanceOf[TypeParameter] -> decode(p._2))
-            val from = tfd.params.map(_.getType(tfd.symbols))
+            val from = tfd.params.map(_.getType(using tfd.symbols))
             val to = tfd.getType
             import templates._
 
@@ -321,7 +367,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
       case ((v, value), e) => Let(v, value, e)
     }
 
-    val evaluator = semantics.getEvaluator(context.withOpts(
+    val evaluator = semantics.getEvaluator(using context.withOpts(
       optSilentErrors(silenceErrors),
       optCheckModels(checkModels || feelingLucky)
     ))
@@ -355,7 +401,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
     import targetProgram._
     import targetProgram.trees._
-    import targetProgram.symbols._
+    import targetProgram.symbols.{given, _}
 
     // maintain extracted functions to make sure equality is well-defined
     var lambdaExtractions: Seq[(Encoded, Lambda)] = Seq.empty
@@ -387,7 +433,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
             val encoder = templates.mkEncoder(Map(id -> v)) _
             reconstruct(tps.zipWithIndex.map {
               case (tpe, index) => rec(encoder(TupleSelect(id, index + 1)), tpe)
-            }, Tuple)
+            }, Tuple.apply)
 
           case tpe @ ADTType(sid, tps) =>
             val cons = wrapped.extractConstructor(v, tpe).get
@@ -724,7 +770,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
               optError match {
                 case Some((expr, err)) =>
                   if (!silentErrors) {
-                    reporter.error("Quantification " + expr.asString(templates.program.printerOpts) +
+                    reporter.error("Quantification " + expr.asString(using templates.program.printerOpts) +
                       " does not fit in supported fragment.\n  Reason: " + err)
                     reporter.error("Model obtained was:")
                     reporter.error("  " + model.asString.replaceAll("\n", "\n  "))
@@ -801,6 +847,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
                 Unroll
               }
+            case otherwise => sys.error(s"Unexpected case: $otherwise")
           }
 
         case Unroll if !canUnroll =>
@@ -823,6 +870,8 @@ trait AbstractUnrollingSolver extends Solver { self =>
           reporter.debug(" - Finished unrolling")
           ModelCheck
         }
+
+        case otherwise => sys.error(s"Unexpected case: $otherwise")
       }
     }
 
@@ -837,10 +886,10 @@ trait AbstractUnrollingSolver extends Solver { self =>
 }
 
 trait UnrollingSolver extends AbstractUnrollingSolver { self =>
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   type Encoded = t.Expr
   protected val underlying: AbstractSolver {
@@ -851,14 +900,14 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
 
   override lazy val name = "U:"+underlying.name
 
-  object templates extends {
-    val program: targetProgram.type = targetProgram
-    val context = self.context
-    val semantics: targetProgram.Semantics = self.targetSemantics
-  } with Templates {
+  override val templates = new TemplatesImpl(targetProgram, context)
+
+  private class TemplatesImpl(override val program: targetProgram.type, override val context: Context)
+                             (using override val semantics: targetProgram.Semantics)
+    extends Templates {
     import program._
     import program.trees._
-    import program.symbols._
+    import program.symbols.{given, _}
 
     type Encoded = Expr
 
@@ -885,12 +934,12 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
   }
 
   protected lazy val modelEvaluator: DeterministicEvaluator { val program: self.targetProgram.type } =
-    targetSemantics.getEvaluator(context.withOpts(optIgnoreContracts(true)))
+    targetSemantics.getEvaluator(using context.withOpts(optIgnoreContracts(true)))
 
   protected def declareVariable(v: t.Variable): t.Variable = v
-  protected def wrapModel(model: targetProgram.Model): super.ModelWrapper = ModelWrapperImpl(model)
+  protected def wrapModel(model: targetProgram.Model): ModelWrapper = ModelWrapperImpl(model)
 
-  private case class ModelWrapperImpl(model: targetProgram.Model) extends super.ModelWrapper {
+  private case class ModelWrapperImpl(model: targetProgram.Model) extends ModelWrapper {
     private def e(expr: t.Expr): Option[t.Expr] = modelEvaluator.eval(expr, model).result
 
     def extractConstructor(elem: t.Expr, tpe: t.ADTType): Option[Identifier] = e(elem) match {
@@ -918,7 +967,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
       case ((cid, tps), e) if cid == id && tps.isEmpty => e
     }
 
-    override def toString = model.asString(targetProgram.printerOpts)
+    override def toString = model.asString(using targetProgram.printerOpts)
   }
 
   override def dbg(msg: => Any) = underlying.dbg(msg)

@@ -9,8 +9,8 @@ import scala.util.DynamicVariable
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
-  import trees._
-  import symbols._
+  import trees.{given, _}
+  import symbols.{given, _}
   import exprOps.{trees => _, _}
   import dsl._
 
@@ -183,12 +183,12 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
     override def negate =
       new CNFPath(exprSubst, boolSubst, Set(), cnfCache, simpCache) withCond not(and(conditions.toSeq: _*))
 
-    def asString(implicit opts: PrinterOptions): String = andJoin(conditions.toSeq.sortBy(_.hashCode)).asString
+    def asString(using PrinterOptions): String = andJoin(conditions.toSeq.sortBy(_.hashCode)).asString
 
-    override def toString = asString(PrinterOptions(symbols = Some(symbols)))
+    override def toString = asString(using PrinterOptions(symbols = Some(symbols)))
   }
 
-  implicit object CNFPath extends PathProvider[CNFPath] {
+  object CNFPath extends PathProvider[CNFPath] {
     def empty = new CNFPath(new Bijection[Variable, Expr], Map.empty, Set.empty, MutableMap.empty, MutableMap.empty)
   }
 
@@ -203,7 +203,7 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
       val subst: MutableMap[ValDef, ValDef] = MutableMap.empty
       val bindings: MutableMap[ValDef, Expr] = MutableMap.empty
 
-      val transformer = new SelfTreeTransformer {
+      val transformer = new ConcreteSelfTreeTransformer {
         private var localCounter = 0
         override def transform(vd: ValDef): ValDef = subst.getOrElse(vd, {
           path.exprSubst.getB(vd.toVariable).orElse(path.boolSubst.get(vd.toVariable)) match {
@@ -223,7 +223,7 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
       (newExpr, newConds, bindings.toMap, mapping)
     }
 
-    private def applySubst(subst: Map[ValDef, ValDef], expr: Expr): Expr = new SelfTreeTransformer {
+    private def applySubst(subst: Map[ValDef, ValDef], expr: Expr): Expr = new ConcreteSelfTreeTransformer {
       override def transform(vd: ValDef): ValDef = subst.getOrElse(vd, vd)
     }.transform(expr)
 

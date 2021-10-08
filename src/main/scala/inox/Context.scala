@@ -14,7 +14,7 @@ case class Context(
   options: Options = Options(Seq()),
   timers: TimerStorage = TimerStorage()) {
 
-  implicit val implicitContext: this.type = this
+  given givenContext: this.type = this
 
   def withOpts(opts: OptionValue[_]*): Context = copy(options = options ++ opts)
 }

@@ -14,10 +14,10 @@ import scala.collection.mutable.{Set => MutableSet, Map => MutableMap}
   * @see [[ast.Definitions.ADTSort.equality]] for such a case of equality
   */
 trait EqualityTemplates { self: Templates =>
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   import equalityManager._
 
@@ -96,7 +96,7 @@ trait EqualityTemplates { self: Templates =>
       val pathVar = Variable.fresh("b", BooleanType(), true)
       val pathVarT = encodeSymbol(pathVar)
 
-      val tmplClauses = mkClauses(pathVar, Equals(Application(f, args), tpe match {
+      val tmplClauses = mkClauses0(pathVar, Equals(Application(f, args), tpe match {
         case adt: ADTType =>
           val sort = adt.getSort
 

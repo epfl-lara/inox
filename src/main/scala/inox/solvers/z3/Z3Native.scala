@@ -16,15 +16,16 @@ case class UnsoundExtractionException(ast: Z3AST, msg: String)
 // This is just to factor out the things that are common in "classes that deal
 // with a Z3 instance"
 trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   type Trees = Z3AST
   type Model = Z3Model
 
-  protected implicit val semantics: program.Semantics
+  protected val semantics: program.Semantics
+  given givenSemantics: semantics.type = semantics
 
   interruptManager.registerForInterrupts(this)
 
@@ -226,11 +227,11 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
   protected[z3] def toZ3Formula(expr: Expr, bindings: Map[Variable, Z3AST] = Map.empty): Z3AST = {
 
-    def rec(ex: Expr)(implicit bindings: Map[Variable, Z3AST]): Z3AST = ex match {
+    def rec(ex: Expr)(using bindings: Map[Variable, Z3AST]): Z3AST = ex match {
 
       case Let(vd, e, b) =>
         val re = rec(e)
-        rec(b)(bindings + (vd.toVariable -> re))
+        rec(b)(using bindings + (vd.toVariable -> re))
 
       case a @ Assume(cond, body) =>
         val (rc, rb) = (rec(cond), rec(body))
@@ -517,7 +518,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         unsupported(other)
     }
 
-    val res = rec(expr)(bindings)
+    val res = rec(expr)(using bindings)
     res
   }
 
@@ -583,9 +584,6 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
               case TypeParameterCons(tp) =>
                 val IntegerLiteral(n) = rec(args(0), IntegerType(), seen)
                 GenericValue(tp, n.toInt)
-
-              case t =>
-                unsupported(t, "Woot? structural type that is non-structural")
             }
           } else {
             tpe match {
@@ -828,7 +826,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       /** WARNING this code is very similar to Z3Unrolling.modelEval!!! */
       case (v,z3ID) => (v.getType match {
         case BooleanType() =>
-          model.evalAs[Boolean](z3ID).map(BooleanLiteral)
+          model.evalAs[Boolean](z3ID).map(BooleanLiteral.apply)
 
         case Int32Type() =>
           model.evalAs[Int](z3ID).map(Int32Literal(_)).orElse {

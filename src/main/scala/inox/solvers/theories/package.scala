@@ -55,20 +55,21 @@ package object theories {
   object ReverseEvaluator {
     def apply(enc: ProgramTransformer)
              (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }):
-             DeterministicEvaluator { val program: enc.targetProgram.type } = new {
-      val program: enc.targetProgram.type = enc.targetProgram
-      val context = ev.context
-    } with DeterministicEvaluator {
-      import program.trees._
-      import EvaluationResults._
+             DeterministicEvaluator { val program: enc.targetProgram.type } = {
+      class ReverseEvaluatorImpl(override val program: enc.targetProgram.type,
+                                 override val context: inox.Context) extends DeterministicEvaluator {
+        import program.trees._
+        import EvaluationResults._
 
-      def eval(e: Expr, model: program.Model): EvaluationResult = {
-        ev.eval(enc.decode(e), model.encode(enc.reverse)) match {
-          case Successful(value) => Successful(enc.encode(value))
-          case RuntimeError(message) => RuntimeError(message)
-          case EvaluatorError(message) => EvaluatorError(message)
+        def eval(e: Expr, model: program.Model): EvaluationResult = {
+          ev.eval(enc.decode(e), model.encode(enc.reverse)) match {
+            case Successful(value) => Successful(enc.encode(value))
+            case RuntimeError(message) => RuntimeError(message)
+            case EvaluatorError(message) => EvaluatorError(message)
+          }
         }
       }
+      new ReverseEvaluatorImpl(enc.targetProgram, ev.context)
     }
   }
 }

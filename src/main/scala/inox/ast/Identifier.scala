@@ -33,14 +33,14 @@ class Identifier (
   def freshen: Identifier = FreshIdentifier(name, alwaysShowUniqueID)
 
   override def compare(that: Identifier): Int = {
-    val ord = implicitly[Ordering[(String, Int, Int)]]
+    val ord = summon[Ordering[(String, Int, Int)]]
     ord.compare(
       (this.name, this.id, this.globalId),
       (that.name, that.id, that.globalId)
     )
   }
 
-  def asString(implicit opts: Trees#PrinterOptions): String = {
+  def asString(using opts: Trees#PrinterOptions): String = {
     if (opts.printUniqueIds) uniqueName else toString
   }
 }

@@ -111,18 +111,18 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
       let("res" :: T(T(listID)(aT), T(listID)(aT)), if_ (l is consID) {
         let("ptl" :: T(T(listID)(aT), T(listID)(aT)), E(partitionID)(aT)(l.getField(tail), p)) { ptl =>
           if_ (p(l.getField(head))) {
-            E(C(consID)(aT)(l.getField(head), ptl._1), ptl._2)
+            E(C(consID)(aT)(l.getField(head), ptl._ts1), ptl._ts2)
           } else_ {
-            E(ptl._1, C(consID)(aT)(l.getField(head), ptl._2))
+            E(ptl._ts1, C(consID)(aT)(l.getField(head), ptl._ts2))
           }
         }
       } else_ {
         E(l, l)
       }) { res =>
         Assume(
-          E(forallID)(aT)(res._1, p) &&
-          E(forallID)(aT)(res._2, \("x" :: aT)(x => !p(x))) &&
-          E(contentID)(aT)(l) === E(contentID)(aT)(res._1) ++ E(contentID)(aT)(res._2),
+          E(forallID)(aT)(res._ts1, p) &&
+          E(forallID)(aT)(res._ts2, \("x" :: aT)(x => !p(x))) &&
+          E(contentID)(aT)(l) === E(contentID)(aT)(res._ts1) ++ E(contentID)(aT)(res._ts2),
           res)
       }
     })
@@ -133,10 +133,10 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
       let("res" :: T(listID)(aT), if_ (l is consID) {
         let("part" :: T(T(listID)(aT), T(listID)(aT)),
           E(partitionID)(aT)(l.getField(tail), \("x" :: aT)(x => lt(x, l.getField(head))))) { part =>
-        let("less" :: T(listID)(aT), E(sortID)(aT)(part._1, lt)) { less =>
-        let("more" :: T(listID)(aT), E(sortID)(aT)(part._2, lt)) { more =>
-          Assume(E(forallID)(aT)(part._1, \("x" :: aT)(x => lt(x, l.getField(head)))),
-          Assume(E(contentID)(aT)(part._1) === E(contentID)(aT)(less),
+        let("less" :: T(listID)(aT), E(sortID)(aT)(part._ts1, lt)) { less =>
+        let("more" :: T(listID)(aT), E(sortID)(aT)(part._ts2, lt)) { more =>
+          Assume(E(forallID)(aT)(part._ts1, \("x" :: aT)(x => lt(x, l.getField(head)))),
+          Assume(E(contentID)(aT)(part._ts1) === E(contentID)(aT)(less),
           Assume(E(forallID)(aT)(less, \("x" :: aT)(x => lt(x, l.getField(head)))),
             E(appendID)(aT)(less, C(consID)(aT)(l.getField(head), more))
           )))
@@ -154,14 +154,14 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
 
   val program = InoxProgram(symbols)
 
-  test("size(x) == 0 is satisfiable") { implicit ctx =>
+  test("size(x) == 0 is satisfiable") {
     val vd = "x" :: T(listID)(IntegerType())
     val clause = sizeFd(IntegerType())(vd.toVariable) === E(BigInt(0))
 
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("size(x) < 0 is unsatisfiable") { implicit ctx =>
+  test("size(x) < 0 is unsatisfiable") {
     val vd = "x" :: T(listID)(IntegerType())
     val clause = sizeFd(IntegerType())(vd.toVariable) < E(BigInt(0))
 
@@ -179,18 +179,18 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
     else Test
   }
 
-  test("flatMap is associative", filter(_, allowOpt = true)) { implicit ctx =>
+  test("flatMap is associative", filter(_, allowOpt = true)) {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(associative.fullBody)).isUNSAT)
   }
 
-  test("sort preserves content 1", filter(_)) { implicit ctx =>
+  test("sort preserves content 1", filter(_)) {
     val (l,p) = ("l" :: T(listID)(IntegerType()), "p" :: ((IntegerType(), IntegerType()) =>: BooleanType()))
     val clause = E(contentID)(IntegerType())(E(sortID)(IntegerType())(l.toVariable, p.toVariable)) ===
       E(contentID)(IntegerType())(l.toVariable)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(clause)).isUNSAT)
   }
 
-  test("sort preserves content 2", filter(_, allowSelect = false)) { implicit ctx =>
+  test("sort preserves content 2", filter(_, allowSelect = false)) {
     import program._
     val clause = sort.fullBody match {
       case Let(res, body, Assume(pred, resVar)) if res.toVariable == resVar =>

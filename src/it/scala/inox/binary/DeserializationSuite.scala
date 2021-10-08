@@ -21,9 +21,9 @@ class DeserializationSuite extends AnyFunSpec with ResourceUtils {
       val name = file.getName
       val fis = new FileInputStream(file)
       val serializer = utils.Serializer(inox.trees)
-      import serializer._
+      import serializer.{given, _}
 
-      def test[T: ClassTag](expected: T)(implicit p: SerializableOrProcedure[T]): Unit = {
+      def test[T: ClassTag](expected: T)(using SerializableOrProcedure[T]): Unit = {
         val data = serializer.deserialize[T](fis)
         assert(data == expected)
       }

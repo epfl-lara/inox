@@ -80,13 +80,14 @@ object SolverResponses {
     }
 
     def min(that: Configuration): Configuration = (this, that) match {
-      case (o1, o2) if o1 == o2 => o1
       case (Simple, _) => Simple
       case (_, Simple) => Simple
       case (Model, UnsatAssumptions) => Simple
       case (UnsatAssumptions, Model) => Simple
       case (All, o) => o
       case (o, All) => o
+      case (Model, Model) => Model
+      case (UnsatAssumptions, UnsatAssumptions) => UnsatAssumptions
     }
 
     def cast[M, C](resp: SolverResponse[M,C]): Response[M,C] = ((this, resp) match {

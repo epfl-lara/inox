@@ -19,14 +19,15 @@ trait Templates
 
   val program: Program
   val context: Context
-  protected implicit val semantics: program.Semantics
+  protected val semantics: program.Semantics
+  given givenSemantics: semantics.type = semantics
 
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
-  implicit val debugSection = DebugSectionSolver
+  given givenDebugSection: DebugSectionSolver.type = DebugSectionSolver
 
   type Encoded
 
@@ -182,7 +183,9 @@ trait Templates
     var promoted: Boolean = false
     var blockers: Seq[Set[Encoded]] = Seq(Set(b))
 
-    do {
+    // do-while, Scala 3 style
+    // See https://docs.scala-lang.org/scala3/reference/dropped-features/do-while.html
+    while ({
       val (bs +: rest) = blockers
       blockers = rest
 
@@ -202,15 +205,18 @@ trait Templates
         }
       }).flatten
 
-      if (next.nonEmpty) blockers :+= next
-    } while (!promoted && blockers.nonEmpty)
+      if (next.nonEmpty) {
+        blockers :+= next
+      }
+      // The line below is the do-while condition
+      !promoted && blockers.nonEmpty}) () // This trailing () is important! If we remove it, it messes with the next statement
 
     promoted
   }
 
   type Arg = Either[Encoded, Matcher]
 
-  implicit class ArgWrapper(arg: Arg) {
+  extension (arg: Arg) {
     def encoded: Encoded = arg match {
       case Left(value) => value
       case Right(matcher) => matcher.encoded
@@ -305,19 +311,22 @@ trait Templates
     * generated during unfolding.
     */
 
-  implicit class MapSetWrapper[A,B](map: Map[A,Set[B]]) {
+  extension [A,B](map: Map[A,Set[B]]) {
+    @annotation.targetName("mergeMapSetMap")
     def merge(that: Map[A,Set[B]]): Map[A,Set[B]] = (map.keys ++ that.keys).map { k =>
       k -> (map.getOrElse(k, Set.empty) ++ that.getOrElse(k, Set.empty))
     }.toMap
-
+    @annotation.targetName("mergeMapSetTuple")
     def merge(that: (A,B)): Map[A,Set[B]] = map + (that._1 -> (map.getOrElse(that._1, Set.empty) + that._2))
   }
 
-  implicit class MapSeqWrapper[A,B](map: Map[A,Seq[B]]) {
+  extension [A,B](map: Map[A,Seq[B]]) {
+    @annotation.targetName("mergeMapSeqMap")
     def merge(that: Map[A,Seq[B]]): Map[A,Seq[B]] = (map.keys ++ that.keys).map { k =>
       k -> (map.getOrElse(k, Seq.empty) ++ that.getOrElse(k, Seq.empty)).distinct
     }.toMap
 
+    @annotation.targetName("mergeMapSeqTuple")
     def merge(that: (A,B)): Map[A,Seq[B]] = map + (that._1 -> (map.getOrElse(that._1, Seq.empty) :+ that._2))
   }
 
@@ -670,7 +679,7 @@ trait Templates
           if (matchs.nonEmpty) matchers += bp -> matchs
         }
 
-        for (e <- guardedExprs.getOrElse(pv, Set.empty)) {
+        for (e <- guardedExprs.getOrElse(pv, Seq.empty)) {
           pointers ++= resultPointers(encoder)(e)
         }
 
@@ -866,7 +875,7 @@ trait Templates
     } else {
       declared += v -> bindings(v)
       instantiate(bindings, { (start, encodedStart) =>
-        mkClauses(start, v.tpe, v, bindings + (start -> encodedStart))(FreeGenerator)
+        mkClauses1(start, v.tpe, v, bindings + (start -> encodedStart))(using FreeGenerator)
       })
     }
   }
@@ -875,13 +884,13 @@ trait Templates
     instantiate(bindings, { (start, encodedStart) =>
       val instExpr = timers.solvers.simplify.run { simplifyFormula(expr) }
 
-      val tmplClauses = mkClauses(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
+      val tmplClauses = mkClauses0(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
       val tpeClauses = bindings.filterNot(declared contains _).map { case (v, s) =>
         declared += v -> s
-        mkClauses(start, v.tpe, v, bindings + (start -> encodedStart))(FreeGenerator)
+        mkClauses1(start, v.tpe, v, bindings + (start -> encodedStart))(using FreeGenerator)
       }
 
-      tpeClauses.foldLeft(tmplClauses)(_ ++ _)
+      tpeClauses.foldLeft(tmplClauses)(_ +++ _)
     })
   }
 }

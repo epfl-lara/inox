@@ -8,15 +8,20 @@ import unrolling._
 
 import z3.scala._
 
-trait Z3Unrolling extends AbstractUnrollingSolver { self =>
-  import context._
+abstract class Z3Unrolling(prog: Program,
+                           context: Context,
+                           enc: transformers.ProgramTransformer {val sourceProgram: prog.type},
+                           chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type})
+                          (using semantics: prog.Semantics,
+                           semanticsProvider: SemanticsProvider {val trees: enc.targetProgram.trees.type})
+  extends AbstractUnrollingSolver(prog, context, enc, chooses)
+    (fullEncoder => solvers.theories.Z3(fullEncoder.targetProgram)) { self =>
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   type Encoded = Z3AST
-
-  protected lazy val theories = solvers.theories.Z3(fullEncoder.targetProgram)
 
   protected val underlying: AbstractSolver with Z3Native {
     val program: targetProgram.type
@@ -25,11 +30,14 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
 
   protected lazy val z3 = underlying.z3
 
-  object templates extends {
-    val program: targetProgram.type = targetProgram
-    val context = self.context
-    val semantics: targetProgram.Semantics = self.targetSemantics
-  } with Templates {
+  override val templates =
+    new TemplatesImpl(targetProgram, context)(using targetSemantics)
+
+  private class TemplatesImpl(override val program: targetProgram.type,
+                              override val context: Context)
+                             (using override val semantics: targetProgram.Semantics)
+    extends Templates {
+
     import program.trees._
 
     type Encoded = self.Encoded
@@ -61,11 +69,12 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
     def decodePartial(e: Z3AST, tpe: Type): Option[Expr] = underlying.asGround(e, tpe)
   }
 
+
   protected def declareVariable(v: t.Variable): Z3AST = underlying.declareVariable(v)
 
-  protected def wrapModel(model: Z3Model): super.ModelWrapper = ModelWrapperImpl(model)
+  protected def wrapModel(model: Z3Model): ModelWrapper = ModelWrapperImpl(model)
 
-  private case class ModelWrapperImpl(model: Z3Model) extends super.ModelWrapper {
+  private case class ModelWrapperImpl(model: Z3Model) extends ModelWrapper {
     private val ex = new underlying.ModelExtractor(model)
 
     def extractConstructor(v: Z3AST, tpe: t.ADTType): Option[Identifier] = model.eval(v).flatMap {
@@ -99,7 +108,7 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
     /** WARNING this code is very similar to Z3Native.extractModel!!! */
     def modelEval(elem: Z3AST, tpe: t.Type): Option[t.Expr] = timers.solvers.z3.eval.run {
       tpe match {
-        case t.BooleanType() => model.evalAs[Boolean](elem).map(t.BooleanLiteral)
+        case t.BooleanType() => model.evalAs[Boolean](elem).map(t.BooleanLiteral.apply)
 
         case t.Int32Type() => model.evalAs[Int](elem).map(t.Int32Literal(_)).orElse {
           model.eval(elem).flatMap(term => ex.get(term, t.Int32Type()))

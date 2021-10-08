@@ -8,14 +8,14 @@ import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 trait Types { self: Trees =>
 
   trait Typed extends Printable {
-    def getType(implicit s: Symbols): Type
-    def isTyped(implicit s: Symbols): Boolean = getType != Untyped
+    def getType(using Symbols): Type
+    def isTyped(using Symbols): Boolean = getType != Untyped
   }
 
   protected trait CachingTyped extends Typed {
     private[this] var cache: (Symbols, Type) = (null, null)
 
-    final def getType(implicit s: Symbols): Type = {
+    final def getType(using s: Symbols): Type = {
       val (symbols, tpe) = cache
       if (s eq symbols) tpe else {
         val tpe = computeType
@@ -24,7 +24,7 @@ trait Types { self: Trees =>
       }
     }
 
-    protected def computeType(implicit s: Symbols): Type
+    protected def computeType(using Symbols): Type
   }
 
   protected def unveilUntyped(tpe: Type): Type = {
@@ -38,7 +38,7 @@ trait Types { self: Trees =>
 
     private def setSimple(): this.type = { simple = true; this }
 
-    final def getType(implicit s: Symbols): Type = {
+    final def getType(using s: Symbols): Type = {
       if (simple) this else {
         val (symbols, tpe) = cache
         if (s eq symbols) tpe else {
@@ -49,7 +49,7 @@ trait Types { self: Trees =>
       }
     }
 
-    protected def computeType(implicit s: Symbols): Type = {
+    protected def computeType(using Symbols): Type = {
       val NAryType(tps, recons) = this
       unveilUntyped(recons(tps.map(_.getType)))
     }
@@ -107,10 +107,10 @@ trait Types { self: Trees =>
   sealed case class FunctionType(from: Seq[Type], to: Type) extends Type
 
   sealed case class ADTType(id: Identifier, tps: Seq[Type]) extends Type {
-    def lookupSort(implicit s: Symbols): Option[TypedADTSort] = s.lookupSort(id, tps)
-    def getSort(implicit s: Symbols): TypedADTSort = s.getSort(id, tps)
+    def lookupSort(using s: Symbols): Option[TypedADTSort] = s.lookupSort(id, tps)
+    def getSort(using s: Symbols): TypedADTSort = s.getSort(id, tps)
 
-    def getField(selector: Identifier)(implicit s: Symbols): Option[ValDef] = lookupSort match {
+    def getField(selector: Identifier)(using Symbols): Option[ValDef] = lookupSort match {
       case Some(tsort: TypedADTSort) =>
         tsort.constructors.flatMap(_.fields).collectFirst {
           case vd @ ValDef(`selector`, _, _) => vd
@@ -122,7 +122,7 @@ trait Types { self: Trees =>
   /* Dependent Types */
 
   private object TypeNormalization {
-    private class TypeNormalizer extends SelfTreeTransformer {
+    private class TypeNormalizer extends ConcreteSelfTreeTransformer {
       private val subst: MutableMap[Variable, Variable] = MutableMap.empty
       private var counter: Int = 0
 
@@ -150,7 +150,7 @@ trait Types { self: Trees =>
     private[this] val _elements: utils.Lazy[List[Any]] = utils.Lazy({
       // @nv: note that we can't compare `normalized` directly as we are
       //      overriding the `equals` method and this would lead to non-termination.
-      val normalized = TypeNormalization(this)
+      val normalized: Type & Product = TypeNormalization[Type & Product](this)
       normalized.productIterator.toList
     })
 
@@ -163,7 +163,7 @@ trait Types { self: Trees =>
   sealed case class PiType(params: Seq[ValDef], to: Type) extends Type with TypeNormalization {
     require(params.nonEmpty)
 
-    override protected def computeType(implicit s: Symbols): Type =
+    override protected def computeType(using Symbols): Type =
       unveilUntyped(FunctionType(params.map(_.getType), to.getType))
 
     override def hashCode: Int = 31 * code
@@ -176,7 +176,7 @@ trait Types { self: Trees =>
   sealed case class SigmaType(params: Seq[ValDef], to: Type) extends Type with TypeNormalization {
     require(params.nonEmpty)
 
-    override protected def computeType(implicit s: Symbols): Type =
+    override protected def computeType(using Symbols): Type =
       unveilUntyped(TupleType(params.map(_.getType) :+ to.getType))
 
     override def hashCode: Int = 53 * code
@@ -187,7 +187,7 @@ trait Types { self: Trees =>
   }
 
   sealed case class RefinementType(vd: ValDef, prop: Expr) extends Type with TypeNormalization {
-    override protected def computeType(implicit s: Symbols): Type =
+    override protected def computeType(using Symbols): Type =
       checkParamType(prop, BooleanType(), vd.getType)
 
     override def hashCode: Int = 79 * code
@@ -199,62 +199,62 @@ trait Types { self: Trees =>
 
   /* Utility methods for type checking */
 
-  protected final def checkParamType(real: Typed, formal: Typed, result: => Type)(implicit s: Symbols) = {
+  protected final def checkParamType(real: Typed, formal: Typed, result: => Type)(using s: Symbols) = {
     if (s.isSubtypeOf(real.getType, formal.getType)) result.getType else Untyped
   }
 
-  protected final def checkParamTypes(real: Seq[Typed], formal: Seq[Typed], result: => Type)(implicit s: Symbols) = {
+  protected final def checkParamTypes(real: Seq[Typed], formal: Seq[Typed], result: => Type)(using s: Symbols) = {
     if (
       real.size == formal.size &&
       (real zip formal forall (p => s.isSubtypeOf(p._1.getType, p._2.getType)))
     ) result.getType else Untyped
   }
 
-  protected final def checkAllTypes(real: Seq[Typed], formal: Typed, result: => Type)(implicit s: Symbols) = {
+  protected final def checkAllTypes(real: Seq[Typed], formal: Typed, result: => Type)(using Symbols) = {
     checkParamTypes(real, List.fill(real.size)(formal), result)
   }
 
-  protected implicit class TypeWrapper(tpe: Type) {
-    def orElse(other: => Type): Type = if (tpe == Untyped) other else tpe
+  extension (tpe: Type) {
+    protected def orElse(other: => Type): Type = if (tpe == Untyped) other else tpe
   }
 
   /* Override points for supporting more complex types */
 
-  protected final def getIntegerType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type =
+  protected final def getIntegerType(tpe: Typed, tpes: Typed*)(using Symbols): Type =
     checkAllTypes(tpe +: tpes, IntegerType(), IntegerType())
 
-  protected final def getRealType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type =
+  protected final def getRealType(tpe: Typed, tpes: Typed*)(using Symbols): Type =
     checkAllTypes(tpe +: tpes, RealType(), RealType())
 
-  protected def getBVType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+  protected def getBVType(tpe: Typed, tpes: Typed*)(using Symbols): Type = tpe.getType match {
     case bv: BVType => checkAllTypes(tpes, bv, bv)
     case _ => Untyped
   }
 
-  protected final def getCharType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type =
+  protected final def getCharType(tpe: Typed, tpes: Typed*)(using Symbols): Type =
     checkAllTypes(tpe +: tpes, CharType(), CharType())
 
-  protected def getADTType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+  protected def getADTType(tpe: Typed, tpes: Typed*)(using Symbols): Type = tpe.getType match {
     case adt: ADTType => checkAllTypes(tpes, adt, adt)
     case _ => Untyped
   }
 
-  protected def getTupleType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+  protected def getTupleType(tpe: Typed, tpes: Typed*)(using Symbols): Type = tpe.getType match {
     case tt: TupleType => checkAllTypes(tpes, tt, tt)
     case _ => Untyped
   }
 
-  protected def getSetType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+  protected def getSetType(tpe: Typed, tpes: Typed*)(using Symbols): Type = tpe.getType match {
     case st: SetType => checkAllTypes(tpes, st, st)
     case _ => Untyped
   }
 
-  protected def getBagType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+  protected def getBagType(tpe: Typed, tpes: Typed*)(using Symbols): Type = tpe.getType match {
     case bt: BagType => checkAllTypes(tpes, bt, bt)
     case _ => Untyped
   }
 
-  protected def getMapType(tpe: Typed, tpes: Typed*)(implicit s: Symbols): Type = tpe.getType match {
+  protected def getMapType(tpe: Typed, tpes: Typed*)(using Symbols): Type = tpe.getType match {
     case mt: MapType => checkAllTypes(tpes, mt, mt)
     case _ => Untyped
   }
@@ -263,10 +263,10 @@ trait Types { self: Trees =>
     *
     * @see [[Deconstructors.Operator]] about why we can't have nice(r) things
     */
-  object NAryType extends {
-    protected val s: self.type = self
-    protected val t: self.type = self
-  } with TreeExtractor {
+  val NAryType: NAryTypeImpl = new NAryTypeImpl(self, self)
+
+  class NAryTypeImpl(override protected val s: self.type,
+                     override protected val t: self.type) extends TreeExtractor {
     type Source = Type
     type Target = Type
 
@@ -276,16 +276,16 @@ trait Types { self: Trees =>
     }
   }
 
-  object typeOps extends {
-    protected val sourceTrees: self.type = self
-    protected val targetTrees: self.type = self
-  } with GenTreeOps {
+  val typeOps: TypeOpsUtils = new TypeOpsUtils(self, self)
+
+  final class TypeOpsUtils(override val sourceTrees: self.type, override val targetTrees: self.type) extends GenTreeOps {
     type Source = self.Type
     type Target = self.Type
-    lazy val Deconstructor = NAryType
+
+    val Deconstructor = NAryType
 
     // Helper for typeParamsOf
-    class TypeCollector extends SelfTreeTraverser {
+    class TypeCollector extends ConcreteSelfTreeTraverser {
       private[this] val typeParams: MutableSet[TypeParameter] = MutableSet.empty
       def getResult: Set[TypeParameter] = typeParams.toSet
 
@@ -308,7 +308,7 @@ trait Types { self: Trees =>
     }
 
     // Helpers for instantiateType
-    class TypeInstantiator(tps: Map[TypeParameter, Type]) extends SelfTreeTransformer {
+    class TypeInstantiator(tps: Map[TypeParameter, Type]) extends ConcreteSelfTreeTransformer {
       override def transform(tpe: Type): Type = tpe match {
         case tp: TypeParameter => tps.getOrElse(tp, super.transform(tpe))
         case _ => super.transform(tpe)
@@ -337,8 +337,8 @@ trait Types { self: Trees =>
     }
 
     def replaceFromSymbols[V <: VariableSymbol](subst: Map[V, Expr], tpe: Type)
-                                               (implicit ev: VariableConverter[V]): Type = {
-      new SelfTreeTransformer {
+                                               (using VariableConverter[V]): Type = {
+      new ConcreteSelfTreeTransformer {
         override def transform(expr: Expr): Expr = expr match {
           case v: Variable => subst.getOrElse(v.to[V], v)
           case _ => super.transform(expr)
@@ -360,14 +360,14 @@ trait Types { self: Trees =>
       case NAryType(tpes, _) => tpes.flatMap(variablesOf).toSet
     }
 
-    class TypeSimplifier(implicit symbols: Symbols) extends SelfTreeTransformer {
+    class TypeSimplifier(using symbols: Symbols) extends ConcreteSelfTreeTransformer {
       override def transform(tpe: Type): Type = tpe match {
         case (_: PiType | _: SigmaType | _: FunctionType) => tpe.getType
         case _ => super.transform(tpe)
       }
     }
 
-    def simplify(expr: Expr)(implicit symbols: Symbols): Expr = new TypeSimplifier().transform(expr)
+    def simplify(expr: Expr)(using Symbols): Expr = new TypeSimplifier().transform(expr)
   }
 }
 

@@ -10,13 +10,21 @@ import _root_.smtlib.trees.CommandsResponses._
 
 import scala.collection.mutable.{Map => MutableMap}
 
-trait SMTLIBSolver extends AbstractSolver with SMTLIBTarget with SMTLIBDebugger {
-  import context._
+abstract class SMTLIBSolver private(override val program: Program,
+                                    override val context: inox.Context)
+                                   (override val trees: program.trees.type,
+                                    override val symbols: program.symbols.type,
+                                    override val semantics: program.Semantics)
+  extends AbstractSolver with SMTLIBTarget with SMTLIBDebugger {
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
   import exprOps.variablesOf
   import SolverResponses._
+
+  def this(program: Program, context: inox.Context)(using semantics: program.Semantics) =
+    this(program, context)(program.trees, program.symbols, semantics)
 
   override type Trees = Expr
   override type Model = program.Model
@@ -36,7 +44,7 @@ trait SMTLIBSolver extends AbstractSolver with SMTLIBTarget with SMTLIBDebugger 
   def assertCnstr(expr: Expr): Unit = {
     variablesOf(expr).foreach(declareVariable)
 
-    val term = toSMT(expr)(Map())
+    val term = toSMT(expr)(using Map())
     emit(Assert(term))
   }
 
@@ -71,7 +79,7 @@ trait SMTLIBSolver extends AbstractSolver with SMTLIBTarget with SMTLIBDebugger 
               case DefineFun(SMTFunDef(s, _, _, e)) if syms(s) =>
                 try {
                   val v = variables.toA(s)
-                  val value = fromSMT(e, v.getType)(ctx)
+                  val value = fromSMT(e, v.getType)(using ctx)
                   Some(v.toVal -> value)
                 } catch {
                   case _: Unsupported => None
@@ -90,7 +98,7 @@ trait SMTLIBSolver extends AbstractSolver with SMTLIBTarget with SMTLIBDebugger 
                   tfd.fullBody match {
                     case Choose(res, _) =>
                       val ctx = new Context(variables.bToA, Map(), modelFunDefs).withVariables(args.map(_.name) zip tfd.params.map(_.toVariable))
-                      val body = fromSMT(e, tfd.getType)(ctx)
+                      val body = fromSMT(e, tfd.getType)(using ctx)
                       chooses ++= ctx.getChooses.map(p => (p._1.res.id, tfd.tps) -> p._2)
                       Some((res.id, tfd.tps) -> body)
                     case _ => None

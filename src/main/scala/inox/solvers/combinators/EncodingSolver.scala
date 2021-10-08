@@ -4,19 +4,23 @@ package inox
 package solvers
 package combinators
 
-trait EncodingSolver extends Solver {
+class EncodingSolver private(override val program: Program, override val context: inox.Context)
+                            (protected val encoder: transformers.ProgramTransformer { val sourceProgram: program.type })
+                            (protected val underlying: Solver {
+                              val program: encoder.targetProgram.type
+                            })
+  extends Solver {
   import program.trees._
   import SolverResponses._
 
-  protected val encoder: transformers.ProgramTransformer { val sourceProgram: program.type }
-  protected lazy val t: encoder.targetProgram.trees.type = encoder.targetProgram.trees
+  def this(program: Program,
+           encoder: transformers.ProgramTransformer { val sourceProgram: program.type },
+           underlying: Solver { val program: encoder.targetProgram.type }) =
+    this(program, underlying.context)(encoder)(underlying)
 
-  protected val underlying: Solver {
-    val program: encoder.targetProgram.type
-  }
+  protected val t: encoder.targetProgram.trees.type = encoder.targetProgram.trees
 
-  lazy val name = "E:" + underlying.name
-  lazy val context = underlying.context
+  val name = "E:" + underlying.name
 
   def declare(vd: ValDef) = underlying.declare(encoder.encode(vd))
 

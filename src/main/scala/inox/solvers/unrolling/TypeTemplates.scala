@@ -21,10 +21,10 @@ import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
   *                          and the total ordering of closures.
   */
 trait TypeTemplates { self: Templates =>
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   import typesManager._
 
@@ -185,7 +185,7 @@ trait TypeTemplates { self: Templates =>
 
       val substMap = Map(v -> idT, pathVar -> pathVarT) ++ arguments
 
-      implicit val generator = if (free) FreeGenerator else ContractGenerator
+      given TypingGenerator = if (free) FreeGenerator else ContractGenerator
       val (p, tmplClauses) = mkTypeClauses(pathVar, tpe, v, substMap)
       val (contents, _) = Template.contents(
         pathVar -> pathVarT, Seq(result -> resultT, v -> idT) ++ arguments,
@@ -254,7 +254,7 @@ trait TypeTemplates { self: Templates =>
       val container = Variable.fresh("container", containerType, true)
       val containerT = encodeSymbol(container)
 
-      implicit val generator = CaptureGenerator(containerT, containerType)
+      given CaptureGenerator = CaptureGenerator(containerT, containerType)
       val (p, tmplClauses) = mkTypeClauses(pathVar, tpe, v, substMap)
       val (condVars, exprVars, _, _, _, types, equalities, lambdas, quants) = tmplClauses
       assert(equalities.isEmpty && lambdas.isEmpty && quants.isEmpty,

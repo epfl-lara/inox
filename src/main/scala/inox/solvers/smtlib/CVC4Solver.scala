@@ -14,7 +14,7 @@ object optCVC4Options extends SetOptionDef[String] {
 }
 
 trait CVC4Solver extends SMTLIBSolver with CVC4Target {
-  import context._
+  import context.{given, _}
   import program.trees._
   import SolverResponses._
 

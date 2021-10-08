@@ -17,7 +17,7 @@ import scala.language.implicitConversions
   * [[inox.utils]]: Utility methods
   */
 package object inox {
-  implicit class BooleanToOption(cond: Boolean) {
+  extension (cond: Boolean) {
     def option[A](v: => A) = if (cond) Some(v) else None
   }
 
@@ -54,12 +54,17 @@ package object inox {
     case class Symbols(
       functions: Map[Identifier, FunDef],
       sorts: Map[Identifier, ADTSort]
-    ) extends SimpleSymbols
+    ) extends SimpleSymbols {
+      override val symbols: this.type = this
+    }
+
+    override def mkSymbols(functions: Map[Identifier, FunDef], sorts: Map[Identifier, ADTSort]): Symbols =
+      Symbols(functions, sorts)
 
     object printer extends ast.Printer { val trees: inox.trees.type = inox.trees }
   }
 
-  implicit val inoxSemantics: SemanticsProvider { val trees: inox.trees.type } = new SemanticsProvider {
+  val inoxSemantics: SemanticsProvider { val trees: inox.trees.type } = new SemanticsProvider {
     val trees: inox.trees.type = inox.trees
 
     def getSemantics(p: Program { val trees: inox.trees.type }): p.Semantics = new inox.Semantics { self =>
@@ -80,4 +85,5 @@ package object inox {
       } = evaluators.RecursiveEvaluator(self.program, ctx)
     }.asInstanceOf[p.Semantics]
   }
+  given givenInoxSemantics: inoxSemantics.type = inoxSemantics
 }

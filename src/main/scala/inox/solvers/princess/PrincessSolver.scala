@@ -5,39 +5,79 @@ package solvers
 package princess
 
 import ap._
-import ap.parser._
+import ap.parser.{Context => _, _}
 
 import unrolling._
 
 import scala.collection.mutable.{Map => MutableMap}
 
-trait PrincessSolver extends AbstractUnrollingSolver { self =>
-  import context._
+class PrincessSolver(prog: Program,
+                     context: Context,
+                     enc: transformers.ProgramTransformer {val sourceProgram: prog.type},
+                     chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type})
+                    (using semantics: prog.Semantics,
+                     semanticsProvider: SemanticsProvider {val trees: enc.targetProgram.trees.type})
+  extends AbstractUnrollingSolver(prog, context, enc, chooses)
+    (fullEncoder => solvers.theories.Princess(fullEncoder)(semantics.getEvaluator(using context))) { self =>
+
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   override val name = "Princess"
 
-  protected lazy val theories: transformers.ProgramTransformer {
-    val sourceProgram: fullEncoder.targetProgram.type
-    val targetProgram: Program { val trees: fullEncoder.targetProgram.trees.type }
-  } = solvers.theories.Princess(fullEncoder)(semantics.getEvaluator)
-
-  protected object underlying extends {
-    val program: targetProgram.type = targetProgram
-    val context = self.context
-  } with AbstractPrincessSolver {
-    lazy val semantics = targetSemantics
-  }
+  protected val underlying: AbstractPrincessSolver { val program: targetProgram.type } =
+    new Underlying(targetProgram, context)
 
   type Encoded = IExpression
 
-  object templates extends {
-    val program: targetProgram.type = targetProgram
-    val context = self.context
-    val semantics: targetProgram.Semantics = self.targetSemantics
-  } with Templates {
+  val templates = new TemplatesImpl(targetProgram, context)
+
+  protected def declareVariable(v: t.Variable): IExpression = underlying.declareVariable(v)
+
+  protected def wrapModel(model: underlying.Model): ModelWrapper = ModelWrapperImpl(model)
+
+  private case class ModelWrapperImpl(model: underlying.Model) extends ModelWrapper {
+    private val chooses: MutableMap[Identifier, t.Expr] = MutableMap.empty
+    import IExpression._
+
+    def extractConstructor(v: IExpression, tpe: t.ADTType): Option[Identifier] = {
+      val optFun = underlying.princessToInox.simplify(v)(model) match {
+        case IFunApp(fun, _) if underlying.constructors containsB fun => Some(fun)
+        case it: ITerm => model.evalToTerm(it) match {
+          case Some(IFunApp(fun, _)) => Some(fun)
+          case _ => None
+        }
+        case _ => None
+      }
+
+      optFun.map(fun => underlying.constructors.toA(fun).asInstanceOf[underlying.ADTCons].id)
+    }
+
+    def extractSet(v: IExpression, tpe: t.SetType) = scala.sys.error("Should never happen")
+    def extractBag(v: IExpression, tpe: t.BagType) = scala.sys.error("Should never happen")
+    def extractMap(v: IExpression, tpe: t.MapType) = scala.sys.error("Should never happen")
+
+    def modelEval(elem: IExpression, tpe: t.Type): Option[t.Expr] = timers.solvers.princess.eval.run {
+      val (res, cs) = underlying.princessToInox(elem, tpe)(using model)
+      chooses ++= cs.map(p => p._1.res.id -> p._2)
+      res
+    }
+
+    def getChoose(id: Identifier): Option[t.Expr] = chooses.get(id)
+
+    override def toString = model.toString
+  }
+
+  private class Underlying(override val program: targetProgram.type,
+                           override val context: Context)
+                          (using override val semantics: targetSemantics.type)
+    extends AbstractPrincessSolver(program, context)
+
+  private class TemplatesImpl(override val program: targetProgram.type,
+                              override val context: Context)
+                             (using override val semantics: targetProgram.Semantics) extends Templates {
     import program.trees._
 
     type Encoded = self.Encoded
@@ -48,9 +88,8 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
 
     def encodeSymbol(v: Variable): IExpression = underlying.freshSymbol(v)
 
-    def mkEncoder(bindings: Map[Variable, IExpression])(e: Expr): IExpression = {
-      underlying.inoxToPrincess(e)(bindings)
-    }
+    def mkEncoder(bindings: Map[Variable, IExpression])(e: Expr): IExpression =
+      underlying.inoxToPrincess(e)(using bindings)
 
     def mkSubstituter(substMap: Map[IExpression, IExpression]): IExpression => IExpression = {
       val visitor = new CollectingVisitor[Unit, IExpression] {
@@ -84,42 +123,6 @@ trait PrincessSolver extends AbstractUnrollingSolver { self =>
     }
 
     def decodePartial(e: Encoded, tpe: Type): Option[Expr] = underlying.princessToInox.asGround(e, tpe)
-  }
-
-  protected def declareVariable(v: t.Variable): IExpression = underlying.declareVariable(v)
-
-  protected def wrapModel(model: underlying.Model): super.ModelWrapper = ModelWrapperImpl(model)
-
-  private case class ModelWrapperImpl(model: underlying.Model) extends super.ModelWrapper {
-    private val chooses: MutableMap[Identifier, t.Expr] = MutableMap.empty
-    import IExpression._
-
-    def extractConstructor(v: IExpression, tpe: t.ADTType): Option[Identifier] = {
-      val optFun = underlying.princessToInox.simplify(v)(model) match {
-        case IFunApp(fun, _) if underlying.constructors containsB fun => Some(fun)
-        case it: ITerm => model.evalToTerm(it) match {
-          case Some(IFunApp(fun, _)) => Some(fun)
-          case _ => None
-        }
-        case _ => None
-      }
-
-      optFun.map(fun => underlying.constructors.toA(fun).asInstanceOf[underlying.ADTCons].id)
-    }
-
-    def extractSet(v: IExpression, tpe: t.SetType) = scala.sys.error("Should never happen")
-    def extractBag(v: IExpression, tpe: t.BagType) = scala.sys.error("Should never happen")
-    def extractMap(v: IExpression, tpe: t.MapType) = scala.sys.error("Should never happen")
-
-    def modelEval(elem: IExpression, tpe: t.Type): Option[t.Expr] = timers.solvers.princess.eval.run {
-      val (res, cs) = underlying.princessToInox(elem, tpe)(model)
-      chooses ++= cs.map(p => p._1.res.id -> p._2)
-      res
-    }
-
-    def getChoose(id: Identifier): Option[t.Expr] = chooses.get(id)
-
-    override def toString = model.toString
   }
 
   override def push(): Unit = {

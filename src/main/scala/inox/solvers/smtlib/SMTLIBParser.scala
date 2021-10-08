@@ -17,13 +17,13 @@ import _root_.smtlib.extensions.tip.Commands._
 import scala.collection.immutable.BitSet
 
 class MissformedSMTException(term: _root_.smtlib.trees.Tree, reason: String)
-  extends Exception("Missfomed SMT source in " + term + ":\n" + reason)
+  extends Exception("Missformed SMT source in " + term + ":\n" + reason)
 
 trait SMTLIBParser {
   val trees: ast.Trees
   val symbols: trees.Symbols
-  import trees._
-  import symbols._
+  import trees.{given, _}
+  import symbols.{given, _}
 
   protected trait AbstractContext { self: Context =>
     val vars: Map[SSymbol, Expr]
@@ -33,14 +33,14 @@ trait SMTLIBParser {
 
   protected type Context <: AbstractContext
 
-  protected def fromSMT(sv: SortedVar)(implicit context: Context): ValDef = ValDef.fresh(sv.name.name, fromSMT(sv.sort))
+  protected def fromSMT(sv: SortedVar)(using Context): ValDef = ValDef.fresh(sv.name.name, fromSMT(sv.sort))
 
-  final protected def fromSMT(term: Term, tpe: Type)(implicit context: Context): Expr = fromSMT(term, Some(tpe))
-  final protected def fromSMT(pair: (Term, Type))(implicit context: Context): Expr = fromSMT(pair._1, Some(pair._2))
+  final protected def fromSMT(term: Term, tpe: Type)(using Context): Expr = fromSMT(term, Some(tpe))
+  final protected def fromSMT(pair: (Term, Type))(using Context): Expr = fromSMT(pair._1, Some(pair._2))
 
   final protected def fromSMTUnifyType(t1: Term, t2: Term, otpe: Option[Type])
                                       (recons: (Expr, Expr) => Expr)
-                                      (implicit context: Context): Expr = {
+                                      (using Context): Expr = {
     val (e1, e2) = (fromSMT(t1, otpe), fromSMT(t2, otpe))
     if (otpe.isDefined || !(e1.isTyped ^ e2.isTyped)) {
       recons(e1, e2)
@@ -53,24 +53,24 @@ trait SMTLIBParser {
     }
   }
 
-  protected def fromSMT(term: Term, otpe: Option[Type] = None)(implicit context: Context): Expr = term match {
+  protected def fromSMT(term: Term, otpe: Option[Type] = None)(using context: Context): Expr = term match {
     case QualifiedIdentifier(SimpleIdentifier(sym), None) if context.vars contains sym => context.vars(sym)
 
     case SMTLet(binding, bindings, term) =>
       val newContext = (binding +: bindings).foldLeft(context) {
-        case (context, VarBinding(name, term)) => context.withVariable(name, fromSMT(term)(context))
+        case (context, VarBinding(name, term)) => context.withVariable(name, fromSMT(term)(using context))
       }
-      fromSMT(term, otpe)(newContext)
+      fromSMT(term, otpe)(using newContext)
 
     case SMTForall(sv, svs, term) =>
       val vds = (sv +: svs).map(fromSMT)
       val bindings = ((sv +: svs) zip vds).map(p => p._1.name -> p._2.toVariable)
-      Forall(vds, fromSMT(term, BooleanType())(context.withVariables(bindings)))
+      Forall(vds, fromSMT(term, BooleanType())(using context.withVariables(bindings)))
 
     case Exists(sv, svs, term) =>
       val vds = (sv +: svs).map(fromSMT)
       val bindings = ((sv +: svs) zip vds).map(p => p._1.name -> p._2.toVariable)
-      val body = fromSMT(term, BooleanType())(context.withVariables(bindings))
+      val body = fromSMT(term, BooleanType())(using context.withVariables(bindings))
       Not(Forall(vds, Not(body).setPos(body)))
 
     case Core.ITE(cond, thenn, elze) =>
@@ -122,7 +122,7 @@ trait SMTLIBParser {
         Not(Equals(e1, e2).setPos(e1)).setPos(e1)
       })
 
-    case Core.Equals(e1, e2) => fromSMTUnifyType(e1, e2, None)(Equals)
+    case Core.Equals(e1, e2) => fromSMTUnifyType(e1, e2, None)(Equals.apply)
 
     case Core.And(es @ _*) => And(es.map(fromSMT(_, BooleanType())))
     case Core.Or(es @ _*) => Or(es.map(fromSMT(_, BooleanType())))
@@ -149,40 +149,40 @@ trait SMTLIBParser {
         ie
       )
 
-    case Ints.LessThan(e1, e2) => fromSMTUnifyType(e1, e2, None)(LessThan)
-    case Ints.LessEquals(e1, e2) => fromSMTUnifyType(e1, e2, None)(LessEquals)
-    case Ints.GreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, None)(GreaterThan)
-    case Ints.GreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, None)(GreaterEquals)
+    case Ints.LessThan(e1, e2) => fromSMTUnifyType(e1, e2, None)(LessThan.apply)
+    case Ints.LessEquals(e1, e2) => fromSMTUnifyType(e1, e2, None)(LessEquals.apply)
+    case Ints.GreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, None)(GreaterThan.apply)
+    case Ints.GreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, None)(GreaterEquals.apply)
 
     case Reals.Div(SNumeral(n1), SNumeral(n2)) => FractionLiteral(n1, n2)
     case Reals.Div(e1, e2) => Division(fromSMT(e1, RealType()), fromSMT(e2, RealType()))
 
     case FixedSizeBitVectors.Not(e) => BVNot(fromSMT(e, otpe))
     case FixedSizeBitVectors.Neg(e) => UMinus(fromSMT(e, otpe))
-    case FixedSizeBitVectors.And(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVAnd)
-    case FixedSizeBitVectors.Or(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVOr)
-    case FixedSizeBitVectors.XOr(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVXor)
-    case FixedSizeBitVectors.Add(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Plus)
-    case FixedSizeBitVectors.Sub(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Minus)
-    case FixedSizeBitVectors.Mul(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Times)
-    case FixedSizeBitVectors.SDiv(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Division)
-    case FixedSizeBitVectors.UDiv(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Division)
-    case FixedSizeBitVectors.SRem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Remainder)
-    case FixedSizeBitVectors.URem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Remainder)
+    case FixedSizeBitVectors.And(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVAnd.apply)
+    case FixedSizeBitVectors.Or(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVOr.apply)
+    case FixedSizeBitVectors.XOr(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVXor.apply)
+    case FixedSizeBitVectors.Add(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Plus.apply)
+    case FixedSizeBitVectors.Sub(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Minus.apply)
+    case FixedSizeBitVectors.Mul(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Times.apply)
+    case FixedSizeBitVectors.SDiv(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Division.apply)
+    case FixedSizeBitVectors.UDiv(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Division.apply)
+    case FixedSizeBitVectors.SRem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Remainder.apply)
+    case FixedSizeBitVectors.URem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Remainder.apply)
 
-    case FixedSizeBitVectors.SLessThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessThan)
-    case FixedSizeBitVectors.SLessEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessEquals)
-    case FixedSizeBitVectors.SGreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterThan)
-    case FixedSizeBitVectors.SGreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterEquals)
+    case FixedSizeBitVectors.SLessThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessThan.apply)
+    case FixedSizeBitVectors.SLessEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessEquals.apply)
+    case FixedSizeBitVectors.SGreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterThan.apply)
+    case FixedSizeBitVectors.SGreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterEquals.apply)
 
-    case FixedSizeBitVectors.ULessThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessThan)
-    case FixedSizeBitVectors.ULessEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessEquals)
-    case FixedSizeBitVectors.UGreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterThan)
-    case FixedSizeBitVectors.UGreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterEquals)
+    case FixedSizeBitVectors.ULessThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessThan.apply)
+    case FixedSizeBitVectors.ULessEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessEquals.apply)
+    case FixedSizeBitVectors.UGreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterThan.apply)
+    case FixedSizeBitVectors.UGreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterEquals.apply)
 
-    case FixedSizeBitVectors.ShiftLeft(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVShiftLeft)
-    case FixedSizeBitVectors.AShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVAShiftRight)
-    case FixedSizeBitVectors.LShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVLShiftRight)
+    case FixedSizeBitVectors.ShiftLeft(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVShiftLeft.apply)
+    case FixedSizeBitVectors.AShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVAShiftRight.apply)
+    case FixedSizeBitVectors.LShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVLShiftRight.apply)
 
     case FixedSizeBitVectors.SignExtend(extend, e) =>
       val ast = fromSMT(e)
@@ -229,7 +229,7 @@ trait SMTLIBParser {
     )
   }
 
-  protected def fromSMT(sort: Sort)(implicit context: Context): Type = sort match {
+  protected def fromSMT(sort: Sort)(using Context): Type = sort match {
     case Sort(SMTIdentifier(SSymbol("bitvector" | "BitVec"), Seq(SNumeral(n))), Seq()) => BVType(true, n.toInt)
     case Sort(SimpleIdentifier(SSymbol("Bool")), Seq()) => BooleanType()
     case Sort(SimpleIdentifier(SSymbol("Int")), Seq()) => IntegerType()

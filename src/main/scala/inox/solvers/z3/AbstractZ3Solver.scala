@@ -16,7 +16,7 @@ trait AbstractZ3Solver
 
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   import SolverResponses._
 
@@ -56,7 +56,7 @@ trait AbstractZ3Solver
       case None => Unknown
     }).getOrElse(Unknown))
 
-  def check(config: CheckConfiguration) = extractResult(config)(solver.check())
+  def check(config: CheckConfiguration): config.Response[Z3Model, Set[Z3AST]] = extractResult(config)(solver.check())
   def checkAssumptions(config: Configuration)(assumptions: Set[Z3AST]) =
     extractResult(config)(solver.checkAssumptions(assumptions.toSeq : _*))
 }

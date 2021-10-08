@@ -14,7 +14,7 @@ package princess
 //
 
 import ap._
-import ap.parser._
+import ap.parser.{Context => _, _}
 import ap.basetypes._
 import ap.theories.{ADT => PADT, _}
 import ap.theories.{ModuloArithmetic => Mod}
@@ -25,19 +25,20 @@ import SolverResponses._
 
 import scala.collection.mutable.{Map => MutableMap}
 
-trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
+abstract class AbstractPrincessSolver(override val program: Program,
+                                      override val context: Context)
+                                     (using protected val semantics: program.Semantics)
+  extends AbstractSolver with ADTManagers {
   import scala.language.postfixOps
   import IExpression._
 
   case class PrincessSolverException(msg: String)
       extends Exception("handle PrincessSolver: " + msg)
 
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
-
-  protected implicit val semantics: program.Semantics
+  import program.symbols.{given, _}
 
   val name = "Princess"
 
@@ -124,7 +125,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
 
   object inoxToPrincess {
 
-    def parseFormula(expr: Expr)(implicit bindings: Map[Variable, IExpression]): IFormula = expr match {
+    def parseFormula(expr: Expr)(using bindings: Map[Variable, IExpression]): IFormula = expr match {
       case BooleanLiteral(value) =>
         value
 
@@ -132,7 +133,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         bindings.getOrElse(v, declareVariable(v)).asInstanceOf[IFormula]
 
       case Let(vd, e, b) =>
-        parseFormula(b)(bindings + (vd.toVariable -> (vd.getType match {
+        parseFormula(b)(using bindings + (vd.toVariable -> (vd.getType match {
           case BooleanType() => parseFormula(e)
           case _ => parseTerm(e)
         })))
@@ -211,7 +212,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       case _ => unsupported(expr, "Unexpected formula " + expr)
     }
 
-    def parseTerm(expr: Expr)(implicit bindings: Map[Variable, IExpression]): ITerm = expr match {
+    def parseTerm(expr: Expr)(using bindings: Map[Variable, IExpression]): ITerm = expr match {
       case FunctionInvocation(id, tps, args) =>
         val f = functions.cachedB(getFunction(id, tps.map(_.getType))) {
           p.createFunction(id.uniqueName, args.size)
@@ -266,7 +267,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
         bindings.getOrElse(v, declareVariable(v)).asInstanceOf[ITerm]
 
       case Let(vd, e, b) =>
-        parseTerm(b)(bindings + (vd.toVariable -> (vd.getType match {
+        parseTerm(b)(using bindings + (vd.toVariable -> (vd.getType match {
           case BooleanType() => parseFormula(e)
           case _ => parseTerm(e)
         })))
@@ -375,7 +376,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
     }
 
     // Tries to convert Inox Expression to Princess IFormula
-    def apply(expr: Expr)(implicit bindings: Map[Variable, IExpression]): IExpression =
+    def apply(expr: Expr)(using bindings: Map[Variable, IExpression]): IExpression =
       expr.getType match {
         case BooleanType() => parseFormula(expr)
         case _ => parseTerm(expr)
@@ -417,12 +418,12 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       case _ => None
     }
 
-    def parseExpr(iexpr: IExpression, tpe: Type)(implicit ctx: Context): Option[Expr] = {
+    def parseExpr(iexpr: IExpression, tpe: Type)(using ctx: Context): Option[Expr] = {
 
-      def rec(iexpr: IExpression, tpe: Type)(implicit ctx: Context): Option[Expr] = tpe match {
+      def rec(iexpr: IExpression, tpe: Type)(using ctx: Context): Option[Expr] = tpe match {
         case BooleanType() => iexpr match {
           case iterm: ITerm => ctx.model.eval(iterm).map(i => BooleanLiteral(i.intValue == 0))
-          case iformula: IFormula => ctx.model.eval(iformula).map(BooleanLiteral)
+          case iformula: IFormula => ctx.model.eval(iformula).map(BooleanLiteral.apply)
         }
 
         case IntegerType() =>
@@ -446,7 +447,7 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
               case TypeParameterCons(tp) => (Seq(IntegerType()), (es: Seq[Expr]) => {
                 GenericValue(tp, es.head.asInstanceOf[IntegerLiteral].value.toInt)
               })
-              case UnitCons => (Seq(), _ => UnitLiteral())
+              case UnitCons => (Seq(), (_: Seq[Expr]) => UnitLiteral())
             }
 
             val optArgs = (args zip fieldsTypes).map { case (arg, tpe) => rec(arg, tpe) }
@@ -501,8 +502,8 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
                     val interps = ctx.model.interpretation.flatMap {
                       case (IFunApp(`fun`, ptr +: args), res: IIntLit) =>
                         if (ctx.model.eval(ptr === IIntLit(ideal) | iterm === ptr) contains true) {
-                          val optArgs = (args zip ft.from).map(p => rec(p._1, p._2)(newCtx))
-                          val optRes = rec(res, ft.to)(newCtx)
+                          val optArgs = (args zip ft.from).map(p => rec(p._1, p._2)(using newCtx))
+                          val optRes = rec(res, ft.to)(using newCtx)
 
                           if (optArgs.forall(_.isDefined) && optRes.isDefined) {
                             Some(optArgs.map(_.get) -> optRes.get)
@@ -581,9 +582,9 @@ trait AbstractPrincessSolver extends AbstractSolver with ADTManagers {
       }
     }
 
-    def apply(iexpr: IExpression, tpe: Type)(implicit model: Model) = {
+    def apply(iexpr: IExpression, tpe: Type)(using model: Model) = {
       val ctx = new Context(model)
-      val res = parseExpr(iexpr, tpe)(ctx)
+      val res = parseExpr(iexpr, tpe)(using ctx)
       (res, ctx.chooses.map { case (n, c) => c -> ctx.lambdas(n) })
     }
   }

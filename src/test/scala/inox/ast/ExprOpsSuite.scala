@@ -6,10 +6,10 @@ package ast
 import org.scalatest.funsuite.AnyFunSuite
 
 class ExprOpsSuite extends AnyFunSuite {
-  import inox.trees._
-  import inox.trees.exprOps._
+  import inox.trees.{given, _}
+  import inox.trees.exprOps.{given, _}
 
-  implicit val ctx0 = TestContext.empty
+  given ctx0: Context = TestContext.empty
 
   private def foldConcatNames(e: Expr, subNames: Seq[String]): String = e match {
     case Variable(id, _, _) => subNames.mkString + id.name
@@ -271,9 +271,9 @@ class ExprOpsSuite extends AnyFunSuite {
       val ctx = ctx0
     }
 
-    import program._
-    import program.trees._
-    import program.symbols._
+    import program.{given, _}
+    import program.trees.{given, _}
+    import program.symbols.{given, _}
 
     val types = Seq(BooleanType(),
                     Int32Type(),

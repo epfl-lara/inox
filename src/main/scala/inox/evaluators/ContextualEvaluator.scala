@@ -6,9 +6,10 @@ package evaluators
 object optMaxCalls extends IntOptionDef("max-calls", 50000, "<PosInt> | -1 (unbounded)")
 
 trait ContextualEvaluator extends Evaluator {
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
+  import program.symbols.{given, _}
 
   lazy val maxSteps: Int = options.findOptionOrDefault(optMaxCalls)
 
@@ -56,7 +57,7 @@ trait ContextualEvaluator extends Evaluator {
 
   def eval(ex: Expr, model: program.Model) = timers.evaluators.recursive.runtime.run {
     try {
-      EvaluationResults.Successful(e(ex)(initRC(model), initGC))
+      EvaluationResults.Successful(e(ex)(using initRC(model), initGC))
     } catch {
       case EvalError(msg) =>
         EvaluationResults.EvaluatorError(msg)
@@ -69,13 +70,13 @@ trait ContextualEvaluator extends Evaluator {
     }
   }
 
-  protected def e(expr: Expr)(implicit rctx: RC, gctx: GC): Value
+  protected def e(expr: Expr)(using rctx: RC, gctx: GC): Value
 
   def typeErrorMsg(tree: Expr, expected: Type): String = 
     s"""|Type error : expected ${expected.asString}, found ${tree.asString} of type ${tree.getType}.
         |
         |Type explanation:
-        |${symbols.explainTyping(tree)(new PrinterOptions())}
+        |${symbols.explainTyping(tree)(using new PrinterOptions())}
         """.stripMargin
 }
 

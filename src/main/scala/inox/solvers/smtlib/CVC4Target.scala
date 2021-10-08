@@ -11,14 +11,14 @@ import _root_.smtlib.theories._
 import _root_.smtlib.theories.experimental._
 
 trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   def targetName = "cvc4"
 
-  protected lazy val interpreter = {
+  protected val interpreter = {
     val opts = interpreterOpts
     reporter.debug("Invoking solver with "+opts.mkString(" "))
     new CVC4Interpreter("cvc4", opts.toArray)
@@ -29,7 +29,7 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
     case _ => super.computeSort(t)
   }
 
-  override protected def fromSMT(t: Term, otpe: Option[Type] = None)(implicit context: Context): Expr = {
+  override protected def fromSMT(t: Term, otpe: Option[Type] = None)(using Context): Expr = {
     (t, otpe) match {
       // EK: This hack is necessary for sygus which does not strictly follow smt-lib for negative literals
       case (SimpleSymbol(SSymbol(v)), Some(IntegerType())) if v.startsWith("-") =>
@@ -55,7 +55,7 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
       case (FixedSizeBitVectors.BitVectorConstant(n, size), Some(BooleanType())) if size == 1 =>
         BooleanLiteral(n == 1)
       case (Core.Equals(e1, e2), _) =>
-        fromSMTUnifyType(e1, e2, None)(Equals) match {
+        fromSMTUnifyType(e1, e2, None)(Equals.apply) match {
           case Equals(IsTyped(lhs, BooleanType()), IsTyped(_, BVType(true, 1))) =>
             Equals(lhs, fromSMT(e2, BooleanType()))
           case Equals(IsTyped(_, BVType(true, 1)), IsTyped(rhs, BooleanType())) =>
@@ -119,7 +119,7 @@ trait CVC4Target extends SMTLIBTarget with SMTLIBDebugger {
     }
   }
 
-  override protected def toSMT(e: Expr)(implicit bindings: Map[Identifier, Term]) = e match {
+  override protected def toSMT(e: Expr)(using bindings: Map[Identifier, Term]) = e match {
     /**
      * ===== Set operations =====
      */

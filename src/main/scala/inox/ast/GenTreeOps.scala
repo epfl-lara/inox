@@ -197,7 +197,7 @@ trait GenTreeOps { self =>
 
     if (applyRec) {
       // Apply f as long as it returns Some()
-      fixpoint { e : Target => f(e) getOrElse e } (newV)
+      fixpoint { (e : Target) => f(e) getOrElse e } (newV)
     } else {
       f(newV) getOrElse newV
     }
@@ -283,7 +283,7 @@ trait GenTreeOps { self =>
       val (newV, newCtx) = {
         if(applyRec) {
           var ctx = context
-          val finalV = fixpoint{ e: Source => {
+          val finalV = fixpoint{ (e: Source) => {
             val res = f(e, ctx)
             ctx = res._2
             res._1.getOrElse(e)
@@ -389,11 +389,11 @@ trait GenTreeOps { self =>
 
   object Same {
     def unapply(tt: (Source, Target))
-               (implicit ev1: Source =:= Target, ev2: Target =:= Source): Option[(Source, Target)] = {
+               (using ev1: Source =:= Target, ev2: Target =:= Source): Option[(Source, Target)] = {
       val Deconstructor(es1, recons1) = tt._1
       val Deconstructor(es2, recons2) = ev2(tt._2)
 
-      if (es1.size == es2.size && scala.util.Try(recons2(es1.map(ev1))).toOption == Some(ev2(tt._1))) {
+      if (es1.size == es2.size && scala.util.Try(recons2(es1.map(ev1))).toOption == Some(ev1(tt._1))) {
         Some(tt)
       } else {
         None

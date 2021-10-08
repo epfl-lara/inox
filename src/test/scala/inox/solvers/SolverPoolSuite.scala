@@ -11,19 +11,18 @@ class SolverPoolSuite extends AnyFunSuite {
   import inox.trees._
   import SolverResponses._
 
-  implicit val ctx = TestContext.empty
+  given ctx: Context = TestContext.empty
   val p = InoxProgram(NoSymbols)
-  val sfactory: SolverFactory { val program: InoxProgram } = {
-    SolverFactory.create(p)("dummy", () => new DummySolver {
-      val program: p.type = p
-      val context = ctx
-    })
-  }
+  val sfactory: SolverFactory { val program: InoxProgram } =
+    SolverFactory.create(p)("dummy", () => new DummySolver(p).asInstanceOf)
 
-  private trait DummySolver extends Solver {
+  private class DummySolver(override val program: InoxProgram,
+                            override val context: Context) extends Solver {
+
+    def this(program: InoxProgram) = this(program, ctx)
+
     val name = "Dummy"
     val description = "dummy"
-    val program: InoxProgram
 
     def declare(vd: ValDef) = ()
     def assertCnstr(e: Expr) = ()

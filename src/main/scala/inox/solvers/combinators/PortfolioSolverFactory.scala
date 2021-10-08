@@ -4,18 +4,25 @@ package inox
 package solvers
 package combinators
 
-trait PortfolioSolverFactory extends SolverFactory { self =>
+class PortfolioSolverFactory private(override val program: Program, override val name: String)
+                                    // Alias for `program`, as we cannot use `program` within `sfs`
+                                    (val prog: program.type)
+                                    (val sfs: Seq[SolverFactory { val program: prog.type }])
+  extends SolverFactory { self =>
+
+  def this(prog: Program, sfs: Seq[SolverFactory { val program: prog.type }]) =
+    this(prog, sfs.map(_.name).mkString("Pfolio(", ",", ")"))(prog)(sfs)
 
   type S = PortfolioSolver with TimeoutSolver { val program: self.program.type }
-  type SF <: SolverFactory { val program: self.program.type }
 
-  val sfs: Seq[SF]
-
-  def getNewSolver(): S = new {
-    val program: self.program.type = self.program
+  def getNewSolver(): S = {
+    class Impl(override val program: self.program.type,
+               override val context: inox.Context,
+               override val solvers: Seq[Solver { val program: self.program.type }])
+      extends PortfolioSolver with TimeoutSolver
     val solvers = sfs map (_.getNewSolver())
-    val context = solvers.head.context
-  } with PortfolioSolver with TimeoutSolver
+    new Impl(program, solvers.head.context, solvers)
+  }
 
   // Assumes s is a P/Solver with the correct subsolver types
   override def reclaim(s: S) = s perform {
@@ -23,17 +30,13 @@ trait PortfolioSolverFactory extends SolverFactory { self =>
       sf.reclaim(s.asInstanceOf[sf.S])
     }
   }
-
-  val name = sfs.map(_.name).mkString("Pfolio(", ",", ")")
 }
 
 object PortfolioSolverFactory {
   def apply(p: Program)
            (factories: Seq[SolverFactory { val program: p.type; type S <: TimeoutSolver }]):
-            PortfolioSolverFactory { val program: p.type; type S <: TimeoutSolver } = new {
-    val program: p.type = p
-    val sfs = factories
-  } with PortfolioSolverFactory {
-    type SF = SolverFactory { val program: p.type; type S <: TimeoutSolver }
+            PortfolioSolverFactory { val program: p.type; type S <: TimeoutSolver } = {
+    class Impl(override val program: p.type) extends PortfolioSolverFactory(program, factories)
+    new Impl(p)
   }
 }

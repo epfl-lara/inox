@@ -4,19 +4,28 @@ package inox
 package solvers
 package combinators
 
-trait TimeoutSolverFactory extends SolverFactory {
-  type S <: TimeoutSolver { val program: TimeoutSolverFactory.this.program.type }
+class TimeoutSolverFactory private
+  (override val program: Program, override val name: String, val to: Long)
+  // Alias for `program`, as we cannot use `program` within `typeTagS` and `factory`
+  (val prog: program.type)
+  (val typeTagS: { type S <: TimeoutSolver { val program: prog.type } })
+  (val factory: SolverFactory {
+    val program: prog.type
+    type S = typeTagS.S
+  })
+  extends SolverFactory {
 
-  val factory: SolverFactory {
-    val program: TimeoutSolverFactory.this.program.type
-    type S = TimeoutSolverFactory.this.S
-  }
+  type S = typeTagS.S
 
-  val to: Long
+  def this(prog: Program, to: Long,
+           typeTagS: { type S <: TimeoutSolver { val program: prog.type } },
+           factory: SolverFactory {
+             val program: prog.type
+             type S = typeTagS.S
+           }) =
+    this(prog, factory.name + " with t.o", to)(prog)(typeTagS)(factory)
 
   override def getNewSolver() = factory.getNewSolver().setTimeout(to)
-
-  override lazy val name = factory.name+" with t.o"
 
   override def reclaim(s: S) = factory.reclaim(s)
 

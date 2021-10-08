@@ -20,10 +20,10 @@ import _root_.smtlib.theories.experimental._
 import utils._
 
 trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   def targetName = "z3"
 
@@ -57,9 +57,8 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   protected val interpreter = {
     val opts = interpreterOpts
     reporter.debug("Invoking solver "+targetName+" with "+opts.mkString(" "))
-    new Z3Interpreter(targetName, opts.toArray) {
-      override lazy val parser: Z3Parser = new Z3Parser(new Lexer(out))
-    }
+    class InterpreterImpl extends Z3Interpreter(targetName, opts.toArray, parserCtor = out => new Z3Parser(new Lexer(out)))
+    new InterpreterImpl
   }
 
   // Z3 version 4.5.1 has disabled producing unsat assumptions by default,
@@ -69,7 +68,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   protected class Version(val major: Int, val minor: Int, rest: String) extends Ordered[Version] {
     override def compare(that: Version): Int = {
       import scala.math.Ordering.Implicits._
-      implicitly[Ordering[(Int, Int)]].compare((major, minor), (that.major, that.minor))
+      summon[Ordering[(Int, Int)]].compare((major, minor), (that.major, that.minor))
     }
 
     override def toString: String = s"$major.$minor.$rest"
@@ -130,7 +129,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     case _ => unsupported(e, "Expecting set expression in this position")
   }
 
-  override protected def fromSMT(t: Term, otpe: Option[Type] = None)(implicit context: Context): Expr = {
+  override protected def fromSMT(t: Term, otpe: Option[Type] = None)(using context: Context): Expr = {
     (t, otpe) match {
       case (FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("is"), Seq(SSymbol(name))), None),
@@ -188,7 +187,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
       case (SMTLambda(Seq(SortedVar(s, sort)), term), Some(tpe @ MapType(keyType, valueType))) =>
         val arg = ValDef.fresh(s.name, fromSMT(sort))
-        val body = fromSMT(term, Some(valueType))(context.withVariables(Seq(s -> arg.toVariable)))
+        val body = fromSMT(term, Some(valueType))(using context.withVariables(Seq(s -> arg.toVariable)))
 
         def extractCases(e: Expr): FiniteMap = e match {
           case Equals(argV, k) if valueType == BooleanType() && argV == arg.toVariable =>
@@ -246,7 +245,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
       case (FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
-          List(SList(List(SSymbol("or"), SList(List(SSymbol("Bool"), SSymbol("Bool"))), SSymbol("Bool"))))), None),
+          List(SList(List(SSymbol("and"), SList(List(SSymbol("Bool"), SSymbol("Bool"))), SSymbol("Bool"))))), None),
         Seq(s1, s2)
       ), _) =>
         fromSMTUnifyType(s1, s2, otpe)((e1, e2) => SetIntersection(extractSet(e1), extractSet(e2)))
@@ -291,7 +290,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     }
   }
 
-  override protected def toSMT(e: Expr)(implicit bindings: Map[Identifier, Term]): Term = e match {
+  override protected def toSMT(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
 
     case IsConstructor(e, id) if version >= Version(4, 6) =>
       val tpe @ ADTType(_, tps) = e.getType

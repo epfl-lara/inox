@@ -34,13 +34,15 @@ object SCC {
 
       if (lowLinks(v) == indices(v)) {
         var c : Set[T] = Set.empty
-        var stop = false
-        do {
+        // do-while, Scala 3 style
+        // See https://docs.scala-lang.org/scala3/reference/dropped-features/do-while.html
+        while ({
           val x :: xs = s
           c = c + x
           s = xs
-          stop = x == v
-        } while (!stop)
+          // The line below is the do-while condition
+          x != v
+        }) () // This trailing () is important! If we remove it, it messes with the next statement
 
         components = c :: components
       }

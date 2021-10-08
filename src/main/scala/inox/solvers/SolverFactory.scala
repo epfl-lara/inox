@@ -51,13 +51,11 @@ object SolverFactory {
 
   def create[S1 <: Solver](p: Program)(nme: String, builder: () => S1 { val program: p.type }):
            SolverFactory { val program: p.type; type S = S1 { val program: p.type } } = {
-    new SolverFactory {
-      val program: p.type = p
+    class Impl(override val program: p.type, override val name: String) extends SolverFactory {
       type S = S1 { val program: p.type }
-
-      val name = nme
       def getNewSolver() = builder()
     }
+    new Impl(p, nme)
   }
 
   import evaluators._
@@ -98,8 +96,7 @@ object SolverFactory {
                  (enc: ProgramTransformer {
                     val sourceProgram: p.type
                     val targetProgram: Program { val trees: inox.trees.type }
-                  })(implicit sem: p.Semantics): SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } } = {
-
+                  })(using sem: p.Semantics): SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } } = {
     val nonIncremental = name.startsWith("no-inc:")
     val noPrefixName = if (nonIncremental) removeNoInc(name) else name
 
@@ -158,17 +155,14 @@ object SolverFactory {
         } = {
 
       if (nonIncremental) {
-        new {
-          val program: targetProgram.type = targetProgram
-          val context = ctx
-        } with NonIncrementalSolver {
-          type Trees = T
-          type Model = M
-          val semantics: targetProgram.Semantics = targetSem
-          def name = s"no-inc:$nme"
-
-          def underlying() = underlyingSolver()
+        class NonIncrementalImpl(override val program: targetProgram.type, override val context: inox.Context)
+          extends NonIncrementalSolver {
+          override type Trees = T
+          override type Model = M
+          override def name = s"no-inc:$nme"
+          override def underlying() = underlyingSolver()
         }
+        new NonIncrementalImpl(targetProgram, ctx)
       } else {
         underlyingSolver()
       }
@@ -178,192 +172,144 @@ object SolverFactory {
     finalName match {
       case "nativez3" => create(p)(finalName, {
         val chooseEnc = ChooseEncoder(p)(enc)
-        val fullEnc = enc andThen chooseEnc
-        val theoryEnc = theories.Z3(fullEnc.targetProgram)
-        val progEnc = fullEnc andThen theoryEnc
-        val targetProg = progEnc.targetProgram
+        class NativeZ3Impl(override val program: p.type)
+                          (override val enc: transformers.ProgramTransformer {
+                            val sourceProgram: program.type
+                            val targetProgram: Program { val trees: inox.trees.type }
+                          })
+                          (override val chooses: ChooseEncoder {
+                            val program: p.type
+                            val sourceEncoder: enc.type
+                          })
+          extends z3.NativeZ3Solver(program, ctx, enc, chooses)
+            with TimeoutSolver
+            with tip.TipDebugger {
 
-        () => new {
-          val program: p.type = p
-          val context = ctx
-          val encoder: enc.type = enc
-        } with z3.NativeZ3Solver with TimeoutSolver with tip.TipDebugger {
-          override protected val semantics = sem
-          override protected val chooses: chooseEnc.type = chooseEnc
-          override protected lazy val theories: theoryEnc.type = theoryEnc
-          override protected lazy val fullEncoder = fullEnc
-          override protected lazy val programEncoder = progEnc
-          override protected lazy val targetProgram: targetProg.type = targetProg
-          override protected lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
+          // encoder is from TipDebugger and enc from AbstractUnrollingSolver
+          override protected val encoder = enc
         }
+        () => new NativeZ3Impl(p)(enc)(chooseEnc)
       })
 
       case "nativez3-opt" => create(p)(finalName, {
         val chooseEnc = ChooseEncoder(p)(enc)
-        val fullEnc = enc andThen chooseEnc
-        val theoryEnc = theories.Z3(fullEnc.targetProgram)
-        val progEnc = fullEnc andThen theoryEnc
-        val targetProg = progEnc.targetProgram
+        // Override of `program` is needed as we need to have `program: p.type`
+        class NativeZ3OptImpl(override val program: p.type)
+          extends z3.Z3Unrolling(program, ctx, enc, chooseEnc) with z3.NativeZ3Optimizer with TimeoutSolver
 
-        () => new {
-          val program: p.type = p
-          val context = ctx
-          val encoder: enc.type = enc
-        } with z3.NativeZ3Optimizer with TimeoutSolver {
-          override protected val semantics = sem
-          override protected val chooses: chooseEnc.type = chooseEnc
-          override protected lazy val theories: theoryEnc.type = theoryEnc
-          override protected lazy val fullEncoder = fullEnc
-          override protected lazy val programEncoder = progEnc
-          override protected lazy val targetProgram: targetProg.type = targetProg
-          override protected lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
-        }
+        () => new NativeZ3OptImpl(p)
       })
 
       case "unrollz3" => create(p)(finalName, {
-        val chooseEnc = ChooseEncoder(p)(enc)
-        val fullEnc = enc andThen chooseEnc
-        val theoryEnc = theories.Z3(fullEnc.targetProgram)
-        val progEnc = fullEnc andThen theoryEnc
-        val targetProg = progEnc.targetProgram
-        val targetSem = targetProg.getSemantics
+        class UnrollZ3Impl(override val program: p.type)
+                          (override val enc: transformers.ProgramTransformer {
+                            val sourceProgram: program.type
+                            val targetProgram: Program { val trees: inox.trees.type }
+                          })
+                          (override val chooses: ChooseEncoder {
+                            val program: p.type
+                            val sourceEncoder: enc.type
+                          })
+          extends AbstractUnrollingSolver(program, ctx, enc, chooses)(fullEncoder => theories.Z3(fullEncoder.targetProgram))
+            with UnrollingSolver
+            with TimeoutSolver
+            with tip.TipDebugger { self =>
 
-        () => new {
-          val program: p.type = p
-          val context = ctx
-          val encoder: enc.type = enc
-        } with UnrollingSolver with TimeoutSolver with tip.TipDebugger {
-          override protected val semantics = sem
-          override protected val chooses: chooseEnc.type = chooseEnc
-          override protected val theories: theoryEnc.type = theoryEnc
-          override protected lazy val fullEncoder = fullEnc
-          override protected lazy val programEncoder = progEnc
-          override protected lazy val targetProgram: targetProg.type = targetProg
-          override protected val targetSemantics = targetSem
+          class Underlying(override val program: targetProgram.type)
+            extends z3.UninterpretedZ3Solver(targetProgram, ctx)
 
-          protected val underlying = nonIncrementalWrap(progEnc.targetProgram)(finalName, targetSem, () => new {
-            val program: progEnc.targetProgram.type = progEnc.targetProgram
-            val context = ctx
-          } with z3.UninterpretedZ3Solver {
-            val semantics: program.Semantics = targetSem
-          })
+          protected val underlying = nonIncrementalWrap(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
+
+          // encoder is from TipDebugger and enc from AbstractUnrollingSolver
+          override protected val encoder = enc
         }
+
+        () => new UnrollZ3Impl(p)(enc)(ChooseEncoder(p)(enc))
       })
 
       case "smt-z3-opt" => create(p)(finalName, {
         val chooseEnc = ChooseEncoder(p)(enc)
-        val fullEnc = enc andThen chooseEnc
-        val theoryEnc = theories.Z3(fullEnc.targetProgram)
-        val progEnc = fullEnc andThen theoryEnc
-        val targetProg = progEnc.targetProgram
-        val targetSem = targetProg.getSemantics
+        class SMTZ3OptImpl(override val program: p.type)
+          extends AbstractUnrollingSolver(program, ctx, enc, chooseEnc)(fullEncoder => theories.Z3(fullEncoder.targetProgram))
+            with UnrollingOptimizer
+            with TimeoutSolver {
 
-        () => new {
-          val program: p.type = p
-          val context = ctx
-          val encoder: enc.type = enc
-        } with UnrollingOptimizer with TimeoutSolver {
-          override protected val semantics = sem
-          override protected val chooses: chooseEnc.type = chooseEnc
-          override protected val theories: theoryEnc.type = theoryEnc
-          override protected lazy val fullEncoder = fullEnc
-          override protected lazy val programEncoder = progEnc
-          override protected lazy val targetProgram: targetProg.type = targetProg
-          override protected val targetSemantics = targetSem
+          class Underlying(override val program: targetProgram.type)
+            extends smtlib.SMTLIBSolver(targetProgram, ctx)
+              with smtlib.optimization.Z3Optimizer
 
-          protected val underlying = new {
-            val program: progEnc.targetProgram.type = progEnc.targetProgram
-            val context = ctx
-          } with smtlib.optimization.Z3Optimizer {
-            val semantics: program.Semantics = targetSem
-          }
+          protected val underlying = new Underlying(targetProgram)
         }
+
+        () => new SMTZ3OptImpl(p)
       })
 
       case _ if finalName == "smt-z3" || finalName.startsWith("smt-z3:") => create(p)(finalName, {
-        val chooseEnc = ChooseEncoder(p)(enc)
-        val fullEnc = enc andThen chooseEnc
-        val theoryEnc = theories.Z3(fullEnc.targetProgram)
-        val progEnc = fullEnc andThen theoryEnc
-        val targetProg = progEnc.targetProgram
-        val targetSem = targetProg.getSemantics
-        val executableName = if (finalName == "smt-z3") "z3" else getZ3Executable(finalName)
+        class SMTZ3Impl(override val program: p.type)
+                       (override val enc: transformers.ProgramTransformer {
+                         val sourceProgram: program.type
+                         val targetProgram: Program { val trees: inox.trees.type }
+                       })
+                       (override val chooses: ChooseEncoder {
+                         val program: p.type
+                         val sourceEncoder: enc.type
+                       })
+          extends AbstractUnrollingSolver(program, ctx, enc, chooses)(fullEncoder => theories.Z3(fullEncoder.targetProgram))
+            with UnrollingSolver
+            with TimeoutSolver
+            with tip.TipDebugger {
 
-        () => new {
-          val program: p.type = p
-          val context = ctx
-          val encoder: enc.type = enc
-        } with UnrollingSolver with TimeoutSolver with tip.TipDebugger {
-          override protected val semantics = sem
-          override protected val chooses: chooseEnc.type = chooseEnc
-          override protected val theories: theoryEnc.type = theoryEnc
-          override protected lazy val fullEncoder = fullEnc
-          override protected lazy val programEncoder = progEnc
-          override protected lazy val targetProgram: targetProg.type = targetProg
-          override protected val targetSemantics = targetSem
+          class Underlying(override val program: targetProgram.type)
+            extends smtlib.SMTLIBSolver(program, context)
+              with smtlib.Z3Solver {
+            override def targetName = if (finalName == "smt-z3") "z3" else getZ3Executable(finalName)
+          }
 
-          protected val underlying = nonIncrementalWrap(progEnc.targetProgram)(finalName, targetSem, () => new {
-            val program: progEnc.targetProgram.type = progEnc.targetProgram
-            val context = ctx
-          } with smtlib.Z3Solver {
-            val semantics: program.Semantics = targetSem
-            override def targetName = executableName
-          })
+          override protected val underlying =
+            nonIncrementalWrap(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
+
+          // encoder is from TipDebugger and enc from AbstractUnrollingSolver
+          override protected val encoder = enc
         }
+
+        () => new SMTZ3Impl(p)(enc)(ChooseEncoder(p)(enc))
       })
 
       case "smt-cvc4" => create(p)(finalName, {
-        val ev = sem.getEvaluator(ctx)
-        val chooseEnc = ChooseEncoder(p)(enc)
-        val fullEnc = enc andThen chooseEnc
-        val theoryEnc = theories.CVC4(fullEnc)(ev)
-        val progEnc = fullEnc andThen theoryEnc
-        val targetProg = progEnc.targetProgram
-        val targetSem = targetProg.getSemantics
+        val ev = sem.getEvaluator(using ctx)
+        class SMTCVC4Impl(override val program: p.type)
+                         (override val enc: transformers.ProgramTransformer {
+                           val sourceProgram: program.type
+                           val targetProgram: Program { val trees: inox.trees.type }
+                         })
+                         (override val chooses: ChooseEncoder {
+                           val program: p.type
+                           val sourceEncoder: enc.type
+                         })
+          extends AbstractUnrollingSolver(program, ctx, enc, chooses)(fullEncoder => theories.CVC4(fullEncoder)(ev))
+            with UnrollingSolver
+            with TimeoutSolver
+            with tip.TipDebugger {
 
-        () => new {
-          val program: p.type = p
-          val context = ctx
-          val encoder: enc.type = enc
-        } with UnrollingSolver with TimeoutSolver with tip.TipDebugger {
-          override protected val semantics = sem
-          override protected val chooses: chooseEnc.type = chooseEnc
-          override protected val theories: theoryEnc.type = theoryEnc
-          override protected lazy val fullEncoder = fullEnc
-          override protected lazy val programEncoder = progEnc
-          override protected lazy val targetProgram: targetProg.type = targetProg
-          override protected val targetSemantics = targetSem
+          class Underlying(override val program: targetProgram.type)
+            extends smtlib.SMTLIBSolver(program, ctx)
+              with smtlib.CVC4Solver
 
-          protected val underlying = nonIncrementalWrap(progEnc.targetProgram)(finalName, targetSem, () => new {
-            val program: progEnc.targetProgram.type = progEnc.targetProgram
-            val context = ctx
-          } with smtlib.CVC4Solver {
-            val semantics: program.Semantics = targetSem
-          })
+          protected val underlying = nonIncrementalWrap(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
+
+          // encoder is from TipDebugger and enc from AbstractUnrollingSolver
+          override protected val encoder = enc
         }
+
+        () => new SMTCVC4Impl(p)(enc)(ChooseEncoder(p)(enc))
       })
 
       case "princess" => create(p)(finalName, {
-        val ev = sem.getEvaluator(ctx)
         val chooseEnc = ChooseEncoder(p)(enc)
-        val fullEnc = enc andThen chooseEnc
-        val theoryEnc = theories.Princess(fullEnc)(ev)
-        val progEnc = fullEnc andThen theoryEnc
-        val targetProg = progEnc.targetProgram
+        class PrincessImpl(override val program: p.type)
+          extends princess.PrincessSolver(p, ctx, enc, chooseEnc) with TimeoutSolver
 
-        () => new {
-          val program: p.type = p
-          val context = ctx
-          val encoder: enc.type = enc
-        } with princess.PrincessSolver with TimeoutSolver {
-          override protected val semantics = sem
-          override protected val chooses: chooseEnc.type = chooseEnc
-          override protected lazy val theories: theoryEnc.type = theoryEnc
-          override protected lazy val fullEncoder = fullEnc
-          override protected lazy val programEncoder = progEnc
-          override protected lazy val targetProgram: targetProg.type = targetProg
-          override protected lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
-        }
+        () => new PrincessImpl(p)
       })
 
       case _ => throw FatalError("Unknown solver: " + finalName)
@@ -382,7 +328,7 @@ object SolverFactory {
                      (enc: ProgramTransformer {
                         val sourceProgram: p.type
                         val targetProgram: Program { val trees: inox.trees.type }
-                      })(implicit sem: p.Semantics): SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } } = {
+                      })(using sem: p.Semantics): SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } } = {
     ctx.options.findOption(optSelectedSolvers) match {
       case None => optSelectedSolvers.default.toSeq match {
         case Seq() => throw FatalError("No selected solver")
@@ -411,7 +357,7 @@ object SolverFactory {
       case Seq() => throw FatalError("No selected solver")
       case Seq(single) =>
         val name = if (single.endsWith("-opt")) single else single + "-opt"
-        getFromName(name, force = solversOpt.isDefined)(p, ctx)(ProgramEncoder.empty(p))(p.getSemantics).asInstanceOf[SolverFactory {
+        getFromName(name, force = solversOpt.isDefined)(p, ctx)(ProgramEncoder.empty(p))(using p.getSemantics).asInstanceOf[SolverFactory {
           val program: p.type
           type S <: Optimizer with TimeoutSolver { val program: p.type }
         }]
@@ -422,7 +368,7 @@ object SolverFactory {
   def apply(name: String, p: InoxProgram, ctx: Context, force: Boolean = false): SolverFactory {
     val program: p.type
     type S <: TimeoutSolver { val program: p.type }
-  } = getFromName(name, force = force)(p, ctx)(ProgramEncoder.empty(p))(p.getSemantics)
+  } = getFromName(name, force = force)(p, ctx)(ProgramEncoder.empty(p))(using p.getSemantics)
 
   def apply(p: InoxProgram, ctx: Context): SolverFactory {
     val program: p.type

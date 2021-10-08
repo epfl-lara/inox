@@ -6,8 +6,8 @@ package parsing
 trait ExpressionDeconstructors extends IRs {
 
   trait ExpressionDeconstructor {
-    implicit val symbols: trees.Symbols
-
+    val symbols: trees.Symbols
+    import symbols.given
     import ExprIR._
 
     object TupleField {
@@ -198,7 +198,7 @@ trait ExpressionDeconstructors extends IRs {
       def unapply(expr: Expression): Option[(Expression, Expression, (trees.Expr, trees.Expr) => trees.Expr, Option[Type])] = expr match {
         case SetUnionOperation(set1, set2, otpe) => Some((set1, set2, { (lhs: trees.Expr, rhs: trees.Expr) => trees.SetUnion(lhs, rhs) }, otpe))
         case SetIntersectionOperation(set1, set2, otpe) => Some((set1, set2, { (lhs: trees.Expr, rhs: trees.Expr) => trees.SetIntersection(lhs, rhs) }, otpe))
-        case SetUnionOperation(set1, set2, otpe) => Some((set1, set2, { (lhs: trees.Expr, rhs: trees.Expr) => trees.SetDifference(lhs, rhs) }, otpe))
+        case SetDifferenceOperation(set1, set2, otpe) => Some((set1, set2, { (lhs: trees.Expr, rhs: trees.Expr) => trees.SetDifference(lhs, rhs) }, otpe))
         case _ => None
       }
     }

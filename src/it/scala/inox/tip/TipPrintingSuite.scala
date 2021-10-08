@@ -15,7 +15,7 @@ class TipPrintingSuite extends AnyFunSuite with ResourceUtils {
   }
 
   private def checkScript(program: InoxProgram, expr: Expr): Unit = {
-    import program.symbols
+    import program.symbols.{given, _}
     symbols.ensureWellFormed
 
     assert(expr.isTyped)

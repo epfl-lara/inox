@@ -17,30 +17,33 @@ trait Trees
      with TreeOps
      with Paths { self =>
 
-  class UnsupportedTree(t: Tree, msg: String)(implicit ctx: Context)
-    extends Unsupported(s"${t.asString(PrinterOptions.fromContext(ctx))}@${t.getPos} $msg")
+  class UnsupportedTree(t: Tree, msg: String)(using ctx: Context)
+    extends Unsupported(s"${t.asString(using PrinterOptions.fromContext(ctx))}@${t.getPos} $msg")
 
   abstract class Tree extends utils.Positioned with Serializable {
     def copiedFrom(o: Trees#Tree): this.type = setPos(o)
 
     // @EK: toString is considered harmful for non-internal things. Use asString(ctx) instead.
 
-    def asString(implicit opts: PrinterOptions): String = prettyPrint(this, opts)
+    def asString(using opts: PrinterOptions): String = prettyPrint(this, opts)
 
-    override def toString = asString(PrinterOptions())
+    override def toString = asString(using PrinterOptions())
   }
 
-  val exprOps: ExprOps { val trees: Trees.this.type } = new {
-    protected val trees: Trees.this.type = Trees.this
-  } with ExprOps
+  val exprOps: ExprOps { val trees: self.type } = {
+    class ExprOpsImpl(override val trees: self.type) extends ExprOps(trees)
+    new ExprOpsImpl(this)
+  }
 
-  val dsl: DSL { val trees: Trees.this.type } = new {
-    protected val trees: Trees.this.type = Trees.this
-  } with DSL
+  val dsl: DSL { val trees: self.type } = {
+    class DSLImpl(override val trees: self.type) extends DSL
+    new DSLImpl(this)
+  }
 
-  val interpolator: Interpolator { val trees: Trees.this.type } = new {
-    protected val trees: Trees.this.type = Trees.this
-  } with Interpolator
+  val interpolator: Interpolator { val trees: self.type } = {
+    class InterpolatorImpl(override val trees: self.type) extends Interpolator with parsing.IRs
+    new InterpolatorImpl(this)
+  }
 
   def aliased(id1: Identifier, id2: Identifier) = {
     id1.toString == id2.toString

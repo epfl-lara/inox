@@ -17,30 +17,24 @@ import utils.IncrementalSet
  *    - otherwise it returns UNKNOWN
  *  Results should come back very quickly.
  */
-trait UninterpretedZ3Solver
+class UninterpretedZ3Solver(override val program: Program, override val context: Context)
+                           (using protected val semantics: program.Semantics)
   extends AbstractSolver { self =>
 
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   type Trees = Expr
   type Model = program.Model
 
   import SolverResponses._
 
-  protected implicit val semantics: program.Semantics
-
   val name = "z3-u"
   val description = "Uninterpreted Z3 Solver"
 
-  private object underlying extends {
-    val program: self.program.type = self.program
-    val context = self.context
-  } with AbstractZ3Solver {
-    val semantics = self.semantics
-  }
+  private val underlying = new Underlying(program, context)
 
   private val freeVars = new IncrementalSet[Variable]
 
@@ -79,7 +73,8 @@ trait UninterpretedZ3Solver
 
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
     config.convert(
-      tryZ3(underlying.check(config)).getOrElse(config.cast(Unknown)),
+      // For some reasons, not specifying the type parameter T in tryZ3 causes some unexepected widening, which cause a typecheck error.
+      tryZ3[config.Response[Z3Model, Set[Z3AST]]](underlying.check(config)).getOrElse(config.cast(Unknown)),
       (model: Z3Model) => completeModel(underlying.extractModel(model)),
       underlying.extractUnsatAssumptions)
 
@@ -90,4 +85,9 @@ trait UninterpretedZ3Solver
         .getOrElse(config.cast(Unknown)),
       (model: Z3Model) => completeModel(underlying.extractModel(model)),
       underlying.extractUnsatAssumptions)
+
+  private class Underlying(override val program: self.program.type,
+                           override val context: Context)
+                          (using override val semantics: self.semantics.type)
+    extends AbstractZ3Solver
 }

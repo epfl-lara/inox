@@ -10,12 +10,13 @@ import _root_.smtlib.trees.Terms._
 case object DebugSectionSMT extends DebugSection("smt")
 
 trait SMTLIBDebugger extends SMTLIBTarget {
-  import context._
+  import context.{given, _}
   import program._
 
   protected def interpreterOpts: Seq[String]
 
-  implicit val debugSection: DebugSection
+  val debugSection: DebugSection
+  given givenSmtlibDebugSection: DebugSection = debugSection
 
   override def free(): Unit = {
     super.free()
@@ -24,7 +25,7 @@ trait SMTLIBDebugger extends SMTLIBTarget {
 
   /* Printing VCs */
   protected lazy val debugOut: Option[java.io.FileWriter] = {
-    implicit val debugSection = DebugSectionSMT
+    given DebugSectionSMT.type = DebugSectionSMT
     if (reporter.isDebugEnabled) {
       val file = options.findOptionOrDefault(Main.optFiles).headOption.map(_.getName).getOrElse("NA")
       val n = DebugFileNumbers.next(targetName + file)

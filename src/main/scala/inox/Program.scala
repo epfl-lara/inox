@@ -21,12 +21,12 @@ import transformers._
   */
 trait Program { self =>
   val trees: Trees
-  implicit val symbols: trees.Symbols
+  val symbols: trees.Symbols
 
-  implicit def implicitProgram: this.type = this
-  implicit def printerOpts(implicit ctx: Context): trees.PrinterOptions = trees.PrinterOptions.fromSymbols(symbols, ctx)
-  implicit def purityOpts(implicit ctx: Context): solvers.PurityOptions = solvers.PurityOptions(ctx)
-  implicit def simpOpts(implicit ctx: Context): solvers.SimplificationOptions = solvers.SimplificationOptions(ctx)
+  given givenProgram: this.type = this
+  implicit def printerOpts(using ctx: Context): trees.PrinterOptions = trees.PrinterOptions.fromSymbols(symbols, ctx)
+  implicit def purityOpts(using ctx: Context): solvers.PurityOptions = solvers.PurityOptions(ctx)
+  implicit def simpOpts(using ctx: Context): solvers.SimplificationOptions = solvers.SimplificationOptions(ctx)
 
   type Model = inox.Model {
     val program: self.type
@@ -43,7 +43,7 @@ trait Program { self =>
   }
 
   private[this] var _semantics: Semantics = null
-  implicit def getSemantics(implicit ev: Provider): Semantics = {
+  implicit def getSemantics(using ev: Provider): Semantics = {
     if (_semantics eq null) {
       // @nv: tell the type system what's what!
       _semantics = ev.getSemantics(
@@ -54,23 +54,23 @@ trait Program { self =>
   }
 
 
-  def getSolver(implicit ev: Provider, ctx: Context): solvers.SolverFactory {
+  def getSolver(using Provider, Context): solvers.SolverFactory {
     val program: self.type
     type S <: solvers.combinators.TimeoutSolver { val program: self.type }
   } = getSemantics.getSolver
 
-  def getSolver(ctx: Context)(implicit ev: Provider): solvers.SolverFactory {
+  def getSolver(ctx: Context)(using Provider): solvers.SolverFactory {
     val program: self.type
     type S <: solvers.combinators.TimeoutSolver { val program: self.type }
-  } = getSemantics.getSolver(ctx)
+  } = getSemantics.getSolver(using ctx)
 
-  def getEvaluator(implicit ev: Provider, ctx: Context): evaluators.DeterministicEvaluator {
+  def getEvaluator(using Provider, Context): evaluators.DeterministicEvaluator {
     val program: self.type
   } = getSemantics.getEvaluator
 
-  def getEvaluator(ctx: Context)(implicit ev: Provider): evaluators.DeterministicEvaluator {
+  def getEvaluator(ctx: Context)(using Provider): evaluators.DeterministicEvaluator {
     val program: self.type
-  } = getSemantics.getEvaluator(ctx)
+  } = getSemantics.getEvaluator(using ctx)
 
 
   def transform(t: DefinitionTransformer { val s: self.trees.type }): Program { val trees: t.t.type } =
@@ -85,8 +85,8 @@ trait Program { self =>
   def withSorts(sorts: Seq[trees.ADTSort]): Program { val trees: self.trees.type } =
     Program(trees)(symbols withSorts sorts)
 
-  def asString(implicit ctx: Context): String = trees.asString(symbols)
-  override def toString: String = asString(Context.empty)
+  def asString(using Context): String = trees.asString(symbols)
+  override def toString: String = asString(using Context.empty)
 }
 
 object Program {

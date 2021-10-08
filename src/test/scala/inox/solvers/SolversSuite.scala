@@ -9,14 +9,14 @@ class SolversSuite extends AnyFunSuite {
   import inox.trees._
   import SolverResponses._
 
-  implicit val ctx = TestContext.empty.copy(options = Options(Seq(
+  given ctx: Context = TestContext.empty.copy(options = Options(Seq(
     optCheckModels(true)
   )))
 
   val p = InoxProgram(NoSymbols)
 
   import p._
-  import p.symbols._
+  import p.symbols.{given, _}
 
   val solverNames: Seq[String] = {
     (if (SolverFactory.hasNativeZ3) Seq("nativez3") else Nil) ++

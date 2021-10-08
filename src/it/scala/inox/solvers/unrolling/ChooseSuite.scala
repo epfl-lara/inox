@@ -69,34 +69,34 @@ class ChooseSuite extends SolvingTestSuite {
   val symbols = NoSymbols.withFunctions(Seq(fun1, fun2, fun3, fun4, fun5))
   val program = InoxProgram(symbols)
 
-  test("simple choose") { implicit ctx =>
+  test("simple choose") {
     val clause = choose("v" :: IntegerType())(v => v > IntegerLiteral(0)) === IntegerLiteral(10)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("choose in function") { implicit ctx =>
+  test("choose in function") {
     val clause = fun1(IntegerLiteral(-1)) === IntegerLiteral(10)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("choose in function and arguments") { implicit ctx =>
+  test("choose in function and arguments") {
     val clause = fun1(choose("v" :: IntegerType())(_ < IntegerLiteral(0))) === IntegerLiteral(10)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("choose in callee function") { implicit ctx =>
+  test("choose in callee function") {
     val clause = fun2(IntegerLiteral(1), IntegerLiteral(-1)) === IntegerLiteral(10) &&
       fun2(IntegerLiteral(-1), IntegerLiteral(0)) === IntegerLiteral(2)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("choose in parametric function") { implicit ctx =>
+  test("choose in parametric function") {
     val clause = fun3(IntegerType())(IntegerLiteral(1), E(true)) === IntegerLiteral(10) &&
       fun3(BooleanType())(E(true), E(true)) === E(false)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("choose in recursive function") { implicit ctx =>
+  test("choose in recursive function") {
     val clause = fun4(IntegerLiteral(2), IntegerLiteral(1)) === IntegerLiteral(10)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
 
@@ -107,12 +107,12 @@ class ChooseSuite extends SolvingTestSuite {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause3).isUNSAT)
   }
 
-  test("dependent choose doesn't feel lucky") { ctx0 =>
+  test("dependent choose doesn't feel lucky") { ctx0 ?=>
     val clause = let("x" :: IntegerType(), fun5(IntegerLiteral(0))) { x =>
       fun3(IntegerType())(IntegerLiteral(0), E(true)) === IntegerLiteral(0)
     }
 
-    implicit val ctx = ctx0.withOpts(optFeelingLucky(true), optCheckModels(false))
+    given inox.Context = ctx0.withOpts(optFeelingLucky(true), optCheckModels(false))
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 }

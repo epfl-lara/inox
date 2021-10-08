@@ -13,5 +13,6 @@ trait StringContextParsers { self: TokenParsers { type Tokens <: StringContextLe
     parser(lexical.getReader(sc, args)) match {
       case NoSuccess(msg, _) => throw ParsingException(msg)
       case Success(value, _) => value
+      case otherwise => sys.error(s"Unexpected case: $otherwise")
     }
 }

@@ -17,7 +17,7 @@ trait MainHelpers {
 
   protected final val debugSections = getDebugSections
 
-  final object optDebug extends OptionDef[Set[DebugSection]] {
+  object optDebug extends OptionDef[Set[DebugSection]] {
     import OptionParsers._
     val name = "debug"
     val default = Set[DebugSection]()
@@ -33,14 +33,14 @@ trait MainHelpers {
     }
   }
 
-  final object optHelp extends MarkerOptionDef("help")
-  final object optPrintProgram extends FlagOptionDef("print-program", false)
+  object optHelp extends MarkerOptionDef("help")
+  object optPrintProgram extends FlagOptionDef("print-program", false)
 
   abstract class Format
   case object Tip extends Format
   case class Binary(methodName: Option[String]) extends Format
 
-  final object optFormat extends OptionDef[Format] {
+  object optFormat extends OptionDef[Format] {
     val name: String = "format"
     val usageRhs: String = "tip|binary[:<method-name>]"
     val default: Format = Tip
@@ -156,7 +156,7 @@ trait MainHelpers {
     * instantiated manually (see [[parseArguments]]). We therefore MUST NOT add
     * it to the [[options]] map!
     */
-  final object optFiles extends OptionDef[Seq[File]] {
+  object optFiles extends OptionDef[Seq[File]] {
     val name = "files"
     val default = Seq[File]()
     val usageRhs = "No possible usage"
@@ -166,7 +166,7 @@ trait MainHelpers {
   protected def newReporter(debugSections: Set[DebugSection]): inox.Reporter =
     new DefaultReporter(debugSections)
 
-  protected def parseArguments(args: Seq[String])(implicit initReporter: Reporter): Context = {
+  protected def parseArguments(args: Seq[String])(using initReporter: Reporter): Context = {
     val opts = args.filter(_.startsWith("--"))
 
     val files = args.filterNot(_.startsWith("-")).map(new File(_))
@@ -188,7 +188,7 @@ trait MainHelpers {
   }
 
   protected def processOptions(files: Seq[File], inoxOptions: Seq[OptionValue[_]])
-                              (implicit initReporter: Reporter): Context = {
+                              (using initReporter: Reporter): Context = {
 
     for ((optDef, values) <- inoxOptions.groupBy(_.optionDef) if values.size > 1)
       initReporter.fatalError(s"Duplicate option: ${optDef.name}")
@@ -226,7 +226,7 @@ trait MainHelpers {
     val initReporter = newReporter(Set())
 
     val ctx = try {
-      parseArguments(args.toList)(initReporter)
+      parseArguments(args.toList)(using initReporter)
     } catch {
       case FatalError(msg) =>
         exit(error = true)
@@ -256,12 +256,12 @@ object Main extends MainHelpers {
       file <- getFilesOrExit(ctx)
       (program, exprOpt) <- parse(ctx, file)
     } {
-      import ctx._
+      import ctx.{given, _}
       import program._
 
       if (ctx.options.findOptionOrDefault(optPrintProgram)) {
         ctx.reporter.info(s"Program in $file:\n\n")
-        ctx.reporter.info(program.asString(ctx))
+        ctx.reporter.info(program.asString)
       }
 
       exprOpt.foreach { expr =>

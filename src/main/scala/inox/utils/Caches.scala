@@ -28,7 +28,7 @@ class LruCache[A,B](val maxSize: Int) extends Cache[A,B] {
   def clear(): Unit = cache.clear()
 }
 
-class PriorityCache[A,B](val maxSize: Int)(implicit val ordering: Ordering[A]) extends Cache[A,B] {
+class PriorityCache[A,B](val maxSize: Int)(using val ordering: Ordering[A]) extends Cache[A,B] {
   private[this] val cache = new java.util.HashMap[A,B](maxSize + 1)
   private[this] val queue = new java.util.PriorityQueue(maxSize, ordering)
 

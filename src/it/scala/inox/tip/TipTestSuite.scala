@@ -67,7 +67,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     }
 
   for (file <- resourceFiles("regression/tip/SAT", _.endsWith(".tip"))) {
-    test(s"SAT - ${file.getName}", ignoreSAT(_, file)) { implicit ctx =>
+    test(s"SAT - ${file.getName}", ignoreSAT(_, file)) {
       for ((program, expr) <- Parser(file).parseScript) {
         assert(SimpleSolverAPI(program.getSolver).solveSAT(expr).isSAT)
       }
@@ -75,7 +75,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
   }
 
   for (file <- resourceFiles("regression/tip/UNSAT", _.endsWith(".tip"))) {
-    test(s"UNSAT - ${file.getName}", ignoreUNSAT(_, file)) { implicit ctx =>
+    test(s"UNSAT - ${file.getName}", ignoreUNSAT(_, file)) {
       for ((program, expr) <- Parser(file).parseScript) {
         assert(SimpleSolverAPI(program.getSolver).solveSAT(expr).isUNSAT)
       }
@@ -83,8 +83,8 @@ class TipTestSuite extends TestSuite with ResourceUtils {
   }
 
   for (file <- resourceFiles("regression/tip/UNKNOWN", _.endsWith(".tip"))) {
-    test(s"UNKNOWN - ${file.getName}", ignoreUNKNOWN(_, file)) { ctx0 =>
-      implicit val ctx = ctx0.copy(options = ctx0.options + optCheckModels(false))
+    test(s"UNKNOWN - ${file.getName}", ignoreUNKNOWN(_, file)) { ctx0 ?=>
+      given ctx: inox.Context = ctx0.copy(options = ctx0.options + optCheckModels(false))
       for ((program, expr) <- Parser(file).parseScript) {
         val api = SimpleSolverAPI(program.getSolver)
         val res = api.solveSAT(expr)

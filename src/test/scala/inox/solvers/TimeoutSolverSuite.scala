@@ -12,20 +12,21 @@ class TimeoutSolverSuite extends AnyFunSuite {
   val ctx = TestContext.empty
   val p = InoxProgram(NoSymbols)
 
-  private class IdioticSolver extends Solver {
+  private class IdioticSolver(override val program: p.type,
+                              override val context: Context) extends Solver {
+    def this() = this(p, ctx)
+
     val name = "Idiotic"
-    val program: p.type = p
-    val context = ctx
 
     var interrupted = false
 
     import SolverResponses._
-    def check(config: CheckConfiguration): config.Response[Model, Assumptions] = {
+    override def check(config: CheckConfiguration): config.Response[Model, Assumptions] = {
       while(!interrupted) Thread.sleep(50L)
       config.cast(Unknown)
     }
 
-    def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
+    override def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
       while(!interrupted) Thread.sleep(50L)
       config.cast(Unknown)
     }

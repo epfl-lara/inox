@@ -5,7 +5,7 @@ package parsing
 
 trait BuiltIns {
 
-  lazy val bi = new DefaultBuiltIns {}
+  val bi = new DefaultBuiltIns {}
 
   trait BuiltInNames { 
 

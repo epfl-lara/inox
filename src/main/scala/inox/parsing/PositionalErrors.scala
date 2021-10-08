@@ -8,7 +8,7 @@ import scala.util.parsing.input._
 
 trait PositionalErrors { self: scala.util.parsing.combinator.Parsers =>
 
-  implicit class PositionalErrorsDecorator[A](parser: Parser[A]) {
+  extension [A](parser: Parser[A]) {
 
     def withErrorMessage(onError: Position => String): Parser[A] = new Parser[A] {
       override def apply(input: Input) = parser(input) match {

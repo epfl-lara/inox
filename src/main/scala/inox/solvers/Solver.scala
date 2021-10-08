@@ -15,7 +15,7 @@ trait AbstractSolver extends Interruptible {
   val program: Program
   val context: Context
 
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
 
@@ -56,7 +56,8 @@ trait AbstractSolver extends Interruptible {
   def push(): Unit
   def pop(): Unit
 
-  implicit val debugSection: DebugSection = DebugSectionSolver
+  val debugSection: DebugSection = DebugSectionSolver
+  given givenSolverDebugSection: DebugSection = debugSection
 
   private[solvers] def debugS(msg: String) = {
     reporter.debug("["+name+"] "+msg)
