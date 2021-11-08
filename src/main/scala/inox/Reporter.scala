@@ -166,7 +166,7 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
 
   def emit(msg: Message) = synchronized {
     println(reline(severityToPrefix(msg.severity), smartPos(msg.position) + msg.msg.toString))
-    printLineContent(msg.position, false)
+    println(lineContent(msg.position, false))
   }
 
   def getLine(pos: Position): Option[String] = {
@@ -185,13 +185,13 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
 
   val blankPrefix = " " * prefixSize
 
-  def printLineContent(pos: Position, asciiOnly: Boolean): Unit = {
+  def lineContent(pos: Position, asciiOnly: Boolean): String = {
     getLine(pos) match {
       case Some(line) =>
         // Scala positions probably assume 1 tab = 8 spaces, so we replaces tabs
         // for the carret (^) computed below to be aligned
-        println(blankPrefix+line.replace("\t", " " * 8))
-        pos match {
+        val blank = blankPrefix + line.replace("\t", " " * 8) + "\n"
+        blank + (pos match {
           case rp: RangePosition =>
             val bp = rp.focusBegin
             val ep = rp.focusEnd
@@ -205,17 +205,17 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
             }
 
             if (asciiOnly)
-              println(blankPrefix+(" " * (bp.col - 1) + carret))
+              blankPrefix+(" " * (bp.col - 1) + carret)
             else
-              println(blankPrefix+(" " * (bp.col - 1) + Console.RED+carret+Console.RESET))
+              blankPrefix+(" " * (bp.col - 1) + Console.RED+carret+Console.RESET)
 
           case op: OffsetPosition =>
             if (asciiOnly)
-              println(blankPrefix+(" " * (op.col - 1) + "^"))
+              blankPrefix+(" " * (op.col - 1) + "^")
             else
-              println(blankPrefix+(" " * (op.col - 1) + Console.RED+"^"+Console.RESET))
-        }
-      case None =>
+              blankPrefix+(" " * (op.col - 1) + Console.RED+"^"+Console.RESET)
+        })
+      case None => ""
     }
   }
 
@@ -246,6 +246,6 @@ class PlainTextReporter(debugSections: Set[DebugSection]) extends DefaultReporte
       println(smartPos(msg.position) + "debug: " + msg.msg.toString)
     else
       println(smartPos(msg.position) + msg.msg.toString)
-    printLineContent(msg.position, true)
+    println(lineContent(msg.position, true))
   }
 }

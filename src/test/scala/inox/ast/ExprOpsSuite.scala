@@ -178,30 +178,45 @@ class ExprOpsSuite extends AnyFunSuite {
     case e => (None, e)
   }
 
-  //def checkEq(ctx: InoxContext)(e1: Expr, e2: Expr): Unit = {
-  //  val e = evaluators.RecursiveEvaluator.default(InoxProgram(ctx, new Symbols(Map.empty, Map.empty)))
-  //  val r1 = e.eval(e1)
-  //  val r2 = e.eval(e2)
+  def testSimplifyArithmetic(litCtor: BigInt => Expr): Unit = {
+    val syms = new Symbols(Map.empty, Map.empty)
+    object program extends Program {
+      val trees: inox.trees.type = inox.trees
+      val symbols: syms.type = syms
+      val ctx = ctx0
+    }
+    import syms.given
+    val ev = evaluators.RecursiveEvaluator(program, ctx0)
 
-  //  assert(r1 === r2, s"'$e1' != '$e2' ('$r1' != '$r2')")
-  //}
+    def checkEq(e1: Expr, e2: Expr): Unit = {
+      val r1 = ev.eval(e1)
+      val r2 = ev.eval(e2)
+      assert(r1 === r2, s"'$e1' != '$e2' ('$r1' != '$r2')")
+    }
 
-  //test("simplifyArithmetic") { ctx =>
-  //  val e1 = Plus(IntegerLiteral(3), IntegerLiteral(2))
-  //  checkEq(ctx)(e1, simplifyArithmetic(e1))
-  //  val e2 = Plus(x, Plus(IntegerLiteral(3), IntegerLiteral(2)))
-  //  checkEq(ctx)(e2, simplifyArithmetic(e2))
+    val e1 = Plus(litCtor(3), litCtor(2))
+    checkEq(e1, simplifyArithmetic(e1))
+    val e2 = Plus(x, Plus(litCtor(3), litCtor(2)))
+    checkEq(e2, simplifyArithmetic(e2))
 
-  //  val e3 = Minus(IntegerLiteral(3), IntegerLiteral(2))
-  //  checkEq(ctx)(e3, simplifyArithmetic(e3))
-  //  val e4 = Plus(x, Minus(IntegerLiteral(3), IntegerLiteral(2)))
-  //  checkEq(ctx)(e4, simplifyArithmetic(e4))
-  //  val e5 = Plus(x, Minus(x, IntegerLiteral(2)))
-  //  checkEq(ctx)(e5, simplifyArithmetic(e5))
+    val e3 = Minus(litCtor(3), litCtor(2))
+    checkEq(e3, simplifyArithmetic(e3))
+    val e4 = Plus(x, Minus(litCtor(3), litCtor(2)))
+    checkEq(e4, simplifyArithmetic(e4))
+    val e5 = Plus(x, Minus(x, litCtor(2)))
+    checkEq(e5, simplifyArithmetic(e5))
 
-  //  val e6 = Times(IntegerLiteral(9), Plus(Division(x, IntegerLiteral(3)), Division(x, IntegerLiteral(6))))
-  //  checkEq(ctx)(e6, simplifyArithmetic(e6))
-  //}
+    val e6 = Times(litCtor(9), Plus(Division(x, litCtor(3)), Division(x, litCtor(6))))
+    checkEq(e6, simplifyArithmetic(e6))
+  }
+
+  test("simplifyArithmetic") {
+    testSimplifyArithmetic(IntegerLiteral.apply)
+    for {
+      signed <- List(false, true)
+      size <- List(8, 16, 32)
+    } testSimplifyArithmetic(BVLiteral(signed, _, size))
+  }
 
   test("extractEquals") {
     val eq = Equals(a, b)
@@ -256,7 +271,7 @@ class ExprOpsSuite extends AnyFunSuite {
       case IntegerLiteral(two) if two == BigInt(2) => Some(IntegerLiteral(42))
       case _ => None
     }
-    
+
     assert( preMap(op, false)(expr) == Plus(IntegerLiteral(2),  IntegerLiteral(2))  )
     assert( preMap(op, true )(expr) == Plus(IntegerLiteral(42), IntegerLiteral(42)) )
     assert( postMap(op, false)(expr) == Plus(IntegerLiteral(2),  Minus(IntegerLiteral(42), IntegerLiteral(3))) )
@@ -296,7 +311,7 @@ class ExprOpsSuite extends AnyFunSuite {
       case IntegerLiteral(two) if two == BigInt(2) => (Some(IntegerLiteral(42)), set)
       case _ => (None, set)
     }
-    
+
     assert(preMapWithContext(op, false)(expr, Set()) === Plus(IntegerLiteral(2),  IntegerLiteral(2)))
     assert(preMapWithContext(op, true)(expr, Set()) === Plus(IntegerLiteral(42),  IntegerLiteral(42)))
 
@@ -306,7 +321,7 @@ class ExprOpsSuite extends AnyFunSuite {
       case v: Variable => (bindings.get(v).map(value => IntegerLiteral(value)), bindings)
       case _ => (None, bindings)
     }
- 
+
     assert(preMapWithContext(op2, false)(expr2, Map()) === Let(
       x.toVal, IntegerLiteral(1), Let(y.toVal, IntegerLiteral(2), Plus(IntegerLiteral(1), IntegerLiteral(2)))))
 
