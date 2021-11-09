@@ -24,23 +24,33 @@ object SymbolOps {
   *
   * @define encodingof Encoding of
   */
-trait SymbolOps { self: TypeOps =>
+trait SymbolOps extends TypeOps { self =>
   import trees._
   import trees.exprOps._
-  import symbols._
+  import symbols.{given, _}
 
   /** Override point for simplifier creation */
-  protected def simplifierWithPC(popts: PurityOptions): SimplifierWithPC = new {
-    val opts: PurityOptions = popts
-  } with SimplifierWithPC with transformers.SimplifierWithPath
+  protected def simplifierWithPC(popts: PurityOptions): SimplifierWithPC = {
+    class Impl(override val trees: self.trees.type,
+               override val symbols: self.symbols.type,
+               override val s: self.trees.type,
+               override val t: self.trees.type,
+               override val opts: inox.solvers.PurityOptions)
+      extends SimplifierWithPC with transformers.SimplifierWithPath
 
-  protected trait SimplifierWithPC extends transformers.SimplifierWithPC {
-    val trees: self.trees.type = self.trees
-    val symbols: self.symbols.type = self.symbols
+    new Impl(self.trees, self.symbols, self.trees, self.trees, popts)
   }
 
-  private var simplifierCache: MutableMap[PurityOptions, SimplifierWithPC] = MutableMap.empty
-  def simplifier(implicit purityOpts: PurityOptions): SimplifierWithPC = synchronized {
+  protected trait SimplifierWithPC extends transformers.SimplifierWithPC {
+    // The only values that can be assigned to `trees` and `symbols` are `self.trees` and `self.symbols` respectively,
+    // but that has to be done in a concrete class explicitly overriding `trees` and `symbols`.
+    // Otherwise, we can run into initialization issue.
+    val trees: self.trees.type
+    val symbols: self.symbols.type
+  }
+
+  private val simplifierCache: MutableMap[PurityOptions, SimplifierWithPC] = MutableMap.empty
+  def simplifier(using purityOpts: PurityOptions): SimplifierWithPC = synchronized {
     simplifierCache.getOrElse(purityOpts, {
       val res = simplifierWithPC(purityOpts)
       simplifierCache(purityOpts) = res
@@ -48,9 +58,9 @@ trait SymbolOps { self: TypeOps =>
     })
   }
 
-  def simplifyExpr(expr: Expr)(implicit opts: PurityOptions): Expr = simplifyIn(expr, Path.empty)
+  def simplifyExpr(expr: Expr)(using PurityOptions): Expr = simplifyIn(expr, Path.empty)
 
-  def simplifyIn(e: Expr, path: Path)(implicit opts: PurityOptions): Expr = {
+  def simplifyIn(e: Expr, path: Path)(using PurityOptions): Expr = {
     val s = simplifier
     val env = path.elements.foldLeft(s.initEnv) {
       case (env, Path.CloseBound(vd, e)) => env withBinding (vd -> e)
@@ -61,39 +71,41 @@ trait SymbolOps { self: TypeOps =>
     s.transform(e, env)
   }
 
-
   /** Override point for transformer with PC creation
-    * 
+    *
     * Note that we don't actually need the `PathProvider[P]` here but it will
     * become useful in the Stainless overrides. */
   protected def transformerWithPC[P <: PathLike[P]](
     path: P,
-    exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr,
-    typeOp: (Type, P, TransformerOp[Type, P, Type]) => Type
-  )(implicit pp: PathProvider[P]): TransformerWithPC[P] = {
-    new TransformerWithPC(path, exprOp, typeOp)
+    theExprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr,
+    theTypeOp: (Type, P, TransformerOp[Type, P, Type]) => Type
+  )(using PathProvider[P]): TransformerWithPC[P] = {
+    class Impl(override val s: self.trees.type,
+               override val t: self.trees.type) extends TransformerWithPC[P](s, t)
       with TransformerWithExprOp
-      with TransformerWithTypeOp
+      with TransformerWithTypeOp {
+      override protected def exprOp(expr: s.Expr, env: Env, op: TransformerOp[s.Expr, Env, t.Expr]): t.Expr =
+        theExprOp(expr, env, op)
+
+      override protected def typeOp(ty: s.Type, env: Env, op: TransformerOp[s.Type, Env, t.Type]): t.Type =
+        theTypeOp(ty, env, op)
+    }
+    new Impl(self.trees, self.trees)
   }
 
-  protected class TransformerWithPC[P <: PathLike[P]](
-    val initEnv: P,
-    val exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr,
-    val typeOp: (Type, P, TransformerOp[Type, P, Type]) => Type
-  ) extends transformers.TransformerWithPC {
+  protected class TransformerWithPC[P <: PathLike[P]](override val s: self.trees.type,
+                                                      override val t: self.trees.type)
+    extends transformers.TransformerWithPC {
     self0: TransformerWithExprOp with TransformerWithTypeOp =>
 
-    override val s: self.trees.type = self.trees
-    override val t: self.trees.type = self.trees
     override type Env = P
   }
 
   def transformWithOps[P <: PathLike[P]](e: Expr, path: P)(
     exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr,
     typeOp: (Type, P, TransformerOp[Type, P, Type]) => Type
-  )(implicit pp: PathProvider[P]): Expr = {
+  )(using PathProvider[P]): Expr =
     transformerWithPC[P](path, exprOp, typeOp).transform(e, path)
-  }
 
   def transformWithOps(e: Expr)(
     exprOp: (Expr, Path, TransformerOp[Expr, Path, Expr]) => Expr,
@@ -102,18 +114,18 @@ trait SymbolOps { self: TypeOps =>
 
   def transformWithPC[P <: PathLike[P]](e: Expr, path: P, inTypes: Boolean)(
     exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr
-  )(implicit pp: PathProvider[P]): Expr = {
+  )(using PathProvider[P]): Expr = {
     val typeOp: (Type, P, TransformerOp[Type, P, Type]) => Type =
       if (inTypes) (tpe: Type, env: P, op: TransformerOp[Type, P, Type]) => op.sup(tpe, env)
       else (tpe: Type, env: P, op: TransformerOp[Type, P, Type]) => tpe
+
     transformerWithPC[P](path, exprOp, typeOp).transform(e, path)
   }
 
   def transformWithPC[P <: PathLike[P]](e: Expr, path: P)(
     exprOp: (Expr, P, TransformerOp[Expr, P, Expr]) => Expr
-  )(implicit pp: PathProvider[P]): Expr = {
+  )(using PathProvider[P]): Expr =
     transformWithPC(e, path, false)(exprOp)
-  }
 
   def transformWithPC(e: Expr, inTypes: Boolean)(
     exprOp: (Expr, Path, TransformerOp[Expr, Path, Expr]) => Expr
@@ -126,7 +138,7 @@ trait SymbolOps { self: TypeOps =>
 
   def collectWithPC[P <: PathLike[P], T](e: Expr, path: P, inTypes: Boolean)
                                         (pf: PartialFunction[(Expr, P), T])
-                                        (implicit pp: PathProvider[P]): Seq[T] = {
+                                        (using PathProvider[P]): Seq[T] = {
     var results: Seq[T] = Nil
     var pfLift = pf.lift
     transformWithPC(e, path, inTypes) { (e, path, op) =>
@@ -138,7 +150,7 @@ trait SymbolOps { self: TypeOps =>
 
   def collectWithPC[P <: PathLike[P], T](e: Expr, path: P)
                                         (pf: PartialFunction[(Expr, P), T])
-                                        (implicit pp: PathProvider[P]): Seq[T] = collectWithPC(e, path, false)(pf)
+                                        (using PathProvider[P]): Seq[T] = collectWithPC(e, path, false)(pf)
 
   def collectWithPC[T](e: Expr, inTypes: Boolean)(pf: PartialFunction[(Expr, Path), T]): Seq[T] =
     collectWithPC(e, Path.empty, inTypes)(pf)
@@ -148,7 +160,7 @@ trait SymbolOps { self: TypeOps =>
 
   def existsWithPC[P <: PathLike[P]](e: Expr, path: P, inTypes: Boolean)
                                     (p: (Expr, P) => Boolean)
-                                    (implicit pp: PathProvider[P]): Boolean = {
+                                    (using PathProvider[P]): Boolean = {
     var result = false
     transformWithPC(e, path, inTypes) { (e, path, op) =>
       if (result || p(e, path)) {
@@ -163,7 +175,7 @@ trait SymbolOps { self: TypeOps =>
 
   def existsWithPC[P <: PathLike[P]](e: Expr, path: P)
                                     (p: (Expr, P) => Boolean)
-                                    (implicit pp: PathProvider[P]): Boolean = existsWithPC(e, path, false)(p)
+                                    (using PathProvider[P]): Boolean = existsWithPC(e, path, false)(p)
 
   def existsWithPC(e: Expr, inTypes: Boolean)(p: (Expr, Path) => Boolean): Boolean =
     existsWithPC(e, Path.empty, inTypes)(p)
@@ -199,12 +211,12 @@ trait SymbolOps { self: TypeOps =>
   }
 
   /** Returns 'true' iff the evaluation of expression `expr` cannot lead to a crash. */
-  def isPure(expr: Expr)(implicit opts: PurityOptions): Boolean = isPureIn(expr, Path.empty)
+  def isPure(expr: Expr)(using PurityOptions): Boolean = isPureIn(expr, Path.empty)
 
-  def isAlwaysPure(expr: Expr) = isPure(expr)(PurityOptions.unchecked)
+  def isAlwaysPure(expr: Expr) = isPure(expr)(using PurityOptions.unchecked)
 
   /** Returns 'true' iff the evaluation of expression `expr` cannot lead to a crash under the provided path. */
-  def isPureIn(e: Expr, path: Path)(implicit opts: PurityOptions): Boolean = {
+  def isPureIn(e: Expr, path: Path)(using PurityOptions): Boolean = {
     val s = simplifier
     val env = path.elements.foldLeft(s.initEnv) {
       case (env, Path.CloseBound(vd, e)) => env withBinding (vd -> e)
@@ -229,9 +241,9 @@ trait SymbolOps { self: TypeOps =>
     * If `force` is omitted, the given expression will only be evaluated if it is
     * ground, pure, and does not contain choose or quantifiers.
     */
-  def simplifyGround(expr: Expr, reportErrors: Boolean = false)(implicit sem: symbols.Semantics, ctx: Context): Expr = {
+  def simplifyGround(expr: Expr, reportErrors: Boolean = false)(using sem: symbols.Semantics, ctx: Context): Expr = {
     val evalCtx = ctx.withOpts(evaluators.optEvalQuantifiers(false))
-    val evaluator = sem.getEvaluator(evalCtx)
+    val evaluator = sem.getEvaluator(using evalCtx)
 
     case class SimplifyGroundError(expr: Expr, result: Result[Expr]) {
       def errMsg: String = result match {
@@ -246,12 +258,12 @@ trait SymbolOps { self: TypeOps =>
       }
     }
 
-    def evalChildren(e: Expr)(implicit opts: PurityOptions): Expr = e match {
+    def evalChildren(e: Expr)(using PurityOptions): Expr = e match {
       case Operator(es, recons) => recons(es.map(rec))
     }
 
     // TODO: Should we run this within a fixpoint with simplifyByConstructor?
-    def rec(e: Expr)(implicit opts: PurityOptions): Expr = e match {
+    def rec(e: Expr)(using PurityOptions): Expr = e match {
       case e if isValue(e) =>
         e
       case e if isGround(e) && isPure(e) =>
@@ -261,12 +273,12 @@ trait SymbolOps { self: TypeOps =>
           evalChildren(e)
         }
       case l: Lambda =>
-        evalChildren(l)(PurityOptions.unchecked)
+        evalChildren(l)(using PurityOptions.unchecked)
       case e =>
         evalChildren(e)
     }
 
-    rec(expr)(PurityOptions(ctx))
+    rec(expr)(using PurityOptions(ctx))
   }
 
   /** Normalizes identifiers in an expression to enable some notion of structural
@@ -295,7 +307,7 @@ trait SymbolOps { self: TypeOps =>
     preserveApps: Boolean,
     onlySimple: Boolean,
     inFunction: Boolean
-  )(implicit opts: PurityOptions): (Seq[ValDef], Expr, Seq[(Variable, Expr, Seq[Expr])]) = {
+  )(using opts: PurityOptions): (Seq[ValDef], Expr, Seq[(Variable, Expr, Seq[Expr])]) = {
 
     val subst: MutableMap[Variable, (Expr, Seq[Expr])] = MutableMap.empty
     val varSubst: MutableMap[Variable, Variable] = MutableMap.empty
@@ -398,7 +410,7 @@ trait SymbolOps { self: TypeOps =>
       class Liftable(path: Path) {
         def unapply(e: Expr): Option[Seq[Expr]] = {
           // The set of minimal conditions that must be met for an expression to be liftable
-          val minimal = 
+          val minimal =
             (isSimple(e) || !onlySimple)           && // check whether we want only simple expression
             !containsChoose(e)                     && // expressions containing chooses can't be lifted
             (!inFunction || !containsRecursive(e))    // recursive functions can't be lifted from lambdas
@@ -543,7 +555,7 @@ trait SymbolOps { self: TypeOps =>
     * that is tailored for structural equality of [[Expressions.Lambda Lambda]] and [[Expressions.Forall Forall]] instances.
     */
   def normalizeStructure(e: Expr, onlySimple: Boolean = false)
-                        (implicit opts: PurityOptions): (Expr, Seq[(Variable, Expr, Seq[Expr])]) = freshenLocals(e) match {
+                        (using PurityOptions): (Expr, Seq[(Variable, Expr, Seq[Expr])]) = freshenLocals(e) match {
     case lambda: Lambda =>
       val (args, body, subst) = normalizeStructure(lambda.params, lambda.body, false, onlySimple, true)
       (Lambda(args, body), subst)
@@ -561,7 +573,7 @@ trait SymbolOps { self: TypeOps =>
   /** Ensures the closure `res` can only be equal to some other closure if they share the same
     * integer identifier `id`. This method makes sure this property is preserved after going through
     * [[normalizeStructure(e:SymbolOps\.this\.trees\.Expr,onlySimple:Boolean)*]]. */
-  def uniquateClosure(id: Int, res: Lambda)(implicit opts: PurityOptions): Lambda = {
+  def uniquateClosure(id: Int, res: Lambda)(using PurityOptions): Lambda = {
     def allArgs(l: Lambda): Seq[ValDef] = l.params ++ (l.body match {
       case l2: Lambda => allArgs(l2)
       case _ => Seq.empty
@@ -671,7 +683,7 @@ trait SymbolOps { self: TypeOps =>
 
     case FunctionType(from, to) =>
       val l = Lambda(from.map(tpe => ValDef.fresh("x", tpe, true)), constructExpr(0, to))
-      uniquateClosure(i, l)(PurityOptions.unchecked)
+      uniquateClosure(i, l)(using PurityOptions.unchecked)
   }
 
   /* Inline lambda lets that appear in forall bodies. For example,
@@ -685,7 +697,7 @@ trait SymbolOps { self: TypeOps =>
    *   forall((x: BigInt) => x + 1 == x + 1)
    * }}}
    */
-  def inlineLambdas(e: Expr)(implicit opts: PurityOptions): Expr = {
+  def inlineLambdas(e: Expr)(using PurityOptions): Expr = {
     def rec(e: Expr, lambdas: Map[Variable, Lambda], inForall: Boolean): Expr = e match {
       case Let(vd, l: Lambda, b) =>
         val nl = l.copy(body = rec(l.body, lambdas, false))
@@ -705,13 +717,13 @@ trait SymbolOps { self: TypeOps =>
     * in order to increase the precision of polarity analysis for
     * quantification instantiations.
     */
-  def simplifyForalls(e: Expr)(implicit opts: PurityOptions): Expr = {
+  def simplifyForalls(e: Expr)(using opts: PurityOptions): Expr = {
 
     def inlineFunctions(e: Expr): Expr = {
       import utils.Graphs._
       val initGraph = DiGraph[Identifier, SimpleEdge[Identifier]](functionCallsOf(e).map(_.id))
 
-      val graph = fixpoint { graph: DiGraph[Identifier, SimpleEdge[Identifier]] =>
+      val graph = fixpoint { (graph: DiGraph[Identifier, SimpleEdge[Identifier]]) =>
         var newGraph = graph
         for (id <- graph.N) {
           preTraversal {
@@ -735,7 +747,7 @@ trait SymbolOps { self: TypeOps =>
         !graph.transitiveSucc(id)(id) && rec(getFunction(id).fullBody)
       }
 
-      def inline(e: Expr): Expr = postMap {
+      def inlineExpr(e: Expr): Expr = postMap {
         case fi: FunctionInvocation if toInline(fi.id) =>
           Some(fi.inlined)
         case Equals(IsTyped(e1, adt: ADTType), e2)
@@ -744,7 +756,7 @@ trait SymbolOps { self: TypeOps =>
         case _ => None
       } (e)
 
-      fixpoint(inline)(e)
+      fixpoint(inlineExpr)(e)
     }
 
     def inlineForalls(e: Expr): Expr = postMap {
@@ -758,7 +770,7 @@ trait SymbolOps { self: TypeOps =>
         case _ => false
       }
 
-      def inline(quantified: Set[Variable], e: Expr): Expr = andJoin(collectWithPC (e) {
+      def inlineExpr(quantified: Set[Variable], e: Expr): Expr = andJoin(collectWithPC (e) {
         case (fi @ FunctionInvocation(_, _, args), path)
           if qArgs(quantified, args) &&
              !path.elements.exists(_.isInstanceOf[Path.OpenBound])
@@ -778,7 +790,7 @@ trait SymbolOps { self: TypeOps =>
               case _ => false
             } (pred) =>
               Seq[Expr](
-                path implies replaceFromSymbols(Map(res.toVariable -> fi), and(pred, inline(nextQuantified, pred)))
+                path implies replaceFromSymbols(Map(res.toVariable -> fi), and(pred, inlineExpr(nextQuantified, pred)))
               )
             case _ => Seq.empty[Expr]
           }
@@ -788,7 +800,7 @@ trait SymbolOps { self: TypeOps =>
       postMap {
         case f @ Forall(args, body) =>
           Some(assume(
-            freshenLocals(forall(args, inline(args.map(_.toVariable).toSet, body))),
+            freshenLocals(forall(args, inlineExpr(args.map(_.toVariable).toSet, body))),
             f
           ))
         case _ => None
@@ -928,7 +940,7 @@ trait SymbolOps { self: TypeOps =>
 
   /** Returns simplest value of a given type */
   protected def simplestValue(tpe: Type, seen: Set[Type], allowSolver: Boolean, inLambda: Boolean)
-                             (implicit sem: symbols.Semantics, ctx: Context): Expr = tpe match {
+                             (using sem: symbols.Semantics, ctx: Context): Expr = tpe match {
     case StringType()               => StringLiteral("")
     case BVType(signed, size)       => BVLiteral(signed, 0, size)
     case RealType()                 => FractionLiteral(0, 1)
@@ -986,9 +998,8 @@ trait SymbolOps { self: TypeOps =>
   }
 
   final def simplestValue(tpe: Type, allowSolver: Boolean = true)
-                         (implicit sem: symbols.Semantics, ctx: Context): Expr = {
+                         (using symbols.Semantics, Context): Expr =
     simplestValue(tpe, Set.empty, allowSolver, false)
-  }
 
   /** Hoists all IfExpr at top level.
     *
@@ -1046,9 +1057,9 @@ trait SymbolOps { self: TypeOps =>
     case _ => None
   } (expr)
 
-  private[inox] def simplifyFormula(e: Expr)(implicit ctx: Context, sem: symbols.Semantics): Expr = {
-    implicit val simpOpts = SimplificationOptions(ctx)
-    implicit val purityOpts = PurityOptions(ctx)
+  private[inox] def simplifyFormula(e: Expr)(using ctx: Context, sem: symbols.Semantics): Expr = {
+    given PurityOptions = PurityOptions(ctx)
+    val simpOpts = SimplificationOptions(ctx)
 
     if (simpOpts.simplify) {
       val simp: Expr => Expr =
@@ -1063,8 +1074,8 @@ trait SymbolOps { self: TypeOps =>
   }
 
   // Use this only to debug isValueOfType
-  private implicit class BooleanAdder(b: Boolean) {
-    @inline def <(msg: => String) = {/*if(!b) println(msg); */b}
+  extension (b: Boolean) {
+    @inline private def <(msg: => String) = {/*if(!b) println(msg); */b}
   }
 
   /** Returns true if expr is a value of type t */
@@ -1103,7 +1114,7 @@ trait SymbolOps { self: TypeOps =>
   def isValue(e: Expr) = isValueOfType(e, e.getType)
 
   /** Returns a nested string explaining why this expression is typed the way it is.*/
-  def explainTyping(e: Expr)(implicit opts: PrinterOptions): String = {
+  def explainTyping(e: Expr)(using PrinterOptions): String = {
     fold[String]{ (e, se) =>
       e match {
         case FunctionInvocation(id, tps, args) =>

@@ -201,7 +201,7 @@ trait DefinitionTransformer extends Transformer {
   }
 }
 
-trait TreeTransformer extends DefinitionTransformer {
+trait TreeTransformer extends DefinitionTransformer { self =>
   override final type Env = Unit
   override final val initEnv: Unit = ()
 
@@ -226,46 +226,45 @@ trait TreeTransformer extends DefinitionTransformer {
   def transform(flag: s.Flag): t.Flag = super.transform(flag, ())
   override final def transform(flag: s.Flag, env: Env): t.Flag = transform(flag)
 
-
-  protected trait TreeTransformerComposition extends TreeTransformer {
-    protected val t1: TreeTransformer
-    protected val t2: TreeTransformer { val s: t1.t.type }
-
-    final lazy val s: t1.s.type = t1.s
-    final lazy val t: t2.t.type = t2.t
-
-    override final def transform(id: Identifier): Identifier = t2.transform(t1.transform(id))
-
-    override final def transform(id: Identifier, tpe: s.Type): (Identifier, t.Type) = {
-      val (id1, tp1) = t1.transform(id, tpe)
-      t2.transform(id1, tp1)
-    }
-
-    override final def transform(vd: s.ValDef): t.ValDef = t2.transform(t1.transform(vd))
-    override final def transform(e: s.Expr): t.Expr = t2.transform(t1.transform(e))
-    override final def transform(tpe: s.Type): t.Type = t2.transform(t1.transform(tpe))
-    override final def transform(flag: s.Flag): t.Flag = t2.transform(t1.transform(flag))
-
-    override final def transform(fd: s.FunDef): t.FunDef = t2.transform(t1.transform(fd))
-    override final def transform(sort: s.ADTSort): t.ADTSort = t2.transform(t1.transform(sort))
-  }
-
-  def compose(that: TreeTransformer { val t: TreeTransformer.this.s.type }): TreeTransformer {
+  def compose(that: TreeTransformer { val t: self.s.type }): TreeTransformer {
     val s: that.s.type
-    val t: TreeTransformer.this.t.type
+    val t: self.t.type
   } = {
     // the scala type checker doesn't realize that this relation must hold here
     that andThen this.asInstanceOf[TreeTransformer {
       val s: that.t.type
-      val t: TreeTransformer.this.t.type
+      val t: self.t.type
     }]
   }
 
-  def andThen(that: TreeTransformer { val s: TreeTransformer.this.t.type }): TreeTransformer {
-    val s: TreeTransformer.this.s.type
+  def andThen(that: TreeTransformer { val s: self.t.type }): TreeTransformer {
+    val s: self.s.type
     val t: that.t.type
-  } = new TreeTransformerComposition {
-    val t1: TreeTransformer.this.type = TreeTransformer.this
-    val t2: that.type = that
+  } = {
+    class TreeTransformerComposition(val t1: self.type, val t2: that.type)
+                                    (override val s: this.s.type,
+                                     override val t: t2.t.type)
+      extends TreeTransformer {
+
+      override final def transform(id: Identifier): Identifier = t2.transform(t1.transform(id))
+
+      override final def transform(id: Identifier, tpe: s.Type): (Identifier, t.Type) = {
+        val (id1, tp1) = t1.transform(id, tpe)
+        t2.transform(id1, tp1)
+      }
+
+      override final def transform(vd: s.ValDef): t.ValDef = t2.transform(t1.transform(vd))
+      override final def transform(e: s.Expr): t.Expr = t2.transform(t1.transform(e))
+      override final def transform(tpe: s.Type): t.Type = t2.transform(t1.transform(tpe))
+      override final def transform(flag: s.Flag): t.Flag = t2.transform(t1.transform(flag))
+
+      override final def transform(fd: s.FunDef): t.FunDef = t2.transform(t1.transform(fd))
+      override final def transform(sort: s.ADTSort): t.ADTSort = t2.transform(t1.transform(sort))
+    }
+
+    new TreeTransformerComposition(this, that)(this.s, that.t)
   }
 }
+
+class ConcreteTreeTransformer(override val s: ast.Trees, override val t: ast.Trees)
+  extends TreeTransformer

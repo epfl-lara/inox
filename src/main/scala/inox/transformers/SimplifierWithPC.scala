@@ -10,16 +10,20 @@ import scala.collection.mutable.{Map => MutableMap}
 trait SimplifierWithPC extends Transformer { self =>
   val trees: ast.Trees
   val symbols: trees.Symbols
+  val opts: solvers.PurityOptions
 
-  lazy val s: trees.type = trees
-  lazy val t: trees.type = trees
+  given givenOpts: solvers.PurityOptions = opts
 
-  import trees._
-  import symbols._
+  // The only value that can be assigned to `s` and `t` is `trees`, but that has to be
+  // done in a concrete class explicitly overriding `s` and `t`.
+  // Otherwise, we can run into initialization issue.
+  val s: trees.type
+  val t: trees.type
+
+  import trees.{given, _}
+  import symbols.{given, _}
   import exprOps._
   import dsl._
-
-  implicit val opts: solvers.PurityOptions
 
   trait SolvingPath { selfP: Env =>
     def expand(expr: Expr): Expr = expr
@@ -238,7 +242,7 @@ trait SimplifierWithPC extends Transformer { self =>
       lazy val immediateCall = existsWithPC(rb) { case (`v`, path) => path.isEmpty case _ => false }
       lazy val containsLambda = exists { case l: Lambda => true case _ => false }(re)
       lazy val realPE = if (opts.assumeChecked) {
-        val simp = simplifier(solvers.PurityOptions.unchecked)
+        val simp = simplifier(using solvers.PurityOptions.unchecked)
         simp.isPure(e, path in simp)
       } else {
         pe
@@ -291,8 +295,8 @@ trait SimplifierWithPC extends Transformer { self =>
 
     case app @ Application(e, es)  =>
       val (caller, recons): (Expr, Expr => Expr) = simplify(e, path) match {
-        case (ra @ Assume(pred, e), _) => (e, assume(pred, _).copiedFrom(ra))
-        case (e, _) => (e, expr => expr)
+        case (ra @ Assume(pred, e), _) => (e, (expr: Expr) => assume(pred, expr).copiedFrom(ra))
+        case (e, _) => (e, (expr: Expr) => expr)
       }
 
       path.expand(caller) match {

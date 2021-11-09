@@ -23,7 +23,7 @@ trait DSL {
 
   /* Expressions */
 
-  implicit class ExpressionWrapper(e: Expr) {
+  extension (e: Expr) {
 
     // Arithmetic
     def + = Plus(e, _: Expr)
@@ -48,10 +48,11 @@ trait DSL {
     def unary_! = Not(e)
 
     // Tuple selections
-    def _1 = TupleSelect(e, 1)
-    def _2 = TupleSelect(e, 2)
-    def _3 = TupleSelect(e, 3)
-    def _4 = TupleSelect(e, 4)
+    // Note: we do not name these _1, _2 etc. as it interferes with the compiler-generated _1, _2 etc. of case classes
+    def _ts1 = TupleSelect(e, 1)
+    def _ts2 = TupleSelect(e, 2)
+    def _ts3 = TupleSelect(e, 3)
+    def _ts4 = TupleSelect(e, 4)
 
     // Sets
     def subsetOf = SubsetOf(e, _: Expr)
@@ -107,20 +108,20 @@ trait DSL {
 
   def ite(cond: Expr, thenn: Expr, elze: Expr) = IfExpr(cond, thenn, elze)
 
-  implicit class FunctionInv(fd: FunDef) {
+  extension (fd: FunDef) {
     def apply(tp1: Type, tps: Type*)(args: Expr*) =
       FunctionInvocation(fd.id, tp1 +: tps.toSeq, args.toSeq)
     def apply(args: Expr*) =
       FunctionInvocation(fd.id, Seq.empty, args.toSeq)
   }
 
-  implicit class GenValue(tp: TypeParameter) {
+  extension (tp: TypeParameter) {
     def ## (id: Int) = GenericValue(tp, id)
   }
 
   // Syntax to make ValDefs, e.g. ("i" :: Integer)
-  implicit class TypeToValDef(tp: Type) {
-    def :: (nm: String): ValDef = ValDef(FreshIdentifier(nm), tp)
+  extension (nm: String) {
+    def :: (tp: Type): ValDef = ValDef(FreshIdentifier(nm), tp)
   }
 
   /** Creates a [[Expressions.Let Let]]. A [[Definitions.ValDef ValDef]] and a
@@ -196,7 +197,7 @@ trait DSL {
     def apply(tps: Type*) = ADTType(id, tps.toSeq)
   }
 
-  implicit class ADTTypeBuilder(adt: ADTSort) {
+  extension (adt: ADTSort) {
     def apply(tps: Type*) = ADTType(adt.id, tps.toSeq)
   }
 
@@ -209,19 +210,25 @@ trait DSL {
     def apply(args: Expr*) = new ADTCons(id, Seq.empty).copiedFrom(this).apply(args : _*)
   }
 
-  implicit class ADTConsConstructor(adt: ADTConstructor) {
+  extension (adt: ADTConstructor) {
     def apply(tp: Type, tps: Type*) = new ADTCons(adt.id, tp +: tps)
     def apply(args: Expr*) = new ADTCons(adt.id, Seq.empty).apply(args : _*)
   }
 
-  implicit class FunctionTypeBuilder(to: Type) {
-    def =>: (from: Type) =
+  extension (from: Type) {
+    def =>: (to: Type) =
       FunctionType(Seq(from), to)
-    def =>: (from: (Type, Type)) =
+  }
+  extension (from: (Type, Type)) {
+    def =>: (to: Type) =
       FunctionType(Seq(from._1, from._2), to)
-    def =>: (from: (Type, Type, Type)) =
+  }
+  extension (from: (Type, Type, Type)) {
+    def =>: (to: Type) =
       FunctionType(Seq(from._1, from._2, from._3), to)
-    def =>: (from: (Type, Type, Type, Type)) =
+  }
+  extension (from: (Type, Type, Type, Type)) {
+    def =>: (to: Type) =
       FunctionType(Seq(from._1, from._2, from._3, from._4), to)
   }
 
@@ -292,7 +299,7 @@ trait DSL {
     */
   def mkFunDef(id: Identifier, flags: Flag*)
               (tParamNames: String*)
-              (builder: Seq[TypeParameter] => (Seq[ValDef], Type, Seq[Variable] => Expr)) = {
+              (builder: Seq[TypeParameter] => (Seq[ValDef], Type, Seq[Variable] => Expr)): FunDef = {
     val tParams = tParamNames map (TypeParameter.fresh(_))
     val tParamDefs = tParams map (TypeParameterDef(_))
     val (params, retType, bodyBuilder) = builder(tParams)

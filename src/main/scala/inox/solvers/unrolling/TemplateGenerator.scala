@@ -8,10 +8,10 @@ import utils._
 import scala.collection.mutable.{Map => MutableMap}
 
 trait TemplateGenerator { self: Templates =>
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   protected type TemplateClauses = (
     Map[Variable, Encoded],
@@ -28,8 +28,8 @@ trait TemplateGenerator { self: Templates =>
   protected def emptyClauses: TemplateClauses =
     (Map.empty, Map.empty, Map.empty, Map.empty, Seq.empty, Map.empty, Map.empty, Seq.empty, Seq.empty)
 
-  protected implicit class ClausesWrapper(clauses: TemplateClauses) {
-    def ++(that: TemplateClauses): TemplateClauses = {
+  extension (clauses: TemplateClauses) {
+    def +++(that: TemplateClauses): TemplateClauses = {
       val (thisConds, thisExprs, thisTree, thisGuarded, thisEqs, thisTps, thisEqualities, thisLambdas, thisQuants) = clauses
       val (thatConds, thatExprs, thatTree, thatGuarded, thatEqs, thatTps, thatEqualities, thatLambdas, thatQuants) = that
 
@@ -64,13 +64,16 @@ trait TemplateGenerator { self: Templates =>
     } (expr)
   }
 
-  def mkClauses(pathVar: Variable, expr: Expr, substMap: Map[Variable, Encoded], polarity: Option[Boolean] = None): TemplateClauses = {
+  // Due to a Scala 3 bug, if we name the following two methods the same, we encounter a strange error.
+  // The following open ticket should be related to our problems:
+  // https://github.com/lampepfl/dotty/issues/11226
+  def mkClauses0(pathVar: Variable, expr: Expr, substMap: Map[Variable, Encoded], polarity: Option[Boolean] = None): TemplateClauses = {
     val (p, tmplClauses) = mkExprClauses(pathVar, expr, substMap, polarity)
     tmplClauses + (pathVar -> p)
   }
 
-  def mkClauses(pathVar: Variable, tpe: Type, expr: Expr, substMap: Map[Variable, Encoded])
-               (implicit generator: TypingGenerator): TemplateClauses = {
+  def mkClauses1(pathVar: Variable, tpe: Type, expr: Expr, substMap: Map[Variable, Encoded])
+                (using TypingGenerator): TemplateClauses = {
     val (p, tmplClauses) = mkTypeClauses(pathVar, tpe, expr, substMap)
     tmplClauses + (pathVar -> p)
   }
@@ -195,8 +198,8 @@ trait TemplateGenerator { self: Templates =>
             val exprVar = Variable.fresh("r", v.getType)
 
             val localSubst = depSubst + (condVar -> encodeSymbol(condVar)) + (exprVar -> encodeSymbol(exprVar))
-            val cls = mkClauses(pathVar, Equals(condVar, andJoin(conditions)), localSubst) ++
-              mkClauses(condVar, Equals(exprVar, expr), localSubst)
+            val cls: TemplateClauses = mkClauses0(pathVar, Equals(condVar, andJoin(conditions)), localSubst) +++
+              mkClauses0(condVar, Equals(exprVar, expr), localSubst)
 
             // setup the full encoding substMap
             val (conds, exprs, tree, types, equals, lmbds, quants) = cls.proj
@@ -255,7 +258,7 @@ trait TemplateGenerator { self: Templates =>
     }
 
     var types = Map[Encoded, Set[Typing]]()
-    def storeType(pathVar: Variable, tpe: Type, arg: Expr)(implicit generator: TypingGenerator): Expr = {
+    def storeType(pathVar: Variable, tpe: Type, arg: Expr)(using generator: TypingGenerator): Expr = {
       val b = encodedCond(pathVar)
       val encoder = mkEncoder(localSubst) _
       val closures = typeOps.variablesOf(tpe).toSeq.sortBy(_.id).map(encoder).map(Left(_))
@@ -335,7 +338,7 @@ trait TemplateGenerator { self: Templates =>
         val newExpr = res.toVariable.freshen
         storeExpr(newExpr)
 
-        val (tpeExpr, tmplClauses) = mkTypeClauses(pathVar, res.tpe, newExpr, localSubst)(FreeGenerator)
+        val (tpeExpr, tmplClauses) = mkTypeClauses(pathVar, res.tpe, newExpr, localSubst)(using FreeGenerator)
         storeGuarded(pathVar, tpeExpr)
         builder ++= tmplClauses
 
@@ -527,7 +530,7 @@ trait TemplateGenerator { self: Templates =>
     tpe: Type,
     expr: Expr,
     substMap: Map[Variable, Encoded]
-  )(implicit generator: TypingGenerator): (Expr, TemplateClauses) = {
+  )(using generator: TypingGenerator): (Expr, TemplateClauses) = {
     val builder = new Builder(pathVar, substMap)
     import builder._
 

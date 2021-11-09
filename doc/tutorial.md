@@ -17,14 +17,14 @@ However, Inox provides all the tools necessary to enable inductive reasoning, as
 Let us start by setting up some useful imports:
 
 ```scala
-import inox._
+import inox.{given, _}
 import inox.trees._
 import inox.trees.dsl._
 import inox.solvers._
 ```
 
 The explanation is the following:
-- `inox._` imports [`InoxProgram` and many others](/src/main/scala/inox/package.scala#L19)
+- `inox.{given, _}` imports [`InoxProgram` and many others](/src/main/scala/inox/package.scala#L19)
 - `inox.trees._` imports the content of the default implementation [`trees`](/src/main/scala/inox/package.scala#L53) extending [`Trees`](/src/main/scala/inox/ast/Trees.scala#L10).
 - `inox.trees.dsl._` imports the [domain-specific-language helpers](/src/main/scala/inox/ast/DSL.scala#L20) to create [`trees`](/src/main/scala/inox/package.scala#L53) expressions.
 - `inox.solvers._` imports the [solvers](/src/main/scala/inox/solvers/package.scala#L8).
@@ -198,9 +198,9 @@ __Note__: Inox will assume the inductive invariant on the recursive call to `siz
 In order to verify the property, we get an instance of an Inox solver (see
 [Programs](/doc/API.md#programs) and [Solvers](/doc/API.md#solvers) for more details):
 ```scala
-implicit val ctx: Context = Context.empty
+given ctx: Context = Context.empty
 val program = inox.Program(inox.trees)(symbols)
-val solver = program.getSolver.getNewSolver
+val solver = program.getSolver.getNewSolver()
 solver.assertCnstr(Not(prop))
 solver.check(SolverResponses.Simple) // Should return `Unsat`
 solver.free()

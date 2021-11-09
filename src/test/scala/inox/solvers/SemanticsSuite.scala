@@ -7,11 +7,11 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.Tag
 
 class SemanticsSuite extends AnyFunSuite {
-  import inox.trees._
-  import inox.trees.dsl._
-  import SolverResponses._
+  import inox.trees.{given, _}
+  import inox.trees.dsl.{given, _}
+  import SolverResponses.{given, _}
 
-  implicit val symbols = NoSymbols
+  given symbols: Symbols = NoSymbols
   val program = InoxProgram(symbols)
 
   val solverNames: Seq[String] = {
@@ -30,11 +30,15 @@ class SemanticsSuite extends AnyFunSuite {
   }
 
   protected def test(name: String, filter: Context => Boolean, tags: Tag*)(body: Context => Unit): Unit = {
+    // Workaround for a compiler crash caused by calling super.test
+    def superTest(self: AnyFunSuite, name: String)(body: => Unit): Unit =
+      self.test(name, tags: _*)(body)
+
     for {
       sname <- solverNames
       ctx = TestContext(Options(Seq(optSelectedSolvers(Set(sname)))))
       if filter(ctx)
-    } super.test(s"$name solver=$sname", tags : _*)(body(ctx))
+    } superTest(this, s"$name solver=$sname")(body(ctx))
   }
 
   protected def filterSolvers(ctx: Context, princess: Boolean = false, cvc4: Boolean = false, unroll: Boolean = false, z3: Boolean = false, native: Boolean = false): Boolean = {

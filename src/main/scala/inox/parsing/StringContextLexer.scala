@@ -9,7 +9,7 @@ import scala.util.parsing.combinator.token._
 import scala.util.parsing.input._
 
 /** Contains methods for lexical parsing of StringContext objects and their arguments. */
-trait StringContextLexer extends { self: Lexical =>
+trait StringContextLexer { self: Lexical =>
 
   /** Converts an argument of the StringContext to a Token. */
   def argToToken(x: Any): Token

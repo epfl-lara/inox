@@ -37,7 +37,7 @@ trait Elaborators
     def elaborate[A](c: Constrained[A]): A = c match {
       case Unsatisfiable(es) => throw new ElaborationException(es)
       case WithConstraints(ev, constraints) =>
-        implicit val u = solver.solveConstraints(constraints)
+        given Unifier = solver.solveConstraints(constraints)
         ev
     }
   }
@@ -48,7 +48,7 @@ trait Elaborators
   }
 
   object Unknown {
-    def fresh(implicit position: Position): Unknown = new Unknown(next).setPos(position)
+    def fresh(using position: Position): Unknown = new Unknown(next).setPos(position)
 
     private var i: BigInt = 0
 
@@ -95,7 +95,7 @@ trait Elaborators
   /** Maps meta type-parameters to actual types. */
   class Unifier(subst: Map[Unknown, Type]) {
 
-    val instantiator = new trees.SelfTreeTransformer {
+    val instantiator = new trees.ConcreteSelfTreeTransformer {
       override def transform(tpe: Type) = tpe match {
         case u: Unknown => subst.getOrElse(u, u)
         case _ => super.transform(tpe)
@@ -120,19 +120,26 @@ trait Elaborators
   case class HasSortIn(a: Type, sorts: Map[ADTSort, Type => Seq[Constraint]]) extends Constraint(Seq(a))
 
   object Constraint {
-    def exist(a: Unknown)(implicit position: Position): Constraint = Equal(a, a).setPos(position)
-    def equal(a: Type, b: Type)(implicit position: Position): Constraint = Equal(a, b).setPos(position)
-    def isNumeric(a: Type)(implicit position: Position): Constraint = HasClass(a, Numeric).setPos(position)
-    def isIntegral(a: Type)(implicit position: Position): Constraint = HasClass(a, Integral).setPos(position)
-    def isComparable(a: Type)(implicit position: Position): Constraint = HasClass(a, Comparable).setPos(position)
-    def isBitVector(a: Type)(implicit position: Position): Constraint = HasClass(a, Bits).setPos(position)
-    def atIndex(tup: Type, mem: Type, idx: Int)(implicit position: Position) = AtIndexEqual(tup, mem, idx).setPos(position)
-    def hasSortIn(a: Type, sorts: (ADTSort, Type => Seq[Constraint])*)(implicit position: Position) = HasSortIn(a, sorts.toMap).setPos(position)
+    def exist(a: Unknown)(using position: Position): Constraint = Equal(a, a).setPos(position)
+    def equal(a: Type, b: Type)(using position: Position): Constraint = Equal(a, b).setPos(position)
+    def isNumeric(a: Type)(using position: Position): Constraint = HasClass(a, Numeric).setPos(position)
+    def isIntegral(a: Type)(using position: Position): Constraint = HasClass(a, Integral).setPos(position)
+    def isComparable(a: Type)(using position: Position): Constraint = HasClass(a, Comparable).setPos(position)
+    def isBitVector(a: Type)(using position: Position): Constraint = HasClass(a, Bits).setPos(position)
+    def atIndex(tup: Type, mem: Type, idx: Int)(using position: Position) = AtIndexEqual(tup, mem, idx).setPos(position)
+    def hasSortIn(a: Type, sorts: (ADTSort, Type => Seq[Constraint])*)(using position: Position) = HasSortIn(a, sorts.toMap).setPos(position)
   }
 
-  case class Eventual[+A](fun: Unifier => A)
+  case class Eventual[+A](fun: Unifier => A, _dummy: Unit)
+  object Eventual {
+    // Case classes are not allow to contain context functions.
+    // We can however define an apply that takes such context function.
+    // The _dummy field is used to distinguish the synthetized apply from this one
+    def apply[A](f: Unifier ?=> A): Eventual[A] =
+      Eventual(u => f(using u), ())
+  }
 
-  implicit def eventualToValue[A](e: Eventual[A])(implicit unifier: Unifier): A = e.fun(unifier)
+  implicit def eventualToValue[A](e: Eventual[A])(using unifier: Unifier): A = e.fun(unifier)
 
   class Store private(
     variables: Map[String, (Identifier, Type, Eventual[Type])],
@@ -199,12 +206,12 @@ trait Elaborators
    */
   sealed abstract class Constrained[+A] {
 
-    def map[B](f: A => (Unifier => B)): Constrained[B] = this match {
+    def map[B](f: A => (Unifier ?=> B)): Constrained[B] = this match {
       case Unsatisfiable(es) => Unsatisfiable(es)
-      case WithConstraints(v, cs) => WithConstraints(Eventual(implicit u => f(v)(u)), cs)
+      case WithConstraints(v, cs) => WithConstraints(Eventual(f(v)), cs)
     }
 
-    def flatMap[B](f: (Eventual[A]) => Constrained[B]): Constrained[B] = this match {
+    def flatMap[B](f: Eventual[A] => Constrained[B]): Constrained[B] = this match {
       case Unsatisfiable(es) => Unsatisfiable(es)
       case WithConstraints(fA, csA) => f(fA) match {
         case Unsatisfiable(fs) => Unsatisfiable(fs)
@@ -214,20 +221,20 @@ trait Elaborators
 
     def transform[B](f: A => B): Constrained[B] = this match {
       case Unsatisfiable(es) => Unsatisfiable(es)
-      case WithConstraints(v, cs) => WithConstraints(Eventual(implicit u => f(v)), cs)
+      case WithConstraints(v, cs) => WithConstraints(Eventual(f(v)), cs)
     }
 
     def combine[B, C](that: Constrained[B])(f: (A, B) => C): Constrained[C] = (this, that) match {
-      case (WithConstraints(vA, csA), WithConstraints(vB, csB)) => WithConstraints(Eventual(implicit u => f(vA, vB)), csA ++ csB)
+      case (WithConstraints(vA, csA), WithConstraints(vB, csB)) => WithConstraints(Eventual(f(vA, vB)), csA ++ csB)
       case (Unsatisfiable(es), Unsatisfiable(fs)) => Unsatisfiable(es ++ fs)
       case (Unsatisfiable(es), _) => Unsatisfiable(es)
       case (_, Unsatisfiable(fs)) => Unsatisfiable(fs)
     }
 
-    def app[B, C](that: Constrained[B])(implicit ev: A <:< (B => C)): Constrained[C] =
+    def app[B, C](that: Constrained[B])(using ev: A <:< (B => C)): Constrained[C] =
       this.combine(that)((f: A, x: B) => ev(f)(x))
 
-    def get(implicit unifier: Unifier): A = this match {
+    def get(using Unifier): A = this match {
       case WithConstraints(vA, cs) => vA
       case Unsatisfiable(_) => throw new Exception("Unsatisfiable.get")
     }
@@ -253,8 +260,8 @@ trait Elaborators
       assert(!errors.isEmpty)
       Unsatisfiable(errors.map({ case (error, location) => ErrorLocation(error, location)}))
     }
-    def pure[A](x: A): Constrained[A] = WithConstraints(Eventual(implicit u => x), Seq())
-    def unify[A](f: Unifier => A): Constrained[A] = WithConstraints(Eventual(f), Seq())
+    def pure[A](x: A): Constrained[A] = WithConstraints(Eventual(x), Seq())
+    def unify[A](f: Unifier ?=> A): Constrained[A] = WithConstraints(Eventual(f), Seq())
 
     def sequence[A](cs: Seq[Constrained[A]]): Constrained[Seq[A]] = {
       val zero: Constrained[Seq[A]] = pure(Seq[A]())

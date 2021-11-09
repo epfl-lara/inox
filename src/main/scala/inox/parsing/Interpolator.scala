@@ -13,19 +13,18 @@ trait Interpolator
 
   import trees._
 
-  class Converter(implicit val symbols: trees.Symbols)
+  class Converter(using val symbols: trees.Symbols)
     extends Elaborator
        with Extractor
 
-  implicit class ExpressionInterpolator(sc: StringContext)(implicit symbols: trees.Symbols = trees.NoSymbols) {
-
+  implicit class ExpressionInterpolator(sc: StringContext)(using symbols: trees.Symbols = trees.NoSymbols) {
     private lazy val converter = new Converter()
     private lazy val parser = new DefinitionParser()
 
     object e {
       def apply(args: Any*): Expr = {
         val ire = ir(args : _*)
-        val expr = converter.getExpr(ire, Unknown.fresh(ire.pos))(Store.empty)
+        val expr = converter.getExpr(ire, Unknown.fresh(using ire.pos))(using Store.empty)
         converter.elaborate(expr)
       }
 
@@ -45,7 +44,7 @@ trait Interpolator
 
     def v(args: Any*): ValDef = {
       val (id, ir) = parser.getFromSC(sc, args)(parser.phrase(parser.inoxValDef))
-      val tpe = converter.getType(ir)(Store.empty)
+      val tpe = converter.getType(ir)(using Store.empty)
       trees.ValDef(id, converter.elaborate(tpe))
     }
 
@@ -65,7 +64,7 @@ trait Interpolator
     object t {
       def apply(args: Any*): Type = {
         val ir = parser.getFromSC(sc, args)(parser.phrase(parser.typeExpression))
-        val tpe = converter.getType(ir)(Store.empty)
+        val tpe = converter.getType(ir)(using Store.empty)
         converter.elaborate(tpe)
       }
 
@@ -82,7 +81,7 @@ trait Interpolator
     object td {
       def apply(args: Any*): ADTSort = {
         val ir = parser.getFromSC(sc, args)(parser.phrase(parser.datatype))
-        val srt = converter.getSort(ir)(Store.empty)
+        val srt = converter.getSort(ir)(using Store.empty)
         converter.elaborate(srt)
       }
 
@@ -99,7 +98,7 @@ trait Interpolator
     object fd {
       def apply(args: Any*): FunDef = {
         val ir = parser.getFromSC(sc, args)(parser.phrase(parser.function))
-        val fundef = converter.getFunction(ir)(Store.empty)
+        val fundef = converter.getFunction(ir)(using Store.empty)
         converter.elaborate(fundef)
       }
 

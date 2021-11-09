@@ -54,10 +54,10 @@ trait Printers { self: Trees =>
   }
 
   trait Printable {
-    def asString(implicit opts: PrinterOptions): String
+    def asString(using opts: PrinterOptions): String
   }
 
-  def asString(obj: Any)(implicit opts: PrinterOptions): String = obj match {
+  def asString(obj: Any)(using opts: PrinterOptions): String = obj match {
     case tree: Tree => prettyPrint(tree, opts)
     case id: Identifier => id.asString
     case _ => obj.toString
@@ -65,7 +65,7 @@ trait Printers { self: Trees =>
 
   def prettyPrint(tree: Tree, opts: PrinterOptions = PrinterOptions()): String = {
     val ctx = PrinterContext(tree, Nil, opts.baseIndent, opts)
-    printer.pp(tree)(ctx)
+    printer.pp(tree)(using ctx)
     ctx.sb.toString
   }
 }
@@ -74,7 +74,7 @@ trait Printer {
   protected val trees: Trees
   import trees._
 
-  protected def optP(body: => Any)(implicit ctx: PrinterContext) = {
+  protected def optP(body: => Any)(using ctx: PrinterContext) = {
     if (requiresParentheses(ctx.current, ctx.parent)) {
       ctx.sb.append("(")
       body
@@ -86,7 +86,7 @@ trait Printer {
 
   private val dbquote = "\""
 
-  def pp(tree: Tree)(implicit ctx: PrinterContext): Unit = {
+  def pp(tree: Tree)(using ctx: PrinterContext): Unit = {
     if (requiresBraces(tree, ctx.parent) && !ctx.parent.contains(tree)) {
       p"""|{
           |  $tree
@@ -98,7 +98,7 @@ trait Printer {
     }
   }
 
-  protected def ppPrefix(tree: Tree)(implicit ctx: PrinterContext): Unit = {
+  protected def ppPrefix(tree: Tree)(using ctx: PrinterContext): Unit = {
     if (ctx.opts.printTypes) {
       tree match {
         case t: Expr =>
@@ -109,7 +109,7 @@ trait Printer {
     }
   }
 
-  protected def ppBody(tree: Tree)(implicit ctx: PrinterContext): Unit = tree match {
+  protected def ppBody(tree: Tree)(using ctx: PrinterContext): Unit = tree match {
     case Variable(id, _, _) =>
       p"$id"
 
@@ -295,7 +295,7 @@ trait Printer {
         p"$id: $tpe"
       } else {
         p"($id: $tpe)"
-        for (f <- flags) p" @${f.asString(ctx.opts)}"
+        for (f <- flags) p" @${f.asString(using ctx.opts)}"
       }
 
     case (tfd: TypedFunDef) => p"typed def ${tfd.id}[${tfd.tps}]"
@@ -307,7 +307,7 @@ trait Printer {
 
     case TypeParameter(id, flags) =>
       p"$id"
-      for (f <- flags) p" @${f.asString(ctx.opts)}"
+      for (f <- flags) p" @${f.asString(using ctx.opts)}"
 
     case IfExpr(c, t, ie: IfExpr) =>
       optP {
@@ -357,7 +357,7 @@ trait Printer {
 
     // Definitions
     case sort: ADTSort =>
-      for (an <- sort.flags) p"""|@${an.asString(ctx.opts)}
+      for (an <- sort.flags) p"""|@${an.asString(using ctx.opts)}
                                  |"""
       p"abstract class ${sort.id}"
       if (sort.tparams.nonEmpty) p"${nary(sort.tparams, ", ", "[", "]")}"
@@ -383,7 +383,7 @@ trait Printer {
 
     case fd: FunDef =>
       for (an <- fd.flags) {
-        p"""|@${an.asString(ctx.opts)}
+        p"""|@${an.asString(using ctx.opts)}
             |"""
       }
 
@@ -398,11 +398,11 @@ trait Printer {
     case _ => ctx.sb.append("Tree? (" + tree.getClass + ")")
   }
 
-  protected def ppSuffix(tree: Tree)(implicit ctx: PrinterContext): Unit = {
+  protected def ppSuffix(tree: Tree)(using ctx: PrinterContext): Unit = {
     if (ctx.opts.printTypes) {
       tree match {
         case t: Expr =>
-          p" : ${t.getType(ctx.opts.symbols.get)} ⟩"
+          p" : ${t.getType(using ctx.opts.symbols.get)} ⟩"
 
         case _ =>
       }
@@ -484,13 +484,12 @@ trait Printer {
     case (_, _) => true
   }
 
-  implicit class PrintWrapper(val f: PrinterContext => Any) {
-    def print(ctx: PrinterContext) = f(ctx)
+  class PrintWrapper(val f: PrinterContext ?=> Any) {
+    def print(ctx: PrinterContext) = f(using ctx)
   }
 
-  implicit class PrintingHelper(val sc: StringContext) {
-
-    def p(args: Any*)(implicit ctx: PrinterContext): Unit = {
+  extension (sc: StringContext) {
+    def p(args: Any*)(using ctx: PrinterContext): Unit = {
       val sb = ctx.sb
 
       val strings = sc.parts.iterator
@@ -540,7 +539,7 @@ trait Printer {
                 nctx.current :: nctx.parents
               }
               val nctx2 = nctx.copy(parents = parents, current = t)
-              pp(t)(nctx2)
+              pp(t)(using nctx2)
 
             case id: Identifier =>
               val name = if (ctx.opts.printUniqueIds) {
@@ -561,20 +560,17 @@ trait Printer {
     }
   }
 
-  def nary(ls: Seq[Any], sep: String = ", ", init: String = "", closing: String = ""): PrintWrapper = {
+  def nary(ls: Seq[Any], sep: String = ", ", init: String = "", closing: String = ""): PrintWrapper = PrintWrapper {
     val (i, c) = if (ls.isEmpty) ("", "") else (init, closing)
     val strs = i +: List.fill(ls.size - 1)(sep) :+ c
-
-    implicit pctx: PrinterContext =>
-      new StringContext(strs: _*).p(ls: _*)
+    new StringContext(strs: _*).p(ls: _*)
   }
 
-  def typed(t: Tree with Typed)(implicit s: Symbols): PrintWrapper = {
-    implicit pctx: PrinterContext =>
-      p"$t : ${t.getType}"
+  def typed(t: Tree with Typed)(using Symbols): PrintWrapper = PrintWrapper {
+    p"$t : ${t.getType}"
   }
 
-  def typed(ts: Seq[Tree with Typed])(implicit s: Symbols): PrintWrapper = {
+  def typed(ts: Seq[Tree with Typed])(using Symbols): PrintWrapper = PrintWrapper {
     nary(ts.map(typed))
   }
 }

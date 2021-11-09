@@ -11,12 +11,12 @@ trait DefinitionElaborators { self: Elaborators =>
 
     import DefinitionIR._
 
-    def getFunction(fd: FunDef)(implicit store: Store): Constrained[trees.FunDef] = {
-      for (ds <- getDefinitions(Seq(fd))) yield { implicit u => ds.head.asInstanceOf[trees.FunDef] }
+    def getFunction(fd: FunDef)(using Store): Constrained[trees.FunDef] = {
+      for (ds <- getDefinitions(Seq(fd))) yield { ds.head.asInstanceOf[trees.FunDef] }
     }
 
-    def getSort(td: TypeDef)(implicit store: Store): Constrained[trees.ADTSort] = {
-      for (ds <- getDefinitions(Seq(td))) yield { implicit u => ds.head.asInstanceOf[trees.ADTSort] }
+    def getSort(td: TypeDef)(using Store): Constrained[trees.ADTSort] = {
+      for (ds <- getDefinitions(Seq(td))) yield { ds.head.asInstanceOf[trees.ADTSort] }
     }
 
     def getDefinitions(definitions: Seq[Definition]): Constrained[Seq[trees.Definition]] = {
@@ -76,7 +76,7 @@ trait DefinitionElaborators { self: Elaborators =>
           td.constructors.foldLeft(store) { case (store, (ident, params)) =>
             val id = getIdentifier(ident)
             val fields = params.map { case (ident, tpe) =>
-              trees.ValDef(getIdentifier(ident), getSimpleType(tpe)(tpStore))
+              trees.ValDef(getIdentifier(ident), getSimpleType(tpe)(using tpStore))
             }
             store + (ident.getName, sort, new trees.ADTConstructor(id, sort.id, fields))
           }
@@ -89,8 +89,8 @@ trait DefinitionElaborators { self: Elaborators =>
             case (store, (id, tp)) => store + (id.getName, tp)
           }
 
-          val params = fd.params.map(p => trees.ValDef(getIdentifier(p._1), getSimpleType(p._2)(tpStore)))
-          val resultType = getSimpleType(fd.returnType)(tpStore)
+          val params = fd.params.map(p => trees.ValDef(getIdentifier(p._1), getSimpleType(p._2)(using tpStore)))
+          val resultType = getSimpleType(fd.returnType)(using tpStore)
           val body = trees.Choose(trees.ValDef.fresh("res", resultType), trees.BooleanLiteral(true))
           store + (fd.id.getName, new trees.FunDef(id, tpds, params, resultType, body, Seq()))
       }
@@ -98,7 +98,7 @@ trait DefinitionElaborators { self: Elaborators =>
       Constrained.sequence({
         definitions.map {
           case td: TypeDef =>
-            implicit val position: Position = td.pos
+            given position: Position = td.pos
             val sort = newStore getSort td.id.getName
             val tpStore = (td.tparams zip sort.typeArgs).foldLeft(newStore) {
               case (store, (id, tp)) => store + (id.getName, tp)
@@ -109,7 +109,7 @@ trait DefinitionElaborators { self: Elaborators =>
                 val (_, cons) = newStore getConstructor id.getName
                 val (_, _, vds) = getExprBindings((params zip cons.fields).map {
                   case ((_, tpe), vd) => (ExprIR.IdentifierIdentifier(vd.id), Some(tpe))
-                })(tpStore, position)
+                })(using tpStore, position)
                 vds.transform(cons.id -> _)
               }
             }).transform({ constructors =>
@@ -119,7 +119,7 @@ trait DefinitionElaborators { self: Elaborators =>
             })
 
           case fd: FunDef =>
-            implicit val position: Position = fd.pos
+            given position: Position = fd.pos
             val signature = newStore getFunction fd.id.getName
             val initStore = (fd.tparams zip signature.typeArgs).foldLeft(newStore) {
               case (store, (id, tp)) => store + (id.getName, tp)
@@ -127,15 +127,15 @@ trait DefinitionElaborators { self: Elaborators =>
 
             val (bodyStore, _, vds) = getExprBindings((fd.params zip signature.params).map {
               case ((_, tpe), vd) => (ExprIR.IdentifierIdentifier(vd.id), Some(tpe))
-            })(initStore, position)
+            })(using initStore, position)
 
             val returnType = Unknown.fresh
 
             (for {
               params <- vds
-              tpe <- getType(fd.returnType)(bodyStore)
-              body <- getExpr(fd.body, returnType)(bodyStore)
-            } yield { implicit u =>
+              tpe <- getType(fd.returnType)(using bodyStore)
+              body <- getExpr(fd.body, returnType)(using bodyStore)
+            } yield {
               new trees.FunDef(signature.id, signature.tparams, params, tpe, body, Seq())
             }).addConstraint({
               Constraint.equal(returnType, signature.returnType)

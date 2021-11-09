@@ -5,42 +5,50 @@ package inox
 object optPrintChooses extends FlagOptionDef("print-chooses", false)
 
 object Model {
-  def empty(p: Program): p.Model = new Model {
-    val program: p.type = p
-    val vars: Map[p.trees.ValDef, p.trees.Expr] = Map.empty
-    val chooses: Map[(Identifier, Seq[p.trees.Type]), p.trees.Expr] = Map.empty
+  def empty(p: Program): p.Model = {
+    class EmptyImpl(override val program: p.type,
+                    override val vars: Map[p.trees.ValDef, p.trees.Expr],
+                    override val chooses: Map[(Identifier, Seq[p.trees.Type]), p.trees.Expr])
+      extends Model(program)(vars, chooses)
+    new EmptyImpl(p, Map.empty, Map.empty)
   }
 
   def apply(p: Program)(
     vs: Map[p.trees.ValDef, p.trees.Expr],
     cs: Map[(Identifier, Seq[p.trees.Type]), p.trees.Expr]
-  ): p.Model = new Model {
-    val program: p.type = p
-    val vars = vs
-    val chooses = cs
+  ): p.Model = {
+    class Impl(override val program: p.type,
+               override val vars: Map[p.trees.ValDef, p.trees.Expr],
+               override val chooses: Map[(Identifier, Seq[p.trees.Type]), p.trees.Expr])
+      extends Model(program)(vars, chooses)
+    new Impl(p, vs, cs)
   }
 }
 
-trait Model { self =>
-  protected val program: Program
-
-  import program._
+class Model(val program: Program)
+           (val vars: Map[program.trees.ValDef, program.trees.Expr],
+            val chooses: Map[(Identifier, Seq[program.trees.Type]), program.trees.Expr]) { self =>
+  import program.{Model => _, _}
   import program.trees._
-
-  val vars: Map[ValDef, Expr]
-  val chooses: Map[(Identifier, Seq[Type]), Expr]
 
   def isEmpty: Boolean = vars.isEmpty && chooses.isEmpty
 
   def encode(t: transformers.ProgramTransformer {
     val sourceProgram: program.type
-  }): t.targetProgram.Model = new inox.Model {
-    val program: t.targetProgram.type = t.targetProgram
-    val vars = self.vars.map { case (vd, e) => t.encode(vd) -> t.encode(e) }
-    val chooses = self.chooses.map { case ((id, tps), e) => (id, tps.map(t.encode(_))) -> t.encode(e) }
+  }): t.targetProgram.Model = {
+    class EncodedImpl(override val program: t.targetProgram.type,
+                      override val vars: Map[t.targetProgram.trees.ValDef, t.targetProgram.trees.Expr],
+                      override val chooses: Map[(Identifier, Seq[t.targetProgram.trees.Type]), t.targetProgram.trees.Expr])
+      extends Model(program)(vars, chooses)
+
+    new EncodedImpl(
+      t.targetProgram,
+      self.vars.map { case (vd, e) => t.encode(vd) -> t.encode(e) },
+      self.chooses.map { case ((id, tps), e) => (id, tps.map(t.encode(_))) -> t.encode(e) }
+    )
   }
 
-  def asString(implicit opts: PrinterOptions): String = {
+  def asString(using opts: PrinterOptions): String = {
     val modelString: String = if (vars.isEmpty) "" else {
       val max = vars.keys.map(_.asString.length).max
       (for ((vd, e) <- vars) yield {
@@ -93,5 +101,5 @@ trait Model { self =>
     }
   }
 
-  override def toString: String = asString(PrinterOptions(symbols = Some(symbols)))
+  override def toString: String = asString(using PrinterOptions(symbols = Some(symbols)))
 }

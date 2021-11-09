@@ -35,14 +35,14 @@ trait TypeElaborators { self: Elaborators =>
       }
     })
 
-    def getSimpleType(tpe: Expression)(implicit store: Store): trees.Type = {
+    def getSimpleType(tpe: Expression)(using Store): trees.Type = {
       toSimpleType(tpe) match {
         case Right(inoxType) => inoxType
         case Left(errors) => throw new ElaborationException(errors)
       }
     }
 
-    def toSimpleType(expr: Expression)(implicit store: Store): Either[Seq[ErrorLocation], trees.Type] = expr match {
+    def toSimpleType(expr: Expression)(using store: Store): Either[Seq[ErrorLocation], trees.Type] = expr match {
       case Operation(Tuple | Sigma, irs) if irs.size >= 2 =>
         traverse(irs.map {
           case TypeBinding(_, tpe) => toSimpleType(tpe)
@@ -117,15 +117,15 @@ trait TypeElaborators { self: Elaborators =>
     }
 
     private def getTypeBindings(tps: Seq[(Option[ExprIR.Identifier], Expression)])
-                               (implicit store: Store): (Store, Constrained[Seq[trees.ValDef]]) = {
-      val (newStore, vds) = tps.foldLeft((store, Seq[Constrained[trees.ValDef]]())) {
+                               (using store0: Store): (Store, Constrained[Seq[trees.ValDef]]) = {
+      val (newStore, vds) = tps.foldLeft((store0, Seq[Constrained[trees.ValDef]]())) {
         case ((store, vds), (oid, tpe)) =>
-          getType(tpe)(store) match {
+          getType(tpe)(using store) match {
             case unsat: Unsatisfiable => (store, vds :+ unsat)
             case c @ WithConstraints(ev, cs) => oid match {
               case Some(ident) =>
                 val id = getIdentifier(ident)
-                val newStore = store + (ident.getName, id, getSimpleType(tpe)(store), ev)
+                val newStore = store + (ident.getName, id, getSimpleType(tpe)(using store), ev)
                 val newVds = vds :+ c.transform(tp => trees.ValDef(id, tp))
                 (newStore, newVds)
               case None =>
@@ -138,8 +138,8 @@ trait TypeElaborators { self: Elaborators =>
     }
 
     def getType(expr: Expression, bound: Option[String] = None)
-               (implicit store: Store): Constrained[trees.Type] = {
-      implicit val position: Position = expr.pos
+               (using store: Store): Constrained[trees.Type] = {
+      given Position = expr.pos
 
       expr match {
         case Operation(Tuple, irs) if irs.size >= 2 =>
@@ -155,7 +155,7 @@ trait TypeElaborators { self: Elaborators =>
             case tpe => (None, tpe)
           })
 
-          bindings.combine(getType(irs.last)(newStore))({
+          bindings.combine(getType(irs.last)(using newStore))({
             case (params, to) => trees.SigmaType(params, to)
           })
 
@@ -172,7 +172,7 @@ trait TypeElaborators { self: Elaborators =>
             case tpe => (None, tpe)
           })
 
-          bindings.combine(getType(to)(newStore))({
+          bindings.combine(getType(to)(using newStore))({
             case (params, to) => trees.PiType(params, to)
           })
 
@@ -181,7 +181,7 @@ trait TypeElaborators { self: Elaborators =>
           val (newStore, vds) = getTypeBindings(Seq(ident -> tpe))
 
           val u = Unknown.fresh
-          vds.combine(getExpr(pred, u)(newStore))({
+          vds.combine(getExpr(pred, u)(using newStore))({
             case (Seq(vd), pred) => trees.RefinementType(vd, pred)
           }).addConstraint({
             Constraint.equal(u, trees.BooleanType())

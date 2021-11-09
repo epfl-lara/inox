@@ -6,7 +6,7 @@ package ast
 import utils.Lazy
 import utils.Graphs._
 
-trait DependencyGraph extends CallGraph {
+trait DependencyGraph extends CallGraph { self =>
   import trees._
 
   protected trait SortCollector extends Collector {
@@ -26,8 +26,12 @@ trait DependencyGraph extends CallGraph {
         super.traverse(expr)
     }
   }
+  // Used as a default implementation for the trait SortCollector
+  protected class ConcreteSortCollector(override val trees: self.trees.type) extends SortCollector {
+    def this() = this(self.trees)
+  }
 
-  protected def getSortCollector: Collector = new SortCollector {}
+  protected def getSortCollector: Collector = new ConcreteSortCollector
 
   private def collectSorts(fd: FunDef): Set[Identifier] = {
     val collector = getSortCollector

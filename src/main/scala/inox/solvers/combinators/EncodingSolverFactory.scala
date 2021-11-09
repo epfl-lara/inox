@@ -14,12 +14,9 @@ object EncodingSolverFactory {
              val program: p.type
              type S <: TimeoutSolver { val program: p.type }
            } = {
+    class Impl(override val program: p.type)
+      extends EncodingSolver(p, enc, sf.getNewSolver()) with TimeoutSolver
 
-    SolverFactory.create(p)("E:" + sf.name, () => new {
-      val program: p.type = p
-    } with EncodingSolver with TimeoutSolver {
-      val encoder: enc.type = enc
-      val underlying = sf.getNewSolver()
-    })
+    SolverFactory.create(p)("E:" + sf.name, () => new Impl(p))
   }
 }

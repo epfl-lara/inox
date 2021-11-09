@@ -26,7 +26,7 @@ trait TypeExtractors { self: Extractors =>
         } yield matchingsHead ++ matchingsRest
     }
 
-    def extractSeq(vds: Seq[trees.ValDef], templates: Seq[Expression])(implicit dummy: DummyImplicit): Option[Match] =
+    def extractSeq(vds: Seq[trees.ValDef], templates: Seq[Expression])(using DummyImplicit): Option[Match] =
       (vds, templates) match {
         case (Seq(), Seq()) => Some(empty)
         case (Seq(), _) => None

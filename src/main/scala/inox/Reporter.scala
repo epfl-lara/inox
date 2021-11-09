@@ -85,25 +85,22 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
     }
   }
 
-  def isDebugEnabled(implicit section: DebugSection): Boolean = debugSections(section)
+  def isDebugEnabled(using section: DebugSection): Boolean = debugSections(section)
 
-  def ifDebug(pos: Position, body: (Any => Unit) => Any)(implicit section: DebugSection) = {
+  def ifDebug(pos: Position, body: (Any => Unit) => Any)(using section: DebugSection) = {
     if (isDebugEnabled) {
       body( { (msg: Any) => emit(account(Message(DEBUG(section), pos, msg))) } )
     }
   }
 
   def whenDebug(pos: Position, section: DebugSection)(body: (Any => Unit) => Any): Unit = {
-    if (isDebugEnabled(section)) {
+    if (isDebugEnabled(using section)) {
       body( { (msg: Any) => emit(account(Message(DEBUG(section), pos, msg))) } )
     }
   }
 
-  def debug(pos: Position, msg: => Any)(implicit section: DebugSection): Unit = {
-    ifDebug(pos, debug =>
-      debug(msg)
-    )(section)
-  }
+  def debug(pos: Position, msg: => Any)(using DebugSection): Unit =
+    ifDebug(pos, debug => debug(msg))
 
   // No-position alternatives
   final def info(msg: Any): Unit          = info(NoPosition, msg)
@@ -121,20 +118,20 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
 
   final def internalAssertion(cond : Boolean, msg: Any) : Unit = internalAssertion(cond,NoPosition, msg)
 
-  final def debug(msg: => Any)(implicit section: DebugSection): Unit = debug(NoPosition, msg)
-  final def ifDebug(body: (Any => Unit) => Any)(implicit section: DebugSection): Unit =
+  final def debug(msg: => Any)(using DebugSection): Unit = debug(NoPosition, msg)
+  final def ifDebug(body: (Any => Unit) => Any)(using DebugSection): Unit =
     ifDebug(NoPosition, body)
   final def whenDebug(section: DebugSection)(body: (Any => Unit) => Any): Unit =
     whenDebug(NoPosition, section)(body)
 
-  final def debug(pos: Position, msg: => Any, e: Throwable)(implicit section: DebugSection): Unit = {
-    if (isDebugEnabled(section)) {
+  final def debug(pos: Position, msg: => Any, e: Throwable)(using section: DebugSection): Unit = {
+    if (isDebugEnabled) {
       debug(pos, msg)
       logTrace(DEBUG(section), e)
     }
   }
 
-  final def debug(e: Throwable)(implicit section: DebugSection): Unit =
+  final def debug(e: Throwable)(using DebugSection): Unit =
     debug(NoPosition, e.getMessage, e)
 
   private def logTrace(severity: Severity, e: Throwable): Unit = synchronized {

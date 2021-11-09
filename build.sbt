@@ -1,12 +1,12 @@
 name := "inox"
 
-enablePlugins(GitVersioning, MdocPlugin)
+enablePlugins(GitVersioning)
 
 git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
-scalaVersion := "2.13.6"
+scalaVersion := "3.0.2"
 
 scalacOptions ++= Seq(
   "-deprecation",
@@ -24,8 +24,16 @@ val osName = if (isWindows) "win" else if (isMac) "mac" else "unix"
 
 val osArch = System.getProperty("sun.arch.data.model")
 
+def chooseScalaZ3(scalaBinVersion: String): String = {
+  val scalaZ3Version = scalaBinVersion match {
+    case "3" => "2.13"
+    case _ => scalaBinVersion
+  }
+  s"scalaz3-$osName-$osArch-$scalaZ3Version.jar"
+}
+
 Compile / unmanagedJars += {
-  baseDirectory.value / "unmanaged" / s"scalaz3-$osName-$osArch-${scalaBinaryVersion.value}.jar"
+  baseDirectory.value / "unmanaged" / chooseScalaZ3(scalaBinaryVersion.value)
 }
 
 resolvers ++= Seq(
@@ -35,16 +43,16 @@ resolvers ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  "org.scalatest" %% "scalatest" % "3.2.7" % "test;it",
+  "org.scalatest" %% "scalatest" % "3.2.9" % "test;it",
   "org.apache.commons" % "commons-lang3" % "3.4",
-  "org.scala-lang" % "scala-reflect" % scalaVersion.value,
-  "uuverifiers" %% "princess" % "2020-03-12",
-  "org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.2"
+  ("uuverifiers" %% "princess" % "2020-03-12").cross(CrossVersion.for3Use2_13),
+  ("org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.2").cross(CrossVersion.for3Use2_13)
 )
 
 def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
 
-lazy val smtlib = ghProject("https://github.com/epfl-lara/scala-smtlib.git", "7a439fb5289d628f9f6cdbecfe0c4d4aa9dbe18f")
+//lazy val smtlib = RootProject(file("../scala-smtlib"))
+lazy val smtlib = ghProject("https://github.com/epfl-lara/scala-smtlib.git", "f75ebd4fe851dfd102dfff56721152e0bd2d41d6")
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")
 
@@ -103,14 +111,16 @@ Compile / sourceGenerators += Def.task {
   Seq(file)
 }.taskValue
 
-lazy val genDoc = taskKey[Unit]("Typecheck and interpret the documentation")
-
-mdocIn  := sourceDirectory.value / "main" / "doc"
-mdocOut := baseDirectory.value / "doc"
-mdocExtraArguments := Seq("--no-link-hygiene")
-
-genDoc := { () }
-genDoc := (genDoc dependsOn (Compile / compile)).value
+lazy val docs = project
+  .in(file("inox-docs"))
+  .dependsOn(root)
+  .settings(
+    mdocIn  := file("src/main/doc"),
+    mdocOut := file("doc"),
+    mdocExtraArguments := Seq("--no-link-hygiene"),
+    scalaVersion := "3.0.2",
+  )
+  .enablePlugins(MdocPlugin)
 
 run / Keys.fork := true
 
@@ -128,9 +138,9 @@ lazy val root = (project in file("."))
     logBuffered := false,
     parallelExecution := false
   )) : _*)
-  .settings(compile := ((Compile / compile) dependsOn script dependsOn genDoc).value)
+  .settings(compile := ((Compile / compile) dependsOn script).value)
   .dependsOn(smtlib)
-  
+
 
 Compile / run / mainClass := Some("inox.Main")
 

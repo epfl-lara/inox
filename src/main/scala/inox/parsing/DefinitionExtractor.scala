@@ -6,7 +6,7 @@ package parsing
 trait DefinitionExtractors { self: Extractors =>
 
   trait DefinitionExtractor { self0: Extractor =>
-
+    import symbols.given
     import DefinitionIR._
 
     def extract(fd: trees.FunDef, template: FunDef): Option[Match] = extract(

@@ -24,7 +24,7 @@ abstract class OptionDef[A] {
 
   def formatDefault: String = default.toString
 
-  private def parseValue(s: String)(implicit reporter: Reporter): A = {
+  private def parseValue(s: String)(using reporter: Reporter): A = {
     parser(s).getOrElse(
       reporter.fatalError(
         s"Invalid option usage: --$name=$s\n" +
@@ -33,7 +33,7 @@ abstract class OptionDef[A] {
     )
   }
 
-  def parse(s: String)(implicit reporter: Reporter): OptionValue[A] =
+  def parse(s: String)(using Reporter): OptionValue[A] =
     OptionValue(this)(parseValue(s))
 
   def withDefaultValue: OptionValue[A] =
@@ -190,7 +190,7 @@ object OptionsHelpers {
 case class Options(options: Seq[OptionValue[_]]) {
 
   def findOption[A: ClassTag](optDef: OptionDef[A]): Option[A] = options.collectFirst {
-    case OptionValue(`optDef`, value: A) => value
+    case OptionValue(`optDef`, value) => value.asInstanceOf[A]
   }
 
   def findOptionOrDefault[A: ClassTag](optDef: OptionDef[A]): A = findOption(optDef).getOrElse(optDef.default)

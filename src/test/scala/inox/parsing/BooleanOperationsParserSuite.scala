@@ -5,9 +5,9 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class BooleanOperationsParserSuite extends AnyFunSuite {
 
-  import inox.trees._
-  import interpolator._
-  implicit val symbols = NoSymbols
+  import inox.trees.{given, _}
+  import interpolator.{given, _}
+  given Symbols = NoSymbols
 
   test("Parsing conjunctions.") {
 

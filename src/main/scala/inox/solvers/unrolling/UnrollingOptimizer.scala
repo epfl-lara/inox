@@ -7,7 +7,7 @@ package unrolling
 trait AbstractUnrollingOptimizer extends AbstractUnrollingSolver with Optimizer { self =>
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   protected val underlying: AbstractOptimizer {
     val program: targetProgram.type

@@ -6,7 +6,7 @@ package parsing
 trait ExpressionExtractors { self: Extractors =>
 
   trait ExpressionExtractor { self0: Extractor =>
-
+    import symbols.given
     import ExprIR._
 
     private type MatchObligation = Option[Match]
@@ -196,7 +196,6 @@ trait ExpressionExtractors { self: Extractors =>
             optTemplatesTypes match {
               case None => extract(toExprObls(args -> templateArgs))
               case Some(templateTypes) => extract(toExprObls(args -> templateArgs), toTypeObls(tpes -> templateTypes))
-              case _ => fail
             }
           }
           case Application(TypeApplication(ExpressionHole(index), templateTypes), templateArgs) => for {
@@ -215,7 +214,6 @@ trait ExpressionExtractors { self: Extractors =>
             optTemplatesTypes match {
               case None => extract(toExprObls(args -> templateArgs))
               case Some(templateTypes) => extract(toExprObls(args -> templateArgs), toTypeObls(tpes -> templateTypes))
-              case _ => fail
             }
           }
           case Application(TypeApplication(ExpressionHole(index), templateTypes), templateArgs) => for {
@@ -239,7 +237,7 @@ trait ExpressionExtractors { self: Extractors =>
         // Instance checking and casting.
 
         case trees.IsConstructor(inner, id) => template match {
-          case IsConstructorOperation(templateInner, name) if id.name == name =>
+          case IsConstructorOperation(templateInner, adtCons) if id.name == adtCons.id.name =>
             extract(toExprObl(inner -> templateInner))
           case _ => fail
         }
@@ -462,31 +460,31 @@ trait ExpressionExtractors { self: Extractors =>
           case _ => fail
         }
 
-        case trees.SetAdd(set, element) => (set.getType(symbols), template) match {
+        case trees.SetAdd(set, element) => (set.getType, template) match {
           case (trees.SetType(tpe), SetAddOperation(templateSet, templateElement, optTemplateType)) =>
             extract(toExprObl(set -> templateSet), toExprObl(element -> templateElement), toOptTypeObl(tpe -> optTemplateType))
           case _ => fail
         }
 
-        case trees.ElementOfSet(element, set) => (set.getType(symbols), template) match {
+        case trees.ElementOfSet(element, set) => (set.getType, template) match {
           case (trees.SetType(tpe), ContainsOperation(templateSet, templateElement, optTemplateType)) =>
             extract(toExprObl(set -> templateSet), toExprObl(element -> templateElement), toOptTypeObl(tpe -> optTemplateType))
           case _ => fail
         }
 
-        case trees.SubsetOf(left, right) => (left.getType(symbols), template) match {
+        case trees.SubsetOf(left, right) => (left.getType, template) match {
           case (trees.SetType(tpe), SubsetOperation(templateLeft, templateRight, optTemplateType)) =>
             extract(toExprObl(left -> templateLeft), toExprObl(right -> templateRight), toOptTypeObl(tpe -> optTemplateType))
           case _ => fail
         }
 
-        case trees.SetIntersection(left, right) => (left.getType(symbols), template) match {
+        case trees.SetIntersection(left, right) => (left.getType, template) match {
           case (trees.SetType(tpe), SetIntersectionOperation(templateLeft, templateRight, optTemplateType)) =>
             extract(toExprObl(left -> templateLeft), toExprObl(right -> templateRight), toOptTypeObl(tpe -> optTemplateType))
           case _ => fail
         }
 
-        case trees.SetDifference(left, right) => (left.getType(symbols), template) match {
+        case trees.SetDifference(left, right) => (left.getType, template) match {
           case (trees.SetType(tpe), SetDifferenceOperation(templateLeft, templateRight, optTemplateType)) =>
             extract(toExprObl(left -> templateLeft), toExprObl(right -> templateRight), toOptTypeObl(tpe -> optTemplateType))
           case _ => fail
@@ -504,7 +502,7 @@ trait ExpressionExtractors { self: Extractors =>
           case _ => fail
         }
 
-        case trees.BagAdd(bag, element) => (bag.getType(symbols), template) match {
+        case trees.BagAdd(bag, element) => (bag.getType, template) match {
           case (trees.BagType(tpe), BagAddOperation(templateBag, templateElement, optTemplateType)) =>
             extract(toExprObl(bag -> templateBag), toExprObl(element -> templateElement), toOptTypeObl(tpe -> optTemplateType))
           case _ => fail

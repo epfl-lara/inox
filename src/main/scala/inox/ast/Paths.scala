@@ -45,7 +45,7 @@ trait Paths { self: Trees =>
     }
   }
 
-  implicit object Path extends PathProvider[Path] {
+  object Path extends PathProvider[Path] {
     sealed abstract class Element
     case class CloseBound(vd: ValDef, v: Expr) extends Element
     case class OpenBound(vd: ValDef) extends Element
@@ -65,8 +65,8 @@ trait Paths { self: Trees =>
     def apply(p: (ValDef, Expr)): Path = Path(CloseBound(p._1, p._2))
     def apply(vd: ValDef): Path = Path(OpenBound(vd))
 
-    def apply(path: Seq[Expr])(implicit d: DummyImplicit): Path =
-      new Path(path filterNot { _ == BooleanLiteral(true) } map Condition)
+    def apply(path: Seq[Expr])(using DummyImplicit): Path =
+      new Path(path filterNot { _ == BooleanLiteral(true) } map Condition.apply)
 
     /** Fold the path elements
       *
@@ -80,6 +80,8 @@ trait Paths { self: Trees =>
       case (OpenBound(_), res) => res
     }
   }
+
+  given givenPath: Path.type = Path
 
   /** Encodes path conditions
     *
@@ -102,7 +104,7 @@ trait Paths { self: Trees =>
     /** Add a binding to this [[Path]] */
     override def withBinding(p: (ValDef, Expr)) = {
       // print unique ids in assertion error
-      implicit val printerOpts = new PrinterOptions(printUniqueIds = true)
+      given PrinterOptions = new PrinterOptions(printUniqueIds = true)
       val (vd, value) = p
       assert(elements collect {
         case CloseBound(_, e) => e
@@ -118,7 +120,7 @@ trait Paths { self: Trees =>
     /** Add a bound to this [[Path]], a variable being defined but to an unknown/arbitrary value. */
     override def withBound(b: ValDef) = {
       // print unique ids in assertion error
-      implicit val printerOpts = new PrinterOptions(printUniqueIds = true)
+      given PrinterOptions = new PrinterOptions(printUniqueIds = true)
       assert(elements collect {
         case CloseBound(_, e) => e
         case Condition(e) => e
@@ -196,7 +198,7 @@ trait Paths { self: Trees =>
     override def negate: Path = _negate.get
     private[this] val _negate: Lazy[Path] = Lazy {
       val (outers, rest) = elements span { !_.isInstanceOf[Condition] }
-      new Path(outers) :+ Condition(not(fold[Expr](BooleanLiteral(true), Let, self.and(_, _))(rest)))
+      new Path(outers) :+ Condition(not(fold[Expr](BooleanLiteral(true), Let.apply, self.and(_, _))(rest)))
     }
 
     /** Free variables within the path */
@@ -274,8 +276,8 @@ trait Paths { self: Trees =>
       */
     private def distributiveClause(base: Expr, combine: (Expr, Expr) => Expr): Expr = {
       val (outers, rest) = elements span { !_.isInstanceOf[Condition] }
-      val inner = fold[Expr](base, Let, combine)(rest)
-      fold[Expr](inner, Let, (_,_) => scala.sys.error("Should never happen!"))(outers)
+      val inner = fold[Expr](base, Let.apply, combine)(rest)
+      fold[Expr](inner, Let.apply, (_,_) => scala.sys.error("Should never happen!"))(outers)
     }
 
     /** Folds the path into a conjunct with the expression `base` */
@@ -292,7 +294,7 @@ trait Paths { self: Trees =>
       * from [[Constructors]] */
     @inline def fullClause: Expr = _fullClause.get
     private[this] val _fullClause: Lazy[Expr] =
-      Lazy(fold[Expr](BooleanLiteral(true), Let, And(_, _))(elements))
+      Lazy(fold[Expr](BooleanLiteral(true), Let(_, _, _), And(_, _))(elements))
 
     override def equals(that: Any): Boolean = that match {
       case p: Path => elements == p.elements
@@ -301,7 +303,7 @@ trait Paths { self: Trees =>
 
     override def hashCode: Int = elements.hashCode
 
-    override def toString = asString(PrinterOptions())
-    def asString(implicit opts: PrinterOptions): String = fullClause.asString
+    override def toString = asString(using PrinterOptions())
+    def asString(using PrinterOptions): String = fullClause.asString
   }
 }

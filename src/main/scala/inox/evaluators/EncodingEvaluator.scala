@@ -3,16 +3,16 @@
 package inox
 package evaluators
 
-trait EncodingEvaluator extends DeterministicEvaluator { self =>
+class EncodingEvaluator(override val program: Program, override val context: Context)
+                       (val encoder: transformers.ProgramTransformer { val sourceProgram: program.type })
+                       (val underlying: DeterministicEvaluator { val program: encoder.targetProgram.type })
+  extends DeterministicEvaluator { self =>
   import program.trees._
 
-  protected val encoder: transformers.ProgramTransformer { val sourceProgram: program.type }
-
-  protected val underlying: DeterministicEvaluator {
-    val program: encoder.targetProgram.type
-  }
-
-  lazy val context = underlying.context
+  def this(program: Program,
+           encoder: transformers.ProgramTransformer { val sourceProgram: program.type },
+           underlying: DeterministicEvaluator { val program: encoder.targetProgram.type }) =
+    this(program, underlying.context)(encoder)(underlying)
 
   def eval(expr: Expr, model: program.Model): EvaluationResult = {
     val res = underlying.eval(encoder.encode(expr), model.encode(encoder))
@@ -29,11 +29,9 @@ object EncodingEvaluator {
   def apply(p: Program)
            (enc: transformers.ProgramTransformer { val sourceProgram: p.type })
            (ev: DeterministicEvaluator { val program: enc.targetProgram.type }) = {
-    new {
-      val program: p.type = p
-    } with EncodingEvaluator {
-      val encoder: enc.type = enc
-      val underlying = ev
-    }
+    class Impl(override val program: p.type,
+               override val encoder: enc.type,
+               override val underlying: ev.type) extends EncodingEvaluator(program, encoder, underlying)
+    new Impl(p, enc, ev)
   }
 }

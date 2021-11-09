@@ -28,13 +28,16 @@ import scala.collection.BitSet
 import scala.collection.mutable.{Map => MutableMap}
 
 trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
-  lazy val trees: program.trees.type = program.trees
-  lazy val symbols: program.symbols.type = program.symbols
+  // The only values that can be assigned to `trees` and `symbols` are `program.trees` and `program.symbols` respectively,
+  // but that has to be done in a concrete class explicitly overriding `trees` and `symbols`.
+  // Otherwise, we can run into initialization issue.
+  val trees: program.trees.type
+  val symbols: program.symbols.type
 
-  import context._
+  import context.{given, _}
   import program._
-  import program.trees._
-  import program.symbols._
+  import trees._
+  import symbols.{given, _}
 
   def targetName: String
 
@@ -42,7 +45,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
   protected val interpreter: Interpreter
 
-  protected implicit val semantics: program.Semantics
+  protected val semantics: program.Semantics
+  given givenSemantics: semantics.type = semantics
 
   /* Interruptible interface */
   private var aborted = false
@@ -118,8 +122,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected def quantifiedTerm(quantifier: (SortedVar, Seq[SortedVar], Term) => Term,
                                vars: Seq[ValDef],
                                body: Expr)
-                              (implicit bindings: Map[Identifier, Term]): Term = {
-    if (vars.isEmpty) toSMT(body)(Map())
+                              (using bindings: Map[Identifier, Term]): Term = {
+    if (vars.isEmpty) toSMT(body)(using Map())
     else {
       val sortedVars = vars map { vd =>
         SortedVar(id2sym(vd.id), declareSort(vd.getType))
@@ -127,19 +131,17 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       quantifier(
         sortedVars.head,
         sortedVars.tail,
-        toSMT(body)(bindings ++ vars.map { vd => vd.id -> (id2sym(vd.id): Term) }.toMap))
+        toSMT(body)(using bindings ++ vars.map { vd => vd.id -> (id2sym(vd.id): Term) }.toMap))
     }
   }
 
   // Returns a quantified term where all free variables in the body have been quantified
   protected def quantifiedTerm(quantifier: (SortedVar, Seq[SortedVar], Term) => Term, body: Expr)
-                              (implicit bindings: Map[Identifier, Term]): Term = {
+                              (using bindings: Map[Identifier, Term]): Term =
     quantifiedTerm(quantifier, exprOps.variablesOf(body).toSeq.map(_.toVal), body)
-  }
 
-  protected final def declareSort(tpe: Type): Sort = {
+  protected final def declareSort(tpe: Type): Sort =
     sorts.cachedB(tpe)(computeSort(tpe))
-  }
 
   protected def computeSort(t: Type): Sort = t match {
     case BooleanType() => Core.BoolSort()
@@ -246,7 +248,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     case r => Reals.Neg(Reals.NumeralLit(-r))
   }
 
-  protected def toSMT(e: Expr)(implicit bindings: Map[Identifier, Term]): Term = {
+  protected def toSMT(e: Expr)(using bindings: Map[Identifier, Term]): Term = {
     e match {
       case v @ Variable(id, tp, flags) =>
         declareSort(v.getType)
@@ -264,7 +266,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case Let(b, d, e) =>
         val id = id2sym(b.id)
         val value = toSMT(d)
-        val newBody = toSMT(e)(bindings + (b.id -> id))
+        val newBody = toSMT(e)(using bindings + (b.id -> id))
 
         SMTLet(
           VarBinding(id, value),
@@ -457,7 +459,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         if (sub.isEmpty) fun
         else FunctionApplication(fun, sub.map(toSMT))
       case Forall(vs, bd) =>
-        quantifiedTerm(SMTForall, vs, bd)(Map())
+        quantifiedTerm(SMTForall.apply, vs, bd)(using Map())
 
       /** String operations */
       // FIXME: replace by Seq(BV(16)) once solvers can handle them
@@ -493,7 +495,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     def getFunction(sym: SSymbol, ft: FunctionType): Option[Lambda] = functions.get(sym).map {
       case df @ DefineFun(SMTFunDef(a, args, _, body)) =>
         val vds = (args zip ft.from).map(p => ValDef.fresh(p._1.name.name, p._2))
-        val exBody = fromSMT(body, ft.to)(withVariables(args.map(_.name) zip vds.map(_.toVariable)))
+        val exBody = fromSMT(body, ft.to)(using withVariables(args.map(_.name) zip vds.map(_.toVariable)))
         Lambda(vds, exBody)
     }
 
@@ -503,7 +505,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     def getChooses = chooses.toMap.flatMap { case (n, c) => lambdas.get(n).map(c -> _) }
   }
 
-  override protected def fromSMT(sort: Sort)(implicit context: Context): Type = sorts.getA(sort) match {
+  override protected def fromSMT(sort: Sort)(using Context): Type = sorts.getA(sort) match {
     case Some(tpe) => tpe
     case None => super.fromSMT(sort)
   }
@@ -517,7 +519,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   }
 
   /* Translate an SMTLIB term back to a Inox Expr */
-  override protected def fromSMT(t: Term, otpe: Option[Type] = None)(implicit context: Context): Expr = {
+  override protected def fromSMT(t: Term, otpe: Option[Type] = None)(using context: Context): Expr = {
 
     // Use as much information as there is, if there is an expected type, great, but it might not always be there
     (t, otpe) match {
@@ -596,7 +598,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
             unsupported(t, "woot? for a single constructor for non-case-object")
         }
 
-      case (FunctionApplication(SimpleSymbol(s), List(e)), _) if testers.containsB(s) =>
+      case (FunctionApplication(SimpleSymbol(s), Seq(e)), _) if testers.containsB(s) =>
         testers.toA(s) match {
           case ac @ ADTCons(id, _) =>
             IsConstructor(fromSMT(e, ac.getType), id)
@@ -604,7 +606,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
             unsupported(t, "woot? tester for non-adt type")
         }
 
-      case (FunctionApplication(SimpleSymbol(s), List(e)), _) if selectors.containsB(s) =>
+      case (FunctionApplication(SimpleSymbol(s), Seq(e)), _) if selectors.containsB(s) =>
         selectors.toA(s) match {
           case (ac @ ADTCons(id, _), i) =>
             ADTSelector(fromSMT(e, ac.getType), getConstructor(id).fields(i).id)
@@ -635,7 +637,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         fromSMT(context.smtVars(sym), otpe)
 
       case (SMTLet(binding, bindings, term), _) =>
-        fromSMT(term, otpe)(context.withSMTVariables((binding +: bindings).map {
+        fromSMT(term, otpe)(using context.withSMTVariables((binding +: bindings).map {
           case VarBinding(name, term) => name -> term
         }))
 
@@ -653,4 +655,14 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case _ => super.fromSMT(t, otpe)
     }
   }
+}
+
+abstract class ConcreteSMTLIBTarget(override val program: Program,
+                                    override val context: inox.Context)
+                                   (override val trees: program.trees.type,
+                                    override val symbols: program.symbols.type,
+                                    override val semantics: program.Semantics)
+  extends SMTLIBTarget {
+  def this(program: Program, context: inox.Context)(using semantics: program.Semantics) =
+    this(program, context)(program.trees, program.symbols, semantics)
 }

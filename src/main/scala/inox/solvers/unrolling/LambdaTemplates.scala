@@ -8,10 +8,10 @@ import utils._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 trait LambdaTemplates { self: Templates =>
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   import typesManager._
   import lambdasManager._

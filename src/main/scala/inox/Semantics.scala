@@ -25,12 +25,12 @@ trait Semantics { self =>
     val program: self.program.type
   }
 
-  def getSolver(implicit ctx: Context): solvers.SolverFactory {
+  def getSolver(using ctx: Context): solvers.SolverFactory {
     val program: self.program.type
     type S <: solvers.combinators.TimeoutSolver { val program: self.program.type }
   } = solverCache.cached(ctx, createSolver(ctx))
 
-  def getEvaluator(implicit ctx: Context): evaluators.DeterministicEvaluator {
+  def getEvaluator(using ctx: Context): evaluators.DeterministicEvaluator {
     val program: self.program.type
   } = evaluatorCache.cached(ctx, createEvaluator(ctx))
 }

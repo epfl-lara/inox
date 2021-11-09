@@ -4,10 +4,10 @@ package inox
 package tip
 
 import smtlib.trees.Terms.{Forall => SMTForall, Identifier => SMTIdentifier, _}
-import smtlib.trees.Commands.{Constructor => SMTConstructor, _}
+import smtlib.trees.Commands.{Constructor => SMTConstructor, FunDef => SMTFunDef, _}
 import smtlib.theories._
 import smtlib.theories.experimental._
-import smtlib.extensions.tip.Terms.{Lambda => SMTLambda, Application => SMTApplication, _}
+import smtlib.extensions.tip.Terms.{Application => SMTApplication, Lambda => SMTLambda, _}
 import smtlib.extensions.tip.Commands._
 import smtlib.Interpreter
 
@@ -19,11 +19,18 @@ import scala.collection.mutable.{Map => MutableMap}
 
 import utils._
 
-class Printer(val program: InoxProgram, val context: Context, writer: Writer) extends solvers.smtlib.SMTLIBTarget {
-  import context._
+class Printer private(override val program: InoxProgram,
+                      override val context: inox.Context)
+                     (override val semantics: program.Semantics,
+                      writer: Writer)
+  extends solvers.smtlib.ConcreteSMTLIBTarget(program, context)(using semantics) {
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
+
+  def this(program: InoxProgram, context: inox.Context, writer: Writer) =
+    this(program, context)(program.getSemantics, writer)
 
   def targetName = "tip"
 
@@ -33,40 +40,38 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
 
   /* Note that we are NOT relying on a "real" interpreter here. We just
    * need the printer for calls to [[emit]] to function correctly. */
-  protected val interpreter = new Interpreter {
-    // the parser should never be used
-    val parser: smtlib.parser.Parser = null
-
-    object printer extends smtlib.printer.Printer {
+  protected val interpreter = {
+    class PrinterImpl extends smtlib.printer.Printer {
       val name: String = "tip-printer"
       protected def newContext(writer: Writer) = new smtlib.printer.PrintingContext(writer)
     }
+    class InterpreterImpl(override val printer: PrinterImpl, override val parser: smtlib.parser.Parser) extends Interpreter {
+      def eval(cmd: SExpr): SExpr = {
+        printer.printSExpr(cmd, writer)
+        writer.write("\n")
+        writer.flush()
 
-    def eval(cmd: SExpr): SExpr = {
-      printer.printSExpr(cmd, writer)
-      writer.write("\n")
-      writer.flush()
+        smtlib.trees.CommandsResponses.Success
+      }
 
-      smtlib.trees.CommandsResponses.Success
+      def free(): Unit = {
+        writer.close()
+      }
+
+      def interrupt(): Unit = free()
     }
-
-    def free(): Unit = {
-      writer.close()
-    }
-
-    def interrupt(): Unit = free()
+    // the parser should never be used (and is as such set to null)
+    new InterpreterImpl(new PrinterImpl, null)
   }
-
-  protected val semantics: program.Semantics = program.getSemantics
 
   protected val extraVars = new Bijection[Variable, SSymbol]
 
   def printScript(expr: Expr): Unit = {
     val tparams = typeOps.typeParamsOf(expr)
     val cmd = if (tparams.nonEmpty) {
-      AssertPar(tparams.map(tp => id2sym(tp.id)).toSeq, toSMT(expr)(Map.empty))
+      AssertPar(tparams.map(tp => id2sym(tp.id)).toSeq, toSMT(expr)(using Map.empty))
     } else {
-      Assert(toSMT(expr)(Map.empty))
+      Assert(toSMT(expr)(using Map.empty))
     }
 
     val invariants = adtManager.types
@@ -80,7 +85,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
         emit(DatatypeInvariant(
           id2sym(vd.id),
           declareSort(vd.getType),
-          toSMT(fd.fullBody)(Map(vd.id -> id2sym(vd.id)))
+          toSMT(fd.fullBody)(using Map(vd.id -> id2sym(vd.id)))
         ))
       } else {
         val tps = fd.tparams.map(tpd => declareSort(tpd.tp).id.symbol)
@@ -88,7 +93,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
           tps,
           id2sym(vd.id),
           declareSort(vd.getType),
-          toSMT(fd.fullBody)(Map(vd.id -> id2sym(vd.id)))
+          toSMT(fd.fullBody)(using Map(vd.id -> id2sym(vd.id)))
         ))
       }
     }
@@ -219,16 +224,16 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
             id2sym(fd.id),
             fd.params.map(vd => SortedVar(id2sym(vd.id), declareSort(vd.getType))),
             declareSort(fd.getType),
-            toSMT(fd.fullBody)(fd.params.map(vd => vd.id -> (id2sym(vd.id): Term)).toMap)
+            toSMT(fd.fullBody)(using fd.params.map(vd => vd.id -> (id2sym(vd.id): Term)).toMap)
           )
 
           val tps = fd.tparams.map(tpd => declareSort(tpd.tp).id.symbol)
 
           emit((scc.isEmpty, tps.isEmpty) match {
-            case (true, true) => DefineFun(FunDef(sym, params, returnSort, body))
-            case (false, true) => DefineFunRec(FunDef(sym, params, returnSort, body))
-            case (true, false) => DefineFunPar(tps, FunDef(sym, params, returnSort, body))
-            case (false, false) => DefineFunRecPar(tps, FunDef(sym, params, returnSort, body))
+            case (true, true) => DefineFun(SMTFunDef(sym, params, returnSort, body))
+            case (false, true) => DefineFunRec(SMTFunDef(sym, params, returnSort, body))
+            case (true, false) => DefineFunPar(tps, SMTFunDef(sym, params, returnSort, body))
+            case (false, false) => DefineFunRecPar(tps, SMTFunDef(sym, params, returnSort, body))
           })
         } else {
           functions ++= scc.toList.map(id => getFunction(id).typed -> id2sym(id))
@@ -249,7 +254,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
               Left(FunDecPar(tps, sym, params, returnSort))
             }
 
-            val body = toSMT(fd.fullBody)(fd.params.map(vd => vd.id -> (id2sym(vd.id): Term)).toMap)
+            val body = toSMT(fd.fullBody)(using fd.params.map(vd => vd.id -> (id2sym(vd.id): Term)).toMap)
             (dec, body)
           }).unzip
 
@@ -264,7 +269,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
     }
   }
 
-  override protected def toSMT(e: Expr)(implicit bindings: Map[Identifier, Term]): Term = e match {
+  override protected def toSMT(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
     case v @ Variable(id, tp, flags) =>
       val sort = declareSort(tp)
       bindings.get(id) orElse variables.getB(v).map(s => s: Term) getOrElse {
@@ -288,21 +293,21 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
         val sym = id2sym(vd.id)
         (vd.id -> (sym: Term), SortedVar(sym, declareSort(vd.getType)))
       }.unzip
-      SMTLambda(params, toSMT(body)(bindings ++ newBindings))
+      SMTLambda(params, toSMT(body)(using bindings ++ newBindings))
 
     case Forall(args, body) =>
       val (newBindings, param +: params) = args.map { vd =>
         val sym = id2sym(vd.id)
         (vd.id -> (sym: Term), SortedVar(sym, declareSort(vd.getType)))
       }.unzip
-      SMTForall(param, params, toSMT(body)(bindings ++ newBindings))
+      SMTForall(param, params, toSMT(body)(using bindings ++ newBindings))
 
     case Not(Forall(args, body)) =>
       val (newBindings, param +: params) = args.map { vd =>
         val sym = id2sym(vd.id)
         (vd.id -> (sym: Term), SortedVar(sym, declareSort(vd.getType)))
       }.unzip
-      Exists(param, params, toSMT(Not(body))(bindings ++ newBindings))
+      Exists(param, params, toSMT(Not(body))(using bindings ++ newBindings))
 
     case Application(caller, args) => SMTApplication(toSMT(caller), args.map(toSMT))
 
@@ -396,7 +401,7 @@ class Printer(val program: InoxProgram, val context: Context, writer: Writer) ex
     case Choose(vd, pred) =>
       val sym = id2sym(vd.id)
       val sort = declareSort(vd.getType)
-      SMTChoose(sym, declareSort(vd.getType), toSMT(pred)(bindings + (vd.id -> (sym: Term))))
+      SMTChoose(sym, declareSort(vd.getType), toSMT(pred)(using bindings + (vd.id -> (sym: Term))))
 
     case _ => super.toSMT(e)
   }

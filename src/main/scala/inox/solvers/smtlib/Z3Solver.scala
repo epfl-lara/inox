@@ -12,7 +12,7 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
   import SolverResponses._
 
   protected lazy val evaluator: evaluators.DeterministicEvaluator { val program: self.program.type } =
-    semantics.getEvaluator(context.withOpts(evaluators.optIgnoreContracts(true)))
+    semantics.getEvaluator(using context.withOpts(evaluators.optIgnoreContracts(true)))
 
   // XXX @nv: Sometimes Z3 doesn't return fully evaluated models so we make sure to
   //          bring them into some normal form after extraction
@@ -45,7 +45,7 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
       case t => unsupported(t, "Assumptions must be either variables or their negation")
     }
 
-    val cmd = SList(SSymbol("check-sat") +: assumptions.toSeq.map(as => toSMT(as)(Map.empty)) : _*)
+    val cmd = SList(SSymbol("check-sat") +: assumptions.toSeq.map(as => toSMT(as)(using Map.empty)) : _*)
     val res = emit(cmd) match {
       case SSymbol("sat") => CheckSatStatus(SatStatus)
       case SSymbol("unsat") => CheckSatStatus(UnsatStatus)

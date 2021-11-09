@@ -28,7 +28,7 @@ trait TipDebugger extends Solver {
 
     import inox.trees._
 
-    protected object checker extends SelfTreeTraverser {
+    protected object checker extends ConcreteSelfTreeTraverser {
       override def traverse(tpe: Type): Unit = tpe match {
         case (_: PiType | _: SigmaType | _: RefinementType) =>
           unsupported(tpe, "Dependent types cannot be expressed in TIP")
@@ -62,7 +62,7 @@ trait TipDebugger extends Solver {
   }
 
   protected lazy val debugOut: Option[tip.Printer] = {
-    implicit val debugSection: DebugSection = DebugSectionTip
+    given DebugSection = DebugSectionTip
 
     if (context.reporter.isDebugEnabled) {
       val files = context.options.findOptionOrDefault(Main.optFiles)

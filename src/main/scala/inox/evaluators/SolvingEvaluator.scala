@@ -9,12 +9,13 @@ import solvers.combinators._
 import scala.collection.mutable.{Map => MutableMap}
 
 trait SolvingEvaluator extends Evaluator { self =>
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
-  protected implicit val semantics: program.Semantics
+  protected val semantics: program.Semantics
+  given givenSemantics: semantics.type = semantics
 
   private object optForallCache extends OptionDef[MutableMap[Forall, Boolean]] {
     val parser = { (_: String) => throw FatalError("Unparsable option \"forallCache\"") }
@@ -75,7 +76,7 @@ trait SolvingEvaluator extends Evaluator { self =>
     BooleanLiteral(forallCache.getOrElse(forall, {
       import scala.language.existentials
       val sf = context.timers.evaluators.forall.run {
-        semantics.getSolver(context.withOpts(
+        semantics.getSolver(using context.withOpts(
           optSilentErrors(true),
           optCheckModels(false), // model is checked manually!! (see below)
           unrolling.optFeelingLucky(false),

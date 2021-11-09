@@ -53,12 +53,12 @@ package object solvers {
         type S = self.factory.S { val program: self.factory.program.type }
       }]
 
-      new TimeoutSolverFactory {
-        val program: self.factory.program.type = innerFactory.program
-        type S = self.factory.S { val program: self.factory.program.type }
-        val to = timeout
-        val factory = innerFactory
-      }
+      // The casts are sadly needed; the trick with local class overriding `program` does not seem to work due to needing to override other things
+      new TimeoutSolverFactory(innerFactory.program, timeout, new { type S = innerFactory.S }, innerFactory.asInstanceOf)
+        .asInstanceOf[TimeoutSolverFactory {
+          val program: self.factory.program.type
+          type S = self.factory.S { val program: self.factory.program.type }
+        }]
     }
 
     def withTimeout(du: Duration): TimeoutSolverFactory {

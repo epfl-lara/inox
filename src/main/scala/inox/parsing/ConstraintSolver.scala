@@ -17,7 +17,7 @@ trait ConstraintSolvers { self: Elaborators =>
     object UnknownCollector {
       var unknowns = Set[Unknown]()
 
-      private val traverser = new SelfTreeTraverser {
+      private val traverser = new ConcreteSelfTreeTraverser {
         override def traverse(t: Type): Unit = {
           t match {
             case u: Unknown => unknowns += u
@@ -36,7 +36,7 @@ trait ConstraintSolvers { self: Elaborators =>
     class OccurChecker(u: Unknown) {
       var exists = false
 
-      val traverser = new SelfTreeTraverser {
+      val traverser = new ConcreteSelfTreeTraverser {
         override def traverse(t: Type): Unit = {
           t match {
             case u2: Unknown => {
@@ -206,7 +206,7 @@ trait ConstraintSolvers { self: Elaborators =>
             }
             if (n == 1) {
               val (sort, rest) = sorts.toSeq.head
-              val typeArgs = sort.tparams.map(x => Unknown.fresh(constraint.pos))
+              val typeArgs = sort.tparams.map(x => Unknown.fresh(using constraint.pos))
               val expectedType = ADTType(sort.id, typeArgs)
 
               remaining +:= Equal(a, expectedType)

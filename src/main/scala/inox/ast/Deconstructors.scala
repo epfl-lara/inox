@@ -534,9 +534,9 @@ trait Deconstructors { self: Trees =>
   def getDeconstructor(that: Trees): TreeDeconstructor {
     val s: self.type
     val t: that.type
-  } = new TreeDeconstructor {
-    protected val s: self.type = self
-    protected val t: that.type = that
+  } = {
+    class TreeDeconstructorImpl(override val s: self.type, override val t: that.type) extends TreeDeconstructor
+    new TreeDeconstructorImpl(self, that)
   }
 
   val deconstructor: TreeDeconstructor {
@@ -557,17 +557,18 @@ trait Deconstructors { self: Trees =>
     * one need to simplify the tree, it is easy to write/call a simplification
     * function that would simply apply the corresponding constructor for each node.
     */
-  object Operator extends {
-    protected val s: self.type = self
-    protected val t: self.type = self
-  } with TreeExtractor {
-    type Source = Expr
-    type Target = Expr
+  val Operator: TreeExtractor { val s: self.type; val t: self.type; type Source = Expr; type Target = Expr } = {
+    class OperatorImpl(override protected val s: self.type,
+                       override protected val t: self.type) extends TreeExtractor {
+      type Source = Expr
+      type Target = Expr
 
-    def unapply(e: Expr): Option[(Seq[Expr], Seq[Expr] => Expr)] = {
-      val (ids, vs, es, tps, flags, builder) = deconstructor.deconstruct(e)
-      Some(es, ess => builder(ids, vs, ess, tps, flags))
+      def unapply(e: Expr): Option[(Seq[Expr], Seq[Expr] => Expr)] = {
+        val (ids, vs, es, tps, flags, builder) = deconstructor.deconstruct(e)
+        Some(es, ess => builder(ids, vs, ess, tps, flags))
+      }
     }
+    new OperatorImpl(self, self)
   }
 
   object TopLevelOrs { // expr1 OR (expr2 OR (expr3 OR ..)) => List(expr1, expr2, expr3)
@@ -595,17 +596,17 @@ trait Deconstructors { self: Trees =>
   }
 
   object IsTyped {
-    def unapply[T <: Typed](e: T)(implicit s: Symbols): Option[(T, Type)] = Some((e, e.getType))
+    def unapply[T <: Typed](e: T)(using Symbols): Option[(T, Type)] = Some((e, e.getType))
   }
 
-  def unwrapTuple(e: Expr, isTuple: Boolean)(implicit s: Symbols): Seq[Expr] = e.getType match {
+  def unwrapTuple(e: Expr, isTuple: Boolean)(using s: Symbols): Seq[Expr] = e.getType match {
     case TupleType(subs) if isTuple =>
       for (ind <- 1 to subs.size) yield { s.tupleSelect(e, ind, isTuple) }
     case _ if !isTuple => Seq(e)
     case tp => sys.error(s"Calling unwrapTuple on non-tuple $e of type $tp")
   }
 
-  def unwrapTuple(e: Expr, expectedSize: Int)(implicit s: Symbols): Seq[Expr] = unwrapTuple(e, expectedSize > 1)
+  def unwrapTuple(e: Expr, expectedSize: Int)(using Symbols): Seq[Expr] = unwrapTuple(e, expectedSize > 1)
 
   def unwrapTupleType(tp: Type, isTuple: Boolean): Seq[Type] = tp match {
     case TupleType(subs) if isTuple => subs

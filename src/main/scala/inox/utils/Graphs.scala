@@ -6,12 +6,12 @@ package utils
 import scala.Iterable
 object Graphs {
   trait EdgeLike[Node] {
-    def _1: Node
-    def _2: Node
+    val _1: Node
+    val _2: Node
   }
 
   case class SimpleEdge[Node](_1: Node, _2: Node) extends EdgeLike[Node]
-  case class LabeledEdge[Label, Node](_1: Node, l: Label, _2: Node) extends EdgeLike[Node]
+  case class LabeledEdge[Label, Node](_1: Node, _2: Node, l: Label) extends EdgeLike[Node]
 
   trait DiGraphLike[Node, Edge <: EdgeLike[Node], G <: DiGraphLike[Node, Edge, G]] {
     // The vertices

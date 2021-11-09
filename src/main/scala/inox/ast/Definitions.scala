@@ -45,9 +45,9 @@ trait Definitions { self: Trees =>
     def tpe: Type
     def flags: Seq[Flag]
 
-    def getType(implicit s: Symbols): Type = tpe.getType
+    def getType(using Symbols): Type = tpe.getType
 
-    def to[A <: VariableSymbol](implicit ev: VariableConverter[A]): A = ev.convert(this)
+    def to[A <: VariableSymbol](using ev: VariableConverter[A]): A = ev.convert(this)
 
     override def equals(that: Any): Boolean = that match {
       case vs: VariableSymbol => id == vs.id && tpe == vs.tpe && flags == vs.flags
@@ -64,14 +64,14 @@ trait Definitions { self: Trees =>
     def convert(a: VariableSymbol): B
   }
 
-  implicit def convertToVal = new VariableConverter[ValDef] {
+  implicit def convertToVal: VariableConverter[ValDef] = new VariableConverter[ValDef] {
     def convert(vs: VariableSymbol): ValDef = vs match {
       case v: ValDef => v
       case _ => ValDef(vs.id, vs.tpe, vs.flags).copiedFrom(vs)
     }
   }
 
-  implicit def convertToVariable = new VariableConverter[Variable] {
+  implicit def convertToVariable: VariableConverter[Variable] = new VariableConverter[Variable] {
     def convert(vs: VariableSymbol): Variable = vs match {
       case v: Variable => v
       case _ => Variable(vs.id, vs.tpe, vs.flags).copiedFrom(vs)
@@ -117,11 +117,20 @@ trait Definitions { self: Trees =>
 
   /** Provides the class and function definitions of a program and lookups on them */
   trait AbstractSymbols
-     extends Printable
-        with TypeOps
-        with SymbolOps
-        with CallGraph
-        with DependencyGraph { self0: Symbols =>
+    extends Printable
+      with TypeOps
+      with SymbolOps
+      with CallGraph
+      with DependencyGraph { self0: Symbols =>
+
+    // The only value that can be assigned to `trees`, but that has to be
+    // done in a concrete class explicitly overriding `trees`
+    // Otherwise, we can run into initialization issue.
+    protected val trees: self.type
+    // More or less the same here
+    protected val symbols: this.type
+
+    given givenSymbols: symbols.type = symbols
 
     val sorts: Map[Identifier, ADTSort]
     val functions: Map[Identifier, FunDef]
@@ -130,23 +139,11 @@ trait Definitions { self: Trees =>
     private[this] val _constructors: Lazy[Map[Identifier, ADTConstructor]] =
       Lazy(sorts.values.flatMap(_.constructors.map(cons => cons.id -> cons)).toMap)
 
-    protected val trees: self.type = self
-    protected val symbols: this.type = this
 
     type Semantics = inox.Semantics {
       val trees: self0.trees.type
       val symbols: self0.symbols.type
     }
-
-    // @nv: this is a hack to reinject `this` into the set of implicits
-    // in scope when using the pattern:
-    // {{{
-    //    implicit val symbols: Symbols
-    //    import symbols._
-    // }}}
-    // which seems to remove `symbols` from the set of current implicits
-    // for some mysterious reason.
-    implicit def implicitSymbols: this.type = this
 
     private[this] val typedSortCache: ConcurrentMap[(Identifier, Seq[Type]), Option[TypedADTSort]] =
       new java.util.concurrent.ConcurrentHashMap[(Identifier, Seq[Type]), Option[TypedADTSort]].asScala
@@ -198,8 +195,8 @@ trait Definitions { self: Trees =>
     def getFunction(id: Identifier, tps: Seq[Type]): TypedFunDef =
       lookupFunction(id, tps).getOrElse(throw FunctionLookupException(id))
 
-    override def toString: String = asString(PrinterOptions(symbols = Some(this)))
-    override def asString(implicit opts: PrinterOptions): String = {
+    override def toString: String = asString(using PrinterOptions(symbols = Some(this)))
+    override def asString(using opts: PrinterOptions): String = {
       sorts.map(p => prettyPrint(p._2, opts)).mkString("\n\n") +
       "\n\n-----------\n\n" +
       functions.map(p => prettyPrint(p._2, opts)).mkString("\n\n")
@@ -290,8 +287,8 @@ trait Definitions { self: Trees =>
     * {{{arg: Expr | Type}}}, or there exists no [[Expressions.Expr Expr]]
     * or [[Types.Type Type]] instance within arg. */
   abstract class Flag(val name: String, args: Seq[Any]) extends Printable {
-    def asString(implicit opts: PrinterOptions): String = name + (if (args.isEmpty) "" else {
-      args.map(arg => self.asString(arg)(opts)).mkString("(", ", ", ")")
+    def asString(using PrinterOptions): String = name + (if (args.isEmpty) "" else {
+      args.map(arg => self.asString(arg)).mkString("(", ", ", ")")
     })
   }
 
@@ -314,7 +311,7 @@ trait Definitions { self: Trees =>
                 val flags: Seq[Flag]) extends Definition {
     def typeArgs = tparams.map(_.tp)
 
-    def isInductive(implicit s: Symbols): Boolean = {
+    def isInductive(using Symbols): Boolean = {
       val base = typed
 
       def rec(sort: TypedADTSort, seen: Set[TypedADTSort], first: Boolean = false): Boolean = {
@@ -329,7 +326,7 @@ trait Definitions { self: Trees =>
       rec(base, Set.empty, first = true)
     }
 
-    def isWellFormed(implicit s: Symbols): Boolean = {
+    def isWellFormed(using Symbols): Boolean = {
       def flatten(s: Seq[Type]): Seq[Type] = s match {
         case Nil => Nil
         case (head: TupleType) +: tail => flatten(head.bases ++ tail)
@@ -349,22 +346,22 @@ trait Definitions { self: Trees =>
     }
 
     /** An invariant that refines this [[ADTSort]] */
-    def invariant(implicit s: Symbols): Option[FunDef] = 
+    def invariant(using s: Symbols): Option[FunDef] =
       flags.collectFirst { case HasADTInvariant(id) => s.getFunction(id) }
 
-    def hasInvariant(implicit s: Symbols): Boolean = invariant.isDefined
+    def hasInvariant(using Symbols): Boolean = invariant.isDefined
 
     /** An equality relation defined on this [[ADTSort]] */
-    def equality(implicit s: Symbols): Option[FunDef] =
+    def equality(using s: Symbols): Option[FunDef] =
       flags.collectFirst { case HasADTEquality(id) => s.getFunction(id) }
 
-    def hasEquality(implicit s: Symbols): Boolean = equality.isDefined
+    def hasEquality(using Symbols): Boolean = equality.isDefined
 
     /** Wraps this [[ADTSort]] in a in [[TypedADTSort]] with its own type parameters */
-    def typed(implicit s: Symbols): TypedADTSort = typed(tparams.map(_.tp))
+    def typed(using Symbols): TypedADTSort = typed(tparams.map(_.tp))
 
     /** Wraps this [[ADTSort]] in a in [[TypedADTSort]] with the specified type parameters */
-    def typed(tps: Seq[Type])(implicit s: Symbols): TypedADTSort = s.getSort(id, tps)
+    def typed(tps: Seq[Type])(using s: Symbols): TypedADTSort = s.getSort(id, tps)
 
     def copy(id: Identifier = id,
              tparams: Seq[TypeParameterDef] = tparams,
@@ -382,7 +379,7 @@ trait Definitions { self: Trees =>
     val sort: Identifier,
     val fields: Seq[ValDef]) extends Tree {
 
-    def getSort(implicit s: Symbols): ADTSort = s.getSort(sort)
+    def getSort(using s: Symbols): ADTSort = s.getSort(sort)
 
     /** Returns the index of the field with the specified id */
     def selectorID2Index(id: Identifier) : Int = {
@@ -397,10 +394,10 @@ trait Definitions { self: Trees =>
     }
 
     /** Wraps this [[ADTConstructor]] in a in [[TypedADTConstructor]] with its sort's type parameters */
-    def typed(implicit s: Symbols): TypedADTConstructor = typed(getSort.typeArgs)
+    def typed(using Symbols): TypedADTConstructor = typed(getSort.typeArgs)
 
     /** Wraps this [[ADTConstructor]] in a in [[TypedADTConstructor]] with the specified type parameters */
-    def typed(tps: Seq[Type])(implicit s: Symbols): TypedADTConstructor = s.getConstructor(id, tps)
+    def typed(tps: Seq[Type])(using s: Symbols): TypedADTConstructor = s.getConstructor(id, tps)
 
     def copy(id: Identifier = id,
              sort: Identifier = sort,
@@ -415,7 +412,7 @@ trait Definitions { self: Trees =>
   }
 
   /** Represents an [[ADTSort]] whose type parameters have been instantiated to ''tps'' */
-  case class TypedADTSort private(definition: ADTSort, tps: Seq[Type])(implicit val symbols: Symbols) extends Tree {
+  case class TypedADTSort(definition: ADTSort, tps: Seq[Type])(using val symbols: Symbols) extends Tree {
     require(tps.length == definition.tparams.length)
     copiedFrom(definition)
 
@@ -455,7 +452,7 @@ trait Definitions { self: Trees =>
   }
 
   /** Represents an [[ADTConstructor]] whose type parameters have been instantiated to ''tps'' */
-  case class TypedADTConstructor private(definition: ADTConstructor, sort: TypedADTSort) extends Tree {
+  case class TypedADTConstructor(definition: ADTConstructor, sort: TypedADTSort) extends Tree {
     copiedFrom(definition)
 
     @inline def id: Identifier = definition.id
@@ -491,14 +488,14 @@ trait Definitions { self: Trees =>
   ) extends Definition {
 
     /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with its own type parameters */
-    def typed(implicit s: Symbols): TypedFunDef = typed(tparams.map(_.tp))
+    def typed(using Symbols): TypedFunDef = typed(tparams.map(_.tp))
 
     /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with the specified type parameters */
-    def typed(tps: Seq[Type])(implicit s: Symbols): TypedFunDef = s.getFunction(id, tps)
+    def typed(tps: Seq[Type])(using s: Symbols): TypedFunDef = s.getFunction(id, tps)
 
     /* Auxiliary methods */
 
-    def isRecursive(implicit s: Symbols) = s.isRecursive(id)
+    def isRecursive(using s: Symbols) = s.isRecursive(id)
 
     @inline def typeArgs: Seq[TypeParameter] = _typeArgs.get
     private[this] val _typeArgs = Lazy(tparams.map(_.tp))
@@ -507,7 +504,7 @@ trait Definitions { self: Trees =>
     @inline def applied = FunctionInvocation(id, typeArgs, params map (_.toVariable))
 
     /** The (non-dependent) return type of this function definition */
-    def getType(implicit s: Symbols) = returnType.getType
+    def getType(using Symbols) = returnType.getType
 
     def copy(
       id: Identifier = this.id,
@@ -521,7 +518,7 @@ trait Definitions { self: Trees =>
 
 
   /** Represents a [[FunDef]] whose type parameters have been instantiated with the specified types */
-  case class TypedFunDef private(fd: FunDef, tps: Seq[Type])(implicit val symbols: Symbols) extends Tree {
+  case class TypedFunDef(fd: FunDef, tps: Seq[Type])(using val symbols: Symbols) extends Tree {
     require(tps.length == fd.tparams.length)
     copiedFrom(fd)
 

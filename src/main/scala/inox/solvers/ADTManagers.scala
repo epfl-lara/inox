@@ -9,27 +9,27 @@ trait ADTManagers {
   val program: Program
   val context: Context
 
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   protected def unsupported(t: Tree, str: String): Nothing
 
   case class DataType(sym: Identifier, cases: Seq[Constructor]) extends Printable {
-    def asString(implicit opts: PrinterOptions) = {
-      "Datatype: " + sym.asString(opts) + "\n" + cases.map(c => " - " + c.asString(opts)).mkString("\n")
+    def asString(using opts: PrinterOptions) = {
+      "Datatype: " + sym.asString + "\n" + cases.map(c => " - " + c.asString).mkString("\n")
     }
   }
 
   sealed abstract class ConsType extends Tree {
-    override def asString(implicit opts: PrinterOptions) = this match {
+    override def asString(using PrinterOptions) = this match {
       case ADTCons(id, tps) =>
-        id.asString(opts) +
-        (if (tps.nonEmpty) tps.map(_.asString(opts)).mkString("[", ",", "]") else "")
-      case TupleCons(tps) => TupleType(tps).asString(opts)
-      case TypeParameterCons(tp) => tp.asString(opts)
-      case UnitCons => UnitType().asString(opts)
+        id.asString +
+        (if (tps.nonEmpty) tps.map(_.asString).mkString("[", ",", "]") else "")
+      case TupleCons(tps) => TupleType(tps).asString
+      case TypeParameterCons(tp) => tp.asString
+      case UnitCons => UnitType().asString
     }
 
     def getType: Type
@@ -48,10 +48,10 @@ trait ADTManagers {
   }
 
   case class Constructor(sym: Identifier, tpe: ConsType, fields: Seq[(Identifier, Type)]) extends Printable {
-    def asString(implicit opts: PrinterOptions) = {
-      sym.asString(opts) +
-      " [" + tpe.asString(opts) + "] " +
-      fields.map(f => f._1.asString(opts) + ": " + f._2.asString(opts)).mkString("(", ", ", ")")
+    def asString(using PrinterOptions) = {
+      sym.asString +
+      " [" + tpe.asString + "] " +
+      fields.map(f => f._1.asString + ": " + f._2.asString).mkString("(", ", ", ")")
     }
   }
 

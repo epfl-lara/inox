@@ -16,13 +16,12 @@ import scala.collection.mutable.Queue
  * growing/shrinking pool size...
  */
 
-trait SolverPoolFactory extends SolverFactory { self =>
-
-  val factory: SolverFactory
-  val program: factory.program.type = factory.program
+class SolverPoolFactory private(val factory: SolverFactory)
+                               (override val program: factory.program.type, override val name: String)
+  extends SolverFactory { self =>
   type S = factory.S
 
-  val name = "Pool(" + factory.name + ")"
+  def this(factory: SolverFactory) = this(factory)(factory.program, "Pool(" + factory.name + ")")
 
   var poolSize    = 0
   val poolMaxSize = 5
@@ -80,7 +79,8 @@ trait SolverPoolFactory extends SolverFactory { self =>
 object SolverPoolFactory {
   def apply(sf: SolverFactory): SolverPoolFactory {
     val factory: sf.type
-  } = new {
-    val factory: sf.type = sf
-  } with SolverPoolFactory
+  } = {
+    class Impl(override val factory: sf.type) extends SolverPoolFactory(factory)
+    new Impl(sf)
+  }
 }

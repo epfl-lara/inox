@@ -4,12 +4,25 @@ package inox
 package solvers
 package unrolling
 
-trait ChooseEncoder extends transformers.ProgramTransformer {
-  val program: Program
-  val sourceEncoder: transformers.ProgramTransformer { val sourceProgram: program.type }
+class ChooseEncoder private
+  (val program: Program)
+  (val sourceEncoder: transformers.ProgramTransformer { val sourceProgram: program.type })
+  (override val sourceProgram: sourceEncoder.targetProgram.type,
+   override val targetProgram: Program { val trees: sourceEncoder.targetProgram.trees.type })
+  (private val scopes: Map[Identifier, Seq[sourceProgram.trees.ValDef]])
+  extends transformers.ProgramTransformer {
 
-  lazy val sourceProgram: sourceEncoder.targetProgram.type = sourceEncoder.targetProgram
   import sourceProgram.trees._
+
+  private def this(program: Program,
+                   sourceEncoder: transformers.ProgramTransformer {val sourceProgram: program.type},
+                   args: (Program {val trees: sourceEncoder.targetProgram.trees.type},
+                     Map[Identifier, Seq[sourceEncoder.targetProgram.trees.ValDef]]))
+  = this(program)(sourceEncoder)(sourceEncoder.targetProgram, args._1)(args._2)
+
+  def this(program: Program,
+           sourceEncoder: transformers.ProgramTransformer {val sourceProgram: program.type})
+  = this(program, sourceEncoder, ChooseEncoder.ctorHelper(program, sourceEncoder))
 
   private lazy val chooses = {
     import program._
@@ -20,7 +33,49 @@ trait ChooseEncoder extends transformers.ProgramTransformer {
     }.toMap
   }
 
-  private lazy val (newFunctions: Seq[FunDef], scopes: Map[Identifier, Seq[ValDef]]) = {
+  protected val encoder: transformers.TreeTransformer {val s: sourceProgram.trees.type; val t: targetProgram.trees.type} = {
+    class EncoderImpl(override val s: sourceProgram.trees.type, override val t: targetProgram.trees.type)
+      extends transformers.ConcreteTreeTransformer(s, t)
+    new EncoderImpl(sourceProgram.trees, targetProgram.trees)
+  }
+
+  protected val decoder: transformers.TreeTransformer {val s: targetProgram.trees.type; val t: sourceProgram.trees.type} = {
+    class DecoderImpl(override val s: targetProgram.trees.type, override val t: sourceProgram.trees.type)
+      extends transformers.ConcreteTreeTransformer(s, t)
+    new DecoderImpl(targetProgram.trees, sourceProgram.trees)
+  }
+
+  def getChoose(fd: targetProgram.trees.FunDef): Option[(Identifier, program.trees.Choose, Seq[program.trees.ValDef])] = fd.fullBody match {
+    case targetProgram.trees.Choose(res, _) =>
+      scopes.get(res.id).flatMap { vds =>
+        chooses.get(res.id).map(c => (res.id, c, vds.map(sourceEncoder.decode(_))))
+      }
+    case _ => None
+  }
+}
+
+object ChooseEncoder {
+  def apply(p: Program)(enc: transformers.ProgramTransformer { val sourceProgram: p.type }): ChooseEncoder {
+    val program: p.type
+    val sourceEncoder: enc.type
+  } = {
+    class Impl(override val program: p.type, override val sourceEncoder: enc.type)
+      extends ChooseEncoder(program, sourceEncoder)
+    new Impl(p, enc)
+  }
+
+  private def ctorHelper(program: Program,
+                         sourceEncoder: transformers.ProgramTransformer {val sourceProgram: program.type}):
+  (Program {val trees: sourceEncoder.targetProgram.trees.type},
+    Map[Identifier, Seq[sourceEncoder.targetProgram.trees.ValDef]]) = {
+    val sourceProgram: sourceEncoder.targetProgram.type = sourceEncoder.targetProgram
+    val (newFunctions, scopes) = ChooseEncoder.computeFunctionsAndScopes(sourceProgram)
+    val targetProgram = Program(sourceProgram.trees)(sourceProgram.symbols withFunctions newFunctions)
+    (targetProgram, scopes)
+  }
+
+  private def computeFunctionsAndScopes(sourceProgram: Program): (Seq[sourceProgram.trees.FunDef], Map[Identifier, Seq[sourceProgram.trees.ValDef]]) = {
+    import sourceProgram.trees._
     var fdChooses: Set[(Identifier, FunDef, Seq[ValDef])] = Set.empty
 
     val newFds = sourceProgram.symbols.functions.values.toList.map { fd =>
@@ -63,36 +118,5 @@ trait ChooseEncoder extends transformers.ProgramTransformer {
     })
 
     (allFunctions, allScopes)
-  }
-
-  lazy val targetProgram: Program { val trees: sourceEncoder.targetProgram.trees.type } =
-    Program(sourceEncoder.targetProgram.trees)(sourceProgram.symbols withFunctions newFunctions)
-
-  protected object encoder extends transformers.TreeTransformer {
-    val s: sourceProgram.trees.type = sourceProgram.trees
-    val t: targetProgram.trees.type = targetProgram.trees
-  }
-
-  protected object decoder extends transformers.TreeTransformer {
-    val s: targetProgram.trees.type = targetProgram.trees
-    val t: sourceProgram.trees.type = sourceProgram.trees
-  }
-
-  def getChoose(fd: targetProgram.trees.FunDef): Option[(Identifier, program.trees.Choose, Seq[program.trees.ValDef])] = fd.fullBody match {
-    case targetProgram.trees.Choose(res, _) =>
-      scopes.get(res.id).flatMap { vds =>
-        chooses.get(res.id).map(c => (res.id, c, vds.map(sourceEncoder.decode(_))))
-      }
-    case _ => None
-  }
-}
-
-object ChooseEncoder {
-  def apply(p: Program)(enc: transformers.ProgramTransformer { val sourceProgram: p.type }): ChooseEncoder {
-    val program: p.type
-    val sourceEncoder: enc.type
-  } = new ChooseEncoder {
-    val program: p.type = p
-    val sourceEncoder: enc.type = enc
   }
 }

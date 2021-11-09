@@ -10,21 +10,21 @@ import evaluators._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet, Queue}
 
 trait QuantificationTemplates { self: Templates =>
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   import lambdasManager._
   import quantificationsManager._
 
   /* In this context, we know that all `Typing` instances correspond
    * to free constraint typings, so we are ensured that a result field
-   * exists. The following helper implicit enables simplified access to
+   * exists. The following helper extension enables simplified access to
    * that field.
    */
-  private implicit class TypingWrapper(tp: Typing) {
-    def result: Encoded = {
+  extension (tp: Typing) {
+    private def result: Encoded = {
       val Typing(_, _, Constraint(res, _, _)) = tp
       res
     }
@@ -137,14 +137,14 @@ trait QuantificationTemplates { self: Templates =>
       val clauseSubst: Map[Variable, Encoded] = depSubst ++ (idQuantifiers zip trQuantifiers)
       val (p, tmplClauses) = mkExprClauses(pathVar._1, body, clauseSubst)
 
-      implicit val generator = if (pol) ContractGenerator else FreeGenerator
+      given TypingGenerator = if (pol) ContractGenerator else FreeGenerator
       val (tpeCond, tpeClauses) = idQuantifiers.foldLeft((BooleanLiteral(true): Expr, emptyClauses)) {
         case ((tpCond, tpClauses), v) =>
           val (p, clauses) = mkTypeClauses(pathVar._1, v.tpe, v, clauseSubst)
-          (and(tpCond, p), tpClauses ++ clauses)
+          (and(tpCond, p), tpClauses +++ clauses)
       }
 
-      val clauses = tmplClauses ++ tpeClauses
+      val clauses: TemplateClauses = tmplClauses +++ tpeClauses
       val (res, polarity, contents, str) = if (pol) {
         val subst = quantifiers.flatMap(v => typeOps.variablesOf(v.tpe)).map(v => v -> Left(clauseSubst(v))).toMap
 
@@ -206,7 +206,7 @@ trait QuantificationTemplates { self: Templates =>
     def unroll: Clauses = {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
       for (e @ (gen, bs, m) <- ignoredMatchers.toList if gen <= currentGeneration && !abort && !pause) {
-        clauses ++= instantiateMatcher(bs, m, defer = true)
+        clauses ++= instantiateMatcher0(bs, m, defer = true)
         ignoredMatchers -= e
       }
 
@@ -258,16 +258,19 @@ trait QuantificationTemplates { self: Templates =>
     }
   }
 
+  // Due to a Scala 3 bug, if we name the following two methods the same, we encounter a strange error.
+  // The following open ticket should be related to our problems:
+  // https://github.com/lampepfl/dotty/issues/11226
   def instantiateMatcher(blocker: Encoded, matcher: Matcher): Clauses = {
     // first instantiate sub-matchers
     val subs = matcher.args.collect { case Right(m) =>
-      instantiateMatcher(Set(blocker), m, false)
+      instantiateMatcher0(Set(blocker), m, false)
     }.flatten
 
-    subs ++ instantiateMatcher(Set(blocker), matcher, false)
+    subs ++ instantiateMatcher0(Set(blocker), matcher, false)
   }
 
-  private def instantiateMatcher(blockers: Set[Encoded], matcher: Matcher, defer: Boolean = false): Clauses = {
+  private def instantiateMatcher0(blockers: Set[Encoded], matcher: Matcher, defer: Boolean = false): Clauses = {
     if (abort || pause) {
       ignoredMatchers += ((currentGeneration, blockers, matcher))
       Seq.empty
@@ -301,14 +304,13 @@ trait QuantificationTemplates { self: Templates =>
   def hasAxioms: Boolean = axioms.nonEmpty
   def getAxioms: Seq[Axiom] = axioms.toSeq
 
-  def getInstantiationsWithBlockers = axioms.toSeq.flatMap {
-    case a: Axiom => a.instantiations.toSeq
-    case _ => Seq.empty
-  }
+  def getInstantiationsWithBlockers = axioms.toSeq.flatMap(_.instantiations.toSeq)
 
-  private sealed trait MatcherKey
+  protected sealed trait MatcherKey
   private case class FunctionKey(tfd: TypedFunDef) extends MatcherKey
-  private sealed abstract class TypedKey(val tpe: Type) extends MatcherKey
+  // Having an abstract class (instead of a sealed trait) causes a NoSuchMethodError in getGroundInstantiations.
+  // This is surely a bug in Scala 3.
+  private sealed trait TypedKey(val tpe: Type) extends MatcherKey
   private case class LambdaKey(lambda: Lambda, tt: Type) extends TypedKey(tt)
   private case class CallerKey(caller: Encoded, tt: FunctionType) extends TypedKey(tt)
   private case class TypeKey(tt: Type) extends TypedKey(tt)
@@ -611,7 +613,7 @@ trait QuantificationTemplates { self: Templates =>
               val gen = currentGeneration + 1
               ignoredMatchers += ((gen, sb, sm))
             } else {
-              clauses ++= instantiateMatcher(sb, sm, defer = defer)
+              clauses ++= instantiateMatcher0(sb, sm, defer = defer)
             }
           }
 

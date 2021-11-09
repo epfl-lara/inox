@@ -37,27 +37,27 @@ class MapMergeSuite extends SolvingTestSuite with DatastructureUtils {
   val symbols = baseSymbols
   val program = InoxProgram(symbols)
 
-  test("Finite model finding 1") { implicit ctx =>
+  test("Finite model finding 1") {
     val clause = Not(Equals(merged, FiniteMap(Seq.empty, dummyValue, keyT, valueT)))
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("Finite model finding 2") { implicit ctx =>
+  test("Finite model finding 2") {
     val clause = Not(Equals(merged, map1))
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("Finite model finding 3") { implicit ctx =>
+  test("Finite model finding 3") {
     val clause = Not(Equals(merged, map2))
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
   }
 
-  test("Empty mask") { implicit ctx =>
+  test("Empty mask") {
     val clause = Implies(Equals(mask, FiniteSet(Seq.empty, keyT)), Equals(merged, map2))
     assert(SimpleSolverAPI(program.getSolver).solveVALID(clause) contains true)
   }
 
-  test("Element in mask") { implicit ctx =>
+  test("Element in mask") {
     val clause = Implies(
       ElementOfSet(someKey, mask),
       Equals(MapApply(merged, someKey), MapApply(map1, someKey)))

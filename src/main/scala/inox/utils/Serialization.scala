@@ -7,8 +7,6 @@ import java.io.{OutputStream, InputStream}
 import java.nio.charset.StandardCharsets
 
 import scala.reflect._
-import scala.reflect.runtime._
-import scala.reflect.runtime.universe._
 
 import scala.annotation.switch
 
@@ -30,33 +28,34 @@ trait Serializer { self =>
   /** Type class that marks a type as serializable. */
   class Serializable[-T]
 
-  implicit def identIsSerializable = new Serializable[Identifier]
+  given identIsSerializable: Serializable[Identifier] = new Serializable[Identifier]
 
-  implicit def tuple2IsSerializable[T1: Serializable, T2: Serializable] = new Serializable[(T1, T2)]
-  implicit def tuple3IsSerializable[T1: Serializable, T2: Serializable, T3: Serializable] = new Serializable[(T1, T2, T3)]
-  implicit def tuple4IsSerializable[T1: Serializable, T2: Serializable, T3: Serializable, T4: Serializable] = new Serializable[(T1, T2, T3, T4)]
+  given tuple2IsSerializable[T1: Serializable, T2: Serializable]: Serializable[(T1, T2)] =
+    new Serializable[(T1, T2)]
+  given tuple3IsSerializable[T1: Serializable, T2: Serializable, T3: Serializable]: Serializable[(T1, T2, T3)] =
+    new Serializable[(T1, T2, T3)]
+  given tuple4IsSerializable[T1: Serializable, T2: Serializable, T3: Serializable, T4: Serializable]: Serializable[(T1, T2, T3, T4)] =
+    new Serializable[(T1, T2, T3, T4)]
 
-  implicit def optionIsSerializable[T: Serializable] = new Serializable[Option[T]]
-  implicit def seqIsSerializable[T: Serializable] = new Serializable[Seq[T]]
-  implicit def setIsSerializable[T: Serializable] = new Serializable[Set[T]]
-  implicit def mapIsSerializable[T1: Serializable, T2: Serializable] = new Serializable[Map[T1, T2]]
+  given optionIsSerializable[T: Serializable]: Serializable[Option[T]] = new Serializable[Option[T]]
+  given seqIsSerializable[T: Serializable]: Serializable[Seq[T]] = new Serializable[Seq[T]]
+  given setIsSerializable[T: Serializable]: Serializable[Set[T]] = new Serializable[Set[T]]
+  given mapIsSerializable[T1: Serializable, T2: Serializable]: Serializable[Map[T1, T2]] = new Serializable[Map[T1, T2]]
 
-  implicit def resultIsSerializable = new Serializable[SerializationResult]
+  given resultIsSerializable: Serializable[SerializationResult] = new Serializable[SerializationResult]
 
-  implicit object boolIsSerializable   extends Serializable[Boolean]
-  implicit object charIsSerializable   extends Serializable[Char]
-  implicit object byteIsSerializable   extends Serializable[Byte]
-  implicit object shortIsSerializable  extends Serializable[Short]
-  implicit object intIsSerializable    extends Serializable[Int]
-  implicit object longIsSerializable   extends Serializable[Long]
-  implicit object floatIsSerializable  extends Serializable[Float]
-  implicit object doubleIsSerializable extends Serializable[Double]
-  implicit object stringIsSerializable extends Serializable[String]
-  implicit object bigIntIsSerializable extends Serializable[BigInt]
+  given boolIsSerializable: Serializable[Boolean] = new Serializable[Boolean]
+  given charIsSerializable: Serializable[Char] = new Serializable[Char]
+  given byteIsSerializable: Serializable[Byte] = new Serializable[Byte]
+  given shortIsSerializable: Serializable[Short] = new Serializable[Short]
+  given intIsSerializable: Serializable[Int] = new Serializable[Int]
+  given longIsSerializable: Serializable[Long] = new Serializable[Long]
+  given floatIsSerializable: Serializable[Float] = new Serializable[Float]
+  given doubleIsSerializable: Serializable[Double] = new Serializable[Double]
+  given stringIsSerializable: Serializable[String] = new Serializable[String]
+  given bigIntIsSerializable: Serializable[BigInt] = new Serializable[BigInt]
 
-  // This has to be the last implicit for some reason, otherwise implicit expansion diverges
-  // for `Serializable[Expr]` when using Scala 2.12
-  implicit def treeIsSerializable = new Serializable[Tree]
+  given treeIsSerializable: Serializable[Tree] = new Serializable[Tree]
 
   protected def writeObject(obj: Any, out: OutputStream): Unit
   protected def readObject(in: InputStream): Any
@@ -91,12 +90,12 @@ trait Serializer { self =>
     def deserialize(in: SerializationResult): T @scala.annotation.unchecked.uncheckedVariance
   }
 
-  // Reduce priority of SerializationProcedure implicits (for Scala 2.12)
+  // Reduce priority of SerializationProcedure
   object SerializationProcedure {
 
     /** Everything that is serializable implies the existence of a corresponding serialization
       * procedure that simply calls the serializer. */
-    implicit def serializableProcedure[T: Serializable] = new SerializationProcedure[T] {
+    given serializableProcedure[T: Serializable]: SerializationProcedure[T] = new SerializationProcedure[T] {
       def serialize(e: T): SerializationResult = {
         val out = new java.io.ByteArrayOutputStream
         writeObject(e, out)
@@ -118,65 +117,60 @@ trait Serializer { self =>
       }
     }
 
-    implicit def tuple2Procedure[T1, T2](
-      implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2]) =
+    given tuple2Procedure[T1, T2](
+      using p1: SerializationProcedure[T1], p2: SerializationProcedure[T2]): SerializationProcedure[(T1, T2)] =
         mappingProcedure((p: (T1, T2)) => (p1.serialize(p._1), p2.serialize(p._2)))(
           p => (p1.deserialize(p._1), p2.deserialize(p._2)))
 
-    implicit def tuple3Procedure[T1, T2, T3](
-      implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2], p3: SerializationProcedure[T3]) =
+    given tuple3Procedure[T1, T2, T3](
+      using p1: SerializationProcedure[T1], p2: SerializationProcedure[T2], p3: SerializationProcedure[T3]): SerializationProcedure[(T1, T2, T3)] =
         mappingProcedure((p: (T1, T2, T3)) => (p1.serialize(p._1), p2.serialize(p._2), p3.serialize(p._3)))(
           p => (p1.deserialize(p._1), p2.deserialize(p._2), p3.deserialize(p._3)))
 
-    implicit def tuple4Procedure[T1, T2, T3, T4](
-      implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2], p3: SerializationProcedure[T3], p4: SerializationProcedure[T4]) =
+    given tuple4Procedure[T1, T2, T3, T4](
+      using p1: SerializationProcedure[T1], p2: SerializationProcedure[T2], p3: SerializationProcedure[T3], p4: SerializationProcedure[T4]): SerializationProcedure[(T1, T2, T3, T4)] =
         mappingProcedure((p: (T1, T2, T3, T4)) => (p1.serialize(p._1), p2.serialize(p._2), p3.serialize(p._3), p4.serialize(p._4)))(
           p => (p1.deserialize(p._1), p2.deserialize(p._2), p3.deserialize(p._3), p4.deserialize(p._4)))
 
-    implicit def seqProcedure[T](implicit p: SerializationProcedure[T]) =
+    given seqProcedure[T](using p: SerializationProcedure[T]): SerializationProcedure[Seq[T]] =
       mappingProcedure((seq: Seq[T]) => seq.map(p.serialize))(seq => seq.map(p.deserialize))
 
-    implicit def setProcedure[T](implicit p: SerializationProcedure[T]) =
+    given setProcedure[T](using p: SerializationProcedure[T]): SerializationProcedure[Set[T]] =
       mappingProcedure((set: Set[T]) => set.map(p.serialize))(set => set.map(p.deserialize))
 
-    implicit def mapProcedure[T1, T2](implicit p1: SerializationProcedure[T1], p2: SerializationProcedure[T2]) =
+    given mapProcedure[T1, T2](using p1: SerializationProcedure[T1], p2: SerializationProcedure[T2]): SerializationProcedure[Map[T1, T2]] =
       mappingProcedure((map: Map[T1, T2]) => map.map(p => p1.serialize(p._1) -> p2.serialize(p._2)))(
         map => map.map(p => p1.deserialize(p._1) -> p2.deserialize(p._2)))
 
-    implicit def symbolsProcedure: SerializationProcedure[Symbols] = mappingProcedure(
+    given symbolsProcedure: SerializationProcedure[Symbols] = mappingProcedure(
       (s: Symbols) => (s.functions.values.toSeq.sortBy(_.id), s.sorts.values.toSeq.sortBy(_.id)))(
         p => NoSymbols.withFunctions(p._1).withSorts(p._2))
   }
 
 
-  // Using the companion object here makes the `fromProcedure` implicit have lower priority
+  // Using the companion object here makes the `fromProcedure` given have lower priority
   object SerializableOrProcedure {
-    implicit def fromProcedure[T](implicit ev: SerializationProcedure[T]) = SerializableOrProcedure(Right(ev))
+    given fromProcedure[T](using ev: SerializationProcedure[T]): SerializableOrProcedure[T] = SerializableOrProcedure(Right(ev))
   }
-  implicit def fromSerializable[T](implicit ev: Serializable[T]) = SerializableOrProcedure(Left(ev))
+  given fromSerializable[T](using ev: Serializable[T]): SerializableOrProcedure[T] = SerializableOrProcedure(Left(ev))
   case class SerializableOrProcedure[T](e: Either[Serializable[T], SerializationProcedure[T]])
 
 
-  final def serialize[T](e: T)(implicit p: SerializationProcedure[T]): SerializationResult = p.serialize(e)
-  final def deserialize[T](result: SerializationResult)(implicit p: SerializationProcedure[T]): T = p.deserialize(result)
+  final def serialize[T](e: T)(using p: SerializationProcedure[T]): SerializationResult = p.serialize(e)
+  final def deserialize[T](result: SerializationResult)(using p: SerializationProcedure[T]): T = p.deserialize(result)
 
-  final def serialize[T](e: T, out: OutputStream)(implicit p: SerializableOrProcedure[T]): Unit = p.e match {
+  final def serialize[T](e: T, out: OutputStream)(using p: SerializableOrProcedure[T]): Unit = p.e match {
     case Left(_) => writeObject(e, out)
     case Right(p) => writeObject(p.serialize(e), out)
   }
 
-  final def deserialize[T](in: InputStream)(implicit p: SerializableOrProcedure[T]): T = p.e match {
+  final def deserialize[T](in: InputStream)(using p: SerializableOrProcedure[T]): T = p.e match {
     case Left(_) => readObject(in).asInstanceOf[T]
     case Right(p) => p.deserialize(readObject(in).asInstanceOf[SerializationResult])
   }
 }
 
-/** Serialization utilities for Inox trees
-  *
-  * NOTE the serializer mostly uses runtime information to serialize classes and their fields
-  *      even though much of this information is known at compile time.
-  *      Changing this behavior could be a useful extension.
-  */
+/** Serialization utilities for Inox trees */
 class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) extends Serializer { self =>
   import trees._
 
@@ -213,7 +207,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     if (i < 255) i else readObject(in).asInstanceOf[Int]
   }
 
-  protected abstract class Serializer[T](val id: Int) {
+  abstract class Serializer[T](val id: Int) {
     final def apply(element: T, out: OutputStream): Unit = serialize(element, out)
 
     /** Writes the provided input element into the `out` byte stream. */
@@ -231,71 +225,8 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     protected def read(in: InputStream): T
   }
 
-  protected def fieldsForClassSymbol(classSymbol: ClassSymbol) = {
-    val constructorSymbol = classSymbol.toType.members
-      .filter(_.isMethod).map(_.asMethod).filter(m => m.isConstructor && m.isPrimaryConstructor)
-      .iterator.next()
-    val paramNames = constructorSymbol.paramLists.flatten.map(_.name)
-    classSymbol.toType.decls
-      .filter(d => d.isTerm && d.isPublic && !d.isSynthetic)
-      .map(_.asTerm)
-      .filter(_.isStable)
-      .filter(s => paramNames contains s.name)
-  }
-
-  protected class ClassSerializer[T: ClassTag](id: Int) extends Serializer[T](id) {
-    private val tag = classTag[T]
-    private val runtimeClass = tag.runtimeClass
-    private val rootMirror = scala.reflect.runtime.universe.runtimeMirror(runtimeClass.getClassLoader)
-    private val classSymbol = rootMirror.classSymbol(runtimeClass)
-
-    if (
-      !classSymbol.isStatic &&
-      !(classSymbol.owner.isClass && classSymbol.owner.asClass.selfType <:< typeOf[ast.Trees])
-    ) throw SerializationError(runtimeClass, "Unexpected inner type")
-
-    protected val fields = fieldsForClassSymbol(classSymbol)
-
-    override protected def write(element: T, out: OutputStream): Unit = {
-      val elementMirror = rootMirror.reflect(element)
-      for (fd <- fields) {
-        val fieldValue = try {
-          elementMirror.reflectField(fd).get
-        } catch {
-          // Scala case class constructor arguments that are super-class field overrides are not
-          // represented as Java fields, so we invoke their getter instead to get their value
-          case _: ScalaReflectionException => elementMirror.reflectMethod(fd.asMethod)()
-        }
-        writeObject(fieldValue, out)
-      }
-    }
-
-    private val instantiator: Seq[Any] => Any = {
-      if (classSymbol.isStatic) {
-        val constructor = currentMirror.reflectClass(classSymbol).reflectConstructor(
-          classSymbol.toType.members
-            .filter(_.isMethod).map(_.asMethod).filter(m => m.isConstructor && m.isPrimaryConstructor)
-            .iterator.next())
-        (fieldObjs: Seq[Any]) => constructor(fieldObjs: _*)
-      } else {
-        // XXX @nv: Scala has a bug with nested class constructors (https://github.com/scala/bug/issues/9528)
-        //          so we use the more crude Java reflection instead.
-        val constructors = runtimeClass.getConstructors()
-        if (constructors.size != 1) throw SerializationError(classSymbol, "Cannot identify constructor")
-        (fieldObjs: Seq[Any]) => constructors(0).newInstance(trees +: fieldObjs.map(_.asInstanceOf[AnyRef]) : _*)
-      }
-    }
-
-    override protected def read(in: InputStream): T = {
-      val fieldObjs = for (fd <- fields.toSeq) yield readObject(in)
-      instantiator(fieldObjs).asInstanceOf[T]
-    }
-  }
-
-  protected final def classSerializer[T: ClassTag](id: Int): (Class[_], ClassSerializer[T]) = {
-    classTag[T].runtimeClass -> new ClassSerializer[T](id)
-  }
-
+  private inline def classSerializer[T: ClassTag](inline id: Int): (Class[_], Serializer[T]) =
+    classTag[T].runtimeClass -> inoxClassSerializerMacro[T](this, id).asInstanceOf[Serializer[T]]
 
   protected class MappingSerializer[T, U](id: Int, f: T => U, fInv: U => T) extends Serializer[T](id) {
     override protected def write(element: T, out: OutputStream): Unit = writeObject(f(element), out)
@@ -303,7 +234,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   }
 
   protected class MappingSerializerConstructor[T](id: Int) {
-    def apply[U](f: T => U)(fInv: U => T)(implicit ev: ClassTag[T]): (Class[_], MappingSerializer[T, U]) =
+    def apply[U](f: T => U)(fInv: U => T)(using ev: ClassTag[T]): (Class[_], MappingSerializer[T, U]) =
       classTag[T].runtimeClass -> new MappingSerializer[T,U](id, f, fInv)
   }
 
@@ -312,7 +243,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   }
 
   // Products are marked with id=0
-  protected final object ProductSerializer extends Serializer[Product](0) {
+  protected object ProductSerializer extends Serializer[Product](0) {
     override protected def write(element: Product, out: OutputStream): Unit = {
       writeObject(element.getClass.getName, out)
       out.write(element.productArity)
@@ -324,28 +255,14 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
       val fieldObjs = for (i <- 0 until size) yield readObject(in).asInstanceOf[AnyRef]
 
       val runtimeClass = Class.forName(className)
-      val classSymbol = currentMirror.classSymbol(runtimeClass)
-
-      if (classSymbol.isStatic) {
-        currentMirror.reflectClass(classSymbol).reflectConstructor(
-          classSymbol.toType.members
-            .filter(_.isMethod).map(_.asMethod).filter(m => m.isConstructor && m.isPrimaryConstructor)
-            .iterator.next()
-        )(fieldObjs: _*).asInstanceOf[Product]
-      } else {
-        if (!classSymbol.owner.isType || !(classSymbol.owner.asClass.selfType <:< typeOf[ast.Trees]))
-          throw SerializationError(classSymbol, "Unexpected inner class")
-        // XXX @nv: Scala has a bug with nested class constructors (https://github.com/scala/bug/issues/9528)
-        //          so we use the more crude Java reflection instead.
-        val constructors = runtimeClass.getConstructors()
-        if (constructors.size != 1) throw SerializationError(classSymbol, "Cannot identify constructor")
-        constructors(0).newInstance(trees +: fieldObjs.map(_.asInstanceOf[AnyRef]) : _*).asInstanceOf[Product]
-      }
+      val constructors = runtimeClass.getConstructors()
+      if (constructors.size != 1) throw SerializationError(className, "Cannot identify constructor")
+      constructors(0).newInstance(trees +: fieldObjs.map(_.asInstanceOf[AnyRef]) : _*).asInstanceOf[Product]
     }
   }
 
   // Option is marked with id=1
-  protected final object OptionSerializer extends Serializer[Option[_]](1) {
+  protected object OptionSerializer extends Serializer[Option[_]](1) {
     override protected def write(element: Option[_], out: OutputStream): Unit = {
       out.write(if (element.isDefined) 1 else 0)
       if (element.isDefined) writeObject(element.get, out)
@@ -359,7 +276,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   }
 
   // Seq is marked with id=2
-  protected final object SeqSerializer extends Serializer[Seq[_]](2) {
+  protected object SeqSerializer extends Serializer[Seq[_]](2) {
     override protected def write(element: Seq[_], out: OutputStream): Unit = {
       writeSmallish(element.size, out)
       for (e <- element) writeObject(e, out)
@@ -371,7 +288,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   }
 
 
-  protected implicit final object LexicographicOrder extends scala.math.Ordering[Array[Byte]] {
+  protected object LexicographicOrder extends scala.math.Ordering[Array[Byte]] {
     override def compare(a1: Array[Byte], a2: Array[Byte]): Int = {
       def rec(i: Int): Int =
         if (i >= a1.size || i >= a2.size) {
@@ -383,6 +300,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
       rec(0)
     }
   }
+  given LexicographicOrder.type = LexicographicOrder
 
   protected final def serializeToBytes(element: Any): Array[Byte] = {
     val bytes = new java.io.ByteArrayOutputStream
@@ -391,7 +309,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   }
 
   // Set is marked with id=3
-  protected final object SetSerializer extends Serializer[Set[_]](3) {
+  protected object SetSerializer extends Serializer[Set[_]](3) {
     override protected def write(element: Set[_], out: OutputStream): Unit = {
       writeSmallish(element.size, out)
       element.toSeq.map(serializeToBytes).sorted.foreach(out.write(_))
@@ -403,7 +321,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   }
 
   // Map is marked with id=4
-  protected final object MapSerializer extends Serializer[Map[_, _]](4) {
+  protected object MapSerializer extends Serializer[Map[_, _]](4) {
     override protected def write(element: Map[_, _], out: OutputStream): Unit = {
       writeSmallish(element.size, out)
       for ((k, v) <- element.toSeq.map { case (k, v) => serializeToBytes(k) -> v }.sortBy(_._1)) {
@@ -418,7 +336,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   }
 
   // Basic Java types that are serialized primitively are prefixed with id=5
-  protected final object PrimitiveSerializer extends Serializer[AnyRef](5) {
+  protected object PrimitiveSerializer extends Serializer[AnyRef](5) {
     override protected def write(element: AnyRef, out: OutputStream): Unit = {
       val objOut = new java.io.DataOutputStream(out)
       def writeBytes(id: Byte, bytes: Array[Byte]): Unit = {
@@ -482,7 +400,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
 
 
   // Tuples id=6
-  protected final object TupleSerializer extends Serializer[Product](6) {
+  protected object TupleSerializer extends Serializer[Product](6) {
     override protected def write(element: Product, out: OutputStream): Unit = {
       out.write(element.productArity)
       for (e <- element.productIterator) writeObject(e, out)
@@ -501,7 +419,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
 
 
   // SerializationResult id=7
-  protected final object ResultSerializer extends Serializer[SerializationResult](7) {
+  protected object ResultSerializer extends Serializer[SerializationResult](7) {
     override protected def write(element: SerializationResult, out: OutputStream): Unit = {
       writeObject(element.bytes.size, out)
       out.write(element.bytes)
@@ -516,8 +434,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     }
   }
 
-
-  override protected def writeObject(obj: Any, out: OutputStream): Unit = {
+  override def writeObject(obj: Any, out: OutputStream): Unit = {
     val runtimeClass = obj.getClass
     classToSerializer.get(runtimeClass)
       .collect { case (s: Serializer[t]) => s(obj.asInstanceOf[t], out) }
@@ -533,7 +450,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
       })
   }
 
-  override protected def readObject(in: InputStream): Any = {
+  override def readObject(in: InputStream): Any = {
     readId(in) match {
       case -1 => throw new java.io.EOFException()
       case ProductSerializer.id => ProductSerializer.deserialize(in)

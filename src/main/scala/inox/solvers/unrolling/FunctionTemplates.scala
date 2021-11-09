@@ -9,10 +9,10 @@ import utils._
 import scala.collection.mutable.{Set => MutableSet, Map => MutableMap}
 
 trait FunctionTemplates { self: Templates =>
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
 
   import functionsManager._
   import lambdasManager._
@@ -21,7 +21,7 @@ trait FunctionTemplates { self: Templates =>
     val free = typeOps.variablesOf(tpe)
     val vars = new scala.collection.mutable.ListBuffer[Variable]
 
-    new SelfTreeTraverser {
+    new ConcreteSelfTreeTraverser {
       override def traverse(e: Expr): Unit = e match {
         case v: Variable if free(v) => vars += v
         case _ => super.traverse(e)
@@ -127,7 +127,7 @@ trait FunctionTemplates { self: Templates =>
     // also specify the generation of the blocker.
     private[FunctionTemplates] val callInfos   = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[Call])]()
 
-    private lazy val evaluator = semantics.getEvaluator(context.withOpts(evaluators.optEvalQuantifiers(false)))
+    private lazy val evaluator = semantics.getEvaluator(using context.withOpts(evaluators.optEvalQuantifiers(false)))
 
     val incrementals: Seq[IncrementalState] = Seq(callInfos, defBlockers)
 

@@ -8,15 +8,17 @@ import inox.transformers.TreeTransformer
 
 import scala.collection.immutable.BitSet
 
-trait RecursiveEvaluator
+abstract class RecursiveEvaluator(override val program: Program,
+                                  override val context: Context)
+                                 (using override protected val semantics: program.Semantics)
   extends ContextualEvaluator
      with DeterministicEvaluator
      with SolvingEvaluator {
 
-  import context._
+  import context.{given, _}
   import program._
   import program.trees._
-  import program.symbols._
+  import program.symbols.{given, _}
   import program.trees.exprOps._
 
   val name = "Recursive Evaluator"
@@ -38,7 +40,7 @@ trait RecursiveEvaluator
     FiniteMap(els.toMap.toSeq.filter { case (_, value) => value != default }.sortBy(_._1.toString), default, from, to)
   }
 
-  protected[evaluators] def e(expr: Expr)(implicit rctx: RC, gctx: GC): Expr = expr match {
+  protected[evaluators] def e(expr: Expr)(using rctx: RC, gctx: GC): Expr = expr match {
     case v: Variable =>
       rctx.mappings.get(v.toVal) match {
         case Some(v) => v
@@ -50,7 +52,7 @@ trait RecursiveEvaluator
         case l @ Lambda(params, body) =>
           val newArgs = args.map(e)
           val mapping = l.paramSubst(newArgs)
-          e(body)(rctx.withNewVars(mapping), gctx)
+          e(body)(using rctx.withNewVars(mapping), gctx)
         case f =>
           throw EvalError("Cannot apply non-lambda function " + f.asString)
       }
@@ -65,7 +67,7 @@ trait RecursiveEvaluator
 
     case Let(i,ex,b) =>
       val first = e(ex)
-      e(b)(rctx.withNewVar(i, first), gctx)
+      e(b)(using rctx.withNewVar(i, first), gctx)
 
     case Assume(cond, body) =>
       if (!ignoreContracts && e(cond) != BooleanLiteral(true))
@@ -92,7 +94,7 @@ trait RecursiveEvaluator
       // build a mapping for the function...
       val frame = rctx.withNewVars(tfd.paramSubst(evArgs)).newTypes(tps)
 
-      e(tfd.fullBody)(frame, gctx)
+      e(tfd.fullBody)(using frame, gctx)
 
     case And(Seq(e1, e2)) => e(e1) match {
       case BooleanLiteral(false) => BooleanLiteral(false)
@@ -134,7 +136,7 @@ trait RecursiveEvaluator
         val sort = cc.getConstructor.sort
         sort.invariant.foreach { tfd =>
           val v = Variable.fresh("x", ADTType(sort.id, sort.tps), true)
-          e(tfd.applied(Seq(v)))(rctx.withNewVar(v.toVal, cc), gctx) match {
+          e(tfd.applied(Seq(v)))(using rctx.withNewVar(v.toVal, cc), gctx) match {
             case BooleanLiteral(true) =>
             case BooleanLiteral(false) =>
               throw RuntimeError("ADT invariant violation for " + cc.asString)
@@ -503,7 +505,8 @@ trait RecursiveEvaluator
         val (nl, deps) = normalizeStructure(l, onlySimple = onlySimple)
         val newCtx = deps.foldLeft(rctx) {
           case (rctx, (v, dep, conds)) =>
-            if (conds.forall(e(_)(rctx, gctx) == BooleanLiteral(true))) rctx.withNewVar(v.toVal, e(dep)(rctx, gctx))
+            if (conds.forall(e(_)(using rctx, gctx) == BooleanLiteral(true)))
+              rctx.withNewVar(v.toVal, e(dep)(using rctx, gctx))
             else rctx
         }
         val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
@@ -571,11 +574,11 @@ trait RecursiveEvaluator
     *   is simplified into:
     *     (x: BigInt) => 0
     */
-  private def simplifyTrivialApps(expr: Expr)(implicit rctx: RC, gctx: GC): Expr = {
+  private def simplifyTrivialApps(expr: Expr)(using rctx: RC, gctx: GC): Expr = {
     def isLambdaTrivial(l: Lambda): Boolean =
       l.params.forall(vd => !occursIn(vd, l.body))
 
-    val transformer = new SelfTreeTransformer {
+    val transformer = new ConcreteSelfTreeTransformer {
       override def transform(expr: Expr): Expr = expr match {
         case Application(l@Lambda(_, body), _) if isLambdaTrivial(l) =>
           body
@@ -596,11 +599,8 @@ trait RecursiveEvaluator
 
 object RecursiveEvaluator {
   def apply(p: InoxProgram, ctx: Context): RecursiveEvaluator { val program: p.type } = {
-    new {
-      val program: p.type = p
-      val context = ctx
-    } with RecursiveEvaluator with HasDefaultGlobalContext with HasDefaultRecContext {
-      val semantics: p.Semantics = p.getSemantics
-    }
+    class Impl(override val program: p.type)(using override val semantics: p.Semantics)
+      extends RecursiveEvaluator(program, ctx) with HasDefaultGlobalContext with HasDefaultRecContext
+    new Impl(p)(using p.getSemantics)
   }
 }
