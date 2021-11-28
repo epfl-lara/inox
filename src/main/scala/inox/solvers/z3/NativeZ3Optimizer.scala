@@ -39,6 +39,9 @@ trait NativeZ3Optimizer extends AbstractUnrollingOptimizer with Z3Unrolling { se
     def assertCnstr(ast: Z3AST, weight: Int): Unit = tryZ3(optimizer.assertCnstr(ast, weight))
     def assertCnstr(ast: Z3AST, weight: Int, group: String): Unit = tryZ3(optimizer.assertCnstr(ast, weight, group))
 
+    def maximize(ast: Z3AST): Unit = tryZ3(optimizer.maximize(ast))
+    def minimize(ast: Z3AST): Unit = tryZ3(optimizer.minimize(ast))
+
     // NOTE @nv: this is very similar to code in AbstractZ3Solver and UninterpretedZ3Solver but
     //           is difficult to merge due to small API differences between the native Z3
     //           solvers and optimizers.

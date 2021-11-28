@@ -25,6 +25,18 @@ trait AbstractUnrollingOptimizer extends AbstractUnrollingSolver with Optimizer 
     assertCnstr(Implies(b, expression))
     underlying.assertCnstr(freeVars(b), weight, group)
   }
+
+  def minimize(expression: Expr): Unit = {
+    val b = Variable.fresh("e", expression.getType)
+    assertCnstr(Equals(b, expression))
+    underlying.minimize(freeVars(b))
+  }
+
+  def maximize(expression: Expr): Unit = {
+    val b = Variable.fresh("e", expression.getType)
+    assertCnstr(Equals(b, expression))
+    underlying.maximize(freeVars(b))
+  }
 }
 
 trait UnrollingOptimizer extends AbstractUnrollingOptimizer with UnrollingSolver {
