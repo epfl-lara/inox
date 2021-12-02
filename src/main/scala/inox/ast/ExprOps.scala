@@ -226,41 +226,80 @@ class ExprOps private(val trees: Trees)
     * that reduce the size of the tree. The only guarantee from this function is
     * to not augment the size of the expression and to be sound.
     */
-  def simplifyArithmetic(expr: Expr): Expr = {
+  def simplifyArithmetic(expr: Expr)(using Symbols): Expr = {
+    // Extractor for BigInt and BV literals.
+    sealed trait ExIntegerLit {
+      def unapply(e: Expr): Option[BigInt]
+    }
+    case object ExBigIntLit extends ExIntegerLit {
+      override def unapply(e: Expr): Option[BigInt] = e match {
+        case IntegerLiteral(i) => Some(i)
+        case _ => None
+      }
+    }
+    case object ExBVLit extends ExIntegerLit {
+      override def unapply(e: Expr): Option[BigInt] = e match {
+        case bv@BVLiteral(_, _, _) => Some(bv.toBigInt)
+        case _ => None
+      }
+    }
+
+    def integerArithSimp(exLit: ExIntegerLit, ctor: BigInt => Expr)(expr: Expr): Option[Expr] = expr match {
+      case Plus(exLit(i1), exLit(i2)) =>
+        Some(ctor(i1 + i2))
+      case Plus(exLit(zero), e) if zero == BigInt(0) => Some(e)
+      case Plus(e, exLit(zero)) if zero == BigInt(0) => Some(e)
+      case Plus(e1, UMinus(e2)) => Some(Minus(e1, e2))
+      case Plus(Plus(e, exLit(i1)), exLit(i2)) =>
+        Some(Plus(e, ctor(i1 + i2)))
+      case Plus(Plus(exLit(i1), e), exLit(i2)) =>
+        Some(Plus(ctor(i1 + i2), e))
+
+      case Minus(e, exLit(zero)) if zero == BigInt(0) => Some(e)
+      case Minus(exLit(zero), e) if zero == BigInt(0) => Some(UMinus(e))
+      case Minus(exLit(i1), exLit(i2)) =>
+        Some(ctor(i1 - i2))
+      case Minus(e1, UMinus(e2)) => Some(Plus(e1, e2))
+      case Minus(e1, Minus(UMinus(e2), e3)) => Some(Plus(e1, Plus(e2, e3)))
+
+      case UMinus(exLit(x)) => Some(ctor(-x))
+      case UMinus(UMinus(x)) => Some(x)
+      case UMinus(Plus(UMinus(e1), e2)) => Some(Plus(e1, UMinus(e2)))
+      case UMinus(Minus(e1, e2)) => Some(Minus(e2, e1))
+
+      case Times(exLit(i1), exLit(i2)) =>
+        Some(ctor(i1 * i2))
+      case Times(exLit(one), e) if one == BigInt(1) => Some(e)
+      case Times(exLit(mone), e) if mone == BigInt(-1) => Some(UMinus(e))
+      case Times(e, exLit(one)) if one == BigInt(1) => Some(e)
+      case Times(exLit(zero), _) if zero == BigInt(0) => Some(ctor(0))
+      case Times(_, exLit(zero)) if zero == BigInt(0) => Some(ctor(0))
+      case Times(exLit(i1), Times(exLit(i2), t)) =>
+        Some(Times(ctor(i1 * i2), t))
+      case Times(exLit(i1), Times(t, exLit(i2))) =>
+        Some(Times(ctor(i1 * i2), t))
+      case Times(exLit(i), UMinus(e)) => Some(Times(ctor(-i), e))
+      case Times(UMinus(e), exLit(i)) => Some(Times(e, ctor(-i)))
+      case Times(exLit(i1), Division(e, exLit(i2))) if i2 != BigInt(0) && i1 % i2 == BigInt(0) =>
+        Some(Times(ctor(i1 / i2), e))
+
+      case Division(exLit(i1), exLit(i2)) if i2 != BigInt(0) =>
+        Some(ctor(i1 / i2))
+      case Division(e, exLit(one)) if one == BigInt(1) => Some(e)
+
+      case _ => None
+    }
+
+    object ExIntegerArithSimp {
+      def unapply(e: Expr): Option[Expr] = e.getType match {
+        case IntegerType() => integerArithSimp(ExBigIntLit, IntegerLiteral.apply)(e)
+        case BVType(signed, size) => integerArithSimp(ExBVLit, BVLiteral(signed, _, size))(e)
+        case _ => None
+      }
+    }
+
     def simplify0(expr: Expr): Expr = (expr match {
-      case Plus(IntegerLiteral(i1), IntegerLiteral(i2)) => IntegerLiteral(i1 + i2)
-      case Plus(IntegerLiteral(zero), e) if zero == BigInt(0) => e
-      case Plus(e, IntegerLiteral(zero)) if zero == BigInt(0) => e
-      case Plus(e1, UMinus(e2)) => Minus(e1, e2)
-      case Plus(Plus(e, IntegerLiteral(i1)), IntegerLiteral(i2)) => Plus(e, IntegerLiteral(i1+i2))
-      case Plus(Plus(IntegerLiteral(i1), e), IntegerLiteral(i2)) => Plus(IntegerLiteral(i1+i2), e)
-
-      case Minus(e, IntegerLiteral(zero)) if zero == BigInt(0) => e
-      case Minus(IntegerLiteral(zero), e) if zero == BigInt(0) => UMinus(e)
-      case Minus(IntegerLiteral(i1), IntegerLiteral(i2)) => IntegerLiteral(i1 - i2)
-      case Minus(e1, UMinus(e2)) => Plus(e1, e2)
-      case Minus(e1, Minus(UMinus(e2), e3)) => Plus(e1, Plus(e2, e3))
-
-      case UMinus(IntegerLiteral(x)) => IntegerLiteral(-x)
-      case UMinus(UMinus(x)) => x
-      case UMinus(Plus(UMinus(e1), e2)) => Plus(e1, UMinus(e2))
-      case UMinus(Minus(e1, e2)) => Minus(e2, e1)
-
-      case Times(IntegerLiteral(i1), IntegerLiteral(i2)) => IntegerLiteral(i1 * i2)
-      case Times(IntegerLiteral(one), e) if one == BigInt(1) => e
-      case Times(IntegerLiteral(mone), e) if mone == BigInt(-1) => UMinus(e)
-      case Times(e, IntegerLiteral(one)) if one == BigInt(1) => e
-      case Times(IntegerLiteral(zero), _) if zero == BigInt(0) => IntegerLiteral(0)
-      case Times(_, IntegerLiteral(zero)) if zero == BigInt(0) => IntegerLiteral(0)
-      case Times(IntegerLiteral(i1), Times(IntegerLiteral(i2), t)) => Times(IntegerLiteral(i1*i2), t)
-      case Times(IntegerLiteral(i1), Times(t, IntegerLiteral(i2))) => Times(IntegerLiteral(i1*i2), t)
-      case Times(IntegerLiteral(i), UMinus(e)) => Times(IntegerLiteral(-i), e)
-      case Times(UMinus(e), IntegerLiteral(i)) => Times(e, IntegerLiteral(-i))
-      case Times(IntegerLiteral(i1), Division(e, IntegerLiteral(i2))) if i2 != BigInt(0) && i1 % i2 == BigInt(0) =>
-        Times(IntegerLiteral(i1/i2), e)
-
-      case Division(IntegerLiteral(i1), IntegerLiteral(i2)) if i2 != BigInt(0) => IntegerLiteral(i1 / i2)
-      case Division(e, IntegerLiteral(one)) if one == BigInt(1) => e
+      case ExIntegerArithSimp(e) => e
 
       //here we put more expensive rules
       //btw, I know those are not the most general rules, but they lead to good optimizations :)

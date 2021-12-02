@@ -33,7 +33,7 @@ trait Definitions { self: Trees =>
   case class ADTLookupException(id: Identifier) extends LookupException(id, "adt")
 
   case class NotWellFormedException(d: Definition, info: Option[String] = None)
-    extends Exception(s"Not well formed definition $d" + (info map { i => s" \n\tbecause $i" } getOrElse ""))
+    extends Exception(s"Not well formed definition $d" + (info map { i => s"\n\tbecause $i" } getOrElse ""))
 
   /** Common super-type for [[ValDef]] and [[Expressions.Variable Variable]].
     *
