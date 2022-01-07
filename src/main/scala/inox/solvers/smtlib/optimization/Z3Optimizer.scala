@@ -25,4 +25,18 @@ trait Z3Optimizer extends Z3Solver with AbstractOptimizer {
     val term = toSMT(expr)(Map())
     emit(AssertSoft(term, Some(weight), Some(group)))
   }
+
+  def minimize(expr: Expr): Unit = {
+    exprOps.variablesOf(expr).foreach(declareVariable)
+
+    val term = toSMT(expr)(Map())
+    emit(Minimize(term))
+  }
+
+  def maximize(expr: Expr): Unit = {
+    exprOps.variablesOf(expr).foreach(declareVariable)
+
+    val term = toSMT(expr)(Map())
+    emit(Maximize(term))
+  }
 }

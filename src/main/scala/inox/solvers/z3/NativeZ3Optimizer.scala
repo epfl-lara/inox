@@ -17,7 +17,7 @@ trait NativeZ3Optimizer extends AbstractUnrollingOptimizer with Z3Unrolling { se
 
   override val name = "native-z3-opt"
 
-  protected object underlying extends {
+  protected val underlying = NativeZ3Solver.synchronized(new {
     val program: targetProgram.type = targetProgram
     val context = self.context
   } with AbstractOptimizer with Z3Native {
@@ -32,12 +32,15 @@ trait NativeZ3Optimizer extends AbstractUnrollingOptimizer with Z3Unrolling { se
     private[this] val optimizer: ScalaZ3Optimizer = z3.mkOptimizer()
 
     private def tryZ3[T](res: => T): Option[T] =
-      // @nv: Z3 optimizer throws an exceptiopn when canceled instead of returning Unknown
+      // @nv: Z3 optimizer throws an exception when canceled instead of returning Unknown
       try { Some(res) } catch { case e: Z3Exception if e.getMessage == "canceled" => None }
 
     def assertCnstr(ast: Z3AST): Unit = tryZ3(optimizer.assertCnstr(ast))
     def assertCnstr(ast: Z3AST, weight: Int): Unit = tryZ3(optimizer.assertCnstr(ast, weight))
     def assertCnstr(ast: Z3AST, weight: Int, group: String): Unit = tryZ3(optimizer.assertCnstr(ast, weight, group))
+
+    def maximize(ast: Z3AST): Unit = tryZ3(optimizer.maximize(ast))
+    def minimize(ast: Z3AST): Unit = tryZ3(optimizer.minimize(ast))
 
     // NOTE @nv: this is very similar to code in AbstractZ3Solver and UninterpretedZ3Solver but
     //           is difficult to merge due to small API differences between the native Z3
@@ -74,5 +77,7 @@ trait NativeZ3Optimizer extends AbstractUnrollingOptimizer with Z3Unrolling { se
       super.pop()
       optimizer.pop()
     }
-  }
+  })
+
+  override def free(): Unit = NativeZ3Solver.synchronized(super.free())
 }
