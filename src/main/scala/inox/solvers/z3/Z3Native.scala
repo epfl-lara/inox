@@ -178,9 +178,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   sorts += IntegerType() -> z3.mkIntSort()
   sorts += RealType() -> z3.mkRealSort()
   sorts += BooleanType() -> z3.mkBoolSort()
-
-  // FIXME: change to `z3.mkSeqSort(z3.mkBVSort(16))` once sequence support is fixed in z3
-  sorts += StringType() -> z3.mkSeqSort(z3.mkBVSort(8))
+  sorts += StringType() -> z3.mkSeqSort(z3.mkBVSort(16))
 
   // assumes prepareSorts has been called....
   protected def typeToSort(oldtt: Type): Z3Sort = oldtt match {
@@ -491,10 +489,12 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         z3.mkArrayMap(getIteFuncDecl(valueTpe), rec(mask), rec(map1), rec(map2))
 
       /* ====== String operations ====
-       * FIXME: replace z3 strings with sequences once they are fixed (in z3)
        */
+      case StringLiteral("") =>
+        z3.mkEmptySeq(typeToSort(StringType()))
+
       case StringLiteral(v) =>
-        z3.mkString(v)
+        z3.mkSeqConcat(v.map(c => z3.mkUnitSeq(z3.mkNumeral(c.toInt.toString, typeToSort(BVType(false, 16))))): _*)
 
       case StringLength(a) =>
         z3.mkSeqLength(rec(a))
@@ -654,7 +654,26 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                     FiniteSet(elems.toSeq, dt)
                 }
 
-              case StringType() => StringLiteral(utils.StringUtils.decode(z3.getString(t)))
+              case StringType() if z3.getDeclKind(decl) == OpSeqEmpty =>
+                assert(args.isEmpty)
+                StringLiteral("")
+
+              case StringType() if z3.getDeclKind(decl) == OpSeqUnit =>
+                assert(args.size == 1)
+                rec(args.head, BVType(false, 16), seen) match {
+                  case lit@BVLiteral(_, _, _) =>
+                    StringLiteral(String.valueOf(lit.toBigInt.toChar))
+                  case rarg => rarg
+                }
+
+              case StringType() if z3.getDeclKind(decl) == OpSeqConcat =>
+                val rargs = args.map(rec(_, StringType(), seen))
+                val res = rargs.foldLeft(Seq(StringLiteral(""): Expr)) {
+                  case (initAcc :+ StringLiteral(strAcc), StringLiteral(rarg)) =>
+                    initAcc :+ StringLiteral(strAcc ++ rarg)
+                  case (acc, rarg) => acc :+ rarg
+                }
+                res.reduceLeft(StringConcat)
 
               case _ =>
                 import Z3DeclKind._
@@ -852,11 +871,11 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     val chooses: MutableMap[(Identifier, Seq[Type]), Expr] = MutableMap.empty
     chooses ++= ex.chooses.map(p => (p._1, Seq.empty[Type]) -> p._2)
 
-    chooses ++= model.getFuncInterpretations.flatMap { case (decl, mapping, _) =>
+    chooses ++= model.getFuncInterpretations.flatMap { case (decl, mapping, defaultValue) =>
       functions.getA(decl).flatMap(tfd => tfd.fullBody match {
         case c: Choose =>
           val ex = new ModelExtractor(model)
-          val body = mapping.foldRight(c: Expr) { case ((args, res), elze) =>
+          val body = mapping.foldRight(ex(defaultValue, tfd.getType)) { case ((args, res), elze) =>
             IfExpr(andJoin((tfd.params.map(_.toVariable) zip args).map {
               case (v, e) => Equals(v, ex(e, v.getType))
             }), ex(res, tfd.getType), elze)

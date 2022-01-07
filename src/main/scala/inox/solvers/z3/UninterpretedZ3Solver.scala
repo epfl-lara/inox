@@ -78,16 +78,16 @@ trait UninterpretedZ3Solver
     try { Some(res) } catch {  case e: Z3Exception if e.getMessage == "canceled" => None }
 
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
-    config.convert(
+    config.convertMaybe(
       tryZ3(underlying.check(config)).getOrElse(config.cast(Unknown)),
-      (model: Z3Model) => completeModel(underlying.extractModel(model)),
+      (model: Z3Model) => tryZ3(completeModel(underlying.extractModel(model))),
       underlying.extractUnsatAssumptions)
 
   override def checkAssumptions(config: Configuration)
                                (assumptions: Set[Expr]): config.Response[Model, Assumptions] =
-    config.convert(
+    config.convertMaybe(
       tryZ3(underlying.checkAssumptions(config)(assumptions.map(underlying.toZ3Formula(_))))
         .getOrElse(config.cast(Unknown)),
-      (model: Z3Model) => completeModel(underlying.extractModel(model)),
+      (model: Z3Model) => tryZ3(completeModel(underlying.extractModel(model))),
       underlying.extractUnsatAssumptions)
 }
