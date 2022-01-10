@@ -3,9 +3,9 @@
 package inox
 package solvers.z3
 
+import Z3Native._
 import solvers.{z3 => _, _}
 import unrolling._
-
 import z3.scala._
 
 trait Z3Unrolling extends AbstractUnrollingSolver { self =>
@@ -68,7 +68,7 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
   private case class ModelWrapperImpl(model: Z3Model) extends super.ModelWrapper {
     private val ex = new underlying.ModelExtractor(model)
 
-    def extractConstructor(v: Z3AST, tpe: t.ADTType): Option[Identifier] = model.eval(v).flatMap {
+    def extractConstructor(v: Z3AST, tpe: t.ADTType): Option[Identifier] = tryZ3Opt(model.eval(v).flatMap {
       elem => z3.getASTKind(elem) match {
         case Z3AppAST(decl, args) if underlying.constructors containsB decl =>
           underlying.constructors.toA(decl) match {
@@ -77,27 +77,27 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
           }
         case _ => None
       }
-    }
+    })
 
-    def extractSet(v: Z3AST, tpe: t.SetType): Option[Seq[Z3AST]] = model.eval(v).flatMap {
+    def extractSet(v: Z3AST, tpe: t.SetType): Option[Seq[Z3AST]] = tryZ3Opt(model.eval(v).flatMap {
       elem => model.getSetValue(elem) collect { case (set, true) => set.toSeq }
-    }
+    })
 
-    def extractBag(v: Z3AST, tpe: t.BagType): Option[Seq[(Z3AST, Z3AST)]] = model.eval(v).flatMap {
+    def extractBag(v: Z3AST, tpe: t.BagType): Option[Seq[(Z3AST, Z3AST)]] = tryZ3Opt(model.eval(v).flatMap {
       elem => model.getArrayValue(elem) flatMap { case (z3Map, z3Default) =>
         z3.getASTKind(z3Default) match {
           case Z3NumeralIntAST(Some(0)) => Some(z3Map.toSeq)
           case _ => None
         }
       }
-    }
+    })
 
-    def extractMap(v: Z3AST, tpe: t.MapType): Option[(Seq[(Z3AST, Z3AST)], Z3AST)] = model.eval(v).flatMap {
+    def extractMap(v: Z3AST, tpe: t.MapType): Option[(Seq[(Z3AST, Z3AST)], Z3AST)] = tryZ3Opt(model.eval(v).flatMap {
       elem => model.getArrayValue(elem).map(p => p._1.toSeq -> p._2)
-    }
+    })
 
     /** WARNING this code is very similar to Z3Native.extractModel!!! */
-    def modelEval(elem: Z3AST, tpe: t.Type): Option[t.Expr] = timers.solvers.z3.eval.run {
+    def modelEval(elem: Z3AST, tpe: t.Type): Option[t.Expr] = tryZ3Opt(timers.solvers.z3.eval.run {
       tpe match {
         case t.BooleanType() => model.evalAs[Boolean](elem).map(t.BooleanLiteral)
 
@@ -116,7 +116,7 @@ trait Z3Unrolling extends AbstractUnrollingSolver { self =>
 
         case other => model.eval(elem).flatMap(ex.get(_, other))
       }
-    }
+    })
 
     def getChoose(id: Identifier): Option[t.Expr] = ex.chooses.get(id)
 
