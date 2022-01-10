@@ -626,9 +626,11 @@ trait AbstractUnrollingSolver extends Solver { self =>
             .max(Configuration(model = getModel, unsatAssumptions = unrollAssumptions && templates.canUnroll))
 
           val res: SolverResponse[underlying.Model, Set[underlying.Trees]] = context.timers.solvers.unrolling.check.run {
-            underlying.checkAssumptions(checkConfig)(
+            val res = underlying.checkAssumptions(checkConfig)(
               encodedAssumptions.toSet ++ templates.satisfactionAssumptions
             )
+            if (context.interruptManager.isInterrupted) Unknown
+            else res
           }
 
           reporter.debug(" - Finished search with blocked literals")
@@ -662,14 +664,18 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
           val clauses = templates.getFiniteRangeClauses
 
-          val res: SolverResponse[underlying.Model, Set[underlying.Trees]] = context.timers.solvers.unrolling.check.run {
-            underlying.push()
-            for (cl <- encodedAssumptions.toSeq ++ templates.satisfactionAssumptions ++ clauses) {
-              underlying.assertCnstr(cl)
+          val res: SolverResponse[underlying.Model, Set[underlying.Trees]] = {
+            val res = context.timers.solvers.unrolling.check.run {
+              underlying.push()
+              for (cl <- encodedAssumptions.toSeq ++ templates.satisfactionAssumptions ++ clauses) {
+                underlying.assertCnstr(cl)
+              }
+              val res = underlying.check(Model)
+              underlying.pop()
+              res
             }
-            val res = underlying.check(Model)
-            underlying.pop()
-            res
+            if (context.interruptManager.isInterrupted) Unknown
+            else res
           }
 
           reporter.debug(" - Finished checking finite ranges")
@@ -758,12 +764,15 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
           // we always ask for a model here in order to give priority to blockers that
           // are keeping quantified clause instantiations from being considered
-          val res: SolverResponse[underlying.Model, Set[underlying.Trees]] =
-            context.timers.solvers.unrolling.check.run {
+          val res: SolverResponse[underlying.Model, Set[underlying.Trees]] = {
+            val res = context.timers.solvers.unrolling.check.run {
               underlying.checkAssumptions(config max Configuration(model = true))(
                 encodedAssumptions.toSet ++ templates.refutationAssumptions
               )
             }
+            if (context.interruptManager.isInterrupted) Unknown
+            else res
+          }
 
           reporter.debug(" - Finished search without blocked literals")
 

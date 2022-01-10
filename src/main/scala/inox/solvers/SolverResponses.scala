@@ -99,14 +99,11 @@ object SolverResponses {
     }).asInstanceOf[Response[M,C]]
 
     def convert[M1,T1,M2,T2](resp: Response[M1,Set[T1]], cm: M1 => M2, cc: Set[T1] => Set[T2]): Response[M2,Set[T2]] =
-      convertMaybe(resp, (m1: M1) => Some(cm(m1)), cc)
-
-    def convertMaybe[M1,T1,M2,T2](resp: Response[M1,Set[T1]], cm: M1 => Option[M2], cc: Set[T1] => Set[T2]): Response[M2,Set[T2]] =
       cast(resp.asInstanceOf[SolverResponse[M1,Set[T1]]] match {
         case Unknown               => Unknown
         case Sat                   => Sat
         case Unsat                 => Unsat
-        case SatWithModel(model)   => cm(model).map(SatWithModel(_)).getOrElse(Unknown)
+        case SatWithModel(model)   => SatWithModel(cm(model))
         case UnsatWithAssumptions(cores) => UnsatWithAssumptions(cc(cores))
       })
   }
