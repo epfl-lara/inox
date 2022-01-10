@@ -3,9 +3,8 @@
 package inox
 package solvers.z3
 
-import com.microsoft.z3.Z3Exception
-
 import z3.scala.{Z3Optimizer => ScalaZ3Optimizer, _}
+import Z3Native._
 import solvers._
 import unrolling._
 
@@ -30,10 +29,6 @@ trait NativeZ3Optimizer extends AbstractUnrollingOptimizer with Z3Unrolling { se
     val name = "z3-opt"
 
     private[this] val optimizer: ScalaZ3Optimizer = z3.mkOptimizer()
-
-    private def tryZ3[T](res: => T): Option[T] =
-      // @nv: Z3 optimizer throws an exception when canceled instead of returning Unknown
-      try { Some(res) } catch { case e: Z3Exception if e.getMessage == "canceled" => None }
 
     def assertCnstr(ast: Z3AST): Unit = tryZ3(optimizer.assertCnstr(ast))
     def assertCnstr(ast: Z3AST, weight: Int): Unit = tryZ3(optimizer.assertCnstr(ast, weight))

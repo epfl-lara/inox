@@ -3,10 +3,9 @@
 package inox
 package solvers.z3
 
-import com.microsoft.z3.Z3Exception
-
 import z3.scala._
 
+import Z3Native._
 import solvers._
 import utils.IncrementalSet
 
@@ -19,7 +18,6 @@ import utils.IncrementalSet
  */
 trait UninterpretedZ3Solver
   extends AbstractSolver { self =>
-
   import context._
   import program._
   import program.trees._
@@ -72,10 +70,6 @@ trait UninterpretedZ3Solver
     val allVars = freeVars.map(v => v.toVal -> model.vars.getOrElse(v.toVal, simplestValue(v.getType))).toMap
     inox.Model(program)(allVars, model.chooses)
   }
-
-  private def tryZ3[T](res: => T): Option[T] =
-    // @nv: Z3 sometimes throws an exception when check is called after Z3 has been canceled
-    try { Some(res) } catch {  case e: Z3Exception if e.getMessage == "canceled" => None }
 
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
     config.convert(

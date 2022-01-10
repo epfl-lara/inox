@@ -4,6 +4,7 @@ package inox
 package solvers.z3
 
 import com.microsoft.z3.Z3Exception
+import Z3Native._
 import utils._
 import z3.scala.{Z3Solver => ScalaZ3Solver, _}
 import solvers._
@@ -845,7 +846,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
     val vars = variables.aToB.flatMap {
       /** WARNING this code is very similar to Z3Unrolling.modelEval!!! */
-      case (v,z3ID) => tryEvalOpt((v.getType match {
+      case (v,z3ID) => tryZ3Opt((v.getType match {
         case BooleanType() =>
           model.evalAs[Boolean](z3ID).map(BooleanLiteral)
 
@@ -871,7 +872,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     val chooses: MutableMap[(Identifier, Seq[Type]), Expr] = MutableMap.empty
     chooses ++= ex.chooses.map(p => (p._1, Seq.empty[Type]) -> p._2)
 
-    chooses ++= tryEval(model.getFuncInterpretations.flatMap { case (decl, mapping, defaultValue) =>
+    chooses ++= tryZ3(model.getFuncInterpretations.flatMap { case (decl, mapping, defaultValue) =>
       functions.getA(decl).flatMap(tfd => tfd.fullBody match {
         case c: Choose =>
           val ex = new ModelExtractor(model)
@@ -900,11 +901,15 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       })
     }
   }
+}
 
-  private def tryEval[T](res: => T): Option[T] =
+object Z3Native {
+
+  def tryZ3[T](res: => T): Option[T] =
     // @nv: Z3 sometimes throws an exception when functions are called after Z3 has been canceled
     try { Some(res) } catch { case e: Z3Exception if e.getMessage == "canceled" => None }
 
-  private def tryEvalOpt[T](res: => Option[T]): Option[T] =
-    tryEval(res).flatten
+  def tryZ3Opt[T](res: => Option[T]): Option[T] =
+    tryZ3(res).flatten
+
 }
