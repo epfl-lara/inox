@@ -586,12 +586,14 @@ trait AbstractUnrollingSolver extends Solver { self =>
     case object Unroll extends CheckState
 
     object CheckResult {
-      def cast(resp: SolverResponse[underlying.Model, Set[underlying.Trees]]): CheckResult = {
-        val res = config.convert(config.cast(resp), extractSimpleModel, decodeAssumptions)
-        new CheckResult(if (context.interruptManager.isInterrupted) config.cast(Unknown) else res)
+      def cast(resp: SolverResponse[underlying.Model, Set[underlying.Trees]]): CheckResult =
+        CheckResult(config.convert(config.cast(resp), extractSimpleModel, decodeAssumptions))
+
+      def apply[M <: Model, A <: Assumptions](resp: config.Response[M, A]): CheckResult = resp match {
+        case SatWithModel(_) if !checkModels && abort => new CheckResult(config cast Unknown)
+        case _ => new CheckResult(resp)
       }
 
-      def apply[M <: Model, A <: Assumptions](resp: config.Response[M, A]) = new CheckResult(resp)
       def unapply(res: CheckResult): Option[config.Response[Model, Assumptions]] = Some(res.response)
     }
 
