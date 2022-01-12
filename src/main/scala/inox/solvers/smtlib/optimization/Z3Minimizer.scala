@@ -28,6 +28,19 @@ trait Z3Minimizer extends Z3Optimizer {
   }
 
   /**
+   * Gets the "size" of the given type.
+   * We arbitrarily decide that a BV is "smaller" than an int which is "smaller" than an ADT;
+   * one could choose a policy to decide the exact size of a BV, but this then gets into questions such as
+   * "at which point does a BV become bigger than an int" which have no clear answer anyway.
+   */
+  private def sizeOf(t: Type): Int = t match {
+    case BVType(_, size) => 1
+    case IntegerType() => 5
+    case adt @ ADTType(_, _) => 10
+    case _ => 0
+  }
+
+  /**
    * Gets the expressions that should be minimized for the given expr,
    * given the types of "parents" of the expr to avoid an infinite recursion.
    */
@@ -54,9 +67,8 @@ trait Z3Minimizer extends Z3Optimizer {
       def fieldSizer(field: ValDef)(ctor: TypedADTConstructor): Seq[Expr] = {
         if (ctor.fields.contains(field)) sizersOf(ADTSelector(e, field.id), parentTypes + field.tpe) else getZeroLiterals(field, parentTypes)
       }
-      // BV32 for the size, because the number of fields can't be larger anyway (since fields.length is a Scala int),
-      // let's not force the use of integers if it's not necessary
-      val adtSize = rec(ctors, Seq(BVLiteral(false, 0, 32)), c => Seq(BVLiteral(false, c.fields.length, 32)))
+      // BV64 for the size, let's not force the use of integers if it's not necessary
+      val adtSize = rec(ctors, Seq(BVLiteral(false, 0, 32)), c => Seq(BVLiteral(false, c.fields.map(f => sizeOf(f.tpe)).sum, 64)))
       val fieldSizes = ctors.flatMap(_.fields).distinct.filter(f => !parentTypes.contains(f.tpe)).flatMap(f => rec(ctors, getZeroLiterals(f, parentTypes), fieldSizer(f)))
       adtSize ++ fieldSizes
     }
