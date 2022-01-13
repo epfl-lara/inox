@@ -57,8 +57,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   protected val interpreter = {
     val opts = interpreterOpts
     reporter.debug("Invoking solver "+targetName+" with "+opts.mkString(" "))
-    class InterpreterImpl extends Z3Interpreter(targetName, opts.toArray, parserCtor = out => new Z3Parser(new Lexer(out)))
-    new InterpreterImpl
+    new Z3Interpreter(targetName, opts.toArray, parserCtor = out => new Z3Parser(new Lexer(out)))
   }
 
   // Z3 version 4.5.1 has disabled producing unsat assumptions by default,

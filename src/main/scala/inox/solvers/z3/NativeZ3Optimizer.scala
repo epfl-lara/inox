@@ -3,9 +3,8 @@
 package inox
 package solvers.z3
 
-import com.microsoft.z3.Z3Exception
-
 import z3.scala.{Z3Optimizer => ScalaZ3Optimizer, _}
+import Z3Native._
 import solvers._
 import unrolling._
 
@@ -17,7 +16,7 @@ trait NativeZ3Optimizer extends Z3Unrolling with AbstractUnrollingOptimizer  { s
 
   override val name = "native-z3-opt"
 
-  override protected val underlying = new Underlying(targetProgram, context)(using targetSemantics)
+  override protected val underlying = NativeZ3Solver.synchronized(new Underlying(targetProgram, context)(using targetSemantics))
 
   private class Underlying(override val program: targetProgram.type,
                            override val context: Context)
@@ -33,13 +32,12 @@ trait NativeZ3Optimizer extends Z3Unrolling with AbstractUnrollingOptimizer  { s
 
     private[this] val optimizer: ScalaZ3Optimizer = z3.mkOptimizer()
 
-    private def tryZ3[T](res: => T): Option[T] =
-    // @nv: Z3 optimizer throws an exception when canceled instead of returning Unknown
-      try { Some(res) } catch { case e: Z3Exception if e.getMessage == "canceled" => None }
-
     def assertCnstr(ast: Z3AST): Unit = tryZ3(optimizer.assertCnstr(ast))
     def assertCnstr(ast: Z3AST, weight: Int): Unit = tryZ3(optimizer.assertCnstr(ast, weight))
     def assertCnstr(ast: Z3AST, weight: Int, group: String): Unit = tryZ3(optimizer.assertCnstr(ast, weight, group))
+
+    def maximize(ast: Z3AST): Unit = tryZ3(optimizer.maximize(ast))
+    def minimize(ast: Z3AST): Unit = tryZ3(optimizer.minimize(ast))
 
     // NOTE @nv: this is very similar to code in AbstractZ3Solver and UninterpretedZ3Solver but
     //           is difficult to merge due to small API differences between the native Z3
@@ -75,4 +73,6 @@ trait NativeZ3Optimizer extends Z3Unrolling with AbstractUnrollingOptimizer  { s
       optimizer.pop()
     }
   }
+
+  override def free(): Unit = NativeZ3Solver.synchronized(super.free())
 }

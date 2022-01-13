@@ -3,11 +3,8 @@
 package inox
 package solvers.z3
 
-import com.microsoft.z3.Z3Exception
-
-import utils._
-
 import z3.scala.{Z3Solver => ScalaZ3Solver, _}
+import Z3Native._
 import solvers._
 
 trait AbstractZ3Solver
@@ -33,10 +30,6 @@ trait AbstractZ3Solver
     super.pop()
     solver.pop()
   }
-
-  private def tryZ3[T](res: => T): Option[T] =
-    // @nv: Z3 sometimes throws an exceptiopn when functions are called after Z3 has been canceled
-    try { Some(res) } catch { case e: Z3Exception if e.getMessage == "canceled" => None }
 
   def assertCnstr(ast: Z3AST): Unit = tryZ3(solver.assertCnstr(ast))
 
