@@ -70,7 +70,11 @@ trait MainHelpers {
     optSelectedSolvers -> Description(General, {
       "Use solvers s1,s2,...\nAvailable: " +
       solvers.SolverFactory.solverNames.toSeq.sortBy(_._1).map {
-        case (name, desc) => f"\n  $name%-14s : $desc"
+        case (name, desc) =>
+          // f interpolator does not process escape sequence, we workaround that with the following trick.
+          // See https://github.com/lampepfl/dotty/issues/11750
+          val nl = '\n'
+          f"$nl  $name%-14s : $desc"
       }.mkString("") +
       "\nYou can prefix the solvers unrollz3, smt-z3, smt-z3:<exec> and smt-cvc4, with 'no-inc:' to use them in non-incremental mode"
     }),

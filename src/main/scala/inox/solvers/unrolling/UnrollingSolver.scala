@@ -633,9 +633,13 @@ abstract class AbstractUnrollingSolver private
 
     object CheckResult {
       def cast(resp: SolverResponse[underlying.Model, Set[underlying.Trees]]): CheckResult =
-        new CheckResult(config.convert(config.cast(resp), extractSimpleModel, decodeAssumptions))
+        CheckResult(config.convert(config.cast(resp), extractSimpleModel, decodeAssumptions))
 
-      def apply[M <: Model, A <: Assumptions](resp: config.Response[M, A]) = new CheckResult(resp)
+      def apply[M <: Model, A <: Assumptions](resp: config.Response[M, A]): CheckResult = resp match {
+        case SatWithModel(_) if !checkModels && abort => new CheckResult(config cast Unknown)
+        case _ => new CheckResult(resp)
+      }
+
       def unapply(res: CheckResult): Option[config.Response[Model, Assumptions]] = Some(res.response)
     }
 
