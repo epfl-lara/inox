@@ -113,7 +113,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     // @nv: Z3 uses identifiers of the shape 'k!\d+' to represent
     //      its array functions, so we have to make sure to avoid collisions!
     if (id.name == "k") {
-      super.id2sym(FreshIdentifier("k0"))
+      SSymbol(s"k0!${id.id}")
     } else {
       super.id2sym(id)
     }
