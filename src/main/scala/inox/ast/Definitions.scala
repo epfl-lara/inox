@@ -108,7 +108,7 @@ trait Definitions { self: Trees =>
     def fresh(name: String, tpe: Type, alwaysShowUniqueID: Boolean = false) =
       ValDef(FreshIdentifier(name, alwaysShowUniqueID), tpe)
     def apply(id: Identifier, tpe: Type, flags: Seq[Flag] = Seq.empty) = new ValDef(Variable(id, tpe, flags))
-    def unapply(vd: ValDef): Option[(Identifier, Type, Seq[Flag])] = Some((vd.id, vd.tpe, vd.flags))
+    def unapply(vd: ValDef): (Identifier, Type, Seq[Flag]) = (vd.id, vd.tpe, vd.flags)
   }
 
   type Symbols >: Null <: AbstractSymbols

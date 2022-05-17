@@ -10,7 +10,7 @@ package object solvers {
 
   object optAssumeChecked extends FlagOptionDef("assume-checked", false)
 
-  class PurityOptions(val assumeChecked: Boolean)
+  case class PurityOptions(assumeChecked: Boolean)
 
   object PurityOptions {
     def apply(ctx: Context) =

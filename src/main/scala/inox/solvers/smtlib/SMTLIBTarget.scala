@@ -564,20 +564,23 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         val res = uniquateClosure(count, lambdas.getB(ft)
           .flatMap { dynLambda =>
             context.withSeen(n -> ft).getFunction(dynLambda, FunctionType(IntegerType() +: ft.from, ft.to))
-          }.map { case Lambda(dispatcher +: args, body) =>
-            val dv = dispatcher.toVariable
+          }.map {
+            case Lambda(dispatcher +: args, body) =>
+              val dv = dispatcher.toVariable
 
-            val dispatchedBody = exprOps.postMap {
-              case Equals(`dv`, IntegerLiteral(i)) => Some(BooleanLiteral(n == i))
-              case Equals(IntegerLiteral(i), `dv`) => Some(BooleanLiteral(n == i))
-              case Equals(`dv`, UMinus(IntegerLiteral(i))) => Some(BooleanLiteral(n == -i))
-              case Equals(UMinus(IntegerLiteral(i)), `dv`) => Some(BooleanLiteral(n == -i))
-              case _ => None
-            } (body)
+              val dispatchedBody = exprOps.postMap {
+                case Equals(`dv`, IntegerLiteral(i)) => Some(BooleanLiteral(n == i))
+                case Equals(IntegerLiteral(i), `dv`) => Some(BooleanLiteral(n == i))
+                case Equals(`dv`, UMinus(IntegerLiteral(i))) => Some(BooleanLiteral(n == -i))
+                case Equals(UMinus(IntegerLiteral(i)), `dv`) => Some(BooleanLiteral(n == -i))
+                case _ => None
+              } (body)
 
-            val simpBody = simplifyByConstructors(dispatchedBody)
-            assert(!(exprOps.variablesOf(simpBody) contains dispatcher.toVariable), "Dispatcher still in lambda body")
-            Lambda(args, simpBody)
+              val simpBody = simplifyByConstructors(dispatchedBody)
+              assert(!(exprOps.variablesOf(simpBody) contains dispatcher.toVariable), "Dispatcher still in lambda body")
+              Lambda(args, simpBody)
+            case l@Lambda(_, _) =>
+              unsupported(l, "woot? lambda without dispatcher")
           }.getOrElse(try {
             simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
           } catch {
