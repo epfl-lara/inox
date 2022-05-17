@@ -138,6 +138,7 @@ lazy val root = (project in file("."))
     parallelExecution := false
   )) : _*)
   .settings(compile := ((Compile / compile) dependsOn script).value)
+  .settings(Compile / packageDoc / mappings := Seq())
   .dependsOn(smtlib)
 
 
