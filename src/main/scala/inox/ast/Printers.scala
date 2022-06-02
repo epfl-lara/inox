@@ -85,6 +85,15 @@ trait Printer {
   }
 
   private val dbquote = "\""
+  private val not = "\u00AC"
+  private val neq = "\u2260"
+  private val notIn = "\u2209"
+  private val in = "\u2208"
+  private val subset = "\u2286"
+  private val notSubset = "\u2288"
+  private val union = "\u222A"
+  private val inter = "\u2229"
+  private val forall = "\u2200"
 
   def pp(tree: Tree)(using ctx: PrinterContext): Unit = {
     if (requiresBraces(tree, ctx.parent) && !ctx.parent.contains(tree)) {
@@ -121,7 +130,7 @@ trait Printer {
           |$e"""
 
     case Forall(args, e) =>
-      p"\u2200${nary(args)}. $e"
+      p"$forall${nary(args)}. $e"
 
     case Choose(res, pred) =>
       p"choose(($res) => $pred)"
@@ -140,7 +149,7 @@ trait Printer {
       p"${nary(exprs, "| || ")}"
     } // Ugliness award! The first | is there to shield from stripMargin()
     case Not(Equals(l, r)) => optP {
-      p"$l \u2260 $r"
+      p"$l $neq $r"
     }
     case Implies(l, r) => optP {
       p"$l ==> $r"
@@ -271,24 +280,24 @@ trait Printer {
       } else {
         p"{${rs.toSeq}, * -> $dflt}"
       }
-    case Not(ElementOfSet(e, s)) => p"$e \u2209 $s"
-    case ElementOfSet(e, s) => p"$e \u2208 $s"
-    case SubsetOf(l, r) => p"$l \u2286 $r"
-    case Not(SubsetOf(l, r)) => p"$l \u2288 $r"
-    case SetAdd(s, e) => p"$s \u222A {$e}"
-    case SetUnion(l, r) => p"$l \u222A $r"
-    case BagUnion(l, r) => p"$l \u222A $r"
+    case Not(ElementOfSet(e, s)) => p"$e $notIn $s"
+    case ElementOfSet(e, s) => p"$e $in $s"
+    case SubsetOf(l, r) => p"$l $subset $r"
+    case Not(SubsetOf(l, r)) => p"$l $notSubset $r"
+    case SetAdd(s, e) => p"$s $union {$e}"
+    case SetUnion(l, r) => p"$l $union $r"
+    case BagUnion(l, r) => p"$l $union $r"
     case SetDifference(l, r) => p"$l \\ $r"
     case BagDifference(l, r) => p"$l \\ $r"
-    case SetIntersection(l, r) => p"$l \u2229 $r"
-    case BagIntersection(l, r) => p"$l \u2229 $r"
+    case SetIntersection(l, r) => p"$l $inter $r"
+    case BagIntersection(l, r) => p"$l $inter $r"
     case BagAdd(b, e) => p"$b + $e"
     case MultiplicityInBag(e, b) => p"$b($e)"
     case MapApply(m, k) => p"$m($k)"
     case MapUpdated(m, k, v) => p"$m.updated($k, $v)"
     case MapMerge(mask, m1, m2) => p"$mask.mapMerge($m1, $m2)"
 
-    case Not(expr) => p"\u00AC$expr"
+    case Not(expr) => p"$not$expr"
 
     case vd @ ValDef(id, tpe, flags) =>
       if (flags.isEmpty) {
