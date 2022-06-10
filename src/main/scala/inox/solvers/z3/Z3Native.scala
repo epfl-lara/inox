@@ -905,7 +905,7 @@ object Z3Native {
 
   def tryZ3[T](res: => T): Option[T] =
     // @nv: Z3 sometimes throws an exception when functions are called after Z3 has been canceled
-    try { Some(res) } catch { case e: Z3Exception if e.getMessage == "canceled" => None }
+    try { Some(res) } catch { case e: Z3Exception => None }
 
   def tryZ3Opt[T](res: => Option[T]): Option[T] =
     tryZ3(res).flatten
