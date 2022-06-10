@@ -51,7 +51,7 @@ libraryDependencies ++= Seq(
 
 def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
 
-lazy val smtlib = ghProject("https://github.com/epfl-lara/scala-smtlib.git", "ffb61e571aeb37b741d4bba47f8e56f88d7285b5")
+lazy val smtlib = ghProject("https://github.com/epfl-lara/scala-smtlib.git", "351cad5bc03d59c989f24bc316fdc1d6a722f11c")
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")
 
