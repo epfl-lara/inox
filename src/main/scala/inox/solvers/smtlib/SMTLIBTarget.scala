@@ -248,6 +248,16 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     case r => Reals.Neg(Reals.NumeralLit(-r))
   }
 
+  private def flattenPlus(e: Expr): Seq[Expr] = e match {
+    case Plus(lhs, rhs) => flattenPlus(lhs) ++ flattenPlus(rhs)
+    case _ => Seq(e)
+  }
+
+  private def flattenTimes(e: Expr): Seq[Expr] = e match {
+    case Times(lhs, rhs) => flattenTimes(lhs) ++ flattenTimes(rhs)
+    case _ => Seq(e)
+  }
+
   protected def toSMT(e: Expr)(using bindings: Map[Identifier, Term]): Term = {
     e match {
       case v @ Variable(id, tp, flags) =>
@@ -346,21 +356,25 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
       case Equals(a, b)    => Core.Equals(toSMT(a), toSMT(b))
       case Implies(a, b)   => Core.Implies(toSMT(a), toSMT(b))
-      case Plus(a, b)      => a.getType match {
-        case BVType(_,_)   => FixedSizeBitVectors.Add(toSMT(a), toSMT(b))
-        case IntegerType() => Ints.Add(toSMT(a), toSMT(b))
-        case RealType()    => Reals.Add(toSMT(a), toSMT(b))
-      }
+      case pl @ Plus(a, _)      =>
+        val rec = flattenPlus(pl).map(toSMT)
+        a.getType match {
+          case BVType(_,_)   => FixedSizeBitVectors.Add(rec)
+          case IntegerType() => Ints.Add(rec)
+          case RealType()    => Reals.Add(rec)
+        }
       case Minus(a, b)     => a.getType match {
         case BVType(_,_)   => FixedSizeBitVectors.Sub(toSMT(a), toSMT(b))
         case IntegerType() => Ints.Sub(toSMT(a), toSMT(b))
         case RealType()    => Reals.Sub(toSMT(a), toSMT(b))
       }
-      case Times(a, b)     => a.getType match {
-        case BVType(_,_)   => FixedSizeBitVectors.Mul(toSMT(a), toSMT(b))
-        case IntegerType() => Ints.Mul(toSMT(a), toSMT(b))
-        case RealType()    => Reals.Mul(toSMT(a), toSMT(b))
-      }
+      case tms @ Times(a, _)     =>
+        val rec = flattenTimes(tms).map(toSMT)
+        a.getType match {
+          case BVType(_,_)   => FixedSizeBitVectors.Mul(rec)
+          case IntegerType() => Ints.Mul(rec)
+          case RealType()    => Reals.Mul(rec)
+        }
 
       case Division(a, b)  => a.getType match {
         case BVType(true, _) => FixedSizeBitVectors.SDiv(toSMT(a), toSMT(b))
