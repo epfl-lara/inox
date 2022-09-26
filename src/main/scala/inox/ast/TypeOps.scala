@@ -72,6 +72,15 @@ trait TypeOps {
         (ts1 zip ts2).foldLeft[Instantiation](Map.empty) {
           case (inst, (tp1, tp2)) => unify(inst, rec(tp1, tp2))
         }
+      case (adt1: ADTType, refn: RefinementType) =>
+        refn.getType match {
+          case adt2: ADTType =>
+            // ADT(X1, ..., Xn) -> { vd: ADT(A1, ..., An) | prop }
+            // ~>
+            // X1 -> A1, ..., Xn -> An
+            rec(adt1, adt2)
+          case _ => throw new Failure
+        }
       case _ => throw new Failure
     }
 
