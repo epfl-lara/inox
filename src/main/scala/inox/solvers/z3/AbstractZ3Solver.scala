@@ -3,9 +3,11 @@
 package inox
 package solvers.z3
 
-import z3.scala.{Z3Solver => ScalaZ3Solver, _}
+import z3.scala.{Z3Solver => ScalaZ3Solver, given, _}
 import Z3Native._
 import solvers._
+
+import scala.language.implicitConversions
 
 trait AbstractZ3Solver
   extends AbstractSolver
