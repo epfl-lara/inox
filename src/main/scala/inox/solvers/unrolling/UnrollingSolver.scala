@@ -396,7 +396,24 @@ abstract class AbstractUnrollingSolver private
     wrapped.getModel((e, tpe) => wrapped.eval(e, tpe).getOrElse(simplestValue(tpe)))
   }
 
+  private case class Canceled() extends Exception("Cancelation occurred while extracting model")
+
   private def extractTotalModel(model: underlying.Model): program.Model = {
+    extension[T] (opt: Option[T]) {
+      private def getOrThrow: T = opt match {
+        case Some(t) => t
+        case None =>
+          if (abort) {
+            // We got a None but were interrupted. Maybe this None is due to the cancellation,
+            // so we throw a Canceled that will be caught by checkAssumptions
+            throw Canceled()
+          } else {
+            // We got a None, but not due to interruption. This is likely a bug, this exception will not be caught.
+            throw java.util.NoSuchElementException("None.get")
+          }
+      }
+    }
+
     val wrapped = wrapModel(model)
 
     import targetProgram._
@@ -436,7 +453,7 @@ abstract class AbstractUnrollingSolver private
             }, Tuple.apply)
 
           case tpe @ ADTType(sid, tps) =>
-            val cons = wrapped.extractConstructor(v, tpe).get
+            val cons = wrapped.extractConstructor(v, tpe).getOrThrow
             val id = Variable.fresh("adt", tpe)
             val encoder = templates.mkEncoder(Map(id -> v)) _
             reconstruct(getConstructor(cons, tps).fields.map {
@@ -444,22 +461,22 @@ abstract class AbstractUnrollingSolver private
             }, ADT(cons, tps, _))
 
           case st @ SetType(base) =>
-            val vs = wrapped.extractSet(v, st).get
+            val vs = wrapped.extractSet(v, st).getOrThrow
             reconstruct(vs.map(rec(_, base)), FiniteSet(_, base))
 
           case mt @ MapType(from, to) =>
-            val (vs, dflt) = wrapped.extractMap(v, mt).get
+            val (vs, dflt) = wrapped.extractMap(v, mt).getOrThrow
             reconstruct(vs.flatMap(p => Seq(rec(p._1, from), rec(p._2, to))) :+ rec(dflt, to), {
               case es :+ default => FiniteMap(es.grouped(2).map(s => s(0) -> s(1)).toSeq, default, from, to)
             })
 
           case bt @ BagType(base) =>
-            val vs = wrapped.extractBag(v, bt).get
+            val vs = wrapped.extractBag(v, bt).getOrThrow
             reconstruct(vs.map(p => rec(p._1, base)), es => FiniteBag((es zip vs).map {
-              case (k, (_, v)) => k -> wrapped.modelEval(v, IntegerType()).get
+              case (k, (_, v)) => k -> wrapped.modelEval(v, IntegerType()).getOrThrow
             }, base))
 
-          case _ => (Seq.empty, (es: Seq[Expr]) => wrapped.modelEval(v, tpe).get)
+          case _ => (Seq.empty, (es: Seq[Expr]) => wrapped.modelEval(v, tpe).getOrThrow)
         }
 
         rec(v, tpe)
@@ -513,7 +530,7 @@ abstract class AbstractUnrollingSolver private
         }
       }.getOrElse {
         val res = if (arguments.isEmpty) {
-          wrapped.modelEval(f, tpe).get.asInstanceOf[Lambda]
+          wrapped.modelEval(f, tpe).getOrThrow.asInstanceOf[Lambda]
         } else if (tpe.from.isEmpty) {
           Lambda(Seq.empty, extractValue(templates.mkApp(f, tpe, Seq.empty), tpe.to, nextSeen))
         } else {
@@ -560,7 +577,7 @@ abstract class AbstractUnrollingSolver private
             case (e, img) if img.getType == lambda.getType && modelEq(e, f) => Left(img)
             case (encoded, `lambda`) => Right(encoded)
           }) match {
-            case Some(Right(enc)) => wrapped.modelEval(enc, tpe).get match {
+            case Some(Right(enc)) => wrapped.modelEval(enc, tpe).getOrThrow match {
               case Lambda(_, Let(_, Tuple(es), _)) =>
                 uniquateClosure(if (es.size % 2 == 0) -es.size / 2 else es.size / 2, lambda)
               case l => throw new InternalSolverError(name, "Unexpected extracted lambda format: " + l.asString)
@@ -742,6 +759,7 @@ abstract class AbstractUnrollingSolver private
                 reporter.error("No simple value found for type " + tpe.asString)
               }
               None
+            case Canceled() => None
           }).map { model =>
             lazy val sat = CheckResult(config cast (if (config.withModel) SatWithModel(model) else Sat))
             lazy val unknown = CheckResult cast Unknown
