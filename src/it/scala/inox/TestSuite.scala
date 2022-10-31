@@ -5,12 +5,10 @@ package inox
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.concurrent._
 import org.scalatest.matchers.should.Matchers
-import org.scalatest.Tag
-import org.scalatest.exceptions
-
+import org.scalatest.{CancelAfterFailure, Tag, exceptions}
 import utils._
 
-trait TestSuite extends AnyFunSuite with Matchers with TimeLimits {
+trait TestSuite extends AnyFunSuite with Matchers with TimeLimits with CancelAfterFailure {
 
   protected def configurations: Seq[Seq[OptionValue[_]]] = Seq(Seq.empty)
 

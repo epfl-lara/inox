@@ -7,6 +7,7 @@ package unrolling
 import utils._
 import evaluators._
 
+import scala.util.control.NonLocalReturns._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet, Queue}
 
 trait QuantificationTemplates { self: Templates =>
@@ -25,7 +26,7 @@ trait QuantificationTemplates { self: Templates =>
    */
   extension (tp: Typing) {
     private def result: Encoded = {
-      val Typing(_, _, Constraint(res, _, _)) = tp
+      val Typing(_, _, Constraint(res, _, _)) = tp: @unchecked
       res
     }
   }
@@ -128,7 +129,7 @@ trait QuantificationTemplates { self: Templates =>
       defer: Boolean = false
     ): (Expr, QuantificationTemplate) = {
       val (Forall(args, body), structure, depSubst) =
-        mkExprStructure(pathVar._1, forall, substMap, onlySimple = !simpOpts.simplify)
+        mkExprStructure(pathVar._1, forall, substMap, onlySimple = !simpOpts.simplify): @unchecked
 
       val quantifiers = args.map(_.toVariable).toSet
       val idQuantifiers: Seq[Variable] = args.map(_.toVariable)
@@ -437,7 +438,7 @@ trait QuantificationTemplates { self: Templates =>
         .filterNot(ms => allMatchers.exists { m =>
           !ms(m) && {
             val common = ms & matchersOf(m)
-            common.nonEmpty && 
+            common.nonEmpty &&
             (quantifiersOf(m) -- common.flatMap(quantifiersOf)).nonEmpty
           }
         }).toList
@@ -662,25 +663,28 @@ trait QuantificationTemplates { self: Templates =>
         case _ => false
       }
 
-      exprOps.postTraversal(m => m match {
-        case QuantificationMatcher(_, args) => // OK
+      val err = returning[Option[String]] {
+        exprOps.postTraversal(m => m match {
+          case QuantificationMatcher(_, args) => // OK
 
-        case Operator(es, _) if es.collect { case v: Variable if quantified(v) => v }.nonEmpty =>
-          return Some("Invalid operation on quantifiers " + m.asString)
+          case Operator(es, _) if es.collect { case v: Variable if quantified(v) => v }.nonEmpty =>
+            throwReturn[Option[String]](Some("Invalid operation on quantifiers " + m.asString))
 
-        case (_: Equals) | (_: And) | (_: Or) | (_: Implies) | (_: Not) => // OK
+          case (_: Equals) | (_: And) | (_: Or) | (_: Implies) | (_: Not) => // OK
 
-        case Operator(es, _) if (es.flatMap(exprOps.variablesOf).toSet & quantified).nonEmpty =>
-          return Some("Unandled implications from operation " + m.asString)
+          case Operator(es, _) if (es.flatMap(exprOps.variablesOf).toSet & quantified).nonEmpty =>
+            throwReturn[Option[String]](Some("Unandled implications from operation " + m.asString))
 
-        case _ => // OK
-      }) (body)
+          case _ => // OK
+        })(body)
+        Option.empty[String]
+      }
 
-      body match {
+      err.orElse(body match {
         case v: Variable if quantified(v) =>
           Some("Unexpected free quantifier " + v.asString)
         case _ => None
-      }
+      })
     }
   }
 
@@ -701,7 +705,7 @@ trait QuantificationTemplates { self: Templates =>
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
       clauses ++= newTemplate.structure.instantiation
 
-      val (inst, mapping): (Encoded, Map[Encoded, Encoded]) = newTemplate.polarity match {
+      val (inst, mapping): (Encoded, Map[Encoded, Encoded]) = (newTemplate.polarity match {
         case Positive(subst) =>
           val axiom = new Axiom(newTemplate.contents, subst, newTemplate.body, newTemplate.isDeferred)
           axioms += axiom
@@ -725,7 +729,7 @@ trait QuantificationTemplates { self: Templates =>
           clauses ++= newTemplate.contents.instantiate(fullSubst)
 
           (instT, Map(insts._2 -> instT))
-      }
+      }): @unchecked
 
       clauses ++= templates.flatMap { case (key, (tmpl, tinst)) =>
         if (typeOps.simplify(newTemplate.structure.body) == typeOps.simplify(tmpl.structure.body)) {

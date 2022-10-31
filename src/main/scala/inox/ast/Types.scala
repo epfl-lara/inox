@@ -28,7 +28,7 @@ trait Types { self: Trees =>
   }
 
   protected def unveilUntyped(tpe: Type): Type = {
-    val NAryType(tps, _) = tpe
+    val NAryType(tps, _) = tpe: @unchecked
     if (tps exists (_ == Untyped)) Untyped else tpe
   }
 
@@ -50,7 +50,7 @@ trait Types { self: Trees =>
     }
 
     protected def computeType(using Symbols): Type = {
-      val NAryType(tps, recons) = this
+      val NAryType(tps, recons) = this: @unchecked
       unveilUntyped(recons(tps.map(_.getType)))
     }
   }

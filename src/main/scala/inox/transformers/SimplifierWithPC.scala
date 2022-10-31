@@ -76,7 +76,7 @@ trait SimplifierWithPC extends Transformer { self =>
     } else if (path implies Not(IsConstructor(e, id))) {
       Some(false)
     } else {
-      val adt @ ADTType(_, tps) = e.getType
+      val adt @ ADTType(_, tps) = e.getType: @unchecked
       val sort = adt.getSort
       val cons = getConstructor(id, tps)
       val alts = (sort.constructors.toSet - cons).map(_.id)

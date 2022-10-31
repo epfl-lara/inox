@@ -175,23 +175,23 @@ private class BagEnc[Prog <: Program]
       }._1
 
     case BagAdd(bag, elem) =>
-      val BagType(base) = bag.getType
+      val BagType(base) = bag.getType: @unchecked
       Add(transform(base))(transform(bag), transform(elem)).copiedFrom(e)
 
     case MultiplicityInBag(elem, bag) =>
-      val BagType(base) = bag.getType
+      val BagType(base) = bag.getType: @unchecked
       Get(transform(base))(transform(bag), transform(elem)).copiedFrom(e)
 
     case BagIntersection(b1, b2) =>
-      val BagType(base) = b1.getType
+      val BagType(base) = b1.getType: @unchecked
       Intersect(transform(base))(transform(b1), transform(b2)).copiedFrom(e)
 
     case BagUnion(b1, b2) =>
-      val BagType(base) = b1.getType
+      val BagType(base) = b1.getType: @unchecked
       Union(transform(base))(transform(b1), transform(b2)).copiedFrom(e)
 
     case BagDifference(b1, b2) =>
-      val BagType(base) = b1.getType
+      val BagType(base) = b1.getType: @unchecked
       Difference(transform(base))(transform(b1), transform(b2)).copiedFrom(e)
 
     case _ => super.transform(e)
@@ -216,8 +216,8 @@ private class BagDec[Prog <: Program]
 
   override def transform(e: Expr): Expr = e match {
     case ADT(SumID, Seq(tpe), Seq(e1, e2)) =>
-      val fb1 @ FiniteBag(els1, _) = transform(e1)
-      val fb2 @ FiniteBag(els2, _) = transform(e2)
+      val fb1 @ FiniteBag(els1, _) = transform(e1): @unchecked
+      val fb2 @ FiniteBag(els2, _) = transform(e2): @unchecked
 
       if (exprOps.variablesOf(fb1).isEmpty && exprOps.variablesOf(fb2).isEmpty) {
         def groundMap(els: Seq[(Expr, Expr)]): Map[Expr, Expr] = els.map { case (key, value) => (
@@ -229,8 +229,8 @@ private class BagDec[Prog <: Program]
         val map2 = groundMap(els2)
 
         FiniteBag((map1.keySet ++ map2.keySet).map { key =>
-          val IntegerLiteral(i1) = map1.getOrElse(key, IntegerLiteral(0))
-          val IntegerLiteral(i2) = map2.getOrElse(key, IntegerLiteral(0))
+          val IntegerLiteral(i1) = map1.getOrElse(key, IntegerLiteral(0)): @unchecked
+          val IntegerLiteral(i2) = map2.getOrElse(key, IntegerLiteral(0)): @unchecked
           key -> IntegerLiteral(i1 + i2)
         }.toSeq, transform(tpe)).copiedFrom(e)
       } else {

@@ -123,13 +123,14 @@ object OptionParsers {
   }
 
   def seqParser[A](base: OptionParser[A]): OptionParser[Seq[A]] = s => {
-    @inline def foo: Option[Seq[A]] = Some(
-      s.split(",")
-        .toSeq
-        .filter(_.nonEmpty)
-        .map(base andThen (_.getOrElse(return None)))
-    )
-    foo
+    def traverse[A, B](s: Seq[A], acc: Seq[B])(f: A => Option[B]): Option[Seq[B]] = s match {
+      case Seq(a) => f(a).map(acc :+ _)
+      case a +: as => f(a) match {
+        case Some(b) => traverse(as, acc :+ b)(f)
+        case None => None
+      }
+    }
+    traverse(s.split(",").toSeq.filter(_.nonEmpty), Seq.empty)(base)
   }
 
   def setParser[A](base: OptionParser[A]): OptionParser[Set[A]] = {

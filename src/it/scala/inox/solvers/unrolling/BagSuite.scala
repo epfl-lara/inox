@@ -109,7 +109,7 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
   }
 
   test("split preserves content") {
-    val Let(vd, body, Assume(pred, _)) = split.fullBody
+    val Let(vd, body, Assume(pred, _)) = split.fullBody: @unchecked
     val clause = Let(vd, body, pred)
 
     assert(SimpleSolverAPI(program.getSolver).solveVALID(clause) contains true)
@@ -123,7 +123,7 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
   }
 
   test("split2 doesn't preserve content", filter(_)) {
-    val Let(vd, body, Assume(pred, _)) = split2.fullBody
+    val Let(vd, body, Assume(pred, _)) = split2.fullBody: @unchecked
     val clause = Let(vd, body, pred)
 
     assert(SimpleSolverAPI(program.getSolver).solveSAT(Not(clause)).isSAT)

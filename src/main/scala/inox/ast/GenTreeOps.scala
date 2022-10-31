@@ -62,7 +62,7 @@ trait GenTreeOps { self =>
     */
   def fold[T](f: (Source, Seq[T]) => T)(e: Source): T = {
     val rec = fold(f) _
-    val Deconstructor(es, _) = e
+    val Deconstructor(es, _) = e: @unchecked
 
     f(e, es.map(rec))
   }
@@ -87,7 +87,7 @@ trait GenTreeOps { self =>
     */
   def preTraversal(f: Source => Unit)(e: Source): Unit = {
     val rec = preTraversal(f) _
-    val Deconstructor(es, _) = e
+    val Deconstructor(es, _) = e: @unchecked
     f(e)
     es.foreach(rec)
   }
@@ -111,7 +111,7 @@ trait GenTreeOps { self =>
     */
   def postTraversal(f: Source => Unit)(e: Source): Unit = {
     val rec = postTraversal(f) _
-    val Deconstructor(es, _) = e
+    val Deconstructor(es, _) = e: @unchecked
     es.foreach(rec)
     f(e)
   }
@@ -185,7 +185,7 @@ trait GenTreeOps { self =>
   def postMap(f: Target => Option[Target], applyRec : Boolean = false)(e: Source): Target = {
     val rec = postMap(f, applyRec) _
 
-    val Deconstructor(es, builder) = e
+    val Deconstructor(es, builder) = e: @unchecked
     val newEs = es.map(rec)
     val newV: Target = {
       if ((newEs zip es).exists { case (bef, aft) => aft ne bef } || (sourceTrees ne targetTrees)) {
@@ -227,7 +227,7 @@ trait GenTreeOps { self =>
     def rec(eIn: Source, cIn: C): (Target, C) = {
 
       val (expr, ctx) = pre(eIn, cIn)
-      val Deconstructor(es, builder) = expr
+      val Deconstructor(es, builder) = expr: @unchecked
       val (newExpr, newC) = {
         val (nes, cs) = es.map{ rec(_, ctx)}.unzip
         val newE = builder(nes).copiedFrom(expr)
@@ -295,7 +295,7 @@ trait GenTreeOps { self =>
         }
       }
 
-      val Deconstructor(es, builder) = newV
+      val Deconstructor(es, builder) = newV: @unchecked
       val newEs = es.map(e => rec(e, newCtx))
 
       if ((newEs zip es).exists { case (bef, aft) => aft ne bef } || (sourceTrees ne targetTrees)) {
@@ -314,7 +314,7 @@ trait GenTreeOps { self =>
 
     def rec(eIn: Source, cIn: C): C = {
       val ctx = f(eIn, cIn)
-      val Deconstructor(es, _) = eIn
+      val Deconstructor(es, _) = eIn: @unchecked
       val cs = es.map{ rec(_, ctx) }
       combiner(eIn, ctx, cs)
     }
@@ -361,7 +361,7 @@ trait GenTreeOps { self =>
 
   /** Computes the size of a tree */
   def formulaSize(t: Source): Int = {
-    val Deconstructor(ts, _) = t
+    val Deconstructor(ts, _) = t: @unchecked
     ts.map(formulaSize).sum + 1
   }
 
@@ -374,24 +374,22 @@ trait GenTreeOps { self =>
    *  returns the matching expression in `treeToExtract``.*/
   def lookup[T](checker: Source => Boolean, toExtract: Source => T)(treeToLookInto: Source, treeToExtract: Source): Option[T] = {
     if(checker(treeToLookInto)) return Some(toExtract(treeToExtract))
-    
-    val Deconstructor(childrenToLookInto, _) = treeToLookInto
-    val Deconstructor(childrenToReturn, _) = treeToExtract
-    if(childrenToLookInto.size != childrenToReturn.size) return None
-    for((l, r) <- childrenToLookInto.zip(childrenToReturn)) {
-      lookup(checker, toExtract)(l, r) match {
-        case s@Some(n) => return s
-        case _ =>
-      }
+
+    val Deconstructor(childrenToLookInto, _) = treeToLookInto: @unchecked
+    val Deconstructor(childrenToReturn, _) = treeToExtract: @unchecked
+    if (childrenToLookInto.size != childrenToReturn.size) None
+    else {
+      childrenToLookInto.view.zip(childrenToReturn.view)
+        .map { case (l, r) => lookup(checker, toExtract)(l, r) }
+        .collectFirst { case Some(t) => t }
     }
-    None
   }
 
   object Same {
     def unapply(tt: (Source, Target))
                (using ev1: Source =:= Target, ev2: Target =:= Source): Option[(Source, Target)] = {
-      val Deconstructor(es1, recons1) = tt._1
-      val Deconstructor(es2, recons2) = ev2(tt._2)
+      val Deconstructor(es1, recons1) = tt._1: @unchecked
+      val Deconstructor(es2, recons2) = ev2(tt._2): @unchecked
 
       if (es1.size == es2.size && scala.util.Try(recons2(es1.map(ev1))).toOption == Some(ev1(tt._1))) {
         Some(tt)

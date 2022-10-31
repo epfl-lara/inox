@@ -449,7 +449,7 @@ trait SymbolOps extends TypeOps { self =>
               args.exists { case v: Variable => vars(v) case _ => false } &&
               preserveApps
             ) =>
-              val Operator(es, recons) = e
+              val Operator(es, recons) = e: @unchecked
               recons(es.map(op(_, env)))
 
             case Let(vd, e @ liftable(conditions), b) =>
@@ -619,13 +619,13 @@ trait SymbolOps extends TypeOps { self =>
             val arg = constructExpr(i, tpe)
             (0, args :+ arg)
         }
-      }
+      }: @unchecked
       Tuple(args)
 
     case adt: ADTType =>
       val sort = adt.getSort
       def rec(i: Int, conss: Seq[TypedADTConstructor]): (Int, TypedADTConstructor) = {
-        val cons +: rest = conss
+        val cons +: rest = conss: @unchecked
         constructorCardinality(cons) match {
           case None => i -> cons
           case Some(card) if card > i => i -> cons
@@ -970,22 +970,22 @@ trait SymbolOps extends TypeOps { self =>
         import SolverResponses._
 
         SimpleSolverAPI(sem.getSolver).solveSAT(Application(p, Seq(res))) match {
-          case SatWithModel(model) => model.vars.get(res.toVal).getOrElse(throw NoSimpleValue(adt))
+          case SatWithModel(model) => model.vars.getOrElse(res.toVal, throw NoSimpleValue(adt))
           case _ => throw NoSimpleValue(adt)
         }
       } else {
-        for (cons <- sort.constructors.sortBy(_.fields.size)) {
-          try {
-            return ADT(
-              cons.id,
-              cons.tps,
-              cons.fields.map(vd => simplestValue(vd.getType, seen + adt, allowSolver, inLambda))
-            )
-          } catch {
-            case NoSimpleValue(_) => ()
-          }
-        }
-        throw NoSimpleValue(adt)
+        sort.constructors.sortBy(_.fields.size).view
+          .flatMap { cons =>
+            try {
+              Some(ADT(
+                cons.id,
+                cons.tps,
+                cons.fields.map(vd => simplestValue(vd.getType, seen + adt, allowSolver, inLambda))
+              ))
+            } catch {
+              case NoSimpleValue(_) => None
+            }
+          }.headOption.getOrElse(throw NoSimpleValue(adt))
       }
 
     case tp: TypeParameter =>
@@ -1018,7 +1018,7 @@ trait SymbolOps extends TypeOps { self =>
         if(iteIndex == -1) None else {
           val (beforeIte, startIte) = ts.splitAt(iteIndex)
           val afterIte = startIte.tail
-          val IfExpr(c, t, e) = startIte.head
+          val IfExpr(c, t, e) = startIte.head: @unchecked
           Some(IfExpr(c,
             op(beforeIte ++ Seq(t) ++ afterIte).copiedFrom(nop),
             op(beforeIte ++ Seq(e) ++ afterIte).copiedFrom(nop)
@@ -1287,7 +1287,7 @@ trait SymbolOps extends TypeOps { self =>
     def liftForalls(es: Seq[Expr], recons: Seq[Expr] => Expr): Expr = {
       val (allArgs, allBodies) = es.map {
         case f: Forall =>
-          val Forall(args, body) = exprOps.freshenLocals(f)
+          val Forall(args, body) = exprOps.freshenLocals(f): @unchecked
           (args, body)
         case e =>
           (Seq[ValDef](), e)

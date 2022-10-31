@@ -6,7 +6,7 @@ git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
-scalaVersion := "3.0.2"
+scalaVersion := "3.2.0"
 
 scalacOptions ++= Seq(
   "-deprecation",
@@ -48,6 +48,19 @@ libraryDependencies ++= Seq(
   ("uuverifiers" %% "princess" % "2020-03-12").cross(CrossVersion.for3Use2_13),
   ("org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.2").cross(CrossVersion.for3Use2_13)
 )
+
+lazy val nTestParallelism = {
+  val p = System.getProperty("test-parallelism")
+  if (p ne null) {
+    try {
+      p.toInt
+    } catch {
+      case nfe: NumberFormatException => 1
+    }
+  } else {
+    1
+  }
+}
 
 def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
 
@@ -133,14 +146,21 @@ ItTest / testOptions := Seq(Tests.Argument("-oDF"))
 lazy val root = (project in file("."))
   .configs(ItTest)
   .settings(Defaults.itSettings : _*)
+  .settings(inConfig(Test)(Defaults.testTasks ++ Seq(
+    logBuffered := (nTestParallelism > 1),
+    parallelExecution := (nTestParallelism > 1)
+  )) : _*)
   .settings(inConfig(ItTest)(Defaults.testTasks ++ Seq(
-    logBuffered := false,
-    parallelExecution := false
+    logBuffered := (nTestParallelism > 1),
+    parallelExecution := (nTestParallelism > 1)
   )) : _*)
   .settings(compile := ((Compile / compile) dependsOn script).value)
   .settings(Compile / packageDoc / mappings := Seq())
   .dependsOn(smtlib)
 
+Global / concurrentRestrictions := Seq(
+  Tags.limit(Tags.Test, nTestParallelism)
+)
 
 Compile / run / mainClass := Some("inox.Main")
 

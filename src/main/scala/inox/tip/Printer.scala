@@ -299,14 +299,14 @@ class Printer private(override val program: InoxProgram,
       val (newBindings, param +: params) = args.map { vd =>
         val sym = id2sym(vd.id)
         (vd.id -> (sym: Term), SortedVar(sym, declareSort(vd.getType)))
-      }.unzip
+      }.unzip: @unchecked
       SMTForall(param, params, toSMT(body)(using bindings ++ newBindings))
 
     case Not(Forall(args, body)) =>
       val (newBindings, param +: params) = args.map { vd =>
         val sym = id2sym(vd.id)
         (vd.id -> (sym: Term), SortedVar(sym, declareSort(vd.getType)))
-      }.unzip
+      }.unzip: @unchecked
       Exists(param, params, toSMT(Not(body))(using bindings ++ newBindings))
 
     case Application(caller, args) => SMTApplication(toSMT(caller), args.map(toSMT))

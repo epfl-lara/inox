@@ -187,7 +187,7 @@ trait LambdaTemplates { self: Templates =>
 
   def registerFunction(b: Encoded, r: Encoded, tpe: Type, f: Encoded, closures: Seq[Arg], free: Boolean): Clauses = {
     reporter.debug(s"-> registering free function $b ==> $f: $tpe")
-    val ft @ FunctionType(_, _) = tpe.getType
+    val ft @ FunctionType(_, _) = tpe.getType: @unchecked
     freeFunctions += ft -> (freeFunctions(ft) + (b -> f))
 
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]

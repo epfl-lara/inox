@@ -79,7 +79,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
   protected lazy val version = emit(GetInfo(VersionInfoFlag())) match {
     case GetInfoResponseSuccess(VersionInfoResponse(version), _) =>
-      val major +: minor +: rest = version.split("\\.").toSeq
+      val major +: minor +: rest = version.split("\\.").toSeq: @unchecked
       new Version(major.toInt, minor.toInt, rest.mkString("."))
     case r =>
       Version(0, 0) // We use 0.0 as an unknown default version
@@ -162,7 +162,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         CharLiteral(n.toChar)
 
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ MapType(keyType, valueType))) =>
-        val Some(Lambda(Seq(arg), body)) = context.getFunction(k, FunctionType(Seq(keyType), valueType))
+        val Some(Lambda(Seq(arg), body)) = context.getFunction(k, FunctionType(Seq(keyType), valueType)): @unchecked
 
         def extractCases(e: Expr): FiniteMap = e match {
           case Equals(argV, k) if valueType == BooleanType() && argV == arg.toVariable =>
@@ -175,12 +175,12 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         extractCases(body)
 
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ SetType(base))) =>
-        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, BooleanType())))
+        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, BooleanType()))): @unchecked
         if (dflt != BooleanLiteral(false)) unsupported(fm, "Solver returned a co-finite set which is not supported")
         FiniteSet(cases.collect { case (k, BooleanLiteral(true)) => k }, base)
 
       case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ BagType(base))) =>
-        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, IntegerType())))
+        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, IntegerType()))): @unchecked
         if (dflt != IntegerLiteral(0)) unsupported(fm, "Solver returned a co-finite bag which is not supported")
         FiniteBag(cases.filter(_._2 != IntegerLiteral(BigInt(0))), base)
 
@@ -199,12 +199,12 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         extractCases(body)
 
       case (SMTLambda(Seq(arg), body), Some(tpe @ SetType(base))) =>
-        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, BooleanType())))
+        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, BooleanType()))): @unchecked
         if (dflt != BooleanLiteral(false)) unsupported(fm, "Solver returned a co-finite set which is not supported")
         FiniteSet(cases.collect { case (k, BooleanLiteral(true)) => k }, base)
 
       case (SMTLambda(Seq(arg), body), Some(tpe @ BagType(base))) =>
-        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, IntegerType())))
+        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, IntegerType()))): @unchecked
         if (dflt != IntegerLiteral(0)) unsupported(fm, "Solver returned a co-finite bag which is not supported")
         FiniteBag(cases.filter(_._2 != IntegerLiteral(BigInt(0))), base)
 
@@ -292,7 +292,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   override protected def toSMT(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
 
     case IsConstructor(e, id) if version >= Version(4, 6) =>
-      val tpe @ ADTType(_, tps) = e.getType
+      val tpe @ ADTType(_, tps) = e.getType: @unchecked
       declareSort(tpe)
       val SSymbol(name) = testers.toB(ADTCons(id, tps))
       FunctionApplication(
@@ -336,7 +336,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       ArrayMap(SSymbol("and"), toSMT(l), toSMT(r))
 
     case fb @ FiniteBag(elems, base) =>
-      val BagType(t) = fb.getType
+      val BagType(t) = fb.getType: @unchecked
       declareSort(BagType(t))
       toSMT(FiniteMap(elems, IntegerLiteral(0), t, IntegerType()))
 

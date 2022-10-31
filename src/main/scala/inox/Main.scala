@@ -143,7 +143,7 @@ trait MainHelpers {
       for ((opt, Description(_, description)) <- opts.toSeq.sortBy(_._1.name)) {
         val default = if (opt.formatDefault.isEmpty) "" else s" (default: ${opt.formatDefault})"
         val desc = if (description.contains('\n')) {
-          val first :: rest = description.split('\n').toList
+          val first :: rest = description.split('\n').toList: @unchecked
           ((first ++ default) :: rest).mkString("\n")
         } else description ++ default
         val paddedDesc = desc.replaceAll("\n", "\n" + " " * margin)

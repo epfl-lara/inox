@@ -182,7 +182,7 @@ class ExprOps private(val trees: Trees)
 
     f(e, initParent)
 
-    val Operator(es, _) = e
+    val Operator(es, _) = e: @unchecked
     es foreach rec
   }
 

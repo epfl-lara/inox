@@ -150,23 +150,23 @@ private class SetEnc[Prog <: Program]
       }
 
     case SetAdd(set, elem) =>
-      val SetType(base) = set.getType
+      val SetType(base) = set.getType: @unchecked
       Add(transform(base))(transform(set), transform(elem)).copiedFrom(e)
 
     case ElementOfSet(elem, set) =>
-      val SetType(base) = set.getType
+      val SetType(base) = set.getType: @unchecked
       Contains(transform(base))(transform(set), transform(elem)).copiedFrom(e)
 
     case SetIntersection(s1, s2) =>
-      val SetType(base) = s1.getType
+      val SetType(base) = s1.getType: @unchecked
       Intersect(transform(base))(transform(s1), transform(s2)).copiedFrom(e)
 
     case SetUnion(s1, s2) =>
-      val SetType(base) = s1.getType
+      val SetType(base) = s1.getType: @unchecked
       Union(transform(base))(transform(s1), transform(s2)).copiedFrom(e)
 
     case SetDifference(s1, s2) =>
-      val SetType(base) = s1.getType
+      val SetType(base) = s1.getType: @unchecked
       Difference(transform(base))(transform(s1), transform(s2)).copiedFrom(e)
 
     case _ => super.transform(e)
@@ -189,8 +189,8 @@ private class SetDec[Prog <: Program]
 
   override def transform(e: Expr): Expr = e match {
     case ADT(SumID, Seq(tpe), Seq(e1, e2)) =>
-      val FiniteSet(els1, _) = transform(e1)
-      val FiniteSet(els2, _) = transform(e2)
+      val FiniteSet(els1, _) = transform(e1): @unchecked
+      val FiniteSet(els2, _) = transform(e2): @unchecked
       FiniteSet(els1 ++ els2, transform(tpe)).copiedFrom(e)
 
     case ADT(ElemID, Seq(tpe), Seq(e)) =>

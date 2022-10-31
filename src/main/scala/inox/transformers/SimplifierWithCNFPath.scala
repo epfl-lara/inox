@@ -49,7 +49,7 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
     }
 
     def implies(e: Expr) = {
-      val TopLevelOrs(es) = unexpandLets(e)
+      val TopLevelOrs(es) = unexpandLets(e): @unchecked
       conditions contains orJoin(es.distinct.sortBy(_.hashCode))
     }
 
@@ -98,14 +98,14 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
       val expr = andJoin(newE +: preds)
       val res = simpCache.getOrElse(expr, {
         val clauseSet: MutableSet[Expr] = MutableSet.empty
-        for (cl <- cnf(expr); TopLevelOrs(es) <- cnf(replaceFromSymbols(boolSubst, simplify(cl)))) {
+        for (cl <- cnf(expr); case TopLevelOrs(es) <- cnf(replaceFromSymbols(boolSubst, simplify(cl)))) {
           clauseSet += orJoin(es.distinct.sortBy(_.hashCode))
         }
 
         var changed = true
         while (changed) {
           changed = false
-          for (cls @ TopLevelOrs(es) <- clauseSet) {
+          for (case cls @ TopLevelOrs(es) <- clauseSet) {
             val eSet = es.toSet
             if (
               cls == BooleanLiteral(true) ||
