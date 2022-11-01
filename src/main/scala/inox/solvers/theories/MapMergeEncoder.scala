@@ -47,7 +47,7 @@ private class MapMergeEnc[Prog <: Program]
 
   override def transform(e: Expr): Expr = e match {
     case MapMerge(mask, map1, map2) =>
-      val MapType(keyTpe, valueTpe) = map1.getType
+      val MapType(keyTpe, valueTpe) = map1.getType: @unchecked
       MapMergeFun(transform(keyTpe), transform(valueTpe))(
         transform(mask), transform(map1), transform(map2)).copiedFrom(e)
     case _ => super.transform(e)

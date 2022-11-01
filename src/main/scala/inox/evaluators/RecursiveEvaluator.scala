@@ -62,7 +62,7 @@ abstract class RecursiveEvaluator(override val program: Program,
       Tuple(tsRec)
 
     case TupleSelect(t, i) =>
-      val Tuple(rs) = e(t)
+      val Tuple(rs) = e(t): @unchecked
       rs(i-1)
 
     case Let(i,ex,b) =>
@@ -348,7 +348,7 @@ abstract class RecursiveEvaluator(override val program: Program,
           BooleanLiteral(b1.toBigInt < b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 < i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
-          val FractionLiteral(n, _) = e(Minus(a, b))
+          val FractionLiteral(n, _) = e(Minus(a, b)): @unchecked
           BooleanLiteral(n < 0)
         case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 < c2)
         case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
@@ -360,7 +360,7 @@ abstract class RecursiveEvaluator(override val program: Program,
           BooleanLiteral(b1.toBigInt > b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 > i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
-          val FractionLiteral(n, _) = e(Minus(a, b))
+          val FractionLiteral(n, _) = e(Minus(a, b)): @unchecked
           BooleanLiteral(n > 0)
         case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 > c2)
         case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
@@ -372,7 +372,7 @@ abstract class RecursiveEvaluator(override val program: Program,
           BooleanLiteral(b1.toBigInt <= b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 <= i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
-          val FractionLiteral(n, _) = e(Minus(a, b))
+          val FractionLiteral(n, _) = e(Minus(a, b)): @unchecked
           BooleanLiteral(n <= 0)
         case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 <= c2)
         case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
@@ -384,7 +384,7 @@ abstract class RecursiveEvaluator(override val program: Program,
           BooleanLiteral(b1.toBigInt >= b2.toBigInt)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 >= i2)
         case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
-          val FractionLiteral(n, _) = e(Minus(a, b))
+          val FractionLiteral(n, _) = e(Minus(a, b)): @unchecked
           BooleanLiteral(n >= 0)
         case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 >= c2)
         case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))

@@ -1041,7 +1041,7 @@ trait ExpressionElaborators { self: Elaborators =>
           (for {
             e <- getExpr(expr, expectedExpr)
           } yield { u ?=>
-            val trees.ADTType(id, tps) = u(expectedExpr)
+            val trees.ADTType(id, tps) = u(expectedExpr): @unchecked
             val sort = symbols.lookupSort(id).getOrElse(store getSort id.name)
             val vd = sort.constructors.flatMap(_.fields).find(vd => f match {
               case FieldName(name) => vd.id.name == name
@@ -1055,7 +1055,7 @@ trait ExpressionElaborators { self: Elaborators =>
           }).addConstraint({
             Constraint.hasSortIn(expectedExpr, fields.map { case (sort, vd) =>
               sort -> { (tpe: trees.Type) =>
-                val ADTType(_, tps) = tpe
+                val ADTType(_, tps) = tpe: @unchecked
                 val instantiator = new typeOps.TypeInstantiator((sort.typeArgs zip tps).toMap)
                 Seq(Constraint.equal(instantiator.transform(vd.getType), expected))
               }

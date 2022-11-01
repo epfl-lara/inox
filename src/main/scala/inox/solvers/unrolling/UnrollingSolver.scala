@@ -555,7 +555,7 @@ abstract class AbstractUnrollingSolver private
               (concreteArgs, andJoin(condOpts.flatten))
             }).toSeq
 
-          val withConds :+ ((concreteArgs, _)) = argumentsWithConds
+          val withConds :+ ((concreteArgs, _)) = argumentsWithConds: @unchecked
           val default = extractValue(templates.mkApp(f, tpe, concreteArgs), tpe.to, nextSeen)
 
           val sortedArguments = withConds
@@ -682,9 +682,6 @@ abstract class AbstractUnrollingSolver private
     var currentState: CheckState = ModelCheck
     while (!currentState.isInstanceOf[CheckResult]) {
       currentState = currentState match {
-        case Abort() =>
-          CheckResult.cast(Unknown)
-
         case ModelCheck =>
           reporter.debug(" - Running search...")
 
@@ -897,7 +894,7 @@ abstract class AbstractUnrollingSolver private
       }
     }
 
-    val CheckResult(res) = currentState
+    val CheckResult(res) = currentState: @unchecked
     res
   }).recover {
     case e @ (_: InternalSolverError | _: Unsupported) =>

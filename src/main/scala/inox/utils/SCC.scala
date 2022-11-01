@@ -37,7 +37,7 @@ object SCC {
         // do-while, Scala 3 style
         // See https://docs.scala-lang.org/scala3/reference/dropped-features/do-while.html
         while ({
-          val x :: xs = s
+          val x :: xs = s: @unchecked
           c = c + x
           s = xs
           // The line below is the do-while condition

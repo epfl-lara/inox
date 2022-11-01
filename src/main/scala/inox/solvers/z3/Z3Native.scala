@@ -318,13 +318,13 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case BVLShiftRight(l, r) => z3.mkBVLshr(rec(l), rec(r))
 
       case c @ BVWideningCast(e, _)  =>
-        val Some((from, to)) = c.cast
-        val BVType(signed, _) = e.getType
+        val Some((from, to)) = c.cast: @unchecked
+        val BVType(signed, _) = e.getType: @unchecked
         if (signed) z3.mkSignExt(to - from, rec(e))
         else z3.mkZeroExt(to - from, rec(e))
 
       case c @ BVNarrowingCast(e, _) =>
-        val Some((from, to)) = c.cast
+        val Some((from, to)) = c.cast: @unchecked
         z3.mkExtract(to - 1, 0, rec(e))
 
       case BVUnsignedToSigned(e) => rec(e)
@@ -365,13 +365,13 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         constructor()
 
       case t @ Tuple(es) =>
-        val tpe @ TupleType(tps) = t.getType
+        val tpe @ TupleType(tps) = t.getType: @unchecked
         typeToSort(tpe)
         val constructor = constructors.toB(TupleCons(tps))
         constructor(es.map(rec): _*)
 
       case ts @ TupleSelect(t, i) =>
-        val tpe @ TupleType(tps) = t.getType
+        val tpe @ TupleType(tps) = t.getType: @unchecked
         typeToSort(tpe)
         val selector = selectors.toB((TupleCons(tps), i-1))
         selector(rec(t))
@@ -382,13 +382,13 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         constructor(args.map(rec): _*)
 
       case c @ ADTSelector(cc, sel) =>
-        val tpe @ ADTType(_, tps) = cc.getType
+        val tpe @ ADTType(_, tps) = cc.getType: @unchecked
         typeToSort(tpe) // Making sure the sort is defined
         val selector = selectors.toB(ADTCons(c.constructor.id, tps) -> c.selectorIndex)
         selector(rec(cc))
 
       case IsConstructor(e, id) =>
-        val tpe @ ADTType(_, tps) = e.getType
+        val tpe @ ADTType(_, tps) = e.getType: @unchecked
         typeToSort(tpe)
         val tester = testers.toB(ADTCons(id, tps))
         tester(rec(e))
@@ -397,7 +397,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         z3.mkApp(functionDefToDecl(getFunction(id, tps.map(_.getType))), args.map(rec): _*)
 
       case fa @ Application(caller, args) =>
-        val ft @ FunctionType(froms, to) = caller.getType
+        val ft @ FunctionType(froms, to) = caller.getType: @unchecked
         val funDecl = lambdas.cachedB(ft) {
           val sortSeq    = (ft +: froms).map(tpe => typeToSort(tpe))
           val returnSort = typeToSort(to)
@@ -447,7 +447,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         rec(BagDifference(b1, BagDifference(b1, b2)))
 
       case BagDifference(b1, b2) =>
-        val BagType(base) = b1.getType
+        val BagType(base) = b1.getType: @unchecked
         val abs = z3.getAbsFuncDecl()
         val plus = z3.getFuncDecl(OpAdd, typeToSort(IntegerType()), typeToSort(IntegerType()))
         val minus = z3.getFuncDecl(OpSub, typeToSort(IntegerType()), typeToSort(IntegerType()))
@@ -487,7 +487,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
           }
         }
 
-        val MapType(_, valueTpe) = map1.getType
+        val MapType(_, valueTpe) = map1.getType: @unchecked
         z3.mkArrayMap(getIteFuncDecl(valueTpe), rec(mask), rec(map1), rec(map2))
 
       /* ====== String operations ====
@@ -583,7 +583,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                 tupleWrap(args.zip(ts).map { case (a, t) => rec(a, t, seen) })
 
               case TypeParameterCons(tp) =>
-                val IntegerLiteral(n) = rec(args(0), IntegerType(), seen)
+                val IntegerLiteral(n) = rec(args(0), IntegerType(), seen): @unchecked
                 GenericValue(tp, n.toInt)
             }
           } else {
@@ -637,7 +637,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                 }
 
               case BagType(base) =>
-                val fm @ FiniteMap(entries, default, from, IntegerType()) = rec(t, MapType(base, IntegerType()), seen)
+                val fm @ FiniteMap(entries, default, from, IntegerType()) = rec(t, MapType(base, IntegerType()), seen): @unchecked
                 if (default != IntegerLiteral(0)) {
                   unsound(t, "co-finite bag AST")
                 }

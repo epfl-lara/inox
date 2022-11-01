@@ -43,15 +43,15 @@ class SetBagMapSuite extends SolvingTestSuite with DatastructureUtils {
 
   test("Non-empty set") {
     val clause = Not(Equals(s1, FiniteSet(Seq.empty, IntegerType())))
-    val SatWithModel(model) = SimpleSolverAPI(program.getSolver).solveSAT(clause)
-    val FiniteSet(value1, _) = model.vars(s1.toVal)
+    val SatWithModel(model) = SimpleSolverAPI(program.getSolver).solveSAT(clause): @unchecked
+    val FiniteSet(value1, _) = model.vars(s1.toVal): @unchecked
     assert(!value1.isEmpty)
   }
 
   test("Non-empty set with refinement") {
     val clause = Not(Equals(s2, FiniteSet(Seq.empty, IntegerType())))
-    val SatWithModel(model) = SimpleSolverAPI(program.getSolver).solveSAT(clause)
-    val FiniteSet(Seq(IntegerLiteral(value2)), _) = model.vars(s2.toVal)
+    val SatWithModel(model) = SimpleSolverAPI(program.getSolver).solveSAT(clause): @unchecked
+    val FiniteSet(Seq(IntegerLiteral(value2)), _) = model.vars(s2.toVal): @unchecked
     assert(value2 > 2000)
   }
 
@@ -73,15 +73,15 @@ class SetBagMapSuite extends SolvingTestSuite with DatastructureUtils {
 
   test("Non-empty bag") {
     val clause = Not(Equals(bag1, FiniteBag(Seq.empty, IntegerType())))
-    val SatWithModel(model) = SimpleSolverAPI(program.getSolver).solveSAT(clause)
-    val FiniteBag(value1, _) = model.vars(bag1.toVal)
+    val SatWithModel(model) = SimpleSolverAPI(program.getSolver).solveSAT(clause): @unchecked
+    val FiniteBag(value1, _) = model.vars(bag1.toVal): @unchecked
     assert(!value1.isEmpty)
   }
 
   test("Non-empty bag with refinement") {
     val clause = Not(Equals(bag2, FiniteBag(Seq.empty, IntegerType())))
-    val SatWithModel(model) = SimpleSolverAPI(program.getSolver).solveSAT(clause)
-    val FiniteBag(Seq((IntegerLiteral(value2), _)), _) = model.vars(bag2.toVal)
+    val SatWithModel(model) = SimpleSolverAPI(program.getSolver).solveSAT(clause): @unchecked
+    val FiniteBag(Seq((IntegerLiteral(value2), _)), _) = model.vars(bag2.toVal): @unchecked
     assert(value2 > 2000)
   }
 
@@ -99,8 +99,8 @@ class SetBagMapSuite extends SolvingTestSuite with DatastructureUtils {
 
   test("Maps with refinement types exist") {
     val clause = Equals(map1, map1)
-    val SatWithModel(model) = SimpleSolverAPI(program.getSolver).solveSAT(clause)
-    val FiniteMap(_, IntegerLiteral(value), _, _) = model.vars(map1.toVal)
+    val SatWithModel(model) = SimpleSolverAPI(program.getSolver).solveSAT(clause): @unchecked
+    val FiniteMap(_, IntegerLiteral(value), _, _) = model.vars(map1.toVal): @unchecked
     assert(value > 2000)
   }
 

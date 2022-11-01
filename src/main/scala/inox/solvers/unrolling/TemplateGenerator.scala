@@ -472,13 +472,13 @@ trait TemplateGenerator { self: Templates =>
         template.ids._1
 
       case f: Forall =>
-        val (assumptions, without: Forall) = liftAssumptions(f)
+        val (assumptions, without: Forall) = liftAssumptions(f): @unchecked
 
         for (a <- assumptions) {
           rec(pathVar, a, Some(true))
         }
 
-        val TopLevelAnds(conjuncts) = without.body
+        val TopLevelAnds(conjuncts) = without.body: @unchecked
 
         val conjunctQs = conjuncts.map { conj =>
           val vars = exprOps.variablesOf(conj)

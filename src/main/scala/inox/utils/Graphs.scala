@@ -162,7 +162,7 @@ object Graphs {
       stack ::= from
 
       while (stack.nonEmpty) {
-        val (n :: rest) = stack
+        val (n :: rest) = stack: @unchecked
         stack = rest
         visited += n
         f(n)

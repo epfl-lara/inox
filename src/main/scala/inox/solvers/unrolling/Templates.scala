@@ -186,7 +186,7 @@ trait Templates
     // do-while, Scala 3 style
     // See https://docs.scala-lang.org/scala3/reference/dropped-features/do-while.html
     while ({
-      val (bs +: rest) = blockers
+      val (bs +: rest) = blockers: @unchecked
       blockers = rest
 
       val allBs = bs ++ bs.flatMap(blockerEquals)

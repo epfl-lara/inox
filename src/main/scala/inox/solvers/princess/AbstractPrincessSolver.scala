@@ -198,7 +198,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
       // ADT INSTANCE OF
       case IsConstructor(expr, id) =>
-        val tpe @ ADTType(_, tps) = expr.getType
+        val tpe @ ADTType(_, tps) = expr.getType: @unchecked
         typeToSort(tpe)
         val (sort, tester) = testers.toB(ADTCons(id, tps))
         sort.hasCtor(parseTerm(expr), tester)
@@ -246,7 +246,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
             val tpe = adt.getType.asInstanceOf[ADTType]
             (ADTCons(s.constructor.id, tpe.tps), adt, s.selectorIndex)
           case TupleSelect(tpl, i) =>
-            val TupleType(tps) = tpl.getType
+            val TupleType(tps) = tpl.getType: @unchecked
             (TupleCons(tps), tpl, i - 1)
         }
 
@@ -357,13 +357,13 @@ abstract class AbstractPrincessSolver(override val program: Program,
         Mod.bvlshr(parseTerm(lhs), parseTerm(rhs))
 
       case c @ BVWideningCast(e, _) =>
-        val Some((from, to)) = c.cast
-        val BVType(signed, _) = e.getType
+        val Some((from, to)) = c.cast: @unchecked
+        val BVType(signed, _) = e.getType: @unchecked
         if (signed) Mod.sign_extend(to - from, parseTerm(e))
         else Mod.zero_extend(to - from, parseTerm(e))
 
       case c @ BVNarrowingCast(e, _) =>
-        val Some((from, to)) = c.cast
+        val Some((from, to)) = c.cast: @unchecked
         Mod.extract(to - 1, 0, parseTerm(e))
 
       case BVUnsignedToSigned(e) =>

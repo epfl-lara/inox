@@ -186,7 +186,7 @@ trait SMTLIBParser {
 
     case FixedSizeBitVectors.SignExtend(extend, e) =>
       val ast = fromSMT(e)
-      val BVType(signed, current) = ast.getType
+      val BVType(signed, current) = ast.getType: @unchecked
       val newSize = (current + extend).bigInteger.intValueExact
       BVWideningCast(ast, BVType(signed, newSize))
 
@@ -221,7 +221,7 @@ trait SMTLIBParser {
 
     case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("const")), Some(sort)), Seq(dflt)) =>
       val d = fromSMT(dflt)
-      val MapType(from, to) = fromSMT(sort)
+      val MapType(from, to) = fromSMT(sort): @unchecked
       FiniteMap(Seq.empty, d, from, to)
 
     case _ => throw new MissformedSMTException(term,

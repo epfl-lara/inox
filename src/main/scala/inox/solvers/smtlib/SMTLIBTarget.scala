@@ -284,13 +284,13 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           newBody)
 
       case s @ ADTSelector(e, id) =>
-        val tpe @ ADTType(_, tps) = e.getType
+        val tpe @ ADTType(_, tps) = e.getType: @unchecked
         declareSort(tpe)
         val selector = selectors.toB(ADTCons(s.constructor.id, tps) -> s.selectorIndex)
         FunctionApplication(selector, Seq(toSMT(e)))
 
       case i @ IsConstructor(e, id) =>
-        val tpe @ ADTType(_, tps) = e.getType
+        val tpe @ ADTType(_, tps) = e.getType: @unchecked
         declareSort(tpe)
         val tester = testers.toB(ADTCons(id, tps))
         FunctionApplication(tester, Seq(toSMT(e)))
@@ -305,13 +305,13 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         }
 
       case t @ Tuple(es) =>
-        val tpe @ TupleType(tps) = t.getType
+        val tpe @ TupleType(tps) = t.getType: @unchecked
         declareSort(tpe)
         val constructor = constructors.toB(TupleCons(tps))
         FunctionApplication(constructor, es.map(toSMT))
 
       case ts @ TupleSelect(t, i) =>
-        val tpe @ TupleType(tps) = t.getType
+        val tpe @ TupleType(tps) = t.getType: @unchecked
         declareSort(tpe)
         val selector = selectors.toB((TupleCons(tps), i - 1))
         FunctionApplication(selector, Seq(toSMT(t)))
@@ -453,13 +453,13 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case BVLShiftRight(a, b)       => FixedSizeBitVectors.LShiftRight(toSMT(a), toSMT(b))
 
       case c @ BVWideningCast(e, _)  =>
-        val Some((from, to)) = c.cast
-        val BVType(signed, _) = e.getType
+        val Some((from, to)) = c.cast: @unchecked
+        val BVType(signed, _) = e.getType: @unchecked
         if (signed) FixedSizeBitVectors.SignExtend(to - from, toSMT(e))
         else FixedSizeBitVectors.ZeroExtend(to - from, toSMT(e))
 
       case c @ BVNarrowingCast(e, _) =>
-        val Some((from, to)) = c.cast
+        val Some((from, to)) = c.cast: @unchecked
         FixedSizeBitVectors.Extract(to - 1, 0, toSMT(e))
 
       case BVUnsignedToSigned(e) => toSMT(e)
@@ -642,7 +642,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
             tupleWrap((args zip tps) map fromSMT)
 
           case TypeParameterCons(tp) =>
-            val IntegerLiteral(n) = fromSMT(args(0), IntegerType())
+            val IntegerLiteral(n) = fromSMT(args(0), IntegerType()): @unchecked
             GenericValue(tp, n.toInt)
 
           case t =>

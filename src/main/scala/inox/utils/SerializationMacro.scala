@@ -88,7 +88,7 @@ def classSerializerMacroWorkhorse[T](inoxSerializer: Expr[InoxSerializer], id: E
     .drop(if (tySubstArgMap.isEmpty) 0 else 1)
     .map(_.map { ctorParamSym =>
       // Now get the corresponding *field* symbol of the constructor *parameter*.
-      clsSym.memberFields.find(_.name == ctorParamSym.name).get
+      clsSym.fieldMembers.find(_.name == ctorParamSym.name).get
     })
 
   // We are also intersted in the type of these parameters. We need the types for generating the `read` method.
