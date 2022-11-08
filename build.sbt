@@ -24,13 +24,7 @@ val osName = if (isWindows) "win" else if (isMac) "mac" else "unix"
 
 val osArch = System.getProperty("sun.arch.data.model")
 
-def chooseScalaZ3(scalaBinVersion: String): String = {
-  val scalaZ3Version = scalaBinVersion match {
-    case "3" => "2.13"
-    case _ => scalaBinVersion
-  }
-  s"scalaz3-$osName-$osArch-$scalaZ3Version.jar"
-}
+def chooseScalaZ3(scalaBinVersion: String): String = s"scalaz3-$osName-$osArch-$scalaBinVersion.jar"
 
 Compile / unmanagedJars += {
   baseDirectory.value / "unmanaged" / chooseScalaZ3(scalaBinaryVersion.value)
