@@ -124,6 +124,7 @@ object OptionParsers {
 
   def seqParser[A](base: OptionParser[A]): OptionParser[Seq[A]] = s => {
     def traverse[A, B](s: Seq[A], acc: Seq[B])(f: A => Option[B]): Option[Seq[B]] = s match {
+      case Seq() => Some(acc)
       case Seq(a) => f(a).map(acc :+ _)
       case a +: as => f(a) match {
         case Some(b) => traverse(as, acc :+ b)(f)
