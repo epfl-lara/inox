@@ -71,6 +71,7 @@ object SolverFactory {
     "smt-cvc4"      -> "CVC4 through SMT-LIB",
     "smt-z3"        -> "Z3 through SMT-LIB",
     "smt-z3-opt"    -> "Z3 optimizer through SMT-LIB",
+    "smt-z3-min"    -> "Z3 minimizer through SMT-LIB",
     "smt-z3:<exec>" -> "Z3 through SMT-LIB with custom executable name",
     "princess"      -> "Princess with inox unrolling"
   )
@@ -82,6 +83,7 @@ object SolverFactory {
     "smt-cvc4"     -> (() => hasCVC4,     Seq("nativez3", "smt-z3",   "princess"), "'cvc4' binary"),
     "smt-z3"       -> (() => hasZ3,       Seq("nativez3", "smt-cvc4", "princess"), "'z3' binary"),
     "smt-z3-opt"   -> (() => hasZ3,       Seq("nativez3-opt"),                     "'z3' binary"),
+    "smt-z3-min"   -> (() => hasZ3,       Seq("nativez3-opt"),                     "'z3' binary"),
     "princess"     -> (() => true,        Seq(),                                   "Princess solver")
   )
 
@@ -280,6 +282,36 @@ object SolverFactory {
         }
       })
 
+      case "smt-z3-min" => create(p)(finalName, {
+        val chooseEnc = ChooseEncoder(p)(enc)
+        val fullEnc = enc andThen chooseEnc
+        val theoryEnc = theories.Z3(fullEnc.targetProgram)
+        val progEnc = fullEnc andThen theoryEnc
+        val targetProg = progEnc.targetProgram
+        val targetSem = targetProg.getSemantics
+
+        () => new {
+          val program: p.type = p
+          val context = ctx
+          val encoder: enc.type = enc
+        } with UnrollingOptimizer with TimeoutSolver {
+          override protected val semantics = sem
+          override protected val chooses: chooseEnc.type = chooseEnc
+          override protected val theories: theoryEnc.type = theoryEnc
+          override protected lazy val fullEncoder = fullEnc
+          override protected lazy val programEncoder = progEnc
+          override protected lazy val targetProgram: targetProg.type = targetProg
+          override protected val targetSemantics = targetSem
+
+          protected val underlying = new {
+            val program: progEnc.targetProgram.type = progEnc.targetProgram
+            val context = ctx
+          } with smtlib.optimization.Z3Minimizer {
+            val semantics: program.Semantics = targetSem
+          }
+        }
+      })
+
       case _ if finalName == "smt-z3" || finalName.startsWith("smt-z3:") => create(p)(finalName, {
         val chooseEnc = ChooseEncoder(p)(enc)
         val fullEnc = enc andThen chooseEnc
@@ -410,7 +442,7 @@ object SolverFactory {
     (solversOpt getOrElse optSelectedSolvers.default).toSeq match {
       case Seq() => throw FatalError("No selected solver")
       case Seq(single) =>
-        val name = if (single.endsWith("-opt")) single else single + "-opt"
+        val name = if (single.endsWith("-opt") || single.endsWith("-min")) single else single + "-opt"
         getFromName(name, force = solversOpt.isDefined)(p, ctx)(ProgramEncoder.empty(p))(p.getSemantics).asInstanceOf[SolverFactory {
           val program: p.type
           type S <: Optimizer with TimeoutSolver { val program: p.type }
