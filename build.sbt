@@ -39,7 +39,6 @@ resolvers ++= Seq(
 libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "3.2.9" % "test;it",
   "org.apache.commons" % "commons-lang3" % "3.4",
-  ("uuverifiers" %% "princess" % "2020-03-12").cross(CrossVersion.for3Use2_13),
   ("org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.2").cross(CrossVersion.for3Use2_13)
 )
 
@@ -59,6 +58,8 @@ lazy val nTestParallelism = {
 def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
 
 lazy val smtlib = ghProject("https://github.com/epfl-lara/scala-smtlib.git", "ca9c0226aba1809ae31f7e16dc7d9d0adb48052f")
+
+lazy val princess = ghProject("https://github.com/uuverifiers/princess.git", "ff7b947aff30cd6538c4ded539405d2004c2ed9b")
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")
 
@@ -150,7 +151,7 @@ lazy val root = (project in file("."))
   )) : _*)
   .settings(compile := ((Compile / compile) dependsOn script).value)
   .settings(Compile / packageDoc / mappings := Seq())
-  .dependsOn(smtlib)
+  .dependsOn(smtlib, princess)
 
 Global / concurrentRestrictions := Seq(
   Tags.limit(Tags.Test, nTestParallelism)
