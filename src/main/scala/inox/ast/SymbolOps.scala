@@ -389,16 +389,11 @@ trait SymbolOps extends TypeOps { self =>
       def isLocal(e: Expr, path: Path, unconditional: Boolean): Boolean = {
         val vs = variablesOf(e)
         val tvs = vs flatMap { v => varSubst.get(v) }
-        val pathVars = path.bound.map(_.toVariable).toSet
-
-        (tvars & tvs).isEmpty && (if (unconditional) {
-          // we will have `e` is always pure in this case
-          (tvs & path.bound.map(_.toVariable).toSet).isEmpty
-        } else {
-          // we will have `e` pure in `path`
-          val pathVars = path.bound.map(_.toVariable).toSet ++ path.conditions.flatMap(variablesOf)
-          (tvs & pathVars).isEmpty
-        })
+        // Note: bound variables in path are transformed, but the variables appearing in the conditions are not.
+        val pathBoundVars = path.bound.map(_.toVariable).toSet
+        val allBoundVars = tvars ++ pathBoundVars
+        val pathFreeVars = path.freeVariables.map(v => varSubst.getOrElse(v, v))
+        (tvs & allBoundVars).isEmpty && (unconditional || (pathFreeVars & allBoundVars).isEmpty)
       }
 
       def containsChoose(e: Expr): Boolean =
@@ -419,7 +414,7 @@ trait SymbolOps extends TypeOps { self =>
           val isCalled = !inFunction && args.forall(vd => hasInstance(vd.tpe) contains true)
 
           if (!minimal) None
-          else if (isLocal(e, path, true) && isAlwaysPure(e)) Some(Seq())
+          else if (isLocal(e, path, true) && isPure(e)) Some(Seq())
           else if (isLocal(e, path, false) && (isPureIn(e, path) || isCalled)) Some(path.conditions)
           else None
         }

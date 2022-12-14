@@ -64,7 +64,9 @@ trait SimplifierWithPC extends Transformer { self =>
       opts.assumeChecked
     case None =>
       pureCache += id -> Checking
-      val p = isPure(getFunction(id).fullBody, initEnv)
+      val fndef = getFunction(id)
+      val p = fndef.params.forall(vd => hasInstance(vd.tpe) == Some(true)) &&
+        isPure(fndef.fullBody, initEnv.withBounds(fndef.params))
       pureCache += id -> (if (p) Pure else Impure)
       p
   })
