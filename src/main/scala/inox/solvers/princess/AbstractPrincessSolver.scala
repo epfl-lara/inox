@@ -45,7 +45,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
   interruptManager.registerForInterrupts(this)
 
   type Trees = IExpression
-  type Model = SimpleAPI.PartialModel
+  type Model = ap.api.PartialModel
 
   private val enableAssertions = reporter.isDebugEnabled
 
@@ -146,16 +146,14 @@ abstract class AbstractPrincessSolver(override val program: Program,
         val subExprs = for (e <- exprs) yield parseFormula(e)
         subExprs.tail.foldLeft(subExprs.head)((p, q) => p & q)
 
-      case Or(exprs) => {
+      case Or(exprs) =>
         val subExprs = for (e <- exprs) yield parseFormula(e)
         subExprs.tail.foldLeft(subExprs.head)((p, q) => p | q)
-      }
 
-      case Implies(lhs, rhs) => {
+      case Implies(lhs, rhs) =>
         val pLhs = parseFormula(lhs)
         val pRhs = parseFormula(rhs)
         pLhs ==> pRhs
-      }
 
       // EQUALITY
       case Equals(lhs, rhs) => lhs.getType match {
@@ -212,167 +210,173 @@ abstract class AbstractPrincessSolver(override val program: Program,
       case _ => unsupported(expr, "Unexpected formula " + expr)
     }
 
-    def parseTerm(expr: Expr)(using bindings: Map[Variable, IExpression]): ITerm = expr match {
-      case FunctionInvocation(id, tps, args) =>
-        val f = functions.cachedB(getFunction(id, tps.map(_.getType))) {
-          p.createFunction(id.uniqueName, args.size)
+    def parseTerm(expr: Expr)(using bindings: Map[Variable, IExpression]): ITerm = {
+      val res: ITerm = expr match {
+        case FunctionInvocation(id, tps, args) =>
+          val f = functions.cachedB(getFunction(id, tps.map(_.getType))) {
+            p.createFunction(id.uniqueName, args.size)
+          }
+          val pArgs = for (a <- args) yield parseTerm(a)
+          IFunApp(f, pArgs)
+
+        case Application(caller, args) =>
+          val f = lambdas.cachedB(caller.getType.asInstanceOf[FunctionType]) {
+            p.createFunction(FreshIdentifier("dynLambda").uniqueName, args.size + 1)
+          }
+          val pArgs = for (a <- caller +: args) yield parseTerm(a)
+          IFunApp(f, pArgs)
+
+        // ADT | Tuple
+        case (_: ADT) | (_: Tuple) | (_: GenericValue) | (_: UnitLiteral) =>
+          val tpe = expr.getType
+          typeToSort(tpe)
+          val (cons, args) = expr match {
+            case ADT(id, tps, args) => (ADTCons(id, tps.map(_.getType)), args)
+            case Tuple(args) => (TupleCons(args.map(_.getType)), args)
+            case GenericValue(tp, i) => (TypeParameterCons(tp), Seq(IntegerLiteral(i)))
+            case UnitLiteral() => (UnitCons, Seq.empty)
+          }
+          val constructor = constructors.toB(cons)
+          constructor(args.map(parseTerm) : _*)
+
+        case (_: ADTSelector) | (_: TupleSelect) =>
+          val (cons, rec, i) = expr match {
+            case s @ ADTSelector(adt, _) =>
+              val tpe = adt.getType.asInstanceOf[ADTType]
+              (ADTCons(s.constructor.id, tpe.tps), adt, s.selectorIndex)
+            case TupleSelect(tpl, i) =>
+              val TupleType(tps) = tpl.getType: @unchecked
+              (TupleCons(tps), tpl, i - 1)
+          }
+
+          val tpe = rec.getType
+          typeToSort(tpe)
+          val selector = selectors.toB(cons -> i)
+          selector(parseTerm(rec))
+
+        case BooleanLiteral(true) => i(0)
+        case BooleanLiteral(false) => i(1)
+
+        // @nv: this MUST come at least after having dealt with FunctionInvocation,
+        //      Application and ADTSelectors which can return booleans
+        case IsTyped(_, BooleanType()) =>
+          ITermITE(parseFormula(expr), i(0), i(1))
+
+        case v: Variable =>
+          bindings.getOrElse(v, declareVariable(v)).asInstanceOf[ITerm]
+
+        case Let(vd, e, b) =>
+          parseTerm(b)(using bindings + (vd.toVariable -> (vd.getType match {
+            case BooleanType() => parseFormula(e)
+            case _ => parseTerm(e)
+          })))
+
+        case IfExpr(cond, thenn, elze) =>
+          ITermITE(parseFormula(cond), parseTerm(thenn), parseTerm(elze))
+
+        // LITERALS
+        case IntegerLiteral(value) => value.toInt
+
+        case bv @ BVLiteral(signed, bits, size) =>
+          if (signed) Mod.cast2SignedBV(size, IdealInt(bv.toBigInt.bigInteger))
+          else Mod.cast2UnsignedBV(size, IdealInt(bv.toBigInt.bigInteger))
+
+        case CharLiteral(c) =>
+          Mod.cast2UnsignedBV(16, c.toInt)
+
+        // INTEGER ARITHMETIC
+        case Plus(lhs, rhs) => lhs.getType match {
+          case BVType(_, _) => Mod.bvadd(parseTerm(lhs), parseTerm(rhs))
+          case IntegerType() => parseTerm(lhs) + parseTerm(rhs)
+          case _ => unsupported(expr)
         }
-        val pArgs = for (a <- args) yield parseTerm(a)
-        IFunApp(f, pArgs)
 
-      case Application(caller, args) =>
-        val f = lambdas.cachedB(caller.getType.asInstanceOf[FunctionType]) {
-          p.createFunction(FreshIdentifier("dynLambda").uniqueName, args.size + 1)
-        }
-        val pArgs = for (a <- caller +: args) yield parseTerm(a)
-        IFunApp(f, pArgs)
-
-      // ADT | Tuple
-      case (_: ADT) | (_: Tuple) | (_: GenericValue) | (_: UnitLiteral) =>
-        val tpe = expr.getType
-        typeToSort(tpe)
-        val (cons, args) = expr match {
-          case ADT(id, tps, args) => (ADTCons(id, tps.map(_.getType)), args)
-          case Tuple(args) => (TupleCons(args.map(_.getType)), args)
-          case GenericValue(tp, i) => (TypeParameterCons(tp), Seq(IntegerLiteral(i)))
-          case UnitLiteral() => (UnitCons, Seq.empty)
-        }
-        val constructor = constructors.toB(cons)
-        constructor(args.map(parseTerm) : _*)
-
-      case (_: ADTSelector) | (_: TupleSelect) =>
-        val (cons, rec, i) = expr match {
-          case s @ ADTSelector(adt, _) =>
-            val tpe = adt.getType.asInstanceOf[ADTType]
-            (ADTCons(s.constructor.id, tpe.tps), adt, s.selectorIndex)
-          case TupleSelect(tpl, i) =>
-            val TupleType(tps) = tpl.getType: @unchecked
-            (TupleCons(tps), tpl, i - 1)
+        case Minus(lhs, rhs) => lhs.getType match {
+          case BVType(_, _) => Mod.bvsub(parseTerm(lhs), parseTerm(rhs))
+          case IntegerType() => parseTerm(lhs) - parseTerm(rhs)
+          case _ => unsupported(expr)
         }
 
-        val tpe = rec.getType
-        typeToSort(tpe)
-        val selector = selectors.toB(cons -> i)
-        selector(parseTerm(rec))
+        case Times(lhs, rhs) => lhs.getType match {
+          case BVType(_, _) => Mod.bvmul(parseTerm(lhs), parseTerm(rhs))
+          case IntegerType() => p.mult(parseTerm(lhs), parseTerm(rhs))
+          case _ => unsupported(expr)
+        }
 
-      case BooleanLiteral(true) => i(0)
-      case BooleanLiteral(false) => i(1)
+        case UMinus(e) => e.getType match {
+          case BVType(_, _) => Mod.bvneg(parseTerm(e))
+          case IntegerType() => - parseTerm(e)
+          case _ => unsupported(expr)
+        }
 
-      // @nv: this MUST come at least after having dealt with FunctionInvocation,
-      //      Application and ADTSelectors which can return booleans
-      case IsTyped(_, BooleanType()) =>
-        ITermITE(parseFormula(expr), i(0), i(1))
+        case Division(lhs, rhs) => lhs.getType match {
+          case BVType(true, _) => Mod.bvsdiv(parseTerm(lhs), parseTerm(rhs))
+          case BVType(false, _) => Mod.bvudiv(parseTerm(lhs), parseTerm(rhs))
+          case IntegerType() => p.mulTheory.tDiv(parseTerm(lhs), parseTerm(rhs))
+          case _ => unsupported(expr)
+        }
 
-      case v: Variable =>
-        bindings.getOrElse(v, declareVariable(v)).asInstanceOf[ITerm]
+        case Remainder(lhs, rhs) => lhs.getType match {
+          case BVType(true, _) => Mod.bvsrem(parseTerm(lhs), parseTerm(rhs))
+          case BVType(false, _) => Mod.bvurem(parseTerm(lhs), parseTerm(rhs))
+          case IntegerType() =>
+            val q = parseTerm(Division(lhs, rhs))
+            parseTerm(lhs) - (parseTerm(rhs) * q)
+        }
 
-      case Let(vd, e, b) =>
-        parseTerm(b)(using bindings + (vd.toVariable -> (vd.getType match {
-          case BooleanType() => parseFormula(e)
-          case _ => parseTerm(e)
-        })))
+        case Modulo(lhs, rhs) => lhs.getType match {
+          case BVType(true, size) => // we want x mod |y|
+            val a = parseTerm(lhs)
+            val b = parseTerm(rhs)
+            Mod.bvsmod(a, ITermITE(Mod.bvslt(b, parseTerm(BVLiteral(true, 0, size))), Mod.bvneg(b), b))
+          case BVType(false, _) => Mod.bvurem(parseTerm(lhs), parseTerm(rhs))
+          case IntegerType() => p.mulTheory.eMod(parseTerm(lhs), parseTerm(rhs))
+        }
 
-      case IfExpr(cond, thenn, elze) =>
-        ITermITE(parseFormula(cond), parseTerm(thenn), parseTerm(elze))
+        // BITVECTOR OPERATIONS
+        case BVNot(e) =>
+          Mod.bvnot(parseTerm(e))
 
-      // LITERALS
-      case IntegerLiteral(value) => value.toInt
+        case BVAnd(lhs, rhs) =>
+          Mod.bvand(parseTerm(lhs), parseTerm(rhs))
 
-      case bv @ BVLiteral(signed, bits, size) =>
-        if (signed) Mod.cast2SignedBV(size, IdealInt(bv.toBigInt.bigInteger))
-        else Mod.cast2UnsignedBV(size, IdealInt(bv.toBigInt.bigInteger))
+        case BVOr(lhs, rhs) =>
+          Mod.bvor(parseTerm(lhs), parseTerm(rhs))
 
-      case CharLiteral(c) =>
-        Mod.cast2UnsignedBV(16, c.toInt)
+        case BVXor(lhs, rhs) =>
+          Mod.bvxor(parseTerm(lhs), parseTerm(rhs))
 
-      // INTEGER ARITHMETIC
-      case Plus(lhs, rhs) => lhs.getType match {
-        case BVType(_, _) => Mod.bvadd(parseTerm(lhs), parseTerm(rhs))
-        case IntegerType() => parseTerm(lhs) + parseTerm(rhs)
-        case _ => unsupported(expr)
+        case BVShiftLeft(lhs, rhs) =>
+          Mod.bvshl(parseTerm(lhs), parseTerm(rhs))
+
+        case BVAShiftRight(lhs, rhs) =>
+          Mod.bvashr(parseTerm(lhs), parseTerm(rhs))
+
+        case BVLShiftRight(lhs, rhs) =>
+          Mod.bvlshr(parseTerm(lhs), parseTerm(rhs))
+
+        case c @ BVWideningCast(e, _) =>
+          val Some((from, to)) = c.cast: @unchecked
+          val BVType(signed, _) = e.getType: @unchecked
+          if (signed) Mod.sign_extend(to - from, parseTerm(e))
+          else Mod.zero_extend(to - from, parseTerm(e))
+
+        case c @ BVNarrowingCast(e, _) =>
+          val Some((from, to)) = c.cast: @unchecked
+          Mod.extract(to - 1, 0, parseTerm(e))
+
+        case BVUnsignedToSigned(e) =>
+          parseTerm(e)
+
+        case BVSignedToUnsigned(e) =>
+          parseTerm(e)
+
+        case _ => unsupported(expr, "Unexpected formula " + expr)
       }
-
-      case Minus(lhs, rhs) => lhs.getType match {
-        case BVType(_, _) => Mod.bvsub(parseTerm(lhs), parseTerm(rhs))
-        case IntegerType() => parseTerm(lhs) - parseTerm(rhs)
-        case _ => unsupported(expr)
+      expr.getType match {
+        case BVType(true, bits) => Mod.cast2UnsignedBV(bits, res)
+        case _ => res
       }
-
-      case Times(lhs, rhs) => lhs.getType match {
-        case BVType(_, _) => Mod.bvmul(parseTerm(lhs), parseTerm(rhs))
-        case IntegerType() => p.mult(parseTerm(lhs), parseTerm(rhs))
-        case _ => unsupported(expr)
-      }
-
-      case UMinus(e) => e.getType match {
-        case BVType(_, _) => Mod.bvneg(parseTerm(e))
-        case IntegerType() => - parseTerm(e)
-        case _ => unsupported(expr)
-      }
-
-      case Division(lhs, rhs) => lhs.getType match {
-        case BVType(true, _) => Mod.bvsdiv(parseTerm(lhs), parseTerm(rhs))
-        case BVType(false, _) => Mod.bvudiv(parseTerm(lhs), parseTerm(rhs))
-        case IntegerType() => p.mulTheory.tDiv(parseTerm(lhs), parseTerm(rhs))
-        case _ => unsupported(expr)
-      }
-
-      case Remainder(lhs, rhs) => lhs.getType match {
-        case BVType(true, _) => Mod.bvsrem(parseTerm(lhs), parseTerm(rhs))
-        case BVType(false, _) => Mod.bvurem(parseTerm(lhs), parseTerm(rhs))
-        case IntegerType() =>
-          val q = parseTerm(Division(lhs, rhs))
-          parseTerm(lhs) - (parseTerm(rhs) * q)
-      }
-
-      case Modulo(lhs, rhs) => lhs.getType match {
-        case BVType(true, size) => // we want x mod |y|
-          val a = parseTerm(lhs)
-          val b = parseTerm(rhs)
-          Mod.bvsmod(a, ITermITE(Mod.bvslt(b, parseTerm(BVLiteral(true, 0, size))), Mod.bvneg(b), b))
-        case BVType(false, _) => Mod.bvurem(parseTerm(lhs), parseTerm(rhs))
-        case IntegerType() => p.mulTheory.eMod(parseTerm(lhs), parseTerm(rhs))
-      }
-
-      // BITVECTOR OPERATIONS
-      case BVNot(e) =>
-        Mod.bvnot(parseTerm(e))
-
-      case BVAnd(lhs, rhs) =>
-        Mod.bvand(parseTerm(lhs), parseTerm(rhs))
-
-      case BVOr(lhs, rhs) =>
-        Mod.bvor(parseTerm(lhs), parseTerm(rhs))
-
-      case BVXor(lhs, rhs) =>
-        Mod.bvxor(parseTerm(lhs), parseTerm(rhs))
-
-      case BVShiftLeft(lhs, rhs) =>
-        Mod.bvshl(parseTerm(lhs), parseTerm(rhs))
-
-      case BVAShiftRight(lhs, rhs) =>
-        Mod.bvashr(parseTerm(lhs), parseTerm(rhs))
-
-      case BVLShiftRight(lhs, rhs) =>
-        Mod.bvlshr(parseTerm(lhs), parseTerm(rhs))
-
-      case c @ BVWideningCast(e, _) =>
-        val Some((from, to)) = c.cast: @unchecked
-        val BVType(signed, _) = e.getType: @unchecked
-        if (signed) Mod.sign_extend(to - from, parseTerm(e))
-        else Mod.zero_extend(to - from, parseTerm(e))
-
-      case c @ BVNarrowingCast(e, _) =>
-        val Some((from, to)) = c.cast: @unchecked
-        Mod.extract(to - 1, 0, parseTerm(e))
-
-      case BVUnsignedToSigned(e) =>
-        parseTerm(e)
-
-      case BVSignedToUnsigned(e) =>
-        parseTerm(e)
-
-      case _ => unsupported(expr, "Unexpected formula " + expr)
     }
 
     // Tries to convert Inox Expression to Princess IFormula
