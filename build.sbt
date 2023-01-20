@@ -59,7 +59,8 @@ def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${versi
 
 lazy val smtlib = ghProject("https://github.com/epfl-lara/scala-smtlib.git", "ca9c0226aba1809ae31f7e16dc7d9d0adb48052f")
 
-lazy val princess = ghProject("https://github.com/uuverifiers/princess.git", "ff7b947aff30cd6538c4ded539405d2004c2ed9b")
+// lazy val princess = RootProject(file("../princess")) // If you have a local copy of Princess and would like to do some changes
+lazy val princess = ghProject("https://github.com/uuverifiers/princess.git", "93cbff11d7b02903e532c7b64207bc12f19b79c7")
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")
 

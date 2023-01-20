@@ -482,9 +482,9 @@ abstract class AbstractPrincessSolver(override val program: Program,
                 case sort: UninterpretedSortTheory.InfUninterpretedSort =>
                   // Constants are numbered, it suffices to apply the reverse operation done in
                   // InfUninterpretedSort#decodeToTerm.
-                  val idx = sort.individuals.indexOf(ct)
-                  if (idx % 2 == 0) Some(IdealInt.int2idealInt(idx / 2))
-                  else Some(IdealInt.int2idealInt(-(idx + 1) / 2))
+                  val idx = IdealInt(ct.c.name.substring(ct.c.name.lastIndexOf('!') + 1))
+                  if (idx % 2 == IdealInt(0)) Some(idx / 2)
+                  else Some(-(idx + 1) / 2)
                 case _ => None // Should not happen, but if it does, we simply return None
               }
             case _ => None
