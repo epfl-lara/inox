@@ -61,7 +61,10 @@ final class TimerStorage private(val _name: Option[String])
   extends Dynamic {
 
   private val db = MutableMap[String, TimerStorage]()
-  private val local = MutableList[Timer]()
+  private var localN: Long = 0
+  private var localTotal: Long = 0
+  private var localMin: Long = Long.MaxValue
+  private var localMax: Long = Long.MinValue
 
   private val name = _name getOrElse ""
 
@@ -71,27 +74,19 @@ final class TimerStorage private(val _name: Option[String])
     db.getOrElseUpdate(name, new TimerStorage(Some(name)))
   }
 
-  /**
-    * Create a new [[Timer]] associated with this [[TimerStorage]].
-    *
-    * The callee is required to call [[Timer.stop]] before
-    * calling [[Timer.time]].
-    */
-  def start(): Timer = {
-    val t = new Timer
-    synchronized { local += t }
-    t.start()
-    t
-  }
-
   /** Run a timer around a given code, throwing exception. */
   def run[T](body: => T): T = runAndGetTime(body)._2.get
 
   /** Run a timer around a given code, returning the result and the time it took. */
   def runAndGetTime[T](body: => T): (Long, Try[T]) = {
-    val timer = start()
+    val timer = new Timer
+    timer.start()
     val res = Try(body)
     val time = timer.stop()
+    localN += 1
+    localTotal += time
+    localMin = math.min(localMin, time)
+    localMax = math.max(localMax, time)
     (time, res)
   }
 
@@ -116,22 +111,17 @@ final class TimerStorage private(val _name: Option[String])
     table += Separator
 
     // stats = (min, avg, max, n, total)
-    def stats(s: TimerStorage): (String, String, String, String, String) = (s.local.size: @switch) match {
+    def stats(s: TimerStorage): (String, String, String, String, String) = (s.localN: @switch) match {
       case 0 => ("", "", "", "", "")
       case 1 => ("", "", "", "", s.local.head.time.toString)
       case n =>
-        val times = s.local map { _.time }
-        val total = times.sum
-        val avg = total / n
-        val min = times.min
-        val max = times.max
-
-        (f"$min%d ms", f"$avg%d ms", f"$max%d ms", f"$n%d", f"$total%d ms")
+        val avg = s.localTotal / n
+        (f"${s.localMin}%d ms", f"$avg%d ms", f"${s.localMax}%d ms", f"$n%d", f"${s.localTotal}%d ms")
     }
 
     def rec(indent: String, s: TimerStorage): Unit = {
       // Skip line if no local timer and has no name
-      val skip = s.name.isEmpty && s.local.isEmpty
+      val skip = s.name.isEmpty && s.localN == 0
       if (!skip) {
         val localStats = stats(s).productIterator.toSeq map { Cell(_, align = Right) }
         table += Row(Cell(indent + s.name) +: localStats)
