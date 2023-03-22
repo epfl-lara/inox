@@ -12,17 +12,20 @@ trait ContextualEvaluator extends Evaluator {
   import program.symbols.{given, _}
 
   lazy val maxSteps: Int = options.findOptionOrDefault(optMaxCalls)
+  lazy val globallyIgnoreContracts: Boolean = options.findOptionOrDefault(optIgnoreContracts)
 
   trait RecContext[RC <: RecContext[RC]] {
     def tps: Seq[Type]
     def mappings: Map[ValDef, Expr]
     def chooses: Map[(Identifier, Seq[Type]), Expr]
+    def locallyIgnoreContracts: Boolean
 
     def newTypes(tps: Seq[Type]): RC
 
     def newVars(news: Map[ValDef, Expr]): RC
     def withNewVar(vd: ValDef, expr: Expr): RC = newVars(mappings + (vd -> expr))
     def withNewVars(news: Map[ValDef, Expr]): RC = newVars(mappings ++ news)
+    def withLocallyIgnoredContracts: RC
 
     def newChooses(news: Map[(Identifier, Seq[Type]), Expr]): RC
     def getChoose(id: Identifier): Option[Expr] = chooses.get(id -> tps)
@@ -32,11 +35,13 @@ trait ContextualEvaluator extends Evaluator {
   case class DefaultRecContext(
     tps: Seq[Type],
     mappings: Map[ValDef, Expr],
-    chooses: Map[(Identifier, Seq[Type]), Expr]
+    chooses: Map[(Identifier, Seq[Type]), Expr],
+    locallyIgnoreContracts: Boolean
   ) extends RecContext[DefaultRecContext] {
     def newTypes(tps: Seq[Type]) = copy(tps = tps)
     def newVars(news: Map[ValDef, Expr]) = copy(mappings = news)
     def newChooses(news: Map[(Identifier, Seq[Type]), Expr]) = copy(chooses = news)
+    def withLocallyIgnoredContracts = copy(locallyIgnoreContracts = true)
   }
 
   class GlobalContext(val maxSteps: Int) {
@@ -72,7 +77,10 @@ trait ContextualEvaluator extends Evaluator {
 
   protected def e(expr: Expr)(using rctx: RC, gctx: GC): Value
 
-  def typeErrorMsg(tree: Expr, expected: Type): String = 
+  protected def ignoreContractsOn(expr: Expr)(using rctx: RC, gctx: GC): Boolean =
+    globallyIgnoreContracts || rctx.locallyIgnoreContracts
+
+  def typeErrorMsg(tree: Expr, expected: Type): String =
     s"""|Type error : expected ${expected.asString}, found ${tree.asString} of type ${tree.getType}.
         |
         |Type explanation:
@@ -83,11 +91,10 @@ trait ContextualEvaluator extends Evaluator {
 trait HasDefaultRecContext extends ContextualEvaluator {
   import program.trees._
   type RC = DefaultRecContext
-  def initRC(model: program.Model) = DefaultRecContext(Seq.empty, model.vars, model.chooses)
+  def initRC(model: program.Model) = DefaultRecContext(Seq.empty, model.vars, model.chooses, false)
 }
 
 trait HasDefaultGlobalContext extends ContextualEvaluator {
   type GC = GlobalContext
   def initGC = new GlobalContext(maxSteps)
 }
-
