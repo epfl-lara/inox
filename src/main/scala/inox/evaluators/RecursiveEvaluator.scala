@@ -23,8 +23,6 @@ abstract class RecursiveEvaluator(override val program: Program,
 
   val name = "Recursive Evaluator"
 
-  lazy val ignoreContracts = options.findOptionOrDefault(optIgnoreContracts)
-
   private def shift(b: BitSet, size: Int, i: Int): BitSet =
     b.filter(bit => bit + i >= 1 && bit + i <= size).map(_ + i)
 
@@ -70,8 +68,8 @@ abstract class RecursiveEvaluator(override val program: Program,
       e(b)(using rctx.withNewVar(i, first), gctx)
 
     case Assume(cond, body) =>
-      if (!ignoreContracts && e(cond) != BooleanLiteral(true))
-        throw RuntimeError("Assumption did not hold @" + expr.getPos) 
+      if (!ignoreContractsOn(expr) && e(cond) != BooleanLiteral(true))
+        throw RuntimeError("Assumption did not hold @" + expr.getPos)
       e(body)
 
     case IfExpr(cond, thenn, elze) =>
@@ -132,7 +130,7 @@ abstract class RecursiveEvaluator(override val program: Program,
 
     case ADT(id, tps, args) =>
       val cc = ADT(id, tps.map(_.getType), args.map(e))
-      if (!ignoreContracts) {
+      if (!ignoreContractsOn(expr)) {
         val sort = cc.getConstructor.sort
         sort.invariant.foreach { tfd =>
           val v = Variable.fresh("x", ADTType(sort.id, sort.tps), true)
