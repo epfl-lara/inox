@@ -91,6 +91,7 @@ trait MainHelpers {
     ast.optPrintPositions -> Description(Printing, "Attach positions to trees when printing"),
     ast.optPrintUniqueIds -> Description(Printing, "Always print unique ids"),
     ast.optPrintTypes -> Description(Printing, "Attach types to trees when printing"),
+    ast.optPrintUnicode -> Description(Printing, "Print unicode characters for mathematical symbols instead of their ASCII variant"),
     solvers.optAssumeChecked -> Description(Solvers, "Assume that all impure expression have been checked"),
     solvers.optNoSimplifications -> Description(Solvers, "Disable selector/quantifier simplifications in solvers"),
     solvers.optCheckModels -> Description(Solvers, "Double-check counter-examples with evaluator"),

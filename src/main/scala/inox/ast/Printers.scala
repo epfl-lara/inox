@@ -10,6 +10,7 @@ import scala.language.implicitConversions
 object optPrintPositions extends FlagOptionDef("print-positions", false)
 object optPrintUniqueIds extends FlagOptionDef("print-ids",       false)
 object optPrintTypes     extends FlagOptionDef("print-types",     false)
+object optPrintUnicode   extends FlagOptionDef("print-unicode",   false)
 
 trait Printers { self: Trees =>
 
@@ -29,6 +30,7 @@ trait Printers { self: Trees =>
                             printUniqueIds: Boolean = false,
                             printTypes: Boolean = false,
                             printChooses: Boolean = false,
+                            printUnicode: Boolean = false,
                             symbols: Option[Symbols] = None) {
     require(
       !printTypes || symbols.isDefined,
@@ -44,6 +46,7 @@ trait Printers { self: Trees =>
         printUniqueIds = ctx.options.findOptionOrDefault(optPrintUniqueIds),
         printTypes = ctx.options.findOptionOrDefault(optPrintTypes) && symbols.isDefined,
         printChooses = ctx.options.findOptionOrDefault(optPrintChooses),
+        printUnicode = ctx.options.findOptionOrDefault(optPrintUnicode),
         symbols = symbols
       )
     }
@@ -85,15 +88,15 @@ trait Printer {
   }
 
   private val dbquote = "\""
-  private val not = "\u00AC"
-  private val neq = "\u2260"
-  private val notIn = "\u2209"
-  private val in = "\u2208"
-  private val subset = "\u2286"
-  private val notSubset = "\u2288"
-  private val union = "\u222A"
-  private val inter = "\u2229"
-  private val forall = "\u2200"
+  private val notUC = "\u00AC"
+  private val neqUC = "\u2260"
+  private val notInUC = "\u2209"
+  private val inUC = "\u2208"
+  private val subsetUC = "\u2286"
+  private val notSubsetUC = "\u2288"
+  private val unionUC = "\u222A"
+  private val interUC = "\u2229"
+  private val forallUC = "\u2200"
 
   def pp(tree: Tree)(using ctx: PrinterContext): Unit = {
     if (requiresBraces(tree, ctx.parent) && !ctx.parent.contains(tree)) {
@@ -130,7 +133,7 @@ trait Printer {
           |$e"""
 
     case Forall(args, e) =>
-      p"$forall${nary(args)}. $e"
+      ppForall(args, e)
 
     case Choose(res, pred) =>
       p"choose(($res) => $pred)"
@@ -149,7 +152,7 @@ trait Printer {
       p"${nary(exprs, "| || ")}"
     } // Ugliness award! The first | is there to shield from stripMargin()
     case Not(Equals(l, r)) => optP {
-      p"$l $neq $r"
+      ppNeq(l, r)
     }
     case Implies(l, r) => optP {
       p"$l ==> $r"
@@ -280,24 +283,24 @@ trait Printer {
       } else {
         p"{${rs.toSeq}, * -> $dflt}"
       }
-    case Not(ElementOfSet(e, s)) => p"$e $notIn $s"
-    case ElementOfSet(e, s) => p"$e $in $s"
-    case SubsetOf(l, r) => p"$l $subset $r"
-    case Not(SubsetOf(l, r)) => p"$l $notSubset $r"
-    case SetAdd(s, e) => p"$s $union {$e}"
-    case SetUnion(l, r) => p"$l $union $r"
-    case BagUnion(l, r) => p"$l $union $r"
+    case Not(ElementOfSet(e, s)) => ppNotIn(e, s)
+    case ElementOfSet(e, s) => ppIn(e, s)
+    case SubsetOf(l, r) => ppSubset(l, r)
+    case Not(SubsetOf(l, r)) => ppNotSubset(l, r)
+    case SetAdd(s, e) => ppSetAdd(s, e)
+    case SetUnion(l, r) => ppSetUnion(l, r)
+    case BagUnion(l, r) => ppSetUnion(l, r)
     case SetDifference(l, r) => p"$l \\ $r"
     case BagDifference(l, r) => p"$l \\ $r"
-    case SetIntersection(l, r) => p"$l $inter $r"
-    case BagIntersection(l, r) => p"$l $inter $r"
+    case SetIntersection(l, r) => ppSetInter(l, r)
+    case BagIntersection(l, r) => ppSetInter(l, r)
     case BagAdd(b, e) => p"$b + $e"
     case MultiplicityInBag(e, b) => p"$b($e)"
     case MapApply(m, k) => p"$m($k)"
     case MapUpdated(m, k, v) => p"$m.updated($k, $v)"
     case MapMerge(mask, m1, m2) => p"$mask.mapMerge($m1, $m2)"
 
-    case Not(expr) => p"$not$expr"
+    case Not(expr) => ppNot(expr)
 
     case vd @ ValDef(id, tpe, flags) =>
       if (flags.isEmpty) {
@@ -492,6 +495,46 @@ trait Printer {
     case (e1: Expr, Some(e2: Expr)) if precedence(e1) > precedence(e2) => false
     case (_, _) => true
   }
+
+  protected def ppNot(e: Tree)(using pc: PrinterContext): Unit =
+    if (pc.opts.printUnicode) p"$notUC$e"
+    else p"!$e"
+
+  protected def ppNeq(l: Tree, r: Tree)(using pc: PrinterContext): Unit =
+    if (pc.opts.printUnicode) p"$l $neqUC $r"
+    else p"$l != $r"
+
+  protected def ppNotIn(e: Tree, s: Tree)(using pc: PrinterContext): Unit =
+    if (pc.opts.printUnicode) p"$e $notInUC $s"
+    else p"!$s.contains($e)"
+
+  protected def ppIn(e: Tree, s: Tree)(using pc: PrinterContext): Unit =
+    if (pc.opts.printUnicode) p"$e $inUC $s"
+    else p"$s.contains($e)"
+
+  protected def ppSubset(l: Tree, r: Tree)(using pc: PrinterContext): Unit =
+    if (pc.opts.printUnicode) p"$l $subsetUC $r"
+    else p"$l.subsetOf($r)"
+
+  protected def ppNotSubset(l: Tree, r: Tree)(using pc: PrinterContext): Unit =
+    if (pc.opts.printUnicode) p"$l $notSubsetUC $r"
+    else p"!$l.subsetOf($r)"
+
+  protected def ppSetAdd(s: Tree, e: Tree)(using pc: PrinterContext): Unit =
+    if (pc.opts.printUnicode) p"$s $unionUC {$e}"
+    else p"$s + $e"
+
+  protected def ppSetUnion(l: Tree, r: Tree)(using pc: PrinterContext): Unit =
+    if (pc.opts.printUnicode) p"$l $unionUC $r"
+    else p"$l ++ $r"
+
+  protected def ppSetInter(l: Tree, r: Tree)(using pc: PrinterContext): Unit =
+    if (pc.opts.printUnicode) p"$l $interUC $r"
+    else p"$l & $r"
+
+  protected def ppForall(args: Seq[ValDef], e: Expr)(using pc: PrinterContext): Unit =
+    if (pc.opts.printUnicode) p"$forallUC${nary(args)}. $e"
+    else p"forall((${nary(args)}) => $e)"
 
   class PrintWrapper(val f: PrinterContext ?=> Any) {
     def print(ctx: PrinterContext) = f(using ctx)
