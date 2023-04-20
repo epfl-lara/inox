@@ -224,16 +224,6 @@ trait SimplifierWithPC extends Transformer { self =>
 
     case Let(vd, v: Variable, b) => simplify(replaceFromSymbols(Map(vd -> v), b), path)
 
-    case let @ Let(vd, adt @ ADT(id, tps, es), b) if es.exists { case _: ADT => true case _ => false } =>
-      val (nes, bindings) = (adt.getConstructor.fields.map(_.freshen) zip es).map {
-        case (vd, a: ADT) => (vd.toVariable, Some(vd -> a))
-        case (_, e) => (e, None)
-      }.unzip
-
-      simplify(bindings.flatten.foldRight(Let(vd, ADT(id, tps, nes).copiedFrom(adt), b).copiedFrom(let)) {
-        case ((vd, e), b) => Let(vd, e, b).copiedFrom(let)
-      }, path)
-
     case let @ Let(vd, e, b) =>
       val (re, pe) = simplify(e, path)
       val (rb, pb) = simplify(b, path withBinding (vd -> re))
@@ -249,10 +239,12 @@ trait SimplifierWithPC extends Transformer { self =>
       } else {
         pe
       }
+      lazy val isSimpleBdg = isSimpleBinding(re)
 
       if (
         (((!inLambda && pe) || (inLambda && realPE && !containsLambda)) && insts <= 1) ||
-        (!inLambda && immediateCall && insts == 1)
+        (!inLambda && immediateCall && insts == 1) ||
+        (((!inLambda && pe) || (inLambda && realPE)) && isSimpleBdg)
       ) {
         // We can assume here that all `important` simplifications have already taken place
         // as if the bound expression was an ADT or variable, then `path.expand` has already
@@ -323,6 +315,19 @@ trait SimplifierWithPC extends Transformer { self =>
     val re = cons(res)
     val pe = pes.foldLeft(opts.assumeChecked || !isImpureExpr(re))(_ && _)
     (re, pe)
+  }
+
+  private def isProjection(e: Expr): Boolean = e match {
+    case _: Variable => true
+    case ADTSelector(adt, _) => isProjection(adt)
+    case TupleSelect(tuple, _) => isProjection(tuple)
+    case _ => false
+  }
+
+  private def isSimpleBinding(e: Expr): Boolean = e match {
+    case FiniteSet(Seq(), _) | FiniteMap(Seq(), _, _, _) | FiniteBag(Seq(), _) => true
+    case IsConstructor(recv, _) => isProjection(recv)
+    case _ => isProjection(e)
   }
 
   override final def transform(e: Expr, path: Env): Expr = {
