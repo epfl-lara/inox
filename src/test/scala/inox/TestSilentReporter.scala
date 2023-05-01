@@ -2,12 +2,16 @@
 
 package inox
 
+import inox.utils.Position.smartPos
+
 class TestSilentReporter extends DefaultReporter(Set()) {
   var lastErrors: List[String] = Nil
 
-  override def emit(msg: Message): Unit = msg match {
-    case Message(ERROR, _, msg) => lastErrors ++= List(msg.toString)
-    case Message(FATAL, _, msg) => lastErrors ++= List(msg.toString)
+  override def clearProgress(): Unit = ()
+
+  override def doEmit(msg: Message): Unit = msg match {
+    case Message(ERROR, pos, msg) => lastErrors ++= List(smartPos(pos) + msg.toString)
+    case Message(FATAL, pos, msg) => lastErrors ++= List(smartPos(pos) + msg.toString)
     case _ =>
   }
 
@@ -15,11 +19,17 @@ class TestSilentReporter extends DefaultReporter(Set()) {
     //println(msg)
     super.debug(pos, msg)
   }
+
+  override def doEmit(msg: ProgressMessage, prevLength: Int): String = msg.msg.toString
 }
 
 class TestErrorReporter extends DefaultReporter(Set()) {
-  override def emit(msg: Message): Unit = msg match {
-    case Message(ERROR | FATAL, _, _) => super.emit(msg)
+  override def clearProgress(): Unit = ()
+
+  override def doEmit(msg: Message): Unit = msg match {
+    case Message(ERROR | FATAL, _, _) => super.doEmit(msg)
     case _ =>
   }
+
+  override def doEmit(msg: ProgressMessage, prevLength: Int): String = msg.msg.toString
 }

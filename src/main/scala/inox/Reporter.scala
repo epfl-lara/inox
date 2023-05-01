@@ -18,6 +18,9 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
   case class  DEBUG(section: DebugSection) extends Severity
 
   case class Message(severity: Severity, position: Position, msg: Any)
+  // The tag allows to differentiate between different kinds of progress message
+  // that should not be collapsed if they are printed one after the other.
+  case class ProgressMessage(severity: INFO.type | DEBUG, tag: Any, msg: Any)
 
   private var _errorCount : Int = 0
   private var _warningCount : Int = 0
@@ -39,10 +42,9 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
   }
 
   def emit(msg: Message): Unit
+  def emit(msg: ProgressMessage): Unit
 
   def onFatal(msg: String = ""): Nothing = throw FatalError(msg)
-
-  def onCompilerProgress(current: Int, total: Int) = {}
 
   final def info(pos: Position, msg: Any): Unit    = emit(account(Message(INFO, pos, msg)))
   final def warning(pos: Position, msg: Any): Unit = emit(account(Message(WARNING, pos, msg)))
@@ -155,6 +157,9 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
 }
 
 class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSections) {
+  protected case class ProgressPrinting(tag: Any, maxLength: Int)
+  protected var lastProgressPrinting: Option[ProgressPrinting] = None
+
   protected def severityToPrefix(sev: Severity): String = sev match {
     case ERROR    => "["+Console.RED              +" Error  "+Console.RESET+"]"
     case WARNING  => "["+Console.YELLOW           +"Warning "+Console.RESET+"]"
@@ -164,15 +169,56 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
     case DEBUG(_) => "["+Console.MAGENTA          +" Debug  "+Console.RESET+"]"
   }
 
-  def emit(msg: Message) = synchronized {
+  override final def emit(msg: Message) = synchronized {
+    if (lastProgressPrinting.isDefined) {
+      clearProgress()
+      lastProgressPrinting = None
+    }
+    doEmit(msg)
+  }
+
+  def doEmit(msg: Message) = {
     println(reline(severityToPrefix(msg.severity), smartPos(msg.position) + msg.msg.toString))
     printLineContent(msg.position, false)
   }
 
+  override final def emit(msg: ProgressMessage) = synchronized {
+    val (shouldClear, prevLength) = lastProgressPrinting match {
+      case Some(ProgressPrinting(prevTag, prevLength)) =>
+        (prevTag != msg.tag, prevLength)
+      case None => (false, 0)
+    }
+    if (shouldClear) {
+      clearProgress()
+    }
+    val emitted = doEmit(msg, prevLength)
+    lastProgressPrinting = Some(ProgressPrinting(msg.tag, math.max(prevLength, emitted.length)))
+  }
+
+  def clearProgress(): Unit = println()
+
+  def doEmit(msg: ProgressMessage, prevLength: Int): String = {
+    val toPrint = "\r" + severityToPrefix(msg.severity) + " " + msg.msg.toString
+    val diff = prevLength - toPrint.length
+    print(toPrint)
+    if (diff > 0) {
+      // Clear the remaining characters of the previous message
+      print(" " * diff)
+    }
+    toPrint
+  }
+
   def getLine(pos: Position): Option[String] = {
     val lines =
-      if (pos == NoPosition) Nil
-      else scala.io.Source.fromFile(pos.file).getLines().toList
+      if (pos == NoPosition) IndexedSeq.empty
+      else {
+        val source = scala.io.Source.fromFile(pos.file)
+        try {
+          source.getLines().toIndexedSeq
+        } finally {
+          source.close()
+        }
+      }
 
     if (lines.size >= pos.line && pos.line > 0) {
       Some(lines(pos.line - 1))
@@ -185,12 +231,15 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
 
   val blankPrefix = " " * prefixSize
 
-  def printLineContent(pos: Position, asciiOnly: Boolean): Unit = {
+  def printLineContent(pos: Position, asciiOnly: Boolean): Unit =
+    getLineContent(pos, asciiOnly).foreach(println)
+
+  def getLineContent(pos: Position, asciiOnly: Boolean): Option[String] = {
     getLine(pos) match {
       case Some(line) =>
         // Scala positions probably assume 1 tab = 8 spaces, so we replaces tabs
         // for the carret (^) computed below to be aligned
-        println(blankPrefix+line.replace("\t", " " * 8))
+        val replLine = blankPrefix + line.replace("\t", " " * 8) + "\n"
         pos match {
           case rp: RangePosition =>
             val bp = rp.focusBegin
@@ -200,22 +249,22 @@ class DefaultReporter(debugSections: Set[DebugSection]) extends Reporter(debugSe
               val width = Math.max(ep.col - bp.col, 1)
               "^" * width
             } else {
-              val width = Math.max(line.length+1-bp.col, 1)
-              ("^" * width)+"..."
+              val width = Math.max(line.length + 1 - bp.col, 1)
+              ("^" * width) + "..."
             }
 
             if (asciiOnly)
-              println(blankPrefix+(" " * (bp.col - 1) + carret))
+              Some(replLine + blankPrefix + (" " * (bp.col - 1) + carret))
             else
-              println(blankPrefix+(" " * (bp.col - 1) + Console.RED+carret+Console.RESET))
+              Some(replLine + blankPrefix + (" " * (bp.col - 1) + Console.RED + carret + Console.RESET))
 
           case op: OffsetPosition =>
             if (asciiOnly)
-              println(blankPrefix+(" " * (op.col - 1) + "^"))
+              Some(replLine + blankPrefix + (" " * (op.col - 1) + "^"))
             else
-              println(blankPrefix+(" " * (op.col - 1) + Console.RED+"^"+Console.RESET))
+              Some(replLine + blankPrefix + (" " * (op.col - 1) + Console.RED + "^" + Console.RESET))
         }
-      case None =>
+      case None => None
     }
   }
 
@@ -237,7 +286,7 @@ class PlainTextReporter(debugSections: Set[DebugSection]) extends DefaultReporte
     case DEBUG(_) => "debug"
   }
 
-  override def emit(msg: Message) = synchronized {
+  override def doEmit(msg: Message) = {
     if (msg.severity == ERROR || msg.severity == FATAL || msg.severity == INTERNAL)
       println(smartPos(msg.position) + "error: " + msg.msg.toString)
     else if (msg.severity == WARNING)
@@ -247,5 +296,16 @@ class PlainTextReporter(debugSections: Set[DebugSection]) extends DefaultReporte
     else
       println(smartPos(msg.position) + msg.msg.toString)
     printLineContent(msg.position, true)
+  }
+
+  override def doEmit(msg: ProgressMessage, prevLength: Int) = {
+    val sev = severityToString(msg.severity)
+    val toPrint = "\r" + sev + " " + msg.msg.toString
+    val diff = prevLength - toPrint.length
+    print(toPrint)
+    if (diff > 0) {
+      print(" " * diff)
+    }
+    toPrint
   }
 }
