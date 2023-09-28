@@ -47,6 +47,12 @@ object Graphs {
     extends DiGraphLike[Node, Edge, DiGraph[Node, Edge]]
        with DiGraphOps[Node, Edge, DiGraph[Node, Edge]]{
 
+    private lazy val inEdgesMap = N.map(n => n -> E.filter(_._2 == n)).toMap
+    private lazy val outEdgesMap = N.map(n => n -> E.filter(_._1 == n)).toMap
+
+    override def inEdges(n: Node): Set[Edge] = inEdgesMap.getOrElse(n, Set.empty)
+    override def outEdges(n: Node): Set[Edge] = outEdgesMap.getOrElse(n, Set.empty)
+
     def +(n: Node) = copy(N=N+n)
     def ++(ns: Iterable[Node]) = copy(N=N++ns)
     def +(e: Edge) = (this+e._1+e._2).copy(E = E + e)
