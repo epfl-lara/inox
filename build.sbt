@@ -162,6 +162,8 @@ Compile / run / mainClass := Some("inox.Main")
 
 publishMavenStyle := true
 
+assembly / test := {} // Skip the test during assembly
+
 publishTo := {
   val nexus = "https://oss.sonatype.org/"
   // @nv: we can't use `isSnapshot` here as it is not compatible with sbt-git versioning
