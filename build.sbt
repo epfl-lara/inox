@@ -6,7 +6,7 @@ git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
-scalaVersion := "3.2.0"
+scalaVersion := "3.3.0"
 
 scalacOptions ++= Seq(
   "-deprecation",
@@ -170,8 +170,6 @@ publishTo := {
 }
 
 Test / packageBin / publishArtifact := true
-
-ItTest / packageBin / publishArtifact := true
 
 addArtifact(ItTest / packageBin / artifact, ItTest / packageBin)
 

@@ -7,7 +7,8 @@ package unrolling
 import utils._
 import evaluators._
 
-import scala.util.control.NonLocalReturns._
+import scala.util.boundary
+import scala.util.boundary._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet, Queue}
 
 trait QuantificationTemplates { self: Templates =>
@@ -663,17 +664,17 @@ trait QuantificationTemplates { self: Templates =>
         case _ => false
       }
 
-      val err = returning[Option[String]] {
+      val err = boundary[Option[String]] {
         exprOps.postTraversal(m => m match {
           case QuantificationMatcher(_, args) => // OK
 
           case Operator(es, _) if es.collect { case v: Variable if quantified(v) => v }.nonEmpty =>
-            throwReturn[Option[String]](Some("Invalid operation on quantifiers " + m.asString))
+            break[Option[String]](Some("Invalid operation on quantifiers " + m.asString))
 
           case (_: Equals) | (_: And) | (_: Or) | (_: Implies) | (_: Not) => // OK
 
           case Operator(es, _) if (es.flatMap(exprOps.variablesOf).toSet & quantified).nonEmpty =>
-            throwReturn[Option[String]](Some("Unandled implications from operation " + m.asString))
+            break[Option[String]](Some("Unhandled implications from operation " + m.asString))
 
           case _ => // OK
         })(body)

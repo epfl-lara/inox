@@ -24,6 +24,9 @@ trait SymbolTransformer { self =>
       override def transform(syms: s.Symbols): t.Symbols = lhs.transform(rhs.transform(syms))
 
       override def equals(that: Any): Boolean = that match {
+        // NOTE: there is a spurious warning saying:
+        // "the type test for SymbolTransformerComposition cannot be checked at runtime because it's a local class"
+        // but the type test actually works as expected
         case c: SymbolTransformerComposition => rhs == c.rhs && lhs == c.lhs
         case _ => false
       }

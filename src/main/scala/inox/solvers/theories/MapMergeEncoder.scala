@@ -8,8 +8,8 @@ class MapMergeEncoder private(override val sourceProgram: Program)
                              (theory: MapMergeTheory[sourceProgram.trees.type])
   extends SimpleEncoder(
     sourceProgram,
-    new MapMergeEnc[sourceProgram.type](sourceProgram)(theory).asInstanceOf,
-    new MapMergeDec[sourceProgram.type](sourceProgram)(theory).asInstanceOf,
+    mapMergeEnc(sourceProgram)(theory),
+    mapMergeDec(sourceProgram)(theory),
     theory.extraFunctions)
 
 private class MapMergeTheory[Trees <: ast.Trees](val trees: Trees) {
@@ -37,35 +37,39 @@ private class MapMergeTheory[Trees <: ast.Trees](val trees: Trees) {
   val extraFunctions = Seq(MapMergeFun)
 }
 
-private class MapMergeEnc[Prog <: Program]
-  (val sourceProgram: Prog)
-  (val theory: MapMergeTheory[sourceProgram.trees.type]) extends theory.trees.ConcreteSelfTreeTransformer {
-  import theory._
-  import theory.trees._
-  import theory.trees.dsl._
-  import sourceProgram.symbols.{given, _}
+def mapMergeEnc(sourceProgram: Program)
+               (theory: MapMergeTheory[sourceProgram.trees.type]): transformers.TreeTransformer { val s: sourceProgram.trees.type; val t: sourceProgram.trees.type } = {
+  class MapMergeEnc extends theory.trees.ConcreteSelfTreeTransformer {
+    import theory._
+    import theory.trees._
+    import theory.trees.dsl._
+    import sourceProgram.symbols.{given, _}
 
-  override def transform(e: Expr): Expr = e match {
-    case MapMerge(mask, map1, map2) =>
-      val MapType(keyTpe, valueTpe) = map1.getType: @unchecked
-      MapMergeFun(transform(keyTpe), transform(valueTpe))(
-        transform(mask), transform(map1), transform(map2)).copiedFrom(e)
-    case _ => super.transform(e)
+    override def transform(e: Expr): Expr = e match {
+      case MapMerge(mask, map1, map2) =>
+        val MapType(keyTpe, valueTpe) = map1.getType: @unchecked
+        MapMergeFun(transform(keyTpe), transform(valueTpe))(
+          transform(mask), transform(map1), transform(map2)).copiedFrom(e)
+      case _ => super.transform(e)
+    }
   }
+  new MapMergeEnc
 }
 
-private class MapMergeDec[Prog <: Program]
-  (val sourceProgram: Prog)
-  (val theory: MapMergeTheory[sourceProgram.trees.type]) extends theory.trees.ConcreteSelfTreeTransformer {
-  import theory._
-  import theory.trees._
-  import theory.trees.dsl._
+def mapMergeDec(sourceProgram: Program)
+               (theory: MapMergeTheory[sourceProgram.trees.type]): transformers.TreeTransformer { val s: sourceProgram.trees.type; val t: sourceProgram.trees.type } = {
+  class MapMergeDec extends theory.trees.ConcreteSelfTreeTransformer {
+    import theory._
+    import theory.trees._
+    import theory.trees.dsl._
 
-  override def transform(e: Expr): Expr = e match {
-    case FunctionInvocation(MapMergeID, _, Seq(mask, map1, map2)) =>
-      MapMerge(transform(mask), transform(map1), transform(map2)).copiedFrom(e)
-    case _ => super.transform(e)
+    override def transform(e: Expr): Expr = e match {
+      case FunctionInvocation(MapMergeID, _, Seq(mask, map1, map2)) =>
+        MapMerge(transform(mask), transform(map1), transform(map2)).copiedFrom(e)
+      case _ => super.transform(e)
+    }
   }
+  new MapMergeDec
 }
 
 object MapMergeEncoder {

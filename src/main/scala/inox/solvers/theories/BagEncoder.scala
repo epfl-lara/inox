@@ -15,8 +15,8 @@ class BagEncoder private
   (theory: BagTheory[sourceProgram.trees.type])
   extends SimpleEncoder(
     sourceProgram,
-    new BagEnc[sourceProgram.type](sourceProgram)(theory)(evaluator).asInstanceOf,
-    new BagDec[sourceProgram.type](sourceProgram)(theory)(evaluator).asInstanceOf,
+    bagEnc(sourceProgram)(theory)(evaluator).asInstanceOf,
+    bagDec(sourceProgram)(theory)(evaluator).asInstanceOf,
     theory.extraFunctions,
     theory.extraSorts)
 
@@ -149,122 +149,122 @@ private class BagTheory[Trees <: ast.Trees](val trees: Trees) {
   val extraSorts = Seq(bagSort)
 }
 
-private class BagEnc[Prog <: Program]
-  (val sourceProgram: Prog)
-  (val theory: BagTheory[sourceProgram.trees.type])
-  (val evaluator: DeterministicEvaluator {
-   val program: sourceProgram.type
-  }) extends theory.trees.ConcreteSelfTreeTransformer {
-  import theory._
-  import theory.trees._
-  import theory.trees.dsl._
-  import sourceProgram._
-  import sourceProgram.symbols.{given, _}
-  import evaluator.context._
+def bagEnc(sourceProgram: Program)
+          (theory: BagTheory[sourceProgram.trees.type])
+          (evaluator: DeterministicEvaluator { val program: sourceProgram.type }): transformers.TreeTransformer { val s: sourceProgram.trees.type; val t: sourceProgram.trees.type } = {
+  class BagEnc extends sourceProgram.trees.ConcreteSelfTreeTransformer {
+    import theory._
+    import theory.trees._
+    import theory.trees.dsl._
+    import sourceProgram._
+    import sourceProgram.symbols.{given, _}
+    import evaluator.context._
 
-  override def transform(e: Expr): Expr = e match {
-    case FiniteBag(elems, tpe) =>
-      val newTpe = transform(tpe)
-      val newElems = elems.map(p => transform(p._1) -> transform(p._2))
-      newElems.foldRight((Leaf(newTpe)(): Expr, Seq[Expr]())) {
-        case ((key, value), (acc, elems)) => (IfExpr(
-          orJoin(elems.map(e => Equals(e, key))),
-          acc,
-          Sum(newTpe)(acc, Elem(newTpe)(key, value))
-        ), key +: elems)
-      }._1
+    override def transform(e: Expr): Expr = e match {
+      case FiniteBag(elems, tpe) =>
+        val newTpe = transform(tpe)
+        val newElems = elems.map(p => transform(p._1) -> transform(p._2))
+        newElems.foldRight((Leaf(newTpe)(): Expr, Seq[Expr]())) {
+          case ((key, value), (acc, elems)) => (IfExpr(
+            orJoin(elems.map(e => Equals(e, key))),
+            acc,
+            Sum(newTpe)(acc, Elem(newTpe)(key, value))
+          ), key +: elems)
+        }._1
 
-    case BagAdd(bag, elem) =>
-      val BagType(base) = bag.getType: @unchecked
-      Add(transform(base))(transform(bag), transform(elem)).copiedFrom(e)
+      case BagAdd(bag, elem) =>
+        val BagType(base) = bag.getType: @unchecked
+        Add(transform(base))(transform(bag), transform(elem)).copiedFrom(e)
 
-    case MultiplicityInBag(elem, bag) =>
-      val BagType(base) = bag.getType: @unchecked
-      Get(transform(base))(transform(bag), transform(elem)).copiedFrom(e)
+      case MultiplicityInBag(elem, bag) =>
+        val BagType(base) = bag.getType: @unchecked
+        Get(transform(base))(transform(bag), transform(elem)).copiedFrom(e)
 
-    case BagIntersection(b1, b2) =>
-      val BagType(base) = b1.getType: @unchecked
-      Intersect(transform(base))(transform(b1), transform(b2)).copiedFrom(e)
+      case BagIntersection(b1, b2) =>
+        val BagType(base) = b1.getType: @unchecked
+        Intersect(transform(base))(transform(b1), transform(b2)).copiedFrom(e)
 
-    case BagUnion(b1, b2) =>
-      val BagType(base) = b1.getType: @unchecked
-      Union(transform(base))(transform(b1), transform(b2)).copiedFrom(e)
+      case BagUnion(b1, b2) =>
+        val BagType(base) = b1.getType: @unchecked
+        Union(transform(base))(transform(b1), transform(b2)).copiedFrom(e)
 
-    case BagDifference(b1, b2) =>
-      val BagType(base) = b1.getType: @unchecked
-      Difference(transform(base))(transform(b1), transform(b2)).copiedFrom(e)
+      case BagDifference(b1, b2) =>
+        val BagType(base) = b1.getType: @unchecked
+        Difference(transform(base))(transform(b1), transform(b2)).copiedFrom(e)
 
-    case _ => super.transform(e)
+      case _ => super.transform(e)
+    }
+
+    override def transform(tpe: Type): Type = tpe match {
+      case BagType(base) => Bag(transform(base)).copiedFrom(tpe)
+      case _ => super.transform(tpe)
+    }
   }
-
-  override def transform(tpe: Type): Type = tpe match {
-    case BagType(base) => Bag(transform(base)).copiedFrom(tpe)
-    case _ => super.transform(tpe)
-  }
+  new BagEnc
 }
 
-private class BagDec[Prog <: Program]
-  (val sourceProgram: Prog)
-  (val theory: BagTheory[sourceProgram.trees.type])
-  (val evaluator: DeterministicEvaluator {
-   val program: sourceProgram.type
-  }) extends theory.trees.ConcreteSelfTreeTransformer {
-  import theory._
-  import theory.trees._
-  import theory.trees.dsl._
-  import evaluator.context.{given, _}
+def bagDec(sourceProgram: Program)
+          (theory: BagTheory[sourceProgram.trees.type])
+          (evaluator: DeterministicEvaluator { val program: sourceProgram.type }): transformers.TreeTransformer { val s: sourceProgram.trees.type; val t: sourceProgram.trees.type } = {
+  class BagDec extends sourceProgram.trees.ConcreteSelfTreeTransformer {
+    import theory._
+    import theory.trees._
+    import theory.trees.dsl._
+    import evaluator.context.{given, _}
 
-  override def transform(e: Expr): Expr = e match {
-    case ADT(SumID, Seq(tpe), Seq(e1, e2)) =>
-      val fb1 @ FiniteBag(els1, _) = transform(e1): @unchecked
-      val fb2 @ FiniteBag(els2, _) = transform(e2): @unchecked
+    override def transform(e: Expr): Expr = e match {
+      case ADT(SumID, Seq(tpe), Seq(e1, e2)) =>
+        val fb1 @ FiniteBag(els1, _) = transform(e1): @unchecked
+        val fb2 @ FiniteBag(els2, _) = transform(e2): @unchecked
 
-      if (exprOps.variablesOf(fb1).isEmpty && exprOps.variablesOf(fb2).isEmpty) {
-        def groundMap(els: Seq[(Expr, Expr)]): Map[Expr, Expr] = els.map { case (key, value) => (
-          evaluator.eval(key).result.getOrElse(throw new UnsupportedTree(e, "Failed to evaluate bag contents")),
-          evaluator.eval(value).result.getOrElse(throw new UnsupportedTree(e, "Failed to evaluate bag contents"))
-        )}.toMap
+        if (exprOps.variablesOf(fb1).isEmpty && exprOps.variablesOf(fb2).isEmpty) {
+          def groundMap(els: Seq[(Expr, Expr)]): Map[Expr, Expr] = els.map { case (key, value) => (
+            evaluator.eval(key).result.getOrElse(throw new UnsupportedTree(e, "Failed to evaluate bag contents")),
+            evaluator.eval(value).result.getOrElse(throw new UnsupportedTree(e, "Failed to evaluate bag contents"))
+          )}.toMap
 
-        val map1 = groundMap(els1)
-        val map2 = groundMap(els2)
+          val map1 = groundMap(els1)
+          val map2 = groundMap(els2)
 
-        FiniteBag((map1.keySet ++ map2.keySet).map { key =>
-          val IntegerLiteral(i1) = map1.getOrElse(key, IntegerLiteral(0)): @unchecked
-          val IntegerLiteral(i2) = map2.getOrElse(key, IntegerLiteral(0)): @unchecked
-          key -> IntegerLiteral(i1 + i2)
-        }.toSeq, transform(tpe)).copiedFrom(e)
-      } else {
-        FiniteBag(els1 ++ els2, transform(tpe)).copiedFrom(e)
-      }
+          FiniteBag((map1.keySet ++ map2.keySet).map { key =>
+            val IntegerLiteral(i1) = map1.getOrElse(key, IntegerLiteral(0)): @unchecked
+            val IntegerLiteral(i2) = map2.getOrElse(key, IntegerLiteral(0)): @unchecked
+            key -> IntegerLiteral(i1 + i2)
+          }.toSeq, transform(tpe)).copiedFrom(e)
+        } else {
+          FiniteBag(els1 ++ els2, transform(tpe)).copiedFrom(e)
+        }
 
-    case ADT(ElemID, Seq(tpe), Seq(key, value)) =>
-      FiniteBag(Seq(transform(key) -> transform(value)), transform(tpe)).copiedFrom(e)
+      case ADT(ElemID, Seq(tpe), Seq(key, value)) =>
+        FiniteBag(Seq(transform(key) -> transform(value)), transform(tpe)).copiedFrom(e)
 
-    case ADT(LeafID, Seq(tpe), Seq()) =>
-      FiniteBag(Seq.empty, transform(tpe)).copiedFrom(e)
+      case ADT(LeafID, Seq(tpe), Seq()) =>
+        FiniteBag(Seq.empty, transform(tpe)).copiedFrom(e)
 
-    case FunctionInvocation(AddID, _, Seq(bag, elem)) =>
-      BagAdd(transform(bag), transform(elem)).copiedFrom(e)
+      case FunctionInvocation(AddID, _, Seq(bag, elem)) =>
+        BagAdd(transform(bag), transform(elem)).copiedFrom(e)
 
-    case FunctionInvocation(GetID, _, Seq(bag, elem)) =>
-      MultiplicityInBag(transform(elem), transform(bag)).copiedFrom(e)
+      case FunctionInvocation(GetID, _, Seq(bag, elem)) =>
+        MultiplicityInBag(transform(elem), transform(bag)).copiedFrom(e)
 
-    case FunctionInvocation(IntersectID, _, Seq(b1, b2)) =>
-      BagIntersection(transform(b1), transform(b2)).copiedFrom(e)
+      case FunctionInvocation(IntersectID, _, Seq(b1, b2)) =>
+        BagIntersection(transform(b1), transform(b2)).copiedFrom(e)
 
-    case FunctionInvocation(UnionID, _, Seq(b1, b2)) =>
-      BagUnion(transform(b1), transform(b2)).copiedFrom(e)
+      case FunctionInvocation(UnionID, _, Seq(b1, b2)) =>
+        BagUnion(transform(b1), transform(b2)).copiedFrom(e)
 
-    case FunctionInvocation(DifferenceID, _, Seq(b1, b2)) =>
-      BagDifference(transform(b1), transform(b2)).copiedFrom(e)
+      case FunctionInvocation(DifferenceID, _, Seq(b1, b2)) =>
+        BagDifference(transform(b1), transform(b2)).copiedFrom(e)
 
-    case _ => super.transform(e)
+      case _ => super.transform(e)
+    }
+
+    override def transform(tpe: Type): Type = tpe match {
+      case ADTType(BagID | SumID | ElemID | LeafID, Seq(base)) => BagType(transform(base)).copiedFrom(tpe)
+      case _ => super.transform(tpe)
+    }
   }
-
-  override def transform(tpe: Type): Type = tpe match {
-    case ADTType(BagID | SumID | ElemID | LeafID, Seq(base)) => BagType(transform(base)).copiedFrom(tpe)
-    case _ => super.transform(tpe)
-  }
+  new BagDec
 }
 
 object BagEncoder {

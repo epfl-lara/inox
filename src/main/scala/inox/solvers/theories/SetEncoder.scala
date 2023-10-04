@@ -10,8 +10,8 @@ class SetEncoder private(override val sourceProgram: Program)
                         (theory: SetTheory[sourceProgram.trees.type]) extends
   SimpleEncoder(
     sourceProgram,
-    new SetEnc[sourceProgram.type](sourceProgram)(theory).asInstanceOf,
-    new SetDec[sourceProgram.type](sourceProgram)(theory).asInstanceOf,
+    setEnc(sourceProgram)(theory),
+    setDec(sourceProgram)(theory),
     theory.extraFunctions,
     theory.extraSorts
   )
@@ -131,96 +131,98 @@ private class SetTheory[Trees <: ast.Trees](val trees: Trees) {
   val extraSorts = Seq(setSort)
 }
 
-private class SetEnc[Prog <: Program]
-  (val sourceProgram: Prog)
-  (val theory: SetTheory[sourceProgram.trees.type])
-  extends theory.trees.ConcreteSelfTreeTransformer {
+def setEnc(sourceProgram: Program)
+          (theory: SetTheory[sourceProgram.trees.type]): transformers.TreeTransformer { val s: sourceProgram.trees.type; val t: sourceProgram.trees.type } = {
+  class SetEnc extends theory.trees.ConcreteSelfTreeTransformer {
 
-  import theory._
-  import theory.trees._
-  import theory.trees.dsl._
-  import sourceProgram.symbols.{given, _}
+    import theory._
+    import theory.trees._
+    import theory.trees.dsl._
+    import sourceProgram.symbols.{given, _}
 
-  override def transform(e: Expr): Expr = e match {
-    case FiniteSet(elems, tpe) =>
-      val newTpe = transform(tpe)
-      val newElems = elems.map(transform)
-      newElems.foldLeft(Leaf(newTpe).copiedFrom(e)().copiedFrom(e)) {
-        (acc, x) => Sum(newTpe).copiedFrom(e)(acc, Elem(newTpe).copiedFrom(e)(x).copiedFrom(e)).copiedFrom(e)
-      }
+    override def transform(e: Expr): Expr = e match {
+      case FiniteSet(elems, tpe) =>
+        val newTpe = transform(tpe)
+        val newElems = elems.map(transform)
+        newElems.foldLeft(Leaf(newTpe).copiedFrom(e)().copiedFrom(e)) {
+          (acc, x) => Sum(newTpe).copiedFrom(e)(acc, Elem(newTpe).copiedFrom(e)(x).copiedFrom(e)).copiedFrom(e)
+        }
 
-    case SetAdd(set, elem) =>
-      val SetType(base) = set.getType: @unchecked
-      Add(transform(base))(transform(set), transform(elem)).copiedFrom(e)
+      case SetAdd(set, elem) =>
+        val SetType(base) = set.getType: @unchecked
+        Add(transform(base))(transform(set), transform(elem)).copiedFrom(e)
 
-    case ElementOfSet(elem, set) =>
-      val SetType(base) = set.getType: @unchecked
-      Contains(transform(base))(transform(set), transform(elem)).copiedFrom(e)
+      case ElementOfSet(elem, set) =>
+        val SetType(base) = set.getType: @unchecked
+        Contains(transform(base))(transform(set), transform(elem)).copiedFrom(e)
 
-    case SetIntersection(s1, s2) =>
-      val SetType(base) = s1.getType: @unchecked
-      Intersect(transform(base))(transform(s1), transform(s2)).copiedFrom(e)
+      case SetIntersection(s1, s2) =>
+        val SetType(base) = s1.getType: @unchecked
+        Intersect(transform(base))(transform(s1), transform(s2)).copiedFrom(e)
 
-    case SetUnion(s1, s2) =>
-      val SetType(base) = s1.getType: @unchecked
-      Union(transform(base))(transform(s1), transform(s2)).copiedFrom(e)
+      case SetUnion(s1, s2) =>
+        val SetType(base) = s1.getType: @unchecked
+        Union(transform(base))(transform(s1), transform(s2)).copiedFrom(e)
 
-    case SetDifference(s1, s2) =>
-      val SetType(base) = s1.getType: @unchecked
-      Difference(transform(base))(transform(s1), transform(s2)).copiedFrom(e)
+      case SetDifference(s1, s2) =>
+        val SetType(base) = s1.getType: @unchecked
+        Difference(transform(base))(transform(s1), transform(s2)).copiedFrom(e)
 
-    case _ => super.transform(e)
+      case _ => super.transform(e)
+    }
+
+    override def transform(tpe: Type): Type = tpe match {
+      case SetType(base) => Set(transform(base)).copiedFrom(tpe)
+      case _ => super.transform(tpe)
+    }
   }
-
-  override def transform(tpe: Type): Type = tpe match {
-    case SetType(base) => Set(transform(base)).copiedFrom(tpe)
-    case _ => super.transform(tpe)
-  }
+  new SetEnc
 }
 
-private class SetDec[Prog <: Program]
-  (val sourceProgram: Prog)
-  (val theory: SetTheory[sourceProgram.trees.type])
-  extends theory.trees.ConcreteSelfTreeTransformer {
+def setDec(sourceProgram: Program)
+          (theory: SetTheory[sourceProgram.trees.type]): transformers.TreeTransformer { val s: sourceProgram.trees.type; val t: sourceProgram.trees.type } = {
+  class SetDec extends theory.trees.ConcreteSelfTreeTransformer {
 
-  import theory._
-  import theory.trees._
-  import theory.trees.dsl._
+    import theory._
+    import theory.trees._
+    import theory.trees.dsl._
 
-  override def transform(e: Expr): Expr = e match {
-    case ADT(SumID, Seq(tpe), Seq(e1, e2)) =>
-      val FiniteSet(els1, _) = transform(e1): @unchecked
-      val FiniteSet(els2, _) = transform(e2): @unchecked
-      FiniteSet(els1 ++ els2, transform(tpe)).copiedFrom(e)
+    override def transform(e: Expr): Expr = e match {
+      case ADT(SumID, Seq(tpe), Seq(e1, e2)) =>
+        val FiniteSet(els1, _) = transform(e1): @unchecked
+        val FiniteSet(els2, _) = transform(e2): @unchecked
+        FiniteSet(els1 ++ els2, transform(tpe)).copiedFrom(e)
 
-    case ADT(ElemID, Seq(tpe), Seq(e)) =>
-      FiniteSet(Seq(transform(e)), transform(tpe)).copiedFrom(e)
+      case ADT(ElemID, Seq(tpe), Seq(e)) =>
+        FiniteSet(Seq(transform(e)), transform(tpe)).copiedFrom(e)
 
-    case ADT(LeafID, Seq(tpe), Seq()) =>
-      FiniteSet(Seq.empty, transform(tpe)).copiedFrom(e)
+      case ADT(LeafID, Seq(tpe), Seq()) =>
+        FiniteSet(Seq.empty, transform(tpe)).copiedFrom(e)
 
-    case FunctionInvocation(AddID, _, Seq(set, elem)) =>
-      SetAdd(transform(set), transform(elem)).copiedFrom(e)
+      case FunctionInvocation(AddID, _, Seq(set, elem)) =>
+        SetAdd(transform(set), transform(elem)).copiedFrom(e)
 
-    case FunctionInvocation(ContainsID, _, Seq(set, elem)) =>
-      ElementOfSet(transform(elem), transform(set)).copiedFrom(e)
+      case FunctionInvocation(ContainsID, _, Seq(set, elem)) =>
+        ElementOfSet(transform(elem), transform(set)).copiedFrom(e)
 
-    case FunctionInvocation(IntersectID, _, Seq(s1, s2)) =>
-      SetIntersection(transform(s1), transform(s2)).copiedFrom(e)
+      case FunctionInvocation(IntersectID, _, Seq(s1, s2)) =>
+        SetIntersection(transform(s1), transform(s2)).copiedFrom(e)
 
-    case FunctionInvocation(UnionID, _, Seq(s1, s2)) =>
-      SetUnion(transform(s1), transform(s2)).copiedFrom(e)
+      case FunctionInvocation(UnionID, _, Seq(s1, s2)) =>
+        SetUnion(transform(s1), transform(s2)).copiedFrom(e)
 
-    case FunctionInvocation(DifferenceID, _, Seq(s1, s2)) =>
-      SetDifference(transform(s1), transform(s2)).copiedFrom(e)
+      case FunctionInvocation(DifferenceID, _, Seq(s1, s2)) =>
+        SetDifference(transform(s1), transform(s2)).copiedFrom(e)
 
-    case _ => super.transform(e)
+      case _ => super.transform(e)
+    }
+
+    override def transform(tpe: Type): Type = tpe match {
+      case ADTType(SetID, Seq(base)) => SetType(transform(base)).copiedFrom(tpe)
+      case _ => super.transform(tpe)
+    }
   }
-
-  override def transform(tpe: Type): Type = tpe match {
-    case ADTType(SetID, Seq(base)) => SetType(transform(base)).copiedFrom(tpe)
-    case _ => super.transform(tpe)
-  }
+  new SetDec
 }
 
 object SetEncoder {

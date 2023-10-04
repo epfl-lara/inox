@@ -181,7 +181,7 @@ object SolverFactory {
                             val program: p.type
                             val sourceEncoder: enc.type
                           })
-          extends z3.NativeZ3Solver(program, ctx, enc, chooses)
+          extends z3.NativeZ3Solver(program)(program, ctx, enc, chooses)
             with TimeoutSolver
             with tip.TipDebugger {
 
@@ -195,7 +195,7 @@ object SolverFactory {
         val chooseEnc = ChooseEncoder(p)(enc)
         // Override of `program` is needed as we need to have `program: p.type`
         class NativeZ3OptImpl(override val program: p.type)
-          extends z3.Z3Unrolling(program, ctx, enc, chooseEnc) with z3.NativeZ3Optimizer with TimeoutSolver
+          extends z3.Z3Unrolling(program)(program, ctx, enc, chooseEnc) with z3.NativeZ3Optimizer with TimeoutSolver
 
         () => new NativeZ3OptImpl(p)
       })
@@ -307,7 +307,7 @@ object SolverFactory {
       case "princess" => create(p)(finalName, {
         val chooseEnc = ChooseEncoder(p)(enc)
         class PrincessImpl(override val program: p.type)
-          extends princess.PrincessSolver(p, ctx, enc, chooseEnc) with TimeoutSolver
+          extends princess.PrincessSolver(p)(p, ctx, enc, chooseEnc) with TimeoutSolver
 
         () => new PrincessImpl(p)
       })

@@ -8,10 +8,11 @@ import solvers.{z3 => _, _}
 import unrolling._
 import z3.scala._
 
-abstract class Z3Unrolling(prog: Program,
-                           context: Context,
-                           enc: transformers.ProgramTransformer {val sourceProgram: prog.type},
-                           chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type})
+abstract class Z3Unrolling(override val program: Program)
+                          (override val prog: program.type,
+                           override val context: Context,
+                           override val enc: transformers.ProgramTransformer {val sourceProgram: prog.type},
+                           override val chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type})
                           (using semantics: prog.Semantics,
                            semanticsProvider: SemanticsProvider {val trees: enc.targetProgram.trees.type})
   extends AbstractUnrollingSolver(prog, context, enc, chooses)
