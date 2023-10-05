@@ -8,8 +8,8 @@ class RealEncoder private(override val sourceProgram: Program)
                          (theory: RealTheory[sourceProgram.trees.type])
   extends SimpleEncoder(
     sourceProgram,
-    new RealEnc[sourceProgram.type](sourceProgram)(theory).asInstanceOf,
-    new RealDec[sourceProgram.type](sourceProgram)(theory).asInstanceOf,
+    realEnc(sourceProgram)(theory),
+    realDec(sourceProgram)(theory),
     theory.extraFunctions,
     theory.extraSorts
   )
@@ -41,87 +41,88 @@ private class RealTheory[Trees <: ast.Trees](val trees: Trees) {
   val extraFunctions = Seq(fraction_inv, fraction_eq)
   val extraSorts = Seq(fraction)
 }
+def realEnc(sourceProgram: Program)
+           (theory: RealTheory[sourceProgram.trees.type]): transformers.TreeTransformer { val s: sourceProgram.trees.type; val t: sourceProgram.trees.type } = {
+  class RealEnc extends theory.trees.ConcreteSelfTreeTransformer {
+    import theory._
+    import theory.trees._
+    import theory.trees.dsl._
+    import sourceProgram.symbols.{given, _}
 
-private class RealEnc[Prog <: Program]
-  (val sourceProgram: Prog)
-  (val theory: RealTheory[sourceProgram.trees.type])
-  extends theory.trees.ConcreteSelfTreeTransformer {
-  import theory._
-  import theory.trees._
-  import theory.trees.dsl._
-  import sourceProgram.symbols.{given, _}
+    protected def fields(e: Expr): (Expr, Expr) = {
+      val te = transform(e)
+      (te.getField(num), te.getField(denom))
+    }
 
-  protected def fields(e: Expr): (Expr, Expr) = {
-    val te = transform(e)
-    (te.getField(num), te.getField(denom))
+    override def transform(e: Expr): Expr = e match {
+      case FractionLiteral(num, denom) => fractionCons(E(num), E(denom))
+
+      case Plus(IsTyped(i1, RealType()), i2) =>
+        val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
+        fractionCons(ni1 * di2 + ni2 * di1, di1 * di2)
+
+      case Minus(IsTyped(i1, RealType()), i2) =>
+        val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
+        fractionCons(ni1 * di2 - ni2 * di1, di1 * di2)
+
+      case UMinus(IsTyped(i, RealType())) =>
+        val (ni, di) = fields(i)
+        fractionCons(- ni, di)
+
+      case Times(IsTyped(i1, RealType()), i2) =>
+        val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
+        fractionCons(ni1 * ni2, di1 * di2)
+
+      case Division(IsTyped(i1, RealType()), i2) =>
+        val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
+        fractionCons(ni1 * di2, di1 * ni2)
+
+      case LessThan(IsTyped(i1, RealType()), i2) =>
+        val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
+        ni1 * di2 < di1 * ni2
+
+      case LessEquals(IsTyped(i1, RealType()), i2) =>
+        val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
+        ni1 * di2 <= di1 * ni2
+
+      case GreaterThan(IsTyped(i1, RealType()), i2) =>
+        val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
+        ni1 * di2 > di1 * ni2
+
+      case GreaterEquals(IsTyped(i1, RealType()), i2) =>
+        val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
+        ni1 * di2 >= di1 * ni2
+
+      case _ => super.transform(e)
+    }
+
+    override def transform(tpe: Type): Type = tpe match {
+      case RealType() => fraction()
+      case _ => super.transform(tpe)
+    }
   }
-
-  override def transform(e: Expr): Expr = e match {
-    case FractionLiteral(num, denom) => fractionCons(E(num), E(denom))
-
-    case Plus(IsTyped(i1, RealType()), i2) =>
-      val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
-      fractionCons(ni1 * di2 + ni2 * di1, di1 * di2)
-
-    case Minus(IsTyped(i1, RealType()), i2) =>
-      val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
-      fractionCons(ni1 * di2 - ni2 * di1, di1 * di2)
-
-    case UMinus(IsTyped(i, RealType())) =>
-      val (ni, di) = fields(i)
-      fractionCons(- ni, di)
-
-    case Times(IsTyped(i1, RealType()), i2) =>
-      val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
-      fractionCons(ni1 * ni2, di1 * di2)
-
-    case Division(IsTyped(i1, RealType()), i2) =>
-      val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
-      fractionCons(ni1 * di2, di1 * ni2)
-
-    case LessThan(IsTyped(i1, RealType()), i2) =>
-      val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
-      ni1 * di2 < di1 * ni2
-
-    case LessEquals(IsTyped(i1, RealType()), i2) =>
-      val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
-      ni1 * di2 <= di1 * ni2
-
-    case GreaterThan(IsTyped(i1, RealType()), i2) =>
-      val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
-      ni1 * di2 > di1 * ni2
-
-    case GreaterEquals(IsTyped(i1, RealType()), i2) =>
-      val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
-      ni1 * di2 >= di1 * ni2
-
-    case _ => super.transform(e)
-  }
-
-  override def transform(tpe: Type): Type = tpe match {
-    case RealType() => fraction()
-    case _ => super.transform(tpe)
-  }
+  new RealEnc
 }
 
-private class RealDec[Prog <: Program]
-  (val sourceProgram: Prog)
-  (val theory: RealTheory[sourceProgram.trees.type])
-  extends theory.trees.ConcreteSelfTreeTransformer {
-  import theory._
-  import theory.trees._
-  import theory.trees.dsl._
+def realDec(sourceProgram: Program)
+           (theory: RealTheory[sourceProgram.trees.type]): transformers.TreeTransformer { val s: sourceProgram.trees.type; val t: sourceProgram.trees.type } = {
+  class RealDec extends theory.trees.ConcreteSelfTreeTransformer {
+    import theory._
+    import theory.trees._
+    import theory.trees.dsl._
 
-  override def transform(e: Expr): Expr = e match {
-    case ADT(id, Seq(), Seq(IntegerLiteral(num), IntegerLiteral(denom))) if id == fractionCons.id =>
-      exprOps.normalizeFraction(FractionLiteral(num, denom))
-    case _ => super.transform(e)
-  }
+    override def transform(e: Expr): Expr = e match {
+      case ADT(id, Seq(), Seq(IntegerLiteral(num), IntegerLiteral(denom))) if id == fractionCons.id =>
+        exprOps.normalizeFraction(FractionLiteral(num, denom))
+      case _ => super.transform(e)
+    }
 
-  override def transform(tpe: Type): Type = tpe match {
-    case ADTType(`fractionID`, Seq()) => RealType()
-    case _ => super.transform(tpe)
+    override def transform(tpe: Type): Type = tpe match {
+      case ADTType(`fractionID`, Seq()) => RealType()
+      case _ => super.transform(tpe)
+    }
   }
+  new RealDec
 }
 
 object RealEncoder {

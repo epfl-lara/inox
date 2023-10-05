@@ -11,8 +11,8 @@ class ASCIIStringEncoder private(override val sourceProgram: Program)
                                 (theory: ASCIIStringTheory[sourceProgram.trees.type])
   extends SimpleEncoder(
     sourceProgram,
-    new ASCIIStringEnc[sourceProgram.trees.type](sourceProgram.trees, theory).asInstanceOf,
-    new ASCIIStringDec[sourceProgram.trees.type](sourceProgram.trees, theory).asInstanceOf,
+    asciiStringEnc(sourceProgram.trees)(theory),
+    asciiStringDec(sourceProgram.trees)(theory),
     theory.extraFunctions,
     theory.extraSorts)
 
@@ -45,82 +45,88 @@ private class ASCIIStringTheory[Trees <: ast.Trees](val trees: Trees) {
   val extraSorts = Seq(stringSort)
 }
 
-private class ASCIIStringEnc[Trees <: ast.Trees](val trees: Trees, val theory: ASCIIStringTheory[trees.type]) extends trees.ConcreteSelfTreeTransformer {
-  import trees._
-  import trees.dsl._
-  import theory._
+def asciiStringEnc(trees: ast.Trees)(theory: ASCIIStringTheory[trees.type]): transformers.TreeTransformer { val s: trees.type; val t: trees.type } = {
+  class ASCIIStringEnc extends trees.ConcreteSelfTreeTransformer {
+    import trees._
+    import trees.dsl._
+    import theory._
 
-  private val TWO = IntegerLiteral(2)
+    private val TWO = IntegerLiteral(2)
 
-  override def transform(e: Expr): Expr = e match {
-    case StringLiteral(v) =>
-      stringCons(StringLiteral(v.flatMap(c => c.toString.getBytes("UTF-8").toSeq match {
-        case Seq(b) if 32 <= b && b <= 127 => b.toChar.toString + b.toChar.toString
-        case Seq(b) => encodeByte(b) + encodeByte(b)
-        case Seq(b1, b2) => encodeByte(b1) + encodeByte(b2)
-      })))
-    case StringLength(a) => Division(StringLength(transform(a).getField(value)), TWO)
-    case StringConcat(a, b) => stringCons(StringConcat(transform(a).getField(value), transform(b).getField(value)))
-    case SubString(a, start, end) => stringCons(SubString(transform(a).getField(value), transform(start) * TWO, transform(end) * TWO))
-    case _ => super.transform(e)
+    override def transform(e: Expr): Expr = e match {
+      case StringLiteral(v) =>
+        stringCons(StringLiteral(v.flatMap(c => c.toString.getBytes("UTF-8").toSeq match {
+          case Seq(b) if 32 <= b && b <= 127 => b.toChar.toString + b.toChar.toString
+          case Seq(b) => encodeByte(b) + encodeByte(b)
+          case Seq(b1, b2) => encodeByte(b1) + encodeByte(b2)
+        })))
+      case StringLength(a) => Division(StringLength(transform(a).getField(value)), TWO)
+      case StringConcat(a, b) => stringCons(StringConcat(transform(a).getField(value), transform(b).getField(value)))
+      case SubString(a, start, end) => stringCons(SubString(transform(a).getField(value), transform(start) * TWO, transform(end) * TWO))
+      case _ => super.transform(e)
+    }
+
+    override def transform(tpe: Type): Type = tpe match {
+      case StringType() => String
+      case _ => super.transform(tpe)
+    }
   }
-
-  override def transform(tpe: Type): Type = tpe match {
-    case StringType() => String
-    case _ => super.transform(tpe)
-  }
+  new ASCIIStringEnc
 }
 
-private class ASCIIStringDec[Trees <: ast.Trees](val trees: Trees, val theory: ASCIIStringTheory[trees.type]) extends trees.ConcreteSelfTreeTransformer {
-  import trees._
-  import trees.dsl._
-  import theory._
+def asciiStringDec(trees: ast.Trees)(theory: ASCIIStringTheory[trees.type]): transformers.TreeTransformer { val s: trees.type; val t: trees.type } = {
+  class ASCIIStringDec extends trees.ConcreteSelfTreeTransformer {
+    import trees._
+    import trees.dsl._
+    import theory._
 
-  private val TWO = IntegerLiteral(2)
+    private val TWO = IntegerLiteral(2)
 
-  override def transform(e: Expr): Expr = e match {
-    case ADT(StringConsID, Seq(), Seq(StringLiteral(s))) =>
-      def unescape(s: String): String = if (s.isEmpty) s else (s match {
-        case FirstBytes(b1, b2, s2) =>
-          val h: String = if (0 <= b1 && b1 <= 127 && b1 == b2) {
-            b1.toChar.toString
-          } else if (0 <= b1 && b1 <= 127 && 0 <= b2 && b2 <= 127) {
-            new java.lang.String(Seq(
-              (0x00 | (b1 >> 1)).toByte,
-              (((b1 & 1) << 7) | b2).toByte
-            ).toArray, "UTF-8")
-          } else if ((b1 & 0xE0) == 0xC0) {
-            new java.lang.String(Seq(b1, b2).toArray, "UTF-8")
-          } else {
-            // hopefully these are rare!
-            throw TheoryException(s"Can't decode character ${encodeByte(b1)}${encodeByte(b2)}")
-          }
-          h + unescape(s2)
+    override def transform(e: Expr): Expr = e match {
+      case ADT(StringConsID, Seq(), Seq(StringLiteral(s))) =>
+        def unescape(s: String): String = if (s.isEmpty) s else (s match {
+          case FirstBytes(b1, b2, s2) =>
+            val h: String = if (0 <= b1 && b1 <= 127 && b1 == b2) {
+              b1.toChar.toString
+            } else if (0 <= b1 && b1 <= 127 && 0 <= b2 && b2 <= 127) {
+              new java.lang.String(Seq(
+                (0x00 | (b1 >> 1)).toByte,
+                (((b1 & 1) << 7) | b2).toByte
+              ).toArray, "UTF-8")
+            } else if ((b1 & 0xE0) == 0xC0) {
+              new java.lang.String(Seq(b1, b2).toArray, "UTF-8")
+            } else {
+              // hopefully these are rare!
+              throw TheoryException(s"Can't decode character ${encodeByte(b1)}${encodeByte(b2)}")
+            }
+            h + unescape(s2)
 
-        case _ =>
-          throw TheoryException(s"Can't decode string $s")
-      })
+          case _ =>
+            throw TheoryException(s"Can't decode string $s")
+        })
 
-      StringLiteral(unescape(s))
+        StringLiteral(unescape(s))
 
-    case ADTSelector(a, `value`) => transform(a)
+      case ADTSelector(a, `value`) => transform(a)
 
-    case Division(StringLength(a), TWO) =>
-      StringLength(transform(a))
+      case Division(StringLength(a), TWO) =>
+        StringLength(transform(a))
 
-    case ADT(StringConsID, Seq(), Seq(StringConcat(a, b))) =>
-      StringConcat(transform(a), transform(b))
+      case ADT(StringConsID, Seq(), Seq(StringConcat(a, b))) =>
+        StringConcat(transform(a), transform(b))
 
-    case ADT(StringConsID, Seq(), Seq(SubString(a, Times(start, TWO), Times(end, TWO)))) =>
-      SubString(transform(a), transform(start), transform(end))
+      case ADT(StringConsID, Seq(), Seq(SubString(a, Times(start, TWO), Times(end, TWO)))) =>
+        SubString(transform(a), transform(start), transform(end))
 
-    case _ => super.transform(e)
+      case _ => super.transform(e)
+    }
+
+    override def transform(tpe: Type): Type = tpe match {
+      case String => StringType()
+      case _ => super.transform(tpe)
+    }
   }
-
-  override def transform(tpe: Type): Type = tpe match {
-    case String => StringType()
-    case _ => super.transform(tpe)
-  }
+  new ASCIIStringDec
 }
 
 private object FirstBytes {

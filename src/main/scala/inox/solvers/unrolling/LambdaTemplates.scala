@@ -154,7 +154,8 @@ trait LambdaTemplates { self: Templates =>
   private def registerApplication(
     b: Encoded, f: Encoded, app: App, tpe: Type, closures: Seq[Arg], free: Boolean
   ): Option[(Encoded, Encoded, Clauses)] = {
-    if ((if (free) FreeUnrolling else ContractUnrolling) unroll tpe) {
+    val tpeUnrolling: TypeUnrolling = if (free) FreeUnrolling else ContractUnrolling
+    if (tpeUnrolling.unroll(tpe)) {
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
       val (typeBlocker, appResult) = typeBlockers.cached(f -> app) {

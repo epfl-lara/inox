@@ -11,13 +11,14 @@ import unrolling._
 
 import scala.collection.mutable.{Map => MutableMap}
 
-class PrincessSolver(prog: Program,
-                     context: Context,
-                     enc: transformers.ProgramTransformer {val sourceProgram: prog.type},
-                     chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type})
+class PrincessSolver(override val program: Program)
+                    (override val prog: program.type,
+                     override val context: Context,
+                     override val enc: transformers.ProgramTransformer {val sourceProgram: program.type},
+                     override val chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type})
                     (using semantics: prog.Semantics,
                      semanticsProvider: SemanticsProvider {val trees: enc.targetProgram.trees.type})
-  extends AbstractUnrollingSolver(prog, context, enc, chooses)
+  extends AbstractUnrollingSolver(program, context, enc, chooses)
     (fullEncoder => solvers.theories.Princess(fullEncoder)(semantics.getEvaluator(using context))) { self =>
 
   import context.{given, _}
