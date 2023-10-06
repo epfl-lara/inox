@@ -9,7 +9,7 @@ class ChooseSuite extends SolvingTestSuite {
   import dsl._
 
   override def configurations =
-    for (nme <- Seq("nativez3", "unrollz3", "smt-z3", "smt-cvc4", "princess")) yield {
+    for (nme <- Seq("nativez3", "unrollz3", "smt-z3", "smt-cvc4", "smt-cvc5", "princess")) yield {
       Seq(optSelectedSolvers(Set(nme)), optCheckModels(true))
     }
 

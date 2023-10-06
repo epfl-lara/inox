@@ -21,7 +21,6 @@ import _root_.smtlib.trees.Terms.{
 }
 import _root_.smtlib.trees.CommandsResponses._
 import _root_.smtlib.theories.{Constructors => SmtLibConstructors, _}
-import _root_.smtlib.theories.experimental._
 import _root_.smtlib.Interpreter
 
 import scala.collection.BitSet

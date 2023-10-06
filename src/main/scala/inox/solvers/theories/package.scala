@@ -16,8 +16,8 @@ package object theories {
     val targetProgram: Program { val trees: p.trees.type }
   } = ASCIIStringEncoder(p)
 
-  def CVC4(enc: ProgramTransformer)
-          (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }): ProgramTransformer {
+  def CVC(enc: ProgramTransformer)
+         (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }): ProgramTransformer {
     val sourceProgram: enc.targetProgram.type
     val targetProgram: Program { val trees: enc.targetProgram.trees.type }
   } = {

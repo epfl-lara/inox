@@ -15,7 +15,6 @@ import _root_.smtlib.interpreters.Z3Interpreter
 import _root_.smtlib.theories.Core.{Equals => SMTEquals, _}
 import _root_.smtlib.theories.Operations._
 import _root_.smtlib.theories._
-import _root_.smtlib.theories.experimental._
 
 import utils._
 

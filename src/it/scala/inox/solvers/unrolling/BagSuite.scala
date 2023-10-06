@@ -9,7 +9,7 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
   import dsl._
 
   override def configurations = for {
-    solverName   <- Seq("nativez3", "unrollz3", "smt-z3", "smt-cvc4")
+    solverName   <- Seq("nativez3", "unrollz3", "smt-z3", "smt-cvc4", "smt-cvc5")
     feelingLucky <- Seq(false, true)
   } yield Seq(
     optSelectedSolvers(Set(solverName)),

@@ -18,6 +18,7 @@ class SemanticsSuite extends AnyFunSuite {
     (if (SolverFactory.hasNativeZ3) Seq("nativez3", "unrollz3") else Nil) ++
     (if (SolverFactory.hasZ3) Seq("smt-z3") else Nil) ++
     (if (SolverFactory.hasCVC4) Seq("smt-cvc4") else Nil) ++
+    (if (SolverFactory.hasCVC5) Seq("smt-cvc5") else Nil) ++
     Seq("princess")
   }
 
@@ -41,20 +42,21 @@ class SemanticsSuite extends AnyFunSuite {
     } superTest(this, s"$name solver=$sname")(body(ctx))
   }
 
-  protected def filterSolvers(ctx: Context, princess: Boolean = false, cvc4: Boolean = false, unroll: Boolean = false, z3: Boolean = false, native: Boolean = false): Boolean = {
+  protected def filterSolvers(ctx: Context, princess: Boolean = false, cvc4: Boolean = false, cvc5: Boolean = false, unroll: Boolean = false, z3: Boolean = false, native: Boolean = false): Boolean = {
     val solvers = ctx.options.findOptionOrDefault(optSelectedSolvers)
     (!princess || solvers != Set("princess")) &&
     (!unroll || solvers != Set("unrollz3")) &&
     (!z3 || solvers != Set("smt-z3")) &&
     (!native || solvers != Set("nativez3")) &&
-    (!cvc4 || solvers != Set("smt-cvc4"))
+    (!cvc4 || solvers != Set("smt-cvc4")) &&
+    (!cvc5 || solvers != Set("smt-cvc5"))
   }
 
   protected def check(s: SimpleSolverAPI { val program: InoxProgram }, e: Expr, expected: Expr) = {
     val v = Variable.fresh("v", e.getType)
     s.solveSAT(Equals(v, e)) match {
       case SatWithModel(model) => assert(model.vars.get(v.toVal) == Some(expected))
-      case _ => fail(s"Solving of '$e' failed.")
+      case got => fail(s"Solving of '$e' failed with $got.")
     }
   }
 
@@ -539,7 +541,7 @@ class SemanticsSuite extends AnyFunSuite {
     )) contains true)
   }
 
-  test("Z3 Set Extraction", filterSolvers(_, princess = true, cvc4 = true)) { ctx =>
+  test("Z3 Set Extraction", filterSolvers(_, princess = true, cvc4 = true, cvc5 = true)) { ctx =>
     val s = solver(ctx)
 
     // Singleton set inside of a map is translated to (lambda ((x Int)) (= x 0))
@@ -573,7 +575,7 @@ class SemanticsSuite extends AnyFunSuite {
     ), IntegerLiteral(2))
   }
 
-  test("Bag Operations", filterSolvers(_, princess = true, cvc4 = true)) { ctx =>
+  test("Bag Operations", filterSolvers(_, princess = true, cvc4 = true, cvc5 = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Equals(

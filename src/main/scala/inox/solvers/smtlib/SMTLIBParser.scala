@@ -10,7 +10,6 @@ import _root_.smtlib.lexer.{Tokens => LT, _}
 import _root_.smtlib.trees.Commands.{FunDef => SMTFunDef, _}
 import _root_.smtlib.trees.Terms.{Let => SMTLet, Forall => SMTForall, Identifier => SMTIdentifier, _}
 import _root_.smtlib.theories._
-import _root_.smtlib.theories.experimental._
 import _root_.smtlib.extensions.tip.Terms.{Lambda => SMTLambda, Application => SMTApplication, _}
 import _root_.smtlib.extensions.tip.Commands._
 
