@@ -18,7 +18,8 @@ class QuantifiersSuite extends TestSuite {
     ("nativez3",     true,  true,  false),
     ("nativez3",     false, false, true ),
     ("princess",     true,  true,  false),
-    ("smt-cvc4",     false, false, true )
+    ("smt-cvc4",     false, false, true ),
+    ("smt-cvc5",     false, false, true ),
   ).map { case (solverName, checkModels, feelingLucky, unrollAssumptions) => Seq(
     optSelectedSolvers(Set(solverName)),
     optCheckModels(checkModels),

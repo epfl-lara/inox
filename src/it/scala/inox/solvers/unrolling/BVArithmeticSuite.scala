@@ -11,7 +11,7 @@ class BVArithmeticSuite extends SolvingTestSuite {
   import SolverResponses._
 
   override def configurations = for {
-    solverName  <- Seq("nativez3", "unrollz3", "smt-z3", "smt-cvc4", "princess")
+    solverName  <- Seq("nativez3", "unrollz3", "smt-z3", "smt-cvc4", "smt-cvc5", "princess")
   } yield Seq(
     optSelectedSolvers(Set(solverName)),
     optCheckModels(true)

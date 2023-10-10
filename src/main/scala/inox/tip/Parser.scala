@@ -9,7 +9,7 @@ import smtlib.lexer.{Tokens => LT, _}
 import smtlib.trees.Commands.{FunDef => SMTFunDef, _}
 import smtlib.trees.Terms.{Let => SMTLet, Forall => SMTForall, Identifier => SMTIdentifier, _}
 import smtlib.theories._
-import smtlib.theories.experimental._
+import smtlib.theories.cvc.{CVC4Sets => Sets} // We use the Set operations as used in CVC4
 import smtlib.extensions.tip.Terms.{Lambda => SMTLambda, Application => SMTApplication, _}
 import smtlib.extensions.tip.Commands._
 

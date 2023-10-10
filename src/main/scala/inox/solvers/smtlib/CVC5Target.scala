@@ -10,18 +10,18 @@ import _root_.smtlib.interpreters._
 import _root_.smtlib.theories._
 import _root_.smtlib.theories.cvc._
 
-trait CVC4Target extends CVCTarget {
-  import context.{given, _}
-  import program._
-  import program.trees._
-  import program.symbols.{given, _}
+trait CVC5Target extends CVCTarget {
+  import context.{*, given}
+  import program.*
+  import program.symbols.{*, given}
+  import program.trees.*
 
-  def targetName = "cvc4"
+  def targetName = "cvc5"
 
   override protected val interpreter: ProcessInterpreter = {
     val opts = interpreterOpts
     reporter.debug("Invoking solver with "+opts.mkString(" "))
-    new CVC4Interpreter("cvc4", opts.toArray)
+    new CVC5Interpreter("cvc5", opts.toArray)
   }
-  override val cvcSets: Sets = CVC4Sets
+  override val cvcSets: Sets = CVC5Sets
 }

@@ -43,7 +43,14 @@ object SolverFactory {
   }
 
   lazy val hasCVC4 = try {
-    new CVC4Interpreter("cvc4", Array("-q", "--lang", "smt2.5")).interrupt()
+    new CVC4Interpreter("cvc4", Array("-q", "--lang", "smt2.6")).interrupt()
+    true
+  } catch {
+    case _: java.io.IOException => false
+  }
+
+  lazy val hasCVC5 = try {
+    new CVC5Interpreter("cvc5", Array("-q", "--lang", "smt2.6")).interrupt()
     true
   } catch {
     case _: java.io.IOException => false
@@ -67,6 +74,7 @@ object SolverFactory {
     "nativez3-opt"  -> "Native Z3 optimizer with z3-templates for unrolling",
     "unrollz3"      -> "Native Z3 with inox-templates for unrolling",
     "smt-cvc4"      -> "CVC4 through SMT-LIB",
+    "smt-cvc5"      -> "cvc5 through SMT-LIB",
     "smt-z3"        -> "Z3 through SMT-LIB",
     "smt-z3-opt"    -> "Z3 optimizer through SMT-LIB",
     "smt-z3:<exec>" -> "Z3 through SMT-LIB with custom executable name",
@@ -74,13 +82,14 @@ object SolverFactory {
   )
 
   private val fallbacks = Map(
-    "nativez3"     -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4",   "princess"), "Z3 native interface"),
-    "nativez3-opt" -> (() => hasNativeZ3, Seq("smt-z3-opt"),                       "Z3 native interface"),
-    "unrollz3"     -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4",   "princess"), "Z3 native interface"),
-    "smt-cvc4"     -> (() => hasCVC4,     Seq("nativez3", "smt-z3",   "princess"), "'cvc4' binary"),
-    "smt-z3"       -> (() => hasZ3,       Seq("nativez3", "smt-cvc4", "princess"), "'z3' binary"),
-    "smt-z3-opt"   -> (() => hasZ3,       Seq("nativez3-opt"),                     "'z3' binary"),
-    "princess"     -> (() => true,        Seq(),                                   "Princess solver")
+    "nativez3"     -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4", "smt-cvc5", "princess"),   "Z3 native interface"),
+    "nativez3-opt" -> (() => hasNativeZ3, Seq("smt-z3-opt"),                                   "Z3 native interface"),
+    "unrollz3"     -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4", "smt-cvc5", "princess"),   "Z3 native interface"),
+    "smt-cvc4"     -> (() => hasCVC4,     Seq("nativez3", "smt-z3", "princess"),               "'cvc4' binary"),
+    "smt-cvc5"     -> (() => hasCVC5,     Seq("nativez3", "smt-z3", "princess"),               "'cvc5' binary"),
+    "smt-z3"       -> (() => hasZ3,       Seq("nativez3", "smt-cvc4", "smt-cvc5", "princess"), "'z3' binary"),
+    "smt-z3-opt"   -> (() => hasZ3,       Seq("nativez3-opt"),                                 "'z3' binary"),
+    "princess"     -> (() => true,        Seq(),                                               "Princess solver")
   )
 
   private var reported: Boolean = false
@@ -103,6 +112,7 @@ object SolverFactory {
     if (
       nonIncremental &&
       noPrefixName != "smt-cvc4" &&
+      noPrefixName != "smt-cvc5" &&
       noPrefixName != "unrollz3" &&
       noPrefixName != "smt-z3" &&
       !noPrefixName.startsWith("smt-z3:")
@@ -286,7 +296,7 @@ object SolverFactory {
                            val program: p.type
                            val sourceEncoder: enc.type
                          })
-          extends AbstractUnrollingSolver(program, ctx, enc, chooses)(fullEncoder => theories.CVC4(fullEncoder)(ev))
+          extends AbstractUnrollingSolver(program, ctx, enc, chooses)(fullEncoder => theories.CVC(fullEncoder)(ev))
             with UnrollingSolver
             with TimeoutSolver
             with tip.TipDebugger {
@@ -302,6 +312,35 @@ object SolverFactory {
         }
 
         () => new SMTCVC4Impl(p)(enc)(ChooseEncoder(p)(enc))
+      })
+
+      case "smt-cvc5" => create(p)(finalName, {
+        val ev = sem.getEvaluator(using ctx)
+        class SMTCVC5Impl(override val program: p.type)
+                         (override val enc: transformers.ProgramTransformer {
+                           val sourceProgram: program.type
+                           val targetProgram: Program { val trees: inox.trees.type }
+                         })
+                         (override val chooses: ChooseEncoder {
+                           val program: p.type
+                           val sourceEncoder: enc.type
+                         })
+          extends AbstractUnrollingSolver(program, ctx, enc, chooses)(fullEncoder => theories.CVC(fullEncoder)(ev))
+            with UnrollingSolver
+            with TimeoutSolver
+            with tip.TipDebugger {
+
+          class Underlying(override val program: targetProgram.type)
+            extends smtlib.SMTLIBSolver(program, ctx)
+              with smtlib.CVC5Solver
+
+          protected val underlying = nonIncrementalWrap(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
+
+          // encoder is from TipDebugger and enc from AbstractUnrollingSolver
+          override protected val encoder = enc
+        }
+
+        () => new SMTCVC5Impl(p)(enc)(ChooseEncoder(p)(enc))
       })
 
       case "princess" => create(p)(finalName, {
@@ -322,6 +361,7 @@ object SolverFactory {
     s.startsWith("no-inc:smt-z3:") ||
     s == "no-inc:smt-z3" ||
     s == "no-inc:smt-cvc4" ||
+    s == "no-inc:smt-cvc5" ||
     s == "no-inc:unrollz3"
 
   def getFromSettings(p: Program, ctx: Context)

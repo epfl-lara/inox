@@ -6,7 +6,7 @@ package tip
 import smtlib.trees.Terms.{Forall => SMTForall, Identifier => SMTIdentifier, _}
 import smtlib.trees.Commands.{Constructor => SMTConstructor, FunDef => SMTFunDef, _}
 import smtlib.theories._
-import smtlib.theories.experimental._
+import smtlib.theories.cvc.{CVC4Sets => Sets} // We use the Set operations as used in CVC4
 import smtlib.extensions.tip.Terms.{Application => SMTApplication, Lambda => SMTLambda, _}
 import smtlib.extensions.tip.Commands._
 import smtlib.Interpreter
