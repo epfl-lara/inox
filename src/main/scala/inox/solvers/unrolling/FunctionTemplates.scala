@@ -33,12 +33,13 @@ trait FunctionTemplates { self: Templates =>
   object FunctionTemplate {
     private val cache: MutableMap[TypedFunDef, FunctionTemplate] = MutableMap.empty
 
-    def apply(tfd: TypedFunDef): FunctionTemplate = cache.getOrElse(tfd, {
+    def apply(tfd: TypedFunDef, pos: utils.Position): FunctionTemplate = cache.getOrElse(tfd, {
       val body: Expr = timers.solvers.simplify.run { simplifyFormula(tfd.fullBody) }
 
       val tpVars = tfd.tps.flatMap(variableSeq).distinct
       val fdArgs: Seq[Variable] = tfd.params.map(_.toVariable)
-      val call: Expr = tfd.applied(fdArgs)
+      // Note: This position is best-effort, since function templates are cached.
+      val call: Expr = tfd.applied(fdArgs).setPos(pos)
 
       val start = Variable.fresh("start", BooleanType(), true)
       val pathVar = start -> encodeSymbol(start)
@@ -237,7 +238,7 @@ trait FunctionTemplates { self: Templates =>
                 val templateClauses = Template.instantiate(clauses, calls, apps, matchers, equalities, substMap)
                 substClauses ++ templateClauses
               } getOrElse {
-                FunctionTemplate(tfd).instantiate(defBlocker, args ++ tpSubst)
+                FunctionTemplate(tfd, call.getPos).instantiate(defBlocker, args ++ tpSubst)
               }
             }
 

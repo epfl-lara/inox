@@ -141,7 +141,7 @@ trait TemplateGenerator { self: Templates =>
         newArg
       }
 
-      val newCall = thenCall.tfd.applied(newArgs)
+      val newCall = thenCall.tfd.applied(newArgs).copiedFrom(thenCall)
       builder.storeGuarded(newBlocker, Equals(newExpr, newCall))
     }
 
@@ -514,7 +514,7 @@ trait TemplateGenerator { self: Templates =>
         storeEquality(pathVar, re1, re2)
         Application(v, Seq(re1, re2))
 
-      case Operator(as, r) => r(as.map(a => rec(pathVar, a, None)))
+      case Operator(as, recons) => recons(as.map(a => rec(pathVar, a, None))).copiedFrom(expr)
     }
 
     val p = rec(pathVar, expr, polarity)
@@ -578,7 +578,7 @@ trait TemplateGenerator { self: Templates =>
         and(
           sort.invariant
             .filter(_ => generator == FreeGenerator)
-            .map(_.applied(Seq(expr)))
+            .map(tfd => tfd.applied(Seq(expr)).copiedFrom(tfd))
             .getOrElse(BooleanLiteral(true)),
           if (sort.definition.isInductive && !state.recurseAdt) {
             storeType(pathVar, tpe, expr)
