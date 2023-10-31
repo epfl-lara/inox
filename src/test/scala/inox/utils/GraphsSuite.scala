@@ -24,7 +24,7 @@ class GraphsSuite extends AnyFunSuite {
   }
 
   def g1 = {
-    var g = new DiGraph[Node, SimpleEdge[Node]]()
+    var g = DiGraph[Node, SimpleEdge[Node]]()
 
     g ++= Set(A, B, C, D)
 
@@ -44,7 +44,7 @@ class GraphsSuite extends AnyFunSuite {
   }
 
   def g2 = {
-    var g = new DiGraph[Node, SimpleEdge[Node]]()
+    var g = DiGraph[Node, SimpleEdge[Node]]()
 
     g ++= Set(A, B, C, D)
 
@@ -60,7 +60,7 @@ class GraphsSuite extends AnyFunSuite {
   }
 
   def g3 = {
-    var g = new DiGraph[Node, SimpleEdge[Node]]()
+    var g = DiGraph[Node, SimpleEdge[Node]]()
 
     g ++= Set(A, B, C, D, E, F, G, H)
 
@@ -87,7 +87,7 @@ class GraphsSuite extends AnyFunSuite {
   }
 
   def g4 = {
-    var g = new DiGraph[Node, SimpleEdge[Node]]()
+    var g = DiGraph[Node, SimpleEdge[Node]]()
 
     g ++= Set(A, B, C, D, E, F, G, H)
 
@@ -112,7 +112,7 @@ class GraphsSuite extends AnyFunSuite {
   }
 
   def g5 = {
-    var g = new DiGraph[Node, SimpleEdge[Node]]()
+    var g = DiGraph[Node, SimpleEdge[Node]]()
 
     g ++= Set(A, B, C, D, E, F, G, H)
 
