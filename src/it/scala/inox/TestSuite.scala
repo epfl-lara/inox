@@ -8,7 +8,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.{CancelAfterFailure, Tag, exceptions}
 import utils._
 
-trait TestSuite extends AnyFunSuite with Matchers with TimeLimits with CancelAfterFailure {
+trait TestSuite extends AnyFunSuite with Matchers with TimeLimits {
 
   protected def configurations: Seq[Seq[OptionValue[_]]] = Seq(Seq.empty)
 

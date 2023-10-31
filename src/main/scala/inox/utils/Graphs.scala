@@ -43,27 +43,54 @@ object Graphs {
     def - (from: Edge): G
   }
 
-  case class DiGraph[Node, Edge <: EdgeLike[Node]](N: Set[Node] = Set[Node](), E: Set[Edge] = Set[Edge]())
+  // Implementation note: inEdgesMap and outEdgesMap can be derived from N and E.
+  // However, since `inEdges` and `outEdges` are often used with updated copies of the graph,
+  // it is interesting performance-wise to have these maps as fields and "update"
+  // them alongside "update" operation such as +, ++ etc.
+  case class DiGraph[Node, Edge <: EdgeLike[Node]] private(N: Set[Node], E: Set[Edge], inEdgesMap: Map[Node, Set[Edge]], outEdgesMap: Map[Node, Set[Edge]])
     extends DiGraphLike[Node, Edge, DiGraph[Node, Edge]]
        with DiGraphOps[Node, Edge, DiGraph[Node, Edge]]{
-
-    private lazy val inEdgesMap = N.map(n => n -> E.filter(_._2 == n)).toMap
-    private lazy val outEdgesMap = N.map(n => n -> E.filter(_._1 == n)).toMap
 
     override def inEdges(n: Node): Set[Edge] = inEdgesMap.getOrElse(n, Set.empty)
     override def outEdges(n: Node): Set[Edge] = outEdgesMap.getOrElse(n, Set.empty)
 
-    def +(n: Node) = copy(N=N+n)
-    def ++(ns: Iterable[Node]) = copy(N=N++ns)
-    def +(e: Edge) = (this+e._1+e._2).copy(E = E + e)
+    def +(n: Node) = {
+      // If n is already present, do not override the set of edges in the edges map
+      val newInEdgesMap = inEdgesMap.updatedWith(n)(_.orElse(Some(Set.empty)))
+      val newOutEdgesMap = outEdgesMap.updatedWith(n)(_.orElse(Some(Set.empty)))
+      DiGraph(N + n, E, newInEdgesMap, newOutEdgesMap)
+    }
+    def ++(ns: Iterable[Node]) = {
+      def addIfPresent(map: Map[Node, Set[Edge]]): Map[Node, Set[Edge]] =
+        ns.foldLeft(map) { case (map, n) => map.updatedWith(n)(_.orElse(Some(Set.empty))) }
 
-    def -(n: Node) = copy(N = N-n, E = E.filterNot(e => e._1 == n || e._2 == n))
-    def --(ns: Iterable[Node]) = {
-      val toRemove = ns.toSet
-      copy(N = N--ns, E = E.filterNot(e => toRemove.contains(e._1) || toRemove.contains(e._2)))
+      val newInEdgesMap = addIfPresent(inEdgesMap)
+      val newOutEdgesMap = addIfPresent(outEdgesMap)
+      DiGraph(N ++ ns, E, newInEdgesMap, newOutEdgesMap)
+    }
+    def +(e: Edge) = {
+      val newInEdgesMap = inEdgesMap.updatedWith(e._2)(_.map(_ + e).orElse(Some(Set(e))))
+      val newOutEdgesMap = outEdgesMap.updatedWith(e._1)(_.map(_ + e).orElse(Some(Set(e))))
+      DiGraph(N + e._1 + e._2, E + e, newInEdgesMap, newOutEdgesMap)
     }
 
-    def -(e: Edge) = copy(E = E-e)
+    def -(n: Node) = DiGraph(N - n, E.filter(e => e._1 == n || e._2 == n), inEdgesMap - n, outEdgesMap - n)
+    def --(ns: Iterable[Node]) = {
+      val toRemove = ns.toSet
+      DiGraph(N -- toRemove, E.filterNot(e => toRemove.contains(e._1) || toRemove.contains(e._2)), inEdgesMap -- toRemove, outEdgesMap -- toRemove)
+    }
+    def -(e: Edge) = {
+      val newInEdgesMap = inEdgesMap.updatedWith(e._2)(_.map(_ - e))
+      val newOutEdgesMap = outEdgesMap.updatedWith(e._1)(_.map(_ - e))
+      DiGraph(N, E - e, newInEdgesMap, newOutEdgesMap)
+    }
+  }
+  object DiGraph {
+    def apply[Node, Edge <: EdgeLike[Node]](N: Set[Node] = Set.empty[Node], E: Set[Edge] = Set.empty[Edge]): DiGraph[Node, Edge] = {
+      val inEdgesMap = N.map(n => n -> E.filter(_._2 == n)).toMap
+      val outEdgesMap = N.map(n => n -> E.filter(_._1 == n)).toMap
+      DiGraph(N, E, inEdgesMap, outEdgesMap)
+    }
   }
 
   trait DiGraphOps[Node, Edge <: EdgeLike[Node], G <: DiGraphLike[Node, Edge, G]] {
