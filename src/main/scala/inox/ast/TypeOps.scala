@@ -42,7 +42,8 @@ trait TypeOps {
   def greatestLowerBound(tps: Seq[Type]): Type =
     if (tps.isEmpty) Untyped else tps.reduceLeft(greatestLowerBound)
 
-  def isSubtypeOf(t1: Type, t2: Type): Boolean = t1.getType == t2.getType
+  def isSubtypeOf(t1: Type, t2: Type): Boolean = 
+    t1.getType == Untyped || t2.getType == Untyped || t1.getType == t2.getType
 
   private type Instantiation = Map[TypeParameter, Type]
   def instantiation(from: Type, to: Type): Option[Instantiation] = {

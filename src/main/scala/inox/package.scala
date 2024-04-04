@@ -52,7 +52,7 @@ package object inox {
 
   object trees extends ast.Trees with ast.SimpleSymbols {
     case class Symbols(
-      functions: Map[Identifier, FunDef],
+      var functions: Map[Identifier, FunDef],
       sorts: Map[Identifier, ADTSort]
     ) extends SimpleSymbols {
       override val symbols: this.type = this
