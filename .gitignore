@@ -70,3 +70,5 @@ out-classes
 project/.bloop/
 project/metals.sbt
 project/project/
+
+*.semanticdb
