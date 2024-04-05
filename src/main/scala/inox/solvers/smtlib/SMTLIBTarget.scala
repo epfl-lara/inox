@@ -115,6 +115,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected val sorts         = new IncrementalBijection[Type, Sort]
   protected val functions     = new IncrementalBijection[TypedFunDef, SSymbol]
   protected val lambdas       = new IncrementalBijection[FunctionType, SSymbol]
+  protected val predicates    = new IncrementalBijection[Expr, SSymbol]
 
   /* Helper functions */
 
@@ -200,8 +201,11 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected def declareVariable(v: Variable): SSymbol = {
     variables.cachedB(v) {
       val s = id2sym(v.id)
-      val cmd = DeclareFun(s, List(), declareSort(v.getType))
-      emit(cmd)
+      v.getType match
+        case FunctionType(_, BooleanType()) => ()
+        case _ =>
+          val cmd = DeclareFun(s, List(), declareSort(v.getType))
+          emit(cmd)
       s
     }
   }
@@ -342,8 +346,20 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
        * ===== Everything else =====
        */
       case ap @ Application(caller, args) =>
-        val dyn = declareLambda(caller.getType.asInstanceOf[FunctionType])
-        FunctionApplication(dyn, (caller +: args).map(toSMT))
+        // val dyn = declareLambda(caller.getType.asInstanceOf[FunctionType])
+        val fun = predicates.cachedB(caller) {
+          caller match
+            case pred @ Variable(id, FunctionType(from, to), flags) =>
+              val s = id2sym(id)
+              emit(DeclareFun(
+                s,
+                from.map(declareSort),
+                declareSort(to)
+              ))
+              s
+          
+        }
+        FunctionApplication(fun, args.map(toSMT))
 
       case Not(u) => Core.Not(toSMT(u))
 
