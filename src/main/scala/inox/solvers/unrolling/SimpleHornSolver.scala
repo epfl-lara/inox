@@ -124,6 +124,7 @@ abstract class AbstractSimpleHornSolver private
 
   protected val freeVars  = new IncrementalMap[Variable, Encoded]()
   private val constraints = new IncrementalSeq[Expr]()
+  private val encodedConstraints = new IncrementalSeq[Expr]()
   private val freeChooses = new IncrementalMap[Choose, Encoded]()
 
   protected var failures: ListBuffer[Throwable] = new ListBuffer
@@ -197,7 +198,35 @@ abstract class AbstractSimpleHornSolver private
     case e @ (_: InternalSolverError | _: Unsupported) => failures += e
   })
 
-  def assertCnstr(expression: Expr): Unit = context.timers.solvers.assert.run(try { ()
+  def assertCnstr(expression: Expr): Unit = context.timers.solvers.assert.run(try {
+    context.timers.solvers.assert.sanity.run {
+      symbols.ensureWellFormed // make sure that the current program is well-formed
+      typeCheck(expression, BooleanType()) // make sure we've asserted a boolean-typed expression
+    }
+
+    // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
+    context.interruptManager.registerForInterrupts(this)
+
+    constraints += expression
+
+    val (withoutChooses, chooseBindings) = removeChooses(expression)
+
+    val freeBindings: Map[Variable, Encoded] = exprOps.variablesOf(withoutChooses).map {
+      v => v -> freeVars.cached(v)(declareVariable(encode(v)))
+    }.toMap
+
+    val newClauses = context.timers.solvers.assert.clauses.run {
+      HornBuilder2.encodeNegatedAssertion(withoutChooses)
+    }
+
+    encodedConstraints ++= newClauses
+
+    context.timers.solvers.assert.underlying.run {
+      for (cl <- newClauses) {
+        underlying.assertCnstr(encode(cl).asInstanceOf)
+      }
+    }
+
   } catch {
     case e @ (_: InternalSolverError | _: Unsupported) => failures += e
   })
@@ -207,7 +236,9 @@ abstract class AbstractSimpleHornSolver private
 
   }
 
-  object HornBuilder {
+  object HornBuilder2 {
+    case class UnexpectedMatchError(expr: Expr) extends Exception(s"Unexpected match error on $expr.")
+
     private def isSimpleValue(expr: Expr): Boolean = 
       expr match
         case Variable(_, _, _) => true
@@ -225,114 +256,127 @@ abstract class AbstractSimpleHornSolver private
     type Clauses = Seq[Expr]
     type Guards = Seq[Expr]
 
-    private val funReplacements = MutableMap.empty[Identifier, Identifier]
+    private val funReplacements = MutableMap.empty[Identifier, Variable]
 
-    private def registerFun(id: Identifier): Identifier = 
-      funReplacements.getOrElseUpdate(id, {
-        val newID = FreshIdentifier(id.name, true)
-        val fd = symbols.getFunction(id)
-        val res = Variable.fresh("res", fd.returnType).toVal // TODO: return type might be polymorphic? but it should be computed from the input? Not necessarily though
-        val tps = fd.applied.tps
-        val pred = FunctionInvocation(newID, tps, (fd.params :+ res).map(_.toVariable))
-        symbols.functions = symbols.functions + (newID -> new FunDef(newID, fd.tparams, fd.params :+ res, BooleanType(), pred, Seq.empty))
-        funReplacements += id -> newID
-        newID
+    private def registerFun(id: Identifier): Expr = 
+      val fd = symbols.getFunction(id)
+      val inp = fd.params.map(_.tpe) :+ fd.returnType
+      val out = BooleanType()
+      val tpe = FunctionType(inp, out)
+      val repl = funReplacements.getOrElseUpdate(id, {
+        val repl = Variable.fresh(id.name, tpe, true)
+        repl
       })
+      val y = Variable.fresh("y", fd.returnType)
+      val z = Variable.fresh("z", fd.returnType)
+      val funClause = Implies(And(Seq(Application(repl, fd.params.map(_.toVariable) :+ y), Application(repl, fd.params.map(_.toVariable) :+ z))), Equals(y, z))
+      funClause
 
-    private val lambdaSymbols = MutableMap.empty[Lambda, Identifier]
-    private val lambdaDefs = MutableSet.empty[Expr]
-
-    val App = FreshIdentifier("App", true)
-    
-
-    private def lookupLambda(l: Lambda): Expr =
-      val id = lambdaSymbols.getOrElseUpdate(l, {
-        val id = FreshIdentifier("Lambda", true)
-        symbols.functions = symbols.functions + (id -> new FunDef(id, Seq.empty, Seq.empty, IntegerType(), IntegerLiteral(id.globalId), Seq.empty))
-        id
-      })
-      FunctionInvocation(id, Seq.empty, Seq.empty)
-
-
-    private def mkPredDef(expr: Expr, frees: Seq[Variable], res: Variable): (Clauses, Guards, Expr) =
+    /**
+      * Given an expression, construct a new predicate P and relevant clauses such that
+      *
+      * res == expr ==> P(res) (+ free variables)
+      * 
+      * Clauses may need recursive exploration and construction.
+      * 
+      * @return defining clauses and P(res)
+      */
+    private def makePredicate(expr: Expr, frees: Seq[Variable], res: Variable): (Clauses, Guards, Expr) =
       val args = frees :+ res
-      val predID = FreshIdentifier("H", true)
-      val pred = FunctionInvocation(predID, Seq.empty, args)
-      // FIXME: slightly jank, to avoid attempted inlining, and allow the SMT encoder to look up the declaration
-      symbols.functions = symbols.functions + (predID -> new FunDef(predID, Seq.empty, args.map(_.toVal), BooleanType(), pred, Seq.empty))
-      val (clauses, guards, body) = mkExprClauses(expr, frees)
+      val tpe = 
+        val inp = args.map(_.tpe)
+        val out = BooleanType()
+        FunctionType(inp, out)
+      val pred = Variable.fresh("H", tpe, true)
+      val (clauses, guards, body) = mkExprClauses(expr)
+      val aply = (x: Expr) => Application(pred, frees :+ x)
+      
+      // construct constraints
       val lhs = if guards.isEmpty then body(res) else And(guards :+ body(res))
-      val predClause = Implies(lhs, pred)
-      val y = Variable.fresh("y", res.tpe)
-      val z = Variable.fresh("z", res.tpe)
-      val funClause = Implies(And(Seq(FunctionInvocation(predID, Seq.empty, frees :+ y), FunctionInvocation(predID, Seq.empty, frees :+ z))), Equals(y, z))
-      (clauses :+ funClause :+ predClause, Seq.empty, pred)
+      val predClause = Implies(lhs, aply(res))
 
-    private def mkExprClauses(expr: Expr, variables: Seq[Variable]): (Clauses, Guards, Expr => Expr) = 
+      (clauses :+ predClause, Seq.empty, aply(res))
+
+
+    private def mkExprClauses(expr: Expr): (Clauses, Guards, Expr => Expr) = 
       println(s"MK EXPR CLAUSES $expr")
+      println(s"EXPR CLASS ${expr.getClass.getName}")
       println(s"========================")
       val clauses = ListBuffer.empty[Expr]
       val guards = ListBuffer.empty[Expr]
+      val freeVars = exprOps.variablesOf(expr).toSeq
       if isSimpleValue(expr) then
+        println("SIMPLE VALUE")
         (Seq.empty, Seq.empty, Equals(_, expr))
       else
         expr match
           case Assume(cond, body) => 
+            println("Matched assume")
             val newCond = 
               if isSimpleValue(cond) then
                 cond
               else
-                val (condClauses, condGuards, condPred) = mkPredDef(cond, variables, Variable.fresh("Cond", BooleanType()))
+                val (condClauses, condGuards, condPred) = makePredicate(cond, freeVars, Variable.fresh("Cond", BooleanType()))
                 clauses ++= condClauses
                 guards ++= condGuards
                 condPred
             val newBody = 
-              if isSimpleValue(body) then
-                Equals(_, body)
-              else
-                val (bodyClauses, bodyGuards, bodyPred) = mkExprClauses(body, variables)
+                val (bodyClauses, bodyGuards, bodyPred) = makePredicate(body, freeVars, Variable.fresh("res", body.getType))
                 clauses ++= bodyClauses
                 guards ++= bodyGuards
                 bodyPred
-            (clauses.toSeq, guards.toSeq :+ newCond, newBody)
+
+            val res = Variable.fresh("res", body.getType)
+            // val lhs1 = if guards.isEmpty then newCond else And(guards.toSeq :+ newCond)
+            // val lhs2 = And(guards.toSeq ++ Seq(Not(newCond), newBody))
+            // val contra = Implies(lhs2, BooleanLiteral(false))
+
+            val Application(pred, _) = (newBody: @unchecked)
+            
+            (clauses.toSeq, guards.toSeq :+ newCond, (e: Expr) => Application(pred, freeVars :+ e))
             
           case Choose(res, pred) => ??? // Unexpected
           case Let(vd, value, body) =>
+            println("Matched let")
             val cond = 
-                val (valueClauses, valueGuards, valuePred) = mkExprClauses(value, variables)
+                val (valueClauses, valueGuards, valuePred) = mkExprClauses(value)
                 clauses ++= valueClauses
                 guards ++= valueGuards
                 valuePred
             val bodyPred = 
-                val (bodyClauses, bodyGuards, bodyPred) = mkExprClauses(body, variables :+ vd.toVariable)
+                val (bodyClauses, bodyGuards, bodyPred) = mkExprClauses(body)
                 clauses ++= bodyClauses
                 guards ++= bodyGuards
                 bodyPred
             (clauses.toSeq, guards.toSeq :+ cond(vd.toVariable), bodyPred)
           case IfExpr(cond, thenn, elze) => 
+            println("Matched if")
             val tpe = thenn.getType
             val newCond = 
               if isSimpleValue(cond) then
                 cond
               else
-                val (condClauses, condGuards, condPred) = mkPredDef(cond, variables, Variable.fresh("Cond", BooleanType()))
+                val (condClauses, condGuards, condPred) = makePredicate(cond, freeVars, Variable.fresh("Cond", BooleanType()))
                 clauses ++= condClauses
                 guards ++= condGuards
                 condPred
 
             val condLabel = Variable.fresh("CondInner", tpe)
-            val (thennClauses, thennGuards, thennExpr) = mkPredDef(thenn, variables, condLabel)
-            val (elzeClauses, elzeGuards, elzeExpr) = mkPredDef(elze, variables, condLabel)
+            val (thennClauses, thennGuards, thennExpr) = makePredicate(thenn, freeVars, condLabel)
+            val (elzeClauses, elzeGuards, elzeExpr) = makePredicate(elze, freeVars, condLabel)
             clauses ++= thennClauses
             clauses ++= elzeClauses
             guards ++= thennGuards
             guards ++= elzeGuards
-            val newPred = FreshIdentifier("If", true)
-            // FIXME: slightly jank, to avoid attempted inlining, and allow the SMT encoder to look up the declaration
+            
+            val iftpe = 
+              val inp = freeVars.map(_.tpe) :+ tpe
+              val out = BooleanType()
+              FunctionType(inp, out)
+            val newPred = Variable.fresh("If", iftpe, true)
             // TODO: check if these predicates need to be type polymorphic
-            val res = Variable.fresh("res", expr.getType).toVal
-            symbols.functions = symbols.functions + (newPred -> new FunDef(newPred, Seq.empty, variables.map(_.toVal) :+ res, BooleanType(), FunctionInvocation(newPred, Seq.empty, variables), Seq.empty))
-            val newPredExpr = (res: Expr) => FunctionInvocation(newPred, Seq.empty, variables :+ res)
+            val res = Variable.fresh("res", tpe).toVal
+            val newPredExpr = (res: Expr) => Application(newPred, freeVars :+ res)
             val newClauses = Seq(
               Implies(And(newCond, thennExpr), newPredExpr(condLabel)),
               Implies(And(Not(newCond), elzeExpr), newPredExpr(condLabel))
@@ -340,38 +384,23 @@ abstract class AbstractSimpleHornSolver private
             clauses ++= newClauses
             (clauses.toSeq, guards.toSeq, newPredExpr)
           case Application(Lambda(params, body), args) =>
+            println("Matched app")
             // just inline the lambda
             val inlinedBody = exprOps.replace(params.map(_.toVariable).zip(args).toMap, body)
-            mkExprClauses(inlinedBody, variables)
-          case l @ Lambda(args, body) => 
-            // generate an embedding for the lambda. It is a constant, with
-            // clauses to define its application.
-            val sym = lookupLambda(l)
-            if lambdaDefs.contains(sym) then
-              (Seq.empty, Seq.empty, Equals(_, sym))
-            else
-              val (bodyClauses, bodyGuards, bodyPred) = mkExprClauses(body, variables ++ args.map(_.toVariable))
-              lambdaDefs += sym
-              val res = Variable.fresh("res", body.getType)
-              val appGuard =
-                if bodyGuards.isEmpty then
-                  bodyPred(res)
-                else
-                  And(bodyGuards :+ bodyPred(res))
-              val appClause = 
-                Implies(appGuard, FunctionInvocation(App, Seq.empty, sym +: args.map(_.toVariable) :+ res))
-              (bodyClauses, bodyGuards, Equals(_, sym))
+            mkExprClauses(inlinedBody)
+          case l @ Lambda(args, body) => ??? // Lambda? Unexpected
           case Forall(args, body) => ??? // Quantifier? Unexpected
           case FunctionInvocation(id, tps, args) if funReplacements.contains(id) =>
+            println("Matched func")
             val newID = funReplacements(id)
             val outType = expr.getType
             val newArgs = args.map { a =>
-              if isSimpleValue(a) then
+              if isSimpleValue(a) || a.getType.isInstanceOf[FunctionType] then
                 a
               else
                 // register a new guard
                 val newArg = Variable.fresh("arg", a.getType)
-                val (predClauses, predGuards, pred) = mkPredDef(a, variables, newArg)
+                val (predClauses, predGuards, pred) = makePredicate(a, freeVars, newArg)
                 guards ++= predGuards
                 guards += pred
                 clauses ++= predClauses
@@ -379,64 +408,109 @@ abstract class AbstractSimpleHornSolver private
             }
             val newExpr = 
                 if guards.size == 0 then
-                  (e: Expr) => FunctionInvocation(newID, tps, args :+ e)
+                  (e: Expr) => Application(newID, args :+ e)
                 else
-                  (e: Expr) => And(guards.toSeq :+ FunctionInvocation(newID, tps, args :+ e))
+                  (e: Expr) => And(guards.toSeq :+ Application(newID, args :+ e))
             (clauses.toSeq, guards.toSeq, newExpr)
           case Operator(args, recons) => 
-              println(s"OPERATOR $expr")
-              println(s"ARGS\n\t ${args.mkString("\n\t")}")
-              val guards = ListBuffer.empty[Expr]
-              val newArgs = args.map { a =>
-                if isSimpleValue(a) then
-                  a
-                else
-                  // register a new guard
-                  val newArg = Variable.fresh("arg", a.getType)
-                  val (predClauses, predGuards, pred) = mkPredDef(a, variables, newArg)
-                  guards ++= predGuards
-                  guards += pred
-                  clauses ++= predClauses
-                  newArg
-              }
-              val newExpr = recons(newArgs)
-              val body = 
-                if guards.size == 0 then
-                  (e: Expr) => Equals(e, newExpr)
-                else
-                  (e: Expr) => And(guards.toSeq :+ Equals(e, newExpr))
-              (clauses.toSeq, guards.toSeq, body)
-          case _ => throw UnexpectedMatchError(expr)
+            println("Matched op")
+            println(s"OPERATOR $expr")
+            println(s"ARGS\n\t ${args.mkString("\n\t")}")
+            val guards = ListBuffer.empty[Expr]
+            val newArgs = args.map { a =>
+              if isSimpleValue(a) || a.getType.isInstanceOf[FunctionType] then
+                a
+              else
+                // register a new guard
+                val newArg = Variable.fresh("arg", a.getType)
+                val (predClauses, predGuards, pred) = makePredicate(a, freeVars, newArg)
+                guards ++= predGuards
+                guards += pred
+                clauses ++= predClauses
+                newArg
+            }
+            val newExpr = recons(newArgs)
+            val body = 
+              if guards.size == 0 then
+                (e: Expr) => Equals(e, newExpr)
+              else
+                (e: Expr) => And(guards.toSeq :+ Equals(e, newExpr))
+            (clauses.toSeq, guards.toSeq, body)
+          case _ => throw UnexpectedMatchError(expr)    
 
-    case class UnexpectedMatchError(expr: Expr) extends Exception(s"Unexpected match error on $expr.")
+    
+    def getFunction(id: Identifier): Variable = funReplacements(id)
 
-    def getFunction(id: Identifier): Identifier = funReplacements(id)
+    val funClauses = MutableSet.empty[Expr]
+
+    def registerFunctions =
+      funClauses.clear()
+      val clauses = baseFunctions.map(f => registerFun(f.id))
+      funClauses ++= clauses.map(clause => 
+        val freeVars = exprOps.variablesOf(clause).map(_.toVal).filterNot(_.getType.isInstanceOf[FunctionType]).toSeq
+        Forall(freeVars, clause)
+      )
+
+    registerFunctions // on construction
 
     def encodeFunction(tfd: TypedFunDef): Clauses = 
       val body = tfd.fullBody
       
-      // register a new predicate for this function
-      val pred = registerFun(tfd.id)
-      val outType = tfd.getType
+      // get the predicate for this function
+      val pred = getFunction(tfd.id)
+      val outType = tfd.returnType
       val args = tfd.params.map(_.toVariable)
       val res = Variable.fresh("res", outType)
-      val (clauses, guards, bodyPred) = mkExprClauses(body, args :+ res)
-      val topClause = 
-        if guards.isEmpty then
-          Implies(bodyPred(res), FunctionInvocation(pred, tfd.tps, args :+ res))
-        else
-          Implies(And(guards :+ bodyPred(res)), FunctionInvocation(pred, tfd.tps, args :+ res))
-      val allClauses = clauses :+ topClause
+      val (clauses, guards, bodyPred) = mkExprClauses(body)
+      val lhs = if guards.isEmpty then bodyPred(res) else And(guards :+ bodyPred(res))
+      val topClause = Implies(lhs, Application(pred, args :+ res))
+      val goalClauses = guards.map(cl => Implies(Not(cl), Not(Application(pred, args :+ res))))
+      // println(s"TOP CLAUSE $topClause")
+      // println(s"GOAL CLAUSE $goalClauses")
+      // println(s"FROM DEFINITION $body")
+      val allClauses = clauses ++ goalClauses :+ topClause
       // quantify each clause appropriately
-      underlying.program.symbols.functions = symbols.functions.asInstanceOf
       allClauses.map(clause => 
-        val freeVars = exprOps.variablesOf(clause).map(_.toVal).toSeq
-        println("FREE VAR TYPES")
-        freeVars.foreach(v => println(v.tpe))
+        val freeVars = exprOps.variablesOf(clause).map(_.toVal).filterNot(_.getType.isInstanceOf[FunctionType]).toSeq
         Forall(freeVars, clause)
       )
-  }
 
+    def mkGuardedAssertion(assertion: Expr): (Guards, Expr) = 
+      assertion match
+        case FunctionInvocation(id, _, args) if funReplacements.contains(id) =>
+          val repl = Variable.fresh("res", assertion.getType)
+          val fun = getFunction(id)
+          val newGuard = Application(fun, args :+ repl)
+          (Seq(newGuard), repl)
+        case Operator(args, recons) =>
+          val inner = args.map(mkGuardedAssertion)
+          val guards = inner.flatMap(_._1)
+          val body = recons(inner.map(_._2))
+          (guards, body)
+      
+
+    def encodeNegatedAssertion(assertion: Expr): Clauses = 
+      val flipped = 
+        assertion match
+          case Not(expr) => expr
+          case _ => Not(assertion)
+      val fin = assertion
+      val split = 
+        fin match
+          case Or(args) => args
+          case _ => Seq(fin)
+      split
+        .map(mkGuardedAssertion)
+        .map((guard, expr) =>
+          val lhs = if guard.isEmpty then expr else And(guard :+ expr)
+          Implies(lhs, BooleanLiteral(false))
+        )
+        .map(clause => 
+          val freeVars = exprOps.variablesOf(clause).map(_.toVal).filterNot(_.getType.isInstanceOf[FunctionType]).toSeq
+          Forall(freeVars, clause)
+        )
+
+  }
 
   class UnderlyingHorn(override val program: targetProgram.type)
     extends smtlib.SMTLIBSolver(program, self.context) with smtlib.Z3Solver
@@ -474,30 +548,30 @@ abstract class AbstractSimpleHornSolver private
   val underlyingHorn = UnderlyingHorn(targetProgram)
 
   val baseFunctions = program.symbols.functions.values.toSeq.filterNot(_.flags.exists(_.name == "synthetic"))
-  lazy val invariants = baseFunctions.map(
-    fd =>
-      val tfd = fd.typed
-      val clauses = HornBuilder.encodeFunction(tfd)
-      val encoded = clauses.map(cl => templates.mkEncoder(Map.empty)(encode(cl)))
-      underlyingHorn.reset()
-      encoded.foreach(cl => underlyingHorn.assertCnstr(cl.asInstanceOf))
-      val res = underlyingHorn.check(Model)
+  // lazy val invariants = baseFunctions.map(
+  //   fd =>
+  //     val tfd = fd.typed
+  //     val clauses = HornBuilder2.encodeFunction(tfd)
+  //     val encoded = clauses.map(cl => templates.mkEncoder(Map.empty)(encode(cl)))
+  //     underlyingHorn.reset()
+  //     encoded.foreach(cl => underlyingHorn.assertCnstr(cl.asInstanceOf))
+  //     val res = underlyingHorn.check(Model)
 
-      res match
-        case Unsat => None
-        case SatWithModel(model) => 
-          val modelWrapper = wrapModel(model.asInstanceOf)
-          val res = Variable.fresh("res", fd.returnType)
-          val funExpr = FunctionInvocation(HornBuilder.getFunction(fd.id), Seq.empty, fd.params.map(_.toVariable) :+ res)
-          val encoded = templates.mkEncoder(Map.empty)(encode(funExpr))
-          modelWrapper.modelEval(encoded, t.BooleanType()) match
-            case Some(expr) => 
-              val inv = Implies(Equals(fd.applied, res), programEncoder.decode(expr))
-              println(s"Found invariant for ${fd.id}: $inv")
-              Some(inv)
-            case None => None
-        case _ => None      
-  )
+  //     res match
+  //       case Unsat => None
+  //       case SatWithModel(model) => 
+  //         val modelWrapper = wrapModel(model.asInstanceOf)
+  //         val res = Variable.fresh("res", fd.returnType)
+  //         val funExpr = FunctionInvocation(HornBuilder2.getFunction(fd.id), Seq.empty, fd.params.map(_.toVariable) :+ res)
+  //         val encoded = templates.mkEncoder(Map.empty)(encode(funExpr))
+  //         modelWrapper.modelEval(encoded, t.BooleanType()) match
+  //           case Some(expr) => 
+  //             val inv = Implies(Equals(fd.applied, res), programEncoder.decode(expr))
+  //             println(s"Found invariant for ${fd.id}: $inv")
+  //             Some(inv)
+  //           case None => None
+  //       case _ => None      
+  // )
 
   protected def wrapModel(model: underlying.Model): ModelWrapper
 
@@ -903,17 +977,45 @@ abstract class AbstractSimpleHornSolver private
     //     res
     // )
 
-    underlying.reset()
+    // underlying.reset()
 
-    baseFunctions.foreach(
-      fDef =>
-        val clauses = HornBuilder.encodeFunction(fDef.typed)
-        val encodedClauses = clauses.map { expr =>
-          templates.mkEncoder(Map.empty)(encode(expr))
-        }
-        // encodedClauses.foreach(underlying.assertCnstr)
-        clauses.foreach(assertCnstr)
+    // baseFunctions.foreach(
+    //   fd =>
+    //     println("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
+    //     println(s"Look at the original:\n${fd.fullBody}")
+    //     println(s"And the encoded:\n${encode(fd.fullBody)}")
+    //     println("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
+    // )
+
+    // println(s"Have ${assumptions.size} assumptions.")
+
+    // assumptions.foreach(
+    //   expr =>
+    //     println("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
+    //     println(s"Look at the original:\n$expr")
+    //     println(s"And the encoded:\n${encode(expr)}")
+    //     println("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
+    // )
+
+    baseFunctions
+    .filter(fd =>
+      val id = fd.id
+      encodedConstraints.exists(c => exprOps.variablesOf(c).exists(_.id == id))
     )
+    .foreach(
+      fDef =>
+        val clauses = HornBuilder2.encodeFunction(fDef.typed)
+        val encodedClauses = clauses.map { expr =>
+          encode(expr)
+        }
+        encodedClauses.foreach(c => underlying.assertCnstr(c.asInstanceOf))
+    )
+
+    // println("===============================================================")
+    // baseFunctions.foreach(println)
+    // println("===============================================================")
+    // assumptionsSeq.foreach(println)
+    // println("===============================================================")
 
     assumptions.foreach(
       expr =>
@@ -922,8 +1024,8 @@ abstract class AbstractSimpleHornSolver private
             case Not(e) => e
             case e => Not(e)
         
-        // val enc = templates.mkEncoder(Map.empty)(encode(uninverted))
-        assertCnstr(uninverted)
+        val enc = encode(expr)
+        underlying.assertCnstr(enc.asInstanceOf)
     )
 
     val res = 
@@ -934,9 +1036,16 @@ abstract class AbstractSimpleHornSolver private
 
     val resFlip = res match
       case Sat => Unsat
-      case SolverResponses.SatWithModel(_) => Unsat
-      case Unsat => Sat
+      case SolverResponses.SatWithModel(model) => Unsat
+      case Unsat => 
+        if config.withModel then
+          SatWithModel(inox.Model(program)(Map.empty, Map.empty))
+        else Sat
       case Unknown => Unknown
+
+    val ress = res match
+      case SolverResponses.SatWithModel(_) => SatWithModel(inox.Model(program)(Map.empty, Map.empty))
+      case _ => res
 
     config.cast(resFlip)
     
