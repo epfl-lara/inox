@@ -43,6 +43,13 @@ object SolverFactory {
     case _: java.io.IOException => false
   }
 
+  lazy val hasEld = try {
+    new CVC5Interpreter("eld", Array("-hsmt")).interrupt()
+    true
+  } catch {
+    case _: java.io.IOException => false
+  }
+
   lazy val hasCVC4 = try {
     new CVC4Interpreter("cvc4", Array("-q", "--lang", "smt2.6")).interrupt()
     true
@@ -80,13 +87,17 @@ object SolverFactory {
     "smt-z3-opt"    -> "Z3 optimizer through SMT-LIB",
     "smt-z3:<exec>" -> "Z3 through SMT-LIB with custom executable name",
     "princess"      -> "Princess with inox unrolling",
-    "eval"          -> "Internal evaluator to discharge ground assertions"
+    "eval"          -> "Internal evaluator to discharge ground assertions",
+    "horn-z3"       -> "Horn solver using Z3 / Spacer",
+    "horn-eld"      -> "Horn solver using Eldarica",
   )
 
   private val fallbacks = Map(
     "nativez3"     -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4", "smt-cvc5", "princess"),   "Z3 native interface"),
     "nativez3-opt" -> (() => hasNativeZ3, Seq("smt-z3-opt"),                                   "Z3 native interface"),
     "unrollz3"     -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4", "smt-cvc5", "princess"),   "Z3 native interface"),
+    "horn-z3"      -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4", "smt-cvc5", "princess"),   "Z3 native interface"),
+    "horn-eld"     -> (() => hasEld,      Seq("smt-z3", "smt-cvc4", "smt-cvc5", "princess"),   "Eldarica binary"),
     "smt-cvc4"     -> (() => hasCVC4,     Seq("nativez3", "smt-z3", "princess"),               "'cvc4' binary"),
     "smt-cvc5"     -> (() => hasCVC5,     Seq("nativez3", "smt-z3", "princess"),               "'cvc5' binary"),
     "smt-z3"       -> (() => hasZ3,       Seq("nativez3", "smt-cvc4", "smt-cvc5", "princess"), "'z3' binary"),
@@ -255,6 +266,132 @@ object SolverFactory {
         }
 
         () => new SMTZ3OptImpl(p)
+      })
+
+      case "horn-z3" => create(p)(finalName, {
+        val emptyEnc = ProgramEncoder.empty(enc.targetProgram)
+        val chooses = ChooseEncoder(enc.targetProgram)(emptyEnc)
+        class SMTZ3Impl(override val program: enc.targetProgram.type)
+          extends AbstractSimpleHornSolver (program, ctx, emptyEnc, chooses)(fullEncoder => theories.Z3(fullEncoder.targetProgram))(using enc.targetProgram.getSemantics)
+            with SimpleHornSolver
+            with TimeoutSolver
+            with tip.TipDebugger {
+
+          class Underlying(override val program: targetProgram.type)
+            extends smtlib.SMTLIBSolver(program, context)
+              with smtlib.Z3Solver {
+            override def targetName = "z3"
+            import _root_.smtlib.trees.Terms
+            import _root_.smtlib.trees.CommandsResponses._
+            import _root_.smtlib.trees.Commands._
+            import _root_.smtlib.Interpreter
+            import _root_.smtlib.printer.Printer
+            import _root_.smtlib.printer.RecursivePrinter
+            import java.io.BufferedReader
+            import _root_.smtlib.interpreters.ProcessInterpreter
+            import _root_.smtlib.parser.Parser
+            import _root_.smtlib.extensions.tip.Lexer
+
+            class  HornZ3Interpreter(executable: String,
+                              args: Array[String],
+                              printer: Printer = RecursivePrinter,
+                              parserCtor: BufferedReader => Parser = out => new Parser(new Lexer(out)))
+            extends ProcessInterpreter (executable, args, printer, parserCtor):
+              printer.printCommand(SetOption(PrintSuccess(true)), in)
+              in.write("\n")
+              in.flush()
+              parser.parseGenResponse
+              in.write("(set-logic HORN)\n")
+              in.flush()
+              parser.parseGenResponse
+
+              override def eval(cmd: Terms.SExpr): Terms.SExpr = 
+                super.eval(cmd)
+
+            override protected val interpreter = {
+              val opts = interpreterOpts
+              // reporter.debug("Invoking solver "+targetName+" with "+opts.mkString(" "))
+              new HornZ3Interpreter(targetName, opts.toArray, parserCtor = out => new Z3Parser(new Lexer(out)))
+            }
+          }
+
+          override protected val underlying =
+            nonIncrementalWrap(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
+
+          // encoder is from TipDebugger and enc from AbstractUnrollingSolver
+          override protected val encoder = emptyEnc
+        }
+
+        class EncodedImpl(program: p.type, enc: transformers.ProgramTransformer {
+                         val sourceProgram: program.type
+                         val targetProgram: Program { val trees: inox.trees.type }
+                       }, underlying: Solver {val program: enc.targetProgram.type}) 
+              extends EncodingSolver(program, enc, underlying) with TimeoutSolver
+
+        () => new EncodedImpl(p, enc, SMTZ3Impl(enc.targetProgram))
+      })
+
+      case "horn-eld" => create(p)(finalName, {
+        val emptyEnc = ProgramEncoder.empty(enc.targetProgram)
+        val chooses = ChooseEncoder(enc.targetProgram)(emptyEnc)
+        class SMTEldaricaImpl(override val program: enc.targetProgram.type)
+          extends AbstractSimpleHornSolver (program, ctx, emptyEnc, chooses)(fullEncoder => theories.Z3(fullEncoder.targetProgram))(using enc.targetProgram.getSemantics)
+            with SimpleHornSolver
+            with TimeoutSolver
+            with tip.TipDebugger {
+
+          class Underlying(override val program: targetProgram.type)
+            extends smtlib.SMTLIBSolver(program, context)
+              with smtlib.CVC5Solver {
+            override def targetName = "unmanaged/inter"
+            import _root_.smtlib.trees.Terms
+            import _root_.smtlib.trees.CommandsResponses._
+            import _root_.smtlib.trees.Commands._
+            import _root_.smtlib.Interpreter
+            import _root_.smtlib.printer.Printer
+            import _root_.smtlib.printer.RecursivePrinter
+            import java.io.BufferedReader
+            import _root_.smtlib.interpreters.ProcessInterpreter
+            import _root_.smtlib.parser.Parser
+            import _root_.smtlib.extensions.tip.Lexer
+
+            class  HornEldInterpreter(executable: String,
+                              args: Array[String],
+                              printer: Printer = RecursivePrinter,
+                              parserCtor: BufferedReader => Parser = out => new Parser(new Lexer(out)))
+            extends ProcessInterpreter (executable, args, printer, parserCtor):
+              printer.printCommand(SetOption(PrintSuccess(true)), in)
+              in.write("\n")
+              in.flush()
+              parser.parseGenResponse
+              in.write("(set-logic HORN)\n")
+              in.flush()
+              parser.parseGenResponse
+
+              override def eval(cmd: Terms.SExpr): Terms.SExpr = 
+                super.eval(cmd)
+
+            override protected val interpreter = {
+              val opts = interpreterOpts
+              // reporter.debug("Invoking solver "+targetName+" with "+opts.mkString(" "))
+              new HornEldInterpreter(targetName, opts.toArray, parserCtor = out => new Parser(new Lexer(out)))
+            }
+          }
+
+          override protected val underlying =
+            nonIncrementalWrap(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
+
+          // encoder is from TipDebugger and enc from AbstractUnrollingSolver
+          override protected val encoder = emptyEnc
+        }
+
+        class EncodedImpl(program: p.type, enc: transformers.ProgramTransformer {
+                         val sourceProgram: program.type
+                         val targetProgram: Program { val trees: inox.trees.type }
+                       }, underlying: Solver {val program: enc.targetProgram.type}) 
+              extends EncodingSolver(program, enc, underlying) with TimeoutSolver
+
+        () => new EncodedImpl(p, enc, SMTEldaricaImpl(enc.targetProgram))
       })
 
       case _ if finalName == "smt-z3" || finalName.startsWith("smt-z3:") => create(p)(finalName, {
