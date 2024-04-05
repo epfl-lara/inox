@@ -17,6 +17,34 @@ information, see:
 - A more detailed description of the available solver/evaluator [API](doc/API.md) calls.
 - A description of the [trees](doc/trees.md) API and how to extend them.
 
+## HCVS Archive and Examples
+
+This archive of Inox hosts an experimental version implementing prototype
+support for Horn solvers. The examples from the HCVS 2024 paper can be found in
+the `inductiveExamples/` directory.
+
+You will need `sbt` to run these examples. General installation instructions are
+in the following sections.
+
+After booting up `sbt`, the examples can be run with the following pair of commands:
+
+```console
+> run inductiveExamples/fibonacci/fibonacci.scala-0.tip --solvers=horn-z3
+```
+
+Examples are split into folders based on the example they originate from. Inox
+accepts queries in TIP and SMT2 formats.
+
+The solvers can be changed to `horn-eld` for Eldarica, or `smt-z3`, `smt-cvc5`,
+and `princess` for the usual supported backends. 
+
+For solvers except for `princess`, the solver binary is expected to be present.
+Since a custom version of Eldarica is in use here, it is packaged as a JAR file
+in the repository. 
+
+The TIP files are auto-generated using Stainless from Scala files available as
+examples on the [Stainless counterpart link](https://github.com/sankalpgambhir/stainless/tree/hcvs24).
+
 ### Add Inox as a dependency
 
 To add Inox as a dependency of your project, add the following lines to your `build.sbt`,
