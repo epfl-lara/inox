@@ -133,7 +133,7 @@ trait Definitions { self: Trees =>
     given givenSymbols: symbols.type = symbols
 
     val sorts: Map[Identifier, ADTSort]
-    var functions: Map[Identifier, FunDef] // TODO: better way to register functions?
+    val functions: Map[Identifier, FunDef]
 
     @inline def constructors: Map[Identifier, ADTConstructor] = _constructors.get
     private val _constructors: Lazy[Map[Identifier, ADTConstructor]] =
