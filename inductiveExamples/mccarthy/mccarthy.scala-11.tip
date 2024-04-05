@@ -1,0 +1,11 @@
+(declare-const n!20 Int)
+
+(define-fun-rec m!12 ((n!20 Int)) Int (let ((_$1!20 (let ((targetBound!0 (> n!20 100))) (ite targetBound!0 (- n!20 10) (m!12 (m!12 (+ n!20 11))))))) (assume (not (= _$1!20 50)) _$1!20)))
+
+(define-fun BigIntAbs!0 ((x!0 Int)) Int (ite (>= x!0 0) x!0 (- x!0)))
+
+(assert (not (and (let ((targetBound!0 (> n!20 100))) (=> (not targetBound!0) (let ((n!25 (m!12 (+ n!20 11)))) (let ((targetBound!1 (> n!25 100))) (=> (not targetBound!1) (< (BigIntAbs!0 (m!12 (+ n!25 11))) (BigIntAbs!0 n!20))))))) (let ((targetBound!0 (> n!20 100))) (=> (not targetBound!0) (let ((n!26 (+ n!20 11))) (let ((targetBound!2 (> n!26 100))) (=> (not targetBound!2) (< (BigIntAbs!0 (m!12 (+ n!26 11))) (BigIntAbs!0 n!20))))))) (let ((targetBound!0 (> n!20 100))) (=> (not targetBound!0) (let ((n!27 (+ n!20 11))) (let ((targetBound!3 (> n!27 100))) (=> (not targetBound!3) (< (BigIntAbs!0 (+ n!27 11)) (BigIntAbs!0 n!20))))))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

@@ -1,0 +1,9 @@
+(declare-const n!20 Int)
+
+(define-fun-rec m!12 ((n!20 Int)) Int (let ((targetBound!0 (> n!20 100))) (ite targetBound!0 (- n!20 10) (m!12 (m!12 (+ n!20 11))))))
+
+(assert (let ((targetBound!0 (> n!20 100))) (and (not targetBound!0) (let ((n!38 (m!12 (+ n!20 11)))) (let ((targetBound!9 (> n!38 100))) (and (not targetBound!9) (let ((n!39 (+ n!38 11))) (let ((targetBound!10 (> n!39 100))) (and (not targetBound!10) (= n!20 (m!12 (+ n!39 11))))))))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

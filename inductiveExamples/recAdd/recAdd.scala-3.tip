@@ -1,0 +1,9 @@
+(declare-const x!162 Int)
+
+(declare-const y!34 Int)
+
+(assert (not (or (< x!162 0) (< y!34 0) (<= x!162 0) (< (- x!162 1) x!162))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

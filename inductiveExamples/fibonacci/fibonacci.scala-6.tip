@@ -1,0 +1,9 @@
+(declare-const n!21 Int)
+
+(define-fun-rec fib!0 ((n!20 Int)) Int (assume (>= n!20 0) (let ((_$1!20 (let ((targetBound!0 (<= n!20 1))) (ite targetBound!0 1 (+ (fib!0 (- n!20 1)) (fib!0 (- n!20 2))))))) (assume (not (= _$1!20 (- 1))) _$1!20))))
+
+(assert (not (or (< n!21 0) (<= n!21 1) (not (= (+ (fib!0 (- n!21 1)) (fib!0 (- n!21 2))) (- 1))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

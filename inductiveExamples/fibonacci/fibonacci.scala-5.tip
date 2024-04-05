@@ -1,0 +1,7 @@
+(declare-const n!21 Int)
+
+(assert (not (or (< n!21 0) (<= n!21 1) (< (- n!21 2) n!21))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

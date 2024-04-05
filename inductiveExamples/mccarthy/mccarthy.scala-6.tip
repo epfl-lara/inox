@@ -1,0 +1,9 @@
+(declare-const n!20 Int)
+
+(define-fun BigIntAbs!0 ((x!0 Int)) Int (ite (>= x!0 0) x!0 (- x!0)))
+
+(assert (not (let ((targetBound!0 (> n!20 100))) (=> (not targetBound!0) (< (BigIntAbs!0 (+ n!20 11)) (BigIntAbs!0 n!20))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

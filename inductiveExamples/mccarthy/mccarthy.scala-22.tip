@@ -1,0 +1,9 @@
+(declare-const n!46 Int)
+
+(define-fun-rec m!12 ((n!20 Int)) Int (let ((_$1!20 (let ((targetBound!0 (> n!20 100))) (ite targetBound!0 (- n!20 10) (m!12 (m!12 (+ n!20 11))))))) (assume (not (= _$1!20 50)) _$1!20)))
+
+(assert (not (or (> n!46 100) (not (= (m!12 (m!12 (+ n!46 11))) 50)))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

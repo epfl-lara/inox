@@ -1,0 +1,7 @@
+(declare-const n!46 Int)
+
+(assert (not (or (not (> n!46 100)) (not (= (- n!46 10) 50)))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard

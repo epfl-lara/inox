@@ -1,0 +1,7 @@
+(declare-const n!20 Int)
+
+(assert (let ((targetBound!0 (> n!20 100))) (and (not targetBound!0) (let ((n!44 (+ n!20 11))) (let ((targetBound!13 (> n!44 100))) (and (not targetBound!13) (let ((n!45 (+ n!44 11))) (let ((targetBound!14 (> n!45 100))) (and (not targetBound!14) (= n!20 (+ n!45 11)))))))))))
+
+(check-sat)
+
+; check-assumptions required here, but not part of tip standard
