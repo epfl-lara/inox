@@ -280,6 +280,9 @@ object SolverFactory {
 
           // encoder is from TipDebugger and enc from AbstractUnrollingSolver
           override protected val encoder = enc
+
+          // Used to report SMT Lib files <-> VCs correspondence
+          override def getSmtLibFileId: Option[Int] = underlying.getSmtLibFileId
         }
 
         () => new SMTZ3Impl(p)(enc)(ChooseEncoder(p)(enc))
@@ -306,6 +309,9 @@ object SolverFactory {
               with smtlib.CVC4Solver
 
           protected val underlying = nonIncrementalWrap(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
+
+          // Used to report SMT Lib files <-> VCs correspondence
+          override def getSmtLibFileId: Option[Int] = underlying.getSmtLibFileId
 
           // encoder is from TipDebugger and enc from AbstractUnrollingSolver
           override protected val encoder = enc
@@ -336,6 +342,9 @@ object SolverFactory {
 
           protected val underlying = nonIncrementalWrap(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
 
+          // Used to report SMT Lib files <-> VCs correspondence
+          override def getSmtLibFileId: Option[Int] = underlying.getSmtLibFileId
+          
           // encoder is from TipDebugger and enc from AbstractUnrollingSolver
           override protected val encoder = enc
         }

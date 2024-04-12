@@ -40,6 +40,8 @@ abstract class SMTLIBSolver private(override val program: Program,
     }
   }
 
+  override def getSmtLibFileId: Option[Int] = this.getSmtLibFileIdIfDebug
+
   /* Public solver interface */
   def assertCnstr(expr: Expr): Unit = {
     variablesOf(expr).foreach(declareVariable)

@@ -22,14 +22,26 @@ trait SMTLIBDebugger extends SMTLIBTarget {
     super.free()
     debugOut.foreach(_.close())
   }
+  lazy private val file = options.findOptionOrDefault(Main.optFiles).headOption.map(_.getName).getOrElse("NA")
+  lazy private val smtLibFileId: Int = DebugFileNumbers.next(targetName + file)
 
+  /**
+   * Returns the SMT-lib file query ID if the debug=smt option is activated, otherwise None
+   * @return
+   */
+  def getSmtLibFileIdIfDebug: Option[Int] = {
+    given DebugSectionSMT.type = DebugSectionSMT
+    if (reporter.isDebugEnabled) {
+      Some(smtLibFileId)
+    } else {
+      None
+    }
+  }
   /* Printing VCs */
   protected lazy val debugOut: Option[java.io.FileWriter] = {
     given DebugSectionSMT.type = DebugSectionSMT
     if (reporter.isDebugEnabled) {
-      val file = options.findOptionOrDefault(Main.optFiles).headOption.map(_.getName).getOrElse("NA")
-      val n = DebugFileNumbers.next(targetName + file)
-      val fileName = s"smt-sessions/$targetName-$file-$n.smt2"
+      val fileName = s"smt-sessions/$targetName-$file-$smtLibFileId.smt2"
 
       val javaFile = new java.io.File(fileName)
       javaFile.getParentFile.mkdirs()

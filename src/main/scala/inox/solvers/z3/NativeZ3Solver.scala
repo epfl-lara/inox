@@ -23,6 +23,8 @@ class NativeZ3Solver(override val program: Program)
 
   protected val underlying =
     NativeZ3Solver.synchronized(new Underlying(targetProgram, self.context)(using targetSemantics))
+    
+  
 
   override def free(): Unit = NativeZ3Solver.synchronized(super.free())
 
