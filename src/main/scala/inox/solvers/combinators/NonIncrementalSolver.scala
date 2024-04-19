@@ -18,6 +18,11 @@ trait NonIncrementalSolver extends AbstractSolver { self =>
     type Model = self.Model
   }
 
+  // Used to report SMT Lib files <-> VCs correspondence
+  override def getSmtLibFileId: Option[Int] = currentSolver match
+    case Some(solver) => solver.getSmtLibFileId
+    case None => None
+
   val assertions: IncrementalSeq[Trees] = new IncrementalSeq[Trees]
 
   var currentSolver: Option[AbstractSolver] = None

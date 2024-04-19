@@ -28,6 +28,10 @@ trait AbstractSolver extends Interruptible {
   // This is ugly, but helpful for smtlib solvers
   def dbg(msg: => Any): Unit = {}
 
+  // Used to report SMT Lib files <-> VCs correspondence
+  // Therefore it should be overriden in solvers that extends SMTLibDebugger traits
+  def getSmtLibFileId: Option[Int] = None
+
   object SolverUnsupportedError {
     def msg(t: Tree, reason: Option[String]) = {
       s"(of ${t.getClass}) is unsupported by solver $name" + reason.map(":\n  " + _ ).getOrElse("")

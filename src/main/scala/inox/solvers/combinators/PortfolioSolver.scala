@@ -20,6 +20,9 @@ trait PortfolioSolver extends Solver { self =>
   val solvers: Seq[SubSolver]
   val name = "Pfolio"
 
+  // Used to report SMT Lib files <-> VCs correspondence
+  override def getSmtLibFileId: Option[Int] = if solvers.isEmpty then None else solvers.head.getSmtLibFileId
+
   protected var resultSolver: Option[Solver] = None
 
   private[this] var tasks: Future[Unit] = Future(())
