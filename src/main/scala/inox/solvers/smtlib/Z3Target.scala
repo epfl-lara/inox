@@ -63,6 +63,10 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   // so make sure it is enabled at this point.
   emit(SetOption(ProduceUnsatAssumptions(true)))
 
+  // CVC5 emits a warning when no (set-logic X) command is passed
+  // So we emit (set-logic all) by default for all solvers
+  emit(SetLogic(ALL()))
+
   protected class Version(val major: Int, val minor: Int, rest: String) extends Ordered[Version] {
     override def compare(that: Version): Int = {
       import scala.math.Ordering.Implicits._
