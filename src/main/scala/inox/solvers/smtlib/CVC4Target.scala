@@ -25,7 +25,7 @@ trait CVC4Target extends CVCTarget {
   }
 
   // CVC5 emits a warning when no (set-logic X) command is passed
-  // So we emit (set-logic all) by default for all solvers
+  // So we emit (set-logic all) by default
   emit(SetLogic(ALL()))
 
 
