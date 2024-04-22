@@ -63,6 +63,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   // so make sure it is enabled at this point.
   emit(SetOption(ProduceUnsatAssumptions(true)))
 
+
   protected class Version(val major: Int, val minor: Int, rest: String) extends Ordered[Version] {
     override def compare(that: Version): Int = {
       import scala.math.Ordering.Implicits._

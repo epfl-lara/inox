@@ -4,7 +4,7 @@ package inox
 package solvers
 package smtlib
 
-import inox.OptionParsers._
+import inox.OptionParsers.*
 
 trait CVCSolver extends SMTLIBSolver with CVCTarget {
   import context.{given, _}
@@ -23,7 +23,7 @@ trait CVCSolver extends SMTLIBSolver with CVCTarget {
     ) ++ options.findOptionOrDefault(optCVCOptions)
   }
 
-  override def checkAssumptions(config: Configuration)(assumptions: Set[Expr]) = {
+  override def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[program.Model, Assumptions] = {
     push()
     for (cl <- assumptions) assertCnstr(cl)
     val res: SolverResponse[Model, Assumptions] = check(Model min config)
