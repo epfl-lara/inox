@@ -6,7 +6,7 @@ git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
-scalaVersion := "3.3.0"
+scalaVersion := "3.3.3"
 
 scalacOptions ++= Seq(
   "-deprecation",
