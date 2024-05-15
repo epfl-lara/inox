@@ -115,7 +115,12 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected val sorts         = new IncrementalBijection[Type, Sort]
   protected val functions     = new IncrementalBijection[TypedFunDef, SSymbol]
   protected val lambdas       = new IncrementalBijection[FunctionType, SSymbol]
-  protected val predicates    = new IncrementalBijection[Expr, SSymbol]
+  protected val predicates    = new IncrementalSet[Variable]
+  protected val predicateCalls= new IncrementalBijection[Expr, SSymbol]
+
+  def registerPredicate(v: Variable): Unit = {
+    predicates += v
+  }
 
   /* Helper functions */
 
@@ -141,6 +146,10 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     quantifiedTerm(quantifier, exprOps.variablesOf(body).toSeq.map(_.toVal), body)
 
   protected final def declareSort(tpe: Type): Sort =
+    // println(s"@@@@ CALLED WITH $tpe with ${tpe match
+    //   case ADTType(id, _) => id.uniqueName
+    //   case _ => "None"
+    // } and found? ${if sorts.containsA(tpe) then "cached" else "NONONO"}")
     sorts.cachedB(tpe)(computeSort(tpe))
 
   protected def computeSort(t: Type): Sort = t match {
@@ -201,11 +210,12 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected def declareVariable(v: Variable): SSymbol = {
     variables.cachedB(v) {
       val s = id2sym(v.id)
-      v.getType match
-        case FunctionType(_, BooleanType()) => ()
-        case _ =>
-          val cmd = DeclareFun(s, List(), declareSort(v.getType))
-          emit(cmd)
+      if predicates.contains(v) then
+        ()
+      else 
+        val cmd = DeclareFun(s, List(), declareSort(v.getType))
+        emit(cmd)
+        
       s
     }
   }
@@ -346,20 +356,23 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
        * ===== Everything else =====
        */
       case ap @ Application(caller, args) =>
-        // val dyn = declareLambda(caller.getType.asInstanceOf[FunctionType])
-        val fun = predicates.cachedB(caller) {
-          caller match
-            case pred @ Variable(id, FunctionType(from, to), flags) =>
-              val s = id2sym(id)
-              emit(DeclareFun(
-                s,
-                from.map(declareSort),
-                declareSort(to)
-              ))
-              s
-          
-        }
-        FunctionApplication(fun, args.map(toSMT))
+        caller match
+          case v: Variable if predicates.contains(v) =>
+            val pred = predicateCalls.cachedB(caller) {
+              caller match
+                case pred @ Variable(id, FunctionType(from, to), flags) =>
+                  val s = id2sym(id)
+                  emit(DeclareFun(
+                    s,
+                    from.map(declareSort),
+                    declareSort(to)
+                  ))
+                  s
+            }
+            FunctionApplication(pred, args.map(toSMT))
+          case _ => // normal lambda
+            val dyn = declareLambda(caller.getType.asInstanceOf[FunctionType])
+            FunctionApplication(dyn, (caller +: args).map(toSMT))
 
       case Not(u) => Core.Not(toSMT(u))
 
