@@ -19,7 +19,8 @@ trait CVCSolver extends SMTLIBSolver with CVCTarget {
       "--produce-models", // support the get-value and get-model commands
       "--incremental",
       "--print-success",
-      "--lang", "smt2.6"
+      "--lang", "smt2.6",
+      "--model-cores", "simple"
     ) ++ options.findOptionOrDefault(optCVCOptions)
   }
 
