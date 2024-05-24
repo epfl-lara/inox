@@ -6,6 +6,8 @@ package smtlib
 
 import inox.OptionParsers.*
 
+object cvcSimplesModelOpt extends FlagOptionDef(name = "cvc-simple-models", default = false)
+
 trait CVCSolver extends SMTLIBSolver with CVCTarget {
   import context.{given, _}
   import program.trees._
@@ -19,9 +21,9 @@ trait CVCSolver extends SMTLIBSolver with CVCTarget {
       "--produce-models", // support the get-value and get-model commands
       "--incremental",
       "--print-success",
-      "--lang", "smt2.6",
-      "--model-cores", "simple"
-    ) ++ options.findOptionOrDefault(optCVCOptions)
+      "--lang", "smt2.6"
+    ) ++ (if options.findOptionOrDefault(cvcSimplesModelOpt) then Seq("--model-cores", "simple") else Seq())
+      ++ options.findOptionOrDefault(optCVCOptions)
   }
 
   override def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[program.Model, Assumptions] = {

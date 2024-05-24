@@ -102,6 +102,8 @@ trait MainHelpers {
     solvers.unrolling.optUnrollAssumptions -> Description(Solvers, "Use unsat-assumptions to drive unfolding while remaining fair"),
     solvers.unrolling.optModelFinding -> Description(Solvers, "Enhance model-finding capabilities of solvers by given aggressivity"),
     solvers.smtlib.optCVC4Options -> Description(Solvers, "Pass extra options to CVC4"),
+    solvers.smtlib.optCVC5Options -> Description(Solvers, "Pass extra options to CVC5"),
+    solvers.smtlib.cvcSimplesModelOpt -> Description(Solvers, "Use --model-cores=simple with cvc family solvers to produce simpler models when queries are sat"),
     evaluators.optMaxCalls -> Description(Evaluators, "Maximum function invocations allowed during evaluation"),
     evaluators.optIgnoreContracts -> Description(Evaluators, "Don't fail on invalid contracts during evaluation")
   )
