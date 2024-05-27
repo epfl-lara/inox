@@ -18,7 +18,9 @@ trait NativeZ3Optimizer extends Z3Unrolling with AbstractUnrollingOptimizer  { s
 
   override protected val underlying = NativeZ3Solver.synchronized(new Underlying(targetProgram, context)(using targetSemantics))
 
-  private class Underlying(override val program: targetProgram.type,
+  private type Target = targetProgram.type
+
+  private class Underlying(override val program: Target,
                            override val context: Context)
                           (using override val semantics: targetSemantics.type)
     extends AbstractOptimizer with Z3Native {
