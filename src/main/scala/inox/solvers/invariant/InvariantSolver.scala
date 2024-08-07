@@ -556,20 +556,18 @@ abstract class AbstractInvariantSolver(override val program: Program,
 
       case Or(inners) =>
         val newPred = generateFreshPredicate("OrExpr", (freeVars.map(_.tpe) :+ BooleanType()).map(canonicalType))
-        val newRes = Variable.fresh("OrResult", BooleanType())
         inners.map(makeExprClauses).map: (innerClauses, innerGuards, innerPred) =>
           clauses ++= innerClauses
           // guards ++= innerGuards // guards should not escape branches?
-          clauses += Application(newPred, freeVars :+ newRes) :- (innerPred(newRes) +: innerGuards)
+          clauses += Application(newPred, freeVars :+ BooleanLiteral(true)) :- (innerPred(BooleanLiteral(true)) +: innerGuards)
         (clauses, guards, res => Application(newPred, freeVars :+ res))
 
       case And(inners) =>
         val newPred = generateFreshPredicate("AndExpr", (freeVars.map(_.tpe) :+ BooleanType()).map(canonicalType))
-        val newRes = Variable.fresh("AndRes", BooleanType())
         val lhs = inners.map(makeExprClauses).flatMap: (innerClauses, innerGuards, innerPred) =>
           clauses ++= innerClauses
-          innerGuards :+ innerPred(newRes)
-        clauses += Application(newPred, freeVars :+ newRes) :- lhs
+          innerGuards :+ innerPred(BooleanLiteral(true))
+        clauses += Application(newPred, freeVars :+ BooleanLiteral(true)) :- lhs
         (clauses, guards, res => Application(newPred, freeVars :+ res))
 
       // other operator
@@ -583,6 +581,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
             val newArg = Variable.fresh("arg", a.getType, true)
             val (predClauses, predGuards, pred) = makePredicate(a, freeVars, newArg)
             guards ++= predGuards
+            guards += pred
             clauses ++= predClauses
             newArg
 
