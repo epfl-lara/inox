@@ -709,8 +709,8 @@ abstract class AbstractInvariantSolver(override val program: Program,
           // discard underlying model. We cannot (in general) construct a program
           // model from the Horn model 
           config.cast(SolverResponses.Unsat)
-        case SolverResponses.Unknown => config.cast(SolverResponses.Unknown)
         case SolverResponses.Check(r) => config.cast(if r then SolverResponses.Unsat else SolverResponses.SatWithModel(emptyProgramModel))
+        case _ => config.cast(SolverResponses.Unknown) // unknown or unreachable
 
     res
 
