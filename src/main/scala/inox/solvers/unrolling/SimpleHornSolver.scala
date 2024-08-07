@@ -1194,39 +1194,6 @@ trait SimpleHornSolver extends AbstractSimpleHornSolver { self =>
 
   override lazy val name = "SH:"+underlying.name
 
-  override val templates = new TemplatesImpl(targetProgram, context)
-
-  private class TemplatesImpl(override val program: targetProgram.type, override val context: Context)
-                             (using override val semantics: targetProgram.Semantics)
-    extends Templates {
-    import program._
-    import program.trees._
-    import program.symbols.{given, _}
-
-    type Encoded = Expr
-
-    def asString(expr: Expr): String = expr.asString
-    def abort: Boolean = self.abort
-    def pause: Boolean = self.pause
-
-    def encodeSymbol(v: Variable): Expr = v.freshen
-    def mkEncoder(bindings: Map[Variable, Expr])(e: Expr): Expr = exprOps.replaceFromSymbols(bindings, e)
-    def mkSubstituter(substMap: Map[Expr, Expr]): Expr => Expr = (e: Expr) => exprOps.replace(substMap, e)
-
-    def mkNot(e: Expr) = not(e)
-    def mkOr(es: Expr*) = orJoin(es)
-    def mkAnd(es: Expr*) = andJoin(es)
-    def mkEquals(l: Expr, r: Expr) = Equals(l, r)
-    def mkImplies(l: Expr, r: Expr) = implies(l, r)
-
-    def extractNot(e: Expr) = e match {
-      case Not(e2) => Some(e2)
-      case _ => None
-    }
-
-    def decodePartial(e: Expr, tpe: Type): Option[Expr] = Some(e)
-  }
-
   protected lazy val modelEvaluator: DeterministicEvaluator { val program: self.targetProgram.type } =
     targetSemantics.getEvaluator(using context.withOpts(optIgnoreContracts(true)))
 
