@@ -297,7 +297,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
     // construct constraints
     val predClause = aply(res) :- (body(res) +: guards)
 
-    (clauses :+ predClause, ListBuffer.empty, aply(res))
+    (clauses :+ predClause, guards, aply(res))
 
   // TODO: Move
 
