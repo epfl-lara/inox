@@ -664,21 +664,41 @@ abstract class AbstractInvariantSolver(override val program: Program,
       .map(_.collapse)
       .map(quantify)
 
+  private def encodeFunctionsForAssumptions(assumptions: Set[Source]): Set[Encoded] = 
+    // all functions that appear in the assumptions, transitively
+    val functions = assumptions
+                      .map(encode)
+                      .flatMap(exprOps.functionCallsOf)
+                      .map(_.id)
+                      .filter(funReplacements.contains)
+                      .flatMap(program.symbols.callGraph.transitiveSucc)
+
+    // generate the clauses for these functions
+    functions.flatMap: id =>
+      val tfd = targetProgram.symbols.getFunction(id)
+      encodeFunction(tfd.typed(using targetProgram.symbols))
+
   /**
     * Invariant-generating implementation of [[checkAssumptions]].
     */
   private def checkAssumptions_(config: Configuration)(assumptions: Set[Source]): config.Response[Model, Assumptions] = 
+
+    // send constraints to solver
+    val totalAssumptions = assumptions ++ constraints
+
+    // Horn encode assumptions
+    val assumptionClauses = encodeAssumptions(totalAssumptions)
+
+    // find and encode all function calls (recursively)
+    val definitionClauses = encodeFunctionsForAssumptions(totalAssumptions)
     
     // declare variables
     predicates.foreach(underlyingHorn.registerPredicate)
 
-    // send constraints to solver
-    constraints.foreach(underlyingHorn.assertCnstr)
-
-    val assumptionClauses = encodeAssumptions(assumptions)
+    (assumptionClauses ++ definitionClauses).foreach(underlyingHorn.assertCnstr)
     
     // check satisfiability
-    val underlyingResult = underlyingHorn.checkAssumptions(config)(assumptionClauses)
+    val underlyingResult = underlyingHorn.checkAssumptions(config)(Set.empty)
 
     // interpret result
     val res = 
