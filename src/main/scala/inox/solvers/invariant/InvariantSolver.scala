@@ -331,6 +331,8 @@ abstract class AbstractInvariantSolver(override val program: Program,
       (clauses, res)
     })
 
+  val assertions: collection.mutable.ListBuffer[Expr] = collection.mutable.ListBuffer.empty
+
   /**
     * Encode an expression, recursively generating clauses for its elaboration
     * into Horn clauses.
@@ -381,6 +383,8 @@ abstract class AbstractInvariantSolver(override val program: Program,
             condPred
 
         guards += newCond
+
+        assertions += cond
         
         val newBody = 
             // body is the target expression, it must always be elaborated
