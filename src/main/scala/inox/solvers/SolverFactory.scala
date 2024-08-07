@@ -5,6 +5,8 @@ package solvers
 
 import transformers._
 import inox.solvers.evaluating.EvaluatingSolver
+import inox.solvers.invariant.AbstractInvariantSolver
+import inox.solvers.invariant.InvariantSolver
 
 trait SolverFactory {
   val program: Program
@@ -272,8 +274,8 @@ object SolverFactory {
         val emptyEnc = ProgramEncoder.empty(enc.targetProgram)
         val chooses = ChooseEncoder(enc.targetProgram)(emptyEnc)
         class SMTZ3Impl(override val program: enc.targetProgram.type)
-          extends AbstractSimpleHornSolver (program, ctx, emptyEnc, chooses)(fullEncoder => theories.Z3(fullEncoder.targetProgram))(using enc.targetProgram.getSemantics)
-            with SimpleHornSolver
+          extends AbstractInvariantSolver (program, ctx)(program)(emptyEnc)(emptyEnc)(using program.getSemantics, emptyEnc.targetProgram.getSemantics)
+            with InvariantSolver
             with TimeoutSolver
             with tip.TipDebugger {
 
@@ -316,7 +318,7 @@ object SolverFactory {
             }
           }
 
-          override protected val underlying = Underlying(targetProgram)
+          override protected val underlyingHorn = Underlying(targetProgram)
 
           // encoder is from TipDebugger and enc from AbstractUnrollingSolver
           override protected val encoder = emptyEnc
@@ -335,8 +337,8 @@ object SolverFactory {
         val emptyEnc = ProgramEncoder.empty(enc.targetProgram)
         val chooses = ChooseEncoder(enc.targetProgram)(emptyEnc)
         class SMTEldaricaImpl(override val program: enc.targetProgram.type)
-          extends AbstractSimpleHornSolver (program, ctx, emptyEnc, chooses)(fullEncoder => theories.Z3(fullEncoder.targetProgram))(using enc.targetProgram.getSemantics)
-            with SimpleHornSolver
+          extends AbstractInvariantSolver (program, ctx)(program)(emptyEnc)(emptyEnc)(using program.getSemantics, emptyEnc.targetProgram.getSemantics)
+            with InvariantSolver
             with TimeoutSolver
             with tip.TipDebugger {
 
@@ -378,7 +380,7 @@ object SolverFactory {
             }
           }
 
-          override protected val underlying = Underlying(targetProgram)
+          override protected val underlyingHorn = Underlying(targetProgram)
 
           // encoder is from TipDebugger and enc from AbstractUnrollingSolver
           override protected val encoder = emptyEnc
