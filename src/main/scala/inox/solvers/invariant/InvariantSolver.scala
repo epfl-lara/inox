@@ -593,11 +593,8 @@ abstract class AbstractInvariantSolver(override val program: Program,
     ???
 
   private def reportInvariants(model: underlyingHorn.Model, targets: Map[Identifier, Variable]): Unit =
-    val evaluator = targetSemantics.getEvaluator(using context)
-    targets.toSeq.foreach: (identifier, label) =>
-      val eval = evaluator.eval(label)
       context.reporter.info(
-        s"Discovered Invariant for $identifier: $eval"
+        s"Discovered Invariant for: $model"
       )
 
   protected def encodeFunction(tfd: TypedFunDef): Set[Expr] = 
@@ -622,18 +619,12 @@ abstract class AbstractInvariantSolver(override val program: Program,
     freeVariables.exists(_ == v) || predicates.exists(_ == v)
 
   protected def quantify(clause: Expr): Expr = 
-    println("{Quantifying}")
-    println("{PREDICATES}")
-    println(predicates)
-
     val frees = exprOps
                 .variablesOf(clause)
                 .filterNot(isFree)
                 .map(_.toVal)
                 .toSeq
 
-    println("{FREE VARIABLES}")
-    println(frees)
     Forall(frees, clause)    
 
   /* Communicate with solver */
@@ -655,7 +646,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
         (clauses, guards, predicate) =>
           // false :- !assumption /\ guards
           val topClause = 
-            BooleanLiteral(false) :- (predicate(BooleanLiteral(false)) +: guards)
+            BooleanLiteral(false) :- (predicate(BooleanLiteral(true)) +: guards)
           clauses += topClause
           clauses
       }

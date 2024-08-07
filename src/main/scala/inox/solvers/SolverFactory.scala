@@ -308,7 +308,7 @@ object SolverFactory {
               parser.parseGenResponse
 
               override def eval(cmd: Terms.SExpr): Terms.SExpr = 
-                println(s"{SENDING} $cmd")
+                // println(s"{SENDING} $cmd")
                 super.eval(cmd)
 
             override protected val interpreter = {
