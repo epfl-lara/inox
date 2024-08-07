@@ -151,7 +151,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
     * @param expression constraint to assert
     */
   override def assertCnstr(expression: Source): Unit = 
-    constraints ++= encodeAssumptions(Set(expression))
+    constraints += expression
 
   override def name: String = 
     "inv-" + underlyingHorn.name
@@ -203,7 +203,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
   /**
     * Stack of constraints to check.
     */
-  protected val constraints: IncrementalSeq[Encoded] = new IncrementalSeq()
+  protected val constraints: IncrementalSeq[Source] = new IncrementalSeq()
 
   /* Translation of expressions */
 
