@@ -609,13 +609,21 @@ abstract class AbstractInvariantSolver(override val program: Program,
 
     val res = Variable.fresh("res", outType)
 
+    assertions.clear()
+
     // actually generate clauses
     val (clauses, guards, bodyPred) = makeExprClauses(body)
 
     val appliedFun: Encoded = Application(pred, args :+ res)
 
     val topClause = appliedFun :- (bodyPred(res) +: guards)
-    
+
+    // add goal clauses from top-level assertions
+    assertions.foreach: a =>
+      val (aClauses, aGuards, aPred) = makeExprClauses(Not(a))
+      clauses ++= aClauses
+      clauses += BooleanLiteral(false) :- (aPred(BooleanLiteral(true)) +: appliedFun +: (aGuards ++ guards))
+
     (topClause +: clauses).to(Set).map(_.collapse).map(quantify)
 
   protected def isFree(v: Variable): Boolean = 
