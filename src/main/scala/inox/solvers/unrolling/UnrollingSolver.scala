@@ -123,6 +123,7 @@ abstract class AbstractUnrollingSolver private
   protected final def decode(tpe: t.Type): Type = programEncoder.decode(tpe)
 
   lazy val checkModels = options.findOptionOrDefault(optCheckModels)
+  lazy val ignoreModels = options.findOptionOrDefault(optIgnoreModels)
   lazy val silentErrors = options.findOptionOrDefault(optSilentErrors)
   lazy val unrollBound = options.findOptionOrDefault(optUnrollBound)
   lazy val unrollFactor = options.findOptionOrDefault(optUnrollFactor)
@@ -613,6 +614,9 @@ abstract class AbstractUnrollingSolver private
     inox.Model(program)(exModel.vars, exModel.chooses ++ chooses)
   }
 
+  protected val emptyModel: Model =
+    inox.Model(program)(Map.empty, Map.empty)
+
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] =
       context.timers.solvers.unrolling.run(scala.util.Try({
 
@@ -685,9 +689,9 @@ abstract class AbstractUnrollingSolver private
         case ModelCheck =>
           reporter.debug(" - Running search...")
 
-          val getModel = !templates.requiresFiniteRangeCheck || checkModels || templates.hasAxioms
-          val checkConfig = config
-            .max(Configuration(model = getModel, unsatAssumptions = unrollAssumptions && templates.canUnroll))
+          val getModel = !templates.requiresFiniteRangeCheck || checkModels || templates.hasAxioms || config.withModel
+          val getAssumptions = (unrollAssumptions && templates.canUnroll) || config.withUnsatAssumptions 
+          val checkConfig = Configuration(model = getModel && !ignoreModels, unsatAssumptions = getAssumptions)
 
           val res: SolverResponse[underlying.Model, Set[underlying.Trees]] = context.timers.solvers.unrolling.check.run {
             underlying.checkAssumptions(checkConfig)(
@@ -705,7 +709,12 @@ abstract class AbstractUnrollingSolver private
               FiniteRangeCheck
 
             case Sat =>
-              CheckResult.cast(Sat)
+              if (config.withModel && ignoreModels) then
+                // did we discard the model check manually?
+                // if yes, recast to the right response, with an empty model
+                CheckResult(config.cast(SatWithModel(emptyModel)))
+              else
+                CheckResult.cast(Sat)
 
             case SatWithModel(model) =>
               Validate(model)
@@ -814,6 +823,31 @@ abstract class AbstractUnrollingSolver private
             Unroll
           }
 
+        case ProofCheck if ignoreModels =>
+          // check without additional model-guidance for unrolling
+          reporter.debug(" - Running search without blocked literals (w/o lucky test)")
+
+          val res = context.timers.solvers.unrolling.check.run {
+              underlying.checkAssumptions(Configuration(model = false, unsatAssumptions = config.withUnsatAssumptions))(
+                encodedAssumptions.toSet ++ templates.refutationAssumptions
+              )
+            }
+
+          reporter.debug(" - Finished search without blocked literals")
+
+          res match {
+            case Abort() =>
+              CheckResult.cast(Unknown)
+
+            case _: Unsatisfiable =>
+              CheckResult.cast(res)
+
+            case _: Satisfiable =>
+              Unroll
+
+            case otherwise => sys.error(s"Unexpected case: $otherwise")
+          }
+
         case ProofCheck =>
           if (feelingLucky) {
             reporter.debug(" - Running search without blocked literals (w/ lucky test)")
@@ -917,7 +951,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     type Model = targetProgram.Model
   }
 
-  override lazy val name = "U:"+underlying.name
+  override lazy val name = "U:" + underlying.name
 
   override val templates = new TemplatesImpl(targetProgram, context)
 
