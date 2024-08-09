@@ -15,6 +15,7 @@ trait SolvingTestSuite extends TestSuite {
   } yield Seq(
     optSelectedSolvers(Set(solverName)),
     optCheckModels(checkModels),
+    optIgnoreModels(false),
     optAssumeChecked(assumeChecked),
     unrolling.optFeelingLucky(feelingLucky),
     unrolling.optUnrollAssumptions(unrollAssumptions),
