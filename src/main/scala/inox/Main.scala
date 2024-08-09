@@ -95,6 +95,7 @@ trait MainHelpers {
     solvers.optAssumeChecked -> Description(Solvers, "Assume that all impure expression have been checked"),
     solvers.optNoSimplifications -> Description(Solvers, "Disable selector/quantifier simplifications in solvers"),
     solvers.optCheckModels -> Description(Solvers, "Double-check counter-examples with evaluator"),
+    solvers.optIgnoreModels -> Description(Solvers, s"Do not request models from solvers.\nOverrides and disables ${optCheckModels.name} and ${unrolling.optFeelingLucky.name}."),
     solvers.optSilentErrors -> Description(Solvers, "Fail silently into UNKNOWN when encountering an error"),
     solvers.unrolling.optUnrollBound -> Description(Solvers, "Maximum number of unroll steps to perform"),
     solvers.unrolling.optUnrollFactor -> Description(Solvers, "Number of unrollings to perform between each interaction with the SMT solver"),
