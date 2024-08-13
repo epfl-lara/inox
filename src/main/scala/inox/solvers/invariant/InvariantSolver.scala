@@ -278,6 +278,9 @@ abstract class AbstractInvariantSolver(override val program: Program,
     private val functionClauses: MMap[TypedFunDef, Set[Expr]] = MMap.empty
     private val callReplacements: IncrementalBijection[Variable, FunctionInvocation] = IncrementalBijection()
 
+    def functionOf(v: Variable): Option[FunctionInvocation] = 
+      callReplacements.getB(v)
+
     def predicateOf(tfd: TypedFunDef): Expr = 
       functionReplacements.getOrElseUpdate(tfd, {
         // this is an unseen typed def, generate a new predicate and clause set
@@ -315,6 +318,13 @@ abstract class AbstractInvariantSolver(override val program: Program,
         else
           Nil
       callGuard ++ variableGuards.getOrElse(v, Nil)
+
+    def transitiveVarsFor(v: Variable): Set[Variable] =
+      def rec(vs: Set[Variable]) =
+        vs.flatMap(guardFor)
+          .flatMap(exprOps.variablesOf)
+          .filterNot(isFree) 
+      utils.fixpoint(rec)(Set(v))
 
     def toReplace(id: Identifier): Boolean =
       targetProgram.symbols.functions.contains(id)
@@ -357,6 +367,14 @@ abstract class AbstractInvariantSolver(override val program: Program,
     else if exprs.tail.isEmpty then exprs.head
     else And(exprs.toSeq)
 
+  private def freeVariablesOf(expr: Expr): Seq[Variable] =
+    val baseFrees = exprOps.variablesOf(expr)
+    val guardFrees = baseFrees
+                      .flatMap(Context.transitiveVarsFor)
+                      .flatMap(exprOps.variablesOf)
+                      .filterNot(isFree)
+    (baseFrees ++ guardFrees).toSeq
+
   /**
     * Given an expression, construct a new predicate P and relevant clauses such that
     *
@@ -368,7 +386,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
     */
   private def generatePredicate(expr: Expr, pathCondition: List[Expr]): ClauseResult =
     val res = Variable.fresh("res", expr.getType)
-    val frees = exprOps.variablesOf(expr).toSeq
+    val frees = freeVariablesOf(expr)
     val args = frees :+ res
     val inputType = args.map(_.tpe).map(canonicalType)
     val pred = generateFreshPredicate("ExprPred", inputType)
@@ -385,7 +403,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
     val clauses = ListBuffer.empty[Clause]
     val guards = ListBuffer.empty[Expr]
     val assertions = ListBuffer.empty[List[Expr]]
-    val freeVars = exprOps.variablesOf(expr).toSeq
+    val freeVars = freeVariablesOf(expr)
 
     inline def ret(body: Expr => Expr) = ClauseResult(clauses, guards, assertions, body)
     inline def subsume(inner: ClauseResult): Unit =
@@ -692,7 +710,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
 
     val appliedFun: Encoded = Application(pred, args :+ res)
 
-    val topClause = appliedFun :- (inner(res))
+    val topClause = appliedFun :- (inner(res) +: guards)
 
     // add goal clauses from top-level assertions
     assertions.foreach: as =>
