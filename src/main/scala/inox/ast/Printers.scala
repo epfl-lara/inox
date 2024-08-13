@@ -275,8 +275,8 @@ trait Printer {
     case BVUnsignedToSigned(e) => p"$e.toSigned"
     case BVSignedToUnsigned(e) => p"$e.toUnsigned"
 
-    case fs @ FiniteSet(rs, _) => p"{${rs}}"
-    case fs @ FiniteBag(rs, _) => p"{${rs.toSeq}}"
+    case fs @ FiniteSet(rs, _) => p"Set(${rs})"
+    case fs @ FiniteBag(rs, _) => p"Bag(${rs.toSeq})"
     case fm @ FiniteMap(rs, dflt, _, _) =>
       if (rs.isEmpty) {
         p"{* -> $dflt}"
