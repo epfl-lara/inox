@@ -6,6 +6,7 @@ package solvers
 import utils._
 
 object optCheckModels  extends FlagOptionDef("check-models", false)
+object optIgnoreModels extends FlagOptionDef("ignore-models", false)
 object optSilentErrors extends FlagOptionDef("silent-errors", false)
 
 case object DebugSectionSolver extends DebugSection("solver")
