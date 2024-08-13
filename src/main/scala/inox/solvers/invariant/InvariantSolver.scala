@@ -274,21 +274,24 @@ abstract class AbstractInvariantSolver(override val program: Program,
 
     // guards corresponding to variables
     private val variableGuards: MMap[Variable, List[Expr]] = MMap.empty
-    private val functionReplacements: MMap[TypedFunDef, Expr] = MMap.empty
+    private val functionReplacements: IncrementalBijection[TypedFunDef, Expr] = IncrementalBijection()
     private val functionClauses: MMap[TypedFunDef, Set[Expr]] = MMap.empty
     private val callReplacements: IncrementalBijection[Variable, FunctionInvocation] = IncrementalBijection()
 
     def functionOf(v: Variable): Option[FunctionInvocation] = 
       callReplacements.getB(v)
 
+    def isFunctionalPredicate(v: Variable): Boolean = 
+      functionReplacements.containsB(v)
+
     def predicateOf(tfd: TypedFunDef): Expr = 
-      functionReplacements.getOrElseUpdate(tfd, {
+      functionReplacements.cachedB(tfd) {
         // this is an unseen typed def, generate a new predicate and clause set
         // also populate the defining clauses
         val funTpe = tfd.functionType
         val pred = generateFreshPredicate(tfd.id.name, (funTpe.from :+ funTpe.to).map(canonicalType))
         pred
-      })
+      }
 
     def definingClauses(tfd: TypedFunDef): Set[Expr] = 
       if functionClauses.contains(tfd) then
@@ -696,7 +699,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
   private def extractModel(model: underlyingHorn.Model): Model = 
     ???
 
-  private def reportInvariants(model: underlyingHorn.Model, targets: Map[Identifier, Variable]): Unit =
+  private def reportInvariants(model: underlyingHorn.Model): Unit =
       context.reporter.info(
         s"Discovered Invariant for: $model"
       )
@@ -715,7 +718,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
 
     val appliedFun: Encoded = Application(pred, args :+ res)
 
-    val topClause = appliedFun :- (inner(res) +: guards)
+    val topClause = appliedFun :- inner(res)
 
     // add goal clauses from top-level assertions
     assertions.foreach: as =>
@@ -801,6 +804,19 @@ abstract class AbstractInvariantSolver(override val program: Program,
         Context.definingClauses(typedDef)
 
   /**
+    * Does the model set any predicates arising from a function to false?
+    * 
+    * This means that no function calls succeed in satisfying the internal assertions.
+    *
+    * @param model model to check
+    */
+  private def nonVacuousModel(model: underlyingHorn.Model): Boolean = 
+    !model.vars.exists: (v, expr) => 
+      println(s"CHECKING $v for $expr")
+      println(s"IS FUNCTION? ${Context.isFunctionalPredicate(v.toVariable)}")
+      Context.isFunctionalPredicate(v.toVariable) && expr == BooleanLiteral(false)
+
+  /**
     * Invariant-generating implementation of [[checkAssumptions]].
     */
   private def checkAssumptions_(config: Configuration)(assumptions: Set[Source]): config.Response[Model, Assumptions] = 
@@ -827,11 +843,16 @@ abstract class AbstractInvariantSolver(override val program: Program,
       underlyingResult match
         case SolverResponses.SatWithModel(model) =>
           // report discovery of invariants
-          reportInvariants(model, funReplacements)
+          reportInvariants(model)
           // discard underlying model. We cannot (in general) construct a program
           // model from the Horn model 
-          config.cast(SolverResponses.Unsat)
+          if nonVacuousModel(model) then
+            config.cast(SolverResponses.Unsat)
+          else
+            config.cast(SolverResponses.SatWithModel(emptyProgramModel))
+
         case SolverResponses.Check(r) => config.cast(if r then SolverResponses.Unsat else SolverResponses.SatWithModel(emptyProgramModel))
+
         case _ => config.cast(SolverResponses.Unknown) // unknown or unreachable
 
     res
