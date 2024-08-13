@@ -692,7 +692,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
 
     val appliedFun: Encoded = Application(pred, args :+ res)
 
-    val topClause = appliedFun :- (inner(res) +: guards)
+    val topClause = appliedFun :- (inner(res))
 
     // add goal clauses from top-level assertions
     assertions.foreach: as =>
@@ -739,8 +739,12 @@ abstract class AbstractInvariantSolver(override val program: Program,
 
           clauses += topClause
 
-          assertions.foreach: conds => // SHOULD be empty though? FIXME: ?
-            clauses += (BooleanLiteral(false) :- conds)
+          // do we ever expect these to be non-empty? Don't think so
+          // your assertions should not come with assume statements inside them
+          assert(assertions.isEmpty)
+
+          // assertions.foreach: conds => // SHOULD be empty though? FIXME: ?
+          //   clauses += (BooleanLiteral(false) :- conds)
 
           clauses
       }
@@ -783,7 +787,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
 
     // Horn encode assumptions
     val assumptionClauses = encodeAssumptions(totalAssumptions)
-    
+
     // find and encode all function calls (recursively)
     val definitionClauses = encodeFunctionsForAssumptions(totalAssumptions)
     
