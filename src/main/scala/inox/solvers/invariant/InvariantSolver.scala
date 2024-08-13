@@ -9,6 +9,7 @@ import scala.collection.mutable.ListBuffer
 import inox.utils.IncrementalSeq
 import inox.solvers.smtlib.SMTLIBSolver
 import scala.collection.immutable.LazyList.cons
+import inox.utils.IncrementalBijection
 
 trait InvariantSolver extends Solver: 
   import program.trees.*
@@ -232,6 +233,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
     // partial map for canonicalization 
     def typeMap(tpe: Type): Option[Type] =
       tpe match
+        // choose HOF representation
         case FunctionType(args, ret) =>
           Some(args.foldRight(ret) {(next, acc) => t.MapType(next, acc)})
         case _ => None
@@ -267,16 +269,93 @@ abstract class AbstractInvariantSolver(override val program: Program,
       case Operator(args, _) => args.forall(isSimpleValue)
       case _ => throw UnexpectedMatchError(expr)
 
+  object Context:
+    import collection.mutable.{Map => MMap}
+
+    // guards corresponding to variables
+    private val variableGuards: MMap[Variable, List[Expr]] = MMap.empty
+    private val functionReplacements: MMap[TypedFunDef, Expr] = MMap.empty
+    private val functionClauses: MMap[TypedFunDef, Set[Expr]] = MMap.empty
+    private val callReplacements: IncrementalBijection[Variable, FunctionInvocation] = IncrementalBijection()
+
+    def predicateOf(tfd: TypedFunDef): Expr = 
+      functionReplacements.getOrElseUpdate(tfd, {
+        // this is an unseen typed def, generate a new predicate and clause set
+        // also populate the defining clauses
+        val funTpe = tfd.functionType
+        val pred = generateFreshPredicate(tfd.id.name, (funTpe.from :+ funTpe.to).map(canonicalType))
+        pred
+      })
+
+    def definingClauses(tfd: TypedFunDef): Set[Expr] = 
+      if functionClauses.contains(tfd) then
+        functionClauses(tfd)
+      else
+        // unseen def. Unusual but ok.
+        generateClauses(tfd) // force generation
+        definingClauses(tfd)
+    
+    private def generateClauses(tfd: TypedFunDef): Unit = 
+      val clauses = encodeFunction(tfd)
+      functionClauses(tfd) = clauses
+
+    def addGuard(v: Variable, guard: Expr): Unit = 
+      variableGuards(v) = guard :: variableGuards.getOrElse(v, Nil)
+
+    def addCallGuard(v: Variable, call: FunctionInvocation): Unit = 
+      callReplacements += v -> call
+
+    def guardFor(v: Variable): List[Expr] = 
+      val call = callReplacements.getB(v)
+      val callGuard = 
+        if call.isDefined then
+          val tfd = targetProgram.symbols.getFunction(call.get.id).typed(call.get.tps)
+          val pred = predicateOf(tfd)
+          List(Application(pred, call.get.args :+ v))
+        else
+          Nil
+      callGuard ++ variableGuards.getOrElse(v, Nil)
+
+    def toReplace(id: Identifier): Boolean =
+      targetProgram.symbols.functions.contains(id)
+
+    def freshFunctionReplacement(fn: FunctionInvocation): Variable =
+      callReplacements.cachedA(fn){
+        val tpe = fn.getType
+        val fresh = Variable.fresh(s"${fn.id}_call", tpe, true)
+        addCallGuard(fresh, fn)
+        fresh        
+      }
+
+    def insertGuards(clause: Clause): Clause =
+      val exprs = clause.body.filter(isSimpleValue)
+      val variables = exprs.flatMap(exprOps.variablesOf)
+      val newGuards = variables.flatMap(guardFor)
+      clause.withGuards(newGuards)
+
+
   /**
-  * Generate a fresh predicate variable of given name and input type, and
-  * register it as a predicate for the underlying solver.
-  * @return fresh predicate variable
-  **/
-  private def generateFreshPredicate(name: String, inputType: Seq[Type]): Variable =
-    val tpe = FunctionType(inputType, BooleanType())
-    val pred = Variable.fresh(name, tpe, true)
-    registerPredicate(pred)
-    pred
+    * "Purify" an expression by replacing function invocations with fresh
+    * variables and registering guards for the variables as predicate
+    * invocations.
+    *
+    * @param expr expression to purify
+    */
+  private def purify(expr: Expr): Expr =
+      def _purify(expr: Expr): Option[Expr] = 
+        expr match
+          case fn @ FunctionInvocation(id, _, _) if Context.toReplace(id) =>
+            Some(Context.freshFunctionReplacement(fn))
+          case _ => None
+        
+      exprOps.postMap(_purify)(expr)
+
+  private case class ClauseResult(clauses: Clauses, guards: Guards, assertions: ListBuffer[List[Expr]],  body: Expr => Expr)
+
+  private inline def conjunction(exprs: Iterable[Expr]): Expr = 
+    if exprs.isEmpty then BooleanLiteral(true)
+    else if exprs.tail.isEmpty then exprs.head
+    else And(exprs.toSeq)
 
   /**
     * Given an expression, construct a new predicate P and relevant clauses such that
@@ -287,17 +366,277 @@ abstract class AbstractInvariantSolver(override val program: Program,
     * 
     * @return defining clauses, empty guards, and P(res)
     */
-  private def makePredicate(expr: Expr, frees: Seq[Variable], res: Variable): (Clauses, Guards, Application) =
+  private def generatePredicate(expr: Expr, pathCondition: List[Expr]): ClauseResult =
+    val res = Variable.fresh("res", expr.getType)
+    val frees = exprOps.variablesOf(expr).toSeq
     val args = frees :+ res
     val inputType = args.map(_.tpe).map(canonicalType)
     val pred = generateFreshPredicate("ExprPred", inputType)
-    val (clauses, guards, body) = makeExprClauses(expr)
+    val inner = encodeClauses(expr, pathCondition)
     val aply = (x: Expr) => Application(pred, frees :+ x)
     
     // construct constraints
-    val predClause = aply(res) :- (body(res) +: guards)
+    val predClause = aply(res) :- (inner.body(res) +: inner.guards)
 
-    (clauses :+ predClause, guards, aply(res))
+    // guards do not escape predicate definitions
+    ClauseResult(inner.clauses :+ predClause, ListBuffer.empty, inner.assertions, aply)
+
+  private def encodeClauses(expr: Expr, pathCondition: List[Expr]): ClauseResult =
+    val clauses = ListBuffer.empty[Clause]
+    val guards = ListBuffer.empty[Expr]
+    val assertions = ListBuffer.empty[List[Expr]]
+    val freeVars = exprOps.variablesOf(expr).toSeq
+
+    inline def ret(body: Expr => Expr) = ClauseResult(clauses, guards, assertions, body)
+    inline def subsume(inner: ClauseResult): Unit =
+      clauses ++= inner.clauses
+      guards ++= inner.guards
+      assertions ++= inner.assertions
+
+    if isSimpleValue(expr) then
+      // notably, only HOFs or simple expressions should introduce Equals
+      return ret(Equals(_, expr))
+
+    // otherwise, need to elaborate
+    expr match
+      case v @ Variable(id, FunctionType(_, _), _) =>
+        // other variable cases are simple expression, and covered above
+        // return the HOF representation variable corresponding to this
+        ret(Equals(_, makeHOFVariable(v)))
+
+      case Assume(cond, body) =>
+        // expr == Assume(cond, body)
+        // iff expr = body, under cond as a guard
+
+        // condition appears in the guards, so we have to decide whether to elaborate or leave it
+        val newCond =
+          if isSimpleValue(cond) then
+            // condition is a theory expression, leave as is
+            cond
+          else
+            // elaborate
+            val innerCond = generatePredicate(cond, pathCondition)
+            subsume(innerCond)
+            innerCond.body(BooleanLiteral(true))
+
+        val invCond =
+          val ncond = Not(cond)
+          if isSimpleValue(ncond) then
+            // condition is a theory expression, leave as is
+            ncond
+          else
+            // elaborate
+            val innerCond = generatePredicate(ncond, pathCondition)
+            subsume(innerCond)
+            innerCond.body(BooleanLiteral(true))
+
+        guards += newCond
+        assertions += invCond :: pathCondition
+
+        val newBody = 
+            // body is the target expression, it must always be elaborated
+            val bodyRes = encodeClauses(body, newCond :: pathCondition)
+            subsume(bodyRes)
+            bodyRes.body
+        
+        ret(newBody)
+        
+      case Choose(res, pred) => 
+        // unexpected, what do we do regarding chooses? TODO: simply evaluate
+        // under uninterpreted values or attempt to synthesize something in
+        // their place?
+        ???
+
+      case Let(vd, value, body) =>
+        // expr == let (vd = value) in body
+        // iff expr = body under the guard that vd = value
+        // vd = value becomes conditionOf(value)(vd)
+
+        val cond = 
+            val inner = generatePredicate(value, pathCondition)
+            subsume(inner)
+            inner.body
+
+        Context.addGuard(vd.toVariable, cond(vd.toVariable))
+
+        val bodyPred = 
+            val inner = encodeClauses(body, pathCondition)
+            subsume(inner)
+            inner.body
+        
+        ret(bodyPred)
+
+      case IfExpr(cond, thenn, elze) => 
+        // expr == if cond then e1 else e2
+        // iff expr == e1 under guard  cond
+        // and expr == e2 under guard !cond
+
+        val tpe = thenn.getType
+
+        val condHolds = 
+          // split on whether to elaborate cond
+          if isSimpleValue(cond) then
+            cond
+          else
+            val inner = generatePredicate(cond, pathCondition)
+            subsume(inner)
+            inner.body(BooleanLiteral(true))
+
+        val condInv = Not(cond)
+
+        // the encoding of the inverse of the condition can (should) involve a different predicate
+        val condInvHolds = 
+          // split on whether to elaborate cond
+          if isSimpleValue(condInv) then
+            condInv
+          else
+            val inner = generatePredicate(condInv, pathCondition)
+            subsume(inner)
+            inner.body(BooleanLiteral(true))
+
+        val condLabel = Variable.fresh("IfCondition", tpe)
+
+        val thennResult = generatePredicate(thenn, condHolds :: pathCondition)
+        val elzeResult = generatePredicate(elze, condInvHolds :: pathCondition)
+
+        subsume(thennResult)
+        subsume(elzeResult)
+
+        // create a new predicate for this branch
+        val newPred = generateFreshPredicate("IfBranch", (freeVars.map(_.tpe) :+ tpe).map(canonicalType))
+        
+        val branch: Expr => Expr = (res: Expr) => Application(newPred, freeVars :+ res)
+
+        val positiveClause = branch(condLabel) .:- (thennResult.body(condLabel), condHolds)
+        val negativeClause = branch(condLabel) .:- (elzeResult.body(condLabel), condInvHolds)
+        
+        clauses += positiveClause
+        clauses += negativeClause
+
+        ret(branch)
+
+      case Application(l @ Lambda(params, body), args) =>
+        val fun = 
+          val inner = encodeClauses(l, pathCondition)
+          subsume(inner)
+          inner.body
+
+        val funVar = Variable.fresh("fun", canonicalType(l.getType))
+        Context.addGuard(funVar, fun(funVar))
+
+        val newArgs = args.map: a =>
+          if isSimpleValue(a) then
+            a
+          else
+            // register a new guard
+            val newArg = Variable.fresh("arg", a.getType)
+            val inner = generatePredicate(a, pathCondition)
+            subsume(inner)
+            Context.addGuard(newArg, inner.body(newArg))
+            newArg
+
+        val applied = newArgs.foldLeft(funVar: Expr)((acc, next) => MapApply(acc, next))
+
+        ret(Equals(_, applied))
+
+      case l @ Lambda(args, body) => 
+        // eliminate it into an integer, and generate an applicative
+        // predicate for it, if not already done
+        val (definingClauses, identifier) = makeLambda(l)
+        clauses ++= definingClauses
+        ret(Equals(_, l))
+      
+      case Forall(args, body) => 
+        // Quantifier? Unexpected
+        ???
+
+      case FunctionInvocation(id, tps, args) if funReplacements.contains(id) =>
+        // this expression should have been purified
+        throw UnexpectedMatchError(expr)
+
+      case Application(l : Variable, args) if l.tpe.isInstanceOf[FunctionType] =>
+        // translate HOF applications to array selections
+        val repr = makeHOFVariable(l)
+
+        val newArgs = args.map: a =>
+          if isSimpleValue(a) then
+            a
+          else
+            // register a new guard
+            val newArg = Variable.fresh("arg", a.getType)
+            val inner = generatePredicate(a, pathCondition)
+            subsume(inner)
+            Context.addGuard(newArg, inner.body(newArg))
+            newArg
+
+        val applied = newArgs.foldLeft(repr: Expr)((acc, next) => MapApply(acc, next))
+
+        ret(Equals(_, applied))
+
+      // handle booleans separately
+      case Not(inner) =>
+        val newRes = Variable.fresh("NotExpr", BooleanType())
+        val innerResult = encodeClauses(inner, pathCondition)
+        subsume(innerResult)
+
+        val newPred = generateFreshPredicate("NotExpr", (freeVars.map(_.tpe) :+ BooleanType()).map(canonicalType))
+        clauses += Application(newPred, freeVars :+ newRes) :- (innerResult.body(Not(newRes)))
+
+        ret(res => Application(newPred, freeVars :+ res))
+
+      case Or(inners) =>
+        val newPred = generateFreshPredicate("OrExpr", (freeVars.map(_.tpe) :+ BooleanType()).map(canonicalType))
+        inners
+          .map(encodeClauses(_, pathCondition))
+          .map: inner =>
+            subsume(inner)
+            clauses += Application(newPred, freeVars :+ BooleanLiteral(true)) :- (inner.body(BooleanLiteral(true)) +: inner.guards)
+
+        ret(res => Application(newPred, freeVars :+ res))
+
+      case And(inners) =>
+        val newPred = generateFreshPredicate("AndExpr", (freeVars.map(_.tpe) :+ BooleanType()).map(canonicalType))
+        val lhs = inners
+          .map(encodeClauses(_, pathCondition))
+          .map: inner =>
+            subsume(inner)
+            inner.body(BooleanLiteral(true))
+
+        clauses += Application(newPred, freeVars :+ BooleanLiteral(true)) :- (lhs ++ guards)
+
+        ret(res => Application(newPred, freeVars :+ res))
+
+      // other operator
+      // deconstruct arguments similar to a function call
+      case Operator(args, recons) => 
+        val newArgs = args.map: a =>
+          if isSimpleValue(a) then
+            a
+          else
+            // register a new guard
+            val newArg = Variable.fresh("arg", a.getType, true)
+            val inner = generatePredicate(a, pathCondition)
+            subsume(inner)
+            Context.addGuard(newArg, inner.body(newArg))
+            newArg
+
+        val newExpr = recons(newArgs)
+        val body = Equals(_, newExpr)
+
+        ret(body)
+      
+      case _ => throw UnexpectedMatchError(expr)
+
+  /**
+  * Generate a fresh predicate variable of given name and input type, and
+  * register it as a predicate for the underlying solver.
+  * @return fresh predicate variable
+  **/
+  private def generateFreshPredicate(name: String, inputType: Seq[Type]): Variable =
+    val tpe = FunctionType(inputType, BooleanType())
+    val pred = Variable.fresh(name, tpe, true)
+    registerPredicate(pred)
+    pred
 
   // TODO: Move
 
@@ -325,272 +664,11 @@ abstract class AbstractInvariantSolver(override val program: Program,
       val Lambda(args, body) = l
       val res = Variable.fresh("LambdaRes", canonicalType(l.getType))
       val applied = args.foldLeft(res: Expr)((acc, next) => MapApply(acc, next.toVariable))
-      val (clauses, _, pred) = makePredicate(body, args.map(_.toVariable), res)
-      clauses += pred :- Equals(res, applied)
+      val inner = generatePredicate(body, List.empty) // lambdas should not be conditionally valid?
+      val topClause = inner.body(res) :- Equals(res, applied)
 
-      (clauses, res)
+      (inner.clauses :+ topClause, res)
     })
-
-  val assertions: collection.mutable.ListBuffer[Expr] = collection.mutable.ListBuffer.empty
-
-  /**
-    * Encode an expression, recursively generating clauses for its elaboration
-    * into Horn clauses.
-    *
-    * Postconditions:
-    * - clauses are not quantified, and are the responsibility of the top level
-    *   callee
-    * - guards must be accumulated into a top-level clause
-    * - the body is conditionally valid under the guards
-    * - the explicit (Inox) type of body 
-    * - `\forall res: Expr. expr == res ==> body(res)`
-    *
-    * @param expr expression to encode
-    * @return clauses generated by recursive elaboration
-    * @return guards under which the body is valid
-    * @return body predicate over expressions evaluating to input expr
-    */
-  private def makeExprClauses(expr: Expr): (Clauses, Guards, Expr => Expr) =
-    val clauses = ListBuffer.empty[Clause]
-    val guards = ListBuffer.empty[Expr]
-    val freeVars = exprOps.variablesOf(expr).toSeq
-
-    if isSimpleValue(expr) then
-      // notably, only HOFs or simple expressions should introduce Equals
-      return (clauses, guards, Equals(_, expr))
-
-    // otherwise, need to elaborate
-    expr match
-      case v @ Variable(id, FunctionType(_, _), _) =>
-        // other variable cases are simple expression, and covered above
-        // return the HOF representation variable corresponding to this
-        (clauses, guards, Equals(_, makeHOFVariable(v)))
-
-      case Assume(cond, body) =>
-        // expr == Assume(cond, body)
-        // iff expr = body, under cond as a guard
-
-        val newCond = 
-          // condition appears in the guards, so we have to decide whether to elaborate or leave it
-          if isSimpleValue(cond) then
-            // condition is a theory expression, leave as is
-            cond
-          else
-            // elaborate
-            val (condClauses, condGuards, condPred) = makePredicate(cond, freeVars, Variable.fresh("AssumeCond", BooleanType()))
-            clauses ++= condClauses
-            guards ++= condGuards
-            condPred
-
-        guards += newCond
-
-        assertions += cond
-        
-        val newBody = 
-            // body is the target expression, it must always be elaborated
-            val (bodyClauses, bodyGuards, bodyPred) = makePredicate(body, freeVars, Variable.fresh("AssumeBody", body.getType))
-            clauses ++= bodyClauses
-            guards ++= bodyGuards
-            bodyPred
-
-        // TODO: this can be cleaned up with a more principled way to generate predicates
-        // it would require the callee to be more aware of the free variable order used for the predicate
-        // but if that is the common use case, then maybe it should be the default w/o extraction
-        val Application(pred, _) = newBody
-        
-        (clauses, guards, (e: Expr) => Application(pred, freeVars :+ e))
-        
-      case Choose(res, pred) => 
-        // unexpected, what do we do regarding chooses? TODO: simply evaluate
-        // under uninterpreted values or attempt to synthesize something in
-        // their place?
-        ???
-
-      case Let(vd, value, body) =>
-        // expr == let (vd = value) in body
-        // iff expr = body under the guard that vd = value
-        // vd = value becomes conditionOf(value)(vd)
-
-        val cond = 
-            val (valueClauses, valueGuards, valuePred) = makeExprClauses(value)
-            clauses ++= valueClauses
-            guards ++= valueGuards
-            valuePred
-
-        guards += cond(vd.toVariable)
-
-        val bodyPred = 
-            val (bodyClauses, bodyGuards, bodyPred) = makeExprClauses(body)
-            clauses ++= bodyClauses
-            guards ++= bodyGuards
-            bodyPred
-        
-        (clauses, guards, bodyPred)
-
-      case IfExpr(cond, thenn, elze) => 
-        // expr == if cond then e1 else e2
-        // iff expr == e1 under guard  cond
-        // and expr == e2 under guard !cond
-
-        val tpe = thenn.getType
-
-        val condHolds = 
-          // split on whether to elabroate cond
-          if isSimpleValue(cond) then
-            cond
-          else
-            val (condClauses, condGuards, condPred) = makePredicate(cond, freeVars, Variable.fresh("IfCond", BooleanType()))
-            clauses ++= condClauses
-            guards ++= condGuards
-            condPred
-
-        val condInv = Not(cond)
-
-        // the encoding of the inverse of the condition can (should) involve a different predicate
-        val condInvHolds = 
-          // split on whether to elabroate cond
-          if isSimpleValue(condInv) then
-            condInv
-          else
-            val (condClauses, condGuards, condPred) = makePredicate(condInv, freeVars, Variable.fresh("IfCondInv", BooleanType()))
-            clauses ++= condClauses
-            guards ++= condGuards
-            condPred
-
-        val condLabel = Variable.fresh("IfInnerExpr", tpe)
-
-        val (thennClauses, thennGuards, thennExpr) = makePredicate(thenn, freeVars, condLabel)
-        val (elzeClauses, elzeGuards, elzeExpr) = makePredicate(elze, freeVars, condLabel)
-
-        clauses ++= thennClauses
-        clauses ++= elzeClauses
-
-        // guards should not escape branches
-        // guards ++= thennGuards
-        // guards ++= elzeGuards
-
-        // create a new predicate for this branch
-        val newPred = generateFreshPredicate("IfBranch", (freeVars.map(_.tpe) :+ tpe).map(canonicalType))
-        
-        val branch: Expr => Expr = (res: Expr) => Application(newPred, freeVars :+ res)
-
-        val positiveClause = branch(condLabel) .:- (thennExpr, condHolds)
-        val negativeClause = branch(condLabel) .:- (elzeExpr, condInvHolds)
-        
-        clauses += positiveClause
-        clauses += negativeClause
-
-        (clauses, guards, branch)
-
-      case Application(l @ Lambda(params, body), args) =>
-        val fun = 
-          val (funClauses, funGuards, funExpr) = makeExprClauses(l)
-          clauses ++= funClauses
-          guards ++= funGuards
-          funExpr
-
-        val funVar = Variable.fresh("fun", canonicalType(l.getType))
-        guards += fun(funVar)
-
-        val newArgs = args.map: a =>
-          if isSimpleValue(a) then
-            a
-          else
-            // register a new guard
-            val newArg = Variable.fresh("arg", a.getType)
-            val (predClauses, predGuards, pred) = makePredicate(a, freeVars, newArg)
-            guards ++= predGuards
-            clauses ++= predClauses
-            newArg
-
-        val applied = newArgs.foldLeft(funVar: Expr)((acc, next) => MapApply(acc, next))
-
-        (clauses, guards, res => Equals(res, applied))
-
-      case l @ Lambda(args, body) => 
-        // eliminate it into an integer, and generate an applicative
-        // predicate for it, if not already done
-        val (definingClauses, identifier) = makeLambda(l)
-        clauses ++= definingClauses
-        (clauses, guards, Equals(_, l))
-      
-      case Forall(args, body) => 
-        // Quantifier? Unexpected
-        ???
-
-      case FunctionInvocation(id, tps, args) if funReplacements.contains(id) =>
-        // matched a known named function call (possibly (mutually) recursive)
-
-        val functionIdentifer = funReplacements(id)
-        val outType = expr.getType
-
-        val newArgs = args.map: a =>
-          if isSimpleValue(a) then
-            a
-          else
-            // register a new guard
-            val newArg = Variable.fresh("arg", a.getType)
-            val (predClauses, predGuards, pred) = makePredicate(a, freeVars, newArg)
-            guards ++= predGuards
-            guards += pred
-            clauses ++= predClauses
-            newArg
-
-        (clauses, guards, e => Application(functionIdentifer, newArgs :+ e))
-
-      case Application(l : Variable, args) if l.tpe.isInstanceOf[FunctionType] =>
-        // translate HOF applications to array selections
-        val repr = makeHOFVariable(l)
-        val selection = args.foldLeft(l: Expr)((acc, next) => MapApply(acc, next))
-        (clauses, guards, Equals(_, selection))
-
-      // handle booleans separately
-      case Not(inner) =>
-        val newRes = Variable.fresh("NotExpr", BooleanType())
-        val (innerClauses, innerGuards, innerPred) = makeExprClauses(inner)
-        clauses ++= innerClauses
-        guards ++= innerGuards
-        val newPred = generateFreshPredicate("NotExpr", (freeVars.map(_.tpe) :+ BooleanType()).map(canonicalType))
-        clauses += Application(newPred, freeVars :+ newRes) :- (innerPred(Not(newRes)))
-        (clauses, guards, res => Application(newPred, freeVars :+ res))
-
-      case Or(inners) =>
-        val newPred = generateFreshPredicate("OrExpr", (freeVars.map(_.tpe) :+ BooleanType()).map(canonicalType))
-        inners.map(makeExprClauses).map: (innerClauses, innerGuards, innerPred) =>
-          clauses ++= innerClauses
-          // guards ++= innerGuards // guards should not escape branches?
-          clauses += Application(newPred, freeVars :+ BooleanLiteral(true)) :- (innerPred(BooleanLiteral(true)) +: innerGuards)
-        (clauses, guards, res => Application(newPred, freeVars :+ res))
-
-      case And(inners) =>
-        val newPred = generateFreshPredicate("AndExpr", (freeVars.map(_.tpe) :+ BooleanType()).map(canonicalType))
-        val lhs = inners.map(makeExprClauses).flatMap: (innerClauses, innerGuards, innerPred) =>
-          clauses ++= innerClauses
-          innerGuards :+ innerPred(BooleanLiteral(true))
-        clauses += Application(newPred, freeVars :+ BooleanLiteral(true)) :- lhs
-        (clauses, guards, res => Application(newPred, freeVars :+ res))
-
-      // other operator
-      // deconstruct arguments similar to a function call
-      case Operator(args, recons) => 
-        val newArgs = args.map: a =>
-          if isSimpleValue(a) then
-            a
-          else
-            // register a new guard
-            val newArg = Variable.fresh("arg", a.getType, true)
-            val (predClauses, predGuards, pred) = makePredicate(a, freeVars, newArg)
-            guards ++= predGuards
-            guards += pred
-            clauses ++= predClauses
-            newArg
-
-        val newExpr = recons(newArgs)
-        val body = Equals(_, newExpr)
-
-        (clauses, guards, body)
-      
-      case _ => throw UnexpectedMatchError(expr)
 
   private def extractModel(model: underlyingHorn.Model): Model = 
     ???
@@ -602,29 +680,29 @@ abstract class AbstractInvariantSolver(override val program: Program,
 
   protected def encodeFunction(tfd: TypedFunDef): Set[Expr] = 
     // collect data
-    val body = tfd.fullBody
-    val pred = funReplacements(tfd.id)
+    val body = purify(tfd.fullBody)
+    val pred = Context.predicateOf(tfd)
     val outType = tfd.returnType
     val args = tfd.params.map(_.toVariable)
 
     val res = Variable.fresh("res", outType)
 
-    assertions.clear()
-
     // actually generate clauses
-    val (clauses, guards, bodyPred) = makeExprClauses(body)
+    val ClauseResult(clauses, guards, assertions, inner) = encodeClauses(body, List.empty)
 
     val appliedFun: Encoded = Application(pred, args :+ res)
 
-    val topClause = appliedFun :- (bodyPred(res) +: guards)
+    val topClause = appliedFun :- (inner(res) +: guards)
 
     // add goal clauses from top-level assertions
-    assertions.foreach: a =>
-      val (aClauses, aGuards, aPred) = makeExprClauses(Not(a))
-      clauses ++= aClauses
-      clauses += BooleanLiteral(false) :- (aPred(BooleanLiteral(true)) +: appliedFun +: (aGuards ++ guards))
+    assertions.foreach: as =>
+      clauses += (BooleanLiteral(false) :- (appliedFun +: as))
 
-    (topClause +: clauses).to(Set).map(_.collapse).map(quantify)
+    (topClause +: clauses)
+      .to(Set)
+      .map(Context.insertGuards)
+      .map(_.collapse)
+      .map(quantify)
 
   protected def isFree(v: Variable): Boolean = 
     freeVariables.exists(_ == v) || predicates.exists(_ == v)
@@ -652,31 +730,48 @@ abstract class AbstractInvariantSolver(override val program: Program,
   private def encodeAssumptions(assumptions: Set[Source]): Set[Encoded] = 
     assumptions
       .map(encode)
-      .map(makeExprClauses)
+      .map(purify)
+      .map(encodeClauses(_, List.empty))
       .flatMap {
-        (clauses, guards, predicate) =>
-          // false :- !assumption /\ guards
-          val topClause = 
-            BooleanLiteral(false) :- (predicate(BooleanLiteral(true)) +: guards)
+        case ClauseResult(clauses, guards, assertions, predicate) =>
+          // false :- assumption /\ guards
+          val topClause = BooleanLiteral(false) :- (predicate(BooleanLiteral(true)) +: guards)
+
           clauses += topClause
+
+          assertions.foreach: conds => // SHOULD be empty though? FIXME: ?
+            clauses += (BooleanLiteral(false) :- conds)
+
           clauses
       }
+      .map(Context.insertGuards)
       .map(_.collapse)
       .map(quantify)
 
   private def encodeFunctionsForAssumptions(assumptions: Set[Source]): Set[Encoded] = 
     // all functions that appear in the assumptions, transitively
-    val functions = assumptions
+    val baseCalls = assumptions
                       .map(encode)
                       .flatMap(exprOps.functionCallsOf)
-                      .map(_.id)
-                      .filter(funReplacements.contains)
-                      .flatMap(program.symbols.callGraph.transitiveSucc)
+                      .filter(f => Context.toReplace(f.id))
 
-    // generate the clauses for these functions
-    functions.flatMap: id =>
-      val tfd = targetProgram.symbols.getFunction(id)
-      encodeFunction(tfd.typed(using targetProgram.symbols))
+    def transitiveCalls(calls: Set[FunctionInvocation]): Set[FunctionInvocation] = 
+      calls.flatMap: call =>
+        val funDef = targetProgram.symbols.getFunction(call.id)
+        val typedDef = funDef.typed(call.tps)
+        val body = typedDef.fullBody
+        val newCalls = exprOps.functionCallsOf(body)
+                        .filter(f => Context.toReplace(f.id))
+        newCalls + call
+
+    // termination is guaranteed by Stainless' type checking beforehand
+    val calls = utils.fixpoint(transitiveCalls)(baseCalls)
+
+    calls
+      .flatMap: call =>
+        val funDef = targetProgram.symbols.getFunction(call.id)
+        val typedDef = funDef.typed(call.tps)
+        Context.definingClauses(typedDef)
 
   /**
     * Invariant-generating implementation of [[checkAssumptions]].
@@ -688,6 +783,9 @@ abstract class AbstractInvariantSolver(override val program: Program,
 
     // Horn encode assumptions
     val assumptionClauses = encodeAssumptions(totalAssumptions)
+
+    println(s"Had assumptions:\n\t${totalAssumptions.mkString("\n\t")}")
+    println(s"Encoded clauses:\n\t${assumptionClauses.mkString("\n\t")}")
 
     // find and encode all function calls (recursively)
     val definitionClauses = encodeFunctionsForAssumptions(totalAssumptions)
