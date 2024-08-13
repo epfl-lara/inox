@@ -384,12 +384,12 @@ abstract class AbstractInvariantSolver(override val program: Program,
     * 
     * @return defining clauses, empty guards, and P(res)
     */
-  private def generatePredicate(expr: Expr, pathCondition: List[Expr]): ClauseResult =
+  private def generatePredicate(name: String, expr: Expr, pathCondition: List[Expr]): ClauseResult =
     val res = Variable.fresh("res", expr.getType)
     val frees = freeVariablesOf(expr)
     val args = frees :+ res
     val inputType = args.map(_.tpe).map(canonicalType)
-    val pred = generateFreshPredicate("ExprPred", inputType)
+    val pred = generateFreshPredicate(name, inputType)
     val inner = encodeClauses(expr, pathCondition)
     val aply = (x: Expr) => Application(pred, frees :+ x)
     
@@ -433,7 +433,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
             cond
           else
             // elaborate
-            val innerCond = generatePredicate(cond, pathCondition)
+            val innerCond = generatePredicate("AssumeCond", cond, pathCondition)
             subsume(innerCond)
             innerCond.body(BooleanLiteral(true))
 
@@ -444,7 +444,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
             ncond
           else
             // elaborate
-            val innerCond = generatePredicate(ncond, pathCondition)
+            val innerCond = generatePredicate("NegatedAssumeCond", ncond, pathCondition)
             subsume(innerCond)
             innerCond.body(BooleanLiteral(true))
 
@@ -456,8 +456,13 @@ abstract class AbstractInvariantSolver(override val program: Program,
             val bodyRes = encodeClauses(body, newCond :: pathCondition)
             subsume(bodyRes)
             bodyRes.body
+
+        val res = Variable.fresh("AssumeExpr", expr.getType)
+        val pred = generateFreshPredicate("AssumeExpr", (freeVars.map(_.tpe) :+ res.getType).map(canonicalType))
+        val topClause = Application(pred, freeVars :+ res) .:- (newCond, newBody(res))
+        clauses += topClause
         
-        ret(newBody)
+        ret(res => Application(pred, freeVars :+ res))
         
       case Choose(res, pred) => 
         // unexpected, what do we do regarding chooses? TODO: simply evaluate
@@ -471,7 +476,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
         // vd = value becomes conditionOf(value)(vd)
 
         val cond = 
-            val inner = generatePredicate(value, pathCondition)
+            val inner = generatePredicate("LetInnerValue", value, pathCondition)
             subsume(inner)
             inner.body
 
@@ -481,7 +486,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
             val inner = encodeClauses(body, pathCondition)
             subsume(inner)
             inner.body
-        
+
         ret(bodyPred)
 
       case IfExpr(cond, thenn, elze) => 
@@ -496,7 +501,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
           if isSimpleValue(cond) then
             cond
           else
-            val inner = generatePredicate(cond, pathCondition)
+            val inner = generatePredicate("IfCond", cond, pathCondition)
             subsume(inner)
             inner.body(BooleanLiteral(true))
 
@@ -508,20 +513,20 @@ abstract class AbstractInvariantSolver(override val program: Program,
           if isSimpleValue(condInv) then
             condInv
           else
-            val inner = generatePredicate(condInv, pathCondition)
+            val inner = generatePredicate("NegatedIfCond", condInv, pathCondition)
             subsume(inner)
             inner.body(BooleanLiteral(true))
 
         val condLabel = Variable.fresh("IfCondition", tpe)
 
-        val thennResult = generatePredicate(thenn, condHolds :: pathCondition)
-        val elzeResult = generatePredicate(elze, condInvHolds :: pathCondition)
+        val thennResult = generatePredicate("ThenBranch", thenn, condHolds :: pathCondition)
+        val elzeResult = generatePredicate("ElseBranch", elze, condInvHolds :: pathCondition)
 
         subsume(thennResult)
         subsume(elzeResult)
 
         // create a new predicate for this branch
-        val newPred = generateFreshPredicate("IfBranch", (freeVars.map(_.tpe) :+ tpe).map(canonicalType))
+        val newPred = generateFreshPredicate("IfNode", (freeVars.map(_.tpe) :+ tpe).map(canonicalType))
         
         val branch: Expr => Expr = (res: Expr) => Application(newPred, freeVars :+ res)
 
@@ -548,7 +553,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
           else
             // register a new guard
             val newArg = Variable.fresh("arg", a.getType)
-            val inner = generatePredicate(a, pathCondition)
+            val inner = generatePredicate("LambdaArg", a, pathCondition)
             subsume(inner)
             Context.addGuard(newArg, inner.body(newArg))
             newArg
@@ -582,7 +587,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
           else
             // register a new guard
             val newArg = Variable.fresh("arg", a.getType)
-            val inner = generatePredicate(a, pathCondition)
+            val inner = generatePredicate("HOFArg", a, pathCondition)
             subsume(inner)
             Context.addGuard(newArg, inner.body(newArg))
             newArg
@@ -633,7 +638,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
           else
             // register a new guard
             val newArg = Variable.fresh("arg", a.getType, true)
-            val inner = generatePredicate(a, pathCondition)
+            val inner = generatePredicate("OperatorArg", a, pathCondition)
             subsume(inner)
             Context.addGuard(newArg, inner.body(newArg))
             newArg
@@ -682,7 +687,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
       val Lambda(args, body) = l
       val res = Variable.fresh("LambdaRes", canonicalType(l.getType))
       val applied = args.foldLeft(res: Expr)((acc, next) => MapApply(acc, next.toVariable))
-      val inner = generatePredicate(body, List.empty) // lambdas should not be conditionally valid?
+      val inner = generatePredicate("LambdaBody", body, List.empty) // lambdas should not be conditionally valid?
       val topClause = inner.body(res) :- Equals(res, applied)
 
       (inner.clauses :+ topClause, res)
