@@ -78,11 +78,12 @@ abstract class SMTLIBSolver private(override val program: Program,
             val ctx = new Context(variables.bToA, Map(), modelFunDefs)
 
             val vars = smodel.flatMap {
-              case DefineFun(SMTFunDef(s, _, _, e)) if syms(s) =>
+              case DefineFun(SMTFunDef(s, args, _, e)) if syms(s) =>
                 try {
                   val v = variables.toA(s)
-                  val value = fromSMT(e, v.getType)(using ctx)
-                  Some(v.toVal -> value)
+                  val vargs = args.map(fromSMT(_)(using ctx).toVariable)
+                  val value = fromSMT(e, v.getType)(using ctx.withVariables(args.map(_.name) zip vargs))
+                  Some(v.toVal -> value) 
                 } catch {
                   case _: Unsupported => None
                   case _: java.lang.StackOverflowError => None
