@@ -783,10 +783,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
 
     // Horn encode assumptions
     val assumptionClauses = encodeAssumptions(totalAssumptions)
-
-    println(s"Had assumptions:\n\t${totalAssumptions.mkString("\n\t")}")
-    println(s"Encoded clauses:\n\t${assumptionClauses.mkString("\n\t")}")
-
+    
     // find and encode all function calls (recursively)
     val definitionClauses = encodeFunctionsForAssumptions(totalAssumptions)
     
