@@ -26,6 +26,6 @@ trait DefinitionExtractors { self: Extractors =>
           toIdObls(cons.fields.map(_.id) -> fields.map(_._1)),
           toTypeObls(cons.fields.map(_.getType) -> fields.map(_._2))
         )
-      } : _*))
+      }*))
   }
 }

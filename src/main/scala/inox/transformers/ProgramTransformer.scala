@@ -33,8 +33,8 @@ trait ProgramTransformer { self =>
     val sourceProgram: that.sourceProgram.type
     val targetProgram: self.targetProgram.type
   } = {
-    val enc = self.encoder compose that.encoder
-    val dec = that.decoder compose self.decoder
+    val enc = self.encoder `compose` that.encoder
+    val dec = that.decoder `compose` self.decoder
     class ComposeImpl(override val sourceProgram: that.sourceProgram.type,
                       override val targetProgram: self.targetProgram.type,
                       override val encoder: enc.type,
@@ -47,8 +47,8 @@ trait ProgramTransformer { self =>
     val sourceProgram: self.sourceProgram.type
     val targetProgram: that.targetProgram.type
   } = {
-    val enc = self.encoder andThen that.encoder
-    val dec = that.decoder andThen self.decoder
+    val enc = self.encoder `andThen` that.encoder
+    val dec = that.decoder `andThen` self.decoder
     class AndThenImpl(override val sourceProgram: self.sourceProgram.type,
                       override val targetProgram: that.targetProgram.type,
                       override val encoder: enc.type,

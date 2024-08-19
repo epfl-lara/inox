@@ -10,7 +10,7 @@ class IncrementalSet[A] extends IncrementalState
                         with Iterable[A]
                         with Builder[A, IncrementalSet[A]] {
 
-  private[this] var stack = List[MSet[A]](MSet())
+  private var stack = List[MSet[A]](MSet())
 
   /** Removes all the elements */
   override def clear(): Unit = {

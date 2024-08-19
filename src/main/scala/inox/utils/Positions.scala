@@ -119,7 +119,7 @@ case object NoPosition extends Position {
 
 
 trait Positioned {
-  private[this] var _pos: Position = NoPosition
+  private var _pos: Position = NoPosition
 
   def setPos(pos: Position): this.type = {
     _pos = pos

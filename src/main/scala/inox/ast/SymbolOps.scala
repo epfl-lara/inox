@@ -11,7 +11,7 @@ import transformers._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 object SymbolOps {
-  private[this] val identifiers = new scala.collection.mutable.ArrayBuffer[Identifier]
+  private val identifiers = new scala.collection.mutable.ArrayBuffer[Identifier]
   def getId(index: Int): Identifier = synchronized {
     for (i <- identifiers.size to index) identifiers += FreshIdentifier("x", true)
     identifiers(index)
@@ -63,9 +63,9 @@ trait SymbolOps extends TypeOps { self =>
   def simplifyIn(e: Expr, path: Path)(using PurityOptions): Expr = {
     val s = simplifier
     val env = path.elements.foldLeft(s.initEnv) {
-      case (env, Path.CloseBound(vd, e)) => env withBinding (vd -> e)
-      case (env, Path.OpenBound(vd)) => env withBound vd
-      case (env, Path.Condition(cond)) => env withCond cond
+      case (env, Path.CloseBound(vd, e)) => env `withBinding` (vd -> e)
+      case (env, Path.OpenBound(vd)) => env `withBound` vd
+      case (env, Path.Condition(cond)) => env `withCond` cond
     }
 
     s.transform(e, env)
@@ -96,7 +96,7 @@ trait SymbolOps extends TypeOps { self =>
   protected class TransformerWithPC[P <: PathLike[P]](override val s: self.trees.type,
                                                       override val t: self.trees.type)
     extends transformers.TransformerWithPC {
-    self0: TransformerWithExprOp with TransformerWithTypeOp =>
+    self0: TransformerWithExprOp & TransformerWithTypeOp =>
 
     override type Env = P
   }
@@ -219,12 +219,12 @@ trait SymbolOps extends TypeOps { self =>
   def isPureIn(e: Expr, path: Path)(using PurityOptions): Boolean = {
     val s = simplifier
     val env = path.elements.foldLeft(s.initEnv) {
-      case (env, Path.CloseBound(vd, e)) => env withBinding (vd -> e)
-      case (env, Path.OpenBound(vd)) => env withBound vd
-      case (env, Path.Condition(cond)) => env withCond cond
+      case (env, Path.CloseBound(vd, e)) => env `withBinding` (vd -> e)
+      case (env, Path.OpenBound(vd)) => env `withBound` vd
+      case (env, Path.Condition(cond)) => env `withCond` cond
     }
 
-    (env implies BooleanLiteral(false)) || s.isPure(e, env)
+    (env `implies` BooleanLiteral(false)) || s.isPure(e, env)
   }
 
   def isImpureExpr(expr: Expr): Boolean = expr match {
@@ -785,7 +785,7 @@ trait SymbolOps extends TypeOps { self =>
               case _ => false
             } (pred) =>
               Seq[Expr](
-                path implies replaceFromSymbols(Map(res.toVariable -> fi), and(pred, inlineExpr(nextQuantified, pred)))
+                path `implies` replaceFromSymbols(Map(res.toVariable -> fi), and(pred, inlineExpr(nextQuantified, pred)))
               )
             case _ => Seq.empty[Expr]
           }
@@ -1033,11 +1033,11 @@ trait SymbolOps extends TypeOps { self =>
     // Note that we avoid transforming types to make sure var/vals types match
     val newExpr = transformWithPC(expr, false)((e, env, op) => e match {
       case Assume(pred, body) if (
-        ((env unboundOf pred) subsetOf vars) &&
+        ((env `unboundOf` pred) subsetOf vars) &&
         (env.conditions ++ env.bindings.map(_._2)).forall(isSimple)
       ) =>
-        assumptions :+= freshenLocals(env implies pred)
-        op(body, env withCond pred)
+        assumptions :+= freshenLocals(env.implies(pred))
+        op(body, env `withCond` pred)
       case _ => op.sup(e, env)
     })
 

@@ -231,7 +231,7 @@ trait TreeTransformer extends DefinitionTransformer { self =>
     val t: self.t.type
   } = {
     // the scala type checker doesn't realize that this relation must hold here
-    that andThen this.asInstanceOf[TreeTransformer {
+    that `andThen` this.asInstanceOf[TreeTransformer {
       val s: that.t.type
       val t: self.t.type
     }]

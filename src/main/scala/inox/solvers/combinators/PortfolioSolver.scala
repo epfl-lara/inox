@@ -25,7 +25,7 @@ trait PortfolioSolver extends Solver { self =>
 
   protected var resultSolver: Option[Solver] = None
 
-  private[this] var tasks: Future[Unit] = Future(())
+  private var tasks: Future[Unit] = Future(())
 
   private[combinators] def perform(task: => Unit): Unit = tasks = tasks map (_ => task)
 

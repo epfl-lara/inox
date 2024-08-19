@@ -136,7 +136,7 @@ trait Definitions { self: Trees =>
     val functions: Map[Identifier, FunDef]
 
     @inline def constructors: Map[Identifier, ADTConstructor] = _constructors.get
-    private[this] val _constructors: Lazy[Map[Identifier, ADTConstructor]] =
+    private val _constructors: Lazy[Map[Identifier, ADTConstructor]] =
       Lazy(sorts.values.flatMap(_.constructors.map(cons => cons.id -> cons)).toMap)
 
 
@@ -145,7 +145,7 @@ trait Definitions { self: Trees =>
       val symbols: self0.symbols.type
     }
 
-    private[this] val typedSortCache: ConcurrentMap[(Identifier, Seq[Type]), Option[TypedADTSort]] =
+    private val typedSortCache: ConcurrentMap[(Identifier, Seq[Type]), Option[TypedADTSort]] =
       new java.util.concurrent.ConcurrentHashMap[(Identifier, Seq[Type]), Option[TypedADTSort]].asScala
     def lookupSort(id: Identifier): Option[ADTSort] = sorts.get(id)
     def lookupSort(id: Identifier, tps: Seq[Type]): Option[TypedADTSort] = {
@@ -161,7 +161,7 @@ trait Definitions { self: Trees =>
     def getSort(id: Identifier, tps: Seq[Type]): TypedADTSort =
       lookupSort(id, tps).getOrElse(throw ADTLookupException(id))
 
-    private[this] val typedConstructorCache: ConcurrentMap[(Identifier, Seq[Type]), Option[TypedADTConstructor]] =
+    private val typedConstructorCache: ConcurrentMap[(Identifier, Seq[Type]), Option[TypedADTConstructor]] =
       new java.util.concurrent.ConcurrentHashMap[(Identifier, Seq[Type]), Option[TypedADTConstructor]].asScala
     def lookupConstructor(id: Identifier): Option[ADTConstructor] = constructors.get(id)
     def lookupConstructor(id: Identifier, tps: Seq[Type]): Option[TypedADTConstructor] =
@@ -180,7 +180,7 @@ trait Definitions { self: Trees =>
     def getConstructor(id: Identifier, tps: Seq[Type]): TypedADTConstructor =
       lookupConstructor(id, tps).getOrElse(throw ADTLookupException(id))
 
-    private[this] val typedFunctionCache: ConcurrentMap[(Identifier, Seq[Type]), Option[TypedFunDef]] =
+    private val typedFunctionCache: ConcurrentMap[(Identifier, Seq[Type]), Option[TypedFunDef]] =
       new java.util.concurrent.ConcurrentHashMap[(Identifier, Seq[Type]), Option[TypedFunDef]].asScala
     def lookupFunction(id: Identifier): Option[FunDef] = functions.get(id)
     def lookupFunction(id: Identifier, tps: Seq[Type]): Option[TypedFunDef] =
@@ -214,7 +214,7 @@ trait Definitions { self: Trees =>
       * - every variable is available in the scope of its usage
       */
     @inline def ensureWellFormed: Unit = _tryWF.get.get
-    private[this] val _tryWF: Lazy[Try[Unit]] = Lazy(Try(ensureWellFormedSymbols))
+    private val _tryWF: Lazy[Try[Unit]] = Lazy(Try(ensureWellFormedSymbols))
 
     protected def ensureWellFormedSymbols: Unit = {
       for ((_, fd) <- functions) ensureWellFormedFunction(fd)
@@ -227,8 +227,8 @@ trait Definitions { self: Trees =>
       if (!fd.getType.isTyped) throw NotWellFormedException(fd)
       if (!(fd.params forall (_.isTyped))) throw NotWellFormedException(fd)
 
-      val unbound: Seq[Variable] = collectWithPC(fd.fullBody, Path.empty withBounds fd.params) {
-        case (v: Variable, path) if !(path isBound v) => v
+      val unbound: Seq[Variable] = collectWithPC(fd.fullBody, Path.empty `withBounds` fd.params) {
+        case (v: Variable, path) if !(path `isBound` v) => v
       }
 
       if (unbound.nonEmpty) {
@@ -419,17 +419,17 @@ trait Definitions { self: Trees =>
     @inline def id: Identifier = definition.id
 
     @inline def invariant: Option[TypedFunDef] = _invariant.get
-    private[this] val _invariant = Lazy(definition.invariant.map(_.typed(tps)))
+    private val _invariant = Lazy(definition.invariant.map(_.typed(tps)))
 
     @inline def hasInvariant: Boolean = invariant.isDefined
 
     @inline def equality: Option[TypedFunDef] = _equality.get
-    private[this] val _equality = Lazy(definition.equality.map(_.typed(tps)))
+    private val _equality = Lazy(definition.equality.map(_.typed(tps)))
 
     @inline def hasEquality: Boolean = equality.isDefined
 
     @inline def tpSubst: Map[TypeParameter, Type] = _tpSubst.get
-    private[this] val _tpSubst = Lazy((definition.typeArgs zip tps).toMap.filter(tt => tt._1 != tt._2))
+    private val _tpSubst = Lazy((definition.typeArgs zip tps).toMap.filter(tt => tt._1 != tt._2))
 
     /** A [[Types.Type Type]] instantiated with this [[TypedADTSort]]'s type instantiation */
     def instantiate(t: Type): Type = typeOps.instantiateType(t, tpSubst)
@@ -445,7 +445,7 @@ trait Definitions { self: Trees =>
 
     /** The flags of the respective [[ADTSort]] instantiated with the real type parameters */
     @inline def flags: Seq[Flag] = _flags.get
-    private[this] val _flags = Lazy(definition.flags.map(instantiate))
+    private val _flags = Lazy(definition.flags.map(instantiate))
 
     val constructors: Seq[TypedADTConstructor] =
       definition.constructors map (TypedADTConstructor(_, this))
@@ -459,7 +459,7 @@ trait Definitions { self: Trees =>
     @inline def tps: Seq[Type] = sort.tps
 
     @inline def fields: Seq[ValDef] = _fields.get
-    private[this] val _fields = Lazy({
+    private val _fields = Lazy({
       if (sort.tpSubst.isEmpty) definition.fields
       else definition.fields.map(vd => vd.copy(
         tpe = sort.instantiate(vd.tpe),
@@ -498,7 +498,7 @@ trait Definitions { self: Trees =>
     def isRecursive(using s: Symbols) = s.isRecursive(id)
 
     @inline def typeArgs: Seq[TypeParameter] = _typeArgs.get
-    private[this] val _typeArgs = Lazy(tparams.map(_.tp))
+    private val _typeArgs = Lazy(tparams.map(_.tp))
 
     /** Applies this function on its formal parameters */
     @inline def applied = FunctionInvocation(id, typeArgs, params map (_.toVariable))
@@ -533,7 +533,7 @@ trait Definitions { self: Trees =>
     }
 
     @inline def tpSubst: Map[TypeParameter, Type] = _tpSubst.get
-    private[this] val _tpSubst = Lazy((fd.typeArgs zip tps).toMap.filter(tt => tt._1 != tt._2))
+    private val _tpSubst = Lazy((fd.typeArgs zip tps).toMap.filter(tt => tt._1 != tt._2))
 
     /** A [[Types.Type Type]] instantiated with this [[TypedFunDef]]'s type instantiation */
     def instantiate(t: Type): Type = typeOps.instantiateType(t, tpSubst)
@@ -575,7 +575,7 @@ trait Definitions { self: Trees =>
 
     /** The paremeters of the respective [[FunDef]] instantiated with the real type parameters */
     @inline def params: Seq[ValDef] = _params.get
-    private[this] val _params = Lazy({
+    private val _params = Lazy({
       if (tpSubst.isEmpty) fd.params
       else fd.params.map(vd => vd.copy(
         tpe = instantiate(vd.tpe),
@@ -588,17 +588,17 @@ trait Definitions { self: Trees =>
 
     /** The return type of the respective [[FunDef]] instantiated with the real type parameters */
     @inline def returnType: Type = _returnType.get
-    private[this] val _returnType = Lazy(instantiate(fd.returnType))
+    private val _returnType = Lazy(instantiate(fd.returnType))
 
     /** The (non-dependent) return type of this typed function definition */
     def getType = returnType.getType
 
     /** The body of the respective [[FunDef]] instantiated with the real type parameters */
     @inline def fullBody: Expr = _fullBody.get
-    private[this] val _fullBody = Lazy(instantiate(fd.fullBody))
+    private val _fullBody = Lazy(instantiate(fd.fullBody))
 
     /** The flags of the respective [[FunDef]] instantiated with the real type parameters */
     @inline def flags: Seq[Flag] = _flags.get
-    private[this] val _flags = Lazy(fd.flags.map(instantiate))
+    private val _flags = Lazy(fd.flags.map(instantiate))
   }
 }

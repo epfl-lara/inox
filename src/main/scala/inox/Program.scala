@@ -42,7 +42,7 @@ trait Program { self =>
     val trees: self.trees.type
   }
 
-  private[this] var _semantics: Semantics = null
+  private var _semantics: Semantics = null
   implicit def getSemantics(using ev: Provider): Semantics = {
     if (_semantics eq null) {
       // @nv: tell the type system what's what!
@@ -74,16 +74,16 @@ trait Program { self =>
 
 
   def transform(t: DefinitionTransformer { val s: self.trees.type }): Program { val trees: t.t.type } =
-    Program(t.t)(symbols transform t)
+    Program(t.t)(symbols `transform` t)
 
   def transform(t: SymbolTransformer { val s: self.trees.type }): Program { val trees: t.t.type } =
-    Program(t.t)(t transform symbols)
+    Program(t.t)(t `transform` symbols)
 
   def withFunctions(functions: Seq[trees.FunDef]): Program { val trees: self.trees.type } =
-    Program(trees)(symbols withFunctions functions)
+    Program(trees)(symbols `withFunctions` functions)
 
   def withSorts(sorts: Seq[trees.ADTSort]): Program { val trees: self.trees.type } =
-    Program(trees)(symbols withSorts sorts)
+    Program(trees)(symbols `withSorts` sorts)
 
   def asString(using Context): String = trees.asString(symbols)
   override def toString: String = asString(using Context.empty)

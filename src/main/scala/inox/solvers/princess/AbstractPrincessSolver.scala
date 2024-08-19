@@ -237,7 +237,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
             case UnitLiteral() => (UnitCons, Seq.empty)
           }
           val constructor = constructors.toB(cons)
-          constructor(args.map(parseTerm) : _*)
+          constructor(args.map(parseTerm)*)
 
         case (_: ADTSelector) | (_: TupleSelect) =>
           val (cons, rec, i) = expr match {
@@ -404,7 +404,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
       val visitor = new CollectingVisitor[Unit, IExpression] {
         def postVisit(t: IExpression, arg: Unit, subres: Seq[IExpression]) : IExpression =
           IExpression.updateAndSimplify(t, subres) match {
-            case app @ IFunApp(fun, Seq(arg)) if selectors containsB fun =>
+            case app @ IFunApp(fun, Seq(arg)) if selectors `containsB` fun =>
               evalToTerm(arg)(model) match {
                 case Some(IFunApp(_, args)) => args(selectors.toA(fun)._2)
                 case _ => app
@@ -444,7 +444,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
         }
 
         case tpe @ ((_: ADTType) | (_: TupleType) | (_: TypeParameter) | UnitType()) =>
-          evalToTerm(iexpr)(ctx.model).collect { case IFunApp(fun, args) if constructors containsB fun =>
+          evalToTerm(iexpr)(ctx.model).collect { case IFunApp(fun, args) if constructors `containsB` fun =>
             val (fieldsTypes, recons): (Seq[Type], Seq[Expr] => Expr) = constructors.toA(fun) match {
               case ADTCons(id, tps) => (getConstructor(id, tps).fields.map(_.getType), ADT(id, tps, _))
               case TupleCons(tps) => (tps, Tuple(_))
@@ -547,19 +547,19 @@ abstract class AbstractPrincessSolver(override val program: Program,
         extends Exception("Can't extract " + iexpr + " : " + msg)
 
       def rec(iexpr: IExpression, tpe: Type): Expr = (iexpr, tpe) match {
-        case _ if variables containsB iexpr => variables.toA(iexpr)
+        case _ if variables `containsB` iexpr => variables.toA(iexpr)
         case (Conj(a, b), BooleanType()) => And(rec(a, BooleanType()), rec(b, BooleanType()))
         case (Disj(a, b), BooleanType()) => Or(rec(a, BooleanType()), rec(b, BooleanType()))
         case (IBoolLit(b), _) => BooleanLiteral(b)
         case (IIntLit(i), BooleanType()) => BooleanLiteral(i.intValue == 0)
         case (IIntLit(i), IntegerType()) => IntegerLiteral(i.bigIntValue)
-        case (IFunApp(fun, args), _) if functions containsB fun =>
+        case (IFunApp(fun, args), _) if functions `containsB` fun =>
           val tfd = functions.toA(fun)
           FunctionInvocation(tfd.id, tfd.tps, (args zip tfd.params).map(p => rec(p._1, p._2.getType)))
-        case (IFunApp(fun, args), _) if lambdas containsB fun =>
+        case (IFunApp(fun, args), _) if lambdas `containsB` fun =>
           val ft @ FunctionType(from, _) = lambdas.toA(fun)
           Application(rec(args.head, ft), (args.tail zip from).map(p => rec(p._1, p._2)))
-        case (IFunApp(fun, args), _) if constructors containsB fun => constructors.toA(fun) match {
+        case (IFunApp(fun, args), _) if constructors `containsB` fun => constructors.toA(fun) match {
           case ADTCons(id, tps) =>
             ADT(id, tps, (args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.getType)))
           case TupleCons(tps) =>
@@ -568,7 +568,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
             UnitLiteral()
           case _ => throw UnsoundException(iexpr, "Unexpected constructor")
         }
-        case (IFunApp(fun, Seq(arg)), _) if selectors containsB fun => selectors.toA(fun) match {
+        case (IFunApp(fun, Seq(arg)), _) if selectors `containsB` fun => selectors.toA(fun) match {
           case (ac @ ADTCons(id, tps), i) =>
             ADTSelector(rec(arg, ac.getType), getConstructor(id).fields(i).id)
           case (tc @ TupleCons(tps), i) =>
@@ -602,7 +602,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
   def assertCnstr(formula: Trees): Unit = p !! formula.asInstanceOf[IFormula]
 
-  private[this] var interruptCheckSat = false
+  private var interruptCheckSat = false
 
   private def internalCheck(config: Configuration): config.Response[Model, Assumptions] = {
     import SimpleAPI.ProverStatus

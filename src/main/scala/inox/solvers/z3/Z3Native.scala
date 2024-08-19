@@ -31,10 +31,10 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   interruptManager.registerForInterrupts(this)
 
   @volatile
-  private[this] var interrupted = false
+  private var interrupted = false
 
-  private[this] var freed = false
-  private[this] val traceE = new Exception()
+  private var freed = false
+  private val traceE = new Exception()
 
   protected def unsound(ast: Z3AST, msg: String): Nothing =
     throw UnsoundExtractionException(ast, msg)
@@ -241,8 +241,8 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       )
 
       case ite @ IfExpr(c, t, e) => z3.mkITE(rec(c), rec(t), rec(e))
-      case And(exs) => z3.mkAnd(exs.map(rec): _*)
-      case Or(exs) => z3.mkOr(exs.map(rec): _*)
+      case And(exs) => z3.mkAnd(exs.map(rec)*)
+      case Or(exs) => z3.mkOr(exs.map(rec)*)
       case Implies(l, r) => z3.mkImplies(rec(l), rec(r))
       case Not(Equals(l, r)) => z3.mkDistinct(rec(l), rec(r))
       case Not(e) => z3.mkNot(rec(e))
@@ -368,7 +368,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         val tpe @ TupleType(tps) = t.getType: @unchecked
         typeToSort(tpe)
         val constructor = constructors.toB(TupleCons(tps))
-        constructor(es.map(rec): _*)
+        constructor(es.map(rec)*)
 
       case ts @ TupleSelect(t, i) =>
         val tpe @ TupleType(tps) = t.getType: @unchecked
@@ -379,7 +379,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case c @ ADT(id, tps, args) =>
         typeToSort(c.getType) // Making sure the sort is defined
         val constructor = constructors.toB(ADTCons(id, tps.map(_.getType)))
-        constructor(args.map(rec): _*)
+        constructor(args.map(rec)*)
 
       case c @ ADTSelector(cc, sel) =>
         val tpe @ ADTType(_, tps) = cc.getType: @unchecked
@@ -394,7 +394,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         tester(rec(e))
 
       case f @ FunctionInvocation(id, tps, args) =>
-        z3.mkApp(functionDefToDecl(getFunction(id, tps.map(_.getType))), args.map(rec): _*)
+        z3.mkApp(functionDefToDecl(getFunction(id, tps.map(_.getType))), args.map(rec)*)
 
       case fa @ Application(caller, args) =>
         val ft @ FunctionType(froms, to) = caller.getType: @unchecked
@@ -405,7 +405,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
           val name = FreshIdentifier("dynLambda").uniqueName
           z3.mkFreshFuncDecl(name, sortSeq, returnSort)
         }
-        z3.mkApp(funDecl, (caller +: args).map(rec): _*)
+        z3.mkApp(funDecl, (caller +: args).map(rec)*)
 
       /**
        * ===== Set operations =====
@@ -496,7 +496,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
         z3.mkEmptySeq(typeToSort(StringType()))
 
       case StringLiteral(v) =>
-        z3.mkSeqConcat(v.map(c => z3.mkUnitSeq(z3.mkNumeral(c.toInt.toString, typeToSort(BVType(false, 16))))): _*)
+        z3.mkSeqConcat(v.map(c => z3.mkUnitSeq(z3.mkNumeral(c.toInt.toString, typeToSort(BVType(false, 16)))))*)
 
       case StringLength(a) =>
         z3.mkSeqLength(rec(a))
@@ -565,13 +565,13 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
         case Z3AppAST(decl, args) =>
           val argsSize = args.size
-          if (argsSize == 0 && (variables containsB t)) {
+          if (argsSize == 0 && (variables `containsB` t)) {
             variables.toA(t)
-          } else if(functions containsB decl) {
+          } else if(functions `containsB` decl) {
             val tfd = functions.toA(decl)
             assert(tfd.params.size == argsSize)
             FunctionInvocation(tfd.id, tfd.tps, args.zip(tfd.params).map{ case (a, p) => rec(a, p.getType, seen) })
-          } else if (constructors containsB decl) {
+          } else if (constructors `containsB` decl) {
             constructors.toA(decl) match {
               case ADTCons(id, tps) =>
                 ADT(id, tps, args zip getConstructor(id, tps).fields map { case (a, vd) => rec(a, vd.getType, seen) })
@@ -749,20 +749,20 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
       case Z3AppAST(decl, args) => {
         val argsSize = args.size
-        if (functions containsB decl) {
+        if (functions `containsB` decl) {
           val tfd = functions.toA(decl)
           FunctionInvocation(tfd.id, tfd.tps, (args zip tfd.params).map(p => rec(p._1, p._2.getType)))
-        } else if (lambdas containsB decl) {
+        } else if (lambdas `containsB` decl) {
           val ft @ FunctionType(from, _) = lambdas.toA(decl)
           Application(rec(args.head, ft), (args.tail zip from).map(p => rec(p._1, p._2)))
-        } else if (argsSize == 0 && (variables containsB t)) {
+        } else if (argsSize == 0 && (variables `containsB` t)) {
           variables.toA(t)
-        } else if (argsSize == 1 && (testers containsB decl)) {
+        } else if (argsSize == 1 && (testers `containsB` decl)) {
           testers.toA(decl) match {
             case c @ ADTCons(id, tps) => IsConstructor(rec(args(0), c.getType), id)
             case _ => BooleanLiteral(true)
           }
-        } else if (argsSize == 1 && (selectors containsB decl)) {
+        } else if (argsSize == 1 && (selectors `containsB` decl)) {
           selectors.toA(decl) match {
             case (c @ ADTCons(id, tps), i) =>
               ADTSelector(rec(args(0), c.getType), getConstructor(id).fields(i).id)
@@ -770,7 +770,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
               TupleSelect(rec(args(0), c.getType), i + 1)
             case _ => unsound(t, "Unexpected selector tree")
           }
-        } else if (constructors containsB decl) {
+        } else if (constructors `containsB` decl) {
           constructors.toA(decl) match {
             case c @ ADTCons(id, tps) =>
               ADT(id, tps, (args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.getType)))

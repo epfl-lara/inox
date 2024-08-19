@@ -68,7 +68,7 @@ trait DefinitionElaborators { self: Elaborators =>
 
       val newStore = definitions.foldLeft(sortsStore) {
         case (store, td: TypeDef) =>
-          val sort = sortsStore getSort td.id.getName
+          val sort = sortsStore `getSort` td.id.getName
           val tpStore = (td.tparams zip sort.typeArgs).foldLeft(store) {
             case (store, (id, tp)) => store + (id.getName, tp)
           }
@@ -99,14 +99,14 @@ trait DefinitionElaborators { self: Elaborators =>
         definitions.map {
           case td: TypeDef =>
             given position: Position = td.pos
-            val sort = newStore getSort td.id.getName
+            val sort = newStore `getSort` td.id.getName
             val tpStore = (td.tparams zip sort.typeArgs).foldLeft(newStore) {
               case (store, (id, tp)) => store + (id.getName, tp)
             }
 
             Constrained.sequence({
               td.constructors.map { case (id, params) =>
-                val (_, cons) = newStore getConstructor id.getName
+                val (_, cons) = newStore `getConstructor` id.getName
                 val (_, _, vds) = getExprBindings((params zip cons.fields).map {
                   case ((_, tpe), vd) => (ExprIR.IdentifierIdentifier(vd.id), Some(tpe))
                 })(using tpStore, position)
@@ -120,7 +120,7 @@ trait DefinitionElaborators { self: Elaborators =>
 
           case fd: FunDef =>
             given position: Position = fd.pos
-            val signature = newStore getFunction fd.id.getName
+            val signature = newStore `getFunction` fd.id.getName
             val initStore = (fd.tparams zip signature.typeArgs).foldLeft(newStore) {
               case (store, (id, tp)) => store + (id.getName, tp)
             }

@@ -61,7 +61,7 @@ trait GenTreeOps { self =>
     * @note the computation is lazy, hence you should not rely on side-effects of `f`
     */
   def fold[T](f: (Source, Seq[T]) => T)(e: Source): T = {
-    val rec = fold(f) _
+    val rec = fold(f)
     val Deconstructor(es, _) = e: @unchecked
 
     f(e, es.map(rec))
@@ -86,7 +86,7 @@ trait GenTreeOps { self =>
     * @param e the expression to traverse
     */
   def preTraversal(f: Source => Unit)(e: Source): Unit = {
-    val rec = preTraversal(f) _
+    val rec = preTraversal(f)
     val Deconstructor(es, _) = e: @unchecked
     f(e)
     es.foreach(rec)
@@ -110,7 +110,7 @@ trait GenTreeOps { self =>
     * @param e the expression to traverse
     */
   def postTraversal(f: Source => Unit)(e: Source): Unit = {
-    val rec = postTraversal(f) _
+    val rec = postTraversal(f)
     val Deconstructor(es, _) = e: @unchecked
     es.foreach(rec)
     f(e)
@@ -183,7 +183,7 @@ trait GenTreeOps { self =>
     * @note The mode with applyRec true can diverge if f is not well formed (i.e. not convergent)
     */
   def postMap(f: Target => Option[Target], applyRec : Boolean = false)(e: Source): Target = {
-    val rec = postMap(f, applyRec) _
+    val rec = postMap(f, applyRec)
 
     val Deconstructor(es, builder) = e: @unchecked
     val newEs = es.map(rec)

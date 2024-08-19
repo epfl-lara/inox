@@ -94,7 +94,7 @@ abstract class SMTLIBSolver private(override val program: Program,
             chooses ++= ctx.getChooses.map(p => (p._1.res.id, Seq.empty[Type]) -> p._2)
 
             chooses ++= smodel.flatMap {
-              case DefineFun(SMTFunDef(s, args, _, e)) if functions containsB s =>
+              case DefineFun(SMTFunDef(s, args, _, e)) if functions `containsB` s =>
                 try {
                   val tfd = functions.toA(s)
                   tfd.fullBody match {

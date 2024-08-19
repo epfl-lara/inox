@@ -19,7 +19,7 @@ trait Cache[A,B] {
 
 class LruCache[A,B](val maxSize: Int) extends Cache[A,B] {
   // see java.util.HashMap doc for a discussion about load factors (0.75 here)
-  private[this] val cache = new java.util.LinkedHashMap[A,B](maxSize + 1, 0.75f, true) {
+  private val cache = new java.util.LinkedHashMap[A,B](maxSize + 1, 0.75f, true) {
     override protected def removeEldestEntry(eldest: java.util.Map.Entry[A,B]): Boolean = super.size() > maxSize
   }
 
@@ -29,8 +29,8 @@ class LruCache[A,B](val maxSize: Int) extends Cache[A,B] {
 }
 
 class PriorityCache[A,B](val maxSize: Int)(using val ordering: Ordering[A]) extends Cache[A,B] {
-  private[this] val cache = new java.util.HashMap[A,B](maxSize + 1)
-  private[this] val queue = new java.util.PriorityQueue(maxSize, ordering)
+  private val cache = new java.util.HashMap[A,B](maxSize + 1)
+  private val queue = new java.util.PriorityQueue(maxSize, ordering)
 
   def get(key: A): Option[B] = Option(cache.get(key))
 

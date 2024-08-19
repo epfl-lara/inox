@@ -10,7 +10,7 @@ class IncrementalSeq[A] extends IncrementalState
                         with Iterable[A]
                         with Builder[A, IncrementalSeq[A]] {
 
-  private[this] var stack: List[ArrayBuffer[A]] = List(new ArrayBuffer())
+  private var stack: List[ArrayBuffer[A]] = List(new ArrayBuffer())
 
   override def clear() : Unit = {
     stack = List(new ArrayBuffer())

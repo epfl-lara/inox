@@ -23,7 +23,7 @@ trait Interpolator
 
     object e {
       def apply(args: Any*): Expr = {
-        val ire = ir(args : _*)
+        val ire = ir(args*)
         val expr = converter.getExpr(ire, Unknown.fresh(using ire.pos))(using Store.empty)
         converter.elaborate(expr)
       }

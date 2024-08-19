@@ -13,7 +13,7 @@ trait Types { self: Trees =>
   }
 
   protected trait CachingTyped extends Typed {
-    private[this] var cache: (Symbols, Type) = (null, null)
+    private var cache: (Symbols, Type) = (null, null)
 
     final def getType(using s: Symbols): Type = {
       val (symbols, tpe) = cache
@@ -33,8 +33,8 @@ trait Types { self: Trees =>
   }
 
   abstract class Type extends Tree with Typed {
-    private[this] var simple: Boolean = false
-    private[this] var cache: (Symbols, Type) = (null, null)
+    private var simple: Boolean = false
+    private var cache: (Symbols, Type) = (null, null)
 
     private def setSimple(): this.type = { simple = true; this }
 
@@ -144,10 +144,10 @@ trait Types { self: Trees =>
     def apply[T <: Type](tpe: T): T = (new TypeNormalizer).transform(tpe).asInstanceOf[T]
   }
 
-  protected sealed trait TypeNormalization { self: Type with Product =>
+  protected sealed trait TypeNormalization { self: Type & Product =>
     @inline
     private final def elements: List[Any] = _elements.get
-    private[this] val _elements: utils.Lazy[List[Any]] = utils.Lazy({
+    private val _elements: utils.Lazy[List[Any]] = utils.Lazy({
       // @nv: note that we can't compare `normalized` directly as we are
       //      overriding the `equals` method and this would lead to non-termination.
       val normalized: Type & Product = TypeNormalization[Type & Product](this)
@@ -156,7 +156,7 @@ trait Types { self: Trees =>
 
     protected final def same(that: TypeNormalization): Boolean = elements == that.elements
 
-    private[this] val _code: utils.Lazy[Int] = utils.Lazy(elements.hashCode)
+    private val _code: utils.Lazy[Int] = utils.Lazy(elements.hashCode)
     protected final def code: Int = _code.get
   }
 
@@ -168,7 +168,7 @@ trait Types { self: Trees =>
 
     override def hashCode: Int = 31 * code
     override def equals(that: Any): Boolean = that match {
-      case pi: PiType => this same pi
+      case pi: PiType => this `same` pi
       case _ => false
     }
   }
@@ -181,7 +181,7 @@ trait Types { self: Trees =>
 
     override def hashCode: Int = 53 * code
     override def equals(that: Any): Boolean = that match {
-      case sigma: SigmaType => this same sigma
+      case sigma: SigmaType => this `same` sigma
       case _ => false
     }
   }
@@ -192,7 +192,7 @@ trait Types { self: Trees =>
 
     override def hashCode: Int = 79 * code
     override def equals(that: Any): Boolean = that match {
-      case ref: RefinementType => this same ref
+      case ref: RefinementType => this `same` ref
       case _ => false
     }
   }
@@ -286,7 +286,7 @@ trait Types { self: Trees =>
 
     // Helper for typeParamsOf
     class TypeCollector extends ConcreteSelfTreeTraverser {
-      private[this] val typeParams: MutableSet[TypeParameter] = MutableSet.empty
+      private val typeParams: MutableSet[TypeParameter] = MutableSet.empty
       def getResult: Set[TypeParameter] = typeParams.toSet
 
       override def traverse(tpe: Type): Unit = tpe match {

@@ -7,12 +7,12 @@ trait Semantics { self =>
   val symbols: trees.Symbols
   val program: Program { val trees: self.trees.type; val symbols: self.symbols.type }
 
-  private[this] val solverCache = new utils.LruCache[Context, solvers.SolverFactory {
+  private val solverCache = new utils.LruCache[Context, solvers.SolverFactory {
     val program: self.program.type
     type S <: solvers.combinators.TimeoutSolver { val program: self.program.type }
   }](5)
 
-  private[this] val evaluatorCache = new utils.LruCache[Context, evaluators.DeterministicEvaluator {
+  private val evaluatorCache = new utils.LruCache[Context, evaluators.DeterministicEvaluator {
     val program: self.program.type
   }](5)
 

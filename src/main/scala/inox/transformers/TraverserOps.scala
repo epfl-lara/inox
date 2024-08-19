@@ -8,7 +8,7 @@ class TraverserOp[In, Env](val app: (In, Env) => Unit, val sup: (In, Env) => Uni
 }
 
 trait TraverserWithExprOp extends Traverser {
-  private[this] val op = new TraverserOp[trees.Expr, Env](traverse(_, _), super.traverse(_, _))
+  private val op = new TraverserOp[trees.Expr, Env](traverse(_, _), super.traverse(_, _))
 
   protected val exprOp: (trees.Expr, Env, TraverserOp[trees.Expr, Env]) => Unit
 
@@ -16,7 +16,7 @@ trait TraverserWithExprOp extends Traverser {
 }
 
 trait TraverserWithTypeOp extends Traverser {
-  private[this] val op = new TraverserOp[trees.Type, Env](traverse(_, _), super.traverse(_, _))
+  private val op = new TraverserOp[trees.Type, Env](traverse(_, _), super.traverse(_, _))
 
   protected val typeOp: (trees.Type, Env, TraverserOp[trees.Type, Env]) => Unit
 

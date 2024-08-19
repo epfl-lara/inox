@@ -63,7 +63,7 @@ trait Constructors { self: Trees =>
   /** $encodingof `&&`-expressions with arbitrary number of operands as a sequence, and simplified.
     * @see [[Expressions.And And]]
     */
-  def andJoin(es: Seq[Expr]): Expr = and(es :_*)
+  def andJoin(es: Seq[Expr]): Expr = and(es*)
 
   /** $encodingof `||`-expressions with arbitrary number of operands, and simplified.
     * @see [[Expressions.Or Or]]
@@ -95,7 +95,7 @@ trait Constructors { self: Trees =>
   /** $encodingof `||`-expressions with arbitrary number of operands as a sequence, and simplified.
     * @see [[Expressions.Or Or]]
     */
-  def orJoin(es: Seq[Expr]): Expr = or(es :_*)
+  def orJoin(es: Seq[Expr]): Expr = or(es*)
 
   /** $encodingof simplified `!`-expressions .
     * @see [[Expressions.Not Not]]
@@ -121,7 +121,7 @@ trait Constructors { self: Trees =>
   def equality(a: Expr, b: Expr): Expr = {
     if (a.isInstanceOf[Terminal] && a == b ) {
       BooleanLiteral(true)
-    } else if (a.isInstanceOf[Literal[_]] && b.isInstanceOf[Literal[_]]) {
+    } else if (a.isInstanceOf[Literal[?]] && b.isInstanceOf[Literal[?]]) {
       BooleanLiteral(a == b)
     } else {
       Equals(a, b)

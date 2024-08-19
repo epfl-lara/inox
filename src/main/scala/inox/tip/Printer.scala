@@ -175,7 +175,7 @@ class Printer private(override val program: InoxProgram,
           (fields zip tparams).map { case ((id, _), tpe) => (id, tpe) }))))
 
       case p => p
-    }.filterNot(p => sorts containsA p._1)
+    }.filterNot(p => sorts `containsA` p._1)
 
     val generics = (for ((tpe, DataType(id, _)) <- newAdts) yield {
       val tparams: Seq[TypeParameter] = tpe match {
@@ -327,7 +327,7 @@ class Printer private(override val program: InoxProgram,
     case FiniteSet(elems, base) =>
       val empty = Sets.EmptySet(declareSort(base))
       elems match {
-        case x :: xs => Sets.Insert(empty, toSMT(x), xs.map(toSMT) : _*)
+        case x :: xs => Sets.Insert(empty, toSMT(x), xs.map(toSMT)*)
         case _ => empty
       }
 

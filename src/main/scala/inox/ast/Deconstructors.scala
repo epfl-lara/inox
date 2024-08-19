@@ -46,7 +46,7 @@ trait TreeDeconstructor {
     * NOTE this is only valid if each Expression class has no subtypes!
     * We keep expression types sealed to help ensure this issue doesn't ever appear.
     */
-  private val exprTable: Map[Class[_], s.Expr => Deconstructed[t.Expr]] = HashMap(
+  private val exprTable: Map[Class[?], s.Expr => Deconstructed[t.Expr]] = HashMap(
     classOf[s.Assume] -> { expr =>
       val s.Assume(pred, body) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(pred, body), NoTypes, NoFlags,
@@ -417,7 +417,7 @@ trait TreeDeconstructor {
 
 
   /** Same optimisation as for `deconstruct(expr: s.Expr)`. */
-  private val typeTable: Map[Class[_], s.Type => Deconstructed[t.Type]] = HashMap(
+  private val typeTable: Map[Class[?], s.Type => Deconstructed[t.Type]] = HashMap(
     classOf[s.ADTType] -> { tpe =>
       val s.ADTType(id, ts) = tpe: @unchecked
       (Seq(id), NoVariables, NoExpressions, ts, NoFlags,

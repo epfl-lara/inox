@@ -63,7 +63,7 @@ trait MainHelpers {
 
   protected case class Description(category: Category, description: String)
 
-  protected def getOptions: Map[OptionDef[_], Description] = Map(
+  protected def getOptions: Map[OptionDef[?], Description] = Map(
     optHelp -> Description(General, "Show help message"),
     optNoColors -> Description(General, "Disable colored output and non-ascii characters (enable this option for better support in IDEs)"),
     optTimeout -> Description(General, "Set a timeout for the solver (in sec.)"),
@@ -179,7 +179,7 @@ trait MainHelpers {
 
     val files = args.filterNot(_.startsWith("-")).map(new File(_))
 
-    val inoxOptions: Seq[OptionValue[_]] = opts.map { opt =>
+    val inoxOptions: Seq[OptionValue[?]] = opts.map { opt =>
       val (name, value) = OptionsHelpers.nameValue(opt) getOrElse initReporter.fatalError(
         s"Malformed option $opt. Options should have the form --name or --name=value"
       )
@@ -195,7 +195,7 @@ trait MainHelpers {
     processOptions(files, inoxOptions)
   }
 
-  protected def processOptions(files: Seq[File], inoxOptions: Seq[OptionValue[_]])
+  protected def processOptions(files: Seq[File], inoxOptions: Seq[OptionValue[?]])
                               (using initReporter: Reporter): Context = {
 
     for ((optDef, values) <- inoxOptions.groupBy(_.optionDef) if values.size > 1)

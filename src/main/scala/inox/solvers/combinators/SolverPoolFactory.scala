@@ -26,8 +26,8 @@ class SolverPoolFactory private(val factory: SolverFactory)
   var poolSize    = 0
   val poolMaxSize = 5
 
-  private[this] val availables = Queue[S]()
-  private[this] var inUse      = Set[S]()
+  private val availables = Queue[S]()
+  private var inUse      = Set[S]()
 
   def getNewSolver(): S = {
     if (availables.isEmpty) {

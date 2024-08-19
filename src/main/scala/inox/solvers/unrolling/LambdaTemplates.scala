@@ -204,7 +204,7 @@ trait LambdaTemplates { self: Templates =>
         if canBeEqual(template.ids._2, f)
       } yield {
         mkAnd(template.start, mkEquals(template.ids._2, f))
-      }).toSeq :+ nextB : _*))))
+      }).toSeq :+ nextB*))))
     }
 
     // Add type blocker clause
@@ -222,7 +222,7 @@ trait LambdaTemplates { self: Templates =>
         mkImplies(typeBlocker, appResult)
       }
 
-      clauses += mkImplies(b, mkEquals(r, mkAnd(blockedResults.toSeq :+ nextB : _*)))
+      clauses += mkImplies(b, mkEquals(r, mkAnd(blockedResults.toSeq :+ nextB*)))
     }
 
     if (ft.from.isEmpty) clauses ++= (for {
@@ -297,7 +297,7 @@ trait LambdaTemplates { self: Templates =>
       t => (t.ids._2, Seq.empty)
     }.orElse {
       byType(template.tpe).collectFirst {
-        case (s, t) if s subsumes template.structure => (t.ids._2, Seq.empty)
+        case (s, t) if s `subsumes` template.structure => (t.ids._2, Seq.empty)
       }
     }.getOrElse {
       val idT = encodeSymbol(template.ids._1)
@@ -359,7 +359,7 @@ trait LambdaTemplates { self: Templates =>
         clauses :+= mkImplies(mkNot(firstB), mkNot(blocker))
       }
 
-      if (byID contains caller) {
+      if (byID `contains` caller) {
         /* We register this app at the CURRENT generation to increase the performance
          * of fold-style higher-order functions (the first-class function will be
          * dispatched immediately after the fold-style function unrolling). */
@@ -427,7 +427,7 @@ trait LambdaTemplates { self: Templates =>
               clauses ++= equalityClauses
               equality
             }
-            mkEquals(mkAnd(equalities : _*), equals)
+            mkEquals(mkAnd(equalities*), equals)
           }
         } else {
           mkNot(equals)
@@ -516,9 +516,9 @@ trait LambdaTemplates { self: Templates =>
     def refutationAssumptions = assumptions
 
     def promoteBlocker(b: Encoded): Boolean = {
-      if (blockerToApps contains b) {
+      if (blockerToApps `contains` b) {
         val app = blockerToApps(b)
-        if (appInfos contains app) {
+        if (appInfos `contains` app) {
           val (_, origGen, infos) = appInfos(app)
           appInfos += app -> (currentGeneration, origGen, infos)
           true
@@ -558,7 +558,7 @@ trait LambdaTemplates { self: Templates =>
           val extension = mkOr((infos.map(info => info.template match {
             case Left(template) => mkAnd(template.start, info.equals)
             case Right(_) => info.equals
-          }).toSeq :+ nextB) : _*)
+          }).toSeq :+ nextB)*)
 
           val clause = mkEquals(lastB, extension)
           reporter.debug(" -> extending lambda blocker: " + clause)

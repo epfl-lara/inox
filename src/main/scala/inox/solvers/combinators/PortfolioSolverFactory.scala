@@ -13,7 +13,7 @@ class PortfolioSolverFactory private(override val program: Program, override val
   def this(prog: Program, sfs: Seq[SolverFactory { val program: prog.type }]) =
     this(prog, sfs.map(_.name).mkString("Pfolio(", ",", ")"))(prog)(sfs)
 
-  type S = PortfolioSolver with TimeoutSolver { val program: self.program.type }
+  type S = PortfolioSolver & TimeoutSolver { val program: self.program.type }
 
   def getNewSolver(): S = {
     class Impl(override val program: self.program.type,

@@ -44,7 +44,7 @@ trait SymbolTransformer { self =>
     val t: that.t.type
   } = {
     // the scala compiler doesn't realize that this relation must hold here
-    that compose this.asInstanceOf[SymbolTransformer {
+    that `compose` this.asInstanceOf[SymbolTransformer {
       val s: self.s.type
       val t: that.s.type
     }]

@@ -10,13 +10,13 @@ import sun.misc.{Signal, SignalHandler}
 import java.util.WeakHashMap
 
 class InterruptManager(reporter: Reporter) extends Interruptible {
-  private[this] val interruptibles = new WeakHashMap[Interruptible, Boolean]()
-  private[this] val sigINT = new Signal("INT")
+  private val interruptibles = new WeakHashMap[Interruptible, Boolean]()
+  private val sigINT = new Signal("INT")
 
-  private[this] val lastTimestamp = new AtomicLong(0L)
+  private val lastTimestamp = new AtomicLong(0L)
   private val exitWindow = 1000L
 
-  private[this] val handler = new SignalHandler {
+  private val handler = new SignalHandler {
     def handle(sig: Signal): Unit = {
       def now(): Long = System.currentTimeMillis()
       reporter.info("")

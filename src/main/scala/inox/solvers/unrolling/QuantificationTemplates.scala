@@ -381,7 +381,7 @@ trait QuantificationTemplates { self: Templates =>
   }.sum
 
   private def encodeEnablers(es: Set[Encoded]): Encoded =
-    if (es.isEmpty) trueT else mkAnd(es.toSeq.sortBy(_.toString) : _*)
+    if (es.isEmpty) trueT else mkAnd(es.toSeq.sortBy(_.toString)*)
 
   private[solvers] class Axiom(
     contents: TemplateContents,
@@ -490,7 +490,7 @@ trait QuantificationTemplates { self: Templates =>
             val msubst = map.collect { case (q, Right(m)) => q -> m }
             val opts = optimizationQuorums.flatMap { ms =>
               val sms = ms.map(_.substitute(substituter, msubst))
-              if (sms.forall(sm => matcherBlockers contains sm)) sms.toList else Nil
+              if (sms.forall(sm => matcherBlockers.contains(sm))) sms.toList else Nil
             }
 
             if (opts.nonEmpty) {
@@ -537,7 +537,7 @@ trait QuantificationTemplates { self: Templates =>
       /* Generate the sequence of all relevant instantiation mappings */
       var mappings: Seq[(Set[Encoded], Map[Encoded, Arg], Int)] = Seq.empty
       for ((v,q) <- quantifiers if grounds(q).isEmpty) {
-        val res: Set[Encoded] = if (FreeUnrolling unroll v.tpe) {
+        val res: Set[Encoded] = if (FreeUnrolling `unroll` v.tpe) {
           val closures = typeOps.variablesOf(v.tpe).toSeq.sortBy(_.id).map(subst)
           val result = encodeSymbol(Variable.fresh("result", BooleanType(), true))
           clauses ++= instantiateType(contents.pathVar._2, Typing(v.tpe, q, Constraint(result, closures, true)))
@@ -691,7 +691,7 @@ trait QuantificationTemplates { self: Templates =>
 
   def instantiateQuantification(template: QuantificationTemplate): (Map[Encoded, Encoded], Clauses) = {
     templates.get(template.structure).orElse {
-      templates.collectFirst { case (s, t) if s subsumes template.structure => t }
+      templates.collectFirst { case (s, t) if s `subsumes` template.structure => t }
     }.map { case (tmpl, inst) =>
       template.polarity match {
         case Positive(subst) =>
@@ -742,7 +742,7 @@ trait QuantificationTemplates { self: Templates =>
               clauses ++= equalityClauses
               equality
             }
-          val cond = mkAnd(blocker +: eqConds : _*)
+          val cond = mkAnd(blocker +: eqConds*)
           cls :+ mkImplies(cond, mkEquals(inst, tinst))
         } else {
           Seq.empty[Encoded]
@@ -824,7 +824,7 @@ trait QuantificationTemplates { self: Templates =>
           mkSubstituter(subst)(exprT)
         }
 
-        val res = (valuesP.map(_._2), if (disjuncts.isEmpty) falseT else mkOr(disjuncts : _*))
+        val res = (valuesP.map(_._2), if (disjuncts.isEmpty) falseT else mkOr(disjuncts*))
         keyClause += key -> res
         res
       })
@@ -850,11 +850,11 @@ trait QuantificationTemplates { self: Templates =>
         case seq => mkOr(seq.map { case (b, subst) =>
           val substMap = (elemsP.map(_._2) zip q.quantifiers.map(p => subst(p._2).encoded)).toMap + (guardP._2 -> b)
           mkSubstituter(substMap)(exprT)
-        } : _*)
+        }*)
       }
 
       for ((_, enablers, subst) <- ignoredSubsts(q)) {
-        val b = if (enablers.isEmpty) trueT else mkAnd(enablers.toSeq : _*)
+        val b = if (enablers.isEmpty) trueT else mkAnd(enablers.toSeq*)
         val substMap = (valuesP.map(_._2) zip q.quantifiers.map(p => subst(p._2).encoded)).toMap
         clauses += mkSubstituter(substMap)(mkImplies(b, disjunction))
       }

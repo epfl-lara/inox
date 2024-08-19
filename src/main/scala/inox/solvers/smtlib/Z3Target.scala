@@ -383,7 +383,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     def apply(op: String, from: List[Sort], to: Sort) = {
       def simpleSort(s: Sort): Boolean = s.subSorts.isEmpty && !s.id.isIndexed
       assert(from.forall(simpleSort) && simpleSort(to), "SortedSymbol is only defined for simple sorts")
-      SList(SSymbol(op), SList(from.map(_.id.symbol): _*), to.id.symbol)
+      SList(SSymbol(op), SList(from.map(_.id.symbol)*), to.id.symbol)
     }
   }
 

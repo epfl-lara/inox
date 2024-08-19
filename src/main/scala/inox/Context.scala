@@ -16,7 +16,7 @@ case class Context(
 
   given givenContext: this.type = this
 
-  def withOpts(opts: OptionValue[_]*): Context = copy(options = options ++ opts)
+  def withOpts(opts: OptionValue[?]*): Context = copy(options = options ++ opts)
 }
 
 object Context {

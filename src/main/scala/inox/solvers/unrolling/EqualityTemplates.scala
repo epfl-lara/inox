@@ -224,7 +224,7 @@ trait EqualityTemplates { self: Templates =>
     def refutationAssumptions: Seq[Encoded] = Seq.empty
 
     def promoteBlocker(b: Encoded): Boolean = {
-      if (equalityInfos contains b) {
+      if (equalityInfos `contains` b) {
         val (_, origGen, notB, eqs) = equalityInfos(b)
         equalityInfos += b -> (currentGeneration, origGen, notB, eqs)
         true
