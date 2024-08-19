@@ -8,7 +8,7 @@ class TransformerOp[In, Env, Out](val app: (In, Env) => Out, val sup: (In, Env) 
 }
 
 trait TransformerWithExprOp extends Transformer {
-  private[this] val op = new TransformerOp[s.Expr, Env, t.Expr](transform(_, _), super.transform(_, _))
+  private val op = new TransformerOp[s.Expr, Env, t.Expr](transform(_, _), super.transform(_, _))
 
   protected def exprOp(expr: s.Expr, env: Env, op: TransformerOp[s.Expr, Env, t.Expr]): t.Expr
 
@@ -16,7 +16,7 @@ trait TransformerWithExprOp extends Transformer {
 }
 
 trait TransformerWithTypeOp extends Transformer {
-  private[this] val op = new TransformerOp[s.Type, Env, t.Type](transform(_, _), super.transform(_, _))
+  private val op = new TransformerOp[s.Type, Env, t.Type](transform(_, _), super.transform(_, _))
 
   protected def typeOp(ty: s.Type, env: Env, op: TransformerOp[s.Type, Env, t.Type]): t.Type
 

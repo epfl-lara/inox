@@ -45,7 +45,7 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
       case t => unsupported(t, "Assumptions must be either variables or their negation")
     }
 
-    val cmd = SList(SSymbol("check-sat") +: assumptions.toSeq.map(as => toSMT(as)(using Map.empty)) : _*)
+    val cmd = SList(SSymbol("check-sat") +: assumptions.toSeq.map(as => toSMT(as)(using Map.empty))*)
     val res = emit(cmd) match {
       case SSymbol("sat") => CheckSatStatus(SatStatus)
       case SSymbol("unsat") => CheckSatStatus(UnsatStatus)

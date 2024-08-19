@@ -27,7 +27,7 @@ trait SMTLIBParser {
   protected trait AbstractContext { self: Context =>
     val vars: Map[SSymbol, Expr]
     def withVariable(sym: SSymbol, expr: Expr): Context
-    def withVariables(vars: Seq[(SSymbol, Expr)]): Context = vars.foldLeft(this)((ctx, p) => ctx withVariable (p._1, p._2))
+    def withVariables(vars: Seq[(SSymbol, Expr)]): Context = vars.foldLeft(this)((ctx, p) => ctx `withVariable` (p._1, p._2))
   }
 
   protected type Context <: AbstractContext

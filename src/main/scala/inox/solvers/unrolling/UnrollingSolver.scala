@@ -39,9 +39,9 @@ object AbstractUnrollingSolver {
     val sourceProgram: prog.type
     val targetProgram: Program {val trees: enc.targetProgram.trees.type}
   }) = {
-    val fullEncoder = enc andThen chooses
+    val fullEncoder = enc `andThen` chooses
     val theories = theoriesCtor(fullEncoder)
-    fullEncoder andThen theories
+    fullEncoder `andThen` theories
   }
 }
 
@@ -448,7 +448,7 @@ abstract class AbstractUnrollingSolver private
 
           case TupleType(tps) =>
             val id = Variable.fresh("tuple", tpe)
-            val encoder = templates.mkEncoder(Map(id -> v)) _
+            val encoder = templates.mkEncoder(Map(id -> v))
             reconstruct(tps.zipWithIndex.map {
               case (tpe, index) => rec(encoder(TupleSelect(id, index + 1)), tpe)
             }, Tuple.apply)
@@ -456,7 +456,7 @@ abstract class AbstractUnrollingSolver private
           case tpe @ ADTType(sid, tps) =>
             val cons = wrapped.extractConstructor(v, tpe).getOrThrow
             val id = Variable.fresh("adt", tpe)
-            val encoder = templates.mkEncoder(Map(id -> v)) _
+            val encoder = templates.mkEncoder(Map(id -> v))
             reconstruct(getConstructor(cons, tps).fields.map {
               vd => rec(encoder(ADTSelector(id, vd.id)), vd.getType)
             }, ADT(cons, tps, _))
@@ -657,7 +657,7 @@ abstract class AbstractUnrollingSolver private
         CheckResult(config.convert(config.cast(resp), extractSimpleModel, decodeAssumptions))
 
       def apply[M <: Model, A <: Assumptions](resp: config.Response[M, A]): CheckResult = resp match {
-        case SatWithModel(_) if !checkModels && abort => new CheckResult(config cast Unknown)
+        case SatWithModel(_) if !checkModels && abort => new CheckResult(config `cast` Unknown)
         case _ => new CheckResult(resp)
       }
 
@@ -767,8 +767,8 @@ abstract class AbstractUnrollingSolver private
               None
             case Canceled() => None
           }).map { model =>
-            lazy val sat = CheckResult(config cast (if (config.withModel) SatWithModel(model) else Sat))
-            lazy val unknown = CheckResult cast Unknown
+            lazy val sat = CheckResult(config `cast` (if (config.withModel) SatWithModel(model) else Sat))
+            lazy val unknown = CheckResult `cast` Unknown
 
             val valid = !checkModels || validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
 
@@ -810,7 +810,7 @@ abstract class AbstractUnrollingSolver private
             } else {
               sat
             }
-          }.getOrElse(CheckResult cast Unknown)
+          }.getOrElse(CheckResult `cast` Unknown)
 
         case InstantiateQuantifiers =>
           if (templates.quantificationsManager.unrollGeneration.isEmpty) {
@@ -859,7 +859,7 @@ abstract class AbstractUnrollingSolver private
           // are keeping quantified clause instantiations from being considered
           val res: SolverResponse[underlying.Model, Set[underlying.Trees]] =
             context.timers.solvers.unrolling.check.run {
-              underlying.checkAssumptions(config max Configuration(model = true))(
+              underlying.checkAssumptions(config `max` Configuration(model = true))(
                 encodedAssumptions.toSet ++ templates.refutationAssumptions
               )
             }
@@ -880,7 +880,7 @@ abstract class AbstractUnrollingSolver private
               }
 
               if (luckyModel.isDefined) {
-                CheckResult(config cast (if (config.withModel) SatWithModel(luckyModel.get) else Sat))
+                CheckResult(config `cast` (if (config.withModel) SatWithModel(luckyModel.get) else Sat))
               } else {
                 val wrapped = wrapModel(model)
 

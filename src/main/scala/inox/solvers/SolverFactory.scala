@@ -399,7 +399,7 @@ object SolverFactory {
 
   def optimizer(p: InoxProgram, ctx: Context): SolverFactory {
     val program: p.type
-    type S <: Optimizer with TimeoutSolver { val program: p.type }
+    type S <: Optimizer & TimeoutSolver { val program: p.type }
   } = {
     val solversOpt = ctx.options.findOption(optSelectedSolvers)
     (solversOpt getOrElse optSelectedSolvers.default).toSeq match {
@@ -408,7 +408,7 @@ object SolverFactory {
         val name = if (single.endsWith("-opt")) single else single + "-opt"
         getFromName(name, force = solversOpt.isDefined)(p, ctx)(ProgramEncoder.empty(p))(using p.getSemantics).asInstanceOf[SolverFactory {
           val program: p.type
-          type S <: Optimizer with TimeoutSolver { val program: p.type }
+          type S <: Optimizer & TimeoutSolver { val program: p.type }
         }]
       case multiple => throw FatalError("No support for portfolio optimizers")
     }

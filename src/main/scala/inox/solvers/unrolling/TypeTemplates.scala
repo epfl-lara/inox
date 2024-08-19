@@ -32,7 +32,7 @@ trait TypeTemplates { self: Templates =>
     * namely free variable type unrolling (dependent types and ADT invariants), contract
     * type unrolling (dependent types), and capture unrolling (function closure ordering). */
   protected sealed abstract class TypeUnrolling {
-    private[this] val unrollCache: MutableMap[TypedADTSort, Boolean] = MutableMap.empty
+    private val unrollCache: MutableMap[TypedADTSort, Boolean] = MutableMap.empty
 
     def unroll(tpe: Type): Boolean = tpe match {
       case adt: ADTType =>
@@ -63,7 +63,7 @@ trait TypeTemplates { self: Templates =>
 
 
   protected sealed abstract class TypingGenerator(unrolling: TypeUnrolling) {
-    def unroll(tpe: Type): Boolean = unrolling unroll tpe
+    def unroll(tpe: Type): Boolean = unrolling `unroll` tpe
   }
 
   protected case object FreeGenerator extends TypingGenerator(FreeUnrolling)
@@ -103,8 +103,8 @@ trait TypeTemplates { self: Templates =>
     )
 
     def unroll: Boolean = instantiator match {
-      case Constraint(_, _, free) => (if (free) FreeUnrolling else ContractUnrolling) unroll tpe
-      case Capture(_, _) => CaptureUnrolling unroll tpe
+      case Constraint(_, _, free) => (if (free) FreeUnrolling else ContractUnrolling) `unroll` tpe
+      case Capture(_, _) => CaptureUnrolling `unroll` tpe
     }
   }
 
@@ -113,7 +113,7 @@ trait TypeTemplates { self: Templates =>
     CaptureTemplate(arg._2, container._2).instantiate(start, container._1, arg._1)
   }
 
-  private[this] def instantiateTyping(blocker: Encoded, typing: Typing): Clauses = typing match {
+  private def instantiateTyping(blocker: Encoded, typing: Typing): Clauses = typing match {
     case Typing(tpe, arg, Constraint(result, closures, free)) =>
       val key = (tpe, arg, closures, free)
       results.get(key) match {
@@ -326,7 +326,7 @@ trait TypeTemplates { self: Templates =>
     def refutationAssumptions: Seq[Encoded] = Seq.empty
 
     def promoteBlocker(b: Encoded): Boolean = {
-      if (typeInfos contains b) {
+      if (typeInfos `contains` b) {
         val (_, origGen, notB, tps) = typeInfos(b)
         typeInfos += b -> (currentGeneration, origGen, notB, tps)
         true

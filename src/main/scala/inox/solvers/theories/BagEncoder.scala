@@ -42,7 +42,7 @@ private class BagTheory[Trees <: ast.Trees](val trees: Trees) {
   val GetID = FreshIdentifier("get")
   val Get = mkFunDef(GetID)("T") { case Seq(aT) => (
     Seq("bag" :: Bag(aT), "x" :: aT), IntegerType(), {
-    case Seq(bag, x) => if_ (bag is SumID) {
+    case Seq(bag, x) => if_ (bag `is` SumID) {
       E(GetID)(aT)(bag.getField(left), x) +
         E(GetID)(aT)(bag.getField(right), x)
     } else_ {
@@ -68,11 +68,11 @@ private class BagTheory[Trees <: ast.Trees](val trees: Trees) {
   val diff = FreshIdentifier("diffImpl")
   val DifferenceImpl = mkFunDef(diff)("T") { case Seq(aT) => (
     Seq("keys" :: Bag(aT), "b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), {
-    case Seq(keys, b1, b2) => if_ (keys is SumID) {
+    case Seq(keys, b1, b2) => if_ (keys `is` SumID) {
       Sum(aT)(E(diff)(aT)(keys.getField(left), b1, b2),
         E(diff)(aT)(keys.getField(right), b1, b2))
     } else_ {
-      if_ (keys is ElemID) {
+      if_ (keys `is` ElemID) {
         let("f" :: aT, keys.getField(key)) { f =>
           let("d" :: IntegerType(), Get(aT)(b1, f) - Get(aT)(b2, f)) { d =>
             if_ (d < E(BigInt(0))) { Leaf(aT)() } else_ { Elem(aT)(f, d) }
@@ -93,11 +93,11 @@ private class BagTheory[Trees <: ast.Trees](val trees: Trees) {
   val inter = FreshIdentifier("interImpl")
   val IntersectImpl = mkFunDef(inter)("T") { case Seq(aT) => (
     Seq("keys" :: Bag(aT), "b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), {
-    case Seq(keys, b1, b2) => if_ (keys is SumID) {
+    case Seq(keys, b1, b2) => if_ (keys `is` SumID) {
       Sum(aT)(E(inter)(aT)(keys.getField(left), b1, b2),
         E(inter)(aT)(keys.getField(right), b1, b2))
     } else_ {
-      if_ (keys is ElemID) {
+      if_ (keys `is` ElemID) {
         let("f" :: aT, keys.getField(key)) { f =>
           let("v1" :: IntegerType(), Get(aT)(b1, f)) { v1 =>
             let("v2" :: IntegerType(), Get(aT)(b2, f)) { v2 =>
@@ -127,7 +127,7 @@ private class BagTheory[Trees <: ast.Trees](val trees: Trees) {
   val InvID = FreshIdentifier("inv")
   val BagInvariant = mkFunDef(InvID)("T") { case Seq(aT) => (
     Seq("bag" :: Bag(aT)), BooleanType(), {
-    case Seq(bag) => if_ (bag is ElemID) {
+    case Seq(bag) => if_ (bag `is` ElemID) {
       bag.getField(value) >= E(BigInt(0))
     } else_ {
       E(true)

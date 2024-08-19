@@ -53,7 +53,7 @@ object GraphPrinters {
         opts ++= f(n)
       }
 
-      res append (nToS(n) +" "+opts.map{ case (n, v) => s"$n=$v" }.mkString("[", ", ", "]")+";\n")
+      res `append` (nToS(n) +" "+opts.map{ case (n, v) => s"$n=$v" }.mkString("[", ", ", "]")+";\n")
     }
 
     def nToS(n: N): String = {
@@ -67,24 +67,24 @@ object GraphPrinters {
     def drawEdge(e: E)(using res: StringBuffer): Unit = {
       e match {
         case le: LabeledEdge[_, N] =>
-          res append dot.box(eToS(e), le.l.toString)
-          res append dot.arrow(nToS(e._1), eToS(e))
-          res append dot.arrow(eToS(e), nToS(e._2))
+          res `append` dot.box(eToS(e), le.l.toString)
+          res `append` dot.arrow(nToS(e._1), eToS(e))
+          res `append` dot.arrow(eToS(e), nToS(e._2))
         case _ =>
-          res append dot.arrow(nToS(e._1), nToS(e._2))
+          res `append` dot.arrow(nToS(e._1), nToS(e._2))
       }
     }
 
     def asString(g: G): String = {
       val res = new StringBuffer()
       given StringBuffer = res
-      res append "digraph D {\n"
+      res `append` "digraph D {\n"
 
       g.N.foreach(drawNode)
 
       g.E.foreach(drawEdge)
 
-      res append "}\n"
+      res `append` "}\n"
 
       res.toString
     }

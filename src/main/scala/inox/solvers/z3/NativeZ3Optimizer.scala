@@ -32,7 +32,7 @@ trait NativeZ3Optimizer extends Z3Unrolling with AbstractUnrollingOptimizer  { s
 
     val name = "z3-opt"
 
-    private[this] val optimizer: ScalaZ3Optimizer = z3.mkOptimizer()
+    private val optimizer: ScalaZ3Optimizer = z3.mkOptimizer()
 
     def assertCnstr(ast: Z3AST): Unit = tryZ3(optimizer.assertCnstr(ast))
     def assertCnstr(ast: Z3AST, weight: Int): Unit = tryZ3(optimizer.assertCnstr(ast, weight))

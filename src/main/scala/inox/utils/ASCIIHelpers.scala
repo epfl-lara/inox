@@ -90,40 +90,40 @@ object ASCIIHelpers {
       val doubleRightConnect = if (asciiOnly) "" else "╟"
       val doubleLeftConnect = if (asciiOnly) "" else "╢"
 
-      sb append s"  $topLeft$barH" + (barH * titleWidth) + s"$barH$topRight\n"
-      sb append s"$doubleTopLeft$doubleBarH$leftConnect " + title + s" $rightConnect" + (doubleBarH * padWidth) + s"$doubleTopRight\n"
-      sb append s"$doubleBarV $bottomLeft$barH" + (barH * titleWidth) + s"$barH$bottomRight"  + (" " * padWidth) + s"$doubleBarV\n"
+      sb `append` s"  $topLeft$barH" + (barH * titleWidth) + s"$barH$topRight\n"
+      sb `append` s"$doubleTopLeft$doubleBarH$leftConnect " + title + s" $rightConnect" + (doubleBarH * padWidth) + s"$doubleTopRight\n"
+      sb `append` s"$doubleBarV $bottomLeft$barH" + (barH * titleWidth) + s"$barH$bottomRight"  + (" " * padWidth) + s"$doubleBarV\n"
 
       for (r <- rows) r match {
         case Separator =>
-          sb append doubleRightConnect + (dots * fullWidth) + s"$doubleLeftConnect\n"
+          sb `append` doubleRightConnect + (dots * fullWidth) + s"$doubleLeftConnect\n"
 
         case Row(cells) =>
-          if (!asciiOnly) sb append s"$doubleBarV "
+          if (!asciiOnly) sb `append` s"$doubleBarV "
           var i = 0
           for (c <- cells) {
             if (i > 0) {
-              sb append "  "
+              sb `append` "  "
             }
 
             val size = (i until i + c.spanning).map(colSizes).sum + (c.spanning-1) * 2
 
             if (size >= 0) {
               if (c.align == Left) {
-                sb append ("%-"+(size+c.invisibleWidth)+"s").format(c.vString)
+                sb `append` ("%-"+(size+c.invisibleWidth)+"s").format(c.vString)
               } else {
-                sb append ("%"+(size+c.invisibleWidth)+"s").format(c.vString)
+                sb `append` ("%"+(size+c.invisibleWidth)+"s").format(c.vString)
               }
             } else {
-              sb append c.vString
+              sb `append` c.vString
             }
 
             i += c.spanning
           }
-          sb append s" $doubleBarV\n"
+          sb `append` s" $doubleBarV\n"
       }
 
-      sb append doubleBottomLeft + (doubleBarH * fullWidth) + doubleBottomRight
+      sb `append` doubleBottomLeft + (doubleBarH * fullWidth) + doubleBottomRight
 
       sb.toString
     }

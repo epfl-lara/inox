@@ -189,7 +189,7 @@ object OptionsHelpers {
   }
 }
 
-case class Options(options: Seq[OptionValue[_]]) {
+case class Options(options: Seq[OptionValue[?]]) {
 
   def findOption[A: ClassTag](optDef: OptionDef[A]): Option[A] = options.collectFirst {
     case OptionValue(`optDef`, value) => value.asInstanceOf[A]
@@ -197,11 +197,11 @@ case class Options(options: Seq[OptionValue[_]]) {
 
   def findOptionOrDefault[A: ClassTag](optDef: OptionDef[A]): A = findOption(optDef).getOrElse(optDef.default)
 
-  def +(newOpt: OptionValue[_]): Options = Options(
+  def +(newOpt: OptionValue[?]): Options = Options(
     options.filter(_.optionDef != newOpt.optionDef) :+ newOpt
   )
 
-  def ++(newOpts: Seq[OptionValue[_]]): Options = Options {
+  def ++(newOpts: Seq[OptionValue[?]]): Options = Options {
     val defs = newOpts.map(_.optionDef).toSet
     options.filter(opt => !defs(opt.optionDef)) ++ newOpts
   }

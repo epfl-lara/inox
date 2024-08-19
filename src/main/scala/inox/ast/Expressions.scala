@@ -397,25 +397,25 @@ trait Expressions { self: Trees =>
   /** $encodingof `... +  ...` */
   sealed case class Plus(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) orElse getRealType(lhs, rhs) orElse getBVType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
   /** $encodingof `... -  ...` */
   sealed case class Minus(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) orElse getRealType(lhs, rhs) orElse getBVType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
   /** $encodingof `- ...` */
   sealed case class UMinus(expr: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(expr) orElse getRealType(expr) orElse getBVType(expr)
+      getIntegerType(expr) `orElse` getRealType(expr) `orElse` getBVType(expr)
   }
 
   /** $encodingof `... * ...` */
   sealed case class Times(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) orElse getRealType(lhs, rhs) orElse getBVType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
   /** $encodingof `... /  ...`
@@ -431,7 +431,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class Division(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) orElse getRealType(lhs, rhs) orElse getBVType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
   /** $encodingof `... %  ...` (can return negative numbers)
@@ -440,7 +440,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class Remainder(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) orElse getBVType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
   /** $encodingof `... mod  ...` (cannot return negative numbers)
@@ -449,7 +449,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class Modulo(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) orElse getBVType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
   /** $encodingof `... < ...`*/

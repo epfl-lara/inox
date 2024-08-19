@@ -54,7 +54,7 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
     }
 
     override def expand(e: Expr): Expr = e match {
-      case v: Variable => (exprSubst getB v) orElse (boolSubst get v) match {
+      case v: Variable => (exprSubst `getB` v) orElse (boolSubst get v) match {
         case Some(v2: Variable) => expand(v2)
         case Some(e2 @ (_: ADT | _: Tuple)) => e2
         case _ => e
@@ -181,7 +181,7 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
     )
 
     override def negate =
-      new CNFPath(exprSubst, boolSubst, Set(), cnfCache, simpCache) withCond not(and(conditions.toSeq: _*))
+      new CNFPath(exprSubst, boolSubst, Set(), cnfCache, simpCache) `withCond` not(and(conditions.toSeq*))
 
     def asString(using PrinterOptions): String = andJoin(conditions.toSeq.sortBy(_.hashCode)).asString
 

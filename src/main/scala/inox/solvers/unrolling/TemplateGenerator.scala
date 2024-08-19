@@ -33,14 +33,14 @@ trait TemplateGenerator { self: Templates =>
       val (thisConds, thisExprs, thisTree, thisGuarded, thisEqs, thisTps, thisEqualities, thisLambdas, thisQuants) = clauses
       val (thatConds, thatExprs, thatTree, thatGuarded, thatEqs, thatTps, thatEqualities, thatLambdas, thatQuants) = that
 
-      (thisConds ++ thatConds, thisExprs ++ thatExprs, thisTree merge thatTree,
-        thisGuarded merge thatGuarded, thisEqs ++ thatEqs, thisTps merge thatTps,
-        thisEqualities merge thatEqualities, thisLambdas ++ thatLambdas, thisQuants ++ thatQuants)
+      (thisConds ++ thatConds, thisExprs ++ thatExprs, thisTree `merge` thatTree,
+        thisGuarded `merge` thatGuarded, thisEqs ++ thatEqs, thisTps `merge` thatTps,
+        thisEqualities `merge` thatEqualities, thisLambdas ++ thatLambdas, thisQuants ++ thatQuants)
     }
 
     def +(pair: (Variable, Expr)): TemplateClauses = {
       val (thisConds, thisExprs, thisTree, thisGuarded, thisEqs, thisTps, thisEqualities, thisLambdas, thisQuants) = clauses
-      (thisConds, thisExprs, thisTree, thisGuarded merge pair, thisEqs, thisTps, thisEqualities, thisLambdas, thisQuants)
+      (thisConds, thisExprs, thisTree, thisGuarded `merge` pair, thisEqs, thisTps, thisEqualities, thisLambdas, thisQuants)
     }
 
     def proj: (
@@ -124,8 +124,8 @@ trait TemplateGenerator { self: Templates =>
       val newExpr: Variable = Variable.fresh("call", thenCall.tfd.getType, true)
       builder.storeExpr(newExpr)
 
-      val replaceThen = replaceCall(thenCall, newExpr) _
-      val replaceElse = replaceCall(elseCall, newExpr) _
+      val replaceThen = replaceCall(thenCall, newExpr)
+      val replaceElse = replaceCall(elseCall, newExpr)
 
       thenGuarded = thenGuarded.view.mapValues(_.map(replaceThen)).toMap
       elseGuarded = elseGuarded.view.mapValues(_.map(replaceElse)).toMap
@@ -168,7 +168,7 @@ trait TemplateGenerator { self: Templates =>
           if (isSimple(expr)) {
             // Note that we can ignore conditions in this case as the underlying
             // solver is able to find satisfying assignments for all simple terms
-            val encoder = mkEncoder(depSubst) _
+            val encoder = mkEncoder(depSubst)
             val ePointers = Template.lambdaPointers(encoder)(expr)
             (depSubst + (v -> encoder(expr)), contents.copy(pointers = contents.pointers ++ ePointers))
           } else if (!isSimple(expr) && conditions.isEmpty) {
@@ -186,11 +186,11 @@ trait TemplateGenerator { self: Templates =>
             val (clsClauses, clsCalls, clsApps, clsMatchers, clsPointers, _) =
               Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
 
-            (depSubst + (v -> mkEncoder(clauseSubst)(e)), contents merge (
+            (depSubst + (v -> mkEncoder(clauseSubst)(e)), contents `merge` (
               conds, exprs, tree, clsClauses, types,
-              clsCalls merge Map(substMap(pathVar) -> eCalls),
-              clsApps merge Map(substMap(pathVar) -> eApps),
-              clsMatchers merge Map(substMap(pathVar) -> eMatchers),
+              clsCalls `merge` Map(substMap(pathVar) -> eCalls),
+              clsApps `merge` Map(substMap(pathVar) -> eApps),
+              clsMatchers `merge` Map(substMap(pathVar) -> eMatchers),
               equals, lmbds, quants, clsPointers ++ ePointers
             ))
           } else {
@@ -209,10 +209,10 @@ trait TemplateGenerator { self: Templates =>
             val (clsClauses, clsCalls, clsApps, clsMatchers, clsPointers, _) =
               Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
 
-            (depSubst + (v -> localSubst(exprVar)), contents merge (
+            (depSubst + (v -> localSubst(exprVar)), contents `merge` (
               conds + (condVar -> localSubst(condVar)),
               exprs + (exprVar -> localSubst(exprVar)),
-              tree merge Map(pathVar -> Set(condVar)),
+              tree `merge` Map(pathVar -> Set(condVar)),
               clsClauses, types, clsCalls, clsApps, clsMatchers, equals, lmbds, quants, clsPointers
             ))
           }
@@ -260,7 +260,7 @@ trait TemplateGenerator { self: Templates =>
     var types = Map[Encoded, Set[Typing]]()
     def storeType(pathVar: Variable, tpe: Type, arg: Expr)(using generator: TypingGenerator): Expr = {
       val b = encodedCond(pathVar)
-      val encoder = mkEncoder(localSubst) _
+      val encoder = mkEncoder(localSubst)
       val closures = typeOps.variablesOf(tpe).toSeq.sortBy(_.id).map(encoder).map(Left(_))
       val (result, typing) = generator match {
         case FreeGenerator | ContractGenerator=>
@@ -308,10 +308,10 @@ trait TemplateGenerator { self: Templates =>
       val (conds, exprs, tree, guarded, eqs, tpes, equls, lmbds, quants) = that
       condVars ++= conds
       exprVars ++= exprs
-      condTree = condTree merge tree
-      guardedExprs = guardedExprs merge guarded
+      condTree = condTree `merge` tree
+      guardedExprs = guardedExprs `merge` guarded
       equations ++= eqs
-      types = types merge tpes
+      types = types `merge` tpes
       equalities ++= equls
       lambdas ++= lmbds
       quantifications ++= quants
@@ -542,7 +542,7 @@ trait TemplateGenerator { self: Templates =>
     )
 
     def rec(pathVar: Variable, tpe: Type, expr: Expr, state: RecursionState): Expr = tpe match {
-      case tpe if !(generator unroll tpe) => BooleanLiteral(true) // nothing to do here!
+      case tpe if !(generator `unroll` tpe) => BooleanLiteral(true) // nothing to do here!
 
       case (_: FunctionType | _: PiType) => storeType(pathVar, tpe, expr)
 
@@ -590,7 +590,7 @@ trait TemplateGenerator { self: Templates =>
             storeExpr(newExpr)
 
             val stored = for (tcons <- sort.constructors) yield {
-              if (tcons.fields.exists(vd => generator unroll vd.tpe)) {
+              if (tcons.fields.exists(vd => generator `unroll` vd.tpe)) {
                 val newBool: Variable = Variable.fresh("b", BooleanType(), true)
                 storeCond(pathVar, newBool)
 

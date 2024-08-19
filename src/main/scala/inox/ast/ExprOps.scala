@@ -178,12 +178,12 @@ class ExprOps private(val trees: Trees)
   }
 
   def preTraversalWithParent(f: (Expr, Option[Tree]) => Unit, initParent: Option[Tree] = None)(e: Expr): Unit = {
-    val rec = preTraversalWithParent(f, Some(e)) _
+    val rec: Expr => Unit = preTraversalWithParent(f, Some(e))
 
     f(e, initParent)
 
     val Operator(es, _) = e: @unchecked
-    es foreach rec
+    es.foreach(rec)
   }
 
   /** Simple, local optimization on string */
@@ -207,8 +207,8 @@ class ExprOps private(val trees: Trees)
       case Let(i,b,e) => Let(i,b,negate(e))
       case Not(e) => e
       case Implies(e1,e2) => and(e1, negate(e2))
-      case Or(exs) => and(exs map negate: _*)
-      case And(exs) => or(exs map negate: _*)
+      case Or(exs) => and(exs map negate*)
+      case And(exs) => or(exs map negate*)
       case LessThan(e1,e2) => GreaterEquals(e1,e2)
       case LessEquals(e1,e2) => GreaterThan(e1,e2)
       case GreaterThan(e1,e2) => LessEquals(e1,e2)

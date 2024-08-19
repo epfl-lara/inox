@@ -207,12 +207,12 @@ trait DSL {
 
   class ADTConsIdentifier(id: Identifier) extends Tree {
     def apply(tps: Type*) = new ADTCons(id, tps).copiedFrom(this)
-    def apply(args: Expr*) = new ADTCons(id, Seq.empty).copiedFrom(this).apply(args : _*)
+    def apply(args: Expr*) = new ADTCons(id, Seq.empty).copiedFrom(this).apply(args*)
   }
 
   extension (adt: ADTConstructor) {
     def apply(tp: Type, tps: Type*) = new ADTCons(adt.id, tp +: tps)
-    def apply(args: Expr*) = new ADTCons(adt.id, Seq.empty).apply(args : _*)
+    def apply(args: Expr*) = new ADTCons(adt.id, Seq.empty).apply(args*)
   }
 
   extension (from: Type) {

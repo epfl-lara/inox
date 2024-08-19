@@ -149,7 +149,7 @@ trait Templates
         case None =>
           val b = encodeSymbol(sym)
           condEquals += (b -> flatBs)
-          (b, Seq(mkEquals(b, if (flatBs.isEmpty) trueT else mkAnd(flatBs.toSeq : _*))))
+          (b, Seq(mkEquals(b, if (flatBs.isEmpty) trueT else mkAnd(flatBs.toSeq*))))
       }
   }
 
@@ -415,13 +415,13 @@ trait Templates
       arguments,
       this.condVars ++ condVars,
       this.exprVars ++ exprVars,
-      this.condTree merge condTree,
+      this.condTree `merge` condTree,
       this.clauses ++ clauses,
-      this.types merge types,
-      this.blockers merge blockers,
-      this.applications merge applications,
-      this.matchers merge matchers,
-      this.equalities merge equalities,
+      this.types `merge` types,
+      this.blockers `merge` blockers,
+      this.applications `merge` applications,
+      this.matchers `merge` matchers,
+      this.equalities `merge` equalities,
       this.lambdas ++ lambdas,
       this.quantifications ++ quantifications,
       this.pointers ++ pointers
@@ -660,7 +660,7 @@ trait Templates
         var pointers     : Map[Encoded, Encoded]       = Map.empty
 
         val pv = pathVar._1
-        for ((b,es) <- guardedExprs merge Map(pv -> eqs)) {
+        for ((b,es) <- guardedExprs `merge` Map(pv -> eqs)) {
           var calls  : Set[Call]     = Set.empty
           var apps   : Set[App]      = Set.empty
           var matchs : Set[Matcher]  = Set.empty
@@ -843,7 +843,7 @@ trait Templates
     }
   }
 
-  private[this] def instantiate(
+  private def instantiate(
     bindings: Map[Variable, Encoded],
     gen: (Variable, Encoded) => TemplateClauses
   ): Clauses = {
@@ -870,7 +870,7 @@ trait Templates
   }
 
   def instantiateVariable(v: Variable, bindings: Map[Variable, Encoded]): Clauses = {
-    if (declared contains (v -> bindings(v))) {
+    if (declared `contains` (v -> bindings(v))) {
       Seq.empty
     } else {
       declared += v -> bindings(v)
@@ -885,7 +885,7 @@ trait Templates
       val instExpr = timers.solvers.simplify.run { simplifyFormula(expr) }
 
       val tmplClauses = mkClauses0(start, instExpr, bindings + (start -> encodedStart), polarity = Some(true))
-      val tpeClauses = bindings.filterNot(declared contains _).map { case (v, s) =>
+      val tpeClauses = bindings.filterNot(declared `contains` _).map { case (v, s) =>
         declared += v -> s
         mkClauses1(start, v.tpe, v, bindings + (start -> encodedStart))(using FreeGenerator)
       }

@@ -225,7 +225,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     protected def read(in: InputStream): T
   }
 
-  private inline def classSerializer[T: ClassTag](inline id: Int): (Class[_], Serializer[T]) =
+  private inline def classSerializer[T: ClassTag](inline id: Int): (Class[?], Serializer[T]) =
     classTag[T].runtimeClass -> inoxClassSerializerMacro[T](this, id).asInstanceOf[Serializer[T]]
 
   protected class MappingSerializer[T, U](id: Int, f: T => U, fInv: U => T) extends Serializer[T](id) {
@@ -234,7 +234,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   }
 
   protected class MappingSerializerConstructor[T](id: Int) {
-    def apply[U](f: T => U)(fInv: U => T)(using ev: ClassTag[T]): (Class[_], MappingSerializer[T, U]) =
+    def apply[U](f: T => U)(fInv: U => T)(using ev: ClassTag[T]): (Class[?], MappingSerializer[T, U]) =
       classTag[T].runtimeClass -> new MappingSerializer[T,U](id, f, fInv)
   }
 
@@ -257,17 +257,17 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
       val runtimeClass = Class.forName(className)
       val constructors = runtimeClass.getConstructors()
       if (constructors.size != 1) throw SerializationError(className, "Cannot identify constructor")
-      constructors(0).newInstance(trees +: fieldObjs.map(_.asInstanceOf[AnyRef]) : _*).asInstanceOf[Product]
+      constructors(0).newInstance(trees +: fieldObjs.map(_.asInstanceOf[AnyRef])*).asInstanceOf[Product]
     }
   }
 
   // Option is marked with id=1
-  protected object OptionSerializer extends Serializer[Option[_]](1) {
-    override protected def write(element: Option[_], out: OutputStream): Unit = {
+  protected object OptionSerializer extends Serializer[Option[?]](1) {
+    override protected def write(element: Option[?], out: OutputStream): Unit = {
       out.write(if (element.isDefined) 1 else 0)
       if (element.isDefined) writeObject(element.get, out)
     }
-    override protected def read(in: InputStream): Option[_] = {
+    override protected def read(in: InputStream): Option[?] = {
       val defined = in.read()
       if (defined == 1) Some(readObject(in))
       else if (defined == 0) None
@@ -276,12 +276,12 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   }
 
   // Seq is marked with id=2
-  protected object SeqSerializer extends Serializer[Seq[_]](2) {
-    override protected def write(element: Seq[_], out: OutputStream): Unit = {
+  protected object SeqSerializer extends Serializer[Seq[?]](2) {
+    override protected def write(element: Seq[?], out: OutputStream): Unit = {
       writeSmallish(element.size, out)
       for (e <- element) writeObject(e, out)
     }
-    override protected def read(in: InputStream): Seq[_] = {
+    override protected def read(in: InputStream): Seq[?] = {
       val size = readSmallish(in)
       (for (i <- 0 until size) yield readObject(in)).toSeq
     }
@@ -309,27 +309,27 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   }
 
   // Set is marked with id=3
-  protected object SetSerializer extends Serializer[Set[_]](3) {
-    override protected def write(element: Set[_], out: OutputStream): Unit = {
+  protected object SetSerializer extends Serializer[Set[?]](3) {
+    override protected def write(element: Set[?], out: OutputStream): Unit = {
       writeSmallish(element.size, out)
       element.toSeq.map(serializeToBytes).sorted.foreach(out.write(_))
     }
-    override protected def read(in: InputStream): Set[_] = {
+    override protected def read(in: InputStream): Set[?] = {
       val size = readSmallish(in)
       (for (i <- 0 until size) yield readObject(in)).toSet
     }
   }
 
   // Map is marked with id=4
-  protected object MapSerializer extends Serializer[Map[_, _]](4) {
-    override protected def write(element: Map[_, _], out: OutputStream): Unit = {
+  protected object MapSerializer extends Serializer[Map[?, ?]](4) {
+    override protected def write(element: Map[?, ?], out: OutputStream): Unit = {
       writeSmallish(element.size, out)
       for ((k, v) <- element.toSeq.map { case (k, v) => serializeToBytes(k) -> v }.sortBy(_._1)) {
         out.write(k)
         writeObject(v, out)
       }
     }
-    override protected def read(in: InputStream): Map[_, _] = {
+    override protected def read(in: InputStream): Map[?, ?] = {
       val size = readSmallish(in)
       (for (i <- 0 until size) yield (readObject(in), readObject(in))).toMap
     }
@@ -383,7 +383,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     }
   }
 
-  private final val primitiveClasses: Set[Class[_]] = Set(
+  private final val primitiveClasses: Set[Class[?]] = Set(
     classOf[String],
     classOf[BigInt],
 
@@ -408,14 +408,14 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     override protected def read(in: InputStream): Product = {
       val size = in.read()
       val fields = for (i <- 0 until size) yield readObject(in).asInstanceOf[AnyRef]
-      tupleSizeToClass(size).getConstructors()(0).newInstance(fields: _*).asInstanceOf[Product]
+      tupleSizeToClass(size).getConstructors()(0).newInstance(fields*).asInstanceOf[Product]
     }
   }
 
-  private final val tupleSizeToClass: Map[Int, Class[_]] =
+  private final val tupleSizeToClass: Map[Int, Class[?]] =
     (2 to 22).map(i => i -> Class.forName(s"scala.Tuple$i")).toMap
 
-  private final val tupleClasses: Set[Class[_]] = tupleSizeToClass.values.toSet
+  private final val tupleClasses: Set[Class[?]] = tupleSizeToClass.values.toSet
 
 
   // SerializationResult id=7
@@ -466,9 +466,9 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     }
   }
 
-  private[this] val classToSerializer: Map[Class[_], Serializer[_]] = classSerializers
-  private[this] val idToSerializer: Map[Int, Serializer[_]] =
-    classToSerializer.values.filter(_.id >= 10).map(s => s.id -> (s: Serializer[_])).toMap
+  private val classToSerializer: Map[Class[?], Serializer[?]] = classSerializers
+  private val idToSerializer: Map[Int, Serializer[?]] =
+    classToSerializer.values.filter(_.id >= 10).map(s => s.id -> (s: Serializer[?])).toMap
 
   /** A mapping from `Class[_]` to `Serializer[_]` for classes that commonly
     * occur within Stainless programs.
@@ -478,7 +478,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     *
     * NEXT ID: 106
     */
-  protected def classSerializers: Map[Class[_], Serializer[_]] = Map(
+  protected def classSerializers: Map[Class[?], Serializer[?]] = Map(
     // Inox Expressions
     classSerializer[Assume]            (10),
     classSerializer[Variable]          (11),

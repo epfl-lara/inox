@@ -36,8 +36,8 @@ trait TipDebugger extends Solver {
       }
     }
 
-    private[this] var reported: Boolean = false
-    private[this] def tryCheck[T <: Tree](performCheck: => Unit): Boolean = try {
+    private var reported: Boolean = false
+    private def tryCheck[T <: Tree](performCheck: => Unit): Boolean = try {
       performCheck
       true
     } catch {

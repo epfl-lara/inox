@@ -118,7 +118,7 @@ object SolverResponses {
   }
 
   sealed trait CheckConfiguration extends Configuration {
-    type Response[+M,+C] <: SolverResponse[M,C] with CheckResponse
+    type Response[+M,+C] <: SolverResponse[M,C] & CheckResponse
 
     override def withUnsatAssumptions = false
 

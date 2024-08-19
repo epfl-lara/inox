@@ -24,7 +24,7 @@ abstract class Z3Unrolling(override val program: Program)
 
   type Encoded = Z3AST
 
-  protected val underlying: AbstractSolver with Z3Native {
+  protected val underlying: AbstractSolver & Z3Native {
     val program: targetProgram.type
     type Trees = Encoded
   }
@@ -60,8 +60,8 @@ abstract class Z3Unrolling(override val program: Program)
     }
 
     def mkNot(e: Z3AST) = z3.mkNot(e)
-    def mkOr(es: Z3AST*) = z3.mkOr(es : _*)
-    def mkAnd(es: Z3AST*) = z3.mkAnd(es : _*)
+    def mkOr(es: Z3AST*) = z3.mkOr(es*)
+    def mkAnd(es: Z3AST*) = z3.mkAnd(es*)
     def mkEquals(l: Z3AST, r: Z3AST) = z3.mkEq(l, r)
     def mkImplies(l: Z3AST, r: Z3AST) = z3.mkImplies(l, r)
 
@@ -80,7 +80,7 @@ abstract class Z3Unrolling(override val program: Program)
 
     def extractConstructor(v: Z3AST, tpe: t.ADTType): Option[Identifier] = tryZ3Opt(model.eval(v).flatMap {
       elem => z3.getASTKind(elem) match {
-        case Z3AppAST(decl, args) if underlying.constructors containsB decl =>
+        case Z3AppAST(decl, args) if underlying.constructors `containsB` decl =>
           underlying.constructors.toA(decl) match {
             case underlying.ADTCons(id, _) => Some(id)
             case _ => None

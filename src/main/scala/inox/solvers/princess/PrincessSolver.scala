@@ -45,7 +45,7 @@ class PrincessSolver(override val program: Program)
 
     def extractConstructor(v: IExpression, tpe: t.ADTType): Option[Identifier] = {
       val optFun = underlying.princessToInox.simplify(v)(model) match {
-        case IFunApp(fun, _) if underlying.constructors containsB fun => Some(fun)
+        case IFunApp(fun, _) if underlying.constructors `containsB` fun => Some(fun)
         case it: ITerm => model.evalToTerm(it) match {
           case Some(IFunApp(fun, _)) => Some(fun)
           case _ => None

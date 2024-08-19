@@ -13,23 +13,23 @@ trait Paths { self: Trees =>
     /** Add a binding to this `PathLike`. */
     def withBinding(p: (ValDef, Expr)): Self
 
-    final def withBindings(ps: Iterable[(ValDef, Expr)]): Self = ps.foldLeft(self)(_ withBinding _)
+    final def withBindings(ps: Iterable[(ValDef, Expr)]): Self = ps.foldLeft(self)(_ `withBinding` _)
 
     def withBound(b: ValDef): Self
 
-    final def withBounds(bs: Iterable[ValDef]): Self = bs.foldLeft(self)(_ withBound _)
+    final def withBounds(bs: Iterable[ValDef]): Self = bs.foldLeft(self)(_ `withBound` _)
 
     /** Add a condition to this `PathLike`. */
     def withCond(e: Expr): Self
 
     /** Add multiple conditions to this `PathLike`. */
-    final def withConds(es: Iterable[Expr]): Self = es.foldLeft(self)(_ withCond _)
+    final def withConds(es: Iterable[Expr]): Self = es.foldLeft(self)(_ `withCond` _)
 
     /** Appends `that` path at the end of `this`. */
     def merge(that: Self): Self
 
     /** Appends `those` paths at the end of `this`. */
-    final def merge(those: Iterable[Self]): Self = those.foldLeft(self)(_ merge _)
+    final def merge(those: Iterable[Self]): Self = those.foldLeft(self)(_ `merge` _)
 
     /** Returns the negation of this path. */
     def negate: Self
@@ -39,9 +39,9 @@ trait Paths { self: Trees =>
     def empty: P
 
     def apply(path: Path): P = path.elements.foldLeft(empty) {
-      case (env, Path.CloseBound(vd, e)) => env withBinding (vd -> e)
-      case (env, Path.OpenBound(vd)) => env withBound vd
-      case (env, Path.Condition(cond)) => env withCond cond
+      case (env, Path.CloseBound(vd, e)) => env `withBinding` (vd -> e)
+      case (env, Path.OpenBound(vd)) => env `withBound` vd
+      case (env, Path.Condition(cond)) => env `withCond` cond
     }
   }
 
@@ -57,7 +57,7 @@ trait Paths { self: Trees =>
     def apply(p: Seq[Element]) = new Path(p)
 
     def apply(p: Expr): Path = p match {
-      case Let(i, e, b) => Path(CloseBound(i, e)) merge apply(b)
+      case Let(i, e, b) => Path(CloseBound(i, e)) `merge` apply(b)
       case BooleanLiteral(true) => empty
       case _ => Path(Condition(p))
     }
@@ -171,9 +171,9 @@ trait Paths { self: Trees =>
     def instantiate(tps: Map[TypeParameter, Type]) = {
       val t = new typeOps.TypeInstantiator(tps)
       new Path(elements map {
-        case CloseBound(vd, e) => CloseBound(t transform vd, t transform e)
-        case OpenBound(vd) => OpenBound(t transform vd)
-        case Condition(c) => Condition(t transform c)
+        case CloseBound(vd, e) => CloseBound(t `transform` vd, t `transform` e)
+        case OpenBound(vd) => OpenBound(t `transform` vd)
+        case Condition(c) => Condition(t `transform` c)
       })
     }
 
@@ -183,7 +183,7 @@ trait Paths { self: Trees =>
       * Note that empty paths may contain open bounds.
       */
     @inline def isEmpty: Boolean = _isEmpty.get
-    private[this] val _isEmpty: Lazy[Boolean] = Lazy(elements forall {
+    private val _isEmpty: Lazy[Boolean] = Lazy(elements forall {
       case Condition(BooleanLiteral(true)) => true
       case OpenBound(_) => true
       case _ => false
@@ -196,14 +196,14 @@ trait Paths { self: Trees =>
       * avoiding let-binding dupplication in future path foldings.
       */
     override def negate: Path = _negate.get
-    private[this] val _negate: Lazy[Path] = Lazy {
+    private val _negate: Lazy[Path] = Lazy {
       val (outers, rest) = elements span { !_.isInstanceOf[Condition] }
       new Path(outers) :+ Condition(not(fold[Expr](BooleanLiteral(true), Let.apply, self.and(_, _))(rest)))
     }
 
     /** Free variables within the path */
     @inline def freeVariables: Set[Variable] = _free.get
-    private[this] val _free: Lazy[Set[Variable]] = Lazy {
+    private val _free: Lazy[Set[Variable]] = Lazy {
       val allVars = elements
         .flatMap {
           case Condition(e) => exprOps.variablesOf(e)
@@ -216,7 +216,7 @@ trait Paths { self: Trees =>
 
     /** Variables that aren't bound by a [[Path.CloseBound]]. */
     @inline def unboundVariables: Set[Variable] = _unbound.get
-    private[this] val _unbound: Lazy[Set[Variable]] = Lazy {
+    private val _unbound: Lazy[Set[Variable]] = Lazy {
       val allVars = elements
         .collect { case Condition(e) => e case CloseBound(_, e) => e }
         .flatMap { e => exprOps.variablesOf(e) }
@@ -225,23 +225,23 @@ trait Paths { self: Trees =>
     }
 
     @inline def bindings: Seq[(ValDef, Expr)] = _bindings.get
-    private[this] val _bindings: Lazy[Seq[(ValDef, Expr)]] =
+    private val _bindings: Lazy[Seq[(ValDef, Expr)]] =
       Lazy(elements.collect { case CloseBound(vd, e) => vd -> e })
 
     @inline def open: Seq[ValDef] = _open.get
-    private[this] val _open: Lazy[Seq[ValDef]] =
+    private val _open: Lazy[Seq[ValDef]] =
       Lazy(elements.collect { case OpenBound(vd) => vd })
 
     @inline def closed: Seq[ValDef] = _closed.get
-    private[this] val _closed: Lazy[Seq[ValDef]] =
+    private val _closed: Lazy[Seq[ValDef]] =
       Lazy(elements.collect { case CloseBound(vd, _) => vd })
 
     @inline def bound: Seq[ValDef] = _bound.get
-    private[this] val _bound: Lazy[Seq[ValDef]] =
+    private val _bound: Lazy[Seq[ValDef]] =
       Lazy(elements.collect { case CloseBound(vd, _) => vd case OpenBound(vd) => vd })
 
     @inline def conditions: Seq[Expr] = _conditions.get
-    private[this] val _conditions: Lazy[Seq[Expr]] =
+    private val _conditions: Lazy[Seq[Expr]] =
       Lazy(elements.collect { case Condition(e) => e })
 
     def isBound(v: Variable): Boolean = bound exists { _.toVariable == v }
@@ -288,12 +288,12 @@ trait Paths { self: Trees =>
 
     /** Folds the path into the associated boolean proposition */
     @inline def toClause: Expr = _clause.get
-    private[this] val _clause: Lazy[Expr] = Lazy(and(BooleanLiteral(true)))
+    private val _clause: Lazy[Expr] = Lazy(and(BooleanLiteral(true)))
 
     /** Like [[toClause]] but doesn't simplify final path through constructors
       * from [[Constructors]] */
     @inline def fullClause: Expr = _fullClause.get
-    private[this] val _fullClause: Lazy[Expr] =
+    private val _fullClause: Lazy[Expr] =
       Lazy(fold[Expr](BooleanLiteral(true), Let(_, _, _), And(_, _))(elements))
 
     override def equals(that: Any): Boolean = that match {

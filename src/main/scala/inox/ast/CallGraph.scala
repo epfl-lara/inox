@@ -13,7 +13,7 @@ trait CallGraph {
   protected val symbols: Symbols
 
   protected trait Collector extends SelfTreeTraverser {
-    private[this] var ids: Set[Identifier] = Set.empty
+    private var ids: Set[Identifier] = Set.empty
 
     protected def register(id: Identifier): Unit = ids += id
     def result: Set[Identifier] = ids
@@ -56,7 +56,7 @@ trait CallGraph {
   }
 
   @inline def callGraph: DiGraph[Identifier, SimpleEdge[Identifier]] = _callGraph.get
-  private[this] val _callGraph: Lazy[DiGraph[Identifier, SimpleEdge[Identifier]]] = Lazy(computeCallGraph)
+  private val _callGraph: Lazy[DiGraph[Identifier, SimpleEdge[Identifier]]] = Lazy(computeCallGraph)
 
   def allCalls = callGraph.E.map(e => e._1 -> e._2)
 
@@ -124,7 +124,7 @@ trait CallGraph {
     transitivelyCalls(from.id, to.id)
 
   @inline def sccs: DiGraph[Set[Identifier], SimpleEdge[Set[Identifier]]] = _sccs.get
-  private[this] val _sccs: Lazy[DiGraph[Set[Identifier], SimpleEdge[Set[Identifier]]]] =
+  private val _sccs: Lazy[DiGraph[Set[Identifier], SimpleEdge[Set[Identifier]]]] =
     Lazy(callGraph.stronglyConnectedComponents)
 
   object CallGraphOrderings {

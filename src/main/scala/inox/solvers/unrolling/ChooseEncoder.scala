@@ -70,7 +70,7 @@ object ChooseEncoder {
     Map[Identifier, Seq[sourceEncoder.targetProgram.trees.ValDef]]) = {
     val sourceProgram: sourceEncoder.targetProgram.type = sourceEncoder.targetProgram
     val (newFunctions, scopes) = ChooseEncoder.computeFunctionsAndScopes(sourceProgram)
-    val targetProgram = Program(sourceProgram.trees)(sourceProgram.symbols withFunctions newFunctions)
+    val targetProgram = Program(sourceProgram.trees)(sourceProgram.symbols `withFunctions` newFunctions)
     (targetProgram, scopes)
   }
 

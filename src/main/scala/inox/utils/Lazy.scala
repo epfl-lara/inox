@@ -5,8 +5,8 @@ package utils
 
 /** Class that provides deadlock-free lazyness */
 class Lazy[T](computeValue: => T) {
-  @volatile private[this] var computed: Boolean = false
-  private[this] var value: T = _
+  @volatile private var computed: Boolean = false
+  private var value: T = scala.compiletime.uninitialized
 
   def get: T = {
     if (!computed) {

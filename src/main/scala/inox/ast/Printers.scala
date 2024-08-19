@@ -615,14 +615,14 @@ trait Printer {
   def nary(ls: Seq[Any], sep: String = ", ", init: String = "", closing: String = ""): PrintWrapper = PrintWrapper {
     val (i, c) = if (ls.isEmpty) ("", "") else (init, closing)
     val strs = i +: List.fill(ls.size - 1)(sep) :+ c
-    new StringContext(strs: _*).p(ls: _*)
+    new StringContext(strs*).p(ls*)
   }
 
-  def typed(t: Tree with Typed)(using Symbols): PrintWrapper = PrintWrapper {
+  def typed(t: Tree & Typed)(using Symbols): PrintWrapper = PrintWrapper {
     p"$t : ${t.getType}"
   }
 
-  def typed(ts: Seq[Tree with Typed])(using Symbols): PrintWrapper = PrintWrapper {
+  def typed(ts: Seq[Tree & Typed])(using Symbols): PrintWrapper = PrintWrapper {
     nary(ts.map(typed))
   }
 }

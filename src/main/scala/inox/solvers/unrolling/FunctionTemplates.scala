@@ -51,11 +51,11 @@ trait FunctionTemplates { self: Templates =>
 
         // Register the function's return as a contract typing to enable
         // induction with refinement types
-        if (ContractUnrolling unroll tfd.returnType) {
+        if (ContractUnrolling `unroll` tfd.returnType) {
           val (conds, exprs, tree, guarded, eqs, tps, equals, lambdas, quants) = clauses
           val closures = typeOps.variablesOf(tfd.returnType).toSeq.sortBy(_.id).map(v => Left(substMap(v)))
           val typing = Typing(tfd.returnType, mkCall(tfd, arguments.map(_._2)), Constraint(trueT, closures, false))
-          (conds, exprs, tree, guarded, eqs, tps merge Map(pathVar._2 -> Set(typing)), equals, lambdas, quants)
+          (conds, exprs, tree, guarded, eqs, tps `merge` Map(pathVar._2 -> Set(typing)), equals, lambdas, quants)
         } else {
           clauses
         }
@@ -139,7 +139,7 @@ trait FunctionTemplates { self: Templates =>
     def refutationAssumptions: Seq[Encoded] = Seq.empty
 
     def promoteBlocker(b: Encoded): Boolean = {
-      if (callInfos contains b) {
+      if (callInfos `contains` b) {
         val (_, origGen, notB, fis) = callInfos(b)
         callInfos += b -> (currentGeneration, origGen, notB, fis)
         true
@@ -188,7 +188,7 @@ trait FunctionTemplates { self: Templates =>
                   mkCall(tfd, args.map(_.encoded)), register = false)
                 newClauses ++= entailClauses
 
-                newClauses += mkImplies(mkAnd(pblocker +: defBlocker +: equalities : _*), entail)
+                newClauses += mkImplies(mkAnd(pblocker +: defBlocker +: equalities*), entail)
               }
             }
 

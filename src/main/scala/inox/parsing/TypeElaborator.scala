@@ -65,9 +65,9 @@ trait TypeElaborators { self: Elaborators =>
       case Application(l @ Literal(value), irs) =>
         either(
           parametric.get(value).orElse(value match {
-            case Name(name) if store isTypeParameter name => None
-            case Name(name) if store isSort name =>
-              val sort = store getSort name
+            case Name(name) if store `isTypeParameter` name => None
+            case Name(name) if store `isSort` name =>
+              val sort = store `getSort` name
               Some((sort.tparams.length, (tps: Seq[trees.Type]) => trees.ADTType(sort.id, tps)))
             case _ => None
           }).map { case (n, cons) =>
@@ -95,11 +95,11 @@ trait TypeElaborators { self: Elaborators =>
           .map(tpe => (0 -> ((tps: Seq[trees.Type]) => tpe)))
           .orElse(parametric.get(value))
           .orElse(value match {
-            case Name(name) if store isTypeParameter name =>
-              val tp = store getTypeParameter name
+            case Name(name) if store `isTypeParameter` name =>
+              val tp = store `getTypeParameter` name
               Some((0, (tps: Seq[trees.Type]) => tp))
-            case Name(name) if store isSort name =>
-              val sort = store getSort name
+            case Name(name) if store `isSort` name =>
+              val sort = store `getSort` name
               Some((sort.tparams.length, (tps: Seq[trees.Type]) => trees.ADTType(sort.id, tps)))
             case _ => None
           }).map { case (n, cons) =>
@@ -189,9 +189,9 @@ trait TypeElaborators { self: Elaborators =>
 
         case Application(l @ Literal(value), irs) =>
           (parametric.get(value).orElse(value match {
-            case Name(name) if store isTypeParameter name => None
-            case Name(name) if store isSort name =>
-              val sort = store getSort name
+            case Name(name) if store `isTypeParameter` name => None
+            case Name(name) if store `isSort` name =>
+              val sort = store `getSort` name
               Some((sort.tparams.length, (tps: Seq[trees.Type]) => trees.ADTType(sort.id, tps)))
             case _ => None
           }).map { case (n, cons) =>
@@ -217,11 +217,11 @@ trait TypeElaborators { self: Elaborators =>
             .map(tpe => (0 -> ((tps: Seq[trees.Type]) => tpe)))
             .orElse(parametric.get(value))
             .orElse(value match {
-              case Name(name) if store isTypeParameter name =>
-                val tp = store getTypeParameter name
+              case Name(name) if store `isTypeParameter` name =>
+                val tp = store `getTypeParameter` name
                 Some((0, (tps: Seq[trees.Type]) => tp))
-              case Name(name) if store isSort name =>
-                val sort = store getSort name
+              case Name(name) if store `isSort` name =>
+                val sort = store `getSort` name
                 Some((sort.tparams.length, (tps: Seq[trees.Type]) => trees.ADTType(sort.id, tps)))
               case _ => None
             }).map { case (n, cons) =>

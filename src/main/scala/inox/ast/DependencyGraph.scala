@@ -64,7 +64,7 @@ trait DependencyGraph extends CallGraph { self =>
   }
 
   @inline def dependencyGraph: DiGraph[Identifier, SimpleEdge[Identifier]] = _dependencyGraph.get
-  private[this] val _dependencyGraph: Lazy[DiGraph[Identifier, SimpleEdge[Identifier]]] = Lazy(computeDependencyGraph)
+  private val _dependencyGraph: Lazy[DiGraph[Identifier, SimpleEdge[Identifier]]] = Lazy(computeDependencyGraph)
 
   def dependsOn(from: Identifier, to: Identifier): Boolean = {
     dependencyGraph.transitiveSucc(from) contains to

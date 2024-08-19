@@ -69,7 +69,7 @@ trait ExpressionExtractors { self: Extractors =>
       val pairs = pair._1.zip(pair._2).collect {
         case (tpe, Some(template)) => toTypeObl(tpe -> template)
       }
-      extract(pairs : _*)
+      extract(pairs*)
     }
     protected def toIdObls(pair: (Seq[inox.Identifier], Seq[Identifier])): MatchObligation = {
 
@@ -77,7 +77,7 @@ trait ExpressionExtractors { self: Extractors =>
       val (ids, templatesIds) = pair
 
       if (ids.length == templatesIds.length) {
-        extract(ids.zip(templatesIds).map(toIdObl) : _*)
+        extract(ids.zip(templatesIds).map(toIdObl)*)
       }
       else {
         None

@@ -21,7 +21,7 @@ trait AbstractZ3Solver
 
   val name = "z3"
 
-  private[this] val solver: ScalaZ3Solver = z3.mkSolver()
+  private val solver: ScalaZ3Solver = z3.mkSolver()
 
   override def push(): Unit = {
     super.push()
@@ -53,5 +53,5 @@ trait AbstractZ3Solver
 
   def check(config: CheckConfiguration): config.Response[Z3Model, Set[Z3AST]] = extractResult(config)(solver.check())
   def checkAssumptions(config: Configuration)(assumptions: Set[Z3AST]) =
-    extractResult(config)(solver.checkAssumptions(assumptions.toSeq : _*))
+    extractResult(config)(solver.checkAssumptions(assumptions.toSeq*))
 }

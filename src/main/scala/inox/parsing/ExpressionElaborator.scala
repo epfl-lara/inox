@@ -43,19 +43,19 @@ trait ExpressionElaborators { self: Elaborators =>
 
     object LocalFunction {
       def unapply(expression: Expression)(using store: Store): Option[(trees.FunDef, Option[Seq[Type]])] = expression match {
-        case TypeApplication(Variable(id), targs) if store isFunction id.getName => Some((store getFunction id.getName, Some(targs)))
-        case Variable(id) if store isFunction id.getName => Some((store getFunction id.getName, None))
+        case TypeApplication(Variable(id), targs) if store `isFunction` id.getName => Some((store `getFunction` id.getName, Some(targs)))
+        case Variable(id) if store `isFunction` id.getName => Some((store `getFunction` id.getName, None))
         case _ => None
       }
     }
 
     object LocalConstructor {
       def unapply(expression: Expression)(using store: Store): Option[(trees.ADTSort, trees.ADTConstructor, Option[Seq[Type]])] = expression match {
-        case TypeApplication(Variable(id), targs) if store isConstructor id.getName =>
-          val (sort, cons) = store getConstructor id.getName
+        case TypeApplication(Variable(id), targs) if store `isConstructor` id.getName =>
+          val (sort, cons) = store `getConstructor` id.getName
           Some((sort, cons, Some(targs)))
-        case Variable(id) if store isConstructor id.getName =>
-          val (sort, cons) = store getConstructor id.getName
+        case Variable(id) if store `isConstructor` id.getName =>
+          val (sort, cons) = store `getConstructor` id.getName
           Some((sort, cons, None))
         case _ => None
       }
@@ -97,11 +97,11 @@ trait ExpressionElaborators { self: Elaborators =>
           .filter(_.nonEmpty)
           .map(_.map { case (cons, vd) => (cons.getSort, vd) })
           .orElse(field match {
-            case FieldName(name) if store isField name =>
-              Some((store getFields name).map { case (sort, cons, vd) => (sort, vd) })
+            case FieldName(name) if store `isField` name =>
+              Some((store `getFields` name).map { case (sort, cons, vd) => (sort, vd) })
 
             case FieldIdentifier(id) =>
-              val matchingCons = (store getFields id.name).filter {
+              val matchingCons = (store `getFields` id.name).filter {
                 case (sort, cons, vd) => cons.fields.exists(_.id == id)
               }
 
@@ -218,12 +218,12 @@ trait ExpressionElaborators { self: Elaborators =>
 
         // Variable.
         case Variable(variable) => Constrained.unify({
-          val (i, _, tpe) = store getVariable variable.getName
+          val (i, _, tpe) = store `getVariable` variable.getName
           trees.Variable(i, tpe, Seq.empty)
         }).checkImmediate(
-          store isVariable variable.getName, "Unknown variable " + variable.getName + ".", expr.pos
+          store `isVariable` variable.getName, "Unknown variable " + variable.getName + ".", expr.pos
         ).addConstraint({
-          Constraint.equal((store getVariable variable.getName)._2, expected)
+          Constraint.equal((store `getVariable` variable.getName)._2, expected)
         })
 
         //---- Embedded values ----//
@@ -1042,7 +1042,7 @@ trait ExpressionElaborators { self: Elaborators =>
             e <- getExpr(expr, expectedExpr)
           } yield { u ?=>
             val trees.ADTType(id, tps) = u(expectedExpr): @unchecked
-            val sort = symbols.lookupSort(id).getOrElse(store getSort id.name)
+            val sort = symbols.lookupSort(id).getOrElse(store `getSort` id.name)
             val vd = sort.constructors.flatMap(_.fields).find(vd => f match {
               case FieldName(name) => vd.id.name == name
               case FieldIdentifier(id) => vd.id == id
@@ -1059,7 +1059,7 @@ trait ExpressionElaborators { self: Elaborators =>
                 val instantiator = new typeOps.TypeInstantiator((sort.typeArgs zip tps).toMap)
                 Seq(Constraint.equal(instantiator.transform(vd.getType), expected))
               }
-            } : _*)
+            }*)
           })
         }
 
