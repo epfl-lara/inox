@@ -4,6 +4,7 @@ package inox
 package solvers
 
 import transformers._
+import inox.solvers.evaluating.EvaluatingSolver
 
 trait SolverFactory {
   val program: Program
@@ -78,7 +79,8 @@ object SolverFactory {
     "smt-z3"        -> "Z3 through SMT-LIB",
     "smt-z3-opt"    -> "Z3 optimizer through SMT-LIB",
     "smt-z3:<exec>" -> "Z3 through SMT-LIB with custom executable name",
-    "princess"      -> "Princess with inox unrolling"
+    "princess"      -> "Princess with inox unrolling",
+    "eval"          -> "Internal evaluator to discharge ground assertions"
   )
 
   private val fallbacks = Map(
@@ -89,7 +91,8 @@ object SolverFactory {
     "smt-cvc5"     -> (() => hasCVC5,     Seq("nativez3", "smt-z3", "princess"),               "'cvc5' binary"),
     "smt-z3"       -> (() => hasZ3,       Seq("nativez3", "smt-cvc4", "smt-cvc5", "princess"), "'z3' binary"),
     "smt-z3-opt"   -> (() => hasZ3,       Seq("nativez3-opt"),                                 "'z3' binary"),
-    "princess"     -> (() => true,        Seq(),                                               "Princess solver")
+    "princess"     -> (() => true,        Seq(),                                               "Princess solver"),
+    "eval"         -> (() => true,        Seq(),                                               "Internal evaluator")
   )
 
   private var reported: Boolean = false
@@ -358,6 +361,14 @@ object SolverFactory {
           extends princess.PrincessSolver(p)(p, ctx, enc, chooseEnc) with TimeoutSolver
 
         () => new PrincessImpl(p)
+      })
+
+      case "eval" => create(p)(finalName, {
+        val encAlias = enc // alias to resolve ambiguous reference
+        class EvalImpl(override val program: p.type) extends EvaluatingSolver(p, ctx)(p)(enc)(enc) with TimeoutSolver with tip.TipDebugger:
+          override protected val encoder = encAlias // for tip debugger
+
+        () => new EvalImpl(p)
       })
 
       case _ => throw FatalError("Unknown solver: " + finalName)
