@@ -208,3 +208,4 @@ abstract class EvaluatingSolver(override val program: Program,
         else if (!silentErrors && !abort) reporter.error(e.getMessage)
         config.cast(Unknown)
     }.get)
+    
