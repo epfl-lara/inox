@@ -198,7 +198,10 @@ abstract class EvaluatingSolver(override val program: Program,
             .forall(identity) // early return conjunction
         
         if res then           // all true, => valid ground truth
-          config.cast(SatWithModel(emptyModel))
+          if config.withModel then
+            config.cast(SatWithModel(emptyModel))
+          else 
+            config.cast(Sat)
         else                  // some false, => conjunction invalid
           config.cast(Unsat)
 
