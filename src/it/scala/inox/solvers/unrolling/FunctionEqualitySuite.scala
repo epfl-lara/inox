@@ -20,7 +20,7 @@ class FunctionEqualitySuite extends SolvingTestSuite with DatastructureUtils {
   val containsID = FreshIdentifier("contains")
   val contains = mkFunDef(containsID)("A", "B") { case Seq(aT, bT) => (
     Seq("m" :: T(mmapID)(aT, bT), "k" :: aT), BooleanType(), { case Seq(m, k) =>
-      m.getField(f)(k) is someID
+      m.getField(f)(k) `is` someID
     })
   }
 

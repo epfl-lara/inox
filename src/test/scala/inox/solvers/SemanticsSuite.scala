@@ -27,13 +27,13 @@ class SemanticsSuite extends AnyFunSuite {
   }
 
   protected def test(name: String, tags: Tag*)(body: Context => Unit): Unit = {
-    test(name, _ => true, tags : _*)(body)
+    test(name, _ => true, tags*)(body)
   }
 
   protected def test(name: String, filter: Context => Boolean, tags: Tag*)(body: Context => Unit): Unit = {
     // Workaround for a compiler crash caused by calling super.test
     def superTest(self: AnyFunSuite, name: String)(body: => Unit): Unit =
-      self.test(name, tags: _*)(body)
+      self.test(name, tags*)(body)
 
     for {
       sname <- solverNames

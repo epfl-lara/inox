@@ -14,7 +14,7 @@ class DeserializationSuite extends AnyFunSpec with ResourceUtils {
 
   val ctx = TestContext.empty
 
-  val files = resourceFiles("regression/binary", filter = _ endsWith ".inoxser", recursive = false)
+  val files = resourceFiles("regression/binary", filter = _ `endsWith` ".inoxser", recursive = false)
 
   describe("Deserializing from binary files") {
     for (file <- files) {

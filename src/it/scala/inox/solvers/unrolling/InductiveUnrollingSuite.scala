@@ -21,7 +21,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
 
   val sizeFd = mkFunDef(sizeID)("A") { case Seq(aT) => (
     Seq("l" :: T(listID)(aT)), IntegerType(), { case Seq(l) =>
-      if_ (l is consID) {
+      if_ (l `is` consID) {
         E(BigInt(1)) + let("res" :: IntegerType(), E(sizeID)(aT)(l.getField(tail))) {
           res => Assume(res >= E(BigInt(0)), res)
         }
@@ -33,7 +33,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
 
   val append = mkFunDef(appendID)("A") { case Seq(aT) => (
     Seq("l1" :: T(listID)(aT), "l2" :: T(listID)(aT)), T(listID)(aT), { case Seq(l1, l2) =>
-      let("res" :: T(listID)(aT), if_ (l1 is consID) {
+      let("res" :: T(listID)(aT), if_ (l1 `is` consID) {
         C(consID)(aT)(l1.getField(head), E(appendID)(aT)(l1.getField(tail), l2))
       } else_ {
         l2
@@ -45,7 +45,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
   //      bogged down in quantifier instantiations due to [[SetEncoder]]
   val appendNoSpec = mkFunDef(appendNoSpecID)("A") { case Seq(aT) => (
     Seq("l1" :: T(listID)(aT), "l2" :: T(listID)(aT)), T(listID)(aT), { case Seq(l1, l2) =>
-      if_ (l1 is consID) {
+      if_ (l1 `is` consID) {
         C(consID)(aT)(l1.getField(head), E(appendNoSpecID)(aT)(l1.getField(tail), l2))
       } else_ {
         l2
@@ -55,7 +55,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
 
   val flatMap = mkFunDef(flatMapID)("A","B") { case Seq(aT, bT) => (
     Seq("l" :: T(listID)(aT), "f" :: (aT =>: T(listID)(bT))), T(listID)(bT), { case Seq(l, f) =>
-      if_ (l is consID) {
+      if_ (l `is` consID) {
         appendNoSpec(bT)(f(l.getField(head)), E(flatMapID)(aT,bT)(l.getField(tail), f))
       } else_ {
         C(nilID)(bT)()
@@ -67,13 +67,13 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
     Seq("l1" :: T(listID)(aT), "l2" :: T(listID)(bT), "l3" :: T(listID)(cT),
       "f" :: (aT =>: T(listID)(bT)), "g" :: (bT =>: T(listID)(cT))), BooleanType(),
       { case Seq(l1, l2, l3, f, g) =>
-        (if_ (l3 is consID) {
+        (if_ (l3 `is` consID) {
           Assume(E(assocID)(aT, bT, cT)(l1, l2, l3.getField(tail), f, g), E(true))
         } else_ {
-          if_ (l2 is consID) {
+          if_ (l2 `is` consID) {
             Assume(E(assocID)(aT, bT, cT)(l1, l2.getField(tail), g(l2.getField(head)), f, g), E(true))
           } else_ {
-            if_ (l1 is consID) {
+            if_ (l1 `is` consID) {
               Assume(E(assocID)(aT, bT, cT)(l1.getField(tail), f(l1.getField(head)), C(nilID)(cT)(), f, g), E(true))
             } else_ {
               E(true)
@@ -88,7 +88,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
 
   val forall = mkFunDef(forallID)("A") { case Seq(aT) => (
     Seq("l" :: T(listID)(aT), "p" :: (aT =>: BooleanType())), BooleanType(), { case Seq(l, p) =>
-      if_ (l is consID) {
+      if_ (l `is` consID) {
         p(l.getField(head)) && E(forallID)(aT)(l.getField(tail), p)
       } else_ {
         E(true)
@@ -98,7 +98,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
 
   val content = mkFunDef(contentID)("A") { case Seq(aT) => (
     Seq("l" :: T(listID)(aT)), SetType(aT), { case Seq(l) =>
-      if_ (l is consID) {
+      if_ (l `is` consID) {
         E(contentID)(aT)(l.getField(tail)).insert(l.getField(head))
       } else_ {
         FiniteSet(Seq.empty, aT)
@@ -108,7 +108,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
 
   val partition = mkFunDef(partitionID)("A") { case Seq(aT) => (
     Seq("l" :: T(listID)(aT), "p" :: (aT =>: BooleanType())), T(T(listID)(aT), T(listID)(aT)), { case Seq(l, p) =>
-      let("res" :: T(T(listID)(aT), T(listID)(aT)), if_ (l is consID) {
+      let("res" :: T(T(listID)(aT), T(listID)(aT)), if_ (l `is` consID) {
         let("ptl" :: T(T(listID)(aT), T(listID)(aT)), E(partitionID)(aT)(l.getField(tail), p)) { ptl =>
           if_ (p(l.getField(head))) {
             E(C(consID)(aT)(l.getField(head), ptl._ts1), ptl._ts2)
@@ -130,7 +130,7 @@ class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
 
   val sort = mkFunDef(sortID)("A") { case Seq(aT) => (
     Seq("l" :: T(listID)(aT), "lt" :: ((aT, aT) =>: BooleanType())), T(listID)(aT), { case Seq(l, lt) =>
-      let("res" :: T(listID)(aT), if_ (l is consID) {
+      let("res" :: T(listID)(aT), if_ (l `is` consID) {
         let("part" :: T(T(listID)(aT), T(listID)(aT)),
           E(partitionID)(aT)(l.getField(tail), \("x" :: aT)(x => lt(x, l.getField(head))))) { part =>
         let("less" :: T(listID)(aT), E(sortID)(aT)(part._ts1, lt)) { less =>

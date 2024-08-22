@@ -27,7 +27,7 @@ class SimpleUnrollingSuite extends SolvingTestSuite {
   val sizeID = FreshIdentifier("size")
   val sizeFd = mkFunDef(sizeID)("A") { case Seq(aT) => (
     Seq("l" :: T(listID)(aT)), IntegerType(), { case Seq(l) =>
-      if_ (l is consID) {
+      if_ (l `is` consID) {
         E(BigInt(1)) + E(sizeID)(aT)(l.getField(tail))
       } else_ {
         E(BigInt(0))
