@@ -10,7 +10,7 @@ import utils._
 
 trait TestSuite extends AnyFunSuite with Matchers with TimeLimits {
 
-  protected def configurations: Seq[Seq[OptionValue[_]]] = Seq(Seq.empty)
+  protected def configurations: Seq[Seq[OptionValue[?]]] = Seq(Seq.empty)
 
   protected def createContext(options: Options): Context = inox.TestContext(options)
 
@@ -25,7 +25,7 @@ trait TestSuite extends AnyFunSuite with Matchers with TimeLimits {
   }
 
   protected def test(name: String, tags: Tag*)(body: Context ?=> Unit): Unit =
-    test(name, _ => Test, tags : _*)(body)
+    test(name, _ => Test, tags*)(body)
 
   sealed abstract class FilterStatus
   case object Test extends FilterStatus
@@ -77,11 +77,11 @@ trait TestSuite extends AnyFunSuite with Matchers with TimeLimits {
   }
 
   protected def ignore(name: String, tags: Tag*)(body: Context ?=> Unit): Unit =
-    test(name, _ => Ignore, tags : _*)(body)
+    test(name, _ => Ignore, tags*)(body)
 
   protected def ignore(name: String, filter: Context => FilterStatus, tags: Tag*)(body: Context ?=> Unit): Unit =
     test(name, ctx => filter(ctx) match {
       case Skip => Skip
       case _ => Ignore
-    }, tags : _*)(body)
+    }, tags*)(body)
 }

@@ -27,7 +27,7 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
   val bagID = FreshIdentifier("bag")
   val bag = mkFunDef(bagID)("A") { case Seq(aT) => (
     Seq("l" :: List(aT)), BagType(aT), { case Seq(l) =>
-      if_ (l is consID) {
+      if_ (l `is` consID) {
         BagAdd(E(bagID)(aT)(l.getField(tail)), l.getField(head))
       } else_ {
         FiniteBag(Seq.empty, aT)
@@ -40,7 +40,7 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
     Seq("l" :: List(aT)), T(List(aT), List(aT)), { case Seq(l) =>
       let(
         "res" :: T(List(aT), List(aT)),
-        if_ ((l is consID) && (l.getField(tail) is consID)) {
+        if_ ((l `is` consID) && (l.getField(tail) `is` consID)) {
           let(
             "tuple" :: T(List(aT), List(aT)),
             E(splitID)(aT)(l.getField(tail).getField(tail))
@@ -60,7 +60,7 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
     Seq("l" :: List(aT)), T(List(aT), List(aT)), { case Seq(l) =>
       let(
         "res" :: T(List(aT), List(aT)),
-        if_ ((l is consID) && (l.getField(tail) is consID)) {
+        if_ ((l `is` consID) && (l.getField(tail) `is` consID)) {
           let(
             "tuple" :: T(List(aT), List(aT)),
             E(splitID)(aT)(l.getField(tail).getField(tail))

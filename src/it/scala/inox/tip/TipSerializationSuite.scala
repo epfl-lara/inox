@@ -10,7 +10,7 @@ class TipSerializationSuite extends AnyFunSpec with ResourceUtils {
 
   val ctx = TestContext.empty
 
-  val filesWithCat = resourceFiles("regression/tip", filter = _ endsWith ".tip", recursive = true).map { f =>
+  val filesWithCat = resourceFiles("regression/tip", filter = _ `endsWith` ".tip", recursive = true).map { f =>
     f.getParentFile.getName -> f
   }
 

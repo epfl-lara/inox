@@ -198,7 +198,7 @@ class GraphsSuite extends AnyFunSuite {
 
     val seq = g.topSort
 
-    val before = assertBefore(seq)_
+    val before = assertBefore(seq)
 
     before(A, B)
     before(B, F)
@@ -226,7 +226,7 @@ class GraphsSuite extends AnyFunSuite {
 
     val ns = gs.topSort
 
-    val before = assertBefore(ns)_
+    val before = assertBefore(ns)
     before(c1, c2)
     before(c2, c3)
     before(c4, c2)
