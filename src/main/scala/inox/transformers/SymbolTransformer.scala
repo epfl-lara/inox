@@ -64,9 +64,6 @@ object SymbolTransformerComposition {
     val s: right.s.type
     val t: left.t.type
   } = 
-    // create a local class with more precise types to convince the compiler
-    // this inherits the right equality function from [[SymbolTransformerComposition]]
-    // to make things work as expected
     class LocalComposition(lhs: left.type, rhs: right.type, s: right.s.type, t: left.t.type) extends SymbolTransformerComposition(left, right)(s, t)
     new LocalComposition(left, right, right.s, left.t)
 }
