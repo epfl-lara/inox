@@ -13,29 +13,7 @@ trait SymbolTransformer { self =>
   def compose(that: SymbolTransformer { val t: self.s.type }): SymbolTransformer {
     val s: that.s.type
     val t: self.t.type
-  } = {
-    /** Enables equality checks between symbol transformer compositions */
-    class SymbolTransformerComposition(protected val lhs: self.type,
-                                       protected val rhs: that.type)
-                                      (override val s: rhs.s.type,
-                                       override val t: self.t.type)
-      extends SymbolTransformer {
-
-      override def transform(syms: s.Symbols): t.Symbols = lhs.transform(rhs.transform(syms))
-
-      override def equals(that: Any): Boolean = that match {
-        // NOTE: there is a spurious warning saying:
-        // "the type test for SymbolTransformerComposition cannot be checked at runtime because it's a local class"
-        // but the type test actually works as expected
-        case c: SymbolTransformerComposition => rhs == c.rhs && lhs == c.lhs
-        case _ => false
-      }
-
-      override def hashCode: Int = 31 * rhs.hashCode + lhs.hashCode
-    }
-
-    new SymbolTransformerComposition(self, that)(that.s, self.t)
-  }
+  } = SymbolTransformerComposition(self, that)
 
   def andThen(that: SymbolTransformer {
     val s: self.t.type
@@ -58,6 +36,36 @@ trait SimpleSymbolTransformer extends SymbolTransformer { self =>
   def transform(syms: s.Symbols): t.Symbols = t.NoSymbols
     .withFunctions(syms.functions.values.toSeq.map(transformFunction))
     .withSorts(syms.sorts.values.toSeq.map(transformSort))
+}
+  
+/** Enables equality checks between symbol transformer compositions */
+class SymbolTransformerComposition(protected val left: SymbolTransformer, 
+                                    protected val right: SymbolTransformer { val t: left.s.type })
+                                    (override val s: right.s.type,
+                                    override val t: left.t.type)
+  extends SymbolTransformer {
+
+
+  override def transform(syms: s.Symbols): t.Symbols = left.transform(right.transform(syms))
+
+  override def equals(that: Any): Boolean = that match {
+    // NOTE: there is a spurious warning saying:
+    // "the type test for SymbolTransformerComposition cannot be checked at runtime because it's a local class"
+    // but the type test actually works as expected
+    case c: SymbolTransformerComposition => right == c.right && left == c.left
+    case _ => false
+  }
+
+  override def hashCode: Int = 31 * right.hashCode + left.hashCode
+}
+
+object SymbolTransformerComposition {
+  def apply(left: SymbolTransformer, right: SymbolTransformer {val t: left.s.type}): SymbolTransformer {
+    val s: right.s.type
+    val t: left.t.type
+  } = 
+    class LocalComposition(lhs: left.type, rhs: right.type, s: right.s.type, t: left.t.type) extends SymbolTransformerComposition(left, right)(s, t)
+    new LocalComposition(left, right, right.s, left.t)
 }
 
 object SymbolTransformer {
