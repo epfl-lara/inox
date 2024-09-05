@@ -1,0 +1,40 @@
+name: Inox CI
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+jobs:
+  tests:
+    if: github.event.pull_request.draft == false
+    runs-on: [self-hosted, linux]
+    env:
+      # define Java options for both official sbt and sbt-extras
+      JAVA_OPTS: -J-Xss64M -J-Xms1024M -J-Xmx8G 
+      JVM_OPTS:  -J-Xss64M -J-Xms1024M -J-Xmx8G 
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Setup JDK
+      uses: actions/setup-java@v3
+      with:
+        distribution: temurin
+        java-version: 17
+    - name: Install solvers
+      run: ./install_solvers.sh $GITHUB_WORKSPACE/.local/bin
+    - name: Add solvers to PATH
+      run: echo "$GITHUB_WORKSPACE/.local/bin" >> $GITHUB_PATH
+    - name: Test solvers availability
+      run: cvc5 --version && z3 --version && cvc4 --version
+    - name: Run Tests
+      run: sbt -Dtest-parallelism=10 -batch test
+    - name: Run integration tests
+      run: sbt -Dtest-parallelism=10 -batch it:test
+  fail_if_pull_request_is_draft:
+    if: github.event.pull_request.draft == true
+    runs-on: [self-hosted, linux]
+    steps:
+    - name: Fails in order to indicate that pull request needs to be marked as ready to review and tests workflows need to pass.
+      run: exit 1
