@@ -38,4 +38,3 @@ jobs:
     steps:
     - name: Fails in order to indicate that pull request needs to be marked as ready to review and tests workflows need to pass.
       run: exit 1
-
