@@ -10,8 +10,8 @@ jobs:
     runs-on: [self-hosted, linux]
     env:
       # define Java options for both official sbt and sbt-extras
-      JAVA_OPTS: -J-Xss64M -J-Xms1024M -J-Xmx8G 
-      JVM_OPTS:  -J-Xss64M -J-Xms1024M -J-Xmx8G 
+      JAVA_OPTS: -Xss64M -Xms1024M -Xmx8G 
+      JVM_OPTS:  -Xss64M -Xms1024M -Xmx8G 
     steps:
     - name: Checkout
       uses: actions/checkout@v4
