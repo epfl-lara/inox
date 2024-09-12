@@ -711,9 +711,10 @@ abstract class AbstractInvariantSolver(override val program: Program,
     ???
 
   private def reportInvariants(model: underlyingHorn.Model): Unit =
-      context.reporter.info(
-        s"Discovered Invariant for: $model"
-      )
+      // context.reporter.info(
+      //   s"Discovered Invariant for: $model"
+      // )
+      ()
 
   protected def encodeFunction(tfd: TypedFunDef): Set[Expr] = 
     // collect data
@@ -751,7 +752,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
                 .map(_.toVal)
                 .toSeq
 
-    Forall(frees, clause)    
+    Forall(frees, clause)
 
   /* Communicate with solver */
 
