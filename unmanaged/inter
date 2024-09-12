@@ -1,3 +1,0 @@
-#!/usr/bin/env sh
-
-java -cp unmanaged/interfacica-assembly-0.1.0-SNAPSHOT.jar interfacica.Main
