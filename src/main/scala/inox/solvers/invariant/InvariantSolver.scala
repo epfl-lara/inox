@@ -816,19 +816,6 @@ abstract class AbstractInvariantSolver(override val program: Program,
         Context.definingClauses(typedDef)
 
   /**
-    * Does the model set any predicates arising from a function to false?
-    * 
-    * This means that no function calls succeed in satisfying the internal assertions.
-    *
-    * @param model model to check
-    */
-  private def nonVacuousModel(model: underlyingHorn.Model): Boolean = 
-    !model.vars.exists: (v, expr) => 
-      println(s"CHECKING $v for $expr")
-      println(s"IS FUNCTION? ${Context.isFunctionalPredicate(v.toVariable)}")
-      Context.isFunctionalPredicate(v.toVariable) && expr == BooleanLiteral(false)
-
-  /**
     * Invariant-generating implementation of [[checkAssumptions]].
     */
   private def checkAssumptions_(config: Configuration)(assumptions: Set[Source]): config.Response[Model, Assumptions] = 
@@ -845,6 +832,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
     // declare variables
     predicates.foreach(underlyingHorn.registerPredicate)
 
+
     (assumptionClauses ++ definitionClauses).foreach(underlyingHorn.assertCnstr)
     
     // check satisfiability
@@ -856,12 +844,9 @@ abstract class AbstractInvariantSolver(override val program: Program,
         case SolverResponses.SatWithModel(model) =>
           // report discovery of invariants
           reportInvariants(model)
-          // discard underlying model. We cannot (in general) construct a program
-          // model from the Horn model 
-          if nonVacuousModel(model) then
-            config.cast(SolverResponses.Unsat)
-          else
-            config.cast(SolverResponses.SatWithModel(emptyProgramModel))
+          // discard underlying model. We cannot construct a program model (cex) from
+          // the Horn model 
+          config.cast(SolverResponses.SatWithModel(emptyProgramModel))
 
         case SolverResponses.Check(r) => config.cast(if r then SolverResponses.Unsat else SolverResponses.SatWithModel(emptyProgramModel))
 
