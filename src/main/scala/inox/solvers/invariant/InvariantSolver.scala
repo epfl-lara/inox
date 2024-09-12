@@ -651,7 +651,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
             a
           else
             // register a new guard
-            val newArg = Variable.fresh("arg", a.getType, true)
+            val newArg = Variable.fresh("arg", canonicalType(a.getType), true)
             val inner = generatePredicate("OperatorArg", a, pathCondition)
             subsume(inner)
             Context.addGuard(newArg, inner.body(newArg))
