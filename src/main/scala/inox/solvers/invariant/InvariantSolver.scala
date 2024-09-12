@@ -118,6 +118,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
 
   override def interrupt(): Unit = 
     abort = true
+    underlyingHorn.interrupt()
 
   override def reset(): Unit = 
     abort = false
