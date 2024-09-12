@@ -115,11 +115,12 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected val sorts         = new IncrementalBijection[Type, Sort]
   protected val functions     = new IncrementalBijection[TypedFunDef, SSymbol]
   protected val lambdas       = new IncrementalBijection[FunctionType, SSymbol]
-  protected val predicates    = new IncrementalSet[Variable]
+  protected val predicates    = new IncrementalBijection[Variable, SSymbol]
   protected val predicateCalls= new IncrementalBijection[Expr, SSymbol]
 
   def registerPredicate(v: Variable): Unit = {
-    predicates += v
+    val s = id2sym(v.id)
+    predicates += v -> s
   }
 
   /* Helper functions */
@@ -210,8 +211,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected def declareVariable(v: Variable): SSymbol = {
     variables.cachedB(v) {
       val s = id2sym(v.id)
-      if predicates.contains(v) then
-        ()
+      if predicates.containsA(v) then
+        () // handled by [[declarePredicate]] separately already
       else 
         val cmd = DeclareFun(s, List(), declareSort(v.getType))
         emit(cmd)
@@ -357,7 +358,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
        */
       case ap @ Application(caller, args) =>
         caller match
-          case v: Variable if predicates.contains(v) =>
+          case v: Variable if predicates.containsA(v) =>
             val pred = predicateCalls.cachedB(caller) {
               caller match
                 case pred @ Variable(id, FunctionType(from, to), flags) =>

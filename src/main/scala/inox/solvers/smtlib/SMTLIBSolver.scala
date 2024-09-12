@@ -63,10 +63,11 @@ abstract class SMTLIBSolver private(override val program: Program,
     config: Configuration,
     res: SExpr,
     assumptions: Set[Expr]
-  ): config.Response[Model, Assumptions] = config.cast(res match {
+  ): config.Response[Model, Assumptions] = 
+    config.cast(res match {
     case CheckSatStatus(SatStatus) =>
       if (config.withModel) {
-        val syms = variables.bSet
+        val syms = variables.bSet ++ predicates.bSet
         emit(GetModel()) match {
           case GetModelResponseSuccess(smodel) =>
             // first-pass to gather functions
@@ -80,7 +81,7 @@ abstract class SMTLIBSolver private(override val program: Program,
             val vars = smodel.flatMap {
               case DefineFun(SMTFunDef(s, args, _, e)) if syms(s) =>
                 try {
-                  val v = variables.toA(s)
+                  val v = variables.getA(s).getOrElse(predicates.toA(s))
                   val vargs = args.map(fromSMT(_)(using ctx).toVariable)
                   val value = fromSMT(e, v.getType)(using ctx.withVariables(args.map(_.name) zip vargs))
                   Some(v.toVal -> value) 
