@@ -330,6 +330,15 @@ abstract class AbstractInvariantSolver(override val program: Program,
           .filterNot(isFree) 
       utils.fixpoint(rec)(Set(v))
 
+    def transitiveGuardsFor(v: Variable): Set[Expr] =
+      def rec(guards: Set[Expr]) =
+        guards ++
+          guards
+            .flatMap(exprOps.variablesOf)
+            .flatMap(guardFor)
+
+      utils.fixpoint(rec)(guardFor(v).toSet)
+    
     def toReplace(id: Identifier): Boolean =
       targetProgram.symbols.functions.contains(id)
 
@@ -343,10 +352,11 @@ abstract class AbstractInvariantSolver(override val program: Program,
 
     def insertGuards(clause: Clause): Clause =
       val exprs = clause.body.filter(isSimpleValue)
-      val variables = exprs.flatMap(exprOps.variablesOf)
-      val newGuards = variables.flatMap(guardFor)
+      val variables = exprs
+                      .flatMap(exprOps.variablesOf)
+                      .filterNot(isFree)
+      val newGuards = variables.flatMap(transitiveGuardsFor)
       clause.withGuards(newGuards)
-
 
   /**
     * "Purify" an expression by replacing function invocations with fresh
