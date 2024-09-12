@@ -677,8 +677,8 @@ abstract class AbstractInvariantSolver(override val program: Program,
 
   // TODO: Move
 
-  val HOVarLookup: collection.mutable.Map[Variable, Expr] = collection.mutable.Map.empty
-  val LambdaLookup: collection.mutable.Map[Lambda, (Clauses, Variable)] = collection.mutable.Map.empty
+  private val HOVarLookup: collection.mutable.Map[Variable, Expr] = collection.mutable.Map.empty
+  private val LambdaLookup: collection.mutable.Map[Lambda, (Clauses, Variable)] = collection.mutable.Map.empty
 
   /**
     * Recall or register the representation for an HOF variable
