@@ -270,7 +270,7 @@ object SolverFactory {
         () => new SMTZ3OptImpl(p)
       })
 
-      case "horn-z3" => create(p)(finalName, {
+      case "inv-z3" => create(p)(finalName, {
         val emptyEnc = ProgramEncoder.empty(enc.targetProgram)
         val chooses = ChooseEncoder(enc.targetProgram)(emptyEnc)
         class SMTZ3Impl(override val program: enc.targetProgram.type)
@@ -278,6 +278,8 @@ object SolverFactory {
             with InvariantSolver
             with TimeoutSolver
             with tip.TipDebugger {
+
+          override val name = "inv-z3" 
 
           class Underlying(override val program: targetProgram.type)
             extends smtlib.SMTLIBSolver(program, context)
@@ -308,7 +310,6 @@ object SolverFactory {
               parser.parseGenResponse
 
               override def eval(cmd: Terms.SExpr): Terms.SExpr = 
-                // println(s"{SENDING} $cmd")
                 super.eval(cmd)
 
             override protected val interpreter = {
@@ -333,7 +334,7 @@ object SolverFactory {
         () => new EncodedImpl(p, enc, SMTZ3Impl(enc.targetProgram))
       })
 
-      case "horn-eld" => create(p)(finalName, {
+      case "inv-eld" => create(p)(finalName, {
         val emptyEnc = ProgramEncoder.empty(enc.targetProgram)
         val chooses = ChooseEncoder(enc.targetProgram)(emptyEnc)
         class SMTEldaricaImpl(override val program: enc.targetProgram.type)
@@ -341,6 +342,8 @@ object SolverFactory {
             with InvariantSolver
             with TimeoutSolver
             with tip.TipDebugger {
+
+          override val name = "inv-eld" 
 
           class Underlying(override val program: targetProgram.type)
             extends smtlib.SMTLIBSolver(program, context)
