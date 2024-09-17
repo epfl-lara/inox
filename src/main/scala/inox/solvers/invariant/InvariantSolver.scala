@@ -846,7 +846,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
           reportInvariants(model)
           // discard underlying model. We cannot construct a program model (cex) from
           // the Horn model 
-          config.cast(SolverResponses.SatWithModel(emptyProgramModel))
+          config.cast(SolverResponses.Unsat)
 
         case SolverResponses.Check(r) => config.cast(if r then SolverResponses.Unsat else SolverResponses.SatWithModel(emptyProgramModel))
 
