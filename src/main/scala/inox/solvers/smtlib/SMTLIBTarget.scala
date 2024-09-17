@@ -72,13 +72,6 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     }
   }
 
-  def parseSuccess() = {
-    val res = interpreter.parser.parseGenResponse
-    if (res != Success) {
-      reporter.warning("Unnexpected result from " + targetName + ": " + res + " expected success")
-    }
-  }
-
   /*
    * Translation from Inox Expressions to SMTLIB terms and reverse
    */
