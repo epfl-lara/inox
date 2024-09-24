@@ -848,7 +848,9 @@ abstract class AbstractInvariantSolver(override val program: Program,
           // the Horn model 
           config.cast(SolverResponses.Unsat)
 
-        case SolverResponses.Check(r) => config.cast(if r then SolverResponses.Unsat else SolverResponses.SatWithModel(emptyProgramModel))
+        case SolverResponses.Check(r) => 
+          lazy val satRes = if config.withModel then SolverResponses.SatWithModel(emptyProgramModel) else SolverResponses.Sat
+          config.cast(if r then SolverResponses.Unsat else satRes)
 
         case _ => config.cast(SolverResponses.Unknown) // unknown or unreachable
 
