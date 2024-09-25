@@ -33,13 +33,21 @@ Compile / unmanagedJars += {
 resolvers ++= Seq(
   "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
   "Sonatype OSS Releases" at "https://oss.sonatype.org/content/repositories/releases",
-  ("uuverifiers" at "http://logicrunch.research.it.uu.se/maven").withAllowInsecureProtocol(true)
+  "uuverifiers" at "https://eldarica.org/maven"
 )
 
 libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "3.2.9" % "test;it",
   "org.apache.commons" % "commons-lang3" % "3.4",
-  ("org.scala-lang.modules" %% "scala-parser-combinators" % "1.1.2").cross(CrossVersion.for3Use2_13)
+  ("uuverifiers" %% "eldarica" % "nightly-SNAPSHOT").cross(CrossVersion.for3Use2_13),
+  ("uuverifiers" %% "princess" % "nightly-SNAPSHOT").cross(CrossVersion.for3Use2_13),
+  "org.scala-lang.modules" %% "scala-parser-combinators" % "2.3.0"
+)
+
+excludeDependencies ++= Seq(
+  "org.scala-lang.modules" % "scala-parser-combinators_2.13",
+  "org.scala-lang.modules" % "scala-xml_2.13",
+  "org.scalactic" % "scalactic_2.13",
 )
 
 lazy val nTestParallelism = {
@@ -59,9 +67,6 @@ def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${versi
 
 // lazy val smtlib = RootProject(file("../scala-smtlib")) // If you have a local copy of Scala-SMTLIB and would like to do some changes
 lazy val smtlib = ghProject("https://github.com/epfl-lara/scala-smtlib.git", "51a44878858b427f1a4e5a5eb01d8f796898d812")
-
-// lazy val princess = RootProject(file("../princess")) // If you have a local copy of Princess and would like to do some changes
-lazy val princess = ghProject("https://github.com/uuverifiers/princess.git", "93cbff11d7b02903e532c7b64207bc12f19b79c7")
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")
 
@@ -153,7 +158,7 @@ lazy val root = (project in file("."))
   )) : _*)
   .settings(compile := ((Compile / compile) dependsOn script).value)
   .settings(Compile / packageDoc / mappings := Seq())
-  .dependsOn(smtlib, princess)
+  .dependsOn(smtlib)
 
 Global / concurrentRestrictions := Seq(
   Tags.limit(Tags.Test, nTestParallelism)

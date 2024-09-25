@@ -72,13 +72,6 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     }
   }
 
-  def parseSuccess() = {
-    val res = interpreter.parser.parseGenResponse
-    if (res != Success) {
-      reporter.warning("Unnexpected result from " + targetName + ": " + res + " expected success")
-    }
-  }
-
   /*
    * Translation from Inox Expressions to SMTLIB terms and reverse
    */
@@ -115,6 +108,13 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected val sorts         = new IncrementalBijection[Type, Sort]
   protected val functions     = new IncrementalBijection[TypedFunDef, SSymbol]
   protected val lambdas       = new IncrementalBijection[FunctionType, SSymbol]
+  protected val predicates    = new IncrementalBijection[Variable, SSymbol]
+  protected val predicateCalls= new IncrementalBijection[Expr, SSymbol]
+
+  def registerPredicate(v: Variable): Unit = {
+    val s = id2sym(v.id)
+    predicates += v -> s
+  }
 
   /* Helper functions */
 
@@ -140,6 +140,10 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     quantifiedTerm(quantifier, exprOps.variablesOf(body).toSeq.map(_.toVal), body)
 
   protected final def declareSort(tpe: Type): Sort =
+    // println(s"@@@@ CALLED WITH $tpe with ${tpe match
+    //   case ADTType(id, _) => id.uniqueName
+    //   case _ => "None"
+    // } and found? ${if sorts.containsA(tpe) then "cached" else "NONONO"}")
     sorts.cachedB(tpe)(computeSort(tpe))
 
   protected def computeSort(t: Type): Sort = t match {
@@ -200,8 +204,12 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected def declareVariable(v: Variable): SSymbol = {
     variables.cachedB(v) {
       val s = id2sym(v.id)
-      val cmd = DeclareFun(s, List(), declareSort(v.getType))
-      emit(cmd)
+      if predicates.containsA(v) then
+        () // handled by [[declarePredicate]] separately already
+      else 
+        val cmd = DeclareFun(s, List(), declareSort(v.getType))
+        emit(cmd)
+        
       s
     }
   }
@@ -342,8 +350,23 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
        * ===== Everything else =====
        */
       case ap @ Application(caller, args) =>
-        val dyn = declareLambda(caller.getType.asInstanceOf[FunctionType])
-        FunctionApplication(dyn, (caller +: args).map(toSMT))
+        caller match
+          case v: Variable if predicates.containsA(v) =>
+            val pred = predicateCalls.cachedB(caller) {
+              caller match
+                case pred @ Variable(id, FunctionType(from, to), flags) =>
+                  val s = id2sym(id)
+                  emit(DeclareFun(
+                    s,
+                    from.map(declareSort),
+                    declareSort(to)
+                  ))
+                  s
+            }
+            FunctionApplication(pred, args.map(toSMT))
+          case _ => // normal lambda
+            val dyn = declareLambda(caller.getType.asInstanceOf[FunctionType])
+            FunctionApplication(dyn, (caller +: args).map(toSMT))
 
       case Not(u) => Core.Not(toSMT(u))
 

@@ -223,6 +223,10 @@ trait SMTLIBParser {
       val MapType(from, to) = fromSMT(sort): @unchecked
       FiniteMap(Seq.empty, d, from, to)
 
+    case AnnotatedTerm(term, attribute, attributes) => 
+      // discard general annotations
+      fromSMT(term, otpe)
+
     case _ => throw new MissformedSMTException(term,
       s"Unknown SMT term of class: ${term.getClass}:\n$term"
     )
