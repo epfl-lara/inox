@@ -10,8 +10,9 @@ jobs:
     runs-on: [self-hosted, linux]
     env:
       # define Java options for both official sbt and sbt-extras
-      JAVA_OPTS: -Xss64M -Xms1024M -Xmx8G 
-      JVM_OPTS:  -Xss64M -Xms1024M -Xmx8G 
+      JAVA_OPTS_TMP_DIR: ./tmp_java
+      JAVA_OPTS: -Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR
+      JVM_OPTS:  -Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -27,6 +28,8 @@ jobs:
         wget https://github.com/sbt/sbt/releases/download/v1.10.1/sbt-1.10.1.tgz
         tar xfz sbt-1.10.1.tgz
         echo "PATH=./sbt/bin/:$PATH" >> "$GITHUB_ENV"
+    - name: Prepare temp folder
+      run: rm -rf $JAVA_OPTS_TMP_DIR && mkdir -p $JAVA_OPTS_TMP_DIR
     - name: Install solvers
       run: ./install_solvers.sh $GITHUB_WORKSPACE/.local/bin
     - name: Add solvers to PATH
@@ -37,6 +40,8 @@ jobs:
       run: sbt -Dtest-parallelism=10 -batch test
     - name: Run integration tests
       run: sbt -Dtest-parallelism=10 -batch it:test
+    - name: Clean up
+      run: rm -rf $JAVA_OPTS_TMP_DIR
   fail_if_pull_request_is_draft:
     if: github.event.pull_request.draft == true
     runs-on: [self-hosted, linux]
