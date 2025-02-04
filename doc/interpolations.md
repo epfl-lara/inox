@@ -61,7 +61,7 @@ It is also possible to embed types and expressions:
 ```scala
 e"let x: $tpe = $expr in !x"
 // res0: Expr = val x: Boolean = 1 + 1 == 2
-// ¬x
+// !x
 ```
 
 <a name="syntax"></a>
@@ -192,9 +192,9 @@ e"lambda x. x * 0.5"
 
 ```scala
 e"forall x: Int. x > 0"
-// res16: Expr = ∀x: Int. (x > 0)
+// res16: Expr = forall((x: Int) => (x > 0))
 e"∀x. x || true"
-// res17: Expr = ∀x: Boolean. (x || true)
+// res17: Expr = forall((x: Boolean) => (x || true))
 ```
 
 <a name="existential-quantifiers"></a>
@@ -202,9 +202,9 @@ e"∀x. x || true"
 
 ```scala
 e"exists x: BigInt. x < 0"
-// res18: Expr = ¬∀x: BigInt. ¬(x < 0)
+// res18: Expr = !forall((x: BigInt) => !(x < 0))
 e"∃x, y. x + y == 0"
-// res19: Expr = ¬∀x: BigInt, y: BigInt. (x + y ≠ 0)
+// res19: Expr = !forall((x: BigInt, y: BigInt) => (x + y != 0))
 ```
 
 <a name="choose"></a>
