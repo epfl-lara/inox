@@ -3,6 +3,7 @@
 package inox
 package ast
 
+import scala.collection.immutable
 import scala.collection.immutable.BitSet
 
 /** Expression definitions for Pure Scala.
@@ -229,6 +230,42 @@ trait Expressions { self: Trees =>
     def getType(using Symbols): Type = RealType()
   }
 
+  /** $encodingof a floating point literal */
+  sealed case class FPLiteral(exponent: Int, significand: Int, value: BitSet) extends Literal[BitSet] {
+    override def getType(using Symbols) = FPType(exponent, significand)
+    def toBV: BVLiteral = BVLiteral(true, value, exponent + significand)
+  }
+
+  object FPLiteral {
+    def fromBV(exponent: Int, significand: Int, bv: BVLiteral) = FPLiteral(exponent, significand, bv.value)
+  }
+
+  object Float32Literal {
+    def apply(value: Float): FPLiteral = FPLiteral.fromBV(8, 24, Int32Literal(java.lang.Float.floatToIntBits(value)))
+
+    def unapply(e: Expr): Option[Float] = e match {
+      case f @ FPLiteral(8, 24, b) if b.maxOption.getOrElse(-1) < 32 =>
+        f.toBV match {
+          case Int32Literal(i) => Some(java.lang.Float.intBitsToFloat(i))
+          case _ => None
+        }
+      case _ => None
+    }
+  }
+
+  object Float64Literal {
+    def apply(value: Double): FPLiteral = FPLiteral.fromBV(11, 53, Int64Literal(java.lang.Double.doubleToLongBits(value)))
+
+    def unapply(e: Expr): Option[Double] = e match {
+      case f @ FPLiteral(11, 53, b) if b.maxOption.getOrElse(-1) < 64 =>
+        f.toBV match {
+          case Int64Literal(i) => Some(java.lang.Double.longBitsToDouble(i))
+          case _ => None
+        }
+      case _ => None
+    }
+  }
+
   /** $encodingof a boolean literal '''true''' or '''false''' */
   sealed case class BooleanLiteral(value: Boolean) extends Literal[Boolean] {
     def getType(using Symbols): Type = BooleanType()
@@ -397,25 +434,25 @@ trait Expressions { self: Trees =>
   /** $encodingof `... +  ...` */
   sealed case class Plus(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs) `orElse` getFPType(lhs, rhs)
   }
 
   /** $encodingof `... -  ...` */
   sealed case class Minus(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs) `orElse` getFPType(lhs, rhs)
   }
 
   /** $encodingof `- ...` */
   sealed case class UMinus(expr: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(expr) `orElse` getRealType(expr) `orElse` getBVType(expr)
+      getIntegerType(expr) `orElse` getRealType(expr) `orElse` getBVType(expr) `orElse` getFPType(expr)
   }
 
   /** $encodingof `... * ...` */
   sealed case class Times(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs) `orElse` getFPType(lhs, rhs)
   }
 
   /** $encodingof `... /  ...`
@@ -431,7 +468,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class Division(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs) `orElse` getFPType(lhs, rhs)
   }
 
   /** $encodingof `... %  ...` (can return negative numbers)
@@ -440,7 +477,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class Remainder(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) `orElse` getBVType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getBVType(lhs, rhs) `orElse` getFPType(lhs, rhs)
   }
 
   /** $encodingof `... mod  ...` (cannot return negative numbers)
@@ -458,7 +495,8 @@ trait Expressions { self: Trees =>
       getIntegerType(lhs, rhs).isTyped ||
       getRealType(lhs, rhs).isTyped ||
       getBVType(lhs, rhs).isTyped ||
-      getCharType(lhs, rhs).isTyped
+      getCharType(lhs, rhs).isTyped ||
+      getFPType(lhs, rhs).isTyped
     ) BooleanType() else Untyped
   }
 
@@ -468,7 +506,8 @@ trait Expressions { self: Trees =>
       getIntegerType(lhs, rhs).isTyped ||
       getRealType(lhs, rhs).isTyped ||
       getBVType(lhs, rhs).isTyped ||
-      getCharType(lhs, rhs).isTyped
+      getCharType(lhs, rhs).isTyped ||
+      getFPType(lhs, rhs).isTyped
     ) BooleanType() else Untyped
   }
 
@@ -478,7 +517,8 @@ trait Expressions { self: Trees =>
       getIntegerType(lhs, rhs).isTyped ||
       getRealType(lhs, rhs).isTyped ||
       getBVType(lhs, rhs).isTyped ||
-      getCharType(lhs, rhs).isTyped
+      getCharType(lhs, rhs).isTyped ||
+      getFPType(lhs, rhs).isTyped
     ) BooleanType() else Untyped
   }
 
@@ -488,7 +528,8 @@ trait Expressions { self: Trees =>
       getIntegerType(lhs, rhs).isTyped ||
       getRealType(lhs, rhs).isTyped ||
       getBVType(lhs, rhs).isTyped ||
-      getCharType(lhs, rhs).isTyped
+      getCharType(lhs, rhs).isTyped ||
+      getFPType(lhs, rhs).isTyped
     ) BooleanType() else Untyped
   }
 

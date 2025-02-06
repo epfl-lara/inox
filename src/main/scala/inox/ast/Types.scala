@@ -76,6 +76,17 @@ trait Types { self: Trees =>
   object Int32Type extends BVTypeExtractor(true, 32)
   object Int64Type extends BVTypeExtractor(true, 64)
 
+  sealed case class FPType(exponent: Int, significand: Int) extends Type
+
+  abstract class FPTypeExtractor(exponent: Int, significand: Int) {
+    def apply(): FPType = FPType(exponent, significand)
+
+    def unapply(tpe: FPType): Boolean = tpe.exponent == exponent && tpe.significand == significand
+  }
+  
+  object Float32Type extends FPTypeExtractor(8, 24)
+  object Float64Type extends FPTypeExtractor(11, 53)
+
   sealed case class TypeParameter(id: Identifier, flags: Seq[Flag]) extends Type {
     def freshen = TypeParameter(id.freshen, flags).copiedFrom(this)
 
@@ -228,6 +239,11 @@ trait Types { self: Trees =>
 
   protected def getBVType(tpe: Typed, tpes: Typed*)(using Symbols): Type = tpe.getType match {
     case bv: BVType => checkAllTypes(tpes, bv, bv)
+    case _ => Untyped
+  }
+
+  protected def getFPType(tpe: Typed, tpes: Typed*)(using Symbols): Type = tpe.getType match {
+    case f: FPType => checkAllTypes(tpes, f, f)
     case _ => Untyped
   }
 
