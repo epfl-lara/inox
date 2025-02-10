@@ -173,6 +173,10 @@ trait Printer {
     case Int32Literal(v) => p"$v"
     case Int64Literal(v) => p"$v"
     case BVLiteral(_, bits, size) => p"x${(size to 1 by -1).map(i => if (bits(i)) "1" else "0").mkString("")}"
+    case Float32Literal(f) => p"$f"
+    case Float64Literal(f) => p"$f"
+    case FPLiteral(exponent, significand, bits) =>
+      p"x${(exponent + significand to 1 by -1).map(i => if (bits(i)) "1" else "0").mkString("")}"
     case IntegerLiteral(v) => p"$v"
     case FractionLiteral(n, d) =>
       if (d == 1) p"$n"
@@ -274,6 +278,8 @@ trait Printer {
     case BVWideningCast(e, BVType(_, size)) => p"$e.toBV($size)"
     case BVUnsignedToSigned(e) => p"$e.toSigned"
     case BVSignedToUnsigned(e) => p"$e.toUnsigned"
+
+    case FPEquals(l, r) => p"$l === $r"
 
     case fs @ FiniteSet(rs, _) => p"Set(${rs})"
     case fs @ FiniteBag(rs, _) => p"Bag(${rs.toSeq})"

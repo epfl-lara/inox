@@ -97,6 +97,24 @@ trait SMTLIBParser {
       case _ => BVLiteral(true, n, size.intValue)
     }
 
+    case FloatingPoint.FPLit(sign, exponent, significand) => otpe match {
+      case Some(FPType(eb, sb)) =>
+        (fromSMT(sign, Some(BVType(true, 1))),
+        fromSMT(exponent, Some(BVType(true, eb))),
+        fromSMT(significand, Some(BVType(true, sb - 1)))) match {
+          case (BVLiteral(true, bitset1, 1), BVLiteral(true, bitset2, `eb`), BVLiteral(true, bitset3, rem)) if rem == sb - 1 =>
+            FPLiteral(eb, sb, bitset1.map(_ + eb + sb - 1) ++ bitset2.map(_ + sb - 1) ++ bitset3)
+          case _ => throw new MissformedSMTException(term, "FP Lit has inconsistent components")
+        }
+      case _ => throw new MissformedSMTException(term, "FP Lit is not of type Float")
+    }
+    case FloatingPoint.PlusZero(exponent, significand) => FPLiteral.plusZero(exponent.toInt, significand.toInt)
+    case FloatingPoint.MinusZero(exponent, significand) => FPLiteral.minusZero(exponent.toInt, significand.toInt)
+    case FloatingPoint.NaN(exponent, significand) => FPLiteral.NaN(exponent.toInt, significand.toInt)
+    case FloatingPoint.PlusInfinity(exponent, significand) => FPLiteral.plusInfinity(exponent.toInt, significand.toInt)
+    case FloatingPoint.MinusInfinity(exponent, significand) => FPLiteral.minusInfinity(exponent.toInt, significand.toInt)
+
+
     case SDecimal(value) =>
       exprOps.normalizeFraction(FractionLiteral(
         value.bigDecimal.movePointRight(value.scale).toBigInteger,
@@ -196,6 +214,9 @@ trait SMTLIBParser {
         case Some(BVType(signed, _)) => signed
         case _ => true
       }, (i + 1).bigInteger.intValueExact))
+      
+    case FloatingPoint.Eq(e1, e2) => fromSMTUnifyType(e1, e2, None)(FPEquals.apply)
+
 
     case ArraysEx.Select(e1, e2) => otpe match {
       case Some(tpe) =>

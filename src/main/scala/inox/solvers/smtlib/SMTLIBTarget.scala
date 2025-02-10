@@ -151,6 +151,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     case IntegerType() => Ints.IntSort()
     case RealType()    => Reals.RealSort()
     case BVType(_,l)   => FixedSizeBitVectors.BitVectorSort(l)
+    case FPType(e, s)  => FloatingPoint.FloatingPointSort(e, s)
     case CharType()    => FixedSizeBitVectors.BitVectorSort(16)
     case StringType()  => Strings.StringSort()
 
@@ -277,6 +278,14 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
       case IntegerLiteral(i)     => intToTerm(i)
       case BVLiteral(_, bits, size) => FixedSizeBitVectors.BitVectorLit(List.range(1, size + 1).map(i => bits(size + 1 - i)))
+      case FPLiteral(e, s, bits) =>
+        val size = e + s
+        FloatingPoint.FPLit(
+          FixedSizeBitVectors.BitVectorLit(List.range(1, 2).map(i => bits(size + 1 - i))),
+          FixedSizeBitVectors.BitVectorLit(List.range(2, e + 2).map(i => bits(size + 1 - i))),
+          FixedSizeBitVectors.BitVectorLit(List.range(e + 2, size + 1).map(i => bits(size + 1 - i)))
+        )
+
       case FractionLiteral(n, d) => Reals.Div(realToTerm(n), realToTerm(d))
       case CharLiteral(c)        => FixedSizeBitVectors.BitVectorLit(Hexadecimal.fromShort(c.toShort))
       case BooleanLiteral(v)     => Core.BoolConst(v)
@@ -372,28 +381,32 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
       case UMinus(u) => u.getType match {
         case BVType(_,_)   => FixedSizeBitVectors.Neg(toSMT(u))
+        case FPType(_, _)  => FloatingPoint.Neg(toSMT(u))
         case IntegerType() => Ints.Neg(toSMT(u))
         case RealType()    => Reals.Neg(toSMT(u))
       }
 
       case Equals(a, b)    => Core.Equals(toSMT(a), toSMT(b))
       case Implies(a, b)   => Core.Implies(toSMT(a), toSMT(b))
-      case pl @ Plus(a, _)      =>
+      case pl @ Plus(a, b)      =>
         val rec = flattenPlus(pl).map(toSMT)
         a.getType match {
           case BVType(_,_)   => FixedSizeBitVectors.Add(rec)
+          case FPType(_, _)  => FloatingPoint.Add(FloatingPoint.RNE(), toSMT(a), toSMT(b))
           case IntegerType() => Ints.Add(rec)
           case RealType()    => Reals.Add(rec)
         }
       case Minus(a, b)     => a.getType match {
         case BVType(_,_)   => FixedSizeBitVectors.Sub(toSMT(a), toSMT(b))
+        case FPType(_,_)   => FloatingPoint.Sub(FloatingPoint.RNE(), toSMT(a), toSMT(b))
         case IntegerType() => Ints.Sub(toSMT(a), toSMT(b))
         case RealType()    => Reals.Sub(toSMT(a), toSMT(b))
       }
-      case tms @ Times(a, _)     =>
+      case tms @ Times(a, b)     =>
         val rec = flattenTimes(tms).map(toSMT)
         a.getType match {
           case BVType(_,_)   => FixedSizeBitVectors.Mul(rec)
+          case FPType(_,_)   => FloatingPoint.Mul(FloatingPoint.RNE(), toSMT(a), toSMT(b))
           case IntegerType() => Ints.Mul(rec)
           case RealType()    => Reals.Mul(rec)
         }
@@ -401,6 +414,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case Division(a, b)  => a.getType match {
         case BVType(true, _) => FixedSizeBitVectors.SDiv(toSMT(a), toSMT(b))
         case BVType(false, _) => FixedSizeBitVectors.UDiv(toSMT(a), toSMT(b))
+        case FPType(_,_)   => FloatingPoint.Div(FloatingPoint.RNE(), toSMT(a), toSMT(b))
         case IntegerType() =>
           val ar = toSMT(a)
           val br = toSMT(b)
@@ -415,6 +429,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case Remainder(a, b) => a.getType match {
         case BVType(true, _) => FixedSizeBitVectors.SRem(toSMT(a), toSMT(b))
         case BVType(false, _) => FixedSizeBitVectors.URem(toSMT(a), toSMT(b))
+        case FPType(_, _)     => FloatingPoint.Rem(toSMT(a), toSMT(b))
         case IntegerType() =>
           val q = toSMT(Division(a, b))
           Ints.Sub(toSMT(a), Ints.Mul(toSMT(b), q))
@@ -440,6 +455,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case LessThan(a, b) => a.getType match {
         case BVType(true, _)  => FixedSizeBitVectors.SLessThan(toSMT(a), toSMT(b))
         case BVType(false, _) => FixedSizeBitVectors.ULessThan(toSMT(a), toSMT(b))
+        case FPType(_,_)      => FloatingPoint.LessThan(toSMT(a), toSMT(b))
         case IntegerType()    => Ints.LessThan(toSMT(a), toSMT(b))
         case RealType()       => Reals.LessThan(toSMT(a), toSMT(b))
         case CharType()       => FixedSizeBitVectors.ULessThan(toSMT(a), toSMT(b))
@@ -447,6 +463,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case LessEquals(a, b) => a.getType match {
         case BVType(true, _)  => FixedSizeBitVectors.SLessEquals(toSMT(a), toSMT(b))
         case BVType(false, _) => FixedSizeBitVectors.ULessEquals(toSMT(a), toSMT(b))
+        case FPType(_,_)      => FloatingPoint.LessEquals(toSMT(a), toSMT(b))
         case IntegerType()    => Ints.LessEquals(toSMT(a), toSMT(b))
         case RealType()       => Reals.LessEquals(toSMT(a), toSMT(b))
         case CharType()       => FixedSizeBitVectors.ULessEquals(toSMT(a), toSMT(b))
@@ -454,6 +471,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case GreaterThan(a, b) => a.getType match {
         case BVType(true, _)   => FixedSizeBitVectors.SGreaterThan(toSMT(a), toSMT(b))
         case BVType(false, _)  => FixedSizeBitVectors.UGreaterThan(toSMT(a), toSMT(b))
+        case FPType(_,_)      => FloatingPoint.GreaterThan(toSMT(a), toSMT(b))
         case IntegerType()     => Ints.GreaterThan(toSMT(a), toSMT(b))
         case RealType()        => Reals.GreaterThan(toSMT(a), toSMT(b))
         case CharType()        => FixedSizeBitVectors.UGreaterThan(toSMT(a), toSMT(b))
@@ -461,6 +479,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case GreaterEquals(a, b) => a.getType match {
         case BVType(true, _)  => FixedSizeBitVectors.SGreaterEquals(toSMT(a), toSMT(b))
         case BVType(false, _) => FixedSizeBitVectors.UGreaterEquals(toSMT(a), toSMT(b))
+        case FPType(_,_)      => FloatingPoint.GreaterEquals(toSMT(a), toSMT(b))
         case IntegerType()    => Ints.GreaterEquals(toSMT(a), toSMT(b))
         case RealType()       => Reals.GreaterEquals(toSMT(a), toSMT(b))
         case CharType()       => FixedSizeBitVectors.UGreaterEquals(toSMT(a), toSMT(b))
@@ -486,6 +505,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
       case BVUnsignedToSigned(e) => toSMT(e)
       case BVSignedToUnsigned(e) => toSMT(e)
+
+      case FPEquals(a, b) => FloatingPoint.Eq(toSMT(a), toSMT(b))
 
       case And(sub)                  => SmtLibConstructors.and(sub.map(toSMT))
       case Or(sub)                   => SmtLibConstructors.or(sub.map(toSMT))
