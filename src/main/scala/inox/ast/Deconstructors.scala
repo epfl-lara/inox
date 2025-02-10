@@ -102,6 +102,11 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
         (_, _, _, _, _) => t.BVLiteral(signed, bits, size))
     },
+    classOf[s.FPLiteral] -> { expr =>
+      val s.FPLiteral(exponent, significand, bits) = expr: @unchecked
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.FPLiteral(exponent, significand, bits))
+    },
     classOf[s.IntegerLiteral] -> { expr =>
       val s.IntegerLiteral(i) = expr: @unchecked
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
@@ -297,6 +302,11 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
         (_, _, es, _, _) => t.BVSignedToUnsigned(es(0)))
     },
+    classOf[s.FPEquals] -> { expr =>
+      val s.FPEquals(t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPEquals(es(0), es(1)))
+    },
     classOf[s.Tuple] -> { expr =>
       val s.Tuple(args) = expr: @unchecked
       (NoIdentifiers, NoVariables, args, NoTypes, NoFlags,
@@ -457,6 +467,11 @@ trait TreeDeconstructor {
       val s.BVType(signed, size) = tpe: @unchecked
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
         (_, _, _, _, _) => t.BVType(signed, size))
+    },
+    classOf[s.FPType] -> { tpe =>
+      val s.FPType(exponent, significand) = tpe: @unchecked
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.FPType(exponent, significand))
     },
 
     // @nv: can't use `s.Untyped.getClass` as it is not yet created at this point

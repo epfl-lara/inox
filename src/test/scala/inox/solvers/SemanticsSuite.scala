@@ -395,6 +395,78 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, LessThan(FractionLiteral(4, 2), FractionLiteral(7, 1)),        BooleanLiteral(true))
   }
 
+  val floatValues: Seq[Float] = Seq(0f, -0f, 0.1f, -6.7f, Float.NaN, Float.MinValue, Float.MinValue, Float.PositiveInfinity, Float.NegativeInfinity)
+  val doubleValues: Seq[Double] = Seq(0d, -0d, 0.1d, -6.7d, Double.NaN, Double.MinValue, Double.MinValue, Double.PositiveInfinity, Double.NegativeInfinity)
+
+
+  test("Floating point literals", filterSolvers(_, princess = true)) { ctx =>
+    val s = solver(ctx)
+
+    for (i <- floatValues) {
+      check(s, Float32Literal(i), Float32Literal(i))
+    }
+
+    check(s, Float32Literal(0), Float32Literal(0))
+    check(s, Float32Literal(-0), Float32Literal(-0))
+
+    for (i <- doubleValues) {
+      check(s, Float64Literal(i), Float64Literal(i))
+    }
+
+    check(s, Float64Literal(0), Float64Literal(0))
+    check(s, Float64Literal(-0), Float64Literal(-0))
+  }
+
+  test("Floating Point Arithmetic", filterSolvers(_, princess = true)) { ctx =>
+    val s = solver(ctx)
+
+    for (i <- floatValues; j <- floatValues) {
+      check(s, Plus(Float32Literal(i), Float32Literal(j)), Float32Literal(i + j))
+      check(s, Minus(Float32Literal(i), Float32Literal(j)), Float32Literal(i - j))
+      check(s, Times(Float32Literal(i), Float32Literal(j)), Float32Literal(i * j))
+      check(s, Division(Float32Literal(i), Float32Literal(j)), Float32Literal(i / j))
+    }
+
+    for (i <- floatValues) {
+      check(s, UMinus(Float32Literal(i)), Float32Literal(-i))
+    }
+
+    for (i <- doubleValues; j <- doubleValues) {
+      check(s, Plus(Float64Literal(i), Float64Literal(j)), Float64Literal(i + j))
+      check(s, Minus(Float64Literal(i), Float64Literal(j)), Float64Literal(i - j))
+      check(s, Times(Float64Literal(i), Float64Literal(j)), Float64Literal(i * j))
+      check(s, Division(Float64Literal(i), Float64Literal(j)), Float64Literal(i / j))
+    }
+
+    for (i <- doubleValues) {
+      check(s, UMinus(Float64Literal(i)), Float64Literal(-i))
+    }
+
+  }
+
+  test("Floating Point Comparisons", filterSolvers(_, princess = true)) { ctx =>
+    val s = solver(ctx)
+
+
+    for (i <- floatValues; j <- floatValues) {
+      check(s, FPEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(Float32Literal(i).semEquals(Float32Literal(j))))
+      check(s, FPEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i == j))
+      check(s, GreaterEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i >= j))
+      check(s, GreaterThan(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i > j))
+      check(s, LessEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i <= j))
+      check(s, LessThan(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i < j))
+    }
+
+    for (i <- doubleValues; j <- doubleValues) {
+      check(s, FPEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(Float64Literal(i).semEquals(Float64Literal(j))))
+      check(s, FPEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i == j))
+      check(s, GreaterEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i >= j))
+      check(s, GreaterThan(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i > j))
+      check(s, LessEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i <= j))
+      check(s, LessThan(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i < j))
+    }
+
+  }
   test("Let") { ctx =>
     val s = solver(ctx)
 

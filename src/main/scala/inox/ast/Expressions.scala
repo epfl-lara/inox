@@ -233,18 +233,42 @@ trait Expressions { self: Trees =>
   /** $encodingof a floating point literal */
   sealed case class FPLiteral(exponent: Int, significand: Int, value: BitSet) extends Literal[BitSet] {
     override def getType(using Symbols) = FPType(exponent, significand)
+    def isNegative: Boolean = !isNaN && value(exponent + significand)
+    def isPositive: Boolean = !isNaN && !isNegative
+    def isZero: Boolean = !Range(1, significand + exponent).exists(value)
+    def isNumber: Boolean = !Range(significand, significand + exponent).forall(value)
+    def isNaN: Boolean = !isNumber && Range(1, significand).exists(value)
+    def isInfinite: Boolean = !isNumber && !isNaN
     def toBV: BVLiteral = BVLiteral(true, value, exponent + significand)
+
+    def strictEquals(obj: Any): Boolean = obj match {
+      case lit @ FPLiteral(e2, s2, v2) => exponent == e2 && significand == s2 && value == v2
+      case _ => false
+    }
+
+    /** Semantic equality for FP */
+    def semEquals(obj: Any): Boolean = obj match
+      case lit @ FPLiteral(e2, s2, v2) =>
+        !isNaN && !lit.isNaN && ((isZero && lit.isZero) || strictEquals(obj))
+      case _ => strictEquals(obj)
+
+    override def equals(obj: Any): Boolean = strictEquals(obj)
   }
 
   object FPLiteral {
-    def fromBV(exponent: Int, significand: Int, bv: BVLiteral) = FPLiteral(exponent, significand, bv.value)
+    def fromBV(exponent: Int, significand: Int, bv: BVLiteral): FPLiteral = FPLiteral(exponent, significand, bv.value)
+    def plusZero(exponent: Int, significand: Int) = FPLiteral(exponent, significand, BitSet.empty)
+    def minusZero(exponent: Int, significand: Int) = FPLiteral(exponent, significand, BitSet(exponent + significand))
+    def NaN(exponent: Int, significand: Int) = FPLiteral(exponent, significand, BitSet(Range(significand - 1, exponent + significand)*))
+    def minusInfinity(exponent: Int, significand: Int) = FPLiteral(exponent, significand, BitSet(Range(significand, exponent + significand + 1)*))
+    def plusInfinity(exponent: Int, significand: Int) = FPLiteral(exponent, significand, BitSet(Range(significand, exponent + significand)*))
   }
 
   object Float32Literal {
     def apply(value: Float): FPLiteral = FPLiteral.fromBV(8, 24, Int32Literal(java.lang.Float.floatToIntBits(value)))
 
     def unapply(e: Expr): Option[Float] = e match {
-      case f @ FPLiteral(8, 24, b) if b.maxOption.getOrElse(-1) < 32 =>
+      case f @ FPLiteral(8, 24, b) if b.maxOption.getOrElse(-1) <= 32 =>
         f.toBV match {
           case Int32Literal(i) => Some(java.lang.Float.intBitsToFloat(i))
           case _ => None
@@ -257,7 +281,7 @@ trait Expressions { self: Trees =>
     def apply(value: Double): FPLiteral = FPLiteral.fromBV(11, 53, Int64Literal(java.lang.Double.doubleToLongBits(value)))
 
     def unapply(e: Expr): Option[Double] = e match {
-      case f @ FPLiteral(11, 53, b) if b.maxOption.getOrElse(-1) < 64 =>
+      case f @ FPLiteral(11, 53, b) if b.maxOption.getOrElse(-1) <= 64 =>
         f.toBV match {
           case Int64Literal(i) => Some(java.lang.Double.longBitsToDouble(i))
           case _ => None
@@ -615,6 +639,13 @@ trait Expressions { self: Trees =>
       case BVType(true, size) => BVType(false, size)
       case _ => Untyped
     }
+  }
+
+  /* FP operaions */
+
+  sealed case class FPEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getFPType(lhs, rhs).isTyped then BooleanType() else Untyped
   }
 
 
