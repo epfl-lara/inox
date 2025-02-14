@@ -406,15 +406,11 @@ class SemanticsSuite extends AnyFunSuite {
       check(s, Float32Literal(i), Float32Literal(i))
     }
 
-    check(s, Float32Literal(0), Float32Literal(0))
-    check(s, Float32Literal(-0), Float32Literal(-0))
 
     for (i <- doubleValues) {
       check(s, Float64Literal(i), Float64Literal(i))
     }
 
-    check(s, Float64Literal(0), Float64Literal(0))
-    check(s, Float64Literal(-0), Float64Literal(-0))
   }
 
   test("Floating Point Arithmetic", filterSolvers(_, princess = true)) { ctx =>
