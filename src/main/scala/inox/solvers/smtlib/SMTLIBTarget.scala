@@ -152,6 +152,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     case RealType()    => Reals.RealSort()
     case BVType(_,l)   => FixedSizeBitVectors.BitVectorSort(l)
     case FPType(e, s)  => FloatingPoint.FloatingPointSort(e, s)
+    case RoundingMode  => FloatingPoint.RoundingModeSort()
     case CharType()    => FixedSizeBitVectors.BitVectorSort(16)
     case StringType()  => Strings.StringSort()
 
@@ -507,6 +508,17 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case BVSignedToUnsigned(e) => toSMT(e)
 
       case FPEquals(a, b) => FloatingPoint.Eq(toSMT(a), toSMT(b))
+      case FPAdd(rm, a, b) => FloatingPoint.Add(toSMT(rm), toSMT(a), toSMT(b))
+      case FPSub(rm, a, b) => FloatingPoint.Sub(toSMT(rm), toSMT(a), toSMT(b))
+      case FPMul(rm, a, b) => FloatingPoint.Mul(toSMT(rm), toSMT(a), toSMT(b))
+      case FPDiv(rm, a, b) => FloatingPoint.Div(toSMT(rm), toSMT(a), toSMT(b))
+      case FPCast(ne, ns, rm, e) => FloatingPoint.ToFP(ne, ns, toSMT(rm), toSMT(e))
+
+      case RoundTowardZero => FloatingPoint.RoundTowardZero()
+      case RoundTowardNegative => FloatingPoint.RoundTowardNegative()
+      case RoundTowardPositive => FloatingPoint.RoundTowardPositive()
+      case RoundNearestTiesToAway => FloatingPoint.RoundNearestTiesToAway()
+      case RoundNearestTiesToEven => FloatingPoint.RoundNearestTiesToEven()
 
       case And(sub)                  => SmtLibConstructors.and(sub.map(toSMT))
       case Or(sub)                   => SmtLibConstructors.or(sub.map(toSMT))

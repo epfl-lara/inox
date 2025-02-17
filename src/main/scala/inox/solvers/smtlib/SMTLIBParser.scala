@@ -97,17 +97,14 @@ trait SMTLIBParser {
       case _ => BVLiteral(true, n, size.intValue)
     }
 
-    case FloatingPoint.FPLit(sign, exponent, significand) => otpe match {
-      case Some(FPType(eb, sb)) =>
-        (fromSMT(sign, Some(BVType(true, 1))),
-        fromSMT(exponent, Some(BVType(true, eb))),
-        fromSMT(significand, Some(BVType(true, sb - 1)))) match {
-          case (BVLiteral(true, bitset1, 1), BVLiteral(true, bitset2, `eb`), BVLiteral(true, bitset3, rem)) if rem == sb - 1 =>
-            FPLiteral(eb, sb, bitset1.map(_ + eb + sb - 1) ++ bitset2.map(_ + sb - 1) ++ bitset3)
-          case _ => throw new MissformedSMTException(term, "FP Lit has inconsistent components")
-        }
-      case _ => throw new MissformedSMTException(term, "FP Lit is not of type Float")
-    }
+    case FloatingPoint.FPLit(sign, exponent, significand) =>
+      (fromSMT(sign, Some(BVType(true, 1))),
+      fromSMT(exponent, None),
+      fromSMT(significand, None)) match {
+        case (BVLiteral(true, bitset1, 1), BVLiteral(true, bitset2, eb), BVLiteral(true, bitset3, sbminus1)) =>
+          FPLiteral(eb, sbminus1 + 1, bitset1.map(_ + eb + sbminus1) ++ bitset2.map(_ + sbminus1) ++ bitset3)
+        case _ => throw new MissformedSMTException(term, "FP Lit has inconsistent components")
+      }
     case FloatingPoint.PlusZero(exponent, significand) => FPLiteral.plusZero(exponent.toInt, significand.toInt)
     case FloatingPoint.MinusZero(exponent, significand) => FPLiteral.minusZero(exponent.toInt, significand.toInt)
     case FloatingPoint.NaN(exponent, significand) => FPLiteral.NaN(exponent.toInt, significand.toInt)
@@ -215,8 +212,28 @@ trait SMTLIBParser {
         case _ => true
       }, (i + 1).bigInteger.intValueExact))
       
-    case FloatingPoint.Eq(e1, e2) => fromSMTUnifyType(e1, e2, None)(FPEquals.apply)
+    case FloatingPoint.Eq(t1, t2) => fromSMTUnifyType(t1, t2, None)(FPEquals.apply)
+    case FloatingPoint.Add(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPAdd(fromSMT(rm, RoundingMode), e1, e2))
+    case FloatingPoint.Sub(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPSub(fromSMT(rm, RoundingMode), e1, e2))
+    case FloatingPoint.Mul(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPMul(fromSMT(rm, RoundingMode), e1, e2))
+    case FloatingPoint.Div(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPDiv(fromSMT(rm, RoundingMode), e1, e2))
+    case FloatingPoint.Neg(t) => UMinus(fromSMT(t, otpe))
+    case FloatingPoint.GreaterThan(t1, t2) => fromSMTUnifyType(t1, t2, Some(BooleanType()))(GreaterThan.apply)
+    case FloatingPoint.LessThan(t1, t2) => fromSMTUnifyType(t1, t2, Some(BooleanType()))(LessThan.apply)
+    case FloatingPoint.GreaterEquals(t1, t2) => fromSMTUnifyType(t1, t2, Some(BooleanType()))(GreaterEquals.apply)
+    case FloatingPoint.LessEquals(t1, t2) => fromSMTUnifyType(t1, t2, Some(BooleanType()))(LessEquals.apply)
+    case FloatingPoint.ToFP(newExp, newSig, seq) =>
+      val (rm, arg) = seq match {
+        case Seq(t1, t2) => (fromSMT(t1, Some(RoundingMode)), fromSMT(t2, None))
+        case Seq(t) => (RoundNearestTiesToEven, fromSMT(t, None))
+      }
+      FPCast(newExp.toInt, newSig.toInt, rm, arg)
 
+    case FloatingPoint.RoundTowardZero() => RoundTowardZero
+    case FloatingPoint.RoundTowardPositive() => RoundTowardPositive
+    case FloatingPoint.RoundTowardNegative() => RoundTowardNegative
+    case FloatingPoint.RoundNearestTiesToEven() => RoundNearestTiesToEven
+    case FloatingPoint.RoundNearestTiesToAway() => RoundNearestTiesToAway
 
     case ArraysEx.Select(e1, e2) => otpe match {
       case Some(tpe) =>
@@ -260,6 +277,8 @@ trait SMTLIBParser {
     case Sort(SimpleIdentifier(SSymbol("Real")), Seq()) => RealType()
     case Sort(SimpleIdentifier(SSymbol("String")), Seq()) => StringType()
     case Sort(SimpleIdentifier(SSymbol("Array")), Seq(from, to)) => MapType(fromSMT(from), fromSMT(to))
+    case FloatingPoint.FloatingPointSort(eb, sb) => FPType(eb.toInt, sb.toInt)
+    case FloatingPoint.RoundingModeSort() => RoundingMode
     case _ => throw new MissformedSMTException(sort, "unexpected sort: " + sort)
   }
 }
