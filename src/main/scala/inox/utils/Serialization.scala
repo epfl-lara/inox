@@ -554,6 +554,17 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     // Floating Point literals are treated specially to avoid having to serialize BitSets
     mappingSerializer[FPLiteral](107)(fp => (fp.exponent, fp.significand, fp.value))(p => FPLiteral(p._1, p._2, p._3)),
     classSerializer[FPEquals]          (108),
+    classSerializer[FPAdd]             (110),
+    classSerializer[FPSub]             (111),
+    classSerializer[FPMul]             (112),
+    classSerializer[FPDiv]             (113),
+    classSerializer[FPCast]            (114),
+
+    classSerializer[RoundTowardZero.type]        (115),
+    classSerializer[RoundTowardPositive.type]    (116),
+    classSerializer[RoundTowardNegative.type]    (117),
+    classSerializer[RoundNearestTiesToEven.type] (118),
+    classSerializer[RoundNearestTiesToAway.type] (119),
 
     // Inox Types
     classSerializer[Untyped.type] (75),
@@ -576,6 +587,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[PiType]        (101),
     classSerializer[SigmaType]     (102),
     classSerializer[FPType]        (106),
+    classSerializer[RoundingMode.type ] (109),
 
     // Identifier
     mappingSerializer[Identifier](90)
