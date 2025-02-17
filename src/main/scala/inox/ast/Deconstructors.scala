@@ -307,6 +307,51 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPEquals(es(0), es(1)))
     },
+    classOf[s.FPAdd] -> { expr =>
+      val s.FPAdd(rm, t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(rm, t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPAdd(es(0), es(1), es(2)))
+    },
+    classOf[s.FPSub] -> { expr =>
+      val s.FPSub(rm, t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(rm, t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPSub(es(0), es(1), es(2)))
+    },
+    classOf[s.FPMul] -> { expr =>
+      val s.FPMul(rm, t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(rm, t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPMul(es(0), es(1), es(2)))
+    },
+    classOf[s.FPDiv] -> { expr =>
+      val s.FPDiv(rm, t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(rm, t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPDiv(es(0), es(1), es(2)))
+    },
+    classOf[s.FPCast] -> { expr =>
+      val s.FPCast(eb, sb, rm, e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPCast(eb, sb, es(0), es(1)))
+    },
+    classOf[s.RoundTowardZero.type] -> { expr =>
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.RoundTowardZero)
+    },
+    classOf[s.RoundTowardNegative.type] -> { expr =>
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.RoundTowardNegative)
+    },
+    classOf[s.RoundTowardPositive.type] -> { expr =>
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.RoundTowardPositive)
+    },
+    classOf[s.RoundNearestTiesToAway.type] -> { expr =>
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.RoundNearestTiesToAway)
+    },
+    classOf[s.RoundNearestTiesToEven.type] -> { expr =>
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.RoundNearestTiesToEven)
+    },
     classOf[s.Tuple] -> { expr =>
       val s.Tuple(args) = expr: @unchecked
       (NoIdentifiers, NoVariables, args, NoTypes, NoFlags,
@@ -473,7 +518,10 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
         (_, _, _, _, _) => t.FPType(exponent, significand))
     },
-
+    classOf[s.RoundingMode.type] -> { tpe =>
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
+        (_, _, _, _, _) => t.RoundingMode)
+    },
     // @nv: can't use `s.Untyped.getClass` as it is not yet created at this point
     scala.reflect.classTag[s.Untyped.type].runtimeClass -> { _ =>
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags, (_, _, _, _, _) => t.Untyped)

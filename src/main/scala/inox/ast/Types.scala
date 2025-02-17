@@ -87,6 +87,8 @@ trait Types { self: Trees =>
   object Float32Type extends FPTypeExtractor(8, 24)
   object Float64Type extends FPTypeExtractor(11, 53)
 
+  object RoundingMode extends Type
+
   sealed case class TypeParameter(id: Identifier, flags: Seq[Flag]) extends Type {
     def freshen = TypeParameter(id.freshen, flags).copiedFrom(this)
 
@@ -246,6 +248,9 @@ trait Types { self: Trees =>
     case f: FPType => checkAllTypes(tpes, f, f)
     case _ => Untyped
   }
+
+  protected def getRoundingMode(tpe: Typed, tpes: Typed*)(using Symbols): Type =
+    checkAllTypes(tpe +: tpes, RoundingMode, RoundingMode)
 
   protected final def getCharType(tpe: Typed, tpes: Typed*)(using Symbols): Type =
     checkAllTypes(tpe +: tpes, CharType(), CharType())

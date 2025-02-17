@@ -641,11 +641,64 @@ trait Expressions { self: Trees =>
     }
   }
 
-  /* FP operaions */
+  /* FP operations */
 
   sealed case class FPEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
       if getFPType(lhs, rhs).isTyped then BooleanType() else Untyped
+  }
+
+  sealed case class FPAdd(rm: Expr, lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getRoundingMode(rm).isTyped then getFPType(lhs, rhs) else Untyped
+  }
+
+  sealed case class FPSub(rm: Expr, lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getRoundingMode(rm).isTyped then getFPType(lhs, rhs) else Untyped
+  }
+
+  sealed case class FPMul(rm: Expr, lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getRoundingMode(rm).isTyped then getFPType(lhs, rhs) else Untyped
+  }
+
+  sealed case class FPDiv(rm: Expr, lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getRoundingMode(rm).isTyped then getFPType(lhs, rhs) else Untyped
+  }
+
+  sealed case class FPCast(newExponent: Int, newSignificand: Int, rm: Expr, expr: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getRoundingMode(rm).isTyped &&
+        (getFPType(expr).isTyped ||
+         getBVType(expr).isTyped ||
+         getRealType(expr).isTyped)
+      then
+        FPType(newExponent, newSignificand)
+      else Untyped
+  }
+
+
+  /* Rounding modes */
+  object RoundTowardZero extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type = RoundingMode
+  }
+
+  object RoundTowardPositive extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type = RoundingMode
+  }
+
+  object RoundTowardNegative extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type = RoundingMode
+  }
+
+  object RoundNearestTiesToEven extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type = RoundingMode
+  }
+
+  object RoundNearestTiesToAway extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type = RoundingMode
   }
 
 
