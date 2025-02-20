@@ -679,6 +679,31 @@ trait Expressions { self: Trees =>
       else Untyped
   }
 
+  sealed case class FPIsZero(e: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getFPType(e).isTyped then BooleanType() else Untyped
+  }
+
+  sealed case class FPIsInfinite(e: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getFPType(e).isTyped then BooleanType() else Untyped
+  }
+
+  sealed case class FPIsNaN(e: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getFPType(e).isTyped then BooleanType() else Untyped
+  }
+
+  sealed case class FPIsNegative(e: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getFPType(e).isTyped then BooleanType() else Untyped
+  }
+
+  sealed case class FPIsPositive(e: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getFPType(e).isTyped then BooleanType() else Untyped
+  }
+
 
   /* Rounding modes */
   object RoundTowardZero extends Expr with CachingTyped {

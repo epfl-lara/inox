@@ -395,8 +395,9 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, LessThan(FractionLiteral(4, 2), FractionLiteral(7, 1)),        BooleanLiteral(true))
   }
 
-  val floatValues: Seq[Float] = Seq(0f, -0f, 0.1f, -6.7f, Float.NaN, Float.MinValue, Float.MinValue, Float.PositiveInfinity, Float.NegativeInfinity)
-  val doubleValues: Seq[Double] = Seq(0d, -0d, 0.1d, -6.7d, Double.NaN, Double.MinValue, Double.MinValue, Double.PositiveInfinity, Double.NegativeInfinity)
+  import scala.collection.immutable.HashSet
+  val floatValues: Set[Float] = HashSet(0f, -0f, 0.1f, -6.7f, Float.NaN, Float.MinValue, Float.MinValue, Float.PositiveInfinity, Float.NegativeInfinity)
+  val doubleValues: Set[Double] = HashSet(0d, -0d, 0.1d, -6.7d, Double.NaN, Double.MinValue, Double.MinValue, Double.PositiveInfinity, Double.NegativeInfinity)
 
 
   test("Floating point literals", filterSolvers(_, princess = true)) { ctx =>
@@ -453,6 +454,28 @@ class SemanticsSuite extends AnyFunSuite {
       check(s, LessThan(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i < j))
     }
 
+    for (i <- floatValues.excl(0)) {
+      check(s, FPIsNegative(Float32Literal(i)), BooleanLiteral(i < 0))
+    }
+    check(s, FPIsNegative(Float32Literal(-0)), BooleanLiteral(true))
+    check(s, FPIsNegative(Float32Literal(0)), BooleanLiteral(false))
+
+    for (i <- floatValues.excl(0)) {
+      check(s, FPIsPositive(Float32Literal(i)), BooleanLiteral(i > 0))
+    }
+    check(s, FPIsPositive(Float32Literal(0)), BooleanLiteral(true))
+    check(s, FPIsPositive(Float32Literal(-0)), BooleanLiteral(false))
+
+    for (i <- floatValues) {
+      check(s, FPIsInfinite(Float32Literal(i)), BooleanLiteral(i == Float.PositiveInfinity || i == Float.NegativeInfinity))
+    }
+
+    for (i <- floatValues) {
+      check(s, FPIsZero(Float32Literal(i)), BooleanLiteral(i == 0))
+    }
+
+    check(s, FPIsNaN(Float32Literal(Float.NaN)), BooleanLiteral(true))
+
     for (i <- doubleValues; j <- doubleValues) {
       check(s, FPEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(Float64Literal(i).semEquals(Float64Literal(j))))
       check(s, FPEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i == j))
@@ -461,6 +484,30 @@ class SemanticsSuite extends AnyFunSuite {
       check(s, LessEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i <= j))
       check(s, LessThan(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i < j))
     }
+
+    for (i <- doubleValues.excl(0)) {
+      check(s, FPIsNegative(Float64Literal(i)), BooleanLiteral(i < 0))
+    }
+    check(s, FPIsNegative(Float64Literal(-0)), BooleanLiteral(true))
+    check(s, FPIsNegative(Float64Literal(0)), BooleanLiteral(false))
+
+    for (i <- doubleValues.excl(0)) {
+      check(s, FPIsPositive(Float64Literal(i)), BooleanLiteral(i > 0))
+    }
+    check(s, FPIsPositive(Float64Literal(0)), BooleanLiteral(true))
+    check(s, FPIsPositive(Float64Literal(-0)), BooleanLiteral(false))
+
+    for (i <- doubleValues) {
+      check(s, FPIsInfinite(Float64Literal(i)), BooleanLiteral(i == Double.PositiveInfinity || i == Double.NegativeInfinity))
+    }
+
+    for (i <- doubleValues) {
+      check(s, FPIsZero(Float64Literal(i)), BooleanLiteral(i == 0))
+    }
+
+    check(s, FPIsNaN(Float64Literal(Double.NaN)), BooleanLiteral(true))
+
+
 
   }
   test("Let") { ctx =>

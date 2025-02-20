@@ -332,6 +332,31 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPCast(eb, sb, es(0), es(1)))
     },
+    classOf[s.FPIsZero] -> { expr =>
+      val s.FPIsZero(e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPIsZero(es(0)))
+    },
+    classOf[s.FPIsNaN] -> { expr =>
+      val s.FPIsNaN(e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPIsNaN(es(0)))
+    },
+    classOf[s.FPIsPositive] -> { expr =>
+      val s.FPIsPositive(e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPIsPositive(es(0)))
+    },
+    classOf[s.FPIsNegative] -> { expr =>
+      val s.FPIsNegative(e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPIsNegative(es(0)))
+    },
+    classOf[s.FPIsInfinite] -> { expr =>
+      val s.FPIsInfinite(e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPIsInfinite(es(0)))
+    },
     classOf[s.RoundTowardZero.type] -> { expr =>
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
         (_, _, _, _, _) => t.RoundTowardZero)

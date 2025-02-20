@@ -513,6 +513,11 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case FPMul(rm, a, b) => FloatingPoint.Mul(toSMT(rm), toSMT(a), toSMT(b))
       case FPDiv(rm, a, b) => FloatingPoint.Div(toSMT(rm), toSMT(a), toSMT(b))
       case FPCast(ne, ns, rm, e) => FloatingPoint.ToFP(ne, ns, toSMT(rm), toSMT(e))
+      case FPIsInfinite(e) => FloatingPoint.IsInfinite(toSMT(e))
+      case FPIsZero(e)     => FloatingPoint.IsZero(toSMT(e))
+      case FPIsNaN(e)      => FloatingPoint.IsNaN(toSMT(e))
+      case FPIsPositive(e) => FloatingPoint.IsPositive(toSMT(e))
+      case FPIsNegative(e) => FloatingPoint.IsNegative(toSMT(e))
 
       case RoundTowardZero => FloatingPoint.RoundTowardZero()
       case RoundTowardNegative => FloatingPoint.RoundTowardNegative()
