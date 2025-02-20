@@ -228,6 +228,11 @@ trait SMTLIBParser {
         case Seq(t) => (RoundNearestTiesToEven, fromSMT(t, None))
       }
       FPCast(newExp.toInt, newSig.toInt, rm, arg)
+    case FloatingPoint.IsNaN(t)      => FPIsNaN(fromSMT(t, None))
+    case FloatingPoint.IsZero(t)     => FPIsZero(fromSMT(t, None))
+    case FloatingPoint.IsPositive(t) => FPIsPositive(fromSMT(t, None))
+    case FloatingPoint.IsNegative(t) => FPIsNegative(fromSMT(t, None))
+    case FloatingPoint.IsInfinite(t) => FPIsInfinite(fromSMT(t, None))
 
     case FloatingPoint.RoundTowardZero() => RoundTowardZero
     case FloatingPoint.RoundTowardPositive() => RoundTowardPositive

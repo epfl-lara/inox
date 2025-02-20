@@ -566,6 +566,12 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[RoundNearestTiesToEven.type] (118),
     classSerializer[RoundNearestTiesToAway.type] (119),
 
+    classSerializer[FPIsZero]          (120),
+    classSerializer[FPIsInfinite]      (121),
+    classSerializer[FPIsNaN]           (122),
+    classSerializer[FPIsPositive]      (123),
+    classSerializer[FPIsNegative]      (124),
+
     // Inox Types
     classSerializer[Untyped.type] (75),
     classSerializer[BooleanType]  (76),
