@@ -327,6 +327,16 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(rm, t1, t2), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPDiv(es(0), es(1), es(2)))
     },
+    classOf[s.FPAbs] -> { expr =>
+      val s.FPAbs(e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPAbs(es(0)))
+    },
+    classOf[s.Sqrt] -> { expr =>
+      val s.Sqrt(rm, e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.Sqrt(es(0), es(1)))
+    },
     classOf[s.FPCast] -> { expr =>
       val s.FPCast(eb, sb, rm, e) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
