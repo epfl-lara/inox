@@ -218,10 +218,12 @@ trait SMTLIBParser {
     case FloatingPoint.Mul(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPMul(fromSMT(rm, RoundingMode), e1, e2))
     case FloatingPoint.Div(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPDiv(fromSMT(rm, RoundingMode), e1, e2))
     case FloatingPoint.Neg(t) => UMinus(fromSMT(t, otpe))
-    case FloatingPoint.GreaterThan(t1, t2) => fromSMTUnifyType(t1, t2, Some(BooleanType()))(GreaterThan.apply)
-    case FloatingPoint.LessThan(t1, t2) => fromSMTUnifyType(t1, t2, Some(BooleanType()))(LessThan.apply)
-    case FloatingPoint.GreaterEquals(t1, t2) => fromSMTUnifyType(t1, t2, Some(BooleanType()))(GreaterEquals.apply)
-    case FloatingPoint.LessEquals(t1, t2) => fromSMTUnifyType(t1, t2, Some(BooleanType()))(LessEquals.apply)
+    case FloatingPoint.Abs(t) => FPAbs(fromSMT(t, otpe))
+    case FloatingPoint.Sqrt(rm, t)               => Sqrt(fromSMT(rm, RoundingMode), fromSMT(t, otpe))
+    case FloatingPoint.GreaterThan(t1, t2)       => fromSMTUnifyType(t1, t2, Some(BooleanType()))(GreaterThan.apply)
+    case FloatingPoint.LessThan(t1, t2)          => fromSMTUnifyType(t1, t2, Some(BooleanType()))(LessThan.apply)
+    case FloatingPoint.GreaterEquals(t1, t2)     => fromSMTUnifyType(t1, t2, Some(BooleanType()))(GreaterEquals.apply)
+    case FloatingPoint.LessEquals(t1, t2)        => fromSMTUnifyType(t1, t2, Some(BooleanType()))(LessEquals.apply)
     case FloatingPoint.ToFP(newExp, newSig, seq) =>
       val (rm, arg) = seq match {
         case Seq(t1, t2) => (fromSMT(t1, Some(RoundingMode)), fromSMT(t2, None))

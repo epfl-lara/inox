@@ -287,6 +287,8 @@ trait Printer {
     case FPSub(_, e1, e2) => p"$e1 - $e2"
     case FPMul(_, e1, e2) => p"$e1 * $e2"
     case FPDiv(_, e1, e2) => p"$e1 / $e2"
+    case FPAbs(e)         => p"abs($e)"
+    case Sqrt(_, e)       => p"sqrt($e)"
     case FPIsZero(e)      => p"$e == 0"
     case FPIsNaN(e)       => p"$e.isNaN"
     case FPIsInfinite(e)  => p"$e.isInfinite"

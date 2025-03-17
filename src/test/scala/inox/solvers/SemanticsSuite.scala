@@ -426,6 +426,7 @@ class SemanticsSuite extends AnyFunSuite {
 
     for (i <- floatValues) {
       check(s, UMinus(Float32Literal(i)), Float32Literal(-i))
+      check(s, FPAbs(Float32Literal(i)), Float32Literal(Math.abs(i)))
     }
 
     for (i <- doubleValues; j <- doubleValues) {
@@ -437,6 +438,8 @@ class SemanticsSuite extends AnyFunSuite {
 
     for (i <- doubleValues) {
       check(s, UMinus(Float64Literal(i)), Float64Literal(-i))
+      check(s, Sqrt(RoundNearestTiesToEven, Float64Literal(i)), Float64Literal(Math.sqrt(i)))
+      check(s, FPAbs(Float64Literal(i)), Float64Literal(Math.abs(i)))
     }
 
   }
