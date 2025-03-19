@@ -6,7 +6,8 @@ git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
-scalaVersion := "3.5.2"
+val inoxScalaVersion = "3.5.2"
+scalaVersion := inoxScalaVersion
 
 scalacOptions ++= Seq(
   "-deprecation",
@@ -132,7 +133,8 @@ lazy val docs = project
     mdocIn  := file("src/main/doc"),
     mdocOut := file("doc"),
     mdocExtraArguments := Seq("--no-link-hygiene"),
-    scalaVersion := "3.0.2",
+    scalaVersion := inoxScalaVersion,
+    excludeDependencies := Seq("org.scala-lang.modules" % "scala-parser-combinators_2.13"),
   )
   .enablePlugins(MdocPlugin)
 
