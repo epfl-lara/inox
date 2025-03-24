@@ -1,5 +1,6 @@
 name: Inox CI
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches:
@@ -42,9 +43,3 @@ jobs:
       run: sbt -Dtest-parallelism=10 -batch it:test
     - name: Clean up
       run: rm -rf $JAVA_OPTS_TMP_DIR
-  fail_if_pull_request_is_draft:
-    if: github.event.pull_request.draft == true
-    runs-on: [self-hosted, linux]
-    steps:
-    - name: Fails in order to indicate that pull request needs to be marked as ready to review and tests workflows need to pass.
-      run: exit 1
