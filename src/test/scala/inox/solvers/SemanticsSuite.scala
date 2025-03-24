@@ -449,7 +449,6 @@ class SemanticsSuite extends AnyFunSuite {
 
 
     for (i <- floatValues; j <- floatValues) {
-      check(s, FPEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(Float32Literal(i).semEquals(Float32Literal(j))))
       check(s, FPEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i == j))
       check(s, GreaterEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i >= j))
       check(s, GreaterThan(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i > j))
@@ -480,7 +479,6 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, FPIsNaN(Float32Literal(Float.NaN)), BooleanLiteral(true))
 
     for (i <- doubleValues; j <- doubleValues) {
-      check(s, FPEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(Float64Literal(i).semEquals(Float64Literal(j))))
       check(s, FPEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i == j))
       check(s, GreaterEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i >= j))
       check(s, GreaterThan(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i > j))

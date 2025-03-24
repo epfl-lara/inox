@@ -3,7 +3,6 @@
 package inox
 package ast
 
-import scala.collection.immutable
 import scala.collection.immutable.BitSet
 
 /** Expression definitions for Pure Scala.
@@ -233,26 +232,7 @@ trait Expressions { self: Trees =>
   /** $encodingof a floating point literal */
   sealed case class FPLiteral(exponent: Int, significand: Int, value: BitSet) extends Literal[BitSet] {
     override def getType(using Symbols) = FPType(exponent, significand)
-    def isNegative: Boolean = !isNaN && value(exponent + significand)
-    def isPositive: Boolean = !isNaN && !isNegative
-    def isZero: Boolean = !Range(1, significand + exponent).exists(value)
-    def isNumber: Boolean = !Range(significand, significand + exponent).forall(value)
-    def isNaN: Boolean = !isNumber && Range(1, significand).exists(value)
-    def isInfinite: Boolean = !isNumber && !isNaN
     def toBV: BVLiteral = BVLiteral(true, value, exponent + significand)
-
-    def strictEquals(obj: Any): Boolean = obj match {
-      case lit @ FPLiteral(e2, s2, v2) => exponent == e2 && significand == s2 && value == v2
-      case _ => false
-    }
-
-    /** Semantic equality for FP */
-    def semEquals(obj: Any): Boolean = obj match
-      case lit @ FPLiteral(e2, s2, v2) =>
-        !isNaN && !lit.isNaN && ((isZero && lit.isZero) || strictEquals(obj))
-      case _ => strictEquals(obj)
-
-    override def equals(obj: Any): Boolean = strictEquals(obj)
   }
 
   object FPLiteral {
