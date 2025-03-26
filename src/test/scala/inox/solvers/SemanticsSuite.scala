@@ -400,7 +400,7 @@ class SemanticsSuite extends AnyFunSuite {
   val doubleValues: Set[Double] = HashSet(0d, -0d, 0.1d, -6.7d, Double.NaN, Double.MinValue, Double.MinValue, Double.PositiveInfinity, Double.NegativeInfinity)
 
 
-  test("Floating point literals", filterSolvers(_, princess = true)) { ctx =>
+  test("Floating point literals", filterSolvers(_, princess = true, cvc4 = true)) { ctx =>
     val s = solver(ctx)
 
     for (i <- floatValues) {
@@ -414,7 +414,7 @@ class SemanticsSuite extends AnyFunSuite {
 
   }
 
-  test("Floating Point Arithmetic", filterSolvers(_, princess = true)) { ctx =>
+  test("Floating Point Arithmetic", filterSolvers(_, princess = true, cvc4 = true)) { ctx =>
     val s = solver(ctx)
 
     for (i <- floatValues; j <- floatValues) {
@@ -444,7 +444,7 @@ class SemanticsSuite extends AnyFunSuite {
 
   }
 
-  test("Floating Point Comparisons", filterSolvers(_, princess = true)) { ctx =>
+  test("Floating Point Comparisons", filterSolvers(_, princess = true, cvc4 = true)) { ctx =>
     val s = solver(ctx)
 
 
