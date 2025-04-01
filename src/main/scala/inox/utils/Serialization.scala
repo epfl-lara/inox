@@ -561,7 +561,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[FPCast]            (114),
     classSerializer[FPAbs]             (125),
     classSerializer[Sqrt]              (126),
-    classSerializer[UMinus]            (127),
+    classSerializer[FPUMinus]            (127),
 
     classSerializer[RoundTowardZero.type]        (115),
     classSerializer[RoundTowardPositive.type]    (116),
