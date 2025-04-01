@@ -438,25 +438,25 @@ trait Expressions { self: Trees =>
   /** $encodingof `... +  ...` */
   sealed case class Plus(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs) `orElse` getFPType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
   /** $encodingof `... -  ...` */
   sealed case class Minus(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs) `orElse` getFPType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
   /** $encodingof `- ...` */
   sealed case class UMinus(expr: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(expr) `orElse` getRealType(expr) `orElse` getBVType(expr) `orElse` getFPType(expr)
+      getIntegerType(expr) `orElse` getRealType(expr) `orElse` getBVType(expr)
   }
 
   /** $encodingof `... * ...` */
   sealed case class Times(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs) `orElse` getFPType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
   /** $encodingof `... /  ...`
@@ -472,7 +472,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class Division(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs) `orElse` getFPType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
   /** $encodingof `... %  ...` (can return negative numbers)
@@ -481,7 +481,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class Remainder(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
-      getIntegerType(lhs, rhs) `orElse` getBVType(lhs, rhs) `orElse` getFPType(lhs, rhs)
+      getIntegerType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
   /** $encodingof `... mod  ...` (cannot return negative numbers)
@@ -499,8 +499,7 @@ trait Expressions { self: Trees =>
       getIntegerType(lhs, rhs).isTyped ||
       getRealType(lhs, rhs).isTyped ||
       getBVType(lhs, rhs).isTyped ||
-      getCharType(lhs, rhs).isTyped ||
-      getFPType(lhs, rhs).isTyped
+      getCharType(lhs, rhs).isTyped
     ) BooleanType() else Untyped
   }
 
@@ -510,8 +509,7 @@ trait Expressions { self: Trees =>
       getIntegerType(lhs, rhs).isTyped ||
       getRealType(lhs, rhs).isTyped ||
       getBVType(lhs, rhs).isTyped ||
-      getCharType(lhs, rhs).isTyped ||
-      getFPType(lhs, rhs).isTyped
+      getCharType(lhs, rhs).isTyped
     ) BooleanType() else Untyped
   }
 
@@ -521,8 +519,7 @@ trait Expressions { self: Trees =>
       getIntegerType(lhs, rhs).isTyped ||
       getRealType(lhs, rhs).isTyped ||
       getBVType(lhs, rhs).isTyped ||
-      getCharType(lhs, rhs).isTyped ||
-      getFPType(lhs, rhs).isTyped
+      getCharType(lhs, rhs).isTyped
     ) BooleanType() else Untyped
   }
 
@@ -532,8 +529,7 @@ trait Expressions { self: Trees =>
       getIntegerType(lhs, rhs).isTyped ||
       getRealType(lhs, rhs).isTyped ||
       getBVType(lhs, rhs).isTyped ||
-      getCharType(lhs, rhs).isTyped ||
-      getFPType(lhs, rhs).isTyped
+      getCharType(lhs, rhs).isTyped
     ) BooleanType() else Untyped
   }
 
@@ -638,6 +634,11 @@ trait Expressions { self: Trees =>
       if getRoundingMode(rm).isTyped then getFPType(lhs, rhs) else Untyped
   }
 
+  /** $encodingof `- ...` for FP*/
+  sealed case class FPUMinus(expr: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type = getFPType(expr)
+  }
+
   sealed case class FPMul(rm: Expr, lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
       if getRoundingMode(rm).isTyped then getFPType(lhs, rhs) else Untyped
@@ -666,6 +667,30 @@ trait Expressions { self: Trees =>
       then
         FPType(newExponent, newSignificand)
       else Untyped
+  }
+
+  /** $encodingof `... < ...` for FP */
+  sealed case class FPLessThan(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getFPType(lhs, rhs).isTyped then BooleanType() else Untyped
+  }
+
+  /** $encodingof `... > ...` for FP */
+  sealed case class FPGreaterThan(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getFPType(lhs, rhs).isTyped then BooleanType() else Untyped
+  }
+
+  /** $encodingof `... <= ...` for FP */
+  sealed case class FPLessEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getFPType(lhs, rhs).isTyped then BooleanType() else Untyped
+  }
+
+  /** $encodingof `... >= ...` for FP */
+  sealed case class FPGreaterEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getFPType(lhs, rhs).isTyped then BooleanType() else Untyped
   }
 
   sealed case class FPIsZero(e: Expr) extends Expr with CachingTyped {

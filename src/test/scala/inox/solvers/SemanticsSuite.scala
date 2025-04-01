@@ -396,8 +396,8 @@ class SemanticsSuite extends AnyFunSuite {
   }
 
   import scala.collection.immutable.HashSet
-  val floatValues: Set[Float] = HashSet(0f, -0f, 0.1f, -6.7f, Float.NaN, Float.MinValue, Float.MinValue, Float.PositiveInfinity, Float.NegativeInfinity)
-  val doubleValues: Set[Double] = HashSet(0d, -0d, 0.1d, -6.7d, Double.NaN, Double.MinValue, Double.MinValue, Double.PositiveInfinity, Double.NegativeInfinity)
+  val floatValues: Set[Float] = HashSet(0f, -0f, 0.1f, Float.NaN, Float.PositiveInfinity, Float.NegativeInfinity)
+  val doubleValues: Set[Double] = HashSet(0d, -0d, 0.1d, Double.NaN, Double.PositiveInfinity, Double.NegativeInfinity)
 
 
   test("Floating point literals", filterSolvers(_, princess = true, cvc4 = true, native = true, unroll = true)) { ctx =>

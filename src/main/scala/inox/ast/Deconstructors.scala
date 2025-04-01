@@ -312,6 +312,11 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(rm, t1, t2), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPAdd(es(0), es(1), es(2)))
     },
+    classOf[s.FPUMinus] -> { expr =>
+      val s.FPUMinus(e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPUMinus(es.head))
+    },
     classOf[s.FPSub] -> { expr =>
       val s.FPSub(rm, t1, t2) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(rm, t1, t2), NoTypes, NoFlags,
@@ -341,6 +346,26 @@ trait TreeDeconstructor {
       val s.FPCast(eb, sb, rm, e) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPCast(eb, sb, es(0), es(1)))
+    },
+    classOf[s.FPLessThan] -> { expr =>
+      val s.FPLessThan(t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPLessThan(es(0), es(1)))
+    },
+    classOf[s.FPGreaterThan] -> { expr =>
+      val s.FPGreaterThan(t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPGreaterThan(es(0), es(1)))
+    },
+    classOf[s.FPLessEquals] -> { expr =>
+      val s.FPLessEquals(t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPLessEquals(es(0), es(1)))
+    },
+    classOf[s.FPGreaterEquals] -> { expr =>
+      val s.FPGreaterEquals(t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPGreaterEquals(es(0), es(1)))
     },
     classOf[s.FPIsZero] -> { expr =>
       val s.FPIsZero(e) = expr: @unchecked
