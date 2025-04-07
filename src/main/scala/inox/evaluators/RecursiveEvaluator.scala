@@ -388,6 +388,132 @@ abstract class RecursiveEvaluator(override val program: Program,
         case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
       }
 
+    case FPEquals(lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 == l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => BooleanLiteral(l1 == l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") == (" + rhs.asString + ")")
+      }
+
+    case FPAdd(RoundNearestTiesToEven, lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1 + l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1 + l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") + (" + rhs.asString + ")")
+      }
+
+    case FPSub(RoundNearestTiesToEven, lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1 - l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1 - l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") - (" + rhs.asString + ")")
+      }
+
+    case FPMul(RoundNearestTiesToEven, lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1 * l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1 * l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") * (" + rhs.asString + ")")
+      }
+
+    case FPDiv(RoundNearestTiesToEven, lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1 / l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1 / l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") / (" + rhs.asString + ")")
+      }
+
+    case FPUMinus(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => Float32Literal(-l)
+        case Float64Literal(l) => Float64Literal(-l)
+        case _ => throw EvalError("Unexpected operation: -" + expr.asString)
+      }
+
+    case FPAbs(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => Float32Literal(Math.abs(l))
+        case Float64Literal(l) => Float64Literal(Math.abs(l))
+        case _ => throw EvalError("Unexpected operation: Math.abs(" + expr.asString + ")")
+      }
+
+    case Sqrt(RoundNearestTiesToEven, expr) =>
+      e(expr) match {
+        case Float64Literal(l) => Float64Literal(Math.sqrt(l))
+        case _ => throw EvalError("Unexpected operation: Math.sqrt(" + expr.asString + ")")
+      }
+
+    case FPCast(11, 53, RoundNearestTiesToEven, expr) =>
+      e(expr) match {
+        case Int8Literal(l)    => Float64Literal(l.toDouble)
+        case Int16Literal(l)   => Float64Literal(l.toDouble)
+        case Int32Literal(l)   => Float64Literal(l.toDouble)
+        case Int64Literal(l)   => Float64Literal(l.toDouble)
+        case Float32Literal(l) => Float64Literal(l.toDouble)
+        case Float64Literal(l) => Float64Literal(l)
+        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toDouble")
+      }
+
+    case FPCast(8, 24, RoundNearestTiesToEven, expr) =>
+      e(expr) match {
+        case Int8Literal(l)    => Float32Literal(l.toFloat)
+        case Int16Literal(l)   => Float32Literal(l.toFloat)
+        case Int32Literal(l)   => Float32Literal(l.toFloat)
+        case Int64Literal(l)   => Float32Literal(l.toFloat)
+        case Float32Literal(l) => Float32Literal(l)
+        case Float64Literal(l) => Float32Literal(l.toFloat)
+        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toFloat")
+      }
+
+    case FPLessThan(lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 < l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => BooleanLiteral(l1 < l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") < (" + rhs.asString + ")")
+      }
+
+    case FPGreaterThan(lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 > l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => BooleanLiteral(l1 > l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") > (" + rhs.asString + ")")
+      }
+
+    case FPLessEquals(lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 <= l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => BooleanLiteral(l1 <= l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") <= (" + rhs.asString + ")")
+      }
+
+    case FPGreaterEquals(lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 >= l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => BooleanLiteral(l1 >= l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") >= (" + rhs.asString + ")")
+      }
+
+    case FPIsZero(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => BooleanLiteral(l == 0)
+        case Float64Literal(l) => BooleanLiteral(l == 0)
+        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ") == 0")
+      }
+
+    case FPIsInfinite(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => BooleanLiteral(l.isInfinite)
+        case Float64Literal(l) => BooleanLiteral(l.isInfinite)
+        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isInfinite")
+      }
+
+    case FPIsNaN(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => BooleanLiteral(l.isNaN)
+        case Float64Literal(l) => BooleanLiteral(l.isNaN)
+        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isNaN")
+      }
+
     case SetAdd(s1, elem) =>
       (e(s1), e(elem)) match {
         case (FiniteSet(els1, tpe), evElem) => finiteSet(els1 :+ evElem, tpe)
