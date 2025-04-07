@@ -418,26 +418,26 @@ class SemanticsSuite extends AnyFunSuite {
     val s = solver(ctx)
 
     for (i <- floatValues; j <- floatValues) {
-      check(s, Plus(Float32Literal(i), Float32Literal(j)), Float32Literal(i + j))
-      check(s, Minus(Float32Literal(i), Float32Literal(j)), Float32Literal(i - j))
-      check(s, Times(Float32Literal(i), Float32Literal(j)), Float32Literal(i * j))
-      check(s, Division(Float32Literal(i), Float32Literal(j)), Float32Literal(i / j))
+      check(s, FPAdd(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i + j))
+      check(s, FPSub(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i - j))
+      check(s, FPMul(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i * j))
+      check(s, FPDiv(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i / j))
     }
 
     for (i <- floatValues) {
-      check(s, UMinus(Float32Literal(i)), Float32Literal(-i))
+      check(s, FPUMinus(Float32Literal(i)), Float32Literal(-i))
       check(s, FPAbs(Float32Literal(i)), Float32Literal(Math.abs(i)))
     }
 
     for (i <- doubleValues; j <- doubleValues) {
-      check(s, Plus(Float64Literal(i), Float64Literal(j)), Float64Literal(i + j))
-      check(s, Minus(Float64Literal(i), Float64Literal(j)), Float64Literal(i - j))
-      check(s, Times(Float64Literal(i), Float64Literal(j)), Float64Literal(i * j))
-      check(s, Division(Float64Literal(i), Float64Literal(j)), Float64Literal(i / j))
+      check(s, FPAdd(RoundNearestTiesToEven, Float64Literal(i), Float64Literal(j)), Float64Literal(i + j))
+      check(s, FPSub(RoundNearestTiesToEven, Float64Literal(i), Float64Literal(j)), Float64Literal(i - j))
+      check(s, FPMul(RoundNearestTiesToEven, Float64Literal(i), Float64Literal(j)), Float64Literal(i * j))
+      check(s, FPDiv(RoundNearestTiesToEven, Float64Literal(i), Float64Literal(j)), Float64Literal(i / j))
     }
 
     for (i <- doubleValues) {
-      check(s, UMinus(Float64Literal(i)), Float64Literal(-i))
+      check(s, FPUMinus(Float64Literal(i)), Float64Literal(-i))
       check(s, Sqrt(RoundNearestTiesToEven, Float64Literal(i)), Float64Literal(Math.sqrt(i)))
       check(s, FPAbs(Float64Literal(i)), Float64Literal(Math.abs(i)))
     }
@@ -450,10 +450,10 @@ class SemanticsSuite extends AnyFunSuite {
 
     for (i <- floatValues; j <- floatValues) {
       check(s, FPEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i == j))
-      check(s, GreaterEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i >= j))
-      check(s, GreaterThan(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i > j))
-      check(s, LessEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i <= j))
-      check(s, LessThan(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i < j))
+      check(s, FPGreaterEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i >= j))
+      check(s, FPGreaterThan(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i > j))
+      check(s, FPLessEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i <= j))
+      check(s, FPLessThan(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i < j))
     }
 
     for (i <- floatValues.excl(0)) {
@@ -480,10 +480,10 @@ class SemanticsSuite extends AnyFunSuite {
 
     for (i <- doubleValues; j <- doubleValues) {
       check(s, FPEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i == j))
-      check(s, GreaterEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i >= j))
-      check(s, GreaterThan(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i > j))
-      check(s, LessEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i <= j))
-      check(s, LessThan(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i < j))
+      check(s, FPGreaterEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i >= j))
+      check(s, FPGreaterThan(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i > j))
+      check(s, FPLessEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i <= j))
+      check(s, FPLessThan(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i < j))
     }
 
     for (i <- doubleValues.excl(0)) {
