@@ -283,6 +283,7 @@ trait Printer {
     case FPCast(8, 24, _, e) => p"$e.toFloat"
     case FPCast(11, 53, _, e) => p"$e.toDouble"
     case FPCast(eb, sb, _, e) => p"$e.toBV($eb, $sb)"
+    case FPCastBinary(eb, sb, e) => p"$e.toBinaryFP($eb, $sb)"
     case FPAdd(_, e1, e2) => p"$e1 + $e2"
     case FPSub(_, e1, e2) => p"$e1 - $e2"
     case FPUMinus(e)      => p"-$e"

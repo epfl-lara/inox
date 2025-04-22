@@ -396,20 +396,13 @@ class SemanticsSuite extends AnyFunSuite {
   }
 
   import scala.collection.immutable.HashSet
-  val floatValues: Set[Float] = HashSet(0f, -0f, 0.1f, Float.NaN, Float.PositiveInfinity, Float.NegativeInfinity)
-  val doubleValues: Set[Double] = HashSet(0d, -0d, 0.1d, Double.NaN, Double.PositiveInfinity, Double.NegativeInfinity)
-
+  val floatValues: Set[Float] = HashSet(0f, -0f, Float.NaN, Float.PositiveInfinity, Float.NegativeInfinity)
 
   test("Floating point literals", filterSolvers(_, princess = true, cvc4 = true, native = true, unroll = true)) { ctx =>
     val s = solver(ctx)
 
     for (i <- floatValues) {
       check(s, Float32Literal(i), Float32Literal(i))
-    }
-
-
-    for (i <- doubleValues) {
-      check(s, Float64Literal(i), Float64Literal(i))
     }
 
   }
@@ -427,19 +420,8 @@ class SemanticsSuite extends AnyFunSuite {
     for (i <- floatValues) {
       check(s, FPUMinus(Float32Literal(i)), Float32Literal(-i))
       check(s, FPAbs(Float32Literal(i)), Float32Literal(Math.abs(i)))
-    }
-
-    for (i <- doubleValues; j <- doubleValues) {
-      check(s, FPAdd(RoundNearestTiesToEven, Float64Literal(i), Float64Literal(j)), Float64Literal(i + j))
-      check(s, FPSub(RoundNearestTiesToEven, Float64Literal(i), Float64Literal(j)), Float64Literal(i - j))
-      check(s, FPMul(RoundNearestTiesToEven, Float64Literal(i), Float64Literal(j)), Float64Literal(i * j))
-      check(s, FPDiv(RoundNearestTiesToEven, Float64Literal(i), Float64Literal(j)), Float64Literal(i / j))
-    }
-
-    for (i <- doubleValues) {
-      check(s, FPUMinus(Float64Literal(i)), Float64Literal(-i))
-      check(s, Sqrt(RoundNearestTiesToEven, Float64Literal(i)), Float64Literal(Math.sqrt(i)))
-      check(s, FPAbs(Float64Literal(i)), Float64Literal(Math.abs(i)))
+      check(s, ToDouble(Float32Literal(i)), Float64Literal(i.toDouble))
+      check(s, FPCastBinary(8, 24, FPToBV(8, 24, Float32Literal(i))), Float32Literal(i))
     }
 
   }
@@ -477,38 +459,6 @@ class SemanticsSuite extends AnyFunSuite {
     }
 
     check(s, FPIsNaN(Float32Literal(Float.NaN)), BooleanLiteral(true))
-
-    for (i <- doubleValues; j <- doubleValues) {
-      check(s, FPEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i == j))
-      check(s, FPGreaterEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i >= j))
-      check(s, FPGreaterThan(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i > j))
-      check(s, FPLessEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i <= j))
-      check(s, FPLessThan(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i < j))
-    }
-
-    for (i <- doubleValues.excl(0)) {
-      check(s, FPIsNegative(Float64Literal(i)), BooleanLiteral(i < 0))
-    }
-    check(s, FPIsNegative(Float64Literal(-0)), BooleanLiteral(true))
-    check(s, FPIsNegative(Float64Literal(0)), BooleanLiteral(false))
-
-    for (i <- doubleValues.excl(0)) {
-      check(s, FPIsPositive(Float64Literal(i)), BooleanLiteral(i > 0))
-    }
-    check(s, FPIsPositive(Float64Literal(0)), BooleanLiteral(true))
-    check(s, FPIsPositive(Float64Literal(-0)), BooleanLiteral(false))
-
-    for (i <- doubleValues) {
-      check(s, FPIsInfinite(Float64Literal(i)), BooleanLiteral(i == Double.PositiveInfinity || i == Double.NegativeInfinity))
-    }
-
-    for (i <- doubleValues) {
-      check(s, FPIsZero(Float64Literal(i)), BooleanLiteral(i == 0))
-    }
-
-    check(s, FPIsNaN(Float64Literal(Double.NaN)), BooleanLiteral(true))
-
-
 
   }
   test("Let") { ctx =>

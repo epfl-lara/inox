@@ -225,11 +225,11 @@ trait SMTLIBParser {
     case FloatingPoint.GreaterEquals(t1, t2)     => fromSMTUnifyType(t1, t2, Some(BooleanType()))(FPGreaterEquals.apply)
     case FloatingPoint.LessEquals(t1, t2)        => fromSMTUnifyType(t1, t2, Some(BooleanType()))(FPLessEquals.apply)
     case FloatingPoint.ToFP(newExp, newSig, seq) =>
-      val (rm, arg) = seq match {
-        case Seq(t1, t2) => (fromSMT(t1, Some(RoundingMode)), fromSMT(t2, None))
-        case Seq(t) => (RoundNearestTiesToEven, fromSMT(t, None))
+      seq match {
+        case Seq(t1, t2) => FPCast(newExp.toInt, newSig.toInt, fromSMT(t1, Some(RoundingMode)), fromSMT(t2, None))
+        case Seq(t) => FPCastBinary(newExp.toInt, newSig.toInt, fromSMT(t, None))
       }
-      FPCast(newExp.toInt, newSig.toInt, rm, arg)
+
     case FloatingPoint.IsNaN(t)      => FPIsNaN(fromSMT(t, None))
     case FloatingPoint.IsZero(t)     => FPIsZero(fromSMT(t, None))
     case FloatingPoint.IsPositive(t) => FPIsPositive(fromSMT(t, None))

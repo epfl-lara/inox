@@ -658,6 +658,14 @@ trait Expressions { self: Trees =>
       if getRoundingMode(rm).isTyped then getFPType(e) else Untyped
   }
 
+  object ToFloat {
+    def apply(expr: Expr): Expr = FPCast(8, 24, RoundNearestTiesToEven, expr)
+  }
+
+  object ToDouble {
+    def apply(expr: Expr): Expr = FPCast(11, 53, RoundNearestTiesToEven, expr)
+  }
+
   sealed case class FPCast(newExponent: Int, newSignificand: Int, rm: Expr, expr: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
       if getRoundingMode(rm).isTyped &&
@@ -667,6 +675,20 @@ trait Expressions { self: Trees =>
       then
         FPType(newExponent, newSignificand)
       else Untyped
+  }
+
+  sealed case class FPCastBinary(newExponent: Int, newSignificand: Int, expr: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getBVType(expr).isTyped then FPType(newExponent, newSignificand) else Untyped
+  }
+
+  object FPToBV {
+    def apply(exponent: Int, significand: Int, expr: Expr): Expr =
+      val newVar = Variable.fresh(f"toBV", BVType(true, exponent + significand), true)
+      Assume(
+        Equals(FPCastBinary(exponent, significand, newVar), expr),
+        newVar
+      )
   }
 
   /** $encodingof `... < ...` for FP */
