@@ -514,6 +514,20 @@ abstract class RecursiveEvaluator(override val program: Program,
         case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isNaN")
       }
 
+    case FPIsPositive(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => BooleanLiteral(l > 0f || l.equals(+0.0f))
+        case Float64Literal(l) => BooleanLiteral(l > 0d || l.equals(+0.0d))
+        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isPositive")
+      }
+
+    case FPIsNegative(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => BooleanLiteral(l < 0f || l.equals(-0.0f))
+        case Float64Literal(l) => BooleanLiteral(l < 0d || l.equals(-0.0d))
+        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isNegative")
+      }
+
     case SetAdd(s1, elem) =>
       (e(s1), e(elem)) match {
         case (FiniteSet(els1, tpe), evElem) => finiteSet(els1 :+ evElem, tpe)
