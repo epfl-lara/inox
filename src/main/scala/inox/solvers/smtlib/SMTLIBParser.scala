@@ -227,8 +227,10 @@ trait SMTLIBParser {
     case FloatingPoint.ToFP(newExp, newSig, seq) =>
       seq match {
         case Seq(t1, t2) => FPCast(newExp.toInt, newSig.toInt, fromSMT(t1, Some(RoundingMode)), fromSMT(t2, None))
-        case Seq(t) => FPCastBinary(newExp.toInt, newSig.toInt, fromSMT(t, None))
+        case Seq(t) => FPFromBinary(newExp.toInt, newSig.toInt, fromSMT(t, None))
       }
+    case FloatingPoint.ToUnsignedBitVector(size, rm, expr) => FPToBV(size.toInt, false, fromSMT(rm, Some(RoundingMode)), fromSMT(expr, None))
+    case FloatingPoint.ToSignedBitVector(size, rm, expr)   => FPToBV(size.toInt, true, fromSMT(rm, Some(RoundingMode)), fromSMT(expr, None))
 
     case FloatingPoint.IsNaN(t)      => FPIsNaN(fromSMT(t, None))
     case FloatingPoint.IsZero(t)     => FPIsZero(fromSMT(t, None))

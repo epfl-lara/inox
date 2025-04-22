@@ -443,7 +443,7 @@ abstract class RecursiveEvaluator(override val program: Program,
         case _ => throw EvalError("Unexpected operation: Math.sqrt(" + expr.asString + ")")
       }
 
-    case FPCast(11, 53, RoundNearestTiesToEven, expr) =>
+    case ToDouble(expr) =>
       e(expr) match {
         case Int8Literal(l)    => Float64Literal(l.toDouble)
         case Int16Literal(l)   => Float64Literal(l.toDouble)
@@ -454,7 +454,7 @@ abstract class RecursiveEvaluator(override val program: Program,
         case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toDouble")
       }
 
-    case FPCast(8, 24, RoundNearestTiesToEven, expr) =>
+    case ToFloat(expr) =>
       e(expr) match {
         case Int8Literal(l)    => Float32Literal(l.toFloat)
         case Int16Literal(l)   => Float32Literal(l.toFloat)
@@ -463,6 +463,34 @@ abstract class RecursiveEvaluator(override val program: Program,
         case Float32Literal(l) => Float32Literal(l)
         case Float64Literal(l) => Float32Literal(l.toFloat)
         case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toFloat")
+      }
+
+    case FPToByte(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => Int8Literal(l.toByte)
+        case Float64Literal(l) => Int8Literal(l.toByte)
+        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toByte")
+      }
+
+    case FPToShort(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => Int16Literal(l.toShort)
+        case Float64Literal(l) => Int16Literal(l.toShort)
+        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toShort")
+      }
+
+    case FPToInt(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => Int32Literal(l.toInt)
+        case Float64Literal(l) => Int32Literal(l.toInt)
+        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toInt")
+      }
+
+    case FPToLong(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => Int64Literal(l.toLong)
+        case Float64Literal(l) => Int64Literal(l.toLong)
+        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toLong")
       }
 
     case FPLessThan(lhs, rhs) =>

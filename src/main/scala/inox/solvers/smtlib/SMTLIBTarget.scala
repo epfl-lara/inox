@@ -506,7 +506,14 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case FPAbs(e)        => FloatingPoint.Abs(toSMT(e))
       case Sqrt(rm, e)     => FloatingPoint.Sqrt(toSMT(rm), toSMT(e))
       case FPCast(ne, ns, rm, e) => FloatingPoint.ToFP(ne, ns, toSMT(rm), toSMT(e))
-      case FPCastBinary(ne, ns, e) => FloatingPoint.ToFP(ne, ns, toSMT(e))
+      case FPFromBinary(ne, ns, e) => FloatingPoint.ToFP(ne, ns, toSMT(e))
+      case FPToBV(s, signed, rm, e) =>
+        if (signed) {
+          FloatingPoint.ToSignedBitVector(s, toSMT(rm), toSMT(e))
+        }
+        else {
+          FloatingPoint.ToUnsignedBitVector(s, toSMT(rm), toSMT(e))
+        }
       case FPLessThan(a, b) => FloatingPoint.LessThan(toSMT(a), toSMT(b))
       case FPLessEquals(a, b) => FloatingPoint.LessEquals(toSMT(a), toSMT(b))
       case FPGreaterThan(a, b) => FloatingPoint.GreaterThan(toSMT(a), toSMT(b))

@@ -347,10 +347,15 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPCast(eb, sb, es(0), es(1)))
     },
-    classOf[s.FPCastBinary] -> { expr =>
-      val s.FPCastBinary(eb, sb, e) = expr: @unchecked
+    classOf[s.FPFromBinary] -> { expr =>
+      val s.FPFromBinary(eb, sb, e) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
-        (_, _, es, _, _) => t.FPCastBinary(eb, sb, es(0)))
+        (_, _, es, _, _) => t.FPFromBinary(eb, sb, es(0)))
+    },
+    classOf[s.FPToBV] -> { expr =>
+      val s.FPToBV(size, signed, rm, e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPToBV(size, signed, es(0), es(1)))
     },
     classOf[s.FPLessThan] -> { expr =>
       val s.FPLessThan(t1, t2) = expr: @unchecked

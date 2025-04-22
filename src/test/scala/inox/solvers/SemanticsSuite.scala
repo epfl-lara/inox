@@ -421,8 +421,13 @@ class SemanticsSuite extends AnyFunSuite {
       check(s, FPUMinus(Float32Literal(i)), Float32Literal(-i))
       check(s, FPAbs(Float32Literal(i)), Float32Literal(Math.abs(i)))
       check(s, ToDouble(Float32Literal(i)), Float64Literal(i.toDouble))
-      check(s, FPCastBinary(8, 24, FPToBV(8, 24, Float32Literal(i))), Float32Literal(i))
+      check(s, FPFromBinary(8, 24, FPToBinary(8, 24, Float32Literal(i))), Float32Literal(i))
     }
+
+    check(s, FPToByte(Float32Literal(0.0)), Int8Literal(0))
+    check(s, FPToShort(Float32Literal(0.0)), Int16Literal(0))
+    check(s, FPToInt(Float32Literal(0.0)), Int32Literal(0))
+    check(s, FPToLong(Float32Literal(0.0)), Int64Literal(0))
 
   }
 

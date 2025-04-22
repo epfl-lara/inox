@@ -660,10 +660,18 @@ trait Expressions { self: Trees =>
 
   object ToFloat {
     def apply(expr: Expr): Expr = FPCast(8, 24, RoundNearestTiesToEven, expr)
+    def unapply(e: Expr): Option[Expr] = e match {
+      case FPCast(8, 24, RoundNearestTiesToEven, e) => Some(e)
+      case _ => None
+    }
   }
 
   object ToDouble {
     def apply(expr: Expr): Expr = FPCast(11, 53, RoundNearestTiesToEven, expr)
+    def unapply(e: Expr): Option[Expr] = e match {
+      case FPCast(11, 53, RoundNearestTiesToEven, e) => Some(e)
+      case _ => None
+    }
   }
 
   sealed case class FPCast(newExponent: Int, newSignificand: Int, rm: Expr, expr: Expr) extends Expr with CachingTyped {
@@ -677,16 +685,56 @@ trait Expressions { self: Trees =>
       else Untyped
   }
 
-  sealed case class FPCastBinary(newExponent: Int, newSignificand: Int, expr: Expr) extends Expr with CachingTyped {
+  sealed case class FPFromBinary(newExponent: Int, newSignificand: Int, expr: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
       if getBVType(expr).isTyped then FPType(newExponent, newSignificand) else Untyped
   }
 
-  object FPToBV {
+  sealed case class FPToBV(size: Int, signed: Boolean, rm: Expr, expr: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getRoundingMode(rm).isTyped && getFPType(expr).isTyped then BVType(signed, size) else Untyped
+  }
+
+  object FPToByte {
+    def apply(expr: Expr): Expr = FPToBV(8, true, RoundNearestTiesToEven, expr)
+    def unapply(e: Expr): Option[Expr] = e match {
+      case FPToBV(8, true, RoundNearestTiesToEven, e) => Some(e)
+      case _ => None
+    }
+  }
+
+  object FPToShort {
+    def apply(expr: Expr): Expr = FPToBV(16, true, RoundNearestTiesToEven, expr)
+
+    def unapply(e: Expr): Option[Expr] = e match {
+      case FPToBV(16, true, RoundNearestTiesToEven, e) => Some(e)
+      case _ => None
+    }
+  }
+
+  object FPToInt {
+    def apply(expr: Expr): Expr = FPToBV(32, true, RoundNearestTiesToEven, expr)
+
+    def unapply(e: Expr): Option[Expr] = e match {
+      case FPToBV(32, true, RoundNearestTiesToEven, e) => Some(e)
+      case _ => None
+    }
+  }
+
+  object FPToLong {
+    def apply(expr: Expr): Expr = FPToBV(64, true, RoundNearestTiesToEven, expr)
+
+    def unapply(e: Expr): Option[Expr] = e match {
+      case FPToBV(64, true, RoundNearestTiesToEven, e) => Some(e)
+      case _ => None
+    }
+  }
+
+  object FPToBinary {
     def apply(exponent: Int, significand: Int, expr: Expr): Expr =
-      val newVar = Variable.fresh(f"toBV", BVType(true, exponent + significand), true)
+      val newVar = Variable.fresh(f"toBinary", BVType(true, exponent + significand), true)
       Assume(
-        Equals(FPCastBinary(exponent, significand, newVar), expr),
+        Equals(FPFromBinary(exponent, significand, newVar), expr),
         newVar
       )
   }
