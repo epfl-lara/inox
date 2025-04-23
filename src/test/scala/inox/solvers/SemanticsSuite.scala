@@ -424,11 +424,6 @@ class SemanticsSuite extends AnyFunSuite {
       check(s, FPFromBinary(8, 24, FPToBinary(8, 24, Float32Literal(i))), Float32Literal(i))
     }
 
-    check(s, FPToByte(Float32Literal(0.0)), Int8Literal(0))
-    check(s, FPToShort(Float32Literal(0.0)), Int16Literal(0))
-    check(s, FPToInt(Float32Literal(0.0)), Int32Literal(0))
-    check(s, FPToLong(Float32Literal(0.0)), Int64Literal(0))
-
   }
 
   test("Floating Point Comparisons", filterSolvers(_, princess = true, cvc4 = true, native = true, unroll = true)) { ctx =>

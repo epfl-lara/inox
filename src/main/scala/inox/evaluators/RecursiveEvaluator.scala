@@ -465,34 +465,6 @@ abstract class RecursiveEvaluator(override val program: Program,
         case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toFloat")
       }
 
-    case FPToByte(expr) =>
-      e(expr) match {
-        case Float32Literal(l) => Int8Literal(l.toByte)
-        case Float64Literal(l) => Int8Literal(l.toByte)
-        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toByte")
-      }
-
-    case FPToShort(expr) =>
-      e(expr) match {
-        case Float32Literal(l) => Int16Literal(l.toShort)
-        case Float64Literal(l) => Int16Literal(l.toShort)
-        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toShort")
-      }
-
-    case FPToInt(expr) =>
-      e(expr) match {
-        case Float32Literal(l) => Int32Literal(l.toInt)
-        case Float64Literal(l) => Int32Literal(l.toInt)
-        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toInt")
-      }
-
-    case FPToLong(expr) =>
-      e(expr) match {
-        case Float32Literal(l) => Int64Literal(l.toLong)
-        case Float64Literal(l) => Int64Literal(l.toLong)
-        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toLong")
-      }
-
     case FPLessThan(lhs, rhs) =>
       (e(lhs), e(rhs)) match {
         case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 < l2)

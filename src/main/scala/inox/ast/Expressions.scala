@@ -695,41 +695,6 @@ trait Expressions { self: Trees =>
       if getRoundingMode(rm).isTyped && getFPType(expr).isTyped then BVType(signed, size) else Untyped
   }
 
-  object FPToByte {
-    def apply(expr: Expr): Expr = FPToBV(8, true, RoundNearestTiesToEven, expr)
-    def unapply(e: Expr): Option[Expr] = e match {
-      case FPToBV(8, true, RoundNearestTiesToEven, e) => Some(e)
-      case _ => None
-    }
-  }
-
-  object FPToShort {
-    def apply(expr: Expr): Expr = FPToBV(16, true, RoundNearestTiesToEven, expr)
-
-    def unapply(e: Expr): Option[Expr] = e match {
-      case FPToBV(16, true, RoundNearestTiesToEven, e) => Some(e)
-      case _ => None
-    }
-  }
-
-  object FPToInt {
-    def apply(expr: Expr): Expr = FPToBV(32, true, RoundNearestTiesToEven, expr)
-
-    def unapply(e: Expr): Option[Expr] = e match {
-      case FPToBV(32, true, RoundNearestTiesToEven, e) => Some(e)
-      case _ => None
-    }
-  }
-
-  object FPToLong {
-    def apply(expr: Expr): Expr = FPToBV(64, true, RoundNearestTiesToEven, expr)
-
-    def unapply(e: Expr): Option[Expr] = e match {
-      case FPToBV(64, true, RoundNearestTiesToEven, e) => Some(e)
-      case _ => None
-    }
-  }
-
   object FPToBinary {
     def apply(exponent: Int, significand: Int, expr: Expr): Expr =
       val newVar = Variable.fresh(f"toBinary", BVType(true, exponent + significand), true)
