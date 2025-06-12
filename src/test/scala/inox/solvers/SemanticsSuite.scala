@@ -55,7 +55,8 @@ class SemanticsSuite extends AnyFunSuite {
   protected def check(s: SimpleSolverAPI { val program: InoxProgram }, e: Expr, expected: Expr) = {
     val v = Variable.fresh("v", e.getType)
     s.solveSAT(Equals(v, e)) match {
-      case SatWithModel(model) => assert(model.vars.get(v.toVal) == Some(expected))
+      case SatWithModel(model) =>
+        assert(model.vars.get(v.toVal) == Some(expected))
       case got => fail(s"Solving of '$e' failed with $got.")
     }
   }
@@ -421,6 +422,10 @@ class SemanticsSuite extends AnyFunSuite {
       check(s, FPUMinus(Float32Literal(i)), Float32Literal(-i))
       check(s, FPAbs(Float32Literal(i)), Float32Literal(Math.abs(i)))
       check(s, ToDouble(Float32Literal(i)), Float64Literal(i.toDouble))
+      check(s, FPToByteJVM(8, 24, Float32Literal(i)), Int8Literal(i.toByte))
+      check(s, FPToShortJVM(8, 24, Float32Literal(i)), Int16Literal(i.toShort))
+      check(s, FPToIntJVM(8, 24, Float32Literal(i)), Int32Literal(i.toInt))
+      check(s, FPToLongJVM(8, 24, Float32Literal(i)), Int64Literal(i.toLong))
       check(s, FPFromBinary(8, 24, FPToBinary(8, 24, Float32Literal(i))), Float32Literal(i))
     }
 
