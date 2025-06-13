@@ -416,6 +416,9 @@ class SemanticsSuite extends AnyFunSuite {
       check(s, FPSub(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i - j))
       check(s, FPMul(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i * j))
       check(s, FPDiv(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i / j))
+      check(s, FPFMA(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j), Float32Literal(j)), Float32Literal(java.lang.Math.fma(i, j, j)))
+      check(s, FPMax(Float32Literal(i), Float32Literal(j)), Float32Literal(i.max(j)))
+      check(s, FPMin(Float32Literal(i), Float32Literal(j)), Float32Literal(i.min(j)))
     }
 
     for (i <- floatValues) {
@@ -427,6 +430,7 @@ class SemanticsSuite extends AnyFunSuite {
       check(s, FPToIntJVM(8, 24, Float32Literal(i)), Int32Literal(i.toInt))
       check(s, FPToLongJVM(8, 24, Float32Literal(i)), Int64Literal(i.toLong))
       check(s, FPFromBinary(8, 24, FPToBinary(8, 24, Float32Literal(i))), Float32Literal(i))
+      check(s, FPRound(RoundNearestTiesToEven, Float64Literal(i.toDouble)), Float64Literal(Math.rint(i.toDouble)))
     }
 
   }

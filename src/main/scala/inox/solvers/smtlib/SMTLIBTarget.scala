@@ -503,8 +503,12 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case FPMul(rm, a, b) => FloatingPoint.Mul(toSMT(rm), toSMT(a), toSMT(b))
       case FPDiv(rm, a, b) => FloatingPoint.Div(toSMT(rm), toSMT(a), toSMT(b))
       case FPUMinus(e)     => FloatingPoint.Neg(toSMT(e))
+      case FPFMA(rm, e1, e2, e3) => FloatingPoint.FMA(toSMT(rm), toSMT(e1), toSMT(e2), toSMT(e3))
       case FPAbs(e)        => FloatingPoint.Abs(toSMT(e))
       case Sqrt(rm, e)     => FloatingPoint.Sqrt(toSMT(rm), toSMT(e))
+      case FPMax(a, b) => FloatingPoint.Max(toSMT(a), toSMT(b))
+      case FPMin(a, b) => FloatingPoint.Min(toSMT(a), toSMT(b))
+      case FPRound(rm, e) => FloatingPoint.RoundToIntegral(toSMT(rm), toSMT(e))
       case FPCast(ne, ns, rm, e) => FloatingPoint.ToFP(ne, ns, toSMT(rm), toSMT(e))
       case FPFromBinary(ne, ns, e) => FloatingPoint.ToFP(ne, ns, toSMT(e))
       case FPToBV(s, signed, rm, e) =>
@@ -514,6 +518,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         else {
           FloatingPoint.ToUnsignedBitVector(s, toSMT(rm), toSMT(e))
         }
+
+      case FPToReal(e) => FloatingPoint.ToReal(toSMT(e))
       case FPLessThan(a, b) => FloatingPoint.LessThan(toSMT(a), toSMT(b))
       case FPLessEquals(a, b) => FloatingPoint.LessEquals(toSMT(a), toSMT(b))
       case FPGreaterThan(a, b) => FloatingPoint.GreaterThan(toSMT(a), toSMT(b))
@@ -523,6 +529,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case FPIsNaN(e)      => FloatingPoint.IsNaN(toSMT(e))
       case FPIsPositive(e) => FloatingPoint.IsPositive(toSMT(e))
       case FPIsNegative(e) => FloatingPoint.IsNegative(toSMT(e))
+      case FPIsNormal(e) => FloatingPoint.IsNormal(toSMT(e))
+      case FPIsSubnormal(e) => FloatingPoint.IsSubnormal(toSMT(e))
 
       case RoundTowardZero => FloatingPoint.RoundTowardZero()
       case RoundTowardNegative => FloatingPoint.RoundTowardNegative()

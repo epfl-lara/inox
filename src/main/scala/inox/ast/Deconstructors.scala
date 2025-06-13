@@ -332,6 +332,11 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(rm, t1, t2), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPDiv(es(0), es(1), es(2)))
     },
+    classOf[s.FPFMA] -> { expr =>
+      val s.FPFMA(rm, t1, t2, t3) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(rm, t1, t2, t3), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPFMA(es(0), es(1), es(2), es(3)))
+    },
     classOf[s.FPAbs] -> { expr =>
       val s.FPAbs(e) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
@@ -341,6 +346,21 @@ trait TreeDeconstructor {
       val s.Sqrt(rm, e) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
         (_, _, es, _, _) => t.Sqrt(es(0), es(1)))
+    },
+    classOf[s.FPMin] -> { expr =>
+      val s.FPMin(t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPMin(es(0), es(1)))
+    },
+    classOf[s.FPMax] -> { expr =>
+      val s.FPMax(t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPMax(es(0), es(1)))
+    },
+    classOf[s.FPRound] -> { expr =>
+      val s.FPRound(rm, e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPRound(es(0), es(1)))
     },
     classOf[s.FPCast] -> { expr =>
       val s.FPCast(eb, sb, rm, e) = expr: @unchecked
@@ -356,6 +376,11 @@ trait TreeDeconstructor {
       val s.FPToBV(size, signed, rm, e) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPToBV(size, signed, es(0), es(1)))
+    },
+    classOf[s.FPToReal] -> { expr =>
+      val s.FPToReal(e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPToReal(es(0)))
     },
     classOf[s.FPLessThan] -> { expr =>
       val s.FPLessThan(t1, t2) = expr: @unchecked
@@ -401,6 +426,16 @@ trait TreeDeconstructor {
       val s.FPIsInfinite(e) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPIsInfinite(es(0)))
+    },
+    classOf[s.FPIsNormal] -> { expr =>
+      val s.FPIsNormal(e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPIsNormal(es(0)))
+    },
+    classOf[s.FPIsSubnormal] -> { expr =>
+      val s.FPIsSubnormal(e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPIsSubnormal(es(0)))
     },
     classOf[s.RoundTowardZero.type] -> { expr =>
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,

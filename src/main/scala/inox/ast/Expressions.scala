@@ -639,6 +639,11 @@ trait Expressions { self: Trees =>
     override protected def computeType(using Symbols): Type = getFPType(expr)
   }
 
+  sealed case class FPFMA(rm: Expr, e1: Expr, e2: Expr, e3: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getRoundingMode(rm).isTyped then getFPType(e1, e2, e3) else Untyped
+  }
+
   sealed case class FPMul(rm: Expr, lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
       if getRoundingMode(rm).isTyped then getFPType(lhs, rhs) else Untyped
@@ -652,6 +657,20 @@ trait Expressions { self: Trees =>
   sealed case class FPAbs(e: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type = getFPType(e)
   }
+
+  sealed case class FPMax(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type = getFPType(lhs, rhs)
+  }
+
+  sealed case class FPMin(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type = getFPType(lhs, rhs)
+  }
+
+  sealed case class FPRound(rm: Expr, e: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getRoundingMode(rm).isTyped then getFPType(e) else Untyped
+  }
+
 
   sealed case class Sqrt(rm: Expr, e: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
@@ -772,6 +791,12 @@ trait Expressions { self: Trees =>
       )
   }
 
+
+  sealed case class FPToReal(e: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getFPType(e).isTyped then RealType() else Untyped
+  }
+
   /** $encodingof `... < ...` for FP */
   sealed case class FPLessThan(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
@@ -817,6 +842,16 @@ trait Expressions { self: Trees =>
   }
 
   sealed case class FPIsPositive(e: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getFPType(e).isTyped then BooleanType() else Untyped
+  }
+
+  sealed case class FPIsNormal(e: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getFPType(e).isTyped then BooleanType() else Untyped
+  }
+
+  sealed case class FPIsSubnormal(e: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type =
       if getFPType(e).isTyped then BooleanType() else Untyped
   }

@@ -423,6 +423,13 @@ abstract class RecursiveEvaluator(override val program: Program,
         case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") / (" + rhs.asString + ")")
       }
 
+    case FPFMA(RoundNearestTiesToEven, e1, e2, e3) =>
+      (e(e1), e(e2), e(e3)) match {
+        case (Float32Literal(l1), Float32Literal(l2), Float32Literal(l3)) => Float32Literal(java.lang.Math.fma(l1, l2, l3))
+        case (Float64Literal(l1), Float64Literal(l2), Float64Literal(l3)) => Float64Literal(java.lang.Math.fma(l1, l2, l3))
+        case _ => throw EvalError(f"Unexpected operation: FMA($e1, $e2, $e3)")
+      }
+
     case FPUMinus(expr) =>
       e(expr) match {
         case Float32Literal(l) => Float32Literal(-l)
@@ -435,6 +442,26 @@ abstract class RecursiveEvaluator(override val program: Program,
         case Float32Literal(l) => Float32Literal(Math.abs(l))
         case Float64Literal(l) => Float64Literal(Math.abs(l))
         case _ => throw EvalError("Unexpected operation: Math.abs(" + expr.asString + ")")
+      }
+
+    case FPMin(lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1.min(l2))
+        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1.min(l2))
+        case _ => throw EvalError(f"Unexpected operation: min($lhs, $rhs)")
+      }
+
+    case FPMax(lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1.max(l2))
+        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1.max(l2))
+        case _ => throw EvalError(f"Unexpected operation: min($lhs, $rhs)")
+      }
+
+    case FPRound(RoundNearestTiesToEven, expr) =>
+      e(expr) match {
+        case Float64Literal(l) => Float64Literal(Math.rint(l))
+        case _ => throw EvalError(f"Unexpected operation: rint($expr)")
       }
 
     case Sqrt(RoundNearestTiesToEven, expr) =>
