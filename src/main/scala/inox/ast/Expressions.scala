@@ -714,72 +714,10 @@ trait Expressions { self: Trees =>
       if getRoundingMode(rm).isTyped && getFPType(expr).isTyped then BVType(signed, size) else Untyped
   }
 
-  object FPToByteJVM {
-    def apply(exponent: Int, significand: Int, expr: Expr): Expr = BVNarrowingCast(FPToIntJVM(exponent, significand, expr), Int8Type())
-
-    def unapply(expr: Expr): Option[(Int, Int, Expr)] = expr match {
-      case BVNarrowingCast(FPToIntJVM(exponent, significand, expr), Int8Type()) =>
-        Some((exponent, significand, expr))
-      case _ => None
-    }
-  }
-
-  object FPToShortJVM {
-    def apply(exponent: Int, significand: Int, expr: Expr): Expr = BVNarrowingCast(FPToIntJVM(exponent, significand, expr), Int16Type())
-
-    def unapply(expr: Expr): Option[(Int, Int, Expr)] = expr match {
-      case BVNarrowingCast(FPToIntJVM(exponent, significand, expr), Int16Type()) =>
-        Some((exponent, significand, expr))
-      case _ => None
-    }
-  }
-
-  object FPToIntJVM {
-
-    private val maxInt = Int32Literal(Int.MaxValue)
-    private val minInt = Int32Literal(Int.MinValue)
-
-    def apply(exponent: Int, significand: Int, expr: Expr): Expr = {
-      val isLarge = FPGreaterThan(expr, FPCast(exponent, significand, RoundNearestTiesToEven, maxInt))
-      val isSmall = FPLessThan(expr, FPCast(exponent, significand, RoundNearestTiesToEven, minInt))
-        IfExpr(FPIsNaN(expr), Int32Literal(0),
-          IfExpr(isLarge, maxInt,
-            IfExpr(isSmall, minInt,
-              FPToBV(32, true, RoundTowardZero, expr))))
-    }
-
-    def unapply(expr: Expr): Option[(Int, Int, Expr)] = expr match {
-      case IfExpr(FPIsNaN(e1), Int32Literal(0),
-        IfExpr(FPGreaterThan(e2, FPCast(exp1, sig1, RoundNearestTiesToEven, `maxInt`)), `maxInt`,
-        IfExpr(FPLessThan(e3, FPCast(exp2, sig2, RoundNearestTiesToEven, `minInt`)), `minInt`,
-        FPToBV(32, true, RoundTowardZero, e4)))) if e1 == e2 && e2 == e3 && e3 == e4 && sig1 == sig2 && exp1 == exp2 =>
-        Some((exp1, sig1, e1))
-      case _ => None
-    }
-  }
-
-  object FPToLongJVM {
-
-    private val maxLong = Int64Literal(Long.MaxValue)
-    private val minLong = Int64Literal(Long.MinValue)
-
-    def apply(exponent: Int, significand: Int, expr: Expr): Expr = {
-      val isLarge = FPGreaterThan(expr, FPCast(exponent, significand, RoundNearestTiesToEven, maxLong))
-      val isSmall = FPLessThan(expr, FPCast(exponent, significand, RoundNearestTiesToEven, minLong))
-      IfExpr(FPIsNaN(expr), Int64Literal(0),
-        IfExpr(isLarge, maxLong,
-          IfExpr(isSmall, minLong,
-            FPToBV(64, true, RoundTowardZero, expr))))
-    }
-
-    def unapply(expr: Expr): Option[(Int, Int, Expr)] = expr match {
-      case IfExpr(FPIsNaN(e1), Int64Literal(0),
-      IfExpr(FPGreaterThan(e2, FPCast(exp1, sig1, RoundNearestTiesToEven, `maxLong`)), `maxLong`,
-      IfExpr(FPLessThan(e3, FPCast(exp2, sig2, RoundNearestTiesToEven, `minLong`)), `minLong`,
-      FPToBV(64, true, RoundTowardZero, e4)))) if e1 == e2 && e2 == e3 && e3 == e4 && sig1 == sig2 && exp1 == exp2 =>
-        Some((exp1, sig1, e1))
-      case _ => None
-    }
+  /** Casts from floating-points to bitvectors with JVM semantics */
+  sealed case class FPToBVJVM(exponent: Int, significand: Int, toSize: Int, expr: Expr) extends Expr with CachingTyped {
+    override protected def computeType(using Symbols): Type =
+      if getFPType(expr).isTyped then BVType(true, toSize) else Untyped
   }
 
   object FPToBinary {

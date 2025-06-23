@@ -397,7 +397,7 @@ class SemanticsSuite extends AnyFunSuite {
   }
 
   import scala.collection.immutable.HashSet
-  val floatValues: Set[Float] = HashSet(0f, -0f, Float.NaN, Float.PositiveInfinity, Float.NegativeInfinity)
+  val floatValues: Set[Float] = HashSet(0f, 1.4, -0f, Float.NaN, Float.PositiveInfinity, Float.NegativeInfinity)
 
   test("Floating point literals", filterSolvers(_, princess = true, cvc4 = true, native = true, unroll = true)) { ctx =>
     val s = solver(ctx)
@@ -425,12 +425,14 @@ class SemanticsSuite extends AnyFunSuite {
       check(s, FPUMinus(Float32Literal(i)), Float32Literal(-i))
       check(s, FPAbs(Float32Literal(i)), Float32Literal(Math.abs(i)))
       check(s, ToDouble(Float32Literal(i)), Float64Literal(i.toDouble))
-      check(s, FPToByteJVM(8, 24, Float32Literal(i)), Int8Literal(i.toByte))
-      check(s, FPToShortJVM(8, 24, Float32Literal(i)), Int16Literal(i.toShort))
-      check(s, FPToIntJVM(8, 24, Float32Literal(i)), Int32Literal(i.toInt))
-      check(s, FPToLongJVM(8, 24, Float32Literal(i)), Int64Literal(i.toLong))
+      check(s, FPToBVJVM(8, 24, 8, Float32Literal(i)), Int8Literal(i.toByte))
+      check(s, FPToBVJVM(8, 24, 16, Float32Literal(i)), Int16Literal(i.toShort))
+      check(s, FPToBVJVM(8, 24, 32, Float32Literal(i)), Int32Literal(i.toInt))
+      check(s, FPToBVJVM(8, 24, 64, Float32Literal(i)), Int64Literal(i.toLong))
       check(s, FPFromBinary(8, 24, FPToBinary(8, 24, Float32Literal(i))), Float32Literal(i))
       check(s, FPRound(RoundNearestTiesToEven, Float64Literal(i.toDouble)), Float64Literal(Math.rint(i.toDouble)))
+      check(s, FPRound(RoundTowardNegative, Float64Literal(i.toDouble)), Float64Literal(Math.floor(i.toDouble)))
+      check(s, FPRound(RoundTowardPositive, Float64Literal(i.toDouble)), Float64Literal(Math.ceil(i.toDouble)))
     }
 
   }

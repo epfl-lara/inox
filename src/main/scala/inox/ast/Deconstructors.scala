@@ -377,6 +377,11 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPToBV(size, signed, es(0), es(1)))
     },
+    classOf[s.FPToBVJVM] -> { expr =>
+      val s.FPToBVJVM(eb, sb, size, e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPToBVJVM(eb, sb, size, es(0)))
+    },
     classOf[s.FPToReal] -> { expr =>
       val s.FPToReal(e) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
