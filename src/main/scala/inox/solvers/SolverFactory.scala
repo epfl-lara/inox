@@ -59,6 +59,13 @@ object SolverFactory {
     case _: java.io.IOException => false
   }
 
+  lazy val hasBitwuzla = try {
+    new BitwuzlaInterpreter("bitwuzla", Array("-v", "0", "--lang", "smt2")).interrupt()
+    true
+  } catch {
+    case _: java.io.IOException => false
+  }
+
   def create[S1 <: Solver](p: Program)(nme: String, builder: () => S1 { val program: p.type }):
            SolverFactory { val program: p.type; type S = S1 { val program: p.type } } = {
     class Impl(override val program: p.type, override val name: String) extends SolverFactory {
@@ -84,7 +91,8 @@ object SolverFactory {
     "princess"      -> "Princess with inox unrolling",
     "eval"          -> "Internal evaluator to discharge ground assertions",
     "inv-z3"        -> "Horn solver using Z3 / Spacer",
-    "inv-eld"       -> "Horn solver using Eldarica"
+    "inv-eld"       -> "Horn solver using Eldarica",
+
   )
 
   private val fallbacks = Map(
@@ -98,7 +106,8 @@ object SolverFactory {
     "smt-z3-opt"   -> (() => hasZ3,       Seq("nativez3-opt"),                                 "'z3' binary"),
     "inv-eld"      -> (() => true,        Seq(),                                               "Eldarica solver"),
     "princess"     -> (() => true,        Seq(),                                               "Princess solver"),
-    "eval"         -> (() => true,        Seq(),                                               "Internal evaluator")
+    "eval"         -> (() => true,        Seq(),                                               "Internal evaluator"),
+    "smt-bitwuzla" -> (() => hasBitwuzla, Seq("smt-cvc5", "nativez3", "smt-z3", "princess"),   "'bitwuzla' binary"),
   )
 
   private var reported: Boolean = false
@@ -453,6 +462,38 @@ object SolverFactory {
         }
 
         () => new SMTCVC5Impl(p)(enc)(ChooseEncoder(p)(enc))
+      })
+
+      case "smt-bitwuzla" => create(p)(finalName, {
+        val ev = sem.getEvaluator(using ctx)
+        class SMTBitwuzlaImpl(override val program: p.type)
+                         (override val enc: transformers.ProgramTransformer {
+                           val sourceProgram: program.type
+                           val targetProgram: Program { val trees: inox.trees.type }
+                         })
+                         (override val chooses: ChooseEncoder {
+                           val program: p.type
+                           val sourceEncoder: enc.type
+                         })
+          extends AbstractUnrollingSolver(program, ctx, enc, chooses)(fullEncoder => theories.CVC(fullEncoder)(ev))
+            with UnrollingSolver
+            with TimeoutSolver
+            with tip.TipDebugger {
+
+          class Underlying(override val program: targetProgram.type)
+            extends smtlib.SMTLIBSolver(program, ctx)
+              with smtlib.BitwuzlaSolver
+
+          protected val underlying = nonIncrementalWrap(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
+
+          // Used to report SMT Lib files <-> VCs correspondence
+          override def getSmtLibFileId: Option[Int] = underlying.getSmtLibFileId
+
+          // encoder is from TipDebugger and enc from AbstractUnrollingSolver
+          override protected val encoder = enc
+        }
+
+        () => new SMTBitwuzlaImpl(p)(enc)(ChooseEncoder(p)(enc))
       })
 
       case "princess" => create(p)(finalName, {

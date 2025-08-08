@@ -1,3 +1,4 @@
+
 /* Copyright 2009-2018 EPFL, Lausanne */
 
 package inox
@@ -19,6 +20,7 @@ class SemanticsSuite extends AnyFunSuite {
     (if (SolverFactory.hasZ3) Seq("smt-z3") else Nil) ++
     (if (SolverFactory.hasCVC4) Seq("smt-cvc4") else Nil) ++
     (if (SolverFactory.hasCVC5) Seq("smt-cvc5") else Nil) ++
+    (if (SolverFactory.hasBitwuzla) Seq("smt-bitwuzla") else Nil) ++
     Seq("princess")
   }
 
@@ -42,14 +44,15 @@ class SemanticsSuite extends AnyFunSuite {
     } superTest(this, s"$name solver=$sname")(body(ctx))
   }
 
-  protected def filterSolvers(ctx: Context, princess: Boolean = false, cvc4: Boolean = false, cvc5: Boolean = false, unroll: Boolean = false, z3: Boolean = false, native: Boolean = false): Boolean = {
+  protected def filterSolvers(ctx: Context, princess: Boolean = false, cvc4: Boolean = false, cvc5: Boolean = false, unroll: Boolean = false, z3: Boolean = false, native: Boolean = false, bitwuzla: Boolean = false): Boolean = {
     val solvers = ctx.options.findOptionOrDefault(optSelectedSolvers)
     (!princess || solvers != Set("princess")) &&
     (!unroll || solvers != Set("unrollz3")) &&
     (!z3 || solvers != Set("smt-z3")) &&
     (!native || solvers != Set("nativez3")) &&
     (!cvc4 || solvers != Set("smt-cvc4")) &&
-    (!cvc5 || solvers != Set("smt-cvc5"))
+    (!cvc5 || solvers != Set("smt-cvc5")) &&
+    (!bitwuzla || solvers != Set("smt-bitwuzla"))
   }
 
   protected def check(s: SimpleSolverAPI { val program: InoxProgram }, e: Expr, expected: Expr) = {
@@ -61,7 +64,7 @@ class SemanticsSuite extends AnyFunSuite {
     }
   }
 
-  test("Literals") { ctx =>
+  test("Boolean and Int Literals") { ctx =>
     val s = solver(ctx)
 
     check(s, BooleanLiteral(true),   BooleanLiteral(true))
@@ -75,6 +78,10 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, Int32Literal(-1),       Int32Literal(-1))
     check(s, Int32Literal(0),        Int32Literal(0))
     check(s, Int32Literal(42),       Int32Literal(42))
+  }
+
+  test("Unit, BigInt and Fraction Literals", filterSolvers(_, bitwuzla = true)) { ctx =>
+    val s = solver(ctx)
     check(s, UnitLiteral(),          UnitLiteral())
     check(s, IntegerLiteral(-1),     IntegerLiteral(-1))
     check(s, IntegerLiteral(0),      IntegerLiteral(0))
@@ -84,7 +91,7 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, FractionLiteral(26, 3), FractionLiteral(26, 3))
   }
 
-  test("BitVector & Large integer Literals", filterSolvers(_, princess = true)) { ctx =>
+  test("BitVector Literals", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
 
     // Test the literals that princess doesn't support.
@@ -94,7 +101,12 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, BVLiteral(true, 4294967296L, 33), BVLiteral(true, 4294967296L, 33)) // 2^32 fits in 33 bits!
     check(s, Int64Literal(-1),           Int64Literal(-1))
     check(s, Int64Literal(4294967296L),  Int64Literal(4294967296L))
+  }
 
+  test("Large integer Literals", filterSolvers(_, princess = true, bitwuzla = true)) { ctx =>
+    val s = solver(ctx)
+
+    // Test the literals that princess doesn't support.
     check(s, IntegerLiteral(1099511627776L), IntegerLiteral(1099511627776L)) // 2^40
   }
 
@@ -214,7 +226,7 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, BVAShiftRight(bvl(8), bvl(1)),  bvl(4))
   }
 
-  test("BigInt Arithmetic") { ctx =>
+  test("BigInt Arithmetic", filterSolvers(_, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Plus(IntegerLiteral(3), IntegerLiteral(5)),  IntegerLiteral(8))
@@ -223,7 +235,7 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, Times(IntegerLiteral(2), IntegerLiteral(3)), IntegerLiteral(6))
   }
 
-  test("BigInt Division, Modulo and Remainder") { ctx =>
+  test("BigInt Division, Modulo and Remainder", filterSolvers(_, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Division(IntegerLiteral(10), IntegerLiteral(3)),  IntegerLiteral(3))
@@ -243,7 +255,7 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, Modulo(IntegerLiteral(1), IntegerLiteral(-3)),    IntegerLiteral(1))
   }
 
-  test("BigInt Comparisons") { ctx =>
+  test("BigInt Comparisons", filterSolvers(_, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, GreaterEquals(IntegerLiteral(7), IntegerLiteral(4)), BooleanLiteral(true))
@@ -369,7 +381,7 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, Not(BooleanLiteral(true)),                         BooleanLiteral(false))
   }
 
-  test("Real Arithmetic") { ctx =>
+  test("Real Arithmetic", filterSolvers(_, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Plus(FractionLiteral(2, 3), FractionLiteral(1, 3)),  FractionLiteral(1, 1))
@@ -378,7 +390,7 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, Times(FractionLiteral(2, 3), FractionLiteral(1, 3)), FractionLiteral(2, 9))
   }
 
-  test("Real Comparisons") { ctx =>
+  test("Real Comparisons", filterSolvers(_, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, GreaterEquals(FractionLiteral(7, 1), FractionLiteral(4, 2)),   BooleanLiteral(true))
@@ -480,7 +492,7 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, Let(v.toVal, Int32Literal(42), Plus(v, Int32Literal(1))), Int32Literal(43))
   }
 
-  test("Map Operations", filterSolvers(_, princess = true)) { ctx =>
+  test("Map Operations", filterSolvers(_, princess = true, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Equals(
@@ -533,7 +545,7 @@ class SemanticsSuite extends AnyFunSuite {
     ), Int32Literal(3))
   }
 
-  test("Set Operations", filterSolvers(_, princess = true)) { ctx =>
+  test("Set Operations", filterSolvers(_, princess = true, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Equals(
@@ -618,7 +630,7 @@ class SemanticsSuite extends AnyFunSuite {
     )) contains true)
   }
 
-  test("Z3 Set Extraction", filterSolvers(_, princess = true, cvc4 = true, cvc5 = true)) { ctx =>
+  test("Z3 Set Extraction", filterSolvers(_, princess = true, cvc4 = true, cvc5 = true, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     // Singleton set inside of a map is translated to (lambda ((x Int)) (= x 0))
@@ -628,7 +640,7 @@ class SemanticsSuite extends AnyFunSuite {
     )
   }
 
-  test("Simple Bag Operations", filterSolvers(_, princess = true)) { ctx =>
+  test("Simple Bag Operations", filterSolvers(_, princess = true, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     assert(s.solveVALID(Equals(
@@ -652,7 +664,7 @@ class SemanticsSuite extends AnyFunSuite {
     ), IntegerLiteral(2))
   }
 
-  test("Bag Operations", filterSolvers(_, princess = true, cvc4 = true, cvc5 = true)) { ctx =>
+  test("Bag Operations", filterSolvers(_, princess = true, cvc4 = true, cvc5 = true, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Equals(
