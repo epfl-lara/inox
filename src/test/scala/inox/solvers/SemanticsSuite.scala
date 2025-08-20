@@ -64,7 +64,7 @@ class SemanticsSuite extends AnyFunSuite {
     }
   }
 
-  test("Boolean and Int Literals") { ctx =>
+  test("Boolean, Int and Unit Literals") { ctx =>
     val s = solver(ctx)
 
     check(s, BooleanLiteral(true),   BooleanLiteral(true))
@@ -78,11 +78,11 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, Int32Literal(-1),       Int32Literal(-1))
     check(s, Int32Literal(0),        Int32Literal(0))
     check(s, Int32Literal(42),       Int32Literal(42))
+    check(s, UnitLiteral(),          UnitLiteral())
   }
 
-  test("Unit, BigInt and Fraction Literals", filterSolvers(_, bitwuzla = true)) { ctx =>
+  test("BigInt and Fraction Literals", filterSolvers(_, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
-    check(s, UnitLiteral(),          UnitLiteral())
     check(s, IntegerLiteral(-1),     IntegerLiteral(-1))
     check(s, IntegerLiteral(0),      IntegerLiteral(0))
     check(s, IntegerLiteral(42),     IntegerLiteral(42))

@@ -88,6 +88,7 @@ object SolverFactory {
     "smt-z3"        -> "Z3 through SMT-LIB",
     "smt-z3-opt"    -> "Z3 optimizer through SMT-LIB",
     "smt-z3:<exec>" -> "Z3 through SMT-LIB with custom executable name",
+    "smt-bitwuzla"  -> "Bitwuzla through SMT-LIB",
     "princess"      -> "Princess with inox unrolling",
     "eval"          -> "Internal evaluator to discharge ground assertions",
     "inv-z3"        -> "Horn solver using Z3 / Spacer",
