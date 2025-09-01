@@ -6,7 +6,7 @@ git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
-val inoxScalaVersion = "3.5.2"
+val inoxScalaVersion = "3.7.2"
 scalaVersion := inoxScalaVersion
 
 scalacOptions ++= Seq(
