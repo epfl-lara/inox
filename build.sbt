@@ -40,7 +40,7 @@ resolvers ++= Seq(
 libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "3.2.9" % "test;it",
   "org.apache.commons" % "commons-lang3" % "3.4",
-  ("uuverifiers" %% "eldarica" % "nightly-SNAPSHOT").cross(CrossVersion.for3Use2_13),
+  ("uuverifiers" %% "eldarica" % "2.2").cross(CrossVersion.for3Use2_13),
   ("uuverifiers" %% "princess" % "2025-04-01").cross(CrossVersion.for3Use2_13),
   "org.scala-lang.modules" %% "scala-parser-combinators" % "2.3.0"
 )
