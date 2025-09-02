@@ -18,6 +18,7 @@ jobs:
       JAVA_OPTS: -Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR
       JVM_OPTS:  -Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR
       # solver versions to test against
+      INSTALL_SOLVERS: 1
       Z3_VER: 4.15.1
       CVC4_VER: 1.8
       CVC5_VER: 1.2.1

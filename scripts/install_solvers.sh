@@ -1,5 +1,10 @@
 #!/usr/bin/env sh
 
+if [ "$INSTALL_SOLVERS" != "1" ]; then
+  echo "Skipping solver installation"
+  exit 0
+fi
+
 TEMP_DIR="$(pwd)/temp"
 SOLVERS_DIR=${1:-"$(pwd)/solvers"}
 
