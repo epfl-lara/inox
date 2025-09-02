@@ -183,6 +183,9 @@ trait TypeElaborators { self: Elaborators =>
           val u = Unknown.fresh
           vds.combine(getExpr(pred, u)(using newStore))({
             case (Seq(vd), pred) => trees.RefinementType(vd, pred)
+            case (vds, _) => 
+              // there were 0 or > 1 bindings, should not happen
+              throw new ElaborationException(Seq(ErrorLocation(s"Invalid refinement type elaboration, expected 1 binding, found ${vds.length}", expr.pos)))
           }).addConstraint({
             Constraint.equal(u, trees.BooleanType())
           })
