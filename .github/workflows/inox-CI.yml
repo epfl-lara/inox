@@ -9,11 +9,19 @@ jobs:
   tests:
     if: github.event.pull_request.draft == false
     runs-on: [self-hosted, linux]
+    strategy:
+      matrix:
+        java-version: [17, 21]
     env:
       # define Java options for both official sbt and sbt-extras
       JAVA_OPTS_TMP_DIR: ./tmp_java
       JAVA_OPTS: -Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR
       JVM_OPTS:  -Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR
+      # solver versions to test against
+      INSTALL_SOLVERS: 1
+      Z3_VER: 4.15.1
+      CVC4_VER: 1.8
+      CVC5_VER: 1.2.1
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -23,16 +31,15 @@ jobs:
       uses: actions/setup-java@v4
       with:
         distribution: temurin
-        java-version: 17
+        java-version: ${{ matrix.java-version }}
     - name: Install and unpack sbt
       run: |
-        wget https://github.com/sbt/sbt/releases/download/v1.10.1/sbt-1.10.1.tgz
-        tar xfz sbt-1.10.1.tgz
+        ./scripts/install_sbt.sh
         echo "PATH=./sbt/bin/:$PATH" >> "$GITHUB_ENV"
     - name: Prepare temp folder
       run: rm -rf $JAVA_OPTS_TMP_DIR && mkdir -p $JAVA_OPTS_TMP_DIR
     - name: Install solvers
-      run: ./install_solvers.sh $GITHUB_WORKSPACE/.local/bin
+      run: ./scripts/install_solvers.sh $GITHUB_WORKSPACE/.local/bin $Z3_VER $CVC4_VER $CVC5_VER
     - name: Add solvers to PATH
       run: echo "$GITHUB_WORKSPACE/.local/bin" >> $GITHUB_PATH
     - name: Test solvers availability
