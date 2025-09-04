@@ -63,11 +63,12 @@ chmod +x "$SOLVERS_DIR/cvc4"
 # z3
 echo "$INFO_MSG Installing Z3 (v${Z3_VER})"
 
-mkdir -p "$TEMP_DIR"
-Z3_FILE_PREFIX="z3-${Z3_VER}-${SHORT_ARCH}-${Z3_LIBC_NAME}"
+# z3 release file names contain libc versions in them, which makes them hard to
+# guess. Just get the correct one via the GitHub release API.
+Z3_FILE_PREFIX="z3-${Z3_VER}-${SHORT_ARCH}-${Z3_LIBC_NAME}" # followed by -<libcversion>.zip
 Z3_URL=$(
   $CURL "https://api.github.com/repos/Z3Prover/z3/releases/tags/z3-${Z3_VER}" | # get release info
-  grep "browser_download_url.*${Z3_FILE_PREFIX}" | #| # find url for the correct build
+  grep "browser_download_url.*${Z3_FILE_PREFIX}" | # find url for the correct build
   sed 's/^.*: //;s/^"//;s/"$//' # strip non-url
 )
 $CURL "${Z3_URL}" --output "$TEMP_DIR/z3.zip"
