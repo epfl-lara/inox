@@ -39,7 +39,7 @@ jobs:
     - name: Set Java options
       run: |
         # define Java options for both official sbt and sbt-extras
-        JAVA_OPTS_TMP_DIR=$(pwd)/tmpj
+        JAVA_OPTS_TMP_DIR=$(pwd)/tmp
         JAVA_OPTS="-Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR"
         JVM_OPTS="-Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR"
         echo "JAVA_OPTS_TMP_DIR=$JAVA_OPTS_TMP_DIR" >> $GITHUB_ENV
