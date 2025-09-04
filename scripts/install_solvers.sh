@@ -22,7 +22,7 @@ SHORT_ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/;')
 Z3_LIBC_NAME=$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/osx/;s/linux/glibc/;')
 
 # os names as used by CVC5 builds
-CVC5_OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/macOS/;s/Linux/glibc/;')
+CVC5_OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/macOS/;s/linux/Linux/;')
 
 mkdir -p "$SOLVERS_DIR"
 mkdir -p "$TEMP_DIR"
