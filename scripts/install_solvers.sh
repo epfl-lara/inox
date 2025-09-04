@@ -56,8 +56,8 @@ reset_temp_dir
 echo "$INFO_MSG Installing CVC4 (v${CVC4_VER})"
 
 if [ "$CVC5_OS_NAME" = "macOS" ]; then
-  echo "$WARN_MSG CVC4 installation on macOS; defaulting to only build available (x86_64 v1.9 pre-release 25-09-2020)"
-  $CURL "https://cvc4.cs.stanford.edu/downloads/builds/macos/25-09-20/cvc4" --output "$SOLVERS_DIR/cvc4"
+  echo "$WARN_MSG CVC4 installation on macOS; defaulting to only build available (x86_64 v1.8)"
+  $CURL "https://github.com/CVC4/CVC4-archived/releases/download/1.8/cvc4-1.8-macos-opt" --output "$SOLVERS_DIR/cvc4"
 elif [ "$CVC5_OS_NAME" = "Linux" ]; then
   $CURL "https://cvc4.cs.stanford.edu/downloads/builds/x86_64-linux-opt/cvc4-${CVC4_VER}-x86_64-linux-opt" --output "$SOLVERS_DIR/cvc4"
 else
