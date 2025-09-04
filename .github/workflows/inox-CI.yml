@@ -58,8 +58,8 @@ jobs:
     - name: Test solver availability
       run: cvc5 --version && z3 --version && cvc4 --version
     - name: Run Tests
-      run: sbt -Dtest-parallelism=10 -batch test
+      run: sbt -Dsbt.server.socketLocation=$(pwd) -Dtest-parallelism=10 -batch test
     - name: Run integration tests
-      run: sbt -Dtest-parallelism=10 -batch it:test
+      run: sbt -Dsbt.server.socketLocation=$(pwd) -Dtest-parallelism=10 -batch it:test
     - name: Clean up
       run: rm -rf $JAVA_OPTS_TMP_DIR
