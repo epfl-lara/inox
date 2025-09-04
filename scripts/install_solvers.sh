@@ -34,6 +34,11 @@ CVC5_OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/macOS/;s/li
 mkdir -p "$SOLVERS_DIR"
 mkdir -p "$TEMP_DIR"
 
+reset_temp_dir() {
+  rm -rf "$TEMP_DIR"
+  mkdir -p "$TEMP_DIR"
+}
+
 echo "$INFO_MSG Installing Solvers to $SOLVERS_DIR"
 
 # cvc5
@@ -44,7 +49,8 @@ unzip -q "$TEMP_DIR/cvc5.zip" -d "$TEMP_DIR"
 CVC5_DIR=$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d -name "*cvc5*")
 mv "$CVC5_DIR/bin/cvc5" "$SOLVERS_DIR/cvc5"
 chmod +x "$SOLVERS_DIR/cvc5"
-rm -rf "$TEMP_DIR"
+
+reset_temp_dir
 
 # CVC4
 echo "$INFO_MSG Installing CVC4 (v${CVC4_VER})"
@@ -59,6 +65,8 @@ else
   exit 1
 fi
 chmod +x "$SOLVERS_DIR/cvc4"
+
+reset_temp_dir
 
 # z3
 echo "$INFO_MSG Installing Z3 (v${Z3_VER})"
