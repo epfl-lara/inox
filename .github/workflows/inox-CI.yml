@@ -1,4 +1,4 @@
-name: Inox CI
+name: Inox Linux CI
 on:
   workflow_dispatch:
   pull_request:
