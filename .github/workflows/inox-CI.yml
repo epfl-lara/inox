@@ -39,7 +39,7 @@ jobs:
     - name: Set Java options
       run: |
         # define Java options for both official sbt and sbt-extras
-        JAVA_OPTS_TMP_DIR=$(pwd)/tmp_java
+        JAVA_OPTS_TMP_DIR=$(pwd)/tmpj
         JAVA_OPTS="-Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR"
         JVM_OPTS="-Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR"
         echo "JAVA_OPTS_TMP_DIR=$JAVA_OPTS_TMP_DIR" >> $GITHUB_ENV
@@ -58,8 +58,8 @@ jobs:
     - name: Test solver availability
       run: cvc5 --version && z3 --version && cvc4 --version
     - name: Run Tests
-      run: sbt -Dsbt.server.socketLocation=$(pwd) -Dtest-parallelism=10 -batch test
+      run: sbt -Dtest-parallelism=10 -batch test
     - name: Run integration tests
-      run: sbt -Dsbt.server.socketLocation=$(pwd) -Dtest-parallelism=10 -batch it:test
+      run: sbt -Dtest-parallelism=10 -batch it:test
     - name: Clean up
       run: rm -rf $JAVA_OPTS_TMP_DIR
