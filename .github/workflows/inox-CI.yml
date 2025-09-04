@@ -8,7 +8,7 @@ on:
 jobs:
   tests:
     if: github.event.pull_request.draft == false
-    name: ${{ github.job }} (${{ matrix.runners.name }}, JDK ${{ matrix.java-version }})
+    name: ${{ matrix.runners.name }} / JDK ${{ matrix.java-version }}
     runs-on: ${{ matrix.runners.labels }}
     strategy:
       matrix:
