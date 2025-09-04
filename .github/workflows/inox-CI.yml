@@ -22,7 +22,7 @@ jobs:
         java-version: [17, 21]
     env:
       # define Java options for both official sbt and sbt-extras
-      JAVA_OPTS_TMP_DIR: ./tmp_java
+      JAVA_OPTS_TMP_DIR: $(pwd)/tmp_java
       JAVA_OPTS: -Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR
       JVM_OPTS:  -Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR
       # solver versions to test against
