@@ -23,8 +23,8 @@ jobs:
     env:
       # define Java options for both official sbt and sbt-extras
       JAVA_OPTS_TMP_DIR: $(pwd)/tmp_java
-      JAVA_OPTS: -Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR
-      JVM_OPTS:  -Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR
+      JAVA_OPTS: -Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir="$JAVA_OPTS_TMP_DIR"
+      JVM_OPTS:  -Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir="$JAVA_OPTS_TMP_DIR"
       # solver versions to test against
       INSTALL_SOLVERS: 1
       Z3_VER: 4.15.1
@@ -42,7 +42,6 @@ jobs:
         java-version: ${{ matrix.java-version }}
     - name: Install and unpack sbt
       run: |
-        mkdir -p $JAVA_OPTS_TMP_DIR
         ./scripts/install_sbt.sh
         echo "$(pwd)/sbt/bin/" >> $GITHUB_PATH
     - name: Prepare temp folder
