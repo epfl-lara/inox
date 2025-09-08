@@ -37,18 +37,25 @@ resolvers ++= Seq(
   "uuverifiers" at "https://eldarica.org/maven"
 )
 
-libraryDependencies ++= Seq(
-  "org.scalatest" %% "scalatest" % "3.2.9" % "test;it",
-  "org.apache.commons" % "commons-lang3" % "3.4",
-  ("uuverifiers" %% "eldarica" % "2.2").cross(CrossVersion.for3Use2_13),
-  ("uuverifiers" %% "princess" % "2025-04-01").cross(CrossVersion.for3Use2_13),
-  "org.scala-lang.modules" %% "scala-parser-combinators" % "2.3.0"
-)
-
-excludeDependencies ++= Seq(
+// 2.13 dependencies coming from Eldarica and Princess that we also use as their
+// Scala 3 versions, causing conflicts; they are expected to be binary
+// compatible and we simply pick the Scala 3 versions
+val doubleDependencies = Seq(
   "org.scala-lang.modules" % "scala-parser-combinators_2.13",
   "org.scala-lang.modules" % "scala-xml_2.13",
   "org.scalactic" % "scalactic_2.13",
+).map(artifact => artifact: ExclusionRule) // invoke the implicit conversion
+
+libraryDependencies ++= Seq(
+  "org.scalatest" %% "scalatest" % "3.2.9" % "test;it",
+  "org.apache.commons" % "commons-lang3" % "3.4",
+  ("uuverifiers" %% "eldarica" % "2.2")
+    .cross(CrossVersion.for3Use2_13)
+    .excludeAll(doubleDependencies: _*),
+  ("uuverifiers" %% "princess" % "2025-04-01")
+    .cross(CrossVersion.for3Use2_13)
+    .excludeAll(doubleDependencies: _*),
+  "org.scala-lang.modules" %% "scala-parser-combinators" % "2.3.0"
 )
 
 lazy val nTestParallelism = {
@@ -134,7 +141,6 @@ lazy val docs = project
     mdocOut := file("doc"),
     mdocExtraArguments := Seq("--no-link-hygiene"),
     scalaVersion := inoxScalaVersion,
-    excludeDependencies := Seq("org.scala-lang.modules" % "scala-parser-combinators_2.13"),
   )
   .enablePlugins(MdocPlugin)
 
