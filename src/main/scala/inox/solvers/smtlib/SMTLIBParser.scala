@@ -217,6 +217,7 @@ trait SMTLIBParser {
     case FloatingPoint.Sub(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPSub(fromSMT(rm, RoundingMode), e1, e2))
     case FloatingPoint.Mul(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPMul(fromSMT(rm, RoundingMode), e1, e2))
     case FloatingPoint.Div(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPDiv(fromSMT(rm, RoundingMode), e1, e2))
+    case FloatingPoint.Rem(t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPRem(e1, e2))
     case FloatingPoint.FMA(rm, t1, t2, t3) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => fromSMTUnifyType(t2, t3, otpe)((e22, e3) => FPFMA(fromSMT(rm, RoundingMode), e1, e2, e3)))
     case FloatingPoint.Neg(t)          => FPUMinus(fromSMT(t, otpe))
     case FloatingPoint.Abs(t)          => FPAbs(fromSMT(t, otpe))

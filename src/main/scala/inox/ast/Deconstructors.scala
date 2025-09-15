@@ -332,6 +332,11 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(rm, t1, t2), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPDiv(es(0), es(1), es(2)))
     },
+    classOf[s.FPRem] -> { expr =>
+      val s.FPRem(t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPRem(es(0), es(1)))
+    },
     classOf[s.FPFMA] -> { expr =>
       val s.FPFMA(rm, t1, t2, t3) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(rm, t1, t2, t3), NoTypes, NoFlags,

@@ -20,7 +20,7 @@ trait BitwuzlaTarget extends SMTLIBTarget with SMTLIBDebugger {
 
 
   override protected def computeSort(t: Type): Sort = t match {
-    case _ : BooleanType | _ : BVType | _ : FPType | RoundingMode | _ : FunctionType => super.computeSort(t)
+    case _ : BooleanType | _ : BVType | _ : FPType | RoundingMode | _ : FunctionType | _ : MapType => super.computeSort(t)
     case UnitType() =>
       emit(DeclareSort(SSymbol("UnitType"), 0))
       Sort(SMTIdentifier(SSymbol("UnitType")))

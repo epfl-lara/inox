@@ -502,6 +502,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case FPSub(rm, a, b) => FloatingPoint.Sub(toSMT(rm), toSMT(a), toSMT(b))
       case FPMul(rm, a, b) => FloatingPoint.Mul(toSMT(rm), toSMT(a), toSMT(b))
       case FPDiv(rm, a, b) => FloatingPoint.Div(toSMT(rm), toSMT(a), toSMT(b))
+      case FPRem(a, b) => FloatingPoint.Rem(toSMT(a), toSMT(b))
       case FPUMinus(e)     => FloatingPoint.Neg(toSMT(e))
       case FPFMA(rm, e1, e2, e3) => FloatingPoint.FMA(toSMT(rm), toSMT(e1), toSMT(e2), toSMT(e3))
       case FPAbs(e)        => FloatingPoint.Abs(toSMT(e))

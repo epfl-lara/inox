@@ -423,6 +423,13 @@ abstract class RecursiveEvaluator(override val program: Program,
         case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") / (" + rhs.asString + ")")
       }
 
+    case FPRem(lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1 % l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1 % l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") % (" + rhs.asString + ")")
+      }
+
     case FPFMA(RoundNearestTiesToEven, e1, e2, e3) =>
       (e(e1), e(e2), e(e3)) match {
         case (Float32Literal(l1), Float32Literal(l2), Float32Literal(l3)) => Float32Literal(java.lang.Math.fma(l1, l2, l3))
@@ -468,6 +475,18 @@ abstract class RecursiveEvaluator(override val program: Program,
       e(expr) match {
         case Float64Literal(l) => Float64Literal(Math.sqrt(l))
         case _ => throw EvalError("Unexpected operation: Math.sqrt(" + expr.asString + ")")
+      }
+
+    case FPFromBinary(11, 53, expr) =>
+      e(expr) match {
+        case Int64Literal(l)   => Float64Literal(java.lang.Double.longBitsToDouble(l))
+        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toBinaryFP")
+      }
+
+    case FPFromBinary(8, 24, expr) =>
+      e(expr) match {
+        case Int32Literal(l)   => Float64Literal(java.lang.Float.intBitsToFloat(l))
+        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toBinaryFP")
       }
 
     case ToDouble(expr) =>
