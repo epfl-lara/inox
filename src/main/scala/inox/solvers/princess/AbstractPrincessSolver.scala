@@ -24,6 +24,7 @@ import utils._
 import SolverResponses._
 
 import scala.collection.mutable.{Map => MutableMap}
+import ap.theories.arrays.{ExtArray, SetTheory}
 
 abstract class AbstractPrincessSolver(override val program: Program,
                                       override val context: Context)
@@ -74,6 +75,10 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
   private[princess] val sorts = new IncrementalMap[Type, Sort]
 
+  // theories with sorted instances
+  private[princess] val arrayTheories = new IncrementalMap[MapType, ExtArray]
+  private[princess] val setTheories = new IncrementalMap[SetType, SetTheory]
+
   private[princess] val adtManager = new ADTManager
 
   def typeToSort(tpe: Type): Sort = tpe match {
@@ -86,8 +91,22 @@ abstract class AbstractPrincessSolver(override val program: Program,
     case CharType() => sorts.cached(tpe)(Mod.UnsignedBVSort(16))
     case BVType(true, size) => sorts.cached(tpe)(Mod.SignedBVSort(size))
     case BVType(false, size) => sorts.cached(tpe)(Mod.UnsignedBVSort(size))
+    case MapType(from, to) =>
+      // the ExtArray instances are cached internally in Princess as well;
+      // the right constructor is called and the sort is retrieved from it 
+      sorts.cached(tpe)(getArrayTheory(from, to).sort)
+    case SetType(base) =>
+      // Sets are also cached, see above
+      sorts.cached(tpe)(getSetTheory(base).sort)
     case _ => unsupported(tpe)
   }
+
+  private def getSetTheory(elemType: Type): SetTheory =
+    setTheories.cached(SetType(elemType))(SetTheory(typeToSort(elemType)))
+
+  private def getArrayTheory(from: Type, to: Type): ExtArray =
+    val tpe = MapType(from, to)
+    arrayTheories.cached(tpe)(ExtArray(Seq(typeToSort(from)), typeToSort(to)))
 
   private def declareStructuralSort(tpe: Type): Unit = {
     adtManager.declareADTs(tpe, (adts: Seq[(Type, DataType)]) => {
@@ -200,6 +219,20 @@ abstract class AbstractPrincessSolver(override val program: Program,
         typeToSort(tpe)
         val (sort, tester) = testers.toB(ADTCons(id, tps))
         sort.hasCtor(parseTerm(expr), tester)
+
+      // SET OPERATIONS
+
+      case SubsetOf(lhs, rhs) =>
+        val SetType(elemType) = rhs.getType: @unchecked
+        val setTheory = getSetTheory(elemType)
+        setTheory.subsetOf(parseTerm(lhs), parseTerm(rhs))
+
+      case ElementOfSet(element, set) => 
+        val SetType(elemType) = set.getType: @unchecked
+        val setTheory = getSetTheory(elemType)
+        setTheory.member(parseTerm(element), parseTerm(set))
+
+      // CORE
 
       case (_: FunctionInvocation) | (_: Application) | (_: ADTSelector) | (_: TupleSelect) =>
         parseTerm(expr) === 0
@@ -371,8 +404,56 @@ abstract class AbstractPrincessSolver(override val program: Program,
         case BVSignedToUnsigned(e) =>
           parseTerm(e)
 
-        case _ => unsupported(expr, "Unexpected formula " + expr)
+        // MAPS
+
+        case al @ MapApply(map, k) =>
+          val MapType(from, to) = map.getType: @unchecked
+          val extTheory = getArrayTheory(from, to) 
+          extTheory.select(parseTerm(map), parseTerm(k))
+
+        case al @ MapUpdated(map, k, v) =>
+          val MapType(from, to) = map.getType: @unchecked
+          val extTheory = getArrayTheory(from, to) 
+          extTheory.store(parseTerm(map), parseTerm(k), parseTerm(v))
+
+        case ra @ FiniteMap(elems, default, kt, vt) =>
+          val extTheory = getArrayTheory(kt, vt)
+          val defaultMap = extTheory.const(parseTerm(default))
+
+          elems.foldLeft(defaultMap):
+            case (acc, k -> v) => extTheory.store(acc, parseTerm(k), parseTerm(v))
+
+        // SETS
+
+        case FiniteSet(elements, base) => 
+          val setTheory = getSetTheory(base)
+          val emptySet = setTheory.emptySet()
+          elements.foldLeft(emptySet):
+            case (acc, e) => setTheory.insert(parseTerm(e), acc)
+
+        case SetDifference(a, b) => 
+          val SetType(elemType) = a.getType: @unchecked
+          val setTheory = getSetTheory(elemType)
+          setTheory.minus(parseTerm(a), parseTerm(b))
+
+        case SetUnion(a, b) =>
+          val SetType(elemType) = a.getType: @unchecked
+          val setTheory = getSetTheory(elemType)
+          setTheory.union(parseTerm(a), parseTerm(b))
+
+        case SetAdd(a, b) =>
+          val SetType(elemType) = a.getType: @unchecked
+          val setTheory = getSetTheory(elemType)
+          setTheory.insert(parseTerm(b), parseTerm(a))
+
+        case SetIntersection(a, b) =>
+          val SetType(elemType) = a.getType: @unchecked
+          val setTheory = getSetTheory(elemType)
+          setTheory.isect(parseTerm(a), parseTerm(b))
+
+        case _ => unsupported(expr, "Unexpected term " + expr)
       }
+
       expr.getType match {
         case BVType(true, bits) => Mod.cast2UnsignedBV(bits, res)
         case _ => res
@@ -464,6 +545,78 @@ abstract class AbstractPrincessSolver(override val program: Program,
           }.flatten.orElse {
             ctx.model.eval(iexpr.asInstanceOf[ITerm]).map(n => constructExpr(n.intValue, tpe))
           }
+
+        case MapType(from, to) =>
+          val extTheory = getArrayTheory(from, to)
+          import extTheory.{const, select, store}
+
+          evalToTerm(iexpr)(ctx.model).collect {
+            case IFunApp(`const`, Seq(defaultTerm)) =>
+              val defaultOpt = rec(defaultTerm, to)
+              for
+                default <- defaultOpt
+              yield FiniteMap(Seq.empty, default, from, to)
+
+            case IFunApp(`store`, Seq(mapTerm, keyTerm, valueTerm)) =>
+              val map = rec(mapTerm, MapType(from, to))
+              val key = rec(keyTerm, from)
+              val value = rec(valueTerm, to)
+              for
+                m <- map
+                k <- key
+                v <- value
+              yield MapUpdated(m, k, v)
+
+            case IFunApp(`select`, Seq(mapTerm, keyTerm)) =>
+              val map = rec(mapTerm, MapType(from, to))
+              val key = rec(keyTerm, from)
+              for
+                m <- map
+                k <- key
+              yield MapApply(m, k)
+          }.flatten
+
+        case SetType(base) =>
+          val setTheory = getSetTheory(base)
+          import setTheory.{emptySet, insert, union, isect, minus}
+
+          evalToTerm(iexpr)(ctx.model).collect {
+            case IFunApp(`emptySet`, _) =>
+              Some(FiniteSet(Seq.empty, base))
+
+            case IFunApp(`insert`, Seq(elemTerm, setTerm)) =>
+              val set = rec(setTerm, SetType(base))
+              val elem = rec(elemTerm, base)
+              for
+                s <- set
+                e <- elem
+              yield SetAdd(s, e)
+
+            case IFunApp(`union`, Seq(setATerm, setBTerm)) =>
+              val setA = rec(setATerm, SetType(base))
+              val setB = rec(setBTerm, SetType(base))
+              for
+                a <- setA
+                b <- setB
+              yield SetUnion(a, b)
+
+            case IFunApp(`isect`, Seq(setATerm, setBTerm)) =>
+              val setA = rec(setATerm, SetType(base))
+              val setB = rec(setBTerm, SetType(base))
+              for
+                a <- setA
+                b <- setB
+              yield SetIntersection(a, b)
+
+            case IFunApp(`minus`, Seq(setATerm, setBTerm)) =>
+              val setA = rec(setATerm, SetType(base))
+              val setB = rec(setBTerm, SetType(base))
+              for
+                a <- setA
+                b <- setB
+              yield SetDifference(a, b)
+          }.flatten
+          
 
         case ft: FunctionType =>
           val iterm = iexpr.asInstanceOf[ITerm]
@@ -666,6 +819,9 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
     sorts.pop()
 
+    arrayTheories.pop()
+    setTheories.pop()
+
     p.pop
   }
 
@@ -681,6 +837,9 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
     sorts.push()
 
+    arrayTheories.push()
+    setTheories.push()
+
     p.push
   }
 
@@ -695,6 +854,9 @@ abstract class AbstractPrincessSolver(override val program: Program,
     testers.clear()
 
     sorts.clear()
+
+    arrayTheories.clear()
+    setTheories.clear()
 
     p.reset
   }
