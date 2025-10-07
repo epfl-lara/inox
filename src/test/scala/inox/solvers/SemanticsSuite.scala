@@ -655,6 +655,14 @@ class SemanticsSuite extends AnyFunSuite {
         FiniteSet(Seq(Int32Literal(2)), Int32Type())
       )))
     )) contains true)
+
+    assert(s.solveVALID(
+       SubsetOf(
+         FiniteSet(Seq(Int32Literal(1)), Int32Type()),
+         FiniteSet(Seq(Int32Literal(1), Int32Literal(2)), Int32Type())
+       )
+      ) contains true)
+
   }
 
   test("Z3 Set Extraction", filterSolvers(_, princess = true, cvc4 = true, cvc5 = true)) { ctx =>
