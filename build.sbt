@@ -6,7 +6,7 @@ git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
-val inoxScalaVersion = "3.5.2"
+val inoxScalaVersion = "3.7.2"
 scalaVersion := inoxScalaVersion
 
 scalacOptions ++= Seq(
@@ -37,18 +37,25 @@ resolvers ++= Seq(
   "uuverifiers" at "https://eldarica.org/maven"
 )
 
-libraryDependencies ++= Seq(
-  "org.scalatest" %% "scalatest" % "3.2.9" % "test;it",
-  "org.apache.commons" % "commons-lang3" % "3.4",
-  ("uuverifiers" %% "eldarica" % "nightly-SNAPSHOT").cross(CrossVersion.for3Use2_13),
-  ("uuverifiers" %% "princess" % "2024-11-08").cross(CrossVersion.for3Use2_13),
-  "org.scala-lang.modules" %% "scala-parser-combinators" % "2.3.0"
-)
-
-excludeDependencies ++= Seq(
+// 2.13 dependencies coming from Eldarica and Princess that we also use as their
+// Scala 3 versions, causing conflicts; they are expected to be binary
+// compatible and we simply pick the Scala 3 versions
+val doubleDependencies = Seq(
   "org.scala-lang.modules" % "scala-parser-combinators_2.13",
   "org.scala-lang.modules" % "scala-xml_2.13",
   "org.scalactic" % "scalactic_2.13",
+).map(artifact => artifact: ExclusionRule) // invoke the implicit conversion
+
+libraryDependencies ++= Seq(
+  "org.scalatest" %% "scalatest" % "3.2.9" % "test;it",
+  "org.apache.commons" % "commons-lang3" % "3.4",
+  ("uuverifiers" %% "eldarica" % "2.2")
+    .cross(CrossVersion.for3Use2_13)
+    .excludeAll(doubleDependencies: _*),
+  ("uuverifiers" %% "princess" % "2025-04-01")
+    .cross(CrossVersion.for3Use2_13)
+    .excludeAll(doubleDependencies: _*),
+  "org.scala-lang.modules" %% "scala-parser-combinators" % "2.3.0"
 )
 
 lazy val nTestParallelism = {
@@ -67,7 +74,7 @@ lazy val nTestParallelism = {
 def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
 
 // lazy val smtlib = RootProject(file("../scala-smtlib")) // If you have a local copy of Scala-SMTLIB and would like to do some changes
-lazy val smtlib = ghProject("https://github.com/agilot/scala-smtlib.git", "065bc4ff049eea76fae30ff010a6767166104bd9")
+lazy val smtlib = ghProject("https://github.com/epfl-lara/scala-smtlib.git", "a8fc084fa48a59f0f58b6f3fba5433b8fe5eb280")
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")
 
@@ -134,7 +141,6 @@ lazy val docs = project
     mdocOut := file("doc"),
     mdocExtraArguments := Seq("--no-link-hygiene"),
     scalaVersion := inoxScalaVersion,
-    excludeDependencies := Seq("org.scala-lang.modules" % "scala-parser-combinators_2.13"),
   )
   .enablePlugins(MdocPlugin)
 
