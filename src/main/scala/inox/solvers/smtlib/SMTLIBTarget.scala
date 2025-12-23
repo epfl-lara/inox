@@ -140,10 +140,6 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     quantifiedTerm(quantifier, exprOps.variablesOf(body).toSeq.map(_.toVal), body)
 
   protected final def declareSort(tpe: Type): Sort =
-    // println(s"@@@@ CALLED WITH $tpe with ${tpe match
-    //   case ADTType(id, _) => id.uniqueName
-    //   case _ => "None"
-    // } and found? ${if sorts.containsA(tpe) then "cached" else "NONONO"}")
     sorts.cachedB(tpe)(computeSort(tpe))
 
   protected def computeSort(t: Type): Sort = t match {
