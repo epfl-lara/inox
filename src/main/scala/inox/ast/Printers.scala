@@ -296,7 +296,6 @@ trait Printer {
     case FPUMinus(e)      => p"-$e"
     case FPMul(_, e1, e2) => p"$e1 * $e2"
     case FPDiv(_, e1, e2) => p"$e1 / $e2"
-    case FPRem(e1, e2) => p"$e1 % $e2"
     case FPFMA(_, e1, e2, e3) => p"FMA($e1, $e2, $e3)"
     case FPAbs(e)         => p"abs($e)"
     case FPMin(e1, e2)    => p"min($e1, $e2)"

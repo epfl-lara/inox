@@ -654,10 +654,6 @@ trait Expressions { self: Trees =>
       if getRoundingMode(rm).isTyped then getFPType(lhs, rhs) else Untyped
   }
 
-  sealed case class FPRem(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getFPType(lhs, rhs)
-  }
-
   sealed case class FPAbs(e: Expr) extends Expr with CachingTyped {
     override protected def computeType(using Symbols): Type = getFPType(e)
   }

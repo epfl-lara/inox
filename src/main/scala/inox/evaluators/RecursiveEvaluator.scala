@@ -423,13 +423,6 @@ abstract class RecursiveEvaluator(override val program: Program,
         case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") / (" + rhs.asString + ")")
       }
 
-    case FPRem(lhs, rhs) =>
-      (e(lhs), e(rhs)) match {
-        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1 % l2)
-        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1 % l2)
-        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") % (" + rhs.asString + ")")
-      }
-
     case FPFMA(RoundNearestTiesToEven, e1, e2, e3) =>
       (e(e1), e(e2), e(e3)) match {
         case (Float32Literal(l1), Float32Literal(l2), Float32Literal(l3)) => Float32Literal(java.lang.Math.fma(l1, l2, l3))

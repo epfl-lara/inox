@@ -427,7 +427,6 @@ class SemanticsSuite extends AnyFunSuite {
       check(s, FPAdd(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i + j))
       check(s, FPSub(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i - j))
       check(s, FPMul(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i * j))
-      // FPRem has a different semantics in SMTLIB and Scala
       check(s, FPDiv(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i / j))
       check(s, FPFMA(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j), Float32Literal(j)), Float32Literal(java.lang.Math.fma(i, j, j)))
       check(s, FPMax(Float32Literal(i), Float32Literal(j)), Float32Literal(i.max(j)))
@@ -443,9 +442,12 @@ class SemanticsSuite extends AnyFunSuite {
       check(s, FPToBVJVM(8, 24, 32, Float32Literal(i)), Int32Literal(i.toInt))
       check(s, FPToBVJVM(8, 24, 64, Float32Literal(i)), Int64Literal(i.toLong))
       check(s, FPFromBinary(8, 24, FPToBinary(8, 24, Float32Literal(i))), Float32Literal(i))
+      check(s, Sqrt(RoundNearestTiesToEven, Float64Literal(i)), Float64Literal(math.sqrt(i)))
       check(s, FPRound(RoundNearestTiesToEven, Float64Literal(i.toDouble)), Float64Literal(Math.rint(i.toDouble)))
       check(s, FPRound(RoundTowardNegative, Float64Literal(i.toDouble)), Float64Literal(Math.floor(i.toDouble)))
       check(s, FPRound(RoundTowardPositive, Float64Literal(i.toDouble)), Float64Literal(Math.ceil(i.toDouble)))
+      check(s, ToDouble(Float32Literal(i)), Float64Literal(i))
+      check(s, ToFloat(FPMul(RoundNearestTiesToEven, Float64Literal(i), Float64Literal(i))), Float32Literal((i.toDouble * i.toDouble).toFloat))
     }
 
   }
