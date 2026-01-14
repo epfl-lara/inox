@@ -280,20 +280,47 @@ trait Printer {
     case BVSignedToUnsigned(e) => p"$e.toUnsigned"
 
     case FPEquals(l, r) => p"$l === $r"
-    case FPCast(8, 24, _, e) => p"$e.toFloat"
-    case FPCast(11, 53, _, e) => p"$e.toDouble"
-    case FPCast(eb, sb, _, e) => p"$e.toBV($eb, $sb)"
+    case ToFloat(e) => p"$e.toFloat"
+    case ToDouble(e) => p"$e.toDouble"
+    case FPCast(eb, sb, _, e) => p"$e.toFP($eb, $sb)"
+    case FPFromBinary(eb, sb, e) => p"$e.toBinaryFP($eb, $sb)"
+    case FPToBVJVM(_, _, 8, e)   => p"$e.toByte"
+    case FPToBVJVM(_, _, 16, e)   => p"$e.toShort"
+    case FPToBVJVM(_, _, 32, e)   => p"$e.toInt"
+    case FPToBVJVM(_, _, 64, e)   => p"$e.toLong"
+    case FPToBV(size, true, _, e)   => p"$e.toSBV($size)"
+    case FPToBV(size, false, _, e)   => p"$e.toUBV($size)"
+    case FPToReal(e)      => p"$e.toReal"
     case FPAdd(_, e1, e2) => p"$e1 + $e2"
     case FPSub(_, e1, e2) => p"$e1 - $e2"
+    case FPUMinus(e)      => p"-$e"
     case FPMul(_, e1, e2) => p"$e1 * $e2"
     case FPDiv(_, e1, e2) => p"$e1 / $e2"
+    case FPFMA(_, e1, e2, e3) => p"FMA($e1, $e2, $e3)"
     case FPAbs(e)         => p"abs($e)"
+    case FPMin(e1, e2)    => p"min($e1, $e2)"
+    case FPMax(e1, e2)    => p"max($e1, $e2)"
+    case FPRound(rm, e)   => p"rint($e)"
     case Sqrt(_, e)       => p"sqrt($e)"
+    case FPLessThan(l, r) => optP {
+      p"$l < $r"
+    }
+    case FPGreaterThan(l, r) => optP {
+      p"$l > $r"
+    }
+    case FPLessEquals(l, r) => optP {
+      p"$l <= $r"
+    }
+    case FPGreaterEquals(l, r) => optP {
+      p"$l >= $r"
+    }
     case FPIsZero(e)      => p"$e == 0"
     case FPIsNaN(e)       => p"$e.isNaN"
     case FPIsInfinite(e)  => p"$e.isInfinite"
     case FPIsNegative(e)  => p"$e.isNegative"
     case FPIsPositive(e)  => p"$e.isPositive"
+    case FPIsNormal(e)    => p"$e.isNormal"
+    case FPIsSubnormal(e) => p"$e.isSubnormal"
 
     case RoundTowardZero => p"RTZ"
     case RoundTowardPositive => p"RTP"

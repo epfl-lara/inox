@@ -388,6 +388,185 @@ abstract class RecursiveEvaluator(override val program: Program,
         case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
       }
 
+    case FPEquals(lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 == l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => BooleanLiteral(l1 == l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") == (" + rhs.asString + ")")
+      }
+
+    case FPAdd(RoundNearestTiesToEven, lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1 + l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1 + l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") + (" + rhs.asString + ")")
+      }
+
+    case FPSub(RoundNearestTiesToEven, lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1 - l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1 - l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") - (" + rhs.asString + ")")
+      }
+
+    case FPMul(RoundNearestTiesToEven, lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1 * l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1 * l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") * (" + rhs.asString + ")")
+      }
+
+    case FPDiv(RoundNearestTiesToEven, lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1 / l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1 / l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") / (" + rhs.asString + ")")
+      }
+
+    case FPFMA(RoundNearestTiesToEven, e1, e2, e3) =>
+      (e(e1), e(e2), e(e3)) match {
+        case (Float32Literal(l1), Float32Literal(l2), Float32Literal(l3)) => Float32Literal(java.lang.Math.fma(l1, l2, l3))
+        case (Float64Literal(l1), Float64Literal(l2), Float64Literal(l3)) => Float64Literal(java.lang.Math.fma(l1, l2, l3))
+        case _ => throw EvalError(f"Unexpected operation: FMA($e1, $e2, $e3)")
+      }
+
+    case FPUMinus(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => Float32Literal(-l)
+        case Float64Literal(l) => Float64Literal(-l)
+        case _ => throw EvalError("Unexpected operation: -" + expr.asString)
+      }
+
+    case FPAbs(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => Float32Literal(Math.abs(l))
+        case Float64Literal(l) => Float64Literal(Math.abs(l))
+        case _ => throw EvalError("Unexpected operation: Math.abs(" + expr.asString + ")")
+      }
+
+    case FPMin(lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1.min(l2))
+        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1.min(l2))
+        case _ => throw EvalError(f"Unexpected operation: min($lhs, $rhs)")
+      }
+
+    case FPMax(lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1.max(l2))
+        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1.max(l2))
+        case _ => throw EvalError(f"Unexpected operation: min($lhs, $rhs)")
+      }
+
+    case FPRound(RoundNearestTiesToEven, expr) =>
+      e(expr) match {
+        case Float64Literal(l) => Float64Literal(Math.rint(l))
+        case _ => throw EvalError(f"Unexpected operation: rint($expr)")
+      }
+
+    case Sqrt(RoundNearestTiesToEven, expr) =>
+      e(expr) match {
+        case Float64Literal(l) => Float64Literal(Math.sqrt(l))
+        case _ => throw EvalError("Unexpected operation: Math.sqrt(" + expr.asString + ")")
+      }
+
+    case FPFromBinary(11, 53, expr) =>
+      e(expr) match {
+        case Int64Literal(l)   => Float64Literal(java.lang.Double.longBitsToDouble(l))
+        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toBinaryFP")
+      }
+
+    case FPFromBinary(8, 24, expr) =>
+      e(expr) match {
+        case Int32Literal(l)   => Float64Literal(java.lang.Float.intBitsToFloat(l))
+        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toBinaryFP")
+      }
+
+    case ToDouble(expr) =>
+      e(expr) match {
+        case Int8Literal(l)    => Float64Literal(l.toDouble)
+        case Int16Literal(l)   => Float64Literal(l.toDouble)
+        case Int32Literal(l)   => Float64Literal(l.toDouble)
+        case Int64Literal(l)   => Float64Literal(l.toDouble)
+        case Float32Literal(l) => Float64Literal(l.toDouble)
+        case Float64Literal(l) => Float64Literal(l)
+        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toDouble")
+      }
+
+    case ToFloat(expr) =>
+      e(expr) match {
+        case Int8Literal(l)    => Float32Literal(l.toFloat)
+        case Int16Literal(l)   => Float32Literal(l.toFloat)
+        case Int32Literal(l)   => Float32Literal(l.toFloat)
+        case Int64Literal(l)   => Float32Literal(l.toFloat)
+        case Float32Literal(l) => Float32Literal(l)
+        case Float64Literal(l) => Float32Literal(l.toFloat)
+        case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toFloat")
+      }
+
+    case FPLessThan(lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 < l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => BooleanLiteral(l1 < l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") < (" + rhs.asString + ")")
+      }
+
+    case FPGreaterThan(lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 > l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => BooleanLiteral(l1 > l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") > (" + rhs.asString + ")")
+      }
+
+    case FPLessEquals(lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 <= l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => BooleanLiteral(l1 <= l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") <= (" + rhs.asString + ")")
+      }
+
+    case FPGreaterEquals(lhs, rhs) =>
+      (e(lhs), e(rhs)) match {
+        case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 >= l2)
+        case (Float64Literal(l1), Float64Literal(l2)) => BooleanLiteral(l1 >= l2)
+        case _ => throw EvalError("Unexpected operation: (" + lhs.asString + ") >= (" + rhs.asString + ")")
+      }
+
+    case FPIsZero(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => BooleanLiteral(l == 0)
+        case Float64Literal(l) => BooleanLiteral(l == 0)
+        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ") == 0")
+      }
+
+    case FPIsInfinite(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => BooleanLiteral(l.isInfinite)
+        case Float64Literal(l) => BooleanLiteral(l.isInfinite)
+        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isInfinite")
+      }
+
+    case FPIsNaN(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => BooleanLiteral(l.isNaN)
+        case Float64Literal(l) => BooleanLiteral(l.isNaN)
+        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isNaN")
+      }
+
+    case FPIsPositive(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => BooleanLiteral(l > 0f || l.equals(+0.0f))
+        case Float64Literal(l) => BooleanLiteral(l > 0d || l.equals(+0.0d))
+        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isPositive")
+      }
+
+    case FPIsNegative(expr) =>
+      e(expr) match {
+        case Float32Literal(l) => BooleanLiteral(l < 0f || l.equals(-0.0f))
+        case Float64Literal(l) => BooleanLiteral(l < 0d || l.equals(-0.0d))
+        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isNegative")
+      }
+
     case SetAdd(s1, elem) =>
       (e(s1), e(elem)) match {
         case (FiniteSet(els1, tpe), evElem) => finiteSet(els1 :+ evElem, tpe)

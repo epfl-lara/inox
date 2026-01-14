@@ -211,30 +211,39 @@ trait SMTLIBParser {
         case Some(BVType(signed, _)) => signed
         case _ => true
       }, (i + 1).bigInteger.intValueExact))
-      
+
     case FloatingPoint.Eq(t1, t2) => fromSMTUnifyType(t1, t2, None)(FPEquals.apply)
     case FloatingPoint.Add(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPAdd(fromSMT(rm, RoundingMode), e1, e2))
     case FloatingPoint.Sub(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPSub(fromSMT(rm, RoundingMode), e1, e2))
     case FloatingPoint.Mul(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPMul(fromSMT(rm, RoundingMode), e1, e2))
     case FloatingPoint.Div(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPDiv(fromSMT(rm, RoundingMode), e1, e2))
-    case FloatingPoint.Neg(t) => UMinus(fromSMT(t, otpe))
-    case FloatingPoint.Abs(t) => FPAbs(fromSMT(t, otpe))
+    case FloatingPoint.FMA(rm, t1, t2, t3) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => fromSMTUnifyType(t2, t3, otpe)((e22, e3) => FPFMA(fromSMT(rm, RoundingMode), e1, e2, e3)))
+    case FloatingPoint.Neg(t)          => FPUMinus(fromSMT(t, otpe))
+    case FloatingPoint.Abs(t)          => FPAbs(fromSMT(t, otpe))
+    case FloatingPoint.Min(t1, t2)     => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPMin(e1, e2))
+    case FloatingPoint.Max(t1, t2)     => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPMax(e1, e2))
+    case FloatingPoint.RoundToIntegral(rm, t)    => FPRound(fromSMT(rm, RoundingMode), fromSMT(t, otpe))
     case FloatingPoint.Sqrt(rm, t)               => Sqrt(fromSMT(rm, RoundingMode), fromSMT(t, otpe))
-    case FloatingPoint.GreaterThan(t1, t2)       => fromSMTUnifyType(t1, t2, Some(BooleanType()))(GreaterThan.apply)
-    case FloatingPoint.LessThan(t1, t2)          => fromSMTUnifyType(t1, t2, Some(BooleanType()))(LessThan.apply)
-    case FloatingPoint.GreaterEquals(t1, t2)     => fromSMTUnifyType(t1, t2, Some(BooleanType()))(GreaterEquals.apply)
-    case FloatingPoint.LessEquals(t1, t2)        => fromSMTUnifyType(t1, t2, Some(BooleanType()))(LessEquals.apply)
+    case FloatingPoint.GreaterThan(t1, t2)       => fromSMTUnifyType(t1, t2, Some(BooleanType()))(FPGreaterThan.apply)
+    case FloatingPoint.LessThan(t1, t2)          => fromSMTUnifyType(t1, t2, Some(BooleanType()))(FPLessThan.apply)
+    case FloatingPoint.GreaterEquals(t1, t2)     => fromSMTUnifyType(t1, t2, Some(BooleanType()))(FPGreaterEquals.apply)
+    case FloatingPoint.LessEquals(t1, t2)        => fromSMTUnifyType(t1, t2, Some(BooleanType()))(FPLessEquals.apply)
     case FloatingPoint.ToFP(newExp, newSig, seq) =>
-      val (rm, arg) = seq match {
-        case Seq(t1, t2) => (fromSMT(t1, Some(RoundingMode)), fromSMT(t2, None))
-        case Seq(t) => (RoundNearestTiesToEven, fromSMT(t, None))
+      seq match {
+        case Seq(t1, t2) => FPCast(newExp.toInt, newSig.toInt, fromSMT(t1, Some(RoundingMode)), fromSMT(t2, None))
+        case Seq(t) => FPFromBinary(newExp.toInt, newSig.toInt, fromSMT(t, None))
       }
-      FPCast(newExp.toInt, newSig.toInt, rm, arg)
-    case FloatingPoint.IsNaN(t)      => FPIsNaN(fromSMT(t, None))
-    case FloatingPoint.IsZero(t)     => FPIsZero(fromSMT(t, None))
-    case FloatingPoint.IsPositive(t) => FPIsPositive(fromSMT(t, None))
-    case FloatingPoint.IsNegative(t) => FPIsNegative(fromSMT(t, None))
-    case FloatingPoint.IsInfinite(t) => FPIsInfinite(fromSMT(t, None))
+    case FloatingPoint.ToReal(t) => FPToReal(fromSMT(t, None))
+    case FloatingPoint.ToUnsignedBitVector(size, rm, expr) => FPToBV(size.toInt, false, fromSMT(rm, Some(RoundingMode)), fromSMT(expr, None))
+    case FloatingPoint.ToSignedBitVector(size, rm, expr)   => FPToBV(size.toInt, true, fromSMT(rm, Some(RoundingMode)), fromSMT(expr, None))
+
+    case FloatingPoint.IsNaN(t)       => FPIsNaN(fromSMT(t, None))
+    case FloatingPoint.IsZero(t)      => FPIsZero(fromSMT(t, None))
+    case FloatingPoint.IsPositive(t)  => FPIsPositive(fromSMT(t, None))
+    case FloatingPoint.IsNegative(t)  => FPIsNegative(fromSMT(t, None))
+    case FloatingPoint.IsInfinite(t)  => FPIsInfinite(fromSMT(t, None))
+    case FloatingPoint.IsNormal(t)    => FPIsNormal(fromSMT(t, None))
+    case FloatingPoint.IsSubnormal(t) => FPIsSubnormal(fromSMT(t, None))
 
     case FloatingPoint.RoundTowardZero() => RoundTowardZero
     case FloatingPoint.RoundTowardPositive() => RoundTowardPositive

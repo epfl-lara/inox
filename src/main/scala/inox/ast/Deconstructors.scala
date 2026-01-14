@@ -312,6 +312,11 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(rm, t1, t2), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPAdd(es(0), es(1), es(2)))
     },
+    classOf[s.FPUMinus] -> { expr =>
+      val s.FPUMinus(e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPUMinus(es.head))
+    },
     classOf[s.FPSub] -> { expr =>
       val s.FPSub(rm, t1, t2) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(rm, t1, t2), NoTypes, NoFlags,
@@ -327,6 +332,11 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(rm, t1, t2), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPDiv(es(0), es(1), es(2)))
     },
+    classOf[s.FPFMA] -> { expr =>
+      val s.FPFMA(rm, t1, t2, t3) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(rm, t1, t2, t3), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPFMA(es(0), es(1), es(2), es(3)))
+    },
     classOf[s.FPAbs] -> { expr =>
       val s.FPAbs(e) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
@@ -337,10 +347,65 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
         (_, _, es, _, _) => t.Sqrt(es(0), es(1)))
     },
+    classOf[s.FPMin] -> { expr =>
+      val s.FPMin(t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPMin(es(0), es(1)))
+    },
+    classOf[s.FPMax] -> { expr =>
+      val s.FPMax(t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPMax(es(0), es(1)))
+    },
+    classOf[s.FPRound] -> { expr =>
+      val s.FPRound(rm, e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPRound(es(0), es(1)))
+    },
     classOf[s.FPCast] -> { expr =>
       val s.FPCast(eb, sb, rm, e) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPCast(eb, sb, es(0), es(1)))
+    },
+    classOf[s.FPFromBinary] -> { expr =>
+      val s.FPFromBinary(eb, sb, e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPFromBinary(eb, sb, es(0)))
+    },
+    classOf[s.FPToBV] -> { expr =>
+      val s.FPToBV(size, signed, rm, e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPToBV(size, signed, es(0), es(1)))
+    },
+    classOf[s.FPToBVJVM] -> { expr =>
+      val s.FPToBVJVM(eb, sb, size, e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPToBVJVM(eb, sb, size, es(0)))
+    },
+    classOf[s.FPToReal] -> { expr =>
+      val s.FPToReal(e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPToReal(es(0)))
+    },
+    classOf[s.FPLessThan] -> { expr =>
+      val s.FPLessThan(t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPLessThan(es(0), es(1)))
+    },
+    classOf[s.FPGreaterThan] -> { expr =>
+      val s.FPGreaterThan(t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPGreaterThan(es(0), es(1)))
+    },
+    classOf[s.FPLessEquals] -> { expr =>
+      val s.FPLessEquals(t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPLessEquals(es(0), es(1)))
+    },
+    classOf[s.FPGreaterEquals] -> { expr =>
+      val s.FPGreaterEquals(t1, t2) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPGreaterEquals(es(0), es(1)))
     },
     classOf[s.FPIsZero] -> { expr =>
       val s.FPIsZero(e) = expr: @unchecked
@@ -366,6 +431,16 @@ trait TreeDeconstructor {
       val s.FPIsInfinite(e) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPIsInfinite(es(0)))
+    },
+    classOf[s.FPIsNormal] -> { expr =>
+      val s.FPIsNormal(e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPIsNormal(es(0)))
+    },
+    classOf[s.FPIsSubnormal] -> { expr =>
+      val s.FPIsSubnormal(e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.FPIsSubnormal(es(0)))
     },
     classOf[s.RoundTowardZero.type] -> { expr =>
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,

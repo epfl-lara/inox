@@ -938,6 +938,7 @@ trait SymbolOps extends TypeOps { self =>
                              (using sem: symbols.Semantics, ctx: Context): Expr = tpe match {
     case StringType()               => StringLiteral("")
     case BVType(signed, size)       => BVLiteral(signed, 0, size)
+    case FPType(exponent, significand) => FPLiteral.plusZero(exponent, significand)
     case RealType()                 => FractionLiteral(0, 1)
     case IntegerType()              => IntegerLiteral(0)
     case CharType()                 => CharLiteral('a')
@@ -1077,6 +1078,7 @@ trait SymbolOps extends TypeOps { self =>
   def isValueOfType(e: Expr, t: Type): Boolean = (e, t) match {
     case (StringLiteral(_), StringType()) => true
     case (BVLiteral(s1, _, s), BVType(s2, t)) => s1 == s2 && s == t
+    case (FPLiteral(e, s, v), FPType(e2, s2)) => e == e2 && s == s2
     case (IntegerLiteral(_), IntegerType()) => true
     case (CharLiteral(_), CharType()) => true
     case (FractionLiteral(_, _), RealType()) => true

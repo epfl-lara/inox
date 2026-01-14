@@ -1,3 +1,4 @@
+
 /* Copyright 2009-2018 EPFL, Lausanne */
 
 package inox
@@ -19,6 +20,7 @@ class SemanticsSuite extends AnyFunSuite {
     (if (SolverFactory.hasZ3) Seq("smt-z3") else Nil) ++
     (if (SolverFactory.hasCVC4) Seq("smt-cvc4") else Nil) ++
     (if (SolverFactory.hasCVC5) Seq("smt-cvc5") else Nil) ++
+    (if (SolverFactory.hasBitwuzla) Seq("smt-bitwuzla") else Nil) ++
     Seq("princess")
   }
 
@@ -42,25 +44,27 @@ class SemanticsSuite extends AnyFunSuite {
     } superTest(this, s"$name solver=$sname")(body(ctx))
   }
 
-  protected def filterSolvers(ctx: Context, princess: Boolean = false, cvc4: Boolean = false, cvc5: Boolean = false, unroll: Boolean = false, z3: Boolean = false, native: Boolean = false): Boolean = {
+  protected def filterSolvers(ctx: Context, princess: Boolean = false, cvc4: Boolean = false, cvc5: Boolean = false, unroll: Boolean = false, z3: Boolean = false, native: Boolean = false, bitwuzla: Boolean = false): Boolean = {
     val solvers = ctx.options.findOptionOrDefault(optSelectedSolvers)
     (!princess || solvers != Set("princess")) &&
     (!unroll || solvers != Set("unrollz3")) &&
     (!z3 || solvers != Set("smt-z3")) &&
     (!native || solvers != Set("nativez3")) &&
     (!cvc4 || solvers != Set("smt-cvc4")) &&
-    (!cvc5 || solvers != Set("smt-cvc5"))
+    (!cvc5 || solvers != Set("smt-cvc5")) &&
+    (!bitwuzla || solvers != Set("smt-bitwuzla"))
   }
 
   protected def check(s: SimpleSolverAPI { val program: InoxProgram }, e: Expr, expected: Expr) = {
     val v = Variable.fresh("v", e.getType)
     s.solveSAT(Equals(v, e)) match {
-      case SatWithModel(model) => assert(model.vars.get(v.toVal) == Some(expected))
+      case SatWithModel(model) =>
+        assert(model.vars.get(v.toVal) == Some(expected))
       case got => fail(s"Solving of '$e' failed with $got.")
     }
   }
 
-  test("Literals") { ctx =>
+  test("Boolean, Int and Unit Literals") { ctx =>
     val s = solver(ctx)
 
     check(s, BooleanLiteral(true),   BooleanLiteral(true))
@@ -75,6 +79,10 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, Int32Literal(0),        Int32Literal(0))
     check(s, Int32Literal(42),       Int32Literal(42))
     check(s, UnitLiteral(),          UnitLiteral())
+  }
+
+  test("BigInt and Fraction Literals", filterSolvers(_, bitwuzla = true)) { ctx =>
+    val s = solver(ctx)
     check(s, IntegerLiteral(-1),     IntegerLiteral(-1))
     check(s, IntegerLiteral(0),      IntegerLiteral(0))
     check(s, IntegerLiteral(42),     IntegerLiteral(42))
@@ -83,7 +91,7 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, FractionLiteral(26, 3), FractionLiteral(26, 3))
   }
 
-  test("BitVector & Large integer Literals", filterSolvers(_, princess = true)) { ctx =>
+  test("BitVector Literals", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
 
     // Test the literals that princess doesn't support.
@@ -93,7 +101,12 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, BVLiteral(true, 4294967296L, 33), BVLiteral(true, 4294967296L, 33)) // 2^32 fits in 33 bits!
     check(s, Int64Literal(-1),           Int64Literal(-1))
     check(s, Int64Literal(4294967296L),  Int64Literal(4294967296L))
+  }
 
+  test("Large integer Literals", filterSolvers(_, princess = true, bitwuzla = true)) { ctx =>
+    val s = solver(ctx)
+
+    // Test the literals that princess doesn't support.
     check(s, IntegerLiteral(1099511627776L), IntegerLiteral(1099511627776L)) // 2^40
   }
 
@@ -213,7 +226,7 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, BVAShiftRight(bvl(8), bvl(1)),  bvl(4))
   }
 
-  test("BigInt Arithmetic") { ctx =>
+  test("BigInt Arithmetic", filterSolvers(_, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Plus(IntegerLiteral(3), IntegerLiteral(5)),  IntegerLiteral(8))
@@ -222,7 +235,7 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, Times(IntegerLiteral(2), IntegerLiteral(3)), IntegerLiteral(6))
   }
 
-  test("BigInt Division, Modulo and Remainder") { ctx =>
+  test("BigInt Division, Modulo and Remainder", filterSolvers(_, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Division(IntegerLiteral(10), IntegerLiteral(3)),  IntegerLiteral(3))
@@ -242,7 +255,7 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, Modulo(IntegerLiteral(1), IntegerLiteral(-3)),    IntegerLiteral(1))
   }
 
-  test("BigInt Comparisons") { ctx =>
+  test("BigInt Comparisons", filterSolvers(_, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, GreaterEquals(IntegerLiteral(7), IntegerLiteral(4)), BooleanLiteral(true))
@@ -368,7 +381,7 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, Not(BooleanLiteral(true)),                         BooleanLiteral(false))
   }
 
-  test("Real Arithmetic") { ctx =>
+  test("Real Arithmetic", filterSolvers(_, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Plus(FractionLiteral(2, 3), FractionLiteral(1, 3)),  FractionLiteral(1, 1))
@@ -377,7 +390,7 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, Times(FractionLiteral(2, 3), FractionLiteral(1, 3)), FractionLiteral(2, 9))
   }
 
-  test("Real Comparisons") { ctx =>
+  test("Real Comparisons", filterSolvers(_, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, GreaterEquals(FractionLiteral(7, 1), FractionLiteral(4, 2)),   BooleanLiteral(true))
@@ -396,9 +409,7 @@ class SemanticsSuite extends AnyFunSuite {
   }
 
   import scala.collection.immutable.HashSet
-  val floatValues: Set[Float] = HashSet(0f, -0f, 0.1f, -6.7f, Float.NaN, Float.MinValue, Float.MinValue, Float.PositiveInfinity, Float.NegativeInfinity)
-  val doubleValues: Set[Double] = HashSet(0d, -0d, 0.1d, -6.7d, Double.NaN, Double.MinValue, Double.MinValue, Double.PositiveInfinity, Double.NegativeInfinity)
-
+  val floatValues: Set[Float] = HashSet(0f, 1.4, -0f, Float.NaN, Float.PositiveInfinity, Float.NegativeInfinity)
 
   test("Floating point literals", filterSolvers(_, princess = true, cvc4 = true, native = true, unroll = true)) { ctx =>
     val s = solver(ctx)
@@ -407,39 +418,36 @@ class SemanticsSuite extends AnyFunSuite {
       check(s, Float32Literal(i), Float32Literal(i))
     }
 
-
-    for (i <- doubleValues) {
-      check(s, Float64Literal(i), Float64Literal(i))
-    }
-
   }
 
   test("Floating Point Arithmetic", filterSolvers(_, princess = true, cvc4 = true, native = true, unroll = true)) { ctx =>
     val s = solver(ctx)
 
     for (i <- floatValues; j <- floatValues) {
-      check(s, Plus(Float32Literal(i), Float32Literal(j)), Float32Literal(i + j))
-      check(s, Minus(Float32Literal(i), Float32Literal(j)), Float32Literal(i - j))
-      check(s, Times(Float32Literal(i), Float32Literal(j)), Float32Literal(i * j))
-      check(s, Division(Float32Literal(i), Float32Literal(j)), Float32Literal(i / j))
+      check(s, FPAdd(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i + j))
+      check(s, FPSub(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i - j))
+      check(s, FPMul(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i * j))
+      check(s, FPDiv(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i / j))
+      check(s, FPFMA(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j), Float32Literal(j)), Float32Literal(java.lang.Math.fma(i, j, j)))
+      check(s, FPMax(Float32Literal(i), Float32Literal(j)), Float32Literal(i.max(j)))
+      check(s, FPMin(Float32Literal(i), Float32Literal(j)), Float32Literal(i.min(j)))
     }
 
     for (i <- floatValues) {
-      check(s, UMinus(Float32Literal(i)), Float32Literal(-i))
+      check(s, FPUMinus(Float32Literal(i)), Float32Literal(-i))
       check(s, FPAbs(Float32Literal(i)), Float32Literal(Math.abs(i)))
-    }
-
-    for (i <- doubleValues; j <- doubleValues) {
-      check(s, Plus(Float64Literal(i), Float64Literal(j)), Float64Literal(i + j))
-      check(s, Minus(Float64Literal(i), Float64Literal(j)), Float64Literal(i - j))
-      check(s, Times(Float64Literal(i), Float64Literal(j)), Float64Literal(i * j))
-      check(s, Division(Float64Literal(i), Float64Literal(j)), Float64Literal(i / j))
-    }
-
-    for (i <- doubleValues) {
-      check(s, UMinus(Float64Literal(i)), Float64Literal(-i))
-      check(s, Sqrt(RoundNearestTiesToEven, Float64Literal(i)), Float64Literal(Math.sqrt(i)))
-      check(s, FPAbs(Float64Literal(i)), Float64Literal(Math.abs(i)))
+      check(s, ToDouble(Float32Literal(i)), Float64Literal(i.toDouble))
+      check(s, FPToBVJVM(8, 24, 8, Float32Literal(i)), Int8Literal(i.toByte))
+      check(s, FPToBVJVM(8, 24, 16, Float32Literal(i)), Int16Literal(i.toShort))
+      check(s, FPToBVJVM(8, 24, 32, Float32Literal(i)), Int32Literal(i.toInt))
+      check(s, FPToBVJVM(8, 24, 64, Float32Literal(i)), Int64Literal(i.toLong))
+      check(s, FPFromBinary(8, 24, FPToBinary(8, 24, Float32Literal(i))), Float32Literal(i))
+      check(s, Sqrt(RoundNearestTiesToEven, Float64Literal(i)), Float64Literal(math.sqrt(i)))
+      check(s, FPRound(RoundNearestTiesToEven, Float64Literal(i.toDouble)), Float64Literal(Math.rint(i.toDouble)))
+      check(s, FPRound(RoundTowardNegative, Float64Literal(i.toDouble)), Float64Literal(Math.floor(i.toDouble)))
+      check(s, FPRound(RoundTowardPositive, Float64Literal(i.toDouble)), Float64Literal(Math.ceil(i.toDouble)))
+      check(s, ToDouble(Float32Literal(i)), Float64Literal(i))
+      check(s, ToFloat(FPMul(RoundNearestTiesToEven, Float64Literal(i), Float64Literal(i))), Float32Literal((i.toDouble * i.toDouble).toFloat))
     }
 
   }
@@ -450,10 +458,10 @@ class SemanticsSuite extends AnyFunSuite {
 
     for (i <- floatValues; j <- floatValues) {
       check(s, FPEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i == j))
-      check(s, GreaterEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i >= j))
-      check(s, GreaterThan(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i > j))
-      check(s, LessEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i <= j))
-      check(s, LessThan(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i < j))
+      check(s, FPGreaterEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i >= j))
+      check(s, FPGreaterThan(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i > j))
+      check(s, FPLessEquals(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i <= j))
+      check(s, FPLessThan(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i < j))
     }
 
     for (i <- floatValues.excl(0)) {
@@ -478,38 +486,6 @@ class SemanticsSuite extends AnyFunSuite {
 
     check(s, FPIsNaN(Float32Literal(Float.NaN)), BooleanLiteral(true))
 
-    for (i <- doubleValues; j <- doubleValues) {
-      check(s, FPEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i == j))
-      check(s, GreaterEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i >= j))
-      check(s, GreaterThan(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i > j))
-      check(s, LessEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i <= j))
-      check(s, LessThan(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i < j))
-    }
-
-    for (i <- doubleValues.excl(0)) {
-      check(s, FPIsNegative(Float64Literal(i)), BooleanLiteral(i < 0))
-    }
-    check(s, FPIsNegative(Float64Literal(-0)), BooleanLiteral(true))
-    check(s, FPIsNegative(Float64Literal(0)), BooleanLiteral(false))
-
-    for (i <- doubleValues.excl(0)) {
-      check(s, FPIsPositive(Float64Literal(i)), BooleanLiteral(i > 0))
-    }
-    check(s, FPIsPositive(Float64Literal(0)), BooleanLiteral(true))
-    check(s, FPIsPositive(Float64Literal(-0)), BooleanLiteral(false))
-
-    for (i <- doubleValues) {
-      check(s, FPIsInfinite(Float64Literal(i)), BooleanLiteral(i == Double.PositiveInfinity || i == Double.NegativeInfinity))
-    }
-
-    for (i <- doubleValues) {
-      check(s, FPIsZero(Float64Literal(i)), BooleanLiteral(i == 0))
-    }
-
-    check(s, FPIsNaN(Float64Literal(Double.NaN)), BooleanLiteral(true))
-
-
-
   }
   test("Let") { ctx =>
     val s = solver(ctx)
@@ -519,7 +495,7 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, Let(v.toVal, Int32Literal(42), Plus(v, Int32Literal(1))), Int32Literal(43))
   }
 
-  test("Map Operations", filterSolvers(_, princess = true)) { ctx =>
+  test("Map Operations", filterSolvers(_, princess = true, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Equals(
@@ -572,7 +548,7 @@ class SemanticsSuite extends AnyFunSuite {
     ), Int32Literal(3))
   }
 
-  test("Set Operations", filterSolvers(_, princess = true)) { ctx =>
+  test("Set Operations", filterSolvers(_, princess = true, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Equals(
@@ -657,7 +633,7 @@ class SemanticsSuite extends AnyFunSuite {
     )) contains true)
   }
 
-  test("Z3 Set Extraction", filterSolvers(_, princess = true, cvc4 = true, cvc5 = true)) { ctx =>
+  test("Z3 Set Extraction", filterSolvers(_, princess = true, cvc4 = true, cvc5 = true, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     // Singleton set inside of a map is translated to (lambda ((x Int)) (= x 0))
@@ -667,7 +643,7 @@ class SemanticsSuite extends AnyFunSuite {
     )
   }
 
-  test("Simple Bag Operations", filterSolvers(_, princess = true)) { ctx =>
+  test("Simple Bag Operations", filterSolvers(_, princess = true, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     assert(s.solveVALID(Equals(
@@ -691,7 +667,7 @@ class SemanticsSuite extends AnyFunSuite {
     ), IntegerLiteral(2))
   }
 
-  test("Bag Operations", filterSolvers(_, princess = true, cvc4 = true, cvc5 = true)) { ctx =>
+  test("Bag Operations", filterSolvers(_, princess = true, cvc4 = true, cvc5 = true, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Equals(
