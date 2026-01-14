@@ -25,6 +25,9 @@ ARCH=$(uname -m)
 # short arch name as used by z3 builds
 SHORT_ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/;')
 
+# x86_64 or arm64 as used by Bitwuzla builds
+BITWUZLA_ARCH=$(uname -m | sed 's/aarch64/arm64/;')
+
 # libc linked against z3
 # (glibc for Linux, osx for macOS)
 Z3_LIBC_NAME=$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/osx/;s/linux/glibc/;')
@@ -91,7 +94,7 @@ rm -rf "$TEMP_DIR"
 echo "$INFO_MSG Installing Bitwuzla (v${BITWUZLA_VER})"
 
 mkdir -p "$TEMP_DIR"
-$CURL -L https://github.com/bitwuzla/bitwuzla/releases/download/${BITWUZLA_VER}/Bitwuzla-Linux-x86_64-static.zip --output "$TEMP_DIR/bitwuzla.zip"
+$CURL -L https://github.com/bitwuzla/bitwuzla/releases/download/${BITWUZLA_VER}/Bitwuzla-${CVC5_OS_NAME}-${BITWUZLA_ARCH}-static.zip --output "$TEMP_DIR/bitwuzla.zip"
 unzip -q "$TEMP_DIR/bitwuzla.zip" -d "$TEMP_DIR" 
 BITWUZLA_DIR=$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d -name "*Bitwuzla*")
 mv "$BITWUZLA_DIR/bin/bitwuzla" "$SOLVERS_DIR/bitwuzla"
