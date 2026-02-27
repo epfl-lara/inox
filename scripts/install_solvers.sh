@@ -74,11 +74,20 @@ echo "$INFO_MSG Installing Z3 (v${Z3_VER})"
 # z3 release file names contain libc versions in them, which makes them hard to
 # guess. Just get the correct one via the GitHub release API.
 Z3_FILE_PREFIX="z3-${Z3_VER}-${SHORT_ARCH}-${Z3_LIBC_NAME}" # followed by -<libcversion>.zip
+GH_API_AUTH=""
+if [ -n "$GITHUB_TOKEN" ]; then
+  GH_API_AUTH="-H"
+fi
 Z3_URL=$(
-  $CURL "https://api.github.com/repos/Z3Prover/z3/releases/tags/z3-${Z3_VER}" | # get release info
+  $CURL $GH_API_AUTH ${GH_API_AUTH:+"Authorization: Bearer $GITHUB_TOKEN"} "https://api.github.com/repos/Z3Prover/z3/releases/tags/z3-${Z3_VER}" | # get release info
   grep "browser_download_url.*${Z3_FILE_PREFIX}" | # find url for the correct build
   sed 's/^.*: //;s/^"//;s/"$//' # strip non-url
 )
+if [ -z "$Z3_URL" ]; then
+  echo "$ERROR_MSG Could not find Z3 ${Z3_VER} release for ${SHORT_ARCH}-${Z3_LIBC_NAME} via GitHub API."
+  echo "$ERROR_MSG This may be due to API rate limiting. Set GITHUB_TOKEN to authenticate."
+  exit 1
+fi
 $CURL "${Z3_URL}" --output "$TEMP_DIR/z3.zip"
 unzip -q "$TEMP_DIR/z3.zip" -d "$TEMP_DIR" 
 Z3_DIR=$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d -name "*z3*")
