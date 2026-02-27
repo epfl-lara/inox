@@ -11,6 +11,7 @@ jobs:
     name: ${{ matrix.runners.name }} / JDK ${{ matrix.java-version }}
     runs-on: ${{ matrix.runners.labels }}
     strategy:
+      fail-fast: false
       matrix:
         runners:
           - name: Linux
