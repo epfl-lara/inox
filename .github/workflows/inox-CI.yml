@@ -26,6 +26,7 @@ jobs:
       Z3_VER: 4.15.1
       CVC4_VER: 1.8
       CVC5_VER: 1.2.1
+      BITWUZLA_VER: 0.8.2
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -56,11 +57,11 @@ jobs:
     - name: Prepare temp folder
       run: rm -rf $JAVA_OPTS_TMP_DIR && mkdir -p $JAVA_OPTS_TMP_DIR
     - name: Install solvers
-      run: ./scripts/install_solvers.sh $GITHUB_WORKSPACE/.local/bin $Z3_VER $CVC4_VER $CVC5_VER
+      run: ./scripts/install_solvers.sh $GITHUB_WORKSPACE/.local/bin $Z3_VER $CVC4_VER $CVC5_VER $BITWUZLA_VER
     - name: Add solvers to PATH
       run: echo "$GITHUB_WORKSPACE/.local/bin" >> $GITHUB_PATH
     - name: Test solver availability
-      run: cvc5 --version && z3 --version && cvc4 --version
+      run: cvc5 --version && z3 --version && cvc4 --version && bitwuzla --version
     - name: Run Tests
       run: sbt -Dtest-parallelism=10 -batch test
     - name: Run integration tests
