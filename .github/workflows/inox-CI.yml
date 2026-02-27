@@ -18,7 +18,7 @@ jobs:
             labels: ['self-hosted', 'linux']
           - name: macOS ARM64
             os: macOS
-            labels: ['self-hosted', 'macOS', 'ARM64']
+            labels: ['macos-latest']
         java-version: [17, 21]
     env:
       # solver versions to test against
