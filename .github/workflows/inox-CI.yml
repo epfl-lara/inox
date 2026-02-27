@@ -57,6 +57,8 @@ jobs:
       run: rm -rf $JAVA_OPTS_TMP_DIR && mkdir -p $JAVA_OPTS_TMP_DIR
     - name: Install solvers
       run: ./scripts/install_solvers.sh $GITHUB_WORKSPACE/.local/bin $Z3_VER $CVC4_VER $CVC5_VER
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Add solvers to PATH
       run: echo "$GITHUB_WORKSPACE/.local/bin" >> $GITHUB_PATH
     - name: Test solver availability
