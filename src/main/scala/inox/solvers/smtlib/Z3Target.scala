@@ -235,16 +235,22 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         val set = fromSMT(arr, st)
         IfExpr(fromSMT(elem, BooleanType()), SetAdd(set, fromSMT(key, base)), set)
 
+      // Matches (_ map or) in both long form (_ map (or (Bool Bool) Bool))
+      // and short form (_ map or).
       case (FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
-          List(SList(List(SSymbol("or"), SList(List(SSymbol("Bool"), SSymbol("Bool"))), SSymbol("Bool"))))), None),
+          List(SList(List(SSymbol("or"), SList(List(SSymbol("Bool"), SSymbol("Bool"))), SSymbol("Bool")))
+            | SSymbol("or"))), None),
         Seq(s1, s2)
       ), _) =>
         fromSMTUnifyType(s1, s2, otpe)((e1, e2) => SetUnion(extractSet(e1), extractSet(e2)))
 
+      // Matches (_ map and) in both long form (_ map (and (Bool Bool) Bool))
+      // and short form (_ map and).
       case (FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
-          List(SList(List(SSymbol("and"), SList(List(SSymbol("Bool"), SSymbol("Bool"))), SSymbol("Bool"))))), None),
+          List(SList(List(SSymbol("and"), SList(List(SSymbol("Bool"), SSymbol("Bool"))), SSymbol("Bool")))
+            | SSymbol("and"))), None),
         Seq(s1, s2)
       ), _) =>
         fromSMTUnifyType(s1, s2, otpe)((e1, e2) => SetIntersection(extractSet(e1), extractSet(e2)))
@@ -277,9 +283,12 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       ), None) =>
         MapUpdated(fromSMT(arr), fromSMT(key), fromSMT(elem))
 
+      // Matches (_ map ite) in both long form (_ map (ite (Bool T T) T))
+      // and short form (_ map ite).
       case (FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
-          List(SList(List(SSymbol("ite"), SList(List(SSymbol("Bool"), _, _, _)), _)))), None),
+          List(SList(List(SSymbol("ite"), SList(List(SSymbol("Bool"), _, _, _)), _))
+            | SSymbol("ite"))), None),
         Seq(mask, map1, map2)
       ), _) =>
         MapMerge(fromSMT(mask), fromSMT(map1), fromSMT(map2))
