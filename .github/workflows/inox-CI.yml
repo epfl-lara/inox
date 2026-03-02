@@ -53,6 +53,14 @@ jobs:
       run: |
         ./scripts/install_sbt.sh
         echo "$(pwd)/sbt/bin/" >> $GITHUB_PATH
+    - name: Set sbt global base
+      # scala-smtlib is fetched via sbt's RootProject(uri(...)), which clones
+      # and compiles it into the sbt global staging directory. On self-hosted
+      # runners this directory is shared across runners and persists across
+      # runs, causing stale .tasty/.class files and race conditions between
+      # concurrent jobs. Isolating sbt's global base per workspace avoids
+      # this. Can be reverted if scala-smtlib is published to Maven.
+      run: echo "SBT_OPTS=-Dsbt.global.base=$GITHUB_WORKSPACE/.sbt-global" >> $GITHUB_ENV
     - name: Prepare temp folder
       run: rm -rf $JAVA_OPTS_TMP_DIR && mkdir -p $JAVA_OPTS_TMP_DIR
     - name: Install solvers
