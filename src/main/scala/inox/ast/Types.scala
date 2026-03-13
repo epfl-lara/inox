@@ -8,23 +8,25 @@ import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 trait Types { self: Trees =>
 
   trait Typed extends Printable {
-    def getType(using Symbols): Type
+    def getTpe(stripRefinements: Boolean)(using Symbols): Type
+    def getType(using Symbols): Type = getTpe(stripRefinements = true)
     def isTyped(using Symbols): Boolean = getType != Untyped
   }
 
   protected trait CachingTyped extends Typed {
     private var cache: (Symbols, Type) = (null, null)
+    private var noRefinementsCache: (Symbols, Type) = (null, null)
 
-    final def getType(using s: Symbols): Type = {
-      val (symbols, tpe) = cache
+    final def getTpe(stripRefinements: Boolean)(using s: Symbols): Type = {
+      val (symbols, tpe) = if (stripRefinements) noRefinementsCache else cache
       if (s eq symbols) tpe else {
-        val tpe = computeType
-        cache = s -> tpe
+        val tpe = computeTpe(stripRefinements)
+        if (stripRefinements) { noRefinementsCache = s -> tpe } else { cache = s -> tpe }
         tpe
       }
     }
 
-    protected def computeType(using Symbols): Type
+    protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type
   }
 
   protected def unveilUntyped(tpe: Type): Type = {
@@ -38,21 +40,22 @@ trait Types { self: Trees =>
 
     private def setSimple(): this.type = { simple = true; this }
 
-    final def getType(using s: Symbols): Type = {
-      if (simple) this else {
+    final def getTpe(stripRefinements: Boolean)(using s: Symbols): Type = 
+      if (!stripRefinements || simple) this else {
         val (symbols, tpe) = cache
         if (s eq symbols) tpe else {
-          val tpe = computeType
+          val tpe = computeErasedType
           cache = s -> tpe.setSimple()
           tpe
         }
       }
-    }
 
-    protected def computeType(using Symbols): Type = {
+    protected def computeErasedType(using Symbols): Type = {
       val NAryType(tps, recons) = this: @unchecked
       unveilUntyped(recons(tps.map(_.getType)))
     }
+
+    def stripToplevelRefinement(using Symbols): Type = this
   }
 
   case object Untyped extends Type
@@ -176,7 +179,7 @@ trait Types { self: Trees =>
   sealed case class PiType(params: Seq[ValDef], to: Type) extends Type with TypeNormalization {
     require(params.nonEmpty)
 
-    override protected def computeType(using Symbols): Type =
+    override protected def computeErasedType(using Symbols): Type =
       unveilUntyped(FunctionType(params.map(_.getType), to.getType))
 
     override def hashCode: Int = 31 * code
@@ -189,7 +192,7 @@ trait Types { self: Trees =>
   sealed case class SigmaType(params: Seq[ValDef], to: Type) extends Type with TypeNormalization {
     require(params.nonEmpty)
 
-    override protected def computeType(using Symbols): Type =
+    override protected def computeErasedType(using Symbols): Type =
       unveilUntyped(TupleType(params.map(_.getType) :+ to.getType))
 
     override def hashCode: Int = 53 * code
@@ -200,7 +203,7 @@ trait Types { self: Trees =>
   }
 
   sealed case class RefinementType(vd: ValDef, prop: Expr) extends Type with TypeNormalization {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeErasedType(using Symbols): Type =
       checkParamType(prop, BooleanType(), vd.getType)
 
     override def hashCode: Int = 79 * code
@@ -208,6 +211,8 @@ trait Types { self: Trees =>
       case ref: RefinementType => this `same` ref
       case _ => false
     }
+
+    override def stripToplevelRefinement(using Symbols): Type = vd.getTpe(stripRefinements = false).stripToplevelRefinement
   }
 
   /* Utility methods for type checking */
@@ -265,18 +270,18 @@ trait Types { self: Trees =>
     case _ => Untyped
   }
 
-  protected def getSetType(tpe: Typed, tpes: Typed*)(using Symbols): Type = tpe.getType match {
-    case st: SetType => checkAllTypes(tpes, st, st)
+  protected def getSetType(tpe: Typed, tpes: Typed*)(stripRefinements: Boolean)(using Symbols): Type = tpe.getType match {
+    case st: SetType => checkAllTypes(tpes, st, if stripRefinements then st else tpe.getTpe(stripRefinements = false).stripToplevelRefinement)
     case _ => Untyped
   }
 
-  protected def getBagType(tpe: Typed, tpes: Typed*)(using Symbols): Type = tpe.getType match {
-    case bt: BagType => checkAllTypes(tpes, bt, bt)
+  protected def getBagType(tpe: Typed, tpes: Typed*)(stripRefinements: Boolean)(using Symbols): Type = tpe.getType match {
+    case bt: BagType => checkAllTypes(tpes, bt, if stripRefinements then bt else tpe.getTpe(stripRefinements = false).stripToplevelRefinement)
     case _ => Untyped
   }
 
-  protected def getMapType(tpe: Typed, tpes: Typed*)(using Symbols): Type = tpe.getType match {
-    case mt: MapType => checkAllTypes(tpes, mt, mt)
+  protected def getMapType(tpe: Typed, tpes: Typed*)(stripRefinements: Boolean)(using Symbols): Type = tpe.getType match {
+    case mt: MapType => checkAllTypes(tpes, mt, if stripRefinements then mt else tpe.getTpe(stripRefinements = false).stripToplevelRefinement)
     case _ => Untyped
   }
 
