@@ -45,7 +45,7 @@ trait Definitions { self: Trees =>
     def tpe: Type
     def flags: Seq[Flag]
 
-    def getType(using Symbols): Type = tpe.getType
+    def getTpe(stripRefinements: Boolean)(using Symbols): Type = tpe.getTpe(stripRefinements)
 
     def to[A <: VariableSymbol](using ev: VariableConverter[A]): A = ev.convert(this)
 
@@ -505,6 +505,7 @@ trait Definitions { self: Trees =>
 
     /** The (non-dependent) return type of this function definition */
     def getType(using Symbols) = returnType.getType
+    def getTpe(stripRefinements: Boolean)(using Symbols) = if stripRefinements then returnType.getType else returnType
 
     def copy(
       id: Identifier = this.id,
@@ -592,6 +593,7 @@ trait Definitions { self: Trees =>
 
     /** The (non-dependent) return type of this typed function definition */
     def getType = returnType.getType
+    def getTpe(stripRefinements: Boolean) = if stripRefinements then returnType.getType else returnType
 
     /** The body of the respective [[FunDef]] instantiated with the real type parameters */
     @inline def fullBody: Expr = _fullBody.get
