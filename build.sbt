@@ -6,7 +6,7 @@ git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
-val inoxScalaVersion = "3.8.3-RC1-bin-20260218-bb6fc60-NIGHTLY"
+val inoxScalaVersion = "3.8.4-RC1-bin-20260317-ab3d7ec-NIGHTLY"
 val laraOrganization = "ch.epfl.lara"
 
 scalaVersion := inoxScalaVersion
