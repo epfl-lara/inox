@@ -55,7 +55,7 @@ trait Types { self: Trees =>
       unveilUntyped(recons(tps.map(_.getType)))
     }
 
-    def stripToplevelRefinement(using Symbols): Type = this
+    def stripToplevelRefinement: Type = this
   }
 
   case object Untyped extends Type
@@ -212,7 +212,7 @@ trait Types { self: Trees =>
       case _ => false
     }
 
-    override def stripToplevelRefinement(using Symbols): Type = vd.getTpe(stripRefinements = false).stripToplevelRefinement
+    override def stripToplevelRefinement: Type = vd.tpe.stripToplevelRefinement
   }
 
   /* Utility methods for type checking */
