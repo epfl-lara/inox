@@ -34,8 +34,8 @@ trait Expressions { self: Trees =>
     * @param body The expression following `assume(pred)`
     */
   sealed case class Assume(pred: Expr, body: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
-      checkParamType(pred, BooleanType(), body.getType)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
+      checkParamType(pred, BooleanType(), body.getTpe(stripRefinements))
   }
 
 
@@ -71,24 +71,28 @@ trait Expressions { self: Trees =>
     * @see [[SymbolOps.let the let constructor]]
     */
   sealed case class Let(vd: ValDef, value: Expr, body: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
-      checkParamType(value, vd.getType, body.getType)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
+      checkParamType(value, vd.getType, body.getTpe(stripRefinements))
   }
 
   /* Higher-order Functions */
 
   /** $encodingof `callee(args...)`, where [[callee]] is an expression of a function type (not a method) */
   sealed case class Application(callee: Expr, args: Seq[Expr]) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = callee.getType match {
-      case FunctionType(from, to) => checkParamTypes(args, from, to)
-      case _ => Untyped
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = {
+      val calleTpe = if (stripRefinements) callee.getType else callee.getTpe(stripRefinements = false).stripToplevelRefinement
+      calleTpe match {
+        case FunctionType(from, to) => to
+        // case PiType(params, to) => ???
+        case _ => Untyped
+      }
     }
   }
 
   /** $encodingof `(args) => body` */
   sealed case class Lambda(params: Seq[ValDef], body: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
-      FunctionType(params.map(_.getType), body.getType).getType
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
+      FunctionType(params.map(_.getTpe(stripRefinements)), body.getTpe(stripRefinements)).getTpe(stripRefinements)
 
     def paramSubst(realArgs: Seq[Expr]) = {
       require(realArgs.size == params.size)
@@ -102,13 +106,13 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `forall(...)` (universal quantification) */
   sealed case class Forall(params: Seq[ValDef], body: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = body.getType
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = body.getTpe(stripRefinements)
   }
 
   /** $encodingof `choose(...)` (returns a value satisfying the provided predicate) */
   sealed case class Choose(res: ValDef, pred: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
-      checkParamType(pred, BooleanType(), res.getType)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
+      checkParamType(pred, BooleanType(), res.getTpe(stripRefinements))
   }
 
   /* Control flow */
@@ -117,11 +121,11 @@ trait Expressions { self: Trees =>
   sealed case class FunctionInvocation(id: Identifier, tps: Seq[Type], args: Seq[Expr])
     extends Expr with CachingTyped {
 
-    override protected def computeType(using s: Symbols): Type = {
+    override protected def computeTpe(stripRefinements: Boolean)(using s: Symbols): Type = {
       s.lookupFunction(id)
         .filter(fd => tps.size == fd.tparams.size && args.size == fd.params.size)
         .map(_.typed(tps))
-        .map(tfd => checkParamTypes(args, tfd.params.map(_.getType), tfd.getType))
+        .map(tfd => checkParamTypes(args, tfd.params.map(_.getType), tfd.getTpe(stripRefinements)))
         .getOrElse(Untyped)
     }
 
@@ -137,8 +141,8 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `if(...) ... else ...` */
   sealed case class IfExpr(cond: Expr, thenn: Expr, elze: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using s: Symbols): Type = {
-      if (s.isSubtypeOf(cond.getType, BooleanType())) s.leastUpperBound(thenn.getType, elze.getType)
+    override protected def computeTpe(stripRefinements: Boolean)(using s: Symbols): Type = {
+      if (s.isSubtypeOf(cond.getType, BooleanType())) s.leastUpperBound(thenn.getTpe(stripRefinements), elze.getTpe(stripRefinements))
       else Untyped
     }
   }
@@ -152,12 +156,12 @@ trait Expressions { self: Trees =>
 
   /** $encodingof a character literal */
   sealed case class CharLiteral(value: Char) extends Literal[Char] {
-    def getType(using Symbols): Type = CharType()
+    def getTpe(stripRefinements: Boolean)(using Symbols): Type = CharType()
   }
 
   /** $encodingof a n-bit bitvector literal */
   sealed case class BVLiteral(signed: Boolean, value: BitSet, size: Int) extends Literal[BitSet] {
-    def getType(using Symbols): Type = BVType(signed, size)
+    def getTpe(stripRefinements: Boolean)(using Symbols): Type = BVType(signed, size)
     def toBigInt: BigInt = {
       val res = value.foldLeft(BigInt(0))((res, i) => res + BigInt(2).pow(i-1))
       if (signed && value(size))
@@ -220,18 +224,18 @@ trait Expressions { self: Trees =>
 
   /** $encodingof an infinite precision integer literal */
   sealed case class IntegerLiteral(value: BigInt) extends Literal[BigInt] {
-    def getType(using Symbols): Type = IntegerType()
+    def getTpe(stripRefinements: Boolean)(using Symbols): Type = IntegerType()
   }
 
   /** $encodingof a fraction literal */
   sealed case class FractionLiteral(numerator: BigInt, denominator: BigInt) extends Literal[(BigInt, BigInt)] {
     val value = (numerator, denominator)
-    def getType(using Symbols): Type = RealType()
+    def getTpe(stripRefinements: Boolean)(using Symbols): Type = RealType()
   }
 
   /** $encodingof a floating point literal */
   sealed case class FPLiteral(exponent: Int, significand: Int, value: BitSet) extends Literal[BitSet] {
-    override def getType(using Symbols) = FPType(exponent, significand)
+    override def getTpe(stripRefinements: Boolean)(using Symbols) = FPType(exponent, significand)
     def toBV: BVLiteral = BVLiteral(true, value, exponent + significand)
   }
 
@@ -272,25 +276,25 @@ trait Expressions { self: Trees =>
 
   /** $encodingof a boolean literal '''true''' or '''false''' */
   sealed case class BooleanLiteral(value: Boolean) extends Literal[Boolean] {
-    def getType(using Symbols): Type = BooleanType()
+    def getTpe(stripRefinements: Boolean)(using Symbols): Type = BooleanType()
   }
 
   /** $encodingof a string literal */
   sealed case class StringLiteral(value: String) extends Literal[String] {
-    def getType(using Symbols): Type = StringType()
+    def getTpe(stripRefinements: Boolean)(using Symbols): Type = StringType()
   }
 
   /** $encodingof the unit literal `()` */
   sealed case class UnitLiteral() extends Literal[Unit] {
     val value = ()
-    def getType(using Symbols): Type = UnitType()
+    def getTpe(stripRefinements: Boolean)(using Symbols): Type = UnitType()
   }
 
   /** Generic values. Represent values of the generic type `tp`.
     * This is useful e.g. to present counterexamples of generic types.
     */
   sealed case class GenericValue(tp: TypeParameter, id: Int) extends Expr with Terminal {
-    def getType(using Symbols): Type = tp.getType
+    def getTpe(stripRefinements: Boolean)(using Symbols): Type = tp.getTpe(stripRefinements)
   }
 
   /** $encodingof `ct(args...)`
@@ -302,7 +306,7 @@ trait Expressions { self: Trees =>
 
     def getConstructor(using s: Symbols) = s.getConstructor(id, tps)
 
-    override protected def computeType(using s: Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using s: Symbols): Type =
       s.lookupConstructor(id).flatMap { cons =>
         s.lookupSort(cons.sort)
           .filter(_.tparams.size == tps.size)
@@ -317,7 +321,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `.isInstanceOf[...]` */
   sealed case class IsConstructor(expr: Expr, id: Identifier) extends Expr with CachingTyped {
-    override protected def computeType(using s: Symbols): Type = getADTType(expr) match {
+    override protected def computeTpe(stripRefinements: Boolean)(using s: Symbols): Type = getADTType(expr) match {
       case ADTType(sort, _) => (s.lookupSort(sort), s.lookupConstructor(id)) match {
         case (Some(sort), Some(cons)) if sort.id == cons.sort => BooleanType()
         case _ => Untyped
@@ -340,20 +344,23 @@ trait Expressions { self: Trees =>
 
     def selectorIndex(using Symbols) = constructor.definition.selectorID2Index(selector)
 
-    override protected def computeType(using s: Symbols): Type = getADTType(adt) match {
-      case ADTType(id, tps) =>
-        s.lookupSort(id)
-          .filter(_.tparams.size == tps.size)
-          .map(_.typed(tps)).toSeq
-          .flatMap(_.constructors.flatMap(_.fields))
-          .find(_.id == selector).map(_.getType).getOrElse(Untyped)
-      case _ => Untyped
+    override protected def computeTpe(stripRefinements: Boolean)(using s: Symbols): Type = {
+      val adtType = if stripRefinements then getADTType(adt) else adt.getTpe(stripRefinements = false).stripToplevelRefinement
+      adtType match {
+        case ADTType(id, tps) =>
+          s.lookupSort(id)
+            .filter(_.tparams.size == tps.size)
+            .map(_.typed(tps)).toSeq
+            .flatMap(_.constructors.flatMap(_.fields))
+            .find(_.id == selector).map(_.getType).getOrElse(Untyped)
+        case _ => Untyped
+      }
     }
   }
 
   /** $encodingof `... == ...` */
   sealed case class Equals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using s: Symbols): Type = {
+    override protected def computeTpe(stripRefinements: Boolean)(using s: Symbols): Type = {
       if (s.leastUpperBound(lhs.getType, rhs.getType) != Untyped) BooleanType()
       else Untyped
     }
@@ -370,7 +377,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class And(exprs: Seq[Expr]) extends Expr with CachingTyped {
     require(exprs.size >= 2)
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       checkParamTypes(exprs, List.fill(exprs.size)(BooleanType()), BooleanType())
   }
 
@@ -386,7 +393,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class Or(exprs: Seq[Expr]) extends Expr with CachingTyped {
     require(exprs.size >= 2)
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       checkParamTypes(exprs, List.fill(exprs.size)(BooleanType()), BooleanType())
   }
 
@@ -399,7 +406,7 @@ trait Expressions { self: Trees =>
     * @see [[Constructors.implies]]
     */
   sealed case class Implies(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       checkAllTypes(Seq(lhs, rhs), BooleanType(), BooleanType())
   }
 
@@ -408,7 +415,7 @@ trait Expressions { self: Trees =>
     * @see [[Constructors.not]]
     */
   sealed case class Not(expr: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       checkParamType(expr, BooleanType(), BooleanType())
   }
 
@@ -417,19 +424,19 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `lhs + rhs` for strings */
   sealed case class StringConcat(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       checkAllTypes(Seq(lhs, rhs), StringType(), StringType())
   }
 
   /** $encodingof `lhs.subString(start, end)` for strings */
   sealed case class SubString(expr: Expr, start: Expr, end: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       checkParamTypes(Seq(expr, start, end), Seq(StringType(), IntegerType(), IntegerType()), StringType())
   }
 
   /** $encodingof `lhs.length` for strings */
   sealed case class StringLength(expr: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       checkParamType(expr, StringType(), IntegerType())
   }
 
@@ -437,25 +444,25 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `... +  ...` */
   sealed case class Plus(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
   /** $encodingof `... -  ...` */
   sealed case class Minus(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
   /** $encodingof `- ...` */
   sealed case class UMinus(expr: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       getIntegerType(expr) `orElse` getRealType(expr) `orElse` getBVType(expr)
   }
 
   /** $encodingof `... * ...` */
   sealed case class Times(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
@@ -471,7 +478,7 @@ trait Expressions { self: Trees =>
     *    Division(x, y) * y + Remainder(x, y) == x
     */
   sealed case class Division(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
@@ -480,7 +487,7 @@ trait Expressions { self: Trees =>
     * @see [[Expressions.Division]]
     */
   sealed case class Remainder(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       getIntegerType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
@@ -489,13 +496,13 @@ trait Expressions { self: Trees =>
     * @see [[Expressions.Division]]
     */
   sealed case class Modulo(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       getIntegerType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
   /** $encodingof `... < ...`*/
   sealed case class LessThan(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = if (
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = if (
       getIntegerType(lhs, rhs).isTyped ||
       getRealType(lhs, rhs).isTyped ||
       getBVType(lhs, rhs).isTyped ||
@@ -505,7 +512,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `... > ...`*/
   sealed case class GreaterThan(lhs: Expr, rhs: Expr) extends Expr with CachingTyped{
-    override protected def computeType(using Symbols): Type = if (
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = if (
       getIntegerType(lhs, rhs).isTyped ||
       getRealType(lhs, rhs).isTyped ||
       getBVType(lhs, rhs).isTyped ||
@@ -515,7 +522,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `... <= ...`*/
   sealed case class LessEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = if (
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = if (
       getIntegerType(lhs, rhs).isTyped ||
       getRealType(lhs, rhs).isTyped ||
       getBVType(lhs, rhs).isTyped ||
@@ -525,7 +532,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `... >= ...`*/
   sealed case class GreaterEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = if (
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = if (
       getIntegerType(lhs, rhs).isTyped ||
       getRealType(lhs, rhs).isTyped ||
       getBVType(lhs, rhs).isTyped ||
@@ -538,43 +545,43 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `~...` $noteBitvector */
   sealed case class BVNot(e: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getBVType(e)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getBVType(e)
   }
 
   /** $encodingof `... & ...` $noteBitvector */
   sealed case class BVAnd(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getBVType(lhs, rhs)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getBVType(lhs, rhs)
   }
 
   /** $encodingof `... | ...` $noteBitvector */
   sealed case class BVOr(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getBVType(lhs, rhs)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getBVType(lhs, rhs)
   }
 
   /** $encodingof `... ^ ...` $noteBitvector */
   sealed case class BVXor(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getBVType(lhs, rhs)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getBVType(lhs, rhs)
   }
 
   /** $encodingof `... << ...` $noteBitvector */
   sealed case class BVShiftLeft(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getBVType(lhs, rhs)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getBVType(lhs, rhs)
   }
 
   /** $encodingof `... >> ...` $noteBitvector (arithmetic shift, sign-preserving) */
   sealed case class BVAShiftRight(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getBVType(lhs, rhs)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getBVType(lhs, rhs)
   }
 
   /** $encodingof `... >>> ...` $noteBitvector (logical shift) */
   sealed case class BVLShiftRight(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getBVType(lhs, rhs)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getBVType(lhs, rhs)
   }
 
   /** $encodingof `... .toByte` and other narrowing casts */
   sealed case class BVNarrowingCast(expr: Expr, newType: BVType) extends Expr with CachingTyped {
     // The expression is well typed iff `expr` is well typed and the BVTypes' size match a narrowing cast.
-    override protected def computeType(using Symbols): Type = cast match {
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = cast match {
       case Some((from, to)) => newType
       case _ => Untyped
     }
@@ -589,7 +596,7 @@ trait Expressions { self: Trees =>
   /** $encodingof `... .toInt` and other widening casts */
   sealed case class BVWideningCast(expr: Expr, newType: BVType) extends Expr with CachingTyped {
     // The expression is well typed iff `expr` is well typed and the BVTypes' size match a widening cast.
-    override protected def computeType(using Symbols): Type = cast match {
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = cast match {
       case Some((from, to)) => newType
       case _ => Untyped
     }
@@ -603,7 +610,7 @@ trait Expressions { self: Trees =>
 
   /** Bitvector conversion from unsigned to signed */
   sealed case class BVUnsignedToSigned(expr: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getBVType(expr) match {
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getBVType(expr) match {
       case BVType(false, size) => BVType(true, size)
       case _ => Untyped
     }
@@ -611,7 +618,7 @@ trait Expressions { self: Trees =>
 
   /** Bitvector conversion from signed to unsigned */
   sealed case class BVSignedToUnsigned(expr: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getBVType(expr) match {
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getBVType(expr) match {
       case BVType(true, size) => BVType(false, size)
       case _ => Untyped
     }
@@ -620,60 +627,60 @@ trait Expressions { self: Trees =>
   /* FP operations */
 
   sealed case class FPEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getFPType(lhs, rhs).isTyped then BooleanType() else Untyped
   }
 
   sealed case class FPAdd(rm: Expr, lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getRoundingMode(rm).isTyped then getFPType(lhs, rhs) else Untyped
   }
 
   sealed case class FPSub(rm: Expr, lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getRoundingMode(rm).isTyped then getFPType(lhs, rhs) else Untyped
   }
 
   /** $encodingof `- ...` for FP*/
   sealed case class FPUMinus(expr: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getFPType(expr)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getFPType(expr)
   }
 
   sealed case class FPFMA(rm: Expr, e1: Expr, e2: Expr, e3: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getRoundingMode(rm).isTyped then getFPType(e1, e2, e3) else Untyped
   }
 
   sealed case class FPMul(rm: Expr, lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getRoundingMode(rm).isTyped then getFPType(lhs, rhs) else Untyped
   }
 
   sealed case class FPDiv(rm: Expr, lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getRoundingMode(rm).isTyped then getFPType(lhs, rhs) else Untyped
   }
 
   sealed case class FPAbs(e: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getFPType(e)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getFPType(e)
   }
 
   sealed case class FPMax(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getFPType(lhs, rhs)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getFPType(lhs, rhs)
   }
 
   sealed case class FPMin(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getFPType(lhs, rhs)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getFPType(lhs, rhs)
   }
 
   sealed case class FPRound(rm: Expr, e: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getRoundingMode(rm).isTyped then getFPType(e) else Untyped
   }
 
 
   sealed case class Sqrt(rm: Expr, e: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getRoundingMode(rm).isTyped then getFPType(e) else Untyped
   }
 
@@ -694,7 +701,7 @@ trait Expressions { self: Trees =>
   }
 
   sealed case class FPCast(newExponent: Int, newSignificand: Int, rm: Expr, expr: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getRoundingMode(rm).isTyped &&
         (getFPType(expr).isTyped ||
          getBVType(expr).isTyped ||
@@ -705,18 +712,18 @@ trait Expressions { self: Trees =>
   }
 
   sealed case class FPFromBinary(newExponent: Int, newSignificand: Int, expr: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getBVType(expr).isTyped then FPType(newExponent, newSignificand) else Untyped
   }
 
   sealed case class FPToBV(size: Int, signed: Boolean, rm: Expr, expr: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getRoundingMode(rm).isTyped && getFPType(expr).isTyped then BVType(signed, size) else Untyped
   }
 
   /** Casts from floating-points to bitvectors with JVM semantics */
   sealed case class FPToBVJVM(exponent: Int, significand: Int, toSize: Int, expr: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getFPType(expr).isTyped then BVType(true, toSize) else Untyped
   }
 
@@ -731,89 +738,89 @@ trait Expressions { self: Trees =>
 
 
   sealed case class FPToReal(e: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getFPType(e).isTyped then RealType() else Untyped
   }
 
   /** $encodingof `... < ...` for FP */
   sealed case class FPLessThan(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getFPType(lhs, rhs).isTyped then BooleanType() else Untyped
   }
 
   /** $encodingof `... > ...` for FP */
   sealed case class FPGreaterThan(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getFPType(lhs, rhs).isTyped then BooleanType() else Untyped
   }
 
   /** $encodingof `... <= ...` for FP */
   sealed case class FPLessEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getFPType(lhs, rhs).isTyped then BooleanType() else Untyped
   }
 
   /** $encodingof `... >= ...` for FP */
   sealed case class FPGreaterEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getFPType(lhs, rhs).isTyped then BooleanType() else Untyped
   }
 
   sealed case class FPIsZero(e: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getFPType(e).isTyped then BooleanType() else Untyped
   }
 
   sealed case class FPIsInfinite(e: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getFPType(e).isTyped then BooleanType() else Untyped
   }
 
   sealed case class FPIsNaN(e: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getFPType(e).isTyped then BooleanType() else Untyped
   }
 
   sealed case class FPIsNegative(e: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getFPType(e).isTyped then BooleanType() else Untyped
   }
 
   sealed case class FPIsPositive(e: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getFPType(e).isTyped then BooleanType() else Untyped
   }
 
   sealed case class FPIsNormal(e: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getFPType(e).isTyped then BooleanType() else Untyped
   }
 
   sealed case class FPIsSubnormal(e: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getFPType(e).isTyped then BooleanType() else Untyped
   }
 
 
   /* Rounding modes */
   object RoundTowardZero extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = RoundingMode
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = RoundingMode
   }
 
   object RoundTowardPositive extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = RoundingMode
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = RoundingMode
   }
 
   object RoundTowardNegative extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = RoundingMode
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = RoundingMode
   }
 
   object RoundNearestTiesToEven extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = RoundingMode
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = RoundingMode
   }
 
   object RoundNearestTiesToAway extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = RoundingMode
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = RoundingMode
   }
 
 
@@ -830,7 +837,8 @@ trait Expressions { self: Trees =>
   sealed case class Tuple(exprs: Seq[Expr]) extends Expr with CachingTyped {
     require(exprs.size >= 2)
 
-    override protected def computeType(using Symbols): Type = TupleType(exprs.map(_.getType)).getType
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = 
+      TupleType(exprs.map(_.getTpe(stripRefinements))).getTpe(stripRefinements)
   }
 
   /** $encodingof `(tuple)._i`
@@ -844,10 +852,12 @@ trait Expressions { self: Trees =>
   sealed case class TupleSelect(tuple: Expr, index: Int) extends Expr with CachingTyped {
     require(index >= 1)
 
-    override protected def computeType(using Symbols): Type = getTupleType(tuple) match {
-      case tp @ TupleType(ts) if index <= ts.size => ts(index - 1)
-      case _ => Untyped
-    }
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
+      val tupleType = if stripRefinements then getTupleType(tuple) else tuple.getTpe(stripRefinements).stripToplevelRefinement
+      tupleType match {
+        case tp @ TupleType(ts) if index <= ts.size => ts(index - 1)
+        case _ => Untyped
+      }
   }
 
 
@@ -855,29 +865,29 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `Set[base](elements)` */
   sealed case class FiniteSet(elements: Seq[Expr], base: Type) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       checkParamTypes(elements.map(_.getType), List.fill(elements.size)(base), SetType(base))
   }
 
   /** $encodingof `set + elem` */
   sealed case class SetAdd(set: Expr, elem: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getSetType(set) match {
-      case st @ SetType(base) => checkParamType(elem, base, st)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getSetType(set)(stripRefinements) match {
+      case st @ SetType(base) => checkParamType(elem, base.getType, st)
       case _ => Untyped
     }
   }
 
   /** $encodingof `set.contains(element)` or `set(element)` */
   sealed case class ElementOfSet(element: Expr, set: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols) = getSetType(set) match {
-      case SetType(base) => checkParamType(element, base, BooleanType())
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols) = getSetType(set)(stripRefinements) match {
+      case SetType(base) => checkParamType(element, base.getType, BooleanType())
       case _ => Untyped
     }
   }
 
   /** $encodingof `set.subsetOf(set2)` */
   sealed case class SubsetOf(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getSetType(lhs, rhs) match {
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getSetType(lhs, rhs)(stripRefinements) match {
       case st: SetType => BooleanType()
       case _ => Untyped
     }
@@ -885,17 +895,17 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `set & set2` */
   sealed case class SetIntersection(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getSetType(lhs, rhs)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getSetType(lhs, rhs)(stripRefinements)
   }
 
   /** $encodingof `set ++ set2` */
   sealed case class SetUnion(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getSetType(lhs, rhs)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getSetType(lhs, rhs)(stripRefinements)
   }
 
   /** $encodingof `set -- set2` */
   sealed case class SetDifference(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getSetType(lhs, rhs)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getSetType(lhs, rhs)(stripRefinements)
   }
 
 
@@ -903,7 +913,7 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `Bag[base](elements)` */
   sealed case class FiniteBag(elements: Seq[(Expr, Expr)], base: Type) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type =
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       checkParamTypes(
         elements.map(_._1.getType) ++ elements.map(_._2.getType),
         List.fill(elements.size)(base) ++ List.fill(elements.size)(IntegerType()),
@@ -913,30 +923,30 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `bag + elem` */
   sealed case class BagAdd(bag: Expr, elem: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getBagType(bag, BagType(elem.getType))
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getBagType(bag, BagType(elem.getTpe(stripRefinements)))(stripRefinements)
   }
 
   /** $encodingof `bag.get(element)` or `bag(element)` */
   sealed case class MultiplicityInBag(element: Expr, bag: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getBagType(bag) match {
-      case BagType(base) => checkParamType(element, base, IntegerType())
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getBagType(bag)(stripRefinements) match {
+      case BagType(base) => checkParamType(element, base.getType, IntegerType())
       case _ => Untyped
     }
   }
 
   /** $encodingof `lhs & rhs` */
   sealed case class BagIntersection(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getBagType(lhs, rhs)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getBagType(lhs, rhs)(stripRefinements)
   }
 
   /** $encodingof `lhs ++ rhs` */
   sealed case class BagUnion(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getBagType(lhs, rhs)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getBagType(lhs, rhs)(stripRefinements)
   }
 
   /** $encodingof `lhs -- rhs` */
   sealed case class BagDifference(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getBagType(lhs, rhs)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getBagType(lhs, rhs)(stripRefinements)
   }
 
 
@@ -946,7 +956,7 @@ trait Expressions { self: Trees =>
   sealed case class FiniteMap(pairs: Seq[(Expr, Expr)], default: Expr, keyType: Type, valueType: Type)
     extends Expr with CachingTyped {
 
-    override protected def computeType(using Symbols): Type = checkParamTypes(
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = checkParamTypes(
       pairs.map(_._1.getType) ++ pairs.map(_._2.getType) :+ default.getType,
       List.fill(pairs.size)(keyType) ++ List.fill(pairs.size + 1)(valueType),
       MapType(keyType, valueType)
@@ -955,16 +965,16 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `map.apply(key)` (or `map(key)`) */
   sealed case class MapApply(map: Expr, key: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getMapType(map) match {
-      case MapType(from, to) => checkParamType(key, from, to)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getMapType(map)(stripRefinements) match {
+      case MapType(from, to) => checkParamType(key, from.getType, to)
       case _ => Untyped
     }
   }
 
   /** $encodingof `map.updated(key, value)` (or `map + (key -> value)`) */
   sealed case class MapUpdated(map: Expr, key: Expr, value: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = getMapType(map) match {
-      case mt @ MapType(from, to) => checkParamType(key, from, getMapType(mt, MapType(from, value.getType)))
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getMapType(map)(stripRefinements) match {
+      case mt @ MapType(from, to) => checkParamType(key, from.getType, getMapType(mt, MapType(from, value.getTpe(stripRefinements)))(stripRefinements))
       case _ => Untyped
     }
   }
@@ -975,8 +985,8 @@ trait Expressions { self: Trees =>
    * and the key-value pairs of map2 for all keys that are not in the mask.
    */
   case class MapMerge(mask: Expr, map1: Expr, map2: Expr) extends Expr with CachingTyped {
-    override protected def computeType(using Symbols): Type = (getMapType(map1, map2), getSetType(mask)) match {
-      case (mt @ MapType(from, to), SetType(mask)) => checkParamType(mask, from, mt)
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = (getMapType(map1, map2)(stripRefinements), getSetType(mask)(stripRefinements)) match {
+      case (mt @ MapType(from, to), SetType(mask)) => checkParamType(mask, from.getType, mt)
       case _ => Untyped
     }
   }
