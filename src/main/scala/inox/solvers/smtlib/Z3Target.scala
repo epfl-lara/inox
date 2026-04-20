@@ -310,7 +310,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     case SubsetOf(ss, s) =>
       // a isSubset b   ==>   (a zip b).map(implies) == (* => true)
       val allTrue = ArrayConst(declareSort(s.getType), True())
-      SMTEquals(ArrayMap(SSymbol("implies"), toSMT(ss), toSMT(s)), allTrue)
+      SMTEquals(ArrayMap(SSymbol("=>"), toSMT(ss), toSMT(s)), allTrue)
 
     case SetAdd(s, e) =>
       ArraysEx.Store(toSMT(s), toSMT(e), True())
