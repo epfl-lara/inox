@@ -4,6 +4,7 @@ package inox
 package ast
 
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
+import scala.collection.mutable.ArrayBuffer
 
 trait Types { self: Trees =>
 
@@ -139,12 +140,32 @@ trait Types { self: Trees =>
 
   private object TypeNormalization {
     private class TypeNormalizer extends ConcreteSelfTreeTransformer {
-      private val subst: MutableMap[Variable, Variable] = MutableMap.empty
+      private val subst: MutableMap[Identifier, Variable] = MutableMap.empty
+      private val trail = ArrayBuffer.empty[(Identifier, Option[Variable])]
       private var counter: Int = 0
 
-      override def transform(expr: Expr): Expr = expr match {
-        case v: Variable => subst.getOrElse(v, v)
-        case _ => super.transform(expr)
+      private def inScope[A](body: => A): A = {
+        val mark = trail.size
+        val res = body
+        while (trail.size > mark) {
+          val (id, previous) = trail.remove(trail.size - 1)
+          previous match {
+            case Some(v) => subst(id) = v
+            case None => subst.remove(id)
+          }
+        }
+        res
+      }
+
+      override def transform(expr: Expr): Expr = inScope {
+        expr match {
+          case v: Variable => subst.get(v.id).map(_.copiedFrom(v)).getOrElse(v)
+          case _ => super.transform(expr)
+        }
+      }
+
+      override def transform(tpe: Type): Type = inScope {
+        super.transform(tpe)
       }
 
       override def transform(vd: ValDef): ValDef = {
@@ -152,7 +173,8 @@ trait Types { self: Trees =>
         counter += 1
 
         val newVd = ValDef(nid, transform(vd.tpe), vd.flags map transform).copiedFrom(vd)
-        subst(vd.toVariable) = newVd.toVariable
+        trail += ((vd.id, subst.get(vd.id)))
+        subst(vd.id) = newVd.toVariable
         newVd
       }
     }
