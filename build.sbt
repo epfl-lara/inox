@@ -6,7 +6,7 @@ git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
-val inoxScalaVersion = "3.9.0-RC1-bin-20260516-64de706-NIGHTLY"
+val inoxScalaVersion = "3.9.0-RC1-bin-20260523-b8a9ac2-NIGHTLY"
 val laraOrganization = "ch.epfl.lara"
 
 scalaVersion := inoxScalaVersion
@@ -76,7 +76,7 @@ lazy val nTestParallelism = {
 def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
 
 // lazy val smtlib = RootProject(file("../scala-smtlib")) // If you have a local copy of Scala-SMTLIB and would like to do some changes
-lazy val smtlib = ghProject("https://github.com/epfl-lara/scala-smtlib.git", "48e1c9aacdfc682c9823595a0ab995ab2c61449b")
+lazy val smtlib = ghProject("https://github.com/epfl-lara/scala-smtlib.git", "730dd5c0c2c25c33e6a17d0c323adf8109162007")
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")
 
