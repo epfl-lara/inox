@@ -7,7 +7,6 @@ on:
       - main
 jobs:
   tests:
-    if: github.event.pull_request.draft == false
     name: ${{ matrix.runners.name }} / JDK ${{ matrix.java-version }}
     runs-on: ${{ matrix.runners.labels }}
     strategy:
