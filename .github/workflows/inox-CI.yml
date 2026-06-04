@@ -7,10 +7,10 @@ on:
       - main
 jobs:
   tests:
-    if: github.event.pull_request.draft == false
     name: ${{ matrix.runners.name }} / JDK ${{ matrix.java-version }}
     runs-on: ${{ matrix.runners.labels }}
     strategy:
+      fail-fast: false
       matrix:
         runners:
           - name: Linux
@@ -18,7 +18,7 @@ jobs:
             labels: ['self-hosted', 'linux']
           - name: macOS ARM64
             os: macOS
-            labels: ['self-hosted', 'macOS', 'ARM64']
+            labels: ['macos-latest']
         java-version: [17, 21]
     env:
       # solver versions to test against
@@ -54,10 +54,20 @@ jobs:
       run: |
         ./scripts/install_sbt.sh
         echo "$(pwd)/sbt/bin/" >> $GITHUB_PATH
+    - name: Set sbt global base
+      # scala-smtlib is fetched via sbt's RootProject(uri(...)), which clones
+      # and compiles it into the sbt global staging directory. On self-hosted
+      # runners this directory is shared across runners and persists across
+      # runs, causing stale .tasty/.class files and race conditions between
+      # concurrent jobs. Isolating sbt's global base per workspace avoids
+      # this. Can be reverted if scala-smtlib is published to Maven.
+      run: echo "SBT_OPTS=-Dsbt.global.base=$GITHUB_WORKSPACE/.sbt-global" >> $GITHUB_ENV
     - name: Prepare temp folder
       run: rm -rf $JAVA_OPTS_TMP_DIR && mkdir -p $JAVA_OPTS_TMP_DIR
     - name: Install solvers
       run: ./scripts/install_solvers.sh $GITHUB_WORKSPACE/.local/bin $Z3_VER $CVC4_VER $CVC5_VER $BITWUZLA_VER
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Add solvers to PATH
       run: echo "$GITHUB_WORKSPACE/.local/bin" >> $GITHUB_PATH
     - name: Test solver availability

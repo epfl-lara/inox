@@ -6,7 +6,9 @@ git.useGitDescribe := true
 
 organization := "ch.epfl.lara"
 
-val inoxScalaVersion = "3.7.2"
+val inoxScalaVersion = "3.9.0-RC1-bin-20260523-b8a9ac2-NIGHTLY"
+val laraOrganization = "ch.epfl.lara"
+
 scalaVersion := inoxScalaVersion
 
 scalacOptions ++= Seq(
@@ -74,7 +76,7 @@ lazy val nTestParallelism = {
 def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
 
 // lazy val smtlib = RootProject(file("../scala-smtlib")) // If you have a local copy of Scala-SMTLIB and would like to do some changes
-lazy val smtlib = ghProject("https://github.com/epfl-lara/scala-smtlib.git", "a8fc084fa48a59f0f58b6f3fba5433b8fe5eb280")
+lazy val smtlib = ghProject("https://github.com/epfl-lara/scala-smtlib.git", "730dd5c0c2c25c33e6a17d0c323adf8109162007")
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")
 
@@ -154,6 +156,16 @@ lazy val ItTest = config("it") extend (Test)
 ItTest / testOptions := Seq(Tests.Argument("-oDF"))
 
 lazy val root = (project in file("."))
+  .settings(
+    scalaOrganization := laraOrganization,
+    // Scoped to root (not ThisBuild) to avoid propagating to the scala-smtlib
+    // source dependency via https://github.com/sbt/sbt/issues/8821.
+    excludeDependencies ++= Seq(
+      ExclusionRule("org.scala-lang", "scala-library"),
+      ExclusionRule("org.scala-lang", "scala3-library_3"),
+      ExclusionRule("org.scala-lang", "scala3-compiler_3"),
+    ),
+  )
   .configs(ItTest)
   .settings(Defaults.itSettings : _*)
   .settings(inConfig(Test)(Defaults.testTasks ++ Seq(
