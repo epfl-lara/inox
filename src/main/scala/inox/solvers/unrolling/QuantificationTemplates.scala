@@ -706,7 +706,8 @@ trait QuantificationTemplates { self: Templates =>
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
       clauses ++= newTemplate.structure.instantiation
 
-      val (inst, mapping): (Encoded, Map[Encoded, Encoded]) = (newTemplate.polarity match {
+      // explicit map type will raise a warning due ot erasure
+      val subst: (Encoded, Map[Encoded, Encoded]) = (newTemplate.polarity match {
         case Positive(subst) =>
           val axiom = new Axiom(newTemplate.contents, subst, newTemplate.body, newTemplate.isDeferred)
           axioms += axiom
@@ -730,7 +731,9 @@ trait QuantificationTemplates { self: Templates =>
           clauses ++= newTemplate.contents.instantiate(fullSubst)
 
           (instT, Map(insts._2 -> instT))
-      }): @unchecked
+      })
+
+      val (inst, mapping) = subst
 
       clauses ++= templates.flatMap { case (key, (tmpl, tinst)) =>
         if (typeOps.simplify(newTemplate.structure.body) == typeOps.simplify(tmpl.structure.body)) {
