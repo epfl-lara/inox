@@ -288,7 +288,7 @@ trait SimplifierWithPC extends Transformer { self =>
       simplifyAndCons(Seq(body), path `withBounds` params, es => simpForall(params, es.head).copiedFrom(e))
 
     case app @ Application(e, es)  =>
-      val (caller, recons): (Expr, Expr => Expr) = simplify(e, path) match {
+      val (caller: Expr, recons: (Expr => Expr)) = simplify(e, path) match {
         case (ra @ Assume(pred, e), _) => (e, (expr: Expr) => assume(pred, expr).copiedFrom(ra))
         case (e, _) => (e, (expr: Expr) => expr)
       }
