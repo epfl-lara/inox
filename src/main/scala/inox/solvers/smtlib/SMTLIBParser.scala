@@ -197,6 +197,19 @@ trait SMTLIBParser {
     case FixedSizeBitVectors.ShiftLeft(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVShiftLeft.apply)
     case FixedSizeBitVectors.AShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVAShiftRight.apply)
     case FixedSizeBitVectors.LShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVLShiftRight.apply)
+    case FixedSizeBitVectors.BV2Nat(e) => 
+      // we unfortunately cannot predict the type of e without translating it;
+      // it will be a bitvector, but its size and signedness cannot be
+      // ascertained externally
+      BVToNat(fromSMT(e))
+    case FixedSizeBitVectors.Int2BV(size, e) => IntToBV(
+      size.bigInteger.intValueExact,
+      otpe match {
+        case Some(BVType(signed, _)) => signed
+        case _ => false // default to unsigned
+      },
+      fromSMT(e, IntegerType())
+    )
 
     case FixedSizeBitVectors.SignExtend(extend, e) =>
       val ast = fromSMT(e)

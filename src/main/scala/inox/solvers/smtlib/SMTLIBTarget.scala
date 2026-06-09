@@ -492,6 +492,20 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
       case BVUnsignedToSigned(e) => toSMT(e)
       case BVSignedToUnsigned(e) => toSMT(e)
+      case BVToInt(e) => e.getType match {
+        case BVType(signed = false, size = _) =>
+          FixedSizeBitVectors.BV2Nat(toSMT(e))
+        case BVType(signed = true, size = size) =>
+          // scala-smtlib exposes bv2nat here; recover the signed two's-complement value.
+          val term = toSMT(e)
+          val nat = FixedSizeBitVectors.BV2Nat(term)
+          Core.ITE(
+            FixedSizeBitVectors.SLessThan(term, toSMT(BVLiteral(true, 0, size))),
+            Ints.Sub(nat, Ints.NumeralLit(BigInt(2).pow(size))),
+            nat
+          )
+      }
+      case IntToBV(size, _, e) => FixedSizeBitVectors.Int2BV(size, toSMT(e))
 
       case FPEquals(a, b) => FloatingPoint.Eq(toSMT(a), toSMT(b))
       case FPAdd(rm, a, b) => FloatingPoint.Add(toSMT(rm), toSMT(a), toSMT(b))

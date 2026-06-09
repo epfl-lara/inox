@@ -371,6 +371,15 @@ abstract class AbstractPrincessSolver(override val program: Program,
         case BVSignedToUnsigned(e) =>
           parseTerm(e)
 
+        case BVToInt(e) => e.getType match {
+          case BVType(true, size) => Mod.cast2Int(Mod.cast2SignedBV(size, parseTerm(e)))
+          case BVType(false, _) => Mod.cast2Int(parseTerm(e))
+        }
+
+        case IntToBV(size, signed, e) =>
+          if (signed) Mod.cast2SignedBV(size, parseTerm(e))
+          else Mod.cast2UnsignedBV(size, parseTerm(e))
+
         case _ => unsupported(expr, "Unexpected formula " + expr)
       }
       expr.getType match {
