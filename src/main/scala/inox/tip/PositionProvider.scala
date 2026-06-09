@@ -8,7 +8,7 @@ import java.io._
 import utils._
 
 class PositionProvider(_reader: Reader, _file: Option[File]) {
-  val (reader, file): (Reader, File) = _file match {
+  val (reader: Reader, file: File) = _file match {
     case Some(file) => (_reader, file)
     case None =>
       val file = File.createTempFile("tip-input", ".smt2")

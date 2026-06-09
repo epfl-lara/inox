@@ -77,9 +77,12 @@ trait EqualityTemplates { self: Templates =>
 
       // register equalities (WILL NOT lead to any [[instantiate]] calls)
       val substituter = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
-      for (eq <- contents.equalities; (b, eqs) = eq; bp = substituter(b); equality <- eqs) {
+      for 
+        eq <- contents.equalities
+        bp = substituter(eq._1)
+        equality <- eq._2
+      yield
         registerEquality(bp, equality.substitute(substituter))
-      }
 
       clauses
     }

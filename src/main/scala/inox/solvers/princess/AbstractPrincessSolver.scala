@@ -371,6 +371,15 @@ abstract class AbstractPrincessSolver(override val program: Program,
         case BVSignedToUnsigned(e) =>
           parseTerm(e)
 
+        case BVToInt(e) => e.getType match {
+          case BVType(true, size) => Mod.cast2Int(Mod.cast2SignedBV(size, parseTerm(e)))
+          case BVType(false, _) => Mod.cast2Int(parseTerm(e))
+        }
+
+        case IntToBV(size, signed, e) =>
+          if (signed) Mod.cast2SignedBV(size, parseTerm(e))
+          else Mod.cast2UnsignedBV(size, parseTerm(e))
+
         case _ => unsupported(expr, "Unexpected formula " + expr)
       }
       expr.getType match {
@@ -445,7 +454,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
         case tpe @ ((_: ADTType) | (_: TupleType) | (_: TypeParameter) | UnitType()) =>
           evalToTerm(iexpr)(ctx.model).collect { case IFunApp(fun, args) if constructors `containsB` fun =>
-            val (fieldsTypes, recons): (Seq[Type], Seq[Expr] => Expr) = constructors.toA(fun) match {
+            val (fieldsTypes: Seq[Type], recons: (Seq[Expr] => Expr)) = constructors.toA(fun) match {
               case ADTCons(id, tps) => (getConstructor(id, tps).fields.map(_.getType), ADT(id, tps, _))
               case TupleCons(tps) => (tps, Tuple(_))
               case TypeParameterCons(tp) => (Seq(IntegerType()), (es: Seq[Expr]) => {
@@ -666,7 +675,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
     sorts.pop()
 
-    p.pop
+    p.pop()
   }
 
   override def push() = {
@@ -681,7 +690,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
     sorts.push()
 
-    p.push
+    p.push()
   }
 
   override def reset() = {
