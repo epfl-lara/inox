@@ -278,6 +278,9 @@ trait Printer {
     case BVWideningCast(e, BVType(_, size)) => p"$e.toBV($size)"
     case BVUnsignedToSigned(e) => p"$e.toSigned"
     case BVSignedToUnsigned(e) => p"$e.toUnsigned"
+    case BVToInt(e) => p"$e.toInt"
+    case IntToBV(size, true, e) => p"$e.toBVSigned($size)"
+    case IntToBV(size, false, e) => p"$e.toBVUnsigned($size)"
 
     case FPEquals(l, r) => p"$l === $r"
     case ToFloat(e) => p"$e.toFloat"
