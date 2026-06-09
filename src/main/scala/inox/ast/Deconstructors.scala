@@ -302,6 +302,16 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
         (_, _, es, _, _) => t.BVSignedToUnsigned(es(0)))
     },
+    classOf[s.BVToInt] -> { expr =>
+      val s.BVToInt(e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.BVToInt(es(0)))
+    },
+    classOf[s.IntToBV] -> { expr =>
+      val s.IntToBV(size, signed, e) = expr: @unchecked
+      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
+        (_, _, es, _, _) => t.IntToBV(size, signed, es(0)))
+    },
     classOf[s.FPEquals] -> { expr =>
       val s.FPEquals(t1, t2) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
