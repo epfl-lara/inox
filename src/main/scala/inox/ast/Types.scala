@@ -366,7 +366,7 @@ trait Types { self: Trees =>
                                                (using VariableConverter[V]): Type = {
       new ConcreteSelfTreeTransformer {
         override def transform(expr: Expr): Expr = expr match {
-          case v: Variable => subst.getOrElse(v.to[V], v)
+          case v: Variable if subst.contains(v.to[V]) => subst(v.to[V])
           case _ => super.transform(expr)
         }
       }.transform(tpe)
