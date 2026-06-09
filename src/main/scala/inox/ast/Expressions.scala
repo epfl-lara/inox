@@ -624,6 +624,20 @@ trait Expressions { self: Trees =>
     }
   }
 
+  /** Bitvector conversion to an integer */
+  sealed case class BVToInt(expr: Expr) extends Expr with CachingTyped {
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = getBVType(expr) match {
+      case _: BVType => IntegerType()
+      case _ => Untyped
+    }
+  }
+
+  /** Integer conversion to a bitvector, modulo 2^size */
+  sealed case class IntToBV(size: Int, signed: Boolean, expr: Expr) extends Expr with CachingTyped {
+    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
+      if size > 0 && getIntegerType(expr).isTyped then BVType(signed, size) else Untyped
+  }
+
   /* FP operations */
 
   sealed case class FPEquals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
