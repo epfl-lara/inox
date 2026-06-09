@@ -201,7 +201,7 @@ trait SMTLIBParser {
       // we unfortunately cannot predict the type of e without translating it;
       // it will be a bitvector, but its size and signedness cannot be
       // ascertained externally
-      BVToNat(fromSMT(e))
+      BVToInt(fromSMT(e))
     case FixedSizeBitVectors.Int2BV(size, e) => IntToBV(
       size.bigInteger.intValueExact,
       otpe match {

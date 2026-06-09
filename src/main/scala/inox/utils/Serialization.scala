@@ -476,7 +476,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     * The `Serializer[_]` identifiers in this mapping range from 10 to 105
     * (ignoring special identifiers that are smaller than 10).
     *
-    * NEXT ID: 142
+    * NEXT ID: 144
     */
   protected def classSerializers: Map[Class[?], Serializer[?]] = Map(
     // Inox Expressions
@@ -550,6 +550,8 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[MapUpdated]        (74),
     classSerializer[BVUnsignedToSigned](104),
     classSerializer[BVSignedToUnsigned](105),
+    classSerializer[BVToInt]           (142),
+    classSerializer[IntToBV]           (143),
     // FPLiteral id=107
     // Floating Point literals are treated specially to avoid having to serialize BitSets
     mappingSerializer[FPLiteral](107)(fp => (fp.exponent, fp.significand, fp.value))(p => FPLiteral(p._1, p._2, p._3)),
