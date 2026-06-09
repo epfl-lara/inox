@@ -169,6 +169,29 @@ class SemanticsSuite extends AnyFunSuite {
             ), Int64Literal(Int.MaxValue + b.toInt)), BooleanLiteral(false)) // mind the `toInt` instead of `toLong`
   }
 
+  test("BitVector/Integer Conversions", filterSolvers(_, native = false, unroll = true, bitwuzla = false)) { ctx =>
+    val s = solver(ctx)
+
+    check(s, BVToInt(BVLiteral(false, 42, 8)), IntegerLiteral(42))
+    check(s, BVToInt(BVLiteral(false, 255, 8)), IntegerLiteral(255))
+    check(s, BVToInt(Int8Literal(-1)),          IntegerLiteral(-1))
+    check(s, BVToInt(Int8Literal(Byte.MinValue)), IntegerLiteral(Byte.MinValue))
+    check(s, BVToInt(BVUnsignedToSigned(BVLiteral(false, 255, 8))), IntegerLiteral(-1))
+    check(s, BVToInt(BVSignedToUnsigned(Int8Literal(-1))), IntegerLiteral(255))
+
+    check(s, IntToBV(8, true, IntegerLiteral(42)),   Int8Literal(42))
+    check(s, IntToBV(8, true, IntegerLiteral(-1)),   Int8Literal(-1))
+    check(s, IntToBV(8, true, IntegerLiteral(255)),  Int8Literal(-1))
+    check(s, IntToBV(8, true, IntegerLiteral(-214)), Int8Literal(42))
+    check(s, IntToBV(8, false, IntegerLiteral(-1)),  BVLiteral(false, 255, 8))
+    check(s, IntToBV(8, false, IntegerLiteral(810)), BVLiteral(false, 42, 8))
+
+    val signed = Variable.fresh("signed", Int8Type())
+    val unsigned = Variable.fresh("unsigned", BVType(false, 8))
+
+    assert(s.solveVALID(Equals(IntToBV(8, true, BVToInt(signed)), signed)).contains(true))
+    assert(s.solveVALID(Equals(IntToBV(8, false, BVToInt(unsigned)), unsigned)).contains(true))
+  }
 
   test("solve bitwise operations", filterSolvers(_, princess = true)) { ctx =>
     val s = solver(ctx)
