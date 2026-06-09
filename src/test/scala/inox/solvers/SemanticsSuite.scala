@@ -169,7 +169,7 @@ class SemanticsSuite extends AnyFunSuite {
             ), Int64Literal(Int.MaxValue + b.toInt)), BooleanLiteral(false)) // mind the `toInt` instead of `toLong`
   }
 
-  test("BitVector/Integer Conversions", filterSolvers(_, native = false, unroll = true, bitwuzla = false)) { ctx =>
+  test("BitVector/Integer Conversions", filterSolvers(_, native = true, unroll = true, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, BVToInt(BVLiteral(false, 42, 8)), IntegerLiteral(42))
