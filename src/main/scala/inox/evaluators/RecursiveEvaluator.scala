@@ -340,6 +340,18 @@ abstract class RecursiveEvaluator(override val program: Program,
         case x => throw EvalError("Expected signed bitvector type")
       }
 
+    case BVToInt(expr) =>
+      e(expr) match {
+        case bv: BVLiteral => IntegerLiteral(bv.toBigInt)
+        case x => throw EvalError("Expected bitvector type")
+      }
+
+    case IntToBV(size, signed, expr) =>
+      e(expr) match {
+        case IntegerLiteral(value) => BVLiteral(signed, value mod BigInt(2).pow(size), size)
+        case x => throw EvalError(typeErrorMsg(x, IntegerType()))
+      }
+
     case LessThan(l,r) =>
       (e(l), e(r)) match {
         case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>

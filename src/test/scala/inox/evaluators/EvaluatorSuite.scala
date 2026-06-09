@@ -100,6 +100,24 @@ class EvaluatorSuite extends AnyFunSuite {
     eval(e, BVNarrowingCast(Int32Literal(128), Int8Type()))         === Int8Literal(-128)
   }
 
+  test("BitVector/Integer Conversions") {
+    val e = evaluator(ctx)
+
+    eval(e, BVToInt(BVLiteral(false, 42, 8))) === IntegerLiteral(42)
+    eval(e, BVToInt(BVLiteral(false, 255, 8))) === IntegerLiteral(255)
+    eval(e, BVToInt(Int8Literal(-1)))          === IntegerLiteral(-1)
+    eval(e, BVToInt(Int8Literal(Byte.MinValue))) === IntegerLiteral(Byte.MinValue)
+    eval(e, BVToInt(BVUnsignedToSigned(BVLiteral(false, 255, 8)))) === IntegerLiteral(-1)
+    eval(e, BVToInt(BVSignedToUnsigned(Int8Literal(-1)))) === IntegerLiteral(255)
+
+    eval(e, IntToBV(8, true, IntegerLiteral(42)))   === Int8Literal(42)
+    eval(e, IntToBV(8, true, IntegerLiteral(-1)))   === Int8Literal(-1)
+    eval(e, IntToBV(8, true, IntegerLiteral(255)))  === Int8Literal(-1)
+    eval(e, IntToBV(8, true, IntegerLiteral(-214))) === Int8Literal(42)
+    eval(e, IntToBV(8, false, IntegerLiteral(-1)))  === BVLiteral(false, 255, 8)
+    eval(e, IntToBV(8, false, IntegerLiteral(810))) === BVLiteral(false, 42, 8)
+  }
+
   test("eval bitwise operations") {
     val e = evaluator(ctx)
 
