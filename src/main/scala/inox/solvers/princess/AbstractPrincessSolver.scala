@@ -619,11 +619,13 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
     interruptCheckSat = false
 
-    p checkSat false
+    scala.concurrent.Await.result(scala.concurrent.Future {
+      p checkSat false
 
-    while ((p getStatus 50) == ProverStatus.Running) {
-      if (interruptCheckSat) p stop true
-    }
+      while ((p getStatus 50) == ProverStatus.Running) {
+        if (interruptCheckSat) p stop true
+      }
+    }(scala.concurrent.ExecutionContext.global), scala.concurrent.duration.Duration.Inf)
 
     config.cast(p.getStatus(true) match {
       // FIXME @nv: for now, we treat Inconclusive as Sat, but this should
