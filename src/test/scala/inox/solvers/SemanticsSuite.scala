@@ -91,23 +91,30 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, FractionLiteral(26, 3), FractionLiteral(26, 3))
   }
 
-  test("BitVector Literals", filterSolvers(_, princess = true)) { ctx =>
+  test("BitVector Literals") { ctx =>
     val s = solver(ctx)
 
-    // Test the literals that princess doesn't support.
-    check(s, BVLiteral(true, 0, 13),           BVLiteral(true, 0, 13))
-    check(s, BVLiteral(true, -1, 13),          BVLiteral(true, -1, 13))
-    check(s, BVLiteral(true, -1, 33),          BVLiteral(true, -1, 33))
-    check(s, BVLiteral(true, 4294967296L, 33), BVLiteral(true, 4294967296L, 33)) // 2^32 fits in 33 bits!
-    check(s, Int64Literal(-1),           Int64Literal(-1))
-    check(s, Int64Literal(4294967296L),  Int64Literal(4294967296L))
+    val twoTo64 = BigInt(2).pow(64)
+    val twoTo100 = BigInt(2).pow(100)
+
+    check(s, BVLiteral(true, 0, 13),                  BVLiteral(true, 0, 13))
+    check(s, BVLiteral(true, -1, 13),                 BVLiteral(true, -1, 13))
+    check(s, BVLiteral(true, -twoTo64, 65),           BVLiteral(true, -twoTo64, 65))
+    check(s, BVLiteral(true, twoTo100 - 1, 101),      BVLiteral(true, twoTo100 - 1, 101))
+    check(s, BVLiteral(false, twoTo64 - 1, 64),       BVLiteral(false, twoTo64 - 1, 64))
+    check(s, BVLiteral(false, twoTo100 + 123, 128),   BVLiteral(false, twoTo100 + 123, 128))
+    check(s, Int64Literal(-1),                        Int64Literal(-1))
+    check(s, Int64Literal(4294967296L),               Int64Literal(4294967296L))
   }
 
-  test("Large integer Literals", filterSolvers(_, princess = true, bitwuzla = true)) { ctx =>
+  test("Large Integer Literals", filterSolvers(_, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
-    // Test the literals that princess doesn't support.
-    check(s, IntegerLiteral(1099511627776L), IntegerLiteral(1099511627776L)) // 2^40
+    val twoTo32 = BigInt(2).pow(32)
+    val twoTo100 = BigInt(2).pow(100)
+
+    check(s, IntegerLiteral(twoTo32),         IntegerLiteral(twoTo32))
+    check(s, IntegerLiteral(twoTo100 + 123), IntegerLiteral(twoTo100 + 123))
   }
 
   test("BitVector Arithmetic") { ctx =>

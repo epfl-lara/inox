@@ -54,6 +54,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
     enableAssert = enableAssertions,
     dumpScala = enableAssertions,
     scalaDumpBasename = options.findOptionOrDefault(Main.optFiles).headOption.map(_.getName).getOrElse("NA") + "-",
+    dumpSMT = enableAssertions,
     dumpDirectory = if (enableAssertions) {
       val dir = new java.io.File("pri-sessions")
       dir.mkdirs()
@@ -275,7 +276,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
           ITermITE(parseFormula(cond), parseTerm(thenn), parseTerm(elze))
 
         // LITERALS
-        case IntegerLiteral(value) => value.toInt
+        case IntegerLiteral(value) => IdealInt(value.bigInteger)
 
         case bv @ BVLiteral(signed, bits, size) =>
           if (signed) Mod.cast2SignedBV(size, IdealInt(bv.toBigInt.bigInteger))
