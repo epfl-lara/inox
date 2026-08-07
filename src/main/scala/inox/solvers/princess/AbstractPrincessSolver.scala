@@ -276,7 +276,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
           ITermITE(parseFormula(cond), parseTerm(thenn), parseTerm(elze))
 
         // LITERALS
-        case IntegerLiteral(value) => value.toInt
+        case IntegerLiteral(value) => IdealInt(value.bigInteger)
 
         case bv @ BVLiteral(signed, bits, size) =>
           if (signed) Mod.cast2SignedBV(size, IdealInt(bv.toBigInt.bigInteger))
