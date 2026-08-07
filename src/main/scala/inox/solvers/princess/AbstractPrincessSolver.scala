@@ -54,6 +54,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
     enableAssert = enableAssertions,
     dumpScala = enableAssertions,
     scalaDumpBasename = options.findOptionOrDefault(Main.optFiles).headOption.map(_.getName).getOrElse("NA") + "-",
+    dumpSMT = enableAssertions,
     dumpDirectory = if (enableAssertions) {
       val dir = new java.io.File("pri-sessions")
       dir.mkdirs()
