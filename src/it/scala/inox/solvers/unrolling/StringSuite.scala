@@ -11,7 +11,7 @@ class StringSuite extends SolvingTestSuite {
   import SolverResponses._
 
   override def configurations = for {
-    solverName  <- Seq("nativez3", "unrollz3", "smt-z3", "smt-cvc4", "smt-cvc5", "princess")
+    solverName  <- Seq("nativez3", "unrollz3", "smt-z3", "smt-cvc4", "smt-cvc5", "princess", "princess-proc")
   } yield Seq(
     optSelectedSolvers(Set(solverName)),
     optCheckModels(true)

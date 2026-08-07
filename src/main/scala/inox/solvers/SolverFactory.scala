@@ -90,6 +90,7 @@ object SolverFactory {
     "smt-z3:<exec>" -> "Z3 through SMT-LIB with custom executable name",
     "smt-bitwuzla"  -> "Bitwuzla through SMT-LIB",
     "princess"      -> "Princess with inox unrolling",
+    "princess-proc" -> "Princess with inox unrolling, isolated in a child JVM process",
     "eval"          -> "Internal evaluator to discharge ground assertions",
     "inv-z3"        -> "Horn solver using Z3 / Spacer",
     "inv-eld"       -> "Horn solver using Eldarica",
@@ -107,6 +108,7 @@ object SolverFactory {
     "smt-z3-opt"   -> (() => hasZ3,       Seq("nativez3-opt"),                                 "'z3' binary"),
     "inv-eld"      -> (() => true,        Seq(),                                               "Eldarica solver"),
     "princess"     -> (() => true,        Seq(),                                               "Princess solver"),
+    "princess-proc"-> (() => true,        Seq(),                                               "Princess solver (process-isolated)"),
     "eval"         -> (() => true,        Seq(),                                               "Internal evaluator"),
     "smt-bitwuzla" -> (() => hasBitwuzla, Seq("smt-cvc5", "nativez3", "smt-z3", "princess"),   "'bitwuzla' binary"),
   )
@@ -503,6 +505,14 @@ object SolverFactory {
           extends princess.PrincessSolver(p)(p, ctx, enc, chooseEnc) with TimeoutSolver
 
         () => new PrincessImpl(p)
+      })
+
+      case "princess-proc" => create(p)(finalName, {
+        val chooseEnc = ChooseEncoder(p)(enc)
+        class RemotePrincessImpl(override val program: p.type)
+          extends princess.RemotePrincessSolver(p)(p, ctx, enc, chooseEnc) with TimeoutSolver
+
+        () => new RemotePrincessImpl(p)
       })
 
       case "eval" => create(p)(finalName, {

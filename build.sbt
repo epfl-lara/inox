@@ -174,7 +174,13 @@ lazy val root = (project in file("."))
   )) : _*)
   .settings(inConfig(ItTest)(Defaults.testTasks ++ Seq(
     logBuffered := (nTestParallelism > 1),
-    parallelExecution := (nTestParallelism > 1)
+    parallelExecution := (nTestParallelism > 1),
+    // The princess-proc solver backend spawns a child `java` process and
+    // relies on `java.class.path` to give it a working classpath -- that
+    // system property is only reliable when this JVM was itself started via
+    // a plain `java -cp ...` invocation, which requires forking (mirrors
+    // `run / Keys.fork := true` below, needed for the same reason).
+    fork := true
   )) : _*)
   .settings(compile := ((Compile / compile) dependsOn script).value)
   .settings(Compile / packageDoc / mappings := Seq())
