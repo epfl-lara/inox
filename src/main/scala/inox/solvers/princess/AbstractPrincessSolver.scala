@@ -52,7 +52,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
   ap.util.Debug enableAllAssertions enableAssertions
   protected[princess] val p = SimpleAPI(
     enableAssert = enableAssertions,
-    dumpScala = enableAssertions,
+    dumpScala = false,
     scalaDumpBasename = options.findOptionOrDefault(Main.optFiles).headOption.map(_.getName).getOrElse("NA") + "-",
     dumpSMT = enableAssertions,
     dumpDirectory = if (enableAssertions) {
