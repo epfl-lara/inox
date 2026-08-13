@@ -613,7 +613,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
   def assertCnstr(formula: Trees): Unit = p !! formula.asInstanceOf[IFormula]
 
   // we interrupt asynchronously in portfolio mode, so this should be handled in a thread-safe manner
-  private var interruptCheckSat = new java.util.concurrent.atomic.AtomicBoolean(false)
+  private val interruptCheckSat = new java.util.concurrent.atomic.AtomicBoolean(false)
 
   private def internalCheck(config: Configuration): config.Response[Model, Assumptions] = {
     import SimpleAPI.ProverStatus
