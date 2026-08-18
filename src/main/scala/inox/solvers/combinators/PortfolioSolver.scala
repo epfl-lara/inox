@@ -61,23 +61,41 @@ trait PortfolioSolver extends Solver { self =>
       }
     }
 
-    inox.utils.FutureUtils.findFirst(fs)(_._2 != Unknown) match {
-      case Some((s, r)) =>
-        resultSolver = s.getResultSolver
-        resultSolver.foreach { solv =>
-          reporter.debug("Solved with "+solv)
-        }
-        solvers.foreach(_.interrupt())
-        r
-      case None =>
-        reporter.debug("No solver succeeded")
-        config.cast(Unknown)
-    }
+    val res =
+      inox.utils.FutureUtils.findFirst(fs)(_._2 != Unknown) match {
+        case Some((s, r)) =>
+          resultSolver = s.getResultSolver
+          resultSolver.foreach { solv =>
+            reporter.debug("Solved with "+solv)
+          }
+          solvers.foreach(_.interrupt())
+          r
+        case None =>
+          reporter.debug("No solver succeeded")
+          config.cast(Unknown)
+      }
 
-    // TODO: Decide if we really want to wait for all the solvers.
-    // I understand we interrupt them, but what if one gets stuck
-    // fs foreach { Await.ready(_, Duration.Inf) }
-    // res
+    // @sg: wait for all the solvers to actually finish/be interrupted. This can
+    // otherwise cause an invalid prover state if we start another check while
+    // the previous one is in an unfinished state. In Princess for example, this
+    // would cause the next check to get completely stuck.
+    //
+    // We should not be waiting for more than 50ms~ in practice (polling time
+    // for Princess). 
+    fs.zip(solvers).foreach { case (fut, solver) =>
+      // comfortably large timeout
+      val timeout = 5.seconds
+      try Await.ready(fut, timeout)
+      catch {
+        case _: TimeoutException =>
+          val msg =
+            s"Solver ${solver.name} in portfolio did not finish within the $timeout timeout after being interrupted." +
+            " Report this as a bug to the solver developers." +
+            " Continuing can leave the solver in an unstable state."
+          reporter.fatalError(msg)
+      }
+    }
+    res
   }
 
 
