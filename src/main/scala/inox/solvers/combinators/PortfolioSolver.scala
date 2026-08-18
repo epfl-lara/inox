@@ -82,7 +82,19 @@ trait PortfolioSolver extends Solver { self =>
     //
     // We should not be waiting for more than 50ms~ in practice (polling time
     // for Princess). 
-    fs.foreach(Await.ready(_, 100.milliseconds))
+    fs.zip(solvers).foreach { case (fut, solver) =>
+      // comfortably large timeout
+      val timeout = 5.seconds
+      try Await.ready(fut, timeout)
+      catch {
+        case _: TimeoutException =>
+          val msg =
+            s"Solver ${solver.name} in portfolio did not finish within the $timeout timeout after being interrupted." +
+            " Report this as a bug to the solver developers." +
+            " Continuing can leave the solver in an unstable state."
+          reporter.fatalError(msg)
+      }
+    }
     res
   }
 
