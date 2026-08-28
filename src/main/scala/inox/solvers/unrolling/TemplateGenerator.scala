@@ -594,9 +594,15 @@ trait TemplateGenerator { self: Templates =>
                 val newBool: Variable = Variable.fresh("b", BooleanType(), true)
                 storeCond(pathVar, newBool)
 
-                val recProp = andJoin(for (vd <- tcons.fields) yield {
-                  rec(newBool, vd.tpe, ADTSelector(expr, vd.id), state.copy(recurseAdt = false))
-                })
+                // generate conditions for every ADT field to satisfy its type constraints,
+                // but substitute field references as dependent on the current instance
+                val fieldSubst = tcons.fields.map(vd => vd -> ADTSelector(expr, vd.id)).toMap
+                val recProps = tcons.fields.map { vd =>
+                  val fieldType = typeOps.replaceFromSymbols(fieldSubst, vd.tpe)
+                  rec(newBool, fieldType, ADTSelector(expr, vd.id), state.copy(recurseAdt = false))
+                }
+
+                val recProp = andJoin(recProps)
 
                 iff(and(pathVar, isCons(expr, tcons.id)), newBool)
                 storeGuarded(newBool, Equals(newExpr, recProp))
