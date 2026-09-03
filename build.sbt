@@ -76,7 +76,7 @@ lazy val nTestParallelism = {
 def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
 
 // lazy val smtlib = RootProject(file("../scala-smtlib")) // If you have a local copy of Scala-SMTLIB and would like to do some changes
-lazy val smtlib = ghProject("https://git@github.com/epfl-lara/scala-smtlib.git", "839bb4d8fe140b953c9f9b71fe3e015632f2397e")
+lazy val smtlib = ghProject("https://git:git@github.com/epfl-lara/scala-smtlib.git", "839bb4d8fe140b953c9f9b71fe3e015632f2397e")
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")
 
