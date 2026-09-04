@@ -119,6 +119,15 @@ private class SetTheory[Trees <: ast.Trees](val trees: Trees) {
   })
   }
 
+  val SubsetID = FreshIdentifier("subset")
+  val Subset = mkFunDef(SubsetID)("T") { case Seq(aT) => (
+    Seq("s1" :: Set(aT), "s2" :: Set(aT)), BooleanType(), {
+    case Seq(s1, s2) => forall("y" :: aT) { y =>
+      E(ContainsID)(aT)(s1, y) ==> E(ContainsID)(aT)(s2, y)
+    }
+  })
+  }
+
   val setSort = mkSort(SetID, HasADTEquality(EqualsID))("T") {
     case Seq(aT) => Seq(
       (SumID, Seq(ValDef(left, Set(aT)), ValDef(right, Set(aT)))),
@@ -127,7 +136,7 @@ private class SetTheory[Trees <: ast.Trees](val trees: Trees) {
     )
   }
 
-  val extraFunctions = Seq(Contains, Remove, Add, Union, Difference, Intersect, SetEquals)
+  val extraFunctions = Seq(Contains, Remove, Add, Union, Difference, Intersect, SetEquals, Subset)
   val extraSorts = Seq(setSort)
 }
 
@@ -155,6 +164,10 @@ def setEnc(sourceProgram: Program)
       case ElementOfSet(elem, set) =>
         val SetType(base) = set.getType: @unchecked
         Contains(transform(base))(transform(set), transform(elem)).copiedFrom(e)
+
+      case SubsetOf(s1, s2) =>
+        val SetType(base) = s1.getType: @unchecked
+        Subset(transform(base))(transform(s1), transform(s2)).copiedFrom(e)
 
       case SetIntersection(s1, s2) =>
         val SetType(base) = s1.getType: @unchecked
