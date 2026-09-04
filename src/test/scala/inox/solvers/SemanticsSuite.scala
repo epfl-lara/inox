@@ -525,7 +525,7 @@ class SemanticsSuite extends AnyFunSuite {
     check(s, Let(v.toVal, Int32Literal(42), Plus(v, Int32Literal(1))), Int32Literal(43))
   }
 
-  test("Map Operations", filterSolvers(_, princess = true, bitwuzla = true)) { ctx =>
+  test("Map Operations", filterSolvers(_, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Equals(
@@ -578,7 +578,7 @@ class SemanticsSuite extends AnyFunSuite {
     ), Int32Literal(3))
   }
 
-  test("Set Operations", filterSolvers(_, princess = true, bitwuzla = true)) { ctx =>
+  test("Set Operations", filterSolvers(_, bitwuzla = true)) { ctx =>
     val s = solver(ctx)
 
     check(s, Equals(
