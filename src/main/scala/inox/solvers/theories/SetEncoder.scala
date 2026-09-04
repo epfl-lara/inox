@@ -218,6 +218,9 @@ def setDec(sourceProgram: Program)
       case FunctionInvocation(ContainsID, _, Seq(set, elem)) =>
         ElementOfSet(transform(elem), transform(set)).copiedFrom(e)
 
+      case FunctionInvocation(SubsetID, _, Seq(s1, s2)) =>
+        SubsetOf(transform(s1), transform(s2)).copiedFrom(e)
+
       case FunctionInvocation(IntersectID, _, Seq(s1, s2)) =>
         SetIntersection(transform(s1), transform(s2)).copiedFrom(e)
 
