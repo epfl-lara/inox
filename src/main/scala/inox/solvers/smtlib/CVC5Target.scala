@@ -20,7 +20,7 @@ trait CVC5Target extends CVCTarget {
 
   override protected val interpreter: ProcessInterpreter = {
     val opts = interpreterOpts
-    reporter.debug("Invoking solver with "+opts.mkString(" "))
+    reporter.debug("Invoking solver with " + opts.mkString(" "))
     new CVC5Interpreter("cvc5", opts.toArray)
   }
 
@@ -28,5 +28,5 @@ trait CVC5Target extends CVCTarget {
   // So we emit (set-logic all) by default
   emit(SetLogic(ALL()))
 
-  override val cvcSets: Sets = CVC5Sets
+  val setTarget: Sets = CVC5Sets
 }
