@@ -228,10 +228,30 @@ abstract class AbstractPrincessSolver(override val program: Program,
         val setTheory = getSetTheory(elemType)
         setTheory.subsetOf(parseTerm(lhs), parseTerm(rhs))
 
-      case ElementOfSet(element, set) => 
-        val SetType(elemType) = set.getType: @unchecked
-        val setTheory = getSetTheory(elemType)
-        setTheory.member(parseTerm(element), parseTerm(set))
+      // expand membership conditions over boolean algebra; avoids some
+      // divergent combinatory array searches in the theory solver.
+      case ElementOfSet(element, set) => set match {
+        case FiniteSet(elements, _) =>
+          elements.foldLeft(false: IFormula) { (acc, e) =>
+            acc | (parseTerm(element) === parseTerm(e))
+          }
+        case SetAdd(base, added) =>
+          parseFormula(ElementOfSet(element, base)) |
+            (parseTerm(element) === parseTerm(added))
+        case SetUnion(lhs, rhs) =>
+          parseFormula(ElementOfSet(element, lhs)) |
+            parseFormula(ElementOfSet(element, rhs))
+        case SetDifference(lhs, rhs) =>
+          parseFormula(ElementOfSet(element, lhs)) &
+            !parseFormula(ElementOfSet(element, rhs))
+        case SetIntersection(lhs, rhs) =>
+          parseFormula(ElementOfSet(element, lhs)) &
+            parseFormula(ElementOfSet(element, rhs))
+        case _ =>
+          val SetType(elemType) = set.getType: @unchecked
+          val setTheory = getSetTheory(elemType)
+          setTheory.member(parseTerm(element), parseTerm(set))
+      }
 
       // CORE
 
