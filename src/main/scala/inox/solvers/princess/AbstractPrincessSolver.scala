@@ -414,21 +414,19 @@ abstract class AbstractPrincessSolver(override val program: Program,
           if (signed) Mod.cast2SignedBV(size, parseTerm(e))
           else Mod.cast2UnsignedBV(size, parseTerm(e))
 
-        case _ => unsupported(expr, "Unexpected formula " + expr)
-
         // MAPS
 
-        case al @ MapApply(map, k) =>
+        case MapApply(map, k) =>
           val MapType(from, to) = map.getType: @unchecked
           val extTheory = getArrayTheory(from, to) 
           extTheory.select(parseTerm(map), parseTerm(k))
 
-        case al @ MapUpdated(map, k, v) =>
+        case MapUpdated(map, k, v) =>
           val MapType(from, to) = map.getType: @unchecked
           val extTheory = getArrayTheory(from, to) 
           extTheory.store(parseTerm(map), parseTerm(k), parseTerm(v))
 
-        case ra @ FiniteMap(elems, default, kt, vt) =>
+        case FiniteMap(elems, default, kt, vt) =>
           val extTheory = getArrayTheory(kt, vt)
           val defaultMap = extTheory.const(parseTerm(default))
 
