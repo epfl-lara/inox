@@ -84,7 +84,7 @@ trait PortfolioSolver extends Solver { self =>
     // for Princess). 
     fs.zip(solvers).foreach { case (fut, solver) =>
       // comfortably large timeout
-      val timeout = 5.seconds
+      val timeout = 20.seconds
       try Await.ready(fut, timeout)
       catch {
         case _: TimeoutException =>
