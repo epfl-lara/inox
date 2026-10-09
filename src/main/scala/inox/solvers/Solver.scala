@@ -33,6 +33,10 @@ trait AbstractSolver extends Interruptible {
   // Therefore it should be overriden in solvers that extends SMTLibDebugger traits
   def getSmtLibFileId: Option[Int] = None
 
+  // Whether the last `check` returned Unknown because the solver exhausted its
+  // resource limit (e.g. --z3-rlimit or --cvc5-rlimit)
+  def resourceLimitReached: Boolean = false
+
   object SolverUnsupportedError {
     def msg(t: Tree, reason: Option[String]) = {
       s"(of ${t.getClass}) is unsupported by solver $name" + reason.map(":\n  " + _ ).getOrElse("")

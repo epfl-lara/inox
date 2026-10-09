@@ -23,6 +23,10 @@ trait NonIncrementalSolver extends AbstractSolver { self =>
     case Some(solver) => solver.getSmtLibFileId
     case None => None
 
+  override def resourceLimitReached: Boolean = currentSolver match
+    case Some(solver) => solver.resourceLimitReached
+    case None => false
+
   val assertions: IncrementalSeq[Trees] = new IncrementalSeq[Trees]
 
   var currentSolver: Option[AbstractSolver] = None

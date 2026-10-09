@@ -42,6 +42,37 @@ abstract class SMTLIBSolver private(override val program: Program,
 
   override def getSmtLibFileId: Option[Int] = this.getSmtLibFileIdIfDebug
 
+  private var resourceOut: Boolean = false
+
+  override def resourceLimitReached: Boolean = resourceOut
+
+  /** Whether the given `(get-info :reason-unknown)` answer denotes resource
+    * exhaustion (z3 answers "max. resource limit exceeded", cvc5 answers
+    * "resourceout"). Can be refined per solver.
+    */
+  protected def isResourceOutReason(reason: String): Boolean =
+    reason.toLowerCase.contains("resource")
+
+  /** Queries the solver for the reason behind the last `unknown` response and
+    * records whether it was caused by resource exhaustion.
+    *
+    * We emit a raw s-expression instead of `GetInfo(ReasonUnknownInfoFlag())`
+    * because scala-smtlib only parses the reasons standardized in SMT-LIB
+    * (timeout, memout, incomplete) and fails on solver-specific ones.
+    */
+  protected def updateResourceOut(): Unit = {
+    resourceOut = emit(SList(SSymbol("get-info"), SKeyword("reason-unknown"))) match {
+      case SList(List(SKeyword("reason-unknown"), reason)) =>
+        val str = reason match {
+          case SString(s) => s
+          case SSymbol(s) => s
+          case _ => ""
+        }
+        isResourceOutReason(str)
+      case _ => false
+    }
+  }
+
   /* Public solver interface */
   def assertCnstr(expr: Expr): Unit = {
     variablesOf(expr).foreach(declareVariable)
@@ -139,8 +170,12 @@ abstract class SMTLIBSolver private(override val program: Program,
       } else {
         Unsat
       }
-    case CheckSatStatus(UnknownStatus) => Unknown
-    case e                             => Unknown
+    case CheckSatStatus(UnknownStatus) =>
+      updateResourceOut()
+      Unknown
+    case e =>
+      updateResourceOut()
+      Unknown
   })
 
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
