@@ -3,8 +3,6 @@
 package inox
 package utils
 
-import org.apache.commons.lang3.StringEscapeUtils
-
 object StringUtils {
   def toHex(i: Int): String = {
     if (0 <= i && i <= 9) i.toString else (i + 55).toChar.toString
@@ -16,40 +14,57 @@ object StringUtils {
     else c.toString.toInt
   }
 
-  def encodeByte(b: Byte): String = "\\x" + toHex((b >> 4) & 0xF) + toHex(b & 0xF)
-  def decodeHex(s: String): Byte = ((fromHex(s.charAt(0)) << 4) + fromHex(s.charAt(1))).toByte
+  private def isHex(c: Char): Boolean =
+    ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
 
-  private val hex = """^\\x[0-9A-Fa-f]{2}""".r
-  private val uhex1 = """(?s)^\\u\{([0-9A-Fa-f])\}(.*)""".r
-  private val uhex2 = """(?s)^\\u\{([0-9A-Fa-f]{2})\}(.*)""".r
-
-  object Hex {
-    def unapply(s: String): Option[(Byte, String)] = {
-      if (hex.findFirstIn(s).isDefined) {
-        val (head, s2) = s.splitAt(4)
-        Some((decodeHex(head.drop(2)), s2))
-      } else {
-        None
-      }
+  /** Escapes a string so that it can be used as an SMT-LIB 2.6 string literal.
+    *
+    * Each (UTF-16) character is mapped to a single SMT-LIB character: printable ASCII
+    * characters are kept as-is (apart from the backslash which could otherwise start an
+    * escape sequence) and all other characters are written as `\u{...}` escapes.
+    * Note that double quotes are escaped by the SMT-LIB printer.
+    */
+  def encode(s: String): String = {
+    val sb = new StringBuilder
+    for (c <- s) {
+      if (c >= 0x20 && c <= 0x7E && c != '\\') sb += c
+      else sb ++= "\\u{" ++= Integer.toHexString(c.toInt) ++= "}"
     }
+    sb.toString
   }
 
-  object JavaEncoded {
-    def unapply(s: String): Option[(Byte, String)] = Hex.unapply(s).orElse {
-      if (s.charAt(0) == '\\') {
-        val Seq(b) = StringEscapeUtils.unescapeJava(s.take(2)).getBytes.toSeq
-        Some((b, s.drop(2)))
+  /** Decodes the escape sequences of an SMT-LIB 2.6 string literal, namely
+    * `\ud₃d₂d₁d₀` and `\u{d₀}` to `\u{d₄d₃d₂d₁d₀}`. Any other backslash is a literal
+    * backslash. Code points outside of the BMP are decoded to surrogate pairs.
+    */
+  def decode(s: String): String = {
+    val sb = new StringBuilder
+    var i = 0
+    while (i < s.length) {
+      val c = s.charAt(i)
+      if (c == '\\' && i + 1 < s.length && s.charAt(i + 1) == 'u') {
+        if (i + 2 < s.length && s.charAt(i + 2) == '{') {
+          val close = s.indexOf('}', i + 3)
+          val digits = if (close < 0) "" else s.substring(i + 3, close)
+          if (digits.nonEmpty && digits.length <= 5 && digits.forall(isHex)) {
+            sb.appendAll(Character.toChars(Integer.parseInt(digits, 16)))
+            i = close + 1
+          } else {
+            sb += c
+            i += 1
+          }
+        } else if (i + 6 <= s.length && s.substring(i + 2, i + 6).forall(isHex)) {
+          sb.appendAll(Character.toChars(Integer.parseInt(s.substring(i + 2, i + 6), 16)))
+          i += 6
+        } else {
+          sb += c
+          i += 1
+        }
       } else {
-        None
+        sb += c
+        i += 1
       }
     }
-  }
-
-  def decode(s: String): String = if (s.isEmpty) s else s match {
-    // Do not call toString on the char but rather String.valueOf because toString messes things up with UTF-8 codepoints
-    case uhex1(head, s2) => String.valueOf((fromHex(head.charAt(0)) & 0xF).toChar) + decode(s2)
-    case uhex2(head, s2) => String.valueOf((decodeHex(head) & 0xFF).toChar) + decode(s2)
-    case JavaEncoded(b, s2) => String.valueOf((b & 0xFF).toChar) + decode(s2)
-    case _ => String.valueOf(s.head) + decode(s.tail)
+    sb.toString
   }
 }

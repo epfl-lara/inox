@@ -327,9 +327,13 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
         case Modulo(lhs, rhs) => lhs.getType match {
           case BVType(true, size) => // we want x mod |y|
-            val a = parseTerm(lhs)
+            // Note that we cannot compute `bvsmod(x, -y)` when `y < 0` as `-y` overflows
+            // when `y` is the minimal value. Instead, we rely on the sign of `bvsmod(x, y)`
+            // following that of `y` and shift negative results by `|y|`.
             val b = parseTerm(rhs)
-            Mod.bvsmod(a, ITermITE(Mod.bvslt(b, parseTerm(BVLiteral(true, 0, size))), Mod.bvneg(b), b))
+            val zero = parseTerm(BVLiteral(true, 0, size))
+            val smod = Mod.bvsmod(parseTerm(lhs), b)
+            ITermITE(Mod.bvslt(b, zero) & !(smod === zero), Mod.bvsub(smod, b), smod)
           case BVType(false, _) => Mod.bvurem(parseTerm(lhs), parseTerm(rhs))
           case IntegerType() => p.mulTheory.eMod(parseTerm(lhs), parseTerm(rhs))
         }

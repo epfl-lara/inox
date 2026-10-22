@@ -554,11 +554,21 @@ trait TemplateGenerator { self: Templates =>
 
         storeGuarded(pathVar, Equals(newExpr, expr))
 
-        val (p, predClauses) = mkExprClauses(pathVar,
+        val recBase = rec(pathVar, vd.tpe, expr, state)
+
+        // The predicate may only be meaningful (e.g. it may contain assumptions) when `expr`
+        // belongs to the base type, so its clauses are guarded by the base type check.
+        // Otherwise, a predicate failing outside of the base type would falsify `pathVar`
+        // instead of simply making the type check false.
+        val predVar: Variable = Variable.fresh("rp", BooleanType(), true)
+        storeCond(pathVar, predVar)
+        iff(and(pathVar, recBase), predVar)
+
+        val (p, predClauses) = mkExprClauses(predVar,
           exprOps.replaceFromSymbols(Map(vd -> newExpr), pred), localSubst)
         builder ++= predClauses
 
-        and(rec(pathVar, vd.tpe, expr, state), p)
+        and(recBase, p)
 
       case SigmaType(params, to) =>
         val (newExprs, recParams) = params.zipWithIndex.map { case (vd, i) =>
@@ -569,7 +579,13 @@ trait TemplateGenerator { self: Templates =>
           (newExpr, rec(pathVar, vd.tpe, newExpr, state))
         }.unzip
 
-        val recTo = rec(pathVar,
+        // Similarly to refinements, the (dependent) last component is only checked
+        // when the first components belong to their types.
+        val toVar: Variable = Variable.fresh("sp", BooleanType(), true)
+        storeCond(pathVar, toVar)
+        iff(and(pathVar, andJoin(recParams)), toVar)
+
+        val recTo = rec(toVar,
           typeOps.replaceFromSymbols((params zip newExprs).toMap, to),
           TupleSelect(expr, params.size + 1), state)
 

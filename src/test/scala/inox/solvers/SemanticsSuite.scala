@@ -783,4 +783,130 @@ class SemanticsSuite extends AnyFunSuite {
       ), Int32Type())
     ), BooleanLiteral(true))
   }
+
+  test("BitVector Modulo by the minimal value") { ctx =>
+    val s = solver(ctx)
+
+    // `x mod |y|` cannot be computed as `x mod -y` when `y` is the minimal value
+    check(s, Modulo(Int8Literal(1), Int8Literal(-128)),   Int8Literal(1))
+    check(s, Modulo(Int8Literal(-1), Int8Literal(-128)),  Int8Literal(127))
+    check(s, Modulo(Int8Literal(-128), Int8Literal(-128)), Int8Literal(0))
+    check(s, Modulo(Int8Literal(-3), Int8Literal(-2)),    Int8Literal(1))
+    check(s, Modulo(Int32Literal(5), Int32Literal(Int.MinValue)), Int32Literal(5))
+    check(s, Modulo(Int32Literal(-5), Int32Literal(Int.MinValue)), Int32Literal(Int.MaxValue - 4))
+
+    val x = Variable.fresh("x", Int8Type())
+    val y = Variable.fresh("y", Int8Type())
+    assert(s.solveVALID(Implies(
+      Not(Equals(y, Int8Literal(0))),
+      And(GreaterEquals(Modulo(x, y), Int8Literal(0)), Not(Equals(Modulo(x, y), y)))
+    )) contains true)
+  }
+
+  // Strings containing special characters: control characters, multi-byte UTF-8 characters,
+  // surrogate pairs and character sequences that look like escape sequences.
+  val specialStrings = Seq("abc", "\n", "\u0000x", "é", "€", "😀", "\\u{41}", "\\x41", "\\", "a\"b")
+
+  test("String Operations", filterSolvers(_, bitwuzla = true)) { ctx =>
+    val s = solver(ctx)
+
+    for (str <- specialStrings) {
+      val lit = StringLiteral(str)
+      check(s, lit, lit)
+      check(s, StringLength(lit), IntegerLiteral(str.length))
+      check(s, StringConcat(lit, StringLiteral("xy")), StringLiteral(str + "xy"))
+      check(s, SubString(StringConcat(StringLiteral("xy"), lit), IntegerLiteral(1), IntegerLiteral(3)), StringLiteral(("xy" + str).substring(1, 3)))
+
+      // make sure lengths are also correct for non-ground strings
+      val v = Variable.fresh("v", StringType())
+      assert(s.solveVALID(Implies(Equals(v, lit), Equals(StringLength(v), IntegerLiteral(str.length)))) contains true)
+    }
+  }
+
+  test("String Models", filterSolvers(_, bitwuzla = true)) { ctx =>
+    val s = solver(ctx)
+
+    // the extracted models must satisfy the constraints (in particular after decoding)
+    val v = Variable.fresh("v", StringType())
+    for (len <- 1 to 3) {
+      val clause = And(Equals(StringLength(v), IntegerLiteral(len)), Not(Equals(v, StringLiteral("a" * len))))
+      s.solveSAT(clause) match {
+        case SatWithModel(model) =>
+          val StringLiteral(str) = model.vars(v.toVal): @unchecked
+          assert(str.length == len && str != "a" * len, s"Invalid model ${str.toList.map(_.toInt)}")
+        case got => fail(s"Solving of '$clause' failed with $got.")
+      }
+    }
+  }
+
+  test("Real Equality and Division", filterSolvers(_, bitwuzla = true)) { ctx =>
+    val s = solver(ctx)
+
+    check(s, Division(FractionLiteral(1, 2), FractionLiteral(-1, 3)), FractionLiteral(-3, 2))
+    check(s, LessThan(Division(FractionLiteral(1, 2), FractionLiteral(-1, 3)), FractionLiteral(0, 1)), BooleanLiteral(true))
+    check(s, Equals(Division(FractionLiteral(1, 1), FractionLiteral(2, 1)), Division(FractionLiteral(2, 1), FractionLiteral(4, 1))), BooleanLiteral(true))
+
+    val x = Variable.fresh("x", RealType())
+    s.solveSAT(Equals(Times(x, FractionLiteral(2, 1)), FractionLiteral(1, 1))) match {
+      case SatWithModel(model) => assert(model.vars.get(x.toVal) == Some(FractionLiteral(1, 2)))
+      case got => fail(s"Expected a model for x * 2 == 1 but got $got")
+    }
+
+    assert(s.solveVALID(Implies(Equals(x, FractionLiteral(-1, 1)), LessThan(x, FractionLiteral(0, 1)))) contains true)
+    assert(s.solveVALID(Implies(
+      LessThan(x, FractionLiteral(0, 1)),
+      GreaterThan(Division(FractionLiteral(1, 1), x), FractionLiteral(-1000000, 1))
+    )) contains false)
+  }
+
+  test("Bag Operations with repeated keys", filterSolvers(_, princess = true, bitwuzla = true)) { ctx =>
+    val s = solver(ctx)
+
+    val empty = FiniteBag(Seq.empty, IntegerType())
+    // the key 1 occurs twice in the underlying representation of `twice`
+    val twice = BagAdd(BagAdd(empty, IntegerLiteral(1)), IntegerLiteral(1))
+    val five = FiniteBag(Seq(IntegerLiteral(1) -> IntegerLiteral(5)), IntegerType())
+
+    check(s, MultiplicityInBag(IntegerLiteral(1), BagDifference(twice, empty)), IntegerLiteral(2))
+    check(s, MultiplicityInBag(IntegerLiteral(1), BagDifference(five, twice)), IntegerLiteral(3))
+    check(s, MultiplicityInBag(IntegerLiteral(1), BagIntersection(twice, five)), IntegerLiteral(2))
+    check(s, MultiplicityInBag(IntegerLiteral(1), BagIntersection(BagUnion(twice, twice), five)), IntegerLiteral(4))
+    check(s, MultiplicityInBag(IntegerLiteral(1),
+      FiniteBag(Seq(IntegerLiteral(1) -> IntegerLiteral(-1)), IntegerType())), IntegerLiteral(0))
+  }
+
+  test("Refinement types in quantifiers", filterSolvers(_, bitwuzla = true)) { ctx =>
+    val s = solver(ctx)
+
+    val f = Variable.fresh("f", FunctionType(Seq(IntegerType()), IntegerType()))
+    val y = Variable.fresh("y", IntegerType())
+    val nonZero = RefinementType(y.toVal, Not(Equals(y, IntegerLiteral(0))))
+    val z = Variable.fresh("z", nonZero)
+
+    // the refinement restricts the quantification domain
+    assert(s.solveVALID(Forall(Seq(z.toVal), Not(Equals(z, IntegerLiteral(0))))) contains true)
+    assert(s.solveVALID(Implies(
+      Forall(Seq(z.toVal), Equals(Application(f, Seq(z)), IntegerLiteral(1))),
+      Equals(Application(f, Seq(IntegerLiteral(1))), IntegerLiteral(1))
+    )) contains true)
+    assert(s.solveVALID(Implies(
+      Forall(Seq(z.toVal), Equals(Application(f, Seq(z)), IntegerLiteral(1))),
+      Equals(Application(f, Seq(IntegerLiteral(0))), IntegerLiteral(1))
+    )) contains false)
+
+    // A refinement predicate that only holds (here, that only makes its assumptions)
+    // within its base type must not be asserted for values outside of the base type:
+    // instantiating the quantifier with 0 must simply make the type check false.
+    val x = Variable.fresh("x", nonZero)
+    val guarded = RefinementType(x.toVal, Assume(Not(Equals(x, IntegerLiteral(0))), BooleanLiteral(true)))
+    val w = Variable.fresh("w", guarded)
+    assert(s.solveVALID(Implies(
+      Forall(Seq(w.toVal), Equals(Application(f, Seq(w)), IntegerLiteral(1))),
+      Equals(Application(f, Seq(IntegerLiteral(0))), IntegerLiteral(1))
+    )) contains false)
+    assert(s.solveVALID(Implies(
+      Forall(Seq(w.toVal), Equals(Application(f, Seq(w)), IntegerLiteral(1))),
+      Equals(Application(f, Seq(IntegerLiteral(2))), IntegerLiteral(1))
+    )) contains true)
+  }
 }

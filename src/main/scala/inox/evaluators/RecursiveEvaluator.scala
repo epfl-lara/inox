@@ -743,9 +743,6 @@ abstract class RecursiveEvaluator(override val program: Program,
           ".updated(" + l.asString + ", " + r.asString + ")")
     }
 
-    case StringLiteral(str) =>
-      StringLiteral(utils.StringUtils.decode(str))
-
     case gl: GenericValue => gl
     case fl : FractionLiteral => normalizeFraction(fl)
     case l : Literal[_] => l

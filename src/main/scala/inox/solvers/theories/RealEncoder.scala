@@ -22,9 +22,11 @@ private class RealTheory[Trees <: ast.Trees](val trees: Trees) {
   val denom = FreshIdentifier("denom")
   val fractionID = FreshIdentifier("fraction")
 
+  // Denominators are kept strictly positive so that comparisons can be encoded
+  // by cross-multiplication without having to account for signs.
   val fraction_inv = mkFunDef(FreshIdentifier("fraction_inv"))()(_ => (
     Seq("x" :: T(fractionID)()), BooleanType(), { case Seq(x) =>
-    !(x.getField(denom) === E(BigInt(0)))
+    x.getField(denom) > E(BigInt(0))
   }))
 
   val fraction_eq = mkFunDef(FreshIdentifier("fraction_eq"))()(_ => (
@@ -32,7 +34,9 @@ private class RealTheory[Trees <: ast.Trees](val trees: Trees) {
     (i1.getField(num) * i2.getField(denom)) === (i1.getField(denom) * i2.getField(num))
   }))
 
-  val fraction = mkSort(fractionID)()(_ => Seq(
+  // Fractions are not normalized, so equality must be checked by cross-multiplication
+  // (e.g. 1/2 == 2/4) rather than structurally.
+  val fraction = mkSort(fractionID, HasADTInvariant(fraction_inv.id), HasADTEquality(fraction_eq.id))()(_ => Seq(
     (fractionID.freshen, Seq(ValDef(num, IntegerType()), ValDef(denom, IntegerType())))
   ))
 
@@ -55,6 +59,10 @@ def realEnc(sourceProgram: Program)
     }
 
     override def transform(e: Expr): Expr = e match {
+      case fl @ FractionLiteral(num, denom) if denom != 0 =>
+        val FractionLiteral(n, d) = exprOps.normalizeFraction(fl)
+        fractionCons(E(n), E(d))
+
       case FractionLiteral(num, denom) => fractionCons(E(num), E(denom))
 
       case Plus(IsTyped(i1, RealType()), i2) =>
@@ -75,7 +83,17 @@ def realEnc(sourceProgram: Program)
 
       case Division(IsTyped(i1, RealType()), i2) =>
         val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
-        fractionCons(ni1 * di2, di1 * ni2)
+        // The sign of the divisor's numerator must be moved to the numerator
+        // in order to keep the denominator positive.
+        dsl.let("n" :: IntegerType(), ni1 * di2) { n =>
+          dsl.let("d" :: IntegerType(), di1 * ni2) { d =>
+            if_ (d < E(BigInt(0))) {
+              fractionCons(-n, -d)
+            } else_ {
+              fractionCons(n, d)
+            }
+          }
+        }
 
       case LessThan(IsTyped(i1, RealType()), i2) =>
         val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
