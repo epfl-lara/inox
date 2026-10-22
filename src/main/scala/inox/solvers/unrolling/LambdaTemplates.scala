@@ -265,6 +265,22 @@ trait LambdaTemplates { self: Templates =>
       }
     }
 
+    // Make sure `f` has a distinguishing input with every other function it differs from
+    if (free && functionWitnesses) {
+      val guard = mkAnd(b, isFree)
+      if (currentWitnessDepth > 0) witnessDepths += f -> currentWitnessDepth
+
+      for ((otherGuard, other) <- witnessFunctions(ft).toSeq if other != f) {
+        clauses ++= mkWitness(mkAnd(witnessEnabler, guard, otherGuard), ft, f, other)
+      }
+
+      for (template <- byType(ft).values.toSeq) {
+        clauses ++= mkWitness(mkAnd(witnessEnabler, guard, template.start), ft, f, template.ids._2)
+      }
+
+      witnessFunctions += ft -> (witnessFunctions(ft) + (guard -> f))
+    }
+
     clauses.toSeq
   }
 
@@ -361,7 +377,12 @@ trait LambdaTemplates { self: Templates =>
         registerAppInfo(gen, app, Left(newTemplate), cond, args)
       }
 
-      (idT, clauses)
+      // make sure free functions have a distinguishing input with the new lambda (if they differ)
+      val witnessClauses = for ((guard, f) <- witnessFunctions(newTemplate.tpe).toSeq) yield {
+        mkWitness(mkAnd(witnessEnabler, guard, newTemplate.start), newTemplate.tpe, f, idT)
+      }
+
+      (idT, clauses ++ witnessClauses.flatten)
     }
   }
 
@@ -492,6 +513,50 @@ trait LambdaTemplates { self: Templates =>
 
   def getLambdaTemplates(tpe: FunctionType): Set[LambdaTemplate] = byType(tpe).values.toSet
 
+  /** Bounds the nesting of distinguishing inputs: a witness of function type is itself a free
+    * function that requires witnesses, and with (negative) recursive types this has no structural bound. */
+  private val maxWitnessDepth = 3
+
+  /** The witness nesting depth of the free functions currently being registered (0 for regular inputs). */
+  private var currentWitnessDepth = 0
+
+  private def mkWitness(guard: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded): Clauses = {
+    val depth = (witnessDepths.getOrElse(f1, 0) max witnessDepths.getOrElse(f2, 0)) + 1
+    if (depth > maxWitnessDepth) {
+      Seq.empty
+    } else {
+      val previous = currentWitnessDepth
+      currentWitnessDepth = depth
+      try {
+        instantiateWitness(guard, tpe, f1, f2)
+      } finally {
+        currentWitnessDepth = previous
+      }
+    }
+  }
+
+  /** Whether the solver should search for models in which distinct first-class functions
+    * have a distinguishing input (see [[witnessAssumptions]]). */
+  protected lazy val functionWitnesses: Boolean = options.findOptionOrDefault(optFunctionWitnesses)
+
+  /** Assumptions that enable distinguishing inputs between first-class functions.
+    *
+    * Function equality in Inox is intensional, so two functions that agree on all inputs
+    * may still be distinct. When reporting models, we would however like each pair of distinct
+    * function values to have an input on which they differ, as this ensures the extracted
+    * function values are meaningfully distinct. For each pair of free functions `f` and `g`
+    * (and each pair of free function `f` and lambda `g`), we therefore introduce fresh witness
+    * arguments `ws` such that `f != g ==> f(ws) != g(ws)`. Witnesses of function type are
+    * themselves free functions, so the construction recurses on higher-order argument types.
+    *
+    * These witness constraints are an extensionality assumption that doesn't hold in general,
+    * so they are guarded by a literal that is only assumed during model finding (and never
+    * during refutation). The solver is responsible for dropping these assumptions when they
+    * are the reason for unsatisfiability.
+    */
+  def witnessAssumptions: Seq[Encoded] =
+    if (witnessFunctions.isEmpty) Seq.empty else Seq(witnessEnabler)
+
   private[unrolling] object lambdasManager extends Manager {
     // Function instantiations have their own defblocker
     private[LambdaTemplates] val lambdaBlockers = new IncrementalMap[TemplateAppInfo, Encoded]()
@@ -553,10 +618,22 @@ trait LambdaTemplates { self: Templates =>
 
     val instantiated = new IncrementalSet[(Encoded, App)]
 
+    /** This mapping maintains the set of free functions (along with the condition under which
+      * they are free) which require distinguishing inputs with other functions of the same type.
+      * @see [[witnessAssumptions]]
+      */
+    val witnessFunctions = new IncrementalMap[FunctionType, Set[(Encoded, Encoded)]].withDefaultValue(Set.empty)
+
+    /** Witness nesting depth of the free functions that were introduced as distinguishing inputs. */
+    val witnessDepths = new IncrementalMap[Encoded, Int]
+
+    /** The literal that guards all distinguishing input constraints. */
+    lazy val witnessEnabler: Encoded = encodeSymbol(Variable.fresh("b_witness", BooleanType(), true))
+
     val incrementals: Seq[IncrementalState] = Seq(
       lambdaBlockers, appInfos, appBlockers, blockerToApps,
       byID, byType, applications, freeBlockers, nonFreeBlockers, freeFunctions,
-      instantiated, typeBlockers)
+      instantiated, typeBlockers, witnessFunctions, witnessDepths)
 
     def unrollGeneration: Option[Int] =
       if (appInfos.isEmpty) None

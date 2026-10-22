@@ -880,6 +880,40 @@ trait Templates
     }
   }
 
+  /** Instantiates a distinguishing input for the first-class functions `f1` and `f2` of type `tpe`.
+    *
+    * Fresh witness arguments `ws` are introduced such that `f1(ws) != f2(ws)` holds whenever
+    * `guard` holds and `f1 != f2`. The witnesses are typed as free variables, so function-typed
+    * witnesses are themselves registered as free functions (and will in turn receive witnesses).
+    *
+    * @see [[LambdaTemplates]] for a discussion of how these witnesses are used.
+    */
+  def instantiateWitness(guard: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded): Clauses = {
+    val v1 = Variable.fresh("f", tpe, true)
+    val v2 = Variable.fresh("g", tpe, true)
+    val ws = tpe.from.map(tp => Variable.fresh("w", tp, true))
+    val bindings = Map(v1 -> f1, v2 -> f2) ++ ws.map(w => w -> encodeSymbol(w))
+
+    // the compared functions have already been typed where they were registered
+    declared += v1 -> f1
+    declared += v2 -> f2
+
+    val clauses = instantiate(bindings, { (start, encodedStart) =>
+      val substMap = bindings + (start -> encodedStart)
+      val tmplClauses = mkClauses0(start, Not(Equals(Application(v1, ws), Application(v2, ws))), substMap, polarity = Some(true))
+      val tpeClauses = ws.map { w =>
+        declared += w -> bindings(w)
+        mkClauses1(start, w.tpe, w, substMap)(using FreeGenerator)
+      }
+
+      tpeClauses.foldLeft(tmplClauses)(_ +++ _)
+    })
+
+    // `instantiate` asserts the start blocker, which we replace with the witness condition
+    val encodedStart +: rest = clauses: @unchecked
+    mkEquals(encodedStart, mkAnd(guard, mkNot(mkEquals(f1, f2)))) +: rest
+  }
+
   def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {
     instantiate(bindings, { (start, encodedStart) =>
       val instExpr = timers.solvers.simplify.run { simplifyFormula(expr) }
