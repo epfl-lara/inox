@@ -63,7 +63,7 @@ if [ "$CVC5_OS_NAME" = "macOS" ]; then
   echo "$WARN_MSG CVC4 installation on macOS; defaulting to only build available (x86_64 v1.8)"
   $CURL "https://github.com/CVC4/CVC4-archived/releases/download/1.8/cvc4-1.8-macos-opt" --output "$SOLVERS_DIR/cvc4"
 elif [ "$CVC5_OS_NAME" = "Linux" ]; then
-  $CURL "https://cvc4.cs.stanford.edu/downloads/builds/x86_64-linux-opt/cvc4-${CVC4_VER}-x86_64-linux-opt" --output "$SOLVERS_DIR/cvc4"
+  $CURL "https://github.com/CVC4/CVC4-archived/releases/download/${CVC4_VER}/cvc4-${CVC4_VER}-x86_64-linux-opt" --output "$SOLVERS_DIR/cvc4"
 else
   echo "$ERROR_MSG CVC4 installation not supported on unknown OS: $CVC5_OS_NAME"
   exit 1
