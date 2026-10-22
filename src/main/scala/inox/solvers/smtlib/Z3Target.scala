@@ -123,7 +123,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     case FiniteMap(els, dflt, base, _) =>
       if (dflt != BooleanLiteral(false)) unsupported(dflt, "Solver returned a co-finite set which is not supported")
       if (els.forall(p => isValue(p._2))) FiniteSet(els.collect { case (e, BooleanLiteral(true)) => e }, base)
-      else els.foldRight(FiniteSet(Seq.empty, base): Expr) { case ((k, v), s) => IfExpr(k, SetAdd(s, v), s) }
+      else els.foldRight(FiniteSet(Seq.empty, base): Expr) { case ((k, v), s) => IfExpr(v, SetAdd(s, k), s) }
     case s: FiniteSet => s
     case _ => unsupported(e, "Expecting set expression in this position")
   }
@@ -232,8 +232,14 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         QualifiedIdentifier(SMTIdentifier(SSymbol("store"), _), _),
         Seq(arr, key, elem)
       ), Some(st @ SetType(base))) =>
+        // `store` overrides the previous membership of `key`, so storing `false` removes it
         val set = fromSMT(arr, st)
-        IfExpr(fromSMT(elem, BooleanType()), SetAdd(set, fromSMT(key, base)), set)
+        val k = fromSMT(key, base)
+        fromSMT(elem, BooleanType()) match {
+          case BooleanLiteral(true) => SetAdd(set, k)
+          case BooleanLiteral(false) => SetDifference(set, FiniteSet(Seq(k), base))
+          case cond => IfExpr(cond, SetAdd(set, k), SetDifference(set, FiniteSet(Seq(k), base)))
+        }
 
       // Matches (_ map or) in both long form (_ map (or (Bool Bool) Bool))
       // and short form (_ map or).
@@ -267,7 +273,15 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
         QualifiedIdentifier(SMTIdentifier(SSymbol("store"), _), _),
         Seq(arr, key, elem)
       ), Some(bt @ BagType(base))) =>
-        BagUnion(fromSMT(arr, bt), FiniteBag(Seq(fromSMT(key, base) -> fromSMT(elem, IntegerType())), base))
+        // `store` overrides the previous multiplicity of `key` (it does not add to it)
+        val k = fromSMT(key, base)
+        val v = fromSMT(elem, IntegerType())
+        fromSMT(arr, bt) match {
+          case FiniteBag(elems, _) => FiniteBag(elems.filter(_._1 != k) :+ (k -> v), base)
+          case bag => BagUnion(
+            BagDifference(bag, FiniteBag(Seq(k -> MultiplicityInBag(k, bag)), base)),
+            FiniteBag(Seq(k -> v), base))
+        }
 
       case (FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
