@@ -663,6 +663,10 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case (Ints.Neg(Reals.Div(SNumeral(n1), SNumeral(n2))), Some(RealType())) =>
         exprOps.normalizeFraction(FractionLiteral(-n1, n2))
 
+      // CVC4 and cvc5 print negative fractions as (/ (- n1) n2)
+      case (Reals.Div(Ints.Neg(SNumeral(n1)), SNumeral(n2)), Some(RealType())) =>
+        exprOps.normalizeFraction(FractionLiteral(-n1, n2))
+
       case (Ints.Neg(SDecimal(value)), Some(RealType())) =>
         exprOps.normalizeFraction(FractionLiteral(
           value.bigDecimal.movePointRight(value.scale).toBigInteger.negate,
