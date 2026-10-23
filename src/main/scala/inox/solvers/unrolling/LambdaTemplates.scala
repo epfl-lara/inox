@@ -218,13 +218,17 @@ trait LambdaTemplates { self: Templates =>
 
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
 
+    // The blocker of a function-typed application result only bounds whether its typing holds,
+    // so the result is also considered active whenever the application is (see [[resultGuards]])
+    val active = resultGuards.get(f).map(a => mkOr(b, a)).getOrElse(b)
+
     // Add non-free blocker clause
     val isFree = encodeSymbol(Variable.fresh("b_free", BooleanType(), true))
     locally {
       val nextB = encodeSymbol(Variable.fresh("b_next", BooleanType(), true))
       nonFreeBlockers += f -> ((isFree, nextB))
 
-      clauses += mkImplies(b, mkEquals(isFree, mkNot(mkOr((for {
+      clauses += mkImplies(active, mkEquals(isFree, mkNot(mkOr((for {
         template <- byType(ft).values
         if canBeEqual(template.ids._2, f)
       } yield {
@@ -272,7 +276,7 @@ trait LambdaTemplates { self: Templates =>
 
     // Make sure `f` has a distinguishing input with every other function it differs from
     if (free && functionWitnesses) {
-      val guard = mkAnd(b, isFree)
+      val guard = mkAnd(active, isFree)
       if (currentWitnessDepth > 0) witnessDepths += f -> currentWitnessDepth
 
       for ((otherGuard, other) <- witnessFunctions(ft).toSeq if other != f) {
@@ -399,6 +403,11 @@ trait LambdaTemplates { self: Templates =>
     var clauses: Clauses = Seq.empty
     if (!instantiated(key)) {
       instantiated += key
+
+      if (functionWitnesses && ft.to.isInstanceOf[FunctionType]) {
+        val active = resultGuards.cached(app.encoded)(encodeSymbol(Variable.fresh("b_active", BooleanType(), true)))
+        clauses :+= mkImplies(blocker, active)
+      }
 
       if (!appBlockers.isDefinedAt(key)) {
         val firstB = encodeSymbol(Variable.fresh("b_lambda", BooleanType(), true))
@@ -591,6 +600,9 @@ trait LambdaTemplates { self: Templates =>
     * during refutation). The solver is responsible for dropping these assumptions when they
     * are the reason for unsatisfiability.
     */
+  /** Whether `e` is the argument of a distinguishing input (see [[Templates.instantiateWitness]]). */
+  def isWitnessArgument(e: Encoded): Boolean = witnessArguments(e)
+
   def witnessAssumptions: Seq[Encoded] =
     if (witnessPairs.isEmpty) Seq.empty else Seq(witnessEnabler)
 
@@ -669,6 +681,14 @@ trait LambdaTemplates { self: Templates =>
     /** Witness nesting depth of the applications that were registered while instantiating distinguishing inputs. */
     val appDepths = new IncrementalMap[App, Int]
 
+    /** For function-typed applications, a literal that holds whenever the application is reached.
+      * Results of applications are registered as free functions under a blocker that is only an
+      * upper bound, which would let a model keep two distinct results without distinguishing them. */
+    val resultGuards = new IncrementalMap[Encoded, Encoded]
+
+    /** The witness arguments of the instantiated distinguishing inputs. */
+    val witnessArguments = new IncrementalSet[Encoded]
+
     /** The pairs of functions that received a distinguishing input. */
     val witnessPairs = new IncrementalSet[(Encoded, Encoded)]
 
@@ -681,7 +701,7 @@ trait LambdaTemplates { self: Templates =>
     val incrementals: Seq[IncrementalState] = Seq(
       lambdaBlockers, appInfos, appBlockers, blockerToApps,
       byID, byType, applications, freeBlockers, nonFreeBlockers, freeFunctions,
-      instantiated, typeBlockers, witnessFunctions, witnessDepths, appDepths, witnessPairs, pendingWitnesses)
+      instantiated, typeBlockers, witnessFunctions, witnessDepths, appDepths, resultGuards, witnessArguments, witnessPairs, pendingWitnesses)
 
     def unrollGeneration: Option[Int] =
       if (appInfos.isEmpty) None
