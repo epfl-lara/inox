@@ -221,11 +221,9 @@ def bagDec(sourceProgram: Program)
     import evaluator.context.{given, _}
 
     override def transform(e: Expr): Expr = e match {
-      case ADT(SumID, Seq(tpe), Seq(e1, e2)) =>
-        val fb1 @ FiniteBag(els1, _) = transform(e1): @unchecked
-        val fb2 @ FiniteBag(els2, _) = transform(e2): @unchecked
-
-        if (exprOps.variablesOf(fb1).isEmpty && exprOps.variablesOf(fb2).isEmpty) {
+      case ADT(SumID, Seq(tpe), Seq(e1, e2)) => (transform(e1), transform(e2)) match {
+        case (fb1 @ FiniteBag(els1, _), fb2 @ FiniteBag(els2, _))
+          if exprOps.variablesOf(fb1).isEmpty && exprOps.variablesOf(fb2).isEmpty =>
           def groundMap(els: Seq[(Expr, Expr)]): Map[Expr, Expr] = els.map { case (key, value) => (
             evaluator.eval(key).result.getOrElse(throw new UnsupportedTree(e, "Failed to evaluate bag contents")),
             evaluator.eval(value).result.getOrElse(throw new UnsupportedTree(e, "Failed to evaluate bag contents"))
@@ -239,9 +237,13 @@ def bagDec(sourceProgram: Program)
             val IntegerLiteral(i2) = map2.getOrElse(key, IntegerLiteral(0)): @unchecked
             key -> IntegerLiteral(i1 + i2)
           }.toSeq, transform(tpe)).copiedFrom(e)
-        } else {
-          FiniteBag(els1 ++ els2, transform(tpe)).copiedFrom(e)
-        }
+
+        // Symbolic keys of the two bags may be equal, in which case their multiplicities
+        // must be added up. A `FiniteBag` would let the right entry override the left one.
+        case (FiniteBag(Seq(), _), b2) => b2
+        case (b1, FiniteBag(Seq(), _)) => b1
+        case (b1, b2) => BagUnion(b1, b2).copiedFrom(e)
+      }
 
       case ADT(ElemID, Seq(tpe), Seq(key, value)) =>
         FiniteBag(Seq(transform(key) -> transform(value)), transform(tpe)).copiedFrom(e)
