@@ -807,7 +807,10 @@ abstract class AbstractUnrollingSolver private
             case SatWithModel(model) =>
               Validate(model)
 
-            case _: Unsatisfiable if !templates.canUnroll =>
+            // Satisfaction assumptions that remain once nothing can be unrolled
+            // (such as type parameters being inhabited) must still be dropped
+            // before the query can be deemed unsatisfiable.
+            case _: Unsatisfiable if !templates.canUnroll && templates.satisfactionAssumptions.isEmpty =>
               CheckResult.cast(res)
 
             case UnsatWithAssumptions(assumptions) if unrollAssumptions =>
@@ -993,6 +996,12 @@ abstract class AbstractUnrollingSolver private
 
         case Unroll if !canUnroll =>
           reporter.debug(s"- We need to keep going, but reached unroll bound ($unrollBound)")
+          CheckResult.cast(Unknown)
+
+        case Unroll if !templates.canUnroll =>
+          // Only satisfaction assumptions that unrolling cannot discharge are left,
+          // e.g. a model exists only if some type parameter is empty.
+          reporter.debug("- We need to keep going, but nothing is left to unroll")
           CheckResult.cast(Unknown)
 
         case Unroll => context.timers.solvers.unrolling.unroll.run {
