@@ -24,7 +24,55 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     "solvr=" + options.findOptionOrDefault(optSelectedSolvers).head + " " +
     "model=" + options.findOptionOrDefault(optModelFinding)
 
-  val program = InoxProgram(NoSymbols)
+  val listID = FreshIdentifier("List")
+  val consID = FreshIdentifier("Cons")
+  val nilID  = FreshIdentifier("Nil")
+  val head = FreshIdentifier("head")
+  val tail = FreshIdentifier("tail")
+
+  val List = mkSort(listID)("A") {
+    case Seq(aT) => Seq(
+      (nilID, Seq()),
+      (consID, Seq(ValDef(head, aT), ValDef(tail, T(listID)(aT))))
+    )
+  }
+
+  val sizeID = FreshIdentifier("size")
+  val sizeFd = mkFunDef(sizeID)("A") { case Seq(aT) => (
+    Seq("l" :: T(listID)(aT)), IntegerType(), { case Seq(l) =>
+      if_ (l `is` consID) {
+        E(BigInt(1)) + E(sizeID)(aT)(l.getField(tail))
+      } else_ {
+        E(BigInt(0))
+      }
+    })
+  }
+
+  val boxID = FreshIdentifier("Box")
+  val boxConsID = FreshIdentifier("MkBox")
+  val fn = FreshIdentifier("fn")
+
+  val Box = mkSort(boxID)() {
+    case Seq() => Seq((boxConsID, Seq(ValDef(fn, IntegerType() =>: IntegerType()))))
+  }
+
+  // a recursive type with function fields, like Stainless's encoding of `Object`
+  val objID = FreshIdentifier("Obj")
+  val funID = FreshIdentifier("Fun")
+  val numID = FreshIdentifier("Num")
+  val objFn = FreshIdentifier("objFn")
+  val objNum = FreshIdentifier("objNum")
+
+  val Obj = mkSort(objID)() {
+    case Seq() => Seq(
+      (funID, Seq(ValDef(objFn, T(objID)() =>: T(objID)()))),
+      (numID, Seq(ValDef(objNum, IntegerType())))
+    )
+  }
+
+  val program = InoxProgram(new Symbols(Map(sizeID -> sizeFd), Map(listID -> List, boxID -> Box, objID -> Obj)))
+
+  val intList = T(listID)(IntegerType())
 
   private def solve(clause: Expr)(using Context): Map[ValDef, Expr] = {
     SimpleSolverAPI(program.getSolver).solveSAT(clause) match {
@@ -33,23 +81,35 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     }
   }
 
-  /** Inputs on which `f1` and `f2` can be compared: all closed sub-expressions of the
-    * extracted models that have the right type. */
-  private def candidates(tpe: Type, es: Expr*): Set[Expr] = es.toSet.flatMap { (e: Expr) =>
+  private def result(clause: Expr)(using Context) = SimpleSolverAPI(program.getSolver).solveSAT(clause)
+
+  /** Closed sub-expressions of the extracted models that have type `tpe`. */
+  private def candidates(tpe: Type, es: Iterable[Expr]): Set[Expr] = es.toSet.flatMap { (e: Expr) =>
     exprOps.collect[Expr] {
       case e if e.getType(using program.symbols) == tpe && exprOps.variablesOf(e).isEmpty => Set(e)
       case _ => Set.empty
     } (e)
   }
 
-  private def distinguishable(f1: Expr, f2: Expr)(using ctx: Context): Boolean = {
-    val FunctionType(Seq(from), _) = f1.getType(using program.symbols): @unchecked
+  /** Whether `f1` and `f2` give different results on some inputs taken from `pool` (by default,
+    * the two functions themselves). Results of function type are compared the same way, so curried
+    * functions are distinguished by a sequence of inputs. */
+  private def distinguishable(f1: Expr, f2: Expr, pool: Expr*)(using ctx: Context): Boolean = {
+    val FunctionType(from, _) = f1.getType(using program.symbols): @unchecked
+    val exprs = pool ++ Seq(f1, f2)
     val evaluator = program.getEvaluator
-    candidates(from, f1, f2).exists { arg =>
-      val r1 = evaluator.eval(Application(f1, Seq(arg)))
-      val r2 = evaluator.eval(Application(f2, Seq(arg)))
+    val argss = from.foldRight(Seq(Seq.empty[Expr])) { (tpe, rest) =>
+      for (arg <- candidates(tpe, exprs).toSeq; args <- rest) yield arg +: args
+    }
+    argss.exists { args =>
+      val r1 = evaluator.eval(Application(f1, args))
+      val r2 = evaluator.eval(Application(f2, args))
       (r1, r2) match {
-        case (EvaluationResults.Successful(v1), EvaluationResults.Successful(v2)) => v1 != v2
+        case (EvaluationResults.Successful(v1), EvaluationResults.Successful(v2)) =>
+          v1.getType(using program.symbols) match {
+            case _: FunctionType => distinguishable(v1, v2, (exprs :+ v1 :+ v2)*)
+            case _ => v1 != v2
+          }
         case _ => false
       }
     }
@@ -114,5 +174,202 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
     val clause = f === \("x" :: IntegerType())(x => g(x))
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isSAT)
+  }
+
+  // Models: distinct functions are told apart by an input
+
+  test("distinct functions of several arguments") {
+    val tpe = (IntegerType(), IntegerType()) =>: IntegerType()
+    val f = ("f" :: tpe).toVariable
+    val g = ("g" :: tpe).toVariable
+    val zero = E(BigInt(0))
+    val model = solve((f !== g) && f(zero, zero) === g(zero, zero))
+    assert(distinguishable(model(f.toVal), model(g.toVal)))
+  }
+
+  test("distinct curried functions") {
+    val tpe = IntegerType() =>: (IntegerType() =>: IntegerType())
+    val f = ("f" :: tpe).toVariable
+    val g = ("g" :: tpe).toVariable
+    val model = solve(f !== g)
+    assert(distinguishable(model(f.toVal), model(g.toVal)))
+  }
+
+  test("distinct function and closure") {
+    // the lambda captures `y`, so it is only known up to the value of `y`
+    val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
+    val y = ("y" :: IntegerType()).toVariable
+    val lambda = \("x" :: IntegerType())(x => x + y)
+    val model = solve((f !== lambda) && f(E(BigInt(0))) === y)
+    val closed = \("x" :: IntegerType())(x => x + model(y.toVal))
+    assert(distinguishable(model(f.toVal), closed))
+  }
+
+  test("distinct functions in datatypes") {
+    val b1 = ("b1" :: T(boxID)()).toVariable
+    val b2 = ("b2" :: T(boxID)()).toVariable
+    val zero = E(BigInt(0))
+    val model = solve((b1 !== b2) && b1.getField(fn)(zero) === b2.getField(fn)(zero))
+    (model(b1.toVal), model(b2.toVal)) match {
+      case (ADT(_, _, Seq(f1)), ADT(_, _, Seq(f2))) => assert(distinguishable(f1, f2))
+      case res => fail(s"Unexpected model: $res")
+    }
+  }
+
+  test("distinct functions on a type parameter") {
+    val tp = TypeParameter.fresh("A")
+    val f = ("f" :: (tp =>: tp)).toVariable
+    val g = ("g" :: (tp =>: tp)).toVariable
+    val model = solve(f !== g)
+    assert(distinguishable(model(f.toVal), model(g.toVal)))
+  }
+
+  test("all Boolean functions") {
+    // There are exactly four functions from Boolean to Boolean, so the model must contain each
+    // of them, with a distinguishing input for every pair.
+    val fs = (1 to 4).map(i => (s"f$i" :: (BooleanType() =>: BooleanType())).toVariable)
+    val pairs = for (f1 <- fs; f2 <- fs if f1.id.globalId < f2.id.globalId) yield (f1, f2)
+    val model = solve(andJoin(pairs.map((f1, f2) => f1 !== f2)))
+    for ((f1, f2) <- pairs) {
+      assert(distinguishable(model(f1.toVal), model(f2.toVal), E(true), E(false)), s"$f1 and $f2 aren't distinguished")
+    }
+  }
+
+  test("distinguishing input that needs unfolding") {
+    // `f` and `g` agree on every list of size 0 or 1, so the distinguishing input must be
+    // a longer list, which requires unfolding `size` on the witness
+    val tpe = intList =>: IntegerType()
+    val f = ("f" :: tpe).toVariable
+    val g = ("g" :: tpe).toVariable
+    val clause = (f !== g) &&
+      forall("l" :: intList)(l => (sizeFd(IntegerType())(l) <= E(BigInt(1))) ==> (f(l) === g(l)))
+    val model = solve(clause)
+    assert(distinguishable(model(f.toVal), model(g.toVal)))
+  }
+
+  test("distinct functions next to a recursive function") {
+    val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
+    val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
+    val l = ("l" :: intList).toVariable
+    val model = solve((f !== g) && f(sizeFd(IntegerType())(l)) === g(E(BigInt(2))) && sizeFd(IntegerType())(l) > E(BigInt(2)))
+    assert(distinguishable(model(f.toVal), model(g.toVal)))
+  }
+
+  // Intensional equality: the extensionality assumption must never make a satisfiable query UNSAT
+
+  test("structurally distinct, extensionally equal lambdas") {
+    val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
+    val id = \("x" :: IntegerType())(x => x)
+    val alsoId = \("x" :: IntegerType())(x => if_ (x === E(BigInt(0))) { E(BigInt(0)) } else_ { x })
+    assert(result((f !== id) && (f === alsoId)).isSAT)
+  }
+
+  test("distinct functions equal on every input") {
+    val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
+    val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
+    val clause = (f !== g) && forall("x" :: IntegerType())(x => f(x) === g(x))
+    // Satisfiable by two closures with the same results. Model extraction can't build such
+    // closures for free functions, so the answer may be unknown, but it must not be UNSAT.
+    assert(!result(clause).isUNSAT)
+  }
+
+  test("more distinct Boolean functions than extensional ones") {
+    val fs = (1 to 5).map(i => (s"f$i" :: (BooleanType() =>: BooleanType())).toVariable)
+    val pairs = for (f1 <- fs; f2 <- fs if f1.id.globalId < f2.id.globalId) yield (f1, f2)
+    assert(!result(andJoin(pairs.map((f1, f2) => f1 !== f2))).isUNSAT)
+  }
+
+  test("intensional counterexample that needs unfolding") {
+    // `f` closes over `g`, so they are distinct without a distinguishing input, and the list
+    // constraint keeps the solver unrolling after the witnesses turn out to be infeasible
+    val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
+    val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
+    val l = ("l" :: intList).toVariable
+    val clause = (f === \("x" :: IntegerType())(x => g(x))) && sizeFd(IntegerType())(l) > E(BigInt(3))
+    assert(result(clause).isSAT)
+  }
+
+  test("intensional counterexample over a recursive type with function fields") {
+    // Witnesses of type `Obj` contain fresh functions, which need witnesses of their own, so
+    // there are always more of them to instantiate: the solver must still drop them and stop.
+    // Model extraction can't build a valid model for this query even without witnesses, so the
+    // answer may be unknown.
+    val tpe = T(objID)() =>: T(objID)()
+    val f = ("f" :: tpe).toVariable
+    val g = ("g" :: tpe).toVariable
+    assert(!result(f === \("x" :: T(objID)())(x => g(x))).isUNSAT)
+  }
+
+  test("distinct functions over a recursive type with function fields") {
+    val tpe = T(objID)() =>: T(objID)()
+    val f = ("f" :: tpe).toVariable
+    val g = ("g" :: tpe).toVariable
+    val model = solve(f !== g)
+    assert(distinguishable(model(f.toVal), model(g.toVal)))
+  }
+
+  // Proofs are unaffected
+
+  test("equal functions agree") {
+    val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
+    val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
+    val x = ("x" :: IntegerType()).toVariable
+    assert(result((f === g) && (f(x) !== g(x))).isUNSAT)
+  }
+
+  test("unsatisfiable query with distinct functions") {
+    // the witnesses must not keep the solver from refuting the query by unfolding `size`
+    val tpe = intList =>: IntegerType()
+    val f = ("f" :: tpe).toVariable
+    val g = ("g" :: tpe).toVariable
+    val l = ("l" :: intList).toVariable
+    val one = C(consID)(IntegerType())(E(BigInt(1)), C(nilID)(IntegerType())())
+    val clause = (f !== g) && (f(l) === g(l)) && (l === one) && (sizeFd(IntegerType())(l) !== E(BigInt(1)))
+    assert(result(clause).isUNSAT)
+  }
+
+  test("unsatisfiable query about distinguishing inputs") {
+    // Two distinct functions on Unit must differ on (), yet both map it to 0. This is UNSAT
+    // only extensionally, so the solver must not report UNSAT because of the witnesses alone:
+    // dropping them leaves a satisfiable query.
+    val f = ("f" :: (UnitType() =>: IntegerType())).toVariable
+    val g = ("g" :: (UnitType() =>: IntegerType())).toVariable
+    val clause = (f !== g) && f(UnitLiteral()) === E(BigInt(0)) && g(UnitLiteral()) === E(BigInt(0))
+    assert(!result(clause).isUNSAT)
+  }
+
+  // Solver state and options
+
+  test("incremental solving") { ctx ?=>
+    val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
+    val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
+    val solver = program.getSolver.getNewSolver()
+    try {
+      solver.assertCnstr(f !== g)
+      solver.push()
+      solver.assertCnstr(f === g)
+      assert(solver.check(Simple).isUNSAT)
+      solver.pop()
+      solver.check(Model) match {
+        case SatWithModel(model) => assert(distinguishable(model.vars(f.toVal), model.vars(g.toVal)))
+        case res => fail(s"Expected a model, got $res")
+      }
+      solver.push()
+      solver.assertCnstr(f(E(BigInt(1))) === g(E(BigInt(1))))
+      solver.check(Model) match {
+        case SatWithModel(model) => assert(distinguishable(model.vars(f.toVal), model.vars(g.toVal)))
+        case res => fail(s"Expected a model, got $res")
+      }
+      solver.pop()
+    } finally {
+      solver.free()
+    }
+  }
+
+  test("disabled witnesses") { ctx ?=>
+    val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
+    val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
+    val noWitnesses = ctx.withOpts(optFunctionWitnesses(false), optCheckModels(false))
+    assert(SimpleSolverAPI(program.getSolver(noWitnesses)).solveSAT(f !== g).isSAT)
   }
 }
