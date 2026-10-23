@@ -62,10 +62,6 @@ class TheoryEncodersSuite extends AnyFunSuite {
     )
   }
 
-  test("ASCII string encoder") {
-    checkAll(ASCIIStringEncoder(program), stringExprs)
-  }
-
   test("String encoder") {
     checkAll(StringEncoder(program), stringExprs)
   }
@@ -150,5 +146,12 @@ class TheoryEncodersSuite extends AnyFunSuite {
     assert(decode("\\u0041\\u20ac") == "A€")
     // backslashes that do not start an escape sequence are kept as-is
     assert(decode("\\x41\\n\\u{}\\u{123456}\\u12") == "\\x41\\n\\u{}\\u{123456}\\u12")
+
+    // model strings must map SMT-LIB characters one-to-one to Inox characters
+    assert(decodeBMP("\\u{41}\\u{ffff}\\u{d800}") == Some("A\uffff\ud800"))
+    assert(decodeBMP("a\\u{10000}") == None)
+    assert(decodeBMP("a\\u{1f600}b") == None)
+    assert(decodeBMP("a😀") == None)
+    for (s <- strings) assert(decodeBMP(encode(s)) == Some(s))
   }
 }

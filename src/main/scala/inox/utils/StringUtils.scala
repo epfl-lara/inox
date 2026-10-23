@@ -37,9 +37,21 @@ object StringUtils {
     * `\ud₃d₂d₁d₀` and `\u{d₀}` to `\u{d₄d₃d₂d₁d₀}`. Any other backslash is a literal
     * backslash. Code points outside of the BMP are decoded to surrogate pairs.
     */
-  def decode(s: String): String = {
+  def decode(s: String): String = decodeImpl(s, bmpOnly = false).get
+
+  /** Decodes an SMT-LIB 2.6 string literal like [[decode]], but returns `None` if the
+    * literal contains a code point outside of the BMP. SMT-LIB characters then map
+    * one-to-one to the (UTF-16) characters of the decoded string.
+    */
+  def decodeBMP(s: String): Option[String] = decodeImpl(s, bmpOnly = true)
+
+  private def decodeImpl(s: String, bmpOnly: Boolean): Option[String] = {
     val sb = new StringBuilder
     var i = 0
+    def append(codePoint: Int): Boolean = {
+      if (codePoint > 0xFFFF && bmpOnly) false
+      else { sb.appendAll(Character.toChars(codePoint)); true }
+    }
     while (i < s.length) {
       val c = s.charAt(i)
       if (c == '\\' && i + 1 < s.length && s.charAt(i + 1) == 'u') {
@@ -47,24 +59,27 @@ object StringUtils {
           val close = s.indexOf('}', i + 3)
           val digits = if (close < 0) "" else s.substring(i + 3, close)
           if (digits.nonEmpty && digits.length <= 5 && digits.forall(isHex)) {
-            sb.appendAll(Character.toChars(Integer.parseInt(digits, 16)))
+            if (!append(Integer.parseInt(digits, 16))) return None
             i = close + 1
           } else {
             sb += c
             i += 1
           }
         } else if (i + 6 <= s.length && s.substring(i + 2, i + 6).forall(isHex)) {
-          sb.appendAll(Character.toChars(Integer.parseInt(s.substring(i + 2, i + 6), 16)))
+          sb += Integer.parseInt(s.substring(i + 2, i + 6), 16).toChar
           i += 6
         } else {
           sb += c
           i += 1
         }
+      } else if (bmpOnly && Character.isHighSurrogate(c) && i + 1 < s.length && Character.isLowSurrogate(s.charAt(i + 1))) {
+        // an unescaped character outside of the BMP
+        return None
       } else {
         sb += c
         i += 1
       }
     }
-    sb.toString
+    Some(sb.toString)
   }
 }
