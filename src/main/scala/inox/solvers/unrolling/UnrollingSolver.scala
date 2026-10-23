@@ -833,6 +833,14 @@ abstract class AbstractUnrollingSolver private
               useWitnesses = false
               ModelCheck
 
+            // distinguishing inputs only matter once we have a model (see [[LambdaTemplates.witnessAssumptions]])
+            case _: Satisfiable if useWitnesses && templates.hasPendingWitnesses =>
+              reporter.debug(" - Instantiating distinguishing function inputs")
+              for (cl <- templates.instantiatePendingWitnesses()) {
+                underlying.assertCnstr(cl)
+              }
+              ModelCheck
+
             case _: Satisfiable if templates.requiresFiniteRangeCheck =>
               FiniteRangeCheck
 

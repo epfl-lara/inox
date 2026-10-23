@@ -175,7 +175,11 @@ trait LambdaTemplates { self: Templates =>
         val toVars = typeOps.variablesOf(to).toSeq.sortBy(_.id)
         val toClosures = toVars.map(subst)
         val toResult = encodeSymbol(Variable.fresh("result", BooleanType(), true))
-        clauses ++= instantiateType(freshBlocker, Typing(to, app.encoded, Constraint(toResult, toClosures, free)))
+        // the application result descends from both `f` and the arguments of `app`
+        val depth = currentWitnessDepth max witnessDepths.getOrElse(f, 0) max appDepths.getOrElse(app, 0)
+        clauses ++= withWitnessDepth(depth) {
+          instantiateType(freshBlocker, Typing(to, app.encoded, Constraint(toResult, toClosures, free)))
+        }
 
         // A function of type `Pi(x: A). B` only maps arguments in `A` to results in `B`, so the
         // codomain must only be assumed (or checked) for arguments that lie in the domain.
@@ -184,8 +188,9 @@ trait LambdaTemplates { self: Templates =>
             case (vd, arg) if ContractUnrolling.unroll(vd.tpe) =>
               val domResult = encodeSymbol(Variable.fresh("dom", BooleanType(), true))
               val domClosures = typeOps.variablesOf(vd.tpe).toSeq.sortBy(_.id).map(subst)
-              clauses ++= instantiateType(freshBlocker,
-                Typing(vd.tpe, arg.encoded, Membership(domResult, domClosures)))
+              clauses ++= withWitnessDepth(depth) {
+                instantiateType(freshBlocker, Typing(vd.tpe, arg.encoded, Membership(domResult, domClosures)))
+              }
               domResult
           }
           case _ => Seq.empty
@@ -271,11 +276,11 @@ trait LambdaTemplates { self: Templates =>
       if (currentWitnessDepth > 0) witnessDepths += f -> currentWitnessDepth
 
       for ((otherGuard, other) <- witnessFunctions(ft).toSeq if other != f) {
-        clauses ++= mkWitness(mkAnd(witnessEnabler, guard, otherGuard), ft, f, other)
+        registerWitness(mkAnd(witnessEnabler, guard, otherGuard), ft, f, other)
       }
 
       for (template <- byType(ft).values.toSeq) {
-        clauses ++= mkWitness(mkAnd(witnessEnabler, guard, template.start), ft, f, template.ids._2)
+        registerWitness(mkAnd(witnessEnabler, guard, template.start), ft, f, template.ids._2)
       }
 
       witnessFunctions += ft -> (witnessFunctions(ft) + (guard -> f))
@@ -369,6 +374,7 @@ trait LambdaTemplates { self: Templates =>
         nonFreeClauses
 
       byID += idT -> newTemplate
+      if (currentWitnessDepth > 0) witnessDepths += idT -> currentWitnessDepth
       byType += newTemplate.tpe -> (byType(newTemplate.tpe) + (newTemplate.structure -> newTemplate))
 
       val gen = nextGeneration(currentGeneration)
@@ -378,11 +384,11 @@ trait LambdaTemplates { self: Templates =>
       }
 
       // make sure free functions have a distinguishing input with the new lambda (if they differ)
-      val witnessClauses = for ((guard, f) <- witnessFunctions(newTemplate.tpe).toSeq) yield {
-        mkWitness(mkAnd(witnessEnabler, guard, newTemplate.start), newTemplate.tpe, f, idT)
+      for ((guard, f) <- witnessFunctions(newTemplate.tpe).toSeq) {
+        registerWitness(mkAnd(witnessEnabler, guard, newTemplate.start), newTemplate.tpe, f, idT)
       }
 
-      (idT, clauses ++ witnessClauses.flatten)
+      (idT, clauses)
     }
   }
 
@@ -444,6 +450,7 @@ trait LambdaTemplates { self: Templates =>
 
         clauses ++= congruenceClauses(blocker, app)
         applications += ft -> (applications(ft) + key)
+        if (currentWitnessDepth > 0) appDepths += app -> (currentWitnessDepth max appDepths.getOrElse(app, 0))
       }
     }
 
@@ -517,22 +524,53 @@ trait LambdaTemplates { self: Templates =>
     * function that requires witnesses, and with (negative) recursive types this has no structural bound. */
   private val maxWitnessDepth = 3
 
-  /** The witness nesting depth of the free functions currently being registered (0 for regular inputs). */
+  /** Bounds the total number of distinguishing inputs: these are quadratic in the number of functions
+    * of a given type, and functions can also descend from distinguishing inputs in ways the depth
+    * doesn't track (eg. through unrolled function calls). */
+  private val maxWitnesses = 100
+
+  /** The witness nesting depth of the symbols currently being instantiated (0 for regular inputs).
+    *
+    * Everything that descends from a distinguishing input inherits its depth: the free functions in
+    * its type unfolding (including ADT fields that are unfolded at later generations, see
+    * [[TypeTemplates]]) and the results of the applications it takes part in. Otherwise, the free
+    * functions that appear in these would get fresh distinguishing inputs of their own without bound. */
   private var currentWitnessDepth = 0
 
-  private def mkWitness(guard: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded): Clauses = {
+  protected def witnessDepth: Int = currentWitnessDepth
+
+  protected def withWitnessDepth[T](depth: Int)(body: => T): T = {
+    val previous = currentWitnessDepth
+    currentWitnessDepth = depth
+    try body finally currentWitnessDepth = previous
+  }
+
+  /** Registers a distinguishing input for `f1` and `f2`, to be instantiated by [[instantiatePendingWitnesses]]. */
+  private def registerWitness(guard: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded): Unit = {
     val depth = (witnessDepths.getOrElse(f1, 0) max witnessDepths.getOrElse(f2, 0)) + 1
-    if (depth > maxWitnessDepth) {
-      Seq.empty
-    } else {
-      val previous = currentWitnessDepth
-      currentWitnessDepth = depth
-      try {
-        instantiateWitness(guard, tpe, f1, f2)
-      } finally {
-        currentWitnessDepth = previous
+    if (depth <= maxWitnessDepth) pendingWitnesses += PendingWitness(guard, tpe, f1, f2, depth)
+  }
+
+  def hasPendingWitnesses: Boolean = pendingWitnesses.nonEmpty && witnessPairs.size < maxWitnesses
+
+  /** Instantiates the registered distinguishing inputs, including the ones that are registered
+    * along the way (up to [[maxWitnessDepth]] and [[maxWitnesses]]).
+    *
+    * Distinguishing inputs are only useful to extract models, so the solver only instantiates them
+    * once it has found a model without them: this keeps their cost away from unsatisfiable queries. */
+  def instantiatePendingWitnesses(): Clauses = {
+    val clauses = new scala.collection.mutable.ListBuffer[Encoded]
+    while (hasPendingWitnesses) {
+      val witnesses = pendingWitnesses.toSeq.sortBy(_.depth)
+      for (w <- witnesses) {
+        pendingWitnesses -= w
+        if (witnessPairs.size < maxWitnesses) {
+          witnessPairs += (w.f1 -> w.f2)
+          clauses ++= withWitnessDepth(w.depth)(instantiateWitness(w.guard, w.tpe, w.f1, w.f2))
+        }
       }
     }
+    clauses.toSeq
   }
 
   /** Whether the solver should search for models in which distinct first-class functions
@@ -555,7 +593,9 @@ trait LambdaTemplates { self: Templates =>
     * are the reason for unsatisfiability.
     */
   def witnessAssumptions: Seq[Encoded] =
-    if (witnessFunctions.isEmpty) Seq.empty else Seq(witnessEnabler)
+    if (witnessPairs.isEmpty) Seq.empty else Seq(witnessEnabler)
+
+  protected case class PendingWitness(guard: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, depth: Int)
 
   private[unrolling] object lambdasManager extends Manager {
     // Function instantiations have their own defblocker
@@ -627,13 +667,22 @@ trait LambdaTemplates { self: Templates =>
     /** Witness nesting depth of the free functions that were introduced as distinguishing inputs. */
     val witnessDepths = new IncrementalMap[Encoded, Int]
 
+    /** Witness nesting depth of the applications that were registered while instantiating distinguishing inputs. */
+    val appDepths = new IncrementalMap[App, Int]
+
+    /** The pairs of functions that received a distinguishing input (bounded by [[maxWitnesses]]). */
+    val witnessPairs = new IncrementalSet[(Encoded, Encoded)]
+
+    /** The distinguishing inputs that haven't been instantiated yet. */
+    val pendingWitnesses = new IncrementalSet[PendingWitness]
+
     /** The literal that guards all distinguishing input constraints. */
     lazy val witnessEnabler: Encoded = encodeSymbol(Variable.fresh("b_witness", BooleanType(), true))
 
     val incrementals: Seq[IncrementalState] = Seq(
       lambdaBlockers, appInfos, appBlockers, blockerToApps,
       byID, byType, applications, freeBlockers, nonFreeBlockers, freeFunctions,
-      instantiated, typeBlockers, witnessFunctions, witnessDepths)
+      instantiated, typeBlockers, witnessFunctions, witnessDepths, appDepths, witnessPairs, pendingWitnesses)
 
     def unrollGeneration: Option[Int] =
       if (appInfos.isEmpty) None
@@ -705,7 +754,9 @@ trait LambdaTemplates { self: Templates =>
                 val lambdaBlocker = encodeSymbol(Variable.fresh("d", BooleanType(), true))
                 lambdaBlockers += info -> lambdaBlocker
 
-                val instClauses: Clauses = template.instantiate(lambdaBlocker, args)
+                // the lambda body is instantiated on the arguments of `app`, so it inherits their witness depth
+                val depth = appDepths.getOrElse(app._2, 0) max witnessDepths.getOrElse(template.ids._2, 0)
+                val instClauses: Clauses = withWitnessDepth(depth)(template.instantiate(lambdaBlocker, args))
 
                 newCls ++= instClauses
                 lambdaBlocker
