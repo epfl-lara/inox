@@ -341,7 +341,7 @@ class Printer private(override val program: InoxProgram,
     case MapMerge(mask, map1, map2) =>
       MapExtensions.Merge(toSMT(mask), toSMT(map1), toSMT(map2))
 
-    case StringLiteral(value) => Strings.StringLit(value)
+    case StringLiteral(value) => Strings.StringLit(utils.StringUtils.encode(value))
     case StringConcat(s1, s2) => Strings.Concat(toSMT(s1), toSMT(s2))
     case SubString(s, start, end) => Strings.Substring(toSMT(s), toSMT(start), toSMT(end))
     case StringLength(s) => Strings.Length(toSMT(s))

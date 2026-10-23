@@ -300,13 +300,17 @@ trait SymbolOps extends TypeOps { self =>
     * @param inFunction Determines whether normalization is called on a function. If
     *                   not, then normalization can normalize impure expressions when
     *                   the path-condition is empty.
+    * @param preserveArgTypes Determines whether the declared (possibly refined) types of `args`
+    *                   are kept in the normalized bindings. This is required for quantifiers,
+    *                   where refinements restrict the quantification domain.
     */
   def normalizeStructure(
     args: Seq[ValDef],
     expr: Expr,
     preserveApps: Boolean,
     onlySimple: Boolean,
-    inFunction: Boolean
+    inFunction: Boolean,
+    preserveArgTypes: Boolean
   )(using opts: PurityOptions): (Seq[ValDef], Expr, Seq[(Variable, Expr, Seq[Expr])]) = {
 
     val subst: MutableMap[Variable, (Expr, Seq[Expr])] = MutableMap.empty
@@ -525,6 +529,15 @@ trait SymbolOps extends TypeOps { self =>
       )
     }
 
+    if (preserveArgTypes) {
+      // Register the arguments with their (normalized) declared types before transforming
+      // the body, as `transformVar` would otherwise only keep their underlying types.
+      args.foldLeft(Set.empty[Variable]) { (vars, vd) =>
+        transformVal(vars, vd, inFunction, Path.empty)
+        vars + vd.toVariable
+      }
+    }
+
     val newExpr = transformExpr(args.map(_.toVariable).toSet, expr, inFunction, Path.empty)
     val bindings = args map (vd => transformVar(vd.toVariable).toVal)
 
@@ -546,22 +559,22 @@ trait SymbolOps extends TypeOps { self =>
   }
 
   /** Wrapper around
-    * [[normalizeStructure(args:Seq[SymbolOps\.this\.trees\.ValDef],expr:SymbolOps\.this\.trees\.Expr,preserveApps:Boolean,onlySimple:Boolean,inFunction:Boolean)* normalizeStructure]]
+    * [[normalizeStructure(args:Seq[SymbolOps\.this\.trees\.ValDef],expr:SymbolOps\.this\.trees\.Expr,preserveApps:Boolean,onlySimple:Boolean,inFunction:Boolean,preserveArgTypes:Boolean)* normalizeStructure]]
     * that is tailored for structural equality of [[Expressions.Lambda Lambda]] and [[Expressions.Forall Forall]] instances.
     */
   def normalizeStructure(e: Expr, onlySimple: Boolean = false)
                         (using PurityOptions): (Expr, Seq[(Variable, Expr, Seq[Expr])]) = freshenLocals(e) match {
     case lambda: Lambda =>
-      val (args, body, subst) = normalizeStructure(lambda.params, lambda.body, false, onlySimple, true)
+      val (args, body, subst) = normalizeStructure(lambda.params, lambda.body, false, onlySimple, true, false)
       (Lambda(args, body), subst)
 
     case forall: Forall =>
       val isInstantiated = forall.params.forall(vd => hasInstance(vd.tpe) == Some(true))
-      val (args, body, subst) = normalizeStructure(forall.params, forall.body, true, onlySimple, !isInstantiated)
+      val (args, body, subst) = normalizeStructure(forall.params, forall.body, true, onlySimple, !isInstantiated, true)
       (Forall(args, body), subst)
 
     case _ =>
-      val (_, body, subst) = normalizeStructure(Seq(), e, false, onlySimple, false)
+      val (_, body, subst) = normalizeStructure(Seq(), e, false, onlySimple, false, false)
       (body, subst)
   }
 

@@ -162,7 +162,7 @@ def stringDec(sourceProgram: Program)
 
     private def convertToString(e: Expr): String  = stringBijection.cachedA(e)(e match {
       // Do not call toString on the char but rather String.valueOf because toString messes things up with UTF-8 codepoints
-      case ADT(StringConsID, Seq(), Seq(CharLiteral(c), l)) => java.lang.String.valueOf(if(c < 31) (c + 97).toChar else c) + convertToString(l)
+      case ADT(StringConsID, Seq(), Seq(CharLiteral(c), l)) => java.lang.String.valueOf(c) + convertToString(l)
       case ADT(StringNilID, Seq(), Seq()) => ""
     })
   }
