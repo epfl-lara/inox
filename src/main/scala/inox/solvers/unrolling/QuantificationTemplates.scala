@@ -142,7 +142,7 @@ trait QuantificationTemplates { self: Templates =>
       given TypingGenerator = if (pol) ContractGenerator else FreeGenerator
       val (tpeCond, tpeClauses) = idQuantifiers.foldLeft((BooleanLiteral(true): Expr, emptyClauses)) {
         case ((tpCond, tpClauses), v) =>
-          val (p, clauses) = mkTypeClauses(pathVar._1, v.tpe, v, clauseSubst)
+          val (p, clauses) = mkTypeClauses(pathVar._1, v.tpe, v, clauseSubst, followCalls = true)
           (and(tpCond, p), tpClauses +++ clauses)
       }
 
