@@ -555,10 +555,11 @@ trait LambdaTemplates { self: Templates =>
     *
     * Distinguishing inputs are only useful to extract models, so the solver only instantiates them
     * once it has found a model without them: this keeps their cost away from unsatisfiable queries.
-    * The solver increases `maxDepth` with each unrolling, so every distinguishing input is eventually
-    * instantiated (which ensures completeness), while each round of instantiations stays finite:
-    * the free functions and lambdas a distinguishing input creates on the spot inherit its depth,
-    * and the others are only created by later unrollings. */
+    * The solver starts at depth 1 and adds one level with each unrolling, like any other unfolding,
+    * so every distinguishing input is eventually instantiated. Each round stays finite: the free
+    * functions and lambdas a distinguishing input creates on the spot inherit its depth, and the
+    * others are only created by later unrollings. Adding several levels at once would multiply the
+    * cost, as each level pairs the functions it creates with all functions of the same type. */
   def instantiatePendingWitnesses(maxDepth: Int): Clauses = {
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
     while (hasPendingWitnesses(maxDepth)) {
