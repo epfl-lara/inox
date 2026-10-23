@@ -15,7 +15,7 @@ class StringSemanticsSuite extends SolverTestSuite {
 
   // Strings containing special characters: control characters, multi-byte UTF-8 characters,
   // surrogate pairs and character sequences that look like escape sequences.
-  val specialStrings = Seq("abc", "\n", "\u0000x", "é", "€", "😀", "\\u{41}", "\\x41", "\\", "a\"b")
+  val specialStrings = Seq("abc", "\n", "\u0000x", "é", "€", "😀", "ÿĀ", "\uffff", "\ud800", "\\u{41}", "\\x41", "\\", "a\"b")
 
   test("String Operations", Strings) { ctx =>
     val s = solver(ctx)
@@ -46,6 +46,22 @@ class StringSemanticsSuite extends SolverTestSuite {
           assert(str.length == len && str != "a" * len, s"Invalid model ${str.toList.map(_.toInt)}")
         case got => fail(s"Solving of '$clause' failed with $got.")
       }
+    }
+  }
+
+  test("String Models with non-ASCII characters", Strings) { ctx =>
+    val s = solver(ctx)
+
+    // force the solver to pick a character outside of the (extended) ASCII range,
+    // which must be decoded to a valid Inox character
+    val v = Variable.fresh("v", StringType())
+    val clause = andJoin(Equals(StringLength(v), IntegerLiteral(1)) +:
+      (0 to 0xFF).map(c => Not(Equals(v, StringLiteral(c.toChar.toString)))))
+    s.solveSAT(clause) match {
+      case SatWithModel(model) =>
+        val StringLiteral(str) = model.vars(v.toVal): @unchecked
+        assert(str.length == 1 && str.charAt(0) > 0xFF, s"Invalid model ${str.toList.map(_.toInt)}")
+      case got => fail(s"Solving of '$clause' failed with $got.")
     }
   }
 

@@ -699,8 +699,12 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           value.bigDecimal.movePointRight(value.scale).toBigInteger.negate,
           BigInt(10).pow(value.scale)))
 
+      // Characters outside of the BMP don't correspond to any Inox character. They can only
+      // appear in models of solvers whose alphabet can't be restricted to the BMP (CVC4).
       case (SString(v), _) =>
-        StringLiteral(utils.StringUtils.decode(v))
+        utils.StringUtils.decodeBMP(v).map(StringLiteral(_)).getOrElse {
+          throw new Unsupported(s"Can't decode string \"$v\" with characters outside of the BMP")
+        }
 
       case (Num(n), Some(ft: FunctionType)) if context.seen(n -> ft) =>
         context.chooses.getOrElse(n -> ft, {

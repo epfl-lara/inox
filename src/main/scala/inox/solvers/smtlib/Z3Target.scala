@@ -64,6 +64,11 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   // so make sure it is enabled at this point.
   emit(SetOption(ProduceUnsatAssumptions(true)))
 
+  // Inox characters are UTF-16 code units, so restrict the string alphabet to the BMP
+  // (the default `unicode` encoding ranges up to 0x2FFFF). Older versions of Z3 don't
+  // know the option, so we ignore errors here.
+  emit(SetOption(AttributeOption(Attribute(SKeyword("encoding"), Some(SSymbol("bmp"))))), rawOut = true)
+
 
   protected class Version(val major: Int, val minor: Int, rest: String) extends Ordered[Version] {
     override def compare(that: Version): Int = {

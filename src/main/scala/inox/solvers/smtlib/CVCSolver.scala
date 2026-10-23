@@ -15,6 +15,9 @@ trait CVCSolver extends SMTLIBSolver with CVCTarget {
 
   def optCVCOptions: SetOptionDef[String]
 
+  /** Solver-specific options, which can be overridden by the user-provided ones. */
+  protected def targetOpts: Seq[String] = Seq.empty
+
   def interpreterOpts = {
     Seq(
       "-q", // quiet
@@ -23,6 +26,7 @@ trait CVCSolver extends SMTLIBSolver with CVCTarget {
       "--print-success",
       "--lang", "smt2.6"
     ) ++ (if options.findOptionOrDefault(cvcSimplesModelOpt) then Seq("--model-cores", "simple") else Seq())
+      ++ targetOpts
       ++ options.findOptionOrDefault(optCVCOptions)
   }
 
