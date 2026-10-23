@@ -781,6 +781,9 @@ abstract class AbstractUnrollingSolver private
     // Distinguishing inputs for first-class functions are only assumed while they don't
     // make the formula unsatisfiable (see [[LambdaTemplates.witnessAssumptions]])
     var useWitnesses: Boolean = true
+    // The depth up to which distinguishing inputs are instantiated: 0 until the first model is found,
+    // then one more level with each unrolling (see [[LambdaTemplates.instantiatePendingWitnesses]])
+    var witnessLevel: Int = 0
     var modelWithWitnesses: Boolean = false
     def witnessAssumptions: Seq[Encoded] = if (useWitnesses) templates.witnessAssumptions else Seq.empty
 
@@ -833,11 +836,11 @@ abstract class AbstractUnrollingSolver private
               useWitnesses = false
               ModelCheck
 
-            // distinguishing inputs only matter once we have a model, and their depth grows
-            // with the unrolling to stay fair (see [[LambdaTemplates.instantiatePendingWitnesses]])
-            case _: Satisfiable if useWitnesses && templates.hasPendingWitnesses(unrollCount + 1) =>
+            // distinguishing inputs only matter once we have a model
+            case _: Satisfiable if useWitnesses && templates.hasPendingWitnesses(witnessLevel max 1) =>
               reporter.debug(" - Instantiating distinguishing function inputs")
-              for (cl <- templates.instantiatePendingWitnesses(unrollCount + 1)) {
+              witnessLevel = witnessLevel max 1
+              for (cl <- templates.instantiatePendingWitnesses(witnessLevel)) {
                 underlying.assertCnstr(cl)
               }
               ModelCheck
@@ -1076,6 +1079,7 @@ abstract class AbstractUnrollingSolver private
           }
 
           unrollCount += 1
+          if (witnessLevel > 0) witnessLevel += 1
 
           reporter.debug(" - Finished unrolling")
           ModelCheck
