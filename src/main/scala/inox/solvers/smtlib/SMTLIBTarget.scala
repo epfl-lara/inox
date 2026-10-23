@@ -433,7 +433,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           // when `y` is the minimal value. Instead, we rely on the sign of `bvsmod(x, y)`
           // following that of `y` and shift negative results by `|y|`.
           val br = toSMT(b)
-          val r = SSymbol("r")
+          val r = freshSym("r")
           SMTLet(
             VarBinding(r, FixedSizeBitVectors.SMod(toSMT(a), br)), Seq(),
             Core.ITE(

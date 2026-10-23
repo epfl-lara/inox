@@ -527,10 +527,10 @@ trait TemplateGenerator { self: Templates =>
   /** Whether the clauses of `expr` may falsify the path condition they are guarded by,
     * i.e. whether `expr` contains an assumption or a `choose`.
     *
-    * Function calls are not followed: the assumptions they unfold are the callees' contracts,
-    * which are assumed at every call site regardless of the arguments' refinements.
-    * Following them would also flag almost every Stainless type predicate, since the type
-    * encoding's testers call functions with postconditions. */
+    * Function calls are not followed, so a predicate whose callee assumes a precondition
+    * that only holds within the base type is not guarded. Following calls would flag
+    * almost every Stainless type predicate (the type encoding's testers call functions
+    * with contracts), and the extra blockers then make verification much slower. */
   private def mayFalsifyPath(expr: Expr): Boolean = exprOps.exists {
     case _: Assume | _: Choose => true
     case _ => false

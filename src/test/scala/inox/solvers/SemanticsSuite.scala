@@ -909,4 +909,17 @@ class SemanticsSuite extends AnyFunSuite {
       Equals(Application(f, Seq(IntegerLiteral(2))), IntegerLiteral(1))
     )) contains true)
   }
+
+  test("Choose inside quantifier", filterSolvers(_, bitwuzla = true)) { ctx =>
+    // The `choose` must be in a function body to be handled by the ChooseEncoder.
+    val x = Variable.fresh("x", IntegerType())
+    val y = ValDef.fresh("y", IntegerType())
+    val succ = Plus(x, IntegerLiteral(1))
+    val fd = new FunDef(FreshIdentifier("chooseInForall"), Seq(), Seq(), BooleanType(),
+      Forall(Seq(x.toVal), Equals(Choose(y, Equals(y.toVariable, succ)), succ)), Seq())
+
+    val p = InoxProgram(NoSymbols.withFunctions(Seq(fd)))
+    val s = SimpleSolverAPI(p.getSolver(ctx))
+    assert(s.solveVALID(p.trees.FunctionInvocation(fd.id, Seq(), Seq())) contains true)
+  }
 }
