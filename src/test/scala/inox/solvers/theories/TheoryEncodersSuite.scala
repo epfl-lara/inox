@@ -89,6 +89,34 @@ class TheoryEncodersSuite extends AnyFunSuite {
     checkAll(BagEncoder(transformers.ProgramEncoder.empty(program))(ev).asInstanceOf[Encoder], bagExprs)
   }
 
+  test("Bag decoder with symbolic keys") {
+    val theory = new BagTheory[inox.trees.type](inox.trees)
+    val ev = program.getEvaluator(ctx)
+    val dec = bagDec(program)(theory.asInstanceOf)(ev.asInstanceOf)
+    import theory.{Sum, Elem, Leaf}
+
+    val tpe = IntegerType()
+    def i(n: Int) = IntegerLiteral(n)
+    val x = Variable.fresh("x", tpe)
+    val y = Variable.fresh("y", tpe)
+    val empty = FiniteBag(Seq.empty, tpe)
+
+    // pairs of an encoded bag with symbolic keys and an equivalent source bag
+    val bags = Seq(
+      Sum(tpe)(Sum(tpe)(Leaf(tpe)(), Elem(tpe)(x, i(1))), Elem(tpe)(x, i(1))) -> BagAdd(BagAdd(empty, x), x),
+      Sum(tpe)(Elem(tpe)(x, i(1)), Elem(tpe)(y, i(2))) -> BagUnion(FiniteBag(Seq(x -> i(1)), tpe), FiniteBag(Seq(y -> i(2)), tpe)),
+      Sum(tpe)(Sum(tpe)(Elem(tpe)(x, i(1)), Elem(tpe)(y, i(1))), Elem(tpe)(i(1), i(3))) -> BagAdd(BagAdd(FiniteBag(Seq(i(1) -> i(3)), tpe), x), y),
+    )
+
+    for ((encoded, expected) <- bags; vx <- Seq(1, 2); vy <- Seq(1, 2)) {
+      val decoded = dec.transform(encoded.asInstanceOf[dec.s.Expr]).asInstanceOf[Expr]
+      def bind(e: Expr): Expr = Let(x.toVal, i(vx), Let(y.toVal, i(vy), e))
+      val got = evalIn(program, bind(decoded))
+      val exp = evalIn(program, bind(expected))
+      assert(got == exp, s"\n  encoded:  ${encoded.asString}\n  decoded:  ${decoded.asString}\n  x = $vx, y = $vy\n  expected: ${exp.asString}\n  got:      ${got.asString}")
+    }
+  }
+
   def setExprs: Seq[Expr] = {
     val tpe = IntegerType()
     def i(n: Int) = IntegerLiteral(n)
