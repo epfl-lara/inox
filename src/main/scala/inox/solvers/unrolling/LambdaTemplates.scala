@@ -525,21 +525,13 @@ trait LambdaTemplates { self: Templates =>
 
   def getLambdaTemplates(tpe: FunctionType): Set[LambdaTemplate] = byType(tpe).values.toSet
 
-  /** Bounds the nesting of distinguishing inputs: a witness of function type is itself a free
-    * function that requires witnesses, and with (negative) recursive types this has no structural bound. */
-  private val maxWitnessDepth = 3
-
-  /** Bounds the total number of distinguishing inputs: these are quadratic in the number of functions
-    * of a given type, and functions can also descend from distinguishing inputs in ways the depth
-    * doesn't track (eg. through unrolled function calls). */
-  private val maxWitnesses = 100
-
   /** The witness nesting depth of the symbols currently being instantiated (0 for regular inputs).
     *
     * Everything that descends from a distinguishing input inherits its depth: the free functions in
     * its type unfolding (including ADT fields that are unfolded at later generations, see
     * [[TypeTemplates]]) and the results of the applications it takes part in. Otherwise, the free
-    * functions that appear in these would get fresh distinguishing inputs of their own without bound. */
+    * functions that appear in these could get fresh distinguishing inputs of their own without bound
+    * (eg. lambdas that are created anew in each distinguishing input). */
   private var currentWitnessDepth = 0
 
   protected def witnessDepth: Int = currentWitnessDepth
@@ -553,26 +545,28 @@ trait LambdaTemplates { self: Templates =>
   /** Registers a distinguishing input for `f1` and `f2`, to be instantiated by [[instantiatePendingWitnesses]]. */
   private def registerWitness(guard: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded): Unit = {
     val depth = (witnessDepths.getOrElse(f1, 0) max witnessDepths.getOrElse(f2, 0)) + 1
-    if (depth <= maxWitnessDepth) pendingWitnesses += PendingWitness(guard, tpe, f1, f2, depth)
+    pendingWitnesses += PendingWitness(guard, tpe, f1, f2, depth)
   }
 
-  def hasPendingWitnesses: Boolean = pendingWitnesses.nonEmpty && witnessPairs.size < maxWitnesses
+  def hasPendingWitnesses(maxDepth: Int): Boolean = pendingWitnesses.exists(_.depth <= maxDepth)
 
-  /** Instantiates the registered distinguishing inputs, including the ones that are registered
-    * along the way (up to [[maxWitnessDepth]] and [[maxWitnesses]]).
+  /** Instantiates the registered distinguishing inputs up to depth `maxDepth`, including the ones
+    * that are registered along the way.
     *
     * Distinguishing inputs are only useful to extract models, so the solver only instantiates them
-    * once it has found a model without them: this keeps their cost away from unsatisfiable queries. */
-  def instantiatePendingWitnesses(): Clauses = {
+    * once it has found a model without them: this keeps their cost away from unsatisfiable queries.
+    * The solver increases `maxDepth` with each unrolling, so every distinguishing input is eventually
+    * instantiated (which ensures completeness), while each round of instantiations stays finite:
+    * the free functions and lambdas a distinguishing input creates on the spot inherit its depth,
+    * and the others are only created by later unrollings. */
+  def instantiatePendingWitnesses(maxDepth: Int): Clauses = {
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-    while (hasPendingWitnesses) {
-      val witnesses = pendingWitnesses.toSeq.sortBy(_.depth)
+    while (hasPendingWitnesses(maxDepth)) {
+      val witnesses = pendingWitnesses.toSeq.filter(_.depth <= maxDepth).sortBy(_.depth)
       for (w <- witnesses) {
         pendingWitnesses -= w
-        if (witnessPairs.size < maxWitnesses) {
-          witnessPairs += (w.f1 -> w.f2)
-          clauses ++= withWitnessDepth(w.depth)(instantiateWitness(w.guard, w.tpe, w.f1, w.f2))
-        }
+        witnessPairs += (w.f1 -> w.f2)
+        clauses ++= withWitnessDepth(w.depth)(instantiateWitness(w.guard, w.tpe, w.f1, w.f2))
       }
     }
     clauses.toSeq
@@ -675,7 +669,7 @@ trait LambdaTemplates { self: Templates =>
     /** Witness nesting depth of the applications that were registered while instantiating distinguishing inputs. */
     val appDepths = new IncrementalMap[App, Int]
 
-    /** The pairs of functions that received a distinguishing input (bounded by [[maxWitnesses]]). */
+    /** The pairs of functions that received a distinguishing input. */
     val witnessPairs = new IncrementalSet[(Encoded, Encoded)]
 
     /** The distinguishing inputs that haven't been instantiated yet. */
