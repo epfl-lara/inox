@@ -782,8 +782,10 @@ abstract class AbstractUnrollingSolver private
     // make the formula unsatisfiable (see [[LambdaTemplates.witnessAssumptions]])
     var useWitnesses: Boolean = true
     // The depth up to which distinguishing inputs are instantiated: 0 until the first model is found,
-    // then one more level with each unrolling (see [[LambdaTemplates.instantiatePendingWitnesses]])
+    // then one more level with each unrolling (see [[LambdaTemplates.witnessEqualities]])
     var witnessLevel: Int = 0
+    def witnessEqualities: Map[Encoded, Int] =
+      if (useWitnesses && witnessLevel > 0) templates.witnessEqualities else Map.empty
     var modelWithWitnesses: Boolean = false
     def witnessAssumptions: Seq[Encoded] = if (useWitnesses) templates.witnessAssumptions else Seq.empty
 
@@ -814,35 +816,68 @@ abstract class AbstractUnrollingSolver private
           reporter.debug(" - Running search...")
 
           val witnesses = witnessAssumptions
+          val equalities = witnessEqualities
           modelWithWitnesses = witnesses.nonEmpty
           val getModel = !templates.requiresFiniteRangeCheck || checkModels || templates.hasAxioms || config.withModel
-          val getAssumptions = (unrollAssumptions && templates.canUnroll) || config.withUnsatAssumptions || witnesses.nonEmpty
+          val getAssumptions = (unrollAssumptions && templates.canUnroll) || config.withUnsatAssumptions ||
+            witnesses.nonEmpty || equalities.nonEmpty
           val checkConfig = Configuration(model = getModel && !ignoreModels, unsatAssumptions = getAssumptions)
 
           val res: SolverResponse[underlying.Model, Set[underlying.Trees]] = context.timers.solvers.unrolling.check.run {
             underlying.checkAssumptions(checkConfig)(
-              encodedAssumptions.toSet ++ templates.satisfactionAssumptions ++ witnesses
+              encodedAssumptions.toSet ++ templates.satisfactionAssumptions ++ witnesses ++ equalities.keys
             )
           }
 
           reporter.debug(" - Finished search with blocked literals")
 
+          // The equalities between functions without distinguishing inputs that the unsatisfiability
+          // depends on. Unsat cores aren't necessarily minimal or reported as literals, so we fall back
+          // to all of them whenever the core doesn't show that unrolling is needed instead.
+          val coreEqualities: Map[Encoded, Int] = res match {
+            case _: Unsatisfiable if equalities.nonEmpty =>
+              def atom(e: Encoded): Encoded = templates.extractNot(e).getOrElse(e)
+              val coreAtoms: Option[Set[Encoded]] = res match {
+                case UnsatWithAssumptions(core) => Some(core.map(atom))
+                case _ => None
+              }
+              val inCore = coreAtoms.map(atoms => equalities.filter(p => atoms(atom(p._1)))).getOrElse(Map.empty)
+              lazy val blockers = (templates.satisfactionAssumptions.toSet -- templates.refutationAssumptions).map(atom)
+              if (inCore.nonEmpty) inCore
+              else if (!templates.canUnroll || !coreAtoms.exists(_.exists(blockers))) equalities
+              else Map.empty
+            case _ => Map.empty
+          }
+
           res match {
             case Abort() =>
               CheckResult.cast(Unknown)
+
+            // some distinct functions need a distinguishing input
+            case _ if coreEqualities.nonEmpty =>
+              val needed = coreEqualities.filter(_._2 <= witnessLevel).keySet
+              if (needed.nonEmpty) {
+                reporter.debug(" - Instantiating distinguishing function inputs")
+                for (cl <- templates.instantiateWitnesses(needed)) {
+                  underlying.assertCnstr(cl)
+                }
+                ModelCheck
+              } else if (canUnroll && templates.canUnroll) {
+                Unroll
+              } else {
+                witnessLevel += 1
+                ModelCheck
+              }
 
             case _: Unsatisfiable if witnesses.nonEmpty && blockedByWitnesses(res, witnesses) =>
               reporter.debug(" - Distinguishing function inputs are infeasible, dropping them")
               useWitnesses = false
               ModelCheck
 
-            // distinguishing inputs only matter once we have a model
-            case _: Satisfiable if useWitnesses && templates.hasPendingWitnesses(witnessLevel max 1) =>
-              reporter.debug(" - Instantiating distinguishing function inputs")
-              witnessLevel = witnessLevel max 1
-              for (cl <- templates.instantiatePendingWitnesses(witnessLevel)) {
-                underlying.assertCnstr(cl)
-              }
+            // distinguishing inputs only matter once we have a model, in which distinct functions
+            // may still agree on every input: check again with these assumed equal
+            case _: Satisfiable if useWitnesses && witnessLevel == 0 && templates.witnessEqualities.nonEmpty =>
+              witnessLevel = 1
               ModelCheck
 
             case _: Satisfiable if templates.requiresFiniteRangeCheck =>

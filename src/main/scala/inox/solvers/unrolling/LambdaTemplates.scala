@@ -276,11 +276,11 @@ trait LambdaTemplates { self: Templates =>
       if (currentWitnessDepth > 0) witnessDepths += f -> currentWitnessDepth
 
       for ((otherGuard, other) <- witnessFunctions(ft).toSeq if other != f) {
-        registerWitness(mkAnd(witnessEnabler, guard, otherGuard), ft, f, other)
+        clauses ++= registerWitness(mkAnd(guard, otherGuard), ft, f, other)
       }
 
       for (template <- byType(ft).values.toSeq) {
-        registerWitness(mkAnd(witnessEnabler, guard, template.start), ft, f, template.ids._2)
+        clauses ++= registerWitness(mkAnd(guard, template.start), ft, f, template.ids._2)
       }
 
       witnessFunctions += ft -> (witnessFunctions(ft) + (guard -> f))
@@ -384,11 +384,11 @@ trait LambdaTemplates { self: Templates =>
       }
 
       // make sure free functions have a distinguishing input with the new lambda (if they differ)
-      for ((guard, f) <- witnessFunctions(newTemplate.tpe).toSeq) {
-        registerWitness(mkAnd(witnessEnabler, guard, newTemplate.start), newTemplate.tpe, f, idT)
+      val witnessClauses = for ((guard, f) <- witnessFunctions(newTemplate.tpe).toSeq) yield {
+        registerWitness(mkAnd(guard, newTemplate.start), newTemplate.tpe, f, idT)
       }
 
-      (idT, clauses)
+      (idT, clauses ++ witnessClauses.flatten)
     }
   }
 
@@ -537,35 +537,39 @@ trait LambdaTemplates { self: Templates =>
     try body finally currentWitnessDepth = previous
   }
 
-  /** Registers a distinguishing input for `f1` and `f2`, to be instantiated by [[instantiatePendingWitnesses]]. */
-  private def registerWitness(guard: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded): Unit = {
+  /** Registers a distinguishing input for `f1` and `f2` (needed when `cond` holds), to be
+    * instantiated by [[instantiateWitnesses]]. Until then, the returned clause lets the solver
+    * assume that `f1 == f2` through the [[PendingWitness.equality]] literal. */
+  private def registerWitness(cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded): Clauses = {
     val depth = (witnessDepths.getOrElse(f1, 0) max witnessDepths.getOrElse(f2, 0)) + 1
-    pendingWitnesses += PendingWitness(guard, tpe, f1, f2, depth)
+    val equality = encodeSymbol(Variable.fresh("b_eq", BooleanType(), true))
+    pendingWitnesses += PendingWitness(cond, tpe, f1, f2, depth, equality)
+    Seq(mkImplies(mkAnd(equality, cond), mkEquals(f1, f2)))
   }
 
-  def hasPendingWitnesses(maxDepth: Int): Boolean = pendingWitnesses.exists(_.depth <= maxDepth)
-
-  /** Instantiates the registered distinguishing inputs up to depth `maxDepth`, including the ones
-    * that are registered along the way.
+  /** The equality literals of the pending distinguishing inputs, along with their depth.
     *
-    * Distinguishing inputs are only useful to extract models, so the solver only instantiates them
-    * once it has found a model without them: this keeps their cost away from unsatisfiable queries.
-    * The solver starts at depth 1 and adds one level with each unrolling, like any other unfolding,
-    * so every distinguishing input is eventually instantiated. Each round stays finite: the free
-    * functions and lambdas a distinguishing input creates on the spot inherit its depth, and the
-    * others are only created by later unrollings. Adding several levels at once would multiply the
-    * cost, as each level pairs the functions it creates with all functions of the same type. */
-  def instantiatePendingWitnesses(maxDepth: Int): Clauses = {
-    val clauses = new scala.collection.mutable.ListBuffer[Encoded]
-    while (hasPendingWitnesses(maxDepth)) {
-      val witnesses = pendingWitnesses.toSeq.filter(_.depth <= maxDepth).sortBy(_.depth)
-      for (w <- witnesses) {
-        pendingWitnesses -= w
-        witnessPairs += (w.f1 -> w.f2)
-        clauses ++= withWitnessDepth(w.depth)(instantiateWitness(w.guard, w.tpe, w.f1, w.f2))
-      }
+    * Distinguishing inputs are unfolded progressively, much like function calls: once it has found
+    * a model, the solver assumes that the pairs of functions that don't have a distinguishing input
+    * yet are equal. A model under these assumptions needs no more distinguishing inputs, and if they
+    * make the formula unsatisfiable, the solver instantiates the ones whose equalities are in the
+    * unsat core (see [[instantiateWitnesses]]). This keeps distinguishing inputs away from unsatisfiable
+    * queries and from the pairs of functions that a model can keep equal.
+    *
+    * To stay fair with the rest of the unfolding, the solver only instantiates distinguishing inputs
+    * up to a depth that grows by one with each unrolling. Each round stays finite: the free functions
+    * and lambdas a distinguishing input creates on the spot inherit its depth, and the others are only
+    * created by later unrollings. */
+  def witnessEqualities: Map[Encoded, Int] =
+    pendingWitnesses.toSeq.map(w => w.equality -> w.depth).toMap
+
+  /** Instantiates the pending distinguishing inputs with the given equality literals. */
+  def instantiateWitnesses(equalities: Set[Encoded]): Clauses = {
+    pendingWitnesses.toSeq.filter(w => equalities(w.equality)).sortBy(_.depth).flatMap { w =>
+      pendingWitnesses -= w
+      witnessPairs += (w.f1 -> w.f2)
+      withWitnessDepth(w.depth)(instantiateWitness(mkAnd(witnessEnabler, w.cond), w.tpe, w.f1, w.f2))
     }
-    clauses.toSeq
   }
 
   /** Whether the solver should search for models in which distinct first-class functions
@@ -590,7 +594,7 @@ trait LambdaTemplates { self: Templates =>
   def witnessAssumptions: Seq[Encoded] =
     if (witnessPairs.isEmpty) Seq.empty else Seq(witnessEnabler)
 
-  protected case class PendingWitness(guard: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, depth: Int)
+  protected case class PendingWitness(cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, depth: Int, equality: Encoded)
 
   private[unrolling] object lambdasManager extends Manager {
     // Function instantiations have their own defblocker
