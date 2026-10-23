@@ -106,13 +106,16 @@ object SolverTestSuite {
         "Model extraction of Char" -> "returns Unknown for characters",
       )),
     SolverInfo("princess", () => true,
-      Set(BitVectors, FloatingPoint, Sets, Bags, BagAlgebra, Maps, NestedArrays),
+      Set(BitVectors, FloatingPoint, Sets, BagAlgebra, Maps, NestedArrays),
       // Times out on conjunctions of string checks that it solves quickly one by one
       symbolicBatchSize = 1,
       groundOnly = Map(
         "BigInt Division, Modulo and Remainder" -> "throws on division by a variable, which Presburger arithmetic lacks",
       ),
       knownIssues = Map(
+        "Simple Bag Operations" -> "struggles with bit-vector keys in bags, as in sets and maps",
+        "Bag with several multiplicities" -> "returns Unknown after about two minutes",
+        "Function returning bags" -> "crashes (None.get) extracting a function whose results are bags",
         "Function call over bit-vectors" -> "hangs on function calls over bit-vectors",
         "Function calls across push and pop" -> "crashes once functions unfolded before a pop are called again",
       )),

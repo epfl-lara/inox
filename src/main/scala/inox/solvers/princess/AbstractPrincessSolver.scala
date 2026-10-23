@@ -621,13 +621,15 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
   def assertCnstr(formula: Trees): Unit = p !! formula.asInstanceOf[IFormula]
 
-  // we interrupt asynchronously in portfolio mode, so this should be handled in a thread-safe manner
+  // we interrupt asynchronously in portfolio mode, so this should be handled in a thread-safe manner.
+  // The interruption is only cleared by `reset`: an interrupt that arrives between two checks
+  // (e.g. while the unrolling solver unrolls) must still stop the following ones.
   private val interruptCheckSat = new java.util.concurrent.atomic.AtomicBoolean(false)
 
   private def internalCheck(config: Configuration): config.Response[Model, Assumptions] = {
     import SimpleAPI.ProverStatus
 
-    interruptCheckSat.set(false)
+    if (interruptCheckSat.get) return config.cast(Unknown)
 
     p checkSat false
 
@@ -717,6 +719,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
     sorts.clear()
 
     p.reset
+    interruptCheckSat.set(false)
   }
 
   def interrupt() = interruptCheckSat.set(true)
