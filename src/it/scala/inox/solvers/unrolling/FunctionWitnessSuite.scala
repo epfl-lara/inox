@@ -89,6 +89,24 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     assert(distinguishable(model(f.toVal), model(g.toVal)))
   }
 
+  test("many pairwise distinct functions") {
+    // More pairs than any fixed budget of distinguishing inputs would cover. All functions agree
+    // on `true`, so the solver has to pick a different result on `false` for each of them.
+    val fs = (1 to 16).map(i => (s"f$i" :: (BooleanType() =>: IntegerType())).toVariable)
+    val pairs = for (f1 <- fs; f2 <- fs if f1.id.globalId < f2.id.globalId) yield (f1, f2)
+    val clause = andJoin(fs.map(f => f(E(true)) === E(BigInt(0))) ++ pairs.map((f1, f2) => f1 !== f2))
+    val model = solve(clause)
+    val evaluator = program.getEvaluator
+    def resultOnFalse(f: Variable): Option[Expr] = evaluator.eval(Application(model(f.toVal), Seq(E(false)))) match {
+      case EvaluationResults.Successful(v) => Some(v)
+      case _ => None
+    }
+    val results = fs.map(f => f -> resultOnFalse(f)).toMap
+    for ((f1, f2) <- pairs) {
+      assert(results(f1).isDefined && results(f1) != results(f2), s"$f1 and $f2 aren't distinguished")
+    }
+  }
+
   test("eta-expanded closure remains distinct") {
     // Function equality is intensional and `f` closes over `g`, so `f != g` even though
     // no distinguishing input can exist: the solver must drop the witness assumptions.
