@@ -104,6 +104,8 @@ trait MainHelpers {
     solvers.unrolling.optModelFinding -> Description(Solvers, "Enhance model-finding capabilities of solvers by given aggressivity"),
     solvers.smtlib.optCVC4Options -> Description(Solvers, "Pass extra options to CVC4"),
     solvers.smtlib.optCVC5Options -> Description(Solvers, "Pass extra options to CVC5"),
+    solvers.smtlib.optZ3Rlimit -> Description(Solvers, "Set z3's resource limit (deterministic alternative to a wall clock timeout, 0 = no limit).\nOnly applies to the smt-z3 solvers"),
+    solvers.smtlib.optCVC5Rlimit -> Description(Solvers, "Set cvc5's resource limit (deterministic alternative to a wall clock timeout, 0 = no limit).\nOnly applies to the smt-cvc5 solver"),
     solvers.smtlib.cvcSimplesModelOpt -> Description(Solvers, "Use --model-cores=simple with cvc family solvers to produce simpler models when queries are sat"),
     evaluators.optMaxCalls -> Description(Evaluators, "Maximum function invocations allowed during evaluation"),
     evaluators.optIgnoreContracts -> Description(Evaluators, "Don't fail on invalid contracts during evaluation")

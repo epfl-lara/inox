@@ -11,6 +11,14 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
   import program.trees._
   import SolverResponses._
 
+  // When interrupted by its resource limit, z3 answers "canceled" for
+  // check-sat with assumptions (and "max. resource limit exceeded" for plain
+  // check-sat), so we only interpret it as a resource-out when a resource
+  // limit was actually configured.
+  override protected def isResourceOutReason(reason: String): Boolean =
+    super.isResourceOutReason(reason) ||
+    (context.options.findOptionOrDefault(optZ3Rlimit) > 0 && reason.toLowerCase.contains("canceled"))
+
   protected lazy val evaluator: evaluators.DeterministicEvaluator { val program: self.program.type } =
     semantics.getEvaluator(using context.withOpts(evaluators.optIgnoreContracts(true)))
 
