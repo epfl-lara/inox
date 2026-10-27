@@ -519,6 +519,14 @@ abstract class AbstractUnrollingSolver private
       }
     }
 
+    /** Whether values of type `tpe` can contain functions. */
+    def hasFunctions(tpe: Type, seen: Set[Identifier] = Set.empty): Boolean = tpe match {
+      case _: FunctionType | _: PiType => true
+      case adt: ADTType =>
+        !seen(adt.id) && adt.getSort.constructors.exists(_.fields.exists(vd => hasFunctions(vd.getType, seen + adt.id)))
+      case NAryType(tps, _) => tps.exists(hasFunctions(_, seen))
+    }
+
     // The membership of `e` in `tpe`, where only refinements are checked
     def refinementsOf(e: Expr, tpe: Type): Expr = tpe match {
       case RefinementType(vd, pred) => and(refinementsOf(e, vd.tpe), exprOps.replaceFromSymbols(Map(vd -> e), pred))
@@ -620,6 +628,40 @@ abstract class AbstractUnrollingSolver private
             (params zip args).map { case (vd, arg) => extractValue(arg, vd.getType, nextSeen) }
           }
 
+          /* The condition under which the `i`-th parameter `v` takes the model value `arg`.
+           * Functions are told apart from the other functions at that position through their
+           * distinguishing inputs, so that the extracted function only compares the results of
+           * applications, and never functions themselves. */
+          def argumentCondition(v: ValDef, i: Int, arg: Encoded, exArg: Expr): Expr = v.getType match {
+            case ft: FunctionType =>
+              val others = arguments.map(_(i)).foldLeft(Seq.empty[Encoded]) { (acc, other) =>
+                if (modelEq(other, arg) || acc.exists(modelEq(_, other))) acc else acc :+ other
+              }
+              val conds = others.map(other => distinguish(v.toVariable, ft, arg, other))
+              if (conds.forall(_.isDefined)) andJoin(conds.flatten) else Equals(v.toVariable, exArg)
+            case _ => Equals(v.toVariable, exArg)
+          }
+
+          /* A test that `x` behaves like `a` on an input where `a` and `b` differ, if the model
+           * has one that doesn't need comparing functions. */
+          def distinguish(x: Expr, ft: FunctionType, a: Encoded, b: Encoded): Option[Expr] = {
+            val inputs = templates.distinguishingInputs.collectFirst {
+              case ((f1, f2), (tpe, ws)) if tpe == ft &&
+                ((modelEq(f1, a) && modelEq(f2, b)) || (modelEq(f1, b) && modelEq(f2, a))) &&
+                !modelEq(templates.mkApp(a, ft, ws), templates.mkApp(b, ft, ws)) => ws
+            }
+
+            inputs.flatMap { ws =>
+              val app = Application(x, (ws zip ft.from).map((w, tpe) => extractValue(w, tpe, nextSeen)))
+              val (resA, resB) = (templates.mkApp(a, ft, ws), templates.mkApp(b, ft, ws))
+              ft.to match {
+                case to: FunctionType => distinguish(app, to, resA, resB)
+                case to if !hasFunctions(to) => Some(Equals(app, extractValue(resA, to, nextSeen)))
+                case _ => None
+              }
+            }
+          }
+
           // Mappings on a subset of the arguments take the value at arbitrary other arguments, which
           // may lie outside of a refined codomain, so only exact mappings are kept for these.
           val optDefault = defaultValue(params, paramTypes, resultType)
@@ -630,7 +672,7 @@ abstract class AbstractUnrollingSolver private
             (for (subset <- subsets; (args, exArgs) <- arguments zip exArguments) yield {
               val (concreteArgs, condOpts) = params.zipWithIndex.map { case (v, i) =>
                 if (!subset(v)) {
-                  (args(i), Some(Equals(v.toVariable, exArgs(i))))
+                  (args(i), Some(argumentCondition(v, i, args(i), exArgs(i))))
                 } else {
                   (projections(v.getType), None)
                 }

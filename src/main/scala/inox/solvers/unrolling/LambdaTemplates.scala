@@ -603,6 +603,10 @@ trait LambdaTemplates { self: Templates =>
   /** Whether `e` is the argument of a distinguishing input (see [[Templates.instantiateWitness]]). */
   def isWitnessArgument(e: Encoded): Boolean = witnessArguments(e)
 
+  /** The instantiated distinguishing inputs, as the arguments on which each pair of functions
+    * is compared (see [[Templates.instantiateWitness]]). */
+  def distinguishingInputs: Seq[((Encoded, Encoded), (FunctionType, Seq[Encoded]))] = witnessInputs.toSeq
+
   def witnessAssumptions: Seq[Encoded] =
     if (witnessPairs.isEmpty) Seq.empty else Seq(witnessEnabler)
 
@@ -692,6 +696,9 @@ trait LambdaTemplates { self: Templates =>
     /** The pairs of functions that received a distinguishing input. */
     val witnessPairs = new IncrementalSet[(Encoded, Encoded)]
 
+    /** The type and arguments of the distinguishing input of each pair in [[witnessPairs]]. */
+    val witnessInputs = new IncrementalMap[(Encoded, Encoded), (FunctionType, Seq[Encoded])]
+
     /** The distinguishing inputs that haven't been instantiated yet. */
     val pendingWitnesses = new IncrementalSet[PendingWitness]
 
@@ -701,7 +708,7 @@ trait LambdaTemplates { self: Templates =>
     val incrementals: Seq[IncrementalState] = Seq(
       lambdaBlockers, appInfos, appBlockers, blockerToApps,
       byID, byType, applications, freeBlockers, nonFreeBlockers, freeFunctions,
-      instantiated, typeBlockers, witnessFunctions, witnessDepths, appDepths, resultGuards, witnessArguments, witnessPairs, pendingWitnesses)
+      instantiated, typeBlockers, witnessFunctions, witnessDepths, appDepths, resultGuards, witnessArguments, witnessPairs, witnessInputs, pendingWitnesses)
 
     def unrollGeneration: Option[Int] =
       if (appInfos.isEmpty) None

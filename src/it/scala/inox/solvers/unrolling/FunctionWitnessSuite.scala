@@ -115,6 +115,46 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     }
   }
 
+  /** Whether `e` compares functions, which a language without function equality can't evaluate. */
+  private def comparesFunctions(e: Expr): Boolean = exprOps.exists {
+    case Equals(l, _) => typeOps.exists(_.isInstanceOf[FunctionType])(l.getType(using program.symbols))
+    case _ => false
+  } (e)
+
+  /** cvc5 models for functions applied to functions can't be extracted yet. */
+  private def hasHigherOrderModels(ctx: Context): FilterStatus =
+    if (ctx.options.findOptionOrDefault(optSelectedSolvers).contains("smt-cvc5")) Skip else Test
+
+  test("functions applied to distinct functions", hasHigherOrderModels) {
+    // `f` must map `g` and `h` to different results, and its extraction tells them apart by
+    // applying its argument to their distinguishing input instead of comparing it with them
+    val f = ("f" :: ((IntegerType() =>: IntegerType()) =>: IntegerType())).toVariable
+    val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
+    val h = ("h" :: (IntegerType() =>: IntegerType())).toVariable
+    val model = solve(f(g) !== f(h))
+    assert(!model.values.exists(comparesFunctions))
+  }
+
+  test("functions applied to a function and a lambda", hasHigherOrderModels) {
+    val f = ("f" :: ((IntegerType() =>: IntegerType()) =>: IntegerType())).toVariable
+    val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
+    val succ = \("x" :: IntegerType())(x => x + E(BigInt(1)))
+    val model = solve(f(g) !== f(succ))
+    assert(!model.values.exists(comparesFunctions))
+  }
+
+  // unrollz3 evaluates `f` to the same result on `g` and `h`, so its models are rejected
+  test("functions applied to distinct curried functions", ctx =>
+    if (ctx.options.findOptionOrDefault(optSelectedSolvers).contains("unrollz3")) Skip
+    else hasHigherOrderModels(ctx)) {
+    val tpe = IntegerType() =>: (IntegerType() =>: IntegerType())
+    val f = ("f" :: (tpe =>: IntegerType())).toVariable
+    val g = ("g" :: tpe).toVariable
+    val h = ("h" :: tpe).toVariable
+    val model = solve(f(g) !== f(h))
+    assert(!model.values.exists(comparesFunctions))
+  }
+
   test("distinct first-order functions") {
     val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
     val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
@@ -136,8 +176,12 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     val model = solve(f !== g)
     // cvc5 models for function-typed witnesses can't be extracted yet, so the solver
     // falls back to a model without distinguishing inputs
+    // falls back to a model without distinguishing inputs. With a single application each,
+    // the extracted functions are constant, so any input tells them apart.
     if (!ctx.options.findOptionOrDefault(optSelectedSolvers).contains("smt-cvc5")) {
-      assert(distinguishable(model(f.toVal), model(g.toVal)))
+      val id = \("x" :: IntegerType())(x => x)
+      assert(distinguishable(model(f.toVal), model(g.toVal), id))
+      assert(!model.values.exists(comparesFunctions))
     }
   }
 
