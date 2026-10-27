@@ -16,6 +16,8 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
   import dsl._
 
   override protected def optionMatrix = UnrollingTestSuite.combinations(
+    // most tests compare functions, which the default semantics rejects
+    Seq(optFunctionEquality(FunctionEquality.Intensional)),
     Seq(optCheckModels(true)),
     Seq(optModelFinding(0), optModelFinding(1))
   )
@@ -143,28 +145,7 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     assert(!model.values.exists(comparesFunctions))
   }
 
-  test("functions applied to distinct lambdas", hasHigherOrderModels) {
-    // the lambdas get a distinguishing input instead of being distinct by structure
-    val f = ("f" :: ((IntegerType() =>: IntegerType()) =>: IntegerType())).toVariable
-    val succ = \("x" :: IntegerType())(x => x + E(BigInt(1)))
-    val pred = \("x" :: IntegerType())(x => x - E(BigInt(1)))
-    val model = solve(f(succ) !== f(pred))
-    assert(!model.values.exists(comparesFunctions))
-  }
-
-  test("functions applied to closures with distinct captures", hasHigherOrderModels) {
-    val f = ("f" :: ((IntegerType() =>: IntegerType()) =>: IntegerType())).toVariable
-    val a = ("a" :: IntegerType()).toVariable
-    val b = ("b" :: IntegerType()).toVariable
-    val addA = \("x" :: IntegerType())(x => x + a)
-    val addB = \("x" :: IntegerType())(x => x + b)
-    val model = solve(f(addA) !== f(addB))
-    assert(model(a.toVal) != model(b.toVal))
-    assert(!model.values.exists(comparesFunctions))
-  }
-
   test("structurally distinct lambdas remain distinct") {
-    // the solver no longer assumes it, but models that equate them are rejected
     val succ = \("x" :: IntegerType())(x => x + E(BigInt(1)))
     val pred = \("x" :: IntegerType())(x => x - E(BigInt(1)))
     assert(result(succ === pred).isUNSAT)
@@ -460,6 +441,73 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     } finally {
       solver.free()
     }
+  }
+
+  private def withEquality(semantics: FunctionEquality)(using ctx: Context): Context =
+    ctx.withOpts(optFunctionEquality(semantics))
+
+  private def resultWith(semantics: FunctionEquality)(clause: Expr)(using Context) =
+    SimpleSolverAPI(program.getSolver(withEquality(semantics))).solveSAT(clause)
+
+  test("function comparisons are rejected without function equality") { ctx ?=>
+    val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
+    val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
+    val box = ("b" :: T(boxID)()).toVariable
+    for (clause <- Seq(f !== g, box === box)) {
+      val e = intercept[Exception](resultWith(FunctionEquality.None)(clause))
+      assert(e.getMessage.contains("can't be compared"))
+    }
+  }
+
+  test("functions applied to functions without function equality", hasHigherOrderModels) { ctx ?=>
+    val f = ("f" :: ((IntegerType() =>: IntegerType()) =>: IntegerType())).toVariable
+    val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
+    val succ = \("x" :: IntegerType())(x => x + E(BigInt(1)))
+    val pred = \("x" :: IntegerType())(x => x - E(BigInt(1)))
+    val a = ("a" :: IntegerType()).toVariable
+    val b = ("b" :: IntegerType()).toVariable
+    val addA = \("x" :: IntegerType())(x => x + a)
+    val addB = \("x" :: IntegerType())(x => x + b)
+    // lambdas get a distinguishing input instead of being distinct by structure or closures
+    for (clause <- Seq(f(g) !== f(succ), f(succ) !== f(pred), f(addA) !== f(addB))) {
+      resultWith(FunctionEquality.None)(clause) match {
+        case SatWithModel(model) => assert(!model.vars.values.exists(comparesFunctions))
+        case res => fail(s"Expected a model, got $res")
+      }
+    }
+  }
+
+  test("intensional counterexamples don't exist without function equality") { ctx ?=>
+    // the query can't tell `f` and `h` apart, so it is satisfiable with `f == h`
+    val f = ("f" :: FunctionType(Seq(), IntegerType())).toVariable
+    val h = ("h" :: FunctionType(Seq(), IntegerType())).toVariable
+    assert(resultWith(FunctionEquality.None)(Application(f, Seq()) === Application(h, Seq())).isSAT)
+
+    // a function applied to functions can't tell apart functions that agree on every input
+    val k = ("k" :: ((IntegerType() =>: IntegerType()) =>: IntegerType())).toVariable
+    val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
+    assert(resultWith(FunctionEquality.None)(k(g) !== k(\("x" :: IntegerType())(x => g(x)))).isUNSAT)
+  }
+
+  test("extensionally equal functions are equal") { ctx ?=>
+    val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
+    val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
+    val etaG = \("x" :: IntegerType())(x => g(x))
+    val id = \("x" :: IntegerType())(x => x)
+    val alsoId = \("x" :: IntegerType())(x => if_ (x === E(BigInt(0))) { E(BigInt(0)) } else_ { x })
+    val agree = forall("x" :: IntegerType())(x => f(x) === g(x))
+    for (clause <- Seq((f !== g) && agree, g !== etaG, id !== alsoId)) {
+      val res = resultWith(FunctionEquality.Extensional)(clause)
+      assert(res.isUNSAT, s"${clause.asString(using PrinterOptions())}: $res")
+      assert(!resultWith(FunctionEquality.Intensional)(clause).isUNSAT)
+    }
+  }
+
+  test("extensionally distinct lambdas are distinct") { ctx ?=>
+    val succ = \("x" :: IntegerType())(x => x + E(BigInt(1)))
+    val pred = \("x" :: IntegerType())(x => x - E(BigInt(1)))
+    assert(resultWith(FunctionEquality.Extensional)(succ === pred).isUNSAT)
+    assert(resultWith(FunctionEquality.Extensional)(succ !== pred).isSAT)
   }
 
   test("disabled witnesses") { ctx ?=>
