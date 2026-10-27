@@ -392,7 +392,16 @@ trait LambdaTemplates { self: Templates =>
         registerWitness(mkAnd(guard, newTemplate.start), newTemplate.tpe, f, idT)
       }
 
-      (idT, clauses ++ witnessClauses.flatten)
+      // instantiating them may instantiate further lambdas, which have eager witnesses of their own
+      val eager = eagerWitnesses.toSeq
+      eagerWitnesses.clear()
+      val eagerClauses = eager.flatMap { case (cond, f1, f2) =>
+        val depth = (witnessDepths.getOrElse(f1, 0) max witnessDepths.getOrElse(f2, 0)) + 1
+        witnessPairs += (f1 -> f2)
+        withWitnessDepth(depth)(instantiateWitness(enabled(cond), newTemplate.tpe, f1, f2))
+      }
+
+      (idT, clauses ++ witnessClauses.flatten ++ eagerClauses)
     }
   }
 
@@ -496,14 +505,23 @@ trait LambdaTemplates { self: Templates =>
       clauses.toSeq
     }
   }
+  /** Under extensional equality, lambdas that differ structurally are only equal when they agree on
+    * their distinguishing input, and nothing else can refute their equality. Their distinguishing
+    * input is therefore instantiated with the lambda, instead of waiting for the lambdas to be
+    * assumed equal (see [[witnessEqualities]]). */
+  private lazy val eagerLambdaWitnesses: Boolean =
+    options.findOptionOrDefault(optFunctionEquality) == FunctionEquality.Extensional
+
+  /** The distinguishing inputs that [[equalityClauses]] leaves for [[instantiateLambda]] to
+    * instantiate once the new lambda is registered. */
+  private val eagerWitnesses = new scala.collection.mutable.ListBuffer[(Encoded, Encoded, Encoded)]
 
   /** Equality between the new lambda `template` and the previously instantiated ones.
     *
-    * Lambdas with the same structure are equal when their closures are. Inox compares lambdas
-    * structurally, so the others are otherwise distinct. With distinguishing inputs, however,
-    * lambdas that differ in structure (or closures) may still be extensionally equal. Their
-    * structural inequality then only holds without distinguishing inputs (see [[witnessAssumptions]]),
-    * and the pair is instead given a distinguishing input, like pairs of free functions. */
+    * Lambdas with the same structure are equal when their closures are. Under intensional equality,
+    * the others are distinct. Otherwise, lambdas that differ in structure (or closures) may still be
+    * extensionally equal, so the pair is instead given a distinguishing input, like pairs of free
+    * functions (see [[optFunctionEquality]]). */
   private def equalityClauses(template: LambdaTemplate): Clauses = {
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
     for (that <- byType(template.tpe).values) {
@@ -529,17 +547,13 @@ trait LambdaTemplates { self: Templates =>
         }
 
       closuresEqual match {
-        case Some(eqs) if !functionWitnesses => clauses += mkImplies(blocker, mkEquals(eqs, equals))
-        case None if !functionWitnesses => clauses += mkImplies(blocker, mkNot(equals))
+        case Some(eqs) if !extensionalWitnesses => clauses += mkImplies(blocker, mkEquals(eqs, equals))
+        case None if !extensionalWitnesses => clauses += mkImplies(blocker, mkNot(equals))
         case _ =>
           for (eqs <- closuresEqual) clauses += mkImplies(mkAnd(blocker, eqs), equals)
-          clauses += mkImplies(mkAnd(blocker, mkNot(witnessEnabler)), closuresEqual match {
-            case Some(eqs) => mkImplies(equals, eqs)
-            case None => mkNot(equals)
-          })
           if (!sameBody || differingLocals.nonEmpty) {
-            clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2)
-            extensionalLambdas += template.ids._2 -> that.ids._2
+            if (eagerLambdaWitnesses) eagerWitnesses += ((blocker, template.ids._2, that.ids._2))
+            else clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2, onDemand = true)
           }
       }
     }
@@ -568,10 +582,12 @@ trait LambdaTemplates { self: Templates =>
   /** Registers a distinguishing input for `f1` and `f2` (needed when `cond` holds), to be
     * instantiated by [[instantiateWitnesses]]. Until then, the returned clause lets the solver
     * assume that `f1 == f2` through the [[PendingWitness.equality]] literal. */
-  private def registerWitness(cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded): Clauses = {
+  private def registerWitness(
+    cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, onDemand: Boolean = false
+  ): Clauses = {
     val depth = (witnessDepths.getOrElse(f1, 0) max witnessDepths.getOrElse(f2, 0)) + 1
     val equality = encodeSymbol(Variable.fresh("b_eq", BooleanType(), true))
-    pendingWitnesses += PendingWitness(cond, tpe, f1, f2, depth, equality)
+    pendingWitnesses += PendingWitness(cond, tpe, f1, f2, depth, equality, onDemand)
     Seq(mkImplies(mkAnd(equality, cond), mkEquals(f1, f2)))
   }
 
@@ -589,20 +605,40 @@ trait LambdaTemplates { self: Templates =>
     * and lambdas a distinguishing input creates on the spot inherit its depth, and the others are only
     * created by later unrollings. */
   def witnessEqualities: Map[Encoded, Int] =
-    pendingWitnesses.toSeq.map(w => w.equality -> w.depth).toMap
+    pendingWitnesses.toSeq.filterNot(_.onDemand).map(w => w.equality -> w.depth).toMap
+
+  /** The pending distinguishing inputs that are only instantiated when model extraction needs them,
+    * as the compared functions and the equality literal to instantiate them with.
+    *
+    * Without function equality, whether two lambdas of the program are equal can't be observed, so
+    * their equality is left open. Their distinguishing input is only needed when an extracted function
+    * must tell them apart, and instantiating it for every pair of lambdas can make queries much harder. */
+  def onDemandWitnesses: Seq[(Encoded, Encoded, Encoded)] =
+    pendingWitnesses.toSeq.filter(_.onDemand).map(w => (w.f1, w.f2, w.equality))
 
   /** Instantiates the pending distinguishing inputs with the given equality literals. */
   def instantiateWitnesses(equalities: Set[Encoded]): Clauses = {
     pendingWitnesses.toSeq.filter(w => equalities(w.equality)).sortBy(_.depth).flatMap { w =>
       pendingWitnesses -= w
       witnessPairs += (w.f1 -> w.f2)
-      withWitnessDepth(w.depth)(instantiateWitness(mkAnd(witnessEnabler, w.cond), w.tpe, w.f1, w.f2))
+      withWitnessDepth(w.depth)(instantiateWitness(enabled(w.cond), w.tpe, w.f1, w.f2))
     }
   }
 
   /** Whether the solver should search for models in which distinct first-class functions
     * have a distinguishing input (see [[witnessAssumptions]]). */
-  protected lazy val functionWitnesses: Boolean = options.findOptionOrDefault(optFunctionWitnesses)
+  protected lazy val functionWitnesses: Boolean =
+    extensionalWitnesses || options.findOptionOrDefault(optFunctionWitnesses)
+
+  /** Whether distinct functions always have a distinguishing input, that is whether function
+    * equality is extensional (or unobservable, see [[optFunctionEquality]]). Witnesses then hold
+    * unconditionally instead of under [[witnessAssumptions]], and lambdas aren't compared structurally. */
+  protected lazy val extensionalWitnesses: Boolean =
+    options.findOptionOrDefault(optFunctionEquality) != FunctionEquality.Intensional
+
+  /** The condition `cond` of a distinguishing input, conjoined with the literal that enables it. */
+  private def enabled(cond: Encoded): Encoded =
+    if (extensionalWitnesses) cond else mkAnd(witnessEnabler, cond)
 
   /** Assumptions that enable distinguishing inputs between first-class functions.
     *
@@ -627,14 +663,11 @@ trait LambdaTemplates { self: Templates =>
   def distinguishingInputs: Seq[((Encoded, Encoded), (FunctionType, Seq[Encoded]))] = witnessInputs.toSeq
 
   def witnessAssumptions: Seq[Encoded] =
-    if (witnessPairs.isEmpty && extensionalLambdas.isEmpty) Seq.empty else Seq(witnessEnabler)
+    if (extensionalWitnesses || witnessPairs.isEmpty) Seq.empty else Seq(witnessEnabler)
 
-  /** Assumptions that disable distinguishing inputs, under which lambdas are compared structurally
-    * (see [[equalityClauses]]). */
-  def noWitnessAssumptions: Seq[Encoded] =
-    if (extensionalLambdas.isEmpty) Seq.empty else Seq(mkNot(witnessEnabler))
 
-  protected case class PendingWitness(cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, depth: Int, equality: Encoded)
+  protected case class PendingWitness(
+    cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, depth: Int, equality: Encoded, onDemand: Boolean)
 
   private[unrolling] object lambdasManager extends Manager {
     // Function instantiations have their own defblocker
@@ -723,9 +756,6 @@ trait LambdaTemplates { self: Templates =>
     /** The type and arguments of the distinguishing input of each pair in [[witnessPairs]]. */
     val witnessInputs = new IncrementalMap[(Encoded, Encoded), (FunctionType, Seq[Encoded])]
 
-    /** The pairs of lambdas that are only compared structurally without distinguishing inputs. */
-    val extensionalLambdas = new IncrementalSet[(Encoded, Encoded)]
-
     /** The distinguishing inputs that haven't been instantiated yet. */
     val pendingWitnesses = new IncrementalSet[PendingWitness]
 
@@ -735,7 +765,7 @@ trait LambdaTemplates { self: Templates =>
     val incrementals: Seq[IncrementalState] = Seq(
       lambdaBlockers, appInfos, appBlockers, blockerToApps,
       byID, byType, applications, freeBlockers, nonFreeBlockers, freeFunctions,
-      instantiated, typeBlockers, witnessFunctions, witnessDepths, appDepths, resultGuards, witnessArguments, witnessPairs, witnessInputs, extensionalLambdas, pendingWitnesses)
+      instantiated, typeBlockers, witnessFunctions, witnessDepths, appDepths, resultGuards, witnessArguments, witnessPairs, witnessInputs, pendingWitnesses)
 
     def unrollGeneration: Option[Int] =
       if (appInfos.isEmpty) None

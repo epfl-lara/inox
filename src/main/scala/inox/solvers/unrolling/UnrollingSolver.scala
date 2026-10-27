@@ -17,6 +17,31 @@ object optUnrollFactor      extends IntOptionDef("unroll-factor", default = 1, "
 object optFeelingLucky      extends FlagOptionDef("feeling-lucky", false)
 object optUnrollAssumptions extends FlagOptionDef("unroll-assumptions", false)
 object optFunctionWitnesses extends FlagOptionDef("function-witnesses", true)
+
+/** The semantics of equality between first-class functions.
+  *
+  * - [[FunctionEquality.None]]: functions can't be compared, and solvers reject queries that
+  *   compare values containing functions. Counterexamples then never depend on function equality.
+  * - [[FunctionEquality.Intensional]]: functions are compared structurally (Inox's historical
+  *   semantics). With [[optFunctionWitnesses]], models give distinct functions a distinguishing input
+  *   whenever possible.
+  * - [[FunctionEquality.Extensional]]: functions are equal iff they agree on every input.
+  *
+  * Under `none` and `extensional`, distinct functions always have a distinguishing input, in
+  * refutations as well as in models (see [[LambdaTemplates.witnessAssumptions]]). */
+enum FunctionEquality {
+  case None, Intensional, Extensional
+}
+
+object optFunctionEquality extends OptionDef[FunctionEquality] {
+  val name: String = "function-equality"
+  val usageRhs: String = "none|intensional|extensional"
+  val default: FunctionEquality = FunctionEquality.None
+  override def formatDefault: String = default.toString.toLowerCase
+
+  override def parser: OptionParsers.OptionParser[FunctionEquality] = s =>
+    FunctionEquality.values.find(_.toString.toLowerCase == s.toLowerCase)
+}
 object optModelFinding      extends IntOptionDef("model-finding", 0, "<PosInt> | 0 (off)") {
   override val parser: OptionParsers.OptionParser[Int] = (s => s match {
     case "" => Some(1)
@@ -139,6 +164,10 @@ abstract class AbstractUnrollingSolver private
   private val constraints = new IncrementalSeq[Expr]()
   private val freeChooses = new IncrementalMap[Choose, Encoded]()
 
+  /** The equality literals of the on-demand distinguishing inputs that the last model extraction
+    * needed (see [[LambdaTemplates.onDemandWitnesses]]). */
+  private var requestedWitnesses: Set[Encoded] = Set.empty
+
   protected var failures: ListBuffer[Throwable] = new ListBuffer
   protected var abort: Boolean = false
   protected var pause: Boolean = false
@@ -210,10 +239,39 @@ abstract class AbstractUnrollingSolver private
     case e @ (_: InternalSolverError | _: Unsupported) => failures += e
   })
 
+  lazy val functionEquality = options.findOptionOrDefault(optFunctionEquality)
+
+  /** Whether values of type `tpe` can contain functions. Type parameters are assumed not to. */
+  private def containsFunctions(tpe: Type, seen: Set[Identifier] = Set.empty): Boolean = tpe match {
+    case _: FunctionType | _: PiType => true
+    case adt: ADTType =>
+      !seen(adt.id) && adt.getSort.constructors.exists(_.fields.exists(vd => containsFunctions(vd.getType, seen + adt.id)))
+    case NAryType(tps, _) => tps.exists(containsFunctions(_, seen))
+  }
+
+  /** Rejects `expression` if it compares values that contain functions, either directly or through
+    * the functions it calls (see [[optFunctionEquality]]). */
+  private def checkNoFunctionComparisons(expression: Expr): Unit = {
+    def comparisons(e: Expr): Seq[Expr] = exprOps.collect[Expr] {
+      case eq @ Equals(l, _) if containsFunctions(l.getType) => Set(eq)
+      case _ => Set.empty
+    } (e).toSeq
+
+    val called = exprOps.functionCallsOf(expression).map(_.id)
+    val callees = called ++ transitiveCallees(called)
+    val violations = comparisons(expression) ++ callees.toSeq.flatMap(id => comparisons(getFunction(id).fullBody))
+    if (violations.nonEmpty) {
+      throw new TypeErrorException(
+        "Functions can't be compared under --function-equality=none: " +
+          violations.map(_.asString).mkString(", "), violations.head, violations.head.getPos)
+    }
+  }
+
   def assertCnstr(expression: Expr): Unit = context.timers.solvers.assert.run(try {
     context.timers.solvers.assert.sanity.run {
       symbols.ensureWellFormed // make sure that the current program is well-formed
       typeCheck(expression, BooleanType()) // make sure we've asserted a boolean-typed expression
+      if (functionEquality == FunctionEquality.None) checkNoFunctionComparisons(expression)
     }
 
     // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
@@ -638,6 +696,10 @@ abstract class AbstractUnrollingSolver private
                 if (modelEq(other, arg) || acc.exists(modelEq(_, other))) acc else acc :+ other
               }
               val conds = others.map(other => distinguish(v.toVariable, ft, arg, other))
+              for (case (other, None) <- others zip conds; (f1, f2, equality) <- templates.onDemandWitnesses
+                   if (modelEq(f1, arg) && modelEq(f2, other)) || (modelEq(f1, other) && modelEq(f2, arg))) {
+                requestedWitnesses += equality
+              }
               if (conds.forall(_.isDefined)) andJoin(conds.flatten) else Equals(v.toVariable, exArg)
             case _ => Equals(v.toVariable, exArg)
           }
@@ -832,8 +894,6 @@ abstract class AbstractUnrollingSolver private
       if (useWitnesses && witnessLevel > 0) templates.witnessEqualities else Map.empty
     var modelWithWitnesses: Boolean = false
     def witnessAssumptions: Seq[Encoded] = if (useWitnesses) templates.witnessAssumptions else Seq.empty
-    // once distinguishing inputs are dropped, lambdas are compared structurally again
-    def structuralAssumptions: Seq[Encoded] = if (useWitnesses) Seq.empty else templates.noWitnessAssumptions
 
     /* The equalities between functions without distinguishing inputs that appear in the unsat core
      * of `res`, or all of them if the solver gave no core. Cores aren't necessarily reported as
@@ -936,8 +996,7 @@ abstract class AbstractUnrollingSolver private
           def check(equalities: Iterable[Encoded]): SolverResponse[underlying.Model, Set[underlying.Trees]] =
             context.timers.solvers.unrolling.check.run {
               underlying.checkAssumptions(checkConfig)(
-                encodedAssumptions.toSet ++ templates.satisfactionAssumptions ++ witnesses ++ structuralAssumptions ++
-                  equalities
+                encodedAssumptions.toSet ++ templates.satisfactionAssumptions ++ witnesses ++ equalities
               )
             }
 
@@ -1015,7 +1074,7 @@ abstract class AbstractUnrollingSolver private
               }
               def check(equalities: Iterable[Encoded]) =
                 underlying.checkAssumptions(Configuration(model = true, unsatAssumptions = equalities.nonEmpty))(
-                  witnesses.toSet ++ structuralAssumptions ++ equalities
+                  witnesses.toSet ++ equalities
                 )
               val res = check(equalities.keys)
               // Only equalities are instantiated here, the witnesses are never dropped: the finite range
@@ -1053,6 +1112,7 @@ abstract class AbstractUnrollingSolver private
           }
 
         case Validate(umodel) =>
+          requestedWitnesses = Set.empty
           val validated = (try { Some(extractTotalModel(umodel)) } catch {
             case NoSimpleValue(tpe) =>
               if (!silentErrors) {
@@ -1060,13 +1120,20 @@ abstract class AbstractUnrollingSolver private
               }
               None
             case Canceled() => None
-          }).map { model =>
+          }).map[CheckState] { model =>
             lazy val sat = CheckResult(config `cast` (if (config.withModel) SatWithModel(model) else Sat))
             lazy val unknown = CheckResult `cast` Unknown
 
-            val valid = !checkModels || validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
+            lazy val valid = !checkModels || validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
 
-            if (checkModels && valid) {
+            if (requestedWitnesses.nonEmpty && !abort && !pause) {
+              // the extracted functions need these distinguishing inputs to tell their arguments apart
+              reporter.debug(" - Instantiating requested distinguishing function inputs")
+              for (cl <- templates.instantiateWitnesses(requestedWitnesses)) {
+                underlying.assertCnstr(cl)
+              }
+              ModelCheck
+            } else if (checkModels && valid) {
               sat
             } else if (abort || pause) {
               unknown
