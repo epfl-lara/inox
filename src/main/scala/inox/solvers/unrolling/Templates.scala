@@ -894,6 +894,7 @@ trait Templates
     val ws = tpe.from.map(tp => Variable.fresh("w", tp, true))
     val bindings = Map(v1 -> f1, v2 -> f2) ++ ws.map(w => w -> encodeSymbol(w))
     lambdasManager.witnessArguments ++= ws.map(bindings)
+    lambdasManager.witnessInputs += (f1 -> f2) -> (tpe, ws.map(bindings))
 
     // the compared functions have already been typed where they were registered
     declared += v1 -> f1
