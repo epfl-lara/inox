@@ -253,6 +253,10 @@ abstract class AbstractUnrollingSolver private
     * the functions it calls (see [[optFunctionEquality]]). */
   private def checkNoFunctionComparisons(expression: Expr): Unit = {
     def comparisons(e: Expr): Seq[Expr] = exprOps.collect[Expr] {
+      // a constructor without functions in its fields is only equal to itself, so comparing
+      // against it never compares functions
+      case Equals(ADT(_, _, args), _) if !args.exists(a => containsFunctions(a.getType)) => Set.empty
+      case Equals(_, ADT(_, _, args)) if !args.exists(a => containsFunctions(a.getType)) => Set.empty
       case eq @ Equals(l, _) if containsFunctions(l.getType) => Set(eq)
       case _ => Set.empty
     } (e).toSeq
