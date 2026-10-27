@@ -167,6 +167,30 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     }
   }
 
+  test("distinct nullary functions") {
+    // the distinguishing input of nullary functions is the empty argument list
+    val f = ("f" :: FunctionType(Seq(), IntegerType())).toVariable
+    val g = ("g" :: FunctionType(Seq(), IntegerType())).toVariable
+    val model = solve(f !== g)
+    assert(distinguishable(model(f.toVal), model(g.toVal)))
+  }
+
+  test("distinct nullary function and lambda") {
+    val f = ("f" :: FunctionType(Seq(), IntegerType())).toVariable
+    val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
+    val lambda = Lambda(Seq(), g(E(BigInt(5))))
+    val model = solve(f !== lambda)
+    assert(distinguishable(model(f.toVal), exprOps.replaceFromSymbols(Map(g -> model(g.toVal)), lambda)))
+  }
+
+  test("nullary functions with equal results") {
+    // `f() == g()` implies `f == g` under the witness clauses, so only an intensional
+    // counterexample remains, which the solver finds once it drops the witnesses
+    val f = ("f" :: FunctionType(Seq(), IntegerType())).toVariable
+    val g = ("g" :: FunctionType(Seq(), IntegerType())).toVariable
+    assert(!result((f !== g) && (Application(f, Seq()) === Application(g, Seq()))).isUNSAT)
+  }
+
   test("eta-expanded closure remains distinct") {
     // Function equality is intensional and `f` closes over `g`, so `f != g` even though
     // no distinguishing input can exist: the solver must drop the witness assumptions.
