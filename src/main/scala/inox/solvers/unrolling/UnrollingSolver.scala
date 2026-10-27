@@ -832,6 +832,8 @@ abstract class AbstractUnrollingSolver private
       if (useWitnesses && witnessLevel > 0) templates.witnessEqualities else Map.empty
     var modelWithWitnesses: Boolean = false
     def witnessAssumptions: Seq[Encoded] = if (useWitnesses) templates.witnessAssumptions else Seq.empty
+    // once distinguishing inputs are dropped, lambdas are compared structurally again
+    def structuralAssumptions: Seq[Encoded] = if (useWitnesses) Seq.empty else templates.noWitnessAssumptions
 
     /* The equalities between functions without distinguishing inputs that appear in the unsat core
      * of `res`, or all of them if the solver gave no core. Cores aren't necessarily reported as
@@ -934,7 +936,8 @@ abstract class AbstractUnrollingSolver private
           def check(equalities: Iterable[Encoded]): SolverResponse[underlying.Model, Set[underlying.Trees]] =
             context.timers.solvers.unrolling.check.run {
               underlying.checkAssumptions(checkConfig)(
-                encodedAssumptions.toSet ++ templates.satisfactionAssumptions ++ witnesses ++ equalities
+                encodedAssumptions.toSet ++ templates.satisfactionAssumptions ++ witnesses ++ structuralAssumptions ++
+                  equalities
               )
             }
 
@@ -1012,7 +1015,7 @@ abstract class AbstractUnrollingSolver private
               }
               def check(equalities: Iterable[Encoded]) =
                 underlying.checkAssumptions(Configuration(model = true, unsatAssumptions = equalities.nonEmpty))(
-                  witnesses.toSet ++ equalities
+                  witnesses.toSet ++ structuralAssumptions ++ equalities
                 )
               val res = check(equalities.keys)
               // Only equalities are instantiated here, the witnesses are never dropped: the finite range
