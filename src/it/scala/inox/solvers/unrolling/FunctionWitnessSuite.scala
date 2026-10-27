@@ -143,6 +143,34 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     assert(!model.values.exists(comparesFunctions))
   }
 
+  test("functions applied to distinct lambdas", hasHigherOrderModels) {
+    // the lambdas get a distinguishing input instead of being distinct by structure
+    val f = ("f" :: ((IntegerType() =>: IntegerType()) =>: IntegerType())).toVariable
+    val succ = \("x" :: IntegerType())(x => x + E(BigInt(1)))
+    val pred = \("x" :: IntegerType())(x => x - E(BigInt(1)))
+    val model = solve(f(succ) !== f(pred))
+    assert(!model.values.exists(comparesFunctions))
+  }
+
+  test("functions applied to closures with distinct captures", hasHigherOrderModels) {
+    val f = ("f" :: ((IntegerType() =>: IntegerType()) =>: IntegerType())).toVariable
+    val a = ("a" :: IntegerType()).toVariable
+    val b = ("b" :: IntegerType()).toVariable
+    val addA = \("x" :: IntegerType())(x => x + a)
+    val addB = \("x" :: IntegerType())(x => x + b)
+    val model = solve(f(addA) !== f(addB))
+    assert(model(a.toVal) != model(b.toVal))
+    assert(!model.values.exists(comparesFunctions))
+  }
+
+  test("structurally distinct lambdas remain distinct") {
+    // the solver no longer assumes it, but models that equate them are rejected
+    val succ = \("x" :: IntegerType())(x => x + E(BigInt(1)))
+    val pred = \("x" :: IntegerType())(x => x - E(BigInt(1)))
+    assert(result(succ === pred).isUNSAT)
+    assert(result(succ !== pred).isSAT)
+  }
+
   // unrollz3 evaluates `f` to the same result on `g` and `h`, so its models are rejected
   test("functions applied to distinct curried functions", ctx =>
     if (ctx.options.findOptionOrDefault(optSelectedSolvers).contains("unrollz3")) Skip
