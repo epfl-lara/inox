@@ -502,32 +502,51 @@ trait LambdaTemplates { self: Templates =>
     }
   }
 
+  /** Equality between the new lambda `template` and the previously instantiated ones.
+    *
+    * Lambdas with the same structure are equal when their closures are. Inox compares lambdas
+    * structurally, so the others are otherwise distinct. With distinguishing inputs, however,
+    * lambdas that differ in structure (or closures) may still be extensionally equal. Their
+    * structural inequality then only holds without distinguishing inputs (see [[witnessAssumptions]]),
+    * and the pair is instead given a distinguishing input, like pairs of free functions. */
   private def equalityClauses(template: LambdaTemplate): Clauses = {
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
     for (that <- byType(template.tpe).values) {
       val equals = mkEquals(template.ids._2, that.ids._2)
       val (blocker, blockerClauses) = encodeBlockers(Set(template.start, that.start))
       clauses ++= blockerClauses
-      clauses += mkImplies(
-        blocker,
-        if (typeOps.simplify(template.structure.body) == typeOps.simplify(that.structure.body)) {
-          val pairs = template.structure.locals zip that.structure.locals
-          val filtered = pairs.filter(p => p._1 != p._2)
-          if (filtered.isEmpty) {
-            equals
-          } else {
-            val equalities = filtered.map { case ((v, e1), (_, e2)) =>
-              // The equality is registered so that it is unrolled before a model is accepted:
-              // the identifiers of lambdas with equal closures must be equal in the model.
-              val (equality, equalityClauses) = mkEqualities(blocker, v.getType, e1, e2, register = true)
-              clauses ++= equalityClauses
-              equality
-            }
-            mkEquals(mkAnd(equalities*), equals)
-          }
+
+      val sameBody = typeOps.simplify(template.structure.body) == typeOps.simplify(that.structure.body)
+      val differingLocals = (template.structure.locals zip that.structure.locals).filter(p => p._1 != p._2)
+      val closuresEqual: Option[Encoded] =
+        if (sameBody && differingLocals.isEmpty) {
+          Some(trueT)
+        } else if (sameBody) {
+          Some(mkAnd(differingLocals.map { case ((v, e1), (_, e2)) =>
+            // The equality is registered so that it is unrolled before a model is accepted:
+            // the identifiers of lambdas with equal closures must be equal in the model.
+            val (equality, equalityClauses) = mkEqualities(blocker, v.getType, e1, e2, register = true)
+            clauses ++= equalityClauses
+            equality
+          }*))
         } else {
-          mkNot(equals)
-        })
+          None
+        }
+
+      closuresEqual match {
+        case Some(eqs) if !functionWitnesses => clauses += mkImplies(blocker, mkEquals(eqs, equals))
+        case None if !functionWitnesses => clauses += mkImplies(blocker, mkNot(equals))
+        case _ =>
+          for (eqs <- closuresEqual) clauses += mkImplies(mkAnd(blocker, eqs), equals)
+          clauses += mkImplies(mkAnd(blocker, mkNot(witnessEnabler)), closuresEqual match {
+            case Some(eqs) => mkImplies(equals, eqs)
+            case None => mkNot(equals)
+          })
+          if (!sameBody || differingLocals.nonEmpty) {
+            clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2)
+            extensionalLambdas += template.ids._2 -> that.ids._2
+          }
+      }
     }
     clauses.toSeq
   }
@@ -613,7 +632,12 @@ trait LambdaTemplates { self: Templates =>
   def distinguishingInputs: Seq[((Encoded, Encoded), (FunctionType, Seq[Encoded]))] = witnessInputs.toSeq
 
   def witnessAssumptions: Seq[Encoded] =
-    if (witnessPairs.isEmpty) Seq.empty else Seq(witnessEnabler)
+    if (witnessPairs.isEmpty && extensionalLambdas.isEmpty) Seq.empty else Seq(witnessEnabler)
+
+  /** Assumptions that disable distinguishing inputs, under which lambdas are compared structurally
+    * (see [[equalityClauses]]). */
+  def noWitnessAssumptions: Seq[Encoded] =
+    if (extensionalLambdas.isEmpty) Seq.empty else Seq(mkNot(witnessEnabler))
 
   protected case class PendingWitness(cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, depth: Int, equality: Encoded)
 
@@ -704,6 +728,9 @@ trait LambdaTemplates { self: Templates =>
     /** The type and arguments of the distinguishing input of each pair in [[witnessPairs]]. */
     val witnessInputs = new IncrementalMap[(Encoded, Encoded), (FunctionType, Seq[Encoded])]
 
+    /** The pairs of lambdas that are only compared structurally without distinguishing inputs. */
+    val extensionalLambdas = new IncrementalSet[(Encoded, Encoded)]
+
     /** The distinguishing inputs that haven't been instantiated yet. */
     val pendingWitnesses = new IncrementalSet[PendingWitness]
 
@@ -713,7 +740,7 @@ trait LambdaTemplates { self: Templates =>
     val incrementals: Seq[IncrementalState] = Seq(
       lambdaBlockers, appInfos, appBlockers, blockerToApps,
       byID, byType, applications, freeBlockers, nonFreeBlockers, freeFunctions,
-      instantiated, typeBlockers, witnessFunctions, witnessDepths, appDepths, resultGuards, witnessArguments, witnessPairs, witnessInputs, pendingWitnesses)
+      instantiated, typeBlockers, witnessFunctions, witnessDepths, appDepths, resultGuards, witnessArguments, witnessPairs, witnessInputs, extensionalLambdas, pendingWitnesses)
 
     def unrollGeneration: Option[Int] =
       if (appInfos.isEmpty) None
