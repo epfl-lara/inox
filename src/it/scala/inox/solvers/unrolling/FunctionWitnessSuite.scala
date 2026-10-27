@@ -459,6 +459,14 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     }
   }
 
+  test("comparisons with constructors without functions are accepted") { ctx ?=>
+    // `Num(n)` holds no function, so comparing an `Obj` with it is a constructor test
+    val o = ("o" :: T(objID)()).toVariable
+    val n = ("n" :: IntegerType()).toVariable
+    assert(resultWith(FunctionEquality.None)(o === C(numID)(n)).isSAT)
+    assert(resultWith(FunctionEquality.None)((o === C(numID)(n)) && (o !== C(numID)(n))).isUNSAT)
+  }
+
   test("functions applied to functions without function equality", hasHigherOrderModels) { ctx ?=>
     val f = ("f" :: ((IntegerType() =>: IntegerType()) =>: IntegerType())).toVariable
     val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
