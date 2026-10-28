@@ -1148,7 +1148,7 @@ abstract class AbstractUnrollingSolver private
             // the extracted functions need these distinguishing inputs to tell their arguments apart,
             // and they are unfolded fairly, like the others (see [[LambdaTemplates.witnessEqualities]])
             val requested = requestedWitnesses.filter(_._2 <= (witnessLevel max 1)).keySet
-            if (requested.nonEmpty && useWitnesses && !abort && !pause) {
+            if (requested.nonEmpty && !abort && !pause) {
               reporter.debug(" - Instantiating requested distinguishing function inputs")
               for (cl <- templates.instantiateWitnesses(requested)) {
                 underlying.assertCnstr(cl)
