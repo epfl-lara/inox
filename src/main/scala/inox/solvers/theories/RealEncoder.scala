@@ -42,7 +42,15 @@ private class RealTheory[Trees <: ast.Trees](val trees: Trees) {
 
   val fractionCons = fraction.constructors.head
 
-  val extraFunctions = Seq(fraction_inv, fraction_eq)
+  // Division by zero yields an unspecified value that only depends on the dividend, as in
+  // SMT-LIB. As fractions are not normalized, this function may give different results for
+  // different representations of the same dividend, which only adds models.
+  val divByZero = mkFunDef(FreshIdentifier("div_by_zero"))()(_ => (
+    Seq("x" :: T(fractionID)()), T(fractionID)(), { case Seq(_) =>
+    choose("r" :: T(fractionID)())(_ => E(true))
+  }))
+
+  val extraFunctions = Seq(fraction_inv, fraction_eq, divByZero)
   val extraSorts = Seq(fraction)
 }
 def realEnc(sourceProgram: Program)
@@ -82,15 +90,21 @@ def realEnc(sourceProgram: Program)
         fractionCons(ni1 * ni2, di1 * di2)
 
       case Division(IsTyped(i1, RealType()), i2) =>
-        val ((ni1, di1), (ni2, di2)) = (fields(i1), fields(i2))
-        // The sign of the divisor's numerator must be moved to the numerator
-        // in order to keep the denominator positive.
-        dsl.let("n" :: IntegerType(), ni1 * di2) { n =>
-          dsl.let("d" :: IntegerType(), di1 * ni2) { d =>
-            if_ (d < E(BigInt(0))) {
-              fractionCons(-n, -d)
-            } else_ {
-              fractionCons(n, d)
+        dsl.let("x" :: fraction(), transform(i1)) { x =>
+          val ((ni1, di1), (ni2, di2)) = ((x.getField(num), x.getField(denom)), fields(i2))
+          // The sign of the divisor's numerator must be moved to the numerator
+          // in order to keep the denominator positive.
+          dsl.let("n" :: IntegerType(), ni1 * di2) { n =>
+            dsl.let("d" :: IntegerType(), di1 * ni2) { d =>
+              if_ (d < E(BigInt(0))) {
+                fractionCons(-n, -d)
+              } else_ {
+                if_ (d === E(BigInt(0))) {
+                  E(divByZero.id)(x)
+                } else_ {
+                  fractionCons(n, d)
+                }
+              }
             }
           }
         }

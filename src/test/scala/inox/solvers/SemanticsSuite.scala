@@ -857,6 +857,12 @@ class SemanticsSuite extends AnyFunSuite {
       LessThan(x, FractionLiteral(0, 1)),
       GreaterThan(Division(FractionLiteral(1, 1), x), FractionLiteral(-1000000, 1))
     )) contains false)
+
+    // Division by zero is unspecified (as in SMT-LIB), but it is still a function of the dividend
+    val zero = FractionLiteral(0, 1)
+    assert(s.solveVALID(Equals(Division(FractionLiteral(1, 1), zero), Division(FractionLiteral(2, 1), zero))) contains false)
+    assert(s.solveVALID(Equals(Division(FractionLiteral(1, 1), zero), zero)) contains false)
+    assert(s.solveVALID(Equals(Division(x, zero), Division(x, zero))) contains true)
   }
 
   test("Bag Operations with repeated keys", filterSolvers(_, princess = true, bitwuzla = true)) { ctx =>
