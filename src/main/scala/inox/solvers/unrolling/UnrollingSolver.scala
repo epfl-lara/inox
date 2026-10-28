@@ -166,7 +166,7 @@ abstract class AbstractUnrollingSolver private
 
   /** The equality literals of the on-demand distinguishing inputs that the last model extraction
     * needed (see [[LambdaTemplates.onDemandWitnesses]]). */
-  private var requestedWitnesses: Set[Encoded] = Set.empty
+  private var requestedWitnesses: Map[Encoded, Int] = Map.empty
 
   protected var failures: ListBuffer[Throwable] = new ListBuffer
   protected var abort: Boolean = false
@@ -499,8 +499,12 @@ abstract class AbstractUnrollingSolver private
     var lambdaExtractions: Seq[(Encoded, Lambda)] = Seq.empty
     var chooseExtractions: Seq[(Encoded, Choose)] = Seq.empty
 
-    def modelEq(e1: Encoded, e2: Encoded): Boolean =
-      wrapped.modelEval(templates.mkEquals(e1, e2), BooleanType()) == Some(BooleanLiteral(true))
+    // evaluating in the model can be costly, and extraction compares the same functions repeatedly
+    val modelEqualities = MutableMap.empty[(Encoded, Encoded), Boolean]
+    def modelEq(e1: Encoded, e2: Encoded): Boolean = e1 == e2 || modelEqualities.getOrElseUpdate(e1 -> e2,
+      wrapped.modelEval(templates.mkEquals(e1, e2), BooleanType()) == Some(BooleanLiteral(true)))
+
+    lazy val onDemandWitnesses = templates.onDemandWitnesses.groupMap(_._1)(_._2)
 
     def extractValue(v: Encoded, tpe: Type, seen: Map[FunctionType, Set[Encoded]]): Expr = {
 
@@ -700,9 +704,10 @@ abstract class AbstractUnrollingSolver private
                 if (modelEq(other, arg) || acc.exists(modelEq(_, other))) acc else acc :+ other
               }
               val conds = others.map(other => distinguish(v.toVariable, ft, arg, other))
-              for (case (other, None) <- others zip conds; (f1, f2, equality) <- templates.onDemandWitnesses
+              for (case (other, None) <- others zip conds; (tpe, ws) <- onDemandWitnesses if tpe == ft;
+                   (f1, f2, equality, depth) <- ws
                    if (modelEq(f1, arg) && modelEq(f2, other)) || (modelEq(f1, other) && modelEq(f2, arg))) {
-                requestedWitnesses += equality
+                requestedWitnesses += equality -> depth
               }
               if (conds.forall(_.isDefined)) andJoin(conds.flatten) else Equals(v.toVariable, exArg)
             case _ => Equals(v.toVariable, exArg)
@@ -1116,7 +1121,7 @@ abstract class AbstractUnrollingSolver private
           }
 
         case Validate(umodel) =>
-          requestedWitnesses = Set.empty
+          requestedWitnesses = Map.empty
           val validated = (try { Some(extractTotalModel(umodel)) } catch {
             case NoSimpleValue(tpe) =>
               if (!silentErrors) {
@@ -1130,10 +1135,12 @@ abstract class AbstractUnrollingSolver private
 
             lazy val valid = !checkModels || validateModel(model, assumptionsSeq, silenceErrors = silentErrors)
 
-            if (requestedWitnesses.nonEmpty && !abort && !pause) {
-              // the extracted functions need these distinguishing inputs to tell their arguments apart
+            // the extracted functions need these distinguishing inputs to tell their arguments apart,
+            // and they are unfolded fairly, like the others (see [[LambdaTemplates.witnessEqualities]])
+            val requested = requestedWitnesses.filter(_._2 <= (witnessLevel max 1)).keySet
+            if (requested.nonEmpty && useWitnesses && !abort && !pause) {
               reporter.debug(" - Instantiating requested distinguishing function inputs")
-              for (cl <- templates.instantiateWitnesses(requestedWitnesses)) {
+              for (cl <- templates.instantiateWitnesses(requested)) {
                 underlying.assertCnstr(cl)
               }
               ModelCheck
