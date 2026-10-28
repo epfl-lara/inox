@@ -596,7 +596,9 @@ trait LambdaTemplates { self: Templates =>
     val depth = (witnessDepths.getOrElse(f1, 0) max witnessDepths.getOrElse(f2, 0)) + 1
     val equality = encodeSymbol(Variable.fresh("b_eq", BooleanType(), true))
     pendingWitnesses += PendingWitness(cond, tpe, f1, f2, depth, equality, onDemand)
-    Seq(mkImplies(mkAnd(equality, cond), mkEquals(f1, f2)))
+    // the equality of on-demand pairs is never assumed, and a free literal implying it lets the
+    // solver merge lambdas in models, which extraction then can't tell apart
+    if (onDemand) Seq.empty else Seq(mkImplies(mkAnd(equality, cond), mkEquals(f1, f2)))
   }
 
   /** The equality literals of the pending distinguishing inputs, along with their depth.

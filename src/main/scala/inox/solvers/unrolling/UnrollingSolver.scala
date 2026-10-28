@@ -33,6 +33,35 @@ enum FunctionEquality {
   case None, Intensional, Extensional
 }
 
+object FunctionEquality {
+  /** The comparisons between values that may contain functions in `expr`, and in the functions it
+    * transitively calls, which `none` rejects. Type parameters are assumed not to contain functions. */
+  def comparisons(program: Program)(expr: program.trees.Expr): Seq[program.trees.Expr] = {
+    import program.trees._
+    import program.symbols.{given, _}
+
+    def containsFunctions(tpe: Type, seen: Set[Identifier] = Set.empty): Boolean = tpe match {
+      case _: FunctionType | _: PiType => true
+      case adt: ADTType =>
+        !seen(adt.id) && adt.getSort.constructors.exists(_.fields.exists(vd => containsFunctions(vd.getType, seen + adt.id)))
+      case NAryType(tps, _) => tps.exists(containsFunctions(_, seen))
+    }
+
+    def comparisons(e: Expr): Seq[Expr] = exprOps.collect[Expr] {
+      // a constructor without functions in its fields is only equal to itself, so comparing
+      // against it never compares functions
+      case Equals(ADT(_, _, args), _) if !args.exists(a => containsFunctions(a.getType)) => Set.empty
+      case Equals(_, ADT(_, _, args)) if !args.exists(a => containsFunctions(a.getType)) => Set.empty
+      case eq @ Equals(l, _) if containsFunctions(l.getType) => Set(eq)
+      case _ => Set.empty
+    } (e).toSeq
+
+    val called = exprOps.functionCallsOf(expr).map(_.id)
+    val callees = called ++ transitiveCallees(called)
+    comparisons(expr) ++ callees.toSeq.flatMap(id => comparisons(getFunction(id).fullBody))
+  }
+}
+
 object optFunctionEquality extends OptionDef[FunctionEquality] {
   val name: String = "function-equality"
   val usageRhs: String = "none|intensional|extensional"
@@ -241,29 +270,10 @@ abstract class AbstractUnrollingSolver private
 
   lazy val functionEquality = options.findOptionOrDefault(optFunctionEquality)
 
-  /** Whether values of type `tpe` can contain functions. Type parameters are assumed not to. */
-  private def containsFunctions(tpe: Type, seen: Set[Identifier] = Set.empty): Boolean = tpe match {
-    case _: FunctionType | _: PiType => true
-    case adt: ADTType =>
-      !seen(adt.id) && adt.getSort.constructors.exists(_.fields.exists(vd => containsFunctions(vd.getType, seen + adt.id)))
-    case NAryType(tps, _) => tps.exists(containsFunctions(_, seen))
-  }
-
   /** Rejects `expression` if it compares values that contain functions, either directly or through
     * the functions it calls (see [[optFunctionEquality]]). */
   private def checkNoFunctionComparisons(expression: Expr): Unit = {
-    def comparisons(e: Expr): Seq[Expr] = exprOps.collect[Expr] {
-      // a constructor without functions in its fields is only equal to itself, so comparing
-      // against it never compares functions
-      case Equals(ADT(_, _, args), _) if !args.exists(a => containsFunctions(a.getType)) => Set.empty
-      case Equals(_, ADT(_, _, args)) if !args.exists(a => containsFunctions(a.getType)) => Set.empty
-      case eq @ Equals(l, _) if containsFunctions(l.getType) => Set(eq)
-      case _ => Set.empty
-    } (e).toSeq
-
-    val called = exprOps.functionCallsOf(expression).map(_.id)
-    val callees = called ++ transitiveCallees(called)
-    val violations = comparisons(expression) ++ callees.toSeq.flatMap(id => comparisons(getFunction(id).fullBody))
+    val violations = FunctionEquality.comparisons(program)(expression)
     if (violations.nonEmpty) {
       throw new TypeErrorException(
         "Functions can't be compared under --function-equality=none: " +
