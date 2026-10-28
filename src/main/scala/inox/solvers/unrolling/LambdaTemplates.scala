@@ -551,15 +551,18 @@ trait LambdaTemplates { self: Templates =>
           None
         }
 
-      closuresEqual match {
-        case Some(eqs) if !extensionalWitnesses => clauses += mkImplies(blocker, mkEquals(eqs, equals))
-        case None if !extensionalWitnesses => clauses += mkImplies(blocker, mkNot(equals))
-        case _ =>
-          for (eqs <- closuresEqual) clauses += mkImplies(mkAnd(blocker, eqs), equals)
-          if (!sameBody || differingLocals.nonEmpty) {
-            if (eagerLambdaWitnesses) eagerWitnesses += ((blocker, template.ids._2, that.ids._2))
-            else clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2, onDemand = true)
-          }
+      val distinct = !sameBody || differingLocals.nonEmpty
+      if (eagerLambdaWitnesses) {
+        for (eqs <- closuresEqual) clauses += mkImplies(mkAnd(blocker, eqs), equals)
+        if (distinct) eagerWitnesses += ((blocker, template.ids._2, that.ids._2))
+      } else {
+        closuresEqual match {
+          case Some(eqs) => clauses += mkImplies(blocker, mkEquals(eqs, equals))
+          case None => clauses += mkImplies(blocker, mkNot(equals))
+        }
+        if (distinct && extensionalWitnesses) {
+          clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2, onDemand = true)
+        }
       }
     }
     clauses.toSeq
@@ -618,15 +621,17 @@ trait LambdaTemplates { self: Templates =>
     * Without function equality, whether two lambdas of the program are equal can't be observed, so
     * their equality is left open. Their distinguishing input is only needed when an extracted function
     * must tell them apart, and instantiating it for every pair of lambdas can make queries much harder. */
-  def onDemandWitnesses: Seq[(Encoded, Encoded, Encoded)] =
-    pendingWitnesses.toSeq.filter(_.onDemand).map(w => (w.f1, w.f2, w.equality))
+  def onDemandWitnesses: Seq[(FunctionType, (Encoded, Encoded, Encoded, Int))] =
+    pendingWitnesses.toSeq.filter(_.onDemand).map(w => w.tpe -> (w.f1, w.f2, w.equality, w.depth))
 
   /** Instantiates the pending distinguishing inputs with the given equality literals. */
   def instantiateWitnesses(equalities: Set[Encoded]): Clauses = {
     pendingWitnesses.toSeq.filter(w => equalities(w.equality)).sortBy(_.depth).flatMap { w =>
       pendingWitnesses -= w
       witnessPairs += (w.f1 -> w.f2)
-      withWitnessDepth(w.depth)(instantiateWitness(enabled(w.cond), w.tpe, w.f1, w.f2))
+      if (w.onDemand) lambdaWitnesses = true
+      val guard = if (w.onDemand) mkAnd(witnessEnabler, w.cond) else enabled(w.cond)
+      withWitnessDepth(w.depth)(instantiateWitness(guard, w.tpe, w.f1, w.f2))
     }
   }
 
@@ -668,7 +673,16 @@ trait LambdaTemplates { self: Templates =>
   def distinguishingInputs: Seq[((Encoded, Encoded), (FunctionType, Seq[Encoded]))] = witnessInputs.toSeq
 
   def witnessAssumptions: Seq[Encoded] =
-    if (extensionalWitnesses || witnessPairs.isEmpty) Seq.empty else Seq(witnessEnabler)
+    if (extensionalWitnesses && !lambdaWitnesses) Seq.empty
+    else if (witnessPairs.isEmpty) Seq.empty
+    else Seq(witnessEnabler)
+
+  /** Whether a distinguishing input was instantiated for a pair of lambdas without function
+    * equality. Such lambdas are distinct by structure, so their distinguishing input may not exist
+    * (eg. for `x => x` and `x => if (x == 0) 0 else x`). It is then only assumed during model finding,
+    * under [[witnessEnabler]], and dropped when it makes the query unsatisfiable, like the witnesses
+    * of intensional equality. */
+  private var lambdaWitnesses: Boolean = false
 
 
   protected case class PendingWitness(
