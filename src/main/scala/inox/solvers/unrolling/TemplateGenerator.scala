@@ -258,7 +258,8 @@ trait TemplateGenerator { self: Templates =>
     }
 
     var types = Map[Encoded, Set[Typing]]()
-    def storeType(pathVar: Variable, tpe: Type, arg: Expr)(using generator: TypingGenerator): Expr = {
+    def storeType(pathVar: Variable, tpe: Type, arg: Expr, followCalls: Boolean = false)
+                 (using generator: TypingGenerator): Expr = {
       val b = encodedCond(pathVar)
       val encoder = mkEncoder(localSubst)
       val closures = typeOps.variablesOf(tpe).toSeq.sortBy(_.id).map(encoder).map(Left(_))
@@ -267,7 +268,10 @@ trait TemplateGenerator { self: Templates =>
           val typeCall: Variable = Variable.fresh("tp", BooleanType(), true)
           storeExpr(typeCall)
 
-          (typeCall, Typing(tpe, encoder(arg), Constraint(exprVars(typeCall), closures, generator == FreeGenerator)))
+          // Function types are unfolded by `registerFunction`, which doesn't look at refinements
+          val follow = followCalls && !tpe.isInstanceOf[FunctionType | PiType]
+          val constraint = Constraint(exprVars(typeCall), closures, generator == FreeGenerator, follow)
+          (typeCall, Typing(tpe, encoder(arg), constraint))
 
         case CaptureGenerator(container, containerType) =>
           // @nv: note that we only store the non-dependent type here as we don't need
@@ -554,7 +558,8 @@ trait TemplateGenerator { self: Templates =>
     *
     * When `followCalls` is set, refinement predicates that call functions which may falsify
     * the path are guarded by the base type check (see `mayFalsifyPath`). This is needed when
-    * `expr` ranges over values outside of `tpe`'s base type, e.g. for quantified variables. */
+    * `expr` ranges over values outside of `tpe`'s base type, e.g. for quantified variables.
+    * The flag is carried over to the type templates of nested (inductive) types. */
   protected def mkTypeClauses(
     pathVar: Variable,
     tpe: Type,
@@ -602,7 +607,7 @@ trait TemplateGenerator { self: Templates =>
     def rec(pathVar: Variable, tpe: Type, expr: Expr, state: RecursionState): Expr = tpe match {
       case tpe if !(generator `unroll` tpe) => BooleanLiteral(true) // nothing to do here!
 
-      case (_: FunctionType | _: PiType) => storeType(pathVar, tpe, expr)
+      case (_: FunctionType | _: PiType) => storeType(pathVar, tpe, expr, followCalls)
 
       case tp: TypeParameter if generator == FreeGenerator => typesManager.storeTypeParameter(tp)
 
@@ -654,7 +659,7 @@ trait TemplateGenerator { self: Templates =>
             .map(_.applied(Seq(expr)))
             .getOrElse(BooleanLiteral(true)),
           if (sort.definition.isInductive && !state.recurseAdt) {
-            storeType(pathVar, tpe, expr)
+            storeType(pathVar, tpe, expr, followCalls)
           } else {
             val newExpr = Variable.fresh("e", BooleanType(), true)
             storeExpr(newExpr)
@@ -678,6 +683,11 @@ trait TemplateGenerator { self: Templates =>
                 storeGuarded(newBool, Equals(newExpr, recProp))
                 true
               } else {
+                // Constructors without fields to check trivially satisfy the type. Otherwise `newExpr`
+                // would be unconstrained for them, and the type check of a quantifier's domain could be
+                // falsified to weaken the formula. The clause is only added for quantifier domains
+                // (see `followCalls`), to keep the encoding unchanged elsewhere.
+                if (followCalls) storeGuarded(pathVar, Implies(isCons(expr, tcons.id), newExpr))
                 false
               }
             }
@@ -697,7 +707,7 @@ trait TemplateGenerator { self: Templates =>
 
       case MapType(from, to) =>
         if (!state.recurseMap) {
-          storeType(pathVar, tpe, expr)
+          storeType(pathVar, tpe, expr, followCalls)
         } else {
           val newBool1 : Variable = Variable.fresh("mapIsEmpty", BooleanType(), true)
           val newBool2 : Variable = Variable.fresh("mapNonEmpty", BooleanType(), true)
@@ -734,7 +744,7 @@ trait TemplateGenerator { self: Templates =>
 
       case SetType(base) =>
         if (!state.recurseSet) {
-          storeType(pathVar, tpe, expr)
+          storeType(pathVar, tpe, expr, followCalls)
         } else {
           val newBool1 : Variable = Variable.fresh("setIsEmpty", BooleanType(), true)
           val newBool2 : Variable = Variable.fresh("setNonEmpty", BooleanType(), true)
@@ -766,7 +776,7 @@ trait TemplateGenerator { self: Templates =>
 
       case BagType(base) =>
         if (!state.recurseBag) {
-          storeType(pathVar, tpe, expr)
+          storeType(pathVar, tpe, expr, followCalls)
         } else {
           val newBool1 : Variable = Variable.fresh("bagIsEmpty", BooleanType(), true)
           val newBool2 : Variable = Variable.fresh("bagNonEmpty", BooleanType(), true)
