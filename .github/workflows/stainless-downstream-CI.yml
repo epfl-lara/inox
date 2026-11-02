@@ -2,6 +2,12 @@ name: Stainless downstream CI
 
 on:
   workflow_dispatch:
+    inputs:
+      false_benchmarks:
+        description: 'Also run the false-valid / false-invalid benchmarks (known Stainless issues, skipped by default)'
+        type: boolean
+        required: false
+        default: false
   pull_request:
   push:
     branches:
@@ -36,6 +42,17 @@ jobs:
         rm -rf "$STAINLESS_DIR/inox"
         mkdir -p "$STAINLESS_DIR/inox"
         rsync -a --delete --exclude='.git' "$INOX_DIR/" "$STAINLESS_DIR/inox/"
+    - name: Skip false-valid / false-invalid benchmarks
+      # These directories hold programs Stainless is known to get wrong: the
+      # suites expect the wrong verdict, so an Inox fix that makes Stainless
+      # answer correctly turns them red. They track Stainless issues, not Inox
+      # regressions, so they shouldn't block Inox changes. Removing the
+      # programs makes the suites (and DottyExtractionSuite) register no tests
+      # for them.
+      if: ${{ !inputs.false_benchmarks }}
+      working-directory: ${{ env.STAINLESS_DIR }}/frontends/benchmarks
+      run: |
+        rm -fv verification/false-valid/*.scala termination/false-invalid/*.scala
     - name: Setup JDK
       uses: actions/setup-java@v4
       with:
