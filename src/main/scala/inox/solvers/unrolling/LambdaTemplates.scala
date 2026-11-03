@@ -397,16 +397,7 @@ trait LambdaTemplates { self: Templates =>
         registerWitness(mkAnd(guard, newTemplate.start), newTemplate.tpe, f, idT)
       }
 
-      // instantiating them may instantiate further lambdas, which have eager witnesses of their own
-      val eager = eagerWitnesses.toSeq
-      eagerWitnesses.clear()
-      val eagerClauses = eager.flatMap { case (cond, f1, f2) =>
-        val depth = (witnessDepths.getOrElse(f1, 0) max witnessDepths.getOrElse(f2, 0)) + 1
-        witnessPairs += (f1 -> f2)
-        withWitnessDepth(depth)(instantiateWitness(enabled(cond), newTemplate.tpe, f1, f2))
-      }
-
-      (idT, clauses ++ witnessClauses.flatten ++ eagerClauses)
+      (idT, clauses ++ witnessClauses.flatten)
     }
   }
 
@@ -510,16 +501,20 @@ trait LambdaTemplates { self: Templates =>
       clauses.toSeq
     }
   }
-  /** Under extensional equality, lambdas that differ structurally are only equal when they agree on
-    * their distinguishing input, and nothing else can refute their equality. Their distinguishing
-    * input is therefore instantiated with the lambda, instead of waiting for the lambdas to be
-    * assumed equal (see [[witnessEqualities]]). */
-  private lazy val eagerLambdaWitnesses: Boolean =
-    options.findOptionOrDefault(optFunctionEquality) == FunctionEquality.Extensional
 
-  /** The distinguishing inputs that [[equalityClauses]] leaves for [[instantiateLambda]] to
-    * instantiate once the new lambda is registered. */
-  private val eagerWitnesses = new scala.collection.mutable.ListBuffer[(Encoded, Encoded, Encoded)]
+  /** Without function equality, the equality of two lambdas can't be observed, and their distinguishing
+    * input is only needed when model extraction must tell them apart (see [[onDemandWitnesses]]).
+    * Under extensional equality, lambdas that differ structurally are only equal when they agree on
+    * their distinguishing input, and nothing else can refute their equality. Their distinguishing
+    * input is then unfolded like those of free functions (see [[witnessEqualities]]): the lambdas are
+    * assumed equal when looking for a model, and the input is instantiated when that equality is
+    * part of an unsat core.
+    *
+    * Instantiating them with each new lambda instead doesn't terminate: distinguishing inputs can
+    * create lambdas on the spot (eg. in the typing constraints of applications), and each new lambda
+    * is compared to all the previous ones. */
+  private lazy val onDemandLambdaWitnesses: Boolean =
+    options.findOptionOrDefault(optFunctionEquality) == FunctionEquality.None
 
   /** Equality between the new lambda `template` and the previously instantiated ones.
     *
@@ -557,8 +552,7 @@ trait LambdaTemplates { self: Templates =>
         case _ =>
           for (eqs <- closuresEqual) clauses += mkImplies(mkAnd(blocker, eqs), equals)
           if (!sameBody || differingLocals.nonEmpty) {
-            if (eagerLambdaWitnesses) eagerWitnesses += ((blocker, template.ids._2, that.ids._2))
-            else clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2, onDemand = true)
+            clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2, onDemand = onDemandLambdaWitnesses)
           }
       }
     }
