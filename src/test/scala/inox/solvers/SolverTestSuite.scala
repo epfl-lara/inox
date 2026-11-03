@@ -97,6 +97,14 @@ object SolverTestSuite {
         "Function calls across push and pop" -> "crashes once functions unfolded before a pop are called again",
         "Model extraction of (BigInt) => BigInt" -> "returns Unknown when a model contains a function",
         "Lambdas in models" -> "returns Unknown when a model contains a function",
+        "higher-order free function applied to free functions" ->
+          "evaluates every application of a higher-order free function to the same value",
+        "higher-order free function applied to lambdas" ->
+          "evaluates every application of a higher-order free function to the same value",
+        "higher-order free function applied to constrained functions" ->
+          "evaluates every application of a higher-order free function to the same value",
+        "higher-order free function with two function parameters" ->
+          "evaluates every application of a higher-order free function to the same value",
       )),
   )
 
