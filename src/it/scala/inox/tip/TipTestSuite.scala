@@ -7,14 +7,12 @@ import solvers._
 
 import scala.language.existentials
 
-class TipTestSuite extends TestSuite with ResourceUtils {
+class TipTestSuite extends unrolling.UnrollingTestSuite with ResourceUtils {
 
-  override def configurations = Seq(
-    Seq(optSelectedSolvers(Set("nativez3")),      optSilentErrors(false), optCheckModels(true)),
-    Seq(optSelectedSolvers(Set("smt-z3")),        optSilentErrors(false), optCheckModels(true)),
-    Seq(optSelectedSolvers(Set("smt-cvc4")),      optSilentErrors(false), optCheckModels(true)),
-    Seq(optSelectedSolvers(Set("smt-z3")),        optSilentErrors(false), optCheckModels(true), optAssumeChecked(true)),
-    Seq(optSelectedSolvers(Set("no-inc:smt-z3")), optSilentErrors(false), optCheckModels(true))
+  override protected def optionMatrix = unrolling.UnrollingTestSuite.combinations(
+    Seq(optSilentErrors(false)),
+    Seq(optCheckModels(true)),
+    unrolling.UnrollingTestSuite.both(optAssumeChecked)
   )
 
   override protected def optionsString(options: Options): String = {
@@ -22,11 +20,17 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     (if (options.findOptionOrDefault(optAssumeChecked)) " assumechecked" else "")
   }
 
+  // Benchmarks that the unrolling solver can't handle run on native Z3 instead
+  private def onNativeZ3(ctx: Context): FilterStatus =
+    WithContext(ctx.withOpts(optSelectedSolvers(Set("nativez3"))))
+
   private def ignoreSAT(ctx: Context, file: java.io.File): FilterStatus = 
     ctx.options.findOptionOrDefault(optSelectedSolvers).headOption match {
       case Some(solver) => (solver, file.getName) match {
+        // takes about 90s even on native Z3, so it only runs once
+        case (_, "ForallAssoc.scala-0.tip") if ctx.options.findOptionOrDefault(optAssumeChecked) => Skip
         // Z3 and CVC4 binaries are exceedingly slow on these benchmarks
-        case ("no-inc:smt-z3" | "smt-z3" | "smt-cvc4", "ForallAssoc.scala-0.tip") => Ignore
+        case ("no-inc:smt-z3" | "smt-z3" | "smt-cvc4", "ForallAssoc.scala-0.tip") => onNativeZ3(ctx)
         // this test only holds when assumeChecked=false
         case (_, "LambdaEquality2.scala-1.tip") if ctx.options.findOptionOrDefault(optAssumeChecked) => Skip
         case _ => Test
@@ -39,7 +43,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     ctx.options.findOptionOrDefault(optSelectedSolvers).headOption match {
       case Some(solver) => (solver, file.getName) match {
         // Z3 binary will predictably segfault on certain permutations of this problem
-        case ("no-inc:smt-z3" | "smt-z3", "MergeSort2.scala-1.tip") => Ignore
+        case ("no-inc:smt-z3" | "smt-z3", "MergeSort2.scala-1.tip") => onNativeZ3(ctx)
         // use non-linear operators that aren't supported in CVC4
         case ("smt-cvc4", "Instantiation.scala-0.tip") => Skip
         case ("smt-cvc4", "LetsInForall.tip") => Skip
@@ -55,7 +59,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     ctx.options.findOptionOrDefault(optSelectedSolvers).headOption match {
       case Some(solver) => (solver, file.getName) match {
         // non-linear operations are too slow on smt-z3
-        case ("smt-z3", "Soundness2.scala-0.tip") => Ignore
+        case ("smt-z3", "Soundness2.scala-0.tip") => onNativeZ3(ctx)
         // use non-linear operators that aren't supported in CVC4
         case ("smt-cvc4", "Soundness.scala-0.tip") => Skip
         case ("smt-cvc4", "Soundness2.scala-0.tip") => Skip

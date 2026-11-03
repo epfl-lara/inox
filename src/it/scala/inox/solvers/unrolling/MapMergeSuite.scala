@@ -4,19 +4,13 @@ package inox
 package solvers
 package unrolling
 
-class MapMergeSuite extends SolvingTestSuite with DatastructureUtils {
+class MapMergeSuite extends UnrollingTestSuite with DatastructureUtils {
   import trees._
   import dsl._
 
-  override def configurations = for {
-    solverName   <- Seq("nativez3", "unrollz3", "smt-z3")
-    feelingLucky <- Seq(false, true)
-  } yield Seq(
-    optSelectedSolvers(Set(solverName)),
-    optCheckModels(true),
-    optFeelingLucky(feelingLucky),
-    optTimeout(300),
-    ast.optPrintUniqueIds(true)
+  override protected def optionMatrix = UnrollingTestSuite.combinations(
+    Seq(optCheckModels(true)),
+    UnrollingTestSuite.both(optFeelingLucky)
   )
 
   override def optionsString(options: Options): String = {

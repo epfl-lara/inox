@@ -4,29 +4,18 @@ package inox
 package solvers
 package unrolling
 
-class QuantifiersSuite extends TestSuite {
+class QuantifiersSuite extends UnrollingTestSuite {
   import inox.trees._
   import dsl._
 
-  override def configurations = List(
-    ("nativez3",     false, false, false),
-    ("nativez3-opt", false, false, false),
-    ("princess",     false, false, false),
-    ("smt-z3",       false, false, false),
-    ("smt-z3-opt",   false, false, false),
-    ("smt-cvc4",     false, false, false),
-    ("nativez3",     true,  true,  false),
-    ("nativez3",     false, false, true ),
-    ("princess",     true,  true,  false),
-    ("smt-cvc4",     false, false, true ),
-    ("smt-cvc5",     false, false, true ),
-  ).map { case (solverName, checkModels, feelingLucky, unrollAssumptions) => Seq(
-    optSelectedSolvers(Set(solverName)),
+  override protected def optionMatrix = List(
+    (false, false, false),
+    (true,  true,  false),
+    (false, false, true ),
+  ).map { case (checkModels, feelingLucky, unrollAssumptions) => Seq(
     optCheckModels(checkModels),
     optFeelingLucky(feelingLucky),
-    optUnrollAssumptions(unrollAssumptions),
-    optTimeout(300),
-    ast.optPrintUniqueIds(true)
+    optUnrollAssumptions(unrollAssumptions)
   )}
 
   val isAssociativeID = FreshIdentifier("isAssociative")

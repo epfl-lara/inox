@@ -4,18 +4,11 @@ package inox
 package solvers
 package unrolling
 
-class ChooseSuite extends SolvingTestSuite {
+class ChooseSuite extends UnrollingTestSuite {
   import trees._
   import dsl._
 
-  override def configurations =
-    for (nme <- Seq("nativez3", "unrollz3", "smt-z3", "smt-cvc4", "smt-cvc5", "princess")) yield {
-      Seq(optSelectedSolvers(Set(nme)), optCheckModels(true))
-    }
-
-  override def optionsString(options: Options): String = {
-    "solvr=" + options.findOptionOrDefault(optSelectedSolvers).head
-  }
+  override protected def optionMatrix = Seq(Seq(optCheckModels(true)))
 
   // Simple functions that contains a choose
   val fun1 = mkFunDef(FreshIdentifier("fun1"))()(_ => (

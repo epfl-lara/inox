@@ -4,19 +4,13 @@ package inox
 package solvers
 package unrolling
 
-class BagSuite extends SolvingTestSuite with DatastructureUtils {
+class BagSuite extends UnrollingTestSuite with DatastructureUtils {
   import trees._
   import dsl._
 
-  override def configurations = for {
-    solverName   <- Seq("nativez3", "unrollz3", "smt-z3", "smt-cvc4", "smt-cvc5")
-    feelingLucky <- Seq(false, true)
-  } yield Seq(
-    optSelectedSolvers(Set(solverName)),
-    optCheckModels(true),
-    optFeelingLucky(feelingLucky),
-    optTimeout(300),
-    ast.optPrintUniqueIds(true)
+  override protected def optionMatrix = UnrollingTestSuite.combinations(
+    Seq(optCheckModels(true)),
+    UnrollingTestSuite.both(optFeelingLucky)
   )
 
   override def optionsString(options: Options): String = {
@@ -117,8 +111,9 @@ class BagSuite extends SolvingTestSuite with DatastructureUtils {
 
   def filter(ctx: Context): FilterStatus = {
     val solvers = ctx.options.findOptionOrDefault(optSelectedSolvers)
-    // @nv: these tests are unstable due to bugs in z3
-    if (solvers == Set("unrollz3") || solvers == Set("smt-z3")) Skip
+    // @nv: these tests are unstable due to bugs in z3, so they run on cvc5 instead
+    if (solvers == Set("unrollz3") || solvers == Set("smt-z3"))
+      WithContext(ctx.withOpts(optSelectedSolvers(Set("smt-cvc5"))))
     else Test
   }
 
