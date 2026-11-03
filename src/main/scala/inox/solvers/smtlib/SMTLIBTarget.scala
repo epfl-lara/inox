@@ -429,14 +429,20 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case Modulo(a, b) => a.getType match {
         case BVType(false, _) => FixedSizeBitVectors.URem(toSMT(a), toSMT(b))
         case BVType(true, size) => // we want x mod |y|
-          val ar = toSMT(a)
+          // Note that we cannot compute `bvsmod(x, -y)` when `y < 0` as `-y` overflows
+          // when `y` is the minimal value. Instead, we rely on the sign of `bvsmod(x, y)`
+          // following that of `y` and shift negative results by `|y|`.
           val br = toSMT(b)
-          FixedSizeBitVectors.SMod(
-            ar,
+          val r = freshSym("r")
+          SMTLet(
+            VarBinding(r, FixedSizeBitVectors.SMod(toSMT(a), br)), Seq(),
             Core.ITE(
-              FixedSizeBitVectors.SLessThan(br, toSMT(BVLiteral(true, 0, size))),
-              FixedSizeBitVectors.Neg(br),
-              br
+              Core.And(
+                FixedSizeBitVectors.SLessThan(br, toSMT(BVLiteral(true, 0, size))),
+                Core.Not(Core.Equals(r, toSMT(BVLiteral(true, 0, size))))
+              ),
+              FixedSizeBitVectors.Sub(r, br),
+              r
             )
           )
 
@@ -578,7 +584,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       // FIXME: replace by Seq(BV(16)) once solvers can handle them
       case StringLiteral(v) =>
         declareSort(StringType())
-        Strings.StringLit(v)
+        Strings.StringLit(utils.StringUtils.encode(v))
 
       case StringLength(a) => Strings.Length(toSMT(a))
       case StringConcat(a, b) => Strings.Concat(toSMT(a), toSMT(b))
@@ -655,6 +661,10 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         exprOps.normalizeFraction(FractionLiteral(n1, n2))
 
       case (Ints.Neg(Reals.Div(SNumeral(n1), SNumeral(n2))), Some(RealType())) =>
+        exprOps.normalizeFraction(FractionLiteral(-n1, n2))
+
+      // CVC4 and cvc5 print negative fractions as (/ (- n1) n2)
+      case (Reals.Div(Ints.Neg(SNumeral(n1)), SNumeral(n2)), Some(RealType())) =>
         exprOps.normalizeFraction(FractionLiteral(-n1, n2))
 
       case (Ints.Neg(SDecimal(value)), Some(RealType())) =>
