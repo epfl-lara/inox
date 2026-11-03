@@ -142,7 +142,7 @@ trait QuantificationTemplates { self: Templates =>
       given TypingGenerator = if (pol) ContractGenerator else FreeGenerator
       val (tpeCond, tpeClauses) = idQuantifiers.foldLeft((BooleanLiteral(true): Expr, emptyClauses)) {
         case ((tpCond, tpClauses), v) =>
-          val (p, clauses) = mkTypeClauses(pathVar._1, v.tpe, v, clauseSubst, followCalls = true)
+          val (p, clauses) = mkTypeClauses(pathVar._1, v.tpe, v, clauseSubst, inDomain = true)
           (and(tpCond, p), tpClauses +++ clauses)
       }
 
@@ -540,7 +540,7 @@ trait QuantificationTemplates { self: Templates =>
         val res: Set[Encoded] = if (FreeUnrolling `unroll` v.tpe) {
           val closures = typeOps.variablesOf(v.tpe).toSeq.sortBy(_.id).map(subst)
           val result = encodeSymbol(Variable.fresh("result", BooleanType(), true))
-          clauses ++= instantiateType(contents.pathVar._2, Typing(v.tpe, q, Constraint(result, closures, true, followCalls = true)))
+          clauses ++= instantiateType(contents.pathVar._2, Typing(v.tpe, q, Constraint(result, closures, true, inDomain = true)))
           Set(result)
         } else {
           Set.empty

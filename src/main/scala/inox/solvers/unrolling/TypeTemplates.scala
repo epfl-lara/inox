@@ -78,12 +78,12 @@ trait TypeTemplates { self: Templates =>
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): TemplateInstantiator
   }
 
-  /** @param followCalls whether refinement predicates that call functions which may falsify the path
-    *                    are guarded by their base type check (see `TemplateGenerator.mkTypeClauses`) */
-  case class Constraint(result: Encoded, closures: Seq[Arg], free: Boolean, followCalls: Boolean = false)
+  /** @param inDomain whether the type check belongs to a quantifier's domain
+    *                 (see `TemplateGenerator.mkTypeClauses`) */
+  case class Constraint(result: Encoded, closures: Seq[Arg], free: Boolean, inDomain: Boolean = false)
     extends TemplateInstantiator {
     override def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): TemplateInstantiator =
-      Constraint(substituter(result), closures map (_.substitute(substituter, msubst)), free, followCalls)
+      Constraint(substituter(result), closures map (_.substitute(substituter, msubst)), free, inDomain)
   }
 
   case class Capture(encoded: Encoded, tpe: FunctionType) extends TemplateInstantiator {
@@ -117,8 +117,8 @@ trait TypeTemplates { self: Templates =>
   }
 
   private def instantiateTyping(blocker: Encoded, typing: Typing): Clauses = typing match {
-    case Typing(tpe, arg, Constraint(result, closures, free, followCalls)) =>
-      val key = (tpe, arg, closures, free, followCalls)
+    case Typing(tpe, arg, Constraint(result, closures, free, inDomain)) =>
+      val key = (tpe, arg, closures, free, inDomain)
       results.get(key) match {
         case Some(res) =>
           Seq(mkEquals(result, res))
@@ -128,7 +128,7 @@ trait TypeTemplates { self: Templates =>
             case (_: FunctionType | _: PiType) =>
               registerFunction(blocker, result, tpe, arg, closures, free)
             case _ =>
-              ConstraintTemplate(tpe, free, followCalls).instantiate(blocker, result, arg, closures)
+              ConstraintTemplate(tpe, free, inDomain).instantiate(blocker, result, arg, closures)
           }
       }
 
@@ -178,7 +178,7 @@ trait TypeTemplates { self: Templates =>
   object ConstraintTemplate {
     private val cache: MutableMap[(Type, Boolean, Boolean), ConstraintTemplate] = MutableMap.empty
 
-    def apply(tpe: Type, free: Boolean, followCalls: Boolean): ConstraintTemplate = cache.getOrElse((tpe, free, followCalls), {
+    def apply(tpe: Type, free: Boolean, inDomain: Boolean): ConstraintTemplate = cache.getOrElse((tpe, free, inDomain), {
       val v = Variable.fresh("x", tpe.getType, true)
       val pathVar = Variable.fresh("b", BooleanType(), true)
       val result = Variable.fresh("result", BooleanType(), true)
@@ -189,13 +189,13 @@ trait TypeTemplates { self: Templates =>
       val substMap = Map(v -> idT, pathVar -> pathVarT) ++ arguments
 
       given TypingGenerator = if (free) FreeGenerator else ContractGenerator
-      val (p, tmplClauses) = mkTypeClauses(pathVar, tpe, v, substMap, followCalls)
+      val (p, tmplClauses) = mkTypeClauses(pathVar, tpe, v, substMap, inDomain)
       val (contents, _) = Template.contents(
         pathVar -> pathVarT, Seq(result -> resultT, v -> idT) ++ arguments,
         tmplClauses + (pathVar -> Equals(result, p)))
 
       val res = new ConstraintTemplate(contents)
-      cache((tpe, free, followCalls)) = res
+      cache((tpe, free, inDomain)) = res
       res
     })
   }
