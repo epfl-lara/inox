@@ -62,6 +62,25 @@ class ArithmeticSemanticsSuite extends SolverTestSuite {
     check(s, Modulo(IntegerLiteral(1), IntegerLiteral(-3)),    IntegerLiteral(1))
   }
 
+  test("Symbolic BigInt Remainder", Integers) { ctx =>
+    val s = solver(ctx)
+    val x = Variable.fresh("x", IntegerType())
+    val y = Variable.fresh("y", IntegerType())
+
+    // the remainder takes the sign of the dividend
+    assert(s.solveSAT(And(x < E(BigInt(0)), Remainder(x, E(BigInt(3))) > E(BigInt(0)))).isUNSAT)
+    assert(s.solveSAT(And(x > E(BigInt(0)), Remainder(x, E(BigInt(-3))) < E(BigInt(0)))).isUNSAT)
+    assert(s.solveSAT(x >= E(BigInt(0)) && Not(Equals(y, E(BigInt(0)))) && Remainder(x, y) < E(BigInt(0))).isUNSAT)
+
+    // and is smaller than the divisor in absolute value
+    assert(s.solveSAT(And(y > E(BigInt(0)), Remainder(x, y) >= y)).isUNSAT)
+
+    s.solveSAT(x > E(BigInt(-5)) && x < E(BigInt(0)) && Equals(Remainder(x, E(BigInt(3))), E(BigInt(-2)))) match {
+      case SatWithModel(model) => assert(model.vars.get(x.toVal) == Some(IntegerLiteral(-2)))
+      case got => fail(s"Expected a model, got $got.")
+    }
+  }
+
   test("BigInt Comparisons", Integers) { ctx =>
     val s = solver(ctx)
 
