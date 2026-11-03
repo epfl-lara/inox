@@ -160,6 +160,17 @@ $ sbt it:test
 
 `-Dtest-parallelism=N` runs the test suites in parallel.
 
+To measure test coverage, run the tests with coverage instrumentation and generate the report
+(`target/scala-*/scoverage-report/index.html`):
+
+```console
+$ sbt coverage test
+$ sbt coverage it:test
+$ sbt coverageReport
+```
+
+The `Inox coverage` CI workflow does the same and attaches the report to each run.
+
 ## Contributing
 
 Contributions are welcome! Please open issues or pull requests for bug fixes, improvements, or documentation updates.
