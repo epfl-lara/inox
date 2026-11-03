@@ -75,7 +75,14 @@ private class StringTheory[Trees <: ast.Trees](val trees: Trees) {
   val SliceID = FreshIdentifier("slice")
   val Slice = mkFunDef(SliceID)()(_ => (
     Seq("s" :: String, "from" :: IntegerType(), "to" :: IntegerType()),
-    String, { case Seq(s, from, to) => Take(Drop(s, from), to - from) }))
+    String, { case Seq(s, from, to) =>
+    // Like SMT-LIB's str.substr, a negative start gives the empty string
+    if_ (from >= E(BigInt(0))) {
+      Take(Drop(s, from), to - from)
+    } else_ {
+      StringNil()
+    }
+  }))
 
   val ConcatID = FreshIdentifier("concat")
   val Concat = mkFunDef(ConcatID)()(_ => (
@@ -107,8 +114,6 @@ def stringEnc(sourceProgram: Program)
       case StringLiteral(v) => convertFromString(v)
       case StringLength(a) => Size(transform(a)).copiedFrom(e)
       case StringConcat(a, b) => Concat(transform(a), transform(b)).copiedFrom(e)
-      case SubString(a, start, Plus(start2, length)) if start == start2  =>
-        Take(Drop(transform(a), transform(start)), transform(length)).copiedFrom(e)
       case SubString(a, start, end) =>
         Slice(transform(a), transform(start), transform(end)).copiedFrom(e)
       case _ => super.transform(e)

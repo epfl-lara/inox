@@ -33,6 +33,18 @@ class StringSemanticsSuite extends SolverTestSuite {
     }
   }
 
+  test("Substrings out of bounds", Strings) { ctx =>
+    val s = solver(ctx)
+
+    def sub(str: String, from: BigInt, to: BigInt) =
+      SubString(StringLiteral(str), IntegerLiteral(from), IntegerLiteral(to))
+
+    check(s, sub("abc", 1, 10), StringLiteral("bc"))
+    check(s, sub("abc", -1, 2), StringLiteral(""))
+    check(s, sub("abc", 3, 4),  StringLiteral(""))
+    check(s, sub("abc", 2, 1),  StringLiteral(""))
+  }
+
   test("String Models", Strings) { ctx =>
     val s = solver(ctx)
 

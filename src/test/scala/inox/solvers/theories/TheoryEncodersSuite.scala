@@ -58,6 +58,11 @@ class TheoryEncodersSuite extends AnyFunSuite {
       StringLength(StringConcat(lit, lit)),
       SubString(StringConcat(lit, StringLiteral("xyz")), IntegerLiteral(1), IntegerLiteral(3)),
       SubString(StringConcat(StringLiteral("xyz"), lit), IntegerLiteral(1), Plus(IntegerLiteral(1), IntegerLiteral(2))),
+      SubString(StringConcat(lit, StringLiteral("xyz")), IntegerLiteral(2), IntegerLiteral(10)),
+      SubString(StringConcat(lit, StringLiteral("xyz")), IntegerLiteral(-1), IntegerLiteral(2)),
+      SubString(StringConcat(lit, StringLiteral("xyz")), IntegerLiteral(-1), Plus(IntegerLiteral(-1), IntegerLiteral(2))),
+      SubString(StringConcat(lit, StringLiteral("xyz")), IntegerLiteral(10), IntegerLiteral(12)),
+      SubString(StringConcat(lit, StringLiteral("xyz")), IntegerLiteral(2), IntegerLiteral(1)),
       Equals(lit, StringLiteral("abc")),
     )
   }
