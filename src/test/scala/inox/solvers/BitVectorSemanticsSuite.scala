@@ -168,6 +168,52 @@ class BitVectorSemanticsSuite extends SolverTestSuite {
     check(s, BVAShiftRight(bvl(8), bvl(1)),  bvl(4))
   }
 
+  test("solve shifts by out-of-range amounts", BitVectors) { ctx =>
+    val s = solver(ctx)
+
+    // In-range amounts
+    check(s, BVShiftLeft(Int32Literal(1), Int32Literal(31)),                     Int32Literal(Int.MinValue))
+    check(s, BVAShiftRight(Int32Literal(Int.MinValue), Int32Literal(1)),         Int32Literal(-1073741824))
+    check(s, BVLShiftRight(Int32Literal(Int.MinValue), Int32Literal(1)),         Int32Literal(1073741824))
+    check(s, BVAShiftRight(Int32Literal(Int.MinValue), Int32Literal(31)),        Int32Literal(-1))
+    check(s, BVLShiftRight(Int32Literal(Int.MinValue), Int32Literal(31)),        Int32Literal(1))
+
+    // The amount is read as an unsigned value: shifting by the size or more, or by a negative amount,
+    // vacates all the bits, which `>>` fills with the most significant bit
+    check(s, BVShiftLeft(Int32Literal(1), Int32Literal(32)),                     Int32Literal(0))
+    check(s, BVShiftLeft(Int32Literal(1), Int32Literal(33)),                     Int32Literal(0))
+    check(s, BVShiftLeft(Int32Literal(1), Int32Literal(-1)),                     Int32Literal(0))
+    check(s, BVShiftLeft(Int32Literal(Int.MinValue), Int32Literal(-1)),          Int32Literal(0))
+    check(s, BVLShiftRight(Int32Literal(Int.MinValue), Int32Literal(32)),        Int32Literal(0))
+    check(s, BVLShiftRight(Int32Literal(Int.MinValue), Int32Literal(33)),        Int32Literal(0))
+    check(s, BVLShiftRight(Int32Literal(-1), Int32Literal(-1)),                  Int32Literal(0))
+    check(s, BVAShiftRight(Int32Literal(Int.MinValue), Int32Literal(32)),        Int32Literal(-1))
+    check(s, BVAShiftRight(Int32Literal(Int.MinValue), Int32Literal(33)),        Int32Literal(-1))
+    check(s, BVAShiftRight(Int32Literal(Int.MinValue), Int32Literal(-1)),        Int32Literal(-1))
+    check(s, BVAShiftRight(Int32Literal(Int.MaxValue), Int32Literal(32)),        Int32Literal(0))
+    check(s, BVAShiftRight(Int32Literal(Int.MaxValue), Int32Literal(-1)),        Int32Literal(0))
+
+    check(s, BVShiftLeft(Int64Literal(1), Int64Literal(63)),                     Int64Literal(Long.MinValue))
+    check(s, BVShiftLeft(Int64Literal(1), Int64Literal(64)),                     Int64Literal(0))
+    check(s, BVShiftLeft(Int64Literal(1), Int64Literal(65)),                     Int64Literal(0))
+    check(s, BVShiftLeft(Int64Literal(1), Int64Literal(1L << 32)),               Int64Literal(0))
+    check(s, BVShiftLeft(Int64Literal(1), Int64Literal(-1)),                     Int64Literal(0))
+    check(s, BVLShiftRight(Int64Literal(-1), Int64Literal(64)),                  Int64Literal(0))
+    check(s, BVAShiftRight(Int64Literal(Long.MinValue), Int64Literal(64)),       Int64Literal(-1))
+    check(s, BVAShiftRight(Int64Literal(Long.MinValue), Int64Literal(1L << 32)), Int64Literal(-1))
+
+    // `>>` fills with the most significant bit on unsigned bitvectors too (SMT-LIB `bvashr`)
+    def ubvl(x: BigInt) = BVLiteral(false, x, 11)
+    check(s, BVShiftLeft(ubvl(1), ubvl(10)),                                     ubvl(1024))
+    check(s, BVShiftLeft(ubvl(1), ubvl(11)),                                     ubvl(0))
+    check(s, BVShiftLeft(ubvl(1), ubvl(2047)),                                   ubvl(0))
+    check(s, BVLShiftRight(ubvl(2047), ubvl(10)),                                ubvl(1))
+    check(s, BVLShiftRight(ubvl(2047), ubvl(11)),                                ubvl(0))
+    check(s, BVAShiftRight(ubvl(1024), ubvl(1)),                                 ubvl(1536))
+    check(s, BVAShiftRight(ubvl(1024), ubvl(11)),                                ubvl(2047))
+    check(s, BVAShiftRight(ubvl(1023), ubvl(11)),                                ubvl(0))
+  }
+
   test("BitVector Comparisons", BitVectors) { ctx =>
     val s = solver(ctx)
 

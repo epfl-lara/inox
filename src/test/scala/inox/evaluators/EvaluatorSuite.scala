@@ -174,6 +174,52 @@ class EvaluatorSuite extends AnyFunSuite {
     eval(e, BVAShiftRight(ubvl(8), ubvl(1)))  === ubvl(4)
   }
 
+  test("BitVector shifts by out-of-range amounts") {
+    val e = evaluator(ctx)
+
+    // In-range amounts
+    eval(e, BVShiftLeft(Int32Literal(1), Int32Literal(31)))                     === Int32Literal(Int.MinValue)
+    eval(e, BVAShiftRight(Int32Literal(Int.MinValue), Int32Literal(1)))         === Int32Literal(-1073741824)
+    eval(e, BVLShiftRight(Int32Literal(Int.MinValue), Int32Literal(1)))         === Int32Literal(1073741824)
+    eval(e, BVAShiftRight(Int32Literal(Int.MinValue), Int32Literal(31)))        === Int32Literal(-1)
+    eval(e, BVLShiftRight(Int32Literal(Int.MinValue), Int32Literal(31)))        === Int32Literal(1)
+
+    // The amount is read as an unsigned value: shifting by the size or more, or by a negative amount,
+    // vacates all the bits, which `>>` fills with the most significant bit
+    eval(e, BVShiftLeft(Int32Literal(1), Int32Literal(32)))                     === Int32Literal(0)
+    eval(e, BVShiftLeft(Int32Literal(1), Int32Literal(33)))                     === Int32Literal(0)
+    eval(e, BVShiftLeft(Int32Literal(1), Int32Literal(-1)))                     === Int32Literal(0)
+    eval(e, BVShiftLeft(Int32Literal(Int.MinValue), Int32Literal(-1)))          === Int32Literal(0)
+    eval(e, BVLShiftRight(Int32Literal(Int.MinValue), Int32Literal(32)))        === Int32Literal(0)
+    eval(e, BVLShiftRight(Int32Literal(Int.MinValue), Int32Literal(33)))        === Int32Literal(0)
+    eval(e, BVLShiftRight(Int32Literal(-1), Int32Literal(-1)))                  === Int32Literal(0)
+    eval(e, BVAShiftRight(Int32Literal(Int.MinValue), Int32Literal(32)))        === Int32Literal(-1)
+    eval(e, BVAShiftRight(Int32Literal(Int.MinValue), Int32Literal(33)))        === Int32Literal(-1)
+    eval(e, BVAShiftRight(Int32Literal(Int.MinValue), Int32Literal(-1)))        === Int32Literal(-1)
+    eval(e, BVAShiftRight(Int32Literal(Int.MaxValue), Int32Literal(32)))        === Int32Literal(0)
+    eval(e, BVAShiftRight(Int32Literal(Int.MaxValue), Int32Literal(-1)))        === Int32Literal(0)
+
+    eval(e, BVShiftLeft(Int64Literal(1), Int64Literal(63)))                     === Int64Literal(Long.MinValue)
+    eval(e, BVShiftLeft(Int64Literal(1), Int64Literal(64)))                     === Int64Literal(0)
+    eval(e, BVShiftLeft(Int64Literal(1), Int64Literal(65)))                     === Int64Literal(0)
+    eval(e, BVShiftLeft(Int64Literal(1), Int64Literal(1L << 32)))               === Int64Literal(0)
+    eval(e, BVShiftLeft(Int64Literal(1), Int64Literal(-1)))                     === Int64Literal(0)
+    eval(e, BVLShiftRight(Int64Literal(-1), Int64Literal(64)))                  === Int64Literal(0)
+    eval(e, BVAShiftRight(Int64Literal(Long.MinValue), Int64Literal(64)))       === Int64Literal(-1)
+    eval(e, BVAShiftRight(Int64Literal(Long.MinValue), Int64Literal(1L << 32))) === Int64Literal(-1)
+
+    // `>>` fills with the most significant bit on unsigned bitvectors too (SMT-LIB `bvashr`)
+    def ubvl(x: BigInt) = BVLiteral(false, x, 11)
+    eval(e, BVShiftLeft(ubvl(1), ubvl(10)))                                     === ubvl(1024)
+    eval(e, BVShiftLeft(ubvl(1), ubvl(11)))                                     === ubvl(0)
+    eval(e, BVShiftLeft(ubvl(1), ubvl(2047)))                                   === ubvl(0)
+    eval(e, BVLShiftRight(ubvl(2047), ubvl(10)))                                === ubvl(1)
+    eval(e, BVLShiftRight(ubvl(2047), ubvl(11)))                                === ubvl(0)
+    eval(e, BVAShiftRight(ubvl(1024), ubvl(1)))                                 === ubvl(1536)
+    eval(e, BVAShiftRight(ubvl(1024), ubvl(11)))                                === ubvl(2047)
+    eval(e, BVAShiftRight(ubvl(1023), ubvl(11)))                                === ubvl(0)
+  }
+
   test("BigInt Arithmetic") {
     val e = evaluator(ctx)
 
