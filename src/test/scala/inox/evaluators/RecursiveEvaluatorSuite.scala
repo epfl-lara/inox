@@ -52,4 +52,22 @@ class RecursiveEvaluatorSuite extends AnyFunSuite {
     assert(eval(BVAShiftRight(ubvl(1024), ubvl(11))) === ubvl(2047))
     assert(eval(BVAShiftRight(ubvl(1023), ubvl(11))) === ubvl(0))
   }
+
+  test("Substrings out of bounds give an empty or truncated string, as SMT-LIB `str.substr`") {
+    // Stainless's code generator calls `String.substring`, which throws on these
+    def sub(s: String, from: BigInt, to: BigInt) =
+      SubString(StringLiteral(s), IntegerLiteral(from), IntegerLiteral(to))
+
+    assert(eval(sub("abc", 1, 2))  === StringLiteral("b"))
+    assert(eval(sub("abc", 0, 3))  === StringLiteral("abc"))
+    assert(eval(sub("abc", 1, 10)) === StringLiteral("bc"))
+    assert(eval(sub("abc", -1, 2)) === StringLiteral(""))
+    assert(eval(sub("abc", 3, 4))  === StringLiteral(""))
+    assert(eval(sub("abc", 5, 6))  === StringLiteral(""))
+    assert(eval(sub("abc", 2, 1))  === StringLiteral(""))
+    assert(eval(sub("abc", 1, 1))  === StringLiteral(""))
+    assert(eval(sub("", 0, 1))     === StringLiteral(""))
+    assert(eval(sub("abc", BigInt(Long.MaxValue) * 4, BigInt(Long.MaxValue) * 5)) === StringLiteral(""))
+    assert(eval(sub("abc", 1, BigInt(Long.MaxValue) * 4)) === StringLiteral("bc"))
+  }
 }

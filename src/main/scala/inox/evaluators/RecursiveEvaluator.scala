@@ -392,8 +392,10 @@ abstract class RecursiveEvaluator(override val program: Program,
     }
 
     case SubString(a, start, end) => (e(a), e(start), e(end)) match {
+      // Like SMT-LIB's str.substr, out of bounds indices give an empty or truncated string
       case (StringLiteral(a), IntegerLiteral(b), IntegerLiteral(c))  =>
-        StringLiteral(a.substring(b.toInt, c.toInt))
+        if (b < 0 || b >= a.length || c <= b) StringLiteral("")
+        else StringLiteral(a.substring(b.toInt, (c min a.length).toInt))
       case res => throw EvalError(typeErrorMsg(res._1, StringType()))
     }
 
