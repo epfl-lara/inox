@@ -51,10 +51,10 @@ val doubleDependencies = Seq(
 libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "3.2.9" % "test;it",
   "org.apache.commons" % "commons-lang3" % "3.4",
-  ("uuverifiers" %% "eldarica" % "2.2")
+  ("uuverifiers" %% "eldarica" % "2.3")
     .cross(CrossVersion.for3Use2_13)
     .excludeAll(doubleDependencies: _*),
-  ("uuverifiers" %% "princess" % "2025-04-01")
+  ("uuverifiers" %% "princess" % "2026-05-20")
     .cross(CrossVersion.for3Use2_13)
     .excludeAll(doubleDependencies: _*),
   "org.scala-lang.modules" %% "scala-parser-combinators" % "2.3.0"
