@@ -320,9 +320,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
         case Remainder(lhs, rhs) => lhs.getType match {
           case BVType(true, _) => Mod.bvsrem(parseTerm(lhs), parseTerm(rhs))
           case BVType(false, _) => Mod.bvurem(parseTerm(lhs), parseTerm(rhs))
-          case IntegerType() =>
-            val q = parseTerm(Division(lhs, rhs))
-            parseTerm(lhs) - (parseTerm(rhs) * q)
+          case IntegerType() => p.mulTheory.tMod(parseTerm(lhs), parseTerm(rhs))
         }
 
         case Modulo(lhs, rhs) => lhs.getType match {
