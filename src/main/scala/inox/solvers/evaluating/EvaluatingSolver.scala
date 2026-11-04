@@ -184,26 +184,25 @@ abstract class EvaluatingSolver(override val program: Program,
 
     context.timers.solvers.evaluating.run(scala.util.Try({
       
-      val encodedAssumptions = (assumptions ++ constraints).map(encode)  
+      val encodedConstraints = constraints.toSeq.map(encode)
+      val encodedAssumptions = assumptions.toSeq.map(a => a -> encode(a))
 
       // do we even support these assumptions?
-      if (encodedAssumptions.exists(!isGround(_))) then
+      if ((encodedConstraints ++ encodedAssumptions.map(_._2)).exists(!isGround(_))) then
         config.cast(Unknown)
-      else 
-        // attempt to solve
-        val res = 
-          encodedAssumptions
-            .to(LazyList)
-            .map(evaluate)
-            .forall(identity) // early return conjunction
-        
-        if res then           // all true, => valid ground truth
-          if config.withModel then
-            config.cast(SatWithModel(emptyModel))
-          else 
-            config.cast(Sat)
-        else                  // some false, => conjunction invalid
-          config.cast(Unsat)
+      else if !encodedConstraints.forall(evaluate) then
+        // the constraints alone are unsatisfiable: no assumption is needed
+        config.cast(if config.withUnsatAssumptions then UnsatWithAssumptions(Set.empty[Source]) else Unsat)
+      else
+        encodedAssumptions.find { case (_, e) => !evaluate(e) } match
+          case Some((assumption, _)) =>
+            // a single false assumption is an unsatisfiable core
+            config.cast(if config.withUnsatAssumptions then UnsatWithAssumptions(Set(assumption)) else Unsat)
+          case None =>
+            if config.withModel then
+              config.cast(SatWithModel(emptyModel))
+            else
+              config.cast(Sat)
 
     }).recover {
       case e @ (_: InternalSolverError | _: Unsupported) =>
