@@ -1,0 +1,54 @@
+name: Coverage comment
+# Posts the coverage of each pull request, compared with main, as a comment.
+# This runs separately from Inox CI, after it completes, because pull requests
+# from forks get a read-only token and can't comment themselves. Only the
+# version of this workflow on the default branch runs, and it only reads data
+# (a JSON summary and the pull request number) from the pull request's build.
+on:
+  workflow_run:
+    workflows: [Inox CI]
+    types: [completed]
+permissions:
+  actions: read
+  pull-requests: write
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Download the pull request's coverage
+      id: head
+      continue-on-error: true
+      run: gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name coverage-summary --dir head
+    - name: Download main's coverage
+      if: steps.head.outcome == 'success'
+      run: |
+        # The latest push build on main that produced a coverage summary.
+        for run in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow inox-CI.yml --branch main \
+                       --event push --status completed --limit 10 --json databaseId --jq '.[].databaseId'); do
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" --name coverage-summary --dir base && break
+        done
+        true
+    - name: Post or update the comment
+      if: steps.head.outcome == 'success'
+      run: |
+        pr=$(cat head/pr-number)
+        [[ "$pr" =~ ^[0-9]+$ ]] || { echo "Invalid pull request number"; exit 1; }
+        # Make sure the pull request is the one that was built.
+        [ "$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)" = "$HEAD_SHA" ] \
+          || { echo "Pull request #$pr has moved on from $HEAD_SHA"; exit 0; }
+        base=$( [ -f base/coverage.json ] && echo base/coverage.json || true )
+        python3 scripts/coverage_summary.py compare head/coverage.json $base > comment.md
+        id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$pr/comments" --paginate \
+               --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- inox-coverage -->"))) | .id' | head -n 1)
+        if [ -n "$id" ]; then
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@comment.md > /dev/null
+        else
+          gh pr comment "$pr" --repo "$GITHUB_REPOSITORY" --body-file comment.md
+        fi

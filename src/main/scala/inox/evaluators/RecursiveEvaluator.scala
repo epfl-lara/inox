@@ -6,6 +6,8 @@ package evaluators
 import inox.ast.Trees
 import inox.transformers.TreeTransformer
 
+import inox.utils.CaseSplit.*
+
 import scala.collection.immutable.BitSet
 
 abstract class RecursiveEvaluator(override val program: Program,
@@ -38,7 +40,20 @@ abstract class RecursiveEvaluator(override val program: Program,
     FiniteMap(els.toMap.toSeq.filter { case (_, value) => value != default }.sortBy(_._1.toString), default, from, to)
   }
 
-  protected[evaluators] def e(expr: Expr)(using rctx: RC, gctx: GC): Expr = expr match {
+  /** Evaluates `expr`.
+    *
+    * The cases are split by theory into the `eCore`, `eArithmetic`, ... methods below, which are
+    * tried in order (see [[utils.CaseSplit]]). Subclasses can override `e` itself, or a single family.
+    */
+  protected[evaluators] def e(expr: Expr)(using rctx: RC, gctx: GC): Expr =
+    eCore(expr) otherwise eArithmetic(expr) otherwise eStrings(expr) otherwise eBitVectors(expr) otherwise
+      eFloatingPoint(expr) otherwise eCollections(expr) otherwise unexpected(expr)
+
+  protected def unexpected(expr: Expr): Nothing =
+    throw EvalError("Unhandled case in Evaluator : [" + expr.getClass + "] " + expr.asString)
+
+  /** Variables, functions, booleans, ADTs, lambdas, quantifiers and literals. */
+  protected def eCore(expr: Expr)(using rctx: RC, gctx: GC): Expr = expr match {
     case v: Variable =>
       rctx.mappings.get(v.toVal) match {
         case Some(v) => v
@@ -160,6 +175,51 @@ abstract class RecursiveEvaluator(override val program: Program,
           throw EvalError(typeErrorMsg(le, expr.getType))
       }
 
+    case l @ Lambda(_, _) =>
+      def normalizeLambda(l: Lambda, onlySimple: Boolean = false): Lambda = {
+        val (nl, deps) = normalizeStructure(l, onlySimple = onlySimple)
+        val newCtx = deps.foldLeft(rctx) {
+          case (rctx, (v, dep, conds)) =>
+            if (conds.forall(e(_)(using rctx, gctx) == BooleanLiteral(true)))
+              rctx.withNewVar(v.toVal, e(dep)(using rctx, gctx))
+            else rctx
+        }
+        val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
+        replaceFromSymbols(mapping, nl).asInstanceOf[Lambda]
+      }
+
+      // We start by normalizing the structure of the lambda as in the solver to
+      // evaluate all normalizable ground expressions within its body.
+      val ground = normalizeLambda(l)
+
+      // Then, in order for nested lambdas to have fresh variables in their argument
+      // lists and let bindings, we re-normalize the identifiers by passing
+      // `onlySimple = true` to the call to `normalizeStructure` (this avoids lifting
+      // ground lambdas out in the deps).
+      val normalized = normalizeLambda(ground, onlySimple = true)
+      simplifyTrivialApps(normalized)
+
+    case f: Forall => onForallInvocation {
+      replaceFromSymbols(variablesOf(f).map(v => v -> e(v)).toMap, f).asInstanceOf[Forall]
+    }
+
+    case c: Choose =>
+      rctx.getChoose(c.res.id) match {
+        case Some(expr) => e(expr)
+        case None => onChooseInvocation {
+          replaceFromSymbols(variablesOf(c).map(v => v -> e(v)).toMap, c).asInstanceOf[Choose]
+        }
+      }
+
+    case gl: GenericValue => gl
+    case fl : FractionLiteral => normalizeFraction(fl)
+    case l : Literal[_] => l
+
+    case _ => unhandled
+  }
+
+  /** Integer, real and bit-vector arithmetic and comparisons. */
+  protected def eArithmetic(expr: Expr)(using rctx: RC, gctx: GC): Expr = expr match {
     case Plus(l,r) =>
       (e(l), e(r)) match {
         case (BVLiteral(sig1, i1, s1), BVLiteral(sig2, i2, s2)) if sig1 == sig2 && s1 == s2 =>
@@ -183,23 +243,6 @@ abstract class RecursiveEvaluator(override val program: Program,
           normalizeFraction(FractionLiteral(ln * rd - rn * ld, ld * rd))
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") - (" + re.asString + ")")
       }
-
-    case StringConcat(l, r) =>
-      (e(l), e(r)) match {
-        case (StringLiteral(i1), StringLiteral(i2)) => StringLiteral(i1 + i2)
-        case (le,re) => throw EvalError(typeErrorMsg(le, StringType()))
-      }
-
-    case StringLength(a) => e(a) match {
-      case StringLiteral(a) => IntegerLiteral(a.length)
-      case res => throw EvalError(typeErrorMsg(res, Int32Type()))
-    }
-
-    case SubString(a, start, end) => (e(a), e(start), e(end)) match {
-      case (StringLiteral(a), IntegerLiteral(b), IntegerLiteral(c))  =>
-        StringLiteral(a.substring(b.toInt, c.toInt))
-      case res => throw EvalError(typeErrorMsg(res._1, StringType()))
-    }
 
     case UMinus(ex) =>
       e(ex) match {
@@ -268,6 +311,80 @@ abstract class RecursiveEvaluator(override val program: Program,
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") % (" + re.asString + ")")
       }
 
+    case LessThan(l,r) =>
+      (e(l), e(r)) match {
+        case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
+          BooleanLiteral(b1.toBigInt < b2.toBigInt)
+        case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 < i2)
+        case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
+          val FractionLiteral(n, _) = e(Minus(a, b)): @unchecked
+          BooleanLiteral(n < 0)
+        case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 < c2)
+        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
+      }
+
+    case GreaterThan(l,r) =>
+      (e(l), e(r)) match {
+        case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
+          BooleanLiteral(b1.toBigInt > b2.toBigInt)
+        case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 > i2)
+        case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
+          val FractionLiteral(n, _) = e(Minus(a, b)): @unchecked
+          BooleanLiteral(n > 0)
+        case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 > c2)
+        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
+      }
+
+    case LessEquals(l,r) =>
+      (e(l), e(r)) match {
+        case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
+          BooleanLiteral(b1.toBigInt <= b2.toBigInt)
+        case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 <= i2)
+        case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
+          val FractionLiteral(n, _) = e(Minus(a, b)): @unchecked
+          BooleanLiteral(n <= 0)
+        case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 <= c2)
+        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
+      }
+
+    case GreaterEquals(l,r) =>
+      (e(l), e(r)) match {
+        case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
+          BooleanLiteral(b1.toBigInt >= b2.toBigInt)
+        case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 >= i2)
+        case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
+          val FractionLiteral(n, _) = e(Minus(a, b)): @unchecked
+          BooleanLiteral(n >= 0)
+        case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 >= c2)
+        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
+      }
+
+    case _ => unhandled
+  }
+
+  protected def eStrings(expr: Expr)(using rctx: RC, gctx: GC): Expr = expr match {
+    case StringConcat(l, r) =>
+      (e(l), e(r)) match {
+        case (StringLiteral(i1), StringLiteral(i2)) => StringLiteral(i1 + i2)
+        case (le,re) => throw EvalError(typeErrorMsg(le, StringType()))
+      }
+
+    case StringLength(a) => e(a) match {
+      case StringLiteral(a) => IntegerLiteral(a.length)
+      case res => throw EvalError(typeErrorMsg(res, Int32Type()))
+    }
+
+    case SubString(a, start, end) => (e(a), e(start), e(end)) match {
+      case (StringLiteral(a), IntegerLiteral(b), IntegerLiteral(c))  =>
+        StringLiteral(a.substring(b.toInt, c.toInt))
+      case res => throw EvalError(typeErrorMsg(res._1, StringType()))
+    }
+
+    case _ => unhandled
+  }
+
+  /** Bit-vector specific operations and conversions. */
+  protected def eBitVectors(expr: Expr)(using rctx: RC, gctx: GC): Expr = expr match {
     case BVNot(b) =>
       e(b) match {
         case BVLiteral(signed, bs, s) =>
@@ -352,54 +469,10 @@ abstract class RecursiveEvaluator(override val program: Program,
         case x => throw EvalError(typeErrorMsg(x, IntegerType()))
       }
 
-    case LessThan(l,r) =>
-      (e(l), e(r)) match {
-        case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
-          BooleanLiteral(b1.toBigInt < b2.toBigInt)
-        case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 < i2)
-        case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
-          val FractionLiteral(n, _) = e(Minus(a, b)): @unchecked
-          BooleanLiteral(n < 0)
-        case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 < c2)
-        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
-      }
+    case _ => unhandled
+  }
 
-    case GreaterThan(l,r) =>
-      (e(l), e(r)) match {
-        case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
-          BooleanLiteral(b1.toBigInt > b2.toBigInt)
-        case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 > i2)
-        case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
-          val FractionLiteral(n, _) = e(Minus(a, b)): @unchecked
-          BooleanLiteral(n > 0)
-        case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 > c2)
-        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
-      }
-
-    case LessEquals(l,r) =>
-      (e(l), e(r)) match {
-        case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
-          BooleanLiteral(b1.toBigInt <= b2.toBigInt)
-        case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 <= i2)
-        case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
-          val FractionLiteral(n, _) = e(Minus(a, b)): @unchecked
-          BooleanLiteral(n <= 0)
-        case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 <= c2)
-        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
-      }
-
-    case GreaterEquals(l,r) =>
-      (e(l), e(r)) match {
-        case (b1 @ BVLiteral(sig1, _, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
-          BooleanLiteral(b1.toBigInt >= b2.toBigInt)
-        case (IntegerLiteral(i1), IntegerLiteral(i2)) => BooleanLiteral(i1 >= i2)
-        case (a @ FractionLiteral(_, _), b @ FractionLiteral(_, _)) =>
-          val FractionLiteral(n, _) = e(Minus(a, b)): @unchecked
-          BooleanLiteral(n >= 0)
-        case (CharLiteral(c1), CharLiteral(c2)) => BooleanLiteral(c1 >= c2)
-        case (le,re) => throw EvalError(typeErrorMsg(le, Int32Type()))
-      }
-
+  protected def eFloatingPoint(expr: Expr)(using rctx: RC, gctx: GC): Expr = expr match {
     case FPEquals(lhs, rhs) =>
       (e(lhs), e(rhs)) match {
         case (Float32Literal(l1), Float32Literal(l2)) => BooleanLiteral(l1 == l2)
@@ -579,6 +652,11 @@ abstract class RecursiveEvaluator(override val program: Program,
         case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").isNegative")
       }
 
+    case _ => unhandled
+  }
+
+  /** Sets, bags and maps. */
+  protected def eCollections(expr: Expr)(using rctx: RC, gctx: GC): Expr = expr match {
     case SetAdd(s1, elem) =>
       (e(s1), e(elem)) match {
         case (FiniteSet(els1, tpe), evElem) => finiteSet(els1 :+ evElem, tpe)
@@ -689,42 +767,6 @@ abstract class RecursiveEvaluator(override val program: Program,
     case FiniteBag(els, base) =>
       finiteBag(els.map { case (k, v) => (e(k), e(v)) }, base.getType)
 
-    case l @ Lambda(_, _) =>
-      def normalizeLambda(l: Lambda, onlySimple: Boolean = false): Lambda = {
-        val (nl, deps) = normalizeStructure(l, onlySimple = onlySimple)
-        val newCtx = deps.foldLeft(rctx) {
-          case (rctx, (v, dep, conds)) =>
-            if (conds.forall(e(_)(using rctx, gctx) == BooleanLiteral(true)))
-              rctx.withNewVar(v.toVal, e(dep)(using rctx, gctx))
-            else rctx
-        }
-        val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
-        replaceFromSymbols(mapping, nl).asInstanceOf[Lambda]
-      }
-
-      // We start by normalizing the structure of the lambda as in the solver to
-      // evaluate all normalizable ground expressions within its body.
-      val ground = normalizeLambda(l)
-
-      // Then, in order for nested lambdas to have fresh variables in their argument
-      // lists and let bindings, we re-normalize the identifiers by passing
-      // `onlySimple = true` to the call to `normalizeStructure` (this avoids lifting
-      // ground lambdas out in the deps).
-      val normalized = normalizeLambda(ground, onlySimple = true)
-      simplifyTrivialApps(normalized)
-
-    case f: Forall => onForallInvocation {
-      replaceFromSymbols(variablesOf(f).map(v => v -> e(v)).toMap, f).asInstanceOf[Forall]
-    }
-
-    case c: Choose =>
-      rctx.getChoose(c.res.id) match {
-        case Some(expr) => e(expr)
-        case None => onChooseInvocation {
-          replaceFromSymbols(variablesOf(c).map(v => v -> e(v)).toMap, c).asInstanceOf[Choose]
-        }
-      }
-
     case f @ FiniteMap(ss, dflt, kT, vT) =>
       finiteMap(ss.map{ case (k, v) => (e(k), e(v)) }, e(dflt), kT.getType, vT.getType)
 
@@ -743,12 +785,7 @@ abstract class RecursiveEvaluator(override val program: Program,
           ".updated(" + l.asString + ", " + r.asString + ")")
     }
 
-    case gl: GenericValue => gl
-    case fl : FractionLiteral => normalizeFraction(fl)
-    case l : Literal[_] => l
-
-    case other =>
-      throw EvalError("Unhandled case in Evaluator : [" + other.getClass + "] " + other.asString)
+    case _ => unhandled
   }
 
   /**

@@ -6,6 +6,7 @@ package solvers.z3
 import com.microsoft.z3.Z3Exception
 import Z3Native._
 import utils._
+import utils.CaseSplit.*
 import z3.scala.{Z3Solver => ScalaZ3Solver, _}
 import solvers._
 
@@ -224,304 +225,323 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       unsupported(other)
   }
 
-  protected[z3] def toZ3Formula(expr: Expr, bindings: Map[Variable, Z3AST] = Map.empty): Z3AST = {
+  protected[z3] def toZ3Formula(expr: Expr, bindings: Map[Variable, Z3AST] = Map.empty): Z3AST =
+    toZ3(expr)(using bindings)
 
-    def rec(ex: Expr)(using bindings: Map[Variable, Z3AST]): Z3AST = ex match {
+  /** Encodes `ex` as a Z3 AST.
+    *
+    * The cases are split by theory into the `toZ3Core`, `toZ3Arithmetic`, ... methods below, which
+    * are tried in order (see [[utils.CaseSplit]]).
+    */
+  protected def toZ3(ex: Expr)(using bindings: Map[Variable, Z3AST]): Z3AST =
+    toZ3Core(ex) otherwise toZ3Arithmetic(ex) otherwise toZ3BitVectors(ex) otherwise toZ3Collections(ex) otherwise
+      toZ3Strings(ex) otherwise unsupported(ex)
 
-      case Let(vd, e, b) =>
-        val re = rec(e)
-        rec(b)(using bindings + (vd.toVariable -> re))
+  /** Variables, literals, booleans, functions, ADTs and tuples. */
+  protected def toZ3Core(ex: Expr)(using bindings: Map[Variable, Z3AST]): Z3AST = ex match {
+    case Let(vd, e, b) =>
+      val re = toZ3(e)
+      toZ3(b)(using bindings + (vd.toVariable -> re))
 
-      case a @ Assume(cond, body) =>
-        val (rc, rb) = (rec(cond), rec(body))
-        z3.mkITE(rc, rb, z3.mkFreshConst("fail", typeToSort(body.getType)))
+    case a @ Assume(cond, body) =>
+      val (rc, rb) = (toZ3(cond), toZ3(body))
+      z3.mkITE(rc, rb, z3.mkFreshConst("fail", typeToSort(body.getType)))
 
-      case v: Variable => bindings.getOrElse(v,
-        variables.cachedB(v)(z3.mkFreshConst(v.id.uniqueName, typeToSort(v.getType)))
-      )
+    case v: Variable => bindings.getOrElse(v,
+      variables.cachedB(v)(z3.mkFreshConst(v.id.uniqueName, typeToSort(v.getType)))
+    )
 
-      case ite @ IfExpr(c, t, e) => z3.mkITE(rec(c), rec(t), rec(e))
-      case And(exs) => z3.mkAnd(exs.map(rec)*)
-      case Or(exs) => z3.mkOr(exs.map(rec)*)
-      case Implies(l, r) => z3.mkImplies(rec(l), rec(r))
-      case Not(Equals(l, r)) => z3.mkDistinct(rec(l), rec(r))
-      case Not(e) => z3.mkNot(rec(e))
-      case bv @ BVLiteral(_, _, _) =>
-        z3.mkNumeral(bv.copy(signed = true).toBigInt.toString, typeToSort(bv.getType))
-      case IntegerLiteral(v) => z3.mkNumeral(v.toString, typeToSort(IntegerType()))
-      case FractionLiteral(n, d) => z3.mkNumeral(s"$n / $d", typeToSort(RealType()))
-      case CharLiteral(c) => z3.mkInt(c, typeToSort(CharType()))
-      case BooleanLiteral(v) => if (v) z3.mkTrue() else z3.mkFalse()
-      case Equals(l, r) => z3.mkEq(rec( l ), rec( r ) )
-      case Plus(l, r) => l.getType match {
-        case BVType(_,_) => z3.mkBVAdd(rec(l), rec(r))
-        case _ => z3.mkAdd(rec(l), rec(r))
+    case ite @ IfExpr(c, t, e) => z3.mkITE(toZ3(c), toZ3(t), toZ3(e))
+    case And(exs) => z3.mkAnd(exs.map(toZ3)*)
+    case Or(exs) => z3.mkOr(exs.map(toZ3)*)
+    case Implies(l, r) => z3.mkImplies(toZ3(l), toZ3(r))
+    case Not(Equals(l, r)) => z3.mkDistinct(toZ3(l), toZ3(r))
+    case Not(e) => z3.mkNot(toZ3(e))
+    case bv @ BVLiteral(_, _, _) =>
+      z3.mkNumeral(bv.copy(signed = true).toBigInt.toString, typeToSort(bv.getType))
+    case IntegerLiteral(v) => z3.mkNumeral(v.toString, typeToSort(IntegerType()))
+    case FractionLiteral(n, d) => z3.mkNumeral(s"$n / $d", typeToSort(RealType()))
+    case CharLiteral(c) => z3.mkInt(c, typeToSort(CharType()))
+    case BooleanLiteral(v) => if (v) z3.mkTrue() else z3.mkFalse()
+    case Equals(l, r) => z3.mkEq(toZ3( l ), toZ3( r ) )
+    case u : UnitLiteral =>
+      typeToSort(u.getType)
+      val constructor = constructors.toB(UnitCons)
+      constructor()
+
+    case t @ Tuple(es) =>
+      val tpe @ TupleType(tps) = t.getType: @unchecked
+      typeToSort(tpe)
+      val constructor = constructors.toB(TupleCons(tps))
+      constructor(es.map(toZ3)*)
+
+    case ts @ TupleSelect(t, i) =>
+      val tpe @ TupleType(tps) = t.getType: @unchecked
+      typeToSort(tpe)
+      val selector = selectors.toB((TupleCons(tps), i-1))
+      selector(toZ3(t))
+
+    case c @ ADT(id, tps, args) =>
+      typeToSort(c.getType) // Making sure the sort is defined
+      val constructor = constructors.toB(ADTCons(id, tps.map(_.getType)))
+      constructor(args.map(toZ3)*)
+
+    case c @ ADTSelector(cc, sel) =>
+      val tpe @ ADTType(_, tps) = cc.getType: @unchecked
+      typeToSort(tpe) // Making sure the sort is defined
+      val selector = selectors.toB(ADTCons(c.constructor.id, tps) -> c.selectorIndex)
+      selector(toZ3(cc))
+
+    case IsConstructor(e, id) =>
+      val tpe @ ADTType(_, tps) = e.getType: @unchecked
+      typeToSort(tpe)
+      val tester = testers.toB(ADTCons(id, tps))
+      tester(toZ3(e))
+
+    case f @ FunctionInvocation(id, tps, args) =>
+      z3.mkApp(functionDefToDecl(getFunction(id, tps.map(_.getType))), args.map(toZ3)*)
+
+    case fa @ Application(caller, args) =>
+      val ft @ FunctionType(froms, to) = caller.getType: @unchecked
+      val funDecl = lambdas.cachedB(ft) {
+        val sortSeq    = (ft +: froms).map(tpe => typeToSort(tpe))
+        val returnSort = typeToSort(to)
+
+        val name = FreshIdentifier("dynLambda").uniqueName
+        z3.mkFreshFuncDecl(name, sortSeq, returnSort)
       }
-      case Minus(l, r) => l.getType match {
-        case BVType(_,_) => z3.mkBVSub(rec(l), rec(r))
-        case _ => z3.mkSub(rec(l), rec(r))
-      }
-      case Times(l, r) => l.getType match {
-        case BVType(_,_) => z3.mkBVMul(rec(l), rec(r))
-        case _ => z3.mkMul(rec(l), rec(r))
-      }
-      case Division(l, r) =>
-        val (rl, rr) = (rec(l), rec(r))
-        l.getType match {
-          case IntegerType() =>
-            z3.mkITE(
-              z3.mkGE(rl, z3.mkNumeral("0", typeToSort(IntegerType()))),
-              z3.mkDiv(rl, rr),
-              z3.mkUnaryMinus(z3.mkDiv(z3.mkUnaryMinus(rl), rr))
-            )
-          case BVType(true, _) => z3.mkBVSdiv(rl, rr)
-          case BVType(false, _) => z3.mkBVUdiv(rl, rr)
-          case _ => z3.mkDiv(rl, rr)
-        }
-      case Remainder(l, r) => l.getType match {
-        case BVType(true, _) => z3.mkBVSrem(rec(l), rec(r))
-        case BVType(false, _) => z3.mkBVUrem(rec(l), rec(r))
-        case _ =>
-          val q = rec(Division(l, r))
-          z3.mkSub(rec(l), z3.mkMul(rec(r), q))
-      }
+      z3.mkApp(funDecl, (caller +: args).map(toZ3)*)
 
-      case Modulo(l, r) => l.getType match {
-        case BVType(false, _) => z3.mkBVUrem(rec(l), rec(r))
-        case BVType(true, size) => // we want x mod |y|
-          // Note that we cannot compute `bvsmod(x, -y)` when `y < 0` as `-y` overflows
-          // when `y` is the minimal value. Instead, we rely on the sign of `bvsmod(x, y)`
-          // following that of `y` and shift negative results by `|y|`.
-          val rr = rec(r)
-          val zero = rec(BVLiteral(true, 0, size))
-          val smod = z3.mkBVSmod(rec(l), rr)
+    case gv @ GenericValue(tp, id) =>
+      typeToSort(tp)
+      val constructor = constructors.toB(TypeParameterCons(tp))
+      constructor(toZ3(IntegerLiteral(id)))
+
+    case _ => unhandled
+  }
+
+  /** Integer, real and bit-vector arithmetic and comparisons. */
+  protected def toZ3Arithmetic(ex: Expr)(using bindings: Map[Variable, Z3AST]): Z3AST = ex match {
+    case Plus(l, r) => l.getType match {
+      case BVType(_,_) => z3.mkBVAdd(toZ3(l), toZ3(r))
+      case _ => z3.mkAdd(toZ3(l), toZ3(r))
+    }
+    case Minus(l, r) => l.getType match {
+      case BVType(_,_) => z3.mkBVSub(toZ3(l), toZ3(r))
+      case _ => z3.mkSub(toZ3(l), toZ3(r))
+    }
+    case Times(l, r) => l.getType match {
+      case BVType(_,_) => z3.mkBVMul(toZ3(l), toZ3(r))
+      case _ => z3.mkMul(toZ3(l), toZ3(r))
+    }
+    case Division(l, r) =>
+      val (rl, rr) = (toZ3(l), toZ3(r))
+      l.getType match {
+        case IntegerType() =>
           z3.mkITE(
-            z3.mkAnd(z3.mkBVSlt(rr, zero), z3.mkNot(z3.mkEq(smod, zero))),
-            z3.mkBVSub(smod, rr),
-            smod
+            z3.mkGE(rl, z3.mkNumeral("0", typeToSort(IntegerType()))),
+            z3.mkDiv(rl, rr),
+            z3.mkUnaryMinus(z3.mkDiv(z3.mkUnaryMinus(rl), rr))
           )
-
-        case _ =>
-          z3.mkMod(rec(l), rec(r))
+        case BVType(true, _) => z3.mkBVSdiv(rl, rr)
+        case BVType(false, _) => z3.mkBVUdiv(rl, rr)
+        case _ => z3.mkDiv(rl, rr)
       }
-
-      case UMinus(e) => e.getType match {
-        case BVType(_,_) => z3.mkBVNeg(rec(e))
-        case _ => z3.mkUnaryMinus(rec(e))
-      }
-
-      case BVNot(e) => z3.mkBVNot(rec(e))
-      case BVAnd(l, r) => z3.mkBVAnd(rec(l), rec(r))
-      case BVOr(l, r) => z3.mkBVOr(rec(l), rec(r))
-      case BVXor(l, r) => z3.mkBVXor(rec(l), rec(r))
-      case BVShiftLeft(l, r) => z3.mkBVShl(rec(l), rec(r))
-      case BVAShiftRight(l, r) => z3.mkBVAshr(rec(l), rec(r))
-      case BVLShiftRight(l, r) => z3.mkBVLshr(rec(l), rec(r))
-
-      case c @ BVWideningCast(e, _)  =>
-        val Some((from, to)) = c.cast: @unchecked
-        val BVType(signed, _) = e.getType: @unchecked
-        if (signed) z3.mkSignExt(to - from, rec(e))
-        else z3.mkZeroExt(to - from, rec(e))
-
-      case c @ BVNarrowingCast(e, _) =>
-        val Some((from, to)) = c.cast: @unchecked
-        z3.mkExtract(to - 1, 0, rec(e))
-
-      case BVUnsignedToSigned(e) => rec(e)
-      case BVSignedToUnsigned(e) => rec(e)
-
-      case LessThan(l, r) => l.getType match {
-        case IntegerType() => z3.mkLT(rec(l), rec(r))
-        case RealType() => z3.mkLT(rec(l), rec(r))
-        case BVType(true,_) => z3.mkBVSlt(rec(l), rec(r))
-        case BVType(false,_) => z3.mkBVUlt(rec(l), rec(r))
-        case CharType() => z3.mkBVUlt(rec(l), rec(r))
-      }
-      case LessEquals(l, r) => l.getType match {
-        case IntegerType() => z3.mkLE(rec(l), rec(r))
-        case RealType() => z3.mkLE(rec(l), rec(r))
-        case BVType(true,_) => z3.mkBVSle(rec(l), rec(r))
-        case BVType(false,_) => z3.mkBVUle(rec(l), rec(r))
-        case CharType() => z3.mkBVUle(rec(l), rec(r))
-      }
-      case GreaterThan(l, r) => l.getType match {
-        case IntegerType() => z3.mkGT(rec(l), rec(r))
-        case RealType() => z3.mkGT(rec(l), rec(r))
-        case BVType(true,_) => z3.mkBVSgt(rec(l), rec(r))
-        case BVType(false,_) => z3.mkBVUgt(rec(l), rec(r))
-        case CharType() => z3.mkBVUgt(rec(l), rec(r))
-      }
-      case GreaterEquals(l, r) => l.getType match {
-        case IntegerType() => z3.mkGE(rec(l), rec(r))
-        case RealType() => z3.mkGE(rec(l), rec(r))
-        case BVType(true,_) => z3.mkBVSge(rec(l), rec(r))
-        case BVType(false,_) => z3.mkBVUge(rec(l), rec(r))
-        case CharType() => z3.mkBVUge(rec(l), rec(r))
-      }
-
-      case u : UnitLiteral =>
-        typeToSort(u.getType)
-        val constructor = constructors.toB(UnitCons)
-        constructor()
-
-      case t @ Tuple(es) =>
-        val tpe @ TupleType(tps) = t.getType: @unchecked
-        typeToSort(tpe)
-        val constructor = constructors.toB(TupleCons(tps))
-        constructor(es.map(rec)*)
-
-      case ts @ TupleSelect(t, i) =>
-        val tpe @ TupleType(tps) = t.getType: @unchecked
-        typeToSort(tpe)
-        val selector = selectors.toB((TupleCons(tps), i-1))
-        selector(rec(t))
-
-      case c @ ADT(id, tps, args) =>
-        typeToSort(c.getType) // Making sure the sort is defined
-        val constructor = constructors.toB(ADTCons(id, tps.map(_.getType)))
-        constructor(args.map(rec)*)
-
-      case c @ ADTSelector(cc, sel) =>
-        val tpe @ ADTType(_, tps) = cc.getType: @unchecked
-        typeToSort(tpe) // Making sure the sort is defined
-        val selector = selectors.toB(ADTCons(c.constructor.id, tps) -> c.selectorIndex)
-        selector(rec(cc))
-
-      case IsConstructor(e, id) =>
-        val tpe @ ADTType(_, tps) = e.getType: @unchecked
-        typeToSort(tpe)
-        val tester = testers.toB(ADTCons(id, tps))
-        tester(rec(e))
-
-      case f @ FunctionInvocation(id, tps, args) =>
-        z3.mkApp(functionDefToDecl(getFunction(id, tps.map(_.getType))), args.map(rec)*)
-
-      case fa @ Application(caller, args) =>
-        val ft @ FunctionType(froms, to) = caller.getType: @unchecked
-        val funDecl = lambdas.cachedB(ft) {
-          val sortSeq    = (ft +: froms).map(tpe => typeToSort(tpe))
-          val returnSort = typeToSort(to)
-
-          val name = FreshIdentifier("dynLambda").uniqueName
-          z3.mkFreshFuncDecl(name, sortSeq, returnSort)
-        }
-        z3.mkApp(funDecl, (caller +: args).map(rec)*)
-
-      /**
-       * ===== Set operations =====
-       */
-      case f @ FiniteSet(elems, base) =>
-        elems.foldLeft(z3.mkEmptySet(typeToSort(base.getType)))((ast, el) => z3.mkSetAdd(ast, rec(el)))
-
-      case ElementOfSet(e, s) => z3.mkSetMember(rec(e), rec(s))
-
-      case SubsetOf(s1, s2) => z3.mkSetSubset(rec(s1), rec(s2))
-
-      case SetIntersection(s1, s2) => z3.mkSetIntersect(rec(s1), rec(s2))
-
-      case SetUnion(s1, s2) => z3.mkSetUnion(rec(s1), rec(s2))
-
-      case SetAdd(s, e) => z3.mkSetAdd(rec(s), rec(e))
-
-      case SetDifference(s1, s2) => z3.mkSetDifference(rec(s1), rec(s2))
-
-      /**
-       * ===== Bag operations =====
-       */
-      case fb @ FiniteBag(elems, base) =>
-        typeToSort(fb.getType)
-        rec(FiniteMap(elems, IntegerLiteral(0), base, IntegerType()))
-
-      case BagAdd(b, e) =>
-        val (bag, elem) = (rec(b), rec(e))
-        z3.mkStore(bag, elem, z3.mkAdd(z3.mkSelect(bag, elem), rec(IntegerLiteral(1))))
-
-      case MultiplicityInBag(e, b) =>
-        z3.mkSelect(rec(b), rec(e))
-
-      case BagUnion(b1, b2) =>
-        val plus = z3.getFuncDecl(OpAdd, typeToSort(IntegerType()), typeToSort(IntegerType()))
-        z3.mkArrayMap(plus, rec(b1), rec(b2))
-
-      case BagIntersection(b1, b2) =>
-        rec(BagDifference(b1, BagDifference(b1, b2)))
-
-      case BagDifference(b1, b2) =>
-        val BagType(base) = b1.getType: @unchecked
-        val abs = z3.getAbsFuncDecl()
-        val plus = z3.getFuncDecl(OpAdd, typeToSort(IntegerType()), typeToSort(IntegerType()))
-        val minus = z3.getFuncDecl(OpSub, typeToSort(IntegerType()), typeToSort(IntegerType()))
-        val div = z3.getFuncDecl(OpDiv, typeToSort(IntegerType()), typeToSort(IntegerType()))
-
-        val all2 = z3.mkConstArray(typeToSort(base), z3.mkInt(2, typeToSort(IntegerType())))
-        val withNeg = z3.mkArrayMap(minus, rec(b1), rec(b2))
-        z3.mkArrayMap(div, z3.mkArrayMap(plus, withNeg, z3.mkArrayMap(abs, withNeg)), all2)
-
-      /**
-       * ===== Map operations =====
-       */
-      case al @ MapApply(a, i) =>
-        z3.mkSelect(rec(a), rec(i))
-
-      case al @ MapUpdated(a, i, e) =>
-        z3.mkStore(rec(a), rec(i), rec(e))
-
-      case FiniteMap(elems, default, keyTpe, valueType) =>
-        val ar = z3.mkConstArray(typeToSort(keyTpe.getType), rec(default))
-
-        elems.foldLeft(ar) {
-          case (array, (k, v)) => z3.mkStore(array, rec(k), rec(v))
-        }
-
-      case MapMerge(mask, map1, map2) =>
-        // TODO: This should move to scala-z3
-        def getIteFuncDecl(valueTpe: Type) = {
-          val valueSort = typeToSort(valueTpe)
-          val app = z3.mkITE(
-            z3.mkFreshConst("b", typeToSort(BooleanType())),
-            z3.mkFreshConst("v1", valueSort),
-            z3.mkFreshConst("v2", valueSort))
-          z3.getASTKind(app) match {
-            case Z3AppAST(decl, _) => decl
-            case _ => error("Unexpected non-app AST " + app)
-          }
-        }
-
-        val MapType(_, valueTpe) = map1.getType: @unchecked
-        z3.mkArrayMap(getIteFuncDecl(valueTpe), rec(mask), rec(map1), rec(map2))
-
-      /* ====== String operations ====
-       */
-      case StringLiteral("") =>
-        z3.mkEmptySeq(typeToSort(StringType()))
-
-      case StringLiteral(v) =>
-        z3.mkSeqConcat(v.map(c => z3.mkUnitSeq(z3.mkNumeral(c.toInt.toString, typeToSort(BVType(false, 16)))))*)
-
-      case StringLength(a) =>
-        z3.mkSeqLength(rec(a))
-
-      case StringConcat(a, b) =>
-        z3.mkSeqConcat(rec(a), rec(b))
-
-      case SubString(a, start, Plus(start2, length)) if start == start2 =>
-        z3.mkSeqExtract(rec(a), rec(start), rec(length))
-
-      case SubString(a, start, end) =>
-        z3.mkSeqExtract(rec(a), rec(start), rec(Minus(end, start)))
-
-      case gv @ GenericValue(tp, id) =>
-        typeToSort(tp)
-        val constructor = constructors.toB(TypeParameterCons(tp))
-        constructor(rec(IntegerLiteral(id)))
-
-      case other =>
-        unsupported(other)
+    case Remainder(l, r) => l.getType match {
+      case BVType(true, _) => z3.mkBVSrem(toZ3(l), toZ3(r))
+      case BVType(false, _) => z3.mkBVUrem(toZ3(l), toZ3(r))
+      case _ =>
+        val q = toZ3(Division(l, r))
+        z3.mkSub(toZ3(l), z3.mkMul(toZ3(r), q))
     }
 
-    val res = rec(expr)(using bindings)
-    res
+    case Modulo(l, r) => l.getType match {
+      case BVType(false, _) => z3.mkBVUrem(toZ3(l), toZ3(r))
+      case BVType(true, size) => // we want x mod |y|
+        // Note that we cannot compute `bvsmod(x, -y)` when `y < 0` as `-y` overflows
+        // when `y` is the minimal value. Instead, we rely on the sign of `bvsmod(x, y)`
+        // following that of `y` and shift negative results by `|y|`.
+        val rr = toZ3(r)
+        val zero = toZ3(BVLiteral(true, 0, size))
+        val smod = z3.mkBVSmod(toZ3(l), rr)
+        z3.mkITE(
+          z3.mkAnd(z3.mkBVSlt(rr, zero), z3.mkNot(z3.mkEq(smod, zero))),
+          z3.mkBVSub(smod, rr),
+          smod
+        )
+
+      case _ =>
+        z3.mkMod(toZ3(l), toZ3(r))
+    }
+
+    case UMinus(e) => e.getType match {
+      case BVType(_,_) => z3.mkBVNeg(toZ3(e))
+      case _ => z3.mkUnaryMinus(toZ3(e))
+    }
+
+    case LessThan(l, r) => l.getType match {
+      case IntegerType() => z3.mkLT(toZ3(l), toZ3(r))
+      case RealType() => z3.mkLT(toZ3(l), toZ3(r))
+      case BVType(true,_) => z3.mkBVSlt(toZ3(l), toZ3(r))
+      case BVType(false,_) => z3.mkBVUlt(toZ3(l), toZ3(r))
+      case CharType() => z3.mkBVUlt(toZ3(l), toZ3(r))
+    }
+    case LessEquals(l, r) => l.getType match {
+      case IntegerType() => z3.mkLE(toZ3(l), toZ3(r))
+      case RealType() => z3.mkLE(toZ3(l), toZ3(r))
+      case BVType(true,_) => z3.mkBVSle(toZ3(l), toZ3(r))
+      case BVType(false,_) => z3.mkBVUle(toZ3(l), toZ3(r))
+      case CharType() => z3.mkBVUle(toZ3(l), toZ3(r))
+    }
+    case GreaterThan(l, r) => l.getType match {
+      case IntegerType() => z3.mkGT(toZ3(l), toZ3(r))
+      case RealType() => z3.mkGT(toZ3(l), toZ3(r))
+      case BVType(true,_) => z3.mkBVSgt(toZ3(l), toZ3(r))
+      case BVType(false,_) => z3.mkBVUgt(toZ3(l), toZ3(r))
+      case CharType() => z3.mkBVUgt(toZ3(l), toZ3(r))
+    }
+    case GreaterEquals(l, r) => l.getType match {
+      case IntegerType() => z3.mkGE(toZ3(l), toZ3(r))
+      case RealType() => z3.mkGE(toZ3(l), toZ3(r))
+      case BVType(true,_) => z3.mkBVSge(toZ3(l), toZ3(r))
+      case BVType(false,_) => z3.mkBVUge(toZ3(l), toZ3(r))
+      case CharType() => z3.mkBVUge(toZ3(l), toZ3(r))
+    }
+
+    case _ => unhandled
+  }
+
+  /** Bit-vector specific operations and conversions. */
+  protected def toZ3BitVectors(ex: Expr)(using bindings: Map[Variable, Z3AST]): Z3AST = ex match {
+    case BVNot(e) => z3.mkBVNot(toZ3(e))
+    case BVAnd(l, r) => z3.mkBVAnd(toZ3(l), toZ3(r))
+    case BVOr(l, r) => z3.mkBVOr(toZ3(l), toZ3(r))
+    case BVXor(l, r) => z3.mkBVXor(toZ3(l), toZ3(r))
+    case BVShiftLeft(l, r) => z3.mkBVShl(toZ3(l), toZ3(r))
+    case BVAShiftRight(l, r) => z3.mkBVAshr(toZ3(l), toZ3(r))
+    case BVLShiftRight(l, r) => z3.mkBVLshr(toZ3(l), toZ3(r))
+
+    case c @ BVWideningCast(e, _)  =>
+      val Some((from, to)) = c.cast: @unchecked
+      val BVType(signed, _) = e.getType: @unchecked
+      if (signed) z3.mkSignExt(to - from, toZ3(e))
+      else z3.mkZeroExt(to - from, toZ3(e))
+
+    case c @ BVNarrowingCast(e, _) =>
+      val Some((from, to)) = c.cast: @unchecked
+      z3.mkExtract(to - 1, 0, toZ3(e))
+
+    case BVUnsignedToSigned(e) => toZ3(e)
+    case BVSignedToUnsigned(e) => toZ3(e)
+
+    case _ => unhandled
+  }
+
+  /** Sets, bags and maps. */
+  protected def toZ3Collections(ex: Expr)(using bindings: Map[Variable, Z3AST]): Z3AST = ex match {
+    case f @ FiniteSet(elems, base) =>
+      elems.foldLeft(z3.mkEmptySet(typeToSort(base.getType)))((ast, el) => z3.mkSetAdd(ast, toZ3(el)))
+
+    case ElementOfSet(e, s) => z3.mkSetMember(toZ3(e), toZ3(s))
+
+    case SubsetOf(s1, s2) => z3.mkSetSubset(toZ3(s1), toZ3(s2))
+
+    case SetIntersection(s1, s2) => z3.mkSetIntersect(toZ3(s1), toZ3(s2))
+
+    case SetUnion(s1, s2) => z3.mkSetUnion(toZ3(s1), toZ3(s2))
+
+    case SetAdd(s, e) => z3.mkSetAdd(toZ3(s), toZ3(e))
+
+    case SetDifference(s1, s2) => z3.mkSetDifference(toZ3(s1), toZ3(s2))
+
+    /**
+     * ===== Bag operations =====
+     */
+    case fb @ FiniteBag(elems, base) =>
+      typeToSort(fb.getType)
+      toZ3(FiniteMap(elems, IntegerLiteral(0), base, IntegerType()))
+
+    case BagAdd(b, e) =>
+      val (bag, elem) = (toZ3(b), toZ3(e))
+      z3.mkStore(bag, elem, z3.mkAdd(z3.mkSelect(bag, elem), toZ3(IntegerLiteral(1))))
+
+    case MultiplicityInBag(e, b) =>
+      z3.mkSelect(toZ3(b), toZ3(e))
+
+    case BagUnion(b1, b2) =>
+      val plus = z3.getFuncDecl(OpAdd, typeToSort(IntegerType()), typeToSort(IntegerType()))
+      z3.mkArrayMap(plus, toZ3(b1), toZ3(b2))
+
+    case BagIntersection(b1, b2) =>
+      toZ3(BagDifference(b1, BagDifference(b1, b2)))
+
+    case BagDifference(b1, b2) =>
+      val BagType(base) = b1.getType: @unchecked
+      val abs = z3.getAbsFuncDecl()
+      val plus = z3.getFuncDecl(OpAdd, typeToSort(IntegerType()), typeToSort(IntegerType()))
+      val minus = z3.getFuncDecl(OpSub, typeToSort(IntegerType()), typeToSort(IntegerType()))
+      val div = z3.getFuncDecl(OpDiv, typeToSort(IntegerType()), typeToSort(IntegerType()))
+
+      val all2 = z3.mkConstArray(typeToSort(base), z3.mkInt(2, typeToSort(IntegerType())))
+      val withNeg = z3.mkArrayMap(minus, toZ3(b1), toZ3(b2))
+      z3.mkArrayMap(div, z3.mkArrayMap(plus, withNeg, z3.mkArrayMap(abs, withNeg)), all2)
+
+    /**
+     * ===== Map operations =====
+     */
+    case al @ MapApply(a, i) =>
+      z3.mkSelect(toZ3(a), toZ3(i))
+
+    case al @ MapUpdated(a, i, e) =>
+      z3.mkStore(toZ3(a), toZ3(i), toZ3(e))
+
+    case FiniteMap(elems, default, keyTpe, valueType) =>
+      val ar = z3.mkConstArray(typeToSort(keyTpe.getType), toZ3(default))
+
+      elems.foldLeft(ar) {
+        case (array, (k, v)) => z3.mkStore(array, toZ3(k), toZ3(v))
+      }
+
+    case MapMerge(mask, map1, map2) =>
+      // TODO: This should move to scala-z3
+      def getIteFuncDecl(valueTpe: Type) = {
+        val valueSort = typeToSort(valueTpe)
+        val app = z3.mkITE(
+          z3.mkFreshConst("b", typeToSort(BooleanType())),
+          z3.mkFreshConst("v1", valueSort),
+          z3.mkFreshConst("v2", valueSort))
+        z3.getASTKind(app) match {
+          case Z3AppAST(decl, _) => decl
+          case _ => error("Unexpected non-app AST " + app)
+        }
+      }
+
+      val MapType(_, valueTpe) = map1.getType: @unchecked
+      z3.mkArrayMap(getIteFuncDecl(valueTpe), toZ3(mask), toZ3(map1), toZ3(map2))
+
+    case _ => unhandled
+  }
+
+  protected def toZ3Strings(ex: Expr)(using bindings: Map[Variable, Z3AST]): Z3AST = ex match {
+    case StringLiteral("") =>
+      z3.mkEmptySeq(typeToSort(StringType()))
+
+    case StringLiteral(v) =>
+      z3.mkSeqConcat(v.map(c => z3.mkUnitSeq(z3.mkNumeral(c.toInt.toString, typeToSort(BVType(false, 16)))))*)
+
+    case StringLength(a) =>
+      z3.mkSeqLength(toZ3(a))
+
+    case StringConcat(a, b) =>
+      z3.mkSeqConcat(toZ3(a), toZ3(b))
+
+    case SubString(a, start, Plus(start2, length)) if start == start2 =>
+      z3.mkSeqExtract(toZ3(a), toZ3(start), toZ3(length))
+
+    case SubString(a, start, end) =>
+      z3.mkSeqExtract(toZ3(a), toZ3(start), toZ3(Minus(end, start)))
+
+    case _ => unhandled
   }
 
   protected lazy val emptySeq = {

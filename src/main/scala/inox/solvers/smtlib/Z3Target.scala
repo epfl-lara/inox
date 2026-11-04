@@ -17,6 +17,7 @@ import _root_.smtlib.theories.Operations._
 import _root_.smtlib.theories._
 
 import utils._
+import utils.CaseSplit.*
 
 trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   import context.{given, _}
@@ -128,188 +129,194 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     case _ => unsupported(e, "Expecting set expression in this position")
   }
 
-  override protected def fromSMT(t: Term, otpe: Option[Type] = None)(using context: Context): Expr = {
-    (t, otpe) match {
-      case (FunctionApplication(
-        QualifiedIdentifier(SMTIdentifier(SSymbol("is"), Seq(SSymbol(name))), None),
-        Seq(e)
-      ), _) if version >= Version(4, 6) && testers.containsB(SSymbol("is-" + name)) =>
-        testers.toA(SSymbol("is-" + name)) match {
-          case ac @ ADTCons(id, _) =>
-            IsConstructor(fromSMT(e, ac.getType), id)
-          case t =>
-            unsupported(t, "woot? tester for non-adt type")
-        }
+  override protected def fromSMT(t: Term, otpe: Option[Type] = None)(using context: Context): Expr =
+    fromSMTZ3Core(t, otpe) otherwise fromSMTZ3Arrays(t, otpe) otherwise super.fromSMT(t, otpe)
 
-      case (QualifiedIdentifier(SimpleIdentifier(SSymbol("#unspecified")), None), None) =>
-        throw new MissformedSMTException(t, "Cannot extract #unspecified symbol when type is unknown")
+  /** Z3-specific testers, unspecified values, strings and characters. */
+  protected def fromSMTZ3Core(t: Term, otpe: Option[Type])(using context: Context): Expr = (t, otpe) match {
+    case (FunctionApplication(
+      QualifiedIdentifier(SMTIdentifier(SSymbol("is"), Seq(SSymbol(name))), None),
+      Seq(e)
+    ), _) if version >= Version(4, 6) && testers.containsB(SSymbol("is-" + name)) =>
+      testers.toA(SSymbol("is-" + name)) match {
+        case ac @ ADTCons(id, _) =>
+          IsConstructor(fromSMT(e, ac.getType), id)
+        case t =>
+          unsupported(t, "woot? tester for non-adt type")
+      }
 
-      case (QualifiedIdentifier(SimpleIdentifier(SSymbol("#unspecified")), None), Some(tpe)) =>
-        Choose(ValDef.fresh("unspecified", tpe), BooleanLiteral(true))
+    case (QualifiedIdentifier(SimpleIdentifier(SSymbol("#unspecified")), None), None) =>
+      throw new MissformedSMTException(t, "Cannot extract #unspecified symbol when type is unknown")
 
-      case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("seq.unit")), None), Seq(SHexadecimal(hex))), _) =>
-        StringLiteral(utils.StringUtils.decode(hex.repr))
+    case (QualifiedIdentifier(SimpleIdentifier(SSymbol("#unspecified")), None), Some(tpe)) =>
+      Choose(ValDef.fresh("unspecified", tpe), BooleanLiteral(true))
 
-      case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("seq.unit")), None), args), Some(StringType())) =>
-        StringLiteral(args.map(fromSMT(_, Some(CharType())).asInstanceOf[CharLiteral].value).mkString)
+    case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("seq.unit")), None), Seq(SHexadecimal(hex))), _) =>
+      StringLiteral(utils.StringUtils.decode(hex.repr))
 
-      case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("str.++")), None), strs), _) =>
-        val strings = strs.map(fromSMT(_, Some(StringType())))
-        if (strings.isEmpty) StringLiteral("")
-        else strings.tail.foldRight(strings.head)(StringConcat(_, _))
+    case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("seq.unit")), None), args), Some(StringType())) =>
+      StringLiteral(args.map(fromSMT(_, Some(CharType())).asInstanceOf[CharLiteral].value).mkString)
 
-      case (QualifiedIdentifier(SMTIdentifier(SSymbol("Char"), Seq(SNumeral(n))), None), Some(CharType())) =>
-        CharLiteral(n.toChar)
+    case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("str.++")), None), strs), _) =>
+      val strings = strs.map(fromSMT(_, Some(StringType())))
+      if (strings.isEmpty) StringLiteral("")
+      else strings.tail.foldRight(strings.head)(StringConcat(_, _))
 
-      case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ MapType(keyType, valueType))) =>
-        val Some(Lambda(Seq(arg), body)) = context.getFunction(k, FunctionType(Seq(keyType), valueType)): @unchecked
+    case (QualifiedIdentifier(SMTIdentifier(SSymbol("Char"), Seq(SNumeral(n))), None), Some(CharType())) =>
+      CharLiteral(n.toChar)
 
-        def extractCases(e: Expr): FiniteMap = e match {
-          case Equals(argV, k) if valueType == BooleanType() && argV == arg.toVariable =>
-            FiniteMap(Seq((k, BooleanLiteral(true))), BooleanLiteral(false), keyType, valueType)
-          case IfExpr(Equals(argV, k), v, e) if argV == arg.toVariable =>
-            val FiniteMap(elems, default, from, to) = extractCases(e)
-            FiniteMap(elems :+ (k, v), default, from, to)
-          case e => FiniteMap(Seq.empty, e, keyType, valueType)
-        }
-        extractCases(body)
+    case _ => unhandled
+  }
 
-      case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ SetType(base))) =>
-        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, BooleanType()))): @unchecked
-        if (dflt != BooleanLiteral(false)) unsupported(fm, "Solver returned a co-finite set which is not supported")
-        FiniteSet(cases.collect { case (k, BooleanLiteral(true)) => k }, base)
+  /** Z3-specific array terms, which encode maps, sets and bags. */
+  protected def fromSMTZ3Arrays(t: Term, otpe: Option[Type])(using context: Context): Expr = (t, otpe) match {
+    case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ MapType(keyType, valueType))) =>
+      val Some(Lambda(Seq(arg), body)) = context.getFunction(k, FunctionType(Seq(keyType), valueType)): @unchecked
 
-      case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ BagType(base))) =>
-        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, IntegerType()))): @unchecked
-        if (dflt != IntegerLiteral(0)) unsupported(fm, "Solver returned a co-finite bag which is not supported")
-        FiniteBag(cases.filter(_._2 != IntegerLiteral(BigInt(0))), base)
+      def extractCases(e: Expr): FiniteMap = e match {
+        case Equals(argV, k) if valueType == BooleanType() && argV == arg.toVariable =>
+          FiniteMap(Seq((k, BooleanLiteral(true))), BooleanLiteral(false), keyType, valueType)
+        case IfExpr(Equals(argV, k), v, e) if argV == arg.toVariable =>
+          val FiniteMap(elems, default, from, to) = extractCases(e)
+          FiniteMap(elems :+ (k, v), default, from, to)
+        case e => FiniteMap(Seq.empty, e, keyType, valueType)
+      }
+      extractCases(body)
 
-      case (SMTLambda(Seq(SortedVar(s, sort)), term), Some(tpe @ MapType(keyType, valueType))) =>
-        val arg = ValDef.fresh(s.name, fromSMT(sort))
-        val body = fromSMT(term, Some(valueType))(using context.withVariables(Seq(s -> arg.toVariable)))
+    case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ SetType(base))) =>
+      val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, BooleanType()))): @unchecked
+      if (dflt != BooleanLiteral(false)) unsupported(fm, "Solver returned a co-finite set which is not supported")
+      FiniteSet(cases.collect { case (k, BooleanLiteral(true)) => k }, base)
 
-        def extractCases(e: Expr): FiniteMap = e match {
-          case Equals(argV, k) if valueType == BooleanType() && argV == arg.toVariable =>
-            FiniteMap(Seq((k, BooleanLiteral(true))), BooleanLiteral(false), keyType, valueType)
-          case IfExpr(Equals(argV, k), v, e) if argV == arg.toVariable =>
-            val FiniteMap(elems, default, from, to) = extractCases(e)
-            FiniteMap(elems :+ (k, v), default, from, to)
-          case e => FiniteMap(Seq.empty, e, keyType, valueType)
-        }
-        extractCases(body)
+    case (QualifiedIdentifier(ExtendedIdentifier(SSymbol("as-array"), k: SSymbol), _), Some(tpe @ BagType(base))) =>
+      val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, IntegerType()))): @unchecked
+      if (dflt != IntegerLiteral(0)) unsupported(fm, "Solver returned a co-finite bag which is not supported")
+      FiniteBag(cases.filter(_._2 != IntegerLiteral(BigInt(0))), base)
 
-      case (SMTLambda(Seq(arg), body), Some(tpe @ SetType(base))) =>
-        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, BooleanType()))): @unchecked
-        if (dflt != BooleanLiteral(false)) unsupported(fm, "Solver returned a co-finite set which is not supported")
-        FiniteSet(cases.collect { case (k, BooleanLiteral(true)) => k }, base)
+    case (SMTLambda(Seq(SortedVar(s, sort)), term), Some(tpe @ MapType(keyType, valueType))) =>
+      val arg = ValDef.fresh(s.name, fromSMT(sort))
+      val body = fromSMT(term, Some(valueType))(using context.withVariables(Seq(s -> arg.toVariable)))
 
-      case (SMTLambda(Seq(arg), body), Some(tpe @ BagType(base))) =>
-        val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, IntegerType()))): @unchecked
-        if (dflt != IntegerLiteral(0)) unsupported(fm, "Solver returned a co-finite bag which is not supported")
-        FiniteBag(cases.filter(_._2 != IntegerLiteral(BigInt(0))), base)
+      def extractCases(e: Expr): FiniteMap = e match {
+        case Equals(argV, k) if valueType == BooleanType() && argV == arg.toVariable =>
+          FiniteMap(Seq((k, BooleanLiteral(true))), BooleanLiteral(false), keyType, valueType)
+        case IfExpr(Equals(argV, k), v, e) if argV == arg.toVariable =>
+          val FiniteMap(elems, default, from, to) = extractCases(e)
+          FiniteMap(elems :+ (k, v), default, from, to)
+        case e => FiniteMap(Seq.empty, e, keyType, valueType)
+      }
+      extractCases(body)
 
-      case (FunctionApplication(
-        QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
-        Seq(defV)
-      ), Some(MapType(from, to))) =>
-        FiniteMap(Seq(), fromSMT(defV, Some(to)), from, to)
+    case (SMTLambda(Seq(arg), body), Some(tpe @ SetType(base))) =>
+      val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, BooleanType()))): @unchecked
+      if (dflt != BooleanLiteral(false)) unsupported(fm, "Solver returned a co-finite set which is not supported")
+      FiniteSet(cases.collect { case (k, BooleanLiteral(true)) => k }, base)
 
-      case (FunctionApplication(
-        QualifiedIdentifier(SMTIdentifier(SSymbol("store"), _), _),
-        Seq(arr, key, elem)
-      ), Some(mt @ MapType(from, to))) =>
-        MapUpdated(fromSMT(arr, mt), fromSMT(key, from), fromSMT(elem, to))
+    case (SMTLambda(Seq(arg), body), Some(tpe @ BagType(base))) =>
+      val fm @ FiniteMap(cases, dflt, _, _) = fromSMT(t, Some(MapType(base, IntegerType()))): @unchecked
+      if (dflt != IntegerLiteral(0)) unsupported(fm, "Solver returned a co-finite bag which is not supported")
+      FiniteBag(cases.filter(_._2 != IntegerLiteral(BigInt(0))), base)
 
-      case (FunctionApplication(
-        QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
-        Seq(defV)
-      ), Some(tpe @ SetType(base))) =>
-        val dflt = fromSMT(defV, Some(BooleanType()))
-        if (dflt != BooleanLiteral(false)) unsupported(dflt, "Solver returned a co-finite set which is not supported")
-        FiniteSet(Seq.empty, base)
+    case (FunctionApplication(
+      QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
+      Seq(defV)
+    ), Some(MapType(from, to))) =>
+      FiniteMap(Seq(), fromSMT(defV, Some(to)), from, to)
 
-      case (FunctionApplication(
-        QualifiedIdentifier(SMTIdentifier(SSymbol("store"), _), _),
-        Seq(arr, key, elem)
-      ), Some(st @ SetType(base))) =>
-        // `store` overrides the previous membership of `key`, so storing `false` removes it
-        val set = fromSMT(arr, st)
-        val k = fromSMT(key, base)
-        fromSMT(elem, BooleanType()) match {
-          case BooleanLiteral(true) => SetAdd(set, k)
-          case BooleanLiteral(false) => SetDifference(set, FiniteSet(Seq(k), base))
-          case cond => IfExpr(cond, SetAdd(set, k), SetDifference(set, FiniteSet(Seq(k), base)))
-        }
+    case (FunctionApplication(
+      QualifiedIdentifier(SMTIdentifier(SSymbol("store"), _), _),
+      Seq(arr, key, elem)
+    ), Some(mt @ MapType(from, to))) =>
+      MapUpdated(fromSMT(arr, mt), fromSMT(key, from), fromSMT(elem, to))
 
-      // Matches (_ map or) in both long form (_ map (or (Bool Bool) Bool))
-      // and short form (_ map or).
-      case (FunctionApplication(
-        QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
-          List(SList(List(SSymbol("or"), SList(List(SSymbol("Bool"), SSymbol("Bool"))), SSymbol("Bool")))
-            | SSymbol("or"))), None),
-        Seq(s1, s2)
-      ), _) =>
-        fromSMTUnifyType(s1, s2, otpe)((e1, e2) => SetUnion(extractSet(e1), extractSet(e2)))
+    case (FunctionApplication(
+      QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
+      Seq(defV)
+    ), Some(tpe @ SetType(base))) =>
+      val dflt = fromSMT(defV, Some(BooleanType()))
+      if (dflt != BooleanLiteral(false)) unsupported(dflt, "Solver returned a co-finite set which is not supported")
+      FiniteSet(Seq.empty, base)
 
-      // Matches (_ map and) in both long form (_ map (and (Bool Bool) Bool))
-      // and short form (_ map and).
-      case (FunctionApplication(
-        QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
-          List(SList(List(SSymbol("and"), SList(List(SSymbol("Bool"), SSymbol("Bool"))), SSymbol("Bool")))
-            | SSymbol("and"))), None),
-        Seq(s1, s2)
-      ), _) =>
-        fromSMTUnifyType(s1, s2, otpe)((e1, e2) => SetIntersection(extractSet(e1), extractSet(e2)))
+    case (FunctionApplication(
+      QualifiedIdentifier(SMTIdentifier(SSymbol("store"), _), _),
+      Seq(arr, key, elem)
+    ), Some(st @ SetType(base))) =>
+      // `store` overrides the previous membership of `key`, so storing `false` removes it
+      val set = fromSMT(arr, st)
+      val k = fromSMT(key, base)
+      fromSMT(elem, BooleanType()) match {
+        case BooleanLiteral(true) => SetAdd(set, k)
+        case BooleanLiteral(false) => SetDifference(set, FiniteSet(Seq(k), base))
+        case cond => IfExpr(cond, SetAdd(set, k), SetDifference(set, FiniteSet(Seq(k), base)))
+      }
 
-      case (FunctionApplication(
-        QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
-        Seq(defV)
-      ), Some(tpe @ BagType(base))) =>
-        val dflt = fromSMT(defV, Some(IntegerType()))
-        if (dflt != IntegerLiteral(BigInt(0))) unsupported(dflt, "Solver returned a co-finite bag which is not supported")
-        FiniteBag(Seq.empty, base)
+    // Matches (_ map or) in both long form (_ map (or (Bool Bool) Bool))
+    // and short form (_ map or).
+    case (FunctionApplication(
+      QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
+        List(SList(List(SSymbol("or"), SList(List(SSymbol("Bool"), SSymbol("Bool"))), SSymbol("Bool")))
+          | SSymbol("or"))), None),
+      Seq(s1, s2)
+    ), _) =>
+      fromSMTUnifyType(s1, s2, otpe)((e1, e2) => SetUnion(extractSet(e1), extractSet(e2)))
 
-      case (FunctionApplication(
-        QualifiedIdentifier(SMTIdentifier(SSymbol("store"), _), _),
-        Seq(arr, key, elem)
-      ), Some(bt @ BagType(base))) =>
-        // `store` overrides the previous multiplicity of `key` (it does not add to it)
-        val k = fromSMT(key, base)
-        val v = fromSMT(elem, IntegerType())
-        fromSMT(arr, bt) match {
-          case FiniteBag(elems, _) => FiniteBag(elems.filter(_._1 != k) :+ (k -> v), base)
-          case bag => BagUnion(
-            BagDifference(bag, FiniteBag(Seq(k -> MultiplicityInBag(k, bag)), base)),
-            FiniteBag(Seq(k -> v), base))
-        }
+    // Matches (_ map and) in both long form (_ map (and (Bool Bool) Bool))
+    // and short form (_ map and).
+    case (FunctionApplication(
+      QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
+        List(SList(List(SSymbol("and"), SList(List(SSymbol("Bool"), SSymbol("Bool"))), SSymbol("Bool")))
+          | SSymbol("and"))), None),
+      Seq(s1, s2)
+    ), _) =>
+      fromSMTUnifyType(s1, s2, otpe)((e1, e2) => SetIntersection(extractSet(e1), extractSet(e2)))
 
-      case (FunctionApplication(
-        QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
-        Seq(defV)
-      ), None) =>
-        val keyType = fromSMT(k)
-        val valType = fromSMT(v)
-        FiniteMap(Seq(), fromSMT(defV, valType), keyType, valType)
+    case (FunctionApplication(
+      QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
+      Seq(defV)
+    ), Some(tpe @ BagType(base))) =>
+      val dflt = fromSMT(defV, Some(IntegerType()))
+      if (dflt != IntegerLiteral(BigInt(0))) unsupported(dflt, "Solver returned a co-finite bag which is not supported")
+      FiniteBag(Seq.empty, base)
 
-      case (FunctionApplication(
-        QualifiedIdentifier(SMTIdentifier(SSymbol("store"), _), _),
-        Seq(arr, key, elem)
-      ), None) =>
-        MapUpdated(fromSMT(arr), fromSMT(key), fromSMT(elem))
+    case (FunctionApplication(
+      QualifiedIdentifier(SMTIdentifier(SSymbol("store"), _), _),
+      Seq(arr, key, elem)
+    ), Some(bt @ BagType(base))) =>
+      // `store` overrides the previous multiplicity of `key` (it does not add to it)
+      val k = fromSMT(key, base)
+      val v = fromSMT(elem, IntegerType())
+      fromSMT(arr, bt) match {
+        case FiniteBag(elems, _) => FiniteBag(elems.filter(_._1 != k) :+ (k -> v), base)
+        case bag => BagUnion(
+          BagDifference(bag, FiniteBag(Seq(k -> MultiplicityInBag(k, bag)), base)),
+          FiniteBag(Seq(k -> v), base))
+      }
 
-      // Matches (_ map ite) in both long form (_ map (ite (Bool T T) T))
-      // and short form (_ map ite).
-      case (FunctionApplication(
-        QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
-          List(SList(List(SSymbol("ite"), SList(List(SSymbol("Bool"), _, _, _)), _))
-            | SSymbol("ite"))), None),
-        Seq(mask, map1, map2)
-      ), _) =>
-        MapMerge(fromSMT(mask), fromSMT(map1), fromSMT(map2))
+    case (FunctionApplication(
+      QualifiedIdentifier(SMTIdentifier(SSymbol("const"), _), Some(ArraysEx.ArraySort(k, v))),
+      Seq(defV)
+    ), None) =>
+      val keyType = fromSMT(k)
+      val valType = fromSMT(v)
+      FiniteMap(Seq(), fromSMT(defV, valType), keyType, valType)
 
-      case _ =>
-        super.fromSMT(t, otpe)
-    }
+    case (FunctionApplication(
+      QualifiedIdentifier(SMTIdentifier(SSymbol("store"), _), _),
+      Seq(arr, key, elem)
+    ), None) =>
+      MapUpdated(fromSMT(arr), fromSMT(key), fromSMT(elem))
+
+    // Matches (_ map ite) in both long form (_ map (ite (Bool T T) T))
+    // and short form (_ map ite).
+    case (FunctionApplication(
+      QualifiedIdentifier(SMTIdentifier(SSymbol("map"),
+        List(SList(List(SSymbol("ite"), SList(List(SSymbol("Bool"), _, _, _)), _))
+          | SSymbol("ite"))), None),
+      Seq(mask, map1, map2)
+    ), _) =>
+      MapMerge(fromSMT(mask), fromSMT(map1), fromSMT(map2))
+
+    case _ => unhandled
   }
 
   override protected def toSMT(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {

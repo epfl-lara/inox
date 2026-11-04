@@ -79,9 +79,42 @@ jobs:
       run: echo "$GITHUB_WORKSPACE/.local/bin" >> $GITHUB_PATH
     - name: Test solver availability
       run: cvc5 --version && z3 --version && cvc4 --version && bitwuzla --version
+    # Coverage is measured on the Linux / JDK 17 job only. Unit and integration
+    # tests run in separate sbt invocations (the native Z3 library can only be
+    # loaded once per JVM) and their coverage measurements accumulate.
     - name: Run Tests
-      run: sbt -Dtest-parallelism=10 -Dinox.require-solvers=smt-z3,smt-cvc4,smt-cvc5,smt-bitwuzla,princess -batch test
+      run: sbt -Dtest-parallelism=10 -Dinox.require-solvers=smt-z3,smt-cvc4,smt-cvc5,smt-bitwuzla,princess -batch $SBT_COVERAGE test
+      env:
+        SBT_COVERAGE: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'coverage' || '' }}
     - name: Run integration tests
-      run: sbt -Dtest-parallelism=10 -batch it:test
+      run: sbt -Dtest-parallelism=10 -batch $SBT_COVERAGE it:test
+      env:
+        SBT_COVERAGE: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'coverage' || '' }}
+    - name: Generate coverage report
+      if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
+      run: |
+        sbt -batch coverageReport
+        report=$(echo target/scala-*/scoverage-report/scoverage.xml)
+        python3 scripts/coverage_summary.py report $report >> $GITHUB_STEP_SUMMARY
+        # Read by the coverage comment workflow, to compare pull requests with main.
+        mkdir -p coverage-summary
+        python3 scripts/coverage_summary.py json $report coverage-summary/coverage.json
+        echo "$PR_NUMBER" > coverage-summary/pr-number
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+    - name: Upload coverage report
+      if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: |
+          target/scala-*/scoverage-report/
+          target/scala-*/coverage-report/cobertura.xml
+    - name: Upload coverage summary
+      if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-summary
+        path: coverage-summary/
     - name: Clean up
       run: rm -rf $JAVA_OPTS_TMP_DIR
