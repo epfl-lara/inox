@@ -253,10 +253,15 @@ trait MainHelpers {
   }
 }
 
-object Main extends MainHelpers {
+object Main extends InoxMain {
+  def main(args: Array[String]): Unit = run(args)
+}
+
+/** The Inox command line, separate from [[Main]] so that tests can override [[exit]]. */
+class InoxMain extends MainHelpers {
   import inox.trees._
 
-  def main(args: Array[String]): Unit = {
+  def run(args: Array[String]): Unit = {
     val ctx = setup(args)
     var error: Boolean = false
 
