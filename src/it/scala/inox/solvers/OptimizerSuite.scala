@@ -4,7 +4,7 @@ package inox
 package solvers
 package unrolling
 
-class OptimizerSuite extends SolvingTestSuite with DatastructureUtils {
+class OptimizerSuite extends TestSuite with DatastructureUtils {
   import trees._
   import dsl._
   import SolverResponses._

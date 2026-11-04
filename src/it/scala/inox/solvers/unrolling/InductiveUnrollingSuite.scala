@@ -4,7 +4,7 @@ package inox
 package solvers
 package unrolling
 
-class InductiveUnrollingSuite extends SolvingTestSuite with DatastructureUtils {
+class InductiveUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
   import trees._
   import dsl._
 

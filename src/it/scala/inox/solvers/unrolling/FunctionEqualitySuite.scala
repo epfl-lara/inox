@@ -4,7 +4,7 @@ package inox
 package solvers
 package unrolling
 
-class FunctionEqualitySuite extends SolvingTestSuite with DatastructureUtils {
+class FunctionEqualitySuite extends UnrollingTestSuite with DatastructureUtils {
   import inox.trees._
   import dsl._
 

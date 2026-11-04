@@ -4,7 +4,7 @@ package inox
 package solvers
 package unrolling
 
-class SimpleUnrollingSuite extends SolvingTestSuite {
+class SimpleUnrollingSuite extends UnrollingTestSuite {
   import inox.trees._
   import dsl._
 
