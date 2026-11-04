@@ -210,6 +210,7 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
             case Some(expr) =>
               localCounter = localCounter + 1
               val newVd = vd.copy(id = new Identifier("x", localCounter, localCounter))
+              subst(vd) = newVd
               bindings(newVd) = transform(expr)
               newVd
             case None => vd
@@ -230,15 +231,16 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
     def cached(e: Expr, path: CNFPath)(body: => (Expr, Boolean)): (Expr, Boolean) = {
       val (normalized, conds, bindings, subst) = normalize(e, path)
 
+      // A result simplified under some conditions remains valid under more conditions
+      // (but not under fewer), and only when the normalized variables have the same definitions.
       cache.get(normalized)
         .filter { case (cConds, cBindings, _, _) =>
-          (conds subsetOf cConds) &&
-          bindings.forall { case (k, v) => cBindings.get(k) == Some(v) }
+          (cConds subsetOf conds) && cBindings == bindings
         }
         .map { case (_, _, re, pe) => (applySubst(subst.map(_.swap), re), pe) }
         .getOrElse {
           val (re, pe) = body
-          cache(e) = (conds, bindings, applySubst(subst, re), pe)
+          cache(normalized) = (conds, bindings, applySubst(subst, re), pe)
           (re, pe)
         }
     }
