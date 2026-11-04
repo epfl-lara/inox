@@ -4,6 +4,7 @@ package inox
 package transformers
 
 import utils._
+import utils.CaseSplit.*
 
 import scala.collection.mutable.{Map => MutableMap}
 
@@ -95,7 +96,28 @@ trait SimplifierWithPC extends Transformer { self =>
 
   final def isPure(e: Expr, path: Env): Boolean = simplify(e, path)._2
 
-  protected def simplify(e: Expr, path: Env): (Expr, Boolean) = e match {
+  /** Simplifies `e` under `path`, and returns whether the result is pure.
+    *
+    * The cases are split into the `simplifyCore`, `simplifyData`, ... methods below, which are tried
+    * in order (see [[utils.CaseSplit]]). Simplifiers can override `simplify` itself, or a single family.
+    */
+  protected def simplify(e: Expr, path: Env): (Expr, Boolean) =
+    simplifyCore(e, path) otherwise simplifyData(e, path) otherwise simplifyBindings(e, path) otherwise
+      simplifyDefault(e, path)
+
+  /** Simplifies the children of `e`. */
+  protected def simplifyDefault(e: Expr, path: Env): (Expr, Boolean) = {
+    dynStack.set(0 :: dynStack.get)
+    val re = super.transform(e, path)
+    val (rpure, rest) = dynPurity.get.splitAt(dynStack.get.head)
+    val pe = rpure.foldLeft(opts.assumeChecked || !isImpureExpr(re))(_ && _)
+    dynStack.set(dynStack.get.tail)
+    dynPurity.set(rest)
+    (re, pe)
+  }
+
+  /** Facts implied by the path, choose, lambdas, boolean connectives and assumptions. */
+  protected def simplifyCore(e: Expr, path: Env): (Expr, Boolean) = e match {
     case e if path `implies` e => (BooleanLiteral(true).copiedFrom(e), true)
     case e if path `implies` not(e) => (BooleanLiteral(false).copiedFrom(e), true)
 
@@ -157,6 +179,11 @@ trait SimplifierWithPC extends Transformer { self =>
         (Assume(rp, rb).copiedFrom(e), false)
     }
 
+    case _ => unhandled
+  }
+
+  /** ADT and tuple constructors, testers and selectors. */
+  protected def simplifyData(e: Expr, path: Env): (Expr, Boolean) = e match {
     case ic @ IsConstructor(e, id) =>
       val (re, pe) = simplify(path `expand` e, path)
       isConstructor(re, id, path) match {
@@ -219,6 +246,11 @@ trait SimplifierWithPC extends Transformer { self =>
       case (re, pe) => (TupleSelect(re, i).copiedFrom(ts), pe)
     }
 
+    case _ => unhandled
+  }
+
+  /** Lets, function calls, operators, tuples, quantifiers and applications. */
+  protected def simplifyBindings(e: Expr, path: Env): (Expr, Boolean) = e match {
     case Let(vd, IfExpr(c1, t1, e1), IfExpr(c2, t2, e2)) if c1 == c2 =>
       simplify(IfExpr(c1, Let(vd, t1, t2).copiedFrom(e), Let(vd, e1, e2).copiedFrom(e)).copiedFrom(e), path)
 
@@ -300,14 +332,7 @@ trait SimplifierWithPC extends Transformer { self =>
           (application(caller, res).copiedFrom(app), opts.assumeChecked)
       }
 
-    case _ =>
-      dynStack.set(0 :: dynStack.get)
-      val re = super.transform(e, path)
-      val (rpure, rest) = dynPurity.get.splitAt(dynStack.get.head)
-      val pe = rpure.foldLeft(opts.assumeChecked || !isImpureExpr(re))(_ && _)
-      dynStack.set(dynStack.get.tail)
-      dynPurity.set(rest)
-      (re, pe)
+    case _ => unhandled
   }
 
   private def simplifyAndCons(es: Seq[Expr], path: Env, cons: Seq[Expr] => Expr): (Expr, Boolean) = {

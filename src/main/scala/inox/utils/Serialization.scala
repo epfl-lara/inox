@@ -478,8 +478,17 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     *
     * NEXT ID: 144
     */
-  protected def classSerializers: Map[Class[?], Serializer[?]] = Map(
-    // Inox Expressions
+  protected def classSerializers: Map[Class[?], Serializer[?]] = Map.from(
+    coreSerializers ++ literalSerializers ++ operatorSerializers ++ bitVectorSerializers ++
+    floatingPointSerializers ++ floatingPointTestSerializers ++ collectionSerializers ++ typeSerializers ++
+    definitionSerializers)
+
+  // The serializers are listed in several smaller methods, as the JVM and coverage tools handle
+  // large methods poorly.
+  private type ClassSerializers = Seq[(Class[?], Serializer[?])]
+
+  /** Bindings, functions, ADTs, tuples and strings. */
+  private def coreSerializers: ClassSerializers = Seq(
     classSerializer[Assume]            (10),
     classSerializer[Variable]          (11),
     classSerializer[Let]               (12),
@@ -489,6 +498,18 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[Choose]            (16),
     classSerializer[FunctionInvocation](17),
     classSerializer[IfExpr]            (18),
+    classSerializer[ADT]               (27),
+    classSerializer[IsConstructor]     (28),
+    classSerializer[ADTSelector]       (29),
+    classSerializer[Tuple]             (57),
+    classSerializer[TupleSelect]       (58),
+    classSerializer[StringConcat]      (34),
+    classSerializer[SubString]         (35),
+    classSerializer[StringLength]      (36),
+  )
+
+  /** Literals and rounding modes. */
+  private def literalSerializers: ClassSerializers = Seq(
     classSerializer[CharLiteral]       (19),
     // BVLiteral id=20
     // Bitvector literals are treated specially to avoid having to serialize BitSets
@@ -499,17 +520,23 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[StringLiteral]     (24),
     classSerializer[UnitLiteral]       (25),
     classSerializer[GenericValue]      (26),
-    classSerializer[ADT]               (27),
-    classSerializer[IsConstructor]     (28),
-    classSerializer[ADTSelector]       (29),
+    // FPLiteral id=107
+    // Floating Point literals are treated specially to avoid having to serialize BitSets
+    mappingSerializer[FPLiteral](107)(fp => (fp.exponent, fp.significand, fp.value))(p => FPLiteral(p._1, p._2, p._3)),
+    classSerializer[RoundTowardZero.type]        (115),
+    classSerializer[RoundTowardPositive.type]    (116),
+    classSerializer[RoundTowardNegative.type]    (117),
+    classSerializer[RoundNearestTiesToEven.type] (118),
+    classSerializer[RoundNearestTiesToAway.type] (119),
+  )
+
+  /** Boolean and arithmetic operations. */
+  private def operatorSerializers: ClassSerializers = Seq(
     classSerializer[Equals]            (30),
     classSerializer[And]               (31),
     classSerializer[Or]                (32),
     classSerializer[Implies]           (99),
     classSerializer[Not]               (33),
-    classSerializer[StringConcat]      (34),
-    classSerializer[SubString]         (35),
-    classSerializer[StringLength]      (36),
     classSerializer[Plus]              (37),
     classSerializer[Minus]             (38),
     classSerializer[UMinus]            (39),
@@ -521,6 +548,10 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[GreaterThan]       (45),
     classSerializer[LessEquals]        (46),
     classSerializer[GreaterEquals]     (47),
+  )
+
+  /** Bit-vector operations. */
+  private def bitVectorSerializers: ClassSerializers = Seq(
     classSerializer[BVNot]             (48),
     classSerializer[BVAnd]             (49),
     classSerializer[BVOr]              (50),
@@ -530,32 +561,14 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[BVLShiftRight]     (54),
     classSerializer[BVNarrowingCast]   (55),
     classSerializer[BVWideningCast]    (56),
-    classSerializer[Tuple]             (57),
-    classSerializer[TupleSelect]       (58),
-    classSerializer[FiniteSet]         (59),
-    classSerializer[SetAdd]            (60),
-    classSerializer[ElementOfSet]      (61),
-    classSerializer[SubsetOf]          (62),
-    classSerializer[SetIntersection]   (63),
-    classSerializer[SetUnion]          (64),
-    classSerializer[SetDifference]     (65),
-    classSerializer[FiniteBag]         (66),
-    classSerializer[BagAdd]            (67),
-    classSerializer[MultiplicityInBag] (68),
-    classSerializer[BagIntersection]   (69),
-    classSerializer[BagUnion]          (70),
-    classSerializer[BagDifference]     (71),
-    classSerializer[FiniteMap]         (72),
-    classSerializer[MapApply]          (73),
-    classSerializer[MapUpdated]        (74),
     classSerializer[BVUnsignedToSigned](104),
     classSerializer[BVSignedToUnsigned](105),
     classSerializer[BVToInt]           (142),
     classSerializer[IntToBV]           (143),
-    // FPLiteral id=107
-    // Floating Point literals are treated specially to avoid having to serialize BitSets
-    mappingSerializer[FPLiteral](107)(fp => (fp.exponent, fp.significand, fp.value))(p => FPLiteral(p._1, p._2, p._3)),
-    classSerializer[FPEquals]          (108),
+  )
+
+  /** Floating-point operations. */
+  private def floatingPointSerializers: ClassSerializers = Seq(
     classSerializer[FPAdd]             (110),
     classSerializer[FPSub]             (111),
     classSerializer[FPMul]             (112),
@@ -572,13 +585,11 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[FPMax]             (135),
     classSerializer[FPMin]             (136),
     classSerializer[FPRound]           (137),
+  )
 
-    classSerializer[RoundTowardZero.type]        (115),
-    classSerializer[RoundTowardPositive.type]    (116),
-    classSerializer[RoundTowardNegative.type]    (117),
-    classSerializer[RoundNearestTiesToEven.type] (118),
-    classSerializer[RoundNearestTiesToAway.type] (119),
-
+  /** Floating-point comparisons and tests. */
+  private def floatingPointTestSerializers: ClassSerializers = Seq(
+    classSerializer[FPEquals]          (108),
     classSerializer[FPLessThan]          (128),
     classSerializer[FPGreaterThan]       (129),
     classSerializer[FPLessEquals]        (130),
@@ -591,8 +602,31 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[FPIsNegative]      (124),
     classSerializer[FPIsNormal]        (139),
     classSerializer[FPIsSubnormal]     (140),
+  )
 
-    // Inox Types
+  /** Sets, bags and maps. */
+  private def collectionSerializers: ClassSerializers = Seq(
+    classSerializer[FiniteSet]         (59),
+    classSerializer[SetAdd]            (60),
+    classSerializer[ElementOfSet]      (61),
+    classSerializer[SubsetOf]          (62),
+    classSerializer[SetIntersection]   (63),
+    classSerializer[SetUnion]          (64),
+    classSerializer[SetDifference]     (65),
+    classSerializer[FiniteBag]         (66),
+    classSerializer[BagAdd]            (67),
+    classSerializer[MultiplicityInBag] (68),
+    classSerializer[BagIntersection]   (69),
+    classSerializer[BagUnion]          (70),
+    classSerializer[BagDifference]     (71),
+    classSerializer[FiniteMap]         (72),
+    classSerializer[MapApply]          (73),
+    classSerializer[MapUpdated]        (74),
+    classSerializer[MapMerge]      (103),
+  )
+
+  /** Inox types. */
+  private def typeSerializers: ClassSerializers = Seq(
     classSerializer[Untyped.type] (75),
     classSerializer[BooleanType]  (76),
     classSerializer[UnitType]     (77),
@@ -614,8 +648,10 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[SigmaType]     (102),
     classSerializer[FPType]        (106),
     classSerializer[RoundingMode.type ] (109),
+  )
 
-    // Identifier
+  /** Identifiers, flags, definitions and results. */
+  private def definitionSerializers: ClassSerializers = Seq(
     mappingSerializer[Identifier](90)
       (id => (id.name, id.globalId, id.id))
       (p => new Identifier(p._1, p._2, p._3)),
@@ -631,8 +667,6 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[ADTSort]       (96),
     classSerializer[ADTConstructor](97),
     classSerializer[FunDef]        (98),
-    classSerializer[MapMerge]      (103),
-
     classOf[SerializationResult] -> ResultSerializer
   )
 }

@@ -5,6 +5,7 @@ package solvers
 package smtlib
 
 import utils._
+import utils.CaseSplit.*
 
 import _root_.smtlib.common._
 import _root_.smtlib.printer.{ RecursivePrinter => SMTPrinter }
@@ -263,339 +264,365 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     case _ => Seq(e)
   }
 
-  protected def toSMT(e: Expr)(using bindings: Map[Identifier, Term]): Term = {
-    e match {
-      case v @ Variable(id, tp, flags) =>
-        declareSort(v.getType)
-        bindings.getOrElse(id, variables.toB(v))
+  /** Encodes `e` as an SMT-LIB term.
+    *
+    * The cases are split by theory into the `toSMTCore`, `toSMTMaps`, ... methods below, which
+    * are tried in order (see [[utils.CaseSplit]]). Targets can override `toSMT` itself, or a single
+    * family.
+    */
+  protected def toSMT(e: Expr)(using bindings: Map[Identifier, Term]): Term =
+    toSMTCore(e) otherwise toSMTMaps(e) otherwise toSMTArithmetic(e) otherwise toSMTBitVectors(e) otherwise
+      toSMTFloatingPoint(e) otherwise toSMTStrings(e) otherwise unsupported(e, "")
 
-      case UnitLiteral() =>
-        declareSort(UnitType())
-        declareVariable(Variable.fresh("Unit", UnitType()))
+  /** Variables, literals, booleans, functions, ADTs, tuples and quantifiers. */
+  protected def toSMTCore(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
+    case v @ Variable(id, tp, flags) =>
+      declareSort(v.getType)
+      bindings.getOrElse(id, variables.toB(v))
 
-      case IntegerLiteral(i)     => intToTerm(i)
-      case BVLiteral(_, bits, size) => FixedSizeBitVectors.BitVectorLit(List.range(1, size + 1).map(i => bits(size + 1 - i)))
-      case FPLiteral(e, s, bits) =>
-        val size = e + s
-        FloatingPoint.FPLit(
-          FixedSizeBitVectors.BitVectorLit(List.range(1, 2).map(i => bits(size + 1 - i))),
-          FixedSizeBitVectors.BitVectorLit(List.range(2, e + 2).map(i => bits(size + 1 - i))),
-          FixedSizeBitVectors.BitVectorLit(List.range(e + 2, size + 1).map(i => bits(size + 1 - i)))
+    case UnitLiteral() =>
+      declareSort(UnitType())
+      declareVariable(Variable.fresh("Unit", UnitType()))
+
+    case IntegerLiteral(i)     => intToTerm(i)
+    case BVLiteral(_, bits, size) => FixedSizeBitVectors.BitVectorLit(List.range(1, size + 1).map(i => bits(size + 1 - i)))
+    case FractionLiteral(n, d) => Reals.Div(realToTerm(n), realToTerm(d))
+    case CharLiteral(c)        => FixedSizeBitVectors.BitVectorLit(Hexadecimal.fromShort(c.toShort))
+    case BooleanLiteral(v)     => Core.BoolConst(v)
+    case Let(b, d, e) =>
+      val id = id2sym(b.id)
+      val value = toSMT(d)
+      val newBody = toSMT(e)(using bindings + (b.id -> id))
+
+      SMTLet(
+        VarBinding(id, value),
+        Seq(),
+        newBody)
+
+    case s @ ADTSelector(e, id) =>
+      val tpe @ ADTType(_, tps) = e.getType: @unchecked
+      declareSort(tpe)
+      val selector = selectors.toB(ADTCons(s.constructor.id, tps) -> s.selectorIndex)
+      FunctionApplication(selector, Seq(toSMT(e)))
+
+    case i @ IsConstructor(e, id) =>
+      val tpe @ ADTType(_, tps) = e.getType: @unchecked
+      declareSort(tpe)
+      val tester = testers.toB(ADTCons(id, tps))
+      FunctionApplication(tester, Seq(toSMT(e)))
+
+    case adt @ ADT(id, tps, es) =>
+      declareSort(adt.getType)
+      val constructor = constructors.toB(ADTCons(id, tps.map(_.getType)))
+      if (es.isEmpty) {
+        constructor
+      } else {
+        FunctionApplication(constructor, es.map(toSMT))
+      }
+
+    case t @ Tuple(es) =>
+      val tpe @ TupleType(tps) = t.getType: @unchecked
+      declareSort(tpe)
+      val constructor = constructors.toB(TupleCons(tps))
+      FunctionApplication(constructor, es.map(toSMT))
+
+    case ts @ TupleSelect(t, i) =>
+      val tpe @ TupleType(tps) = t.getType: @unchecked
+      declareSort(tpe)
+      val selector = selectors.toB((TupleCons(tps), i - 1))
+      FunctionApplication(selector, Seq(toSMT(t)))
+
+    case gv @ GenericValue(tpe, n) =>
+      declareSort(tpe)
+      val constructor = constructors.toB(TypeParameterCons(tpe))
+      FunctionApplication(constructor, Seq(toSMT(IntegerLiteral(n))))
+
+    case ap @ Application(caller, args) =>
+      caller match
+        case v: Variable if predicates.containsA(v) =>
+          val pred = predicateCalls.cachedB(caller) {
+            caller match
+              case pred @ Variable(id, FunctionType(from, to), flags) =>
+                val s = id2sym(id)
+                emit(DeclareFun(
+                  s,
+                  from.map(declareSort),
+                  declareSort(to)
+                ))
+                s
+          }
+          FunctionApplication(pred, args.map(toSMT))
+        case _ => // normal lambda
+          val dyn = declareLambda(caller.getType.asInstanceOf[FunctionType])
+          FunctionApplication(dyn, (caller +: args).map(toSMT))
+
+    case Not(u) => Core.Not(toSMT(u))
+
+    case Equals(a, b)    => Core.Equals(toSMT(a), toSMT(b))
+    case Implies(a, b)   => Core.Implies(toSMT(a), toSMT(b))
+    case And(sub)                  => SmtLibConstructors.and(sub.map(toSMT))
+    case Or(sub)                   => SmtLibConstructors.or(sub.map(toSMT))
+    case IfExpr(cond, thenn, elze) => Core.ITE(toSMT(cond), toSMT(thenn), toSMT(elze))
+    case fi @ FunctionInvocation(id, tps, sub) =>
+      val fun = declareFunction(getFunction(id, tps.map(_.getType)))
+      if (sub.isEmpty) fun
+      else FunctionApplication(fun, sub.map(toSMT))
+    case Forall(vs, bd) =>
+      quantifiedTerm(SMTForall.apply, vs, bd)(using Map())
+
+    case _ => unhandled
+  }
+
+  protected def toSMTMaps(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
+    case al @ MapApply(a, i) =>
+      ArraysEx.Select(toSMT(a), toSMT(i))
+
+    case al @ MapUpdated(map, k, v) =>
+      ArraysEx.Store(toSMT(map), toSMT(k), toSMT(v))
+
+    case ra @ FiniteMap(elems, default, _, _) =>
+      val s = declareSort(ra.getType)
+
+      var res: Term = FunctionApplication(
+        QualifiedIdentifier(SMTIdentifier(SSymbol("const")), Some(s)),
+        List(toSMT(default)))
+      for ((k, v) <- elems) {
+        res = ArraysEx.Store(res, toSMT(k), toSMT(v))
+      }
+
+      res
+
+    case _ => unhandled
+  }
+
+  /** Integer, real and bit-vector arithmetic and comparisons. */
+  protected def toSMTArithmetic(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
+    case UMinus(u) => u.getType match {
+      case BVType(_,_)   => FixedSizeBitVectors.Neg(toSMT(u))
+      case IntegerType() => Ints.Neg(toSMT(u))
+      case RealType()    => Reals.Neg(toSMT(u))
+    }
+
+    case pl @ Plus(a, b)      =>
+      val rec = flattenPlus(pl).map(toSMT)
+      a.getType match {
+        case BVType(_,_)   => FixedSizeBitVectors.Add(rec)
+        case IntegerType() => Ints.Add(rec)
+        case RealType()    => Reals.Add(rec)
+      }
+    case Minus(a, b)     => a.getType match {
+      case BVType(_,_)   => FixedSizeBitVectors.Sub(toSMT(a), toSMT(b))
+      case IntegerType() => Ints.Sub(toSMT(a), toSMT(b))
+      case RealType()    => Reals.Sub(toSMT(a), toSMT(b))
+    }
+    case tms @ Times(a, b)     =>
+      val rec = flattenTimes(tms).map(toSMT)
+      a.getType match {
+        case BVType(_,_)   => FixedSizeBitVectors.Mul(rec)
+        case IntegerType() => Ints.Mul(rec)
+        case RealType()    => Reals.Mul(rec)
+      }
+
+    case Division(a, b)  => a.getType match {
+      case BVType(true, _) => FixedSizeBitVectors.SDiv(toSMT(a), toSMT(b))
+      case BVType(false, _) => FixedSizeBitVectors.UDiv(toSMT(a), toSMT(b))
+      case IntegerType() =>
+        val ar = toSMT(a)
+        val br = toSMT(b)
+        Core.ITE(
+          Ints.GreaterEquals(ar, Ints.NumeralLit(0)),
+          Ints.Div(ar, br),
+          Ints.Neg(Ints.Div(Ints.Neg(ar), br))
+        )
+      case RealType() => Reals.Div(toSMT(a), toSMT(b))
+    }
+
+    case Remainder(a, b) => a.getType match {
+      case BVType(true, _) => FixedSizeBitVectors.SRem(toSMT(a), toSMT(b))
+      case BVType(false, _) => FixedSizeBitVectors.URem(toSMT(a), toSMT(b))
+      case IntegerType() =>
+        val q = toSMT(Division(a, b))
+        Ints.Sub(toSMT(a), Ints.Mul(toSMT(b), q))
+    }
+
+    case Modulo(a, b) => a.getType match {
+      case BVType(false, _) => FixedSizeBitVectors.URem(toSMT(a), toSMT(b))
+      case BVType(true, size) => // we want x mod |y|
+        // Note that we cannot compute `bvsmod(x, -y)` when `y < 0` as `-y` overflows
+        // when `y` is the minimal value. Instead, we rely on the sign of `bvsmod(x, y)`
+        // following that of `y` and shift negative results by `|y|`.
+        val br = toSMT(b)
+        val r = freshSym("r")
+        SMTLet(
+          VarBinding(r, FixedSizeBitVectors.SMod(toSMT(a), br)), Seq(),
+          Core.ITE(
+            Core.And(
+              FixedSizeBitVectors.SLessThan(br, toSMT(BVLiteral(true, 0, size))),
+              Core.Not(Core.Equals(r, toSMT(BVLiteral(true, 0, size))))
+            ),
+            FixedSizeBitVectors.Sub(r, br),
+            r
+          )
         )
 
-      case FractionLiteral(n, d) => Reals.Div(realToTerm(n), realToTerm(d))
-      case CharLiteral(c)        => FixedSizeBitVectors.BitVectorLit(Hexadecimal.fromShort(c.toShort))
-      case BooleanLiteral(v)     => Core.BoolConst(v)
-      case Let(b, d, e) =>
-        val id = id2sym(b.id)
-        val value = toSMT(d)
-        val newBody = toSMT(e)(using bindings + (b.id -> id))
-
-        SMTLet(
-          VarBinding(id, value),
-          Seq(),
-          newBody)
-
-      case s @ ADTSelector(e, id) =>
-        val tpe @ ADTType(_, tps) = e.getType: @unchecked
-        declareSort(tpe)
-        val selector = selectors.toB(ADTCons(s.constructor.id, tps) -> s.selectorIndex)
-        FunctionApplication(selector, Seq(toSMT(e)))
-
-      case i @ IsConstructor(e, id) =>
-        val tpe @ ADTType(_, tps) = e.getType: @unchecked
-        declareSort(tpe)
-        val tester = testers.toB(ADTCons(id, tps))
-        FunctionApplication(tester, Seq(toSMT(e)))
-
-      case adt @ ADT(id, tps, es) =>
-        declareSort(adt.getType)
-        val constructor = constructors.toB(ADTCons(id, tps.map(_.getType)))
-        if (es.isEmpty) {
-          constructor
-        } else {
-          FunctionApplication(constructor, es.map(toSMT))
-        }
-
-      case t @ Tuple(es) =>
-        val tpe @ TupleType(tps) = t.getType: @unchecked
-        declareSort(tpe)
-        val constructor = constructors.toB(TupleCons(tps))
-        FunctionApplication(constructor, es.map(toSMT))
-
-      case ts @ TupleSelect(t, i) =>
-        val tpe @ TupleType(tps) = t.getType: @unchecked
-        declareSort(tpe)
-        val selector = selectors.toB((TupleCons(tps), i - 1))
-        FunctionApplication(selector, Seq(toSMT(t)))
-
-      case al @ MapApply(a, i) =>
-        ArraysEx.Select(toSMT(a), toSMT(i))
-
-      case al @ MapUpdated(map, k, v) =>
-        ArraysEx.Store(toSMT(map), toSMT(k), toSMT(v))
-
-      case ra @ FiniteMap(elems, default, _, _) =>
-        val s = declareSort(ra.getType)
-
-        var res: Term = FunctionApplication(
-          QualifiedIdentifier(SMTIdentifier(SSymbol("const")), Some(s)),
-          List(toSMT(default)))
-        for ((k, v) <- elems) {
-          res = ArraysEx.Store(res, toSMT(k), toSMT(v))
-        }
-
-        res
-
-      case gv @ GenericValue(tpe, n) =>
-        declareSort(tpe)
-        val constructor = constructors.toB(TypeParameterCons(tpe))
-        FunctionApplication(constructor, Seq(toSMT(IntegerLiteral(n))))
-
-      /**
-       * ===== Everything else =====
-       */
-      case ap @ Application(caller, args) =>
-        caller match
-          case v: Variable if predicates.containsA(v) =>
-            val pred = predicateCalls.cachedB(caller) {
-              caller match
-                case pred @ Variable(id, FunctionType(from, to), flags) =>
-                  val s = id2sym(id)
-                  emit(DeclareFun(
-                    s,
-                    from.map(declareSort),
-                    declareSort(to)
-                  ))
-                  s
-            }
-            FunctionApplication(pred, args.map(toSMT))
-          case _ => // normal lambda
-            val dyn = declareLambda(caller.getType.asInstanceOf[FunctionType])
-            FunctionApplication(dyn, (caller +: args).map(toSMT))
-
-      case Not(u) => Core.Not(toSMT(u))
-
-      case UMinus(u) => u.getType match {
-        case BVType(_,_)   => FixedSizeBitVectors.Neg(toSMT(u))
-        case IntegerType() => Ints.Neg(toSMT(u))
-        case RealType()    => Reals.Neg(toSMT(u))
-      }
-
-      case Equals(a, b)    => Core.Equals(toSMT(a), toSMT(b))
-      case Implies(a, b)   => Core.Implies(toSMT(a), toSMT(b))
-      case pl @ Plus(a, b)      =>
-        val rec = flattenPlus(pl).map(toSMT)
-        a.getType match {
-          case BVType(_,_)   => FixedSizeBitVectors.Add(rec)
-          case IntegerType() => Ints.Add(rec)
-          case RealType()    => Reals.Add(rec)
-        }
-      case Minus(a, b)     => a.getType match {
-        case BVType(_,_)   => FixedSizeBitVectors.Sub(toSMT(a), toSMT(b))
-        case IntegerType() => Ints.Sub(toSMT(a), toSMT(b))
-        case RealType()    => Reals.Sub(toSMT(a), toSMT(b))
-      }
-      case tms @ Times(a, b)     =>
-        val rec = flattenTimes(tms).map(toSMT)
-        a.getType match {
-          case BVType(_,_)   => FixedSizeBitVectors.Mul(rec)
-          case IntegerType() => Ints.Mul(rec)
-          case RealType()    => Reals.Mul(rec)
-        }
-
-      case Division(a, b)  => a.getType match {
-        case BVType(true, _) => FixedSizeBitVectors.SDiv(toSMT(a), toSMT(b))
-        case BVType(false, _) => FixedSizeBitVectors.UDiv(toSMT(a), toSMT(b))
-        case IntegerType() =>
-          val ar = toSMT(a)
-          val br = toSMT(b)
-          Core.ITE(
-            Ints.GreaterEquals(ar, Ints.NumeralLit(0)),
-            Ints.Div(ar, br),
-            Ints.Neg(Ints.Div(Ints.Neg(ar), br))
-          )
-        case RealType() => Reals.Div(toSMT(a), toSMT(b))
-      }
-
-      case Remainder(a, b) => a.getType match {
-        case BVType(true, _) => FixedSizeBitVectors.SRem(toSMT(a), toSMT(b))
-        case BVType(false, _) => FixedSizeBitVectors.URem(toSMT(a), toSMT(b))
-        case IntegerType() =>
-          val q = toSMT(Division(a, b))
-          Ints.Sub(toSMT(a), Ints.Mul(toSMT(b), q))
-      }
-
-      case Modulo(a, b) => a.getType match {
-        case BVType(false, _) => FixedSizeBitVectors.URem(toSMT(a), toSMT(b))
-        case BVType(true, size) => // we want x mod |y|
-          // Note that we cannot compute `bvsmod(x, -y)` when `y < 0` as `-y` overflows
-          // when `y` is the minimal value. Instead, we rely on the sign of `bvsmod(x, y)`
-          // following that of `y` and shift negative results by `|y|`.
-          val br = toSMT(b)
-          val r = freshSym("r")
-          SMTLet(
-            VarBinding(r, FixedSizeBitVectors.SMod(toSMT(a), br)), Seq(),
-            Core.ITE(
-              Core.And(
-                FixedSizeBitVectors.SLessThan(br, toSMT(BVLiteral(true, 0, size))),
-                Core.Not(Core.Equals(r, toSMT(BVLiteral(true, 0, size))))
-              ),
-              FixedSizeBitVectors.Sub(r, br),
-              r
-            )
-          )
-
-        case IntegerType() => Ints.Mod(toSMT(a), toSMT(b))
-      }
-
-      case LessThan(a, b) => a.getType match {
-        case BVType(true, _)  => FixedSizeBitVectors.SLessThan(toSMT(a), toSMT(b))
-        case BVType(false, _) => FixedSizeBitVectors.ULessThan(toSMT(a), toSMT(b))
-        case IntegerType()    => Ints.LessThan(toSMT(a), toSMT(b))
-        case RealType()       => Reals.LessThan(toSMT(a), toSMT(b))
-        case CharType()       => FixedSizeBitVectors.ULessThan(toSMT(a), toSMT(b))
-      }
-      case LessEquals(a, b) => a.getType match {
-        case BVType(true, _)  => FixedSizeBitVectors.SLessEquals(toSMT(a), toSMT(b))
-        case BVType(false, _) => FixedSizeBitVectors.ULessEquals(toSMT(a), toSMT(b))
-        case IntegerType()    => Ints.LessEquals(toSMT(a), toSMT(b))
-        case RealType()       => Reals.LessEquals(toSMT(a), toSMT(b))
-        case CharType()       => FixedSizeBitVectors.ULessEquals(toSMT(a), toSMT(b))
-      }
-      case GreaterThan(a, b) => a.getType match {
-        case BVType(true, _)   => FixedSizeBitVectors.SGreaterThan(toSMT(a), toSMT(b))
-        case BVType(false, _)  => FixedSizeBitVectors.UGreaterThan(toSMT(a), toSMT(b))
-        case IntegerType()     => Ints.GreaterThan(toSMT(a), toSMT(b))
-        case RealType()        => Reals.GreaterThan(toSMT(a), toSMT(b))
-        case CharType()        => FixedSizeBitVectors.UGreaterThan(toSMT(a), toSMT(b))
-      }
-      case GreaterEquals(a, b) => a.getType match {
-        case BVType(true, _)  => FixedSizeBitVectors.SGreaterEquals(toSMT(a), toSMT(b))
-        case BVType(false, _) => FixedSizeBitVectors.UGreaterEquals(toSMT(a), toSMT(b))
-        case IntegerType()    => Ints.GreaterEquals(toSMT(a), toSMT(b))
-        case RealType()       => Reals.GreaterEquals(toSMT(a), toSMT(b))
-        case CharType()       => FixedSizeBitVectors.UGreaterEquals(toSMT(a), toSMT(b))
-      }
-
-      case BVNot(u)                  => FixedSizeBitVectors.Not(toSMT(u))
-      case BVAnd(a, b)               => FixedSizeBitVectors.And(toSMT(a), toSMT(b))
-      case BVOr(a, b)                => FixedSizeBitVectors.Or(toSMT(a), toSMT(b))
-      case BVXor(a, b)               => FixedSizeBitVectors.XOr(toSMT(a), toSMT(b))
-      case BVShiftLeft(a, b)         => FixedSizeBitVectors.ShiftLeft(toSMT(a), toSMT(b))
-      case BVAShiftRight(a, b)       => FixedSizeBitVectors.AShiftRight(toSMT(a), toSMT(b))
-      case BVLShiftRight(a, b)       => FixedSizeBitVectors.LShiftRight(toSMT(a), toSMT(b))
-
-      case c @ BVWideningCast(e, _)  =>
-        val Some((from, to)) = c.cast: @unchecked
-        val BVType(signed, _) = e.getType: @unchecked
-        if (signed) FixedSizeBitVectors.SignExtend(to - from, toSMT(e))
-        else FixedSizeBitVectors.ZeroExtend(to - from, toSMT(e))
-
-      case c @ BVNarrowingCast(e, _) =>
-        val Some((from, to)) = c.cast: @unchecked
-        FixedSizeBitVectors.Extract(to - 1, 0, toSMT(e))
-
-      case BVUnsignedToSigned(e) => toSMT(e)
-      case BVSignedToUnsigned(e) => toSMT(e)
-      case BVToInt(e) => e.getType match {
-        case BVType(signed = false, size = _) =>
-          FixedSizeBitVectors.BV2Nat(toSMT(e))
-        case BVType(signed = true, size = size) =>
-          // scala-smtlib exposes bv2nat here; recover the signed two's-complement value.
-          val term = toSMT(e)
-          val nat = FixedSizeBitVectors.BV2Nat(term)
-          Core.ITE(
-            FixedSizeBitVectors.SLessThan(term, toSMT(BVLiteral(true, 0, size))),
-            Ints.Sub(nat, Ints.NumeralLit(BigInt(2).pow(size))),
-            nat
-          )
-      }
-      case IntToBV(size, _, e) => FixedSizeBitVectors.Int2BV(size, toSMT(e))
-
-      case FPEquals(a, b) => FloatingPoint.Eq(toSMT(a), toSMT(b))
-      case FPAdd(rm, a, b) => FloatingPoint.Add(toSMT(rm), toSMT(a), toSMT(b))
-      case FPSub(rm, a, b) => FloatingPoint.Sub(toSMT(rm), toSMT(a), toSMT(b))
-      case FPMul(rm, a, b) => FloatingPoint.Mul(toSMT(rm), toSMT(a), toSMT(b))
-      case FPDiv(rm, a, b) => FloatingPoint.Div(toSMT(rm), toSMT(a), toSMT(b))
-      case FPUMinus(e)     => FloatingPoint.Neg(toSMT(e))
-      case FPFMA(rm, e1, e2, e3) => FloatingPoint.FMA(toSMT(rm), toSMT(e1), toSMT(e2), toSMT(e3))
-      case FPAbs(e)        => FloatingPoint.Abs(toSMT(e))
-      case Sqrt(rm, e)     => FloatingPoint.Sqrt(toSMT(rm), toSMT(e))
-      case FPMax(a, b) => FloatingPoint.Max(toSMT(a), toSMT(b))
-      case FPMin(a, b) => FloatingPoint.Min(toSMT(a), toSMT(b))
-      case FPRound(rm, e) => FloatingPoint.RoundToIntegral(toSMT(rm), toSMT(e))
-      case FPCast(ne, ns, rm, e) => FloatingPoint.ToFP(ne, ns, toSMT(rm), toSMT(e))
-      case FPFromBinary(ne, ns, e) => FloatingPoint.ToFP(ne, ns, toSMT(e))
-      case FPToBV(s, signed, rm, e) =>
-        if (signed) {
-          FloatingPoint.ToSignedBitVector(s, toSMT(rm), toSMT(e))
-        }
-        else {
-          FloatingPoint.ToUnsignedBitVector(s, toSMT(rm), toSMT(e))
-        }
-      case FPToBVJVM(eb, sb, toSize, e) =>
-        toSize match
-          case 8 => toSMT(BVNarrowingCast(FPToBVJVM(eb, sb, 32, e), Int8Type()))
-          case 16 => toSMT(BVNarrowingCast(FPToBVJVM(eb, sb, 32, e), Int16Type()))
-          case s @ (32 | 64) =>
-            val (maxVal, minVal, zero) = s match
-              case 32 => (Int32Literal(Int.MaxValue), Int32Literal(Int.MinValue), Int32Literal(0))
-              case 64 => (Int64Literal(Long.MaxValue), Int64Literal(Long.MinValue), Int64Literal(0))
-
-            val isLarge = FPGreaterThan(e, FPCast(eb, sb, RoundTowardZero, maxVal))
-            val isSmall = FPLessThan(e, FPCast(eb, sb, RoundTowardZero, minVal))
-            toSMT(IfExpr(FPIsNaN(e), zero,
-              IfExpr(isLarge, maxVal,
-                IfExpr(isSmall, minVal,
-                  FPToBV(s, true, RoundTowardZero, e)))))
-
-
-      case FPToReal(e) => FloatingPoint.ToReal(toSMT(e))
-      case FPLessThan(a, b) => FloatingPoint.LessThan(toSMT(a), toSMT(b))
-      case FPLessEquals(a, b) => FloatingPoint.LessEquals(toSMT(a), toSMT(b))
-      case FPGreaterThan(a, b) => FloatingPoint.GreaterThan(toSMT(a), toSMT(b))
-      case FPGreaterEquals(a, b) => FloatingPoint.GreaterEquals(toSMT(a), toSMT(b))
-      case FPIsInfinite(e) => FloatingPoint.IsInfinite(toSMT(e))
-      case FPIsZero(e)     => FloatingPoint.IsZero(toSMT(e))
-      case FPIsNaN(e)      => FloatingPoint.IsNaN(toSMT(e))
-      case FPIsPositive(e) => FloatingPoint.IsPositive(toSMT(e))
-      case FPIsNegative(e) => FloatingPoint.IsNegative(toSMT(e))
-      case FPIsNormal(e) => FloatingPoint.IsNormal(toSMT(e))
-      case FPIsSubnormal(e) => FloatingPoint.IsSubnormal(toSMT(e))
-
-      case RoundTowardZero => FloatingPoint.RoundTowardZero()
-      case RoundTowardNegative => FloatingPoint.RoundTowardNegative()
-      case RoundTowardPositive => FloatingPoint.RoundTowardPositive()
-      case RoundNearestTiesToAway => FloatingPoint.RoundNearestTiesToAway()
-      case RoundNearestTiesToEven => FloatingPoint.RoundNearestTiesToEven()
-
-      case And(sub)                  => SmtLibConstructors.and(sub.map(toSMT))
-      case Or(sub)                   => SmtLibConstructors.or(sub.map(toSMT))
-      case IfExpr(cond, thenn, elze) => Core.ITE(toSMT(cond), toSMT(thenn), toSMT(elze))
-      case fi @ FunctionInvocation(id, tps, sub) =>
-        val fun = declareFunction(getFunction(id, tps.map(_.getType)))
-        if (sub.isEmpty) fun
-        else FunctionApplication(fun, sub.map(toSMT))
-      case Forall(vs, bd) =>
-        quantifiedTerm(SMTForall.apply, vs, bd)(using Map())
-
-      /** String operations */
-      // FIXME: replace by Seq(BV(16)) once solvers can handle them
-      case StringLiteral(v) =>
-        declareSort(StringType())
-        Strings.StringLit(utils.StringUtils.encode(v))
-
-      case StringLength(a) => Strings.Length(toSMT(a))
-      case StringConcat(a, b) => Strings.Concat(toSMT(a), toSMT(b))
-      case SubString(a, start, Plus(start2, length)) if start == start2 =>
-        Strings.Substring(toSMT(a), toSMT(start), toSMT(length))
-      case SubString(a, start, end) =>
-        Strings.Substring(toSMT(a), toSMT(start), toSMT(Minus(end, start)))
-
-      case o =>
-        unsupported(o, "")
+      case IntegerType() => Ints.Mod(toSMT(a), toSMT(b))
     }
+
+    case LessThan(a, b) => a.getType match {
+      case BVType(true, _)  => FixedSizeBitVectors.SLessThan(toSMT(a), toSMT(b))
+      case BVType(false, _) => FixedSizeBitVectors.ULessThan(toSMT(a), toSMT(b))
+      case IntegerType()    => Ints.LessThan(toSMT(a), toSMT(b))
+      case RealType()       => Reals.LessThan(toSMT(a), toSMT(b))
+      case CharType()       => FixedSizeBitVectors.ULessThan(toSMT(a), toSMT(b))
+    }
+    case LessEquals(a, b) => a.getType match {
+      case BVType(true, _)  => FixedSizeBitVectors.SLessEquals(toSMT(a), toSMT(b))
+      case BVType(false, _) => FixedSizeBitVectors.ULessEquals(toSMT(a), toSMT(b))
+      case IntegerType()    => Ints.LessEquals(toSMT(a), toSMT(b))
+      case RealType()       => Reals.LessEquals(toSMT(a), toSMT(b))
+      case CharType()       => FixedSizeBitVectors.ULessEquals(toSMT(a), toSMT(b))
+    }
+    case GreaterThan(a, b) => a.getType match {
+      case BVType(true, _)   => FixedSizeBitVectors.SGreaterThan(toSMT(a), toSMT(b))
+      case BVType(false, _)  => FixedSizeBitVectors.UGreaterThan(toSMT(a), toSMT(b))
+      case IntegerType()     => Ints.GreaterThan(toSMT(a), toSMT(b))
+      case RealType()        => Reals.GreaterThan(toSMT(a), toSMT(b))
+      case CharType()        => FixedSizeBitVectors.UGreaterThan(toSMT(a), toSMT(b))
+    }
+    case GreaterEquals(a, b) => a.getType match {
+      case BVType(true, _)  => FixedSizeBitVectors.SGreaterEquals(toSMT(a), toSMT(b))
+      case BVType(false, _) => FixedSizeBitVectors.UGreaterEquals(toSMT(a), toSMT(b))
+      case IntegerType()    => Ints.GreaterEquals(toSMT(a), toSMT(b))
+      case RealType()       => Reals.GreaterEquals(toSMT(a), toSMT(b))
+      case CharType()       => FixedSizeBitVectors.UGreaterEquals(toSMT(a), toSMT(b))
+    }
+
+    case _ => unhandled
+  }
+
+  /** Bit-vector specific operations and conversions. */
+  protected def toSMTBitVectors(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
+    case BVNot(u)                  => FixedSizeBitVectors.Not(toSMT(u))
+    case BVAnd(a, b)               => FixedSizeBitVectors.And(toSMT(a), toSMT(b))
+    case BVOr(a, b)                => FixedSizeBitVectors.Or(toSMT(a), toSMT(b))
+    case BVXor(a, b)               => FixedSizeBitVectors.XOr(toSMT(a), toSMT(b))
+    case BVShiftLeft(a, b)         => FixedSizeBitVectors.ShiftLeft(toSMT(a), toSMT(b))
+    case BVAShiftRight(a, b)       => FixedSizeBitVectors.AShiftRight(toSMT(a), toSMT(b))
+    case BVLShiftRight(a, b)       => FixedSizeBitVectors.LShiftRight(toSMT(a), toSMT(b))
+
+    case c @ BVWideningCast(e, _)  =>
+      val Some((from, to)) = c.cast: @unchecked
+      val BVType(signed, _) = e.getType: @unchecked
+      if (signed) FixedSizeBitVectors.SignExtend(to - from, toSMT(e))
+      else FixedSizeBitVectors.ZeroExtend(to - from, toSMT(e))
+
+    case c @ BVNarrowingCast(e, _) =>
+      val Some((from, to)) = c.cast: @unchecked
+      FixedSizeBitVectors.Extract(to - 1, 0, toSMT(e))
+
+    case BVUnsignedToSigned(e) => toSMT(e)
+    case BVSignedToUnsigned(e) => toSMT(e)
+    case BVToInt(e) => e.getType match {
+      case BVType(signed = false, size = _) =>
+        FixedSizeBitVectors.BV2Nat(toSMT(e))
+      case BVType(signed = true, size = size) =>
+        // scala-smtlib exposes bv2nat here; recover the signed two's-complement value.
+        val term = toSMT(e)
+        val nat = FixedSizeBitVectors.BV2Nat(term)
+        Core.ITE(
+          FixedSizeBitVectors.SLessThan(term, toSMT(BVLiteral(true, 0, size))),
+          Ints.Sub(nat, Ints.NumeralLit(BigInt(2).pow(size))),
+          nat
+        )
+    }
+    case IntToBV(size, _, e) => FixedSizeBitVectors.Int2BV(size, toSMT(e))
+
+    case _ => unhandled
+  }
+
+  protected def toSMTFloatingPoint(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
+    case FPLiteral(e, s, bits) =>
+      val size = e + s
+      FloatingPoint.FPLit(
+        FixedSizeBitVectors.BitVectorLit(List.range(1, 2).map(i => bits(size + 1 - i))),
+        FixedSizeBitVectors.BitVectorLit(List.range(2, e + 2).map(i => bits(size + 1 - i))),
+        FixedSizeBitVectors.BitVectorLit(List.range(e + 2, size + 1).map(i => bits(size + 1 - i)))
+      )
+
+    case FPEquals(a, b) => FloatingPoint.Eq(toSMT(a), toSMT(b))
+    case FPAdd(rm, a, b) => FloatingPoint.Add(toSMT(rm), toSMT(a), toSMT(b))
+    case FPSub(rm, a, b) => FloatingPoint.Sub(toSMT(rm), toSMT(a), toSMT(b))
+    case FPMul(rm, a, b) => FloatingPoint.Mul(toSMT(rm), toSMT(a), toSMT(b))
+    case FPDiv(rm, a, b) => FloatingPoint.Div(toSMT(rm), toSMT(a), toSMT(b))
+    case FPUMinus(e)     => FloatingPoint.Neg(toSMT(e))
+    case FPFMA(rm, e1, e2, e3) => FloatingPoint.FMA(toSMT(rm), toSMT(e1), toSMT(e2), toSMT(e3))
+    case FPAbs(e)        => FloatingPoint.Abs(toSMT(e))
+    case Sqrt(rm, e)     => FloatingPoint.Sqrt(toSMT(rm), toSMT(e))
+    case FPMax(a, b) => FloatingPoint.Max(toSMT(a), toSMT(b))
+    case FPMin(a, b) => FloatingPoint.Min(toSMT(a), toSMT(b))
+    case FPRound(rm, e) => FloatingPoint.RoundToIntegral(toSMT(rm), toSMT(e))
+    case FPCast(ne, ns, rm, e) => FloatingPoint.ToFP(ne, ns, toSMT(rm), toSMT(e))
+    case FPFromBinary(ne, ns, e) => FloatingPoint.ToFP(ne, ns, toSMT(e))
+    case FPToBV(s, signed, rm, e) =>
+      if (signed) {
+        FloatingPoint.ToSignedBitVector(s, toSMT(rm), toSMT(e))
+      }
+      else {
+        FloatingPoint.ToUnsignedBitVector(s, toSMT(rm), toSMT(e))
+      }
+    case FPToBVJVM(eb, sb, toSize, e) =>
+      toSize match
+        case 8 => toSMT(BVNarrowingCast(FPToBVJVM(eb, sb, 32, e), Int8Type()))
+        case 16 => toSMT(BVNarrowingCast(FPToBVJVM(eb, sb, 32, e), Int16Type()))
+        case s @ (32 | 64) =>
+          val (maxVal, minVal, zero) = s match
+            case 32 => (Int32Literal(Int.MaxValue), Int32Literal(Int.MinValue), Int32Literal(0))
+            case 64 => (Int64Literal(Long.MaxValue), Int64Literal(Long.MinValue), Int64Literal(0))
+
+          val isLarge = FPGreaterThan(e, FPCast(eb, sb, RoundTowardZero, maxVal))
+          val isSmall = FPLessThan(e, FPCast(eb, sb, RoundTowardZero, minVal))
+          toSMT(IfExpr(FPIsNaN(e), zero,
+            IfExpr(isLarge, maxVal,
+              IfExpr(isSmall, minVal,
+                FPToBV(s, true, RoundTowardZero, e)))))
+
+
+    case FPToReal(e) => FloatingPoint.ToReal(toSMT(e))
+    case FPLessThan(a, b) => FloatingPoint.LessThan(toSMT(a), toSMT(b))
+    case FPLessEquals(a, b) => FloatingPoint.LessEquals(toSMT(a), toSMT(b))
+    case FPGreaterThan(a, b) => FloatingPoint.GreaterThan(toSMT(a), toSMT(b))
+    case FPGreaterEquals(a, b) => FloatingPoint.GreaterEquals(toSMT(a), toSMT(b))
+    case FPIsInfinite(e) => FloatingPoint.IsInfinite(toSMT(e))
+    case FPIsZero(e)     => FloatingPoint.IsZero(toSMT(e))
+    case FPIsNaN(e)      => FloatingPoint.IsNaN(toSMT(e))
+    case FPIsPositive(e) => FloatingPoint.IsPositive(toSMT(e))
+    case FPIsNegative(e) => FloatingPoint.IsNegative(toSMT(e))
+    case FPIsNormal(e) => FloatingPoint.IsNormal(toSMT(e))
+    case FPIsSubnormal(e) => FloatingPoint.IsSubnormal(toSMT(e))
+
+    case RoundTowardZero => FloatingPoint.RoundTowardZero()
+    case RoundTowardNegative => FloatingPoint.RoundTowardNegative()
+    case RoundTowardPositive => FloatingPoint.RoundTowardPositive()
+    case RoundNearestTiesToAway => FloatingPoint.RoundNearestTiesToAway()
+    case RoundNearestTiesToEven => FloatingPoint.RoundNearestTiesToEven()
+
+    case _ => unhandled
+  }
+
+  // FIXME: replace by Seq(BV(16)) once solvers can handle them
+  protected def toSMTStrings(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
+    case StringLiteral(v) =>
+      declareSort(StringType())
+      Strings.StringLit(utils.StringUtils.encode(v))
+
+    case StringLength(a) => Strings.Length(toSMT(a))
+    case StringConcat(a, b) => Strings.Concat(toSMT(a), toSMT(b))
+    case SubString(a, start, Plus(start2, length)) if start == start2 =>
+      Strings.Substring(toSMT(a), toSMT(start), toSMT(length))
+    case SubString(a, start, end) =>
+      Strings.Substring(toSMT(a), toSMT(start), toSMT(Minus(end, start)))
+
+    case _ => unhandled
   }
 
   protected class Context(
