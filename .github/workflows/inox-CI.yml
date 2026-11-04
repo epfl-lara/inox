@@ -15,7 +15,7 @@ jobs:
         runners:
           - name: Linux
             os: Linux
-            labels: ['self-hosted', 'linux']
+            labels: ['ubuntu-latest']
           - name: macOS ARM64
             os: macOS
             labels: ['macos-latest']
