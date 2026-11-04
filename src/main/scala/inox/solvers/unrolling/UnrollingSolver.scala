@@ -35,7 +35,9 @@ enum FunctionEquality {
 
 object FunctionEquality {
   /** The comparisons between values that may contain functions in `expr`, and in the functions it
-    * transitively calls, which `none` rejects. Type parameters are assumed not to contain functions. */
+    * transitively calls, which `none` rejects. Callees are checked at the type arguments they are
+    * called with, so a comparison at a type parameter counts when the parameter is instantiated with
+    * a type that contains functions. The type parameters left free in `expr` are assumed not to. */
   def comparisons(program: Program)(expr: program.trees.Expr): Seq[program.trees.Expr] = {
     import program.trees._
     import program.symbols.{given, _}
@@ -56,9 +58,22 @@ object FunctionEquality {
       case _ => Set.empty
     } (e).toSeq
 
-    val called = exprOps.functionCallsOf(expr).map(_.id)
-    val callees = called ++ transitiveCallees(called)
-    comparisons(expr) ++ callees.toSeq.flatMap(id => comparisons(getFunction(id).fullBody))
+    // polymorphic recursion can instantiate a function at ever larger types, so past a few
+    // instantiations of the same function, we check its generic body instead
+    val seen = scala.collection.mutable.Set[(Identifier, Seq[Type])]()
+    val result = scala.collection.mutable.ListBuffer[Expr]()
+    var queue: List[Expr] = List(expr)
+    while (queue.nonEmpty) {
+      val e = queue.head
+      queue = queue.tail
+      result ++= comparisons(e)
+      for (fi <- exprOps.functionCallsOf(e)) {
+        val instances = seen.count(_._1 == fi.id)
+        val key = if (instances < 8) (fi.id, fi.tps) else (fi.id, getFunction(fi.id).typeArgs: Seq[Type])
+        if (seen.add(key)) queue ::= getFunction(key._1, key._2).fullBody
+      }
+    }
+    result.distinct.toSeq
   }
 }
 
