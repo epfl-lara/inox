@@ -169,7 +169,7 @@ $ sbt coverage it:test
 $ sbt coverageReport
 ```
 
-The `Inox coverage` CI workflow does the same and attaches the report to each run.
+The Linux / JDK 17 job of Inox CI does the same and attaches the report to each run.
 
 ## Contributing
 
