@@ -10,11 +10,11 @@ import solvers.PurityOptions
 /** The CNF path simplifier keeps path conditions in conjunctive normal form so
   * that it can discharge conditions that only follow from several clauses.
   */
-class SimplifierWithCNFPathSuite extends AnyFunSuite {
+class SimplifierWithCNFPathSuite extends AnyFunSuite with DatastructureUtils {
   import inox.trees.{given, _}
   import inox.trees.dsl._
 
-  val symbols = NoSymbols
+  val symbols = baseSymbols
   given Symbols = symbols
 
   class CNFSimplifier(override val trees: inox.trees.type,
@@ -146,5 +146,124 @@ class SimplifierWithCNFPathSuite extends AnyFunSuite {
     val cond = LessThan(i, j)
     assert(simplify(IfExpr(LessThan(i, j), one, two), cond) == one)
     assert(simplify(IfExpr(Not(LessThan(i, j)), one, two), cond) == two)
+  }
+
+  val d = Variable.fresh("d", BooleanType())
+  val e = Variable.fresh("e", BooleanType())
+
+  test("Implications and conditionals on the path are split into clauses") {
+    assert(simplify(IfExpr(b, i, j), Implies(a, b), a) == i)
+    assert(simplify(IfExpr(b, i, j), IfExpr(a, b, c), a) == i)
+    assert(simplify(IfExpr(c, i, j), IfExpr(a, b, c), Not(a)) == i)
+  }
+
+  test("Negations on the path are pushed into clauses") {
+    assert(simplify(IfExpr(b, i, j), Not(And(a, b)), a) == j)
+    assert(simplify(IfExpr(a, i, j), Not(Or(a, b))) == j)
+    assert(simplify(IfExpr(b, i, j), Not(Implies(a, b))) == j)
+    assert(simplify(IfExpr(a, i, j), Not(Not(a))) == i)
+    assert(simplify(IfExpr(b, i, j), Not(IfExpr(a, b, c)), a) == j)
+    assert(simplify(IfExpr(c, i, j), Not(IfExpr(a, b, c)), Not(a)) == j)
+  }
+
+  test("Large disjunctions are kept as a single clause") {
+    // Distributing this disjunction would produce 16 clauses, among them `a || c || e || b`.
+    val big = Or(Seq(And(a, b), And(c, d), And(e, a), And(b, c)))
+    val s = simplifier
+    val env = s.initEnv.withCond(big)
+    assert(!env.implies(Or(Seq(a, c, e, b))))
+    val small = Or(And(a, b), And(c, d))
+    assert(s.initEnv.withCond(small).implies(Or(a, c)))
+  }
+
+  test("Clauses already on the path are shortened by new conditions") {
+    // `a || b` becomes `b` once `!a` is known
+    val s = simplifier
+    val env = s.initEnv.withCond(Or(a, b)).withCond(Not(a))
+    assert(env.implies(b))
+    assert(s.transform(IfExpr(b, i, j), env) == i)
+  }
+
+  test("Conditions with lets are split under the let") {
+    val y = "y" :: BooleanType()
+    val cond = Let(y, a, And(y.toVariable, b))
+    assert(simplify(IfExpr(b, i, j), cond) == i)
+  }
+
+  test("Large conditions and bindings are not tracked") {
+    val large = (1 to 25).foldLeft(i: Expr)((acc, k) => Plus(acc, IntegerLiteral(k)))
+    val s = simplifier
+    val cond = Equals(large, j)
+    val env = s.initEnv.withCond(cond)
+    assert(!env.implies(cond))
+    val y = "y" :: IntegerType()
+    val bound = s.initEnv.withBinding(y -> large)
+    assert(bound.expand(y.toVariable) == y.toVariable)
+  }
+
+  test("Integer bindings update the boolean bindings that use them") {
+    val s = simplifier
+    val p = "p" :: BooleanType()
+    val y = "y" :: IntegerType()
+    val env = s.initEnv.withBinding(p -> LessThan(i, j)).withBinding(y -> Plus(i, one)).withCond(p.toVariable)
+    assert(s.transform(IfExpr(LessThan(i, j), one, two), env) == one)
+  }
+
+  test("Variables bound to constructors are expanded") {
+    val s = simplifier
+    val x = "x" :: T(optionID)(IntegerType())
+    val y = "y" :: T(optionID)(IntegerType())
+    val some = ADT(someID, Seq(IntegerType()), Seq(i))
+    val env = s.initEnv.withBinding(x -> some).withBinding(y -> x.toVariable)
+    assert(env.expand(x.toVariable) == some)
+    assert(env.expand(y.toVariable) == some)
+    assert(env.expand(i) == i)
+    assert(env.implies(IsConstructor(x.toVariable, someID)))
+    assert(s.transform(ADTSelector(x.toVariable, v), env) == i)
+    assert(s.transform(IsConstructor(x.toVariable, noneID), env) == BooleanLiteral(false))
+  }
+
+  test("Lets used inside lambdas are checked for purity") {
+    // With assumeChecked, purity under lambdas is checked by an unchecked simplifier,
+    // which receives the current path.
+    val y = "y" :: IntegerType()
+    val z = "z" :: IntegerType()
+    val e = Let(y, Division(i, j), Lambda(Seq(z), Plus(Plus(y.toVariable, y.toVariable), z.toVariable)))
+    val res = simplify(e, a)
+    assert(exprOps.variablesOf(res) == Set(i, j))
+  }
+
+  test("Paths can be moved to another CNF simplifier") {
+    val s1 = simplifier
+    val s2 = simplifier
+    val env = s1.initEnv.withCond(And(a, b))
+    assert(s2.transform(IfExpr(a, i, j), env `in` s2) == i)
+  }
+
+  test("Paths can be moved to the default simplifier") {
+    val s = simplifier
+    val y = "y" :: BooleanType()
+    val env = s.initEnv.withBinding(y -> b).withCond(a)
+    val default = symbols.simplifier(using PurityOptions.unchecked)
+    val moved = env `in` default
+    assert(default.transform(IfExpr(a, i, j), moved) == i)
+    assert(moved.implies(a))
+  }
+
+  test("A path subsumes the paths that extend it") {
+    val s = simplifier
+    val y = "y" :: IntegerType()
+    val base = s.initEnv.withCond(a).withBinding(y -> Plus(i, one))
+    val extended = base.withCond(b)
+    assert(base `subsumes` extended)
+    assert(!(extended `subsumes` base))
+    assert(s.initEnv `subsumes` base)
+  }
+
+  test("Paths print as the conjunction of their clauses") {
+    val s = simplifier
+    assert(s.initEnv.toString == "true")
+    val str = s.initEnv.withCond(And(a, Or(b, c))).toString
+    assert(str.contains("a") && str.contains("b || c") || str.contains("c || b"), str)
   }
 }

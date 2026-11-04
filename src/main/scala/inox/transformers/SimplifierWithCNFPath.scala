@@ -25,18 +25,25 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
     override def in(that: SimplifierWithPC {
       val trees: self.trees.type
       val symbols: self.symbols.type
-    }): that.Env = {
-      val thatCnf = that.asInstanceOf[SimplifierWithCNFPath {
-        val trees: self.trees.type
-        val symbols: self.symbols.type
-      }]
-      new thatCnf.CNFPath(
-        exprSubst.clone,
-        boolSubst,
-        conditions,
-        cnfCache.clone,
-        simpCache.clone
-      ).asInstanceOf[that.Env]
+    }): that.Env = that match {
+      case thatCnf: SimplifierWithCNFPath =>
+        val cnf = thatCnf.asInstanceOf[SimplifierWithCNFPath {
+          val trees: self.trees.type
+          val symbols: self.symbols.type
+        }]
+        new cnf.CNFPath(
+          exprSubst.clone,
+          boolSubst,
+          conditions,
+          cnfCache.clone,
+          simpCache.clone
+        ).asInstanceOf[that.Env]
+
+      case _ =>
+        // Other simplifiers (such as the unchecked simplifier used for purity checks)
+        // have their own kind of path, which we rebuild from our bindings and conditions.
+        val bindings = exprSubst.toSeq.map { case (v, e) => v.toVal -> e } ++ boolSubst.toSeq.map { case (v, e) => v.toVal -> e }
+        that.initEnv.withBindings(bindings).withConds(conditions)
     }
 
     def subsumes(that: CNFPath): Boolean =
