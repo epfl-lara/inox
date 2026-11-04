@@ -5,6 +5,7 @@ package solvers
 package smtlib
 
 import utils._
+import utils.CaseSplit.*
 
 import _root_.smtlib.lexer.{Tokens => LT, _}
 import _root_.smtlib.trees.Commands.{FunDef => SMTFunDef, _}
@@ -52,7 +53,19 @@ trait SMTLIBParser {
     }
   }
 
-  protected def fromSMT(term: Term, otpe: Option[Type] = None)(using context: Context): Expr = term match {
+  /** Parses `term` as an expression, of type `otpe` when it is defined.
+    *
+    * The cases are split by theory into the `fromSMTCore`, `fromSMTArithmetic`, ... methods below,
+    * which are tried in order (see [[utils.CaseSplit]]). Parsers can override `fromSMT` itself, or a
+    * single family.
+    */
+  protected def fromSMT(term: Term, otpe: Option[Type] = None)(using context: Context): Expr =
+    fromSMTCore(term, otpe) otherwise fromSMTArithmetic(term, otpe) otherwise fromSMTBitVectors(term, otpe) otherwise
+      fromSMTFloatingPoint(term, otpe) otherwise fromSMTArrays(term, otpe) otherwise
+      (throw new MissformedSMTException(term, s"Unknown SMT term of class: ${term.getClass}:\n$term"))
+
+  /** Variables, binders, literals, booleans and annotations. */
+  protected def fromSMTCore(term: Term, otpe: Option[Type])(using context: Context): Expr = term match {
     case QualifiedIdentifier(SimpleIdentifier(sym), None) if context.vars contains sym => context.vars(sym)
 
     case SMTLet(binding, bindings, term) =>
@@ -148,6 +161,15 @@ trait SMTLIBParser {
 
     /* Ints extractors cover the Reals operations as well */
 
+    case AnnotatedTerm(term, attribute, attributes) =>
+      // discard general annotations
+      fromSMT(term, otpe)
+
+    case _ => unhandled
+  }
+
+  /** Integer and real arithmetic. */
+  protected def fromSMTArithmetic(term: Term, otpe: Option[Type])(using context: Context): Expr = term match {
     case Ints.Neg(e) => UMinus(fromSMT(e, otpe))
     case Ints.Add(e1, e2) => Plus(fromSMT(e1, otpe), fromSMT(e2, otpe))
     case Ints.Sub(e1, e2) => Minus(fromSMT(e1, otpe), fromSMT(e2, otpe))
@@ -171,6 +193,10 @@ trait SMTLIBParser {
     case Reals.Div(SNumeral(n1), SNumeral(n2)) => FractionLiteral(n1, n2)
     case Reals.Div(e1, e2) => Division(fromSMT(e1, RealType()), fromSMT(e2, RealType()))
 
+    case _ => unhandled
+  }
+
+  protected def fromSMTBitVectors(term: Term, otpe: Option[Type])(using context: Context): Expr = term match {
     case FixedSizeBitVectors.Not(e) => BVNot(fromSMT(e, otpe))
     case FixedSizeBitVectors.Neg(e) => UMinus(fromSMT(e, otpe))
     case FixedSizeBitVectors.And(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVAnd.apply)
@@ -225,6 +251,10 @@ trait SMTLIBParser {
         case _ => true
       }, (i + 1).bigInteger.intValueExact))
 
+    case _ => unhandled
+  }
+
+  protected def fromSMTFloatingPoint(term: Term, otpe: Option[Type])(using context: Context): Expr = term match {
     case FloatingPoint.Eq(t1, t2) => fromSMTUnifyType(t1, t2, None)(FPEquals.apply)
     case FloatingPoint.Add(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPAdd(fromSMT(rm, RoundingMode), e1, e2))
     case FloatingPoint.Sub(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPSub(fromSMT(rm, RoundingMode), e1, e2))
@@ -264,6 +294,11 @@ trait SMTLIBParser {
     case FloatingPoint.RoundNearestTiesToEven() => RoundNearestTiesToEven
     case FloatingPoint.RoundNearestTiesToAway() => RoundNearestTiesToAway
 
+    case _ => unhandled
+  }
+
+  /** Arrays, which encode maps, sets and bags. */
+  protected def fromSMTArrays(term: Term, otpe: Option[Type])(using context: Context): Expr = term match {
     case ArraysEx.Select(e1, e2) => otpe match {
       case Some(tpe) =>
         val ex2 = fromSMT(e2)
@@ -290,13 +325,7 @@ trait SMTLIBParser {
       val MapType(from, to) = fromSMT(sort): @unchecked
       FiniteMap(Seq.empty, d, from, to)
 
-    case AnnotatedTerm(term, attribute, attributes) => 
-      // discard general annotations
-      fromSMT(term, otpe)
-
-    case _ => throw new MissformedSMTException(term,
-      s"Unknown SMT term of class: ${term.getClass}:\n$term"
-    )
+    case _ => unhandled
   }
 
   protected def fromSMT(sort: Sort)(using Context): Type = sort match {
