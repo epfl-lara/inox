@@ -148,4 +148,65 @@ class EvaluatingSolverSuite extends AnyFunSuite {
       assert(reporter.lastErrors.exists(_.contains("Runtime error during evaluation")))
     } finally f.reclaim(s)
   }
+
+  /** A reporter that records errors and debug messages. */
+  class RecordingReporter(sections: Set[DebugSection]) extends DefaultReporter(sections) {
+    val messages = scala.collection.mutable.ListBuffer.empty[Message]
+    override def doEmit(msg: Message): Unit = messages += msg
+    override def doEmit(msg: ProgressMessage, prevLength: Int): String = ""
+    override def clearProgress(): Unit = ()
+    def errors = messages.filter(_.severity == ERROR).map(_.msg.toString)
+  }
+
+  def loudSolver(reporter: Reporter) = {
+    val loud = Context(reporter, new utils.InterruptManager(reporter), Options(Seq(optSilentErrors(false), optSelectedSolvers(Set("eval")))))
+    SolverFactory("eval", program, loud, force = true).getNewSolver()
+  }
+
+  test("Declaring variables is accepted") {
+    withSolver { s =>
+      s.declare(x.toVal)
+      s.assertCnstr(Equals(double(one), two))
+      assert(s.check(Simple) == Sat)
+    }
+  }
+
+  test("Quantifiers the evaluator cannot decide are unknown") {
+    // The evaluator checks quantifiers with the selected solver, here `eval` itself.
+    val reporter = new RecordingReporter(Set())
+    val s = loudSolver(reporter)
+    val z = "z" :: IntegerType()
+    s.assertCnstr(Forall(Seq(z), LessThan(z.toVariable, IntegerLiteral(100))))
+    assert(s.check(Simple) == Unknown)
+    assert(reporter.errors.exists(_.contains("Failed to evaluate forall")), reporter.errors)
+  }
+
+  test("Errors are not reported after an interrupt, until a reset") {
+    val reporter = new RecordingReporter(Set())
+    val s = loudSolver(reporter)
+    s.interrupt()
+    s.assertCnstr(Equals(Division(one, IntegerLiteral(0)), one))
+    assert(s.check(Simple) == Unknown)
+    assert(reporter.errors.isEmpty)
+    s.reset()
+    s.assertCnstr(Equals(Division(one, IntegerLiteral(0)), one))
+    assert(s.check(Simple) == Unknown)
+    assert(reporter.errors.size == 1)
+  }
+
+  test("Errors are logged with their trace in the solver debug section") {
+    val reporter = new RecordingReporter(Set(DebugSectionSolver))
+    val s = loudSolver(reporter)
+    s.assertCnstr(Equals(Division(one, IntegerLiteral(0)), one))
+    assert(s.check(Simple) == Unknown)
+    assert(reporter.errors.isEmpty)
+    assert(reporter.messages.exists(_.msg.toString.contains("Runtime error during evaluation")))
+  }
+
+  test("Freeing the solver drops its constraints") {
+    val s = factory.getNewSolver()
+    s.assertCnstr(BooleanLiteral(false))
+    s.free()
+    assert(s.check(Simple) == Sat)
+  }
 }
