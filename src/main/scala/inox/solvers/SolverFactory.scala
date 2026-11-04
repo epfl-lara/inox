@@ -28,13 +28,7 @@ trait SolverFactory {
 
 object SolverFactory {
 
-  lazy val hasNativeZ3 = try {
-    _root_.z3.Z3Wrapper.withinJar()
-    true
-  } catch {
-    case _: java.lang.UnsatisfiedLinkError => false
-    case _: java.lang.NoClassDefFoundError => false
-  }
+  lazy val hasNativeZ3: Boolean = PlatformSolvers.hasNativeZ3
 
   import _root_.smtlib.interpreters._
 
@@ -79,39 +73,57 @@ object SolverFactory {
   import combinators._
   import unrolling._
 
-  val solverNames = Map(
-    "nativez3"      -> "Native Z3 with z3-templates for unrolling",
-    "nativez3-opt"  -> "Native Z3 optimizer with z3-templates for unrolling",
-    "unrollz3"      -> "Native Z3 with inox-templates for unrolling",
+  val solverNames: Map[String, String] = PlatformSolvers.solverNames ++ Map(
     "smt-cvc4"      -> "CVC4 through SMT-LIB",
     "smt-cvc5"      -> "cvc5 through SMT-LIB",
     "smt-z3"        -> "Z3 through SMT-LIB",
     "smt-z3-opt"    -> "Z3 optimizer through SMT-LIB",
     "smt-z3:<exec>" -> "Z3 through SMT-LIB with custom executable name",
     "smt-bitwuzla"  -> "Bitwuzla through SMT-LIB",
-    "princess"      -> "Princess with inox unrolling",
     "eval"          -> "Internal evaluator to discharge ground assertions",
     "inv-z3"        -> "Horn solver using Z3 / Spacer",
-    "inv-eld"       -> "Horn solver using Eldarica",
 
   )
 
-  private val fallbacks = Map(
-    "nativez3"     -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4", "smt-cvc5", "princess"),   "Z3 native interface"),
-    "nativez3-opt" -> (() => hasNativeZ3, Seq("smt-z3-opt"),                                   "Z3 native interface"),
-    "unrollz3"     -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4", "smt-cvc5", "princess"),   "Z3 native interface"),
+  private val fallbacks: Map[String, (() => Boolean, Seq[String], String)] = PlatformSolvers.fallbacks ++ Map(
     "inv-z3"       -> (() => hasZ3,       Seq("smt-z3", "smt-cvc4", "smt-cvc5", "princess"),   "Z3 native interface"),
     "smt-cvc4"     -> (() => hasCVC4,     Seq("nativez3", "smt-z3", "princess"),               "'cvc4' binary"),
     "smt-cvc5"     -> (() => hasCVC5,     Seq("nativez3", "smt-z3", "princess"),               "'cvc5' binary"),
     "smt-z3"       -> (() => hasZ3,       Seq("nativez3", "smt-cvc4", "smt-cvc5", "princess"), "'z3' binary"),
     "smt-z3-opt"   -> (() => hasZ3,       Seq("nativez3-opt"),                                 "'z3' binary"),
-    "inv-eld"      -> (() => true,        Seq(),                                               "Eldarica solver"),
-    "princess"     -> (() => true,        Seq(),                                               "Princess solver"),
     "eval"         -> (() => true,        Seq(),                                               "Internal evaluator"),
     "smt-bitwuzla" -> (() => hasBitwuzla, Seq("smt-cvc5", "nativez3", "smt-z3", "princess"),   "'bitwuzla' binary"),
   )
 
   private var reported: Boolean = false
+
+  /** Wraps a solver factory into a [[NonIncrementalSolver]] when `nonIncremental` is set. */
+  private[solvers] def nonIncrementalWrap[T, M](ctx: Context, nonIncremental: Boolean)(targetProgram: Program)(
+    nme: String,
+    targetSem: targetProgram.Semantics,
+    underlyingSolver: () => AbstractSolver {
+      val program: targetProgram.type
+      type Trees = T
+      type Model = M
+  }): AbstractSolver {
+        val program: targetProgram.type
+        type Trees = T
+        type Model = M
+      } = {
+
+    if (nonIncremental) {
+      class NonIncrementalImpl(override val program: targetProgram.type, override val context: inox.Context)
+        extends NonIncrementalSolver {
+        override type Trees = T
+        override type Model = M
+        override def name = s"no-inc:$nme"
+        override def underlying() = underlyingSolver()
+      }
+      new NonIncrementalImpl(targetProgram, ctx)
+    } else {
+      underlyingSolver()
+    }
+  }
 
   // extract <exec> in "smt-z3:<exec>"
   private def getZ3Executable(name: String): String = name.drop(7)
@@ -144,7 +156,7 @@ object SolverFactory {
       fallbacks.get(noPrefixName) match {
         case Some((guard, names, requirement)) if !guard() =>
           val replacement = names.collectFirst {
-            case name if fallbacks(name)._1() => name
+            case name if fallbacks.get(name).exists(_._1()) => name
           }.getOrElse(ctx.reporter.fatalError(s"No fallback available for solver $name"))
 
           if (!reported) {
@@ -170,92 +182,7 @@ object SolverFactory {
       }
     }
 
-    def nonIncrementalWrap[T, M](targetProgram: Program)(
-      nme: String,
-      targetSem: targetProgram.Semantics,
-      underlyingSolver: () => AbstractSolver {
-        val program: targetProgram.type
-        type Trees = T
-        type Model = M
-    }): AbstractSolver {
-          val program: targetProgram.type
-          type Trees = T
-          type Model = M
-        } = {
-
-      if (nonIncremental) {
-        class NonIncrementalImpl(override val program: targetProgram.type, override val context: inox.Context)
-          extends NonIncrementalSolver {
-          override type Trees = T
-          override type Model = M
-          override def name = s"no-inc:$nme"
-          override def underlying() = underlyingSolver()
-        }
-        new NonIncrementalImpl(targetProgram, ctx)
-      } else {
-        underlyingSolver()
-      }
-    }
-
-
     finalName match {
-      case "nativez3" => create(p)(finalName, {
-        val chooseEnc = ChooseEncoder(p)(enc)
-        class NativeZ3Impl(override val program: p.type)
-                          (override val enc: transformers.ProgramTransformer {
-                            val sourceProgram: program.type
-                            val targetProgram: Program { val trees: inox.trees.type }
-                          })
-                          (override val chooses: ChooseEncoder {
-                            val program: p.type
-                            val sourceEncoder: enc.type
-                          })
-          extends z3.NativeZ3Solver(program)(program, ctx, enc, chooses)
-            with TimeoutSolver
-            with tip.TipDebugger {
-
-          // encoder is from TipDebugger and enc from AbstractUnrollingSolver
-          override protected val encoder = enc
-        }
-        () => new NativeZ3Impl(p)(enc)(chooseEnc)
-      })
-
-      case "nativez3-opt" => create(p)(finalName, {
-        val chooseEnc = ChooseEncoder(p)(enc)
-        // Override of `program` is needed as we need to have `program: p.type`
-        class NativeZ3OptImpl(override val program: p.type)
-          extends z3.Z3Unrolling(program)(program, ctx, enc, chooseEnc) with z3.NativeZ3Optimizer with TimeoutSolver
-
-        () => new NativeZ3OptImpl(p)
-      })
-
-      case "unrollz3" => create(p)(finalName, {
-        class UnrollZ3Impl(override val program: p.type)
-                          (override val enc: transformers.ProgramTransformer {
-                            val sourceProgram: program.type
-                            val targetProgram: Program { val trees: inox.trees.type }
-                          })
-                          (override val chooses: ChooseEncoder {
-                            val program: p.type
-                            val sourceEncoder: enc.type
-                          })
-          extends AbstractUnrollingSolver(program, ctx, enc, chooses)(fullEncoder => theories.Z3(fullEncoder.targetProgram))
-            with UnrollingSolver
-            with TimeoutSolver
-            with tip.TipDebugger { self =>
-
-          class Underlying(override val program: targetProgram.type)
-            extends z3.UninterpretedZ3Solver(targetProgram, ctx)
-
-          protected val underlying = nonIncrementalWrap(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
-
-          // encoder is from TipDebugger and enc from AbstractUnrollingSolver
-          override protected val encoder = enc
-        }
-
-        () => new UnrollZ3Impl(p)(enc)(ChooseEncoder(p)(enc))
-      })
-
       case "smt-z3-opt" => create(p)(finalName, {
         val chooseEnc = ChooseEncoder(p)(enc)
         class SMTZ3OptImpl(override val program: p.type)
@@ -337,36 +264,6 @@ object SolverFactory {
         () => new EncodedImpl(p, enc, SMTZ3Impl(enc.targetProgram))
       })
 
-      case "inv-eld" => create(p)(finalName, {
-        val emptyEnc = ProgramEncoder.empty(enc.targetProgram)
-        val chooses = ChooseEncoder(enc.targetProgram)(emptyEnc)
-        class SMTEldaricaImpl(override val program: enc.targetProgram.type)
-          extends AbstractInvariantSolver (program, ctx)(program)(emptyEnc)(emptyEnc)(using program.getSemantics, emptyEnc.targetProgram.getSemantics)
-            with InvariantSolver
-            with TimeoutSolver
-            with tip.TipDebugger {
-
-          override val name = "inv-eld" 
-
-          class Underlying(override val program: targetProgram.type)
-            extends smtlib.SMTLIBSolver(program, context)
-              with smtlib.EldaricaSolver
-
-          override protected val underlyingHorn = Underlying(targetProgram)
-
-          // encoder is from TipDebugger and enc from AbstractUnrollingSolver
-          override protected val encoder = emptyEnc
-        }
-
-        class EncodedImpl(program: p.type, enc: transformers.ProgramTransformer {
-                         val sourceProgram: program.type
-                         val targetProgram: Program { val trees: inox.trees.type }
-                       }, underlying: Solver {val program: enc.targetProgram.type}) 
-              extends EncodingSolver(program, enc, underlying) with TimeoutSolver
-
-        () => new EncodedImpl(p, enc, SMTEldaricaImpl(enc.targetProgram))
-      })
-
       case _ if finalName == "smt-z3" || finalName.startsWith("smt-z3:") => create(p)(finalName, {
         class SMTZ3Impl(override val program: p.type)
                        (override val enc: transformers.ProgramTransformer {
@@ -389,7 +286,7 @@ object SolverFactory {
           }
 
           override protected val underlying =
-            nonIncrementalWrap(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
+            nonIncrementalWrap(ctx, nonIncremental)(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
 
           // encoder is from TipDebugger and enc from AbstractUnrollingSolver
           override protected val encoder = enc
@@ -421,7 +318,7 @@ object SolverFactory {
             extends smtlib.SMTLIBSolver(program, ctx)
               with smtlib.CVC4Solver
 
-          protected val underlying = nonIncrementalWrap(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
+          protected val underlying = nonIncrementalWrap(ctx, nonIncremental)(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
 
           // Used to report SMT Lib files <-> VCs correspondence
           override def getSmtLibFileId: Option[Int] = underlying.getSmtLibFileId
@@ -453,7 +350,7 @@ object SolverFactory {
             extends smtlib.SMTLIBSolver(program, ctx)
               with smtlib.CVC5Solver
 
-          protected val underlying = nonIncrementalWrap(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
+          protected val underlying = nonIncrementalWrap(ctx, nonIncremental)(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
 
           // Used to report SMT Lib files <-> VCs correspondence
           override def getSmtLibFileId: Option[Int] = underlying.getSmtLibFileId
@@ -485,7 +382,7 @@ object SolverFactory {
             extends smtlib.SMTLIBSolver(program, ctx)
               with smtlib.BitwuzlaSolver
 
-          protected val underlying = nonIncrementalWrap(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
+          protected val underlying = nonIncrementalWrap(ctx, nonIncremental)(targetProgram)(finalName, targetSemantics, () => new Underlying(targetProgram))
 
           // Used to report SMT Lib files <-> VCs correspondence
           override def getSmtLibFileId: Option[Int] = underlying.getSmtLibFileId
@@ -497,14 +394,6 @@ object SolverFactory {
         () => new SMTBitwuzlaImpl(p)(enc)(ChooseEncoder(p)(enc))
       })
 
-      case "princess" => create(p)(finalName, {
-        val chooseEnc = ChooseEncoder(p)(enc)
-        class PrincessImpl(override val program: p.type)
-          extends princess.PrincessSolver(p)(p, ctx, enc, chooseEnc) with TimeoutSolver
-
-        () => new PrincessImpl(p)
-      })
-
       case "eval" => create(p)(finalName, {
         val encAlias = enc // alias to resolve ambiguous reference
         class EvalImpl(override val program: p.type) extends EvaluatingSolver(p, ctx)(p)(enc)(enc) with TimeoutSolver with tip.TipDebugger:
@@ -513,7 +402,8 @@ object SolverFactory {
         () => new EvalImpl(p)
       })
 
-      case _ => throw FatalError("Unknown solver: " + finalName)
+      case _ => PlatformSolvers.getFromName(finalName, nonIncremental)(p, ctx)(enc)
+        .getOrElse(throw FatalError("Unknown solver: " + finalName))
     }
   }
 
