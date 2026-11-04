@@ -169,7 +169,9 @@ $ sbt coverage it:test
 $ sbt coverageReport
 ```
 
-The Linux / JDK 17 job of Inox CI does the same and attaches the report to each run.
+The Linux / JDK 17 job of Inox CI does the same and attaches the report to each run. On pull
+requests, the Coverage comment workflow then posts the coverage, and its difference to `main`, as
+a comment.
 
 ## Contributing
 

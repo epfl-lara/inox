@@ -87,7 +87,14 @@ jobs:
       if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
       run: |
         sbt -batch coverageReport
-        python3 scripts/coverage_summary.py target/scala-*/scoverage-report/scoverage.xml >> $GITHUB_STEP_SUMMARY
+        report=$(echo target/scala-*/scoverage-report/scoverage.xml)
+        python3 scripts/coverage_summary.py report $report >> $GITHUB_STEP_SUMMARY
+        # Read by the coverage comment workflow, to compare pull requests with main.
+        mkdir -p coverage-summary
+        python3 scripts/coverage_summary.py json $report coverage-summary/coverage.json
+        echo "$PR_NUMBER" > coverage-summary/pr-number
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
     - name: Upload coverage report
       if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
       uses: actions/upload-artifact@v4
@@ -96,5 +103,11 @@ jobs:
         path: |
           target/scala-*/scoverage-report/
           target/scala-*/coverage-report/cobertura.xml
+    - name: Upload coverage summary
+      if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-summary
+        path: coverage-summary/
     - name: Clean up
       run: rm -rf $JAVA_OPTS_TMP_DIR
