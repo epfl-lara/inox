@@ -212,6 +212,10 @@ abstract class AbstractUnrollingSolver private
     * needed (see [[LambdaTemplates.onDemandWitnesses]]). */
   private var requestedWitnesses: Map[Encoded, Int] = Map.empty
 
+  /** The on-demand distinguishing inputs of the functions that show up in the last extracted model,
+    * which then join the regular unfolding (see [[LambdaTemplates.promoteWitnesses]]). */
+  private var exposedWitnesses: Set[Encoded] = Set.empty
+
   protected var failures: ListBuffer[Throwable] = new ListBuffer
   protected var abort: Boolean = false
   protected var pause: Boolean = false
@@ -538,6 +542,8 @@ abstract class AbstractUnrollingSolver private
       wrapped.modelEval(templates.mkEquals(e1, e2), BooleanType()) == Some(BooleanLiteral(true)))
 
     lazy val onDemandWitnesses = templates.onDemandWitnesses.groupMap(_._1)(_._2)
+    // the functions that show up in the model, by type
+    val extractedFunctions = MutableMap.empty[FunctionType, Set[Encoded]]
 
     def extractValue(v: Encoded, tpe: Type, seen: Map[FunctionType, Set[Encoded]]): Expr = {
 
@@ -663,6 +669,7 @@ abstract class AbstractUnrollingSolver private
     def extractFunction(f: Encoded, fullType: Type, seen: Map[FunctionType, Set[Encoded]]): Expr = {
       val tpe = fullType.getType.asInstanceOf[FunctionType]
       val nextSeen = seen + (tpe -> (seen(tpe) + f))
+      extractedFunctions += tpe -> (extractedFunctions.getOrElse(tpe, Set.empty) + f)
 
       def extractLambda(f: Encoded, tpe: FunctionType): Option[Lambda] = {
         val optEqTemplate = templates.getLambdaTemplates(tpe).find { tmpl =>
@@ -854,6 +861,24 @@ abstract class AbstractUnrollingSolver private
       }.get
     }
     val chooses = exChooses.map(p => (p._1.res.id, Seq.empty[s.Type]) -> decodeOrSimplest(p._2))
+
+    // The distinct functions of the model need a distinguishing input, so on-demand pairs join the
+    // regular unfolding once they show up in it (see [[LambdaTemplates.onDemandWitnesses]]): a free
+    // function with the other free functions of the model, and with the lambdas that the model
+    // instantiates. Pairs of lambdas are left to the extraction of the functions they are passed to
+    // (see `argumentCondition`). We don't ask the model whether the functions are distinct, as solvers
+    // may evaluate the equality of function values extensionally: their unfolding is guarded by it.
+    for {
+      (tpe, ws) <- onDemandWitnesses
+      fs <- extractedFunctions.get(tpe).toSeq
+      lambdas = templates.getLambdaTemplates(tpe).map(tmpl => tmpl.ids._2 -> tmpl.start).toMap
+      (f1, f2, equality, _) <- ws
+      if !lambdas.contains(f1) && fs.exists(modelEq(_, f1)) && (lambdas.get(f2) match {
+        case Some(start) => wrapped.modelEval(start, BooleanType()) == Some(BooleanLiteral(true))
+        case None => fs.exists(modelEq(_, f2))
+      })
+    } exposedWitnesses += equality
+
     inox.Model(program)(exModel.vars, exModel.chooses ++ chooses, exModel.functions)
   }
 
@@ -1161,6 +1186,7 @@ abstract class AbstractUnrollingSolver private
 
         case Validate(umodel) =>
           requestedWitnesses = Map.empty
+          exposedWitnesses = Set.empty
           val validated = (try { Some(extractTotalModel(umodel)) } catch {
             case NoSimpleValue(tpe) =>
               if (!silentErrors) {
@@ -1180,6 +1206,12 @@ abstract class AbstractUnrollingSolver private
             if (requested.nonEmpty && !abort && !pause) {
               reporter.debug(" - Instantiating requested distinguishing function inputs")
               for (cl <- templates.instantiateWitnesses(requested)) {
+                underlying.assertCnstr(cl)
+              }
+              ModelCheck
+            } else if (exposedWitnesses.nonEmpty && !abort && !pause) {
+              reporter.debug(" - Unfolding the distinguishing inputs of the functions in the model")
+              for (cl <- templates.promoteWitnesses(exposedWitnesses)) {
                 underlying.assertCnstr(cl)
               }
               ModelCheck
