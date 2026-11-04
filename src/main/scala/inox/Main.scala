@@ -55,6 +55,22 @@ trait MainHelpers {
     }
   }
 
+  abstract class ModelFormat
+  case object InoxModels extends ModelFormat
+  case object SMTLIBModels extends ModelFormat
+
+  object optModelFormat extends OptionDef[ModelFormat] {
+    val name: String = "model-format"
+    val usageRhs: String = "inox|smtlib"
+    val default: ModelFormat = InoxModels
+
+    override def parser: OptionParsers.OptionParser[ModelFormat] = s => s.toLowerCase match {
+      case "inox" => Some(InoxModels)
+      case "smtlib" => Some(SMTLIBModels)
+      case _ => None
+    }
+  }
+
   abstract class Category
   case object General extends Category
   case object Solvers extends Category
@@ -87,6 +103,9 @@ trait MainHelpers {
     }),
     optFormat -> Description(General, "Choose input format (if 'binary' also choose method to use as expression)"),
     optPrintProgram -> Description(Printing, "Print the entire program"),
+    optModelFormat -> Description(Printing,
+      "Answer format: 'inox' (default, human readable) or 'smtlib' (one of sat/unsat/unknown on its own line, " +
+      "followed for sat by the model as ((x v) ...) with SMT-LIB values)"),
     optPrintChooses -> Description(Printing, "Display partial models for chooses when printing models"),
     ast.optPrintPositions -> Description(Printing, "Attach positions to trees when printing"),
     ast.optPrintUniqueIds -> Description(Printing, "Always print unique ids"),
@@ -284,7 +303,22 @@ class InoxMain extends MainHelpers {
         }
 
         import SolverResponses._
+        val smtlibOutput = ctx.options.findOptionOrDefault(optModelFormat) == SMTLIBModels
         SimpleSolverAPI(sf).solveSAT(expr) match {
+          case SatWithModel(model) if smtlibOutput =>
+            val printed = try Some(tip.ValuePrinter.model(model.vars)) catch {
+              case e: tip.ValuePrinter.UnsupportedValue =>
+                reporter.warning(e.getMessage)
+                None
+            }
+            println(if (printed.isDefined) "sat" else "unknown")
+            printed.foreach(println)
+            if (printed.isEmpty) error = true
+          case Unsat if smtlibOutput =>
+            println("unsat")
+          case Unknown if smtlibOutput =>
+            println("unknown")
+            error = true
           case SatWithModel(model) =>
             reporter.info(s"$file => SAT")
             reporter.info("  " + model.asString.replaceAll("\n", "\n  "))
