@@ -111,4 +111,45 @@ class PortfolioSolverSuite extends AnyFunSuite {
     val s = PortfolioSolverFactory(program)(Seq(a)).getNewSolver()
     assert(s.checkAssumptions(UnsatAssumptions)(Set(x)) == UnsatWithAssumptions(Set(x)))
   }
+
+  test("SMT-LIB file ids come from the first solver") {
+    val (_, a) = scripted("a", Unknown)
+    assert(PortfolioSolverFactory(program)(Seq(a)).getNewSolver().getSmtLibFileId.isEmpty)
+    class Empty(override val program: PortfolioSolverSuite.this.program.type, override val context: Context)
+      extends PortfolioSolver with TimeoutSolver { val solvers = Seq() }
+    val empty = new Empty(program, ctx)
+    assert(empty.getSmtLibFileId.isEmpty)
+    assert(empty.check(Simple) == Unknown)
+  }
+
+  test("Debug messages, interrupts and frees reach every solver") {
+    var debugged = Seq.empty[String]
+    class Debugged(name: String) extends ScriptedSolver(program, ctx, name, Unknown) {
+      override def dbg(msg: => Any): Unit = synchronized { debugged :+= s"$name: $msg" }
+    }
+    val a = new Debugged("a") with TimeoutSolver
+    val b = new Debugged("b") with TimeoutSolver
+    val factory = PortfolioSolverFactory(program)(Seq(
+      SolverFactory.create[Debugged & TimeoutSolver](program)("a", () => a),
+      SolverFactory.create[Debugged & TimeoutSolver](program)("b", () => b)))
+    val s = factory.getNewSolver()
+    s.dbg("hello")
+    assert(debugged.sorted == Seq("a: hello", "b: hello"))
+    s.interrupt()
+    assert(a.interrupted && b.interrupted)
+    s.free()
+    s.check(Simple) // waits for the free to run
+    assert(a.calls.contains("free") && b.calls.contains("free"))
+  }
+
+  test("A solver that overflows the stack counts as unknown") {
+    val (_, overflow) = scripted("overflow", throw new StackOverflowError)
+    val (sat, sf) = scripted("sat", Sat)
+    val s = PortfolioSolverFactory(program)(Seq(overflow, sf)).getNewSolver()
+    assert(s.check(Simple) == Sat)
+    assert(s.getResultSolver == Some(sat))
+
+    val alone = PortfolioSolverFactory(program)(Seq(overflow)).getNewSolver()
+    assert(alone.check(Simple) == Unknown)
+  }
 }
