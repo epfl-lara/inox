@@ -72,7 +72,13 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     )
   }
 
-  val program = InoxProgram(new Symbols(Map(sizeID -> sizeFd), Map(listID -> List, boxID -> Box, objID -> Obj)))
+  // compares values of a type parameter, which may be instantiated with a function type
+  val sameID = FreshIdentifier("same")
+  val sameFd = mkFunDef(sameID)("A") { case Seq(aT) => (
+    Seq("x" :: aT, "y" :: aT), BooleanType(), { case Seq(x, y) => x === y })
+  }
+
+  val program = InoxProgram(new Symbols(Map(sizeID -> sizeFd, sameID -> sameFd), Map(listID -> List, boxID -> Box, objID -> Obj)))
 
   val intList = T(listID)(IntegerType())
 
@@ -457,6 +463,17 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
       val e = intercept[Exception](resultWith(FunctionEquality.None)(clause))
       assert(e.getMessage.contains("can't be compared"))
     }
+  }
+
+  test("function comparisons at type parameters are rejected without function equality") { ctx ?=>
+    val fnT = IntegerType() =>: IntegerType()
+    val f = ("f" :: fnT).toVariable
+    val g = ("g" :: fnT).toVariable
+    val e = intercept[Exception](resultWith(FunctionEquality.None)(E(sameID)(fnT)(f, g)))
+    assert(e.getMessage.contains("can't be compared"))
+
+    val x = ("x" :: IntegerType()).toVariable
+    assert(resultWith(FunctionEquality.None)(E(sameID)(IntegerType())(x, E(BigInt(1)))).isSAT)
   }
 
   test("comparisons with constructors without functions are accepted") { ctx ?=>
