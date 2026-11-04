@@ -11,6 +11,9 @@ import java.util.concurrent.atomic.AtomicInteger
 object FutureUtils {
 
   def findFirst[T](futures: Seq[Future[T]])(cond: T => Boolean): Option[T] = {
+    // With no futures, the promise below would never be completed.
+    if (futures.isEmpty) return None
+
     val p = Promise[Option[T]]()
     val n = futures.length
     val i = new AtomicInteger(0)
