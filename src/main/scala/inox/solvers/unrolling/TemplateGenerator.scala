@@ -395,7 +395,11 @@ trait TemplateGenerator { self: Templates =>
                 val newRes: Variable = Variable.fresh("res", BooleanType(), true)
                 storeExpr(newRes)
 
-                val xrec = rec(pathVar, x, pol)
+                // Only a conjunction that must hold forces each conjunct to hold. When it must not
+                // hold (e.g. under a negation), any conjunct may be the false one, so we cannot
+                // propagate the polarity: a universal quantifier inside `x` would otherwise be
+                // asserted under `pathVar`. This mirrors the non-last disjuncts in `Or` below.
+                val xrec = rec(pathVar, x, pol.filter(identity))
                 storeGuarded(pathVar, Equals(newRes, xrec))
 
                 val newBool: Variable = Variable.fresh("b", BooleanType(), true)

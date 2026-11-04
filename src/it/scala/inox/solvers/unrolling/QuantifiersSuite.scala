@@ -119,6 +119,20 @@ class QuantifiersSuite extends UnrollingTestSuite {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 
+  test("Universal quantifier under negated conjunction is not assumed") { ctx0 ?=>
+    // Without simplifications, the negation is not pushed inside the conjunction and the
+    // template generator encodes `!(e && fb)` directly. The universal quantifier of `e` must
+    // then not be asserted (`e` may be true), otherwise the formula is wrongly deemed UNSAT.
+    given ctx: inox.Context = ctx0.withOpts(optNoSimplifications(true))
+    val Seq(a, b, r) = Seq("a" :: IntegerType(), "b" :: IntegerType(), "r" :: IntegerType()).map(_.toVariable)
+    val e = !forall("k" :: IntegerType())(k => !(b === k * r))
+    val fa = forall("x" :: IntegerType())(x => (a === x) ==> (x <= r))
+    val fb = forall("x" :: IntegerType())(x => (b === x) ==> (x <= r))
+    val clause = e && fa && !(e && fb)
+
+    assert(!SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
+  }
+
   private def isPrincess(ctx: Context): Boolean =
     ctx.options.findOptionOrDefault(optSelectedSolvers).headOption match {
       case Some(solver) => solver == "princess"
