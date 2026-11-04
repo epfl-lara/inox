@@ -157,6 +157,72 @@ class TemplateEncodingSuite extends SolverTestSuite with DatastructureUtils {
     )) contains true)
   }
 
+  test("Refinement predicate calling a function with an assumption", Integers, Functions, Quantifiers) { ctx =>
+    // As above, but the assumption comes from a function called in the predicate,
+    // similarly to a Stainless `require`. Unrolling `pre(0)` must only falsify the
+    // type check of the instantiation, not the whole instantiation.
+    val a = ValDef.fresh("a", IntegerType())
+    val pre = new FunDef(FreshIdentifier("pre"), Seq(), Seq(a), BooleanType(),
+      Assume(Not(Equals(a.toVariable, IntegerLiteral(0))), BooleanLiteral(true)), Seq())
+
+    val p = InoxProgram(NoSymbols.withFunctions(Seq(pre)))
+    import p.trees._
+    val s = SimpleSolverAPI(p.getSolver(withoutModelChecks(ctx)))
+
+    val f = Variable.fresh("f", FunctionType(Seq(IntegerType()), IntegerType()))
+    val y = Variable.fresh("y", IntegerType())
+    val nonZero = RefinementType(y.toVal, Not(Equals(y, IntegerLiteral(0))))
+    val x = Variable.fresh("x", nonZero)
+    val guarded = RefinementType(x.toVal, FunctionInvocation(pre.id, Seq(), Seq(x)))
+    val w = Variable.fresh("w", guarded)
+
+    assert(s.solveVALID(Implies(
+      Forall(Seq(w.toVal), Equals(Application(f, Seq(w)), IntegerLiteral(1))),
+      Equals(Application(f, Seq(IntegerLiteral(0))), IntegerLiteral(1))
+    )) contains false)
+    assert(s.solveVALID(Implies(
+      Forall(Seq(w.toVal), Equals(Application(f, Seq(w)), IntegerLiteral(1))),
+      Equals(Application(f, Seq(IntegerLiteral(2))), IntegerLiteral(1))
+    )) contains true)
+  }
+
+  test("Nested refinement predicate calling a function with an assumption", Integers, Functions, Quantifiers, ADTs) { ctx =>
+    // As above, but the refinement is on a field of an inductive ADT. Beyond the first level,
+    // the field is checked by a separate type template, which must also guard the call to `pre`.
+    val a = ValDef.fresh("a", IntegerType())
+    val pre = new FunDef(FreshIdentifier("pre"), Seq(), Seq(a), BooleanType(),
+      Assume(Not(Equals(a.toVariable, IntegerLiteral(0))), BooleanLiteral(true)), Seq())
+
+    val y = Variable.fresh("y", IntegerType())
+    val nonZero = RefinementType(y.toVal, Not(Equals(y, IntegerLiteral(0))))
+    val x = Variable.fresh("x", nonZero)
+    val guarded = RefinementType(x.toVal, FunctionInvocation(pre.id, Seq(), Seq(x)))
+
+    val listId = FreshIdentifier("L")
+    val consId = FreshIdentifier("Cons")
+    val nilId = FreshIdentifier("Nil")
+    val hd = ValDef(FreshIdentifier("hd"), guarded)
+    val tl = ValDef(FreshIdentifier("tl"), ADTType(listId, Seq()))
+    val sort = new ADTSort(listId, Seq(), Seq(
+      new ADTConstructor(consId, listId, Seq(hd, tl)),
+      new ADTConstructor(nilId, listId, Seq())), Seq())
+
+    val p = InoxProgram(NoSymbols.withFunctions(Seq(pre)).withSorts(Seq(sort)))
+    import p.trees._
+    val s = SimpleSolverAPI(p.getSolver(withoutModelChecks(ctx)))
+
+    val lt = ADTType(listId, Seq())
+    val g = Variable.fresh("g", FunctionType(Seq(lt), IntegerType()))
+    val w = Variable.fresh("w", lt)
+    def cons(h: Int, t: Expr) = ADT(consId, Seq(), Seq(IntegerLiteral(h), t))
+    val nil = ADT(nilId, Seq(), Seq())
+    val hyp = Forall(Seq(w.toVal), Equals(Application(g, Seq(w)), IntegerLiteral(1)))
+
+    assert(s.solveVALID(Implies(hyp, Equals(Application(g, Seq(cons(0, nil))), IntegerLiteral(1)))) contains false, "depth 1")
+    assert(s.solveVALID(Implies(hyp, Equals(Application(g, Seq(cons(2, cons(0, nil)))), IntegerLiteral(1)))) contains false, "depth 2")
+    assert(s.solveVALID(Implies(hyp, Equals(Application(g, Seq(cons(2, cons(3, nil)))), IntegerLiteral(1)))) contains true, "valid")
+  }
+
   test("Choose inside quantifier", Integers, Quantifiers) { ctx =>
     // The `choose` must be in a function body to be handled by the ChooseEncoder.
     val x = Variable.fresh("x", IntegerType())

@@ -258,7 +258,8 @@ trait TemplateGenerator { self: Templates =>
     }
 
     var types = Map[Encoded, Set[Typing]]()
-    def storeType(pathVar: Variable, tpe: Type, arg: Expr)(using generator: TypingGenerator): Expr = {
+    def storeType(pathVar: Variable, tpe: Type, arg: Expr, inDomain: Boolean = false)
+                 (using generator: TypingGenerator): Expr = {
       val b = encodedCond(pathVar)
       val encoder = mkEncoder(localSubst)
       val closures = typeOps.variablesOf(tpe).toSeq.sortBy(_.id).map(encoder).map(Left(_))
@@ -267,7 +268,10 @@ trait TemplateGenerator { self: Templates =>
           val typeCall: Variable = Variable.fresh("tp", BooleanType(), true)
           storeExpr(typeCall)
 
-          (typeCall, Typing(tpe, encoder(arg), Constraint(exprVars(typeCall), closures, generator == FreeGenerator)))
+          // Function types are unfolded by `registerFunction`, which doesn't use the flag
+          val domain = inDomain && !tpe.isInstanceOf[FunctionType | PiType]
+          val constraint = Constraint(exprVars(typeCall), closures, generator == FreeGenerator, domain)
+          (typeCall, Typing(tpe, encoder(arg), constraint))
 
         case CaptureGenerator(container, containerType) =>
           // @nv: note that we only store the non-dependent type here as we don't need
@@ -525,16 +529,22 @@ trait TemplateGenerator { self: Templates =>
   }
 
   /** Whether the clauses of `expr` may falsify the path condition they are guarded by,
-    * i.e. whether `expr` contains an assumption or a `choose`.
-    *
-    * Function calls are not followed, so a predicate whose callee assumes a precondition
-    * that only holds within the base type is not guarded. Following calls would flag
-    * almost every Stainless type predicate (the type encoding's testers call functions
-    * with contracts), and the extra blockers then make verification much slower. */
+    * i.e. whether `expr` contains an assumption or a `choose`, or calls a function that
+    * (transitively) does, as unrolling the call falsifies the blocker it is registered under. */
   private def mayFalsifyPath(expr: Expr): Boolean = exprOps.exists {
+    case fi: FunctionInvocation => callMayFalsifyPath(fi.id)
+    case e => containsAssumption(e)
+  }(expr)
+
+  private def containsAssumption(e: Expr): Boolean = e match {
     case _: Assume | _: Choose => true
     case _ => false
-  }(expr)
+  }
+
+  private val callsMayFalsifyPath: MutableMap[Identifier, Boolean] = MutableMap.empty
+
+  private def callMayFalsifyPath(id: Identifier): Boolean = callsMayFalsifyPath.getOrElseUpdate(id,
+    (transitiveCallees(id) + id).exists(fid => exprOps.exists(containsAssumption)(getFunction(fid).fullBody)))
 
   /** Whether checking that a value belongs to `tpe` may falsify the path condition. */
   private def mayFalsifyPath(tpe: Type): Boolean = typeOps.exists {
@@ -542,12 +552,18 @@ trait TemplateGenerator { self: Templates =>
     case _ => false
   }(tpe)
 
-  /** Generates the clauses and other bookkeeping relevant to a type unfolding template. */
+  /** Generates the clauses and other bookkeeping relevant to a type unfolding template.
+    *
+    * `inDomain` is set when the type check is the domain of a quantifier, i.e. when it appears
+    * on the left of an implication and `expr` may range over values outside of `tpe`. The check
+    * must then be fully constrained, as the solver could otherwise falsify it to weaken the formula.
+    * The flag is carried over to the type templates of nested (inductive) types. */
   protected def mkTypeClauses(
     pathVar: Variable,
     tpe: Type,
     expr: Expr,
-    substMap: Map[Variable, Encoded]
+    substMap: Map[Variable, Encoded],
+    inDomain: Boolean = false
   )(using generator: TypingGenerator): (Expr, TemplateClauses) = {
     val builder = new Builder(pathVar, substMap)
     import builder._
@@ -573,10 +589,23 @@ trait TemplateGenerator { self: Templates =>
         guard
     }
 
+    // The result of a guarded check is used under `pathVar`, so any call or application it contains
+    // would be registered (and unrolled) under `pathVar` instead of `guard`. We therefore bind it to
+    // a fresh variable under `guard`. Where `guard` doesn't hold, the base check is false, so
+    // the conjunction it is part of doesn't depend on the (unconstrained) variable.
+    def guardedResult(pathVar: Variable, guard: Variable, res: Expr, name: String): Expr =
+      if (guard == pathVar || res.isInstanceOf[BooleanLiteral]) res
+      else {
+        val newExpr: Variable = Variable.fresh(name, BooleanType(), true)
+        storeExpr(newExpr)
+        storeGuarded(guard, Equals(newExpr, res))
+        newExpr
+      }
+
     def rec(pathVar: Variable, tpe: Type, expr: Expr, state: RecursionState): Expr = tpe match {
       case tpe if !(generator `unroll` tpe) => BooleanLiteral(true) // nothing to do here!
 
-      case (_: FunctionType | _: PiType) => storeType(pathVar, tpe, expr)
+      case (_: FunctionType | _: PiType) => storeType(pathVar, tpe, expr, inDomain)
 
       case tp: TypeParameter if generator == FreeGenerator => typesManager.storeTypeParameter(tp)
 
@@ -598,7 +627,7 @@ trait TemplateGenerator { self: Templates =>
           exprOps.replaceFromSymbols(Map(vd -> newExpr), pred), localSubst)
         builder ++= predClauses
 
-        and(recBase, p)
+        and(recBase, guardedResult(pathVar, predVar, p, "rr"))
 
       case SigmaType(params, to) =>
         val (newExprs, recParams) = params.zipWithIndex.map { case (vd, i) =>
@@ -617,7 +646,7 @@ trait TemplateGenerator { self: Templates =>
           typeOps.replaceFromSymbols((params zip newExprs).toMap, to),
           TupleSelect(expr, params.size + 1), state)
 
-        andJoin(recParams :+ recTo)
+        andJoin(recParams :+ guardedResult(pathVar, toVar, recTo, "sr"))
 
       case adt: ADTType =>
         val sort = adt.getSort
@@ -628,7 +657,7 @@ trait TemplateGenerator { self: Templates =>
             .map(_.applied(Seq(expr)))
             .getOrElse(BooleanLiteral(true)),
           if (sort.definition.isInductive && !state.recurseAdt) {
-            storeType(pathVar, tpe, expr)
+            storeType(pathVar, tpe, expr, inDomain)
           } else {
             val newExpr = Variable.fresh("e", BooleanType(), true)
             storeExpr(newExpr)
@@ -652,6 +681,11 @@ trait TemplateGenerator { self: Templates =>
                 storeGuarded(newBool, Equals(newExpr, recProp))
                 true
               } else {
+                // Constructors without fields to check trivially satisfy the type. Otherwise `newExpr`
+                // would be unconstrained for them, and the type check of a quantifier's domain could be
+                // falsified to weaken the formula. The clause is only added for quantifier domains
+                // (see `inDomain`), to keep the encoding unchanged elsewhere.
+                if (inDomain) storeGuarded(pathVar, Implies(isCons(expr, tcons.id), newExpr))
                 false
               }
             }
@@ -671,7 +705,7 @@ trait TemplateGenerator { self: Templates =>
 
       case MapType(from, to) =>
         if (!state.recurseMap) {
-          storeType(pathVar, tpe, expr)
+          storeType(pathVar, tpe, expr, inDomain)
         } else {
           val newBool1 : Variable = Variable.fresh("mapIsEmpty", BooleanType(), true)
           val newBool2 : Variable = Variable.fresh("mapNonEmpty", BooleanType(), true)
@@ -708,7 +742,7 @@ trait TemplateGenerator { self: Templates =>
 
       case SetType(base) =>
         if (!state.recurseSet) {
-          storeType(pathVar, tpe, expr)
+          storeType(pathVar, tpe, expr, inDomain)
         } else {
           val newBool1 : Variable = Variable.fresh("setIsEmpty", BooleanType(), true)
           val newBool2 : Variable = Variable.fresh("setNonEmpty", BooleanType(), true)
@@ -740,7 +774,7 @@ trait TemplateGenerator { self: Templates =>
 
       case BagType(base) =>
         if (!state.recurseBag) {
-          storeType(pathVar, tpe, expr)
+          storeType(pathVar, tpe, expr, inDomain)
         } else {
           val newBool1 : Variable = Variable.fresh("bagIsEmpty", BooleanType(), true)
           val newBool2 : Variable = Variable.fresh("bagNonEmpty", BooleanType(), true)
