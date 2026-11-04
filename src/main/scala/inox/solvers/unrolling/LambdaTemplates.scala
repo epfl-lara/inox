@@ -285,11 +285,11 @@ trait LambdaTemplates { self: Templates =>
       if (currentWitnessDepth > 0) witnessDepths += f -> currentWitnessDepth
 
       for ((otherGuard, other) <- witnessFunctions(ft).toSeq if other != f) {
-        clauses ++= registerWitness(mkAnd(guard, otherGuard), ft, f, other)
+        clauses ++= registerWitness(mkAnd(guard, otherGuard), ft, f, other, onDemand = onDemandFreeWitnesses)
       }
 
       for (template <- byType(ft).values.toSeq) {
-        clauses ++= registerWitness(mkAnd(guard, template.start), ft, f, template.ids._2)
+        clauses ++= registerWitness(mkAnd(guard, template.start), ft, f, template.ids._2, onDemand = onDemandFreeWitnesses)
       }
 
       witnessFunctions += ft -> (witnessFunctions(ft) + (guard -> f))
@@ -394,7 +394,7 @@ trait LambdaTemplates { self: Templates =>
 
       // make sure free functions have a distinguishing input with the new lambda (if they differ)
       val witnessClauses = for ((guard, f) <- witnessFunctions(newTemplate.tpe).toSeq) yield {
-        registerWitness(mkAnd(guard, newTemplate.start), newTemplate.tpe, f, idT)
+        registerWitness(mkAnd(guard, newTemplate.start), newTemplate.tpe, f, idT, onDemand = onDemandFreeWitnesses)
       }
 
       (idT, clauses ++ witnessClauses.flatten)
@@ -516,6 +516,15 @@ trait LambdaTemplates { self: Templates =>
   private lazy val onDemandLambdaWitnesses: Boolean =
     options.findOptionOrDefault(optFunctionEquality) == FunctionEquality.None
 
+  /** Unless function equality is extensional, whether two functions are equal never constrains their
+    * applications, so their distinguishing input is only needed when a model shows both of them. The
+    * pairs that involve a free function are therefore left out of the unfolding until then (see
+    * [[promoteWitnesses]]). Unfolding all of them instead can make queries much harder: each function
+    * term that the unrolling creates is paired with all the previous ones of its type, and the
+    * equalities of these pairs are assumed by every model check. */
+  private lazy val onDemandFreeWitnesses: Boolean =
+    options.findOptionOrDefault(optFunctionEquality) != FunctionEquality.Extensional
+
   /** Equality between the new lambda `template` and the previously instantiated ones.
     *
     * Lambdas with the same structure are equal when their closures are. Under intensional equality,
@@ -587,8 +596,8 @@ trait LambdaTemplates { self: Templates =>
     val depth = (witnessDepths.getOrElse(f1, 0) max witnessDepths.getOrElse(f2, 0)) + 1
     val equality = encodeSymbol(Variable.fresh("b_eq", BooleanType(), true))
     pendingWitnesses += PendingWitness(cond, tpe, f1, f2, depth, equality, onDemand)
-    // the equality of on-demand pairs is never assumed, and a free literal implying it lets the
-    // solver merge lambdas in models, which extraction then can't tell apart
+    // the equality of on-demand pairs isn't assumed until they are promoted, and a free literal
+    // implying it lets the solver merge lambdas in models, which extraction then can't tell apart
     if (onDemand) Seq.empty else Seq(mkImplies(mkAnd(equality, cond), mkEquals(f1, f2)))
   }
 
@@ -608,14 +617,26 @@ trait LambdaTemplates { self: Templates =>
   def witnessEqualities: Map[Encoded, Int] =
     pendingWitnesses.toSeq.filterNot(_.onDemand).map(w => w.equality -> w.depth).toMap
 
-  /** The pending distinguishing inputs that are only instantiated when model extraction needs them,
+  /** The pending distinguishing inputs that are only unfolded when model extraction needs them,
     * as the compared functions and the equality literal to instantiate them with.
     *
     * Without function equality, whether two lambdas of the program are equal can't be observed, so
     * their equality is left open. Their distinguishing input is only needed when an extracted function
-    * must tell them apart, and instantiating it for every pair of lambdas can make queries much harder. */
+    * must tell them apart, and instantiating it for every pair of lambdas can make queries much harder.
+    * Pairs that involve a free function are on demand as well unless equality is extensional (see
+    * [[onDemandFreeWitnesses]]), and join the regular unfolding once a model shows them. */
   def onDemandWitnesses: Seq[(FunctionType, (Encoded, Encoded, Encoded, Int))] =
     pendingWitnesses.toSeq.filter(_.onDemand).map(w => w.tpe -> (w.f1, w.f2, w.equality, w.depth))
+
+  /** Turns the on-demand distinguishing inputs with the given equality literals into regular ones,
+    * which are unfolded through their equality (see [[witnessEqualities]]). */
+  def promoteWitnesses(equalities: Set[Encoded]): Clauses = {
+    pendingWitnesses.toSeq.filter(w => w.onDemand && equalities(w.equality)).map { w =>
+      pendingWitnesses -= w
+      pendingWitnesses += w.copy(onDemand = false)
+      mkImplies(mkAnd(w.equality, w.cond), mkEquals(w.f1, w.f2))
+    }
+  }
 
   /** Instantiates the pending distinguishing inputs with the given equality literals. */
   def instantiateWitnesses(equalities: Set[Encoded]): Clauses = {
