@@ -59,6 +59,8 @@ trait TypeExtractors { self: Extractors =>
       case (Literal(Name(BVType(templateSigned, templateSize))), trees.BVType(signed, size)) =>
         if (templateSigned == signed && templateSize == size) success else fail
       case (Literal(name), _) if (basic.get(name) == Some(tpe)) => success
+      // Type parameters, like variables, are matched by name.
+      case (Literal(Name(name)), trees.TypeParameter(id, _)) if id.name == name => success
       case (Operation(Tuple, templates), trees.TupleType(tpes)) => extractSeq(tpes, templates)
       case (Operation(Sigma, templatesFroms :+ templateTo), trees.SigmaType(params, to)) =>
         for {
