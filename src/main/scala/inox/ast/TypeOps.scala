@@ -152,8 +152,9 @@ trait TypeOps {
         t <- typeCardinality(to)
         f <- typeCardinality(from)
       } yield Math.pow(t, f).toInt
+    // a bag can hold each of its elements any number of times
     case BagType(base) => typeCardinality(base) match {
-      case Some(x) if x <= 1 => Some(1)
+      case Some(0) => Some(1)
       case _ => None
     }
     case adt: ADTType =>

@@ -193,7 +193,8 @@ class ExprOps private(val trees: Trees)
       case StringConcat(b, StringLiteral("")) => b
       case StringConcat(StringLiteral(a), StringLiteral(b)) => StringLiteral(a + b)
       case StringLength(StringLiteral(a)) => IntegerLiteral(a.length)
-      case SubString(StringLiteral(a), IntegerLiteral(start), IntegerLiteral(end)) =>
+      case SubString(StringLiteral(a), IntegerLiteral(start), IntegerLiteral(end))
+          if 0 <= start && start <= end && end <= a.length =>
         StringLiteral(a.substring(start.toInt, end.toInt))
       case _ => expr
     }).copiedFrom(expr)
@@ -280,8 +281,6 @@ class ExprOps private(val trees: Trees)
         Some(Times(ctor(i1 * i2), t))
       case Times(exLit(i), UMinus(e)) => Some(Times(ctor(-i), e))
       case Times(UMinus(e), exLit(i)) => Some(Times(e, ctor(-i)))
-      case Times(exLit(i1), Division(e, exLit(i2))) if i2 != BigInt(0) && i1 % i2 == BigInt(0) =>
-        Some(Times(ctor(i1 / i2), e))
 
       case Division(exLit(i1), exLit(i2)) if i2 != BigInt(0) =>
         Some(ctor(i1 / i2))
@@ -298,6 +297,15 @@ class ExprOps private(val trees: Trees)
       }
     }
 
+    object Zero {
+      def unapply(e: Expr): Option[Expr] = e.getType match {
+        case IntegerType() => Some(IntegerLiteral(0))
+        case BVType(signed, size) => Some(BVLiteral(signed, 0, size))
+        case RealType() => Some(FractionLiteral(0, 1))
+        case _ => None
+      }
+    }
+
     def simplify0(expr: Expr): Expr = (expr match {
       case ExIntegerArithSimp(e) => e
 
@@ -305,8 +313,8 @@ class ExprOps private(val trees: Trees)
       //btw, I know those are not the most general rules, but they lead to good optimizations :)
       case Plus(UMinus(Plus(e1, e2)), e3) if e1 == e3 => UMinus(e2)
       case Plus(UMinus(Plus(e1, e2)), e3) if e2 == e3 => UMinus(e1)
-      case Minus(e1, e2) if e1 == e2 => IntegerLiteral(0)
-      case Minus(Plus(e1, e2), Plus(e3, e4)) if e1 == e4 && e2 == e3 => IntegerLiteral(0)
+      case m @ Minus(e1, e2) if e1 == e2 => Zero.unapply(m).getOrElse(m)
+      case m @ Minus(Plus(e1, e2), Plus(e3, e4)) if e1 == e4 && e2 == e3 => Zero.unapply(m).getOrElse(m)
       case Minus(Plus(e1, e2), Plus(Plus(e3, e4), e5)) if e1 == e4 && e2 == e3 => UMinus(e5)
 
       case StringConcat(StringLiteral(""), a) => a
