@@ -78,7 +78,25 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     Seq("x" :: aT, "y" :: aT), BooleanType(), { case Seq(x, y) => x === y })
   }
 
-  val program = InoxProgram(new Symbols(Map(sizeID -> sizeFd, sameID -> sameFd), Map(listID -> List, boxID -> Box, objID -> Obj)))
+  // compares values of a type parameter through a callee
+  val sameViaID = FreshIdentifier("sameVia")
+  val sameViaFd = mkFunDef(sameViaID)("A") { case Seq(aT) => (
+    Seq("x" :: aT, "y" :: aT), BooleanType(), { case Seq(x, y) => E(sameID)(aT)(x, y) })
+  }
+
+  // polymorphic recursion: `poly[A]` calls `poly[(A, A)]`, so its instances are unbounded
+  val polyID = FreshIdentifier("poly")
+  val polyFd = mkFunDef(polyID)("A") { case Seq(aT) => (
+    Seq("x" :: aT, "n" :: IntegerType()), BooleanType(), { case Seq(x, n) =>
+      (x === x) && (if_ (n <= E(BigInt(0))) { E(true) } else_ {
+        E(polyID)(TupleType(Seq(aT, aT)))(Tuple(Seq(x, x)), n - E(BigInt(1)))
+      })
+    })
+  }
+
+  val program = InoxProgram(new Symbols(
+    Map(sizeID -> sizeFd, sameID -> sameFd, sameViaID -> sameViaFd, polyID -> polyFd),
+    Map(listID -> List, boxID -> Box, objID -> Obj)))
 
   val intList = T(listID)(IntegerType())
 
@@ -190,7 +208,6 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     val g = ("g" :: tpe).toVariable
     val model = solve(f !== g)
     // cvc5 models for function-typed witnesses can't be extracted yet, so the solver
-    // falls back to a model without distinguishing inputs
     // falls back to a model without distinguishing inputs. With a single application each,
     // the extracted functions are constant, so any input tells them apart.
     if (!ctx.options.findOptionOrDefault(optSelectedSolvers).contains("smt-cvc5")) {
@@ -476,6 +493,27 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     assert(resultWith(FunctionEquality.None)(E(sameID)(IntegerType())(x, E(BigInt(1)))).isSAT)
   }
 
+  test("function comparisons in callees are found at their type arguments") { ctx ?=>
+    val fnT = IntegerType() =>: IntegerType()
+    def comparisons(e: Expr) = FunctionEquality.comparisons(program)(e)
+    val f = ("f" :: fnT).toVariable
+    val x = ("x" :: IntegerType()).toVariable
+    val n = ("n" :: IntegerType()).toVariable
+    // through an intermediate callee
+    assert(comparisons(E(sameViaID)(fnT)(f, f)).nonEmpty)
+    assert(comparisons(E(sameViaID)(IntegerType())(x, x)).isEmpty)
+    // types without functions, and with function fields
+    assert(comparisons(E(sameViaID)(T(listID)(IntegerType()))(C(nilID)(IntegerType())(), C(nilID)(IntegerType())())).isEmpty)
+    assert(comparisons(E(sameViaID)(T(boxID)())(C(boxConsID)(f), C(boxConsID)(f))).nonEmpty)
+    // polymorphic recursion terminates, and is checked at the instantiated types
+    assert(comparisons(E(polyID)(IntegerType())(x, n)).isEmpty)
+    assert(comparisons(E(polyID)(fnT)(f, n)).nonEmpty)
+
+    val e = intercept[Exception](resultWith(FunctionEquality.None)(E(sameViaID)(fnT)(f, f)))
+    assert(e.getMessage.contains("can't be compared"))
+    assert(resultWith(FunctionEquality.None)(E(sameViaID)(IntegerType())(x, E(BigInt(1)))).isSAT)
+  }
+
   test("comparisons with constructors without functions are accepted") { ctx ?=>
     // `Num(n)` holds no function, so comparing an `Obj` with it is a constructor test
     val o = ("o" :: T(objID)()).toVariable
@@ -497,6 +535,49 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     for (clause <- Seq(f(g) !== f(succ), f(succ) !== f(pred), f(addA) !== f(addB))) {
       resultWith(FunctionEquality.None)(clause) match {
         case SatWithModel(model) => assert(!model.vars.values.exists(comparesFunctions))
+        case res => fail(s"Expected a model, got $res")
+      }
+    }
+  }
+
+  test("free functions passed to a function without function equality", hasHigherOrderModels) { ctx ?=>
+    // `f` and `g` are only told apart through `k`, so the model needs their distinguishing input
+    // although the query never compares them
+    val k = ("k" :: ((IntegerType() =>: IntegerType()) =>: IntegerType())).toVariable
+    val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
+    val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
+    val h = ("h" :: (IntegerType() =>: IntegerType())).toVariable
+    for (clause <- Seq(k(f) !== k(g), (k(f) !== k(g)) && (k(g) !== k(h)) && (k(f) !== k(h)))) {
+      resultWith(FunctionEquality.None)(clause) match {
+        case SatWithModel(model) =>
+          assert(!model.vars.values.exists(comparesFunctions))
+          val fns = Seq(f, g, h).filter(v => model.vars.contains(v.toVal)).map(v => model.vars(v.toVal))
+          for (case Seq(f1, f2) <- fns.combinations(2)) assert(distinguishable(f1, f2))
+        case res => fail(s"Expected a model, got $res")
+      }
+    }
+  }
+
+  test("models with extensional function equality") { ctx ?=>
+    val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
+    val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
+    val succ = \("x" :: IntegerType())(x => x + E(BigInt(1)))
+    val bf = ("bf" :: T(boxID)()).toVariable
+    val bg = ("bg" :: T(boxID)()).toVariable
+    val clauses = Seq(
+      (f !== g) -> Seq(f -> g),
+      ((f !== g) && f(E(BigInt(0))) === g(E(BigInt(0)))) -> Seq(f -> g),
+      (f !== succ) -> Seq(f -> succ),
+      (bf !== bg) -> Seq(bf.getField(fn) -> bg.getField(fn)))
+    for ((clause, pairs) <- clauses) {
+      resultWith(FunctionEquality.Extensional)(clause) match {
+        case SatWithModel(model) =>
+          val subst = model.vars.map((vd, v) => vd.toVariable -> v)
+          def value(e: Expr): Expr = program.getEvaluator.eval(exprOps.replaceFromSymbols(subst, e)) match {
+            case EvaluationResults.Successful(v) => v
+            case res => fail(s"Can't evaluate ${e.asString(using PrinterOptions())}: $res")
+          }
+          for ((e1, e2) <- pairs) assert(distinguishable(value(e1), value(e2)))
         case res => fail(s"Expected a model, got $res")
       }
     }
@@ -533,6 +614,19 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     val pred = \("x" :: IntegerType())(x => x - E(BigInt(1)))
     assert(resultWith(FunctionEquality.Extensional)(succ === pred).isUNSAT)
     assert(resultWith(FunctionEquality.Extensional)(succ !== pred).isSAT)
+  }
+
+  test("quantified function comparisons are evaluated extensionally") { ctx ?=>
+    // model values may hold such quantifiers, which `none` checks extensionally
+    val x = ("x" :: IntegerType()).toVariable
+    val forall = Forall(Seq(x.toVal),
+      \("y" :: IntegerType())(y => y + x) === \("y" :: IntegerType())(y => x + y))
+    for (semantics <- Seq(FunctionEquality.None, FunctionEquality.Extensional)) {
+      program.getEvaluator(withEquality(semantics)).eval(forall) match {
+        case EvaluationResults.Successful(BooleanLiteral(true)) =>
+        case res => fail(s"Expected the quantifier to hold under $semantics, got $res")
+      }
+    }
   }
 
   test("disabled witnesses") { ctx ?=>

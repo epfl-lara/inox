@@ -712,6 +712,44 @@ class EvaluatorSuite extends AnyFunSuite {
     eval(e, Equals(body, StringLiteral("Winner:Mikael"))) === BooleanLiteral(true)
   }
 
+  test("Function equality") {
+    import solvers.unrolling.{optFunctionEquality, FunctionEquality}
+
+    def lambda(body: Expr => Expr): Lambda = {
+      val x = ValDef.fresh("x", IntegerType())
+      Lambda(Seq(x), body(x.toVariable))
+    }
+    def int(i: Int) = IntegerLiteral(i)
+
+    val succ = lambda(x => Plus(x, int(1)))
+    val succ2 = lambda(x => Plus(int(1), x))
+    val pred = lambda(x => Minus(x, int(1)))
+    val id = lambda(x => x)
+    val alsoId = lambda(x => IfExpr(Equals(x, int(0)), int(0), x))
+    // the shape of extracted models: the inputs that tell functions apart appear in their bodies
+    val model1 = lambda(x => IfExpr(Equals(x, int(2)), int(5), int(0)))
+    val model2 = lambda(x => IfExpr(Equals(x, int(2)), int(6), int(0)))
+
+    val intensional = evaluator(ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional)))
+    eval(intensional, Equals(succ, succ))   === BooleanLiteral(true)
+    eval(intensional, Equals(succ, succ2))  === BooleanLiteral(false)
+    eval(intensional, Equals(id, alsoId))   === BooleanLiteral(false)
+    eval(intensional, Equals(model1, model2)) === BooleanLiteral(false)
+
+    for (semantics <- Seq(FunctionEquality.None, FunctionEquality.Extensional)) {
+      val e = evaluator(ctx.withOpts(optFunctionEquality(semantics)))
+      eval(e, Equals(succ, succ))     === BooleanLiteral(true)
+      eval(e, Equals(succ, pred))     === BooleanLiteral(false)
+      eval(e, Equals(model1, model2)) === BooleanLiteral(false)
+      eval(e, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(pred, int(1))))) === BooleanLiteral(false)
+      eval(e, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(succ, int(2))))) === BooleanLiteral(false)
+      eval(e, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(succ, int(1))))) === BooleanLiteral(true)
+      // functions that agree on every candidate input can't be told apart
+      eval(e, Equals(succ, succ2)).failed
+      eval(e, Equals(id, alsoId)).failed
+    }
+  }
+
   abstract class EvalDSL {
     def res: Expr
     def ===(res: Expr): Unit
