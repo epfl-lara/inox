@@ -371,9 +371,14 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       ArrayMap(SSymbol("and"), toSMT(l), toSMT(r))
 
     case fb @ FiniteBag(elems, base) =>
+      // Elements with a multiplicity of zero or less are not in the bag.
+      def positivePart(m: Expr): Expr = m match {
+        case IntegerLiteral(i) => IntegerLiteral(i max 0)
+        case _ => IfExpr(GreaterThan(m, IntegerLiteral(0)), m, IntegerLiteral(0))
+      }
       val BagType(t) = fb.getType: @unchecked
       declareSort(BagType(t))
-      toSMT(FiniteMap(elems, IntegerLiteral(0), t, IntegerType()))
+      toSMT(FiniteMap(elems.map { case (k, m) => k -> positivePart(m) }, IntegerLiteral(0), t, IntegerType()))
 
     case BagAdd(b, e) =>
       val bid = FreshIdentifier("b", true)

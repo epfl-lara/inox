@@ -459,7 +459,8 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
      */
     case fb @ FiniteBag(elems, base) =>
       typeToSort(fb.getType)
-      toZ3(FiniteMap(elems, IntegerLiteral(0), base, IntegerType()))
+      // Elements with a multiplicity of zero or less are not in the bag.
+      toZ3(FiniteMap(elems.map { case (k, m) => k -> IfExpr(GreaterThan(m, IntegerLiteral(0)), m, IntegerLiteral(0)) }, IntegerLiteral(0), base, IntegerType()))
 
     case BagAdd(b, e) =>
       val (bag, elem) = (toZ3(b), toZ3(e))
