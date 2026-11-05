@@ -75,9 +75,11 @@ class CustomEqualitySuite extends SolverTestSuite {
   given Symbols = symbols
 
   override protected def solverInfos = super.solverInfos.map { info =>
-    if (info.name != "princess") info
-    else info.copy(knownIssues = info.knownIssues +
+    if (info.name == "princess") info.copy(knownIssues = info.knownIssues +
       ("Real equality under quantifiers" -> "a single satisfiability check doesn't terminate"))
+    // cvc4 and cvc5 share the `BagEncoder`, and bag equalities are slow on cvc4, so only cvc5 runs these.
+    else if (info.name == "smt-cvc4") info.copy(unsupported = info.unsupported + Bags)
+    else info
   }
 
   // Models are checked by evaluation below, so that invalid models aren't hidden as `Unknown`.
@@ -340,7 +342,6 @@ class CustomEqualitySuite extends SolverTestSuite {
   test("Random bag formulas agree with Z3", Bags, ADTs, Functions) { ctx =>
     val reference = "smt-z3"
     val name = ctx.options.findOptionOrDefault(optSelectedSolvers).head
-    // cvc4 and cvc5 share the bag encoding, so checking one of them is enough to keep this quick.
     if (name == "smt-cvc5" && SolverFactory.hasZ3) {
       val rnd = new scala.util.Random(42)
       val c = Variable.fresh("c", BT)
