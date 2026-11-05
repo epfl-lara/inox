@@ -104,7 +104,10 @@ jobs:
         echo "$PR_NUMBER" > coverage-summary/pr-number
         # A pull request build tests the merge of the pull request into main:
         # its coverage is compared with that of main at the merge's first parent.
-        if [ -n "$PR_NUMBER" ]; then git rev-parse HEAD^1 > coverage-summary/base-sha; fi
+        # (Read from the commit itself, since the checkout is shallow.)
+        if [ -n "$PR_NUMBER" ]; then
+          git cat-file -p HEAD | sed -n '/^parent /{s///p;q}' > coverage-summary/base-sha
+        fi
         # Coverage is incomplete when tests failed or the integration tests were skipped.
         echo "$TESTS_PASSED" > coverage-summary/tests-passed
       env:
