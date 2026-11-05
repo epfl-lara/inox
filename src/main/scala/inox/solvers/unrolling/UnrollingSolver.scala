@@ -330,6 +330,11 @@ abstract class AbstractUnrollingSolver private
 
     val typingCond = andJoin(model.vars.toSeq.map { case (v, value) =>
       def rec(e: Expr, tpe: Type): Expr = (e, tpe) match {
+        // The models of functions are conditionals over their arguments, and their default values
+        // are chosen in their codomains (see `defaultValue`)
+        case (Let(vd, value, body), tpe) => Let(vd, value, rec(body, tpe)).copiedFrom(body)
+        case (IfExpr(cond, thenn, elze), tpe) => IfExpr(cond, rec(thenn, tpe), rec(elze, tpe)).copiedFrom(e)
+        case (c: Choose, _) if c.res.tpe != c.res.getType => BooleanLiteral(true)
         case (ADT(id, _, args), adt @ ADTType(_, tps)) =>
           andJoin((args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.tpe)))
         case (Tuple(es), TupleType(tps)) =>
@@ -458,7 +463,12 @@ abstract class AbstractUnrollingSolver private
             rec(v, vd.tpe)
 
           case SigmaType(params, to) =>
-            rec(v, TupleType(params.map(_.getType) :+ to.getType))
+            // The type of the last element depends on the previous ones, which are substituted in its value
+            val (functions, recons) = rec(v, TupleType(params.map(_.tpe) :+ to))
+            (functions, es => recons(es) match {
+              case Tuple(es) => Tuple(es.init :+ exprOps.replaceFromSymbols((params zip es.init).toMap, es.last))
+              case e => e
+            })
 
           case TupleType(tps) =>
             val id = Variable.fresh("tuple", tpe)
@@ -472,7 +482,7 @@ abstract class AbstractUnrollingSolver private
             val id = Variable.fresh("adt", tpe)
             val encoder = templates.mkEncoder(Map(id -> v))
             reconstruct(getConstructor(cons, tps).fields.map {
-              vd => rec(encoder(ADTSelector(id, vd.id)), vd.getType)
+              vd => rec(encoder(ADTSelector(id, vd.id)), vd.tpe)
             }, ADT(cons, tps, _))
 
           case st @ SetType(base) =>
@@ -570,6 +580,7 @@ abstract class AbstractUnrollingSolver private
         case PiType(ps, to) =>
           val subst: Map[ValDef, Expr] = (ps zip params.map(_.toVariable)).toMap
           (ps.map(vd => typeOps.replaceFromSymbols(subst, vd.tpe)), typeOps.replaceFromSymbols(subst, to))
+        case FunctionType(from, to) => (from, to)
         case _ => (tpe.from, tpe.to)
       }
 
@@ -611,7 +622,8 @@ abstract class AbstractUnrollingSolver private
           val optDefault = defaultValue(params, paramTypes, resultType)
           val subsets = if (optDefault.isDefined) Iterator(Set.empty[ValDef]) else params.toSet.subsets()
 
-          val argumentsWithConds: Seq[(Seq[Encoded], Expr)] =
+          // Exact mappings are extracted with the result type at their arguments
+          val argumentsWithConds: Seq[(Seq[Encoded], Expr, Type)] =
             (for (subset <- subsets; (args, exArgs) <- arguments zip exArguments) yield {
               val (concreteArgs, condOpts) = params.zipWithIndex.map { case (v, i) =>
                 if (!subset(v)) {
@@ -621,13 +633,15 @@ abstract class AbstractUnrollingSolver private
                 }
               }.unzip
 
-              (concreteArgs, andJoin(condOpts.flatten))
+              val resType = if (subset.isEmpty) typeOps.replaceFromSymbols((params zip exArgs).toMap, resultType)
+                else imageType
+              (concreteArgs, andJoin(condOpts.flatten), resType)
             }).toSeq
 
           val (withConds, default) = optDefault match {
             case Some(default) => (argumentsWithConds, default)
             case None =>
-              val withConds :+ ((concreteArgs, _)) = argumentsWithConds: @unchecked
+              val withConds :+ ((concreteArgs, _, _)) = argumentsWithConds: @unchecked
               (withConds, extractValue(templates.mkApp(f, tpe, concreteArgs), imageType, nextSeen))
           }
 
@@ -635,12 +649,12 @@ abstract class AbstractUnrollingSolver private
           val sortedArguments = withConds
             .filter(_._2 != BooleanLiteral(true))
             .groupBy(_._2)
-            .view.mapValues(_.head._1)
+            .view.mapValues(_.head)
             .toSeq
             .sortBy(p => -exprOps.formulaSize(p._1))
 
-          val mappings = sortedArguments.map { case (cond, arguments) =>
-            (cond, extractValue(templates.mkApp(f, tpe, arguments), imageType, nextSeen))
+          val mappings = sortedArguments.map { case (cond, (arguments, _, resType)) =>
+            (cond, extractValue(templates.mkApp(f, tpe, arguments), resType, nextSeen))
           }
 
           val lambda = Lambda(params, mappings.foldRight(default) {
