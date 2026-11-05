@@ -369,10 +369,9 @@ trait SymbolOps extends TypeOps { self =>
           val newPred = transformExpr(vars + vd.toVariable, pred, inFunction, path)
           RefinementType(newVd, newPred)
         case SigmaType(params, to) =>
-          val toVars = typeOps.variablesOf(to)
-          val newParams = params.map { vd =>
-            if (toVars(vd.toVariable)) transformVal(vars, vd, inFunction, path)
-            else transformVar(vd.toVariable).toVal
+          // The parameter types are kept even when `to` doesn't depend on them, as they constrain the tuple
+          val newParams = params.zipWithIndex.map { (vd, i) =>
+            transformVal(vars ++ params.take(i).map(_.toVariable), vd, inFunction, path)
           }
           val newTo = transformType(vars ++ params.map(_.toVariable), to, inFunction, path)
           SigmaType(newParams, newTo)
