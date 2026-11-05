@@ -24,7 +24,7 @@ for expected in SAT UNSAT; do
     answers=$(echo "$out" | grep -oE '=> (SAT|UNSAT|UNKNOWN)' | cut -d' ' -f2 | sort -u)
     if [ "$expected" = SAT ]; then wrong=UNSAT; else wrong=SAT; fi
     if [ -z "$answers" ]; then
-      echo "FAIL $f: no answer"; echo "$out" | tail -n 5; failures=$((failures + 1))
+      echo "FAIL $f: no answer"; echo "$out" | grep -vE '^\s+at ' | tail -n 10; failures=$((failures + 1))
     elif echo "$answers" | grep -qx "$wrong"; then
       echo "FAIL $f: expected $expected, got $wrong"; failures=$((failures + 1))
     else
