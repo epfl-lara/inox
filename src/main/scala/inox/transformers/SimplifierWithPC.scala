@@ -329,7 +329,7 @@ trait SimplifierWithPC extends Transformer { self =>
         case (l: Lambda) => simplify(recons(application(l, es)), path)
         case _ =>
           val (res, _) = es.map(simplify(_, path)).unzip
-          (application(caller, res).copiedFrom(app), opts.assumeChecked)
+          (recons(application(caller, res).copiedFrom(app)), opts.assumeChecked)
       }
 
     case _ => unhandled
