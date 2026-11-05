@@ -263,7 +263,10 @@ abstract class AbstractUnrollingSolver private
     }
 
     def getModel(extract: (Encoded, Type) => Expr): program.Model = {
-      val vs = freeVars.toMap.map { case (v, idT) => v.toVal -> extract(idT, v.getType) }
+      // Functions that are equal in the model share their extraction, so variables with refined
+      // types are extracted first for the shared value to lie in these types.
+      val vs = freeVars.toSeq.sortBy { case (v, _) => v.tpe == v.getType }
+        .map { case (v, idT) => v.toVal -> extract(idT, v.tpe) }.toMap
 
       val cs = templates.getCalls
         .filter(p => modelEval(p._1, t.BooleanType()) == Some(t.BooleanLiteral(true)))
@@ -394,7 +397,7 @@ abstract class AbstractUnrollingSolver private
 
   private def extractSimpleModel(model: underlying.Model): program.Model = {
     val wrapped = wrapModel(model)
-    wrapped.getModel((e, tpe) => wrapped.eval(e, tpe).getOrElse(simplestValue(tpe)))
+    wrapped.getModel((e, tpe) => wrapped.eval(e, tpe.getType).getOrElse(simplestValue(tpe.getType)))
   }
 
   private case class Canceled() extends Exception("Cancelation occurred while extracting model")
@@ -430,9 +433,11 @@ abstract class AbstractUnrollingSolver private
 
     def extractValue(v: Encoded, tpe: Type, seen: Map[FunctionType, Set[Encoded]]): Expr = {
 
-      def functionsOf(v: Encoded, tpe: Type): (Seq[(Encoded, FunctionType)], Seq[Expr] => Expr) = {
-        def reconstruct(subs: Seq[(Seq[(Encoded, FunctionType)], Seq[Expr] => Expr)],
-                        recons: Seq[Expr] => Expr): (Seq[(Encoded, FunctionType)], Seq[Expr] => Expr) =
+      // Functions are returned with their full (possibly dependent) types, as the default values
+      // of their models must lie in their codomains (@see [[extractFunction]]).
+      def functionsOf(v: Encoded, tpe: Type): (Seq[(Encoded, Type)], Seq[Expr] => Expr) = {
+        def reconstruct(subs: Seq[(Seq[(Encoded, Type)], Seq[Expr] => Expr)],
+                        recons: Seq[Expr] => Expr): (Seq[(Encoded, Type)], Seq[Expr] => Expr) =
           (subs.flatMap(_._1), (exprs: Seq[Expr]) => {
             var curr = exprs
             recons(subs.map { case (es, recons) =>
@@ -442,9 +447,15 @@ abstract class AbstractUnrollingSolver private
             })
           })
 
-        def rec(v: Encoded, tpe: Type): (Seq[(Encoded, FunctionType)], Seq[Expr] => Expr) = tpe match {
-          case ft: FunctionType =>
-            (Seq(v -> ft), es => es.head)
+        def rec(v: Encoded, tpe: Type): (Seq[(Encoded, Type)], Seq[Expr] => Expr) = tpe match {
+          case (_: FunctionType | _: PiType) =>
+            (Seq(v -> tpe), es => es.head)
+
+          case RefinementType(vd, _) =>
+            rec(v, vd.tpe)
+
+          case SigmaType(params, to) =>
+            rec(v, TupleType(params.map(_.getType) :+ to.getType))
 
           case TupleType(tps) =>
             val id = Variable.fresh("tuple", tpe)
@@ -483,18 +494,53 @@ abstract class AbstractUnrollingSolver private
         rec(v, tpe)
       }
 
-      val ev = wrapped.modelEval(v, tpe).filterNot(_.isInstanceOf[Variable])
+      val ev = wrapped.modelEval(v, tpe.getType).filterNot(_.isInstanceOf[Variable])
       if (ev.isDefined) {
         val (functions, recons) = functionsOf(v, tpe)
         recons(functions.map { case (f, tpe) =>
           extractFunction(f, tpe, seen)
         })
       } else {
-        encode(program.symbols.simplestValue(decode(tpe)))
+        encode(program.symbols.simplestValue(decode(tpe.getType)))
       }
     }
 
-    def extractFunction(f: Encoded, tpe: FunctionType, seen: Map[FunctionType, Set[Encoded]]): Expr = {
+    // The membership of `e` in `tpe`, where only refinements are checked
+    def refinementsOf(e: Expr, tpe: Type): Expr = tpe match {
+      case RefinementType(vd, pred) => and(refinementsOf(e, vd.tpe), exprOps.replaceFromSymbols(Map(vd -> e), pred))
+      case TupleType(tps) => andJoin(tps.zipWithIndex.map((tpe, i) => refinementsOf(TupleSelect(e, i + 1), tpe)))
+      case _ => BooleanLiteral(true)
+    }
+
+    def isFirstOrder(tpe: Type): Boolean =
+      !typeOps.exists { case _: FunctionType => true case _ => false } (tpe.getType)
+
+    // The type `tpe` where every refinement only applies under `cond`, which is inhabited
+    // whenever `tpe` is inhabited under `cond`
+    def guardedType(cond: Expr, tpe: Type): Type = tpe match {
+      case RefinementType(vd, pred) =>
+        val nvd = vd.copy(tpe = guardedType(cond, vd.tpe))
+        RefinementType(nvd, implies(cond, exprOps.replaceFromSymbols(Map(vd -> nvd.toVariable), pred)))
+      case PiType(params, to) => PiType(params, guardedType(cond, to))
+      case FunctionType(from, to) => FunctionType(from, guardedType(cond, to))
+      case TupleType(tps) => TupleType(tps.map(guardedType(cond, _)))
+      case _ => tpe
+    }
+
+    /* The default value of the model of a function, i.e. its value on the arguments the formula
+     * doesn't apply it to. It must lie in the codomain `to` (in terms of `params`) for all arguments
+     * in the domain, so a refined codomain is chosen as `choose(r: {r: to | domain ==> r in to})`.
+     * Function-typed parameters can't be checked by an expression, so they're assumed in the domain. */
+    def defaultValue(params: Seq[ValDef], paramTypes: Seq[Type], to: Type): Option[Expr] =
+      Option.when(to != to.getType) {
+        val domain = andJoin((params zip paramTypes).collect {
+          case (vd, tpe) if isFirstOrder(tpe) => refinementsOf(vd.toVariable, tpe)
+        })
+        Choose(ValDef.fresh("res", guardedType(domain, to), true), BooleanLiteral(true))
+      }
+
+    def extractFunction(f: Encoded, fullType: Type, seen: Map[FunctionType, Set[Encoded]]): Expr = {
+      val tpe = fullType.getType.asInstanceOf[FunctionType]
       val nextSeen = seen + (tpe -> (seen(tpe) + f))
 
       def extractLambda(f: Encoded, tpe: FunctionType): Option[Lambda] = {
@@ -515,6 +561,19 @@ abstract class AbstractUnrollingSolver private
       }
 
       val params: Seq[ValDef] = tpe.from.map(tpe => ValDef.fresh("x", tpe, true))
+
+      // The parameter and result types of `fullType` in terms of `params`
+      val (paramTypes, resultType) = fullType match {
+        case PiType(ps, to) =>
+          val subst: Map[ValDef, Expr] = (ps zip params.map(_.toVariable)).toMap
+          (ps.map(vd => typeOps.replaceFromSymbols(subst, vd.tpe)), typeOps.replaceFromSymbols(subst, to))
+        case _ => (tpe.from, tpe.to)
+      }
+
+      // Results are extracted with their full types when these don't depend on the arguments
+      val imageType = if ((typeOps.variablesOf(resultType) & params.map(_.toVariable).toSet).isEmpty) resultType
+        else resultType.getType
+
       val arguments = templates.getGroundInstantiations(f, tpe).flatMap { case (b, eArgs) =>
         wrapped.modelEval(b, BooleanType()).filter(_ == BooleanLiteral(true)).map(_ => eArgs)
       }.distinct
@@ -531,9 +590,10 @@ abstract class AbstractUnrollingSolver private
         }
       }.getOrElse {
         val res = if (arguments.isEmpty) {
-          wrapped.modelEval(f, tpe).getOrThrow.asInstanceOf[Lambda]
+          defaultValue(params, paramTypes, resultType).map(Lambda(params, _))
+            .getOrElse(wrapped.modelEval(f, tpe).getOrThrow.asInstanceOf[Lambda])
         } else if (tpe.from.isEmpty) {
-          Lambda(Seq.empty, extractValue(templates.mkApp(f, tpe, Seq.empty), tpe.to, nextSeen))
+          Lambda(Seq.empty, extractValue(templates.mkApp(f, tpe, Seq.empty), imageType, nextSeen))
         } else {
           val projections: Map[Type, Encoded] = (arguments.head zip params)
             .groupBy(p => p._2.getType)
@@ -543,8 +603,13 @@ abstract class AbstractUnrollingSolver private
             (params zip args).map { case (vd, arg) => extractValue(arg, vd.getType, nextSeen) }
           }
 
+          // Mappings on a subset of the arguments take the value at arbitrary other arguments, which
+          // may lie outside of a refined codomain, so only exact mappings are kept for these.
+          val optDefault = defaultValue(params, paramTypes, resultType)
+          val subsets = if (optDefault.isDefined) Iterator(Set.empty[ValDef]) else params.toSet.subsets()
+
           val argumentsWithConds: Seq[(Seq[Encoded], Expr)] =
-            (for (subset <- params.toSet.subsets(); (args, exArgs) <- arguments zip exArguments) yield {
+            (for (subset <- subsets; (args, exArgs) <- arguments zip exArguments) yield {
               val (concreteArgs, condOpts) = params.zipWithIndex.map { case (v, i) =>
                 if (!subset(v)) {
                   (args(i), Some(Equals(v.toVariable, exArgs(i))))
@@ -556,17 +621,23 @@ abstract class AbstractUnrollingSolver private
               (concreteArgs, andJoin(condOpts.flatten))
             }).toSeq
 
-          val withConds :+ ((concreteArgs, _)) = argumentsWithConds: @unchecked
-          val default = extractValue(templates.mkApp(f, tpe, concreteArgs), tpe.to, nextSeen)
+          val (withConds, default) = optDefault match {
+            case Some(default) => (argumentsWithConds, default)
+            case None =>
+              val withConds :+ ((concreteArgs, _)) = argumentsWithConds: @unchecked
+              (withConds, extractValue(templates.mkApp(f, tpe, concreteArgs), imageType, nextSeen))
+          }
 
+          // arguments whose conditions are trivial are covered by the default value
           val sortedArguments = withConds
+            .filter(_._2 != BooleanLiteral(true))
             .groupBy(_._2)
             .view.mapValues(_.head._1)
             .toSeq
             .sortBy(p => -exprOps.formulaSize(p._1))
 
           val mappings = sortedArguments.map { case (cond, arguments) =>
-            (cond, extractValue(templates.mkApp(f, tpe, arguments), tpe.to, nextSeen))
+            (cond, extractValue(templates.mkApp(f, tpe, arguments), imageType, nextSeen))
           }
 
           val lambda = Lambda(params, mappings.foldRight(default) {

@@ -204,8 +204,8 @@ class TypeUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
 
   // Countermodels of quantified formulas can't be checked by evaluation,
   // so models are only checked for queries without quantifiers.
-  private def solverFor(e: Expr)(using ctx: Context) =
-    SimpleSolverAPI(program.getSolver(ctx.withOpts(optCheckModels(!containsQuantifiers(e)))))
+  private def solverFor(e: Expr, checkModels: Boolean = true)(using ctx: Context) =
+    SimpleSolverAPI(program.getSolver(ctx.withOpts(optCheckModels(checkModels && !containsQuantifiers(e)))))
 
   private def show(e: Expr)(using ctx: Context): String =
     e.asString(using PrinterOptions.fromContext(ctx, Some(symbols)))
@@ -222,6 +222,12 @@ class TypeUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
 
   def assertSat(e: Expr, clue: String = "")(using Context): Unit = {
     val res = solverFor(e).solveSAT(e)
+    assert(res.isSAT, s"$clue: expected ${show(e)} to be satisfiable, but got $res")
+  }
+
+  // For models of functions with function-typed domains, whose validation quantifies over functions
+  def assertSatUnchecked(e: Expr, clue: String = "")(using Context): Unit = {
+    val res = solverFor(e, checkModels = false).solveSAT(e)
     assert(res.isSAT, s"$clue: expected ${show(e)} to be satisfiable, but got $res")
   }
 
@@ -281,6 +287,95 @@ class TypeUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
     val incr = pi("a" :: pos)(a => refinement("r" :: I)(_ > a))
     assertValid(holds(incr)(h => h(int(1)) > int(1)), "holds")
     assertInvalid(holds(incr)(h => h(int(1)) > int(2)), "doesn't hold")
+  }
+
+  /* ---- Pi codomains only hold inside of the domain ---- */
+
+  // (a: {y | y > 0}) => {r: BigInt | r > a}
+  val posIncr = pi("a" :: pos)(a => refinement("r" :: I)(_ > a))
+
+  test("Pi codomain inside and outside of the domain") {
+    val g = Variable.fresh("g", posIncr)
+    val x = Variable.fresh("x", I)
+    assertValid(g(int(1)) > int(1), "inside")
+    assertInvalid(g(int(0)) > int(0), "outside")
+    assertValid((x > int(5)) ==> (g(x) > int(5)), "symbolic argument inside")
+    assertInvalid((x < int(5)) ==> (g(x) > int(0)), "symbolic argument outside")
+    assertInvalid(holds(posIncr)(h => h(int(0)) > int(0)), "quantifier")
+    val f = Variable.fresh("f", I =>: I)
+    assertInvalid((f === g) ==> (f(int(0)) > int(0)), "through an equal function")
+    assertValid((f === g) ==> (f(int(1)) > int(1)), "inside through an equal function")
+  }
+
+  test("Pi codomain with a dependent domain") {
+    // (a: BigInt, b: {y | y > a}) => {r: BigInt | r > 0}
+    val dep = {
+      val a = "a" :: I
+      PiType(Seq(a, "b" :: refinement("y" :: I)(_ > a.toVariable)), pos)
+    }
+    val g = Variable.fresh("g", dep)
+    assertValid(g(int(1), int(2)) > int(0), "inside")
+    assertInvalid(g(int(2), int(1)) > int(0), "outside")
+  }
+
+  // Function-typed domains are checked at fresh arguments, without quantifiers
+  test("Pi codomain with function-typed domains") {
+    val refinedFun = refinement("h" :: (I =>: I))(h => h(int(0)) > int(0))
+    val piFun = pi("x" :: I)(_ => pos)
+    val const = (i: Int) => \("x" :: I)(_ => int(i))
+    val f = Variable.fresh("f", I =>: I)
+
+    val F = Variable.fresh("F", PiType(Seq("g" :: refinedFun), pos))
+    assertValid(F(const(1)) > int(0), "refined, inside")
+    assertInvalid(F(const(-1)) > int(0), "refined, outside")
+    assertValid((f(int(0)) > int(0)) ==> (F(f) > int(0)), "refined, free function inside")
+    assertInvalid((f(int(0)) <= int(0)) ==> (F(f) > int(0)), "refined, free function outside")
+
+    val G = Variable.fresh("G", PiType(Seq("g" :: piFun), pos))
+    val p = Variable.fresh("p", piFun)
+    assertValid(G(const(1)) > int(0), "Pi, inside")
+    assertValid(G(p) > int(0), "Pi, free function inside")
+    assertSatUnchecked(G(const(-1)) <= int(0), "Pi, outside")
+    assertSatUnchecked(G(f) <= int(0), "Pi, free function outside")
+    assertSatUnchecked(G(p) > int(5), "Pi, counterexample inside")
+
+    // H: ((k: (BigInt => {r | r > 0})) => {r | r > 0}) => {r | r > 0}
+    val k = "k" :: piFun
+    val H = Variable.fresh("H", PiType(Seq("h" :: PiType(Seq(k), pos)), pos))
+    assertValid(H(\(k)(k => k(int(0)))) > int(0), "higher-order, inside")
+    assertSatUnchecked(H(\(k)(k => k(int(0)) - int(1))) <= int(0), "higher-order, outside")
+
+    // Every function lies in (x: {y | false}) => {r | r > 0}
+    val Em = Variable.fresh("E", PiType(Seq("g" :: pi("x" :: refinement("y" :: I)(_ => E(false)))(_ => pos)), pos))
+    assertValid(Em(f) > int(0), "empty domain")
+    assertSatUnchecked(Em(f) > int(5), "empty domain, counterexample")
+
+    // List[BigInt => {r | r > 0}]
+    val L = Variable.fresh("L", PiType(Seq("l" :: T(listID)(I =>: pos)), pos))
+    def funs(fs: Expr*): Expr = list(I =>: pos)(fs*)
+    assertValid(L(funs()) > int(0), "ADT, fieldless constructor")
+    assertValid(L(funs(const(1), const(2))) > int(0), "ADT, inside")
+    assertSatUnchecked(L(funs(const(1), const(-1))) <= int(0), "ADT, outside")
+  }
+
+  test("models of dependent functions") {
+    // The models of these functions must lie in their types, including at arguments the
+    // query doesn't apply them to.
+    val g = Variable.fresh("g", posIncr)
+    val x = Variable.fresh("x", I)
+    assertSat(g(int(0)) <= int(0), "outside of the domain")
+    assertSat((x > int(5)) && (g(x) > int(7)) && (g(int(-1)) < int(0)), "inside and outside")
+
+    val incr = pi("a" :: I)(a => refinement("r" :: I)(_ > a))
+    val h = Variable.fresh("h", incr)
+    assertInvalid(h(int(5)) > int(6), "dependent codomain")
+    assertSat(h(int(5)) === int(7), "dependent codomain")
+
+    // (a: {y | y > 0}) => (b: BigInt) => {r: BigInt | a > 0 && r > b}, whose codomain is
+    // empty outside of the domain
+    val curried = Variable.fresh("c", pi("a" :: pos)(a => pi("b" :: I)(b => refinement("r" :: I)(r => (a > int(0)) && (r > b)))))
+    assertSat(curried(int(1))(int(2)) > int(10), "curried, inside")
+    assertSat(curried(int(0))(int(2)) < int(0), "curried, outside")
   }
 
   test("domain: non-inductive ADT") {
@@ -555,24 +650,6 @@ class TypeUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
   /* ==== Known issues ====
    *
    * The queries below currently get a wrong or no answer. They are ignored until fixed. */
-
-  ignore("known issue: Pi codomain assumed outside of the domain (samarion/inox#7)") {
-    // The codomain of a Pi type is assumed at every application, also for arguments outside
-    // of its domain, so these invalid queries are reported valid.
-    val incr = pi("a" :: pos)(a => refinement("r" :: I)(_ > a))
-    assertInvalid(holds(incr)(h => h(int(0)) > int(0)), "quantifier")
-    val g = Variable.fresh("g", incr)
-    assertInvalid(g(int(0)) > int(0), "free variable")
-  }
-
-  ignore("known issue: models of dependent functions") {
-    // The model of `g` must satisfy `r > a` for all `a`, which the extracted lambda doesn't
-    // (its default value is constant), so model validation fails and the result is unknown.
-    val incr = pi("a" :: I)(a => refinement("r" :: I)(_ > a))
-    val g = Variable.fresh("g", incr)
-    assertInvalid(g(int(5)) > int(6))
-    assertSat(g(int(5)) === int(7))
-  }
 
   ignore("known issue: refined result of a curried function with optFeelingLucky") {
     // With optFeelingLucky, the model of `h` can return a non-positive value, which

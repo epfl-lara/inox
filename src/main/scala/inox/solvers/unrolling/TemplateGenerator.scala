@@ -273,6 +273,12 @@ trait TemplateGenerator { self: Templates =>
           val constraint = Constraint(exprVars(typeCall), closures, generator == FreeGenerator, domain)
           (typeCall, Typing(tpe, encoder(arg), constraint))
 
+        case MembershipGenerator =>
+          val typeCall: Variable = Variable.fresh("tp", BooleanType(), true)
+          storeExpr(typeCall)
+
+          (typeCall, Typing(tpe, encoder(arg), Membership(exprVars(typeCall), closures)))
+
         case CaptureGenerator(container, containerType) =>
           // @nv: note that we only store the non-dependent type here as we don't need
           //      to consider dependent types when looking at captures
@@ -604,6 +610,39 @@ trait TemplateGenerator { self: Templates =>
 
     def rec(pathVar: Variable, tpe: Type, expr: Expr, state: RecursionState): Expr = tpe match {
       case tpe if !(generator `unroll` tpe) => BooleanLiteral(true) // nothing to do here!
+
+      // A function `f` lies in `Pi(x: A). B` iff `A(x0) ==> B(f(x0))` holds for all `x0`. We check
+      // this at fresh values `x0` that are assumed to lie in `A` whenever the guard `w` holds:
+      // if `f` lies outside of the type, the solver can pick a counterexample for `x0` and set
+      // `w`, and otherwise the result can only be false if `B(f(x0))` is false for some `x0` in
+      // `A`, so the result is exact in models. The guard `w` is free so that types with an empty
+      // domain don't make the path infeasible.
+      case (_: FunctionType | _: PiType) if generator == MembershipGenerator =>
+        val (params, to) = tpe match {
+          case PiType(params, to) => (params, to)
+          case FunctionType(from, to) => (from.map(tpe => ValDef.fresh("x", tpe, true)), to)
+          case _ => throw new InternalSolverError(s"Unexpected function type: ${tpe.asString}")
+        }
+
+        val choice = Variable.fresh("choice", BooleanType(), true)
+        storeExpr(choice)
+        val w = Variable.fresh("w", BooleanType(), true)
+        storeCond(pathVar, w)
+        iff(and(pathVar, choice), w)
+
+        val (args, subst) = params.foldLeft((Seq.empty[Variable], Map.empty[ValDef, Expr])) {
+          case ((args, subst), vd) =>
+            val paramType = typeOps.replaceFromSymbols(subst, vd.tpe)
+            val arg = Variable.fresh(vd.id.name, paramType.getType, true)
+            storeExpr(arg)
+            val (p, paramClauses) = mkTypeClauses(w, paramType, arg, localSubst)(using FreeGenerator)
+            builder ++= paramClauses
+            storeGuarded(w, p)
+            (args :+ arg, subst + (vd -> arg))
+        }
+
+        val res = rec(w, typeOps.replaceFromSymbols(subst, to), Application(expr, args), state)
+        implies(w, res)
 
       case (_: FunctionType | _: PiType) => storeType(pathVar, tpe, expr, inDomain)
 
