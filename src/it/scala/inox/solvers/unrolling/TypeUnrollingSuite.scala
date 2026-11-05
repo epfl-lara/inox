@@ -165,8 +165,16 @@ class TypeUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
     Seq("f" :: (I =>: aT)), aT, { case Seq(f) => f(int(0)) })
   }
 
+  // def mkIncr(): (a: {y | y > 0}) => {r: BigInt | r > a} = (x: BigInt) => if (x > 0) x + 1 else 0
+  val mkIncrID = FreshIdentifier("mkIncr")
+  val mkIncr = mkFunDef(mkIncrID)() { _ => (
+    Seq(), pi("a" :: pos)(a => refinement("r" :: I)(_ > a)), { _ =>
+      \("x" :: I)(x => if_ (x > int(0)) { x + int(1) } else_ { int(0) })
+    })
+  }
+
   val symbols = baseSymbols
-    .withFunctions(Seq(pre, pre2, chooseNonZero, isPositive, posInv, plistInv, allPos, wrapperInv, first))
+    .withFunctions(Seq(pre, pre2, chooseNonZero, isPositive, posInv, plistInv, allPos, wrapperInv, first, mkIncr))
     .withSorts(Seq(boxSort, treeSort, posSort, plistSort, wrapperSort, funBoxSort, posFunSort))
   given Symbols = symbols
 
@@ -318,6 +326,41 @@ class TypeUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
     assertInvalid(g(int(2), int(1)) > int(0), "outside")
   }
 
+  test("Pi codomain of a function result") {
+    // The result type of `mkIncr` is assumed, which must not constrain its result outside of
+    // the domain, where it returns 0.
+    val incr = E(mkIncrID)()
+    assertValid(incr(int(1)) > int(1), "inside")
+    assertValid(incr(int(0)) === int(0), "outside")
+    assertInvalid(incr(int(0)) > int(5), "outside, not contradictory")
+  }
+
+  test("Pi domain of a quantifier is instantiated by its members") {
+    assertValid(instantiates(posIncr, \("x" :: I)(x => x + int(1))), "in domain")
+    assertInvalid(instantiates(posIncr, \("x" :: I)(x => x - int(1))), "outside domain")
+    assertValid(instantiates(posIncr, \("x" :: I)(x => if_ (x > int(0)) { x + int(1) } else_ { int(0) })),
+      "outside codomain outside of the domain")
+    assertInvalid(instantiates(posIncr, Variable.fresh("f", I =>: I)), "free function")
+  }
+
+  test("Pi domain that depends on an outer variable") {
+    val n = Variable.fresh("n", I)
+    val m = Variable.fresh("m", I)
+    // (a: {y | y > n}) => {r: BigInt | r > a}
+    def above(n: Expr) = pi("a" :: refinement("y" :: I)(_ > n))(a => refinement("r" :: I)(_ > a))
+    val g = Variable.fresh("g", above(n))
+    val h = Variable.fresh("h", above(m))
+    assertValid(g(n + int(1)) > n + int(1), "inside")
+    assertInvalid(g(n) > n, "outside")
+    assertInvalid((m > n) ==> (h(n + int(1)) > n + int(1)), "same argument, other domain")
+    assertValid((g(n + int(1)) > n + int(1)) && ((m < n) ==> (h(n + int(1)) > n + int(1))), "both domains")
+
+    // F: (k: (x: BigInt) => {r | r > n}) => {r | r > 0}, whose domain captures `n`
+    val F = Variable.fresh("F", PiType(Seq("k" :: pi("x" :: I)(_ => refinement("r" :: I)(_ > n))), pos))
+    assertValid(F(\("x" :: I)(_ => n + int(1))) > int(0), "captured, inside")
+    assertSatUnchecked(F(\("x" :: I)(_ => n)) <= int(0), "captured, outside")
+  }
+
   // Function-typed domains are checked at fresh arguments, without quantifiers
   test("Pi codomain with function-typed domains") {
     val refinedFun = refinement("h" :: (I =>: I))(h => h(int(0)) > int(0))
@@ -376,6 +419,16 @@ class TypeUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
     val curried = Variable.fresh("c", pi("a" :: pos)(a => pi("b" :: I)(b => refinement("r" :: I)(r => (a > int(0)) && (r > b)))))
     assertSat(curried(int(1))(int(2)) > int(10), "curried, inside")
     assertSat(curried(int(0))(int(2)) < int(0), "curried, outside")
+
+    // (a: {y | y > 0}) => ({r: BigInt | r > a}, {s: BigInt | s < a})
+    val pair = Variable.fresh("p", pi("a" :: pos)(a => T(refinement("r" :: I)(_ > a), refinement("s" :: I)(_ < a))))
+    assertSat(pair(int(1))._ts1 > int(5), "tuple, inside")
+    assertSat(pair(int(0))._ts1 < int(0), "tuple, outside")
+
+    // (a: {y | y > 0}) => (b: {y | y > a}, {c: BigInt | c > b})
+    val dep = Variable.fresh("d", pi("a" :: pos)(a => sigma("b" :: refinement("y" :: I)(_ > a))(b => refinement("c" :: I)(_ > b))))
+    assertSat(dep(int(1))._ts1 === int(3), "Sigma, inside")
+    assertSat(dep(int(0))._ts2 < int(0), "Sigma, outside")
   }
 
   test("domain: non-inductive ADT") {

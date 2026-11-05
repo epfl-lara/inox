@@ -617,7 +617,10 @@ trait TemplateGenerator { self: Templates =>
       // `w`, and otherwise the result can only be false if `B(f(x0))` is false for some `x0` in
       // `A`, so the result is exact in models. The guard `w` is free so that types with an empty
       // domain don't make the path infeasible.
-      case (_: FunctionType | _: PiType) if generator == MembershipGenerator =>
+      //
+      // The domains of quantifiers in positive polarity are checked the same way: there, the result
+      // may only be false if the value lies outside of the type, as it disables the instantiation.
+      case (_: FunctionType | _: PiType) if generator == MembershipGenerator || (inDomain && generator == ContractGenerator) =>
         val (params, to) = tpe match {
           case PiType(params, to) => (params, to)
           case FunctionType(from, to) => (from.map(tpe => ValDef.fresh("x", tpe, true)), to)

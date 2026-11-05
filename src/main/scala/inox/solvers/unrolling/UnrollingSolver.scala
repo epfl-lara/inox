@@ -265,8 +265,11 @@ abstract class AbstractUnrollingSolver private
     def getModel(extract: (Encoded, Type) => Expr): program.Model = {
       // Functions that are equal in the model share their extraction, so variables with refined
       // types are extracted first for the shared value to lie in these types.
-      val vs = freeVars.toSeq.sortBy { case (v, _) => v.tpe == v.getType }
-        .map { case (v, idT) => v.toVal -> extract(idT, v.tpe) }.toMap
+      val extracted = freeVars.toSeq.sortBy { case (v, _) => v.tpe == v.getType }
+        .map { case (v, idT) => v -> extract(idT, v.tpe) }.toMap
+
+      // The default values of function models may refer to the free variables of their types
+      val vs = extracted.map { case (v, e) => v.toVal -> exprOps.replaceFromSymbols(extracted, e) }
 
       val cs = templates.getCalls
         .filter(p => modelEval(p._1, t.BooleanType()) == Some(t.BooleanLiteral(true)))
