@@ -48,17 +48,25 @@ enum Feature {
 object SolverTestSuite {
   import Feature._
 
-  /** A solver checked by the solver suites, with the features it doesn't support and the tests
-    * it fails because of known bugs (test name -> reason).
+  /** A solver checked by the solver suites, with the features it doesn't support, the tests it
+    * fails because of known bugs (test name -> reason), and the tests whose checks it only passes
+    * on ground expressions (see [[SolverTestSuite.check]]).
     */
   case class SolverInfo(
     name: String,
     available: () => Boolean,
     unsupported: Set[Feature],
-    knownIssues: Map[String, String] = Map.empty
+    knownIssues: Map[String, String] = Map.empty,
+    groundOnly: Map[String, String] = Map.empty
   ) {
     def supports(features: Seq[Feature]): Boolean = features.forall(f => !unsupported(f))
   }
+
+  private val z3BagUnionModels = "Z3 models leave equalities between bag unions unevaluated"
+  private val cvcGroundOnly = Map(
+    "Bag Operations with repeated keys" -> "returns Unknown for differences of bags with variable elements",
+    "Map Operations" -> "returns Unknown for constant maps with a variable default",
+  )
 
   /** Every solver whose encoding and model extraction are tested.
     *
@@ -71,18 +79,23 @@ object SolverTestSuite {
       Set(BitVectorIntConversions, FloatingPoint),
       knownIssues = Map(
         "Function calls across push and pop" -> "returns Unknown once functions unfolded before a pop are called again",
-      )),
+      ),
+      groundOnly = Map("Bag Operations" -> z3BagUnionModels)),
     SolverInfo("unrollz3", () => SolverFactory.hasNativeZ3,
-      Set(BitVectorIntConversions, FloatingPoint)),
+      Set(BitVectorIntConversions, FloatingPoint),
+      groundOnly = Map("Bag Operations" -> z3BagUnionModels)),
     SolverInfo("smt-z3", () => SolverFactory.hasZ3,
       Set(),
-      knownIssues = Map("Reset" -> "reset() also drops the declarations and options set up when the solver starts")),
+      knownIssues = Map("Reset" -> "reset() also drops the declarations and options set up when the solver starts"),
+      groundOnly = Map("Bag Operations" -> z3BagUnionModels)),
     SolverInfo("smt-cvc4", () => SolverFactory.hasCVC4,
       Set(FloatingPoint, BagAlgebra, NestedArrays),
-      knownIssues = Map("Reset" -> "reset() also drops the declarations and options set up when the solver starts")),
+      knownIssues = Map("Reset" -> "reset() also drops the declarations and options set up when the solver starts"),
+      groundOnly = cvcGroundOnly),
     SolverInfo("smt-cvc5", () => SolverFactory.hasCVC5,
       Set(BagAlgebra, NestedArrays),
-      knownIssues = Map("Reset" -> "reset() also drops the declarations and options set up when the solver starts")),
+      knownIssues = Map("Reset" -> "reset() also drops the declarations and options set up when the solver starts"),
+      groundOnly = cvcGroundOnly),
     SolverInfo("smt-bitwuzla", () => SolverFactory.hasBitwuzla,
       Set(Integers, Reals, BitVectorIntConversions, Strings, Sets, Bags, BagAlgebra, Maps, NestedArrays, ADTs,
         Quantifiers, TypeParameters),
@@ -92,6 +105,9 @@ object SolverTestSuite {
       )),
     SolverInfo("princess", () => true,
       Set(BitVectors, FloatingPoint, Sets, Bags, BagAlgebra, Maps, NestedArrays),
+      groundOnly = Map(
+        "BigInt Division, Modulo and Remainder" -> "throws on division by a variable, which Presburger arithmetic lacks",
+      ),
       knownIssues = Map(
         "Function call over bit-vectors" -> "hangs on function calls over bit-vectors",
         "Function calls across push and pop" -> "crashes once functions unfolded before a pop are called again",
@@ -124,17 +140,53 @@ trait SolverTestSuite extends AnyFunSuite {
   protected final lazy val program: InoxProgram = InoxProgram(symbols)
   protected given PrinterOptions = PrinterOptions(symbols = Some(symbols))
 
-  protected def solver(ctx: Context): SimpleSolverAPI { val program: InoxProgram } =
-    SimpleSolverAPI(program.getSolver(ctx))
+  /** Checks that take longer than this fail with Unknown instead of hanging the suite. */
+  protected def checkTimeout: scala.concurrent.duration.Duration = scala.concurrent.duration.Duration(120, "s")
 
-  /** Checks that the value the solver finds for `e` is `expected`. */
+  protected def solver(ctx: Context): SimpleSolverAPI { val program: InoxProgram } =
+    SimpleSolverAPI(program.getSolver(ctx).withTimeout(checkTimeout))
+
+  /** Checks that the value the solver finds for `e` is `expected`.
+    *
+    * `e` is checked twice: as is, and with each of its literals replaced by a variable equal to
+    * it. Ground expressions are mostly evaluated by the simplifier before they reach the solver,
+    * so only the second form checks how the solver encodes and evaluates each operation.
+    */
   protected def check(s: SimpleSolverAPI { val program: InoxProgram }, e: Expr, expected: Expr): Unit = {
     val v = Variable.fresh("v", e.getType(using symbols))
     s.solveSAT(Equals(v, e)) match {
       case SatWithModel(model) =>
-        assert(model.vars.get(v.toVal) == Some(expected))
+        assert(model.vars.get(v.toVal) == Some(expected), s"for '$e'")
       case got => fail(s"Solving of '$e' failed with $got.")
     }
+
+    val (symbolic, literals) = liftLiterals(e)
+    if (literals.nonEmpty && !groundOnly.value) {
+      val constraint = And(literals.toSeq.map { case (lit, x) => Equals(x, lit) } :+ Equals(v, symbolic))
+      s.solveSAT(constraint) match {
+        case SatWithModel(model) =>
+          assert(model.vars.get(v.toVal) == Some(expected), s"for '$symbolic' where ${literals.map { case (l, x) => s"$x = $l" }.mkString(", ")}")
+        case got => fail(s"Solving of '$symbolic' with its literals as variables failed with $got.")
+      }
+    }
+  }
+
+  /** Whether the running test only checks ground expressions (see [[SolverInfo.groundOnly]]). */
+  private val groundOnly = new scala.util.DynamicVariable(false)
+
+  /** Replaces the literals of `e` with fresh variables, and returns the variable of each literal. */
+  protected def liftLiterals(e: Expr): (Expr, Map[Expr, Variable]) = {
+    var literals = Map.empty[Expr, Variable]
+    val lifted = exprOps.postMap {
+      case lit: Literal[?] =>
+        Some(literals.getOrElse(lit, {
+          val x = Variable.fresh(s"lit${literals.size}", lit.getType(using symbols))
+          literals += lit -> x
+          x
+        }))
+      case _ => None
+    }(e)
+    (lifted, literals)
   }
 
   /** Options shared by all tests of the suite. */
@@ -155,6 +207,10 @@ trait SolverTestSuite extends AnyFunSuite {
       val testName = s"$name solver=${info.name}"
       if (info.knownIssues.contains(name)) {
         superIgnore(this, s"$testName (known issue: ${info.knownIssues(name)})")(())
+      } else if (info.available() && info.groundOnly.contains(name)) {
+        superTest(this, s"$testName (ground checks only: ${info.groundOnly(name)})") {
+          groundOnly.withValue(true)(body(contextFor(info.name)))
+        }
       } else if (info.available()) {
         superTest(this, testName)(body(contextFor(info.name)))
       } else if (requiredSolvers(info.name)) {
