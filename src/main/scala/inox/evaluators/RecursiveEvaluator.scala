@@ -46,6 +46,13 @@ abstract class RecursiveEvaluator(override val program: Program,
     FiniteBag(els.toMap.toSeq.filter { case (_, IntegerLiteral(i)) => i > 0 case _ => false }.sortBy(_._1.toString), tpe)
   }
 
+  // `max` and `min` follow SMT-LIB's fp.max and fp.min: a NaN operand is ignored unless both are
+  // NaN. SMT-LIB leaves the result open for +0.0 and -0.0, which we order as the JVM does.
+  private def fpMax(a: Double, b: Double): Double = if (a.isNaN) b else if (b.isNaN) a else a.max(b)
+  private def fpMin(a: Double, b: Double): Double = if (a.isNaN) b else if (b.isNaN) a else a.min(b)
+  private def fpMax(a: Float, b: Float): Float = if (a.isNaN) b else if (b.isNaN) a else a.max(b)
+  private def fpMin(a: Float, b: Float): Float = if (a.isNaN) b else if (b.isNaN) a else a.min(b)
+
   protected def finiteMap(els: Iterable[(Expr, Expr)], default: Expr, from: Type, to: Type): FiniteMap = {
     FiniteMap(els.toMap.toSeq.filter { case (_, value) => value != default }.sortBy(_._1.toString), default, from, to)
   }
@@ -542,16 +549,16 @@ abstract class RecursiveEvaluator(override val program: Program,
 
     case FPMin(lhs, rhs) =>
       (e(lhs), e(rhs)) match {
-        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1.min(l2))
-        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1.min(l2))
+        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(fpMin(l1, l2))
+        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(fpMin(l1, l2))
         case _ => throw EvalError(f"Unexpected operation: min($lhs, $rhs)")
       }
 
     case FPMax(lhs, rhs) =>
       (e(lhs), e(rhs)) match {
-        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(l1.max(l2))
-        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(l1.max(l2))
-        case _ => throw EvalError(f"Unexpected operation: min($lhs, $rhs)")
+        case (Float32Literal(l1), Float32Literal(l2)) => Float32Literal(fpMax(l1, l2))
+        case (Float64Literal(l1), Float64Literal(l2)) => Float64Literal(fpMax(l1, l2))
+        case _ => throw EvalError(f"Unexpected operation: max($lhs, $rhs)")
       }
 
     case FPRound(RoundNearestTiesToEven, expr) =>
