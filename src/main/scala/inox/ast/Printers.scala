@@ -139,7 +139,7 @@ trait Printer {
         p"$id"
 
       case Let(vd, expr, SubString(v2: Variable, start, StringLength(v3: Variable))) if vd.toVariable == v2 && v2 == v3 =>
-        p"$expr.substring($start)"
+        p"${rcv(expr)}.substring($start)"
 
       case Let(b, d, e) =>
         p"""|val $b = $d
@@ -178,8 +178,8 @@ trait Printer {
       case StringConcat(lhs, rhs) => optP {
         p"$lhs + $rhs"
       }
-      case SubString(expr, start, end) => p"$expr.substring($start, $end)"
-      case StringLength(expr) => p"$expr.length"
+      case SubString(expr, start, end) => p"${rcv(expr)}.substring($start, $end)"
+      case StringLength(expr) => p"${rcv(expr)}.length"
 
       case Int8Literal(v) => p"$v"
       case Int16Literal(v) => p"$v"
@@ -206,9 +206,9 @@ trait Printer {
         }
       case GenericValue(tp, id) => p"$tp#$id"
       case Tuple(exprs) => p"($exprs)"
-      case TupleSelect(t, i) => p"$t._$i"
+      case TupleSelect(t, i) => p"${rcv(t)}._$i"
       case IsConstructor(e, id) => p"$e is $id"
-      case ADTSelector(e, id) => p"$e.$id"
+      case ADTSelector(e, id) => p"${rcv(e)}.$id"
 
       case FunctionInvocation(id, tps, args) =>
         p"$id${nary(tps, ", ", "[", "]")}"
@@ -217,7 +217,7 @@ trait Printer {
         }
 
       case Application(caller, args) =>
-        p"$caller($args)"
+        p"${rcv(caller)}($args)"
 
       case Lambda(Seq(vd), FunctionInvocation(id, Seq(), Seq(arg))) if vd.toVariable == arg =>
         p"$id"
@@ -311,7 +311,8 @@ trait Printer {
         p"$l ^ $r"
       }
       case BVOr(l, r) => optP {
-        p"$l | $r"
+        // The `|` is passed as an argument, as `p` strips margins up to `|`
+        p"$l ${"|"} $r"
       }
       case BVAnd(l, r) => optP {
         p"$l & $r"
@@ -326,21 +327,21 @@ trait Printer {
         p"$l >>> $r"
       }
 
-      case BVNarrowingCast(e, Int8Type())  => p"$e.toByte"
-      case BVNarrowingCast(e, Int16Type()) => p"$e.toShort"
-      case BVNarrowingCast(e, Int32Type()) => p"$e.toInt"
-      case BVNarrowingCast(e, Int64Type()) => p"$e.toLong"
-      case BVNarrowingCast(e, BVType(_, size)) => p"$e.toBV($size)"
-      case BVWideningCast(e, Int8Type())  => p"$e.toByte"
-      case BVWideningCast(e, Int16Type()) => p"$e.toShort"
-      case BVWideningCast(e, Int32Type()) => p"$e.toInt"
-      case BVWideningCast(e, Int64Type()) => p"$e.toLong"
-      case BVWideningCast(e, BVType(_, size)) => p"$e.toBV($size)"
-      case BVUnsignedToSigned(e) => p"$e.toSigned"
-      case BVSignedToUnsigned(e) => p"$e.toUnsigned"
-      case BVToInt(e) => p"$e.toInt"
-      case IntToBV(size, true, e) => p"$e.toBVSigned($size)"
-      case IntToBV(size, false, e) => p"$e.toBVUnsigned($size)"
+      case BVNarrowingCast(e, Int8Type())  => p"${rcv(e)}.toByte"
+      case BVNarrowingCast(e, Int16Type()) => p"${rcv(e)}.toShort"
+      case BVNarrowingCast(e, Int32Type()) => p"${rcv(e)}.toInt"
+      case BVNarrowingCast(e, Int64Type()) => p"${rcv(e)}.toLong"
+      case BVNarrowingCast(e, BVType(_, size)) => p"${rcv(e)}.toBV($size)"
+      case BVWideningCast(e, Int8Type())  => p"${rcv(e)}.toByte"
+      case BVWideningCast(e, Int16Type()) => p"${rcv(e)}.toShort"
+      case BVWideningCast(e, Int32Type()) => p"${rcv(e)}.toInt"
+      case BVWideningCast(e, Int64Type()) => p"${rcv(e)}.toLong"
+      case BVWideningCast(e, BVType(_, size)) => p"${rcv(e)}.toBV($size)"
+      case BVUnsignedToSigned(e) => p"${rcv(e)}.toSigned"
+      case BVSignedToUnsigned(e) => p"${rcv(e)}.toUnsigned"
+      case BVToInt(e) => p"${rcv(e)}.toInt"
+      case IntToBV(size, true, e) => p"${rcv(e)}.toBVSigned($size)"
+      case IntToBV(size, false, e) => p"${rcv(e)}.toBVUnsigned($size)"
 
       case _ => return false
     }
@@ -349,23 +350,23 @@ trait Printer {
 
   protected def ppFloatingPoint(tree: Tree)(using ctx: PrinterContext): Boolean = {
     tree match {
-      case FPEquals(l, r) => p"$l === $r"
-      case ToFloat(e) => p"$e.toFloat"
-      case ToDouble(e) => p"$e.toDouble"
-      case FPCast(eb, sb, _, e) => p"$e.toFP($eb, $sb)"
-      case FPFromBinary(eb, sb, e) => p"$e.toBinaryFP($eb, $sb)"
-      case FPToBVJVM(_, _, 8, e)   => p"$e.toByte"
-      case FPToBVJVM(_, _, 16, e)   => p"$e.toShort"
-      case FPToBVJVM(_, _, 32, e)   => p"$e.toInt"
-      case FPToBVJVM(_, _, 64, e)   => p"$e.toLong"
-      case FPToBV(size, true, _, e)   => p"$e.toSBV($size)"
-      case FPToBV(size, false, _, e)   => p"$e.toUBV($size)"
-      case FPToReal(e)      => p"$e.toReal"
-      case FPAdd(_, e1, e2) => p"$e1 + $e2"
-      case FPSub(_, e1, e2) => p"$e1 - $e2"
+      case FPEquals(l, r) => optP { p"$l === $r" }
+      case ToFloat(e) => p"${rcv(e)}.toFloat"
+      case ToDouble(e) => p"${rcv(e)}.toDouble"
+      case FPCast(eb, sb, _, e) => p"${rcv(e)}.toFP($eb, $sb)"
+      case FPFromBinary(eb, sb, e) => p"${rcv(e)}.toBinaryFP($eb, $sb)"
+      case FPToBVJVM(_, _, 8, e)   => p"${rcv(e)}.toByte"
+      case FPToBVJVM(_, _, 16, e)   => p"${rcv(e)}.toShort"
+      case FPToBVJVM(_, _, 32, e)   => p"${rcv(e)}.toInt"
+      case FPToBVJVM(_, _, 64, e)   => p"${rcv(e)}.toLong"
+      case FPToBV(size, true, _, e)   => p"${rcv(e)}.toSBV($size)"
+      case FPToBV(size, false, _, e)   => p"${rcv(e)}.toUBV($size)"
+      case FPToReal(e)      => p"${rcv(e)}.toReal"
+      case FPAdd(_, e1, e2) => optP { p"$e1 + $e2" }
+      case FPSub(_, e1, e2) => optP { p"$e1 - $e2" }
       case FPUMinus(e)      => p"-$e"
-      case FPMul(_, e1, e2) => p"$e1 * $e2"
-      case FPDiv(_, e1, e2) => p"$e1 / $e2"
+      case FPMul(_, e1, e2) => optP { p"$e1 * $e2" }
+      case FPDiv(_, e1, e2) => optP { p"$e1 / $e2" }
       case FPFMA(_, e1, e2, e3) => p"FMA($e1, $e2, $e3)"
       case FPAbs(e)         => p"abs($e)"
       case FPMin(e1, e2)    => p"min($e1, $e2)"
@@ -384,13 +385,13 @@ trait Printer {
       case FPGreaterEquals(l, r) => optP {
         p"$l >= $r"
       }
-      case FPIsZero(e)      => p"$e == 0"
-      case FPIsNaN(e)       => p"$e.isNaN"
-      case FPIsInfinite(e)  => p"$e.isInfinite"
-      case FPIsNegative(e)  => p"$e.isNegative"
-      case FPIsPositive(e)  => p"$e.isPositive"
-      case FPIsNormal(e)    => p"$e.isNormal"
-      case FPIsSubnormal(e) => p"$e.isSubnormal"
+      case FPIsZero(e)      => optP { p"$e == 0" }
+      case FPIsNaN(e)       => p"${rcv(e)}.isNaN"
+      case FPIsInfinite(e)  => p"${rcv(e)}.isInfinite"
+      case FPIsNegative(e)  => p"${rcv(e)}.isNegative"
+      case FPIsPositive(e)  => p"${rcv(e)}.isPositive"
+      case FPIsNormal(e)    => p"${rcv(e)}.isNormal"
+      case FPIsSubnormal(e) => p"${rcv(e)}.isSubnormal"
 
       case RoundTowardZero => p"RTZ"
       case RoundTowardPositive => p"RTP"
@@ -416,18 +417,18 @@ trait Printer {
         }
       case ElementOfSet(e, s) => ppIn(e, s)
       case SubsetOf(l, r) => ppSubset(l, r)
-      case SetAdd(s, e) => ppSetAdd(s, e)
-      case SetUnion(l, r) => ppSetUnion(l, r)
-      case BagUnion(l, r) => ppSetUnion(l, r)
-      case SetDifference(l, r) => p"$l \\ $r"
-      case BagDifference(l, r) => p"$l \\ $r"
-      case SetIntersection(l, r) => ppSetInter(l, r)
-      case BagIntersection(l, r) => ppSetInter(l, r)
-      case BagAdd(b, e) => p"$b + $e"
-      case MultiplicityInBag(e, b) => p"$b($e)"
-      case MapApply(m, k) => p"$m($k)"
-      case MapUpdated(m, k, v) => p"$m.updated($k, $v)"
-      case MapMerge(mask, m1, m2) => p"$mask.mapMerge($m1, $m2)"
+      case SetAdd(s, e) => optP { ppSetAdd(s, e) }
+      case SetUnion(l, r) => optP { ppSetUnion(l, r) }
+      case BagUnion(l, r) => optP { ppSetUnion(l, r) }
+      case SetDifference(l, r) => optP { p"$l -- $r" }
+      case BagDifference(l, r) => optP { p"$l -- $r" }
+      case SetIntersection(l, r) => optP { ppSetInter(l, r) }
+      case BagIntersection(l, r) => optP { ppSetInter(l, r) }
+      case BagAdd(b, e) => optP { p"$b + $e" }
+      case MultiplicityInBag(e, b) => p"${rcv(b)}($e)"
+      case MapApply(m, k) => p"${rcv(m)}($k)"
+      case MapUpdated(m, k, v) => p"${rcv(m)}.updated($k, $v)"
+      case MapMerge(mask, m1, m2) => p"${rcv(mask)}.mapMerge($m1, $m2)"
 
       case _ => return false
     }
@@ -577,19 +578,23 @@ trait Printer {
     // 2: ^
     case (_: BVXor) => 2
     // 3: &
-    case (_: And | _: BVAnd | _: SetIntersection) => 3
+    case (_: And | _: BVAnd | _: SetIntersection | _: BagIntersection) => 3
     // 4: < >
     case (
       _: GreaterThan | _: GreaterEquals | _: LessEquals | _: LessThan |
-      _: BVAShiftRight | _: BVLShiftRight | _: BVShiftLeft
+      _: BVAShiftRight | _: BVLShiftRight | _: BVShiftLeft |
+      _: FPGreaterThan | _: FPGreaterEquals | _: FPLessEquals | _: FPLessThan
       ) => 4
     // 5: = !
-    case (_: Equals | _: Not | _: Implies) => 5
+    case (_: Equals | _: Not | _: Implies | _: FPEquals | _: FPIsZero) => 5
     // 6: :
     // 7: + -
-    case (_: Plus | _: Minus | _: SetUnion | _: SetDifference | _: StringConcat) => 7
+    case (
+      _: Plus | _: Minus | _: SetUnion | _: SetDifference | _: SetAdd | _: StringConcat |
+      _: BagUnion | _: BagDifference | _: BagAdd | _: FPAdd | _: FPSub
+      ) => 7
     // 8: * / %
-    case (_: Times | _: Division | _: Remainder) => 8
+    case (_: Times | _: Division | _: Remainder | _: FPMul | _: FPDiv) => 8
     // 9: Other special characters
     case _ => 9
   }
@@ -606,6 +611,17 @@ trait Printer {
     case (_, _) => true
   }
 
+  /** Prints `t` as the receiver of a method call or an application: in parentheses when it is
+    * printed with a prefix or infix operator.
+    */
+  protected def rcv(t: Tree)(using ctx: PrinterContext): Any = t match {
+    // printed without `optP`
+    case _: UMinus | _: FPUMinus => PrintWrapper(p"($t)")
+    // printed with `optP`, which adds the parentheses itself if they are required
+    case e: Expr if precedence(e) < 9 && !requiresParentheses(e, Some(ctx.current)) => PrintWrapper(p"($t)")
+    case _ => t
+  }
+
   protected def ppNot(e: Tree)(using pc: PrinterContext): Unit =
     if (pc.opts.printUnicode) p"$notUC$e"
     else p"!$e"
@@ -616,19 +632,19 @@ trait Printer {
 
   protected def ppNotIn(e: Tree, s: Tree)(using pc: PrinterContext): Unit =
     if (pc.opts.printUnicode) p"$e $notInUC $s"
-    else p"!$s.contains($e)"
+    else p"!${rcv(s)}.contains($e)"
 
   protected def ppIn(e: Tree, s: Tree)(using pc: PrinterContext): Unit =
     if (pc.opts.printUnicode) p"$e $inUC $s"
-    else p"$s.contains($e)"
+    else p"${rcv(s)}.contains($e)"
 
   protected def ppSubset(l: Tree, r: Tree)(using pc: PrinterContext): Unit =
     if (pc.opts.printUnicode) p"$l $subsetUC $r"
-    else p"$l.subsetOf($r)"
+    else p"${rcv(l)}.subsetOf($r)"
 
   protected def ppNotSubset(l: Tree, r: Tree)(using pc: PrinterContext): Unit =
     if (pc.opts.printUnicode) p"$l $notSubsetUC $r"
-    else p"!$l.subsetOf($r)"
+    else p"!${rcv(l)}.subsetOf($r)"
 
   protected def ppSetAdd(s: Tree, e: Tree)(using pc: PrinterContext): Unit =
     if (pc.opts.printUnicode) p"$s $unionUC {$e}"
