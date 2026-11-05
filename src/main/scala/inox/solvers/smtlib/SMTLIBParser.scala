@@ -313,7 +313,7 @@ trait SMTLIBParser {
 
     case ArraysEx.Store(e1, e2, e3) => otpe match {
       case Some(MapType(from, to)) =>
-        MapUpdated(fromSMT(e1, MapType(from, to)), fromSMT(e2, from), fromSMT(e2, to))
+        MapUpdated(fromSMT(e1, MapType(from, to)), fromSMT(e2, from), fromSMT(e3, to))
       case Some(_) =>
         throw new MissformedSMTException(term, "Unexpected non-map type for " + term)
       case None =>
