@@ -335,6 +335,12 @@ trait TemplateGenerator { self: Templates =>
     substMap: Map[Variable, Encoded],
     polarity: Option[Boolean] = None
   ): (Expr, TemplateClauses) = {
+    exprOps.preTraversal {
+      case e if unsupportedContainer(e.getType) =>
+        throw new Unsupported(s"${e.getType.asString} relies on a custom equality inside a set, bag or map")
+      case _ =>
+    } (expr)
+
     val builder = new Builder(pathVar, substMap)
     import builder._
 

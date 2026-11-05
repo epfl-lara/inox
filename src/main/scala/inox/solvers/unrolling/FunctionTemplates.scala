@@ -106,6 +106,10 @@ trait FunctionTemplates { self: Templates =>
 
   def getCalls: Seq[(Encoded, Call)] = defBlockers.toList.map(p => p._2 -> p._1)
 
+  private val chooseCache: MutableMap[Identifier, Boolean] = MutableMap.empty
+  private def hasChoose(tfd: TypedFunDef): Boolean = chooseCache.getOrElseUpdate(tfd.id,
+    exprOps.exists { case _: Choose => true case _ => false } (tfd.fd.fullBody))
+
   private val callCache: MutableMap[TypedFunDef, (Seq[Encoded], Encoded)] = MutableMap.empty
   private[unrolling] def mkCall(tfd: TypedFunDef, args: Seq[Encoded]): Encoded = {
     val (asT, call) = callCache.getOrElse(tfd, {
@@ -176,16 +180,22 @@ trait FunctionTemplates { self: Templates =>
             // we generate helper equality clauses that stem from purity
             for ((pcall, pblocker) <- defBlockers if pcall.tfd == tfd) {
               if (tfd.params.exists(vd => unrollEquality(vd.getType)) || unrollEquality(tfd.getType)) {
+                // The results of calls are determined by the function body, so these clauses are
+                // only shortcuts and their equalities need not be unrolled. A `choose` in the body
+                // however picks a fresh value for each call, so the results of calls on equal
+                // arguments are only related by these clauses. We then register the equalities so
+                // that they are unrolled before a model is accepted.
+                val register = hasChoose(tfd)
                 val argPairs = (pcall.args zip args)
                 val equalities = (tfd.params.map(_.getType) zip argPairs).map { case (tpe, (e1, e2)) =>
-                  val (equality, clauses) = mkEqualities(pblocker, tpe, e1.encoded, e2.encoded, register = false)
+                  val (equality, clauses) = mkEqualities(pblocker, tpe, e1.encoded, e2.encoded, register = register)
                   newClauses ++= clauses
                   equality
                 }
 
                 val (entail, entailClauses) = mkEqualities(pblocker, tfd.getType,
                   mkCall(tfd, pcall.args.map(_.encoded)),
-                  mkCall(tfd, args.map(_.encoded)), register = false)
+                  mkCall(tfd, args.map(_.encoded)), register = register)
                 newClauses ++= entailClauses
 
                 newClauses += mkImplies(mkAnd(pblocker +: defBlocker +: equalities*), entail)
