@@ -36,12 +36,34 @@ trait EqualityTemplates { self: Templates =>
       case BooleanType() | UnitType() | CharType() | IntegerType() |
            RealType() | StringType() | (_: BVType) | (_: TypeParameter) => false
 
+      // Functions are compared through their identifiers, and the equality clauses between
+      // lambdas compare their closures with `mkEqualities` (see [[LambdaTemplates]]).
+      case (_: FunctionType) | (_: PiType) => false
+
       case NAryType(tpes, _) => tpes.exists(unrollEquality)
     }
 
     unrollCache(tpe) = res
     res
   })
+
+  private lazy val hasCustomEqualities: Boolean = sorts.values.exists(_.flags.exists {
+    case HasADTEquality(_) => true
+    case _ => false
+  })
+
+  /** Whether `tpe` contains a set, bag or map whose elements (or keys) require equality unrolling.
+    *
+    * The solvers compare these elements structurally (e.g. membership in an SMT set), which
+    * disagrees with the custom equality. We therefore reject such types instead of producing
+    * spurious counterexamples or proofs.
+    */
+  def unsupportedContainer(tpe: Type): Boolean = hasCustomEqualities && typeOps.exists {
+    case SetType(base) => unrollEquality(base)
+    case BagType(base) => unrollEquality(base)
+    case MapType(from, _) => unrollEquality(from)
+    case _ => false
+  } (tpe)
 
   def equalitySymbol(tpe: Type): (Variable, Encoded) = {
     typeSymbols.cached(tpe) {
@@ -116,8 +138,11 @@ trait EqualityTemplates { self: Templates =>
         case TupleType(tps) =>
           andJoin(tps.indices.map(i => Equals(TupleSelect(e1, i + 1), TupleSelect(e2, i + 1))))
 
+        case (_: SetType) | (_: BagType) | (_: MapType) =>
+          throw new Unsupported(s"Equality on ${tpe.asString} relies on a custom equality inside a set, bag or map")
+
         case _ => throw new InternalSolverError(s"Why does $tpe require equality unrolling!?")
-      }), (args zip argsT).toMap + (f -> fT) + (pathVar -> encodeSymbol(pathVar)))
+      }), (args zip argsT).toMap + (f -> fT) + (pathVar -> pathVarT))
 
       val (contents, _) = Template.contents(
         pathVar -> pathVarT, args zip argsT, tmplClauses,
