@@ -43,7 +43,10 @@ extensional, and in a language with no function equality at all. Theorem D (§6)
 complete: whenever such a counterexample exists, the procedure finds one.
 
 So the unrolling technique applies to arbitrary languages, whatever the operational semantics of
-their function equality, or without one. The procedure can still compare functions structurally
+their function equality, or without one. Witnesses are used under the `none` (default) and
+`extensional` semantics of function equality, where they hold by definition (§9). Under
+`intensional` equality, distinct functions may agree on every input, so there are none, and the
+procedure is the one of the thesis. The procedure can still compare functions structurally
 inside the solver, to dispatch applications and to keep closures apart. The witnesses ensure that
 the counterexamples it reports never rely on that comparison, or on evaluating equality between
 functions at all.
@@ -66,9 +69,8 @@ This extraction falls back to comparing functions when no distinguishing input a
 - two arguments are lambdas of the program under `intensional` equality, which are told apart by
   structure (under `none`, their witness is instantiated when extraction needs it, §9);
 - the argument is a set, bag or map containing functions;
-- the arguments get no instantiated distinguishing input, as when Theorem F drops the witnesses,
-  which only happens under `intensional` equality, or for the functions in datatypes that a free
-  function returns (§7).
+- the arguments get no instantiated distinguishing input, as under `intensional` equality, which has
+  no witnesses, or for the functions in datatypes that a free function returns (§7).
 
 Under `none`, the evaluator rejects these comparisons (§9), so such a model fails validation and
 the answer is Unknown rather than a counterexample that compares functions. A requested witness
@@ -104,11 +106,11 @@ Each lambda template `λ` has a start blocker `s_λ`.
 
 - `f` free and `h` another free term, with condition `c_p = g_f ∧ g_h`;
 - `f` free and `h` a lambda template `λ`, with `c_p = g_f ∧ s_λ`;
-- under `none` and `extensional` function equality only (§9), two lambda templates `λ1`, `λ2` that
+- two lambda templates `λ1`, `λ2` that
   differ in structure, or share a structure but have closures that differ syntactically, with
   `c_p = s_λ1 ∧ s_λ2`. Under `none`, these pairs are only instantiated on demand.
 
-Unless function equality is `extensional`, the pairs that involve a free function are *on demand*
+Under `none`, the pairs that involve a free function are *on demand*
 as well: they get no `eq_p` clause and stay out of `E_i` until a model shows both of their members.
 A free function shows up when extraction reaches it, and a lambda when its start blocker holds in the
 model. Validation then *promotes* these pairs (`promoteWitnesses`): they get their `eq_p` clause, join
@@ -130,7 +132,7 @@ distinguishing input otherwise (§9).
 **Instantiation.** Instantiating `p` (`Templates.instantiateWitness`) adds the following:
 
 - fresh witness arguments `w̄` of the parameter types,
-- a blocker `s_p` with `s_p ⇔ (W ∧ c_p ∧ f ≄ h)`, where `W` is one global literal (`witnessEnabler`),
+- a blocker `s_p` with `s_p ⇔ (c_p ∧ f ≄ h)`,
 - the embedding of `f(w̄) != h(w̄)` under `s_p`, and
 - the free typing of `w̄` under `s_p`.
 
@@ -148,11 +150,9 @@ Everything created while instantiating `p`, or later unfolded from it, inherits 
 - lambdas and lambda bodies instantiated for them.
 
 **Level.** `L` is 0 until the first model is found, then grows by one with each unrolling. `E_i` is
-the set of `e_p` for pairs not instantiated yet. It is assumed only while `L > 0` and witnesses are
-in use (`useWitnesses`).
+the set of `e_p` for pairs not instantiated yet. It is assumed only while `L > 0`.
 
-**Rules.** The model check runs on `Φi ∪ Ψi` under `U ∪ Bi ∪ {W} ∪ Ei` (`W` once something is
-instantiated). If it is UNSAT and `Ei` is not empty:
+**Rules.** The model check runs on `Φi ∪ Ψi` under `U ∪ Bi ∪ Ei`. If it is UNSAT and `Ei` is not empty:
 
 - **R1.** Let `N` be the set of literals `e_p` in the unsat core, or all of `Ei` when the solver gives
   no core. If some pairs of `N` have depth at most `L`, instantiate them and check again.
@@ -166,17 +166,11 @@ All further decisions are therefore based on a check that didn't assume `Ei`.
 
 - **R0.** SAT, `L = 0`, and some pair is pending. Set `L := 1` and check again.
 - **Otherwise**, the loop proceeds as without witnesses. SAT goes to validation, or to the finite
-  range check for quantifiers. UNSAT goes to the proof check, except that a model check with nothing
-  left to unroll answers UNSAT only when `W` wasn't assumed.
+  range check for quantifiers. UNSAT goes to the proof check, which runs under `U ∪ R`, where `R` is
+  the set of refutation assumptions, or answers UNSAT when there is nothing left to unroll.
 
-The **proof check** first runs under `U ∪ R ∪ {W}`, where `R` is the set of refutation assumptions
-(`refute`). If that is UNSAT, it runs again under `U ∪ R`. UNSAT there is a proof. SAT there means no
-model with distinguishing inputs can ever exist, as the next section shows, so the witnesses are
-dropped (`useWitnesses := false`) and `W` and `E` are never assumed again.
-
-The **finite range check** (thesis Chapter 4) also assumes `W` and `Ei`, and applies R1 and R2 to its
-own UNSAT answers. It never drops witnesses. **Validation** drops them when a model found with them
-can't be extracted or validated.
+The **finite range check** (thesis Chapter 4) also assumes `Ei`, and applies R1 and R2 to its own
+UNSAT answers.
 
 **Extraction order.** Extraction rebuilds a free function as an `if`-chain over its applications in
 the model. Its default branch, for inputs outside these points, is taken from the first application.
@@ -207,44 +201,31 @@ below depends on cores being correct or minimal.
 
 ## 4. Witnesses are conservative
 
-**Lemma W1 (inert witnesses).** Every model `M` of `Φi ∪ X` extends to a model `M'` of
-`Φi ∪ Ψi ∪ X` with `M'(W) = false` and `M'(e_p) = false` for every `p`. Here `X` is any set of
-clauses that mentions neither `W`, the `e_p`, nor symbols introduced by `Ψi`.
+**Lemma W1 (inert equalities).** Every model `M` of `Φi ∪ Ψi ∪ X` extends to a model with
+`e_p` false for every `p`, where `X` is any set of clauses that mentions no `e_p`.
 
-*Proof sketch.* `M'` gives `W` and every `e_p` the value false, and keeps `M` elsewhere. The clauses
-of `Ψi` come in three kinds:
+*Proof sketch.* The `e_p` only occur in the antecedents of the `eq_p` clauses. ∎
 
-1. `eq_p` holds because its antecedent contains `e_p`.
-2. `s_p ⇔ (W ∧ …)` forces `s_p` to false.
-3. Everything else was produced by embedding or unfolding under `s_p`, or under blockers defined from
-   it. These clauses have the shape of thesis Lemma 1, `b ⇒ c`, where each new blocker is defined as
-   its parent conjoined with a condition. Setting all of these blockers to false satisfies them, as
-   in Lemma 1.
+**Lemma W2' (witnesses are valid).** Under `none` and `extensional` function equality, every
+counterexample `γ` that agrees with a model `M` of `Φi ∪ X` as in the proof of thesis Theorem 2
+gives a model of `Φi ∪ Ψi ∪ X` with all `e_p` false.
 
-The remaining definitional clauses are about fresh symbols that `M` doesn't constrain: the witness
-arguments, application results, lambda closures and capture order. They are satisfiable for fresh
-symbols, by the same argument that the thesis's unfolding steps use for calls, applications and new
-`δτ` constructors (Theorem 2 and the proof of Theorem 3). ∎
+*Proof sketch.* Under these semantics, two functions are distinct only if some input tells them
+apart: under `extensional` by definition, and under `none` because a query can't compare functions,
+so identifying the functions of `γ` that agree on every input leaves a counterexample (§9). Each
+instantiated pair `p` with `c_p ∧ f ≄ h` gets such an input for `w̄`, and `s_p` is false for the
+others. The rest of `Ψi` is unfolded from the witnesses as calls and applications are in the
+thesis, and its blockers follow the evaluation of `γ` on the witness applications, as in the proof of
+Theorem 2. ∎
 
 **Theorem A (proofs are sound).** If the procedure answers UNSAT, the query has no counterexample.
 
-*Proof sketch.* An UNSAT answer has one of two origins:
-
-- **The proof check.** The answer comes from the run without `W`, so `Φi ∪ Ψi ∪ U ∪ R` is
-  unsatisfiable.
-- **A model check with nothing left to unroll.** Here `Φi ∪ Ψi ∪ U ∪ Bi` is unsatisfiable. Neither
-  `W` nor any `e_p` was assumed: R1 and R2 make every decision after an UNSAT check under `Ei` on a
-  check without it, and the loop only answers UNSAT from a model check when `W` wasn't assumed.
-
-In both cases, the contrapositive of Lemma W1 shows that `Φi` is unsatisfiable together with the
-same assumptions. Thesis Theorem 3, together with its Chapter 3 and 4 counterparts, concludes. ∎
-
-**Lemma W3 (dropping is justified).** If `Φi ∪ Ψi ∪ U ∪ R ∪ {W}` is unsatisfiable, then no later
-model check that assumes `W` is satisfiable.
-
-*Proof sketch.* Clause sets only grow (`Φj ⊇ Φi`, `Ψj ⊇ Ψi`). A later model check assumes more,
-namely `Bj` and `Ej` in addition to `R`. So it is unsatisfiable as well. The refutation assumptions
-`R` are part of the satisfaction assumptions, as in the procedure without witnesses. ∎
+*Proof sketch.* An UNSAT answer comes from the proof check, where `Φi ∪ Ψi ∪ U ∪ R` is
+unsatisfiable, or from a model check with nothing left to unroll, where `Φi ∪ Ψi ∪ U ∪ Bi` is
+unsatisfiable. No `e_p` was assumed in either case: R1 and R2 make every decision after an UNSAT
+check under `Ei` on a check without it. A counterexample would give a model of these clauses by
+Lemma W2', as the counterexamples of thesis Theorem 3 (and its Chapter 3 and 4 counterparts) give
+models of `Φi`. ∎
 
 **Theorem B (models stay sound).** A model returned with SAT gives a counterexample, exactly as in
 thesis Theorem 1.
@@ -260,13 +241,13 @@ of the extracted function as before. With
 
 ## 5. Distinguishing inputs
 
-**Theorem C.** Let `M` be the model of a SAT answer obtained with witnesses in use. Every model check
-after the first one is in that case, by R0. Let `p = (f, h)` be a registered pair with `M ⊨ c_p`.
+**Theorem C.** Let `M` be the model of a SAT answer under `none` or `extensional` function equality. Let `p = (f, h)` be a registered pair with `M ⊨ c_p`.
 Then either `M ⊨ f ≃ h`, or `p` has been instantiated, `M ⊨ s_p`, and `M ⊨ f(w̄) ≄ h(w̄)`. In the
 second case the blockers of both applications hold, since they lie in `Bi`.
 
-*Proof sketch.* If `p` is pending, `e_p` was assumed, and `eq_p` gives `f ≃ h`. If `p` is
-instantiated and `M ⊨ f ≄ h`, then `M ⊨ W ∧ c_p ∧ f ≄ h`, so `M ⊨ s_p`, and the embedding of
+*Proof sketch.* Models are only accepted from checks that assume `Ei`, by R0. If `p` is pending,
+`e_p` was assumed, and `eq_p` gives `f ≃ h`. If `p` is instantiated and `M ⊨ f ≄ h`, then
+`M ⊨ c_p ∧ f ≄ h`, so `M ⊨ s_p`, and the embedding of
 `f(w̄) != h(w̄)` under `s_p` holds. ∎
 
 **Corollary C1 (extracted functions differ on an input).** Assume moreover that extraction is
@@ -293,15 +274,14 @@ of which is the extraction of a free term, has the same outcome under structural
 equality. Equal values are structurally equal, hence extensionally equal. Values that are not
 equal differ on an input by C1.
 
-A comparison between two lambdas of the program is the one exception under `intensional`
-equality, as no witness is involved: the program fixes their structural distinctness. Under
-`none`, the query can't contain it, and under `extensional`, such lambdas form a pair (§9).
+Comparisons between two lambdas of the program are covered as well, since such lambdas form a pair
+(§9).
 
 ## 6. Completeness
 
-A witness constraint `f ≄ h ⇒ f(w̄) ≄ h(w̄)` is an extensionality assumption, which structural
-equality doesn't satisfy in general. So completeness takes two forms: one for the counterexamples
-that satisfy it, and a fallback for the ones that don't.
+Under `none` and `extensional` equality, a witness constraint `f ≄ h ⇒ f(w̄) ≄ h(w̄)` holds by
+definition (Lemma W2'). Completeness holds for the counterexamples that need finitely many
+distinguishing inputs.
 
 **Lemma W2 (finite rounds).** Between two unrollings, the procedure instantiates finitely many pairs.
 
@@ -315,13 +295,13 @@ of depth `k`:
 - Pairs of depth `k + 1` involve terms of depth at most `k`. These terms come from finitely many
   instantiations of depth at most `k`.
 
-R0 fires once per check, and each drop happens at most once. ∎
+R0 fires once per check. ∎
 
 So an infinite run performs infinitely many unrollings, `L` grows without bound, and fairness of the
 unrolling (thesis Definition 4) holds as without witnesses.
 
 **Definition.** Fix a run, and let `Φ∞` and `Ψ∞` be the unions of its clause sets. A counterexample
-`γ` is *finitely distinguishable* when some model `M*` of `Φ∞ ∪ Ψ∞ ∪ U ∪ {W}` satisfies two
+`γ` is *finitely distinguishable* when some model `M*` of `Φ∞ ∪ Ψ∞ ∪ U` satisfies two
 conditions:
 
 1. **Agreement.** `M*` agrees with `γ` as in the proof of thesis Theorem 2: a blocker holds iff the
@@ -330,34 +310,30 @@ conditions:
    whose blocker holds in `M*`, and the pairs `p` with `M* ⊨ c_p ∧ f ≄ h`.
 
 Intuitively, `γ` can be extended with distinguishing inputs for every pair of distinct functions it
-involves, and only finitely many such inputs are needed. This fails when `γ` needs two distinct but
-extensionally equal functions, as in `f == (x => g(x))`. It also fails when every distinguishing input
-creates further distinct functions without end.
+involves, as Lemma W2' does, and only finitely many such inputs are needed. This fails when every
+distinguishing input creates further distinct functions without end.
 
 **Theorem D (completeness for finitely distinguishable counterexamples).** Assume (A2) and unbounded
-unrolling. If the query has a finitely distinguishable counterexample, the procedure answers SAT
-with a model found while witnesses are in use. Theorems B and C then apply to that model.
+unrolling. If the query has a finitely distinguishable counterexample, the procedure answers SAT.
+Theorems B and C then apply to that model.
 
 *Proof sketch.*
 
-1. **The check without equalities is eventually SAT.** `M*` satisfies `Φi ∪ Ψi ∪ U ∪ {W}`. It also
+1. **The check without equalities is eventually SAT.** `M*` satisfies `Φi ∪ Ψi ∪ U`. It also
    satisfies every blocker assumption of `Bi`, except the ones guarding pending items of `T`. By W2
    and fairness, there is a step after which every call and application of `T` is unfolded, and
    `L` is at least the depth of every pair of `T`. From then on, `M*` satisfies every check that
    doesn't assume `Ei`.
-2. **No drop.** By step 1, the proof check under `W` is SAT, so `refute` never drops the witnesses.
-   Before that step, it doesn't drop them either: `M*` satisfies `Φi ∪ Ψi ∪ U ∪ R ∪ {W}` at every
-   step, since `R` holds in `M*` as in thesis Theorem 2. Validation doesn't drop them, since the model
-   is extractable and valid by Theorem B. The implementation limits under §7 are the exception.
-3. **Termination.** Suppose the run is infinite, and consider the steps after the one given by step
+2. **Termination.** Suppose the run is infinite, and consider the steps after the one given by step
    1. An UNSAT model check under `Ei` instantiates pairs in its core (R1), finitely often per level
    by W2. Once R1 has none left to instantiate, R2 runs the check without `Ei`, which is SAT by step
    1, and instantiates every pending pair of depth at most `L`. This includes every pending pair of
    `T`. After finitely many steps, every pair of `T` is instantiated. `M*` then falsifies no
    assumption of the model check under `Ei`, so that check is SAT.
 
-   For quantified queries, the finite range check assumes `W` and `Ei`, and applies R1 and R2 the
-   same way. The completeness argument of thesis Chapter 4 then applies to it. ∎
+   For quantified queries, the finite range check assumes `Ei`, and applies R1 and R2 the
+   same way. The completeness argument of thesis Chapter 4 then applies to it. The model is
+   extractable and valid by Theorem B, except for the implementation limits under §7. ∎
 
 R1 may instantiate pairs outside `T`. This is harmless, because W2 bounds the number of
 instantiations per level.
@@ -376,33 +352,15 @@ answers UNSAT after finitely many steps.
 despite the witnesses' extra calls, because each generation is finite. After the unrolling that
 covers `Φk`, every model check is UNSAT. Each UNSAT check reaches the proof check after finitely many
 steps: R1 and R2 instantiate finitely often (W2) and then move to the proof check rather than
-unrolling directly, and drops happen at most once. The proof check is then UNSAT, because
-`Φi ∪ Ψi ∪ U ∪ R ⊇ Φk ∪ U ∪ R`. ∎
+unrolling directly. The proof check is then UNSAT, because `Φi ∪ Ψi ∪ U ∪ R ⊇ Φk ∪ U ∪ R`. ∎
 
-**Theorem F (fallback for counterexamples that aren't finitely distinguishable).** Suppose the
-query has a counterexample, and the extensionality assumption is refutable for it: for some `k`,
-`Φk ∪ Ψk ∪ U ∪ R ∪ {W}` is unsatisfiable. Then the procedure drops the witnesses after finitely many
-steps. From then on, it is the procedure without witnesses, which finds the counterexample by
-thesis Theorem 2.
+The remaining gap is a counterexample that needs infinitely many distinguishing inputs. There the
+procedure keeps unrolling and gives no answer, in the same way the procedure without witnesses gives
+no answer on an unsatisfiable query it can't refute.
 
-*Proof sketch.* The run reaches step `k` (W2). Every UNSAT model check reaches the proof check after
-finitely many steps, as in the proof of Theorem E, and model checks under `W` are UNSAT by W3. The
-proof check under `W` is then UNSAT. The query is satisfiable, so the proof check without `W` is
-SAT by Theorem A, and `refute` drops the witnesses. After the drop, `W` and `E` are never assumed.
-Lemma W1 makes `Ψ` inert, and thesis Theorem 2 applies. The model is extracted with
-`uniquateClosure` as before. ∎
-
-For example, `f == (x => g(x))` forces `f` and `g` apart with no distinguishing input. Once the
-lambda is applied to the witness, `f(w) == g(w)` is derived, the witness assumption is refuted, and
-the witnesses are dropped.
-
-The remaining gap is a counterexample whose extensionality assumption is unsatisfiable without
-being refutable by unfolding, for instance when refuting it needs induction. There the procedure
-keeps unrolling and gives no answer, in the same way the procedure without witnesses gives no answer
-on an unsatisfiable query it can't refute. Closing this gap means trading against Theorem C. One
-way is to interleave model checks without witnesses and return their models, for instance after a
-fixed number of unrollings without a witness model. That loses Theorem C for queries whose
-distinguishing model lies deeper than the bound.
+Under `intensional` equality, a counterexample may need two distinct functions that agree on every
+input, as in `f == (x => g(x))`. There are no witnesses there, so thesis Theorems 1 to 3 apply
+unchanged, and models may compare functions.
 
 ## 7. Limitations
 
@@ -411,11 +369,9 @@ distinguishing model lies deeper than the bound.
   is claimed for them.
 - Nullary functions are no exception. Their distinguishing input is the empty argument list, so
   instantiating a pair of nullary functions adds `f ≄ h ⇒ f() ≄ h()`, that is
-  `f() ≃ h() ⇒ f ≃ h`. A counterexample that needs two distinct nullary functions with equal
-  results is therefore not finitely distinguishable, like the eta-expansion above. Theorem F covers
-  it, and the model is then extracted without witnesses.
+  `f() ≃ h() ⇒ f ≃ h`, which holds under `none` and `extensional` equality.
 - Decoding backends can fail to extract models with function-typed witnesses (cvc5 at the time of
-  writing). Validation then drops the witnesses, so Theorem C doesn't hold for those models.
+  writing). The answer is then Unknown.
 - Activity literals are only added for function-typed application results. A function stored in a
   datatype that a free function returns is registered under its typing blocker. That blocker bounds
   but doesn't force the typing, so Theorem C relies on that blocker being true for such functions.
@@ -434,9 +390,9 @@ distinguishing model lies deeper than the bound.
 
 ## 8. Tests
 
-`src/it/scala/inox/solvers/unrolling/FunctionWitnessSuite.scala` runs every test under `intensional`
-equality unless stated otherwise, on native Z3,
-`unrollz3`, SMT-LIB Z3 and cvc5, with and without model finding, and with `optCheckModels`.
+`src/it/scala/inox/solvers/unrolling/FunctionWitnessSuite.scala` runs every test under `extensional`
+equality unless stated otherwise, on the unrolling solver (SMT-LIB Z3 by default), with and without
+model finding, and with `optCheckModels`.
 Theorem B is therefore checked on every model.
 
 | Property | Tests |
@@ -445,25 +401,24 @@ Theorem B is therefore checked on every model.
 | C1 through argument and result types | distinct functions of several arguments; distinct curried functions; distinct higher-order functions |
 | C1 through datatypes and type parameters | distinct functions in datatypes; distinct functions on a type parameter; distinct functions over a recursive type with function fields |
 | D with many pairs, a finite domain, unfolding and quantifiers | many pairwise distinct functions; all Boolean functions; distinguishing input that needs unfolding; distinct functions next to a recursive function |
-| A when the extensionality assumption fails | structurally distinct, extensionally equal lambdas; distinct functions equal on every input; more distinct Boolean functions than extensional ones; unsatisfiable query about distinguishing inputs |
-| F, the fallback for intensional counterexamples | eta-expanded closure remains distinct; nullary functions with equal results; intensional counterexample that needs unfolding; intensional counterexample over a recursive type with function fields |
+| Intensional counterexamples, without witnesses | structurally distinct, extensionally equal lambdas; distinct functions equal on every input; more distinct Boolean functions than extensional ones; unsatisfiable query about distinguishing inputs (UNSAT under `extensional`); eta-expanded closure remains distinct; nullary functions with equal results; intensional counterexample that needs unfolding; intensional counterexample over a recursive type with function fields; no distinguishing inputs under intensional equality |
 | A, E on refutable queries | equal functions agree; unsatisfiable query with distinct functions |
 | Extraction without comparing functions (§1) | functions applied to distinct functions; functions applied to a function and a lambda; functions applied to distinct curried functions (skipped on unrollz3, whose models give `f` the same result on both arguments); distinct higher-order functions |
 | Rejecting comparisons under `none` (§9) | function comparisons are rejected without function equality; function comparisons at type parameters are rejected without function equality; function comparisons in callees are found at their type arguments (an intermediate callee, polymorphic recursion); comparisons with constructors without functions are accepted |
 | Models under `none` and `extensional` (§9) | functions applied to functions without function equality (lambda pairs on demand); free functions passed to a function without function equality (free pairs promoted from on demand, §2); functions applied to datatypes with functions without function equality; functions applied to curried lambdas without function equality (requested witnesses deeper than the level); functions applied to functions returning datatypes without function equality (§7); models with extensional function equality |
 | Refutations under `none` and `extensional` (§9) | intensional counterexamples don't exist without function equality; extensionally equal functions are equal; extensionally distinct lambdas are distinct; structurally distinct lambdas remain distinct |
 | Evaluation (§9) | quantified function comparisons are evaluated extensionally; `EvaluatorSuite`'s "Function equality" (rejected under `none`, by results under `extensional`, undecidable comparisons, tuples, intensional) |
-| Incremental state, option off | incremental solving; disabled witnesses |
+| Incremental state | incremental solving |
 
 ## 9. Function equality semantics
 
 `optFunctionEquality` (`--function-equality`) selects the semantics of equality between functions.
-§2 to §6 describe `intensional`.
+§2 to §6 describe `none` and `extensional`.
 
 | Setting | Comparisons in queries | Witnesses | Lambdas | Evaluator |
 |---|---|---|---|---|
 | `none` (default) | rejected | unconditional, on demand | no structural inequality, witnesses on demand | rejected |
-| `intensional` | structural | under `W`, on demand, dropped by Theorem F | structural | structural |
+| `intensional` | structural | none | structural | structural |
 | `extensional` | extensional | unconditional | no structural inequality, lazy witnesses | by results |
 
 **`none`.** `assertCnstr` rejects a query that compares values whose type contains functions,
@@ -476,8 +431,7 @@ generic body is checked instead. #34 replaces this check with equality types.
 Without comparisons, a query can't observe function equality: functions only occur in applications,
 and a model stays a model when functions that agree on every input are identified. So the solver
 may interpret function equality as extensional equality, and witnesses hold unconditionally, in
-refutations as well as in models. Theorem F never applies, since an intensional counterexample needs
-a comparison. A query that needs two functions to be distinct while they agree on every input, like
+refutations as well as in models. A query that needs two functions to be distinct while they agree on every input, like
 `f(g) ≠ f(eta(g))`, is UNSAT, which is the correct answer in a language without function equality.
 
 Lambdas aren't compared structurally: their equality can't be observed, so it is left open. Giving
@@ -489,7 +443,7 @@ lambda arguments of a free function apart. The solver then instantiates them and
 **`extensional`.** Comparisons are allowed and mean extensional equality. Witnesses hold
 unconditionally, so `f ≄ h ⇒ f(w̄) ≄ h(w̄)` is an extensionality axiom. Refutations rely on it:
 `(f ≠ g) ∧ ∀x. f(x) = g(x)` and `g ≠ eta(g)` are UNSAT. Pairs of lambdas that differ in structure or
-closures get the same lazy witnesses as free functions (§3): the lambdas are assumed equal when
+closures get the same lazy witnesses as free functions (§2): the lambdas are assumed equal when
 looking for a model, and the witness is instantiated once that equality is in an unsat core, up to
 the depth that the unrolling has reached. `id ≠ alsoId` is UNSAT this way.
 

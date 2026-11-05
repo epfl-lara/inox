@@ -556,8 +556,8 @@ trait LambdaTemplates { self: Templates =>
         }
 
       closuresEqual match {
-        case Some(eqs) if !extensionalWitnesses => clauses += mkImplies(blocker, mkEquals(eqs, equals))
-        case None if !extensionalWitnesses => clauses += mkImplies(blocker, mkNot(equals))
+        case Some(eqs) if !functionWitnesses => clauses += mkImplies(blocker, mkEquals(eqs, equals))
+        case None if !functionWitnesses => clauses += mkImplies(blocker, mkNot(equals))
         case _ =>
           for (eqs <- closuresEqual) clauses += mkImplies(mkAnd(blocker, eqs), equals)
           if (!sameBody || differingLocals.nonEmpty) {
@@ -642,25 +642,21 @@ trait LambdaTemplates { self: Templates =>
   def instantiateWitnesses(equalities: Set[Encoded]): Clauses = {
     pendingWitnesses.toSeq.filter(w => equalities(w.equality)).sortBy(_.depth).flatMap { w =>
       pendingWitnesses -= w
-      witnessPairs += (w.f1 -> w.f2)
-      withWitnessDepth(w.depth)(instantiateWitness(enabled(w.cond), w.tpe, w.f1, w.f2))
+      withWitnessDepth(w.depth)(instantiateWitness(w.cond, w.tpe, w.f1, w.f2))
     }
   }
 
-  /** Whether the solver should search for models in which distinct first-class functions
-    * have a distinguishing input (see [[witnessAssumptions]]). */
+  /** Whether distinct functions have a distinguishing input, that is whether function equality is
+    * extensional or unobservable (see [[optFunctionEquality]]).
+    *
+    * For a pair of functions `f` and `g`, we then introduce fresh witness arguments `ws` such that
+    * `f != g ==> f(ws) != g(ws)`, so that extracted models are meaningfully distinct, and lambdas
+    * aren't compared structurally. Witnesses of function type are themselves free functions, so the
+    * construction recurses on higher-order argument types (see `function-witnesses.md`). Under
+    * intensional equality, distinct functions may agree on every input, and models compare them
+    * structurally instead. */
   protected lazy val functionWitnesses: Boolean =
-    extensionalWitnesses || options.findOptionOrDefault(optFunctionWitnesses)
-
-  /** Whether distinct functions always have a distinguishing input, that is whether function
-    * equality is extensional (or unobservable, see [[optFunctionEquality]]). Witnesses then hold
-    * unconditionally instead of under [[witnessAssumptions]], and lambdas aren't compared structurally. */
-  protected lazy val extensionalWitnesses: Boolean =
     options.findOptionOrDefault(optFunctionEquality) != FunctionEquality.Intensional
-
-  /** The condition `cond` of a distinguishing input, conjoined with the literal that enables it. */
-  private def enabled(cond: Encoded): Encoded =
-    if (extensionalWitnesses) cond else mkAnd(witnessEnabler, cond)
 
   /** Whether `e` is the argument of a distinguishing input (see [[Templates.instantiateWitness]]). */
   def isWitnessArgument(e: Encoded): Boolean = witnessArguments(e)
@@ -668,23 +664,6 @@ trait LambdaTemplates { self: Templates =>
   /** The instantiated distinguishing inputs, as the arguments on which each pair of functions
     * is compared (see [[Templates.instantiateWitness]]). */
   def distinguishingInputs: Seq[((Encoded, Encoded), (FunctionType, Seq[Encoded]))] = witnessInputs.toSeq
-
-  /** Assumptions that enable distinguishing inputs between first-class functions.
-    *
-    * Each pair of distinct function values should have an input on which they differ, so that
-    * extracted models are meaningfully distinct. For a pair of functions `f` and `g`, we therefore
-    * introduce fresh witness arguments `ws` such that `f != g ==> f(ws) != g(ws)`. Witnesses of
-    * function type are themselves free functions, so the construction recurses on higher-order
-    * argument types (see `function-witnesses.md`).
-    *
-    * Under `none` and `extensional` function equality, these constraints hold by definition, so they
-    * are asserted unconditionally and there are no assumptions. Under `intensional` equality, they
-    * don't hold in general: they are guarded by a literal that is only assumed during model finding,
-    * and the solver drops it when it makes the query unsatisfiable.
-    */
-  def witnessAssumptions: Seq[Encoded] =
-    if (extensionalWitnesses || witnessPairs.isEmpty) Seq.empty else Seq(witnessEnabler)
-
 
   protected case class PendingWitness(
     cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, depth: Int, equality: Encoded, onDemand: Boolean)
@@ -752,7 +731,7 @@ trait LambdaTemplates { self: Templates =>
 
     /** This mapping maintains the set of free functions (along with the condition under which
       * they are free) which require distinguishing inputs with other functions of the same type.
-      * @see [[witnessAssumptions]]
+      * @see [[Templates.instantiateWitness]]
       */
     val witnessFunctions = new IncrementalMap[FunctionType, Set[(Encoded, Encoded)]].withDefaultValue(Set.empty)
 
@@ -770,22 +749,16 @@ trait LambdaTemplates { self: Templates =>
     /** The witness arguments of the instantiated distinguishing inputs. */
     val witnessArguments = new IncrementalSet[Encoded]
 
-    /** The pairs of functions that received a distinguishing input. */
-    val witnessPairs = new IncrementalSet[(Encoded, Encoded)]
-
-    /** The type and arguments of the distinguishing input of each pair in [[witnessPairs]]. */
+    /** The type and arguments of the distinguishing input of each pair of functions that received one. */
     val witnessInputs = new IncrementalMap[(Encoded, Encoded), (FunctionType, Seq[Encoded])]
 
     /** The distinguishing inputs that haven't been instantiated yet. */
     val pendingWitnesses = new IncrementalSet[PendingWitness]
 
-    /** The literal that guards all distinguishing input constraints. */
-    lazy val witnessEnabler: Encoded = encodeSymbol(Variable.fresh("b_witness", BooleanType(), true))
-
     val incrementals: Seq[IncrementalState] = Seq(
       lambdaBlockers, appInfos, appBlockers, blockerToApps,
       byID, byType, applications, freeBlockers, nonFreeBlockers, freeFunctions,
-      instantiated, typeBlockers, witnessFunctions, witnessDepths, appDepths, resultGuards, witnessArguments, witnessPairs, witnessInputs, pendingWitnesses)
+      instantiated, typeBlockers, witnessFunctions, witnessDepths, appDepths, resultGuards, witnessArguments, witnessInputs, pendingWitnesses)
 
     def unrollGeneration: Option[Int] =
       if (appInfos.isEmpty) None
