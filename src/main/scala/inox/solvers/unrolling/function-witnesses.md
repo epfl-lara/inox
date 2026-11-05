@@ -25,6 +25,50 @@ semantics such a counterexample is spurious. The thesis lists this under Future 
 where it suggests "generating clauses from which distinguishing inputs can be extracted". This is
 that construction.
 
+### Why it matters: counterexamples without function equality
+
+The unrolling procedure of the thesis needs the target language to compare functions structurally.
+Its completeness argument (Theorem 2) extracts models whose distinct functions may agree on every
+input, and such a counterexample only means something in a language that can observe the
+structure of functions. That is the most stringent requirement the technique places on a language.
+Many languages don't meet it. Their function equality is reference equality, extensional
+equality, undecidable, or doesn't exist at all.
+
+With witnesses, the counterexamples no longer depend on function equality. By Theorem C and its
+corollaries (§5), every pair of distinct functions in a model found with witnesses comes with an
+input on which the two functions give different results. Each distinction the model makes between
+functions is therefore observable through applications alone. The counterexample stays valid under
+any function equality that separates functions with different results, structural, by reference or
+extensional, and in a language with no function equality at all. Theorem D (§6) makes this
+complete: whenever such a counterexample exists, the procedure finds one.
+
+So the unrolling technique applies to arbitrary languages, whatever the operational semantics of
+their function equality, or without one. The procedure can still compare functions structurally
+inside the solver, to dispatch applications and to keep closures apart. The witnesses ensure that
+the counterexamples it reports never rely on that comparison, or on evaluating equality between
+functions at all.
+
+The extracted model must not compare functions either. A free function `f: (Int => Int) => Int`
+applied to `g` and `h` is extracted as an if-chain over its applications, and a chain that tests
+`x == g` asks the language to compare functions. When `f(g)` and `f(h)` differ, `g ≄ h` holds and
+the pair has a distinguishing input `w` with `g(w) ≠ h(w)`. The branch for `g` therefore tests
+`x(w) == g(w)`, which separates `g` from `h` with one application and a comparison of results.
+A branch tests its argument on the distinguishing input of each other argument at that position,
+and results of function type are tested on their own distinguishing inputs, so curried arguments
+are separated by a sequence of applications. Such a model of `f` is still a valid model of `f(g)`
+and `f(h)`: it maps `g` and `h` to their extracted results, since each passes its own tests and
+fails the tests of the others.
+
+This extraction falls back to comparing functions when no distinguishing input applies:
+
+- two arguments are lambdas of the program under `intensional` equality, which are told apart by
+  structure (under `none`, their witness is instantiated when extraction needs it, §9);
+- the argument is a datatype or tuple containing functions;
+- the arguments get no instantiated distinguishing input, as when Theorem F drops the witnesses,
+  which only happens under `intensional` equality.
+
+`choose` extraction (cyclic values) also still selects its branches by comparing values.
+
 ## 2. The construction
 
 **Notation.** At step `i` of the procedure:
@@ -48,9 +92,28 @@ application's blocker (`resultGuards`), and its guard includes that literal.
 
 Each lambda template `λ` has a start blocker `s_λ`.
 
-**Pairs.** A pair `p = (f, h)` has `f` free and `h` either another free term or a lambda template of
-the same type. Its condition is `c_p = g_f ∧ g_h`, or `c_p = g_f ∧ s_λ` when `h` is a lambda. Pairs
-are registered when their second member is (`LambdaTemplates.registerFunction`, `instantiateLambda`).
+**Pairs.** A pair `p = (f, h)` of terms of the same type is one of:
+
+- `f` free and `h` another free term, with condition `c_p = g_f ∧ g_h`;
+- `f` free and `h` a lambda template `λ`, with `c_p = g_f ∧ s_λ`;
+- under `none` and `extensional` function equality only (§9), two lambda templates `λ1`, `λ2` that
+  differ in structure, or share a structure but have closures that differ syntactically, with
+  `c_p = s_λ1 ∧ s_λ2`. Under `none`, these pairs are only instantiated on demand.
+
+Unless function equality is `extensional`, the pairs that involve a free function are *on demand*
+as well: they get no `eq_p` clause and stay out of `E_i` until a model shows both of their members.
+A free function shows up when extraction reaches it, and a lambda when its start blocker holds in the
+model. Validation then *promotes* these pairs (`promoteWitnesses`): they get their `eq_p` clause, join
+`E_i`, and the model check runs again. From then on they follow the rules below.
+
+Pairs are registered when their second member is (`LambdaTemplates.registerFunction`,
+`instantiateLambda`, `equalityClauses`).
+
+**Lambdas.** Under `intensional` function equality, Inox compares lambdas structurally: lambdas
+with the same structure are equal iff their closures are, and the others are distinct. Under
+`none` and `extensional`, only the direction that holds extensionally is kept. For lambdas with
+the same structure and closure equalities `κ`, `c_p ∧ κ ⇒ λ1 ≃ λ2`, and the pair gets a
+distinguishing input otherwise (§9).
 
 **Equality literals.** Every pair gets a fresh literal `e_p` and the clause
 
@@ -216,8 +279,9 @@ of which is the extraction of a free term, has the same outcome under structural
 equality. Equal values are structurally equal, hence extensionally equal. Values that are not
 equal differ on an input by C1.
 
-A comparison between two lambdas of the program is the one exception, as no witness is involved.
-The program itself fixes their structural distinctness.
+A comparison between two lambdas of the program is the one exception under `intensional`
+equality, as no witness is involved: the program fixes their structural distinctness. Under
+`none`, the query can't contain it, and under `extensional`, such lambdas form a pair (§9).
 
 ## 6. Completeness
 
@@ -284,6 +348,12 @@ with a model found while witnesses are in use. Theorems B and C then apply to th
 R1 may instantiate pairs outside `T`. This is harmless, because W2 bounds the number of
 instantiations per level.
 
+On-demand pairs (§2) leave the argument unchanged for the pairs a model shows: such a model goes to
+validation, which promotes them, so every pair of `T` that models keep showing ends up in `E_i`.
+Pairs that no model shows never need a distinguishing input, since extraction never compares their
+members. Each validation promotes finitely many pairs (W2 bounds the terms of each round), and a
+promoted pair is never on demand again.
+
 **Theorem E (refutable queries still terminate).** If `Φk ∪ U` is unsatisfiable under the
 refutation assumptions for some `k`, which is the thesis's condition for proofs, the procedure
 answers UNSAT after finitely many steps.
@@ -325,8 +395,11 @@ distinguishing model lies deeper than the bound.
 - Theorem D needs unbounded unrolling. With `optUnrollBound`, the answer can be Unknown.
 - Corollary C1 needs well-founded extraction. Cyclic values are extracted with `choose`, and nothing
   is claimed for them.
-- A nullary function has no input to distinguish it, so a pair of nullary functions with equal
-  results isn't finitely distinguishable. Its witnesses get dropped.
+- Nullary functions are no exception. Their distinguishing input is the empty argument list, so
+  instantiating a pair of nullary functions adds `f ≄ h ⇒ f() ≄ h()`, that is
+  `f() ≃ h() ⇒ f ≃ h`. A counterexample that needs two distinct nullary functions with equal
+  results is therefore not finitely distinguishable, like the eta-expansion above. Theorem F covers
+  it, and the model is then extracted without witnesses.
 - Decoding backends can fail to extract models with function-typed witnesses (cvc5 at the time of
   writing). Validation then drops the witnesses, so Theorem C doesn't hold for those models.
 - Activity literals are only added for function-typed application results. A function stored in a
@@ -334,20 +407,91 @@ distinguishing model lies deeper than the bound.
   but doesn't force the typing, so Theorem C relies on that blocker being true for such functions.
 - Cost: no witness is instantiated before the first model (R0). Queries that never have a model, such
   as most verification conditions, only pay for the `eq_p` clauses, whose literals they never assume.
+- Cost of models: every function term the unrolling creates is paired with all earlier terms of its
+  type. On Stainless's `Berardi1`, where application results of function type keep appearing, the
+  pending pairs grew from 238 to 5,400 over 14 unrollings, all at depth 1, and every model check
+  assumed their equalities. The query went from 1 s to 40 s on Z3 and 6 min on cvc5, ending Unknown
+  as before. Promoting pairs only once a model shows them (§2) brings it back to 1 to 4 s. Under
+  `extensional`, pairs can't wait for a model, since `f ≄ h` must imply a distinguishing input in
+  refutations as well, so this cost remains there.
 
 ## 8. Tests
 
-`src/it/scala/inox/solvers/unrolling/FunctionWitnessSuite.scala` runs every test on native Z3,
+`src/it/scala/inox/solvers/unrolling/FunctionWitnessSuite.scala` runs every test under `intensional`
+equality unless stated otherwise, on native Z3,
 `unrollz3`, SMT-LIB Z3 and cvc5, with and without model finding, and with `optCheckModels`.
 Theorem B is therefore checked on every model.
 
 | Property | Tests |
 |---|---|
-| C, C1 on free/free and free/lambda pairs | distinct first-order functions; distinct function and lambda; distinct function and closure; distinct functions agreeing on an input |
+| C, C1 on free/free and free/lambda pairs | distinct first-order functions; distinct function and lambda; distinct function and closure; distinct functions agreeing on an input; distinct nullary functions; distinct nullary function and lambda |
 | C1 through argument and result types | distinct functions of several arguments; distinct curried functions; distinct higher-order functions |
 | C1 through datatypes and type parameters | distinct functions in datatypes; distinct functions on a type parameter; distinct functions over a recursive type with function fields |
 | D with many pairs, a finite domain, unfolding and quantifiers | many pairwise distinct functions; all Boolean functions; distinguishing input that needs unfolding; distinct functions next to a recursive function |
 | A when the extensionality assumption fails | structurally distinct, extensionally equal lambdas; distinct functions equal on every input; more distinct Boolean functions than extensional ones; unsatisfiable query about distinguishing inputs |
-| F, the fallback for intensional counterexamples | eta-expanded closure remains distinct; intensional counterexample that needs unfolding; intensional counterexample over a recursive type with function fields |
+| F, the fallback for intensional counterexamples | eta-expanded closure remains distinct; nullary functions with equal results; intensional counterexample that needs unfolding; intensional counterexample over a recursive type with function fields |
 | A, E on refutable queries | equal functions agree; unsatisfiable query with distinct functions |
+| Extraction without comparing functions (§1) | functions applied to distinct functions; functions applied to a function and a lambda; functions applied to distinct curried functions (skipped on unrollz3, whose models give `f` the same result on both arguments); distinct higher-order functions |
+| Rejecting comparisons under `none` (§9) | function comparisons are rejected without function equality; function comparisons at type parameters are rejected without function equality; function comparisons in callees are found at their type arguments (an intermediate callee, polymorphic recursion); comparisons with constructors without functions are accepted |
+| Models under `none` and `extensional` (§9) | functions applied to functions without function equality (lambda pairs on demand); free functions passed to a function without function equality (free pairs promoted from on demand, §2); models with extensional function equality |
+| Refutations under `none` and `extensional` (§9) | intensional counterexamples don't exist without function equality; extensionally equal functions are equal; extensionally distinct lambdas are distinct; structurally distinct lambdas remain distinct |
+| Evaluation (§9) | quantified function comparisons are evaluated extensionally; `EvaluatorSuite`'s "Function equality" (by results, undecidable comparisons, tuples, intensional) |
 | Incremental state, option off | incremental solving; disabled witnesses |
+
+## 9. Function equality semantics
+
+`optFunctionEquality` (`--function-equality`) selects the semantics of equality between functions.
+§2 to §6 describe `intensional`.
+
+| Setting | Comparisons in queries | Witnesses | Lambdas | Evaluator |
+|---|---|---|---|---|
+| `none` (default) | rejected | unconditional, on demand | no structural inequality, witnesses on demand | by results |
+| `intensional` | structural | under `W`, on demand, dropped by Theorem F | structural | structural |
+| `extensional` | extensional | unconditional | no structural inequality, lazy witnesses | by results |
+
+**`none`.** `assertCnstr` rejects a query that compares values whose type contains functions,
+directly or in a function it transitively calls. Callees are checked at the type arguments of their
+calls, so `jixx[A, B]`, which compares values of type `A`, is rejected when called with
+`A = U => Boolean` (Stainless's `Berardi1`). The type parameters of the query itself are assumed to
+admit equality, and past eight instantiations of the same function (polymorphic recursion), its
+generic body is checked instead. #34 replaces this check with equality types.
+
+Without comparisons, a query can't observe function equality: functions only occur in applications,
+and a model stays a model when functions that agree on every input are identified. So the solver
+may interpret function equality as extensional equality, and witnesses hold unconditionally, in
+refutations as well as in models. Theorem F never applies, since an intensional counterexample needs
+a comparison. A query that needs two functions to be distinct while they agree on every input, like
+`f(g) ≠ f(eta(g))`, is UNSAT, which is the correct answer in a language without function equality.
+
+Lambdas aren't compared structurally: their equality can't be observed, so it is left open. Giving
+every pair of lambdas a distinguishing input when it is created makes some queries much harder
+(TIP's `Lang` hangs Z3). So lambda/lambda pairs are registered without an equality literal
+(`LambdaTemplates.onDemandWitnesses`), and are only instantiated when extraction needs to tell two
+lambda arguments of a free function apart. The solver then instantiates them and checks again.
+
+**`extensional`.** Comparisons are allowed and mean extensional equality. Witnesses hold
+unconditionally, so `f ≄ h ⇒ f(w̄) ≄ h(w̄)` is an extensionality axiom. Refutations rely on it:
+`(f ≠ g) ∧ ∀x. f(x) = g(x)` and `g ≠ eta(g)` are UNSAT. Pairs of lambdas that differ in structure or
+closures get the same lazy witnesses as free functions (§3): the lambdas are assumed equal when
+looking for a model, and the witness is instantiated once that equality is in an unsat core, up to
+the depth that the unrolling has reached. `id ≠ alsoId` is UNSAT this way.
+
+Instantiating lambda witnesses eagerly, with each new lambda, doesn't terminate. A witness can
+create lambdas on the spot (eg. in the typing constraints of application results, as in Stainless's
+encoded programs), and each new lambda is compared to all earlier lambdas of its type. In
+`LawTypeArgsElim`, a single forall-checking solver reached witness depth 3056, with about 3000
+lambdas and 6000 witnesses, without unrolling once. Bounding that depth by the unrolling made each
+round finite, but the lambdas still grew from round to round (124, 623 then 1122 over rounds 4 to 6).
+With lazy witnesses, the same check passes, in 6 s to 2.5 min depending on the run.
+
+**Evaluator.** Under `none` and `extensional`, `RecursiveEvaluator` compares function values by their
+results. Structurally equal values are equal. Otherwise, the values are applied to the closed
+subexpressions of the parameter types that they contain, and to the simplest values of those types.
+For extracted models these include the distinguishing inputs. The values are distinct if some
+input tells them apart, and the comparison is an evaluation error otherwise. Ground simplification
+and model validation follow, so a model is never accepted on a structural comparison that the
+semantics doesn't make. Under `none`, `SolvingEvaluator` checks quantifiers under `none` as well,
+unless the model values compare functions where no input tells them apart, in which case it uses
+`extensional`. Always using `extensional` ran out of memory on Stainless's `LawTypeArgsElim` in
+lucky mode, through the (then eager) lambda witnesses of `extensional` (see below).
+

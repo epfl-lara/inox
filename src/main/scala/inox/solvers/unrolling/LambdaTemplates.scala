@@ -662,21 +662,6 @@ trait LambdaTemplates { self: Templates =>
   private def enabled(cond: Encoded): Encoded =
     if (extensionalWitnesses) cond else mkAnd(witnessEnabler, cond)
 
-  /** Assumptions that enable distinguishing inputs between first-class functions.
-    *
-    * Function equality in Inox is intensional, so two functions that agree on all inputs
-    * may still be distinct. When reporting models, we would however like each pair of distinct
-    * function values to have an input on which they differ, as this ensures the extracted
-    * function values are meaningfully distinct. For each pair of free functions `f` and `g`
-    * (and each pair of free function `f` and lambda `g`), we therefore introduce fresh witness
-    * arguments `ws` such that `f != g ==> f(ws) != g(ws)`. Witnesses of function type are
-    * themselves free functions, so the construction recurses on higher-order argument types.
-    *
-    * These witness constraints are an extensionality assumption that doesn't hold in general,
-    * so they are guarded by a literal that is only assumed during model finding (and never
-    * during refutation). The solver is responsible for dropping these assumptions when they
-    * are the reason for unsatisfiability.
-    */
   /** Whether `e` is the argument of a distinguishing input (see [[Templates.instantiateWitness]]). */
   def isWitnessArgument(e: Encoded): Boolean = witnessArguments(e)
 
@@ -684,6 +669,19 @@ trait LambdaTemplates { self: Templates =>
     * is compared (see [[Templates.instantiateWitness]]). */
   def distinguishingInputs: Seq[((Encoded, Encoded), (FunctionType, Seq[Encoded]))] = witnessInputs.toSeq
 
+  /** Assumptions that enable distinguishing inputs between first-class functions.
+    *
+    * Each pair of distinct function values should have an input on which they differ, so that
+    * extracted models are meaningfully distinct. For a pair of functions `f` and `g`, we therefore
+    * introduce fresh witness arguments `ws` such that `f != g ==> f(ws) != g(ws)`. Witnesses of
+    * function type are themselves free functions, so the construction recurses on higher-order
+    * argument types (see `function-witnesses.md`).
+    *
+    * Under `none` and `extensional` function equality, these constraints hold by definition, so they
+    * are asserted unconditionally and there are no assumptions. Under `intensional` equality, they
+    * don't hold in general: they are guarded by a literal that is only assumed during model finding,
+    * and the solver drops it when it makes the query unsatisfiable.
+    */
   def witnessAssumptions: Seq[Encoded] =
     if (extensionalWitnesses || witnessPairs.isEmpty) Seq.empty else Seq(witnessEnabler)
 
