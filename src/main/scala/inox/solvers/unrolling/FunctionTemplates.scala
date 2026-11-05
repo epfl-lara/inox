@@ -110,6 +110,56 @@ trait FunctionTemplates { self: Templates =>
   private def hasChoose(tfd: TypedFunDef): Boolean = chooseCache.getOrElseUpdate(tfd.id,
     exprOps.exists { case _: Choose => true case _ => false } (tfd.fd.fullBody))
 
+  /** Clauses stating that the calls `call1` and `call2` of the same function on equal arguments
+    * have equal results, when some of its parameters or its result need equality unrolling.
+    *
+    * The results of calls are determined by the function body, so these clauses are only
+    * shortcuts and their equalities need not be unrolled. A `choose` in the body however picks a
+    * fresh value for each call, so the results of calls on equal arguments are only related by
+    * these clauses. We then register the equalities so that they are unrolled before a model is
+    * accepted.
+    */
+  private def purityClauses(call1: Call, blocker1: Encoded, call2: Call, blocker2: Encoded): Clauses = {
+    val tfd = call1.tfd
+    if (tfd.params.exists(vd => unrollEquality(vd.getType)) || unrollEquality(tfd.getType)) {
+      val register = hasChoose(tfd)
+      val clauses = new scala.collection.mutable.ListBuffer[Encoded]
+      val equalities = (tfd.params.map(_.getType) zip (call1.args zip call2.args)).map { case (tpe, (e1, e2)) =>
+        val (equality, eqClauses) = mkEqualities(blocker1, tpe, e1.encoded, e2.encoded, register = register)
+        clauses ++= eqClauses
+        equality
+      }
+
+      val (entail, entailClauses) = mkEqualities(blocker1, tfd.getType,
+        mkCall(tfd, call1.args.map(_.encoded)),
+        mkCall(tfd, call2.args.map(_.encoded)), register = register)
+      clauses ++= entailClauses
+
+      clauses += mkImplies(mkAnd(blocker1 +: blocker2 +: equalities*), entail)
+      clauses.toSeq
+    } else {
+      Seq.empty
+    }
+  }
+
+  /** The purity clauses between the calls unrolled so far, which [[equalitiesInstantiated]] delays.
+    *
+    * Until a first equality is instantiated, the equality symbols of distinct terms are left
+    * unconstrained, so the purity clauses of functions without a `choose` can't constrain the
+    * results of calls. Each pair of calls of a function on values with a custom equality (e.g. bags
+    * on cvc5) gets its own clauses, so delaying them keeps formulas that never compare such values
+    * from growing quadratically with the number of calls.
+    */
+  private[unrolling] def delayedPurityClauses: Clauses = {
+    val calls = defBlockers.toSeq.filter { case (call, _) => !hasChoose(call.tfd) }.groupBy(_._1.tfd)
+    for {
+      (_, tfdCalls) <- calls.toSeq
+      ((call1, blocker1), i) <- tfdCalls.zipWithIndex
+      (call2, blocker2) <- tfdCalls.drop(i + 1)
+      clause <- purityClauses(call1, blocker1, call2, blocker2)
+    } yield clause
+  }
+
   private val callCache: MutableMap[TypedFunDef, (Seq[Encoded], Encoded)] = MutableMap.empty
   private[unrolling] def mkCall(tfd: TypedFunDef, args: Seq[Encoded]): Encoded = {
     val (asT, call) = callCache.getOrElse(tfd, {
@@ -177,28 +227,10 @@ trait FunctionTemplates { self: Templates =>
             val defBlocker = encodeSymbol(Variable.fresh("d", BooleanType(), true))
             defBlockers += call -> defBlocker
 
-            // we generate helper equality clauses that stem from purity
-            for ((pcall, pblocker) <- defBlockers if pcall.tfd == tfd) {
-              if (tfd.params.exists(vd => unrollEquality(vd.getType)) || unrollEquality(tfd.getType)) {
-                // The results of calls are determined by the function body, so these clauses are
-                // only shortcuts and their equalities need not be unrolled. A `choose` in the body
-                // however picks a fresh value for each call, so the results of calls on equal
-                // arguments are only related by these clauses. We then register the equalities so
-                // that they are unrolled before a model is accepted.
-                val register = hasChoose(tfd)
-                val argPairs = (pcall.args zip args)
-                val equalities = (tfd.params.map(_.getType) zip argPairs).map { case (tpe, (e1, e2)) =>
-                  val (equality, clauses) = mkEqualities(pblocker, tpe, e1.encoded, e2.encoded, register = register)
-                  newClauses ++= clauses
-                  equality
-                }
-
-                val (entail, entailClauses) = mkEqualities(pblocker, tfd.getType,
-                  mkCall(tfd, pcall.args.map(_.encoded)),
-                  mkCall(tfd, args.map(_.encoded)), register = register)
-                newClauses ++= entailClauses
-
-                newClauses += mkImplies(mkAnd(pblocker +: defBlocker +: equalities*), entail)
+            // we generate helper equality clauses that stem from purity (see [[purityClauses]])
+            if (hasChoose(tfd) || equalitiesInstantiated) {
+              for ((pcall, pblocker) <- defBlockers if pcall.tfd == tfd && pcall != call) {
+                newClauses ++= purityClauses(pcall, pblocker, call, defBlocker)
               }
             }
 
