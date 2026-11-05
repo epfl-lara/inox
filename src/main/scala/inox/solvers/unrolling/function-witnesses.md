@@ -366,7 +366,9 @@ unchanged, and models may compare functions.
 
 - Theorem D needs unbounded unrolling. With `optUnrollBound`, the answer can be Unknown.
 - Corollary C1 needs well-founded extraction. Cyclic values are extracted with `choose`, and nothing
-  is claimed for them.
+  is claimed for them. Under `extensional`, the evaluator may then fail to compare two functions by
+  their results, so the model is rejected and the answer may be Unknown (test: distinct functions
+  over a recursive type with function fields).
 - Nullary functions are no exception. Their distinguishing input is the empty argument list, so
   instantiating a pair of nullary functions adds `f ≄ h ⇒ f() ≄ h()`, that is
   `f() ≃ h() ⇒ f ≃ h`, which holds under `none` and `extensional` equality.

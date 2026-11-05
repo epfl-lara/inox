@@ -399,11 +399,16 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
   }
 
   test("distinct functions over a recursive type with function fields") {
+    // The witnesses of type `Obj` contain functions with witnesses of their own, so extracted
+    // values can be cyclic and contain `choose`s. Comparing such functions by their results can
+    // then fail, and the model is rejected (see the limitations in `function-witnesses.md`).
     val tpe = T(objID)() =>: T(objID)()
     val f = ("f" :: tpe).toVariable
     val g = ("g" :: tpe).toVariable
-    val model = solve(f !== g)
-    assert(distinguishable(model(f.toVal), model(g.toVal)))
+    result(f !== g) match {
+      case SatWithModel(model) => assert(distinguishable(model.vars(f.toVal), model.vars(g.toVal)))
+      case res => assert(!res.isUNSAT, s"Expected a model or Unknown, got $res")
+    }
   }
 
   // Proofs are unaffected
@@ -518,6 +523,14 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     val n = ("n" :: IntegerType()).toVariable
     assert(resultWith(FunctionEquality.None)(o === C(numID)(n)).isSAT)
     assert(resultWith(FunctionEquality.None)((o === C(numID)(n)) && (o !== C(numID)(n))).isUNSAT)
+    assert(resultWith(FunctionEquality.None)(C(numID)(n) === o).isSAT)
+  }
+
+  test("function equality option") {
+    assert(optFunctionEquality.parser("extensional") == Some(FunctionEquality.Extensional))
+    assert(optFunctionEquality.parser("Intensional") == Some(FunctionEquality.Intensional))
+    assert(optFunctionEquality.parser("structural").isEmpty)
+    assert(optFunctionEquality.default == FunctionEquality.None)
   }
 
   test("functions applied to functions without function equality", hasHigherOrderModels) { ctx ?=>
