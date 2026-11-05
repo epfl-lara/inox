@@ -868,6 +868,9 @@
       "fields": [
         {
           "name": "hasNativeZ3$lzy1"
+        },
+        {
+          "name": "unpackZ3Libraries$lzy1"
         }
       ]
     },
@@ -1233,6 +1236,17 @@
       ]
     },
     {
+      "type": "inox.solvers.unrolling.LambdaTemplates$LambdaTemplate",
+      "fields": [
+        {
+          "name": "start$lzy1"
+        },
+        {
+          "name": "str$lzy1"
+        }
+      ]
+    },
+    {
       "type": "inox.solvers.unrolling.QuantificationTemplates$Axiom",
       "fields": [
         {
@@ -1279,6 +1293,14 @@
       "fields": [
         {
           "name": "$1$$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.unrolling.TypeTemplates$CaptureTemplate",
+      "fields": [
+        {
+          "name": "start$lzy2"
         }
       ]
     },
@@ -1734,6 +1756,18 @@
       ]
     },
     {
+      "type": "java.lang.Boolean",
+      "jniAccessible": true,
+      "methods": [
+        {
+          "name": "getBoolean",
+          "parameterTypes": [
+            "java.lang.String"
+          ]
+        }
+      ]
+    },
+    {
       "type": "java.lang.ClassValue"
     },
     {
@@ -1997,6 +2031,26 @@
       ]
     },
     {
+      "type": "sun.security.provider.NativePRNG",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.security.SecureRandomParameters"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.security.provider.SHA",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
       "type": "z3.scala.Z3AST",
       "fields": [
         {
@@ -2080,7 +2134,13 @@
       "glob": "lib-bin"
     },
     {
-      "glob": "lib-bin/*"
+      "glob": "lib-bin/libscalaz3.so"
+    },
+    {
+      "glob": "lib-bin/libz3.so"
+    },
+    {
+      "glob": "lib-bin/libz3java.so"
     }
   ]
 }
