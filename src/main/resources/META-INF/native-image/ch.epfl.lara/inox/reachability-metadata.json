@@ -1,0 +1,2083 @@
+{
+  "reflection": [
+    {
+      "type": "ap.basetypes.IdealInt[]"
+    },
+    {
+      "type": "ap.parser.IFormula[]"
+    },
+    {
+      "type": "ap.parser.ITerm[]"
+    },
+    {
+      "type": "ap.terfor.ConstantTerm[]"
+    },
+    {
+      "type": "ap.terfor.conjunctions.Conjunction[]"
+    },
+    {
+      "type": "ap.terfor.conjunctions.Quantifier$ALL$[]"
+    },
+    {
+      "type": "ap.terfor.conjunctions.Quantifier$EX$[]"
+    },
+    {
+      "type": "ap.terfor.linearcombination.LinearCombination[]"
+    },
+    {
+      "type": "ap.terfor.preds.Atom[]"
+    },
+    {
+      "type": "com.microsoft.z3.Native$IntPtr",
+      "jniAccessible": true,
+      "fields": [
+        {
+          "name": "value"
+        }
+      ]
+    },
+    {
+      "type": "com.microsoft.z3.Native$LongPtr",
+      "jniAccessible": true,
+      "fields": [
+        {
+          "name": "value"
+        }
+      ]
+    },
+    {
+      "type": "inox.Main$",
+      "fields": [
+        {
+          "name": "Binary$lzy1"
+        },
+        {
+          "name": "Description$lzy1"
+        },
+        {
+          "name": "Evaluators$lzy1"
+        },
+        {
+          "name": "General$lzy1"
+        },
+        {
+          "name": "Printing$lzy1"
+        },
+        {
+          "name": "Solvers$lzy1"
+        },
+        {
+          "name": "Tip$lzy1"
+        },
+        {
+          "name": "optDebug$lzy1"
+        },
+        {
+          "name": "optFiles$lzy1"
+        },
+        {
+          "name": "optFormat$lzy1"
+        },
+        {
+          "name": "optHelp$lzy1"
+        },
+        {
+          "name": "optPrintProgram$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.Reporter",
+      "fields": [
+        {
+          "name": "ERROR$lzy1"
+        },
+        {
+          "name": "FATAL$lzy1"
+        },
+        {
+          "name": "INFO$lzy1"
+        },
+        {
+          "name": "INTERNAL$lzy1"
+        },
+        {
+          "name": "WARNING$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.ast.ExprOps",
+      "fields": [
+        {
+          "name": "Same$lzy1"
+        },
+        {
+          "name": "VariableExtractor$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.ast.SimpleSymbols$SimpleSymbols",
+      "fields": [
+        {
+          "name": "CallGraphOrderings$lzy1"
+        },
+        {
+          "name": "NoSimpleValue$lzy1"
+        },
+        {
+          "name": "TypeErrorException$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.ast.SymbolOps$Impl$1",
+      "fields": [
+        {
+          "name": "Env$lzy1"
+        },
+        {
+          "name": "deconstructor$lzy1"
+        },
+        {
+          "name": "inox$transformers$SimplifierWithPC$$Checking$lzy1"
+        },
+        {
+          "name": "inox$transformers$SimplifierWithPC$$Impure$lzy1"
+        },
+        {
+          "name": "inox$transformers$SimplifierWithPC$$Pure$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.ast.SymbolOps$TransformerWithPC",
+      "fields": [
+        {
+          "name": "deconstructor$lzy2"
+        }
+      ]
+    },
+    {
+      "type": "inox.ast.TreeOps$ConcreteIdentityTreeTransformer",
+      "fields": [
+        {
+          "name": "deconstructor$lzy4"
+        }
+      ]
+    },
+    {
+      "type": "inox.ast.TreeOps$ConcreteSelfTransformer",
+      "fields": [
+        {
+          "name": "deconstructor$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.ast.TreeOps$ConcreteSelfTreeTransformer",
+      "fields": [
+        {
+          "name": "deconstructor$lzy2"
+        }
+      ]
+    },
+    {
+      "type": "inox.ast.Trees$DSLImpl$1",
+      "fields": [
+        {
+          "name": "C$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.ast.Trees$InterpolatorImpl$1",
+      "fields": [
+        {
+          "name": "AtIndexEqual$lzy1"
+        },
+        {
+          "name": "Bits$lzy1"
+        },
+        {
+          "name": "Comparable$lzy1"
+        },
+        {
+          "name": "Constrained$lzy1"
+        },
+        {
+          "name": "Constraint$lzy1"
+        },
+        {
+          "name": "ConstraintException$lzy1"
+        },
+        {
+          "name": "DefinitionIR$lzy1"
+        },
+        {
+          "name": "Equal$lzy1"
+        },
+        {
+          "name": "Eventual$lzy1"
+        },
+        {
+          "name": "ExprIR$lzy1"
+        },
+        {
+          "name": "ExpressionInterpolator$lzy1"
+        },
+        {
+          "name": "HasClass$lzy1"
+        },
+        {
+          "name": "HasSortIn$lzy1"
+        },
+        {
+          "name": "Integral$lzy1"
+        },
+        {
+          "name": "Lexer$lzy1"
+        },
+        {
+          "name": "Numeric$lzy1"
+        },
+        {
+          "name": "Store$lzy1"
+        },
+        {
+          "name": "TypeIR$lzy1"
+        },
+        {
+          "name": "Unknown$lzy1"
+        },
+        {
+          "name": "Unsatisfiable$lzy1"
+        },
+        {
+          "name": "WithConstraints$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.ast.Types$TypeOpsUtils",
+      "fields": [
+        {
+          "name": "Same$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.evaluators.RecursiveEvaluator",
+      "fields": [
+        {
+          "name": "DefaultRecContext$lzy1"
+        },
+        {
+          "name": "EvalError$lzy1"
+        },
+        {
+          "name": "QuantificationError$lzy1"
+        },
+        {
+          "name": "RuntimeError$lzy1"
+        },
+        {
+          "name": "checkModels$lzy1"
+        },
+        {
+          "name": "evalQuantifiers$lzy1"
+        },
+        {
+          "name": "forallCache$lzy1"
+        },
+        {
+          "name": "globallyIgnoreContracts$lzy1"
+        },
+        {
+          "name": "inox$evaluators$SolvingEvaluator$$optForallCache$lzy1"
+        },
+        {
+          "name": "maxSteps$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.package$",
+      "fields": [
+        {
+          "name": "givenInoxSemantics$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.package$trees$",
+      "fields": [
+        {
+          "name": "ADT$lzy1"
+        },
+        {
+          "name": "ADTLookupException$lzy1"
+        },
+        {
+          "name": "ADTSelector$lzy1"
+        },
+        {
+          "name": "ADTType$lzy1"
+        },
+        {
+          "name": "And$lzy1"
+        },
+        {
+          "name": "Annotation$lzy1"
+        },
+        {
+          "name": "Application$lzy1"
+        },
+        {
+          "name": "Assume$lzy1"
+        },
+        {
+          "name": "BVAShiftRight$lzy1"
+        },
+        {
+          "name": "BVAnd$lzy1"
+        },
+        {
+          "name": "BVLShiftRight$lzy1"
+        },
+        {
+          "name": "BVLiteral$lzy1"
+        },
+        {
+          "name": "BVNarrowingCast$lzy1"
+        },
+        {
+          "name": "BVNot$lzy1"
+        },
+        {
+          "name": "BVOr$lzy1"
+        },
+        {
+          "name": "BVShiftLeft$lzy1"
+        },
+        {
+          "name": "BVSignedToUnsigned$lzy1"
+        },
+        {
+          "name": "BVToInt$lzy1"
+        },
+        {
+          "name": "BVType$lzy1"
+        },
+        {
+          "name": "BVUnsignedToSigned$lzy1"
+        },
+        {
+          "name": "BVWideningCast$lzy1"
+        },
+        {
+          "name": "BVXor$lzy1"
+        },
+        {
+          "name": "BagAdd$lzy1"
+        },
+        {
+          "name": "BagDifference$lzy1"
+        },
+        {
+          "name": "BagIntersection$lzy1"
+        },
+        {
+          "name": "BagType$lzy1"
+        },
+        {
+          "name": "BagUnion$lzy1"
+        },
+        {
+          "name": "BooleanLiteral$lzy1"
+        },
+        {
+          "name": "BooleanType$lzy1"
+        },
+        {
+          "name": "CNF$lzy1"
+        },
+        {
+          "name": "CharLiteral$lzy1"
+        },
+        {
+          "name": "CharType$lzy1"
+        },
+        {
+          "name": "Choose$lzy1"
+        },
+        {
+          "name": "Division$lzy1"
+        },
+        {
+          "name": "ElementOfSet$lzy1"
+        },
+        {
+          "name": "Equals$lzy1"
+        },
+        {
+          "name": "FPAbs$lzy1"
+        },
+        {
+          "name": "FPAdd$lzy1"
+        },
+        {
+          "name": "FPCast$lzy1"
+        },
+        {
+          "name": "FPDiv$lzy1"
+        },
+        {
+          "name": "FPEquals$lzy1"
+        },
+        {
+          "name": "FPFMA$lzy1"
+        },
+        {
+          "name": "FPFromBinary$lzy1"
+        },
+        {
+          "name": "FPGreaterEquals$lzy1"
+        },
+        {
+          "name": "FPGreaterThan$lzy1"
+        },
+        {
+          "name": "FPIsInfinite$lzy1"
+        },
+        {
+          "name": "FPIsNaN$lzy1"
+        },
+        {
+          "name": "FPIsNegative$lzy1"
+        },
+        {
+          "name": "FPIsNormal$lzy1"
+        },
+        {
+          "name": "FPIsPositive$lzy1"
+        },
+        {
+          "name": "FPIsSubnormal$lzy1"
+        },
+        {
+          "name": "FPIsZero$lzy1"
+        },
+        {
+          "name": "FPLessEquals$lzy1"
+        },
+        {
+          "name": "FPLessThan$lzy1"
+        },
+        {
+          "name": "FPLiteral$lzy1"
+        },
+        {
+          "name": "FPMax$lzy1"
+        },
+        {
+          "name": "FPMin$lzy1"
+        },
+        {
+          "name": "FPMul$lzy1"
+        },
+        {
+          "name": "FPRound$lzy1"
+        },
+        {
+          "name": "FPSub$lzy1"
+        },
+        {
+          "name": "FPToBV$lzy1"
+        },
+        {
+          "name": "FPToBVJVM$lzy1"
+        },
+        {
+          "name": "FPToBinary$lzy1"
+        },
+        {
+          "name": "FPToReal$lzy1"
+        },
+        {
+          "name": "FPType$lzy1"
+        },
+        {
+          "name": "FPUMinus$lzy1"
+        },
+        {
+          "name": "FiniteBag$lzy1"
+        },
+        {
+          "name": "FiniteMap$lzy1"
+        },
+        {
+          "name": "FiniteSet$lzy1"
+        },
+        {
+          "name": "Float32Literal$lzy1"
+        },
+        {
+          "name": "Float32Type$lzy1"
+        },
+        {
+          "name": "Float64Literal$lzy1"
+        },
+        {
+          "name": "Float64Type$lzy1"
+        },
+        {
+          "name": "Forall$lzy1"
+        },
+        {
+          "name": "FractionLiteral$lzy1"
+        },
+        {
+          "name": "FunctionInvocation$lzy1"
+        },
+        {
+          "name": "FunctionLookupException$lzy1"
+        },
+        {
+          "name": "FunctionType$lzy1"
+        },
+        {
+          "name": "GenericValue$lzy1"
+        },
+        {
+          "name": "GreaterEquals$lzy1"
+        },
+        {
+          "name": "GreaterThan$lzy1"
+        },
+        {
+          "name": "HasADTEquality$lzy1"
+        },
+        {
+          "name": "HasADTInvariant$lzy1"
+        },
+        {
+          "name": "IfExpr$lzy1"
+        },
+        {
+          "name": "Implies$lzy1"
+        },
+        {
+          "name": "Int16Literal$lzy1"
+        },
+        {
+          "name": "Int16Type$lzy1"
+        },
+        {
+          "name": "Int32Literal$lzy1"
+        },
+        {
+          "name": "Int32Type$lzy1"
+        },
+        {
+          "name": "Int64Literal$lzy1"
+        },
+        {
+          "name": "Int64Type$lzy1"
+        },
+        {
+          "name": "Int8Literal$lzy1"
+        },
+        {
+          "name": "Int8Type$lzy1"
+        },
+        {
+          "name": "IntToBV$lzy1"
+        },
+        {
+          "name": "IntegerLiteral$lzy1"
+        },
+        {
+          "name": "IntegerType$lzy1"
+        },
+        {
+          "name": "IsConstructor$lzy1"
+        },
+        {
+          "name": "IsTyped$lzy1"
+        },
+        {
+          "name": "Lambda$lzy1"
+        },
+        {
+          "name": "LessEquals$lzy1"
+        },
+        {
+          "name": "LessThan$lzy1"
+        },
+        {
+          "name": "Let$lzy1"
+        },
+        {
+          "name": "MapApply$lzy1"
+        },
+        {
+          "name": "MapMerge$lzy1"
+        },
+        {
+          "name": "MapType$lzy1"
+        },
+        {
+          "name": "MapUpdated$lzy1"
+        },
+        {
+          "name": "Minus$lzy1"
+        },
+        {
+          "name": "Modulo$lzy1"
+        },
+        {
+          "name": "MultiplicityInBag$lzy1"
+        },
+        {
+          "name": "Not$lzy1"
+        },
+        {
+          "name": "NotWellFormedException$lzy1"
+        },
+        {
+          "name": "Or$lzy1"
+        },
+        {
+          "name": "Path$lzy1"
+        },
+        {
+          "name": "PiType$lzy1"
+        },
+        {
+          "name": "Plus$lzy1"
+        },
+        {
+          "name": "PrinterContext$lzy1"
+        },
+        {
+          "name": "PrinterOptions$lzy1"
+        },
+        {
+          "name": "RealType$lzy1"
+        },
+        {
+          "name": "RefinementType$lzy1"
+        },
+        {
+          "name": "Remainder$lzy1"
+        },
+        {
+          "name": "RoundNearestTiesToAway$lzy1"
+        },
+        {
+          "name": "RoundNearestTiesToEven$lzy1"
+        },
+        {
+          "name": "RoundTowardNegative$lzy1"
+        },
+        {
+          "name": "RoundTowardPositive$lzy1"
+        },
+        {
+          "name": "RoundTowardZero$lzy1"
+        },
+        {
+          "name": "RoundingMode$lzy1"
+        },
+        {
+          "name": "SetAdd$lzy1"
+        },
+        {
+          "name": "SetDifference$lzy1"
+        },
+        {
+          "name": "SetIntersection$lzy1"
+        },
+        {
+          "name": "SetType$lzy1"
+        },
+        {
+          "name": "SetUnion$lzy1"
+        },
+        {
+          "name": "SigmaType$lzy1"
+        },
+        {
+          "name": "Sqrt$lzy1"
+        },
+        {
+          "name": "StringConcat$lzy1"
+        },
+        {
+          "name": "StringLength$lzy1"
+        },
+        {
+          "name": "StringLiteral$lzy1"
+        },
+        {
+          "name": "StringType$lzy1"
+        },
+        {
+          "name": "SubString$lzy1"
+        },
+        {
+          "name": "SubsetOf$lzy1"
+        },
+        {
+          "name": "Times$lzy1"
+        },
+        {
+          "name": "ToDouble$lzy1"
+        },
+        {
+          "name": "ToFloat$lzy1"
+        },
+        {
+          "name": "TopLevelAnds$lzy1"
+        },
+        {
+          "name": "TopLevelOrs$lzy1"
+        },
+        {
+          "name": "Tuple$lzy1"
+        },
+        {
+          "name": "TupleSelect$lzy1"
+        },
+        {
+          "name": "TupleType$lzy1"
+        },
+        {
+          "name": "TypeParameter$lzy1"
+        },
+        {
+          "name": "TypeParameterDef$lzy1"
+        },
+        {
+          "name": "TypedADTConstructor$lzy1"
+        },
+        {
+          "name": "TypedADTSort$lzy1"
+        },
+        {
+          "name": "TypedFunDef$lzy1"
+        },
+        {
+          "name": "UMinus$lzy1"
+        },
+        {
+          "name": "UnitLiteral$lzy1"
+        },
+        {
+          "name": "UnitType$lzy1"
+        },
+        {
+          "name": "Untyped$lzy1"
+        },
+        {
+          "name": "ValDef$lzy1"
+        },
+        {
+          "name": "Variable$lzy1"
+        },
+        {
+          "name": "inox$ast$Types$$TypeNormalization$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.parsing.BuiltIns$$anon$1",
+      "fields": [
+        {
+          "name": "BagAdd$lzy1"
+        },
+        {
+          "name": "BagConstructor$lzy1"
+        },
+        {
+          "name": "BagDifference$lzy1"
+        },
+        {
+          "name": "BagIntersection$lzy1"
+        },
+        {
+          "name": "BagMultiplicity$lzy1"
+        },
+        {
+          "name": "BagUnion$lzy1"
+        },
+        {
+          "name": "BooleanAnd$lzy1"
+        },
+        {
+          "name": "BooleanOr$lzy1"
+        },
+        {
+          "name": "BuiltIn$lzy1"
+        },
+        {
+          "name": "MapApply$lzy1"
+        },
+        {
+          "name": "MapConstructor$lzy1"
+        },
+        {
+          "name": "MapUpdated$lzy1"
+        },
+        {
+          "name": "SetAdd$lzy1"
+        },
+        {
+          "name": "SetConstructor$lzy1"
+        },
+        {
+          "name": "SetContains$lzy1"
+        },
+        {
+          "name": "SetDifference$lzy1"
+        },
+        {
+          "name": "SetIntersection$lzy1"
+        },
+        {
+          "name": "SetSubset$lzy1"
+        },
+        {
+          "name": "SetUnion$lzy1"
+        },
+        {
+          "name": "StringConcatenate$lzy1"
+        },
+        {
+          "name": "StringLength$lzy1"
+        },
+        {
+          "name": "StringSubstring$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.PlatformSolvers$",
+      "fields": [
+        {
+          "name": "hasNativeZ3$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.PlatformSolvers$NativeZ3Impl$1",
+      "fields": [
+        {
+          "name": "debugOut$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.PlatformSolvers$UnrollZ3Impl$1",
+      "fields": [
+        {
+          "name": "debugOut$lzy2"
+        },
+        {
+          "name": "inox$solvers$unrolling$UnrollingSolver$$ModelWrapperImpl$lzy1"
+        },
+        {
+          "name": "modelEvaluator$lzy1"
+        },
+        {
+          "name": "name$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.SolverFactory$",
+      "fields": [
+        {
+          "name": "hasBitwuzla$lzy1"
+        },
+        {
+          "name": "hasCVC4$lzy1"
+        },
+        {
+          "name": "hasCVC5$lzy1"
+        },
+        {
+          "name": "hasNativeZ3$lzy1"
+        },
+        {
+          "name": "hasZ3$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.SolverFactory$EvalImpl$1",
+      "fields": [
+        {
+          "name": "debugOut$lzy6"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.SolverFactory$SMTZ3Impl$2",
+      "fields": [
+        {
+          "name": "debugOut$lzy2"
+        },
+        {
+          "name": "inox$solvers$unrolling$UnrollingSolver$$ModelWrapperImpl$lzy2"
+        },
+        {
+          "name": "modelEvaluator$lzy2"
+        },
+        {
+          "name": "name$lzy2"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.SolverFactory$SMTZ3Impl$2$Underlying",
+      "fields": [
+        {
+          "name": "ArrayConst$lzy3"
+        },
+        {
+          "name": "ArrayMap$lzy3"
+        },
+        {
+          "name": "SortedSymbol$lzy3"
+        },
+        {
+          "name": "Version$lzy3"
+        },
+        {
+          "name": "evaluator$lzy3"
+        },
+        {
+          "name": "setSort$lzy3"
+        },
+        {
+          "name": "version$lzy3"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.evaluating.EvaluatingSolver",
+      "fields": [
+        {
+          "name": "SolverUnsupportedError$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.princess.AbstractPrincessSolver",
+      "fields": [
+        {
+          "name": "ADTCons$lzy1"
+        },
+        {
+          "name": "Constructor$lzy1"
+        },
+        {
+          "name": "DataType$lzy1"
+        },
+        {
+          "name": "SolverUnsupportedError$lzy1"
+        },
+        {
+          "name": "TupleCons$lzy1"
+        },
+        {
+          "name": "TypeParameterCons$lzy1"
+        },
+        {
+          "name": "UnitCons$lzy1"
+        },
+        {
+          "name": "inoxToPrincess$lzy1"
+        },
+        {
+          "name": "princessToInox$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.princess.PrincessSolver$TemplatesImpl",
+      "fields": [
+        {
+          "name": "App$lzy1"
+        },
+        {
+          "name": "Call$lzy1"
+        },
+        {
+          "name": "Capture$lzy1"
+        },
+        {
+          "name": "CaptureGenerator$lzy1"
+        },
+        {
+          "name": "CaptureTemplate$lzy1"
+        },
+        {
+          "name": "CaptureUnrolling$lzy1"
+        },
+        {
+          "name": "Constraint$lzy1"
+        },
+        {
+          "name": "ConstraintTemplate$lzy1"
+        },
+        {
+          "name": "ContractGenerator$lzy1"
+        },
+        {
+          "name": "ContractUnrolling$lzy1"
+        },
+        {
+          "name": "Equality$lzy1"
+        },
+        {
+          "name": "EqualityTemplate$lzy1"
+        },
+        {
+          "name": "FreeGenerator$lzy1"
+        },
+        {
+          "name": "FreeUnrolling$lzy1"
+        },
+        {
+          "name": "FunctionMatcher$lzy1"
+        },
+        {
+          "name": "FunctionTemplate$lzy1"
+        },
+        {
+          "name": "LambdaTemplate$lzy1"
+        },
+        {
+          "name": "Matcher$lzy1"
+        },
+        {
+          "name": "Negative$lzy1"
+        },
+        {
+          "name": "Positive$lzy1"
+        },
+        {
+          "name": "QuantificationMatcher$lzy1"
+        },
+        {
+          "name": "QuantificationTemplate$lzy1"
+        },
+        {
+          "name": "Template$lzy1"
+        },
+        {
+          "name": "TemplateAppInfo$lzy1"
+        },
+        {
+          "name": "TemplateContents$lzy1"
+        },
+        {
+          "name": "Typing$lzy1"
+        },
+        {
+          "name": "deferFactor$lzy1"
+        },
+        {
+          "name": "equalityManager$lzy1"
+        },
+        {
+          "name": "falseT$lzy1"
+        },
+        {
+          "name": "functionsManager$lzy1"
+        },
+        {
+          "name": "givenDebugSection$lzy1"
+        },
+        {
+          "name": "inox$solvers$unrolling$QuantificationTemplates$$CallerKey$lzy1"
+        },
+        {
+          "name": "inox$solvers$unrolling$QuantificationTemplates$$FunctionKey$lzy1"
+        },
+        {
+          "name": "inox$solvers$unrolling$QuantificationTemplates$$LambdaKey$lzy1"
+        },
+        {
+          "name": "inox$solvers$unrolling$QuantificationTemplates$$TypeKey$lzy1"
+        },
+        {
+          "name": "lambdasManager$lzy1"
+        },
+        {
+          "name": "quantificationsManager$lzy1"
+        },
+        {
+          "name": "trueT$lzy1"
+        },
+        {
+          "name": "typesManager$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.smtlib.SMTLIBSolver",
+      "fields": [
+        {
+          "name": "ADTCons$lzy1"
+        },
+        {
+          "name": "Constructor$lzy1"
+        },
+        {
+          "name": "Context$lzy1"
+        },
+        {
+          "name": "DataType$lzy1"
+        },
+        {
+          "name": "Num$lzy1"
+        },
+        {
+          "name": "SimpleSymbol$lzy1"
+        },
+        {
+          "name": "SolverUnsupportedError$lzy1"
+        },
+        {
+          "name": "TupleCons$lzy1"
+        },
+        {
+          "name": "TypeParameterCons$lzy1"
+        },
+        {
+          "name": "UnitCons$lzy1"
+        },
+        {
+          "name": "debugOut$lzy1"
+        },
+        {
+          "name": "inox$solvers$smtlib$SMTLIBDebugger$$file$lzy1"
+        },
+        {
+          "name": "inox$solvers$smtlib$SMTLIBDebugger$$smtLibFileId$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.unrolling.AbstractUnrollingSolver",
+      "fields": [
+        {
+          "name": "SolverUnsupportedError$lzy1"
+        },
+        {
+          "name": "checkModels$lzy1"
+        },
+        {
+          "name": "feelingLucky$lzy1"
+        },
+        {
+          "name": "ignoreModels$lzy1"
+        },
+        {
+          "name": "modelFinding$lzy1"
+        },
+        {
+          "name": "silentErrors$lzy1"
+        },
+        {
+          "name": "unrollAssumptions$lzy1"
+        },
+        {
+          "name": "unrollBound$lzy1"
+        },
+        {
+          "name": "unrollFactor$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.unrolling.ChooseEncoder",
+      "fields": [
+        {
+          "name": "chooses$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.unrolling.FunctionTemplates$FunctionTemplate",
+      "fields": [
+        {
+          "name": "start$lzy1"
+        },
+        {
+          "name": "str$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.unrolling.FunctionTemplates$functionsManager$",
+      "fields": [
+        {
+          "name": "evaluator$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.unrolling.QuantificationTemplates$Axiom",
+      "fields": [
+        {
+          "name": "guard$lzy1"
+        },
+        {
+          "name": "pathBlockers$lzy1"
+        },
+        {
+          "name": "quantified$lzy1"
+        },
+        {
+          "name": "quantifiers$lzy2"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.unrolling.QuantificationTemplates$QuantificationTemplate",
+      "fields": [
+        {
+          "name": "mapping$lzy1"
+        },
+        {
+          "name": "quantifiers$lzy1"
+        },
+        {
+          "name": "start$lzy1"
+        },
+        {
+          "name": "str$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.unrolling.Templates$TemplateContents",
+      "fields": [
+        {
+          "name": "args$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.unrolling.Templates$TemplateStructure",
+      "fields": [
+        {
+          "name": "$1$$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.unrolling.TypeTemplates$ConstraintTemplate",
+      "fields": [
+        {
+          "name": "start$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.unrolling.UnrollingSolver$TemplatesImpl",
+      "fields": [
+        {
+          "name": "App$lzy1"
+        },
+        {
+          "name": "Call$lzy1"
+        },
+        {
+          "name": "Capture$lzy1"
+        },
+        {
+          "name": "CaptureGenerator$lzy1"
+        },
+        {
+          "name": "CaptureTemplate$lzy1"
+        },
+        {
+          "name": "CaptureUnrolling$lzy1"
+        },
+        {
+          "name": "Constraint$lzy1"
+        },
+        {
+          "name": "ConstraintTemplate$lzy1"
+        },
+        {
+          "name": "ContractGenerator$lzy1"
+        },
+        {
+          "name": "ContractUnrolling$lzy1"
+        },
+        {
+          "name": "Equality$lzy1"
+        },
+        {
+          "name": "EqualityTemplate$lzy1"
+        },
+        {
+          "name": "FreeGenerator$lzy1"
+        },
+        {
+          "name": "FreeUnrolling$lzy1"
+        },
+        {
+          "name": "FunctionMatcher$lzy1"
+        },
+        {
+          "name": "FunctionTemplate$lzy1"
+        },
+        {
+          "name": "LambdaTemplate$lzy1"
+        },
+        {
+          "name": "Matcher$lzy1"
+        },
+        {
+          "name": "Negative$lzy1"
+        },
+        {
+          "name": "Positive$lzy1"
+        },
+        {
+          "name": "QuantificationMatcher$lzy1"
+        },
+        {
+          "name": "QuantificationTemplate$lzy1"
+        },
+        {
+          "name": "Template$lzy1"
+        },
+        {
+          "name": "TemplateAppInfo$lzy1"
+        },
+        {
+          "name": "TemplateContents$lzy1"
+        },
+        {
+          "name": "Typing$lzy1"
+        },
+        {
+          "name": "deferFactor$lzy1"
+        },
+        {
+          "name": "equalityManager$lzy1"
+        },
+        {
+          "name": "falseT$lzy1"
+        },
+        {
+          "name": "functionsManager$lzy1"
+        },
+        {
+          "name": "givenDebugSection$lzy1"
+        },
+        {
+          "name": "inox$solvers$unrolling$QuantificationTemplates$$CallerKey$lzy1"
+        },
+        {
+          "name": "inox$solvers$unrolling$QuantificationTemplates$$FunctionKey$lzy1"
+        },
+        {
+          "name": "inox$solvers$unrolling$QuantificationTemplates$$LambdaKey$lzy1"
+        },
+        {
+          "name": "inox$solvers$unrolling$QuantificationTemplates$$TypeKey$lzy1"
+        },
+        {
+          "name": "lambdasManager$lzy1"
+        },
+        {
+          "name": "quantificationsManager$lzy1"
+        },
+        {
+          "name": "trueT$lzy1"
+        },
+        {
+          "name": "typesManager$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.z3.NativeZ3Solver$Underlying",
+      "fields": [
+        {
+          "name": "ADTCons$lzy1"
+        },
+        {
+          "name": "Constructor$lzy1"
+        },
+        {
+          "name": "DataType$lzy1"
+        },
+        {
+          "name": "SolverUnsupportedError$lzy1"
+        },
+        {
+          "name": "TupleCons$lzy1"
+        },
+        {
+          "name": "TypeParameterCons$lzy1"
+        },
+        {
+          "name": "UnitCons$lzy1"
+        },
+        {
+          "name": "emptySeq$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.z3.UninterpretedZ3Solver",
+      "fields": [
+        {
+          "name": "SolverUnsupportedError$lzy2"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.z3.UninterpretedZ3Solver$Underlying",
+      "fields": [
+        {
+          "name": "ADTCons$lzy1"
+        },
+        {
+          "name": "Constructor$lzy1"
+        },
+        {
+          "name": "DataType$lzy1"
+        },
+        {
+          "name": "SolverUnsupportedError$lzy1"
+        },
+        {
+          "name": "TupleCons$lzy1"
+        },
+        {
+          "name": "TypeParameterCons$lzy1"
+        },
+        {
+          "name": "UnitCons$lzy1"
+        },
+        {
+          "name": "emptySeq$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.z3.Z3Unrolling",
+      "fields": [
+        {
+          "name": "z3$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.solvers.z3.Z3Unrolling$TemplatesImpl",
+      "fields": [
+        {
+          "name": "App$lzy1"
+        },
+        {
+          "name": "Call$lzy1"
+        },
+        {
+          "name": "Capture$lzy1"
+        },
+        {
+          "name": "CaptureGenerator$lzy1"
+        },
+        {
+          "name": "CaptureTemplate$lzy1"
+        },
+        {
+          "name": "CaptureUnrolling$lzy1"
+        },
+        {
+          "name": "Constraint$lzy1"
+        },
+        {
+          "name": "ConstraintTemplate$lzy1"
+        },
+        {
+          "name": "ContractGenerator$lzy1"
+        },
+        {
+          "name": "ContractUnrolling$lzy1"
+        },
+        {
+          "name": "Equality$lzy1"
+        },
+        {
+          "name": "EqualityTemplate$lzy1"
+        },
+        {
+          "name": "FreeGenerator$lzy1"
+        },
+        {
+          "name": "FreeUnrolling$lzy1"
+        },
+        {
+          "name": "FunctionMatcher$lzy1"
+        },
+        {
+          "name": "FunctionTemplate$lzy1"
+        },
+        {
+          "name": "LambdaTemplate$lzy1"
+        },
+        {
+          "name": "Matcher$lzy1"
+        },
+        {
+          "name": "Negative$lzy1"
+        },
+        {
+          "name": "Positive$lzy1"
+        },
+        {
+          "name": "QuantificationMatcher$lzy1"
+        },
+        {
+          "name": "QuantificationTemplate$lzy1"
+        },
+        {
+          "name": "Template$lzy1"
+        },
+        {
+          "name": "TemplateAppInfo$lzy1"
+        },
+        {
+          "name": "TemplateContents$lzy1"
+        },
+        {
+          "name": "Typing$lzy1"
+        },
+        {
+          "name": "deferFactor$lzy1"
+        },
+        {
+          "name": "equalityManager$lzy1"
+        },
+        {
+          "name": "falseT$lzy1"
+        },
+        {
+          "name": "functionsManager$lzy1"
+        },
+        {
+          "name": "givenDebugSection$lzy1"
+        },
+        {
+          "name": "inox$solvers$unrolling$QuantificationTemplates$$CallerKey$lzy1"
+        },
+        {
+          "name": "inox$solvers$unrolling$QuantificationTemplates$$FunctionKey$lzy1"
+        },
+        {
+          "name": "inox$solvers$unrolling$QuantificationTemplates$$LambdaKey$lzy1"
+        },
+        {
+          "name": "inox$solvers$unrolling$QuantificationTemplates$$TypeKey$lzy1"
+        },
+        {
+          "name": "lambdasManager$lzy1"
+        },
+        {
+          "name": "quantificationsManager$lzy1"
+        },
+        {
+          "name": "trueT$lzy1"
+        },
+        {
+          "name": "typesManager$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.tip.Parser",
+      "fields": [
+        {
+          "name": "DatatypeInvariantExtractor$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.tip.Parser$Locals",
+      "fields": [
+        {
+          "name": "extractor$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.transformers.ConcreteTreeTransformer",
+      "fields": [
+        {
+          "name": "deconstructor$lzy2"
+        }
+      ]
+    },
+    {
+      "type": "inox.transformers.TreeTransformer$TreeTransformerComposition$1",
+      "fields": [
+        {
+          "name": "deconstructor$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.utils.DefinedPosition",
+      "fields": [
+        {
+          "name": "path$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.utils.InoxSerializer",
+      "fields": [
+        {
+          "name": "LexicographicOrder$lzy1"
+        },
+        {
+          "name": "MapSerializer$lzy1"
+        },
+        {
+          "name": "OptionSerializer$lzy1"
+        },
+        {
+          "name": "PrimitiveSerializer$lzy1"
+        },
+        {
+          "name": "ProductSerializer$lzy1"
+        },
+        {
+          "name": "ResultSerializer$lzy1"
+        },
+        {
+          "name": "SeqSerializer$lzy1"
+        },
+        {
+          "name": "SerializableOrProcedure$lzy1"
+        },
+        {
+          "name": "SerializationProcedure$lzy1"
+        },
+        {
+          "name": "SetSerializer$lzy1"
+        },
+        {
+          "name": "TupleSerializer$lzy1"
+        },
+        {
+          "name": "bigIntIsSerializable$lzy1"
+        },
+        {
+          "name": "boolIsSerializable$lzy1"
+        },
+        {
+          "name": "byteIsSerializable$lzy1"
+        },
+        {
+          "name": "charIsSerializable$lzy1"
+        },
+        {
+          "name": "doubleIsSerializable$lzy1"
+        },
+        {
+          "name": "floatIsSerializable$lzy1"
+        },
+        {
+          "name": "identIsSerializable$lzy1"
+        },
+        {
+          "name": "intIsSerializable$lzy1"
+        },
+        {
+          "name": "longIsSerializable$lzy1"
+        },
+        {
+          "name": "resultIsSerializable$lzy1"
+        },
+        {
+          "name": "shortIsSerializable$lzy1"
+        },
+        {
+          "name": "stringIsSerializable$lzy1"
+        },
+        {
+          "name": "treeIsSerializable$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "inox.utils.Serializer$SerializationProcedure$",
+      "fields": [
+        {
+          "name": "symbolsProcedure$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "java.lang.ClassValue"
+    },
+    {
+      "type": "java.lang.Object[]"
+    },
+    {
+      "type": "java.lang.Object[][]"
+    },
+    {
+      "type": "java.lang.String[]"
+    },
+    {
+      "type": "scala.Enumeration",
+      "fields": [
+        {
+          "name": "ValueOrdering$lzy1"
+        },
+        {
+          "name": "ValueSet$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "scala.Option[]"
+    },
+    {
+      "type": "scala.StringContext",
+      "fields": [
+        {
+          "name": "s$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "scala.Tuple10"
+    },
+    {
+      "type": "scala.Tuple11"
+    },
+    {
+      "type": "scala.Tuple12"
+    },
+    {
+      "type": "scala.Tuple13"
+    },
+    {
+      "type": "scala.Tuple14"
+    },
+    {
+      "type": "scala.Tuple15"
+    },
+    {
+      "type": "scala.Tuple16"
+    },
+    {
+      "type": "scala.Tuple17"
+    },
+    {
+      "type": "scala.Tuple18"
+    },
+    {
+      "type": "scala.Tuple19"
+    },
+    {
+      "type": "scala.Tuple2",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.lang.Object",
+            "java.lang.Object"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "scala.Tuple20"
+    },
+    {
+      "type": "scala.Tuple21"
+    },
+    {
+      "type": "scala.Tuple22"
+    },
+    {
+      "type": "scala.Tuple2[]"
+    },
+    {
+      "type": "scala.Tuple3",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.lang.Object",
+            "java.lang.Object",
+            "java.lang.Object"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "scala.Tuple3[]"
+    },
+    {
+      "type": "scala.Tuple4"
+    },
+    {
+      "type": "scala.Tuple5"
+    },
+    {
+      "type": "scala.Tuple6"
+    },
+    {
+      "type": "scala.Tuple7"
+    },
+    {
+      "type": "scala.Tuple8"
+    },
+    {
+      "type": "scala.Tuple9"
+    },
+    {
+      "type": "scala.collection.LinearSeqIterator$LazyCell",
+      "fields": [
+        {
+          "name": "v$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "scala.collection.immutable.ArraySeq$",
+      "fields": [
+        {
+          "name": "emptyImpl$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "scala.collection.immutable.LazyList$",
+      "fields": [
+        {
+          "name": "_tailUpdater$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "scala.collection.immutable.NumericRange",
+      "fields": [
+        {
+          "name": "hashCode$lzy1"
+        },
+        {
+          "name": "isEmpty$lzy1"
+        },
+        {
+          "name": "length$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "scala.io.BufferedSource",
+      "fields": [
+        {
+          "name": "charReader$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "scala.io.Codec$",
+      "fields": [
+        {
+          "name": "fallbackSystemCodec$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "scala.io.Source",
+      "fields": [
+        {
+          "name": "NoPositioner$lzy1"
+        },
+        {
+          "name": "RelaxedPosition$lzy1"
+        },
+        {
+          "name": "RelaxedPositioner$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "scala.math.BigDecimal$",
+      "fields": [
+        {
+          "name": "cache$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "scala.util.matching.Regex$Match",
+      "fields": [
+        {
+          "name": "ends$lzy1"
+        },
+        {
+          "name": "scala$util$matching$Regex$MatchData$$nameToIndex$lzy1"
+        },
+        {
+          "name": "starts$lzy1"
+        }
+      ]
+    },
+    {
+      "type": "scala.util.matching.Regex$MatchIterator",
+      "fields": [
+        {
+          "name": "scala$util$matching$Regex$MatchData$$nameToIndex$lzy2"
+        }
+      ]
+    },
+    {
+      "type": "smtlib.theories.cvc.CVC4Sets$",
+      "fields": [
+        {
+          "name": "Card$lzy2"
+        },
+        {
+          "name": "EmptySet$lzy2"
+        },
+        {
+          "name": "Insert$lzy2"
+        },
+        {
+          "name": "Intersection$lzy2"
+        },
+        {
+          "name": "Member$lzy2"
+        },
+        {
+          "name": "SetSort$lzy2"
+        },
+        {
+          "name": "Setminus$lzy2"
+        },
+        {
+          "name": "Singleton$lzy2"
+        },
+        {
+          "name": "Subset$lzy2"
+        },
+        {
+          "name": "Union$lzy2"
+        }
+      ]
+    },
+    {
+      "type": "sun.misc.Unsafe",
+      "fields": [
+        {
+          "name": "theUnsafe"
+        }
+      ]
+    },
+    {
+      "type": "z3.scala.Z3AST",
+      "fields": [
+        {
+          "name": "0bitmap$1"
+        }
+      ]
+    },
+    {
+      "type": "z3.scala.Z3AST[]"
+    },
+    {
+      "type": "z3.scala.Z3FuncDecl",
+      "fields": [
+        {
+          "name": "0bitmap$1"
+        }
+      ]
+    },
+    {
+      "type": "z3.scala.Z3FuncDecl[]"
+    },
+    {
+      "type": "z3.scala.Z3FuncInterp",
+      "fields": [
+        {
+          "name": "0bitmap$1"
+        }
+      ]
+    },
+    {
+      "type": "z3.scala.Z3FuncInterpEntry",
+      "fields": [
+        {
+          "name": "0bitmap$1"
+        }
+      ]
+    },
+    {
+      "type": "z3.scala.Z3Model",
+      "fields": [
+        {
+          "name": "0bitmap$1"
+        }
+      ]
+    },
+    {
+      "type": "z3.scala.Z3Model$",
+      "fields": [
+        {
+          "name": "0bitmap$2"
+        }
+      ]
+    },
+    {
+      "type": "z3.scala.Z3Sort",
+      "fields": [
+        {
+          "name": "0bitmap$1"
+        }
+      ]
+    },
+    {
+      "type": "z3.scala.Z3Symbol",
+      "fields": [
+        {
+          "name": "0bitmap$1"
+        }
+      ]
+    },
+    {
+      "type": "z3.scala.package$",
+      "fields": [
+        {
+          "name": "0bitmap$1"
+        }
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "glob": "lib-bin"
+    }
+  ]
+}
