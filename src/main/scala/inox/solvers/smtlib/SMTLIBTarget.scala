@@ -540,6 +540,24 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     case _ => unhandled
   }
 
+  /** Encodes `a.max(b)` or `a.min(b)` with the JVM semantics, which SMT-LIB leaves open or
+    * defines differently: the result is NaN if either operand is, and +0.0 is greater than -0.0.
+    * (`fp.max` and `fp.min` return the other operand for NaN, and either zero for two zeros.)
+    */
+  private def fpMinMax(a: Expr, b: Expr, max: Boolean)(using bindings: Map[Identifier, Term]): Term = {
+    val (aSym, bSym) = (id2sym(FreshIdentifier("a", true)), id2sym(FreshIdentifier("b", true)))
+    // Among two zeros, max picks `a` unless it is -0.0, and min picks `a` if it is -0.0.
+    val zeros = if (max) Core.ITE(FloatingPoint.IsNegative(aSym), bSym, aSym)
+                else Core.ITE(FloatingPoint.IsNegative(aSym), aSym, bSym)
+    val op = if (max) FloatingPoint.Max(aSym, bSym) else FloatingPoint.Min(aSym, bSym)
+    SMTLet(
+      VarBinding(aSym, toSMT(a)), Seq(VarBinding(bSym, toSMT(b))),
+      Core.ITE(FloatingPoint.IsNaN(aSym), aSym,
+        Core.ITE(FloatingPoint.IsNaN(bSym), bSym,
+          Core.ITE(Core.And(FloatingPoint.IsZero(aSym), FloatingPoint.IsZero(bSym)), zeros, op)))
+    )
+  }
+
   protected def toSMTFloatingPoint(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
     case FPLiteral(e, s, bits) =>
       val size = e + s
@@ -558,8 +576,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     case FPFMA(rm, e1, e2, e3) => FloatingPoint.FMA(toSMT(rm), toSMT(e1), toSMT(e2), toSMT(e3))
     case FPAbs(e)        => FloatingPoint.Abs(toSMT(e))
     case Sqrt(rm, e)     => FloatingPoint.Sqrt(toSMT(rm), toSMT(e))
-    case FPMax(a, b) => FloatingPoint.Max(toSMT(a), toSMT(b))
-    case FPMin(a, b) => FloatingPoint.Min(toSMT(a), toSMT(b))
+    case FPMax(a, b) => fpMinMax(a, b, max = true)
+    case FPMin(a, b) => fpMinMax(a, b, max = false)
     case FPRound(rm, e) => FloatingPoint.RoundToIntegral(toSMT(rm), toSMT(e))
     case FPCast(ne, ns, rm, e) => FloatingPoint.ToFP(ne, ns, toSMT(rm), toSMT(e))
     case FPFromBinary(ne, ns, e) => FloatingPoint.ToFP(ne, ns, toSMT(e))
