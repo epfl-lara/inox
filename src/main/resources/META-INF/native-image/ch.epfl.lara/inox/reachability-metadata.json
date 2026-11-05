@@ -46,6 +46,47 @@
       ]
     },
     {
+      "type": "inox.InoxMain",
+      "fields": [
+        {
+          "name": "Binary$lzy1"
+        },
+        {
+          "name": "Description$lzy1"
+        },
+        {
+          "name": "Evaluators$lzy1"
+        },
+        {
+          "name": "General$lzy1"
+        },
+        {
+          "name": "Printing$lzy1"
+        },
+        {
+          "name": "Solvers$lzy1"
+        },
+        {
+          "name": "Tip$lzy1"
+        },
+        {
+          "name": "optDebug$lzy1"
+        },
+        {
+          "name": "optFiles$lzy1"
+        },
+        {
+          "name": "optFormat$lzy1"
+        },
+        {
+          "name": "optHelp$lzy1"
+        },
+        {
+          "name": "optPrintProgram$lzy1"
+        }
+      ]
+    },
+    {
       "type": "inox.Main$",
       "fields": [
         {

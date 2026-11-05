@@ -75,6 +75,8 @@ echo "Running the binary files"
 run --format=binary:goal "$work"/binary/*.inoxb
 
 if $check; then
+  # Keep what this run recorded (CI uploads it when the check fails).
+  rm -rf recorded-metadata && cp -r "$out" recorded-metadata
   python3 - "$metadata/reachability-metadata.json" "$out/reachability-metadata.json" <<'PY'
 import fnmatch, json, sys
 

@@ -102,3 +102,10 @@ jobs:
         echo "$GITHUB_WORKSPACE/.local/bin" >> $GITHUB_PATH
     - name: Check that the metadata covers the TIP regression files
       run: ./scripts/record-native-image-metadata.sh --check
+    - name: Upload the recorded metadata
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: recorded-reachability-metadata
+        path: recorded-metadata/
+        if-no-files-found: ignore
