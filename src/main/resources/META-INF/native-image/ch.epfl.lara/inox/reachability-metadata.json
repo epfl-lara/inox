@@ -2078,6 +2078,9 @@
   "resources": [
     {
       "glob": "lib-bin"
+    },
+    {
+      "glob": "lib-bin/*"
     }
   ]
 }

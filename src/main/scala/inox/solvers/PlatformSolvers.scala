@@ -22,12 +22,41 @@ private[solvers] object PlatformSolvers {
   import unrolling._
 
   lazy val hasNativeZ3: Boolean = try {
+    unpackZ3InNativeImage
     _root_.z3.Z3Wrapper.withinJar()
     true
   } catch {
     case _: java.lang.UnsatisfiedLinkError => false
     case _: java.lang.NoClassDefFoundError => false
+    case _: java.io.IOException => false
   }
+
+  /** ScalaZ3 unpacks its native libraries by reading its own jar file, which
+    * a GraalVM native image doesn't have. It skips unpacking when the target
+    * directory already exists, so in a native image we unpack the libraries
+    * there ourselves, from the resources bundled into the image.
+    */
+  private lazy val unpackZ3InNativeImage: Unit =
+    if (System.getProperty("org.graalvm.nativeimage.imagecode") != null) {
+      import java.nio.file.{Files, Paths, StandardCopyOption}
+      val dir = Paths.get(System.getProperty("java.io.tmpdir"),
+        "SCALAZ3_" + _root_.z3.LibraryChecksum.value, "lib-bin")
+      Files.createDirectories(dir)
+      for (name <- Seq("z3", "z3java", "scalaz3")) {
+        val lib = System.mapLibraryName(name)
+        val target = dir.resolve(lib)
+        if (!Files.exists(target)) {
+          val in = getClass.getResourceAsStream("/lib-bin/" + lib)
+          if (in != null) try {
+            // Unpack next to the target and move it in place, so concurrent
+            // runs never load a partially written library.
+            val tmp = Files.createTempFile(dir, lib, ".tmp")
+            Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING)
+            Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE)
+          } finally in.close()
+        }
+      }
+    }
 
   val solverNames: Map[String, String] = Map(
     "nativez3"      -> "Native Z3 with z3-templates for unrolling",
@@ -51,6 +80,7 @@ private[solvers] object PlatformSolvers {
                     val sourceProgram: p.type
                     val targetProgram: Program { val trees: inox.trees.type }
                   })(using sem: p.Semantics): Option[SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } }] = {
+    if (finalName.contains("z3")) unpackZ3InNativeImage
     finalName match {
       case "nativez3" => Some(create(p)(finalName, {
         val chooseEnc = ChooseEncoder(p)(enc)
