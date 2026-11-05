@@ -91,7 +91,10 @@ class CustomEqualitySuite extends SolverTestSuite {
   }
 
   // Models are checked by evaluation below, so that invalid models aren't hidden as `Unknown`.
-  override protected def options = Seq(optCheckModels(false))
+  // Closures are compared structurally, up to the custom equality of their captured values, which
+  // needs the intensional semantics of function equality.
+  override protected def options = Seq(optCheckModels(false),
+    unrolling.optFunctionEquality(unrolling.FunctionEquality.Intensional))
 
   /** Checks that `e` is valid. */
   def valid(ctx: Context, e: Expr): Unit = solver(ctx).solveSAT(Not(e)) match {
