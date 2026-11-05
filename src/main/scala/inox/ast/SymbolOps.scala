@@ -622,9 +622,9 @@ trait SymbolOps extends TypeOps { self =>
       val (0, args) = tps.foldLeft((i, Seq[Expr]())) {
         case ((i, args), tpe) => typeCardinality(tpe) match {
           case Some(card) =>
-            val fieldCard = i min card
-            val arg = constructExpr(fieldCard, tpe)
-            (i - fieldCard, args :+ arg)
+            // `i` is written in a mixed radix, with one digit per field of finite cardinality
+            val arg = constructExpr(i % card, tpe)
+            (i / card, args :+ arg)
 
           case None =>
             val arg = constructExpr(i, tpe)
@@ -647,14 +647,14 @@ trait SymbolOps extends TypeOps { self =>
       val (ni, cons) = rec(i, sort.constructors.sortBy(constructorCardinality(_).getOrElse(Int.MaxValue)))
       ADT(cons.id, cons.tps, {
         if (cons.fields.isEmpty) Seq()
-        else unwrapTuple(constructExpr(i, tupleTypeWrap(cons.fields.map(_.getType))), cons.fields.size)
+        else unwrapTuple(constructExpr(ni, tupleTypeWrap(cons.fields.map(_.getType))), cons.fields.size)
       })
 
     case SetType(base) => typeCardinality(base) match {
       case None => FiniteSet(Seq(constructExpr(i, base)), base)
-      case Some(card) if card > i => FiniteSet(Seq(constructExpr(i, base)), base)
       case Some(card) =>
-        def rec(i: Int, c: Int): Seq[Expr] = {
+        // the set's elements are the bits of `i` that are set
+        def rec(i: Int, c: Int): Seq[Expr] = if (i == 0) Seq.empty else {
           val elem = if (i % 2 == 0) None else Some(constructExpr(c, base))
           elem.toSeq ++ rec(i / 2, c + 1)
         }
@@ -673,7 +673,7 @@ trait SymbolOps extends TypeOps { self =>
       case (Some(i1), Some(i2)) =>
         val dfltIndex = i % i2
         val default = constructExpr(dfltIndex, to)
-        def rec(i: Int, c: Int): Seq[(Expr, Expr)] = {
+        def rec(i: Int, c: Int): Seq[(Expr, Expr)] = if (i == 0) Seq.empty else {
           val elem = if (i % i2 == 0) None else {
             val mod = (i % i2) - 1
             val index = if (mod == dfltIndex) i2 - 1 else mod
@@ -939,12 +939,18 @@ trait SymbolOps extends TypeOps { self =>
 
     def noLet(e: Expr, defs: C) = e match {
       case Let(_, _, b) => (b, defs)
+      // Lets under binders may depend on the bound variables, so they stay under them
+      case Lambda(params, body) => (Lambda(params, wrap(defs, body)).copiedFrom(e), Seq())
+      case Forall(params, body) => (Forall(params, wrap(defs, body)).copiedFrom(e), Seq())
+      case Choose(res, pred) => (Choose(res, wrap(defs, pred)).copiedFrom(e), Seq())
       case _ => (e, defs)
     }
 
+    def wrap(defs: C, body: Expr): Expr = defs.foldRight(body) { case ((vd, e), body) => Let(vd, e, body) }
+
     val (bd, defs) = genericTransform[C](noTransformer, noLet, combiner)(Seq())(e)
 
-    defs.foldRight(bd){ case ((vd, e), body) => Let(vd, e, body) }
+    wrap(defs, bd)
   }
 
   protected def hasInstance(tpe: Type, seen: Set[Type]): Option[Boolean] = tpe match {
@@ -1038,30 +1044,38 @@ trait SymbolOps extends TypeOps { self =>
     *
     * Guarantees that all IfExpr will be at the top level and as soon as you
     * encounter a non-IfExpr, then no more IfExpr can be found in the
-    * sub-expressions
+    * sub-expressions, except under binders (lambdas, quantifiers, chooses and
+    * let bodies), as their conditions may depend on the bound variables.
     *
     * Assumes no match expressions
     */
   def hoistIte(expr: Expr): Expr = {
     def transform(expr: Expr): Option[Expr] = expr match {
       case IfExpr(c, t, e) => None
+      case _: Lambda | _: Forall | _: Choose => None
 
       case nop @ Operator(ts, op) => {
-        val iteIndex = ts.indexWhere{ case IfExpr(_, _, _) => true case _ => false }
+        // Only the value of a let is outside of the scope of its binder
+        val candidates = nop match {
+          case _: Let => ts.take(1)
+          case _ => ts
+        }
+        val iteIndex = candidates.indexWhere{ case IfExpr(_, _, _) => true case _ => false }
         if(iteIndex == -1) None else {
           val (beforeIte, startIte) = ts.splitAt(iteIndex)
           val afterIte = startIte.tail
           val IfExpr(c, t, e) = startIte.head: @unchecked
+          // the branches may contain further conditions to hoist
           Some(IfExpr(c,
-            op(beforeIte ++ Seq(t) ++ afterIte).copiedFrom(nop),
-            op(beforeIte ++ Seq(e) ++ afterIte).copiedFrom(nop)
-          ))
+            hoistIte(op(beforeIte ++ Seq(t) ++ afterIte).copiedFrom(nop)),
+            hoistIte(op(beforeIte ++ Seq(e) ++ afterIte).copiedFrom(nop))
+          ).copiedFrom(nop))
         }
       }
       case _ => None
     }
 
-    postMap(transform, applyRec = true)(expr)
+    postMap(transform)(expr)
   }
 
   private[inox] def liftAssumptions(expr: Expr): (Seq[Expr], Expr) = {
