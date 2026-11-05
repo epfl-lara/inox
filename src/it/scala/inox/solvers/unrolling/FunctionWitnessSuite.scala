@@ -9,15 +9,16 @@ import evaluators.EvaluationResults
 
 /** Checks that distinct first-class functions in models have a distinguishing input.
   *
-  * @see [[LambdaTemplates.witnessAssumptions]]
+  * @see [[LambdaTemplates.functionWitnesses]]
   */
 class FunctionWitnessSuite extends UnrollingTestSuite {
   import inox.trees._
   import dsl._
 
   override protected def optionMatrix = UnrollingTestSuite.combinations(
-    // most tests compare functions, which the default semantics rejects
-    Seq(optFunctionEquality(FunctionEquality.Intensional)),
+    // Most tests compare functions, which the default semantics rejects. Distinct functions always
+    // have a distinguishing input under extensional equality, but not under intensional equality.
+    Seq(optFunctionEquality(FunctionEquality.Extensional)),
     Seq(optCheckModels(true)),
     Seq(optModelFinding(0), optModelFinding(1))
   )
@@ -202,19 +203,14 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     assert(distinguishable(model(f.toVal), \("x" :: IntegerType())(x => x + E(BigInt(1)))))
   }
 
-  test("distinct higher-order functions") { ctx ?=>
+  test("distinct higher-order functions", hasHigherOrderModels) {
     val tpe = (IntegerType() =>: IntegerType()) =>: IntegerType()
     val f = ("f" :: tpe).toVariable
     val g = ("g" :: tpe).toVariable
     val model = solve(f !== g)
-    // cvc5 models for function-typed witnesses can't be extracted yet, so the solver
-    // falls back to a model without distinguishing inputs. With a single application each,
-    // the extracted functions are constant, so any input tells them apart.
-    if (!ctx.options.findOptionOrDefault(optSelectedSolvers).contains("smt-cvc5")) {
-      val id = \("x" :: IntegerType())(x => x)
-      assert(distinguishable(model(f.toVal), model(g.toVal), id))
-      assert(!model.values.exists(comparesFunctions))
-    }
+    val id = \("x" :: IntegerType())(x => x)
+    assert(distinguishable(model(f.toVal), model(g.toVal), id))
+    assert(!model.values.exists(comparesFunctions))
   }
 
   test("distinct functions agreeing on an input") {
@@ -259,17 +255,17 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     assert(distinguishable(model(f.toVal), exprOps.replaceFromSymbols(Map(g -> model(g.toVal)), lambda)))
   }
 
-  test("nullary functions with equal results") {
-    // `f() == g()` implies `f == g` under the witness clauses, so only an intensional
-    // counterexample remains, which the solver finds once it drops the witnesses
+  test("nullary functions with equal results") { ctx ?=>
+    given Context = ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))
+    // `f() == g()` implies `f == g` extensionally, so only an intensional counterexample remains
     val f = ("f" :: FunctionType(Seq(), IntegerType())).toVariable
     val g = ("g" :: FunctionType(Seq(), IntegerType())).toVariable
     assert(!result((f !== g) && (Application(f, Seq()) === Application(g, Seq()))).isUNSAT)
   }
 
-  test("eta-expanded closure remains distinct") {
-    // Function equality is intensional and `f` closes over `g`, so `f != g` even though
-    // no distinguishing input can exist: the solver must drop the witness assumptions.
+  test("eta-expanded closure remains distinct") { ctx ?=>
+    given Context = ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))
+    // `f` closes over `g`, so `f != g` intensionally, although no distinguishing input can exist
     val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
     val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
     val clause = f === \("x" :: IntegerType())(x => g(x))
@@ -355,16 +351,18 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     assert(distinguishable(model(f.toVal), model(g.toVal)))
   }
 
-  // Intensional equality: the extensionality assumption must never make a satisfiable query UNSAT
+  // Intensional equality: distinct functions needn't have a distinguishing input
 
-  test("structurally distinct, extensionally equal lambdas") {
+  test("structurally distinct, extensionally equal lambdas") { ctx ?=>
+    given Context = ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))
     val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
     val id = \("x" :: IntegerType())(x => x)
     val alsoId = \("x" :: IntegerType())(x => if_ (x === E(BigInt(0))) { E(BigInt(0)) } else_ { x })
     assert(result((f !== id) && (f === alsoId)).isSAT)
   }
 
-  test("distinct functions equal on every input") {
+  test("distinct functions equal on every input") { ctx ?=>
+    given Context = ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))
     val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
     val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
     val clause = (f !== g) && forall("x" :: IntegerType())(x => f(x) === g(x))
@@ -373,15 +371,17 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     assert(!result(clause).isUNSAT)
   }
 
-  test("more distinct Boolean functions than extensional ones") {
+  test("more distinct Boolean functions than extensional ones") { ctx ?=>
+    given Context = ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))
     val fs = (1 to 5).map(i => (s"f$i" :: (BooleanType() =>: BooleanType())).toVariable)
     val pairs = for (f1 <- fs; f2 <- fs if f1.id.globalId < f2.id.globalId) yield (f1, f2)
     assert(!result(andJoin(pairs.map((f1, f2) => f1 !== f2))).isUNSAT)
   }
 
-  test("intensional counterexample that needs unfolding") {
+  test("intensional counterexample that needs unfolding") { ctx ?=>
+    given Context = ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))
     // `f` closes over `g`, so they are distinct without a distinguishing input, and the list
-    // constraint keeps the solver unrolling after the witnesses turn out to be infeasible
+    // constraint keeps the solver unrolling
     val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
     val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
     val l = ("l" :: intList).toVariable
@@ -389,11 +389,9 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     assert(result(clause).isSAT)
   }
 
-  test("intensional counterexample over a recursive type with function fields") {
-    // Witnesses of type `Obj` contain fresh functions, which need witnesses of their own, so
-    // there are always more of them to instantiate: the solver must still drop them and stop.
-    // Model extraction can't build a valid model for this query even without witnesses, so the
-    // answer may be unknown.
+  test("intensional counterexample over a recursive type with function fields") { ctx ?=>
+    given Context = ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))
+    // Model extraction can't build a valid model for this query, so the answer may be unknown.
     val tpe = T(objID)() =>: T(objID)()
     val f = ("f" :: tpe).toVariable
     val g = ("g" :: tpe).toVariable
@@ -428,14 +426,14 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     assert(result(clause).isUNSAT)
   }
 
-  test("unsatisfiable query about distinguishing inputs") {
+  test("unsatisfiable query about distinguishing inputs") { ctx ?=>
     // Two distinct functions on Unit must differ on (), yet both map it to 0. This is UNSAT
-    // only extensionally, so the solver must not report UNSAT because of the witnesses alone:
-    // dropping them leaves a satisfiable query.
+    // only extensionally.
     val f = ("f" :: (UnitType() =>: IntegerType())).toVariable
     val g = ("g" :: (UnitType() =>: IntegerType())).toVariable
     val clause = (f !== g) && f(UnitLiteral()) === E(BigInt(0)) && g(UnitLiteral()) === E(BigInt(0))
-    assert(!result(clause).isUNSAT)
+    assert(result(clause).isUNSAT)
+    assert(!result(clause)(using ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))).isUNSAT)
   }
 
   // Solver state and options
@@ -686,10 +684,12 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     solveWithoutEquality(k(add) !== k(sub))
   }
 
-  test("disabled witnesses") { ctx ?=>
+  test("no distinguishing inputs under intensional equality") { ctx ?=>
+    // `f` and `g` agree on `x`, and on any distinguishing input the solver would introduce
     val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
     val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
-    val noWitnesses = ctx.withOpts(optFunctionWitnesses(false), optCheckModels(false))
-    assert(SimpleSolverAPI(program.getSolver(noWitnesses)).solveSAT(f !== g).isSAT)
+    val clause = (f !== g) && forall("x" :: IntegerType())(x => f(x) === g(x))
+    assert(resultWith(FunctionEquality.Extensional)(clause).isUNSAT)
+    assert(!resultWith(FunctionEquality.Intensional)(clause).isUNSAT)
   }
 }

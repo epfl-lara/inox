@@ -126,7 +126,6 @@ trait MainHelpers {
     solvers.unrolling.optFeelingLucky -> Description(Solvers, "Use evaluator to find counter-examples early"),
     solvers.unrolling.optUnrollAssumptions -> Description(Solvers, "Use unsat-assumptions to drive unfolding while remaining fair"),
     solvers.unrolling.optModelFinding -> Description(Solvers, "Enhance model-finding capabilities of solvers by given aggressivity"),
-    solvers.unrolling.optFunctionWitnesses -> Description(Solvers, "Search for models in which distinct first-class functions have a distinguishing input"),
     solvers.unrolling.optFunctionEquality -> Description(Solvers, "Semantics of equality between first-class functions: none (functions can't be compared), intensional or extensional"),
     solvers.smtlib.optCVC4Options -> Description(Solvers, "Pass extra options to CVC4"),
     solvers.smtlib.optCVC5Options -> Description(Solvers, "Pass extra options to CVC5"),
