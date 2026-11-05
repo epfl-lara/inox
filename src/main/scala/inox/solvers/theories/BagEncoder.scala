@@ -68,54 +68,66 @@ private class BagTheory[Trees <: ast.Trees](val trees: Trees) {
   // Note that a key can occur in several `Elem` nodes of the same bag (e.g. after
   // repeated `BagAdd`s), so difference and intersection cannot simply compute the
   // resulting multiplicity once per `Elem` node. Instead, we traverse the first bag
-  // and remove from the second bag what has already been accounted for:
-  //   get(diff(l + r, b), x)  == max(0, get(l, x) - get(b, x)) + max(0, get(r, x) - max(0, get(b, x) - get(l, x)))
-  //                           == max(0, get(l + r, x) - get(b, x))
-  //   get(inter(l + r, b), x) == min(get(l, x), get(b, x)) + min(get(r, x), max(0, get(b, x) - get(l, x)))
-  //                           == min(get(l + r, x), get(b, x))
-  val DifferenceID = FreshIdentifier("difference")
-  val Difference = mkFunDef(DifferenceID)("T") { case Seq(aT) => (
-    Seq("b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), {
-    case Seq(b1, b2) => if_ (b1 `is` SumID) {
-      Sum(aT)(E(DifferenceID)(aT)(b1.getField(left), b2),
-        E(DifferenceID)(aT)(b1.getField(right), E(DifferenceID)(aT)(b2, b1.getField(left))))
-    } else_ {
-      if_ (b1 `is` ElemID) {
-        let("f" :: aT, b1.getField(key)) { f =>
-          let("d" :: IntegerType(), b1.getField(value) - Get(aT)(b2, f)) { d =>
-            if_ (d <= E(BigInt(0))) { Leaf(aT)() } else_ { Elem(aT)(f, d) }
-          }
-        }
+  // while accumulating the part `seen` of it that precedes the current node. An
+  // `Elem(x, v)` node with `p = get(seen, x)` and `m = get(b2, x)` contributes
+  //   max(0, p + v - m) - max(0, p - m)  to the difference, and
+  //   min(p + v, m) - min(p, m)          to the intersection,
+  // which add up over all nodes of key `x` to `max(0, get(b1, x) - m)` and
+  // `min(get(b1, x), m)` respectively. Unlike computing differences of the second
+  // bag along the way, this only ever calls `get` on subterms of `b1` and `b2`,
+  // which keeps the number of function unfoldings quadratic instead of exponential.
+  private def mkSetOperation(id: Identifier, auxId: Identifier)
+                            (contribution: (Expr, Expr, Expr) => Expr): (FunDef, FunDef) = {
+    val aux = mkFunDef(auxId)("T") { case Seq(aT) => (
+      Seq("b1" :: Bag(aT), "b2" :: Bag(aT), "seen" :: Bag(aT)), Bag(aT), {
+      case Seq(b1, b2, seen) => if_ (b1 `is` SumID) {
+        Sum(aT)(E(auxId)(aT)(b1.getField(left), b2, seen),
+          E(auxId)(aT)(b1.getField(right), b2, Sum(aT)(seen, b1.getField(left))))
       } else_ {
-        Leaf(aT)()
-      }
-    }
-  })
-  }
-
-  val IntersectID = FreshIdentifier("intersect")
-  val Intersect = mkFunDef(IntersectID)("T") { case Seq(aT) => (
-    Seq("b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), {
-    case Seq(b1, b2) => if_ (b1 `is` SumID) {
-      Sum(aT)(E(IntersectID)(aT)(b1.getField(left), b2),
-        E(IntersectID)(aT)(b1.getField(right), E(DifferenceID)(aT)(b2, b1.getField(left))))
-    } else_ {
-      if_ (b1 `is` ElemID) {
-        let("f" :: aT, b1.getField(key)) { f =>
-          let("v1" :: IntegerType(), b1.getField(value)) { v1 =>
-            let("v2" :: IntegerType(), Get(aT)(b2, f)) { v2 =>
-              let("m" :: IntegerType(), if_ (v1 <= v2) { v1 } else_ { v2 }) { m =>
-                if_ (m <= E(BigInt(0))) { Leaf(aT)() } else_ { Elem(aT)(f, m) }
+        if_ (b1 `is` ElemID) {
+          let("f" :: aT, b1.getField(key)) { f =>
+            let("p" :: IntegerType(), E(GetID)(aT)(seen, f)) { p =>
+              let("m" :: IntegerType(), E(GetID)(aT)(b2, f)) { m =>
+                let("c" :: IntegerType(), contribution(p, b1.getField(value), m)) { c =>
+                  if_ (c <= E(BigInt(0))) { Leaf(aT)() } else_ { Elem(aT)(f, c) }
+                }
               }
             }
           }
+        } else_ {
+          Leaf(aT)()
         }
-      } else_ {
-        Leaf(aT)()
       }
+    })
     }
-  })
+
+    val fd = mkFunDef(id)("T") { case Seq(aT) => (
+      Seq("b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), {
+      case Seq(b1, b2) => E(auxId)(aT)(b1, b2, Leaf(aT)())
+    })
+    }
+
+    (fd, aux)
   }
+
+  private def max0(e: Expr): Expr = if_ (e <= E(BigInt(0))) { E(BigInt(0)) } else_ { e }
+  private def min(e1: Expr, e2: Expr): Expr = if_ (e1 <= e2) { e1 } else_ { e2 }
+
+  val DifferenceID = FreshIdentifier("difference")
+  val DifferenceAuxID = FreshIdentifier("differenceAux")
+  private val difference = mkSetOperation(DifferenceID, DifferenceAuxID) {
+    (p, v, m) => max0(p + v - m) - max0(p - m)
+  }
+  val Difference = difference._1
+  val DifferenceAux = difference._2
+
+  val IntersectID = FreshIdentifier("intersect")
+  val IntersectAuxID = FreshIdentifier("intersectAux")
+  private val intersect = mkSetOperation(IntersectID, IntersectAuxID) {
+    (p, v, m) => min(p + v, m) - min(p, m)
+  }
+  val Intersect = intersect._1
+  val IntersectAux = intersect._2
 
   val EqualsID = FreshIdentifier("equals")
   val BagEquals = mkFunDef(EqualsID)("T") { case Seq(aT) => (
@@ -144,7 +156,7 @@ private class BagTheory[Trees <: ast.Trees](val trees: Trees) {
   }
 
   val extraFunctions =
-    Seq(Get, Add, Union, Difference, Intersect, BagEquals, BagInvariant)
+    Seq(Get, Add, Union, Difference, DifferenceAux, Intersect, IntersectAux, BagEquals, BagInvariant)
 
   val extraSorts = Seq(bagSort)
 }
