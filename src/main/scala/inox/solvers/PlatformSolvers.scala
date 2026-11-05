@@ -70,8 +70,8 @@ private[solvers] object PlatformSolvers {
     "nativez3"     -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4", "smt-cvc5", "princess"),   "Z3 native interface"),
     "nativez3-opt" -> (() => hasNativeZ3, Seq("smt-z3-opt"),                                   "Z3 native interface"),
     "unrollz3"     -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4", "smt-cvc5", "princess"),   "Z3 native interface"),
-    "inv-eld"      -> (() => true,        Seq(),                                               "Eldarica solver"),
-    "princess"     -> (() => true,        Seq(),                                               "Princess solver")
+    "inv-eld"      -> (() => NativeImageFlags.WITH_ELDARICA, Seq("inv-z3"),                      "Eldarica solver"),
+    "princess"     -> (() => NativeImageFlags.WITH_PRINCESS, Seq("nativez3", "smt-z3"),          "Princess solver")
   )
 
   def getFromName(finalName: String, nonIncremental: Boolean)
@@ -139,7 +139,7 @@ private[solvers] object PlatformSolvers {
         () => new UnrollZ3Impl(p)(enc)(ChooseEncoder(p)(enc))
       }))
 
-      case "inv-eld" => Some(create(p)(finalName, {
+      case "inv-eld" if NativeImageFlags.WITH_ELDARICA => Some(create(p)(finalName, {
         val emptyEnc = ProgramEncoder.empty(enc.targetProgram)
         val chooses = ChooseEncoder(enc.targetProgram)(emptyEnc)
         class SMTEldaricaImpl(override val program: enc.targetProgram.type)
@@ -169,13 +169,16 @@ private[solvers] object PlatformSolvers {
         () => new EncodedImpl(p, enc, SMTEldaricaImpl(enc.targetProgram))
       }))
 
-      case "princess" => Some(create(p)(finalName, {
+      case "princess" if NativeImageFlags.WITH_PRINCESS => Some(create(p)(finalName, {
         val chooseEnc = ChooseEncoder(p)(enc)
         class PrincessImpl(override val program: p.type)
           extends princess.PrincessSolver(p)(p, ctx, enc, chooseEnc) with TimeoutSolver
 
         () => new PrincessImpl(p)
       }))
+
+      case "princess" | "inv-eld" =>
+        throw FatalError(s"Solver $finalName is not included in this build of Inox")
 
       case _ => None
     }
