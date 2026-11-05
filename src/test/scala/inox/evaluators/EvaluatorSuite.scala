@@ -714,6 +714,9 @@ class EvaluatorSuite extends AnyFunSuite {
 
   test("Function equality") {
     import solvers.unrolling.{optFunctionEquality, FunctionEquality}
+    // uses the recursive evaluator directly, as subclasses of this suite test other evaluators
+    // (eg. Stainless's code generator) that don't implement these semantics
+    def recursive(semantics: FunctionEquality) = RecursiveEvaluator(program, ctx.withOpts(optFunctionEquality(semantics)))
 
     def lambda(body: Expr => Expr): Lambda = {
       val x = ValDef.fresh("x", IntegerType())
@@ -730,13 +733,13 @@ class EvaluatorSuite extends AnyFunSuite {
     val model1 = lambda(x => IfExpr(Equals(x, int(2)), int(5), int(0)))
     val model2 = lambda(x => IfExpr(Equals(x, int(2)), int(6), int(0)))
 
-    val intensional = evaluator(ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional)))
+    val intensional = recursive(FunctionEquality.Intensional)
     eval(intensional, Equals(succ, succ))   === BooleanLiteral(true)
     eval(intensional, Equals(succ, succ2))  === BooleanLiteral(false)
     eval(intensional, Equals(id, alsoId))   === BooleanLiteral(false)
     eval(intensional, Equals(model1, model2)) === BooleanLiteral(false)
 
-    val extensional = evaluator(ctx.withOpts(optFunctionEquality(FunctionEquality.Extensional)))
+    val extensional = recursive(FunctionEquality.Extensional)
     eval(extensional, Equals(succ, succ))     === BooleanLiteral(true)
     eval(extensional, Equals(succ, pred))     === BooleanLiteral(false)
     eval(extensional, Equals(model1, model2)) === BooleanLiteral(false)
@@ -748,7 +751,7 @@ class EvaluatorSuite extends AnyFunSuite {
     eval(extensional, Equals(id, alsoId)).failed
 
     // without function equality, functions can't be compared at all
-    val none = evaluator(ctx.withOpts(optFunctionEquality(FunctionEquality.None)))
+    val none = recursive(FunctionEquality.None)
     eval(none, Equals(succ, succ)).failed
     eval(none, Equals(succ, pred)).failed
     eval(none, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(succ, int(1))))).failed
