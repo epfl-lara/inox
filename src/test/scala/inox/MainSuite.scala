@@ -188,4 +188,32 @@ class MainSuite extends AnyFunSuite {
     assert(main.exitCode("--format=binary", "/no/such/file.inoxser"))
     assert(main.output.contains("Input file was not found"))
   }
+
+  /** Runs the command line and returns whether it failed and what it printed on standard output. */
+  private def stdout(main: TestMain, args: String*): (Boolean, String) = {
+    val out = new java.io.ByteArrayOutputStream
+    val error = Console.withOut(out)(main.exitCode(args*))
+    (error, out.toString("UTF-8").trim)
+  }
+
+  test("SMT-LIB model format prints sat with a get-value model") {
+    withFiles(sat) { case Seq(file) =>
+      val (error, out) = stdout(new TestMain, "--solvers=princess", "--model-format=smtlib", file)
+      assert(!error)
+      assert(out == "sat\n((x 42))")
+    }
+  }
+
+  test("SMT-LIB model format prints unsat and unknown") {
+    withFiles(unsat) { case Seq(file) =>
+      val (error, out) = stdout(new TestMain, "--solvers=princess", "--timeout=30", "--model-format=smtlib", file)
+      assert(!error)
+      assert(out == "unsat")
+    }
+    withFiles(sat) { case Seq(file) =>
+      val (error, out) = stdout(new TestMain, "--solvers=eval", "--model-format=smtlib", file)
+      assert(error)
+      assert(out == "unknown")
+    }
+  }
 }
