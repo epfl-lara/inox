@@ -377,8 +377,12 @@ trait SymbolOps extends TypeOps { self =>
           val newTo = transformType(vars ++ params.map(_.toVariable), to, inFunction, path)
           SigmaType(newParams, newTo)
         case PiType(params, to) =>
+          // The parameter types are kept, as they define the domain on which `to` holds
+          val newParams = params.zipWithIndex.map { (vd, i) =>
+            transformVal(vars ++ params.take(i).map(_.toVariable), vd, true, path)
+          }
           val newTo = transformType(vars ++ params.map(_.toVariable), to, true, path)
-          PiType(params map (vd => transformVar(vd.toVariable).toVal), newTo)
+          PiType(newParams, newTo)
         case NAryType(tps, recons) =>
           recons(tps.map(rec))
       }

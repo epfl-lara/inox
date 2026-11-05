@@ -69,4 +69,33 @@ class FunctionEqualitySuite extends UnrollingTestSuite with DatastructureUtils {
 
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
+
+  test("lambda equality is syntactic") {
+    // Lambdas with different captured values are distinct even when they are extensionally equal
+    val a = ("a" :: IntegerType()).toVariable
+    val b = ("b" :: IntegerType()).toVariable
+    def l(c: Expr) = \("x" :: IntegerType())(x => if_ (x > x + IntegerLiteral(1)) { c } else_ { IntegerLiteral(0) })
+
+    assert(SimpleSolverAPI(program.getSolver).solveSAT((a !== b) && (l(a) === l(b))).isUNSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT((a === b) && (l(a) !== l(b))).isUNSAT)
+  }
+
+  test("lambda equality is up to simplification") {
+    // Lambda bodies are simplified before being compared, so a capture that the simplifier
+    // removes no longer distinguishes lambdas
+    val a = ("a" :: IntegerType()).toVariable
+    val b = ("b" :: IntegerType()).toVariable
+    def l(c: Expr) = \("x" :: IntegerType())(x => c * IntegerLiteral(0))
+
+    assert(SimpleSolverAPI(program.getSolver).solveSAT((a !== b) && (l(a) === l(b))).isSAT)
+  }
+
+  test("free function equal to a lambda") {
+    val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable
+    val a = ("a" :: IntegerType()).toVariable
+    val l = \("x" :: IntegerType())(x => x + a)
+
+    assert(SimpleSolverAPI(program.getSolver).solveSAT((f === l) && (f(IntegerLiteral(1)) !== a + IntegerLiteral(1))).isUNSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT((f === l) && (f(IntegerLiteral(1)) === IntegerLiteral(5))).isSAT)
+  }
 }
