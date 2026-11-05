@@ -414,6 +414,12 @@ abstract class AbstractUnrollingSolver private
     }
   }
 
+  // Model values are compared as the solver sees them: functions are equal iff they are the same
+  // function value, which the encoding makes structural (see [[optFunctionEquality]]).
+  protected lazy val modelEvaluator: DeterministicEvaluator { val program: self.targetProgram.type } =
+    targetSemantics.getEvaluator(using context.withOpts(
+      optIgnoreContracts(true), optFunctionEquality(FunctionEquality.Intensional)))
+
   private def emit(silenceErrors: Boolean)(msg: String) =
     if (silenceErrors) reporter.debug(msg) else reporter.warning(msg)
 
@@ -816,7 +822,25 @@ abstract class AbstractUnrollingSolver private
             }).toSeq
 
           val (withConds, default) = optDefault match {
-            case Some(default) => (argumentsWithConds, default)
+            // all arguments agree in the model when one of them has a trivial condition
+            // A trivial condition means that all arguments agree in the model, and that no
+            // condition tells them apart without comparing functions. Outside of the domain, the
+            // result needn't lie in the codomain, so it's only taken there.
+            case Some(default) => argumentsWithConds.indexWhere(_._2 == BooleanLiteral(true)) match {
+              case -1 => (argumentsWithConds, default)
+              case i =>
+                val (concreteArgs, _, resType) = argumentsWithConds(i)
+                val domain = andJoin((params zip paramTypes).map((vd, tpe) => refinementsOf(vd.toVariable, tpe)))
+                val inDomain = (params zip exArguments(i)).foldRight(domain) {
+                  case ((vd, arg), body) => Let(vd, arg, body)
+                }
+                modelEvaluator.eval(inDomain, inox.Model.empty(targetProgram)).result match {
+                  case Some(BooleanLiteral(false)) =>
+                    (Seq((concreteArgs, Not(domain), resType)), default)
+                  case _ =>
+                    (Seq.empty, extractValue(templates.mkApp(f, tpe, concreteArgs), resType, nextSeen))
+                }
+            }
             case None =>
               val withConds :+ ((concreteArgs, _, _)) = argumentsWithConds: @unchecked
               (withConds, extractValue(templates.mkApp(f, tpe, concreteArgs), imageType, nextSeen))
@@ -1463,12 +1487,6 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
 
     def decodePartial(e: Expr, tpe: Type): Option[Expr] = Some(e)
   }
-
-  // Model values are compared as the solver sees them: functions are equal iff they are the same
-  // function value, which the encoding makes structural (see [[optFunctionEquality]]).
-  protected lazy val modelEvaluator: DeterministicEvaluator { val program: self.targetProgram.type } =
-    targetSemantics.getEvaluator(using context.withOpts(
-      optIgnoreContracts(true), optFunctionEquality(FunctionEquality.Intensional)))
 
   protected def declareVariable(v: t.Variable): t.Variable = v
   protected def wrapModel(model: targetProgram.Model): ModelWrapper = ModelWrapperImpl(model)

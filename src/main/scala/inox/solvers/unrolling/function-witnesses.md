@@ -184,6 +184,12 @@ Applications to witness arguments are placed last (`isWitnessArgument`), so they
 only when the function has no other application, and the default is the same as without witnesses. Otherwise a witness point
 could set the default to a value that breaks a quantified property of the function.
 
+With a refined codomain, the default branch is a `choose` in the codomain instead. Under `none`, the
+conditions of the `if`-chain tell arguments apart by their distinguishing inputs, so when all
+applications agree in the model, there is no condition to test. Such an argument then takes the
+branch under the negated domain if it lies outside the domain, where the result needn't lie in the
+codomain, and gives the whole model of the function otherwise.
+
 Unsat cores are only hints here. Every decision that matters is backed by a check, so no result
 below depends on cores being correct or minimal.
 

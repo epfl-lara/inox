@@ -112,7 +112,14 @@ trait SolvingEvaluator extends Evaluator { self =>
 
       quantifiesOverEmptyType || {
         import SolverResponses._
-        context.timers.evaluators.forall.run(api.solveSAT(Not(forall.body))) match {
+        // the solver rejects quantifiers that compare functions without function equality, eg.
+        // over model values that do (see [[solvers.unrolling.optFunctionEquality]])
+        val res = try {
+          context.timers.evaluators.forall.run(api.solveSAT(Not(forall.body)))
+        } catch {
+          case e: ast.TypeOps#TypeErrorException => throw new RuntimeException(e.getMessage)
+        }
+        res match {
           case Unsat =>
             forallCache(forall) = true
             true
