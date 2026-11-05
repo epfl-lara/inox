@@ -38,9 +38,47 @@ class CustomEqualitySuite extends SolverTestSuite {
     })
   }
 
+  val listID = FreshIdentifier("List")
+  val consID = FreshIdentifier("Cons")
+  val nilID = FreshIdentifier("Nil")
+  val headID = FreshIdentifier("head")
+  val tailID = FreshIdentifier("tail")
+  val listSort = mkSort(listID)("A") { case Seq(aT) => Seq(
+    (nilID, Seq()),
+    (consID, Seq(ValDef(headID, aT), ValDef(tailID, T(listID)(aT)))))
+  }
+
+  /** Whether `x` is an element of `l`, which compares elements with the equality of `A`. */
+  val containsID = FreshIdentifier("contains")
+  val containsFd = mkFunDef(containsID)("A") { case Seq(aT) => (
+    Seq("l" :: T(listID)(aT), "x" :: aT), BooleanType(), {
+      case Seq(l, x) =>
+        (l `is` consID) && (Equals(l.getField(headID), x) || E(containsID)(aT)(l.getField(tailID), x))
+    })
+  }
+
+  /** The sum of the multiplicities of 1 in the bags of `l`. */
+  val totalID = FreshIdentifier("total")
+  val totalFd = mkFunDef(totalID)() { _ => (
+    Seq("l" :: T(listID)(BagType(IntegerType()))), IntegerType(), {
+      case Seq(l) =>
+        if_ (l `is` consID) {
+          MultiplicityInBag(E(BigInt(1)), l.getField(headID)) + E(totalID)(l.getField(tailID))
+        } else_ {
+          E(BigInt(0))
+        }
+    })
+  }
+
   override protected def symbols: Symbols =
-    NoSymbols.withSorts(Seq(boxSort)).withFunctions(Seq(countFd, pickFd))
+    NoSymbols.withSorts(Seq(boxSort, listSort)).withFunctions(Seq(countFd, pickFd, containsFd, totalFd))
   given Symbols = symbols
+
+  override protected def solverInfos = super.solverInfos.map { info =>
+    if (info.name != "princess") info
+    else info.copy(knownIssues = info.knownIssues +
+      ("Real equality under quantifiers" -> "a single satisfiability check doesn't terminate"))
+  }
 
   // Models are checked by evaluation below, so that invalid models aren't hidden as `Unknown`.
   override protected def options = Seq(optCheckModels(false))
@@ -185,5 +223,180 @@ class CustomEqualitySuite extends SolverTestSuite {
     val s = Variable.fresh("s", SetType(IntegerType()))
     val t = Variable.fresh("t", SetType(IntegerType()))
     valid(ctx, Equals(tup(SetUnion(s, t)), tup(SetUnion(t, s))))
+  }
+
+  def nil(tpe: Type): Expr = ADT(nilID, Seq(tpe), Seq())
+  def cons(h: Expr, t: Expr): Expr = ADT(consID, Seq(h.getType), Seq(h, t))
+  def list(es: Expr*): Expr = es.foldRight(nil(es.head.getType))(cons)
+  def contains(l: Expr, x: Expr): Expr = FunctionInvocation(containsID, Seq(x.getType), Seq(l, x))
+  def total(l: Expr): Expr = FunctionInvocation(totalID, Seq(), Seq(l))
+  def count(e: Expr): Expr = MultiplicityInBag(one, e)
+
+  test("Bags within recursive ADTs", Bags, ADTs) { ctx =>
+    valid(ctx, Equals(list(a, ab), list(a, ba)))
+    valid(ctx, Not(Equals(list(ab), list(ab, ab))))
+    val l = Variable.fresh("l", T(listID)(BT))
+    val m = Variable.fresh("m", T(listID)(BT))
+    valid(ctx, Implies(And(Equals(l, cons(ab, m)), Equals(m, list(a))), Equals(l, list(ba, a))))
+    satisfiable(ctx, andJoin(Seq(Equals(l, m), IsConstructor(l, consID), Equals(count(ADTSelector(l, headID)), two))))
+    satisfiable(ctx, And(Not(Equals(l, m)), Equals(total(l), total(m))))
+  }
+
+  test("Bags within recursive ADTs in function calls", Bags, ADTs) { ctx =>
+    valid(ctx, Equals(total(list(ab, a)), total(list(ba, a))))
+    val l = Variable.fresh("l", T(listID)(BT))
+    valid(ctx, Implies(Equals(l, list(ab, b)), Equals(total(l), Plus(count(a), Times(two, count(b))))))
+  }
+
+  test("Bag equality in generic functions", Bags, ADTs) { ctx =>
+    valid(ctx, contains(list(a, ab), ba))
+    valid(ctx, Implies(contains(list(a), b), Equals(count(a), count(b))))
+    satisfiable(ctx, And(Not(contains(list(a), b)), Equals(count(a), count(b))))
+  }
+
+  test("Real equality in generic functions", Reals, ADTs) { ctx =>
+    valid(ctx, contains(list(half, Plus(r, r)), Times(twice, r)))
+    satisfiable(ctx, And(contains(list(Plus(r, r)), r), Equals(Times(r, r), r)))
+    valid(ctx, Equals(list(Plus(r, half)), list(Plus(half, r))))
+  }
+
+  test("Bag equality under quantifiers", Bags, Functions, Quantifiers) { ctx =>
+    val g = Variable.fresh("g", FunctionType(Seq(IntegerType()), BT))
+    val h = Variable.fresh("h", FunctionType(Seq(IntegerType()), BT))
+    val x = Variable.fresh("x", IntegerType())
+    valid(ctx, Implies(
+      Forall(Seq(x.toVal), Equals(Application(g, Seq(x)), Application(h, Seq(x)))),
+      Equals(BagUnion(Application(g, Seq(one)), a), BagUnion(a, Application(h, Seq(one))))))
+    valid(ctx, Implies(
+      Forall(Seq(x.toVal), Equals(tup(Application(g, Seq(x))), tup(ab))),
+      Equals(tup(Application(g, Seq(two))), tup(ba))))
+  }
+
+  test("Quantifiers over bags", Bags, Functions, Quantifiers) { ctx =>
+    val f = Variable.fresh("f", FunctionType(Seq(BT), IntegerType()))
+    val s = Variable.fresh("s", BT)
+    valid(ctx, Implies(
+      Forall(Seq(s.toVal), Equals(Application(f, Seq(s)), count(s))),
+      Equals(Application(f, Seq(ab)), Application(f, Seq(ba)))))
+    valid(ctx, Implies(
+      Forall(Seq(s.toVal), Equals(Application(f, Seq(s)), count(s))),
+      Equals(Application(f, Seq(ab)), count(ba))))
+    val F = Variable.fresh("F", FunctionType(Seq(TupleType(Seq(BT, IntegerType()))), IntegerType()))
+    val p = Variable.fresh("p", TupleType(Seq(BT, IntegerType())))
+    valid(ctx, Implies(
+      Forall(Seq(p.toVal), Equals(Application(F, Seq(p)), count(TupleSelect(p, 1)))),
+      Equals(Application(F, Seq(tup(ab))), Application(F, Seq(tup(ba))))))
+  }
+
+  test("Quantifiers over ADTs of bags", Bags, ADTs, Functions, Quantifiers) { ctx =>
+    val f = Variable.fresh("f", FunctionType(Seq(T(boxID)()), IntegerType()))
+    val y = Variable.fresh("y", T(boxID)())
+    valid(ctx, Implies(
+      Forall(Seq(y.toVal), GreaterThan(Application(f, Seq(y)), Application(f, Seq(box(bag()))))),
+      GreaterThan(Application(f, Seq(box(ab))), Application(f, Seq(box(BagUnion(bag(), bag())))))))
+  }
+
+  test("Higher-order functions over bags", Bags, Functions) { ctx =>
+    val H = Variable.fresh("H", FunctionType(Seq(FunctionType(Seq(IntegerType()), BT)), IntegerType()))
+    valid(ctx, Equals(Application(H, Seq(const(ab))), Application(H, Seq(const(ba)))))
+    val k = Variable.fresh("k", FunctionType(Seq(BT), FunctionType(Seq(BT), IntegerType())))
+    valid(ctx, Equals(Application(Application(k, Seq(ab)), Seq(a)), Application(Application(k, Seq(ba)), Seq(a))))
+    val g = Variable.fresh("g", FunctionType(Seq(IntegerType()), BT))
+    val f = Variable.fresh("f", FunctionType(Seq(BT), IntegerType()))
+    valid(ctx, Equals(
+      Application(f, Seq(BagUnion(Application(g, Seq(one)), a))),
+      Application(f, Seq(BagUnion(a, Application(g, Seq(one)))))))
+  }
+
+  test("Lambdas over bags", Bags, Functions) { ctx =>
+    val s = Variable.fresh("s", BT)
+    val lam = Lambda(Seq(s.toVal), count(BagUnion(s, a)))
+    valid(ctx, Equals(Application(lam, Seq(ab)), Application(lam, Seq(ba))))
+    val f = Variable.fresh("f", FunctionType(Seq(BT), IntegerType()))
+    valid(ctx, Implies(Equals(f, lam), Equals(Application(f, Seq(ab)), Application(f, Seq(ba)))))
+    satisfiable(ctx, And(Equals(f, lam), Equals(Application(f, Seq(ab)), two)))
+    val p = Variable.fresh("p", TupleType(Seq(BT, IntegerType())))
+    val tl = Lambda(Seq(p.toVal), count(TupleSelect(p, 1)))
+    valid(ctx, Equals(Application(tl, Seq(tup(ab))), Application(tl, Seq(tup(ba)))))
+  }
+
+  test("Reals in higher-order functions", Reals, Functions) { ctx =>
+    val k = Variable.fresh("k", FunctionType(Seq(RealType()), FunctionType(Seq(RealType()), IntegerType())))
+    valid(ctx, Equals(Application(Application(k, Seq(Plus(r, r))), Seq(r)), Application(Application(k, Seq(Times(twice, r))), Seq(r))))
+  }
+
+  test("Real equality under quantifiers", Reals, Functions, Quantifiers) { ctx =>
+    val g = Variable.fresh("g", FunctionType(Seq(IntegerType()), TupleType(Seq(RealType(), IntegerType()))))
+    val x = Variable.fresh("x", IntegerType())
+    notDisproved(ctx, Implies(
+      Forall(Seq(x.toVal), Equals(Application(g, Seq(x)), tup(Plus(r, r)))),
+      Equals(Application(g, Seq(one)), tup(Times(twice, r)))))
+  }
+
+  /** Random formulas over bags nested within tuples, ADTs and closures.
+    *
+    * Z3 encodes bags natively, without custom equalities, so its answers are a reference for the
+    * solvers that use the `BagEncoder`: they must never contradict it, and their models must
+    * evaluate to true.
+    */
+  test("Random bag formulas agree with Z3", Bags, ADTs, Functions) { ctx =>
+    val reference = "smt-z3"
+    val name = ctx.options.findOptionOrDefault(optSelectedSolvers).head
+    // The Z3 solvers all encode bags natively.
+    if (!name.contains("z3") && SolverFactory.hasZ3) {
+      val rnd = new scala.util.Random(42)
+      val c = Variable.fresh("c", BT)
+      def pick[A](as: A*): A = as(rnd.nextInt(as.size))
+      def bagTerm(depth: Int): Expr =
+        if (depth == 0 || rnd.nextInt(3) == 0) pick(a, b, c, bag(), bag(1), bag(1, 2))
+        else pick(0, 1, 2) match {
+          case 0 => BagUnion(bagTerm(depth - 1), bagTerm(depth - 1))
+          case 1 => BagAdd(bagTerm(depth - 1), pick(one, two))
+          case 2 => pick(a, b, c)
+        }
+      def wrap(k: Int, e: Expr): Expr = k match {
+        case 0 => e
+        case 1 => tup(e)
+        case 2 => box(e)
+        case 3 => list(e, a)
+        case 4 => const(e)
+      }
+      def atom: Expr = pick(0, 0, 1, 2) match {
+        case 0 =>
+          val k = rnd.nextInt(5)
+          Equals(wrap(k, bagTerm(2)), wrap(k, bagTerm(2)))
+        case 1 => Equals(MultiplicityInBag(pick(one, two), bagTerm(2)), pick(E(BigInt(0)), one, two))
+        case 2 => GreaterEquals(count(bagTerm(2)), count(bagTerm(2)))
+      }
+      def literal: Expr = if (rnd.nextBoolean()) atom else Not(atom)
+
+      def solve(solverName: String, e: Expr) = {
+        val sctx = contextFor(solverName).withOpts(optCheckModels(false))
+        SimpleSolverAPI(program.getSolver(sctx).withTimeout(scala.concurrent.duration.Duration(3, "s"))).solveSAT(e)
+      }
+
+      var decided = 0
+      val formulas = (1 to 20).map { i =>
+        rnd.setSeed(42L * i)
+        andJoin(Seq.fill(2 + rnd.nextInt(2))(literal))
+      }
+      for (e <- formulas) {
+        val res = solve(name, e)
+        val ref = solve(reference, e)
+        res match {
+          case SatWithModel(model) => checkModel(ctx, e, model)
+          case _ =>
+        }
+        (res, ref) match {
+          case (Unsat, SatWithModel(model)) =>
+            fail(s"${e.asString} was found unsatisfiable, but $reference found ${model.vars}")
+          case (SatWithModel(model), Unsat) =>
+            fail(s"$reference found ${e.asString} unsatisfiable, but got ${model.vars}")
+          case (Unsat | SatWithModel(_), Unsat | SatWithModel(_)) => decided += 1
+          case _ =>
+        }
+      }
+      info(s"$decided of ${formulas.size} formulas decided by both solvers")
+    }
   }
 }
