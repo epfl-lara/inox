@@ -115,7 +115,7 @@ class DefinitionParserSuite extends AnyFunSuite {
     }
 
     assert(e"headOption(Cons('a', Nil()))".getType == ADTType(optionSort.id, Seq(StringType())))
-    assert(e"const + 1" == Plus(FunctionInvocation(constFd.id, Seq(), Seq()), IntegerLiteral(1)))
+    assert(e"const() + 1" == Plus(FunctionInvocation(constFd.id, Seq(), Seq()), IntegerLiteral(1)))
   }
 
   test("Parsing types of sorts") {

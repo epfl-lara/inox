@@ -109,6 +109,7 @@ trait Elaborators
       case Equal(a, b) => Equal(instantiator.transform(a), instantiator.transform(b)).setPos(c.pos)
       case HasClass(a, cl) => HasClass(instantiator.transform(a), cl).setPos(c.pos)
       case AtIndexEqual(a, b, idx) => AtIndexEqual(instantiator.transform(a), instantiator.transform(b), idx).setPos(c.pos)
+      case HasSortIn(a, sorts) => HasSortIn(instantiator.transform(a), sorts).setPos(c.pos)
     }
   }
 
