@@ -134,39 +134,42 @@ trait TypeTemplates { self: Templates =>
     CaptureTemplate(arg._2, container._2).instantiate(start, container._1, arg._1)
   }
 
-  private def instantiateTyping(blocker: Encoded, typing: Typing): Clauses = typing match {
-    case Typing(tpe, arg, Membership(result, closures)) =>
-      // Membership must be fully constrained, like the domain of a quantifier (see `inDomain`).
-      // The clauses of a membership check are guarded by the blocker it is first instantiated under,
-      // so its result is only shared under the same blocker: it would be unconstrained elsewhere,
-      // and could then be falsified to drop the codomain of an argument that lies in the domain.
-      val key = (tpe, arg, closures, MembershipGenerator, true, Some(blocker))
+  private def instantiateTyping(blocker: Encoded, typing: Typing): Clauses = {
+    // The clauses of a typing are guarded by the blocker it is instantiated under, so its result
+    // is only shared under the same blocker: it would be unconstrained elsewhere, and could then be
+    // set to drop an assumption, or to accept a value that doesn't belong to the type.
+    def cached(tpe: Type, arg: Encoded, closures: Seq[Arg], generator: TypingGenerator, inDomain: Boolean, result: Encoded)
+              (instantiate: => Clauses): Clauses = {
+      val key = (tpe, arg, closures, generator, inDomain, blocker)
       results.get(key) match {
-        case Some(res) =>
-          Seq(mkEquals(result, res))
+        case Some(res) => Seq(mkEquals(result, res))
         case None =>
           results += key -> result
-          ConstraintTemplate(tpe, MembershipGenerator, true).instantiate(blocker, result, arg, closures)
+          instantiate
       }
+    }
 
-    case Typing(tpe, arg, Constraint(result, closures, free, inDomain)) =>
-      val key = (tpe, arg, closures, if (free) FreeGenerator else ContractGenerator, inDomain, None)
-      results.get(key) match {
-        case Some(res) =>
-          Seq(mkEquals(result, res))
-        case None =>
-          results += key -> result
+    typing match {
+      case Typing(tpe, arg, Membership(result, closures)) =>
+        // Membership must be fully constrained, like the domain of a quantifier (see `inDomain`).
+        cached(tpe, arg, closures, MembershipGenerator, true, result) {
+          ConstraintTemplate(tpe, MembershipGenerator, true).instantiate(blocker, result, arg, closures)
+        }
+
+      case Typing(tpe, arg, Constraint(result, closures, free, inDomain)) =>
+        val generator = if (free) FreeGenerator else ContractGenerator
+        cached(tpe, arg, closures, generator, inDomain, result) {
           tpe match {
             case (_: FunctionType | _: PiType) =>
               registerFunction(blocker, result, tpe, arg, closures, free)
             case _ =>
-              ConstraintTemplate(tpe, if (free) FreeGenerator else ContractGenerator, inDomain)
-                .instantiate(blocker, result, arg, closures)
+              ConstraintTemplate(tpe, generator, inDomain).instantiate(blocker, result, arg, closures)
           }
-      }
+        }
 
-    case Typing(tpe, arg, Capture(container, containerType)) =>
-      CaptureTemplate(tpe, containerType).instantiate(blocker, container, arg)
+      case Typing(tpe, arg, Capture(container, containerType)) =>
+        CaptureTemplate(tpe, containerType).instantiate(blocker, container, arg)
+    }
   }
 
   def instantiateType(blocker: Encoded, typing: Typing): Clauses = typing.tpe match {
@@ -330,7 +333,7 @@ trait TypeTemplates { self: Templates =>
   private[unrolling] object typesManager extends Manager {
     private[TypeTemplates] val typeInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[Typing])]
     private[TypeTemplates] val lessOrder = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
-    private[TypeTemplates] val results = new IncrementalMap[(Type, Encoded, Seq[Arg], TypingGenerator, Boolean, Option[Encoded]), Encoded]
+    private[TypeTemplates] val results = new IncrementalMap[(Type, Encoded, Seq[Arg], TypingGenerator, Boolean, Encoded), Encoded]
 
     private val tpSyms: MutableMap[TypeParameter, Variable] = MutableMap.empty
     private[unrolling] val tpSubst: MutableMap[Variable, Encoded] = MutableMap.empty
