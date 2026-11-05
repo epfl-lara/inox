@@ -136,8 +136,11 @@ trait TypeTemplates { self: Templates =>
 
   private def instantiateTyping(blocker: Encoded, typing: Typing): Clauses = typing match {
     case Typing(tpe, arg, Membership(result, closures)) =>
-      // Membership must be fully constrained, like the domain of a quantifier (see `inDomain`)
-      val key = (tpe, arg, closures, MembershipGenerator, true)
+      // Membership must be fully constrained, like the domain of a quantifier (see `inDomain`).
+      // The clauses of a membership check are guarded by the blocker it is first instantiated under,
+      // so its result is only shared under the same blocker: it would be unconstrained elsewhere,
+      // and could then be falsified to drop the codomain of an argument that lies in the domain.
+      val key = (tpe, arg, closures, MembershipGenerator, true, Some(blocker))
       results.get(key) match {
         case Some(res) =>
           Seq(mkEquals(result, res))
@@ -147,7 +150,7 @@ trait TypeTemplates { self: Templates =>
       }
 
     case Typing(tpe, arg, Constraint(result, closures, free, inDomain)) =>
-      val key = (tpe, arg, closures, if (free) FreeGenerator else ContractGenerator, inDomain)
+      val key = (tpe, arg, closures, if (free) FreeGenerator else ContractGenerator, inDomain, None)
       results.get(key) match {
         case Some(res) =>
           Seq(mkEquals(result, res))
@@ -327,7 +330,7 @@ trait TypeTemplates { self: Templates =>
   private[unrolling] object typesManager extends Manager {
     private[TypeTemplates] val typeInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[Typing])]
     private[TypeTemplates] val lessOrder = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
-    private[TypeTemplates] val results = new IncrementalMap[(Type, Encoded, Seq[Arg], TypingGenerator, Boolean), Encoded]
+    private[TypeTemplates] val results = new IncrementalMap[(Type, Encoded, Seq[Arg], TypingGenerator, Boolean, Option[Encoded]), Encoded]
 
     private val tpSyms: MutableMap[TypeParameter, Variable] = MutableMap.empty
     private[unrolling] val tpSubst: MutableMap[Variable, Encoded] = MutableMap.empty
