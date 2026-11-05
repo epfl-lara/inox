@@ -8,11 +8,9 @@
 # Needs GraalVM 25 or later: native-image on the PATH, or GRAALVM_HOME set.
 # The build uses the configuration in
 # src/main/resources/META-INF/native-image/ch.epfl.lara/inox. When a change
-# makes Inox reach new classes through reflection, regenerate it by running
-# the JVM build under the tracing agent, e.g.
-#   java -agentlib:native-image-agent=config-merge-dir=<that directory> \
-#        -jar <assembly jar> --solvers=<solver> <file.tip>
-# for each solver, and with --format=binary on serialized input.
+# makes Inox reach new classes through reflection, JNI or resources, update
+# it with scripts/record-native-image-metadata.sh (CI checks that it is
+# complete for the TIP regression files).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

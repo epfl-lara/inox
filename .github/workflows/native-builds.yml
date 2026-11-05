@@ -12,7 +12,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Builds the two native versions of the inox command line and checks their
-# answers on the TIP regression files (scripts/check-native-binary.sh).
+# answers on the TIP regression files (scripts/check-native-binary.sh). A
+# separate job checks that the GraalVM reachability metadata covers what the
+# TIP regression files exercise (scripts/record-native-image-metadata.sh).
 jobs:
   scala-native:
     name: Scala Native
@@ -73,3 +75,30 @@ jobs:
       run: ./scripts/check-native-binary.sh ./inox-native-image --solvers=smt-z3
     - name: Check answers (native Z3 interface)
       run: ./scripts/check-native-binary.sh ./inox-native-image --solvers=nativez3
+
+  graalvm-metadata:
+    name: GraalVM reachability metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      INSTALL_SOLVERS: 1
+      Z3_VER: 4.15.1
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Setup GraalVM
+      uses: graalvm/setup-graalvm@v1
+      with:
+        distribution: graalvm-community
+        java-version: 25
+    - name: Install and set up sbt
+      run: |
+        ./scripts/install_sbt.sh
+        echo "$(pwd)/sbt/bin/" >> $GITHUB_PATH
+        echo "SBT_OPTS=-Xss64M -Xmx4G -Dsbt.global.base=$GITHUB_WORKSPACE/.sbt-global" >> $GITHUB_ENV
+    - name: Install Z3
+      run: |
+        ./scripts/install_solvers.sh $GITHUB_WORKSPACE/.local/bin $Z3_VER
+        echo "$GITHUB_WORKSPACE/.local/bin" >> $GITHUB_PATH
+    - name: Check that the metadata covers the TIP regression files
+      run: ./scripts/record-native-image-metadata.sh --check
