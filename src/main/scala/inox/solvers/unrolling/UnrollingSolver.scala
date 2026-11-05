@@ -735,41 +735,70 @@ abstract class AbstractUnrollingSolver private
           }
 
           /* The condition under which the `i`-th parameter `v` takes the model value `arg`.
-           * Functions are told apart from the other functions at that position through their
-           * distinguishing inputs, so that the extracted function only compares the results of
-           * applications, and never functions themselves. */
-          def argumentCondition(v: ValDef, i: Int, arg: Encoded, exArg: Expr): Expr = v.getType match {
-            case ft: FunctionType =>
+           * Values that contain functions are told apart from the other values at that position
+           * through the distinguishing inputs of their functions, so that the extracted function only
+           * compares the results of applications, and never functions themselves. */
+          def argumentCondition(v: ValDef, i: Int, arg: Encoded, exArg: Expr): Expr =
+            if (!hasFunctions(v.getType)) Equals(v.toVariable, exArg) else {
               val others = arguments.map(_(i)).foldLeft(Seq.empty[Encoded]) { (acc, other) =>
                 if (modelEq(other, arg) || acc.exists(modelEq(_, other))) acc else acc :+ other
               }
-              val conds = others.map(other => distinguish(v.toVariable, ft, arg, other))
-              for (case (other, None) <- others zip conds; (tpe, ws) <- onDemandWitnesses if tpe == ft;
-                   (f1, f2, equality, depth) <- ws
-                   if (modelEq(f1, arg) && modelEq(f2, other)) || (modelEq(f1, other) && modelEq(f2, arg))) {
-                requestedWitnesses += equality -> depth
-              }
+              val conds = others.map(other => separate(v.toVariable, v.getType, arg, other))
               if (conds.forall(_.isDefined)) andJoin(conds.flatten) else Equals(v.toVariable, exArg)
-            case _ => Equals(v.toVariable, exArg)
-          }
-
-          /* A test that `x` behaves like `a` on an input where `a` and `b` differ, if the model
-           * has one that doesn't need comparing functions. */
-          def distinguish(x: Expr, ft: FunctionType, a: Encoded, b: Encoded): Option[Expr] = {
-            val inputs = templates.distinguishingInputs.collectFirst {
-              case ((f1, f2), (tpe, ws)) if tpe == ft &&
-                ((modelEq(f1, a) && modelEq(f2, b)) || (modelEq(f1, b) && modelEq(f2, a))) &&
-                !modelEq(templates.mkApp(a, ft, ws), templates.mkApp(b, ft, ws)) => ws
             }
 
-            inputs.flatMap { ws =>
-              val app = Application(x, (ws zip ft.from).map((w, tpe) => extractValue(w, tpe, nextSeen)))
-              val (resA, resB) = (templates.mkApp(a, ft, ws), templates.mkApp(b, ft, ws))
-              ft.to match {
-                case to: FunctionType => distinguish(app, to, resA, resB)
-                case to if !hasFunctions(to) => Some(Equals(app, extractValue(resA, to, nextSeen)))
-                case _ => None
-              }
+          /* A test that holds when `x` is the model value `a`, and fails when it is `b`, if the model
+           * has one that doesn't need comparing functions. `a` and `b` differ in the model. Functions
+           * are tested on their distinguishing inputs, and datatypes on their constructors and fields. */
+          def separate(x: Expr, tpe: Type, a: Encoded, b: Encoded): Option[Expr] = {
+            // the first test among `parts` (lazily), trying those without functions first
+            def firstOf(parts: Seq[(Type, Expr, Encoded, Encoded)]): Option[Expr] =
+              parts.filterNot(p => modelEq(p._3, p._4)).sortBy(p => hasFunctions(p._1))
+                .iterator.flatMap((tpe, x, a, b) => separate(x, tpe, a, b)).nextOption()
+
+            tpe match {
+              case _ if !hasFunctions(tpe) => Some(Equals(x, extractValue(a, tpe, nextSeen)))
+
+              case ft: FunctionType =>
+                val inputs = templates.distinguishingInputs.collectFirst {
+                  case ((f1, f2), (tpe, ws)) if tpe == ft &&
+                    ((modelEq(f1, a) && modelEq(f2, b)) || (modelEq(f1, b) && modelEq(f2, a))) &&
+                    !modelEq(templates.mkApp(a, ft, ws), templates.mkApp(b, ft, ws)) => ws
+                }
+
+                // the pair may only have an on-demand distinguishing input, which we then request
+                if (inputs.isEmpty) {
+                  for ((tpe, ws) <- onDemandWitnesses if tpe == ft; (f1, f2, equality, depth) <- ws
+                       if (modelEq(f1, a) && modelEq(f2, b)) || (modelEq(f1, b) && modelEq(f2, a))) {
+                    requestedWitnesses += equality -> depth
+                  }
+                }
+
+                inputs.flatMap { ws =>
+                  val app = Application(x, (ws zip ft.from).map((w, tpe) => extractValue(w, tpe, nextSeen)))
+                  separate(app, ft.to, templates.mkApp(a, ft, ws), templates.mkApp(b, ft, ws))
+                }
+
+              case TupleType(tps) =>
+                val id = Variable.fresh("tuple", tpe)
+                def select(v: Encoded, i: Int): Encoded = templates.mkEncoder(Map(id -> v))(TupleSelect(id, i))
+                firstOf(tps.zipWithIndex.map((tpe, i) => (tpe, TupleSelect(x, i + 1), select(a, i + 1), select(b, i + 1))))
+
+              case adt @ ADTType(_, tps) =>
+                (wrapped.extractConstructor(a, adt), wrapped.extractConstructor(b, adt)) match {
+                  case (Some(ca), Some(cb)) if ca != cb => Some(IsConstructor(x, ca))
+                  case (Some(ca), Some(_)) =>
+                    val id = Variable.fresh("adt", adt)
+                    def select(v: Encoded, field: Identifier): Encoded =
+                      templates.mkEncoder(Map(id -> v))(ADTSelector(id, field))
+                    firstOf(getConstructor(ca, tps).fields.map { vd =>
+                      (vd.getType, ADTSelector(x, vd.id), select(a, vd.id), select(b, vd.id))
+                    }).map(cond => And(IsConstructor(x, ca), cond))
+                  case _ => None
+                }
+
+              // sets, bags and maps of functions are compared as such
+              case _ => None
             }
           }
 
@@ -1209,6 +1238,12 @@ abstract class AbstractUnrollingSolver private
                 underlying.assertCnstr(cl)
               }
               ModelCheck
+            } else if (requestedWitnesses.nonEmpty && functionEquality == FunctionEquality.None && !abort && !pause) {
+              // Without function equality, the model can't compare the functions instead, so we wait
+              // for the unfolding to reach their distinguishing inputs (see [[instantiateWitnesses]]).
+              reporter.debug(" - Requested distinguishing function inputs are deeper than the unfolding")
+              witnessLevel = witnessLevel max 1
+              ProofCheck
             } else if (exposedWitnesses.nonEmpty && !abort && !pause) {
               reporter.debug(" - Unfolding the distinguishing inputs of the functions in the model")
               for (cl <- templates.promoteWitnesses(exposedWitnesses)) {
@@ -1443,7 +1478,10 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     def decodePartial(e: Expr, tpe: Type): Option[Expr] = Some(e)
   }
 
-  protected lazy val modelEvalContext: Context = context.withOpts(optIgnoreContracts(true))
+  // Model values are compared as the solver sees them: functions are equal iff they are the same
+  // function value, which the encoding makes structural (see [[optFunctionEquality]]).
+  protected lazy val modelEvalContext: Context = context.withOpts(
+    optIgnoreContracts(true), optFunctionEquality(FunctionEquality.Intensional))
 
   protected def declareVariable(v: t.Variable): t.Variable = v
   protected def wrapModel(model: targetProgram.Model): ModelWrapper = ModelWrapperImpl(model)

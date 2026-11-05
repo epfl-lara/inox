@@ -726,18 +726,25 @@ class EvaluatorSuite extends AnyFunSuite {
     eval(intensional, Equals(id, alsoId))   === BooleanLiteral(false)
     eval(intensional, Equals(model1, model2)) === BooleanLiteral(false)
 
-    for (semantics <- Seq(FunctionEquality.None, FunctionEquality.Extensional)) {
-      val e = evaluator(ctx.withOpts(optFunctionEquality(semantics)))
-      eval(e, Equals(succ, succ))     === BooleanLiteral(true)
-      eval(e, Equals(succ, pred))     === BooleanLiteral(false)
-      eval(e, Equals(model1, model2)) === BooleanLiteral(false)
-      eval(e, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(pred, int(1))))) === BooleanLiteral(false)
-      eval(e, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(succ, int(2))))) === BooleanLiteral(false)
-      eval(e, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(succ, int(1))))) === BooleanLiteral(true)
-      // functions that agree on every candidate input can't be told apart
-      eval(e, Equals(succ, succ2)).failed
-      eval(e, Equals(id, alsoId)).failed
-    }
+    val extensional = evaluator(ctx.withOpts(optFunctionEquality(FunctionEquality.Extensional)))
+    eval(extensional, Equals(succ, succ))     === BooleanLiteral(true)
+    eval(extensional, Equals(succ, pred))     === BooleanLiteral(false)
+    eval(extensional, Equals(model1, model2)) === BooleanLiteral(false)
+    eval(extensional, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(pred, int(1))))) === BooleanLiteral(false)
+    eval(extensional, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(succ, int(2))))) === BooleanLiteral(false)
+    eval(extensional, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(succ, int(1))))) === BooleanLiteral(true)
+    // functions that agree on every candidate input can't be told apart
+    eval(extensional, Equals(succ, succ2)).failed
+    eval(extensional, Equals(id, alsoId)).failed
+
+    // without function equality, functions can't be compared at all
+    val none = evaluator(ctx.withOpts(optFunctionEquality(FunctionEquality.None)))
+    eval(none, Equals(succ, succ)).failed
+    eval(none, Equals(succ, pred)).failed
+    eval(none, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(succ, int(1))))).failed
+    // but values that hold functions can differ elsewhere
+    eval(none, Equals(Tuple(Seq(int(1), succ)), Tuple(Seq(int(2), succ)))) === BooleanLiteral(false)
+    eval(none, Equals(Tuple(Seq(int(1), int(2))), Tuple(Seq(int(1), int(2))))) === BooleanLiteral(true)
   }
 
   abstract class EvalDSL {
