@@ -16,6 +16,11 @@ class FloatingPointSemanticsSuite extends SolverTestSuite {
   import scala.collection.immutable.HashSet
   val floatValues: Set[Float] = HashSet(0f, 1.4, -0f, Float.NaN, Float.PositiveInfinity, Float.NegativeInfinity)
 
+  // SMT-LIB's fp.max and fp.min ignore a NaN operand unless both are NaN, and Inox orders
+  // -0.0 below +0.0, which SMT-LIB leaves open.
+  def smtMax(a: Float, b: Float): Float = if (a.isNaN) b else if (b.isNaN) a else a.max(b)
+  def smtMin(a: Float, b: Float): Float = if (a.isNaN) b else if (b.isNaN) a else a.min(b)
+
   test("Floating point literals", FloatingPoint) { ctx =>
     val s = solver(ctx)
 
@@ -34,8 +39,8 @@ class FloatingPointSemanticsSuite extends SolverTestSuite {
       check(s, FPMul(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i * j))
       check(s, FPDiv(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i / j))
       check(s, FPFMA(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j), Float32Literal(j)), Float32Literal(java.lang.Math.fma(i, j, j)))
-      check(s, FPMax(Float32Literal(i), Float32Literal(j)), Float32Literal(i.max(j)))
-      check(s, FPMin(Float32Literal(i), Float32Literal(j)), Float32Literal(i.min(j)))
+      check(s, FPMax(Float32Literal(i), Float32Literal(j)), Float32Literal(smtMax(i, j)))
+      check(s, FPMin(Float32Literal(i), Float32Literal(j)), Float32Literal(smtMin(i, j)))
     }
 
     for (i <- floatValues) {

@@ -540,9 +540,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     case _ => unhandled
   }
 
-  /** Encodes `a.max(b)` or `a.min(b)` with the JVM semantics, which SMT-LIB leaves open or
-    * defines differently: the result is NaN if either operand is, and +0.0 is greater than -0.0.
-    * (`fp.max` and `fp.min` return the other operand for NaN, and either zero for two zeros.)
+  /** Encodes `a.max(b)` or `a.min(b)` as fp.max or fp.min, which SMT-LIB leaves open for +0.0
+    * and -0.0. These are ordered as the JVM does (and as the evaluator does), with -0.0 below +0.0.
     */
   private def fpMinMax(a: Expr, b: Expr, max: Boolean)(using bindings: Map[Identifier, Term]): Term = {
     val (aSym, bSym) = (id2sym(FreshIdentifier("a", true)), id2sym(FreshIdentifier("b", true)))
@@ -552,9 +551,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     val op = if (max) FloatingPoint.Max(aSym, bSym) else FloatingPoint.Min(aSym, bSym)
     SMTLet(
       VarBinding(aSym, toSMT(a)), Seq(VarBinding(bSym, toSMT(b))),
-      Core.ITE(FloatingPoint.IsNaN(aSym), aSym,
-        Core.ITE(FloatingPoint.IsNaN(bSym), bSym,
-          Core.ITE(Core.And(FloatingPoint.IsZero(aSym), FloatingPoint.IsZero(bSym)), zeros, op)))
+      Core.ITE(Core.And(FloatingPoint.IsZero(aSym), FloatingPoint.IsZero(bSym)), zeros, op)
     )
   }
 
