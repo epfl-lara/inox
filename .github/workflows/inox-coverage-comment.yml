@@ -1,5 +1,7 @@
 name: Coverage comment
 # Posts the coverage of each pull request, compared with main, as a comment.
+# The comparison is with main at the commit the pull request build merged
+# into, so that tests added to main since then don't show up as lost coverage.
 # This runs separately from Inox CI, after it completes, because pull requests
 # from forks get a read-only token and can't comment themselves. Only the
 # version of this workflow on the default branch runs, and it only reads data
@@ -29,11 +31,40 @@ jobs:
     - name: Download main's coverage
       if: steps.head.outcome == 'success'
       run: |
-        # The latest push build on main that produced a coverage summary.
-        for run in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow inox-CI.yml --branch main \
-                       --event push --status completed --limit 10 --json databaseId --jq '.[].databaseId'); do
-          gh run download "$run" --repo "$GITHUB_REPOSITORY" --name coverage-summary --dir base && break
-        done
+        # Notes about the comparison, added below the coverage table.
+        : > notes.md
+        [ "$(cat head/tests-passed 2>/dev/null)" = false ] &&
+          echo "_Some tests failed or didn't run in this build, so its coverage is incomplete._" >> notes.md
+        complete() { [ "$(cat "$1/tests-passed" 2>/dev/null)" != false ]; }
+        sha_link() { echo "[\`${1:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$1)"; }
+        main_runs() {
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow inox-CI.yml --event push --status completed \
+            --limit 10 --json databaseId,headSha --jq '.[] | "\(.databaseId) \(.headSha)"' "$@"
+        }
+        # The pull request was built merged into main: compare it with main at
+        # the same commit, so that later changes to main don't show up as its own.
+        base_sha=$(cat head/base-sha 2>/dev/null || true)
+        if [[ "$base_sha" =~ ^[0-9a-f]{40}$ ]]; then
+          while read -r run sha; do
+            gh run download "$run" --repo "$GITHUB_REPOSITORY" --name coverage-summary --dir base && break
+          done < <(main_runs --commit "$base_sha")
+        fi
+        if [ -f base/coverage.json ]; then
+          echo "_Compared with \`main\` at $(sha_link "$base_sha"), which this build merged into._" >> notes.md
+          complete base || echo "_Some tests failed on \`main\` at $(sha_link "$base_sha"), so the differences are unreliable._" >> notes.md
+        else
+          # Otherwise, the latest build of main with complete coverage.
+          while read -r run sha; do
+            rm -rf base
+            gh run download "$run" --repo "$GITHUB_REPOSITORY" --name coverage-summary --dir base && complete base && break
+            rm -rf base
+          done < <(main_runs --branch main)
+          if [ -f base/coverage.json ]; then
+            msg="_Compared with \`main\` at $(sha_link "$sha")"
+            [[ "$base_sha" =~ ^[0-9a-f]{40}$ ]] && msg+=", since \`main\` at $(sha_link "$base_sha"), which this build merged into, has no coverage data"
+            echo "$msg. Changes to \`main\` that aren't in this build show up as differences._" >> notes.md
+          fi
+        fi
         true
     - name: Post or update the comment
       if: steps.head.outcome == 'success'
@@ -45,6 +76,7 @@ jobs:
           || { echo "Pull request #$pr has moved on from $HEAD_SHA"; exit 0; }
         base=$( [ -f base/coverage.json ] && echo base/coverage.json || true )
         python3 scripts/coverage_summary.py compare head/coverage.json $base > comment.md
+        [ -s notes.md ] && { echo; sed G notes.md; } >> comment.md
         id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$pr/comments" --paginate \
                --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- inox-coverage -->"))) | .id' | head -n 1)
         if [ -n "$id" ]; then
