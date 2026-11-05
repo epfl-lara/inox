@@ -80,13 +80,6 @@ trait SolvingEvaluator extends Evaluator { self =>
           optSilentErrors(true),
           optCheckModels(false), // model is checked manually!! (see below)
           unrolling.optFeelingLucky(false),
-          // model values may compare functions where they can't be told apart by their results,
-          // which only makes sense extensionally
-          unrolling.optFunctionEquality(options.findOptionOrDefault(unrolling.optFunctionEquality) match {
-            case unrolling.FunctionEquality.None if unrolling.FunctionEquality.comparisons(program)(forall).nonEmpty =>
-              unrolling.FunctionEquality.Extensional
-            case semantics => semantics
-          }),
           optForallCache(forallCache) // this makes sure we have an `optForallCache` set!
         ))
       }

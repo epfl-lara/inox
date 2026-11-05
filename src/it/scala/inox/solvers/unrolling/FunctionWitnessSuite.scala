@@ -617,16 +617,73 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
   }
 
   test("quantified function comparisons are evaluated extensionally") { ctx ?=>
-    // model values may hold such quantifiers, which `none` checks extensionally
     val x = ("x" :: IntegerType()).toVariable
     val forall = Forall(Seq(x.toVal),
       \("y" :: IntegerType())(y => y + x) === \("y" :: IntegerType())(y => x + y))
-    for (semantics <- Seq(FunctionEquality.None, FunctionEquality.Extensional)) {
-      program.getEvaluator(withEquality(semantics)).eval(forall) match {
-        case EvaluationResults.Successful(BooleanLiteral(true)) =>
-        case res => fail(s"Expected the quantifier to hold under $semantics, got $res")
-      }
+    program.getEvaluator(withEquality(FunctionEquality.Extensional)).eval(forall) match {
+      case EvaluationResults.Successful(BooleanLiteral(true)) =>
+      case res => fail(s"Expected the quantifier to hold, got $res")
     }
+    // without function equality, the quantifier can't be evaluated
+    scala.util.Try(program.getEvaluator(withEquality(FunctionEquality.None)).eval(forall)) match {
+      case scala.util.Success(EvaluationResults.Successful(v)) => fail(s"Expected an error, got $v")
+      case _ =>
+    }
+  }
+
+  // The models below are checked by the evaluator, which can't compare functions under `none`
+  private def solveWithoutEquality(clause: Expr)(using Context): Map[ValDef, Expr] =
+    resultWith(FunctionEquality.None)(clause) match {
+      case SatWithModel(model) =>
+        assert(!model.vars.values.exists(comparesFunctions))
+        model.vars
+      case res => fail(s"Expected a model, got $res")
+    }
+
+  test("functions applied to datatypes with functions without function equality", hasHigherOrderModels) { ctx ?=>
+    val fnT = IntegerType() =>: IntegerType()
+    val k = ("k" :: (T(boxID)() =>: IntegerType())).toVariable
+    val b1 = ("b1" :: T(boxID)()).toVariable
+    val b2 = ("b2" :: T(boxID)()).toVariable
+    val model = solveWithoutEquality(k(b1) !== k(b2))
+    def fnOf(b: Variable) = model(b.toVal) match {
+      case ADT(_, _, Seq(f)) => f
+      case v => fail(s"Unexpected box $v")
+    }
+    assert(distinguishable(fnOf(b1), fnOf(b2)))
+
+    // tuples, where the functions must be told apart although the other components are equal
+    val t = ("t" :: (TupleType(Seq(fnT, IntegerType())) =>: IntegerType())).toVariable
+    val f = ("f" :: fnT).toVariable
+    val g = ("g" :: fnT).toVariable
+    val zero = E(BigInt(0))
+    val model2 = solveWithoutEquality(t(Tuple(Seq(f, zero))) !== t(Tuple(Seq(g, zero))))
+    assert(distinguishable(model2(f.toVal), model2(g.toVal)))
+  }
+
+  test("functions applied to functions returning datatypes without function equality", hasHigherOrderModels) { ctx ?=>
+    // `g` and `h` give different boxes on their distinguishing input. The functions in these boxes
+    // aren't necessarily active, so they may have no distinguishing input (see the limitations in
+    // `function-witnesses.md`): the solver then can't extract a model without comparing them, and
+    // the model is rejected rather than reported.
+    val boxFn = IntegerType() =>: T(boxID)()
+    val k = ("k" :: (boxFn =>: IntegerType())).toVariable
+    val g = ("g" :: boxFn).toVariable
+    val h = ("h" :: boxFn).toVariable
+    resultWith(FunctionEquality.None)(k(g) !== k(h)) match {
+      case SatWithModel(model) => assert(!model.vars.values.exists(comparesFunctions))
+      case res => assert(!res.isUNSAT, s"Expected a model or Unknown, got $res")
+    }
+  }
+
+  test("functions applied to curried lambdas without function equality", hasHigherOrderModels) { ctx ?=>
+    // the results of the lambdas on their distinguishing input are lambdas too, and need one of
+    // their own, one level deeper
+    val tpe = IntegerType() =>: (IntegerType() =>: IntegerType())
+    val k = ("k" :: (tpe =>: IntegerType())).toVariable
+    val add = \("x" :: IntegerType())(x => \("y" :: IntegerType())(y => x + y))
+    val sub = \("x" :: IntegerType())(x => \("y" :: IntegerType())(y => x - y))
+    solveWithoutEquality(k(add) !== k(sub))
   }
 
   test("disabled witnesses") { ctx ?=>

@@ -55,7 +55,9 @@ the pair has a distinguishing input `w` with `g(w) ≠ h(w)`. The branch for `g`
 `x(w) == g(w)`, which separates `g` from `h` with one application and a comparison of results.
 A branch tests its argument on the distinguishing input of each other argument at that position,
 and results of function type are tested on their own distinguishing inputs, so curried arguments
-are separated by a sequence of applications. Such a model of `f` is still a valid model of `f(g)`
+are separated by a sequence of applications. Datatypes and tuples that contain functions are tested
+on their constructor, and then on a field where they differ, preferring fields without functions,
+so a function inside a datatype is also separated by applications. Such a model of `f` is still a valid model of `f(g)`
 and `f(h)`: it maps `g` and `h` to their extracted results, since each passes its own tests and
 fails the tests of the others.
 
@@ -63,9 +65,15 @@ This extraction falls back to comparing functions when no distinguishing input a
 
 - two arguments are lambdas of the program under `intensional` equality, which are told apart by
   structure (under `none`, their witness is instantiated when extraction needs it, §9);
-- the argument is a datatype or tuple containing functions;
+- the argument is a set, bag or map containing functions;
 - the arguments get no instantiated distinguishing input, as when Theorem F drops the witnesses,
-  which only happens under `intensional` equality.
+  which only happens under `intensional` equality, or for the functions in datatypes that a free
+  function returns (§7).
+
+Under `none`, the evaluator rejects these comparisons (§9), so such a model fails validation and
+the answer is Unknown rather than a counterexample that compares functions. A requested witness
+that is deeper than the current level doesn't lead to a fallback: the solver goes through the proof
+check and unrolls until the witness is in reach.
 
 `choose` extraction (cyclic values) also still selects its branches by comparing values.
 
@@ -405,6 +413,9 @@ distinguishing model lies deeper than the bound.
 - Activity literals are only added for function-typed application results. A function stored in a
   datatype that a free function returns is registered under its typing blocker. That blocker bounds
   but doesn't force the typing, so Theorem C relies on that blocker being true for such functions.
+  When it isn't, two such functions can be distinct in a model without a distinguishing input, and
+  under `none` the model is then rejected (test: functions applied to functions returning datatypes
+  without function equality).
 - Cost: no witness is instantiated before the first model (R0). Queries that never have a model, such
   as most verification conditions, only pay for the `eq_p` clauses, whose literals they never assume.
 - Cost of models: every function term the unrolling creates is paired with all earlier terms of its
@@ -433,9 +444,9 @@ Theorem B is therefore checked on every model.
 | A, E on refutable queries | equal functions agree; unsatisfiable query with distinct functions |
 | Extraction without comparing functions (§1) | functions applied to distinct functions; functions applied to a function and a lambda; functions applied to distinct curried functions (skipped on unrollz3, whose models give `f` the same result on both arguments); distinct higher-order functions |
 | Rejecting comparisons under `none` (§9) | function comparisons are rejected without function equality; function comparisons at type parameters are rejected without function equality; function comparisons in callees are found at their type arguments (an intermediate callee, polymorphic recursion); comparisons with constructors without functions are accepted |
-| Models under `none` and `extensional` (§9) | functions applied to functions without function equality (lambda pairs on demand); free functions passed to a function without function equality (free pairs promoted from on demand, §2); models with extensional function equality |
+| Models under `none` and `extensional` (§9) | functions applied to functions without function equality (lambda pairs on demand); free functions passed to a function without function equality (free pairs promoted from on demand, §2); functions applied to datatypes with functions without function equality; functions applied to curried lambdas without function equality (requested witnesses deeper than the level); functions applied to functions returning datatypes without function equality (§7); models with extensional function equality |
 | Refutations under `none` and `extensional` (§9) | intensional counterexamples don't exist without function equality; extensionally equal functions are equal; extensionally distinct lambdas are distinct; structurally distinct lambdas remain distinct |
-| Evaluation (§9) | quantified function comparisons are evaluated extensionally; `EvaluatorSuite`'s "Function equality" (by results, undecidable comparisons, tuples, intensional) |
+| Evaluation (§9) | quantified function comparisons are evaluated extensionally; `EvaluatorSuite`'s "Function equality" (rejected under `none`, by results under `extensional`, undecidable comparisons, tuples, intensional) |
 | Incremental state, option off | incremental solving; disabled witnesses |
 
 ## 9. Function equality semantics
@@ -445,7 +456,7 @@ Theorem B is therefore checked on every model.
 
 | Setting | Comparisons in queries | Witnesses | Lambdas | Evaluator |
 |---|---|---|---|---|
-| `none` (default) | rejected | unconditional, on demand | no structural inequality, witnesses on demand | by results |
+| `none` (default) | rejected | unconditional, on demand | no structural inequality, witnesses on demand | rejected |
 | `intensional` | structural | under `W`, on demand, dropped by Theorem F | structural | structural |
 | `extensional` | extensional | unconditional | no structural inequality, lazy witnesses | by results |
 
@@ -484,14 +495,21 @@ lambdas and 6000 witnesses, without unrolling once. Bounding that depth by the u
 round finite, but the lambdas still grew from round to round (124, 623 then 1122 over rounds 4 to 6).
 With lazy witnesses, the same check passes, in 6 s to 2.5 min depending on the run.
 
-**Evaluator.** Under `none` and `extensional`, `RecursiveEvaluator` compares function values by their
-results. Structurally equal values are equal. Otherwise, the values are applied to the closed
+**Evaluator.** `RecursiveEvaluator` follows the semantics. Under `intensional`, it compares
+functions structurally. Under `none`, comparing two functions is an evaluation error: queries can't
+compare functions, and extracted models don't either (§1), so a comparison can only come from a
+fallback of the extraction, and the model is then rejected. Values that hold functions can still
+be told apart elsewhere, eg. by their constructors. Under `extensional`, it compares functions by
+their results. Structurally equal values are equal. Otherwise, the values are applied to the closed
 subexpressions of the parameter types that they contain, and to the simplest values of those types.
 For extracted models these include the distinguishing inputs. The values are distinct if some
 input tells them apart, and the comparison is an evaluation error otherwise. Ground simplification
-and model validation follow, so a model is never accepted on a structural comparison that the
-semantics doesn't make. Under `none`, `SolvingEvaluator` checks quantifiers under `none` as well,
-unless the model values compare functions where no input tells them apart, in which case it uses
-`extensional`. Always using `extensional` ran out of memory on Stainless's `LawTypeArgsElim` in
-lucky mode, through the (then eager) lambda witnesses of `extensional` (see below).
+and model validation follow, so a model is never accepted on a comparison that the semantics
+doesn't make. `SolvingEvaluator` checks quantifiers under the same semantics.
+
+The evaluators that read the solvers' own models (`modelEvaluator` in `UnrollingSolver`, and the
+one that completes SMT-LIB Z3 models) always compare functions structurally. A function in such a
+model is a function value of the encoding, eg. the argument that the model of `k` tests in
+`(ite (= x f) 6 4)`, so structural equality is exactly the solver's equality. Extraction depends on
+this to evaluate the applications of free functions to functions.
 
