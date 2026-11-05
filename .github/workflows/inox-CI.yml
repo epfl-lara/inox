@@ -83,10 +83,12 @@ jobs:
     # tests run in separate sbt invocations (the native Z3 library can only be
     # loaded once per JVM) and their coverage measurements accumulate.
     - name: Run Tests
+      id: unit-tests
       run: sbt -Dtest-parallelism=10 -Dinox.require-solvers=smt-z3,smt-cvc4,smt-cvc5,smt-bitwuzla,princess -batch $SBT_COVERAGE test
       env:
         SBT_COVERAGE: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'coverage' || '' }}
     - name: Run integration tests
+      id: integration-tests
       run: sbt -Dtest-parallelism=10 -batch $SBT_COVERAGE it:test
       env:
         SBT_COVERAGE: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'coverage' || '' }}
@@ -100,8 +102,14 @@ jobs:
         mkdir -p coverage-summary
         python3 scripts/coverage_summary.py json $report coverage-summary/coverage.json
         echo "$PR_NUMBER" > coverage-summary/pr-number
+        # A pull request build tests the merge of the pull request into main:
+        # its coverage is compared with that of main at the merge's first parent.
+        if [ -n "$PR_NUMBER" ]; then git rev-parse HEAD^1 > coverage-summary/base-sha; fi
+        # Coverage is incomplete when tests failed or the integration tests were skipped.
+        echo "$TESTS_PASSED" > coverage-summary/tests-passed
       env:
         PR_NUMBER: ${{ github.event.pull_request.number }}
+        TESTS_PASSED: ${{ steps.unit-tests.outcome == 'success' && steps.integration-tests.outcome == 'success' }}
     - name: Upload coverage report
       if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
       uses: actions/upload-artifact@v4
