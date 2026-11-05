@@ -50,14 +50,16 @@ object SolverTestSuite {
 
   /** A solver checked by the solver suites, with the features it doesn't support, the tests it
     * fails because of known bugs (test name -> reason), and the tests whose checks it only passes
-    * on ground expressions (see [[SolverTestSuite.check]]).
+    * on ground expressions (see [[SolverTestSuite.check]]), and how many variable-form checks it
+    * solves in one query.
     */
   case class SolverInfo(
     name: String,
     available: () => Boolean,
     unsupported: Set[Feature],
     knownIssues: Map[String, String] = Map.empty,
-    groundOnly: Map[String, String] = Map.empty
+    groundOnly: Map[String, String] = Map.empty,
+    symbolicBatchSize: Int = 8
   ) {
     def supports(features: Seq[Feature]): Boolean = features.forall(f => !unsupported(f))
   }
@@ -105,6 +107,8 @@ object SolverTestSuite {
       )),
     SolverInfo("princess", () => true,
       Set(BitVectors, FloatingPoint, Sets, Bags, BagAlgebra, Maps, NestedArrays),
+      // Times out on conjunctions of string checks that it solves quickly one by one
+      symbolicBatchSize = 1,
       groundOnly = Map(
         "BigInt Division, Modulo and Remainder" -> "throws on division by a variable, which Presburger arithmetic lacks",
       ),
@@ -151,6 +155,9 @@ trait SolverTestSuite extends AnyFunSuite {
     * `e` is checked twice: as is, and with each of its literals replaced by a variable equal to
     * it. Ground expressions are mostly evaluated by the simplifier before they reach the solver,
     * so only the second form checks how the solver encodes and evaluates each operation.
+    *
+    * The second form is checked when the test ends, together with the test's other checks: one
+    * query per [[SolverInfo.symbolicBatchSize]] checks instead of one per check keeps the suites fast.
     */
   protected def check(s: SimpleSolverAPI { val program: InoxProgram }, e: Expr, expected: Expr): Unit = {
     val v = Variable.fresh("v", e.getType(using symbols))
@@ -162,12 +169,43 @@ trait SolverTestSuite extends AnyFunSuite {
 
     val (symbolic, literals) = liftLiterals(e)
     if (literals.nonEmpty && !groundOnly.value) {
-      val constraint = And(literals.toSeq.map { case (lit, x) => Equals(x, lit) } :+ Equals(v, symbolic))
-      s.solveSAT(constraint) match {
-        case SatWithModel(model) =>
-          assert(model.vars.get(v.toVal) == Some(expected), s"for '$symbolic' where ${literals.map { case (l, x) => s"$x = $l" }.mkString(", ")}")
-        case got => fail(s"Solving of '$symbolic' with its literals as variables failed with $got.")
+      val c = SymbolicCheck(v, symbolic, literals, expected)
+      pendingChecks.value match {
+        case Some(pending) => pending += s -> c
+        case None => checkSymbolic(s, Seq(c))
       }
+    }
+  }
+
+  private case class SymbolicCheck(v: Variable, symbolic: Expr, literals: Map[Expr, Variable], expected: Expr) {
+    def constraint: Expr = andJoin(literals.toSeq.map { case (lit, x) => Equals(x, lit) } :+ Equals(v, symbolic))
+    def description: String = s"'$symbolic' where ${literals.map { case (l, x) => s"$x = $l" }.mkString(", ")}"
+  }
+
+  /** Solves `checks` in one query, and each check on its own when that query fails to pinpoint it. */
+  private def checkSymbolic(s: SimpleSolverAPI { val program: InoxProgram }, checks: Seq[SymbolicCheck]): Unit = {
+    s.solveSAT(andJoin(checks.map(_.constraint))) match {
+      case SatWithModel(model) =>
+        for (c <- checks) {
+          assert(model.vars.get(c.v.toVal) == Some(c.expected), s"for ${c.description}")
+        }
+      case got if checks.size == 1 =>
+        fail(s"Solving of ${checks.head.description} failed with $got.")
+      case _ =>
+        checks.foreach(c => checkSymbolic(s, Seq(c)))
+    }
+  }
+
+  /** The variable-form checks of the running test that remain to be solved. */
+  private val pendingChecks =
+    new scala.util.DynamicVariable[Option[scala.collection.mutable.ArrayBuffer[(SimpleSolverAPI { val program: InoxProgram }, SymbolicCheck)]]](None)
+
+  /** Runs `body`, then solves the variable-form checks it made. */
+  private def withSymbolicChecks(batchSize: Int)(body: => Unit): Unit = {
+    val pending = scala.collection.mutable.ArrayBuffer.empty[(SimpleSolverAPI { val program: InoxProgram }, SymbolicCheck)]
+    pendingChecks.withValue(Some(pending))(body)
+    for ((s, checks) <- pending.groupBy(_._1); batch <- checks.map(_._2).grouped(batchSize)) {
+      checkSymbolic(s, batch.toSeq)
     }
   }
 
@@ -212,7 +250,7 @@ trait SolverTestSuite extends AnyFunSuite {
           groundOnly.withValue(true)(body(contextFor(info.name)))
         }
       } else if (info.available()) {
-        superTest(this, testName)(body(contextFor(info.name)))
+        superTest(this, testName)(withSymbolicChecks(info.symbolicBatchSize)(body(contextFor(info.name))))
       } else if (requiredSolvers(info.name)) {
         superTest(this, testName)(fail(s"Solver ${info.name} is required but isn't available"))
       } else {

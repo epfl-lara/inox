@@ -13,8 +13,8 @@ class FloatingPointSemanticsSuite extends SolverTestSuite {
 
   given Symbols = symbols
 
-  import scala.collection.immutable.HashSet
-  val floatValues: Set[Float] = HashSet(0f, 1.4, -0f, Float.NaN, Float.PositiveInfinity, Float.NegativeInfinity)
+  // Not a set: -0f == 0f, so a set keeps only one of the two zeros.
+  val floatValues: Seq[Float] = Seq(0f, 1.4f, -0f, Float.NaN, Float.PositiveInfinity, Float.NegativeInfinity)
 
   // SMT-LIB's fp.max and fp.min ignore a NaN operand unless both are NaN, and Inox orders
   // -0.0 below +0.0, which SMT-LIB leaves open.
@@ -73,13 +73,13 @@ class FloatingPointSemanticsSuite extends SolverTestSuite {
       check(s, FPLessThan(Float32Literal(i), Float32Literal(j)), BooleanLiteral(i < j))
     }
 
-    for (i <- floatValues.excl(0)) {
+    for (i <- floatValues.filter(_ != 0)) {
       check(s, FPIsNegative(Float32Literal(i)), BooleanLiteral(i < 0))
     }
     check(s, FPIsNegative(Float32Literal(-0)), BooleanLiteral(true))
     check(s, FPIsNegative(Float32Literal(0)), BooleanLiteral(false))
 
-    for (i <- floatValues.excl(0)) {
+    for (i <- floatValues.filter(_ != 0)) {
       check(s, FPIsPositive(Float32Literal(i)), BooleanLiteral(i > 0))
     }
     check(s, FPIsPositive(Float32Literal(0)), BooleanLiteral(true))
