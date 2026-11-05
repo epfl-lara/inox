@@ -655,7 +655,9 @@ class TypeUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
     assertUnsat(g(int(1)) === int(1), "argument in domain")
   }
 
-  test("hof: captures") {
+  test("hof: captures") { ctx ?=>
+    // compares functions, which needs the intensional semantics of function equality
+    given Context = ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))
     val b = Variable.fresh("b", FunBox)
     val c = Variable.fresh("c", FunBox)
     val bf = b.getField(fn)
