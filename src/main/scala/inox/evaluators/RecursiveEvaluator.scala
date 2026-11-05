@@ -28,6 +28,16 @@ abstract class RecursiveEvaluator(override val program: Program,
   private def shift(b: BitSet, size: Int, i: Int): BitSet =
     b.filter(bit => bit + i >= 1 && bit + i <= size).map(_ + i)
 
+  /** The number of positions a bitvector of `size` bits is shifted by `amount`.
+    *
+    * As in SMT-LIB, the amount is read as an unsigned value, whatever the signedness of its type, and
+    * shifting by `size` or more vacates all the bits: the result is capped at `size`.
+    */
+  private def shiftAmount(amount: BVLiteral, size: Int): Int = {
+    val unsigned = BVLiteral(false, amount.value, amount.size).toBigInt
+    if (unsigned >= size) size else unsigned.toInt
+  }
+
   protected def finiteSet(els: Iterable[Expr], tpe: Type): FiniteSet = {
     FiniteSet(els.toSeq.distinct.sortBy(_.toString), tpe)
   }
@@ -413,23 +423,24 @@ abstract class RecursiveEvaluator(override val program: Program,
     case BVShiftLeft(l,r) =>
       (e(l), e(r)) match {
         case (BVLiteral(sig1, i1, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
-          BVLiteral(sig1, shift(i1, s1, b2.toBigInt.toInt), s1)
+          BVLiteral(sig1, shift(i1, s1, shiftAmount(b2, s1)), s1)
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") << (" + re.asString + ")")
       }
 
     case BVAShiftRight(l,r) =>
       (e(l), e(r)) match {
         case (BVLiteral(sig1, i1, s1), b2 @ BVLiteral(sig2, _, s2)) if sig1 == sig2 && s1 == s2 =>
-          val shiftCount = b2.toBigInt.toInt
-          val shifted = shift(i1, s1, -shiftCount)
-          BVLiteral(sig1, if (i1(s1) && sig1) shifted ++ ((s1 - shiftCount) to s1) else shifted, s1)
+          val amount = shiftAmount(b2, s1)
+          val shifted = shift(i1, s1, -amount)
+          // the vacated bits are copies of the most significant bit, as for SMT-LIB `bvashr`
+          BVLiteral(sig1, if (i1(s1)) shifted ++ ((s1 - amount + 1) to s1) else shifted, s1)
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") >> (" + re.asString + ")")
       }
 
     case BVLShiftRight(l,r) =>
       (e(l), e(r)) match {
         case (BVLiteral(sig1, i1, s1), b2 @ BVLiteral(sig2, _, s2)) if s1 == s2 && sig1 == sig2 =>
-          BVLiteral(sig1, shift(i1, s1, -b2.toBigInt.toInt), s1)
+          BVLiteral(sig1, shift(i1, s1, -shiftAmount(b2, s1)), s1)
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") >>> (" + re.asString + ")")
       }
 
