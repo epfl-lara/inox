@@ -494,6 +494,12 @@ trait ExpressionExtractors { self: Extractors =>
         case _ => fail
       }
 
+      case trees.SetUnion(left, right) => (left.getType, template) match {
+        case (trees.SetType(tpe), SetUnionOperation(templateLeft, templateRight, optTemplateType)) =>
+          extract(toExprObl(left -> templateLeft), toExprObl(right -> templateRight), toOptTypeObl(tpe -> optTemplateType))
+        case _ => fail
+      }
+
       case trees.SetIntersection(left, right) => (left.getType, template) match {
         case (trees.SetType(tpe), SetIntersectionOperation(templateLeft, templateRight, optTemplateType)) =>
           extract(toExprObl(left -> templateLeft), toExprObl(right -> templateRight), toOptTypeObl(tpe -> optTemplateType))
