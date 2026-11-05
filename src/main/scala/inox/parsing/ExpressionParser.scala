@@ -157,6 +157,7 @@ trait ExpressionParsers { self: Parsers =>
       case DecimalLit(w, t, r) => DecimalLiteral(w, t, r)
       case CharLit(c) => CharLiteral(c)
       case Embedded(e : trees.Expr) => EmbeddedExpr(e)
+      case Embedded(v @ (_: Boolean | _: Int | _: BigInt | _: Char | _: String | _: Unit)) => EmbeddedValue(v)
     }) ^^ (Literal(_)))
 
     lazy val variableExpr: Parser[Expression] = identifier ^^ (Variable(_))
