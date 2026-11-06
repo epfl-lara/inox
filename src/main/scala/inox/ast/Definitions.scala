@@ -132,6 +132,14 @@ trait Definitions { self: Trees =>
 
     given givenSymbols: symbols.type = symbols
 
+    /** Identifies this symbol table in the type caches of the trees (see `CachingTyped`).
+      *
+      * A tree caches its type together with this object, and not with the symbol table that the type
+      * was computed with. Otherwise, a tree shared by two programs would keep alive the symbol table
+      * of the last program that typed it, such as the encoded program of a solver that was freed.
+      */
+    private[ast] final val typingKey: AnyRef = new AnyRef
+
     val sorts: Map[Identifier, ADTSort]
     val functions: Map[Identifier, FunDef]
 
