@@ -247,29 +247,18 @@ class ParserSuite extends AnyFunSuite {
     }
   }
 
-  test("datatype value parameters") {
-    val vec =
-      """(declare-datatype Vec (par (E (! Int :var n))
-        |  ((vnil :restrict (= n 0))
-        |   (vcons (head E) (tail (Vec E (- n 1))) :restrict (> n 0)))))
-        |(define-fun-rec sum ((v (Vec Int))) Int (match v ((vnil 0) ((vcons h t) (+ h (sum t))))))
+  test("datatype fields refining their selectors") {
+    val sorted =
+      """(declare-datatype SList ((snil) (scons (hd Int) (tl (! SList :var t :restrict (=> ((_ is scons) t) (< hd (hd t))))))))
+        |(declare-const l SList)
         |""".stripMargin
+    assertUNSAT(sorted + "(assert (and ((_ is scons) l) ((_ is scons) (tl l)) (>= (hd l) (hd (tl l)))))\n(check-sat)")
+    assertUNSAT(sorted + "(assert (= l (scons 2 (scons 1 snil))))\n(check-sat)")
+    assertSAT(sorted + "(assert (= l (scons 1 (scons 2 snil))))\n(check-sat)")
 
-    assertUNSAT(vec + "(declare-const v (Vec Int 2))\n(assert (is-vnil v))\n(check-sat)")
-    assertUNSAT(vec + "(declare-const v (Vec Int 2))\n(assert (is-vcons (tail (tail v))))\n(check-sat)")
-    assertSAT(vec + "(declare-const v (Vec Int 1))\n(assert (= (head v) 5))\n(check-sat)")
-
-    // constructors take the parameters first, or from their type
-    assertUNSAT(vec +
-      """(assert (or (not (= (sum (vcons 2 1 (vcons 1 2 (as vnil (Vec Int 0))))) 3))
-        |            (not (= (vcons 1 2 (as vnil (Vec Int 0))) ((as vcons (Vec Int 1)) 2 (as vnil (Vec Int 0)))))))
-        |(check-sat)""".stripMargin)
-
-    // a vector whose length doesn't match its parameter is ill-formed
-    assertUNSAT(vec + "(declare-const v (Vec Int 1))\n(assert (= v (vcons 1 2 (vcons 2 3 (as vnil (Vec Int 0))))))\n(check-sat)")
-
-    intercept[tip.MissformedTIPException] {
-      parse(vec + "(assert (= (sum vnil) 0))\n(check-sat)")
+    // datatypes only take type parameters
+    intercept[Exception] {
+      parse("(declare-datatype Vec (par (E (! Int :var n)) ((vnil) (vcons (head E) (tail (Vec E))))))\n(check-sat)")
     }
   }
 

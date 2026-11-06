@@ -153,12 +153,12 @@ object Commands {
       case ValueParam(a) => ctx.print(a)
     }, "", " ", "")
 
-  /** A constructor whose field types may refer to the previous fields and to the value parameters
-    * of its datatype, and which may restrict them with `:restrict` annotations. */
+  /** A constructor whose field types may refer to its previous fields, and which may restrict its
+    * fields with `:restrict` annotations. */
   case class ConstructorDec(sym: SSymbol, fields: Seq[(SSymbol, Sort)], restrictions: Seq[Term])
 
-  /** A datatype with type parameters and value parameters `(! T :var n)`. */
-  case class DatatypeDec(name: SSymbol, params: Seq[TypeDefParam], constructors: Seq[ConstructorDec])
+  /** A datatype with type parameters. */
+  case class DatatypeDec(name: SSymbol, params: Seq[SSymbol], constructors: Seq[ConstructorDec])
 
   /** SMT-LIB 2.6+ datatype declarations, where each datatype has its own parameters. */
   case class DeclareDatatypesWithPars(datatypes: Seq[DatatypeDec]) extends CommandExtension {
@@ -168,9 +168,7 @@ object Commands {
       ctx.print(") (")
       ctx.printNary[DatatypeDec](datatypes, { d =>
         if (d.params.nonEmpty) {
-          ctx.print("(par (")
-          printParams(ctx, d.params)
-          ctx.print(") ")
+          ctx.printNary(d.params, "(par (", " ", ") ")
         }
         ctx.printNary[ConstructorDec](d.constructors, { c =>
           ctx.print("(")
@@ -441,13 +439,13 @@ class SMTLIB3Parser(lexer: SMTLIB3Lexer) extends TipParser(lexer) {
     ConstructorDec(sym, fields.toSeq, restrictions.toSeq)
   }
 
-  /** `((c1 ...) (c2 ...))` or `(par (X (! T :var n) ...) ((c1 ...) ...))` */
+  /** `((c1 ...) (c2 ...))` or `(par (X ...) ((c1 ...) ...))` */
   private def parseDatatypeDec(name: SSymbol): DatatypeDec = {
     eat(LT.OParen)
     getPeekToken.kind match {
       case LT.Par =>
         eat(LT.Par)
-        val params = parseMany(() => parseTypeDefParam)
+        val params = parseMany(() => parseSymbol)
         val conss = parseMany(() => parseConstructorDec)
         eat(LT.CParen)
         DatatypeDec(name, params, conss)

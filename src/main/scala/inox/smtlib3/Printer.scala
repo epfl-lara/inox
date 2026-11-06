@@ -145,7 +145,7 @@ class Printer(prog: InoxProgram, ctx: inox.Context, writer: Writer) extends tip.
 
     if (adts.nonEmpty) {
       emit(DeclareDatatypesWithPars(for ((sort, DataType(dsym, cases)) <- adts) yield {
-        DatatypeDec(id2sym(dsym), sort.typeArgs.map(tp => TypeParam(id2sym(tp.id))), (cases zip sort.constructors).map {
+        DatatypeDec(id2sym(dsym), sort.typeArgs.map(tp => id2sym(tp.id)), (cases zip sort.constructors).map {
           case (c, cons) =>
             val fieldSyms = c.fields.map(f => id2sym(f._1))
             val bindings: Map[Identifier, Term] = (cons.fields zip fieldSyms).map(p => p._1.id -> (p._2: Term)).toMap
