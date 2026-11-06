@@ -7,7 +7,8 @@ import org.scalatest.funsuite.AnyFunSuite
 
 /** Semantics of the recursive evaluator that follow SMT-LIB where the evaluators of other projects, tested
   * through [[EvaluatorSuite]], differ: Stainless's evaluators take the amount of `Int32` and `Int64` shifts
-  * modulo the width, as the JVM does, and its code generator shifts unsigned bitvectors logically.
+  * modulo the width, as the JVM does, and its code generator shifts unsigned bitvectors logically. Its code
+  * generator also still divides integers toward zero and takes the remainder of bit-vectors for `Modulo`.
   */
 class RecursiveEvaluatorSuite extends AnyFunSuite {
   import inox.trees._
@@ -69,5 +70,18 @@ class RecursiveEvaluatorSuite extends AnyFunSuite {
     assert(eval(sub("", 0, 1))     === StringLiteral(""))
     assert(eval(sub("abc", BigInt(Long.MaxValue) * 4, BigInt(Long.MaxValue) * 5)) === StringLiteral(""))
     assert(eval(sub("abc", 1, BigInt(Long.MaxValue) * 4)) === StringLiteral("bc"))
+  }
+
+  test("BigInt Division and Modulo with negative operands, as SMT-LIB `div` and `mod`") {
+    // `x == y * (x / y) + (x mod y)` with `0 <= x mod y < |y|`
+    for ((x, y, q, r) <- Seq((-1, 3, -1, 2), (-1, -3, 1, 2), (-7, 2, -4, 1), (7, -2, -3, 1), (-7, -2, 4, 1))) {
+      assert(eval(Division(IntegerLiteral(x), IntegerLiteral(y))) === IntegerLiteral(q))
+      assert(eval(Modulo(IntegerLiteral(x), IntegerLiteral(y)))   === IntegerLiteral(r))
+    }
+  }
+
+  test("BitVector Modulo has the sign of the divisor, as SMT-LIB `bvsmod`") {
+    assert(eval(Modulo(Int32Literal(-1), Int32Literal(-3))) === Int32Literal(-1))
+    assert(eval(Modulo(Int32Literal(1), Int32Literal(-3)))  === Int32Literal(-2))
   }
 }

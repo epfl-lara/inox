@@ -42,26 +42,21 @@ class ArithmeticSemanticsSuite extends SolverTestSuite {
     check(s, Times(IntegerLiteral(2), IntegerLiteral(3)), IntegerLiteral(6))
   }
 
-  test("BigInt Division, Modulo and Remainder", Integers) { ctx =>
+  test("BigInt Division and Modulo", Integers) { ctx =>
     val s = solver(ctx)
 
-    check(s, Division(IntegerLiteral(10), IntegerLiteral(3)),  IntegerLiteral(3))
-    check(s, Remainder(IntegerLiteral(10), IntegerLiteral(3)), IntegerLiteral(1))
-    check(s, Modulo(IntegerLiteral(10), IntegerLiteral(3)),    IntegerLiteral(1))
-
-    check(s, Division(IntegerLiteral(-1), IntegerLiteral(3)),  IntegerLiteral(0))
-    check(s, Remainder(IntegerLiteral(-1), IntegerLiteral(3)), IntegerLiteral(-1))
-    check(s, Modulo(IntegerLiteral(-1), IntegerLiteral(3)),    IntegerLiteral(2))
-
-    check(s, Division(IntegerLiteral(-1), IntegerLiteral(-3)), IntegerLiteral(0))
-    check(s, Remainder(IntegerLiteral(-1), IntegerLiteral(-3)),IntegerLiteral(-1))
-    check(s, Modulo(IntegerLiteral(-1), IntegerLiteral(-3)),   IntegerLiteral(2))
-
-    check(s, Division(IntegerLiteral(1), IntegerLiteral(-3)),  IntegerLiteral(0))
-    check(s, Remainder(IntegerLiteral(1), IntegerLiteral(-3)), IntegerLiteral(1))
-    check(s, Modulo(IntegerLiteral(1), IntegerLiteral(-3)),    IntegerLiteral(1))
+    // SMT-LIB's euclidean `div` and `mod`: `x == y * (x / y) + (x mod y)` with `0 <= x mod y < |y|`
+    for ((x, y, q, r) <- Seq((10, 3, 3, 1), (-1, 3, -1, 2), (-1, -3, 1, 2), (1, -3, 0, 1),
+                             (-7, 2, -4, 1), (7, -2, -3, 1), (-7, -2, 4, 1), (6, -3, -2, 0))) {
+      check(s, Division(IntegerLiteral(x), IntegerLiteral(y)), IntegerLiteral(q))
+      check(s, Modulo(IntegerLiteral(x), IntegerLiteral(y)),   IntegerLiteral(r))
+    }
+    for ((x, y, r) <- Seq((10, 3, 1), (-1, 3, -1), (-1, -3, -1), (1, -3, 1))) {
+      check(s, Remainder(IntegerLiteral(x), IntegerLiteral(y)), IntegerLiteral(r))
+    }
   }
 
+  // The JVM's remainder on integers is deprecated: Stainless will encode it with Modulo
   test("Symbolic BigInt Remainder", Integers) { ctx =>
     val s = solver(ctx)
     val x = Variable.fresh("x", IntegerType())
@@ -77,6 +72,26 @@ class ArithmeticSemanticsSuite extends SolverTestSuite {
 
     s.solveSAT(x > E(BigInt(-5)) && x < E(BigInt(0)) && Equals(Remainder(x, E(BigInt(3))), E(BigInt(-2)))) match {
       case SatWithModel(model) => assert(model.vars.get(x.toVal) == Some(IntegerLiteral(-2)))
+      case got => fail(s"Expected a model, got $got.")
+    }
+  }
+
+  test("Symbolic BigInt Division", Integers) { ctx =>
+    val s = solver(ctx)
+    val x = Variable.fresh("x", IntegerType())
+    val y = Variable.fresh("y", IntegerType())
+    val zero = E(BigInt(0))
+
+    // the modulo is non-negative and smaller than the divisor in absolute value
+    assert(s.solveSAT(And(Not(Equals(y, zero)), Modulo(x, y) < zero)).isUNSAT)
+    assert(s.solveSAT(And(y < zero, Modulo(x, y) >= UMinus(y))).isUNSAT)
+    assert(s.solveSAT(And(y > zero, Modulo(x, y) >= y)).isUNSAT)
+
+    // so division by a positive number rounds toward negative infinity
+    assert(s.solveSAT(And(x < zero, Division(x, E(BigInt(3))) >= zero)).isUNSAT)
+
+    s.solveSAT(x > E(BigInt(-5)) && x < zero && Equals(Division(x, E(BigInt(3))), E(BigInt(-2)))) match {
+      case SatWithModel(model) => assert(model.vars.get(x.toVal) == Some(IntegerLiteral(-4)))
       case got => fail(s"Expected a model, got $got.")
     }
   }

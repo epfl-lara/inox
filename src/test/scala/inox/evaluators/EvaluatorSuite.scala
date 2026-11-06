@@ -231,24 +231,21 @@ class EvaluatorSuite extends AnyFunSuite {
     eval(e, Times(IntegerLiteral(2), IntegerLiteral(3))) === IntegerLiteral(6)
   }
 
-  test("BigInt Modulo and Remainder") {
+  test("BigInt Division and Modulo") {
     val e = evaluator(ctx)
 
-    eval(e, Division(IntegerLiteral(10), IntegerLiteral(3)))   === IntegerLiteral(3)
+    // SMT-LIB's euclidean `div` and `mod`, on the operands where they agree with the JVM's semantics
+    // (see RecursiveEvaluatorSuite for the others)
+    for ((x, y, q, r) <- Seq((10, 3, 3, 1), (1, -3, 0, 1), (6, -3, -2, 0))) {
+      eval(e, Division(IntegerLiteral(x), IntegerLiteral(y))) === IntegerLiteral(q)
+      eval(e, Modulo(IntegerLiteral(x), IntegerLiteral(y)))   === IntegerLiteral(r)
+    }
+
+    // the JVM's remainder (deprecated), which has the sign of the dividend
     eval(e, Remainder(IntegerLiteral(10), IntegerLiteral(3)))  === IntegerLiteral(1)
-    eval(e, Modulo(IntegerLiteral(10), IntegerLiteral(3)))     === IntegerLiteral(1)
-
-    eval(e, Division(IntegerLiteral(-1), IntegerLiteral(3)))   === IntegerLiteral(0)
     eval(e, Remainder(IntegerLiteral(-1), IntegerLiteral(3)))  === IntegerLiteral(-1)
-    eval(e, Modulo(IntegerLiteral(-1), IntegerLiteral(3)))     === IntegerLiteral(2)
-
-    eval(e, Division(IntegerLiteral(-1), IntegerLiteral(-3)))  === IntegerLiteral(0)
     eval(e, Remainder(IntegerLiteral(-1), IntegerLiteral(-3))) === IntegerLiteral(-1)
-    eval(e, Modulo(IntegerLiteral(-1), IntegerLiteral(-3)))    === IntegerLiteral(2)
-
-    eval(e, Division(IntegerLiteral(1), IntegerLiteral(-3)))   === IntegerLiteral(0)
     eval(e, Remainder(IntegerLiteral(1), IntegerLiteral(-3)))  === IntegerLiteral(1)
-    eval(e, Modulo(IntegerLiteral(1), IntegerLiteral(-3)))     === IntegerLiteral(1)
   }
 
   test("BigInt Comparisons") {
@@ -331,11 +328,9 @@ class EvaluatorSuite extends AnyFunSuite {
 
     eval(e, Division(Int32Literal(-1), Int32Literal(-3)))   === Int32Literal(0)
     eval(e, Remainder(Int32Literal(-1), Int32Literal(-3)))  === Int32Literal(-1)
-    eval(e, Modulo(Int32Literal(-1), Int32Literal(-3)))     === Int32Literal(-1)
 
     eval(e, Division(Int32Literal(1), Int32Literal(-3)))    === Int32Literal(0)
     eval(e, Remainder(Int32Literal(1), Int32Literal(-3)))   === Int32Literal(1)
-    eval(e, Modulo(Int32Literal(1), Int32Literal(-3)))      === Int32Literal(-2)
 
     eval(e, Division(Int8Literal(1), Int8Literal(-3)))      === Int8Literal(0)
     eval(e, Remainder(Int8Literal(1), Int8Literal(-3)))     === Int8Literal(1)

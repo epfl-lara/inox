@@ -314,7 +314,8 @@ abstract class RecursiveEvaluator(override val program: Program,
           else if (!sig1) BVLiteral(false, BigInt(2).pow(s1) - 1, s1)
           else BVLiteral(true, if (bi1 >= 0) -1 else 1, s1)
         case (IntegerLiteral(i1), IntegerLiteral(i2)) =>
-          if(i2 != BigInt(0)) IntegerLiteral(i1 / i2) else throw RuntimeError("Division by 0.")
+          // SMT-LIB's euclidean division, and leaves division by zero unspecified
+          if(i2 != BigInt(0)) IntegerLiteral(utils.euclideanDivision(i1, i2)) else throw RuntimeError("Division by 0.")
         case (FractionLiteral(ln, ld), FractionLiteral(rn, rd)) =>
           if (rn != 0)
             normalizeFraction(FractionLiteral(ln * rd, ld * rn))

@@ -282,8 +282,9 @@ class ExprOps private(val trees: Trees)
       case Times(exLit(i), UMinus(e)) => Some(Times(ctor(-i), e))
       case Times(UMinus(e), exLit(i)) => Some(Times(e, ctor(-i)))
 
-      case Division(exLit(i1), exLit(i2)) if i2 != BigInt(0) =>
-        Some(ctor(i1 / i2))
+      case d @ Division(exLit(i1), exLit(i2)) if i2 != BigInt(0) =>
+        // integer division is euclidean, as in SMT-LIB, and bit-vector division rounds toward zero
+        Some(ctor(if (exLit == ExBigIntLit) utils.euclideanDivision(i1, i2) else i1 / i2))
       case Division(e, exLit(one)) if one == BigInt(1) => Some(e)
 
       case _ => None

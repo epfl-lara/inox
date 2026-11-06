@@ -391,18 +391,6 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
       }
     }
 
-    /** `(bvsmod a b)`, whose sign follows that of `b`, from the remainder whose sign follows `a`. */
-    private def smod(a: Expr, b: Expr): Expr = {
-      val BVType(_, size) = a.getType: @unchecked
-      val zero = BVLiteral(true, 0, size)
-      val r = ValDef.fresh("r", a.getType)
-      Let(r, Remainder(a, b), IfExpr(
-        Or(Equals(r.toVariable, zero), Equals(LessThan(r.toVariable, zero), LessThan(b, zero))),
-        r.toVariable,
-        Plus(r.toVariable, b)
-      ))
-    }
-
     /** `((_ zero_extend n) e)` (or `sign_extend`) for operands `e` of any signedness. */
     private def extend(n: BigInt, t: Term, signedExt: Boolean)(using Context): Expr = {
       val e = fromSMT(t)
@@ -418,22 +406,6 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
       import smtlib.theories.{FixedSizeBitVectors => BV}
       import smtlib.theories.{Core, Ints}
       Some(term match {
-        // Inox integer division rounds towards zero, which Inox targets print as follows
-        case Core.ITE(Ints.GreaterEquals(a, SNumeral(zero)), Ints.Div(a1, b1), Ints.Neg(Ints.Div(Ints.Neg(a2), b2)))
-        if zero == 0 && a == a1 && a == a2 && b1 == b2 =>
-          Division(fromSMT(a, IntegerType()), fromSMT(b1, IntegerType()))
-
-        // whereas SMT-LIB integer division is euclidean: its remainder is non-negative
-        case Ints.Div(t1, t2) =>
-          val a = ValDef.fresh("a", IntegerType())
-          val b = ValDef.fresh("b", IntegerType())
-          val q = ValDef.fresh("q", IntegerType())
-          val (av, bv, qv) = (a.toVariable, b.toVariable, q.toVariable)
-          Let(a, fromSMT(t1, IntegerType()), Let(b, fromSMT(t2, IntegerType()), Let(q, Division(av, bv),
-            IfExpr(LessThan(Remainder(av, bv), IntegerLiteral(0)),
-              IfExpr(GreaterThan(bv, IntegerLiteral(0)), Minus(qv, IntegerLiteral(1)), Plus(qv, IntegerLiteral(1))),
-              qv))))
-
         case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol(op)), None), Seq(t1, t2))
         if bvOps.contains(op) && isFree(op) =>
           val (a, b) = operands(t1, t2, if (op == "=") None else otpe)
@@ -444,7 +416,7 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
         case BV.UDiv(t1, t2) => bvOp(false, true, t1, t2, otpe)(Division(_, _))
         case BV.SRem(t1, t2) => bvOp(true, true, t1, t2, otpe)(Remainder(_, _))
         case BV.URem(t1, t2) => bvOp(false, true, t1, t2, otpe)(Remainder(_, _))
-        case BV.SMod(t1, t2) => bvOp(true, true, t1, t2, otpe)(smod)
+        case BV.SMod(t1, t2) => bvOp(true, true, t1, t2, otpe)(Modulo(_, _))
         case BV.SLessThan(t1, t2) => bvOp(true, false, t1, t2, otpe)(LessThan(_, _))
         case BV.SLessEquals(t1, t2) => bvOp(true, false, t1, t2, otpe)(LessEquals(_, _))
         case BV.SGreaterThan(t1, t2) => bvOp(true, false, t1, t2, otpe)(GreaterThan(_, _))

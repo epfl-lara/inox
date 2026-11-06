@@ -316,7 +316,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
         case Division(lhs, rhs) => lhs.getType match {
           case BVType(true, _) => Mod.bvsdiv(parseTerm(lhs), parseTerm(rhs))
           case BVType(false, _) => Mod.bvudiv(parseTerm(lhs), parseTerm(rhs))
-          case IntegerType() => p.mulTheory.tDiv(parseTerm(lhs), parseTerm(rhs))
+          case IntegerType() => p.mulTheory.eDiv(parseTerm(lhs), parseTerm(rhs))
           case _ => unsupported(expr)
         }
 
