@@ -336,7 +336,12 @@ abstract class AbstractUnrollingSolver private
         case (IfExpr(cond, thenn, elze), tpe) => IfExpr(cond, rec(thenn, tpe), rec(elze, tpe)).copiedFrom(e)
         case (c: Choose, _) if c.res.tpe != c.res.getType => BooleanLiteral(true)
         case (ADT(id, _, args), adt @ ADTType(_, tps)) =>
-          andJoin((args zip getConstructor(id, tps).fields).map(p => rec(p._1, p._2.tpe)))
+          // Field types may refer to the other fields of the constructor
+          val fields = getConstructor(id, tps).fields
+          andJoin((args zip fields).map(p => rec(p._1, p._2.tpe))) match {
+            case BooleanLiteral(true) => BooleanLiteral(true)
+            case p => (fields zip args).foldRight(p) { case ((vd, e), p) => Let(vd, e, p).copiedFrom(p) }
+          }
         case (Tuple(es), TupleType(tps)) =>
           andJoin((es zip tps).map(p => rec(p._1, p._2)))
         case (FiniteSet(elems, _), SetType(base)) =>
