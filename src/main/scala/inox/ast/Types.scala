@@ -14,14 +14,17 @@ trait Types { self: Trees =>
   }
 
   protected trait CachingTyped extends Typed {
-    private var cache: (Symbols, Type) = (null, null)
-    private var noRefinementsCache: (Symbols, Type) = (null, null)
+    // The caches hold the `typingKey` of the symbol table that the type was computed with, not the
+    // symbol table itself, which they would otherwise keep alive.
+    private var cache: (AnyRef, Type) = (null, null)
+    private var noRefinementsCache: (AnyRef, Type) = (null, null)
 
     final def getTpe(stripRefinements: Boolean)(using s: Symbols): Type = {
-      val (symbols, tpe) = if (stripRefinements) noRefinementsCache else cache
-      if (s eq symbols) tpe else {
+      val (key, tpe) = if (stripRefinements) noRefinementsCache else cache
+      if ((key ne null) && (key eq s.typingKey)) tpe else {
         val tpe = computeTpe(stripRefinements)
-        if (stripRefinements) { noRefinementsCache = s -> tpe } else { cache = s -> tpe }
+        val entry = s.typingKey -> tpe
+        if (stripRefinements) { noRefinementsCache = entry } else { cache = entry }
         tpe
       }
     }
@@ -36,16 +39,17 @@ trait Types { self: Trees =>
 
   abstract class Type extends Tree with Typed {
     private var simple: Boolean = false
-    private var cache: (Symbols, Type) = (null, null)
+    // See the caches of `CachingTyped`
+    private var cache: (AnyRef, Type) = (null, null)
 
     private def setSimple(): this.type = { simple = true; this }
 
-    final def getTpe(stripRefinements: Boolean)(using s: Symbols): Type = 
+    final def getTpe(stripRefinements: Boolean)(using s: Symbols): Type =
       if (!stripRefinements || simple) this else {
-        val (symbols, tpe) = cache
-        if (s eq symbols) tpe else {
+        val (key, tpe) = cache
+        if ((key ne null) && (key eq s.typingKey)) tpe else {
           val tpe = computeErasedType
-          cache = s -> tpe.setSimple()
+          cache = s.typingKey -> tpe.setSimple()
           tpe
         }
       }
