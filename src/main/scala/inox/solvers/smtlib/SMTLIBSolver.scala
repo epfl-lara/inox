@@ -6,7 +6,7 @@ package smtlib
 
 import _root_.smtlib.trees.Commands.{FunDef => SMTFunDef, _}
 import _root_.smtlib.trees.Terms.{Identifier => _, _}
-import _root_.smtlib.trees.CommandsResponses._
+import _root_.smtlib.trees.CommandsResponses.{Error => SMTError, _}
 
 import scala.collection.mutable.{Map => MutableMap}
 
@@ -52,7 +52,7 @@ abstract class SMTLIBSolver private(override val program: Program,
 
   override def reset() = {
     emit(Reset(), rawOut = true) match {
-      case Error(msg) =>
+      case SMTError(msg) =>
         reporter.warning(s"Failed to reset $name: $msg")
         throw new CantResetException(this)
       case _ =>

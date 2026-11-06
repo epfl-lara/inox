@@ -20,7 +20,7 @@ import _root_.smtlib.trees.Terms.{
   Let => SMTLet,
   _
 }
-import _root_.smtlib.trees.CommandsResponses._
+import _root_.smtlib.trees.CommandsResponses.{Error => SMTError, _}
 import _root_.smtlib.theories.{Constructors => SmtLibConstructors, _}
 import _root_.smtlib.Interpreter
 
@@ -66,7 +66,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   /* Send a command to the solver */
   def emit(cmd: SExpr, rawOut: Boolean = false): SExpr = {
     interpreter.eval(cmd) match {
-      case err @ Error(msg) if !aborted && !rawOut =>
+      case err @ SMTError(msg) if !aborted && !rawOut =>
         throw new InternalSolverError(targetName, msg)
       case res =>
         res

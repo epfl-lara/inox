@@ -115,6 +115,18 @@ trait Expressions { self: Trees =>
       checkParamType(pred, BooleanType(), res.getTpe(stripRefinements))
   }
 
+  /** $encodingof an error, i.e. a program point that must never be reached.
+    *
+    * Errors have any type. Evaluating one fails with `message`, and solvers never consider
+    * a path that reaches one (as for `assume(false)`).
+    *
+    * @param tpe The type of this expression
+    * @param message The message that evaluating this error fails with
+    */
+  sealed case class Error(tpe: Type, message: String) extends Expr with Terminal {
+    override def getTpe(stripRefinements: Boolean)(using Symbols): Type = tpe.getTpe(stripRefinements)
+  }
+
   /* Control flow */
 
   /** $encodingof  `function(...)` (function invocation) */
