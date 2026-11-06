@@ -150,8 +150,12 @@ run / Keys.fork := true
 
 Test / testOptions := Seq(Tests.Argument("-oDF"))
 
-// Note that we can't use IntegrationTest because it is already defined in sbt._
-lazy val ItTest = config("it") extend (Test)
+/** The configuration of the integration tests, in `src/it`. It replaces the one of sbt, which is deprecated
+ *  (sbt recommends a separate subproject instead), with the same name and id, so that `it:test` and
+ *  `IntegrationTest/test` run the tests. It cannot be called `IntegrationTest` itself, as the settings below
+ *  would then refer to it ambiguously.
+ */
+lazy val ItTest = Configuration.of("IntegrationTest", "it") extend (Test)
 
 ItTest / testOptions := Seq(Tests.Argument("-oDF"))
 
@@ -167,7 +171,7 @@ lazy val root = (project in file("."))
     ),
   )
   .configs(ItTest)
-  .settings(Defaults.itSettings : _*)
+  .settings(inConfig(ItTest)(Defaults.testSettings) : _*)
   .settings(inConfig(Test)(Defaults.testTasks ++ Seq(
     logBuffered := (nTestParallelism > 1),
     parallelExecution := (nTestParallelism > 1)
