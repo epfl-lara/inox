@@ -29,6 +29,7 @@ object Tokens {
   case object DefineConst extends ReservedWord
   case object DefineConstRec extends ReservedWord
   case object DeclareDatatype extends ReservedWord
+  case object DatatypeEquality extends ReservedWord
 }
 
 object Terms {
@@ -124,7 +125,7 @@ object Commands {
       ctx.print("(define-type ")
       ctx.print(name)
       ctx.print(" (")
-      ctx.print(params.map(paramString).mkString(" "))
+      printParams(ctx, params)
       ctx.print(") ")
       ctx.print(body)
       ctx.print(")\n")
@@ -146,10 +147,11 @@ object Commands {
     override def transform(tt: TreeTransformer)(context: tt.C): (Command, tt.R) = unsupported
   }
 
-  private def paramString(p: TypeDefParam): String = p match {
-    case TypeParam(n) => n.name
-    case ValueParam(a) => smtlib.printer.RecursivePrinter.toString(a)
-  }
+  private def printParams(ctx: PrintingContext, params: Seq[TypeDefParam]): Unit =
+    ctx.printNary[TypeDefParam](params, {
+      case TypeParam(n) => ctx.print(n)
+      case ValueParam(a) => ctx.print(a)
+    }, "", " ", "")
 
   /** A constructor whose field types may refer to the previous fields and to the value parameters
     * of its datatype, and which may restrict them with `:restrict` annotations. */
@@ -164,15 +166,44 @@ object Commands {
       ctx.print("(declare-datatypes (")
       ctx.print(datatypes.map(d => s"(${d.name.name} ${d.params.size})").mkString(" "))
       ctx.print(") (")
-      ctx.print(datatypes.map { d =>
-        val cs = d.constructors.map { c =>
-          val fields = c.fields.map { case (s, sort) => s"(${s.name} ${smtlib.printer.RecursivePrinter.toString(sort)})" }
-          val restrictions = c.restrictions.map(r => ":restrict " + smtlib.printer.RecursivePrinter.toString(r))
-          "(" + ((c.sym.name +: fields) ++ restrictions).mkString(" ") + ")"
-        }.mkString("(", " ", ")")
-        if (d.params.isEmpty) cs else s"(par (${d.params.map(paramString).mkString(" ")}) $cs)"
-      }.mkString(" "))
+      ctx.printNary[DatatypeDec](datatypes, { d =>
+        if (d.params.nonEmpty) {
+          ctx.print("(par (")
+          printParams(ctx, d.params)
+          ctx.print(") ")
+        }
+        ctx.printNary[ConstructorDec](d.constructors, { c =>
+          ctx.print("(")
+          ctx.print(c.sym)
+          for ((s, sort) <- c.fields) {
+            ctx.print(" (")
+            ctx.print(s)
+            ctx.print(" ")
+            ctx.print(sort)
+            ctx.print(")")
+          }
+          for (r <- c.restrictions) {
+            ctx.print(" :restrict ")
+            ctx.print(r)
+          }
+          ctx.print(")")
+        }, "(", " ", ")")
+        if (d.params.nonEmpty) ctx.print(")")
+      }, "", " ", "")
       ctx.print("))\n")
+    }
+    override def transform(tt: TreeTransformer)(context: tt.C): (Command, tt.R) = unsupported
+  }
+
+  /** `(datatype-equality S f)`: two values of the datatype `S` are equal when `f` holds of them,
+    * where `f` takes two values of `S` (with the type parameters of `S`). */
+  case class DatatypeEquality(sort: SSymbol, function: SSymbol) extends CommandExtension {
+    override def print(ctx: PrintingContext): Unit = {
+      ctx.print("(datatype-equality ")
+      ctx.print(sort)
+      ctx.print(" ")
+      ctx.print(function)
+      ctx.print(")\n")
     }
     override def transform(tt: TreeTransformer)(context: tt.C): (Command, tt.R) = unsupported
   }
@@ -223,6 +254,7 @@ class SMTLIB3Lexer(reader: java.io.Reader) extends TipLexer(reader) {
     case "define-const" => Some(Token(Tokens.DefineConst))
     case "define-const-rec" => Some(Token(Tokens.DefineConstRec))
     case "declare-datatype" => Some(Token(Tokens.DeclareDatatype))
+    case "datatype-equality" => Some(Token(Tokens.DatatypeEquality))
     case _ => super.toReserved(s)
   }
 }
@@ -449,6 +481,11 @@ class SMTLIB3Parser(lexer: SMTLIB3Lexer) extends TipParser(lexer) {
       val sort = parseSort
       val body = parseTerm
       DefineConst(name, sort, body, isRec)
+
+    case Tokens.DatatypeEquality =>
+      eat(Tokens.DatatypeEquality)
+      val sort = parseSymbol
+      DatatypeEquality(sort, parseSymbol)
 
     case Tokens.DeclareDatatype =>
       eat(Tokens.DeclareDatatype)
