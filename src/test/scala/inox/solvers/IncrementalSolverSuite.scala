@@ -90,7 +90,8 @@ class IncrementalSolverSuite extends SolverTestSuite {
   // The unrolling templates are encoded once and reused, so the symbols they refer to (declared
   // while a scope was open) must remain valid after the scope is popped.
   test("Datatypes and lambdas across push and pop", Feature.Integers, Feature.ADTs, Feature.Functions) { ctx =>
-    withSolver(ctx) { s =>
+    // `f == succ` compares functions, which needs a function equality other than the default
+    withSolver(ctx.withOpts(unrolling.optFunctionEquality(unrolling.FunctionEquality.Intensional))) { s =>
       val y = Variable.fresh("y", IntegerType())
       val f = Variable.fresh("f", IntegerType() =>: IntegerType())
       val box = (v: Expr) => ADT(boxCons, Seq(), Seq(v))

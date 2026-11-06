@@ -112,8 +112,7 @@ class TipTestSuite extends unrolling.UnrollingTestSuite with ResourceUtils {
   }
 
   for (dir <- Seq("SAT", "UNSAT"); file <- resourceFiles(s"regression/tip/$dir", name => comparingFunctions.exists(name.endsWith))) {
-    test(s"REJECTED - ${file.getName}") { ctx0 ?=>
-      given inox.Context = ctx0.withOpts(unrolling.optFunctionEquality(unrolling.FunctionEquality.None))
+    test(s"REJECTED - ${file.getName}") {
       for ((program, expr) <- Parser(file).parseScript) {
         intercept[ast.TypeOps#TypeErrorException](SimpleSolverAPI(program.getSolver).solveSAT(expr))
       }
