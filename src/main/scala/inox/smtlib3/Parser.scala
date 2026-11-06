@@ -32,8 +32,12 @@ private[smtlib3] case class TypeDefinition(params: Seq[Either[inox.trees.TypePar
   *  - Predicate subtypes `(! A :var x :restrict p)`, which become Inox `RefinementType`s.
   *  - Rank-1 polymorphism through global type variables (`declare-type-var`): the declarations
   *    and definitions that mention type variables become polymorphic functions.
-  *  - `declare-type`, and `define-type` with type and value parameters.
-  *  - `define-const` and `define-const-rec`.
+  *  - `declare-type`, and `define-type` with type and value parameters. Types declared without
+  *    parameters (also with `declare-sort`) are uninterpreted and become Inox type parameters.
+  *  - `define-const` and `define-const-rec`. Non-recursive definitions may refer to the declared
+  *    constants, and are then expanded where they are used.
+  *  - `push` and `pop`, and the `set-info` and `set-option` attributes of each query, see
+  *    [[inox.tip.Parser.parseQueries]].
   *  - Curried and partial applications of functions, and the higher-order forms of the binders,
   *    e.g. `(forall p)` or `(choose (lambda ((x Int)) (> x 0)))`.
   *  - SMT-LIB 2.6+ `declare-datatype(s)` and `match` syntax, and testers `(_ is c)`.
@@ -77,6 +81,13 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
   private var typeVars: Seq[TypeParameter] = Seq.empty
 
   private var typeDefs: Map[SSymbol, TypeDefinition] = Map.empty
+
+  override protected def saveScope(): Any = (typeVars, typeDefs)
+  override protected def restoreScope(state: Any): Unit = state match {
+    case (tvs: Seq[TypeParameter] @unchecked, tds: Map[SSymbol, TypeDefinition] @unchecked) =>
+      typeVars = tvs
+      typeDefs = tds
+  }
 
   private def error(reason: String, pos: Option[smtlib.common.Position]): Nothing =
     throw new MissformedTIPException(reason, pos)
@@ -158,7 +169,12 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
         case Sort(SimpleIdentifier(SSymbol("Type")), Seq()) =>
         case _ => error(s"unsupported kind $kind of $sym (only types of kind Type can be declared)", kind.optPos)
       }
-      super.extractCommand(DeclareSort(sym, kinds.size).setPos(cmd))
+      extractCommand(DeclareSort(sym, kinds.size).setPos(cmd))
+
+    case DeclareSort(sym, 0) =>
+      // Uninterpreted types may be finite, as type parameters, unlike the TIP encoding of declared
+      // sorts as datatypes that wrap an integer
+      (None, locals.withGeneric(sym, TypeParameter.fresh(sym.name).setPos(sym.optPos)))
 
     case DefineSort(sym, params, sort) =>
       extractCommand(DefineType(sym, params.map(TypeParam(_)), sort).setPos(cmd))
@@ -201,7 +217,7 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
         case _ =>
           SMTFunDef(sym, Seq.empty, sort, body)
       }
-      super.extractCommand((if (isRec) DefineFunRec(funDef) else DefineFun(funDef)).setPos(cmd))
+      extractCommand((if (isRec) DefineFunRec(funDef) else DefineFun(funDef)).setPos(cmd))
 
     case DeclareDatatypesWithPars(datatypes) =>
       // The constructors, fields and selectors are known before the field types, which may refer to them
@@ -257,8 +273,21 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
       val newSort = sort.copy(flags = sort.flags.filter { case HasADTEquality(_) => false case _ => true } :+ HasADTEquality(fd.id))
       (None, locals.withSymbols(locals.symbols.withSorts(Seq(newSort))))
 
-    case _: Push | _: Pop =>
-      error("push and pop are not supported", cmd.optPos)
+    case DefineFun(funDef) =>
+      val fd = extractFunction(funDef, Seq.empty)
+      val params = fd.params.map(_.toVariable).toSet
+      val captured = (exprOps.variablesOf(fd.fullBody) ++
+        (fd.params.map(_.tpe) :+ fd.returnType).flatMap(typeOps.variablesOf)) -- params
+      if (captured.isEmpty) {
+        (None, locals.withFunction(funDef.name, fd))
+      } else if (fd.tparams.nonEmpty) {
+        error(s"polymorphic definition ${funDef.name} can't refer to the constants ${captured.mkString(", ")}", funDef.name.optPos)
+      } else {
+        // Inox functions can't refer to the declared constants, which are free variables, so the
+        // definition is a macro: a value, or a lambda that is applied where the definition is used
+        val value = if (fd.params.isEmpty) fd.fullBody else Lambda(fd.params, fd.fullBody)
+        (None, locals.withVariable(funDef.name, value.setPos(funDef.name.optPos)))
+      }
 
     case _ => super.extractCommand(cmd)
   }
@@ -643,6 +672,25 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
 
       case QualifiedIdentifier(SimpleIdentifier(sym), None) if isTypeDef(sym) =>
         expand(sym, Seq.empty, term)
+
+      case FunctionApplication(QualifiedIdentifier(id, None), args) if TermSort(term).isInstanceOf[TermSort] &&
+          args.exists(arg => TermSort(arg).isInstanceOf[TermSort]) =>
+        // Some arguments aren't plain sorts, e.g. `(Set (! Int :var x :restrict (> x 0)))`: they are
+        // replaced by type parameters, which are then instantiated with their types
+        var argCtx = ctx
+        var subst = Map.empty[TypeParameter, Type]
+        val newArgs = args.map { arg =>
+          TermSort(arg) match {
+            case _: TermSort =>
+              val tp = TypeParameter.fresh("T")
+              val sym = SSymbol(tp.id.uniqueName)
+              subst += tp -> typeFromTerm(arg)
+              argCtx = Context(argCtx.locals.withGeneric(sym, tp))
+              QualifiedIdentifier(SimpleIdentifier(sym), None)
+            case _ => arg
+          }
+        }
+        typeOps.instantiateType(typeFromTerm(FunctionApplication(QualifiedIdentifier(id, None), newArgs))(using argCtx), subst)
 
       case _ => TermSort(term) match {
         case _: TermSort => error(s"unsupported type $term", term.optPos)
