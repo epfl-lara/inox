@@ -1,0 +1,37 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+(declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
+; (a: {y | y > 0}) => {r: BigInt | r > a}
+(define-type PosIncr () (-> (! PosInt :var a) (! Int :var r :restrict (> r a))))
+(declare-datatype DepBox ((depBox (db PosIncr))))
+
+(declare-const v (Tuple (! PosInt :var a) (-> (! Int :var x :restrict (> x a)) (! Int :var r :restrict (> r x)))))
+(declare-const b DepBox)
+(declare-const l (List PosIncr))
+
+; Sigma
+(push 1)
+(assert (= (@ ((_ tuple.select 1) v) (+ ((_ tuple.select 0) v) 1)) (+ ((_ tuple.select 0) v) 5)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; ADT field
+(push 1)
+(assert (and (= (@ (db b) 1) 7) (= (@ (db b) 2) 3)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; choose
+(push 1)
+(assert (= (@ (choose (f PosIncr) (= (f 1) 5)) 2) 10))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; list
+(push 1)
+(assert (and ((_ is Cons) l) (= (@ (head l) 1) 4)))
+(set-info :status sat)
+(check-sat)
+(pop 1)

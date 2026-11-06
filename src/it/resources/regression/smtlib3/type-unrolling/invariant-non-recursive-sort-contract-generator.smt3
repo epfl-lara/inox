@@ -1,0 +1,22 @@
+(define-fun isPositive ((x Int)) Bool (> x 0))
+; non-recursive, the invariant calls a function
+(declare-datatype Pos ((pos (pv Int))))
+(datatype-invariant p Pos (isPositive (pv p)))
+
+(declare-const p Pos)
+
+; in domain
+(push 1)
+(declare-const g (-> Pos Int))
+(assert (not (=> (forall ((w Pos)) (= (g w) 1)) (= (g (pos 1)) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; free variable in domain
+(push 1)
+(declare-const g (-> Pos Int))
+(assert (not (=> (forall ((w Pos)) (= (g w) 1)) (= (g p) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

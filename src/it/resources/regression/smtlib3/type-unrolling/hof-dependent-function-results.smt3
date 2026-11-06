@@ -1,0 +1,18 @@
+; (a: BigInt) => {r: BigInt | r > a}
+(define-type Incr () (-> (! Int :var a) (! Int :var r :restrict (> r a))))
+
+(declare-const g Incr)
+
+; result
+(push 1)
+(assert (not (> (g 5) 5)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; result
+(push 1)
+(assert (= (g 5) 5))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

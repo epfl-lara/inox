@@ -1,0 +1,29 @@
+; The type check of a finite set or bag never completes (timeout).
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+(declare-const x Int)
+(declare-const b (Bag PosInt))
+
+; set
+(push 1)
+(declare-const g (-> (Set Int) Int))
+(assert (not (=> (forall ((w (Set PosInt))) (= (g w) 1)) (= (g (insert (as emptyset Int) 1)) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; bag
+(push 1)
+(declare-const g (-> (Bag Int) Int))
+(assert (not (=> (forall ((w (Bag PosInt))) (= (g w) 1)) (= (g (bag.singleton 1 1)) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; free bag variable
+(push 1)
+(assert (not (=> (= b (bag.union (as bag.empty Int) (bag.singleton x 1))) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

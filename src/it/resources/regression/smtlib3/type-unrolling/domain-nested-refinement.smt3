@@ -1,0 +1,42 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+; {x: {y | y > 0} | x < 10}
+(define-type Small () (! PosInt :var x :restrict (< x 10)))
+
+; in domain
+(push 1)
+(declare-const g (-> Int Int))
+(assert (not (=> (forall ((w Small)) (= (g w) 1)) (= (g 5) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside base type
+(push 1)
+(declare-const g (-> Int Int))
+(assert (not (=> (forall ((w Small)) (= (g w) 1)) (= (g 0) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; outside predicate
+(push 1)
+(declare-const g (-> Int Int))
+(assert (not (=> (forall ((w Small)) (= (g w) 1)) (= (g 10) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; holds
+(push 1)
+(assert (not (forall ((w Small)) (and (> w 0) (< w 10)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; doesn't hold
+(push 1)
+(assert (not (forall ((w Small)) (< w 9))))
+(set-info :status sat)
+(check-sat)
+(pop 1)

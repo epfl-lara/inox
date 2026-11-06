@@ -1,0 +1,18 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+; (a: BigInt, b: {y | y > a}) => {r: BigInt | r > 0}
+(declare-const g (-> (! Int :var a) (! Int :var b :restrict (> b a)) PosInt))
+
+; inside
+(push 1)
+(assert (not (> (g 1 2) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside
+(push 1)
+(assert (not (> (g 2 1) 0)))
+(set-info :status sat)
+(check-sat)
+(pop 1)

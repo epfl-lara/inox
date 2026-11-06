@@ -1,0 +1,38 @@
+; The type checks of sets, maps and bags decompose them one element at a time, which only
+; terminates for finite values. Their domain tests are therefore limited to finite values,
+; see the known issues for the other cases.
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+(declare-const k Int)
+(declare-const m (Array Int PosInt))
+
+; value outside domain
+(push 1)
+(declare-const g (-> (Array Int Int) Int))
+(assert (not (=> (forall ((w (Array Int PosInt))) (= (g w) 1)) (= (g (store ((as const (Array Int Int)) 1) 0 0)) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; default outside domain
+(push 1)
+(declare-const g (-> (Array Int Int) Int))
+(assert (not (=> (forall ((w (Array Int PosInt))) (= (g w) 1)) (= (g (store ((as const (Array Int Int)) 0) 0 2)) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; doesn't hold
+(push 1)
+(assert (not (forall ((w (Array Int PosInt))) (forall ((k Int)) (> (select w k) 1)))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; free variable
+(push 1)
+(assert (not (> (select m k) 1)))
+(set-info :status sat)
+(check-sat)
+(pop 1)

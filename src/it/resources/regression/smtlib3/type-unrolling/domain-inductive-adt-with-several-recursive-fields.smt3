@@ -1,0 +1,49 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+; inductive with two recursive fields
+(declare-datatypes ((Tree 0)) (((Leaf) (Node (left Tree) (tv PosInt) (right Tree)))))
+
+; fieldless constructor
+(push 1)
+(declare-const g (-> Tree Int))
+(assert (not (=> (forall ((w Tree)) (= (g w) 1)) (= (g Leaf) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; depth 2
+(push 1)
+(declare-const g (-> Tree Int))
+(assert (not (=> (forall ((w Tree)) (= (g w) 1)) (= (g (Node Leaf 1 (Node Leaf 2 Leaf))) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; right subtree outside domain
+(push 1)
+(declare-const g (-> Tree Int))
+(assert (not (=> (forall ((w Tree)) (= (g w) 1)) (= (g (Node Leaf 1 (Node Leaf 0 Leaf))) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; left subtree outside domain
+(push 1)
+(declare-const g (-> Tree Int))
+(assert (not (=> (forall ((w Tree)) (= (g w) 1)) (= (g (Node (Node Leaf 0 Leaf) 1 Leaf)) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; holds at depth 2
+(push 1)
+(assert (not (forall ((w Tree)) (=> (and ((_ is Node) w) ((_ is Node) (right w))) (> (tv (right w)) 0)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; doesn't hold at depth 2
+(push 1)
+(assert (not (forall ((w Tree)) (=> (and ((_ is Node) w) ((_ is Node) (left w))) (> (tv (left w)) 1)))))
+(set-info :status sat)
+(check-sat)
+(pop 1)

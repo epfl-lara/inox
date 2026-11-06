@@ -1,0 +1,29 @@
+; The result type of `mkIncr` is assumed, which must not constrain its result outside of
+; the domain, where it returns 0.
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+; (a: {y | y > 0}) => {r: BigInt | r > a}
+(define-type PosIncr () (-> (! PosInt :var a) (! Int :var r :restrict (> r a))))
+; returns 0 outside of the domain of its result type
+(define-fun mkIncr () PosIncr (lambda ((x Int)) (ite (> x 0) (+ x 1) 0)))
+
+; inside
+(push 1)
+(assert (not (> (mkIncr 1) 1)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside
+(push 1)
+(assert (not (= (mkIncr 0) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside, not contradictory
+(push 1)
+(assert (not (> (mkIncr 0) 5)))
+(set-info :status sat)
+(check-sat)
+(pop 1)

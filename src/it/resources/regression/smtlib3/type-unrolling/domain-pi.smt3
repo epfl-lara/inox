@@ -1,0 +1,23 @@
+; (a: BigInt) => {r: BigInt | r > a}
+(define-type Incr () (-> (! Int :var a) (! Int :var r :restrict (> r a))))
+
+; holds
+(push 1)
+(assert (not (forall ((w Incr)) (> (w 0) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; doesn't hold
+(push 1)
+(assert (not (forall ((w Incr)) (> (w 0) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; holds (nested applications)
+(push 1)
+(assert (not (forall ((w Incr)) (> (w (w 0)) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

@@ -1,0 +1,38 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+; (a: {y | y > 0}) => {r: BigInt | r > a}
+(define-type PosIncr () (-> (! PosInt :var a) (! Int :var r :restrict (> r a))))
+
+; inside
+(push 1)
+(assert (not (> (@ (choose (f PosIncr) true) 1) 1)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside
+(push 1)
+(assert (not (> (@ (choose (f PosIncr) true) 0) 0)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; constrained
+(push 1)
+(assert (not (= (@ (choose (f PosIncr) (= (f 1) 5)) 1) 5)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; constrained, outside
+(push 1)
+(assert (not (> (@ (choose (f PosIncr) (= (f 1) 5)) 0) 0)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; plain function type
+(push 1)
+(assert (not (= (@ (choose (f (-> Int Int)) (= (f 1) 5)) 1) 5)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

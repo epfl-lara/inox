@@ -1,0 +1,40 @@
+(define-fun isPositive ((x Int)) Bool (> x 0))
+
+; (a: {y | isPositive(y)}) => {r: BigInt | r > a}
+(define-type T () (-> (! Int :var a :restrict (isPositive a)) (! Int :var r :restrict (> r a))))
+(declare-const f T)
+
+; inside
+(push 1)
+(assert (not (> (f 1) 1)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside
+(push 1)
+(assert (not (> (f 0) 0)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; quantifier, inside
+(push 1)
+(assert (not (forall ((w T)) (> (w 2) 2))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; quantifier, outside
+(push 1)
+(assert (not (forall ((w T)) (> (w 0) 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; model
+(push 1)
+(assert (= (f 0) (- 3)))
+(set-info :status sat)
+(check-sat)
+(pop 1)

@@ -1,0 +1,13 @@
+; With feeling-lucky, the model of `h` can return a non-positive value, which
+; the model check doesn't catch, so this valid query is reported invalid.
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+(declare-const h (-> Int (-> Int PosInt)))
+
+; curried result
+(push 1)
+(assert (not (> (@ (h 1) 2) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

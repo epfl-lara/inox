@@ -1,0 +1,37 @@
+; Each predicate only holds (only makes its assumptions) within the base type {y | y != 0}.
+; Outside of the base type, the type check must be false without falsifying the path.
+
+(define-type NonZero () (! Int :var y :restrict (not (= y 0))))
+(declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
+
+(define-type Guarded () (! NonZero :var x :restrict (assume (not (= x 0)) true)))
+(declare-const x Guarded)
+(declare-const l (List Guarded))
+
+; free variable
+(push 1)
+(assert (not (not (= x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; free variable
+(push 1)
+(assert (= x 2))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; free list
+(push 1)
+(assert (not (=> (and ((_ is Cons) l) ((_ is Cons) (tail l))) (not (= (head (tail l)) 0)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; free list
+(push 1)
+(assert (and ((_ is Cons) l) ((_ is Cons) (tail l)) (= (head (tail l)) 2)))
+(set-info :status sat)
+(check-sat)
+(pop 1)

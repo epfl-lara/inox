@@ -1,0 +1,37 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+; (a: {y | y > 0}) => {r: BigInt | r > a}
+(define-type PosIncr () (-> (! PosInt :var a) (! Int :var r :restrict (> r a))))
+
+; H: (h: (a: {y | y > 0}) => {r | r > a}) => {r | r > 0}
+(declare-const H (-> (! PosIncr :var h) PosInt))
+(declare-const n Int)
+
+; inside
+(push 1)
+(assert (not (> (H (lambda ((x PosInt)) (+ x 1))) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; inside, arbitrary outside of the domain
+(push 1)
+(assert (not (> (H (lambda ((x Int)) (ite (> x 0) (+ x 1) (- 5)))) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; capturing, inside
+(push 1)
+(assert (not (=> (>= n 1) (> (H (lambda ((x Int)) (+ x n))) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; capturing, outside
+(set-option :check-models false)
+(push 1)
+(assert (and (= n 0) (<= (H (lambda ((x Int)) (+ x n))) 0)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-option :check-models true)

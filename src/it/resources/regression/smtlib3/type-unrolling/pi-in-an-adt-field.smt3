@@ -1,0 +1,50 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+; (a: {y | y > 0}) => {r: BigInt | r > a}
+(define-type PosIncr () (-> (! PosInt :var a) (! Int :var r :restrict (> r a))))
+(declare-datatype DepBox ((depBox (db PosIncr))))
+
+(declare-const b DepBox)
+
+; inside
+(push 1)
+(assert (not (> (@ (db b) 1) 1)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside
+(push 1)
+(assert (not (> (@ (db b) 0) 0)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; quantifier, inside
+(push 1)
+(assert (not (forall ((w DepBox)) (> (@ (db w) 2) 2))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; quantifier, outside
+(push 1)
+(assert (not (forall ((w DepBox)) (> (@ (db w) 0) 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; constructed outside of the type
+(push 1)
+(declare-const g (-> DepBox Int))
+(assert (not (=> (forall ((w DepBox)) (= (g w) 1)) (= (g (depBox (lambda ((x Int)) x))) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; constructed
+(push 1)
+(declare-const g (-> DepBox Int))
+(assert (not (=> (forall ((w DepBox)) (= (g w) 1)) (= (g (depBox (lambda ((x Int)) (+ x 1)))) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

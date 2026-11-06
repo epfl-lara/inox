@@ -1,0 +1,11 @@
+; Type parameters are currently assumed to be inhabited, so this is unsatisfiable
+; (samarion/inox#30).
+
+(declare-type U ())
+
+; empty
+(push 1)
+(assert (forall ((w U)) false))
+(set-info :status sat)
+(check-sat)
+(pop 1)
