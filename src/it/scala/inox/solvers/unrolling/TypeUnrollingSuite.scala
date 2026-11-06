@@ -342,6 +342,22 @@ class TypeUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
     assertValid((f === g) ==> (f(int(1)) > int(1)), "inside through an equal function")
   }
 
+  // A function type is a Pi type whose codomain doesn't depend on the parameters
+  test("Function type codomain only holds inside of the domain") {
+    val g = Variable.fresh("g", pos =>: pos)
+    assertValid(g(int(1)) > int(0), "inside")
+    assertInvalid(g(int(0)) > int(0), "outside")
+    assertInvalid(holds(pos =>: pos)(h => h(int(0)) > int(0)), "quantifier")
+
+    val piFun = pi("x" :: I)(_ => pos)
+    val const = (i: Int) => \("x" :: I)(_ => int(i))
+    val G = Variable.fresh("G", piFun =>: pos)
+    val p = Variable.fresh("p", piFun)
+    assertValid(G(const(1)) > int(0), "Pi, inside")
+    assertValid(G(p) > int(0), "Pi, free function inside")
+    assertSatUnchecked(G(const(-1)) <= int(0), "Pi, outside")
+  }
+
   test("Pi codomain with a dependent domain") {
     // (a: BigInt, b: {y | y > a}) => {r: BigInt | r > 0}
     val dep = {
