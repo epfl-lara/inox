@@ -3,16 +3,10 @@
 package inox
 package smtlib3
 
-import smtlib.trees.Terms.{Forall => SMTForall, Identifier => SMTIdentifier, _}
-import smtlib.trees.Commands.{FunDef => SMTFunDef, _}
-import smtlib.extensions.tip.Terms.{Lambda => SMTLambda, FunDecPar}
-import smtlib.extensions.tip.Commands._
+import smtlib.trees.Terms.{Identifier => SMTIdentifier, _}
 import smtlib.printer.PrintingContext
 import inox.tip.Bags
 import smtlib.theories.cvc.{CVC4Sets => Sets}
-
-import inox.tip.Terms.{Choose => SMTChoose}
-import inox.tip.Commands.{DatatypeInvariant, DatatypeInvariantPar}
 
 import Terms._
 import Commands._
@@ -76,7 +70,7 @@ class Printer(prog: InoxProgram, ctx: inox.Context, writer: Writer) extends tip.
   }
 
   /** The sort of the type `t`, whose refinements may refer to the variables in `bindings`. */
-  protected def sortOf(t: Type)(using bindings: Map[Identifier, Term]): Sort = t match {
+  override protected def sortOf(t: Type)(using bindings: Map[Identifier, Term]): Sort = t match {
     case RefinementType(vd, pred) =>
       val s = id2sym(vd.id)
       val base = TermSort.toTerm(sortOf(vd.tpe))
@@ -163,133 +157,15 @@ class Printer(prog: InoxProgram, ctx: inox.Context, writer: Writer) extends tip.
     }
   }
 
-  override protected def declareFunction(tfd: TypedFunDef): SSymbol = {
-    val fd = tfd.fd
-
-    def signature(fd: FunDef): (SSymbol, Seq[SortedVar], Sort, Map[Identifier, Term]) = {
-      var bindings = Map.empty[Identifier, Term]
-      val params = fd.params.map { vd =>
-        val s = id2sym(vd.id)
-        val sv = SortedVar(s, sortOf(vd.tpe)(using bindings))
-        bindings += vd.id -> s
-        sv
-      }
-      (id2sym(fd.id), params, sortOf(fd.returnType)(using bindings), bindings)
-    }
-
-    def tparams(fd: FunDef): Seq[SSymbol] = fd.tparams.map(tpd => id2sym(tpd.id))
-
-    functions.getB(fd.typed) match {
-      case Some(s) => s
-      case None =>
-        functions += fd.typed -> id2sym(fd.id)
-
-        val scc = transitiveCallees(fd.id).filter(id2 => transitivelyCalls(id2, fd.id))
-        if (scc.size <= 1) {
-          val (s, params, returnSort, bindings) = signature(fd)
-          val body = toSMT(fd.fullBody)(using bindings)
-          val tps = tparams(fd)
-
-          emit((scc.isEmpty, tps.isEmpty) match {
-            case (true, true) => DefineFun(SMTFunDef(s, params, returnSort, body))
-            case (false, true) => DefineFunRec(SMTFunDef(s, params, returnSort, body))
-            case (true, false) => DefineFunPar(tps, SMTFunDef(s, params, returnSort, body))
-            case (false, false) => DefineFunRecPar(tps, SMTFunDef(s, params, returnSort, body))
-          })
-        } else {
-          val fds = scc.toList.sortBy(_.globalId).map(getFunction)
-          functions ++= fds.map(fd => fd.typed -> id2sym(fd.id))
-
-          val (decs, bodies) = (for (fd <- fds) yield {
-            val (s, params, returnSort, bindings) = signature(fd)
-            val tps = tparams(fd)
-            val dec = if (tps.isEmpty) Right(FunDec(s, params, returnSort)) else Left(FunDecPar(tps, s, params, returnSort))
-            (dec, toSMT(fd.fullBody)(using bindings))
-          }).unzip
-
-          emit(if (decs.exists(_.isLeft)) {
-            DefineFunsRecPar(decs, bodies)
-          } else {
-            DefineFunsRec(decs.collect { case Right(dec) => dec }, bodies)
-          })
-        }
-
-        id2sym(fd.id)
-    }
-  }
-
-  /** The sorted variables of the binder `vds`, which may refer to the previous ones, and the
-    * bindings of the binder's body. */
-  private def binders(vds: Seq[ValDef])(using bindings: Map[Identifier, Term]): (Seq[SortedVar], Map[Identifier, Term]) = {
-    var current = bindings
-    val svs = vds.map { vd =>
-      val s = id2sym(vd.id)
-      val sv = SortedVar(s, sortOf(vd.tpe)(using current))
-      current += vd.id -> s
-      sv
-    }
-    (svs, current)
-  }
-
-  override def printScript(expr: Expr): Unit = {
-    val tparams = typeOps.typeParamsOf(expr)
-    val term = toSMT(expr)(using Map.empty)
-
-    val adts = adtManager.types
-      .collect { case adt: ADTType => adt.getSort.definition }
-      .toSeq.distinct.sortBy(_.id.globalId)
-
-    for (sort <- adts; fd <- sort.invariant) {
-      val Seq(vd) = fd.params
-      val s = id2sym(vd.id)
-      val adtSort = declareSort(ADTType(sort.id, fd.tparams.map(_.tp)))
-      val pred = toSMT(fd.fullBody)(using Map(vd.id -> s))
-      if (fd.tparams.isEmpty) emit(DatatypeInvariant(s, adtSort, pred))
-      else emit(DatatypeInvariantPar(fd.tparams.map(tpd => id2sym(tpd.id)), s, adtSort, pred))
-    }
-
+  override protected def declareSortProperties(adts: Seq[ADTSort]): Unit = {
+    super.declareSortProperties(adts)
     for (sort <- adts; fd <- sort.equality) {
       val Sort(SMTIdentifier(sortSym, _), _) = declareSort(ADTType(sort.id, sort.typeArgs)): @unchecked
       emit(DatatypeEquality(sortSym, declareFunction(fd.typed)))
     }
-
-    emit(if (tparams.nonEmpty) AssertPar(tparams.map(tp => id2sym(tp.id)).toSeq, term) else Assert(term))
   }
 
   override protected def toSMT(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
-    case v @ Variable(id, tp, _) =>
-      bindings.get(id) orElse variables.getB(v).map(s => s: Term) getOrElse {
-        val tps = typeOps.typeParamsOf(tp).toSeq
-        val sort = sortOf(tp)(using Map.empty)
-        val s = extraVars.cachedB(v) {
-          val s = id2sym(id)
-          emit(if (tps.nonEmpty) DeclareConstPar(tps.map(tp => id2sym(tp.id)), s, sort) else DeclareConst(s, sort))
-          s
-        }
-        if (tps.nonEmpty) QualifiedIdentifier(SMTIdentifier(s), Some(sort))
-        else QualifiedIdentifier(SMTIdentifier(s), None)
-      }
-
-    case Lambda(args, body) =>
-      val (params, newBindings) = binders(args)
-      SMTLambda(params, toSMT(body)(using newBindings))
-
-    case Forall(args, body) =>
-      val (params, newBindings) = binders(args)
-      SMTForall(params.head, params.tail, toSMT(body)(using newBindings))
-
-    case Not(Forall(args, body)) =>
-      val (params, newBindings) = binders(args)
-      val negated = body match {
-        case Not(b) => b
-        case b => Not(b)
-      }
-      Exists(params.head, params.tail, toSMT(negated)(using newBindings))
-
-    case Choose(vd, pred) =>
-      val (Seq(param), newBindings) = binders(Seq(vd)): @unchecked
-      SMTChoose(param.name, param.sort, toSMT(pred)(using newBindings))
-
     case adt @ ADT(id, tps, es) if es.nonEmpty && tps.nonEmpty && {
       // the arguments don't determine the type of the constructor
       val tcons = getConstructor(id)

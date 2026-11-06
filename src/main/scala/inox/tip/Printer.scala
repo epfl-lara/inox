@@ -78,34 +78,50 @@ class Printer private(override val program: InoxProgram,
       Assert(toSMT(expr)(using Map.empty))
     }
 
-    val invariants = adtManager.types
-      .collect { case adt: ADTType => adt }
-      .map(_.getSort.definition)
-      .flatMap(_.invariant)
-
-    for (fd <- invariants) {
-      val Seq(vd) = fd.params
-      if (fd.tparams.isEmpty) {
-        emit(DatatypeInvariant(
-          id2sym(vd.id),
-          declareSort(vd.getType),
-          toSMT(fd.fullBody)(using Map(vd.id -> id2sym(vd.id)))
-        ))
-      } else {
-        val tps = fd.tparams.map(tpd => declareSort(tpd.tp).id.symbol)
-        emit(DatatypeInvariantPar(
-          tps,
-          id2sym(vd.id),
-          declareSort(vd.getType),
-          toSMT(fd.fullBody)(using Map(vd.id -> id2sym(vd.id)))
-        ))
-      }
-    }
+    val adts = adtManager.types
+      .collect { case adt: ADTType => adt.getSort.definition }
+      .toSeq.distinct.sortBy(_.id.globalId)
+    declareSortProperties(adts)
 
     emit(cmd)
   }
 
+  /** Declares the properties of the datatypes `adts`, such as their invariants. */
+  protected def declareSortProperties(adts: Seq[ADTSort]): Unit = {
+    for (sort <- adts; fd <- sort.invariant) {
+      val Seq(vd) = fd.params
+      val s = id2sym(vd.id)
+      val adtSort = declareSort(vd.getType)
+      val pred = toSMT(fd.fullBody)(using Map(vd.id -> s))
+      if (fd.tparams.isEmpty) emit(DatatypeInvariant(s, adtSort, pred))
+      else emit(DatatypeInvariantPar(fd.tparams.map(tpd => declareSort(tpd.tp).id.symbol), s, adtSort, pred))
+    }
+  }
+
   def emit(s: String): Unit = writer.write(s)
+
+  /** The sort of the type `t` of a parameter, field, binder or result, whose refinements may refer
+    * to the variables in `bindings`. TIP has no dependent types, so they are erased. */
+  protected def sortOf(t: Type)(using bindings: Map[Identifier, Term]): Sort = declareSort(t.getType)
+
+  /** The sorted variables `vds`, whose types may refer to the previous ones, and the bindings in
+    * their scope. */
+  protected def binders(vds: Seq[ValDef])(using bindings: Map[Identifier, Term]): (Seq[SortedVar], Map[Identifier, Term]) = {
+    var current = bindings
+    val svs = vds.map { vd =>
+      val s = id2sym(vd.id)
+      val sv = SortedVar(s, sortOf(vd.tpe)(using current))
+      current += vd.id -> s
+      sv
+    }
+    (svs, current)
+  }
+
+  /** The parameters and return sort of `fd`, and the bindings of its parameters. */
+  protected def signature(fd: FunDef): (Seq[SortedVar], Sort, Map[Identifier, Term]) = {
+    val (params, bindings) = binders(fd.params)(using Map.empty)
+    (params, sortOf(fd.returnType)(using bindings), bindings)
+  }
 
   protected def liftADTType(adt: ADTType): Type = ADTType(adt.id, adt.getSort.definition.typeArgs)
 
@@ -224,12 +240,9 @@ class Printer private(override val program: InoxProgram,
 
         val scc = transitiveCallees(fd.id).filter(id2 => transitivelyCalls(id2, fd.id))
         if (scc.size <= 1) {
-          val (sym, params, returnSort, body) = (
-            id2sym(fd.id),
-            fd.params.map(vd => SortedVar(id2sym(vd.id), declareSort(vd.getType))),
-            declareSort(fd.getType),
-            toSMT(fd.fullBody)(using fd.params.map(vd => vd.id -> (id2sym(vd.id): Term)).toMap)
-          )
+          val sym = id2sym(fd.id)
+          val (params, returnSort, bindings) = signature(fd)
+          val body = toSMT(fd.fullBody)(using bindings)
 
           val tps = fd.tparams.map(tpd => declareSort(tpd.tp).id.symbol)
 
@@ -240,15 +253,13 @@ class Printer private(override val program: InoxProgram,
             case (false, false) => DefineFunRecPar(tps, SMTFunDef(sym, params, returnSort, body))
           })
         } else {
-          functions ++= scc.toList.map(id => getFunction(id).typed -> id2sym(id))
+          val ids = scc.toList.sortBy(_.globalId)
+          functions ++= ids.map(id => getFunction(id).typed -> id2sym(id))
 
-          val (decs, bodies) = (for (id <- scc.toList) yield {
+          val (decs, bodies) = (for (id <- ids) yield {
             val fd = getFunction(id)
-            val (sym, params, returnSort) = (
-              id2sym(id),
-              fd.params.map(vd => SortedVar(id2sym(vd.id), declareSort(vd.getType))),
-              declareSort(fd.getType)
-            )
+            val sym = id2sym(id)
+            val (params, returnSort, bindings) = signature(fd)
 
             val tps = fd.tparams.map(tpd => declareSort(tpd.tp).id.symbol)
 
@@ -258,8 +269,7 @@ class Printer private(override val program: InoxProgram,
               Left(FunDecPar(tps, sym, params, returnSort))
             }
 
-            val body = toSMT(fd.fullBody)(using fd.params.map(vd => vd.id -> (id2sym(vd.id): Term)).toMap)
-            (dec, body)
+            (dec, toSMT(fd.fullBody)(using bindings))
           }).unzip
 
           emit(if (decs.exists(_.isLeft)) {
@@ -275,9 +285,9 @@ class Printer private(override val program: InoxProgram,
 
   override protected def toSMT(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
     case v @ Variable(id, tp, flags) =>
-      val sort = declareSort(tp)
       bindings.get(id) orElse variables.getB(v).map(s => s: Term) getOrElse {
         val tps = typeOps.typeParamsOf(tp).toSeq
+        val sort = sortOf(tp)(using Map.empty)
         val sym = extraVars.cachedB(v) {
           val sym = id2sym(id)
           emit(if (tps.nonEmpty) {
@@ -293,25 +303,20 @@ class Printer private(override val program: InoxProgram,
       }
 
     case Lambda(args, body) =>
-      val (newBindings, params) = args.map { vd =>
-        val sym = id2sym(vd.id)
-        (vd.id -> (sym: Term), SortedVar(sym, declareSort(vd.getType)))
-      }.unzip
-      SMTLambda(params, toSMT(body)(using bindings ++ newBindings))
+      val (params, newBindings) = binders(args)
+      SMTLambda(params, toSMT(body)(using newBindings))
 
     case Forall(args, body) =>
-      val (newBindings, param +: params) = args.map { vd =>
-        val sym = id2sym(vd.id)
-        (vd.id -> (sym: Term), SortedVar(sym, declareSort(vd.getType)))
-      }.unzip: @unchecked
-      SMTForall(param, params, toSMT(body)(using bindings ++ newBindings))
+      val (params, newBindings) = binders(args)
+      SMTForall(params.head, params.tail, toSMT(body)(using newBindings))
 
     case Not(Forall(args, body)) =>
-      val (newBindings, param +: params) = args.map { vd =>
-        val sym = id2sym(vd.id)
-        (vd.id -> (sym: Term), SortedVar(sym, declareSort(vd.getType)))
-      }.unzip: @unchecked
-      Exists(param, params, toSMT(Not(body))(using bindings ++ newBindings))
+      val (params, newBindings) = binders(args)
+      val negated = body match {
+        case Not(b) => b
+        case b => Not(b)
+      }
+      Exists(params.head, params.tail, toSMT(negated)(using newBindings))
 
     case Application(caller, args) => SMTApplication(toSMT(caller), args.map(toSMT))
 
@@ -403,9 +408,8 @@ class Printer private(override val program: InoxProgram,
       }
 
     case Choose(vd, pred) =>
-      val sym = id2sym(vd.id)
-      val sort = declareSort(vd.getType)
-      SMTChoose(sym, declareSort(vd.getType), toSMT(pred)(using bindings + (vd.id -> (sym: Term))))
+      val (Seq(param), newBindings) = binders(Seq(vd)): @unchecked
+      SMTChoose(param.name, param.sort, toSMT(pred)(using newBindings))
 
     case _ => super.toSMT(e)
   }
