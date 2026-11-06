@@ -52,6 +52,19 @@ class IncrementalSolverSuite extends SolverTestSuite {
     }
   }
 
+  test("Push and pop after an interrupt") { ctx =>
+    withSolver(ctx) { s =>
+      s.assertCnstr(x > E(0))
+      // An interrupt can land while the unrolling solver pushes or pops, and the query
+      // must then end as Unknown instead of throwing.
+      s.interrupt()
+      s.push()
+      s.assertCnstr(x < E(0))
+      s.pop()
+      s.check(Simple)
+    }
+  }
+
   test("Function calls across push and pop", Feature.Integers) { ctx =>
     withSolver(ctx) { s =>
       val y = Variable.fresh("y", IntegerType())

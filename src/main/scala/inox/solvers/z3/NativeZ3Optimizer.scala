@@ -54,25 +54,30 @@ trait NativeZ3Optimizer extends Z3Unrolling with AbstractUnrollingOptimizer  { s
     //           is difficult to merge due to small API differences between the native Z3
     //           solvers and optimizers.
     def checkAssumptions(config: Configuration)(assumptions: Set[Z3AST]) = {
-      optimizer.push()
-      for (a <- assumptions) optimizer.assertCnstr(a)
+      val pushed = tryZ3(optimizer.push()).isDefined
+      for (a <- assumptions) assertCnstr(a)
       val res = config.cast(tryZ3[SolverResponse[Model, Assumptions]](optimizer.check() match {
         case Some(true) => if (config.withModel) SatWithModel(optimizer.getModel()) else Sat
         case Some(false) => if (config.withUnsatAssumptions) UnsatWithAssumptions(Set()) else Unsat
         case None => Unknown
       }).getOrElse(Unknown))
-      optimizer.pop()
+      if (pushed) tryZ3(optimizer.pop())
       res
     }
 
+    // See AbstractZ3Solver: an interrupted push or pop throws.
+    private var z3Scopes: List[Boolean] = Nil
+
     override def push(): Unit = {
       super.push()
-      optimizer.push()
+      z3Scopes = tryZ3(optimizer.push()).isDefined :: z3Scopes
     }
 
     override def pop(): Unit = {
       super.pop()
-      optimizer.pop()
+      val pushed = z3Scopes.headOption.getOrElse(true)
+      z3Scopes = z3Scopes.drop(1)
+      if (pushed) tryZ3(optimizer.pop())
     }
   }
 
