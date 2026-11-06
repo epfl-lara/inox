@@ -31,6 +31,13 @@ class TemplateEncodingSuite extends SolverTestSuite with DatastructureUtils {
     Seq("x" :: Int32Type()), Int32Type(), { case Seq(x) => x + E(1) })
   }
 
+  val headNegativeID = FreshIdentifier("headNegative")
+  val headNegative = mkFunDef(headNegativeID)() { _ => (
+    Seq("l" :: T(listID)(Int32Type())), BooleanType(), { case Seq(l) =>
+      (l `is` consID) && l.getField(head) < E(0)
+    })
+  }
+
   val lengthID = FreshIdentifier("length")
   val length = mkFunDef(lengthID)("A") { case Seq(aT) => (
     Seq("l" :: T(listID)(aT)), IntegerType(), { case Seq(l) =>
@@ -49,7 +56,7 @@ class TemplateEncodingSuite extends SolverTestSuite with DatastructureUtils {
     })
   }
 
-  override protected def symbols: Symbols = baseSymbols.withFunctions(Seq(inc, incBV, length, greater))
+  override protected def symbols: Symbols = baseSymbols.withFunctions(Seq(inc, incBV, headNegative, length, greater))
   given Symbols = symbols
 
   // Countermodels of quantified formulas can't be checked by evaluation
@@ -73,6 +80,13 @@ class TemplateEncodingSuite extends SolverTestSuite with DatastructureUtils {
     val x = Variable.fresh("x", Int32Type())
     assert(model(s, Equals(incBV(x), E(5))).vars.get(x.toVal) == Some(Int32Literal(4)))
     assert(s.solveVALID(Equals(incBV(incBV(x)), x + E(2))) contains true)
+  }
+
+  test("Negative bit-vector in an ADT passed to a function", ADTs) { ctx =>
+    val s = solver(ctx)
+    val x = Variable.fresh("x", Int32Type())
+    val list = ADT(consID, Seq(Int32Type()), Seq(x, ADT(nilID, Seq(Int32Type()), Seq())))
+    assert(model(s, Equals(x, E(-1)) && headNegative(list)).vars.get(x.toVal) == Some(Int32Literal(-1)))
   }
 
   test("Recursive function over ADTs", Integers, ADTs) { ctx =>

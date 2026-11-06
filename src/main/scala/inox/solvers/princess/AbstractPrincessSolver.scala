@@ -97,8 +97,11 @@ abstract class AbstractPrincessSolver(override val program: Program,
       def typeToSortRef(tpe: Type): PADT.CtorArgSort = {
         if (indexMap contains tpe) {
           PADT.ADTSort(indexMap(tpe))
-        } else {
-          PADT.OtherSort(typeToSort(tpe))
+        } else tpe match {
+          // Terms of signed bit-vectors are built in the unsigned range (see `parseTerm`), so
+          // fields of signed bit-vectors must have the unsigned sort to hold negative values
+          case BVType(true, size) => PADT.OtherSort(Mod.UnsignedBVSort(size))
+          case _ => PADT.OtherSort(typeToSort(tpe))
         }
       }
 
