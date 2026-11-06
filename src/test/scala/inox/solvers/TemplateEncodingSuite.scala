@@ -101,8 +101,9 @@ class TemplateEncodingSuite extends SolverTestSuite with DatastructureUtils {
     val f = Variable.fresh("f", FunctionType(Seq(IntegerType()), IntegerType()))
     val succ = \("x" :: IntegerType())(x => x + int(1))
 
-    // Comparing functions is rejected by default...
-    intercept[ast.TypeOps#TypeErrorException](solver(ctx).solveVALID(Equals(f, succ) ==> Equals(f(int(1)), int(2))))
+    // Comparing functions is rejected without function equality...
+    val none = solver(ctx.withOpts(unrolling.optFunctionEquality(unrolling.FunctionEquality.None)))
+    intercept[ast.TypeOps#TypeErrorException](none.solveVALID(Equals(f, succ) ==> Equals(f(int(1)), int(2))))
 
     // ...and structural under intensional function equality
     val s = solver(ctx.withOpts(unrolling.optFunctionEquality(unrolling.FunctionEquality.Intensional)))
