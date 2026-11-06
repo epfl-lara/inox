@@ -205,7 +205,9 @@ class RecursiveEvaluatorSuite extends AnyFunSuite {
     val unguarded = Lambda(Seq(x), Plus(x.toVariable, Division(one, zero)))
 
     for (assumeChecked <- Seq(false, true)) {
-      val ev = RecursiveEvaluator(program, ctx.withOpts(solvers.optAssumeChecked(assumeChecked)))
+      // Compares lambdas, which needs a function equality
+      val ev = RecursiveEvaluator(program, ctx.withOpts(solvers.optAssumeChecked(assumeChecked),
+        solvers.unrolling.optFunctionEquality(solvers.unrolling.FunctionEquality.Intensional)))
       def evalOk(expr: Expr): Expr = ev.eval(expr) match {
         case EvaluationResults.Successful(res) => res
         case other => fail(s"Evaluation of '$expr' failed with $other under assume-checked=$assumeChecked")

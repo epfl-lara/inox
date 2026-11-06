@@ -8,7 +8,7 @@
 # with the SMT-LIB back ends (TipTestSuite moves it to native Z3 for that).
 #
 # The files that compare functions run under intensional function equality,
-# since `none` rejects them (as in TipTestSuite).
+# since the default semantics rejects them (as in TipTestSuite).
 #
 # Usage: scripts/check-native-binary.sh [--binary] <binary> [inox options...]
 #   --binary  runs the same problems in Inox's binary format instead, to

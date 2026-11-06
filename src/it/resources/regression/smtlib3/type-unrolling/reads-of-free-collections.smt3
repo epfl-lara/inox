@@ -1,6 +1,8 @@
 ; The values that the formula reads from a free map, set or bag are typed, as the results of the
 ; applications of free functions: a map application, a set membership or a positive bag
 ; multiplicity, wherever it occurs.
+; The lambda case equates a function with a lambda
+(set-option :function-equality intensional)
 
 (define-type PosInt () (! Int :var y :restrict (> y 0)))
 
