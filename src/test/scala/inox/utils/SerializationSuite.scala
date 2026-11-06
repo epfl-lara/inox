@@ -18,8 +18,8 @@ class SerializationSuite extends AnyFunSuite {
   test("Primitive values") {
     assert(roundTrip(true) == true)
     assert(roundTrip('x') == 'x')
-    assert(roundTrip(-3.toByte) == -3.toByte)
-    assert(roundTrip(-300.toShort) == -300.toShort)
+    assert(roundTrip((-3).toByte) == (-3).toByte)
+    assert(roundTrip((-300).toShort) == (-300).toShort)
     assert(roundTrip(Int.MinValue) == Int.MinValue)
     assert(roundTrip(Long.MaxValue) == Long.MaxValue)
     assert(roundTrip(BigInt("-123456789012345678901234567890")) == BigInt("-123456789012345678901234567890"))
@@ -60,6 +60,14 @@ class SerializationSuite extends AnyFunSuite {
     assert(back == id)
     assert(back.globalId == id.globalId)
     assert(back.id == id.id)
+  }
+
+  test("Fresh identifiers never take the global id of a deserialized one") {
+    // Identifiers from another process can have global ids that this one hasn't handed out yet
+    val bytes = serializer.serialize(new Identifier("y", FreshIdentifier("z").globalId + 1000, 0))
+    val restored = serializer.deserialize[Identifier](bytes)
+    val fresh = Seq.fill(1001)(FreshIdentifier("y"))
+    assert(!fresh.contains(restored))
   }
 
   test("Floating point and bit-vector literals") {

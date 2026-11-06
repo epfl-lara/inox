@@ -671,7 +671,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   private def definitionSerializers: ClassSerializers = Seq(
     mappingSerializer[Identifier](90)
       (id => (id.name, id.globalId, id.id))
-      (p => new Identifier(p._1, p._2, p._3)),
+      (p => FreshIdentifier.restore(p._1, p._2, p._3)),
 
     // Inox Flags
     classSerializer[HasADTInvariant](91),
