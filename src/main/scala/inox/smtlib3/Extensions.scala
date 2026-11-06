@@ -124,10 +124,7 @@ object Commands {
       ctx.print("(define-type ")
       ctx.print(name)
       ctx.print(" (")
-      ctx.print(params.map {
-        case TypeParam(n) => n.name
-        case ValueParam(a) => smtlib.printer.RecursivePrinter.toString(a)
-      }.mkString(" "))
+      ctx.print(params.map(paramString).mkString(" "))
       ctx.print(") ")
       ctx.print(body)
       ctx.print(")\n")
@@ -149,18 +146,31 @@ object Commands {
     override def transform(tt: TreeTransformer)(context: tt.C): (Command, tt.R) = unsupported
   }
 
-  /** SMT-LIB 2.6+ datatype declarations, where each datatype has its own type parameters. */
-  case class DeclareDatatypesWithPars(datatypes: Seq[(SSymbol, Seq[SSymbol], Seq[Constructor])]) extends CommandExtension {
+  private def paramString(p: TypeDefParam): String = p match {
+    case TypeParam(n) => n.name
+    case ValueParam(a) => smtlib.printer.RecursivePrinter.toString(a)
+  }
+
+  /** A constructor whose field types may refer to the previous fields and to the value parameters
+    * of its datatype, and which may restrict them with `:restrict` annotations. */
+  case class ConstructorDec(sym: SSymbol, fields: Seq[(SSymbol, Sort)], restrictions: Seq[Term])
+
+  /** A datatype with type parameters and value parameters `(! T :var n)`. */
+  case class DatatypeDec(name: SSymbol, params: Seq[TypeDefParam], constructors: Seq[ConstructorDec])
+
+  /** SMT-LIB 2.6+ datatype declarations, where each datatype has its own parameters. */
+  case class DeclareDatatypesWithPars(datatypes: Seq[DatatypeDec]) extends CommandExtension {
     override def print(ctx: PrintingContext): Unit = {
       ctx.print("(declare-datatypes (")
-      ctx.print(datatypes.map { case (n, tps, _) => s"(${n.name} ${tps.size})" }.mkString(" "))
+      ctx.print(datatypes.map(d => s"(${d.name.name} ${d.params.size})").mkString(" "))
       ctx.print(") (")
-      ctx.print(datatypes.map { case (_, tps, conss) =>
-        val cs = conss.map { c =>
+      ctx.print(datatypes.map { d =>
+        val cs = d.constructors.map { c =>
           val fields = c.fields.map { case (s, sort) => s"(${s.name} ${smtlib.printer.RecursivePrinter.toString(sort)})" }
-          ("(" + (c.sym.name +: fields).mkString(" ") + ")")
+          val restrictions = c.restrictions.map(r => ":restrict " + smtlib.printer.RecursivePrinter.toString(r))
+          "(" + ((c.sym.name +: fields) ++ restrictions).mkString(" ") + ")"
         }.mkString("(", " ", ")")
-        if (tps.isEmpty) cs else s"(par (${tps.map(_.name).mkString(" ")}) $cs)"
+        if (d.params.isEmpty) cs else s"(par (${d.params.map(paramString).mkString(" ")}) $cs)"
       }.mkString(" "))
       ctx.print("))\n")
     }
@@ -364,19 +374,54 @@ class SMTLIB3Parser(lexer: SMTLIB3Lexer) extends TipParser(lexer) {
     case _ => super.parseTermWithoutParens(startPos)
   }
 
-  /** `(c1 ...) (c2 ...)` or `(par (X ...) ((c1 ...) ...))` */
-  private def parseDatatypeDec: (Seq[SSymbol], Seq[Constructor]) = {
+  /** A type parameter `X`, or a value parameter `(! T :var n)`. */
+  private def parseTypeDefParam: TypeDefParam = {
+    if (isSymbol(getPeekToken.kind)) TypeParam(parseSymbol)
+    else {
+      val token = getPeekToken
+      parseTerm match {
+        case va @ VarAnnotation(_, Some(_), _, _, _) => ValueParam(va)
+        case _ => throw new smtlib.parser.Parser.UnexpectedTokenException(token, Seq(LT.SymbolLitKind))
+      }
+    }
+  }
+
+  /** `(c (f1 T1) ... :restrict p ...)` */
+  private def parseConstructorDec: ConstructorDec = {
+    eat(LT.OParen)
+    val sym = parseSymbol
+    val fields = new ListBuffer[(SSymbol, Sort)]
+    val restrictions = new ListBuffer[Term]
+    while (getPeekToken.kind != LT.CParen) {
+      getPeekToken match {
+        case LT.Keyword("restrict") =>
+          nextToken()
+          restrictions += parseTerm
+        case _ =>
+          eat(LT.OParen)
+          val name = parseSymbol
+          val sort = parseSort
+          eat(LT.CParen)
+          fields += name -> sort
+      }
+    }
+    eat(LT.CParen)
+    ConstructorDec(sym, fields.toSeq, restrictions.toSeq)
+  }
+
+  /** `((c1 ...) (c2 ...))` or `(par (X (! T :var n) ...) ((c1 ...) ...))` */
+  private def parseDatatypeDec(name: SSymbol): DatatypeDec = {
     eat(LT.OParen)
     getPeekToken.kind match {
       case LT.Par =>
         eat(LT.Par)
-        val tps = parseMany(() => parseSymbol)
-        val conss = parseMany(() => parseConstructor)
+        val params = parseMany(() => parseTypeDefParam)
+        val conss = parseMany(() => parseConstructorDec)
         eat(LT.CParen)
-        (tps, conss)
+        DatatypeDec(name, params, conss)
       case _ =>
-        val conss = parseUntil(LT.CParen)(() => parseConstructor)
-        (Seq.empty, conss)
+        val conss = parseUntil(LT.CParen)(() => parseConstructorDec)
+        DatatypeDec(name, Seq.empty, conss)
     }
   }
 
@@ -394,13 +439,7 @@ class SMTLIB3Parser(lexer: SMTLIB3Lexer) extends TipParser(lexer) {
     case Tokens.DefineType =>
       eat(Tokens.DefineType)
       val name = parseSymbol
-      val params = parseMany { () =>
-        if (isSymbol(getPeekToken.kind)) TypeParam(parseSymbol)
-        else parseTerm match {
-          case va @ VarAnnotation(_, Some(_), _, _, _) => ValueParam(va)
-          case t => throw new smtlib.parser.Parser.UnexpectedTokenException(getPeekToken, Seq(LT.SymbolLitKind))
-        }
-      }
+      val params = parseMany(() => parseTypeDefParam)
       val body = parseSort
       DefineType(name, params, body)
 
@@ -414,8 +453,7 @@ class SMTLIB3Parser(lexer: SMTLIB3Lexer) extends TipParser(lexer) {
     case Tokens.DeclareDatatype =>
       eat(Tokens.DeclareDatatype)
       val name = parseSymbol
-      val (tps, conss) = parseDatatypeDec
-      DeclareDatatypesWithPars(Seq((name, tps, conss)))
+      DeclareDatatypesWithPars(Seq(parseDatatypeDec(name)))
 
     case LT.DeclareDatatypes =>
       eat(LT.DeclareDatatypes)
@@ -430,11 +468,10 @@ class SMTLIB3Parser(lexer: SMTLIB3Lexer) extends TipParser(lexer) {
             eat(LT.CParen)
             name
           }
-          val decs = parseMany(() => parseDatatypeDec)
-          if (names.size != decs.size) {
-            throw new smtlib.parser.Parser.UnexpectedTokenException(getPeekToken, Seq(LT.OParen))
-          }
-          DeclareDatatypesWithPars((names zip decs).map { case (n, (tps, conss)) => (n, tps, conss) })
+          eat(LT.OParen)
+          val decs = names.map(parseDatatypeDec)
+          eat(LT.CParen)
+          DeclareDatatypesWithPars(decs)
 
         case _ =>
           // TIP syntax: (declare-datatypes (X ...) ((S c1 ...) ...))
