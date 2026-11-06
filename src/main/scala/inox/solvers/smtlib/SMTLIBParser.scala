@@ -175,7 +175,13 @@ trait SMTLIBParser {
     case Ints.Sub(e1, e2) => Minus(fromSMT(e1, otpe), fromSMT(e2, otpe))
     case Ints.Mul(e1, e2) => Times(fromSMT(e1, otpe), fromSMT(e2, otpe))
 
-    case Ints.Div(e1, e2) => Division(fromSMT(e1, IntegerType()), fromSMT(e2, IntegerType()))
+    // SMT-LIB's div rounds so that mod is non-negative, as Inox's Modulo, while Inox's Division
+    // truncates: a div b is (a - a mod b) / b, where the division is exact.
+    case Ints.Div(e1, e2) =>
+      val a = ValDef.fresh("a", IntegerType())
+      val b = ValDef.fresh("b", IntegerType())
+      Let(a, fromSMT(e1, IntegerType()), Let(b, fromSMT(e2, IntegerType()),
+        Division(Minus(a.toVariable, Modulo(a.toVariable, b.toVariable)), b.toVariable)))
     case Ints.Mod(e1, e2) => Modulo(fromSMT(e1, IntegerType()), fromSMT(e2, IntegerType()))
     case Ints.Abs(e) =>
       val ie = fromSMT(e, IntegerType())
@@ -196,6 +202,19 @@ trait SMTLIBParser {
     case _ => unhandled
   }
 
+  /** Applies an unsigned SMT-LIB operation, whose operands are parsed as signed bit-vectors unless
+    * the expected type says otherwise, on their unsigned views.
+    */
+  private def unsignedOp(op: (Expr, Expr) => Expr)(e1: Expr, e2: Expr): Expr = e1.getType match {
+    case BVType(true, _) => BVUnsignedToSigned(op(BVSignedToUnsigned(e1), BVSignedToUnsigned(e2)))
+    case _ => op(e1, e2)
+  }
+
+  private def unsignedComparison(op: (Expr, Expr) => Expr)(e1: Expr, e2: Expr): Expr = e1.getType match {
+    case BVType(true, _) => op(BVSignedToUnsigned(e1), BVSignedToUnsigned(e2))
+    case _ => op(e1, e2)
+  }
+
   protected def fromSMTBitVectors(term: Term, otpe: Option[Type])(using context: Context): Expr = term match {
     case FixedSizeBitVectors.Not(e) => BVNot(fromSMT(e, otpe))
     case FixedSizeBitVectors.Neg(e) => UMinus(fromSMT(e, otpe))
@@ -206,19 +225,19 @@ trait SMTLIBParser {
     case FixedSizeBitVectors.Sub(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Minus.apply)
     case FixedSizeBitVectors.Mul(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Times.apply)
     case FixedSizeBitVectors.SDiv(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Division.apply)
-    case FixedSizeBitVectors.UDiv(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Division.apply)
+    case FixedSizeBitVectors.UDiv(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(unsignedOp(Division.apply))
     case FixedSizeBitVectors.SRem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Remainder.apply)
-    case FixedSizeBitVectors.URem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Remainder.apply)
+    case FixedSizeBitVectors.URem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(unsignedOp(Remainder.apply))
 
     case FixedSizeBitVectors.SLessThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessThan.apply)
     case FixedSizeBitVectors.SLessEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessEquals.apply)
     case FixedSizeBitVectors.SGreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterThan.apply)
     case FixedSizeBitVectors.SGreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterEquals.apply)
 
-    case FixedSizeBitVectors.ULessThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessThan.apply)
-    case FixedSizeBitVectors.ULessEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessEquals.apply)
-    case FixedSizeBitVectors.UGreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterThan.apply)
-    case FixedSizeBitVectors.UGreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterEquals.apply)
+    case FixedSizeBitVectors.ULessThan(e1, e2) => fromSMTUnifyType(e1, e2, None)(unsignedComparison(LessThan.apply))
+    case FixedSizeBitVectors.ULessEquals(e1, e2) => fromSMTUnifyType(e1, e2, None)(unsignedComparison(LessEquals.apply))
+    case FixedSizeBitVectors.UGreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, None)(unsignedComparison(GreaterThan.apply))
+    case FixedSizeBitVectors.UGreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, None)(unsignedComparison(GreaterEquals.apply))
 
     case FixedSizeBitVectors.ShiftLeft(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVShiftLeft.apply)
     case FixedSizeBitVectors.AShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVAShiftRight.apply)
