@@ -1,0 +1,5 @@
+; A function can't equal a lambda that captures it
+(set-info :status unsat)
+(declare-const f (-> Int Int))
+(assert (= f (lambda ((x Int)) (f x))))
+(check-sat)

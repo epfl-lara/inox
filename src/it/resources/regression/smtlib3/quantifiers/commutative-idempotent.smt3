@@ -1,0 +1,14 @@
+; Princess runs this script without model checks, see QuantifiersSuite
+(set-info :status sat)
+(declare-type-var A)
+(define-fun isAssociative ((f (-> A A A))) Bool
+  (forall ((x A) (y A) (z A)) (= (f (f x y) z) (f x (f y z)))))
+(define-fun isCommutative ((f (-> A A A))) Bool
+  (forall ((x A) (y A)) (= (f x y) (f y x))))
+(define-fun isRotate ((f (-> A A A))) Bool
+  (forall ((x A) (y A) (z A)) (= (f (f x y) z) (f (f y z) x))))
+(define-fun isIdempotent ((f (-> A A A))) Bool
+  (forall ((x A) (y A)) (= (f x y) (f x (f x y)))))
+(declare-const f (-> Int Int Int))
+(assert (and (isCommutative f) (isIdempotent f) (not (= (f 1 2) (f (f 2 1) 3)))))
+(check-sat)

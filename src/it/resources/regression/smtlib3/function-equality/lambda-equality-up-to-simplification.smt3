@@ -1,0 +1,9 @@
+; Lambda bodies are simplified before being compared, so a capture that the simplifier
+; removes no longer distinguishes lambdas
+(set-info :status sat)
+(declare-const a Int)
+(declare-const b Int)
+(define-fun l ((c Int)) (-> Int Int) (lambda ((x Int)) (* c 0)))
+(assert (not (= a b)))
+(assert (= (l a) (l b)))
+(check-sat)

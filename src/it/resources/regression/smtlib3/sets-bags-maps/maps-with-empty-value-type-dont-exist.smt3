@@ -1,0 +1,7 @@
+(set-info :status unsat)
+(set-info :inox-may-be-unknown true)
+(define-type Big () (! Int :var x :restrict (> x 2000)))
+(define-type Empty () (! Int :var x :restrict false))
+(declare-const m (Array Int Empty))
+(assert (= m m))
+(check-sat)

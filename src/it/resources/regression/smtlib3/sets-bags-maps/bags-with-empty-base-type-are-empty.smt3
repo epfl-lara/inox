@@ -1,0 +1,6 @@
+(set-info :status unsat)
+(define-type Big () (! Int :var x :restrict (> x 2000)))
+(define-type Empty () (! Int :var x :restrict false))
+(declare-const b (Bag Empty))
+(assert (not (= b (as bag.empty Int))))
+(check-sat)
