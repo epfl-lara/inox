@@ -5,7 +5,7 @@ package smtlib3
 
 import smtlib.trees.Commands.{FunDef => SMTFunDef, _}
 import smtlib.trees.Terms.{Let => SMTLet, Forall => SMTForall, Identifier => SMTIdentifier, _}
-import smtlib.extensions.tip.Terms.{Lambda => SMTLambda, Application => SMTApplication, Match, Case, Default, CaseObject}
+import smtlib.extensions.tip.Terms.{Lambda => SMTLambda, Application => SMTApplication, Match, Case, Default, CaseObject, CaseClass}
 
 import inox.tip.{MissformedTIPException, TipParser}
 
@@ -20,6 +20,15 @@ import scala.language.implicitConversions
   */
 private[smtlib3] case class TypeDefinition(params: Seq[Either[inox.trees.TypeParameter, inox.trees.Variable]],
                                            body: inox.trees.Type)
+
+/** A datatype with value parameters.
+  *
+  * @param tparams the type parameters of the datatype
+  * @param params  the type parameters (`Left`) and value parameters (`Right`, with the function that
+  *                returns the parameter of a value, and the parameter's type) in declaration order
+  */
+private[smtlib3] case class IndexedSort(tparams: Seq[inox.trees.TypeParameter],
+                                        params: Seq[Either[inox.trees.TypeParameter, (inox.ast.Identifier, inox.trees.Type)]])
 
 /** Parses SMT-LIB 3 scripts (see https://smt-lib.org/version3.shtml) into Inox programs.
   *
@@ -39,7 +48,21 @@ private[smtlib3] case class TypeDefinition(params: Seq[Either[inox.trees.TypePar
   *  - SMT-LIB 2.6+ `declare-datatype(s)` and `match` syntax, and testers `(_ is c)`.
   *  - `(BitVec n)` for constant widths `n`.
   *
-  * Modules, implicit parameters (`:implicit`) and value-dependent widths and datatypes aren't supported.
+  * It also supports the following extensions, which aren't part of the SMT-LIB 3 proposal:
+  *
+  *  - Tuples in the syntax of cvc5, `(Tuple A B)`, `(tuple a b)` and `((_ tuple.select i) t)`, whose
+  *    components may bind variables like the parameters of function types: dependent tuples
+  *    `(Tuple (! Int :var n) (! Int :var m :restrict (> m n)))` become Inox `SigmaType`s.
+  *  - Dependent datatype fields: field types may refer to the other fields of their constructor and
+  *    carry `:restrict` annotations, as Inox ADT fields have dependent types. The `:restrict`
+  *    annotations of constructors refine the type of their last field.
+  *  - Datatype value parameters `(par (E (! Int :var n)) ...)`. Each constructor stores them in
+  *    leading hidden fields, to which the other field types may refer, which constructor
+  *    applications take as their first arguments (or from the type in `(as c T)`), and which
+  *    patterns omit. The type `(Vec E 3)` is the refinement of the datatype type whose value
+  *    parameter is 3.
+  *
+  * Modules, implicit parameters (`:implicit`) and value-dependent widths aren't supported.
   * Constants of function type are free variables of the corresponding (dependent) function type, so
   * that they appear in models, unless their type mentions type variables. In that case, they are
   * declared as polymorphic functions, which hold their codomain refinements in their domain only.
@@ -58,6 +81,12 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
   private var typeVars: Seq[TypeParameter] = Seq.empty
 
   private var typeDefs: Map[SSymbol, TypeDefinition] = Map.empty
+
+  /** The datatypes with value parameters. */
+  private var indexedSorts: Map[Identifier, IndexedSort] = Map.empty
+
+  /** The number of leading hidden fields of the constructors of datatypes with value parameters. */
+  private var hiddenFields: Map[Identifier, Int] = Map.empty
 
   private def error(reason: String, pos: Option[smtlib.common.Position]): Nothing =
     throw new MissformedTIPException(reason, pos)
@@ -116,6 +145,12 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
     val body = Choose(ValDef.fresh("res", returnType), BooleanLiteral(true))
     new FunDef(FreshIdentifier(sym.name), tps.map(TypeParameterDef(_)), params, returnType, body, Seq.empty)
       .setPos(sym.optPos)
+  }
+
+  /** `tpe` without its top-level refinements. */
+  private def stripRefinements(tpe: Type): Type = tpe match {
+    case RefinementType(vd, _) => stripRefinements(vd.tpe)
+    case _ => tpe
   }
 
   override protected def extractCommand(cmd: Command)(using locals: Locals): (Option[Expr], Locals) = cmd match {
@@ -180,27 +215,102 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
 
     case DeclareDatatypesWithPars(datatypes) =>
       var locs = locals
-        .withSorts(datatypes.map { case (sym, _, _) => sym -> FreshIdentifier(sym.name) })
-        .withConstructors(datatypes.flatMap { case (_, _, conss) =>
-          conss.map(c => c.sym -> FreshIdentifier(c.sym.name))
-        })
+        .withSorts(datatypes.map(d => d.name -> FreshIdentifier(d.name.name)))
+        .withConstructors(datatypes.flatMap(_.constructors.map(c => c.sym -> FreshIdentifier(c.sym.name))))
 
-      val sorts = for ((sym, tps, conss) <- datatypes) yield {
-        val generics = tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos))
-        val adtLocals = locs.withGenerics(generics)
-        val sortId = locs.getSort(sym)
-        val constructors = for (Constructor(c, fields) <- conss) yield {
-          val vds = fields.map { case (s, sort) =>
-            ValDef.fresh(s.name, adtLocals.extractSort(sort)).setPos(s.optPos)
-          }
-          locs = locs.withSelectors((fields zip vds).map { case ((s, _), vd) => s -> vd.id })
-          new ADTConstructor(locs.getConstructor(c), sortId, vds).setPos(c.optPos)
+      // The parameters are known before the fields, which may refer to any of the datatypes
+      val headers = for (d <- datatypes) yield {
+        val sortId = locs.getSort(d.name)
+        var paramLocals = locs
+        val params = d.params.map {
+          case TypeParam(s) =>
+            val tp = TypeParameter.fresh(s.name).setPos(s.optPos)
+            paramLocals = paramLocals.withGeneric(s, tp)
+            Left(tp)
+          case ValueParam(va @ VarAnnotation(base, Some(n), _, restrictions, _)) =>
+            Right((n, FreshIdentifier(d.name.name + "$" + n.name), base, restrictions, va))
+          case p => error(s"unexpected datatype parameter $p", d.name.optPos)
         }
-        val tparams = generics.map { case (s, tp) => TypeParameterDef(tp).setPos(s.optPos) }
-        new ADTSort(sortId, tparams, constructors, Seq.empty).setPos(sym.optPos)
+        val tparams = params.collect { case Left(tp) => tp }
+        val valueParams = params.collect { case Right((n, id, base, restrictions, va)) =>
+          (n, id, paramLocals.extractSort(TermSort(base).setPos(va)), restrictions)
+        }
+        if (valueParams.nonEmpty) {
+          var vps = valueParams
+          indexedSorts += sortId -> IndexedSort(tparams, params.map {
+            case Left(tp) => Left(tp)
+            case Right(_) =>
+              val (_, id, tpe, _) = vps.head
+              vps = vps.tail
+              Right((id, tpe))
+          })
+        }
+        (d, sortId, tparams, valueParams, paramLocals)
       }
 
-      (None, locs.registerSorts(sorts))
+      // The field types may refer to the other fields of their constructor, as Inox ADT fields can
+      val sortsAndFuns = for ((d, sortId, tparams, valueParams, paramLocals) <- headers) yield {
+        val constructors = for (ConstructorDec(c, fields, restrictions) <- d.constructors) yield {
+          var fieldLocals = paramLocals
+
+          val hidden = valueParams.map { case (n, _, tpe, restrictions) =>
+            val vd = ValDef.fresh(n.name, tpe).setPos(n.optPos)
+            val refined = if (restrictions.isEmpty) vd else {
+              val rvd = vd.freshen
+              val restrictionLocals = fieldLocals.withVariable(n, rvd.toVariable)
+              vd.copy(tpe = RefinementType(rvd, andJoin(restrictions.map(restrictionLocals.extractTerm))))
+            }
+            fieldLocals = fieldLocals.withVariable(n, refined.toVariable)
+            refined
+          }
+
+          val vds = fields.map { case (s, sort) =>
+            val vd = ValDef.fresh(s.name, fieldLocals.extractSort(sort)).setPos(s.optPos)
+            fieldLocals = fieldLocals.withVariable(s, vd.toVariable)
+            vd
+          }
+
+          // The restrictions of the constructor refine the type of its last field, where all fields are bound
+          val allFields = hidden ++ vds
+          val restricted = if (restrictions.isEmpty) allFields else allFields.lastOption match {
+            case Some(last) =>
+              val rvd = last.freshen
+              val pred = exprOps.replaceFromSymbols(Map(last.toVariable -> rvd.toVariable),
+                andJoin(restrictions.map(fieldLocals.extractTerm)))
+              allFields.init :+ last.copy(tpe = RefinementType(rvd, pred))
+            case None =>
+              error(s"constructor $c has no field to restrict", c.optPos)
+          }
+          // the references to the last field now refer to its refined version
+          val fieldSubst: Map[Variable, Expr] = (allFields zip restricted).collect {
+            case (vd, rvd) if vd != rvd => vd.toVariable -> rvd.toVariable
+          }.toMap
+          val finalFields = restricted.map(vd => vd.copy(tpe = typeOps.replaceFromSymbols(fieldSubst, vd.tpe)))
+
+          locs = locs.withSelectors((fields zip finalFields.drop(hidden.size)).map { case ((s, _), vd) => s -> vd.id })
+          val consId = locs.getConstructor(c)
+          if (hidden.nonEmpty) hiddenFields += consId -> hidden.size
+          (new ADTConstructor(consId, sortId, finalFields).setPos(c.optPos), hidden.size)
+        }
+
+        val tparamDefs = tparams.map(tp => TypeParameterDef(tp).setPos(tp))
+        val thiss = ValDef.fresh("this", ADTType(sortId, tparams)).setPos(d.name.optPos)
+
+        // The function that returns each value parameter
+        val selectors = valueParams.zipWithIndex.map { case ((n, id, tpe, _), i) =>
+          val cases = constructors.map { case (cons, _) => cons -> ADTSelector(thiss.toVariable, cons.fields(i).id) }
+          val body = cases.init.foldRight(cases.last._2: Expr) { case ((cons, sel), elze) =>
+            IfExpr(IsConstructor(thiss.toVariable, cons.id), sel, elze)
+          }
+          new FunDef(id, tparamDefs, Seq(thiss), tpe, body, Seq.empty).setPos(n.optPos)
+        }
+
+        val sort = new ADTSort(sortId, tparamDefs, constructors.map(_._1), Seq.empty).setPos(d.name.optPos)
+        (sort, selectors)
+      }
+
+      locs = locs.registerSorts(sortsAndFuns.map(_._1))
+      (None, locs.withSymbols(locs.symbols.withFunctions(sortsAndFuns.flatMap(_._2))))
 
     case _: Push | _: Pop =>
       error("push and pop are not supported", cmd.optPos)
@@ -261,6 +371,41 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
       case VarAnnotation(t, _, _, _, _) => fromSMT(t, otpe)
 
       case BinderApplication(binder, body) => quantified(binder, fromSMT(body), term)
+
+      case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("tuple")), None), args)
+      if args.size >= 2 && !ctx.isVariable(SSymbol("tuple")) && !ctx.isFunction(SSymbol("tuple")) =>
+        Tuple(args.map(fromSMT(_)))
+
+      case FunctionApplication(QualifiedIdentifier(SMTIdentifier(SSymbol("tuple.select"), Seq(SNumeral(i))), None), Seq(t)) =>
+        TupleSelect(fromSMT(t), i.toInt + 1)
+
+      case QualifiedIdentifier(SimpleIdentifier(sym), Some(sort)) if ctx.isConstructor(sym) && !ctx.isVariable(sym) =>
+        construct(sym, sort, Seq.empty, term)
+
+      case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), Some(sort)), args)
+      if ctx.isConstructor(sym) && !ctx.isVariable(sym) =>
+        construct(sym, sort, args, term)
+
+      case QualifiedIdentifier(SimpleIdentifier(sym), None) if hidden(sym) > 0 && !ctx.isVariable(sym) =>
+        error(s"constructor $sym needs the values of its datatype's parameters, e.g. with (as $sym T)", term.optPos)
+
+      case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), args)
+      if hidden(sym) > 0 && !ctx.isVariable(sym) &&
+         args.size != symbols.getConstructor(ctx.getConstructor(sym)).fields.size =>
+        error(s"constructor $sym takes the values of its datatype's parameters first, or use (as $sym T)", term.optPos)
+
+      case Match(scrut, cases) if cases.exists {
+        case Case(CaseClass(sym, binders), _) =>
+          hidden(sym) > 0 && binders.size + hidden(sym) == symbols.getConstructor(ctx.getConstructor(sym)).fields.size
+        case _ => false
+      } =>
+        // patterns omit the hidden fields
+        fromSMT(Match(scrut, cases.map {
+          case Case(CaseClass(sym, binders), rhs)
+          if hidden(sym) > 0 && binders.size + hidden(sym) == symbols.getConstructor(ctx.getConstructor(sym)).fields.size =>
+            Case(CaseClass(sym, List.tabulate(hidden(sym))(i => SSymbol(FreshIdentifier("hidden").uniqueName)) ++ binders), rhs)
+          case cse => cse
+        }).setPos(term), otpe)
 
       case SMTApplication(caller, args) => apply(fromSMT(caller), args.map(fromSMT(_)), term)
 
@@ -326,8 +471,11 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
         error(s"restrictions need a variable (:var) to refer to in $term", term.optPos)
     }
 
-    /** The (possibly dependent) function type `(-> A1 ... An B)`. */
-    private def arrowType(types: Seq[Term], term: Term)(using ctx: Context): Type = {
+    /** The (possibly dependent) types `(A1 ... An B)` of function parameters and results, or of tuples.
+      *
+      * The types `Ai` may bind variables with `(! Ai :var x)`, to which the next types may refer.
+      * @return whether the types are dependent, the `Ai` and `B` */
+    private def telescope(types: Seq[Term], term: Term)(using ctx: Context): (Boolean, Seq[ValDef], Type) = {
       var context = ctx
       var dependent = false
       val params = types.init.map {
@@ -344,8 +492,80 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
           if (tpe.isInstanceOf[RefinementType]) dependent = true
           ValDef.fresh("x", tpe).setPos(t.optPos)
       }
-      val to = typeFromTerm(types.last)(using context)
-      if (dependent) PiType(params, to) else FunctionType(params.map(_.tpe), to)
+      (dependent, params, typeFromTerm(types.last)(using context))
+    }
+
+    /** The (possibly dependent) function type `(-> A1 ... An B)`. */
+    private def arrowType(types: Seq[Term], term: Term)(using Context): Type = telescope(types, term) match {
+      case (true, params, to) => PiType(params, to)
+      case (false, params, to) => FunctionType(params.map(_.tpe), to)
+    }
+
+    /** The (possibly dependent) tuple type `(Tuple A1 ... An B)`. */
+    private def tupleType(types: Seq[Term], term: Term)(using Context): Type = telescope(types, term) match {
+      case (true, params, to) => SigmaType(params, to)
+      case (false, params, to) => TupleType(params.map(_.tpe) :+ to)
+    }
+
+    private def indexedSort(sym: SSymbol)(using ctx: Context): Option[(Identifier, IndexedSort)] =
+      if (ctx.isGeneric(sym) || !ctx.isSort(sym)) None
+      else indexedSorts.get(ctx.getSort(sym)).map(ctx.getSort(sym) -> _)
+
+    /** The type arguments and the value arguments of the datatype `id` with value parameters. */
+    private def indexedArgs(id: Identifier, is: IndexedSort, args: Seq[Term], term: Term)
+                           (using Context): (Seq[Type], Option[Seq[(Identifier, Expr)]]) = {
+      val nTypes = is.params.count(_.isLeft)
+      if (args.size == nTypes) {
+        (args.map(typeFromTerm), None)
+      } else if (args.size == is.params.size) {
+        val tps = (is.params zip args).collect { case (Left(_), arg) => typeFromTerm(arg) }
+        val tpSubst: Map[TypeParameter, Type] = (is.tparams zip tps).toMap
+        val values = (is.params zip args).collect { case (Right((fid, tpe)), arg) =>
+          fid -> fromSMT(arg, typeOps.instantiateType(tpe, tpSubst))
+        }
+        (tps, Some(values))
+      } else {
+        error(s"${id.name} expects ${nTypes} type arguments, or ${is.params.size} arguments", term.optPos)
+      }
+    }
+
+    /** The type `(S T1 ... v1 ...)` of the datatype `S` with value parameters, whose values are the
+      * values of `S` whose value parameters are `v1 ...`. */
+    private def indexedType(id: Identifier, is: IndexedSort, args: Seq[Term], term: Term)(using Context): Type = {
+      indexedArgs(id, is, args, term) match {
+        case (tps, None) => ADTType(id, tps)
+        case (tps, Some(values)) =>
+          val vd = ValDef.fresh(id.name.toLowerCase, ADTType(id, tps))
+          RefinementType(vd, andJoin(values.map { case (fid, v) =>
+            Equals(FunctionInvocation(fid, tps, Seq(vd.toVariable)), v)
+          }))
+      }
+    }
+
+    /** The values of the hidden fields of constructors of the datatype type `sort`. */
+    private def hiddenValues(sort: Sort, term: Term)(using ctx: Context): Option[Seq[Expr]] =
+      TermSort.toTerm(sort) match {
+        case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), args) =>
+          indexedSort(sym).flatMap { case (id, is) => indexedArgs(id, is, args, term)._2.map(_.map(_._2)) }
+        case _ => None
+      }
+
+    private def hidden(sym: SSymbol)(using ctx: Context): Int =
+      if (ctx.isConstructor(sym)) hiddenFields.getOrElse(ctx.getConstructor(sym), 0) else 0
+
+    /** Applies the constructor `sym` of the datatype type `sort` to `args`, after its hidden fields. */
+    private def construct(sym: SSymbol, sort: Sort, args: Seq[Term], term: Term)(using ctx: Context): Expr = {
+      val cons = symbols.getConstructor(ctx.getConstructor(sym))
+      val tps = stripRefinements(fromSMT(sort)) match {
+        case ADTType(_, tps) => tps
+        case tpe => error(s"unexpected type $tpe for constructor $sym", term.optPos)
+      }
+      val tcons = cons.typed(tps)
+      val hiddenArgs = if (args.size + hidden(sym) == cons.fields.size && hidden(sym) > 0) {
+        hiddenValues(sort, term).getOrElse(error(s"missing values of the parameters of $sym in $term", term.optPos))
+      } else Seq.empty
+      val es = hiddenArgs ++ (args zip tcons.fields.drop(hiddenArgs.size)).map { case (a, vd) => fromSMT(a, vd.getType) }
+      ADT(cons.id, tps, es)
     }
 
     /** The type `sym` defined with `define-type`, instantiated with `args`. */
@@ -376,6 +596,14 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
       case VarAnnotation(base, name, _, restrictions, _) =>
         restricted(name, typeFromTerm(base), restrictions, term)
 
+      case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("Tuple")), None), types)
+      if types.size >= 2 && !ctx.isSort(SSymbol("Tuple")) =>
+        tupleType(types, term)
+
+      case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), args) if indexedSort(sym).isDefined =>
+        val Some((id, is)) = indexedSort(sym): @unchecked
+        indexedType(id, is, args, term)
+
       case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("BitVec")), None), Seq(size)) =>
         BVType(true, constant(size))
 
@@ -393,7 +621,9 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
 
     override protected def fromSMT(sort: Sort)(using ctx: Context): Type = sort match {
       case ts: TermSort => typeFromTerm(ts.term)
-      case Sort(SimpleIdentifier(sym), sorts) if (isArrow(sym) && sorts.size >= 2) || isTypeDef(sym) =>
+      case Sort(SimpleIdentifier(sym), sorts)
+      if (isArrow(sym) && sorts.size >= 2) || (sym.name == "Tuple" && sorts.size >= 2 && !ctx.isSort(sym)) ||
+         isTypeDef(sym) || (sorts.nonEmpty && indexedSort(sym).isDefined) =>
         typeFromTerm(TermSort.toTerm(sort))
       case _ => super.fromSMT(sort)
     }

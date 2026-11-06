@@ -12,7 +12,10 @@ class ParserSuite extends AnyFunSuite {
   import solvers._
 
   given ctx: Context = TestContext(Options(Seq(
-    optSelectedSolvers(Set("nativez3")),
+    optSelectedSolvers(Set(
+      if (SolverFactory.hasNativeZ3) "nativez3"
+      else if (SolverFactory.hasZ3) "smt-z3"
+      else "princess")),
     optCheckModels(true),
     optTimeout(10),
   )))
@@ -34,7 +37,9 @@ class ParserSuite extends AnyFunSuite {
       assert(fd.fullBody.isTyped, s"ill-typed function: $fd")
     }
     val res = SimpleSolverAPI(program.getSolver).solveSAT(expr)
-    if (res.isSAT) "sat" else if (res.isUNSAT) "unsat" else "unknown"
+    if (res.isSAT) "sat" else if (res.isUNSAT) "unsat" else {
+      "unknown: " + ctx.reporter.asInstanceOf[TestSilentReporter].lastErrors.mkString("\n")
+    }
   }
 
   private def assertSAT(script: String): Unit = assert(solve(script) == "sat")
@@ -204,6 +209,68 @@ class ParserSuite extends AnyFunSuite {
         |            ((_ is nil) (cons 1 (as nil (List Int))))
         |            (not (is-cons (cons 1 (as nil (List Int)))))))
         |(check-sat)""".stripMargin)
+  }
+
+  test("tuples and dependent tuples") {
+    val plain = "(declare-const p (Tuple Int Bool))\n(assert (= p (tuple 1 true)))"
+    assert(typeOf(plain, "p") == TupleType(Seq(IntegerType(), BooleanType())))
+    assertSAT(plain + "\n(check-sat)")
+
+    val dependent =
+      """(declare-const p (Tuple (! Int :var n) (! Int :var m :restrict (> m n))))
+        |(assert (<= ((_ tuple.select 1) p) ((_ tuple.select 0) p)))""".stripMargin
+    typeOf(dependent, "p") match {
+      case SigmaType(Seq(_), RefinementType(_, pred)) =>
+        assert(exprOps.variablesOf(pred).exists(_.id.name == "n"), s"second component doesn't depend on n: $pred")
+      case tpe => fail(s"unexpected type $tpe")
+    }
+    assertUNSAT(dependent + "\n(check-sat)")
+    assertSAT("(declare-const p (Tuple (! Int :var n) (! Int :var m :restrict (> m n))))\n" +
+      "(assert (= ((_ tuple.select 0) p) 3))\n(check-sat)")
+  }
+
+  test("dependent datatype fields") {
+    val interval =
+      """(declare-datatype Interval ((mk (lo Int) (hi (! Int :var h :restrict (<= lo h))))))
+        |(declare-const i Interval)
+        |""".stripMargin
+    assertUNSAT(interval + "(assert (< (hi i) (lo i)))\n(check-sat)")
+    assertUNSAT(interval + "(assert (= i (mk 3 1)))\n(check-sat)")
+    assertSAT(interval + "(assert (= i (mk 1 3)))\n(check-sat)")
+
+    val (program, _) = parseOne(interval + "(assert (= (lo i) 0))\n(check-sat)")
+    val Seq(sort) = program.symbols.sorts.values.toSeq: @unchecked
+    assert(sort.flags.isEmpty, "dependent fields shouldn't need an invariant")
+    sort.constructors.head.fields.last.tpe match {
+      case RefinementType(_, pred) => assert(exprOps.variablesOf(pred).exists(_.id.name == "lo"))
+      case tpe => fail(s"unexpected field type $tpe")
+    }
+  }
+
+  test("datatype value parameters") {
+    val vec =
+      """(declare-datatype Vec (par (E (! Int :var n))
+        |  ((vnil :restrict (= n 0))
+        |   (vcons (head E) (tail (Vec E (- n 1))) :restrict (> n 0)))))
+        |(define-fun-rec sum ((v (Vec Int))) Int (match v ((vnil 0) ((vcons h t) (+ h (sum t))))))
+        |""".stripMargin
+
+    assertUNSAT(vec + "(declare-const v (Vec Int 2))\n(assert (is-vnil v))\n(check-sat)")
+    assertUNSAT(vec + "(declare-const v (Vec Int 2))\n(assert (is-vcons (tail (tail v))))\n(check-sat)")
+    assertSAT(vec + "(declare-const v (Vec Int 1))\n(assert (= (head v) 5))\n(check-sat)")
+
+    // constructors take the parameters first, or from their type
+    assertUNSAT(vec +
+      """(assert (or (not (= (sum (vcons 2 1 (vcons 1 2 (as vnil (Vec Int 0))))) 3))
+        |            (not (= (vcons 1 2 (as vnil (Vec Int 0))) ((as vcons (Vec Int 1)) 2 (as vnil (Vec Int 0)))))))
+        |(check-sat)""".stripMargin)
+
+    // a vector whose length doesn't match its parameter is ill-formed
+    assertUNSAT(vec + "(declare-const v (Vec Int 1))\n(assert (= v (vcons 1 2 (vcons 2 3 (as vnil (Vec Int 0))))))\n(check-sat)")
+
+    intercept[tip.MissformedTIPException] {
+      parse(vec + "(assert (= (sum vnil) 0))\n(check-sat)")
+    }
   }
 
   test("TIP syntax") {
