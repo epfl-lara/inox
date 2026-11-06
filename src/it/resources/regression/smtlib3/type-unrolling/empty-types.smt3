@@ -2,6 +2,8 @@
 ; built from them. The solver mustn't prove that such a type is inhabited, so a quantifier that
 ; only holds when its domain is empty may be satisfiable (sat or unknown), unless the query has a
 ; value of that type. See also `quantifier-over-an-empty-refinement`.
+; The function case compares a function with itself to mention it
+(set-option :function-equality intensional)
 
 (declare-datatype Foo ((foo (n Int))))
 (datatype-invariant x Foo false)

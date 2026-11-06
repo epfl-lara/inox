@@ -78,7 +78,7 @@ object FunctionEquality {
 object optFunctionEquality extends OptionDef[FunctionEquality] {
   val name: String = "function-equality"
   val usageRhs: String = "none|intensional|extensional"
-  val default: FunctionEquality = FunctionEquality.Intensional
+  val default: FunctionEquality = FunctionEquality.None
   override def formatDefault: String = default.toString.toLowerCase
 
   override def parser: OptionParsers.OptionParser[FunctionEquality] = s =>

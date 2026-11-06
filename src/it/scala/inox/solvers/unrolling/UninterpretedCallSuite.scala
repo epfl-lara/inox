@@ -297,7 +297,7 @@ class UninterpretedCallSuite extends UnrollingTestSuite {
     val f2 = FreshIdentifier("f2")
     def closure(f: Identifier) = Lambda(Seq(), UninterpretedCall(f, Seq(), Seq(), FunctionType(Seq(), IntegerType())))
     val model = inox.Model(program)(Map.empty, Map((f1, Seq()) -> Lambda(Seq(), E(BigInt(1))), (f2, Seq()) -> Lambda(Seq(), E(BigInt(1)))))
-    val evaluator = program.getEvaluator
+    val evaluator = program.getEvaluator(ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional)))
     assert(evaluator.eval(Application(closure(f1), Seq()), model).result == Some(IntegerLiteral(1)))
     assert(evaluator.eval(closure(f1) === closure(f2), model).result == Some(BooleanLiteral(false)))
     assert(evaluator.eval(closure(f1) === closure(f1), model).result == Some(BooleanLiteral(true)))

@@ -62,7 +62,8 @@ class HOFModelSuite extends SolverTestSuite {
     val a = ("a" :: I).toVariable
     val l1 = \("x" :: I)(x => x + a)
     val l2 = \("x" :: I)(x => x - a)
-    assertSAT(ctx, t === Tuple(Seq(l1, l2)) && a === E(BigInt(1)))
+    assertSAT(ctx.withOpts(unrolling.optFunctionEquality(unrolling.FunctionEquality.Intensional)),
+      t === Tuple(Seq(l1, l2)) && a === E(BigInt(1)))
   }
 
   test("higher-order free function with two function parameters", Integers, Functions) { ctx =>
