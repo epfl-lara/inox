@@ -157,6 +157,28 @@ class MainSuite extends AnyFunSuite {
     assert(optFormat.parser("xml").isEmpty)
   }
 
+  test("SMT-LIB 3 inputs are read with --format=smtlib3 or from .smt3 files") {
+    val main = new TestMain
+    import main.{optFormat, SMTLIB3}
+    assert(optFormat.parser("smtlib3") == Some(SMTLIB3))
+    assert(optFormat.parser("smt3") == Some(SMTLIB3))
+
+    val script = "(declare-const f (-> (! Int :var n :restrict (> n 0)) Int))\n(assert (= (f 1) 2))\n(check-sat)\n"
+    withFiles(script) { case Seq(file) =>
+      val main = new TestMain
+      assert(!main.exitCode("--solvers=princess", "--format=smtlib3", file))
+      assert(main.messages.contains(s"$file => SAT"), main.output)
+
+      val smt3 = file.stripSuffix(".tip") + ".smt3"
+      Files.copy(new File(file).toPath, new File(smt3).toPath)
+      try {
+        val main = new TestMain
+        assert(!main.exitCode("--solvers=princess", smt3))
+        assert(main.messages.contains(s"$smt3 => SAT"), main.output)
+      } finally Files.deleteIfExists(new File(smt3).toPath)
+    }
+  }
+
   test("Binary files are solved from the named function's body") {
     import inox.trees._
     import inox.trees.dsl._

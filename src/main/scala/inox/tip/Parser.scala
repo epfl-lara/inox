@@ -34,8 +34,7 @@ class Parser(reader: Reader, file: Option[File]) {
   }
 
   def parseScript: Seq[(InoxProgram, Expr)] = {
-    val parser = new TipParser(new TipLexer(positions.reader))
-    val script = parser.parseScript
+    val script = newParser(positions.reader).parseScript
 
     var assertions: Seq[Expr] = Seq.empty
     var locals: Locals = NoLocals
@@ -52,6 +51,12 @@ class Parser(reader: Reader, file: Option[File]) {
         None
     }).flatten
   }
+
+  /** The S-expression parser used by [[parseScript]]; subclasses may extend the input syntax. */
+  protected def newParser(reader: Reader): TipParser = new TipParser(new TipLexer(reader))
+
+  /** The term extractor used by [[Locals]]; subclasses may extend the supported terms and sorts. */
+  protected def newExtractor(symbols: Symbols): TermExtractor = new TermExtractor(symbols)
 
   protected class Locals (
     funs: Map[SSymbol, Identifier],
@@ -124,7 +129,7 @@ class Parser(reader: Reader, file: Option[File]) {
 
     def withSymbols(symbols: Symbols) = new Locals(funs, sorts, constructors, selectors, vars, tps, symbols)
 
-    object extractor extends TermExtractor(self.symbols)
+    lazy val extractor: TermExtractor = newExtractor(self.symbols)
 
     def extractTerm(term: Term): Expr = extractor.extractTerm(term)(using this)
     def extractSort(sort: Sort): Type = extractor.extractSort(sort)(using this)
@@ -306,7 +311,7 @@ class Parser(reader: Reader, file: Option[File]) {
       throw new MissformedTIPException("unknown TIP command " + cmd, cmd.optPos)
   }
 
-  private def extractSignature(fd: FunDec, tps: Seq[SSymbol])(using locals: Locals): FunDef = {
+  protected def extractSignature(fd: FunDec, tps: Seq[SSymbol])(using locals: Locals): FunDef = {
     assert(!locals.isFunction(fd.name))
     val id = FreshIdentifier(fd.name.name)
     val tparams = tps.map(sym => TypeParameterDef(locals.getGeneric(sym)).setPos(sym.optPos))
@@ -321,11 +326,11 @@ class Parser(reader: Reader, file: Option[File]) {
     new FunDef(id, tparams, params, returnType, body, Seq.empty).setPos(fd.name.optPos)
   }
 
-  private def extractSignature(fd: SMTFunDef, tps: Seq[SSymbol])(using locals: Locals): FunDef = {
+  protected def extractSignature(fd: SMTFunDef, tps: Seq[SSymbol])(using locals: Locals): FunDef = {
     extractSignature(FunDec(fd.name, fd.params, fd.returnSort), tps)
   }
 
-  private def extractFunction(fd: SMTFunDef, tps: Seq[SSymbol])(using locals: Locals): FunDef = {
+  protected def extractFunction(fd: SMTFunDef, tps: Seq[SSymbol])(using locals: Locals): FunDef = {
     val sig = if (locals.isFunction(fd.name)) {
       locals.symbols.getFunction(locals.getFunction(fd.name))
     } else {
@@ -341,7 +346,7 @@ class Parser(reader: Reader, file: Option[File]) {
     new FunDef(sig.id, sig.tparams, sig.params, sig.returnType, fullBody, Seq.empty).setPos(fd.name.optPos)
   }
 
-  private def isConstructorSymbol(sym: SSymbol)(using locals: Locals): Option[Identifier] = {
+  protected def isConstructorSymbol(sym: SSymbol)(using locals: Locals): Option[Identifier] = {
     if (sym.name.startsWith("is-")) {
       val adtSym = SSymbol(sym.name.split("-").tail.mkString("-"))
       locals.lookupConstructor(adtSym)
@@ -350,7 +355,7 @@ class Parser(reader: Reader, file: Option[File]) {
     }
   }
 
-  private def instantiateTypeParams(tps: Seq[TypeParameterDef], formals: Seq[Type], actuals: Seq[Type])
+  protected def instantiateTypeParams(tps: Seq[TypeParameterDef], formals: Seq[Type], actuals: Seq[Type])
                                    (using locals: Locals): Seq[Type] = {
     assert(formals.size == actuals.size)
 
@@ -375,8 +380,8 @@ class Parser(reader: Reader, file: Option[File]) {
     }
   }
 
-  class TermExtractor private(override val trees: inox.trees.type,
-                              override val symbols: Symbols) extends solvers.smtlib.SMTLIBParser {
+  class TermExtractor protected(override val trees: inox.trees.type,
+                                override val symbols: Symbols) extends solvers.smtlib.SMTLIBParser {
     def this(symbols: Symbols) = this(inox.trees, symbols)
 
     import trees.{given, _}
