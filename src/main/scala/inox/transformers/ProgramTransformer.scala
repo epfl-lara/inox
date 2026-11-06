@@ -29,6 +29,9 @@ trait ProgramTransformer { self =>
   def encode(tpe: sourceProgram.trees.Type) = encoder.transform(tpe)
   def decode(tpe: targetProgram.trees.Type) = decoder.transform(tpe)
 
+  def encode(fd: sourceProgram.trees.FunDef) = encoder.transform(fd)
+  def decode(fd: targetProgram.trees.FunDef) = decoder.transform(fd)
+
   def compose(that: ProgramTransformer { val targetProgram: self.sourceProgram.type }): ProgramTransformer {
     val sourceProgram: that.sourceProgram.type
     val targetProgram: self.targetProgram.type

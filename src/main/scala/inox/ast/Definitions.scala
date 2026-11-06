@@ -298,6 +298,13 @@ trait Definitions { self: Trees =>
   /** Denotes that this adt has an overriden equality relation given by ''id'' */
   sealed case class HasADTEquality(id: Identifier) extends Flag("equality", Seq(id))
 
+  /** Denotes a function that a model defines, such as the body of an extracted function value.
+    *
+    * Calls to it are never lifted out of lambdas: two closures that call different model functions
+    * are different values, even if the functions return the same results.
+    */
+  case object ModelFunction extends Flag("model", Seq.empty)
+
   /** Compiler annotations given in the source code as @annot.
     *
     * @see [[Flag]] for some notes on the actual type of [[args]]. */

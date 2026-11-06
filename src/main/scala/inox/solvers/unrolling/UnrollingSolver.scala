@@ -254,6 +254,9 @@ abstract class AbstractUnrollingSolver private
 
     def getChoose(id: Identifier): Option[t.Expr]
 
+    /** The definitions of the underlying model, called by its values. */
+    def getFunctions: Seq[t.FunDef] = Seq.empty
+
     def eval(elem: Encoded, tpe: Type): Option[Expr] = modelEval(elem, encode(tpe)).flatMap {
       expr => try {
         Some(decode(expr))
@@ -318,7 +321,7 @@ abstract class AbstractUnrollingSolver private
       val modelCs = vs.values.toSeq.flatMap(e => choosesOf(e, Seq.empty)) ++
         (cs ++ freeCs).flatMap { case ((id, tps), e) => choosesOf(e, tps) }
 
-      inox.Model(program)(vs, cs ++ freeCs ++ modelCs)
+      inox.Model(program)(vs, cs ++ freeCs ++ modelCs, getFunctions.map(programEncoder.decode(_)))
     }
   }
 
@@ -384,12 +387,12 @@ abstract class AbstractUnrollingSolver private
       case ((v, value), e) => Let(v, value, e)
     }
 
-    val evaluator = semantics.getEvaluator(using context.withOpts(
+    val evaluator = semantics.withFunctions(model.functions).getEvaluator(using context.withOpts(
       optSilentErrors(silenceErrors),
       optCheckModels(checkModels || feelingLucky)
     ))
 
-    evaluator.eval(newExpr, inox.Model(program)(Map.empty, model.chooses)) match {
+    evaluator.eval(newExpr, inox.Model(program)(Map.empty, model.chooses, model.functions)) match {
       case EvaluationResults.Successful(BooleanLiteral(true)) =>
         reporter.debug("- Model validated.")
         true
@@ -710,7 +713,7 @@ abstract class AbstractUnrollingSolver private
       }.get
     }
     val chooses = exChooses.map(p => (p._1.res.id, Seq.empty[s.Type]) -> decodeOrSimplest(p._2))
-    inox.Model(program)(exModel.vars, exModel.chooses ++ chooses)
+    inox.Model(program)(exModel.vars, exModel.chooses ++ chooses, exModel.functions)
   }
 
   protected val emptyModel: Model =
@@ -1094,13 +1097,13 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     def decodePartial(e: Expr, tpe: Type): Option[Expr] = Some(e)
   }
 
-  protected lazy val modelEvaluator: DeterministicEvaluator { val program: self.targetProgram.type } =
-    targetSemantics.getEvaluator(using context.withOpts(optIgnoreContracts(true)))
+  protected lazy val modelEvalContext: Context = context.withOpts(optIgnoreContracts(true))
 
   protected def declareVariable(v: t.Variable): t.Variable = v
   protected def wrapModel(model: targetProgram.Model): ModelWrapper = ModelWrapperImpl(model)
 
   private case class ModelWrapperImpl(model: targetProgram.Model) extends ModelWrapper {
+    private lazy val modelEvaluator = targetSemantics.withFunctions(model.functions).getEvaluator(using modelEvalContext)
     private def e(expr: t.Expr): Option[t.Expr] = modelEvaluator.eval(expr, model).result
 
     def extractConstructor(elem: t.Expr, tpe: t.ADTType): Option[Identifier] = e(elem) match {
@@ -1127,6 +1130,8 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     def getChoose(id: Identifier): Option[t.Expr] = model.chooses.collectFirst {
       case ((cid, tps), e) if cid == id && tps.isEmpty => e
     }
+
+    override def getFunctions: Seq[t.FunDef] = model.functions
 
     override def toString = model.asString(using targetProgram.printerOpts)
   }

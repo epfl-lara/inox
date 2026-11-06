@@ -63,7 +63,7 @@ class UninterpretedZ3Solver(override val program: Program, override val context:
 
   private def completeModel(model: program.Model): program.Model = {
     val allVars = freeVars.map(v => v.toVal -> model.vars.getOrElse(v.toVal, simplestValue(v.getType))).toMap
-    inox.Model(program)(allVars, model.chooses)
+    inox.Model(program)(allVars, model.chooses, model.functions)
   }
 
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
