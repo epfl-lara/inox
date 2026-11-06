@@ -23,14 +23,20 @@ trait AbstractZ3Solver
 
   private val solver: ScalaZ3Solver = z3.mkSolver()
 
+  // Z3 throws when it is interrupted during a push or pop. As for checks, the interrupted
+  // query then ends as Unknown, so we record which pushes reached Z3 to pop only those.
+  private var z3Scopes: List[Boolean] = Nil
+
   override def push(): Unit = {
     super.push()
-    solver.push()
+    z3Scopes = tryZ3(solver.push()).isDefined :: z3Scopes
   }
 
   override def pop(): Unit = {
     super.pop()
-    solver.pop()
+    val pushed = z3Scopes.headOption.getOrElse(true)
+    z3Scopes = z3Scopes.drop(1)
+    if (pushed) tryZ3(solver.pop())
   }
 
   def assertCnstr(ast: Z3AST): Unit = tryZ3(solver.assertCnstr(ast))
