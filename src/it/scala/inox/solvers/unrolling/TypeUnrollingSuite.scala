@@ -29,12 +29,26 @@ class TypeUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
   import dsl.{given, _}
 
   // Model checks are set per query, see `solverFor`.
-  override protected def optionMatrix = UnrollingTestSuite.combinations(
-    UnrollingTestSuite.both(optFeelingLucky),
-    UnrollingTestSuite.both(optUnrollAssumptions),
-    UnrollingTestSuite.both(optAssumeChecked),
-    Seq(optModelFinding(0), optModelFinding(1))
-  )
+  //
+  // Instead of all 16 combinations of the 4 options, the tests run with 5 combinations in which
+  // every pair of options takes each of its 4 pairs of values at least once (a covering array of
+  // strength 2). Each query thus still runs with every option on and off, and with every
+  // interaction between two options, for less than a third of the cost.
+  override protected def optionMatrix = {
+    def row(lucky: Boolean, unrollAssumptions: Boolean, assumeChecked: Boolean, modelFinding: Boolean) = Seq(
+      optFeelingLucky(lucky),
+      optUnrollAssumptions(unrollAssumptions),
+      optAssumeChecked(assumeChecked),
+      optModelFinding(if (modelFinding) 1 else 0)
+    )
+    Seq(
+      row(false, false, false, false),
+      row(false, true,  true,  true),
+      row(true,  false, true,  true),
+      row(true,  true,  false, true),
+      row(true,  true,  true,  false)
+    )
+  }
 
   def int(i: Int): Expr = IntegerLiteral(i)
   val I = IntegerType()
