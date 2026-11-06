@@ -20,6 +20,8 @@ class FloatingPointSemanticsSuite extends SolverTestSuite {
   // -0.0 below +0.0, which SMT-LIB leaves open.
   def smtMax(a: Float, b: Float): Float = if (a.isNaN) b else if (b.isNaN) a else a.max(b)
   def smtMin(a: Float, b: Float): Float = if (a.isNaN) b else if (b.isNaN) a else a.min(b)
+  def smtMax(a: Double, b: Double): Double = if (a.isNaN) b else if (b.isNaN) a else a.max(b)
+  def smtMin(a: Double, b: Double): Double = if (a.isNaN) b else if (b.isNaN) a else a.min(b)
 
   test("Floating point literals", FloatingPoint) { ctx =>
     val s = solver(ctx)
@@ -65,6 +67,70 @@ class FloatingPointSemanticsSuite extends SolverTestSuite {
       check(s, ToFloat(FPMul(RoundNearestTiesToEven, Float64Literal(i), Float64Literal(i))), Float32Literal((i.toDouble * i.toDouble).toFloat))
     }
 
+  }
+
+  // Fewer values and operations than for floats, to keep the suite fast: the encodings only
+  // differ from those of floats by their sizes.
+  val doubleValues: Seq[Double] = Seq(-0d, 2.5, Double.NaN, Double.PositiveInfinity)
+
+  test("Double Precision Operations", FloatingPoint) { ctx =>
+    val s = solver(ctx)
+
+    for (i <- doubleValues; j <- doubleValues) {
+      check(s, FPAdd(RoundNearestTiesToEven, Float64Literal(i), Float64Literal(j)), Float64Literal(i + j))
+      check(s, FPSub(RoundNearestTiesToEven, Float64Literal(i), Float64Literal(j)), Float64Literal(i - j))
+      check(s, FPMul(RoundNearestTiesToEven, Float64Literal(i), Float64Literal(j)), Float64Literal(i * j))
+      check(s, FPDiv(RoundNearestTiesToEven, Float64Literal(i), Float64Literal(j)), Float64Literal(i / j))
+      check(s, FPMax(Float64Literal(i), Float64Literal(j)), Float64Literal(smtMax(i, j)))
+      check(s, FPMin(Float64Literal(i), Float64Literal(j)), Float64Literal(smtMin(i, j)))
+      check(s, FPEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i == j))
+      check(s, FPLessThan(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i < j))
+      check(s, FPLessEquals(Float64Literal(i), Float64Literal(j)), BooleanLiteral(i <= j))
+    }
+
+    for (i <- doubleValues) {
+      check(s, FPUMinus(Float64Literal(i)), Float64Literal(-i))
+      check(s, FPAbs(Float64Literal(i)), Float64Literal(Math.abs(i)))
+      check(s, ToFloat(Float64Literal(i)), Float32Literal(i.toFloat))
+      check(s, FPToBVJVM(11, 53, 32, Float64Literal(i)), Int32Literal(i.toInt))
+      check(s, FPToBVJVM(11, 53, 64, Float64Literal(i)), Int64Literal(i.toLong))
+      check(s, FPIsZero(Float64Literal(i)), BooleanLiteral(i == 0))
+      check(s, FPIsNaN(Float64Literal(i)), BooleanLiteral(i.isNaN))
+      check(s, FPIsInfinite(Float64Literal(i)), BooleanLiteral(i.isInfinite))
+      check(s, FPIsNegative(Float64Literal(i)), BooleanLiteral(!i.isNaN && (i < 0 || 1 / i < 0)))
+      check(s, FPIsPositive(Float64Literal(i)), BooleanLiteral(!i.isNaN && (i > 0 || 1 / i > 0)))
+    }
+
+    for (i <- Seq(Int8Literal(-3), Int16Literal(300), Int32Literal(Int.MaxValue), Int64Literal(Long.MaxValue))) {
+      check(s, ToDouble(i), Float64Literal(i.toBigInt.toDouble))
+      check(s, ToFloat(i), Float32Literal(i.toBigInt.toFloat))
+    }
+  }
+
+  // Ties, values on either side of them, and their negations
+  val roundingValues: Seq[Double] = Seq(2.5, -2.5, 0.5, -0.5, 1.4, -1.6)
+
+  test("Floating Point Rounding", FloatingPoint) { ctx =>
+    val s = solver(ctx)
+
+    def rna(d: Double): Double = Math.copySign(Math.floor(Math.abs(d) + 0.5), d)
+    def rtz(d: Double): Double = if (d < 0) Math.ceil(d) else Math.floor(d)
+    val modes: Seq[(Expr, Double => Double)] = Seq(
+      RoundNearestTiesToEven -> Math.rint,
+      RoundNearestTiesToAway -> rna,
+      RoundTowardPositive -> Math.ceil,
+      RoundTowardNegative -> Math.floor,
+      RoundTowardZero -> rtz,
+    )
+
+    for (d <- roundingValues; (rm, round) <- modes) {
+      check(s, FPRound(rm, Float64Literal(d)), Float64Literal(round(d)))
+      check(s, FPRound(rm, Float32Literal(d.toFloat)), Float32Literal(round(d.toFloat.toDouble).toFloat))
+    }
+
+    for (d <- roundingValues if d > 0) {
+      check(s, Sqrt(RoundNearestTiesToEven, Float32Literal(d.toFloat)), Float32Literal(Math.sqrt(d.toFloat.toDouble).toFloat))
+    }
   }
 
   test("Floating Point Comparisons", FloatingPoint) { ctx =>
