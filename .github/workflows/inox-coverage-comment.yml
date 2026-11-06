@@ -23,7 +23,7 @@ jobs:
       RUN_ID: ${{ github.event.workflow_run.id }}
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
     - name: Download the pull request's coverage
       id: head
       continue-on-error: true

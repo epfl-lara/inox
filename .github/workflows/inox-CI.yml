@@ -36,11 +36,11 @@ jobs:
       BITWUZLA_VER: 0.8.2
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         submodules: recursive
     - name: Setup JDK
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@v6
       with:
         distribution: temurin
         java-version: ${{ matrix.java-version }}
@@ -87,7 +87,7 @@ jobs:
         SBT_COVERAGE: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'coverage' || '' }}
     - name: Run integration tests
       id: integration-tests
-      run: sbt -Dtest-parallelism=10 -batch $SBT_COVERAGE it:test
+      run: sbt -Dtest-parallelism=10 -batch $SBT_COVERAGE IntegrationTest/test
       env:
         SBT_COVERAGE: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'coverage' || '' }}
     - name: Generate coverage report
@@ -113,7 +113,7 @@ jobs:
         TESTS_PASSED: ${{ steps.unit-tests.outcome == 'success' && steps.integration-tests.outcome == 'success' }}
     - name: Upload coverage report
       if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: coverage-report
         path: |
@@ -121,7 +121,7 @@ jobs:
           target/scala-*/coverage-report/cobertura.xml
     - name: Upload coverage summary
       if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: coverage-summary
         path: coverage-summary/
