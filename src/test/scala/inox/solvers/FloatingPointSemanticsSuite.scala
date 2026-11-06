@@ -30,10 +30,11 @@ class FloatingPointSemanticsSuite extends SolverTestSuite {
 
   }
 
-  test("Floating Point Arithmetic", FloatingPoint) { ctx =>
+  // One test per left operand, so that they run in parallel
+  for (i <- floatValues) test(s"Floating Point Arithmetic with left operand $i", FloatingPoint) { ctx =>
     val s = solver(ctx)
 
-    for (i <- floatValues; j <- floatValues) {
+    for (j <- floatValues) {
       check(s, FPAdd(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i + j))
       check(s, FPSub(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i - j))
       check(s, FPMul(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i * j))
@@ -42,6 +43,10 @@ class FloatingPointSemanticsSuite extends SolverTestSuite {
       check(s, FPMax(Float32Literal(i), Float32Literal(j)), Float32Literal(smtMax(i, j)))
       check(s, FPMin(Float32Literal(i), Float32Literal(j)), Float32Literal(smtMin(i, j)))
     }
+  }
+
+  test("Floating Point Unary Operations", FloatingPoint) { ctx =>
+    val s = solver(ctx)
 
     for (i <- floatValues) {
       check(s, FPUMinus(Float32Literal(i)), Float32Literal(-i))

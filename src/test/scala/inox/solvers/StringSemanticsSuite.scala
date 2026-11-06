@@ -17,10 +17,11 @@ class StringSemanticsSuite extends SolverTestSuite {
   // surrogate pairs and character sequences that look like escape sequences.
   val specialStrings = Seq("abc", "\n", "\u0000x", "é", "€", "😀", "ÿĀ", "\uffff", "\ud800", "\\u{41}", "\\x41", "\\", "a\"b")
 
-  test("String Operations", Strings) { ctx =>
-    val s = solver(ctx)
-
-    for (str <- specialStrings) {
+  // One test per string, so that they run in parallel
+  for (str <- specialStrings) {
+    val shown = str.flatMap(c => if (c >= ' ' && c < '\u007f') c.toString else f"\\u${c.toInt}%04x")
+    test(s"String Operations on \"$shown\"", Strings) { ctx =>
+      val s = solver(ctx)
       val lit = StringLiteral(str)
       check(s, lit, lit)
       check(s, StringLength(lit), IntegerLiteral(str.length))
