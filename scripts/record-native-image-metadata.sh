@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# Records the reflection, JNI and resource accesses that the GraalVM native
-# image needs (see scripts/build-native-image.sh), by running the JVM build
-# of the inox command line under GraalVM's tracing agent. native-image keeps
-# only what it can reach statically, so anything Inox looks up by name must
-# be listed in reachability-metadata.json, and an access that no run below
-# exercises is missing from the binary. The runs cover every TIP regression
-# file with each solver back end, and the same problems in the binary format.
+# Records the reflection, JNI and resource accesses of the JVM build of the
+# inox command line under GraalVM's tracing agent, over every TIP regression
+# file with each solver back end and the same problems in the binary format.
+# The native image doesn't need the recording: it builds from the metadata
+# in src/main/resources/META-INF/native-image/ch.epfl.lara/inox (see
+# native-image.properties). The recording helps find what to add there when
+# the image fails on an access it doesn't list, or to include the Princess
+# back end. It lists more than the image needs, since the agent records
+# every access, including lookups that native-image resolves itself (such
+# as those of the Scala 3 lazy vals).
 #
 # Usage: scripts/record-native-image-metadata.sh <dir>
 #   writes <dir>/reachability-metadata.json, with its entries sorted so that
-#   two recordings can be compared with diff. It also builds the assembly
-#   jar that scripts/build-native-image.sh compiles.
+#   two recordings can be compared with diff.
 #
 # Needs GraalVM 25 or later (java on the PATH, or GRAALVM_HOME set), sbt,
 # and z3 on the PATH.

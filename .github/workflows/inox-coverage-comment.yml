@@ -1,22 +1,15 @@
 name: Coverage comment
-# Posts a comment on each pull request with its test coverage (from Inox CI)
-# and the changes to its GraalVM reachability metadata (from Native builds),
-# both compared with main. Each workflow's run updates its own section of the
-# comment (see scripts/pr_comment.py). The comparison is with main at the
-# commit the pull request build merged into, so that changes to main since
-# then don't show up as the pull request's. This runs separately, after those
-# workflows complete, because pull requests from forks get a read-only token
-# and can't comment themselves. Only the version of this workflow on the
-# default branch runs, and it only reads data (JSON summaries and the pull
-# request number) from the pull request's build.
+# Posts the coverage of each pull request, compared with main, as a comment.
+# The comparison is with main at the commit the pull request build merged
+# into, so that tests added to main since then don't show up as lost coverage.
+# This runs separately from Inox CI, after it completes, because pull requests
+# from forks get a read-only token and can't comment themselves. Only the
+# version of this workflow on the default branch runs, and it only reads data
+# (a JSON summary and the pull request number) from the pull request's build.
 on:
   workflow_run:
-    workflows: [Inox CI, Native builds]
+    workflows: [Inox CI]
     types: [completed]
-# Both workflows update the same comment: one update at a time.
-concurrency:
-  group: pr-comment-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
-  cancel-in-progress: false
 permissions:
   actions: read
   pull-requests: write
@@ -28,17 +21,15 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
       RUN_ID: ${{ github.event.workflow_run.id }}
-      WORKFLOW: ${{ github.event.workflow_run.name }}
     steps:
     - name: Checkout
       uses: actions/checkout@v4
     - name: Download the pull request's coverage
-      id: coverage
-      if: env.WORKFLOW == 'Inox CI'
+      id: head
       continue-on-error: true
       run: gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name coverage-summary --dir head
-    - name: Compare the coverage with main
-      if: steps.coverage.outcome == 'success'
+    - name: Download main's coverage
+      if: steps.head.outcome == 'success'
       run: |
         # Notes about the comparison, added below the coverage table.
         : > notes.md
@@ -74,60 +65,20 @@ jobs:
             echo "$msg. Changes to \`main\` that aren't in this build show up as differences._" >> notes.md
           fi
         fi
-        base=$( [ -f base/coverage.json ] && echo base/coverage.json || true )
-        python3 scripts/coverage_summary.py compare head/coverage.json $base > section.md
-        [ -s notes.md ] && { echo; sed G notes.md; } >> section.md
-        echo coverage > section-name
-    - name: Download the pull request's reachability metadata
-      id: metadata
-      if: env.WORKFLOW == 'Native builds'
-      continue-on-error: true
-      run: gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name graalvm-reachability-metadata --dir head
-    - name: Compare the reachability metadata with main
-      if: steps.metadata.outcome == 'success'
-      run: |
-        sha_link() { echo "[\`${1:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$1)"; }
-        main_runs() {
-          gh run list --repo "$GITHUB_REPOSITORY" --workflow native-builds.yml --event push --status completed \
-            --limit 10 --json databaseId,headSha --jq '.[] | "\(.databaseId) \(.headSha)"' "$@"
-        }
-        # As for the coverage: main at the commit this build merged into, or
-        # else the latest recording on main.
-        base_sha=$(cat head/base-sha 2>/dev/null || true)
-        if [[ "$base_sha" =~ ^[0-9a-f]{40}$ ]]; then
-          while read -r run sha; do
-            gh run download "$run" --repo "$GITHUB_REPOSITORY" --name graalvm-reachability-metadata --dir base && break
-          done < <(main_runs --commit "$base_sha")
-        fi
-        if [ -f base/reachability-metadata.json ]; then
-          desc="\`main\` at $(sha_link "$base_sha")"
-        else
-          while read -r run sha; do
-            rm -rf base
-            gh run download "$run" --repo "$GITHUB_REPOSITORY" --name graalvm-reachability-metadata --dir base && break
-          done < <(main_runs --branch main)
-          desc="\`main\` at $(sha_link "${sha:-}") (changes to \`main\` that aren't in this build show up too)"
-        fi
-        if [ -f base/reachability-metadata.json ]; then
-          python3 scripts/pr_comment.py metadata head/reachability-metadata.json base/reachability-metadata.json "$desc" > section.md
-        else
-          python3 scripts/pr_comment.py metadata head/reachability-metadata.json > section.md
-        fi
-        echo native-metadata > section-name
+        true
     - name: Post or update the comment
-      if: steps.coverage.outcome == 'success' || steps.metadata.outcome == 'success'
+      if: steps.head.outcome == 'success'
       run: |
-        [ -s section.md ] || { echo "Nothing to post"; exit 0; }
         pr=$(cat head/pr-number)
         [[ "$pr" =~ ^[0-9]+$ ]] || { echo "Invalid pull request number"; exit 1; }
         # Make sure the pull request is the one that was built.
         [ "$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)" = "$HEAD_SHA" ] \
           || { echo "Pull request #$pr has moved on from $HEAD_SHA"; exit 0; }
+        base=$( [ -f base/coverage.json ] && echo base/coverage.json || true )
+        python3 scripts/coverage_summary.py compare head/coverage.json $base > comment.md
+        [ -s notes.md ] && { echo; sed G notes.md; } >> comment.md
         id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$pr/comments" --paginate \
                --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- inox-coverage -->"))) | .id' | head -n 1)
-        : > body.md
-        [ -n "$id" ] && gh api "repos/$GITHUB_REPOSITORY/issues/comments/$id" --jq .body > body.md
-        python3 scripts/pr_comment.py splice body.md "$(cat section-name)" section.md > comment.md
         if [ -n "$id" ]; then
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@comment.md > /dev/null
         else
