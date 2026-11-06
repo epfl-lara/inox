@@ -11,6 +11,13 @@ import transformers._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 object SymbolOps {
+  /** Whether `simplestValue` may run a solver to find a value of a sort with an invariant.
+    *
+    * It is turned off in the context of that solver, so that extracting its model doesn't start
+    * another solver, and so on without end.
+    */
+  private object optSimplestValueSolver extends FlagOptionDef("simplest-value-solver", true)
+
   private val identifiers = new scala.collection.mutable.ArrayBuffer[Identifier]
   def getId(index: Int): Identifier = synchronized {
     for (i <- identifiers.size to index) identifiers += FreshIdentifier("x", true)
@@ -1000,7 +1007,9 @@ trait SymbolOps extends TypeOps { self =>
         if (inLambda) Choose(ValDef.fresh("res", adt), BooleanLiteral(true))
         else throw NoSimpleValue(adt)
       } else if (sort.hasInvariant) {
-        if (!allowSolver) throw NoSimpleValue(adt)
+        if (!allowSolver || !ctx.options.findOptionOrDefault(SymbolOps.optSimplestValueSolver)) {
+          throw NoSimpleValue(adt)
+        }
 
         val p = Variable.fresh("p", FunctionType(Seq(adt), BooleanType()))
         val res = Variable.fresh("v", adt)
@@ -1008,7 +1017,10 @@ trait SymbolOps extends TypeOps { self =>
         import solvers._
         import SolverResponses._
 
-        SimpleSolverAPI(sem.getSolver).solveSAT(Application(p, Seq(res))) match {
+        // Extracting this solver's model may need simplest values, which must not start
+        // another solver, and so on without end.
+        val solverCtx = ctx.withOpts(SymbolOps.optSimplestValueSolver(false))
+        SimpleSolverAPI(sem.getSolver(using solverCtx)).solveSAT(Application(p, Seq(res))) match {
           case SatWithModel(model) => model.vars.getOrElse(res.toVal, throw NoSimpleValue(adt))
           case _ => throw NoSimpleValue(adt)
         }
