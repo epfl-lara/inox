@@ -24,11 +24,13 @@ private[smtlib3] case class TypeDefinition(params: Seq[Either[inox.trees.TypePar
 /** A datatype with value parameters.
   *
   * @param tparams the type parameters of the datatype
-  * @param params  the type parameters (`Left`) and value parameters (`Right`, with the function that
-  *                returns the parameter of a value, and the parameter's type) in declaration order
+  * @param params  the type parameters (`Left`) and value parameters (`Right`, with the hidden field
+  *                that stores the parameter in each constructor, and the parameter's type) in
+  *                declaration order
   */
-private[smtlib3] case class IndexedSort(tparams: Seq[inox.trees.TypeParameter],
-                                        params: Seq[Either[inox.trees.TypeParameter, (inox.ast.Identifier, inox.trees.Type)]])
+private[smtlib3] case class IndexedSort(
+  tparams: Seq[inox.trees.TypeParameter],
+  params: Seq[Either[inox.trees.TypeParameter, (Seq[(inox.ast.Identifier, inox.ast.Identifier)], inox.trees.Type)]])
 
 /** Parses SMT-LIB 3 scripts (see https://smt-lib.org/version3.shtml) into Inox programs.
   *
@@ -61,6 +63,16 @@ private[smtlib3] case class IndexedSort(tparams: Seq[inox.trees.TypeParameter],
   *    applications take as their first arguments (or from the type in `(as c T)`), and which
   *    patterns omit. The type `(Vec E 3)` is the refinement of the datatype type whose value
   *    parameter is 3.
+  *  - Unsigned bit-vector types `(! (_ BitVec 8) :unsigned)`, and the casts `(! t :unsigned)` and
+  *    `(! t :signed)` between signed and unsigned bit-vectors. Bit-vector types are signed by
+  *    default. The SMT-LIB operations keep their semantics whatever the signedness of their
+  *    operands, e.g. `bvudiv` of signed bit-vectors is an unsigned division.
+  *  - Characters `Char`, whose literals are 16-bit vectors annotated with `:char`, as in
+  *    `(! #x0041 :char)`, and the unit type `UnitTuple` and value `tuple.unit` of cvc5.
+  *  - Custom datatype equalities `(datatype-equality S f)`, where `f` is a function from two values
+  *    of `S` to `Bool`, which Inox uses as the equality of `S`.
+  *
+  * The [[Printer]] prints Inox programs in this syntax.
   *
   * Modules, implicit parameters (`:implicit`) and value-dependent widths aren't supported.
   * Constants of function type are free variables of the corresponding (dependent) function type, so
@@ -214,11 +226,14 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
       super.extractCommand((if (isRec) DefineFunRec(funDef) else DefineFun(funDef)).setPos(cmd))
 
     case DeclareDatatypesWithPars(datatypes) =>
+      // The constructors, fields and selectors are known before the field types, which may refer
+      // to any of them (e.g. the refinements of datatypes with value parameters select hidden fields)
       var locs = locals
         .withSorts(datatypes.map(d => d.name -> FreshIdentifier(d.name.name)))
         .withConstructors(datatypes.flatMap(_.constructors.map(c => c.sym -> FreshIdentifier(c.sym.name))))
+      val fieldIds = datatypes.flatMap(_.constructors.map(c => c.sym -> c.fields.map(f => FreshIdentifier(f._1.name)))).toMap
+      locs = locs.withSelectors(datatypes.flatMap(_.constructors.flatMap(c => c.fields.map(_._1) zip fieldIds(c.sym))))
 
-      // The parameters are known before the fields, which may refer to any of the datatypes
       val headers = for (d <- datatypes) yield {
         val sortId = locs.getSort(d.name)
         var paramLocals = locs
@@ -228,33 +243,37 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
             paramLocals = paramLocals.withGeneric(s, tp)
             Left(tp)
           case ValueParam(va @ VarAnnotation(base, Some(n), _, restrictions, _)) =>
-            Right((n, FreshIdentifier(d.name.name + "$" + n.name), base, restrictions, va))
+            Right((n, base, restrictions, va))
           case p => error(s"unexpected datatype parameter $p", d.name.optPos)
         }
         val tparams = params.collect { case Left(tp) => tp }
-        val valueParams = params.collect { case Right((n, id, base, restrictions, va)) =>
-          (n, id, paramLocals.extractSort(TermSort(base).setPos(va)), restrictions)
+        // the hidden field that stores each value parameter, in each constructor
+        val valueParams = params.collect { case Right((n, base, restrictions, va)) =>
+          val hiddenIds = d.constructors.map(c => locs.getConstructor(c.sym) -> FreshIdentifier(n.name))
+          (n, hiddenIds, paramLocals.extractSort(TermSort(base).setPos(va)), restrictions)
         }
         if (valueParams.nonEmpty) {
           var vps = valueParams
           indexedSorts += sortId -> IndexedSort(tparams, params.map {
             case Left(tp) => Left(tp)
             case Right(_) =>
-              val (_, id, tpe, _) = vps.head
+              val (_, hiddenIds, tpe, _) = vps.head
               vps = vps.tail
-              Right((id, tpe))
+              Right((hiddenIds, tpe))
           })
+          for (c <- d.constructors) hiddenFields += locs.getConstructor(c.sym) -> valueParams.size
         }
         (d, sortId, tparams, valueParams, paramLocals)
       }
 
       // The field types may refer to the other fields of their constructor, as Inox ADT fields can
-      val sortsAndFuns = for ((d, sortId, tparams, valueParams, paramLocals) <- headers) yield {
+      val sorts = for ((d, sortId, tparams, valueParams, paramLocals) <- headers) yield {
         val constructors = for (ConstructorDec(c, fields, restrictions) <- d.constructors) yield {
+          val consId = locs.getConstructor(c)
           var fieldLocals = paramLocals
 
-          val hidden = valueParams.map { case (n, _, tpe, restrictions) =>
-            val vd = ValDef.fresh(n.name, tpe).setPos(n.optPos)
+          val hidden = valueParams.map { case (n, hiddenIds, tpe, restrictions) =>
+            val vd = ValDef(hiddenIds.toMap.apply(consId), tpe).setPos(n.optPos)
             val refined = if (restrictions.isEmpty) vd else {
               val rvd = vd.freshen
               val restrictionLocals = fieldLocals.withVariable(n, rvd.toVariable)
@@ -264,8 +283,8 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
             refined
           }
 
-          val vds = fields.map { case (s, sort) =>
-            val vd = ValDef.fresh(s.name, fieldLocals.extractSort(sort)).setPos(s.optPos)
+          val vds = (fields zip fieldIds(c)).map { case ((s, sort), id) =>
+            val vd = ValDef(id, fieldLocals.extractSort(sort)).setPos(s.optPos)
             fieldLocals = fieldLocals.withVariable(s, vd.toVariable)
             vd
           }
@@ -287,30 +306,27 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
           }.toMap
           val finalFields = restricted.map(vd => vd.copy(tpe = typeOps.replaceFromSymbols(fieldSubst, vd.tpe)))
 
-          locs = locs.withSelectors((fields zip finalFields.drop(hidden.size)).map { case ((s, _), vd) => s -> vd.id })
-          val consId = locs.getConstructor(c)
-          if (hidden.nonEmpty) hiddenFields += consId -> hidden.size
-          (new ADTConstructor(consId, sortId, finalFields).setPos(c.optPos), hidden.size)
+          new ADTConstructor(consId, sortId, finalFields).setPos(c.optPos)
         }
 
         val tparamDefs = tparams.map(tp => TypeParameterDef(tp).setPos(tp))
-        val thiss = ValDef.fresh("this", ADTType(sortId, tparams)).setPos(d.name.optPos)
-
-        // The function that returns each value parameter
-        val selectors = valueParams.zipWithIndex.map { case ((n, id, tpe, _), i) =>
-          val cases = constructors.map { case (cons, _) => cons -> ADTSelector(thiss.toVariable, cons.fields(i).id) }
-          val body = cases.init.foldRight(cases.last._2: Expr) { case ((cons, sel), elze) =>
-            IfExpr(IsConstructor(thiss.toVariable, cons.id), sel, elze)
-          }
-          new FunDef(id, tparamDefs, Seq(thiss), tpe, body, Seq.empty).setPos(n.optPos)
-        }
-
-        val sort = new ADTSort(sortId, tparamDefs, constructors.map(_._1), Seq.empty).setPos(d.name.optPos)
-        (sort, selectors)
+        new ADTSort(sortId, tparamDefs, constructors, Seq.empty).setPos(d.name.optPos)
       }
 
-      locs = locs.registerSorts(sortsAndFuns.map(_._1))
-      (None, locs.withSymbols(locs.symbols.withFunctions(sortsAndFuns.flatMap(_._2))))
+      (None, locs.registerSorts(sorts))
+
+    case DatatypeEquality(sortSym, funSym) =>
+      if (!locals.isSort(sortSym)) error(s"unknown datatype $sortSym", sortSym.optPos)
+      if (!locals.isFunction(funSym)) error(s"unknown function $funSym", funSym.optPos)
+      val sort = locals.symbols.getSort(locals.getSort(sortSym))
+      val fd = locals.symbols.getFunction(locals.getFunction(funSym))
+      val tpe = ADTType(sort.id, fd.tparams.map(_.tp))
+      if (fd.tparams.size != sort.tparams.size || fd.params.map(_.getType(using locals.symbols)) != Seq(tpe, tpe) ||
+          fd.getType(using locals.symbols) != BooleanType()) {
+        error(s"the equality $funSym of $sortSym should take two values of type $tpe and return a Bool", funSym.optPos)
+      }
+      val newSort = sort.copy(flags = sort.flags.filter { case HasADTEquality(_) => false case _ => true } :+ HasADTEquality(fd.id))
+      (None, locals.withSymbols(locals.symbols.withSorts(Seq(newSort))))
 
     case _: Push | _: Pop =>
       error("push and pop are not supported", cmd.optPos)
@@ -367,8 +383,162 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
       }
     }
 
-    override protected def fromSMT(term: Term, otpe: Option[Type] = None)(using ctx: Context): Expr = (term match {
+    private def isFree(sym: String)(using ctx: Context): Boolean =
+      !ctx.isVariable(SSymbol(sym)) && !ctx.isFunction(SSymbol(sym)) && !ctx.isConstructor(SSymbol(sym))
+
+    private def bvSignedness(e: Expr): Option[Boolean] = e.getType match {
+      case BVType(signed, _) => Some(signed)
+      case _ => None
+    }
+
+    /** The bit-vector `e` viewed as a signed (or unsigned) bit-vector. */
+    private def withSignedness(e: Expr, signed: Boolean): Expr = e match {
+      case BVLiteral(s, bits, size) if s != signed => BVLiteral(signed, bits, size)
+      case _ => e.getType match {
+        case BVType(s, _) if s != signed => if (signed) BVUnsignedToSigned(e) else BVSignedToUnsigned(e)
+        case _ => e
+      }
+    }
+
+    /** The operands `t1` and `t2` of a binary operation, of the same type. Bit-vector literals
+      * without expected type are signed, so they take the signedness of the other operand. */
+    private def operands(t1: Term, t2: Term, otpe: Option[Type])(using Context): (Expr, Expr) = {
+      var res: (Expr, Expr) = null
+      fromSMTUnifyType(t1, t2, otpe) { (a, b) => res = (a, b); a }
+      res match {
+        case (a, b: BVLiteral) if bvSignedness(a).exists(_ != b.signed) => (a, withSignedness(b, !b.signed))
+        case (a: BVLiteral, b) if bvSignedness(b).exists(_ != a.signed) => (withSignedness(a, !a.signed), b)
+        case p => p
+      }
+    }
+
+    /** The bit-vector operations whose semantics don't depend on the signedness of their operands. */
+    private val bvOps: Map[String, (Expr, Expr) => Expr] = Map(
+      "=" -> (Equals(_, _)), "bvadd" -> (Plus(_, _)), "bvsub" -> (Minus(_, _)), "bvmul" -> (Times(_, _)),
+      "bvand" -> (BVAnd(_, _)), "bvor" -> (BVOr(_, _)), "bvxor" -> (BVXor(_, _)),
+      "bvshl" -> (BVShiftLeft(_, _)), "bvashr" -> (BVAShiftRight(_, _)), "bvlshr" -> (BVLShiftRight(_, _)))
+
+    /** The bit-vector operation `op`, whose semantics depend on the signedness of its operands, as
+      * a signed (or unsigned) operation on operands `t1` and `t2` of any signedness. Inox picks the
+      * signed or unsigned SMT-LIB operation from the type of the operands, so operands of the other
+      * signedness are cast to `signed`, and so is the result back if `isArith`. */
+    private def bvOp(signed: Boolean, isArith: Boolean, t1: Term, t2: Term, otpe: Option[Type])
+                    (op: (Expr, Expr) => Expr)(using Context): Expr = {
+      val (a, b) = operands(t1, t2, if (isArith) otpe else None)
+      bvSignedness(a) match {
+        case Some(s) if s != signed =>
+          val res = op(withSignedness(a, signed), withSignedness(b, signed))
+          if (isArith) withSignedness(res, s) else res
+        case _ => op(a, b)
+      }
+    }
+
+    /** `(bvsmod a b)`, whose sign follows that of `b`, from the remainder whose sign follows `a`. */
+    private def smod(a: Expr, b: Expr): Expr = {
+      val BVType(_, size) = a.getType: @unchecked
+      val zero = BVLiteral(true, 0, size)
+      val r = ValDef.fresh("r", a.getType)
+      Let(r, Remainder(a, b), IfExpr(
+        Or(Equals(r.toVariable, zero), Equals(LessThan(r.toVariable, zero), LessThan(b, zero))),
+        r.toVariable,
+        Plus(r.toVariable, b)
+      ))
+    }
+
+    /** `((_ zero_extend n) e)` (or `sign_extend`) for operands `e` of any signedness. */
+    private def extend(n: BigInt, t: Term, signedExt: Boolean)(using Context): Expr = {
+      val e = fromSMT(t)
+      e.getType match {
+        case BVType(signed, size) =>
+          val newSize = size + n.toInt
+          withSignedness(BVWideningCast(withSignedness(e, signedExt), BVType(signedExt, newSize)), signed)
+        case tpe => error(s"expected a bit-vector, found $e of type $tpe", t.optPos)
+      }
+    }
+
+    private def fromSMTExtension(term: Term, otpe: Option[Type])(using ctx: Context): Option[Expr] = {
+      import smtlib.theories.{FixedSizeBitVectors => BV}
+      import smtlib.theories.{Core, Ints}
+      Some(term match {
+        // Inox integer division rounds towards zero, which Inox targets print as follows
+        case Core.ITE(Ints.GreaterEquals(a, SNumeral(zero)), Ints.Div(a1, b1), Ints.Neg(Ints.Div(Ints.Neg(a2), b2)))
+        if zero == 0 && a == a1 && a == a2 && b1 == b2 =>
+          Division(fromSMT(a, IntegerType()), fromSMT(b1, IntegerType()))
+
+        // whereas SMT-LIB integer division is euclidean: its remainder is non-negative
+        case Ints.Div(t1, t2) =>
+          val a = ValDef.fresh("a", IntegerType())
+          val b = ValDef.fresh("b", IntegerType())
+          val q = ValDef.fresh("q", IntegerType())
+          val (av, bv, qv) = (a.toVariable, b.toVariable, q.toVariable)
+          Let(a, fromSMT(t1, IntegerType()), Let(b, fromSMT(t2, IntegerType()), Let(q, Division(av, bv),
+            IfExpr(LessThan(Remainder(av, bv), IntegerLiteral(0)),
+              IfExpr(GreaterThan(bv, IntegerLiteral(0)), Minus(qv, IntegerLiteral(1)), Plus(qv, IntegerLiteral(1))),
+              qv))))
+
+        case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol(op)), None), Seq(t1, t2))
+        if bvOps.contains(op) && isFree(op) =>
+          val (a, b) = operands(t1, t2, if (op == "=") None else otpe)
+          if (bvSignedness(a).isEmpty && op != "=") return None
+          bvOps(op)(a, b)
+
+        case BV.SDiv(t1, t2) => bvOp(true, true, t1, t2, otpe)(Division(_, _))
+        case BV.UDiv(t1, t2) => bvOp(false, true, t1, t2, otpe)(Division(_, _))
+        case BV.SRem(t1, t2) => bvOp(true, true, t1, t2, otpe)(Remainder(_, _))
+        case BV.URem(t1, t2) => bvOp(false, true, t1, t2, otpe)(Remainder(_, _))
+        case BV.SMod(t1, t2) => bvOp(true, true, t1, t2, otpe)(smod)
+        case BV.SLessThan(t1, t2) => bvOp(true, false, t1, t2, otpe)(LessThan(_, _))
+        case BV.SLessEquals(t1, t2) => bvOp(true, false, t1, t2, otpe)(LessEquals(_, _))
+        case BV.SGreaterThan(t1, t2) => bvOp(true, false, t1, t2, otpe)(GreaterThan(_, _))
+        case BV.SGreaterEquals(t1, t2) => bvOp(true, false, t1, t2, otpe)(GreaterEquals(_, _))
+        case BV.ULessThan(t1, t2) => bvOp(false, false, t1, t2, otpe)(LessThan(_, _))
+        case BV.ULessEquals(t1, t2) => bvOp(false, false, t1, t2, otpe)(LessEquals(_, _))
+        case BV.UGreaterThan(t1, t2) => bvOp(false, false, t1, t2, otpe)(GreaterThan(_, _))
+        case BV.UGreaterEquals(t1, t2) => bvOp(false, false, t1, t2, otpe)(GreaterEquals(_, _))
+
+        case BV.BV2Nat(t) => BVToInt(withSignedness(fromSMT(t), false))
+        case BV.Int2BV(size, t) =>
+          val signed = otpe match {
+            case Some(BVType(signed, _)) => signed
+            case _ => true
+          }
+          IntToBV(size.toInt, signed, fromSMT(t, IntegerType()))
+
+        case BV.ZeroExtend(n, t) => extend(n, t, false)
+        case BV.SignExtend(n, t) => extend(n, t, true)
+
+        case BV.Extract(i, j, t) =>
+          val e = fromSMT(t)
+          e.getType match {
+            case BVType(signed, size) =>
+              val shifted = if (j == 0) e else BVLShiftRight(e, BVLiteral(signed, j, size))
+              if (i + 1 - j == size) shifted else BVNarrowingCast(shifted, BVType(signed, (i + 1 - j).toInt))
+            case tpe => error(s"expected a bit-vector, found $e of type $tpe", term.optPos)
+          }
+
+        case AnnotatedTerm(t, Attribute(SKeyword(kw @ ("signed" | "unsigned")), None), Seq()) =>
+          val signed = kw == "signed"
+          val e = fromSMT(t, otpe.map {
+            case BVType(_, size) => BVType(signed, size)
+            case tpe => tpe
+          })
+          bvSignedness(e) match {
+            case Some(_) => withSignedness(e, signed)
+            case None => error(s"expected a bit-vector, found $e of type ${e.getType}", term.optPos)
+          }
+
+        case AnnotatedTerm(t, Attribute(SKeyword("char"), None), Seq()) =>
+          fromSMT(t, CharType())
+
+        case _ => return None
+      })
+    }
+
+    override protected def fromSMT(term: Term, otpe: Option[Type] = None)(using ctx: Context): Expr = fromSMTExtension(term, otpe).getOrElse(term match {
       case VarAnnotation(t, _, _, _, _) => fromSMT(t, otpe)
+
+      case QualifiedIdentifier(SimpleIdentifier(SSymbol("tuple.unit")), None) if isFree("tuple.unit") =>
+        UnitLiteral()
 
       case BinderApplication(binder, body) => quantified(binder, fromSMT(body), term)
 
@@ -425,7 +595,8 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
         }).setPos(term), otpe)
 
       case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), args)
-      if ctx.isVariable(sym) =>
+      if ctx.isVariable(sym) && !(ctx.isSelector(sym) && !ctx.getVariable(sym).getType.isInstanceOf[FunctionType]) =>
+        // in datatype declarations, fields are both variables and selectors
         apply(ctx.getVariable(sym), args.map(fromSMT(_)), term)
 
       case QualifiedIdentifier(SimpleIdentifier(sym), optSort) if isFunctionSymbol(sym) && arity(sym) > 0 =>
@@ -513,15 +684,15 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
 
     /** The type arguments and the value arguments of the datatype `id` with value parameters. */
     private def indexedArgs(id: Identifier, is: IndexedSort, args: Seq[Term], term: Term)
-                           (using Context): (Seq[Type], Option[Seq[(Identifier, Expr)]]) = {
+                           (using Context): (Seq[Type], Option[Seq[(Seq[(Identifier, Identifier)], Expr)]]) = {
       val nTypes = is.params.count(_.isLeft)
       if (args.size == nTypes) {
         (args.map(typeFromTerm), None)
       } else if (args.size == is.params.size) {
         val tps = (is.params zip args).collect { case (Left(_), arg) => typeFromTerm(arg) }
         val tpSubst: Map[TypeParameter, Type] = (is.tparams zip tps).toMap
-        val values = (is.params zip args).collect { case (Right((fid, tpe)), arg) =>
-          fid -> fromSMT(arg, typeOps.instantiateType(tpe, tpSubst))
+        val values = (is.params zip args).collect { case (Right((fids, tpe)), arg) =>
+          fids -> fromSMT(arg, typeOps.instantiateType(tpe, tpSubst))
         }
         (tps, Some(values))
       } else {
@@ -536,8 +707,11 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
         case (tps, None) => ADTType(id, tps)
         case (tps, Some(values)) =>
           val vd = ValDef.fresh(id.name.toLowerCase, ADTType(id, tps))
-          RefinementType(vd, andJoin(values.map { case (fid, v) =>
-            Equals(FunctionInvocation(fid, tps, Seq(vd.toVariable)), v)
+          RefinementType(vd, andJoin(values.map {
+            case (Seq((_, fid)), v) => Equals(ADTSelector(vd.toVariable, fid), v)
+            case (fids, v) => andJoin(fids.map { case (cid, fid) =>
+              Implies(IsConstructor(vd.toVariable, cid), Equals(ADTSelector(vd.toVariable, fid), v))
+            })
           }))
       }
     }
@@ -587,7 +761,7 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
     /** The type that `term` denotes. */
     def typeFromTerm(term: Term)(using ctx: Context): Type = (term match {
       case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), types)
-      if isArrow(sym) && types.size >= 2 =>
+      if isArrow(sym) && types.nonEmpty =>
         arrowType(types, term)
 
       case VarAnnotation(_, _, true, _, _) =>
@@ -607,6 +781,12 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
       case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("BitVec")), None), Seq(size)) =>
         BVType(true, constant(size))
 
+      case AnnotatedTerm(base, Attribute(SKeyword(kw @ ("signed" | "unsigned")), None), Seq()) =>
+        typeFromTerm(base) match {
+          case BVType(_, size) => BVType(kw == "signed", size)
+          case tpe => error(s"only bit-vector types can be $kw, found $tpe", term.optPos)
+        }
+
       case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), args) if isTypeDef(sym) =>
         expand(sym, args, term)
 
@@ -621,8 +801,10 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
 
     override protected def fromSMT(sort: Sort)(using ctx: Context): Type = sort match {
       case ts: TermSort => typeFromTerm(ts.term)
+      case Sort(SimpleIdentifier(sym @ SSymbol("Char" | "UnitTuple")), Seq()) if !ctx.isSort(sym) && !isTypeDef(sym) =>
+        if (sym.name == "Char") CharType() else UnitType()
       case Sort(SimpleIdentifier(sym), sorts)
-      if (isArrow(sym) && sorts.size >= 2) || (sym.name == "Tuple" && sorts.size >= 2 && !ctx.isSort(sym)) ||
+      if (isArrow(sym) && sorts.nonEmpty) || (sym.name == "Tuple" && sorts.size >= 2 && !ctx.isSort(sym)) ||
          isTypeDef(sym) || (sorts.nonEmpty && indexedSort(sym).isDefined) =>
         typeFromTerm(TermSort.toTerm(sort))
       case _ => super.fromSMT(sort)

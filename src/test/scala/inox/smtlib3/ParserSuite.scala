@@ -289,6 +289,56 @@ class ParserSuite extends AnyFunSuite {
     assertSAT(script + "\n(check-sat)")
   }
 
+  test("unsigned bit-vectors") {
+    val script = "(declare-const u (! (_ BitVec 8) :unsigned))\n(declare-const s (_ BitVec 8))\n(assert (bvult u (bvadd s #x80)))"
+    assert(typeOf(script, "u") == BVType(false, 8))
+    assert(typeOf(script, "s") == BVType(true, 8))
+
+    // the operations follow their SMT-LIB semantics whatever the signedness of their operands
+    assertUNSAT(
+      """(declare-const u (! (_ BitVec 8) :unsigned))
+        |(declare-const s (_ BitVec 8))
+        |(assert (or (bvult u #x00) (bvult s #x00)
+        |            (not (= (bvudiv #xFE #x02) #x7F)) (not (= (bvsdiv (! #xFE :unsigned) #x02) (! #xFF :unsigned)))
+        |            (not (= (! #xFF :unsigned) (! (! #xFF :unsigned) :signed)))
+        |            (not (= ((_ zero_extend 8) #xFF) #x00FF)) (not (= ((_ sign_extend 8) (! #xFF :unsigned)) #xFFFF))
+        |            (not (= ((_ extract 7 4) #xA5) #xA)) (not (= (bv2nat #xFF) 255)) (not (= (bvsmod #xF9 #x02) #x01))))
+        |(check-sat)""".stripMargin)
+  }
+
+  test("characters and unit") {
+    val script = "(declare-const c Char)\n(declare-const u UnitTuple)\n(assert (and (= c (! #x0041 :char)) (= u tuple.unit)))"
+    assert(typeOf(script, "c") == CharType())
+    assert(typeOf(script, "u") == UnitType())
+    assertSAT(script + "\n(check-sat)")
+  }
+
+  test("integer division is euclidean") {
+    assertUNSAT(
+      """(assert (or (not (= (div (- 7) 2) (- 4))) (not (= (div (- 7) (- 2)) 4)) (not (= (div 7 (- 2)) (- 3)))
+        |            (not (= (mod (- 7) 2) 1))))
+        |(check-sat)""".stripMargin)
+  }
+
+  test("custom datatype equality") {
+    val frac =
+      """(declare-datatype Frac ((frac (num Int) (den (! Int :var d :restrict (> d 0))))))
+        |(define-fun same ((a Frac) (b Frac)) Bool (= (* (num a) (den b)) (* (num b) (den a))))
+        |(datatype-equality Frac same)
+        |(declare-const a Frac)
+        |(declare-const b Frac)
+        |""".stripMargin
+    assertUNSAT(frac + "(assert (and (= (num a) 1) (= (den a) 2) (= (num b) 2) (= (den b) 4) (not (= a b))))\n(check-sat)")
+
+    val (program, _) = parseOne(frac + "(assert (= a b))\n(check-sat)")
+    val Seq(sort) = program.symbols.sorts.values.toSeq: @unchecked
+    assert(sort.flags.exists(_.isInstanceOf[HasADTEquality]))
+
+    intercept[tip.MissformedTIPException] {
+      parse(frac.replace("Bool (=", "Int (ite (=").replace("(den a))))", "(den a))) 1 0))") + "(check-sat)")
+    }
+  }
+
   test("unsupported features") {
     intercept[tip.MissformedTIPException] {
       parse("(declare-const f (-> (! Int :var n :implicit) (BitVec n) (BitVec n)))\n(check-sat)")
