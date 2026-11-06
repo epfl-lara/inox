@@ -12,9 +12,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Builds the two native versions of the inox command line and checks their
-# answers on the TIP regression files (scripts/check-native-binary.sh). A
-# separate job checks that the GraalVM reachability metadata covers what the
-# TIP regression files exercise (scripts/record-native-image-metadata.sh).
+# answers on the TIP regression files (scripts/check-native-binary.sh). The
+# GraalVM build records its reachability metadata over the TIP regression
+# files (scripts/record-native-image-metadata.sh) and uploads it. The coverage
+# comment workflow lists how it differs from main on the pull request.
 jobs:
   scala-native:
     name: Scala Native
@@ -71,41 +72,25 @@ jobs:
         echo "$GITHUB_WORKSPACE/.local/bin" >> $GITHUB_PATH
     - name: Build
       run: ./scripts/build-native-image.sh inox-native-image
+    - name: Note the pull request
+      if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+      # Read by the coverage comment workflow, which compares the metadata
+      # with that of main at the first parent of the merge this build tested.
+      # (Read from the commit itself, since the checkout is shallow.)
+      run: |
+        [ -d target/native-image-metadata ] || exit 0
+        echo "$PR_NUMBER" > target/native-image-metadata/pr-number
+        git cat-file -p HEAD | sed -n '/^parent /{s///p;q}' > target/native-image-metadata/base-sha
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+    - name: Upload the reachability metadata
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: graalvm-reachability-metadata
+        path: target/native-image-metadata/
+        if-no-files-found: ignore
     - name: Check answers (SMT-LIB Z3)
       run: ./scripts/check-native-binary.sh ./inox-native-image --solvers=smt-z3
     - name: Check answers (native Z3 interface)
       run: ./scripts/check-native-binary.sh ./inox-native-image --solvers=nativez3
-
-  graalvm-metadata:
-    name: GraalVM reachability metadata
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      INSTALL_SOLVERS: 1
-      Z3_VER: 4.15.1
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    - name: Setup GraalVM
-      uses: graalvm/setup-graalvm@v1
-      with:
-        distribution: graalvm-community
-        java-version: 25
-    - name: Install and set up sbt
-      run: |
-        ./scripts/install_sbt.sh
-        echo "$(pwd)/sbt/bin/" >> $GITHUB_PATH
-        echo "SBT_OPTS=-Xss64M -Xmx4G -Dsbt.global.base=$GITHUB_WORKSPACE/.sbt-global" >> $GITHUB_ENV
-    - name: Install Z3
-      run: |
-        ./scripts/install_solvers.sh $GITHUB_WORKSPACE/.local/bin $Z3_VER
-        echo "$GITHUB_WORKSPACE/.local/bin" >> $GITHUB_PATH
-    - name: Check that the metadata covers the TIP regression files
-      run: ./scripts/record-native-image-metadata.sh --check
-    - name: Upload the recorded metadata
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: recorded-reachability-metadata
-        path: recorded-metadata/
-        if-no-files-found: ignore
