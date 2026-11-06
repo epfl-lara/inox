@@ -336,6 +336,17 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
   }
 
   // Basic Java types that are serialized primitively are prefixed with id=5
+  private def hasUnpairedSurrogate(s: String): Boolean = {
+    var i = 0
+    while (i < s.length) {
+      val c = s.charAt(i)
+      if (Character.isHighSurrogate(c) && i + 1 < s.length && Character.isLowSurrogate(s.charAt(i + 1))) i += 2
+      else if (Character.isSurrogate(c)) return true
+      else i += 1
+    }
+    false
+  }
+
   protected object PrimitiveSerializer extends Serializer[AnyRef](5) {
     override protected def write(element: AnyRef, out: OutputStream): Unit = {
       val objOut = new java.io.DataOutputStream(out)
@@ -354,6 +365,8 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
         case v: java.lang.Long      => objOut.writeByte(5); objOut.writeLong(v)
         case v: java.lang.Float     => objOut.writeByte(6); objOut.writeFloat(v)
         case v: java.lang.Double    => objOut.writeByte(7); objOut.writeDouble(v)
+        // UTF-8 can't encode unpaired surrogates, so strings that have some are written char by char
+        case v: java.lang.String if hasUnpairedSurrogate(v) => objOut.writeByte(10); objOut.writeInt(v.length); objOut.writeChars(v)
         case v: java.lang.String    => writeBytes(8, v.getBytes(StandardCharsets.UTF_8))
         case v: BigInt              => writeBytes(9, v.toByteArray)
       }
@@ -379,6 +392,9 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
         case 7 => objIn.readDouble(): java.lang.Double
         case 8 => new String(readBytes(), StandardCharsets.UTF_8)
         case 9 => BigInt(readBytes())
+        case 10 =>
+          val length = objIn.readInt()
+          new String(Array.fill(length)(objIn.readChar()))
       }
     }
   }
@@ -522,7 +538,8 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[GenericValue]      (26),
     // FPLiteral id=107
     // Floating Point literals are treated specially to avoid having to serialize BitSets
-    mappingSerializer[FPLiteral](107)(fp => (fp.exponent, fp.significand, fp.value))(p => FPLiteral(p._1, p._2, p._3)),
+    mappingSerializer[FPLiteral](107)(fp => (fp.exponent, fp.significand, fp.toBV.toBigInt))(
+      p => FPLiteral.fromBV(p._1, p._2, BVLiteral(true, p._3, p._1 + p._2))),
     classSerializer[RoundTowardZero.type]        (115),
     classSerializer[RoundTowardPositive.type]    (116),
     classSerializer[RoundTowardNegative.type]    (117),
@@ -673,5 +690,5 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
 
 object Serializer {
   def apply(t: ast.Trees, serializeProducts: Boolean = false): Serializer { val trees: t.type } =
-    new InoxSerializer(t).asInstanceOf[Serializer { val trees: t.type }]
+    new InoxSerializer(t, serializeProducts).asInstanceOf[Serializer { val trees: t.type }]
 }
