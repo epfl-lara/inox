@@ -1,3 +1,7 @@
+; Applies functions outside of their domain, where the codomain only holds without
+; `assume-checked` (under which applications are known to lie in the domain).
+(set-option :assume-checked false)
+
 (define-type PosInt () (! Int :var y :restrict (> y 0)))
 (declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
 ; (a: {y | y > 0}) => {r: BigInt | r > a}

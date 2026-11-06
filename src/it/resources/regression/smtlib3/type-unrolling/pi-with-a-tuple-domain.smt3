@@ -1,3 +1,7 @@
+; Applies functions outside of their domain, where the codomain only holds without
+; `assume-checked` (under which applications are known to lie in the domain).
+(set-option :assume-checked false)
+
 ; (p: {q: (BigInt, BigInt) | q._1 < q._2}) => {r: BigInt | p._1 < r && r < p._2}
 (declare-const f (-> (! (Tuple Int Int) :var p :restrict (< ((_ tuple.select 0) p) ((_ tuple.select 1) p))) (! Int :var r :restrict (and (< ((_ tuple.select 0) p) r) (< r ((_ tuple.select 1) p))))))
 

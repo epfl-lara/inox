@@ -1,3 +1,7 @@
+; Applies functions outside of their domain, where the codomain only holds without
+; `assume-checked` (under which applications are known to lie in the domain).
+(set-option :assume-checked false)
+
 (define-fun isPositive ((x Int)) Bool (> x 0))
 
 ; (a: {y | isPositive(y)}) => {r: BigInt | r > a}
