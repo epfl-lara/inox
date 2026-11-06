@@ -17,5 +17,10 @@ class UniqueCounter[K] {
     globalId
   }
 
+  /** Makes `nextGlobal` return values above `id` from now on. */
+  def reserveGlobal(id: Int): Unit = synchronized {
+    if (id > globalId) globalId = id
+  }
+
   def current = nameIds
 }

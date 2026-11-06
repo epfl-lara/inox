@@ -71,4 +71,13 @@ object FreshIdentifier {
     */
   def forceId(name: String, forceId: Int, alwaysShowUniqueID: Boolean = false): Identifier =
     new Identifier(decode(name), uniqueCounter.nextGlobal, forceId, alwaysShowUniqueID)
+
+  /** Rebuilds an identifier that was created elsewhere, such as in the process that serialized it,
+    * and makes sure that fresh identifiers never get its global id, since identifiers are equal
+    * when their global ids are.
+    */
+  def restore(name: String, globalId: Int, id: Int): Identifier = {
+    uniqueCounter.reserveGlobal(globalId)
+    new Identifier(name, globalId, id)
+  }
 }
