@@ -110,11 +110,14 @@ class BitVectorSemanticsSuite extends SolverTestSuite {
     check(s, IntToBV(8, false, IntegerLiteral(-1)),  BVLiteral(false, 255, 8))
     check(s, IntToBV(8, false, IntegerLiteral(810)), BVLiteral(false, 42, 8))
 
-    val signed = Variable.fresh("signed", Int8Type())
-    val unsigned = Variable.fresh("unsigned", BVType(false, 8))
+    // The round trips are checked on 4 bits: solving them takes time exponential in the width
+    // (the signed one takes 4 to 7 s on 8 bits for CVC4 and Z3, and CVC4 does not finish in 100 s
+    // on 16 bits), and 4 bits go through the same encodings in a few milliseconds.
+    val signed = Variable.fresh("signed", BVType(true, 4))
+    val unsigned = Variable.fresh("unsigned", BVType(false, 4))
 
-    assert(s.solveVALID(Equals(IntToBV(8, true, BVToInt(signed)), signed)).contains(true))
-    assert(s.solveVALID(Equals(IntToBV(8, false, BVToInt(unsigned)), unsigned)).contains(true))
+    assert(s.solveVALID(Equals(IntToBV(4, true, BVToInt(signed)), signed)).contains(true))
+    assert(s.solveVALID(Equals(IntToBV(4, false, BVToInt(unsigned)), unsigned)).contains(true))
   }
 
   test("solve bitwise operations", BitVectors) { ctx =>
