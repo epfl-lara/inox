@@ -163,7 +163,7 @@ class ExprOps private(val trees: Trees)
     * unrolling solver. See implementation for what this means exactly.
     */
   def isSimple(e: Expr): Boolean = !exists {
-    case (_: Assume) | (_: Forall) | (_: Lambda) | (_: Choose) |
+    case (_: Assume) | (_: Forall) | (_: Lambda) | (_: Choose) | (_: Error) |
          (_: FunctionInvocation) | (_: Application) => true
     case _ => false
   } (e)

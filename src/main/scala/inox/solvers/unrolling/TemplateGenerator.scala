@@ -362,6 +362,13 @@ trait TemplateGenerator { self: Templates =>
         storeGuarded(pathVar, p)
         newExpr
 
+      case Error(tpe, _) =>
+        // Errors are never reached, so the path that leads to one is infeasible
+        storeGuarded(pathVar, BooleanLiteral(false))
+        val newExpr = Variable.fresh("err", tpe, true)
+        storeExpr(newExpr)
+        newExpr
+
       case l @ Let(i, e: Lambda, b) =>
         val re = rec(pathVar, e, None) // guaranteed variable!
         val rb = rec(pathVar, exprOps.replace(Map(i.toVariable -> re), b), pol)
@@ -553,7 +560,7 @@ trait TemplateGenerator { self: Templates =>
   }(expr)
 
   private def containsAssumption(e: Expr): Boolean = e match {
-    case _: Assume | _: Choose => true
+    case _: Assume | _: Choose | _: Error => true
     case _ => false
   }
 

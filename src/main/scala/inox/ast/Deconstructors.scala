@@ -92,6 +92,11 @@ trait TreeDeconstructor {
       (NoIdentifiers, Seq(res.toVariable), Seq(pred), NoTypes, NoFlags,
         (_, vs, es, _, _) => t.Choose(vs.head.toVal, es.head))
     },
+    classOf[s.Error] -> { expr =>
+      val s.Error(tpe, msg) = expr: @unchecked
+      (NoIdentifiers, NoVariables, NoExpressions, Seq(tpe), NoFlags,
+        (_, _, _, tps, _) => t.Error(tps.head, msg))
+    },
     classOf[s.FunctionInvocation] -> { expr =>
       val s.FunctionInvocation(id, tps, args) = expr: @unchecked
       (Seq(id), NoVariables, args, tps, NoFlags,

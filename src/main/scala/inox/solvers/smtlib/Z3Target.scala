@@ -7,7 +7,7 @@ package smtlib
 import _root_.smtlib.trees.Terms.{Identifier => SMTIdentifier, Let => SMTLet, _}
 import _root_.smtlib.extensions.tip.Terms.{Lambda => SMTLambda, _}
 import _root_.smtlib.trees.Commands.{FunDef => SMTFunDef, _}
-import _root_.smtlib.trees.CommandsResponses._
+import _root_.smtlib.trees.CommandsResponses.{Error => SMTError, _}
 import _root_.smtlib.extensions.tip.Parser
 import _root_.smtlib.extensions.tip.Lexer
 import _root_.smtlib.lexer.Tokens
@@ -45,7 +45,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
               eat(Tokens.SymbolLit("error"))
               val msg = parseString.value
               eat(Tokens.CParen)
-              Error(msg)
+              SMTError(msg)
             case _ =>
               val props = parseUntil(Tokens.CParen)(() => parsePropLit)
               GetUnsatAssumptionsResponseSuccess(props)

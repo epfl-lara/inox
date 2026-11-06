@@ -151,6 +151,9 @@ trait Printer {
       case Choose(res, pred) =>
         p"choose(($res) => $pred)"
 
+      case Error(tpe, msg) =>
+        p"""error[$tpe]("$msg")"""
+
       case Assume(pred, body) =>
         p"""|assume($pred)
             |$body"""

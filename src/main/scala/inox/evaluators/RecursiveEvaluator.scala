@@ -220,6 +220,9 @@ abstract class RecursiveEvaluator(override val program: Program,
       replaceFromSymbols(variablesOf(f).map(v => v -> e(v)).toMap, f).asInstanceOf[Forall]
     }
 
+    case Error(_, msg) =>
+      throw RuntimeError("Error reached in evaluation: " + msg)
+
     case c: Choose =>
       rctx.getChoose(c.res.id) match {
         case Some(expr) => e(expr)

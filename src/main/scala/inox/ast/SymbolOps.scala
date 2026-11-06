@@ -230,7 +230,7 @@ trait SymbolOps extends TypeOps { self =>
   def isImpureExpr(expr: Expr): Boolean = expr match {
     case Assume(BooleanLiteral(true), _) => false
     case Choose(res, BooleanLiteral(true)) if hasInstance(res.tpe) == Some(true) => false
-    case (_: Assume) | (_: Choose) | (_: Application) |
+    case (_: Assume) | (_: Choose) | (_: Error) | (_: Application) |
          (_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector) => true
     case adt: ADT => adt.getConstructor.sort.definition.hasInvariant
     case _ => false
@@ -404,7 +404,7 @@ trait SymbolOps extends TypeOps { self =>
       }
 
       def containsChoose(e: Expr): Boolean =
-        exists { case c: Choose => true case _ => false } (e)
+        exists { case _: Choose | _: Error => true case _ => false } (e)
 
       def containsRecursive(e: Expr): Boolean =
         exists { case fi: FunctionInvocation => fi.tfd.fd.isRecursive case _ => false } (e)
@@ -414,7 +414,7 @@ trait SymbolOps extends TypeOps { self =>
           // The set of minimal conditions that must be met for an expression to be liftable
           val minimal =
             (isSimple(e) || !onlySimple)           && // check whether we want only simple expression
-            !containsChoose(e)                     && // expressions containing chooses can't be lifted
+            !containsChoose(e)                     && // expressions containing chooses or errors can't be lifted
             (!inFunction || !containsRecursive(e))    // recursive functions can't be lifted from lambdas
 
           // Whether the expression is guaranteed to be called, typically in foralls
