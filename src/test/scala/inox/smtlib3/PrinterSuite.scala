@@ -113,13 +113,12 @@ class PrinterSuite extends AnyFunSuite {
       |(assert (< (hi i) (lo i)))
       |(check-sat)""".stripMargin)
 
-  scriptTest("datatype value parameters", "unsat")(
-    """(declare-datatype Vec (par (E (! Int :var n))
-      |  ((vnil :restrict (= n 0))
-      |   (vcons (head E) (tail (Vec E (- n 1))) :restrict (> n 0)))))
-      |(define-fun-rec sum ((v (Vec Int))) Int (match v ((vnil 0) ((vcons h t) (+ h (sum t))))))
-      |(declare-const v (Vec Int 2))
-      |(assert (or (is-vcons (tail (tail v))) (not (= (sum (vcons 2 1 (vcons 1 2 (as vnil (Vec Int 0))))) 3))))
+  scriptTest("datatype fields refining their selectors", "unsat")(
+    """(declare-datatype SList ((snil) (scons (hd Int) (tl (! SList :var t :restrict (=> ((_ is scons) t) (< hd (hd t))))))))
+      |(define-fun-rec sum ((l SList)) Int (match l ((snil 0) ((scons h t) (+ h (sum t))))))
+      |(declare-const l SList)
+      |(assert (or (and ((_ is scons) l) ((_ is scons) (tl l)) (>= (hd l) (hd (tl l))))
+      |            (not (= (sum (scons 1 (scons 2 snil))) 3))))
       |(check-sat)""".stripMargin)
 
   scriptTest("polymorphic and mutually recursive datatypes", "unsat")(
