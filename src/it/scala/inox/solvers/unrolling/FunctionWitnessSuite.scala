@@ -16,7 +16,7 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
   import dsl._
 
   override protected def optionMatrix = UnrollingTestSuite.combinations(
-    // Most tests compare functions, which the default semantics rejects. Distinct functions always
+    // Most tests compare functions, which `none` rejects. Distinct functions always
     // have a distinguishing input under extensional equality, but not under intensional equality.
     Seq(optFunctionEquality(FunctionEquality.Extensional)),
     Seq(optCheckModels(true)),
@@ -530,7 +530,7 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     assert(optFunctionEquality.parser("extensional") == Some(FunctionEquality.Extensional))
     assert(optFunctionEquality.parser("Intensional") == Some(FunctionEquality.Intensional))
     assert(optFunctionEquality.parser("structural").isEmpty)
-    assert(optFunctionEquality.default == FunctionEquality.None)
+    assert(optFunctionEquality.default == FunctionEquality.Intensional)
   }
 
   test("functions applied to functions without function equality", hasHigherOrderModels) { ctx ?=>

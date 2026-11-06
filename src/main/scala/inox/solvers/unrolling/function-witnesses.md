@@ -43,7 +43,7 @@ extensional, and in a language with no function equality at all. Theorem D (§6)
 complete: whenever such a counterexample exists, the procedure finds one.
 
 So the unrolling technique applies to arbitrary languages, whatever the operational semantics of
-their function equality, or without one. Witnesses are used under the `none` (default) and
+their function equality, or without one. Witnesses are used under the `none` and
 `extensional` semantics of function equality, where they hold by definition (§9). Under
 `intensional` equality, distinct functions may agree on every input, so there are none, and the
 procedure is the one of the thesis. The procedure can still compare functions structurally
@@ -415,12 +415,14 @@ Theorem B is therefore checked on every model.
 ## 9. Function equality semantics
 
 `optFunctionEquality` (`--function-equality`) selects the semantics of equality between functions.
+The default is `intensional`, Inox's historical semantics, until Stainless opts the programs that
+compare functions into it. It then becomes `none`.
 §2 to §6 describe `none` and `extensional`.
 
 | Setting | Comparisons in queries | Witnesses | Lambdas | Evaluator |
 |---|---|---|---|---|
-| `none` (default) | rejected | unconditional, on demand | no structural inequality, witnesses on demand | rejected |
-| `intensional` | structural | none | structural | structural |
+| `none` | rejected | unconditional, on demand | no structural inequality, witnesses on demand | rejected |
+| `intensional` (default) | structural | none | structural | structural |
 | `extensional` | extensional | unconditional | no structural inequality, lazy witnesses | by results |
 
 **`none`.** `assertCnstr` rejects a query that compares values whose type contains functions,
