@@ -501,9 +501,8 @@ trait Expressions { self: Trees =>
     * the dividend, and `bvurem` for unsigned ones, so that `Division(x, y) * y + Remainder(x, y) == x`.
     * The remainder of a division by zero is the dividend.
     *
-    * On integers, this is the JVM's `BigInt.%`, whose result has the sign of the dividend. SMT-LIB
-    * has no such operation: this case is deprecated and will be removed once Stainless encodes it
-    * itself. Use [[Expressions.Modulo]] (SMT-LIB's `mod`) instead.
+    * On integers, this is the remainder of the euclidean [[Expressions.Division]], so that the same
+    * identity holds: it is SMT-LIB's `mod`, like [[Expressions.Modulo]], and is never negative.
     */
   sealed case class Remainder(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =

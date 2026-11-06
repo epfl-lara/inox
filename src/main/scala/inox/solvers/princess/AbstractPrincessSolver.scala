@@ -323,7 +323,8 @@ abstract class AbstractPrincessSolver(override val program: Program,
         case Remainder(lhs, rhs) => lhs.getType match {
           case BVType(true, _) => Mod.bvsrem(parseTerm(lhs), parseTerm(rhs))
           case BVType(false, _) => Mod.bvurem(parseTerm(lhs), parseTerm(rhs))
-          case IntegerType() => p.mulTheory.tMod(parseTerm(lhs), parseTerm(rhs))
+          // the remainder of the euclidean division
+          case IntegerType() => p.mulTheory.eMod(parseTerm(lhs), parseTerm(rhs))
         }
 
         case Modulo(lhs, rhs) => lhs.getType match {

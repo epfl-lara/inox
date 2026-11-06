@@ -234,18 +234,13 @@ class EvaluatorSuite extends AnyFunSuite {
   test("BigInt Division and Modulo") {
     val e = evaluator(ctx)
 
-    // SMT-LIB's euclidean `div` and `mod`, on the operands where they agree with the JVM's semantics
-    // (see RecursiveEvaluatorSuite for the others)
+    // SMT-LIB's euclidean `div` and `mod`, and the remainder of the euclidean division, on the operands
+    // where they agree with the JVM's semantics (see RecursiveEvaluatorSuite for the others)
     for ((x, y, q, r) <- Seq((10, 3, 3, 1), (1, -3, 0, 1), (6, -3, -2, 0))) {
-      eval(e, Division(IntegerLiteral(x), IntegerLiteral(y))) === IntegerLiteral(q)
-      eval(e, Modulo(IntegerLiteral(x), IntegerLiteral(y)))   === IntegerLiteral(r)
+      eval(e, Division(IntegerLiteral(x), IntegerLiteral(y)))  === IntegerLiteral(q)
+      eval(e, Remainder(IntegerLiteral(x), IntegerLiteral(y))) === IntegerLiteral(r)
+      eval(e, Modulo(IntegerLiteral(x), IntegerLiteral(y)))    === IntegerLiteral(r)
     }
-
-    // the JVM's remainder (deprecated), which has the sign of the dividend
-    eval(e, Remainder(IntegerLiteral(10), IntegerLiteral(3)))  === IntegerLiteral(1)
-    eval(e, Remainder(IntegerLiteral(-1), IntegerLiteral(3)))  === IntegerLiteral(-1)
-    eval(e, Remainder(IntegerLiteral(-1), IntegerLiteral(-3))) === IntegerLiteral(-1)
-    eval(e, Remainder(IntegerLiteral(1), IntegerLiteral(-3)))  === IntegerLiteral(1)
   }
 
   test("BigInt Comparisons") {

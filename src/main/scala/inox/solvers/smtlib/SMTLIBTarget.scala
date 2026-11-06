@@ -433,12 +433,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     case Remainder(a, b) => a.getType match {
       case BVType(true, _) => FixedSizeBitVectors.SRem(toSMT(a), toSMT(b))
       case BVType(false, _) => FixedSizeBitVectors.URem(toSMT(a), toSMT(b))
-      case IntegerType() =>
-        // the JVM's remainder, from the division that rounds toward zero
-        val ar = toSMT(a)
-        val br = toSMT(b)
-        val q = Core.ITE(Ints.GreaterEquals(ar, Ints.NumeralLit(0)), Ints.Div(ar, br), Ints.Neg(Ints.Div(Ints.Neg(ar), br)))
-        Ints.Sub(ar, Ints.Mul(br, q))
+      // the remainder of the euclidean division
+      case IntegerType() => Ints.Mod(toSMT(a), toSMT(b))
     }
 
     case Modulo(a, b) => a.getType match {

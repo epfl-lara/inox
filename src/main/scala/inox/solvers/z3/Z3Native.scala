@@ -344,15 +344,8 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     case Remainder(l, r) => l.getType match {
       case BVType(true, _) => z3.mkBVSrem(toZ3(l), toZ3(r))
       case BVType(false, _) => z3.mkBVUrem(toZ3(l), toZ3(r))
-      case _ =>
-        // the JVM's remainder, from the division that rounds toward zero
-        val (rl, rr) = (toZ3(l), toZ3(r))
-        val q = z3.mkITE(
-          z3.mkGE(rl, z3.mkNumeral("0", typeToSort(IntegerType()))),
-          z3.mkDiv(rl, rr),
-          z3.mkUnaryMinus(z3.mkDiv(z3.mkUnaryMinus(rl), rr))
-        )
-        z3.mkSub(rl, z3.mkMul(rr, q))
+      // the remainder of the euclidean division
+      case _ => z3.mkMod(toZ3(l), toZ3(r))
     }
 
     case Modulo(l, r) => l.getType match {
