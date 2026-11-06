@@ -542,23 +542,6 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case _ => FloatingPoint.ToFP(ne, ns, toSMT(rm), toSMT(e))
     }
     case FPFromBinary(ne, ns, e) => FloatingPoint.ToFP(ne, ns, toSMT(e))
-    // Deprecated: Stainless will encode the JVM's casts itself with `FPToBV`
-    case FPToBVJVM(eb, sb, toSize, e) =>
-      toSize match
-        case 8 => toSMT(BVNarrowingCast(FPToBVJVM(eb, sb, 32, e), Int8Type()))
-        case 16 => toSMT(BVNarrowingCast(FPToBVJVM(eb, sb, 32, e), Int16Type()))
-        case s @ (32 | 64) =>
-          val (maxVal, minVal, zero) = s match
-            case 32 => (Int32Literal(Int.MaxValue), Int32Literal(Int.MinValue), Int32Literal(0))
-            case 64 => (Int64Literal(Long.MaxValue), Int64Literal(Long.MinValue), Int64Literal(0))
-
-          val isLarge = FPGreaterThan(e, FPCast(eb, sb, RoundTowardZero, maxVal))
-          val isSmall = FPLessThan(e, FPCast(eb, sb, RoundTowardZero, minVal))
-          toSMT(IfExpr(FPIsNaN(e), zero,
-            IfExpr(isLarge, maxVal,
-              IfExpr(isSmall, minVal,
-                FPToBV(s, true, RoundTowardZero, e)))))
-
     case FPToBV(s, signed, rm, e) =>
       if (signed) {
         FloatingPoint.ToSignedBitVector(s, toSMT(rm), toSMT(e))

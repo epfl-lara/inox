@@ -607,20 +607,6 @@ abstract class RecursiveEvaluator(override val program: Program,
         case _ => throw EvalError("Unexpected operation: Math.sqrt(" + expr.asString + ")")
       }
 
-    case FPToBVJVM(eb, sb, toSize, expr) =>
-      val (asInt, asLong) = e(expr) match {
-        case Float32Literal(l) if (eb, sb) == (8, 24) => (l.toInt, l.toLong)
-        case Float64Literal(l) if (eb, sb) == (11, 53) => (l.toInt, l.toLong)
-        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").toInt")
-      }
-      toSize match {
-        case 8 => Int8Literal(asInt.toByte)
-        case 16 => Int16Literal(asInt.toShort)
-        case 32 => Int32Literal(asInt)
-        case 64 => Int64Literal(asLong)
-        case _ => throw EvalError(s"Unexpected size $toSize for (" + expr.asString + ").toInt")
-      }
-
     case FPToBV(size, signed, rm, expr) if roundingModes.contains(rm) =>
       val d = e(expr) match {
         case Float32Literal(l) => l.toDouble

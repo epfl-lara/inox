@@ -757,16 +757,6 @@ trait Expressions { self: Trees =>
       if getRoundingMode(rm).isTyped && getFPType(expr).isTyped then BVType(signed, size) else Untyped
   }
 
-  /** Casts from floating-points to bitvectors with JVM semantics: NaN is 0, values out of range
-    * saturate, and the others round toward zero.
-    *
-    * This is deprecated and will be removed once Stainless encodes it itself with [[FPToBV]].
-    */
-  sealed case class FPToBVJVM(exponent: Int, significand: Int, toSize: Int, expr: Expr) extends Expr with CachingTyped {
-    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
-      if getFPType(expr).isTyped then BVType(true, toSize) else Untyped
-  }
-
   object FPToBinary {
     def apply(exponent: Int, significand: Int, expr: Expr): Expr =
       val newVar = Variable.fresh(f"toBinary", BVType(true, exponent + significand), true)

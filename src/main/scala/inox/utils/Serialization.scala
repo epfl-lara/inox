@@ -593,7 +593,6 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[FPCast]            (114),
     classSerializer[FPFromBinary]      (132),
     classSerializer[FPToBV]            (133),
-    classSerializer[FPToBVJVM]            (141),
     classSerializer[FPToReal]          (138),
     classSerializer[FPAbs]             (125),
     classSerializer[Sqrt]              (126),
