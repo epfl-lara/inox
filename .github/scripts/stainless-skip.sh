@@ -10,6 +10,9 @@
 #                                                    frontends/benchmarks,
 #                                                    separated by spaces
 #
+# The line must start the line in the commit message, so indented examples
+# (like the ones above, in a commit message) don't count.
+#
 # A line applies for as long as Stainless main pins an Inox commit that doesn't
 # contain it: the lines come from the Inox commits in
 # <Stainless's inox submodule>..HEAD. The Stainless change that bumps Inox past
@@ -65,7 +68,7 @@ while read -r commit; do
       echo "::warning::Skipping the Stainless benchmarks $filter, as commit $commit says, until Stainless bumps Inox past it."
     fi
   done < <(git log -1 --format=%B "$commit" | tr -d '\r' |
-           sed -n -E 's/^[[:space:]]*[Ss]tainless:[[:space:]]*skip([[:space:]]+(.*[^[:space:]]))?[[:space:]]*$/\2/p')
+           sed -n -E 's/^[Ss]tainless:[[:space:]]*skip([[:space:]]+(.*[^[:space:]]))?[[:space:]]*$/\2/p')
 done < <(git log --format=%H "$pinned..HEAD")
 
 {
