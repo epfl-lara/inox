@@ -1,0 +1,21 @@
+; The pairwise product of associative functions is associative
+(set-info :status unsat)
+(declare-type-var A)
+(define-fun isAssociative ((f (-> A A A))) Bool
+  (forall ((x A) (y A) (z A)) (= (f (f x y) z) (f x (f y z)))))
+(define-fun isCommutative ((f (-> A A A))) Bool
+  (forall ((x A) (y A)) (= (f x y) (f y x))))
+(define-fun isRotate ((f (-> A A A))) Bool
+  (forall ((x A) (y A) (z A)) (= (f (f x y) z) (f (f y z) x))))
+(define-fun isIdempotent ((f (-> A A A))) Bool
+  (forall ((x A) (y A)) (= (f x y) (f x (f x y)))))
+(declare-type T ())
+(declare-type U ())
+(declare-const f1 (-> T T T))
+(declare-const f2 (-> U U U))
+(assert (isAssociative f1))
+(assert (isAssociative f2))
+(assert (not (isAssociative (lambda ((p1 (Tuple T U)) (p2 (Tuple T U)))
+  (tuple (f1 ((_ tuple.select 0) p1) ((_ tuple.select 0) p2))
+         (f2 ((_ tuple.select 1) p1) ((_ tuple.select 1) p2)))))))
+(check-sat)

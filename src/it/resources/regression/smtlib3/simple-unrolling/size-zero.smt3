@@ -1,0 +1,8 @@
+(set-info :status sat)
+(declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
+(declare-type-var A)
+(define-fun-rec size ((l (List A))) Int (ite ((_ is Cons) l) (+ 1 (size (tail l))) 0))
+(declare-type T ())
+(declare-const x (List T))
+(assert (= (size x) 0))
+(check-sat)

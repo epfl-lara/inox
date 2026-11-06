@@ -1,0 +1,6 @@
+(set-info :status sat)
+(define-type Big () (! Int :var x :restrict (> x 2000)))
+(define-type Empty () (! Int :var x :restrict false))
+(declare-const m (Array Empty Int))
+(assert (= m m))
+(check-sat)

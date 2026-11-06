@@ -1,0 +1,6 @@
+(set-info :status unsat)
+(declare-const f (-> Int Int))
+(declare-const g (-> Int Int))
+(assert (= f (lambda ((x Int)) (g x))))
+(assert (= g (lambda ((x Int)) (f x))))
+(check-sat)
