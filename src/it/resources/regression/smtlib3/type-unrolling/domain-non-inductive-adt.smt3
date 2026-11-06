@@ -1,0 +1,33 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+; non-inductive
+(declare-datatype Box ((box (bv PosInt))))
+
+; in domain
+(push 1)
+(declare-const g (-> Box Int))
+(assert (not (=> (forall ((w Box)) (= (g w) 1)) (= (g (box 1)) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside domain
+(push 1)
+(declare-const g (-> Box Int))
+(assert (not (=> (forall ((w Box)) (= (g w) 1)) (= (g (box 0)) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; holds
+(push 1)
+(assert (not (forall ((w Box)) (> (bv w) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; doesn't hold
+(push 1)
+(assert (not (forall ((w Box)) (> (bv w) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)

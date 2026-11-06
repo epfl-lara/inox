@@ -1,0 +1,36 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+(declare-type-var A)
+(define-fun first ((f (-> Int A))) A (f 0))
+
+(declare-type U ())
+(declare-const g (-> U Int))
+(declare-const y U)
+(declare-const f (-> Int PosInt))
+
+; inhabited type parameter
+(push 1)
+(assert (and (forall ((w U)) false) (= (g y) 1)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; instantiation
+(push 1)
+(assert (not (=> (forall ((w U)) (= (g w) 1)) (= (g y) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; refinement as type argument
+(push 1)
+(assert (not (> (first f) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; refinement as type argument
+(push 1)
+(assert (not (> (first f) 1)))
+(set-info :status sat)
+(check-sat)
+(pop 1)

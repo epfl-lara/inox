@@ -1,0 +1,53 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+(declare-const n Int)
+(declare-const m Int)
+; (a: {y | y > n}) => {r: BigInt | r > a}
+(declare-const g (-> (! Int :var a :restrict (> a n)) (! Int :var r :restrict (> r a))))
+(declare-const h (-> (! Int :var a :restrict (> a m)) (! Int :var r :restrict (> r a))))
+; F: (BigInt => {r | r > n}) => {r | r > 0}, whose domain captures `n`
+(declare-const F (-> (-> Int (! Int :var r :restrict (> r n))) PosInt))
+
+; inside
+(push 1)
+(assert (not (> (g (+ n 1)) (+ n 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside
+(push 1)
+(assert (not (> (g n) n)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; same argument, other domain
+(push 1)
+(assert (not (=> (> m n) (> (h (+ n 1)) (+ n 1)))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; both domains
+(push 1)
+(assert (not (and (> (g (+ n 1)) (+ n 1)) (=> (< m n) (> (h (+ n 1)) (+ n 1))))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; captured, inside
+(push 1)
+(assert (not (> (F (lambda ((x Int)) (+ n 1))) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; captured, outside
+(set-option :check-models false)
+(push 1)
+(assert (<= (F (lambda ((x Int)) n)) 0))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-option :check-models true)

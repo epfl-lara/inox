@@ -1,0 +1,34 @@
+; Sets, maps and bags can be infinite, so their type checks never complete.
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+(declare-const m (Array Int PosInt))
+(declare-const x Int)
+
+; set
+(push 1)
+(assert (not (forall ((w (Set PosInt))) (forall ((x Int)) (=> (member x w) (> x 0))))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map
+(push 1)
+(assert (not (forall ((w (Array Int PosInt))) (forall ((x Int)) (> (select w x) 0)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; bag
+(push 1)
+(assert (not (forall ((w (Bag PosInt))) (forall ((x Int)) (=> (> (bag.multiplicity x w) 0) (> x 0))))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; free map variable
+(push 1)
+(assert (not (> (select m x) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

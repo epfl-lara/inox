@@ -1,0 +1,41 @@
+; The type of a free function is only assumed at its applications, so its equality to a lambda
+; outside of the type isn't refuted. The model is rejected instead (see the known issue).
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+; (a: {y | y > 0}) => {r: BigInt | r > a}
+(define-type PosIncr () (-> (! PosInt :var a) (! Int :var r :restrict (> r a))))
+
+(declare-const f PosIncr)
+(declare-const g (-> Int PosInt))
+
+; identity
+(set-info :inox-may-be-unknown true)
+(push 1)
+(assert (= f (lambda ((x Int)) x)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+(set-info :inox-may-be-unknown false)
+
+; applied
+(push 1)
+(assert (and (= f (lambda ((x Int)) x)) (= (f 1) 1)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; refined codomain
+(set-info :inox-may-be-unknown true)
+(push 1)
+(assert (= g (lambda ((x Int)) x)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+(set-info :inox-may-be-unknown false)
+
+; inside
+(push 1)
+(assert (= f (lambda ((x Int)) (ite (> x 0) (+ x 1) (- 1)))))
+(set-info :status sat)
+(check-sat)
+(pop 1)

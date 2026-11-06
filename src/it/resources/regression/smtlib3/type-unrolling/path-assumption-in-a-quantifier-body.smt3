@@ -1,0 +1,20 @@
+(define-type NonZero () (! Int :var y :restrict (not (= y 0))))
+; pre(a) = { assume(a != 0); true }, similarly to a Stainless `require`
+(define-fun pre ((a Int)) Bool (assume (not (= a 0)) true))
+
+(define-type Guarded () (! NonZero :var x :restrict (pre x)))
+(declare-const g (-> Int Int))
+
+; in domain
+(push 1)
+(assert (not (=> (forall ((w Guarded)) (and (pre w) (= (g w) 1))) (= (g 2) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; holds
+(push 1)
+(assert (not (forall ((w NonZero)) (pre w))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

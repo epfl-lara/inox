@@ -1,0 +1,36 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+; (a: {y | y > 0}) => {r: BigInt | r > a}
+(define-type PosIncr () (-> (! PosInt :var a) (! Int :var r :restrict (> r a))))
+
+; in domain
+(push 1)
+(declare-const g (-> (-> Int Int) Int))
+(assert (not (=> (forall ((w PosIncr)) (= (g w) 1)) (= (g (lambda ((x Int)) (+ x 1))) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside domain
+(push 1)
+(declare-const g (-> (-> Int Int) Int))
+(assert (not (=> (forall ((w PosIncr)) (= (g w) 1)) (= (g (lambda ((x Int)) (- x 1))) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; outside codomain outside of the domain
+(push 1)
+(declare-const g (-> (-> Int Int) Int))
+(assert (not (=> (forall ((w PosIncr)) (= (g w) 1)) (= (g (lambda ((x Int)) (ite (> x 0) (+ x 1) 0))) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; free function
+(push 1)
+(declare-const f (-> Int Int))
+(declare-const g (-> (-> Int Int) Int))
+(assert (not (=> (forall ((w PosIncr)) (= (g w) 1)) (= (g f) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)

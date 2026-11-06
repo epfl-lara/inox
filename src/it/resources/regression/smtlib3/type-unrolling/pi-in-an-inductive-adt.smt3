@@ -1,0 +1,27 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+(declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
+; (a: {y | y > 0}) => {r: BigInt | r > a}
+(define-type PosIncr () (-> (! PosInt :var a) (! Int :var r :restrict (> r a))))
+
+(declare-const l (List PosIncr))
+
+; inside
+(push 1)
+(assert (not (=> ((_ is Cons) l) (> (@ (head l) 1) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside
+(push 1)
+(assert (not (=> ((_ is Cons) l) (> (@ (head l) 0) 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; tail
+(push 1)
+(assert (not (=> (and ((_ is Cons) l) ((_ is Cons) (tail l))) (> (@ (head (tail l)) 3) 3))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

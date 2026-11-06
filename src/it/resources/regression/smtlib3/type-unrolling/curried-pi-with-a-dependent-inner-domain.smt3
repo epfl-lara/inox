@@ -1,0 +1,47 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+; (a: {y | y > 0}) => (b: {y | y > a}) => {r: BigInt | r > b}
+(define-type T () (-> (! PosInt :var a) (-> (! Int :var b :restrict (> b a)) (! Int :var r :restrict (> r b)))))
+(declare-const c T)
+
+; inside
+(push 1)
+(assert (not (> (@ (c 1) 2) 2)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; inner argument outside
+(push 1)
+(assert (not (> (@ (c 1) 1) 1)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; outer argument outside
+(push 1)
+(assert (not (> (@ (c 0) 5) 5)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; quantifier, inside
+(push 1)
+(assert (not (forall ((w T)) (> (@ (w 1) 2) 2))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; quantifier, outside
+(push 1)
+(assert (not (forall ((w T)) (> (@ (w 1) 1) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; model
+(push 1)
+(assert (< (@ (c 1) 1) 0))
+(set-info :status sat)
+(check-sat)
+(pop 1)

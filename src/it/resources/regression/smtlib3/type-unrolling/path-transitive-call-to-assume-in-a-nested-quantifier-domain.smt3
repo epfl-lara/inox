@@ -1,0 +1,35 @@
+; Each predicate only holds (only makes its assumptions) within the base type {y | y != 0}.
+; Outside of the base type, the type check must be false without falsifying the path.
+
+(define-type NonZero () (! Int :var y :restrict (not (= y 0))))
+(declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
+; pre(a) = { assume(a != 0); true }, similarly to a Stainless `require`
+(define-fun pre ((a Int)) Bool (assume (not (= a 0)) true))
+; the assumption of pre is reached transitively
+(define-fun pre2 ((a Int)) Bool (pre a))
+
+(define-type Guarded () (! NonZero :var x :restrict (pre2 x)))
+
+; in domain
+(push 1)
+(declare-const g (-> (List Int) Int))
+(assert (not (=> (forall ((w (List Guarded))) (= (g w) 1)) (= (g (Cons 2 (Cons 3 (as Nil (List Int))))) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; depth 1 outside base type
+(push 1)
+(declare-const g (-> (List Int) Int))
+(assert (not (=> (forall ((w (List Guarded))) (= (g w) 1)) (= (g (Cons 0 (as Nil (List Int)))) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; depth 2 outside base type
+(push 1)
+(declare-const g (-> (List Int) Int))
+(assert (not (=> (forall ((w (List Guarded))) (= (g w) 1)) (= (g (Cons 2 (Cons 0 (as Nil (List Int))))) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)

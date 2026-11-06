@@ -1,0 +1,35 @@
+(declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
+(define-fun-rec allPos ((l (List Int))) Bool (ite ((_ is Cons) l) (and (> (head l) 0) (allPos (tail l))) true))
+; the invariant calls a recursive function
+(declare-datatype Wrapper ((wrapper (wl (List Int)))))
+(datatype-invariant w Wrapper (allPos (wl w)))
+
+(declare-const w Wrapper)
+
+; depth 1
+(push 1)
+(assert (not (=> ((_ is Cons) (wl w)) (> (head (wl w)) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; depth 2
+(push 1)
+(assert (not (=> (and ((_ is Cons) (wl w)) ((_ is Cons) (tail (wl w)))) (> (head (tail (wl w))) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; depth 2
+(push 1)
+(assert (not (=> (and ((_ is Cons) (wl w)) ((_ is Cons) (tail (wl w)))) (> (head (tail (wl w))) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; holds
+(push 1)
+(assert (not (forall ((w Wrapper)) (allPos (wl w)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

@@ -1,0 +1,12 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+; (a: {y | y > 0}) => {r: BigInt | r > a}
+(define-type PosIncr () (-> (! PosInt :var a) (! Int :var r :restrict (> r a))))
+
+(declare-const f PosIncr)
+
+; identity
+(push 1)
+(assert (= f (lambda ((x Int)) x)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
