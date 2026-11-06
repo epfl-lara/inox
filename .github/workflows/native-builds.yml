@@ -38,9 +38,9 @@ jobs:
         echo "$(pwd)/sbt/bin/" >> $GITHUB_PATH
         echo "SBT_OPTS=-Xss64M -Xmx4G -Dsbt.global.base=$GITHUB_WORKSPACE/.sbt-global" >> $GITHUB_ENV
     - name: Install Z3
-      run: |
-        ./scripts/install_solvers.sh $GITHUB_WORKSPACE/.local/bin $Z3_VER
-        echo "$GITHUB_WORKSPACE/.local/bin" >> $GITHUB_PATH
+      uses: ./.github/actions/install-solvers
+      with:
+        z3: ${{ env.Z3_VER }}
     - name: Build
       run: cd native && sbt -batch nativeLink
     - name: Check answers
@@ -67,9 +67,9 @@ jobs:
         echo "$(pwd)/sbt/bin/" >> $GITHUB_PATH
         echo "SBT_OPTS=-Xss64M -Xmx4G -Dsbt.global.base=$GITHUB_WORKSPACE/.sbt-global" >> $GITHUB_ENV
     - name: Install Z3
-      run: |
-        ./scripts/install_solvers.sh $GITHUB_WORKSPACE/.local/bin $Z3_VER
-        echo "$GITHUB_WORKSPACE/.local/bin" >> $GITHUB_PATH
+      uses: ./.github/actions/install-solvers
+      with:
+        z3: ${{ env.Z3_VER }}
     - name: Build
       run: ./scripts/build-native-image.sh inox-native-image
     - name: Check answers (SMT-LIB Z3)
