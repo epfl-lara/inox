@@ -38,12 +38,16 @@ class Printer private(override val program: InoxProgram,
     throw new UnsupportedTree(t, s"(of class ${t.getClass}) is unsupported by TIP printer:\n  " + str)
   }
 
+  /** The context that prints the emitted commands; subclasses may print extended syntax. */
+  protected def printingContext(writer: Writer): smtlib.printer.PrintingContext =
+    new smtlib.printer.PrintingContext(writer)
+
   /* Note that we are NOT relying on a "real" interpreter here. We just
    * need the printer for calls to [[emit]] to function correctly. */
   protected val interpreter = {
     class PrinterImpl extends smtlib.printer.Printer {
       val name: String = "tip-printer"
-      protected def newContext(writer: Writer) = new smtlib.printer.PrintingContext(writer)
+      protected def newContext(writer: Writer) = printingContext(writer)
     }
     class InterpreterImpl(override val printer: PrinterImpl, override val parser: smtlib.parser.Parser) extends Interpreter {
       def eval(cmd: SExpr): SExpr = {
