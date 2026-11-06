@@ -71,9 +71,10 @@ class Printer private(override val program: InoxProgram,
   protected val extraVars = new Bijection[Variable, SSymbol]
 
   def printScript(expr: Expr): Unit = {
-    val tparams = typeOps.typeParamsOf(expr)
+    // Sorted, so that the printed parameters don't depend on how the set of type parameters hashes
+    val tparams = typeOps.typeParamsOf(expr).toSeq.sortBy(_.id)
     val cmd = if (tparams.nonEmpty) {
-      AssertPar(tparams.map(tp => id2sym(tp.id)).toSeq, toSMT(expr)(using Map.empty))
+      AssertPar(tparams.map(tp => id2sym(tp.id)), toSMT(expr)(using Map.empty))
     } else {
       Assert(toSMT(expr)(using Map.empty))
     }
@@ -286,7 +287,7 @@ class Printer private(override val program: InoxProgram,
   override protected def toSMT(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
     case v @ Variable(id, tp, flags) =>
       bindings.get(id) orElse variables.getB(v).map(s => s: Term) getOrElse {
-        val tps = typeOps.typeParamsOf(tp).toSeq
+        val tps = typeOps.typeParamsOf(tp).toSeq.sortBy(_.id)
         val sort = sortOf(tp)(using Map.empty)
         val sym = extraVars.cachedB(v) {
           val sym = id2sym(id)
