@@ -49,6 +49,14 @@ class HOFModelSuite extends SolverTestSuite {
       g(E(BigInt(0))) === E(BigInt(5)) && h(E(BigInt(0))) === E(BigInt(6)))
   }
 
+  test("higher-order free function telling apart functions that agree where they are applied", Integers, Functions) { ctx =>
+    val f = ("f" :: ((I =>: I) =>: I)).toVariable
+    val g = ("g" :: (I =>: I)).toVariable
+    val h = ("h" :: (I =>: I)).toVariable
+    val k = ("k" :: (I =>: I)).toVariable
+    assertSAT(ctx, f(g) < f(h) && f(h) < f(k) && g(E(BigInt(0))) > E(BigInt(5)))
+  }
+
   test("higher-order free function with two function parameters", Integers, Functions) { ctx =>
     val f = ("f" :: ((I =>: I, I =>: I) =>: I)).toVariable
     val g = ("g" :: (I =>: I)).toVariable

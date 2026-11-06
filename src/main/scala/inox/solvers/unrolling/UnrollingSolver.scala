@@ -666,18 +666,24 @@ abstract class AbstractUnrollingSolver private
             case ((cond, img), elze) => IfExpr(cond, img, elze)
           })
 
-          // make sure `lambda` is not equal to any other distinct extracted first-class function
-          (lambdaExtractions.collectFirst {
-            case (e, img) if img.getType == lambda.getType && modelEq(e, f) => Left(img)
-            case (encoded, `lambda`) => Right(encoded)
-          }) match {
-            case Some(Right(enc)) => wrapped.modelEval(enc, tpe).getOrThrow match {
-              case Lambda(_, Let(_, Tuple(es), _)) =>
-                uniquateClosure(if (es.size % 2 == 0) -es.size / 2 else es.size / 2, lambda)
-              case l => throw new InternalSolverError(name, "Unexpected extracted lambda format: " + l.asString)
+          lambdaExtractions.collectFirst {
+            case (e, img) if img.getType == lambda.getType && modelEq(e, f) => img
+          }.getOrElse {
+            // Make sure `lambda` differs from the other distinct extracted functions. Lambdas are
+            // compared structurally, up to the names of their parameters and locals.
+            def normal(l: Lambda): Expr = {
+              val (nl, subst) = normalizeStructure(l, onlySimple = true)
+              exprOps.replaceFromSymbols(subst.map { case (v, e, _) => v -> e }.toMap, nl)
             }
-            case Some(Left(img)) => img
-            case None => lambda
+
+            val taken = lambdaExtractions.collect {
+              case (_, img: Lambda) if img.getType == lambda.getType => normal(img)
+            }.toSet
+
+            Iterator(lambda)
+              .concat(Iterator.from(1).map(uniquateClosure(_, lambda)))
+              .find(l => !taken(normal(l)))
+              .get
           }
         }
 
