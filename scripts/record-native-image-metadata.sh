@@ -7,24 +7,25 @@
 # exercises is missing from the binary. The runs cover every TIP regression
 # file with each solver back end, and the same problems in the binary format.
 #
-# Usage:
-#   scripts/record-native-image-metadata.sh          merge new accesses into
-#                                                    the committed metadata
-#   scripts/record-native-image-metadata.sh --check  fail if the runs reach
-#                                                    something it doesn't list
+# Usage: scripts/record-native-image-metadata.sh <dir>
+#   writes <dir>/reachability-metadata.json, with its entries sorted so that
+#   two recordings can be compared with diff. It also builds the assembly
+#   jar that scripts/build-native-image.sh compiles.
 #
 # Needs GraalVM 25 or later (java on the PATH, or GRAALVM_HOME set), sbt,
 # and z3 on the PATH.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-check=false
-if [ "${1:-}" = --check ]; then check=true; fi
+if [ $# -ne 1 ]; then
+  echo "Usage: $0 <dir>" >&2
+  exit 1
+fi
+out=$1
 
 java=java
 if [ -n "${GRAALVM_HOME:-}" ]; then java="$GRAALVM_HOME/bin/java"; fi
 
-metadata=src/main/resources/META-INF/native-image/ch.epfl.lara/inox
 tips=src/it/resources/regression/tip
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -35,8 +36,8 @@ files=$(ls "$tips"/{SAT,UNSAT,UNKNOWN}/*.tip | grep -v ForallAssoc.scala-0.tip)
 sbt -batch assembly "Test/runMain inox.utils.WriteBinaryInputs $work/binary $(echo $files)"
 jar=$(ls -t target/scala-*/inox-assembly-*.jar | head -n 1)
 
-if $check; then out=$work/recorded; else out=$metadata; fi
-mkdir -p "$out" "$work/tmp"
+recorded=$work/recorded
+mkdir -p "$recorded" "$work/tmp"
 
 # Runs inox on the given files in a single JVM (starting a JVM under the
 # agent takes seconds). A run stops at the first file that crashes or times
@@ -48,7 +49,7 @@ run() {
   local todo=("$@")
   while [ ${#todo[@]} -gt 0 ]; do
     local log
-    log=$(timeout 600 "$java" -agentlib:native-image-agent=config-merge-dir="$out" \
+    log=$(timeout 600 "$java" -agentlib:native-image-agent=config-merge-dir="$recorded" \
       -Djava.io.tmpdir="$work/tmp" -jar "$jar" --timeout=5 "$opt" "${todo[@]}" 2>&1 || true)
     local rest=() started=false
     for f in "${todo[@]}"; do
@@ -74,46 +75,29 @@ run --solvers=princess $(echo "$files" | grep -vE '/SAT/AbstractRefinementMap.sc
 echo "Running the binary files"
 run --format=binary:goal "$work"/binary/*.inoxb
 
-if $check; then
-  # Keep what this run recorded (CI uploads it when the check fails).
-  rm -rf recorded-metadata && cp -r "$out" recorded-metadata
-  python3 - "$metadata/reachability-metadata.json" "$out/reachability-metadata.json" <<'PY'
-import fnmatch, json, sys
+mkdir -p "$out"
+python3 - "$recorded/reachability-metadata.json" "$out/reachability-metadata.json" <<'PY'
+import json, sys
 
-def accesses(path):
-    data = json.load(open(path))
-    found = set()
-    for section, entries in data.items():
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            key = entry.get("type", entry.get("glob", entry.get("bundle")))
-            key = json.dumps(key, sort_keys=True)
-            found.add((section, key, ""))
-            for member, value in entry.items():
-                if member in ("type", "glob", "bundle", "condition", "module"):
-                    continue
-                for item in value if isinstance(value, list) else [value]:
-                    found.add((section, key, member + " " + json.dumps(item, sort_keys=True)))
-    return found
+# Sorts the entries by the type, resource or member they are about. Lists of
+# names, such as parameter types, keep their order.
+def key(value):
+    name = value
+    if isinstance(value, dict):
+        name = next((value[k] for k in ("type", "glob", "bundle", "name") if k in value), "")
+    return (json.dumps(name, sort_keys=True), json.dumps(value, sort_keys=True))
 
-committed = accesses(sys.argv[1])
-globs = [json.loads(key) for section, key, _ in committed if section == "resources"]
+def canonical(value):
+    if isinstance(value, dict):
+        return {k: canonical(v) for k, v in sorted(value.items())}
+    if isinstance(value, list):
+        items = [canonical(v) for v in value]
+        return sorted(items, key=key) if all(isinstance(v, dict) for v in items) else items
+    return value
 
-def covered(access):
-    section, key, _ = access
-    if access in committed:
-        return True
-    # A resource is also covered by a glob in the committed metadata.
-    return section == "resources" and any(
-        isinstance(g, str) and fnmatch.fnmatchcase(json.loads(key), g) for g in globs)
-
-missing = sorted(a for a in accesses(sys.argv[2]) if not covered(a))
-for section, key, member in missing:
-    print(f"missing in {section}: {key}" + (f" {member}" if member else ""))
-if missing:
-    print("Run scripts/record-native-image-metadata.sh to update the metadata.")
-    sys.exit(1)
-print("The committed metadata covers every recorded access.")
+data = canonical(json.load(open(sys.argv[1])))
+with open(sys.argv[2], "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
 PY
-fi
+echo "Wrote $out/reachability-metadata.json"
