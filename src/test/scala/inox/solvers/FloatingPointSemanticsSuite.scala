@@ -133,6 +133,58 @@ class FloatingPointSemanticsSuite extends SolverTestSuite {
     }
   }
 
+  test("Floating Point Rounding, Conversions and Classification", FloatingPoint) { ctx =>
+    val s = solver(ctx)
+    val modes = Seq(RoundNearestTiesToEven, RoundNearestTiesToAway, RoundTowardZero, RoundTowardPositive, RoundTowardNegative)
+
+    // the results of `fp.roundToIntegral` in each of `modes`
+    val rounded: Seq[(Double, Seq[Double])] = Seq(
+      2.5   -> Seq(2.0, 3.0, 2.0, 3.0, 2.0),
+      -2.5  -> Seq(-2.0, -3.0, -2.0, -2.0, -3.0),
+      1.7   -> Seq(2.0, 2.0, 1.0, 2.0, 1.0),
+      -0.3  -> Seq(-0.0, -0.0, -0.0, -0.0, -1.0),
+      0.5   -> Seq(0.0, 1.0, 0.0, 1.0, 0.0),
+      1e300 -> Seq(1e300, 1e300, 1e300, 1e300, 1e300)
+    )
+    for ((d, results) <- rounded; (rm, r) <- modes zip results) {
+      check(s, FPRound(rm, Float64Literal(d)), Float64Literal(r))
+      check(s, FPRound(rm, Float32Literal(d.toFloat)), Float32Literal(r.toFloat))
+    }
+
+    check(s, FPToBV(32, true, RoundTowardZero, Float64Literal(-2.7)), Int32Literal(-2))
+    check(s, FPToBV(32, true, RoundTowardNegative, Float32Literal(-2.2f)), Int32Literal(-3))
+    check(s, FPToBV(8, false, RoundNearestTiesToAway, Float64Literal(2.5)), BVLiteral(false, 3, 8))
+    check(s, FPToBV(8, false, RoundNearestTiesToEven, Float64Literal(255.4)), BVLiteral(false, 255, 8))
+
+    // unsigned bit-vectors are converted by value, not by their signed reinterpretation
+    check(s, FPCast(11, 53, RoundNearestTiesToEven, BVLiteral(false, 200, 8)), Float64Literal(200.0))
+    check(s, FPCast(8, 24, RoundNearestTiesToEven, BVLiteral(false, BigInt(2).pow(32) - 1, 32)), Float32Literal(4294967295f))
+    check(s, FPCast(11, 53, RoundNearestTiesToEven, Int8Literal(-56)), Float64Literal(-56.0))
+
+    check(s, FPFromBinary(8, 24, Int32Literal(java.lang.Float.floatToIntBits(1.5f))), Float32Literal(1.5f))
+    check(s, Sqrt(RoundNearestTiesToEven, Float32Literal(2f)), Float32Literal(math.sqrt(2.0).toFloat))
+
+    val classified = Seq(1.0, 0.0, -0.0, Double.MinPositiveValue, -java.lang.Double.MIN_NORMAL, Double.MaxValue,
+      Double.PositiveInfinity, Double.NaN)
+    for (d <- classified) {
+      val normal = !d.isNaN && !d.isInfinite && Math.abs(d) >= java.lang.Double.MIN_NORMAL
+      val subnormal = d != 0 && Math.abs(d) < java.lang.Double.MIN_NORMAL
+      check(s, FPIsNormal(Float64Literal(d)), BooleanLiteral(normal))
+      check(s, FPIsSubnormal(Float64Literal(d)), BooleanLiteral(subnormal))
+    }
+    check(s, FPIsSubnormal(Float32Literal(Float.MinPositiveValue)), BooleanLiteral(true))
+    check(s, FPIsNormal(Float32Literal(Float.MinPositiveValue)), BooleanLiteral(false))
+  }
+
+  test("Floating Point Conversions to Reals", FloatingPoint, Reals) { ctx =>
+    val s = solver(ctx)
+
+    check(s, FPToReal(Float64Literal(0.75)), FractionLiteral(3, 4))
+    check(s, FPToReal(Float32Literal(-1.5f)), FractionLiteral(-3, 2))
+    check(s, FPToReal(Float64Literal(-0.0)), FractionLiteral(0, 1))
+    check(s, FPToReal(Float64Literal(1e20)), FractionLiteral(BigInt(10).pow(20), 1))
+  }
+
   test("Floating Point Comparisons", FloatingPoint) { ctx =>
     val s = solver(ctx)
 

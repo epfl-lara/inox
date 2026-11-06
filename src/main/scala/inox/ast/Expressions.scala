@@ -488,6 +488,10 @@ trait Expressions { self: Trees =>
     * a negative remainder. The following must hold:
     *
     *    Division(x, y) * y + Remainder(x, y) == x
+    *
+    * On bit-vectors, Division and Remainder are SMT-LIB's `bvsdiv` and `bvsrem` for signed ones, and
+    * `bvudiv` and `bvurem` for unsigned ones. These are also defined for a zero divisor: the quotient
+    * has all its bits set (it is 1 for a negative signed dividend), and the remainder is the dividend.
     */
   sealed case class Division(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
@@ -503,7 +507,11 @@ trait Expressions { self: Trees =>
       getIntegerType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
-  /** $encodingof `... mod  ...` (cannot return negative numbers)
+  /** $encodingof `... mod  ...`
+    *
+    * On integers, this is SMT-LIB's `mod`, which never returns a negative number. On bit-vectors, it is
+    * SMT-LIB's `bvsmod` for signed ones, whose result has the sign of the divisor, and `bvurem` for
+    * unsigned ones. As in SMT-LIB, the modulo of a bit-vector by zero is the dividend.
     *
     * @see [[Expressions.Division]]
     */

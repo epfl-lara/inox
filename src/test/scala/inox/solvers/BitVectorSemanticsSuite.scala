@@ -282,11 +282,11 @@ class BitVectorSemanticsSuite extends SolverTestSuite {
 
     check(s, Division(Int32Literal(-1), Int32Literal(-3)),  Int32Literal(0))
     check(s, Remainder(Int32Literal(-1), Int32Literal(-3)), Int32Literal(-1))
-    check(s, Modulo(Int32Literal(-1), Int32Literal(-3)),    Int32Literal(2))
+    check(s, Modulo(Int32Literal(-1), Int32Literal(-3)),    Int32Literal(-1))
 
     check(s, Division(Int32Literal(1), Int32Literal(-3)),   Int32Literal(0))
     check(s, Remainder(Int32Literal(1), Int32Literal(-3)),  Int32Literal(1))
-    check(s, Modulo(Int32Literal(1), Int32Literal(-3)),     Int32Literal(1))
+    check(s, Modulo(Int32Literal(1), Int32Literal(-3)),     Int32Literal(-2))
 
     check(s, Division(Int8Literal(1), Int8Literal(-3)),     Int8Literal(0))
     check(s, Remainder(Int8Literal(1), Int8Literal(-3)),    Int8Literal(1))
@@ -313,23 +313,44 @@ class BitVectorSemanticsSuite extends SolverTestSuite {
     check(s, Modulo(ubvl(8191), ubvl(3)), ubvl(1))
   }
 
-  test("BitVector Modulo by the minimal value") { ctx =>
+  test("BitVector Modulo has the sign of the divisor") { ctx =>
     val s = solver(ctx)
 
-    // `x mod |y|` cannot be computed as `x mod -y` when `y` is the minimal value
-    check(s, Modulo(Int8Literal(1), Int8Literal(-128)),   Int8Literal(1))
-    check(s, Modulo(Int8Literal(-1), Int8Literal(-128)),  Int8Literal(127))
+    // SMT-LIB's `bvsmod`, including for the minimal value, whose absolute value overflows
+    check(s, Modulo(Int8Literal(1), Int8Literal(-128)),   Int8Literal(-127))
+    check(s, Modulo(Int8Literal(-1), Int8Literal(-128)),  Int8Literal(-1))
     check(s, Modulo(Int8Literal(-128), Int8Literal(-128)), Int8Literal(0))
-    check(s, Modulo(Int8Literal(-3), Int8Literal(-2)),    Int8Literal(1))
-    check(s, Modulo(Int32Literal(5), Int32Literal(Int.MinValue)), Int32Literal(5))
-    check(s, Modulo(Int32Literal(-5), Int32Literal(Int.MinValue)), Int32Literal(Int.MaxValue - 4))
+    check(s, Modulo(Int8Literal(-128), Int8Literal(-1)),  Int8Literal(0))
+    check(s, Modulo(Int8Literal(-3), Int8Literal(-2)),    Int8Literal(-1))
+    check(s, Modulo(Int8Literal(-128), Int8Literal(3)),   Int8Literal(1))
+    check(s, Modulo(Int32Literal(5), Int32Literal(Int.MinValue)), Int32Literal(Int.MinValue + 5))
+    check(s, Modulo(Int32Literal(-5), Int32Literal(Int.MinValue)), Int32Literal(-5))
 
     val x = Variable.fresh("x", Int8Type())
     val y = Variable.fresh("y", Int8Type())
-    assert(s.solveVALID(Implies(
-      Not(Equals(y, Int8Literal(0))),
-      And(GreaterEquals(Modulo(x, y), Int8Literal(0)), Not(Equals(Modulo(x, y), y)))
+    val zero = Int8Literal(0)
+    assert(s.solveVALID(And(
+      Implies(GreaterThan(y, zero), And(GreaterEquals(Modulo(x, y), zero), LessThan(Modulo(x, y), y))),
+      Implies(LessThan(y, zero), And(LessEquals(Modulo(x, y), zero), GreaterThan(Modulo(x, y), y)))
     )) contains true)
+  }
+
+  test("BitVector Division, Remainder and Modulo by zero", BitVectors) { ctx =>
+    val s = solver(ctx)
+
+    // SMT-LIB defines these: the quotient has all its bits set (1 for a negative signed dividend), and the
+    // remainder and modulo are the dividend
+    check(s, Division(Int8Literal(5), Int8Literal(0)),    Int8Literal(-1))
+    check(s, Division(Int8Literal(0), Int8Literal(0)),    Int8Literal(-1))
+    check(s, Division(Int8Literal(-5), Int8Literal(0)),   Int8Literal(1))
+    check(s, Remainder(Int8Literal(-5), Int8Literal(0)),  Int8Literal(-5))
+    check(s, Modulo(Int8Literal(-5), Int8Literal(0)),     Int8Literal(-5))
+    check(s, Division(Int32Literal(7), Int32Literal(0)),  Int32Literal(-1))
+
+    def ubvl(x: BigInt) = BVLiteral(false, x, 13)
+    check(s, Division(ubvl(5), ubvl(0)),  ubvl(8191))
+    check(s, Remainder(ubvl(5), ubvl(0)), ubvl(5))
+    check(s, Modulo(ubvl(5), ubvl(0)),    ubvl(5))
   }
 
   object UInt32Type extends BVTypeExtractor(false, 32)

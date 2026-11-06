@@ -331,11 +331,11 @@ class EvaluatorSuite extends AnyFunSuite {
 
     eval(e, Division(Int32Literal(-1), Int32Literal(-3)))   === Int32Literal(0)
     eval(e, Remainder(Int32Literal(-1), Int32Literal(-3)))  === Int32Literal(-1)
-    eval(e, Modulo(Int32Literal(-1), Int32Literal(-3)))     === Int32Literal(2)
+    eval(e, Modulo(Int32Literal(-1), Int32Literal(-3)))     === Int32Literal(-1)
 
     eval(e, Division(Int32Literal(1), Int32Literal(-3)))    === Int32Literal(0)
     eval(e, Remainder(Int32Literal(1), Int32Literal(-3)))   === Int32Literal(1)
-    eval(e, Modulo(Int32Literal(1), Int32Literal(-3)))      === Int32Literal(1)
+    eval(e, Modulo(Int32Literal(1), Int32Literal(-3)))      === Int32Literal(-2)
 
     eval(e, Division(Int8Literal(1), Int8Literal(-3)))      === Int8Literal(0)
     eval(e, Remainder(Int8Literal(1), Int8Literal(-3)))     === Int8Literal(1)
