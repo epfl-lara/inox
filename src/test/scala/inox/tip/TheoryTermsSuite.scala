@@ -43,6 +43,8 @@ class TheoryTermsSuite extends AnyFunSuite {
     holds("(= (bvxor #x0c #x0a) #x06)")
     holds("(= (bvsdiv #xf9 #x02) #xfd)")
     holds("(= (bvsrem #xf9 #x02) #xff)")
+    holds("(= (bvsmod #xf9 #x02) #x01)")
+    holds("(= (bvsmod #x07 #xfe) #xff)")
     holds("(= (bvshl #x01 #x03) #x08)")
     holds("(= (bvashr #x80 #x01) #xc0)")
     holds("(= (bvlshr #x80 #x01) #x40)")

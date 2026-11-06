@@ -447,23 +447,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
     case Modulo(a, b) => a.getType match {
       case BVType(false, _) => FixedSizeBitVectors.URem(toSMT(a), toSMT(b))
-      case BVType(true, size) => // we want x mod |y|
-        // Note that we cannot compute `bvsmod(x, -y)` when `y < 0` as `-y` overflows
-        // when `y` is the minimal value. Instead, we rely on the sign of `bvsmod(x, y)`
-        // following that of `y` and shift negative results by `|y|`.
-        val br = toSMT(b)
-        val r = freshSym("r")
-        SMTLet(
-          VarBinding(r, FixedSizeBitVectors.SMod(toSMT(a), br)), Seq(),
-          Core.ITE(
-            Core.And(
-              FixedSizeBitVectors.SLessThan(br, toSMT(BVLiteral(true, 0, size))),
-              Core.Not(Core.Equals(r, toSMT(BVLiteral(true, 0, size))))
-            ),
-            FixedSizeBitVectors.Sub(r, br),
-            r
-          )
-        )
+      case BVType(true, _) => FixedSizeBitVectors.SMod(toSMT(a), toSMT(b))
 
       case IntegerType() => Ints.Mod(toSMT(a), toSMT(b))
     }
@@ -576,7 +560,10 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     case FPMax(a, b) => fpMinMax(a, b, max = true)
     case FPMin(a, b) => fpMinMax(a, b, max = false)
     case FPRound(rm, e) => FloatingPoint.RoundToIntegral(toSMT(rm), toSMT(e))
-    case FPCast(ne, ns, rm, e) => FloatingPoint.ToFP(ne, ns, toSMT(rm), toSMT(e))
+    case FPCast(ne, ns, rm, e) => e.getType match {
+      case BVType(false, _) => FloatingPoint.ToFPUnsigned(ne, ns, toSMT(rm), toSMT(e))
+      case _ => FloatingPoint.ToFP(ne, ns, toSMT(rm), toSMT(e))
+    }
     case FPFromBinary(ne, ns, e) => FloatingPoint.ToFP(ne, ns, toSMT(e))
     case FPToBV(s, signed, rm, e) =>
       if (signed) {

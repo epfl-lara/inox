@@ -126,9 +126,12 @@ trait SMTLIBParser {
 
 
     case SDecimal(value) =>
-      exprOps.normalizeFraction(FractionLiteral(
-        value.bigDecimal.movePointRight(value.scale).toBigInteger,
-        BigInt(10).pow(value.scale)))
+      // a decimal such as `1E+20` has a negative scale
+      val unscaled = BigInt(value.bigDecimal.unscaledValue)
+      val scale = value.bigDecimal.scale
+      exprOps.normalizeFraction(
+        if (scale >= 0) FractionLiteral(unscaled, BigInt(10).pow(scale))
+        else FractionLiteral(unscaled * BigInt(10).pow(-scale), 1))
 
     case SString(value) =>
       StringLiteral(utils.StringUtils.decode(value))
@@ -228,6 +231,7 @@ trait SMTLIBParser {
     case FixedSizeBitVectors.UDiv(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(unsignedOp(Division.apply))
     case FixedSizeBitVectors.SRem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Remainder.apply)
     case FixedSizeBitVectors.URem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(unsignedOp(Remainder.apply))
+    case FixedSizeBitVectors.SMod(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Modulo.apply)
 
     case FixedSizeBitVectors.SLessThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessThan.apply)
     case FixedSizeBitVectors.SLessEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessEquals.apply)

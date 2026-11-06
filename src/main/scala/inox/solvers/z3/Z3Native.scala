@@ -357,19 +357,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
     case Modulo(l, r) => l.getType match {
       case BVType(false, _) => z3.mkBVUrem(toZ3(l), toZ3(r))
-      case BVType(true, size) => // we want x mod |y|
-        // Note that we cannot compute `bvsmod(x, -y)` when `y < 0` as `-y` overflows
-        // when `y` is the minimal value. Instead, we rely on the sign of `bvsmod(x, y)`
-        // following that of `y` and shift negative results by `|y|`.
-        val rr = toZ3(r)
-        val zero = toZ3(BVLiteral(true, 0, size))
-        val smod = z3.mkBVSmod(toZ3(l), rr)
-        z3.mkITE(
-          z3.mkAnd(z3.mkBVSlt(rr, zero), z3.mkNot(z3.mkEq(smod, zero))),
-          z3.mkBVSub(smod, rr),
-          smod
-        )
-
+      case BVType(true, _) => z3.mkBVSmod(toZ3(l), toZ3(r))
       case _ =>
         z3.mkMod(toZ3(l), toZ3(r))
     }
