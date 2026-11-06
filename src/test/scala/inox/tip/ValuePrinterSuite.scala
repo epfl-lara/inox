@@ -40,16 +40,20 @@ class ValuePrinterSuite extends AnyFunSuite {
     (program, v)
   }
 
+  private def printValue(program: InoxProgram, e: Expr): String = {
+    val printer = new ValuePrinter(program, Context.empty)
+    try printer.value(e) finally printer.free()
+  }
+
   /** Checks that `value` prints as `expected` and that the printed term parses back to a
     * value that prints the same way (modulo the names of bound variables). */
   private def roundTrip(name: String, value: String, expected: String): Unit = {
     val (program, v) = parseValue(name, value)
-    import program.symbols.given
-    def strip(s: String) = s.replaceAll("\\$[0-9]+", "")
-    val printed = ValuePrinter.value(v)
+    def strip(s: String) = s.replaceAll("![0-9]+", "")
+    val printed = printValue(program, v)
     assert(strip(printed) == strip(expected))
     val (program2, v2) = parseValue(name, printed)
-    val reprinted = ValuePrinter.value(v2)(using program2.symbols)
+    val reprinted = printValue(program2, v2)
     assert(strip(reprinted) == strip(printed))
   }
 
@@ -57,34 +61,33 @@ class ValuePrinterSuite extends AnyFunSuite {
     roundTrip("l", "(cons (- 3) (cons 4 nil))", "(cons (- 3) (cons 4 nil))")
     roundTrip("r", "(/ 1 3)", "(/ 1 3)")
     val (program, _) = parse("true")
-    import program.symbols.given
-    assert(ValuePrinter.value(FractionLiteral(-1, 3)) == "(/ (- 1) 3)")
-    assert(ValuePrinter.value(BooleanLiteral(true)) == "true")
-    assert(ValuePrinter.value(IntegerLiteral(-12)) == "(- 12)")
+    assert(printValue(program, FractionLiteral(-1, 3)) == "(/ (- 1) 3)")
+    assert(printValue(program, BooleanLiteral(true)) == "true")
+    assert(printValue(program, IntegerLiteral(-12)) == "(- 12)")
   }
 
   test("functions") {
     val (program, v) = parseValue("f", "(lambda ((x Int)) (ite (= x 2) 5 0))")
     val Lambda(Seq(x), _) = v: @unchecked
-    val name = x.id.uniqueName
-    assert(ValuePrinter.value(v)(using program.symbols) == s"(lambda (($name Int)) (ite (= $name 2) 5 0))")
-    roundTrip("f", "(lambda ((x Int)) (ite (= x 2) 5 0))", ValuePrinter.value(v)(using program.symbols)
-      .replace(name, "x$0"))
+    val name = x.id.uniqueNameDelimited("!")
+    assert(printValue(program, v) == s"(lambda (($name Int)) (ite (= $name 2) 5 0))")
+    roundTrip("f", "(lambda ((x Int)) (ite (= x 2) 5 0))", printValue(program, v)
+      .replace(name, "x!0"))
+    // Any expression the TIP printer supports can appear in a function value.
+    roundTrip("f", "(lambda ((x Int)) (+ x (str.len s)))", "(lambda ((x Int)) (+ x (str.len s)))")
   }
 
   test("bit-vectors and characters") {
     roundTrip("b", "#b00000101", "#b00000101")
     val (program, _) = parse("true")
-    import program.symbols.given
-    assert(ValuePrinter.value(CharLiteral('A')) == "#b0000000001000001")
-    assert(ValuePrinter.value(BVLiteral(true, BigInt(-1), 4)) == "#b1111")
+    assert(printValue(program, CharLiteral('A')) == "#x0041")
+    assert(printValue(program, BVLiteral(true, BigInt(-1), 4)) == "#b1111")
   }
 
   test("strings, with SMT-LIB escapes") {
     roundTrip("s", "\"a\"\"b\"", "\"a\"\"b\"")
     val (program, _) = parse("true")
-    import program.symbols.given
-    assert(ValuePrinter.value(StringLiteral("é\\")) == "\"\\u{e9}\\u{5c}\"")
+    assert(printValue(program, StringLiteral("é\\")) == "\"\\u{e9}\\u{5c}\"")
   }
 
   test("nullary constructors of parametric datatypes are qualified by their sort") {
@@ -99,9 +102,8 @@ class ValuePrinterSuite extends AnyFunSuite {
 
   test("maps as arrays") {
     val (program, _) = parse("true")
-    import program.symbols.given
     val map = FiniteMap(Seq(IntegerLiteral(1) -> BooleanLiteral(true)), BooleanLiteral(false), IntegerType(), BooleanType())
-    val printed = ValuePrinter.value(map)
+    val printed = printValue(program, map)
     assert(printed == "(store ((as const (Array Int Bool)) false) 1 true)")
     val (_, v) = parseValue("m", printed)
     assert(v == MapUpdated(FiniteMap(Seq(), BooleanLiteral(false), IntegerType(), BooleanType()), IntegerLiteral(1), BooleanLiteral(true)))
@@ -109,31 +111,28 @@ class ValuePrinterSuite extends AnyFunSuite {
 
   test("sets and bags") {
     val (program, _) = parse("true")
-    import program.symbols.given
     val set = FiniteSet(Seq(IntegerLiteral(1), IntegerLiteral(2)), IntegerType())
-    val printedSet = ValuePrinter.value(set)
+    val printedSet = printValue(program, set)
     assert(printedSet == "(insert (as emptyset Int) 1 2)")
     assert(parseValue("st", printedSet)._2.getType(using program.symbols) == SetType(IntegerType()))
-    assert(ValuePrinter.value(FiniteSet(Seq(), IntegerType())) == "(as emptyset Int)")
+    assert(printValue(program, FiniteSet(Seq(), IntegerType())) == "(as emptyset Int)")
 
     val bag = FiniteBag(Seq(IntegerLiteral(1) -> IntegerLiteral(3)), IntegerType())
-    val printedBag = ValuePrinter.value(bag)
+    val printedBag = printValue(program, bag)
     assert(parseValue("bg", printedBag)._2.getType(using program.symbols) == BagType(IntegerType()))
   }
 
   test("abstract values of type parameters") {
     val (program, _) = parse("true")
-    import program.symbols.given
-    assert(ValuePrinter.value(GenericValue(TypeParameter.fresh("T"), 0)) == "@T_0")
+    assert(printValue(program, GenericValue(TypeParameter.fresh("T"), 0)) == "@T_0")
   }
 
   test("models print as get-value responses sorted by name") {
     val (program, expr) = parse("(= l nil)")
-    import program.symbols.given
     val Equals(lv: Variable, nil) = expr: @unchecked
     val fv = Variable.fresh("f", FunctionType(Seq(IntegerType()), IntegerType()))
     val x = ValDef.fresh("x", IntegerType())
     val model = Map(lv.toVal -> nil, fv.toVal -> Lambda(Seq(x), IntegerLiteral(7)))
-    assert(ValuePrinter.model(model) == s"((f (lambda ((${x.id.uniqueName} Int)) 7)) (l nil))")
+    assert({ val p = new ValuePrinter(program, Context.empty); try p.model(model) finally p.free() } == s"((f (lambda ((${x.id.uniqueNameDelimited("!")} Int)) 7)) (l nil))")
   }
 }

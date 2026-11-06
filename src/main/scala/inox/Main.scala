@@ -306,11 +306,12 @@ class InoxMain extends MainHelpers {
         val smtlibOutput = ctx.options.findOptionOrDefault(optModelFormat) == SMTLIBModels
         SimpleSolverAPI(sf).solveSAT(expr) match {
           case SatWithModel(model) if smtlibOutput =>
-            val printed = try Some(tip.ValuePrinter.model(model.vars)(using program.symbols)) catch {
-              case e: tip.ValuePrinter.UnsupportedValue =>
+            val printer = new tip.ValuePrinter(program, ctx)
+            val printed = try Some(printer.model(model.vars)) catch {
+              case e: program.trees.UnsupportedTree =>
                 reporter.warning(e.getMessage)
                 None
-            }
+            } finally printer.free()
             println(if (printed.isDefined) "sat" else "unknown")
             printed.foreach(println)
             if (printed.isEmpty) error = true
