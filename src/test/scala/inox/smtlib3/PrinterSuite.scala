@@ -35,13 +35,11 @@ class PrinterSuite extends AnyFunSuite {
     writer.toString
   }
 
-  /** `script` with the symbols that the printer makes unique (`x!3`) renamed in order of appearance. */
-  private def canonical(script: String): String = {
-    val names = scala.collection.mutable.Map.empty[String, String]
-    """[^\s()|]+(?:![0-9]+)+""".r.replaceAllIn(script, m =>
-      scala.util.matching.Regex.quoteReplacement(
-        names.getOrElseUpdate(m.matched, m.matched.takeWhile(_ != '!') + "!" + names.size)))
-  }
+  /** The commands of `script`, without the suffixes that make symbols unique (`x!3`), and in
+    * sorted order since independent datatypes are declared in any order. */
+  private def canonical(script: String): Seq[String] =
+    script.linesIterator.map(_.replaceAll("(![0-9]+)+", "")).filter(_.trim.nonEmpty).toSeq.sorted
+
 
   private def checkWellFormed(program: InoxProgram, expr: Expr, script: String): Unit = {
     import program.symbols.{given, _}
