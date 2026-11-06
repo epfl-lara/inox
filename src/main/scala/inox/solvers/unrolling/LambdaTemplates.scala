@@ -17,6 +17,8 @@ trait LambdaTemplates { self: Templates =>
   import lambdasManager._
   import quantificationsManager._
 
+  private lazy val assumeChecked = options.findOptionOrDefault(optAssumeChecked)
+
   /** Represents a POTENTIAL application of a first-class function in the unfolding procedure
     *
     * The [[equals]] condition guards the application for equality of the concrete caller with
@@ -182,7 +184,10 @@ trait LambdaTemplates { self: Templates =>
 
         // A function of type `Pi(x: A). B` only maps arguments in `A` to results in `B`, so the
         // codomain must only be assumed (or checked) for arguments that lie in the domain.
-        val domainResults = (params zip app.args).collect {
+        // Under `optAssumeChecked`, the front-end has checked that applications only receive
+        // arguments in the domain, so the codomain is assumed directly. This spares a membership
+        // check per application, which is costly when the domain is an ADT with refined fields.
+        val domainResults = if (assumeChecked) Seq.empty else (params zip app.args).collect {
           case (vd, arg) if ContractUnrolling.unroll(vd.tpe) =>
             val domResult = encodeSymbol(Variable.fresh("dom", BooleanType(), true))
             val domClosures = typeOps.variablesOf(vd.tpe).toSeq.sortBy(_.id).map(subst)

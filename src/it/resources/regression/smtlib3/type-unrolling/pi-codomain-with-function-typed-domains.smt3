@@ -1,3 +1,7 @@
+; Applies functions outside of their domain, where the codomain only holds without
+; `assume-checked` (under which applications are known to lie in the domain).
+(set-option :assume-checked false)
+
 ; Function-typed domains are checked at fresh arguments, without quantifiers
 
 (define-type PosInt () (! Int :var y :restrict (> y 0)))

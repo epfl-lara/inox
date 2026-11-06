@@ -1,3 +1,7 @@
+; Applies functions outside of their domain, where the codomain only holds without
+; `assume-checked` (under which applications are known to lie in the domain).
+(set-option :assume-checked false)
+
 ; Proving properties of map values is a known issue (see "elements of unbounded collections")
 
 (define-type PosInt () (! Int :var y :restrict (> y 0)))
