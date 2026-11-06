@@ -97,6 +97,11 @@ class BitVectorSemanticsSuite extends SolverTestSuite {
     check(s, BVToInt(Int8Literal(Byte.MinValue)), IntegerLiteral(Byte.MinValue))
     check(s, BVToInt(BVUnsignedToSigned(BVLiteral(false, 255, 8))), IntegerLiteral(-1))
     check(s, BVToInt(BVSignedToUnsigned(Int8Literal(-1))), IntegerLiteral(255))
+  }
+
+  // Separate from the conversions to integers, so that they run in parallel
+  test("Integer/BitVector Conversions", Integers, BitVectorIntConversions) { ctx =>
+    val s = solver(ctx)
 
     check(s, IntToBV(8, true, IntegerLiteral(42)),   Int8Literal(42))
     check(s, IntToBV(8, true, IntegerLiteral(-1)),   Int8Literal(-1))
