@@ -26,5 +26,12 @@ package object utils {
     }
     v2
   }
-  
+
+  /** SMT-LIB's euclidean integer division of `x` by `y`, for `y != 0`: the quotient `q` such that
+    * `x == y * q + r` with `0 <= r < |y|`.
+    */
+  def euclideanDivision(x: BigInt, y: BigInt): BigInt = {
+    require(y != 0, "Division by zero")
+    (x - (x mod y.abs)) / y
+  }
 }

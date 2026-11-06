@@ -109,7 +109,10 @@ class SimplificationsSuite extends AnyFunSuite {
     checkArith(i(2) * UMinus(x), i(-2) * x)
     checkArith(UMinus(x) * i(2), x * i(-2))
     checkArith(i(7) / i(2), i(3))
-    checkArith(i(-7) / i(2), i(-3))
+    // integer division is euclidean, as in SMT-LIB
+    checkArith(i(-7) / i(2), i(-4))
+    checkArith(i(7) / i(-2), i(-3))
+    checkArith(i(-7) / i(-2), i(4))
     checkArith(x / i(1), x)
     checkArith(x / i(0), x / i(0), envs = Seq())
     checkArith(UMinus(x + y) + x, UMinus(y))
@@ -121,7 +124,7 @@ class SimplificationsSuite extends AnyFunSuite {
     checkArith((x + (i(1) + i(1))) * (i(2) - i(1)), x + i(2))
   }
 
-  test("simplifyArithmetic keeps divisions that truncate") {
+  test("simplifyArithmetic keeps divisions that round") {
     def i(n: Int) = IntegerLiteral(n)
     // 2 * (x / 2) is not x when x is odd
     checkArith(i(2) * (x / i(2)), i(2) * (x / i(2)))

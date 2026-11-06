@@ -480,27 +480,30 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `... /  ...`
     *
-    * Division and Remainder follows Java/Scala semantics. Division corresponds
-    * to / operator on BigInt and Remainder corresponds to %. Note that in
-    * Java/Scala % is called remainder and the "mod" operator (Modulo in Inox) is also
-    * defined on BigInteger and differs from Remainder. The "mod" operator
-    * returns an always positive remainder, while Remainder could return
-    * a negative remainder. The following must hold:
+    * On integers, this is SMT-LIB's euclidean `div`: the quotient `q` of `x` by `y` satisfies
+    * `x == y * q + r` for `0 <= r < |y|`, where `r` is `Modulo(x, y)`. For example, `-7 / 2 == -4`
+    * and `7 / -2 == -3`. This differs from Scala's `BigInt./`, which rounds toward zero.
     *
-    *    Division(x, y) * y + Remainder(x, y) == x
+    * On reals, this is SMT-LIB's `/`. Division by zero is unspecified on integers and reals.
     *
-    * On bit-vectors, Division and Remainder are SMT-LIB's `bvsdiv` and `bvsrem` for signed ones, and
-    * `bvudiv` and `bvurem` for unsigned ones. These are also defined for a zero divisor: the quotient
-    * has all its bits set (it is 1 for a negative signed dividend), and the remainder is the dividend.
+    * On bit-vectors, this is SMT-LIB's `bvsdiv` for signed ones and `bvudiv` for unsigned ones, which
+    * round toward zero. Division by zero gives a value with all its bits set (1 for a negative signed
+    * dividend).
     */
   sealed case class Division(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       getIntegerType(lhs, rhs) `orElse` getRealType(lhs, rhs) `orElse` getBVType(lhs, rhs)
   }
 
-  /** $encodingof `... %  ...` (can return negative numbers)
+  /** $encodingof `... %  ...`
     *
-    * @see [[Expressions.Division]]
+    * On bit-vectors, this is SMT-LIB's `bvsrem` for signed bit-vectors, whose result has the sign of
+    * the dividend, and `bvurem` for unsigned ones, so that `Division(x, y) * y + Remainder(x, y) == x`.
+    * The remainder of a division by zero is the dividend.
+    *
+    * On integers, this is the JVM's `BigInt.%`, whose result has the sign of the dividend. SMT-LIB
+    * has no such operation: this case is deprecated and will be removed once Stainless encodes it
+    * itself. Use [[Expressions.Modulo]] (SMT-LIB's `mod`) instead.
     */
   sealed case class Remainder(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
@@ -755,7 +758,11 @@ trait Expressions { self: Trees =>
       if getRoundingMode(rm).isTyped && getFPType(expr).isTyped then BVType(signed, size) else Untyped
   }
 
-  /** Casts from floating-points to bitvectors with JVM semantics */
+  /** Casts from floating-points to bitvectors with JVM semantics: NaN is 0, values out of range
+    * saturate, and the others round toward zero.
+    *
+    * This is deprecated and will be removed once Stainless encodes it itself with [[FPToBV]].
+    */
   sealed case class FPToBVJVM(exponent: Int, significand: Int, toSize: Int, expr: Expr) extends Expr with CachingTyped {
     override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
       if getFPType(expr).isTyped then BVType(true, toSize) else Untyped

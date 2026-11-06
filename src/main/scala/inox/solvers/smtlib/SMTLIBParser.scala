@@ -178,13 +178,7 @@ trait SMTLIBParser {
     case Ints.Sub(e1, e2) => Minus(fromSMT(e1, otpe), fromSMT(e2, otpe))
     case Ints.Mul(e1, e2) => Times(fromSMT(e1, otpe), fromSMT(e2, otpe))
 
-    // SMT-LIB's div rounds so that mod is non-negative, as Inox's Modulo, while Inox's Division
-    // truncates: a div b is (a - a mod b) / b, where the division is exact.
-    case Ints.Div(e1, e2) =>
-      val a = ValDef.fresh("a", IntegerType())
-      val b = ValDef.fresh("b", IntegerType())
-      Let(a, fromSMT(e1, IntegerType()), Let(b, fromSMT(e2, IntegerType()),
-        Division(Minus(a.toVariable, Modulo(a.toVariable, b.toVariable)), b.toVariable)))
+    case Ints.Div(e1, e2) => Division(fromSMT(e1, IntegerType()), fromSMT(e2, IntegerType()))
     case Ints.Mod(e1, e2) => Modulo(fromSMT(e1, IntegerType()), fromSMT(e2, IntegerType()))
     case Ints.Abs(e) =>
       val ie = fromSMT(e, IntegerType())

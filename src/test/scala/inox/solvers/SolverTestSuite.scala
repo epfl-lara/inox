@@ -110,7 +110,7 @@ object SolverTestSuite {
       // Times out on conjunctions of string checks that it solves quickly one by one
       batchSize = 1,
       groundOnly = Map(
-        "BigInt Division, Modulo and Remainder" -> "throws on division by a variable, which Presburger arithmetic lacks",
+        "BigInt Division and Modulo" -> "throws on division by a variable, which Presburger arithmetic lacks",
       ),
       knownIssues = Map(
         "Simple Bag Operations" -> "struggles with bit-vector keys in bags, as in sets and maps",

@@ -16,8 +16,7 @@ class FloatingPointSemanticsSuite extends SolverTestSuite {
   // Not a set: -0f == 0f, so a set keeps only one of the two zeros.
   val floatValues: Seq[Float] = Seq(0f, 1.4f, -0f, Float.NaN, Float.PositiveInfinity, Float.NegativeInfinity)
 
-  // SMT-LIB's fp.max and fp.min ignore a NaN operand unless both are NaN, and Inox orders
-  // -0.0 below +0.0, which SMT-LIB leaves open.
+  // SMT-LIB's fp.max and fp.min ignore a NaN operand unless both are NaN.
   def smtMax(a: Float, b: Float): Float = if (a.isNaN) b else if (b.isNaN) a else a.max(b)
   def smtMin(a: Float, b: Float): Float = if (a.isNaN) b else if (b.isNaN) a else a.min(b)
   def smtMax(a: Double, b: Double): Double = if (a.isNaN) b else if (b.isNaN) a else a.max(b)
@@ -42,13 +41,21 @@ class FloatingPointSemanticsSuite extends SolverTestSuite {
       check(s, FPMul(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i * j))
       check(s, FPDiv(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j)), Float32Literal(i / j))
       check(s, FPFMA(RoundNearestTiesToEven, Float32Literal(i), Float32Literal(j), Float32Literal(j)), Float32Literal(java.lang.Math.fma(i, j, j)))
-      check(s, FPMax(Float32Literal(i), Float32Literal(j)), Float32Literal(smtMax(i, j)))
-      check(s, FPMin(Float32Literal(i), Float32Literal(j)), Float32Literal(smtMin(i, j)))
+      // SMT-LIB leaves fp.max and fp.min open between +0.0 and -0.0
+      if (!(i == 0 && j == 0)) {
+        check(s, FPMax(Float32Literal(i), Float32Literal(j)), Float32Literal(smtMax(i, j)))
+        check(s, FPMin(Float32Literal(i), Float32Literal(j)), Float32Literal(smtMin(i, j)))
+      }
     }
   }
 
   test("Floating Point Unary Operations", FloatingPoint) { ctx =>
     val s = solver(ctx)
+
+    // but the result is one of the two zeros
+    val (a, b) = (Variable.fresh("a", FPType(8, 24)), Variable.fresh("b", FPType(8, 24)))
+    assert(s.solveVALID(Implies(And(FPIsZero(a), FPIsZero(b)),
+      And(FPIsZero(FPMax(a, b)), FPIsZero(FPMin(a, b))))) contains true)
 
     for (i <- floatValues) {
       check(s, FPUMinus(Float32Literal(i)), Float32Literal(-i))
