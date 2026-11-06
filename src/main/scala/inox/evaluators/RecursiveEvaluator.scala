@@ -48,6 +48,25 @@ abstract class RecursiveEvaluator(override val program: Program,
 
   // `max` and `min` follow SMT-LIB's fp.max and fp.min: a NaN operand is ignored unless both are
   // NaN. SMT-LIB leaves the result open for +0.0 and -0.0, which we order as the JVM does.
+  private val roundingModes: Set[Expr] =
+    Set(RoundNearestTiesToEven, RoundNearestTiesToAway, RoundTowardPositive, RoundTowardNegative, RoundTowardZero)
+
+  /** Rounds `d` to an integral value with the rounding mode `rm`, keeping the sign of zeros. */
+  private def roundToIntegral(d: Double, rm: Expr): Double = rm match {
+    case RoundNearestTiesToEven => Math.rint(d)
+    case RoundTowardPositive => Math.ceil(d)
+    case RoundTowardNegative => Math.floor(d)
+    case RoundTowardZero => if (d < 0) Math.ceil(d) else Math.floor(d)
+    case RoundNearestTiesToAway =>
+      if (d.isNaN || d.isInfinite) d
+      else {
+        val abs = Math.abs(d)
+        val floor = Math.floor(abs)
+        Math.copySign(if (abs - floor >= 0.5) floor + 1 else floor, d)
+      }
+    case _ => throw EvalError(s"Unexpected rounding mode $rm")
+  }
+
   private def fpMax(a: Double, b: Double): Double = if (a.isNaN) b else if (b.isNaN) a else a.max(b)
   private def fpMin(a: Double, b: Double): Double = if (a.isNaN) b else if (b.isNaN) a else a.min(b)
   private def fpMax(a: Float, b: Float): Float = if (a.isNaN) b else if (b.isNaN) a else a.max(b)
@@ -566,16 +585,34 @@ abstract class RecursiveEvaluator(override val program: Program,
         case _ => throw EvalError(f"Unexpected operation: max($lhs, $rhs)")
       }
 
-    case FPRound(RoundNearestTiesToEven, expr) =>
+    case FPRound(rm, expr) if roundingModes.contains(rm) =>
       e(expr) match {
-        case Float64Literal(l) => Float64Literal(Math.rint(l))
-        case _ => throw EvalError(f"Unexpected operation: rint($expr)")
+        case Float32Literal(l) => Float32Literal(roundToIntegral(l.toDouble, rm).toFloat)
+        case Float64Literal(l) => Float64Literal(roundToIntegral(l, rm))
+        case _ => throw EvalError(f"Unexpected operation: round($expr)")
       }
 
     case Sqrt(RoundNearestTiesToEven, expr) =>
       e(expr) match {
+        // The square root of a float, computed in double precision, rounds to the correctly
+        // rounded float square root.
+        case Float32Literal(l) => Float32Literal(Math.sqrt(l.toDouble).toFloat)
         case Float64Literal(l) => Float64Literal(Math.sqrt(l))
         case _ => throw EvalError("Unexpected operation: Math.sqrt(" + expr.asString + ")")
+      }
+
+    case FPToBVJVM(eb, sb, toSize, expr) =>
+      val (asInt, asLong) = e(expr) match {
+        case Float32Literal(l) if (eb, sb) == (8, 24) => (l.toInt, l.toLong)
+        case Float64Literal(l) if (eb, sb) == (11, 53) => (l.toInt, l.toLong)
+        case _ => throw EvalError("Unexpected operation: (" + expr.asString + ").toInt")
+      }
+      toSize match {
+        case 8 => Int8Literal(asInt.toByte)
+        case 16 => Int16Literal(asInt.toShort)
+        case 32 => Int32Literal(asInt)
+        case 64 => Int64Literal(asLong)
+        case _ => throw EvalError(s"Unexpected size $toSize for (" + expr.asString + ").toInt")
       }
 
     case FPFromBinary(11, 53, expr) =>
@@ -586,7 +623,7 @@ abstract class RecursiveEvaluator(override val program: Program,
 
     case FPFromBinary(8, 24, expr) =>
       e(expr) match {
-        case Int32Literal(l)   => Float64Literal(java.lang.Float.intBitsToFloat(l))
+        case Int32Literal(l)   => Float32Literal(java.lang.Float.intBitsToFloat(l))
         case _ => throw EvalError("Unexpected operation:" + expr.asString + ".toBinaryFP")
       }
 
