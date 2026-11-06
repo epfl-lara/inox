@@ -712,6 +712,54 @@ class EvaluatorSuite extends AnyFunSuite {
     eval(e, Equals(body, StringLiteral("Winner:Mikael"))) === BooleanLiteral(true)
   }
 
+  test("Function equality") {
+    import solvers.unrolling.{optFunctionEquality, FunctionEquality}
+    // uses the recursive evaluator directly, as subclasses of this suite test other evaluators
+    // (eg. Stainless's code generator) that don't implement these semantics
+    def recursive(semantics: FunctionEquality) = RecursiveEvaluator(program, ctx.withOpts(optFunctionEquality(semantics)))
+
+    def lambda(body: Expr => Expr): Lambda = {
+      val x = ValDef.fresh("x", IntegerType())
+      Lambda(Seq(x), body(x.toVariable))
+    }
+    def int(i: Int) = IntegerLiteral(i)
+
+    val succ = lambda(x => Plus(x, int(1)))
+    val succ2 = lambda(x => Plus(int(1), x))
+    val pred = lambda(x => Minus(x, int(1)))
+    val id = lambda(x => x)
+    val alsoId = lambda(x => IfExpr(Equals(x, int(0)), int(0), x))
+    // the shape of extracted models: the inputs that tell functions apart appear in their bodies
+    val model1 = lambda(x => IfExpr(Equals(x, int(2)), int(5), int(0)))
+    val model2 = lambda(x => IfExpr(Equals(x, int(2)), int(6), int(0)))
+
+    val intensional = recursive(FunctionEquality.Intensional)
+    eval(intensional, Equals(succ, succ))   === BooleanLiteral(true)
+    eval(intensional, Equals(succ, succ2))  === BooleanLiteral(false)
+    eval(intensional, Equals(id, alsoId))   === BooleanLiteral(false)
+    eval(intensional, Equals(model1, model2)) === BooleanLiteral(false)
+
+    val extensional = recursive(FunctionEquality.Extensional)
+    eval(extensional, Equals(succ, succ))     === BooleanLiteral(true)
+    eval(extensional, Equals(succ, pred))     === BooleanLiteral(false)
+    eval(extensional, Equals(model1, model2)) === BooleanLiteral(false)
+    eval(extensional, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(pred, int(1))))) === BooleanLiteral(false)
+    eval(extensional, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(succ, int(2))))) === BooleanLiteral(false)
+    eval(extensional, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(succ, int(1))))) === BooleanLiteral(true)
+    // functions that agree on every candidate input can't be told apart
+    eval(extensional, Equals(succ, succ2)).failed
+    eval(extensional, Equals(id, alsoId)).failed
+
+    // without function equality, functions can't be compared at all
+    val none = recursive(FunctionEquality.None)
+    eval(none, Equals(succ, succ)).failed
+    eval(none, Equals(succ, pred)).failed
+    eval(none, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(succ, int(1))))).failed
+    // but values that hold functions can differ elsewhere
+    eval(none, Equals(Tuple(Seq(int(1), succ)), Tuple(Seq(int(2), succ)))) === BooleanLiteral(false)
+    eval(none, Equals(Tuple(Seq(int(1), int(2))), Tuple(Seq(int(1), int(2))))) === BooleanLiteral(true)
+  }
+
   abstract class EvalDSL {
     def res: Expr
     def ===(res: Expr): Unit

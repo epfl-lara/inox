@@ -43,14 +43,16 @@ mkdir -p "$recorded" "$work/tmp"
 # agent takes seconds). A run stops at the first file that crashes or times
 # out, so it restarts after that file until every file has been tried. The
 # fresh temporary directory makes the first native Z3 run unpack the Z3
-# libraries, so that their resources are recorded.
+# libraries, so that their resources are recorded. The first argument holds
+# the options, separated by spaces.
 run() {
-  local opt=$1; shift
+  local opts
+  read -r -a opts <<< "$1"; shift
   local todo=("$@")
   while [ ${#todo[@]} -gt 0 ]; do
     local log
     log=$(timeout 600 "$java" -agentlib:native-image-agent=config-merge-dir="$recorded" \
-      -Djava.io.tmpdir="$work/tmp" -jar "$jar" --timeout=5 "$opt" "${todo[@]}" 2>&1 || true)
+      -Djava.io.tmpdir="$work/tmp" -jar "$jar" --timeout=5 "${opts[@]}" "${todo[@]}" 2>&1 || true)
     local rest=() started=false
     for f in "${todo[@]}"; do
       if $started; then rest+=("$f")
@@ -63,17 +65,31 @@ run() {
   done
 }
 
+# These compare functions, which `none` rejects (as in TipTestSuite).
+comparing='Injective.scala-0.tip|LambdaEquality2.scala-1.tip|Streams.scala-0.tip|inline-lambdas.scala-0.tip'
+intensional=--function-equality=intensional
+
+# Runs the given files with the options in $1, under intensional function
+# equality for those that compare functions.
+run_all() {
+  local opts=$1; shift
+  # shellcheck disable=SC2046
+  run "$opts" $(printf '%s\n' "$@" | grep -vE "$comparing")
+  # shellcheck disable=SC2046
+  run "$opts $intensional" $(printf '%s\n' "$@" | grep -E "$comparing")
+}
+
 for solver in smt-z3 nativez3; do
   echo "Running the TIP files with $solver"
   # shellcheck disable=SC2086
-  run --solvers="$solver" $files
+  run_all --solvers="$solver" $files
 done
 # Princess ignores --timeout on these two (samarion/inox#65).
 echo "Running the TIP files with princess"
-# shellcheck disable=SC2086
-run --solvers=princess $(echo "$files" | grep -vE '/SAT/AbstractRefinementMap.scala-0.tip|/UNSAT/BinarySearchTreeQuant2.scala-0.tip')
+# shellcheck disable=SC2046
+run_all --solvers=princess $(echo "$files" | grep -vE '/SAT/AbstractRefinementMap.scala-0.tip|/UNSAT/BinarySearchTreeQuant2.scala-0.tip')
 echo "Running the binary files"
-run --format=binary:goal "$work"/binary/*.inoxb
+run_all --format=binary:goal "$work"/binary/*.inoxb
 
 mkdir -p "$out"
 python3 - "$recorded/reachability-metadata.json" "$out/reachability-metadata.json" <<'PY'

@@ -315,7 +315,9 @@ class TypeUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
   // (a: {y | y > 0}) => {r: BigInt | r > a}
   val posIncr = pi("a" :: pos)(a => refinement("r" :: I)(_ > a))
 
-  test("Pi codomain inside and outside of the domain") {
+  test("Pi codomain inside and outside of the domain") { ctx ?=>
+    // compares functions, which needs the intensional semantics of function equality
+    given Context = ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))
     val g = Variable.fresh("g", posIncr)
     val x = Variable.fresh("x", I)
     assertValid(g(int(1)) > int(1), "inside")
@@ -655,7 +657,9 @@ class TypeUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
     assertUnsat(g(int(1)) === int(1), "argument in domain")
   }
 
-  test("hof: captures") {
+  test("hof: captures") { ctx ?=>
+    // compares functions, which needs the intensional semantics of function equality
+    given Context = ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))
     val b = Variable.fresh("b", FunBox)
     val c = Variable.fresh("c", FunBox)
     val bf = b.getField(fn)
@@ -746,7 +750,9 @@ class TypeUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
     assertValid(instantiates(DepBox, ADT(depBoxConsID, Seq(), Seq(\("x" :: I)(x => x + int(1))))), "constructed")
   }
 
-  test("Pi in tuples and maps") {
+  test("Pi in tuples and maps") { ctx ?=>
+    // compares functions, which needs the intensional semantics of function equality
+    given Context = ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))
     val t = Variable.fresh("t", T(posIncr, I))
     assertValid(t._ts1(int(1)) > int(1), "tuple, inside")
     assertInvalid(t._ts1(int(0)) > int(0), "tuple, outside")
@@ -792,7 +798,9 @@ class TypeUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
     assertSatUnchecked((n === int(0)) && (H(\("x" :: I)(x => x + n)) <= int(0)), "capturing, outside")
   }
 
-  test("equality between functions with different domains") {
+  test("equality between functions with different domains") { ctx ?=>
+    // compares functions, which needs the intensional semantics of function equality
+    given Context = ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))
     val f = Variable.fresh("f", posIncr)
     // (a: BigInt) => {r: BigInt | r > a}
     val g = Variable.fresh("g", pi("a" :: I)(a => refinement("r" :: I)(_ > a)))
@@ -871,7 +879,9 @@ class TypeUnrollingSuite extends UnrollingTestSuite with DatastructureUtils {
     assertUnsat(f(E(int(0), int(1))) === int(0), "empty codomain")
   }
 
-  test("Pi equal to a lambda outside of it") {
+  test("Pi equal to a lambda outside of it") { ctx ?=>
+    // compares functions, which needs the intensional semantics of function equality
+    given Context = ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))
     // The type of a free function is only assumed at its applications, so its equality to a lambda
     // outside of the type isn't refuted. The model is rejected instead (see the known issue below).
     val f = Variable.fresh("f", posIncr)

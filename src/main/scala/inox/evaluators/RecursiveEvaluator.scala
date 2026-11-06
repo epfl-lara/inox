@@ -57,6 +57,48 @@ abstract class RecursiveEvaluator(override val program: Program,
     FiniteMap(els.toMap.toSeq.filter { case (_, value) => value != default }.sortBy(_._1.toString), default, from, to)
   }
 
+  private lazy val functionEquality = options.findOptionOrDefault(solvers.unrolling.optFunctionEquality)
+
+  /** Equality between the values `v1` and `v2` (see [[solvers.unrolling.optFunctionEquality]]).
+    *
+    * - Under `intensional` equality, functions are compared structurally.
+    * - Under `none`, comparing functions is an evaluation error. Extracted models never compare
+    *   functions, and queries that do are rejected by the solvers.
+    * - Under `extensional` equality, structurally distinct functions are equal iff they agree on every
+    *   input. They are told apart by their results on the closed subexpressions of the right type
+    *   that they contain (for extracted models, the inputs that tell them apart), and their equality
+    *   is undecidable otherwise. */
+  protected def valuesEqual(v1: Expr, v2: Expr)(using rctx: RC, gctx: GC): Boolean = (v1, v2) match {
+    case _ if functionEquality == solvers.unrolling.FunctionEquality.Intensional => v1 == v2
+    case (ADT(id1, _, args1), ADT(id2, _, args2)) =>
+      id1 == id2 && (args1 zip args2).forall(valuesEqual)
+    case (Tuple(es1), Tuple(es2)) =>
+      (es1 zip es2).forall(valuesEqual)
+    case (l1: Lambda, l2: Lambda) if functionEquality == solvers.unrolling.FunctionEquality.None =>
+      throw EvalError(s"Functions can't be compared under --function-equality=none: ${l1.asString} and ${l2.asString}")
+    case _ if v1 == v2 => true
+    case (l1: Lambda, l2: Lambda) =>
+      def candidates(tpe: Type): Seq[Expr] = (Seq(l1, l2).flatMap { l =>
+        exprOps.collect[Expr] {
+          case c if c.getType == tpe && exprOps.variablesOf(c).isEmpty => Set(c)
+          case _ => Set.empty
+        } (l.body)
+      } ++ scala.util.Try(simplestValue(tpe, allowSolver = false)).toOption).distinct
+
+      val inputs = l1.params.foldRight(Seq(Seq.empty[Expr])) { (vd, rest) =>
+        for (arg <- candidates(vd.getType); args <- rest) yield arg +: args
+      }.take(100)
+
+      def differOn(args: Seq[Expr]): Boolean = scala.util.Try {
+        val values = args.map(e)
+        !valuesEqual(e(Application(l1, values)), e(Application(l2, values)))
+      }.getOrElse(false)
+
+      if (inputs.exists(differOn)) false
+      else throw EvalError(s"Can't decide whether ${l1.asString} and ${l2.asString} are equal")
+    case _ => false
+  }
+
   /** Evaluates `expr`.
     *
     * The cases are split by theory into the `eCore`, `eArithmetic`, ... methods below, which are
@@ -158,7 +200,7 @@ abstract class RecursiveEvaluator(override val program: Program,
       }
 
     case Equals(le,re) =>
-      BooleanLiteral(e(le) == e(re))
+      BooleanLiteral(valuesEqual(e(le), e(re)))
 
     case ADT(id, tps, args) =>
       val cc = ADT(id, tps.map(_.getType), args.map(e))

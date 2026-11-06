@@ -12,7 +12,9 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
   import SolverResponses._
 
   protected lazy val evaluator: evaluators.DeterministicEvaluator { val program: self.program.type } =
-    semantics.getEvaluator(using context.withOpts(evaluators.optIgnoreContracts(true)))
+    // completes the solver's models, in which function values are compared as such
+    semantics.getEvaluator(using context.withOpts(evaluators.optIgnoreContracts(true),
+      unrolling.optFunctionEquality(unrolling.FunctionEquality.Intensional)))
 
   // XXX @nv: Sometimes Z3 doesn't return fully evaluated models so we make sure to
   //          bring them into some normal form after extraction

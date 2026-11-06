@@ -30,6 +30,9 @@ class FunctionEqualitySuite extends UnrollingTestSuite with DatastructureUtils {
 
   val program = InoxProgram(symbols)
 
+  // these tests compare functions structurally
+  override def configurations = super.configurations.map(_ :+ optFunctionEquality(FunctionEquality.Intensional))
+
   test("simple theorem") {
     val clause = let(
       "states" :: T(mmapID)(IntegerType(), IntegerType() =>: IntegerType()),

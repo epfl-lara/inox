@@ -24,6 +24,17 @@ class TipTestSuite extends unrolling.UnrollingTestSuite with ResourceUtils {
   private def onNativeZ3(ctx: Context): FilterStatus =
     WithContext(ctx.withOpts(optSelectedSolvers(Set("nativez3"))))
 
+  // These compare functions, so they need function equality (see `optFunctionEquality`)
+  private val comparingFunctions = Set(
+    "Injective.scala-0.tip", "LambdaEquality2.scala-1.tip", "Streams.scala-0.tip", "inline-lambdas.scala-0.tip")
+
+  private def withSemantics(ctx: Context, file: java.io.File): Context =
+    if (comparingFunctions(file.getName)) {
+      ctx.withOpts(unrolling.optFunctionEquality(unrolling.FunctionEquality.Intensional))
+    } else {
+      ctx
+    }
+
   private def ignoreSAT(ctx: Context, file: java.io.File): FilterStatus = 
     ctx.options.findOptionOrDefault(optSelectedSolvers).headOption match {
       case Some(solver) => (solver, file.getName) match {
@@ -71,7 +82,8 @@ class TipTestSuite extends unrolling.UnrollingTestSuite with ResourceUtils {
     }
 
   for (file <- resourceFiles("regression/tip/SAT", _.endsWith(".tip"))) {
-    test(s"SAT - ${file.getName}", ignoreSAT(_, file)) {
+    test(s"SAT - ${file.getName}", ignoreSAT(_, file)) { ctx0 ?=>
+      given inox.Context = withSemantics(ctx0, file)
       for ((program, expr) <- Parser(file).parseScript) {
         assert(SimpleSolverAPI(program.getSolver).solveSAT(expr).isSAT)
       }
@@ -79,7 +91,8 @@ class TipTestSuite extends unrolling.UnrollingTestSuite with ResourceUtils {
   }
 
   for (file <- resourceFiles("regression/tip/UNSAT", _.endsWith(".tip"))) {
-    test(s"UNSAT - ${file.getName}", ignoreUNSAT(_, file)) {
+    test(s"UNSAT - ${file.getName}", ignoreUNSAT(_, file)) { ctx0 ?=>
+      given inox.Context = withSemantics(ctx0, file)
       for ((program, expr) <- Parser(file).parseScript) {
         assert(SimpleSolverAPI(program.getSolver).solveSAT(expr).isUNSAT)
       }
@@ -94,6 +107,15 @@ class TipTestSuite extends unrolling.UnrollingTestSuite with ResourceUtils {
         val res = api.solveSAT(expr)
         assert(!res.isSAT && !res.isUNSAT)
         assert(ctx.reporter.errorCount > 0)
+      }
+    }
+  }
+
+  for (dir <- Seq("SAT", "UNSAT"); file <- resourceFiles(s"regression/tip/$dir", name => comparingFunctions.exists(name.endsWith))) {
+    test(s"REJECTED - ${file.getName}") { ctx0 ?=>
+      given inox.Context = ctx0.withOpts(unrolling.optFunctionEquality(unrolling.FunctionEquality.None))
+      for ((program, expr) <- Parser(file).parseScript) {
+        intercept[ast.TypeOps#TypeErrorException](SimpleSolverAPI(program.getSolver).solveSAT(expr))
       }
     }
   }
