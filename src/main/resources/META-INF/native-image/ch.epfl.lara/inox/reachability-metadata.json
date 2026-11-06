@@ -1,0 +1,23 @@
+{
+  "reflection": [
+    {
+      "type": "com.microsoft.z3.Native$IntPtr",
+      "jniAccessible": true,
+      "fields": [{"name": "value"}]
+    },
+    {
+      "type": "com.microsoft.z3.Native$LongPtr",
+      "jniAccessible": true,
+      "fields": [{"name": "value"}]
+    },
+    {
+      "type": "java.lang.Boolean",
+      "jniAccessible": true,
+      "methods": [{"name": "getBoolean", "parameterTypes": ["java.lang.String"]}]
+    }
+  ],
+  "resources": [
+    {"glob": "lib-bin"},
+    {"glob": "lib-bin/*"}
+  ]
+}

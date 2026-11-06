@@ -7,17 +7,36 @@
 # ForallAssoc.scala-0.tip is skipped: it takes minutes and ignores --timeout
 # with the SMT-LIB back ends (TipTestSuite moves it to native Z3 for that).
 #
-# Usage: scripts/check-native-binary.sh <binary> [inox options...]
+# Usage: scripts/check-native-binary.sh [--binary] <binary> [inox options...]
+#   --binary  runs the same problems in Inox's binary format instead, to
+#             exercise the deserializer (writing them needs sbt).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
+binary=false
+if [ "${1:-}" = --binary ]; then binary=true; shift; fi
 bin=$1; shift
 dir=src/it/resources/regression/tip
 failures=0
 total=0
 
+inputs=$dir
+ext=tip
+if $binary; then
+  inputs=$(mktemp -d)
+  trap 'rm -rf "$inputs"' EXIT
+  ext=inoxb
+  set -- --format=binary:goal "$@"
+  cmds=()
+  for expected in SAT UNSAT; do
+    files=$(ls "$dir/$expected"/*.tip | grep -v ForallAssoc.scala-0.tip)
+    cmds+=("Test/runMain inox.utils.WriteBinaryInputs $inputs/$expected $(echo $files)")
+  done
+  sbt -batch "${cmds[@]}" || exit 1
+fi
+
 for expected in SAT UNSAT; do
-  for f in "$dir/$expected"/*.tip; do
+  for f in "$inputs/$expected"/*.$ext; do
     case "$(basename "$f")" in ForallAssoc.scala-0.tip) continue ;; esac
     total=$((total + 1))
     out=$(timeout 120 "$bin" --timeout=10 "$@" "$f" 2>&1)

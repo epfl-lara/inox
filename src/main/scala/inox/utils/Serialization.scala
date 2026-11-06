@@ -408,14 +408,14 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     override protected def read(in: InputStream): Product = {
       val size = in.read()
       val fields = for (i <- 0 until size) yield readObject(in).asInstanceOf[AnyRef]
-      tupleSizeToClass(size).getConstructors()(0).newInstance(fields*).asInstanceOf[Product]
+      scala.Tuple.fromArray(fields.toArray).asInstanceOf[Product]
     }
   }
 
-  private final val tupleSizeToClass: Map[Int, Class[?]] =
-    (2 to 22).map(i => i -> Class.forName(s"scala.Tuple$i")).toMap
-
-  private final val tupleClasses: Set[Class[?]] = tupleSizeToClass.values.toSet
+  // The classes of scala.Tuple2 to Tuple22, found without reflection (which
+  // the GraalVM native image would need to be told about).
+  private final val tupleClasses: Set[Class[?]] =
+    (2 to 22).map(i => scala.Tuple.fromArray(new Array[Object](i)).getClass).toSet
 
 
   // SerializationResult id=7

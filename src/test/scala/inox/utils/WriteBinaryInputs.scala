@@ -10,7 +10,8 @@ import java.io.{File, FileOutputStream}
   * named `goal` (its free variables become parameters), so that
   * `inox --format=binary:goal` solves it.
   *
-  * scripts/record-native-image-metadata.sh uses these files to exercise the
+  * scripts/check-native-binary.sh --binary and
+  * scripts/record-native-image-metadata.sh use these files to exercise the
   * binary deserializer.
   *
   * Usage: Test/runMain inox.utils.WriteBinaryInputs <out> <file.tip>...
