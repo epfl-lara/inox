@@ -136,8 +136,11 @@ object SolverTestSuite {
   * Tests that fail on a solver because of a known bug are ignored and list the bug in their name.
   * A solver that isn't installed shows up as ignored tests, unless it is listed in
   * `inox.require-solvers`, in which case its tests fail.
+  *
+  * The tests of a suite run in parallel (each on its own instance of the suite), since a suite's
+  * slowest solvers would otherwise run one after another.
   */
-trait SolverTestSuite extends AnyFunSuite {
+trait SolverTestSuite extends AnyFunSuite with org.scalatest.ParallelTestExecution {
   import SolverTestSuite._
   import inox.trees._
   import SolverResponses._
