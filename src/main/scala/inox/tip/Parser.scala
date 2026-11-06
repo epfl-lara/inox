@@ -33,16 +33,50 @@ class Parser(reader: Reader, file: Option[File]) {
     pos.map(p => positions.get(p.line, p.col)).getOrElse(NoPosition)
   }
 
-  def parseScript: Seq[(InoxProgram, Expr)] = {
+  def parseScript: Seq[(InoxProgram, Expr)] = parseQueries.map(q => (q.program, q.expr))
+
+  /** The queries of the script, one per `check-sat`, with the infos and options set before them.
+    *
+    * `push` and `pop` scope the assertions and declarations, but not the infos and options, which
+    * keep their last value as in SMT-LIB. */
+  def parseQueries: Seq[Parser.Query] = {
     val script = newParser(positions.reader).parseScript
 
     var assertions: Seq[Expr] = Seq.empty
     var locals: Locals = NoLocals
+    var scopes: List[(Seq[Expr], Locals, Any)] = Nil
+    var infos: Map[String, String] = Map.empty
+    var options: Map[String, String] = Map.empty
 
     (for (cmd <- script.commands) yield cmd match {
       case CheckSat() =>
         val expr: Expr = andJoin(assertions)
-        Some((InoxProgram(locals.symbols), expr))
+        Some(Parser.Query(InoxProgram(locals.symbols), expr, infos, options, smtlibPositionToPosition(cmd.optPos)))
+
+      case Push(n) =>
+        for (_ <- 0 until n) scopes = (assertions, locals, saveScope()) :: scopes
+        None
+
+      case Pop(n) =>
+        if (n > scopes.size) {
+          throw new MissformedTIPException(s"can't pop $n scopes, only ${scopes.size} pushed", cmd.optPos)
+        }
+        for (_ <- 0 until n) {
+          val (as, ls, state) = scopes.head
+          assertions = as
+          locals = ls
+          restoreScope(state)
+          scopes = scopes.tail
+        }
+        None
+
+      case SetInfo(Attribute(SKeyword(key), value)) =>
+        infos += key -> attributeValue(value)
+        None
+
+      case SetOption(AttributeOption(Attribute(SKeyword(key), value))) =>
+        options += key -> attributeValue(value)
+        None
 
       case _ =>
         val (newAssertions, newLocals) = extractCommand(cmd)(using locals)
@@ -51,6 +85,18 @@ class Parser(reader: Reader, file: Option[File]) {
         None
     }).flatten
   }
+
+  private def attributeValue(value: Option[AttributeValue]): String = value match {
+    case None => "true"
+    case Some(SSymbol(name)) => name
+    case Some(SString(str)) => str
+    case Some(SNumeral(n)) => n.toString
+    case Some(v) => v.toString
+  }
+
+  /** Parser state outside of [[Locals]] that `push` and `pop` scope. */
+  protected def saveScope(): Any = ()
+  protected def restoreScope(state: Any): Unit = ()
 
   /** The S-expression parser used by [[parseScript]]; subclasses may extend the input syntax. */
   protected def newParser(reader: Reader): TipParser = new TipParser(new TipLexer(reader))
@@ -604,6 +650,17 @@ class Parser(reader: Reader, file: Option[File]) {
 }
 
 object Parser {
+  /** A `check-sat` query of a script.
+    *
+    * @param infos   the values of the `set-info` attributes before the query, e.g. `status`
+    * @param options the values of the `set-option` attributes before the query
+    */
+  case class Query(program: InoxProgram, expr: inox.trees.Expr, infos: Map[String, String],
+                   options: Map[String, String], pos: Position) {
+    /** The expected status, `sat`, `unsat` or `unknown`, if the script gives one. */
+    def status: Option[String] = infos.get("status")
+  }
+
   def apply(file: File): Parser = Parser(new FileReader(file), Some(file))
   def apply(reader: Reader, file: Option[File] = None): Parser = new Parser(reader, file)
 }

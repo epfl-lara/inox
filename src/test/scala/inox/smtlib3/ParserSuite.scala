@@ -152,6 +152,25 @@ class ParserSuite extends AnyFunSuite {
     intercept[tip.MissformedTIPException] {
       parse("(declare-type BV (Int))\n(check-sat)")
     }
+
+    // types without parameters are uninterpreted, so they may be finite
+    assert(typeOf("(declare-type U ())\n(declare-const a U)\n(assert (= a a))", "a").isInstanceOf[TypeParameter])
+    assertUNSAT(
+      """(declare-type U ())
+        |(declare-const a U)
+        |(declare-const b U)
+        |(define-fun swap ((x U)) U (ite (= x a) b a))
+        |(assert (not (= a b)))
+        |(assert (forall ((x U)) (or (= x a) (= x b))))
+        |(assert (not (= (swap (swap a)) a)))
+        |(check-sat)""".stripMargin)
+    assertSAT(
+      """(declare-sort U 0)
+        |(declare-const a U)
+        |(declare-const b U)
+        |(define-fun other ((x U)) U b)
+        |(assert (not (= (other a) a)))
+        |(check-sat)""".stripMargin)
   }
 
   test("constant definitions") {
@@ -326,6 +345,70 @@ class ParserSuite extends AnyFunSuite {
     intercept[tip.MissformedTIPException] {
       parse(frac.replace("Bool (=", "Int (ite (=").replace("(den a))))", "(den a))) 1 0))") + "(check-sat)")
     }
+  }
+
+  test("definitions that refer to declared constants") {
+    assertUNSAT(
+      """(declare-const a Int)
+        |(declare-const b Int)
+        |(define-fun sum () Int (+ a b))
+        |(define-fun addA ((x Int)) Int (+ x a))
+        |(define-const c Int (* 2 a))
+        |(assert (= a 1))
+        |(assert (= b 2))
+        |(assert (or (not (= sum 3)) (not (= (addA 5) 6)) (not (= c 2))))
+        |(check-sat)""".stripMargin)
+
+    intercept[tip.MissformedTIPException] {
+      parse("(declare-type-var A)\n(declare-const a Int)\n(define-fun f ((x A)) Int a)\n(check-sat)")
+    }
+  }
+
+  test("push and pop") {
+    val queries = Parser(new StringReader(
+      """(declare-const a Int)
+        |(declare-type-var A)
+        |(push 1)
+        |(define-fun pos ((x Int)) Bool (> x 0))
+        |(define-type Pos () (! Int :var x :restrict (pos x)))
+        |(declare-const p Pos)
+        |(assert (= a p))
+        |(set-info :status unsat)
+        |(check-sat)
+        |(pop 1)
+        |(push 2)
+        |(define-fun pos ((x Int)) Bool (< x 0))
+        |(assert (pos a))
+        |(set-info :status sat)
+        |(set-option :feeling-lucky true)
+        |(check-sat)
+        |(pop 2)
+        |(check-sat)""".stripMargin)).parseQueries
+    assert(queries.map(_.status) == Seq(Some("unsat"), Some("sat"), Some("sat")))
+    assert(queries.map(_.options.get("feeling-lucky")) == Seq(None, Some("true"), Some("true")))
+    // the scoped assertions and definitions don't outlive their scope
+    assert(queries.map(_.program.symbols.functions.size) == Seq(1, 1, 0))
+    assert(queries.last.expr == BooleanLiteral(true))
+
+    intercept[tip.MissformedTIPException] {
+      parse("(push 1)\n(pop 2)\n(check-sat)")
+    }
+  }
+
+  test("annotated types as type arguments") {
+    // type checks of sets only terminate for finite values, see TypeUnrollingSuite
+    val script = "(declare-const s (Set (! Int :var x :restrict (> x 2))))\n(assert (= s (insert (as emptyset Int) 1)))"
+    typeOf(script, "s") match {
+      case SetType(RefinementType(_, _)) =>
+      case tpe => fail(s"unexpected type $tpe")
+    }
+    assertUNSAT(script + "\n(check-sat)")
+    assertSAT("(declare-const m (Array Int (! Int :var x :restrict (> x 2))))\n(assert (= (select m 0) 3))\n(check-sat)")
+    assertUNSAT(
+      """(declare-datatypes ((List 1)) ((par (E) ((nil) (cons (head E) (tail (List E)))))))
+        |(declare-const l (List (! Int :var x :restrict (> x 0))))
+        |(assert (and ((_ is cons) l) (= (head l) 0)))
+        |(check-sat)""".stripMargin)
   }
 
   test("unsupported features") {
