@@ -38,17 +38,19 @@ trait MainHelpers {
 
   abstract class Format
   case object Tip extends Format
+  case object SMTLIB3 extends Format
   case class Binary(methodName: Option[String]) extends Format
 
   object optFormat extends OptionDef[Format] {
     val name: String = "format"
-    val usageRhs: String = "tip|binary[:<method-name>]"
+    val usageRhs: String = "tip|smtlib3|binary[:<method-name>]"
     val default: Format = Tip
 
     private val BinaryRegex = """binary:?(.+)?""".r
 
     override def parser: OptionParsers.OptionParser[Format] = s => s.toLowerCase match {
       case "tip" => Some(Tip)
+      case "smtlib3" | "smt3" => Some(SMTLIB3)
       // Option.apply takes care of potential null in regex match
       case BinaryRegex(methodName) => Some(Binary(Option(methodName)))
       case _ => None
@@ -101,7 +103,9 @@ trait MainHelpers {
         "  " + first.mkString(", ") + ",\n" +
         "  " + second.mkString(", ")
     }),
-    optFormat -> Description(General, "Choose input format (if 'binary' also choose method to use as expression)"),
+    optFormat -> Description(General,
+      "Choose input format (if 'binary' also choose method to use as expression). " +
+      "Files ending in .smt3 are read as SMT-LIB 3 unless another format is given"),
     optPrintProgram -> Description(Printing, "Print the entire program"),
     optModelFormat -> Description(Printing,
       "Answer format: 'inox' (default, human readable) or 'smtlib' (one of sat/unsat/unknown on its own line, " +
@@ -341,7 +345,10 @@ class InoxMain extends MainHelpers {
   }
 
   protected def parse(ctx: Context, file: File): Seq[(InoxProgram, Option[Expr])] =
-    ctx.options.findOptionOrDefault(optFormat) match {
+    ctx.options.findOption(optFormat).getOrElse(if (file.getName.endsWith(".smt3")) SMTLIB3 else Tip) match {
+      case SMTLIB3 =>
+        smtlib3.Parser(file).parseScript.map{ case (p, e) => (p, Some(e)) }
+
       case Tip =>
         tip.Parser(file).parseScript.map{ case (p, e) => (p, Some(e)) }
 

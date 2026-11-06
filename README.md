@@ -50,6 +50,12 @@ One can also use Inox through command-line by using the
 easiest way to use the Inox command line is to simply [build](#building-inox)
 the project and use the generated `inox` script.
 
+Inox also reads the dependently-typed [SMT-LIB 3](https://smt-lib.org/version3.shtml)
+proposal with `--format=smtlib3`, or for files ending in `.smt3`. Dependent
+function types `(-> (! Int :var n) ...)` become Pi types, and predicate subtypes
+`(! Int :var x :restrict (> x 0))` become refinement types. The supported subset
+is described in `inox.smtlib3.Parser`.
+
 ## Solver Backends
 
 Inox relies on SMT solvers to solve the constraints it generates. Inox ships
