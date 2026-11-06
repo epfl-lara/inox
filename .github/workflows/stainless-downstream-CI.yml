@@ -3,6 +3,11 @@ name: Stainless downstream CI
 on:
   workflow_dispatch:
     inputs:
+      ignore_skip:
+        description: 'Ignore the "Stainless: skip" commit lines and run all Stainless tests'
+        type: boolean
+        required: false
+        default: false
       false_benchmarks:
         description: 'Also run the false-valid / false-invalid benchmarks (known Stainless issues, skipped by default)'
         type: boolean
@@ -23,7 +28,28 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # An Inox change that breaks Stainless until Stainless is updated for it can
+  # skip all or some of the Stainless tests with a `Stainless: skip` line in a
+  # commit message. The line applies until Stainless main bumps Inox past that
+  # commit (see .github/scripts/stainless-skip.sh).
+  check-skip:
+    runs-on: ubuntu-latest
+    outputs:
+      stainless: ${{ steps.check.outputs.stainless }}
+      all: ${{ steps.check.outputs.all }}
+      benchmarks: ${{ steps.check.outputs.benchmarks }}
+    steps:
+    - name: Checkout Inox
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Find the Stainless skip lines that Stainless hasn't picked up
+      id: check
+      run: .github/scripts/stainless-skip.sh
+
   tests:
+    needs: check-skip
+    if: inputs.ignore_skip || needs.check-skip.outputs.all != 'true'
     runs-on:
       labels: [self-hosted, linux]
     env:
@@ -48,6 +74,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         repository: epfl-lara/stainless
+        ref: ${{ needs.check-skip.outputs.stainless }}
         path: stainless
         submodules: recursive
     - name: Update Stainless Inox checkout
@@ -66,6 +93,22 @@ jobs:
       working-directory: ${{ env.STAINLESS_DIR }}/frontends/benchmarks
       run: |
         rm -fv verification/false-valid/*.scala termination/false-invalid/*.scala
+    - name: Skip the benchmarks named by Stainless skip lines
+      if: ${{ !inputs.ignore_skip && needs.check-skip.outputs.benchmarks != '' }}
+      working-directory: ${{ env.STAINLESS_DIR }}/frontends/benchmarks
+      env:
+        BENCHMARKS: ${{ needs.check-skip.outputs.benchmarks }}
+      run: |
+        shopt -s nullglob
+        while read -r glob; do
+          if [ -z "$glob" ]; then continue; fi
+          matches=($glob)
+          if [ "${#matches[@]}" -eq 0 ]; then
+            echo "::warning::'Stainless: skip $glob' matches no benchmark."
+          else
+            rm -rfv "${matches[@]}"
+          fi
+        done <<< "$BENCHMARKS"
     - name: Setup JDK
       uses: actions/setup-java@v4
       with:
