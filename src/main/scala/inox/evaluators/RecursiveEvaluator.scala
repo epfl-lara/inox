@@ -330,7 +330,8 @@ abstract class RecursiveEvaluator(override val program: Program,
           val bi2 = b2.toBigInt
           if (bi2 != 0) BVLiteral(sig1, b1.toBigInt % bi2, s1) else b1
         case (IntegerLiteral(i1), IntegerLiteral(i2)) =>
-          if(i2 != BigInt(0)) IntegerLiteral(i1 % i2) else throw RuntimeError("Remainder of division by 0.")
+          // the remainder of the euclidean division, which is SMT-LIB's `mod`
+          if(i2 != BigInt(0)) IntegerLiteral(i1 mod i2.abs) else throw RuntimeError("Remainder of division by 0.")
         case (le,re) => throw EvalError("Unexpected operation: (" + le.asString + ") rem (" + re.asString + ")")
       }
 

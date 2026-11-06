@@ -72,11 +72,12 @@ class RecursiveEvaluatorSuite extends AnyFunSuite {
     assert(eval(sub("abc", 1, BigInt(Long.MaxValue) * 4)) === StringLiteral("bc"))
   }
 
-  test("BigInt Division and Modulo with negative operands, as SMT-LIB `div` and `mod`") {
-    // `x == y * (x / y) + (x mod y)` with `0 <= x mod y < |y|`
+  test("BigInt Division, Remainder and Modulo with negative operands, as SMT-LIB `div` and `mod`") {
+    // `x == y * (x / y) + (x mod y)` with `0 <= x mod y < |y|`, and the remainder is `mod`
     for ((x, y, q, r) <- Seq((-1, 3, -1, 2), (-1, -3, 1, 2), (-7, 2, -4, 1), (7, -2, -3, 1), (-7, -2, 4, 1))) {
-      assert(eval(Division(IntegerLiteral(x), IntegerLiteral(y))) === IntegerLiteral(q))
-      assert(eval(Modulo(IntegerLiteral(x), IntegerLiteral(y)))   === IntegerLiteral(r))
+      assert(eval(Division(IntegerLiteral(x), IntegerLiteral(y)))  === IntegerLiteral(q))
+      assert(eval(Remainder(IntegerLiteral(x), IntegerLiteral(y))) === IntegerLiteral(r))
+      assert(eval(Modulo(IntegerLiteral(x), IntegerLiteral(y)))    === IntegerLiteral(r))
     }
   }
 

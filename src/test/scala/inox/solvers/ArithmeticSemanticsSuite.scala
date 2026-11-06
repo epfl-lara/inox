@@ -42,35 +42,36 @@ class ArithmeticSemanticsSuite extends SolverTestSuite {
     check(s, Times(IntegerLiteral(2), IntegerLiteral(3)), IntegerLiteral(6))
   }
 
-  test("BigInt Division and Modulo", Integers) { ctx =>
+  test("BigInt Division, Remainder and Modulo", Integers) { ctx =>
     val s = solver(ctx)
 
-    // SMT-LIB's euclidean `div` and `mod`: `x == y * (x / y) + (x mod y)` with `0 <= x mod y < |y|`
+    // SMT-LIB's euclidean `div` and `mod`: `x == y * (x / y) + (x mod y)` with `0 <= x mod y < |y|`,
+    // and the remainder of the euclidean division is `mod`
     for ((x, y, q, r) <- Seq((10, 3, 3, 1), (-1, 3, -1, 2), (-1, -3, 1, 2), (1, -3, 0, 1),
                              (-7, 2, -4, 1), (7, -2, -3, 1), (-7, -2, 4, 1), (6, -3, -2, 0))) {
       check(s, Division(IntegerLiteral(x), IntegerLiteral(y)), IntegerLiteral(q))
-      check(s, Modulo(IntegerLiteral(x), IntegerLiteral(y)),   IntegerLiteral(r))
-    }
-    for ((x, y, r) <- Seq((10, 3, 1), (-1, 3, -1), (-1, -3, -1), (1, -3, 1))) {
       check(s, Remainder(IntegerLiteral(x), IntegerLiteral(y)), IntegerLiteral(r))
+      check(s, Modulo(IntegerLiteral(x), IntegerLiteral(y)),   IntegerLiteral(r))
     }
   }
 
-  // The JVM's remainder on integers is deprecated: Stainless will encode it with Modulo
   test("Symbolic BigInt Remainder", Integers) { ctx =>
     val s = solver(ctx)
     val x = Variable.fresh("x", IntegerType())
     val y = Variable.fresh("y", IntegerType())
 
-    // the remainder takes the sign of the dividend
-    assert(s.solveSAT(And(x < E(BigInt(0)), Remainder(x, E(BigInt(3))) > E(BigInt(0)))).isUNSAT)
+    // the remainder of the euclidean division is never negative
+    assert(s.solveSAT(And(x < E(BigInt(0)), Remainder(x, E(BigInt(3))) < E(BigInt(0)))).isUNSAT)
     assert(s.solveSAT(And(x > E(BigInt(0)), Remainder(x, E(BigInt(-3))) < E(BigInt(0)))).isUNSAT)
-    assert(s.solveSAT(x >= E(BigInt(0)) && Not(Equals(y, E(BigInt(0)))) && Remainder(x, y) < E(BigInt(0))).isUNSAT)
+    assert(s.solveSAT(Not(Equals(y, E(BigInt(0)))) && Remainder(x, y) < E(BigInt(0))).isUNSAT)
 
     // and is smaller than the divisor in absolute value
     assert(s.solveSAT(And(y > E(BigInt(0)), Remainder(x, y) >= y)).isUNSAT)
 
-    s.solveSAT(x > E(BigInt(-5)) && x < E(BigInt(0)) && Equals(Remainder(x, E(BigInt(3))), E(BigInt(-2)))) match {
+    // and goes with Division
+    assert(s.solveSAT(Not(Equals(Plus(Times(E(BigInt(-3)), Division(x, E(BigInt(-3)))), Remainder(x, E(BigInt(-3)))), x))).isUNSAT)
+
+    s.solveSAT(x > E(BigInt(-5)) && x < E(BigInt(0)) && Equals(Remainder(x, E(BigInt(3))), E(BigInt(1)))) match {
       case SatWithModel(model) => assert(model.vars.get(x.toVal) == Some(IntegerLiteral(-2)))
       case got => fail(s"Expected a model, got $got.")
     }
