@@ -17,7 +17,10 @@ object Commands {
       ctx.print(")")
     }
 
-    override def transform(tt: TreeTransformer)(context: tt.C): (Command, tt.R) = ??? // FIXME
+    override def transform(tt: TreeTransformer)(context: tt.C): (Command, tt.R) = {
+      val (newTerm, result) = tt.transform(term, context)
+      (Maximize(newTerm), tt.combine(this, context, Seq(result)))
+    }
   }
 
   case class Minimize(term: Term) extends CommandExtension {
@@ -27,7 +30,10 @@ object Commands {
       ctx.print(")")
     }
 
-    override def transform(tt: TreeTransformer)(context: tt.C): (Command, tt.R) = ??? // FIXME
+    override def transform(tt: TreeTransformer)(context: tt.C): (Command, tt.R) = {
+      val (newTerm, result) = tt.transform(term, context)
+      (Minimize(newTerm), tt.combine(this, context, Seq(result)))
+    }
   }
 
   case class AssertSoft(term: Term, optWeight: Option[Int], optGroup: Option[String]) extends CommandExtension {
@@ -45,6 +51,9 @@ object Commands {
       ctx.print(")")
     }
 
-    override def transform(tt: TreeTransformer)(context: tt.C): (Command, tt.R) = ??? // FIXME
+    override def transform(tt: TreeTransformer)(context: tt.C): (Command, tt.R) = {
+      val (newTerm, result) = tt.transform(term, context)
+      (AssertSoft(newTerm, optWeight, optGroup), tt.combine(this, context, Seq(result)))
+    }
   }
 }

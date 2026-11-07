@@ -33,9 +33,13 @@ trait NativeZ3Optimizer extends Z3Unrolling with AbstractUnrollingOptimizer  { s
     val name = "z3-opt"
 
     private val optimizer: ScalaZ3Optimizer = z3.mkOptimizer()
+    private val defaultGroup = "inox$default"
 
     def assertCnstr(ast: Z3AST): Unit = tryZ3(optimizer.assertCnstr(ast))
-    def assertCnstr(ast: Z3AST, weight: Int): Unit = tryZ3(optimizer.assertCnstr(ast, weight))
+    // ScalaZ3 puts each ungrouped soft constraint in a fresh group of its own, which
+    // makes Z3 optimize them one after the other instead of weighing them against each
+    // other. Share one group between them, as SMT-LIB does for `assert-soft` without an id.
+    def assertCnstr(ast: Z3AST, weight: Int): Unit = tryZ3(optimizer.assertCnstr(ast, weight, defaultGroup))
     def assertCnstr(ast: Z3AST, weight: Int, group: String): Unit = tryZ3(optimizer.assertCnstr(ast, weight, group))
 
     def maximize(ast: Z3AST): Unit = tryZ3(optimizer.maximize(ast))
@@ -44,23 +48,20 @@ trait NativeZ3Optimizer extends Z3Unrolling with AbstractUnrollingOptimizer  { s
     // NOTE @nv: this is very similar to code in AbstractZ3Solver and UninterpretedZ3Solver but
     //           is difficult to merge due to small API differences between the native Z3
     //           solvers and optimizers.
-    def check(config: CheckConfiguration) = config.cast(tryZ3(optimizer.check() match {
-      case Some(true) => if (config.withModel) SatWithModel(optimizer.getModel()) else Sat
-      case Some(false) => Unsat
-      case None => Unknown
-    }).getOrElse(Unknown))
-
-    // NOTE @nv: this is very similar to code in AbstractZ3Solver and UninterpretedZ3Solver but
-    //           is difficult to merge due to small API differences between the native Z3
-    //           solvers and optimizers.
-    def checkAssumptions(config: Configuration)(assumptions: Set[Z3AST]) = {
-      val pushed = tryZ3(optimizer.push()).isDefined
-      for (a <- assumptions) assertCnstr(a)
-      val res = config.cast(tryZ3[SolverResponse[Model, Assumptions]](optimizer.check() match {
+    private def checkOptimizer(config: Configuration): config.Response[Model, Assumptions] =
+      config.cast(tryZ3[SolverResponse[Model, Assumptions]](optimizer.check() match {
         case Some(true) => if (config.withModel) SatWithModel(optimizer.getModel()) else Sat
         case Some(false) => if (config.withUnsatAssumptions) UnsatWithAssumptions(Set()) else Unsat
         case None => Unknown
       }).getOrElse(Unknown))
+
+    def check(config: CheckConfiguration): config.Response[Model, Assumptions] = checkOptimizer(config)
+
+    // The optimizer has no assumptions of its own: assert them in a scope of their own.
+    def checkAssumptions(config: Configuration)(assumptions: Set[Z3AST]): config.Response[Model, Assumptions] = {
+      val pushed = tryZ3(optimizer.push()).isDefined
+      for (a <- assumptions) assertCnstr(a)
+      val res = checkOptimizer(config)
       if (pushed) tryZ3(optimizer.pop())
       res
     }
