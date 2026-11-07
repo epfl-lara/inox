@@ -5,7 +5,7 @@ package inox.utils
 object GraphOps {
   
   /**
-   * Takes an graph in form of a map (vertex -> out neighbors).
+   * Takes a graph in form of a map (vertex -> predecessors).
    * Returns a topological sorting of the vertices (Right value) if there is one.
    * If there is none, it returns the set of vertices that belong to a cycle 
    * or come before a cycle (Left value)
@@ -21,7 +21,9 @@ object GraphOps {
         tSort(hasPreds.view.mapValues { _ -- found }.toMap, found ++ done)
       }
     }
-    tSort(toPreds, Seq())
+    // predecessors that aren't keys have no predecessors themselves
+    val allNodes = toPreds.values.flatten.map(_ -> Set.empty[A]).toMap ++ toPreds
+    tSort(allNodes, Seq())
   }
 
 
