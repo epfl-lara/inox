@@ -41,12 +41,6 @@ trait CallGraph {
     collector.result
   }
 
-  private def collectCalls(sort: ADTSort): Set[Identifier] = {
-    val collector = getFunctionCollector
-    collector.traverse(sort)
-    collector.result
-  }
-
   protected def computeCallGraph: DiGraph[Identifier, SimpleEdge[Identifier]] = {
     var g = DiGraph[Identifier, SimpleEdge[Identifier]]()
     for ((_, fd) <- symbols.functions; id <- collectCalls(fd)) {
