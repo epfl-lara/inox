@@ -69,6 +69,12 @@ jobs:
       run: echo "SBT_OPTS=-Dsbt.global.base=$GITHUB_WORKSPACE/.sbt-global" >> $GITHUB_ENV
     - name: Prepare temp folder
       run: rm -rf $JAVA_OPTS_TMP_DIR && mkdir -p $JAVA_OPTS_TMP_DIR
+    # The coverage job also fetches the scoverage runtime, so it keeps its own cache.
+    - name: Fetch sbt dependencies
+      uses: ./.github/actions/sbt-dependencies
+      with:
+        key: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'inox-coverage' || 'inox' }}
+        sbt-args: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'coverage ' || '' }}update Test/update IntegrationTest/update
     - name: Install solvers
       uses: ./.github/actions/install-solvers
       with:

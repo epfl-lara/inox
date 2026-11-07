@@ -41,6 +41,12 @@ jobs:
       uses: ./.github/actions/install-solvers
       with:
         z3: ${{ env.Z3_VER }}
+    - name: Fetch sbt dependencies
+      uses: ./.github/actions/sbt-dependencies
+      with:
+        key: scala-native
+        working-directory: native
+        sbt-args: update
     - name: Build
       run: cd native && sbt -batch nativeLink
     - name: Check answers
@@ -70,6 +76,11 @@ jobs:
       uses: ./.github/actions/install-solvers
       with:
         z3: ${{ env.Z3_VER }}
+    - name: Fetch sbt dependencies
+      uses: ./.github/actions/sbt-dependencies
+      with:
+        key: graalvm
+        sbt-args: update
     - name: Build
       run: ./scripts/build-native-image.sh inox-native-image
     - name: Check answers (SMT-LIB Z3)
