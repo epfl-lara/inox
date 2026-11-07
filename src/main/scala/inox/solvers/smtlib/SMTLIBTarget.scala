@@ -45,6 +45,9 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
   protected val interpreter: Interpreter
 
+  /** Emits the commands that set the solver up, again after each reset. */
+  protected def initialize(): Unit = ()
+
   protected val semantics: program.Semantics
   given givenSemantics: semantics.type = semantics
 

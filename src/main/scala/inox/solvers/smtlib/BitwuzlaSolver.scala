@@ -28,6 +28,10 @@ trait BitwuzlaSolver extends SMTLIBSolver with BitwuzlaTarget {
     ) ++ options.findOptionOrDefault(optBitwuzlaOptions)
   }
 
+  // After `(reset)`, Bitwuzla 0.8 no longer parses bit-vector sorts until a logic is set, and then
+  // fails on `(get-model)` even with `:produce-models` set again.
+  override def reset(): Unit = throw new CantResetException(this)
+
   override def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[program.Model, Assumptions] = {
     push()
     for (cl <- assumptions) assertCnstr(cl)
