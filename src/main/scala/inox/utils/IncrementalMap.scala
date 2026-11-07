@@ -13,10 +13,15 @@ class IncrementalMap[A, B] private(dflt: Option[B])
 
   def this() = this(None)
 
-  private var stack: List[MMap[A, B]] = List(MMap())
+  private def withDefault(map: MMap[A, B]): MMap[A, B] = dflt match {
+    case Some(value) => map.withDefaultValue(value)
+    case None => map
+  }
+
+  private var stack: List[MMap[A, B]] = List(withDefault(MMap()))
 
   override def clear(): Unit = {
-    stack = List(MMap())
+    stack = List(withDefault(MMap()))
   }
 
   override def reset(): Unit = {
@@ -24,14 +29,7 @@ class IncrementalMap[A, B] private(dflt: Option[B])
   }
 
   override def push(): Unit = {
-    val last = MMap[A,B]() ++ stack.head
-
-    val withDefault = dflt match {
-      case Some(value) => last.withDefaultValue(value)
-      case None => last
-    }
-
-    stack ::= withDefault
+    stack ::= withDefault(MMap[A, B]() ++ stack.head)
   }
 
   override def pop(): Unit = {
@@ -40,8 +38,7 @@ class IncrementalMap[A, B] private(dflt: Option[B])
 
   def withDefaultValue[B1 >: B](dflt: B1) = {
     val map = new IncrementalMap[A, B1](Some(dflt))
-    map.stack = map.stack.tail
-    for (s <- stack) map.stack ::= MMap[A,B1]().withDefaultValue(dflt) ++ s
+    map.stack = stack.map(frame => map.withDefault(MMap[A, B1]() ++ frame))
     map
   }
 
