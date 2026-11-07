@@ -26,7 +26,8 @@ trait CVC4Target extends CVCTarget {
 
   // CVC5 emits a warning when no (set-logic X) command is passed
   // So we emit (set-logic all) by default
-  emit(SetLogic(ALL()))
+  override protected def initialize(): Unit = emit(SetLogic(ALL()))
+  initialize()
 
 
   override val cvcSets: Sets = CVC4Sets

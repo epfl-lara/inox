@@ -114,4 +114,20 @@ class IncrementalSolverSuite extends SolverTestSuite {
       assert(valueOf(s, x) == Some(Int32Literal(3)))
     }
   }
+
+  test("Branches and function calls after a reset", Feature.Integers) { ctx =>
+    withSolver(ctx) { s =>
+      val y = Variable.fresh("y", IntegerType())
+      s.assertCnstr(Equals(inc(y), IntegerLiteral(5)))
+      assert(valueOf(s, y) == Some(IntegerLiteral(4)))
+      try {
+        s.reset()
+      } catch {
+        case _: CantResetException => cancel(s"${s.name} can't be reset")
+      }
+      s.assertCnstr(if_ (x > E(0)) { Equals(inc(y), IntegerLiteral(7)) } else_ { Equals(inc(inc(y)), IntegerLiteral(7)) })
+      s.assertCnstr(x < E(0))
+      assert(valueOf(s, y) == Some(IntegerLiteral(5)))
+    }
+  }
 }

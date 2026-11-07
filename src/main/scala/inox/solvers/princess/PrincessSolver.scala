@@ -136,10 +136,9 @@ class PrincessSolver(override val program: Program)
     underlying.pop()
   }
 
-  override def reset(): Unit = {
-    super.reset()
-    underlying.reset()
-  }
+  // The templates cache Princess symbols (e.g. of function calls), which Princess forgets
+  // when it is reset, so a reset solver would build formulas over unknown symbols.
+  override def reset(): Unit = throw new CantResetException(this)
 
   override def interrupt(): Unit = {
     underlying.interrupt()
