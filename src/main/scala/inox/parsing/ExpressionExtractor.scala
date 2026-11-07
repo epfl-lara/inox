@@ -42,8 +42,8 @@ trait ExpressionExtractors { self: Extractors =>
     protected def toExprObls(pair: (Seq[trees.Expr], Seq[Expression])): MatchObligation = {
       pair match {
         case (Seq(), Seq()) => Some(empty)
-        case (Seq(), _) => None
-        case (_, Seq()) => None
+        // A sequence hole can match no expression at all, so it must be tried before
+        // giving up on an empty sequence of expressions.
         case (_, Seq(ExpressionSeqHole(i), templateRest @ _*)) => {
           val n = pair._1.length - templateRest.length
 
@@ -58,6 +58,8 @@ trait ExpressionExtractors { self: Extractors =>
             }
           }
         }
+        case (Seq(), _) => None
+        case (_, Seq()) => None
         case (Seq(expr, exprRest @ _*), Seq(template, templateRest @ _*)) => for {
           matchingsHead <- extract(toExprObl(expr -> template))
           matchingsRest <- extract(toExprObls(exprRest -> templateRest))
@@ -432,6 +434,7 @@ trait ExpressionExtractors { self: Extractors =>
       case trees.BVOr(left, right) => template match {
         case Operation("|", Seq(templateLeft, templateRight)) =>
           extract(toExprObl(left -> templateLeft), toExprObl(right -> templateRight))
+        case _ => fail
       }
 
       case trees.BVAnd(left, right) => template match {

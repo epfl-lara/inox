@@ -11,14 +11,16 @@ trait TypeExtractors { self: Extractors =>
 
     def extractSeq(tpes: Seq[trees.Type], templates: Seq[Expression]): Option[Match] = (tpes, templates) match {
       case (Seq(), Seq()) => Some(empty)
-      case (Seq(), _) => None
-      case (_, Seq()) => None
+      // A sequence hole can match no type at all, so it must be tried before
+      // giving up on an empty sequence of types.
       case (_, Seq(TypeSeqHole(i), templateRest @ _*)) =>
         val n = tpes.length - templateRest.length
         if (n < 0) None else {
           val (matches, rest) = tpes.splitAt(n)
           extractSeq(rest, templateRest) map (_ ++ matching(i, matches))
         }
+      case (Seq(), _) => None
+      case (_, Seq()) => None
       case (Seq(tpe, tpeRest @ _*), Seq(template, templateRest @ _*)) =>
         for {
           matchingsHead <- extract(tpe, template)
@@ -29,14 +31,14 @@ trait TypeExtractors { self: Extractors =>
     def extractSeq(vds: Seq[trees.ValDef], templates: Seq[Expression])(using DummyImplicit): Option[Match] =
       (vds, templates) match {
         case (Seq(), Seq()) => Some(empty)
-        case (Seq(), _) => None
-        case (_, Seq()) => None
         case (_, Seq(TypeSeqHole(i), templateRest @ _*)) =>
           val n = vds.length - templateRest.length
           if (n < 0) None else {
             val (matches, rest) = vds.splitAt(n)
             extractSeq(rest, templateRest) map (_ ++ matching(i, matches))
           }
+        case (Seq(), _) => None
+        case (_, Seq()) => None
         case (Seq(vd, vdRest @ _*), Seq(template, templateRest @ _*)) =>
           for {
             matchingsHead <- extract(vd, template)

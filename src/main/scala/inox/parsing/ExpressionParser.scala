@@ -22,7 +22,7 @@ trait ExpressionParsers { self: Parsers =>
     }
 
     lazy val selectableExpr: Parser[Expression] = withApplication {
-      holeExpr | literalExpr | withTypeApplication(variableExpr) | literalSetLikeExpr | tupleOrParensExpr
+      withTypeApplication(holeExpr) | literalExpr | withTypeApplication(variableExpr) | literalSetLikeExpr | tupleOrParensExpr
     }
 
     def withTypeAnnotation(exprParser: Parser[Expression]): Parser[Expression] = {
