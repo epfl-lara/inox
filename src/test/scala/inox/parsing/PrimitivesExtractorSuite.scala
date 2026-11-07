@@ -165,4 +165,72 @@ class PrimitivesExtractorSuite extends AnyFunSuite {
       case _ => fail("Did not match.")
     }
   }
+
+  test("Matching argument sequences") {
+    val f = Variable.fresh("f", FunctionType(Seq(IntegerType(), IntegerType(), IntegerType()), IntegerType()))
+    Application(f, Seq(IntegerLiteral(1), IntegerLiteral(2), x)) match {
+      case e"$g($as..., 2, $last)" => assert(g == f && as == Seq(IntegerLiteral(1)) && last == x)
+      case _ => fail("Did not match.")
+    }
+    Application(f, Seq(IntegerLiteral(1), IntegerLiteral(2), x)) match {
+      case e"$g(1, $as...)" => assert(as == Seq(IntegerLiteral(2), x))
+      case _ => fail("Did not match.")
+    }
+    Application(f, Seq(IntegerLiteral(1))) match {
+      case e"$g(1, $as..., 2)" => fail("Did match.")
+      case e"$g(1, $as...)" => assert(as == Seq())
+      case _ => fail("Did not match.")
+    }
+    val h = Variable.fresh("h", FunctionType(Seq(), IntegerType()))
+    Application(h, Seq()) match {
+      case e"$g($as...)" => assert(g == h && as == Seq())
+      case _ => fail("Did not match.")
+    }
+  }
+
+  test("Matching type sequences") {
+    FunctionType(Seq(IntegerType(), BooleanType()), StringType()) match {
+      case t"($as...) => $b" => assert(as == Seq(IntegerType(), BooleanType()) && b == StringType())
+      case _ => fail("Did not match.")
+    }
+    FunctionType(Seq(), StringType()) match {
+      case t"($as...) => $b" => assert(as == Seq() && b == StringType())
+      case _ => fail("Did not match.")
+    }
+    TupleType(Seq(IntegerType(), BooleanType(), CharType())) match {
+      case t"(Int, $as...)" => fail("Did match.")
+      case t"(BigInt, $as...)" => assert(as == Seq(BooleanType(), CharType()))
+      case _ => fail("Did not match.")
+    }
+  }
+
+  test("Matching bit vector operations") {
+    val a = Variable.fresh("a", BVType(true, 32))
+    val b = Variable.fresh("b", BVType(true, 32))
+    for (expr <- Seq(BVOr(a, b), BVAnd(a, b), BVXor(a, b), BVShiftLeft(a, b), BVAShiftRight(a, b), BVLShiftRight(a, b))) {
+      val op = expr match {
+        case e"$l + $r" => fail("Did match.")
+        case e"$l | $r" => "|"
+        case e"$l & $r" => "&"
+        case e"$l ^ $r" => "^"
+        case e"$l << $r" => "<<"
+        case e"$l >>> $r" => ">>>"
+        case e"$l >> $r" => ">>"
+        case _ => fail("Did not match.")
+      }
+      assert(op == (expr match {
+        case _: BVOr => "|"
+        case _: BVAnd => "&"
+        case _: BVXor => "^"
+        case _: BVShiftLeft => "<<"
+        case _: BVAShiftRight => ">>"
+        case _: BVLShiftRight => ">>>"
+        case _ => ""
+      }))
+    }
+    BVNot(a) match {
+      case e"~$y" => assert(y == a)
+      case _ => fail("Did not match.")
+    }
+  }
 }
