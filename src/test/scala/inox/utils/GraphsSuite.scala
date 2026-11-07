@@ -262,6 +262,24 @@ class GraphsSuite extends AnyFunSuite {
     assert(isBefore(D, C))
   }
 
+  test("Graphs DFS and BFS visit each reachable node once") {
+    // A diamond with a cycle back to its top: every node has several paths from A
+    val g = DiGraph[Node, SimpleEdge[Node]](
+      Set(A, B, C, D, E),
+      Set(SimpleEdge(A, B), SimpleEdge(A, C), SimpleEdge(B, D), SimpleEdge(C, D), SimpleEdge(D, A), SimpleEdge(D, D))
+    )
+
+    var dfs = List[Node]()
+    g.depthFirstSearch(A) { n => dfs ::= n }
+    assert(dfs.sortBy(_.toString) == List(A, B, C, D))
+
+    var bfs = List[Node]()
+    g.breadthFirstSearch(A) { n => bfs ::= n }
+    bfs = bfs.reverse
+    assert(bfs.sortBy(_.toString) == List(A, B, C, D))
+    assert(bfs.head == A && bfs.last == D)
+  }
+
   test("Graphs pred/succ 1") {
     val g = g2
 
