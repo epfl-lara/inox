@@ -41,13 +41,21 @@ trait SolvingEvaluator extends Evaluator { self =>
 
     chooseCache.getOrElse(choose, {
       import scala.language.existentials
+      import SolverResponses._
+
       val satRes = context.timers.evaluators.specs.run {
         val sf = semantics.getSolver
-        val api = SimpleSolverAPI(sf)
-        api.solveSAT(choose.pred)
+        val solver = sf.getNewSolver()
+        try {
+          // Declaring the result makes the solver respect its type even when the
+          // predicate doesn't mention it, as with `choose((x: { v: BigInt | v > 5 }) => true)`.
+          solver.declare(choose.res)
+          solver.assertCnstr(choose.pred)
+          solver.check(Model)
+        } finally {
+          sf.reclaim(solver)
+        }
       }
-
-      import SolverResponses._
 
       val res = satRes match {
         case SatWithModel(model) =>
