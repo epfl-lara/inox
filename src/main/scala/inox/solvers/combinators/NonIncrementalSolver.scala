@@ -53,14 +53,12 @@ trait NonIncrementalSolver extends AbstractSolver { self =>
       if (runCheck) {
         for (expression <- assertions)
           newSolver.assertCnstr(expression)
-        val res = newSolver.check(config)
-        currentSolver = None
-        res
+        newSolver.check(config)
       } else {
-        currentSolver = None
         config.cast(SolverResponses.Unknown)
       }
     } finally {
+      synchronized { currentSolver = None }
       newSolver.free()
     }
   }
@@ -81,14 +79,12 @@ trait NonIncrementalSolver extends AbstractSolver { self =>
         // we assert the assumptions to address: https://github.com/Z3Prover/z3/issues/5257
         for (assumption <- assumptions)
           newSolver.assertCnstr(assumption)
-        val res = newSolver.checkAssumptions(config)(Set())
-        currentSolver = None
-        res
+        newSolver.checkAssumptions(config)(Set())
       } else {
-        currentSolver = None
         config.cast(SolverResponses.Unknown)
       }
     } finally {
+      synchronized { currentSolver = None }
       newSolver.free()
     }
   }
