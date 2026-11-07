@@ -17,6 +17,8 @@ trait FunctionTemplates { self: Templates =>
   import functionsManager._
   import lambdasManager._
 
+  private lazy val assumeChecked = options.findOptionOrDefault(optAssumeChecked)
+
   protected def variableSeq(tpe: Type): Seq[Variable] = {
     val free = typeOps.variablesOf(tpe)
     val vars = new scala.collection.mutable.ListBuffer[Variable]
@@ -52,10 +54,31 @@ trait FunctionTemplates { self: Templates =>
         // Register the function's return as a contract typing to enable
         // induction with refinement types
         if (ContractUnrolling `unroll` tfd.returnType) {
-          val (conds, exprs, tree, guarded, eqs, tps, equals, lambdas, quants) = clauses
+          // The return type only holds for arguments that lie in the parameter types, so
+          // it is assumed only once the arguments' membership in these types is shown.
+          // Under `optAssumeChecked`, the front-end has checked the arguments of every call, so
+          // the return type is assumed directly.
+          val (domains, domClauses) = if (assumeChecked) (Seq.empty[Expr], emptyClauses) else
+            tfd.params.foldLeft((Seq.empty[Expr], emptyClauses)) { case ((domains, domClauses), vd) =>
+              mkTypeClauses(start, vd.tpe, vd.toVariable, substMap, inDomain = true)(using MembershipGenerator) match {
+                case (BooleanLiteral(true), _) => (domains, domClauses)
+                case (p, pClauses) => (domains :+ p, domClauses +++ pClauses)
+              }
+            }
+
+          val (conds, exprs, tree, guarded, eqs, tps, equals, lambdas, quants) = clauses +++ domClauses
           val closures = typeOps.variablesOf(tfd.returnType).toSeq.sortBy(_.id).map(v => Left(substMap(v)))
-          val typing = Typing(tfd.returnType, mkCall(tfd, arguments.map(_._2)), Constraint(trueT, closures, false))
-          (conds, exprs, tree, guarded, eqs, tps `merge` Map(pathVar._2 -> Set(typing)), equals, lambdas, quants)
+          val call = mkCall(tfd, arguments.map(_._2))
+          if (domains.isEmpty) {
+            val typing = Typing(tfd.returnType, call, Constraint(trueT, closures, false))
+            (conds, exprs, tree, guarded, eqs, tps `merge` Map(pathVar._2 -> Set(typing)), equals, lambdas, quants)
+          } else {
+            val result = Variable.fresh("result", BooleanType(), true)
+            val resultT = encodeSymbol(result)
+            val typing = Typing(tfd.returnType, call, Constraint(resultT, closures, false))
+            (conds, exprs + (result -> resultT), tree, guarded `merge` (start -> Implies(andJoin(domains), result)),
+              eqs, tps `merge` Map(pathVar._2 -> Set(typing)), equals, lambdas, quants)
+          }
         } else {
           clauses
         }
