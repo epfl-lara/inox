@@ -1,0 +1,9 @@
+; There are exactly four functions from Bool to Bool, so four pairwise distinct ones exist
+(set-option :function-equality extensional)
+(set-info :status sat)
+(declare-const f1 (-> Bool Bool))
+(declare-const f2 (-> Bool Bool))
+(declare-const f3 (-> Bool Bool))
+(declare-const f4 (-> Bool Bool))
+(assert (distinct f1 f2 f3 f4))
+(check-sat)

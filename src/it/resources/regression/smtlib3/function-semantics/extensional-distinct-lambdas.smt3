@@ -1,0 +1,10 @@
+; Under extensional equality, lambdas that differ on an input are distinct
+(set-option :function-equality extensional)
+(set-info :status unsat)
+(push 1)
+(assert (= (lambda ((x Int)) (+ x 1)) (lambda ((x Int)) (- x 1))))
+(check-sat)
+(pop 1)
+(set-info :status sat)
+(assert (not (= (lambda ((x Int)) (+ x 1)) (lambda ((x Int)) (- x 1)))))
+(check-sat)

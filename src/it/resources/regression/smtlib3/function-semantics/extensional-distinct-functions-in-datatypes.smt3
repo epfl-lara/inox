@@ -1,0 +1,9 @@
+; Distinct datatype values whose only fields are functions hold distinct functions
+(set-option :function-equality extensional)
+(set-info :status sat)
+(declare-datatype Box ((box (fn (-> Int Int)))))
+(declare-const b1 Box)
+(declare-const b2 Box)
+(assert (not (= b1 b2)))
+(assert (= (@ (fn b1) 0) (@ (fn b2) 0)))
+(check-sat)

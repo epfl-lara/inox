@@ -1,0 +1,10 @@
+; Two distinct functions on a type with a single value must differ on it
+(set-option :function-equality extensional)
+(set-info :status unsat)
+(declare-datatype U ((u)))
+(declare-const f (-> U Int))
+(declare-const g (-> U Int))
+(assert (not (= f g)))
+(assert (= (f u) 0))
+(assert (= (g u) 0))
+(check-sat)

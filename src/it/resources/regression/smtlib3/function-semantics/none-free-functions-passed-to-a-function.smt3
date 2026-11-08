@@ -1,0 +1,14 @@
+; f, g and h are only told apart through k, so the model needs their distinguishing inputs
+; although the query never compares them
+(set-option :function-equality none)
+(set-info :status sat)
+(declare-const k (-> (-> Int Int) Int))
+(declare-const f (-> Int Int))
+(declare-const g (-> Int Int))
+(declare-const h (-> Int Int))
+(push 1)
+(assert (not (= (k f) (k g))))
+(check-sat)
+(pop 1)
+(assert (distinct (k f) (k g) (k h)))
+(check-sat)

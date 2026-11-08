@@ -1,0 +1,11 @@
+; Five pairwise distinct functions from Bool to Bool only exist intensionally
+(set-option :function-equality intensional)
+(set-info :status sat)
+(set-info :inox-may-be-unknown true)
+(declare-const f1 (-> Bool Bool))
+(declare-const f2 (-> Bool Bool))
+(declare-const f3 (-> Bool Bool))
+(declare-const f4 (-> Bool Bool))
+(declare-const f5 (-> Bool Bool))
+(assert (distinct f1 f2 f3 f4 f5))
+(check-sat)

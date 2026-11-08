@@ -1,0 +1,21 @@
+; Under intensional equality, distinct functions needn't have a distinguishing input
+(set-option :function-equality intensional)
+(set-info :status sat)
+(declare-const f (-> Int Int))
+(declare-const g (-> Int Int))
+(push 1)
+(assert (not (= f (lambda ((x Int)) x))))
+(assert (= f (lambda ((x Int)) (ite (= x 0) 0 x))))
+(check-sat)
+(pop 1)
+; f closes over g, so they are distinct, although no distinguishing input can exist
+(push 1)
+(assert (= f (lambda ((x Int)) (g x))))
+(check-sat)
+(pop 1)
+; model extraction can't build two closures with the same results for free functions, so the
+; answer may be unknown, but it mustn't be unsat
+(set-info :inox-may-be-unknown true)
+(assert (not (= f g)))
+(assert (forall ((x Int)) (= (f x) (g x))))
+(check-sat)
