@@ -24,7 +24,17 @@ class IncrementalSolverSuite extends SolverTestSuite {
     Seq("x" :: IntegerType()), IntegerType(), { case Seq(x) => x + IntegerLiteral(1) })
   }
 
-  override protected def symbols: Symbols = NoSymbols.withFunctions(Seq(inc))
+  val boxID = FreshIdentifier("Box")
+  val boxCons = FreshIdentifier("Box")
+  val boxSort = mkSort(boxID)() { _ => Seq((boxCons, Seq(ValDef(FreshIdentifier("v"), IntegerType())))) }
+
+  // unbox(b) = b.v + 0, so that the unrolling solver unfolds its calls
+  val unboxID = FreshIdentifier("unbox")
+  val unbox = mkFunDef(unboxID)() { _ => (
+    Seq("b" :: T(boxID)()), IntegerType(), { case Seq(b) => b.getField(boxSort.constructors.head.fields.head.id) + E(BigInt(0)) })
+  }
+
+  override protected def symbols: Symbols = NoSymbols.withFunctions(Seq(inc, unbox)).withSorts(Seq(boxSort))
   given Symbols = symbols
 
   def withSolver(ctx: Context)(body: Solver { val program: InoxProgram } => Unit): Unit = {
@@ -74,6 +84,24 @@ class IncrementalSolverSuite extends SolverTestSuite {
       s.pop()
       s.assertCnstr(Equals(inc(inc(y)), IntegerLiteral(7)))
       assert(valueOf(s, y) == Some(IntegerLiteral(5)))
+    }
+  }
+
+  // The unrolling templates are encoded once and reused, so the symbols they refer to (declared
+  // while a scope was open) must remain valid after the scope is popped.
+  test("Datatypes and lambdas across push and pop", Feature.Integers, Feature.ADTs, Feature.Functions) { ctx =>
+    withSolver(ctx) { s =>
+      val y = Variable.fresh("y", IntegerType())
+      val f = Variable.fresh("f", IntegerType() =>: IntegerType())
+      val box = (v: Expr) => ADT(boxCons, Seq(), Seq(v))
+      val succ = \("a" :: IntegerType())(a => a + E(BigInt(1)))
+      s.push()
+      s.assertCnstr(Equals(unbox(box(Application(succ, Seq(y)))), E(BigInt(5))))
+      assert(valueOf(s, y) == Some(IntegerLiteral(4)))
+      s.pop()
+      s.assertCnstr(Equals(f, succ))
+      s.assertCnstr(Equals(unbox(box(Application(f, Seq(y)))), E(BigInt(7))))
+      assert(valueOf(s, y) == Some(IntegerLiteral(6)))
     }
   }
 

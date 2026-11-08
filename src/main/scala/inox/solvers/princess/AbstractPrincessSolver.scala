@@ -23,7 +23,7 @@ import ap.types.UninterpretedSortTheory
 import utils._
 import SolverResponses._
 
-import scala.collection.mutable.{Map => MutableMap}
+import scala.collection.mutable.{ListBuffer, Map => MutableMap}
 
 abstract class AbstractPrincessSolver(override val program: Program,
                                       override val context: Context)
@@ -218,14 +218,14 @@ abstract class AbstractPrincessSolver(override val program: Program,
       val res: ITerm = expr match {
         case FunctionInvocation(id, tps, args) =>
           val f = functions.cachedB(getFunction(id, tps.map(_.getType))) {
-            p.createFunction(id.uniqueName, args.size)
+            declared(p.createFunction(id.uniqueName, args.size))(p.addFunction(_))
           }
           val pArgs = for (a <- args) yield parseTerm(a)
           IFunApp(f, pArgs)
 
         case Application(caller, args) =>
           val f = lambdas.cachedB(caller.getType.asInstanceOf[FunctionType]) {
-            p.createFunction(FreshIdentifier("dynLambda").uniqueName, args.size + 1)
+            declared(p.createFunction(FreshIdentifier("dynLambda").uniqueName, args.size + 1))(p.addFunction(_))
           }
           val pArgs = for (a <- caller +: args) yield parseTerm(a)
           IFunApp(f, pArgs)
@@ -612,8 +612,8 @@ abstract class AbstractPrincessSolver(override val program: Program,
   def declareVariable(v: Variable): IExpression = variables.cachedB(v)(freshSymbol(v))
 
   def freshSymbol(v: Variable): IExpression = v.getType match {
-    case BooleanType() => p.createBooleanVariable(v.id.freshen.uniqueName)
-    case tpe => p.createConstant(v.id.freshen.uniqueName, typeToSort(tpe))
+    case BooleanType() => declared(p.createBooleanVariable(v.id.freshen.uniqueName))(p.addBooleanVariable(_))
+    case tpe => declared(p.createConstant(v.id.freshen.uniqueName, typeToSort(tpe)))(p.addConstant(_))
   }
 
   def assertCnstr(formula: Trees): Unit = p !! formula.asInstanceOf[IFormula]
@@ -673,33 +673,26 @@ abstract class AbstractPrincessSolver(override val program: Program,
     p.shutDown
   }
 
+  // Princess forgets the symbols declared in a scope when the scope is popped, but the
+  // unrolling templates are encoded once and reused across pops. The symbols therefore stay
+  // in the maps above and are declared again after each pop of the scope that declared them.
+  private var scopes: List[ListBuffer[() => Unit]] = Nil
+
+  private def declared[T](symbol: T)(redeclare: T => Unit): T = {
+    for (scope <- scopes.headOption) scope += (() => redeclare(symbol))
+    symbol
+  }
+
   override def pop() = {
-    adtManager.pop()
-    variables.pop()
-    functions.pop()
-    lambdas.pop()
-
-    constructors.pop()
-    selectors.pop()
-    testers.pop()
-
-    sorts.pop()
-
+    val popped = scopes.head
+    scopes = scopes.tail
     p.pop()
+    for (redeclare <- popped) redeclare()
+    for (scope <- scopes.headOption) scope ++= popped
   }
 
   override def push() = {
-    adtManager.push()
-    variables.push()
-    functions.push()
-    lambdas.push()
-
-    constructors.push()
-    selectors.push()
-    testers.push()
-
-    sorts.push()
-
+    scopes = ListBuffer.empty[() => Unit] :: scopes
     p.push()
   }
 
@@ -715,6 +708,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
     sorts.clear()
 
+    scopes = Nil
     p.reset
     interruptCheckSat.set(false)
   }
