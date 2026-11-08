@@ -291,9 +291,47 @@ trait Expressions { self: Trees =>
     def getTpe(stripRefinements: Boolean)(using Symbols): Type = BooleanType()
   }
 
-  /** $encodingof a string literal */
-  sealed case class StringLiteral(value: String) extends Literal[String] {
+  /** $encodingof a string literal
+    *
+    * As in SMT-LIB, a string is a sequence of characters that are Unicode code points, from 0 to
+    * [[StringLiteral.MaxCodePoint]] (0x2FFFF). The solvers can be restricted to the BMP with `--strings-bmp`.
+    *
+    * A literal built from a Java string has a character for each of its UTF-16 code units, as on the JVM:
+    * `StringLiteral("😀")` is the two characters 0xD83D and 0xDE00, unlike
+    * `StringLiteral.fromUTF8("😀".getBytes(UTF_8))`, which is the single character 0x1F600. For compatibility with
+    * literals that held Java strings, the pattern `StringLiteral(s)` matches the Java string of the
+    * characters: match the literal by type and use `value` for the characters.
+    */
+  sealed case class StringLiteral(value: Seq[Int]) extends Literal[Seq[Int]] {
     def getTpe(stripRefinements: Boolean)(using Symbols): Type = StringType()
+
+    /** The Java string of these characters. Characters outside of the BMP become surrogate pairs, so the
+      * result is only read back to the same characters from its code points, with [[StringLiteral.fromUTF8]] for example.
+      */
+    def toJavaString: String = {
+      val sb = new java.lang.StringBuilder
+      value.foreach(sb.appendCodePoint)
+      sb.toString
+    }
+  }
+
+  object StringLiteral {
+    /** The largest character of SMT-LIB strings. */
+    val MaxCodePoint: Int = 0x2FFFF
+
+    /** The literal with a character for each UTF-16 code unit of `s`, as on the JVM. */
+    def apply(s: String): StringLiteral = StringLiteral(s.map(_.toInt))
+
+    /** The literal of the code points that the UTF-8 bytes `bytes` encode. Malformed sequences are
+      * replaced by U+FFFD, as by `new String(bytes, UTF_8)`.
+      */
+    def fromUTF8(bytes: Array[Byte]): StringLiteral =
+      StringLiteral(new String(bytes, java.nio.charset.StandardCharsets.UTF_8).codePoints.toArray.toSeq)
+
+    /** Matches a literal as the Java string of its characters (see [[StringLiteral.toJavaString]]), as
+      * when literals held Java strings. Match the literal by type and use `value` for its characters.
+      */
+    def unapply(s: StringLiteral): Some[String] = Some(s.toJavaString)
   }
 
   /** $encodingof the unit literal `()` */

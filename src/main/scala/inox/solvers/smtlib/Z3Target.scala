@@ -64,10 +64,11 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   // so make sure it is enabled at this point.
   emit(SetOption(ProduceUnsatAssumptions(true)))
 
-  // Inox characters are UTF-16 code units, so restrict the string alphabet to the BMP
-  // (the default `unicode` encoding ranges up to 0x2FFFF). Older versions of Z3 don't
-  // know the option, so we ignore errors here.
-  emit(SetOption(AttributeOption(Attribute(SKeyword("encoding"), Some(SSymbol("bmp"))))), rawOut = true)
+  // Under `--strings-bmp`, restrict the string alphabet to the BMP (the default `unicode` encoding
+  // ranges up to 0x2FFFF, as SMT-LIB). Older versions of Z3 don't know the option, so we ignore
+  // errors here.
+  if (maxStringChar == 0xFFFF)
+    emit(SetOption(AttributeOption(Attribute(SKeyword("encoding"), Some(SSymbol("bmp"))))), rawOut = true)
 
 
   protected class Version(val major: Int, val minor: Int, rest: String) extends Ordered[Version] {
@@ -159,12 +160,13 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("seq.unit")), None), Seq(SHexadecimal(hex))), _) =>
       StringLiteral(utils.StringUtils.decode(hex.repr))
 
-    case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("seq.unit")), None), args), Some(StringType())) =>
-      StringLiteral(args.map(fromSMT(_, Some(CharType())).asInstanceOf[CharLiteral].value).mkString)
+    case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("seq.unit")), None),
+        Seq(QualifiedIdentifier(SMTIdentifier(SSymbol("Char"), Seq(SNumeral(n))), None))), Some(StringType())) =>
+      StringLiteral(Seq(n.toInt))
 
     case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("str.++")), None), strs), _) =>
       val strings = strs.map(fromSMT(_, Some(StringType())))
-      if (strings.isEmpty) StringLiteral("")
+      if (strings.isEmpty) StringLiteral(Seq())
       else strings.tail.foldRight(strings.head)(StringConcat(_, _))
 
     case (QualifiedIdentifier(SMTIdentifier(SSymbol("Char"), Seq(SNumeral(n))), None), Some(CharType())) =>

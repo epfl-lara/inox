@@ -410,20 +410,21 @@ abstract class RecursiveEvaluator(override val program: Program,
   protected def eStrings(expr: Expr)(using rctx: RC, gctx: GC): Expr = expr match {
     case StringConcat(l, r) =>
       (e(l), e(r)) match {
-        case (StringLiteral(i1), StringLiteral(i2)) => StringLiteral(i1 + i2)
+        case (i1: StringLiteral, i2: StringLiteral) => StringLiteral(i1.value ++ i2.value)
         case (le,re) => throw EvalError(typeErrorMsg(le, StringType()))
       }
 
     case StringLength(a) => e(a) match {
-      case StringLiteral(a) => IntegerLiteral(a.length)
+      case a: StringLiteral => IntegerLiteral(a.value.length)
       case res => throw EvalError(typeErrorMsg(res, Int32Type()))
     }
 
     case SubString(a, start, end) => (e(a), e(start), e(end)) match {
       // Like SMT-LIB's str.substr, out of bounds indices give an empty or truncated string
-      case (StringLiteral(a), IntegerLiteral(b), IntegerLiteral(c))  =>
-        if (b < 0 || b >= a.length || c <= b) StringLiteral("")
-        else StringLiteral(a.substring(b.toInt, (c min a.length).toInt))
+      case (s: StringLiteral, IntegerLiteral(b), IntegerLiteral(c))  =>
+        val a = s.value
+        if (b < 0 || b >= a.length || c <= b) StringLiteral(Seq())
+        else StringLiteral(a.slice(b.toInt, (c min a.length).toInt))
       case res => throw EvalError(typeErrorMsg(res._1, StringType()))
     }
 

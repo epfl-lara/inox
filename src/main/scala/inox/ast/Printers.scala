@@ -200,7 +200,8 @@ trait Printer {
       case CharLiteral(v) => p"'${StringEscapeUtils.escapeJava(v.toString)}'"
       case BooleanLiteral(v) => p"$v"
       case UnitLiteral() => p"()"
-      case StringLiteral(v) =>
+      case sl: StringLiteral =>
+        val v = sl.toJavaString
         if (v.count(c => c == '\n') >= 1 && v.length >= 80 && v.indexOf("\"\"\"") == -1) {
           p"$dbquote$dbquote$dbquote$v$dbquote$dbquote$dbquote"
         } else {

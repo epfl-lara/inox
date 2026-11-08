@@ -575,10 +575,14 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   }
 
   // FIXME: replace by Seq(BV(16)) once solvers can handle them
+  /** The largest character of strings (see [[optStringsBMP]]). */
+  protected lazy val maxStringChar: Int = solvers.maxStringChar(options)
+
   protected def toSMTStrings(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
-    case StringLiteral(v) =>
+    case s: StringLiteral =>
+      if (s.value.exists(_ > maxStringChar)) unsupported(e, "string with characters outside of the alphabet (see --strings-bmp)")
       declareSort(StringType())
-      Strings.StringLit(utils.StringUtils.encode(v))
+      Strings.StringLit(utils.StringUtils.encode(s.value))
 
     case StringLength(a) => Strings.Length(toSMT(a))
     case StringConcat(a, b) => Strings.Concat(toSMT(a), toSMT(b))
@@ -664,12 +668,13 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           value.bigDecimal.movePointRight(value.scale).toBigInteger.negate,
           BigInt(10).pow(value.scale)))
 
-      // Characters outside of the BMP don't correspond to any Inox character. They can only
-      // appear in models of solvers whose alphabet can't be restricted to the BMP (CVC4).
+      // Under `--strings-bmp`, characters outside of the BMP can only appear in models of solvers whose
+      // alphabet can't be restricted to the BMP (CVC4).
       case (SString(v), _) =>
-        utils.StringUtils.decodeBMP(v).map(StringLiteral(_)).getOrElse {
-          throw new Unsupported(s"Can't decode string \"$v\" with characters outside of the BMP")
-        }
+        val cps = utils.StringUtils.decode(v)
+        if (cps.exists(_ > maxStringChar))
+          throw new Unsupported(s"Can't decode string \"$v\" with characters outside of the alphabet (see --strings-bmp)")
+        StringLiteral(cps)
 
       case (Num(n), Some(ft: FunctionType)) if context.seen(n -> ft) =>
         context.chooses.getOrElse(n -> ft, {
