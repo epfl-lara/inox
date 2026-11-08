@@ -1,0 +1,9 @@
+; Equal functions agree on every input
+(set-option :function-equality extensional)
+(set-info :status unsat)
+(declare-const f (-> Int Int))
+(declare-const g (-> Int Int))
+(declare-const x Int)
+(assert (= f g))
+(assert (not (= (f x) (g x))))
+(check-sat)

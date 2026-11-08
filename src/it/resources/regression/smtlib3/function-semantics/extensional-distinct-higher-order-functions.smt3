@@ -1,0 +1,13 @@
+; Distinct functions on functions are told apart by a function, which has distinguishing inputs too
+(set-option :function-equality extensional)
+(set-info :status sat)
+(declare-const f (-> (-> Int Int) Int))
+(declare-const g (-> (-> Int Int) Int))
+(push 1)
+(assert (not (= f g)))
+(check-sat)
+(pop 1)
+(declare-const c (-> Int (-> Int Int)))
+(declare-const d (-> Int (-> Int Int)))
+(assert (not (= c d)))
+(check-sat)

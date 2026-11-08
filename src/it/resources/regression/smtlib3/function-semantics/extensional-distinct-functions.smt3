@@ -1,0 +1,17 @@
+; Under extensional equality, distinct functions have a distinguishing input in every model
+(set-option :function-equality extensional)
+(set-info :status sat)
+(declare-const f (-> Int Int))
+(declare-const g (-> Int Int))
+(push 1)
+(assert (not (= f g)))
+(check-sat)
+(pop 1)
+; they must then differ elsewhere than on 0
+(push 1)
+(assert (not (= f g)))
+(assert (= (f 0) (g 0)))
+(check-sat)
+(pop 1)
+(assert (not (= f (lambda ((x Int)) (+ x 1)))))
+(check-sat)
