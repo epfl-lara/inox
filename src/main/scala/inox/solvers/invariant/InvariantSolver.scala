@@ -777,13 +777,8 @@ abstract class AbstractInvariantSolver(override val program: Program,
 
           clauses += topClause
 
-          // do we ever expect these to be non-empty? Don't think so
-          // your assertions should not come with assume statements inside them
-          assert(assertions.isEmpty)
-
-          // assertions.foreach: conds => // SHOULD be empty though? FIXME: ?
-          //   clauses += (BooleanLiteral(false) :- conds)
-
+          // The assumptions of the checked formula restrict its models, so their conditions
+          // are guards of the top clause (in `guards`) rather than goals (in `assertions`)
           clauses
       }
       .map(Context.insertGuards)
@@ -821,7 +816,9 @@ abstract class AbstractInvariantSolver(override val program: Program,
   private def checkAssumptions_(config: Configuration)(assumptions: Set[Source]): config.Response[Model, Assumptions] = 
 
     // send constraints to solver
-    val totalAssumptions = assumptions ++ constraints
+    // The constraints must hold together, so they are encoded as a single goal (each goal of
+    // the Horn system is unsatisfiable when it holds, so separate goals form a disjunction)
+    val totalAssumptions = Set(s.andJoin((assumptions ++ constraints).toSeq))
 
     // Horn encode assumptions
     val assumptionClauses = encodeAssumptions(totalAssumptions)
@@ -829,14 +826,19 @@ abstract class AbstractInvariantSolver(override val program: Program,
     // find and encode all function calls (recursively)
     val definitionClauses = encodeFunctionsForAssumptions(totalAssumptions)
     
-    // declare variables
-    predicates.foreach(underlyingHorn.registerPredicate)
+    // The clauses are sent again at each check, so the underlying solver is reset afterwards for
+    // those of earlier checks (and of popped constraints) not to remain asserted. Horn solvers
+    // don't necessarily support push and pop (Z3 then returns unknown).
+    val underlyingResult =
+      try
+        // declare variables
+        predicates.foreach(underlyingHorn.registerPredicate)
 
+        (assumptionClauses ++ definitionClauses).foreach(underlyingHorn.assertCnstr)
 
-    (assumptionClauses ++ definitionClauses).foreach(underlyingHorn.assertCnstr)
-    
-    // check satisfiability
-    val underlyingResult = underlyingHorn.checkAssumptions(config)(Set.empty)
+        // check satisfiability
+        underlyingHorn.checkAssumptions(config)(Set.empty)
+      finally underlyingHorn.reset()
 
     // interpret result
     val res = 
