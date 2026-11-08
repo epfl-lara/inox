@@ -34,6 +34,9 @@ trait SolvingEvaluator extends Evaluator { self =>
     options.findOptionOrDefault(optForallCache)
   }
 
+  private def hasRefinement(tpe: Type): Boolean =
+    typeOps.exists { case _: RefinementType => true case _ => false } (tpe)
+
   def onChooseInvocation(choose: Choose): Expr = {
     if (!evalQuantifiers) {
       throw new RuntimeException(s"Evaluation of 'choose' expressions disabled @ ${choose.getPos}: $choose")
@@ -43,32 +46,46 @@ trait SolvingEvaluator extends Evaluator { self =>
       import scala.language.existentials
       import SolverResponses._
 
-      val satRes = context.timers.evaluators.specs.run {
-        val sf = semantics.getSolver
-        val solver = sf.getNewSolver()
-        try {
-          // Declaring the result makes the solver respect its type even when the
-          // predicate doesn't mention it, as with `choose((x: { v: BigInt | v > 5 }) => true)`.
-          solver.declare(choose.res)
-          solver.assertCnstr(choose.pred)
-          solver.check(Model)
-        } finally {
-          sf.reclaim(solver)
+      // Solves the choose's predicate. Declaring the result makes the solver respect its type
+      // even when the predicate doesn't mention it, as with `choose((x: { v: BigInt | v > 5 }) => true)`,
+      // but it also makes the solver look for a value of that type, which may never end: in Stainless's
+      // ForestNothing2, the result's type is an ADT whose invariant only holds for infinite values.
+      // So we only declare the result when its type has a refinement and no simple value.
+      def solve(declareResult: Boolean): Option[Expr] = {
+        val satRes = context.timers.evaluators.specs.run {
+          val sf = semantics.getSolver
+          val solver = sf.getNewSolver()
+          try {
+            if (declareResult) solver.declare(choose.res)
+            solver.assertCnstr(choose.pred)
+            solver.check(Model)
+          } finally {
+            sf.reclaim(solver)
+          }
+        }
+
+        satRes match {
+          case SatWithModel(model) =>
+            if (model.chooses.nonEmpty && checkModels) {
+              throw new RuntimeException("Cannot guarantee model for dependent choose " + choose.asString)
+            }
+            model.vars.get(choose.res)
+
+          case _ =>
+            throw new RuntimeException("Failed to evaluate choose " + choose.asString)
         }
       }
 
-      val res = satRes match {
-        case SatWithModel(model) =>
-          if (model.chooses.nonEmpty && checkModels) {
-            throw new RuntimeException("Cannot guarantee model for dependent choose " + choose.asString)
-          } else try {
-            model.vars.getOrElse(choose.res, simplestValue(choose.res.tpe, allowSolver = false))
-          } catch {
-            case _: NoSimpleValue => throw new RuntimeException("No simple value for choose " + choose.asString)
+      val res = solve(declareResult = false).getOrElse {
+        try {
+          simplestValue(choose.res.tpe, allowSolver = false)
+        } catch {
+          case _: NoSimpleValue if hasRefinement(choose.res.tpe) => solve(declareResult = true).getOrElse {
+            throw new RuntimeException("No simple value for choose " + choose.asString)
           }
-
-        case _ =>
-          throw new RuntimeException("Failed to evaluate choose " + choose.asString)
+          case _: NoSimpleValue =>
+            throw new RuntimeException("No simple value for choose " + choose.asString)
+        }
       }
 
       chooseCache(choose) = res
