@@ -106,31 +106,12 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
   private[z3] val sorts = new IncrementalMap[Type, Z3Sort]()
 
-  def push(): Unit = {
-    adtManager.push()
-    functions.push()
-    lambdas.push()
-    variables.push()
+  // Z3 declarations belong to the context rather than to the solver's scopes, so they stay
+  // valid after a pop. Keeping them lets the unrolling templates, which are encoded once
+  // and reused across pops, refer to the same declarations as the formulas asserted later.
+  def push(): Unit = ()
 
-    constructors.push()
-    selectors.push()
-    testers.push()
-
-    sorts.push()
-  }
-
-  def pop(): Unit = {
-    adtManager.pop()
-    functions.pop()
-    lambdas.pop()
-    variables.pop()
-
-    constructors.pop()
-    selectors.pop()
-    testers.pop()
-
-    sorts.pop()
-  }
+  def pop(): Unit = ()
 
   def reset(): Unit = {
     throw new CantResetException(this)
