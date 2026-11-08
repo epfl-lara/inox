@@ -24,6 +24,9 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v7
+      with:
+        # The whole history, to find the Stainless skip lines of the pull request.
+        fetch-depth: 0
     - name: Download the pull request's coverage
       id: head
       continue-on-error: true
@@ -66,6 +69,29 @@ jobs:
           fi
         fi
         true
+    # The Stainless downstream CI can skip some or all of its tests because of
+    # `Stainless: skip` lines in Inox commits, including commits on main that
+    # the pull request didn't touch (see .github/scripts/stainless-skip.sh).
+    # The comment warns about them, so that a green downstream run that tested
+    # nothing doesn't go unnoticed. This runs the script of the default branch
+    # on the pull request's commits, which it only reads.
+    - name: Find the Stainless tests that the downstream CI skips
+      if: steps.head.outcome == 'success'
+      continue-on-error: true
+      run: |
+        pr=$(cat head/pr-number)
+        [[ "$pr" =~ ^[0-9]+$ ]] || { echo "Invalid pull request number"; exit 1; }
+        git fetch -q origin "refs/pull/$pr/head"
+        [ "$(git rev-parse FETCH_HEAD)" = "$HEAD_SHA" ] || { echo "Pull request #$pr has moved on from $HEAD_SHA"; exit 0; }
+        # The build tested the pull request merged into main at base-sha.
+        base_sha=$(cat head/base-sha 2>/dev/null || true)
+        if [[ "$base_sha" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "$base_sha^{commit}"; then
+          base="$base_sha"
+        else
+          base=$(git rev-parse HEAD)
+        fi
+        INOX_REVS="$HEAD_SHA $base" INOX_BASE="$base" SKIP_REPORT=skip.md GITHUB_OUTPUT=/dev/null \
+          .github/scripts/stainless-skip.sh
     - name: Post or update the comment
       if: steps.head.outcome == 'success'
       run: |
@@ -75,8 +101,14 @@ jobs:
         [ "$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)" = "$HEAD_SHA" ] \
           || { echo "Pull request #$pr has moved on from $HEAD_SHA"; exit 0; }
         base=$( [ -f base/coverage.json ] && echo base/coverage.json || true )
-        python3 scripts/coverage_summary.py compare head/coverage.json $base > comment.md
-        [ -s notes.md ] && { echo; sed G notes.md; } >> comment.md
+        python3 scripts/coverage_summary.py compare head/coverage.json $base > coverage.md
+        # The Stainless skip warning goes first, under the comment's marker line.
+        {
+          head -n 1 coverage.md
+          if [ -s skip.md ]; then echo; cat skip.md; echo; fi
+          tail -n +2 coverage.md
+          if [ -s notes.md ]; then echo; sed G notes.md; fi
+        } > comment.md
         id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$pr/comments" --paginate \
                --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- inox-coverage -->"))) | .id' | head -n 1)
         if [ -n "$id" ]; then

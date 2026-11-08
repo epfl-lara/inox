@@ -45,7 +45,15 @@ jobs:
         fetch-depth: 0
     - name: Find the Stainless skip lines that Stainless hasn't picked up
       id: check
-      run: .github/scripts/stainless-skip.sh
+      # The job summary lists the skipped tests and the commits that skip them.
+      # A pull request build checks out the merge of the pull request into
+      # main, so the summary can tell the commits of the pull request apart.
+      run: |
+        if [ "$IGNORE_SKIP" != true ]; then export SKIP_REPORT="$GITHUB_STEP_SUMMARY"; fi
+        .github/scripts/stainless-skip.sh
+      env:
+        IGNORE_SKIP: ${{ inputs.ignore_skip }}
+        INOX_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
 
   tests:
     needs: check-skip
