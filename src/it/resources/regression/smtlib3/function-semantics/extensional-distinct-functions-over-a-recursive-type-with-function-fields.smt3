@@ -1,0 +1,10 @@
+; The witnesses of type Obj contain functions with witnesses of their own, so extracted values
+; can be cyclic, and the model may be rejected (see the limitations in function-witnesses.md)
+(set-option :function-equality extensional)
+(set-info :status sat)
+(set-info :inox-may-be-unknown true)
+(declare-datatypes ((Obj 0)) (((Fun (objFn (-> Obj Obj))) (Num (objNum Int)))))
+(declare-const f (-> Obj Obj))
+(declare-const g (-> Obj Obj))
+(assert (not (= f g)))
+(check-sat)

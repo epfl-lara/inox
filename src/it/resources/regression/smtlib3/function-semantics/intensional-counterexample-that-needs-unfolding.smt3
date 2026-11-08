@@ -1,0 +1,12 @@
+; f closes over g, so they are distinct without a distinguishing input, and the list constraint
+; keeps the solver unrolling
+(set-option :function-equality intensional)
+(set-info :status sat)
+(declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
+(define-fun-rec size ((l (List Int))) Int (ite ((_ is Cons) l) (+ 1 (size (tail l))) 0))
+(declare-const f (-> Int Int))
+(declare-const g (-> Int Int))
+(declare-const l (List Int))
+(assert (= f (lambda ((x Int)) (g x))))
+(assert (> (size l) 3))
+(check-sat)
