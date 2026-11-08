@@ -1,3 +1,6 @@
+; compares functions, which needs the intensional semantics of function equality
+(set-option :function-equality intensional)
+
 (define-type PosInt () (! Int :var y :restrict (> y 0)))
 ; (a: {y | y > 0}) => {r: BigInt | r > a}
 (define-type PosIncr () (-> (! PosInt :var a) (! Int :var r :restrict (> r a))))
