@@ -57,9 +57,11 @@ class SolvingEvaluatorSuite extends AnyFunSuite {
     assert(!evaluate(Choose(res, pred)).isInstanceOf[EvaluationResults.Successful[?]])
   }
 
-  test("choose with an unconstrained result picks some value") {
+  test("choose with an unconstrained result picks its simplest value") {
+    // The solver doesn't look for a value of the result's type, which may never end for an ADT
+    // whose invariant only holds for infinite values (see Stainless's ForestNothing2).
     val res = "res" :: IntegerType()
-    assert(value(Choose(res, BooleanLiteral(true))).isInstanceOf[IntegerLiteral])
+    assert(value(Choose(res, BooleanLiteral(true))) == IntegerLiteral(0))
   }
 
   test("quantifiers are not evaluated when disabled") {
