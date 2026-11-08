@@ -1,0 +1,13 @@
+; The distinguishing input of nullary functions is the empty argument list
+(set-option :function-equality extensional)
+(set-info :status sat)
+(declare-const f (-> Int))
+(declare-const g (-> Int))
+(push 1)
+(assert (not (= f g)))
+(check-sat)
+(pop 1)
+(set-info :status unsat)
+(assert (not (= f g)))
+(assert (= (@ f) (@ g)))
+(check-sat)
