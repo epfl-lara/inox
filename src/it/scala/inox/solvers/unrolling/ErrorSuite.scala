@@ -61,7 +61,9 @@ class ErrorSuite extends UnrollingTestSuite {
     assert(SimpleSolverAPI(program.getSolver).solveSAT(clause).isUNSAT)
   }
 
-  test("errors in lambdas are only reached when applied") {
+  test("errors in lambdas are only reached when applied") { ctx ?=>
+    // compares functions, which needs the intensional semantics of function equality
+    given Context = ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))
     val f = Variable.fresh("f", FunctionType(Seq(IntegerType()), IntegerType()))
     val y = ValDef.fresh("y", IntegerType())
     val lambda = Lambda(Seq(y), IfExpr(y.toVariable > E(BigInt(0)), y.toVariable, Error(IntegerType(), "non-positive")))

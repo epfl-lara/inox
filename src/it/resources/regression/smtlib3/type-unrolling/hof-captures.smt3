@@ -1,3 +1,6 @@
+; compares functions, which needs the intensional semantics of function equality
+(set-option :function-equality intensional)
+
 (declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
 (declare-datatype FunBox ((funBox (fn (-> Int Int)))))
 

@@ -1,3 +1,6 @@
+; compares functions, which needs the intensional semantics of function equality
+(set-option :function-equality intensional)
+
 ; The type of a free function is only assumed at its applications, so its equality to a lambda
 ; outside of the type isn't refuted. The model is rejected instead (see the known issue).
 

@@ -63,6 +63,9 @@ class SMTLIB3PrintingSuite extends AnyFunSuite with ResourceUtils {
   // The printed benchmarks keep their status (except for those that need specific options, see TipTestSuite)
   private val skipped = Set("ForallAssoc.scala-0.tip", "LambdaEquality2.scala-1.tip", "QuickSortFilter.scala-1.tip")
 
+  // These compare functions, which needs the intensional semantics of function equality (as in TipTestSuite)
+  private val comparing = Set("Injective.scala-0.tip", "LambdaEquality2.scala-1.tip", "Streams.scala-0.tip", "inline-lambdas.scala-0.tip")
+
   for ((cat, file) <- filesWithCat if (cat == "SAT" || cat == "UNSAT") && !skipped(file.getName)) {
     test(s"Solving file $cat/${file.getName} printed in SMT-LIB 3") {
       val solver =
@@ -72,7 +75,7 @@ class SMTLIB3PrintingSuite extends AnyFunSuite with ResourceUtils {
       val solverCtx = TestContext(Options(Seq(
         optSelectedSolvers(Set(solver)),
         solvers.optCheckModels(true),
-      )))
+      ) ++ (if (comparing(file.getName)) Seq(solvers.unrolling.optFunctionEquality(solvers.unrolling.FunctionEquality.Intensional)) else Seq())))
       for ((program, expr) <- tip.Parser(file).parseScript) {
         val (newProgram, newExpr, script) = reparse(program, expr)
         val res = solvers.SimpleSolverAPI(newProgram.getSolver(solverCtx)).solveSAT(newExpr)
