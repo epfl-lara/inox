@@ -410,11 +410,8 @@ trait SymbolOps extends TypeOps { self =>
         (tvs & allBoundVars).isEmpty && (unconditional || (pathFreeVars & allBoundVars).isEmpty)
       }
 
-      def containsChoose(e: Expr): Boolean = exists {
-        case _: Choose | _: Error => true
-        case fi: FunctionInvocation => fi.tfd.fd.flags contains ModelFunction
-        case _ => false
-      } (e)
+      def containsChoose(e: Expr): Boolean =
+        exists { case _: Choose | _: Error => true case _ => false } (e)
 
       def containsRecursive(e: Expr): Boolean =
         exists { case fi: FunctionInvocation => fi.tfd.fd.isRecursive case _ => false } (e)
@@ -424,7 +421,7 @@ trait SymbolOps extends TypeOps { self =>
           // The set of minimal conditions that must be met for an expression to be liftable
           val minimal =
             (isSimple(e) || !onlySimple)           && // check whether we want only simple expression
-            !containsChoose(e)                     && // expressions containing chooses, errors or model calls can't be lifted
+            !containsChoose(e)                     && // expressions containing chooses or errors can't be lifted
             (!inFunction || !containsRecursive(e))    // recursive functions can't be lifted from lambdas
 
           // Whether the expression is guaranteed to be called, typically in foralls

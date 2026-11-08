@@ -29,7 +29,7 @@ trait Program { self =>
   implicit def simpOpts(using ctx: Context): solvers.SimplificationOptions = solvers.SimplificationOptions(ctx)
 
   type Model = inox.Model {
-    val program: Program { val trees: self.trees.type }
+    val program: self.type
   }
 
   type Semantics = inox.Semantics {

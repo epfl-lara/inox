@@ -728,8 +728,6 @@ trait TreeDeconstructor {
   def deconstruct(f: s.Flag): DeconstructedFlag = f match {
     case s.HasADTInvariant(id) =>
       (Seq(id), Seq(), Seq(), (ids, _, _) => t.HasADTInvariant(ids.head))
-    case s.ModelFunction =>
-      (Seq(), Seq(), Seq(), (_, _, _) => t.ModelFunction)
     case s.HasADTEquality(id) =>
       (Seq(id), Seq(), Seq(), (ids, _, _) => t.HasADTEquality(ids.head))
     case s.Annotation(name, args) =>
