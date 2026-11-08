@@ -33,16 +33,6 @@ trait Semantics { self =>
   def getEvaluator(using ctx: Context): evaluators.DeterministicEvaluator {
     val program: self.program.type
   } = evaluatorCache.cached(ctx, createEvaluator(ctx))
-
-  /** The semantics of the program extended with `functions`, under which the values of a model
-    * that defines functions are typed and evaluated (see [[Model.symbols]]).
-    *
-    * Semantics that support such models override this, typically by building the extended
-    * program's semantics with the provider that created them.
-    */
-  def withFunctions(functions: Seq[trees.FunDef]): inox.Semantics { val trees: self.trees.type } =
-    if (functions.isEmpty) this
-    else throw FatalError("These semantics do not support programs extended with new functions")
 }
 
 trait SemanticsProvider { self =>
