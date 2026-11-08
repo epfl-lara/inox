@@ -986,7 +986,7 @@ trait SymbolOps extends TypeOps { self =>
   /** Returns simplest value of a given type */
   protected def simplestValue(tpe: Type, seen: Set[Type], allowSolver: Boolean, inLambda: Boolean)
                              (using sem: symbols.Semantics, ctx: Context): Expr = tpe match {
-    case StringType()               => StringLiteral("")
+    case StringType()               => StringLiteral(Seq())
     case BVType(signed, size)       => BVLiteral(signed, 0, size)
     case FPType(exponent, significand) => FPLiteral.plusZero(exponent, significand)
     case RealType()                 => FractionLiteral(0, 1)
@@ -1139,7 +1139,7 @@ trait SymbolOps extends TypeOps { self =>
 
   /** Returns true if expr is a value of type t */
   def isValueOfType(e: Expr, t: Type): Boolean = (e, t) match {
-    case (StringLiteral(_), StringType()) => true
+    case (_: StringLiteral, StringType()) => true
     case (BVLiteral(s1, _, s), BVType(s2, t)) => s1 == s2 && s == t
     case (FPLiteral(e, s, v), FPType(e2, s2)) => e == e2 && s == s2
     case (IntegerLiteral(_), IntegerType()) => true

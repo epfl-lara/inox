@@ -149,7 +149,7 @@ class PrimitivesParserSuite extends AnyFunSuite {
     }
 
     e"let x = 'a' in length(x)" match {
-      case Let(vd, StringLiteral("a"), StringLength(v)) =>
+      case Let(vd, s: StringLiteral, StringLength(v)) if s.value == Seq('a'.toInt) =>
         assert(vd.tpe == StringType() && v == vd.toVariable)
       case e => fail(s"Unexpected $e")
     }
@@ -182,7 +182,7 @@ class PrimitivesParserSuite extends AnyFunSuite {
     }
 
     e"λx. x ++ 'a'" match {
-      case Lambda(Seq(x), StringConcat(vx, StringLiteral("a"))) =>
+      case Lambda(Seq(x), StringConcat(vx, s: StringLiteral)) if s.value == Seq('a'.toInt) =>
         assert(x.tpe == StringType() && vx == x.toVariable)
       case e => fail(s"Unexpected $e")
     }

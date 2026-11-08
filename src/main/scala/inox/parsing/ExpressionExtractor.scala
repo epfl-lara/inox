@@ -315,8 +315,8 @@ trait ExpressionExtractors { self: Extractors =>
 
       // Strings.
 
-      case trees.StringLiteral(string) => template match {
-        case Literal(StringLiteral(`string`)) => success
+      case lit: trees.StringLiteral => template match {
+        case Literal(StringLiteral(string)) if trees.StringLiteral(string) == lit => success
         case _ => fail
       }
 

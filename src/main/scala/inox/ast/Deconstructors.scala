@@ -141,7 +141,7 @@ trait TreeDeconstructor {
         (_, _, _, _, _) => t.BooleanLiteral(b))
     },
     classOf[s.StringLiteral] -> { expr =>
-      val s.StringLiteral(st) = expr: @unchecked
+      val st = expr.asInstanceOf[s.StringLiteral].value
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
         (_, _, _, _, _) => t.StringLiteral(st))
     },

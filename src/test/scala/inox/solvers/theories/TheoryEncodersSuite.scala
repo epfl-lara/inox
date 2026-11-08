@@ -43,13 +43,16 @@ class TheoryEncodersSuite extends AnyFunSuite {
 
   protected def checkAll(enc: Encoder, es: Seq[Expr]): Unit = es.foreach(checkEncoding(enc, _))
 
+  /** The literal of the code points of `s`, where each surrogate pair is a single character. */
+  def codePoints(s: String): StringLiteral = StringLiteral(s.codePoints.toArray.toSeq)
+
   // Strings with special characters: control characters, two- and three-byte UTF-8
   // characters, surrogate pairs and sequences that look like SMT-LIB/Java escapes.
   val strings = Seq("", "abc", "\n", "\u0000x", "é", "abéà", "€", "😀", "ÿĀ",
     "\\u{41}", "\\x41", "\\", "a\"b")
 
   def stringExprs: Seq[Expr] = strings.flatMap { s =>
-    val lit = StringLiteral(s)
+    val lit = codePoints(s)
     Seq(
       lit,
       StringLength(lit),
@@ -68,7 +71,8 @@ class TheoryEncodersSuite extends AnyFunSuite {
   }
 
   test("String encoder") {
-    checkAll(StringEncoder(program), stringExprs)
+    checkAll(StringEncoder(program, StringLiteral.MaxCodePoint), stringExprs)
+    checkAll(StringEncoder(program, 0xFFFF), stringExprs.filterNot(e => exprOps.exists { case s: StringLiteral => s.value.exists(_ > 0xFFFF) case _ => false }(e)))
   }
 
   def bagExprs: Seq[Expr] = {
@@ -168,23 +172,19 @@ class TheoryEncodersSuite extends AnyFunSuite {
 
   test("SMT-LIB string escapes round-trip") {
     import utils.StringUtils._
-    for (s <- strings ++ Seq("\u007f", "￿", "\ud800")) {
+    for (s <- strings.map(codePoints(_).value) ++ Seq(Seq(0x7F), Seq(0xFFFF), Seq(0xD800), Seq(0xD83D, 0xDE00), Seq(0x2FFFF))) {
       val enc = encode(s)
-      assert(enc.forall(c => c >= 0x20 && c <= 0x7E), s"encoding of ${s.toList.map(_.toInt)} is not printable ASCII: $enc")
-      assert(decode(enc) == s, s"round-trip failed for ${s.toList.map(_.toInt)}: $enc")
+      assert(enc.forall(c => c >= 0x20 && c <= 0x7E), s"encoding of $s is not printable ASCII: $enc")
+      assert(decode(enc) == s, s"round-trip failed for $s: $enc")
     }
 
-    // SMT-LIB 2.6 escape sequences as printed by solvers
-    assert(decode("\\u{41}\\u{0}\\u{e9}\\u{20ac}\\u{1f600}") == "A\u0000é€😀")
-    assert(decode("\\u0041\\u20ac") == "A€")
+    // SMT-LIB 2.6 escape sequences as printed by solvers, where each code point is a character
+    assert(decode("\\u{41}\\u{0}\\u{e9}\\u{20ac}\\u{1f600}") == Seq(0x41, 0, 0xE9, 0x20AC, 0x1F600))
+    assert(decode("\\u0041\\u20ac") == Seq(0x41, 0x20AC))
+    assert(decode("\\u{d83d}\\u{de00}") == Seq(0xD83D, 0xDE00))
+    // a surrogate pair in the literal itself is a single character
+    assert(decode("a😀") == Seq('a'.toInt, 0x1F600))
     // backslashes that do not start an escape sequence are kept as-is
-    assert(decode("\\x41\\n\\u{}\\u{123456}\\u12") == "\\x41\\n\\u{}\\u{123456}\\u12")
-
-    // model strings must map SMT-LIB characters one-to-one to Inox characters
-    assert(decodeBMP("\\u{41}\\u{ffff}\\u{d800}") == Some("A\uffff\ud800"))
-    assert(decodeBMP("a\\u{10000}") == None)
-    assert(decodeBMP("a\\u{1f600}b") == None)
-    assert(decodeBMP("a😀") == None)
-    for (s <- strings) assert(decodeBMP(encode(s)) == Some(s))
+    assert(decode("\\x41\\n\\u{}\\u{123456}\\u12") == StringLiteral("\\x41\\n\\u{}\\u{123456}\\u12").value)
   }
 }

@@ -189,13 +189,13 @@ class ExprOps private(val trees: Trees)
   /** Simple, local optimization on string */
   def simplifyString(expr: Expr): Expr = {
     def simplify0(expr: Expr): Expr = (expr match {
-      case StringConcat(StringLiteral(""), b) => b
-      case StringConcat(b, StringLiteral("")) => b
-      case StringConcat(StringLiteral(a), StringLiteral(b)) => StringLiteral(a + b)
-      case StringLength(StringLiteral(a)) => IntegerLiteral(a.length)
-      case SubString(StringLiteral(a), IntegerLiteral(start), IntegerLiteral(end))
-          if 0 <= start && start <= end && end <= a.length =>
-        StringLiteral(a.substring(start.toInt, end.toInt))
+      case StringConcat(a: StringLiteral, b) if a.value.isEmpty => b
+      case StringConcat(b, a: StringLiteral) if a.value.isEmpty => b
+      case StringConcat(a: StringLiteral, b: StringLiteral) => StringLiteral(a.value ++ b.value)
+      case StringLength(a: StringLiteral) => IntegerLiteral(a.value.length)
+      case SubString(a: StringLiteral, IntegerLiteral(start), IntegerLiteral(end))
+          if 0 <= start && start <= end && end <= a.value.length =>
+        StringLiteral(a.value.slice(start.toInt, end.toInt))
       case _ => expr
     }).copiedFrom(expr)
 
@@ -318,11 +318,11 @@ class ExprOps private(val trees: Trees)
       case m @ Minus(Plus(e1, e2), Plus(e3, e4)) if e1 == e4 && e2 == e3 => Zero.unapply(m).getOrElse(m)
       case Minus(Plus(e1, e2), Plus(Plus(e3, e4), e5)) if e1 == e4 && e2 == e3 => UMinus(e5)
 
-      case StringConcat(StringLiteral(""), a) => a
-      case StringConcat(a, StringLiteral("")) => a
-      case StringConcat(StringLiteral(a), StringLiteral(b)) => StringLiteral(a+b)
-      case StringConcat(StringLiteral(a), StringConcat(StringLiteral(b), c)) => StringConcat(StringLiteral(a+b), c)
-      case StringConcat(StringConcat(c, StringLiteral(a)), StringLiteral(b)) => StringConcat(c, StringLiteral(a+b))
+      case StringConcat(e: StringLiteral, a) if e.value.isEmpty => a
+      case StringConcat(a, e: StringLiteral) if e.value.isEmpty => a
+      case StringConcat(a: StringLiteral, b: StringLiteral) => StringLiteral(a.value ++ b.value)
+      case StringConcat(a: StringLiteral, StringConcat(b: StringLiteral, c)) => StringConcat(StringLiteral(a.value ++ b.value), c)
+      case StringConcat(StringConcat(c, a: StringLiteral), b: StringLiteral) => StringConcat(c, StringLiteral(a.value ++ b.value))
       case StringConcat(a, StringConcat(b, c)) => StringConcat(StringConcat(a, b), c)
       //default
       case e => e
