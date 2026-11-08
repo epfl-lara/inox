@@ -94,10 +94,7 @@ object SolverTestSuite {
       groundOnly = cvcGroundOnly),
     SolverInfo("smt-bitwuzla", () => SolverFactory.hasBitwuzla,
       Set(Integers, Reals, BitVectorIntConversions, Strings, Sets, Bags, BagAlgebra, Maps, NestedArrays, ADTs,
-        Quantifiers, TypeParameters),
-      knownIssues = Map(
-        "Model extraction of Char" -> "returns Unknown for characters",
-      )),
+        Quantifiers, TypeParameters)),
     SolverInfo("princess", () => true,
       Set(BitVectors, FloatingPoint, Sets, BagAlgebra, Maps, NestedArrays),
       // Times out on conjunctions of string checks that it solves quickly one by one
