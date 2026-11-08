@@ -607,6 +607,11 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     def withSMTVariable(sym: SSymbol, term: Term): Context = new Context(vars, smtVars + (sym -> term), functions, seen, chooses, lambdas)
     def withSMTVariables(bindings: Seq[(SSymbol, Term)]): Context = bindings.foldLeft(this)((ctx, p) => ctx.withSMTVariable(p._1, p._2))
 
+    /** The context in which the body of a model definition is read: its parameters are bound to
+      * `args`, and the let-bindings of the caller are out of scope. */
+    def withArguments(params: Seq[SSymbol], args: Seq[Expr]): Context =
+      new Context(vars ++ (params zip args), Map(), functions, seen, chooses, lambdas)
+
     def getFunction(sym: SSymbol, ft: FunctionType): Option[Lambda] = functions.get(sym).map {
       case df @ DefineFun(SMTFunDef(a, args, _, body)) =>
         val vds = (args zip ft.from).map(p => ValDef.fresh(p._1.name.name, p._2))
@@ -631,6 +636,15 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
       case FunctionApplication(f, Seq(SNumeral(n))) if f.toString == "-" => Some(-n)
       case _ => None
     }
+  }
+
+  private def fromModelFunction(s: SSymbol, args: Seq[Term], otpe: Option[Type])(using context: Context): Expr = {
+    val tfd = functions.toA(s)
+    val DefineFun(SMTFunDef(_, params, _, body)) = context.functions(s)
+    if (params.size != args.size || tfd.params.size != args.size)
+      throw new MissformedSMTException(body, s"Unexpected number of arguments for ${tfd.id}")
+    val vargs = (args zip tfd.params.map(_.getType)).map(fromSMT)
+    fromSMT(body, otpe orElse Some(tfd.getType))(using context.withArguments(params.map(_.name), vargs))
   }
 
   /* Translate an SMTLIB term back to a Inox Expr */
@@ -758,6 +772,14 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           case t =>
             unsupported(t, "Woot? structural type that is non-structural")
         }
+
+      // A model definition can call the functions of the model, whose definitions we inline
+      // (cvc5 does this, see epfl-lara/stainless#1549).
+      case (SimpleSymbol(s), _) if functions.containsB(s) && context.functions.contains(s) =>
+        fromModelFunction(s, Seq.empty, otpe)
+
+      case (FunctionApplication(SimpleSymbol(s), args), _) if functions.containsB(s) && context.functions.contains(s) =>
+        fromModelFunction(s, args, otpe)
 
       // @nv and @jad: hack to extract values with let-bindings from Z3 models
       case (QualifiedIdentifier(SimpleIdentifier(sym), None), _) if context.smtVars contains sym =>

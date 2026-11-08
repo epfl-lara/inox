@@ -84,9 +84,10 @@ abstract class SMTLIBSolver private(override val program: Program,
         val syms = variables.bSet ++ predicates.bSet
         emit(GetModel()) match {
           case GetModelResponseSuccess(smodel) =>
-            // first-pass to gather functions
+            // first-pass to gather functions, and the definitions of the functions of the program,
+            // which other definitions can call
             val modelFunDefs = smodel.collect {
-              case me @ DefineFun(SMTFunDef(a, args, _, _)) if args.nonEmpty =>
+              case me @ DefineFun(SMTFunDef(a, args, _, _)) if args.nonEmpty || (functions `containsB` a) =>
                 a -> me
             }.toMap
 
