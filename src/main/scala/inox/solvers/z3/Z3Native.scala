@@ -67,7 +67,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       z3.delete()
       z3 = null
     }
-    if (!freed) Z3Native.releaseEncoding(stringEncoding, encodingHolder)
+    // A solver whose construction failed (e.g. on an encoding conflict) never got the alphabet,
+    // and mustn't release it when it is finalized
+    if (!freed && (encodingHolder ne null)) Z3Native.releaseEncoding(stringEncoding, encodingHolder)
     freed = true
     interruptManager.unregisterForInterrupts(this)
   }
