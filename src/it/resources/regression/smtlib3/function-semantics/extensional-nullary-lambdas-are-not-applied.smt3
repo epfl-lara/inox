@@ -1,0 +1,18 @@
+; Nullary lambdas are values, so a lambda whose body can't be evaluated (as its choose has no
+; solution) doesn't constrain the variables it captures until it is applied (epfl-lara/inox#139,
+; where intensional equality answers unsat)
+(set-option :function-equality extensional)
+(set-info :status sat)
+; checking the model would compare the lambdas by applying them, where the choose has no value
+(set-option :check-models false)
+(declare-datatypes ((RAEquations 2)) ((par (A B) ((RaCons (lhs (-> A)) (rhs (-> A)) (ev (-> B)))))))
+(datatype-invariant (par (A B) this (RAEquations A B) (= (@ (lhs this)) (@ (rhs this)))))
+(define-fun makeEqual ((x Int) (y Int)) UnitTuple (choose (unused UnitTuple) (= x y)))
+(declare-const x Int)
+(declare-const y Int)
+(declare-const eq1 (RAEquations Int UnitTuple))
+(declare-const eq2 (RAEquations Int UnitTuple))
+(assert (= eq1 (RaCons (lambda () x) (lambda () x) (lambda () (makeEqual x y)))))
+(assert (= eq2 (RaCons (lambda () x) (lambda () x) (lambda () tuple.unit))))
+(assert (not (= y x)))
+(check-sat)
