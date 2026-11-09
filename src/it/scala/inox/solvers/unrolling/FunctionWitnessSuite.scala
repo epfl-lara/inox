@@ -102,13 +102,25 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
   val intList = T(listID)(IntegerType())
 
   private def solve(clause: Expr)(using Context): Map[ValDef, Expr] = {
-    SimpleSolverAPI(program.getSolver).solveSAT(clause) match {
+    result(clause) match {
       case SatWithModel(model) => model.vars
       case res => fail(s"Expected a model, got $res")
     }
   }
 
-  private def result(clause: Expr)(using Context) = SimpleSolverAPI(program.getSolver).solveSAT(clause)
+  private def result(clause: Expr)(using Context) = recordChooses(SimpleSolverAPI(program.getSolver).solveSAT(clause))
+
+  /** The chooses of the last model, which give the uninterpreted functions that the closures of its
+    * values may call, so that evaluating these values needs them. */
+  private var lastChooses: Map[(Identifier, Seq[Type]), Expr] = Map.empty
+  private def recordChooses[R](res: R): R = {
+    res match {
+      case SatWithModel(model: program.Model @unchecked) => lastChooses = model.chooses
+      case _ => lastChooses = Map.empty
+    }
+    res
+  }
+  private def lastModel = inox.Model(program)(Map.empty, lastChooses)
 
   /** Closed sub-expressions of the extracted models that have type `tpe`. */
   private def candidates(tpe: Type, es: Iterable[Expr]): Set[Expr] = es.toSet.flatMap { (e: Expr) =>
@@ -129,8 +141,8 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
       for (arg <- candidates(tpe, exprs).toSeq; args <- rest) yield arg +: args
     }
     argss.exists { args =>
-      val r1 = evaluator.eval(Application(f1, args))
-      val r2 = evaluator.eval(Application(f2, args))
+      val r1 = evaluator.eval(Application(f1, args), lastModel)
+      val r2 = evaluator.eval(Application(f2, args), lastModel)
       (r1, r2) match {
         case (EvaluationResults.Successful(v1), EvaluationResults.Successful(v2)) =>
           v1.getType(using program.symbols) match {
@@ -229,7 +241,7 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     val clause = andJoin(fs.map(f => f(E(true)) === E(BigInt(0))) ++ pairs.map((f1, f2) => f1 !== f2))
     val model = solve(clause)
     val evaluator = program.getEvaluator
-    def resultOnFalse(f: Variable): Option[Expr] = evaluator.eval(Application(model(f.toVal), Seq(E(false)))) match {
+    def resultOnFalse(f: Variable): Option[Expr] = evaluator.eval(Application(model(f.toVal), Seq(E(false))), lastModel) match {
       case EvaluationResults.Successful(v) => Some(v)
       case _ => None
     }
@@ -453,13 +465,13 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
       solver.assertCnstr(f === g)
       assert(solver.check(Simple).isUNSAT)
       solver.pop()
-      solver.check(Model) match {
+      recordChooses(solver.check(Model)) match {
         case SatWithModel(model) => assert(distinguishable(model.vars(f.toVal), model.vars(g.toVal)))
         case res => fail(s"Expected a model, got $res")
       }
       solver.push()
       solver.assertCnstr(f(E(BigInt(1))) === g(E(BigInt(1))))
-      solver.check(Model) match {
+      recordChooses(solver.check(Model)) match {
         case SatWithModel(model) => assert(distinguishable(model.vars(f.toVal), model.vars(g.toVal)))
         case res => fail(s"Expected a model, got $res")
       }
@@ -473,7 +485,7 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     ctx.withOpts(optFunctionEquality(semantics))
 
   private def resultWith(semantics: FunctionEquality)(clause: Expr)(using Context) =
-    SimpleSolverAPI(program.getSolver(withEquality(semantics))).solveSAT(clause)
+    recordChooses(SimpleSolverAPI(program.getSolver(withEquality(semantics))).solveSAT(clause))
 
   test("function comparisons are rejected without function equality") { ctx ?=>
     val f = ("f" :: (IntegerType() =>: IntegerType())).toVariable

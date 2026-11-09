@@ -600,11 +600,12 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     val functions: Map[SSymbol, DefineFun],
     val seen: Set[(BigInt, Type)] = Set.empty,
     private[SMTLIBTarget] val chooses: MutableMap[(BigInt, Type), Choose] = MutableMap.empty,
-    private[SMTLIBTarget] val lambdas: MutableMap[(BigInt, Type), Lambda] = MutableMap.empty
+    private[SMTLIBTarget] val lambdas: MutableMap[(BigInt, Type), Lambda] = MutableMap.empty,
+    private[SMTLIBTarget] val closures: MutableMap[Identifier, Lambda] = MutableMap.empty
   ) extends super.AbstractContext {
-    def withSeen(n: (BigInt, Type)): Context = new Context(vars, smtVars, functions, seen + n, chooses, lambdas)
-    def withVariable(sym: SSymbol, expr: Expr): Context = new Context(vars + (sym -> expr), smtVars, functions, seen, chooses, lambdas)
-    def withSMTVariable(sym: SSymbol, term: Term): Context = new Context(vars, smtVars + (sym -> term), functions, seen, chooses, lambdas)
+    def withSeen(n: (BigInt, Type)): Context = new Context(vars, smtVars, functions, seen + n, chooses, lambdas, closures)
+    def withVariable(sym: SSymbol, expr: Expr): Context = new Context(vars + (sym -> expr), smtVars, functions, seen, chooses, lambdas, closures)
+    def withSMTVariable(sym: SSymbol, term: Term): Context = new Context(vars, smtVars + (sym -> term), functions, seen, chooses, lambdas, closures)
     def withSMTVariables(bindings: Seq[(SSymbol, Term)]): Context = bindings.foldLeft(this)((ctx, p) => ctx.withSMTVariable(p._1, p._2))
 
     /** The context in which the body of a model definition is read: its parameters are bound to
@@ -623,7 +624,13 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     // chooses don't have a corresponding lambda. In such cases, we discard the choose as it is
     // irrelevant to the final model (since it won't contain that lambda).
     def getChooses = chooses.toMap.flatMap { case (n, c) => lambdas.get(n).map(c -> _) }
+
+    /** The uninterpreted functions that the extracted closures call, at no type arguments. */
+    def getClosures: Map[Identifier, Lambda] = closures.toMap
   }
+
+  // The uninterpreted functions of the closures of models, by function value (see `uniquateClosure`)
+  private val closureIds: MutableMap[(BigInt, FunctionType), Identifier] = MutableMap.empty
 
   override protected def fromSMT(sort: Sort)(using Context): Type = sorts.getA(sort) match {
     case Some(tpe) => tpe
@@ -698,8 +705,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
         })
 
       case (Num(n), Some(ft: FunctionType)) => context.lambdas.getOrElse(n -> ft, {
-        val count = if (n < 0) -2 * n.toInt else 2 * n.toInt + 1
-        val res = uniquateClosure(count, lambdas.getB(ft)
+        val lambda = (lambdas.getB(ft)
           .flatMap { dynLambda =>
             context.withSeen(n -> ft).getFunction(dynLambda, FunctionType(IntegerType() +: ft.from, ft.to))
           }.map {
@@ -727,6 +733,9 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
               Lambda(args, Choose(ValDef.fresh("res", ft), BooleanLiteral(true)))
           }))
 
+        val id = closureIds.getOrElseUpdate(n -> ft, FreshIdentifier("f", true))
+        val res = uniquateClosure(id, lambda)
+        context.closures(id) = lambda
         context.lambdas(n -> ft) = res
         res
       })

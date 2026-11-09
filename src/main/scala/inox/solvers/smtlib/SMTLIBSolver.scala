@@ -110,6 +110,7 @@ abstract class SMTLIBSolver private(override val program: Program,
 
             val chooses: MutableMap[(Identifier, Seq[Type]), Expr] = MutableMap.empty
             chooses ++= ctx.getChooses.map(p => (p._1.res.id, Seq.empty[Type]) -> p._2)
+            chooses ++= ctx.getClosures.map(p => (p._1, Seq.empty[Type]) -> p._2)
 
             chooses ++= smodel.flatMap {
               case DefineFun(SMTFunDef(s, args, _, e)) if functions `containsB` s =>
@@ -120,6 +121,7 @@ abstract class SMTLIBSolver private(override val program: Program,
                       val ctx = new Context(variables.bToA, Map(), modelFunDefs).withVariables(args.map(_.name) zip tfd.params.map(_.toVariable))
                       val body = fromSMT(e, tfd.getType)(using ctx)
                       chooses ++= ctx.getChooses.map(p => (p._1.res.id, tfd.tps) -> p._2)
+                      chooses ++= ctx.getClosures.map(p => (p._1, Seq.empty[Type]) -> p._2)
                       Some((res.id, tfd.tps) -> body)
                     case _ => None
                   }

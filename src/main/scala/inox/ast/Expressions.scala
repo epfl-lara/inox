@@ -115,6 +115,35 @@ trait Expressions { self: Trees =>
       checkParamType(pred, BooleanType(), res.getTpe(stripRefinements))
   }
 
+  /** $encodingof a call to an uninterpreted function `id` at the type arguments `tps`, which
+    * returns an arbitrary value of the result type of `tpe`, with equal results on equal arguments.
+    *
+    * Unlike a `choose`, it needs no definition in the program: the function is only known through
+    * its calls, and models give it a value at `tps` (see [[inox.Model.chooses]]). The type arguments
+    * are part of the call, so instantiating the type parameters they mention instantiates the call.
+    * All calls to `id` must have the same type parameters in `tps` and the same `tpe` up to the
+    * instantiation of these type parameters.
+    *
+    * @param id The uninterpreted function
+    * @param tps The type arguments of the function
+    * @param args The arguments of the call
+    * @param tpe The type of the function at `tps`: a [[PiType]] whose result type may refer to its
+    *            parameters, which the call binds to `args`, or a [[FunctionType]]
+    */
+  sealed case class UninterpretedCall(id: Identifier, tps: Seq[Type], args: Seq[Expr], tpe: Type)
+    extends Expr with CachingTyped {
+    override protected def computeTpe(stripRefinements: Boolean)(using s: Symbols): Type = {
+      def accepts(formal: Seq[Type]): Boolean =
+        args.size == formal.size && (args zip formal).forall((arg, tpe) => s.isSubtypeOf(arg.getType, tpe.getType))
+      tpe match {
+        case FunctionType(from, to) if accepts(from) => to.getTpe(stripRefinements)
+        case PiType(params, to) if accepts(params.map(_.tpe)) =>
+          typeOps.replaceFromSymbols((params zip args).toMap, to).getTpe(stripRefinements)
+        case _ => Untyped
+      }
+    }
+  }
+
   /** $encodingof an error, i.e. a program point that must never be reached.
     *
     * Errors have any type. Evaluating one fails with `message`, and solvers never consider

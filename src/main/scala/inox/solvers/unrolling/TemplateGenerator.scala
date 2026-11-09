@@ -25,6 +25,25 @@ trait TemplateGenerator { self: Templates =>
     Seq[QuantificationTemplate]
   )
 
+  /** The interpretation of the uninterpreted call `id[tps](args)` in the model that the solver
+    * operates under (see [[AbstractUnrollingSolver.partialModel]]), if the model interprets `id` at
+    * `tps`. Uninterpreted calls take their interpretations when their clauses are generated. */
+  private[unrolling] var interpretation: (Identifier, Seq[Type], Seq[Expr]) => Option[Expr] = (_, _, _) => None
+
+  /** The free functions that stand for the uninterpreted functions at their type arguments, whose
+    * applications are the uninterpreted calls that have no interpretation. They are shared by all
+    * templates, and their models are those of the uninterpreted functions. */
+  private[unrolling] val uninterpretedFunctions: MutableMap[(Identifier, Seq[Type]), (Variable, Encoded)] = MutableMap.empty
+  private[unrolling] val uninterpretedSubst: MutableMap[Variable, Encoded] = MutableMap.empty
+
+  private def uninterpretedFunction(uc: UninterpretedCall): Variable =
+    uninterpretedFunctions.getOrElseUpdate(uc.id -> uc.tps, {
+      val f = Variable.fresh(uc.id.name, uc.tpe.getType, true)
+      val fT = encodeSymbol(f)
+      uninterpretedSubst(f) = fT
+      (f, fT)
+    })._1
+
   protected def emptyClauses: TemplateClauses =
     (Map.empty, Map.empty, Map.empty, Map.empty, Seq.empty, Map.empty, Map.empty, Seq.empty, Seq.empty)
 
@@ -328,7 +347,7 @@ trait TemplateGenerator { self: Templates =>
     }
 
     @inline def localSubst: Map[Variable, Encoded] =
-      substMap ++ condVars ++ exprVars ++ lambdas.map(_.ids)
+      substMap ++ uninterpretedSubst ++ condVars ++ exprVars ++ lambdas.map(_.ids)
 
     def result: TemplateClauses =
       (condVars, exprVars, condTree, guardedExprs, equations, types, equalities, lambdas, quantifications)
@@ -363,6 +382,8 @@ trait TemplateGenerator { self: Templates =>
     val builder = new Builder(pathVar, substMap)
     import builder._
 
+    var interpreting: Set[(Identifier, Seq[Type])] = Set.empty
+
     def rec(pathVar: Variable, expr: Expr, pol: Option[Boolean]): Expr = expr match {
       case a @ Assume(cond, body) =>
         val e = rec(pathVar, cond, Some(true))
@@ -380,6 +401,40 @@ trait TemplateGenerator { self: Templates =>
         val p = rec(pathVar, exprOps.replace(Map(res.toVariable -> newExpr), pred), Some(true))
         storeGuarded(pathVar, p)
         newExpr
+
+      case uc @ UninterpretedCall(id, tps, args, tpe) =>
+        // The interpretations of the functions that are being interpreted aren't unfolded again
+        (if (interpreting(id -> tps)) None else interpretation(id, tps, args)) match {
+          case Some(e) =>
+            interpreting += id -> tps
+            val res = rec(pathVar, e, pol)
+            interpreting -= id -> tps
+            res
+          case None =>
+            // An application of the free function that stands for the uninterpreted function, whose
+            // result is an arbitrary value of the call's type
+            val f = uninterpretedFunction(uc)
+            val (fExpr, fClauses) = mkTypeClauses(pathVar, f.tpe, f, localSubst)(using FreeGenerator)
+            storeGuarded(pathVar, fExpr)
+            builder ++= fClauses
+
+            val recArgs = args.map(rec(pathVar, _, None))
+            val app = Application(f, recArgs).copiedFrom(uc)
+            // The result type of the function, with its parameters bound to the arguments of the call
+            val resTpe = tpe match {
+              case PiType(params, to) => typeOps.replaceFromSymbols((params zip recArgs).toMap, to)
+              case FunctionType(_, to) => to
+              case _ => throw new IllegalArgumentException(s"Uninterpreted call with type $tpe: $uc")
+            }
+            val newExpr = Variable.fresh("uc", resTpe.getType, true)
+            storeExpr(newExpr)
+            storeGuarded(pathVar, Equals(newExpr, app))
+
+            val (tpeExpr, tmplClauses) = mkTypeClauses(pathVar, resTpe, newExpr, localSubst)(using FreeGenerator)
+            storeGuarded(pathVar, tpeExpr)
+            builder ++= tmplClauses
+            newExpr
+        }
 
       case Error(tpe, _) =>
         // Errors are never reached, so the path that leads to one is infeasible
@@ -579,7 +634,7 @@ trait TemplateGenerator { self: Templates =>
   }(expr)
 
   private def containsAssumption(e: Expr): Boolean = e match {
-    case _: Assume | _: Choose | _: Error => true
+    case _: Assume | _: Choose | _: UninterpretedCall | _: Error => true
     case _ => false
   }
 

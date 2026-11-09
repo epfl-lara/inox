@@ -692,7 +692,7 @@ trait Templates
       val idToTrId : Map[Variable, Encoded] =
         condVars ++ exprVars + pathVar ++ arguments ++ substMap ++
         lambdas.map(_.ids) ++ quants.flatMap(_.mapping) ++ equalities.flatMap(_._2.map(_.symbols)) ++
-        typesManager.tpSubst
+        typesManager.tpSubst ++ uninterpretedSubst
       val encoder: Expr => Encoded = mkEncoder(idToTrId)
 
       val optIdCall = optCall.map { tfd => (tfd, arguments.map(p => Left(p._2))) }

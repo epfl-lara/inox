@@ -28,7 +28,7 @@ private[solvers] object PlatformSolvers {
   )
 
   def getFromName(finalName: String, nonIncremental: Boolean)
-                 (p: Program, ctx: Context)
+                 (p: Program, ctx: Context, model: p.Model)
                  (enc: ProgramTransformer {
                     val sourceProgram: p.type
                     val targetProgram: Program { val trees: inox.trees.type }

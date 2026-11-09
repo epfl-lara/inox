@@ -237,6 +237,7 @@ trait SymbolOps extends TypeOps { self =>
   def isImpureExpr(expr: Expr): Boolean = expr match {
     case Assume(BooleanLiteral(true), _) => false
     case Choose(res, BooleanLiteral(true)) if hasInstance(res.tpe) == Some(true) => false
+    case uc: UninterpretedCall => hasInstance(uc.getTpe(stripRefinements = false)) != Some(true)
     case (_: Assume) | (_: Choose) | (_: Error) | (_: Application) |
          (_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector) => true
     case adt: ADT => adt.getConstructor.sort.definition.hasInvariant
@@ -410,8 +411,10 @@ trait SymbolOps extends TypeOps { self =>
         (tvs & allBoundVars).isEmpty && (unconditional || (pathFreeVars & allBoundVars).isEmpty)
       }
 
+      // Uninterpreted calls are never lifted either, so that closures that call distinct
+      // uninterpreted functions remain distinct
       def containsChoose(e: Expr): Boolean =
-        exists { case _: Choose | _: Error => true case _ => false } (e)
+        exists { case _: Choose | _: UninterpretedCall | _: Error => true case _ => false } (e)
 
       def containsRecursive(e: Expr): Boolean =
         exists { case fi: FunctionInvocation => fi.tfd.fd.isRecursive case _ => false } (e)
@@ -588,28 +591,34 @@ trait SymbolOps extends TypeOps { self =>
       (body, subst)
   }
 
-  /** Ensures the closure `res` can only be equal to some other closure if they share the same
-    * integer identifier `id`. This method makes sure this property is preserved after going through
-    * [[normalizeStructure(e:SymbolOps\.this\.trees\.Expr,onlySimple:Boolean)*]]. */
-  def uniquateClosure(id: Int, res: Lambda)(using PurityOptions): Lambda = {
-    def allArgs(l: Lambda): Seq[ValDef] = l.params ++ (l.body match {
-      case l2: Lambda => allArgs(l2)
-      case _ => Seq.empty
-    })
+  /** A closure that calls the uninterpreted function `id`, whose value is `res`, so that it is only
+    * equal to the closures that call `id`. The model must give `res` for `id` at no type arguments,
+    * and the call is never lifted out of the closure (see
+    * [[normalizeStructure(e:SymbolOps\.this\.trees\.Expr,onlySimple:Boolean)*]]), so distinct
+    * closures remain distinct. */
+  def uniquateClosure(id: Identifier, res: Lambda): Lambda = {
+    val params = res.params.map(_.freshen)
+    val closure = Lambda(params, UninterpretedCall(id, Seq.empty, params.map(_.toVariable), res.getType))
+    // The closures that call `id` are then equal, whatever the names of their parameters
+    normalizeStructure(closure)(using PurityOptions.unchecked)._1.asInstanceOf[Lambda]
+  }
 
-    val resArgs = allArgs(res)
-    val unique = if (resArgs.isEmpty) res else {
-      /* @nv: This is a hack to ensure that the notion of equality we define on closures
-       *      is respected by those returned by the model. */
-      Lambda(res.params, Let(
-        ValDef.fresh("id", tupleTypeWrap(List.fill(id)(resArgs.head.getType))),
-        tupleWrap(List.fill(id)(resArgs.head.toVariable)),
-        res.body
-      ))
+  /** Inlines the uninterpreted functions that `chooses` give in `expr`, including in its types, such
+    * as those that the closures of models call (see [[uniquateClosure]]), for solvers that don't see
+    * the model. */
+  def inlineUninterpreted(expr: Expr, chooses: Map[(Identifier, Seq[Type]), Expr]): Expr = {
+    class Inliner(seen: Set[(Identifier, Seq[Type])]) extends trees.ConcreteSelfTreeTransformer {
+      override def transform(e: Expr): Expr = e match {
+        case UninterpretedCall(id, tps, args, _) if !seen(id -> tps) => chooses.get(id -> tps) match {
+          case Some(l: Lambda) if l.params.size == args.size =>
+            val body = new Inliner(seen + (id -> tps)).transform(l.body)
+            freshenLocals((l.params zip args.map(transform)).foldRight(body) { case ((vd, arg), b) => Let(vd, arg, b) })
+          case _ => super.transform(e)
+        }
+        case _ => super.transform(e)
+      }
     }
-
-    val (nl, subst) = normalizeStructure(unique)
-    replaceFromSymbols(subst.map { case (v, e, _) => v -> e }.toMap, nl).asInstanceOf[Lambda]
+    new Inliner(Set.empty).transform(expr)
   }
 
   /** Generates an instance of type `tpe` such that the following holds:
@@ -700,8 +709,12 @@ trait SymbolOps extends TypeOps { self =>
       Lambda(Seq.empty, constructExpr(i, to))
 
     case FunctionType(from, to) =>
-      val l = Lambda(from.map(tpe => ValDef.fresh("x", tpe, true)), constructExpr(0, to))
-      uniquateClosure(i, l)(using PurityOptions.unchecked)
+      // The closures are told apart by the arity of a tuple over their first parameter
+      val params = from.map(tpe => ValDef.fresh("x", tpe, true))
+      val id = ValDef.fresh("id", tupleTypeWrap(List.fill(i)(params.head.getType)))
+      val l = Lambda(params, Let(id, tupleWrap(List.fill(i)(params.head.toVariable)), constructExpr(0, to)))
+      val (nl, subst) = normalizeStructure(l)(using PurityOptions.unchecked)
+      replaceFromSymbols(subst.map { case (v, e, _) => v -> e }.toMap, nl)
   }
 
   /* Inline lambda lets that appear in forall bodies. For example,

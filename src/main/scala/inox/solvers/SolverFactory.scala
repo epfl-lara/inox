@@ -131,12 +131,16 @@ object SolverFactory {
   // extract solver in "no-inc:solver"
   private def removeNoInc(name: String): String = name.drop(7)
 
+  /** The solvers operate under `model`, as when an evaluator solves for the foralls and chooses of an
+    * expression that it evaluates in this model. Only the unrolling solvers can operate under a
+    * model that interprets functions. */
   def getFromName(name: String, force: Boolean = false)
-                 (p: Program, ctx: Context)
+                 (p: Program, ctx: Context, model: Option[p.Model] = None)
                  (enc: ProgramTransformer {
                     val sourceProgram: p.type
                     val targetProgram: Program { val trees: inox.trees.type }
                   })(using sem: p.Semantics): SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } } = {
+    val solverModel = model.getOrElse(inox.Model.empty(p))
     val nonIncremental = name.startsWith("no-inc:")
     val noPrefixName = if (nonIncremental) removeNoInc(name) else name
 
@@ -182,6 +186,9 @@ object SolverFactory {
       }
     }
 
+    if (solverModel.chooses.nonEmpty && Set("inv-z3", "inv-eld", "eval")(finalName))
+      throw FatalError(s"Solver $finalName can't operate under a model that interprets functions")
+
     finalName match {
       case "smt-z3-opt" => create(p)(finalName, {
         val chooseEnc = ChooseEncoder(p)(enc)
@@ -195,6 +202,8 @@ object SolverFactory {
               with smtlib.optimization.Z3Optimizer
 
           protected val underlying = new Underlying(targetProgram)
+
+          override protected def partialModel = solverModel
         }
 
         () => new SMTZ3OptImpl(p)
@@ -297,6 +306,8 @@ object SolverFactory {
 
           // Used to report SMT Lib files <-> VCs correspondence
           override def getSmtLibFileId: Option[Int] = underlying.getSmtLibFileId
+
+          override protected def partialModel = solverModel
         }
 
         () => new SMTZ3Impl(p)(enc)(ChooseEncoder(p)(enc))
@@ -329,6 +340,8 @@ object SolverFactory {
 
           // encoder is from TipDebugger and enc from AbstractUnrollingSolver
           override protected val encoder = enc
+
+          override protected def partialModel = solverModel
         }
 
         () => new SMTCVC4Impl(p)(enc)(ChooseEncoder(p)(enc))
@@ -361,6 +374,8 @@ object SolverFactory {
           
           // encoder is from TipDebugger and enc from AbstractUnrollingSolver
           override protected val encoder = enc
+
+          override protected def partialModel = solverModel
         }
 
         () => new SMTCVC5Impl(p)(enc)(ChooseEncoder(p)(enc))
@@ -393,6 +408,8 @@ object SolverFactory {
 
           // encoder is from TipDebugger and enc from AbstractUnrollingSolver
           override protected val encoder = enc
+
+          override protected def partialModel = solverModel
         }
 
         () => new SMTBitwuzlaImpl(p)(enc)(ChooseEncoder(p)(enc))
@@ -406,7 +423,7 @@ object SolverFactory {
         () => new EvalImpl(p)
       })
 
-      case _ => PlatformSolvers.getFromName(finalName, nonIncremental)(p, ctx)(enc)
+      case _ => PlatformSolvers.getFromName(finalName, nonIncremental)(p, ctx, solverModel)(enc)
         .getOrElse(throw FatalError("Unknown solver: " + finalName))
     }
   }
@@ -420,7 +437,7 @@ object SolverFactory {
     s == "no-inc:smt-cvc5" ||
     s == "no-inc:unrollz3"
 
-  def getFromSettings(p: Program, ctx: Context)
+  def getFromSettings(p: Program, ctx: Context, model: Option[p.Model] = None)
                      (enc: ProgramTransformer {
                         val sourceProgram: p.type
                         val targetProgram: Program { val trees: inox.trees.type }
@@ -428,17 +445,17 @@ object SolverFactory {
     ctx.options.findOption(optSelectedSolvers) match {
       case None => optSelectedSolvers.default.toSeq match {
         case Seq() => throw FatalError("No selected solver")
-        case Seq(single) => getFromName(single, force = false)(p, ctx)(enc)
+        case Seq(single) => getFromName(single, force = false)(p, ctx, model)(enc)
         case multiple => PortfolioSolverFactory(p) {
-          multiple.map(name => getFromName(name, force = false)(p, ctx)(enc))
+          multiple.map(name => getFromName(name, force = false)(p, ctx, model)(enc))
         }
       }
 
       case Some(set) => set.toSeq match {
         case Seq() => throw FatalError("No selected solver")
-        case Seq(single) => getFromName(single, force = true)(p, ctx)(enc)
+        case Seq(single) => getFromName(single, force = true)(p, ctx, model)(enc)
         case multiple => PortfolioSolverFactory(p) {
-          multiple.map(name => getFromName(name, force = true)(p, ctx)(enc))
+          multiple.map(name => getFromName(name, force = true)(p, ctx, model)(enc))
         }
       }
     }

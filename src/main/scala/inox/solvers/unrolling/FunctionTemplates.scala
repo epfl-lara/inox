@@ -133,6 +133,14 @@ trait FunctionTemplates { self: Templates =>
   private def hasChoose(tfd: TypedFunDef): Boolean = chooseCache.getOrElseUpdate(tfd.id,
     exprOps.exists { case _: Choose => true case _ => false } (tfd.fd.fullBody))
 
+  /** Whether calls of `tfd` can reach an uninterpreted function, in which case ground calls of
+    * `tfd` can't be evaluated. */
+  private val uninterpretedCache: MutableMap[Identifier, Boolean] = MutableMap.empty
+  private def callsUninterpreted(tfd: TypedFunDef): Boolean = uninterpretedCache.getOrElseUpdate(tfd.id,
+    (transitiveCallees(tfd.fd) + tfd.fd).exists { fd =>
+      exprOps.exists { case _: UninterpretedCall => true case _ => false } (fd.fullBody)
+    })
+
   /** Clauses stating that the calls `call1` and `call2` of the same function on equal arguments
     * have equal results, when some of its parameters or its result need equality unrolling.
     *
@@ -272,7 +280,7 @@ trait FunctionTemplates { self: Templates =>
                 if (groundArgs.forall(_.isDefined)) Some(tfd.applied(groundArgs.map(_.get)))
                 else None
 
-              val inlining = groundCall.filter(isPure).map(e => evaluator.eval(e))
+              val inlining = groundCall.filter(e => !callsUninterpreted(tfd) && isPure(e)).map(e => evaluator.eval(e))
               val skip = (groundArgs.flatten.map(evaluator.eval) ++ inlining).exists {
                 case evaluators.EvaluationResults.EvaluatorError(_) => true
                 case _ => false
