@@ -290,17 +290,20 @@ trait TemplateGenerator { self: Templates =>
       result
     }
 
-    // Types the reads of a free collection whose elements need unrolling (see [[Collection]])
-    def storeReads(pathVar: Variable, tpe: Type, elemTpe: Type, arg: Expr)
+    // Types the reads of a collection whose elements have contracts (see [[Collection]]). The elements
+    // that only need unrolling as free values (e.g. sets, functions or type parameters) aren't typed:
+    // their reads may be many (e.g. those of the heap in Stainless) and typing them doesn't help proofs.
+    def storeReads(pathVar: Variable, tpe: Type, elemTpe: Type, arg: Expr, inDomain: Boolean)
                   (using generator: TypingGenerator): Expr =
-      if (generator != FreeGenerator || !(generator `unroll` elemTpe)) BooleanLiteral(true)
+      if (!(generator == FreeGenerator || (generator == ContractGenerator && !inDomain)) ||
+          !(ContractGenerator `unroll` elemTpe)) BooleanLiteral(true)
       else {
         val b = encodedCond(pathVar)
         val encoder = mkEncoder(localSubst)
         val closures = typeOps.variablesOf(tpe).toSeq.sortBy(_.id).map(encoder).map(Left(_))
         val readsCall: Variable = Variable.fresh("tp", BooleanType(), true)
         storeExpr(readsCall)
-        val typing = Typing(tpe, encoder(arg), Collection(exprVars(readsCall), closures))
+        val typing = Typing(tpe, encoder(arg), Collection(exprVars(readsCall), closures, generator == FreeGenerator))
         types += b -> (types.getOrElse(b, Set.empty) + typing)
         readsCall
       }
@@ -847,7 +850,7 @@ trait TemplateGenerator { self: Templates =>
             rec(newBool2, to, valueExpr, state)
           )))
 
-          and(rec(pathVar, to, defaultExpr, state), newExpr, storeReads(pathVar, tpe, to, expr))
+          and(rec(pathVar, to, defaultExpr, state), newExpr, storeReads(pathVar, tpe, to, expr, inDomain))
         }
 
       case SetType(base) =>
@@ -879,7 +882,7 @@ trait TemplateGenerator { self: Templates =>
             rec(newBool2, base, elemExpr, state)
           )))
 
-          and(newExpr, storeReads(pathVar, tpe, base, expr))
+          and(newExpr, storeReads(pathVar, tpe, base, expr, inDomain))
         }
 
       case BagType(base) =>
@@ -915,7 +918,7 @@ trait TemplateGenerator { self: Templates =>
             rec(newBool2, IntegerType(), multExpr, state)
           )))
 
-          and(newExpr, storeReads(pathVar, tpe, base, expr))
+          and(newExpr, storeReads(pathVar, tpe, base, expr, inDomain))
         }
 
       case _ => throw new InternalSolverError(s"Unexpected unrollable: ${tpe.asString}")
