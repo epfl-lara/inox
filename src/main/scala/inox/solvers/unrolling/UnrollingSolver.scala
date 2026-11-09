@@ -1422,6 +1422,11 @@ abstract class AbstractUnrollingSolver private
               }.headOption
 
               optError match {
+                // The model of a quantifier outside of the supported fragment can't be trusted from
+                // the instantiations alone, but evaluating the formula can still show it holds (e.g.
+                // a quantifier over an empty type, which holds vacuously).
+                case Some(_) if validateModel(model, assumptionsSeq, silenceErrors = true) =>
+                  sat
                 case Some((expr, err)) =>
                   if (!silentErrors) {
                     reporter.error("Quantification " + expr.asString(using templates.program.printerOpts) +

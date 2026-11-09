@@ -1,8 +1,0 @@
-; A quantifier over an empty type holds vacuously, but the result is unknown.
-
-; empty
-(push 1)
-(assert (forall ((w (! Int :var z :restrict false))) false))
-(set-info :status sat)
-(check-sat)
-(pop 1)
