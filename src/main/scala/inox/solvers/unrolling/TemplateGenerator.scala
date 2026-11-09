@@ -28,7 +28,7 @@ trait TemplateGenerator { self: Templates =>
   /** The interpretation of the uninterpreted call `id[tps](args)` in the model that the solver
     * operates under (see [[AbstractUnrollingSolver.partialModel]]), if the model interprets `id` at
     * `tps`. Uninterpreted calls take their interpretations when their clauses are generated. */
-  private[unrolling] var interpretation: (Identifier, Seq[Type], Seq[Expr]) => Option[Expr] = (_, _, _) => None
+  def interpretation(id: Identifier, tps: Seq[Type], args: Seq[Expr]): Option[Expr]
 
   /** The free functions that stand for the uninterpreted functions at their type arguments, whose
     * applications are the uninterpreted calls that have no interpretation. They are shared by all
