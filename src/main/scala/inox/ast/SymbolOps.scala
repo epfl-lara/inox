@@ -412,9 +412,16 @@ trait SymbolOps extends TypeOps { self =>
       }
 
       // Uninterpreted calls are never lifted either, so that closures that call distinct
-      // uninterpreted functions remain distinct
-      def containsChoose(e: Expr): Boolean =
-        exists { case _: Choose | _: UninterpretedCall | _: Error => true case _ => false } (e)
+      // uninterpreted functions remain distinct. Lifting a lambda doesn't evaluate its body, so
+      // the calls and errors in it don't prevent lifting (e.g. a lambda of a model, `x => f(x)`).
+      def containsChoose(e: Expr): Boolean = {
+        def rec(e: Expr): Boolean = e match {
+          case _: Choose | _: UninterpretedCall | _: Error => true
+          case Lambda(_, body) => exists { case _: Choose => true case _ => false } (body)
+          case Operator(es, _) => es.exists(rec)
+        }
+        rec(e)
+      }
 
       def containsRecursive(e: Expr): Boolean =
         exists { case fi: FunctionInvocation => fi.tfd.fd.isRecursive case _ => false } (e)
