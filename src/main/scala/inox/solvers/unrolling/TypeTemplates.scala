@@ -258,10 +258,8 @@ trait TypeTemplates { self: Templates =>
         (readBlocker, typesManager.collections(ct).toSeq.flatMap(info => typeRead(info.current, readBlocker, collection, key)))
     }
 
-    if (blocker == readBlocker) readClauses else {
-      registerImplication(blocker, readBlocker)
-      readClauses :+ mkImplies(blocker, readBlocker)
-    }
+    registerImplication(blocker, readBlocker)
+    readClauses :+ mkImplies(blocker, readBlocker)
   }
 
   /** A free collection, whose reads typing so far ends with the `next` literal. */
