@@ -396,14 +396,18 @@ abstract class AbstractPrincessSolver(override val program: Program,
       }
   }
 
+  // The uninterpreted functions of the closures of models, by function value (see `uniquateClosure`)
+  private val closureIds: MutableMap[(BigInt, FunctionType), Identifier] = MutableMap.empty
+
   object princessToInox {
     protected class Context(
       val model: Model,
       val seen: Set[BigInt] = Set.empty,
       private[AbstractPrincessSolver] val chooses: MutableMap[BigInt, Choose] = MutableMap.empty,
-      private[AbstractPrincessSolver] val lambdas: MutableMap[BigInt, Lambda] = MutableMap.empty
+      private[AbstractPrincessSolver] val lambdas: MutableMap[BigInt, Lambda] = MutableMap.empty,
+      private[AbstractPrincessSolver] val closures: MutableMap[Identifier, Lambda] = MutableMap.empty
     ) {
-      def withSeen(n: BigInt): Context = new Context(model, seen + n, chooses, lambdas)
+      def withSeen(n: BigInt): Context = new Context(model, seen + n, chooses, lambdas, closures)
     }
 
     // For some reason, various trees are not evaluated in the resulting Princess model,
@@ -517,7 +521,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
               ctx.lambdas.getOrElse(n, {
                 val newCtx = ctx.withSeen(n)
                 val params = ft.from.map(tpe => ValDef.fresh("x", tpe, true))
-                val res = uniquateClosure(n.intValue, lambdas.getB(ft)
+                val lambda = (lambdas.getB(ft)
                   .flatMap { fun =>
                     val interps = ctx.model.interpretation.flatMap {
                       case (IFunApp(`fun`, ptr +: args), res: IIntLit) =>
@@ -548,6 +552,9 @@ abstract class AbstractPrincessSolver(override val program: Program,
                     case _: NoSimpleValue =>
                       Lambda(params, Choose(ValDef.fresh("res", ft.to), BooleanLiteral(true)))
                   }))
+                  val id = closureIds.getOrElseUpdate(n -> ft, FreshIdentifier("f", true))
+                  val res = uniquateClosure(id, lambda)
+                  ctx.closures(id) = lambda
                   ctx.lambdas(n) = res
                   res
               })
@@ -605,7 +612,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
     def apply(iexpr: IExpression, tpe: Type)(using model: Model) = {
       val ctx = new Context(model)
       val res = parseExpr(iexpr, tpe)(using ctx)
-      (res, ctx.chooses.map { case (n, c) => c -> ctx.lambdas(n) })
+      (res, ctx.chooses.map { case (n, c) => c.res.id -> (ctx.lambdas(n): Expr) } ++ ctx.closures)
     }
   }
 

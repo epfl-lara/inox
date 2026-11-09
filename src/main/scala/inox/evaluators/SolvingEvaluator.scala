@@ -37,12 +37,19 @@ trait SolvingEvaluator extends Evaluator { self =>
   private def hasRefinement(tpe: Type): Boolean =
     typeOps.exists { case _: RefinementType => true case _ => false } (tpe)
 
-  def onChooseInvocation(choose: Choose): Expr = {
+  /** The solvers that solve for chooses and foralls, which operate under the model of the
+    * evaluation. */
+  private def getSolver(chooses: Map[(Identifier, Seq[Type]), Expr])(using ctx: Context) =
+    if (chooses.isEmpty) semantics.getSolver
+    else semantics.getSolver(inox.Model(program)(Map.empty, chooses))
+
+  def onChooseInvocation(choose: Choose, chooses: Map[(Identifier, Seq[Type]), Expr] = Map.empty): Expr = {
     if (!evalQuantifiers) {
       throw new RuntimeException(s"Evaluation of 'choose' expressions disabled @ ${choose.getPos}: $choose")
     }
 
-    chooseCache.getOrElse(choose, {
+    // The results in a model only hold in that model
+    (if (chooses.isEmpty) chooseCache.get(choose) else None).getOrElse({
       import scala.language.existentials
       import SolverResponses._
 
@@ -53,7 +60,7 @@ trait SolvingEvaluator extends Evaluator { self =>
       // So we only declare the result when its type has a refinement and no simple value.
       def solve(declareResult: Boolean): Option[Expr] = {
         val satRes = context.timers.evaluators.specs.run {
-          val sf = semantics.getSolver
+          val sf = getSolver(chooses)(using context)
           val solver = sf.getNewSolver()
           try {
             if (declareResult) solver.declare(choose.res)
@@ -66,7 +73,7 @@ trait SolvingEvaluator extends Evaluator { self =>
 
         satRes match {
           case SatWithModel(model) =>
-            if (model.chooses.nonEmpty && checkModels) {
+            if ((model.chooses.keySet -- chooses.keySet).nonEmpty && checkModels) {
               throw new RuntimeException("Cannot guarantee model for dependent choose " + choose.asString)
             }
             model.vars.get(choose.res)
@@ -88,20 +95,21 @@ trait SolvingEvaluator extends Evaluator { self =>
         }
       }
 
-      chooseCache(choose) = res
+      if (chooses.isEmpty) chooseCache(choose) = res
       res
     })
   }
 
-  def onForallInvocation(forall: Forall): Expr = {
+  def onForallInvocation(forall: Forall, chooses: Map[(Identifier, Seq[Type]), Expr] = Map.empty): Expr = {
     if (!evalQuantifiers) {
       throw new RuntimeException(s"Evaluation of 'forall' expressions disabled @ ${forall.getPos}: $forall")
     }
 
-    BooleanLiteral(forallCache.getOrElse(forall, {
+    // The results in a model only hold in that model
+    BooleanLiteral((if (chooses.isEmpty) forallCache.get(forall) else None).getOrElse({
       import scala.language.existentials
       val sf = context.timers.evaluators.forall.run {
-        semantics.getSolver(using context.withOpts(
+        getSolver(chooses)(using context.withOpts(
           optSilentErrors(true),
           optCheckModels(false), // model is checked manually!! (see below)
           unrolling.optFeelingLucky(false),
@@ -146,12 +154,12 @@ trait SolvingEvaluator extends Evaluator { self =>
         }
         res match {
           case Unsat =>
-            forallCache(forall) = true
+            if (chooses.isEmpty) forallCache(forall) = true
             true
 
           case SatWithModel(model) =>
-            forallCache(forall) = false
-            eval(Not(forall.body), model) match {
+            if (chooses.isEmpty) forallCache(forall) = false
+            eval(Not(forall.body), inox.Model(program)(model.vars, chooses ++ model.chooses)) match {
               case EvaluationResults.Successful(BooleanLiteral(true)) => false
               case _ => throw new RuntimeException("Forall model check failed")
             }

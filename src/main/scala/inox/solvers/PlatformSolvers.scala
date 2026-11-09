@@ -75,7 +75,7 @@ private[solvers] object PlatformSolvers {
   )
 
   def getFromName(finalName: String, nonIncremental: Boolean)
-                 (p: Program, ctx: Context)
+                 (p: Program, ctx: Context, model: p.Model)
                  (enc: ProgramTransformer {
                     val sourceProgram: p.type
                     val targetProgram: Program { val trees: inox.trees.type }
@@ -99,6 +99,8 @@ private[solvers] object PlatformSolvers {
 
           // encoder is from TipDebugger and enc from AbstractUnrollingSolver
           override protected val encoder = enc
+
+          override protected def partialModel = model
         }
         () => new NativeZ3Impl(p)(enc)(chooseEnc)
       }))
@@ -107,7 +109,9 @@ private[solvers] object PlatformSolvers {
         val chooseEnc = ChooseEncoder(p)(enc)
         // Override of `program` is needed as we need to have `program: p.type`
         class NativeZ3OptImpl(override val program: p.type)
-          extends z3.Z3Unrolling(program)(program, ctx, enc, chooseEnc) with z3.NativeZ3Optimizer with TimeoutSolver
+          extends z3.Z3Unrolling(program)(program, ctx, enc, chooseEnc) with z3.NativeZ3Optimizer with TimeoutSolver {
+          override protected def partialModel = model
+        }
 
         () => new NativeZ3OptImpl(p)
       }))
@@ -134,6 +138,8 @@ private[solvers] object PlatformSolvers {
 
           // encoder is from TipDebugger and enc from AbstractUnrollingSolver
           override protected val encoder = enc
+
+          override protected def partialModel = model
         }
 
         () => new UnrollZ3Impl(p)(enc)(ChooseEncoder(p)(enc))
@@ -172,7 +178,9 @@ private[solvers] object PlatformSolvers {
       case "princess" if NativeImageFlags.WITH_PRINCESS => Some(create(p)(finalName, {
         val chooseEnc = ChooseEncoder(p)(enc)
         class PrincessImpl(override val program: p.type)
-          extends princess.PrincessSolver(p)(p, ctx, enc, chooseEnc) with TimeoutSolver
+          extends princess.PrincessSolver(p)(p, ctx, enc, chooseEnc) with TimeoutSolver {
+          override protected def partialModel = model
+        }
 
         () => new PrincessImpl(p)
       }))

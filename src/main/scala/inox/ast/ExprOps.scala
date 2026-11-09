@@ -164,7 +164,7 @@ class ExprOps private(val trees: Trees)
     */
   def isSimple(e: Expr): Boolean = !exists {
     case (_: Assume) | (_: Forall) | (_: Lambda) | (_: Choose) | (_: Error) |
-         (_: FunctionInvocation) | (_: Application) => true
+         (_: FunctionInvocation) | (_: UninterpretedCall) | (_: Application) => true
     case _ => false
   } (e)
 

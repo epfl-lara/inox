@@ -62,7 +62,7 @@ class PrincessSolver(override val program: Program)
 
     def modelEval(elem: IExpression, tpe: t.Type): Option[t.Expr] = timers.solvers.princess.eval.run {
       val (res, cs) = underlying.princessToInox(elem, tpe)(using model)
-      chooses ++= cs.map(p => p._1.res.id -> p._2)
+      chooses ++= cs
       res
     }
 

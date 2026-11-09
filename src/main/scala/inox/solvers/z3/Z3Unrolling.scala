@@ -128,7 +128,7 @@ abstract class Z3Unrolling(override val program: Program)
       }
     })
 
-    def getChoose(id: Identifier): Option[t.Expr] = ex.chooses.get(id)
+    def getChoose(id: Identifier): Option[t.Expr] = ex.chooses.get(id).orElse(ex.closures.get(id))
 
     override def toString = model.toString
   }

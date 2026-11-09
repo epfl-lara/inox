@@ -122,7 +122,7 @@ class UnrollingSolverSuite extends TestSuite with DatastructureUtils {
     val l = Variable.fresh("l", T(listID)(I))
     check(E(lengthID)(I)(l) === int(3), Model, optFeelingLucky(true), optCheckModels(true)) match {
       case SatWithModel(model) =>
-        val evaluated = program.getEvaluator.eval(E(lengthID)(I)(value(model, l)))
+        val evaluated = program.getEvaluator.eval(E(lengthID)(I)(value(model, l)), model)
         assert(evaluated.result == Some(int(3)))
       case res => fail(s"Expected a model, got $res")
     }
@@ -184,8 +184,8 @@ class UnrollingSolverSuite extends TestSuite with DatastructureUtils {
         case SatWithModel(model) =>
           val fv = value(model, f)
           val eval = program.getEvaluator
-          assert(eval.eval(Application(fv, Seq(int(1)))).result == Some(int(2)))
-          assert(eval.eval(Application(fv, Seq(int(2)))).result == Some(int(1)))
+          assert(eval.eval(Application(fv, Seq(int(1))), model).result == Some(int(2)))
+          assert(eval.eval(Application(fv, Seq(int(2))), model).result == Some(int(1)))
         case Unknown =>
         case res => fail(s"Expected a model, got $res (checkModels = $checkModels)")
       }
@@ -247,7 +247,7 @@ class UnrollingSolverSuite extends TestSuite with DatastructureUtils {
       check(clause, Model, optCheckModels(true)) match {
         case SatWithModel(model) =>
           val bindings = model.vars.toSeq.map { case (vd, v) => vd -> v }
-          val evaluated = program.getEvaluator.eval(bindings.foldRight(clause) { case ((vd, v), e) => Let(vd, v, e) })
+          val evaluated = program.getEvaluator.eval(bindings.foldRight(clause) { case ((vd, v), e) => Let(vd, v, e) }, model)
           assert(evaluated.result == Some(BooleanLiteral(true)), clause)
         case res => fail(s"Expected a model for $clause, got $res")
       }
