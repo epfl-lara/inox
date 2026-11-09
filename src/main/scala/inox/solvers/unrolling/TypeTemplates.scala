@@ -106,13 +106,16 @@ trait TypeTemplates { self: Templates =>
   /** Types the reads of a free map, set or bag: the values of a map at the keys and the elements of a
     * set or bag that the formula reads (@see [[registerCollection]]), similarly to how free functions
     * are typed at their applications. The decomposition of the collection only types the elements
-    * it unfolds, which don't include arbitrary reads such as `m(k)` for a free key `k`. Only free
-    * collections are typed this way: the results of contracts would be paired with every read of
-    * their type, which is costly in Stainless, where these results are many (e.g. the contents of
-    * lists), and they keep the decomposition. */
-  case class Collection(result: Encoded, closures: Seq[Arg]) extends TemplateInstantiator {
+    * it unfolds, which don't include arbitrary reads such as `m(k)` for a free key `k`.
+    *
+    * Free collections (`free`) are typed at every read of their type that may read them. The
+    * results of contracts are only typed at the reads of the same term, similarly to applications
+    * of known lambdas, which aren't dispatched to the other functions of their type: these results
+    * may be many (e.g. the contents of lists in Stainless), and pairing each of them with every read
+    * of their type makes the unrolling quadratic. */
+  case class Collection(result: Encoded, closures: Seq[Arg], free: Boolean) extends TemplateInstantiator {
     override def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): TemplateInstantiator =
-      Collection(substituter(result), closures map (_.substitute(substituter, msubst)))
+      Collection(substituter(result), closures map (_.substitute(substituter, msubst)), free)
   }
 
   case class Capture(encoded: Encoded, tpe: FunctionType) extends TemplateInstantiator {
@@ -137,7 +140,7 @@ trait TypeTemplates { self: Templates =>
     def unroll: Boolean = instantiator match {
       case Constraint(_, _, free, _) => (if (free) FreeUnrolling else ContractUnrolling) `unroll` tpe
       case Membership(_, _) => ContractUnrolling `unroll` tpe
-      case Collection(_, _) => FreeUnrolling `unroll` tpe
+      case Collection(_, _, free) => (if (free) FreeUnrolling else ContractUnrolling) `unroll` tpe
       case Capture(_, _) => CaptureUnrolling `unroll` tpe
     }
   }
@@ -180,8 +183,8 @@ trait TypeTemplates { self: Templates =>
           }
         }
 
-      case Typing(tpe, arg, Collection(result, closures)) =>
-        registerCollection(blocker, result, tpe, arg, closures)
+      case Typing(tpe, arg, Collection(result, closures, free)) =>
+        registerCollection(blocker, result, tpe, arg, closures, free)
 
       case Typing(tpe, arg, Capture(container, containerType)) =>
         CaptureTemplate(tpe, containerType).instantiate(blocker, container, arg)
@@ -213,7 +216,7 @@ trait TypeTemplates { self: Templates =>
     * collection equals the read one. As for the applications of free functions, the typing
     * result is a conjunction over the reads, which is extended with every new read. */
   private def typeRead(info: CollectionInfo, readBlocker: Encoded, read: Encoded, key: Encoded): Clauses = {
-    val CollectionInfo(blocker, tpe, collection, closures, next) = info
+    val CollectionInfo(blocker, tpe, collection, closures, next, free) = info
     if (typesManager.readTypings `contains` ((blocker, collection, read, key))) Seq.empty else {
       val (elemTpe, cond, value) = collectionRead(tpe, collection, key)
       val guard = mkAnd(readBlocker, mkEquals(collection, read), cond)
@@ -230,18 +233,27 @@ trait TypeTemplates { self: Templates =>
       Seq(
         mkImplies(mkAnd(blocker, guard), typeBlocker),
         mkImplies(blocker, mkEquals(next, mkAnd(mkImplies(guard, result), nextB)))
-      ) ++ instantiateType(typeBlocker, Typing(elemTpe, value, Constraint(result, elemClosures, true)))
+      ) ++ instantiateType(typeBlocker, Typing(elemTpe, value, Constraint(result, elemClosures, free)))
     }
   }
 
-  /** Registers the free collection `collection` of type `tpe`, whose reads are typed when the
-    * collection may equal the read collection. */
-  def registerCollection(blocker: Encoded, result: Encoded, tpe: Type, collection: Encoded, closures: Seq[Arg]): Clauses = {
+  /** Registers the collection `collection` of type `tpe`, whose reads are typed when the
+    * collection may equal the read collection, if it is free, and when the read collection is
+    * `collection` itself otherwise (@see [[Collection]]). */
+  def registerCollection(blocker: Encoded, result: Encoded, tpe: Type, collection: Encoded, closures: Seq[Arg],
+                         free: Boolean): Clauses = {
     val ct = tpe.getType
-    val info = CollectionInfo(blocker, tpe, collection, closures, result)
-    typesManager.collections += ct -> (typesManager.collections(ct) + info)
-    typesManager.reads(ct).toSeq.flatMap { case (readBlocker, read, key) =>
-      typeRead(info.current, readBlocker, read, key)
+    val info = CollectionInfo(blocker, tpe, collection, closures, result, free)
+    if (free) {
+      typesManager.collections += ct -> (typesManager.collections(ct) + info)
+      typesManager.reads(ct).toSeq.flatMap { case (readBlocker, read, key) =>
+        typeRead(info.current, readBlocker, read, key)
+      }
+    } else {
+      typesManager.boundCollections += collection -> (typesManager.boundCollections(collection) + info)
+      typesManager.readsOf(collection).toSeq.flatMap { case (readBlocker, key) =>
+        typeRead(info.current, readBlocker, collection, key)
+      }
     }
   }
 
@@ -257,15 +269,18 @@ trait TypeTemplates { self: Templates =>
         val readBlocker = encodeSymbol(Variable.fresh("rd", BooleanType(), true))
         typesManager.readBlockers += (collection, key) -> readBlocker
         typesManager.reads += ct -> (typesManager.reads(ct) + ((readBlocker, collection, key)))
-        (readBlocker, typesManager.collections(ct).toSeq.flatMap(info => typeRead(info.current, readBlocker, collection, key)))
+        typesManager.readsOf += collection -> (typesManager.readsOf(collection) + (readBlocker -> key))
+        val infos = typesManager.collections(ct).toSeq ++ typesManager.boundCollections(collection)
+        (readBlocker, infos.flatMap(info => typeRead(info.current, readBlocker, collection, key)))
     }
 
     registerImplication(blocker, readBlocker)
     readClauses :+ mkImplies(blocker, readBlocker)
   }
 
-  /** A free collection, whose reads typing so far ends with the `next` literal. */
-  private case class CollectionInfo(blocker: Encoded, tpe: Type, collection: Encoded, closures: Seq[Arg], next: Encoded) {
+  /** A collection, whose reads typing so far ends with the `next` literal. */
+  private case class CollectionInfo(blocker: Encoded, tpe: Type, collection: Encoded, closures: Seq[Arg], next: Encoded,
+                                    free: Boolean) {
     def current: CollectionInfo = {
       var n = next
       while (typesManager.collectionNexts `contains` n) n = typesManager.collectionNexts(n)
@@ -279,7 +294,7 @@ trait TypeTemplates { self: Templates =>
       typing.instantiator match {
         case Constraint(res, _, _, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
         case Membership(res, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
-        case Collection(res, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
+        case Collection(res, _, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
         case _ => Seq.empty
       }
 
@@ -463,13 +478,17 @@ trait TypeTemplates { self: Templates =>
 
     private[TypeTemplates] val collections =
       new IncrementalMap[Type, Set[CollectionInfo]].withDefaultValue(Set.empty)
+    private[TypeTemplates] val boundCollections =
+      new IncrementalMap[Encoded, Set[CollectionInfo]].withDefaultValue(Set.empty)
     private[TypeTemplates] val reads = new IncrementalMap[Type, Set[(Encoded, Encoded, Encoded)]].withDefaultValue(Set.empty)
+    private[TypeTemplates] val readsOf = new IncrementalMap[Encoded, Set[(Encoded, Encoded)]].withDefaultValue(Set.empty)
     private[TypeTemplates] val readBlockers = new IncrementalMap[(Encoded, Encoded), Encoded]
     private[TypeTemplates] val readTypings = new IncrementalMap[(Encoded, Encoded, Encoded, Encoded), Encoded]
     private[TypeTemplates] val collectionNexts = new IncrementalMap[Encoded, Encoded]
 
     val incrementals: Seq[IncrementalState] =
-      Seq(typeInfos, lessOrder, results, typeDepths, collections, reads, readBlockers, readTypings, collectionNexts)
+      Seq(typeInfos, lessOrder, results, typeDepths, collections, boundCollections, reads, readsOf,
+        readBlockers, readTypings, collectionNexts)
 
     def unrollGeneration: Option[Int] =
       if (typeInfos.isEmpty) None
@@ -478,7 +497,8 @@ trait TypeTemplates { self: Templates =>
     /** The last literal of the reads typing of each free collection, which is assumed to hold as
       * the reads that are yet to come extend it (@see [[registerCollection]]), similarly to the
       * typing blockers of free functions in [[LambdaTemplates]]. */
-    private def readsTails: Seq[Encoded] = collections.toSeq.flatMap(_._2.map(_.current.next))
+    private def readsTails: Seq[Encoded] =
+      (collections.toSeq ++ boundCollections.toSeq).flatMap(_._2.map(_.current.next))
 
     def satisfactionAssumptions: Seq[Encoded] =
       typeInfos.map(_._2._3).toSeq ++ tpSubst.values ++ readsTails

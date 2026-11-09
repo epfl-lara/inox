@@ -1,0 +1,46 @@
+; The values that the formula reads from the result of a call are typed with the result type of the
+; function when its contract is assumed, at the reads of the same call (and not at every read of
+; their type, as for free collections).
+(set-option :assume-checked true)
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+; build(n) maps the keys 1 to n to themselves, and the others to 1
+(define-fun-rec build ((n Int)) (Array Int PosInt)
+  (ite (<= n 0) ((as const (Array Int Int)) 1) (store (build (- n 1)) n n)))
+
+; elems(n) holds the elements 1 to n
+(define-fun-rec elems ((n Int)) (Set PosInt)
+  (ite (<= n 0) (as emptyset Int) (insert (elems (- n 1)) n)))
+
+(declare-const n Int)
+(declare-const k Int)
+(declare-const x Int)
+
+; map read of a call
+(push 1)
+(assert (not (> (select (build n) k) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map read of a call, too strong
+(push 1)
+(assert (not (> (select (build n) k) 1)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; set read of a call
+(push 1)
+(assert (not (=> (member x (elems n)) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; set read of a call, too strong
+(push 1)
+(assert (not (=> (member x (elems n)) (> x 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
