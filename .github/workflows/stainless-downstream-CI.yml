@@ -155,4 +155,6 @@ jobs:
       working-directory: ${{ env.STAINLESS_DIR }}
       run: ./stainless-ci.sh --skip-build --skip-tests --skip-bolts
     - name: Clean up
+      # Even after a failure, a timeout or a cancellation, so that jobs don't fill the runners' disk
+      if: always()
       run: rm -rf "$JAVA_OPTS_TMP_DIR"
