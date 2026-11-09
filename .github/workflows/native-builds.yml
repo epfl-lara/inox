@@ -32,10 +32,10 @@ jobs:
       with:
         distribution: temurin
         java-version: 21
-    - name: Install and set up sbt
+    - name: Install sbt
+      uses: ./.github/actions/install-sbt
+    - name: Set sbt options
       run: |
-        ./scripts/install_sbt.sh
-        echo "$(pwd)/sbt/bin/" >> $GITHUB_PATH
         echo "SBT_OPTS=-Xss64M -Xmx4G -Dsbt.global.base=$GITHUB_WORKSPACE/.sbt-global" >> $GITHUB_ENV
     - name: Install Z3
       uses: ./.github/actions/install-solvers
@@ -67,10 +67,10 @@ jobs:
       with:
         distribution: graalvm-community
         java-version: 25
-    - name: Install and set up sbt
+    - name: Install sbt
+      uses: ./.github/actions/install-sbt
+    - name: Set sbt options
       run: |
-        ./scripts/install_sbt.sh
-        echo "$(pwd)/sbt/bin/" >> $GITHUB_PATH
         echo "SBT_OPTS=-Xss64M -Xmx4G -Dsbt.global.base=$GITHUB_WORKSPACE/.sbt-global" >> $GITHUB_ENV
     - name: Install Z3
       uses: ./.github/actions/install-solvers
