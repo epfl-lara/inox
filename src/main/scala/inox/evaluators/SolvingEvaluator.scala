@@ -43,10 +43,47 @@ trait SolvingEvaluator extends Evaluator { self =>
     if (chooses.isEmpty) semantics.getSolver
     else semantics.getSolver(inox.Model(program)(Map.empty, chooses))
 
-  def onChooseInvocation(choose: Choose, chooses: Map[(Identifier, Seq[Type]), Expr] = Map.empty): Expr = {
+  /** The interpretations in `chooses` of the uninterpreted functions that `e` may call, directly or
+    * through the functions and interpretations that it calls. The solvers only need to operate
+    * under these, so that semantics whose solvers can't operate under a model still solve for the
+    * chooses and foralls that call no uninterpreted function. */
+  private def reachedChooses(e: Expr, chooses: Map[(Identifier, Seq[Type]), Expr]): Map[(Identifier, Seq[Type]), Expr] =
+    if (chooses.isEmpty) chooses else {
+      // The functions and uninterpreted functions that `e` calls, including in its types
+      def calls(e: Expr): (Set[Identifier], Set[Identifier]) = {
+        var fds = Set.empty[Identifier]
+        var ucs = Set.empty[Identifier]
+        new ConcreteSelfTreeTraverser(program.trees) {
+          override def traverse(e: Expr): Unit = {
+            e match {
+              case fi: FunctionInvocation => fds += fi.id
+              case uc: UninterpretedCall => ucs += uc.id
+              case _ =>
+            }
+            super.traverse(e)
+          }
+        }.traverse(e)
+        (fds, ucs)
+      }
+
+      def rec(todo: Seq[Expr], fds: Set[Identifier], ucs: Set[Identifier]): Set[Identifier] = todo match {
+        case Seq() => ucs
+        case e +: rest =>
+          val (newFds, newUcs) = calls(e) match { case (f, u) => (f -- fds, u -- ucs) }
+          val next = newFds.toSeq.map(id => getFunction(id).fullBody) ++
+            chooses.collect { case ((id, _), body) if newUcs(id) => body }
+          rec(rest ++ next, fds ++ newFds, ucs ++ newUcs)
+      }
+
+      val reached = rec(Seq(e), Set.empty, Set.empty)
+      chooses.filter { case ((id, _), _) => reached(id) }
+    }
+
+  def onChooseInvocation(choose: Choose, modelChooses: Map[(Identifier, Seq[Type]), Expr] = Map.empty): Expr = {
     if (!evalQuantifiers) {
       throw new RuntimeException(s"Evaluation of 'choose' expressions disabled @ ${choose.getPos}: $choose")
     }
+    val chooses = reachedChooses(choose, modelChooses)
 
     // The results in a model only hold in that model
     (if (chooses.isEmpty) chooseCache.get(choose) else None).getOrElse({
@@ -100,10 +137,11 @@ trait SolvingEvaluator extends Evaluator { self =>
     })
   }
 
-  def onForallInvocation(forall: Forall, chooses: Map[(Identifier, Seq[Type]), Expr] = Map.empty): Expr = {
+  def onForallInvocation(forall: Forall, modelChooses: Map[(Identifier, Seq[Type]), Expr] = Map.empty): Expr = {
     if (!evalQuantifiers) {
       throw new RuntimeException(s"Evaluation of 'forall' expressions disabled @ ${forall.getPos}: $forall")
     }
+    val chooses = reachedChooses(forall, modelChooses)
 
     // The results in a model only hold in that model
     BooleanLiteral((if (chooses.isEmpty) forallCache.get(forall) else None).getOrElse({
