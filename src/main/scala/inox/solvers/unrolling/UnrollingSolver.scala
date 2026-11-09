@@ -1411,21 +1411,20 @@ abstract class AbstractUnrollingSolver private
               unknown
             } else if (templates.hasAxioms) {
               val wrapped = wrapModel(umodel)
-              val optError = templates.getAxioms.view.flatMap { q =>
-                if (wrapped.modelEval(q.guard, t.BooleanType()) != Some(t.BooleanLiteral(false))) {
-                  q.checkForall { (e1, e2) =>
-                    wrapped.modelEval(templates.mkEquals(e1, e2), t.BooleanType()) == Some(t.BooleanLiteral(true))
-                  }.map(err => q.body -> err)
-                } else {
-                  None
-                }
-              }.headOption
+              def modelEq(e1: Encoded, e2: Encoded): Boolean =
+                wrapped.modelEval(templates.mkEquals(e1, e2), t.BooleanType()) == Some(t.BooleanLiteral(true))
+              val axioms = templates.getAxioms.filter { q =>
+                wrapped.modelEval(q.guard, t.BooleanType()) != Some(t.BooleanLiteral(false))
+              }
+              val optError = axioms.view.flatMap(q => q.checkForall(modelEq).map(err => q.body -> err)).headOption
 
               optError match {
                 // The model of a quantifier outside of the supported fragment can't be trusted from
                 // the instantiations alone, but evaluating the formula can still show it holds (e.g.
-                // a quantifier over an empty type, which holds vacuously).
-                case Some(_) if validateModel(model, assumptionsSeq, silenceErrors = true) =>
+                // a quantifier over an empty type, which holds vacuously). Evaluating quantifiers over
+                // function calls or lambdas unfolds them, which may not terminate, so these are left out.
+                case Some(_) if !axioms.exists(_.hasComplexMatchers(modelEq)) &&
+                    validateModel(model, assumptionsSeq, silenceErrors = true) =>
                   sat
                 case Some((expr, err)) =>
                   if (!silentErrors) {

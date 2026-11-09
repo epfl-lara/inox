@@ -633,16 +633,19 @@ trait QuantificationTemplates { self: Templates =>
       clauses.toSeq
     }
 
+    /** Whether the body matches on function calls or lambdas, whose evaluation unfolds them. */
+    def hasComplexMatchers(modelEq: (Encoded, Encoded) => Boolean): Boolean = constraints.exists {
+      case (_, _: LambdaKey, _) => true
+      case (_, _: FunctionKey, _) => true
+      case (_, CallerKey(caller, tt), _) =>
+        byType(tt).values.exists(t => modelEq(t.ids._2, caller))
+      case _ => false
+    }
+
     def checkForall(modelEq: (Encoded, Encoded) => Boolean): Option[String] = {
       val quantified = quantifiers.map(_._1).toSet
 
-      if (constraints.exists {
-        case (_, _: LambdaKey, _) => true
-        case (_, _: FunctionKey, _) => true
-        case (_, CallerKey(caller, tt), _) =>
-          byType(tt).values.exists(t => modelEq(t.ids._2, caller))
-        case _ => false
-      }) return Some("Can't guarantee model for complex matchers.")
+      if (hasComplexMatchers(modelEq)) return Some("Can't guarantee model for complex matchers.")
 
       val matchers = exprOps.collect[(Expr, Seq[Expr])] {
         case QuantificationMatcher(e, args) => Set(e -> args)
