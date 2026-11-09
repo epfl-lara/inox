@@ -8,8 +8,6 @@ import unrolling._
 
 import z3.scala._
 
-object NativeZ3Solver
-
 class NativeZ3Solver(override val program: Program)
                     (override val prog: program.type,
                      override val context: Context,
@@ -21,12 +19,11 @@ class NativeZ3Solver(override val program: Program)
 
   override val name = "nativez3"
 
+  // Z3 contexts are created and deleted one at a time, see `Z3Native.lock`
   protected val underlying =
-    NativeZ3Solver.synchronized(new Underlying(targetProgram, self.context)(using targetSemantics))
-    
-  
+    Z3Native.lock.synchronized(new Underlying(targetProgram, self.context)(using targetSemantics))
 
-  override def free(): Unit = NativeZ3Solver.synchronized(super.free())
+  override def free(): Unit = Z3Native.lock.synchronized(super.free())
 
   private class Underlying(override val program: targetProgram.type,
                            override val context: Context)

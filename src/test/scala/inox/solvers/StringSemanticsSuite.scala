@@ -95,6 +95,27 @@ class StringSemanticsSuite extends SolverTestSuite {
     }
   }
 
+  test("Native Z3 string alphabets across threads", Strings) { ctx =>
+    // A solver that waits for the other alphabet must let the solvers it waits for be freed
+    if (ctx.options.findOptionOrDefault(optSelectedSolvers).head == "nativez3") {
+      val bmpCtx = ctx.withOpts(optStringsBMP(true))
+      val full = program.getSolver(ctx).getNewSolver()
+      var bmp: Option[Solver] = None
+      val waiter = new Thread(() => { bmp = Some(program.getSolver(bmpCtx).getNewSolver()) })
+      waiter.start()
+      val deadline = System.currentTimeMillis + 30000
+      while (waiter.getState != Thread.State.WAITING && System.currentTimeMillis < deadline) Thread.sleep(10)
+      assert(waiter.getState == Thread.State.WAITING, "the solver with the other alphabet should wait")
+      val freer = new Thread(() => full.free())
+      freer.start()
+      freer.join(30000)
+      assert(!freer.isAlive, "freeing the solver that holds the alphabet should not block")
+      waiter.join(30000)
+      assert(!waiter.isAlive, "the solver with the other alphabet should get it once the others are freed")
+      bmp.foreach(_.free())
+    }
+  }
+
   test("Substrings out of bounds", Strings) { ctx =>
     val s = solver(ctx)
 

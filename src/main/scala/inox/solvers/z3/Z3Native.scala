@@ -880,19 +880,25 @@ object Z3Native {
   /** A native Z3 solver that needs a string alphabet that another solver of the same thread is using. */
   class EncodingConflictException(msg: String) extends Exception(msg)
 
+  /** The monitor under which the native solvers create and delete their Z3 contexts (see
+    * [[NativeZ3Solver]]). The string alphabet below is guarded by the same monitor, which a solver
+    * that waits for the alphabet releases (`wait`): the solvers that use the current alphabet can
+    * then be freed, which they couldn't under a monitor of their own.
+    */
+  private[z3] val lock = new Object
+
   // Z3's string alphabet is a global parameter (`encoding`), which all the native Z3 solvers of the
   // process share. A solver sets it when it is created, and it can't change while a solver uses it:
   // a solver that needs the other alphabet waits until the solvers that use the current one are
   // freed. The solvers that wait for a change go first, so that they aren't starved. A thread that
   // holds a solver with the other alphabet would wait for itself, so it gets an exception instead.
-  private val encodingLock = new Object
   private var encoding: String = "unicode"
   private var encodingUsers: Int = 0
   private val encodingWaiters = MutableMap.empty[String, Int].withDefaultValue(0)
   private val encodingHolders = MutableMap.empty[(Thread, String), Int].withDefaultValue(0)
 
   /** Sets Z3's string alphabet to `enc` for a new solver, and returns the thread that holds it. */
-  private[z3] def acquireEncoding(enc: String): Thread = encodingLock.synchronized {
+  private[z3] def acquireEncoding(enc: String): Thread = lock.synchronized {
     val thread = Thread.currentThread
     if (encodingHolders.exists { case ((t, e), n) => t == thread && e != enc && n > 0 }) {
       throw new EncodingConflictException(
@@ -903,7 +909,7 @@ object Z3Native {
       def othersWaiting = encodingWaiters.exists { case (e, n) => e != enc && n > 0 }
       encodingWaiters(enc) += 1
       try {
-        while (!(encodingUsers == 0 || (encoding == enc && !othersWaiting))) encodingLock.wait()
+        while (!(encodingUsers == 0 || (encoding == enc && !othersWaiting))) lock.wait()
       } finally {
         encodingWaiters(enc) -= 1
       }
@@ -918,11 +924,11 @@ object Z3Native {
   }
 
   /** Releases the alphabet that `acquireEncoding` gave to `thread`. */
-  private[z3] def releaseEncoding(enc: String, thread: Thread): Unit = encodingLock.synchronized {
+  private[z3] def releaseEncoding(enc: String, thread: Thread): Unit = lock.synchronized {
     encodingUsers -= 1
     encodingHolders((thread, enc)) -= 1
     if (encodingHolders((thread, enc)) == 0) encodingHolders -= ((thread, enc))
-    encodingLock.notifyAll()
+    lock.notifyAll()
   }
 
   def tryZ3[T](res: => T): Option[T] =
