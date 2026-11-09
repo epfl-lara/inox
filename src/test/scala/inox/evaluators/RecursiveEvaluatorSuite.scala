@@ -9,6 +9,8 @@ import org.scalatest.funsuite.AnyFunSuite
   * through [[EvaluatorSuite]], differ: Stainless's evaluators take the amount of `Int32` and `Int64` shifts
   * modulo the width, as the JVM does, and its code generator shifts unsigned bitvectors logically. Its code
   * generator also still divides integers toward zero and takes the remainder of bit-vectors for `Modulo`.
+  * Also checks that the recursive evaluator stops when its context is interrupted, which the other
+  * evaluators don't.
   */
 class RecursiveEvaluatorSuite extends AnyFunSuite {
   import inox.trees._
@@ -20,6 +22,17 @@ class RecursiveEvaluatorSuite extends AnyFunSuite {
   def eval(expr: Expr): Expr = evaluator.eval(expr) match {
     case EvaluationResults.Successful(res) => res
     case other => fail(s"Evaluation of '$expr' failed with $other")
+  }
+
+  test("Evaluation stops when its context is interrupted") {
+    val interruptible = ctx.copy(interruptManager = new utils.InterruptManager(ctx.reporter))
+    val e = RecursiveEvaluator(program, interruptible)
+    val sum = Plus(IntegerLiteral(1), IntegerLiteral(1))
+    assert(e.eval(sum).result == Some(IntegerLiteral(2)))
+    interruptible.interruptManager.interrupt()
+    assert(e.eval(sum) == EvaluationResults.RuntimeError("Evaluation interrupted"))
+    interruptible.interruptManager.reset()
+    assert(e.eval(sum).result == Some(IntegerLiteral(2)))
   }
 
   test("Int32 and Int64 shifts by out-of-range amounts") {

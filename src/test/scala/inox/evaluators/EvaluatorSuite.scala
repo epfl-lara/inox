@@ -14,17 +14,6 @@ class EvaluatorSuite extends AnyFunSuite {
     RecursiveEvaluator(program, ctx)
   }
 
-  test("Evaluation stops when its context is interrupted") {
-    val interruptible = ctx.copy(interruptManager = new utils.InterruptManager(ctx.reporter))
-    val e = evaluator(interruptible)
-    val sum = Plus(IntegerLiteral(1), IntegerLiteral(1))
-    assert(e.eval(sum).result == Some(IntegerLiteral(2)))
-    interruptible.interruptManager.interrupt()
-    assert(e.eval(sum) == EvaluationResults.RuntimeError("Evaluation interrupted"))
-    interruptible.interruptManager.reset()
-    assert(e.eval(sum).result == Some(IntegerLiteral(2)))
-  }
-
   test("Literals") {
     val e = evaluator(ctx)
 
