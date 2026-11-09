@@ -1,0 +1,41 @@
+; A map with refined keys lies in a quantifier's domain iff its values lie in the value type and it
+; maps every key outside of the key type to its default. Its type check still decomposes the map,
+; and the solver may pick a decomposition that updates the map at a key outside of the key type
+; with the value that the map already has there (its default), which makes the check false for a
+; map inside of the domain: valid queries are reported invalid. Checking these maps at a
+; counterexample key, as for unrefined keys, would need to compare the value at a key outside of
+; the key type with the default of the map, which the solver can't name.
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+; key inside domain
+(push 1)
+(declare-const g (-> (Array Int Int) Int))
+(assert (not (=> (forall ((w (Array PosInt Int))) (= (g w) 1)) (= (g (store ((as const (Array Int Int)) 0) 1 5)) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; key outside domain
+(push 1)
+(declare-const g (-> (Array Int Int) Int))
+(assert (not (=> (forall ((w (Array PosInt Int))) (= (g w) 1)) (= (g (store ((as const (Array Int Int)) 0) 0 5)) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; refined keys and values
+(push 1)
+(declare-const g (-> (Array Int Int) Int))
+(assert (not (=> (forall ((w (Array PosInt PosInt))) (= (g w) 1)) (= (g (store ((as const (Array Int Int)) 1) 1 5)) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; refined keys and values, value outside domain
+(push 1)
+(declare-const g (-> (Array Int Int) Int))
+(assert (not (=> (forall ((w (Array PosInt PosInt))) (= (g w) 1)) (= (g (store ((as const (Array Int Int)) 1) 1 0)) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)

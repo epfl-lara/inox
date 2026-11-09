@@ -646,18 +646,33 @@ trait Templates
           case _ => true
         }
 
+      // The keys that a built collection defines: the elements of a finite set or bag, the keys of
+      // a finite or updated map, and the keys that the collections it is built from define
+      def definedKeys(e: Expr): Seq[Expr] = e match {
+        case FiniteMap(pairs, _, _, _) => pairs.map(_._1)
+        case MapUpdated(m, k, _) => k +: definedKeys(m)
+        case FiniteSet(elems, _) => elems
+        case SetAdd(s, e) => e +: definedKeys(s)
+        case SetUnion(s1, s2) => definedKeys(s1) ++ definedKeys(s2)
+        case SetIntersection(s1, s2) => definedKeys(s1) ++ definedKeys(s2)
+        case SetDifference(s1, _) => definedKeys(s1)
+        case FiniteBag(pairs, _) => pairs.map(_._1)
+        case BagAdd(b, e) => e +: definedKeys(b)
+        case BagUnion(b1, b2) => definedKeys(b1) ++ definedKeys(b2)
+        case BagIntersection(b1, b2) => definedKeys(b1) ++ definedKeys(b2)
+        case BagDifference(b1, _) => definedKeys(b1)
+        case _ => Seq.empty
+      }
+
       // A collection is read where the formula looks it up, and where it is built at the keys it
-      // defines: the elements of a finite set or bag, or the keys of a finite or updated map
+      // defines, so that a free collection that equals a built one types these keys
       val reads = exprOps.collect[CollectionRead] {
         case MapApply(m, k) => Set(CollectionRead(m.getType, encoder(m), encoder(k)))
         case ElementOfSet(e, s) => Set(CollectionRead(s.getType, encoder(s), encoder(e)))
         case MultiplicityInBag(e, b) => Set(CollectionRead(b.getType, encoder(b), encoder(e)))
-        case c @ FiniteMap(pairs, _, _, _) => pairs.map(p => CollectionRead(c.getType, encoder(c), encoder(p._1))).toSet
-        case c @ MapUpdated(_, k, _) => Set(CollectionRead(c.getType, encoder(c), encoder(k)))
-        case c @ FiniteSet(elems, _) => elems.map(e => CollectionRead(c.getType, encoder(c), encoder(e))).toSet
-        case c @ SetAdd(_, e) => Set(CollectionRead(c.getType, encoder(c), encoder(e)))
-        case c @ FiniteBag(pairs, _) => pairs.map(p => CollectionRead(c.getType, encoder(c), encoder(p._1))).toSet
-        case c @ BagAdd(_, e) => Set(CollectionRead(c.getType, encoder(c), encoder(e)))
+        case c @ (_: FiniteMap | _: MapUpdated | _: FiniteSet | _: SetAdd | _: SetUnion | _: SetIntersection |
+                  _: SetDifference | _: FiniteBag | _: BagAdd | _: BagUnion | _: BagIntersection | _: BagDifference) =>
+          definedKeys(c).map(k => CollectionRead(c.getType, encoder(c), encoder(k))).toSet
         case _ => Set.empty
       } (expr)
 

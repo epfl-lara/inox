@@ -1,0 +1,87 @@
+; The reads of a free collection are typed with its element type, which may itself need unrolling:
+; a collection, an ADT with an invariant or a dependent function.
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+(define-fun isPositive ((x Int)) Bool (> x 0))
+(declare-datatype Pos ((pos (pv Int))))
+(datatype-invariant p Pos (isPositive (pv p)))
+; (a: {y | y > 0}) => {r: BigInt | r > a}
+(define-type PosIncr () (-> (! PosInt :var a) (! Int :var r :restrict (> r a))))
+
+(declare-const i Int)
+(declare-const j Int)
+(declare-const x Int)
+
+; map of maps
+(push 1)
+(declare-const mm (Array Int (Array Int PosInt)))
+(assert (not (> (select (select mm i) j) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map of maps, too strong
+(push 1)
+(declare-const mm (Array Int (Array Int PosInt)))
+(assert (not (> (select (select mm i) j) 1)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; set of sets
+(push 1)
+(declare-const ss (Set (Set PosInt)))
+(declare-const s (Set Int))
+(assert (not (=> (and (member s ss) (member x s)) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map of sets
+(push 1)
+(declare-const ms (Array Int (Set PosInt)))
+(assert (not (=> (member x (select ms i)) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map of ADTs with an invariant
+(push 1)
+(declare-const mp (Array Int Pos))
+(assert (not (> (pv (select mp i)) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; bag of ADTs with an invariant
+(push 1)
+(declare-const bp (Bag Pos))
+(declare-const p Pos)
+(assert (not (=> (> (bag.multiplicity p bp) 0) (> (pv p) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map of dependent functions
+(push 1)
+(declare-const mf (Array Int PosIncr))
+(assert (not (> (@ (select mf i) 1) 1)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map in the result of a free function
+(push 1)
+(declare-const g (-> Int (Array Int PosInt)))
+(assert (not (> (select (@ g i) j) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map in the result of a free function, too strong
+(push 1)
+(declare-const g (-> Int (Array Int PosInt)))
+(assert (not (> (select (@ g i) j) 1)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
