@@ -1,6 +1,6 @@
-; The type checks of sets, maps and bags decompose them one element at a time, which only
-; terminates for finite values. Their domain tests are therefore limited to finite values,
-; see the known issues for the other cases.
+; A set or bag lies in a quantifier's domain iff its elements do: the type check can only be
+; false at an element the solver picks as a counterexample. The elements that the formula reads
+; from a free bag are typed, as the results of the applications of free functions.
 
 (define-type PosInt () (! Int :var y :restrict (> y 0)))
 
@@ -34,5 +34,27 @@
 (push 1)
 (assert (not (=> (= b (bag.union (as bag.empty Int) (bag.singleton x 1))) (> x 1))))
 (set-info :status sat)
+(check-sat)
+(pop 1)
+
+; in domain
+(push 1)
+(declare-const g (-> (Bag Int) Int))
+(assert (not (=> (forall ((w (Bag PosInt))) (= (g w) 1)) (= (g (bag.singleton 1 1)) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; holds
+(push 1)
+(assert (not (forall ((w (Bag PosInt))) (forall ((x Int)) (=> (> (bag.multiplicity x w) 0) (> x 0))))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; free variable in domain
+(push 1)
+(assert (not (=> (= b (bag.union (as bag.empty Int) (bag.singleton x 1))) (> x 0))))
+(set-info :status unsat)
 (check-sat)
 (pop 1)

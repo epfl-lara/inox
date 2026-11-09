@@ -289,6 +289,22 @@ trait TemplateGenerator { self: Templates =>
       result
     }
 
+    // Types the reads of a free collection whose elements need unrolling (see [[Reads]])
+    def storeReads(pathVar: Variable, tpe: Type, elemTpe: Type, arg: Expr, inDomain: Boolean)
+                  (using generator: TypingGenerator): Expr =
+      if (!(generator == FreeGenerator || (generator == ContractGenerator && !inDomain)) ||
+          !(generator `unroll` elemTpe)) BooleanLiteral(true)
+      else {
+        val b = encodedCond(pathVar)
+        val encoder = mkEncoder(localSubst)
+        val closures = typeOps.variablesOf(tpe).toSeq.sortBy(_.id).map(encoder).map(Left(_))
+        val readsCall: Variable = Variable.fresh("tp", BooleanType(), true)
+        storeExpr(readsCall)
+        val typing = Typing(tpe, encoder(arg), Reads(exprVars(readsCall), closures, generator == FreeGenerator))
+        types += b -> (types.getOrElse(b, Set.empty) + typing)
+        readsCall
+      }
+
     // Represents equations (simple formulas)
     var equations = Seq[Expr]()
     @inline def iff(e1: Expr, e2: Expr): Unit = equations :+= Equals(e1, e2)
@@ -625,6 +641,17 @@ trait TemplateGenerator { self: Templates =>
         newExpr
       }
 
+    // A blocker under `pathVar` that the solver sets freely, under which a membership check
+    // instantiates its counterexample (see the function case below).
+    def membershipGuard(pathVar: Variable): Variable = {
+      val choice = Variable.fresh("choice", BooleanType(), true)
+      storeExpr(choice)
+      val w = Variable.fresh("w", BooleanType(), true)
+      storeCond(pathVar, w)
+      iff(and(pathVar, choice), w)
+      w
+    }
+
     def rec(pathVar: Variable, tpe: Type, expr: Expr, state: RecursionState): Expr = tpe match {
       case tpe if !(generator `unroll` tpe) => BooleanLiteral(true) // nothing to do here!
 
@@ -644,11 +671,7 @@ trait TemplateGenerator { self: Templates =>
           case _ => throw new InternalSolverError(s"Unexpected function type: ${tpe.asString}")
         }
 
-        val choice = Variable.fresh("choice", BooleanType(), true)
-        storeExpr(choice)
-        val w = Variable.fresh("w", BooleanType(), true)
-        storeCond(pathVar, w)
-        iff(and(pathVar, choice), w)
+        val w = membershipGuard(pathVar)
 
         val (args, subst) = params.foldLeft((Seq.empty[Variable], Map.empty[ValDef, Expr])) {
           case ((args, subst), vd) =>
@@ -663,6 +686,34 @@ trait TemplateGenerator { self: Templates =>
 
         val res = rec(w, typeOps.replaceFromSymbols(subst, to), Application(expr, args), state)
         implies(w, res)
+
+      // Maps, sets and bags are checked the same way as functions: a map lies in `Map[A, B]` iff its
+      // value at every key lies in `B`, and a set or bag lies in `Set[A]` or `Bag[A]` iff each of its
+      // elements lies in `A`, so the result can only be false at a key or element that the solver
+      // picks as a counterexample. Decomposing the value instead (see below) would let the solver
+      // pick a decomposition whose parts lie outside of the type although the value doesn't, and
+      // never completes for collections that may hold infinitely many elements. The keys of maps
+      // must be unrefined, as the value of a map at a key outside of `A` must be its default.
+      case MapType(from, to) if !(ContractUnrolling `unroll` from) &&
+          (generator == MembershipGenerator || (inDomain && generator == ContractGenerator)) =>
+        val w = membershipGuard(pathVar)
+        val key = Variable.fresh("key", from, true)
+        storeExpr(key)
+        implies(w, rec(w, to, MapApply(expr, key), state))
+
+      case SetType(base) if generator == MembershipGenerator || (inDomain && generator == ContractGenerator) =>
+        val w = membershipGuard(pathVar)
+        val elem = Variable.fresh("elem", base.getType, true)
+        storeExpr(elem)
+        storeGuarded(w, ElementOfSet(elem, expr))
+        implies(w, rec(w, base, elem, state))
+
+      case BagType(base) if generator == MembershipGenerator || (inDomain && generator == ContractGenerator) =>
+        val w = membershipGuard(pathVar)
+        val elem = Variable.fresh("elem", base.getType, true)
+        storeExpr(elem)
+        storeGuarded(w, GreaterThan(MultiplicityInBag(elem, expr), IntegerLiteral(0)))
+        implies(w, rec(w, base, elem, state))
 
       case (_: FunctionType | _: PiType) => storeType(pathVar, tpe, expr, inDomain)
 
@@ -796,7 +847,7 @@ trait TemplateGenerator { self: Templates =>
             rec(newBool2, to, valueExpr, state)
           )))
 
-          and(rec(pathVar, to, defaultExpr, state), newExpr)
+          and(rec(pathVar, to, defaultExpr, state), newExpr, storeReads(pathVar, tpe, to, expr, inDomain))
         }
 
       case SetType(base) =>
@@ -828,7 +879,7 @@ trait TemplateGenerator { self: Templates =>
             rec(newBool2, base, elemExpr, state)
           )))
 
-          newExpr
+          and(newExpr, storeReads(pathVar, tpe, base, expr, inDomain))
         }
 
       case BagType(base) =>
@@ -864,7 +915,7 @@ trait TemplateGenerator { self: Templates =>
             rec(newBool2, IntegerType(), multExpr, state)
           )))
 
-          newExpr
+          and(newExpr, storeReads(pathVar, tpe, base, expr, inDomain))
         }
 
       case _ => throw new InternalSolverError(s"Unexpected unrollable: ${tpe.asString}")
