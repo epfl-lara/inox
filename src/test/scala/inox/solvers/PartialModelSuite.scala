@@ -11,11 +11,16 @@ class PartialModelSuite extends AnyFunSuite {
   import inox.trees._
   import inox.trees.dsl._
 
-  val program = InoxProgram(NoSymbols)
+  val f = FreshIdentifier("f")
+
+  // A function that makes an uninterpreted call to `f`
+  val callF = mkFunDef(FreshIdentifier("callF"))()(_ => (
+    Seq("x" :: IntegerType()), IntegerType(), { case Seq(x) =>
+      UninterpretedCall(f, Seq(), Seq(x), FunctionType(Seq(IntegerType()), IntegerType())) }))
+
+  val program = InoxProgram(NoSymbols.withFunctions(Seq(callF)))
   val outer: program.type = program
   given ctx: Context = TestContext.empty
-
-  val f = FreshIdentifier("f")
   val x = ValDef.fresh("x", IntegerType())
   val interpreting = inox.Model(program)(Map.empty, Map((f, Seq()) -> Lambda(Seq(x), x.toVariable)))
   val empty = inox.Model.empty(program)
@@ -93,10 +98,19 @@ class PartialModelSuite extends AnyFunSuite {
     assert(plainEvaluator.eval(callsNothing, interpreting) == evaluators.EvaluationResults.Successful(E(true)))
   }
 
-  test("semantics that can't solve under a model reject the foralls that call uninterpreted functions") {
-    val res = scala.util.Try(plainEvaluator.eval(callsF, interpreting))
-    assert(res.failed.toOption.exists(_.getMessage.contains("interprets functions")) ||
-      res.toOption.exists(r => !r.isInstanceOf[evaluators.EvaluationResults.Successful[?]] &&
-        r.toString.contains("interprets functions")), res.toString)
+  val callsFThroughFunction = Forall(Seq(y), callF(y.toVariable) === y.toVariable)
+
+  test("evaluators solve for the foralls that call uninterpreted functions through functions under the model") {
+    val evaluator = program.getEvaluator
+    assert(evaluator.eval(callsFThroughFunction, interpreting) == evaluators.EvaluationResults.Successful(E(true)))
+  }
+
+  for ((name, forall) <- Seq("directly" -> callsF, "through functions" -> callsFThroughFunction)) {
+    test(s"semantics that can't solve under a model reject the foralls that call uninterpreted functions $name") {
+      val res = scala.util.Try(plainEvaluator.eval(forall, interpreting))
+      assert(res.failed.toOption.exists(_.getMessage.contains("interprets functions")) ||
+        res.toOption.exists(r => !r.isInstanceOf[evaluators.EvaluationResults.Successful[?]] &&
+          r.toString.contains("interprets functions")), res.toString)
+    }
   }
 }
