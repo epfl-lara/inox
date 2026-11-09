@@ -289,6 +289,13 @@ trait QuantificationTemplates { self: Templates =>
 
           reporter.debug(" -> instantiating matcher " + matcherBlocker + " ==> " + matcher)
           for (q <- axioms) clauses ++= q.instantiate(matcherBlocker, matcher, defer)
+
+          // reads of collections are typed for the free collections they may read (see [[Reads]])
+          matcher match {
+            case Matcher(Left((c, tpe @ (_: MapType | _: SetType | _: BagType))), Seq(key), _) =>
+              clauses ++= registerRead(matcherBlocker, tpe, c, key.encoded)
+            case _ =>
+          }
           matcherBlocker
       }
 
