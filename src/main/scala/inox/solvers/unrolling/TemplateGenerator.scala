@@ -291,17 +291,16 @@ trait TemplateGenerator { self: Templates =>
     }
 
     // Types the reads of a free collection whose elements need unrolling (see [[Collection]])
-    def storeReads(pathVar: Variable, tpe: Type, elemTpe: Type, arg: Expr, inDomain: Boolean)
+    def storeReads(pathVar: Variable, tpe: Type, elemTpe: Type, arg: Expr)
                   (using generator: TypingGenerator): Expr =
-      if (!(generator == FreeGenerator || (generator == ContractGenerator && !inDomain)) ||
-          !(generator `unroll` elemTpe)) BooleanLiteral(true)
+      if (generator != FreeGenerator || !(generator `unroll` elemTpe)) BooleanLiteral(true)
       else {
         val b = encodedCond(pathVar)
         val encoder = mkEncoder(localSubst)
         val closures = typeOps.variablesOf(tpe).toSeq.sortBy(_.id).map(encoder).map(Left(_))
         val readsCall: Variable = Variable.fresh("tp", BooleanType(), true)
         storeExpr(readsCall)
-        val typing = Typing(tpe, encoder(arg), Collection(exprVars(readsCall), closures, generator == FreeGenerator))
+        val typing = Typing(tpe, encoder(arg), Collection(exprVars(readsCall), closures))
         types += b -> (types.getOrElse(b, Set.empty) + typing)
         readsCall
       }
@@ -848,7 +847,7 @@ trait TemplateGenerator { self: Templates =>
             rec(newBool2, to, valueExpr, state)
           )))
 
-          and(rec(pathVar, to, defaultExpr, state), newExpr, storeReads(pathVar, tpe, to, expr, inDomain))
+          and(rec(pathVar, to, defaultExpr, state), newExpr, storeReads(pathVar, tpe, to, expr))
         }
 
       case SetType(base) =>
@@ -880,7 +879,7 @@ trait TemplateGenerator { self: Templates =>
             rec(newBool2, base, elemExpr, state)
           )))
 
-          and(newExpr, storeReads(pathVar, tpe, base, expr, inDomain))
+          and(newExpr, storeReads(pathVar, tpe, base, expr))
         }
 
       case BagType(base) =>
@@ -916,7 +915,7 @@ trait TemplateGenerator { self: Templates =>
             rec(newBool2, IntegerType(), multExpr, state)
           )))
 
-          and(newExpr, storeReads(pathVar, tpe, base, expr, inDomain))
+          and(newExpr, storeReads(pathVar, tpe, base, expr))
         }
 
       case _ => throw new InternalSolverError(s"Unexpected unrollable: ${tpe.asString}")
