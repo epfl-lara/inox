@@ -147,11 +147,12 @@ class InvariantSolverSuite extends AnyFunSuite {
     assertInvalid(ctx, Implies(x >= E(BigInt(0)), E(incID)(x) === x))
   }
 
-  knownIssue("Conditionals", "if-expressions are encoded with predicates of the wrong arity") { ctx =>
+  test("Conditionals") { ctx =>
     val x = Variable.fresh("x", IntegerType())
     val y = Variable.fresh("y", IntegerType())
-    assertValid(ctx, if_ (x > y) { x } else_ { y } >= x)
-    assertInvalid(ctx, if_ (x > y) { x } else_ { y } > x)
+    val max = if_ (x > y) { x } else_ { y }
+    assertValid(ctx, max >= x)
+    assertInvalid(ctx, max > x)
   }
 
   test("Bindings") { ctx =>
@@ -161,10 +162,11 @@ class InvariantSolverSuite extends AnyFunSuite {
     assertInvalid(ctx, let("z" :: IntegerType(), x + y)(z => z === x))
   }
 
-  knownIssue("Assumptions in the checked formula", "fails an assertion that formulas have no assumptions") { ctx =>
+  test("Assumptions in the checked formula") { ctx =>
     val x = Variable.fresh("x", IntegerType())
     assertValid(ctx, Assume(x > E(BigInt(0)), x + x > x))
     assertValid(ctx, Assume(E(sumID)(x) > E(BigInt(0)), x > E(BigInt(0))))
+    assertInvalid(ctx, Assume(x > E(BigInt(0)), x > E(BigInt(1))))
   }
 
   knownIssue("Lambdas and applications", "lambdas reach the underlying Horn solver, which doesn't support them") { ctx =>
@@ -182,7 +184,7 @@ class InvariantSolverSuite extends AnyFunSuite {
     assertInvalid(ctx, choose("r" :: IntegerType())(r => r > x) === x + E(BigInt(1)))
   }
 
-  knownIssue("Incremental constraints", "the clauses of earlier checks stay asserted in the Horn solver") { ctx =>
+  test("Incremental constraints") { ctx =>
     val x = Variable.fresh("x", IntegerType())
     val solver = fp.getSolver(ctx).getNewSolver()
     try {

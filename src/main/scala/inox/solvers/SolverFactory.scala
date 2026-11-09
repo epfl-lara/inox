@@ -247,6 +247,10 @@ object SolverFactory {
               // reporter.debug("Invoking solver "+targetName+" with "+opts.mkString(" "))
               new HornZ3Interpreter(targetName, opts.toArray, parserCtor = out => new Z3Parser(new Lexer(out)))
             }
+
+            // the interpreter sets the logic when it starts, and a reset forgets it
+            override protected def initialize(): Unit =
+              emit(SetLogic(NonStandardLogic(Terms.SSymbol("HORN"))))
           }
 
           override protected val underlyingHorn = Underlying(targetProgram)
