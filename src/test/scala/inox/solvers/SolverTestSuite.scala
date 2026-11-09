@@ -43,6 +43,8 @@ enum Feature {
   case Quantifiers
   /** Type parameters, encoded as uninterpreted sorts. */
   case TypeParameters
+  /** Forgetting every constraint with `reset`. */
+  case Reset
 }
 
 object SolverTestSuite {
@@ -78,10 +80,10 @@ object SolverTestSuite {
     */
   val solvers: Seq[SolverInfo] = Seq(
     SolverInfo("nativez3", () => SolverFactory.hasNativeZ3,
-      Set(BitVectorIntConversions, FloatingPoint),
+      Set(BitVectorIntConversions, FloatingPoint, Reset),
       groundOnly = Map("Bag Operations" -> z3BagUnionModels)),
     SolverInfo("unrollz3", () => SolverFactory.hasNativeZ3,
-      Set(BitVectorIntConversions, FloatingPoint),
+      Set(BitVectorIntConversions, FloatingPoint, Reset),
       groundOnly = Map("Bag Operations" -> z3BagUnionModels)),
     SolverInfo("smt-z3", () => SolverFactory.hasZ3,
       Set(),
@@ -94,9 +96,9 @@ object SolverTestSuite {
       groundOnly = cvcGroundOnly),
     SolverInfo("smt-bitwuzla", () => SolverFactory.hasBitwuzla,
       Set(Integers, Reals, BitVectorIntConversions, Strings, Sets, Bags, BagAlgebra, Maps, NestedArrays, ADTs,
-        Quantifiers, TypeParameters)),
+        Quantifiers, TypeParameters, Reset)),
     SolverInfo("princess", () => true,
-      Set(BitVectors, FloatingPoint, Sets, BagAlgebra, Maps, NestedArrays),
+      Set(BitVectors, FloatingPoint, Sets, BagAlgebra, Maps, NestedArrays, Reset),
       // Times out on conjunctions of string checks that it solves quickly one by one
       batchSize = 1,
       groundOnly = Map(
@@ -250,12 +252,19 @@ trait SolverTestSuite extends AnyFunSuite with org.scalatest.ParallelTestExecuti
     TestContext(Options(options :+ optSelectedSolvers(Set(solver))))
 
   /** Registers `body` once per solver that supports all of `requires`. */
-  protected def test(name: String, requires: Feature*)(body: Context => Unit): Unit = {
+  protected def test(name: String, requires: Feature*)(body: Context => Unit): Unit =
+    register(name, solverInfos.filter(_.supports(requires)))(body)
+
+  /** Registers `body` once per solver that does not support `feature`. */
+  protected def testWithout(name: String, feature: Feature)(body: Context => Unit): Unit =
+    register(name, solverInfos.filterNot(_.supports(Seq(feature))))(body)
+
+  private def register(name: String, infos: Seq[SolverInfo])(body: Context => Unit): Unit = {
     // Workaround for a compiler crash caused by calling super.test
     def superTest(self: AnyFunSuite, name: String)(body: => Unit): Unit = self.test(name)(body)
     def superIgnore(self: AnyFunSuite, name: String)(body: => Unit): Unit = self.ignore(name)(body)
 
-    for (info <- solverInfos if info.supports(requires)) {
+    for (info <- infos) {
       val testName = s"$name solver=${info.name}"
       if (info.knownIssues.contains(name)) {
         superIgnore(this, s"$testName (known issue: ${info.knownIssues(name)})")(())
