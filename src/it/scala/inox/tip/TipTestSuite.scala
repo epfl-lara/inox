@@ -61,8 +61,6 @@ class TipTestSuite extends unrolling.UnrollingTestSuite with ResourceUtils {
         case ("smt-cvc4", "Weird.scala-0.tip") => Skip
         // this test only holds when assumeChecked=true
         case (_, "QuickSortFilter.scala-1.tip") if !ctx.options.findOptionOrDefault(optAssumeChecked) => Skip
-        // Takes ~8 minutes to complete
-        case ("no-inc:smt-z3", "Soundness3.scala-0.tip") => Skip
         case _ => Test
       }
       case _ => Test
@@ -76,6 +74,8 @@ class TipTestSuite extends unrolling.UnrollingTestSuite with ResourceUtils {
         // use non-linear operators that aren't supported in CVC4
         case ("smt-cvc4", "Soundness.scala-0.tip") => Skip
         case ("smt-cvc4", "Soundness2.scala-0.tip") => Skip
+        // Takes ~8 minutes to complete
+        case ("no-inc:smt-z3", "Soundness3.scala-0.tip") => Skip
         case _ => Test
       }
       case _ => Test
