@@ -136,3 +136,19 @@
 (set-info :status unsat)
 (check-sat)
 (pop 1)
+
+; map with refined keys and values
+(push 1)
+(declare-const mk (Array PosInt PosInt))
+(assert (not (> (select mk k) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map with refined keys only
+(push 1)
+(declare-const mk (Array PosInt Int))
+(assert (not (> (select mk k) 0)))
+(set-info :status sat)
+(check-sat)
+(pop 1)

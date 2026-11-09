@@ -84,6 +84,20 @@
 (check-sat)
 (pop 1)
 
+; element of a difference
+(push 1)
+(assert (not (=> (and (= s (setminus (insert t x) (insert (as emptyset Int) v))) (not (= x v))) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; element of a difference, which may be removed
+(push 1)
+(assert (not (=> (= s (setminus (insert t x) (insert (as emptyset Int) v))) (> x 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
 ; inserted bag element
 (push 1)
 (assert (not (=> (= b (bag.insert (bag.singleton 1 1) x)) (> x 0))))
@@ -101,6 +115,27 @@
 ; bag element of positive multiplicity
 (push 1)
 (assert (not (=> (= b (bag.union (bag.singleton 1 1) (bag.singleton x 2))) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; bag element of a difference
+(push 1)
+(assert (not (=> (= b (bag.difference (bag.union (bag.singleton 1 1) (bag.singleton x 2)) (bag.singleton x 1))) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; bag element of a difference, which may be removed
+(push 1)
+(assert (not (=> (= b (bag.difference (bag.union (bag.singleton 1 1) (bag.singleton x 2)) (bag.singleton x 2))) (> x 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; bag element of an intersection
+(push 1)
+(assert (not (=> (= b (bag.intersection (bag.singleton x 2) (bag.union (bag.singleton 1 1) (bag.singleton x 1)))) (> x 0))))
 (set-info :status unsat)
 (check-sat)
 (pop 1)
