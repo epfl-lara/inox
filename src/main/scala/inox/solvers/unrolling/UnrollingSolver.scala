@@ -257,16 +257,13 @@ abstract class AbstractUnrollingSolver private
     * arbitrary ones. */
   protected def partialModel: program.Model = inox.Model.empty(program)
 
-  // The uninterpreted calls take the interpretations that the partial model gives to their functions
-  // at their type arguments
-  private lazy val interpretations: Unit = if (partialModel.chooses.nonEmpty) {
-    templates.interpretation = { (id, tps, args) =>
-      partialModel.chooses.get(id -> tps.map(decode(_))).collect {
-        case Lambda(params, body) if params.size == args.size =>
-          t.exprOps.replaceFromSymbols((params.map(vd => encode(vd.toVariable)) zip args).toMap, encode(body))
-      }
+  /** The interpretation that the partial model gives to the uninterpreted call `id[tps](args)`, if
+    * it interprets `id` at `tps` (see [[TemplateGenerator.interpretation]]). */
+  protected final def interpretation(id: Identifier, tps: Seq[t.Type], args: Seq[t.Expr]): Option[t.Expr] =
+    partialModel.chooses.get(id -> tps.map(decode(_))).collect {
+      case Lambda(params, body) if params.size == args.size =>
+        t.exprOps.replaceFromSymbols((params.map(vd => encode(vd.toVariable)) zip args).toMap, encode(body))
     }
-  }
 
   private def removeChooses(expr: Expr): (Expr, Map[Variable, Encoded]) = {
     var chooseBindings: Map[Variable, Encoded] = Map.empty
@@ -330,7 +327,6 @@ abstract class AbstractUnrollingSolver private
     context.interruptManager.registerForInterrupts(this)
 
     constraints += expression
-    interpretations
 
     val (withoutChooses, chooseBindings) = removeChooses(expression)
 
@@ -1078,7 +1074,6 @@ abstract class AbstractUnrollingSolver private
 
     // Multiple calls to registerForInterrupts are (almost) idempotent and acceptable
     context.interruptManager.registerForInterrupts(this)
-    interpretations
 
     val assumptionsSeq       : Seq[Expr]          = assumptions.toSeq
     val encodedAssumptions   : Seq[Encoded]       = assumptionsSeq.map { expr =>
@@ -1578,6 +1573,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     def asString(expr: Expr): String = expr.asString
     def abort: Boolean = self.abort
     def pause: Boolean = self.pause
+    def interpretation(id: Identifier, tps: Seq[Type], args: Seq[Expr]): Option[Expr] = self.interpretation(id, tps, args)
 
     def encodeSymbol(v: Variable): Expr = v.freshen
     def mkEncoder(bindings: Map[Variable, Expr])(e: Expr): Expr = exprOps.replaceFromSymbols(bindings, e)

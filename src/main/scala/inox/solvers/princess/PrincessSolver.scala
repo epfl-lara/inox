@@ -86,6 +86,7 @@ class PrincessSolver(override val program: Program)
     def asString(ast: IExpression): String = ast.toString
     def abort: Boolean = self.abort
     def pause: Boolean = self.pause
+    def interpretation(id: Identifier, tps: Seq[Type], args: Seq[Expr]): Option[Expr] = self.interpretation(id, tps, args)
 
     def encodeSymbol(v: Variable): IExpression = underlying.freshSymbol(v)
 

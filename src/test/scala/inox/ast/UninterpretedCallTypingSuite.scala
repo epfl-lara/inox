@@ -139,9 +139,12 @@ class UninterpretedCallTypingSuite extends AnyFunSuite {
     assert(isImpureExpr(UninterpretedCall(f, Seq(), Seq(x), FunctionType(Seq(IntegerType()), empty))))
   }
 
-  test("printing a call shows its function type") {
+  test("calls are printed like function invocations") {
     val (_, _, pi) = greaterT
-    val printed = UninterpretedCall(f, Seq(), Seq(x), pi).asString(using PrinterOptions(printUniqueIds = false))
-    assert(printed.contains(f.name) && printed.contains(x.id.name), printed)
+    val opts = PrinterOptions(printUniqueIds = false)
+    val tp = TypeParameter.fresh("T")
+    for ((tps, args) <- Seq((Seq(), Seq(x)), (Seq(tp), Seq(x, y)), (Seq(), Seq()))) {
+      assert(UninterpretedCall(f, tps, args, pi).asString(using opts) == FunctionInvocation(f, tps, args).asString(using opts))
+    }
   }
 }
