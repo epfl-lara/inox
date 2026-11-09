@@ -182,8 +182,8 @@ trait TemplateGenerator { self: Templates =>
             val clauseSubst: Map[Variable, Encoded] = depSubst ++ conds ++ exprs ++
               lmbds.map(_.ids) ++ quants.flatMap(_.mapping) ++ equals.flatMap(_._2.map(_.symbols))
 
-            val (eCalls, eApps, eMatchers, ePointers) = Template.extractCalls(e, clauseSubst)
-            val (clsClauses, clsCalls, clsApps, clsMatchers, clsPointers, _) =
+            val (eCalls, eApps, eMatchers, eReads, ePointers) = Template.extractCalls(e, clauseSubst)
+            val (clsClauses, clsCalls, clsApps, clsMatchers, clsReads, clsPointers, _) =
               Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
 
             (depSubst + (v -> mkEncoder(clauseSubst)(e)), contents `merge` (
@@ -191,6 +191,7 @@ trait TemplateGenerator { self: Templates =>
               clsCalls `merge` Map(substMap(pathVar) -> eCalls),
               clsApps `merge` Map(substMap(pathVar) -> eApps),
               clsMatchers `merge` Map(substMap(pathVar) -> eMatchers),
+              clsReads `merge` Map(substMap(pathVar) -> eReads),
               equals, lmbds, quants, clsPointers ++ ePointers
             ))
           } else {
@@ -206,14 +207,14 @@ trait TemplateGenerator { self: Templates =>
             val clauseSubst: Map[Variable, Encoded] = localSubst ++ conds ++ exprs ++
               lmbds.map(_.ids) ++ quants.flatMap(_.mapping) ++ equals.flatMap(_._2.map(_.symbols))
 
-            val (clsClauses, clsCalls, clsApps, clsMatchers, clsPointers, _) =
+            val (clsClauses, clsCalls, clsApps, clsMatchers, clsReads, clsPointers, _) =
               Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
 
             (depSubst + (v -> localSubst(exprVar)), contents `merge` (
               conds + (condVar -> localSubst(condVar)),
               exprs + (exprVar -> localSubst(exprVar)),
               tree `merge` Map(pathVar -> Set(condVar)),
-              clsClauses, types, clsCalls, clsApps, clsMatchers, equals, lmbds, quants, clsPointers
+              clsClauses, types, clsCalls, clsApps, clsMatchers, clsReads, equals, lmbds, quants, clsPointers
             ))
           }
       }

@@ -290,12 +290,6 @@ trait QuantificationTemplates { self: Templates =>
           reporter.debug(" -> instantiating matcher " + matcherBlocker + " ==> " + matcher)
           for (q <- axioms) clauses ++= q.instantiate(matcherBlocker, matcher, defer)
 
-          // reads of collections are typed for the free collections they may read (see [[Reads]])
-          matcher match {
-            case Matcher(Left((c, tpe @ (_: MapType | _: SetType | _: BagType))), Seq(key), _) =>
-              clauses ++= registerRead(matcherBlocker, tpe, c, key.encoded)
-            case _ =>
-          }
           matcherBlocker
       }
 
@@ -612,7 +606,7 @@ trait QuantificationTemplates { self: Templates =>
           // matcher instantiation must be manually controlled here to avoid never-ending loops
           clauses ++= Template.instantiate(
             contents.clauses, contents.blockers, contents.applications,
-            Map.empty, contents.equalities, substMap)
+            Map.empty, contents.reads, contents.equalities, substMap)
 
           for ((b,ms) <- contents.matchers; m <- ms) {
             val sb = bs ++ (if (b == guard) Set.empty else Set(substituter(b)))

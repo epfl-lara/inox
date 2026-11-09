@@ -95,7 +95,7 @@ trait EqualityTemplates { self: Templates =>
     override protected def instantiate(substMap: Map[Encoded, Arg]): Clauses = {
       val clauses = Template.instantiate(
         contents.clauses, contents.blockers, contents.applications, contents.matchers,
-        Map.empty, substMap)
+        contents.reads, Map.empty, substMap)
 
       // register equalities (WILL NOT lead to any [[instantiate]] calls)
       val substituter = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
