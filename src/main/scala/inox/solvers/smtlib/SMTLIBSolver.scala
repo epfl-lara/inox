@@ -56,6 +56,7 @@ abstract class SMTLIBSolver private(override val program: Program,
         reporter.warning(s"Failed to reset $name: $msg")
         throw new CantResetException(this)
       case _ =>
+        aborted = false
     }
 
     // The solver forgot every declaration, so they must be emitted again when used

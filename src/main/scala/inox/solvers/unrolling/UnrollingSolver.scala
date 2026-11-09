@@ -234,6 +234,7 @@ abstract class AbstractUnrollingSolver private
     failures.clear()
     abort = false
     pause = false
+    if (evaluatorInterrupts.isInterrupted) evaluatorInterrupts.reset()
 
     templates.reset()
     constraints.reset()
@@ -241,7 +242,10 @@ abstract class AbstractUnrollingSolver private
     underlying.reset()
   }
 
-  def interrupt(): Unit = { abort = true }
+  def interrupt(): Unit = {
+    abort = true
+    if (!evaluatorInterrupts.isInterrupted) evaluatorInterrupts.interrupt()
+  }
 
   def free(): Unit = context.interruptManager.unregisterForInterrupts(this)
 
@@ -415,9 +419,14 @@ abstract class AbstractUnrollingSolver private
     }
   }
 
+  /** The interrupt manager of the solver's evaluators, which the solver's interrupts reach: the
+    * extraction and the validation of a huge model then stop (see `RecursiveEvaluator.e`).
+    */
+  protected lazy val evaluatorInterrupts: InterruptManager = new InterruptManager(reporter)
+
   // Model values are compared as the solver sees them: functions are equal iff they are the same
   // function value, which the encoding makes structural (see [[optFunctionEquality]]).
-  protected lazy val modelEvalContext: Context = context.withOpts(
+  protected lazy val modelEvalContext: Context = context.copy(interruptManager = evaluatorInterrupts).withOpts(
     optIgnoreContracts(true), optFunctionEquality(FunctionEquality.Intensional))
 
   protected lazy val modelEvaluator: DeterministicEvaluator { val program: self.targetProgram.type } =
@@ -485,7 +494,7 @@ abstract class AbstractUnrollingSolver private
       case ((v, value), e) => Let(v, value, e)
     }
 
-    val evaluator = semantics.withFunctions(model.functions).getEvaluator(using context.withOpts(
+    val evaluator = semantics.withFunctions(model.functions).getEvaluator(using context.copy(interruptManager = evaluatorInterrupts).withOpts(
       optSilentErrors(silenceErrors),
       optCheckModels(checkModels || feelingLucky)
     ))
@@ -1199,6 +1208,10 @@ abstract class AbstractUnrollingSolver private
                 InstantiateQuantifiers
             }
           }
+
+        // Extracting and validating a large model takes time: skip them once interrupted
+        case Validate(_) if abort || pause =>
+          CheckResult.cast(Unknown)
 
         case Validate(umodel) =>
           requestedWitnesses = Map.empty

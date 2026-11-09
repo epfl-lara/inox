@@ -123,9 +123,13 @@ abstract class RecursiveEvaluator(override val program: Program,
     * The cases are split by theory into the `eCore`, `eArithmetic`, ... methods below, which are
     * tried in order (see [[utils.CaseSplit]]). Subclasses can override `e` itself, or a single family.
     */
-  protected[evaluators] def e(expr: Expr)(using rctx: RC, gctx: GC): Expr =
+  protected[evaluators] def e(expr: Expr)(using rctx: RC, gctx: GC): Expr = {
+    // The solvers evaluate the values of their models, which can be huge, with evaluators whose
+    // context is interrupted along with them (see `Z3Solver` and `AbstractUnrollingSolver`)
+    if (interruptManager.isInterrupted) throw RuntimeError("Evaluation interrupted")
     eCore(expr) otherwise eArithmetic(expr) otherwise eStrings(expr) otherwise eBitVectors(expr) otherwise
       eFloatingPoint(expr) otherwise eCollections(expr) otherwise unexpected(expr)
+  }
 
   protected def unexpected(expr: Expr): Nothing =
     throw EvalError("Unhandled case in Evaluator : [" + expr.getClass + "] " + expr.asString)
