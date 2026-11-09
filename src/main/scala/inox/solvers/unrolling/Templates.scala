@@ -284,6 +284,19 @@ trait Templates
     )
   }
 
+  /** Represents a read of the map, set or bag `collection` of type `tpe` at `key`: a map application,
+    * a set membership or a bag multiplicity. The value it reads is typed for the free collections that
+    * `collection` may equal (@see [[TypeTemplates.Reads]]), as the results of the applications of free
+    * functions are. */
+  case class CollectionRead(tpe: Type, collection: Encoded, key: Encoded) {
+    override def toString: String = asString(collection) + "(" + asString(key) + ")"
+
+    def substitute(substituter: Encoded => Encoded): CollectionRead = copy(
+      collection = substituter(collection),
+      key = substituter(key)
+    )
+  }
+
   /** Represents an equality relation between two instances of a given type */
   case class Equality(tpe: Type, e1: Encoded, e2: Encoded) {
     override def toString: String =
@@ -342,13 +355,14 @@ trait Templates
   type Calls      = Map[Encoded, Set[Call]]
   type Types      = Map[Encoded, Set[Typing]]
   type Matchers   = Map[Encoded, Set[Matcher]]
+  type CollectionReads = Map[Encoded, Set[CollectionRead]]
   type Equalities = Map[Encoded, Set[Equality]]
   type Pointers   = Map[Encoded, Encoded]
 
   object TemplateContents {
     def empty(pathVar: (Variable, Encoded), args: Seq[(Variable, Encoded)]) =
       TemplateContents(pathVar, args,
-        Map(), Map(), Map(), Seq(), Map(), Map(), Map(), Map(), Map(), Seq(), Seq(), Map())
+        Map(), Map(), Map(), Seq(), Map(), Map(), Map(), Map(), Map(), Map(), Seq(), Seq(), Map())
   }
 
   case class TemplateContents(
@@ -364,6 +378,7 @@ trait Templates
     val blockers     : Calls,
     val applications : Apps,
     val matchers     : Matchers,
+    val reads        : CollectionReads,
     val equalities   : Equalities,
 
     val lambdas         : Seq[LambdaTemplate],
@@ -382,6 +397,7 @@ trait Templates
         blockers.map { case (b, fis) => substituter(b) -> fis.map(_.substitute(substituter, msubst)) },
         applications.map { case (b, apps) => substituter(b) -> apps.map(_.substitute(substituter, msubst)) },
         matchers.map { case (b, ms) => substituter(b) -> ms.map(_.substitute(substituter, msubst)) },
+        reads.map { case (b, rs) => substituter(b) -> rs.map(_.substitute(substituter)) },
         equalities.map { case (b, eqs) => substituter(b) -> eqs.map(_.substitute(substituter)) },
         lambdas.map(_.substitute(substituter, msubst)),
         quantifications.map(_.substitute(substituter, msubst)),
@@ -395,7 +411,7 @@ trait Templates
       Template.substitution(condVars, exprVars, condTree, types, lambdas, quantifications, pointers, substMap, aVar)
 
     def instantiate(substMap: Map[Encoded, Arg]): Clauses =
-      Template.instantiate(clauses, blockers, applications, matchers, equalities, substMap)
+      Template.instantiate(clauses, blockers, applications, matchers, reads, equalities, substMap)
 
     def merge(
       condVars   : Map[Variable, Encoded],
@@ -406,6 +422,7 @@ trait Templates
       blockers     : Calls,
       applications : Apps,
       matchers     : Matchers,
+      reads        : CollectionReads,
       equalities   : Equalities,
       lambdas         : Seq[LambdaTemplate],
       quantifications : Seq[QuantificationTemplate],
@@ -421,6 +438,7 @@ trait Templates
       this.blockers `merge` blockers,
       this.applications `merge` applications,
       this.matchers `merge` matchers,
+      this.reads `merge` reads,
       this.equalities `merge` equalities,
       this.lambdas ++ lambdas,
       this.quantifications ++ quantifications,
@@ -564,7 +582,7 @@ trait Templates
       substMap: Map[Variable, Encoded] = Map.empty[Variable, Encoded],
       optCall: Option[(TypedFunDef, Seq[Arg])] = None,
       optApp: Option[App] = None
-    ): (Set[Call], Set[App], Set[Matcher], Pointers) = {
+    ): (Set[Call], Set[App], Set[Matcher], Set[CollectionRead], Pointers) = {
       val encoder : Expr => Encoded = mkEncoder(substMap)
 
       val pointers = lambdaPointers(encoder)(expr)
@@ -628,7 +646,22 @@ trait Templates
           case _ => true
         }
 
-      (calls, apps, matchers, pointers)
+      // A collection is read where the formula looks it up, and where it is built at the keys it
+      // defines: the elements of a finite set or bag, or the keys of a finite or updated map
+      val reads = exprOps.collect[CollectionRead] {
+        case MapApply(m, k) => Set(CollectionRead(m.getType, encoder(m), encoder(k)))
+        case ElementOfSet(e, s) => Set(CollectionRead(s.getType, encoder(s), encoder(e)))
+        case MultiplicityInBag(e, b) => Set(CollectionRead(b.getType, encoder(b), encoder(e)))
+        case c @ FiniteMap(pairs, _, _, _) => pairs.map(p => CollectionRead(c.getType, encoder(c), encoder(p._1))).toSet
+        case c @ MapUpdated(_, k, _) => Set(CollectionRead(c.getType, encoder(c), encoder(k)))
+        case c @ FiniteSet(elems, _) => elems.map(e => CollectionRead(c.getType, encoder(c), encoder(e))).toSet
+        case c @ SetAdd(_, e) => Set(CollectionRead(c.getType, encoder(c), encoder(e)))
+        case c @ FiniteBag(pairs, _) => pairs.map(p => CollectionRead(c.getType, encoder(c), encoder(p._1))).toSet
+        case c @ BagAdd(_, e) => Set(CollectionRead(c.getType, encoder(c), encoder(e)))
+        case _ => Set.empty
+      } (expr)
+
+      (calls, apps, matchers, reads, pointers)
     }
 
     def encode(
@@ -638,7 +671,7 @@ trait Templates
       substMap: Map[Variable, Encoded] = Map.empty[Variable, Encoded],
       optCall: Option[TypedFunDef] = None,
       optApp: Option[(Encoded, FunctionType)] = None
-    ): (Clauses, Calls, Apps, Matchers, Pointers, () => String) = {
+    ): (Clauses, Calls, Apps, Matchers, CollectionReads, Pointers, () => String) = {
       val (condVars, exprVars, _, guardedExprs, eqs, _, equalities, lambdas, quants) = tmplClauses
 
       val idToTrId : Map[Variable, Encoded] =
@@ -652,11 +685,12 @@ trait Templates
         App(idT, tpe, arguments.map(p => Left(p._2)), mkApp(idT, tpe, arguments.map(_._2)))
       }
 
-      val (clauses, blockers, applications, matchers, pointers) = {
+      val (clauses, blockers, applications, matchers, reads, pointers) = {
         var clauses      : Clauses = Seq.empty
         var blockers     : Map[Encoded, Set[Call]]     = Map.empty
         var applications : Map[Encoded, Set[App]]      = Map.empty
         var matchers     : Map[Encoded, Set[Matcher]]  = Map.empty
+        var reads        : CollectionReads             = Map.empty
         var pointers     : Map[Encoded, Encoded]       = Map.empty
 
         val pv = pathVar._1
@@ -664,19 +698,22 @@ trait Templates
           var calls  : Set[Call]     = Set.empty
           var apps   : Set[App]      = Set.empty
           var matchs : Set[Matcher]  = Set.empty
+          var rds    : Set[CollectionRead] = Set.empty
           val bp = idToTrId(b)
 
           for (e <- es) {
-            val (eCalls, eApps, eMatchers, ePtrs) = extractCalls(e, idToTrId, optIdCall, optIdApp)
+            val (eCalls, eApps, eMatchers, eReads, ePtrs) = extractCalls(e, idToTrId, optIdCall, optIdApp)
             calls ++= eCalls
             apps ++= eApps
             matchs ++= eMatchers
+            rds ++= eReads
             pointers ++= ePtrs
           }
 
           if (calls.nonEmpty) blockers += bp -> calls
           if (apps.nonEmpty) applications += bp -> apps
           if (matchs.nonEmpty) matchers += bp -> matchs
+          if (rds.nonEmpty) reads += bp -> rds
         }
 
         for (e <- guardedExprs.getOrElse(pv, Seq.empty)) {
@@ -686,7 +723,7 @@ trait Templates
         clauses ++= (for ((b,es) <- guardedExprs; e <- es) yield encoder(Implies(b, e)))
         clauses ++= eqs.map(encoder)
 
-        (clauses, blockers, applications, matchers, pointers)
+        (clauses, blockers, applications, matchers, reads, pointers)
       }
 
       val stringRepr : () => String = () => {
@@ -705,6 +742,9 @@ trait Templates
         " * Matchers           :" + (if (matchers.isEmpty) "\n" else {
           "\n   " + matchers.map(p => asString(p._1) + " ==> " + p._2).mkString("\n   ") + "\n"
         }) +
+        " * Collection reads   :" + (if (reads.isEmpty) "\n" else {
+          "\n   " + reads.map(p => asString(p._1) + " ==> " + p._2).mkString("\n   ") + "\n"
+        }) +
         " * Lambdas            :\n" + lambdas.map { case template =>
           " +> " + template.toString.split("\n").mkString("\n    ") + "\n"
         }.mkString("\n") +
@@ -713,7 +753,7 @@ trait Templates
         }.mkString("\n")
       }
 
-      (clauses, blockers, applications, matchers, pointers, stringRepr)
+      (clauses, blockers, applications, matchers, reads, pointers, stringRepr)
     }
 
     def contents(
@@ -726,12 +766,12 @@ trait Templates
     ): (TemplateContents, () => String) = {
 
       val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = tmplClauses.proj
-      val (clauses, blockers, applications, matchers, pointers, string) = Template.encode(
+      val (clauses, blockers, applications, matchers, reads, pointers, string) = Template.encode(
         pathVar, arguments, tmplClauses, substMap = substMap, optCall = optCall, optApp = optApp)
 
       val contents = TemplateContents(
         pathVar, arguments, condVars, exprVars, condTree,
-        clauses, types, blockers, applications, matchers, equalities,
+        clauses, types, blockers, applications, matchers, reads, equalities,
         lambdas, quants, pointers
       )
 
@@ -814,6 +854,7 @@ trait Templates
       calls: Calls,
       apps: Apps,
       matchers: Matchers,
+      reads: CollectionReads,
       equalities: Equalities,
       substMap: Map[Encoded, Arg]
     ): Clauses = {
@@ -835,6 +876,10 @@ trait Templates
         allClauses ++= instantiateMatcher(bp, m.substitute(substituter, msubst))
       }
 
+      for ((b, rs) <- reads if !abort; bp = substituter(b); r <- rs if !abort) {
+        allClauses ++= instantiateRead(bp, r.substitute(substituter))
+      }
+
       for ((b, eqs) <- equalities if !abort; bp = substituter(b); e <- eqs if !abort) {
         allClauses ++= instantiateEquality(bp, e.substitute(substituter))
       }
@@ -852,14 +897,14 @@ trait Templates
 
     val tmplClauses = gen(start, encodedStart)
 
-    val (clauses, calls, apps, matchers, pointers, _) =
+    val (clauses, calls, apps, matchers, reads, pointers, _) =
       Template.encode(start -> encodedStart, bindings.toSeq, tmplClauses)
 
     val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = tmplClauses.proj
     val (substClauses, substMap) = Template.substitution(
       condVars, exprVars, condTree, types, lambdas, quants, pointers, Map.empty, encodedStart)
 
-    val templateClauses = Template.instantiate(clauses, calls, apps, matchers, equalities, substMap)
+    val templateClauses = Template.instantiate(clauses, calls, apps, matchers, reads, equalities, substMap)
     val allClauses = encodedStart +: (substClauses ++ templateClauses)
 
     for (cl <- allClauses) {

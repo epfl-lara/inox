@@ -288,18 +288,18 @@ trait FunctionTemplates { self: Templates =>
                 val (p, cls) = mkExprClauses(start, body, Map(start -> defBlocker))
                 val tmplClauses = cls + (start -> Equals(tfd.applied, p))
 
-                val encoding: (Clauses, Calls, Apps, Matchers, Pointers, () => String) = Template.encode(
+                val encoding: (Clauses, Calls, Apps, Matchers, CollectionReads, Pointers, () => String) = Template.encode(
                   start -> defBlocker,
                   tfd.params.map(_.toVariable) zip args.map(_.encoded),
                   tmplClauses,
                   optCall = Some(tfd)
                 )
 
-                val (clauses, calls, apps, matchers, pointers, _) = encoding
+                val (clauses, calls, apps, matchers, reads, pointers, _) = encoding
                 val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = tmplClauses.proj
                 val (substClauses, substMap) = Template.substitution(
                   condVars, exprVars, condTree, types, lambdas, quants, pointers, Map.empty, defBlocker)
-                val templateClauses = Template.instantiate(clauses, calls, apps, matchers, equalities, substMap)
+                val templateClauses = Template.instantiate(clauses, calls, apps, matchers, reads, equalities, substMap)
                 substClauses ++ templateClauses
               } getOrElse {
                 FunctionTemplate(tfd).instantiate(defBlocker, args ++ tpSubst)
