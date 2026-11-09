@@ -271,8 +271,13 @@ abstract class RecursiveEvaluator(override val program: Program,
       }
 
       // We start by normalizing the structure of the lambda as in the solver to
-      // evaluate all normalizable ground expressions within its body.
-      val ground = normalizeLambda(l)
+      // evaluate all normalizable ground expressions within its body. The values of its free
+      // variables are substituted first, so that the result doesn't depend on whether the lambda
+      // refers to a value through a variable or directly: `x => l.head.f(x)` with `l` bound to
+      // `Cons(g, Nil())` must give the same lambda as `x => Cons(g, Nil()).head.f(x)`, in which
+      // the selection is ground and therefore evaluated.
+      val closed = replaceFromSymbols(variablesOf(l).flatMap(v => rctx.mappings.get(v.toVal).map(v -> _)).toMap, l)
+      val ground = normalizeLambda(closed.asInstanceOf[Lambda])
 
       // Then, in order for nested lambdas to have fresh variables in their argument
       // lists and let bindings, we re-normalize the identifiers by passing
