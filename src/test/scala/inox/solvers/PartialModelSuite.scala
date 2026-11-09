@@ -69,4 +69,34 @@ class PartialModelSuite extends AnyFunSuite {
     SolverFactory.getFromName("smt-z3", force = true)(program, ctx, Some(interpreting))(
       transformers.ProgramEncoder.empty(program))(using program.getSemantics)
   }
+
+  /** An evaluator whose solvers are those of [[plain]]. */
+  val plainEvaluator = {
+    class Impl(override val program: outer.type)(using override val semantics: outer.Semantics)
+      extends evaluators.RecursiveEvaluator(program, ctx)
+         with evaluators.HasDefaultGlobalContext
+         with evaluators.HasDefaultRecContext
+    new Impl(outer)(using plain.asInstanceOf[outer.Semantics])
+  }
+
+  val y = ValDef.fresh("y", IntegerType())
+  val callsF = Forall(Seq(y), UninterpretedCall(f, Seq(), Seq(y.toVariable),
+    FunctionType(Seq(IntegerType()), IntegerType())) === y.toVariable)
+  val callsNothing = Forall(Seq(y), y.toVariable + E(BigInt(0)) === y.toVariable)
+
+  test("evaluators solve for the foralls that call uninterpreted functions under the model") {
+    val evaluator = program.getEvaluator
+    assert(evaluator.eval(callsF, interpreting) == evaluators.EvaluationResults.Successful(E(true)))
+  }
+
+  test("semantics that can't solve under a model still solve for the foralls that call no uninterpreted function") {
+    assert(plainEvaluator.eval(callsNothing, interpreting) == evaluators.EvaluationResults.Successful(E(true)))
+  }
+
+  test("semantics that can't solve under a model reject the foralls that call uninterpreted functions") {
+    val res = scala.util.Try(plainEvaluator.eval(callsF, interpreting))
+    assert(res.failed.toOption.exists(_.getMessage.contains("interprets functions")) ||
+      res.toOption.exists(r => !r.isInstanceOf[evaluators.EvaluationResults.Successful[?]] &&
+        r.toString.contains("interprets functions")), res.toString)
+  }
 }
