@@ -290,7 +290,7 @@ trait TemplateGenerator { self: Templates =>
       result
     }
 
-    // Types the reads of a free collection whose elements need unrolling (see [[Reads]])
+    // Types the reads of a free collection whose elements need unrolling (see [[Collection]])
     def storeReads(pathVar: Variable, tpe: Type, elemTpe: Type, arg: Expr, inDomain: Boolean)
                   (using generator: TypingGenerator): Expr =
       if (!(generator == FreeGenerator || (generator == ContractGenerator && !inDomain)) ||
@@ -301,7 +301,7 @@ trait TemplateGenerator { self: Templates =>
         val closures = typeOps.variablesOf(tpe).toSeq.sortBy(_.id).map(encoder).map(Left(_))
         val readsCall: Variable = Variable.fresh("tp", BooleanType(), true)
         storeExpr(readsCall)
-        val typing = Typing(tpe, encoder(arg), Reads(exprVars(readsCall), closures, generator == FreeGenerator))
+        val typing = Typing(tpe, encoder(arg), Collection(exprVars(readsCall), closures, generator == FreeGenerator))
         types += b -> (types.getOrElse(b, Set.empty) + typing)
         readsCall
       }

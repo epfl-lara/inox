@@ -107,9 +107,9 @@ trait TypeTemplates { self: Templates =>
     * set or bag that the formula reads (@see [[registerCollection]]), similarly to how free functions
     * are typed at their applications. The decomposition of the collection only types the elements
     * it unfolds, which don't include arbitrary reads such as `m(k)` for a free key `k`. */
-  case class Reads(result: Encoded, closures: Seq[Arg], free: Boolean) extends TemplateInstantiator {
+  case class Collection(result: Encoded, closures: Seq[Arg], free: Boolean) extends TemplateInstantiator {
     override def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): TemplateInstantiator =
-      Reads(substituter(result), closures map (_.substitute(substituter, msubst)), free)
+      Collection(substituter(result), closures map (_.substitute(substituter, msubst)), free)
   }
 
   case class Capture(encoded: Encoded, tpe: FunctionType) extends TemplateInstantiator {
@@ -134,7 +134,7 @@ trait TypeTemplates { self: Templates =>
     def unroll: Boolean = instantiator match {
       case Constraint(_, _, free, _) => (if (free) FreeUnrolling else ContractUnrolling) `unroll` tpe
       case Membership(_, _) => ContractUnrolling `unroll` tpe
-      case Reads(_, _, free) => (if (free) FreeUnrolling else ContractUnrolling) `unroll` tpe
+      case Collection(_, _, free) => (if (free) FreeUnrolling else ContractUnrolling) `unroll` tpe
       case Capture(_, _) => CaptureUnrolling `unroll` tpe
     }
   }
@@ -177,7 +177,7 @@ trait TypeTemplates { self: Templates =>
           }
         }
 
-      case Typing(tpe, arg, Reads(result, closures, free)) =>
+      case Typing(tpe, arg, Collection(result, closures, free)) =>
         registerCollection(blocker, result, tpe, arg, closures, free)
 
       case Typing(tpe, arg, Capture(container, containerType)) =>
@@ -206,7 +206,7 @@ trait TypeTemplates { self: Templates =>
   }
 
   /** Adds the typing of the read of `collection` at `key` to the reads typing of `collection`
-    * (@see [[Reads]]): the read lies in the element type when `readBlocker` holds and the
+    * (@see [[Collection]]): the read lies in the element type when `readBlocker` holds and the
     * collection equals the read one. As for the applications of free functions, the typing
     * result is a conjunction over the reads, which is extended with every new read. */
   private def typeRead(info: CollectionInfo, readBlocker: Encoded, read: Encoded, key: Encoded): Clauses = {
@@ -243,11 +243,11 @@ trait TypeTemplates { self: Templates =>
     }
   }
 
-  /** Instantiates a read of a collection under `blocker` (@see [[CollectionRead]]). Every read is
+  /** Instantiates a read of a collection under `blocker` (@see [[Read]]). Every read is
     * registered once, under its own read blocker, and typed for the free collections it may equal
     * (@see [[registerCollection]]). */
-  def instantiateRead(blocker: Encoded, read: CollectionRead): Clauses = {
-    val CollectionRead(tpe, collection, key) = read
+  def instantiateRead(blocker: Encoded, read: Read): Clauses = {
+    val Read(tpe, collection, key) = read
     val ct = tpe.getType
     val (readBlocker, readClauses) = typesManager.readBlockers.get((collection, key)) match {
       case Some(readBlocker) => (readBlocker, Seq.empty)
@@ -278,14 +278,14 @@ trait TypeTemplates { self: Templates =>
       typing.instantiator match {
         case Constraint(res, _, _, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
         case Membership(res, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
-        case Reads(res, _, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
+        case Collection(res, _, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
         case _ => Seq.empty
       }
 
     // In certain non-recursive cases, we want to instantiate the typing
     // immediately to improve unrolling performance
     case (_: FunctionType | _: PiType) => instantiateTyping(blocker, typing)
-    case _ if typing.instantiator.isInstanceOf[Reads] => instantiateTyping(blocker, typing)
+    case _ if typing.instantiator.isInstanceOf[Collection] => instantiateTyping(blocker, typing)
     case (_: TypeParameter) => instantiateTyping(blocker, typing)
     case adt: ADTType if !adt.getSort.definition.isInductive => instantiateTyping(blocker, typing)
 

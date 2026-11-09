@@ -288,7 +288,7 @@ trait FunctionTemplates { self: Templates =>
                 val (p, cls) = mkExprClauses(start, body, Map(start -> defBlocker))
                 val tmplClauses = cls + (start -> Equals(tfd.applied, p))
 
-                val encoding: (Clauses, Calls, Apps, Matchers, CollectionReads, Pointers, () => String) = Template.encode(
+                val encoding: (Clauses, Calls, Apps, Matchers, Reads, Pointers, () => String) = Template.encode(
                   start -> defBlocker,
                   tfd.params.map(_.toVariable) zip args.map(_.encoded),
                   tmplClauses,

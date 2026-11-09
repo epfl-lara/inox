@@ -285,13 +285,13 @@ trait Templates
   }
 
   /** Represents a read of the map, set or bag `collection` of type `tpe` at `key`: a map application,
-    * a set membership or a bag multiplicity. The value it reads is typed for the free collections that
-    * `collection` may equal (@see [[TypeTemplates.Reads]]), as the results of the applications of free
-    * functions are. */
-  case class CollectionRead(tpe: Type, collection: Encoded, key: Encoded) {
+    * a set membership or a bag multiplicity, or a key that a built collection defines. The value it
+    * reads is typed for the free collections that `collection` may equal (@see
+    * [[TypeTemplates.Collection]]), as the results of the applications of free functions are. */
+  case class Read(tpe: Type, collection: Encoded, key: Encoded) {
     override def toString: String = asString(collection) + "(" + asString(key) + ")"
 
-    def substitute(substituter: Encoded => Encoded): CollectionRead = copy(
+    def substitute(substituter: Encoded => Encoded): Read = copy(
       collection = substituter(collection),
       key = substituter(key)
     )
@@ -355,7 +355,7 @@ trait Templates
   type Calls      = Map[Encoded, Set[Call]]
   type Types      = Map[Encoded, Set[Typing]]
   type Matchers   = Map[Encoded, Set[Matcher]]
-  type CollectionReads = Map[Encoded, Set[CollectionRead]]
+  type Reads = Map[Encoded, Set[Read]]
   type Equalities = Map[Encoded, Set[Equality]]
   type Pointers   = Map[Encoded, Encoded]
 
@@ -378,7 +378,7 @@ trait Templates
     val blockers     : Calls,
     val applications : Apps,
     val matchers     : Matchers,
-    val reads        : CollectionReads,
+    val reads        : Reads,
     val equalities   : Equalities,
 
     val lambdas         : Seq[LambdaTemplate],
@@ -422,7 +422,7 @@ trait Templates
       blockers     : Calls,
       applications : Apps,
       matchers     : Matchers,
-      reads        : CollectionReads,
+      reads        : Reads,
       equalities   : Equalities,
       lambdas         : Seq[LambdaTemplate],
       quantifications : Seq[QuantificationTemplate],
@@ -582,7 +582,7 @@ trait Templates
       substMap: Map[Variable, Encoded] = Map.empty[Variable, Encoded],
       optCall: Option[(TypedFunDef, Seq[Arg])] = None,
       optApp: Option[App] = None
-    ): (Set[Call], Set[App], Set[Matcher], Set[CollectionRead], Pointers) = {
+    ): (Set[Call], Set[App], Set[Matcher], Set[Read], Pointers) = {
       val encoder : Expr => Encoded = mkEncoder(substMap)
 
       val pointers = lambdaPointers(encoder)(expr)
@@ -666,13 +666,13 @@ trait Templates
 
       // A collection is read where the formula looks it up, and where it is built at the keys it
       // defines, so that a free collection that equals a built one types these keys
-      val reads = exprOps.collect[CollectionRead] {
-        case MapApply(m, k) => Set(CollectionRead(m.getType, encoder(m), encoder(k)))
-        case ElementOfSet(e, s) => Set(CollectionRead(s.getType, encoder(s), encoder(e)))
-        case MultiplicityInBag(e, b) => Set(CollectionRead(b.getType, encoder(b), encoder(e)))
+      val reads = exprOps.collect[Read] {
+        case MapApply(m, k) => Set(Read(m.getType, encoder(m), encoder(k)))
+        case ElementOfSet(e, s) => Set(Read(s.getType, encoder(s), encoder(e)))
+        case MultiplicityInBag(e, b) => Set(Read(b.getType, encoder(b), encoder(e)))
         case c @ (_: FiniteMap | _: MapUpdated | _: FiniteSet | _: SetAdd | _: SetUnion | _: SetIntersection |
                   _: SetDifference | _: FiniteBag | _: BagAdd | _: BagUnion | _: BagIntersection | _: BagDifference) =>
-          definedKeys(c).map(k => CollectionRead(c.getType, encoder(c), encoder(k))).toSet
+          definedKeys(c).map(k => Read(c.getType, encoder(c), encoder(k))).toSet
         case _ => Set.empty
       } (expr)
 
@@ -686,7 +686,7 @@ trait Templates
       substMap: Map[Variable, Encoded] = Map.empty[Variable, Encoded],
       optCall: Option[TypedFunDef] = None,
       optApp: Option[(Encoded, FunctionType)] = None
-    ): (Clauses, Calls, Apps, Matchers, CollectionReads, Pointers, () => String) = {
+    ): (Clauses, Calls, Apps, Matchers, Reads, Pointers, () => String) = {
       val (condVars, exprVars, _, guardedExprs, eqs, _, equalities, lambdas, quants) = tmplClauses
 
       val idToTrId : Map[Variable, Encoded] =
@@ -705,7 +705,7 @@ trait Templates
         var blockers     : Map[Encoded, Set[Call]]     = Map.empty
         var applications : Map[Encoded, Set[App]]      = Map.empty
         var matchers     : Map[Encoded, Set[Matcher]]  = Map.empty
-        var reads        : CollectionReads             = Map.empty
+        var reads        : Reads                       = Map.empty
         var pointers     : Map[Encoded, Encoded]       = Map.empty
 
         val pv = pathVar._1
@@ -713,7 +713,7 @@ trait Templates
           var calls  : Set[Call]     = Set.empty
           var apps   : Set[App]      = Set.empty
           var matchs : Set[Matcher]  = Set.empty
-          var rds    : Set[CollectionRead] = Set.empty
+          var rds    : Set[Read]     = Set.empty
           val bp = idToTrId(b)
 
           for (e <- es) {
@@ -869,7 +869,7 @@ trait Templates
       calls: Calls,
       apps: Apps,
       matchers: Matchers,
-      reads: CollectionReads,
+      reads: Reads,
       equalities: Equalities,
       substMap: Map[Encoded, Arg]
     ): Clauses = {
