@@ -114,6 +114,32 @@ class UninterpretedCallSuite extends UnrollingTestSuite {
     modelOf(call === IntegerLiteral(3) && any(IntegerLiteral(0)) === IntegerLiteral(1))
   }
 
+  test("uninterpreted calls across push and pop") { ctx ?=>
+    // The free function of an uninterpreted call outlives the scope in which it first appears
+    val x = Variable.fresh("x", IntegerType())
+    val y = Variable.fresh("y", IntegerType())
+    val solver = program.getSolver.getNewSolver()
+    try {
+      solver.push()
+      solver.assertCnstr(greaterCall(x) === y)
+      assert(solver.check(Model).isSAT)
+      solver.pop()
+      solver.assertCnstr(x === y && greaterCall(x) <= y)
+      assert(solver.check(Model).isUNSAT)
+      solver.reset()
+      solver.assertCnstr(any(x) === y && Not(any(x) === y))
+      assert(solver.check(Model).isUNSAT)
+      solver.reset()
+      solver.assertCnstr(greaterCall(x) === y)
+      solver.check(Model) match {
+        case SatWithModel(model) =>
+          val evRes = program.getEvaluator.eval(greaterCall(x) === y, model)
+          assert(evRes.result == Some(BooleanLiteral(true)), s"$evRes in $model")
+        case res => fail(s"Expected a model, got $res")
+      }
+    } finally solver.free()
+  }
+
   test("results of uninterpreted calls lie in their types") {
     val x = Variable.fresh("x", IntegerType())
     assert(SimpleSolverAPI(program.getSolver).solveSAT(greater(x) <= x).isUNSAT)
