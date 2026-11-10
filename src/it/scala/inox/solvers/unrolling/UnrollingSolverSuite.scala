@@ -15,9 +15,11 @@ class UnrollingSolverSuite extends TestSuite with DatastructureUtils {
   import inox.trees.dsl._
   import SolverResponses._
 
+  // Several tests compare functions, which needs a function equality other than the default
   override def configurations = Seq(Seq(
     optSelectedSolvers(Set(UnrollingTestSuite.solverName)),
     optTimeout(300),
+    optFunctionEquality(FunctionEquality.Intensional),
   ))
 
   override protected def optionsString(options: Options): String =

@@ -67,7 +67,7 @@ run() {
   done
 }
 
-# These compare functions, which `none` rejects (as in TipTestSuite).
+# These compare functions, which the default semantics rejects (as in TipTestSuite).
 comparing='Injective.scala-0.tip|LambdaEquality2.scala-1.tip|Streams.scala-0.tip|inline-lambdas.scala-0.tip'
 intensional=--function-equality=intensional
 

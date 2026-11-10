@@ -1,0 +1,21 @@
+; Lambdas whose captured values are equal by an inductive lemma (from Stainless's LambdaEquality2)
+(declare-datatypes ((Nat 0)) (((Zero) (Succ (n Nat)))))
+(define-fun-rec plus ((a Nat) (b Nat)) Nat (ite ((_ is Zero) a) b (Succ (plus (n a) b))))
+(declare-const a Nat)
+(declare-const p Nat)
+(assert (= p (plus a Zero)))
+
+; the lambdas may be equal
+(push 1)
+(assert (= (lambda ((x Nat)) a) (lambda ((x Nat)) p)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; with the lemma, they are equal
+(push 1)
+(assert (= (plus a Zero) a))
+(assert (not (= (lambda ((x Nat)) a) (lambda ((x Nat)) p))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
