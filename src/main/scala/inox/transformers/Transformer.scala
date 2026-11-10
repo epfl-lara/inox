@@ -9,10 +9,20 @@ trait Transformer {
 
   type Env
 
+  // Building a deconstructor fills a table with an entry per expression class, which is expensive
+  // compared to most transformations, so transformers within a single set of trees share the one
+  // that the trees already built.
   lazy val deconstructor: ast.TreeDeconstructor {
     val s: Transformer.this.s.type
     val t: Transformer.this.t.type
-  } = s.getDeconstructor(t)
+  } = if (s eq t) {
+    s.deconstructor.asInstanceOf[ast.TreeDeconstructor {
+      val s: Transformer.this.s.type
+      val t: Transformer.this.t.type
+    }]
+  } else {
+    s.getDeconstructor(t)
+  }
 
   def transform(id: Identifier, env: Env): Identifier = id
 
