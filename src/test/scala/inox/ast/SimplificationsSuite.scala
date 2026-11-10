@@ -228,7 +228,6 @@ class SimplificationsSuite extends AnyFunSuite {
     assert(!occursIn(x.toVal, y + z))
     assert(!occursIn(x.toVal, Lambda(Seq(x.toVal), x)))
     assert(!occursIn(x.toVal, Forall(Seq(x.toVal), Equals(x, y))))
-    assert(!occursIn(x.toVal, Choose(x.toVal, Equals(x, y))))
     assert(!occursIn(x.toVal, Let(x.toVal, y, x)))
     assert(occursIn(x.toVal, Let(y.toVal, x, y)))
   }

@@ -11,11 +11,10 @@ import z3.scala._
 class NativeZ3Solver(override val program: Program)
                     (override val prog: program.type,
                      override val context: Context,
-                     override val enc: transformers.ProgramTransformer {val sourceProgram: prog.type},
-                     override val chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type})
+                     override val enc: transformers.ProgramTransformer {val sourceProgram: prog.type})
                     (using semantics: prog.Semantics,
                      semanticsProvider: SemanticsProvider {val trees: enc.targetProgram.trees.type})
-  extends Z3Unrolling(prog)(prog, context, enc, chooses) { self =>
+  extends Z3Unrolling(prog)(prog, context, enc) { self =>
 
   override val name = "nativez3"
 

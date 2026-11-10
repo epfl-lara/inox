@@ -125,7 +125,7 @@ class TemplateEncodingSuite extends SolverTestSuite with DatastructureUtils {
     assert(s.solveVALID(Equals(f, succ) ==> Equals(f(int(1)), int(1))) contains false)
   }
 
-  test("Choose in function", Integers) { ctx =>
+  test("Choice in function", Integers) { ctx =>
     val s = solver(ctx)
     val x = Variable.fresh("x", IntegerType())
     assert(s.solveVALID(greater(x) > x) contains true)
@@ -243,13 +243,13 @@ class TemplateEncodingSuite extends SolverTestSuite with DatastructureUtils {
     assert(s.solveVALID(Implies(hyp, Equals(Application(g, Seq(cons(2, cons(3, nil)))), IntegerLiteral(1)))) contains true, "valid")
   }
 
-  test("Choose inside quantifier", Integers, Quantifiers) { ctx =>
-    // The `choose` must be in a function body to be handled by the ChooseEncoder.
+  test("Choice inside quantifier", Integers, Quantifiers) { ctx =>
+    // The choice depends on the quantified variable
     val x = Variable.fresh("x", IntegerType())
     val y = ValDef.fresh("y", IntegerType())
     val succ = Plus(x, IntegerLiteral(1))
     val fd = new FunDef(FreshIdentifier("chooseInForall"), Seq(), Seq(), BooleanType(),
-      Forall(Seq(x.toVal), Equals(Choose(y, Equals(y.toVariable, succ)), succ)), Seq())
+      Forall(Seq(x.toVal), Equals(exprOps.choose(y, Equals(y.toVariable, succ), Seq(x)), succ)), Seq())
 
     val p = InoxProgram(NoSymbols.withFunctions(Seq(fd)))
     val s = SimpleSolverAPI(p.getSolver(withoutModelChecks(ctx)))

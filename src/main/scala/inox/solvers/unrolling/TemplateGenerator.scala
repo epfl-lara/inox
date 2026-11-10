@@ -398,18 +398,6 @@ trait TemplateGenerator { self: Templates =>
         storeGuarded(pathVar, e)
         rec(pathVar, body, pol)
 
-      case c @ Choose(res, pred) =>
-        val newExpr = res.toVariable.freshen
-        storeExpr(newExpr)
-
-        val (tpeExpr, tmplClauses) = mkTypeClauses(pathVar, res.tpe, newExpr, localSubst)(using FreeGenerator)
-        storeGuarded(pathVar, tpeExpr)
-        builder ++= tmplClauses
-
-        val p = rec(pathVar, exprOps.replace(Map(res.toVariable -> newExpr), pred), Some(true))
-        storeGuarded(pathVar, p)
-        newExpr
-
       case uc @ UninterpretedCall(id, tps, args, tpe) =>
         // An application of the free function that stands for the uninterpreted function, whose
         // result is an arbitrary value of the call's type, or is given by the interpretation of the
@@ -431,8 +419,8 @@ trait TemplateGenerator { self: Templates =>
         storeExpr(newExpr)
         storeGuarded(pathVar, Equals(newExpr, app))
 
-        // The refinements of the result hold as the predicate of a choose, and the type that they
-        // refine is the type of the result
+        // The refinements of the result are assumed under the path, and the type that they refine
+        // is the type of the result
         def refinements(tpe: Type): (Type, Seq[Expr]) = tpe match {
           case RefinementType(vd, pred) =>
             val (base, preds) = refinements(vd.tpe)
@@ -638,7 +626,7 @@ trait TemplateGenerator { self: Templates =>
   }
 
   /** Whether the clauses of `expr` may falsify the path condition they are guarded by,
-    * i.e. whether `expr` contains an assumption or a `choose`, or calls a function that
+    * i.e. whether `expr` contains an assumption or an uninterpreted call, or calls a function that
     * (transitively) does, as unrolling the call falsifies the blocker it is registered under. */
   private def mayFalsifyPath(expr: Expr): Boolean = exprOps.exists {
     case fi: FunctionInvocation => callMayFalsifyPath(fi.id)
@@ -646,7 +634,7 @@ trait TemplateGenerator { self: Templates =>
   }(expr)
 
   private def containsAssumption(e: Expr): Boolean = e match {
-    case _: Assume | _: Choose | _: UninterpretedCall | _: Error => true
+    case _: Assume | _: UninterpretedCall | _: Error => true
     case _ => false
   }
 

@@ -56,9 +56,10 @@ class Model(val program: Program)
       }).mkString("\n")
     }
 
+    // The functions without definitions call uninterpreted functions (see `exprOps.uninterpretedBody`)
     val chooseFds = symbols.functions.values.flatMap(fd => fd.fullBody match {
-      case Choose(res, _) =>
-        val cs = chooses.filter { case ((id, _), _) => res.id == id }
+      case UninterpretedCall(ucId, _, _, _) =>
+        val cs = chooses.filter { case ((id, _), _) => ucId == id }
         if (cs.isEmpty) None else Some(fd -> cs)
       case _ => None
     }).toSeq
@@ -75,7 +76,7 @@ class Model(val program: Program)
 
     lazy val chooseString = if (!opts.printChooses) "" else {
       val fdChooses = symbols.functions.values.flatMap(fd => fd.fullBody match {
-        case Choose(res, _) => Some(res.id)
+        case UninterpretedCall(ucId, _, _, _) => Some(ucId)
         case _ => None
       }).toSet
 

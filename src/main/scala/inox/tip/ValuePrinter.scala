@@ -55,7 +55,6 @@ class ValuePrinter(p: InoxProgram, ctx: Context)
       case Lambda(params, _) => bound ++= params.map(_.id)
       case Forall(params, _) => bound ++= params.map(_.id)
       case Let(vd, _, _) => bound += vd.id
-      case Choose(vd, _) => bound += vd.id
       case _ =>
     }
 

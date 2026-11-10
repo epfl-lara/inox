@@ -21,7 +21,6 @@ Inox String Interpolation
   - [Quantifiers](#quantifiers)
     - [Universal quantifiers](#universal-quantifiers)
     - [Existential quantifiers](#existential-quantifiers)
-  - [Choose](#choose)
 
 - ***[Primitives](#primitives)***
   - [Strings](#primitive-strings)
@@ -177,14 +176,6 @@ e"∀x. x || true"
 ```scala mdoc:to-string
 e"exists x: BigInt. x < 0"
 e"∃x, y. x + y == 0"
-```
-
-<a name="choose"></a>
-## Choose
-
-```scala mdoc:to-string
-e"choose x. x * 3 < 17"
-e"choose x: String. true"
 ```
 
 <a name="primitives"></a>

@@ -83,17 +83,12 @@ private[solvers] object PlatformSolvers {
     if (finalName.contains("z3")) unpackZ3Libraries
     finalName match {
       case "nativez3" => Some(create(p)(finalName, {
-        val chooseEnc = ChooseEncoder(p)(enc)
         class NativeZ3Impl(override val program: p.type)
                           (override val enc: transformers.ProgramTransformer {
                             val sourceProgram: program.type
                             val targetProgram: Program { val trees: inox.trees.type }
                           })
-                          (override val chooses: ChooseEncoder {
-                            val program: p.type
-                            val sourceEncoder: enc.type
-                          })
-          extends z3.NativeZ3Solver(program)(program, ctx, enc, chooses)
+          extends z3.NativeZ3Solver(program)(program, ctx, enc)
             with TimeoutSolver
             with tip.TipDebugger {
 
@@ -102,14 +97,13 @@ private[solvers] object PlatformSolvers {
 
           override protected def partialModel = model
         }
-        () => new NativeZ3Impl(p)(enc)(chooseEnc)
+        () => new NativeZ3Impl(p)(enc)
       }))
 
       case "nativez3-opt" => Some(create(p)(finalName, {
-        val chooseEnc = ChooseEncoder(p)(enc)
         // Override of `program` is needed as we need to have `program: p.type`
         class NativeZ3OptImpl(override val program: p.type)
-          extends z3.Z3Unrolling(program)(program, ctx, enc, chooseEnc) with z3.NativeZ3Optimizer with TimeoutSolver {
+          extends z3.Z3Unrolling(program)(program, ctx, enc) with z3.NativeZ3Optimizer with TimeoutSolver {
           override protected def partialModel = model
         }
 
@@ -122,11 +116,7 @@ private[solvers] object PlatformSolvers {
                             val sourceProgram: program.type
                             val targetProgram: Program { val trees: inox.trees.type }
                           })
-                          (override val chooses: ChooseEncoder {
-                            val program: p.type
-                            val sourceEncoder: enc.type
-                          })
-          extends AbstractUnrollingSolver(program, ctx, enc, chooses)(fullEncoder => theories.Z3(fullEncoder.targetProgram))
+          extends AbstractUnrollingSolver(program, ctx, enc)(fullEncoder => theories.Z3(fullEncoder.targetProgram))
             with UnrollingSolver
             with TimeoutSolver
             with tip.TipDebugger { self =>
@@ -142,12 +132,11 @@ private[solvers] object PlatformSolvers {
           override protected def partialModel = model
         }
 
-        () => new UnrollZ3Impl(p)(enc)(ChooseEncoder(p)(enc))
+        () => new UnrollZ3Impl(p)(enc)
       }))
 
       case "inv-eld" if NativeImageFlags.WITH_ELDARICA => Some(create(p)(finalName, {
         val emptyEnc = ProgramEncoder.empty(enc.targetProgram)
-        val chooses = ChooseEncoder(enc.targetProgram)(emptyEnc)
         class SMTEldaricaImpl(override val program: enc.targetProgram.type)
           extends AbstractInvariantSolver (program, ctx)(program)(emptyEnc)(emptyEnc)(using program.getSemantics, emptyEnc.targetProgram.getSemantics)
             with InvariantSolver
@@ -176,9 +165,8 @@ private[solvers] object PlatformSolvers {
       }))
 
       case "princess" if NativeImageFlags.WITH_PRINCESS => Some(create(p)(finalName, {
-        val chooseEnc = ChooseEncoder(p)(enc)
         class PrincessImpl(override val program: p.type)
-          extends princess.PrincessSolver(p)(p, ctx, enc, chooseEnc) with TimeoutSolver {
+          extends princess.PrincessSolver(p)(p, ctx, enc) with TimeoutSolver {
           override protected def partialModel = model
         }
 

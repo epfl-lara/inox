@@ -263,7 +263,7 @@ abstract class AbstractInvariantSolver(override val program: Program,
       case Application(_, _) => false
       case Lambda(_, _) => false 
       case Forall(_, _) => false
-      case Choose(_, _) => false
+      case UninterpretedCall(_, _, _, _) => false
       case IfExpr(_, _, _) => false
       case FunctionInvocation(_, _, args) => false // functions need to be replaced!
       // everything else, including theory operators && || ! ==> + - > < >= <= ==
@@ -478,12 +478,6 @@ abstract class AbstractInvariantSolver(override val program: Program,
         
         ret(res => Application(pred, freeVars :+ res))
         
-      case Choose(res, pred) => 
-        // unexpected, what do we do regarding chooses? TODO: simply evaluate
-        // under uninterpreted values or attempt to synthesize something in
-        // their place?
-        ???
-
       case Let(vd, value, body) =>
         // expr == let (vd = value) in body
         // iff expr = body under the guard that vd = value

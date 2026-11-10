@@ -24,7 +24,7 @@ private[smtlib3] case class TypeDefinition(params: Seq[Either[inox.trees.TypePar
 /** Parses SMT-LIB 3 scripts (see https://smt-lib.org/version3.shtml) into Inox programs.
   *
   * The parser extends the TIP parser of [[inox.tip.Parser]], so it also accepts TIP inputs and the
-  * Inox extensions to it (e.g. `datatype-invariant`, `assume` and `choose`). On top of these, it
+  * Inox extensions to it (e.g. `datatype-invariant` and `assume`). On top of these, it
   * supports the following SMT-LIB 3 features:
   *
   *  - Function types `(-> A B C)` (also spelled `→`), and dependent function types whose parameters
@@ -39,7 +39,9 @@ private[smtlib3] case class TypeDefinition(params: Seq[Either[inox.trees.TypePar
   *  - `push` and `pop`, and the `set-info` and `set-option` attributes of each query, see
   *    [[inox.tip.Parser.parseQueries]].
   *  - Curried and partial applications of functions, and the higher-order forms of the binders,
-  *    e.g. `(forall p)` or `(choose (lambda ((x Int)) (> x 0)))`.
+  *    e.g. `(forall p)` or `(exists (lambda ((x Int)) (> x 0)))`.
+  *  - `declare-fun` with named parameters `(declare-fun f ((x A)) B)`, whose result sort `B` may
+  *    refer to them.
   *  - SMT-LIB 2.6+ `declare-datatype(s)` and `match` syntax, and testers `(_ is c)`.
   *  - `(BitVec n)` for constant widths `n`.
   *

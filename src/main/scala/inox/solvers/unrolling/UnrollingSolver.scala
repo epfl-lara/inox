@@ -91,35 +91,12 @@ object optModelFinding      extends IntOptionDef("model-finding", 0, "<PosInt> |
   })
 }
 
-object AbstractUnrollingSolver {
-
-  private def computeProgramEncoder(prog: Program,
-                                    enc: transformers.ProgramTransformer {val sourceProgram: prog.type},
-                                    chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type},
-                                    theoriesCtor: transformers.ProgramTransformer {
-                                      val sourceProgram: prog.type
-                                      val targetProgram: chooses.targetProgram.type
-                                    } => transformers.ProgramTransformer {
-                                      val sourceProgram: chooses.targetProgram.type
-                                      val targetProgram: Program {val trees: enc.targetProgram.trees.type}
-                                    }):
-  (transformers.ProgramTransformer {
-    val sourceProgram: prog.type
-    val targetProgram: Program {val trees: enc.targetProgram.trees.type}
-  }) = {
-    val fullEncoder = enc `andThen` chooses
-    val theories = theoriesCtor(fullEncoder)
-    fullEncoder `andThen` theories
-  }
-}
-
 abstract class AbstractUnrollingSolver private
   (override val program: Program,
    override val context: Context)
   // Alias for `program`, as there are some places where `program` is shadowed.
   (val prog: program.type)
   (val enc: transformers.ProgramTransformer {val sourceProgram: program.type})
-  (val chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type})
   (val programEncoder: transformers.ProgramTransformer {
     val sourceProgram: program.type
     val targetProgram: Program { val trees: enc.targetProgram.trees.type }
@@ -139,30 +116,25 @@ abstract class AbstractUnrollingSolver private
   private def this(prog: Program,
                    context: Context,
                    enc: transformers.ProgramTransformer {val sourceProgram: prog.type},
-                   chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type},
                    programEncoder: transformers.ProgramTransformer {
                      val sourceProgram: prog.type
                      val targetProgram: Program {val trees: enc.targetProgram.trees.type}
                    })
                   (using semantics: prog.Semantics,
                    semanticsProvider: SemanticsProvider {val trees: enc.targetProgram.trees.type}) =
-    this(prog, context)(prog)(enc)(chooses)(programEncoder)(using semantics, programEncoder.targetProgram.getSemantics(using semanticsProvider))
+    this(prog, context)(prog)(enc)(programEncoder)(using semantics, programEncoder.targetProgram.getSemantics(using semanticsProvider))
 
   def this(prog: Program,
            context: Context,
-           enc: transformers.ProgramTransformer {val sourceProgram: prog.type},
-           chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type})
-          // Given a `fullEncoder` (constructed by `enc andThen chooses`), produce a theory
-          (theoriesCtor: transformers.ProgramTransformer {
-            val sourceProgram: prog.type
-            val targetProgram: chooses.targetProgram.type
-          } => transformers.ProgramTransformer {
-            val sourceProgram: chooses.targetProgram.type
+           enc: transformers.ProgramTransformer {val sourceProgram: prog.type})
+          // Given the encoder `enc`, produce a theory encoder of its target program
+          (theoriesCtor: enc.type => transformers.ProgramTransformer {
+            val sourceProgram: enc.targetProgram.type
             val targetProgram: Program {val trees: enc.targetProgram.trees.type}
           })
           (using semantics: prog.Semantics,
            semanticsProvider: SemanticsProvider {val trees: enc.targetProgram.trees.type}) =
-    this(prog, context, enc, chooses, AbstractUnrollingSolver.computeProgramEncoder(prog, enc, chooses, theoriesCtor))
+    this(prog, context, enc, enc `andThen` theoriesCtor(enc))
 
   protected final val s: programEncoder.sourceProgram.trees.type = programEncoder.sourceProgram.trees
   protected final val t: programEncoder.targetProgram.trees.type = programEncoder.targetProgram.trees
@@ -204,7 +176,6 @@ abstract class AbstractUnrollingSolver private
 
   protected val freeVars  = new IncrementalMap[Variable, Encoded]()
   private val constraints = new IncrementalSeq[Expr]()
-  private val freeChooses = new IncrementalMap[Choose, Encoded]()
 
   /** The equality literals of the on-demand distinguishing inputs that the last model extraction
     * needed (see [[LambdaTemplates.onDemandWitnesses]]). */
@@ -264,19 +235,6 @@ abstract class AbstractUnrollingSolver private
       case l: Lambda => encode(l).asInstanceOf[t.Lambda]
     }
 
-  private def removeChooses(expr: Expr): (Expr, Map[Variable, Encoded]) = {
-    var chooseBindings: Map[Variable, Encoded] = Map.empty
-    val withoutChooses = exprOps.postMap {
-      case c: Choose =>
-        val v = c.res.toVariable
-        chooseBindings += v -> freeChooses.cached(c)(declareVariable(encode(v)))
-        Some(Assume(c.pred, v))
-      case _ => None
-    } (expr)
-
-    (withoutChooses, chooseBindings)
-  }
-
   def declare(vd: ValDef): Unit = context.timers.solvers.declare.run(try {
     context.timers.solvers.declare.sanity.run {
       assert(vd.getType.isTyped)
@@ -327,16 +285,14 @@ abstract class AbstractUnrollingSolver private
 
     constraints += expression
 
-    val (withoutChooses, chooseBindings) = removeChooses(expression)
-
-    val freeBindings: Map[Variable, Encoded] = exprOps.variablesOf(withoutChooses).map {
+    val freeBindings: Map[Variable, Encoded] = exprOps.variablesOf(expression).map {
       v => v -> freeVars.cached(v)(declareVariable(encode(v)))
     }.toMap
 
     val newClauses = context.timers.solvers.assert.clauses.run {
       templates.instantiateExpr(
-        encode(withoutChooses),
-        (freeBindings ++ chooseBindings).map(p => encode(p._1) -> p._2)
+        encode(expression),
+        freeBindings.map(p => encode(p._1) -> p._2)
       )
     }
 
@@ -359,7 +315,8 @@ abstract class AbstractUnrollingSolver private
     def extractMap(elem: Encoded, tpe: t.MapType): Option[(Seq[(Encoded, Encoded)], Encoded)]
     def extractBag(elem: Encoded, tpe: t.BagType): Option[Seq[(Encoded, Encoded)]]
 
-    def getChoose(id: Identifier): Option[t.Expr]
+    /** The value of the uninterpreted function `id` that the extracted values call, if any. */
+    def getUninterpreted(id: Identifier): Option[t.Expr]
 
     def eval(elem: Encoded, tpe: Type): Option[Expr] = modelEval(elem, encode(tpe)).flatMap {
       expr => try {
@@ -400,54 +357,13 @@ abstract class AbstractUnrollingSolver private
       }.toMap
       val vs = allVs.map { case (vd, e) => vd -> restore(e) }
 
-      val cs = templates.getCalls
-        .filter(p => modelEval(p._1, t.BooleanType()) == Some(t.BooleanLiteral(true)))
-        .collect { case (_, call @ templates.Call(templates.Defined(tfd), _, _)) => tfd -> call }
-        .groupMap(_._1)(_._2)
-        .flatMap { case (tfd, calls) =>
-          chooses.getChoose(tfd.fd).map { case (id, c, vds) =>
-            val tpSubst = tfd.tpSubst.map(p => decode(p._1).asInstanceOf[TypeParameter] -> decode(p._2))
-            val from = tfd.params.map(_.getType(using tfd.symbols))
-            val to = tfd.getType
-            import templates._
-
-            val inst = new typeOps.TypeInstantiator(tpSubst)
-            val tvds = vds map inst.transform
-            val tc = inst.transform(c.copy(res = c.res.freshen))
-
-            val mappings = calls.flatMap { call =>
-              val optArgs = (call.args zip from).map(p => modelEval(p._1.encoded, p._2))
-              val optRes = modelEval(mkCall(tfd, call.args.map(_.encoded)), to)
-              if (optArgs.forall(_.isDefined) && optRes.isDefined) {
-                Some(optArgs.map(_.get) -> optRes.get)
-              } else {
-                None
-              }
-            }
-
-            val body = mappings.foldRight(tc: Expr) { case ((args, img), elze) =>
-              IfExpr(andJoin((tvds zip args).map { case (vd, arg) =>
-                Equals(vd.toVariable, decode(arg))
-              }), decode(img), elze)
-            }
-
-            (id, tfd.tps.map(decode(_))) -> body
-          }
-        }
-
-      val freeCs = freeChooses.toMap.map { case (c, idT) =>
-        (c.res.id, Seq.empty[Type]) -> extract(idT, c.res.getType)
-      }
-
-      // The values of chooses may themselves contain chooses and closures (see `uniquateClosure`),
+      // The values may contain the calls of closures and extracted functions (see `uniquateClosure`),
       // whose uninterpreted functions the underlying model gives at no type arguments
-      def choosesOf(e: Expr, tps: Seq[Type]): Map[(Identifier, Seq[Type]), Expr] = {
+      def choosesOf(e: Expr): Map[(Identifier, Seq[Type]), Expr] = {
         def rec(es: Seq[Expr], acc: Map[(Identifier, Seq[Type]), Expr]): Map[(Identifier, Seq[Type]), Expr] = {
           val cs = es.flatMap(exprOps.collect {
-            case c: Choose if !acc.contains(c.res.id -> tps) =>
-              getChoose(c.res.id).map(e => (c.res.id, tps) -> decode(e)).toSet
             case UninterpretedCall(id, Seq(), _, _) if !acc.contains(id -> Seq()) =>
-              getChoose(id).map(e => (id, Seq.empty[Type]) -> decode(e)).toSet
+              getUninterpreted(id).map(e => (id, Seq.empty[Type]) -> decode(e)).toSet
             case _ => Set.empty[((Identifier, Seq[Type]), Expr)]
           }).toMap
           if (cs.isEmpty) acc else rec(cs.values.toSeq, acc ++ cs)
@@ -455,10 +371,9 @@ abstract class AbstractUnrollingSolver private
         rec(Seq(e), Map.empty)
       }
 
-      val modelCs = vs.values.toSeq.flatMap(e => choosesOf(e, Seq.empty)) ++
-        (cs ++ freeCs).flatMap { case ((id, tps), e) => choosesOf(e, tps) }
+      val modelCs = (vs.values ++ uninterpretedVs.values).toSeq.flatMap(choosesOf)
 
-      val modelChooses = (cs ++ freeCs ++ modelCs ++ uninterpretedVs).map { case (k, e) => k -> restore(e) }
+      val modelChooses = (modelCs ++ uninterpretedVs).map { case (k, e) => k -> restore(e) }.toMap
 
       // The lambdas of the program that the model unblocks, with the values that they capture, or
       // only their types when these values can't be extracted
@@ -576,7 +491,10 @@ abstract class AbstractUnrollingSolver private
         // are chosen in their codomains (see `defaultValue`)
         case (Let(vd, value, body), tpe) => Let(vd, value, rec(body, tpe)).copiedFrom(body)
         case (IfExpr(cond, thenn, elze), tpe) => IfExpr(cond, rec(thenn, tpe), rec(elze, tpe)).copiedFrom(e)
-        case (c: Choose, _) if c.res.tpe != c.res.getType => BooleanLiteral(true)
+        // The default values of the models of functions are solved for in their refined codomains
+        // (see `defaultValue`)
+        case (uc: UninterpretedCall, _) if !model.chooses.contains(uc.id -> uc.tps) &&
+          uc.getTpe(stripRefinements = false) != uc.getType => BooleanLiteral(true)
         case (ADT(id, _, args), adt @ ADTType(_, tps)) =>
           // Field types may refer to the other fields of the constructor
           val fields = getConstructor(id, tps).fields
@@ -616,11 +534,6 @@ abstract class AbstractUnrollingSolver private
                 case ((vd, e), p) => Let(vd, e, p).copiedFrom(p)
               })
             })
-          )
-        case (c: Choose, tpe) =>
-          BooleanLiteral(
-            c.res.tpe == tpe && tpe == tpe.getType && // choose is for a simple type
-            (model.chooses contains (c.res.id -> Seq())) // the model contains a mapping for the choose
           )
         // The closures of models call the functions that the model gives (see `uniquateClosure`)
         case (UninterpretedCall(id, Seq(), args, _), tpe) if !expanding(id) => model.chooses.get(id -> Seq()) match {
@@ -709,7 +622,8 @@ abstract class AbstractUnrollingSolver private
 
     // maintain extracted functions to make sure equality is well-defined
     var lambdaExtractions: Seq[(Encoded, Lambda)] = Seq.empty
-    var chooseExtractions: Seq[(Encoded, Choose)] = Seq.empty
+    // the uninterpreted constants that stand for functions that are being extracted
+    var functionExtractions: Seq[(Encoded, UninterpretedCall)] = Seq.empty
     // the uninterpreted functions that the closures which keep extracted functions distinct call
     var closureExtractions: Seq[(Identifier, Lambda)] = Seq.empty
 
@@ -833,14 +747,15 @@ abstract class AbstractUnrollingSolver private
 
     /* The default value of the model of a function, i.e. its value on the arguments the formula
      * doesn't apply it to. It must lie in the codomain `to` (in terms of `params`) for all arguments
-     * in the domain, so a refined codomain is chosen as `choose(r: {r: to | domain ==> r in to})`.
+     * in the domain, so a refined codomain is given by a call to a fresh uninterpreted function of
+     * the parameters, whose result is in `{r: to | domain ==> r in to}`.
      * Function-typed parameters can't be checked by an expression, so they're assumed in the domain. */
     def defaultValue(params: Seq[ValDef], paramTypes: Seq[Type], to: Type): Option[Expr] =
       Option.when(to != to.getType) {
         val domain = andJoin((params zip paramTypes).collect {
           case (vd, tpe) if isFirstOrder(tpe) => refinementsOf(vd.toVariable, tpe)
         })
-        Choose(ValDef.fresh("res", guardedType(domain, to), true), BooleanLiteral(true))
+        exprOps.choose(ValDef.fresh("res", guardedType(domain, to), true), BooleanLiteral(true), params.map(_.toVariable))
       }
 
     def extractFunction(f: Encoded, fullType: Type, seen: Map[FunctionType, Set[Encoded]]): Expr = {
@@ -888,9 +803,9 @@ abstract class AbstractUnrollingSolver private
 
       extractLambda(f, tpe).orElse {
         if (seen(tpe).exists(e => modelEq(f, e))) {
-          Some(chooseExtractions.collectFirst { case (e, c) if modelEq(f, e) => c }.getOrElse {
-            val c = Choose(Variable.fresh("x", tpe, true).toVal, BooleanLiteral(true))
-            chooseExtractions :+= f -> c
+          Some(functionExtractions.collectFirst { case (e, c) if modelEq(f, e) => c }.getOrElse {
+            val c = UninterpretedCall(FreshIdentifier("x", true), Seq.empty, Seq.empty, FunctionType(Seq.empty, tpe))
+            functionExtractions :+= f -> c
             c
           })
         } else {
@@ -1080,12 +995,13 @@ abstract class AbstractUnrollingSolver private
 
     val initSeen: Map[FunctionType, Set[Encoded]] = Map.empty.withDefaultValue(Set.empty)
     val exModel = wrapped.getModel((e, tpe) => decodeOrSimplest(extractValue(e, encode(tpe), initSeen)))
-    val exChooses = chooseExtractions.toMap.map { case (e, c) =>
+    // The constants that stand for functions are given by these functions
+    val exFunctions = functionExtractions.map { case (e, c) =>
       c -> lambdaExtractions.collectFirst {
-        case (f, lambda) if lambda.getType == c.res.getType && modelEq(f, e) => lambda
+        case (f, lambda) if lambda.getType == c.getType && modelEq(f, e) => lambda
       }.get
     }
-    val chooses = exChooses.map(p => (p._1.res.id, Seq.empty[s.Type]) -> decodeOrSimplest(p._2)) ++
+    val chooses = exFunctions.map(p => (p._1.id, Seq.empty[s.Type]) -> decodeOrSimplest(Lambda(Seq.empty, p._2))) ++
       closureExtractions.map(p => (p._1, Seq.empty[s.Type]) -> decodeOrSimplest(p._2))
 
     // The distinct functions of the model need a distinguishing input, so on-demand pairs join the
@@ -1680,7 +1596,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     }
 
     def modelEval(elem: t.Expr, tpe: t.Type): Option[t.Expr] = e(elem)
-    def getChoose(id: Identifier): Option[t.Expr] = model.chooses.collectFirst {
+    def getUninterpreted(id: Identifier): Option[t.Expr] = model.chooses.collectFirst {
       case ((cid, tps), e) if cid == id && tps.isEmpty => e
     }
 

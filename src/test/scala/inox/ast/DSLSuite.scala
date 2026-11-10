@@ -116,7 +116,7 @@ class DSLSuite extends AnyFunSuite with DatastructureUtils {
     assert(forall(vds(0), vds(1), vds(2), vds(3))((a, b, c, d) => a + b >= c + d) ==
       Forall(vds, vs(0) + vs(1) >= vs(2) + vs(3)))
 
-    assert(choose(vds(0))(a => a > x) == Choose(vds(0), vs(0) > x))
+    assert(choose(vds(0))(a => a > x) == exprOps.choose(vds(0), vs(0) > x))
   }
 
   test("block suspensions") {

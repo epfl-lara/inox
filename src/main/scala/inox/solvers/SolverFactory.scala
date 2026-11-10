@@ -191,9 +191,8 @@ object SolverFactory {
 
     finalName match {
       case "smt-z3-opt" => create(p)(finalName, {
-        val chooseEnc = ChooseEncoder(p)(enc)
         class SMTZ3OptImpl(override val program: p.type)
-          extends AbstractUnrollingSolver(program, ctx, enc, chooseEnc)(fullEncoder => theories.Z3(fullEncoder.targetProgram))
+          extends AbstractUnrollingSolver(program, ctx, enc)(fullEncoder => theories.Z3(fullEncoder.targetProgram))
             with UnrollingOptimizer
             with TimeoutSolver {
 
@@ -211,7 +210,6 @@ object SolverFactory {
 
       case "inv-z3" => create(p)(finalName, {
         val emptyEnc = ProgramEncoder.empty(enc.targetProgram)
-        val chooses = ChooseEncoder(enc.targetProgram)(emptyEnc)
         class SMTZ3Impl(override val program: enc.targetProgram.type)
           extends AbstractInvariantSolver (program, ctx)(program)(emptyEnc)(emptyEnc)(using program.getSemantics, emptyEnc.targetProgram.getSemantics)
             with InvariantSolver
@@ -283,11 +281,7 @@ object SolverFactory {
                          val sourceProgram: program.type
                          val targetProgram: Program { val trees: inox.trees.type }
                        })
-                       (override val chooses: ChooseEncoder {
-                         val program: p.type
-                         val sourceEncoder: enc.type
-                       })
-          extends AbstractUnrollingSolver(program, ctx, enc, chooses)(fullEncoder => theories.Z3(fullEncoder.targetProgram))
+          extends AbstractUnrollingSolver(program, ctx, enc)(fullEncoder => theories.Z3(fullEncoder.targetProgram))
             with UnrollingSolver
             with TimeoutSolver
             with tip.TipDebugger {
@@ -310,7 +304,7 @@ object SolverFactory {
           override protected def partialModel = solverModel
         }
 
-        () => new SMTZ3Impl(p)(enc)(ChooseEncoder(p)(enc))
+        () => new SMTZ3Impl(p)(enc)
       })
 
       case "smt-cvc4" => create(p)(finalName, {
@@ -320,11 +314,7 @@ object SolverFactory {
                            val sourceProgram: program.type
                            val targetProgram: Program { val trees: inox.trees.type }
                          })
-                         (override val chooses: ChooseEncoder {
-                           val program: p.type
-                           val sourceEncoder: enc.type
-                         })
-          extends AbstractUnrollingSolver(program, ctx, enc, chooses)(fullEncoder => theories.CVC(fullEncoder)(ev))
+          extends AbstractUnrollingSolver(program, ctx, enc)(fullEncoder => theories.CVC(fullEncoder)(ev))
             with UnrollingSolver
             with TimeoutSolver
             with tip.TipDebugger {
@@ -344,7 +334,7 @@ object SolverFactory {
           override protected def partialModel = solverModel
         }
 
-        () => new SMTCVC4Impl(p)(enc)(ChooseEncoder(p)(enc))
+        () => new SMTCVC4Impl(p)(enc)
       })
 
       case "smt-cvc5" => create(p)(finalName, {
@@ -354,11 +344,7 @@ object SolverFactory {
                            val sourceProgram: program.type
                            val targetProgram: Program { val trees: inox.trees.type }
                          })
-                         (override val chooses: ChooseEncoder {
-                           val program: p.type
-                           val sourceEncoder: enc.type
-                         })
-          extends AbstractUnrollingSolver(program, ctx, enc, chooses)(fullEncoder => theories.CVC(fullEncoder)(ev))
+          extends AbstractUnrollingSolver(program, ctx, enc)(fullEncoder => theories.CVC(fullEncoder)(ev))
             with UnrollingSolver
             with TimeoutSolver
             with tip.TipDebugger {
@@ -378,7 +364,7 @@ object SolverFactory {
           override protected def partialModel = solverModel
         }
 
-        () => new SMTCVC5Impl(p)(enc)(ChooseEncoder(p)(enc))
+        () => new SMTCVC5Impl(p)(enc)
       })
 
       case "smt-bitwuzla" => create(p)(finalName, {
@@ -388,11 +374,7 @@ object SolverFactory {
                            val sourceProgram: program.type
                            val targetProgram: Program { val trees: inox.trees.type }
                          })
-                         (override val chooses: ChooseEncoder {
-                           val program: p.type
-                           val sourceEncoder: enc.type
-                         })
-          extends AbstractUnrollingSolver(program, ctx, enc, chooses)(fullEncoder => theories.CVC(fullEncoder)(ev))
+          extends AbstractUnrollingSolver(program, ctx, enc)(fullEncoder => theories.CVC(fullEncoder)(ev))
             with UnrollingSolver
             with TimeoutSolver
             with tip.TipDebugger {
@@ -412,7 +394,7 @@ object SolverFactory {
           override protected def partialModel = solverModel
         }
 
-        () => new SMTBitwuzlaImpl(p)(enc)(ChooseEncoder(p)(enc))
+        () => new SMTBitwuzlaImpl(p)(enc)
       })
 
       case "eval" => create(p)(finalName, {

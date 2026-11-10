@@ -28,8 +28,6 @@ trait ContextualEvaluator extends Evaluator {
     def withLocallyIgnoredContracts: RC
 
     def newChooses(news: Map[(Identifier, Seq[Type]), Expr]): RC
-    def getChoose(id: Identifier): Option[Expr] = chooses.get(id -> tps)
-    def withoutChoose(id: Identifier) = newChooses(chooses - (id -> tps))
   }
 
   case class DefaultRecContext(

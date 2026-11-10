@@ -236,9 +236,8 @@ trait SymbolOps extends TypeOps { self =>
 
   def isImpureExpr(expr: Expr): Boolean = expr match {
     case Assume(BooleanLiteral(true), _) => false
-    case Choose(res, BooleanLiteral(true)) if hasInstance(res.tpe) == Some(true) => false
     case uc: UninterpretedCall => hasInstance(uc.getTpe(stripRefinements = false)) != Some(true)
-    case (_: Assume) | (_: Choose) | (_: Error) | (_: Application) |
+    case (_: Assume) | (_: Error) | (_: Application) |
          (_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector) => true
     case adt: ADT => adt.getConstructor.sort.definition.hasInvariant
     case _ => false
@@ -247,7 +246,7 @@ trait SymbolOps extends TypeOps { self =>
   /** Simplify all the pure and ground sub-expressions of the given expression,
     * by evaluating them using [[inox.evaluators.Evaluator]].
     * If `force` is omitted, the given expression will only be evaluated if it is
-    * ground, pure, and does not contain choose or quantifiers.
+    * ground, pure, and does not contain uninterpreted calls or quantifiers.
     */
   def simplifyGround(expr: Expr, reportErrors: Boolean = false)(using sem: symbols.Semantics, ctx: Context): Expr = {
     val evalCtx = ctx.withOpts(evaluators.optEvalQuantifiers(false))
@@ -411,16 +410,13 @@ trait SymbolOps extends TypeOps { self =>
         (tvs & allBoundVars).isEmpty && (unconditional || (pathFreeVars & allBoundVars).isEmpty)
       }
 
-      // Uninterpreted calls are never lifted either, so that closures that call distinct
-      // uninterpreted functions remain distinct. Lifting a lambda doesn't evaluate its body, so
-      // the calls and errors in it don't prevent lifting (e.g. a lambda of a model, `x => f(x)`).
-      def containsChoose(e: Expr): Boolean = {
-        def rec(e: Expr): Boolean = e match {
-          case _: Choose | _: UninterpretedCall | _: Error => true
-          case Lambda(_, body) => exists { case _: Choose => true case _ => false } (body)
-          case Operator(es, _) => es.exists(rec)
-        }
-        rec(e)
+      // Uninterpreted calls are never lifted, so that closures that call distinct uninterpreted
+      // functions remain distinct. Lifting a lambda doesn't evaluate its body, so the calls and
+      // errors in it don't prevent lifting (e.g. a lambda of a model, `x => f(x)`).
+      def containsChoice(e: Expr): Boolean = e match {
+        case _: UninterpretedCall | _: Error => true
+        case _: Lambda => false
+        case Operator(es, _) => es.exists(containsChoice)
       }
 
       def containsRecursive(e: Expr): Boolean =
@@ -431,7 +427,7 @@ trait SymbolOps extends TypeOps { self =>
           // The set of minimal conditions that must be met for an expression to be liftable
           val minimal =
             (isSimple(e) || !onlySimple)           && // check whether we want only simple expression
-            !containsChoose(e)                     && // expressions containing chooses or errors can't be lifted
+            !containsChoice(e)                     && // expressions containing choices or errors can't be lifted
             (!inFunction || !containsRecursive(e))    // recursive functions can't be lifted from lambdas
 
           // Whether the expression is guaranteed to be called, typically in foralls
@@ -487,14 +483,6 @@ trait SymbolOps extends TypeOps { self =>
             case l: Lambda =>
               val newBody = transformExpr(vars ++ l.params.map(_.toVariable), l.body, true, env)
               Lambda(l.params map (vd => transformVar(vd.toVariable).toVal), newBody)
-
-            // @nv: we make sure NOT to normalize choose ids as we may need to
-            //      report models for unnormalized chooses!
-            case c: Choose =>
-              replaceFromSymbols(variablesOf(c).map(v => v -> {
-                if (vars(v) || locals(v)) transformVar(v)
-                else getVariable(v, v.getType)
-              }).toMap, c)
 
             // Make sure we don't lift applications to applications when they have basic shapes
             case Application(liftable(_), args) if args.forall(liftable.unapply(_).isEmpty) =>
@@ -969,7 +957,6 @@ trait SymbolOps extends TypeOps { self =>
       // Lets under binders may depend on the bound variables, so they stay under them
       case Lambda(params, body) => (Lambda(params, wrap(defs, body)).copiedFrom(e), Seq())
       case Forall(params, body) => (Forall(params, wrap(defs, body)).copiedFrom(e), Seq())
-      case Choose(res, pred) => (Choose(res, wrap(defs, pred)).copiedFrom(e), Seq())
       case _ => (e, defs)
     }
 
@@ -1024,7 +1011,7 @@ trait SymbolOps extends TypeOps { self =>
       if (!sort.definition.isWellFormed) throw NoSimpleValue(adt)
 
       if (seen(adt)) {
-        if (inLambda) Choose(ValDef.fresh("res", adt), BooleanLiteral(true))
+        if (inLambda) exprOps.choose(ValDef.fresh("res", adt), BooleanLiteral(true))
         else throw NoSimpleValue(adt)
       } else if (sort.hasInvariant) {
         if (!allowSolver || !ctx.options.findOptionOrDefault(SymbolOps.optSimplestValueSolver)) {
@@ -1076,15 +1063,15 @@ trait SymbolOps extends TypeOps { self =>
     *
     * Guarantees that all IfExpr will be at the top level and as soon as you
     * encounter a non-IfExpr, then no more IfExpr can be found in the
-    * sub-expressions, except under binders (lambdas, quantifiers, chooses and
-    * let bodies), as their conditions may depend on the bound variables.
+    * sub-expressions, except under binders (lambdas, quantifiers and let
+    * bodies), as their conditions may depend on the bound variables.
     *
     * Assumes no match expressions
     */
   def hoistIte(expr: Expr): Expr = {
     def transform(expr: Expr): Option[Expr] = expr match {
       case IfExpr(c, t, e) => None
-      case _: Lambda | _: Forall | _: Choose => None
+      case _: Lambda | _: Forall => None
 
       case nop @ Operator(ts, op) => {
         // Only the value of a let is outside of the scope of its binder
