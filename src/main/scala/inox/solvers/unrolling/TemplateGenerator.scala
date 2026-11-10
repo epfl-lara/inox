@@ -290,13 +290,13 @@ trait TemplateGenerator { self: Templates =>
       result
     }
 
-    // Types the reads of a collection whose elements have contracts (see [[Collection]]). The elements
-    // that only need unrolling as free values (e.g. sets, functions or type parameters) aren't typed:
+    // Types the reads of a collection whose elements have contracts or ADT invariants (see [[Collection]]).
+    // The elements that only need unrolling as free values (e.g. sets, functions or type parameters) aren't typed:
     // their reads may be many (e.g. those of the heap in Stainless) and typing them doesn't help proofs.
     def storeReads(pathVar: Variable, tpe: Type, elemTpe: Type, arg: Expr, inDomain: Boolean)
                   (using generator: TypingGenerator): Expr =
       if (!(generator == FreeGenerator || (generator == ContractGenerator && !inDomain)) ||
-          !(ContractGenerator `unroll` elemTpe)) BooleanLiteral(true)
+          !(ReadUnrolling `unroll` elemTpe)) BooleanLiteral(true)
       else {
         val b = encodedCond(pathVar)
         val encoder = mkEncoder(localSubst)
