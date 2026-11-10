@@ -312,7 +312,6 @@ class PrinterSuite extends AnyFunSuite {
     checkAll(
       Let(x.toVal, IntegerLiteral(1), Plus(x, x)) -> "val x: BigInt = 1\nx + x",
       Forall(Seq(x.toVal, y.toVal), Equals(x, y)) -> "forall((x: BigInt, y: BigInt) => (x == y))",
-      Choose(x.toVal, GreaterThan(x, y)) -> "choose((x: BigInt) => x > y)",
       Assume(p, x) -> "assume(p)\nx",
       IfExpr(p, x, y) -> "if (p) {\n  x\n} else {\n  y\n}",
       IfExpr(p, x, IfExpr(q, y, z)) -> "if (p) {\n  x\n} else if (q) {\n  y\n} else {\n  z\n}",

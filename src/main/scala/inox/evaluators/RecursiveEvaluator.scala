@@ -301,13 +301,6 @@ abstract class RecursiveEvaluator(override val program: Program,
         case _ => onUninterpretedInvocation(UninterpretedCall(id, tps, evArgs, tpe).copiedFrom(expr), rctx.chooses)
       }
 
-    case c: Choose =>
-      rctx.getChoose(c.res.id) match {
-        case Some(expr) => e(expr)
-        case None => onChooseInvocation(
-          replaceFromSymbols(variablesOf(c).map(v => v -> e(v)).toMap, c).asInstanceOf[Choose], rctx.chooses)
-      }
-
     case gl: GenericValue => gl
     case fl : FractionLiteral => normalizeFraction(fl)
     case l : Literal[_] => l

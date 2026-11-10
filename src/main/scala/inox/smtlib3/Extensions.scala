@@ -80,7 +80,7 @@ object Terms {
     }
   }
 
-  /** A higher-order binder application such as `(forall p)` or `(choose (lambda ((x Int)) ...))`. */
+  /** A higher-order binder application such as `(forall p)` or `(exists (lambda ((x Int)) ...))`. */
   case class BinderApplication(binder: String, body: Term) extends TermExtension {
     override def print(ctx: PrintingContext): Unit = {
       ctx.print("(" + binder + " ")

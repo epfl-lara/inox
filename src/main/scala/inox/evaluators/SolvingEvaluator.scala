@@ -28,7 +28,6 @@ trait SolvingEvaluator extends Evaluator { self =>
   lazy val checkModels = options.findOptionOrDefault(optCheckModels)
   lazy val solveUninterpretedCalls = options.findOptionOrDefault(optSolveUninterpretedCalls)
 
-  private val chooseCache: MutableMap[Choose, Expr] = MutableMap.empty
   private val uninterpretedCache: MutableMap[UninterpretedCall, Expr] = MutableMap.empty
 
   // @nv: this has to be visible otherwise the compiler just sets it to `null`
@@ -80,13 +79,6 @@ trait SolvingEvaluator extends Evaluator { self =>
       chooses.filter { case ((id, _), _) => uninterpreted(id) }
     }
 
-  def onChooseInvocation(choose: Choose, modelChooses: Map[(Identifier, Seq[Type]), Expr] = Map.empty): Expr = {
-    if (!evalQuantifiers) {
-      throw new RuntimeException(s"Evaluation of 'choose' expressions disabled @ ${choose.getPos}: $choose")
-    }
-    solveFor(choose.res, choose.pred, choose, chooseCache, modelChooses)
-  }
-
   /** Evaluates a call of an uninterpreted function that the model doesn't interpret to some value of
     * its result type, which may be refined by a predicate over the arguments. The value is solved
     * for once per call, so that the function stays a function. */
@@ -104,16 +96,16 @@ trait SolvingEvaluator extends Evaluator { self =>
   /** Solves for a value of `res` that satisfies `pred`, caching it by `key` outside of models. */
   private def solveFor[K <: Expr](res: ValDef, pred: Expr, key: K, cache: MutableMap[K, Expr],
                                   modelChooses: Map[(Identifier, Seq[Type]), Expr]): Expr = {
-    val choose = Choose(res, pred)
-    val chooses = reachedChooses(choose, modelChooses)
+    // The predicate and the type of the result may call uninterpreted functions
+    val chooses = reachedChooses(Forall(Seq(res), pred), modelChooses)
 
     // The results in a model only hold in that model
     (if (chooses.isEmpty) cache.get(key) else None).getOrElse({
       import scala.language.existentials
       import SolverResponses._
 
-      // Solves the choose's predicate. Declaring the result makes the solver respect its type
-      // even when the predicate doesn't mention it, as with `choose((x: { v: BigInt | v > 5 }) => true)`,
+      // Solves the predicate. Declaring the result makes the solver respect its type even when the
+      // predicate doesn't mention it, as with a result of type `{ v: BigInt | v > 5 }` and predicate `true`,
       // but it also makes the solver look for a value of that type, which may never end: in Stainless's
       // ForestNothing2, the result's type is an ADT whose invariant only holds for infinite values.
       // So we only declare the result when its type has a refinement and no simple value.
@@ -122,8 +114,8 @@ trait SolvingEvaluator extends Evaluator { self =>
           val sf = getSolver(chooses)(using context)
           val solver = sf.getNewSolver()
           try {
-            if (declareResult) solver.declare(choose.res)
-            solver.assertCnstr(choose.pred)
+            if (declareResult) solver.declare(res)
+            solver.assertCnstr(pred)
             solver.check(Model)
           } finally {
             sf.reclaim(solver)
@@ -133,29 +125,29 @@ trait SolvingEvaluator extends Evaluator { self =>
         satRes match {
           case SatWithModel(model) =>
             if ((model.chooses.keySet -- chooses.keySet).nonEmpty && checkModels) {
-              throw new RuntimeException("Cannot guarantee model for dependent choose " + choose.asString)
+              throw new RuntimeException("Cannot guarantee model for dependent call " + key.asString)
             }
-            model.vars.get(choose.res)
+            model.vars.get(res)
 
           case _ =>
-            throw new RuntimeException("Failed to evaluate choose " + choose.asString)
+            throw new RuntimeException("Failed to evaluate " + key.asString)
         }
       }
 
-      val res = solve(declareResult = false).getOrElse {
+      val value = solve(declareResult = false).getOrElse {
         try {
-          simplestValue(choose.res.tpe, allowSolver = false)
+          simplestValue(res.tpe, allowSolver = false)
         } catch {
-          case _: NoSimpleValue if hasRefinement(choose.res.tpe) => solve(declareResult = true).getOrElse {
-            throw new RuntimeException("No simple value for choose " + choose.asString)
+          case _: NoSimpleValue if hasRefinement(res.tpe) => solve(declareResult = true).getOrElse {
+            throw new RuntimeException("No simple value for " + key.asString)
           }
           case _: NoSimpleValue =>
-            throw new RuntimeException("No simple value for choose " + choose.asString)
+            throw new RuntimeException("No simple value for " + key.asString)
         }
       }
 
-      if (chooses.isEmpty) cache(key) = res
-      res
+      if (chooses.isEmpty) cache(key) = value
+      value
     })
   }
 

@@ -148,9 +148,6 @@ trait Printer {
       case Forall(args, e) =>
         ppForall(args, e)
 
-      case Choose(res, pred) =>
-        p"choose(($res) => $pred)"
-
       case UninterpretedCall(id, tps, args, _) =>
         p"$id${nary(tps, ", ", "[", "]")}"
         if (args.nonEmpty) {
@@ -608,7 +605,7 @@ trait Printer {
   protected def requiresParentheses(ex: Tree, within: Option[Tree]): Boolean = (ex, within) match {
     case (_, None) => false
     case (_, Some(
-      _: Definition | _: Let | _: IfExpr | _: ADT | _: Lambda | _: Choose | _: Tuple | _: Assume
+      _: Definition | _: Let | _: IfExpr | _: ADT | _: Lambda | _: Tuple | _: Assume
     )) => false
     case (ex: StringConcat, Some(_: StringConcat)) => false
     case (_, Some(_: FunctionInvocation)) => false

@@ -45,30 +45,30 @@ class SolvingEvaluatorSuite extends AnyFunSuite {
     assert(value(Forall(Seq(t, x), GreaterThan(Plus(x.toVariable, IntegerLiteral(1)), x.toVariable))) == BooleanLiteral(true))
   }
 
-  test("choose picks a value satisfying the predicate") {
+  test("a choice picks a value satisfying its predicate") {
     val res = "res" :: IntegerType()
     val pred = And(GreaterThan(res.toVariable, IntegerLiteral(5)), LessThan(res.toVariable, IntegerLiteral(7)))
-    assert(value(Choose(res, pred)) == IntegerLiteral(6))
+    assert(value(exprOps.choose(res, pred)) == IntegerLiteral(6))
   }
 
-  test("choose without a solution is an error") {
+  test("a choice without a solution is an error") {
     val res = "res" :: IntegerType()
     val pred = And(GreaterThan(res.toVariable, IntegerLiteral(5)), LessThan(res.toVariable, IntegerLiteral(6)))
-    assert(!evaluate(Choose(res, pred)).isInstanceOf[EvaluationResults.Successful[?]])
+    assert(!evaluate(exprOps.choose(res, pred)).isInstanceOf[EvaluationResults.Successful[?]])
   }
 
-  test("choose with an unconstrained result picks its simplest value") {
+  test("an unconstrained choice picks its simplest value") {
     // The solver doesn't look for a value of the result's type, which may never end for an ADT
     // whose invariant only holds for infinite values (see Stainless's ForestNothing2).
     val res = "res" :: IntegerType()
-    assert(value(Choose(res, BooleanLiteral(true))) == IntegerLiteral(0))
+    assert(value(exprOps.choose(res, BooleanLiteral(true))) == IntegerLiteral(0))
   }
 
   test("quantifiers are not evaluated when disabled") {
     val res = "res" :: IntegerType()
     val disabled = optEvalQuantifiers(false)
     assert(!evaluate(Forall(Seq(x), BooleanLiteral(true)), disabled).isInstanceOf[EvaluationResults.Successful[?]])
-    assert(!evaluate(Choose(res, BooleanLiteral(true)), disabled).isInstanceOf[EvaluationResults.Successful[?]])
+    assert(!evaluate(exprOps.choose(res, BooleanLiteral(true)), disabled).isInstanceOf[EvaluationResults.Successful[?]])
   }
 
   test("an evaluator reuses its forall results") {
@@ -79,32 +79,32 @@ class SolvingEvaluatorSuite extends AnyFunSuite {
     assert(evaluator.eval(forall, Model.empty(program)) == EvaluationResults.Successful(BooleanLiteral(false)))
   }
 
-  test("choose depending on another choose is an error when checking models") {
+  test("a choice depending on another choice is an error when checking models") {
     val res = "res" :: IntegerType()
     val inner = "inner" :: IntegerType()
-    val dependent = Choose(res, Equals(res.toVariable, Choose(inner, GreaterThan(inner.toVariable, IntegerLiteral(0)))))
+    val dependent = exprOps.choose(res, Equals(res.toVariable, exprOps.choose(inner, GreaterThan(inner.toVariable, IntegerLiteral(0)))))
     assert(!evaluate(dependent, solvers.optCheckModels(true)).isInstanceOf[EvaluationResults.Successful[?]])
     assert(value(dependent).isInstanceOf[IntegerLiteral])
   }
 
-  test("choose over a type parameter") {
+  test("a choice over a type parameter") {
     val tp = TypeParameter.fresh("T")
     val res = "res" :: tp
-    assert(evaluate(Choose(res, BooleanLiteral(true))).isInstanceOf[EvaluationResults.Successful[?]])
+    assert(evaluate(exprOps.choose(res, BooleanLiteral(true))).isInstanceOf[EvaluationResults.Successful[?]])
   }
 
   val e = ValDef.fresh("e", IntegerType())
   val aboveFive = RefinementType(e, GreaterThan(e.toVariable, IntegerLiteral(5)))
   val noValues = RefinementType(e, BooleanLiteral(false))
 
-  test("choose respects the refinement of its result") {
+  test("a choice respects the refinement of its result") {
     val res = "res" :: aboveFive
-    value(Choose(res, BooleanLiteral(true))) match {
+    value(exprOps.choose(res, BooleanLiteral(true))) match {
       case IntegerLiteral(n) => assert(n > 5)
       case v => fail(s"Expected an integer but got $v")
     }
     val empty = "empty" :: noValues
-    assert(!evaluate(Choose(empty, BooleanLiteral(true))).isInstanceOf[EvaluationResults.Successful[?]])
+    assert(!evaluate(exprOps.choose(empty, BooleanLiteral(true))).isInstanceOf[EvaluationResults.Successful[?]])
   }
 
   test("forall over refined types") {
@@ -125,7 +125,7 @@ class SolvingEvaluatorSuite extends AnyFunSuite {
     for (expr <- Seq(
       Forall(Seq(x), GreaterThan(x.toVariable, IntegerLiteral(0))),
       Forall(Seq(empty), BooleanLiteral(false)),
-      Choose(x, GreaterThan(x.toVariable, IntegerLiteral(0)))
+      exprOps.choose(x, GreaterThan(x.toVariable, IntegerLiteral(0)))
     )) assert(!evaluator.eval(expr, Model.empty(program)).isInstanceOf[EvaluationResults.Successful[?]], s"$expr should fail")
   }
 

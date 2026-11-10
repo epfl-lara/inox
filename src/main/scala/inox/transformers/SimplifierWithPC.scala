@@ -116,15 +116,10 @@ trait SimplifierWithPC extends Transformer { self =>
     (re, pe)
   }
 
-  /** Facts implied by the path, choose, lambdas, boolean connectives and assumptions. */
+  /** Facts implied by the path, lambdas, boolean connectives and assumptions. */
   protected def simplifyCore(e: Expr, path: Env): (Expr, Boolean) = e match {
     case e if path `implies` e => (BooleanLiteral(true).copiedFrom(e), true)
     case e if path `implies` not(e) => (BooleanLiteral(false).copiedFrom(e), true)
-
-    case c @ Choose(res, BooleanLiteral(true)) if hasInstance(res.tpe) == Some(true) => (c, true)
-    case Choose(res, pred) =>
-      val (rp, _) = simplify(pred, path `withBound` res)
-      (Choose(res, rp).copiedFrom(e), false)
 
     case Lambda(params, body) =>
       val (rb, _) = simplify(body, path `withBounds` params)

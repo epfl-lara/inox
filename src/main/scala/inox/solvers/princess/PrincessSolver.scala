@@ -14,11 +14,10 @@ import scala.collection.mutable.{Map => MutableMap}
 class PrincessSolver(override val program: Program)
                     (override val prog: program.type,
                      override val context: Context,
-                     override val enc: transformers.ProgramTransformer {val sourceProgram: program.type},
-                     override val chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type})
+                     override val enc: transformers.ProgramTransformer {val sourceProgram: program.type})
                     (using semantics: prog.Semantics,
                      semanticsProvider: SemanticsProvider {val trees: enc.targetProgram.trees.type})
-  extends AbstractUnrollingSolver(program, context, enc, chooses)
+  extends AbstractUnrollingSolver(program, context, enc)
     (fullEncoder => solvers.theories.Princess(fullEncoder)(semantics.getEvaluator(using context))) { self =>
 
   import context.{given, _}
@@ -66,7 +65,7 @@ class PrincessSolver(override val program: Program)
       res
     }
 
-    def getChoose(id: Identifier): Option[t.Expr] = chooses.get(id)
+    def getUninterpreted(id: Identifier): Option[t.Expr] = chooses.get(id)
 
     override def toString = model.toString
   }

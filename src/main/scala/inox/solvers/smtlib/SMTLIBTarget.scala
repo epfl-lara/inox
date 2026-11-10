@@ -616,7 +616,8 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     val smtVars: Map[SSymbol, Term],
     val functions: Map[SSymbol, DefineFun],
     val seen: Set[(BigInt, Type)] = Set.empty,
-    private[SMTLIBTarget] val chooses: MutableMap[(BigInt, Type), Choose] = MutableMap.empty,
+    // the uninterpreted constants that stand for the functions that are being extracted
+    private[SMTLIBTarget] val chooses: MutableMap[(BigInt, Type), UninterpretedCall] = MutableMap.empty,
     private[SMTLIBTarget] val lambdas: MutableMap[(BigInt, Type), Lambda] = MutableMap.empty,
     private[SMTLIBTarget] val closures: MutableMap[Identifier, Lambda] = MutableMap.empty
   ) extends super.AbstractContext {
@@ -638,9 +639,10 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     }
 
     // If a stack overflow occurred during extraction, then we may end up in situations where
-    // chooses don't have a corresponding lambda. In such cases, we discard the choose as it is
+    // constants don't have a corresponding lambda. In such cases, we discard the constant as it is
     // irrelevant to the final model (since it won't contain that lambda).
-    def getChooses = chooses.toMap.flatMap { case (n, c) => lambdas.get(n).map(c -> _) }
+    def getChooses: Map[Identifier, Expr] =
+      chooses.toMap.flatMap { case (n, c) => lambdas.get(n).map(l => c.id -> Lambda(Seq.empty, l)) }
 
     /** The uninterpreted functions that the extracted closures call, at no type arguments. */
     def getClosures: Map[Identifier, Lambda] = closures.toMap
@@ -716,7 +718,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
       case (Num(n), Some(ft: FunctionType)) if context.seen(n -> ft) =>
         context.chooses.getOrElse(n -> ft, {
-          val res = Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
+          val res = UninterpretedCall(FreshIdentifier("x", true), Seq.empty, Seq.empty, FunctionType(Seq.empty, ft))
           context.chooses(n -> ft) = res
           res
         })
@@ -747,7 +749,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           } catch {
             case _: NoSimpleValue =>
               val args = ft.from.map(tpe => ValDef.fresh("x", tpe, true))
-              Lambda(args, Choose(ValDef.fresh("res", ft), BooleanLiteral(true)))
+              Lambda(args, exprOps.choose(ValDef.fresh("res", ft.to), BooleanLiteral(true), args.map(_.toVariable)))
           }))
 
         val id = closureIds.getOrElseUpdate(n -> ft, FreshIdentifier("f", true))

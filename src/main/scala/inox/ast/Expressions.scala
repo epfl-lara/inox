@@ -109,16 +109,10 @@ trait Expressions { self: Trees =>
     override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = body.getTpe(stripRefinements)
   }
 
-  /** $encodingof `choose(...)` (returns a value satisfying the provided predicate) */
-  sealed case class Choose(res: ValDef, pred: Expr) extends Expr with CachingTyped {
-    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
-      checkParamType(pred, BooleanType(), res.getTpe(stripRefinements))
-  }
-
   /** $encodingof a call to an uninterpreted function `id` at the type arguments `tps`, which
     * returns an arbitrary value of the result type of `tpe`, with equal results on equal arguments.
     *
-    * Unlike a `choose`, it needs no definition in the program: the function is only known through
+    * The function needs no definition in the program: it is only known through
     * its calls, and models give it a value at `tps` (see [[inox.Model.chooses]]). The type arguments
     * are part of the call, so instantiating the type parameters they mention instantiates the call.
     * All calls to `id` must have the same type parameters in `tps` and the same `tpe` up to the

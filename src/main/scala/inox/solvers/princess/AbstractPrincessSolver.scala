@@ -403,7 +403,8 @@ abstract class AbstractPrincessSolver(override val program: Program,
     protected class Context(
       val model: Model,
       val seen: Set[BigInt] = Set.empty,
-      private[AbstractPrincessSolver] val chooses: MutableMap[BigInt, Choose] = MutableMap.empty,
+      // the uninterpreted constants that stand for the functions that are being extracted
+      private[AbstractPrincessSolver] val chooses: MutableMap[BigInt, UninterpretedCall] = MutableMap.empty,
       private[AbstractPrincessSolver] val lambdas: MutableMap[BigInt, Lambda] = MutableMap.empty,
       private[AbstractPrincessSolver] val closures: MutableMap[Identifier, Lambda] = MutableMap.empty
     ) {
@@ -513,7 +514,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
             val n = BigInt(ideal.bigIntValue)
             if (ctx.seen(n)) {
               ctx.chooses.getOrElse(n, {
-                val res = Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
+                val res = UninterpretedCall(FreshIdentifier("x", true), Seq.empty, Seq.empty, FunctionType(Seq.empty, ft))
                 ctx.chooses(n) = res
                 res
               })
@@ -550,7 +551,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
                     simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
                   } catch {
                     case _: NoSimpleValue =>
-                      Lambda(params, Choose(ValDef.fresh("res", ft.to), BooleanLiteral(true)))
+                      Lambda(params, exprOps.choose(ValDef.fresh("res", ft.to), BooleanLiteral(true), params.map(_.toVariable)))
                   }))
                   val id = closureIds.getOrElseUpdate(n -> ft, FreshIdentifier("f", true))
                   val res = uniquateClosure(id, lambda)
@@ -612,7 +613,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
     def apply(iexpr: IExpression, tpe: Type)(using model: Model) = {
       val ctx = new Context(model)
       val res = parseExpr(iexpr, tpe)(using ctx)
-      (res, ctx.chooses.map { case (n, c) => c.res.id -> (ctx.lambdas(n): Expr) } ++ ctx.closures)
+      (res, ctx.chooses.map { case (n, c) => c.id -> (Lambda(Seq.empty, ctx.lambdas(n)): Expr) } ++ ctx.closures)
     }
   }
 
