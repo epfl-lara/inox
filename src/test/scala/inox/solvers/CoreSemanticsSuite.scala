@@ -52,4 +52,52 @@ class CoreSemanticsSuite extends SolverTestSuite {
     check(s, Let(v.toVal, Int32Literal(42), v), Int32Literal(42))
     check(s, Let(v.toVal, Int32Literal(42), Plus(v, Int32Literal(1))), Int32Literal(43))
   }
+
+  test("Char Literals and Comparisons") { ctx =>
+    val s = solver(ctx)
+
+    check(s, CharLiteral('a'), CharLiteral('a'))
+    check(s, CharLiteral('\u00e9'), CharLiteral('\u00e9'))
+    check(s, Equals(CharLiteral('a'), CharLiteral('a')), BooleanLiteral(true))
+    check(s, Equals(CharLiteral('a'), CharLiteral('b')), BooleanLiteral(false))
+    check(s, LessThan(CharLiteral('a'), CharLiteral('b')), BooleanLiteral(true))
+    check(s, LessThan(CharLiteral('b'), CharLiteral('a')), BooleanLiteral(false))
+    check(s, LessEquals(CharLiteral('a'), CharLiteral('a')), BooleanLiteral(true))
+    check(s, LessEquals(CharLiteral('\u00e9'), CharLiteral('a')), BooleanLiteral(false))
+    check(s, GreaterThan(CharLiteral('\u00e9'), CharLiteral('a')), BooleanLiteral(true))
+    check(s, GreaterThan(CharLiteral('a'), CharLiteral('a')), BooleanLiteral(false))
+    check(s, GreaterEquals(CharLiteral('b'), CharLiteral('a')), BooleanLiteral(true))
+    check(s, GreaterEquals(CharLiteral('a'), CharLiteral('b')), BooleanLiteral(false))
+  }
+
+  test("Conditionals, Implications and Assumptions") { ctx =>
+    val s = solver(ctx)
+
+    val t = BooleanLiteral(true)
+    val f = BooleanLiteral(false)
+    check(s, IfExpr(t, Int32Literal(1), Int32Literal(2)), Int32Literal(1))
+    check(s, IfExpr(f, Int32Literal(1), Int32Literal(2)), Int32Literal(2))
+    check(s, IfExpr(f, t, f), f)
+    check(s, IfExpr(t, t, f), t)
+    check(s, Not(IfExpr(Equals(Int32Literal(1), Int32Literal(2)), t, f)), t)
+    check(s, Implies(t, f), f)
+    check(s, Implies(f, f), t)
+    check(s, Equals(t, Not(f)), t)
+    check(s, Assume(t, Int32Literal(3)), Int32Literal(3))
+    check(s, Assume(GreaterThan(Int32Literal(3), Int32Literal(2)), t), t)
+  }
+
+  test("Lets of every type") { ctx =>
+    val s = solver(ctx)
+
+    val b = Variable.fresh("b", BooleanType())
+    check(s, Let(b.toVal, BooleanLiteral(true), And(b, Not(Not(b)))), BooleanLiteral(true))
+    check(s, Let(b.toVal, BooleanLiteral(false), IfExpr(b, Int32Literal(1), Int32Literal(2))), Int32Literal(2))
+    val c = Variable.fresh("c", CharType())
+    check(s, Let(c.toVal, CharLiteral('x'), Equals(c, CharLiteral('x'))), BooleanLiteral(true))
+    val u = Variable.fresh("u", UnitType())
+    check(s, Let(u.toVal, UnitLiteral(), u), UnitLiteral())
+    val i = Variable.fresh("i", Int32Type())
+    check(s, Let(i.toVal, Int32Literal(2), LessThan(i, Int32Literal(3))), BooleanLiteral(true))
+  }
 }

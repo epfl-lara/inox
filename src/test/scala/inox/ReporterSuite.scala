@@ -237,6 +237,38 @@ class ReporterSuite extends AnyFunSuite {
       "\n\rinfo other" + " " * ("a long progress message".length - "other".length) +
       "\ndone\n")
   }
+
+  test("Every severity has a prefix and a name") {
+    val r = new DefaultReporter(Set(testSection))
+    val out = captured {
+      try r.fatalError("fatal") catch { case _: FatalError => }
+      try r.internalError("internal") catch { case _: FatalError => }
+      r.debug("debugging")(using testSection)
+      r.emit(r.ProgressMessage(r.INFO, "a", "a long progress message"))
+      r.emit(r.ProgressMessage(r.DEBUG(testSection), "a", "short"))
+    }
+    val plain = ReporterSuiteHelpers.plain(out)
+    assert(plain.contains("[ Fatal  ] fatal"))
+    assert(plain.contains("[Internal] internal"))
+    assert(plain.contains("[ Debug  ] debugging"))
+    assert(plain.contains("\r[  Info  ] a long progress message"))
+    assert(plain.contains("\r[ Debug  ] short "))
+
+    class NamingReporter extends PlainTextReporter(Set(testSection)) {
+      def name(sev: Severity) = severityToString(sev)
+    }
+    val p = new NamingReporter
+    val pout = captured {
+      try p.internalError("internal") catch { case _: FatalError => }
+      p.debug("debugging")(using testSection)
+      p.emit(p.ProgressMessage(p.DEBUG(testSection), "a", "progress"))
+    }
+    assert(pout.contains("error: internal"))
+    assert(pout.contains("debug: debugging"))
+    assert(pout.contains("\rdebug progress"))
+    assert(Seq(p.ERROR, p.WARNING, p.INFO, p.FATAL, p.INTERNAL, p.DEBUG(testSection)).map(p.name) ==
+      Seq("error", "warning", "info", "fatal", "internal", "debug"))
+  }
 }
 
 object ReporterSuiteHelpers {

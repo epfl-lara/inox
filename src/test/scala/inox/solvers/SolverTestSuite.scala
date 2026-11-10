@@ -67,6 +67,9 @@ object SolverTestSuite {
   }
 
   private val z3BagUnionModels = "Z3 models leave equalities between bag unions unevaluated"
+  private val cvcKnownIssues = Map(
+    "Map Merges" -> "returns Unknown on the quantified axiom that encodes merges",
+  )
   private val cvcGroundOnly = Map(
     "Bag Operations with repeated keys" -> "returns Unknown for differences of bags with variable elements",
     "Map Operations" -> "returns Unknown for constant maps with a variable default",
@@ -90,15 +93,17 @@ object SolverTestSuite {
       groundOnly = Map("Bag Operations" -> z3BagUnionModels)),
     SolverInfo("smt-cvc4", () => SolverFactory.hasCVC4,
       Set(FloatingPoint, BagAlgebra, NestedArrays),
+      knownIssues = cvcKnownIssues,
       groundOnly = cvcGroundOnly),
     SolverInfo("smt-cvc5", () => SolverFactory.hasCVC5,
       Set(BagAlgebra, NestedArrays),
+      knownIssues = cvcKnownIssues,
       groundOnly = cvcGroundOnly),
     SolverInfo("smt-bitwuzla", () => SolverFactory.hasBitwuzla,
       Set(Integers, Reals, BitVectorIntConversions, Strings, Sets, Bags, BagAlgebra, Maps, NestedArrays, ADTs,
         Quantifiers, TypeParameters, Reset)),
     SolverInfo("princess", () => true,
-      Set(BitVectors, FloatingPoint, Sets, BagAlgebra, Maps, NestedArrays, Reset),
+      Set(FloatingPoint, Sets, BagAlgebra, Maps, NestedArrays, Reset),
       // Times out on conjunctions of string checks that it solves quickly one by one
       batchSize = 1,
       groundOnly = Map(

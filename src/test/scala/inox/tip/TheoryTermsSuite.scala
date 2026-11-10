@@ -106,4 +106,34 @@ class TheoryTermsSuite extends AnyFunSuite {
     holds("(exists ((x Int)) (= x 1))")
     holds("(! (= 1 1) :named a)")
   }
+
+  test("Conversions between theories") {
+    val one = "(fp #b0 #b01111111 #b00000000000000000000000)"
+    val minusTwo = "(fp #b1 #b10000000 #b00000000000000000000000)"
+    holds("(= (bv2nat #x0f) 15)")
+    holds("(= (bv2nat #xff) 255)")
+    holds("(= ((_ int2bv 8) 257) #x01)")
+    holds("(= ((_ zero_extend 8) #xff) #x00ff)")
+    holds("(= ((_ zero_extend 8) #x7f) #x007f)")
+    holds("(= (_ bv5 8) #x05)")
+    holds(s"(= (bv2nat ((_ fp.to_ubv 8) RNE $one)) 1)")
+    holds(s"(= ((_ fp.to_sbv 8) RNE $minusTwo) #xfe)")
+    holds(s"(= (fp.to_real $one) 1.0)")
+    holds(s"(fp.eq ((_ to_fp 8 24) #x3f800000) $one)")
+    holds(s"(fp.eq ((_ to_fp 11 53) RNE $one) ((_ to_fp 11 53) #x3ff0000000000000))")
+    holds(s"(fp.isNormal $one)")
+    holds("(fp.isSubnormal (fp #b0 #b00000000 #b00000000000000000000001))")
+    holds("(= 2.0 (/ 4.0 2.0))")
+  }
+
+  test("Declared constants of every sort") {
+    def holdsWith(decls: String, term: String): Unit = {
+      val Seq((program, expr)) = Parser(new java.io.StringReader(s"$decls\n(assert $term)\n(check-sat)")).parseScript: @unchecked
+      assert(expr.getType(using program.symbols) == BooleanType(), s"for $term")
+    }
+    holdsWith("(declare-const f (_ FloatingPoint 8 24))", "(fp.isZero f)")
+    holdsWith("(declare-const r RoundingMode)", "(= r RNE)")
+    holdsWith("(declare-const a (Array Int Int))", "(= (select (store a 1 2) 1) 2)")
+    holdsWith("(declare-const a (Array Int Int)) (declare-const k Int)", "(= (select a k) (select a (+ k 0)))")
+  }
 }

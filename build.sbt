@@ -169,6 +169,8 @@ lazy val root = (project in file("."))
       ExclusionRule("org.scala-lang", "scala3-library_3"),
       ExclusionRule("org.scala-lang", "scala3-compiler_3"),
     ),
+    // The serialization macro only runs at compile time, so tests can never cover it.
+    coverageExcludedFiles := ".*SerializationMacro.*",
   )
   .configs(ItTest)
   .settings(inConfig(ItTest)(Defaults.testSettings) : _*)

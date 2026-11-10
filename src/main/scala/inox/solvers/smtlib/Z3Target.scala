@@ -422,11 +422,14 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   }
 
   protected object SortedSymbol {
-    def apply(op: String, from: List[Sort], to: Sort) = {
-      def simpleSort(s: Sort): Boolean = s.subSorts.isEmpty && !s.id.isIndexed
-      assert(from.forall(simpleSort) && simpleSort(to), "SortedSymbol is only defined for simple sorts")
-      SList(SSymbol(op), SList(from.map(_.id.symbol)*), to.id.symbol)
+    // A sort as an S-expression, such as `Int`, `(_ BitVec 32)` or `(Array Int Bool)`
+    private def sortExpr(s: Sort): SExpr = {
+      val id = if (s.id.isIndexed) SList(SSymbol("_") :: s.id.symbol :: s.id.indices.toList) else s.id.symbol
+      if (s.subSorts.isEmpty) id else SList(id :: s.subSorts.map(sortExpr).toList)
     }
+
+    def apply(op: String, from: List[Sort], to: Sort) =
+      SList(SSymbol(op), SList(from.map(sortExpr)*), sortExpr(to))
   }
 
   protected object ArrayMap {
