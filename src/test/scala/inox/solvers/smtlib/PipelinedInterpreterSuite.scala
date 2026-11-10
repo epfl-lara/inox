@@ -23,6 +23,8 @@ class PipelinedInterpreterSuite extends AnyFunSuite {
       () => new PipelinedZ3Interpreter("z3", Array("-in", "-smt2"), out => new Parser(new Lexer(out)))),
     ("cvc4", () => SolverFactory.hasCVC4, () => new PipelinedCVC4Interpreter("cvc4", cvcArgs)),
     ("cvc5", () => SolverFactory.hasCVC5, () => new PipelinedCVC5Interpreter("cvc5", cvcArgs)),
+    ("bitwuzla", () => SolverFactory.hasBitwuzla,
+      () => new PipelinedBitwuzlaInterpreter("bitwuzla", Array("-v", "0", "--produce-models", "--lang", "smt2"))),
   )
 
   private val b = SSymbol("b")
@@ -53,7 +55,7 @@ class PipelinedInterpreterSuite extends AnyFunSuite {
     test(s"$name: The error of a sent command is reported once") {
       withSolver { solver =>
         solver.send(Assert(bRef)) // b isn't declared
-        solver.eval(CheckSat()) // CVC exits on the error, so that the answer doesn't matter
+        solver.eval(CheckSat()) // some solvers exit on the error, so that the answer is unspecified
         assert(solver.pendingError().nonEmpty)
         assert(solver.pendingError().isEmpty)
       }

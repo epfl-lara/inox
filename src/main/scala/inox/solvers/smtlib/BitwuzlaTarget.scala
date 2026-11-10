@@ -31,7 +31,7 @@ trait BitwuzlaTarget extends SMTLIBTarget with SMTLIBDebugger {
   override protected val interpreter: ProcessInterpreter = {
     val opts = interpreterOpts
     reporter.debug("Invoking solver with " + opts.mkString(" "))
-    new BitwuzlaInterpreter("bitwuzla", opts.toArray)
+    new PipelinedBitwuzlaInterpreter("bitwuzla", opts.toArray)
   }
 
   override protected def toSMT(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
