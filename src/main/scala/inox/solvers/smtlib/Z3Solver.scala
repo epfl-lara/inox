@@ -16,7 +16,6 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
   protected lazy val evalContext: inox.Context =
     context.copy(interruptManager = new inox.utils.InterruptManager(context.reporter)).withOpts(
       evaluators.optIgnoreContracts(true),
-      evaluators.optSolveUninterpretedCalls(false),
       unrolling.optFunctionEquality(unrolling.FunctionEquality.Intensional))
 
   override def interrupt(): Unit = {

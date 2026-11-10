@@ -298,7 +298,7 @@ abstract class RecursiveEvaluator(override val program: Program,
       rctx.chooses.get(id -> tps) match {
         case Some(l: Lambda) if l.params.size == evArgs.size =>
           e(l.body)(using rctx.withNewVars(l.paramSubst(evArgs)), gctx)
-        case _ => onUninterpretedInvocation(UninterpretedCall(id, tps, evArgs, tpe).copiedFrom(expr), rctx.chooses)
+        case _ => throw EvalError(s"Cannot call uninterpreted function ${id.asString} that the model doesn't define")
       }
 
     case gl: GenericValue => gl

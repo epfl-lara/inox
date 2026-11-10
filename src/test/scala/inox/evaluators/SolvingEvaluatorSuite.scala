@@ -5,7 +5,9 @@ package evaluators
 
 import org.scalatest.funsuite.AnyFunSuite
 
-/** Evaluation of `forall`, `choose` and uninterpreted calls, which the evaluator hands to a solver. */
+/** Evaluation of `forall`, which the evaluator hands to a solver, of choices, which it solves for
+  * on demand (see [[SolvingEvaluator.solveFor]]), and of uninterpreted calls, which the model must
+  * interpret. */
 class SolvingEvaluatorSuite extends AnyFunSuite {
   import inox.trees.{given, _}
   import inox.trees.dsl._
@@ -21,6 +23,11 @@ class SolvingEvaluatorSuite extends AnyFunSuite {
     case EvaluationResults.Successful(res) => res
     case res => fail(s"Expected a value but got $res")
   }
+
+  def solve(res: ValDef, pred: Expr, opts: OptionValue[?]*): Option[Expr] =
+    scala.util.Try(RecursiveEvaluator(program, TestContext(Options(opts))).solveFor(res, pred)).toOption
+
+  def choice(res: ValDef, pred: Expr): Expr = solve(res, pred).getOrElse(fail(s"Expected a value for $res"))
 
   val x = "x" :: IntegerType()
 
@@ -48,27 +55,27 @@ class SolvingEvaluatorSuite extends AnyFunSuite {
   test("a choice picks a value satisfying its predicate") {
     val res = "res" :: IntegerType()
     val pred = And(GreaterThan(res.toVariable, IntegerLiteral(5)), LessThan(res.toVariable, IntegerLiteral(7)))
-    assert(value(exprOps.choose(res, pred)) == IntegerLiteral(6))
+    assert(choice(res, pred) == IntegerLiteral(6))
   }
 
   test("a choice without a solution is an error") {
     val res = "res" :: IntegerType()
     val pred = And(GreaterThan(res.toVariable, IntegerLiteral(5)), LessThan(res.toVariable, IntegerLiteral(6)))
-    assert(!evaluate(exprOps.choose(res, pred)).isInstanceOf[EvaluationResults.Successful[?]])
+    assert(solve(res, pred).isEmpty)
   }
 
   test("an unconstrained choice picks its simplest value") {
     // The solver doesn't look for a value of the result's type, which may never end for an ADT
     // whose invariant only holds for infinite values (see Stainless's ForestNothing2).
     val res = "res" :: IntegerType()
-    assert(value(exprOps.choose(res, BooleanLiteral(true))) == IntegerLiteral(0))
+    assert(choice(res, BooleanLiteral(true)) == IntegerLiteral(0))
   }
 
   test("quantifiers are not evaluated when disabled") {
     val res = "res" :: IntegerType()
     val disabled = optEvalQuantifiers(false)
     assert(!evaluate(Forall(Seq(x), BooleanLiteral(true)), disabled).isInstanceOf[EvaluationResults.Successful[?]])
-    assert(!evaluate(exprOps.choose(res, BooleanLiteral(true)), disabled).isInstanceOf[EvaluationResults.Successful[?]])
+    assert(solve(res, BooleanLiteral(true), disabled).isEmpty)
   }
 
   test("an evaluator reuses its forall results") {
@@ -82,15 +89,15 @@ class SolvingEvaluatorSuite extends AnyFunSuite {
   test("a choice depending on another choice is an error when checking models") {
     val res = "res" :: IntegerType()
     val inner = "inner" :: IntegerType()
-    val dependent = exprOps.choose(res, Equals(res.toVariable, exprOps.choose(inner, GreaterThan(inner.toVariable, IntegerLiteral(0)))))
-    assert(!evaluate(dependent, solvers.optCheckModels(true)).isInstanceOf[EvaluationResults.Successful[?]])
-    assert(value(dependent).isInstanceOf[IntegerLiteral])
+    val dependent = Equals(res.toVariable, exprOps.choose(inner, GreaterThan(inner.toVariable, IntegerLiteral(0))))
+    assert(solve(res, dependent, solvers.optCheckModels(true)).isEmpty)
+    assert(choice(res, dependent).isInstanceOf[IntegerLiteral])
   }
 
   test("a choice over a type parameter") {
     val tp = TypeParameter.fresh("T")
     val res = "res" :: tp
-    assert(evaluate(exprOps.choose(res, BooleanLiteral(true))).isInstanceOf[EvaluationResults.Successful[?]])
+    assert(solve(res, BooleanLiteral(true)).isDefined)
   }
 
   val e = ValDef.fresh("e", IntegerType())
@@ -99,12 +106,12 @@ class SolvingEvaluatorSuite extends AnyFunSuite {
 
   test("a choice respects the refinement of its result") {
     val res = "res" :: aboveFive
-    value(exprOps.choose(res, BooleanLiteral(true))) match {
+    choice(res, BooleanLiteral(true)) match {
       case IntegerLiteral(n) => assert(n > 5)
       case v => fail(s"Expected an integer but got $v")
     }
     val empty = "empty" :: noValues
-    assert(!evaluate(exprOps.choose(empty, BooleanLiteral(true))).isInstanceOf[EvaluationResults.Successful[?]])
+    assert(solve(empty, BooleanLiteral(true)).isEmpty)
   }
 
   test("forall over refined types") {
@@ -124,9 +131,9 @@ class SolvingEvaluatorSuite extends AnyFunSuite {
     val empty = "empty" :: noValues
     for (expr <- Seq(
       Forall(Seq(x), GreaterThan(x.toVariable, IntegerLiteral(0))),
-      Forall(Seq(empty), BooleanLiteral(false)),
-      exprOps.choose(x, GreaterThan(x.toVariable, IntegerLiteral(0)))
+      Forall(Seq(empty), BooleanLiteral(false))
     )) assert(!evaluator.eval(expr, Model.empty(program)).isInstanceOf[EvaluationResults.Successful[?]], s"$expr should fail")
+    assert(scala.util.Try(evaluator.solveFor(x, GreaterThan(x.toVariable, IntegerLiteral(0)))).isFailure)
   }
 
   // f(n) ∈ { r | n < r && r < n + 2 }
@@ -137,33 +144,19 @@ class SolvingEvaluatorSuite extends AnyFunSuite {
     And(LessThan(n.toVariable, r.toVariable), LessThan(r.toVariable, Plus(n.toVariable, IntegerLiteral(2))))))
   def callF(arg: Expr) = UninterpretedCall(f, Seq(), Seq(arg), successor)
 
-  test("uninterpreted calls outside the model satisfy the refinement of their result") {
-    assert(value(callF(IntegerLiteral(5))) == IntegerLiteral(6))
-    assert(value(Let(x, IntegerLiteral(2), callF(Plus(x.toVariable, IntegerLiteral(1))))) == IntegerLiteral(4))
-  }
-
-  test("uninterpreted calls outside the model are functions of their arguments") {
+  test("uninterpreted calls outside the model are errors") {
+    assert(!evaluate(callF(IntegerLiteral(5))).isInstanceOf[EvaluationResults.Successful[?]])
+    val m = "m" :: IntegerType()
     val g = FreshIdentifier("g")
-    val any = PiType(Seq(n), IntegerType())
+    val other = Model(program)(Map.empty, Map((g, Seq.empty[Type]) -> Lambda(Seq(m), m.toVariable)))
     val evaluator = RecursiveEvaluator(program, TestContext.empty)
-    def callG(arg: Expr) = UninterpretedCall(g, Seq(), Seq(arg), any)
-    val expr = Equals(callG(IntegerLiteral(1)), callG(Minus(IntegerLiteral(2), IntegerLiteral(1))))
-    assert(evaluator.eval(expr, Model.empty(program)) == EvaluationResults.Successful(BooleanLiteral(true)))
+    assert(!evaluator.eval(callF(IntegerLiteral(5)), other).isInstanceOf[EvaluationResults.Successful[?]])
   }
 
-  test("uninterpreted calls outside the model whose results have no value are errors") {
-    val empty = PiType(Seq(n), RefinementType(r, LessThan(r.toVariable, r.toVariable)))
-    assert(!evaluate(UninterpretedCall(f, Seq(), Seq(IntegerLiteral(0)), empty)).isInstanceOf[EvaluationResults.Successful[?]])
-    assert(!evaluate(callF(IntegerLiteral(0)), optEvalQuantifiers(false)).isInstanceOf[EvaluationResults.Successful[?]])
-  }
-
-  test("uninterpreted calls that the model interprets aren't solved for") {
+  test("uninterpreted calls that the model interprets") {
     val evaluator = RecursiveEvaluator(program, TestContext.empty)
     val m = "m" :: IntegerType()
     val model = Model(program)(Map.empty, Map((f, Seq.empty[Type]) -> Lambda(Seq(m), Plus(m.toVariable, IntegerLiteral(1)))))
     assert(evaluator.eval(callF(IntegerLiteral(5)), model) == EvaluationResults.Successful(IntegerLiteral(6)))
-    val g = FreshIdentifier("g")
-    val other = Model(program)(Map.empty, Map((g, Seq.empty[Type]) -> Lambda(Seq(m), m.toVariable)))
-    assert(evaluator.eval(callF(IntegerLiteral(5)), other) == EvaluationResults.Successful(IntegerLiteral(6)))
   }
 }

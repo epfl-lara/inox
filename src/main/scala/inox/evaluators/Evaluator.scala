@@ -6,9 +6,6 @@ package evaluators
 object optIgnoreContracts extends FlagOptionDef("ignore-contracts", false)
 object optEvalQuantifiers extends FlagOptionDef("eval-quantifiers", true)
 
-/** Whether the evaluator solves for the uninterpreted calls that the model doesn't interpret. The
-  * solvers complete their own models without it, as these calls then have no value in the model. */
-object optSolveUninterpretedCalls extends FlagOptionDef("solve-uninterpreted-calls", true)
 
 trait Evaluator {
   val program: Program
