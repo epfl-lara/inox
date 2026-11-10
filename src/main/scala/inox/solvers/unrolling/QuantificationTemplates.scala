@@ -857,9 +857,21 @@ trait QuantificationTemplates { self: Templates =>
         }*)
       }
 
+      // The clause of an ignored substitution only depends on the values it binds, so the
+      // substitutions that bind the same values share one clause, enabled by any of their
+      // enablers. Each clause copies the disjunction, and many ignored substitutions bind the
+      // same values: in ForallAssoc, 155k of them bind only 11k distinct value tuples.
+      val enablersByValues = scala.collection.mutable.LinkedHashMap.empty[Seq[Encoded], List[Set[Encoded]]]
       for ((_, enablers, subst) <- ignoredSubsts(q)) {
-        val b = if (enablers.isEmpty) trueT else mkAnd(enablers.toSeq*)
-        val substMap = (valuesP.map(_._2) zip q.quantifiers.map(p => subst(p._2).encoded)).toMap
+        val args = q.quantifiers.map(p => subst(p._2).encoded)
+        enablersByValues(args) = enablers :: enablersByValues.getOrElse(args, Nil)
+      }
+
+      for ((args, enablerSets) <- enablersByValues) {
+        val b = if (enablerSets.exists(_.isEmpty)) trueT else {
+          mkOr(enablerSets.reverse.map(enablers => mkAnd(enablers.toSeq*))*)
+        }
+        val substMap = (valuesP.map(_._2) zip args).toMap
         clauses += mkSubstituter(substMap)(mkImplies(b, disjunction))
       }
     }
