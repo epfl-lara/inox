@@ -4,7 +4,7 @@ package inox
 package solvers
 package smtlib
 
-import _root_.smtlib.interpreters.{CVC4Interpreter, CVC5Interpreter, ProcessInterpreter, Z3Interpreter}
+import _root_.smtlib.interpreters.{BitwuzlaInterpreter, CVC4Interpreter, CVC5Interpreter, ProcessInterpreter, Z3Interpreter}
 import _root_.smtlib.parser.Parser
 import _root_.smtlib.trees.Terms.SExpr
 import _root_.smtlib.trees.Commands._
@@ -86,3 +86,6 @@ class PipelinedCVC4Interpreter(executable: String, args: Array[String])
 
 class PipelinedCVC5Interpreter(executable: String, args: Array[String])
   extends CVC5Interpreter(executable, args) with PipelinedInterpreter
+
+class PipelinedBitwuzlaInterpreter(executable: String, args: Array[String])
+  extends BitwuzlaInterpreter(executable, args) with PipelinedInterpreter
