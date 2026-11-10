@@ -1014,23 +1014,6 @@ trait ExpressionElaborators { self: Elaborators =>
         })
       }
 
-      case Abstraction(Choose, bindings @ Seq((id, otype)), body) => {
-        val predType = Unknown.fresh
-
-        val (newStore, Seq(tp), cvds) = getExprBindings(bindings)
-
-        (for {
-          res <- cvds
-          b <- getExpr(body, predType)(using newStore)
-        } yield {
-          trees.exprOps.choose(res.head, b)
-        }).addConstraint({
-          Constraint.equal(predType, trees.BooleanType())
-        }).addConstraint({
-          Constraint.equal(tp, expected)
-        })
-      }
-
       case _ => unhandled
     }
 

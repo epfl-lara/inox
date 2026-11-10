@@ -8,7 +8,11 @@
 
 (define-fun (par (T!1) (introduction_exists!0 ((t!2 T!1) (p!1 (fun1!5 T!1 Bool))) Bool (assume (and (forall ((x!108 T!1)) (=> (@ (f!35 (fun1!6 (lambda ((x!107 T!1)) true) (lambda ((x!329 T!1)) true))) x!108) (@ (f!35 (fun1!6 (pre!13 p!1) (lambda ((x!330 T!1)) true))) x!108))) (@ (f!35 p!1) t!2)) (let ((holds!0 (exists ((t!3 T!1)) (not (not (@ (f!35 p!1) t!3)))))) (assume holds!0 holds!0))))))
 
-(define-fun (par (T!0) (elimination_exists!0 ((p!0 (fun1!5 T!0 Bool))) T!0 (assume (and (forall ((x!206 T!0)) (=> (@ (f!35 (fun1!6 (lambda ((x!205 T!0)) true) (lambda ((x!435 T!0)) true))) x!206) (@ (f!35 (fun1!6 (pre!13 p!0) (lambda ((x!436 T!0)) true))) x!206))) (exists ((t!0 T!0)) (not (not (@ (f!35 p!0) t!0))))) (let ((res!0 (choose t!1 T!0 (@ (f!35 p!0) t!1)))) (assume (@ (f!35 p!0) res!0) res!0))))))
+(declare-fun (par (T!0) (witness!0 ((fun1!5 T!0 Bool)) T!0)))
+
+(assert (par (T!0) (forall ((p (fun1!5 T!0 Bool))) (=> (exists ((t T!0)) (@ (f!35 p) t)) (@ (f!35 p) (witness!0 p))))))
+
+(define-fun (par (T!0) (elimination_exists!0 ((p!0 (fun1!5 T!0 Bool))) T!0 (assume (and (forall ((x!206 T!0)) (=> (@ (f!35 (fun1!6 (lambda ((x!205 T!0)) true) (lambda ((x!435 T!0)) true))) x!206) (@ (f!35 (fun1!6 (pre!13 p!0) (lambda ((x!436 T!0)) true))) x!206))) (exists ((t!0 T!0)) (not (not (@ (f!35 p!0) t!0))))) (let ((res!0 (witness!0 p!0))) (assume (@ (f!35 p!0) res!0) res!0))))))
 
 (define-fun divide_multiply!0 ((x!1 Int) (y!1 Int) (z!0 Int)) Bool (assume (divide!0 x!1 y!1) (let ((holds!1 (let ((tmp!0 (introduction_exists!0 (* (elimination_exists!0 (fun1!6 (lambda ((k!1 Int)) (= y!1 (* k!1 x!1))) (lambda ((k!4 Int)) true))) z!0) (fun1!6 (lambda ((k!2 Int)) (= (* y!1 z!0) (* k!2 x!1))) (lambda ((k!5 Int)) true))))) (divide!0 x!1 (* y!1 z!0))))) (assume holds!1 holds!1))))
 

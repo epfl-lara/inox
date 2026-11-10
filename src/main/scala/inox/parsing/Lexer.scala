@@ -13,7 +13,7 @@ trait Lexers {
 
   object Lexer extends StdLexical with StringContextLexer {
 
-    reserved ++= Seq("true", "false", "if", "else", "exists", "forall", "lambda", "choose", "let", "in", "assume", "def", "type")
+    reserved ++= Seq("true", "false", "if", "else", "exists", "forall", "lambda", "let", "in", "assume", "def", "type")
 
     val unaryOps: Seq[String] = Operators.unaries
     val opTable: Seq[Level] = Operators.binaries 
@@ -73,8 +73,7 @@ trait Lexers {
       '\\' ^^^ Quantifier("lambda") |
       acceptSeq("forall") ^^^ Quantifier("forall") |
       acceptSeq("exists") ^^^ Quantifier("exists") |
-      acceptSeq("lambda") ^^^ Quantifier("lambda") |
-      acceptSeq("choose") ^^^ Quantifier("choose")
+      acceptSeq("lambda") ^^^ Quantifier("lambda")
 
 
     val operator: Parser[Token] =

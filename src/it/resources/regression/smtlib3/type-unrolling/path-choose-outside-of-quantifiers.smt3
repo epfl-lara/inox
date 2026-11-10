@@ -3,8 +3,10 @@
 
 (define-type NonZero () (! Int :var y :restrict (not (= y 0))))
 (declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
+; has no value for a == 0
+(declare-fun nonZeroChoice ((a Int)) (! Bool :var r :restrict (and r (not (= a 0)))))
 
-(define-type Guarded () (! NonZero :var x :restrict (choose (r Bool) (and r (not (= x 0))))))
+(define-type Guarded () (! NonZero :var x :restrict (nonZeroChoice x)))
 (declare-const x Guarded)
 (declare-const l (List Guarded))
 

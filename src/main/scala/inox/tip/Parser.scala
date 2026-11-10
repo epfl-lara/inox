@@ -13,7 +13,7 @@ import smtlib.theories.cvc.{CVC4Sets => Sets} // We use the Set operations as us
 import smtlib.extensions.tip.Terms.{Lambda => SMTLambda, Application => SMTApplication, _}
 import smtlib.extensions.tip.Commands._
 
-import Terms.{Assume => SMTAssume, Choose => SMTChoose}
+import Terms.{Assume => SMTAssume}
 import Commands._
 
 import scala.collection.BitSet
@@ -50,8 +50,8 @@ class Parser(reader: Reader, file: Option[File]) {
 
     (for (cmd <- script.commands) yield cmd match {
       case CheckSat() =>
-        val expr: Expr = andJoin(assertions)
-        Some(Parser.Query(InoxProgram(locals.symbols), expr, infos, options, smtlibPositionToPosition(cmd.optPos)))
+        val (symbols, expr) = Parser.callDeclarations(locals.symbols, andJoin(assertions))
+        Some(Parser.Query(InoxProgram(symbols), expr, infos, options, smtlibPositionToPosition(cmd.optPos)))
 
       case Push(n) =>
         for (_ <- 0 until n) scopes = (assertions, locals, saveScope()) :: scopes
@@ -93,11 +93,6 @@ class Parser(reader: Reader, file: Option[File]) {
     case Some(SNumeral(n)) => n.toString
     case Some(v) => v.toString
   }
-
-  /** The declared constants, which are free in the assertions but not in scope of the chooses of
-    * function bodies (see [[TermExtractor#Context.scope]]). */
-  private val constants = scala.collection.mutable.Set.empty[Variable]
-  protected def constant(v: Variable): Variable = { constants += v; v }
 
   /** Parser state outside of [[Locals]] that `push` and `pop` scope. */
   protected def saveScope(): Any = ()
@@ -208,12 +203,12 @@ class Parser(reader: Reader, file: Option[File]) {
 
     case DeclareConst(sym, sort) =>
       (None, locals.withVariable(sym,
-        constant(Variable.fresh(sym.name, locals.extractSort(sort)).setPos(sym.optPos))))
+        Variable.fresh(sym.name, locals.extractSort(sort)).setPos(sym.optPos)))
 
     case DeclareConstPar(tps, sym, sort) =>
       val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
       (None, locals.withVariable(sym,
-        constant(Variable.fresh(sym.name, tpsLocals.extractSort(sort)).setPos(sym.optPos))))
+        Variable.fresh(sym.name, tpsLocals.extractSort(sort)).setPos(sym.optPos)))
 
     case DeclareFun(name, sorts, returnSort) =>
       (None, locals.withFunction(name, extractSignature(FunDec(name, sorts.map {
@@ -438,14 +433,9 @@ class Parser(reader: Reader, file: Option[File]) {
     import trees.{given, _}
     import symbols.{given, _}
 
-    protected case class Context(locals: Locals, lets: Set[Variable] = Set.empty) extends super.AbstractContext {
+    protected case class Context(locals: Locals) extends super.AbstractContext {
       val vars = locals.vars
-      /** The parameters of the functions and binders where a term occurs, which the chooses of the
-        * term depend on. The values of let-bound variables are given by these parameters, and the
-        * declared constants aren't parameters. */
-      def scope: Seq[Variable] = vars.values.collect { case v: Variable if !lets(v) && !constants(v) => v }.toSeq
-      def withVariable(sym: SSymbol, expr: Expr): Context = copy(locals = locals.withVariable(sym, expr))
-      def withLet(sym: SSymbol, v: Variable): Context = withVariable(sym, v).copy(lets = lets + v)
+      def withVariable(sym: SSymbol, expr: Expr): Context = Context(locals.withVariable(sym, expr))
 
       @inline def isSort(sym: SSymbol): Boolean = locals.isSort(sym)
       @inline def lookupSort(sym: SSymbol): Option[Identifier] = locals.lookupSort(sym)
@@ -482,16 +472,12 @@ class Parser(reader: Reader, file: Option[File]) {
       case SMTAssume(pred, body) =>
         Assume(fromSMT(pred), fromSMT(body))
 
-      case SMTChoose(sym, sort, pred) =>
-        val vd = ValDef.fresh(sym.name, fromSMT(sort))
-        exprOps.choose(vd, fromSMT(pred)(using ctx.withVariable(sym, vd.toVariable)), ctx.scope)
-
       case SMTLet(binding, bindings, term) =>
         var context = ctx
         val mapping = for (VarBinding(name, term) <- (binding +: bindings)) yield {
           val e = fromSMT(term)(using context)
           val vd = ValDef.fresh(name.name, e.getType).setPos(name.optPos)
-          context = context.withLet(name, vd.toVariable)
+          context = context.withVariable(name, vd.toVariable)
           vd -> e
         }
         mapping.foldRight(fromSMT(term)(using context)) { case ((vd, e), body) => Let(vd, e, body).setPos(vd) }
@@ -669,6 +655,36 @@ object Parser {
                    options: Map[String, String], pos: Position) {
     /** The expected status, `sat`, `unsat` or `unknown`, if the script gives one. */
     def status: Option[String] = infos.get("status")
+  }
+
+  /** Replaces the invocations of the declared functions of `symbols`, whose bodies call fresh
+    * uninterpreted functions over their parameters, by these uninterpreted calls, and removes the
+    * declared functions. */
+  def callDeclarations(symbols: inox.trees.Symbols, expr: inox.trees.Expr): (inox.trees.Symbols, inox.trees.Expr) = {
+    import inox.trees._
+    val declared: Map[Identifier, FunDef] = symbols.functions.filter { case (_, fd) => fd.fullBody match {
+      case UninterpretedCall(_, tps, args, _) => tps == fd.tparams.map(_.tp) && args == fd.params.map(_.toVariable)
+      case _ => false
+    }}
+    if (declared.isEmpty) (symbols, expr) else {
+      object call extends SelfTreeTransformer {
+        val s: inox.trees.type = inox.trees
+        val t: inox.trees.type = inox.trees
+        override def transform(e: Expr): Expr = e match {
+          case fi @ FunctionInvocation(id, tps, args) if declared contains id =>
+            val fd = declared(id)
+            val UninterpretedCall(uid, _, _, tpe) = fd.fullBody: @unchecked
+            val inst = typeOps.instantiateType(tpe, (fd.tparams.map(_.tp) zip tps).toMap)
+            super.transform(UninterpretedCall(uid, tps, args, inst).copiedFrom(fi))
+          case _ => super.transform(e)
+        }
+      }
+
+      // The types of the definitions may also refer to the declared functions
+      val functions = symbols.functions.values.filterNot(fd => declared contains fd.id).map(call.transform)
+      val sorts = symbols.sorts.values.map(call.transform)
+      (NoSymbols.withSorts(sorts.toSeq).withFunctions(functions.toSeq), call.transform(expr))
+    }
   }
 
   def apply(file: File): Parser = Parser(new FileReader(file), Some(file))
