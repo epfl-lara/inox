@@ -6,6 +6,8 @@ package combinators
 
 import org.scalatest.funsuite.AnyFunSuite
 
+import scala.concurrent.duration._
+
 /** Runs a portfolio of scripted solvers and the `eval` solver, so that the outcome
   * of each check is known in advance.
   */
@@ -140,6 +142,25 @@ class PortfolioSolverSuite extends AnyFunSuite {
     s.free()
     s.check(Simple) // waits for the free to run
     assert(a.calls.contains("free") && b.calls.contains("free"))
+  }
+
+  test("A solver that doesn't stop after the interrupt is a fatal error that shows its stack") {
+    val stopped = new java.util.concurrent.CountDownLatch(1)
+    val (slow, _) = scripted("slow", { stopped.await(); Unknown })
+    val (sat, _) = scripted("sat", Sat)
+    class Impatient(override val program: PortfolioSolverSuite.this.program.type, override val context: Context)
+      extends PortfolioSolver with TimeoutSolver {
+      val solvers = Seq(slow, sat)
+      override val stopTimeout = 200.millis
+    }
+    try {
+      val error = intercept[FatalError](new Impatient(program, ctx).check(Simple))
+      assert(error.msg.contains("Solver slow in portfolio did not stop within 200 milliseconds"))
+      assert(error.msg.contains("CountDownLatch.await"), error.msg)
+      assert(slow.interrupted && sat.interrupted)
+    } finally {
+      stopped.countDown()
+    }
   }
 
   test("A solver that overflows the stack counts as unknown") {

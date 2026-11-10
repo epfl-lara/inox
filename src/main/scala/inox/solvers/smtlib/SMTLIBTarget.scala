@@ -52,7 +52,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   given givenSemantics: semantics.type = semantics
 
   /* Interruptible interface */
-  private var aborted = false
+  protected var aborted = false
 
   interruptManager.registerForInterrupts(this)
 

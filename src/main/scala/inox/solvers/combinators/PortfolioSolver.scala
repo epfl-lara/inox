@@ -31,6 +31,9 @@ trait PortfolioSolver extends Solver { self =>
 
   override def getResultSolver = resultSolver
 
+  /** How long a solver gets to stop once another one has answered, see `genericCheck`. */
+  protected val stopTimeout: FiniteDuration = 10.seconds
+
   def declare(vd: ValDef): Unit = {
     perform { solvers.foreach(_.declare(vd)) }
   }
@@ -48,8 +51,10 @@ trait PortfolioSolver extends Solver { self =>
     reporter.debug("Running portfolio check")
 
     // solving
+    val solverThreads = new java.util.concurrent.ConcurrentHashMap[Solver, Thread]()
     val fs: Seq[Future[(SubSolver, config.Response[Model, Assumptions])]] = solvers.map { s =>
       Future {
+        solverThreads.put(s, Thread.currentThread())
         try {
           val result = f(s)
           (s, result)
@@ -75,24 +80,31 @@ trait PortfolioSolver extends Solver { self =>
           config.cast(Unknown)
       }
 
-    // @sg: wait for all the solvers to actually finish/be interrupted. This can
-    // otherwise cause an invalid prover state if we start another check while
-    // the previous one is in an unfinished state. In Princess for example, this
-    // would cause the next check to get completely stuck.
-    //
-    // We should not be waiting for more than 50ms~ in practice (polling time
-    // for Princess). 
+    // Wait for all the solvers to stop: a solver that is still running when its next check or its
+    // free starts could be left in an invalid state (a Princess check would get stuck). The
+    // interrupt kills the external solver processes at once, and the solvers check it in their
+    // own code, including in their evaluators, so a solver stops within about the time its
+    // process takes to release its memory (a second for 16 GB).
     fs.zip(solvers).foreach { case (fut, solver) =>
-      // comfortably large timeout
-      val timeout = 20.seconds
-      try Await.ready(fut, timeout)
+      try Await.ready(fut, stopTimeout)
       catch {
         case _: TimeoutException =>
-          val msg =
-            s"Solver ${solver.name} in portfolio did not finish within the $timeout timeout after being interrupted." +
-            " Report this as a bug to the solver developers." +
-            " Continuing can leave the solver in an unstable state."
-          reporter.fatalError(msg)
+          val where = Option(solverThreads.get(solver)) match {
+            case Some(thread) =>
+              val state = thread.getState
+              val trace = thread.getStackTrace.map("    at " + _).mkString("\n")
+              // The check may have returned between the timeout and the snapshot, after which the
+              // thread moves on to other work and the trace says nothing about the solver. A future
+              // that is still incomplete after the snapshot was incomplete during it.
+              if (fut.isCompleted) "It stopped just after the timeout."
+              else s"Its thread ${thread.getName} is $state at:\n$trace"
+            case None =>
+              "Its check has not started."
+          }
+          reporter.fatalError(
+            s"Solver ${solver.name} in portfolio did not stop within $stopTimeout after being interrupted." +
+            " Continuing could leave the solver in an invalid state, so the verification stops." +
+            s" Please report this at https://github.com/epfl-lara/inox/issues with the trace below.\n$where")
       }
     }
     res
