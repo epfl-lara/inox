@@ -293,13 +293,12 @@ abstract class RecursiveEvaluator(override val program: Program,
       throw RuntimeError("Error reached in evaluation: " + msg)
 
     // The model gives uninterpreted functions as functions of their arguments
-    case UninterpretedCall(id, tps, args, _) =>
+    case UninterpretedCall(id, tps, args, tpe) =>
       val evArgs = args map e
       rctx.chooses.get(id -> tps) match {
         case Some(l: Lambda) if l.params.size == evArgs.size =>
           e(l.body)(using rctx.withNewVars(l.paramSubst(evArgs)), gctx)
-        case _ =>
-          throw EvalError(s"Cannot call uninterpreted function ${id.asString} that the model doesn't define")
+        case _ => onUninterpretedInvocation(UninterpretedCall(id, tps, evArgs, tpe).copiedFrom(expr), rctx.chooses)
       }
 
     case c: Choose =>
