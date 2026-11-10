@@ -5,7 +5,7 @@ package solvers
 package unrolling
 
 import utils._
-import scala.collection.mutable.{Map => MutableMap}
+import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 trait TemplateGenerator { self: Templates =>
   import context.{given, _}
@@ -35,6 +35,11 @@ trait TemplateGenerator { self: Templates =>
   private[unrolling] val uninterpretedFunctions: MutableMap[(Identifier, Seq[Type]), (Variable, Encoded)] = MutableMap.empty
   private[unrolling] val uninterpretedSubst: MutableMap[Variable, Encoded] = MutableMap.empty
 
+  /** The uninterpreted functions without parameters that the model doesn't interpret, which stand
+    * for constants: their free functions are free variables of their result types, whose values are
+    * the calls (as for any value, some solvers can't extract the results of nullary functions). */
+  private[unrolling] val uninterpretedConstants: MutableSet[(Identifier, Seq[Type])] = MutableSet.empty
+
   /** The free functions of the uninterpreted functions that the model interprets, whose applications
     * are calls that unfold the interpretation, as calls of the functions of the program unfold their
     * bodies (see [[FunctionTemplates]]). Their interpretations may then be recursive. */
@@ -47,7 +52,12 @@ trait TemplateGenerator { self: Templates =>
   private def uninterpretedFunction(uc: UninterpretedCall): Variable =
     uninterpretedFunctions.getOrElseUpdate(uc.id -> uc.tps, {
       uninterpretedTypes(uc.id -> uc.tps) = uc.tpe
-      val f = Variable.fresh(uc.id.name, uc.tpe.getType, true)
+      val constant = uc.tpe match {
+        case FunctionType(Seq(), to) if interpretation(uc.id, uc.tps).isEmpty => Some(to)
+        case _ => None
+      }
+      if (constant.isDefined) uninterpretedConstants += uc.id -> uc.tps
+      val f = Variable.fresh(uc.id.name, constant.getOrElse(uc.tpe).getType, true)
       val fT = encodeSymbol(f)
       uninterpretedSubst(f) = fT
       if (interpretation(uc.id, uc.tps).isDefined) interpretedFunctions(f) = Interpreted(uc.id, uc.tps)
@@ -408,7 +418,7 @@ trait TemplateGenerator { self: Templates =>
         builder ++= fClauses
 
         val recArgs = args.map(rec(pathVar, _, None))
-        val app = Application(f, recArgs).copiedFrom(uc)
+        val app = if (uninterpretedConstants(id -> tps)) f else Application(f, recArgs).copiedFrom(uc)
         // The result type of the function, with its parameters bound to the arguments of the call
         val resTpe = tpe match {
           case PiType(params, to) => typeOps.replaceFromSymbols((params zip recArgs).toMap, to)
