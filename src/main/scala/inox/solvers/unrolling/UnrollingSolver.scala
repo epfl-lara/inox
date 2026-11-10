@@ -257,12 +257,11 @@ abstract class AbstractUnrollingSolver private
     * arbitrary ones. */
   protected def partialModel: program.Model = inox.Model.empty(program)
 
-  /** The interpretation that the partial model gives to the uninterpreted call `id[tps](args)`, if
-    * it interprets `id` at `tps` (see [[TemplateGenerator.interpretation]]). */
-  protected final def interpretation(id: Identifier, tps: Seq[t.Type], args: Seq[t.Expr]): Option[t.Expr] =
+  /** The interpretation that the partial model gives to the uninterpreted function `id` at `tps`, if
+    * it interprets it (see [[TemplateGenerator.interpretation]]). */
+  protected final def interpretation(id: Identifier, tps: Seq[t.Type]): Option[t.Lambda] =
     partialModel.chooses.get(id -> tps.map(decode(_))).collect {
-      case Lambda(params, body) if params.size == args.size =>
-        t.exprOps.replaceFromSymbols((params.map(vd => encode(vd.toVariable)) zip args).toMap, encode(body))
+      case l: Lambda => encode(l).asInstanceOf[t.Lambda]
     }
 
   private def removeChooses(expr: Expr): (Expr, Map[Variable, Encoded]) = {
@@ -391,15 +390,16 @@ abstract class AbstractUnrollingSolver private
           Some(UninterpretedCall(id, tps, args, f.getType))
         case _ => None
       } (e)
-      val uninterpretedVs = uninterpreted.map { case (key, (f, fT)) =>
+      // The model that the solver operates under gives the functions that it interprets
+      val uninterpretedVs = uninterpreted.collect { case (key, (f, fT)) if !partialModel.chooses.contains(key) =>
         key -> exprOps.replaceFromSymbols(extracted, extract(fT, f.getType))
       }.toMap
       val vs = allVs.map { case (vd, e) => vd -> restore(e) }
 
       val cs = templates.getCalls
         .filter(p => modelEval(p._1, t.BooleanType()) == Some(t.BooleanLiteral(true)))
-        .map(_._2)
-        .groupBy(_.tfd)
+        .collect { case (_, call @ templates.Call(templates.Defined(tfd), _, _)) => tfd -> call }
+        .groupMap(_._1)(_._2)
         .flatMap { case (tfd, calls) =>
           chooses.getChoose(tfd.fd).map { case (id, c, vds) =>
             val tpSubst = tfd.tpSubst.map(p => decode(p._1).asInstanceOf[TypeParameter] -> decode(p._2))
@@ -1595,7 +1595,7 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     def asString(expr: Expr): String = expr.asString
     def abort: Boolean = self.abort
     def pause: Boolean = self.pause
-    def interpretation(id: Identifier, tps: Seq[Type], args: Seq[Expr]): Option[Expr] = self.interpretation(id, tps, args)
+    def interpretation(id: Identifier, tps: Seq[Type]): Option[Lambda] = self.interpretation(id, tps)
 
     def encodeSymbol(v: Variable): Expr = v.freshen
     def mkEncoder(bindings: Map[Variable, Expr])(e: Expr): Expr = exprOps.replaceFromSymbols(bindings, e)

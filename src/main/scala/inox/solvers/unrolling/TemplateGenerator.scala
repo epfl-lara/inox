@@ -25,22 +25,27 @@ trait TemplateGenerator { self: Templates =>
     Seq[QuantificationTemplate]
   )
 
-  /** The interpretation of the uninterpreted call `id[tps](args)` in the model that the solver
-    * operates under (see [[AbstractUnrollingSolver.partialModel]]), if the model interprets `id` at
-    * `tps`. Uninterpreted calls take their interpretations when their clauses are generated. */
-  def interpretation(id: Identifier, tps: Seq[Type], args: Seq[Expr]): Option[Expr]
+  /** The interpretation of the uninterpreted function `id` at `tps` in the model that the solver
+    * operates under (see [[AbstractUnrollingSolver.partialModel]]), if the model interprets it. */
+  def interpretation(id: Identifier, tps: Seq[Type]): Option[Lambda]
 
   /** The free functions that stand for the uninterpreted functions at their type arguments, whose
-    * applications are the uninterpreted calls that have no interpretation. They are shared by all
-    * templates, and their models are those of the uninterpreted functions. */
+    * applications are the uninterpreted calls. They are shared by all templates, and their models are
+    * those of the uninterpreted functions. */
   private[unrolling] val uninterpretedFunctions: MutableMap[(Identifier, Seq[Type]), (Variable, Encoded)] = MutableMap.empty
   private[unrolling] val uninterpretedSubst: MutableMap[Variable, Encoded] = MutableMap.empty
+
+  /** The free functions of the uninterpreted functions that the model interprets, whose applications
+    * are calls that unfold the interpretation, as calls of the functions of the program unfold their
+    * bodies (see [[FunctionTemplates]]). Their interpretations may then be recursive. */
+  private[unrolling] val interpretedFunctions: MutableMap[Variable, Interpreted] = MutableMap.empty
 
   private def uninterpretedFunction(uc: UninterpretedCall): Variable =
     uninterpretedFunctions.getOrElseUpdate(uc.id -> uc.tps, {
       val f = Variable.fresh(uc.id.name, uc.tpe.getType, true)
       val fT = encodeSymbol(f)
       uninterpretedSubst(f) = fT
+      if (interpretation(uc.id, uc.tps).isDefined) interpretedFunctions(f) = Interpreted(uc.id, uc.tps, f)
       (f, fT)
     })._1
 
@@ -382,8 +387,6 @@ trait TemplateGenerator { self: Templates =>
     val builder = new Builder(pathVar, substMap)
     import builder._
 
-    var interpreting: Set[(Identifier, Seq[Type])] = Set.empty
-
     def rec(pathVar: Variable, expr: Expr, pol: Option[Boolean]): Expr = expr match {
       case a @ Assume(cond, body) =>
         val e = rec(pathVar, cond, Some(true))
@@ -403,38 +406,30 @@ trait TemplateGenerator { self: Templates =>
         newExpr
 
       case uc @ UninterpretedCall(id, tps, args, tpe) =>
-        // The interpretations of the functions that are being interpreted aren't unfolded again
-        (if (interpreting(id -> tps)) None else interpretation(id, tps, args)) match {
-          case Some(e) =>
-            interpreting += id -> tps
-            val res = rec(pathVar, e, pol)
-            interpreting -= id -> tps
-            res
-          case None =>
-            // An application of the free function that stands for the uninterpreted function, whose
-            // result is an arbitrary value of the call's type
-            val f = uninterpretedFunction(uc)
-            val (fExpr, fClauses) = mkTypeClauses(pathVar, f.tpe, f, localSubst)(using FreeGenerator)
-            storeGuarded(pathVar, fExpr)
-            builder ++= fClauses
+        // An application of the free function that stands for the uninterpreted function, whose
+        // result is an arbitrary value of the call's type, or is given by the interpretation of the
+        // function once the call is unfolded
+        val f = uninterpretedFunction(uc)
+        val (fExpr, fClauses) = mkTypeClauses(pathVar, f.tpe, f, localSubst)(using FreeGenerator)
+        storeGuarded(pathVar, fExpr)
+        builder ++= fClauses
 
-            val recArgs = args.map(rec(pathVar, _, None))
-            val app = Application(f, recArgs).copiedFrom(uc)
-            // The result type of the function, with its parameters bound to the arguments of the call
-            val resTpe = tpe match {
-              case PiType(params, to) => typeOps.replaceFromSymbols((params zip recArgs).toMap, to)
-              case FunctionType(_, to) => to
-              case _ => throw new IllegalArgumentException(s"Uninterpreted call with type $tpe: $uc")
-            }
-            val newExpr = Variable.fresh("uc", resTpe.getType, true)
-            storeExpr(newExpr)
-            storeGuarded(pathVar, Equals(newExpr, app))
-
-            val (tpeExpr, tmplClauses) = mkTypeClauses(pathVar, resTpe, newExpr, localSubst)(using FreeGenerator)
-            storeGuarded(pathVar, tpeExpr)
-            builder ++= tmplClauses
-            newExpr
+        val recArgs = args.map(rec(pathVar, _, None))
+        val app = Application(f, recArgs).copiedFrom(uc)
+        // The result type of the function, with its parameters bound to the arguments of the call
+        val resTpe = tpe match {
+          case PiType(params, to) => typeOps.replaceFromSymbols((params zip recArgs).toMap, to)
+          case FunctionType(_, to) => to
+          case _ => throw new IllegalArgumentException(s"Uninterpreted call with type $tpe: $uc")
         }
+        val newExpr = Variable.fresh("uc", resTpe.getType, true)
+        storeExpr(newExpr)
+        storeGuarded(pathVar, Equals(newExpr, app))
+
+        val (tpeExpr, tmplClauses) = mkTypeClauses(pathVar, resTpe, newExpr, localSubst)(using FreeGenerator)
+        storeGuarded(pathVar, tpeExpr)
+        builder ++= tmplClauses
+        newExpr
 
       case Error(tpe, _) =>
         // Errors are never reached, so the path that leads to one is infeasible
