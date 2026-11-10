@@ -384,6 +384,10 @@ abstract class AbstractUnrollingSolver private
         (id, tps.map(decode(_))) -> (decode(f).asInstanceOf[Variable], fT)
       }
       val byFunction = uninterpreted.map { case (key, (f, _)) => f -> key }.toMap
+      // Their models are extracted at their full types, so that they lie in their codomains
+      val uninterpretedTypes = templates.uninterpretedTypes.toSeq.map { case ((id, tps), tpe) =>
+        (id, tps.map(decode(_))) -> decode(tpe)
+      }.toMap
       def restore(e: Expr): Expr = exprOps.postMap {
         case Application(f: Variable, args) if byFunction contains f =>
           val (id, tps) = byFunction(f)
@@ -392,7 +396,7 @@ abstract class AbstractUnrollingSolver private
       } (e)
       // The model that the solver operates under gives the functions that it interprets
       val uninterpretedVs = uninterpreted.collect { case (key, (f, fT)) if !partialModel.chooses.contains(key) =>
-        key -> exprOps.replaceFromSymbols(extracted, extract(fT, f.getType))
+        key -> exprOps.replaceFromSymbols(extracted, extract(fT, uninterpretedTypes.getOrElse(key, f.getType)))
       }.toMap
       val vs = allVs.map { case (vd, e) => vd -> restore(e) }
 
@@ -553,7 +557,7 @@ abstract class AbstractUnrollingSolver private
   // Model values are compared as the solver sees them: functions are equal iff they are the same
   // function value, which the encoding makes structural (see [[optFunctionEquality]]).
   protected lazy val modelEvalContext: Context = context.copy(interruptManager = evaluatorInterrupts).withOpts(
-    optIgnoreContracts(true), optFunctionEquality(FunctionEquality.Intensional))
+    optIgnoreContracts(true), optSolveUninterpretedCalls(false), optFunctionEquality(FunctionEquality.Intensional))
 
   protected lazy val modelEvaluator: DeterministicEvaluator { val program: self.targetProgram.type } =
     targetSemantics.getEvaluator(using modelEvalContext)
@@ -566,7 +570,7 @@ abstract class AbstractUnrollingSolver private
 
     // The uninterpreted functions whose models the typing conditions are being expanded through
     val expanding = MutableSet.empty[Identifier]
-    val typingCond = andJoin(model.vars.toSeq.map { case (v, value) =>
+    def typing(value: Expr, tpe: Type): Expr = {
       def rec(e: Expr, tpe: Type): Expr = (e, tpe) match {
         // The models of functions are conditionals over their arguments, and their default values
         // are chosen in their codomains (see `defaultValue`)
@@ -630,8 +634,18 @@ abstract class AbstractUnrollingSolver private
         case _ => BooleanLiteral(true)
       }
 
-      rec(value, v.tpe)
-    })
+      rec(value, tpe)
+    }
+
+    // The results of the uninterpreted calls of the constraints lie in their types, where the
+    // arguments of these calls are given by the model
+    val modelVars = model.vars.keySet.map(_.toVariable)
+    val callTypings = (assumptions ++ constraints).flatMap(exprOps.collect[UninterpretedCall] {
+      case uc: UninterpretedCall if exprOps.variablesOf(uc).subsetOf(modelVars) => Set(uc)
+      case _ => Set.empty
+    }).distinct.map(uc => typing(uc, uc.getTpe(stripRefinements = false)))
+
+    val typingCond = andJoin(model.vars.toSeq.map { case (v, value) => typing(value, v.tpe) } ++ callTypings)
 
     // we have to check case class constructors in model for ADT invariants
     val newExpr = model.vars.toSeq.foldRight(and(typingCond, expr)) {
@@ -643,7 +657,7 @@ abstract class AbstractUnrollingSolver private
       optCheckModels(checkModels || feelingLucky)
     ))
 
-    evaluator.eval(newExpr, inox.Model(program)(Map.empty, model.chooses)) match {
+    evaluator.eval(newExpr, inox.Model(program)(Map.empty, partialModel.chooses ++ model.chooses)) match {
       case EvaluationResults.Successful(BooleanLiteral(true)) =>
         reporter.debug("- Model validated.")
         true
@@ -1630,7 +1644,18 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
   protected def wrapModel(model: targetProgram.Model): ModelWrapper = ModelWrapperImpl(model)
 
   private case class ModelWrapperImpl(model: targetProgram.Model) extends ModelWrapper {
-    private def e(expr: t.Expr): Option[t.Expr] = modelEvaluator.eval(expr, model).result
+    // The functions of the program call the uninterpreted functions that free functions stand for,
+    // whose values the model gives
+    private lazy val evalModel: targetProgram.Model = {
+      val functions = templates.uninterpretedFunctions.toSeq.flatMap {
+        case (key, (_, fT: t.Variable)) => model.vars.get(fT.toVal).map(key -> _)
+        case _ => None
+      }
+      if (functions.isEmpty) model
+      else inox.Model(targetProgram)(model.vars, model.chooses ++ functions)
+    }
+
+    private def e(expr: t.Expr): Option[t.Expr] = modelEvaluator.eval(expr, evalModel).result
 
     def extractConstructor(elem: t.Expr, tpe: t.ADTType): Option[Identifier] = e(elem) match {
       case Some(t.ADT(id, _, _)) => Some(id)

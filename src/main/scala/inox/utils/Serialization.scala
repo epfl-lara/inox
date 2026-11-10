@@ -513,6 +513,7 @@ class InoxSerializer(val trees: ast.Trees, serializeProducts: Boolean = false) e
     classSerializer[Forall]            (15),
     classSerializer[Choose]            (16),
     classSerializer[FunctionInvocation](17),
+    classSerializer[UninterpretedCall] (141),
     classSerializer[IfExpr]            (18),
     classSerializer[ADT]               (27),
     classSerializer[IsConstructor]     (28),

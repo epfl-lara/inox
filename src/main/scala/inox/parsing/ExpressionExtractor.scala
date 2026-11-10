@@ -174,7 +174,7 @@ trait ExpressionExtractors { self: Extractors =>
         case _ => fail
       }
 
-      case trees.Choose(arg, pred) => template match {
+      case trees.exprOps.Choice(arg, pred) => template match {
         case Abstraction(Choose, Seq((templateId, optTemplateType), rest @ _*), templatePred) => {
           val templateRest = rest match {
             case Seq() => templatePred

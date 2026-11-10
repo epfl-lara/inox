@@ -412,6 +412,16 @@ class Printer private(override val program: InoxProgram,
       val (Seq(param), newBindings) = binders(Seq(vd)): @unchecked
       SMTChoose(param.name, param.sort, toSMT(pred)(using newBindings))
 
+    // The chooses of TIP depend on the variables in their scope, as uninterpreted calls depend on
+    // their arguments, which are these variables for the chooses and function declarations parsed
+    case exprOps.Choice(vd, pred) =>
+      val (Seq(param), newBindings) = binders(Seq(vd)): @unchecked
+      SMTChoose(param.name, param.sort, toSMT(pred)(using newBindings))
+
+    case uc: UninterpretedCall =>
+      val (Seq(param), _) = binders(Seq(ValDef.fresh("res", uc.getType))): @unchecked
+      SMTChoose(param.name, param.sort, toSMT(BooleanLiteral(true)))
+
     case _ => super.toSMT(e)
   }
 }

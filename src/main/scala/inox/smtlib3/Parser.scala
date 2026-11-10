@@ -117,7 +117,7 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
     val implicitTps = typeVarsOf(params.map(_.tpe) :+ returnType).filterNot(explicitTps.contains)
     val tparams = (explicitTps ++ implicitTps).map(tp => TypeParameterDef(tp).setPos(tp))
 
-    val body = Choose(ValDef.fresh("res", returnType), BooleanLiteral(true))
+    val body = exprOps.uninterpretedBody(id.name, tparams, params, returnType)
     new FunDef(id, tparams, params, returnType, body, Seq.empty).setPos(fd.name.optPos)
   }
 
@@ -143,8 +143,9 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
       case _ => to
     }
 
-    val body = Choose(ValDef.fresh("res", returnType), BooleanLiteral(true))
-    new FunDef(FreshIdentifier(sym.name), tps.map(TypeParameterDef(_)), params, returnType, body, Seq.empty)
+    val tparams = tps.map(TypeParameterDef(_))
+    val body = exprOps.uninterpretedBody(sym.name, tparams, params, returnType)
+    new FunDef(FreshIdentifier(sym.name), tparams, params, returnType, body, Seq.empty)
       .setPos(sym.optPos)
   }
 
@@ -200,7 +201,7 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
       val tpe = locals.extractSort(sort)
       typeVarsOf(Seq(tpe)) match {
         case Seq() =>
-          (None, locals.withVariable(sym, Variable.fresh(sym.name, tpe).setPos(sym.optPos)))
+          (None, locals.withVariable(sym, constant(Variable.fresh(sym.name, tpe).setPos(sym.optPos))))
         case tps =>
           (None, locals.withFunction(sym, declarePolymorphic(sym, tpe, tps)))
       }
@@ -320,7 +321,7 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
       Lambda(vds, tfd.applied(args ++ vds.map(_.toVariable)))
     }
 
-    private def quantified(binder: String, body: Expr, term: Term): Expr = {
+    private def quantified(binder: String, body: Expr, term: Term)(using ctx: Context): Expr = {
       val (vds, pred) = body match {
         case Lambda(vds, pred) => (vds, pred)
         case _ => body.getType match {
@@ -334,7 +335,7 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
         case "forall" => Forall(vds, pred)
         case "exists" => Not(Forall(vds, Not(pred)))
         case "choose" => vds match {
-          case Seq(vd) => Choose(vd, pred)
+          case Seq(vd) => exprOps.choose(vd, pred, ctx.scope)
           case _ => error(s"choose expects a unary predicate, found $body", term.optPos)
         }
         case _ => error(s"unknown binder $binder", term.optPos)
@@ -657,7 +658,7 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
               val tp = TypeParameter.fresh("T")
               val sym = SSymbol(tp.id.uniqueName)
               subst += tp -> typeFromTerm(arg)
-              argCtx = Context(argCtx.locals.withGeneric(sym, tp))
+              argCtx = argCtx.copy(locals = argCtx.locals.withGeneric(sym, tp))
               QualifiedIdentifier(SimpleIdentifier(sym), None)
             case _ => arg
           }

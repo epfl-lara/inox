@@ -94,6 +94,11 @@ class Parser(reader: Reader, file: Option[File]) {
     case Some(v) => v.toString
   }
 
+  /** The declared constants, which are free in the assertions but not in scope of the chooses of
+    * function bodies (see [[TermExtractor#Context.scope]]). */
+  private val constants = scala.collection.mutable.Set.empty[Variable]
+  protected def constant(v: Variable): Variable = { constants += v; v }
+
   /** Parser state outside of [[Locals]] that `push` and `pop` scope. */
   protected def saveScope(): Any = ()
   protected def restoreScope(state: Any): Unit = ()
@@ -203,12 +208,12 @@ class Parser(reader: Reader, file: Option[File]) {
 
     case DeclareConst(sym, sort) =>
       (None, locals.withVariable(sym,
-        Variable.fresh(sym.name, locals.extractSort(sort)).setPos(sym.optPos)))
+        constant(Variable.fresh(sym.name, locals.extractSort(sort)).setPos(sym.optPos))))
 
     case DeclareConstPar(tps, sym, sort) =>
       val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
       (None, locals.withVariable(sym,
-        Variable.fresh(sym.name, tpsLocals.extractSort(sort)).setPos(sym.optPos)))
+        constant(Variable.fresh(sym.name, tpsLocals.extractSort(sort)).setPos(sym.optPos))))
 
     case DeclareFun(name, sorts, returnSort) =>
       (None, locals.withFunction(name, extractSignature(FunDec(name, sorts.map {
@@ -367,7 +372,7 @@ class Parser(reader: Reader, file: Option[File]) {
     }
 
     val returnType = locals.extractSort(fd.returnSort)
-    val body = Choose(ValDef.fresh("res", returnType), BooleanLiteral(true))
+    val body = exprOps.uninterpretedBody(id.name, tparams, params, returnType)
 
     new FunDef(id, tparams, params, returnType, body, Seq.empty).setPos(fd.name.optPos)
   }
@@ -433,9 +438,14 @@ class Parser(reader: Reader, file: Option[File]) {
     import trees.{given, _}
     import symbols.{given, _}
 
-    protected case class Context(locals: Locals) extends super.AbstractContext {
+    protected case class Context(locals: Locals, lets: Set[Variable] = Set.empty) extends super.AbstractContext {
       val vars = locals.vars
-      def withVariable(sym: SSymbol, expr: Expr): Context = Context(locals.withVariable(sym, expr))
+      /** The parameters of the functions and binders where a term occurs, which the chooses of the
+        * term depend on. The values of let-bound variables are given by these parameters, and the
+        * declared constants aren't parameters. */
+      def scope: Seq[Variable] = vars.values.collect { case v: Variable if !lets(v) && !constants(v) => v }.toSeq
+      def withVariable(sym: SSymbol, expr: Expr): Context = copy(locals = locals.withVariable(sym, expr))
+      def withLet(sym: SSymbol, v: Variable): Context = withVariable(sym, v).copy(lets = lets + v)
 
       @inline def isSort(sym: SSymbol): Boolean = locals.isSort(sym)
       @inline def lookupSort(sym: SSymbol): Option[Identifier] = locals.lookupSort(sym)
@@ -474,14 +484,14 @@ class Parser(reader: Reader, file: Option[File]) {
 
       case SMTChoose(sym, sort, pred) =>
         val vd = ValDef.fresh(sym.name, fromSMT(sort))
-        Choose(vd, fromSMT(pred)(using ctx.withVariable(sym, vd.toVariable)))
+        exprOps.choose(vd, fromSMT(pred)(using ctx.withVariable(sym, vd.toVariable)), ctx.scope)
 
       case SMTLet(binding, bindings, term) =>
         var context = ctx
         val mapping = for (VarBinding(name, term) <- (binding +: bindings)) yield {
           val e = fromSMT(term)(using context)
           val vd = ValDef.fresh(name.name, e.getType).setPos(name.optPos)
-          context = context.withVariable(name, vd.toVariable)
+          context = context.withLet(name, vd.toVariable)
           vd -> e
         }
         mapping.foldRight(fromSMT(term)(using context)) { case ((vd, e), body) => Let(vd, e, body).setPos(vd) }

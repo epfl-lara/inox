@@ -181,7 +181,9 @@ trait DSL {
   }
 
   // Choose
-  def choose(res: ValDef)(pred: Variable => Expr) = Choose(res, pred(res.toVariable))
+  /** A choice of a value of `res` that satisfies `pred`, which depends on the variables of `scope`
+    * (see [[ExprOps.choose]]). */
+  def choose(res: ValDef, scope: Variable*)(pred: Variable => Expr): Expr = exprOps.choose(res, pred(res.toVariable), scope)
 
   // Block-like
   class BlockSuspension(susp: Expr => Expr) {

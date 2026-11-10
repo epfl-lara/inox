@@ -221,7 +221,7 @@ class PrimitivesParserSuite extends AnyFunSuite {
     }
 
     e"choose x: String. length(x) == 3" match {
-      case Choose(x, Equals(StringLength(vx), IntegerLiteral(three))) =>
+      case exprOps.Choice(x, Equals(StringLength(vx), IntegerLiteral(three))) =>
         assert(x.tpe == StringType() && vx == x.toVariable && three == 3)
       case e => fail(s"Unexpected $e")
     }
