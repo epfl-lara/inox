@@ -4,7 +4,7 @@ package inox
 package solvers
 package smtlib
 
-import _root_.smtlib.interpreters.Z3Interpreter
+import _root_.smtlib.interpreters.{CVC4Interpreter, CVC5Interpreter, ProcessInterpreter, Z3Interpreter}
 import _root_.smtlib.parser.Parser
 import _root_.smtlib.trees.Terms.SExpr
 import _root_.smtlib.trees.Commands._
@@ -12,15 +12,16 @@ import _root_.smtlib.trees.CommandsResponses.{Error => SMTError, _}
 
 import java.io.BufferedReader
 
-/** A Z3 process that doesn't wait for the `success` of the commands that only answer that.
+/** A solver process that doesn't wait for the `success` of the commands that only answer that.
   *
   * Each command is otherwise a round trip to the process, and most commands are declarations and
-  * assertions, which Z3 handles in a few microseconds. [[send]] writes such a command without
+  * assertions, which solvers handle in a few microseconds. [[send]] writes such a command without
   * reading its answer, and the pending answers are read before the next command that is evaluated
   * (see [[eval]]). An error that one of them answered is then returned by [[pendingError]].
+  *
+  * The solver must answer `success` to these commands (`:print-success`).
   */
-class PipelinedZ3Interpreter(executable: String, args: Array[String], parserCtor: BufferedReader => Parser)
-  extends Z3Interpreter(executable, args, parserCtor = parserCtor) {
+trait PipelinedInterpreter extends ProcessInterpreter {
 
   private var pending = 0
   private var error: Option[String] = None
@@ -76,3 +77,12 @@ class PipelinedZ3Interpreter(executable: String, args: Array[String], parserCtor
     super.eval(cmd)
   }
 }
+
+class PipelinedZ3Interpreter(executable: String, args: Array[String], parserCtor: BufferedReader => Parser)
+  extends Z3Interpreter(executable, args, parserCtor = parserCtor) with PipelinedInterpreter
+
+class PipelinedCVC4Interpreter(executable: String, args: Array[String])
+  extends CVC4Interpreter(executable, args) with PipelinedInterpreter
+
+class PipelinedCVC5Interpreter(executable: String, args: Array[String])
+  extends CVC5Interpreter(executable, args) with PipelinedInterpreter

@@ -51,7 +51,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
   override protected def recycle(): Boolean = interpreter match {
     // the interpreter is used directly, as the reset isn't part of the solver's session (it also
-    // reads the answers of the commands that were sent last, see [[PipelinedZ3Interpreter]])
+    // reads the answers of the commands that were sent last, see [[PipelinedInterpreter]])
     case z3: Z3Interpreter => z3.eval(Reset()) match {
       case Success =>
         ProcessPool.give(processKey, z3)
