@@ -91,7 +91,13 @@ trait PortfolioSolver extends Solver { self =>
         case _: TimeoutException =>
           val where = Option(solverThreads.get(solver)) match {
             case Some(thread) =>
-              s"Its thread ${thread.getName} is ${thread.getState} at:\n" + thread.getStackTrace.map("    at " + _).mkString("\n")
+              val state = thread.getState
+              val trace = thread.getStackTrace.map("    at " + _).mkString("\n")
+              // The check may have returned between the timeout and the snapshot, after which the
+              // thread moves on to other work and the trace says nothing about the solver. A future
+              // that is still incomplete after the snapshot was incomplete during it.
+              if (fut.isCompleted) "It stopped just after the timeout."
+              else s"Its thread ${thread.getName} is $state at:\n$trace"
             case None =>
               "Its check has not started."
           }
