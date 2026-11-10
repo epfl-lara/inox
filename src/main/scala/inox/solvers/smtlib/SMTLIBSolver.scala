@@ -20,7 +20,6 @@ abstract class SMTLIBSolver private(override val program: Program,
   import program._
   import program.trees._
   import program.symbols.{given, _}
-  import exprOps.variablesOf
   import SolverResponses._
 
   def this(program: Program, context: inox.Context)(using semantics: program.Semantics) =
@@ -44,8 +43,7 @@ abstract class SMTLIBSolver private(override val program: Program,
 
   /* Public solver interface */
   def assertCnstr(expr: Expr): Unit = {
-    variablesOf(expr).foreach(declareVariable)
-
+    // `toSMT` declares the free variables of `expr` as it meets them
     val term = toSMT(expr)(using Map())
     emit(Assert(term))
   }

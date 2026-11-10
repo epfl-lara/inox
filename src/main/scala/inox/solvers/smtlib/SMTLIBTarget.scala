@@ -281,7 +281,9 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected def toSMTCore(e: Expr)(using bindings: Map[Identifier, Term]): Term = e match {
     case v @ Variable(id, tp, flags) =>
       declareSort(v.getType)
-      bindings.getOrElse(id, variables.toB(v))
+      // free variables are declared the first time they are met, which saves a traversal of
+      // each asserted expression to collect them beforehand
+      bindings.getOrElse(id, declareVariable(v))
 
     case UnitLiteral() =>
       declareSort(UnitType())
