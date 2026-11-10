@@ -32,32 +32,32 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     "-smt2"
   )
 
-  protected class Z3Parser(lexer: Lexer) extends Parser(lexer) {
-    // Z3 uses a non-standard version of get-unsat-assumptions-response that
-    // returns prop literals instead of symbols directly
-    override def parseGetUnsatAssumptionsResponse: GetUnsatAssumptionsResponse = {
-      nextToken() match {
-        case Tokens.SymbolLit("unsupported") => Unsupported
-        case t =>
-          check(t, Tokens.OParen)
-          peekToken match {
-            case Tokens.SymbolLit("error") =>
-              eat(Tokens.SymbolLit("error"))
-              val msg = parseString.value
-              eat(Tokens.CParen)
-              SMTError(msg)
-            case _ =>
-              val props = parseUntil(Tokens.CParen)(() => parsePropLit)
-              GetUnsatAssumptionsResponseSuccess(props)
-          }
-      }
-    }
-  }
+  // the parser doesn't refer to the target, so that the processes left for other solvers don't
+  // keep it alive
+  protected type Z3Parser = Z3Target.Z3Parser
+
+  // The processes are reused by solvers started with the same command line and string encoding,
+  // as Z3 keeps its options when it is reset
+  private def processKey: Seq[String] =
+    (targetName +: interpreterOpts) :+ s"encoding=${if (maxStringChar == 0xFFFF) "bmp" else "default"}"
 
   protected val interpreter = {
     val opts = interpreterOpts
-    reporter.debug("Invoking solver "+targetName+" with "+opts.mkString(" "))
-    new Z3Interpreter(targetName, opts.toArray, parserCtor = out => new Z3Parser(new Lexer(out)))
+    ProcessPool.take(processKey).getOrElse {
+      reporter.debug("Invoking solver "+targetName+" with "+opts.mkString(" "))
+      new Z3Interpreter(targetName, opts.toArray, parserCtor = out => new Z3Parser(new Lexer(out)))
+    }
+  }
+
+  override protected def recycle(): Boolean = interpreter match {
+    // the interpreter is used directly, as the reset isn't part of the solver's session
+    case z3: Z3Interpreter => z3.eval(Reset()) match {
+      case Success =>
+        ProcessPool.give(processKey, z3)
+        true
+      case _ => false
+    }
+    case _ => false
   }
 
   // Z3 version 4.5.1 has disabled producing unsat assumptions by default,
@@ -443,6 +443,30 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("const")), Some(sort)),
         List(default))
+    }
+  }
+}
+
+object Z3Target {
+  class Z3Parser(lexer: Lexer) extends Parser(lexer) {
+    // Z3 uses a non-standard version of get-unsat-assumptions-response that
+    // returns prop literals instead of symbols directly
+    override def parseGetUnsatAssumptionsResponse: GetUnsatAssumptionsResponse = {
+      nextToken() match {
+        case Tokens.SymbolLit("unsupported") => Unsupported
+        case t =>
+          check(t, Tokens.OParen)
+          peekToken match {
+            case Tokens.SymbolLit("error") =>
+              eat(Tokens.SymbolLit("error"))
+              val msg = parseString.value
+              eat(Tokens.CParen)
+              SMTError(msg)
+            case _ =>
+              val props = parseUntil(Tokens.CParen)(() => parsePropLit)
+              GetUnsatAssumptionsResponseSuccess(props)
+          }
+      }
     }
   }
 }

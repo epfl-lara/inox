@@ -53,17 +53,32 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
   /* Interruptible interface */
   protected var aborted = false
+  // unlike `aborted`, never cleared by `reset`: an interrupted process doesn't go back to the pool
+  private var interrupted = false
+  private var freed = false
 
   interruptManager.registerForInterrupts(this)
 
-  def interrupt(): Unit = {
+  def interrupt(): Unit = synchronized {
     aborted = true
-    if (interpreter != null) interpreter.interrupt()
+    interrupted = true
+    // once freed, the process may already be running the queries of another solver
+    if (interpreter != null && !freed) interpreter.interrupt()
   }
+
+  /** Leaves the solver process for another solver, once this one is freed without having been
+    * interrupted, and returns whether it did. Otherwise, the process is freed. */
+  protected def recycle(): Boolean = false
 
   def free(): Unit = {
     interruptManager.unregisterForInterrupts(this)
-    interpreter.free()
+    // a second `free` must not give the process to the pool again, as two solvers would then share it
+    val (wasFreed, wasInterrupted) = synchronized {
+      val wasFreed = freed
+      freed = true
+      (wasFreed, interrupted)
+    }
+    if (!wasFreed && (wasInterrupted || !recycle())) interpreter.free()
   }
 
   /* Send a command to the solver */

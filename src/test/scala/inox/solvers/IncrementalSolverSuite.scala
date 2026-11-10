@@ -158,4 +158,47 @@ class IncrementalSolverSuite extends SolverTestSuite {
       assert(valueOf(s, y) == Some(IntegerLiteral(5)))
     }
   }
+
+  // The SMT solvers leave their processes for the next solvers (see [[smtlib.ProcessPool]])
+  test("Solvers after a freed one start from scratch") { ctx =>
+    for (_ <- 1 to 3) {
+      withSolver(ctx) { s =>
+        s.assertCnstr(x > E(0))
+        s.assertCnstr(x < E(0))
+        assert(s.check(Simple).isUNSAT)
+      }
+      withSolver(ctx) { s =>
+        s.assertCnstr(x === E(1))
+        assert(valueOf(s, x) == Some(E(1)))
+      }
+    }
+  }
+
+  test("Solvers after one freed twice don't share its process") { ctx =>
+    withSolver(ctx) { s =>
+      s.assertCnstr(x === E(0))
+      assert(valueOf(s, x) == Some(E(0)))
+      s.free()
+    }
+    withSolver(ctx) { s1 =>
+      withSolver(ctx) { s2 =>
+        s1.assertCnstr(x === E(1))
+        s2.assertCnstr(x === E(2))
+        assert(valueOf(s1, x) == Some(E(1)))
+        assert(valueOf(s2, x) == Some(E(2)))
+      }
+    }
+  }
+
+  test("Solvers after an interrupted one start from scratch") { ctx =>
+    withSolver(ctx) { s =>
+      s.assertCnstr(x > E(0))
+      s.assertCnstr(x < E(0))
+      s.interrupt()
+    }
+    withSolver(ctx) { s =>
+      s.assertCnstr(x === E(2))
+      assert(valueOf(s, x) == Some(E(2)))
+    }
+  }
 }
