@@ -278,6 +278,18 @@ class CollectionSemanticsSuite extends SolverTestSuite {
     ), Int32Literal(3))
   }
 
+  test("Map Merges", Maps, Sets) { ctx =>
+    val s = solver(ctx)
+
+    val m1 = FiniteMap(Seq(Int32Literal(1) -> Int32Literal(10), Int32Literal(2) -> Int32Literal(20)), Int32Literal(0), Int32Type(), Int32Type())
+    val m2 = FiniteMap(Seq(Int32Literal(1) -> Int32Literal(11), Int32Literal(3) -> Int32Literal(31)), Int32Literal(5), Int32Type(), Int32Type())
+    val mask = FiniteSet(Seq(Int32Literal(1), Int32Literal(4)), Int32Type())
+    check(s, MapApply(MapMerge(mask, m1, m2), Int32Literal(1)), Int32Literal(10))
+    check(s, MapApply(MapMerge(mask, m1, m2), Int32Literal(2)), Int32Literal(5))
+    check(s, MapApply(MapMerge(mask, m1, m2), Int32Literal(3)), Int32Literal(31))
+    check(s, MapApply(MapMerge(mask, m1, m2), Int32Literal(4)), Int32Literal(0))
+  }
+
   test("Z3 Set Extraction", Maps, Sets, Integers, NestedArrays) { ctx =>
     val s = solver(ctx)
 

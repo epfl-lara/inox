@@ -382,4 +382,16 @@ class BitVectorSemanticsSuite extends SolverTestSuite {
       assert(s.solveSAT(x * (y + z) !== x * y + x * z).isUNSAT, "distributivity")
     }
   }
+
+  test("BitVector Negation and Unsigned Casts", BitVectors) { ctx =>
+    val s = solver(ctx)
+
+    check(s, UMinus(Int32Literal(5)),                                   Int32Literal(-5))
+    check(s, UMinus(Int8Literal(-128)),                                 Int8Literal(-128))
+    check(s, UMinus(BVLiteral(false, 1, 8)),                            BVLiteral(false, 255, 8))
+    check(s, BVWideningCast(BVLiteral(false, 200, 8), BVType(false, 16)), BVLiteral(false, 200, 16))
+    check(s, BVNarrowingCast(BVLiteral(false, 300, 16), BVType(false, 8)), BVLiteral(false, 44, 8))
+    check(s, BVUnsignedToSigned(BVLiteral(false, 200, 8)),              Int8Literal(-56))
+    check(s, BVSignedToUnsigned(Int8Literal(-1)),                       BVLiteral(false, 255, 8))
+  }
 }

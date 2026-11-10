@@ -240,16 +240,20 @@ trait SMTLIBParser {
     case FixedSizeBitVectors.ShiftLeft(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVShiftLeft.apply)
     case FixedSizeBitVectors.AShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVAShiftRight.apply)
     case FixedSizeBitVectors.LShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVLShiftRight.apply)
-    case FixedSizeBitVectors.BV2Nat(e) => 
+    case FixedSizeBitVectors.BV2Nat(e) =>
       // we unfortunately cannot predict the type of e without translating it;
       // it will be a bitvector, but its size and signedness cannot be
-      // ascertained externally
-      BVToInt(fromSMT(e))
+      // ascertained externally. `bv2nat` reads it as unsigned.
+      val bv = fromSMT(e)
+      bv.getType match {
+        case BVType(true, _) => BVToInt(BVSignedToUnsigned(bv))
+        case _ => BVToInt(bv)
+      }
     case FixedSizeBitVectors.Int2BV(size, e) => IntToBV(
       size.bigInteger.intValueExact,
       otpe match {
         case Some(BVType(signed, _)) => signed
-        case _ => false // default to unsigned
+        case _ => true // signed by default, as bit-vector literals
       },
       fromSMT(e, IntegerType())
     )
@@ -259,6 +263,14 @@ trait SMTLIBParser {
       val BVType(signed, current) = ast.getType: @unchecked
       val newSize = (current + extend).bigInteger.intValueExact
       BVWideningCast(ast, BVType(signed, newSize))
+
+    case FixedSizeBitVectors.ZeroExtend(extend, e) =>
+      val ast = fromSMT(e)
+      val BVType(signed, current) = ast.getType: @unchecked
+      val newSize = (current + extend).bigInteger.intValueExact
+      // Widening an unsigned bit-vector extends it with zeros
+      if (signed) BVUnsignedToSigned(BVWideningCast(BVSignedToUnsigned(ast), BVType(false, newSize)))
+      else BVWideningCast(ast, BVType(false, newSize))
 
     case FixedSizeBitVectors.Extract(i, j, e) =>
       // Assume this is a Narrowing Cast, hence j must be 0

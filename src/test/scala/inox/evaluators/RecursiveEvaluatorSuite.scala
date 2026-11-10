@@ -10,7 +10,8 @@ import org.scalatest.funsuite.AnyFunSuite
   * modulo the width, as the JVM does, and its code generator shifts unsigned bitvectors logically. Its code
   * generator also still divides integers toward zero and takes the remainder of bit-vectors for `Modulo`.
   * Also checks that the recursive evaluator stops when its context is interrupted, which the other
-  * evaluators don't.
+  * evaluators don't, that it rejects ill-typed expressions with an evaluator error, and that it reports the
+  * failures of well-typed ones (division by zero, failed assumptions, exhausted steps) as runtime errors.
   */
 class RecursiveEvaluatorSuite extends AnyFunSuite {
   import inox.trees._
@@ -97,5 +98,100 @@ class RecursiveEvaluatorSuite extends AnyFunSuite {
   test("BitVector Modulo has the sign of the divisor, as SMT-LIB `bvsmod`") {
     assert(eval(Modulo(Int32Literal(-1), Int32Literal(-3))) === Int32Literal(-1))
     assert(eval(Modulo(Int32Literal(1), Int32Literal(-3)))  === Int32Literal(-2))
+  }
+
+  val t = BooleanLiteral(true)
+  val i = IntegerLiteral(1)
+  val c = CharLiteral('c')
+  val s = StringLiteral("s")
+  val set = FiniteSet(Seq(i), IntegerType())
+  val bag = FiniteBag(Seq(i -> IntegerLiteral(2)), IntegerType())
+  val map = FiniteMap(Seq(i -> i), IntegerLiteral(0), IntegerType(), IntegerType())
+  val bv = Int32Literal(1)
+
+  private def evaluatorError(e: Expr): Unit = evaluator.eval(e) match {
+    case EvaluationResults.EvaluatorError(_) =>
+    case res => fail(s"Unexpected result $res for $e")
+  }
+
+  private def runtimeError(e: Expr): Unit = evaluator.eval(e) match {
+    case EvaluationResults.RuntimeError(_) =>
+    case res => fail(s"Unexpected result $res for $e")
+  }
+
+  test("Ill-typed booleans and conditionals") {
+    evaluatorError(IfExpr(i, i, i))
+    evaluatorError(And(i, t))
+    evaluatorError(Or(i, t))
+    evaluatorError(Not(i))
+    evaluatorError(Implies(i, t))
+    evaluatorError(Application(i, Seq(i)))
+    evaluatorError(Variable.fresh("free", IntegerType()))
+  }
+
+  test("Ill-typed arithmetic") {
+    for (op <- Seq[(Expr, Expr) => Expr](Plus.apply, Minus.apply, Times.apply, Division.apply, Remainder.apply,
+        Modulo.apply, LessThan.apply, GreaterThan.apply, LessEquals.apply, GreaterEquals.apply))
+      evaluatorError(op(t, t))
+    evaluatorError(UMinus(t))
+    for (op <- Seq[(Expr, Expr) => Expr](BVAnd.apply, BVOr.apply, BVXor.apply, BVShiftLeft.apply,
+        BVAShiftRight.apply, BVLShiftRight.apply))
+      evaluatorError(op(i, i))
+    evaluatorError(BVNot(i))
+    evaluatorError(BVWideningCast(i, Int64Type()))
+    evaluatorError(BVNarrowingCast(i, Int8Type()))
+    evaluatorError(BVUnsignedToSigned(i))
+    evaluatorError(BVSignedToUnsigned(i))
+    evaluatorError(BVToInt(i))
+    evaluatorError(IntToBV(32, true, t))
+  }
+
+  test("Ill-typed strings") {
+    evaluatorError(StringConcat(i, s))
+    evaluatorError(StringLength(i))
+    evaluatorError(SubString(i, i, i))
+  }
+
+  test("Ill-typed collections") {
+    for (op <- Seq[(Expr, Expr) => Expr](SetUnion.apply, SetIntersection.apply, SetDifference.apply, SubsetOf.apply))
+      evaluatorError(op(i, set))
+    evaluatorError(SetAdd(i, i))
+    evaluatorError(ElementOfSet(i, i))
+    evaluatorError(MapMerge(i, map, map))
+    for (op <- Seq[(Expr, Expr) => Expr](BagUnion.apply, BagIntersection.apply, BagDifference.apply))
+      evaluatorError(op(i, bag))
+    evaluatorError(BagAdd(i, i))
+    evaluatorError(MultiplicityInBag(i, i))
+    evaluatorError(MapApply(i, i))
+    evaluatorError(MapUpdated(i, i, i))
+  }
+
+  test("Well-typed set and character operations") {
+    assert(evaluator.eval(SubsetOf(set, set)).result == Some(t))
+    assert(evaluator.eval(SubsetOf(set, FiniteSet(Seq(), IntegerType()))).result == Some(BooleanLiteral(false)))
+    assert(evaluator.eval(GreaterThan(c, CharLiteral('a'))).result == Some(t))
+    assert(evaluator.eval(LessEquals(c, CharLiteral('a'))).result == Some(BooleanLiteral(false)))
+    assert(evaluator.eval(GreaterEquals(c, c)).result == Some(t))
+  }
+
+  test("Runtime errors") {
+    runtimeError(Division(IntegerLiteral(1), IntegerLiteral(0)))
+    runtimeError(Division(FractionLiteral(1, 2), FractionLiteral(0, 1)))
+    runtimeError(Remainder(IntegerLiteral(1), IntegerLiteral(0)))
+    runtimeError(Modulo(IntegerLiteral(1), IntegerLiteral(0)))
+    runtimeError(Assume(BooleanLiteral(false), i))
+    runtimeError(Error(IntegerType(), "boom"))
+  }
+
+  test("Function calls are bounded by the maximal number of steps") {
+    val fid = FreshIdentifier("loop")
+    val x = ValDef.fresh("x", IntegerType())
+    val loop = new FunDef(fid, Seq(), Seq(x), IntegerType(), FunctionInvocation(fid, Seq(), Seq(x.toVariable)), Seq())
+    val p = InoxProgram(NoSymbols.withFunctions(Seq(loop)))
+    val e = RecursiveEvaluator(p, TestContext(Options(Seq(optMaxCalls(10)))))
+    e.eval(FunctionInvocation(fid, Seq(), Seq(i))) match {
+      case EvaluationResults.RuntimeError(msg) => assert(msg.contains("Exceeded number of allocated methods calls"))
+      case res => fail(s"Unexpected result $res")
+    }
   }
 }
