@@ -345,15 +345,24 @@ abstract class AbstractUnrollingSolver private
       val uninterpretedTypes = templates.uninterpretedTypes.toSeq.map { case ((id, tps), tpe) =>
         (id, tps.map(decode(_))) -> decode(tpe)
       }.toMap
+      val constants = templates.uninterpretedConstants.map { case (id, tps) => (id, tps.map(decode(_))) }
       def restore(e: Expr): Expr = exprOps.postMap {
         case Application(f: Variable, args) if byFunction contains f =>
           val (id, tps) = byFunction(f)
           Some(UninterpretedCall(id, tps, args, f.getType))
+        case f: Variable if byFunction.get(f).exists(constants) =>
+          val (id, tps) = byFunction(f)
+          Some(UninterpretedCall(id, tps, Seq.empty, FunctionType(Seq.empty, f.getType)))
         case _ => None
       } (e)
       // The model that the solver operates under gives the functions that it interprets
       val uninterpretedVs = uninterpreted.collect { case (key, (f, fT)) if !partialModel.chooses.contains(key) =>
-        key -> exprOps.replaceFromSymbols(extracted, extract(fT, uninterpretedTypes.getOrElse(key, f.getType)))
+        val tpe = uninterpretedTypes.getOrElse(key, f.getType)
+        key -> exprOps.replaceFromSymbols(extracted, (tpe, constants(key)) match {
+          // The calls of constants are their values
+          case (FunctionType(Seq(), to), true) => Lambda(Seq.empty, extract(fT, to))
+          case _ => extract(fT, tpe)
+        })
       }.toMap
       val vs = allVs.map { case (vd, e) => vd -> restore(e) }
 
@@ -1566,7 +1575,9 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     // whose values the model gives
     private lazy val evalModel: targetProgram.Model = {
       val functions = templates.uninterpretedFunctions.toSeq.flatMap {
-        case (key, (_, fT: t.Variable)) => model.vars.get(fT.toVal).map(key -> _)
+        case (key, (_, fT: t.Variable)) => model.vars.get(fT.toVal).map { value =>
+          key -> (if (templates.uninterpretedConstants(key)) t.Lambda(Seq.empty, value) else value)
+        }
         case _ => None
       }
       if (functions.isEmpty) model
