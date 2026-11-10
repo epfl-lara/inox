@@ -89,6 +89,35 @@ class TypeOpsSuite extends AnyFunSuite {
     assert(instantiation(ADTType(FreshIdentifier("Unknown"), Seq()), IntegerType()) == None)
   }
 
+  test("instantiation into dependent types") {
+    // Refinements of the target are matched through their base type
+    assert(instantiation(Box(T), {
+      val vd = ValDef.fresh("b", Box(IntegerType()))
+      RefinementType(vd, Equals(vd.toVariable, vd.toVariable))
+    }) == Some(Map(T -> IntegerType())))
+    assert(instantiation(Box(T), positive("x")) == None)
+
+    // A type parameter is still instantiated with the refinement type itself
+    assert(instantiation(T, positive("x")) == Some(Map(T -> positive("x"))))
+
+    // Refinements of the source don't constrain the instantiation
+    val tvd = ValDef.fresh("t", T)
+    assert(instantiation(RefinementType(tvd, Equals(tvd.toVariable, tvd.toVariable)), IntegerType()) ==
+      Some(Map(T -> IntegerType())))
+
+    // The components of sigma and pi types that depend on their variables are erased
+    val x = ValDef.fresh("x", IntegerType())
+    val y = ValDef.fresh("y", IntegerType())
+    val above = RefinementType(y, GreaterThan(y.toVariable, x.toVariable))
+    assert(instantiation(TupleType(Seq(T, U)), SigmaType(Seq(x), above)) ==
+      Some(Map(T -> IntegerType(), U -> IntegerType())))
+    assert(instantiation(FunctionType(Seq(T), U), PiType(Seq(x), above)) ==
+      Some(Map(T -> IntegerType(), U -> IntegerType())))
+    assert(instantiation(TupleType(Seq(T, U)), SigmaType(Seq(x), positive("z"))) ==
+      Some(Map(T -> IntegerType(), U -> positive("z"))))
+    assert(instantiation(FunctionType(Seq(T, U), U), PiType(Seq(x), above)) == None)
+  }
+
   test("typeCardinality") {
     assert(typeCardinality(UnitType()) == Some(1))
     assert(typeCardinality(Box(BooleanType())) == Some(2))
