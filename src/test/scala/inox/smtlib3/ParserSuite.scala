@@ -207,9 +207,22 @@ class ParserSuite extends AnyFunSuite {
     assertUNSAT(
       """(assert (not (forall (lambda ((x Int)) (>= (* x x) 0)))))
         |(check-sat)""".stripMargin)
+  }
+
+  test("declare-fun with named parameters") {
+    // the result of `above` depends on its parameter
+    val above = "(declare-fun above ((x Int)) (! Int :var v :restrict (> v x)))\n"
+    assertUNSAT(above +
+      """(assert (<= (above 3) 3))
+        |(check-sat)""".stripMargin)
+
+    assertSAT(above +
+      """(assert (and (= (above 3) 4) (= (above 4) 7)))
+        |(check-sat)""".stripMargin)
 
     assertUNSAT(
-      """(assert (or (= (choose (x Int) (= x 3)) 4) (= (choose (lambda ((y Int)) (= y 3))) 5)))
+      """(declare-fun (par (T) (pick ((x T) (y T)) (! T :var v :restrict (or (= v x) (= v y))))))
+        |(assert (not (or (= (pick 1 2) 1) (= (pick 1 2) 2))))
         |(check-sat)""".stripMargin)
   }
 

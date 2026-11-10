@@ -2,8 +2,10 @@
 ; Outside of the base type, the type check must be false without falsifying the path.
 
 (define-type NonZero () (! Int :var y :restrict (not (= y 0))))
+; has no value for a == 0
+(declare-fun nonZeroChoice ((a Int)) (! Bool :var r :restrict (and r (not (= a 0)))))
 
-(define-type Guarded () (! NonZero :var x :restrict (choose (r Bool) (and r (not (= x 0))))))
+(define-type Guarded () (! NonZero :var x :restrict (nonZeroChoice x)))
 
 ; in domain
 (push 1)

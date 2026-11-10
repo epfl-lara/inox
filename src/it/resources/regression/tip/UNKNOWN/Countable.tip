@@ -1,8 +1,12 @@
 (declare-datatypes (T!29) ((Countable!7 (Open!7 (x!115 T!29)))))
 
-(define-fun (par (T!30) (g!1 ((thiss!0 (Countable!7 T!30)) (x!59 Int)) T!30 (choose res!70 T!30 true))))
+(declare-fun (par (T!30) (res!70 ((Countable!7 T!30) Int) T!30)))
 
-(define-fun (par (T!32) (f!23 ((thiss!2 (Countable!7 T!32)) (x!58 T!32)) Int (choose res!75 Int true))))
+(define-fun (par (T!30) (g!1 ((thiss!0 (Countable!7 T!30)) (x!59 Int)) T!30 (res!70 thiss!0 x!59))))
+
+(declare-fun (par (T!32) (res!75 ((Countable!7 T!32) T!32) Int)))
+
+(define-fun (par (T!32) (f!23 ((thiss!2 (Countable!7 T!32)) (x!58 T!32)) Int (res!75 thiss!2 x!58))))
 
 (define-fun (par (T!31) (inv!2 ((thiss!1 (Countable!7 T!31))) Bool (and (forall ((t!53 T!31)) (= (g!1 thiss!1 (f!23 thiss!1 t!53)) t!53)) (forall ((h!46 Int)) (= (f!23 thiss!1 (g!1 thiss!1 h!46)) h!46))))))
 

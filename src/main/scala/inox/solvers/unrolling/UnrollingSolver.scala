@@ -641,7 +641,9 @@ abstract class AbstractUnrollingSolver private
     // arguments of these calls are given by the model
     val modelVars = model.vars.keySet.map(_.toVariable)
     val callTypings = (assumptions ++ constraints).flatMap(exprOps.collect[UninterpretedCall] {
-      case uc: UninterpretedCall if exprOps.variablesOf(uc).subsetOf(modelVars) => Set(uc)
+      // The calls that the model doesn't interpret are solved for by the evaluator
+      case uc: UninterpretedCall if exprOps.variablesOf(uc).subsetOf(modelVars) &&
+        model.chooses.contains(uc.id -> uc.tps) => Set(uc)
       case _ => Set.empty
     }).distinct.map(uc => typing(uc, uc.getTpe(stripRefinements = false)))
 
