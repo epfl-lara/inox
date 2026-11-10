@@ -45,7 +45,7 @@ trait TemplateGenerator { self: Templates =>
       val f = Variable.fresh(uc.id.name, uc.tpe.getType, true)
       val fT = encodeSymbol(f)
       uninterpretedSubst(f) = fT
-      if (interpretation(uc.id, uc.tps).isDefined) interpretedFunctions(f) = Interpreted(uc.id, uc.tps, f)
+      if (interpretation(uc.id, uc.tps).isDefined) interpretedFunctions(f) = Interpreted(uc.id, uc.tps)
       (f, fT)
     })._1
 

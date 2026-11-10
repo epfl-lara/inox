@@ -243,11 +243,12 @@ trait Templates
     def getType: Type = tfd.getType
   }
 
-  /** The uninterpreted function `id` at `tps`, whose calls are the applications of the free
-    * function `f`. */
-  case class Interpreted(id: Identifier, tps: Seq[Type], f: Variable) extends Callee {
+  /** The uninterpreted function `id` at `tps`, whose calls are the applications of its free function
+    * (see [[TemplateGenerator.uninterpretedFunctions]]). */
+  case class Interpreted(id: Identifier, tps: Seq[Type]) extends Callee {
     def signature: String = id.asString + tps.map(_.asString).mkString("[", ", ", "]")
-    def getType: Type = f.getType.asInstanceOf[FunctionType].to
+    def function: Variable = uninterpretedFunctions(id -> tps)._1
+    def getType: Type = function.getType.asInstanceOf[FunctionType].to
   }
 
   /** Represents a named function call in the unfolding procedure */

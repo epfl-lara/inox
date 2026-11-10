@@ -115,7 +115,7 @@ trait FunctionTemplates { self: Templates =>
       val substMap = arguments.toMap + pathVar
 
       val (p, clauses) = mkExprClauses(start, interpreted, substMap)
-      val tmplClauses = clauses + (start -> Equals(Application(callee.f, args), p))
+      val tmplClauses = clauses + (start -> Equals(Application(callee.function, args), p))
 
       val (contents, str) = Template.contents(pathVar, arguments, tmplClauses, optCall = Some(callee))
       val res = new FunctionTemplate(contents, () => "Template for the interpretation of " + callee.signature + " is :\n" + str())
