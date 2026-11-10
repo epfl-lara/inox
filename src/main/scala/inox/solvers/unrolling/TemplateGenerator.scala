@@ -40,8 +40,13 @@ trait TemplateGenerator { self: Templates =>
     * bodies (see [[FunctionTemplates]]). Their interpretations may then be recursive. */
   private[unrolling] val interpretedFunctions: MutableMap[Variable, Interpreted] = MutableMap.empty
 
+  /** The types of the uninterpreted functions, whose free functions only have their erased types,
+    * so that their models are extracted within their codomains. */
+  private[unrolling] val uninterpretedTypes: MutableMap[(Identifier, Seq[Type]), Type] = MutableMap.empty
+
   private def uninterpretedFunction(uc: UninterpretedCall): Variable =
     uninterpretedFunctions.getOrElseUpdate(uc.id -> uc.tps, {
+      uninterpretedTypes(uc.id -> uc.tps) = uc.tpe
       val f = Variable.fresh(uc.id.name, uc.tpe.getType, true)
       val fT = encodeSymbol(f)
       uninterpretedSubst(f) = fT
@@ -426,9 +431,21 @@ trait TemplateGenerator { self: Templates =>
         storeExpr(newExpr)
         storeGuarded(pathVar, Equals(newExpr, app))
 
-        val (tpeExpr, tmplClauses) = mkTypeClauses(pathVar, resTpe, newExpr, localSubst)(using FreeGenerator)
+        // The refinements of the result hold as the predicate of a choose, and the type that they
+        // refine is the type of the result
+        def refinements(tpe: Type): (Type, Seq[Expr]) = tpe match {
+          case RefinementType(vd, pred) =>
+            val (base, preds) = refinements(vd.tpe)
+            (base, preds :+ exprOps.replaceFromSymbols(Map(vd -> newExpr), pred))
+          case _ => (tpe, Seq.empty)
+        }
+        val (baseTpe, preds) = refinements(resTpe)
+
+        val (tpeExpr, tmplClauses) = mkTypeClauses(pathVar, baseTpe, newExpr, localSubst)(using FreeGenerator)
         storeGuarded(pathVar, tpeExpr)
         builder ++= tmplClauses
+
+        for (pred <- preds) storeGuarded(pathVar, rec(pathVar, pred, Some(true)))
         newExpr
 
       case Error(tpe, _) =>

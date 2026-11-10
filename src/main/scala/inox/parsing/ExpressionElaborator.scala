@@ -1023,7 +1023,7 @@ trait ExpressionElaborators { self: Elaborators =>
           res <- cvds
           b <- getExpr(body, predType)(using newStore)
         } yield {
-          trees.Choose(res.head, b)
+          trees.exprOps.choose(res.head, b)
         }).addConstraint({
           Constraint.equal(predType, trees.BooleanType())
         }).addConstraint({

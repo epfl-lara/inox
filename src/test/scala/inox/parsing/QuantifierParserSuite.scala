@@ -100,7 +100,7 @@ class QuantifierParserSuite extends AnyFunSuite {
   test("Parsing choose.") {
 
     e"choose x. x > 2" match {
-      case Choose(ValDef(id, IntegerType(), _), expr) =>
+      case exprOps.Choice(ValDef(id, IntegerType(), _), expr) =>
         assertResult(GreaterThan(Variable(id, IntegerType(), Seq()), IntegerLiteral(2))) {
           expr
         }
@@ -108,7 +108,7 @@ class QuantifierParserSuite extends AnyFunSuite {
     }
 
     e"choose x: BigInt. false ==> true" match {
-      case Choose(ValDef(id, IntegerType(), _), expr) =>
+      case exprOps.Choice(ValDef(id, IntegerType(), _), expr) =>
         assertResult(Implies(BooleanLiteral(false), BooleanLiteral(true))) {
           expr
         }
@@ -116,7 +116,7 @@ class QuantifierParserSuite extends AnyFunSuite {
     }
 
     e"4 + choose x: BigInt. false ==> true" match {
-      case Plus(IntegerLiteral(_), Choose(ValDef(id, IntegerType(), _), expr)) =>
+      case Plus(IntegerLiteral(_), exprOps.Choice(ValDef(id, IntegerType(), _), expr)) =>
         assertResult(Implies(BooleanLiteral(false), BooleanLiteral(true))) {
           expr
         }

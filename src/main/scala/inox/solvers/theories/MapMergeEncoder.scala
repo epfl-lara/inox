@@ -21,7 +21,7 @@ private class MapMergeTheory[Trees <: ast.Trees](val trees: Trees) {
     val mapTpe = MapType(keyT, valueT)
     (Seq("mask" :: SetType(keyT), "map1" :: mapTpe, "map2" :: mapTpe), mapTpe, {
       case Seq(mask, map1, map2) =>
-        choose("map" :: mapTpe) { map =>
+        choose("map" :: mapTpe, mask, map1, map2) { map =>
           forall("x" :: keyT) { x =>
             MapApply(map, x) ===
               (if_ (ElementOfSet(x, mask)) {

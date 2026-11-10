@@ -26,6 +26,7 @@ trait SolvingEvaluator extends Evaluator { self =>
 
   lazy val evalQuantifiers = options.findOptionOrDefault(optEvalQuantifiers)
   lazy val checkModels = options.findOptionOrDefault(optCheckModels)
+  lazy val solveUninterpretedCalls = options.findOptionOrDefault(optSolveUninterpretedCalls)
 
   private val chooseCache: MutableMap[Choose, Expr] = MutableMap.empty
   private val uninterpretedCache: MutableMap[UninterpretedCall, Expr] = MutableMap.empty
@@ -90,8 +91,8 @@ trait SolvingEvaluator extends Evaluator { self =>
     * its result type, which may be refined by a predicate over the arguments. The value is solved
     * for once per call, so that the function stays a function. */
   def onUninterpretedInvocation(call: UninterpretedCall, modelChooses: Map[(Identifier, Seq[Type]), Expr] = Map.empty): Expr = {
-    if (!evalQuantifiers) {
-      throw new RuntimeException(s"Evaluation of uninterpreted calls disabled @ ${call.getPos}: ${call.asString}")
+    if (!evalQuantifiers || !solveUninterpretedCalls) {
+      throw new RuntimeException(s"Cannot call uninterpreted function ${call.id.asString} that the model doesn't define")
     }
     val (res, pred) = call.getTpe(stripRefinements = false) match {
       case RefinementType(vd, pred) => (vd, pred)
