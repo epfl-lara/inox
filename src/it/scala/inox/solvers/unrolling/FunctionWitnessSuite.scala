@@ -95,8 +95,14 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     })
   }
 
+  // returns a lambda that captures its argument
+  val constID = FreshIdentifier("const")
+  val constFd = mkFunDef(constID)() { _ => (
+    Seq("b" :: BooleanType()), BooleanType() =>: BooleanType(), { case Seq(b) => \("x" :: BooleanType())(_ => b) })
+  }
+
   val program = InoxProgram(new Symbols(
-    Map(sizeID -> sizeFd, sameID -> sameFd, sameViaID -> sameViaFd, polyID -> polyFd),
+    Map(sizeID -> sizeFd, sameID -> sameFd, sameViaID -> sameViaFd, polyID -> polyFd, constID -> constFd),
     Map(listID -> List, boxID -> Box, objID -> Obj)))
 
   val intList = T(listID)(IntegerType())
@@ -360,6 +366,24 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     val id = \("x" :: IntegerType())(x => x)
     val alsoId = \("x" :: IntegerType())(x => if_ (x === E(BigInt(0))) { E(BigInt(0)) } else_ { x })
     assert(result((f !== id) && (f === alsoId)).isSAT)
+  }
+
+  test("functions that agree with a lambda of the query remain distinct from it") { ctx ?=>
+    given Context = ctx.withOpts(optFunctionEquality(FunctionEquality.Intensional))
+    // `f` may have the same results as `no` on every input, and then only a closure keeps it
+    // distinct, including from the lambda that a function of the program returns
+    val f = ("f" :: (BooleanType() =>: BooleanType())).toVariable
+    val no = \("x" :: BooleanType())(x => E(false))
+    val allFalse = f(E(true)) === E(false) && f(E(false)) === E(false)
+    val constFalse = E(constID)(E(false))
+    for (clause <- Seq(f !== no, (f !== no) && allFalse, f !== constFalse, (f !== constFalse) && allFalse)) {
+      result(clause) match {
+        case SatWithModel(model) =>
+          val res = program.getEvaluator.eval(clause, model)
+          assert(res.result == Some(E(true)), s"$res in $model")
+        case res => fail(s"Expected a model, got $res")
+      }
+    }
   }
 
   test("distinct functions equal on every input") { ctx ?=>

@@ -570,6 +570,9 @@ trait LambdaTemplates { self: Templates =>
 
   def getLambdaTemplates(tpe: FunctionType): Set[LambdaTemplate] = byType(tpe).values.toSet
 
+  /** The templates of all the lambdas that have been unrolled. */
+  def getLambdaTemplates: Seq[LambdaTemplate] = byType.values.toSeq.flatMap(_.values)
+
   /** The witness nesting depth of the symbols currently being instantiated (0 for regular inputs).
     *
     * Everything that descends from a distinguishing input inherits its depth: the free functions in
