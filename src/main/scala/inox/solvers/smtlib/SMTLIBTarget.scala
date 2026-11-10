@@ -72,11 +72,13 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
 
   def free(): Unit = {
     interruptManager.unregisterForInterrupts(this)
-    val wasInterrupted = synchronized {
+    // a second `free` must not give the process to the pool again, as two solvers would then share it
+    val (wasFreed, wasInterrupted) = synchronized {
+      val wasFreed = freed
       freed = true
-      interrupted
+      (wasFreed, interrupted)
     }
-    if (wasInterrupted || !recycle()) interpreter.free()
+    if (!wasFreed && (wasInterrupted || !recycle())) interpreter.free()
   }
 
   /* Send a command to the solver */

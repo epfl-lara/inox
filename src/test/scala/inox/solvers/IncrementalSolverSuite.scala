@@ -174,6 +174,22 @@ class IncrementalSolverSuite extends SolverTestSuite {
     }
   }
 
+  test("Solvers after one freed twice don't share its process") { ctx =>
+    withSolver(ctx) { s =>
+      s.assertCnstr(x === E(0))
+      assert(valueOf(s, x) == Some(E(0)))
+      s.free()
+    }
+    withSolver(ctx) { s1 =>
+      withSolver(ctx) { s2 =>
+        s1.assertCnstr(x === E(1))
+        s2.assertCnstr(x === E(2))
+        assert(valueOf(s1, x) == Some(E(1)))
+        assert(valueOf(s2, x) == Some(E(2)))
+      }
+    }
+  }
+
   test("Solvers after an interrupted one start from scratch") { ctx =>
     withSolver(ctx) { s =>
       s.assertCnstr(x > E(0))

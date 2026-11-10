@@ -6,7 +6,8 @@ package smtlib
 
 import _root_.smtlib.interpreters.ProcessInterpreter
 
-import java.util.concurrent.{ConcurrentHashMap, ConcurrentLinkedDeque}
+import java.util.ArrayDeque
+import java.util.concurrent.ConcurrentHashMap
 
 /** Idle solver processes, which new solvers reuse instead of starting processes of their own.
   *
@@ -21,19 +22,26 @@ import java.util.concurrent.{ConcurrentHashMap, ConcurrentLinkedDeque}
 object ProcessPool {
   private val maxIdle = Runtime.getRuntime.availableProcessors.max(1)
 
-  private val idle = new ConcurrentHashMap[Seq[String], ConcurrentLinkedDeque[ProcessInterpreter]]
+  // each queue is only accessed while holding its lock, so that `give` never exceeds `maxIdle`
+  private val idle = new ConcurrentHashMap[Seq[String], ArrayDeque[ProcessInterpreter]]
 
-  private def processes(key: Seq[String]): ConcurrentLinkedDeque[ProcessInterpreter] =
-    idle.computeIfAbsent(key, _ => new ConcurrentLinkedDeque[ProcessInterpreter])
+  private def processes(key: Seq[String]): ArrayDeque[ProcessInterpreter] =
+    idle.computeIfAbsent(key, _ => new ArrayDeque[ProcessInterpreter])
 
   /** An idle process started with the command line `key`, which the caller now owns. */
-  def take(key: Seq[String]): Option[ProcessInterpreter] = Option(processes(key).pollFirst())
+  def take(key: Seq[String]): Option[ProcessInterpreter] = {
+    val queue = processes(key)
+    Option(queue.synchronized(queue.pollFirst()))
+  }
 
   /** Leaves the idle process `interpreter`, started with the command line `key` and reset by the
     * caller, for another solver. */
   def give(key: Seq[String], interpreter: ProcessInterpreter): Unit = {
     val queue = processes(key)
-    if (queue.size < maxIdle) queue.addFirst(interpreter)
-    else interpreter.free()
+    val kept = queue.synchronized {
+      queue.size < maxIdle && { queue.addFirst(interpreter); true }
+    }
+    // freed outside of the lock, so that the other solvers don't wait for it
+    if (!kept) interpreter.free()
   }
 }
