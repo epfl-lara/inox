@@ -150,8 +150,8 @@ class Printer private(override val program: InoxProgram,
   /** Declares the function `sym` of the uninterpreted call `uc`, with the type parameters
     * `tparams`, the parameters `params` and the result type `to`.
     *
-    * TIP has no dependent types, so the refinements of the parameters and the result are
-    * erased from the declaration, and the refinement of the result is asserted. */
+    * TIP has no dependent types, so the refinements of the parameters and the result are erased,
+    * as for the other refined types (see `sortOf`). */
   protected def declareUninterpreted(uc: UninterpretedCall, sym: SSymbol, tparams: Seq[TypeParameter],
                                      params: Seq[ValDef], to: Type): Unit = {
     val (svs, bindings) = binders(params)(using Map.empty)
@@ -159,22 +159,6 @@ class Printer private(override val program: InoxProgram,
     val tps = tparams.map(tp => id2sym(tp.id))
     emit(if (tps.isEmpty) DeclareFun(sym, svs.map(_.sort), returnSort)
       else DeclareFunPar(tps, sym, svs.map(_.sort), returnSort))
-
-    to match {
-      case RefinementType(vd, pred) =>
-        val call = UninterpretedCall(uc.id, uc.tps, params.map(_.toVariable), uc.tpe)
-        val prop = Let(vd, call, pred)
-        val assumptions = params.map(p => p.tpe match {
-          case RefinementType(rvd, rpred) => exprOps.replaceFromSymbols(Map(rvd -> p.toVariable), rpred)
-          case _ => BooleanLiteral(true)
-        })
-        val body = toSMT(
-          if (params.isEmpty) prop
-          else Forall(params.map(p => p.copy(tpe = p.getType)), implies(andJoin(assumptions), prop))
-        )(using Map.empty)
-        emit(if (tps.isEmpty) Assert(body) else AssertPar(tps, body))
-      case _ =>
-    }
   }
 
   protected def liftADTType(adt: ADTType): Type = ADTType(adt.id, adt.getSort.definition.typeArgs)
