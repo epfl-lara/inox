@@ -588,6 +588,13 @@ abstract class AbstractUnrollingSolver private
           andJoin(elems.map(p => and(rec(p._1, base), rec(p._2, IntegerType()))))
         case (FiniteMap(elems, dflt, _, _), MapType(from, to)) =>
           andJoin(elems.map(p => and(rec(p._1, from), rec(p._2, to))) :+ rec(dflt, to))
+        // The models of functions may build the collections that they return by updates
+        case (SetAdd(set, elem), SetType(base)) =>
+          and(rec(set, tpe), rec(elem, base))
+        case (BagAdd(bag, elem), BagType(base)) =>
+          and(rec(bag, tpe), rec(elem, base))
+        case (MapUpdated(map, key, value), MapType(from, to)) =>
+          andJoin(Seq(rec(map, tpe), rec(key, from), rec(value, to)))
         case (Lambda(params, body), FunctionType(from, to)) =>
           val nparams = (params zip from).map { case (vd, tpe) => vd.copy(tpe = tpe) }
           forall(nparams, rec(
