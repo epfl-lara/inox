@@ -455,17 +455,36 @@ abstract class AbstractUnrollingSolver private
         (cs ++ freeCs).flatMap { case ((id, tps), e) => choosesOf(e, tps) }
 
       val modelChooses = (cs ++ freeCs ++ modelCs ++ uninterpretedVs).map { case (k, e) => k -> restore(e) }
-      val (inlinedVs, inlinedCs) = inlineUnambiguousClosures(vs, modelChooses)
+
+      // The lambdas of the program that the model unblocks, with the values that they capture, or
+      // only their types when these values can't be extracted
+      val active: Seq[Either[FunctionType, Lambda]] = templates.getLambdaTemplates
+        .filter(tmpl => modelEval(tmpl.start, t.BooleanType()) == Some(t.BooleanLiteral(true)))
+        .map { tmpl =>
+          val lambda = decode(tmpl.structure.body).asInstanceOf[Lambda]
+          try {
+            val locals = tmpl.structure.locals.map { case (v, ev) => decode(v) -> extract(ev, decode(v).getType) }
+            Right(restore(exprOps.replaceFromSymbols(locals.toMap, lambda)).asInstanceOf[Lambda])
+          } catch {
+            case _: NoSimpleValue | _: Unsupported => Left(lambda.getType.asInstanceOf[FunctionType])
+          }
+        }
+
+      val (inlinedVs, inlinedCs) = inlineUnambiguousClosures(vs, modelChooses, active)
       inox.Model(program)(inlinedVs, inlinedCs)
     }
   }
 
   /** Inlines the closures of a model (see `uniquateClosure`) whose functions no other function of the
-    * model matches, as they need no uninterpreted function to stay distinct. The functions that the
-    * remaining closures call stay in the model. */
+    * model matches, as they need no uninterpreted function to stay distinct. The functions of the
+    * model include the `active` lambdas of the program, which are those that evaluating the
+    * constraints in the model can reach, or their types when their captured values are unknown.
+    * The functions that the remaining closures call stay in the
+    * model. */
   private def inlineUnambiguousClosures(
     vs: Map[ValDef, Expr],
-    chooses: Map[(Identifier, Seq[Type]), Expr]
+    chooses: Map[(Identifier, Seq[Type]), Expr],
+    active: Seq[Either[FunctionType, Lambda]]
   ): (Map[ValDef, Expr], Map[(Identifier, Seq[Type]), Expr]) = {
     object Closure {
       def unapply(e: Expr): Option[(Identifier, Lambda)] = e match {
@@ -500,9 +519,12 @@ abstract class AbstractUnrollingSolver private
     })
 
     // The functions of a closure are only inlined when no other function of the model has their
-    // structure, including the functions of the other closures
-    val counts = (closures.values.toSeq ++ others).groupBy(l => (l.getType, normal(l))).view.mapValues(_.size).toMap
-    val inlined = closures.filter { case (_, f) => counts((f.getType, normal(f))) == 1 }
+    // structure, including the functions of the other closures and the lambdas that the model
+    // unblocks. The active lambdas whose captured values are unknown may have any structure.
+    val counts = (closures.values.toSeq ++ others ++ active.flatMap(_.toOption))
+      .groupBy(l => (l.getType, normal(l))).view.mapValues(_.size).toMap
+    val opaque = active.flatMap(_.left.toOption).toSet[Type]
+    val inlined = closures.filter { case (_, f) => counts((f.getType, normal(f))) == 1 && !opaque(f.getType) }
 
     if (inlined.isEmpty) (vs, chooses) else {
       // The inlined functions may themselves contain closures, which are inlined in turn
