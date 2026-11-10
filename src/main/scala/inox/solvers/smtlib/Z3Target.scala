@@ -45,12 +45,13 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
     val opts = interpreterOpts
     ProcessPool.take(processKey).getOrElse {
       reporter.debug("Invoking solver "+targetName+" with "+opts.mkString(" "))
-      new Z3Interpreter(targetName, opts.toArray, parserCtor = out => new Z3Parser(new Lexer(out)))
+      new PipelinedZ3Interpreter(targetName, opts.toArray, out => new Z3Parser(new Lexer(out)))
     }
   }
 
   override protected def recycle(): Boolean = interpreter match {
-    // the interpreter is used directly, as the reset isn't part of the solver's session
+    // the interpreter is used directly, as the reset isn't part of the solver's session (it also
+    // reads the answers of the commands that were sent last, see [[PipelinedZ3Interpreter]])
     case z3: Z3Interpreter => z3.eval(Reset()) match {
       case Success =>
         ProcessPool.give(processKey, z3)
