@@ -28,6 +28,7 @@ trait SolvingEvaluator extends Evaluator { self =>
   lazy val checkModels = options.findOptionOrDefault(optCheckModels)
 
   private val chooseCache: MutableMap[Choose, Expr] = MutableMap.empty
+  private val uninterpretedCache: MutableMap[UninterpretedCall, Expr] = MutableMap.empty
 
   // @nv: this has to be visible otherwise the compiler just sets it to `null`
   protected lazy val forallCache: MutableMap[Forall, Boolean] = {
@@ -82,10 +83,31 @@ trait SolvingEvaluator extends Evaluator { self =>
     if (!evalQuantifiers) {
       throw new RuntimeException(s"Evaluation of 'choose' expressions disabled @ ${choose.getPos}: $choose")
     }
+    solveFor(choose.res, choose.pred, choose, chooseCache, modelChooses)
+  }
+
+  /** Evaluates a call of an uninterpreted function that the model doesn't interpret to some value of
+    * its result type, which may be refined by a predicate over the arguments. The value is solved
+    * for once per call, so that the function stays a function. */
+  def onUninterpretedInvocation(call: UninterpretedCall, modelChooses: Map[(Identifier, Seq[Type]), Expr] = Map.empty): Expr = {
+    if (!evalQuantifiers) {
+      throw new RuntimeException(s"Evaluation of uninterpreted calls disabled @ ${call.getPos}: ${call.asString}")
+    }
+    val (res, pred) = call.getTpe(stripRefinements = false) match {
+      case RefinementType(vd, pred) => (vd, pred)
+      case tpe => (ValDef.fresh("res", tpe), BooleanLiteral(true))
+    }
+    solveFor(res, pred, call, uninterpretedCache, modelChooses)
+  }
+
+  /** Solves for a value of `res` that satisfies `pred`, caching it by `key` outside of models. */
+  private def solveFor[K <: Expr](res: ValDef, pred: Expr, key: K, cache: MutableMap[K, Expr],
+                                  modelChooses: Map[(Identifier, Seq[Type]), Expr]): Expr = {
+    val choose = Choose(res, pred)
     val chooses = reachedChooses(choose, modelChooses)
 
     // The results in a model only hold in that model
-    (if (chooses.isEmpty) chooseCache.get(choose) else None).getOrElse({
+    (if (chooses.isEmpty) cache.get(key) else None).getOrElse({
       import scala.language.existentials
       import SolverResponses._
 
@@ -131,7 +153,7 @@ trait SolvingEvaluator extends Evaluator { self =>
         }
       }
 
-      if (chooses.isEmpty) chooseCache(choose) = res
+      if (chooses.isEmpty) cache(key) = res
       res
     })
   }
