@@ -26,9 +26,8 @@ trait SolvingEvaluator extends Evaluator { self =>
 
   lazy val evalQuantifiers = options.findOptionOrDefault(optEvalQuantifiers)
   lazy val checkModels = options.findOptionOrDefault(optCheckModels)
-  lazy val solveUninterpretedCalls = options.findOptionOrDefault(optSolveUninterpretedCalls)
 
-  private val uninterpretedCache: MutableMap[UninterpretedCall, Expr] = MutableMap.empty
+  private val choiceCache: MutableMap[Lambda, Expr] = MutableMap.empty
 
   // @nv: this has to be visible otherwise the compiler just sets it to `null`
   protected lazy val forallCache: MutableMap[Forall, Boolean] = {
@@ -79,28 +78,21 @@ trait SolvingEvaluator extends Evaluator { self =>
       chooses.filter { case ((id, _), _) => uninterpreted(id) }
     }
 
-  /** Evaluates a call of an uninterpreted function that the model doesn't interpret to some value of
-    * its result type, which may be refined by a predicate over the arguments. The value is solved
-    * for once per call, so that the function stays a function. */
-  def onUninterpretedInvocation(call: UninterpretedCall, modelChooses: Map[(Identifier, Seq[Type]), Expr] = Map.empty): Expr = {
-    if (!evalQuantifiers || !solveUninterpretedCalls) {
-      throw new RuntimeException(s"Cannot call uninterpreted function ${call.id.asString} that the model doesn't define")
+  /** Solves for a value of `res` that satisfies `pred`, whose free variables are bound to values.
+    * The evaluators don't solve for the uninterpreted calls, which the model must interpret, but
+    * languages that have their own choices (such as Stainless's `choose`) solve for them with this.
+    * The values are cached outside of models, so that a choice always has the same value. */
+  def solveFor(res: ValDef, pred: Expr, modelChooses: Map[(Identifier, Seq[Type]), Expr] = Map.empty): Expr = {
+    if (!evalQuantifiers) {
+      throw new RuntimeException(s"Evaluation of choices disabled @ ${pred.getPos}")
     }
-    val (res, pred) = call.getTpe(stripRefinements = false) match {
-      case RefinementType(vd, pred) => (vd, pred)
-      case tpe => (ValDef.fresh("res", tpe), BooleanLiteral(true))
-    }
-    solveFor(res, pred, call, uninterpretedCache, modelChooses)
-  }
+    val key = Lambda(Seq(res), pred)
 
-  /** Solves for a value of `res` that satisfies `pred`, caching it by `key` outside of models. */
-  private def solveFor[K <: Expr](res: ValDef, pred: Expr, key: K, cache: MutableMap[K, Expr],
-                                  modelChooses: Map[(Identifier, Seq[Type]), Expr]): Expr = {
     // The predicate and the type of the result may call uninterpreted functions
     val chooses = reachedChooses(Forall(Seq(res), pred), modelChooses)
 
     // The results in a model only hold in that model
-    (if (chooses.isEmpty) cache.get(key) else None).getOrElse({
+    (if (chooses.isEmpty) choiceCache.get(key) else None).getOrElse({
       import scala.language.existentials
       import SolverResponses._
 
@@ -146,7 +138,7 @@ trait SolvingEvaluator extends Evaluator { self =>
         }
       }
 
-      if (chooses.isEmpty) cache(key) = value
+      if (chooses.isEmpty) choiceCache(key) = value
       value
     })
   }

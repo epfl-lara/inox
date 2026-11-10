@@ -238,16 +238,9 @@ class UninterpretedCallSuite extends UnrollingTestSuite {
     }
   }
 
-  test("evaluating an uninterpreted call outside the model solves for its result") { ctx ?=>
-    assert(program.getEvaluator.eval(incAny(IntegerLiteral(0))).result.isDefined)
-    program.getEvaluator.eval(greater(IntegerLiteral(3))).result match {
-      case Some(IntegerLiteral(n)) => assert(n > 3)
-      case res => fail(s"Expected an integer but got $res")
-    }
-    // Unless the evaluator only evaluates in the model
-    val res = program.getSemantics.getEvaluator(using ctx.withOpts(evaluators.optSolveUninterpretedCalls(false)))
-      .eval(incAny(IntegerLiteral(0)))
-    assert(res.result.isEmpty, res)
+  test("evaluating an uninterpreted call outside the model is an error") { ctx ?=>
+    assert(program.getEvaluator.eval(incAny(IntegerLiteral(0))).result.isEmpty)
+    assert(program.getEvaluator.eval(greater(IntegerLiteral(3))).result.isEmpty)
   }
 
   test("quantifiers hold in the model of the uninterpreted functions they call") { ctx ?=>

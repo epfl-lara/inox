@@ -481,7 +481,7 @@ abstract class AbstractUnrollingSolver private
   // Model values are compared as the solver sees them: functions are equal iff they are the same
   // function value, which the encoding makes structural (see [[optFunctionEquality]]).
   protected lazy val modelEvalContext: Context = context.copy(interruptManager = evaluatorInterrupts).withOpts(
-    optIgnoreContracts(true), optSolveUninterpretedCalls(false), optFunctionEquality(FunctionEquality.Intensional))
+    optIgnoreContracts(true), optFunctionEquality(FunctionEquality.Intensional))
 
   protected lazy val modelEvaluator: DeterministicEvaluator { val program: self.targetProgram.type } =
     targetSemantics.getEvaluator(using modelEvalContext)
@@ -563,7 +563,7 @@ abstract class AbstractUnrollingSolver private
     // arguments of these calls are given by the model
     val modelVars = model.vars.keySet.map(_.toVariable)
     val callTypings = (assumptions ++ constraints).flatMap(exprOps.collect[UninterpretedCall] {
-      // The calls that the model doesn't interpret are solved for by the evaluator
+      // The calls that the model doesn't interpret can't be evaluated, so validation fails on them
       case uc: UninterpretedCall if exprOps.variablesOf(uc).subsetOf(modelVars) &&
         model.chooses.contains(uc.id -> uc.tps) => Set(uc)
       case _ => Set.empty
