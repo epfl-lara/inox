@@ -17,6 +17,9 @@
 (declare-const k Int)
 (declare-const x Int)
 
+; models evaluate build(n) and elems(n) (e.g. when feeling lucky), which takes as many steps as n
+(assert (<= n 10))
+
 ; map read of a call
 (push 1)
 (assert (not (> (select (build n) k) 0)))

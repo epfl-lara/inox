@@ -30,14 +30,15 @@ trait TypeTemplates { self: Templates =>
 
   /** Determines whether a given type should be unrolled, depending on the kind of type unrolling,
     * namely free variable type unrolling (dependent types and ADT invariants), contract
-    * type unrolling (dependent types), and capture unrolling (function closure ordering). */
+    * type unrolling (dependent types), read unrolling (dependent types and ADT invariants, but not
+    * what only free values need, see [[Collection]]) and capture unrolling (function closure ordering). */
   protected sealed abstract class TypeUnrolling {
     private val unrollCache: MutableMap[TypedADTSort, Boolean] = MutableMap.empty
 
     def unroll(tpe: Type): Boolean = tpe match {
       case adt: ADTType =>
         val sort = adt.getSort
-        (this == FreeUnrolling && sort.invariant.nonEmpty) ||
+        ((this == FreeUnrolling || this == ReadUnrolling) && sort.invariant.nonEmpty) ||
         (unrollCache.get(sort) match {
           case Some(b) => b
           case None =>
@@ -47,9 +48,9 @@ trait TypeTemplates { self: Templates =>
             res
         })
 
-      case (_: BagType | _: SetType) if this != ContractUnrolling => true
-      case FunctionType(_, to) => this != ContractUnrolling || unroll(to)
-      case PiType(_, to) => this != ContractUnrolling || unroll(to)
+      case (_: BagType | _: SetType) if this == FreeUnrolling || this == CaptureUnrolling => true
+      case FunctionType(_, to) => this == FreeUnrolling || this == CaptureUnrolling || unroll(to)
+      case PiType(_, to) => this == FreeUnrolling || this == CaptureUnrolling || unroll(to)
       case RefinementType(vd, _) => this != CaptureUnrolling || unroll(vd.tpe)
       case SigmaType(params, to) => params.exists(vd => unroll(vd.tpe)) || unroll(to)
       case tp: TypeParameter => this == FreeUnrolling
@@ -60,6 +61,7 @@ trait TypeTemplates { self: Templates =>
   protected case object FreeUnrolling extends TypeUnrolling
   protected case object ContractUnrolling extends TypeUnrolling
   protected case object CaptureUnrolling extends TypeUnrolling
+  protected case object ReadUnrolling extends TypeUnrolling
 
 
   protected sealed abstract class TypingGenerator(unrolling: TypeUnrolling) {
