@@ -21,7 +21,7 @@ trait CVC4Target extends CVCTarget {
   override protected val interpreter: ProcessInterpreter = {
     val opts = interpreterOpts
     reporter.debug("Invoking solver with "+opts.mkString(" "))
-    new CVC4Interpreter("cvc4", opts.toArray)
+    new PipelinedCVC4Interpreter("cvc4", opts.toArray)
   }
 
   // CVC5 emits a warning when no (set-logic X) command is passed

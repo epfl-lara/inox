@@ -85,14 +85,14 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   def emit(cmd: SExpr, rawOut: Boolean = false): SExpr = interpreter match {
     // the command's answer is read with that of the next command that isn't sent this way, and
     // an error is reported there
-    case pipelined: PipelinedZ3Interpreter if !rawOut && pipelined.pipelines(cmd) =>
+    case pipelined: PipelinedInterpreter if !rawOut && pipelined.pipelines(cmd) =>
       pipelined.send(cmd)
       Success
 
     case _ =>
       val res = interpreter.eval(cmd)
       val pendingError = interpreter match {
-        case pipelined: PipelinedZ3Interpreter => pipelined.pendingError()
+        case pipelined: PipelinedInterpreter => pipelined.pendingError()
         case _ => None
       }
       (pendingError, res) match {
