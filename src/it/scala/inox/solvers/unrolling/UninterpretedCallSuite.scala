@@ -267,6 +267,31 @@ class UninterpretedCallSuite extends UnrollingTestSuite {
     assert(evaluator.eval(bound, greaterIs(4)).result == Some(BooleanLiteral(false)))
   }
 
+  test("quantifiers hold in recursive models of uninterpreted functions") { ctx ?=>
+    // `idU(n) = if (n <= 0) 0 else idU(n - 1) + 1`, which only unfolding the interpretation as
+    // often as the quantifier needs establishes
+    val n = ValDef.fresh("n", IntegerType())
+    def call(arg: Expr) = UninterpretedCall(idU, Seq(), Seq(arg), anyT)
+    val recursive = inox.Model(program)(Map.empty, Map((idU, Seq()) -> Lambda(Seq(n),
+      if_ (n.toVariable <= E(BigInt(0))) { E(BigInt(0)) } else_ { call(n.toVariable - E(BigInt(1))) + E(BigInt(1)) })))
+    val x = ValDef.fresh("x", IntegerType())
+    val evaluator = program.getEvaluator
+    def bounded(body: Expr) = Forall(Seq(x), (E(BigInt(0)) <= x.toVariable && x.toVariable <= E(BigInt(3))) ==> body)
+    assert(evaluator.eval(bounded(any(x.toVariable) === x.toVariable), recursive).result == Some(BooleanLiteral(true)))
+    assert(evaluator.eval(bounded(any(x.toVariable) === E(BigInt(2))), recursive).result == Some(BooleanLiteral(false)))
+    // Through other functions too
+    assert(evaluator.eval(bounded(incAny(x.toVariable) === x.toVariable + E(BigInt(1))), recursive).result == Some(BooleanLiteral(true)))
+
+    // The solvers that operate under the model unfold the interpretation as a function
+    val y = Variable.fresh("y", IntegerType())
+    val solver = SolverFactory.getFromName("smt-z3", force = true)(program, ctx, Some(recursive))(
+      transformers.ProgramEncoder.empty(program))(using program.getSemantics).getNewSolver()
+    try {
+      solver.assertCnstr(E(BigInt(0)) <= y && y <= E(BigInt(5)) && Not(any(y) === y))
+      assert(solver.check(Simple).isUNSAT)
+    } finally solver.free()
+  }
+
   test("closures that make distinct uninterpreted calls are distinct") { ctx ?=>
     val f1 = FreshIdentifier("f1")
     val f2 = FreshIdentifier("f2")

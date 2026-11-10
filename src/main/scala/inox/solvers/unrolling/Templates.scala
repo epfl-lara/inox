@@ -231,8 +231,27 @@ trait Templates
     }
   }
 
+  /** The function that a call unfolds: a function of the program, or an uninterpreted function
+    * that the model which the solver operates under interprets (see [[interpretation]]). */
+  sealed abstract class Callee {
+    def signature: String
+    def getType: Type
+  }
+
+  case class Defined(tfd: TypedFunDef) extends Callee {
+    def signature: String = tfd.signature
+    def getType: Type = tfd.getType
+  }
+
+  /** The uninterpreted function `id` at `tps`, whose calls are the applications of the free
+    * function `f`. */
+  case class Interpreted(id: Identifier, tps: Seq[Type], f: Variable) extends Callee {
+    def signature: String = id.asString + tps.map(_.asString).mkString("[", ", ", "]")
+    def getType: Type = f.getType.asInstanceOf[FunctionType].to
+  }
+
   /** Represents a named function call in the unfolding procedure */
-  case class Call(tfd: TypedFunDef, args: Seq[Arg], tpSubst: Seq[Arg]) {
+  case class Call(callee: Callee, args: Seq[Arg], tpSubst: Seq[Arg]) {
     override def toString: String = {
       def pArgs(args: Seq[Arg]): String = args.map {
         case Right(m) => m.toString
@@ -246,7 +265,7 @@ trait Templates
         case _ => pArgs(args)
       }
 
-      tfd.signature + rec(tfd.getType, args) + pArgs(tpSubst)
+      callee.signature + rec(callee.getType, args) + pArgs(tpSubst)
     }
 
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): Call = copy(
@@ -580,7 +599,7 @@ trait Templates
     def extractCalls(
       expr: Expr,
       substMap: Map[Variable, Encoded] = Map.empty[Variable, Encoded],
-      optCall: Option[(TypedFunDef, Seq[Arg])] = None,
+      optCall: Option[(Callee, Seq[Arg])] = None,
       optApp: Option[App] = None
     ): (Set[Call], Set[App], Set[Matcher], Set[Read], Pointers) = {
       val encoder : Expr => Encoded = mkEncoder(substMap)
@@ -618,14 +637,19 @@ trait Templates
         case None => Left(encoder(arg))
       }
 
-      val calls = exprOps.collect[FunctionInvocation] {
-        case fi: FunctionInvocation => Set(fi)
+      val calls = exprOps.collect[Call] {
+        case FunctionInvocation(id, tps, args) =>
+          val tpVars = tps.flatMap(variableSeq).distinct
+          Set(Call(Defined(getFunction(id, tps)), args.map(encodeArg), tpVars.map(encodeArg)))
+        // The applications of the free functions of interpreted uninterpreted functions unfold their
+        // interpretations
+        case Application(f: Variable, args) => interpretedFunctions.get(f) match {
+          case Some(callee) => Set(Call(callee, args.map(encodeArg), Seq.empty))
+          case None => Set.empty
+        }
         case _ => Set.empty
-      } (expr).map { case FunctionInvocation(id, tps, args) =>
-        val tpVars = tps.flatMap(variableSeq).distinct
-        Call(getFunction(id, tps), args.map(encodeArg), tpVars.map(encodeArg))
-      }.filter { case Call(tfd, args, _) =>
-        !optCall.exists(p => p._1 == tfd && p._2 == args)
+      } (expr).filter { case Call(callee, args, _) =>
+        !optCall.exists(p => p._1 == callee && p._2 == args)
       }
 
       val apps = exprOps.collect[Application] {
@@ -642,7 +666,7 @@ trait Templates
       val matchers = exprToMatcher.values.toSet
         .filter(i => Some(i.encoded) != optApp.map(_.encoded))
         .filter {
-          case Matcher(Right(tfd), args, _) => !optCall.exists(p => p._1 == tfd && p._2 == args)
+          case Matcher(Right(tfd), args, _) => !optCall.exists(p => p._1 == Defined(tfd) && p._2 == args)
           case _ => true
         }
 
@@ -684,7 +708,7 @@ trait Templates
       arguments: Seq[(Variable, Encoded)],
       tmplClauses: TemplateClauses,
       substMap: Map[Variable, Encoded] = Map.empty[Variable, Encoded],
-      optCall: Option[TypedFunDef] = None,
+      optCall: Option[Callee] = None,
       optApp: Option[(Encoded, FunctionType)] = None
     ): (Clauses, Calls, Apps, Matchers, Reads, Pointers, () => String) = {
       val (condVars, exprVars, _, guardedExprs, eqs, _, equalities, lambdas, quants) = tmplClauses
@@ -695,7 +719,7 @@ trait Templates
         typesManager.tpSubst ++ uninterpretedSubst
       val encoder: Expr => Encoded = mkEncoder(idToTrId)
 
-      val optIdCall = optCall.map { tfd => (tfd, arguments.map(p => Left(p._2))) }
+      val optIdCall = optCall.map { callee => (callee, arguments.map(p => Left(p._2))) }
       val optIdApp = optApp.map { case (idT, tpe) =>
         App(idT, tpe, arguments.map(p => Left(p._2)), mkApp(idT, tpe, arguments.map(_._2)))
       }
@@ -776,7 +800,7 @@ trait Templates
       arguments: Seq[(Variable, Encoded)],
       tmplClauses: TemplateClauses,
       substMap: Map[Variable, Encoded] = Map.empty,
-      optCall: Option[TypedFunDef] = None,
+      optCall: Option[Callee] = None,
       optApp: Option[(Encoded, FunctionType)] = None
     ): (TemplateContents, () => String) = {
 
