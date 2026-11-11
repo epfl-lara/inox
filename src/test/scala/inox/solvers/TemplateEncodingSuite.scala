@@ -52,7 +52,8 @@ class TemplateEncodingSuite extends SolverTestSuite with DatastructureUtils {
   val greaterID = FreshIdentifier("greater")
   val greater = mkFunDef(greaterID)() { _ => (
     Seq("x" :: IntegerType()), IntegerType(), { case Seq(x) =>
-      choose("v" :: IntegerType())(v => v > x)
+      val v = "v" :: IntegerType()
+      exprOps.uninterpretedCall("above", Seq(), Seq(x.asInstanceOf[Variable].toVal), RefinementType(v, v.toVariable > x))
     })
   }
 
@@ -125,7 +126,7 @@ class TemplateEncodingSuite extends SolverTestSuite with DatastructureUtils {
     assert(s.solveVALID(Equals(f, succ) ==> Equals(f(int(1)), int(1))) contains false)
   }
 
-  test("Choice in function", Integers) { ctx =>
+  test("Refined uninterpreted call in function", Integers) { ctx =>
     val s = solver(ctx)
     val x = Variable.fresh("x", IntegerType())
     assert(s.solveVALID(greater(x) > x) contains true)
@@ -243,13 +244,13 @@ class TemplateEncodingSuite extends SolverTestSuite with DatastructureUtils {
     assert(s.solveVALID(Implies(hyp, Equals(Application(g, Seq(cons(2, cons(3, nil)))), IntegerLiteral(1)))) contains true, "valid")
   }
 
-  test("Choice inside quantifier", Integers, Quantifiers) { ctx =>
-    // The choice depends on the quantified variable
+  test("Refined uninterpreted call inside quantifier", Integers, Quantifiers) { ctx =>
+    // The call depends on the quantified variable
     val x = Variable.fresh("x", IntegerType())
     val y = ValDef.fresh("y", IntegerType())
     val succ = Plus(x, IntegerLiteral(1))
     val fd = new FunDef(FreshIdentifier("chooseInForall"), Seq(), Seq(), BooleanType(),
-      Forall(Seq(x.toVal), Equals(exprOps.choose(y, Equals(y.toVariable, succ), Seq(x)), succ)), Seq())
+      Forall(Seq(x.toVal), Equals(exprOps.uninterpretedCall("succ", Seq(), Seq(x.toVal), RefinementType(y, Equals(y.toVariable, succ))), succ)), Seq())
 
     val p = InoxProgram(NoSymbols.withFunctions(Seq(fd)))
     val s = SimpleSolverAPI(p.getSolver(withoutModelChecks(ctx)))

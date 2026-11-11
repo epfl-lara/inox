@@ -551,7 +551,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
                     simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
                   } catch {
                     case _: NoSimpleValue =>
-                      Lambda(params, exprOps.choose(ValDef.fresh("res", ft.to), BooleanLiteral(true), params.map(_.toVariable)))
+                      Lambda(params, exprOps.freshUninterpretedCall("default", params, ft.to))
                   }))
                   val id = closureIds.getOrElseUpdate(n -> ft, FreshIdentifier("f", true))
                   val res = uniquateClosure(id, lambda)

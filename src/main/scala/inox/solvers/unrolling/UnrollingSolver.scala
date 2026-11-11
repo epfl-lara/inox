@@ -764,7 +764,7 @@ abstract class AbstractUnrollingSolver private
         val domain = andJoin((params zip paramTypes).collect {
           case (vd, tpe) if isFirstOrder(tpe) => refinementsOf(vd.toVariable, tpe)
         })
-        exprOps.choose(ValDef.fresh("res", guardedType(domain, to), true), BooleanLiteral(true), params.map(_.toVariable))
+        exprOps.freshUninterpretedCall("default", params, guardedType(domain, to))
       }
 
     def extractFunction(f: Encoded, fullType: Type, seen: Map[FunctionType, Set[Encoded]]): Expr = {

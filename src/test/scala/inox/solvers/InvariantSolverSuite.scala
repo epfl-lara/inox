@@ -178,10 +178,12 @@ class InvariantSolverSuite extends AnyFunSuite {
     assertInvalid(ctx, let("f" :: FunctionType(Seq(IntegerType()), IntegerType()), inc)(f => f(x) === f(y)))
   }
 
-  knownIssue("Chooses", "chooses aren't implemented") { ctx =>
+  knownIssue("Refined uninterpreted calls", "uninterpreted calls aren't implemented") { ctx =>
     val x = Variable.fresh("x", IntegerType())
-    assertValid(ctx, choose("r" :: IntegerType())(r => r > x) > x)
-    assertInvalid(ctx, choose("r" :: IntegerType())(r => r > x) === x + E(BigInt(1)))
+    val r = "r" :: IntegerType()
+    val above = exprOps.uninterpretedCall("above", Seq(), Seq(x.toVal), RefinementType(r, r.toVariable > x))
+    assertValid(ctx, above > x)
+    assertInvalid(ctx, above === x + E(BigInt(1)))
   }
 
   test("Incremental constraints") { ctx =>

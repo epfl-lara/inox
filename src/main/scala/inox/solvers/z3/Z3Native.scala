@@ -619,7 +619,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                     simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
                   } catch {
                     case _: NoSimpleValue =>
-                      Lambda(args, exprOps.choose(ValDef.fresh("res", tt), BooleanLiteral(true), args.map(_.toVariable)))
+                      Lambda(args, exprOps.freshUninterpretedCall("default", args, tt))
                   }))
 
                 val id = closureIds.getOrElseUpdate(n -> ft, FreshIdentifier("f", true))

@@ -66,58 +66,23 @@ class ExprOps private(val trees: Trees)
       }
   }
 
-  /** A choice of a value of `res` that satisfies `pred`: the call of the uninterpreted function
-    * `res.id`, at the type parameters of the choice and over the variables in its `scope` and its
-    * free variables, whose result is refined by `pred`. The same choice at the same values of these
-    * variables gives the same value, and a path where no value satisfies `pred` is infeasible.
-    *
-    * The scope of a choice are the variables bound where it occurs, such as the parameters of the
-    * function whose body it is in, so that it may give different values for different values of
-    * these variables even when `pred` doesn't refer to them.
-    */
-  def choose(res: ValDef, pred: Expr, scope: Seq[Variable] = Seq.empty): UninterpretedCall = {
-    val result = RefinementType(res, pred)
+  /** The call of a fresh uninterpreted function named `name` at `tps`, over `params`, whose
+    * result is in `returnType`, which may refer to the parameters. */
+  def uninterpretedCall(name: String, tps: Seq[Type], params: Seq[ValDef], returnType: Type): UninterpretedCall =
+    UninterpretedCall(FreshIdentifier(name), tps, params.map(_.toVariable),
+      if (params.isEmpty) FunctionType(Seq.empty, returnType) else PiType(params, returnType))
 
-    // The free variables of the choice, with those that their types refer to
-    def close(vs: Set[Variable]): Set[Variable] = {
-      val next = vs ++ vs.flatMap(v => typeOps.variablesOf(v.tpe))
-      if (next == vs) vs else close(next)
-    }
-
-    // A variable comes after the variables that its type refers to
-    def order(todo: Seq[Variable], done: Seq[Variable]): Seq[Variable] = {
-      val (ready, rest) = todo.partition(v => (typeOps.variablesOf(v.tpe) -- done - v).isEmpty)
-      if (ready.isEmpty) done ++ rest else order(rest, done ++ ready)
-    }
-
-    val args = order(close(typeOps.variablesOf(result) ++ scope).toSeq.sortBy(_.id.globalId), Seq.empty)
-    val tpe = if (args.isEmpty) FunctionType(Seq.empty, result) else PiType(args.map(_.toVal), result)
-    val tps = typeOps.typeParamsOf(tpe).toSeq.sortBy(_.id.globalId)
-    UninterpretedCall(res.id, tps, args, tpe).copiedFrom(pred)
-  }
-
-  /** Views an uninterpreted call whose result type is refined as a choice of a value of the result
-    * that satisfies the refinement, at the arguments of the call (see [[choose]]). */
-  object Choice {
-    def unapply(e: Expr): Option[(ValDef, Expr)] = e match {
-      case UninterpretedCall(_, _, args, tpe) => tpe match {
-        case FunctionType(Seq(), RefinementType(vd, pred)) => Some((vd, pred))
-        case PiType(params, to) if params.size == args.size =>
-          typeOps.replaceFromSymbols((params zip args).toMap, to) match {
-            case RefinementType(vd, pred) => Some((vd, pred))
-            case _ => None
-          }
-        case _ => None
-      }
-      case _ => None
-    }
+  /** The call of a fresh uninterpreted function over `params`, at the type parameters that its type
+    * refers to, such as an unknown value of a model. */
+  def freshUninterpretedCall(name: String, params: Seq[ValDef], returnType: Type): UninterpretedCall = {
+    val tps = typeOps.typeParamsOf(FunctionType(params.map(_.tpe), returnType)).toSeq.sortBy(_.id.globalId)
+    uninterpretedCall(name, tps, params, returnType)
   }
 
   /** The body of a function without definition: the call of a fresh uninterpreted function over
     * the parameters of the function, at its type parameters. */
   def uninterpretedBody(name: String, tparams: Seq[TypeParameterDef], params: Seq[ValDef], returnType: Type): UninterpretedCall =
-    UninterpretedCall(FreshIdentifier(name), tparams.map(_.tp), params.map(_.toVariable),
-      if (params.isEmpty) FunctionType(Seq.empty, returnType) else PiType(params, returnType))
+    uninterpretedCall(name, tparams.map(_.tp), params, returnType)
 
   /** Freshens all local variables */
   protected class Freshener extends ConcreteSelfTransformer {

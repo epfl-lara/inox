@@ -155,7 +155,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
       throw new MissformedSMTException(t, "Cannot extract #unspecified symbol when type is unknown")
 
     case (QualifiedIdentifier(SimpleIdentifier(SSymbol("#unspecified")), None), Some(tpe)) =>
-      exprOps.choose(ValDef.fresh("unspecified", tpe), BooleanLiteral(true))
+      exprOps.freshUninterpretedCall("unspecified", Seq.empty, tpe)
 
     case (FunctionApplication(QualifiedIdentifier(SimpleIdentifier(SSymbol("seq.unit")), None), Seq(SHexadecimal(hex))), _) =>
       StringLiteral(utils.StringUtils.decode(hex.repr))

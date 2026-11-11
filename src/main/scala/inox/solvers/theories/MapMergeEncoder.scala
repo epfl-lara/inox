@@ -21,16 +21,17 @@ private class MapMergeTheory[Trees <: ast.Trees](val trees: Trees) {
     val mapTpe = MapType(keyT, valueT)
     (Seq("mask" :: SetType(keyT), "map1" :: mapTpe, "map2" :: mapTpe), mapTpe, {
       case Seq(mask, map1, map2) =>
-        choose("map" :: mapTpe, mask, map1, map2) { map =>
-          forall("x" :: keyT) { x =>
-            MapApply(map, x) ===
-              (if_ (ElementOfSet(x, mask)) {
-                MapApply(map1, x)
-              } else_ {
-                MapApply(map2, x)
-              })
-          }
+        val map = "map" :: mapTpe
+        val merged = forall("x" :: keyT) { x =>
+          MapApply(map.toVariable, x) ===
+            (if_ (ElementOfSet(x, mask)) {
+              MapApply(map1, x)
+            } else_ {
+              MapApply(map2, x)
+            })
         }
+        exprOps.uninterpretedCall("merged", Seq(keyT, valueT), Seq(mask, map1, map2).map(_.asInstanceOf[Variable].toVal),
+          RefinementType(map, merged))
     })
   }
 

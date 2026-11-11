@@ -34,7 +34,10 @@ class CustomEqualitySuite extends SolverTestSuite {
   val pickID = FreshIdentifier("pick")
   val pickFd = mkFunDef(pickID)() { _ => (
     Seq("x" :: BagType(IntegerType())), IntegerType(), {
-      case Seq(x) => choose("r" :: IntegerType())(r => r > MultiplicityInBag(E(BigInt(1)), x))
+      case Seq(x) =>
+        val r = "r" :: IntegerType()
+        exprOps.uninterpretedCall("pick", Seq(), Seq(x.asInstanceOf[Variable].toVal),
+          RefinementType(r, r.toVariable > MultiplicityInBag(E(BigInt(1)), x)))
     })
   }
 

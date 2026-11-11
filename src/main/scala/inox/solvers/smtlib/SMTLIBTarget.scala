@@ -749,7 +749,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
           } catch {
             case _: NoSimpleValue =>
               val args = ft.from.map(tpe => ValDef.fresh("x", tpe, true))
-              Lambda(args, exprOps.choose(ValDef.fresh("res", ft.to), BooleanLiteral(true), args.map(_.toVariable)))
+              Lambda(args, exprOps.freshUninterpretedCall("default", args, ft.to))
           }))
 
         val id = closureIds.getOrElseUpdate(n -> ft, FreshIdentifier("f", true))

@@ -89,7 +89,7 @@ class SolvingEvaluatorSuite extends AnyFunSuite {
   test("a choice depending on another choice is an error when checking models") {
     val res = "res" :: IntegerType()
     val inner = "inner" :: IntegerType()
-    val dependent = Equals(res.toVariable, exprOps.choose(inner, GreaterThan(inner.toVariable, IntegerLiteral(0))))
+    val dependent = Equals(res.toVariable, exprOps.uninterpretedCall("positive", Seq(), Seq(), RefinementType(inner, GreaterThan(inner.toVariable, IntegerLiteral(0)))))
     assert(solve(res, dependent, solvers.optCheckModels(true)).isEmpty)
     assert(choice(res, dependent).isInstanceOf[IntegerLiteral])
   }
