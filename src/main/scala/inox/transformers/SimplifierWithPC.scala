@@ -292,7 +292,7 @@ trait SimplifierWithPC extends Transformer { self =>
       val (rargs, pargs) = args.map(simplify(_, path)).unzip
       (FunctionInvocation(id, tps, rargs).copiedFrom(fi), pargs.foldLeft(isPureFunction(id))(_ && _))
 
-    // As for chooses, a call may only be dropped when its return type has values
+    // A call may only be dropped when its return type has values
     case uc @ UninterpretedCall(id, tps, args, tpe) =>
       val (rargs, pargs) = args.map(simplify(_, path)).unzip
       (UninterpretedCall(id, tps, rargs, tpe).copiedFrom(uc), pargs.foldLeft(hasInstance(uc.getTpe(stripRefinements = false)) == Some(true))(_ && _))

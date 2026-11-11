@@ -180,11 +180,6 @@ trait DSL {
       body(vd1.toVariable, vd2.toVariable, vd3.toVariable, vd4.toVariable))
   }
 
-  // Choose
-  /** A choice of a value of `res` that satisfies `pred`, which depends on the variables of `scope`
-    * (see [[ExprOps.choose]]). */
-  def choose(res: ValDef, scope: Variable*)(pred: Variable => Expr): Expr = exprOps.choose(res, pred(res.toVariable), scope)
-
   // Block-like
   class BlockSuspension(susp: Expr => Expr) {
     def in(e: Expr) = susp(e)

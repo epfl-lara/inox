@@ -413,10 +413,10 @@ trait SymbolOps extends TypeOps { self =>
       // Uninterpreted calls are never lifted, so that closures that call distinct uninterpreted
       // functions remain distinct. Lifting a lambda doesn't evaluate its body, so the calls and
       // errors in it don't prevent lifting (e.g. a lambda of a model, `x => f(x)`).
-      def containsChoice(e: Expr): Boolean = e match {
+      def containsUninterpreted(e: Expr): Boolean = e match {
         case _: UninterpretedCall | _: Error => true
         case _: Lambda => false
-        case Operator(es, _) => es.exists(containsChoice)
+        case Operator(es, _) => es.exists(containsUninterpreted)
       }
 
       def containsRecursive(e: Expr): Boolean =
@@ -427,7 +427,7 @@ trait SymbolOps extends TypeOps { self =>
           // The set of minimal conditions that must be met for an expression to be liftable
           val minimal =
             (isSimple(e) || !onlySimple)           && // check whether we want only simple expression
-            !containsChoice(e)                     && // expressions containing choices or errors can't be lifted
+            !containsUninterpreted(e)              && // expressions containing uninterpreted calls or errors can't be lifted
             (!inFunction || !containsRecursive(e))    // recursive functions can't be lifted from lambdas
 
           // Whether the expression is guaranteed to be called, typically in foralls
@@ -1011,7 +1011,7 @@ trait SymbolOps extends TypeOps { self =>
       if (!sort.definition.isWellFormed) throw NoSimpleValue(adt)
 
       if (seen(adt)) {
-        if (inLambda) exprOps.choose(ValDef.fresh("res", adt), BooleanLiteral(true))
+        if (inLambda) exprOps.freshUninterpretedCall("value", Seq.empty, adt)
         else throw NoSimpleValue(adt)
       } else if (sort.hasInvariant) {
         if (!allowSolver || !ctx.options.findOptionOrDefault(SymbolOps.optSimplestValueSolver)) {
