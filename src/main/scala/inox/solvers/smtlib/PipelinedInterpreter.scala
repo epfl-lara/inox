@@ -21,9 +21,9 @@ import java.io.BufferedReader
   *
   * The solver must answer `success` to these commands (`:print-success`).
   *
-  * At most [[PipelinedInterpreter.MaxPending]] answers are left unread: the solver blocks once
-  * the pipe of its output is full, and stops reading its input, so that writing more commands
-  * would then block too.
+  * The answers that are already available are read before each command is sent: the solver
+  * blocks once the pipe of its output is full, and stops reading its input, so that writing more
+  * commands would then block too.
   */
 trait PipelinedInterpreter extends ProcessInterpreter {
 
@@ -39,33 +39,54 @@ trait PipelinedInterpreter extends ProcessInterpreter {
   /** Writes `cmd`, whose answer is read before the next command that is evaluated. */
   def send(cmd: SExpr): Unit = {
     try {
+      while (pending > 0 && answerReady()) readAnswer()
       printer.printSExpr(cmd, in)
       in.write("\n")
       pending += 1
     } catch {
       // as `eval` does, for instance once the process was killed by an interrupt
-      case e: Exception => if (error.isEmpty) error = Some("Solver encountered exception: " + e)
+      case e: Exception =>
+        pending = 0
+        recordError("Solver encountered exception: " + e)
     }
-    if (pending >= PipelinedInterpreter.MaxPending) flush()
   }
 
   /** Reads the answers of the commands that were sent and not yet answered. */
   def flush(): Unit = if (pending > 0) {
     try {
       in.flush()
-      while (pending > 0) {
-        pending -= 1
-        parser.parseGenResponse match {
-          case SMTError(msg) => if (error.isEmpty) error = Some(msg)
-          case _ =>
-        }
-      }
+      while (pending > 0) readAnswer()
     } catch {
       case e: Exception =>
         pending = 0
-        if (error.isEmpty) error = Some("Solver encountered exception: " + e)
+        recordError("Solver encountered exception: " + e)
     }
   }
+
+  private def readAnswer(): Unit = {
+    pending -= 1
+    parser.parseGenResponse match {
+      case SMTError(msg) => recordError(msg)
+      case _ =>
+    }
+  }
+
+  /** Whether the solver started writing an answer, so that reading it doesn't wait for the solver.
+    *
+    * The line ends that follow the answers that were read are skipped, without waiting either.
+    */
+  private def answerReady(): Boolean = {
+    out.mark(1)
+    var c = if (out.ready()) out.read() else -2
+    while (c == ' ' || c == '\n' || c == '\r' || c == '\t') {
+      out.mark(1)
+      c = if (out.ready()) out.read() else -2
+    }
+    if (c >= 0) out.reset()
+    c != -2
+  }
+
+  private def recordError(msg: String): Unit = if (error.isEmpty) error = Some(msg)
 
   /** The first error answered by a sent command since the last call, if any. */
   def pendingError(): Option[String] = {
@@ -81,11 +102,6 @@ trait PipelinedInterpreter extends ProcessInterpreter {
     if (cmd == Reset()) error = None
     super.eval(cmd)
   }
-}
-
-object PipelinedInterpreter {
-  /** Their `success` answers take 2 KiB, which leaves room for longer error answers in a pipe. */
-  val MaxPending = 256
 }
 
 class PipelinedZ3Interpreter(executable: String, args: Array[String], parserCtor: BufferedReader => Parser)
