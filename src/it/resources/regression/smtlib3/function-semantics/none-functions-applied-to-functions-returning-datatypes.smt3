@@ -1,0 +1,12 @@
+; The functions in the boxes aren't necessarily active, so they may have no distinguishing input
+; (see the limitations in function-witnesses.md): the model may then be rejected rather than
+; reported, but the query is satisfiable
+(set-option :function-equality none)
+(set-info :status sat)
+(set-info :inox-may-be-unknown true)
+(declare-datatype Box ((box (fn (-> Int Int)))))
+(declare-const k (-> (-> Int Box) Int))
+(declare-const g (-> Int Box))
+(declare-const h (-> Int Box))
+(assert (not (= (k g) (k h))))
+(check-sat)

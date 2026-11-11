@@ -24,4 +24,9 @@ trait CVC5Solver extends CVCSolver with CVC5Target {
     val rlimit = options.findOptionOrDefault(optCVC5Rlimit)
     super.interpreterOpts ++ (if (rlimit > 0) Seq(s"--rlimit=$rlimit") else Seq())
   }
+
+  // Under `--strings-bmp`, restrict the string alphabet to the BMP (by default, cvc5 uses all
+  // 0x30000 SMT-LIB characters).
+  override protected def targetOpts: Seq[String] =
+    if (maxStringChar == 0xFFFF) Seq("--strings-alpha-card=65536") else Seq.empty
 }

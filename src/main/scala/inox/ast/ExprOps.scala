@@ -163,8 +163,8 @@ class ExprOps private(val trees: Trees)
     * unrolling solver. See implementation for what this means exactly.
     */
   def isSimple(e: Expr): Boolean = !exists {
-    case (_: Assume) | (_: Forall) | (_: Lambda) | (_: Choose) |
-         (_: FunctionInvocation) | (_: Application) => true
+    case (_: Assume) | (_: Forall) | (_: Lambda) | (_: Choose) | (_: Error) |
+         (_: FunctionInvocation) | (_: UninterpretedCall) | (_: Application) => true
     case _ => false
   } (e)
 
@@ -189,12 +189,13 @@ class ExprOps private(val trees: Trees)
   /** Simple, local optimization on string */
   def simplifyString(expr: Expr): Expr = {
     def simplify0(expr: Expr): Expr = (expr match {
-      case StringConcat(StringLiteral(""), b) => b
-      case StringConcat(b, StringLiteral("")) => b
-      case StringConcat(StringLiteral(a), StringLiteral(b)) => StringLiteral(a + b)
-      case StringLength(StringLiteral(a)) => IntegerLiteral(a.length)
-      case SubString(StringLiteral(a), IntegerLiteral(start), IntegerLiteral(end)) =>
-        StringLiteral(a.substring(start.toInt, end.toInt))
+      case StringConcat(a: StringLiteral, b) if a.value.isEmpty => b
+      case StringConcat(b, a: StringLiteral) if a.value.isEmpty => b
+      case StringConcat(a: StringLiteral, b: StringLiteral) => StringLiteral(a.value ++ b.value)
+      case StringLength(a: StringLiteral) => IntegerLiteral(a.value.length)
+      case SubString(a: StringLiteral, IntegerLiteral(start), IntegerLiteral(end))
+          if 0 <= start && start <= end && end <= a.value.length =>
+        StringLiteral(a.value.slice(start.toInt, end.toInt))
       case _ => expr
     }).copiedFrom(expr)
 
@@ -280,11 +281,10 @@ class ExprOps private(val trees: Trees)
         Some(Times(ctor(i1 * i2), t))
       case Times(exLit(i), UMinus(e)) => Some(Times(ctor(-i), e))
       case Times(UMinus(e), exLit(i)) => Some(Times(e, ctor(-i)))
-      case Times(exLit(i1), Division(e, exLit(i2))) if i2 != BigInt(0) && i1 % i2 == BigInt(0) =>
-        Some(Times(ctor(i1 / i2), e))
 
-      case Division(exLit(i1), exLit(i2)) if i2 != BigInt(0) =>
-        Some(ctor(i1 / i2))
+      case d @ Division(exLit(i1), exLit(i2)) if i2 != BigInt(0) =>
+        // integer division is euclidean, as in SMT-LIB, and bit-vector division rounds toward zero
+        Some(ctor(if (exLit == ExBigIntLit) utils.euclideanDivision(i1, i2) else i1 / i2))
       case Division(e, exLit(one)) if one == BigInt(1) => Some(e)
 
       case _ => None
@@ -298,6 +298,15 @@ class ExprOps private(val trees: Trees)
       }
     }
 
+    object Zero {
+      def unapply(e: Expr): Option[Expr] = e.getType match {
+        case IntegerType() => Some(IntegerLiteral(0))
+        case BVType(signed, size) => Some(BVLiteral(signed, 0, size))
+        case RealType() => Some(FractionLiteral(0, 1))
+        case _ => None
+      }
+    }
+
     def simplify0(expr: Expr): Expr = (expr match {
       case ExIntegerArithSimp(e) => e
 
@@ -305,15 +314,15 @@ class ExprOps private(val trees: Trees)
       //btw, I know those are not the most general rules, but they lead to good optimizations :)
       case Plus(UMinus(Plus(e1, e2)), e3) if e1 == e3 => UMinus(e2)
       case Plus(UMinus(Plus(e1, e2)), e3) if e2 == e3 => UMinus(e1)
-      case Minus(e1, e2) if e1 == e2 => IntegerLiteral(0)
-      case Minus(Plus(e1, e2), Plus(e3, e4)) if e1 == e4 && e2 == e3 => IntegerLiteral(0)
+      case m @ Minus(e1, e2) if e1 == e2 => Zero.unapply(m).getOrElse(m)
+      case m @ Minus(Plus(e1, e2), Plus(e3, e4)) if e1 == e4 && e2 == e3 => Zero.unapply(m).getOrElse(m)
       case Minus(Plus(e1, e2), Plus(Plus(e3, e4), e5)) if e1 == e4 && e2 == e3 => UMinus(e5)
 
-      case StringConcat(StringLiteral(""), a) => a
-      case StringConcat(a, StringLiteral("")) => a
-      case StringConcat(StringLiteral(a), StringLiteral(b)) => StringLiteral(a+b)
-      case StringConcat(StringLiteral(a), StringConcat(StringLiteral(b), c)) => StringConcat(StringLiteral(a+b), c)
-      case StringConcat(StringConcat(c, StringLiteral(a)), StringLiteral(b)) => StringConcat(c, StringLiteral(a+b))
+      case StringConcat(e: StringLiteral, a) if e.value.isEmpty => a
+      case StringConcat(a, e: StringLiteral) if e.value.isEmpty => a
+      case StringConcat(a: StringLiteral, b: StringLiteral) => StringLiteral(a.value ++ b.value)
+      case StringConcat(a: StringLiteral, StringConcat(b: StringLiteral, c)) => StringConcat(StringLiteral(a.value ++ b.value), c)
+      case StringConcat(StringConcat(c, a: StringLiteral), b: StringLiteral) => StringConcat(c, StringLiteral(a.value ++ b.value))
       case StringConcat(a, StringConcat(b, c)) => StringConcat(StringConcat(a, b), c)
       //default
       case e => e

@@ -1,0 +1,8 @@
+; The results of the lambdas on their distinguishing input are lambdas too, and need one of
+; their own, one level deeper
+(set-option :function-equality none)
+(set-info :status sat)
+(declare-const k (-> (-> Int (-> Int Int)) Int))
+(assert (not (= (k (lambda ((x Int)) (lambda ((y Int)) (+ x y))))
+                (k (lambda ((x Int)) (lambda ((y Int)) (- x y)))))))
+(check-sat)

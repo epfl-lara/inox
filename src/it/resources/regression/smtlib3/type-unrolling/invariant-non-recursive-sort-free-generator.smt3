@@ -1,0 +1,58 @@
+(declare-datatypes ((Option 1)) ((par (A) ((None) (Some (value A))))))
+(define-fun isPositive ((x Int)) Bool (> x 0))
+; non-recursive, the invariant calls a function
+(declare-datatype Pos ((pos (pv Int))))
+(datatype-invariant p Pos (isPositive (pv p)))
+
+(declare-const p Pos)
+(declare-const o (Option Pos))
+(declare-const f (-> Int Pos))
+
+; free variable
+(push 1)
+(assert (not (> (pv p) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; free variable
+(push 1)
+(assert (not (> (pv p) 1)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; holds
+(push 1)
+(assert (not (forall ((w Pos)) (> (pv w) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; doesn't hold
+(push 1)
+(assert (not (forall ((w Pos)) (> (pv w) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; nested in a generic ADT
+(push 1)
+(assert (not (=> ((_ is Some) o) (> (pv (value o)) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; free function result
+(push 1)
+(assert (not (> (pv (f 1)) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; choose result
+(push 1)
+(assert (not (> (pv (choose (q Pos) true)) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

@@ -50,6 +50,15 @@ One can also use Inox through command-line by using the
 easiest way to use the Inox command line is to simply [build](#building-inox)
 the project and use the generated `inox` script.
 
+Inox also reads the dependently-typed [SMT-LIB 3](https://smt-lib.org/version3.shtml)
+proposal with `--format=smtlib3`, or for files ending in `.smt3`. Dependent
+function types `(-> (! Int :var n) ...)` become Pi types, and predicate subtypes
+`(! Int :var x :restrict (> x 0))` become refinement types. The supported subset,
+and the extensions that cover the rest of Inox's input language (dependent tuples
+and datatypes, unsigned bit-vectors, characters, custom datatype equalities), are
+described in `inox.smtlib3.Parser`; `inox.smtlib3.Printer` prints Inox programs
+in that syntax.
+
 ## Solver Backends
 
 Inox relies on SMT solvers to solve the constraints it generates. Inox ships
@@ -139,13 +148,39 @@ You may be able to obtain additional tips on getting Inox to work on Windows fro
 
 ### Running Tests
 
-
-Inox comes with a test suite. You can run the following commands to invoke different test suites:
+Inox comes with two test suites:
 
 ```console
 $ sbt test
-$ sbt it:test
+$ sbt IntegrationTest/test
 ```
+
+- `sbt test` runs the unit tests. Among them, the solver suites (`src/test/scala/inox/solvers`)
+  run every test against every solver (native Z3, Z3, CVC4, cvc5, Bitwuzla and Princess) to
+  check that they agree on how each theory is encoded and how models are extracted. A test
+  declares the theories it needs and only runs on the solvers that support them. Solvers that
+  aren't installed show up as ignored tests; `-Dinox.require-solvers=all` (or a comma-separated
+  list of solver names) makes them fail instead.
+- `sbt IntegrationTest/test` runs the integration tests. The unrolling suites
+  (`src/it/scala/inox/solvers/unrolling` and the TIP benchmarks) test the unrolling engine shared
+  by all solvers, so they run against a single solver, `smt-z3` by default
+  (`-Dinox.unrolling.solver=<name>` selects another one), but under every combination of the
+  options that affect unrolling.
+
+`-Dtest-parallelism=N` runs the test suites in parallel.
+
+To measure test coverage, run the tests with coverage instrumentation and generate the report
+(`target/scala-*/scoverage-report/index.html`):
+
+```console
+$ sbt coverage test
+$ sbt coverage IntegrationTest/test
+$ sbt coverageReport
+```
+
+The Linux / JDK 17 job of Inox CI does the same and attaches the report to each run. On pull
+requests, the Coverage comment workflow then posts the coverage, and its difference to `main`, as
+a comment.
 
 ## Contributing
 

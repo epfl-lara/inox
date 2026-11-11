@@ -1,0 +1,10 @@
+; There are only four functions from Bool to Bool
+(set-option :function-equality extensional)
+(set-info :status unsat)
+(declare-const f1 (-> Bool Bool))
+(declare-const f2 (-> Bool Bool))
+(declare-const f3 (-> Bool Bool))
+(declare-const f4 (-> Bool Bool))
+(declare-const f5 (-> Bool Bool))
+(assert (distinct f1 f2 f3 f4 f5))
+(check-sat)

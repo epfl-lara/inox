@@ -1,0 +1,73 @@
+name: Fetch sbt dependencies
+description: >
+  Fetches the dependencies of the sbt build, from a cache when it has them.
+  Maven Central and the other repositories sometimes fail a download (a 503 on
+  a single jar fails the whole job), so the downloads are retried, and the
+  coursier, Ivy and sbt caches and the scala-smtlib checkout are cached under
+  the build files, so that most runs download nothing.
+inputs:
+  key:
+    description: >
+      Name of the cache. Jobs that resolve different dependencies (another sbt
+      build, or other configurations) need different names, since a job that
+      finds its cache doesn't save it again.
+    required: true
+  sbt-args:
+    description: The sbt arguments that resolve the dependencies.
+    default: update Test/update IntegrationTest/update
+  working-directory:
+    description: The directory of the sbt build, relative to the workspace.
+    default: .
+  sbt-global-base:
+    description: The sbt global base (-Dsbt.global.base), relative to the workspace.
+    default: .sbt-global
+runs:
+  using: composite
+  steps:
+    - name: Restore sbt dependencies
+      id: cache
+      uses: actions/cache/restore@v6
+      with:
+        # coursier's cache is ~/.cache/coursier on Linux and
+        # ~/Library/Caches/Coursier on macOS. The global base's staging
+        # directory holds the scala-smtlib checkout (RootProject(uri(...))).
+        path: |
+          ~/.cache/coursier
+          ~/Library/Caches/Coursier
+          ~/.ivy2/cache
+          ~/.sbt/boot
+          ${{ inputs.sbt-global-base }}/staging
+        key: >-
+          sbt-${{ inputs.key }}-${{ runner.os }}-${{ runner.arch }}-${{
+          hashFiles('**/*.sbt', '**/project/build.properties', '**/project/*.scala') }}
+        # A build change only adds or bumps a few dependencies: start from the
+        # previous cache and download the rest.
+        restore-keys: sbt-${{ inputs.key }}-${{ runner.os }}-${{ runner.arch }}-
+    - name: Fetch sbt dependencies
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        SBT_ARGS: ${{ inputs.sbt-args }}
+      run: |
+        # Resolution only downloads, so a failure is most likely a network
+        # error: retry it, waiting a bit longer each time.
+        for attempt in 1 2 3 4; do
+          if sbt -batch $SBT_ARGS; then exit 0; fi
+          if [ "$attempt" -lt 4 ]; then
+            echo "::warning::Fetching the sbt dependencies failed (attempt $attempt), retrying."
+            sleep $((attempt * 30))
+          fi
+        done
+        exit 1
+    - name: Save sbt dependencies
+      # Saved right after resolution, so that a failing test run still saves them.
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          ~/.cache/coursier
+          ~/Library/Caches/Coursier
+          ~/.ivy2/cache
+          ~/.sbt/boot
+          ${{ inputs.sbt-global-base }}/staging
+        key: ${{ steps.cache.outputs.cache-primary-key }}

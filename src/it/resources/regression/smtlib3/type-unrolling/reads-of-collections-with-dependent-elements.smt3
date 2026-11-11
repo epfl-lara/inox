@@ -1,0 +1,49 @@
+; The element type of a collection may depend on an earlier component of a sigma, which the reads
+; of the collection are typed with.
+
+; (n: BigInt, Map[BigInt, {y: BigInt | y > n}])
+(define-type Above () (Tuple (! Int :var n) (Array Int (! Int :var y :restrict (> y n)))))
+; (n: BigInt, Set[{y: BigInt | y > n}])
+(define-type AboveSet () (Tuple (! Int :var n) (Set (! Int :var y :restrict (> y n)))))
+
+(declare-const k Int)
+(declare-const x Int)
+(declare-const a Above)
+(declare-const sa AboveSet)
+
+; map read
+(push 1)
+(assert (not (> (select ((_ tuple.select 1) a) k) ((_ tuple.select 0) a))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map read, too strong
+(push 1)
+(assert (not (> (select ((_ tuple.select 1) a) k) (+ ((_ tuple.select 0) a) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; set read
+(push 1)
+(assert (not (=> (member x ((_ tuple.select 1) sa)) (> x ((_ tuple.select 0) sa)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; two sigmas of the same type
+(push 1)
+(declare-const a2 Above)
+(assert (not (=> (= ((_ tuple.select 0) a2) 5) (> (select ((_ tuple.select 1) a2) k) 5))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; two sigmas of the same type, mixed
+(push 1)
+(declare-const a2 Above)
+(assert (not (=> (= ((_ tuple.select 0) a2) 5) (> (select ((_ tuple.select 1) a) k) 5))))
+(set-info :status sat)
+(check-sat)
+(pop 1)

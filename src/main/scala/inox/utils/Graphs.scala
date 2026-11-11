@@ -74,10 +74,13 @@ object Graphs {
       DiGraph(N + e._1 + e._2, E + e, newInEdgesMap, newOutEdgesMap)
     }
 
-    def -(n: Node) = DiGraph(N - n, E.filter(e => e._1 == n || e._2 == n), inEdgesMap - n, outEdgesMap - n)
+    def -(n: Node) = this -- Seq(n)
     def --(ns: Iterable[Node]) = {
       val toRemove = ns.toSet
-      DiGraph(N -- toRemove, E.filterNot(e => toRemove.contains(e._1) || toRemove.contains(e._2)), inEdgesMap -- toRemove, outEdgesMap -- toRemove)
+      def removed(e: Edge) = toRemove.contains(e._1) || toRemove.contains(e._2)
+      // Edges of the removed nodes must also disappear from the edge sets of their other end.
+      def prune(edges: Map[Node, Set[Edge]]) = (edges -- toRemove).view.mapValues(_.filterNot(removed)).toMap
+      DiGraph(N -- toRemove, E.filterNot(removed), prune(inEdgesMap), prune(outEdgesMap))
     }
     def -(e: Edge) = {
       val newInEdgesMap = inEdgesMap.updatedWith(e._2)(_.map(_ - e))
@@ -197,10 +200,13 @@ object Graphs {
       while (stack.nonEmpty) {
         val (n :: rest) = stack: @unchecked
         stack = rest
-        visited += n
-        f(n)
-        for (n2 <- succ(n) if !visited(n2)) {
-          stack ::= n2
+        // a node can be on the stack several times, e.g. when two of its predecessors were visited
+        if (!visited(n)) {
+          visited += n
+          f(n)
+          for (n2 <- succ(n) if !visited(n2)) {
+            stack ::= n2
+          }
         }
       }
     }
@@ -255,11 +261,12 @@ object Graphs {
 
       queue += from
 
+      visited += from
       while(queue.nonEmpty) {
         val n = queue.dequeue()
-        visited += n
         f(n)
         for (n2 <- succ(n) if !visited(n2)) {
+          visited += n2
           queue += n2
         }
       }

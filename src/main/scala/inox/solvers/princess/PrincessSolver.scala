@@ -62,7 +62,7 @@ class PrincessSolver(override val program: Program)
 
     def modelEval(elem: IExpression, tpe: t.Type): Option[t.Expr] = timers.solvers.princess.eval.run {
       val (res, cs) = underlying.princessToInox(elem, tpe)(using model)
-      chooses ++= cs.map(p => p._1.res.id -> p._2)
+      chooses ++= cs
       res
     }
 
@@ -86,6 +86,7 @@ class PrincessSolver(override val program: Program)
     def asString(ast: IExpression): String = ast.toString
     def abort: Boolean = self.abort
     def pause: Boolean = self.pause
+    def interpretation(id: Identifier, tps: Seq[Type]): Option[Lambda] = self.interpretation(id, tps)
 
     def encodeSymbol(v: Variable): IExpression = underlying.freshSymbol(v)
 
@@ -136,10 +137,9 @@ class PrincessSolver(override val program: Program)
     underlying.pop()
   }
 
-  override def reset(): Unit = {
-    super.reset()
-    underlying.reset()
-  }
+  // The templates cache Princess symbols (e.g. of function calls), which Princess forgets
+  // when it is reset, so a reset solver would build formulas over unknown symbols.
+  override def reset(): Unit = throw new CantResetException(this)
 
   override def interrupt(): Unit = {
     underlying.interrupt()

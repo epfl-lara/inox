@@ -46,7 +46,17 @@ trait TreeDeconstructor {
     * NOTE this is only valid if each Expression class has no subtypes!
     * We keep expression types sealed to help ensure this issue doesn't ever appear.
     */
-  private val exprTable: Map[Class[?], s.Expr => Deconstructed[t.Expr]] = HashMap(
+  private val exprTable: Map[Class[?], s.Expr => Deconstructed[t.Expr]] = HashMap.from(
+    bindingExprs ++ literalExprs ++ dataExprs ++ arithmeticExprs ++
+    bitVectorExprs ++ floatingPointExprs ++ floatingPointTestExprs ++
+    tupleAndSetExprs ++ bagAndMapExprs
+  )
+
+  // The table is built from several smaller initializers, as the JVM and coverage tools handle
+  // large methods poorly.
+  private type ExprEntry = (Class[?], s.Expr => Deconstructed[t.Expr])
+
+  private def bindingExprs: Seq[ExprEntry] = Seq(
     classOf[s.Assume] -> { expr =>
       val s.Assume(pred, body) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(pred, body), NoTypes, NoFlags,
@@ -82,6 +92,16 @@ trait TreeDeconstructor {
       (NoIdentifiers, Seq(res.toVariable), Seq(pred), NoTypes, NoFlags,
         (_, vs, es, _, _) => t.Choose(vs.head.toVal, es.head))
     },
+    classOf[s.UninterpretedCall] -> { expr =>
+      val s.UninterpretedCall(id, tps, args, tpe) = expr: @unchecked
+      (Seq(id), NoVariables, args, tps :+ tpe, NoFlags,
+        (ids, _, es, tps, _) => t.UninterpretedCall(ids.head, tps.init, es, tps.last))
+    },
+    classOf[s.Error] -> { expr =>
+      val s.Error(tpe, msg) = expr: @unchecked
+      (NoIdentifiers, NoVariables, NoExpressions, Seq(tpe), NoFlags,
+        (_, _, _, tps, _) => t.Error(tps.head, msg))
+    },
     classOf[s.FunctionInvocation] -> { expr =>
       val s.FunctionInvocation(id, tps, args) = expr: @unchecked
       (Seq(id), NoVariables, args, tps, NoFlags,
@@ -92,6 +112,9 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(cond, thenn, elze), NoTypes, NoFlags,
         (_, _, es, _, _) => t.IfExpr(es(0), es(1), es(2)))
     },
+  )
+
+  private def literalExprs: Seq[ExprEntry] = Seq(
     classOf[s.CharLiteral] -> { expr =>
       val s.CharLiteral(ch) = expr: @unchecked
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
@@ -123,7 +146,7 @@ trait TreeDeconstructor {
         (_, _, _, _, _) => t.BooleanLiteral(b))
     },
     classOf[s.StringLiteral] -> { expr =>
-      val s.StringLiteral(st) = expr: @unchecked
+      val st = expr.asInstanceOf[s.StringLiteral].value
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
         (_, _, _, _, _) => t.StringLiteral(st))
     },
@@ -137,6 +160,9 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, NoExpressions, Seq(tp), NoFlags,
         (_, _, _, tps, _) => t.GenericValue(tps.head.asInstanceOf[t.TypeParameter], id))
     },
+  )
+
+  private def dataExprs: Seq[ExprEntry] = Seq(
     classOf[s.ADT] -> { expr =>
       val s.ADT(id, tps, args) = expr: @unchecked
       (Seq(id), NoVariables, args, tps, NoFlags,
@@ -192,6 +218,9 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
         (_, _, es, _, _) => t.StringLength(es.head))
     },
+  )
+
+  private def arithmeticExprs: Seq[ExprEntry] = Seq(
     classOf[s.Plus] -> { expr =>
       val s.Plus(t1, t2) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
@@ -247,6 +276,9 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
         (_, _, es, _, _) => t.GreaterEquals(es(0), es(1)))
     },
+  )
+
+  private def bitVectorExprs: Seq[ExprEntry] = Seq(
     classOf[s.BVNot] -> { expr =>
       val s.BVNot(e) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
@@ -312,6 +344,9 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
         (_, _, es, _, _) => t.IntToBV(size, signed, es(0)))
     },
+  )
+
+  private def floatingPointExprs: Seq[ExprEntry] = Seq(
     classOf[s.FPEquals] -> { expr =>
       val s.FPEquals(t1, t2) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
@@ -387,11 +422,6 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(rm, e), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPToBV(size, signed, es(0), es(1)))
     },
-    classOf[s.FPToBVJVM] -> { expr =>
-      val s.FPToBVJVM(eb, sb, size, e) = expr: @unchecked
-      (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
-        (_, _, es, _, _) => t.FPToBVJVM(eb, sb, size, es(0)))
-    },
     classOf[s.FPToReal] -> { expr =>
       val s.FPToReal(e) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(e), NoTypes, NoFlags,
@@ -412,6 +442,9 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
         (_, _, es, _, _) => t.FPLessEquals(es(0), es(1)))
     },
+  )
+
+  private def floatingPointTestExprs: Seq[ExprEntry] = Seq(
     classOf[s.FPGreaterEquals] -> { expr =>
       val s.FPGreaterEquals(t1, t2) = expr: @unchecked
       (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
@@ -472,6 +505,9 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags,
         (_, _, _, _, _) => t.RoundNearestTiesToEven)
     },
+  )
+
+  private def tupleAndSetExprs: Seq[ExprEntry] = Seq(
     classOf[s.Tuple] -> { expr =>
       val s.Tuple(args) = expr: @unchecked
       (NoIdentifiers, NoVariables, args, NoTypes, NoFlags,
@@ -517,6 +553,9 @@ trait TreeDeconstructor {
       (NoIdentifiers, NoVariables, Seq(t1, t2), NoTypes, NoFlags,
         (_, _, es, _, _) => t.SetDifference(es(0), es(1)))
     },
+  )
+
+  private def bagAndMapExprs: Seq[ExprEntry] = Seq(
     classOf[s.FiniteBag] -> { expr =>
       val s.FiniteBag(els, base) = expr: @unchecked
       val subArgs = els.flatMap { case (k, v) => Seq(k, v) }

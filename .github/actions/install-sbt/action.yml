@@ -1,0 +1,32 @@
+name: Install sbt
+description: >
+  Installs the sbt launcher of the version in project/build.properties into
+  sbt/ and puts it on the PATH. GitHub's release downloads sometimes fail for
+  minutes at a time, so the launcher is cached under that version rather than
+  downloaded again by every run.
+runs:
+  using: composite
+  steps:
+    - name: Restore sbt
+      id: cache
+      uses: actions/cache/restore@v6
+      with:
+        path: sbt
+        key: sbt-launcher-${{ hashFiles('project/build.properties', 'scripts/install_sbt.sh') }}
+        # The launcher is the same on every OS, so one job's download serves them all.
+        enableCrossOsArchive: true
+    - name: Download sbt
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: ./scripts/install_sbt.sh
+    - name: Save sbt
+      # Saved right away, so that a job whose tests fail still saves it.
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: sbt
+        key: ${{ steps.cache.outputs.cache-primary-key }}
+        enableCrossOsArchive: true
+    - name: Add sbt to PATH
+      shell: bash
+      run: echo "$GITHUB_WORKSPACE/sbt/bin" >> "$GITHUB_PATH"

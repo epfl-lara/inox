@@ -1,0 +1,16 @@
+; The model of `(fn (head (tail l)))` is the lambda with its closure `(fn (head l2))` replaced by
+; its value. The evaluator must give the same lambda for the lambda of the query, whose closure
+; refers to `l2`, or model checking rejects the model.
+
+(declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
+(declare-datatype FunBox ((funBox (fn (-> Int Int)))))
+
+(declare-const l (List FunBox))
+(declare-const l2 (List FunBox))
+
+; second element
+(push 1)
+(assert (and ((_ is Cons) l) ((_ is Cons) (tail l)) ((_ is Cons) l2) (= (fn (head (tail l))) (lambda ((x Int)) (+ (@ (fn (head l2)) x) 1)))))
+(set-info :status sat)
+(check-sat)
+(pop 1)

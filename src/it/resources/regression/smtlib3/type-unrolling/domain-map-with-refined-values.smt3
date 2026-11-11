@@ -1,0 +1,68 @@
+; A map lies in a quantifier's domain iff its value at every key does: the type check can only
+; be false at a key the solver picks as a counterexample. The values that the formula reads from a
+; free map are typed, as the results of the applications of free functions.
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+(declare-const k Int)
+(declare-const m (Array Int PosInt))
+
+; value outside domain
+(push 1)
+(declare-const g (-> (Array Int Int) Int))
+(assert (not (=> (forall ((w (Array Int PosInt))) (= (g w) 1)) (= (g (store ((as const (Array Int Int)) 1) 0 0)) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; default outside domain
+(push 1)
+(declare-const g (-> (Array Int Int) Int))
+(assert (not (=> (forall ((w (Array Int PosInt))) (= (g w) 1)) (= (g (store ((as const (Array Int Int)) 0) 0 2)) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; doesn't hold
+(push 1)
+(assert (not (forall ((w (Array Int PosInt))) (forall ((k Int)) (> (select w k) 1)))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; free variable
+(push 1)
+(assert (not (> (select m k) 1)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; default only
+(push 1)
+(declare-const g (-> (Array Int Int) Int))
+(assert (not (=> (forall ((w (Array Int PosInt))) (= (g w) 1)) (= (g ((as const (Array Int Int)) 1)) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; in domain
+(push 1)
+(declare-const g (-> (Array Int Int) Int))
+(assert (not (=> (forall ((w (Array Int PosInt))) (= (g w) 1)) (= (g (store ((as const (Array Int Int)) 1) 0 2)) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; holds
+(push 1)
+(assert (not (forall ((w (Array Int PosInt))) (forall ((k Int)) (> (select w k) 0)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; free variable
+(push 1)
+(assert (not (> (select m k) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

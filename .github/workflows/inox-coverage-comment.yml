@@ -1,0 +1,118 @@
+name: Coverage comment
+# Posts the coverage of each pull request, compared with main, as a comment.
+# The comparison is with main at the commit the pull request build merged
+# into, so that tests added to main since then don't show up as lost coverage.
+# This runs separately from Inox CI, after it completes, because pull requests
+# from forks get a read-only token and can't comment themselves. Only the
+# version of this workflow on the default branch runs, and it only reads data
+# (a JSON summary and the pull request number) from the pull request's build.
+on:
+  workflow_run:
+    workflows: [Inox CI]
+    types: [completed]
+permissions:
+  actions: read
+  pull-requests: write
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        # The whole history, to find the Stainless skip lines of the pull request.
+        fetch-depth: 0
+    - name: Download the pull request's coverage
+      id: head
+      continue-on-error: true
+      run: gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name coverage-summary --dir head
+    - name: Download main's coverage
+      if: steps.head.outcome == 'success'
+      run: |
+        # Notes about the comparison, added below the coverage table.
+        : > notes.md
+        [ "$(cat head/tests-passed 2>/dev/null)" = false ] &&
+          echo "_Some tests failed or didn't run in this build, so its coverage is incomplete._" >> notes.md
+        complete() { [ "$(cat "$1/tests-passed" 2>/dev/null)" != false ]; }
+        sha_link() { echo "[\`${1:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$1)"; }
+        main_runs() {
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow inox-CI.yml --event push --status completed \
+            --limit 10 --json databaseId,headSha --jq '.[] | "\(.databaseId) \(.headSha)"' "$@"
+        }
+        # The pull request was built merged into main: compare it with main at
+        # the same commit, so that later changes to main don't show up as its own.
+        base_sha=$(cat head/base-sha 2>/dev/null || true)
+        if [[ "$base_sha" =~ ^[0-9a-f]{40}$ ]]; then
+          while read -r run sha; do
+            gh run download "$run" --repo "$GITHUB_REPOSITORY" --name coverage-summary --dir base && break
+          done < <(main_runs --commit "$base_sha")
+        fi
+        if [ -f base/coverage.json ]; then
+          echo "_Compared with \`main\` at $(sha_link "$base_sha"), which this build merged into._" >> notes.md
+          complete base || echo "_Some tests failed on \`main\` at $(sha_link "$base_sha"), so the differences are unreliable._" >> notes.md
+        else
+          # Otherwise, the latest build of main with complete coverage.
+          while read -r run sha; do
+            rm -rf base
+            gh run download "$run" --repo "$GITHUB_REPOSITORY" --name coverage-summary --dir base && complete base && break
+            rm -rf base
+          done < <(main_runs --branch main)
+          if [ -f base/coverage.json ]; then
+            msg="_Compared with \`main\` at $(sha_link "$sha")"
+            [[ "$base_sha" =~ ^[0-9a-f]{40}$ ]] && msg+=", since \`main\` at $(sha_link "$base_sha"), which this build merged into, has no coverage data"
+            echo "$msg. Changes to \`main\` that aren't in this build show up as differences._" >> notes.md
+          fi
+        fi
+        true
+    # The Stainless downstream CI can skip some or all of its tests because of
+    # `Stainless: skip` lines in Inox commits, including commits on main that
+    # the pull request didn't touch (see .github/scripts/stainless-skip.sh).
+    # The comment warns about them, so that a green downstream run that tested
+    # nothing doesn't go unnoticed. This runs the script of the default branch
+    # on the pull request's commits, which it only reads.
+    - name: Find the Stainless tests that the downstream CI skips
+      if: steps.head.outcome == 'success'
+      continue-on-error: true
+      run: |
+        pr=$(cat head/pr-number)
+        [[ "$pr" =~ ^[0-9]+$ ]] || { echo "Invalid pull request number"; exit 1; }
+        git fetch -q origin "refs/pull/$pr/head"
+        [ "$(git rev-parse FETCH_HEAD)" = "$HEAD_SHA" ] || { echo "Pull request #$pr has moved on from $HEAD_SHA"; exit 0; }
+        # The build tested the pull request merged into main at base-sha.
+        base_sha=$(cat head/base-sha 2>/dev/null || true)
+        if [[ "$base_sha" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "$base_sha^{commit}"; then
+          base="$base_sha"
+        else
+          base=$(git rev-parse HEAD)
+        fi
+        INOX_REVS="$HEAD_SHA $base" INOX_BASE="$base" SKIP_REPORT=skip.md GITHUB_OUTPUT=/dev/null \
+          .github/scripts/stainless-skip.sh
+    - name: Post or update the comment
+      if: steps.head.outcome == 'success'
+      run: |
+        pr=$(cat head/pr-number)
+        [[ "$pr" =~ ^[0-9]+$ ]] || { echo "Invalid pull request number"; exit 1; }
+        # Make sure the pull request is the one that was built.
+        [ "$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)" = "$HEAD_SHA" ] \
+          || { echo "Pull request #$pr has moved on from $HEAD_SHA"; exit 0; }
+        base=$( [ -f base/coverage.json ] && echo base/coverage.json || true )
+        python3 scripts/coverage_summary.py compare head/coverage.json $base > coverage.md
+        # The Stainless skip warning goes first, under the comment's marker line.
+        {
+          head -n 1 coverage.md
+          if [ -s skip.md ]; then echo; cat skip.md; echo; fi
+          tail -n +2 coverage.md
+          if [ -s notes.md ]; then echo; sed G notes.md; fi
+        } > comment.md
+        id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$pr/comments" --paginate \
+               --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- inox-coverage -->"))) | .id' | head -n 1)
+        if [ -n "$id" ]; then
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@comment.md > /dev/null
+        else
+          gh pr comment "$pr" --repo "$GITHUB_REPOSITORY" --body-file comment.md
+        fi

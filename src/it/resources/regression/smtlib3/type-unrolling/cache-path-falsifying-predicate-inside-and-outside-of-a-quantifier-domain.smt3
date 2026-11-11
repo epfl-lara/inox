@@ -1,0 +1,31 @@
+(define-type NonZero () (! Int :var y :restrict (not (= y 0))))
+(declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
+; pre(a) = { assume(a != 0); true }, similarly to a Stainless `require`
+(define-fun pre ((a Int)) Bool (assume (not (= a 0)) true))
+
+(define-type Guarded () (! NonZero :var x :restrict (pre x)))
+(declare-const x (List Guarded))
+
+; in domain
+(push 1)
+(declare-const g (-> (List Int) Int))
+(assert (not (=> (and ((_ is Cons) x) ((_ is Cons) (tail x))) (=> (forall ((w (List Guarded))) (= (g w) 1)) (= (g (Cons 2 (Cons 3 (as Nil (List Int))))) 1)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside domain
+(push 1)
+(declare-const g (-> (List Int) Int))
+(assert (not (=> (and ((_ is Cons) x) ((_ is Cons) (tail x))) (=> (forall ((w (List Guarded))) (= (g w) 1)) (= (g (Cons 2 (Cons 0 (as Nil (List Int))))) 1)))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; extended free variable
+(push 1)
+(declare-const g (-> (List Int) Int))
+(assert (not (=> (forall ((w (List Guarded))) (= (g w) 1)) (= (g (Cons 0 x)) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)

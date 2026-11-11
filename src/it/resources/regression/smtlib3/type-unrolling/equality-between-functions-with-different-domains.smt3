@@ -1,0 +1,32 @@
+; compares functions, which needs the intensional semantics of function equality
+(set-option :function-equality intensional)
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+; (a: {y | y > 0}) => {r: BigInt | r > a}
+(define-type PosIncr () (-> (! PosInt :var a) (! Int :var r :restrict (> r a))))
+; (a: BigInt) => {r: BigInt | r > a}
+(define-type Incr () (-> (! Int :var a) (! Int :var r :restrict (> r a))))
+
+(declare-const f PosIncr)
+(declare-const g Incr)
+
+; codomain of the wider domain
+(push 1)
+(assert (not (=> (= f g) (> (f 0) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; nothing more
+(push 1)
+(assert (not (=> (= f g) (> (f 0) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; model
+(push 1)
+(assert (and (= f g) (= (f 1) 2)))
+(set-info :status sat)
+(check-sat)
+(pop 1)

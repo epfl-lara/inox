@@ -76,7 +76,7 @@ lazy val nTestParallelism = {
 def ghProject(repo: String, version: String) = RootProject(uri(s"${repo}#${version}"))
 
 // lazy val smtlib = RootProject(file("../scala-smtlib")) // If you have a local copy of Scala-SMTLIB and would like to do some changes
-lazy val smtlib = ghProject("https://git:git@github.com/epfl-lara/scala-smtlib.git", "139c1986a27d635e0bc82328e06d2eb7dac8cb0b")
+lazy val smtlib = ghProject("https://git:git@github.com/epfl-lara/scala-smtlib.git", "a4bf724e08fba8d9e5f6a545592873c2a1acd00b")
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")
 
@@ -150,8 +150,12 @@ run / Keys.fork := true
 
 Test / testOptions := Seq(Tests.Argument("-oDF"))
 
-// Note that we can't use IntegrationTest because it is already defined in sbt._
-lazy val ItTest = config("it") extend (Test)
+/** The configuration of the integration tests, in `src/it`. It replaces the one of sbt, which is deprecated
+ *  (sbt recommends a separate subproject instead), with the same name and id, so that `it:test` and
+ *  `IntegrationTest/test` run the tests. It cannot be called `IntegrationTest` itself, as the settings below
+ *  would then refer to it ambiguously.
+ */
+lazy val ItTest = Configuration.of("IntegrationTest", "it") extend (Test)
 
 ItTest / testOptions := Seq(Tests.Argument("-oDF"))
 
@@ -165,9 +169,11 @@ lazy val root = (project in file("."))
       ExclusionRule("org.scala-lang", "scala3-library_3"),
       ExclusionRule("org.scala-lang", "scala3-compiler_3"),
     ),
+    // The serialization macro only runs at compile time, so tests can never cover it.
+    coverageExcludedFiles := ".*SerializationMacro.*",
   )
   .configs(ItTest)
-  .settings(Defaults.itSettings : _*)
+  .settings(inConfig(ItTest)(Defaults.testSettings) : _*)
   .settings(inConfig(Test)(Defaults.testTasks ++ Seq(
     logBuffered := (nTestParallelism > 1),
     parallelExecution := (nTestParallelism > 1)

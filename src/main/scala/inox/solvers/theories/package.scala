@@ -11,23 +11,24 @@ package object theories {
   case class TheoryException(msg: String)
     extends Unsupported(s"Theory encoding failed: $msg")
 
+  // Z3 supports all the Inox theories natively. Under `optStringsBMP`, the SMT-LIB target and the
+  // native API restrict the string alphabet to the BMP (see `Z3Target` and `Z3Native.acquireEncoding`).
   def Z3(p: Program): ProgramTransformer {
     val sourceProgram: p.type
     val targetProgram: Program { val trees: p.trees.type }
-  } = ASCIIStringEncoder(p)
+  } = ProgramEncoder.empty(p)
 
   def CVC(enc: ProgramTransformer)
          (ev: DeterministicEvaluator { val program: enc.sourceProgram.type }): ProgramTransformer {
     val sourceProgram: enc.targetProgram.type
     val targetProgram: Program { val trees: enc.targetProgram.trees.type }
   } = {
-    val stringEncoder = ASCIIStringEncoder(enc.targetProgram)
-    val encAndString = enc `andThen` stringEncoder
-    val bagEncoder = BagEncoder(encAndString)(ev)
+    // Strings are kept as SMT-LIB strings. Under `optStringsBMP`, cvc5 restricts its alphabet
+    // to the BMP (see `CVC5Solver`), and CVC4 models with characters outside of the BMP are
+    // rejected when they are translated back (see `SMTLIBTarget.fromSMT`).
+    val bagEncoder = BagEncoder(enc)(ev)
     val mapMergeEncoder = MapMergeEncoder(bagEncoder.targetProgram)
-
-    val e1 = stringEncoder `andThen` bagEncoder
-    e1 `andThen` mapMergeEncoder
+    bagEncoder `andThen` mapMergeEncoder
   }
 
   def Princess(enc: ProgramTransformer)
@@ -35,7 +36,7 @@ package object theories {
     val sourceProgram: enc.targetProgram.type
     val targetProgram: Program { val trees: enc.targetProgram.trees.type }
   } = {
-    val stringEncoder = StringEncoder(enc.targetProgram)
+    val stringEncoder = StringEncoder(enc.targetProgram, maxStringChar(ev.context.options))
 
     val encAndString = enc `andThen` stringEncoder
     val bagEncoder = BagEncoder(encAndString)(ev)

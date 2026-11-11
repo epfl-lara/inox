@@ -1,0 +1,63 @@
+; compares functions, which needs the intensional semantics of function equality
+(set-option :function-equality intensional)
+
+; Applies functions outside of their domain, where the codomain only holds without
+; `assume-checked` (under which applications are known to lie in the domain).
+(set-option :assume-checked false)
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+; (a: {y | y > 0}) => {r: BigInt | r > a}
+(define-type PosIncr () (-> (! PosInt :var a) (! Int :var r :restrict (> r a))))
+
+(declare-const g PosIncr)
+(declare-const x Int)
+(declare-const f (-> Int Int))
+
+; inside
+(push 1)
+(assert (not (> (g 1) 1)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside
+(push 1)
+(assert (not (> (g 0) 0)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; symbolic argument inside
+(push 1)
+(assert (not (=> (> x 5) (> (g x) 5))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; symbolic argument outside
+(push 1)
+(assert (not (=> (< x 5) (> (g x) 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; quantifier
+(push 1)
+(assert (not (forall ((w PosIncr)) (> (w 0) 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; through an equal function
+(push 1)
+(assert (not (=> (= f g) (> (f 0) 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; inside through an equal function
+(push 1)
+(assert (not (=> (= f g) (> (f 1) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

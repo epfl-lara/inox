@@ -1,0 +1,5 @@
+(set-info :status sat)
+(declare-type A ())
+(declare-const bag (Bag A))
+(assert (not (= bag (as bag.empty A))))
+(check-sat)

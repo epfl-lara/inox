@@ -84,6 +84,8 @@ object ChooseEncoder {
 
         case l: Lambda => l.copy(body = rec(l.body, params ++ l.params)).copiedFrom(l)
 
+        case f: Forall => f.copy(body = rec(f.body, params ++ f.params)).copiedFrom(f)
+
         case c: Choose =>
           val (substMap, freshParams) = params.foldLeft((Map[ValDef, Expr](), Seq[ValDef]())) {
             case ((substMap, vds), vd) =>

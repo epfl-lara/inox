@@ -1,0 +1,41 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+(declare-datatype PosFun ((posFun (pf (-> Int PosInt)))))
+
+(declare-const f (-> Int PosInt))
+(declare-const h (-> Int (-> Int PosInt)))
+(declare-const p PosFun)
+
+; result
+(push 1)
+(assert (not (> (f 3) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; result
+(push 1)
+(assert (not (> (f 3) 1)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; curried result
+(push 1)
+(assert (not (> (@ (h 1) 2) 1)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; function in an ADT
+(push 1)
+(assert (not (> (@ (pf p) 1) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; function in an ADT
+(push 1)
+(assert (not (> (@ (pf p) 1) 1)))
+(set-info :status sat)
+(check-sat)
+(pop 1)

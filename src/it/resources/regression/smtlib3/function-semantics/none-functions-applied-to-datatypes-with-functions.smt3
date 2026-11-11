@@ -1,0 +1,18 @@
+; Datatype values that hold functions are told apart through the distinguishing inputs of the
+; functions, also when their other fields are equal
+(set-option :function-equality none)
+(set-info :status sat)
+(declare-datatype Box ((box (fn (-> Int Int)))))
+(declare-datatype Pair ((pair (first (-> Int Int)) (second Int))))
+(declare-const k (-> Box Int))
+(declare-const b1 Box)
+(declare-const b2 Box)
+(push 1)
+(assert (not (= (k b1) (k b2))))
+(check-sat)
+(pop 1)
+(declare-const t (-> Pair Int))
+(declare-const f (-> Int Int))
+(declare-const g (-> Int Int))
+(assert (not (= (t (pair f 0)) (t (pair g 0)))))
+(check-sat)

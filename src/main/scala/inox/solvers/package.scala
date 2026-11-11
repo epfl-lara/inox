@@ -22,6 +22,17 @@ package object solvers {
 
   object optNoSimplifications extends FlagOptionDef("no-simplifications", false)
 
+  /** Restricts the characters of strings to the BMP (0 to 0xFFFF), instead of SMT-LIB's 0 to 0x2FFFF, so
+    * that each character fits in a UTF-16 code unit. Front-ends whose strings are UTF-16 code units, such
+    * as Stainless for the JVM, can turn it on to get no models with other characters. String literals
+    * with characters outside of the BMP are then unsupported.
+    */
+  object optStringsBMP extends FlagOptionDef("strings-bmp", false)
+
+  /** The largest character of strings in the solvers, depending on [[optStringsBMP]]. */
+  def maxStringChar(options: Options): Int =
+    if (options.findOptionOrDefault(optStringsBMP)) 0xFFFF else trees.StringLiteral.MaxCodePoint
+
   class SimplificationOptions(val simplify: Boolean)
   object SimplificationOptions {
     def apply(ctx: Context) =

@@ -1,0 +1,154 @@
+; The values that the formula reads from a free map, set or bag are typed, as the results of the
+; applications of free functions: a map application, a set membership or a positive bag
+; multiplicity, wherever it occurs.
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+(declare-const k Int)
+(declare-const x Int)
+(declare-const m (Array Int PosInt))
+(declare-const s (Set PosInt))
+(declare-const b (Bag PosInt))
+
+; set membership
+(push 1)
+(assert (not (=> (member x s) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; set membership, too strong
+(push 1)
+(assert (not (=> (member x s) (> x 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; set non-membership
+(push 1)
+(assert (not (=> (not (member x s)) (> x 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; bag multiplicity
+(push 1)
+(assert (not (=> (> (bag.multiplicity x b) 0) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; bag multiplicity, too strong
+(push 1)
+(assert (not (=> (> (bag.multiplicity x b) 0) (> x 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; bag multiplicity zero
+(push 1)
+(assert (not (=> (= (bag.multiplicity x b) 0) (> x 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; several map reads
+(push 1)
+(assert (not (> (+ (+ (select m k) (select m (+ k 1))) (select m x)) 2)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map read through an alias
+(push 1)
+(declare-const n (Array Int Int))
+(assert (not (=> (= n m) (> (select n k) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map read through a condition
+(push 1)
+(declare-const c Bool)
+(declare-const m2 (Array Int PosInt))
+(assert (not (> (select (ite c m m2) k) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; set read through an alias
+(push 1)
+(declare-const t (Set Int))
+(assert (not (=> (and (= t s) (member x t)) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; unrefined map of the same type
+(push 1)
+(declare-const n (Array Int Int))
+(assert (and (> (select m k) 0) (not (> (select n k) 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; unrefined set of the same type
+(push 1)
+(declare-const t (Set Int))
+(assert (and (member x s) (member (- x) t)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; map read in a quantifier body
+(push 1)
+(assert (not (forall ((i Int)) (> (select m i) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; set read in a quantifier body
+(push 1)
+(assert (not (forall ((i Int)) (=> (member i s) (> i 0)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map read in a quantifier body, too strong
+(push 1)
+(assert (not (forall ((i Int)) (> (select m i) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; map read in a lambda body
+(push 1)
+(declare-const f (-> Int Int))
+(assert (not (=> (= f (lambda ((i Int)) (select m i))) (> (@ f k) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map read in a function body
+(push 1)
+(define-fun get ((mm (Array Int PosInt)) (i Int)) Int (select mm i))
+(assert (not (> (get m k) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map with refined keys and values
+(push 1)
+(declare-const mk (Array PosInt PosInt))
+(assert (not (> (select mk k) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map with refined keys only
+(push 1)
+(declare-const mk (Array PosInt Int))
+(assert (not (> (select mk k) 0)))
+(set-info :status sat)
+(check-sat)
+(pop 1)

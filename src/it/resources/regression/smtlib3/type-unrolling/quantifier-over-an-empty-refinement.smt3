@@ -1,0 +1,10 @@
+; A quantifier over an empty type holds vacuously. Its body has no matchers, so it falls outside
+; of the supported fragment, and the model is only accepted once evaluating the formula shows
+; that the quantifier holds.
+
+; empty
+(push 1)
+(assert (forall ((w (! Int :var z :restrict false))) false))
+(set-info :status sat)
+(check-sat)
+(pop 1)

@@ -1,0 +1,37 @@
+; Applies functions outside of their domain, where the codomain only holds without
+; `assume-checked` (under which applications are known to lie in the domain).
+(set-option :assume-checked false)
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+; (a: {y | y > 0}, (x: {y | y > a}) => {r: BigInt | r > x})
+(define-type T () (Tuple (! PosInt :var a) (-> (! Int :var x :restrict (> x a)) (! Int :var r :restrict (> r x)))))
+(declare-const v T)
+
+; holds inside
+(push 1)
+(assert (not (forall ((w T)) (> (@ ((_ tuple.select 1) w) (+ ((_ tuple.select 0) w) 1)) (+ ((_ tuple.select 0) w) 1)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside
+(push 1)
+(assert (not (forall ((w T)) (> (@ ((_ tuple.select 1) w) ((_ tuple.select 0) w)) ((_ tuple.select 0) w)))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; free variable inside
+(push 1)
+(assert (not (> (@ ((_ tuple.select 1) v) (+ ((_ tuple.select 0) v) 1)) (+ ((_ tuple.select 0) v) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; free variable outside
+(push 1)
+(assert (not (> (@ ((_ tuple.select 1) v) ((_ tuple.select 0) v)) ((_ tuple.select 0) v))))
+(set-info :status sat)
+(check-sat)
+(pop 1)

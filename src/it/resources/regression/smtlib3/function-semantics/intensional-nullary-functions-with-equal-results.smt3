@@ -1,0 +1,9 @@
+; f() == g() implies f == g extensionally, so only an intensional counterexample remains
+(set-option :function-equality intensional)
+(set-info :status sat)
+(set-info :inox-may-be-unknown true)
+(declare-const f (-> Int))
+(declare-const g (-> Int))
+(assert (not (= f g)))
+(assert (= (@ f) (@ g)))
+(check-sat)

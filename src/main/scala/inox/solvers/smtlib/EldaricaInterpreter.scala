@@ -98,7 +98,9 @@ class EldaricaInterpreter(val printer: Printer, val parserCtor: BufferedReader =
         (1 to n).foreach(_ => commands.push(MSeq()))
         trySuccess
       case Reset() =>
+        // back to the initial state, with a single (empty) scope
         commands.clear()
+        commands.push(MSeq())
         trySuccess
       case SetOption(option) =>
         // slightly haphazard

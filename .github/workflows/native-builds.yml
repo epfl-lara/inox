@@ -1,0 +1,91 @@
+name: Native builds
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# Cancel a pull request's superseded runs when new commits are pushed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Builds the two native versions of the inox command line and checks their
+# answers on the TIP regression files (scripts/check-native-binary.sh). The
+# GraalVM image fails on any access by name that its reachability metadata
+# doesn't list, so these checks also cover the metadata, and the binary
+# format check covers the deserializer.
+jobs:
+  scala-native:
+    name: Scala Native
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      INSTALL_SOLVERS: 1
+      Z3_VER: 4.15.1
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+    - name: Setup JDK
+      uses: actions/setup-java@v6
+      with:
+        distribution: temurin
+        java-version: 21
+    - name: Install sbt
+      uses: ./.github/actions/install-sbt
+    - name: Set sbt options
+      run: |
+        echo "SBT_OPTS=-Xss64M -Xmx4G -Dsbt.global.base=$GITHUB_WORKSPACE/.sbt-global" >> $GITHUB_ENV
+    - name: Install Z3
+      uses: ./.github/actions/install-solvers
+      with:
+        z3: ${{ env.Z3_VER }}
+    - name: Fetch sbt dependencies
+      uses: ./.github/actions/sbt-dependencies
+      with:
+        key: scala-native
+        working-directory: native
+        sbt-args: update
+    - name: Build
+      run: cd native && sbt -batch nativeLink
+    - name: Check answers
+      run: ./scripts/check-native-binary.sh native/target/scala-*/inox-native --solvers=smt-z3
+
+  graalvm:
+    name: GraalVM native image
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      INSTALL_SOLVERS: 1
+      Z3_VER: 4.15.1
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+    - name: Setup GraalVM
+      uses: graalvm/setup-graalvm@v1
+      with:
+        distribution: graalvm-community
+        java-version: 25
+    - name: Install sbt
+      uses: ./.github/actions/install-sbt
+    - name: Set sbt options
+      run: |
+        echo "SBT_OPTS=-Xss64M -Xmx4G -Dsbt.global.base=$GITHUB_WORKSPACE/.sbt-global" >> $GITHUB_ENV
+    - name: Install Z3
+      uses: ./.github/actions/install-solvers
+      with:
+        z3: ${{ env.Z3_VER }}
+    - name: Fetch sbt dependencies
+      uses: ./.github/actions/sbt-dependencies
+      with:
+        key: graalvm
+        sbt-args: update
+    - name: Build
+      run: ./scripts/build-native-image.sh inox-native-image
+    - name: Check answers (SMT-LIB Z3)
+      run: ./scripts/check-native-binary.sh ./inox-native-image --solvers=smt-z3
+    - name: Check answers (native Z3 interface)
+      run: ./scripts/check-native-binary.sh ./inox-native-image --solvers=nativez3
+    - name: Check answers (binary format)
+      run: ./scripts/check-native-binary.sh --binary ./inox-native-image --solvers=smt-z3

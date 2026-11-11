@@ -149,7 +149,7 @@ abstract class Reporter(val debugSections: Set[DebugSection]) {
 
       indent += 1
 
-      val cause = e.getCause
+      val cause = ex.getCause
       ex = if (cause ne ex) cause else null // don't loop forever on the same cause!
     }
   }

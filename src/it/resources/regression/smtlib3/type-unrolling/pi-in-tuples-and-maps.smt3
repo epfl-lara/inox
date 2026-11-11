@@ -1,0 +1,55 @@
+; compares functions, which needs the intensional semantics of function equality
+(set-option :function-equality intensional)
+
+; Applies functions outside of their domain, where the codomain only holds without
+; `assume-checked` (under which applications are known to lie in the domain).
+(set-option :assume-checked false)
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+; (a: {y | y > 0}) => {r: BigInt | r > a}
+(define-type PosIncr () (-> (! PosInt :var a) (! Int :var r :restrict (> r a))))
+
+(declare-const t (Tuple PosIncr Int))
+(declare-const m (Array Int PosIncr))
+
+; tuple, inside
+(push 1)
+(assert (not (> (@ ((_ tuple.select 0) t) 1) 1)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; tuple, outside
+(push 1)
+(assert (not (> (@ ((_ tuple.select 0) t) 0) 0)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; map, inside
+(push 1)
+(assert (= (@ (select m 3) 1) 5))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; map, inside, holds
+(push 1)
+(assert (not (> (@ (select m 3) 1) 1)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; map, literal
+(push 1)
+(assert (and (= m ((as const (Array Int PosIncr)) (lambda ((x Int)) (ite (> x 0) (+ x 1) 0)))) (= (@ (select m 3) 0) 0)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; map, outside
+(push 1)
+(assert (not (> (@ (select m 3) 0) 0)))
+(set-info :status sat)
+(check-sat)
+(pop 1)

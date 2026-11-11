@@ -46,6 +46,7 @@ abstract class Z3Unrolling(override val program: Program)
     def asString(ast: Z3AST): String = ast.toString
     def abort: Boolean = self.abort
     def pause: Boolean = self.pause
+    def interpretation(id: Identifier, tps: Seq[Type]): Option[Lambda] = self.interpretation(id, tps)
 
     def encodeSymbol(v: Variable): Z3AST = underlying.symbolToFreshZ3Symbol(v)
 
@@ -128,7 +129,7 @@ abstract class Z3Unrolling(override val program: Program)
       }
     })
 
-    def getChoose(id: Identifier): Option[t.Expr] = ex.chooses.get(id)
+    def getChoose(id: Identifier): Option[t.Expr] = ex.chooses.get(id).orElse(ex.closures.get(id))
 
     override def toString = model.toString
   }

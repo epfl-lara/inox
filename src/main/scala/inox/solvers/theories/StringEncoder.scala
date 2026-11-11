@@ -7,7 +7,7 @@ package theories
 import utils._
 
 class StringEncoder private(override val sourceProgram: Program)
-                           (val stringBijection: Bijection[String, sourceProgram.trees.Expr],
+                           (val stringBijection: Bijection[Seq[Int], sourceProgram.trees.Expr],
                             val theory: StringTheory[sourceProgram.trees.type])
   extends SimpleEncoder(
     sourceProgram,
@@ -17,9 +17,14 @@ class StringEncoder private(override val sourceProgram: Program)
     theory.extraSorts
   )
 
-private class StringTheory[Trees <: ast.Trees](val trees: Trees) {
+/** Strings as lists of characters, which are unsigned bit-vectors of `charSize` bits whose values are at most
+  * `maxChar`: models with larger characters are rejected.
+  */
+private class StringTheory[Trees <: ast.Trees](val trees: Trees, val maxChar: Int) {
   import trees._
   import trees.dsl._
+
+  val charSize: Int = if (maxChar <= 0xFFFF) 16 else 18
 
   val StringID     = FreshIdentifier("String")
   val StringNilID  = FreshIdentifier("StringNil")
@@ -28,9 +33,16 @@ private class StringTheory[Trees <: ast.Trees](val trees: Trees) {
   val head = FreshIdentifier("head")
   val tail = FreshIdentifier("tail")
 
-  val stringSort = mkSort(StringID)()(_ => Seq(
+  // Characters of 18 bits range up to 0x3FFFF, beyond the SMT-LIB characters: the invariant bounds them
+  val InvID = FreshIdentifier("string_inv")
+  val Inv = mkFunDef(InvID)()(_ => (
+    Seq("s" :: ADTType(StringID, Seq.empty)), BooleanType(), { case Seq(s) =>
+    s.is(StringConsID) ==> (s.getField(head) <= BVLiteral(false, maxChar, charSize))
+  }))
+
+  val stringSort = mkSort(StringID, (if (charSize == 16) Seq() else Seq(HasADTInvariant(InvID)))*)()(_ => Seq(
     (StringNilID, Seq()),
-    (StringConsID, Seq(ValDef(head, CharType()), ValDef(tail, ADTType(StringID, Seq.empty))))
+    (StringConsID, Seq(ValDef(head, BVType(false, charSize)), ValDef(tail, ADTType(StringID, Seq.empty))))
   ))
 
   val String     = T(StringID)()
@@ -75,7 +87,14 @@ private class StringTheory[Trees <: ast.Trees](val trees: Trees) {
   val SliceID = FreshIdentifier("slice")
   val Slice = mkFunDef(SliceID)()(_ => (
     Seq("s" :: String, "from" :: IntegerType(), "to" :: IntegerType()),
-    String, { case Seq(s, from, to) => Take(Drop(s, from), to - from) }))
+    String, { case Seq(s, from, to) =>
+    // Like SMT-LIB's str.substr, a negative start gives the empty string
+    if_ (from >= E(BigInt(0))) {
+      Take(Drop(s, from), to - from)
+    } else_ {
+      StringNil()
+    }
+  }))
 
   val ConcatID = FreshIdentifier("concat")
   val Concat = mkFunDef(ConcatID)()(_ => (
@@ -90,13 +109,13 @@ private class StringTheory[Trees <: ast.Trees](val trees: Trees) {
     }
   }))
 
-  val extraFunctions = Seq(Size, Take, Drop, Slice, Concat)
+  val extraFunctions = Seq(Size, Take, Drop, Slice, Concat) ++ (if (charSize == 16) Seq() else Seq(Inv))
   val extraSorts = Seq(stringSort)
 }
 
 def stringEnc(sourceProgram: Program)
              (theory: StringTheory[sourceProgram.trees.type],
-              stringBijection: Bijection[String, sourceProgram.trees.Expr]): transformers.TreeTransformer { val s: sourceProgram.trees.type; val t: sourceProgram.trees.type } = {
+              stringBijection: Bijection[Seq[Int], sourceProgram.trees.Expr]): transformers.TreeTransformer { val s: sourceProgram.trees.type; val t: sourceProgram.trees.type } = {
   class StringEnc extends theory.trees.ConcreteSelfTreeTransformer {
 
     import theory._
@@ -104,11 +123,9 @@ def stringEnc(sourceProgram: Program)
     import theory.trees.dsl._
 
     override def transform(e: Expr): Expr = e match {
-      case StringLiteral(v) => convertFromString(v)
+      case s: StringLiteral => convertFromString(s.value)
       case StringLength(a) => Size(transform(a)).copiedFrom(e)
       case StringConcat(a, b) => Concat(transform(a), transform(b)).copiedFrom(e)
-      case SubString(a, start, Plus(start2, length)) if start == start2  =>
-        Take(Drop(transform(a), transform(start)), transform(length)).copiedFrom(e)
       case SubString(a, start, end) =>
         Slice(transform(a), transform(start), transform(end)).copiedFrom(e)
       case _ => super.transform(e)
@@ -119,8 +136,9 @@ def stringEnc(sourceProgram: Program)
       case _ => super.transform(tpe)
     }
 
-    private def convertFromString(v: String): Expr = stringBijection.cachedB(v) {
-      v.toList.foldRight(StringNil()){ case (char, l) => StringCons(E(char), l) }
+    private def convertFromString(v: Seq[Int]): Expr = stringBijection.cachedB(v) {
+      if (v.exists(_ > maxChar)) throw TheoryException("string with characters outside of the alphabet (see --strings-bmp)")
+      v.foldRight(StringNil()){ case (char, l) => StringCons(BVLiteral(false, char, charSize), l) }
     }
   }
   new StringEnc
@@ -128,7 +146,7 @@ def stringEnc(sourceProgram: Program)
 
 def stringDec(sourceProgram: Program)
              (theory: StringTheory[sourceProgram.trees.type],
-              stringBijection: Bijection[String, sourceProgram.trees.Expr]): transformers.TreeTransformer { val s: sourceProgram.trees.type; val t: sourceProgram.trees.type } = {
+              stringBijection: Bijection[Seq[Int], sourceProgram.trees.Expr]): transformers.TreeTransformer { val s: sourceProgram.trees.type; val t: sourceProgram.trees.type } = {
   class StringDec extends theory.trees.ConcreteSelfTreeTransformer {
 
     import theory._
@@ -160,23 +178,26 @@ def stringDec(sourceProgram: Program)
       case _ => super.transform(tpe)
     }
 
-    private def convertToString(e: Expr): String  = stringBijection.cachedA(e)(e match {
-      // Do not call toString on the char but rather String.valueOf because toString messes things up with UTF-8 codepoints
-      case ADT(StringConsID, Seq(), Seq(CharLiteral(c), l)) => java.lang.String.valueOf(if(c < 31) (c + 97).toChar else c) + convertToString(l)
-      case ADT(StringNilID, Seq(), Seq()) => ""
+    private def convertToString(e: Expr): Seq[Int] = stringBijection.cachedA(e)(e match {
+      case ADT(StringConsID, Seq(), Seq(c @ BVLiteral(false, _, _), l)) if c.toBigInt <= maxChar =>
+        c.toBigInt.toInt +: convertToString(l)
+      case ADT(StringConsID, Seq(), Seq(c, _)) =>
+        throw TheoryException(s"string character $c outside of the alphabet")
+      case ADT(StringNilID, Seq(), Seq()) => Seq()
     })
   }
   new StringDec
 }
 
 object StringEncoder {
-  def apply(p: Program): StringEncoder { val sourceProgram: p.type } = {
+  /** Encodes the strings of `p`, whose characters are at most `maxChar` (see `optStringsBMP`). */
+  def apply(p: Program, maxChar: Int): StringEncoder { val sourceProgram: p.type } = {
     class Impl(override val sourceProgram: p.type)
-              (override val stringBijection: Bijection[String, p.trees.Expr],
+              (override val stringBijection: Bijection[Seq[Int], p.trees.Expr],
                override val theory: StringTheory[p.trees.type])
       extends StringEncoder(sourceProgram)(stringBijection, theory)
-    val stringBijection = new Bijection[String, p.trees.Expr]()
-    val theory = new StringTheory[p.trees.type](p.trees)
+    val stringBijection = new Bijection[Seq[Int], p.trees.Expr]()
+    val theory = new StringTheory[p.trees.type](p.trees, maxChar)
     new Impl(p)(stringBijection, theory)
   }
 }

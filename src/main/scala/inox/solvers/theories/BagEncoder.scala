@@ -25,26 +25,48 @@ private class BagTheory[Trees <: ast.Trees](val trees: Trees) {
   import trees.dsl._
 
   val BagID  = FreshIdentifier("Bag")
-  val SumID  = FreshIdentifier("Sum")
+  val NodeID = FreshIdentifier("Node")
   val ElemID = FreshIdentifier("Elem")
   val LeafID = FreshIdentifier("Leaf")
 
+  val op    = FreshIdentifier("op")
   val left  = FreshIdentifier("left")
   val right = FreshIdentifier("right")
   val key   = FreshIdentifier("key")
   val value = FreshIdentifier("value")
 
   val Bag  = T(BagID)
-  val Sum  = C(SumID)
+  val Node = C(NodeID)
   val Elem = C(ElemID)
   val Leaf = C(LeafID)
+
+  // Union, difference and intersection are all represented by `Node`s, and `get`
+  // computes their multiplicities from those of their operands. Using a single
+  // constructor keeps `get` down to two recursive calls on the selectors of its
+  // argument. Computing differences and intersections by traversing their operands
+  // instead takes many recursive calls, each of which adds congruence clauses for the
+  // custom bag equality, which Princess can't cope with.
+  val UnionOp = BigInt(0)
+  val DifferenceOp = BigInt(1)
+  val IntersectionOp = BigInt(2) // any other value is also treated as an intersection
 
   val GetID = FreshIdentifier("get")
   val Get = mkFunDef(GetID)("T") { case Seq(aT) => (
     Seq("bag" :: Bag(aT), "x" :: aT), IntegerType(), {
-    case Seq(bag, x) => if_ (bag `is` SumID) {
-      E(GetID)(aT)(bag.getField(left), x) +
-        E(GetID)(aT)(bag.getField(right), x)
+    case Seq(bag, x) => if_ (bag `is` NodeID) {
+      let("v1" :: IntegerType(), E(GetID)(aT)(bag.getField(left), x)) { v1 =>
+        let("v2" :: IntegerType(), E(GetID)(aT)(bag.getField(right), x)) { v2 =>
+          if_ (bag.getField(op) === E(UnionOp)) {
+            v1 + v2
+          } else_ {
+            if_ (bag.getField(op) === E(DifferenceOp)) {
+              if_ (v1 <= v2) { E(BigInt(0)) } else_ { v1 - v2 }
+            } else_ {
+              if_ (v1 <= v2) { v1 } else_ { v2 }
+            }
+          }
+        }
+      }
     } else_ {
       if_ (bag.is(ElemID) && bag.getField(key) === x) {
         bag.getField(value)
@@ -55,67 +77,11 @@ private class BagTheory[Trees <: ast.Trees](val trees: Trees) {
   })
   }
 
-  val AddID = FreshIdentifier("add")
-  val Add = mkFunDef(AddID)("T") { case Seq(aT) => (
-    Seq("bag" :: Bag(aT), "x" :: aT), Bag(aT), { case Seq(bag, x) => Sum(aT)(bag, Elem(aT)(x, E(BigInt(1)))) })
-  }
-
-  val UnionID = FreshIdentifier("union")
-  val Union = mkFunDef(UnionID)("T") { case Seq(aT) => (
-    Seq("b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), { case Seq(b1, b2) => Sum(aT)(b1, b2) })
-  }
-
-  val diff = FreshIdentifier("diffImpl")
-  val DifferenceImpl = mkFunDef(diff)("T") { case Seq(aT) => (
-    Seq("keys" :: Bag(aT), "b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), {
-    case Seq(keys, b1, b2) => if_ (keys `is` SumID) {
-      Sum(aT)(E(diff)(aT)(keys.getField(left), b1, b2),
-        E(diff)(aT)(keys.getField(right), b1, b2))
-    } else_ {
-      if_ (keys `is` ElemID) {
-        let("f" :: aT, keys.getField(key)) { f =>
-          let("d" :: IntegerType(), Get(aT)(b1, f) - Get(aT)(b2, f)) { d =>
-            if_ (d < E(BigInt(0))) { Leaf(aT)() } else_ { Elem(aT)(f, d) }
-          }
-        }
-      } else_ {
-        Leaf(aT)()
-      }
-    }
-  })
-  }
-
-  val DifferenceID = FreshIdentifier("difference")
-  val Difference = mkFunDef(DifferenceID)("T") { case Seq(aT) => (
-    Seq("b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), { case Seq(b1, b2) => E(diff)(aT)(b1, b1, b2) })
-  }
-
-  val inter = FreshIdentifier("interImpl")
-  val IntersectImpl = mkFunDef(inter)("T") { case Seq(aT) => (
-    Seq("keys" :: Bag(aT), "b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), {
-    case Seq(keys, b1, b2) => if_ (keys `is` SumID) {
-      Sum(aT)(E(inter)(aT)(keys.getField(left), b1, b2),
-        E(inter)(aT)(keys.getField(right), b1, b2))
-    } else_ {
-      if_ (keys `is` ElemID) {
-        let("f" :: aT, keys.getField(key)) { f =>
-          let("v1" :: IntegerType(), Get(aT)(b1, f)) { v1 =>
-            let("v2" :: IntegerType(), Get(aT)(b2, f)) { v2 =>
-              Elem(aT)(f, if_ (v1 <= v2) { v1 } else_ { v2 })
-            }
-          }
-        }
-      } else_ {
-        Leaf(aT)()
-      }
-    }
-  })
-  }
-
-  val IntersectID = FreshIdentifier("intersect")
-  val Intersect = mkFunDef(IntersectID)("T") { case Seq(aT) => (
-    Seq("b1" :: Bag(aT), "b2" :: Bag(aT)), Bag(aT), { case Seq(b1, b2) => E(inter)(aT)(b1, b1, b2) })
-  }
+  // The bag operations are encoded as `Node`s directly (rather than through function
+  // calls), so that bags built from them are plain constructor terms.
+  def Sum(aT: Type)(b1: Expr, b2: Expr): Expr = Node(aT)(E(UnionOp), b1, b2)
+  def Difference(aT: Type)(b1: Expr, b2: Expr): Expr = Node(aT)(E(DifferenceOp), b1, b2)
+  def Intersect(aT: Type)(b1: Expr, b2: Expr): Expr = Node(aT)(E(IntersectionOp), b1, b2)
 
   val EqualsID = FreshIdentifier("equals")
   val BagEquals = mkFunDef(EqualsID)("T") { case Seq(aT) => (
@@ -137,14 +103,14 @@ private class BagTheory[Trees <: ast.Trees](val trees: Trees) {
 
   val bagSort = mkSort(BagID, HasADTEquality(EqualsID), HasADTInvariant(InvID))("T") {
     case Seq(aT) => Seq(
-      (SumID, Seq(ValDef(left, Bag(aT)), ValDef(right, Bag(aT)))),
+      (NodeID, Seq(ValDef(op, IntegerType()), ValDef(left, Bag(aT)), ValDef(right, Bag(aT)))),
       (ElemID, Seq(ValDef(key, aT), ValDef(value, IntegerType()))),
       (LeafID, Seq())
     )
   }
 
   val extraFunctions =
-    Seq(Get, Add, Union, DifferenceImpl, Difference, IntersectImpl, Intersect, BagEquals, BagInvariant)
+    Seq(Get, BagEquals, BagInvariant)
 
   val extraSorts = Seq(bagSort)
 }
@@ -164,17 +130,25 @@ def bagEnc(sourceProgram: Program)
       case FiniteBag(elems, tpe) =>
         val newTpe = transform(tpe)
         val newElems = elems.map(p => transform(p._1) -> transform(p._2))
+        // Later occurrences of a key override earlier ones and entries with
+        // non-positive multiplicities do not belong to the bag (as in the evaluator).
+        def elem(key: Expr, value: Expr): Expr = value match {
+          case IntegerLiteral(i) if i > 0 => Elem(newTpe)(key, value)
+          case IntegerLiteral(_) => Leaf(newTpe)()
+          case _ => IfExpr(GreaterThan(value, IntegerLiteral(0)), Elem(newTpe)(key, value), Leaf(newTpe)())
+        }
+
         newElems.foldRight((Leaf(newTpe)(): Expr, Seq[Expr]())) {
           case ((key, value), (acc, elems)) => (IfExpr(
             orJoin(elems.map(e => Equals(e, key))),
             acc,
-            Sum(newTpe)(acc, Elem(newTpe)(key, value))
+            Sum(newTpe)(acc, elem(key, value))
           ), key +: elems)
         }._1
 
       case BagAdd(bag, elem) =>
         val BagType(base) = bag.getType: @unchecked
-        Add(transform(base))(transform(bag), transform(elem)).copiedFrom(e)
+        Sum(transform(base))(transform(bag), Elem(transform(base))(transform(elem), E(BigInt(1)))).copiedFrom(e)
 
       case MultiplicityInBag(elem, bag) =>
         val BagType(base) = bag.getType: @unchecked
@@ -186,7 +160,7 @@ def bagEnc(sourceProgram: Program)
 
       case BagUnion(b1, b2) =>
         val BagType(base) = b1.getType: @unchecked
-        Union(transform(base))(transform(b1), transform(b2)).copiedFrom(e)
+        Sum(transform(base))(transform(b1), transform(b2)).copiedFrom(e)
 
       case BagDifference(b1, b2) =>
         val BagType(base) = b1.getType: @unchecked
@@ -212,28 +186,36 @@ def bagDec(sourceProgram: Program)
     import theory.trees.dsl._
     import evaluator.context.{given, _}
 
+    private def groundMap(e: Expr, els: Seq[(Expr, Expr)]): Map[Expr, BigInt] = els.map { case (key, value) =>
+      def eval(e2: Expr): Expr = evaluator.eval(e2).result.getOrElse(throw new UnsupportedTree(e, "Failed to evaluate bag contents"))
+      val IntegerLiteral(i) = eval(value): @unchecked
+      eval(key) -> i
+    }.toMap
+
+    // Combines the multiplicities of two decoded bags, or falls back to the
+    // corresponding bag operation if they aren't ground.
+    private def combine(e: Expr, b1: Expr, b2: Expr, tpe: Type)
+                       (op: (BigInt, BigInt) => BigInt)
+                       (mk: (Expr, Expr) => Expr): Expr = (b1, b2) match {
+      case (FiniteBag(els1, _), FiniteBag(els2, _)) if exprOps.variablesOf(b1).isEmpty && exprOps.variablesOf(b2).isEmpty =>
+        val map1 = groundMap(e, els1)
+        val map2 = groundMap(e, els2)
+
+        FiniteBag((map1.keySet ++ map2.keySet).toSeq.flatMap { key =>
+          val i = op(map1.getOrElse(key, BigInt(0)), map2.getOrElse(key, BigInt(0)))
+          if (i > 0) Some(key -> IntegerLiteral(i)) else None
+        }, tpe).copiedFrom(e)
+
+      case _ =>
+        mk(b1, b2).copiedFrom(e)
+    }
+
     override def transform(e: Expr): Expr = e match {
-      case ADT(SumID, Seq(tpe), Seq(e1, e2)) =>
-        val fb1 @ FiniteBag(els1, _) = transform(e1): @unchecked
-        val fb2 @ FiniteBag(els2, _) = transform(e2): @unchecked
-
-        if (exprOps.variablesOf(fb1).isEmpty && exprOps.variablesOf(fb2).isEmpty) {
-          def groundMap(els: Seq[(Expr, Expr)]): Map[Expr, Expr] = els.map { case (key, value) => (
-            evaluator.eval(key).result.getOrElse(throw new UnsupportedTree(e, "Failed to evaluate bag contents")),
-            evaluator.eval(value).result.getOrElse(throw new UnsupportedTree(e, "Failed to evaluate bag contents"))
-          )}.toMap
-
-          val map1 = groundMap(els1)
-          val map2 = groundMap(els2)
-
-          FiniteBag((map1.keySet ++ map2.keySet).map { key =>
-            val IntegerLiteral(i1) = map1.getOrElse(key, IntegerLiteral(0)): @unchecked
-            val IntegerLiteral(i2) = map2.getOrElse(key, IntegerLiteral(0)): @unchecked
-            key -> IntegerLiteral(i1 + i2)
-          }.toSeq, transform(tpe)).copiedFrom(e)
-        } else {
-          FiniteBag(els1 ++ els2, transform(tpe)).copiedFrom(e)
-        }
+      case ADT(NodeID, Seq(tpe), Seq(IntegerLiteral(op), e1, e2)) =>
+        val (b1, b2) = (transform(e1), transform(e2))
+        if (op == UnionOp) combine(e, b1, b2, transform(tpe))(_ + _)(BagUnion(_, _))
+        else if (op == DifferenceOp) combine(e, b1, b2, transform(tpe))(_ - _)(BagDifference(_, _))
+        else combine(e, b1, b2, transform(tpe))(_ min _)(BagIntersection(_, _))
 
       case ADT(ElemID, Seq(tpe), Seq(key, value)) =>
         FiniteBag(Seq(transform(key) -> transform(value)), transform(tpe)).copiedFrom(e)
@@ -241,26 +223,14 @@ def bagDec(sourceProgram: Program)
       case ADT(LeafID, Seq(tpe), Seq()) =>
         FiniteBag(Seq.empty, transform(tpe)).copiedFrom(e)
 
-      case FunctionInvocation(AddID, _, Seq(bag, elem)) =>
-        BagAdd(transform(bag), transform(elem)).copiedFrom(e)
-
       case FunctionInvocation(GetID, _, Seq(bag, elem)) =>
         MultiplicityInBag(transform(elem), transform(bag)).copiedFrom(e)
-
-      case FunctionInvocation(IntersectID, _, Seq(b1, b2)) =>
-        BagIntersection(transform(b1), transform(b2)).copiedFrom(e)
-
-      case FunctionInvocation(UnionID, _, Seq(b1, b2)) =>
-        BagUnion(transform(b1), transform(b2)).copiedFrom(e)
-
-      case FunctionInvocation(DifferenceID, _, Seq(b1, b2)) =>
-        BagDifference(transform(b1), transform(b2)).copiedFrom(e)
 
       case _ => super.transform(e)
     }
 
     override def transform(tpe: Type): Type = tpe match {
-      case ADTType(BagID | SumID | ElemID | LeafID, Seq(base)) => BagType(transform(base)).copiedFrom(tpe)
+      case ADTType(BagID | NodeID | ElemID | LeafID, Seq(base)) => BagType(transform(base)).copiedFrom(tpe)
       case _ => super.transform(tpe)
     }
   }

@@ -1,5 +1,9 @@
 #!/usr/bin/env sh
 
+# Stop at the first failure, so a solver that failed to install is reported
+# here rather than as a missing command later.
+set -e
+
 if [ "$INSTALL_SOLVERS" != "1" ]; then
   echo "Skipping solver installation"
   exit 0
@@ -9,8 +13,9 @@ INFO_MSG="[INFO]"
 WARN_MSG="\033[33m[WARNING]\033[0m"
 ERROR_MSG="\033[1;31m[ERROR]\033[0m"
 
-# curl command with default flags
-CURL='curl -L -s -C -'
+# curl command with default flags: fail on HTTP errors (GitHub release
+# downloads occasionally return 5xx pages), retrying them a few times first
+CURL='curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors'
 
 TEMP_DIR="$(pwd)/temp"
 SOLVERS_DIR=${1:-"$(pwd)/solvers"}
@@ -63,7 +68,7 @@ if [ "$CVC5_OS_NAME" = "macOS" ]; then
   echo "$WARN_MSG CVC4 installation on macOS; defaulting to only build available (x86_64 v1.8)"
   $CURL "https://github.com/CVC4/CVC4-archived/releases/download/1.8/cvc4-1.8-macos-opt" --output "$SOLVERS_DIR/cvc4"
 elif [ "$CVC5_OS_NAME" = "Linux" ]; then
-  $CURL "https://cvc4.cs.stanford.edu/downloads/builds/x86_64-linux-opt/cvc4-${CVC4_VER}-x86_64-linux-opt" --output "$SOLVERS_DIR/cvc4"
+  $CURL "https://github.com/CVC4/CVC4-archived/releases/download/${CVC4_VER}/cvc4-${CVC4_VER}-x86_64-linux-opt" --output "$SOLVERS_DIR/cvc4"
 else
   echo "$ERROR_MSG CVC4 installation not supported on unknown OS: $CVC5_OS_NAME"
   exit 1
@@ -103,7 +108,7 @@ rm -rf "$TEMP_DIR"
 echo "$INFO_MSG Installing Bitwuzla (v${BITWUZLA_VER})"
 
 mkdir -p "$TEMP_DIR"
-$CURL -L https://github.com/bitwuzla/bitwuzla/releases/download/${BITWUZLA_VER}/Bitwuzla-${CVC5_OS_NAME}-${BITWUZLA_ARCH}-static.zip --output "$TEMP_DIR/bitwuzla.zip"
+$CURL https://github.com/bitwuzla/bitwuzla/releases/download/${BITWUZLA_VER}/Bitwuzla-${CVC5_OS_NAME}-${BITWUZLA_ARCH}-static.zip --output "$TEMP_DIR/bitwuzla.zip"
 unzip -q "$TEMP_DIR/bitwuzla.zip" -d "$TEMP_DIR" 
 BITWUZLA_DIR=$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d -name "*Bitwuzla*")
 mv "$BITWUZLA_DIR/bin/bitwuzla" "$SOLVERS_DIR/bitwuzla"

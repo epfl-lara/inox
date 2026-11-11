@@ -46,7 +46,9 @@ trait TypeOps {
     (tp1, tp2) match
       case (RefinementType(vd1, p1), RefinementType(vd2, p2)) =>
         val underlying = bound(vd1.getType, vd2.getType, lower)
-        val joinedProp = if (p1 == p2) p1 else if (lower) And(Seq(p1, p2)) else Or(Seq(p1, p2))
+        // express both predicates over the binder of the first refinement
+        val p2v1 = exprOps.replaceFromSymbols(Map(vd2 -> vd1.toVariable), p2)
+        val joinedProp = if (p1 == p2v1) p1 else if (lower) And(Seq(p1, p2v1)) else Or(Seq(p1, p2v1))
         if (underlying == Untyped) Untyped else RefinementType(vd1.copy(tpe = underlying), joinedProp)
       case (_, RefinementType(vd, prop)) if lower =>
         val underlying = bound(tp1, vd.getType, lower)
@@ -133,8 +135,19 @@ trait TypeOps {
     }
   }
 
+  // cardinalities that don't fit in an Int are unknown
+  private def checkedCardinality(c: BigInt): Option[Int] = if (c.isValidInt) Some(c.toInt) else None
+
+  private def productCardinality(ints: Seq[Option[Int]]): Option[Int] =
+    flattenCardinalities(ints).flatMap(cs => checkedCardinality(cs.map(BigInt(_)).product))
+
+  private def powerCardinality(base: Int, exponent: Int): Option[Int] =
+    if (base <= 1 || exponent == 0) Some(if (exponent == 0) 1 else base)
+    else if (exponent >= 32) None
+    else checkedCardinality(BigInt(base).pow(exponent))
+
   def constructorCardinality(cons: TypedADTConstructor): Option[Int] = {
-    flattenCardinalities(cons.fields.map(vd => typeCardinality(vd.getType))).map(_.product)
+    productCardinality(cons.fields.map(vd => typeCardinality(vd.getType)))
   }
 
   def typeCardinality(tp: Type): Option[Int] = tp match {
@@ -142,24 +155,27 @@ trait TypeOps {
     case BooleanType() => Some(2)
     case UnitType() => Some(1)
     // TODO BVType => 2^size
-    case TupleType(tps) => flattenCardinalities(tps.map(typeCardinality)).map(_.product)
+    case TupleType(tps) => productCardinality(tps.map(typeCardinality))
     case SetType(base) =>
-      typeCardinality(base).map(b => Math.pow(2, b).toInt)
+      typeCardinality(base).flatMap(b => powerCardinality(2, b))
     case FunctionType(Seq(), to) => typeCardinality(to)
     case FunctionType(_, to) if typeCardinality(to) == Some(0) => Some(0)
     case MapType(from, to) =>
       for {
         t <- typeCardinality(to)
         f <- typeCardinality(from)
-      } yield Math.pow(t, f).toInt
+        c <- powerCardinality(t, f)
+      } yield c
+    // a bag can hold each of its elements any number of times
     case BagType(base) => typeCardinality(base) match {
-      case Some(x) if x <= 1 => Some(1)
+      case Some(0) => Some(1)
       case _ => None
     }
     case adt: ADTType =>
       val sort = adt.getSort
       if (sort.definition.isInductive) None
-      else flattenCardinalities(sort.constructors.map(constructorCardinality)).map(_.sum)
+      else flattenCardinalities(sort.constructors.map(constructorCardinality))
+        .flatMap(cs => checkedCardinality(cs.map(BigInt(_)).sum))
     case _ => None
   }
 

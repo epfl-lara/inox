@@ -48,6 +48,14 @@ trait CVCTarget extends SMTLIBTarget with SMTLIBDebugger {
         BooleanLiteral(bs.head)
       case (FixedSizeBitVectors.BitVectorConstant(n, size), Some(BooleanType())) if size == 1 =>
         BooleanLiteral(n == 1)
+      // Let SMTLIBTarget extract the other side with the variable's type, as for function-typed
+      // variables (which are encoded as integers), an untyped extraction yields an integer literal
+      case (Core.Equals(QualifiedIdentifier(SimpleIdentifier(sym), None), _), _)
+      if summon[Context].vars.get(sym).exists(_.isTyped) =>
+        super.fromSMT(t, otpe)
+      case (Core.Equals(_, QualifiedIdentifier(SimpleIdentifier(sym), None)), _)
+      if summon[Context].vars.get(sym).exists(_.isTyped) =>
+        super.fromSMT(t, otpe)
       case (Core.Equals(e1, e2), _) =>
         fromSMTUnifyType(e1, e2, None)(Equals.apply) match {
           case Equals(IsTyped(lhs, BooleanType()), IsTyped(_, BVType(true, 1))) =>

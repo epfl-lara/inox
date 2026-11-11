@@ -44,7 +44,7 @@ trait TipDebugger extends Solver {
       case u: Unsupported =>
         if (!reported) {
           context.reporter.warning(u.getMessage)
-          reported = false
+          reported = true
         }
         false
     }

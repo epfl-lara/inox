@@ -5,6 +5,13 @@ on:
   push:
     branches:
       - main
+
+# Cancel a pull request's superseded runs when new commits are pushed.
+# Runs on main are never cancelled, so every merge still gets a result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   tests:
     name: ${{ matrix.runners.name }} / JDK ${{ matrix.java-version }}
@@ -15,7 +22,7 @@ jobs:
         runners:
           - name: Linux
             os: Linux
-            labels: ['self-hosted', 'linux']
+            labels: ['ubuntu-latest']
           - name: macOS ARM64
             os: macOS
             labels: ['macos-latest']
@@ -29,11 +36,11 @@ jobs:
       BITWUZLA_VER: 0.8.2
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         submodules: recursive
     - name: Setup JDK
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@v6
       with:
         distribution: temurin
         java-version: ${{ matrix.java-version }}
@@ -43,17 +50,13 @@ jobs:
         # needs to be a bit shallower than the workspace
         # to avoid unix socket path length limits
         echo "XDG_RUNTIME_DIR=$(realpath ..)" >> $GITHUB_ENV
-        # java options for sbt and sbt-extras
+        # java options for sbt
         JAVA_OPTS_TMP_DIR=./tmp_java
         JAVA_OPTS="-Xss64M -Xms1024M -Xmx8G -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR"
-        JVM_OPTS="$JAVA_OPTS"
         echo "JAVA_OPTS_TMP_DIR=$JAVA_OPTS_TMP_DIR" >> $GITHUB_ENV
         echo "JAVA_OPTS=$JAVA_OPTS" >> $GITHUB_ENV
-        echo "JVM_OPTS=$JVM_OPTS" >> $GITHUB_ENV 
-    - name: Install and set up sbt
-      run: |
-        ./scripts/install_sbt.sh
-        echo "$(pwd)/sbt/bin/" >> $GITHUB_PATH
+    - name: Install sbt
+      uses: ./.github/actions/install-sbt
     - name: Set sbt global base
       # scala-smtlib is fetched via sbt's RootProject(uri(...)), which clones
       # and compiles it into the sbt global staging directory. On self-hosted
@@ -64,17 +67,68 @@ jobs:
       run: echo "SBT_OPTS=-Dsbt.global.base=$GITHUB_WORKSPACE/.sbt-global" >> $GITHUB_ENV
     - name: Prepare temp folder
       run: rm -rf $JAVA_OPTS_TMP_DIR && mkdir -p $JAVA_OPTS_TMP_DIR
+    # The coverage job also fetches the scoverage runtime, so it keeps its own cache.
+    - name: Fetch sbt dependencies
+      uses: ./.github/actions/sbt-dependencies
+      with:
+        key: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'inox-coverage' || 'inox' }}
+        sbt-args: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'coverage ' || '' }}update Test/update IntegrationTest/update
     - name: Install solvers
-      run: ./scripts/install_solvers.sh $GITHUB_WORKSPACE/.local/bin $Z3_VER $CVC4_VER $CVC5_VER $BITWUZLA_VER
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    - name: Add solvers to PATH
-      run: echo "$GITHUB_WORKSPACE/.local/bin" >> $GITHUB_PATH
+      uses: ./.github/actions/install-solvers
+      with:
+        z3: ${{ env.Z3_VER }}
+        cvc4: ${{ env.CVC4_VER }}
+        cvc5: ${{ env.CVC5_VER }}
+        bitwuzla: ${{ env.BITWUZLA_VER }}
     - name: Test solver availability
       run: cvc5 --version && z3 --version && cvc4 --version && bitwuzla --version
+    # Coverage is measured on the Linux / JDK 17 job only. Unit and integration
+    # tests run in separate sbt invocations (the native Z3 library can only be
+    # loaded once per JVM) and their coverage measurements accumulate.
     - name: Run Tests
-      run: sbt -Dtest-parallelism=10 -batch test
+      id: unit-tests
+      run: sbt -Dtest-parallelism=10 -Dinox.require-solvers=smt-z3,smt-cvc4,smt-cvc5,smt-bitwuzla,princess -batch $SBT_COVERAGE test
+      env:
+        SBT_COVERAGE: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'coverage' || '' }}
     - name: Run integration tests
-      run: sbt -Dtest-parallelism=10 -batch it:test
+      id: integration-tests
+      run: sbt -Dtest-parallelism=10 -batch $SBT_COVERAGE IntegrationTest/test
+      env:
+        SBT_COVERAGE: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'coverage' || '' }}
+    - name: Generate coverage report
+      if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
+      run: |
+        sbt -batch coverageReport
+        report=$(echo target/scala-*/scoverage-report/scoverage.xml)
+        python3 scripts/coverage_summary.py report $report >> $GITHUB_STEP_SUMMARY
+        # Read by the coverage comment workflow, to compare pull requests with main.
+        mkdir -p coverage-summary
+        python3 scripts/coverage_summary.py json $report coverage-summary/coverage.json
+        echo "$PR_NUMBER" > coverage-summary/pr-number
+        # A pull request build tests the merge of the pull request into main:
+        # its coverage is compared with that of main at the merge's first parent.
+        # (Read from the commit itself, since the checkout is shallow.)
+        if [ -n "$PR_NUMBER" ]; then
+          git cat-file -p HEAD | sed -n '/^parent /{s///p;q}' > coverage-summary/base-sha
+        fi
+        # Coverage is incomplete when tests failed or the integration tests were skipped.
+        echo "$TESTS_PASSED" > coverage-summary/tests-passed
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        TESTS_PASSED: ${{ steps.unit-tests.outcome == 'success' && steps.integration-tests.outcome == 'success' }}
+    - name: Upload coverage report
+      if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: coverage-report
+        path: |
+          target/scala-*/scoverage-report/
+          target/scala-*/coverage-report/cobertura.xml
+    - name: Upload coverage summary
+      if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: coverage-summary
+        path: coverage-summary/
     - name: Clean up
       run: rm -rf $JAVA_OPTS_TMP_DIR

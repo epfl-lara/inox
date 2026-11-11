@@ -1,0 +1,8 @@
+; The lambda captures y, so it is only known up to the value of y
+(set-option :function-equality extensional)
+(set-info :status sat)
+(declare-const f (-> Int Int))
+(declare-const y Int)
+(assert (not (= f (lambda ((x Int)) (+ x y)))))
+(assert (= (f 0) y))
+(check-sat)

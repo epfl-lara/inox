@@ -38,19 +38,37 @@ trait MainHelpers {
 
   abstract class Format
   case object Tip extends Format
+  case object SMTLIB3 extends Format
   case class Binary(methodName: Option[String]) extends Format
 
   object optFormat extends OptionDef[Format] {
     val name: String = "format"
-    val usageRhs: String = "tip|binary[:<method-name>]"
+    val usageRhs: String = "tip|smtlib3|binary[:<method-name>]"
     val default: Format = Tip
 
     private val BinaryRegex = """binary:?(.+)?""".r
 
     override def parser: OptionParsers.OptionParser[Format] = s => s.toLowerCase match {
       case "tip" => Some(Tip)
+      case "smtlib3" | "smt3" => Some(SMTLIB3)
       // Option.apply takes care of potential null in regex match
       case BinaryRegex(methodName) => Some(Binary(Option(methodName)))
+      case _ => None
+    }
+  }
+
+  abstract class ModelFormat
+  case object InoxModels extends ModelFormat
+  case object SMTLIBModels extends ModelFormat
+
+  object optModelFormat extends OptionDef[ModelFormat] {
+    val name: String = "model-format"
+    val usageRhs: String = "inox|smtlib"
+    val default: ModelFormat = InoxModels
+
+    override def parser: OptionParsers.OptionParser[ModelFormat] = s => s.toLowerCase match {
+      case "inox" => Some(InoxModels)
+      case "smtlib" => Some(SMTLIBModels)
       case _ => None
     }
   }
@@ -85,8 +103,13 @@ trait MainHelpers {
         "  " + first.mkString(", ") + ",\n" +
         "  " + second.mkString(", ")
     }),
-    optFormat -> Description(General, "Choose input format (if 'binary' also choose method to use as expression)"),
+    optFormat -> Description(General,
+      "Choose input format (if 'binary' also choose method to use as expression). " +
+      "Files ending in .smt3 are read as SMT-LIB 3 unless another format is given"),
     optPrintProgram -> Description(Printing, "Print the entire program"),
+    optModelFormat -> Description(Printing,
+      "Answer format: 'inox' (default, human readable) or 'smtlib' (one of sat/unsat/unknown on its own line, " +
+      "followed for sat by the model as ((x v) ...) with SMT-LIB values)"),
     optPrintChooses -> Description(Printing, "Display partial models for chooses when printing models"),
     ast.optPrintPositions -> Description(Printing, "Attach positions to trees when printing"),
     ast.optPrintUniqueIds -> Description(Printing, "Always print unique ids"),
@@ -94,6 +117,7 @@ trait MainHelpers {
     ast.optPrintUnicode -> Description(Printing, "Print unicode characters for mathematical symbols instead of their ASCII variant"),
     solvers.optAssumeChecked -> Description(Solvers, "Assume that all impure expression have been checked"),
     solvers.optNoSimplifications -> Description(Solvers, "Disable selector/quantifier simplifications in solvers"),
+    solvers.optStringsBMP -> Description(Solvers, "Restrict the characters of strings to the BMP (0 to 0xFFFF)"),
     solvers.optCheckModels -> Description(Solvers, "Double-check counter-examples with evaluator"),
     solvers.optIgnoreModels -> Description(Solvers, s"Do not request models from solvers.\nOverrides and disables ${optCheckModels.name} and ${unrolling.optFeelingLucky.name}."),
     solvers.optSilentErrors -> Description(Solvers, "Fail silently into UNKNOWN when encountering an error"),
@@ -102,6 +126,7 @@ trait MainHelpers {
     solvers.unrolling.optFeelingLucky -> Description(Solvers, "Use evaluator to find counter-examples early"),
     solvers.unrolling.optUnrollAssumptions -> Description(Solvers, "Use unsat-assumptions to drive unfolding while remaining fair"),
     solvers.unrolling.optModelFinding -> Description(Solvers, "Enhance model-finding capabilities of solvers by given aggressivity"),
+    solvers.unrolling.optFunctionEquality -> Description(Solvers, "Semantics of equality between first-class functions: none (functions can't be compared), intensional or extensional"),
     solvers.smtlib.optCVC4Options -> Description(Solvers, "Pass extra options to CVC4"),
     solvers.smtlib.optCVC5Options -> Description(Solvers, "Pass extra options to CVC5"),
     solvers.smtlib.optZ3Rlimit -> Description(Solvers, "Set z3's resource limit (deterministic alternative to a wall clock timeout, 0 = no limit).\nOnly applies to the smt-z3 solvers"),
@@ -255,10 +280,15 @@ trait MainHelpers {
   }
 }
 
-object Main extends MainHelpers {
+object Main extends InoxMain {
+  def main(args: Array[String]): Unit = run(args)
+}
+
+/** The Inox command line, separate from [[Main]] so that tests can override [[exit]]. */
+class InoxMain extends MainHelpers {
   import inox.trees._
 
-  def main(args: Array[String]): Unit = {
+  def run(args: Array[String]): Unit = {
     val ctx = setup(args)
     var error: Boolean = false
 
@@ -281,7 +311,23 @@ object Main extends MainHelpers {
         }
 
         import SolverResponses._
+        val smtlibOutput = ctx.options.findOptionOrDefault(optModelFormat) == SMTLIBModels
         SimpleSolverAPI(sf).solveSAT(expr) match {
+          case SatWithModel(model) if smtlibOutput =>
+            val printer = new tip.ValuePrinter(program, ctx)
+            val printed = try Some(printer.model(model.vars)) catch {
+              case e: program.trees.UnsupportedTree =>
+                reporter.warning(e.getMessage)
+                None
+            } finally printer.free()
+            println(if (printed.isDefined) "sat" else "unknown")
+            printed.foreach(println)
+            if (printed.isEmpty) error = true
+          case Unsat if smtlibOutput =>
+            println("unsat")
+          case Unknown if smtlibOutput =>
+            println("unknown")
+            error = true
           case SatWithModel(model) =>
             reporter.info(s"$file => SAT")
             reporter.info("  " + model.asString.replaceAll("\n", "\n  "))
@@ -303,7 +349,10 @@ object Main extends MainHelpers {
   }
 
   protected def parse(ctx: Context, file: File): Seq[(InoxProgram, Option[Expr])] =
-    ctx.options.findOptionOrDefault(optFormat) match {
+    ctx.options.findOption(optFormat).getOrElse(if (file.getName.endsWith(".smt3")) SMTLIB3 else Tip) match {
+      case SMTLIB3 =>
+        smtlib3.Parser(file).parseScript.map{ case (p, e) => (p, Some(e)) }
+
       case Tip =>
         tip.Parser(file).parseScript.map{ case (p, e) => (p, Some(e)) }
 

@@ -1,0 +1,52 @@
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+(declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
+
+(declare-const x (List PosInt))
+
+; fieldless constructor, free variable first
+(push 1)
+(declare-const g (-> (List Int) Int))
+(assert (not (=> (and ((_ is Cons) x) ((_ is Cons) (tail x))) (=> (forall ((w (List PosInt))) (= (g w) 1)) (= (g (as Nil (List Int))) 1)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside domain, free variable first
+(push 1)
+(declare-const g (-> (List Int) Int))
+(assert (not (=> (and ((_ is Cons) x) ((_ is Cons) (tail x))) (=> (forall ((w (List PosInt))) (= (g w) 1)) (= (g (Cons 1 (Cons 0 (as Nil (List Int))))) 1)))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; fieldless constructor, quantifier first
+(push 1)
+(declare-const g (-> (List Int) Int))
+(assert (not (or (=> (forall ((w (List PosInt))) (= (g w) 1)) (= (g (as Nil (List Int))) 1)) (not (and ((_ is Cons) x) ((_ is Cons) (tail x)))))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside domain, quantifier first
+(push 1)
+(declare-const g (-> (List Int) Int))
+(assert (not (or (=> (forall ((w (List PosInt))) (= (g w) 1)) (= (g (Cons 1 (Cons 0 (as Nil (List Int))))) 1)) (not (and ((_ is Cons) x) ((_ is Cons) (tail x)))))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; free variable in domain
+(push 1)
+(declare-const g (-> (List Int) Int))
+(assert (not (=> ((_ is Nil) x) (=> (forall ((w (List PosInt))) (= (g w) 1)) (= (g x) 1)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; extended free variable
+(push 1)
+(declare-const g (-> (List Int) Int))
+(assert (not (=> (forall ((w (List PosInt))) (= (g w) 1)) (= (g (Cons 0 x)) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)

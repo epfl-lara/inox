@@ -6,7 +6,7 @@ package solvers
 import org.scalatest.funsuite.AnyFunSuite
 
 class TimeoutSolverSuite extends AnyFunSuite {
-  import inox.trees._
+  import inox.trees.{given, _}
   import dsl._
 
   val ctx = TestContext.empty
@@ -57,5 +57,26 @@ class TimeoutSolverSuite extends AnyFunSuite {
     val x = Variable.fresh("x", IntegerType())
     assert(SimpleSolverAPI(sfactory).solveVALID(x + E(BigInt(1)) === E(BigInt(1)) + x) === None)
     assert(SimpleSolverAPI(sfactory).solveVALID(x + E(BigInt(1)) === x) === None)
+  }
+
+  test("Princess stays interrupted until it is reset") {
+    val princessCtx = TestContext(Options(Seq(optSelectedSolvers(Set("princess")))))
+    val solver = p.getSolver(princessCtx).getNewSolver()
+
+    // Princess doesn't terminate on this query, so the check only returns if the
+    // interrupt that arrived before it (e.g. while unrolling) isn't lost.
+    val Seq(x, y, z) = Seq("x", "y", "z").map(Variable.fresh(_, IntegerType()))
+    solver.assertCnstr(andJoin(Seq(
+      x > E(BigInt(0)), y > E(BigInt(0)), z > E(BigInt(0)),
+      x * x * x + y * y * y === z * z * z
+    )))
+    solver.interrupt()
+
+    import scala.concurrent._
+    import scala.concurrent.duration._
+    import ExecutionContext.Implicits.global
+    val res = Await.result(Future(solver.check(SolverResponses.Simple)), 30.seconds)
+    assert(res == SolverResponses.Unknown)
+    solver.free()
   }
 }

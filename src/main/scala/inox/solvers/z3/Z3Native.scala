@@ -6,6 +6,7 @@ package solvers.z3
 import com.microsoft.z3.Z3Exception
 import Z3Native._
 import utils._
+import utils.CaseSplit.*
 import z3.scala.{Z3Solver => ScalaZ3Solver, _}
 import solvers._
 
@@ -47,6 +48,10 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     }
   }
 
+  /** The string alphabet of Z3 (its `encoding` parameter), which stays set while this solver lives. */
+  private val stringEncoding: String = if (maxStringChar == 0xFFFF) "bmp" else "unicode"
+  private val encodingHolder: Thread = Z3Native.acquireEncoding(stringEncoding)
+
   protected[z3] var z3 : Z3Context = new Z3Context(
     "MODEL"             -> true,
     "TYPE_CHECK"        -> true,
@@ -58,11 +63,14 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   toggleWarningMessages(true)
 
   def free(): Unit = synchronized {
-    freed = true
     if (z3 ne null) {
       z3.delete()
       z3 = null
     }
+    // A solver whose construction failed (e.g. on an encoding conflict) never got the alphabet,
+    // and mustn't release it when it is finalized
+    if (!freed && (encodingHolder ne null)) Z3Native.releaseEncoding(stringEncoding, encodingHolder)
+    freed = true
     interruptManager.unregisterForInterrupts(this)
   }
 
@@ -100,31 +108,12 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
   private[z3] val sorts = new IncrementalMap[Type, Z3Sort]()
 
-  def push(): Unit = {
-    adtManager.push()
-    functions.push()
-    lambdas.push()
-    variables.push()
+  // Z3 declarations belong to the context rather than to the solver's scopes, so they stay
+  // valid after a pop. Keeping them lets the unrolling templates, which are encoded once
+  // and reused across pops, refer to the same declarations as the formulas asserted later.
+  def push(): Unit = ()
 
-    constructors.push()
-    selectors.push()
-    testers.push()
-
-    sorts.push()
-  }
-
-  def pop(): Unit = {
-    adtManager.pop()
-    functions.pop()
-    lambdas.pop()
-    variables.pop()
-
-    constructors.pop()
-    selectors.pop()
-    testers.pop()
-
-    sorts.pop()
-  }
+  def pop(): Unit = ()
 
   def reset(): Unit = {
     throw new CantResetException(this)
@@ -180,7 +169,11 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   sorts += IntegerType() -> z3.mkIntSort()
   sorts += RealType() -> z3.mkRealSort()
   sorts += BooleanType() -> z3.mkBoolSort()
-  sorts += StringType() -> z3.mkSeqSort(z3.mkBVSort(16))
+  // Z3 strings, whose characters go up to 0x2FFFF, or 0xFFFF in the BMP (see `stringEncoding`)
+  sorts += StringType() -> z3.mkString("").getSort
+
+  /** The largest character of strings (see `optStringsBMP`). */
+  protected lazy val maxStringChar: Int = solvers.maxStringChar(options)
 
   // assumes prepareSorts has been called....
   protected def typeToSort(oldtt: Type): Z3Sort = oldtt match {
@@ -224,319 +217,327 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       unsupported(other)
   }
 
-  protected[z3] def toZ3Formula(expr: Expr, bindings: Map[Variable, Z3AST] = Map.empty): Z3AST = {
+  protected[z3] def toZ3Formula(expr: Expr, bindings: Map[Variable, Z3AST] = Map.empty): Z3AST =
+    toZ3(expr)(using bindings)
 
-    def rec(ex: Expr)(using bindings: Map[Variable, Z3AST]): Z3AST = ex match {
+  /** Encodes `ex` as a Z3 AST.
+    *
+    * The cases are split by theory into the `toZ3Core`, `toZ3Arithmetic`, ... methods below, which
+    * are tried in order (see [[utils.CaseSplit]]).
+    */
+  protected def toZ3(ex: Expr)(using bindings: Map[Variable, Z3AST]): Z3AST =
+    toZ3Core(ex) otherwise toZ3Arithmetic(ex) otherwise toZ3BitVectors(ex) otherwise toZ3Collections(ex) otherwise
+      toZ3Strings(ex) otherwise unsupported(ex)
 
-      case Let(vd, e, b) =>
-        val re = rec(e)
-        rec(b)(using bindings + (vd.toVariable -> re))
+  /** Variables, literals, booleans, functions, ADTs and tuples. */
+  protected def toZ3Core(ex: Expr)(using bindings: Map[Variable, Z3AST]): Z3AST = ex match {
+    case Let(vd, e, b) =>
+      val re = toZ3(e)
+      toZ3(b)(using bindings + (vd.toVariable -> re))
 
-      case a @ Assume(cond, body) =>
-        val (rc, rb) = (rec(cond), rec(body))
-        z3.mkITE(rc, rb, z3.mkFreshConst("fail", typeToSort(body.getType)))
+    case a @ Assume(cond, body) =>
+      val (rc, rb) = (toZ3(cond), toZ3(body))
+      z3.mkITE(rc, rb, z3.mkFreshConst("fail", typeToSort(body.getType)))
 
-      case v: Variable => bindings.getOrElse(v,
-        variables.cachedB(v)(z3.mkFreshConst(v.id.uniqueName, typeToSort(v.getType)))
-      )
+    case v: Variable => bindings.getOrElse(v,
+      variables.cachedB(v)(z3.mkFreshConst(v.id.uniqueName, typeToSort(v.getType)))
+    )
 
-      case ite @ IfExpr(c, t, e) => z3.mkITE(rec(c), rec(t), rec(e))
-      case And(exs) => z3.mkAnd(exs.map(rec)*)
-      case Or(exs) => z3.mkOr(exs.map(rec)*)
-      case Implies(l, r) => z3.mkImplies(rec(l), rec(r))
-      case Not(Equals(l, r)) => z3.mkDistinct(rec(l), rec(r))
-      case Not(e) => z3.mkNot(rec(e))
-      case bv @ BVLiteral(_, _, _) =>
-        z3.mkNumeral(bv.copy(signed = true).toBigInt.toString, typeToSort(bv.getType))
-      case IntegerLiteral(v) => z3.mkNumeral(v.toString, typeToSort(IntegerType()))
-      case FractionLiteral(n, d) => z3.mkNumeral(s"$n / $d", typeToSort(RealType()))
-      case CharLiteral(c) => z3.mkInt(c, typeToSort(CharType()))
-      case BooleanLiteral(v) => if (v) z3.mkTrue() else z3.mkFalse()
-      case Equals(l, r) => z3.mkEq(rec( l ), rec( r ) )
-      case Plus(l, r) => l.getType match {
-        case BVType(_,_) => z3.mkBVAdd(rec(l), rec(r))
-        case _ => z3.mkAdd(rec(l), rec(r))
+    case ite @ IfExpr(c, t, e) => z3.mkITE(toZ3(c), toZ3(t), toZ3(e))
+    case And(exs) => z3.mkAnd(exs.map(toZ3)*)
+    case Or(exs) => z3.mkOr(exs.map(toZ3)*)
+    case Implies(l, r) => z3.mkImplies(toZ3(l), toZ3(r))
+    case Not(Equals(l, r)) => z3.mkDistinct(toZ3(l), toZ3(r))
+    case Not(e) => z3.mkNot(toZ3(e))
+    case bv @ BVLiteral(_, _, _) =>
+      z3.mkNumeral(bv.copy(signed = true).toBigInt.toString, typeToSort(bv.getType))
+    case IntegerLiteral(v) => z3.mkNumeral(v.toString, typeToSort(IntegerType()))
+    case FractionLiteral(n, d) => z3.mkNumeral(s"$n / $d", typeToSort(RealType()))
+    case CharLiteral(c) => z3.mkInt(c, typeToSort(CharType()))
+    case BooleanLiteral(v) => if (v) z3.mkTrue() else z3.mkFalse()
+    case Equals(l, r) => z3.mkEq(toZ3( l ), toZ3( r ) )
+    case u : UnitLiteral =>
+      typeToSort(u.getType)
+      val constructor = constructors.toB(UnitCons)
+      constructor()
+
+    case t @ Tuple(es) =>
+      val tpe @ TupleType(tps) = t.getType: @unchecked
+      typeToSort(tpe)
+      val constructor = constructors.toB(TupleCons(tps))
+      constructor(es.map(toZ3)*)
+
+    case ts @ TupleSelect(t, i) =>
+      val tpe @ TupleType(tps) = t.getType: @unchecked
+      typeToSort(tpe)
+      val selector = selectors.toB((TupleCons(tps), i-1))
+      selector(toZ3(t))
+
+    case c @ ADT(id, tps, args) =>
+      typeToSort(c.getType) // Making sure the sort is defined
+      val constructor = constructors.toB(ADTCons(id, tps.map(_.getType)))
+      constructor(args.map(toZ3)*)
+
+    case c @ ADTSelector(cc, sel) =>
+      val tpe @ ADTType(_, tps) = cc.getType: @unchecked
+      typeToSort(tpe) // Making sure the sort is defined
+      val selector = selectors.toB(ADTCons(c.constructor.id, tps) -> c.selectorIndex)
+      selector(toZ3(cc))
+
+    case IsConstructor(e, id) =>
+      val tpe @ ADTType(_, tps) = e.getType: @unchecked
+      typeToSort(tpe)
+      val tester = testers.toB(ADTCons(id, tps))
+      tester(toZ3(e))
+
+    case f @ FunctionInvocation(id, tps, args) =>
+      z3.mkApp(functionDefToDecl(getFunction(id, tps.map(_.getType))), args.map(toZ3)*)
+
+    case fa @ Application(caller, args) =>
+      val ft @ FunctionType(froms, to) = caller.getType: @unchecked
+      val funDecl = lambdas.cachedB(ft) {
+        val sortSeq    = (ft +: froms).map(tpe => typeToSort(tpe))
+        val returnSort = typeToSort(to)
+
+        val name = FreshIdentifier("dynLambda").uniqueName
+        z3.mkFreshFuncDecl(name, sortSeq, returnSort)
       }
-      case Minus(l, r) => l.getType match {
-        case BVType(_,_) => z3.mkBVSub(rec(l), rec(r))
-        case _ => z3.mkSub(rec(l), rec(r))
-      }
-      case Times(l, r) => l.getType match {
-        case BVType(_,_) => z3.mkBVMul(rec(l), rec(r))
-        case _ => z3.mkMul(rec(l), rec(r))
-      }
-      case Division(l, r) =>
-        val (rl, rr) = (rec(l), rec(r))
-        l.getType match {
-          case IntegerType() =>
-            z3.mkITE(
-              z3.mkGE(rl, z3.mkNumeral("0", typeToSort(IntegerType()))),
-              z3.mkDiv(rl, rr),
-              z3.mkUnaryMinus(z3.mkDiv(z3.mkUnaryMinus(rl), rr))
-            )
-          case BVType(true, _) => z3.mkBVSdiv(rl, rr)
-          case BVType(false, _) => z3.mkBVUdiv(rl, rr)
-          case _ => z3.mkDiv(rl, rr)
-        }
-      case Remainder(l, r) => l.getType match {
-        case BVType(true, _) => z3.mkBVSrem(rec(l), rec(r))
-        case BVType(false, _) => z3.mkBVUrem(rec(l), rec(r))
-        case _ =>
-          val q = rec(Division(l, r))
-          z3.mkSub(rec(l), z3.mkMul(rec(r), q))
-      }
+      z3.mkApp(funDecl, (caller +: args).map(toZ3)*)
 
-      case Modulo(l, r) => l.getType match {
-        case BVType(false, _) => z3.mkBVUrem(rec(l), rec(r))
-        case BVType(true, size) => // we want x mod |y|
-          val lr = rec(l)
-          val rr = rec(r)
-          z3.mkBVSmod(
-            lr,
-            z3.mkITE(
-              z3.mkBVSle(rr, rec(BVLiteral(true, 0, size))),
-              z3.mkBVNeg(rr),
-              rr
-            )
-          )
+    case gv @ GenericValue(tp, id) =>
+      typeToSort(tp)
+      val constructor = constructors.toB(TypeParameterCons(tp))
+      constructor(toZ3(IntegerLiteral(id)))
 
-        case _ =>
-          z3.mkMod(rec(l), rec(r))
-      }
-
-      case UMinus(e) => e.getType match {
-        case BVType(_,_) => z3.mkBVNeg(rec(e))
-        case _ => z3.mkUnaryMinus(rec(e))
-      }
-
-      case BVNot(e) => z3.mkBVNot(rec(e))
-      case BVAnd(l, r) => z3.mkBVAnd(rec(l), rec(r))
-      case BVOr(l, r) => z3.mkBVOr(rec(l), rec(r))
-      case BVXor(l, r) => z3.mkBVXor(rec(l), rec(r))
-      case BVShiftLeft(l, r) => z3.mkBVShl(rec(l), rec(r))
-      case BVAShiftRight(l, r) => z3.mkBVAshr(rec(l), rec(r))
-      case BVLShiftRight(l, r) => z3.mkBVLshr(rec(l), rec(r))
-
-      case c @ BVWideningCast(e, _)  =>
-        val Some((from, to)) = c.cast: @unchecked
-        val BVType(signed, _) = e.getType: @unchecked
-        if (signed) z3.mkSignExt(to - from, rec(e))
-        else z3.mkZeroExt(to - from, rec(e))
-
-      case c @ BVNarrowingCast(e, _) =>
-        val Some((from, to)) = c.cast: @unchecked
-        z3.mkExtract(to - 1, 0, rec(e))
-
-      case BVUnsignedToSigned(e) => rec(e)
-      case BVSignedToUnsigned(e) => rec(e)
-
-      case LessThan(l, r) => l.getType match {
-        case IntegerType() => z3.mkLT(rec(l), rec(r))
-        case RealType() => z3.mkLT(rec(l), rec(r))
-        case BVType(true,_) => z3.mkBVSlt(rec(l), rec(r))
-        case BVType(false,_) => z3.mkBVUlt(rec(l), rec(r))
-        case CharType() => z3.mkBVUlt(rec(l), rec(r))
-      }
-      case LessEquals(l, r) => l.getType match {
-        case IntegerType() => z3.mkLE(rec(l), rec(r))
-        case RealType() => z3.mkLE(rec(l), rec(r))
-        case BVType(true,_) => z3.mkBVSle(rec(l), rec(r))
-        case BVType(false,_) => z3.mkBVUle(rec(l), rec(r))
-        case CharType() => z3.mkBVUle(rec(l), rec(r))
-      }
-      case GreaterThan(l, r) => l.getType match {
-        case IntegerType() => z3.mkGT(rec(l), rec(r))
-        case RealType() => z3.mkGT(rec(l), rec(r))
-        case BVType(true,_) => z3.mkBVSgt(rec(l), rec(r))
-        case BVType(false,_) => z3.mkBVUgt(rec(l), rec(r))
-        case CharType() => z3.mkBVUgt(rec(l), rec(r))
-      }
-      case GreaterEquals(l, r) => l.getType match {
-        case IntegerType() => z3.mkGE(rec(l), rec(r))
-        case RealType() => z3.mkGE(rec(l), rec(r))
-        case BVType(true,_) => z3.mkBVSge(rec(l), rec(r))
-        case BVType(false,_) => z3.mkBVUge(rec(l), rec(r))
-        case CharType() => z3.mkBVUge(rec(l), rec(r))
-      }
-
-      case u : UnitLiteral =>
-        typeToSort(u.getType)
-        val constructor = constructors.toB(UnitCons)
-        constructor()
-
-      case t @ Tuple(es) =>
-        val tpe @ TupleType(tps) = t.getType: @unchecked
-        typeToSort(tpe)
-        val constructor = constructors.toB(TupleCons(tps))
-        constructor(es.map(rec)*)
-
-      case ts @ TupleSelect(t, i) =>
-        val tpe @ TupleType(tps) = t.getType: @unchecked
-        typeToSort(tpe)
-        val selector = selectors.toB((TupleCons(tps), i-1))
-        selector(rec(t))
-
-      case c @ ADT(id, tps, args) =>
-        typeToSort(c.getType) // Making sure the sort is defined
-        val constructor = constructors.toB(ADTCons(id, tps.map(_.getType)))
-        constructor(args.map(rec)*)
-
-      case c @ ADTSelector(cc, sel) =>
-        val tpe @ ADTType(_, tps) = cc.getType: @unchecked
-        typeToSort(tpe) // Making sure the sort is defined
-        val selector = selectors.toB(ADTCons(c.constructor.id, tps) -> c.selectorIndex)
-        selector(rec(cc))
-
-      case IsConstructor(e, id) =>
-        val tpe @ ADTType(_, tps) = e.getType: @unchecked
-        typeToSort(tpe)
-        val tester = testers.toB(ADTCons(id, tps))
-        tester(rec(e))
-
-      case f @ FunctionInvocation(id, tps, args) =>
-        z3.mkApp(functionDefToDecl(getFunction(id, tps.map(_.getType))), args.map(rec)*)
-
-      case fa @ Application(caller, args) =>
-        val ft @ FunctionType(froms, to) = caller.getType: @unchecked
-        val funDecl = lambdas.cachedB(ft) {
-          val sortSeq    = (ft +: froms).map(tpe => typeToSort(tpe))
-          val returnSort = typeToSort(to)
-
-          val name = FreshIdentifier("dynLambda").uniqueName
-          z3.mkFreshFuncDecl(name, sortSeq, returnSort)
-        }
-        z3.mkApp(funDecl, (caller +: args).map(rec)*)
-
-      /**
-       * ===== Set operations =====
-       */
-      case f @ FiniteSet(elems, base) =>
-        elems.foldLeft(z3.mkEmptySet(typeToSort(base.getType)))((ast, el) => z3.mkSetAdd(ast, rec(el)))
-
-      case ElementOfSet(e, s) => z3.mkSetMember(rec(e), rec(s))
-
-      case SubsetOf(s1, s2) => z3.mkSetSubset(rec(s1), rec(s2))
-
-      case SetIntersection(s1, s2) => z3.mkSetIntersect(rec(s1), rec(s2))
-
-      case SetUnion(s1, s2) => z3.mkSetUnion(rec(s1), rec(s2))
-
-      case SetAdd(s, e) => z3.mkSetAdd(rec(s), rec(e))
-
-      case SetDifference(s1, s2) => z3.mkSetDifference(rec(s1), rec(s2))
-
-      /**
-       * ===== Bag operations =====
-       */
-      case fb @ FiniteBag(elems, base) =>
-        typeToSort(fb.getType)
-        rec(FiniteMap(elems, IntegerLiteral(0), base, IntegerType()))
-
-      case BagAdd(b, e) =>
-        val (bag, elem) = (rec(b), rec(e))
-        z3.mkStore(bag, elem, z3.mkAdd(z3.mkSelect(bag, elem), rec(IntegerLiteral(1))))
-
-      case MultiplicityInBag(e, b) =>
-        z3.mkSelect(rec(b), rec(e))
-
-      case BagUnion(b1, b2) =>
-        val plus = z3.getFuncDecl(OpAdd, typeToSort(IntegerType()), typeToSort(IntegerType()))
-        z3.mkArrayMap(plus, rec(b1), rec(b2))
-
-      case BagIntersection(b1, b2) =>
-        rec(BagDifference(b1, BagDifference(b1, b2)))
-
-      case BagDifference(b1, b2) =>
-        val BagType(base) = b1.getType: @unchecked
-        val abs = z3.getAbsFuncDecl()
-        val plus = z3.getFuncDecl(OpAdd, typeToSort(IntegerType()), typeToSort(IntegerType()))
-        val minus = z3.getFuncDecl(OpSub, typeToSort(IntegerType()), typeToSort(IntegerType()))
-        val div = z3.getFuncDecl(OpDiv, typeToSort(IntegerType()), typeToSort(IntegerType()))
-
-        val all2 = z3.mkConstArray(typeToSort(base), z3.mkInt(2, typeToSort(IntegerType())))
-        val withNeg = z3.mkArrayMap(minus, rec(b1), rec(b2))
-        z3.mkArrayMap(div, z3.mkArrayMap(plus, withNeg, z3.mkArrayMap(abs, withNeg)), all2)
-
-      /**
-       * ===== Map operations =====
-       */
-      case al @ MapApply(a, i) =>
-        z3.mkSelect(rec(a), rec(i))
-
-      case al @ MapUpdated(a, i, e) =>
-        z3.mkStore(rec(a), rec(i), rec(e))
-
-      case FiniteMap(elems, default, keyTpe, valueType) =>
-        val ar = z3.mkConstArray(typeToSort(keyTpe.getType), rec(default))
-
-        elems.foldLeft(ar) {
-          case (array, (k, v)) => z3.mkStore(array, rec(k), rec(v))
-        }
-
-      case MapMerge(mask, map1, map2) =>
-        // TODO: This should move to scala-z3
-        def getIteFuncDecl(valueTpe: Type) = {
-          val valueSort = typeToSort(valueTpe)
-          val app = z3.mkITE(
-            z3.mkFreshConst("b", typeToSort(BooleanType())),
-            z3.mkFreshConst("v1", valueSort),
-            z3.mkFreshConst("v2", valueSort))
-          z3.getASTKind(app) match {
-            case Z3AppAST(decl, _) => decl
-            case _ => error("Unexpected non-app AST " + app)
-          }
-        }
-
-        val MapType(_, valueTpe) = map1.getType: @unchecked
-        z3.mkArrayMap(getIteFuncDecl(valueTpe), rec(mask), rec(map1), rec(map2))
-
-      /* ====== String operations ====
-       */
-      case StringLiteral("") =>
-        z3.mkEmptySeq(typeToSort(StringType()))
-
-      case StringLiteral(v) =>
-        z3.mkSeqConcat(v.map(c => z3.mkUnitSeq(z3.mkNumeral(c.toInt.toString, typeToSort(BVType(false, 16)))))*)
-
-      case StringLength(a) =>
-        z3.mkSeqLength(rec(a))
-
-      case StringConcat(a, b) =>
-        z3.mkSeqConcat(rec(a), rec(b))
-
-      case SubString(a, start, Plus(start2, length)) if start == start2 =>
-        z3.mkSeqExtract(rec(a), rec(start), rec(length))
-
-      case SubString(a, start, end) =>
-        z3.mkSeqExtract(rec(a), rec(start), rec(Minus(end, start)))
-
-      case gv @ GenericValue(tp, id) =>
-        typeToSort(tp)
-        val constructor = constructors.toB(TypeParameterCons(tp))
-        constructor(rec(IntegerLiteral(id)))
-
-      case other =>
-        unsupported(other)
-    }
-
-    val res = rec(expr)(using bindings)
-    res
+    case _ => unhandled
   }
 
-  protected lazy val emptySeq = {
-    z3.getASTKind(z3.mkEmptySeq(typeToSort(StringType()))) match {
-      case Z3AppAST(decl, _) => decl
-      case ast => error("Unexpected non-app AST " + ast)
+  /** Integer, real and bit-vector arithmetic and comparisons. */
+  protected def toZ3Arithmetic(ex: Expr)(using bindings: Map[Variable, Z3AST]): Z3AST = ex match {
+    case Plus(l, r) => l.getType match {
+      case BVType(_,_) => z3.mkBVAdd(toZ3(l), toZ3(r))
+      case _ => z3.mkAdd(toZ3(l), toZ3(r))
     }
+    case Minus(l, r) => l.getType match {
+      case BVType(_,_) => z3.mkBVSub(toZ3(l), toZ3(r))
+      case _ => z3.mkSub(toZ3(l), toZ3(r))
+    }
+    case Times(l, r) => l.getType match {
+      case BVType(_,_) => z3.mkBVMul(toZ3(l), toZ3(r))
+      case _ => z3.mkMul(toZ3(l), toZ3(r))
+    }
+    case Division(l, r) =>
+      val (rl, rr) = (toZ3(l), toZ3(r))
+      l.getType match {
+        case BVType(true, _) => z3.mkBVSdiv(rl, rr)
+        case BVType(false, _) => z3.mkBVUdiv(rl, rr)
+        case _ => z3.mkDiv(rl, rr)
+      }
+    case Remainder(l, r) => l.getType match {
+      case BVType(true, _) => z3.mkBVSrem(toZ3(l), toZ3(r))
+      case BVType(false, _) => z3.mkBVUrem(toZ3(l), toZ3(r))
+      // the remainder of the euclidean division
+      case _ => z3.mkMod(toZ3(l), toZ3(r))
+    }
+
+    case Modulo(l, r) => l.getType match {
+      case BVType(false, _) => z3.mkBVUrem(toZ3(l), toZ3(r))
+      case BVType(true, _) => z3.mkBVSmod(toZ3(l), toZ3(r))
+      case _ =>
+        z3.mkMod(toZ3(l), toZ3(r))
+    }
+
+    case UMinus(e) => e.getType match {
+      case BVType(_,_) => z3.mkBVNeg(toZ3(e))
+      case _ => z3.mkUnaryMinus(toZ3(e))
+    }
+
+    case LessThan(l, r) => l.getType match {
+      case IntegerType() => z3.mkLT(toZ3(l), toZ3(r))
+      case RealType() => z3.mkLT(toZ3(l), toZ3(r))
+      case BVType(true,_) => z3.mkBVSlt(toZ3(l), toZ3(r))
+      case BVType(false,_) => z3.mkBVUlt(toZ3(l), toZ3(r))
+      case CharType() => z3.mkBVUlt(toZ3(l), toZ3(r))
+    }
+    case LessEquals(l, r) => l.getType match {
+      case IntegerType() => z3.mkLE(toZ3(l), toZ3(r))
+      case RealType() => z3.mkLE(toZ3(l), toZ3(r))
+      case BVType(true,_) => z3.mkBVSle(toZ3(l), toZ3(r))
+      case BVType(false,_) => z3.mkBVUle(toZ3(l), toZ3(r))
+      case CharType() => z3.mkBVUle(toZ3(l), toZ3(r))
+    }
+    case GreaterThan(l, r) => l.getType match {
+      case IntegerType() => z3.mkGT(toZ3(l), toZ3(r))
+      case RealType() => z3.mkGT(toZ3(l), toZ3(r))
+      case BVType(true,_) => z3.mkBVSgt(toZ3(l), toZ3(r))
+      case BVType(false,_) => z3.mkBVUgt(toZ3(l), toZ3(r))
+      case CharType() => z3.mkBVUgt(toZ3(l), toZ3(r))
+    }
+    case GreaterEquals(l, r) => l.getType match {
+      case IntegerType() => z3.mkGE(toZ3(l), toZ3(r))
+      case RealType() => z3.mkGE(toZ3(l), toZ3(r))
+      case BVType(true,_) => z3.mkBVSge(toZ3(l), toZ3(r))
+      case BVType(false,_) => z3.mkBVUge(toZ3(l), toZ3(r))
+      case CharType() => z3.mkBVUge(toZ3(l), toZ3(r))
+    }
+
+    case _ => unhandled
   }
 
-  protected[z3] def fromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type): (Expr, Map[Choose, Expr]) = {
+  /** Bit-vector specific operations and conversions. */
+  protected def toZ3BitVectors(ex: Expr)(using bindings: Map[Variable, Z3AST]): Z3AST = ex match {
+    case BVNot(e) => z3.mkBVNot(toZ3(e))
+    case BVAnd(l, r) => z3.mkBVAnd(toZ3(l), toZ3(r))
+    case BVOr(l, r) => z3.mkBVOr(toZ3(l), toZ3(r))
+    case BVXor(l, r) => z3.mkBVXor(toZ3(l), toZ3(r))
+    case BVShiftLeft(l, r) => z3.mkBVShl(toZ3(l), toZ3(r))
+    case BVAShiftRight(l, r) => z3.mkBVAshr(toZ3(l), toZ3(r))
+    case BVLShiftRight(l, r) => z3.mkBVLshr(toZ3(l), toZ3(r))
+
+    case c @ BVWideningCast(e, _)  =>
+      val Some((from, to)) = c.cast: @unchecked
+      val BVType(signed, _) = e.getType: @unchecked
+      if (signed) z3.mkSignExt(to - from, toZ3(e))
+      else z3.mkZeroExt(to - from, toZ3(e))
+
+    case c @ BVNarrowingCast(e, _) =>
+      val Some((from, to)) = c.cast: @unchecked
+      z3.mkExtract(to - 1, 0, toZ3(e))
+
+    case BVUnsignedToSigned(e) => toZ3(e)
+    case BVSignedToUnsigned(e) => toZ3(e)
+
+    case _ => unhandled
+  }
+
+  /** Sets, bags and maps. */
+  protected def toZ3Collections(ex: Expr)(using bindings: Map[Variable, Z3AST]): Z3AST = ex match {
+    case f @ FiniteSet(elems, base) =>
+      elems.foldLeft(z3.mkEmptySet(typeToSort(base.getType)))((ast, el) => z3.mkSetAdd(ast, toZ3(el)))
+
+    case ElementOfSet(e, s) => z3.mkSetMember(toZ3(e), toZ3(s))
+
+    case SubsetOf(s1, s2) => z3.mkSetSubset(toZ3(s1), toZ3(s2))
+
+    case SetIntersection(s1, s2) => z3.mkSetIntersect(toZ3(s1), toZ3(s2))
+
+    case SetUnion(s1, s2) => z3.mkSetUnion(toZ3(s1), toZ3(s2))
+
+    case SetAdd(s, e) => z3.mkSetAdd(toZ3(s), toZ3(e))
+
+    case SetDifference(s1, s2) => z3.mkSetDifference(toZ3(s1), toZ3(s2))
+
+    /**
+     * ===== Bag operations =====
+     */
+    case fb @ FiniteBag(elems, base) =>
+      typeToSort(fb.getType)
+      // Elements with a multiplicity of zero or less are not in the bag.
+      toZ3(FiniteMap(elems.map { case (k, m) => k -> IfExpr(GreaterThan(m, IntegerLiteral(0)), m, IntegerLiteral(0)) }, IntegerLiteral(0), base, IntegerType()))
+
+    case BagAdd(b, e) =>
+      val (bag, elem) = (toZ3(b), toZ3(e))
+      z3.mkStore(bag, elem, z3.mkAdd(z3.mkSelect(bag, elem), toZ3(IntegerLiteral(1))))
+
+    case MultiplicityInBag(e, b) =>
+      z3.mkSelect(toZ3(b), toZ3(e))
+
+    case BagUnion(b1, b2) =>
+      val plus = z3.getFuncDecl(OpAdd, typeToSort(IntegerType()), typeToSort(IntegerType()))
+      z3.mkArrayMap(plus, toZ3(b1), toZ3(b2))
+
+    case BagIntersection(b1, b2) =>
+      toZ3(BagDifference(b1, BagDifference(b1, b2)))
+
+    case BagDifference(b1, b2) =>
+      val BagType(base) = b1.getType: @unchecked
+      val abs = z3.getAbsFuncDecl()
+      val plus = z3.getFuncDecl(OpAdd, typeToSort(IntegerType()), typeToSort(IntegerType()))
+      val minus = z3.getFuncDecl(OpSub, typeToSort(IntegerType()), typeToSort(IntegerType()))
+      val div = z3.getFuncDecl(OpDiv, typeToSort(IntegerType()), typeToSort(IntegerType()))
+
+      val all2 = z3.mkConstArray(typeToSort(base), z3.mkInt(2, typeToSort(IntegerType())))
+      val withNeg = z3.mkArrayMap(minus, toZ3(b1), toZ3(b2))
+      z3.mkArrayMap(div, z3.mkArrayMap(plus, withNeg, z3.mkArrayMap(abs, withNeg)), all2)
+
+    /**
+     * ===== Map operations =====
+     */
+    case al @ MapApply(a, i) =>
+      z3.mkSelect(toZ3(a), toZ3(i))
+
+    case al @ MapUpdated(a, i, e) =>
+      z3.mkStore(toZ3(a), toZ3(i), toZ3(e))
+
+    case FiniteMap(elems, default, keyTpe, valueType) =>
+      val ar = z3.mkConstArray(typeToSort(keyTpe.getType), toZ3(default))
+
+      elems.foldLeft(ar) {
+        case (array, (k, v)) => z3.mkStore(array, toZ3(k), toZ3(v))
+      }
+
+    case MapMerge(mask, map1, map2) =>
+      // TODO: This should move to scala-z3
+      def getIteFuncDecl(valueTpe: Type) = {
+        val valueSort = typeToSort(valueTpe)
+        val app = z3.mkITE(
+          z3.mkFreshConst("b", typeToSort(BooleanType())),
+          z3.mkFreshConst("v1", valueSort),
+          z3.mkFreshConst("v2", valueSort))
+        z3.getASTKind(app) match {
+          case Z3AppAST(decl, _) => decl
+          case _ => error("Unexpected non-app AST " + app)
+        }
+      }
+
+      val MapType(_, valueTpe) = map1.getType: @unchecked
+      z3.mkArrayMap(getIteFuncDecl(valueTpe), toZ3(mask), toZ3(map1), toZ3(map2))
+
+    case _ => unhandled
+  }
+
+  protected def toZ3Strings(ex: Expr)(using bindings: Map[Variable, Z3AST]): Z3AST = ex match {
+    case s: StringLiteral if s.value.exists(_ > maxStringChar) =>
+      unsupported(ex, "string with characters outside of the alphabet (see --strings-bmp)")
+
+    case s: StringLiteral =>
+      // Z3 reads the `\u{...}` escapes of SMT-LIB string literals
+      z3.mkString(StringUtils.encode(s.value))
+
+    case StringLength(a) =>
+      z3.mkSeqLength(toZ3(a))
+
+    case StringConcat(a, b) =>
+      z3.mkSeqConcat(toZ3(a), toZ3(b))
+
+    case SubString(a, start, Plus(start2, length)) if start == start2 =>
+      z3.mkSeqExtract(toZ3(a), toZ3(start), toZ3(length))
+
+    case SubString(a, start, end) =>
+      z3.mkSeqExtract(toZ3(a), toZ3(start), toZ3(Minus(end, start)))
+
+    case _ => unhandled
+  }
+
+  // The uninterpreted functions of the closures of models, by function value (see `uniquateClosure`)
+  private val closureIds: MutableMap[(Int, FunctionType), Identifier] = MutableMap.empty
+
+  /** The value of `tree`, the values of the chooses it contains, and the uninterpreted functions
+    * that its closures call (see [[SymbolOps.uniquateClosure]]). */
+  protected[z3] def fromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type): (Expr, Map[Choose, Expr], Map[Identifier, Lambda]) = {
     val z3ToChooses: MutableMap[Z3AST, Choose] = MutableMap.empty
     val z3ToLambdas: MutableMap[Z3AST, Lambda] = MutableMap.empty
+    val closures: MutableMap[Identifier, Lambda] = MutableMap.empty
 
     def rec(t: Z3AST, tpe: Type, seen: Set[Z3AST]): Expr = {
       val kind = z3.getASTKind(t)
-      kind match {
+      if (tpe == StringType() && com.microsoft.z3.Native.isString(z3.ptr, t.ptr)) {
+        val size = com.microsoft.z3.Native.getStringLength(z3.ptr, t.ptr)
+        val chars = new Array[Int](size)
+        com.microsoft.z3.Native.getStringContents(z3.ptr, t.ptr, size, chars)
+        if (chars.exists(c => c < 0 || c > maxStringChar)) unsound(t, "string with characters outside of the alphabet")
+        else StringLiteral(chars.toSeq)
+      } else kind match {
         case Z3NumeralIntAST(Some(v)) =>
           tpe match {
             case BVType(signed, size) => BVLiteral(signed, BigInt(v), size)
@@ -597,7 +598,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
               case ft @ FunctionType(fts, tt) => z3ToLambdas.getOrElse(t, {
                 val n = t.toString.split("!").last.init.toInt
                 val args = fts.map(tpe => ValDef.fresh("x", tpe, true))
-                val res = uniquateClosure(n, lambdas.getB(ft)
+                val lambda = (lambdas.getB(ft)
                   .flatMap(decl => model.getFuncInterpretations.find(_._1 == decl))
                   .map { case (_, mapping, elseValue) =>
                     val body = mapping.foldLeft(rec(elseValue, tt, seen + t)) { case (elze, (z3Args, z3Result)) =>
@@ -620,6 +621,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                       Lambda(args, Choose(ValDef.fresh("res", tt), BooleanLiteral(true)))
                   }))
 
+                val id = closureIds.getOrElseUpdate(n -> ft, FreshIdentifier("f", true))
+                val res = uniquateClosure(id, lambda)
+                closures(id) = lambda
                 z3ToLambdas(t) = res
                 res
               })
@@ -652,27 +656,6 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                     val elems = set.map(e => rec(e, dt, seen))
                     FiniteSet(elems.toSeq, dt)
                 }
-
-              case StringType() if z3.getDeclKind(decl) == OpSeqEmpty =>
-                assert(args.isEmpty)
-                StringLiteral("")
-
-              case StringType() if z3.getDeclKind(decl) == OpSeqUnit =>
-                assert(args.size == 1)
-                rec(args.head, BVType(false, 16), seen) match {
-                  case lit@BVLiteral(_, _, _) =>
-                    StringLiteral(String.valueOf(lit.toBigInt.toChar))
-                  case rarg => unsound(t, s"Cannot convert ${rarg.asString} into a string literal")
-                }
-
-              case StringType() if z3.getDeclKind(decl) == OpSeqConcat =>
-                val rargs = args.map(rec(_, StringType(), seen))
-                val res = rargs.foldLeft(Seq(StringLiteral(""): Expr)) {
-                  case (initAcc :+ StringLiteral(strAcc), StringLiteral(rarg)) =>
-                    initAcc :+ StringLiteral(strAcc ++ rarg)
-                  case (acc, rarg) => acc :+ rarg
-                }
-                res.reduceLeft(StringConcat.apply)
 
               case _ =>
                 import Z3DeclKind._
@@ -715,7 +698,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     val res = rec(tree, tpe, Set.empty)
     val chooses = z3ToChooses.toMap.map { case (ast, c) => c -> z3ToLambdas(ast) }
 
-    (res, chooses)
+    (res, chooses, closures.toMap)
   }
 
   // Tries to convert a Z3AST into a *ground* Expr. Doesn't try very hard, because
@@ -799,7 +782,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     }
   }
 
-  protected[z3] def softFromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type) : Option[(Expr, Map[Choose, Expr])] = {
+  protected[z3] def softFromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type) : Option[(Expr, Map[Choose, Expr], Map[Identifier, Lambda])] = {
     try {
       Some(fromZ3Formula(model, tree, tpe))
     } catch {
@@ -823,20 +806,26 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
   private[z3] class ModelExtractor(model: Z3Model) {
     private val innerChooses: MutableMap[Identifier, Expr] = MutableMap.empty
+    private val innerClosures: MutableMap[Identifier, Lambda] = MutableMap.empty
 
     def apply(z3ast: Z3AST, tpe: Type): Expr = {
-      val (e, cs) = fromZ3Formula(model, z3ast, tpe)
+      val (e, cs, fs) = fromZ3Formula(model, z3ast, tpe)
       innerChooses ++= cs.map(p => p._1.res.id -> p._2)
+      innerClosures ++= fs
       e
     }
 
     def get(z3ast: Z3AST, tpe: Type): Option[Expr] =
-      softFromZ3Formula(model, z3ast, tpe).map { case (e, cs) =>
+      softFromZ3Formula(model, z3ast, tpe).map { case (e, cs, fs) =>
         innerChooses ++= cs.map(p => p._1.res.id -> p._2)
+        innerClosures ++= fs
         e
       }
 
     def chooses = innerChooses.toMap
+
+    /** The uninterpreted functions that the extracted closures call, at no type arguments. */
+    def closures = innerClosures.toMap
   }
 
   def extractModel(model: Z3Model): program.Model = {
@@ -869,6 +858,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
     val chooses: MutableMap[(Identifier, Seq[Type]), Expr] = MutableMap.empty
     chooses ++= ex.chooses.map(p => (p._1, Seq.empty[Type]) -> p._2)
+    chooses ++= ex.closures.map(p => (p._1, Seq.empty[Type]) -> p._2)
 
     chooses ++= tryZ3(model.getFuncInterpretations.flatMap { case (decl, mapping, defaultValue) =>
       functions.getA(decl).flatMap(tfd => tfd.fullBody match {
@@ -880,6 +870,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
             }), ex(res, tfd.getType), elze)
           }
           chooses ++= ex.chooses.map(p => (p._1, tfd.tps) -> p._2)
+          chooses ++= ex.closures.map(p => (p._1, Seq.empty[Type]) -> p._2)
           Some((c.res.id, tfd.tps) -> body)
         case _ => None
       })
@@ -902,6 +893,60 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 }
 
 object Z3Native {
+
+  /** A native Z3 solver that needs a string alphabet that another solver of the same thread is using. */
+  class EncodingConflictException(msg: String) extends Exception(msg)
+
+  /** The monitor under which the native solvers create and delete their Z3 contexts (see
+    * [[NativeZ3Solver]]). The string alphabet below is guarded by the same monitor, which a solver
+    * that waits for the alphabet releases (`wait`): the solvers that use the current alphabet can
+    * then be freed, which they couldn't under a monitor of their own.
+    */
+  private[z3] val lock = new Object
+
+  // Z3's string alphabet is a global parameter (`encoding`), which all the native Z3 solvers of the
+  // process share. A solver sets it when it is created, and it can't change while a solver uses it:
+  // a solver that needs the other alphabet waits until the solvers that use the current one are
+  // freed. The solvers that wait for a change go first, so that they aren't starved. A thread that
+  // holds a solver with the other alphabet would wait for itself, so it gets an exception instead.
+  private var encoding: String = "unicode"
+  private var encodingUsers: Int = 0
+  private val encodingWaiters = MutableMap.empty[String, Int].withDefaultValue(0)
+  private val encodingHolders = MutableMap.empty[(Thread, String), Int].withDefaultValue(0)
+
+  /** Sets Z3's string alphabet to `enc` for a new solver, and returns the thread that holds it. */
+  private[z3] def acquireEncoding(enc: String): Thread = lock.synchronized {
+    val thread = Thread.currentThread
+    if (encodingHolders.exists { case ((t, e), n) => t == thread && e != enc && n > 0 }) {
+      throw new EncodingConflictException(
+        s"Z3's string alphabet can't be set to $enc while this thread uses native Z3 solvers with $encoding strings")
+    }
+    // A thread that already holds the alphabet doesn't wait for the others.
+    if (encodingHolders((thread, enc)) == 0) {
+      def othersWaiting = encodingWaiters.exists { case (e, n) => e != enc && n > 0 }
+      encodingWaiters(enc) += 1
+      try {
+        while (!(encodingUsers == 0 || (encoding == enc && !othersWaiting))) lock.wait()
+      } finally {
+        encodingWaiters(enc) -= 1
+      }
+    }
+    if (encoding != enc) {
+      com.microsoft.z3.Native.globalParamSet("encoding", enc)
+      encoding = enc
+    }
+    encodingUsers += 1
+    encodingHolders((thread, enc)) += 1
+    thread
+  }
+
+  /** Releases the alphabet that `acquireEncoding` gave to `thread`. */
+  private[z3] def releaseEncoding(enc: String, thread: Thread): Unit = lock.synchronized {
+    encodingUsers -= 1
+    encodingHolders((thread, enc)) -= 1
+    if (encodingHolders((thread, enc)) == 0) encodingHolders -= ((thread, enc))
+    lock.notifyAll()
+  }
 
   def tryZ3[T](res: => T): Option[T] =
     // @nv: Z3 sometimes throws an exception when functions are called after Z3 has been canceled

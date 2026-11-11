@@ -1,0 +1,23 @@
+; Without simplifications, the negation is not pushed inside the conjunction and the
+; template generator encodes `(not (and e fb))` directly. The universal quantifier of `e` must
+; then not be asserted (`e` may be true), otherwise the formula is wrongly deemed unsatisfiable.
+(set-info :status sat)
+(set-info :inox-may-be-unknown true)
+(declare-type-var A)
+(define-fun isAssociative ((f (-> A A A))) Bool
+  (forall ((x A) (y A) (z A)) (= (f (f x y) z) (f x (f y z)))))
+(define-fun isCommutative ((f (-> A A A))) Bool
+  (forall ((x A) (y A)) (= (f x y) (f y x))))
+(define-fun isRotate ((f (-> A A A))) Bool
+  (forall ((x A) (y A) (z A)) (= (f (f x y) z) (f (f y z) x))))
+(define-fun isIdempotent ((f (-> A A A))) Bool
+  (forall ((x A) (y A)) (= (f x y) (f x (f x y)))))
+(set-option :no-simplifications true)
+(declare-const a Int)
+(declare-const b Int)
+(declare-const r Int)
+(assert (let ((e (not (forall ((k Int)) (not (= b (* k r)))))))
+  (and e
+       (forall ((x Int)) (=> (= a x) (<= x r)))
+       (not (and e (forall ((x Int)) (=> (= b x) (<= x r))))))))
+(check-sat)

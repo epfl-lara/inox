@@ -1,0 +1,54 @@
+; recursive
+(declare-datatypes ((PList 0)) (((PNil) (PCons (ph Int) (pt PList)))))
+(datatype-invariant l PList (=> ((_ is PCons) l) (> (ph l) 0)))
+
+(declare-const l PList)
+
+; depth 1
+(push 1)
+(assert (not (=> ((_ is PCons) l) (> (ph l) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; depth 2
+(push 1)
+(assert (not (=> (and ((_ is PCons) l) ((_ is PCons) (pt l))) (> (ph (pt l)) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; depth 3
+(push 1)
+(assert (not (=> (and ((_ is PCons) l) ((_ is PCons) (pt l)) ((_ is PCons) (pt (pt l)))) (> (ph (pt (pt l))) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; depth 2
+(push 1)
+(assert (not (=> (and ((_ is PCons) l) ((_ is PCons) (pt l))) (> (ph (pt l)) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; depth 3
+(push 1)
+(assert (and (and ((_ is PCons) l) ((_ is PCons) (pt l)) ((_ is PCons) (pt (pt l)))) (= (ph (pt (pt l))) 5)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; holds at depth 2
+(push 1)
+(assert (not (forall ((w PList)) (=> (and ((_ is PCons) w) ((_ is PCons) (pt w))) (> (ph (pt w)) 0)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; doesn't hold at depth 2
+(push 1)
+(assert (not (forall ((w PList)) (=> (and ((_ is PCons) w) ((_ is PCons) (pt w))) (> (ph (pt w)) 1)))))
+(set-info :status sat)
+(check-sat)
+(pop 1)

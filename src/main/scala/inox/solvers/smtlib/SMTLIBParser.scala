@@ -5,6 +5,7 @@ package solvers
 package smtlib
 
 import utils._
+import utils.CaseSplit.*
 
 import _root_.smtlib.lexer.{Tokens => LT, _}
 import _root_.smtlib.trees.Commands.{FunDef => SMTFunDef, _}
@@ -52,7 +53,19 @@ trait SMTLIBParser {
     }
   }
 
-  protected def fromSMT(term: Term, otpe: Option[Type] = None)(using context: Context): Expr = term match {
+  /** Parses `term` as an expression, of type `otpe` when it is defined.
+    *
+    * The cases are split by theory into the `fromSMTCore`, `fromSMTArithmetic`, ... methods below,
+    * which are tried in order (see [[utils.CaseSplit]]). Parsers can override `fromSMT` itself, or a
+    * single family.
+    */
+  protected def fromSMT(term: Term, otpe: Option[Type] = None)(using context: Context): Expr =
+    fromSMTCore(term, otpe) otherwise fromSMTArithmetic(term, otpe) otherwise fromSMTBitVectors(term, otpe) otherwise
+      fromSMTFloatingPoint(term, otpe) otherwise fromSMTArrays(term, otpe) otherwise
+      (throw new MissformedSMTException(term, s"Unknown SMT term of class: ${term.getClass}:\n$term"))
+
+  /** Variables, binders, literals, booleans and annotations. */
+  protected def fromSMTCore(term: Term, otpe: Option[Type])(using context: Context): Expr = term match {
     case QualifiedIdentifier(SimpleIdentifier(sym), None) if context.vars contains sym => context.vars(sym)
 
     case SMTLet(binding, bindings, term) =>
@@ -113,9 +126,12 @@ trait SMTLIBParser {
 
 
     case SDecimal(value) =>
-      exprOps.normalizeFraction(FractionLiteral(
-        value.bigDecimal.movePointRight(value.scale).toBigInteger,
-        BigInt(10).pow(value.scale)))
+      // a decimal such as `1E+20` has a negative scale
+      val unscaled = BigInt(value.bigDecimal.unscaledValue)
+      val scale = value.bigDecimal.scale
+      exprOps.normalizeFraction(
+        if (scale >= 0) FractionLiteral(unscaled, BigInt(10).pow(scale))
+        else FractionLiteral(unscaled * BigInt(10).pow(-scale), 1))
 
     case SString(value) =>
       StringLiteral(utils.StringUtils.decode(value))
@@ -148,6 +164,15 @@ trait SMTLIBParser {
 
     /* Ints extractors cover the Reals operations as well */
 
+    case AnnotatedTerm(term, attribute, attributes) =>
+      // discard general annotations
+      fromSMT(term, otpe)
+
+    case _ => unhandled
+  }
+
+  /** Integer and real arithmetic. */
+  protected def fromSMTArithmetic(term: Term, otpe: Option[Type])(using context: Context): Expr = term match {
     case Ints.Neg(e) => UMinus(fromSMT(e, otpe))
     case Ints.Add(e1, e2) => Plus(fromSMT(e1, otpe), fromSMT(e2, otpe))
     case Ints.Sub(e1, e2) => Minus(fromSMT(e1, otpe), fromSMT(e2, otpe))
@@ -171,6 +196,23 @@ trait SMTLIBParser {
     case Reals.Div(SNumeral(n1), SNumeral(n2)) => FractionLiteral(n1, n2)
     case Reals.Div(e1, e2) => Division(fromSMT(e1, RealType()), fromSMT(e2, RealType()))
 
+    case _ => unhandled
+  }
+
+  /** Applies an unsigned SMT-LIB operation, whose operands are parsed as signed bit-vectors unless
+    * the expected type says otherwise, on their unsigned views.
+    */
+  private def unsignedOp(op: (Expr, Expr) => Expr)(e1: Expr, e2: Expr): Expr = e1.getType match {
+    case BVType(true, _) => BVUnsignedToSigned(op(BVSignedToUnsigned(e1), BVSignedToUnsigned(e2)))
+    case _ => op(e1, e2)
+  }
+
+  private def unsignedComparison(op: (Expr, Expr) => Expr)(e1: Expr, e2: Expr): Expr = e1.getType match {
+    case BVType(true, _) => op(BVSignedToUnsigned(e1), BVSignedToUnsigned(e2))
+    case _ => op(e1, e2)
+  }
+
+  protected def fromSMTBitVectors(term: Term, otpe: Option[Type])(using context: Context): Expr = term match {
     case FixedSizeBitVectors.Not(e) => BVNot(fromSMT(e, otpe))
     case FixedSizeBitVectors.Neg(e) => UMinus(fromSMT(e, otpe))
     case FixedSizeBitVectors.And(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVAnd.apply)
@@ -180,33 +222,38 @@ trait SMTLIBParser {
     case FixedSizeBitVectors.Sub(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Minus.apply)
     case FixedSizeBitVectors.Mul(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Times.apply)
     case FixedSizeBitVectors.SDiv(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Division.apply)
-    case FixedSizeBitVectors.UDiv(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Division.apply)
+    case FixedSizeBitVectors.UDiv(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(unsignedOp(Division.apply))
     case FixedSizeBitVectors.SRem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Remainder.apply)
-    case FixedSizeBitVectors.URem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Remainder.apply)
+    case FixedSizeBitVectors.URem(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(unsignedOp(Remainder.apply))
+    case FixedSizeBitVectors.SMod(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(Modulo.apply)
 
     case FixedSizeBitVectors.SLessThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessThan.apply)
     case FixedSizeBitVectors.SLessEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessEquals.apply)
     case FixedSizeBitVectors.SGreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterThan.apply)
     case FixedSizeBitVectors.SGreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterEquals.apply)
 
-    case FixedSizeBitVectors.ULessThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessThan.apply)
-    case FixedSizeBitVectors.ULessEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(LessEquals.apply)
-    case FixedSizeBitVectors.UGreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterThan.apply)
-    case FixedSizeBitVectors.UGreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(GreaterEquals.apply)
+    case FixedSizeBitVectors.ULessThan(e1, e2) => fromSMTUnifyType(e1, e2, None)(unsignedComparison(LessThan.apply))
+    case FixedSizeBitVectors.ULessEquals(e1, e2) => fromSMTUnifyType(e1, e2, None)(unsignedComparison(LessEquals.apply))
+    case FixedSizeBitVectors.UGreaterThan(e1, e2) => fromSMTUnifyType(e1, e2, None)(unsignedComparison(GreaterThan.apply))
+    case FixedSizeBitVectors.UGreaterEquals(e1, e2) => fromSMTUnifyType(e1, e2, None)(unsignedComparison(GreaterEquals.apply))
 
     case FixedSizeBitVectors.ShiftLeft(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVShiftLeft.apply)
     case FixedSizeBitVectors.AShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVAShiftRight.apply)
     case FixedSizeBitVectors.LShiftRight(e1, e2) => fromSMTUnifyType(e1, e2, otpe)(BVLShiftRight.apply)
-    case FixedSizeBitVectors.BV2Nat(e) => 
+    case FixedSizeBitVectors.BV2Nat(e) =>
       // we unfortunately cannot predict the type of e without translating it;
       // it will be a bitvector, but its size and signedness cannot be
-      // ascertained externally
-      BVToInt(fromSMT(e))
+      // ascertained externally. `bv2nat` reads it as unsigned.
+      val bv = fromSMT(e)
+      bv.getType match {
+        case BVType(true, _) => BVToInt(BVSignedToUnsigned(bv))
+        case _ => BVToInt(bv)
+      }
     case FixedSizeBitVectors.Int2BV(size, e) => IntToBV(
       size.bigInteger.intValueExact,
       otpe match {
         case Some(BVType(signed, _)) => signed
-        case _ => false // default to unsigned
+        case _ => true // signed by default, as bit-vector literals
       },
       fromSMT(e, IntegerType())
     )
@@ -217,6 +264,14 @@ trait SMTLIBParser {
       val newSize = (current + extend).bigInteger.intValueExact
       BVWideningCast(ast, BVType(signed, newSize))
 
+    case FixedSizeBitVectors.ZeroExtend(extend, e) =>
+      val ast = fromSMT(e)
+      val BVType(signed, current) = ast.getType: @unchecked
+      val newSize = (current + extend).bigInteger.intValueExact
+      // Widening an unsigned bit-vector extends it with zeros
+      if (signed) BVUnsignedToSigned(BVWideningCast(BVSignedToUnsigned(ast), BVType(false, newSize)))
+      else BVWideningCast(ast, BVType(false, newSize))
+
     case FixedSizeBitVectors.Extract(i, j, e) =>
       // Assume this is a Narrowing Cast, hence j must be 0
       if (j != 0) throw new MissformedSMTException(term, "Unexpected 'extract' which is not a narrowing cast")
@@ -225,6 +280,10 @@ trait SMTLIBParser {
         case _ => true
       }, (i + 1).bigInteger.intValueExact))
 
+    case _ => unhandled
+  }
+
+  protected def fromSMTFloatingPoint(term: Term, otpe: Option[Type])(using context: Context): Expr = term match {
     case FloatingPoint.Eq(t1, t2) => fromSMTUnifyType(t1, t2, None)(FPEquals.apply)
     case FloatingPoint.Add(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPAdd(fromSMT(rm, RoundingMode), e1, e2))
     case FloatingPoint.Sub(rm, t1, t2) => fromSMTUnifyType(t1, t2, otpe)((e1, e2) => FPSub(fromSMT(rm, RoundingMode), e1, e2))
@@ -264,6 +323,11 @@ trait SMTLIBParser {
     case FloatingPoint.RoundNearestTiesToEven() => RoundNearestTiesToEven
     case FloatingPoint.RoundNearestTiesToAway() => RoundNearestTiesToAway
 
+    case _ => unhandled
+  }
+
+  /** Arrays, which encode maps, sets and bags. */
+  protected def fromSMTArrays(term: Term, otpe: Option[Type])(using context: Context): Expr = term match {
     case ArraysEx.Select(e1, e2) => otpe match {
       case Some(tpe) =>
         val ex2 = fromSMT(e2)
@@ -278,7 +342,7 @@ trait SMTLIBParser {
 
     case ArraysEx.Store(e1, e2, e3) => otpe match {
       case Some(MapType(from, to)) =>
-        MapUpdated(fromSMT(e1, MapType(from, to)), fromSMT(e2, from), fromSMT(e2, to))
+        MapUpdated(fromSMT(e1, MapType(from, to)), fromSMT(e2, from), fromSMT(e3, to))
       case Some(_) =>
         throw new MissformedSMTException(term, "Unexpected non-map type for " + term)
       case None =>
@@ -290,13 +354,7 @@ trait SMTLIBParser {
       val MapType(from, to) = fromSMT(sort): @unchecked
       FiniteMap(Seq.empty, d, from, to)
 
-    case AnnotatedTerm(term, attribute, attributes) => 
-      // discard general annotations
-      fromSMT(term, otpe)
-
-    case _ => throw new MissformedSMTException(term,
-      s"Unknown SMT term of class: ${term.getClass}:\n$term"
-    )
+    case _ => unhandled
   }
 
   protected def fromSMT(sort: Sort)(using Context): Type = sort match {

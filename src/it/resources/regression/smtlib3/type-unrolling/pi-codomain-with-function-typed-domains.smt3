@@ -1,0 +1,144 @@
+; Applies functions outside of their domain, where the codomain only holds without
+; `assume-checked` (under which applications are known to lie in the domain).
+(set-option :assume-checked false)
+
+; Function-typed domains are checked at fresh arguments, without quantifiers
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+(declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
+
+(declare-const f (-> Int Int))
+; F: (g: {h: BigInt => BigInt | h(0) > 0}) => {r | r > 0}
+(declare-const F (-> (! (-> Int Int) :var h :restrict (> (h 0) 0)) PosInt))
+; G: (BigInt => {r | r > 0}) => {r | r > 0}
+(declare-const G (-> (-> Int PosInt) PosInt))
+(declare-const p (-> Int PosInt))
+; H: ((BigInt => {r | r > 0}) => {r | r > 0}) => {r | r > 0}
+(declare-const H (-> (-> (-> Int PosInt) PosInt) PosInt))
+; every function lies in (x: {y | false}) => {r | r > 0}
+(declare-const E (-> (-> (! Int :var x :restrict false) PosInt) PosInt))
+(declare-const L (-> (List (-> Int PosInt)) PosInt))
+
+; refined, inside
+(push 1)
+(assert (not (> (F (lambda ((x Int)) 1)) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; refined, outside
+(push 1)
+(assert (not (> (F (lambda ((x Int)) (- 1))) 0)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; refined, free function inside
+(push 1)
+(assert (not (=> (> (f 0) 0) (> (F f) 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; refined, free function outside
+(push 1)
+(assert (not (=> (<= (f 0) 0) (> (F f) 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; Pi, inside
+(push 1)
+(assert (not (> (G (lambda ((x Int)) 1)) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; Pi, free function inside
+(push 1)
+(assert (not (> (G p) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; Pi, outside
+(set-option :check-models false)
+(push 1)
+(assert (<= (G (lambda ((x Int)) (- 1))) 0))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-option :check-models true)
+
+; Pi, free function outside
+(set-option :check-models false)
+(push 1)
+(assert (<= (G f) 0))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-option :check-models true)
+
+; Pi, counterexample inside
+(set-option :check-models false)
+(push 1)
+(assert (> (G p) 5))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-option :check-models true)
+
+; higher-order, inside
+(push 1)
+(assert (not (> (H (lambda ((k (-> Int PosInt))) (k 0))) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; higher-order, outside
+(set-option :check-models false)
+(push 1)
+(assert (<= (H (lambda ((k (-> Int PosInt))) (- (k 0) 1))) 0))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-option :check-models true)
+
+; empty domain
+(push 1)
+(assert (not (> (E f) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; empty domain, counterexample
+(set-option :check-models false)
+(push 1)
+(assert (> (E f) 5))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-option :check-models true)
+
+; ADT, fieldless constructor
+(push 1)
+(assert (not (> (L (as Nil (List (-> Int PosInt)))) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; ADT, inside
+(push 1)
+(assert (not (> (L (Cons (lambda ((x Int)) 1) (Cons (lambda ((x Int)) 2) (as Nil (List (-> Int PosInt)))))) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; ADT, outside
+(set-option :check-models false)
+(push 1)
+(assert (<= (L (Cons (lambda ((x Int)) 1) (Cons (lambda ((x Int)) (- 1)) (as Nil (List (-> Int PosInt)))))) 0))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-option :check-models true)

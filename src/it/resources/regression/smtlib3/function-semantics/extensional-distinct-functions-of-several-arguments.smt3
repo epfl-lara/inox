@@ -1,0 +1,7 @@
+(set-option :function-equality extensional)
+(set-info :status sat)
+(declare-const f (-> Int Int Int))
+(declare-const g (-> Int Int Int))
+(assert (not (= f g)))
+(assert (= (f 0 0) (g 0 0)))
+(check-sat)

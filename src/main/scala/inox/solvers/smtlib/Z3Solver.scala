@@ -19,8 +19,22 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
     super.isResourceOutReason(reason) ||
     (context.options.findOptionOrDefault(optZ3Rlimit) > 0 && reason.toLowerCase.contains("canceled"))
 
-  protected lazy val evaluator: evaluators.DeterministicEvaluator { val program: self.program.type } =
-    semantics.getEvaluator(using context.withOpts(evaluators.optIgnoreContracts(true)))
+  // Completes the solver's models, in which function values are compared as such. The evaluation
+  // of a huge model stops when the solver is interrupted (see `RecursiveEvaluator.e`).
+  protected lazy val evalContext: inox.Context =
+    context.copy(interruptManager = new inox.utils.InterruptManager(context.reporter)).withOpts(
+      evaluators.optIgnoreContracts(true),
+      unrolling.optFunctionEquality(unrolling.FunctionEquality.Intensional))
+
+  override def interrupt(): Unit = {
+    super.interrupt()
+    if (!evalContext.interruptManager.isInterrupted) evalContext.interruptManager.interrupt()
+  }
+
+  override def reset(): Unit = {
+    super.reset()
+    if (evalContext.interruptManager.isInterrupted) evalContext.interruptManager.reset()
+  }
 
   // XXX @nv: Sometimes Z3 doesn't return fully evaluated models so we make sure to
   //          bring them into some normal form after extraction
@@ -30,8 +44,11 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
     assumptions: Set[Expr]
   ): config.Response[Model, Assumptions] = config.cast(super.extractResponse(config, res, assumptions) match {
     case SatWithModel(model) =>
-      val evaluations = model.vars.map { case (k, v) => k -> evaluator.eval(v).result }
-      SatWithModel(inox.Model(program)(
+      val evaluator = semantics.getEvaluator(using evalContext)
+      // An interrupted solver gives up on its model, whose answer is discarded anyway
+      val evaluations = model.vars.iterator.takeWhile(_ => !aborted).map { case (k, v) => k -> evaluator.eval(v).result }.toMap
+      if (aborted) Unknown
+      else SatWithModel(inox.Model(program)(
         evaluations.collect { case (k, Some(v)) => k -> v },
         model.chooses
       ))

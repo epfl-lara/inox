@@ -33,17 +33,50 @@ class Parser(reader: Reader, file: Option[File]) {
     pos.map(p => positions.get(p.line, p.col)).getOrElse(NoPosition)
   }
 
-  def parseScript: Seq[(InoxProgram, Expr)] = {
-    val parser = new TipParser(new TipLexer(positions.reader))
-    val script = parser.parseScript
+  def parseScript: Seq[(InoxProgram, Expr)] = parseQueries.map(q => (q.program, q.expr))
+
+  /** The queries of the script, one per `check-sat`, with the infos and options set before them.
+    *
+    * `push` and `pop` scope the assertions and declarations, but not the infos and options, which
+    * keep their last value as in SMT-LIB. */
+  def parseQueries: Seq[Parser.Query] = {
+    val script = newParser(positions.reader).parseScript
 
     var assertions: Seq[Expr] = Seq.empty
     var locals: Locals = NoLocals
+    var scopes: List[(Seq[Expr], Locals, Any)] = Nil
+    var infos: Map[String, String] = Map.empty
+    var options: Map[String, String] = Map.empty
 
     (for (cmd <- script.commands) yield cmd match {
       case CheckSat() =>
         val expr: Expr = andJoin(assertions)
-        Some((InoxProgram(locals.symbols), expr))
+        Some(Parser.Query(InoxProgram(locals.symbols), expr, infos, options, smtlibPositionToPosition(cmd.optPos)))
+
+      case Push(n) =>
+        for (_ <- 0 until n) scopes = (assertions, locals, saveScope()) :: scopes
+        None
+
+      case Pop(n) =>
+        if (n > scopes.size) {
+          throw new MissformedTIPException(s"can't pop $n scopes, only ${scopes.size} pushed", cmd.optPos)
+        }
+        for (_ <- 0 until n) {
+          val (as, ls, state) = scopes.head
+          assertions = as
+          locals = ls
+          restoreScope(state)
+          scopes = scopes.tail
+        }
+        None
+
+      case SetInfo(Attribute(SKeyword(key), value)) =>
+        infos += key -> attributeValue(value)
+        None
+
+      case SetOption(AttributeOption(Attribute(SKeyword(key), value))) =>
+        options += key -> attributeValue(value)
+        None
 
       case _ =>
         val (newAssertions, newLocals) = extractCommand(cmd)(using locals)
@@ -52,6 +85,24 @@ class Parser(reader: Reader, file: Option[File]) {
         None
     }).flatten
   }
+
+  private def attributeValue(value: Option[AttributeValue]): String = value match {
+    case None => "true"
+    case Some(SSymbol(name)) => name
+    case Some(SString(str)) => str
+    case Some(SNumeral(n)) => n.toString
+    case Some(v) => v.toString
+  }
+
+  /** Parser state outside of [[Locals]] that `push` and `pop` scope. */
+  protected def saveScope(): Any = ()
+  protected def restoreScope(state: Any): Unit = ()
+
+  /** The S-expression parser used by [[parseScript]]; subclasses may extend the input syntax. */
+  protected def newParser(reader: Reader): TipParser = new TipParser(new TipLexer(reader))
+
+  /** The term extractor used by [[Locals]]; subclasses may extend the supported terms and sorts. */
+  protected def newExtractor(symbols: Symbols): TermExtractor = new TermExtractor(symbols)
 
   protected class Locals (
     funs: Map[SSymbol, Identifier],
@@ -124,7 +175,7 @@ class Parser(reader: Reader, file: Option[File]) {
 
     def withSymbols(symbols: Symbols) = new Locals(funs, sorts, constructors, selectors, vars, tps, symbols)
 
-    object extractor extends TermExtractor(self.symbols)
+    lazy val extractor: TermExtractor = newExtractor(self.symbols)
 
     def extractTerm(term: Term): Expr = extractor.extractTerm(term)(using this)
     def extractSort(sort: Sort): Type = extractor.extractSort(sort)(using this)
@@ -306,7 +357,7 @@ class Parser(reader: Reader, file: Option[File]) {
       throw new MissformedTIPException("unknown TIP command " + cmd, cmd.optPos)
   }
 
-  private def extractSignature(fd: FunDec, tps: Seq[SSymbol])(using locals: Locals): FunDef = {
+  protected def extractSignature(fd: FunDec, tps: Seq[SSymbol])(using locals: Locals): FunDef = {
     assert(!locals.isFunction(fd.name))
     val id = FreshIdentifier(fd.name.name)
     val tparams = tps.map(sym => TypeParameterDef(locals.getGeneric(sym)).setPos(sym.optPos))
@@ -321,11 +372,11 @@ class Parser(reader: Reader, file: Option[File]) {
     new FunDef(id, tparams, params, returnType, body, Seq.empty).setPos(fd.name.optPos)
   }
 
-  private def extractSignature(fd: SMTFunDef, tps: Seq[SSymbol])(using locals: Locals): FunDef = {
+  protected def extractSignature(fd: SMTFunDef, tps: Seq[SSymbol])(using locals: Locals): FunDef = {
     extractSignature(FunDec(fd.name, fd.params, fd.returnSort), tps)
   }
 
-  private def extractFunction(fd: SMTFunDef, tps: Seq[SSymbol])(using locals: Locals): FunDef = {
+  protected def extractFunction(fd: SMTFunDef, tps: Seq[SSymbol])(using locals: Locals): FunDef = {
     val sig = if (locals.isFunction(fd.name)) {
       locals.symbols.getFunction(locals.getFunction(fd.name))
     } else {
@@ -341,7 +392,7 @@ class Parser(reader: Reader, file: Option[File]) {
     new FunDef(sig.id, sig.tparams, sig.params, sig.returnType, fullBody, Seq.empty).setPos(fd.name.optPos)
   }
 
-  private def isConstructorSymbol(sym: SSymbol)(using locals: Locals): Option[Identifier] = {
+  protected def isConstructorSymbol(sym: SSymbol)(using locals: Locals): Option[Identifier] = {
     if (sym.name.startsWith("is-")) {
       val adtSym = SSymbol(sym.name.split("-").tail.mkString("-"))
       locals.lookupConstructor(adtSym)
@@ -350,7 +401,7 @@ class Parser(reader: Reader, file: Option[File]) {
     }
   }
 
-  private def instantiateTypeParams(tps: Seq[TypeParameterDef], formals: Seq[Type], actuals: Seq[Type])
+  protected def instantiateTypeParams(tps: Seq[TypeParameterDef], formals: Seq[Type], actuals: Seq[Type])
                                    (using locals: Locals): Seq[Type] = {
     assert(formals.size == actuals.size)
 
@@ -375,8 +426,8 @@ class Parser(reader: Reader, file: Option[File]) {
     }
   }
 
-  class TermExtractor private(override val trees: inox.trees.type,
-                              override val symbols: Symbols) extends solvers.smtlib.SMTLIBParser {
+  class TermExtractor protected(override val trees: inox.trees.type,
+                                override val symbols: Symbols) extends solvers.smtlib.SMTLIBParser {
     def this(symbols: Symbols) = this(inox.trees, symbols)
 
     import trees.{given, _}
@@ -599,6 +650,17 @@ class Parser(reader: Reader, file: Option[File]) {
 }
 
 object Parser {
+  /** A `check-sat` query of a script.
+    *
+    * @param infos   the values of the `set-info` attributes before the query, e.g. `status`
+    * @param options the values of the `set-option` attributes before the query
+    */
+  case class Query(program: InoxProgram, expr: inox.trees.Expr, infos: Map[String, String],
+                   options: Map[String, String], pos: Position) {
+    /** The expected status, `sat`, `unsat` or `unknown`, if the script gives one. */
+    def status: Option[String] = infos.get("status")
+  }
+
   def apply(file: File): Parser = Parser(new FileReader(file), Some(file))
   def apply(reader: Reader, file: Option[File] = None): Parser = new Parser(reader, file)
 }

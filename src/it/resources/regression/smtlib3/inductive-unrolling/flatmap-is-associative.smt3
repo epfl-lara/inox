@@ -1,0 +1,37 @@
+(set-info :status unsat)
+(declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
+(declare-type-var A)
+(declare-type-var B)
+(declare-type-var C)
+; appendNoSpec has no postcondition, so that Princess does not get bogged down in quantifier
+; instantiations due to the set encoding
+(define-fun-rec appendNoSpec ((l1 (List A)) (l2 (List A))) (List A)
+  (ite ((_ is Cons) l1) (Cons (head l1) (appendNoSpec (tail l1) l2)) l2))
+(define-fun-rec flatMap ((l (List A)) (f (-> A (List B)))) (List B)
+  (ite ((_ is Cons) l) (appendNoSpec (f (head l)) (flatMap (tail l) f)) (as Nil (List B))))
+(define-fun-rec associative_lemma ((l1 (List A)) (l2 (List B)) (l3 (List C)) (f (-> A (List B))) (g (-> B (List C)))) Bool
+  (and
+    (ite ((_ is Cons) l3) (assume (associative_lemma l1 l2 (tail l3) f g) true)
+      (ite ((_ is Cons) l2) (assume (associative_lemma l1 (tail l2) (g (head l2)) f g) true)
+        (ite ((_ is Cons) l1) (assume (associative_lemma (tail l1) (f (head l1)) (as Nil (List C)) f g) true)
+          true)))
+    (= (appendNoSpec l3 (flatMap (appendNoSpec l2 (flatMap l1 f)) g))
+       (appendNoSpec (appendNoSpec l3 (flatMap l2 g)) (flatMap l1 (lambda ((x A)) (flatMap (f x) g)))))))
+(declare-type T1 ())
+(declare-type T2 ())
+(declare-type T3 ())
+(declare-const l1 (List T1))
+(declare-const l2 (List T2))
+(declare-const l3 (List T3))
+(declare-const f (-> T1 (List T2)))
+(declare-const g (-> T2 (List T3)))
+; the body of associative_lemma is valid, given the assumed recursive calls
+(assert (not
+  (and
+    (ite ((_ is Cons) l3) (assume (associative_lemma l1 l2 (tail l3) f g) true)
+      (ite ((_ is Cons) l2) (assume (associative_lemma l1 (tail l2) (g (head l2)) f g) true)
+        (ite ((_ is Cons) l1) (assume (associative_lemma (tail l1) (f (head l1)) (as Nil (List T3)) f g) true)
+          true)))
+    (= (appendNoSpec l3 (flatMap (appendNoSpec l2 (flatMap l1 f)) g))
+       (appendNoSpec (appendNoSpec l3 (flatMap l2 g)) (flatMap l1 (lambda ((x T1)) (flatMap (f x) g))))))))
+(check-sat)

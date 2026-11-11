@@ -1,0 +1,37 @@
+(define-type NonZero () (! Int :var y :restrict (not (= y 0))))
+; pre(a) = { assume(a != 0); true }, similarly to a Stainless `require`
+(define-fun pre ((a Int)) Bool (assume (not (= a 0)) true))
+
+; (a: {y | y != 0}, {b: BigInt | pre(a) && b > 0})
+(define-type T () (Tuple (! NonZero :var a) (! Int :var b :restrict (and (pre a) (> b 0)))))
+
+; in domain
+(push 1)
+(declare-const g (-> (Tuple Int Int) Int))
+(assert (not (=> (forall ((w T)) (= (g w) 1)) (= (g (tuple 2 1)) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; parameter outside domain
+(push 1)
+(declare-const g (-> (Tuple Int Int) Int))
+(assert (not (=> (forall ((w T)) (= (g w) 1)) (= (g (tuple 0 1)) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; last component outside domain
+(push 1)
+(declare-const g (-> (Tuple Int Int) Int))
+(assert (not (=> (forall ((w T)) (= (g w) 1)) (= (g (tuple 2 0)) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; holds
+(push 1)
+(assert (not (forall ((w T)) (and (not (= ((_ tuple.select 0) w) 0)) (> ((_ tuple.select 1) w) 0)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

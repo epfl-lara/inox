@@ -2,6 +2,17 @@ name: Stainless downstream CI
 
 on:
   workflow_dispatch:
+    inputs:
+      ignore_skip:
+        description: 'Ignore the "Stainless: skip" commit lines and run all Stainless tests'
+        type: boolean
+        required: false
+        default: false
+      false_benchmarks:
+        description: 'Also run the false-valid / false-invalid benchmarks (known Stainless issues, skipped by default)'
+        type: boolean
+        required: false
+        default: false
   pull_request:
   push:
     branches:
@@ -10,25 +21,67 @@ on:
 permissions:
   contents: read
 
+# Cancel a pull request's superseded runs when new commits are pushed.
+# Runs on main are never cancelled, so every merge still gets a result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # An Inox change that breaks Stainless until Stainless is updated for it can
+  # skip all or some of the Stainless tests with a `Stainless: skip` line in a
+  # commit message. The line applies until Stainless main bumps Inox past that
+  # commit (see .github/scripts/stainless-skip.sh).
+  check-skip:
+    runs-on: ubuntu-latest
+    outputs:
+      stainless: ${{ steps.check.outputs.stainless }}
+      all: ${{ steps.check.outputs.all }}
+      benchmarks: ${{ steps.check.outputs.benchmarks }}
+    steps:
+    - name: Checkout Inox
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+    - name: Find the Stainless skip lines that Stainless hasn't picked up
+      id: check
+      # The job summary lists the skipped tests and the commits that skip them.
+      # A pull request build checks out the merge of the pull request into
+      # main, so the summary can tell the commits of the pull request apart.
+      run: |
+        if [ "$IGNORE_SKIP" != true ]; then export SKIP_REPORT="$GITHUB_STEP_SUMMARY"; fi
+        .github/scripts/stainless-skip.sh
+      env:
+        IGNORE_SKIP: ${{ inputs.ignore_skip }}
+        INOX_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+
   tests:
+    needs: check-skip
+    if: inputs.ignore_skip || needs.check-skip.outputs.all != 'true'
     runs-on:
       labels: [self-hosted, linux]
     env:
       JAVA_OPTS: -Dsbt.io.implicit.relative.glob.conversion=allow -Xss512M -Xms1024M -Xmx12G -XX:MaxMetaspaceSize=2G -XX:+UseCodeCacheFlushing -XX:ReservedCodeCacheSize=768M
-      JVM_OPTS: -Dsbt.io.implicit.relative.glob.conversion=allow -Xss512M -Xms1024M -Xmx12G -XX:MaxMetaspaceSize=2G -XX:+UseCodeCacheFlushing -XX:ReservedCodeCacheSize=768M
       JAVA_OPTS_TMP_DIR: /tmp/tmp_${{ github.run_id }}_${{ github.run_attempt }}
       INOX_DIR: ${{ github.workspace }}/inox
       STAINLESS_DIR: ${{ github.workspace }}/stainless
     steps:
     - name: Checkout Inox
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         path: inox
+    # The self-hosted runners keep the workspace between runs. Checkout's
+    # post-step can't remove the auth header it set in the inox submodule's
+    # git config once the next step replaces that submodule, and a stale header
+    # makes the next submodule fetch fail with "Duplicate header:
+    # Authorization". Start from a fresh clone instead.
+    - name: Remove previous Stainless checkout
+      run: rm -rf "$STAINLESS_DIR"
     - name: Checkout Stainless
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: epfl-lara/stainless
+        ref: ${{ needs.check-skip.outputs.stainless }}
         path: stainless
         submodules: recursive
     - name: Update Stainless Inox checkout
@@ -36,15 +89,46 @@ jobs:
         rm -rf "$STAINLESS_DIR/inox"
         mkdir -p "$STAINLESS_DIR/inox"
         rsync -a --delete --exclude='.git' "$INOX_DIR/" "$STAINLESS_DIR/inox/"
+    - name: Skip false-valid / false-invalid benchmarks
+      # These directories hold programs Stainless is known to get wrong: the
+      # suites expect the wrong verdict, so an Inox fix that makes Stainless
+      # answer correctly turns them red. They track Stainless issues, not Inox
+      # regressions, so they shouldn't block Inox changes. Removing the
+      # programs makes the suites (and DottyExtractionSuite) register no tests
+      # for them.
+      if: ${{ !inputs.false_benchmarks }}
+      working-directory: ${{ env.STAINLESS_DIR }}/frontends/benchmarks
+      run: |
+        rm -fv verification/false-valid/*.scala termination/false-invalid/*.scala
+    - name: Skip the benchmarks named by Stainless skip lines
+      if: ${{ !inputs.ignore_skip && needs.check-skip.outputs.benchmarks != '' }}
+      working-directory: ${{ env.STAINLESS_DIR }}/frontends/benchmarks
+      env:
+        BENCHMARKS: ${{ needs.check-skip.outputs.benchmarks }}
+      run: |
+        shopt -s nullglob
+        while read -r glob; do
+          if [ -z "$glob" ]; then continue; fi
+          matches=($glob)
+          if [ "${#matches[@]}" -eq 0 ]; then
+            echo "::warning::'Stainless: skip $glob' matches no benchmark."
+          else
+            rm -rfv "${matches[@]}"
+          fi
+        done <<< "$BENCHMARKS"
     - name: Setup JDK
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@v6
       with:
         distribution: temurin
         java-version: 17
     - name: Setup java options
+      # The runners share one machine, with each other and with its users. Without
+      # -XX:ActiveProcessorCount, each JVM sizes its GC threads, its JIT threads and its default
+      # thread pools for all the processors of the machine. The option replaces the number of
+      # processors that the JVM detects, even with a larger one, hence the minimum with nproc.
       run: |
-          echo "JAVA_OPTS=$JAVA_OPTS -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR" >> "$GITHUB_ENV" && \
-          echo "JVM_OPTS=$JVM_OPTS -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR" >> "$GITHUB_ENV" && \
+          PROCESSORS=$(( $(nproc) < 16 ? $(nproc) : 16 )) && \
+          echo "JAVA_OPTS=$JAVA_OPTS -XX:ActiveProcessorCount=$PROCESSORS -Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR" >> "$GITHUB_ENV" && \
           echo "SBT_OPTS=-Djava.io.tmpdir=$JAVA_OPTS_TMP_DIR --sbt-dir $JAVA_OPTS_TMP_DIR" >> "$GITHUB_ENV"
     - name: Creating temp folder
       run: rm -rf "$JAVA_OPTS_TMP_DIR" && mkdir -p "$JAVA_OPTS_TMP_DIR" && chmod 777 "$JAVA_OPTS_TMP_DIR"
@@ -55,10 +139,10 @@ jobs:
         tar xfz sbt-1.10.1.tgz
         echo "PATH=$STAINLESS_DIR/sbt/bin:$PATH" >> "$GITHUB_ENV"
     - name: Install solvers
-      working-directory: ${{ env.STAINLESS_DIR }}
-      run: ./stainless-ci.sh --install-solvers "$GITHUB_WORKSPACE/.local/bin"
-    - name: Add solvers to PATH
-      run: echo "$GITHUB_WORKSPACE/.local/bin" >> "$GITHUB_PATH"
+      # Inox is checked out under inox/, so its actions are too
+      uses: ./inox/.github/actions/install-solvers
+      with:
+        stainless-dir: stainless
     - name: Test solvers availability
       run: cvc5 --version && z3 --version && cvc4 --version
     - name: Build and Package
@@ -71,4 +155,6 @@ jobs:
       working-directory: ${{ env.STAINLESS_DIR }}
       run: ./stainless-ci.sh --skip-build --skip-tests --skip-bolts
     - name: Clean up
-      run: rm -rf "$JAVA_OPTS_TMP_DIR"
+      # Even after a failure, a timeout or a cancellation, so that jobs don't fill the runners' disk
+      if: always()
+      run: rm -rf "${JAVA_OPTS_TMP_DIR:?}"

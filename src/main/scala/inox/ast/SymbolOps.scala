@@ -11,6 +11,13 @@ import transformers._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 object SymbolOps {
+  /** Whether `simplestValue` may run a solver to find a value of a sort with an invariant.
+    *
+    * It is turned off in the context of that solver, so that extracting its model doesn't start
+    * another solver, and so on without end.
+    */
+  private object optSimplestValueSolver extends FlagOptionDef("simplest-value-solver", true)
+
   private val identifiers = new scala.collection.mutable.ArrayBuffer[Identifier]
   def getId(index: Int): Identifier = synchronized {
     for (i <- identifiers.size to index) identifiers += FreshIdentifier("x", true)
@@ -230,7 +237,8 @@ trait SymbolOps extends TypeOps { self =>
   def isImpureExpr(expr: Expr): Boolean = expr match {
     case Assume(BooleanLiteral(true), _) => false
     case Choose(res, BooleanLiteral(true)) if hasInstance(res.tpe) == Some(true) => false
-    case (_: Assume) | (_: Choose) | (_: Application) |
+    case uc: UninterpretedCall => hasInstance(uc.getTpe(stripRefinements = false)) != Some(true)
+    case (_: Assume) | (_: Choose) | (_: Error) | (_: Application) |
          (_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector) => true
     case adt: ADT => adt.getConstructor.sort.definition.hasInvariant
     case _ => false
@@ -300,13 +308,17 @@ trait SymbolOps extends TypeOps { self =>
     * @param inFunction Determines whether normalization is called on a function. If
     *                   not, then normalization can normalize impure expressions when
     *                   the path-condition is empty.
+    * @param preserveArgTypes Determines whether the declared (possibly refined) types of `args`
+    *                   are kept in the normalized bindings. This is required for quantifiers,
+    *                   where refinements restrict the quantification domain.
     */
   def normalizeStructure(
     args: Seq[ValDef],
     expr: Expr,
     preserveApps: Boolean,
     onlySimple: Boolean,
-    inFunction: Boolean
+    inFunction: Boolean,
+    preserveArgTypes: Boolean
   )(using opts: PurityOptions): (Seq[ValDef], Expr, Seq[(Variable, Expr, Seq[Expr])]) = {
 
     val subst: MutableMap[Variable, (Expr, Seq[Expr])] = MutableMap.empty
@@ -365,16 +377,19 @@ trait SymbolOps extends TypeOps { self =>
           val newPred = transformExpr(vars + vd.toVariable, pred, inFunction, path)
           RefinementType(newVd, newPred)
         case SigmaType(params, to) =>
-          val toVars = typeOps.variablesOf(to)
-          val newParams = params.map { vd =>
-            if (toVars(vd.toVariable)) transformVal(vars, vd, inFunction, path)
-            else transformVar(vd.toVariable).toVal
+          // The parameter types are kept even when `to` doesn't depend on them, as they constrain the tuple
+          val newParams = params.zipWithIndex.map { (vd, i) =>
+            transformVal(vars ++ params.take(i).map(_.toVariable), vd, inFunction, path)
           }
           val newTo = transformType(vars ++ params.map(_.toVariable), to, inFunction, path)
           SigmaType(newParams, newTo)
         case PiType(params, to) =>
+          // The parameter types are kept, as they define the domain on which `to` holds
+          val newParams = params.zipWithIndex.map { (vd, i) =>
+            transformVal(vars ++ params.take(i).map(_.toVariable), vd, true, path)
+          }
           val newTo = transformType(vars ++ params.map(_.toVariable), to, true, path)
-          PiType(params map (vd => transformVar(vd.toVariable).toVal), newTo)
+          PiType(newParams, newTo)
         case NAryType(tps, recons) =>
           recons(tps.map(rec))
       }
@@ -396,8 +411,17 @@ trait SymbolOps extends TypeOps { self =>
         (tvs & allBoundVars).isEmpty && (unconditional || (pathFreeVars & allBoundVars).isEmpty)
       }
 
-      def containsChoose(e: Expr): Boolean =
-        exists { case c: Choose => true case _ => false } (e)
+      // Uninterpreted calls are never lifted either, so that closures that call distinct
+      // uninterpreted functions remain distinct. Lifting a lambda doesn't evaluate its body, so
+      // the calls and errors in it don't prevent lifting (e.g. a lambda of a model, `x => f(x)`).
+      def containsChoose(e: Expr): Boolean = {
+        def rec(e: Expr): Boolean = e match {
+          case _: Choose | _: UninterpretedCall | _: Error => true
+          case Lambda(_, body) => exists { case _: Choose => true case _ => false } (body)
+          case Operator(es, _) => es.exists(rec)
+        }
+        rec(e)
+      }
 
       def containsRecursive(e: Expr): Boolean =
         exists { case fi: FunctionInvocation => fi.tfd.fd.isRecursive case _ => false } (e)
@@ -407,7 +431,7 @@ trait SymbolOps extends TypeOps { self =>
           // The set of minimal conditions that must be met for an expression to be liftable
           val minimal =
             (isSimple(e) || !onlySimple)           && // check whether we want only simple expression
-            !containsChoose(e)                     && // expressions containing chooses can't be lifted
+            !containsChoose(e)                     && // expressions containing chooses or errors can't be lifted
             (!inFunction || !containsRecursive(e))    // recursive functions can't be lifted from lambdas
 
           // Whether the expression is guaranteed to be called, typically in foralls
@@ -525,6 +549,15 @@ trait SymbolOps extends TypeOps { self =>
       )
     }
 
+    if (preserveArgTypes) {
+      // Register the arguments with their (normalized) declared types before transforming
+      // the body, as `transformVar` would otherwise only keep their underlying types.
+      args.foldLeft(Set.empty[Variable]) { (vars, vd) =>
+        transformVal(vars, vd, inFunction, Path.empty)
+        vars + vd.toVariable
+      }
+    }
+
     val newExpr = transformExpr(args.map(_.toVariable).toSet, expr, inFunction, Path.empty)
     val bindings = args map (vd => transformVar(vd.toVariable).toVal)
 
@@ -546,47 +579,53 @@ trait SymbolOps extends TypeOps { self =>
   }
 
   /** Wrapper around
-    * [[normalizeStructure(args:Seq[SymbolOps\.this\.trees\.ValDef],expr:SymbolOps\.this\.trees\.Expr,preserveApps:Boolean,onlySimple:Boolean,inFunction:Boolean)* normalizeStructure]]
+    * [[normalizeStructure(args:Seq[SymbolOps\.this\.trees\.ValDef],expr:SymbolOps\.this\.trees\.Expr,preserveApps:Boolean,onlySimple:Boolean,inFunction:Boolean,preserveArgTypes:Boolean)* normalizeStructure]]
     * that is tailored for structural equality of [[Expressions.Lambda Lambda]] and [[Expressions.Forall Forall]] instances.
     */
   def normalizeStructure(e: Expr, onlySimple: Boolean = false)
                         (using PurityOptions): (Expr, Seq[(Variable, Expr, Seq[Expr])]) = freshenLocals(e) match {
     case lambda: Lambda =>
-      val (args, body, subst) = normalizeStructure(lambda.params, lambda.body, false, onlySimple, true)
+      val (args, body, subst) = normalizeStructure(lambda.params, lambda.body, false, onlySimple, true, false)
       (Lambda(args, body), subst)
 
     case forall: Forall =>
       val isInstantiated = forall.params.forall(vd => hasInstance(vd.tpe) == Some(true))
-      val (args, body, subst) = normalizeStructure(forall.params, forall.body, true, onlySimple, !isInstantiated)
+      val (args, body, subst) = normalizeStructure(forall.params, forall.body, true, onlySimple, !isInstantiated, true)
       (Forall(args, body), subst)
 
     case _ =>
-      val (_, body, subst) = normalizeStructure(Seq(), e, false, onlySimple, false)
+      val (_, body, subst) = normalizeStructure(Seq(), e, false, onlySimple, false, false)
       (body, subst)
   }
 
-  /** Ensures the closure `res` can only be equal to some other closure if they share the same
-    * integer identifier `id`. This method makes sure this property is preserved after going through
-    * [[normalizeStructure(e:SymbolOps\.this\.trees\.Expr,onlySimple:Boolean)*]]. */
-  def uniquateClosure(id: Int, res: Lambda)(using PurityOptions): Lambda = {
-    def allArgs(l: Lambda): Seq[ValDef] = l.params ++ (l.body match {
-      case l2: Lambda => allArgs(l2)
-      case _ => Seq.empty
-    })
+  /** A closure that calls the uninterpreted function `id`, whose value is `res`, so that it is only
+    * equal to the closures that call `id`. The model must give `res` for `id` at no type arguments,
+    * and the call is never lifted out of the closure (see
+    * [[normalizeStructure(e:SymbolOps\.this\.trees\.Expr,onlySimple:Boolean)*]]), so distinct
+    * closures remain distinct. */
+  def uniquateClosure(id: Identifier, res: Lambda): Lambda = {
+    val params = res.params.map(_.freshen)
+    val closure = Lambda(params, UninterpretedCall(id, Seq.empty, params.map(_.toVariable), res.getType))
+    // The closures that call `id` are then equal, whatever the names of their parameters
+    normalizeStructure(closure)(using PurityOptions.unchecked)._1.asInstanceOf[Lambda]
+  }
 
-    val resArgs = allArgs(res)
-    val unique = if (resArgs.isEmpty) res else {
-      /* @nv: This is a hack to ensure that the notion of equality we define on closures
-       *      is respected by those returned by the model. */
-      Lambda(res.params, Let(
-        ValDef.fresh("id", tupleTypeWrap(List.fill(id)(resArgs.head.getType))),
-        tupleWrap(List.fill(id)(resArgs.head.toVariable)),
-        res.body
-      ))
+  /** Inlines the uninterpreted functions that `chooses` give in `expr`, including in its types, such
+    * as those that the closures of models call (see [[uniquateClosure]]), for solvers that don't see
+    * the model. */
+  def inlineUninterpreted(expr: Expr, chooses: Map[(Identifier, Seq[Type]), Expr]): Expr = {
+    class Inliner(seen: Set[(Identifier, Seq[Type])]) extends trees.ConcreteSelfTreeTransformer {
+      override def transform(e: Expr): Expr = e match {
+        case UninterpretedCall(id, tps, args, _) if !seen(id -> tps) => chooses.get(id -> tps) match {
+          case Some(l: Lambda) if l.params.size == args.size =>
+            val body = new Inliner(seen + (id -> tps)).transform(l.body)
+            freshenLocals((l.params zip args.map(transform)).foldRight(body) { case ((vd, arg), b) => Let(vd, arg, b) })
+          case _ => super.transform(e)
+        }
+        case _ => super.transform(e)
+      }
     }
-
-    val (nl, subst) = normalizeStructure(unique)
-    replaceFromSymbols(subst.map { case (v, e, _) => v -> e }.toMap, nl).asInstanceOf[Lambda]
+    new Inliner(Set.empty).transform(expr)
   }
 
   /** Generates an instance of type `tpe` such that the following holds:
@@ -606,9 +645,9 @@ trait SymbolOps extends TypeOps { self =>
       val (0, args) = tps.foldLeft((i, Seq[Expr]())) {
         case ((i, args), tpe) => typeCardinality(tpe) match {
           case Some(card) =>
-            val fieldCard = i min card
-            val arg = constructExpr(fieldCard, tpe)
-            (i - fieldCard, args :+ arg)
+            // `i` is written in a mixed radix, with one digit per field of finite cardinality
+            val arg = constructExpr(i % card, tpe)
+            (i / card, args :+ arg)
 
           case None =>
             val arg = constructExpr(i, tpe)
@@ -631,14 +670,14 @@ trait SymbolOps extends TypeOps { self =>
       val (ni, cons) = rec(i, sort.constructors.sortBy(constructorCardinality(_).getOrElse(Int.MaxValue)))
       ADT(cons.id, cons.tps, {
         if (cons.fields.isEmpty) Seq()
-        else unwrapTuple(constructExpr(i, tupleTypeWrap(cons.fields.map(_.getType))), cons.fields.size)
+        else unwrapTuple(constructExpr(ni, tupleTypeWrap(cons.fields.map(_.getType))), cons.fields.size)
       })
 
     case SetType(base) => typeCardinality(base) match {
       case None => FiniteSet(Seq(constructExpr(i, base)), base)
-      case Some(card) if card > i => FiniteSet(Seq(constructExpr(i, base)), base)
       case Some(card) =>
-        def rec(i: Int, c: Int): Seq[Expr] = {
+        // the set's elements are the bits of `i` that are set
+        def rec(i: Int, c: Int): Seq[Expr] = if (i == 0) Seq.empty else {
           val elem = if (i % 2 == 0) None else Some(constructExpr(c, base))
           elem.toSeq ++ rec(i / 2, c + 1)
         }
@@ -657,7 +696,7 @@ trait SymbolOps extends TypeOps { self =>
       case (Some(i1), Some(i2)) =>
         val dfltIndex = i % i2
         val default = constructExpr(dfltIndex, to)
-        def rec(i: Int, c: Int): Seq[(Expr, Expr)] = {
+        def rec(i: Int, c: Int): Seq[(Expr, Expr)] = if (i == 0) Seq.empty else {
           val elem = if (i % i2 == 0) None else {
             val mod = (i % i2) - 1
             val index = if (mod == dfltIndex) i2 - 1 else mod
@@ -677,8 +716,12 @@ trait SymbolOps extends TypeOps { self =>
       Lambda(Seq.empty, constructExpr(i, to))
 
     case FunctionType(from, to) =>
-      val l = Lambda(from.map(tpe => ValDef.fresh("x", tpe, true)), constructExpr(0, to))
-      uniquateClosure(i, l)(using PurityOptions.unchecked)
+      // The closures are told apart by the arity of a tuple over their first parameter
+      val params = from.map(tpe => ValDef.fresh("x", tpe, true))
+      val id = ValDef.fresh("id", tupleTypeWrap(List.fill(i)(params.head.getType)))
+      val l = Lambda(params, Let(id, tupleWrap(List.fill(i)(params.head.toVariable)), constructExpr(0, to)))
+      val (nl, subst) = normalizeStructure(l)(using PurityOptions.unchecked)
+      replaceFromSymbols(subst.map { case (v, e, _) => v -> e }.toMap, nl)
   }
 
   /* Inline lambda lets that appear in forall bodies. For example,
@@ -708,6 +751,52 @@ trait SymbolOps extends TypeOps { self =>
     rec(e, Map.empty, false)
   }
 
+  /** Decides which functions [[simplifyForalls]] inlines: those reachable from the formula that
+    * contain a quantifier outside assumptions and are not (mutually) recursive. Calls are followed
+    * through ADT equalities, which count as calls to the sort's equality function.
+    *
+    * The call edges and the per-function decision only depend on the symbols, so they are cached
+    * here instead of being recomputed for every formula. */
+  private object forallInlining {
+    import java.util.concurrent.ConcurrentHashMap
+
+    private val callees = new ConcurrentHashMap[Identifier, Set[Identifier]]
+    private val inlinable = new ConcurrentHashMap[Identifier, java.lang.Boolean]
+
+    private def calleesOf(id: Identifier): Set[Identifier] =
+      callees.computeIfAbsent(id, id => exprOps.collect[Identifier] {
+        case fi: FunctionInvocation => Set(fi.id)
+        case Equals(IsTyped(_, adt: ADTType), _) if adt.getSort.hasEquality => Set(adt.getSort.equality.get.id)
+        case _ => Set.empty
+      } (getFunction(id).fullBody))
+
+    /** The functions in `roots` and those they transitively call. */
+    private def reachable(roots: Set[Identifier]): Set[Identifier] = {
+      val seen = MutableSet.empty[Identifier]
+      var todo = roots.toList
+      while (todo.nonEmpty) {
+        val id = todo.head
+        todo = todo.tail
+        if (seen.add(id)) todo = calleesOf(id).toList ++ todo
+      }
+      seen.toSet
+    }
+
+    private def hasForall(e: Expr): Boolean = e match {
+      case _: Forall => true
+      case Assume(_, body) => hasForall(body)
+      case Operator(es, _) => es.exists(hasForall)
+    }
+
+    private def isInlinable(id: Identifier): Boolean =
+      inlinable.computeIfAbsent(id, id => java.lang.Boolean.valueOf(
+        hasForall(getFunction(id).fullBody) && !reachable(calleesOf(id)).contains(id)
+      )).booleanValue
+
+    /** The functions to inline in `e`. */
+    def toInline(e: Expr): Set[Identifier] = reachable(functionCallsOf(e).map(_.id)).filter(isInlinable)
+  }
+
   /** Pre-processing for solvers that handle universal quantification
     * in order to increase the precision of polarity analysis for
     * quantification instantiations.
@@ -715,32 +804,7 @@ trait SymbolOps extends TypeOps { self =>
   def simplifyForalls(e: Expr)(using opts: PurityOptions): Expr = {
 
     def inlineFunctions(e: Expr): Expr = {
-      import utils.Graphs._
-      val initGraph = DiGraph[Identifier, SimpleEdge[Identifier]](functionCallsOf(e).map(_.id))
-
-      val graph = fixpoint { (graph: DiGraph[Identifier, SimpleEdge[Identifier]]) =>
-        var newGraph = graph
-        for (id <- graph.N) {
-          preTraversal {
-            case fi: FunctionInvocation =>
-              newGraph += SimpleEdge(id, fi.id)
-            case Equals(IsTyped(e1, adt: ADTType), e2) if adt.getSort.hasEquality =>
-              newGraph += SimpleEdge(id, adt.getSort.equality.get.id)
-            case _ =>
-          } (getFunction(id).fullBody)
-        }
-        newGraph
-      } (initGraph)
-
-      val toInline = graph.N.filter { id =>
-        def rec(e: Expr): Boolean = e match {
-          case _: Forall => true
-          case Assume(pred, body) => rec(body)
-          case Operator(es, _) => es.exists(rec)
-        }
-
-        !graph.transitiveSucc(id)(id) && rec(getFunction(id).fullBody)
-      }
+      val toInline = forallInlining.toInline(e)
 
       def inlineExpr(e: Expr): Expr = postMap {
         case fi: FunctionInvocation if toInline(fi.id) =>
@@ -902,12 +966,18 @@ trait SymbolOps extends TypeOps { self =>
 
     def noLet(e: Expr, defs: C) = e match {
       case Let(_, _, b) => (b, defs)
+      // Lets under binders may depend on the bound variables, so they stay under them
+      case Lambda(params, body) => (Lambda(params, wrap(defs, body)).copiedFrom(e), Seq())
+      case Forall(params, body) => (Forall(params, wrap(defs, body)).copiedFrom(e), Seq())
+      case Choose(res, pred) => (Choose(res, wrap(defs, pred)).copiedFrom(e), Seq())
       case _ => (e, defs)
     }
 
+    def wrap(defs: C, body: Expr): Expr = defs.foldRight(body) { case ((vd, e), body) => Let(vd, e, body) }
+
     val (bd, defs) = genericTransform[C](noTransformer, noLet, combiner)(Seq())(e)
 
-    defs.foldRight(bd){ case ((vd, e), body) => Let(vd, e, body) }
+    wrap(defs, bd)
   }
 
   protected def hasInstance(tpe: Type, seen: Set[Type]): Option[Boolean] = tpe match {
@@ -936,7 +1006,7 @@ trait SymbolOps extends TypeOps { self =>
   /** Returns simplest value of a given type */
   protected def simplestValue(tpe: Type, seen: Set[Type], allowSolver: Boolean, inLambda: Boolean)
                              (using sem: symbols.Semantics, ctx: Context): Expr = tpe match {
-    case StringType()               => StringLiteral("")
+    case StringType()               => StringLiteral(Seq())
     case BVType(signed, size)       => BVLiteral(signed, 0, size)
     case FPType(exponent, significand) => FPLiteral.plusZero(exponent, significand)
     case RealType()                 => FractionLiteral(0, 1)
@@ -957,7 +1027,9 @@ trait SymbolOps extends TypeOps { self =>
         if (inLambda) Choose(ValDef.fresh("res", adt), BooleanLiteral(true))
         else throw NoSimpleValue(adt)
       } else if (sort.hasInvariant) {
-        if (!allowSolver) throw NoSimpleValue(adt)
+        if (!allowSolver || !ctx.options.findOptionOrDefault(SymbolOps.optSimplestValueSolver)) {
+          throw NoSimpleValue(adt)
+        }
 
         val p = Variable.fresh("p", FunctionType(Seq(adt), BooleanType()))
         val res = Variable.fresh("v", adt)
@@ -965,7 +1037,10 @@ trait SymbolOps extends TypeOps { self =>
         import solvers._
         import SolverResponses._
 
-        SimpleSolverAPI(sem.getSolver).solveSAT(Application(p, Seq(res))) match {
+        // Extracting this solver's model may need simplest values, which must not start
+        // another solver, and so on without end.
+        val solverCtx = ctx.withOpts(SymbolOps.optSimplestValueSolver(false))
+        SimpleSolverAPI(sem.getSolver(using solverCtx)).solveSAT(Application(p, Seq(res))) match {
           case SatWithModel(model) => model.vars.getOrElse(res.toVal, throw NoSimpleValue(adt))
           case _ => throw NoSimpleValue(adt)
         }
@@ -1001,30 +1076,38 @@ trait SymbolOps extends TypeOps { self =>
     *
     * Guarantees that all IfExpr will be at the top level and as soon as you
     * encounter a non-IfExpr, then no more IfExpr can be found in the
-    * sub-expressions
+    * sub-expressions, except under binders (lambdas, quantifiers, chooses and
+    * let bodies), as their conditions may depend on the bound variables.
     *
     * Assumes no match expressions
     */
   def hoistIte(expr: Expr): Expr = {
     def transform(expr: Expr): Option[Expr] = expr match {
       case IfExpr(c, t, e) => None
+      case _: Lambda | _: Forall | _: Choose => None
 
       case nop @ Operator(ts, op) => {
-        val iteIndex = ts.indexWhere{ case IfExpr(_, _, _) => true case _ => false }
+        // Only the value of a let is outside of the scope of its binder
+        val candidates = nop match {
+          case _: Let => ts.take(1)
+          case _ => ts
+        }
+        val iteIndex = candidates.indexWhere{ case IfExpr(_, _, _) => true case _ => false }
         if(iteIndex == -1) None else {
           val (beforeIte, startIte) = ts.splitAt(iteIndex)
           val afterIte = startIte.tail
           val IfExpr(c, t, e) = startIte.head: @unchecked
+          // the branches may contain further conditions to hoist
           Some(IfExpr(c,
-            op(beforeIte ++ Seq(t) ++ afterIte).copiedFrom(nop),
-            op(beforeIte ++ Seq(e) ++ afterIte).copiedFrom(nop)
-          ))
+            hoistIte(op(beforeIte ++ Seq(t) ++ afterIte).copiedFrom(nop)),
+            hoistIte(op(beforeIte ++ Seq(e) ++ afterIte).copiedFrom(nop))
+          ).copiedFrom(nop))
         }
       }
       case _ => None
     }
 
-    postMap(transform, applyRec = true)(expr)
+    postMap(transform)(expr)
   }
 
   private[inox] def liftAssumptions(expr: Expr): (Seq[Expr], Expr) = {
@@ -1076,7 +1159,7 @@ trait SymbolOps extends TypeOps { self =>
 
   /** Returns true if expr is a value of type t */
   def isValueOfType(e: Expr, t: Type): Boolean = (e, t) match {
-    case (StringLiteral(_), StringType()) => true
+    case (_: StringLiteral, StringType()) => true
     case (BVLiteral(s1, _, s), BVType(s2, t)) => s1 == s2 && s == t
     case (FPLiteral(e, s, v), FPType(e2, s2)) => e == e2 && s == s2
     case (IntegerLiteral(_), IntegerType()) => true

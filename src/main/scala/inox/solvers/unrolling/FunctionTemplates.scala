@@ -17,6 +17,8 @@ trait FunctionTemplates { self: Templates =>
   import functionsManager._
   import lambdasManager._
 
+  private lazy val assumeChecked = options.findOptionOrDefault(optAssumeChecked)
+
   protected def variableSeq(tpe: Type): Seq[Variable] = {
     val free = typeOps.variablesOf(tpe)
     val vars = new scala.collection.mutable.ListBuffer[Variable]
@@ -52,17 +54,38 @@ trait FunctionTemplates { self: Templates =>
         // Register the function's return as a contract typing to enable
         // induction with refinement types
         if (ContractUnrolling `unroll` tfd.returnType) {
-          val (conds, exprs, tree, guarded, eqs, tps, equals, lambdas, quants) = clauses
+          // The return type only holds for arguments that lie in the parameter types, so
+          // it is assumed only once the arguments' membership in these types is shown.
+          // Under `optAssumeChecked`, the front-end has checked the arguments of every call, so
+          // the return type is assumed directly.
+          val (domains, domClauses) = if (assumeChecked) (Seq.empty[Expr], emptyClauses) else
+            tfd.params.foldLeft((Seq.empty[Expr], emptyClauses)) { case ((domains, domClauses), vd) =>
+              mkTypeClauses(start, vd.tpe, vd.toVariable, substMap, inDomain = true)(using MembershipGenerator) match {
+                case (BooleanLiteral(true), _) => (domains, domClauses)
+                case (p, pClauses) => (domains :+ p, domClauses +++ pClauses)
+              }
+            }
+
+          val (conds, exprs, tree, guarded, eqs, tps, equals, lambdas, quants) = clauses +++ domClauses
           val closures = typeOps.variablesOf(tfd.returnType).toSeq.sortBy(_.id).map(v => Left(substMap(v)))
-          val typing = Typing(tfd.returnType, mkCall(tfd, arguments.map(_._2)), Constraint(trueT, closures, false))
-          (conds, exprs, tree, guarded, eqs, tps `merge` Map(pathVar._2 -> Set(typing)), equals, lambdas, quants)
+          val call = mkCall(tfd, arguments.map(_._2))
+          if (domains.isEmpty) {
+            val typing = Typing(tfd.returnType, call, Constraint(trueT, closures, false))
+            (conds, exprs, tree, guarded, eqs, tps `merge` Map(pathVar._2 -> Set(typing)), equals, lambdas, quants)
+          } else {
+            val result = Variable.fresh("result", BooleanType(), true)
+            val resultT = encodeSymbol(result)
+            val typing = Typing(tfd.returnType, call, Constraint(resultT, closures, false))
+            (conds, exprs + (result -> resultT), tree, guarded `merge` (start -> Implies(andJoin(domains), result)),
+              eqs, tps `merge` Map(pathVar._2 -> Set(typing)), equals, lambdas, quants)
+          }
         } else {
           clauses
         }
       }
 
       val (contents, str) = Template.contents(
-        pathVar, arguments, tmplClauses, optCall = Some(tfd))
+        pathVar, arguments, tmplClauses, optCall = Some(Defined(tfd)))
 
       val funString : () => String = () => {
         "Template for def " + tfd.signature +
@@ -76,7 +99,32 @@ trait FunctionTemplates { self: Templates =>
     })
   }
 
-  class FunctionTemplate private(
+  /** The templates of the interpretations of uninterpreted functions, whose calls are the
+    * applications of their free functions (see [[TemplateGenerator.interpretedFunctions]]). */
+  object InterpretedTemplate {
+    private val cache: MutableMap[Interpreted, FunctionTemplate] = MutableMap.empty
+
+    def apply(callee: Interpreted): FunctionTemplate = cache.getOrElse(callee, {
+      val Lambda(params, body) = interpretation(callee.id, callee.tps).get: @unchecked
+      val args = params.map(_.freshen.toVariable)
+      val interpreted = exprOps.replaceFromSymbols((params zip args).toMap, body)
+
+      val start = Variable.fresh("start", BooleanType(), true)
+      val pathVar = start -> encodeSymbol(start)
+      val arguments = args.map(v => v -> encodeSymbol(v))
+      val substMap = arguments.toMap + pathVar
+
+      val (p, clauses) = mkExprClauses(start, interpreted, substMap)
+      val tmplClauses = clauses + (start -> Equals(Application(callee.function, args), p))
+
+      val (contents, str) = Template.contents(pathVar, arguments, tmplClauses, optCall = Some(callee))
+      val res = new FunctionTemplate(contents, () => "Template for the interpretation of " + callee.signature + " is :\n" + str())
+      cache(callee) = res
+      res
+    })
+  }
+
+  class FunctionTemplate private[FunctionTemplates](
     val contents: TemplateContents,
     stringRepr: () => String) extends Template {
 
@@ -105,6 +153,74 @@ trait FunctionTemplates { self: Templates =>
   }
 
   def getCalls: Seq[(Encoded, Call)] = defBlockers.toList.map(p => p._2 -> p._1)
+
+  private val chooseCache: MutableMap[Identifier, Boolean] = MutableMap.empty
+  private def hasChoose(tfd: TypedFunDef): Boolean = chooseCache.getOrElseUpdate(tfd.id,
+    exprOps.exists { case _: Choose => true case _ => false } (tfd.fd.fullBody))
+
+  /** Whether calls of `tfd` can reach an uninterpreted function, in which case ground calls of
+    * `tfd` can't be evaluated. */
+  private val uninterpretedCache: MutableMap[Identifier, Boolean] = MutableMap.empty
+  private def callsUninterpreted(tfd: TypedFunDef): Boolean = uninterpretedCache.getOrElseUpdate(tfd.id,
+    (transitiveCallees(tfd.fd) + tfd.fd).exists { fd =>
+      exprOps.exists { case _: UninterpretedCall => true case _ => false } (fd.fullBody)
+    })
+
+  /** Clauses stating that the calls `call1` and `call2` of the same function on equal arguments
+    * have equal results, when some of its parameters or its result need equality unrolling.
+    *
+    * The results of calls are determined by the function body, so these clauses are only
+    * shortcuts and their equalities need not be unrolled. A `choose` in the body however picks a
+    * fresh value for each call, so the results of calls on equal arguments are only related by
+    * these clauses. We then register the equalities so that they are unrolled before a model is
+    * accepted.
+    */
+  private def purityClauses(call1: Call, blocker1: Encoded, call2: Call, blocker2: Encoded): Clauses = call1.callee match {
+    // The calls of an interpreted function are applications of the same free function
+    case _: Interpreted => Seq.empty
+    case Defined(tfd) => if (tfd.params.exists(vd => unrollEquality(vd.getType)) || unrollEquality(tfd.getType)) {
+      val register = hasChoose(tfd)
+      val clauses = new scala.collection.mutable.ListBuffer[Encoded]
+      val equalities = (tfd.params.map(_.getType) zip (call1.args zip call2.args)).map { case (tpe, (e1, e2)) =>
+        val (equality, eqClauses) = mkEqualities(blocker1, tpe, e1.encoded, e2.encoded, register = register)
+        clauses ++= eqClauses
+        equality
+      }
+
+      val (entail, entailClauses) = mkEqualities(blocker1, tfd.getType,
+        mkCall(tfd, call1.args.map(_.encoded)),
+        mkCall(tfd, call2.args.map(_.encoded)), register = register)
+      clauses ++= entailClauses
+
+      clauses += mkImplies(mkAnd(blocker1 +: blocker2 +: equalities*), entail)
+      clauses.toSeq
+    } else {
+      Seq.empty
+    }
+  }
+
+  private def hasChoose(callee: Callee): Boolean = callee match {
+    case Defined(tfd) => hasChoose(tfd)
+    case _: Interpreted => false
+  }
+
+  /** The purity clauses between the calls unrolled so far, which [[equalitiesInstantiated]] delays.
+    *
+    * Until a first equality is instantiated, the equality symbols of distinct terms are left
+    * unconstrained, so the purity clauses of functions without a `choose` can't constrain the
+    * results of calls. Each pair of calls of a function on values with a custom equality (e.g. bags
+    * on cvc5) gets its own clauses, so delaying them keeps formulas that never compare such values
+    * from growing quadratically with the number of calls.
+    */
+  private[unrolling] def delayedPurityClauses: Clauses = {
+    val calls = defBlockers.toSeq.filter { case (call, _) => !hasChoose(call.callee) }.groupBy(_._1.callee)
+    for {
+      (_, tfdCalls) <- calls.toSeq
+      ((call1, blocker1), i) <- tfdCalls.zipWithIndex
+      (call2, blocker2) <- tfdCalls.drop(i + 1)
+      clause <- purityClauses(call1, blocker1, call2, blocker2)
+    } yield clause
+  }
 
   private val callCache: MutableMap[TypedFunDef, (Seq[Encoded], Encoded)] = MutableMap.empty
   private[unrolling] def mkCall(tfd: TypedFunDef, args: Seq[Encoded]): Encoded = {
@@ -160,7 +276,7 @@ trait FunctionTemplates { self: Templates =>
 
       for ((blocker, (gen, _, _, calls)) <- thisCallInfos if calls.nonEmpty && !abort && !pause;
            _ = remainingBlockers -= blocker;
-           call @ Call(tfd, args, tpSubst) <- calls if !abort) {
+           call @ Call(callee, args, tpSubst) <- calls if !abort) {
         val newCls = new scala.collection.mutable.ListBuffer[Encoded]
 
         val defBlocker = defBlockers.get(call) match {
@@ -173,72 +289,65 @@ trait FunctionTemplates { self: Templates =>
             val defBlocker = encodeSymbol(Variable.fresh("d", BooleanType(), true))
             defBlockers += call -> defBlocker
 
-            // we generate helper equality clauses that stem from purity
-            for ((pcall, pblocker) <- defBlockers if pcall.tfd == tfd) {
-              if (tfd.params.exists(vd => unrollEquality(vd.getType)) || unrollEquality(tfd.getType)) {
-                val argPairs = (pcall.args zip args)
-                val equalities = (tfd.params.map(_.getType) zip argPairs).map { case (tpe, (e1, e2)) =>
-                  val (equality, clauses) = mkEqualities(pblocker, tpe, e1.encoded, e2.encoded, register = false)
-                  newClauses ++= clauses
-                  equality
+            // we generate helper equality clauses that stem from purity (see [[purityClauses]])
+            if (hasChoose(callee) || equalitiesInstantiated) {
+              for ((pcall, pblocker) <- defBlockers if pcall.callee == callee && pcall != call) {
+                newClauses ++= purityClauses(pcall, pblocker, call, defBlocker)
+              }
+            }
+
+            callee match {
+              case interpreted: Interpreted =>
+                newCls ++= InterpretedTemplate(interpreted).instantiate(defBlocker, args)
+              case Defined(tfd) =>
+                val (inlining, skip) = context.timers.solvers.`eval-call`.run {
+                  val groundArgs = (args zip tfd.params).map { p =>
+                    decodePartial(p._1.encoded, p._2.getType)
+                      .map(e => exprOps.postMap {
+                        case IsTyped(v: Variable, ft: FunctionType) =>
+                          byID.values.find(_.ids._1 == v).map(_.lambda)
+                        case _ => None
+                      } (e))
+                      .filter(exprOps.variablesOf(_).isEmpty)
+                  }
+
+                  val groundCall =
+                    if (groundArgs.forall(_.isDefined)) Some(tfd.applied(groundArgs.map(_.get)))
+                    else None
+
+                  val inlining = groundCall.filter(e => !callsUninterpreted(tfd) && isPure(e)).map(e => evaluator.eval(e))
+                  val skip = (groundArgs.flatten.map(evaluator.eval) ++ inlining).exists {
+                    case evaluators.EvaluationResults.EvaluatorError(_) => true
+                    case _ => false
+                  }
+                  (inlining, skip)
                 }
 
-                val (entail, entailClauses) = mkEqualities(pblocker, tfd.getType,
-                  mkCall(tfd, pcall.args.map(_.encoded)),
-                  mkCall(tfd, args.map(_.encoded)), register = false)
-                newClauses ++= entailClauses
+                if (skip) {
+                  newCls += mkNot(defBlocker)
+                } else {
+                  newCls ++= inlining.flatMap(_.result).map { body =>
+                    val start = Variable.fresh("cs", BooleanType())
+                    val (p, cls) = mkExprClauses(start, body, Map(start -> defBlocker))
+                    val tmplClauses = cls + (start -> Equals(tfd.applied, p))
 
-                newClauses += mkImplies(mkAnd(pblocker +: defBlocker +: equalities*), entail)
-              }
-            }
+                    val encoding: (Clauses, Calls, Apps, Matchers, Reads, Pointers, () => String) = Template.encode(
+                      start -> defBlocker,
+                      tfd.params.map(_.toVariable) zip args.map(_.encoded),
+                      tmplClauses,
+                      optCall = Some(Defined(tfd))
+                    )
 
-            val (inlining, skip) = context.timers.solvers.`eval-call`.run {
-              val groundArgs = (args zip tfd.params).map { p =>
-                decodePartial(p._1.encoded, p._2.getType)
-                  .map(e => exprOps.postMap {
-                    case IsTyped(v: Variable, ft: FunctionType) =>
-                      byID.values.find(_.ids._1 == v).map(_.lambda)
-                    case _ => None
-                  } (e))
-                  .filter(exprOps.variablesOf(_).isEmpty)
-              }
-
-              val groundCall =
-                if (groundArgs.forall(_.isDefined)) Some(tfd.applied(groundArgs.map(_.get)))
-                else None
-
-              val inlining = groundCall.filter(isPure).map(e => evaluator.eval(e))
-              val skip = (groundArgs.flatten.map(evaluator.eval) ++ inlining).exists {
-                case evaluators.EvaluationResults.EvaluatorError(_) => true
-                case _ => false
-              }
-              (inlining, skip)
-            }
-
-            if (skip) {
-              newCls += mkNot(defBlocker)
-            } else {
-              newCls ++= inlining.flatMap(_.result).map { body =>
-                val start = Variable.fresh("cs", BooleanType())
-                val (p, cls) = mkExprClauses(start, body, Map(start -> defBlocker))
-                val tmplClauses = cls + (start -> Equals(tfd.applied, p))
-
-                val encoding: (Clauses, Calls, Apps, Matchers, Pointers, () => String) = Template.encode(
-                  start -> defBlocker,
-                  tfd.params.map(_.toVariable) zip args.map(_.encoded),
-                  tmplClauses,
-                  optCall = Some(tfd)
-                )
-
-                val (clauses, calls, apps, matchers, pointers, _) = encoding
-                val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = tmplClauses.proj
-                val (substClauses, substMap) = Template.substitution(
-                  condVars, exprVars, condTree, types, lambdas, quants, pointers, Map.empty, defBlocker)
-                val templateClauses = Template.instantiate(clauses, calls, apps, matchers, equalities, substMap)
-                substClauses ++ templateClauses
-              } getOrElse {
-                FunctionTemplate(tfd).instantiate(defBlocker, args ++ tpSubst)
-              }
+                    val (clauses, calls, apps, matchers, reads, pointers, _) = encoding
+                    val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = tmplClauses.proj
+                    val (substClauses, substMap) = Template.substitution(
+                      condVars, exprVars, condTree, types, lambdas, quants, pointers, Map.empty, defBlocker)
+                    val templateClauses = Template.instantiate(clauses, calls, apps, matchers, reads, equalities, substMap)
+                    substClauses ++ templateClauses
+                  } getOrElse {
+                    FunctionTemplate(tfd).instantiate(defBlocker, args ++ tpSubst)
+                  }
+                }
             }
 
             defBlocker

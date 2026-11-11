@@ -1,0 +1,8 @@
+; Without function equality, a function applied to functions can't tell apart functions that
+; agree on every input
+(set-option :function-equality none)
+(set-info :status unsat)
+(declare-const k (-> (-> Int Int) Int))
+(declare-const g (-> Int Int))
+(assert (not (= (k g) (k (lambda ((x Int)) (g x))))))
+(check-sat)

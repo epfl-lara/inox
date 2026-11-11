@@ -231,8 +231,28 @@ trait Templates
     }
   }
 
+  /** The function that a call unfolds: a function of the program, or an uninterpreted function
+    * that the model which the solver operates under interprets (see [[interpretation]]). */
+  sealed abstract class Callee {
+    def signature: String
+    def getType: Type
+  }
+
+  case class Defined(tfd: TypedFunDef) extends Callee {
+    def signature: String = tfd.signature
+    def getType: Type = tfd.getType
+  }
+
+  /** The uninterpreted function `id` at `tps`, whose calls are the applications of its free function
+    * (see [[TemplateGenerator.uninterpretedFunctions]]). */
+  case class Interpreted(id: Identifier, tps: Seq[Type]) extends Callee {
+    def signature: String = id.asString + tps.map(_.asString).mkString("[", ", ", "]")
+    def function: Variable = uninterpretedFunctions(id -> tps)._1
+    def getType: Type = function.getType.asInstanceOf[FunctionType].to
+  }
+
   /** Represents a named function call in the unfolding procedure */
-  case class Call(tfd: TypedFunDef, args: Seq[Arg], tpSubst: Seq[Arg]) {
+  case class Call(callee: Callee, args: Seq[Arg], tpSubst: Seq[Arg]) {
     override def toString: String = {
       def pArgs(args: Seq[Arg]): String = args.map {
         case Right(m) => m.toString
@@ -246,7 +266,7 @@ trait Templates
         case _ => pArgs(args)
       }
 
-      tfd.signature + rec(tfd.getType, args) + pArgs(tpSubst)
+      callee.signature + rec(callee.getType, args) + pArgs(tpSubst)
     }
 
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): Call = copy(
@@ -281,6 +301,19 @@ trait Templates
       key = key.left.map(p => substituter(p._1) -> p._2),
       args = args.map(_.substitute(substituter, msubst)),
       encoded = substituter(encoded)
+    )
+  }
+
+  /** Represents a read of the map, set or bag `collection` of type `tpe` at `key`: a map application,
+    * a set membership or a bag multiplicity, or a key that a built collection defines. The value it
+    * reads is typed for the free collections that `collection` may equal (@see
+    * [[TypeTemplates.Collection]]), as the results of the applications of free functions are. */
+  case class Read(tpe: Type, collection: Encoded, key: Encoded) {
+    override def toString: String = asString(collection) + "(" + asString(key) + ")"
+
+    def substitute(substituter: Encoded => Encoded): Read = copy(
+      collection = substituter(collection),
+      key = substituter(key)
     )
   }
 
@@ -342,13 +375,14 @@ trait Templates
   type Calls      = Map[Encoded, Set[Call]]
   type Types      = Map[Encoded, Set[Typing]]
   type Matchers   = Map[Encoded, Set[Matcher]]
+  type Reads = Map[Encoded, Set[Read]]
   type Equalities = Map[Encoded, Set[Equality]]
   type Pointers   = Map[Encoded, Encoded]
 
   object TemplateContents {
     def empty(pathVar: (Variable, Encoded), args: Seq[(Variable, Encoded)]) =
       TemplateContents(pathVar, args,
-        Map(), Map(), Map(), Seq(), Map(), Map(), Map(), Map(), Map(), Seq(), Seq(), Map())
+        Map(), Map(), Map(), Seq(), Map(), Map(), Map(), Map(), Map(), Map(), Seq(), Seq(), Map())
   }
 
   case class TemplateContents(
@@ -364,6 +398,7 @@ trait Templates
     val blockers     : Calls,
     val applications : Apps,
     val matchers     : Matchers,
+    val reads        : Reads,
     val equalities   : Equalities,
 
     val lambdas         : Seq[LambdaTemplate],
@@ -382,6 +417,7 @@ trait Templates
         blockers.map { case (b, fis) => substituter(b) -> fis.map(_.substitute(substituter, msubst)) },
         applications.map { case (b, apps) => substituter(b) -> apps.map(_.substitute(substituter, msubst)) },
         matchers.map { case (b, ms) => substituter(b) -> ms.map(_.substitute(substituter, msubst)) },
+        reads.map { case (b, rs) => substituter(b) -> rs.map(_.substitute(substituter)) },
         equalities.map { case (b, eqs) => substituter(b) -> eqs.map(_.substitute(substituter)) },
         lambdas.map(_.substitute(substituter, msubst)),
         quantifications.map(_.substitute(substituter, msubst)),
@@ -395,7 +431,7 @@ trait Templates
       Template.substitution(condVars, exprVars, condTree, types, lambdas, quantifications, pointers, substMap, aVar)
 
     def instantiate(substMap: Map[Encoded, Arg]): Clauses =
-      Template.instantiate(clauses, blockers, applications, matchers, equalities, substMap)
+      Template.instantiate(clauses, blockers, applications, matchers, reads, equalities, substMap)
 
     def merge(
       condVars   : Map[Variable, Encoded],
@@ -406,6 +442,7 @@ trait Templates
       blockers     : Calls,
       applications : Apps,
       matchers     : Matchers,
+      reads        : Reads,
       equalities   : Equalities,
       lambdas         : Seq[LambdaTemplate],
       quantifications : Seq[QuantificationTemplate],
@@ -421,6 +458,7 @@ trait Templates
       this.blockers `merge` blockers,
       this.applications `merge` applications,
       this.matchers `merge` matchers,
+      this.reads `merge` reads,
       this.equalities `merge` equalities,
       this.lambdas ++ lambdas,
       this.quantifications ++ quantifications,
@@ -562,9 +600,9 @@ trait Templates
     def extractCalls(
       expr: Expr,
       substMap: Map[Variable, Encoded] = Map.empty[Variable, Encoded],
-      optCall: Option[(TypedFunDef, Seq[Arg])] = None,
+      optCall: Option[(Callee, Seq[Arg])] = None,
       optApp: Option[App] = None
-    ): (Set[Call], Set[App], Set[Matcher], Pointers) = {
+    ): (Set[Call], Set[App], Set[Matcher], Set[Read], Pointers) = {
       val encoder : Expr => Encoded = mkEncoder(substMap)
 
       val pointers = lambdaPointers(encoder)(expr)
@@ -600,14 +638,19 @@ trait Templates
         case None => Left(encoder(arg))
       }
 
-      val calls = exprOps.collect[FunctionInvocation] {
-        case fi: FunctionInvocation => Set(fi)
+      val calls = exprOps.collect[Call] {
+        case FunctionInvocation(id, tps, args) =>
+          val tpVars = tps.flatMap(variableSeq).distinct
+          Set(Call(Defined(getFunction(id, tps)), args.map(encodeArg), tpVars.map(encodeArg)))
+        // The applications of the free functions of interpreted uninterpreted functions unfold their
+        // interpretations
+        case Application(f: Variable, args) => interpretedFunctions.get(f) match {
+          case Some(callee) => Set(Call(callee, args.map(encodeArg), Seq.empty))
+          case None => Set.empty
+        }
         case _ => Set.empty
-      } (expr).map { case FunctionInvocation(id, tps, args) =>
-        val tpVars = tps.flatMap(variableSeq).distinct
-        Call(getFunction(id, tps), args.map(encodeArg), tpVars.map(encodeArg))
-      }.filter { case Call(tfd, args, _) =>
-        !optCall.exists(p => p._1 == tfd && p._2 == args)
+      } (expr).filter { case Call(callee, args, _) =>
+        !optCall.exists(p => p._1 == callee && p._2 == args)
       }
 
       val apps = exprOps.collect[Application] {
@@ -624,11 +667,41 @@ trait Templates
       val matchers = exprToMatcher.values.toSet
         .filter(i => Some(i.encoded) != optApp.map(_.encoded))
         .filter {
-          case Matcher(Right(tfd), args, _) => !optCall.exists(p => p._1 == tfd && p._2 == args)
+          case Matcher(Right(tfd), args, _) => !optCall.exists(p => p._1 == Defined(tfd) && p._2 == args)
           case _ => true
         }
 
-      (calls, apps, matchers, pointers)
+      // The keys that a built collection defines: the elements of a finite set or bag, the keys of
+      // a finite or updated map, and the keys that the collections it is built from define
+      def definedKeys(e: Expr): Seq[Expr] = e match {
+        case FiniteMap(pairs, _, _, _) => pairs.map(_._1)
+        case MapUpdated(m, k, _) => k +: definedKeys(m)
+        case FiniteSet(elems, _) => elems
+        case SetAdd(s, e) => e +: definedKeys(s)
+        case SetUnion(s1, s2) => definedKeys(s1) ++ definedKeys(s2)
+        case SetIntersection(s1, s2) => definedKeys(s1) ++ definedKeys(s2)
+        case SetDifference(s1, _) => definedKeys(s1)
+        case FiniteBag(pairs, _) => pairs.map(_._1)
+        case BagAdd(b, e) => e +: definedKeys(b)
+        case BagUnion(b1, b2) => definedKeys(b1) ++ definedKeys(b2)
+        case BagIntersection(b1, b2) => definedKeys(b1) ++ definedKeys(b2)
+        case BagDifference(b1, _) => definedKeys(b1)
+        case _ => Seq.empty
+      }
+
+      // A collection is read where the formula looks it up, and where it is built at the keys it
+      // defines, so that a free collection that equals a built one types these keys
+      val reads = exprOps.collect[Read] {
+        case MapApply(m, k) => Set(Read(m.getType, encoder(m), encoder(k)))
+        case ElementOfSet(e, s) => Set(Read(s.getType, encoder(s), encoder(e)))
+        case MultiplicityInBag(e, b) => Set(Read(b.getType, encoder(b), encoder(e)))
+        case c @ (_: FiniteMap | _: MapUpdated | _: FiniteSet | _: SetAdd | _: SetUnion | _: SetIntersection |
+                  _: SetDifference | _: FiniteBag | _: BagAdd | _: BagUnion | _: BagIntersection | _: BagDifference) =>
+          definedKeys(c).map(k => Read(c.getType, encoder(c), encoder(k))).toSet
+        case _ => Set.empty
+      } (expr)
+
+      (calls, apps, matchers, reads, pointers)
     }
 
     def encode(
@@ -636,27 +709,28 @@ trait Templates
       arguments: Seq[(Variable, Encoded)],
       tmplClauses: TemplateClauses,
       substMap: Map[Variable, Encoded] = Map.empty[Variable, Encoded],
-      optCall: Option[TypedFunDef] = None,
+      optCall: Option[Callee] = None,
       optApp: Option[(Encoded, FunctionType)] = None
-    ): (Clauses, Calls, Apps, Matchers, Pointers, () => String) = {
+    ): (Clauses, Calls, Apps, Matchers, Reads, Pointers, () => String) = {
       val (condVars, exprVars, _, guardedExprs, eqs, _, equalities, lambdas, quants) = tmplClauses
 
       val idToTrId : Map[Variable, Encoded] =
         condVars ++ exprVars + pathVar ++ arguments ++ substMap ++
         lambdas.map(_.ids) ++ quants.flatMap(_.mapping) ++ equalities.flatMap(_._2.map(_.symbols)) ++
-        typesManager.tpSubst
+        typesManager.tpSubst ++ uninterpretedSubst
       val encoder: Expr => Encoded = mkEncoder(idToTrId)
 
-      val optIdCall = optCall.map { tfd => (tfd, arguments.map(p => Left(p._2))) }
+      val optIdCall = optCall.map { callee => (callee, arguments.map(p => Left(p._2))) }
       val optIdApp = optApp.map { case (idT, tpe) =>
         App(idT, tpe, arguments.map(p => Left(p._2)), mkApp(idT, tpe, arguments.map(_._2)))
       }
 
-      val (clauses, blockers, applications, matchers, pointers) = {
+      val (clauses, blockers, applications, matchers, reads, pointers) = {
         var clauses      : Clauses = Seq.empty
         var blockers     : Map[Encoded, Set[Call]]     = Map.empty
         var applications : Map[Encoded, Set[App]]      = Map.empty
         var matchers     : Map[Encoded, Set[Matcher]]  = Map.empty
+        var reads        : Reads                       = Map.empty
         var pointers     : Map[Encoded, Encoded]       = Map.empty
 
         val pv = pathVar._1
@@ -664,19 +738,22 @@ trait Templates
           var calls  : Set[Call]     = Set.empty
           var apps   : Set[App]      = Set.empty
           var matchs : Set[Matcher]  = Set.empty
+          var rds    : Set[Read]     = Set.empty
           val bp = idToTrId(b)
 
           for (e <- es) {
-            val (eCalls, eApps, eMatchers, ePtrs) = extractCalls(e, idToTrId, optIdCall, optIdApp)
+            val (eCalls, eApps, eMatchers, eReads, ePtrs) = extractCalls(e, idToTrId, optIdCall, optIdApp)
             calls ++= eCalls
             apps ++= eApps
             matchs ++= eMatchers
+            rds ++= eReads
             pointers ++= ePtrs
           }
 
           if (calls.nonEmpty) blockers += bp -> calls
           if (apps.nonEmpty) applications += bp -> apps
           if (matchs.nonEmpty) matchers += bp -> matchs
+          if (rds.nonEmpty) reads += bp -> rds
         }
 
         for (e <- guardedExprs.getOrElse(pv, Seq.empty)) {
@@ -686,7 +763,7 @@ trait Templates
         clauses ++= (for ((b,es) <- guardedExprs; e <- es) yield encoder(Implies(b, e)))
         clauses ++= eqs.map(encoder)
 
-        (clauses, blockers, applications, matchers, pointers)
+        (clauses, blockers, applications, matchers, reads, pointers)
       }
 
       val stringRepr : () => String = () => {
@@ -705,6 +782,9 @@ trait Templates
         " * Matchers           :" + (if (matchers.isEmpty) "\n" else {
           "\n   " + matchers.map(p => asString(p._1) + " ==> " + p._2).mkString("\n   ") + "\n"
         }) +
+        " * Collection reads   :" + (if (reads.isEmpty) "\n" else {
+          "\n   " + reads.map(p => asString(p._1) + " ==> " + p._2).mkString("\n   ") + "\n"
+        }) +
         " * Lambdas            :\n" + lambdas.map { case template =>
           " +> " + template.toString.split("\n").mkString("\n    ") + "\n"
         }.mkString("\n") +
@@ -713,7 +793,7 @@ trait Templates
         }.mkString("\n")
       }
 
-      (clauses, blockers, applications, matchers, pointers, stringRepr)
+      (clauses, blockers, applications, matchers, reads, pointers, stringRepr)
     }
 
     def contents(
@@ -721,17 +801,17 @@ trait Templates
       arguments: Seq[(Variable, Encoded)],
       tmplClauses: TemplateClauses,
       substMap: Map[Variable, Encoded] = Map.empty,
-      optCall: Option[TypedFunDef] = None,
+      optCall: Option[Callee] = None,
       optApp: Option[(Encoded, FunctionType)] = None
     ): (TemplateContents, () => String) = {
 
       val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = tmplClauses.proj
-      val (clauses, blockers, applications, matchers, pointers, string) = Template.encode(
+      val (clauses, blockers, applications, matchers, reads, pointers, string) = Template.encode(
         pathVar, arguments, tmplClauses, substMap = substMap, optCall = optCall, optApp = optApp)
 
       val contents = TemplateContents(
         pathVar, arguments, condVars, exprVars, condTree,
-        clauses, types, blockers, applications, matchers, equalities,
+        clauses, types, blockers, applications, matchers, reads, equalities,
         lambdas, quants, pointers
       )
 
@@ -814,6 +894,7 @@ trait Templates
       calls: Calls,
       apps: Apps,
       matchers: Matchers,
+      reads: Reads,
       equalities: Equalities,
       substMap: Map[Encoded, Arg]
     ): Clauses = {
@@ -835,6 +916,10 @@ trait Templates
         allClauses ++= instantiateMatcher(bp, m.substitute(substituter, msubst))
       }
 
+      for ((b, rs) <- reads if !abort; bp = substituter(b); r <- rs if !abort) {
+        allClauses ++= instantiateRead(bp, r.substitute(substituter))
+      }
+
       for ((b, eqs) <- equalities if !abort; bp = substituter(b); e <- eqs if !abort) {
         allClauses ++= instantiateEquality(bp, e.substitute(substituter))
       }
@@ -852,14 +937,14 @@ trait Templates
 
     val tmplClauses = gen(start, encodedStart)
 
-    val (clauses, calls, apps, matchers, pointers, _) =
+    val (clauses, calls, apps, matchers, reads, pointers, _) =
       Template.encode(start -> encodedStart, bindings.toSeq, tmplClauses)
 
     val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = tmplClauses.proj
     val (substClauses, substMap) = Template.substitution(
       condVars, exprVars, condTree, types, lambdas, quants, pointers, Map.empty, encodedStart)
 
-    val templateClauses = Template.instantiate(clauses, calls, apps, matchers, equalities, substMap)
+    val templateClauses = Template.instantiate(clauses, calls, apps, matchers, reads, equalities, substMap)
     val allClauses = encodedStart +: (substClauses ++ templateClauses)
 
     for (cl <- allClauses) {
@@ -878,6 +963,42 @@ trait Templates
         mkClauses1(start, v.tpe, v, bindings + (start -> encodedStart))(using FreeGenerator)
       })
     }
+  }
+
+  /** Instantiates a distinguishing input for the first-class functions `f1` and `f2` of type `tpe`.
+    *
+    * Fresh witness arguments `ws` are introduced such that `f1(ws) != f2(ws)` holds whenever
+    * `guard` holds and `f1 != f2`. The witnesses are typed as free variables, so function-typed
+    * witnesses are themselves registered as free functions (and will in turn receive witnesses).
+    *
+    * @see [[LambdaTemplates]] for a discussion of how these witnesses are used.
+    */
+  def instantiateWitness(guard: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded): Clauses = {
+    val v1 = Variable.fresh("f", tpe, true)
+    val v2 = Variable.fresh("g", tpe, true)
+    val ws = tpe.from.map(tp => Variable.fresh("w", tp, true))
+    val bindings = Map(v1 -> f1, v2 -> f2) ++ ws.map(w => w -> encodeSymbol(w))
+    lambdasManager.witnessArguments ++= ws.map(bindings)
+    lambdasManager.witnessInputs += (f1 -> f2) -> (tpe, ws.map(bindings))
+
+    // the compared functions have already been typed where they were registered
+    declared += v1 -> f1
+    declared += v2 -> f2
+
+    val clauses = instantiate(bindings, { (start, encodedStart) =>
+      val substMap = bindings + (start -> encodedStart)
+      val tmplClauses = mkClauses0(start, Not(Equals(Application(v1, ws), Application(v2, ws))), substMap, polarity = Some(true))
+      val tpeClauses = ws.map { w =>
+        declared += w -> bindings(w)
+        mkClauses1(start, w.tpe, w, substMap)(using FreeGenerator)
+      }
+
+      tpeClauses.foldLeft(tmplClauses)(_ +++ _)
+    })
+
+    // `instantiate` asserts the start blocker, which we replace with the witness condition
+    val encodedStart +: rest = clauses: @unchecked
+    mkEquals(encodedStart, mkAnd(guard, mkNot(mkEquals(f1, f2)))) +: rest
   }
 
   def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {

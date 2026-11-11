@@ -27,7 +27,7 @@ trait QuantificationTemplates { self: Templates =>
    */
   extension (tp: Typing) {
     private def result: Encoded = {
-      val Typing(_, _, Constraint(res, _, _)) = tp: @unchecked
+      val Typing(_, _, Constraint(res, _, _, _)) = tp: @unchecked
       res
     }
   }
@@ -142,7 +142,7 @@ trait QuantificationTemplates { self: Templates =>
       given TypingGenerator = if (pol) ContractGenerator else FreeGenerator
       val (tpeCond, tpeClauses) = idQuantifiers.foldLeft((BooleanLiteral(true): Expr, emptyClauses)) {
         case ((tpCond, tpClauses), v) =>
-          val (p, clauses) = mkTypeClauses(pathVar._1, v.tpe, v, clauseSubst)
+          val (p, clauses) = mkTypeClauses(pathVar._1, v.tpe, v, clauseSubst, inDomain = true)
           (and(tpCond, p), tpClauses +++ clauses)
       }
 
@@ -289,6 +289,7 @@ trait QuantificationTemplates { self: Templates =>
 
           reporter.debug(" -> instantiating matcher " + matcherBlocker + " ==> " + matcher)
           for (q <- axioms) clauses ++= q.instantiate(matcherBlocker, matcher, defer)
+
           matcherBlocker
       }
 
@@ -540,7 +541,7 @@ trait QuantificationTemplates { self: Templates =>
         val res: Set[Encoded] = if (FreeUnrolling `unroll` v.tpe) {
           val closures = typeOps.variablesOf(v.tpe).toSeq.sortBy(_.id).map(subst)
           val result = encodeSymbol(Variable.fresh("result", BooleanType(), true))
-          clauses ++= instantiateType(contents.pathVar._2, Typing(v.tpe, q, Constraint(result, closures, true)))
+          clauses ++= instantiateType(contents.pathVar._2, Typing(v.tpe, q, Constraint(result, closures, true, inDomain = true)))
           Set(result)
         } else {
           Set.empty
@@ -605,7 +606,7 @@ trait QuantificationTemplates { self: Templates =>
           // matcher instantiation must be manually controlled here to avoid never-ending loops
           clauses ++= Template.instantiate(
             contents.clauses, contents.blockers, contents.applications,
-            Map.empty, contents.equalities, substMap)
+            Map.empty, contents.reads, contents.equalities, substMap)
 
           for ((b,ms) <- contents.matchers; m <- ms) {
             val sb = bs ++ (if (b == guard) Set.empty else Set(substituter(b)))
@@ -632,16 +633,19 @@ trait QuantificationTemplates { self: Templates =>
       clauses.toSeq
     }
 
+    /** Whether the body matches on function calls or lambdas, whose evaluation unfolds them. */
+    def hasComplexMatchers(modelEq: (Encoded, Encoded) => Boolean): Boolean = constraints.exists {
+      case (_, _: LambdaKey, _) => true
+      case (_, _: FunctionKey, _) => true
+      case (_, CallerKey(caller, tt), _) =>
+        byType(tt).values.exists(t => modelEq(t.ids._2, caller))
+      case _ => false
+    }
+
     def checkForall(modelEq: (Encoded, Encoded) => Boolean): Option[String] = {
       val quantified = quantifiers.map(_._1).toSet
 
-      if (constraints.exists {
-        case (_, _: LambdaKey, _) => true
-        case (_, _: FunctionKey, _) => true
-        case (_, CallerKey(caller, tt), _) =>
-          byType(tt).values.exists(t => modelEq(t.ids._2, caller))
-        case _ => false
-      }) return Some("Can't guarantee model for complex matchers.")
+      if (hasComplexMatchers(modelEq)) return Some("Can't guarantee model for complex matchers.")
 
       val matchers = exprOps.collect[(Expr, Seq[Expr])] {
         case QuantificationMatcher(e, args) => Set(e -> args)
@@ -856,9 +860,21 @@ trait QuantificationTemplates { self: Templates =>
         }*)
       }
 
+      // The clause of an ignored substitution only depends on the values it binds, so the
+      // substitutions that bind the same values share one clause, enabled by any of their
+      // enablers. Each clause copies the disjunction, and many ignored substitutions bind the
+      // same values: in ForallAssoc, 155k of them bind only 11k distinct value tuples.
+      val enablersByValues = scala.collection.mutable.LinkedHashMap.empty[Seq[Encoded], List[Set[Encoded]]]
       for ((_, enablers, subst) <- ignoredSubsts(q)) {
-        val b = if (enablers.isEmpty) trueT else mkAnd(enablers.toSeq*)
-        val substMap = (valuesP.map(_._2) zip q.quantifiers.map(p => subst(p._2).encoded)).toMap
+        val args = q.quantifiers.map(p => subst(p._2).encoded)
+        enablersByValues(args) = enablers :: enablersByValues.getOrElse(args, Nil)
+      }
+
+      for ((args, enablerSets) <- enablersByValues) {
+        val b = if (enablerSets.exists(_.isEmpty)) trueT else {
+          mkOr(enablerSets.reverse.map(enablers => mkAnd(enablers.toSeq*))*)
+        }
+        val substMap = (valuesP.map(_._2) zip args).toMap
         clauses += mkSubstituter(substMap)(mkImplies(b, disjunction))
       }
     }

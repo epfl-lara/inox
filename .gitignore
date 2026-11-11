@@ -72,3 +72,4 @@ project/metals.sbt
 project/project/
 
 *.semanticdb
+recorded-metadata/

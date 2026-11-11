@@ -1,0 +1,71 @@
+; Applies functions outside of their domain, where the codomain only holds without
+; `assume-checked` (under which applications are known to lie in the domain).
+(set-option :assume-checked false)
+
+; A function type is a Pi type whose codomain doesn't depend on the parameters
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+(declare-const g (-> PosInt PosInt))
+; G: (BigInt => {r | r > 0}) => {r | r > 0}
+(declare-const G (-> (-> Int PosInt) PosInt))
+(declare-const p (-> Int PosInt))
+
+; inside
+(push 1)
+(assert (not (> (g 1) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside
+(push 1)
+(assert (not (> (g 0) 0)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; quantifier
+(push 1)
+(assert (not (forall ((h (-> PosInt PosInt))) (> (h 0) 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; Pi, inside
+(push 1)
+(assert (not (> (G (lambda ((x Int)) 1)) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; Pi, free function inside
+(push 1)
+(assert (not (> (G p) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; Pi, outside
+(set-option :check-models false)
+(push 1)
+(assert (<= (G (lambda ((x Int)) (- 1))) 0))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-option :check-models true)
+
+; outside, assumed checked
+(set-option :assume-checked true)
+(push 1)
+(assert (not (> (g 0) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; Pi, outside, assumed checked
+(push 1)
+(assert (not (> (G (lambda ((x Int)) (- 1))) 0)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

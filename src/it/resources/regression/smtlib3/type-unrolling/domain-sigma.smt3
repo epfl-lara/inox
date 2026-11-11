@@ -1,0 +1,32 @@
+; (a: BigInt, {b: BigInt | b > a})
+(define-type Incr () (Tuple (! Int :var a) (! Int :var b :restrict (> b a))))
+
+; in domain
+(push 1)
+(declare-const g (-> (Tuple Int Int) Int))
+(assert (not (=> (forall ((w Incr)) (= (g w) 1)) (= (g (tuple 1 2)) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside domain
+(push 1)
+(declare-const g (-> (Tuple Int Int) Int))
+(assert (not (=> (forall ((w Incr)) (= (g w) 1)) (= (g (tuple 2 1)) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; holds
+(push 1)
+(assert (not (forall ((w Incr)) (> ((_ tuple.select 1) w) ((_ tuple.select 0) w)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; doesn't hold
+(push 1)
+(assert (not (forall ((w Incr)) (> ((_ tuple.select 1) w) (+ ((_ tuple.select 0) w) 1)))))
+(set-info :status sat)
+(check-sat)
+(pop 1)

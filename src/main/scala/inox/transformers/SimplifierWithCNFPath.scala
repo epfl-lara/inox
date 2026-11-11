@@ -25,18 +25,25 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
     override def in(that: SimplifierWithPC {
       val trees: self.trees.type
       val symbols: self.symbols.type
-    }): that.Env = {
-      val thatCnf = that.asInstanceOf[SimplifierWithCNFPath {
-        val trees: self.trees.type
-        val symbols: self.symbols.type
-      }]
-      new thatCnf.CNFPath(
-        exprSubst.clone,
-        boolSubst,
-        conditions,
-        cnfCache.clone,
-        simpCache.clone
-      ).asInstanceOf[that.Env]
+    }): that.Env = that match {
+      case thatCnf: SimplifierWithCNFPath =>
+        val cnf = thatCnf.asInstanceOf[SimplifierWithCNFPath {
+          val trees: self.trees.type
+          val symbols: self.symbols.type
+        }]
+        new cnf.CNFPath(
+          exprSubst.clone,
+          boolSubst,
+          conditions,
+          cnfCache.clone,
+          simpCache.clone
+        ).asInstanceOf[that.Env]
+
+      case _ =>
+        // Other simplifiers (such as the unchecked simplifier used for purity checks)
+        // have their own kind of path, which we rebuild from our bindings and conditions.
+        val bindings = exprSubst.toSeq.map { case (v, e) => v.toVal -> e } ++ boolSubst.toSeq.map { case (v, e) => v.toVal -> e }
+        that.initEnv.withBindings(bindings).withConds(conditions)
     }
 
     def subsumes(that: CNFPath): Boolean =
@@ -210,6 +217,7 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
             case Some(expr) =>
               localCounter = localCounter + 1
               val newVd = vd.copy(id = new Identifier("x", localCounter, localCounter))
+              subst(vd) = newVd
               bindings(newVd) = transform(expr)
               newVd
             case None => vd
@@ -230,15 +238,16 @@ trait SimplifierWithCNFPath extends SimplifierWithPC { self =>
     def cached(e: Expr, path: CNFPath)(body: => (Expr, Boolean)): (Expr, Boolean) = {
       val (normalized, conds, bindings, subst) = normalize(e, path)
 
+      // A result simplified under some conditions remains valid under more conditions
+      // (but not under fewer), and only when the normalized variables have the same definitions.
       cache.get(normalized)
         .filter { case (cConds, cBindings, _, _) =>
-          (conds subsetOf cConds) &&
-          bindings.forall { case (k, v) => cBindings.get(k) == Some(v) }
+          (cConds subsetOf conds) && cBindings == bindings
         }
         .map { case (_, _, re, pe) => (applySubst(subst.map(_.swap), re), pe) }
         .getOrElse {
           val (re, pe) = body
-          cache(e) = (conds, bindings, applySubst(subst, re), pe)
+          cache(normalized) = (conds, bindings, applySubst(subst, re), pe)
           (re, pe)
         }
     }

@@ -262,6 +262,24 @@ class GraphsSuite extends AnyFunSuite {
     assert(isBefore(D, C))
   }
 
+  test("Graphs DFS and BFS visit each reachable node once") {
+    // A diamond with a cycle back to its top: every node has several paths from A
+    val g = DiGraph[Node, SimpleEdge[Node]](
+      Set(A, B, C, D, E),
+      Set(SimpleEdge(A, B), SimpleEdge(A, C), SimpleEdge(B, D), SimpleEdge(C, D), SimpleEdge(D, A), SimpleEdge(D, D))
+    )
+
+    var dfs = List[Node]()
+    g.depthFirstSearch(A) { n => dfs ::= n }
+    assert(dfs.sortBy(_.toString) == List(A, B, C, D))
+
+    var bfs = List[Node]()
+    g.breadthFirstSearch(A) { n => bfs ::= n }
+    bfs = bfs.reverse
+    assert(bfs.sortBy(_.toString) == List(A, B, C, D))
+    assert(bfs.head == A && bfs.last == D)
+  }
+
   test("Graphs pred/succ 1") {
     val g = g2
 
@@ -271,5 +289,33 @@ class GraphsSuite extends AnyFunSuite {
     assert(g.transitiveSucc(B) == Set(B, C, D))
     assert(g.transitivePred(B) == Set(A, B))
     assert(g.transitivePred(C) == Set(A, B))
+  }
+
+  test("Removing a node removes its edges") {
+    val g = g1 - B
+    // A   D
+    //     ↕
+    //     C
+    assert(g.N == Set(A, C, D))
+    assert(g.E == Set[SimpleEdge[Node]](C -> D, D -> C))
+    assert(g.outEdges(A).isEmpty && g.inEdges(A).isEmpty)
+    assert(g.inEdges(C) == Set[SimpleEdge[Node]](D -> C))
+    assert(g.succ(A).isEmpty)
+    assert(g.sources == Set(A))
+  }
+
+  test("Removing several nodes removes their edges") {
+    val g = g1 -- Seq(A, D)
+    assert(g.N == Set(B, C))
+    assert(g.E == Set[SimpleEdge[Node]](B -> C))
+    assert(g.inEdges(B).isEmpty)
+    assert(g.outEdges(C).isEmpty)
+  }
+
+  test("Removing an edge keeps its nodes") {
+    val g = g1 - (B -> C)
+    assert(g.N == Set(A, B, C, D))
+    assert(g.outEdges(B) == Set[SimpleEdge[Node]](B -> A))
+    assert(g.inEdges(C) == Set[SimpleEdge[Node]](D -> C))
   }
 }

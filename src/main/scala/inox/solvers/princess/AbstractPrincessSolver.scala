@@ -23,7 +23,7 @@ import ap.types.UninterpretedSortTheory
 import utils._
 import SolverResponses._
 
-import scala.collection.mutable.{Map => MutableMap}
+import scala.collection.mutable.{ListBuffer, Map => MutableMap}
 
 abstract class AbstractPrincessSolver(override val program: Program,
                                       override val context: Context)
@@ -97,8 +97,11 @@ abstract class AbstractPrincessSolver(override val program: Program,
       def typeToSortRef(tpe: Type): PADT.CtorArgSort = {
         if (indexMap contains tpe) {
           PADT.ADTSort(indexMap(tpe))
-        } else {
-          PADT.OtherSort(typeToSort(tpe))
+        } else tpe match {
+          // Terms of signed bit-vectors are built in the unsigned range (see `parseTerm`), so
+          // fields of signed bit-vectors must have the unsigned sort to hold negative values
+          case BVType(true, size) => PADT.OtherSort(Mod.UnsignedBVSort(size))
+          case _ => PADT.OtherSort(typeToSort(tpe))
         }
       }
 
@@ -215,14 +218,14 @@ abstract class AbstractPrincessSolver(override val program: Program,
       val res: ITerm = expr match {
         case FunctionInvocation(id, tps, args) =>
           val f = functions.cachedB(getFunction(id, tps.map(_.getType))) {
-            p.createFunction(id.uniqueName, args.size)
+            declared(p.createFunction(id.uniqueName, args.size))(p.addFunction(_))
           }
           val pArgs = for (a <- args) yield parseTerm(a)
           IFunApp(f, pArgs)
 
         case Application(caller, args) =>
           val f = lambdas.cachedB(caller.getType.asInstanceOf[FunctionType]) {
-            p.createFunction(FreshIdentifier("dynLambda").uniqueName, args.size + 1)
+            declared(p.createFunction(FreshIdentifier("dynLambda").uniqueName, args.size + 1))(p.addFunction(_))
           }
           val pArgs = for (a <- caller +: args) yield parseTerm(a)
           IFunApp(f, pArgs)
@@ -313,23 +316,19 @@ abstract class AbstractPrincessSolver(override val program: Program,
         case Division(lhs, rhs) => lhs.getType match {
           case BVType(true, _) => Mod.bvsdiv(parseTerm(lhs), parseTerm(rhs))
           case BVType(false, _) => Mod.bvudiv(parseTerm(lhs), parseTerm(rhs))
-          case IntegerType() => p.mulTheory.tDiv(parseTerm(lhs), parseTerm(rhs))
+          case IntegerType() => p.mulTheory.eDiv(parseTerm(lhs), parseTerm(rhs))
           case _ => unsupported(expr)
         }
 
         case Remainder(lhs, rhs) => lhs.getType match {
           case BVType(true, _) => Mod.bvsrem(parseTerm(lhs), parseTerm(rhs))
           case BVType(false, _) => Mod.bvurem(parseTerm(lhs), parseTerm(rhs))
-          case IntegerType() =>
-            val q = parseTerm(Division(lhs, rhs))
-            parseTerm(lhs) - (parseTerm(rhs) * q)
+          // the remainder of the euclidean division
+          case IntegerType() => p.mulTheory.eMod(parseTerm(lhs), parseTerm(rhs))
         }
 
         case Modulo(lhs, rhs) => lhs.getType match {
-          case BVType(true, size) => // we want x mod |y|
-            val a = parseTerm(lhs)
-            val b = parseTerm(rhs)
-            Mod.bvsmod(a, ITermITE(Mod.bvslt(b, parseTerm(BVLiteral(true, 0, size))), Mod.bvneg(b), b))
+          case BVType(true, _) => Mod.bvsmod(parseTerm(lhs), parseTerm(rhs))
           case BVType(false, _) => Mod.bvurem(parseTerm(lhs), parseTerm(rhs))
           case IntegerType() => p.mulTheory.eMod(parseTerm(lhs), parseTerm(rhs))
         }
@@ -397,14 +396,18 @@ abstract class AbstractPrincessSolver(override val program: Program,
       }
   }
 
+  // The uninterpreted functions of the closures of models, by function value (see `uniquateClosure`)
+  private val closureIds: MutableMap[(BigInt, FunctionType), Identifier] = MutableMap.empty
+
   object princessToInox {
     protected class Context(
       val model: Model,
       val seen: Set[BigInt] = Set.empty,
       private[AbstractPrincessSolver] val chooses: MutableMap[BigInt, Choose] = MutableMap.empty,
-      private[AbstractPrincessSolver] val lambdas: MutableMap[BigInt, Lambda] = MutableMap.empty
+      private[AbstractPrincessSolver] val lambdas: MutableMap[BigInt, Lambda] = MutableMap.empty,
+      private[AbstractPrincessSolver] val closures: MutableMap[Identifier, Lambda] = MutableMap.empty
     ) {
-      def withSeen(n: BigInt): Context = new Context(model, seen + n, chooses, lambdas)
+      def withSeen(n: BigInt): Context = new Context(model, seen + n, chooses, lambdas, closures)
     }
 
     // For some reason, various trees are not evaluated in the resulting Princess model,
@@ -419,12 +422,41 @@ abstract class AbstractPrincessSolver(override val program: Program,
                 case Some(IFunApp(_, args)) => args(selectors.toA(fun)._2)
                 case _ => app
               }
+            // The model interprets applications in terms of the integer representations of
+            // functions, which it doesn't use when evaluating function-typed terms
+            case IFunApp(fun, args) if lambdas `containsB` fun =>
+              val ft = lambdas.toA(fun)
+              IFunApp(fun, (args zip (ft +: ft.from)).map {
+                case (arg, argType: FunctionType) =>
+                  functionIndex(arg, argType)(model).map(IIntLit(_)).getOrElse(arg)
+                case (arg, _) => arg
+              })
             case e => e
           }
       }
 
       visitor.visit(iexpr, ())
     }
+
+    /* Obtains the internal integer representation of the function `iterm` in two manners.
+     * The first is to simply call model.eval on iterm. If it succeeds, we obtain the integer
+     * representation of the function. Otherwise, it could happen that iterm evaluates to some
+     * constant, in which case the representation of the function can be retrieved by traversing
+     * the `individuals` fields of the InfUninterpretedSort of the constant in question. */
+    private def functionIndex(iterm: ITerm, ft: FunctionType)(model: Model): Option[IdealInt] =
+      model.eval(iterm).orElse(model.evalExpression(iterm) match {
+        case Some(ct: IConstant) =>
+          typeToSort(ft) match {
+            case sort: UninterpretedSortTheory.InfUninterpretedSort =>
+              // Constants are numbered, it suffices to apply the reverse operation done in
+              // InfUninterpretedSort#decodeToTerm.
+              val idx = IdealInt(ct.c.name.substring(ct.c.name.lastIndexOf('!') + 1))
+              if (idx % 2 == IdealInt(0)) Some(idx / 2)
+              else Some(-(idx + 1) / 2)
+            case _ => None // Should not happen, but if it does, we simply return None
+          }
+        case _ => None
+      })
 
     private def evalToTerm(iexpr: IExpression)(model: Model): Option[IExpression] = iexpr match {
       case app @ IFunApp(_, _) => Some(app)
@@ -477,29 +509,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
         case ft: FunctionType =>
           val iterm = iexpr.asInstanceOf[ITerm]
-          // Try to obtain the internal integer representation of the function
-          // iterm in two manners.
-          // The first is to simply call model.eval on iterm (byEval). If it succeeds,
-          // we obtain the integer repr. of the function.
-          // Otherwise, it could happen that iterm evaluates to some constant,
-          // in which case the repr. of the function can be retrieved by traversing
-          // the `individuals` fields of the InfUninterpretedSort of the constant in question.
-          def byEval = ctx.model.eval(iterm)
-          def byIndividuals = ctx.model.evalExpression(iterm) match {
-            case Some(ct: IConstant) =>
-              val s = typeToSort(ft)
-              s match {
-                case sort: UninterpretedSortTheory.InfUninterpretedSort =>
-                  // Constants are numbered, it suffices to apply the reverse operation done in
-                  // InfUninterpretedSort#decodeToTerm.
-                  val idx = IdealInt(ct.c.name.substring(ct.c.name.lastIndexOf('!') + 1))
-                  if (idx % 2 == IdealInt(0)) Some(idx / 2)
-                  else Some(-(idx + 1) / 2)
-                case _ => None // Should not happen, but if it does, we simply return None
-              }
-            case _ => None
-          }
-          byEval.orElse(byIndividuals).map { ideal =>
+          functionIndex(iterm, ft)(ctx.model).map { ideal =>
             val n = BigInt(ideal.bigIntValue)
             if (ctx.seen(n)) {
               ctx.chooses.getOrElse(n, {
@@ -511,7 +521,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
               ctx.lambdas.getOrElse(n, {
                 val newCtx = ctx.withSeen(n)
                 val params = ft.from.map(tpe => ValDef.fresh("x", tpe, true))
-                val res = uniquateClosure(n.intValue, lambdas.getB(ft)
+                val lambda = (lambdas.getB(ft)
                   .flatMap { fun =>
                     val interps = ctx.model.interpretation.flatMap {
                       case (IFunApp(`fun`, ptr +: args), res: IIntLit) =>
@@ -542,6 +552,9 @@ abstract class AbstractPrincessSolver(override val program: Program,
                     case _: NoSimpleValue =>
                       Lambda(params, Choose(ValDef.fresh("res", ft.to), BooleanLiteral(true)))
                   }))
+                  val id = closureIds.getOrElseUpdate(n -> ft, FreshIdentifier("f", true))
+                  val res = uniquateClosure(id, lambda)
+                  ctx.closures(id) = lambda
                   ctx.lambdas(n) = res
                   res
               })
@@ -599,26 +612,28 @@ abstract class AbstractPrincessSolver(override val program: Program,
     def apply(iexpr: IExpression, tpe: Type)(using model: Model) = {
       val ctx = new Context(model)
       val res = parseExpr(iexpr, tpe)(using ctx)
-      (res, ctx.chooses.map { case (n, c) => c -> ctx.lambdas(n) })
+      (res, ctx.chooses.map { case (n, c) => c.res.id -> (ctx.lambdas(n): Expr) } ++ ctx.closures)
     }
   }
 
   def declareVariable(v: Variable): IExpression = variables.cachedB(v)(freshSymbol(v))
 
   def freshSymbol(v: Variable): IExpression = v.getType match {
-    case BooleanType() => p.createBooleanVariable(v.id.freshen.uniqueName)
-    case tpe => p.createConstant(v.id.freshen.uniqueName, typeToSort(tpe))
+    case BooleanType() => declared(p.createBooleanVariable(v.id.freshen.uniqueName))(p.addBooleanVariable(_))
+    case tpe => declared(p.createConstant(v.id.freshen.uniqueName, typeToSort(tpe)))(p.addConstant(_))
   }
 
   def assertCnstr(formula: Trees): Unit = p !! formula.asInstanceOf[IFormula]
 
-  // we interrupt asynchronously in portfolio mode, so this should be handled in a thread-safe manner
+  // we interrupt asynchronously in portfolio mode, so this should be handled in a thread-safe manner.
+  // The interruption is only cleared by `reset`: an interrupt that arrives between two checks
+  // (e.g. while the unrolling solver unrolls) must still stop the following ones.
   private val interruptCheckSat = new java.util.concurrent.atomic.AtomicBoolean(false)
 
   private def internalCheck(config: Configuration): config.Response[Model, Assumptions] = {
     import SimpleAPI.ProverStatus
 
-    interruptCheckSat.set(false)
+    if (interruptCheckSat.get) return config.cast(Unknown)
 
     p checkSat false
 
@@ -665,33 +680,26 @@ abstract class AbstractPrincessSolver(override val program: Program,
     p.shutDown
   }
 
+  // Princess forgets the symbols declared in a scope when the scope is popped, but the
+  // unrolling templates are encoded once and reused across pops. The symbols therefore stay
+  // in the maps above and are declared again after each pop of the scope that declared them.
+  private var scopes: List[ListBuffer[() => Unit]] = Nil
+
+  private def declared[T](symbol: T)(redeclare: T => Unit): T = {
+    for (scope <- scopes.headOption) scope += (() => redeclare(symbol))
+    symbol
+  }
+
   override def pop() = {
-    adtManager.pop()
-    variables.pop()
-    functions.pop()
-    lambdas.pop()
-
-    constructors.pop()
-    selectors.pop()
-    testers.pop()
-
-    sorts.pop()
-
+    val popped = scopes.head
+    scopes = scopes.tail
     p.pop()
+    for (redeclare <- popped) redeclare()
+    for (scope <- scopes.headOption) scope ++= popped
   }
 
   override def push() = {
-    adtManager.push()
-    variables.push()
-    functions.push()
-    lambdas.push()
-
-    constructors.push()
-    selectors.push()
-    testers.push()
-
-    sorts.push()
-
+    scopes = ListBuffer.empty[() => Unit] :: scopes
     p.push()
   }
 
@@ -707,7 +715,9 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
     sorts.clear()
 
+    scopes = Nil
     p.reset
+    interruptCheckSat.set(false)
   }
 
   def interrupt() = interruptCheckSat.set(true)

@@ -1,0 +1,13 @@
+; Lambdas with different captured values are distinct even when they are extensionally equal
+(set-info :status unsat)
+(declare-const a Int)
+(declare-const b Int)
+(define-fun l ((c Int)) (-> Int Int) (lambda ((x Int)) (ite (> x (+ x 1)) c 0)))
+(push 1)
+(assert (not (= a b)))
+(assert (= (l a) (l b)))
+(check-sat)
+(pop 1)
+(assert (= a b))
+(assert (not (= (l a) (l b))))
+(check-sat)

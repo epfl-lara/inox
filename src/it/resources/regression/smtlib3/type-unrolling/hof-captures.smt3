@@ -1,0 +1,51 @@
+; compares functions, which needs the intensional semantics of function equality
+(set-option :function-equality intensional)
+
+(declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
+(declare-datatype FunBox ((funBox (fn (-> Int Int)))))
+
+(declare-const b FunBox)
+(declare-const c FunBox)
+(declare-const l (List FunBox))
+
+; lambda capturing an ADT field
+(push 1)
+(assert (and (= (@ (fn b) 1) 2) (= (@ (lambda ((x Int)) (+ (@ (fn b) x) 1)) 1) 3)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; lambda capturing an ADT field
+(push 1)
+(assert (and (= (@ (fn b) 1) 2) (= (@ (lambda ((x Int)) (+ (@ (fn b) x) 1)) 1) 2)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; equal to a lambda capturing another function
+(push 1)
+(assert (and (= (fn c) (lambda ((x Int)) (+ (@ (fn b) x) 1))) (= (@ (fn b) 1) 2)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; equal to a lambda capturing another function
+(push 1)
+(assert (and (= (fn c) (lambda ((x Int)) (+ (@ (fn b) x) 1))) (= (@ (fn b) 1) 2) (= (@ (fn c) 1) 2)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; captured through a field (closures are totally ordered)
+(push 1)
+(assert (= (fn b) (lambda ((x Int)) (@ (fn b) x))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; captured through a list
+(push 1)
+(assert (and ((_ is Cons) l) ((_ is Cons) (tail l)) (= (fn (head (tail l))) (lambda ((x Int)) (@ (fn (head (tail l))) x)))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

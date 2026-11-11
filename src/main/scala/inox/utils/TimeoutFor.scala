@@ -4,38 +4,34 @@ package inox
 package utils
 
 class TimeoutFor(it: Interruptible) {
-  private class Countdown(timeout: Long, onTimeout: => Unit) extends Thread {
-    private var keepRunning = true
-    override def run() : Unit = {
-      val startTime : Long = System.currentTimeMillis
-      var exceeded : Boolean = false
+  /** Interrupts `it` once `timeout` milliseconds have passed, unless [[finish]] was called
+    * before. The check and the interrupt happen under the same lock as [[finish]], so `it`
+    * is never interrupted after [[finish]] returned.
+    */
+  private class Countdown(timeout: Long) extends Thread {
+    setDaemon(true)
 
-      while(!exceeded && keepRunning) {
-        if(timeout < (System.currentTimeMillis - startTime)) {
-          exceeded = true
-        }
-        Thread.sleep(10)
-      }
+    private var finished = false
 
-      if (exceeded && keepRunning) {
-        onTimeout
+    override def run(): Unit = synchronized {
+      val deadline = System.nanoTime + timeout * 1000000L
+      var remaining = timeout
+      while (!finished && remaining > 0) {
+        wait(remaining)
+        remaining = (deadline - System.nanoTime + 999999L) / 1000000L
       }
+      if (!finished) it.interrupt()
     }
 
-    def finishedRunning() : Unit = {
-      keepRunning = false
+    def finish(): Unit = synchronized {
+      finished = true
+      notifyAll()
     }
   }
 
   def interruptAfter[T](timeout: Long)(body: => T): T = {
-    val timer = new Countdown(timeout, {
-      it.interrupt()
-    })
-
+    val timer = new Countdown(timeout)
     timer.start()
-    val res = body
-    timer.finishedRunning()
-
-    res
+    try body finally timer.finish()
   }
 }

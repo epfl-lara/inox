@@ -6,7 +6,7 @@ package smtlib
 
 import _root_.smtlib.trees.Commands.{FunDef => SMTFunDef, _}
 import _root_.smtlib.trees.Terms.{Identifier => _, _}
-import _root_.smtlib.trees.CommandsResponses._
+import _root_.smtlib.trees.CommandsResponses.{Error => SMTError, _}
 
 import scala.collection.mutable.{Map => MutableMap}
 
@@ -20,7 +20,6 @@ abstract class SMTLIBSolver private(override val program: Program,
   import program._
   import program.trees._
   import program.symbols.{given, _}
-  import exprOps.variablesOf
   import SolverResponses._
 
   def this(program: Program, context: inox.Context)(using semantics: program.Semantics) =
@@ -75,19 +74,33 @@ abstract class SMTLIBSolver private(override val program: Program,
 
   /* Public solver interface */
   def assertCnstr(expr: Expr): Unit = {
-    variablesOf(expr).foreach(declareVariable)
-
+    // `toSMT` declares the free variables of `expr` as it meets them
     val term = toSMT(expr)(using Map())
     emit(Assert(term))
   }
 
   override def reset() = {
     emit(Reset(), rawOut = true) match {
-      case Error(msg) =>
+      case SMTError(msg) =>
         reporter.warning(s"Failed to reset $name: $msg")
         throw new CantResetException(this)
       case _ =>
+        aborted = false
     }
+
+    // The solver forgot every declaration, so they must be emitted again when used
+    adtManager.reset()
+    constructors.reset()
+    selectors.reset()
+    testers.reset()
+    variables.reset()
+    sorts.reset()
+    lambdas.reset()
+    functions.reset()
+    predicates.reset()
+    predicateCalls.reset()
+
+    initialize()
   }
 
   protected def extractResponse(
@@ -101,9 +114,10 @@ abstract class SMTLIBSolver private(override val program: Program,
         val syms = variables.bSet ++ predicates.bSet
         emit(GetModel()) match {
           case GetModelResponseSuccess(smodel) =>
-            // first-pass to gather functions
+            // first-pass to gather functions, and the definitions of the functions of the program,
+            // which other definitions can call
             val modelFunDefs = smodel.collect {
-              case me @ DefineFun(SMTFunDef(a, args, _, _)) if args.nonEmpty =>
+              case me @ DefineFun(SMTFunDef(a, args, _, _)) if args.nonEmpty || (functions `containsB` a) =>
                 a -> me
             }.toMap
 
@@ -125,6 +139,7 @@ abstract class SMTLIBSolver private(override val program: Program,
 
             val chooses: MutableMap[(Identifier, Seq[Type]), Expr] = MutableMap.empty
             chooses ++= ctx.getChooses.map(p => (p._1.res.id, Seq.empty[Type]) -> p._2)
+            chooses ++= ctx.getClosures.map(p => (p._1, Seq.empty[Type]) -> p._2)
 
             chooses ++= smodel.flatMap {
               case DefineFun(SMTFunDef(s, args, _, e)) if functions `containsB` s =>
@@ -135,6 +150,7 @@ abstract class SMTLIBSolver private(override val program: Program,
                       val ctx = new Context(variables.bToA, Map(), modelFunDefs).withVariables(args.map(_.name) zip tfd.params.map(_.toVariable))
                       val body = fromSMT(e, tfd.getType)(using ctx)
                       chooses ++= ctx.getChooses.map(p => (p._1.res.id, tfd.tps) -> p._2)
+                      chooses ++= ctx.getClosures.map(p => (p._1, Seq.empty[Type]) -> p._2)
                       Some((res.id, tfd.tps) -> body)
                     case _ => None
                   }

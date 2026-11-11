@@ -1,0 +1,60 @@
+; A set or bag lies in a quantifier's domain iff its elements do: the type check can only be
+; false at an element the solver picks as a counterexample. The elements that the formula reads
+; from a free set are typed, as the results of the applications of free functions.
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+(declare-const x Int)
+(declare-const s (Set PosInt))
+
+; empty
+(push 1)
+(declare-const g (-> (Set Int) Int))
+(assert (not (=> (forall ((w (Set PosInt))) (= (g w) 1)) (= (g (as emptyset Int)) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; outside domain
+(push 1)
+(declare-const g (-> (Set Int) Int))
+(assert (not (=> (forall ((w (Set PosInt))) (= (g w) 1)) (= (g (insert (insert (as emptyset Int) 1) 0)) 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; doesn't hold
+(push 1)
+(assert (not (forall ((w (Set PosInt))) (forall ((x Int)) (=> (member x w) (> x 1))))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; free variable
+(push 1)
+(assert (not (=> (= s (insert (as emptyset Int) x)) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; free variable
+(push 1)
+(assert (not (=> (= s (insert (as emptyset Int) x)) (> x 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; in domain
+(push 1)
+(declare-const g (-> (Set Int) Int))
+(assert (not (=> (forall ((w (Set PosInt))) (= (g w) 1)) (= (g (insert (as emptyset Int) 1)) 1))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; holds
+(push 1)
+(assert (not (forall ((w (Set PosInt))) (forall ((x Int)) (=> (member x w) (> x 0))))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

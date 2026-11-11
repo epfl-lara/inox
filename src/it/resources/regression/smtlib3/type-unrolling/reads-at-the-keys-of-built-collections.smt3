@@ -1,0 +1,141 @@
+; A collection that is built from others is read at the keys that it defines, so a free collection
+; that equals it types the inserted elements and the stored values. (The free bags of these queries
+; are built from literals, since the multiplicities of a free bag of the underlying solver may be
+; negative.)
+
+(define-type PosInt () (! Int :var y :restrict (> y 0)))
+
+(declare-const k Int)
+(declare-const v Int)
+(declare-const x Int)
+(declare-const m (Array Int PosInt))
+(declare-const s (Set PosInt))
+(declare-const b (Bag PosInt))
+(declare-const n (Array Int Int))
+(declare-const t (Set Int))
+
+; stored value
+(push 1)
+(assert (not (=> (= m (store n k v)) (> v 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; stored value, too strong
+(push 1)
+(assert (not (=> (= m (store n k v)) (> v 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; overwritten stored value
+(push 1)
+(assert (not (=> (= m (store (store n k v) k 1)) (> v 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; stored value under another store
+(push 1)
+(assert (not (=> (and (= m (store (store n k v) x 1)) (not (= k x))) (> v 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; finite map
+(push 1)
+(assert (not (=> (= m (store ((as const (Array Int Int)) 1) k v)) (> v 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; inserted element
+(push 1)
+(assert (not (=> (= s (insert t x)) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; inserted element, too strong
+(push 1)
+(assert (not (=> (= s (insert t x)) (> x 1))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; element of a union
+(push 1)
+(assert (not (=> (= s (union t (insert (as emptyset Int) x))) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; element of an intersection
+(push 1)
+(assert (not (=> (and (= s (intersection t (insert (as emptyset Int) x))) (member x t)) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; element of an intersection, not in the other set
+(push 1)
+(assert (not (=> (= s (intersection t (insert (as emptyset Int) x))) (> x 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; element of a difference
+(push 1)
+(assert (not (=> (and (= s (setminus (insert t x) (insert (as emptyset Int) v))) (not (= x v))) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; element of a difference, which may be removed
+(push 1)
+(assert (not (=> (= s (setminus (insert t x) (insert (as emptyset Int) v))) (> x 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; inserted bag element
+(push 1)
+(assert (not (=> (= b (bag.insert (bag.singleton 1 1) x)) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; bag element of multiplicity zero
+(push 1)
+(assert (not (=> (= b (bag.union (bag.singleton 1 1) (bag.singleton x 0))) (> x 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; bag element of positive multiplicity
+(push 1)
+(assert (not (=> (= b (bag.union (bag.singleton 1 1) (bag.singleton x 2))) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; bag element of a difference
+(push 1)
+(assert (not (=> (= b (bag.difference (bag.union (bag.singleton 1 1) (bag.singleton x 2)) (bag.singleton x 1))) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; bag element of a difference, which may be removed
+(push 1)
+(assert (not (=> (= b (bag.difference (bag.union (bag.singleton 1 1) (bag.singleton x 2)) (bag.singleton x 2))) (> x 0))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; bag element of an intersection
+(push 1)
+(assert (not (=> (= b (bag.intersection (bag.singleton x 2) (bag.union (bag.singleton 1 1) (bag.singleton x 1)))) (> x 0))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
