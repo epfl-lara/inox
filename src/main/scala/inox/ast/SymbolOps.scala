@@ -603,7 +603,9 @@ trait SymbolOps extends TypeOps { self =>
     * `expr` under a model only needs these, so that solvers that can't operate under a model still
     * solve the expressions that call no uninterpreted function, and their results can be cached.
     * Each function and each uninterpreted function is visited once, so recursive functions and
-    * interpretations terminate. */
+    * interpretations terminate. Functions are traversed generically and uninterpreted functions
+    * are identified by their ids only, so all the instantiations of a reached function are kept,
+    * however its type arguments change in (polymorphically) recursive calls. */
   def transitiveInterpretationsOf(expr: Expr, interpretations: Map[(Identifier, Seq[Type]), Expr]): Map[(Identifier, Seq[Type]), Expr] =
     if (interpretations.isEmpty) interpretations else {
       var functions = Set.empty[Identifier]
