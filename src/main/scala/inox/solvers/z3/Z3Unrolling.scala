@@ -128,7 +128,7 @@ abstract class Z3Unrolling(override val program: Program)
       }
     })
 
-    def getUninterpreted(id: Identifier): Option[t.Expr] = ex.chooses.get(id).orElse(ex.closures.get(id))
+    def getUninterpreted(id: Identifier): Option[t.Expr] = ex.interpretations.get(id).orElse(ex.closures.get(id))
 
     override def toString = model.toString
   }

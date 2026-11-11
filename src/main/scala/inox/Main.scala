@@ -110,7 +110,7 @@ trait MainHelpers {
     optModelFormat -> Description(Printing,
       "Answer format: 'inox' (default, human readable) or 'smtlib' (one of sat/unsat/unknown on its own line, " +
       "followed for sat by the model as ((x v) ...) with SMT-LIB values)"),
-    optPrintChooses -> Description(Printing, "Display partial models for chooses when printing models"),
+    optPrintInterpretations -> Description(Printing, "Display partial models for interpretations when printing models"),
     ast.optPrintPositions -> Description(Printing, "Attach positions to trees when printing"),
     ast.optPrintUniqueIds -> Description(Printing, "Always print unique ids"),
     ast.optPrintTypes -> Description(Printing, "Attach types to trees when printing"),

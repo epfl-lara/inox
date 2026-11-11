@@ -598,13 +598,13 @@ trait SymbolOps extends TypeOps { self =>
     normalizeStructure(closure)(using PurityOptions.unchecked)._1.asInstanceOf[Lambda]
   }
 
-  /** Inlines the uninterpreted functions that `chooses` give in `expr`, including in its types, such
+  /** Inlines the uninterpreted functions that `interpretations` give in `expr`, including in its types, such
     * as those that the closures of models call (see [[uniquateClosure]]), for solvers that don't see
     * the model. */
-  def inlineUninterpreted(expr: Expr, chooses: Map[(Identifier, Seq[Type]), Expr]): Expr = {
+  def inlineUninterpreted(expr: Expr, interpretations: Map[(Identifier, Seq[Type]), Expr]): Expr = {
     class Inliner(seen: Set[(Identifier, Seq[Type])]) extends trees.ConcreteSelfTreeTransformer {
       override def transform(e: Expr): Expr = e match {
-        case UninterpretedCall(id, tps, args, _) if !seen(id -> tps) => chooses.get(id -> tps) match {
+        case UninterpretedCall(id, tps, args, _) if !seen(id -> tps) => interpretations.get(id -> tps) match {
           case Some(l: Lambda) if l.params.size == args.size =>
             val body = new Inliner(seen + (id -> tps)).transform(l.body)
             freshenLocals((l.params zip args.map(transform)).foldRight(body) { case ((vd, arg), b) => Let(vd, arg, b) })

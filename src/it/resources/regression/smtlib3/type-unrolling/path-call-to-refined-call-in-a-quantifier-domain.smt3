@@ -3,10 +3,10 @@
 
 (define-type NonZero () (! Int :var y :restrict (not (= y 0))))
 ; has no value for a == 0
-(declare-fun nonZeroChoice ((a Int)) (! Bool :var r :restrict (and r (not (= a 0)))))
-(define-fun chooseNonZero ((a Int)) Bool (nonZeroChoice a))
+(declare-fun nonZeroWitness ((a Int)) (! Bool :var r :restrict (and r (not (= a 0)))))
+(define-fun witnessNonZero ((a Int)) Bool (nonZeroWitness a))
 
-(define-type Guarded () (! NonZero :var x :restrict (chooseNonZero x)))
+(define-type Guarded () (! NonZero :var x :restrict (witnessNonZero x)))
 
 ; in domain
 (push 1)

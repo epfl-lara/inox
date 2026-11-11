@@ -39,7 +39,7 @@ class PrincessSolver(override val program: Program)
   protected def wrapModel(model: underlying.Model): ModelWrapper = ModelWrapperImpl(model)
 
   private case class ModelWrapperImpl(model: underlying.Model) extends ModelWrapper {
-    private val chooses: MutableMap[Identifier, t.Expr] = MutableMap.empty
+    private val interpretations: MutableMap[Identifier, t.Expr] = MutableMap.empty
     import IExpression._
 
     def extractConstructor(v: IExpression, tpe: t.ADTType): Option[Identifier] = {
@@ -61,11 +61,11 @@ class PrincessSolver(override val program: Program)
 
     def modelEval(elem: IExpression, tpe: t.Type): Option[t.Expr] = timers.solvers.princess.eval.run {
       val (res, cs) = underlying.princessToInox(elem, tpe)(using model)
-      chooses ++= cs
+      interpretations ++= cs
       res
     }
 
-    def getUninterpreted(id: Identifier): Option[t.Expr] = chooses.get(id)
+    def getUninterpreted(id: Identifier): Option[t.Expr] = interpretations.get(id)
 
     override def toString = model.toString
   }
