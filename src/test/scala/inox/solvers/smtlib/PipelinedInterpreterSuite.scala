@@ -54,7 +54,7 @@ class PipelinedInterpreterSuite extends AnyFunSuite {
 
     test(s"$name: Many sent commands don't fill the pipes") {
       withSolver { solver =>
-        // well beyond the 8192 `success` answers that fill a 64 KiB pipe
+        // well beyond the 8192 `success` answers that fill a 64 KiB pipe of Linux
         for (i <- 0 until 20000) solver.send(DeclareConst(SSymbol(s"c$i"), BoolSort()))
         assert(solver.eval(CheckSat()) == CheckSatStatus(SatStatus))
         assert(solver.pendingError().isEmpty)
@@ -69,6 +69,18 @@ class PipelinedInterpreterSuite extends AnyFunSuite {
         assert(solver.pendingError().isEmpty)
       }
     }
+  }
+
+  test("z3: Many errors of sent commands don't fill the pipes") {
+    val (_, available, create) = solvers.head
+    assume(available(), "z3 isn't available")
+    val solver = create()
+    try {
+      // z3 goes on after an error, and answers each of these with a message of about 70 characters
+      for (_ <- 0 until 20000) solver.send(Assert(bRef)) // b isn't declared
+      assert(solver.eval(CheckSat()) == CheckSatStatus(SatStatus))
+      assert(solver.pendingError().nonEmpty)
+    } finally solver.free()
   }
 
   test("z3: The error of a sent command is forgotten by a reset") {
