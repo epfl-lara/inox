@@ -37,46 +37,11 @@ trait SolvingEvaluator extends Evaluator { self =>
     if (interpretations.isEmpty) semantics.getSolver
     else semantics.getSolver(inox.Model(program)(Map.empty, interpretations))
 
-  /** The interpretations in `interpretations` of the uninterpreted functions that `e` may call,
-    * directly or through the functions and interpretations that it calls. The solvers only need to
-    * operate under these, so that semantics whose solvers can't operate under a model still solve
-    * for the foralls that call no uninterpreted function. */
-  protected def reachedInterpretations(e: Expr, interpretations: Map[(Identifier, Seq[Type]), Expr]): Map[(Identifier, Seq[Type]), Expr] =
-    if (interpretations.isEmpty) interpretations else {
-      var functions = Set.empty[Identifier]
-      var uninterpreted = Set.empty[Identifier]
-      var todo = List.empty[Either[FunDef, Expr]]
-
-      // Collects the functions and uninterpreted functions that are called, including in types
-      object collector extends ConcreteSelfTreeTraverser(program.trees) {
-        override def traverse(e: Expr): Unit = {
-          e match {
-            case fi: FunctionInvocation if !functions(fi.id) =>
-              functions += fi.id
-              todo ::= Left(getFunction(fi.id))
-            case uc: UninterpretedCall if !uninterpreted(uc.id) =>
-              uninterpreted += uc.id
-              todo :::= interpretations.toList.collect { case ((uc.id, _), body) => Right(body) }
-            case _ =>
-          }
-          super.traverse(e)
-        }
-      }
-
-      collector.traverse(e)
-      while (todo.nonEmpty) {
-        val next = todo.head
-        todo = todo.tail
-        next.fold(collector.traverse, collector.traverse)
-      }
-      interpretations.filter { case ((id, _), _) => uninterpreted(id) }
-    }
-
   def onForallInvocation(forall: Forall, modelInterpretations: Map[(Identifier, Seq[Type]), Expr] = Map.empty): Expr = {
     if (!evalQuantifiers) {
       throw new RuntimeException(s"Evaluation of 'forall' expressions disabled @ ${forall.getPos}: $forall")
     }
-    val interpretations = reachedInterpretations(forall, modelInterpretations)
+    val interpretations = interpretationsUsedBy(forall, modelInterpretations)
 
     // The results in a model only hold in that model
     BooleanLiteral((if (interpretations.isEmpty) forallCache.get(forall) else None).getOrElse({
