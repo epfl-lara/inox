@@ -601,8 +601,10 @@ trait SymbolOps extends TypeOps { self =>
   /** The interpretations among `interpretations` of the uninterpreted functions that `expr` may call,
     * directly, in its types, or through the functions and interpretations that it calls. Solving
     * `expr` under a model only needs these, so that solvers that can't operate under a model still
-    * solve the expressions that call no uninterpreted function, and their results can be cached. */
-  def interpretationsUsedBy(expr: Expr, interpretations: Map[(Identifier, Seq[Type]), Expr]): Map[(Identifier, Seq[Type]), Expr] =
+    * solve the expressions that call no uninterpreted function, and their results can be cached.
+    * Each function and each uninterpreted function is visited once, so recursive functions and
+    * interpretations terminate. */
+  def transitiveInterpretationsOf(expr: Expr, interpretations: Map[(Identifier, Seq[Type]), Expr]): Map[(Identifier, Seq[Type]), Expr] =
     if (interpretations.isEmpty) interpretations else {
       var functions = Set.empty[Identifier]
       var uninterpreted = Set.empty[Identifier]
