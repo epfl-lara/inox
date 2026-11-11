@@ -218,4 +218,39 @@ class RecursiveEvaluatorSuite extends AnyFunSuite {
       assert(ev.eval(Application(unguarded, Seq(one))) == EvaluationResults.RuntimeError("Division by 0."))
     }
   }
+
+  test("Model values compare equal whatever the refinements of their types") {
+    val vd = ValDef.fresh("v", IntegerType())
+    val pos = RefinementType(vd, GreaterThan(vd.toVariable, IntegerLiteral(0)))
+
+    def evalIn(vars: Map[ValDef, Expr])(expr: Expr): Expr =
+      evaluator.eval(expr, Model(program)(vars, Map.empty)) match {
+        case EvaluationResults.Successful(res) => res
+        case other => fail(s"Evaluation of '$expr' failed with $other")
+      }
+
+    val (zero, one) = (IntegerLiteral(0), IntegerLiteral(1))
+    val values = Seq(
+      FiniteSet(Seq(one), IntegerType()) -> FiniteSet(Seq(one), pos),
+      FiniteBag(Seq(one -> one), IntegerType()) -> FiniteBag(Seq(one -> one), pos),
+      FiniteMap(Seq(one -> one), zero, IntegerType(), IntegerType()) -> FiniteMap(Seq(one -> one), zero, pos, IntegerType()),
+      FiniteSet(Seq(FiniteSet(Seq(one), IntegerType())), SetType(IntegerType())) ->
+        FiniteSet(Seq(FiniteSet(Seq(one), pos)), SetType(pos)),
+    )
+
+    for ((erased, refined) <- values) {
+      val x = ValDef.fresh("x", erased.getType(using program.symbols))
+      val y = ValDef.fresh("y", refined.getType(using program.symbols))
+      val eval = evalIn(Map(x -> erased, y -> refined))
+      assert(eval(Equals(x.toVariable, y.toVariable)) == BooleanLiteral(true), s"$erased == $refined")
+      assert(eval(Equals(y.toVariable, refined)) == BooleanLiteral(true), s"$refined == $refined")
+    }
+
+    // Also inside tuples, which aren't erased themselves
+    val t = ValDef.fresh("t", TupleType(Seq(SetType(pos), IntegerType())))
+    val s = ValDef.fresh("s", SetType(IntegerType()))
+    val eval = evalIn(Map(t -> Tuple(Seq(FiniteSet(Seq(one), pos), one)), s -> FiniteSet(Seq(one), IntegerType())))
+    assert(eval(ElementOfSet(TupleSelect(t.toVariable, 1), FiniteSet(Seq(s.toVariable), SetType(IntegerType())))) ==
+      BooleanLiteral(true))
+  }
 }
