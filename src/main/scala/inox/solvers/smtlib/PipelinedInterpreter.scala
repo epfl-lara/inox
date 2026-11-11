@@ -6,7 +6,7 @@ package smtlib
 
 import _root_.smtlib.interpreters.{BitwuzlaInterpreter, CVC4Interpreter, CVC5Interpreter, ProcessInterpreter, Z3Interpreter}
 import _root_.smtlib.parser.Parser
-import _root_.smtlib.trees.Terms.SExpr
+import _root_.smtlib.trees.Terms.{SExpr, SList, SSymbol}
 import _root_.smtlib.trees.Commands._
 import _root_.smtlib.trees.CommandsResponses.{Error => SMTError, _}
 
@@ -50,14 +50,19 @@ trait PipelinedInterpreter extends ProcessInterpreter {
 
   /** Buffers `cmd`, whose answer is read before the next command that is evaluated. */
   def send(cmd: SExpr): Unit = {
-    printer.printSExpr(cmd, buffer)
-    buffer.write("\n")
+    buffered(cmd)
     pending += 1
     if (buffer.getBuffer.length >= PipelinedInterpreter.ChunkSize) handOff()
   }
 
-  // has a writer write the commands of `buffer` to the process
-  private def handOff(): Unit = if (buffer.getBuffer.length > 0) {
+  /** Buffers `cmd`, whose answer is then read by the caller (unlike with [[send]]). */
+  protected def buffered(cmd: SExpr): Unit = {
+    printer.printSExpr(cmd, buffer)
+    buffer.write("\n")
+  }
+
+  /** Has a writer write the commands that were buffered to the process. */
+  protected def handOff(): Unit = if (buffer.getBuffer.length > 0) {
     val chunk = buffer.toString
     buffer.getBuffer.setLength(0)
     writes.synchronized {
@@ -118,7 +123,7 @@ trait PipelinedInterpreter extends ProcessInterpreter {
     writeError = None
   }
 
-  private def recordError(msg: String): Unit = if (error.isEmpty) error = Some(msg)
+  protected def recordError(msg: String): Unit = if (error.isEmpty) error = Some(msg)
 
   /** The first error answered by a sent command since the last call, if any. */
   def pendingError(): Option[String] = {
@@ -156,7 +161,49 @@ object PipelinedInterpreter {
 }
 
 class PipelinedZ3Interpreter(executable: String, args: Array[String], parserCtor: BufferedReader => Parser)
-  extends Z3Interpreter(executable, args, parserCtor = parserCtor) with PipelinedInterpreter
+  extends Z3Interpreter(executable, args, parserCtor = parserCtor) with PipelinedInterpreter {
+
+  // whether the answer of the `(simplify true)` sent by [[resetLater]] is still to be read
+  private var resetting = false
+
+  override def flush(): Unit = {
+    super.flush()
+    if (resetting) {
+      resetting = false
+      try {
+        parser.parseSExpr match {
+          case SSymbol("true") =>
+          case res => recordError("Unexpected answer to (simplify true): " + res)
+        }
+      } catch {
+        case e: Exception => recordError("Solver encountered exception: " + e)
+      }
+    }
+  }
+
+  /** Resets the process without waiting for it, before it is left in the [[ProcessPool]].
+    *
+    * After a reset, Z3 only sets up its new context when it gets the next command, which takes
+    * about a millisecond: `(simplify true)` has it do so while the process is idle, without
+    * changing the state of its solver (a push and pop would, see `Z3_mk_solver`). The process is
+    * then ready once [[awaitReset]] returns true.
+    */
+  def resetLater(): Unit = {
+    // the last commands of a solver are usually evaluated, so that nothing is waited for here
+    flush()
+    pendingError()
+    send(Reset())
+    buffered(SList(SSymbol("simplify"), SSymbol("true")))
+    handOff()
+    resetting = true
+  }
+
+  /** Whether the reset sent by [[resetLater]] succeeded (otherwise, the process must be freed). */
+  def awaitReset(): Boolean = {
+    flush()
+    pendingError().isEmpty
+  }
+}
 
 class PipelinedCVC4Interpreter(executable: String, args: Array[String])
   extends CVC4Interpreter(executable, args) with PipelinedInterpreter

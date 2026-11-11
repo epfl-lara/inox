@@ -28,18 +28,20 @@ object ProcessPool {
   private def processes(key: Seq[String]): ArrayDeque[ProcessInterpreter] =
     idle.computeIfAbsent(key, _ => new ArrayDeque[ProcessInterpreter])
 
-  /** An idle process started with the command line `key`, which the caller now owns. */
+  /** An idle process started with the command line `key`, which the caller now owns.
+    *
+    * The process that was left here first is taken first, as it had the most time to reset. */
   def take(key: Seq[String]): Option[ProcessInterpreter] = {
     val queue = processes(key)
     Option(queue.synchronized(queue.pollFirst()))
   }
 
-  /** Leaves the idle process `interpreter`, started with the command line `key` and reset by the
-    * caller, for another solver. */
+  /** Leaves the idle process `interpreter`, started with the command line `key` and reset (or
+    * being reset) by the caller, for another solver. */
   def give(key: Seq[String], interpreter: ProcessInterpreter): Unit = {
     val queue = processes(key)
     val kept = queue.synchronized {
-      queue.size < maxIdle && { queue.addFirst(interpreter); true }
+      queue.size < maxIdle && { queue.addLast(interpreter); true }
     }
     // freed outside of the lock, so that the other solvers don't wait for it
     if (!kept) interpreter.free()
