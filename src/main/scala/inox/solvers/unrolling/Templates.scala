@@ -7,6 +7,7 @@ package unrolling
 import utils._
 
 import scala.collection.generic.CanBuildFrom
+import scala.collection.mutable.{Set => MutableSet}
 
 trait Templates
   extends TemplateGenerator
@@ -316,6 +317,12 @@ trait Templates
       key = substituter(key)
     )
   }
+
+  /** The keys at which the decompositions of collection types unfold their collection, e.g. `e` in
+    * `s == Set(e) ++ rest` (@see [[TemplateGenerator.mkTypeClauses]]). A decomposition types what it
+    * unfolds, so the collections it builds at these keys aren't reads. As reads, they would pair
+    * the decomposition of each free collection with all the free collections of its type. */
+  private[unrolling] val decompositionKeys: MutableSet[Expr] = MutableSet.empty
 
   /** Represents an equality relation between two instances of a given type */
   case class Equality(tpe: Type, e1: Encoded, e2: Encoded) {
@@ -690,14 +697,15 @@ trait Templates
       }
 
       // A collection is read where the formula looks it up, and where it is built at the keys it
-      // defines, so that a free collection that equals a built one types these keys
+      // defines, so that a free collection that equals a built one types these keys. The collections
+      // that type decompositions build are left out (see [[decompositionKeys]]).
       val reads = exprOps.collect[Read] {
         case MapApply(m, k) => Set(Read(m.getType, encoder(m), encoder(k)))
         case ElementOfSet(e, s) => Set(Read(s.getType, encoder(s), encoder(e)))
         case MultiplicityInBag(e, b) => Set(Read(b.getType, encoder(b), encoder(e)))
         case c @ (_: FiniteMap | _: MapUpdated | _: FiniteSet | _: SetAdd | _: SetUnion | _: SetIntersection |
                   _: SetDifference | _: FiniteBag | _: BagAdd | _: BagUnion | _: BagIntersection | _: BagDifference) =>
-          definedKeys(c).map(k => Read(c.getType, encoder(c), encoder(k))).toSet
+          definedKeys(c).filterNot(decompositionKeys).map(k => Read(c.getType, encoder(c), encoder(k))).toSet
         case _ => Set.empty
       } (expr)
 
