@@ -23,7 +23,7 @@ class SymbolOpsSuite extends AnyFunSuite with DatastructureUtils {
   val b = Variable.fresh("b", BooleanType())
   given PrinterOptions = PrinterOptions(symbols = Some(symbols))
 
-  test("Interpretations used by an expression") {
+  test("Transitive interpretations of an expression") {
     val y = ValDef.fresh("y", IntegerType())
     def call(id: Identifier, arg: Expr) = UninterpretedCall(id, Seq(), Seq(arg), PiType(Seq(y), IntegerType()))
     val f = FreshIdentifier("f")
@@ -34,9 +34,12 @@ class SymbolOpsSuite extends AnyFunSuite with DatastructureUtils {
       (f, Seq.empty[Type]) -> Lambda(Seq(y), call(g, y.toVariable)),
       (g, Seq.empty[Type]) -> Lambda(Seq(y), y.toVariable),
       (h, Seq.empty[Type]) -> Lambda(Seq(y), y.toVariable))
-    assert(interpretationsUsedBy(call(f, x), interpretations).keySet == Set(f -> Seq(), g -> Seq()))
-    assert(interpretationsUsedBy(FunctionInvocation(fid, Seq(), Seq(x)), interpretations).isEmpty)
-    assert(interpretationsUsedBy(call(h, x), Map.empty).isEmpty)
+    assert(transitiveInterpretationsOf(call(f, x), interpretations).keySet == Set(f -> Seq(), g -> Seq()))
+    assert(transitiveInterpretationsOf(FunctionInvocation(fid, Seq(), Seq(x)), interpretations).isEmpty)
+    assert(transitiveInterpretationsOf(call(h, x), Map.empty).isEmpty)
+    // Recursive interpretations
+    val loop = Map((f, Seq.empty[Type]) -> Lambda(Seq(y), call(f, y.toVariable)))
+    assert(transitiveInterpretationsOf(call(f, x), loop).keySet == Set(f -> Seq()))
   }
 
   test("Transformations and searches with path conditions") {
