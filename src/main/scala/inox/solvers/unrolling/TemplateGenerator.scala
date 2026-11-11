@@ -887,6 +887,7 @@ trait TemplateGenerator { self: Templates =>
           storeExpr(valueExpr)
           storeExpr(defaultExpr)
           storeExpr(restExpr)
+          decompositionKeys += keyExpr
 
           storeGuarded(pathVar, Equals(condVar, Equals(expr, FiniteMap(Seq(), defaultExpr, from, to))))
           iff(and(pathVar, condVar), newBool1)
@@ -920,6 +921,7 @@ trait TemplateGenerator { self: Templates =>
           storeExpr(newExpr)
           storeExpr(elemExpr)
           storeExpr(restExpr)
+          decompositionKeys += elemExpr
 
           storeGuarded(pathVar, Equals(condVar, Equals(expr, FiniteSet(Seq(), base))))
           iff(and(pathVar, condVar), newBool1)
@@ -954,6 +956,7 @@ trait TemplateGenerator { self: Templates =>
           storeExpr(elemExpr)
           storeExpr(multExpr)
           storeExpr(restExpr)
+          decompositionKeys += elemExpr
 
           storeGuarded(pathVar, Equals(condVar, Equals(expr, FiniteBag(Seq(), base))))
           iff(and(pathVar, condVar), newBool1)
