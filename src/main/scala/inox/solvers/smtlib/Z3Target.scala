@@ -51,21 +51,26 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
   protected val interpreter = {
     val opts = interpreterOpts
-    ProcessPool.take(processKey).getOrElse {
+    takeIdle().getOrElse {
       reporter.debug("Invoking solver "+targetName+" with "+opts.mkString(" "))
       new PipelinedZ3Interpreter(targetName, opts.toArray, out => new Z3Parser(new Lexer(out)))
     }
   }
 
+  // an idle process whose reset succeeded, the others are freed
+  @scala.annotation.tailrec
+  private def takeIdle(): Option[PipelinedZ3Interpreter] = ProcessPool.take(processKey) match {
+    case Some(z3: PipelinedZ3Interpreter) if z3.awaitReset() => Some(z3)
+    case Some(process) => process.free(); takeIdle()
+    case None => None
+  }
+
   override protected def recycle(): Boolean = interpreter match {
-    // the interpreter is used directly, as the reset isn't part of the solver's session (it also
-    // reads the answers of the commands that were sent last, see [[PipelinedInterpreter]])
-    case z3: Z3Interpreter => z3.eval(Reset()) match {
-      case Success =>
-        ProcessPool.give(processKey, z3)
-        true
-      case _ => false
-    }
+    // the process resets while it is idle, and the next solver to take it waits for that
+    case z3: PipelinedZ3Interpreter =>
+      z3.resetLater()
+      ProcessPool.give(processKey, z3)
+      true
     case _ => false
   }
 
