@@ -52,8 +52,9 @@ abstract class AbstractPrincessSolver(override val program: Program,
   ap.util.Debug enableAllAssertions enableAssertions
   protected[princess] val p = SimpleAPI(
     enableAssert = enableAssertions,
-    dumpScala = enableAssertions,
+    dumpScala = false,
     scalaDumpBasename = options.findOptionOrDefault(Main.optFiles).headOption.map(_.getName).getOrElse("NA") + "-",
+    dumpSMT = enableAssertions,
     dumpDirectory = if (enableAssertions) {
       val dir = new java.io.File("pri-sessions")
       dir.mkdirs()
@@ -275,7 +276,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
           ITermITE(parseFormula(cond), parseTerm(thenn), parseTerm(elze))
 
         // LITERALS
-        case IntegerLiteral(value) => value.toInt
+        case IntegerLiteral(value) => IdealInt(value.bigInteger)
 
         case bv @ BVLiteral(signed, bits, size) =>
           if (signed) Mod.cast2SignedBV(size, IdealInt(bv.toBigInt.bigInteger))
@@ -611,17 +612,18 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
   def assertCnstr(formula: Trees): Unit = p !! formula.asInstanceOf[IFormula]
 
-  private var interruptCheckSat = false
+  // we interrupt asynchronously in portfolio mode, so this should be handled in a thread-safe manner
+  private val interruptCheckSat = new java.util.concurrent.atomic.AtomicBoolean(false)
 
   private def internalCheck(config: Configuration): config.Response[Model, Assumptions] = {
     import SimpleAPI.ProverStatus
 
-    interruptCheckSat = false
+    interruptCheckSat.set(false)
 
     p checkSat false
 
     while ((p getStatus 50) == ProverStatus.Running) {
-      if (interruptCheckSat) p stop true
+      if (interruptCheckSat.get) p stop true
     }
 
     config.cast(p.getStatus(true) match {
@@ -708,5 +710,5 @@ abstract class AbstractPrincessSolver(override val program: Program,
     p.reset
   }
 
-  def interrupt() = interruptCheckSat = true
+  def interrupt() = interruptCheckSat.set(true)
 }
