@@ -52,6 +52,15 @@ class PipelinedInterpreterSuite extends AnyFunSuite {
       }
     }
 
+    test(s"$name: Many sent commands don't fill the pipes") {
+      withSolver { solver =>
+        // well beyond the 8192 `success` answers that fill a 64 KiB pipe
+        for (i <- 0 until 20000) solver.send(DeclareConst(SSymbol(s"c$i"), BoolSort()))
+        assert(solver.eval(CheckSat()) == CheckSatStatus(SatStatus))
+        assert(solver.pendingError().isEmpty)
+      }
+    }
+
     test(s"$name: The error of a sent command is reported once") {
       withSolver { solver =>
         solver.send(Assert(bRef)) // b isn't declared

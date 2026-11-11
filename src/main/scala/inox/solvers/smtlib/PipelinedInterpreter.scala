@@ -20,6 +20,10 @@ import java.io.BufferedReader
   * (see [[eval]]). An error that one of them answered is then returned by [[pendingError]].
   *
   * The solver must answer `success` to these commands (`:print-success`).
+  *
+  * At most [[PipelinedInterpreter.MaxPending]] answers are left unread: the solver blocks once
+  * the pipe of its output is full, and stops reading its input, so that writing more commands
+  * would then block too.
   */
 trait PipelinedInterpreter extends ProcessInterpreter {
 
@@ -42,6 +46,7 @@ trait PipelinedInterpreter extends ProcessInterpreter {
       // as `eval` does, for instance once the process was killed by an interrupt
       case e: Exception => if (error.isEmpty) error = Some("Solver encountered exception: " + e)
     }
+    if (pending >= PipelinedInterpreter.MaxPending) flush()
   }
 
   /** Reads the answers of the commands that were sent and not yet answered. */
@@ -76,6 +81,11 @@ trait PipelinedInterpreter extends ProcessInterpreter {
     if (cmd == Reset()) error = None
     super.eval(cmd)
   }
+}
+
+object PipelinedInterpreter {
+  /** Their `success` answers take 2 KiB, which leaves room for longer error answers in a pipe. */
+  val MaxPending = 256
 }
 
 class PipelinedZ3Interpreter(executable: String, args: Array[String], parserCtor: BufferedReader => Parser)
