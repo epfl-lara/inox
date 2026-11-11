@@ -75,6 +75,24 @@ trait ContextualEvaluator extends Evaluator {
 
   protected def e(expr: Expr)(using rctx: RC, gctx: GC): Value
 
+  /** The value `v` with the refinements erased from the types of its collections and ADTs.
+    *
+    * The evaluator erases these types in the values it builds, so values compare equal whatever
+    * the refinements of the types they were computed at. Models are extracted at the types of their
+    * variables, which may be refined (e.g. `Set[{ x: BigInt | x > 0 }]`), so their values are erased
+    * as well. The type arguments of uninterpreted calls aren't erased: the solvers keep a distinct
+    * function for each instantiation, refinements included.
+    */
+  protected def erasedValue(v: Expr): Expr = exprOps.postMap {
+    case s @ FiniteSet(elems, base) if base != base.getType => Some(FiniteSet(elems, base.getType).copiedFrom(s))
+    case b @ FiniteBag(elems, base) if base != base.getType => Some(FiniteBag(elems, base.getType).copiedFrom(b))
+    case m @ FiniteMap(pairs, dflt, from, to) if from != from.getType || to != to.getType =>
+      Some(FiniteMap(pairs, dflt, from.getType, to.getType).copiedFrom(m))
+    case adt @ ADT(id, tps, args) if tps.exists(tp => tp != tp.getType) =>
+      Some(ADT(id, tps.map(_.getType), args).copiedFrom(adt))
+    case _ => None
+  } (v)
+
   protected def ignoreContractsOn(expr: Expr)(using rctx: RC, gctx: GC): Boolean =
     globallyIgnoreContracts || rctx.locallyIgnoreContracts
 
@@ -89,7 +107,8 @@ trait ContextualEvaluator extends Evaluator {
 trait HasDefaultRecContext extends ContextualEvaluator {
   import program.trees._
   type RC = DefaultRecContext
-  def initRC(model: program.Model) = DefaultRecContext(Seq.empty, model.vars, model.interpretations, false)
+  def initRC(model: program.Model) =
+    DefaultRecContext(Seq.empty, model.vars.view.mapValues(erasedValue).toMap, model.interpretations, false)
 }
 
 trait HasDefaultGlobalContext extends ContextualEvaluator {
