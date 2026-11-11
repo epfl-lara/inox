@@ -28,7 +28,7 @@ trait Semantics { self =>
     val program: self.program.type
     type S <: solvers.combinators.TimeoutSolver { val program: self.program.type }
   } = {
-    if (model.chooses.nonEmpty)
+    if (model.interpretations.nonEmpty)
       throw FatalError("These semantics can't solve under a model that interprets functions")
     createSolver(ctx)
   }
@@ -42,8 +42,8 @@ trait Semantics { self =>
     type S <: solvers.combinators.TimeoutSolver { val program: self.program.type }
   } = solverCache.cached(ctx, createSolver(ctx))
 
-  /** The solvers that operate under `model`, as when an evaluator solves for the foralls and chooses
-    * of an expression that it evaluates in this model. They aren't cached, since they depend on the
+  /** The solvers that operate under `model`, as when an evaluator solves for the foralls of an
+    * expression that it evaluates in this model. They aren't cached, since they depend on the
     * model. */
   def getSolver(model: program.Model)(using ctx: Context): solvers.SolverFactory {
     val program: self.program.type

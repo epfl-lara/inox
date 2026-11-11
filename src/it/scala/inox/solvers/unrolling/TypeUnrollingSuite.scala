@@ -12,7 +12,7 @@ package unrolling
   *
   *  - quantifier domains, where a type check may be false and must then simply disable the
   *    instantiation (positive polarity) or the counterexample (negative polarity);
-  *  - predicates that may falsify their path (`assume`, `choose`, and calls into either);
+  *  - predicates that may falsify their path (`assume`, refined uninterpreted calls, and calls into either);
   *  - ADT invariants, with the free and the contract generators;
   *  - type parameters and higher-order values, including closure captures;
   *  - the same type checked both inside and outside of a quantifier domain in one query.

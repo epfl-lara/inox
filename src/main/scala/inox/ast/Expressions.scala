@@ -113,7 +113,7 @@ trait Expressions { self: Trees =>
     * returns an arbitrary value of the result type of `tpe`, with equal results on equal arguments.
     *
     * The function needs no definition in the program: it is only known through
-    * its calls, and models give it a value at `tps` (see [[inox.Model.chooses]]). The type arguments
+    * its calls, and models give it a value at `tps` (see [[inox.Model.interpretations]]). The type arguments
     * are part of the call, so instantiating the type parameters they mention instantiates the call.
     * All calls to `id` must have the same type parameters in `tps` and the same `tpe` up to the
     * instantiation of these type parameters.

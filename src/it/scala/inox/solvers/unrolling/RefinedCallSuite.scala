@@ -4,6 +4,6 @@ package inox
 package solvers
 package unrolling
 
-class ChooseSuite extends ScriptTestSuite("choose") {
+class RefinedCallSuite extends ScriptTestSuite("refined-calls") {
   override protected def optionMatrix = Seq(Seq(optCheckModels(true)))
 }

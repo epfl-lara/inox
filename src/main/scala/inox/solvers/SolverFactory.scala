@@ -131,7 +131,7 @@ object SolverFactory {
   // extract solver in "no-inc:solver"
   private def removeNoInc(name: String): String = name.drop(7)
 
-  /** The solvers operate under `model`, as when an evaluator solves for the foralls and chooses of an
+  /** The solvers operate under `model`, as when an evaluator solves for the foralls of an
     * expression that it evaluates in this model. Only the unrolling solvers can operate under a
     * model that interprets functions. */
   def getFromName(name: String, force: Boolean = false)
@@ -186,7 +186,7 @@ object SolverFactory {
       }
     }
 
-    if (solverModel.chooses.nonEmpty && Set("inv-z3", "inv-eld", "eval")(finalName))
+    if (solverModel.interpretations.nonEmpty && Set("inv-z3", "inv-eld", "eval")(finalName))
       throw FatalError(s"Solver $finalName can't operate under a model that interprets functions")
 
     finalName match {

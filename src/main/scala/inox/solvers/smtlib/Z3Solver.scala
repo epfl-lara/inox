@@ -42,7 +42,7 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
       if (aborted) Unknown
       else SatWithModel(inox.Model(program)(
         evaluations.collect { case (k, Some(v)) => k -> v },
-        model.chooses
+        model.interpretations
       ))
     case resp => resp
   })

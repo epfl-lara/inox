@@ -7,7 +7,7 @@ import Feature._
 
 /** Checks the solver-specific parts of the unrolling encoding on every solver.
   *
-  * Function calls, lambdas, chooses and quantifiers are encoded by templates, and the template
+  * Function calls, lambdas, interpretations and quantifiers are encoded by templates, and the template
   * encoding (inox trees or, for `nativez3`, Z3 terms) and the extraction of their values from
   * models depend on the solver. The problems below only need a few unfoldings, so failures point
   * at the solver rather than at the unrolling engine, which `src/it` tests on a single solver.
@@ -249,7 +249,7 @@ class TemplateEncodingSuite extends SolverTestSuite with DatastructureUtils {
     val x = Variable.fresh("x", IntegerType())
     val y = ValDef.fresh("y", IntegerType())
     val succ = Plus(x, IntegerLiteral(1))
-    val fd = new FunDef(FreshIdentifier("chooseInForall"), Seq(), Seq(), BooleanType(),
+    val fd = new FunDef(FreshIdentifier("callInForall"), Seq(), Seq(), BooleanType(),
       Forall(Seq(x.toVal), Equals(exprOps.uninterpretedCall("succ", Seq(), Seq(x.toVal), RefinementType(y, Equals(y.toVariable, succ))), succ)), Seq())
 
     val p = InoxProgram(NoSymbols.withFunctions(Seq(fd)))

@@ -1,4 +1,4 @@
-; A choose in a function and in its arguments
+; A refined call in a function and in its arguments
 (set-info :status sat)
 (declare-type-var T)
 (declare-fun pos1 (Int) (! Int :var v :restrict (> v 0)))

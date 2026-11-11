@@ -404,11 +404,11 @@ abstract class AbstractPrincessSolver(override val program: Program,
       val model: Model,
       val seen: Set[BigInt] = Set.empty,
       // the uninterpreted constants that stand for the functions that are being extracted
-      private[AbstractPrincessSolver] val chooses: MutableMap[BigInt, UninterpretedCall] = MutableMap.empty,
+      private[AbstractPrincessSolver] val interpretations: MutableMap[BigInt, UninterpretedCall] = MutableMap.empty,
       private[AbstractPrincessSolver] val lambdas: MutableMap[BigInt, Lambda] = MutableMap.empty,
       private[AbstractPrincessSolver] val closures: MutableMap[Identifier, Lambda] = MutableMap.empty
     ) {
-      def withSeen(n: BigInt): Context = new Context(model, seen + n, chooses, lambdas, closures)
+      def withSeen(n: BigInt): Context = new Context(model, seen + n, interpretations, lambdas, closures)
     }
 
     // For some reason, various trees are not evaluated in the resulting Princess model,
@@ -513,9 +513,9 @@ abstract class AbstractPrincessSolver(override val program: Program,
           functionIndex(iterm, ft)(ctx.model).map { ideal =>
             val n = BigInt(ideal.bigIntValue)
             if (ctx.seen(n)) {
-              ctx.chooses.getOrElse(n, {
+              ctx.interpretations.getOrElse(n, {
                 val res = UninterpretedCall(FreshIdentifier("x", true), Seq.empty, Seq.empty, FunctionType(Seq.empty, ft))
-                ctx.chooses(n) = res
+                ctx.interpretations(n) = res
                 res
               })
             } else {
@@ -613,7 +613,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
     def apply(iexpr: IExpression, tpe: Type)(using model: Model) = {
       val ctx = new Context(model)
       val res = parseExpr(iexpr, tpe)(using ctx)
-      (res, ctx.chooses.map { case (n, c) => c.id -> (Lambda(Seq.empty, ctx.lambdas(n)): Expr) } ++ ctx.closures)
+      (res, ctx.interpretations.map { case (n, c) => c.id -> (Lambda(Seq.empty, ctx.lambdas(n)): Expr) } ++ ctx.closures)
     }
   }
 

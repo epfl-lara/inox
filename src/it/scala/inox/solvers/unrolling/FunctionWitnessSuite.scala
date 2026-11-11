@@ -425,7 +425,7 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
 
   test("distinct functions over a recursive type with function fields") {
     // The witnesses of type `Obj` contain functions with witnesses of their own, so extracted
-    // values can be cyclic and contain `choose`s. Comparing such functions by their results can
+    // values can be cyclic and contain uninterpreted calls. Comparing such functions by their results can
     // then fail, and the model is rejected (see the limitations in `function-witnesses.md`).
     val tpe = T(objID)() =>: T(objID)()
     val f = ("f" :: tpe).toVariable

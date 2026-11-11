@@ -29,7 +29,7 @@ trait Printers { self: Trees =>
                             printPositions: Boolean = false,
                             printUniqueIds: Boolean = false,
                             printTypes: Boolean = false,
-                            printChooses: Boolean = false,
+                            printInterpretations: Boolean = false,
                             printUnicode: Boolean = false,
                             symbols: Option[Symbols] = None) {
     require(
@@ -45,7 +45,7 @@ trait Printers { self: Trees =>
         printPositions = ctx.options.findOptionOrDefault(optPrintPositions),
         printUniqueIds = ctx.options.findOptionOrDefault(optPrintUniqueIds),
         printTypes = ctx.options.findOptionOrDefault(optPrintTypes) && symbols.isDefined,
-        printChooses = ctx.options.findOptionOrDefault(optPrintChooses),
+        printInterpretations = ctx.options.findOptionOrDefault(optPrintInterpretations),
         printUnicode = ctx.options.findOptionOrDefault(optPrintUnicode),
         symbols = symbols
       )

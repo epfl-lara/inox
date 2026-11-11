@@ -6,7 +6,7 @@ package unrolling
 
 /** Base trait of the unrolling suites.
   *
-  * The unrolling engine (function, lambda, quantifier and type templates, chooses, model
+  * The unrolling engine (function, lambda, quantifier and type templates, interpretations, model
   * finding) is shared by every solver, and the solver suites in `src/test` check that the
   * solvers agree on the encoding and model extraction underneath it. The unrolling suites
   * therefore run against a single solver, `smt-z3` by default (`-Dinox.unrolling.solver=<name>`

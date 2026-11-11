@@ -1,5 +1,5 @@
-; The same choose takes different values in recursive calls
-(set-info :status sat)
+; fun5 contains a refined call that depends on the refined call of fun3 (regression test for feeling-lucky)
+(set-info :status unsat)
 (declare-type-var T)
 (declare-fun pos1 (Int) (! Int :var v :restrict (> v 0)))
 (define-fun fun1 ((x Int)) Int (ite (<= x 0) (pos1 x) x))
@@ -12,5 +12,7 @@
   (ite (>= x 0) (+ (above4 x y) (fun4 (- x 1) (- y 1))) 0))
 (declare-fun nonzero5 ((x Int)) (! Int :var r :restrict (not (= (fun3 x true) 0))))
 (define-fun fun5 ((x Int)) Int (nonzero5 x))
-(assert (= (fun4 2 1) 10))
+(set-option :feeling-lucky true)
+(set-option :check-models false)
+(assert (let ((x (fun5 0))) (= (fun3 0 true) 0)))
 (check-sat)

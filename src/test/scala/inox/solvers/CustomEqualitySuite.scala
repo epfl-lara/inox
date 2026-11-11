@@ -176,7 +176,7 @@ class CustomEqualitySuite extends SolverTestSuite {
     valid(ctx, Equals(FunctionInvocation(countID, Seq(), Seq(ab)), FunctionInvocation(countID, Seq(), Seq(ba))))
   }
 
-  test("Bag arguments of functions with a choose", Bags) { ctx =>
+  test("Bag arguments of functions with a refined uninterpreted call", Bags) { ctx =>
     valid(ctx, Equals(FunctionInvocation(pickID, Seq(), Seq(ab)), FunctionInvocation(pickID, Seq(), Seq(ba))))
   }
 
