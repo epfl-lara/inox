@@ -17,7 +17,7 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
   // limit was actually configured.
   override protected def isResourceOutReason(reason: String): Boolean =
     super.isResourceOutReason(reason) ||
-    (context.options.findOptionOrDefault(optZ3Rlimit) > 0 && reason.toLowerCase.contains("canceled"))
+    (context.options.findOptionOrDefault(optZ3Rlimit) >= 0 && reason.toLowerCase.contains("canceled"))
 
   // Completes the solver's models, in which function values are compared as such. The evaluation
   // of a huge model stops when the solver is interrupted (see `RecursiveEvaluator.e`).
