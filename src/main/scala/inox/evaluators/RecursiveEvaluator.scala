@@ -124,6 +124,8 @@ abstract class RecursiveEvaluator(override val program: Program,
     * The cases are split by theory into the `eCore`, `eArithmetic`, ... methods below, which are
     * tried in order (see [[utils.CaseSplit]]). Subclasses can override `e` itself, or a single family.
     */
+  override protected def normalizedLambda(l: Lambda)(using rctx: RC, gctx: GC): Option[Expr] = Some(e(l))
+
   protected[evaluators] def e(expr: Expr)(using rctx: RC, gctx: GC): Expr = {
     // The solvers evaluate the values of their models, which can be huge, with evaluators whose
     // context is interrupted along with them (see `Z3Solver` and `AbstractUnrollingSolver`)

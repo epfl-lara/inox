@@ -60,7 +60,10 @@ trait ContextualEvaluator extends Evaluator {
 
   def eval(ex: Expr, model: program.Model) = timers.evaluators.recursive.runtime.run {
     try {
-      EvaluationResults.Successful(e(ex)(using initRC(model), initGC))
+      given gctx: GC = initGC
+      val rctx = initRC(model)
+      val modelRctx = rctx.newVars(Map.empty)
+      EvaluationResults.Successful(e(ex)(using rctx.newVars(rctx.mappings.view.mapValues(modelValue(_)(using modelRctx)).toMap)))
     } catch {
       case EvalError(msg) =>
         EvaluationResults.EvaluatorError(msg)
@@ -75,23 +78,33 @@ trait ContextualEvaluator extends Evaluator {
 
   protected def e(expr: Expr)(using rctx: RC, gctx: GC): Value
 
-  /** The value `v` with the refinements erased from the types of its collections and ADTs.
+  /** The model value `v` as the evaluator would have built it.
     *
-    * The evaluator erases these types in the values it builds, so values compare equal whatever
-    * the refinements of the types they were computed at. Models are extracted at the types of their
-    * variables, which may be refined (e.g. `Set[{ x: BigInt | x > 0 }]`), so their values are erased
-    * as well. The type arguments of uninterpreted calls aren't erased: the solvers keep a distinct
-    * function for each instantiation, refinements included.
+    * The evaluator erases the refinements from the types of the collections and ADTs it builds, and
+    * normalizes the lambdas it evaluates, so that equal values are structurally equal whatever the
+    * types they were computed at and the names of their parameters. Model values may come from a
+    * solver, at the possibly refined types of their variables (e.g. `Set[{ x: BigInt | x > 0 }]`),
+    * or be built by hand, so they are brought to the same form.
+    *
+    * The values aren't evaluated themselves: an ADT is not checked against its invariant, as
+    * Stainless puts ADTs that violate their invariants in models to evaluate these invariants on
+    * them. Normalizing a lambda doesn't fail on the subexpressions of its body, so that it only fails
+    * the evaluation if it is applied. The type arguments of uninterpreted calls aren't erased: the
+    * solvers keep a distinct function for each instantiation, refinements included.
     */
-  protected def erasedValue(v: Expr): Expr = exprOps.postMap {
+  protected def modelValue(v: Expr)(using rctx: RC, gctx: GC): Expr = exprOps.postMap {
     case s @ FiniteSet(elems, base) if base != base.getType => Some(FiniteSet(elems, base.getType).copiedFrom(s))
     case b @ FiniteBag(elems, base) if base != base.getType => Some(FiniteBag(elems, base.getType).copiedFrom(b))
     case m @ FiniteMap(pairs, dflt, from, to) if from != from.getType || to != to.getType =>
       Some(FiniteMap(pairs, dflt, from.getType, to.getType).copiedFrom(m))
     case adt @ ADT(id, tps, args) if tps.exists(tp => tp != tp.getType) =>
       Some(ADT(id, tps.map(_.getType), args).copiedFrom(adt))
+    case l: Lambda if exprOps.variablesOf(l).isEmpty => normalizedLambda(l)
     case _ => None
   } (v)
+
+  /** The closed lambda `l` as the evaluator gives it when evaluating it, if it differs from `l`. */
+  protected def normalizedLambda(l: Lambda)(using rctx: RC, gctx: GC): Option[Expr] = None
 
   protected def ignoreContractsOn(expr: Expr)(using rctx: RC, gctx: GC): Boolean =
     globallyIgnoreContracts || rctx.locallyIgnoreContracts
@@ -107,8 +120,7 @@ trait ContextualEvaluator extends Evaluator {
 trait HasDefaultRecContext extends ContextualEvaluator {
   import program.trees._
   type RC = DefaultRecContext
-  def initRC(model: program.Model) =
-    DefaultRecContext(Seq.empty, model.vars.view.mapValues(erasedValue).toMap, model.interpretations, false)
+  def initRC(model: program.Model) = DefaultRecContext(Seq.empty, model.vars, model.interpretations, false)
 }
 
 trait HasDefaultGlobalContext extends ContextualEvaluator {
