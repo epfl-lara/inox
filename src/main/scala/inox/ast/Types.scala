@@ -223,7 +223,7 @@ trait Types { self: Trees =>
 
   sealed case class RefinementType(vd: ValDef, prop: Expr) extends Type with TypeNormalization {
     override protected def computeErasedType(using Symbols): Type =
-      if (vd.getType == PropType()) Untyped else checkParamType(prop, PropType(), vd.getType)
+      if (vd.getType == PropType()) Untyped else checkProposition(prop, vd.getType)
 
     override def hashCode: Int = 79 * code
     override def equals(that: Any): Boolean = that match {
@@ -255,12 +255,23 @@ trait Types { self: Trees =>
     protected def orElse(other: => Type): Type = if (tpe == Untyped) other else tpe
   }
 
+  /** Whether `tpe` is the type of a proposition: a boolean, or `PropType`.
+    *
+    * This doesn't rely on booleans being a subtype of propositions, so that it holds under the
+    * subtyping relations of trees that don't know of propositions. */
+  protected final def isPropositional(tpe: Typed)(using s: Symbols): Boolean =
+    s.isSubtypeOf(tpe.getType, BooleanType()) || tpe.getType == PropType()
+
+  /** The type `result` if `real` is a proposition (see [[isPropositional]]). */
+  protected final def checkProposition(real: Typed, result: => Type)(using Symbols): Type =
+    if (isPropositional(real)) result.getType else Untyped
+
   /** The type of a connective over `operands`: a boolean if they all are, and a proposition if
     * some of them are propositions. */
   protected final def getPropositionalType(operands: Typed*)(using s: Symbols): Type = {
     val tpes = operands.map(_.getType)
     if (tpes.forall(s.isSubtypeOf(_, BooleanType()))) BooleanType()
-    else if (tpes.forall(s.isSubtypeOf(_, PropType()))) PropType()
+    else if (tpes.forall(isPropositional(_))) PropType()
     else Untyped
   }
 
