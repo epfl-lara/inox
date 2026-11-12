@@ -1,0 +1,13 @@
+; Free functions that take no arguments are equal to the pure lambdas that return their value,
+; but not when they are equal to another lambda: f returns the only Unit value, as g's lambda
+; does, but f's lambda is a different one
+(set-option :function-equality intensional)
+(set-info :status sat)
+(declare-datatypes ((Unit 0)) (((Uu))))
+(define-fun-rec unit ((n Int)) Unit (ite (<= n 0) Uu (unit (- n 1))))
+(declare-const n Int)
+(declare-const f (-> Unit))
+(declare-const g (-> Unit))
+(assert (= f (lambda () (unit n))))
+(assert (= g (lambda () Uu)))
+(check-sat)
