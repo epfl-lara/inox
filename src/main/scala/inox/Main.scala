@@ -353,8 +353,9 @@ class InoxMain extends MainHelpers {
     val quantifiers = ctx.options.findOptionOrDefault(ast.optQuantifiers)
     // the input formats only have booleans, so the propositions are inferred
     parseFile(ctx, file).map { case (p, e) =>
-      val symbols = p.symbols.withQuantifiers(quantifiers).inferPredicates
-      (InoxProgram(symbols), e.map(symbols.inferPropositions))
+      val inference = transformers.PropositionInference(inox.trees)
+      val symbols = inference.transform(p.symbols.withQuantifiers(quantifiers))
+      (InoxProgram(symbols), e.map(inference.transform(_)(using symbols)))
     }
   }
 
