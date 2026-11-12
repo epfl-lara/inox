@@ -606,7 +606,7 @@ trait SymbolOps extends TypeOps { self =>
     * interpretations terminate. Functions are traversed generically and uninterpreted functions
     * are identified by their ids only, so all the instantiations of a reached function are kept,
     * however its type arguments change in (polymorphically) recursive calls. */
-  def transitiveInterpretationsOf(expr: Expr, interpretations: Map[(Identifier, Seq[Type]), Expr]): Map[(Identifier, Seq[Type]), Expr] =
+  def transitiveInterpretations(expr: Expr, interpretations: Map[(Identifier, Seq[Type]), Expr]): Map[(Identifier, Seq[Type]), Expr] =
     if (interpretations.isEmpty) interpretations else {
       var functions = Set.empty[Identifier]
       var uninterpreted = Set.empty[Identifier]

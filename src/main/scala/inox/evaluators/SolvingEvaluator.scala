@@ -41,7 +41,7 @@ trait SolvingEvaluator extends Evaluator { self =>
     if (!evalQuantifiers) {
       throw new RuntimeException(s"Evaluation of 'forall' expressions disabled @ ${forall.getPos}: $forall")
     }
-    val interpretations = transitiveInterpretationsOf(forall, modelInterpretations)
+    val interpretations = transitiveInterpretations(forall, modelInterpretations)
 
     // The results in a model only hold in that model
     BooleanLiteral((if (interpretations.isEmpty) forallCache.get(forall) else None).getOrElse({

@@ -34,12 +34,12 @@ class SymbolOpsSuite extends AnyFunSuite with DatastructureUtils {
       (f, Seq.empty[Type]) -> Lambda(Seq(y), call(g, y.toVariable)),
       (g, Seq.empty[Type]) -> Lambda(Seq(y), y.toVariable),
       (h, Seq.empty[Type]) -> Lambda(Seq(y), y.toVariable))
-    assert(transitiveInterpretationsOf(call(f, x), interpretations).keySet == Set(f -> Seq(), g -> Seq()))
-    assert(transitiveInterpretationsOf(FunctionInvocation(fid, Seq(), Seq(x)), interpretations).isEmpty)
-    assert(transitiveInterpretationsOf(call(h, x), Map.empty).isEmpty)
+    assert(transitiveInterpretations(call(f, x), interpretations).keySet == Set(f -> Seq(), g -> Seq()))
+    assert(transitiveInterpretations(FunctionInvocation(fid, Seq(), Seq(x)), interpretations).isEmpty)
+    assert(transitiveInterpretations(call(h, x), Map.empty).isEmpty)
     // Recursive interpretations
     val loop = Map((f, Seq.empty[Type]) -> Lambda(Seq(y), call(f, y.toVariable)))
-    assert(transitiveInterpretationsOf(call(f, x), loop).keySet == Set(f -> Seq()))
+    assert(transitiveInterpretations(call(f, x), loop).keySet == Set(f -> Seq()))
   }
 
   test("Transformations and searches with path conditions") {
