@@ -37,6 +37,10 @@ trait AbstractSolver extends Interruptible {
   // resource limit (e.g. --z3-rlimit or --cvc5-rlimit)
   def resourceLimitReached: Boolean = false
 
+  // Whether the last `check` returned Unknown because unrolling reached its
+  // bound (--unroll-bound)
+  def unrollBoundReached: Boolean = false
+
   object SolverUnsupportedError {
     def msg(t: Tree, reason: Option[String]) = {
       s"(of ${t.getClass}) is unsupported by solver $name" + reason.map(":\n  " + _ ).getOrElse("")

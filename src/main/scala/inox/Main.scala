@@ -129,8 +129,8 @@ trait MainHelpers {
     solvers.unrolling.optFunctionEquality -> Description(Solvers, "Semantics of equality between first-class functions: none (functions can't be compared), intensional or extensional"),
     solvers.smtlib.optCVC4Options -> Description(Solvers, "Pass extra options to CVC4"),
     solvers.smtlib.optCVC5Options -> Description(Solvers, "Pass extra options to CVC5"),
-    solvers.smtlib.optZ3Rlimit -> Description(Solvers, "Set z3's resource limit (deterministic alternative to a wall clock timeout, 0 = no limit).\nOnly applies to the smt-z3 solvers"),
-    solvers.smtlib.optCVC5Rlimit -> Description(Solvers, "Set cvc5's resource limit (deterministic alternative to a wall clock timeout, 0 = no limit).\nOnly applies to the smt-cvc5 solver"),
+    solvers.smtlib.optZ3Rlimit -> Description(Solvers, "Set z3's resource limit, in millions of resource units (deterministic alternative to a wall clock timeout, 0 = no limit).\nAt most 4294, larger values are capped.\nThe limit applies to each solver query separately, not to a whole verification condition,\nwhich may take many queries.\nOnly applies to the smt-z3 solvers"),
+    solvers.smtlib.optCVC5Rlimit -> Description(Solvers, "Set cvc5's resource limit, in millions of resource units (deterministic alternative to a wall clock timeout, 0 = no limit).\nThe limit applies to each solver query separately, not to a whole verification condition,\nwhich may take many queries.\nOnly applies to the smt-cvc5 solver"),
     solvers.smtlib.cvcSimplesModelOpt -> Description(Solvers, "Use --model-cores=simple with cvc family solvers to produce simpler models when queries are sat"),
     evaluators.optMaxCalls -> Description(Evaluators, "Maximum function invocations allowed during evaluation"),
     evaluators.optIgnoreContracts -> Description(Evaluators, "Don't fail on invalid contracts during evaluation")

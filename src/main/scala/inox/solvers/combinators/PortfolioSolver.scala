@@ -25,6 +25,8 @@ trait PortfolioSolver extends Solver { self =>
 
   override def resourceLimitReached: Boolean = solvers.exists(_.resourceLimitReached)
 
+  override def unrollBoundReached: Boolean = solvers.exists(_.unrollBoundReached)
+
   protected var resultSolver: Option[Solver] = None
 
   private var tasks: Future[Unit] = Future(())
