@@ -580,18 +580,34 @@ trait SymbolOps extends TypeOps { self =>
     * that is tailored for structural equality of [[Expressions.Lambda Lambda]] and [[Expressions.Forall Forall]] instances.
     */
   def normalizeStructure(e: Expr, onlySimple: Boolean = false)
-                        (using PurityOptions): (Expr, Seq[(Variable, Expr, Seq[Expr])]) = freshenLocals(e) match {
+                        (using PurityOptions): (Expr, Seq[(Variable, Expr, Seq[Expr])]) = e match {
     case lambda: Lambda =>
-      val (args, body, subst) = normalizeStructure(lambda.params, lambda.body, false, onlySimple, true, false)
-      (Lambda(args, body), subst)
+      // Ground values are normalized as variables, so that the solver (closures are variables) and
+      // the evaluator (closures are values) agree on lambda equality. With `onlySimple`, values
+      // containing lambdas stay in the body, so their locals get normalized with it.
+      val values = MutableMap.empty[Variable, Expr]
+      val abstracted = preMap {
+        case v if !v.isInstanceOf[Variable] && isGround(v) && (!onlySimple || isSimple(v)) && isValue(v) =>
+          val w = Variable.fresh("w", v.getType)
+          values(w) = v
+          Some(w)
+        case _ => None
+      } (lambda.body)
+      val fresh = freshenLocals(Lambda(lambda.params, abstracted).copiedFrom(lambda)).asInstanceOf[Lambda]
+      val (args, body, subst) = normalizeStructure(fresh.params, fresh.body, false, onlySimple, true, false)
+      val vs = values.toMap
+      (Lambda(args, body), subst.map { case (v, e, conds) =>
+        (v, replaceFromSymbols(vs, e), conds.map(replaceFromSymbols(vs, _)))
+      })
 
-    case forall: Forall =>
+    case f: Forall =>
+      val forall = freshenLocals(f).asInstanceOf[Forall]
       val isInstantiated = forall.params.forall(vd => hasInstance(vd.tpe) == Some(true))
       val (args, body, subst) = normalizeStructure(forall.params, forall.body, true, onlySimple, !isInstantiated, true)
       (Forall(args, body), subst)
 
     case _ =>
-      val (_, body, subst) = normalizeStructure(Seq(), e, false, onlySimple, false, false)
+      val (_, body, subst) = normalizeStructure(Seq(), freshenLocals(e), false, onlySimple, false, false)
       (body, subst)
   }
 

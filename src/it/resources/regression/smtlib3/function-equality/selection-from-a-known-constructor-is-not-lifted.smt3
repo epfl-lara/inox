@@ -1,0 +1,13 @@
+; The solver doesn't lift `o.value` (it may fail) out of `x => o.value(x)`, so the evaluator
+; mustn't lift `Some(h).value` either, or it rejects the model
+(set-option :function-equality intensional)
+(set-option :assume-checked false)
+(set-option :check-models true)
+(set-info :status sat)
+(declare-datatypes ((Option 1)) ((par (A) ((None) (Some (value A))))))
+(declare-const o (Option (-> Int Int)))
+(declare-const h (-> Int Int))
+(assert ((_ is Some) o))
+(assert (= h (value o)))
+(assert (not (= (lambda ((x Int)) (@ (value o) x)) (lambda ((x Int)) (@ h x)))))
+(check-sat)
