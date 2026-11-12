@@ -35,7 +35,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class Assume(pred: Expr, body: Expr) extends Expr with CachingTyped {
     override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
-      checkParamType(pred, BooleanType(), body.getTpe(stripRefinements))
+      checkParamType(pred, PropType(), body.getTpe(stripRefinements))
   }
 
 
@@ -82,6 +82,8 @@ trait Expressions { self: Trees =>
     override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = {
       val calleTpe = if (stripRefinements) callee.getType else callee.getTpe(stripRefinements = false).stripToplevelRefinement
       calleTpe match {
+        // propositions are not data
+        case FunctionType(from, to) if args.exists(_.getType == PropType()) => Untyped
         case FunctionType(from, to) => to
         // case PiType(params, to) => ???
         case _ => Untyped
@@ -104,9 +106,17 @@ trait Expressions { self: Trees =>
     }
   }
 
-  /** $encodingof `forall(...)` (universal quantification) */
+  /** $encodingof `forall(...)` (universal quantification)
+    *
+    * A quantifier is a boolean or a proposition, depending on the [[QuantifierMode]] of the
+    * symbols it is typed under. One can't quantify over propositions. */
   sealed case class Forall(params: Seq[ValDef], body: Expr) extends Expr with CachingTyped {
-    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = body.getTpe(stripRefinements)
+    override protected def computeTpe(stripRefinements: Boolean)(using s: Symbols): Type =
+      if (params.exists(_.getType == PropType())) Untyped
+      else s.modes.quantifiers match {
+        case QuantifierMode.Boolean => body.getTpe(stripRefinements)
+        case QuantifierMode.Propositional => checkParamType(body, PropType(), PropType())
+      }
   }
 
   /** $encodingof a call to an uninterpreted function `id` at the type arguments `tps`, which
@@ -160,6 +170,7 @@ trait Expressions { self: Trees =>
       s.lookupFunction(id)
         .filter(fd => tps.size == fd.tparams.size && args.size == fd.params.size)
         .map(_.typed(tps))
+        .filter(_ => tps.forall(_.getType != PropType())) // propositions are not data
         .map(tfd => checkParamTypes(args, tfd.params.map(_.getType), tfd.getTpe(stripRefinements)))
         .getOrElse(Untyped)
     }
@@ -178,6 +189,9 @@ trait Expressions { self: Trees =>
   sealed case class IfExpr(cond: Expr, thenn: Expr, elze: Expr) extends Expr with CachingTyped {
     override protected def computeTpe(stripRefinements: Boolean)(using s: Symbols): Type = {
       if (s.isSubtypeOf(cond.getType, BooleanType())) s.leastUpperBound(thenn.getTpe(stripRefinements), elze.getTpe(stripRefinements))
+      // the branches of a condition that is a proposition must be propositions, so that no
+      // value depends on it
+      else if (cond.getType == PropType() && getPropositionalType(thenn, elze) != Untyped) PropType()
       else Untyped
     }
   }
@@ -434,8 +448,11 @@ trait Expressions { self: Trees =>
   /** $encodingof `... == ...` */
   sealed case class Equals(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeTpe(stripRefinements: Boolean)(using s: Symbols): Type = {
-      if (s.leastUpperBound(lhs.getType, rhs.getType) != Untyped) BooleanType()
-      else Untyped
+      s.leastUpperBound(lhs.getType, rhs.getType) match {
+        case Untyped => Untyped
+        case PropType() => PropType() // an equivalence between propositions
+        case _ => BooleanType()
+      }
     }
   }
 
@@ -451,7 +468,7 @@ trait Expressions { self: Trees =>
   sealed case class And(exprs: Seq[Expr]) extends Expr with CachingTyped {
     require(exprs.size >= 2)
     override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
-      checkParamTypes(exprs, List.fill(exprs.size)(BooleanType()), BooleanType())
+      getPropositionalType(exprs*)
   }
 
   object And {
@@ -467,7 +484,7 @@ trait Expressions { self: Trees =>
   sealed case class Or(exprs: Seq[Expr]) extends Expr with CachingTyped {
     require(exprs.size >= 2)
     override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
-      checkParamTypes(exprs, List.fill(exprs.size)(BooleanType()), BooleanType())
+      getPropositionalType(exprs*)
   }
 
   object Or {
@@ -480,7 +497,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class Implies(lhs: Expr, rhs: Expr) extends Expr with CachingTyped {
     override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
-      checkAllTypes(Seq(lhs, rhs), BooleanType(), BooleanType())
+      getPropositionalType(lhs, rhs)
   }
 
   /** $encodingof `!...`
@@ -489,7 +506,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class Not(expr: Expr) extends Expr with CachingTyped {
     override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
-      checkParamType(expr, BooleanType(), BooleanType())
+      getPropositionalType(expr)
   }
 
 

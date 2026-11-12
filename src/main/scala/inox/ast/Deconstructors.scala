@@ -684,6 +684,9 @@ trait TreeDeconstructor {
     classOf[s.BooleanType] -> { _ =>
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags, (_, _, _, _, _) => t.BooleanType())
     },
+    classOf[s.PropType] -> { _ =>
+      (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags, (_, _, _, _, _) => t.PropType())
+    },
     classOf[s.UnitType] -> { _ =>
       (NoIdentifiers, NoVariables, NoExpressions, NoTypes, NoFlags, (_, _, _, _, _) => t.UnitType())
     },

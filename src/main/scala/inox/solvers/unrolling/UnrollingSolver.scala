@@ -279,7 +279,7 @@ abstract class AbstractUnrollingSolver private
   def assertCnstr(expression: Expr): Unit = context.timers.solvers.assert.run(try {
     context.timers.solvers.assert.sanity.run {
       symbols.ensureWellFormed // make sure that the current program is well-formed
-      typeCheck(expression, BooleanType()) // make sure we've asserted a boolean-typed expression
+      typeCheck(expression, PropType()) // make sure we've asserted a boolean or a proposition
       if (functionEquality == FunctionEquality.None) checkNoFunctionComparisons(expression)
     }
 

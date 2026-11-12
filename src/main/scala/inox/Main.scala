@@ -107,6 +107,7 @@ trait MainHelpers {
       "Choose input format (if 'binary' also choose method to use as expression). " +
       "Files ending in .smt3 are read as SMT-LIB 3 unless another format is given"),
     optPrintProgram -> Description(Printing, "Print the entire program"),
+    ast.optQuantifiers -> Description(Solvers, "Whether quantifiers are booleans, which can be used as values and are evaluated by solvers, or propositions, which can only state specifications"),
     optModelFormat -> Description(Printing,
       "Answer format: 'inox' (default, human readable) or 'smtlib' (one of sat/unsat/unknown on its own line, " +
       "followed for sat by the model as ((x v) ...) with SMT-LIB values)"),
@@ -348,7 +349,16 @@ class InoxMain extends MainHelpers {
     exit(error)
   }
 
-  protected def parse(ctx: Context, file: File): Seq[(InoxProgram, Option[Expr])] =
+  protected def parse(ctx: Context, file: File): Seq[(InoxProgram, Option[Expr])] = {
+    val quantifiers = ctx.options.findOptionOrDefault(ast.optQuantifiers)
+    // the input formats only have booleans, so the propositions are inferred
+    parseFile(ctx, file).map { case (p, e) =>
+      val symbols = p.symbols.withQuantifiers(quantifiers).inferPredicates
+      (InoxProgram(symbols), e.map(symbols.inferPropositions))
+    }
+  }
+
+  private def parseFile(ctx: Context, file: File): Seq[(InoxProgram, Option[Expr])] =
     ctx.options.findOption(optFormat).getOrElse(if (file.getName.endsWith(".smt3")) SMTLIB3 else Tip) match {
       case SMTLIB3 =>
         smtlib3.Parser(file).parseScript.map{ case (p, e) => (p, Some(e)) }

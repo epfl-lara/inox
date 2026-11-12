@@ -143,6 +143,9 @@ trait Definitions { self: Trees =>
     val sorts: Map[Identifier, ADTSort]
     val functions: Map[Identifier, FunDef]
 
+    /** The options that the typing of trees depends on under these symbols. */
+    val modes: TypingModes
+
     @inline def constructors: Map[Identifier, ADTConstructor] = _constructors.get
     private val _constructors: Lazy[Map[Identifier, ADTConstructor]] =
       Lazy(sorts.values.flatMap(_.constructors.map(cons => cons.id -> cons)).toMap)
@@ -234,6 +237,8 @@ trait Definitions { self: Trees =>
 
       if (!fd.getType.isTyped) throw NotWellFormedException(fd)
       if (!(fd.params forall (_.isTyped))) throw NotWellFormedException(fd)
+      if (fd.params exists (_.getType == PropType()))
+        throw NotWellFormedException(fd, Some("Propositions can't be parameters"))
 
       val unbound: Seq[Variable] = collectWithPC(fd.fullBody, Path.empty `withBounds` fd.params) {
         case (v: Variable, path) if !(path `isBound` v) => v
@@ -248,18 +253,72 @@ trait Definitions { self: Trees =>
       if (!sort.isWellFormed) throw NotWellFormedException(sort)
       if (!(sort.constructors forall (cons => cons.sort == sort.id))) throw NotWellFormedException(sort)
       if (!(sort.constructors forall (_.fields forall (_.isTyped)))) throw NotWellFormedException(sort)
+      if (sort.constructors exists (_.fields exists (_.getType == PropType())))
+        throw NotWellFormedException(sort, Some("Propositions can't be fields"))
       if (sort.constructors.flatMap(_.fields).groupBy(_.id).exists(_._2.size > 1)) throw NotWellFormedException(sort)
     }
 
     override def equals(that: Any): Boolean = that match {
-      case sym: AbstractSymbols => functions == sym.functions && sorts == sym.sorts
+      case sym: AbstractSymbols =>
+        functions == sym.functions && sorts == sym.sorts && modes == sym.modes
       case _ => false
     }
 
-    override def hashCode: Int = functions.hashCode * 61 + sorts.hashCode
+    override def hashCode: Int = (functions.hashCode * 61 + sorts.hashCode) * 61 + modes.hashCode
 
     def withFunctions(functions: Seq[FunDef]): Symbols
     def withSorts(sorts: Seq[ADTSort]): Symbols
+
+    /** These symbols under other options. */
+    def withModes(modes: TypingModes): Symbols
+
+    def withQuantifiers(quantifiers: QuantifierMode): Symbols =
+      withModes(modes.copy(quantifiers = quantifiers))
+
+    /** The expression `e`, where the variables that are bound to a proposition by a `Let` but
+      * are declared as booleans are propositions.
+      *
+      * Under propositional quantifiers, this types the expressions of formats that only have
+      * booleans, where a variable that names a quantifier is declared as a boolean. */
+    def inferPropositions(e: Expr): Expr = {
+      object inferrer extends ConcreteSelfTreeTransformer {
+        override def transform(e: Expr): Expr = e match {
+          case Let(vd, value, body) =>
+            val newValue = transform(value)
+            if (vd.tpe == BooleanType() && newValue.getType(using self0) == PropType()) {
+              val newVd = vd.copy(tpe = PropType()).copiedFrom(vd)
+              val newBody = exprOps.replaceFromSymbols(Map(vd -> newVd.toVariable), body)
+              Let(newVd, newValue, transform(newBody)).copiedFrom(e)
+            } else {
+              Let(vd, newValue, transform(body)).copiedFrom(e)
+            }
+          case _ => super.transform(e)
+        }
+      }
+      inferrer.transform(e)
+    }
+
+    /** These symbols, where propositions that are declared as booleans are propositions: the
+      * variables that are bound to a proposition (see [[inferPropositions]]), and the functions
+      * whose body is a proposition, which become predicate definitions.
+      *
+      * Under propositional quantifiers, this types the programs of formats that only have
+      * booleans, where a function that returns a quantifier is declared to return a boolean. */
+    def inferPredicates: Symbols = {
+      def rec(syms: Symbols): Symbols = {
+        val changed = syms.functions.values.flatMap { fd =>
+          val body = syms.inferPropositions(fd.fullBody)
+          val returnType =
+            if (fd.returnType == BooleanType() && body.getType(using syms) == PropType()) PropType()
+            else fd.returnType
+          if (body != fd.fullBody || returnType != fd.returnType)
+            Some(fd.copy(fullBody = body, returnType = returnType).copiedFrom(fd))
+          else None
+        }.toSeq
+        if (changed.isEmpty) syms else rec(syms.withFunctions(changed))
+      }
+      rec(this)
+    }
   }
 
   sealed class TypeParameterDef(val tp: TypeParameter) extends Definition {

@@ -76,10 +76,14 @@ trait TypeOps {
         val underlying = bound(base1, base2, lower)
         if (underlying == Untyped) Untyped else BagType(underlying)
       case (t1, t2) if t1 == t2 => t1
+      // booleans are propositions
+      case (BooleanType(), PropType()) | (PropType(), BooleanType()) =>
+        if (lower) BooleanType() else PropType()
       case _ => Untyped
 
-  def isSubtypeOf(t1: Type, t2: Type): Boolean = 
-    t1.getType == Untyped || t2.getType == Untyped || t1.getType == t2.getType
+  def isSubtypeOf(t1: Type, t2: Type): Boolean =
+    t1.getType == Untyped || t2.getType == Untyped || t1.getType == t2.getType ||
+    (t1.getType == BooleanType() && t2.getType == PropType())
 
   private type Instantiation = Map[TypeParameter, Type]
   def instantiation(from: Type, to: Type): Option[Instantiation] = {
@@ -135,7 +139,10 @@ trait TypeOps {
   }
 
   def typeCheck(obj: Expr, exps: Type*) = {
-    val res = exps.exists(e => isSubtypeOf(obj.getType, e))
+    // An ill-typed expression is otherwise accepted at every type. Under propositional
+    // quantifiers, it may be a term whose value depends on a proposition, so it is rejected.
+    val res = exps.exists(e => isSubtypeOf(obj.getType, e)) &&
+      (modes.quantifiers == QuantifierMode.Boolean || obj.isTyped)
 
     if (!res) {
       throw TypeErrorException(obj, exps.toList)

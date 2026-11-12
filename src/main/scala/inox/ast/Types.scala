@@ -34,7 +34,8 @@ trait Types { self: Trees =>
 
   protected def unveilUntyped(tpe: Type): Type = {
     val NAryType(tps, _) = tpe: @unchecked
-    if (tps exists (_ == Untyped)) Untyped else tpe
+    // propositions are not data: `PropType` can't appear inside of another type
+    if (tps exists (tp => tp == Untyped || tp == PropType())) Untyped else tpe
   }
 
   abstract class Type extends Tree with Typed {
@@ -65,6 +66,20 @@ trait Types { self: Trees =>
   case object Untyped extends Type
 
   case class BooleanType() extends Type
+
+  /** The type of propositions, of which [[BooleanType]] is a subtype.
+    *
+    * A proposition has a truth value in every model but no evaluation rule, so the value of a
+    * term can't depend on it: nothing takes a proposition back to a boolean. Propositions are not
+    * data either. `PropType` is the type of an expression, of a variable that a `Let` binds to a
+    * proposition (a name for it), or the return type of a function (a predicate definition). It
+    * can't be the type of a parameter or a field, or appear inside of another type.
+    *
+    * Propositions are accepted where a specification is stated: in the predicate of a
+    * [[RefinementType]] or of an `Assume`, and in the constraints of solvers. Quantifiers are
+    * propositions under [[QuantifierMode.Propositional]].
+    */
+  case class PropType()    extends Type
   case class UnitType()    extends Type
   case class CharType()    extends Type
   case class IntegerType() extends Type
@@ -208,7 +223,7 @@ trait Types { self: Trees =>
 
   sealed case class RefinementType(vd: ValDef, prop: Expr) extends Type with TypeNormalization {
     override protected def computeErasedType(using Symbols): Type =
-      checkParamType(prop, BooleanType(), vd.getType)
+      if (vd.getType == PropType()) Untyped else checkParamType(prop, PropType(), vd.getType)
 
     override def hashCode: Int = 79 * code
     override def equals(that: Any): Boolean = that match {
@@ -238,6 +253,15 @@ trait Types { self: Trees =>
 
   extension (tpe: Type) {
     protected def orElse(other: => Type): Type = if (tpe == Untyped) other else tpe
+  }
+
+  /** The type of a connective over `operands`: a boolean if they all are, and a proposition if
+    * some of them are propositions. */
+  protected final def getPropositionalType(operands: Typed*)(using s: Symbols): Type = {
+    val tpes = operands.map(_.getType)
+    if (tpes.forall(s.isSubtypeOf(_, BooleanType()))) BooleanType()
+    else if (tpes.forall(s.isSubtypeOf(_, PropType()))) PropType()
+    else Untyped
   }
 
   /* Override points for supporting more complex types */

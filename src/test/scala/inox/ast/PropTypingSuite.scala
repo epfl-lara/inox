@@ -1,0 +1,198 @@
+/* Copyright 2009-2026 EPFL, Lausanne */
+
+package inox
+package ast
+
+import org.scalatest.funsuite.AnyFunSuite
+
+/** The typing of propositions (see [[Types.PropType]]): which expressions are propositions,
+  * where they are accepted, and how the [[QuantifierMode]] of the symbols types quantifiers. */
+class PropTypingSuite extends AnyFunSuite {
+  import inox.trees._
+  import dsl._
+
+  val fT = FunctionType(Seq(IntegerType()), IntegerType())
+  val f = Variable.fresh("f", fT)
+  val b = Variable.fresh("b", BooleanType())
+  val i = IntegerLiteral(1)
+
+  // forall x. f(x) > 0
+  val positive: Expr = forall("x" :: IntegerType())(x => f(x) > E(BigInt(0)))
+
+  // def pos(f: BigInt => BigInt): Prop = forall x. f(x) > 0
+  val posID = FreshIdentifier("pos")
+  val pos = mkFunDef(posID)() { _ =>
+    (Seq("f" :: fT), PropType(), { case Seq(f) => forall("x" :: IntegerType())(x => f(x) > E(BigInt(0))) })
+  }
+
+  val boxID = FreshIdentifier("Box")
+  val boxConsID = FreshIdentifier("BoxCons")
+  val box = mkSort(boxID)("A") { case Seq(a) => Seq((boxConsID, Seq(ValDef(FreshIdentifier("v"), a)))) }
+
+  val idID = FreshIdentifier("id")
+  val id = mkFunDef(idID)("A") { case Seq(a) => (Seq("x" :: a), a, { case Seq(x) => x }) }
+
+  val boolean = NoSymbols.withFunctions(Seq(pos, id)).withSorts(Seq(box))
+  val propositional = boolean.withQuantifiers(QuantifierMode.Propositional)
+
+  private def typed(tpe: Type, es: Expr*)(using Symbols): Unit =
+    for (e <- es) assert(e.getType == tpe, s"for $e")
+
+  test("Quantifiers are booleans by default") {
+    assert(NoSymbols.modes.quantifiers == QuantifierMode.Boolean)
+    given Symbols = boolean
+    typed(BooleanType(), positive, Not(positive), And(positive, b), IfExpr(positive, b, b))
+    // a boolean quantifier is a value
+    typed(IntegerType(), IfExpr(positive, i, i), Let("p" :: BooleanType(), positive, i))
+    typed(TupleType(Seq(BooleanType(), IntegerType())), Tuple(Seq(positive, i)))
+  }
+
+  test("Quantifiers are propositions under propositional quantifiers") {
+    given Symbols = propositional
+    typed(PropType(), positive, forall("y" :: IntegerType())(_ => positive))
+    typed(Untyped, Forall(Seq("x" :: IntegerType()), i), Forall(Seq("p" :: PropType()), b))
+  }
+
+  test("Connectives over propositions are propositions") {
+    given Symbols = propositional
+    typed(BooleanType(), Not(b), And(b, b), Or(b, b), Implies(b, b), Equals(b, b))
+    typed(PropType(),
+      Not(positive), And(positive, b), And(b, positive), Or(b, positive), Implies(positive, b),
+      Implies(b, positive), Equals(positive, b), Equals(positive, positive),
+      IfExpr(b, positive, b), IfExpr(positive, b, b), IfExpr(positive, positive, positive),
+      Let("y" :: IntegerType(), i, positive), Assume(b, positive))
+    // a proposition can be named
+    val p = "p" :: PropType()
+    typed(PropType(), Let(p, positive, p.toVariable), Let(p, b, Not(p.toVariable)),
+      Let(p, positive, Equals(p.toVariable, positive)))
+    typed(IntegerType(), Let(p, positive, i), Let(p, positive, Assume(p.toVariable, i)))
+    typed(Untyped, Let(p, positive, IfExpr(p.toVariable, i, i)), Let(p, i, i))
+    typed(Untyped, And(positive, i), Not(i), Implies(i, positive), Equals(positive, i))
+  }
+
+  test("The value of a term can't depend on a proposition") {
+    given Symbols = propositional
+    typed(Untyped,
+      IfExpr(positive, i, i),
+      Let("p" :: BooleanType(), positive, i),
+      Tuple(Seq(positive, i)),
+      Lambda(Seq("y" :: IntegerType()), positive),
+      Lambda(Seq("p" :: PropType()), i),
+      FiniteSet(Seq(positive), BooleanType()),
+      ADT(boxConsID, Seq(BooleanType()), Seq(positive)),
+      ADT(boxConsID, Seq(PropType()), Seq(positive)),
+      FunctionInvocation(idID, Seq(BooleanType()), Seq(positive)),
+      FunctionInvocation(idID, Seq(PropType()), Seq(positive)),
+      Application(Lambda(Seq("p" :: BooleanType()), i), Seq(positive)))
+  }
+
+  test("Variables bound to propositions are inferred") {
+    given Symbols = propositional
+    val p = "p" :: BooleanType()
+    val q = "q" :: BooleanType()
+    val e = Let(p, positive, Let(q, Not(p.toVariable), And(q.toVariable, b)))
+    assert(e.getType == Untyped)
+    val inferred = propositional.inferPropositions(e)
+    assert(inferred.getType == PropType())
+    val Let(p2, _, Let(q2, _, _)) = inferred: @unchecked
+    assert(p2.id == p.id && p2.tpe == PropType() && q2.id == q.id && q2.tpe == PropType())
+    // booleans stay booleans
+    val same = Let(p, b, p.toVariable)
+    assert(propositional.inferPropositions(same) == same)
+  }
+
+  test("Propositions are not data") {
+    given Symbols = propositional
+    for (tpe <- Seq[Type](
+      TupleType(Seq(PropType(), IntegerType())), SetType(PropType()), BagType(PropType()),
+      MapType(IntegerType(), PropType()), FunctionType(Seq(IntegerType()), PropType()),
+      FunctionType(Seq(PropType()), IntegerType()), ADTType(boxID, Seq(PropType())),
+      PiType(Seq("x" :: IntegerType()), PropType()),
+      SigmaType(Seq("x" :: IntegerType()), PropType()),
+      RefinementType("p" :: PropType(), b)
+    )) assert(tpe.getType == Untyped, s"for $tpe")
+    assert(PropType().getType == PropType())
+  }
+
+  test("Specifications accept propositions") {
+    given Symbols = propositional
+    val g = "g" :: fT
+    val refined = RefinementType(g, forall("x" :: IntegerType())(x => g.toVariable(x) > E(BigInt(0))))
+    assert(refined.getType == fT)
+    typed(IntegerType(), Assume(positive, i), Assume(b, i))
+    typed(PropType(), pos(f), And(pos(f), b))
+    typed(Untyped, IfExpr(pos(f), i, i))
+    propositional.ensureWellFormed
+    propositional.typeCheck(positive, PropType())
+    intercept[propositional.TypeErrorException](propositional.typeCheck(positive, BooleanType()))
+  }
+
+  test("Booleans are propositions") {
+    given Symbols = propositional
+    import propositional._
+    assert(isSubtypeOf(BooleanType(), PropType()))
+    assert(!isSubtypeOf(PropType(), BooleanType()))
+    assert(leastUpperBound(BooleanType(), PropType()) == PropType())
+    assert(leastUpperBound(PropType(), BooleanType()) == PropType())
+    assert(greatestLowerBound(BooleanType(), PropType()) == BooleanType())
+    assert(leastUpperBound(IntegerType(), PropType()) == Untyped)
+  }
+
+  test("Propositions can't be parameters or fields") {
+    val param = mkFunDef(FreshIdentifier("param"))() { _ =>
+      (Seq("p" :: PropType()), PropType(), { case Seq(p) => p })
+    }
+    intercept[NotWellFormedException](NoSymbols.withFunctions(Seq(param)).ensureWellFormed)
+
+    val field = mkSort(FreshIdentifier("S"))() { _ =>
+      Seq((FreshIdentifier("C"), Seq(ValDef(FreshIdentifier("p"), PropType()))))
+    }
+    intercept[NotWellFormedException](NoSymbols.withSorts(Seq(field)).ensureWellFormed)
+  }
+
+  test("A function that returns a boolean can't return a proposition") {
+    // under propositional quantifiers, a function that returns a boolean can't be a quantifier
+    val bool = mkFunDef(FreshIdentifier("bool"))() { _ =>
+      (Seq("f" :: fT), BooleanType(), { case Seq(f) => forall("x" :: IntegerType())(x => f(x) > E(BigInt(0))) })
+    }
+    NoSymbols.withFunctions(Seq(bool)).ensureWellFormed
+    val syms = NoSymbols.withFunctions(Seq(bool)).withQuantifiers(QuantifierMode.Propositional)
+    intercept[syms.TypeErrorException](syms.ensureWellFormed)
+  }
+
+  test("Derived symbols keep their modes") {
+    assert(propositional.modes.quantifiers == QuantifierMode.Propositional)
+    assert(propositional.withFunctions(Seq(id)).modes == propositional.modes)
+    assert(propositional.withSorts(Seq(box)).modes == propositional.modes)
+    assert(propositional.transform(new ConcreteIdentityTreeTransformer).modes == propositional.modes)
+    assert(propositional != boolean)
+    assert(propositional.withQuantifiers(QuantifierMode.Boolean) == boolean)
+  }
+
+  test("Types are cached per quantifier mode") {
+    val e = And(positive, b)
+    assert(e.getType(using boolean) == BooleanType())
+    assert(e.getType(using propositional) == PropType())
+    assert(e.getType(using boolean) == BooleanType())
+  }
+
+  test("Solvers see propositions as booleans") {
+    val p = InoxProgram(propositional)
+    val enc = solvers.theories.PropEncoder(p)
+    given Symbols = enc.targetProgram.symbols
+    assert(enc.targetProgram.symbols.modes.quantifiers == QuantifierMode.Boolean)
+    assert(enc.targetProgram.symbols.getFunction(posID).returnType == BooleanType())
+    typed(BooleanType(), enc.encode(positive), enc.encode(And(pos(f), b)))
+    val named = "p" :: PropType()
+    typed(BooleanType(), enc.encode(Let(named, positive, named.toVariable)))
+    enc.targetProgram.symbols.ensureWellFormed
+
+    // programs without propositions are left as they are
+    val q = InoxProgram(NoSymbols.withFunctions(Seq(id)))
+    assert(solvers.theories.PropEncoder(q).targetProgram.symbols == q.symbols)
+  }
+
+  test("The Prop type is printed and parsed") {
+    assert(PropType().asString(using PrinterOptions()) == "Prop")
+  }
+}

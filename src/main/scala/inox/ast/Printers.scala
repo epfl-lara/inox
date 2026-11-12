@@ -452,6 +452,7 @@ trait Printer {
       case RealType() => p"Real"
       case CharType() => p"Char"
       case BooleanType() => p"Boolean"
+      case PropType() => p"Prop"
       case StringType() => p"String"
       case Float32Type() => p"Float"
       case Float64Type() => p"Double"
