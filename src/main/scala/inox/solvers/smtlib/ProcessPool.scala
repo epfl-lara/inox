@@ -20,10 +20,10 @@ import java.util.concurrent.ConcurrentHashMap
   * At most one idle process per processor is kept for each command line, the others are freed.
   */
 object ProcessPool {
-  private val maxIdle = Runtime.getRuntime.availableProcessors.max(1)
+  private[smtlib] val maxIdle = Runtime.getRuntime.availableProcessors.max(1)
 
   // each queue is only accessed while holding its lock, so that `give` never exceeds `maxIdle`
-  private val idle = new ConcurrentHashMap[Seq[String], ArrayDeque[ProcessInterpreter]]
+  private[smtlib] val idle = new ConcurrentHashMap[Seq[String], ArrayDeque[ProcessInterpreter]]
 
   private def processes(key: Seq[String]): ArrayDeque[ProcessInterpreter] =
     idle.computeIfAbsent(key, _ => new ArrayDeque[ProcessInterpreter])
