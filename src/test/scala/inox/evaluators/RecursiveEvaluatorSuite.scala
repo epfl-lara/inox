@@ -194,4 +194,28 @@ class RecursiveEvaluatorSuite extends AnyFunSuite {
       case res => fail(s"Unexpected result $res")
     }
   }
+
+  test("Lambdas whose lifted subexpressions don't hold or fail evaluate, and only fail when applied") {
+    val x = ValDef.fresh("x", IntegerType())
+    val k = ValDef.fresh("k", IntegerType())
+    val (zero, one, two, ten) = (IntegerLiteral(0), IntegerLiteral(1), IntegerLiteral(2), IntegerLiteral(10))
+    // `10 / k` is lifted out of the body under `k > 0`, or unconditionally under `--assume-checked`
+    def guarded(kv: Expr) = Let(k, kv,
+      Lambda(Seq(x), IfExpr(GreaterThan(k.toVariable, zero), Plus(x.toVariable, Division(ten, k.toVariable)), x.toVariable)))
+    val unguarded = Lambda(Seq(x), Plus(x.toVariable, Division(one, zero)))
+
+    for (assumeChecked <- Seq(false, true)) {
+      val ev = RecursiveEvaluator(program, ctx.withOpts(solvers.optAssumeChecked(assumeChecked)))
+      def evalOk(expr: Expr): Expr = ev.eval(expr) match {
+        case EvaluationResults.Successful(res) => res
+        case other => fail(s"Evaluation of '$expr' failed with $other under assume-checked=$assumeChecked")
+      }
+      evalOk(guarded(zero))
+      evalOk(unguarded)
+      assert(evalOk(Application(guarded(zero), Seq(IntegerLiteral(7)))) == IntegerLiteral(7))
+      assert(evalOk(Application(guarded(two), Seq(IntegerLiteral(7)))) == IntegerLiteral(12))
+      assert(evalOk(Equals(guarded(zero), guarded(zero))) == BooleanLiteral(true))
+      assert(ev.eval(Application(unguarded, Seq(one))) == EvaluationResults.RuntimeError("Division by 0."))
+    }
+  }
 }
