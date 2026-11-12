@@ -302,6 +302,8 @@ object SolverFactory {
           override def getSmtLibFileId: Option[Int] = underlying.getSmtLibFileId
 
           override protected def partialModel = solverModel
+
+          override def resourceLimitReached: Boolean = underlying.resourceLimitReached
         }
 
         () => new SMTZ3Impl(p)(enc)
@@ -327,6 +329,8 @@ object SolverFactory {
 
           // Used to report SMT Lib files <-> VCs correspondence
           override def getSmtLibFileId: Option[Int] = underlying.getSmtLibFileId
+
+          override def resourceLimitReached: Boolean = underlying.resourceLimitReached
 
           // encoder is from TipDebugger and enc from AbstractUnrollingSolver
           override protected val encoder = enc
@@ -357,6 +361,8 @@ object SolverFactory {
 
           // Used to report SMT Lib files <-> VCs correspondence
           override def getSmtLibFileId: Option[Int] = underlying.getSmtLibFileId
+
+          override def resourceLimitReached: Boolean = underlying.resourceLimitReached
           
           // encoder is from TipDebugger and enc from AbstractUnrollingSolver
           override protected val encoder = enc
@@ -387,6 +393,8 @@ object SolverFactory {
 
           // Used to report SMT Lib files <-> VCs correspondence
           override def getSmtLibFileId: Option[Int] = underlying.getSmtLibFileId
+
+          override def resourceLimitReached: Boolean = underlying.resourceLimitReached
 
           // encoder is from TipDebugger and enc from AbstractUnrollingSolver
           override protected val encoder = enc

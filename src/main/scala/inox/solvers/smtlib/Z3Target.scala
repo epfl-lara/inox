@@ -19,6 +19,10 @@ import _root_.smtlib.theories._
 import utils._
 import utils.CaseSplit.*
 
+// In millions of z3 resource units
+// An Int, so that the limit in resource units can't overflow the Long it is computed in
+object optZ3Rlimit extends IntOptionDef("z3-rlimit", -1, "<N>")
+
 trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   import context.{given, _}
   import program._
@@ -27,10 +31,14 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
   def targetName = "z3"
 
-  protected def interpreterOpts = Seq(
-    "-in",
-    "-smt2"
-  )
+  protected def interpreterOpts = {
+    // z3 takes the limit as an unsigned 32-bit integer
+    val rlimit = options.findOptionOrDefault(optZ3Rlimit).toLong * 1000000L min 0xFFFFFFFFL
+    Seq(
+      "-in",
+      "-smt2"
+    ) ++ (if (rlimit >= 0) Seq(s"rlimit=$rlimit") else Seq())
+  }
 
   // the parser doesn't refer to the target, so that the processes left for other solvers don't
   // keep it alive

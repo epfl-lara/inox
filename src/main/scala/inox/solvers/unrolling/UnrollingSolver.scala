@@ -174,6 +174,9 @@ abstract class AbstractUnrollingSolver private
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
     checkAssumptions(config)(Set.empty)
 
+  private var unrollBoundHit: Boolean = false
+  override def unrollBoundReached: Boolean = unrollBoundHit
+
   protected val freeVars  = new IncrementalMap[Variable, Encoded]()
   private val constraints = new IncrementalSeq[Expr]()
 
@@ -1083,6 +1086,8 @@ abstract class AbstractUnrollingSolver private
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] =
       context.timers.solvers.unrolling.run(scala.util.Try({
 
+    unrollBoundHit = false
+
     // throw error immediately if a previous call has already failed
     if (failures.nonEmpty) throw failures.head
 
@@ -1522,6 +1527,7 @@ abstract class AbstractUnrollingSolver private
 
         case Unroll if !canUnroll =>
           reporter.debug(s"- We need to keep going, but reached unroll bound ($unrollBound)")
+          unrollBoundHit = true
           CheckResult.cast(Unknown)
 
         case Unroll if !templates.canUnroll =>
