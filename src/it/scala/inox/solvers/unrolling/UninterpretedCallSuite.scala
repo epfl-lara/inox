@@ -98,7 +98,7 @@ class UninterpretedCallSuite extends UnrollingTestSuite {
 
   test("results of uninterpreted calls are arbitrary") {
     val model = modelOf(any(IntegerLiteral(0)) === IntegerLiteral(1))
-    assert(model.chooses contains (idU -> Seq()), model)
+    assert(model.interpretations contains (idU -> Seq()), model)
   }
 
   test("uninterpreted calls are functional") {
@@ -193,7 +193,7 @@ class UninterpretedCallSuite extends UnrollingTestSuite {
     val call = UninterpretedCall(positiveU, Seq(), Seq(), positiveT)
     assert(SimpleSolverAPI(program.getSolver).solveSAT(call <= E(BigInt(0))).isUNSAT)
     val model = modelOf(call === E(BigInt(4)))
-    assert(model.chooses contains (positiveU -> Seq()), model)
+    assert(model.interpretations contains (positiveU -> Seq()), model)
   }
 
   test("uninterpreted calls whose results don't lie in their types aren't satisfiable") {
@@ -214,8 +214,8 @@ class UninterpretedCallSuite extends UnrollingTestSuite {
     val tp = TypeParameter.fresh("A")
     val a = Variable.fresh("a", tp)
     val model = modelOf(Not(pick(tp)(a) === a) && pick(IntegerType())(IntegerLiteral(0)) === IntegerLiteral(1))
-    assert(model.chooses contains (pickU -> Seq(tp)), model)
-    assert(model.chooses contains (pickU -> Seq(IntegerType())), model)
+    assert(model.interpretations contains (pickU -> Seq(tp)), model)
+    assert(model.interpretations contains (pickU -> Seq(IntegerType())), model)
   }
 
   test("generic results are refined at each instantiation") { ctx ?=>
@@ -238,9 +238,9 @@ class UninterpretedCallSuite extends UnrollingTestSuite {
     }
   }
 
-  test("evaluating an uninterpreted call needs a model") { ctx ?=>
-    val res = program.getEvaluator.eval(incAny(IntegerLiteral(0)))
-    assert(res.isInstanceOf[evaluators.EvaluationResults.EvaluatorError], res)
+  test("evaluating an uninterpreted call outside the model is an error") { ctx ?=>
+    assert(program.getEvaluator.eval(incAny(IntegerLiteral(0))).result.isEmpty)
+    assert(program.getEvaluator.eval(greater(IntegerLiteral(3))).result.isEmpty)
   }
 
   test("quantifiers hold in the model of the uninterpreted functions they call") { ctx ?=>

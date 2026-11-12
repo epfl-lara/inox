@@ -91,7 +91,7 @@ trait DefinitionElaborators { self: Elaborators =>
 
           val params = fd.params.map(p => trees.ValDef(getIdentifier(p._1), getSimpleType(p._2)(using tpStore)))
           val resultType = getSimpleType(fd.returnType)(using tpStore)
-          val body = trees.Choose(trees.ValDef.fresh("res", resultType), trees.BooleanLiteral(true))
+          val body = trees.exprOps.uninterpretedBody(id.name, tpds, params, resultType)
           store + (fd.id.getName, new trees.FunDef(id, tpds, params, resultType, body, Seq()))
       }
 

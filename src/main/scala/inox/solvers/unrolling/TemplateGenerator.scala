@@ -5,7 +5,7 @@ package solvers
 package unrolling
 
 import utils._
-import scala.collection.mutable.{Map => MutableMap}
+import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 trait TemplateGenerator { self: Templates =>
   import context.{given, _}
@@ -35,14 +35,29 @@ trait TemplateGenerator { self: Templates =>
   private[unrolling] val uninterpretedFunctions: MutableMap[(Identifier, Seq[Type]), (Variable, Encoded)] = MutableMap.empty
   private[unrolling] val uninterpretedSubst: MutableMap[Variable, Encoded] = MutableMap.empty
 
+  /** The uninterpreted functions without parameters that the model doesn't interpret, which stand
+    * for constants: their free functions are free variables of their result types, whose values are
+    * the calls (as for any value, some solvers can't extract the results of nullary functions). */
+  private[unrolling] val uninterpretedConstants: MutableSet[(Identifier, Seq[Type])] = MutableSet.empty
+
   /** The free functions of the uninterpreted functions that the model interprets, whose applications
     * are calls that unfold the interpretation, as calls of the functions of the program unfold their
     * bodies (see [[FunctionTemplates]]). Their interpretations may then be recursive. */
   private[unrolling] val interpretedFunctions: MutableMap[Variable, Interpreted] = MutableMap.empty
 
+  /** The types of the uninterpreted functions, whose free functions only have their erased types,
+    * so that their models are extracted within their codomains. */
+  private[unrolling] val uninterpretedTypes: MutableMap[(Identifier, Seq[Type]), Type] = MutableMap.empty
+
   private def uninterpretedFunction(uc: UninterpretedCall): Variable =
     uninterpretedFunctions.getOrElseUpdate(uc.id -> uc.tps, {
-      val f = Variable.fresh(uc.id.name, uc.tpe.getType, true)
+      uninterpretedTypes(uc.id -> uc.tps) = uc.tpe
+      val constant = uc.tpe match {
+        case FunctionType(Seq(), to) if interpretation(uc.id, uc.tps).isEmpty => Some(to)
+        case _ => None
+      }
+      if (constant.isDefined) uninterpretedConstants += uc.id -> uc.tps
+      val f = Variable.fresh(uc.id.name, constant.getOrElse(uc.tpe).getType, true)
       val fT = encodeSymbol(f)
       uninterpretedSubst(f) = fT
       if (interpretation(uc.id, uc.tps).isDefined) interpretedFunctions(f) = Interpreted(uc.id, uc.tps)
@@ -393,18 +408,6 @@ trait TemplateGenerator { self: Templates =>
         storeGuarded(pathVar, e)
         rec(pathVar, body, pol)
 
-      case c @ Choose(res, pred) =>
-        val newExpr = res.toVariable.freshen
-        storeExpr(newExpr)
-
-        val (tpeExpr, tmplClauses) = mkTypeClauses(pathVar, res.tpe, newExpr, localSubst)(using FreeGenerator)
-        storeGuarded(pathVar, tpeExpr)
-        builder ++= tmplClauses
-
-        val p = rec(pathVar, exprOps.replace(Map(res.toVariable -> newExpr), pred), Some(true))
-        storeGuarded(pathVar, p)
-        newExpr
-
       case uc @ UninterpretedCall(id, tps, args, tpe) =>
         // An application of the free function that stands for the uninterpreted function, whose
         // result is an arbitrary value of the call's type, or is given by the interpretation of the
@@ -415,7 +418,7 @@ trait TemplateGenerator { self: Templates =>
         builder ++= fClauses
 
         val recArgs = args.map(rec(pathVar, _, None))
-        val app = Application(f, recArgs).copiedFrom(uc)
+        val app = if (uninterpretedConstants(id -> tps)) f else Application(f, recArgs).copiedFrom(uc)
         // The result type of the function, with its parameters bound to the arguments of the call
         val resTpe = tpe match {
           case PiType(params, to) => typeOps.replaceFromSymbols((params zip recArgs).toMap, to)
@@ -426,9 +429,21 @@ trait TemplateGenerator { self: Templates =>
         storeExpr(newExpr)
         storeGuarded(pathVar, Equals(newExpr, app))
 
-        val (tpeExpr, tmplClauses) = mkTypeClauses(pathVar, resTpe, newExpr, localSubst)(using FreeGenerator)
+        // The refinements of the result are assumed under the path, and the type that they refine
+        // is the type of the result
+        def refinements(tpe: Type): (Type, Seq[Expr]) = tpe match {
+          case RefinementType(vd, pred) =>
+            val (base, preds) = refinements(vd.tpe)
+            (base, preds :+ exprOps.replaceFromSymbols(Map(vd -> newExpr), pred))
+          case _ => (tpe, Seq.empty)
+        }
+        val (baseTpe, preds) = refinements(resTpe)
+
+        val (tpeExpr, tmplClauses) = mkTypeClauses(pathVar, baseTpe, newExpr, localSubst)(using FreeGenerator)
         storeGuarded(pathVar, tpeExpr)
         builder ++= tmplClauses
+
+        for (pred <- preds) storeGuarded(pathVar, rec(pathVar, pred, Some(true)))
         newExpr
 
       case Error(tpe, _) =>
@@ -621,7 +636,7 @@ trait TemplateGenerator { self: Templates =>
   }
 
   /** Whether the clauses of `expr` may falsify the path condition they are guarded by,
-    * i.e. whether `expr` contains an assumption or a `choose`, or calls a function that
+    * i.e. whether `expr` contains an assumption or an uninterpreted call, or calls a function that
     * (transitively) does, as unrolling the call falsifies the blocker it is registered under. */
   private def mayFalsifyPath(expr: Expr): Boolean = exprOps.exists {
     case fi: FunctionInvocation => callMayFalsifyPath(fi.id)
@@ -629,7 +644,7 @@ trait TemplateGenerator { self: Templates =>
   }(expr)
 
   private def containsAssumption(e: Expr): Boolean = e match {
-    case _: Assume | _: Choose | _: UninterpretedCall | _: Error => true
+    case _: Assume | _: UninterpretedCall | _: Error => true
     case _ => false
   }
 
@@ -887,6 +902,7 @@ trait TemplateGenerator { self: Templates =>
           storeExpr(valueExpr)
           storeExpr(defaultExpr)
           storeExpr(restExpr)
+          decompositionKeys += keyExpr
 
           storeGuarded(pathVar, Equals(condVar, Equals(expr, FiniteMap(Seq(), defaultExpr, from, to))))
           iff(and(pathVar, condVar), newBool1)
@@ -920,6 +936,7 @@ trait TemplateGenerator { self: Templates =>
           storeExpr(newExpr)
           storeExpr(elemExpr)
           storeExpr(restExpr)
+          decompositionKeys += elemExpr
 
           storeGuarded(pathVar, Equals(condVar, Equals(expr, FiniteSet(Seq(), base))))
           iff(and(pathVar, condVar), newBool1)
@@ -954,6 +971,7 @@ trait TemplateGenerator { self: Templates =>
           storeExpr(elemExpr)
           storeExpr(multExpr)
           storeExpr(restExpr)
+          decompositionKeys += elemExpr
 
           storeGuarded(pathVar, Equals(condVar, Equals(expr, FiniteBag(Seq(), base))))
           iff(and(pathVar, condVar), newBool1)

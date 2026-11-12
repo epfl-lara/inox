@@ -87,11 +87,6 @@ trait TreeDeconstructor {
       (NoIdentifiers, args.map(_.toVariable), Seq(body), NoTypes, NoFlags,
         (_, vs, es, _, _) => t.Forall(vs.map(_.toVal), es.head))
     },
-    classOf[s.Choose] -> { expr =>
-      val s.Choose(res, pred) = expr: @unchecked
-      (NoIdentifiers, Seq(res.toVariable), Seq(pred), NoTypes, NoFlags,
-        (_, vs, es, _, _) => t.Choose(vs.head.toVal, es.head))
-    },
     classOf[s.UninterpretedCall] -> { expr =>
       val s.UninterpretedCall(id, tps, args, tpe) = expr: @unchecked
       (Seq(id), NoVariables, args, tps :+ tpe, NoFlags,

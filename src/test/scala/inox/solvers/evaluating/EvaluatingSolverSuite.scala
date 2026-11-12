@@ -60,7 +60,7 @@ class EvaluatingSolverSuite extends AnyFunSuite {
     withSolver { s =>
       s.assertCnstr(BooleanLiteral(true))
       s.check(Model) match {
-        case SatWithModel(model) => assert(model.vars.isEmpty && model.chooses.isEmpty)
+        case SatWithModel(model) => assert(model.vars.isEmpty && model.interpretations.isEmpty)
         case res => fail(s"Expected a model, got $res")
       }
     }

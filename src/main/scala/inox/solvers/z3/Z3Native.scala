@@ -522,10 +522,11 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   // The uninterpreted functions of the closures of models, by function value (see `uniquateClosure`)
   private val closureIds: MutableMap[(Int, FunctionType), Identifier] = MutableMap.empty
 
-  /** The value of `tree`, the values of the chooses it contains, and the uninterpreted functions
-    * that its closures call (see [[SymbolOps.uniquateClosure]]). */
-  protected[z3] def fromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type): (Expr, Map[Choose, Expr], Map[Identifier, Lambda]) = {
-    val z3ToChooses: MutableMap[Z3AST, Choose] = MutableMap.empty
+  /** The value of `tree`, the values of the constants that stand for the functions it refers to
+    * recursively, and the uninterpreted functions that its closures call (see
+    * [[SymbolOps.uniquateClosure]]). Both are given as models of uninterpreted functions. */
+  protected[z3] def fromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type): (Expr, Map[Identifier, Expr], Map[Identifier, Lambda]) = {
+    val z3ToFunctionConstants: MutableMap[Z3AST, UninterpretedCall] = MutableMap.empty
     val z3ToLambdas: MutableMap[Z3AST, Lambda] = MutableMap.empty
     val closures: MutableMap[Identifier, Lambda] = MutableMap.empty
 
@@ -589,9 +590,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
             }
           } else {
             tpe match {
-              case ft: FunctionType if seen(t) => z3ToChooses.getOrElse(t, {
-                val res = Choose(Variable.fresh("x", ft, true).toVal, BooleanLiteral(true))
-                z3ToChooses(t) = res
+              case ft: FunctionType if seen(t) => z3ToFunctionConstants.getOrElse(t, {
+                val res = UninterpretedCall(FreshIdentifier("x", true), Seq.empty, Seq.empty, FunctionType(Seq.empty, ft))
+                z3ToFunctionConstants(t) = res
                 res
               })
 
@@ -618,7 +619,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
                     simplestValue(ft, allowSolver = false).asInstanceOf[Lambda]
                   } catch {
                     case _: NoSimpleValue =>
-                      Lambda(args, Choose(ValDef.fresh("res", tt), BooleanLiteral(true)))
+                      Lambda(args, exprOps.freshUninterpretedCall("default", args, tt))
                   }))
 
                 val id = closureIds.getOrElseUpdate(n -> ft, FreshIdentifier("f", true))
@@ -696,9 +697,9 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     }
 
     val res = rec(tree, tpe, Set.empty)
-    val chooses = z3ToChooses.toMap.map { case (ast, c) => c -> z3ToLambdas(ast) }
+    val interpretations = z3ToFunctionConstants.toMap.map { case (ast, c) => c.id -> (Lambda(Seq.empty, z3ToLambdas(ast)): Expr) }
 
-    (res, chooses, closures.toMap)
+    (res, interpretations, closures.toMap)
   }
 
   // Tries to convert a Z3AST into a *ground* Expr. Doesn't try very hard, because
@@ -782,7 +783,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     }
   }
 
-  protected[z3] def softFromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type) : Option[(Expr, Map[Choose, Expr], Map[Identifier, Lambda])] = {
+  protected[z3] def softFromZ3Formula(model: Z3Model, tree: Z3AST, tpe: Type) : Option[(Expr, Map[Identifier, Expr], Map[Identifier, Lambda])] = {
     try {
       Some(fromZ3Formula(model, tree, tpe))
     } catch {
@@ -805,24 +806,24 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   }
 
   private[z3] class ModelExtractor(model: Z3Model) {
-    private val innerChooses: MutableMap[Identifier, Expr] = MutableMap.empty
+    private val innerInterpretations: MutableMap[Identifier, Expr] = MutableMap.empty
     private val innerClosures: MutableMap[Identifier, Lambda] = MutableMap.empty
 
     def apply(z3ast: Z3AST, tpe: Type): Expr = {
       val (e, cs, fs) = fromZ3Formula(model, z3ast, tpe)
-      innerChooses ++= cs.map(p => p._1.res.id -> p._2)
+      innerInterpretations ++= cs
       innerClosures ++= fs
       e
     }
 
     def get(z3ast: Z3AST, tpe: Type): Option[Expr] =
       softFromZ3Formula(model, z3ast, tpe).map { case (e, cs, fs) =>
-        innerChooses ++= cs.map(p => p._1.res.id -> p._2)
+        innerInterpretations ++= cs
         innerClosures ++= fs
         e
       }
 
-    def chooses = innerChooses.toMap
+    def interpretations = innerInterpretations.toMap
 
     /** The uninterpreted functions that the extracted closures call, at no type arguments. */
     def closures = innerClosures.toMap
@@ -856,27 +857,11 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       }).map(v.toVal -> _))
     }
 
-    val chooses: MutableMap[(Identifier, Seq[Type]), Expr] = MutableMap.empty
-    chooses ++= ex.chooses.map(p => (p._1, Seq.empty[Type]) -> p._2)
-    chooses ++= ex.closures.map(p => (p._1, Seq.empty[Type]) -> p._2)
+    val interpretations: MutableMap[(Identifier, Seq[Type]), Expr] = MutableMap.empty
+    interpretations ++= ex.interpretations.map(p => (p._1, Seq.empty[Type]) -> p._2)
+    interpretations ++= ex.closures.map(p => (p._1, Seq.empty[Type]) -> p._2)
 
-    chooses ++= tryZ3(model.getFuncInterpretations.flatMap { case (decl, mapping, defaultValue) =>
-      functions.getA(decl).flatMap(tfd => tfd.fullBody match {
-        case c: Choose =>
-          val ex = new ModelExtractor(model)
-          val body = mapping.foldRight(ex(defaultValue, tfd.getType)) { case ((args, res), elze) =>
-            IfExpr(andJoin((tfd.params.map(_.toVariable) zip args).map {
-              case (v, e) => Equals(v, ex(e, v.getType))
-            }), ex(res, tfd.getType), elze)
-          }
-          chooses ++= ex.chooses.map(p => (p._1, tfd.tps) -> p._2)
-          chooses ++= ex.closures.map(p => (p._1, Seq.empty[Type]) -> p._2)
-          Some((c.res.id, tfd.tps) -> body)
-        case _ => None
-      })
-    }.toMap).getOrElse(Map.empty)
-
-    inox.Model(program)(vars, chooses.toMap)
+    inox.Model(program)(vars, interpretations.toMap)
   }
 
   def extractUnsatAssumptions(cores: Set[Z3AST]): Set[Expr] = {

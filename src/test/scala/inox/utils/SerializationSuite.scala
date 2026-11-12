@@ -102,7 +102,7 @@ class SerializationSuite extends AnyFunSuite {
     val exprs: Seq[Expr] = Seq(
       Lambda(Seq(x), x.toVariable + E(BigInt(1))),
       Forall(Seq(x), x.toVariable * x.toVariable >= E(BigInt(0))),
-      Choose(x, x.toVariable > E(BigInt(3))),
+      exprOps.uninterpretedCall("u", Seq(), Seq(), RefinementType(x, x.toVariable > E(BigInt(3)))),
       Let(x, E(BigInt(2)), Tuple(Seq(x.toVariable, E("s")))),
       FiniteSet(Seq(E(BigInt(1)), E(BigInt(2))), IntegerType()),
       FiniteBag(Seq(E(BigInt(1)) -> E(BigInt(2))), IntegerType()),

@@ -17,7 +17,7 @@ trait ContextualEvaluator extends Evaluator {
   trait RecContext[RC <: RecContext[RC]] {
     def tps: Seq[Type]
     def mappings: Map[ValDef, Expr]
-    def chooses: Map[(Identifier, Seq[Type]), Expr]
+    def interpretations: Map[(Identifier, Seq[Type]), Expr]
     def locallyIgnoreContracts: Boolean
 
     def newTypes(tps: Seq[Type]): RC
@@ -27,20 +27,18 @@ trait ContextualEvaluator extends Evaluator {
     def withNewVars(news: Map[ValDef, Expr]): RC = newVars(mappings ++ news)
     def withLocallyIgnoredContracts: RC
 
-    def newChooses(news: Map[(Identifier, Seq[Type]), Expr]): RC
-    def getChoose(id: Identifier): Option[Expr] = chooses.get(id -> tps)
-    def withoutChoose(id: Identifier) = newChooses(chooses - (id -> tps))
+    def newInterpretations(news: Map[(Identifier, Seq[Type]), Expr]): RC
   }
 
   case class DefaultRecContext(
     tps: Seq[Type],
     mappings: Map[ValDef, Expr],
-    chooses: Map[(Identifier, Seq[Type]), Expr],
+    interpretations: Map[(Identifier, Seq[Type]), Expr],
     locallyIgnoreContracts: Boolean
   ) extends RecContext[DefaultRecContext] {
     def newTypes(tps: Seq[Type]) = copy(tps = tps)
     def newVars(news: Map[ValDef, Expr]) = copy(mappings = news)
-    def newChooses(news: Map[(Identifier, Seq[Type]), Expr]) = copy(chooses = news)
+    def newInterpretations(news: Map[(Identifier, Seq[Type]), Expr]) = copy(interpretations = news)
     def withLocallyIgnoredContracts = copy(locallyIgnoreContracts = true)
   }
 
@@ -91,7 +89,7 @@ trait ContextualEvaluator extends Evaluator {
 trait HasDefaultRecContext extends ContextualEvaluator {
   import program.trees._
   type RC = DefaultRecContext
-  def initRC(model: program.Model) = DefaultRecContext(Seq.empty, model.vars, model.chooses, false)
+  def initRC(model: program.Model) = DefaultRecContext(Seq.empty, model.vars, model.interpretations, false)
 }
 
 trait HasDefaultGlobalContext extends ContextualEvaluator {

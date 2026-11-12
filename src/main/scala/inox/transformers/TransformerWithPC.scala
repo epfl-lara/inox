@@ -23,9 +23,6 @@ trait TransformerWithPC extends Transformer {
       }
       t.Forall(sparams, transform(b, senv)).copiedFrom(e)
 
-    case s.Choose(res, p) =>
-      t.Choose(transform(res, env), transform(p, env `withBound` res)).copiedFrom(e)
-
     case s.Assume(pred, body) =>
       t.Assume(transform(pred, env), transform(body, env `withCond` pred)).copiedFrom(e)
 

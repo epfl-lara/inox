@@ -66,12 +66,26 @@ class ExprOps private(val trees: Trees)
       }
   }
 
-  /** Freshens all local variables
-    *
-    * Note that we don't freshen choose ids as these are considered global
-    * and used to lookup their images within models!
-    */
-  protected class Freshener(freshenChooses: Boolean) extends ConcreteSelfTransformer {
+  /** The call of a fresh uninterpreted function named `name` at `tps`, over `params`, whose
+    * result is in `returnType`, which may refer to the parameters. */
+  def uninterpretedCall(name: String, tps: Seq[Type], params: Seq[ValDef], returnType: Type): UninterpretedCall =
+    UninterpretedCall(FreshIdentifier(name), tps, params.map(_.toVariable),
+      if (params.isEmpty) FunctionType(Seq.empty, returnType) else PiType(params, returnType))
+
+  /** The call of a fresh uninterpreted function over `params`, at the type parameters that its type
+    * refers to, such as an unknown value of a model. */
+  def freshUninterpretedCall(name: String, params: Seq[ValDef], returnType: Type): UninterpretedCall = {
+    val tps = typeOps.typeParamsOf(FunctionType(params.map(_.tpe), returnType)).toSeq.sortBy(_.id.globalId)
+    uninterpretedCall(name, tps, params, returnType)
+  }
+
+  /** The body of a function without definition: the call of a fresh uninterpreted function over
+    * the parameters of the function, at its type parameters. */
+  def uninterpretedBody(name: String, tparams: Seq[TypeParameterDef], params: Seq[ValDef], returnType: Type): UninterpretedCall =
+    uninterpretedCall(name, tparams.map(_.tp), params, returnType)
+
+  /** Freshens all local variables */
+  protected class Freshener extends ConcreteSelfTransformer {
     type Env = Map[Identifier, Identifier]
 
     override def transform(id: Identifier, env: Env): Identifier = {
@@ -98,10 +112,6 @@ class ExprOps private(val trees: Trees)
             (sparams :+ transform(freshVd, env), env.updated(vd.id, freshVd.id))
         }
         Forall(sparams, transform(b, senv)).copiedFrom(e)
-
-      case Choose(vd, pred) if freshenChooses =>
-        val freshVd = vd.freshen
-        Choose(transform(freshVd, env), transform(pred, env.updated(vd.id, freshVd.id))).copiedFrom(e)
 
       case _ =>
         super.transform(e, env)
@@ -132,8 +142,8 @@ class ExprOps private(val trees: Trees)
     }
   }
 
-  def freshenLocals(expr: Expr, freshenChooses: Boolean = false): Expr = {
-    new Freshener(freshenChooses).transform(expr, Map.empty[Identifier, Identifier])
+  def freshenLocals(expr: Expr): Expr = {
+    new Freshener().transform(expr, Map.empty[Identifier, Identifier])
   }
 
   /** Returns true if the expression contains a function call */
@@ -163,7 +173,7 @@ class ExprOps private(val trees: Trees)
     * unrolling solver. See implementation for what this means exactly.
     */
   def isSimple(e: Expr): Boolean = !exists {
-    case (_: Assume) | (_: Forall) | (_: Lambda) | (_: Choose) | (_: Error) |
+    case (_: Assume) | (_: Forall) | (_: Lambda) | (_: Error) |
          (_: FunctionInvocation) | (_: UninterpretedCall) | (_: Application) => true
     case _ => false
   } (e)
@@ -397,7 +407,6 @@ class ExprOps private(val trees: Trees)
         e match {
           case Lambda(params, _) if params.contains(vd) => ()
           case Forall(params, _) if params.contains(vd) => ()
-          case Choose(res, _) if res == vd => ()
           case Let(binder, _, _) if binder == vd => ()
           case _ => super.traverse(e, ())
         }

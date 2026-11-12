@@ -22,9 +22,10 @@
 (check-sat)
 (pop 1)
 
-; choose
+; refined constant
 (push 1)
-(assert (= (@ (choose (f PosIncr) (= (f 1) 5)) 2) 10))
+(declare-const f (! PosIncr :var g :restrict (= (g 1) 5)))
+(assert (= (@ f 2) 10))
 (set-info :status sat)
 (check-sat)
 (pop 1)

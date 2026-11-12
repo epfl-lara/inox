@@ -157,6 +157,27 @@ class Printer(prog: InoxProgram, ctx: inox.Context, writer: Writer) extends tip.
     }
   }
 
+  /** Declares the function `sym` of the uninterpreted call `uc` with its refinements, and names
+    * its parameters as `(declare-fun f ((x S) ...) R)` when the next types refer to them. */
+  override protected def declareUninterpreted(uc: UninterpretedCall, sym: SSymbol, tparams: Seq[TypeParameter],
+                                              params: Seq[ValDef], to: Type): Unit = {
+    val dependent = params.zipWithIndex.exists { case (vd, i) =>
+      (params.drop(i + 1).map(_.tpe) :+ to).exists(tpe => typeOps.variablesOf(tpe).contains(vd.toVariable))
+    }
+    var bindings = Map.empty[Identifier, Term]
+    val sorts = params.map { vd =>
+      val s = id2sym(vd.id)
+      val sort = sortOf(vd.tpe)(using bindings)
+      bindings += vd.id -> s
+      if (dependent) new TermSort(FunctionApplication(QualifiedIdentifier(SimpleIdentifier(s)), Seq(TermSort.toTerm(sort))))
+      else sort
+    }
+    val returnSort = sortOf(to)(using bindings)
+    val tps = tparams.map(tp => id2sym(tp.id))
+    emit(if (tps.isEmpty) smtlib.trees.Commands.DeclareFun(sym, sorts, returnSort)
+      else smtlib.extensions.tip.Commands.DeclareFunPar(tps, sym, sorts, returnSort))
+  }
+
   override protected def declareSortProperties(adts: Seq[ADTSort]): Unit = {
     super.declareSortProperties(adts)
     for (sort <- adts; fd <- sort.equality) {

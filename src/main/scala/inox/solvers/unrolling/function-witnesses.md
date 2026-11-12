@@ -17,8 +17,8 @@ Model extraction must map distinct model terms to distinct values. The thesis st
 its extraction rules (§2.2): for function terms `t1`, `t2` with extractions `v1`, `v2`,
 `M ⊨ t1 ≃ t2` iff `v1 = v2`. The thesis gets it by extracting unknown functions as `λx. f_t(x)`, where
 `f_t` is a fresh synthetic definition. Inox instead rebuilds a free function as an `if`-chain over the
-applications in the model. It keeps distinct terms distinct with `uniquateClosure`, or with `choose`
-for cyclic values.
+applications in the model. It keeps distinct terms distinct with `uniquateClosure`, or with fresh
+uninterpreted constants for cyclic values.
 
 Either way, a counterexample can claim `f != g` while no input tells `f` and `g` apart. Under Scala
 semantics such a counterexample is spurious. The thesis lists this under Future Work (Chapter 7),
@@ -77,7 +77,7 @@ the answer is Unknown rather than a counterexample that compares functions. A re
 that is deeper than the current level doesn't lead to a fallback: the solver goes through the proof
 check and unrolls until the witness is in reach.
 
-`choose` extraction (cyclic values) also still selects its branches by comparing values.
+The extraction of cyclic values as uninterpreted constants also still selects its branches by comparing values.
 
 ## 2. The construction
 
@@ -178,7 +178,8 @@ Applications to witness arguments are placed last (`isWitnessArgument`), so they
 only when the function has no other application, and the default is the same as without witnesses. Otherwise a witness point
 could set the default to a value that breaks a quantified property of the function.
 
-With a refined codomain, the default branch is a `choose` in the codomain instead. Under `none`, the
+With a refined codomain, the default branch is instead a call to a fresh uninterpreted function of
+the arguments, whose result lies in the codomain. Under `none`, the
 conditions of the `if`-chain tell arguments apart by their distinguishing inputs, so when all
 applications agree in the model, there is no condition to test. Such an argument then takes the
 branch under the negated domain if it lies outside the domain, where the result needn't lie in the
@@ -251,7 +252,7 @@ second case the blockers of both applications hold, since they lie in `Bi`.
 `f(w̄) != h(w̄)` under `s_p` holds. ∎
 
 **Corollary C1 (extracted functions differ on an input).** Assume moreover that extraction is
-well founded on `M`: no cyclic function value is reached, so no `choose` is produced. Let `t1`, `t2`
+well founded on `M`: no cyclic function value is reached, so no uninterpreted constant is produced. Let `t1`, `t2`
 be active terms of the same type, at least one of them free. If `M(t1) ≠ M(t2)`, then their
 extractions differ, and the difference is observable through applications to extracted values.
 For function types this means there are values `ā` such that `ext(t1)(ā)` and `ext(t2)(ā)`
@@ -365,7 +366,7 @@ unchanged, and models may compare functions.
 ## 7. Limitations
 
 - Theorem D needs unbounded unrolling. With `optUnrollBound`, the answer can be Unknown.
-- Corollary C1 needs well-founded extraction. Cyclic values are extracted with `choose`, and nothing
+- Corollary C1 needs well-founded extraction. Cyclic values are extracted as uninterpreted constants, and nothing
   is claimed for them. Under `extensional`, the evaluator may then fail to compare two functions by
   their results, so the model is rejected and the answer may be Unknown (test: distinct functions
   over a recursive type with function fields).

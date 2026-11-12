@@ -1,8 +1,12 @@
 (declare-datatypes (T!3) ((List!4 (Nil!1) (Cons!1 (h!46 T!3) (t!53 (List!4 T!3))))))
 
-(define-fun-rec (par (T!36) (content!2 ((thiss!20 (List!4 T!36))) (Set T!36) (ite (is-Nil!1 thiss!20) (as emptyset T!36) (ite (is-Cons!1 thiss!20) (union (insert (as emptyset T!36) (h!46 thiss!20)) (content!2 (t!53 thiss!20))) (choose |error: Match is non-exhaustive!16| (Set T!36) true))))))
+(declare-fun (par (T!36) (|error: Match is non-exhaustive!16| ((List!4 T!36)) (Set T!36))))
 
-(define-fun-rec (par (T!46) (contains!0 ((thiss!37 (List!4 T!46)) (v!3 T!46)) Bool (let ((x$2!1 (ite (is-Cons!1 thiss!37) (or (= (h!46 thiss!37) v!3) (contains!0 (t!53 thiss!37) v!3)) (ite (is-Nil!1 thiss!37) false (choose |error: Match is non-exhaustive!26| Bool true))))) (assume (= x$2!1 (member v!3 (content!2 thiss!37))) x$2!1)))))
+(define-fun-rec (par (T!36) (content!2 ((thiss!20 (List!4 T!36))) (Set T!36) (ite (is-Nil!1 thiss!20) (as emptyset T!36) (ite (is-Cons!1 thiss!20) (union (insert (as emptyset T!36) (h!46 thiss!20)) (content!2 (t!53 thiss!20))) (|error: Match is non-exhaustive!16| thiss!20))))))
+
+(declare-fun (par (T!46) (|error: Match is non-exhaustive!26| ((List!4 T!46) T!46) Bool)))
+
+(define-fun-rec (par (T!46) (contains!0 ((thiss!37 (List!4 T!46)) (v!3 T!46)) Bool (let ((x$2!1 (ite (is-Cons!1 thiss!37) (or (= (h!46 thiss!37) v!3) (contains!0 (t!53 thiss!37) v!3)) (ite (is-Nil!1 thiss!37) false (|error: Match is non-exhaustive!26| thiss!37 v!3))))) (assume (= x$2!1 (member v!3 (content!2 thiss!37))) x$2!1)))))
 
 (declare-const (par (A!1) (l!0 (List!4 A!1))))
 

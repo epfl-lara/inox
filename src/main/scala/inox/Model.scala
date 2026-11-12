@@ -2,14 +2,14 @@
 
 package inox
 
-object optPrintChooses extends FlagOptionDef("print-chooses", false)
+object optPrintInterpretations extends FlagOptionDef("print-interpretations", false)
 
 object Model {
   def empty(p: Program): p.Model = {
     class EmptyImpl(override val program: p.type,
                     override val vars: Map[p.trees.ValDef, p.trees.Expr],
-                    override val chooses: Map[(Identifier, Seq[p.trees.Type]), p.trees.Expr])
-      extends Model(program)(vars, chooses)
+                    override val interpretations: Map[(Identifier, Seq[p.trees.Type]), p.trees.Expr])
+      extends Model(program)(vars, interpretations)
     new EmptyImpl(p, Map.empty, Map.empty)
   }
 
@@ -19,32 +19,32 @@ object Model {
   ): p.Model = {
     class Impl(override val program: p.type,
                override val vars: Map[p.trees.ValDef, p.trees.Expr],
-               override val chooses: Map[(Identifier, Seq[p.trees.Type]), p.trees.Expr])
-      extends Model(program)(vars, chooses)
+               override val interpretations: Map[(Identifier, Seq[p.trees.Type]), p.trees.Expr])
+      extends Model(program)(vars, interpretations)
     new Impl(p, vs, cs)
   }
 }
 
 class Model(val program: Program)
            (val vars: Map[program.trees.ValDef, program.trees.Expr],
-            val chooses: Map[(Identifier, Seq[program.trees.Type]), program.trees.Expr]) { self =>
+            val interpretations: Map[(Identifier, Seq[program.trees.Type]), program.trees.Expr]) { self =>
   import program.{Model => _, _}
   import program.trees._
 
-  def isEmpty: Boolean = vars.isEmpty && chooses.isEmpty
+  def isEmpty: Boolean = vars.isEmpty && interpretations.isEmpty
 
   def encode(t: transformers.ProgramTransformer {
     val sourceProgram: program.type
   }): t.targetProgram.Model = {
     class EncodedImpl(override val program: t.targetProgram.type,
                       override val vars: Map[t.targetProgram.trees.ValDef, t.targetProgram.trees.Expr],
-                      override val chooses: Map[(Identifier, Seq[t.targetProgram.trees.Type]), t.targetProgram.trees.Expr])
-      extends Model(program)(vars, chooses)
+                      override val interpretations: Map[(Identifier, Seq[t.targetProgram.trees.Type]), t.targetProgram.trees.Expr])
+      extends Model(program)(vars, interpretations)
 
     new EncodedImpl(
       t.targetProgram,
       self.vars.map { case (vd, e) => t.encode(vd) -> t.encode(e) },
-      self.chooses.map { case ((id, tps), e) => (id, tps.map(t.encode(_))) -> t.encode(e) }
+      self.interpretations.map { case ((id, tps), e) => (id, tps.map(t.encode(_))) -> t.encode(e) }
     )
   }
 
@@ -56,15 +56,16 @@ class Model(val program: Program)
       }).mkString("\n")
     }
 
-    val chooseFds = symbols.functions.values.flatMap(fd => fd.fullBody match {
-      case Choose(res, _) =>
-        val cs = chooses.filter { case ((id, _), _) => res.id == id }
+    // The functions without definitions call uninterpreted functions (see `exprOps.uninterpretedBody`)
+    val uninterpretedFds = symbols.functions.values.flatMap(fd => fd.fullBody match {
+      case UninterpretedCall(ucId, _, _, _) =>
+        val cs = interpretations.filter { case ((id, _), _) => ucId == id }
         if (cs.isEmpty) None else Some(fd -> cs)
       case _ => None
     }).toSeq
 
     val functionString = (for {
-      (fd, cs) <- chooseFds
+      (fd, cs) <- uninterpretedFds
       ((id, tps), e) <- cs
     } yield {
       fd.id.asString +
@@ -73,31 +74,31 @@ class Model(val program: Program)
       " -> " + e.asString
     }).mkString("\n")
 
-    lazy val chooseString = if (!opts.printChooses) "" else {
-      val fdChooses = symbols.functions.values.flatMap(fd => fd.fullBody match {
-        case Choose(res, _) => Some(res.id)
+    lazy val interpretationString = if (!opts.printInterpretations) "" else {
+      val fdUninterpreted = symbols.functions.values.flatMap(fd => fd.fullBody match {
+        case UninterpretedCall(ucId, _, _, _) => Some(ucId)
         case _ => None
       }).toSet
 
-      chooses.collect { case ((id, tps), e) if !fdChooses(id) =>
+      interpretations.collect { case ((id, tps), e) if !fdUninterpreted(id) =>
         id.asString +
         (if (tps.nonEmpty) " (typed [" + tps.mkString(",") + "])" else "") +
         " -> " + e.asString
       }.mkString("\n")
     }
 
-    if (modelString.isEmpty && functionString.isEmpty && (chooses.isEmpty || !opts.printChooses)) {
-      if (chooses.isEmpty) {
+    if (modelString.isEmpty && functionString.isEmpty && (interpretations.isEmpty || !opts.printInterpretations)) {
+      if (interpretations.isEmpty) {
         "(Empty model)"
       } else {
-        "(Model with chooses)"
+        "(Model with interpretations)"
       }
     } else {
       modelString +
       (if (modelString.nonEmpty && functionString.nonEmpty) "\n\n" else "") +
       functionString +
-      (if ((modelString.nonEmpty || functionString.nonEmpty) && chooseString.nonEmpty) "\n\n" else "") +
-      chooseString
+      (if ((modelString.nonEmpty || functionString.nonEmpty) && interpretationString.nonEmpty) "\n\n" else "") +
+      interpretationString
     }
   }
 

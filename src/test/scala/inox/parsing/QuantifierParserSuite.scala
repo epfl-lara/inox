@@ -97,33 +97,6 @@ class QuantifierParserSuite extends AnyFunSuite {
     }
   }
 
-  test("Parsing choose.") {
-
-    e"choose x. x > 2" match {
-      case Choose(ValDef(id, IntegerType(), _), expr) =>
-        assertResult(GreaterThan(Variable(id, IntegerType(), Seq()), IntegerLiteral(2))) {
-          expr
-        }
-      case e => fail("Unexpected shape: " + e)
-    }
-
-    e"choose x: BigInt. false ==> true" match {
-      case Choose(ValDef(id, IntegerType(), _), expr) =>
-        assertResult(Implies(BooleanLiteral(false), BooleanLiteral(true))) {
-          expr
-        }
-      case e => fail("Unexpected shape: " + e)
-    }
-
-    e"4 + choose x: BigInt. false ==> true" match {
-      case Plus(IntegerLiteral(_), Choose(ValDef(id, IntegerType(), _), expr)) =>
-        assertResult(Implies(BooleanLiteral(false), BooleanLiteral(true))) {
-          expr
-        }
-      case e => fail("Unexpected shape: " + e)
-    }
-  }
-
   test("Parsing lambda.") {
 
     e"lambda x. x > 2" match {

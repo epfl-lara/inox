@@ -50,9 +50,10 @@
 (check-sat)
 (pop 1)
 
-; choose result
+; refined constant
 (push 1)
-(assert (not (> (pv (choose (q Pos) true)) 0)))
+(declare-const q (! Pos :var r :restrict true))
+(assert (not (> (pv q) 0)))
 (set-info :status unsat)
 (check-sat)
 (pop 1)

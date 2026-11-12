@@ -80,7 +80,7 @@ object Terms {
     }
   }
 
-  /** A higher-order binder application such as `(forall p)` or `(choose (lambda ((x Int)) ...))`. */
+  /** A higher-order binder application such as `(forall p)` or `(exists (lambda ((x Int)) ...))`. */
   case class BinderApplication(binder: String, body: Term) extends TermExtension {
     override def print(ctx: PrintingContext): Unit = {
       ctx.print("(" + binder + " ")
@@ -350,31 +350,6 @@ class SMTLIB3Parser(lexer: SMTLIB3Lexer) extends TipParser(lexer) {
       parseBinder("exists", startPos) {
         case (v +: vs, body) => Exists(v, vs, body)
         case (_, body) => body
-      }
-
-    case InoxTipTokens.Choose =>
-      eat(InoxTipTokens.Choose)
-      if (isSymbol(getPeekToken.kind)) {
-        // TIP syntax: (choose x T p), or higher-order application (choose f)
-        val sym = parseSymbol
-        if (getPeekToken.kind == LT.CParen) {
-          BinderApplication("choose", QualifiedIdentifier(Identifier(sym).setPos(sym)).setPos(sym))
-        } else {
-          val sort = parseSort
-          val pred = parseTerm
-          inox.tip.Terms.Choose(sym, sort, pred)
-        }
-      } else {
-        // SMT-LIB 3 sugar (choose (x T) p), or higher-order application (choose (lambda ...))
-        val first = parseTerm
-        if (getPeekToken.kind == LT.CParen) {
-          BinderApplication("choose", first)
-        } else first match {
-          case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), Seq(sort)) =>
-            inox.tip.Terms.Choose(sym, TermSort(sort), parseTerm)
-          case _ =>
-            throw new smtlib.parser.Parser.UnexpectedTokenException(getPeekToken, Seq(LT.CParen))
-        }
       }
 
     case TipTokens.Match =>
