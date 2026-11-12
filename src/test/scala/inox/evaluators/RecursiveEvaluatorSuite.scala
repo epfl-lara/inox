@@ -219,15 +219,16 @@ class RecursiveEvaluatorSuite extends AnyFunSuite {
     }
   }
 
+  def evalIn(vars: Map[ValDef, Expr], ev: DeterministicEvaluator { val program: RecursiveEvaluatorSuite.this.program.type } = evaluator)(expr: Expr): Expr =
+    ev.eval(expr, Model(program)(vars, Map.empty)) match {
+      case EvaluationResults.Successful(res) => res
+      case other => fail(s"Evaluation of '$expr' failed with $other")
+    }
+
   test("Model values compare equal whatever the refinements of their types") {
     val vd = ValDef.fresh("v", IntegerType())
     val pos = RefinementType(vd, GreaterThan(vd.toVariable, IntegerLiteral(0)))
 
-    def evalIn(vars: Map[ValDef, Expr])(expr: Expr): Expr =
-      evaluator.eval(expr, Model(program)(vars, Map.empty)) match {
-        case EvaluationResults.Successful(res) => res
-        case other => fail(s"Evaluation of '$expr' failed with $other")
-      }
 
     val (zero, one) = (IntegerLiteral(0), IntegerLiteral(1))
     val values = Seq(
@@ -252,5 +253,41 @@ class RecursiveEvaluatorSuite extends AnyFunSuite {
     val eval = evalIn(Map(t -> Tuple(Seq(FiniteSet(Seq(one), pos), one)), s -> FiniteSet(Seq(one), IntegerType())))
     assert(eval(ElementOfSet(TupleSelect(t.toVariable, 1), FiniteSet(Seq(s.toVariable), SetType(IntegerType())))) ==
       BooleanLiteral(true))
+  }
+
+  test("Model lambdas compare equal to the lambdas the evaluator builds") {
+    val vd = ValDef.fresh("v", IntegerType())
+    val pos = RefinementType(vd, GreaterThan(vd.toVariable, IntegerLiteral(0)))
+    def lambda(name: String, tpe: Type)(body: Variable => Expr): Lambda = {
+      val p = ValDef.fresh(name, tpe)
+      Lambda(Seq(p), body(p.toVariable))
+    }
+    val one = IntegerLiteral(1)
+    val ft = FunctionType(Seq(pos), IntegerType())
+
+    for (fe <- Seq(solvers.unrolling.FunctionEquality.Intensional, solvers.unrolling.FunctionEquality.Extensional)) {
+      val ev = RecursiveEvaluator(program, ctx.withOpts(solvers.unrolling.optFunctionEquality(fe)))
+      // Hand-built, with other parameter names and types, and a ground subexpression the evaluator simplifies
+      val f = ValDef.fresh("f", ft)
+      val s = ValDef.fresh("s", SetType(ft))
+      val g = ValDef.fresh("g", ft)
+      val eval = evalIn(Map(
+        f -> lambda("y", pos)(y => Plus(y, one)),
+        s -> FiniteSet(Seq(lambda("z", pos)(z => Plus(z, one))), ft),
+        g -> lambda("y", pos)(y => Plus(y, Plus(one, IntegerLiteral(0)))),
+      ), ev)
+      val lit = lambda("x", IntegerType())(x => Plus(x, one))
+      assert(eval(Equals(f.toVariable, lit)) == BooleanLiteral(true), s"f == lit under $fe")
+      assert(eval(Equals(g.toVariable, lit)) == BooleanLiteral(true), s"g == lit under $fe")
+      assert(eval(ElementOfSet(lit, s.toVariable)) == BooleanLiteral(true), s"lit in s under $fe")
+      assert(eval(ElementOfSet(f.toVariable, s.toVariable)) == BooleanLiteral(true), s"f in s under $fe")
+      assert(eval(Equals(s.toVariable, FiniteSet(Seq(lit), ft))) == BooleanLiteral(true), s"s == Set(lit) under $fe")
+    }
+
+    // A lambda whose body fails only fails the evaluations that apply it
+    val h = ValDef.fresh("h", FunctionType(Seq(IntegerType()), IntegerType()))
+    val model = Model(program)(Map(h -> lambda("y", IntegerType())(y => Plus(y, Division(one, IntegerLiteral(0))))), Map.empty)
+    assert(evaluator.eval(Equals(one, one), model).result == Some(BooleanLiteral(true)))
+    assert(evaluator.eval(Application(h.toVariable, Seq(one)), model).result.isEmpty)
   }
 }
