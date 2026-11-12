@@ -136,10 +136,12 @@ object SolverFactory {
     * model that interprets functions. */
   def getFromName(name: String, force: Boolean = false)
                  (p: Program, ctx: Context, model: Option[p.Model] = None)
-                 (enc: ProgramTransformer {
+                 (enc0: ProgramTransformer {
                     val sourceProgram: p.type
                     val targetProgram: Program { val trees: inox.trees.type }
                   })(using sem: p.Semantics): SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } } = {
+    // solvers handle propositions as booleans
+    val enc = enc0 `andThen` theories.PropEncoder(enc0.targetProgram)
     val solverModel = model.getOrElse(inox.Model.empty(p))
     val nonIncremental = name.startsWith("no-inc:")
     val noPrefixName = if (nonIncremental) removeNoInc(name) else name

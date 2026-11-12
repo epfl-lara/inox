@@ -1,0 +1,29 @@
+; Under propositional quantifiers, a quantifier has no value, so it can't decide the value of
+; a term. Such queries are type errors, which the command line reports and `PropositionSuite`
+; checks. This script checks specifications stated where propositions are accepted: in an
+; assertion, under connectives, bound to a variable, and through a predicate definition, which
+; is inferred from a function that returns a quantifier.
+(set-option :quantifiers propositional)
+(define-fun bounded ((f (-> Int Int)) (r Int)) Bool
+  (forall ((x Int)) (<= (f x) r)))
+(declare-const f (-> Int Int))
+(declare-const r Int)
+(set-info :status unsat)
+(push 1)
+(assert (and (bounded f r) (> (f 3) r)))
+(check-sat)
+(pop 1)
+(push 1)
+(assert (ite (> r 0) (bounded f r) (bounded f 0)))
+(assert (> (f 3) r))
+(assert (> (f 3) 0))
+(check-sat)
+(pop 1)
+(push 1)
+(assert (let ((p (bounded f r)) (q (forall ((x Int)) (<= (f x) 0))))
+  (and (= p q) q (> (f 3) r))))
+(check-sat)
+(pop 1)
+(set-info :status sat)
+(assert (not (bounded f r)))
+(check-sat)

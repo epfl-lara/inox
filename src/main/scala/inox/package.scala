@@ -53,13 +53,14 @@ package object inox {
   object trees extends ast.Trees with ast.SimpleSymbols {
     case class Symbols(
       functions: Map[Identifier, FunDef],
-      sorts: Map[Identifier, ADTSort]
+      sorts: Map[Identifier, ADTSort],
+      modes: ast.TypingModes = ast.TypingModes()
     ) extends SimpleSymbols {
       override val symbols: this.type = this
     }
 
-    override def mkSymbols(functions: Map[Identifier, FunDef], sorts: Map[Identifier, ADTSort]): Symbols =
-      Symbols(functions, sorts)
+    override def mkSymbols(functions: Map[Identifier, FunDef], sorts: Map[Identifier, ADTSort], modes: ast.TypingModes): Symbols =
+      Symbols(functions, sorts, modes)
 
     object printer extends ast.Printer { val trees: inox.trees.type = inox.trees }
   }

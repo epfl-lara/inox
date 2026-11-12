@@ -30,6 +30,7 @@ trait TypeDeconstructors extends IRs {
 
     lazy val basic: Map[Value, trees.Type] = Seq(
       "Boolean" -> trees.BooleanType(),
+      "Prop"    -> trees.PropType(),
       "BigInt"  -> trees.IntegerType(),
       "Char"    -> trees.CharType(),
       "Int"     -> trees.Int32Type(),

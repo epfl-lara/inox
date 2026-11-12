@@ -34,6 +34,7 @@ trait SimpleSymbolTransformer extends SymbolTransformer { self =>
   protected def transformSort(sort: s.ADTSort): t.ADTSort
 
   def transform(syms: s.Symbols): t.Symbols = t.NoSymbols
+    .withModes(syms.modes)
     .withFunctions(syms.functions.values.toSeq.map(transformFunction))
     .withSorts(syms.sorts.values.toSeq.map(transformSort))
 }
