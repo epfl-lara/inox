@@ -195,4 +195,46 @@ class PropTypingSuite extends AnyFunSuite {
   test("The Prop type is printed and parsed") {
     assert(PropType().asString(using PrinterOptions()) == "Prop")
   }
+
+  test("Trees that don't know of typing modes keep their symbols and their subtyping") {
+    import PropTypingSuite.legacy
+    import legacy._
+    val syms = legacy.NoSymbols
+    assert(syms.modes == TypingModes())
+    assert(syms.withFunctions(Seq()).modes == TypingModes())
+    assert(syms.withModes(TypingModes()) eq syms)
+    assert(syms.withQuantifiers(QuantifierMode.Boolean) eq syms)
+    intercept[UnsupportedOperationException](syms.withQuantifiers(QuantifierMode.Propositional))
+    intercept[UnsupportedOperationException] {
+      legacy.mkSymbols(Map.empty, Map.empty, TypingModes(QuantifierMode.Propositional))
+    }
+
+    // booleans are accepted where propositions are, under a subtyping without propositions
+    given legacy.Symbols = syms
+    val b = legacy.Variable.fresh("b", legacy.BooleanType())
+    val x = legacy.ValDef.fresh("x", legacy.IntegerType())
+    assert(!syms.isSubtypeOf(legacy.BooleanType(), legacy.PropType()))
+    assert(legacy.Assume(b, legacy.IntegerLiteral(1)).getType == legacy.IntegerType())
+    assert(legacy.RefinementType(x, b).getType == legacy.IntegerType())
+    assert(legacy.And(b, legacy.Not(b)).getType == legacy.BooleanType())
+    assert(legacy.Forall(Seq(x), b).getType == legacy.BooleanType())
+  }
+}
+
+object PropTypingSuite {
+  /** Trees as they were defined before symbols had typing modes, with their own subtyping. */
+  object legacy extends Trees with SimpleSymbols {
+    case class Symbols(
+      functions: Map[Identifier, FunDef],
+      sorts: Map[Identifier, ADTSort]
+    ) extends SimpleSymbols {
+      override val symbols: this.type = this
+      override def isSubtypeOf(t1: Type, t2: Type): Boolean = t1.getType == t2.getType
+    }
+
+    override def mkSymbols(functions: Map[Identifier, FunDef], sorts: Map[Identifier, ADTSort]): Symbols =
+      Symbols(functions, sorts)
+
+    object printer extends Printer { val trees: legacy.type = legacy }
+  }
 }
