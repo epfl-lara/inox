@@ -397,6 +397,31 @@ class UnrollingSolverSuite extends TestSuite with DatastructureUtils {
     }
   }
 
+  test("scopes survive quantifier promotion and set declarations") {
+    val f = Variable.fresh("f", I =>: I)
+    val s = Variable.fresh("s", SetType(IntegerType()))
+    // The matcher `f(f(z))` is ignored at first, so the search promotes the quantifier
+    val body = forall("z" :: I)(z => (z > int(0)) ==> (f(f(z)) === z))
+    val factory = program.getSolver(summon[Context])
+    val solver = factory.getNewSolver()
+    try {
+      for (_ <- 1 to 2) {
+        solver.push()
+        solver.assertCnstr(body && f(int(1)) === int(2) && f(int(2)) === int(3))
+        assert(solver.check(Simple) == Unsat)
+        solver.pop()
+
+        // The first set in a scope declares the set sort, which must outlive the scope
+        solver.push()
+        solver.assertCnstr(ElementOfSet(int(1), s) && Not(ElementOfSet(int(1), s)))
+        assert(solver.check(Simple) == Unsat)
+        solver.pop()
+      }
+    } finally {
+      factory.reclaim(solver)
+    }
+  }
+
   test("debug output of the unrolling procedure") {
     // Everything that the procedure logs is only built when the solver section is debugged
     class RecordingReporter extends DefaultReporter(Set(DebugSectionSolver)) {

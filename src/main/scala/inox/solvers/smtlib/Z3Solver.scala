@@ -31,6 +31,12 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
     if (!evalContext.interruptManager.isInterrupted) evalContext.interruptManager.interrupt()
   }
 
+  // Define the set sort outside of any scope, since `pop` would drop a definition made inside one
+  override def push(): Unit = {
+    setSort
+    super.push()
+  }
+
   override def reset(): Unit = {
     super.reset()
     if (evalContext.interruptManager.isInterrupted) evalContext.interruptManager.reset()
