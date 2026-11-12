@@ -233,9 +233,9 @@ class UnrollingSolverSuite extends TestSuite with DatastructureUtils {
   }
 
   // Argument-less free functions are extracted from the value of their application, here as
-  // `() => 1`, which equals `() => y` when `y` is 1, so the model contradicts the query and is
-  // rejected (Unknown) when models are checked.
-  ignore("models of argument-less functions differ from the lambdas they are distinct from") {
+  // `() => 1`, which equals `() => y` when `y` is 1. Their models must still differ from the
+  // lambdas they are distinct from, or they contradict the query.
+  test("models of argument-less functions differ from the lambdas they are distinct from") {
     val f = argless
     val ly = arglessLambda
     val clauses = Seq(
