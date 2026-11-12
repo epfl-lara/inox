@@ -35,7 +35,7 @@ trait Expressions { self: Trees =>
     */
   sealed case class Assume(pred: Expr, body: Expr) extends Expr with CachingTyped {
     override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type =
-      checkParamType(pred, PropType(), body.getTpe(stripRefinements))
+      checkProposition(pred, body.getTpe(stripRefinements))
   }
 
 
@@ -115,7 +115,7 @@ trait Expressions { self: Trees =>
       if (params.exists(_.getType == PropType())) Untyped
       else s.modes.quantifiers match {
         case QuantifierMode.Boolean => body.getTpe(stripRefinements)
-        case QuantifierMode.Propositional => checkParamType(body, PropType(), PropType())
+        case QuantifierMode.Propositional => checkProposition(body, PropType())
       }
   }
 
