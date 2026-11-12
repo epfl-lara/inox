@@ -279,51 +279,6 @@ trait Definitions { self: Trees =>
 
     def withQuantifiers(quantifiers: QuantifierMode): Symbols =
       withModes(modes.copy(quantifiers = quantifiers))
-
-    /** The expression `e`, where the variables that are bound to a proposition by a `Let` but
-      * are declared as booleans are propositions.
-      *
-      * Under propositional quantifiers, this types the expressions of formats that only have
-      * booleans, where a variable that names a quantifier is declared as a boolean. */
-    def inferPropositions(e: Expr): Expr = {
-      object inferrer extends ConcreteSelfTreeTransformer {
-        override def transform(e: Expr): Expr = e match {
-          case Let(vd, value, body) =>
-            val newValue = transform(value)
-            if (vd.tpe == BooleanType() && newValue.getType(using self0) == PropType()) {
-              val newVd = vd.copy(tpe = PropType()).copiedFrom(vd)
-              val newBody = exprOps.replaceFromSymbols(Map(vd -> newVd.toVariable), body)
-              Let(newVd, newValue, transform(newBody)).copiedFrom(e)
-            } else {
-              Let(vd, newValue, transform(body)).copiedFrom(e)
-            }
-          case _ => super.transform(e)
-        }
-      }
-      inferrer.transform(e)
-    }
-
-    /** These symbols, where propositions that are declared as booleans are propositions: the
-      * variables that are bound to a proposition (see [[inferPropositions]]), and the functions
-      * whose body is a proposition, which become predicate definitions.
-      *
-      * Under propositional quantifiers, this types the programs of formats that only have
-      * booleans, where a function that returns a quantifier is declared to return a boolean. */
-    def inferPredicates: Symbols = {
-      def rec(syms: Symbols): Symbols = {
-        val changed = syms.functions.values.flatMap { fd =>
-          val body = syms.inferPropositions(fd.fullBody)
-          val returnType =
-            if (fd.returnType == BooleanType() && body.getType(using syms) == PropType()) PropType()
-            else fd.returnType
-          if (body != fd.fullBody || returnType != fd.returnType)
-            Some(fd.copy(fullBody = body, returnType = returnType).copiedFrom(fd))
-          else None
-        }.toSeq
-        if (changed.isEmpty) syms else rec(syms.withFunctions(changed))
-      }
-      rec(this)
-    }
   }
 
   sealed class TypeParameterDef(val tp: TypeParameter) extends Definition {
