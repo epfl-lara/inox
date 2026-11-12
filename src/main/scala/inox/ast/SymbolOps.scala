@@ -22,7 +22,7 @@ object SymbolOps {
     * sort whose invariant only holds for infinite values, and the solvers of model extraction don't
     * have a timeout.
     */
-  val simplestValueUnrollBound = 10
+  object optSimplestValueUnrollBound extends IntOptionDef("simplest-value-unroll-bound", 10, "<Int> | -1 (unbounded)")
 
   private val identifiers = new scala.collection.mutable.ArrayBuffer[Identifier]
   def getId(index: Int): Identifier = synchronized {
@@ -1076,7 +1076,7 @@ trait SymbolOps extends TypeOps { self =>
         // no value is small enough, e.g. when the invariant only holds for infinite values.
         val solverCtx = ctx.withOpts(
           SymbolOps.optSimplestValueSolver(false),
-          unrolling.optUnrollBound(SymbolOps.simplestValueUnrollBound))
+          unrolling.optUnrollBound(ctx.options.findOptionOrDefault(SymbolOps.optSimplestValueUnrollBound)))
         SimpleSolverAPI(sem.getSolver(using solverCtx)).solveSAT(Application(p, Seq(res))) match {
           case SatWithModel(model) => model.vars.getOrElse(res.toVal, throw NoSimpleValue(adt))
           case _ => throw NoSimpleValue(adt)
