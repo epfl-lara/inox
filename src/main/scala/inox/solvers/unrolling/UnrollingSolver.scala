@@ -530,6 +530,17 @@ abstract class AbstractUnrollingSolver private
           val nparams = (params zip from).map { case (vd, tpe) => vd.copy(tpe = tpe) }
           forall(nparams, rec(
             exprOps.replaceFromSymbols((params zip nparams.map(_.toVariable)).toMap, body), to))
+        // The calls of the functions that the model gives lie in a type when the bodies of their
+        // models do, whose default values are chosen in their codomains (see `defaultValue`)
+        case (UninterpretedCall(id, tps, args, _), tpe) if !expanding(id) && model.interpretations.contains(id -> tps) =>
+          model.interpretations(id -> tps) match {
+            case l: Lambda if l.params.size == args.size =>
+              expanding += id
+              val cond = rec(exprOps.replaceFromSymbols((l.params.map(_.toVariable) zip args).toMap, l.body), tpe)
+              expanding -= id
+              cond
+            case _ => BooleanLiteral(false)
+          }
         case (_, RefinementType(vd, pred)) =>
           and(rec(e, vd.tpe), Let(vd, e, pred).copiedFrom(e))
         case (Lambda(params, body), PiType(nparams, to)) =>
@@ -720,7 +731,35 @@ abstract class AbstractUnrollingSolver private
           extractFunction(f, tpe, seen)
         })
       } else {
+        unknownValue(tpe)
+      }
+    }
+
+    /* A value of `tpe` for an element that the model doesn't give, such as a function that is never
+     * applied. The simplest value of a function type may not lie in a refined codomain, so functions
+     * get the default value of their models instead (see [[defaultValue]]). */
+    def unknownValue(tpe: Type): Expr = tpe match {
+      case RefinementType(vd, _) if !hasFunctions(vd.tpe) =>
         encode(program.symbols.simplestValue(decode(tpe.getType)))
+      case RefinementType(vd, _) => unknownValue(vd.tpe)
+      case _: FunctionType | _: PiType =>
+        val (params, paramTypes, resultType) = signature(tpe)
+        Lambda(params, defaultValue(params, paramTypes, resultType)
+          .getOrElse(unknownValue(resultType)))
+      case _ => encode(program.symbols.simplestValue(decode(tpe.getType)))
+    }
+
+    /** Fresh parameters for the function type `fullType`, with its parameter and result types in
+      * terms of these parameters. */
+    def signature(fullType: Type): (Seq[ValDef], Seq[Type], Type) = {
+      val tpe = fullType.getType.asInstanceOf[FunctionType]
+      val params: Seq[ValDef] = tpe.from.map(tpe => ValDef.fresh("x", tpe, true))
+      fullType match {
+        case PiType(ps, to) =>
+          val subst: Map[ValDef, Expr] = (ps zip params.map(_.toVariable)).toMap
+          (params, ps.map(vd => typeOps.replaceFromSymbols(subst, vd.tpe)), typeOps.replaceFromSymbols(subst, to))
+        case FunctionType(from, to) => (params, from, to)
+        case _ => (params, tpe.from, tpe.to)
       }
     }
 
@@ -816,16 +855,8 @@ abstract class AbstractUnrollingSolver private
         }
       }
 
-      val params: Seq[ValDef] = tpe.from.map(tpe => ValDef.fresh("x", tpe, true))
-
-      // The parameter and result types of `fullType` in terms of `params`
-      val (paramTypes, resultType) = fullType match {
-        case PiType(ps, to) =>
-          val subst: Map[ValDef, Expr] = (ps zip params.map(_.toVariable)).toMap
-          (ps.map(vd => typeOps.replaceFromSymbols(subst, vd.tpe)), typeOps.replaceFromSymbols(subst, to))
-        case FunctionType(from, to) => (from, to)
-        case _ => (tpe.from, tpe.to)
-      }
+      // The parameters of the model, and the parameter and result types of `fullType` in their terms
+      val (params, paramTypes, resultType) = signature(fullType)
 
       // Results are extracted with their full types when these don't depend on the arguments
       val imageType = if ((typeOps.variablesOf(resultType) & params.map(_.toVariable).toSet).isEmpty) resultType

@@ -1,8 +1,5 @@
 ; The refinement of makeEqual is only assumed when its lambda is applied, which never happens
 ; here, so x and y can differ (epfl-lara/inox#139)
-; Model validation checks the refinements of all the calls of the query, including those of lambdas
-; that are never applied, so it would reject the model of makeEqual
-(set-option :check-models false)
 (set-info :status sat)
 (declare-datatypes ((Unit 0)) (((Uu))))
 (declare-datatypes ((Equations 2)) ((par (A B) ((Equation (lhs (-> A)) (rhs (-> A)) (ev (-> B)))))))
