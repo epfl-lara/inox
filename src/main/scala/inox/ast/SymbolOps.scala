@@ -22,7 +22,7 @@ object SymbolOps {
     * sort whose invariant only holds for infinite values, and the solvers of model extraction don't
     * have a timeout.
     */
-  object optSimplestValueUnrollBound extends IntOptionDef("simplest-value-unroll-bound", 10, "<Int> | -1 (unbounded)")
+  private object optSimplestValueUnrollBound extends IntOptionDef("simplest-value-unroll-bound", 10, "<Int> | -1 (unbounded)")
 
   private val identifiers = new scala.collection.mutable.ArrayBuffer[Identifier]
   def getId(index: Int): Identifier = synchronized {

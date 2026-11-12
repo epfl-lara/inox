@@ -122,7 +122,6 @@ trait MainHelpers {
     solvers.optIgnoreModels -> Description(Solvers, s"Do not request models from solvers.\nOverrides and disables ${optCheckModels.name} and ${unrolling.optFeelingLucky.name}."),
     solvers.optSilentErrors -> Description(Solvers, "Fail silently into UNKNOWN when encountering an error"),
     solvers.unrolling.optUnrollBound -> Description(Solvers, "Maximum number of unroll steps to perform"),
-    ast.SymbolOps.optSimplestValueUnrollBound -> Description(Solvers, "Maximum number of unroll steps to find a value of a sort with an invariant, when a model doesn't give one (-1 = unbounded)"),
     solvers.unrolling.optUnrollFactor -> Description(Solvers, "Number of unrollings to perform between each interaction with the SMT solver"),
     solvers.unrolling.optFeelingLucky -> Description(Solvers, "Use evaluator to find counter-examples early"),
     solvers.unrolling.optUnrollAssumptions -> Description(Solvers, "Use unsat-assumptions to drive unfolding while remaining fair"),
