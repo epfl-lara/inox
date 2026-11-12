@@ -261,16 +261,21 @@ abstract class RecursiveEvaluator(override val program: Program,
     case l @ Lambda(_, _) =>
       def normalizeLambda(l: Lambda, lifting: NormalizationLifting): Lambda = {
         val (nl, deps) = normalizeStructure(l, lifting)
+        // The lifted subexpressions are evaluated when their conditions hold. Otherwise, or when their
+        // evaluation fails, they are put back unevaluated: they may only be pure under assumptions
+        // (eg. `10 / k` under `--assume-checked`) or be partial operations (see `NormalizationLifting`),
+        // and only applying the lambda may fail on them.
         val newCtx = deps.foldLeft(rctx) {
           case (rctx, (v, dep, conds)) =>
-            if (conds.forall(e(_)(using rctx, gctx) == BooleanLiteral(true))) {
-              // Expressions that may fail are lifted unless equality is intensional, and stay
-              // in the body when they do fail (eg. `x => if (x > 0) 1 / 0 else x`)
-              val value = try e(dep)(using rctx, gctx) catch {
-                case _: (EvalError | RuntimeError) if lifting == NormalizationLifting.Partial => replaceFromSymbols(rctx.mappings.map((vd, e) => vd.toVariable -> e), dep)
-              }
-              rctx.withNewVar(v.toVal, value)
-            } else rctx
+            def unevaluated = replaceFromSymbols(
+              variablesOf(dep).flatMap(u => rctx.mappings.get(u.toVal).map(u -> _)).toMap, dep)
+            val value = try {
+              if (conds.forall(e(_)(using rctx, gctx) == BooleanLiteral(true))) e(dep)(using rctx, gctx)
+              else unevaluated
+            } catch {
+              case _: RuntimeError | _: EvalError => unevaluated
+            }
+            rctx.withNewVar(v.toVal, value)
         }
         val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
         replaceFromSymbols(mapping, nl).asInstanceOf[Lambda]
