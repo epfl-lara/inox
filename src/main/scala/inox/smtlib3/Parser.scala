@@ -24,7 +24,7 @@ private[smtlib3] case class TypeDefinition(params: Seq[Either[inox.trees.TypePar
 /** Parses SMT-LIB 3 scripts (see https://smt-lib.org/version3.shtml) into Inox programs.
   *
   * The parser extends the TIP parser of [[inox.tip.Parser]], so it also accepts TIP inputs and the
-  * Inox extensions to it (e.g. `datatype-invariant`, `assume` and `choose`). On top of these, it
+  * Inox extensions to it (e.g. `datatype-invariant` and `assume`). On top of these, it
   * supports the following SMT-LIB 3 features:
   *
   *  - Function types `(-> A B C)` (also spelled `→`), and dependent function types whose parameters
@@ -39,7 +39,9 @@ private[smtlib3] case class TypeDefinition(params: Seq[Either[inox.trees.TypePar
   *  - `push` and `pop`, and the `set-info` and `set-option` attributes of each query, see
   *    [[inox.tip.Parser.parseQueries]].
   *  - Curried and partial applications of functions, and the higher-order forms of the binders,
-  *    e.g. `(forall p)` or `(choose (lambda ((x Int)) (> x 0)))`.
+  *    e.g. `(forall p)` or `(exists (lambda ((x Int)) (> x 0)))`.
+  *  - `declare-fun` with named parameters `(declare-fun f ((x A)) B)`, whose result sort `B` may
+  *    refer to them.
   *  - SMT-LIB 2.6+ `declare-datatype(s)` and `match` syntax, and testers `(_ is c)`.
   *  - `(BitVec n)` for constant widths `n`.
   *
@@ -117,7 +119,7 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
     val implicitTps = typeVarsOf(params.map(_.tpe) :+ returnType).filterNot(explicitTps.contains)
     val tparams = (explicitTps ++ implicitTps).map(tp => TypeParameterDef(tp).setPos(tp))
 
-    val body = Choose(ValDef.fresh("res", returnType), BooleanLiteral(true))
+    val body = exprOps.uninterpretedBody(id.name, tparams, params, returnType)
     new FunDef(id, tparams, params, returnType, body, Seq.empty).setPos(fd.name.optPos)
   }
 
@@ -143,8 +145,9 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
       case _ => to
     }
 
-    val body = Choose(ValDef.fresh("res", returnType), BooleanLiteral(true))
-    new FunDef(FreshIdentifier(sym.name), tps.map(TypeParameterDef(_)), params, returnType, body, Seq.empty)
+    val tparams = tps.map(TypeParameterDef(_))
+    val body = exprOps.uninterpretedBody(sym.name, tparams, params, returnType)
+    new FunDef(FreshIdentifier(sym.name), tparams, params, returnType, body, Seq.empty)
       .setPos(sym.optPos)
   }
 
@@ -154,10 +157,46 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
     case _ => tpe
   }
 
+  /** A parameter `(x S)` whose sort `S` isn't a plain sort, which parses as a term. */
+  private object NamedParam {
+    def unapply(sort: Sort): Option[(SSymbol, Term)] = sort match {
+      case ts: TermSort => ts.term match {
+        case FunctionApplication(QualifiedIdentifier(SimpleIdentifier(sym), None), Seq(inner)) => Some((sym, inner))
+        case _ => None
+      }
+      case _ => None
+    }
+  }
+
+  /** The parameters of a `declare-fun` that names them, as `((x S) ...)`, which parses as sorts
+    * `x` applied to `S` that aren't sorts. */
+  private def namedParams(sorts: Seq[Sort])(using locals: Locals): Option[Seq[SortedVar]] = {
+    val params = sorts.collect {
+      case sort @ Sort(SimpleIdentifier(sym), Seq(inner))
+          if scala.util.Try(locals.extractSort(sort)).isFailure => SortedVar(sym, inner).setPos(sort)
+      case sort @ NamedParam(sym, inner) if scala.util.Try(locals.extractSort(sort)).isFailure =>
+        SortedVar(sym, TermSort(inner)).setPos(sort)
+    }
+    if (sorts.nonEmpty && params.size == sorts.size) Some(params) else None
+  }
+
   override protected def extractCommand(cmd: Command)(using locals: Locals): (Option[Expr], Locals) = cmd match {
     case _: SetLogic | _: SetInfo | _: SetOption | _: GetModel | _: GetInfo | _: GetValue |
          _: GetAssertions | _: GetAssignment | _: GetUnsatCore | _: GetProof | _: Echo | _: Exit =>
       (None, locals)
+
+    // `(declare-fun f ((x S) ...) R)` names the parameters of `f`, which `R` may refer to
+    case DeclareFun(name, sorts, returnSort) if namedParams(sorts).isDefined =>
+      (None, locals.withFunction(name, extractSignature(FunDec(name, namedParams(sorts).get, returnSort), Seq.empty)))
+
+    case smtlib.extensions.tip.Commands.DeclareFunPar(tps, name, sorts, returnSort) =>
+      // The sorts of the parameters may refer to the type parameters
+      val tpsLocals = locals.withGenerics(tps.map(s => s -> TypeParameter.fresh(s.name).setPos(s.optPos)))
+      namedParams(sorts)(using tpsLocals) match {
+        case Some(params) =>
+          (None, locals.withFunction(name, extractSignature(FunDec(name, params, returnSort), tps)(using tpsLocals)))
+        case None => super.extractCommand(cmd)
+      }
 
     case DeclareTypeVar(sym) =>
       val tp = TypeParameter.fresh(sym.name).setPos(sym.optPos)
@@ -333,10 +372,6 @@ class Parser(reader: Reader, file: Option[File]) extends tip.Parser(reader, file
       binder match {
         case "forall" => Forall(vds, pred)
         case "exists" => Not(Forall(vds, Not(pred)))
-        case "choose" => vds match {
-          case Seq(vd) => Choose(vd, pred)
-          case _ => error(s"choose expects a unary predicate, found $body", term.optPos)
-        }
         case _ => error(s"unknown binder $binder", term.optPos)
       }
     }

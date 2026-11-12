@@ -287,26 +287,18 @@ abstract class RecursiveEvaluator(override val program: Program,
       simplifyTrivialApps(normalized)
 
     case f: Forall => onForallInvocation(
-      replaceFromSymbols(variablesOf(f).map(v => v -> e(v)).toMap, f).asInstanceOf[Forall], rctx.chooses)
+      replaceFromSymbols(variablesOf(f).map(v => v -> e(v)).toMap, f).asInstanceOf[Forall], rctx.interpretations)
 
     case Error(_, msg) =>
       throw RuntimeError("Error reached in evaluation: " + msg)
 
     // The model gives uninterpreted functions as functions of their arguments
-    case UninterpretedCall(id, tps, args, _) =>
+    case UninterpretedCall(id, tps, args, tpe) =>
       val evArgs = args map e
-      rctx.chooses.get(id -> tps) match {
+      rctx.interpretations.get(id -> tps) match {
         case Some(l: Lambda) if l.params.size == evArgs.size =>
           e(l.body)(using rctx.withNewVars(l.paramSubst(evArgs)), gctx)
-        case _ =>
-          throw EvalError(s"Cannot call uninterpreted function ${id.asString} that the model doesn't define")
-      }
-
-    case c: Choose =>
-      rctx.getChoose(c.res.id) match {
-        case Some(expr) => e(expr)
-        case None => onChooseInvocation(
-          replaceFromSymbols(variablesOf(c).map(v => v -> e(v)).toMap, c).asInstanceOf[Choose], rctx.chooses)
+        case _ => throw EvalError(s"Cannot call uninterpreted function ${id.asString} that the model doesn't define")
       }
 
     case gl: GenericValue => gl

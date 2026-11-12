@@ -154,10 +154,6 @@ trait FunctionTemplates { self: Templates =>
 
   def getCalls: Seq[(Encoded, Call)] = defBlockers.toList.map(p => p._2 -> p._1)
 
-  private val chooseCache: MutableMap[Identifier, Boolean] = MutableMap.empty
-  private def hasChoose(tfd: TypedFunDef): Boolean = chooseCache.getOrElseUpdate(tfd.id,
-    exprOps.exists { case _: Choose => true case _ => false } (tfd.fd.fullBody))
-
   /** Whether calls of `tfd` can reach an uninterpreted function, in which case ground calls of
     * `tfd` can't be evaluated. */
   private val uninterpretedCache: MutableMap[Identifier, Boolean] = MutableMap.empty
@@ -169,27 +165,24 @@ trait FunctionTemplates { self: Templates =>
   /** Clauses stating that the calls `call1` and `call2` of the same function on equal arguments
     * have equal results, when some of its parameters or its result need equality unrolling.
     *
-    * The results of calls are determined by the function body, so these clauses are only
-    * shortcuts and their equalities need not be unrolled. A `choose` in the body however picks a
-    * fresh value for each call, so the results of calls on equal arguments are only related by
-    * these clauses. We then register the equalities so that they are unrolled before a model is
-    * accepted.
+    * The results of calls are determined by the function body (whose uninterpreted calls are
+    * functions of their arguments), so these clauses are only shortcuts and their equalities need
+    * not be unrolled.
     */
   private def purityClauses(call1: Call, blocker1: Encoded, call2: Call, blocker2: Encoded): Clauses = call1.callee match {
     // The calls of an interpreted function are applications of the same free function
     case _: Interpreted => Seq.empty
     case Defined(tfd) => if (tfd.params.exists(vd => unrollEquality(vd.getType)) || unrollEquality(tfd.getType)) {
-      val register = hasChoose(tfd)
       val clauses = new scala.collection.mutable.ListBuffer[Encoded]
       val equalities = (tfd.params.map(_.getType) zip (call1.args zip call2.args)).map { case (tpe, (e1, e2)) =>
-        val (equality, eqClauses) = mkEqualities(blocker1, tpe, e1.encoded, e2.encoded, register = register)
+        val (equality, eqClauses) = mkEqualities(blocker1, tpe, e1.encoded, e2.encoded, register = false)
         clauses ++= eqClauses
         equality
       }
 
       val (entail, entailClauses) = mkEqualities(blocker1, tfd.getType,
         mkCall(tfd, call1.args.map(_.encoded)),
-        mkCall(tfd, call2.args.map(_.encoded)), register = register)
+        mkCall(tfd, call2.args.map(_.encoded)), register = false)
       clauses ++= entailClauses
 
       clauses += mkImplies(mkAnd(blocker1 +: blocker2 +: equalities*), entail)
@@ -199,21 +192,15 @@ trait FunctionTemplates { self: Templates =>
     }
   }
 
-  private def hasChoose(callee: Callee): Boolean = callee match {
-    case Defined(tfd) => hasChoose(tfd)
-    case _: Interpreted => false
-  }
-
   /** The purity clauses between the calls unrolled so far, which [[equalitiesInstantiated]] delays.
     *
     * Until a first equality is instantiated, the equality symbols of distinct terms are left
-    * unconstrained, so the purity clauses of functions without a `choose` can't constrain the
-    * results of calls. Each pair of calls of a function on values with a custom equality (e.g. bags
+    * unconstrained, so the purity clauses can't constrain the results of calls. Each pair of calls of a function on values with a custom equality (e.g. bags
     * on cvc5) gets its own clauses, so delaying them keeps formulas that never compare such values
     * from growing quadratically with the number of calls.
     */
   private[unrolling] def delayedPurityClauses: Clauses = {
-    val calls = defBlockers.toSeq.filter { case (call, _) => !hasChoose(call.callee) }.groupBy(_._1.callee)
+    val calls = defBlockers.toSeq.groupBy(_._1.callee)
     for {
       (_, tfdCalls) <- calls.toSeq
       ((call1, blocker1), i) <- tfdCalls.zipWithIndex
@@ -290,7 +277,7 @@ trait FunctionTemplates { self: Templates =>
             defBlockers += call -> defBlocker
 
             // we generate helper equality clauses that stem from purity (see [[purityClauses]])
-            if (hasChoose(callee) || equalitiesInstantiated) {
+            if (equalitiesInstantiated) {
               for ((pcall, pblocker) <- defBlockers if pcall.callee == callee && pcall != call) {
                 newClauses ++= purityClauses(pcall, pblocker, call, defBlocker)
               }

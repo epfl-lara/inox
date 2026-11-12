@@ -48,8 +48,6 @@ class TransformersSuite extends AnyFunSuite {
     assert(lambdaPath.open == Seq(vd))
     val Seq(forallPath) = pathsOf(Forall(Seq(vd), Equals(marker, x)))
     assert(forallPath.open == Seq(vd))
-    val Seq(choosePath) = pathsOf(Choose(vd, Equals(marker, x)))
-    assert(choosePath.open == Seq(vd))
 
     val Seq(assumePath) = pathsOf(Assume(p, marker))
     assert(assumePath.conditions == Seq(p))

@@ -6,6 +6,7 @@ package evaluators
 object optIgnoreContracts extends FlagOptionDef("ignore-contracts", false)
 object optEvalQuantifiers extends FlagOptionDef("eval-quantifiers", true)
 
+
 trait Evaluator {
   val program: Program
   val context: Context

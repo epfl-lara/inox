@@ -105,6 +105,13 @@ trait TypeOps {
         (adt1.tps zip adt2.tps).foldLeft[Instantiation](Map.empty) {
           case (inst, (tp1, tp2)) => unify(inst, rec(tp1, tp2))
         }
+      // `from` has no refinements (see below), so its components match the base types of `to`'s,
+      // or their erasures when they depend on the bound variables
+      case (_, RefinementType(vd, _)) => rec(from, vd.tpe)
+      case (TupleType(tps), SigmaType(params, elem)) if tps.size == params.size + 1 =>
+        recDependent(tps, params, params.map(_.tpe) :+ elem)
+      case (FunctionType(args, res), PiType(params, piRes)) if args.size == params.size =>
+        recDependent(args :+ res, params, params.map(_.tpe) :+ piRes)
       case typeOps.Same(NAryType(ts1, _), NAryType(ts2, _)) if ts1.size == ts2.size =>
         (ts1 zip ts2).foldLeft[Instantiation](Map.empty) {
           case (inst, (tp1, tp2)) => unify(inst, rec(tp1, tp2))
@@ -112,8 +119,16 @@ trait TypeOps {
       case _ => throw new Failure
     }
 
+    def recDependent(froms: Seq[Type], params: Seq[ValDef], tos: Seq[Type]): Instantiation = {
+      val vars = params.map(_.toVariable).toSet
+      (froms zip tos).foldLeft[Instantiation](Map.empty) { case (inst, (tp1, tp2)) =>
+        unify(inst, rec(tp1, if ((typeOps.variablesOf(tp2) & vars).nonEmpty) tp2.getType else tp2))
+      }
+    }
+
     try {
-      Some(rec(from, to))
+      // The refinements of `from` don't constrain the instantiation
+      Some(rec(from.getType, to))
     } catch {
       case _: Failure => None
     }

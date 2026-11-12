@@ -11,11 +11,10 @@ import z3.scala._
 abstract class Z3Unrolling(override val program: Program)
                           (override val prog: program.type,
                            override val context: Context,
-                           override val enc: transformers.ProgramTransformer {val sourceProgram: prog.type},
-                           override val chooses: ChooseEncoder {val program: prog.type; val sourceEncoder: enc.type})
+                           override val enc: transformers.ProgramTransformer {val sourceProgram: prog.type})
                           (using semantics: prog.Semantics,
                            semanticsProvider: SemanticsProvider {val trees: enc.targetProgram.trees.type})
-  extends AbstractUnrollingSolver(prog, context, enc, chooses)
+  extends AbstractUnrollingSolver(prog, context, enc)
     (fullEncoder => solvers.theories.Z3(fullEncoder.targetProgram)) { self =>
   import context.{given, _}
   import program._
@@ -129,7 +128,7 @@ abstract class Z3Unrolling(override val program: Program)
       }
     })
 
-    def getChoose(id: Identifier): Option[t.Expr] = ex.chooses.get(id).orElse(ex.closures.get(id))
+    def getUninterpreted(id: Identifier): Option[t.Expr] = ex.interpretations.get(id).orElse(ex.closures.get(id))
 
     override def toString = model.toString
   }

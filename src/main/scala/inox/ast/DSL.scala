@@ -180,9 +180,6 @@ trait DSL {
       body(vd1.toVariable, vd2.toVariable, vd3.toVariable, vd4.toVariable))
   }
 
-  // Choose
-  def choose(res: ValDef)(pred: Variable => Expr) = Choose(res, pred(res.toVariable))
-
   // Block-like
   class BlockSuspension(susp: Expr => Expr) {
     def in(e: Expr) = susp(e)

@@ -4,9 +4,10 @@
 (define-type NonZero () (! Int :var y :restrict (not (= y 0))))
 (declare-datatypes ((List 1)) ((par (A) ((Nil) (Cons (head A) (tail (List A)))))))
 ; has no value for a == 0
-(define-fun chooseNonZero ((a Int)) Bool (choose (r Bool) (and r (not (= a 0)))))
+(declare-fun nonZeroWitness ((a Int)) (! Bool :var r :restrict (and r (not (= a 0)))))
+(define-fun witnessNonZero ((a Int)) Bool (nonZeroWitness a))
 
-(define-type Guarded () (! NonZero :var x :restrict (chooseNonZero x)))
+(define-type Guarded () (! NonZero :var x :restrict (witnessNonZero x)))
 
 ; in domain
 (push 1)

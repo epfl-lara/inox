@@ -18,7 +18,9 @@
 
 (declare-fun Unit!85 () Unit!81)
 
-(define-fun-rec (par (A!5 S!0) (foreach!0 ((l!4 (List!5 A!5)) (sf!0 (SFun!3 A!5 S!0 Unit!81))) (tuple2!162 Unit!81 (SFun!3 A!5 S!0 Unit!81)) (assume (forall ((x!344 A!5)(x!345 (State!7 S!0))) (=> (@ (f!112 (fun2!146 (lambda ((x!342 A!5) (x!343 (State!7 S!0))) true) (lambda ((x!651 A!5) (x!652 (State!7 S!0))) true))) x!344 x!345) (@ (f!112 (fun2!146 (pre!82 (f!111 sf!0)) (lambda ((x!653 A!5) (x!654 (State!7 S!0))) true))) x!344 x!345))) (tuple2!163 Unit!83 (_2!91 (ite (is-Cons!2 l!4) (tuple2!163 Unit!84 (_2!91 (foreach!0 (tail!30 l!4) (_2!91 (apply!0 sf!0 (head!27 l!4)))))) (ite (is-Nil!2 l!4) (tuple2!163 Unit!85 sf!0) (choose |error: Match is non-exhaustive!61| (tuple2!162 Unit!81 (SFun!3 A!5 S!0 Unit!81)) true)))))))))
+(declare-fun (par (A!5 S!0) (|error: Match is non-exhaustive!61| ((List!5 A!5) (SFun!3 A!5 S!0 Unit!81)) (tuple2!162 Unit!81 (SFun!3 A!5 S!0 Unit!81)))))
+
+(define-fun-rec (par (A!5 S!0) (foreach!0 ((l!4 (List!5 A!5)) (sf!0 (SFun!3 A!5 S!0 Unit!81))) (tuple2!162 Unit!81 (SFun!3 A!5 S!0 Unit!81)) (assume (forall ((x!344 A!5)(x!345 (State!7 S!0))) (=> (@ (f!112 (fun2!146 (lambda ((x!342 A!5) (x!343 (State!7 S!0))) true) (lambda ((x!651 A!5) (x!652 (State!7 S!0))) true))) x!344 x!345) (@ (f!112 (fun2!146 (pre!82 (f!111 sf!0)) (lambda ((x!653 A!5) (x!654 (State!7 S!0))) true))) x!344 x!345))) (tuple2!163 Unit!83 (_2!91 (ite (is-Cons!2 l!4) (tuple2!163 Unit!84 (_2!91 (foreach!0 (tail!30 l!4) (_2!91 (apply!0 sf!0 (head!27 l!4)))))) (ite (is-Nil!2 l!4) (tuple2!163 Unit!85 sf!0) (|error: Match is non-exhaustive!61| l!4 sf!0)))))))))
 
 (define-fun (par (A!32) (|::!0| ((thiss!6 (List!5 A!32)) (el!0 A!32)) (List!5 A!32) (Cons!2 el!0 thiss!6))))
 

@@ -46,8 +46,8 @@ private class RealTheory[Trees <: ast.Trees](val trees: Trees) {
   // SMT-LIB. As fractions are not normalized, this function may give different results for
   // different representations of the same dividend, which only adds models.
   val divByZero = mkFunDef(FreshIdentifier("div_by_zero"))()(_ => (
-    Seq("x" :: T(fractionID)()), T(fractionID)(), { case Seq(_) =>
-    choose("r" :: T(fractionID)())(_ => E(true))
+    Seq("x" :: T(fractionID)()), T(fractionID)(), { case Seq(x) =>
+    exprOps.uninterpretedBody("div_by_zero", Seq.empty, Seq(x.toVal), T(fractionID)())
   }))
 
   val extraFunctions = Seq(fraction_inv, fraction_eq, divByZero)

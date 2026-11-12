@@ -21,7 +21,6 @@ Inox String Interpolation
   - [Quantifiers](#quantifiers)
     - [Universal quantifiers](#universal-quantifiers)
     - [Existential quantifiers](#existential-quantifiers)
-  - [Choose](#choose)
 
 - ***[Primitives](#primitives)***
   - [Strings](#primitive-strings)
@@ -205,16 +204,6 @@ e"exists x: BigInt. x < 0"
 // res18: Expr = !forall((x: BigInt) => !(x < 0))
 e"∃x, y. x + y == 0"
 // res19: Expr = !forall((x: BigInt, y: BigInt) => (x + y != 0))
-```
-
-<a name="choose"></a>
-## Choose
-
-```scala
-e"choose x. x * 3 < 17"
-// res20: Expr = choose((x: BigInt) => x * 3 < 17)
-e"choose x: String. true"
-// res21: Expr = choose((x: String) => true)
 ```
 
 <a name="primitives"></a>

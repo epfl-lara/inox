@@ -101,7 +101,7 @@ class DSLSuite extends AnyFunSuite with DatastructureUtils {
     }
   }
 
-  test("lambdas, quantifiers and chooses with up to four parameters") {
+  test("lambdas, quantifiers and interpretations with up to four parameters") {
     val vds = (1 to 4).map(i => s"v$i" :: IntegerType())
     val vs = vds.map(_.toVariable)
     assert(\(vds(0))(a => a) == Lambda(vds.take(1), vs(0)))
@@ -115,8 +115,6 @@ class DSLSuite extends AnyFunSuite with DatastructureUtils {
     assert(forall(vds(0), vds(1), vds(2))((a, b, c) => a >= b + c) == Forall(vds.take(3), vs(0) >= vs(1) + vs(2)))
     assert(forall(vds(0), vds(1), vds(2), vds(3))((a, b, c, d) => a + b >= c + d) ==
       Forall(vds, vs(0) + vs(1) >= vs(2) + vs(3)))
-
-    assert(choose(vds(0))(a => a > x) == Choose(vds(0), vs(0) > x))
   }
 
   test("block suspensions") {

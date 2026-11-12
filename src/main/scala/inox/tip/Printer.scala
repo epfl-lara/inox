@@ -11,7 +11,7 @@ import smtlib.extensions.tip.Terms.{Application => SMTApplication, Lambda => SMT
 import smtlib.extensions.tip.Commands._
 import smtlib.Interpreter
 
-import Terms.{Assume => SMTAssume, Choose => SMTChoose}
+import Terms.{Assume => SMTAssume}
 import Commands._
 
 import java.io.Writer
@@ -122,6 +122,43 @@ class Printer private(override val program: InoxProgram,
   protected def signature(fd: FunDef): (Seq[SortedVar], Sort, Map[Identifier, Term]) = {
     val (params, bindings) = binders(fd.params)(using Map.empty)
     (params, sortOf(fd.returnType)(using bindings), bindings)
+  }
+
+  /** The functions declared for the uninterpreted calls, by function and type arguments. */
+  protected val uninterpreted: MutableMap[(Identifier, Seq[Type]), SSymbol] = MutableMap.empty
+
+  /** The symbol of the function that `uc` calls, which is declared by its first call. */
+  protected def declareUninterpreted(uc: UninterpretedCall): SSymbol = {
+    val key = (uc.id, uc.tps)
+    uninterpreted.get(key) match {
+      case Some(sym) => sym
+      case None =>
+        // Each instantiation of the function is a function of its own
+        val sym = if (uninterpreted.keys.exists(_._1 == uc.id)) id2sym(uc.id.freshen) else id2sym(uc.id)
+        uninterpreted(key) = sym
+        val (params, to) = uc.tpe match {
+          case PiType(params, to) => (params, to)
+          case FunctionType(from, to) => (from.map(ValDef.fresh("x", _)), to)
+          case tpe => unsupported(uc, s"uninterpreted call of type $tpe")
+        }
+        val tparams = (typeOps.typeParamsOf(uc.tpe) ++ uc.tps.flatMap(typeOps.typeParamsOf)).toSeq.sortBy(_.id)
+        declareUninterpreted(uc, sym, tparams, params, to)
+        sym
+    }
+  }
+
+  /** Declares the function `sym` of the uninterpreted call `uc`, with the type parameters
+    * `tparams`, the parameters `params` and the result type `to`.
+    *
+    * TIP has no dependent types, so the refinements of the parameters and the result are erased,
+    * as for the other refined types (see `sortOf`). */
+  protected def declareUninterpreted(uc: UninterpretedCall, sym: SSymbol, tparams: Seq[TypeParameter],
+                                     params: Seq[ValDef], to: Type): Unit = {
+    val (svs, bindings) = binders(params)(using Map.empty)
+    val returnSort = sortOf(to)(using bindings)
+    val tps = tparams.map(tp => id2sym(tp.id))
+    emit(if (tps.isEmpty) DeclareFun(sym, svs.map(_.sort), returnSort)
+      else DeclareFunPar(tps, sym, svs.map(_.sort), returnSort))
   }
 
   protected def liftADTType(adt: ADTType): Type = ADTType(adt.id, adt.getSort.definition.typeArgs)
@@ -408,9 +445,16 @@ class Printer private(override val program: InoxProgram,
         super.toSMT(e)
       }
 
-    case Choose(vd, pred) =>
-      val (Seq(param), newBindings) = binders(Seq(vd)): @unchecked
-      SMTChoose(param.name, param.sort, toSMT(pred)(using newBindings))
+    case uc @ UninterpretedCall(_, tps, args, _) =>
+      val sym = declareUninterpreted(uc)
+      val qualifier = if (typeOps.typeParamsOf(uc.tpe).nonEmpty || tps.exists(tp => typeOps.typeParamsOf(tp).nonEmpty)) {
+        Some(declareSort(uc.getType))
+      } else {
+        None
+      }
+      val caller = QualifiedIdentifier(SMTIdentifier(sym), qualifier)
+      if (args.isEmpty) caller
+      else FunctionApplication(caller, args.map(toSMT))
 
     case _ => super.toSMT(e)
   }

@@ -27,126 +27,27 @@ trait SolvingEvaluator extends Evaluator { self =>
   lazy val evalQuantifiers = options.findOptionOrDefault(optEvalQuantifiers)
   lazy val checkModels = options.findOptionOrDefault(optCheckModels)
 
-  private val chooseCache: MutableMap[Choose, Expr] = MutableMap.empty
-
   // @nv: this has to be visible otherwise the compiler just sets it to `null`
   protected lazy val forallCache: MutableMap[Forall, Boolean] = {
     options.findOptionOrDefault(optForallCache)
   }
 
-  private def hasRefinement(tpe: Type): Boolean =
-    typeOps.exists { case _: RefinementType => true case _ => false } (tpe)
+  /** The solvers that evaluate foralls, which operate under the model of the evaluation. */
+  protected def getSolver(interpretations: Map[(Identifier, Seq[Type]), Expr])(using ctx: Context) =
+    if (interpretations.isEmpty) semantics.getSolver
+    else semantics.getSolver(inox.Model(program)(Map.empty, interpretations))
 
-  /** The solvers that solve for chooses and foralls, which operate under the model of the
-    * evaluation. */
-  private def getSolver(chooses: Map[(Identifier, Seq[Type]), Expr])(using ctx: Context) =
-    if (chooses.isEmpty) semantics.getSolver
-    else semantics.getSolver(inox.Model(program)(Map.empty, chooses))
-
-  /** The interpretations in `chooses` of the uninterpreted functions that `e` may call, directly or
-    * through the functions and interpretations that it calls. The solvers only need to operate
-    * under these, so that semantics whose solvers can't operate under a model still solve for the
-    * chooses and foralls that call no uninterpreted function. */
-  private def reachedChooses(e: Expr, chooses: Map[(Identifier, Seq[Type]), Expr]): Map[(Identifier, Seq[Type]), Expr] =
-    if (chooses.isEmpty) chooses else {
-      var functions = Set.empty[Identifier]
-      var uninterpreted = Set.empty[Identifier]
-      var todo = List.empty[Either[FunDef, Expr]]
-
-      // Collects the functions and uninterpreted functions that are called, including in types
-      object collector extends ConcreteSelfTreeTraverser(program.trees) {
-        override def traverse(e: Expr): Unit = {
-          e match {
-            case fi: FunctionInvocation if !functions(fi.id) =>
-              functions += fi.id
-              todo ::= Left(getFunction(fi.id))
-            case uc: UninterpretedCall if !uninterpreted(uc.id) =>
-              uninterpreted += uc.id
-              todo :::= chooses.toList.collect { case ((uc.id, _), body) => Right(body) }
-            case _ =>
-          }
-          super.traverse(e)
-        }
-      }
-
-      collector.traverse(e)
-      while (todo.nonEmpty) {
-        val next = todo.head
-        todo = todo.tail
-        next.fold(collector.traverse, collector.traverse)
-      }
-      chooses.filter { case ((id, _), _) => uninterpreted(id) }
-    }
-
-  def onChooseInvocation(choose: Choose, modelChooses: Map[(Identifier, Seq[Type]), Expr] = Map.empty): Expr = {
-    if (!evalQuantifiers) {
-      throw new RuntimeException(s"Evaluation of 'choose' expressions disabled @ ${choose.getPos}: $choose")
-    }
-    val chooses = reachedChooses(choose, modelChooses)
-
-    // The results in a model only hold in that model
-    (if (chooses.isEmpty) chooseCache.get(choose) else None).getOrElse({
-      import scala.language.existentials
-      import SolverResponses._
-
-      // Solves the choose's predicate. Declaring the result makes the solver respect its type
-      // even when the predicate doesn't mention it, as with `choose((x: { v: BigInt | v > 5 }) => true)`,
-      // but it also makes the solver look for a value of that type, which may never end: in Stainless's
-      // ForestNothing2, the result's type is an ADT whose invariant only holds for infinite values.
-      // So we only declare the result when its type has a refinement and no simple value.
-      def solve(declareResult: Boolean): Option[Expr] = {
-        val satRes = context.timers.evaluators.specs.run {
-          val sf = getSolver(chooses)(using context)
-          val solver = sf.getNewSolver()
-          try {
-            if (declareResult) solver.declare(choose.res)
-            solver.assertCnstr(choose.pred)
-            solver.check(Model)
-          } finally {
-            sf.reclaim(solver)
-          }
-        }
-
-        satRes match {
-          case SatWithModel(model) =>
-            if ((model.chooses.keySet -- chooses.keySet).nonEmpty && checkModels) {
-              throw new RuntimeException("Cannot guarantee model for dependent choose " + choose.asString)
-            }
-            model.vars.get(choose.res)
-
-          case _ =>
-            throw new RuntimeException("Failed to evaluate choose " + choose.asString)
-        }
-      }
-
-      val res = solve(declareResult = false).getOrElse {
-        try {
-          simplestValue(choose.res.tpe, allowSolver = false)
-        } catch {
-          case _: NoSimpleValue if hasRefinement(choose.res.tpe) => solve(declareResult = true).getOrElse {
-            throw new RuntimeException("No simple value for choose " + choose.asString)
-          }
-          case _: NoSimpleValue =>
-            throw new RuntimeException("No simple value for choose " + choose.asString)
-        }
-      }
-
-      if (chooses.isEmpty) chooseCache(choose) = res
-      res
-    })
-  }
-
-  def onForallInvocation(forall: Forall, modelChooses: Map[(Identifier, Seq[Type]), Expr] = Map.empty): Expr = {
+  def onForallInvocation(forall: Forall, modelInterpretations: Map[(Identifier, Seq[Type]), Expr] = Map.empty): Expr = {
     if (!evalQuantifiers) {
       throw new RuntimeException(s"Evaluation of 'forall' expressions disabled @ ${forall.getPos}: $forall")
     }
-    val chooses = reachedChooses(forall, modelChooses)
+    val interpretations = transitiveInterpretations(forall, modelInterpretations)
 
     // The results in a model only hold in that model
-    BooleanLiteral((if (chooses.isEmpty) forallCache.get(forall) else None).getOrElse({
+    BooleanLiteral((if (interpretations.isEmpty) forallCache.get(forall) else None).getOrElse({
       import scala.language.existentials
       val sf = context.timers.evaluators.forall.run {
-        getSolver(chooses)(using context.withOpts(
+        getSolver(interpretations)(using context.withOpts(
           optSilentErrors(true),
           optCheckModels(false), // model is checked manually!! (see below)
           unrolling.optFeelingLucky(false),
@@ -191,12 +92,12 @@ trait SolvingEvaluator extends Evaluator { self =>
         }
         res match {
           case Unsat =>
-            if (chooses.isEmpty) forallCache(forall) = true
+            if (interpretations.isEmpty) forallCache(forall) = true
             true
 
           case SatWithModel(model) =>
-            if (chooses.isEmpty) forallCache(forall) = false
-            eval(Not(forall.body), inox.Model(program)(model.vars, chooses ++ model.chooses)) match {
+            if (interpretations.isEmpty) forallCache(forall) = false
+            eval(Not(forall.body), inox.Model(program)(model.vars, interpretations ++ model.interpretations)) match {
               case EvaluationResults.Successful(BooleanLiteral(true)) => false
               case _ => throw new RuntimeException("Forall model check failed")
             }

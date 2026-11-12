@@ -136,10 +136,6 @@ class PrimitivesExtractorSuite extends AnyFunSuite {
       case e"forall y: Int. $body" => assert(body.isInstanceOf[GreaterThan])
       case _ => fail("Did not match.")
     }
-    e"choose y: String. length(y) == 2" match {
-      case e"choose y: String. length(y) == $n" => assert(n == IntegerLiteral(2))
-      case _ => fail("Did not match.")
-    }
   }
 
   test("Matching types") {

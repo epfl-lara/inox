@@ -201,7 +201,7 @@ class PrimitivesParserSuite extends AnyFunSuite {
     }
   }
 
-  test("Parsing quantifiers and chooses") {
+  test("Parsing quantifiers") {
     e"forall x: BigInt, y: BigInt. x + y == y + x" match {
       case Forall(Seq(x, y), Equals(Plus(vx, vy), Plus(vy2, vx2))) =>
         assert(vx == x.toVariable && vx2 == x.toVariable && vy == y.toVariable && vy2 == y.toVariable)
@@ -217,12 +217,6 @@ class PrimitivesParserSuite extends AnyFunSuite {
     e"∃x, y. x + y == (0 : Real)" match {
       case Not(Forall(Seq(x, y), _)) =>
         assert(x.tpe == RealType() && y.tpe == RealType())
-      case e => fail(s"Unexpected $e")
-    }
-
-    e"choose x: String. length(x) == 3" match {
-      case Choose(x, Equals(StringLength(vx), IntegerLiteral(three))) =>
-        assert(x.tpe == StringType() && vx == x.toVariable && three == 3)
       case e => fail(s"Unexpected $e")
     }
   }

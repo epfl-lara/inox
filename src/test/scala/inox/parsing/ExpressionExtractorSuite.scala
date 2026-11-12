@@ -236,7 +236,7 @@ class ExpressionExtractorSuite extends AnyFunSuite {
     val s = Variable.fresh("s", StringType())
     val exprs = Seq(
       x, IfExpr(p, x, y), Assume(p, x), Let(x.toVal, y, x), Lambda(Seq(x.toVal), x), Forall(Seq(x.toVal), p),
-      Choose(x.toVal, p), Application(Variable.fresh("f", FunctionType(Seq(), IntegerType())), Seq()),
+      exprOps.uninterpretedCall("u", Seq(), Seq(x.toVal), IntegerType()), Application(Variable.fresh("f", FunctionType(Seq(), IntegerType())), Seq()),
       FunctionInvocation(idID, Seq(IntegerType()), Seq(x)), ADT(mkBoxID, Seq(IntegerType()), Seq(x)),
       ADTSelector(box, valueID), IsConstructor(box, mkBoxID), Tuple(Seq(x, y)), TupleSelect(Tuple(Seq(x, y)), 1),
       CharLiteral('a'), UnitLiteral(), Equals(x, y), BooleanLiteral(true), And(p, q), Or(p, q), Implies(p, q), Not(p),

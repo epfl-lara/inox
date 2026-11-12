@@ -23,6 +23,25 @@ class SymbolOpsSuite extends AnyFunSuite with DatastructureUtils {
   val b = Variable.fresh("b", BooleanType())
   given PrinterOptions = PrinterOptions(symbols = Some(symbols))
 
+  test("Transitive interpretations of an expression") {
+    val y = ValDef.fresh("y", IntegerType())
+    def call(id: Identifier, arg: Expr) = UninterpretedCall(id, Seq(), Seq(arg), PiType(Seq(y), IntegerType()))
+    val f = FreshIdentifier("f")
+    val g = FreshIdentifier("g")
+    val h = FreshIdentifier("h")
+    // f calls g in its interpretation, and h isn't called
+    val interpretations = Map(
+      (f, Seq.empty[Type]) -> Lambda(Seq(y), call(g, y.toVariable)),
+      (g, Seq.empty[Type]) -> Lambda(Seq(y), y.toVariable),
+      (h, Seq.empty[Type]) -> Lambda(Seq(y), y.toVariable))
+    assert(transitiveInterpretations(call(f, x), interpretations).keySet == Set(f -> Seq(), g -> Seq()))
+    assert(transitiveInterpretations(FunctionInvocation(fid, Seq(), Seq(x)), interpretations).isEmpty)
+    assert(transitiveInterpretations(call(h, x), Map.empty).isEmpty)
+    // Recursive interpretations
+    val loop = Map((f, Seq.empty[Type]) -> Lambda(Seq(y), call(f, y.toVariable)))
+    assert(transitiveInterpretations(call(f, x), loop).keySet == Set(f -> Seq()))
+  }
+
   test("Transformations and searches with path conditions") {
     val e = IfExpr(b, Plus(x, IntegerLiteral(1)), x)
     val swapped = transformWithOps(e)(

@@ -116,15 +116,10 @@ trait SimplifierWithPC extends Transformer { self =>
     (re, pe)
   }
 
-  /** Facts implied by the path, choose, lambdas, boolean connectives and assumptions. */
+  /** Facts implied by the path, lambdas, boolean connectives and assumptions. */
   protected def simplifyCore(e: Expr, path: Env): (Expr, Boolean) = e match {
     case e if path `implies` e => (BooleanLiteral(true).copiedFrom(e), true)
     case e if path `implies` not(e) => (BooleanLiteral(false).copiedFrom(e), true)
-
-    case c @ Choose(res, BooleanLiteral(true)) if hasInstance(res.tpe) == Some(true) => (c, true)
-    case Choose(res, pred) =>
-      val (rp, _) = simplify(pred, path `withBound` res)
-      (Choose(res, rp).copiedFrom(e), false)
 
     case Lambda(params, body) =>
       val (rb, _) = simplify(body, path `withBounds` params)
@@ -297,7 +292,7 @@ trait SimplifierWithPC extends Transformer { self =>
       val (rargs, pargs) = args.map(simplify(_, path)).unzip
       (FunctionInvocation(id, tps, rargs).copiedFrom(fi), pargs.foldLeft(isPureFunction(id))(_ && _))
 
-    // As for chooses, a call may only be dropped when its return type has values
+    // A call may only be dropped when its return type has values
     case uc @ UninterpretedCall(id, tps, args, tpe) =>
       val (rargs, pargs) = args.map(simplify(_, path)).unzip
       (UninterpretedCall(id, tps, rargs, tpe).copiedFrom(uc), pargs.foldLeft(hasInstance(uc.getTpe(stripRefinements = false)) == Some(true))(_ && _))
