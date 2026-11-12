@@ -1,0 +1,8 @@
+; Ground values are normalized as variables, so `10 / 2` (which may fail) isn't lifted and
+; `x => x + 10 / 2` differs from `x => x + 5`
+(set-option :function-equality intensional)
+(set-option :assume-checked false)
+(set-option :check-models true)
+(set-info :status unsat)
+(assert (= (lambda ((x Int)) (+ x (div 10 2))) (lambda ((x Int)) (+ x 5))))
+(check-sat)
