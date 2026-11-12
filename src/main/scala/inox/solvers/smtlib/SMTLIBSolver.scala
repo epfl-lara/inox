@@ -204,6 +204,8 @@ abstract class SMTLIBSolver private(override val program: Program,
     sorts.push()
     lambdas.push()
     functions.push()
+    predicates.push()
+    predicateCalls.push()
 
     emit(Push(1))
   }
@@ -217,6 +219,8 @@ abstract class SMTLIBSolver private(override val program: Program,
     sorts.pop()
     lambdas.pop()
     functions.pop()
+    predicates.pop()
+    predicateCalls.pop()
 
     emit(Pop(1))
   }
