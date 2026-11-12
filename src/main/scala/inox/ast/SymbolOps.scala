@@ -18,6 +18,12 @@ object SymbolOps {
     */
   private object optSimplestValueSolver extends FlagOptionDef("simplest-value-solver", true)
 
+  /** How many times the solver of `simplestValue` may unroll. Without a bound, it never ends for a
+    * sort whose invariant only holds for infinite values, and the solvers of model extraction don't
+    * have a timeout.
+    */
+  val simplestValueUnrollBound = 10
+
   private val identifiers = new scala.collection.mutable.ArrayBuffer[Identifier]
   def getId(index: Int): Identifier = synchronized {
     for (i <- identifiers.size to index) identifiers += FreshIdentifier("x", true)
@@ -1066,8 +1072,11 @@ trait SymbolOps extends TypeOps { self =>
         import SolverResponses._
 
         // Extracting this solver's model may need simplest values, which must not start
-        // another solver, and so on without end.
-        val solverCtx = ctx.withOpts(SymbolOps.optSimplestValueSolver(false))
+        // another solver, and so on without end. The unroll bound makes the search end when
+        // no value is small enough, e.g. when the invariant only holds for infinite values.
+        val solverCtx = ctx.withOpts(
+          SymbolOps.optSimplestValueSolver(false),
+          unrolling.optUnrollBound(SymbolOps.simplestValueUnrollBound))
         SimpleSolverAPI(sem.getSolver(using solverCtx)).solveSAT(Application(p, Seq(res))) match {
           case SatWithModel(model) => model.vars.getOrElse(res.toVal, throw NoSimpleValue(adt))
           case _ => throw NoSimpleValue(adt)
