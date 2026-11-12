@@ -92,13 +92,36 @@ class PropTypingSuite extends AnyFunSuite {
     val q = "q" :: BooleanType()
     val e = Let(p, positive, Let(q, Not(p.toVariable), And(q.toVariable, b)))
     assert(e.getType == Untyped)
-    val inferred = propositional.inferPropositions(e)
+    val inference = transformers.PropositionInference(inox.trees)
+    val inferred = inference.transform(e)
     assert(inferred.getType == PropType())
     val Let(p2, _, Let(q2, _, _)) = inferred: @unchecked
     assert(p2.id == p.id && p2.tpe == PropType() && q2.id == q.id && q2.tpe == PropType())
     // booleans stay booleans
     val same = Let(p, b, p.toVariable)
-    assert(propositional.inferPropositions(same) == same)
+    assert(inference.transform(same) == same)
+  }
+
+  test("Predicate definitions are inferred") {
+    // def all(f) = forall x. f(x) > 0, and def both(f) = all(f) && all(f), declared as booleans
+    val allID = FreshIdentifier("all")
+    val all = mkFunDef(allID)() { _ =>
+      (Seq("f" :: fT), BooleanType(), { case Seq(f) => forall("x" :: IntegerType())(x => f(x) > E(BigInt(0))) })
+    }
+    val bothID = FreshIdentifier("both")
+    val both = mkFunDef(bothID)() { _ =>
+      (Seq("f" :: fT), BooleanType(), { case Seq(f) =>
+        And(FunctionInvocation(allID, Seq(), Seq(f)), FunctionInvocation(allID, Seq(), Seq(f))) })
+    }
+    val inference = transformers.PropositionInference(inox.trees)
+    val syms = NoSymbols.withFunctions(Seq(all, both, id))
+    assert(inference.transform(syms) eq syms)
+    val inferred = inference.transform(syms.withQuantifiers(QuantifierMode.Propositional))
+    inferred.ensureWellFormed
+    assert(inferred.modes.quantifiers == QuantifierMode.Propositional)
+    assert(inferred.getFunction(allID).returnType == PropType())
+    assert(inferred.getFunction(bothID).returnType == PropType())
+    assert(inferred.getFunction(idID).returnType == syms.getFunction(idID).returnType)
   }
 
   test("Propositions are not data") {

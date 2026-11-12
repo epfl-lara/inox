@@ -40,10 +40,10 @@ abstract class ScriptTestSuite(directory: String) extends UnrollingTestSuite wit
     val mayBeUnknown = query.infos.get("inox-may-be-unknown").contains("true")
     val qctx = queryContext(ctx, query)
     // as in the command line, the quantifier mode is a mode of the program
-    val program = InoxProgram(query.program.symbols
-      .withQuantifiers(qctx.options.findOptionOrDefault(ast.optQuantifiers))
-      .inferPredicates)
-    val expr = program.symbols.inferPropositions(query.expr)
+    val inference = transformers.PropositionInference(inox.trees)
+    val program = InoxProgram(inference.transform(query.program.symbols
+      .withQuantifiers(qctx.options.findOptionOrDefault(ast.optQuantifiers))))
+    val expr = inference.transform(query.expr)(using program.symbols)
     val factory = program.getSolver(qctx)
     // as in the command line, the timeout applies to each query
     val res = qctx.options.findOption(optTimeout) match {
