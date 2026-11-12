@@ -143,8 +143,11 @@ trait Definitions { self: Trees =>
     val sorts: Map[Identifier, ADTSort]
     val functions: Map[Identifier, FunDef]
 
-    /** The options that the typing of trees depends on under these symbols. */
-    val modes: TypingModes
+    /** The modes that the typing of trees depends on under these symbols.
+      *
+      * Symbols that support other modes than the default ones keep them and override this,
+      * along with [[withModes]]. */
+    def modes: TypingModes = TypingModes()
 
     @inline def constructors: Map[Identifier, ADTConstructor] = _constructors.get
     private val _constructors: Lazy[Map[Identifier, ADTConstructor]] =
@@ -269,8 +272,10 @@ trait Definitions { self: Trees =>
     def withFunctions(functions: Seq[FunDef]): Symbols
     def withSorts(sorts: Seq[ADTSort]): Symbols
 
-    /** These symbols under other options. */
-    def withModes(modes: TypingModes): Symbols
+    /** These symbols under other typing modes. */
+    def withModes(modes: TypingModes): Symbols =
+      if (modes == this.modes) this
+      else throw new UnsupportedOperationException(s"These symbols don't support the typing modes $modes")
 
     def withQuantifiers(quantifiers: QuantifierMode): Symbols =
       withModes(modes.copy(quantifiers = quantifiers))
