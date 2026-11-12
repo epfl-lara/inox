@@ -262,10 +262,7 @@ trait LambdaTemplates { self: Templates =>
     if (ft.from.isEmpty) clauses ++= (for {
       template <- byType(ft).values.toList
       if canBeEqual(template.ids._2, f) && isPureTemplate(template)
-    } yield {
-      val (tmplApp, fApp) = (mkApp(template.ids._2, ft, Seq.empty), mkApp(f, ft, Seq.empty))
-      mkImplies(mkAnd(b, template.start, mkEquals(tmplApp, fApp)), mkEquals(template.ids._2, f))
-    })
+    } yield arglessEquality(b, isFree, f, ft, template))
 
     lazy val gen = nextGeneration(currentGeneration)
     for (app @ (_, App(caller, _, args, _)) <- applications(ft)) {
@@ -301,6 +298,22 @@ trait LambdaTemplates { self: Templates =>
   private def isPureTemplate(template: LambdaTemplate): Boolean = template.structure.body match {
     case Lambda(_, _: Variable) => true
     case _ => false
+  }
+
+  /** Equates the free function `f` with the pure, argument-less lambda of `template` when they
+    * return the same value.
+    *
+    * A free function's model is the lambda that returns its value (`() => f()`), which is
+    * structurally equal to the pure lambda's model when the values agree, so the solver must not
+    * consider them distinct. This only holds while `f` is free: when `f` is equal to another lambda,
+    * the model of `f` is that lambda, and agreeing on their value doesn't make the two lambdas
+    * equal. Without the `isFree` guard, `f == () => g(x)` and `() => Uu` (both of type `() => Unit`)
+    * would force `() => g(x) == () => Uu`, which is UNSAT although both lambdas exist.
+    */
+  private def arglessEquality(b: Encoded, isFree: Encoded, f: Encoded, ft: FunctionType, template: LambdaTemplate): Encoded = {
+    val lambda = template.ids._2
+    val (tmplApp, fApp) = (mkApp(lambda, ft, Seq.empty), mkApp(f, ft, Seq.empty))
+    mkImplies(mkAnd(b, isFree, template.start, mkEquals(tmplApp, fApp)), mkEquals(lambda, f))
   }
 
   private def registerAppInfo(gen: Int, key: (Encoded, App), template: Either[LambdaTemplate, Encoded], equals: Encoded, args: Seq[Arg]): Unit = {
@@ -362,8 +375,7 @@ trait LambdaTemplates { self: Templates =>
         Seq.empty
       } else {
         for ((b,f) <- freeFunctions(newTemplate.tpe).toSeq if canBeEqual(idT, f)) yield {
-          val (tmplApp, fApp) = (mkApp(idT, newTemplate.tpe, Seq.empty), mkApp(f, newTemplate.tpe, Seq.empty))
-          mkImplies(mkAnd(b, newTemplate.start, mkEquals(tmplApp, fApp)), mkEquals(idT, f))
+          arglessEquality(b, nonFreeBlockers(f)._1, f, newTemplate.tpe, newTemplate)
         }
       }
 

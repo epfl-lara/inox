@@ -533,6 +533,17 @@ abstract class AbstractUnrollingSolver private
           val nparams = (params zip from).map { case (vd, tpe) => vd.copy(tpe = tpe) }
           forall(nparams, rec(
             exprOps.replaceFromSymbols((params zip nparams.map(_.toVariable)).toMap, body), to))
+        // The calls of the functions that the model gives lie in a type when the bodies of their
+        // models do, whose default values are chosen in their codomains (see `defaultValue`)
+        case (UninterpretedCall(id, tps, args, _), tpe) if !expanding(id) && model.interpretations.contains(id -> tps) =>
+          model.interpretations(id -> tps) match {
+            case l: Lambda if l.params.size == args.size =>
+              expanding += id
+              val cond = rec(exprOps.replaceFromSymbols((l.params.map(_.toVariable) zip args).toMap, l.body), tpe)
+              expanding -= id
+              cond
+            case _ => BooleanLiteral(false)
+          }
         case (_, RefinementType(vd, pred)) =>
           and(rec(e, vd.tpe), Let(vd, e, pred).copiedFrom(e))
         case (Lambda(params, body), PiType(nparams, to)) =>
@@ -723,7 +734,35 @@ abstract class AbstractUnrollingSolver private
           extractFunction(f, tpe, seen)
         })
       } else {
+        unknownValue(tpe)
+      }
+    }
+
+    /* A value of `tpe` for an element that the model doesn't give, such as a function that is never
+     * applied. The simplest value of a function type may not lie in a refined codomain, so functions
+     * get the default value of their models instead (see [[defaultValue]]). */
+    def unknownValue(tpe: Type): Expr = tpe match {
+      case RefinementType(vd, _) if !hasFunctions(vd.tpe) =>
         encode(program.symbols.simplestValue(decode(tpe.getType)))
+      case RefinementType(vd, _) => unknownValue(vd.tpe)
+      case _: FunctionType | _: PiType =>
+        val (params, paramTypes, resultType) = signature(tpe)
+        Lambda(params, defaultValue(params, paramTypes, resultType)
+          .getOrElse(unknownValue(resultType)))
+      case _ => encode(program.symbols.simplestValue(decode(tpe.getType)))
+    }
+
+    /** Fresh parameters for the function type `fullType`, with its parameter and result types in
+      * terms of these parameters. */
+    def signature(fullType: Type): (Seq[ValDef], Seq[Type], Type) = {
+      val tpe = fullType.getType.asInstanceOf[FunctionType]
+      val params: Seq[ValDef] = tpe.from.map(tpe => ValDef.fresh("x", tpe, true))
+      fullType match {
+        case PiType(ps, to) =>
+          val subst: Map[ValDef, Expr] = (ps zip params.map(_.toVariable)).toMap
+          (params, ps.map(vd => typeOps.replaceFromSymbols(subst, vd.tpe)), typeOps.replaceFromSymbols(subst, to))
+        case FunctionType(from, to) => (params, from, to)
+        case _ => (params, tpe.from, tpe.to)
       }
     }
 
@@ -781,27 +820,46 @@ abstract class AbstractUnrollingSolver private
           modelEq(tmpl.ids._2, f)
         }
 
-        optEqTemplate.map { tmpl =>
-          val localsSubst = tmpl.structure.locals.map { case (v, ev) =>
-            v -> extractValue(ev, v.getType, nextSeen)
-          }.toMap
+        optEqTemplate.map(templateLambda)
+      }
 
-          val res = exprOps.replaceFromSymbols(localsSubst, tmpl.structure.body)
-          val (nl, subst) = normalizeStructure(res, onlySimple = true)
-          exprOps.replaceFromSymbols(subst.map { case (v, e, _) => v -> e }.toMap, nl).asInstanceOf[Lambda]
+      // The lambda of `tmpl` in the model, with the model values of its closure
+      def templateLambda(tmpl: templates.LambdaTemplate): Lambda = {
+        val localsSubst = tmpl.structure.locals.map { case (v, ev) =>
+          v -> extractValue(ev, v.getType, nextSeen)
+        }.toMap
+
+        val res = exprOps.replaceFromSymbols(localsSubst, tmpl.structure.body)
+        val (nl, subst) = normalizeStructure(res, onlySimple = true)
+        exprOps.replaceFromSymbols(subst.map { case (v, e, _) => v -> e }.toMap, nl).asInstanceOf[Lambda]
+      }
+
+      // `lambda`, made structurally distinct from the functions that differ from `f` in the model:
+      // the other extracted functions and the lambdas of the query. Lambdas are compared
+      // structurally, up to the names of their parameters and locals (and to the values of their
+      // closures, as with the lambdas of the query).
+      def distinctFromOthers(lambda: Lambda): Lambda = {
+        def normal(l: Lambda): Expr = {
+          val (nl, subst) = normalizeStructure(l, onlySimple = true)
+          exprOps.replaceFromSymbols(subst.map { case (v, e, _) => v -> e }.toMap, nl)
+        }
+
+        lazy val taken = lambdaExtractions.collect {
+          case (_, img: Lambda) if img.getType == lambda.getType => normal(img)
+        }.toSet ++ templates.getLambdaTemplates(tpe).filter { tmpl =>
+          wrapped.modelEval(tmpl.start, BooleanType()) == Some(BooleanLiteral(true)) &&
+          !modelEq(tmpl.ids._2, f)
+        }.map(tmpl => normal(templateLambda(tmpl)))
+
+        if (!taken(normal(lambda))) lambda else {
+          val id = FreshIdentifier("f", true)
+          closureExtractions :+= id -> lambda
+          uniquateClosure(id, lambda)
         }
       }
 
-      val params: Seq[ValDef] = tpe.from.map(tpe => ValDef.fresh("x", tpe, true))
-
-      // The parameter and result types of `fullType` in terms of `params`
-      val (paramTypes, resultType) = fullType match {
-        case PiType(ps, to) =>
-          val subst: Map[ValDef, Expr] = (ps zip params.map(_.toVariable)).toMap
-          (ps.map(vd => typeOps.replaceFromSymbols(subst, vd.tpe)), typeOps.replaceFromSymbols(subst, to))
-        case FunctionType(from, to) => (from, to)
-        case _ => (tpe.from, tpe.to)
-      }
+      // The parameters of the model, and the parameter and result types of `fullType` in their terms
+      val (params, paramTypes, resultType) = signature(fullType)
 
       // Results are extracted with their full types when these don't depend on the arguments
       val imageType = if ((typeOps.variablesOf(resultType) & params.map(_.toVariable).toSet).isEmpty) resultType
@@ -828,7 +886,10 @@ abstract class AbstractUnrollingSolver private
           defaultValue(params, paramTypes, resultType).map(Lambda(params, _))
             .getOrElse(wrapped.modelEval(f, tpe).getOrThrow.asInstanceOf[Lambda])
         } else if (tpe.from.isEmpty) {
-          Lambda(Seq.empty, extractValue(templates.mkApp(f, tpe, Seq.empty), imageType, nextSeen))
+          val lambda = Lambda(Seq.empty, extractValue(templates.mkApp(f, tpe, Seq.empty), imageType, nextSeen))
+          lambdaExtractions.collectFirst {
+            case (e, img) if img.getType == lambda.getType && modelEq(e, f) => img
+          }.getOrElse(distinctFromOthers(lambda))
         } else {
           val projections: Map[Type, Encoded] = (arguments.head zip params)
             .groupBy(p => p._2.getType)
@@ -970,24 +1031,7 @@ abstract class AbstractUnrollingSolver private
 
           lambdaExtractions.collectFirst {
             case (e, img) if img.getType == lambda.getType && modelEq(e, f) => img
-          }.getOrElse {
-            // Make sure `lambda` differs from the other distinct extracted functions. Lambdas are
-            // compared structurally, up to the names of their parameters and locals.
-            def normal(l: Lambda): Expr = {
-              val (nl, subst) = normalizeStructure(l, onlySimple = true)
-              exprOps.replaceFromSymbols(subst.map { case (v, e, _) => v -> e }.toMap, nl)
-            }
-
-            val taken = lambdaExtractions.collect {
-              case (_, img: Lambda) if img.getType == lambda.getType => normal(img)
-            }.toSet
-
-            if (!taken(normal(lambda))) lambda else {
-              val id = FreshIdentifier("f", true)
-              closureExtractions :+= id -> lambda
-              uniquateClosure(id, lambda)
-            }
-          }
+          }.getOrElse(distinctFromOthers(lambda))
         }
 
         lambdaExtractions :+= f -> res

@@ -233,9 +233,9 @@ class UnrollingSolverSuite extends TestSuite with DatastructureUtils {
   }
 
   // Argument-less free functions are extracted from the value of their application, here as
-  // `() => 1`, which equals `() => y` when `y` is 1, so the model contradicts the query and is
-  // rejected (Unknown) when models are checked.
-  ignore("models of argument-less functions differ from the lambdas they are distinct from") {
+  // `() => 1`, which equals `() => y` when `y` is 1. Their models must still differ from the
+  // lambdas they are distinct from, or they contradict the query.
+  test("models of argument-less functions differ from the lambdas they are distinct from") {
     val f = argless
     val ly = arglessLambda
     val clauses = Seq(
@@ -252,6 +252,59 @@ class UnrollingSolverSuite extends TestSuite with DatastructureUtils {
         case res => fail(s"Expected a model for $clause, got $res")
       }
     }
+  }
+
+  // Argument-less lambdas whose bodies may fail: an error, a division and an assumption. Their
+  // bodies aren't lifted out of the lambdas (see `normalizeStructure`), so argument-less functions
+  // are only equal to them when they are these lambdas, which then must not fail.
+  val failing = Variable.fresh("g", FunctionType(Seq(), I))
+  def failingModel(clause: Expr, opts: OptionValue[?]*)(using ctx: Context): Unit =
+    check(clause, Model, (optCheckModels(true) +: opts)*) match {
+      case SatWithModel(model) =>
+        val bindings = model.vars.toSeq.map { case (vd, v) => vd -> v }
+        // The model is evaluated under the same options, which decide how lambdas are normalized
+        val evaluated = program.getEvaluator(ctx.withOpts(opts*)).eval(bindings.foldRight(clause) { case ((vd, v), e) => Let(vd, v, e) }, model)
+        assert(evaluated.result == Some(BooleanLiteral(true)), clause)
+      case res => fail(s"Expected a model for $clause, got $res")
+    }
+
+  test("argument-less lambdas that fail") {
+    val g = Application(failing, Seq())
+    val error = Lambda(Seq(), Error(I, "error"))
+    val division = Lambda(Seq(), Division(int(1), y))
+    val assumption = Lambda(Seq(), Assume(y > int(0), y))
+
+    for (l <- Seq(error, division, assumption)) {
+      failingModel(g === int(0) && !(failing === l))
+      failingModel(g === int(0) && !(failing === l) && y === int(0))
+    }
+
+    assert(check(g === int(0) && failing === error, Simple) == Unsat)
+    assert(check(g === int(2) && failing === division && y === int(1), Simple) == Unsat)
+    failingModel(g === int(1) && failing === division && y === int(1))
+    assert(check(g === int(0) && failing === assumption && y === int(0), Simple) == Unsat)
+    assert(check(g === int(2) && failing === assumption && y === int(1), Simple) == Unsat)
+    // The model of `g` is `() => assume(true, 1)`, which must keep the structure of `assumption`
+    failingModel(g === int(1) && failing === assumption && y === int(1))
+  }
+
+  test("argument-less lambdas that fail under assume-checked") {
+    val g = Application(failing, Seq())
+    val error = Lambda(Seq(), Error(I, "error"))
+    val division = Lambda(Seq(), Division(int(1), y))
+    val assumption = Lambda(Seq(), Assume(y > int(0), y))
+
+    for (l <- Seq(error, assumption)) {
+      failingModel(g === int(0) && !(failing === l), optAssumeChecked(true))
+    }
+    // The division is lifted out of its lambda, so `g` must differ from its result, which the
+    // solver may choose at a division by zero, whose model then fails
+    assert(check(g === int(0) && !(failing === division), Simple, optAssumeChecked(true)) != Unsat)
+
+    assert(check(g === int(0) && failing === error, Simple, optAssumeChecked(true)) == Unsat)
+    assert(check(g === int(2) && failing === division && y === int(1), Simple, optAssumeChecked(true)) == Unsat)
+    failingModel(g === int(1) && failing === division && y === int(1), optAssumeChecked(true))
+    failingModel(g === int(1) && failing === assumption && y === int(1), optAssumeChecked(true))
   }
 
   test("closures under path conditions") {

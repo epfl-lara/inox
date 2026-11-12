@@ -66,6 +66,11 @@ jobs:
       INOX_DIR: ${{ github.workspace }}/inox
       STAINLESS_DIR: ${{ github.workspace }}/stainless
     steps:
+    # The self-hosted runners keep the workspace between runs, and a run that is
+    # stopped while checking out can leave a repository that the next checkout
+    # stops on without an error. Start from a fresh clone.
+    - name: Remove previous Inox checkout
+      run: rm -rf "$INOX_DIR"
     - name: Checkout Inox
       uses: actions/checkout@v7
       with:

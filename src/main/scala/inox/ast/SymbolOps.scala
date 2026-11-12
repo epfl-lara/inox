@@ -411,12 +411,15 @@ trait SymbolOps extends TypeOps { self =>
       }
 
       // Uninterpreted calls are never lifted, so that closures that call distinct uninterpreted
-      // functions remain distinct. Lifting a lambda doesn't evaluate its body, so the calls and
-      // errors in it don't prevent lifting (e.g. a lambda of a model, `x => f(x)`).
-      def containsUninterpreted(e: Expr): Boolean = e match {
-        case _: UninterpretedCall | _: Error => true
+      // functions remain distinct. Neither are errors and assumptions, whose purity depends on the
+      // values of their closures: `() => assume(y > 0, y)` evaluates to `() => assume(true, 1)` when
+      // `y` is 1, which must keep the structure of the former and not become `() => 1` when it is
+      // evaluated again. Lifting a lambda doesn't evaluate its body, so the calls, errors and
+      // assumptions in it don't prevent lifting (e.g. a lambda of a model, `x => f(x)`).
+      def containsUnliftable(e: Expr): Boolean = e match {
+        case _: UninterpretedCall | _: Error | _: Assume => true
         case _: Lambda => false
-        case Operator(es, _) => es.exists(containsUninterpreted)
+        case Operator(es, _) => es.exists(containsUnliftable)
       }
 
       def containsRecursive(e: Expr): Boolean =
@@ -427,7 +430,7 @@ trait SymbolOps extends TypeOps { self =>
           // The set of minimal conditions that must be met for an expression to be liftable
           val minimal =
             (isSimple(e) || !onlySimple)           && // check whether we want only simple expression
-            !containsUninterpreted(e)              && // expressions containing uninterpreted calls or errors can't be lifted
+            !containsUnliftable(e)                 && // expressions containing uninterpreted calls, errors or assumptions can't be lifted
             (!inFunction || !containsRecursive(e))    // recursive functions can't be lifted from lambdas
 
           // Whether the expression is guaranteed to be called, typically in foralls
