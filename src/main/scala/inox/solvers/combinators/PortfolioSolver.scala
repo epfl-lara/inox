@@ -23,9 +23,14 @@ trait PortfolioSolver extends Solver { self =>
   // Used to report SMT Lib files <-> VCs correspondence
   override def getSmtLibFileId: Option[Int] = if solvers.isEmpty then None else solvers.head.getSmtLibFileId
 
-  override def resourceLimitReached: Boolean = solvers.exists(_.resourceLimitReached)
+  // Why the last check returned Unknown: only when no solver answered, as one of the solvers that
+  // gave up (an answer makes the other solvers' reasons irrelevant)
+  private var resourceOut: Boolean = false
+  private var boundHit: Boolean = false
 
-  override def unrollBoundReached: Boolean = solvers.exists(_.unrollBoundReached)
+  override def resourceLimitReached: Boolean = resourceOut
+
+  override def unrollBoundReached: Boolean = boundHit
 
   protected var resultSolver: Option[Solver] = None
 
@@ -53,6 +58,8 @@ trait PortfolioSolver extends Solver { self =>
                            config.Response[Model, Assumptions] = {
     Await.result(tasks, Duration.Inf)
     reporter.debug("Running portfolio check")
+    resourceOut = false
+    boundHit = false
 
     // solving
     val solverThreads = new java.util.concurrent.ConcurrentHashMap[Solver, Thread]()
@@ -81,6 +88,9 @@ trait PortfolioSolver extends Solver { self =>
           r
         case None =>
           reporter.debug("No solver succeeded")
+          // Every check has completed, so the solvers' reasons describe this check
+          resourceOut = solvers.exists(_.resourceLimitReached)
+          boundHit = solvers.exists(_.unrollBoundReached)
           config.cast(Unknown)
       }
 

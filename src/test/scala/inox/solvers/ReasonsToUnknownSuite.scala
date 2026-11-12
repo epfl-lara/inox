@@ -40,7 +40,7 @@ class ReasonsToUnknownSuite extends AnyFunSuite {
   // Holds by induction only, so unrolling never proves it: f(x) == 0 for every x
   private val needsInduction = Not(FunctionInvocation(fID, Seq(), Seq(x)) === E(BigInt(0)))
 
-  private case class SmtSolver(name: String, available: () => Boolean, rlimit: LongOptionDef)
+  private case class SmtSolver(name: String, available: () => Boolean, rlimit: IntOptionDef)
 
   private val smtSolvers = Seq(
     SmtSolver("smt-z3", () => SolverFactory.hasZ3, smtlib.optZ3Rlimit),
@@ -79,6 +79,24 @@ class ReasonsToUnknownSuite extends AnyFunSuite {
       val (sat, satOut, _) = check(solver.name, Seq(solver.rlimit(1)), x > E(BigInt(0)))
       assert(sat == Sat)
       assert(!satOut)
+    }
+
+    test(s"${solver.name}: the reason describes the last check only") {
+      assume(solver.available(), s"${solver.name} is not available")
+      val ctx = TestContext(Options(Seq(optSelectedSolvers(Set(solver.name)), solver.rlimit(1))))
+      val factory = program.getSolver(ctx).withTimeout(60.seconds)
+      val s = factory.getNewSolver()
+      try {
+        s.push()
+        s.assertCnstr(hard)
+        assert(s.check(Simple) == Unknown)
+        assert(s.resourceLimitReached)
+        s.pop()
+
+        s.assertCnstr(x > E(BigInt(0)))
+        assert(s.check(Simple) == Sat)
+        assert(!s.resourceLimitReached)
+      } finally factory.reclaim(s)
     }
 
     test(s"${solver.name}: a timeout isn't a resource-out, even with a resource limit") {

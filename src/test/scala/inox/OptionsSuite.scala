@@ -113,6 +113,15 @@ class OptionsSuite extends AnyFunSuite {
     assertThrows[FatalError](optTimeout.parse("soon"))
   }
 
+  test("Resource limits are converted from millions without overflowing") {
+    import solvers.smtlib.{optZ3Rlimit, optCVC5Rlimit}
+    // Beyond Int: rejected instead of overflowing once multiplied by a million
+    for (opt <- Seq(optZ3Rlimit, optCVC5Rlimit)) {
+      assert(opt.parse("2147483647").value == Int.MaxValue)
+      assertThrows[FatalError](opt.parse("10000000000000"))
+    }
+  }
+
   test("Usage strings show the expected argument") {
     assert(optFlag.usageDesc == "--flag[=true|false]")
     assert(optMarker.usageDesc == "--marker")

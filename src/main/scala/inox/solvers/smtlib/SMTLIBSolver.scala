@@ -45,6 +45,11 @@ abstract class SMTLIBSolver private(override val program: Program,
 
   override def resourceLimitReached: Boolean = resourceOut
 
+  /** Forgets why the previous check returned Unknown. Called at the start of every check, so that
+    * `resourceLimitReached` describes the last one, even when it fails before getting an answer.
+    */
+  protected def clearResourceOut(): Unit = resourceOut = false
+
   /** Whether the given `(get-info :reason-unknown)` answer denotes resource
     * exhaustion (z3 answers "max. resource limit exceeded", cvc5 answers
     * "resourceout"). Can be refined per solver.
@@ -174,10 +179,13 @@ abstract class SMTLIBSolver private(override val program: Program,
       Unknown
   })
 
-  def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
+  def check(config: CheckConfiguration): config.Response[Model, Assumptions] = {
+    clearResourceOut()
     extractResponse(config, emit(CheckSat()), Set())
+  }
 
   def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] = {
+    clearResourceOut()
     val props = assumptions.toSeq.map {
       case Not(v: Variable) => PropLiteral(declareVariable(v), false)
       case v: Variable => PropLiteral(declareVariable(v), true)

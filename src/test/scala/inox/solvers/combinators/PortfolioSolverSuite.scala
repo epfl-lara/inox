@@ -18,9 +18,14 @@ class PortfolioSolverSuite extends AnyFunSuite {
   val program = InoxProgram(NoSymbols)
   val ctx = TestContext.empty
 
-  /** Always answers `answer` and records the calls it receives. */
-  class ScriptedSolver(override val program: PortfolioSolverSuite.this.program.type, override val context: Context, val name: String, answer: => SolverResponse[Nothing, Nothing])
+  /** Always answers `answer`, giving the reasons `resourceOut` and `boundHit` for it, and records
+    * the calls it receives. */
+  class ScriptedSolver(override val program: PortfolioSolverSuite.this.program.type, override val context: Context, val name: String, answer: => SolverResponse[Nothing, Nothing],
+                       resourceOut: Boolean = false, boundHit: Boolean = false)
     extends Solver {
+    override def resourceLimitReached: Boolean = resourceOut
+    override def unrollBoundReached: Boolean = boundHit
+
     val calls = scala.collection.mutable.ListBuffer.empty[String]
     @volatile var interrupted = false
 
@@ -43,8 +48,8 @@ class PortfolioSolverSuite extends AnyFunSuite {
     def interrupt() = { interrupted = true }
   }
 
-  def scripted(name: String, answer: => SolverResponse[Nothing, Nothing]) = {
-    val solver = new ScriptedSolver(program, ctx, name, answer) with TimeoutSolver
+  def scripted(name: String, answer: => SolverResponse[Nothing, Nothing], resourceOut: Boolean = false, boundHit: Boolean = false) = {
+    val solver = new ScriptedSolver(program, ctx, name, answer, resourceOut, boundHit) with TimeoutSolver
     val factory = SolverFactory.create[ScriptedSolver & TimeoutSolver](program)(name, () => solver)
     (solver, factory)
   }
@@ -77,6 +82,52 @@ class PortfolioSolverSuite extends AnyFunSuite {
     val (_, b) = scripted("b", Unknown)
     val s = PortfolioSolverFactory(program)(Seq(a, b)).getNewSolver()
     assert(s.check(Model) == Unknown)
+  }
+
+  test("An answer hides why the other solvers gave up") {
+    val (_, resourceOut) = scripted("resource-out", Unknown, resourceOut = true)
+    val (_, boundHit) = scripted("bound-hit", Unknown, boundHit = true)
+    val (_, unsat) = scripted("unsat", Unsat)
+    val s = PortfolioSolverFactory(program)(Seq(resourceOut, boundHit, unsat)).getNewSolver()
+    assert(s.check(Simple) == Unsat)
+    assert(!s.resourceLimitReached)
+    assert(!s.unrollBoundReached)
+  }
+
+  test("Without an answer, the reasons come from the solvers that gave up") {
+    val (_, plain) = scripted("plain", Unknown)
+    val (_, resourceOut) = scripted("resource-out", Unknown, resourceOut = true)
+    val (_, boundHit) = scripted("bound-hit", Unknown, boundHit = true)
+
+    val none = PortfolioSolverFactory(program)(Seq(plain)).getNewSolver()
+    assert(none.check(Simple) == Unknown)
+    assert(!none.resourceLimitReached && !none.unrollBoundReached)
+
+    val out = PortfolioSolverFactory(program)(Seq(plain, resourceOut)).getNewSolver()
+    assert(out.check(Simple) == Unknown)
+    assert(out.resourceLimitReached && !out.unrollBoundReached)
+
+    val bound = PortfolioSolverFactory(program)(Seq(plain, boundHit)).getNewSolver()
+    assert(bound.checkAssumptions(Simple)(Set(x)) == Unknown)
+    assert(!bound.resourceLimitReached && bound.unrollBoundReached)
+  }
+
+  test("The reasons describe the last check only") {
+    var answer: SolverResponse[Nothing, Nothing] = Unknown
+    var out = true
+    class Changing extends ScriptedSolver(program, ctx, "changing", answer) {
+      override def resourceLimitReached: Boolean = out
+    }
+    val changing = new Changing with TimeoutSolver
+    val s = PortfolioSolverFactory(program)(Seq(
+      SolverFactory.create[Changing & TimeoutSolver](program)("changing", () => changing))).getNewSolver()
+    assert(s.check(Simple) == Unknown)
+    assert(s.resourceLimitReached)
+
+    // The solver now answers, but would still claim its earlier resource-out
+    answer = Sat
+    assert(s.check(Simple) == Sat)
+    assert(!s.resourceLimitReached)
   }
 
   test("The evaluator answers ground constraints in a portfolio") {

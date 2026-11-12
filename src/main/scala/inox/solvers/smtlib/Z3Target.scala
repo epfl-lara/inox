@@ -20,7 +20,8 @@ import utils._
 import utils.CaseSplit.*
 
 // In millions of z3 resource units
-object optZ3Rlimit extends LongOptionDef("z3-rlimit", -1L, "<N>")
+// An Int, so that the limit in resource units can't overflow the Long it is computed in
+object optZ3Rlimit extends IntOptionDef("z3-rlimit", -1, "<N>")
 
 trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   import context.{given, _}
@@ -32,7 +33,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
   protected def interpreterOpts = {
     // z3 takes the limit as an unsigned 32-bit integer
-    val rlimit = (options.findOptionOrDefault(optZ3Rlimit)) * 1000000L min 0xFFFFFFFFL
+    val rlimit = options.findOptionOrDefault(optZ3Rlimit).toLong * 1000000L min 0xFFFFFFFFL
     Seq(
       "-in",
       "-smt2"

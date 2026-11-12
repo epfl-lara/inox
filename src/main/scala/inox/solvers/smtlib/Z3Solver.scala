@@ -63,6 +63,7 @@ trait Z3Solver extends SMTLIBSolver with Z3Target { self =>
     * send the command to the underlying smtlib solver.
     */
   override def checkAssumptions(config: Configuration)(assumptions: Set[Expr]) = {
+    clearResourceOut()
     // make sure assumptions are well-formed and contain only declared variables
     assumptions.foreach {
       case Not(v: Variable) => declareVariable(v)
