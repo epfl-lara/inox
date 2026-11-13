@@ -94,4 +94,44 @@ class PipelinedInterpreterSuite extends AnyFunSuite {
       assert(solver.eval(CheckSat()) == CheckSatStatus(SatStatus))
     } finally solver.free()
   }
+
+  test("z3: A reset that isn't waited for forgets the declarations, and is ready when awaited") {
+    assume(SolverFactory.hasZ3, "z3 isn't available")
+    val z3 = new PipelinedZ3Interpreter("z3", Array("-in", "-smt2"), out => new Parser(new Lexer(out)))
+    try {
+      z3.send(DeclareConst(b, BoolSort()))
+      z3.send(Assert(Not(bRef)))
+      assert(z3.eval(CheckSat()) == CheckSatStatus(SatStatus))
+      z3.send(Assert(QualifiedIdentifier(SimpleIdentifier(SSymbol("c"))))) // c isn't declared
+      z3.resetLater()
+      assert(z3.awaitReset())
+
+      z3.send(Assert(bRef)) // b isn't declared anymore
+      assert(z3.eval(CheckSat()) == CheckSatStatus(SatStatus))
+      assert(z3.pendingError().nonEmpty)
+    } finally z3.free()
+  }
+
+  test("z3: A reset that isn't waited for forgets the commands sent before it, unanswered") {
+    assume(SolverFactory.hasZ3, "z3 isn't available")
+    val z3 = new PipelinedZ3Interpreter("z3", Array("-in", "-smt2"), out => new Parser(new Lexer(out)))
+    try {
+      z3.send(DeclareConst(b, BoolSort())) // not answered before the reset
+      z3.resetLater()
+      assert(z3.awaitReset())
+      z3.send(Assert(bRef)) // b isn't declared anymore
+      assert(z3.eval(CheckSat()) == CheckSatStatus(SatStatus))
+      assert(z3.pendingError().nonEmpty)
+    } finally z3.free()
+  }
+
+  test("z3: A reset that isn't waited for fails once the process is gone") {
+    assume(SolverFactory.hasZ3, "z3 isn't available")
+    val z3 = new PipelinedZ3Interpreter("z3", Array("-in", "-smt2"), out => new Parser(new Lexer(out)))
+    try {
+      z3.resetLater()
+      z3.kill()
+      assert(!z3.awaitReset())
+    } finally z3.free()
+  }
 }

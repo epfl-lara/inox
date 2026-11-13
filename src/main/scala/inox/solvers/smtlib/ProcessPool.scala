@@ -20,26 +20,28 @@ import java.util.concurrent.ConcurrentHashMap
   * At most one idle process per processor is kept for each command line, the others are freed.
   */
 object ProcessPool {
-  private val maxIdle = Runtime.getRuntime.availableProcessors.max(1)
+  private[smtlib] val maxIdle = Runtime.getRuntime.availableProcessors.max(1)
 
   // each queue is only accessed while holding its lock, so that `give` never exceeds `maxIdle`
-  private val idle = new ConcurrentHashMap[Seq[String], ArrayDeque[ProcessInterpreter]]
+  private[smtlib] val idle = new ConcurrentHashMap[Seq[String], ArrayDeque[ProcessInterpreter]]
 
   private def processes(key: Seq[String]): ArrayDeque[ProcessInterpreter] =
     idle.computeIfAbsent(key, _ => new ArrayDeque[ProcessInterpreter])
 
-  /** An idle process started with the command line `key`, which the caller now owns. */
+  /** An idle process started with the command line `key`, which the caller now owns.
+    *
+    * The process that was left here first is taken first, as it had the most time to reset. */
   def take(key: Seq[String]): Option[ProcessInterpreter] = {
     val queue = processes(key)
     Option(queue.synchronized(queue.pollFirst()))
   }
 
-  /** Leaves the idle process `interpreter`, started with the command line `key` and reset by the
-    * caller, for another solver. */
+  /** Leaves the idle process `interpreter`, started with the command line `key` and reset (or
+    * being reset) by the caller, for another solver. */
   def give(key: Seq[String], interpreter: ProcessInterpreter): Unit = {
     val queue = processes(key)
     val kept = queue.synchronized {
-      queue.size < maxIdle && { queue.addFirst(interpreter); true }
+      queue.size < maxIdle && { queue.addLast(interpreter); true }
     }
     // freed outside of the lock, so that the other solvers don't wait for it
     if (!kept) interpreter.free()

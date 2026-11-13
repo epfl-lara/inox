@@ -768,14 +768,15 @@ trait QuantificationTemplates { self: Templates =>
 
     val diff = (currentGeneration - optGen.get) max 0
 
+    // Remove the entries one by one, since `clear` would also drop the push/pop stack
     val currentGrounds = ignoredGrounds.toList
-    ignoredGrounds.clear()
+    for ((gen, _) <- currentGrounds) ignoredGrounds -= gen
     for ((gen, qs) <- currentGrounds) {
       ignoredGrounds += (gen - diff) -> qs
     }
 
     val currentMatchers = ignoredMatchers.toList
-    ignoredMatchers.clear()
+    for (e <- currentMatchers) ignoredMatchers -= e
     for ((gen, bs, m) <- currentMatchers) {
       ignoredMatchers += ((gen - diff, bs, m))
     }
