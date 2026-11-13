@@ -1,0 +1,12 @@
+; Under extensional equality, operations that may fail are lifted out of lambdas, so lambdas
+; are equal when these operations are, as in the solver
+(set-option :function-equality extensional)
+(set-option :assume-checked false)
+(set-option :check-models true)
+(set-info :status sat)
+(declare-const a Int)
+(declare-const b Int)
+(declare-const p Bool)
+(assert (= a (div b 2)))
+(assert (= p (= (lambda ((x Int)) (+ x a)) (lambda ((x Int)) (+ x (div b 2))))))
+(check-sat)

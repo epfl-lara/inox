@@ -316,6 +316,11 @@ trait SymbolOps extends TypeOps { self =>
     * @param preserveArgTypes Determines whether the declared (possibly refined) types of `args`
     *                   are kept in the normalized bindings. This is required for quantifiers,
     *                   where refinements restrict the quantification domain.
+    * @param liftPartial Determines whether simple expressions that may fail (eg. divisions) are
+    *                   lifted regardless of their path. The solvers encode them as total terms,
+    *                   so this preserves extensional equality, but not intensional equality.
+    *                   Without function equality, lambdas that are extensionally equal can't be
+    *                   told apart, so it can be used there as well.
     */
   def normalizeStructure(
     args: Seq[ValDef],
@@ -323,7 +328,8 @@ trait SymbolOps extends TypeOps { self =>
     preserveApps: Boolean,
     onlySimple: Boolean,
     inFunction: Boolean,
-    preserveArgTypes: Boolean
+    preserveArgTypes: Boolean,
+    liftPartial: Boolean
   )(using opts: PurityOptions): (Seq[ValDef], Expr, Seq[(Variable, Expr, Seq[Expr])]) = {
 
     val subst: MutableMap[Variable, (Expr, Seq[Expr])] = MutableMap.empty
@@ -443,7 +449,7 @@ trait SymbolOps extends TypeOps { self =>
           val isCalled = !inFunction && args.forall(vd => hasInstance(vd.tpe) contains true)
 
           if (!minimal) None
-          else if (isLocal(e, path, true) && isPure(e)) Some(Seq())
+          else if (isLocal(e, path, true) && (isPure(e) || (liftPartial && isSimple(e)))) Some(Seq())
           else if (isLocal(e, path, false) && (isPureIn(e, path) || isCalled)) Some(path.conditions)
           else None
         }
@@ -576,10 +582,11 @@ trait SymbolOps extends TypeOps { self =>
   }
 
   /** Wrapper around
-    * [[normalizeStructure(args:Seq[SymbolOps\.this\.trees\.ValDef],expr:SymbolOps\.this\.trees\.Expr,preserveApps:Boolean,onlySimple:Boolean,inFunction:Boolean,preserveArgTypes:Boolean)* normalizeStructure]]
+    * [[normalizeStructure(args:Seq[SymbolOps\.this\.trees\.ValDef],expr:SymbolOps\.this\.trees\.Expr,preserveApps:Boolean,onlySimple:Boolean,inFunction:Boolean,preserveArgTypes:Boolean,liftPartial:Boolean)* normalizeStructure]]
     * that is tailored for structural equality of [[Expressions.Lambda Lambda]] and [[Expressions.Forall Forall]] instances.
+    * With `liftPartial`, lambdas are normalized up to extensional equality (see the wrapped method).
     */
-  def normalizeStructure(e: Expr, onlySimple: Boolean = false)
+  def normalizeStructure(e: Expr, onlySimple: Boolean = false, liftPartial: Boolean = false)
                         (using PurityOptions): (Expr, Seq[(Variable, Expr, Seq[Expr])]) = e match {
     case lambda: Lambda =>
       // Ground values are normalized as variables, so that the solver (closures are variables) and
@@ -594,7 +601,7 @@ trait SymbolOps extends TypeOps { self =>
         case _ => None
       } (lambda.body)
       val fresh = freshenLocals(Lambda(lambda.params, abstracted).copiedFrom(lambda)).asInstanceOf[Lambda]
-      val (args, body, subst) = normalizeStructure(fresh.params, fresh.body, false, onlySimple, true, false)
+      val (args, body, subst) = normalizeStructure(fresh.params, fresh.body, false, onlySimple, true, false, liftPartial)
       val vs = values.toMap
       (Lambda(args, body), subst.map { case (v, e, conds) =>
         (v, replaceFromSymbols(vs, e), conds.map(replaceFromSymbols(vs, _)))
@@ -603,18 +610,18 @@ trait SymbolOps extends TypeOps { self =>
     case f: Forall =>
       val forall = freshenLocals(f).asInstanceOf[Forall]
       val isInstantiated = forall.params.forall(vd => hasInstance(vd.tpe) == Some(true))
-      val (args, body, subst) = normalizeStructure(forall.params, forall.body, true, onlySimple, !isInstantiated, true)
+      val (args, body, subst) = normalizeStructure(forall.params, forall.body, true, onlySimple, !isInstantiated, true, false)
       (Forall(args, body), subst)
 
     case _ =>
-      val (_, body, subst) = normalizeStructure(Seq(), freshenLocals(e), false, onlySimple, false, false)
+      val (_, body, subst) = normalizeStructure(Seq(), freshenLocals(e), false, onlySimple, false, false, false)
       (body, subst)
   }
 
   /** A closure that calls the uninterpreted function `id`, whose value is `res`, so that it is only
     * equal to the closures that call `id`. The model must give `res` for `id` at no type arguments,
     * and the call is never lifted out of the closure (see
-    * [[normalizeStructure(e:SymbolOps\.this\.trees\.Expr,onlySimple:Boolean)*]]), so distinct
+    * [[normalizeStructure(e:SymbolOps\.this\.trees\.Expr,onlySimple:Boolean,liftPartial:Boolean)*]]), so distinct
     * closures remain distinct. */
   def uniquateClosure(id: Identifier, res: Lambda): Lambda = {
     val params = res.params.map(_.freshen)

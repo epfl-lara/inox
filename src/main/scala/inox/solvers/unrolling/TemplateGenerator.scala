@@ -192,13 +192,18 @@ trait TemplateGenerator { self: Templates =>
     builder.result
   }
 
+  private lazy val extensionalStructures: Boolean =
+    options.findOptionOrDefault(optFunctionEquality) != FunctionEquality.Intensional
+
   protected def mkExprStructure(
     pathVar: Variable,
     expr: Expr,
     substMap: Map[Variable, Encoded],
     onlySimple: Boolean = false
   ): (Expr, TemplateStructure, Map[Variable, Encoded]) = {
-    val (struct, depsByScope) = normalizeStructure(expr)
+    // Unless function equality is intensional, lambdas can also lift the expressions that may fail, which
+    // gives more of them equal structures (eg. `x => x + a` and `x => x + b / 2` when `a == b / 2`)
+    val (struct, depsByScope) = normalizeStructure(expr, liftPartial = extensionalStructures)
     val deps = depsByScope.map { case (v, e, _) => v -> e }.toMap
 
     val (depSubst, depContents) =
