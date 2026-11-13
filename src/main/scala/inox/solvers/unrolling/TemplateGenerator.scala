@@ -198,12 +198,15 @@ trait TemplateGenerator { self: Templates =>
   protected def mkExprStructure(
     pathVar: Variable,
     expr: Expr,
-    substMap: Map[Variable, Encoded],
-    onlySimple: Boolean = false
+    substMap: Map[Variable, Encoded]
   ): (Expr, TemplateStructure, Map[Variable, Encoded]) = {
     // Unless function equality is intensional, lambdas can also lift the expressions that may fail, which
     // gives more of them equal structures (eg. `x => x + a` and `x => x + b / 2` when `a == b / 2`)
-    val (struct, depsByScope) = normalizeStructure(expr, liftPartial = extensionalStructures)
+    val (struct, depsByScope) = expr match {
+      case lambda: Lambda => normalizeStructure(lambda,
+        if (extensionalStructures) ast.SymbolOps.NormalizationLifting.Partial else ast.SymbolOps.NormalizationLifting.Pure)
+      case _ => normalizeStructure(expr)
+    }
     val deps = depsByScope.map { case (v, e, _) => v -> e }.toMap
 
     val (depSubst, depContents) =
