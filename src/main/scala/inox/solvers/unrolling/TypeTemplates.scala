@@ -33,28 +33,32 @@ trait TypeTemplates { self: Templates =>
     * type unrolling (dependent types), read unrolling (dependent types and ADT invariants, but not
     * what only free values need, see [[Collection]]) and capture unrolling (function closure ordering). */
   protected sealed abstract class TypeUnrolling {
-    private val unrollCache: MutableMap[TypedADTSort, Boolean] = MutableMap.empty
+    private val unrollCache: MutableMap[(TypedADTSort, Boolean), Boolean] = MutableMap.empty
 
-    def unroll(tpe: Type): Boolean = tpe match {
+    def unroll(tpe: Type): Boolean = unroll(tpe, typesManager.emptyParameters)
+
+    /** @param parameters whether free values are unrolled down to their values of type parameters
+      *                   (@see [[typesManager.emptyParameters]]) */
+    def unroll(tpe: Type, parameters: Boolean): Boolean = tpe match {
       case adt: ADTType =>
         val sort = adt.getSort
         ((this == FreeUnrolling || this == ReadUnrolling) && sort.invariant.nonEmpty) ||
-        (unrollCache.get(sort) match {
+        (unrollCache.get(sort -> parameters) match {
           case Some(b) => b
           case None =>
-            unrollCache(sort) = false
-            val res = sort.constructors.exists(c => c.fields.exists(vd => unroll(vd.tpe)))
-            unrollCache(sort) = res
+            unrollCache(sort -> parameters) = false
+            val res = sort.constructors.exists(c => c.fields.exists(vd => unroll(vd.tpe, parameters)))
+            unrollCache(sort -> parameters) = res
             res
         })
 
       case (_: BagType | _: SetType) if this == FreeUnrolling || this == CaptureUnrolling => true
-      case FunctionType(_, to) => this == FreeUnrolling || this == CaptureUnrolling || unroll(to)
-      case PiType(_, to) => this == FreeUnrolling || this == CaptureUnrolling || unroll(to)
-      case RefinementType(vd, _) => this != CaptureUnrolling || unroll(vd.tpe)
-      case SigmaType(params, to) => params.exists(vd => unroll(vd.tpe)) || unroll(to)
-      case tp: TypeParameter => this == FreeUnrolling
-      case NAryType(tpes, _) => tpes.exists(unroll)
+      case FunctionType(_, to) => this == FreeUnrolling || this == CaptureUnrolling || unroll(to, parameters)
+      case PiType(_, to) => this == FreeUnrolling || this == CaptureUnrolling || unroll(to, parameters)
+      case RefinementType(vd, _) => this != CaptureUnrolling || unroll(vd.tpe, parameters)
+      case SigmaType(params, to) => params.exists(vd => unroll(vd.tpe, parameters)) || unroll(to, parameters)
+      case tp: TypeParameter => this == FreeUnrolling && parameters
+      case NAryType(tpes, _) => tpes.exists(unroll(_, parameters))
     }
   }
 
@@ -290,9 +294,24 @@ trait TypeTemplates { self: Templates =>
     }
   }
 
-  def instantiateType(blocker: Encoded, typing: Typing): Clauses = typing.tpe match {
+  def instantiateType(blocker: Encoded, typing: Typing): Clauses = {
+    typing.instantiator match {
+      case Constraint(_, _, true, true) => mayBeEmpty(typing.tpe)
+      case _ =>
+    }
+    instantiateType0(blocker, typing)
+  }
+
+  private def instantiateType0(blocker: Encoded, typing: Typing): Clauses = typing.tpe match {
     // If no unrolling is necessary, we don't need to register this typing
     case _ if !typing.unroll =>
+      // The typing must still be unrolled if its type parameters turn out to matter
+      typing.instantiator match {
+        case Constraint(_, _, true, _) | Collection(_, _, true) if FreeUnrolling.unroll(typing.tpe, true) =>
+          pendingTypings += ((blocker, typing))
+        case _ =>
+      }
+
       typing.instantiator match {
         case Constraint(res, _, _, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
         case Membership(res, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
@@ -340,6 +359,7 @@ trait TypeTemplates { self: Templates =>
 
     def apply(tpe: Type, generator: TypingGenerator, inDomain: Boolean): ConstraintTemplate =
       cache.getOrElse((tpe, generator, inDomain), {
+      if (inDomain && generator == FreeGenerator) typesManager.mayBeEmpty(tpe)
       val v = Variable.fresh("x", tpe.getType, true)
       val pathVar = Variable.fresh("b", BooleanType(), true)
       val result = Variable.fresh("result", BooleanType(), true)
@@ -459,6 +479,53 @@ trait TypeTemplates { self: Templates =>
     private[TypeTemplates] val results = new IncrementalMap[(Type, Encoded, Seq[Arg], TypingGenerator, Boolean, Encoded), Encoded]
     private[TypeTemplates] val typeDepths = new IncrementalMap[Encoded, Int]
 
+    /** Whether some type parameter being empty may matter to the query.
+      *
+      * The typing of a free value is the `tp_is_empty` flag of a type parameter for each of the
+      * values of that type parameter it holds, so unrolling the value down to these only states
+      * that the value holds none of them if the type parameter is empty. All these typings are
+      * assumed, and they hold whenever the flags do, so the solver has no use for an empty type
+      * parameter unless something else is guarded by its flag, namely the typing of a bound
+      * variable (a quantified variable, or the witness argument of a [[Membership]] check), which
+      * an empty type parameter makes vacuous.
+      *
+      * Until such a variable is typed (@see [[mayBeEmpty]]), free values whose types only need
+      * unrolling for their type parameters are therefore not unrolled, which spares most queries
+      * an unrolling as deep as the values they consider. */
+    private var emptyParams: Boolean = false
+    private[unrolling] def emptyParameters: Boolean = emptyParams
+
+    /** The typings that were not unrolled as type parameters didn't matter yet. */
+    private[TypeTemplates] val pendingTypings = new IncrementalSeq[(Encoded, Typing)]
+
+    /** Records that a bound variable of type `tpe` is typed, which lets the type parameters of
+      * `tpe` matter from then on. The typings that were held back are then unrolled as well. */
+    private[unrolling] def mayBeEmpty(tpe: Type): Unit =
+      if (!emptyParams && typeOps.typeParamsOf(tpe).nonEmpty) {
+        emptyParams = true
+        releaseTypings()
+      }
+
+    private def releaseTypings(): Unit = {
+      val pending = pendingTypings.toList
+      for (p @ (blocker, typing) <- pending) {
+        pendingTypings -= p
+        val gen = nextGeneration(currentGeneration)
+        typeInfos.get(blocker) match {
+          case Some((exGen, origGen, notBlocker, exTps)) =>
+            typeInfos += blocker -> (gen min exGen, origGen, notBlocker, exTps + typing)
+          case None =>
+            typeInfos += blocker -> (gen, gen, mkNot(blocker), Set(typing))
+        }
+      }
+    }
+
+    // typings that were pending before a push are pending again after the pop
+    override def pop(): Unit = {
+      super.pop()
+      if (emptyParams) releaseTypings()
+    }
+
     private val tpSyms: MutableMap[TypeParameter, Variable] = MutableMap.empty
     private[unrolling] val tpSubst: MutableMap[Variable, Encoded] = MutableMap.empty
     private[unrolling] def storeTypeParameter(tp: TypeParameter): Variable =
@@ -489,7 +556,7 @@ trait TypeTemplates { self: Templates =>
     private[TypeTemplates] val collectionNexts = new IncrementalMap[Encoded, Encoded]
 
     val incrementals: Seq[IncrementalState] =
-      Seq(typeInfos, lessOrder, results, typeDepths, collections, boundCollections, reads, readsOf,
+      Seq(typeInfos, lessOrder, results, typeDepths, pendingTypings, collections, boundCollections, reads, readsOf,
         readBlockers, readTypings, collectionNexts)
 
     def unrollGeneration: Option[Int] =
