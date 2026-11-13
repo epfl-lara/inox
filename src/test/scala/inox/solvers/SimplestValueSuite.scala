@@ -96,10 +96,12 @@ class SimplestValueSuite extends SolverTestSuite {
   test("No simplest value of a sort whose invariant only holds for infinite values", Integers) { ctx =>
     given Context = ctx
     given program.Semantics = program.getSemantics
-    // The solver that looks for a value used to unroll forever
+    // The solver that looks for a value used to unroll forever. The search is bounded, so it ends
+    // in seconds, but it can take ten times longer when the other suites load the machine: the
+    // deadline only has to tell a slow search from one that doesn't end.
     val result = Future(scala.util.Try(program.symbols.simplestValue(T(forestID)())))
     try {
-      Await.result(result, 60.seconds) match {
+      Await.result(result, 5.minutes) match {
         case scala.util.Failure(_: program.symbols.NoSimpleValue) =>
         case res => fail(s"Expected no simple value, got $res")
       }
