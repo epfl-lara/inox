@@ -308,6 +308,7 @@ trait QuantificationTemplates { self: Templates =>
   def getAxioms: Seq[Axiom] = axioms.toSeq
 
   def getInstantiationsWithBlockers = axioms.toSeq.flatMap(_.instantiations.toSeq)
+  def hasInstantiationsWithBlockers = axioms.exists(_.instantiations.nonEmpty)
 
   protected sealed trait MatcherKey
   private case class FunctionKey(tfd: TypedFunDef) extends MatcherKey

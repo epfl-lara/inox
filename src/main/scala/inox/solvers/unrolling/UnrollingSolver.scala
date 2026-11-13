@@ -1445,7 +1445,9 @@ abstract class AbstractUnrollingSolver private
             Unroll
           }
 
-        case ProofCheck if ignoreModels =>
+        // The model of a proof check only serves to test whether we got lucky and to
+        // prioritize blockers during unrolling, so we don't request it when neither applies.
+        case ProofCheck if ignoreModels || !(feelingLucky || modelFinding || templates.hasInstantiationsWithBlockers) =>
           // check without additional model-guidance for unrolling
           reporter.debug(" - Running search without blocked literals (w/o lucky test)")
 
