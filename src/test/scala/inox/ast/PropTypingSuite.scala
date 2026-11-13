@@ -132,9 +132,71 @@ class PropTypingSuite extends AnyFunSuite {
       FunctionType(Seq(PropType()), IntegerType()), ADTType(boxID, Seq(PropType())),
       PiType(Seq("x" :: IntegerType()), PropType()),
       SigmaType(Seq("x" :: IntegerType()), PropType()),
-      RefinementType("p" :: PropType(), b)
+      SetType(RefinementType("p" :: PropType(), b))
     )) assert(tpe.getType == Untyped, s"for $tpe")
     assert(PropType().getType == PropType())
+  }
+
+  test("Propositions can be refined") {
+    given Symbols = propositional
+    // { p: Prop | p ==> b }
+    val p = "p" :: PropType()
+    val refined = RefinementType(p, Implies(p.toVariable, b))
+    assert(refined.getType == PropType())
+    val q = "q" :: refined
+    typed(PropType(), Let(q, positive, Not(q.toVariable)))
+    // a refined proposition is not a boolean
+    typed(Untyped, Let(q, positive, IfExpr(q.toVariable, i, i)))
+
+    // def all(f): { r: Prop | r ==> f(0) > 0 } = forall x. f(x) > 0
+    val allID = FreshIdentifier("all")
+    val all = mkFunDef(allID)() { _ =>
+      val f = "f" :: fT
+      val r = "r" :: PropType()
+      (Seq(f), RefinementType(r, Implies(r.toVariable, f.toVariable(E(BigInt(0))) > E(BigInt(0)))),
+        { case Seq(f) => forall("x" :: IntegerType())(x => f(x) > E(BigInt(0))) })
+    }
+    val syms = propositional.withFunctions(Seq(all))
+    syms.ensureWellFormed
+    assert(FunctionInvocation(allID, Seq(), Seq(f)).getType(using syms) == PropType())
+  }
+
+  test("Refined propositions are inferred") {
+    val inference = transformers.PropositionInference(inox.trees)
+    def refined(name: String)(pred: Variable => Expr): RefinementType = {
+      val vd = name :: BooleanType()
+      RefinementType(vd, pred(vd.toVariable))
+    }
+
+    // val p: { p: Boolean | p ==> b } = forall x. f(x) > 0; !p
+    val pT = refined("p")(p => Implies(p, b))
+    val pVd = "q" :: pT
+    val e = Let(pVd, positive, Not(pVd.toVariable))
+    locally {
+      given Symbols = propositional
+      assert(e.getType == Untyped)
+      val inferred = inference.transform(e)
+      assert(inferred.getType == PropType())
+      val Let(q, _, _) = inferred: @unchecked
+      val RefinementType(p, Implies(v, `b`)) = q.tpe: @unchecked
+      assert(q.id == pVd.id && p.tpe == PropType() && v == p.toVariable)
+      // booleans stay refined booleans
+      val same = Let(pVd, b, pVd.toVariable)
+      assert(inference.transform(same) == same)
+    }
+
+    // def all(f): { r: Boolean | r ==> f(0) > 0 } = forall x. f(x) > 0
+    val allID = FreshIdentifier("all")
+    val all = mkFunDef(allID)() { _ =>
+      val f = "f" :: fT
+      (Seq(f), refined("r")(r => Implies(r, f.toVariable(E(BigInt(0))) > E(BigInt(0)))),
+        { case Seq(f) => forall("x" :: IntegerType())(x => f(x) > E(BigInt(0))) })
+    }
+    val inferred = inference.transform(propositional.withFunctions(Seq(all)))
+    inferred.ensureWellFormed
+    val RefinementType(r, _) = inferred.getFunction(allID).returnType: @unchecked
+    assert(r.tpe == PropType())
+    assert(inferred.getFunction(allID).returnType.getType(using inferred) == PropType())
   }
 
   test("Specifications accept propositions") {
@@ -208,6 +270,10 @@ class PropTypingSuite extends AnyFunSuite {
     typed(BooleanType(), enc.encode(positive), enc.encode(And(pos(f), b)))
     val named = "p" :: PropType()
     typed(BooleanType(), enc.encode(Let(named, positive, named.toVariable)))
+    val refined = "q" :: RefinementType(named, Implies(named.toVariable, b))
+    val encoded = enc.encode(Let(refined, positive, refined.toVariable))
+    typed(BooleanType(), encoded)
+    assert(!exprOps.exists { case Let(vd, _, _) => typeOps.exists(_ == PropType())(vd.tpe); case _ => false } (encoded))
     enc.targetProgram.symbols.ensureWellFormed
 
     // programs without propositions are left as they are

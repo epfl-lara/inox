@@ -73,7 +73,8 @@ trait Types { self: Trees =>
     * term can't depend on it: nothing takes a proposition back to a boolean. Propositions are not
     * data either. `PropType` is the type of an expression, of a variable that a `Let` binds to a
     * proposition (a name for it), or the return type of a function (a predicate definition). It
-    * can't be the type of a parameter or a field, or appear inside of another type.
+    * can't be the type of a parameter or a field, or appear inside of another type, other than
+    * as the type that a [[RefinementType]] refines: a refined proposition is still a proposition.
     *
     * Propositions are accepted where a specification is stated: in the predicate of a
     * [[RefinementType]] or of an `Assume`, and in the constraints of solvers. Quantifiers are
@@ -223,7 +224,7 @@ trait Types { self: Trees =>
 
   sealed case class RefinementType(vd: ValDef, prop: Expr) extends Type with TypeNormalization {
     override protected def computeErasedType(using Symbols): Type =
-      if (vd.getType == PropType()) Untyped else checkProposition(prop, vd.getType)
+      checkProposition(prop, vd.getType)
 
     override def hashCode: Int = 79 * code
     override def equals(that: Any): Boolean = that match {
