@@ -140,8 +140,6 @@ trait QuantificationTemplates { self: Templates =>
       val (p, tmplClauses) = mkExprClauses(pathVar._1, body, clauseSubst)
 
       given TypingGenerator = if (pol) ContractGenerator else FreeGenerator
-      // the quantified variables are bound, so their type parameters may be empty
-      for (v <- idQuantifiers) typesManager.mayBeEmpty(v.tpe)
       val (tpeCond, tpeClauses) = idQuantifiers.foldLeft((BooleanLiteral(true): Expr, emptyClauses)) {
         case ((tpCond, tpClauses), v) =>
           val (p, clauses) = mkTypeClauses(pathVar._1, v.tpe, v, clauseSubst, inDomain = true)
@@ -540,7 +538,6 @@ trait QuantificationTemplates { self: Templates =>
       /* Generate the sequence of all relevant instantiation mappings */
       var mappings: Seq[(Set[Encoded], Map[Encoded, Arg], Int)] = Seq.empty
       for ((v,q) <- quantifiers if grounds(q).isEmpty) {
-        typesManager.mayBeEmpty(v.tpe)
         val res: Set[Encoded] = if (FreeUnrolling `unroll` v.tpe) {
           val closures = typeOps.variablesOf(v.tpe).toSeq.sortBy(_.id).map(subst)
           val result = encodeSymbol(Variable.fresh("result", BooleanType(), true))
