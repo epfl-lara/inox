@@ -429,7 +429,7 @@ abstract class AbstractUnrollingSolver private
     }
 
     def normal(l: Lambda): Expr = {
-      val (nl, subst) = normalizeStructure(l, onlySimple = true)
+      val (nl, subst) = normalizeStructure(l, ast.SymbolOps.NormalizationLifting.Simple)
       exprOps.replaceFromSymbols(subst.map { case (v, e, _) => v -> e }.toMap, nl)
     }
 
@@ -830,7 +830,7 @@ abstract class AbstractUnrollingSolver private
         }.toMap
 
         val res = exprOps.replaceFromSymbols(localsSubst, tmpl.structure.body)
-        val (nl, subst) = normalizeStructure(res, onlySimple = true)
+        val (nl, subst) = normalizeStructure(res.asInstanceOf[Lambda], ast.SymbolOps.NormalizationLifting.Simple)
         exprOps.replaceFromSymbols(subst.map { case (v, e, _) => v -> e }.toMap, nl).asInstanceOf[Lambda]
       }
 
@@ -840,7 +840,7 @@ abstract class AbstractUnrollingSolver private
       // closures, as with the lambdas of the query).
       def distinctFromOthers(lambda: Lambda): Lambda = {
         def normal(l: Lambda): Expr = {
-          val (nl, subst) = normalizeStructure(l, onlySimple = true)
+          val (nl, subst) = normalizeStructure(l, ast.SymbolOps.NormalizationLifting.Simple)
           exprOps.replaceFromSymbols(subst.map { case (v, e, _) => v -> e }.toMap, nl)
         }
 

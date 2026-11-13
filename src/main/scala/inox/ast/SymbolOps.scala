@@ -11,6 +11,29 @@ import transformers._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 object SymbolOps {
+  /** Which ground subexpressions [[SymbolOps.normalizeStructure]] lifts out of lambdas into
+    * dependencies (foralls are normalized with `Pure`). */
+  enum NormalizationLifting {
+    /** Only the simple expressions (see [[ExprOps.isSimple]]) that can't fail, so that lambdas
+      * aren't lifted, and their locals are normalized with the body. */
+    case Simple
+    /** The expressions that can't fail, which keeps intensional equality. */
+    case Pure
+    /** Also the simple expressions that may fail (eg. divisions), which the solvers encode as total
+      * terms. This keeps extensional equality, but not intensional equality. */
+    case Partial
+  }
+
+  /** What [[SymbolOps.normalizeStructure]] normalizes the body of. */
+  private[ast] enum NormalizationScope {
+    /** A lambda, whose body is only evaluated when it is applied. */
+    case Function
+    /** A forall, whose E-matching patterns and (possibly refined) parameter types are preserved,
+      * since refinements restrict the quantification domain. `instantiated` holds when the types
+      * of its parameters have instances, so that its body is evaluated. */
+    case Quantifier(instantiated: Boolean)
+  }
+
   /** Whether `simplestValue` may run a solver to find a value of a sort with an invariant.
     *
     * It is turned off in the context of that solver, so that extracting its model doesn't start
@@ -41,6 +64,7 @@ trait SymbolOps extends TypeOps { self =>
   import trees._
   import trees.exprOps._
   import symbols.{given, _}
+  import SymbolOps.{NormalizationLifting, NormalizationScope}
 
   /** Override point for simplifier creation */
   protected def simplifierWithPC(popts: PurityOptions): SimplifierWithPC = {
@@ -303,34 +327,23 @@ trait SymbolOps extends TypeOps { self =>
     *
     * @param args The "arguments" (free variables) of `expr`
     * @param expr The expression to be normalized
-    * @param preserveApps Determines whether E-matching patterns should be preserved
-    *                     during normalization (useful for normalizing foralls)
-    * @param onlySimple Determines whether non-simple expressions (see
-    *                   [[ExprOps.isSimple isSimple]]) should be normalized into a
-    *                   dependency or recursed into (when they don't depend on `args`).
-    *                   This distinction is used to provide general equality checks
-    *                   between functions even when they have complex closures.
-    * @param inFunction Determines whether normalization is called on a function. If
-    *                   not, then normalization can normalize impure expressions when
-    *                   the path-condition is empty.
-    * @param preserveArgTypes Determines whether the declared (possibly refined) types of `args`
-    *                   are kept in the normalized bindings. This is required for quantifiers,
-    *                   where refinements restrict the quantification domain.
-    * @param liftPartial Determines whether simple expressions that may fail (eg. divisions) are
-    *                   lifted regardless of their path. The solvers encode them as total terms,
-    *                   so this preserves extensional equality, but not intensional equality.
-    *                   Without function equality, lambdas that are extensionally equal can't be
-    *                   told apart, so it can be used there as well.
+    * @param scope What `expr` is the body of (see [[SymbolOps.NormalizationScope]]).
+    * @param lifting Which ground subexpressions are lifted into dependencies (see [[SymbolOps.NormalizationLifting]]).
+    *                Non-simple expressions that aren't lifted are recursed into, which provides
+    *                general equality checks between functions even when they have complex closures.
     */
-  def normalizeStructure(
+  private def normalizeStructure(
     args: Seq[ValDef],
     expr: Expr,
-    preserveApps: Boolean,
-    onlySimple: Boolean,
-    inFunction: Boolean,
-    preserveArgTypes: Boolean,
-    liftPartial: Boolean
+    scope: NormalizationScope,
+    lifting: NormalizationLifting
   )(using opts: PurityOptions): (Seq[ValDef], Expr, Seq[(Variable, Expr, Seq[Expr])]) = {
+    val quantified = scope.isInstanceOf[NormalizationScope.Quantifier]
+    val inFunction = scope match {
+      case NormalizationScope.Function => true
+      case NormalizationScope.Quantifier(instantiated) => !instantiated
+    }
+    val liftPartial = lifting == NormalizationLifting.Partial
 
     val subst: MutableMap[Variable, (Expr, Seq[Expr])] = MutableMap.empty
     val varSubst: MutableMap[Variable, Variable] = MutableMap.empty
@@ -441,7 +454,7 @@ trait SymbolOps extends TypeOps { self =>
         def unapply(e: Expr): Option[Seq[Expr]] = {
           // The set of minimal conditions that must be met for an expression to be liftable
           val minimal =
-            (isSimple(e) || !onlySimple)           && // check whether we want only simple expression
+            (isSimple(e) || lifting != NormalizationLifting.Simple) && // check whether we want only simple expression
             !containsUnliftable(e)                 && // expressions containing uninterpreted calls, errors or assumptions can't be lifted
             (!inFunction || !containsRecursive(e))    // recursive functions can't be lifted from lambdas
 
@@ -477,7 +490,7 @@ trait SymbolOps extends TypeOps { self =>
 
             case Matcher(args) if (
               args.exists { case v: Variable => vars(v) case _ => false } &&
-              preserveApps
+              quantified
             ) =>
               val Operator(es, recons) = e: @unchecked
               recons(es.map(op(_, env)))
@@ -513,7 +526,7 @@ trait SymbolOps extends TypeOps { self =>
             // will have the same normalized structure thanks to this case.
             case Operator(es, recons) if (
               // We first make sure not to introduce new matchers in foralls
-              (!preserveApps || !es.exists { case v: Variable => vars(v) case _ => false }) &&
+              (!quantified || !es.exists { case v: Variable => vars(v) case _ => false }) &&
               // Make sure we don't try to normalize outer-most expressions
               // See above about how/why `recCount` is used.
               recCounts > 1 &&
@@ -552,7 +565,7 @@ trait SymbolOps extends TypeOps { self =>
       )
     }
 
-    if (preserveArgTypes) {
+    if (quantified) {
       // Register the arguments with their (normalized) declared types before transforming
       // the body, as `transformVar` would otherwise only keep their underlying types.
       args.foldLeft(Set.empty[Variable]) { (vars, vd) =>
@@ -581,53 +594,58 @@ trait SymbolOps extends TypeOps { self =>
     (bindings, newExpr, deps)
   }
 
-  /** Wrapper around
-    * [[normalizeStructure(args:Seq[SymbolOps\.this\.trees\.ValDef],expr:SymbolOps\.this\.trees\.Expr,preserveApps:Boolean,onlySimple:Boolean,inFunction:Boolean,preserveArgTypes:Boolean,liftPartial:Boolean)* normalizeStructure]]
-    * that is tailored for structural equality of [[Expressions.Lambda Lambda]] and [[Expressions.Forall Forall]] instances.
-    * With `liftPartial`, lambdas are normalized up to extensional equality (see the wrapped method).
+  /** Normalizes `lambda` for structural equality: identifiers are normalized, and the ground
+    * subexpressions that `lifting` allows are lifted into dependencies, returned with the
+    * conditions under which they are evaluated.
     */
-  def normalizeStructure(e: Expr, onlySimple: Boolean = false, liftPartial: Boolean = false)
-                        (using PurityOptions): (Expr, Seq[(Variable, Expr, Seq[Expr])]) = e match {
-    case lambda: Lambda =>
-      // Ground values are normalized as variables, so that the solver (closures are variables) and
-      // the evaluator (closures are values) agree on lambda equality. With `onlySimple`, values
-      // containing lambdas stay in the body, so their locals get normalized with it.
-      val values = MutableMap.empty[Variable, Expr]
-      val abstracted = preMap {
-        case v if !v.isInstanceOf[Variable] && isGround(v) && (!onlySimple || isSimple(v)) && isValue(v) =>
-          val w = Variable.fresh("w", v.getType)
-          values(w) = v
-          Some(w)
-        case _ => None
-      } (lambda.body)
-      val fresh = freshenLocals(Lambda(lambda.params, abstracted).copiedFrom(lambda)).asInstanceOf[Lambda]
-      val (args, body, subst) = normalizeStructure(fresh.params, fresh.body, false, onlySimple, true, false, liftPartial)
-      val vs = values.toMap
-      (Lambda(args, body), subst.map { case (v, e, conds) =>
-        (v, replaceFromSymbols(vs, e), conds.map(replaceFromSymbols(vs, _)))
-      })
+  def normalizeStructure(lambda: Lambda, lifting: NormalizationLifting)
+                        (using PurityOptions): (Lambda, Seq[(Variable, Expr, Seq[Expr])]) = {
+    // Ground values are normalized as variables, so that the solver (closures are variables) and
+    // the evaluator (closures are values) agree on lambda equality. With `NormalizationLifting.Simple`,
+    // values containing lambdas stay in the body, so their locals get normalized with it.
+    val values = MutableMap.empty[Variable, Expr]
+    val abstracted = preMap {
+      case v if !v.isInstanceOf[Variable] && isGround(v) && (lifting != NormalizationLifting.Simple || isSimple(v)) && isValue(v) =>
+        val w = Variable.fresh("w", v.getType)
+        values(w) = v
+        Some(w)
+      case _ => None
+    } (lambda.body)
+    val fresh = freshenLocals(Lambda(lambda.params, abstracted).copiedFrom(lambda)).asInstanceOf[Lambda]
+    val (args, body, subst) = normalizeStructure(fresh.params, fresh.body, NormalizationScope.Function, lifting)
+    val vs = values.toMap
+    (Lambda(args, body), subst.map { case (v, e, conds) =>
+      (v, replaceFromSymbols(vs, e), conds.map(replaceFromSymbols(vs, _)))
+    })
+  }
 
-    case f: Forall =>
-      val forall = freshenLocals(f).asInstanceOf[Forall]
-      val isInstantiated = forall.params.forall(vd => hasInstance(vd.tpe) == Some(true))
-      val (args, body, subst) = normalizeStructure(forall.params, forall.body, true, onlySimple, !isInstantiated, true, false)
-      (Forall(args, body), subst)
+  /** Normalizes `forall` for structural equality, like lambdas with `NormalizationLifting.Pure`. Its
+    * E-matching patterns and (possibly refined) parameter types are preserved. */
+  def normalizeStructure(forall: Forall)(using PurityOptions): (Forall, Seq[(Variable, Expr, Seq[Expr])]) = {
+    val fresh = freshenLocals(forall).asInstanceOf[Forall]
+    val isInstantiated = fresh.params.forall(vd => hasInstance(vd.tpe) == Some(true))
+    val (args, body, subst) =
+      normalizeStructure(fresh.params, fresh.body, NormalizationScope.Quantifier(isInstantiated), NormalizationLifting.Pure)
+    (Forall(args, body), subst)
+  }
 
-    case _ =>
-      val (_, body, subst) = normalizeStructure(Seq(), freshenLocals(e), false, onlySimple, false, false, false)
-      (body, subst)
+  /** Normalizes `e`, which must be a lambda (with `NormalizationLifting.Pure`) or a forall. */
+  def normalizeStructure(e: Expr)(using PurityOptions): (Expr, Seq[(Variable, Expr, Seq[Expr])]) = e match {
+    case lambda: Lambda => normalizeStructure(lambda, NormalizationLifting.Pure)
+    case forall: Forall => normalizeStructure(forall)
+    case _ => throw new IllegalArgumentException(s"Can only normalize the structure of lambdas and foralls, not ${e.asString(using PrinterOptions())}")
   }
 
   /** A closure that calls the uninterpreted function `id`, whose value is `res`, so that it is only
     * equal to the closures that call `id`. The model must give `res` for `id` at no type arguments,
     * and the call is never lifted out of the closure (see
-    * [[normalizeStructure(e:SymbolOps\.this\.trees\.Expr,onlySimple:Boolean,liftPartial:Boolean)*]]), so distinct
+    * [[normalizeStructure(lambda:SymbolOps\.this\.trees\.Lambda,lifting:inox\.ast\.SymbolOps\.NormalizationLifting)*]]), so distinct
     * closures remain distinct. */
   def uniquateClosure(id: Identifier, res: Lambda): Lambda = {
     val params = res.params.map(_.freshen)
     val closure = Lambda(params, UninterpretedCall(id, Seq.empty, params.map(_.toVariable), res.getType))
     // The closures that call `id` are then equal, whatever the names of their parameters
-    normalizeStructure(closure)(using PurityOptions.unchecked)._1.asInstanceOf[Lambda]
+    normalizeStructure(closure, NormalizationLifting.Pure)(using PurityOptions.unchecked)._1
   }
 
   /** The interpretations among `interpretations` of the uninterpreted functions that `expr` may call,
