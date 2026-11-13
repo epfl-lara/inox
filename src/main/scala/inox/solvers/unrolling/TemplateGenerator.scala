@@ -726,6 +726,11 @@ trait TemplateGenerator { self: Templates =>
     }
 
     def rec(pathVar: Variable, tpe: Type, expr: Expr, state: RecursionState): Expr = tpe match {
+      // The values of type parameters that a free value holds don't matter yet, but the typing is
+      // registered so that it can be unrolled once they do (see `typesManager.emptyParameters`).
+      case tpe if generator == FreeGenerator && !(generator `unroll` tpe) && FreeUnrolling.unroll(tpe, true) =>
+        storeType(pathVar, tpe, expr, inDomain)
+
       case tpe if !(generator `unroll` tpe) => BooleanLiteral(true) // nothing to do here!
 
       // A function `f` lies in `Pi(x: A). B` iff `A(x0) ==> B(f(x0))` holds for all `x0`. We check
@@ -751,6 +756,8 @@ trait TemplateGenerator { self: Templates =>
             val paramType = typeOps.replaceFromSymbols(subst, vd.tpe)
             val arg = Variable.fresh(vd.id.name, paramType.getType, true)
             storeExpr(arg)
+            // the witness argument is bound, so its type parameters may be empty
+            typesManager.mayBeEmpty(paramType)
             val (p, paramClauses) = mkTypeClauses(w, paramType, arg, localSubst)(using FreeGenerator)
             builder ++= paramClauses
             storeGuarded(w, p)
