@@ -259,12 +259,18 @@ abstract class RecursiveEvaluator(override val program: Program,
 
     case l @ Lambda(_, _) =>
       def normalizeLambda(l: Lambda, onlySimple: Boolean = false): Lambda = {
-        val (nl, deps) = normalizeStructure(l, onlySimple = onlySimple)
+        val liftPartial = !onlySimple && functionEquality != solvers.unrolling.FunctionEquality.Intensional
+        val (nl, deps) = normalizeStructure(l, onlySimple = onlySimple, liftPartial = liftPartial)
         val newCtx = deps.foldLeft(rctx) {
           case (rctx, (v, dep, conds)) =>
-            if (conds.forall(e(_)(using rctx, gctx) == BooleanLiteral(true)))
-              rctx.withNewVar(v.toVal, e(dep)(using rctx, gctx))
-            else rctx
+            if (conds.forall(e(_)(using rctx, gctx) == BooleanLiteral(true))) {
+              // Expressions that may fail are lifted unless equality is intensional, and stay
+              // in the body when they do fail (eg. `x => if (x > 0) 1 / 0 else x`)
+              val value = try e(dep)(using rctx, gctx) catch {
+                case _: (EvalError | RuntimeError) if liftPartial => replaceFromSymbols(rctx.mappings.map((vd, e) => vd.toVariable -> e), dep)
+              }
+              rctx.withNewVar(v.toVal, value)
+            } else rctx
         }
         val mapping = variablesOf(nl).map(v => v -> newCtx.mappings(v.toVal)).toMap
         replaceFromSymbols(mapping, nl).asInstanceOf[Lambda]
