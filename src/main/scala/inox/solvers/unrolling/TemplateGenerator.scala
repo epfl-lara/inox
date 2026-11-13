@@ -681,7 +681,7 @@ trait TemplateGenerator { self: Templates =>
     import builder._
 
     // the typing guards a quantifier, which holds if the bound variable has no value
-    if (generator == FreeGenerator && inDomain) typesManager.typeParametersMayBeEmpty(tpe)
+    if (generator == FreeGenerator && inDomain) typesManager.unfoldTypeParameters(tpe)
 
     case class RecursionState(
       recurseAdt: Boolean, // visit adt children/fields
@@ -759,7 +759,7 @@ trait TemplateGenerator { self: Templates =>
             val arg = Variable.fresh(vd.id.name, paramType.getType, true)
             storeExpr(arg)
             // `w` can't hold if `arg` has no value, which makes the check hold
-            typesManager.typeParametersMayBeEmpty(paramType)
+            typesManager.unfoldTypeParameters(paramType)
             val (p, paramClauses) = mkTypeClauses(w, paramType, arg, localSubst)(using FreeGenerator)
             builder ++= paramClauses
             storeGuarded(w, p)

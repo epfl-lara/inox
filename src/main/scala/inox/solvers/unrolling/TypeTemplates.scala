@@ -293,7 +293,7 @@ trait TypeTemplates { self: Templates =>
   def instantiateType(blocker: Encoded, typing: Typing): Clauses = {
     typing.instantiator match {
       // the typing of a quantified variable guards the quantifier
-      case Constraint(_, _, true, true) => typeParametersMayBeEmpty(typing.tpe)
+      case Constraint(_, _, true, true) => unfoldTypeParameters(typing.tpe)
       case _ =>
     }
 
@@ -480,20 +480,20 @@ trait TypeTemplates { self: Templates =>
      * quantifier holds if its variable has no value, and so does a membership check at a witness
      * argument that has no value.
      *
-     * Until such a guard appears (@see [[typeParametersMayBeEmpty]]), these typings are deferred:
+     * Until such a guard appears (@see [[unfoldTypeParameters]]), these typings are deferred:
      * they are assumed to hold without being unfolded (@see [[deferTyping]]), which spares most
      * queries an unfolding as deep as their free values. Once a guard appears, the deferred typings
      * are registered for unfolding like any other, and no typing is deferred anymore. */
 
-    /** Whether type parameters are known to be inhabited as far as the solver can tell. This is
-      * never reset: guards may remain in cached templates after they are popped. */
-    private var inhabitedTypeParameters: Boolean = true
+    /** Whether a guard has appeared, so that free values are unfolded down to their values of type
+      * parameters. This is never reset: guards may remain in cached templates after they are popped. */
+    private var unfoldingTypeParameters: Boolean = false
 
     /** The typings that were assumed to hold, under the blocker they were instantiated with. */
     private[TypeTemplates] val deferredTypings = new IncrementalSeq[(Encoded, Typing)]
 
     /** Whether values of type `tpe` are only unfolded to reach their values of type parameters. */
-    private[unrolling] def isParameterTyping(tpe: Type): Boolean = inhabitedTypeParameters && {
+    private[unrolling] def isParameterTyping(tpe: Type): Boolean = !unfoldingTypeParameters && {
       val tparams = typeOps.typeParamsOf(tpe)
       tparams.nonEmpty && !FreeUnrolling.unroll(typeOps.instantiateType(tpe, tparams.map(_ -> UnitType()).toMap))
     }
@@ -503,11 +503,12 @@ trait TypeTemplates { self: Templates =>
       case _ => false
     }
 
-    /** Records that the typing of a bound variable of type `tpe` is a guard, which gives the
-      * solver a use for the type parameters of `tpe` being empty. */
-    private[unrolling] def typeParametersMayBeEmpty(tpe: Type): Unit =
-      if (inhabitedTypeParameters && typeOps.typeParamsOf(tpe).nonEmpty) {
-        inhabitedTypeParameters = false
+    /** Unfolds free values down to their values of type parameters from now on, if `tpe` mentions
+      * a type parameter. This is called when the typing of a bound variable of type `tpe` is a
+      * guard, which gives the solver a use for the type parameters of `tpe` being empty. */
+    private[unrolling] def unfoldTypeParameters(tpe: Type): Unit =
+      if (!unfoldingTypeParameters && typeOps.typeParamsOf(tpe).nonEmpty) {
+        unfoldingTypeParameters = true
         unfoldDeferredTypings()
       }
 
@@ -532,7 +533,7 @@ trait TypeTemplates { self: Templates =>
     // a pop restores the typings that were deferred before the push, even if a guard has appeared since
     override def pop(): Unit = {
       super.pop()
-      if (!inhabitedTypeParameters) unfoldDeferredTypings()
+      if (unfoldingTypeParameters) unfoldDeferredTypings()
     }
 
     private val tpSyms: MutableMap[TypeParameter, Variable] = MutableMap.empty
