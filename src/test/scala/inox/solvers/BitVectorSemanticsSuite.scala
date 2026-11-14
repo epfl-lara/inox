@@ -120,6 +120,26 @@ class BitVectorSemanticsSuite extends SolverTestSuite {
     assert(s.solveVALID(Equals(IntToBV(4, false, BVToInt(unsigned)), unsigned)).contains(true))
   }
 
+  test("Models through BitVector/Integer Conversions", Integers, BitVectorIntConversions) { ctx =>
+    val s = solver(ctx)
+
+    def model(constraint: Expr, v: Variable): Option[Expr] = s.solveSAT(constraint) match {
+      case SatWithModel(model) => model.vars.get(v.toVal)
+      case _ => None
+    }
+
+    val unsigned = Variable.fresh("unsigned", BVType(false, 8))
+    val signed = Variable.fresh("signed", Int8Type())
+    val i = Variable.fresh("i", IntegerType())
+
+    assert(model(Equals(BVToInt(unsigned), IntegerLiteral(200)), unsigned) == Some(BVLiteral(false, 200, 8)))
+    assert(model(Equals(BVToInt(signed), IntegerLiteral(-100)), signed) == Some(Int8Literal(-100)))
+    assert(s.solveSAT(Equals(BVToInt(signed), IntegerLiteral(200))).isUNSAT)
+    // int2bv reads the integer modulo 2^8
+    assert(model(andJoin(Seq(Equals(IntToBV(8, true, i), Int8Literal(-1)), GreaterThan(i, IntegerLiteral(300)),
+      LessThan(i, IntegerLiteral(600)))), i) == Some(IntegerLiteral(511)))
+  }
+
   test("solve bitwise operations", BitVectors) { ctx =>
     val s = solver(ctx)
 
