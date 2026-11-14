@@ -322,5 +322,22 @@ class RecursiveEvaluatorSuite extends AnyFunSuite {
     // The solvers keep a distinct function for each instantiation, so the calls at the erased type
     // arguments aren't interpreted by the interpretation at the refined ones
     assert(ev.eval(call(IntegerType()), model).result.isEmpty)
+
+    // Model lambdas that call it keep its type arguments, though the values around the call are erased
+    val f = ValDef.fresh("f", FunctionType(Seq(), T(listID)(pos)))
+    val g = ValDef.fresh("g", FunctionType(Seq(), T(listID)(pos)))
+    val withLambdas = Model(p)(
+      Map(f -> Lambda(Seq(), call(pos)), g -> Lambda(Seq(), ADT(consID, Seq(pos), Seq(IntegerLiteral(1), call(pos))))),
+      model.interpretations)
+    for (h <- Seq(f, g)) ev.eval(h.toVariable, withLambdas).result match {
+      case Some(l: Lambda) =>
+        val calls = exprOps.collect[Expr] { case c: UninterpretedCall => Set(c) case _ => Set() } (l.body)
+        assert(calls.nonEmpty && calls.forall { case c: UninterpretedCall => c.tps == Seq(T(listID)(pos)) case _ => false },
+          s"type arguments of the calls in $l")
+      case res => fail(s"Unexpected value $res for ${h.id}")
+    }
+    assert(ev.eval(Equals(Application(f.toVariable, Seq()), cons(pos)), withLambdas).result == Some(BooleanLiteral(true)))
+    assert(ev.eval(Equals(Application(g.toVariable, Seq()), ADT(consID, Seq(IntegerType()), Seq(IntegerLiteral(1), cons(IntegerType())))),
+      withLambdas).result == Some(BooleanLiteral(true)))
   }
 }
