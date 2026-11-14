@@ -72,18 +72,108 @@ class PropTypingSuite extends AnyFunSuite {
 
   test("The value of a term can't depend on a proposition") {
     given Symbols = propositional
+    val pred = Lambda(Seq("y" :: IntegerType()), positive)
     typed(Untyped,
       IfExpr(positive, i, i),
       Let("p" :: BooleanType(), positive, i),
+      // data would tell propositions apart by its equality
       Tuple(Seq(positive, i)),
-      Lambda(Seq("y" :: IntegerType()), positive),
-      Lambda(Seq("p" :: PropType()), i),
+      Tuple(Seq(pred, i)),
       FiniteSet(Seq(positive), BooleanType()),
+      FiniteSet(Seq(pred), FunctionType(Seq(IntegerType()), PropType())),
       ADT(boxConsID, Seq(BooleanType()), Seq(positive)),
       ADT(boxConsID, Seq(PropType()), Seq(positive)),
+      // and so would a type parameter
       FunctionInvocation(idID, Seq(BooleanType()), Seq(positive)),
       FunctionInvocation(idID, Seq(PropType()), Seq(positive)),
-      Application(Lambda(Seq("p" :: BooleanType()), i), Seq(positive)))
+      FunctionInvocation(idID, Seq(pred.getType), Seq(pred)),
+      // a boolean parameter can't be given a proposition
+      Application(Lambda(Seq("p" :: BooleanType()), i), Seq(positive)),
+      Application(Lambda(Seq("p" :: BooleanType()), IfExpr(b, i, i)), Seq(positive)))
+  }
+
+  test("Propositions are values") {
+    given Symbols = propositional
+    val predT = FunctionType(Seq(IntegerType()), PropType())
+    val pred = Lambda(Seq("y" :: IntegerType()), positive)
+    val p = "p" :: PropType()
+    val q = "q" :: predT
+    // predicates
+    typed(predT, pred, Let(q, pred, q.toVariable))
+    typed(PropType(), Application(pred, Seq(i)), Let(q, pred, Application(q.toVariable, Seq(i))))
+    typed(FunctionType(Seq(IntegerType()), predT), Lambda(Seq("z" :: IntegerType()), pred))
+    // parameters that are propositions
+    typed(FunctionType(Seq(PropType()), IntegerType()), Lambda(Seq(p), i))
+    typed(FunctionType(Seq(PropType()), PropType()), Lambda(Seq(p), Not(p.toVariable)))
+    typed(IntegerType(), Application(Lambda(Seq(p), i), Seq(positive)), Application(Lambda(Seq(p), i), Seq(b)))
+    typed(PropType(), Application(Lambda(Seq(p), Not(p.toVariable)), Seq(b)))
+    typed(Untyped, Lambda(Seq(p), IfExpr(p.toVariable, i, i)))
+    // a boolean function is a predicate
+    val boolean = Lambda(Seq("y" :: IntegerType()), b)
+    typed(PropType(), Application(Lambda(Seq(q), Application(q.toVariable, Seq(i))), Seq(boolean)))
+    // an equality between predicates is a proposition, and so is a choice between them
+    typed(PropType(), Equals(pred, pred), Equals(pred, boolean))
+    typed(BooleanType(), Equals(boolean, boolean))
+    typed(predT, IfExpr(positive, pred, pred))
+    typed(Untyped, IfExpr(Equals(pred, pred), i, i))
+    // one can't quantify over propositions or predicates
+    typed(Untyped, Forall(Seq(p), p.toVariable), Forall(Seq(q), Application(q.toVariable, Seq(i))))
+
+    // def holds(p: Prop, q: BigInt => Prop): Prop = p && q(1)
+    val holdsID = FreshIdentifier("holds")
+    val holds = mkFunDef(holdsID)() { _ =>
+      (Seq(p, q), PropType(), { case Seq(p, q) => And(p, Application(q, Seq(i))) })
+    }
+    val syms = propositional.withFunctions(Seq(holds))
+    syms.ensureWellFormed
+    locally {
+      given Symbols = syms
+      typed(PropType(),
+        FunctionInvocation(holdsID, Seq(), Seq(positive, pred)),
+        FunctionInvocation(holdsID, Seq(), Seq(b, boolean)))
+      typed(Untyped, FunctionInvocation(holdsID, Seq(), Seq(pred, pred)))
+    }
+  }
+
+  test("Parameters that are given propositions are inferred") {
+    // def exists(p: BigInt => Boolean): Boolean = !forall x. !p(x)
+    // def nested(f): Boolean = exists(y => forall x. f(x) > y)
+    // def decide(p: BigInt => Boolean): BigInt = if (p(0)) 0 else 1
+    val predT = FunctionType(Seq(IntegerType()), BooleanType())
+    val existsID = FreshIdentifier("exists")
+    val exists = mkFunDef(existsID)() { _ =>
+      (Seq("p" :: predT), BooleanType(), { case Seq(p) =>
+        Not(forall("x" :: IntegerType())(x => Not(Application(p, Seq(x))))) })
+    }
+    def above(f: Expr): Expr =
+      Lambda(Seq("y" :: IntegerType()), forall("x" :: IntegerType())(x => f(x) > E(BigInt(0))))
+    val nestedID = FreshIdentifier("nested")
+    val nested = mkFunDef(nestedID)() { _ =>
+      (Seq("f" :: fT), BooleanType(), { case Seq(f) => FunctionInvocation(existsID, Seq(), Seq(above(f))) })
+    }
+    val decideID = FreshIdentifier("decide")
+    val decide = mkFunDef(decideID)() { _ =>
+      (Seq("p" :: predT), IntegerType(), { case Seq(p) => IfExpr(Application(p, Seq(E(BigInt(0)))), i, i) })
+    }
+
+    val inference = transformers.PropositionInference(inox.trees)
+    val syms = NoSymbols.withFunctions(Seq(exists, nested, decide)).withQuantifiers(QuantifierMode.Propositional)
+    val inferred = inference.transform(syms)
+    inferred.ensureWellFormed
+    val propT = FunctionType(Seq(IntegerType()), PropType())
+    assert(inferred.getFunction(existsID).params.map(_.tpe) == Seq(propT))
+    assert(inferred.getFunction(existsID).returnType == PropType())
+    assert(inferred.getFunction(nestedID).returnType == PropType())
+    // a parameter that isn't given a proposition stays a boolean function
+    assert(inferred.getFunction(decideID) == decide)
+
+    // def misuse(f): BigInt = decide(y => forall x. f(x) > y)
+    val misuse = mkFunDef(FreshIdentifier("misuse"))() { _ =>
+      (Seq("f" :: fT), IntegerType(), { case Seq(f) => FunctionInvocation(decideID, Seq(), Seq(above(f))) })
+    }
+    val misused = inference.transform(syms.withFunctions(Seq(misuse)))
+    assert(misused.getFunction(decideID).params.map(_.tpe) == Seq(propT))
+    intercept[misused.TypeErrorException](misused.ensureWellFormed)
   }
 
   test("Variables bound to propositions are inferred") {
@@ -124,17 +214,24 @@ class PropTypingSuite extends AnyFunSuite {
     assert(inferred.getFunction(idID).returnType == syms.getFunction(idID).returnType)
   }
 
-  test("Propositions are not data") {
+  test("Data can't hold propositions") {
     given Symbols = propositional
+    val predT = FunctionType(Seq(IntegerType()), PropType())
     for (tpe <- Seq[Type](
       TupleType(Seq(PropType(), IntegerType())), SetType(PropType()), BagType(PropType()),
-      MapType(IntegerType(), PropType()), FunctionType(Seq(IntegerType()), PropType()),
-      FunctionType(Seq(PropType()), IntegerType()), ADTType(boxID, Seq(PropType())),
-      PiType(Seq("x" :: IntegerType()), PropType()),
+      MapType(IntegerType(), PropType()), ADTType(boxID, Seq(PropType())),
       SigmaType(Seq("x" :: IntegerType()), PropType()),
-      SetType(RefinementType("p" :: PropType(), b))
+      SetType(RefinementType("p" :: PropType(), b)),
+      TupleType(Seq(predT, IntegerType())), SetType(predT), ADTType(boxID, Seq(predT))
     )) assert(tpe.getType == Untyped, s"for $tpe")
-    assert(PropType().getType == PropType())
+    for (tpe <- Seq[Type](
+      PropType(), predT, FunctionType(Seq(PropType()), IntegerType()),
+      FunctionType(Seq(predT), predT), PiType(Seq("x" :: IntegerType()), PropType()),
+      // a function that takes a proposition can't depend on it, so it is data
+      SetType(FunctionType(Seq(PropType()), IntegerType()))
+    )) assert(tpe.getType != Untyped, s"for $tpe")
+    assert(carriesProposition(predT) && carriesProposition(FunctionType(Seq(IntegerType()), predT)))
+    assert(!carriesProposition(FunctionType(Seq(PropType()), IntegerType())))
   }
 
   test("Propositions can be refined") {
@@ -221,18 +318,27 @@ class PropTypingSuite extends AnyFunSuite {
     assert(leastUpperBound(PropType(), BooleanType()) == PropType())
     assert(greatestLowerBound(BooleanType(), PropType()) == BooleanType())
     assert(leastUpperBound(IntegerType(), PropType()) == Untyped)
+    // also as the results of functions
+    val boolT = FunctionType(Seq(IntegerType()), BooleanType())
+    val predT = FunctionType(Seq(IntegerType()), PropType())
+    assert(isSubtypeOf(boolT, predT) && !isSubtypeOf(predT, boolT))
+    assert(isSubtypeOf(FunctionType(Seq(predT), boolT), FunctionType(Seq(boolT), predT)))
+    assert(!isSubtypeOf(FunctionType(Seq(boolT), boolT), FunctionType(Seq(predT), predT)))
+    assert(!isSubtypeOf(FunctionType(Seq(BooleanType()), IntegerType()), FunctionType(Seq(PropType()), IntegerType())))
   }
 
-  test("Propositions can't be parameters or fields") {
+  test("Propositions can be parameters but not fields") {
     val param = mkFunDef(FreshIdentifier("param"))() { _ =>
       (Seq("p" :: PropType()), PropType(), { case Seq(p) => p })
     }
-    intercept[NotWellFormedException](NoSymbols.withFunctions(Seq(param)).ensureWellFormed)
+    NoSymbols.withFunctions(Seq(param)).ensureWellFormed
 
-    val field = mkSort(FreshIdentifier("S"))() { _ =>
-      Seq((FreshIdentifier("C"), Seq(ValDef(FreshIdentifier("p"), PropType()))))
+    for (tpe <- Seq(PropType(), FunctionType(Seq(IntegerType()), PropType()))) {
+      val field = mkSort(FreshIdentifier("S"))() { _ =>
+        Seq((FreshIdentifier("C"), Seq(ValDef(FreshIdentifier("p"), tpe))))
+      }
+      intercept[NotWellFormedException](NoSymbols.withSorts(Seq(field)).ensureWellFormed)
     }
-    intercept[NotWellFormedException](NoSymbols.withSorts(Seq(field)).ensureWellFormed)
   }
 
   test("A function that returns a boolean can't return a proposition") {

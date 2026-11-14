@@ -34,8 +34,24 @@ trait Types { self: Trees =>
 
   protected def unveilUntyped(tpe: Type): Type = {
     val NAryType(tps, _) = tpe: @unchecked
-    // propositions are not data: `PropType` can't appear inside of another type
-    if (tps exists (tp => tp == Untyped || tp == PropType())) Untyped else tpe
+    if (tps contains Untyped) Untyped
+    else tpe match {
+      // functions can take and return propositions
+      case _: FunctionType | _: PiType => tpe
+      // but data can't hold one: it could be told apart by its equality
+      case _ => if (tps exists carriesProposition) Untyped else tpe
+    }
+  }
+
+  /** Whether the values of `tpe` are propositions, or functions that return such values (see
+    * [[PropType]]). The truth value of these can't be observed, so equality on them is a
+    * proposition, and they can't be held by data or instantiate a type parameter. */
+  def carriesProposition(tpe: Type): Boolean = tpe match {
+    case PropType() => true
+    case FunctionType(_, to) => carriesProposition(to)
+    case PiType(_, to) => carriesProposition(to)
+    case RefinementType(vd, _) => carriesProposition(vd.tpe)
+    case _ => false
   }
 
   abstract class Type extends Tree with Typed {
@@ -69,12 +85,16 @@ trait Types { self: Trees =>
 
   /** The type of propositions, of which [[BooleanType]] is a subtype.
     *
-    * A proposition has a truth value in every model but no evaluation rule, so the value of a
-    * term can't depend on it: nothing takes a proposition back to a boolean. Propositions are not
-    * data either. `PropType` is the type of an expression, of a variable that a `Let` binds to a
-    * proposition (a name for it), or the return type of a function (a predicate definition). It
-    * can't be the type of a parameter or a field, or appear inside of another type, other than
-    * as the type that a [[RefinementType]] refines: a refined proposition is still a proposition.
+    * A proposition has a truth value in every model but no evaluation rule, so its truth value
+    * can't be observed: nothing takes a proposition back to a boolean. A term can't branch on
+    * one, unless its branches are propositions themselves, and an equality between propositions
+    * (or between functions that return propositions) is a proposition.
+    *
+    * A proposition is otherwise a value: it can be bound by a `Let` (a name for it), passed as
+    * an argument, and returned by a function (a predicate definition) or by a lambda (a
+    * predicate). It can be refined by a [[RefinementType]]. It can't be held by data (a tuple,
+    * a field, a collection) or instantiate a type parameter, where equality would observe it,
+    * and one can't quantify over propositions (see [[carriesProposition]]).
     *
     * Propositions are accepted where a specification is stated: in the predicate of a
     * [[RefinementType]] or of an `Assume`, and in the constraints of solvers. Quantifiers are
