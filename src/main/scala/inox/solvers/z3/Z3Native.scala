@@ -407,6 +407,12 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     case BVUnsignedToSigned(e) => toZ3(e)
     case BVSignedToUnsigned(e) => toZ3(e)
 
+    case BVToInt(e) =>
+      val BVType(signed, _) = e.getType: @unchecked
+      z3.mkBV2Int(toZ3(e), signed)
+    // Z3's `int2bv` takes the integer modulo 2^size, whose two's-complement reading gives signed results
+    case IntToBV(size, _, e) => z3.mkInt2BV(size, toZ3(e))
+
     case _ => unhandled
   }
 

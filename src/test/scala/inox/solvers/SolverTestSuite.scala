@@ -83,10 +83,10 @@ object SolverTestSuite {
     */
   val solvers: Seq[SolverInfo] = Seq(
     SolverInfo("nativez3", () => SolverFactory.hasNativeZ3,
-      Set(BitVectorIntConversions, FloatingPoint, Reset),
+      Set(FloatingPoint, Reset),
       groundOnly = Map("Bag Operations" -> z3BagUnionModels)),
     SolverInfo("unrollz3", () => SolverFactory.hasNativeZ3,
-      Set(BitVectorIntConversions, FloatingPoint, Reset),
+      Set(FloatingPoint, Reset),
       groundOnly = Map("Bag Operations" -> z3BagUnionModels)),
     SolverInfo("smt-z3", () => SolverFactory.hasZ3,
       Set(),
