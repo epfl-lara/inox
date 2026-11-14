@@ -86,7 +86,8 @@ trait TypeOps {
   def isSubtypeOf(t1: Type, t2: Type): Boolean =
     t1.getType != Untyped && t2.getType != Untyped && (
       t1.getType == t2.getType ||
-      (t1.getType == BooleanType() && t2.getType == PropType()))
+      // booleans are propositions, also as the results of functions
+      (carriesProposition(t2.getType) && leastUpperBound(t1.getType, t2.getType) == t2.getType))
 
   private type Instantiation = Map[TypeParameter, Type]
   def instantiation(from: Type, to: Type): Option[Instantiation] = {

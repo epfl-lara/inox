@@ -240,8 +240,6 @@ trait Definitions { self: Trees =>
 
       if (!fd.getType.isTyped) throw NotWellFormedException(fd)
       if (!(fd.params forall (_.isTyped))) throw NotWellFormedException(fd)
-      if (fd.params exists (_.getType == PropType()))
-        throw NotWellFormedException(fd, Some("Propositions can't be parameters"))
 
       val unbound: Seq[Variable] = collectWithPC(fd.fullBody, Path.empty `withBounds` fd.params) {
         case (v: Variable, path) if !(path `isBound` v) => v
@@ -256,7 +254,7 @@ trait Definitions { self: Trees =>
       if (!sort.isWellFormed) throw NotWellFormedException(sort)
       if (!(sort.constructors forall (cons => cons.sort == sort.id))) throw NotWellFormedException(sort)
       if (!(sort.constructors forall (_.fields forall (_.isTyped)))) throw NotWellFormedException(sort)
-      if (sort.constructors exists (_.fields exists (_.getType == PropType())))
+      if (sort.constructors exists (_.fields exists (vd => carriesProposition(vd.getType))))
         throw NotWellFormedException(sort, Some("Propositions can't be fields"))
       if (sort.constructors.flatMap(_.fields).groupBy(_.id).exists(_._2.size > 1)) throw NotWellFormedException(sort)
     }
