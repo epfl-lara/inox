@@ -429,7 +429,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
               val ft = lambdas.toA(fun)
               IFunApp(fun, (args zip (ft +: ft.from)).map {
                 case (arg, argType: FunctionType) =>
-                  functionIndex(arg, argType)(model).map(IIntLit(_)).getOrElse(arg)
+                  functionIndex(arg)(model).map(IIntLit(_)).getOrElse(arg)
                 case (arg, _) => arg
               })
             case e => e
@@ -441,23 +441,36 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
     /* Obtains the internal integer representation of the function `iterm` in two manners.
      * The first is to simply call model.eval on iterm. If it succeeds, we obtain the integer
-     * representation of the function. Otherwise, it could happen that iterm evaluates to some
-     * constant, in which case the representation of the function can be retrieved by traversing
-     * the `individuals` fields of the InfUninterpretedSort of the constant in question. */
-    private def functionIndex(iterm: ITerm, ft: FunctionType)(model: Model): Option[IdealInt] =
-      model.eval(iterm).orElse(model.evalExpression(iterm) match {
-        case Some(ct: IConstant) =>
-          typeToSort(ft) match {
-            case sort: UninterpretedSortTheory.InfUninterpretedSort =>
-              // Constants are numbered, it suffices to apply the reverse operation done in
-              // InfUninterpretedSort#decodeToTerm.
-              val idx = IdealInt(ct.c.name.substring(ct.c.name.lastIndexOf('!') + 1))
-              if (idx % 2 == IdealInt(0)) Some(idx / 2)
-              else Some(-(idx + 1) / 2)
-            case _ => None // Should not happen, but if it does, we simply return None
-          }
-        case _ => None
+     * representation of the function. Otherwise, iterm is (or evaluates to) an individual of
+     * the InfUninterpretedSort of functions, whose number is the representation. */
+    private def functionIndex(iterm: ITerm)(model: Model): Option[IdealInt] =
+      model.eval(iterm).orElse(individual(iterm)(model).map { ct =>
+        // Constants are numbered, it suffices to apply the reverse operation done in
+        // InfUninterpretedSort#decodeToTerm.
+        val idx = IdealInt(ct.c.name.substring(ct.c.name.lastIndexOf('!') + 1))
+        if (idx % 2 == IdealInt(0)) idx / 2
+        else -(idx + 1) / 2
       })
+
+    /* The individual of an uninterpreted sort that `iterm` is in the model, if any. The model
+     * evaluates terms to their individuals, but doesn't evaluate the individuals themselves, which
+     * a term can already be, e.g. as the function field of a constructor that the model gave. */
+    private def individual(iterm: ITerm)(model: Model): Option[IConstant] = {
+      def isIndividual(ct: IConstant): Boolean = {
+        val name = ct.c.name
+        val sep = name.lastIndexOf('!')
+        sep > 0 && sorts.values.exists {
+          case sort: UninterpretedSortTheory.InfUninterpretedSort => sort.name == name.substring(0, sep)
+          case _ => false
+        }
+      }
+
+      simplify(iterm)(model) match {
+        case ct: IConstant if isIndividual(ct) => Some(ct)
+        case t: ITerm => model.evalExpression(t).collect { case ct: IConstant if isIndividual(ct) => ct }
+        case _ => None
+      }
+    }
 
     private def evalToTerm(iexpr: IExpression)(model: Model): Option[IExpression] = iexpr match {
       case app @ IFunApp(_, _) => Some(app)
@@ -470,7 +483,15 @@ abstract class AbstractPrincessSolver(override val program: Program,
       def rec(iexpr: IExpression, tpe: Type)(using ctx: Context): Option[Expr] = tpe match {
         case BooleanType() => iexpr match {
           case iterm: ITerm => ctx.model.eval(iterm).map(i => BooleanLiteral(i.intValue == 0))
-          case iformula: IFormula => ctx.model.eval(iformula).map(BooleanLiteral.apply)
+          case iformula: IFormula => ctx.model.eval(iformula).orElse(iformula match {
+            // The model doesn't evaluate equalities between functions, which are the individuals of
+            // uninterpreted sorts, so these are compared directly
+            case IEquation(lhs, rhs) => for {
+              l <- individual(lhs)(ctx.model)
+              r <- individual(rhs)(ctx.model)
+            } yield l == r
+            case _ => None
+          }).map(BooleanLiteral.apply)
         }
 
         case IntegerType() =>
@@ -510,7 +531,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
         case ft: FunctionType =>
           val iterm = iexpr.asInstanceOf[ITerm]
-          functionIndex(iterm, ft)(ctx.model).map { ideal =>
+          functionIndex(iterm)(ctx.model).map { ideal =>
             val n = BigInt(ideal.bigIntValue)
             if (ctx.seen(n)) {
               ctx.interpretations.getOrElse(n, {
