@@ -290,4 +290,37 @@ class RecursiveEvaluatorSuite extends AnyFunSuite {
     assert(evaluator.eval(Equals(one, one), model).result == Some(BooleanLiteral(true)))
     assert(evaluator.eval(Application(h.toVariable, Seq(one)), model).result.isEmpty)
   }
+
+  test("Uninterpreted calls at refined type arguments use the interpretation at these types") {
+    import dsl._
+    val listID = FreshIdentifier("List")
+    val consID = FreshIdentifier("Cons")
+    val nilID = FreshIdentifier("Nil")
+    val list = mkSort(listID)("A") {
+      case Seq(aT) => Seq(
+        (consID, Seq(ValDef(FreshIdentifier("head"), aT), ValDef(FreshIdentifier("tail"), T(listID)(aT)))),
+        (nilID, Seq()))
+    }
+    val p = InoxProgram(NoSymbols.withSorts(Seq(list)))
+    val ev = RecursiveEvaluator(p, ctx)
+
+    def pos = {
+      val vd = ValDef.fresh("v", IntegerType())
+      RefinementType(vd, GreaterThan(vd.toVariable, IntegerLiteral(0)))
+    }
+    def cons(tpe: Type) = ADT(consID, Seq(tpe), Seq(IntegerLiteral(1), ADT(nilID, Seq(tpe), Seq())))
+    val u = FreshIdentifier("u")
+    def call(tpe: Type) = UninterpretedCall(u, Seq(T(listID)(tpe)), Seq(), T(listID)(tpe))
+    val model = Model(p)(Map.empty, Map((u, Seq(T(listID)(pos))) -> Lambda(Seq(), cons(pos))))
+
+    // The interpretation is found whatever the name of the refinement's binder, and its body is
+    // evaluated, so its result is erased like the values the evaluator builds
+    assert(ev.eval(call(pos), model).result == Some(cons(IntegerType())))
+    assert(ev.eval(Equals(call(pos), cons(pos)), model).result == Some(BooleanLiteral(true)))
+    assert(ev.eval(Equals(call(pos), cons(IntegerType())), model).result == Some(BooleanLiteral(true)))
+
+    // The solvers keep a distinct function for each instantiation, so the calls at the erased type
+    // arguments aren't interpreted by the interpretation at the refined ones
+    assert(ev.eval(call(IntegerType()), model).result.isEmpty)
+  }
 }
