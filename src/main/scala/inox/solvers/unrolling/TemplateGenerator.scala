@@ -467,12 +467,18 @@ trait TemplateGenerator { self: Templates =>
         rb
 
       case l @ Let(i, e, b) =>
-        val newExpr: Variable = Variable.fresh("lt", i.getType, true)
-        storeExpr(newExpr)
         val re = rec(pathVar, e, None)
-        storeGuarded(pathVar, Equals(newExpr, re))
-        val rb = rec(pathVar, exprOps.replace(Map(i.toVariable -> newExpr), b), pol)
-        rb
+        val bound = re match {
+          // The bound expression (e.g. a conditional or a nested let) already got its own
+          // variable, so we use that one instead of introducing an alias for it
+          case _: Variable => re
+          case _ =>
+            val newExpr: Variable = Variable.fresh("lt", i.getType, true)
+            storeExpr(newExpr)
+            storeGuarded(pathVar, Equals(newExpr, re))
+            newExpr
+        }
+        rec(pathVar, exprOps.replace(Map(i.toVariable -> bound), b), pol)
 
       case n @ Not(e) =>
         Not(rec(pathVar, e, pol.map(!_)))

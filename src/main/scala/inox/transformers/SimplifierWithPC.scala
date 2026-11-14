@@ -351,6 +351,7 @@ trait SimplifierWithPC extends Transformer { self =>
 
   private def isSimpleBinding(e: Expr): Boolean = e match {
     case FiniteSet(Seq(), _) | FiniteMap(Seq(), _, _, _) | FiniteBag(Seq(), _) => true
+    case _: Literal[?] | ADT(_, _, Seq()) => true
     case IsConstructor(recv, _) => isProjection(recv)
     case _ => isProjection(e)
   }
