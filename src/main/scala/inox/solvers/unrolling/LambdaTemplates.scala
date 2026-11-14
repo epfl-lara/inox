@@ -63,7 +63,9 @@ trait LambdaTemplates { self: Templates =>
       val trArgs: Seq[Encoded] = idArgs.map(v => substMap.getOrElse(v, encodeSymbol(v)))
 
       val (realLambda, structure, depSubst) = mkExprStructure(pathVar._1, lambda, substMap)
-      val depClosures = exprOps.variablesOf(lambda).toSeq.sortBy(_.id).map(v => v -> substMap(v))
+      // The closures that order lambdas are those of the normalized lambda, whose equality is that of
+      // its closures: a lambda that lifts a call `f()` only captures its value, not `f`, and can equal `f`
+      val depClosures = exprOps.variablesOf(realLambda).toSeq.sortBy(_.id).map(v => v -> depSubst(v))
 
       val tpe = lambda.getType.asInstanceOf[FunctionType]
       val lid = Variable.fresh("lambda", tpe, true)
