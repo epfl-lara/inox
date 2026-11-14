@@ -57,6 +57,14 @@ class HOFModelSuite extends SolverTestSuite {
     assertSAT(ctx, f(g) < f(h) && f(h) < f(k) && g(E(BigInt(0))) > E(BigInt(5)))
   }
 
+  test("lambdas stored in tuples", Integers, Functions, ADTs) { ctx =>
+    val t = ("t" :: TupleType(Seq(I =>: I, I =>: I))).toVariable
+    val a = ("a" :: I).toVariable
+    val l1 = \("x" :: I)(x => x + a)
+    val l2 = \("x" :: I)(x => x - a)
+    assertSAT(ctx, t === Tuple(Seq(l1, l2)) && a === E(BigInt(1)))
+  }
+
   test("higher-order free function with two function parameters", Integers, Functions) { ctx =>
     val f = ("f" :: ((I =>: I, I =>: I) =>: I)).toVariable
     val g = ("g" :: (I =>: I)).toVariable
