@@ -119,13 +119,36 @@ abstract class RecursiveEvaluator(override val program: Program,
     case _ => false
   }
 
+  /** The model value `v` as the evaluator would have built it.
+    *
+    * The evaluator erases the refinements from the types of the collections and ADTs it builds, and
+    * normalizes the lambdas it evaluates, so that equal values are structurally equal whatever the
+    * types they were computed at and the names of their parameters. Model values may come from a
+    * solver, at the possibly refined types of their variables (e.g. `Set[{ x: BigInt | x > 0 }]`),
+    * or be built by hand, so they are brought to the same form.
+    *
+    * The values aren't evaluated themselves: an ADT is not checked against its invariant, as
+    * Stainless puts ADTs that violate their invariants in models to evaluate these invariants on
+    * them. Normalizing a lambda doesn't fail on the subexpressions of its body, so that it only fails
+    * the evaluation if it is applied. The type arguments of uninterpreted calls aren't erased: the
+    * solvers keep a distinct function for each instantiation, refinements included.
+    */
+  override protected def modelValue(v: Expr)(using rctx: RC, gctx: GC): Expr = exprOps.postMap {
+    case s @ FiniteSet(elems, base) if base != base.getType => Some(FiniteSet(elems, base.getType).copiedFrom(s))
+    case b @ FiniteBag(elems, base) if base != base.getType => Some(FiniteBag(elems, base.getType).copiedFrom(b))
+    case m @ FiniteMap(pairs, dflt, from, to) if from != from.getType || to != to.getType =>
+      Some(FiniteMap(pairs, dflt, from.getType, to.getType).copiedFrom(m))
+    case adt @ ADT(id, tps, args) if tps.exists(tp => tp != tp.getType) =>
+      Some(ADT(id, tps.map(_.getType), args).copiedFrom(adt))
+    case l: Lambda if exprOps.variablesOf(l).isEmpty => Some(e(l))
+    case _ => None
+  } (v)
+
   /** Evaluates `expr`.
     *
     * The cases are split by theory into the `eCore`, `eArithmetic`, ... methods below, which are
     * tried in order (see [[utils.CaseSplit]]). Subclasses can override `e` itself, or a single family.
     */
-  override protected def normalizedLambda(l: Lambda)(using rctx: RC, gctx: GC): Option[Expr] = Some(e(l))
-
   protected[evaluators] def e(expr: Expr)(using rctx: RC, gctx: GC): Expr = {
     // The solvers evaluate the values of their models, which can be huge, with evaluators whose
     // context is interrupted along with them (see `Z3Solver` and `AbstractUnrollingSolver`)

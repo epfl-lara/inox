@@ -78,33 +78,8 @@ trait ContextualEvaluator extends Evaluator {
 
   protected def e(expr: Expr)(using rctx: RC, gctx: GC): Value
 
-  /** The model value `v` as the evaluator would have built it.
-    *
-    * The evaluator erases the refinements from the types of the collections and ADTs it builds, and
-    * normalizes the lambdas it evaluates, so that equal values are structurally equal whatever the
-    * types they were computed at and the names of their parameters. Model values may come from a
-    * solver, at the possibly refined types of their variables (e.g. `Set[{ x: BigInt | x > 0 }]`),
-    * or be built by hand, so they are brought to the same form.
-    *
-    * The values aren't evaluated themselves: an ADT is not checked against its invariant, as
-    * Stainless puts ADTs that violate their invariants in models to evaluate these invariants on
-    * them. Normalizing a lambda doesn't fail on the subexpressions of its body, so that it only fails
-    * the evaluation if it is applied. The type arguments of uninterpreted calls aren't erased: the
-    * solvers keep a distinct function for each instantiation, refinements included.
-    */
-  protected def modelValue(v: Expr)(using rctx: RC, gctx: GC): Expr = exprOps.postMap {
-    case s @ FiniteSet(elems, base) if base != base.getType => Some(FiniteSet(elems, base.getType).copiedFrom(s))
-    case b @ FiniteBag(elems, base) if base != base.getType => Some(FiniteBag(elems, base.getType).copiedFrom(b))
-    case m @ FiniteMap(pairs, dflt, from, to) if from != from.getType || to != to.getType =>
-      Some(FiniteMap(pairs, dflt, from.getType, to.getType).copiedFrom(m))
-    case adt @ ADT(id, tps, args) if tps.exists(tp => tp != tp.getType) =>
-      Some(ADT(id, tps.map(_.getType), args).copiedFrom(adt))
-    case l: Lambda if exprOps.variablesOf(l).isEmpty => normalizedLambda(l)
-    case _ => None
-  } (v)
-
-  /** The closed lambda `l` as the evaluator gives it when evaluating it, if it differs from `l`. */
-  protected def normalizedLambda(l: Lambda)(using rctx: RC, gctx: GC): Option[Expr] = None
+  /** The model value `v` in the form the evaluator gives to the values it builds. */
+  protected def modelValue(v: Expr)(using rctx: RC, gctx: GC): Expr = v
 
   protected def ignoreContractsOn(expr: Expr)(using rctx: RC, gctx: GC): Boolean =
     globallyIgnoreContracts || rctx.locallyIgnoreContracts
