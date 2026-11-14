@@ -70,10 +70,18 @@ class TypeOpsSuite extends AnyFunSuite {
   test("isSubtypeOf ignores refinements") {
     assert(isSubtypeOf(positive("p"), IntegerType()))
     assert(isSubtypeOf(IntegerType(), positive("p")))
-    assert(isSubtypeOf(Untyped, BooleanType()))
+    // an ill-typed type is neither a subtype nor a supertype
+    assert(!isSubtypeOf(Untyped, BooleanType()))
+    assert(!isSubtypeOf(BooleanType(), Untyped))
+    assert(!isSubtypeOf(Untyped, Untyped))
     assert(!isSubtypeOf(IntegerType(), BooleanType()))
     typeCheck(E(BigInt(1)), BooleanType(), IntegerType())
     intercept[TypeErrorException](typeCheck(E(BigInt(1)), BooleanType()))
+    // an ill-typed operand makes the expression ill-typed
+    val illTyped = Plus(E(BigInt(1)), E(true))
+    assert(illTyped.getType == Untyped)
+    assert(Let("x" :: IntegerType(), illTyped, E(BigInt(0))).getType == Untyped)
+    intercept[TypeErrorException](typeCheck(illTyped, IntegerType()))
   }
 
   test("instantiation") {

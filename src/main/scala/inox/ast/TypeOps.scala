@@ -81,9 +81,12 @@ trait TypeOps {
         if (lower) BooleanType() else PropType()
       case _ => Untyped
 
+  /** Whether `t1` is a subtype of `t2`. An ill-typed type is neither a subtype nor a supertype
+    * of any type, so that an expression with an ill-typed operand doesn't type. */
   def isSubtypeOf(t1: Type, t2: Type): Boolean =
-    t1.getType == Untyped || t2.getType == Untyped || t1.getType == t2.getType ||
-    (t1.getType == BooleanType() && t2.getType == PropType())
+    t1.getType != Untyped && t2.getType != Untyped && (
+      t1.getType == t2.getType ||
+      (t1.getType == BooleanType() && t2.getType == PropType()))
 
   private type Instantiation = Map[TypeParameter, Type]
   def instantiation(from: Type, to: Type): Option[Instantiation] = {
