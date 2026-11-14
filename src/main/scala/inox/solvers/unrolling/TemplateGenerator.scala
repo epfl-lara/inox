@@ -469,9 +469,9 @@ trait TemplateGenerator { self: Templates =>
       case l @ Let(i, e, b) =>
         val re = rec(pathVar, e, None)
         val bound = re match {
-          // Variables and literals stand for themselves, so the solver sees them where they are
-          // used (e.g. as the constant operand of a multiplication) and has no equality to track
-          case _: Variable | _: Literal[?] => re
+          // The bound expression (e.g. a conditional or a nested let) already got its own
+          // variable, so we use that one instead of introducing an alias for it
+          case _: Variable => re
           case _ =>
             val newExpr: Variable = Variable.fresh("lt", i.getType, true)
             storeExpr(newExpr)

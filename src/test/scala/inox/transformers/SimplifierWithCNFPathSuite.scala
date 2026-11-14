@@ -106,6 +106,16 @@ class SimplifierWithCNFPathSuite extends AnyFunSuite with DatastructureUtils {
     assert(simplify(e) == IfExpr(a, i, j))
   }
 
+  test("Lets bound to literals and constructors without arguments are substituted") {
+    val y = "y" :: IntegerType()
+    val e = Let(y, two, Tuple(Seq(Plus(i, y.toVariable), Plus(j, y.toVariable))))
+    assert(simplify(e) == Tuple(Seq(Plus(i, two), Plus(j, two))))
+
+    val nil = ADT(nilID, Seq(IntegerType()), Seq())
+    val l = "l" :: T(listID)(IntegerType())
+    assert(simplify(Let(l, nil, Tuple(Seq(l.toVariable, l.toVariable)))) == Tuple(Seq(nil, nil)))
+  }
+
   test("A let simplified under a condition is not reused without it") {
     val s = simplifier
     val y = "y" :: IntegerType()
