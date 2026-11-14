@@ -1,0 +1,15 @@
+; Under assume-checked, the lambdas `() => (@ arg)` and `() => (@ f)` lift their calls, so they are
+; equal whenever the calls agree, whatever the functions they call. The closures that order lambdas
+; must then be the lifted calls, and not the functions that the lambdas capture: otherwise, each
+; call of g below orders its lambda after the equal lambda it captures (epfl-lara/stainless#1395).
+(set-option :function-equality extensional)
+(set-option :assume-checked true)
+(declare-datatypes ((T 0)) (((A) (B (sub T)))))
+(define-fun-rec g ((t T) (f (-> Int))) Int
+  (ite ((_ is B) t) (g (sub t) (lambda () (@ f))) 0))
+(declare-const l T)
+(declare-const arg (-> Int))
+(set-info :status sat)
+(assert ((_ is B) l))
+(assert (= (g l (lambda () (@ arg))) 0))
+(check-sat)
