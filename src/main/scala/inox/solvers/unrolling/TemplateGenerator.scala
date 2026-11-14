@@ -467,12 +467,18 @@ trait TemplateGenerator { self: Templates =>
         rb
 
       case l @ Let(i, e, b) =>
-        val newExpr: Variable = Variable.fresh("lt", i.getType, true)
-        storeExpr(newExpr)
         val re = rec(pathVar, e, None)
-        storeGuarded(pathVar, Equals(newExpr, re))
-        val rb = rec(pathVar, exprOps.replace(Map(i.toVariable -> newExpr), b), pol)
-        rb
+        val bound = re match {
+          // Variables and literals stand for themselves, so the solver sees them where they are
+          // used (e.g. as the constant operand of a multiplication) and has no equality to track
+          case _: Variable | _: Literal[?] => re
+          case _ =>
+            val newExpr: Variable = Variable.fresh("lt", i.getType, true)
+            storeExpr(newExpr)
+            storeGuarded(pathVar, Equals(newExpr, re))
+            newExpr
+        }
+        rec(pathVar, exprOps.replace(Map(i.toVariable -> bound), b), pol)
 
       case n @ Not(e) =>
         Not(rec(pathVar, e, pol.map(!_)))
