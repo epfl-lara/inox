@@ -41,15 +41,11 @@ object PropEncoder {
 
   private def erase(p: Program)(eraser: p.trees.ConcreteSelfTreeTransformer): Program { val trees: p.trees.type } = {
     import p.trees._
-    // propositions are the types of results and of let-bound variables, possibly refined
-    def isProp(tpe: Type): Boolean = tpe match {
-      case PropType() => true
-      case RefinementType(vd, _) => isProp(vd.tpe)
-      case _ => false
-    }
+    import p.symbols.given
+    // the propositions of a program are its results and its let-bound variables, refined or not
     val hasProps = p.symbols.functions.values.exists { fd =>
-      isProp(fd.returnType) || exprOps.exists {
-        case Let(vd, _, _) => isProp(vd.tpe)
+      fd.returnType.getType == PropType() || exprOps.exists {
+        case Let(vd, _, _) => vd.getType == PropType()
         case _ => false
       } (fd.fullBody)
     }
