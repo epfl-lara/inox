@@ -150,4 +150,7 @@ reading the proofs against the code:
   their base type, Π codomains and return types are only assumed for
   arguments in the domain, and type parameters may be empty.
 - **`optAssumeChecked`** lets a front-end that checks arguments itself, such
-  as Stainless, skip the domain checks.
+  as Stainless, skip the domain checks. Without it, the partial operations
+  (divisions, remainders and modulos of integers and reals, and selectors)
+  make the paths on which they fail infeasible, like errors, as they fail in
+  the evaluator. With it, they are total, as in SMT-LIB.

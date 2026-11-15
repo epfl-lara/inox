@@ -44,7 +44,8 @@ package object theories {
 
     val setEncoder = SetEncoder(mapMergeEncoder.targetProgram)
 
-    val realEncoder = RealEncoder(setEncoder.targetProgram)
+    // as in the template generator, unless the front-end has checked divisions
+    val realEncoder = RealEncoder(setEncoder.targetProgram, !ev.context.options.findOptionOrDefault(optAssumeChecked))
 
     // @nv: Required due to limitations in scalac existential types
     val e1 = stringEncoder `andThen` bagEncoder

@@ -1,0 +1,12 @@
+; Bit-vector division follows SMT-LIB, where dividing by zero sets all the bits
+(set-option :assume-checked false)
+(set-option :check-models true)
+(declare-const x (_ BitVec 8))
+(push 1)
+(set-info :status sat)
+(assert (= (bvudiv x #x00) #xff))
+(check-sat)
+(pop 1)
+(set-info :status unsat)
+(assert (not (= (bvudiv x #x00) #xff)))
+(check-sat)

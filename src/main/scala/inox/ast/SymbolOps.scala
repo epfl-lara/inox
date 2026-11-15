@@ -17,11 +17,10 @@ object SymbolOps {
     /** Only the simple expressions (see [[ExprOps.isSimple]]) that can't fail, so that lambdas
       * aren't lifted, and their locals are normalized with the body. */
     case Simple
-    /** The expressions that can't fail, which keeps intensional equality. */
+    /** The expressions that can't fail, which keeps intensional equality. Partial operations that
+      * may fail aren't lifted, since the solvers make the paths on which they fail infeasible, and
+      * lifting them out of a lambda would make its creation fail rather than its applications. */
     case Pure
-    /** Also the simple expressions that may fail (eg. divisions), which the solvers encode as total
-      * terms. This keeps extensional equality, but not intensional equality. */
-    case Partial
   }
 
   /** What [[SymbolOps.normalizeStructure]] normalizes the body of. */
@@ -267,10 +266,47 @@ trait SymbolOps extends TypeOps { self =>
   def isImpureExpr(expr: Expr): Boolean = expr match {
     case Assume(BooleanLiteral(true), _) => false
     case uc: UninterpretedCall => hasInstance(uc.getTpe(stripRefinements = false)) != Some(true)
-    case (_: Assume) | (_: Error) | (_: Application) |
-         (_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector) => true
+    case (_: Assume) | (_: Error) | (_: Application) => true
+    case (_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector) => definedness(expr).isDefined
     case adt: ADT => adt.getConstructor.sort.definition.hasInvariant
     case _ => false
+  }
+
+  /** The condition under which the partial operation `expr` is defined, unless it always is.
+    *
+    * Divisions, remainders and modulos of integers and reals fail on a zero divisor, and selectors
+    * on another constructor, as in the evaluator. Bit-vector operations follow SMT-LIB and are total.
+    */
+  def definedness(expr: Expr): Option[Expr] = {
+    def nonZero(d: Expr): Option[Expr] = d match {
+      case IntegerLiteral(i) => if (i != 0) None else Some(BooleanLiteral(false))
+      case FractionLiteral(n, _) => if (n != 0) None else Some(BooleanLiteral(false))
+      case _ => d.getType match {
+        case IntegerType() => Some(Not(Equals(d, IntegerLiteral(0))))
+        case RealType() => Some(Not(Equals(d, FractionLiteral(0, 1))))
+        case _ => None
+      }
+    }
+
+    expr match {
+      case Division(_, d) => nonZero(d)
+      case Remainder(_, d) => nonZero(d)
+      case Modulo(_, d) => nonZero(d)
+      case ADTSelector(adt, sel) => adt.getType match {
+        case ADTType(id, tps) =>
+          val sort = getSort(id, tps)
+          sort.constructors.find(_.fields.exists(_.id == sel)) match {
+            case _ if sort.constructors.size == 1 => None
+            case Some(cons) => adt match {
+              case ADT(id, _, _) if id == cons.id => None
+              case _ => Some(IsConstructor(adt, cons.id))
+            }
+            case None => None
+          }
+        case _ => None
+      }
+      case _ => None
+    }
   }
 
   /** Simplify all the pure and ground sub-expressions of the given expression,
@@ -343,7 +379,6 @@ trait SymbolOps extends TypeOps { self =>
       case NormalizationScope.Function => true
       case NormalizationScope.Quantifier(instantiated) => !instantiated
     }
-    val liftPartial = lifting == NormalizationLifting.Partial
 
     val subst: MutableMap[Variable, (Expr, Seq[Expr])] = MutableMap.empty
     val varSubst: MutableMap[Variable, Variable] = MutableMap.empty
@@ -462,7 +497,7 @@ trait SymbolOps extends TypeOps { self =>
           val isCalled = !inFunction && args.forall(vd => hasInstance(vd.tpe) contains true)
 
           if (!minimal) None
-          else if (isLocal(e, path, true) && (isPure(e) || (liftPartial && isSimple(e)))) Some(Seq())
+          else if (isLocal(e, path, true) && isPure(e)) Some(Seq())
           else if (isLocal(e, path, false) && (isPureIn(e, path) || isCalled)) Some(path.conditions)
           else None
         }

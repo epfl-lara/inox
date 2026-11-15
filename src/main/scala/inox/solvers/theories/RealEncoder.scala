@@ -14,7 +14,9 @@ class RealEncoder private(override val sourceProgram: Program)
     theory.extraSorts
   )
 
-private class RealTheory[Trees <: ast.Trees](val trees: Trees) {
+/** @param guardDivisions Whether a division by zero makes its path infeasible, as in the template
+  *                       generator (see [[ast.SymbolOps.definedness]]), or yields an unspecified value. */
+private class RealTheory[Trees <: ast.Trees](val trees: Trees, val guardDivisions: Boolean) {
   import trees._
   import trees.dsl._
 
@@ -42,8 +44,8 @@ private class RealTheory[Trees <: ast.Trees](val trees: Trees) {
 
   val fractionCons = fraction.constructors.head
 
-  // Division by zero yields an unspecified value that only depends on the dividend, as in
-  // SMT-LIB. As fractions are not normalized, this function may give different results for
+  // Without `guardDivisions`, division by zero yields an unspecified value that only depends on
+  // the dividend, as in SMT-LIB. As fractions are not normalized, this function may give different results for
   // different representations of the same dividend, which only adds models.
   val divByZero = mkFunDef(FreshIdentifier("div_by_zero"))()(_ => (
     Seq("x" :: T(fractionID)()), T(fractionID)(), { case Seq(x) =>
@@ -100,7 +102,7 @@ def realEnc(sourceProgram: Program)
                 fractionCons(-n, -d)
               } else_ {
                 if_ (d === E(BigInt(0))) {
-                  E(divByZero.id)(x)
+                  if (guardDivisions) Error(fraction(), "Division by 0.") else E(divByZero.id)(x)
                 } else_ {
                   fractionCons(n, d)
                 }
@@ -158,6 +160,6 @@ def realDec(sourceProgram: Program)
 }
 
 object RealEncoder {
-  def apply(p: Program): RealEncoder { val sourceProgram: p.type } =
-    new RealEncoder(p)(new RealTheory[p.trees.type](p.trees)).asInstanceOf
+  def apply(p: Program, guardDivisions: Boolean): RealEncoder { val sourceProgram: p.type } =
+    new RealEncoder(p)(new RealTheory[p.trees.type](p.trees, guardDivisions)).asInstanceOf
 }
