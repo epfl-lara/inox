@@ -1,0 +1,13 @@
+; Without assume-checked, `() => (@ f)` keeps its call and captures `f`. Each call of g below passes
+; a lambda that is equal to the one it captures under extensional equality (the version of
+; `extensional-closures-of-lifted-calls.smt3` whose lambdas capture functions)
+(set-option :function-equality extensional)
+(declare-datatypes ((T 0)) (((A) (B (sub T)))))
+(define-fun-rec g ((t T) (f (-> Int))) Int
+  (ite ((_ is B) t) (g (sub t) (lambda () (@ f))) 0))
+(declare-const l T)
+(declare-const arg (-> Int))
+(set-info :status sat)
+(assert ((_ is B) l))
+(assert (= (g l (lambda () (@ arg))) 0))
+(check-sat)

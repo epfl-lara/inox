@@ -100,7 +100,7 @@ abstract class RecursiveEvaluator(override val program: Program,
     * - Under `extensional` equality, structurally distinct functions are equal iff they agree on every
     *   input. They are told apart by their results on the closed subexpressions of the right type
     *   that they contain (for extracted models, the inputs that tell them apart), and their equality
-    *   is undecidable otherwise. */
+    *   is undecidable otherwise, unless they take no arguments. */
   protected def valuesEqual(v1: Expr, v2: Expr)(using rctx: RC, gctx: GC): Boolean = {
     v1 match {
       case FiniteSet(_, base) => checkKeys(base)
@@ -120,6 +120,9 @@ abstract class RecursiveEvaluator(override val program: Program,
     case (l1: Lambda, l2: Lambda) if functionEquality == solvers.unrolling.FunctionEquality.None =>
       throw EvalError(s"Functions can't be compared under --function-equality=none: ${l1.asString} and ${l2.asString}")
     case _ if v1 == v2 => true
+    case (l1: Lambda, l2: Lambda) if etaReduced(l1).isDefined || etaReduced(l2).isDefined =>
+      // the applied function is normalized as the evaluator normalizes lambdas
+      valuesEqual(etaReduced(l1).fold(l1)(e), etaReduced(l2).fold(l2)(e))
     case (l1: Lambda, l2: Lambda) =>
       def candidates(tpe: Type): Seq[Expr] = (Seq(l1, l2).flatMap { l =>
         exprOps.collect[Expr] {
@@ -132,14 +135,23 @@ abstract class RecursiveEvaluator(override val program: Program,
         for (arg <- candidates(vd.getType); args <- rest) yield arg +: args
       }.take(100)
 
-      def differOn(args: Seq[Expr]): Boolean = scala.util.Try {
+      def agreeOn(args: Seq[Expr]): Option[Boolean] = scala.util.Try {
         val values = args.map(e)
-        !valuesEqual(e(Application(l1, values)), e(Application(l2, values)))
-      }.getOrElse(false)
+        valuesEqual(e(Application(l1, values)), e(Application(l2, values)))
+      }.toOption
 
-      if (inputs.exists(differOn)) false
+      if (inputs.exists(agreeOn(_) == Some(false))) false
+      // nullary functions have a single input
+      else if (l1.params.isEmpty && agreeOn(Seq.empty) == Some(true)) true
       else throw EvalError(s"Can't decide whether ${l1.asString} and ${l2.asString} are equal")
     case _ => false
+  }
+
+  /** The function `g` that the lambda value `x => g(x)` applies, which is extensionally equal to it. */
+  private def etaReduced(l: Lambda): Option[Lambda] = l.body match {
+    case Application(g: Lambda, args) if args.map { case v: Variable => Some(v.id); case _ => None } == l.params.map(vd => Some(vd.id)) =>
+      Some(g)
+    case _ => None
   }
 
   /** The model value `v` as the evaluator would have built it.

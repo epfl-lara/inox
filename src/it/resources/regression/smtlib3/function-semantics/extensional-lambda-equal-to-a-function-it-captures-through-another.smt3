@@ -1,0 +1,8 @@
+; `() => (() => f())()` captures `f` through another lambda, and is equal to `f` under
+; extensional equality
+(set-option :function-equality extensional)
+(declare-const f (-> Int))
+(set-info :status sat)
+(assert (= f (lambda () (@ (lambda () (@ f))))))
+(assert (= (@ f) 5))
+(check-sat)

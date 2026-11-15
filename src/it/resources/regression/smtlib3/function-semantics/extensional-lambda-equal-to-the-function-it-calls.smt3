@@ -1,0 +1,8 @@
+; `x => f(x)` captures `f` and agrees with it on every input, so it is equal to `f` under
+; extensional equality, and the model of `f` is given by its applications
+(set-option :function-equality extensional)
+(declare-const f (-> Int Int))
+(set-info :status sat)
+(assert (= f (lambda ((x Int)) (@ f x))))
+(assert (= (@ f 1) 2))
+(check-sat)

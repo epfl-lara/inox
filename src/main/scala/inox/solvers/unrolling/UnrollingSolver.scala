@@ -718,6 +718,10 @@ abstract class AbstractUnrollingSolver private
     var functionExtractions: Seq[(Encoded, UninterpretedCall)] = Seq.empty
     // the uninterpreted functions that the closures which keep extracted functions distinct call
     var closureExtractions: Seq[(Identifier, Lambda)] = Seq.empty
+    // the functions that are being extracted as the lambdas they are equal to, and those of them
+    // whose lambda captures them, and which are then extracted from their applications instead
+    var lambdasInProgress: Seq[Encoded] = Seq.empty
+    var capturedByTheirLambda: Seq[Encoded] = Seq.empty
 
     // evaluating in the model can be costly, and extraction compares the same functions repeatedly
     val modelEqualities = MutableMap.empty[(Encoded, Encoded), Boolean]
@@ -940,8 +944,25 @@ abstract class AbstractUnrollingSolver private
         wrapped.modelEval(b, BooleanType()).filter(_ == BooleanLiteral(true)).map(_ => eArgs)
       }.distinct.sortBy(_.exists(templates.isWitnessArgument))
 
-      extractLambda(f, tpe).orElse {
-        if (seen(tpe).exists(e => modelEq(f, e))) {
+      // Unless equality is intensional, a lambda can be equal to a function that it captures, such
+      // as `() => f()` and `f`. The model of `f` is then that of its applications, as its lambda's
+      // depends on it. Applications that lead back to `f` again then refer to it as to the other
+      // functions being extracted.
+      val inLambda = lambdasInProgress.exists(modelEq(f, _))
+      val inCycle = inLambda && !capturedByTheirLambda.exists(modelEq(f, _))
+      if (inCycle) capturedByTheirLambda :+= f
+      val asLambda = if (inLambda) None else {
+        lambdasInProgress :+= f
+        val lambda = try extractLambda(f, tpe) finally lambdasInProgress = lambdasInProgress.init
+        // the lambda of `f` applies its model, which is simpler
+        lambda.map { l =>
+          if (!capturedByTheirLambda.exists(modelEq(f, _))) l
+          else lambdaExtractions.collectFirst { case (e, img) if img.getType == l.getType && modelEq(e, f) => img }.getOrElse(l)
+        }
+      }
+
+      asLambda.orElse {
+        if (!inCycle && seen(tpe).exists(e => modelEq(f, e))) {
           Some(functionExtractions.collectFirst { case (e, c) if modelEq(f, e) => c }.getOrElse {
             val c = UninterpretedCall(FreshIdentifier("x", true), Seq.empty, Seq.empty, FunctionType(Seq.empty, tpe))
             functionExtractions :+= f -> c

@@ -368,7 +368,11 @@ trait LambdaTemplates { self: Templates =>
       val idT = encodeSymbol(template.ids._1)
       val newTemplate = template.concretize(idT)
 
-      val orderingClauses = newTemplate.closures.flatMap {
+      // A lambda that captures a function can't be equal to it as a value (a lambda value doesn't
+      // contain itself), so captured functions are ordered before the lambdas that capture them.
+      // Equality is only that of values under intensional equality: otherwise, `() => f()` captures
+      // `f` and agrees with it on every input, so it is equal to `f`.
+      val orderingClauses = if (functionWitnesses) Seq.empty else newTemplate.closures.flatMap {
         case (v, dep) => registerClosure(newTemplate.start, idT -> newTemplate.tpe, dep -> v.getType)
       }
 

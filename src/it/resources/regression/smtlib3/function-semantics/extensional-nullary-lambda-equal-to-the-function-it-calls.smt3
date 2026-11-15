@@ -1,0 +1,7 @@
+; `() => f()` captures `f` and agrees with it, so it is equal to `f` under extensional equality,
+; although a lambda value can't contain itself (see the intensional version)
+(set-option :function-equality extensional)
+(declare-const f (-> Int))
+(set-info :status sat)
+(assert (= f (lambda () (@ f))))
+(check-sat)
