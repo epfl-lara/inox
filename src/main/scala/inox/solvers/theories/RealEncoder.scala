@@ -98,13 +98,21 @@ def realEnc(sourceProgram: Program)
           // in order to keep the denominator positive.
           dsl.let("n" :: IntegerType(), ni1 * di2) { n =>
             dsl.let("d" :: IntegerType(), di1 * ni2) { d =>
-              if_ (d < E(BigInt(0))) {
-                fractionCons(-n, -d)
-              } else_ {
-                if_ (d === E(BigInt(0))) {
-                  if (guardDivisions) Error(fraction(), "Division by 0.") else E(divByZero.id)(x)
+              if (guardDivisions) {
+                Assume(Not(d === E(BigInt(0))), if_ (d < E(BigInt(0))) {
+                  fractionCons(-n, -d)
                 } else_ {
                   fractionCons(n, d)
+                })
+              } else {
+                if_ (d < E(BigInt(0))) {
+                  fractionCons(-n, -d)
+                } else_ {
+                  if_ (d === E(BigInt(0))) {
+                    E(divByZero.id)(x)
+                  } else_ {
+                    fractionCons(n, d)
+                  }
                 }
               }
             }
