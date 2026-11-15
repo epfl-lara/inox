@@ -290,7 +290,12 @@ trait FunctionTemplates { self: Templates =>
                 // Evaluating a ground call shortcuts its unfolding: its result is a value of the body. When the
                 // evaluator gets stuck or can't evaluate the call, say because an ADT invariant reaches an
                 // uninterpreted function, the call is unfolded as any other call.
-                val inlining = context.timers.solvers.`eval-call`.run {
+                //
+                // A call whose ground argument gets stuck (e.g. `nil.tail`) is never reached, so it is blocked:
+                // otherwise, the solvers could satisfy its definition with unspecified values, which then end
+                // up in models. Only arguments that run no functions are trusted to be stuck, as the others may
+                // only have run out of steps. An evaluator error proves nothing, so it doesn't block the call.
+                val (inlining, skip) = context.timers.solvers.`eval-call`.run {
                   val groundArgs = (args zip tfd.params).map { p =>
                     decodePartial(p._1.encoded, p._2.getType)
                       .map(e => exprOps.postMap {
@@ -305,10 +310,26 @@ trait FunctionTemplates { self: Templates =>
                     if (groundArgs.forall(_.isDefined)) Some(tfd.applied(groundArgs.map(_.get)))
                     else None
 
-                  groundCall.filter(e => !callsUninterpreted(tfd) && isPure(e)).map(e => evaluator.eval(e))
+                  def runsFunctions(arg: Expr): Boolean = exprOps.exists {
+                    case (_: FunctionInvocation) | (_: Application) => true
+                    case adt: ADT => adt.getConstructor.sort.definition.hasInvariant
+                    case _ => false
+                  } (arg)
+
+                  val stuck = groundArgs.flatten.exists { arg =>
+                    !runsFunctions(arg) && (evaluator.eval(arg) match {
+                      case evaluators.EvaluationResults.RuntimeError(_) => !interruptManager.isInterrupted
+                      case _ => false
+                    })
+                  }
+
+                  val inlining = if (stuck) None
+                    else groundCall.filter(e => !callsUninterpreted(tfd) && isPure(e)).map(e => evaluator.eval(e))
+                  (inlining, stuck)
                 }
 
-                newCls ++= inlining.flatMap(_.result).map { body =>
+                if (skip) newCls += mkNot(defBlocker)
+                else newCls ++= inlining.flatMap(_.result).map { body =>
                   val start = Variable.fresh("cs", BooleanType())
                   val (p, cls) = mkExprClauses(start, body, Map(start -> defBlocker))
                   val tmplClauses = cls + (start -> Equals(tfd.applied, p))

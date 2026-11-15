@@ -278,7 +278,7 @@ abstract class RecursiveEvaluator(override val program: Program,
         case adt @ ADT(id, tps, args) =>
           if (adt.getConstructor.fields.exists(_.id == sel))
             args(adt.getConstructor.definition.selectorID2Index(sel))
-          else throw EvalError(s"Constructor ${id.asString} has no field ${sel.asString}")
+          else throw RuntimeError(s"Constructor ${id.asString} has no field ${sel.asString}")
         case le =>
           throw EvalError(typeErrorMsg(le, expr.getType))
       }
