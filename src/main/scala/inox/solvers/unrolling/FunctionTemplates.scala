@@ -287,7 +287,10 @@ trait FunctionTemplates { self: Templates =>
               case interpreted: Interpreted =>
                 newCls ++= InterpretedTemplate(interpreted).instantiate(defBlocker, args)
               case Defined(tfd) =>
-                val (inlining, skip) = context.timers.solvers.`eval-call`.run {
+                // Evaluating a ground call shortcuts its unfolding: its result is a value of the body. When the
+                // evaluator gets stuck or can't evaluate the call, say because an ADT invariant reaches an
+                // uninterpreted function, the call is unfolded as any other call.
+                val inlining = context.timers.solvers.`eval-call`.run {
                   val groundArgs = (args zip tfd.params).map { p =>
                     decodePartial(p._1.encoded, p._2.getType)
                       .map(e => exprOps.postMap {
@@ -302,38 +305,29 @@ trait FunctionTemplates { self: Templates =>
                     if (groundArgs.forall(_.isDefined)) Some(tfd.applied(groundArgs.map(_.get)))
                     else None
 
-                  val inlining = groundCall.filter(e => !callsUninterpreted(tfd) && isPure(e)).map(e => evaluator.eval(e))
-                  val skip = (groundArgs.flatten.map(evaluator.eval) ++ inlining).exists {
-                    case evaluators.EvaluationResults.EvaluatorError(_) => true
-                    case _ => false
-                  }
-                  (inlining, skip)
+                  groundCall.filter(e => !callsUninterpreted(tfd) && isPure(e)).map(e => evaluator.eval(e))
                 }
 
-                if (skip) {
-                  newCls += mkNot(defBlocker)
-                } else {
-                  newCls ++= inlining.flatMap(_.result).map { body =>
-                    val start = Variable.fresh("cs", BooleanType())
-                    val (p, cls) = mkExprClauses(start, body, Map(start -> defBlocker))
-                    val tmplClauses = cls + (start -> Equals(tfd.applied, p))
+                newCls ++= inlining.flatMap(_.result).map { body =>
+                  val start = Variable.fresh("cs", BooleanType())
+                  val (p, cls) = mkExprClauses(start, body, Map(start -> defBlocker))
+                  val tmplClauses = cls + (start -> Equals(tfd.applied, p))
 
-                    val encoding: (Clauses, Calls, Apps, Matchers, Reads, Pointers, () => String) = Template.encode(
-                      start -> defBlocker,
-                      tfd.params.map(_.toVariable) zip args.map(_.encoded),
-                      tmplClauses,
-                      optCall = Some(Defined(tfd))
-                    )
+                  val encoding: (Clauses, Calls, Apps, Matchers, Reads, Pointers, () => String) = Template.encode(
+                    start -> defBlocker,
+                    tfd.params.map(_.toVariable) zip args.map(_.encoded),
+                    tmplClauses,
+                    optCall = Some(Defined(tfd))
+                  )
 
-                    val (clauses, calls, apps, matchers, reads, pointers, _) = encoding
-                    val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = tmplClauses.proj
-                    val (substClauses, substMap) = Template.substitution(
-                      condVars, exprVars, condTree, types, lambdas, quants, pointers, Map.empty, defBlocker)
-                    val templateClauses = Template.instantiate(clauses, calls, apps, matchers, reads, equalities, substMap)
-                    substClauses ++ templateClauses
-                  } getOrElse {
-                    FunctionTemplate(tfd).instantiate(defBlocker, args ++ tpSubst)
-                  }
+                  val (clauses, calls, apps, matchers, reads, pointers, _) = encoding
+                  val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = tmplClauses.proj
+                  val (substClauses, substMap) = Template.substitution(
+                    condVars, exprVars, condTree, types, lambdas, quants, pointers, Map.empty, defBlocker)
+                  val templateClauses = Template.instantiate(clauses, calls, apps, matchers, reads, equalities, substMap)
+                  substClauses ++ templateClauses
+                } getOrElse {
+                  FunctionTemplate(tfd).instantiate(defBlocker, args ++ tpSubst)
                 }
             }
 
