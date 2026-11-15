@@ -1,0 +1,70 @@
+; Types other than type parameters may be empty: refinements, ADTs with invariants, and the types
+; built from them. The solver mustn't prove that such a type is inhabited, so a quantifier that
+; only holds when its domain is empty may be satisfiable (sat or unknown), unless the query has a
+; value of that type. See also `quantifier-over-an-empty-refinement`.
+
+(declare-datatype Foo ((foo (n Int))))
+(datatype-invariant x Foo false)
+(declare-datatype Box ((box (bf Foo))))
+; a set and a function from an empty type have values: the empty set, and any function
+(declare-const s (Set Foo))
+(declare-const h (-> Foo Int))
+
+; refinement with values
+(push 1)
+(assert (forall ((w (! Int :var z :restrict true))) false))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; ADT whose invariant never holds
+(set-info :inox-may-be-unknown true)
+(push 1)
+(assert (forall ((w Foo)) false))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-info :inox-may-be-unknown false)
+
+; ADT with a field of an empty type
+(set-info :inox-may-be-unknown true)
+(push 1)
+(assert (forall ((w Box)) false))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-info :inox-may-be-unknown false)
+
+; tuple with a component of an empty type
+(set-info :inox-may-be-unknown true)
+(push 1)
+(assert (forall ((w (Tuple Int Foo))) false))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-info :inox-may-be-unknown false)
+
+; a value of an empty type
+(push 1)
+(assert (not (forall ((w Foo)) false)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; a set of an empty type
+(set-info :inox-may-be-unknown true)
+(push 1)
+(assert (and (= s s) (forall ((w Foo)) false)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-info :inox-may-be-unknown false)
+
+; a function from an empty type
+(set-info :inox-may-be-unknown true)
+(push 1)
+(assert (and (= h h) (forall ((w Foo)) false)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-info :inox-may-be-unknown false)

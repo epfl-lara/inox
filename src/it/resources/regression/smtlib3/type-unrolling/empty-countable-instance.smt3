@@ -1,0 +1,17 @@
+; The dummy implementation of a `Countable[Int -> Int]`, as Stainless encodes it: its invariant
+; states that `f` injects `Int -> Int` into `Int`, with inverse `g`. No such injection exists, so
+; the type has no values, and a value of it is contradictory: Cantor's diagonal function `d`
+; differs from `g(k, f(k, d))` at `f(k, d)`.
+
+(declare-datatype C ((c (cn Int))))
+(declare-fun f (C (-> Int Int)) Int)
+(declare-fun g (C Int) (-> Int Int))
+(datatype-invariant x C (forall ((t (-> Int Int))) (= (g x (f x t)) t)))
+(declare-const k C)
+(define-fun d () (-> Int Int) (lambda ((x Int)) (+ (@ (g k x) x) 1)))
+
+(push 1)
+(assert (= (@ (g k (f k d)) (f k d)) (@ d (f k d))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
