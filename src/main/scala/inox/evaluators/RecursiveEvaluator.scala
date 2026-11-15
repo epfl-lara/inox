@@ -100,7 +100,7 @@ abstract class RecursiveEvaluator(override val program: Program,
     * - Under `extensional` equality, structurally distinct functions are equal iff they agree on every
     *   input. They are told apart by their results on the closed subexpressions of the right type
     *   that they contain (for extracted models, the inputs that tell them apart), and their equality
-    *   is undecidable otherwise, unless they take no arguments. */
+    *   is undecidable otherwise, unless they take no arguments or have a single possible result. */
   protected def valuesEqual(v1: Expr, v2: Expr)(using rctx: RC, gctx: GC): Boolean = {
     v1 match {
       case FiniteSet(_, base) => checkKeys(base)
@@ -123,6 +123,8 @@ abstract class RecursiveEvaluator(override val program: Program,
     case (l1: Lambda, l2: Lambda) if etaReduced(l1).isDefined || etaReduced(l2).isDefined =>
       // the applied function is normalized as the evaluator normalizes lambdas
       valuesEqual(etaReduced(l1).fold(l1)(e), etaReduced(l2).fold(l2)(e))
+    case (l1: Lambda, l2: Lambda) if hasSingleValue(l1.getType.asInstanceOf[FunctionType].to.getType) =>
+      true
     case (l1: Lambda, l2: Lambda) =>
       def candidates(tpe: Type): Seq[Expr] = (Seq(l1, l2).flatMap { l =>
         exprOps.collect[Expr] {
@@ -144,6 +146,18 @@ abstract class RecursiveEvaluator(override val program: Program,
       // nullary functions have a single input
       else if (l1.params.isEmpty && agreeOn(Seq.empty) == Some(true)) true
       else throw EvalError(s"Can't decide whether ${l1.asString} and ${l2.asString} are equal")
+    case _ => false
+  }
+
+  /** Whether `tpe` has a single value, so that the functions into it are all extensionally equal, even
+    * those whose applications fail (the solvers equate their results without applying them). */
+  private def hasSingleValue(tpe: Type, seen: Set[Identifier] = Set.empty): Boolean = tpe match {
+    case UnitType() => true
+    case TupleType(tps) => tps.forall(hasSingleValue(_, seen))
+    case adt: ADTType if !seen(adt.id) => adt.getSort.constructors match {
+      case Seq(cons) => cons.fields.forall(vd => hasSingleValue(vd.getType, seen + adt.id))
+      case _ => false
+    }
     case _ => false
   }
 
