@@ -1,0 +1,9 @@
+; Under assume-checked, the front-end has checked divisions, which are total as in SMT-LIB
+(set-option :assume-checked true)
+(set-option :check-models false)
+(set-info :status sat)
+(declare-const x Int)
+(declare-const y Int)
+(assert (= y 0))
+(assert (= (div x y) 5))
+(check-sat)

@@ -167,7 +167,7 @@ class TheoryEncodersSuite extends AnyFunSuite {
   }
 
   test("Real encoder") {
-    checkAll(RealEncoder(program), realExprs)
+    checkAll(RealEncoder(program, guardDivisions = false), realExprs)
   }
 
   test("SMT-LIB string escapes round-trip") {

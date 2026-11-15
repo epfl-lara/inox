@@ -163,10 +163,17 @@ class ArithmeticSemanticsSuite extends SolverTestSuite {
       GreaterThan(Division(FractionLiteral(1, 1), x), FractionLiteral(-1000000, 1))
     )) contains false)
 
-    // Division by zero is unspecified (as in SMT-LIB), but it is still a function of the dividend
+    // Division by zero fails, like in the evaluator, so the paths that divide by zero are infeasible
     val zero = FractionLiteral(0, 1)
-    assert(s.solveVALID(Equals(Division(FractionLiteral(1, 1), zero), Division(FractionLiteral(2, 1), zero))) contains false)
-    assert(s.solveVALID(Equals(Division(FractionLiteral(1, 1), zero), zero)) contains false)
-    assert(s.solveVALID(Equals(Division(x, zero), Division(x, zero))) contains true)
+    assert(s.solveVALID(Equals(Division(FractionLiteral(1, 1), zero), Division(FractionLiteral(2, 1), zero))) contains true)
+    assert(s.solveVALID(Equals(Division(FractionLiteral(1, 1), zero), zero)) contains true)
+    assert(s.solveVALID(Implies(Equals(x, zero), Equals(Division(FractionLiteral(1, 1), x), zero))) contains true)
+    assert(s.solveVALID(IfExpr(Equals(x, zero), BooleanLiteral(false), GreaterThan(Times(x, x), zero))) contains false)
+
+    // Under assume-checked, division by zero is unspecified (as in SMT-LIB), but it is still a function of the dividend
+    val cs = solver(ctx.withOpts(optAssumeChecked(true)))
+    assert(cs.solveVALID(Equals(Division(FractionLiteral(1, 1), zero), Division(FractionLiteral(2, 1), zero))) contains false)
+    assert(cs.solveVALID(Equals(Division(FractionLiteral(1, 1), zero), zero)) contains false)
+    assert(cs.solveVALID(Equals(Division(x, zero), Division(x, zero))) contains true)
   }
 }

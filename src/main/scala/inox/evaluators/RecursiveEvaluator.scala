@@ -323,8 +323,7 @@ abstract class RecursiveEvaluator(override val program: Program,
         val (nl, deps) = normalizeStructure(l, lifting)
         // The lifted subexpressions are evaluated when their conditions hold. Otherwise, or when their
         // evaluation fails, they are put back unevaluated: they may only be pure under assumptions
-        // (eg. `10 / k` under `--assume-checked`) or be partial operations (see `NormalizationLifting`),
-        // and only applying the lambda may fail on them.
+        // (eg. `10 / k` under `--assume-checked`), and only applying the lambda may fail on them.
         val newCtx = deps.foldLeft(rctx) {
           case (rctx, (v, dep, conds)) =>
             def unevaluated = replaceFromSymbols(
@@ -345,8 +344,7 @@ abstract class RecursiveEvaluator(override val program: Program,
       // evaluate the subexpressions that it lifts out of the body. The values of its free variables
       // are substituted first, so that `x => l.head.f(x)` and `x => Cons(g, Nil()).head.f(x)` agree.
       val closed = replaceFromSymbols(variablesOf(l).flatMap(v => rctx.mappings.get(v.toVal).map(v -> _)).toMap, l)
-      val ground = normalizeLambda(closed.asInstanceOf[Lambda],
-        if (functionEquality == solvers.unrolling.FunctionEquality.Intensional) NormalizationLifting.Pure else NormalizationLifting.Partial)
+      val ground = normalizeLambda(closed.asInstanceOf[Lambda], NormalizationLifting.Pure)
 
       // Then, in order for nested lambdas to have fresh variables in their argument
       // lists and let bindings, we re-normalize the identifiers with `NormalizationLifting.Simple`

@@ -96,9 +96,19 @@ trait TemplateGenerator { self: Templates =>
     }
   }
 
+  /** Unless the front-end has checked them (see `optAssumeChecked`), the partial operations that
+    * may fail make their path infeasible when they do, like errors, so that the solver agrees with
+    * the evaluator (see [[ast.SymbolOps.definedness]]). */
+  private lazy val guardPartialOperations: Boolean = !options.findOptionOrDefault(optAssumeChecked)
+
+  private def guard(expr: Expr): Option[Expr] =
+    if (guardPartialOperations) definedness(expr) else None
+
   private def isSimple(expr: Expr): Boolean = {
     exprOps.isSimple(expr) && !exprOps.exists {
       case Equals(e1, e2) => unrollEquality(e1.getType)
+      // guarded operations are encoded on their own path
+      case e @ ((_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector)) => guard(e).isDefined
       case _ => false
     } (expr)
   }
@@ -192,21 +202,12 @@ trait TemplateGenerator { self: Templates =>
     builder.result
   }
 
-  private lazy val extensionalStructures: Boolean =
-    options.findOptionOrDefault(optFunctionEquality) != FunctionEquality.Intensional
-
   protected def mkExprStructure(
     pathVar: Variable,
     expr: Expr,
     substMap: Map[Variable, Encoded]
   ): (Expr, TemplateStructure, Map[Variable, Encoded]) = {
-    // Unless function equality is intensional, lambdas can also lift the expressions that may fail, which
-    // gives more of them equal structures (eg. `x => x + a` and `x => x + b / 2` when `a == b / 2`)
-    val (struct, depsByScope) = expr match {
-      case lambda: Lambda => normalizeStructure(lambda,
-        if (extensionalStructures) ast.SymbolOps.NormalizationLifting.Partial else ast.SymbolOps.NormalizationLifting.Pure)
-      case _ => normalizeStructure(expr)
-    }
+    val (struct, depsByScope) = normalizeStructure(expr)
     val deps = depsByScope.map { case (v, e, _) => v -> e }.toMap
 
     val (depSubst, depContents) =
@@ -642,6 +643,12 @@ trait TemplateGenerator { self: Templates =>
         val re2 = rec(pathVar, e2, pol)
         storeEquality(pathVar, re1, re2)
         Application(v, Seq(re1, re2))
+
+      case e @ ((_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector)) if guard(e).isDefined =>
+        val Operator(as, r) = e: @unchecked
+        val res = r(as.map(a => rec(pathVar, a, None)))
+        definedness(res).foreach(storeGuarded(pathVar, _))
+        res
 
       case Operator(as, r) => r(as.map(a => rec(pathVar, a, None)))
     }

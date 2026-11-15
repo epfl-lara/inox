@@ -1,12 +1,13 @@
-; Under extensional equality, operations that may fail are lifted out of lambdas, so lambdas
-; are equal when these operations are, as in the solver
+; Under extensional equality, operations that can't fail are lifted out of lambdas, so lambdas
+; are equal when these operations are, as in the solver. Bit-vector division is total, while
+; an integer division may fail, so it stays in the body.
 (set-option :function-equality extensional)
 (set-option :assume-checked false)
 (set-option :check-models true)
 (set-info :status sat)
-(declare-const a Int)
-(declare-const b Int)
+(declare-const a (_ BitVec 8))
+(declare-const b (_ BitVec 8))
 (declare-const p Bool)
-(assert (= a (div b 2)))
-(assert (= p (= (lambda ((x Int)) (+ x a)) (lambda ((x Int)) (+ x (div b 2))))))
+(assert (= a (bvudiv b #x02)))
+(assert (= p (= (lambda ((x (_ BitVec 8))) (bvadd x a)) (lambda ((x (_ BitVec 8))) (bvadd x (bvudiv b #x02))))))
 (check-sat)
