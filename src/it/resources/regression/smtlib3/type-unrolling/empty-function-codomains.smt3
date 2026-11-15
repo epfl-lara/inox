@@ -1,0 +1,68 @@
+; A function type is empty when its codomain is empty and its domain isn't: a value `f` of
+; `Int -> Foo` gives the value `f(0)` of `Foo`. The solver mustn't prove that such a type is
+; inhabited when its codomain may be empty, so a quantifier that only holds when its domain is
+; empty may be satisfiable (sat or unknown), unless the query has a value of the codomain.
+
+(declare-datatype Foo ((foo (n Int))))
+(datatype-invariant x Foo false)
+(declare-type-var T)
+(declare-const y T)
+
+; function into an ADT whose invariant never holds
+(set-info :inox-may-be-unknown true)
+(push 1)
+(assert (forall ((w (-> Int Foo))) false))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-info :inox-may-be-unknown false)
+
+; the same, where the body applies the function
+(set-info :inox-may-be-unknown true)
+(push 1)
+(assert (forall ((w (-> Int Foo))) (and (= (@ w 0) (@ w 1)) false)))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-info :inox-may-be-unknown false)
+
+; function from an empty type, which has values
+(push 1)
+(assert (forall ((w (-> Foo Int))) false))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; tuple with a function into an empty type
+(set-info :inox-may-be-unknown true)
+(push 1)
+(assert (forall ((w (Tuple (-> Int Foo) Int))) false))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-info :inox-may-be-unknown false)
+
+; map into an empty type
+(set-info :inox-may-be-unknown true)
+(push 1)
+(assert (forall ((w (Array Int Foo))) false))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-info :inox-may-be-unknown false)
+
+; function into a type parameter
+(set-info :inox-may-be-unknown true)
+(push 1)
+(assert (forall ((w (-> Int T))) false))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+(set-info :inox-may-be-unknown false)
+
+; function into a type parameter that has a value
+(push 1)
+(assert (and (= y y) (forall ((w (-> Int T))) false)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)

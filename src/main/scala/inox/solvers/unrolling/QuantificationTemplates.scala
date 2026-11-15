@@ -27,7 +27,7 @@ trait QuantificationTemplates { self: Templates =>
    */
   extension (tp: Typing) {
     private def result: Encoded = {
-      val Typing(_, _, Constraint(res, _, _, _)) = tp: @unchecked
+      val Typing(_, _, Constraint(res, _, _, _, _)) = tp: @unchecked
       res
     }
   }
@@ -542,7 +542,10 @@ trait QuantificationTemplates { self: Templates =>
         val res: Set[Encoded] = if (FreeUnrolling `unroll` v.tpe) {
           val closures = typeOps.variablesOf(v.tpe).toSeq.sortBy(_.id).map(subst)
           val result = encodeSymbol(Variable.fresh("result", BooleanType(), true))
-          clauses ++= instantiateType(contents.pathVar._2, Typing(v.tpe, q, Constraint(result, closures, true, inDomain = true)))
+          // The functions of a fresh ground are only checked to lie in their types when these may be
+          // empty (see `TemplateGenerator.mkTypeClauses`), as the check unfolds witness arguments.
+          val ground = hasInstance(v.tpe) != Some(true)
+          clauses ++= instantiateType(contents.pathVar._2, Typing(v.tpe, q, Constraint(result, closures, true, inDomain = true, ground = ground)))
           Set(result)
         } else {
           Set.empty

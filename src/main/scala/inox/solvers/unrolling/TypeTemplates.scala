@@ -84,11 +84,15 @@ trait TypeTemplates { self: Templates =>
   }
 
   /** @param inDomain whether the type check belongs to a quantifier's domain
-    *                 (see `TemplateGenerator.mkTypeClauses`) */
-  case class Constraint(result: Encoded, closures: Seq[Arg], free: Boolean, inDomain: Boolean = false)
+    *                 (see `TemplateGenerator.mkTypeClauses`)
+    * @param ground   whether the type check guards the instantiation of a quantifier at a fresh ground
+    *                 (see `ensureGrounds`), where values of function types are checked rather than
+    *                 assumed to lie in their type (see `TemplateGenerator.mkTypeClauses`) */
+  case class Constraint(result: Encoded, closures: Seq[Arg], free: Boolean, inDomain: Boolean = false,
+                        ground: Boolean = false)
     extends TemplateInstantiator {
     override def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): TemplateInstantiator =
-      Constraint(substituter(result), closures map (_.substitute(substituter, msubst)), free, inDomain)
+      Constraint(substituter(result), closures map (_.substitute(substituter, msubst)), free, inDomain, ground)
   }
 
   /** Checks whether a value lies in a type, where the result must be exact in models and may only be
@@ -140,7 +144,7 @@ trait TypeTemplates { self: Templates =>
     )
 
     def unroll: Boolean = instantiator match {
-      case Constraint(_, _, free, _) => (if (free) FreeUnrolling else ContractUnrolling) `unroll` tpe
+      case Constraint(_, _, free, _, _) => (if (free) FreeUnrolling else ContractUnrolling) `unroll` tpe
       case Membership(_, _) => ContractUnrolling `unroll` tpe
       case Collection(_, _, free) => (if (free) FreeUnrolling else ContractUnrolling) `unroll` tpe
       case Capture(_, _) => CaptureUnrolling `unroll` tpe
@@ -156,9 +160,10 @@ trait TypeTemplates { self: Templates =>
     // The clauses of a typing are guarded by the blocker it is instantiated under, so its result
     // is only shared under the same blocker: it would be unconstrained elsewhere, and could then be
     // set to drop an assumption, or to accept a value that doesn't belong to the type.
-    def cached(tpe: Type, arg: Encoded, closures: Seq[Arg], generator: TypingGenerator, inDomain: Boolean, result: Encoded)
+    def cached(tpe: Type, arg: Encoded, closures: Seq[Arg], generator: TypingGenerator, inDomain: Boolean, result: Encoded,
+               ground: Boolean = false)
               (instantiate: => Clauses): Clauses = {
-      val key = (tpe, arg, closures, generator, inDomain, blocker)
+      val key = (tpe, arg, closures, generator, inDomain, ground, blocker)
       results.get(key) match {
         case Some(res) => Seq(mkEquals(result, res))
         case None =>
@@ -174,14 +179,15 @@ trait TypeTemplates { self: Templates =>
           ConstraintTemplate(tpe, MembershipGenerator, true).instantiate(blocker, result, arg, closures)
         }
 
-      case Typing(tpe, arg, Constraint(result, closures, free, inDomain)) =>
+      case Typing(tpe, arg, Constraint(result, closures, free, inDomain, ground)) =>
         val generator = if (free) FreeGenerator else ContractGenerator
-        cached(tpe, arg, closures, generator, inDomain, result) {
+        cached(tpe, arg, closures, generator, inDomain, result, ground) {
           tpe match {
-            case (_: FunctionType | _: PiType) =>
+            // a fresh ground of a function type is checked to lie in its type (see `mkTypeClauses`)
+            case (_: FunctionType | _: PiType) if !ground =>
               registerFunction(blocker, result, tpe, arg, closures, free)
             case _ =>
-              ConstraintTemplate(tpe, generator, inDomain).instantiate(blocker, result, arg, closures)
+              ConstraintTemplate(tpe, generator, inDomain, ground).instantiate(blocker, result, arg, closures)
           }
         }
 
@@ -293,12 +299,12 @@ trait TypeTemplates { self: Templates =>
   def instantiateType(blocker: Encoded, typing: Typing): Clauses = {
     typing.instantiator match {
       // the typing of a quantified variable guards the quantifier
-      case Constraint(_, _, true, true) => unfoldTypeParameters(typing.tpe)
+      case Constraint(_, _, true, true, _) => unfoldTypeParameters(typing.tpe)
       case _ =>
     }
 
     def holds: Clauses = typing.instantiator match {
-      case Constraint(res, _, _, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
+      case Constraint(res, _, _, _, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
       case Membership(res, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
       case Collection(res, _, _) => Seq(mkImplies(blocker, mkEquals(res, trueT)))
       case _ => Seq.empty
@@ -343,10 +349,10 @@ trait TypeTemplates { self: Templates =>
 
   /** Generator for [[ConstraintTemplate]] instances. */
   object ConstraintTemplate {
-    private val cache: MutableMap[(Type, TypingGenerator, Boolean), ConstraintTemplate] = MutableMap.empty
+    private val cache: MutableMap[(Type, TypingGenerator, Boolean, Boolean), ConstraintTemplate] = MutableMap.empty
 
-    def apply(tpe: Type, generator: TypingGenerator, inDomain: Boolean): ConstraintTemplate =
-      cache.getOrElse((tpe, generator, inDomain), {
+    def apply(tpe: Type, generator: TypingGenerator, inDomain: Boolean, ground: Boolean = false): ConstraintTemplate =
+      cache.getOrElse((tpe, generator, inDomain, ground), {
       val v = Variable.fresh("x", tpe.getType, true)
       val pathVar = Variable.fresh("b", BooleanType(), true)
       val result = Variable.fresh("result", BooleanType(), true)
@@ -356,13 +362,13 @@ trait TypeTemplates { self: Templates =>
 
       val substMap = Map(v -> idT, pathVar -> pathVarT) ++ arguments
 
-      val (p, tmplClauses) = mkTypeClauses(pathVar, tpe, v, substMap, inDomain)(using generator)
+      val (p, tmplClauses) = mkTypeClauses(pathVar, tpe, v, substMap, inDomain, ground)(using generator)
       val (contents, _) = Template.contents(
         pathVar -> pathVarT, Seq(result -> resultT, v -> idT) ++ arguments,
         tmplClauses + (pathVar -> Equals(result, p)))
 
       val res = new ConstraintTemplate(contents)
-      cache((tpe, generator, inDomain)) = res
+      cache((tpe, generator, inDomain, ground)) = res
       res
     })
   }
@@ -463,7 +469,7 @@ trait TypeTemplates { self: Templates =>
   private[unrolling] object typesManager extends Manager {
     private[TypeTemplates] val typeInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[Typing])]
     private[TypeTemplates] val lessOrder = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
-    private[TypeTemplates] val results = new IncrementalMap[(Type, Encoded, Seq[Arg], TypingGenerator, Boolean, Encoded), Encoded]
+    private[TypeTemplates] val results = new IncrementalMap[(Type, Encoded, Seq[Arg], TypingGenerator, Boolean, Boolean, Encoded), Encoded]
     private[TypeTemplates] val typeDepths = new IncrementalMap[Encoded, Int]
 
     /* Deferred typings of type parameters
@@ -499,7 +505,7 @@ trait TypeTemplates { self: Templates =>
     }
 
     private[TypeTemplates] def deferTyping(typing: Typing): Boolean = typing.instantiator match {
-      case Constraint(_, _, free, inDomain) => free && !inDomain && isParameterTyping(typing.tpe)
+      case Constraint(_, _, free, inDomain, _) => free && !inDomain && isParameterTyping(typing.tpe)
       case _ => false
     }
 

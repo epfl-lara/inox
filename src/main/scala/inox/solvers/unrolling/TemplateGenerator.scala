@@ -306,7 +306,7 @@ trait TemplateGenerator { self: Templates =>
     }
 
     var types = Map[Encoded, Set[Typing]]()
-    def storeType(pathVar: Variable, tpe: Type, arg: Expr, inDomain: Boolean = false)
+    def storeType(pathVar: Variable, tpe: Type, arg: Expr, inDomain: Boolean = false, ground: Boolean = false)
                  (using generator: TypingGenerator): Expr = {
       val b = encodedCond(pathVar)
       val encoder = mkEncoder(localSubst)
@@ -316,9 +316,10 @@ trait TemplateGenerator { self: Templates =>
           val typeCall: Variable = Variable.fresh("tp", BooleanType(), true)
           storeExpr(typeCall)
 
-          // Function types are unfolded by `registerFunction`, which doesn't use the flag
-          val domain = inDomain && !tpe.isInstanceOf[FunctionType | PiType]
-          val constraint = Constraint(exprVars(typeCall), closures, generator == FreeGenerator, domain)
+          // Function types are unfolded by `registerFunction`, which doesn't use the flag, unless they
+          // are checked as fresh grounds (see `ensureGrounds`)
+          val domain = inDomain && (ground || !tpe.isInstanceOf[FunctionType | PiType])
+          val constraint = Constraint(exprVars(typeCall), closures, generator == FreeGenerator, domain, ground && domain)
           (typeCall, Typing(tpe, encoder(arg), constraint))
 
         case MembershipGenerator =>
@@ -684,7 +685,8 @@ trait TemplateGenerator { self: Templates =>
     tpe: Type,
     expr: Expr,
     substMap: Map[Variable, Encoded],
-    inDomain: Boolean = false
+    inDomain: Boolean = false,
+    ground: Boolean = false
   )(using generator: TypingGenerator): (Expr, TemplateClauses) = {
     val builder = new Builder(pathVar, substMap)
     import builder._
@@ -753,7 +755,10 @@ trait TemplateGenerator { self: Templates =>
       //
       // The domains of quantifiers in positive polarity are checked the same way: there, the result
       // may only be false if the value lies outside of the type, as it disables the instantiation.
-      case (_: FunctionType | _: PiType) if generator == MembershipGenerator || (inDomain && generator == ContractGenerator) =>
+      // So are the fresh grounds at which such quantifiers are instantiated when they have no other
+      // ground (see `ensureGrounds`): assuming that the ground lies in its type would assume that the
+      // type is inhabited, which a function type into an empty type isn't.
+      case (_: FunctionType | _: PiType) if generator == MembershipGenerator || (inDomain && (generator == ContractGenerator || ground)) =>
         val (params, to) = tpe match {
           case PiType(params, to) => (params, to)
           case FunctionType(from, to) => (from.map(tpe => ValDef.fresh("x", tpe, true)), to)
@@ -786,7 +791,7 @@ trait TemplateGenerator { self: Templates =>
       // never completes for collections that may hold infinitely many elements. The keys of maps
       // must be unrefined, as the value of a map at a key outside of `A` must be its default.
       case MapType(from, to) if !(ContractUnrolling `unroll` from) &&
-          (generator == MembershipGenerator || (inDomain && generator == ContractGenerator)) =>
+          (generator == MembershipGenerator || (inDomain && (generator == ContractGenerator || ground))) =>
         val w = membershipGuard(pathVar)
         val key = Variable.fresh("key", from, true)
         storeExpr(key)
@@ -806,7 +811,7 @@ trait TemplateGenerator { self: Templates =>
         storeGuarded(w, GreaterThan(MultiplicityInBag(elem, expr), IntegerLiteral(0)))
         implies(w, rec(w, base, elem, state))
 
-      case (_: FunctionType | _: PiType) => storeType(pathVar, tpe, expr, inDomain)
+      case (_: FunctionType | _: PiType) => storeType(pathVar, tpe, expr, inDomain, ground)
 
       case tp: TypeParameter if generator == FreeGenerator => typesManager.storeTypeParameter(tp)
 
@@ -858,7 +863,7 @@ trait TemplateGenerator { self: Templates =>
             .map(_.applied(Seq(expr)))
             .getOrElse(BooleanLiteral(true)),
           if (sort.definition.isInductive && !state.recurseAdt) {
-            storeType(pathVar, tpe, expr, inDomain)
+            storeType(pathVar, tpe, expr, inDomain, ground)
           } else {
             val newExpr = Variable.fresh("e", BooleanType(), true)
             storeExpr(newExpr)
@@ -906,7 +911,7 @@ trait TemplateGenerator { self: Templates =>
 
       case MapType(from, to) =>
         if (!state.recurseMap) {
-          storeType(pathVar, tpe, expr, inDomain)
+          storeType(pathVar, tpe, expr, inDomain, ground)
         } else {
           val newBool1 : Variable = Variable.fresh("mapIsEmpty", BooleanType(), true)
           val newBool2 : Variable = Variable.fresh("mapNonEmpty", BooleanType(), true)
@@ -944,7 +949,7 @@ trait TemplateGenerator { self: Templates =>
 
       case SetType(base) =>
         if (!state.recurseSet) {
-          storeType(pathVar, tpe, expr, inDomain)
+          storeType(pathVar, tpe, expr, inDomain, ground)
         } else {
           val newBool1 : Variable = Variable.fresh("setIsEmpty", BooleanType(), true)
           val newBool2 : Variable = Variable.fresh("setNonEmpty", BooleanType(), true)
@@ -977,7 +982,7 @@ trait TemplateGenerator { self: Templates =>
 
       case BagType(base) =>
         if (!state.recurseBag) {
-          storeType(pathVar, tpe, expr, inDomain)
+          storeType(pathVar, tpe, expr, inDomain, ground)
         } else {
           val newBool1 : Variable = Variable.fresh("bagIsEmpty", BooleanType(), true)
           val newBool2 : Variable = Variable.fresh("bagNonEmpty", BooleanType(), true)

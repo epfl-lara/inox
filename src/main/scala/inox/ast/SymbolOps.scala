@@ -1071,6 +1071,13 @@ trait SymbolOps extends TypeOps { self =>
         Some(true)
       else None
     case _: RefinementType => None
+    // a function type is inhabited if its codomain is, or if one of its parameter types is empty
+    case FunctionType(from, to) =>
+      if ((hasInstance(to, seen) contains true) || from.exists(tp => hasInstance(tp, seen) contains false)) Some(true)
+      else None
+    case PiType(params, to) =>
+      if ((hasInstance(to, seen) contains true) || params.exists(vd => hasInstance(vd.tpe, seen) contains false)) Some(true)
+      else None
     case _ => Some(true)
   }
 
