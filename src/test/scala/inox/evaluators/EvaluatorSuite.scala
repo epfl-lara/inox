@@ -739,6 +739,15 @@ class EvaluatorSuite extends AnyFunSuite {
     // functions that agree on every candidate input can't be told apart
     eval(extensional, Equals(succ, succ2)).failed
     eval(extensional, Equals(id, alsoId)).failed
+    // a lambda that applies a function is equal to it
+    val appliesSucc2 = lambda(x => Application(succ2, Seq(x)))
+    eval(extensional, Equals(appliesSucc2, succ2)) === BooleanLiteral(true)
+    eval(extensional, Equals(appliesSucc2, succ)).failed
+    // but a nullary lambda that applies a function to a value isn't that function
+    eval(extensional, Equals(Lambda(Seq.empty, Application(succ, Seq(int(1)))), Lambda(Seq.empty, int(2)))) === BooleanLiteral(true)
+    // nullary functions are equal when their only results are
+    eval(extensional, Equals(Lambda(Seq.empty, Plus(int(1), int(1))), Lambda(Seq.empty, int(2)))) === BooleanLiteral(true)
+    eval(extensional, Equals(Lambda(Seq.empty, int(1)), Lambda(Seq.empty, int(2)))) === BooleanLiteral(false)
 
     // without function equality, functions can't be compared at all
     val none = recursive(FunctionEquality.None)

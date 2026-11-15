@@ -1,0 +1,6 @@
+; `() => f()` captures `f`, so its value contains that of `f` and can't be equal to it
+(set-option :function-equality intensional)
+(declare-const f (-> Int))
+(set-info :status unsat)
+(assert (= f (lambda () (@ f))))
+(check-sat)
