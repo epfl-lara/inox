@@ -287,14 +287,8 @@ trait FunctionTemplates { self: Templates =>
               case interpreted: Interpreted =>
                 newCls ++= InterpretedTemplate(interpreted).instantiate(defBlocker, args)
               case Defined(tfd) =>
-                // Evaluating a ground call shortcuts its unfolding: its result is a value of the body. When the
-                // evaluator gets stuck or can't evaluate the call, say because an ADT invariant reaches an
-                // uninterpreted function, the call is unfolded as any other call.
-                //
-                // A call whose ground argument gets stuck (e.g. `nil.tail`) is never reached, so it is blocked:
-                // otherwise, the solvers could satisfy its definition with unspecified values, which then end
-                // up in models. Only arguments that run no functions are trusted to be stuck, as the others may
-                // only have run out of steps. An evaluator error proves nothing, so it doesn't block the call.
+                // Ground calls are evaluated rather than unfolded, and unfolded when evaluation fails. A call is
+                // blocked if a ground argument that runs no functions gets stuck (e.g. `nil.tail`).
                 val (inlining, skip) = context.timers.solvers.`eval-call`.run {
                   val groundArgs = (args zip tfd.params).map { p =>
                     decodePartial(p._1.encoded, p._2.getType)
