@@ -47,18 +47,20 @@ trait FunctionTemplates { self: Templates =>
       val arguments = (fdArgs ++ tpVars).map(v => v -> encodeSymbol(v))
       val substMap = arguments.toMap + pathVar
 
-      // The calls that evaluating the body reaches, with the blockers of their paths (see `rankClauses`)
-      var bodySites: Seq[(Variable, FunctionInvocation)] = Seq.empty
+      val (p, bodyClauses) = mkExprClauses(start, body, substMap)
 
-      val tmplClauses: TemplateClauses = {
-        val (p, tmplClauses) = mkExprClauses(start, body, substMap)
+      // The calls that evaluating the body reaches, with the blockers of their paths (see `rankClauses`)
+      val bodySites: Seq[(Variable, FunctionInvocation)] = {
         def invocations(e: Expr): Seq[FunctionInvocation] = exprOps.collect[FunctionInvocation] {
           case fi: FunctionInvocation => Set(fi)
           case _ => Set.empty
         } (e).toSeq
-        bodySites = (tmplClauses._4.toSeq.flatMap { case (b, es) => es.flatMap(invocations).map(b -> _) } ++
+        (bodyClauses._4.toSeq.flatMap { case (b, es) => es.flatMap(invocations).map(b -> _) } ++
           invocations(p).map(start -> _)).distinct
-        val clauses = tmplClauses + (start -> Equals(call, p))
+      }
+
+      val tmplClauses: TemplateClauses = {
+        val clauses = bodyClauses + (start -> Equals(call, p))
 
         // Register the function's return as a contract typing to enable
         // induction with refinement types
