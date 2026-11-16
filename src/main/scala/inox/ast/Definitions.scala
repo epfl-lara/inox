@@ -153,6 +153,23 @@ trait Definitions { self: Trees =>
     private val _constructors: Lazy[Map[Identifier, ADTConstructor]] =
       Lazy(sorts.values.flatMap(_.constructors.map(cons => cons.id -> cons)).toMap)
 
+    /** The sorts whose values hold a proposition in a field (see [[Types.containsProposition]]). */
+    @inline def propositionSorts: Set[Identifier] = _propositionSorts.get
+    private val _propositionSorts: Lazy[Set[Identifier]] = Lazy {
+      var result = Set.empty[Identifier]
+      var changed = true
+      while (changed) {
+        changed = false
+        for (sort <- sorts.values if !result(sort.id)) {
+          if (sort.constructors.exists(_.fields.exists(vd => containsPropositionIn(vd.tpe, result)))) {
+            result += sort.id
+            changed = true
+          }
+        }
+      }
+      result
+    }
+
 
     type Semantics = inox.Semantics {
       val trees: self0.trees.type
@@ -254,8 +271,6 @@ trait Definitions { self: Trees =>
       if (!sort.isWellFormed) throw NotWellFormedException(sort)
       if (!(sort.constructors forall (cons => cons.sort == sort.id))) throw NotWellFormedException(sort)
       if (!(sort.constructors forall (_.fields forall (_.isTyped)))) throw NotWellFormedException(sort)
-      if (sort.constructors exists (_.fields exists (vd => carriesProposition(vd.getType))))
-        throw NotWellFormedException(sort, Some("Propositions can't be fields"))
       if (sort.constructors.flatMap(_.fields).groupBy(_.id).exists(_._2.size > 1)) throw NotWellFormedException(sort)
     }
 

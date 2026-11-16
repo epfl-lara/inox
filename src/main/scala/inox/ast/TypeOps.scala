@@ -61,6 +61,9 @@ trait TypeOps {
       case (adt1: ADTType, adt2: ADTType) if adt1.id == adt2.id && adt1.tps.size == adt2.tps.size =>
         val underlying = (adt1.tps zip adt2.tps).map { case (tp1, tp2) => bound(tp1, tp2, lower) }
         if (underlying.exists(_ == Untyped)) Untyped else ADTType(adt1.id, underlying)
+      case (TupleType(tps1), TupleType(tps2)) if tps1.size == tps2.size =>
+        val underlying = (tps1 zip tps2).map { case (tp1, tp2) => bound(tp1, tp2, lower) }
+        if (underlying.exists(_ == Untyped)) Untyped else TupleType(underlying)
       case (SetType(base1), SetType(base2)) => 
         val underlying = bound(base1, base2, lower)
         if (underlying == Untyped) Untyped else SetType(underlying)
@@ -86,8 +89,8 @@ trait TypeOps {
   def isSubtypeOf(t1: Type, t2: Type): Boolean =
     t1.getType != Untyped && t2.getType != Untyped && (
       t1.getType == t2.getType ||
-      // booleans are propositions, also as the results of functions
-      (carriesProposition(t2.getType) && leastUpperBound(t1.getType, t2.getType) == t2.getType))
+      // booleans are propositions, also in the types that hold propositions
+      (containsProposition(t2.getType) && leastUpperBound(t1.getType, t2.getType) == t2.getType))
 
   private type Instantiation = Map[TypeParameter, Type]
   def instantiation(from: Type, to: Type): Option[Instantiation] = {
