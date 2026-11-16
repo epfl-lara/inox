@@ -42,6 +42,14 @@ class TypeOpsSuite extends AnyFunSuite {
       assert(refined(r => Equals(r, y)) != refined(r => Equals(r, r)))
       assert(pi(_ => refined(r => Equals(r, y))) != pi(a => refined(r => Equals(r, a))))
     }
+    // free variables named by `SymbolOps.getId`, as in the bodies of normalized lambdas, aren't
+    // captured either
+    for (index <- 0 to 3) {
+      val x = Variable(SymbolOps.getId(index), IntegerType(), Seq())
+      assert(refined(r => Equals(r, x)) != refined(r => Equals(r, r)))
+      assert(refined(r => Equals(r, x)) == refined(r => Equals(r, x)))
+      assert(pi(_ => refined(r => Equals(r, x))) != pi(a => refined(r => Equals(r, a))))
+    }
   }
 
   test("Bounds of unrelated and equal types") {
