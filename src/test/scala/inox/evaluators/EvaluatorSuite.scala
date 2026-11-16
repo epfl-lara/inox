@@ -748,6 +748,19 @@ class EvaluatorSuite extends AnyFunSuite {
     // but values that hold functions can differ elsewhere
     eval(none, Equals(Tuple(Seq(int(1), succ)), Tuple(Seq(int(2), succ)))) === BooleanLiteral(false)
     eval(none, Equals(Tuple(Seq(int(1), int(2))), Tuple(Seq(int(1), int(2))))) === BooleanLiteral(true)
+
+    // sets, bags and maps compare their elements and keys, so they can't hold functions under `none`
+    val fnT = FunctionType(Seq(IntegerType()), IntegerType())
+    val fnSet = FiniteSet(Seq(succ), fnT)
+    eval(none, fnSet).failed
+    eval(none, ElementOfSet(id, FiniteSet(Seq(alsoId), fnT))).failed
+    eval(none, Equals(FiniteSet(Seq(id), fnT), FiniteSet(Seq(alsoId), fnT))).failed
+    eval(none, FiniteBag(Seq(succ -> int(1)), fnT)).failed
+    eval(none, FiniteMap(Seq(succ -> int(1)), int(0), fnT, IntegerType())).failed
+    eval(none, FiniteSet(Seq(Tuple(Seq(int(1), succ))), TupleType(Seq(IntegerType(), fnT)))).failed
+    // functions are fine as the values of a map, and the other semantics accept function sets
+    eval(none, Application(MapApply(FiniteMap(Seq(int(1) -> succ), pred, IntegerType(), fnT), int(2)), Seq(int(5)))) === int(4)
+    eval(intensional, ElementOfSet(id, FiniteSet(Seq(id), fnT))) === BooleanLiteral(true)
   }
 
   abstract class EvalDSL {
