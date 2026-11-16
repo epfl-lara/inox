@@ -414,7 +414,8 @@ class PropTypingSuite extends AnyFunSuite {
     inferred.ensureWellFormed
     assert(inferred.getSort(posSortID).constructors.head.fields.map(_.tpe) == Seq(PropType(), IntegerType()))
     assert(inferred.getFunction(pairID).returnType == TupleType(Seq(PropType(), IntegerType())))
-    assert(inferred.propositionSorts == Set(posSortID))
+    assert(containsProposition(ADTType(posSortID, Seq()))(using inferred))
+    assert(!containsProposition(ADTType(posSortID, Seq()))(using syms))
 
     // a generic field would make the proposition a type argument
     val generic = inference.transform(syms.withFunctions(Seq(boxed)))

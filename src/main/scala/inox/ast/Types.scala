@@ -61,12 +61,9 @@ trait Types { self: Trees =>
     * equality would observe the proposition, so it is a proposition itself, and these values
     * can't be the elements of a set or a bag, the keys of a map, or instantiate a type parameter.
     */
-  def containsProposition(tpe: Type)(using s: Symbols): Boolean =
-    containsPropositionIn(tpe, s.propositionSorts)
-
-  /** Whether the values of `tpe` hold a proposition, given the sorts `sorts` whose values do
-    * (see [[containsProposition]]). */
-  def containsPropositionIn(tpe: Type, sorts: Identifier => Boolean): Boolean = {
+  def containsProposition(tpe: Type)(using s: Symbols): Boolean = {
+    // the sorts already looked into: a recursive field adds nothing to the others
+    val seen = scala.collection.mutable.Set.empty[Identifier]
     def rec(tpe: Type): Boolean = tpe match {
       case PropType() => true
       // a function can't depend on the propositions it takes
@@ -75,7 +72,8 @@ trait Types { self: Trees =>
       case MapType(_, to) => rec(to)
       case RefinementType(vd, _) => rec(vd.tpe)
       case SigmaType(params, to) => params.exists(vd => rec(vd.tpe)) || rec(to)
-      case ADTType(id, tps) => sorts(id) || tps.exists(rec)
+      case ADTType(id, tps) => tps.exists(rec) || (seen.add(id) && s.lookupSort(id).exists(
+        _.constructors.exists(_.fields.exists(vd => rec(vd.tpe)))))
       case NAryType(tps, _) => tps.exists(rec)
     }
     rec(tpe)
