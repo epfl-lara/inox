@@ -1,0 +1,37 @@
+; Uninterpreted types are type parameters, which may be empty. A query that only holds when one of
+; them is empty is satisfiable: once nothing is left to unroll, the solver looks for a model
+; without assuming that type parameters have values, and validates the model it finds with the
+; type parameters that it leaves empty.
+
+(declare-type U ())
+(declare-type V ())
+(declare-const y V)
+(declare-const g (-> U Int))
+
+; empty
+(push 1)
+(assert (forall ((w U)) false))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; a value makes it inhabited
+(push 1)
+(assert (and (= y y) (forall ((w V)) false)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+
+; empty, with the quantifier body using the bound variable
+(push 1)
+(assert (forall ((w U)) (> (g w) (g w))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
+
+; one of two type parameters is empty
+(push 1)
+(assert (and (forall ((w U)) false) (not (forall ((w V)) false))))
+(set-info :status sat)
+(check-sat)
+(pop 1)
