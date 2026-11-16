@@ -1,0 +1,15 @@
+; Without function equality, `() => f()` captures `f` and agrees with it, so a function applied to
+; both gives the same result: the solver doesn't look for models where they are equal, but doesn't
+; exclude them either
+(set-option :function-equality none)
+(declare-const f (-> Int))
+(declare-const k (-> (-> Int) Int))
+(set-info :status sat)
+(push 1)
+(assert (= (k f) (k (lambda () (@ f)))))
+(assert (= (@ f) 1))
+(check-sat)
+(pop 1)
+(set-info :status unsat)
+(assert (not (= (k f) (k (lambda () (@ f))))))
+(check-sat)
