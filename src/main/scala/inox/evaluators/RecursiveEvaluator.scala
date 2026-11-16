@@ -99,7 +99,8 @@ abstract class RecursiveEvaluator(override val program: Program,
     *   never compare functions, and queries that do are rejected by the solvers.
     * - Under `extensional` equality, structurally distinct functions are equal iff they agree on every
     *   input. They are told apart by their results on the closed subexpressions of the right type
-    *   that they contain (for extracted models, the inputs that tell them apart), and their equality
+    *   that they contain (for extracted models, the inputs that tell them apart), but not on the
+    *   inputs on which an application fails, whose paths the solvers make infeasible. Their equality
     *   is undecidable otherwise, unless they take no arguments or have a single possible result. */
   protected def valuesEqual(v1: Expr, v2: Expr)(using rctx: RC, gctx: GC): Boolean = {
     v1 match {
@@ -137,10 +138,15 @@ abstract class RecursiveEvaluator(override val program: Program,
         for (arg <- candidates(vd.getType); args <- rest) yield arg +: args
       }.take(100)
 
-      def agreeOn(args: Seq[Expr]): Option[Boolean] = scala.util.Try {
+      // An input on which an application fails doesn't tell the functions apart, as the solvers make
+      // the paths of failing applications infeasible. Running out of steps decides nothing.
+      def agreeOn(args: Seq[Expr]): Option[Boolean] = try {
         val values = args.map(e)
-        valuesEqual(e(Application(l1, values)), e(Application(l2, values)))
-      }.toOption
+        Some(valuesEqual(e(Application(l1, values)), e(Application(l2, values))))
+      } catch {
+        case _: RuntimeError if gctx.stepsLeft >= 0 && !interruptManager.isInterrupted => Some(true)
+        case scala.util.control.NonFatal(_) => None
+      }
 
       if (inputs.exists(agreeOn(_) == Some(false))) false
       // nullary functions have a single input
@@ -150,7 +156,7 @@ abstract class RecursiveEvaluator(override val program: Program,
   }
 
   /** Whether `tpe` has a single value, so that the functions into it are all extensionally equal, even
-    * those whose applications fail (the solvers equate their results without applying them). */
+    * those whose applications fail (the solvers make the paths of failing applications infeasible). */
   private def hasSingleValue(tpe: Type, seen: Set[Identifier] = Set.empty): Boolean = tpe match {
     case UnitType() => true
     case TupleType(tps) => tps.forall(hasSingleValue(_, seen))

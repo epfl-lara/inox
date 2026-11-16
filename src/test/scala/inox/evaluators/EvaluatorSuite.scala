@@ -750,6 +750,11 @@ class EvaluatorSuite extends AnyFunSuite {
     eval(extensional, Equals(Lambda(Seq.empty, int(1)), Lambda(Seq.empty, int(2)))) === BooleanLiteral(false)
     // functions with a single possible result are equal, even when their applications fail
     eval(extensional, Equals(lambda(x => UnitLiteral()), lambda(x => IfExpr(Equals(x, int(0)), UnitLiteral(), Error(UnitType(), "fails"))))) === BooleanLiteral(true)
+    // inputs on which an application fails don't tell functions apart
+    eval(extensional, Equals(Lambda(Seq.empty, Division(int(1), int(0))), Lambda(Seq.empty, int(2)))) === BooleanLiteral(true)
+    val failsOnZero = lambda(x => IfExpr(Equals(x, int(0)), Error(IntegerType(), "fails"), Plus(x, int(1))))
+    eval(extensional, Equals(failsOnZero, lambda(x => Plus(x, int(2))))) === BooleanLiteral(false)
+    eval(extensional, Equals(failsOnZero, succ)).failed
 
     // without function equality, functions can't be compared at all
     val none = recursive(FunctionEquality.None)
