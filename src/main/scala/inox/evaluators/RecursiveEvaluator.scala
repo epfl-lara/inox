@@ -731,13 +731,16 @@ abstract class RecursiveEvaluator(override val program: Program,
         case _ => throw EvalError("Unexpected operation: fp.to_bv(" + expr.asString + ")")
       }
       val r = roundToIntegral(d, rm)
-      // SMT-LIB leaves the conversion of NaN, infinities and out-of-range values unspecified
-      if (r.isNaN || r.isInfinite) throw RuntimeError(s"Unspecified conversion of $d to a bitvector.")
-      val i = BigDecimal(r).toBigInt
+      // SMT-LIB leaves the conversion of NaN, infinities and out-of-range values unspecified. As on
+      // the JVM, NaN converts to 0, and out-of-range values saturate.
       val (lo, hi) =
         if (signed) (-BigInt(2).pow(size - 1), BigInt(2).pow(size - 1) - 1)
         else (BigInt(0), BigInt(2).pow(size) - 1)
-      if (i < lo || i > hi) throw RuntimeError(s"Unspecified conversion of $d to a bitvector of $size bits.")
+      val i =
+        if (r.isNaN) BigInt(0)
+        else if (r == Double.PositiveInfinity) hi
+        else if (r == Double.NegativeInfinity) lo
+        else BigDecimal(r).toBigInt.max(lo).min(hi)
       BVLiteral(signed, i, size)
 
     case FPToReal(expr) =>

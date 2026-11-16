@@ -178,12 +178,48 @@ class FloatingPointSemanticsSuite extends SolverTestSuite {
   }
 
   test("Floating Point Conversions to Reals", FloatingPoint, Reals) { ctx =>
-    val s = solver(ctx)
+    // Z3 4.15.1 sometimes returns models that violate `fp.to_real` constraints once these
+    // conversions are guarded, so models are checked, and checks are solved one by one if one fails
+    val s = solver(ctx.withOpts(optCheckModels(true)))
 
     check(s, FPToReal(Float64Literal(0.75)), FractionLiteral(3, 4))
     check(s, FPToReal(Float32Literal(-1.5f)), FractionLiteral(-3, 2))
     check(s, FPToReal(Float64Literal(-0.0)), FractionLiteral(0, 1))
     check(s, FPToReal(Float64Literal(1e20)), FractionLiteral(BigInt(10).pow(20), 1))
+  }
+
+  test("Floating Point Conversions to Bit-Vectors That Saturate", FloatingPoint) { ctx =>
+    val s = solver(ctx)
+
+    // As on the JVM, NaN converts to 0, and out-of-range values saturate
+    check(s, FPToBV(8, false, RoundTowardZero, Float64Literal(300.0)), BVLiteral(false, 255, 8))
+    check(s, FPToBV(8, false, RoundTowardZero, Float64Literal(-5.0)), BVLiteral(false, 0, 8))
+    check(s, FPToBV(8, false, RoundTowardZero, Float64Literal(-0.5)), BVLiteral(false, 0, 8))
+    check(s, FPToBV(8, true, RoundTowardNegative, Float64Literal(-128.5)), BVLiteral(true, -128, 8))
+    check(s, FPToBV(8, true, RoundNearestTiesToEven, Float64Literal(127.5)), BVLiteral(true, 127, 8))
+    check(s, FPToBV(32, true, RoundTowardZero, Float64Literal(Double.NaN)), Int32Literal(0))
+    check(s, FPToBV(32, true, RoundTowardZero, Float32Literal(Float.PositiveInfinity)), Int32Literal(Int.MaxValue))
+    check(s, FPToBV(64, true, RoundTowardZero, Float64Literal(Double.NegativeInfinity)), Int64Literal(Long.MinValue))
+    check(s, FPToBV(64, true, RoundTowardZero, Float64Literal(1e30)), Int64Literal(Long.MaxValue))
+    check(s, FPToBV(16, false, RoundTowardZero, Float32Literal(Float.MaxValue)), BVLiteral(false, 65535, 16))
+
+    // These conversions are total, so they don't depend on assume-checked
+    val x = Variable.fresh("x", FPType(11, 53))
+    val toByte = FPToBV(8, false, RoundTowardZero, x)
+    for (cs <- Seq(s, solver(ctx.withOpts(optAssumeChecked(true))))) {
+      assert(cs.solveVALID(Implies(FPGreaterThan(x, Float64Literal(300.0)), Equals(toByte, BVLiteral(false, 255, 8)))) contains true)
+      assert(cs.solveVALID(Implies(FPIsNaN(x), Equals(toByte, BVLiteral(false, 0, 8)))) contains true)
+    }
+  }
+
+  test("Floating Point Conversions to Reals That Fail", FloatingPoint, Reals) { ctx =>
+    val s = solver(ctx)
+    val x = Variable.fresh("x", FPType(11, 53))
+    assert(s.solveVALID(Implies(FPIsInfinite(x), Equals(FPToReal(x), FractionLiteral(0, 1)))) contains true)
+    assert(s.solveVALID(Implies(FPIsNaN(x), Equals(FPToReal(x), FractionLiteral(0, 1)))) contains true)
+
+    val cs = solver(ctx.withOpts(optAssumeChecked(true)))
+    assert(cs.solveVALID(Implies(FPIsInfinite(x), Equals(FPToReal(x), FractionLiteral(0, 1)))) contains false)
   }
 
   test("Floating Point Comparisons", FloatingPoint) { ctx =>
