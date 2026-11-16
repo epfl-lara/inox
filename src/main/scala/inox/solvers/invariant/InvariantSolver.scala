@@ -577,9 +577,9 @@ abstract class AbstractInvariantSolver(override val program: Program,
         clauses ++= definingClauses
         ret(Equals(_, l))
       
-      case Forall(args, body) => 
-        // Quantifier? Unexpected
-        ???
+      case f: Forall =>
+        // Horn clauses can't express a quantifier nested in the formula (see `checkAssumptions_`)
+        throw new Unsupported(s"Quantifiers aren't supported by the invariant solver: ${f.asString(using targetProgram.printerOpts(using context))}")
 
       case FunctionInvocation(id, tps, args) if funReplacements.contains(id) =>
         // this expression should have been purified
@@ -701,9 +701,6 @@ abstract class AbstractInvariantSolver(override val program: Program,
       (inner.clauses :+ topClause, res)
     })
 
-  private def extractModel(model: underlyingHorn.Model): Model = 
-    ???
-
   private def reportInvariants(model: underlyingHorn.Model): Unit =
       // context.reporter.info(
       //   s"Discovered Invariant for: $model"
@@ -814,12 +811,19 @@ abstract class AbstractInvariantSolver(override val program: Program,
     // the Horn system is unsatisfiable when it holds, so separate goals form a disjunction)
     val totalAssumptions = Set(s.andJoin((assumptions ++ constraints).toSeq))
 
-    // Horn encode assumptions
-    val assumptionClauses = encodeAssumptions(totalAssumptions)
+    // Horn encode assumptions, and all function calls (recursively)
+    val encoded =
+      try Some((encodeAssumptions(totalAssumptions), encodeFunctionsForAssumptions(totalAssumptions)))
+      catch case e: Unsupported =>
+        context.reporter.debug(e.getMessage)(using DebugSectionSolver)
+        None
 
-    // find and encode all function calls (recursively)
-    val definitionClauses = encodeFunctionsForAssumptions(totalAssumptions)
-    
+    encoded match
+      case None => config.cast(SolverResponses.Unknown)
+      case Some((assumptionClauses, definitionClauses)) => checkEncoded(config)(assumptionClauses, definitionClauses)
+
+  private def checkEncoded(config: Configuration)(assumptionClauses: Set[Encoded], definitionClauses: Set[Encoded]): config.Response[Model, Assumptions] =
+
     // The clauses are sent again at each check, so the underlying solver is reset afterwards for
     // those of earlier checks (and of popped constraints) not to remain asserted. Horn solvers
     // don't necessarily support push and pop (Z3 then returns unknown).

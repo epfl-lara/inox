@@ -181,7 +181,8 @@ trait Types { self: Trees =>
       }
 
       override def transform(vd: ValDef): ValDef = {
-        val nid = new Identifier("x", counter, counter, false)
+        // the identifiers of `SymbolOps.getId` are fresh, so they never capture a free variable
+        val nid = SymbolOps.getId(counter)
         counter += 1
 
         val newVd = ValDef(nid, transform(vd.tpe), vd.flags map transform).copiedFrom(vd)

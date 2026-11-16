@@ -179,10 +179,8 @@ trait TypeOps {
   }
 
   def typeCheck(obj: Expr, exps: Type*) = {
-    // An ill-typed expression is otherwise accepted at every type. Under propositional
-    // quantifiers, it may be a term whose value depends on a proposition, so it is rejected.
-    val res = exps.exists(e => isSubtypeOf(obj.getType, e)) &&
-      (modes.quantifiers == QuantifierMode.Boolean || obj.isTyped)
+    // ill-typed expressions are rejected, since `Untyped` is a subtype of no type
+    val res = exps.exists(e => isSubtypeOf(obj.getType, e))
 
     if (!res) {
       throw TypeErrorException(obj, exps.toList)

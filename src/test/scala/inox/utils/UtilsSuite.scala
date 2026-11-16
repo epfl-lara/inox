@@ -138,6 +138,15 @@ class UtilsSuite extends AnyFunSuite {
     lru.clear()
     assert(lru.get(4).isEmpty)
 
+    // the caches of a program's semantics are shared by the solvers of a portfolio
+    val shared = new LruCache[Int, Int](8)
+    val workers = (1 to 8).map { t =>
+      new Thread(() => for (i <- 1 to 20000) assert(shared.cached((i * t) % 16, (i * t) % 16) == (i * t) % 16))
+    }
+    workers.foreach(_.start())
+    workers.foreach(_.join())
+    assert((0 until 16).count(shared.get(_).isDefined) <= 8)
+
     val pc = new PriorityCache[Int, String](2)
     pc(5) = "e"
     pc(3) = "c"

@@ -43,6 +43,11 @@ class DefinitionsSuite extends AnyFunSuite {
     assert(symbols == NoSymbols.withFunctions(Seq(idFd)).withSorts(Seq(box)))
     assert(symbols.hashCode == NoSymbols.withFunctions(Seq(idFd)).withSorts(Seq(box)).hashCode)
     assert(symbols != NoSymbols)
+    // definitions are equal by identifier, but tables holding different bodies are not equal
+    val x = ValDef.fresh("x", IntegerType())
+    val f1 = new FunDef(FreshIdentifier("f"), Seq(), Seq(x), IntegerType(), IntegerLiteral(1), Seq())
+    val f2 = f1.copy(fullBody = IntegerLiteral(2))
+    assert(NoSymbols.withFunctions(Seq(f1)) != NoSymbols.withFunctions(Seq(f2)))
     assert(symbols != box)
   }
 

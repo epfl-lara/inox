@@ -664,9 +664,12 @@ abstract class AbstractPrincessSolver(override val program: Program,
     }
 
     config.cast(p.getStatus(true) match {
-      // FIXME @nv: for now, we treat Inconclusive as Sat, but this should
-      //            be changed once Princess ensures soundness of models with ADTs
-      case ProverStatus.Sat | ProverStatus.Inconclusive =>
+      // Princess answers Inconclusive when it gives up on a formula (eg. with quantifiers or ADTs),
+      // so its partial model needn't be one
+      case ProverStatus.Inconclusive =>
+        Unknown
+
+      case ProverStatus.Sat =>
         if (config.withModel) {
           SatWithModel(p.partialModel)
         } else {
