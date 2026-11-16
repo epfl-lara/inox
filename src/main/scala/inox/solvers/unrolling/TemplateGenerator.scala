@@ -134,7 +134,7 @@ trait TemplateGenerator { self: Templates =>
         es.foldLeft((false, facts)) { case ((res, fs), e) => (res || rec(e, fs), fs ++ negated(e)) }._1
       case Implies(l, r) =>
         rec(l, facts) || rec(r, facts ++ conjuncts(l))
-      case (_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector) =>
+      case _ if guard(e).isDefined =>
         guard(e).exists(g => !facts(g)) || rec2(e, facts)
       case _ => rec2(e, facts)
     }
@@ -698,7 +698,7 @@ trait TemplateGenerator { self: Templates =>
         storeEquality(pathVar, re1, re2)
         Application(v, Seq(re1, re2))
 
-      case e @ ((_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector)) if guard(e).isDefined =>
+      case e if guard(e).isDefined =>
         val Operator(as, r) = e: @unchecked
         val res = r(as.map(a => rec(pathVar, a, None)))
         if (!guard(e).exists(factsOf(pathVar))) definedness(res).foreach(storeGuarded(pathVar, _))

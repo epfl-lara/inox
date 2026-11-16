@@ -577,12 +577,22 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     }
     case FPFromBinary(ne, ns, e) => FloatingPoint.ToFP(ne, ns, toSMT(e))
     case FPToBV(s, signed, rm, e) =>
-      if (signed) {
-        FloatingPoint.ToSignedBitVector(s, toSMT(rm), toSMT(e))
-      }
-      else {
-        FloatingPoint.ToUnsignedBitVector(s, toSMT(rm), toSMT(e))
-      }
+      // SMT-LIB leaves the conversion of NaN, infinities and out-of-range values unspecified, so
+      // they are encoded as in the evaluator: NaN converts to 0, and out-of-range values saturate
+      val FPType(ne, ns) = e.getType: @unchecked
+      val x = id2sym(FreshIdentifier("x"))
+      val (lo, hi) = if (signed) (-BigInt(2).pow(s - 1), BigInt(2).pow(s - 1)) else (BigInt(0), BigInt(2).pow(s))
+      // the bounds are exact, or infinities when the format can't represent them
+      val loFP = toSMT(FPCast(ne, ns, RoundTowardNegative, BVLiteral(true, lo, s + 2)))
+      val hiFP = toSMT(FPCast(ne, ns, RoundTowardPositive, BVLiteral(true, hi, s + 2)))
+      val rounded = FloatingPoint.RoundToIntegral(toSMT(rm), x)
+      val converted =
+        if (signed) FloatingPoint.ToSignedBitVector(s, toSMT(rm), x)
+        else FloatingPoint.ToUnsignedBitVector(s, toSMT(rm), x)
+      SMTLet(VarBinding(x, toSMT(e)), Seq(),
+        Core.ITE(FloatingPoint.IsNaN(x), toSMT(BVLiteral(signed, 0, s)),
+          Core.ITE(FloatingPoint.GreaterEquals(rounded, hiFP), toSMT(BVLiteral(signed, hi - 1, s)),
+            Core.ITE(FloatingPoint.LessThan(rounded, loFP), toSMT(BVLiteral(signed, lo, s)), converted))))
     case FPToReal(e) => FloatingPoint.ToReal(toSMT(e))
     case FPLessThan(a, b) => FloatingPoint.LessThan(toSMT(a), toSMT(b))
     case FPLessEquals(a, b) => FloatingPoint.LessEquals(toSMT(a), toSMT(b))
