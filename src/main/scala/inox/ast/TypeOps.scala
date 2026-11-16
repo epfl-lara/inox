@@ -92,6 +92,39 @@ trait TypeOps {
       // booleans are propositions, also in the types that hold propositions
       (containsProposition(t2.getType) && leastUpperBound(t1.getType, t2.getType) == t2.getType))
 
+  /** Whether the values of `tpe` are propositions, or functions that return such values (see
+    * [[Types.PropType]]): a term can choose between two of these with a proposition. */
+  def carriesProposition(tpe: Type): Boolean = tpe match {
+    case PropType() => true
+    case FunctionType(_, to) => carriesProposition(to)
+    case PiType(_, to) => carriesProposition(to)
+    case RefinementType(vd, _) => carriesProposition(vd.tpe)
+    case _ => false
+  }
+
+  /** Whether the values of `tpe` hold a proposition (see [[Types.PropType]]): a proposition, a function
+    * that returns one, or data with one in a field, a tuple or the values of a map. Their
+    * equality would observe the proposition, so it is a proposition itself, and these values
+    * can't be the elements of a set or a bag, the keys of a map, or instantiate a type parameter.
+    */
+  def containsProposition(tpe: Type): Boolean = {
+    // the sorts already looked into: a recursive field adds nothing to the others
+    val seen = scala.collection.mutable.Set.empty[Identifier]
+    def rec(tpe: Type): Boolean = tpe match {
+      case PropType() => true
+      // a function can't depend on the propositions it takes
+      case FunctionType(_, to) => rec(to)
+      case PiType(_, to) => rec(to)
+      case MapType(_, to) => rec(to)
+      case RefinementType(vd, _) => rec(vd.tpe)
+      case SigmaType(params, to) => params.exists(vd => rec(vd.tpe)) || rec(to)
+      case ADTType(id, tps) => tps.exists(rec) || (seen.add(id) && lookupSort(id).exists(
+        _.constructors.exists(_.fields.exists(vd => rec(vd.tpe)))))
+      case NAryType(tps, _) => tps.exists(rec)
+    }
+    rec(tpe)
+  }
+
   private type Instantiation = Map[TypeParameter, Type]
   def instantiation(from: Type, to: Type): Option[Instantiation] = {
     class Failure extends RuntimeException
