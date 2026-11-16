@@ -156,6 +156,21 @@ trait TypeTemplates { self: Templates =>
     CaptureTemplate(arg._2, container._2).instantiate(start, container._1, arg._1)
   }
 
+  /** Orders the functions that the lambda `container` captures before it, without the clauses that
+    * make them distinct (see [[canBeEqual]]).
+    *
+    * Unless equality is intensional, a lambda can be equal to a function that it captures:
+    * `() => f()` agrees with `f` on every input. The unrolling still leaves out the clauses that
+    * follow from their equality: the lambda's body for the applications of the function, and the
+    * function's blockers. These clauses are only added once a model makes them equal (see
+    * [[LambdaTemplates.equalCaptures]]). Leaving them out only weakens the query, so refutations
+    * remain sound. Adding them upfront makes the solver consider each function equal to the lambdas
+    * that capture it, such as Stainless's type predicates
+    * `x => x.isInstanceOf[(A, B)] && A(x._1) && B(x._2)`, which can make some queries time out. */
+  def registerCapturedFunctions(container: Encoded, functions: Seq[Encoded]): Unit = {
+    if (functions.nonEmpty) lessOrder += container -> (lessOrder(container) ++ functions)
+  }
+
   private def instantiateTyping(blocker: Encoded, typing: Typing): Clauses = {
     // The clauses of a typing are guarded by the blocker it is instantiated under, so its result
     // is only shared under the same blocker: it would be unconstrained elsewhere, and could then be
@@ -469,6 +484,8 @@ trait TypeTemplates { self: Templates =>
   private[unrolling] object typesManager extends Manager {
     private[TypeTemplates] val typeInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[Typing])]
     private[TypeTemplates] val lessOrder = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
+    // the lambdas and the functions they capture that a model made equal (see [[registerCapturedFunctions]])
+    private[unrolling] val relatedCaptures = new IncrementalSet[(Encoded, Encoded)]
     private[TypeTemplates] val results = new IncrementalMap[(Type, Encoded, Seq[Arg], TypingGenerator, Boolean, Boolean, Encoded), Encoded]
     private[TypeTemplates] val typeDepths = new IncrementalMap[Encoded, Int]
 
@@ -552,7 +569,7 @@ trait TypeTemplates { self: Templates =>
         v
       })
 
-    def canBeEqual(f1: Encoded, f2: Encoded): Boolean = {
+    def canBeEqual(f1: Encoded, f2: Encoded): Boolean = relatedCaptures(f1 -> f2) || relatedCaptures(f2 -> f1) || {
       def transitiveLess(l: Encoded, r: Encoded): Boolean = {
         val fs = fixpoint((fs: Set[Encoded]) => fs ++ fs.flatMap(lessOrder))(lessOrder(l))
         fs(r)
@@ -572,7 +589,7 @@ trait TypeTemplates { self: Templates =>
     private[TypeTemplates] val collectionNexts = new IncrementalMap[Encoded, Encoded]
 
     val incrementals: Seq[IncrementalState] =
-      Seq(typeInfos, lessOrder, results, typeDepths, deferredTypings, collections, boundCollections, reads, readsOf,
+      Seq(typeInfos, lessOrder, relatedCaptures, results, typeDepths, deferredTypings, collections, boundCollections, reads, readsOf,
         readBlockers, readTypings, collectionNexts)
 
     def unrollGeneration: Option[Int] =

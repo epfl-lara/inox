@@ -1,0 +1,8 @@
+; `f` is equal to a lambda that captures it, which defines `f` on every input: the solver relates
+; them once a model makes them equal, and then finds that `f(2)` is 0
+(set-option :function-equality extensional)
+(declare-const f (-> Int Int))
+(set-info :status unsat)
+(assert (= f (lambda ((x Int)) (ite (> x 0) (@ f (- x 1)) 0))))
+(assert (= (@ f 2) 1))
+(check-sat)

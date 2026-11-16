@@ -297,6 +297,43 @@ trait LambdaTemplates { self: Templates =>
     clauses.toSeq
   }
 
+  /** The lambdas and the functions of their type that they capture, which the unrolling hasn't
+    * related yet (see [[TypeTemplates.registerCapturedFunctions]]), as the lambda's start blocker,
+    * the lambda and the function. A model that makes them equal must relate them first. */
+  def equalCaptures: Seq[(Encoded, Encoded, Encoded)] = for {
+    (ft, templates) <- byType.toSeq
+    functions = (freeFunctions(ft).toSeq.map(_._2) ++ applications(ft).toSeq.map(_._2.caller)).distinct
+    template <- templates.values.toSeq
+    f <- functions if !canBeEqual(template.ids._2, f)
+  } yield (template.start, template.ids._2, f)
+
+  /** Adds the clauses that follow from the equality of `lambda` and a function `f` that it captures,
+    * which the unrolling left out (see [[equalCaptures]]). */
+  def relateCapture(lambda: Encoded, f: Encoded): Clauses = {
+    relatedCaptures += lambda -> f
+    val template = byID(lambda)
+    val ft = template.tpe
+    val clauses = new scala.collection.mutable.ListBuffer[Encoded]
+
+    for ((b, g) <- freeFunctions(ft) if g == f) {
+      if (ft.from.isEmpty && isPureTemplate(template)) {
+        clauses += arglessEquality(b, nonFreeBlockers(f)._1, f, ft, template)
+      }
+
+      val (blocker, lastB) = nonFreeBlockers(f)
+      val nextB = encodeSymbol(Variable.fresh("b_next", BooleanType(), true))
+      nonFreeBlockers += f -> ((blocker, nextB))
+      clauses += mkImplies(b, mkEquals(lastB, mkOr(mkAnd(template.start, mkEquals(lambda, f)), nextB)))
+    }
+
+    // the model that made them equal is only checked again once these applications are unrolled
+    for (app @ (_, App(caller, _, args, _)) <- applications(ft) if caller == f) {
+      registerAppInfo(currentGeneration, app, Left(template), mkAnd(template.start, mkEquals(lambda, caller)), args)
+    }
+
+    clauses.toSeq
+  }
+
   private def isPureTemplate(template: LambdaTemplate): Boolean = template.structure.body match {
     case Lambda(_, _: Variable) => true
     case _ => false
@@ -372,9 +409,15 @@ trait LambdaTemplates { self: Templates =>
       // contain itself), so captured functions are ordered before the lambdas that capture them.
       // Equality is only that of values under intensional equality: otherwise, `() => f()` captures
       // `f` and agrees with it on every input, so it is equal to `f`.
+      //
+      // Otherwise, the unrolling only relates a lambda to the functions it captures once a model
+      // makes them equal (see [[registerCapturedFunctions]]).
       val orderingClauses = if (functionWitnesses) Seq.empty else newTemplate.closures.flatMap {
         case (v, dep) => registerClosure(newTemplate.start, idT -> newTemplate.tpe, dep -> v.getType)
       }
+      if (functionWitnesses) registerCapturedFunctions(idT, newTemplate.closures.collect {
+        case (v, dep) if v.getType.isInstanceOf[FunctionType] => dep
+      })
 
       // make sure we introduce sound equality constraints between closures that take no arguments
       val arglessEqClauses: Clauses = if (newTemplate.tpe.from.nonEmpty || !isPureTemplate(newTemplate)) {

@@ -1201,6 +1201,22 @@ abstract class AbstractUnrollingSolver private
 
     import SolverResponses._
 
+    // the lambdas and the functions they capture that the model makes equal, and that the unrolling
+    // hasn't related yet (see [[LambdaTemplates.equalCaptures]])
+    var modelCaptures: Option[(underlying.Model, Seq[(Encoded, Encoded)])] = None
+    def equalCaptures(umodel: underlying.Model): Seq[(Encoded, Encoded)] = modelCaptures match {
+      case Some((m, captures)) if m.asInstanceOf[AnyRef] eq umodel.asInstanceOf[AnyRef] => captures
+      case _ =>
+        val candidates = templates.equalCaptures
+        val captures = if (candidates.isEmpty) Seq.empty else {
+          val wrapped = wrapModel(umodel)
+          def holds(e: Encoded): Boolean = wrapped.modelEval(e, t.BooleanType()) == Some(t.BooleanLiteral(true))
+          candidates.collect { case (start, lambda, f) if holds(start) && holds(templates.mkEquals(lambda, f)) => lambda -> f }
+        }
+        modelCaptures = Some(umodel -> captures)
+        captures
+    }
+
     sealed abstract class CheckState
     class CheckResult(val response: config.Response[Model, Assumptions]) extends CheckState
     case class Validate(model: underlying.Model) extends CheckState
@@ -1440,6 +1456,16 @@ abstract class AbstractUnrollingSolver private
         // Extracting and validating a large model takes time: skip them once interrupted
         case Validate(_) if abort || pause =>
           CheckResult.cast(Unknown)
+
+        case Validate(umodel) if !abort && !pause && equalCaptures(umodel).nonEmpty =>
+          // the unrolling left out the clauses that relate these lambdas to the functions they capture
+          // (see [[LambdaTemplates.equalCaptures]]), so the model needs them before it can be trusted
+          reporter.debug(" - Relating lambdas to the captured functions that the model makes equal")
+          for ((lambda, f) <- equalCaptures(umodel); cl <- templates.relateCapture(lambda, f)) {
+            underlying.assertCnstr(cl)
+          }
+          // the applications of the functions are then related to the lambdas by unrolling them
+          if (templates.canUnroll) Unroll else ModelCheck
 
         case Validate(umodel) =>
           requestedWitnesses = Map.empty
