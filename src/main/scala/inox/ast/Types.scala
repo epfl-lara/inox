@@ -171,9 +171,23 @@ trait Types { self: Trees =>
   /* Dependent Types */
 
   private object TypeNormalization {
-    private class TypeNormalizer extends ConcreteSelfTreeTransformer {
+    /** Renames the binders of a type to the identifiers of `SymbolOps.getId`, in order, as
+      * `normalizeStructure` does for lambdas. The free variables of a type keep their names, and may
+      * themselves be such identifiers (eg. in the body of a normalized lambda), so these are skipped.
+      */
+    private class TypeNormalizer(free: Set[Identifier]) extends ConcreteSelfTreeTransformer {
       private val subst: MutableMap[Variable, Variable] = MutableMap.empty
       private var counter: Int = 0
+
+      private def nextId(): Identifier = {
+        var id = SymbolOps.getId(counter)
+        counter += 1
+        while (free(id)) {
+          id = SymbolOps.getId(counter)
+          counter += 1
+        }
+        id
+      }
 
       override def transform(expr: Expr): Expr = expr match {
         case v: Variable => subst.getOrElse(v, v)
@@ -181,9 +195,7 @@ trait Types { self: Trees =>
       }
 
       override def transform(vd: ValDef): ValDef = {
-        // the identifiers of `SymbolOps.getId` are fresh, so they never capture a free variable
-        val nid = SymbolOps.getId(counter)
-        counter += 1
+        val nid = nextId()
 
         val newVd = ValDef(nid, transform(vd.tpe), vd.flags map transform).copiedFrom(vd)
         subst(vd.toVariable) = newVd.toVariable
@@ -191,7 +203,8 @@ trait Types { self: Trees =>
       }
     }
 
-    def apply[T <: Type](tpe: T): T = (new TypeNormalizer).transform(tpe).asInstanceOf[T]
+    def apply[T <: Type](tpe: T): T =
+      (new TypeNormalizer(typeOps.variablesOf(tpe).map(_.id))).transform(tpe).asInstanceOf[T]
   }
 
   protected sealed trait TypeNormalization { self: Type & Product =>
