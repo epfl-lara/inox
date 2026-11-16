@@ -32,51 +32,18 @@ trait Types { self: Trees =>
     protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type
   }
 
-  protected def unveilUntyped(tpe: Type)(using Symbols): Type = {
+  protected def unveilUntyped(tpe: Type)(using s: Symbols): Type = {
     val NAryType(tps, _) = tpe: @unchecked
     if (tps contains Untyped) Untyped
     else tpe match {
       // sets, bags and maps compute with the equality of their elements and keys, and generic
       // code with the equality of its type parameters, which would observe a proposition
-      case SetType(base) if containsProposition(base) => Untyped
-      case BagType(base) if containsProposition(base) => Untyped
-      case MapType(from, _) if containsProposition(from) => Untyped
-      case ADTType(_, tps) if tps exists containsProposition => Untyped
+      case SetType(base) if s.containsProposition(base) => Untyped
+      case BagType(base) if s.containsProposition(base) => Untyped
+      case MapType(from, _) if s.containsProposition(from) => Untyped
+      case ADTType(_, tps) if tps exists s.containsProposition => Untyped
       case _ => tpe
     }
-  }
-
-  /** Whether the values of `tpe` are propositions, or functions that return such values (see
-    * [[PropType]]): a term can choose between two of these with a proposition. */
-  def carriesProposition(tpe: Type): Boolean = tpe match {
-    case PropType() => true
-    case FunctionType(_, to) => carriesProposition(to)
-    case PiType(_, to) => carriesProposition(to)
-    case RefinementType(vd, _) => carriesProposition(vd.tpe)
-    case _ => false
-  }
-
-  /** Whether the values of `tpe` hold a proposition (see [[PropType]]): a proposition, a function
-    * that returns one, or data with one in a field, a tuple or the values of a map. Their
-    * equality would observe the proposition, so it is a proposition itself, and these values
-    * can't be the elements of a set or a bag, the keys of a map, or instantiate a type parameter.
-    */
-  def containsProposition(tpe: Type)(using s: Symbols): Boolean = {
-    // the sorts already looked into: a recursive field adds nothing to the others
-    val seen = scala.collection.mutable.Set.empty[Identifier]
-    def rec(tpe: Type): Boolean = tpe match {
-      case PropType() => true
-      // a function can't depend on the propositions it takes
-      case FunctionType(_, to) => rec(to)
-      case PiType(_, to) => rec(to)
-      case MapType(_, to) => rec(to)
-      case RefinementType(vd, _) => rec(vd.tpe)
-      case SigmaType(params, to) => params.exists(vd => rec(vd.tpe)) || rec(to)
-      case ADTType(id, tps) => tps.exists(rec) || (seen.add(id) && s.lookupSort(id).exists(
-        _.constructors.exists(_.fields.exists(vd => rec(vd.tpe)))))
-      case NAryType(tps, _) => tps.exists(rec)
-    }
-    rec(tpe)
   }
 
   abstract class Type extends Tree with Typed {
@@ -113,7 +80,7 @@ trait Types { self: Trees =>
     * A proposition has a truth value in every model but no evaluation rule, so its truth value
     * can't be observed: nothing takes a proposition back to a boolean. A term can't branch on
     * one, unless its branches are propositions themselves, and an equality between values that
-    * hold propositions is a proposition (see [[containsProposition]]).
+    * hold propositions is a proposition (see [[TypeOps.containsProposition]]).
     *
     * A proposition is otherwise a value: it can be bound by a `Let` (a name for it), passed as
     * an argument, returned by a function (a predicate definition) or by a lambda (a predicate),

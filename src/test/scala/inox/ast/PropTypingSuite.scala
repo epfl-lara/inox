@@ -246,12 +246,12 @@ class PropTypingSuite extends AnyFunSuite {
       // a function that takes a proposition can't depend on it, so it is data
       SetType(FunctionType(Seq(PropType()), IntegerType()))
     )) assert(tpe.getType != Untyped, s"for $tpe")
-    assert(carriesProposition(predT) && carriesProposition(FunctionType(Seq(IntegerType()), predT)))
-    assert(!carriesProposition(FunctionType(Seq(PropType()), IntegerType())))
-    assert(!carriesProposition(claimT) && containsProposition(claimT))
-    assert(containsProposition(ADTType(wrapID, Seq())) && containsProposition(TupleType(Seq(i.getType, predT))))
-    assert(!containsProposition(FunctionType(Seq(PropType()), IntegerType())))
-    assert(!containsProposition(ADTType(boxID, Seq(IntegerType()))))
+    assert(propositional.carriesProposition(predT) && propositional.carriesProposition(FunctionType(Seq(IntegerType()), predT)))
+    assert(!propositional.carriesProposition(FunctionType(Seq(PropType()), IntegerType())))
+    assert(!propositional.carriesProposition(claimT) && propositional.containsProposition(claimT))
+    assert(propositional.containsProposition(ADTType(wrapID, Seq())) && propositional.containsProposition(TupleType(Seq(i.getType, predT))))
+    assert(!propositional.containsProposition(FunctionType(Seq(PropType()), IntegerType())))
+    assert(!propositional.containsProposition(ADTType(boxID, Seq(IntegerType()))))
   }
 
   test("Data can hold propositions") {
@@ -414,8 +414,8 @@ class PropTypingSuite extends AnyFunSuite {
     inferred.ensureWellFormed
     assert(inferred.getSort(posSortID).constructors.head.fields.map(_.tpe) == Seq(PropType(), IntegerType()))
     assert(inferred.getFunction(pairID).returnType == TupleType(Seq(PropType(), IntegerType())))
-    assert(containsProposition(ADTType(posSortID, Seq()))(using inferred))
-    assert(!containsProposition(ADTType(posSortID, Seq()))(using syms))
+    assert(inferred.containsProposition(ADTType(posSortID, Seq())))
+    assert(!syms.containsProposition(ADTType(posSortID, Seq())))
 
     // a generic field would make the proposition a type argument
     val generic = inference.transform(syms.withFunctions(Seq(boxed)))

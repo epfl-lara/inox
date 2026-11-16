@@ -112,7 +112,7 @@ trait Expressions { self: Trees =>
     * symbols it is typed under. One can't quantify over propositions. */
   sealed case class Forall(params: Seq[ValDef], body: Expr) extends Expr with CachingTyped {
     override protected def computeTpe(stripRefinements: Boolean)(using s: Symbols): Type =
-      if (params.exists(vd => containsProposition(vd.getType))) Untyped
+      if (params.exists(vd => s.containsProposition(vd.getType))) Untyped
       else s.modes.quantifiers match {
         case QuantifierMode.Boolean => body.getTpe(stripRefinements)
         case QuantifierMode.Propositional => checkProposition(body, PropType())
@@ -171,7 +171,7 @@ trait Expressions { self: Trees =>
         .filter(fd => tps.size == fd.tparams.size && args.size == fd.params.size)
         .map(_.typed(tps))
         // equality at a type parameter is a boolean, so it can't be a type of propositions
-        .filter(_ => !tps.exists(tp => containsProposition(tp.getType)))
+        .filter(_ => !tps.exists(tp => s.containsProposition(tp.getType)))
         .map(tfd => checkParamTypes(args, tfd.params.map(_.getType), tfd.getTpe(stripRefinements)))
         .getOrElse(Untyped)
     }
@@ -195,7 +195,7 @@ trait Expressions { self: Trees =>
       else if (cond.getType == PropType()) getPropositionalType(thenn, elze) match {
         case Untyped =>
           val lub = s.leastUpperBound(thenn.getTpe(stripRefinements), elze.getTpe(stripRefinements))
-          if (carriesProposition(lub.getType)) lub else Untyped
+          if (s.carriesProposition(lub.getType)) lub else Untyped
         case _ => PropType()
       }
       else Untyped
@@ -457,7 +457,7 @@ trait Expressions { self: Trees =>
       s.leastUpperBound(lhs.getType, rhs.getType) match {
         case Untyped => Untyped
         // an equivalence between propositions, or between values that hold them
-        case tpe if containsProposition(tpe) => PropType()
+        case tpe if s.containsProposition(tpe) => PropType()
         case _ => BooleanType()
       }
     }
