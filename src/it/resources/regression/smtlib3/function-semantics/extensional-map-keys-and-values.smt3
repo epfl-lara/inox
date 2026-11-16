@@ -1,0 +1,13 @@
+; Under extensional equality, maps compare their keys and values as functions
+(set-option :function-equality extensional)
+(declare-const m (Array (-> Int Int) Int))
+(push 1)
+(assert (= (select m (lambda ((x Int)) x)) 1))
+(assert (not (= (select m (lambda ((x Int)) (ite (= x 0) 0 x))) 1)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+(assert (not (= (store ((as const (Array Int (-> Int Int))) (lambda ((x Int)) x)) 1 (lambda ((x Int)) (ite (= x 0) 0 x)))
+                ((as const (Array Int (-> Int Int))) (lambda ((x Int)) x)))))
+(set-info :status unsat)
+(check-sat)
