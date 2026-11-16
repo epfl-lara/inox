@@ -130,6 +130,17 @@ class UnrollingSolverSuite extends TestSuite with DatastructureUtils {
     }
   }
 
+  test("lucky models whose validation times out leave the counterexample to the search") {
+    // The validation of every lucky model is given up at once, so the model comes from the search
+    val l = Variable.fresh("l", T(listID)(I))
+    check(E(lengthID)(I)(l) === int(3), Model, optFeelingLucky(true), optLuckyTimeout(0), optCheckModels(true)) match {
+      case SatWithModel(model) =>
+        val evaluated = program.getEvaluator.eval(E(lengthID)(I)(value(model, l)), model)
+        assert(evaluated.result == Some(int(3)))
+      case res => fail(s"Expected a model, got $res")
+    }
+  }
+
   test("the unrolling bound stops the search") {
     val clause = E(downID)(x) === y && y > int(0) && x <= int(5)
     for (bound <- Seq(0, 1, 3)) {

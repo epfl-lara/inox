@@ -125,6 +125,7 @@ trait MainHelpers {
     solvers.unrolling.optUnrollBound -> Description(Solvers, "Maximum number of unroll steps to perform"),
     solvers.unrolling.optUnrollFactor -> Description(Solvers, "Number of unrollings to perform between each interaction with the SMT solver"),
     solvers.unrolling.optFeelingLucky -> Description(Solvers, "Use evaluator to find counter-examples early"),
+    solvers.unrolling.optLuckyTimeout -> Description(Solvers, s"Time in milliseconds after which a model found by ${unrolling.optFeelingLucky.name} is given up"),
     solvers.unrolling.optUnrollAssumptions -> Description(Solvers, "Use unsat-assumptions to drive unfolding while remaining fair"),
     solvers.unrolling.optModelFinding -> Description(Solvers, "Enhance model-finding capabilities of solvers by given aggressivity"),
     solvers.unrolling.optFunctionEquality -> Description(Solvers, "Semantics of equality between first-class functions: none (functions can't be compared), intensional or extensional"),

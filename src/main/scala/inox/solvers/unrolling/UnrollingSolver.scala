@@ -16,6 +16,8 @@ object optUnrollBound       extends IntOptionDef("unroll-bound", default = -1, "
 object optUnrollFactor      extends IntOptionDef("unroll-factor", default = 1, "<PosInt>")
 object optFeelingLucky      extends FlagOptionDef("feeling-lucky", false)
 object optUnrollAssumptions extends FlagOptionDef("unroll-assumptions", false)
+/** How long, in milliseconds, the validation of a lucky model may take (see [[optFeelingLucky]]). */
+object optLuckyTimeout      extends IntOptionDef("lucky-timeout", default = 5000, "<PosInt> (milliseconds)")
 
 /** The semantics of equality between first-class functions.
   *
@@ -228,6 +230,7 @@ abstract class AbstractUnrollingSolver private
   lazy val unrollBound = options.findOptionOrDefault(optUnrollBound)
   lazy val unrollFactor = options.findOptionOrDefault(optUnrollFactor)
   lazy val feelingLucky = options.findOptionOrDefault(optFeelingLucky)
+  lazy val luckyTimeout = options.findOptionOrDefault(optLuckyTimeout)
   lazy val unrollAssumptions = options.findOptionOrDefault(optUnrollAssumptions)
   lazy val modelFinding = options.findOptionOrDefault(optModelFinding) > 0
 
@@ -680,6 +683,36 @@ abstract class AbstractUnrollingSolver private
       case EvaluationResults.EvaluatorError(msg) =>
         emit(silenceErrors)("- Model leads to evaluation error: " + msg)
         false
+    }
+  }
+
+  /** Runs the validation of a lucky model, which fails once [[luckyTimeout]] has elapsed.
+    *
+    * A lucky model is only a shortcut to a counterexample that the search would find later, but
+    * its validation evaluates the foralls of the program with nested solvers (see
+    * [[evaluators.SolvingEvaluator]]), which can take much longer than the search itself.
+    */
+  private def withinLuckyTimeout(validation: => Boolean): Boolean = {
+    val expired = new java.util.concurrent.atomic.AtomicBoolean(false)
+    val timer = new java.util.Timer("lucky-model-validation", true)
+    timer.schedule(new java.util.TimerTask {
+      def run(): Unit = evaluatorInterrupts.synchronized {
+        if (!evaluatorInterrupts.isInterrupted) {
+          expired.set(true)
+          evaluatorInterrupts.interrupt()
+        }
+      }
+    }, luckyTimeout.toLong)
+
+    try validation finally {
+      timer.cancel()
+      evaluatorInterrupts.synchronized {
+        // The solver may have been interrupted in the meantime, in which case its evaluators stay so
+        if (expired.get && !abort && evaluatorInterrupts.isInterrupted) {
+          reporter.debug("- Lucky model validation timed out.")
+          evaluatorInterrupts.reset()
+        }
+      }
     }
   }
 
@@ -1616,7 +1649,7 @@ abstract class AbstractUnrollingSolver private
             case SatWithModel(model) =>
               lazy val luckyModel = if (!feelingLucky) None else {
                 (try { Some(extractSimpleModel(model)) } catch { case _: NoSimpleValue => None })
-                  .filter(exModel => validateModel(exModel, assumptionsSeq, silenceErrors = true))
+                  .filter(exModel => withinLuckyTimeout(validateModel(exModel, assumptionsSeq, silenceErrors = true)))
               }
 
               if (luckyModel.isDefined) {
