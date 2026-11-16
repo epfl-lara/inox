@@ -693,22 +693,20 @@ abstract class AbstractUnrollingSolver private
     * [[evaluators.SolvingEvaluator]]), which can take much longer than the search itself.
     */
   private def withinLuckyTimeout(validation: => Boolean): Boolean = {
-    val expired = new java.util.concurrent.atomic.AtomicBoolean(false)
-    val timer = new java.util.Timer("lucky-model-validation", true)
-    timer.schedule(new java.util.TimerTask {
-      def run(): Unit = evaluatorInterrupts.synchronized {
+    var expired = false
+    val expiry = new Interruptible {
+      def interrupt(): Unit = evaluatorInterrupts.synchronized {
         if (!evaluatorInterrupts.isInterrupted) {
-          expired.set(true)
+          expired = true
           evaluatorInterrupts.interrupt()
         }
       }
-    }, luckyTimeout.toLong)
+    }
 
-    try validation finally {
-      timer.cancel()
+    try new TimeoutFor(expiry).interruptAfter(luckyTimeout.toLong)(validation) finally {
       evaluatorInterrupts.synchronized {
         // The solver may have been interrupted in the meantime, in which case its evaluators stay so
-        if (expired.get && !abort && evaluatorInterrupts.isInterrupted) {
+        if (expired && !abort && evaluatorInterrupts.isInterrupted) {
           reporter.debug("- Lucky model validation timed out.")
           evaluatorInterrupts.reset()
         }
