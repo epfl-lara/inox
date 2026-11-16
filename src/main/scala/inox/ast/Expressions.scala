@@ -79,12 +79,13 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `callee(args...)`, where [[callee]] is an expression of a function type (not a method) */
   sealed case class Application(callee: Expr, args: Seq[Expr]) extends Expr with CachingTyped {
-    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = {
+    override protected def computeTpe(stripRefinements: Boolean)(using s: Symbols): Type = {
       val calleTpe = if (stripRefinements) callee.getType else callee.getTpe(stripRefinements = false).stripToplevelRefinement
       calleTpe match {
         // the arguments must be accepted by the function: a boolean parameter can't be given
-        // a proposition
-        case FunctionType(from, to) => checkParamTypes(args, from, to)
+        // a proposition. The result keeps the callee's refinements (`checkParamTypes` strips them)
+        case FunctionType(from, to) if args.size == from.size &&
+            (args zip from).forall((arg, tpe) => s.isSubtypeOf(arg.getType, tpe.getType)) => to
         // case PiType(params, to) => ???
         case _ => Untyped
       }

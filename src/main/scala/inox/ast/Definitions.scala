@@ -257,13 +257,30 @@ trait Definitions { self: Trees =>
       if (sort.constructors.flatMap(_.fields).groupBy(_.id).exists(_._2.size > 1)) throw NotWellFormedException(sort)
     }
 
+    // Definitions are equal by identifier, so comparing the definition maps would equate tables
+    // whose functions have different bodies: definitions are compared field by field instead.
     override def equals(that: Any): Boolean = that match {
       case sym: AbstractSymbols =>
-        functions == sym.functions && sorts == sym.sorts && modes == sym.modes
+        (this eq sym) || (
+          modes == sym.modes &&
+          sameDefinitions(functions, sym.functions)(sameFunction) &&
+          sameDefinitions(sorts, sym.sorts)(sameSort))
       case _ => false
     }
 
-    override def hashCode: Int = (functions.hashCode * 61 + sorts.hashCode) * 61 + modes.hashCode
+    // Tables that are equal have the same identifiers, so hashing the identifiers is consistent
+    override def hashCode: Int = (functions.keySet.hashCode * 61 + sorts.keySet.hashCode) * 61 + modes.hashCode
+
+    private def sameDefinitions[D](ds1: Map[Identifier, D], ds2: Map[Identifier, D])(same: (D, D) => Boolean): Boolean =
+      ds1.size == ds2.size && ds1.forall((id, d1) => ds2.get(id).exists(d2 => same(d1, d2)))
+
+    private def sameFunction(fd1: FunDef, fd2: FunDef): Boolean = (fd1 eq fd2) || (
+      fd1.tparams == fd2.tparams && fd1.params == fd2.params && fd1.returnType == fd2.returnType &&
+      fd1.fullBody == fd2.fullBody && fd1.flags == fd2.flags)
+
+    private def sameSort(s1: ADTSort, s2: ADTSort): Boolean = (s1 eq s2) || (
+      s1.tparams == s2.tparams && s1.flags == s2.flags &&
+      s1.constructors.map(c => (c.id, c.fields)) == s2.constructors.map(c => (c.id, c.fields)))
 
     def withFunctions(functions: Seq[FunDef]): Symbols
     def withSorts(sorts: Seq[ADTSort]): Symbols

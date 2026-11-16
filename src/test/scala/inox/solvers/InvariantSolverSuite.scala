@@ -186,6 +186,12 @@ class InvariantSolverSuite extends AnyFunSuite {
     assertInvalid(ctx, above === x + E(BigInt(1)))
   }
 
+  test("Quantified formulas are unknown") { ctx =>
+    val x = "x" :: IntegerType()
+    val res = getFunSolver(ctx).solveSAT(forall(x)(x => x >= E(BigInt(0))))
+    assert(!res.isSAT && !res.isUNSAT, res)
+  }
+
   test("Incremental constraints") { ctx =>
     val x = Variable.fresh("x", IntegerType())
     val solver = fp.getSolver(ctx).getNewSolver()

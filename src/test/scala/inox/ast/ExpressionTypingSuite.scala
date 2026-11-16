@@ -27,6 +27,8 @@ class ExpressionTypingSuite extends AnyFunSuite {
   test("Core expressions") {
     untyped(
       Application(i, Seq(i)),
+      Application(Variable.fresh("g", FunctionType(Seq(IntegerType()), IntegerType())), Seq(b)),
+      Application(Variable.fresh("g", FunctionType(Seq(IntegerType()), IntegerType())), Seq(i, i)),
       IfExpr(i, i, i),
       IfExpr(b, i, b),
       Assume(i, i),
@@ -43,6 +45,13 @@ class ExpressionTypingSuite extends AnyFunSuite {
       ADTSelector(i, FreshIdentifier("field")),
       IsConstructor(i, FreshIdentifier("cons")),
     )
+  }
+
+  test("Applications keep the refined result type of their callee") {
+    val pos = { val r = ValDef.fresh("r", IntegerType()); RefinementType(r, GreaterThan(r.toVariable, IntegerLiteral(0))) }
+    val g = Variable.fresh("g", FunctionType(Seq(IntegerType()), pos))
+    assert(Application(g, Seq(i)).getType == IntegerType())
+    assert(Application(g, Seq(i)).getTpe(stripRefinements = false) == pos)
   }
 
   test("Arithmetic and comparisons") {
