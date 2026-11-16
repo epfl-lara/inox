@@ -569,6 +569,10 @@ trait TypeTemplates { self: Templates =>
         v
       })
 
+    /** The type parameters of the query, with their flags (@see [[storeTypeParameter]]) */
+    private[unrolling] def typeParameterFlags: Seq[(TypeParameter, Encoded)] =
+      tpSyms.toSeq.map { case (tp, v) => tp -> tpSubst(v) }
+
     def canBeEqual(f1: Encoded, f2: Encoded): Boolean = relatedCaptures(f1 -> f2) || relatedCaptures(f2 -> f1) || {
       def transitiveLess(l: Encoded, r: Encoded): Boolean = {
         val fs = fixpoint((fs: Set[Encoded]) => fs ++ fs.flatMap(lessOrder))(lessOrder(l))
@@ -602,8 +606,13 @@ trait TypeTemplates { self: Templates =>
     private def readsTails: Seq[Encoded] =
       (collections.toSeq ++ boundCollections.toSeq).flatMap(_._2.map(_.current.next))
 
+    /** The flags of the type parameters are assumed to hold until a guard appears: no model needs
+      * an empty type parameter before, and nothing prevents a deferred typing from holding values
+      * of a type parameter whose flag is off. Once a guard has appeared, the typings are unfolded,
+      * and those that reach values of a type parameter imply its flag, while the typings that
+      * remain to be unfolded are blocked. A model check may then leave type parameters empty. */
     def satisfactionAssumptions: Seq[Encoded] =
-      typeInfos.map(_._2._3).toSeq ++ tpSubst.values ++ readsTails
+      typeInfos.map(_._2._3).toSeq ++ (if (unfoldingTypeParameters) Seq.empty else tpSubst.values) ++ readsTails
 
     def refutationAssumptions: Seq[Encoded] = readsTails
 

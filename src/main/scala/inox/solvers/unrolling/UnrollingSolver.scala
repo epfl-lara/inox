@@ -565,7 +565,9 @@ abstract class AbstractUnrollingSolver private
     if (silenceErrors) reporter.debug(msg) else reporter.warning(msg)
 
   private def validateModel(model: program.Model, assumptions: Seq[Expr], silenceErrors: Boolean): Boolean = {
-    val expr = andJoin(assumptions ++ constraints)
+    // the values of the model have the types that it gives to the type parameters
+    val formulas = (assumptions ++ constraints).map(typeOps.instantiateType(_, model.types))
+    val expr = andJoin(formulas)
 
     // The uninterpreted functions whose models the typing conditions are being expanded through
     val expanding = MutableSet.empty[Identifier]
@@ -648,7 +650,7 @@ abstract class AbstractUnrollingSolver private
     // The results of the uninterpreted calls of the constraints lie in their types, where the
     // arguments of these calls are given by the model
     val modelVars = model.vars.keySet.map(_.toVariable)
-    val callTypings = (assumptions ++ constraints).flatMap(exprOps.collect[UninterpretedCall] {
+    val callTypings = formulas.flatMap(exprOps.collect[UninterpretedCall] {
       // The calls that the model doesn't interpret can't be evaluated, so validation fails on them
       case uc: UninterpretedCall if exprOps.variablesOf(uc).subsetOf(modelVars) &&
         model.interpretations.contains(uc.id -> uc.tps) => Set(uc)
@@ -667,7 +669,8 @@ abstract class AbstractUnrollingSolver private
       optCheckModels(checkModels || feelingLucky)
     ))
 
-    evaluator.eval(newExpr, inox.Model(program)(Map.empty, partialModel.interpretations ++ model.interpretations)) match {
+    val evalModel = inox.Model(program)(Map.empty, partialModel.interpretations ++ model.interpretations, model.types)
+    evaluator.eval(newExpr, evalModel) match {
       case EvaluationResults.Successful(BooleanLiteral(true)) =>
         reporter.debug("- Model validated.")
         true
@@ -1297,6 +1300,38 @@ abstract class AbstractUnrollingSolver private
     // The depth up to which distinguishing inputs are instantiated: 0 until the first model is found,
     // then one more level with each unrolling (see [[LambdaTemplates.witnessEqualities]])
     var witnessLevel: Int = 0
+
+    /** `model`, extracted from `umodel`, with the type parameters whose flags are off in `umodel`
+      * instantiated with the empty type. The model checks only assume that type parameters have
+      * values until a guard lets them be empty (see [[TypeTemplates.satisfactionAssumptions]]),
+      * and from then on, the values of a type parameter that the model holds imply its flag. The
+      * values of the model have the instantiated types, and the values of an empty type parameter
+      * that the extracted model may still hold where nothing reaches them, such as the default
+      * results of functions into it, become errors. */
+    def withEmptyTypes(model: program.Model, umodel: underlying.Model): program.Model = {
+      val flags = templates.typesManager.typeParameterFlags
+      val emptyTypes = if (flags.isEmpty) Set.empty else {
+        val wrapped = wrapModel(umodel)
+        flags.collect {
+          case (tp, flag) if wrapped.modelEval(flag, t.BooleanType()) == Some(t.BooleanLiteral(false)) =>
+            decode(tp.asInstanceOf[t.Type])
+        }.collect { case tp: TypeParameter => tp }
+      }
+      if (emptyTypes.isEmpty) model else {
+        val empty: Type = RefinementType(ValDef.fresh("empty", UnitType()), BooleanLiteral(false))
+        val types: Map[TypeParameter, Type] = emptyTypes.map(_ -> empty).toMap
+        def inst(tpe: Type): Type = typeOps.instantiateType(tpe, types)
+        def instValue(e: Expr): Expr = typeOps.instantiateType(exprOps.postMap {
+          case GenericValue(tp, _) if types.contains(tp) => Some(Error(tp, "Value of the empty type " + tp.id.name))
+          case _ => None
+        } (e), types)
+        inox.Model(program)(
+          model.vars.map { case (vd, e) => vd.copy(tpe = inst(vd.tpe)) -> instValue(e) },
+          model.interpretations.map { case ((id, tps), e) => (id, tps.map(inst)) -> instValue(e) },
+          types)
+      }
+    }
+
     def witnessEqualities: Map[Encoded, Int] =
       if (witnessLevel > 0) templates.witnessEqualities else Map.empty
 
@@ -1501,7 +1536,7 @@ abstract class AbstractUnrollingSolver private
         case Validate(umodel) =>
           requestedWitnesses = Map.empty
           exposedWitnesses = Set.empty
-          val validated = (try { Some(extractTotalModel(umodel)) } catch {
+          val validated = (try { Some(withEmptyTypes(extractTotalModel(umodel), umodel)) } catch {
             case NoSimpleValue(tpe) =>
               if (!silentErrors) {
                 reporter.error("No simple value found for type " + tpe.asString)
@@ -1646,7 +1681,7 @@ abstract class AbstractUnrollingSolver private
 
             case SatWithModel(model) =>
               lazy val luckyModel = if (!feelingLucky) None else {
-                (try { Some(extractSimpleModel(model)) } catch { case _: NoSimpleValue => None })
+                (try { Some(withEmptyTypes(extractSimpleModel(model), model)) } catch { case _: NoSimpleValue => None })
                   .filter(exModel => withinLuckyTimeout(validateModel(exModel, assumptionsSeq, silenceErrors = true)))
               }
 
@@ -1680,8 +1715,7 @@ abstract class AbstractUnrollingSolver private
           CheckResult.cast(Unknown)
 
         case Unroll if !templates.canUnroll =>
-          // Only satisfaction assumptions that unrolling cannot discharge are left,
-          // e.g. a model exists only if some type parameter is empty.
+          // Only satisfaction assumptions that unrolling cannot discharge are left
           reporter.debug("- We need to keep going, but nothing is left to unroll")
           CheckResult.cast(Unknown)
 

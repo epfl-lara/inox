@@ -141,6 +141,35 @@ class UnrollingSolverSuite extends TestSuite with DatastructureUtils {
     }
   }
 
+  test("models give types to the type parameters they leave empty") {
+    // Only models in which `U` is empty satisfy the clause, and `V` has values
+    val U = TypeParameter.fresh("U")
+    val V = TypeParameter.fresh("V")
+    val g = Variable.fresh("g", U =>: I)
+    val clause = forall("w" :: U)(w => g(w) > g(w)) && !forall("w" :: V)(_ => BooleanLiteral(false))
+    for (checkModels <- Seq(false, true)) {
+      check(clause, Model, optCheckModels(checkModels)) match {
+        case SatWithModel(model) =>
+          assert(model.types.keySet == Set(U))
+          assert(program.getEvaluator.eval(clause, model).result == Some(BooleanLiteral(true)))
+          assert(model.toString.contains("type " + U.id.name))
+        case res => fail(s"Expected a model, got $res (check models = $checkModels)")
+      }
+    }
+  }
+
+  test("models with empty type parameters are found before everything is unrolled") {
+    // `length(l)` unrolls forever, but the model check already shows that only an empty `U`
+    // satisfies the clause
+    val U = TypeParameter.fresh("U")
+    val l = Variable.fresh("l", T(listID)(I))
+    val clause = forall("w" :: U)(_ => BooleanLiteral(false)) && E(lengthID)(I)(l) >= int(0)
+    check(clause, Model, optTimeout(5)) match {
+      case SatWithModel(model) => assert(model.types.keySet == Set(U))
+      case res => fail(s"Expected a model, got $res")
+    }
+  }
+
   test("the unrolling bound stops the search") {
     val clause = E(downID)(x) === y && y > int(0) && x <= int(5)
     for (bound <- Seq(0, 1, 3)) {

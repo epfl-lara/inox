@@ -58,9 +58,12 @@ trait ContextualEvaluator extends Evaluator {
   case class RuntimeError(msg: String) extends Exception
   case class QuantificationError(msg: String) extends Exception
 
-  def eval(ex: Expr, model: program.Model) = timers.evaluators.recursive.runtime.run {
+  def eval(expr: Expr, model: program.Model) = timers.evaluators.recursive.runtime.run {
     try {
       given gctx: GC = initGC
+      // the type parameters that the model gives types to are evaluated as these types, which the
+      // values of the model already have
+      val ex = typeOps.instantiateType(expr, model.types)
       val rctx = initRC(model)
       val modelRctx = rctx.newVars(Map.empty)
       EvaluationResults.Successful(e(ex)(using rctx.newVars(rctx.mappings.view.mapValues(modelValue(_)(using modelRctx)).toMap)))
