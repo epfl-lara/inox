@@ -77,6 +77,26 @@ class PortfolioSolverSuite extends AnyFunSuite {
     assert(unknown.interrupted && sat.interrupted)
   }
 
+  test("An answer does not wait for the solvers listed before it") {
+    // https://github.com/epfl-lara/stainless/issues/980: the portfolio used to look at the
+    // results in the order of the solvers, so an answer waited for every solver before it.
+    val released = new java.util.concurrent.CountDownLatch(1)
+    val releasedByInterrupt = new java.util.concurrent.atomic.AtomicBoolean(false)
+    class Blocking extends ScriptedSolver(program, ctx, "blocking", {
+      releasedByInterrupt.set(released.await(10, java.util.concurrent.TimeUnit.SECONDS))
+      Unknown
+    }) {
+      override def interrupt() = { super.interrupt(); released.countDown() }
+    }
+    val blocking = new Blocking with TimeoutSolver
+    val (sat, sf) = scripted("sat", Sat)
+    val s = PortfolioSolverFactory(program)(Seq(
+      SolverFactory.create[Blocking & TimeoutSolver](program)("blocking", () => blocking), sf)).getNewSolver()
+    assert(s.check(Simple) == Sat)
+    assert(s.getResultSolver == Some(sat))
+    assert(releasedByInterrupt.get, "The portfolio waited for the blocking solver to give up")
+  }
+
   test("Unknown when no solver knows the answer") {
     val (_, a) = scripted("a", Unknown)
     val (_, b) = scripted("b", Unknown)
