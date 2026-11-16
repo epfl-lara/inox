@@ -29,10 +29,22 @@ class PropTypingSuite extends AnyFunSuite {
   val boxConsID = FreshIdentifier("BoxCons")
   val box = mkSort(boxID)("A") { case Seq(a) => Seq((boxConsID, Seq(ValDef(FreshIdentifier("v"), a)))) }
 
+  // case class Claim(holds: Prop, n: BigInt), and case class Wrap(claim: Claim)
+  val claimID = FreshIdentifier("Claim")
+  val claimConsID = FreshIdentifier("ClaimCons")
+  val holdsID = FreshIdentifier("holds")
+  val claim = mkSort(claimID)() { _ =>
+    Seq((claimConsID, Seq(ValDef(holdsID, PropType()), ValDef(FreshIdentifier("n"), IntegerType()))))
+  }
+  val wrapID = FreshIdentifier("Wrap")
+  val wrap = mkSort(wrapID)() { _ =>
+    Seq((FreshIdentifier("WrapCons"), Seq(ValDef(FreshIdentifier("claim"), ADTType(claimID, Seq())))))
+  }
+
   val idID = FreshIdentifier("id")
   val id = mkFunDef(idID)("A") { case Seq(a) => (Seq("x" :: a), a, { case Seq(x) => x }) }
 
-  val boolean = NoSymbols.withFunctions(Seq(pos, id)).withSorts(Seq(box))
+  val boolean = NoSymbols.withFunctions(Seq(pos, id)).withSorts(Seq(box, claim, wrap))
   val propositional = boolean.withQuantifiers(QuantifierMode.Propositional)
 
   private def typed(tpe: Type, es: Expr*)(using Symbols): Unit =
@@ -76,9 +88,9 @@ class PropTypingSuite extends AnyFunSuite {
     typed(Untyped,
       IfExpr(positive, i, i),
       Let("p" :: BooleanType(), positive, i),
-      // data would tell propositions apart by its equality
-      Tuple(Seq(positive, i)),
-      Tuple(Seq(pred, i)),
+      // nor can data that holds propositions
+      IfExpr(positive, Tuple(Seq(positive, i)), Tuple(Seq(positive, i))),
+      // sets and bags would tell propositions apart by their equality
       FiniteSet(Seq(positive), BooleanType()),
       FiniteSet(Seq(pred), FunctionType(Seq(IntegerType()), PropType())),
       ADT(boxConsID, Seq(BooleanType()), Seq(positive)),
@@ -214,24 +226,57 @@ class PropTypingSuite extends AnyFunSuite {
     assert(inferred.getFunction(idID).returnType == syms.getFunction(idID).returnType)
   }
 
-  test("Data can't hold propositions") {
+  test("Sets, bags, map keys and type arguments can't hold propositions") {
     given Symbols = propositional
     val predT = FunctionType(Seq(IntegerType()), PropType())
+    val claimT = ADTType(claimID, Seq())
     for (tpe <- Seq[Type](
-      TupleType(Seq(PropType(), IntegerType())), SetType(PropType()), BagType(PropType()),
-      MapType(IntegerType(), PropType()), ADTType(boxID, Seq(PropType())),
-      SigmaType(Seq("x" :: IntegerType()), PropType()),
-      SetType(RefinementType("p" :: PropType(), b)),
-      TupleType(Seq(predT, IntegerType())), SetType(predT), ADTType(boxID, Seq(predT))
+      SetType(PropType()), BagType(PropType()), MapType(PropType(), IntegerType()),
+      ADTType(boxID, Seq(PropType())), SetType(RefinementType("p" :: PropType(), b)),
+      SetType(predT), ADTType(boxID, Seq(predT)), SetType(TupleType(Seq(PropType(), IntegerType()))),
+      SetType(claimT), BagType(ADTType(wrapID, Seq())), MapType(claimT, IntegerType()),
+      ADTType(boxID, Seq(claimT))
     )) assert(tpe.getType == Untyped, s"for $tpe")
     for (tpe <- Seq[Type](
       PropType(), predT, FunctionType(Seq(PropType()), IntegerType()),
       FunctionType(Seq(predT), predT), PiType(Seq("x" :: IntegerType()), PropType()),
+      TupleType(Seq(PropType(), IntegerType())), TupleType(Seq(predT, IntegerType())),
+      SigmaType(Seq("x" :: IntegerType()), PropType()), MapType(IntegerType(), PropType()),
+      claimT, MapType(IntegerType(), claimT),
       // a function that takes a proposition can't depend on it, so it is data
       SetType(FunctionType(Seq(PropType()), IntegerType()))
     )) assert(tpe.getType != Untyped, s"for $tpe")
     assert(carriesProposition(predT) && carriesProposition(FunctionType(Seq(IntegerType()), predT)))
     assert(!carriesProposition(FunctionType(Seq(PropType()), IntegerType())))
+    assert(!carriesProposition(claimT) && containsProposition(claimT))
+    assert(containsProposition(ADTType(wrapID, Seq())) && containsProposition(TupleType(Seq(i.getType, predT))))
+    assert(!containsProposition(FunctionType(Seq(PropType()), IntegerType())))
+    assert(!containsProposition(ADTType(boxID, Seq(IntegerType()))))
+  }
+
+  test("Data can hold propositions") {
+    given Symbols = propositional
+    val claimT = ADTType(claimID, Seq())
+    val c = ADT(claimConsID, Seq(), Seq(positive, i))
+    val pair = Tuple(Seq(positive, i))
+    typed(claimT, c, ADT(claimConsID, Seq(), Seq(b, i)))
+    typed(PropType(), ADTSelector(c, holdsID), TupleSelect(pair, 1))
+    typed(TupleType(Seq(PropType(), IntegerType())), pair)
+    assert(summon[Symbols].isSubtypeOf(Tuple(Seq(b, i)).getType, pair.getType))
+    typed(IntegerType(), TupleSelect(pair, 2))
+    // equality would observe the propositions, so it is a proposition
+    typed(PropType(),
+      Equals(c, ADT(claimConsID, Seq(), Seq(b, i))),
+      Equals(pair, Tuple(Seq(b, i))),
+      Equals(FiniteMap(Seq(), positive, IntegerType(), PropType()), FiniteMap(Seq(), b, IntegerType(), PropType())))
+    typed(Untyped, IfExpr(Equals(c, c), i, i), IfExpr(Equals(pair, pair), i, i))
+    // but not the equality of the data in it
+    typed(BooleanType(), Equals(TupleSelect(pair, 2), i))
+    // a term can't choose between data that holds propositions
+    typed(Untyped, IfExpr(positive, c, c))
+    // nor quantify over it
+    typed(Untyped, Forall(Seq("c" :: claimT), b))
+    propositional.ensureWellFormed
   }
 
   test("Propositions can be refined") {
@@ -327,18 +372,54 @@ class PropTypingSuite extends AnyFunSuite {
     assert(!isSubtypeOf(FunctionType(Seq(BooleanType()), IntegerType()), FunctionType(Seq(PropType()), IntegerType())))
   }
 
-  test("Propositions can be parameters but not fields") {
+  test("Propositions can be parameters and fields") {
     val param = mkFunDef(FreshIdentifier("param"))() { _ =>
       (Seq("p" :: PropType()), PropType(), { case Seq(p) => p })
     }
     NoSymbols.withFunctions(Seq(param)).ensureWellFormed
+    NoSymbols.withSorts(Seq(claim, wrap)).ensureWellFormed
+  }
 
-    for (tpe <- Seq(PropType(), FunctionType(Seq(IntegerType()), PropType()))) {
-      val field = mkSort(FreshIdentifier("S"))() { _ =>
-        Seq((FreshIdentifier("C"), Seq(ValDef(FreshIdentifier("p"), tpe))))
-      }
-      intercept[NotWellFormedException](NoSymbols.withSorts(Seq(field)).ensureWellFormed)
+  test("Fields and tuples that are given propositions are inferred") {
+    // case class Pos(holds: Boolean, at: BigInt)
+    // def mk(f): Pos = Pos(forall x. f(x) > 0, 0)
+    // def pair(f): (Boolean, BigInt) = (forall x. f(x) > 0, 0)
+    // def boxed(f): Box[Boolean] = Box(forall x. f(x) > 0)
+    val posSortID = FreshIdentifier("Pos")
+    val posConsID = FreshIdentifier("PosCons")
+    val posHoldsID = FreshIdentifier("holds")
+    val posSort = mkSort(posSortID)() { _ =>
+      Seq((posConsID, Seq(ValDef(posHoldsID, BooleanType()), ValDef(FreshIdentifier("at"), IntegerType()))))
     }
+    val zero = E(BigInt(0))
+    def stated(f: Expr) = forall("x" :: IntegerType())(x => f(x) > zero)
+    val mkID = FreshIdentifier("mk")
+    val mk = mkFunDef(mkID)() { _ =>
+      (Seq("f" :: fT), ADTType(posSortID, Seq()), { case Seq(f) => ADT(posConsID, Seq(), Seq(stated(f), zero)) })
+    }
+    val pairID = FreshIdentifier("pair")
+    val pair = mkFunDef(pairID)() { _ =>
+      (Seq("f" :: fT), TupleType(Seq(BooleanType(), IntegerType())), { case Seq(f) => Tuple(Seq(stated(f), zero)) })
+    }
+    val boxedID = FreshIdentifier("boxed")
+    val boxed = mkFunDef(boxedID)() { _ =>
+      (Seq("f" :: fT), ADTType(boxID, Seq(BooleanType())), { case Seq(f) =>
+        ADT(boxConsID, Seq(BooleanType()), Seq(stated(f))) })
+    }
+
+    val inference = transformers.PropositionInference(inox.trees)
+    val syms = NoSymbols.withSorts(Seq(posSort, box)).withFunctions(Seq(mk, pair))
+      .withQuantifiers(QuantifierMode.Propositional)
+    val inferred = inference.transform(syms)
+    inferred.ensureWellFormed
+    assert(inferred.getSort(posSortID).constructors.head.fields.map(_.tpe) == Seq(PropType(), IntegerType()))
+    assert(inferred.getFunction(pairID).returnType == TupleType(Seq(PropType(), IntegerType())))
+    assert(inferred.propositionSorts == Set(posSortID))
+
+    // a generic field would make the proposition a type argument
+    val generic = inference.transform(syms.withFunctions(Seq(boxed)))
+    assert(generic.getSort(boxID) == box)
+    intercept[generic.TypeErrorException](generic.ensureWellFormed)
   }
 
   test("A function that returns a boolean can't return a proposition") {
