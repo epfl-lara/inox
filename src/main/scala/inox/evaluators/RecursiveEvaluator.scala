@@ -40,10 +40,12 @@ abstract class RecursiveEvaluator(override val program: Program,
   }
 
   protected def finiteSet(els: Iterable[Expr], tpe: Type): FiniteSet = {
+    checkKeys(tpe)
     FiniteSet(els.toSeq.distinct.sortBy(_.toString), tpe)
   }
 
   protected def finiteBag(els: Iterable[(Expr, Expr)], tpe: Type): FiniteBag = {
+    checkKeys(tpe)
     FiniteBag(els.toMap.toSeq.filter { case (_, IntegerLiteral(i)) => i > 0 case _ => false }.sortBy(_._1.toString), tpe)
   }
 
@@ -74,21 +76,42 @@ abstract class RecursiveEvaluator(override val program: Program,
   private def fpMin(a: Float, b: Float): Float = if (a.isNaN) b else if (b.isNaN) a else a.min(b)
 
   protected def finiteMap(els: Iterable[(Expr, Expr)], default: Expr, from: Type, to: Type): FiniteMap = {
+    checkKeys(from)
     FiniteMap(els.toMap.toSeq.filter { case (_, value) => value != default }.sortBy(_._1.toString), default, from, to)
   }
 
   private lazy val functionEquality = options.findOptionOrDefault(solvers.unrolling.optFunctionEquality)
 
+  /** Fails under `none` if `tpe`, the type of the elements of a set or a bag or of the keys of a map,
+    * can contain functions, since the collection compares its elements. The solvers reject such
+    * collections (see [[solvers.unrolling.FunctionEquality.functionKeyedCollections]]). */
+  private def checkKeys(tpe: Type): Unit =
+    if (functionEquality == solvers.unrolling.FunctionEquality.None &&
+        solvers.unrolling.FunctionEquality.containsFunctions(program)(tpe))
+      throw EvalError(s"Sets and bags of functions and maps with function keys can't be used under " +
+        s"--function-equality=none: ${tpe.asString}")
+
   /** Equality between the values `v1` and `v2` (see [[solvers.unrolling.optFunctionEquality]]).
     *
     * - Under `intensional` equality, functions are compared structurally.
-    * - Under `none`, comparing functions is an evaluation error. Extracted models never compare
-    *   functions, and queries that do are rejected by the solvers.
+    * - Under `none`, comparing functions is an evaluation error, and so is using a set or a bag of
+    *   values that contain functions, or a map with such keys (see [[checkKeys]]). Extracted models
+    *   never compare functions, and queries that do are rejected by the solvers.
     * - Under `extensional` equality, structurally distinct functions are equal iff they agree on every
     *   input. They are told apart by their results on the closed subexpressions of the right type
     *   that they contain (for extracted models, the inputs that tell them apart), and their equality
     *   is undecidable otherwise. */
-  protected def valuesEqual(v1: Expr, v2: Expr)(using rctx: RC, gctx: GC): Boolean = (v1, v2) match {
+  protected def valuesEqual(v1: Expr, v2: Expr)(using rctx: RC, gctx: GC): Boolean = {
+    v1 match {
+      case FiniteSet(_, base) => checkKeys(base)
+      case FiniteBag(_, base) => checkKeys(base)
+      case FiniteMap(_, _, from, _) => checkKeys(from)
+      case _ =>
+    }
+    structurallyEqual(v1, v2)
+  }
+
+  private def structurallyEqual(v1: Expr, v2: Expr)(using rctx: RC, gctx: GC): Boolean = (v1, v2) match {
     case _ if functionEquality == solvers.unrolling.FunctionEquality.Intensional => v1 == v2
     case (ADT(id1, _, args1), ADT(id2, _, args2)) =>
       id1 == id2 && (args1 zip args2).forall(valuesEqual)
@@ -876,12 +899,12 @@ abstract class RecursiveEvaluator(override val program: Program,
       }
 
     case ElementOfSet(el,s) => (e(el), e(s)) match {
-      case (e, FiniteSet(els, _)) => BooleanLiteral(els.contains(e))
+      case (e, FiniteSet(els, base)) => checkKeys(base); BooleanLiteral(els.contains(e))
       case (l,r) => throw EvalError(typeErrorMsg(r, SetType(l.getType)))
     }
 
     case SubsetOf(s1,s2) => (e(s1), e(s2)) match {
-      case (FiniteSet(els1, _),FiniteSet(els2, _)) => BooleanLiteral(els1.toSet.subsetOf(els2.toSet))
+      case (FiniteSet(els1, base),FiniteSet(els2, _)) => checkKeys(base); BooleanLiteral(els1.toSet.subsetOf(els2.toSet))
       case (le,re) => throw EvalError(typeErrorMsg(le, s1.getType))
     }
 
@@ -901,6 +924,7 @@ abstract class RecursiveEvaluator(override val program: Program,
 
     case MultiplicityInBag(elem, bag) => (e(elem), e(bag)) match {
       case (evElem, FiniteBag(els, tpe)) =>
+        checkKeys(tpe)
         els.collect { case (k,v) if k == evElem => v }.lastOption.getOrElse(IntegerLiteral(0))
       case (le, re) => throw EvalError(typeErrorMsg(re, bag.getType))
     }
@@ -955,7 +979,8 @@ abstract class RecursiveEvaluator(override val program: Program,
       finiteMap(ss.map{ case (k, v) => (e(k), e(v)) }, e(dflt), kT.getType, vT.getType)
 
     case g @ MapApply(m,k) => (e(m), e(k)) match {
-      case (FiniteMap(ss, dflt, _, _), e) =>
+      case (FiniteMap(ss, dflt, from, _), e) =>
+        checkKeys(from)
         ss.toMap.getOrElse(e, dflt)
       case (l,r) =>
         throw EvalError(typeErrorMsg(l, MapType(r.getType, g.getType)))
