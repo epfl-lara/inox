@@ -722,6 +722,10 @@ abstract class AbstractPrincessSolver(override val program: Program,
     case _ => ITermITE(rhs === 0, IFunApp(zero, Seq(lhs)), op(lhs, ITermITE(rhs === 0, 1, rhs)))
   }
 
+  /** A fresh first-order uninterpreted function. */
+  def declareFunction(name: String, arity: Int): IFunction =
+    declared(p.createFunction(FreshIdentifier(name).uniqueName, arity))(p.addFunction(_))
+
   private def declared[T](symbol: T)(redeclare: T => Unit): T = {
     for (scope <- scopes.headOption) scope += (() => redeclare(symbol))
     symbol

@@ -47,6 +47,13 @@ trait Templates
   def mkEquals(l: Encoded, r: Encoded): Encoded
   def mkImplies(l: Encoded, r: Encoded): Encoded
 
+  /** A first-order uninterpreted function of the underlying solver, which an SMT-LIB solver declares
+    * with `declare-fun`. Unlike first-class functions, these are never values. */
+  type Function
+
+  def mkFunction(name: String, from: Seq[Type], to: Type): Function
+  def mkFunApp(f: Function, args: Seq[Encoded]): Encoded
+
   def extractNot(e: Encoded): Option[Encoded]
   def decodePartial(e: Encoded, tpe: Type): Option[Expr]
 
@@ -121,23 +128,17 @@ trait Templates
   /** Whether the application of `caller` of type `tpe` to `args` fails.
     *
     * Unlike the bodies of functions, free functions aren't determined by their applications, so the
-    * failures of applications are an uninterpreted predicate of their caller and arguments, whose
-    * congruence makes applications to equal arguments fail alike. Applications already involve
-    * first-class functions, which are encoded the same way (see [[LambdaTemplates.mkApp]]). */
+    * failures of applications are a first-order uninterpreted predicate of their caller and
+    * arguments, whose congruence makes applications to equal arguments fail alike. */
   private[unrolling] def appFailure(caller: Encoded, tpe: FunctionType, args: Seq[Encoded]): Encoded =
     appFailures.cached((caller, tpe, args)) {
-      val (fT, asT, app) = appFailureCache.getOrElseUpdate(tpe, {
-        val f = Variable.fresh("fails", FunctionType(tpe +: tpe.from, BooleanType()), true)
-        val as = (tpe +: tpe.from).map(tp => Variable.fresh("x", tp, true))
-        val (fT, asT) = (encodeSymbol(f), as.map(encodeSymbol))
-        (fT, asT, mkEncoder(Map(f -> fT) ++ (as zip asT))(Application(f, as)))
-      })
+      val fails = appFailurePredicates.getOrElseUpdate(tpe, mkFunction("fails", tpe +: tpe.from, BooleanType()))
       // the predicate is mirrored by a literal, whose value models give on every backend
       val literal = encodeSymbol(Variable.fresh("fails", BooleanType(), true))
-      failureDefinitions += mkEquals(literal, mkSubstituter((asT zip (caller +: args)).toMap)(app))
+      failureDefinitions += mkEquals(literal, mkFunApp(fails, caller +: args))
       literal
     }
-  private val appFailureCache = scala.collection.mutable.Map.empty[FunctionType, (Encoded, Seq[Encoded], Encoded)]
+  private val appFailurePredicates = scala.collection.mutable.Map.empty[FunctionType, Function]
   private val failureDefinitions = scala.collection.mutable.ListBuffer.empty[Encoded]
 
   /** The definitions of the failure literals of the applications created since the last call. */

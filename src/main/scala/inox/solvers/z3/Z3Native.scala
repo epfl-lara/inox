@@ -90,6 +90,10 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     }
   }
 
+  /** A fresh first-order uninterpreted function. */
+  def declareFunction(name: String, from: Seq[Type], to: Type): Z3FuncDecl =
+    z3.mkFreshFuncDecl(name, from.map(typeToSort), typeToSort(to))
+
   def declareVariable(v: Variable): Z3AST = variables.cachedB(v) {
     symbolToFreshZ3Symbol(v)
   }
@@ -100,6 +104,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   // Bijections between Inox Types/Functions/Ids to Z3 Sorts/Decls/ASTs
   private[z3] val functions = new IncrementalBijection[TypedFunDef, Z3FuncDecl]()
   private[z3] val lambdas   = new IncrementalBijection[FunctionType, Z3FuncDecl]()
+  private[z3] val firstOrderFunctions = new IncrementalBijection[Identifier, Z3FuncDecl]()
   private[z3] val variables = new IncrementalBijection[Variable, Z3AST]()
 
   private[z3] val constructors = new IncrementalBijection[ConsType, Z3FuncDecl]()
@@ -292,6 +297,11 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
     case f @ FunctionInvocation(id, tps, args) =>
       z3.mkApp(functionDefToDecl(getFunction(id, tps.map(_.getType))), args.map(toZ3)*)
+
+    // first-order uninterpreted functions of the unrolling solver (see [[unrolling.Templates.mkFunction]])
+    case UninterpretedCall(id, Seq(), args, FunctionType(from, to)) =>
+      val funDecl = firstOrderFunctions.cachedB(id)(declareFunction(id.uniqueName, from, to))
+      z3.mkApp(funDecl, args.map(toZ3)*)
 
     case fa @ Application(caller, args) =>
       val ft @ FunctionType(froms, to) = caller.getType: @unchecked
