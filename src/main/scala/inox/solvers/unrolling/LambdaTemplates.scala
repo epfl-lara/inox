@@ -906,11 +906,6 @@ trait LambdaTemplates { self: Templates =>
           reporter.debug(" -> extending lambda blocker: " + clause)
           newClauses += clause
 
-          // the applications of free functions don't fail
-          for (case TemplateAppInfo(Right(_), equals, _) <- infos) {
-            newClauses += mkImplies(mkAnd(b, equals), mkNot(appFailure(app._2)))
-          }
-
           for (info @ TemplateAppInfo(tmpl, equals, args) <- infos if !abort; template <- tmpl.left) {
             val newCls = new scala.collection.mutable.ListBuffer[Encoded]
 
@@ -935,7 +930,7 @@ trait LambdaTemplates { self: Templates =>
             registerImplication(b, lambdaBlocker)
             newCls += mkImplies(enabler, lambdaBlocker)
             // the application fails iff the body of the lambda it is dispatched to does
-            newCls += mkImplies(enabler, mkEquals(appFailure(app._2), lambdaFailure))
+            if (partialFunctions) newCls += mkImplies(enabler, mkEquals(appFailure(app._2), lambdaFailure))
 
             reporter.debug("Unrolling behind "+info+" ("+newCls.size+")")
             for (cl <- newCls) {
@@ -957,6 +952,7 @@ trait LambdaTemplates { self: Templates =>
           blockerToApps += appBlockers(app) -> app
       }
 
+      newClauses ++= newFailureDefinitions()
       reporter.debug(s"   - ${newClauses.size} new clauses")
 
       newClauses.toSeq

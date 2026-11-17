@@ -1,5 +1,5 @@
-; Free functions are total, so free functions into functions into a type with a single value are
-; all equal, while a lambda that returns a function that fails differs from one that doesn't
+; Functions are partial, so functions into functions into a type with a single value can differ
+; in where they fail, both free functions and lambdas
 (set-option :function-equality extensional)
 (set-option :assume-checked false)
 (set-option :check-models true)
@@ -8,7 +8,7 @@
 (declare-const g (-> Int (-> Int U)))
 (declare-const k Int)
 (push 1)
-(set-info :status unsat)
+(set-info :status sat)
 (assert (not (= f g)))
 (check-sat)
 (pop 1)

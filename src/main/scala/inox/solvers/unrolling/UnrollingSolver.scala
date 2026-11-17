@@ -841,6 +841,19 @@ abstract class AbstractUnrollingSolver private
       // The parameters of the model, and the parameter and result types of `fullType` in their terms
       val (params, paramTypes, resultType) = signature(fullType)
 
+      // Whether the application of `caller` to `args` fails in the model (see [[Templates.appFailure]])
+      def failsAt(caller: Encoded, ft: FunctionType, args: Seq[Encoded]): Boolean =
+        templates.appFailureLiterals(ft).exists { case ((c, as), literal) =>
+          modelEq(c, caller) && as.size == args.size && (as zip args).forall(modelEq(_, _)) &&
+            wrapped.modelEval(literal, BooleanType()) == Some(BooleanLiteral(true))
+        }
+      def fails(args: Seq[Encoded]): Boolean = failsAt(f, tpe, args)
+
+      // The model of the application of `f` to `args`, which fails where the application does
+      def image(args: Seq[Encoded], resType: Type): Expr =
+        if (fails(args)) Error(resType, "Application of a partial function")
+        else extractValue(templates.mkApp(f, tpe, args), resType, nextSeen)
+
       // Results are extracted with their full types when these don't depend on the arguments
       val imageType = if ((typeOps.variablesOf(resultType) & params.map(_.toVariable).toSet).isEmpty) resultType
         else resultType.getType
@@ -883,7 +896,7 @@ abstract class AbstractUnrollingSolver private
           defaultValue(params, paramTypes, resultType).map(Lambda(params, _))
             .getOrElse(wrapped.modelEval(f, tpe).getOrThrow.asInstanceOf[Lambda])
         } else if (tpe.from.isEmpty) {
-          val lambda = Lambda(Seq.empty, extractValue(templates.mkApp(f, tpe, Seq.empty), imageType, nextSeen))
+          val lambda = Lambda(Seq.empty, image(Seq.empty, imageType))
           lambdaExtractions.collectFirst {
             case (e, img) if img.getType == lambda.getType && modelEq(e, f) => img
           }.getOrElse(distinctFromOthers(lambda))
@@ -922,10 +935,12 @@ abstract class AbstractUnrollingSolver private
               case _ if !hasFunctions(tpe) => Some(Equals(x, extractValue(a, tpe, nextSeen)))
 
               case ft: FunctionType =>
+                // a distinguishing input may be one where only one of `a` and `b` fails
                 val inputs = templates.distinguishingInputs.collectFirst {
                   case ((f1, f2), (tpe, ws)) if tpe == ft &&
                     ((modelEq(f1, a) && modelEq(f2, b)) || (modelEq(f1, b) && modelEq(f2, a))) &&
-                    !modelEq(templates.mkApp(a, ft, ws), templates.mkApp(b, ft, ws)) => ws
+                    (failsAt(a, ft, ws) || failsAt(b, ft, ws) ||
+                      !modelEq(templates.mkApp(a, ft, ws), templates.mkApp(b, ft, ws))) => ws
                 }
 
                 // the pair may only have an on-demand distinguishing input, which we then request
@@ -936,7 +951,9 @@ abstract class AbstractUnrollingSolver private
                   }
                 }
 
-                inputs.flatMap { ws =>
+                // Applying `x` to an input where `a` or `b` fails would fail as well, so functions that
+                // are told apart by where they fail are compared as such.
+                inputs.filterNot(ws => failsAt(a, ft, ws) || failsAt(b, ft, ws)).flatMap { ws =>
                   val app = Application(x, (ws zip ft.from).map((w, tpe) => extractValue(w, tpe, nextSeen)))
                   separate(app, ft.to, templates.mkApp(a, ft, ws), templates.mkApp(b, ft, ws))
                 }
@@ -1002,12 +1019,12 @@ abstract class AbstractUnrollingSolver private
                   case Some(BooleanLiteral(false)) =>
                     (Seq((concreteArgs, Not(domain), resType)), default)
                   case _ =>
-                    (Seq.empty, extractValue(templates.mkApp(f, tpe, concreteArgs), resType, nextSeen))
+                    (Seq.empty, image(concreteArgs, resType))
                 }
             }
             case None =>
               val withConds :+ ((concreteArgs, _, _)) = argumentsWithConds: @unchecked
-              (withConds, extractValue(templates.mkApp(f, tpe, concreteArgs), imageType, nextSeen))
+              (withConds, image(concreteArgs, imageType))
           }
 
           // arguments whose conditions are trivial are covered by the default value
@@ -1019,7 +1036,7 @@ abstract class AbstractUnrollingSolver private
             .sortBy(p => -exprOps.formulaSize(p._1))
 
           val mappings = sortedArguments.map { case (cond, (arguments, _, resType)) =>
-            (cond, extractValue(templates.mkApp(f, tpe, arguments), resType, nextSeen))
+            (cond, image(arguments, resType))
           }
 
           val lambda = Lambda(params, mappings.foldRight(default) {

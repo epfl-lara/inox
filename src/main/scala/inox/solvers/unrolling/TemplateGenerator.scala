@@ -174,6 +174,14 @@ trait TemplateGenerator { self: Templates =>
     * and only the templates of formulas assert that their evaluation doesn't fail. */
   private[unrolling] val failureSymbols: MutableSet[Variable] = MutableSet.empty
 
+  /** Whether functions are partial, i.e. whether the solver tells apart functions that fail from
+    * functions that don't. Only extensional equality observes where functions fail, and under
+    * `optAssumeChecked`, the front-end has checked that nothing fails, so functions are total and
+    * failures make their paths infeasible instead. */
+  private[unrolling] lazy val partialFunctions: Boolean =
+    options.findOptionOrDefault(optFunctionEquality) == FunctionEquality.Extensional &&
+      !options.findOptionOrDefault(optAssumeChecked)
+
   def mergeCalls(pathVar: Variable, condVar: Variable, substMap: Map[Variable, Encoded],
                 thenClauses: TemplateClauses, elseClauses: TemplateClauses): TemplateClauses = {
     val builder = new Builder(pathVar, substMap)
@@ -355,7 +363,7 @@ trait TemplateGenerator { self: Templates =>
 
     // Represents the failure of evaluation on the path `guardVar` when `cond` doesn't hold, as a
     // literal that holds exactly when the path is taken and `cond` doesn't hold (see [[failureSymbols]])
-    def storeFailure(guardVar: Variable, cond: Expr): Unit = {
+    def storeFailure(guardVar: Variable, cond: Expr): Unit = if (!partialFunctions) storeGuarded(guardVar, cond) else {
       val fail = Variable.fresh("fail", BooleanType(), true)
       storeExpr(fail)
       failureSymbols += fail
@@ -483,9 +491,9 @@ trait TemplateGenerator { self: Templates =>
 
     def rec(pathVar: Variable, expr: Expr, pol: Option[Boolean]): Expr = expr match {
       case a @ Assume(cond, body) =>
-        // Quantifiers in the condition are only encoded positively: where its failure isn't asserted
-        // not to hold, the failure literal may then hold although the condition does
-        val e = rec(pathVar, cond, Some(true))
+        // The condition only holds positively unless the assumption may fail (see [[storeFailure]]),
+        // where its failure literal is equal to its negation, so quantifiers need both polarities
+        val e = rec(pathVar, cond, if (partialFunctions) None else Some(true))
         storeFailure(pathVar, e)
         rec(pathVar, body, pol)
 

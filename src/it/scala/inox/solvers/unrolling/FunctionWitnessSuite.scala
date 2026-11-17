@@ -144,6 +144,9 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
             case _: FunctionType => distinguishable(model)(v1, v2, (exprs :+ v1 :+ v2)*)
             case _ => v1 != v2
           }
+        // functions are partial: one that fails differs from one that doesn't
+        case (_: EvaluationResults.RuntimeError, EvaluationResults.Successful(_)) |
+             (EvaluationResults.Successful(_), _: EvaluationResults.RuntimeError) => true
         case _ => false
       }
     }
@@ -159,14 +162,33 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
   private def hasHigherOrderModels(ctx: Context): FilterStatus =
     if (ctx.options.findOptionOrDefault(optSelectedSolvers).contains("smt-cvc5")) Skip else Test
 
+  /** Solves `clause` with total functions: under `optAssumeChecked`, nothing fails. */
+  private def solveTotal(clause: Expr)(using ctx: Context): program.Model =
+    SimpleSolverAPI(program.getSolver(ctx.withOpts(optAssumeChecked(true)))).solveSAT(clause) match {
+      case SatWithModel(model) => model
+      case res => fail(s"Expected a model, got $res")
+    }
+
   test("functions applied to distinct functions", hasHigherOrderModels) {
     // `f` must map `g` and `h` to different results, and its extraction tells them apart by
-    // applying its argument to their distinguishing input instead of comparing it with them
+    // applying its argument to their distinguishing input instead of comparing it with them.
+    // Partial functions may only differ where one of them fails, which no application tells apart.
     val f = ("f" :: ((IntegerType() =>: IntegerType()) =>: IntegerType())).toVariable
     val g = ("g" :: (IntegerType() =>: IntegerType())).toVariable
     val h = ("h" :: (IntegerType() =>: IntegerType())).toVariable
-    val model = solve(f(g) !== f(h))
+    val model = solveTotal(f(g) !== f(h))
     assert(!model.vars.values.exists(comparesFunctions))
+  }
+
+  test("functions applied to functions that differ where one fails", hasHigherOrderModels) {
+    // `f`'s extraction compares its argument with `fails`, since applying it would fail
+    val f = ("f" :: ((IntegerType() =>: IntegerType()) =>: IntegerType())).toVariable
+    val zero = \("x" :: IntegerType())(x => E(BigInt(0)))
+    val fails = \("x" :: IntegerType())(x => E(BigInt(0)) / (x - x))
+    val model = solve(f(zero) !== f(fails))
+    val fv = model.vars(f.toVal)
+    val evaluator = program.getEvaluator(withEquality(FunctionEquality.Extensional))
+    assert(evaluator.eval(Application(fv, Seq(zero))).result != evaluator.eval(Application(fv, Seq(fails))).result)
   }
 
   test("functions applied to a function and a lambda", hasHigherOrderModels) {
@@ -192,7 +214,7 @@ class FunctionWitnessSuite extends UnrollingTestSuite {
     val f = ("f" :: (tpe =>: IntegerType())).toVariable
     val g = ("g" :: tpe).toVariable
     val h = ("h" :: tpe).toVariable
-    val model = solve(f(g) !== f(h))
+    val model = solveTotal(f(g) !== f(h))
     assert(!model.vars.values.exists(comparesFunctions))
   }
 
