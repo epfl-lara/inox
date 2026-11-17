@@ -750,6 +750,17 @@ class EvaluatorSuite extends AnyFunSuite {
     eval(extensional, Equals(Lambda(Seq.empty, int(1)), Lambda(Seq.empty, int(2)))) === BooleanLiteral(false)
     // functions with a single possible result are equal, even when their applications fail
     eval(extensional, Equals(lambda(x => UnitLiteral()), lambda(x => IfExpr(Equals(x, int(0)), UnitLiteral(), Error(UnitType(), "fails"))))) === BooleanLiteral(true)
+    // and so are the functions into such functions
+    val curried1 = lambda(x => Lambda(Seq(ValDef.fresh("y", IntegerType())), UnitLiteral()))
+    val curried2 = lambda(x => Lambda(Seq(ValDef.fresh("y", IntegerType())), IfExpr(Equals(x, int(0)), UnitLiteral(), Error(UnitType(), "fails"))))
+    eval(extensional, Equals(curried1, curried2)) === BooleanLiteral(true)
+    eval(intensional, Equals(curried1, curried2)) === BooleanLiteral(false)
+    // as only intensional equality tells apart functions with equal results
+    val curriedT = FunctionType(Seq(IntegerType()), FunctionType(Seq(IntegerType()), UnitType()))
+    assert(FunctionEquality.hasSingleValue(program, FunctionEquality.Extensional)(curriedT))
+    assert(FunctionEquality.hasSingleValue(program, FunctionEquality.None)(curriedT))
+    assert(!FunctionEquality.hasSingleValue(program, FunctionEquality.Intensional)(curriedT))
+    assert(FunctionEquality.hasSingleValue(program, FunctionEquality.Intensional)(TupleType(Seq(UnitType(), UnitType()))))
     // inputs on which an application fails don't tell functions apart
     eval(extensional, Equals(Lambda(Seq.empty, Division(int(1), int(0))), Lambda(Seq.empty, int(2)))) === BooleanLiteral(true)
     val failsOnZero = lambda(x => IfExpr(Equals(x, int(0)), Error(IntegerType(), "fails"), Plus(x, int(1))))
@@ -761,6 +772,8 @@ class EvaluatorSuite extends AnyFunSuite {
     eval(none, Equals(succ, succ)).failed
     eval(none, Equals(succ, pred)).failed
     eval(none, Equals(Tuple(Seq(succ, int(1))), Tuple(Seq(succ, int(1))))).failed
+    // not even functions into a type with a single value, although they are all equal
+    eval(none, Equals(curried1, curried2)).failed
     // but values that hold functions can differ elsewhere
     eval(none, Equals(Tuple(Seq(int(1), succ)), Tuple(Seq(int(2), succ)))) === BooleanLiteral(false)
     eval(none, Equals(Tuple(Seq(int(1), int(2))), Tuple(Seq(int(1), int(2))))) === BooleanLiteral(true)

@@ -1,0 +1,18 @@
+; Functions into functions into a type with a single value all have a single value too, so they
+; are all equal, even when their applications fail
+(set-option :function-equality extensional)
+(set-option :assume-checked false)
+(set-option :check-models true)
+(declare-datatypes ((U 0)) (((Uu))))
+(declare-const f (-> Int (-> Int U)))
+(declare-const g (-> Int (-> Int U)))
+(declare-const k Int)
+(declare-const p Bool)
+(push 1)
+(set-info :status unsat)
+(assert (not (= f g)))
+(check-sat)
+(pop 1)
+(set-info :status sat)
+(assert (= p (= (lambda ((x Int)) (lambda ((y Int)) (ite (= (div 1 k) y) Uu Uu))) (lambda ((x Int)) (lambda ((y Int)) Uu)))))
+(check-sat)

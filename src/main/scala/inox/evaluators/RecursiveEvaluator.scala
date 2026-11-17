@@ -120,12 +120,13 @@ abstract class RecursiveEvaluator(override val program: Program,
       (es1 zip es2).forall(valuesEqual)
     case (l1: Lambda, l2: Lambda) if functionEquality == solvers.unrolling.FunctionEquality.None =>
       throw EvalError(s"Functions can't be compared under --function-equality=none: ${l1.asString} and ${l2.asString}")
+    // the functions into a type with a single value are all equal, even those whose applications
+    // fail (the solvers make the paths of failing applications infeasible)
+    case (l1: Lambda, _: Lambda) if solvers.unrolling.FunctionEquality.hasSingleValue(program, functionEquality)(l1.getType) => true
     case _ if v1 == v2 => true
     case (l1: Lambda, l2: Lambda) if etaReduced(l1).isDefined || etaReduced(l2).isDefined =>
       // the applied function is normalized as the evaluator normalizes lambdas
       valuesEqual(etaReduced(l1).fold(l1)(e), etaReduced(l2).fold(l2)(e))
-    case (l1: Lambda, l2: Lambda) if hasSingleValue(l1.getType.asInstanceOf[FunctionType].to.getType) =>
-      true
     case (l1: Lambda, l2: Lambda) =>
       def candidates(tpe: Type): Seq[Expr] = (Seq(l1, l2).flatMap { l =>
         exprOps.collect[Expr] {
@@ -152,18 +153,6 @@ abstract class RecursiveEvaluator(override val program: Program,
       // nullary functions have a single input
       else if (l1.params.isEmpty && agreeOn(Seq.empty) == Some(true)) true
       else throw EvalError(s"Can't decide whether ${l1.asString} and ${l2.asString} are equal")
-    case _ => false
-  }
-
-  /** Whether `tpe` has a single value, so that the functions into it are all extensionally equal, even
-    * those whose applications fail (the solvers make the paths of failing applications infeasible). */
-  private def hasSingleValue(tpe: Type, seen: Set[Identifier] = Set.empty): Boolean = tpe match {
-    case UnitType() => true
-    case TupleType(tps) => tps.forall(hasSingleValue(_, seen))
-    case adt: ADTType if !seen(adt.id) => adt.getSort.constructors match {
-      case Seq(cons) => cons.fields.forall(vd => hasSingleValue(vd.getType, seen + adt.id))
-      case _ => false
-    }
     case _ => false
   }
 

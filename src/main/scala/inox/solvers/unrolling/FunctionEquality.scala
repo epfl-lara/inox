@@ -21,6 +21,32 @@ enum FunctionEquality {
 }
 
 object FunctionEquality {
+  /** Whether `tpe` has at most one value under the function equality `semantics`, so that all its
+    * values are equal: the unit type, tuples and non-recursive datatypes with a single constructor
+    * whose fields have such types, and, unless equality is intensional, functions into such types.
+    * Under `none` and `extensional`, two distinct functions differ on some input (see
+    * [[LambdaTemplates.functionWitnesses]]), which they can't when their results are all equal.
+    * Under `intensional`, structurally distinct functions are distinct, so `Int => Unit` has many
+    * values. A type with no values, such as a datatype whose invariant never holds, counts too.
+    * Under `none`, functions still can't be compared, even when their type has a single value. */
+  def hasSingleValue(program: Program, semantics: FunctionEquality)(tpe: program.trees.Type): Boolean = {
+    import program.trees._
+    import program.symbols.{given, _}
+
+    def rec(tpe: Type, seen: Set[Identifier]): Boolean = tpe match {
+      case UnitType() => true
+      case TupleType(tps) => tps.forall(rec(_, seen))
+      case FunctionType(_, to) => semantics != FunctionEquality.Intensional && rec(to, seen)
+      case adt: ADTType if !seen(adt.id) => adt.getSort.constructors match {
+        case Seq(cons) => cons.fields.forall(vd => rec(vd.getType, seen + adt.id))
+        case _ => false
+      }
+      case _ => false
+    }
+
+    rec(tpe.getType, Set.empty)
+  }
+
   /** Whether values of type `tpe` can contain functions. Type parameters are assumed not to. */
   def containsFunctions(program: Program)(tpe: program.trees.Type): Boolean = {
     import program.trees._
