@@ -107,7 +107,7 @@ jobs:
         if [ -n "$PR_NUMBER" ]; then
           echo "$PR_NUMBER" > test-timings/pr-number
           echo "$PR_HEAD_SHA" > test-timings/pr-head-sha
-          git cat-file -p HEAD | sed -n '/^parent /{s///p;q}' > test-timings/base-sha
+          git cat-file -p HEAD | awk '/^parent /{print $2; exit}' > test-timings/base-sha
         fi
       env:
         PR_NUMBER: ${{ github.event.pull_request.number }}
