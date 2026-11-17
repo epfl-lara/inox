@@ -71,11 +71,14 @@ class PartialOperationSemanticsSuite extends SolverTestSuite {
 
     // By default, every path that reaches the failing operation is infeasible, whatever value
     // is expected from it
-    val s = solver(ctx)
-    assert(valid(s, Implies(po.fails(args), Equals(result, value))) contains true,
-      s"by default, the paths where '$result' fails should be infeasible")
-    assert(valid(s, Implies(po.fails(args), Not(Equals(result, value)))) contains true,
-      s"by default, the paths where '$result' fails should be infeasible")
+    // (also when models are extracted early, as with feeling-lucky, before the solver has seen
+    // the invariants of the encoded theories)
+    for (s <- Seq(solver(ctx), solver(ctx.withOpts(unrolling.optFeelingLucky(true))))) {
+      assert(valid(s, Implies(po.fails(args), Equals(result, value))) contains true,
+        s"by default, the paths where '$result' fails should be infeasible")
+      assert(valid(s, Implies(po.fails(args), Not(Equals(result, value)))) contains true,
+        s"by default, the paths where '$result' fails should be infeasible")
+    }
 
     // Under assume-checked, the failing operation has an unspecified value...
     val cs = solver(ctx.withOpts(optAssumeChecked(true)))
