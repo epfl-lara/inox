@@ -95,7 +95,7 @@ for head in "$work/head"/*.timings; do
   base="$work/main-$base_run/$name.timings"
   [ -f "$base" ] || continue
   if [ "$mode" = merged ]; then
-    label=
+    label="Stainless downstream CI"
   else
     label=$(echo "${name#"$prefix"}" | sed 's/-jdk/, JDK /')
   fi
