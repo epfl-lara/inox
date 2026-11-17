@@ -18,15 +18,16 @@ jobs:
     runs-on: ${{ matrix.runners.labels }}
     strategy:
       fail-fast: false
+      # Linux / JDK 17 runs in the Inox coverage workflow, with coverage
+      # measurements, so that the coverage comment doesn't wait for these jobs.
       matrix:
-        runners:
-          - name: Linux
-            os: Linux
-            labels: ['ubuntu-latest']
-          - name: macOS ARM64
-            os: macOS
-            labels: ['macos-latest']
-        java-version: [17, 21]
+        include:
+          - runners: {name: Linux, os: Linux, labels: ['ubuntu-latest']}
+            java-version: 21
+          - runners: {name: macOS ARM64, os: macOS, labels: ['macos-latest']}
+            java-version: 17
+          - runners: {name: macOS ARM64, os: macOS, labels: ['macos-latest']}
+            java-version: 21
     env:
       # solver versions to test against
       INSTALL_SOLVERS: 1
@@ -67,12 +68,11 @@ jobs:
       run: echo "SBT_OPTS=-Dsbt.global.base=$GITHUB_WORKSPACE/.sbt-global" >> $GITHUB_ENV
     - name: Prepare temp folder
       run: rm -rf $JAVA_OPTS_TMP_DIR && mkdir -p $JAVA_OPTS_TMP_DIR
-    # The coverage job also fetches the scoverage runtime, so it keeps its own cache.
     - name: Fetch sbt dependencies
       uses: ./.github/actions/sbt-dependencies
       with:
-        key: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'inox-coverage' || 'inox' }}
-        sbt-args: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'coverage ' || '' }}update Test/update IntegrationTest/update
+        key: inox
+        sbt-args: update Test/update IntegrationTest/update
     - name: Install solvers
       uses: ./.github/actions/install-solvers
       with:
@@ -82,19 +82,10 @@ jobs:
         bitwuzla: ${{ env.BITWUZLA_VER }}
     - name: Test solver availability
       run: cvc5 --version && z3 --version && cvc4 --version && bitwuzla --version
-    # Coverage is measured on the Linux / JDK 17 job only. Unit and integration
-    # tests run in separate sbt invocations (the native Z3 library can only be
-    # loaded once per JVM) and their coverage measurements accumulate.
     - name: Run Tests
-      id: unit-tests
-      run: sbt -Dtest-parallelism=10 -Dinox.require-solvers=smt-z3,smt-cvc4,smt-cvc5,smt-bitwuzla,princess -batch $SBT_COVERAGE test
-      env:
-        SBT_COVERAGE: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'coverage' || '' }}
+      run: sbt -Dtest-parallelism=10 -Dinox.require-solvers=smt-z3,smt-cvc4,smt-cvc5,smt-bitwuzla,princess -batch test
     - name: Run integration tests
-      id: integration-tests
-      run: sbt -Dtest-parallelism=10 -batch $SBT_COVERAGE IntegrationTest/test
-      env:
-        SBT_COVERAGE: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'coverage' || '' }}
+      run: sbt -Dtest-parallelism=10 -batch IntegrationTest/test
     # Read by the coverage comment workflow, which compares the duration of
     # each test of a pull request build with that of main in the same job.
     - name: Collect test durations
@@ -119,40 +110,5 @@ jobs:
       with:
         name: test-timings-${{ matrix.runners.os }}-jdk${{ matrix.java-version }}
         path: test-timings/
-    - name: Generate coverage report
-      if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
-      run: |
-        sbt -batch coverageReport
-        report=$(echo target/scala-*/scoverage-report/scoverage.xml)
-        python3 scripts/coverage_summary.py report $report >> $GITHUB_STEP_SUMMARY
-        # Read by the coverage comment workflow, to compare pull requests with main.
-        mkdir -p coverage-summary
-        python3 scripts/coverage_summary.py json $report coverage-summary/coverage.json
-        echo "$PR_NUMBER" > coverage-summary/pr-number
-        # A pull request build tests the merge of the pull request into main:
-        # its coverage is compared with that of main at the merge's first parent.
-        # (Read from the commit itself, since the checkout is shallow.)
-        if [ -n "$PR_NUMBER" ]; then
-          git cat-file -p HEAD | sed -n '/^parent /{s///p;q}' > coverage-summary/base-sha
-        fi
-        # Coverage is incomplete when tests failed or the integration tests were skipped.
-        echo "$TESTS_PASSED" > coverage-summary/tests-passed
-      env:
-        PR_NUMBER: ${{ github.event.pull_request.number }}
-        TESTS_PASSED: ${{ steps.unit-tests.outcome == 'success' && steps.integration-tests.outcome == 'success' }}
-    - name: Upload coverage report
-      if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
-      uses: actions/upload-artifact@v7
-      with:
-        name: coverage-report
-        path: |
-          target/scala-*/scoverage-report/
-          target/scala-*/coverage-report/cobertura.xml
-    - name: Upload coverage summary
-      if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
-      uses: actions/upload-artifact@v7
-      with:
-        name: coverage-summary
-        path: coverage-summary/
     - name: Clean up
       run: rm -rf $JAVA_OPTS_TMP_DIR

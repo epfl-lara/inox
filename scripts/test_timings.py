@@ -7,15 +7,14 @@ usage:
       the duration and outcome of every test case.
   test_timings.py merge <out.json> <in.json>...
       Merges collected timings, for builds that ran their tests in several jobs.
-  test_timings.py section <title> <groups.tsv> [<note.md>]
-      Prints a Markdown section that compares the test durations of pull
-      request builds with those of main: a table with one row per job, then
-      the tests that changed significantly, collapsed. Each line of
-      `groups.tsv` describes a job: its label, then, separated by tabs, the timings of the
-      pull request build (head), of the build of main (base), and of earlier
-      builds of main (history), used to estimate how much the durations of
-      two builds vary without any change to the code. `note.md` is printed
-      after the jobs.
+  test_timings.py section <groups.tsv> [<note.md>]
+      Prints, as JSON, the rows of the comment's table of test durations for
+      the jobs of a workflow, and the tests that changed significantly. Each
+      line of `groups.tsv` describes a job: its label, then, separated by
+      tabs, the timings of the pull request build (head), of the build of
+      main (base), and of earlier builds of main (history), used to estimate
+      how much the durations of two builds vary without any change to the
+      code. The notes of `note.md` are shown below the table.
 
 Test durations on CI runners vary a lot between builds of the same code, as a
 whole, because runners differ in speed and load, and test by test. The
@@ -279,24 +278,17 @@ class Comparison:
         return "\n".join(out).rstrip("\n")
 
 
-def section(title, groups_path, note_path=None):
-    """Prints the section of the comment: a table with one row per job, then
-    the tests that changed significantly, collapsed. Each line of
-    `groups_path` holds a job's label, then its head, base and history
-    timings, separated by tabs."""
+def section(groups_path, note_path=None):
+    """Prints, as JSON, the rows of the comment's table of test durations for
+    a workflow's jobs, and the tests that changed significantly (see
+    scripts/pr_comment.py, which shows those of all workflows together).
+    Each line of `groups_path` holds a job's label, then its head, base and
+    history timings, separated by tabs."""
     comparisons = []
     for line in open(groups_path):
         fields = line.rstrip("\n").split("\t")
         if len(fields) >= 3:
             comparisons.append(Comparison(fields[0], fields[1], fields[2], fields[3:]))
-    if not comparisons:
-        return
-    print(f"### {title}\n")
-    print("| Job | `main` | This PR | Change (95%) | Tests changed |")
-    print("|---|---:|---:|---:|---|")
-    for c in comparisons:
-        print(c.row())
-    print()
     notes = []
     if any(c.enough and not c.total_ci for c in comparisons):
         notes.append("No interval yet for the totals: fewer than 2 earlier builds of `main`.")
@@ -304,17 +296,14 @@ def section(title, groups_path, note_path=None):
         note = open(note_path).read().strip()
         if note:
             notes.append(note)
-    details = [d for d in (c.details() for c in comparisons) if d]
-    if details:
-        n = sum(len(c.listed[1]) + len(c.listed[-1]) for c in comparisons if c.enough and c.per_test)
-        print(f"<details><summary>Tests that changed significantly ({n})</summary>\n")
-        print("\n\n".join(details))
-        print(f"\nOther tests changed within the noise between builds, or by less than "
-              f"{MIN_FACTOR:g}× or {MIN_SECONDS:g} s. Intervals are 95%, and significance accounts for "
-              f"the number of tests (Bonferroni). See `scripts/test_timings.py`.\n")
-        print("</details>\n")
-    if notes:
-        print("<sub>" + " ".join(n.strip("_") for n in notes) + "</sub>")
+    json.dump({
+        "rows": [c.row() for c in comparisons],
+        "details": [d for d in (c.details() for c in comparisons) if d],
+        "changed": sum(len(c.listed[1]) + len(c.listed[-1])
+                       for c in comparisons if c.enough and c.per_test),
+        "notes": notes,
+    }, sys.stdout, ensure_ascii=False)
+    print()
 
 
 def t_quantile(p, df):
@@ -334,7 +323,7 @@ def main(args):
         collect(args[1], args[2:])
     elif len(args) >= 3 and args[0] == "merge":
         merge(args[1], args[2:])
-    elif len(args) in (3, 4) and args[0] == "section":
+    elif len(args) in (2, 3) and args[0] == "section":
         section(*args[1:])
     else:
         sys.exit(__doc__)

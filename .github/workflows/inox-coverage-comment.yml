@@ -3,22 +3,22 @@ name: Coverage comment
 # main, as a comment.
 # The comparison is with main at the commit the pull request build merged
 # into, so that tests added to main since then don't show up as lost coverage.
-# This runs separately from Inox CI and the Stainless downstream CI, after they
-# complete, because pull requests from forks get a read-only token and can't
-# comment themselves. Only the version of this workflow on the default branch
+# This runs separately from the Inox coverage workflow, Inox CI and the
+# Stainless downstream CI, as soon as each of them completes, because pull
+# requests from forks get a read-only token and can't comment themselves. Only the version of this workflow on the default branch
 # runs, and it only reads data (JSON summaries, the pull request number and
 # commits) from the pull request's builds. Each build updates its own sections
 # of the comment (see scripts/pr_comment.py).
 on:
   workflow_run:
-    workflows: [Inox CI, Stainless downstream CI]
+    workflows: [Inox coverage, Inox CI, Stainless downstream CI]
     types: [completed]
 permissions:
   actions: read
   pull-requests: write
 jobs:
   comment:
-    if: github.event.workflow_run.name == 'Inox CI' && github.event.workflow_run.event == 'pull_request'
+    if: github.event.workflow_run.name == 'Inox coverage' && github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -43,9 +43,13 @@ jobs:
           echo "_Some tests failed or didn't run in this build, so its coverage is incomplete._" >> notes.md
         complete() { [ "$(cat "$1/tests-passed" 2>/dev/null)" != false ]; }
         sha_link() { echo "[\`${1:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$1)"; }
+        # Builds of main, newest first. Coverage was measured by Inox CI
+        # before it moved to the Inox coverage workflow.
         main_runs() {
-          gh run list --repo "$GITHUB_REPOSITORY" --workflow inox-CI.yml --event push --status completed \
-            --limit 10 --json databaseId,headSha --jq '.[] | "\(.databaseId) \(.headSha)"' "$@"
+          for workflow in inox-coverage.yml inox-CI.yml; do
+            gh run list --repo "$GITHUB_REPOSITORY" --workflow $workflow --event push --status completed \
+              --limit 10 --json databaseId,headSha,createdAt --jq '.[] | "\(.createdAt) \(.databaseId) \(.headSha)"' "$@"
+          done | sort -r | head -n 10 | cut -d' ' -f2-
         }
         # The pull request was built merged into main: compare it with main at
         # the same commit, so that later changes to main don't show up as its own.
@@ -99,7 +103,9 @@ jobs:
       id: timings
       continue-on-error: true
       run: |
-        .github/scripts/test-timings-comment.sh inox-CI.yml "$RUN_ID" test-timings- per-artifact "Inox test durations" timings.md > tested
+        # Its history includes the builds of main by Inox CI, which ran this
+        # job before the coverage moved to a workflow of its own.
+        .github/scripts/test-timings-comment.sh inox-coverage.yml,inox-CI.yml "$RUN_ID" test-timings- per-artifact Inox timings.json > tested
         read -r pr pr_head < tested || true
         echo "pr=$pr" >> "$GITHUB_OUTPUT"
     - name: Post or update the comment
@@ -112,12 +118,29 @@ jobs:
           python3 scripts/coverage_summary.py compare head/coverage.json $base | tail -n +2 > coverage.md
           if [ -s notes.md ]; then echo >> coverage.md; sed G notes.md >> coverage.md; fi
         fi
-        touch skip.md timings.md
+        touch skip.md timings.json
         [ -n "$pr" ] || { echo "No pull request data in this build"; exit 0; }
         .github/scripts/update-pr-comment.sh "$pr" "$HEAD_SHA" \
-          stainless-skip skip.md coverage coverage.md inox-timings timings.md
+          stainless-skip skip.md coverage coverage.md timings-coverage timings.json
       env:
         TIMINGS_PR: ${{ steps.timings.outputs.pr }}
+
+  inox-timings:
+    if: github.event.workflow_run.name == 'Inox CI' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+    - name: Compare the test durations with main
+      run: |
+        .github/scripts/test-timings-comment.sh inox-CI.yml "$RUN_ID" test-timings- per-artifact Inox timings.json > tested
+        read -r pr pr_head < tested || true
+        [ -n "$pr" ] || { echo "No pull request data in this build"; exit 0; }
+        .github/scripts/update-pr-comment.sh "$pr" "$HEAD_SHA" timings-inox timings.json
 
   stainless-timings:
     if: >-
@@ -133,8 +156,8 @@ jobs:
     - name: Compare the test durations with main
       run: |
         .github/scripts/test-timings-comment.sh stainless-downstream-CI.yml "$RUN_ID" stainless-test-timings- merged \
-          "Stainless test durations" timings.md > tested
+          Stainless timings.json > tested
         read -r pr pr_head < tested || true
         # A run that tested main, or several pull requests merged together.
         [ -n "$pr" ] || { echo "No single pull request tested in this build"; exit 0; }
-        .github/scripts/update-pr-comment.sh "$pr" "$pr_head" stainless-timings timings.md
+        .github/scripts/update-pr-comment.sh "$pr" "$pr_head" timings-stainless timings.json
