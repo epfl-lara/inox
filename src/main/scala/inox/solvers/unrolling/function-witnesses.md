@@ -133,7 +133,9 @@ distinguishing input otherwise (§9).
 
 - fresh witness arguments `w̄` of the parameter types,
 - a blocker `s_p` with `s_p ⇔ (c_p ∧ f ≄ h)`,
-- the embedding of `f(w̄) != h(w̄)` under `s_p`, and
+- the embedding of `f(w̄) != h(w̄)` under `s_p`, where functions are partial: either exactly one of
+  `f(w̄)` and `h(w̄)` fails, or neither fails and their results differ (see
+  `partial-execution.md` §4), and
 - the free typing of `w̄` under `s_p`.
 
 When `w̄` has function type, it is registered as free, so it gets pairs of its own.

@@ -79,7 +79,7 @@ trait LambdaTemplates { self: Templates =>
 
       val lidT = encodeSymbol(lid)
       val (contents, str) = Template.contents(pathVar, idArgs zip trArgs, tmplClauses,
-        substMap = depSubst + (lid -> lidT), optApp = Some(lidT -> tpe))
+        substMap = depSubst + (lid -> lidT), optApp = Some(lidT -> tpe), partial = true)
 
       val lambdaString : () => String = () => {
         "Template for lambda " + lid + ": " + lambda + " is :\n" + str()
@@ -119,6 +119,11 @@ trait LambdaTemplates { self: Templates =>
     override def instantiate(blocker: Encoded, args: Seq[Arg]): Clauses = {
       val (b, clauses) = encodeBlockers(Set(blocker, contents.pathVar._2))
       clauses ++ super.instantiate(b, args)
+    }
+
+    override def instantiate(blocker: Encoded, args: Seq[Arg], failure: Encoded): Clauses = {
+      val (b, clauses) = encodeBlockers(Set(blocker, contents.pathVar._2))
+      clauses ++ super.instantiate(b, args, failure)
     }
 
     private lazy val str : String = stringRepr()
@@ -746,7 +751,7 @@ trait LambdaTemplates { self: Templates =>
 
   private[unrolling] object lambdasManager extends Manager {
     // Function instantiations have their own defblocker
-    private[LambdaTemplates] val lambdaBlockers = new IncrementalMap[TemplateAppInfo, Encoded]()
+    private[LambdaTemplates] val lambdaBlockers = new IncrementalMap[TemplateAppInfo, (Encoded, Encoded)]()
 
     // Keep which function invocation is guarded by which guard,
     // also specify the generation of the blocker.
@@ -901,27 +906,36 @@ trait LambdaTemplates { self: Templates =>
           reporter.debug(" -> extending lambda blocker: " + clause)
           newClauses += clause
 
+          // the applications of free functions don't fail
+          for (case TemplateAppInfo(Right(_), equals, _) <- infos) {
+            newClauses += mkImplies(mkAnd(b, equals), mkNot(appFailure(app._2)))
+          }
+
           for (info @ TemplateAppInfo(tmpl, equals, args) <- infos if !abort; template <- tmpl.left) {
             val newCls = new scala.collection.mutable.ListBuffer[Encoded]
 
-            val lambdaBlocker = lambdaBlockers.get(info) match {
-              case Some(lambdaBlocker) => lambdaBlocker
+            val (lambdaBlocker, lambdaFailure) = lambdaBlockers.get(info) match {
+              case Some(blockerAndFailure) => blockerAndFailure
 
               case None =>
                 val lambdaBlocker = encodeSymbol(Variable.fresh("d", BooleanType(), true))
-                lambdaBlockers += info -> lambdaBlocker
+                val lambdaFailure = encodeSymbol(Variable.fresh("fails", BooleanType(), true))
+                lambdaBlockers += info -> (lambdaBlocker, lambdaFailure)
 
                 // the lambda body is instantiated on the arguments of `app`, so it inherits their witness depth
                 val depth = appDepths.getOrElse(app._2, 0) max witnessDepths.getOrElse(template.ids._2, 0)
-                val instClauses: Clauses = withWitnessDepth(depth)(template.instantiate(lambdaBlocker, args))
+                val instClauses: Clauses =
+                  withWitnessDepth(depth)(template.instantiate(lambdaBlocker, args, lambdaFailure))
 
                 newCls ++= instClauses
-                lambdaBlocker
+                (lambdaBlocker, lambdaFailure)
             }
 
             val enabler = if (equals == trueT) b else mkAnd(equals, b)
             registerImplication(b, lambdaBlocker)
             newCls += mkImplies(enabler, lambdaBlocker)
+            // the application fails iff the body of the lambda it is dispatched to does
+            newCls += mkImplies(enabler, mkEquals(appFailure(app._2), lambdaFailure))
 
             reporter.debug("Unrolling behind "+info+" ("+newCls.size+")")
             for (cl <- newCls) {

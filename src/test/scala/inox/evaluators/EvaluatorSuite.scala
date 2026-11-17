@@ -748,6 +748,14 @@ class EvaluatorSuite extends AnyFunSuite {
     // nullary functions are equal when their only results are
     eval(extensional, Equals(Lambda(Seq.empty, Plus(int(1), int(1))), Lambda(Seq.empty, int(2)))) === BooleanLiteral(true)
     eval(extensional, Equals(Lambda(Seq.empty, int(1)), Lambda(Seq.empty, int(2)))) === BooleanLiteral(false)
+    // functions are partial: they differ on the inputs on which only one of them fails
+    eval(extensional, Equals(lambda(x => UnitLiteral()), lambda(x => IfExpr(Equals(x, int(0)), Error(UnitType(), "fails"), UnitLiteral())))) === BooleanLiteral(false)
+    eval(extensional, Equals(Lambda(Seq.empty, Division(int(1), int(0))), Lambda(Seq.empty, int(2)))) === BooleanLiteral(false)
+    val failsOnZero = lambda(x => IfExpr(Equals(x, int(0)), Error(IntegerType(), "fails"), Plus(x, int(1))))
+    eval(extensional, Equals(failsOnZero, lambda(x => Plus(x, int(2))))) === BooleanLiteral(false)
+    eval(extensional, Equals(failsOnZero, succ)) === BooleanLiteral(false)
+    // and agree on the inputs on which both fail
+    eval(extensional, Equals(Lambda(Seq.empty, Division(int(1), int(0))), Lambda(Seq.empty, Error(IntegerType(), "fails")))) === BooleanLiteral(true)
 
     // sets, bags and maps compare their function elements and keys extensionally too
     val fnT = FunctionType(Seq(IntegerType()), IntegerType())

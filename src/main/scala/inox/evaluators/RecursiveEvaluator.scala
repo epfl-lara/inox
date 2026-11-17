@@ -137,8 +137,9 @@ abstract class RecursiveEvaluator(override val program: Program,
     *   never compare functions, and queries that do are rejected by the solvers.
     * - Under `extensional` equality, structurally distinct functions are equal iff they agree on every
     *   input. They are told apart by their results on the closed subexpressions of the right type
-    *   that they contain (for extracted models, the inputs that tell them apart), and their equality
-    *   is undecidable otherwise, unless they take no arguments. */
+    *   that they contain (for extracted models, the inputs that tell them apart). Functions are
+    *   partial: they differ on an input on which one fails and the other doesn't, and agree on one
+    *   on which both fail. Their equality is undecidable otherwise, unless they take no arguments. */
   protected def valuesEqual(v1: Expr, v2: Expr)(using rctx: RC, gctx: GC): Boolean = {
     v1 match {
       case FiniteSet(_, base) => checkKeys(base)
@@ -184,10 +185,25 @@ abstract class RecursiveEvaluator(override val program: Program,
         for (arg <- candidates(vd.getType); args <- rest) yield arg +: args
       }.take(100)
 
-      def agreeOn(args: Seq[Expr]): Option[Boolean] = scala.util.Try {
+      // The result of applying `l` to `values`, or `None` if the application fails. Running out of
+      // steps decides nothing.
+      def result(l: Lambda, values: Seq[Expr]): Option[Option[Expr]] = try {
+        Some(Some(e(Application(l, values))))
+      } catch {
+        case _: RuntimeError if gctx.stepsLeft >= 0 && !interruptManager.isInterrupted => Some(None)
+        case scala.util.control.NonFatal(_) => None
+      }
+
+      // The functions differ on an input on which only one of them fails, and agree on one on which both fail
+      def agreeOn(args: Seq[Expr]): Option[Boolean] = try {
         val values = args.map(e)
-        valuesEqual(e(Application(l1, values)), e(Application(l2, values)))
-      }.toOption
+        for (r1 <- result(l1, values); r2 <- result(l2, values)) yield (r1, r2) match {
+          case (Some(res1), Some(res2)) => valuesEqual(res1, res2)
+          case (r1, r2) => r1.isEmpty && r2.isEmpty
+        }
+      } catch {
+        case scala.util.control.NonFatal(_) => None
+      }
 
       if (inputs.exists(agreeOn(_) == Some(false))) false
       // nullary functions have a single input

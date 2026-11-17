@@ -1,0 +1,17 @@
+; Under extensional equality, functions are partial: a function that fails on an input differs
+; from one that doesn't, and functions that fail on the same inputs agree there
+(set-option :function-equality extensional)
+(set-option :assume-checked false)
+(set-option :check-models true)
+(declare-const y Int)
+(assert (= y 0))
+(push 1)
+(set-info :status sat)
+(assert (not (= (lambda () (div 1 y)) (lambda () 2))))
+(check-sat)
+(pop 1)
+(push 1)
+(set-info :status unsat)
+(assert (not (= (lambda () (div 1 y)) (lambda () (div 2 y)))))
+(check-sat)
+(pop 1)
