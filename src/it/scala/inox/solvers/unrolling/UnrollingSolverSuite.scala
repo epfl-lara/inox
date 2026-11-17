@@ -57,7 +57,20 @@ class UnrollingSolverSuite extends TestSuite with DatastructureUtils {
     Seq(), FunctionType(Seq(), I), { _ => Lambda(Seq(), int(1)) })
   }
 
-  given symbols: Symbols = baseSymbols.withFunctions(Seq(down, lengthFd, constant))
+  /** `pick(n, c) = if (n > 0) pick(n - 1, c) else (a => a + c)`, whose unfoldings each define the
+    * same lambda, on a path of their own. */
+  val pickID = FreshIdentifier("pick")
+  val pick = mkFunDef(pickID)() { _ => (
+    Seq("n" :: I, "c" :: I), I =>: I, { case Seq(n, c) =>
+      if_ (n > int(0)) {
+        E(pickID)(n - int(1), c)
+      } else_ {
+        \("a" :: I)(a => a + c)
+      }
+    })
+  }
+
+  given symbols: Symbols = baseSymbols.withFunctions(Seq(down, lengthFd, constant, pick))
   val program = InoxProgram(symbols)
 
   /** Checks `expr` under `config`, with the options of the test and `opts`. */
@@ -381,6 +394,39 @@ class UnrollingSolverSuite extends TestSuite with DatastructureUtils {
         case res => fail(s"Expected a model, got $res")
       }
       assert(check(clause && x === int(bound) && !(y === int(1)), Simple) == Unsat)
+    }
+  }
+
+  test("lambdas defined on different paths are equal when their closures are") {
+    val c = Variable.fresh("c", I)
+    val d = Variable.fresh("d", I)
+    val bounded = x >= int(0) && x <= int(3) && y >= int(0) && y <= int(3)
+    assert(check(bounded && !(E(pickID)(x, c) === E(pickID)(y, c)), Simple) == Unsat)
+    assert(check(bounded && E(pickID)(x, c) === E(pickID)(y, d) && !(c === d), Simple) == Unsat)
+    check(bounded && !(E(pickID)(x, c) === E(pickID)(y, d)), Model, optCheckModels(true)) match {
+      case SatWithModel(model) => assert(value(model, c) != value(model, d))
+      case res => fail(s"Expected a model, got $res")
+    }
+  }
+
+  test("copies of a lambda on different paths add a constant number of clauses") {
+    // Each unfolding of `pick` defines a copy of the same lambda. The copies are equated through a
+    // shared symbol, rather than to each other, so the unfoldings don't grow with the previous ones.
+    class RecordingReporter extends DefaultReporter(Set(DebugSectionSolver)) {
+      val messages = scala.collection.mutable.ListBuffer.empty[String]
+      override def doEmit(msg: Message): Unit = messages += msg.msg.toString
+      override def doEmit(msg: ProgressMessage, prevLength: Int): String = msg.msg.toString
+    }
+    val unfolding = """Unrolling behind pick\(.*\(([0-9]+)\)""".r
+    val c = Variable.fresh("c", I)
+    for (equality <- FunctionEquality.values) {
+      val reporter = new RecordingReporter
+      given Context = Context(reporter, new utils.InterruptManager(reporter), summon[Context].options)
+      val res = check(E(pickID)(x, c)(int(0)) === y && x === int(8), Model, optFunctionEquality(equality))
+      assert(res.isSAT, s"Unexpected result $res under $equality")
+      val sizes = reporter.messages.toSeq.collect { case unfolding(size) => size.toInt }
+      assert(sizes.size >= 9, s"Unexpected unfoldings $sizes under $equality")
+      assert(sizes.tail.distinct.size == 1, s"Unfoldings grow under $equality: $sizes")
     }
   }
 
