@@ -75,6 +75,12 @@ class PartialExecutionSuite extends SolverTestSuite {
     unknown(E(pongID)(k) === E(BigInt(5)))(using ctx)
     sat(E(pingID)(k) === E(BigInt(0)))(using ctx)
   }
+  test("a call that reaches itself never returns when the front-end has checked totality", Integers) { ctx =>
+    given Context = ctx.withOpts(optAssumeChecked(true))
+    unsat(E(loopID)(k) === E(BigInt(0)))
+    unsat(E(loopPosID)(k) === E(BigInt(5)))
+    sat(E(loopPosID)(k) === E(BigInt(0)))
+  }
   test("a call whose unfolding is contradictory never returns", Integers) { ctx =>
     unsat(E(loopPlusOneID)(k) === E(BigInt(0)))(using ctx)
   }

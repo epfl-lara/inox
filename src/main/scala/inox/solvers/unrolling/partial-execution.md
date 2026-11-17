@@ -97,6 +97,11 @@ loop(k) == 0      // Unknown
 f(k) == 0         // Unknown
 ```
 
+Under `--assume-checked`, the front-end has checked that functions are total, so every call returns
+and the rank clauses hold without `diverges`, in proofs as well. A front-end that proves
+termination, as Stainless does, then keeps the proofs that rely on ranks, and `loop(k) == 0` is
+UNSAT.
+
 Only the body's own paths are ranked: the calls in lambdas and quantifiers that the body contains
 belong to their own templates, and the calls in type checks aren't evaluated by the evaluator. One
 exception: the refinements of an uninterpreted call's result type are assumed on the body's paths,
@@ -144,8 +149,9 @@ solvers make the paths on which these fail infeasible, unless a front-end has ch
 `--assume-checked`. They are then total SMT terms, and a model may rely on a value of `x / 0` that
 evaluation never produces.
 
-**Divergence is never decided.** Neither the solver nor the evaluator establishes that a call
-diverges (§3), even when it reaches itself on the same arguments. Under extensional equality, whether
+**Divergence is never decided.** Unless functions are total by `--assume-checked`, neither the
+solver nor the evaluator establishes that a call diverges (§3), even when it reaches itself on the
+same arguments. Under extensional equality, whether
 a function that diverges on an input equals another one is therefore undecided too:
 `(x: BigInt) => loop(x)` is neither shown equal to nor distinct from `(x: BigInt) => 0`, and such
 queries get `Unknown`.
@@ -167,6 +173,3 @@ models, and the solver answers `Unknown`.
 empty when `A` is inhabited, so a quantifier over it is vacuous, and `forall (f: BigInt => T) => false`
 holds for an empty type parameter `T`.
 
-**Front-ends that rely on totality.** A front-end that checks that every function terminates and
-never fails, as Stainless does, could let Inox assume the total reading everywhere, which would make
-more proofs go through. Inox has no option for it.
