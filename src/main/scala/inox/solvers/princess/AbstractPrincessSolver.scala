@@ -712,7 +712,8 @@ abstract class AbstractPrincessSolver(override val program: Program,
 
   /* Princess's integer division and remainder by zero have no value, so a path that reaches one
    * would be infeasible, even under `optAssumeChecked` where the template generator doesn't guard
-   * them. `x / 0` and `x % 0` are uninterpreted functions of `x` instead, as in SMT-LIB, where the
+   * them, or where a distinguishing input shows that a function fails (see
+   * `unrolling/partial-execution.md`). `x / 0` and `x % 0` are uninterpreted functions of `x` instead, as in SMT-LIB, where the
    * remainder and the modulo are both `mod`. */
   private lazy val divByZero = declared(p.createFunction(FreshIdentifier("divByZero").uniqueName, 1))(p.addFunction(_))
   private lazy val modByZero = declared(p.createFunction(FreshIdentifier("modByZero").uniqueName, 1))(p.addFunction(_))
