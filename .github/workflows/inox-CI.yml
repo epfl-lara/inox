@@ -95,6 +95,30 @@ jobs:
       run: sbt -Dtest-parallelism=10 -batch $SBT_COVERAGE IntegrationTest/test
       env:
         SBT_COVERAGE: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'coverage' || '' }}
+    # Read by the coverage comment workflow, which compares the duration of
+    # each test of a pull request build with that of main in the same job.
+    - name: Collect test durations
+      if: ${{ !cancelled() }}
+      run: |
+        mkdir -p test-timings
+        python3 scripts/test_timings.py collect test-timings/timings.json target
+        git rev-parse HEAD > test-timings/tested-sha
+        echo "$REQUESTED_PRS" > test-timings/merged-prs
+        if [ -n "$PR_NUMBER" ]; then
+          echo "$PR_NUMBER" > test-timings/pr-number
+          echo "$PR_HEAD_SHA" > test-timings/pr-head-sha
+          git cat-file -p HEAD | sed -n '/^parent /{s///p;q}' > test-timings/base-sha
+        fi
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        REQUESTED_PRS: ${{ inputs.prs }}
+    - name: Upload test durations
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: test-timings-${{ matrix.runners.os }}-jdk${{ matrix.java-version }}
+        path: test-timings/
     - name: Generate coverage report
       if: ${{ !cancelled() && matrix.runners.os == 'Linux' && matrix.java-version == 17 }}
       run: |
