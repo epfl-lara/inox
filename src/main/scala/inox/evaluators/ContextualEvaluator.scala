@@ -66,12 +66,13 @@ trait ContextualEvaluator extends Evaluator {
       val ex = typeOps.instantiateType(expr, model.types)
       val rctx = initRC(model)
       val modelRctx = rctx.newVars(Map.empty)
-      // Solvers evaluate many small expressions in large models, so only the values of the variables
-      // that `ex` reads are brought to the evaluator's form, rather than every value of the model
+      // Solvers evaluate many small expressions in large models, so the evaluation only gets the
+      // values of the variables that `ex` reads, brought to the evaluator's form, rather than every
+      // value of the model
       val values = exprOps.variablesOf(ex).iterator.map(_.toVal).flatMap { vd =>
         rctx.mappings.get(vd).map(v => vd -> modelValue(v)(using modelRctx))
-      }
-      EvaluationResults.Successful(e(ex)(using rctx.newVars(rctx.mappings ++ values)))
+      }.toMap
+      EvaluationResults.Successful(e(ex)(using rctx.newVars(values)))
     } catch {
       case EvalError(msg) =>
         EvaluationResults.EvaluatorError(msg)
