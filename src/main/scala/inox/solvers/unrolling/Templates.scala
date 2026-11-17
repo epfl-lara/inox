@@ -7,7 +7,7 @@ package unrolling
 import utils._
 
 import scala.collection.generic.CanBuildFrom
-import scala.collection.mutable.{Set => MutableSet}
+import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 trait Templates
   extends TemplateGenerator
@@ -102,8 +102,29 @@ trait Templates
   // Set of variables that have already been declared in this solver
   private val declared = new IncrementalSet[(Variable, Encoded)]
 
+  /* Partial functions: a function or a lambda fails on the inputs on which its evaluation fails
+   * (an error, an assumption that doesn't hold, or an undefined operation, see
+   * [[TemplateGenerator.failureSymbols]]). Each call and each application has a literal for whether
+   * it fails, which the instance of the callee's body defines when the call or application is unfolded
+   * (see [[Template.instantiate]]). Formulas assert that the calls and applications that they reach
+   * don't fail, so that the paths that fail stay infeasible, while the distinguishing inputs of
+   * functions tell apart a function that fails from one that doesn't (see [[instantiateWitness]]). */
+  private val callFailures = new IncrementalMap[(Callee, Seq[Encoded]), Encoded]
+  private val appFailures = new IncrementalMap[(Encoded, FunctionType, Seq[Encoded]), Encoded]
+
+  /** Whether the call of `callee` on `args` fails. */
+  private[unrolling] def callFailure(callee: Callee, args: Seq[Encoded]): Encoded =
+    callFailures.cached(callee -> args)(encodeSymbol(Variable.fresh("fails", BooleanType(), true)))
+
+  /** Whether the application of `caller` of type `tpe` to `args` fails. */
+  private[unrolling] def appFailure(caller: Encoded, tpe: FunctionType, args: Seq[Encoded]): Encoded =
+    appFailures.cached((caller, tpe, args))(encodeSymbol(Variable.fresh("fails", BooleanType(), true)))
+
+  private[unrolling] def callFailure(call: Call): Encoded = callFailure(call.callee, call.args.map(_.encoded))
+  private[unrolling] def appFailure(app: App): Encoded = appFailure(app.caller, app.tpe, app.args.map(_.encoded))
+
   val incrementals: Seq[IncrementalState] = managers ++ Seq(
-    condImplies, condImplied, potImplies, potImplied, condEquals, declared
+    condImplies, condImplied, potImplies, potImplied, condEquals, declared, callFailures, appFailures
   )
 
   protected def freshConds(
@@ -411,7 +432,11 @@ trait Templates
     val lambdas         : Seq[LambdaTemplate],
     val quantifications : Seq[QuantificationTemplate],
 
-    val pointers : Pointers) {
+    val pointers : Pointers,
+
+    /** The failure literals of the body of a function or lambda, which define whether it fails
+      * (see [[Template.instantiate]]), or `None` if the template asserts that they don't hold. */
+    val failures : Option[Seq[Encoded]] = None) {
 
     lazy val args = arguments.map(_._2)
 
@@ -428,7 +453,8 @@ trait Templates
         equalities.map { case (b, eqs) => substituter(b) -> eqs.map(_.substitute(substituter)) },
         lambdas.map(_.substitute(substituter, msubst)),
         quantifications.map(_.substitute(substituter, msubst)),
-        pointers.map(p => substituter(p._1) -> substituter(p._2))
+        pointers.map(p => substituter(p._1) -> substituter(p._2)),
+        failures.map(_.map(substituter))
       )
 
     def substitution(aVar: Encoded, args: Seq[Arg]): (Clauses, Map[Encoded, Arg]) =
@@ -437,8 +463,14 @@ trait Templates
     def substitution(aVar: Encoded, substMap: Map[Encoded, Arg]): (Clauses, Map[Encoded, Arg]) =
       Template.substitution(condVars, exprVars, condTree, types, lambdas, quantifications, pointers, substMap, aVar)
 
-    def instantiate(substMap: Map[Encoded, Arg]): Clauses =
-      Template.instantiate(clauses, blockers, applications, matchers, reads, equalities, substMap)
+    /** Instantiates the contents, where the body of a function or lambda fails iff `failure` holds. */
+    def instantiate(substMap: Map[Encoded, Arg], failure: Option[Encoded] = None): Clauses = {
+      val fails = failure.map(f => (pathVar._2, f, failures.getOrElse(Seq.empty)))
+      val notFailing = if (failure.isEmpty) failures.getOrElse(Seq.empty) else Seq.empty
+      val substituter = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
+      notFailing.map(f => mkNot(substituter(f))) ++
+        Template.instantiate(clauses, blockers, applications, matchers, reads, equalities, substMap, fails)
+    }
 
     def merge(
       condVars   : Map[Variable, Encoded],
@@ -469,7 +501,8 @@ trait Templates
       this.equalities `merge` equalities,
       this.lambdas ++ lambdas,
       this.quantifications ++ quantifications,
-      this.pointers ++ pointers
+      this.pointers ++ pointers,
+      this.failures
     )
   }
 
@@ -481,6 +514,12 @@ trait Templates
     def instantiate(aVar: Encoded, args: Seq[Arg]): Clauses = {
       val (clauses, substMap) = contents.substitution(aVar, args)
       clauses ++ instantiate(substMap)
+    }
+
+    /** Instantiates the body of a function or lambda, which fails iff `failure` holds. */
+    def instantiate(aVar: Encoded, args: Seq[Arg], failure: Encoded): Clauses = {
+      val (clauses, substMap) = contents.substitution(aVar, args)
+      clauses ++ contents.instantiate(substMap, Some(failure))
     }
 
     protected def instantiate(substMap: Map[Encoded, Arg]): Clauses = {
@@ -712,13 +751,18 @@ trait Templates
       (calls, apps, matchers, reads, pointers)
     }
 
+    /** The failure literals among the expression variables of a template (see [[failureSymbols]]). */
+    def failures(exprVars: Map[Variable, Encoded]): Seq[Encoded] =
+      exprVars.toSeq.collect { case (v, vT) if failureSymbols(v) => vT }
+
     def encode(
       pathVar: (Variable, Encoded),
       arguments: Seq[(Variable, Encoded)],
       tmplClauses: TemplateClauses,
       substMap: Map[Variable, Encoded] = Map.empty[Variable, Encoded],
       optCall: Option[Callee] = None,
-      optApp: Option[(Encoded, FunctionType)] = None
+      optApp: Option[(Encoded, FunctionType)] = None,
+      partial: Boolean = false
     ): (Clauses, Calls, Apps, Matchers, Reads, Pointers, () => String) = {
       val (condVars, exprVars, _, guardedExprs, eqs, _, equalities, lambdas, quants) = tmplClauses
 
@@ -771,6 +815,10 @@ trait Templates
         clauses ++= (for ((b,es) <- guardedExprs; e <- es) yield encoder(Implies(b, e)))
         clauses ++= eqs.map(encoder)
 
+        // The failure literals of the body of a function or lambda define whether it fails (see
+        // [[Template.instantiate]]), while other templates assert that they don't hold
+        if (!partial) clauses ++= failures(exprVars).map(mkNot)
+
         (clauses, blockers, applications, matchers, reads, pointers)
       }
 
@@ -810,17 +858,18 @@ trait Templates
       tmplClauses: TemplateClauses,
       substMap: Map[Variable, Encoded] = Map.empty,
       optCall: Option[Callee] = None,
-      optApp: Option[(Encoded, FunctionType)] = None
+      optApp: Option[(Encoded, FunctionType)] = None,
+      partial: Boolean = false
     ): (TemplateContents, () => String) = {
 
       val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = tmplClauses.proj
       val (clauses, blockers, applications, matchers, reads, pointers, string) = Template.encode(
-        pathVar, arguments, tmplClauses, substMap = substMap, optCall = optCall, optApp = optApp)
+        pathVar, arguments, tmplClauses, substMap = substMap, optCall = optCall, optApp = optApp, partial = partial)
 
       val contents = TemplateContents(
         pathVar, arguments, condVars, exprVars, condTree,
         clauses, types, blockers, applications, matchers, reads, equalities,
-        lambdas, quants, pointers
+        lambdas, quants, pointers, if (partial) Some(failures(exprVars)) else None
       )
 
       (contents, string)
@@ -904,7 +953,9 @@ trait Templates
       matchers: Matchers,
       reads: Reads,
       equalities: Equalities,
-      substMap: Map[Encoded, Arg]
+      substMap: Map[Encoded, Arg],
+      failure: Option[(Encoded, Encoded, Seq[Encoded])] = None,
+      exempt: App => Boolean = _ => false
     ): Clauses = {
       val substituter : Encoded => Encoded = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
       val msubst = substMap.collect { case (c, Right(m)) => c -> m }
@@ -912,12 +963,33 @@ trait Templates
       val allClauses = new scala.collection.mutable.ListBuffer[Encoded]
       allClauses ++= clauses.map(substituter)
 
+      // The calls and applications that may fail, under their blockers
+      val failing = new scala.collection.mutable.ListBuffer[Encoded]
+      def mayFail(b: Encoded, fails: Encoded): Unit =
+        if (failure.isDefined) failing += mkAnd(b, fails) else allClauses += mkImplies(b, mkNot(fails))
+
       for ((b, fis) <- calls if !abort; bp = substituter(b); fi <- fis if !abort) {
-        allClauses ++= instantiateCall(bp, fi.substitute(substituter, msubst))
+        val call = fi.substitute(substituter, msubst)
+        mayFail(bp, callFailure(call))
+        allClauses ++= instantiateCall(bp, call)
       }
 
       for ((b,fas) <- apps if !abort; bp = substituter(b); fa <- fas if !abort) {
-        allClauses ++= instantiateApp(bp, fa.substitute(substituter, msubst))
+        val app = fa.substitute(substituter, msubst)
+        if (!exempt(app)) mayFail(bp, appFailure(app))
+        allClauses ++= instantiateApp(bp, app)
+      }
+
+      // The body of a function or lambda fails iff one of its failure literals holds, or one of the
+      // calls and applications on its paths fails
+      for ((start, self, literals) <- failure) {
+        val sources = literals.map(substituter) ++ failing
+        val fails = sources match {
+          case Seq() => falseT
+          case Seq(source) => source
+          case _ => mkOr(sources.toSeq*)
+        }
+        allClauses += mkImplies(substituter(start), mkEquals(self, fails))
       }
 
       for ((b, matchs) <- matchers if !abort; bp = substituter(b); m <- matchs if !abort) {
@@ -938,7 +1010,8 @@ trait Templates
 
   private def instantiate(
     bindings: Map[Variable, Encoded],
-    gen: (Variable, Encoded) => TemplateClauses
+    gen: (Variable, Encoded) => TemplateClauses,
+    exempt: App => Boolean = _ => false
   ): Clauses = {
     val start = Variable.fresh("start", BooleanType(), true)
     val encodedStart = encodeSymbol(start)
@@ -952,7 +1025,7 @@ trait Templates
     val (substClauses, substMap) = Template.substitution(
       condVars, exprVars, condTree, types, lambdas, quants, pointers, Map.empty, encodedStart)
 
-    val templateClauses = Template.instantiate(clauses, calls, apps, matchers, reads, equalities, substMap)
+    val templateClauses = Template.instantiate(clauses, calls, apps, matchers, reads, equalities, substMap, exempt = exempt)
     val allClauses = encodedStart +: (substClauses ++ templateClauses)
 
     for (cl <- allClauses) {
@@ -975,8 +1048,10 @@ trait Templates
 
   /** Instantiates a distinguishing input for the first-class functions `f1` and `f2` of type `tpe`.
     *
-    * Fresh witness arguments `ws` are introduced such that `f1(ws) != f2(ws)` holds whenever
-    * `guard` holds and `f1 != f2`. The witnesses are typed as free variables, so function-typed
+    * Fresh witness arguments `ws` are introduced such that `f1` and `f2` differ on `ws` whenever
+    * `guard` holds and `f1 != f2`: one of `f1(ws)` and `f2(ws)` fails and the other doesn't, or
+    * neither fails and `f1(ws) != f2(ws)`. The applications on `ws` are the only ones whose failure
+    * the witness doesn't exclude. The witnesses are typed as free variables, so function-typed
     * witnesses are themselves registered as free functions (and will in turn receive witnesses).
     *
     * @see [[LambdaTemplates]] for a discussion of how these witnesses are used.
@@ -993,20 +1068,30 @@ trait Templates
     declared += v1 -> f1
     declared += v2 -> f2
 
-    val clauses = instantiate(bindings, { (start, encodedStart) =>
-      val substMap = bindings + (start -> encodedStart)
-      val tmplClauses = mkClauses0(start, Not(Equals(Application(v1, ws), Application(v2, ws))), substMap, polarity = Some(true))
+    // whether the results of the applications on `ws` differ
+    val differ = Variable.fresh("differ", BooleanType(), true)
+    val differT = encodeSymbol(differ)
+    val wsT = ws.map(bindings)
+    def isWitnessApp(app: App): Boolean =
+      (app.caller == f1 || app.caller == f2) && app.tpe == tpe && app.args.map(_.encoded) == wsT
+
+    val clauses = instantiate(bindings + (differ -> differT), { (start, encodedStart) =>
+      val substMap = bindings + (differ -> differT) + (start -> encodedStart)
+      val tmplClauses = mkClauses0(start,
+        Equals(differ, Not(Equals(Application(v1, ws), Application(v2, ws)))), substMap)
       val tpeClauses = ws.map { w =>
         declared += w -> bindings(w)
         mkClauses1(start, w.tpe, w, substMap)(using FreeGenerator)
       }
 
       tpeClauses.foldLeft(tmplClauses)(_ +++ _)
-    })
+    }, isWitnessApp)
 
     // `instantiate` asserts the start blocker, which we replace with the witness condition
     val encodedStart +: rest = clauses: @unchecked
-    mkEquals(encodedStart, mkAnd(guard, mkNot(mkEquals(f1, f2)))) +: rest
+    val (err1, err2) = (appFailure(f1, tpe, wsT), appFailure(f2, tpe, wsT))
+    val distinguished = mkOr(mkNot(mkEquals(err1, err2)), mkAnd(mkNot(err1), mkNot(err2), differT))
+    mkEquals(encodedStart, mkAnd(guard, mkNot(mkEquals(f1, f2)))) +: mkImplies(encodedStart, distinguished) +: rest
   }
 
   def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {

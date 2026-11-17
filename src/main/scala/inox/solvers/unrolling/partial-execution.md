@@ -29,7 +29,7 @@ applying them may give ⊥. Function types are read partially accordingly:
 Under this reading every function type is inhabited, as `x => error[B]` lies in `A => B` even when
 `B` is empty. The total reading, where `f(a)` must also return, can't be checked by evaluation,
 since it would need the evaluator to prove that `f` terminates. `SymbolOps.hasInstance` departs from
-the partial reading on one point (see §4).
+the partial reading on one point (see §5).
 
 ## 2. How the encoding handles ⊥
 
@@ -40,7 +40,7 @@ query uses was returned, and the clauses hold for these results.
 
 | Construct | Encoding | Why it's right under the partial reading |
 |---|---|---|
-| `Error`, failed `Assume` | The path that reaches it is infeasible (`TemplateGenerator.mkExprClauses`) | Evaluation along that path doesn't return |
+| `Error`, failed `Assume`, undefined operation | A failure literal, which formulas assert to be false, so the path that reaches it is infeasible (`TemplateGenerator.Builder.storeFailure`, §4) | Evaluation along that path doesn't return |
 | Call `f(a)` | Unfolded as `f(a) = body[a]`, guarded by the call's blocker | The equation holds whenever `f(a)` returns |
 | Call `g(b)` reached while evaluating the body of `f(a)` | `rank_f(a) > rank_g(b)` on the path that reaches it (`FunctionTemplates.rankClauses`, §3) | A call that returns has a finite evaluation, whose depth is a rank |
 | Application of a free function, `f(a) ∈ B` | Assumed at each application (`LambdaTemplates.registerApplication`) | The application is reached, so `f(a)` returned |
@@ -98,7 +98,31 @@ A front-end that proves termination with Inox must not assume the postconditions
 it is checking, as Stainless's termination checker did before it was fixed: a postcondition holds
 vacuously of a call that never returns, and ranks let the solver show that a call never returns.
 
-## 4. Limits
+## 4. Where functions fail
+
+Under extensional equality, functions are partial: two functions differ on an input on which one of
+them fails and the other doesn't, and agree on an input on which both fail. `x => error[Unit]` and
+`x => ()` are distinct, while `() => 1 / y` and `() => 2 / y` are equal when `y == 0`. Telling these
+apart needs a literal for "`f(a)` fails", which the encoding builds as follows:
+
+- Each point where evaluation may fail (an `Error`, an `Assume`, a partial operation) gets a literal
+  that holds exactly when its path is taken and its condition doesn't hold (`Builder.storeFailure`).
+- Whether a call `f(a)` fails is an uninterpreted predicate of its arguments, and whether an
+  application `g(a)` fails is an uninterpreted predicate of `g` and its arguments
+  (`Templates.mkCallFailure` and `mkAppFailure`). When a call or an application is unfolded, the
+  template of the body it reaches defines the predicate: the body fails iff one of its failure
+  literals holds, or a call or an application on one of its paths fails (`Template.encode`).
+- The applications of free functions don't fail, as free functions are total.
+- The templates of formulas (the query, typing constraints, quantifier bodies, equalities) assert
+  that their failure literals are false, and that the calls and applications on their paths don't
+  fail. The paths that fail are then infeasible, as they were before failures had literals.
+- The distinguishing input `w` of two functions `f` and `g` (see `function-witnesses.md`) is the one
+  place where an application may fail: if `f != g`, either exactly one of `f(w)` and `g(w)` fails, or
+  neither fails and `f(w) != g(w)`.
+
+The evaluator compares functions the same way (`RecursiveEvaluator.valuesEqual`).
+
+## 5. Limits
 
 **Loops on changing arguments stay blocked.** A loop such as `def f(x: BigInt): BigInt = f(x + 1)`
 reaches a new call at each unfolding, so some call is always pending. `ModelCheck` blocks the
@@ -113,16 +137,22 @@ solvers make the paths on which these fail infeasible, unless a front-end has ch
 `--assume-checked`. They are then total SMT terms, and a model may rely on a value of `x / 0` that
 evaluation never produces.
 
-**Definedness is never encoded positively.** The procedure knows that an expression is defined on a
-path because the path is feasible, but it has no literal for "`f(a)` is defined". So it can't reason
-about where a function is undefined. A three-valued encoding with such a literal would make errors
-observable, but not divergence: every finite unrolling is consistent with a call returning at the
-next step, so "diverges" could never be established, only "returns" and "fails".
+**Divergence isn't a failure.** The ranks of §3 make the paths of calls that reach themselves
+infeasible, and the failure literals don't cover them: every finite unrolling is consistent with a
+call returning at the next step, so "diverges" can't be established, only "returns" and "fails". A
+function that diverges on an input agrees there with every function, and the evaluator, which runs
+out of steps, can't tell such functions apart.
 
-**Extensional equality reads functions totally.** Under `--function-equality=extensional`, functions
-into a type with a single value are equal without being applied, so `(x: BigInt) => error[Unit]`
-equals `(x: BigInt) => ()`. A Kleene equality, where `⊥` only equals `⊥`, would need the definedness
-literal above.
+**Quantified assumptions only hold one way.** The quantifiers in the condition of an `Assume` are
+only encoded positively, as encoding both polarities makes queries such as TIP's `Tutorial` diverge.
+Where a function's failure isn't asserted not to hold, at a distinguishing input, its failure literal
+may then hold although the quantified condition does, and the solver may claim that two functions
+differ there. Model checks reject such models.
+
+**Equal lambdas aren't applied.** Two lambdas that a model makes equal are only compared on their
+distinguishing input once they are distinct, so a model can equate lambdas that differ on some input
+(e.g. `p == ((x: BigInt) => x + y == (x: BigInt) => x - y)` with `p` true). Model checks reject such
+models, and the solver answers `Unknown`.
 
 **Function types into empty types are empty for `hasInstance`.** Under the partial reading,
 `x => error[B]` lies in `A => B` even when `B` is empty. `SymbolOps.hasInstance` holds such a type
