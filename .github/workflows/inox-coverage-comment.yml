@@ -1,21 +1,24 @@
 name: Coverage comment
-# Posts the coverage of each pull request, compared with main, as a comment.
+# Posts the coverage and test durations of each pull request, compared with
+# main, as a comment.
 # The comparison is with main at the commit the pull request build merged
 # into, so that tests added to main since then don't show up as lost coverage.
-# This runs separately from Inox CI, after it completes, because pull requests
-# from forks get a read-only token and can't comment themselves. Only the
-# version of this workflow on the default branch runs, and it only reads data
-# (a JSON summary and the pull request number) from the pull request's build.
+# This runs separately from Inox CI and the Stainless downstream CI, after they
+# complete, because pull requests from forks get a read-only token and can't
+# comment themselves. Only the version of this workflow on the default branch
+# runs, and it only reads data (JSON summaries, the pull request number and
+# commits) from the pull request's builds. Each build updates its own sections
+# of the comment (see scripts/pr_comment.py).
 on:
   workflow_run:
-    workflows: [Inox CI]
+    workflows: [Inox CI, Stainless downstream CI]
     types: [completed]
 permissions:
   actions: read
   pull-requests: write
 jobs:
   comment:
-    if: github.event.workflow_run.event == 'pull_request'
+    if: github.event.workflow_run.name == 'Inox CI' && github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -92,27 +95,46 @@ jobs:
         fi
         INOX_REVS="$HEAD_SHA $base" INOX_BASE="$base" SKIP_REPORT=skip.md GITHUB_OUTPUT=/dev/null \
           .github/scripts/stainless-skip.sh
-    - name: Post or update the comment
-      if: steps.head.outcome == 'success'
+    - name: Compare the test durations with main
+      id: timings
+      continue-on-error: true
       run: |
-        pr=$(cat head/pr-number)
-        [[ "$pr" =~ ^[0-9]+$ ]] || { echo "Invalid pull request number"; exit 1; }
-        # Make sure the pull request is the one that was built.
-        [ "$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)" = "$HEAD_SHA" ] \
-          || { echo "Pull request #$pr has moved on from $HEAD_SHA"; exit 0; }
-        base=$( [ -f base/coverage.json ] && echo base/coverage.json || true )
-        python3 scripts/coverage_summary.py compare head/coverage.json $base > coverage.md
-        # The Stainless skip warning goes first, under the comment's marker line.
-        {
-          head -n 1 coverage.md
-          if [ -s skip.md ]; then echo; cat skip.md; echo; fi
-          tail -n +2 coverage.md
-          if [ -s notes.md ]; then echo; sed G notes.md; fi
-        } > comment.md
-        id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$pr/comments" --paginate \
-               --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- inox-coverage -->"))) | .id' | head -n 1)
-        if [ -n "$id" ]; then
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@comment.md > /dev/null
-        else
-          gh pr comment "$pr" --repo "$GITHUB_REPOSITORY" --body-file comment.md
+        .github/scripts/test-timings-comment.sh inox-CI.yml "$RUN_ID" test-timings- per-artifact "Inox test durations" timings.md > tested
+        read -r pr pr_head < tested || true
+        echo "pr=$pr" >> "$GITHUB_OUTPUT"
+    - name: Post or update the comment
+      run: |
+        pr=$(cat head/pr-number 2>/dev/null || echo "$TIMINGS_PR")
+        : > coverage.md
+        if [ -f head/coverage.json ]; then
+          base=$( [ -f base/coverage.json ] && echo base/coverage.json || true )
+          # Without the marker line, which pr_comment.py adds.
+          python3 scripts/coverage_summary.py compare head/coverage.json $base | tail -n +2 > coverage.md
+          if [ -s notes.md ]; then echo >> coverage.md; sed G notes.md >> coverage.md; fi
         fi
+        touch skip.md timings.md
+        [ -n "$pr" ] || { echo "No pull request data in this build"; exit 0; }
+        .github/scripts/update-pr-comment.sh "$pr" "$HEAD_SHA" \
+          stainless-skip skip.md coverage coverage.md inox-timings timings.md
+      env:
+        TIMINGS_PR: ${{ steps.timings.outputs.pr }}
+
+  stainless-timings:
+    if: >-
+      github.event.workflow_run.name == 'Stainless downstream CI' &&
+      (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+    - name: Compare the test durations with main
+      run: |
+        .github/scripts/test-timings-comment.sh stainless-downstream-CI.yml "$RUN_ID" stainless-test-timings- merged \
+          "Stainless test durations" timings.md > tested
+        read -r pr pr_head < tested || true
+        # A run that tested main, or several pull requests merged together.
+        [ -n "$pr" ] || { echo "No single pull request tested in this build"; exit 0; }
+        .github/scripts/update-pr-comment.sh "$pr" "$pr_head" stainless-timings timings.md
