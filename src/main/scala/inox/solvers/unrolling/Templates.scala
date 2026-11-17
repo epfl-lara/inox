@@ -108,7 +108,9 @@ trait Templates
    * it fails, which the instance of the callee's body defines when the call or application is unfolded
    * (see [[Template.instantiate]]). Formulas assert that the calls and applications that they reach
    * don't fail, so that the paths that fail stay infeasible, while the distinguishing inputs of
-   * functions tell apart a function that fails from one that doesn't (see [[instantiateWitness]]). */
+   * functions tell apart a function that fails from one that doesn't (see [[instantiateWitness]]).
+   * Free functions may be partial too: nothing constrains whether their applications fail, unless a
+   * formula reaches them, and the extracted models of free functions fail where these do. */
   private val callFailures = new IncrementalMap[(Callee, Seq[Encoded]), Encoded]
   private val appFailures = new IncrementalMap[(Encoded, FunctionType, Seq[Encoded]), Encoded]
 
@@ -116,9 +118,38 @@ trait Templates
   private[unrolling] def callFailure(callee: Callee, args: Seq[Encoded]): Encoded =
     callFailures.cached(callee -> args)(encodeSymbol(Variable.fresh("fails", BooleanType(), true)))
 
-  /** Whether the application of `caller` of type `tpe` to `args` fails. */
+  /** Whether the application of `caller` of type `tpe` to `args` fails.
+    *
+    * Unlike the bodies of functions, free functions aren't determined by their applications, so the
+    * failures of applications are an uninterpreted predicate of their caller and arguments, whose
+    * congruence makes applications to equal arguments fail alike. Applications already involve
+    * first-class functions, which are encoded the same way (see [[LambdaTemplates.mkApp]]). */
   private[unrolling] def appFailure(caller: Encoded, tpe: FunctionType, args: Seq[Encoded]): Encoded =
-    appFailures.cached((caller, tpe, args))(encodeSymbol(Variable.fresh("fails", BooleanType(), true)))
+    appFailures.cached((caller, tpe, args)) {
+      val (fT, asT, app) = appFailureCache.getOrElseUpdate(tpe, {
+        val f = Variable.fresh("fails", FunctionType(tpe +: tpe.from, BooleanType()), true)
+        val as = (tpe +: tpe.from).map(tp => Variable.fresh("x", tp, true))
+        val (fT, asT) = (encodeSymbol(f), as.map(encodeSymbol))
+        (fT, asT, mkEncoder(Map(f -> fT) ++ (as zip asT))(Application(f, as)))
+      })
+      // the predicate is mirrored by a literal, whose value models give on every backend
+      val literal = encodeSymbol(Variable.fresh("fails", BooleanType(), true))
+      failureDefinitions += mkEquals(literal, mkSubstituter((asT zip (caller +: args)).toMap)(app))
+      literal
+    }
+  private val appFailureCache = scala.collection.mutable.Map.empty[FunctionType, (Encoded, Seq[Encoded], Encoded)]
+  private val failureDefinitions = scala.collection.mutable.ListBuffer.empty[Encoded]
+
+  /** The definitions of the failure literals of the applications created since the last call. */
+  private[unrolling] def newFailureDefinitions(): Clauses = {
+    val clauses = failureDefinitions.toSeq
+    failureDefinitions.clear()
+    clauses
+  }
+
+  /** The failure literals of the applications of type `tpe`, by caller and arguments. */
+  def appFailureLiterals(tpe: FunctionType): Seq[((Encoded, Seq[Encoded]), Encoded)] =
+    appFailures.toSeq.collect { case ((caller, `tpe`, args), fails) => (caller, args) -> fails }
 
   private[unrolling] def callFailure(call: Call): Encoded = callFailure(call.callee, call.args.map(_.encoded))
   private[unrolling] def appFailure(app: App): Encoded = appFailure(app.caller, app.tpe, app.args.map(_.encoded))
@@ -965,8 +996,9 @@ trait Templates
 
       // The calls and applications that may fail, under their blockers
       val failing = new scala.collection.mutable.ListBuffer[Encoded]
-      def mayFail(b: Encoded, fails: Encoded): Unit =
+      def mayFail(b: Encoded, fails: => Encoded): Unit = if (partialFunctions) {
         if (failure.isDefined) failing += mkAnd(b, fails) else allClauses += mkImplies(b, mkNot(fails))
+      }
 
       for ((b, fis) <- calls if !abort; bp = substituter(b); fi <- fis if !abort) {
         val call = fi.substitute(substituter, msubst)
@@ -982,7 +1014,7 @@ trait Templates
 
       // The body of a function or lambda fails iff one of its failure literals holds, or one of the
       // calls and applications on its paths fails
-      for ((start, self, literals) <- failure) {
+      for ((start, self, literals) <- failure if partialFunctions) {
         val sources = literals.map(substituter) ++ failing
         val fails = sources match {
           case Seq() => falseT
@@ -991,6 +1023,7 @@ trait Templates
         }
         allClauses += mkImplies(substituter(start), mkEquals(self, fails))
       }
+      allClauses ++= newFailureDefinitions()
 
       for ((b, matchs) <- matchers if !abort; bp = substituter(b); m <- matchs if !abort) {
         allClauses ++= instantiateMatcher(bp, m.substitute(substituter, msubst))
@@ -1072,7 +1105,11 @@ trait Templates
     val differ = Variable.fresh("differ", BooleanType(), true)
     val differT = encodeSymbol(differ)
     val wsT = ws.map(bindings)
-    def isWitnessApp(app: App): Boolean =
+    // Only extensional equality observes where functions fail (see [[partialFunctions]]). Without
+    // function equality, distinguishing inputs only tell apart the functions of models, whose tests
+    // can't observe failures (applying a function where it fails fails the test).
+    val partial = partialFunctions
+    def isWitnessApp(app: App): Boolean = partial &&
       (app.caller == f1 || app.caller == f2) && app.tpe == tpe && app.args.map(_.encoded) == wsT
 
     val clauses = instantiate(bindings + (differ -> differT), { (start, encodedStart) =>
@@ -1090,8 +1127,9 @@ trait Templates
     // `instantiate` asserts the start blocker, which we replace with the witness condition
     val encodedStart +: rest = clauses: @unchecked
     val (err1, err2) = (appFailure(f1, tpe, wsT), appFailure(f2, tpe, wsT))
-    val distinguished = mkOr(mkNot(mkEquals(err1, err2)), mkAnd(mkNot(err1), mkNot(err2), differT))
-    mkEquals(encodedStart, mkAnd(guard, mkNot(mkEquals(f1, f2)))) +: mkImplies(encodedStart, distinguished) +: rest
+    val distinguished = if (!partial) differT else mkOr(mkNot(mkEquals(err1, err2)), mkAnd(mkNot(err1), mkNot(err2), differT))
+    (mkEquals(encodedStart, mkAnd(guard, mkNot(mkEquals(f1, f2)))) +: mkImplies(encodedStart, distinguished) +: rest) ++
+      newFailureDefinitions()
   }
 
   def instantiateExpr(expr: Expr, bindings: Map[Variable, Encoded]): Clauses = {

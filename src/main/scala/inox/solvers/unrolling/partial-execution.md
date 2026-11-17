@@ -112,7 +112,9 @@ apart needs a literal for "`f(a)` fails", which the encoding builds as follows:
   (`Templates.mkCallFailure` and `mkAppFailure`). When a call or an application is unfolded, the
   template of the body it reaches defines the predicate: the body fails iff one of its failure
   literals holds, or a call or an application on one of its paths fails (`Template.encode`).
-- The applications of free functions don't fail, as free functions are total.
+- Free functions are partial as well: whether one of their applications fails is only constrained
+  where a formula reaches it, and the model of a free function fails on the inputs on which its
+  applications fail in the model.
 - The templates of formulas (the query, typing constraints, quantifier bodies, equalities) assert
   that their failure literals are false, and that the calls and applications on their paths don't
   fail. The paths that fail are then infeasible, as they were before failures had literals.
@@ -143,11 +145,12 @@ call returning at the next step, so "diverges" can't be established, only "retur
 function that diverges on an input agrees there with every function, and the evaluator, which runs
 out of steps, can't tell such functions apart.
 
-**Quantified assumptions only hold one way.** The quantifiers in the condition of an `Assume` are
-only encoded positively, as encoding both polarities makes queries such as TIP's `Tutorial` diverge.
-Where a function's failure isn't asserted not to hold, at a distinguishing input, its failure literal
-may then hold although the quantified condition does, and the solver may claim that two functions
-differ there. Model checks reject such models.
+**Quantified assumptions cost more.** The failure literal of an `Assume` is equal to the negation
+of its condition, so quantifiers in the condition are encoded with both polarities, and the negative
+one introduces a fresh witness for each of them. Under total functions (`--assume-checked`, or any
+other function equality), assumptions can't fail and their quantifiers are only encoded positively,
+as with many quantified assumptions, such as in TIP's `Tutorial`, the witnesses keep feeding new
+instantiations.
 
 **Equal lambdas aren't applied.** Two lambdas that a model makes equal are only compared on their
 distinguishing input once they are distinct, so a model can equate lambdas that differ on some input
