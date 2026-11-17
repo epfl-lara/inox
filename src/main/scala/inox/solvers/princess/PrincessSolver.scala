@@ -118,6 +118,18 @@ class PrincessSolver(override val program: Program)
       case _ => throw underlying.PrincessSolverException(s"Unhandled equality between $e1 and $e2")
     }
 
+    // Princess encodes Boolean terms as integers, 0 being true
+    type Function = (IFunction, Boolean)
+    def mkFunction(name: String, from: Seq[Type], to: Type) =
+      (underlying.declareFunction(name, from.size), to == BooleanType())
+    def mkFunApp(f: (IFunction, Boolean), args: Seq[IExpression]) = {
+      val app = IFunApp(f._1, args.map {
+        case t: ITerm => t
+        case f: IFormula => ITermITE(f, 0, 1)
+      })
+      if (f._2) app === 0 else app
+    }
+
     def extractNot(e: IExpression) = e match {
       case INot(e2) => Some(e2)
       case _ => None

@@ -1682,6 +1682,11 @@ trait UnrollingSolver extends AbstractUnrollingSolver { self =>
     def mkEquals(l: Expr, r: Expr) = Equals(l, r)
     def mkImplies(l: Expr, r: Expr) = implies(l, r)
 
+    // declared by the SMT-LIB target (see [[smtlib.SMTLIBTarget.declareFirstOrder]])
+    type Function = (Identifier, FunctionType)
+    def mkFunction(name: String, from: Seq[Type], to: Type) = (FreshIdentifier(name, true), FunctionType(from, to))
+    def mkFunApp(f: Function, args: Seq[Expr]) = UninterpretedCall(f._1, Seq.empty, args, f._2)
+
     def extractNot(e: Expr) = e match {
       case Not(e2) => Some(e2)
       case _ => None

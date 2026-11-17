@@ -143,6 +143,7 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
   protected val lambdas       = new IncrementalBijection[FunctionType, SSymbol]
   protected val predicates    = new IncrementalBijection[Variable, SSymbol]
   protected val predicateCalls= new IncrementalBijection[Expr, SSymbol]
+  protected val firstOrderFunctions = new IncrementalBijection[Identifier, SSymbol]
 
   def registerPredicate(v: Variable): Unit = {
     val s = id2sym(v.id)
@@ -274,6 +275,16 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     }
   }
 
+  /** Uninterpreted calls without type parameters are first-order uninterpreted functions, which
+    * the unrolling solver introduces (see [[unrolling.Templates.mkFunction]]). */
+  protected def declareFirstOrder(id: Identifier, tpe: FunctionType): SSymbol = {
+    firstOrderFunctions.cachedB(id) {
+      val s = id2sym(id)
+      emit(DeclareFun(s, tpe.from.map(declareSort), declareSort(tpe.to)))
+      s
+    }
+  }
+
   /* Translate a Inox Expr to an SMTLIB term */
 
   private def intToTerm(i: BigInt): Term = i match {
@@ -399,6 +410,10 @@ trait SMTLIBTarget extends SMTLIBParser with Interruptible with ADTManagers {
     case IfExpr(cond, thenn, elze) => Core.ITE(toSMT(cond), toSMT(thenn), toSMT(elze))
     case fi @ FunctionInvocation(id, tps, sub) =>
       val fun = declareFunction(getFunction(id, tps.map(_.getType)))
+      if (sub.isEmpty) fun
+      else FunctionApplication(fun, sub.map(toSMT))
+    case UninterpretedCall(id, Seq(), sub, ft: FunctionType) =>
+      val fun = declareFirstOrder(id, ft)
       if (sub.isEmpty) fun
       else FunctionApplication(fun, sub.map(toSMT))
     case Forall(vs, bd) =>
