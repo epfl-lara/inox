@@ -149,6 +149,9 @@ trait FunctionTemplates { self: Templates =>
     * depends on a call diverging is neither satisfiable nor refuted, as the evaluator can't tell
     * either, and the solver answers `Unknown`.
     *
+    * Under `optAssumeChecked`, the front-end has checked that functions are total, so every call
+    * returns and the clauses hold unconditionally, in proofs as well.
+    *
     * Only the calls of the body are ranked: the evaluator doesn't evaluate the calls in type checks,
     * and those in lambdas and quantifiers belong to their own templates. */
   private def rankClauses(tfd: TypedFunDef, contents: TemplateContents,
@@ -162,6 +165,7 @@ trait FunctionTemplates { self: Templates =>
     ranked.flatMap { case (b, fi, callee) =>
       // Calls whose arguments mention symbols that the template doesn't bind aren't ranked
       if (!exprOps.variablesOf(callee).forall(allSymbols.contains)) Seq.empty
+      else if (assumeChecked) Seq(mkImplies(encoder(b), encoder(GreaterThan(self, callee))))
       else Seq(mkImplies(encoder(b), mkOr(encoder(GreaterThan(self, callee)), diverges)))
     }
   }
