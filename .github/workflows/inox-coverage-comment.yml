@@ -5,9 +5,10 @@ name: Coverage comment
 # into, so that tests added to main since then don't show up as lost coverage.
 # This runs separately from the Inox coverage workflow, Inox CI and the
 # Stainless downstream CI, as soon as each of them completes, because pull
-# requests from forks get a read-only token and can't comment themselves. Only the version of this workflow on the default branch
-# runs, and it only reads data (JSON summaries, the pull request number and
-# commits) from the pull request's builds. Each build updates its own sections
+# requests from forks get a read-only token and can't comment themselves. Only
+# the version of this workflow on the default branch runs, and it only reads
+# data (JSON summaries, the pull request number and commits) from the pull
+# request's builds. Each build updates its own sections
 # of the comment (see scripts/pr_comment.py).
 on:
   workflow_run:

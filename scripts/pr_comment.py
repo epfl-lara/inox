@@ -60,7 +60,11 @@ def parse(body):
     return sections
 
 
-def timings_table(sections):
+# GitHub refuses comments longer than 65,536 characters.
+MAX_LENGTH = 60000
+
+
+def timings_table(sections, with_details=True):
     parts = [sections[s] for s in TIMINGS if s in sections]
     if not parts:
         return ""
@@ -76,7 +80,9 @@ def timings_table(sections):
     if rows:
         out += ["| Job | `main` | This PR | Change (95%) | Tests changed |",
                 "|---|---:|---:|---:|---|", *rows, ""]
-    if details:
+    if details and not with_details:
+        out += [f"_{changed} tests changed significantly: too many to list here._", ""]
+    elif details:
         out += [f"<details><summary>Tests that changed significantly ({changed})</summary>", "",
                 "\n\n".join(details), "",
                 f"Other tests changed within the noise between builds, or by less than "
@@ -88,18 +94,21 @@ def timings_table(sections):
     return "\n".join(out).strip("\n")
 
 
-def render(sections):
+def render(sections, with_details=True):
     parts = [MARKER]
     for s in MARKDOWN:
         if s in sections:
             parts.append(f"<!-- begin:{s} -->\n{sections[s]}\n<!-- end:{s} -->")
-    table = timings_table(sections)
+    table = timings_table(sections, with_details)
     if table:
         parts.append(table)
     for s in TIMINGS:
         if s in sections:
             parts.append(f"<!-- data:{s} {encode(sections[s])} -->")
-    return "\n\n".join(parts)
+    body = "\n\n".join(parts)
+    if len(body) > MAX_LENGTH and with_details:
+        return render(sections, with_details=False)
+    return body
 
 
 def main(args):
