@@ -25,7 +25,7 @@ import re
 import sys
 import zlib
 
-from test_timings import MIN_FACTOR, MIN_SECONDS
+from test_timings import MAX_LISTED, MIN_FACTOR, MIN_SECONDS, factor, interval, seconds, show
 
 MARKER = "<!-- inox-coverage -->"
 MARKDOWN = ["stainless-skip", "coverage"]
@@ -64,33 +64,102 @@ def parse(body):
 MAX_LENGTH = 60000
 
 
+# A test that only one job runs (or a job's own tests) is only listed when the
+# job has at least this many earlier builds of main to estimate the noise of
+# each test from.
+MIN_HISTORY = 3
+
+
 def timings_table(sections, with_details=True):
+    """The table of test durations, one row per job, and the tests that
+    changed, collapsed. A test's change is only listed when it is confirmed:
+    the jobs of a group (the word their labels start with, such as Inox) run
+    the same tests on different runners, and noise rarely makes the same test
+    slower, or faster, in two of them. A group with a single job needs enough
+    history for its tests' noise to be estimated well."""
     parts = [sections[s] for s in TIMINGS if s in sections]
     if not parts:
         return ""
-    rows = [r for p in parts for r in p.get("rows", [])]
-    details = [d for p in parts for d in p.get("details", [])]
-    changed = sum(p.get("changed", 0) for p in parts)
+    jobs = [j for p in parts for j in p.get("jobs", [])]
     notes = []
     for p in parts:
         for n in p.get("notes", []):
             if n not in notes:
                 notes.append(n)
-    out = ["### Test durations", ""]
-    if rows:
-        out += ["| Job | `main` | This PR | Change (95%) | Tests changed |",
-                "|---|---:|---:|---:|---|", *rows, ""]
-    if details and not with_details:
-        out += [f"_{changed} tests changed significantly: too many to list here._", ""]
-    elif details:
-        out += [f"<details><summary>Tests that changed significantly ({changed})</summary>", "",
-                "\n\n".join(details), "",
-                f"Other tests changed within the noise between builds, or by less than "
-                f"{MIN_FACTOR:g}× or {MIN_SECONDS:g} s. "
-                "Intervals are 95%, and significance accounts for the number of tests (Bonferroni). "
-                "See `scripts/test_timings.py`.", "", "</details>", ""]
+    groups = {}
+    for j in jobs:
+        groups.setdefault(j["label"].split(" ", 1)[0], []).append(j)
+
+    def short(j):
+        return j["label"].split(" ", 1)[1] if " " in j["label"] else j["label"]
+
+    # Confirmed changes, per test: [(job, test)] in the jobs that saw them.
+    listed = {1: [], -1: []}
+    unconfirmed = 0
+    for group, gj in groups.items():
+        seen = {}
+        for j in gj:
+            for t in j.get("tests", []):
+                seen.setdefault((t["key"], 1 if t["rel"] > 0 else -1), []).append((j, t))
+        for (key, sign), occ in seen.items():
+            if len(gj) >= 2 and len(occ) >= 2 or len(gj) == 1 and gj[0].get("history", 0) >= MIN_HISTORY:
+                listed[sign].append(occ)
+            else:
+                unconfirmed += 1
+    for sign in listed:
+        listed[sign].sort(key=lambda occ: -max(t["rel"] * sign for _, t in occ))
+    counts = {}
+    for sign in listed:
+        for occ in listed[sign]:
+            for j, _ in occ:
+                counts.setdefault(id(j), {1: 0, -1: 0})[sign] += 1
+
+    out = ["### Test durations", "", "| Job | Total time | Tests |", "|---|---:|---|"]
+    for j in jobs:
+        if not j.get("enough"):
+            out.append(f"| {j['label']} | too few tests | |")
+            continue
+        if j.get("ci"):
+            lo, hi = j["ci"]
+            total = f"{factor(j['total'])} ({interval(lo, hi)})"
+            if lo > 0 or hi < 0:
+                total = f"<b>{total}</b>"
+        else:
+            total = "–"
+        c = counts.get(id(j), {1: 0, -1: 0})
+        tests = ", ".join(f"{c[sign]} {what}" for sign, what in ((1, "slower"), (-1, "faster")) if c[sign])
+        out.append(f"| {j['label']} | {total} | {tests or '–'} |")
+    out.append("")
+
+    n = len(listed[1]) + len(listed[-1])
+    lines = []
+    for sign, what in ((1, "Slower"), (-1, "Faster")):
+        if not listed[sign]:
+            continue
+        lines += [f"{what}:", ""]
+        for occ in listed[sign][:MAX_LISTED]:
+            j, t = max(occ, key=lambda jt: abs(jt[1]["rel"]))
+            others = [short(o) for o, _ in occ if o is not j]
+            lines.append(f"- {show(t['key'])}: {seconds(t['base'])} → {seconds(t['head'])}, "
+                         f"{factor(t['rel'])} ({interval(t['lo'], t['hi'])}) on {short(j)}"
+                         + (f"; also on {', '.join(others)}" if others else ""))
+        if len(listed[sign]) > MAX_LISTED:
+            lines.append(f"- and {len(listed[sign]) - MAX_LISTED} more")
+        lines.append("")
+    explain = (f"Changes are relative to each job's median test, which absorbs the runners' speed. "
+               f"A test is listed when its change is significant (Bonferroni) and at least "
+               f"{MIN_FACTOR:g}× and {MIN_SECONDS:g} s in two jobs, or, for a single job, once "
+               f"{MIN_HISTORY} earlier builds of `main` give each test's own noise.")
+    if unconfirmed:
+        explain += f" {unconfirmed} change{'s' if unconfirmed > 1 else ''} seen in a single job only {'were' if unconfirmed > 1 else 'was'} left out."
+    if n and with_details:
+        out += [f"<details><summary>Tests that changed ({n})</summary>", "", *lines, explain, "", "</details>", ""]
+    elif n:
+        out += [f"_{n} tests changed: too many to list here._", ""]
+    if any(j.get("enough") and not j.get("ci") for j in jobs):
+        notes.insert(0, "A total is shown once 2 earlier builds of `main` give its interval.")
     if notes:
-        out.append("<sub>" + " ".join(n.strip("_") for n in notes) + "</sub>")
+        out.append("<sub>" + " ".join(x.strip("_") for x in notes) + "</sub>")
     return "\n".join(out).strip("\n")
 
 
