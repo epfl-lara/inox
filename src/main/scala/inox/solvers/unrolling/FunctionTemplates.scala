@@ -112,6 +112,14 @@ trait FunctionTemplates { self: Templates =>
   }
 
   private val rankCache: MutableMap[TypedFunDef, Variable] = MutableMap.empty
+
+  /** Whether some call may reach itself on the same arguments (see `rankClauses`). The search for
+    * models assumes that it doesn't, and proofs don't, so neither relies on a call diverging. */
+  private lazy val diverges: Encoded = {
+    rankedCalls = true
+    encodeSymbol(Variable.fresh("diverges", BooleanType(), true))
+  }
+  private var rankedCalls = false
   private val rankSymbols: MutableMap[Variable, Encoded] = MutableMap.empty
 
   /** The rank of the call `tfd(args)`: an uninterpreted integer function of the arguments. */
@@ -131,10 +139,15 @@ trait FunctionTemplates { self: Templates =>
     * A call that returns a value has a finite evaluation, so ranking each call by the depth of its
     * evaluation satisfies these clauses. A call that reaches itself, possibly through other calls,
     * on the same arguments never returns, as evaluation is deterministic: the ranks along the cycle
-    * can't decrease, so the paths that close the cycle are infeasible. Without these clauses, the
-    * equations of the calls on such a cycle, e.g. `f(x) = g(x)` and `g(x) = f(x)`, would be
-    * satisfied by any value once every call on it is unfolded. This includes `f(x) = f(x)` for
+    * can't decrease. Without these clauses, the equations of the calls on such a cycle, e.g.
+    * `f(x) = g(x)` and `g(x) = f(x)`, would be satisfied by any value once every call on it is
+    * unfolded, and models could rely on these values. This includes `f(x) = f(x)` for
     * `def f(x) = f(x)`, whose body call is dropped from the template (see `Template.extractCalls`).
+    *
+    * The clauses only hold unless `diverges` does, which the search for models assumes not to hold,
+    * so that models never take the paths that close a cycle, but proofs don't: a query whose answer
+    * depends on a call diverging is neither satisfiable nor refuted, as the evaluator can't tell
+    * either, and the solver answers `Unknown`.
     *
     * Only the calls of the body are ranked: the evaluator doesn't evaluate the calls in type checks,
     * and those in lambdas and quantifiers belong to their own templates. */
@@ -149,7 +162,7 @@ trait FunctionTemplates { self: Templates =>
     ranked.flatMap { case (b, fi, callee) =>
       // Calls whose arguments mention symbols that the template doesn't bind aren't ranked
       if (!exprOps.variablesOf(callee).forall(allSymbols.contains)) Seq.empty
-      else Seq(encoder(Implies(b, GreaterThan(self, callee))))
+      else Seq(mkImplies(encoder(b), mkOr(encoder(GreaterThan(self, callee)), diverges)))
     }
   }
 
@@ -292,7 +305,8 @@ trait FunctionTemplates { self: Templates =>
       if (callInfos.isEmpty) None
       else Some(callInfos.values.map(_._1).min)
 
-    def satisfactionAssumptions: Seq[Encoded] = callInfos.map(_._2._3).toSeq
+    def satisfactionAssumptions: Seq[Encoded] =
+      callInfos.map(_._2._3).toSeq ++ (if (rankedCalls) Seq(mkNot(diverges)) else Seq.empty)
     def refutationAssumptions: Seq[Encoded] = Seq.empty
 
     def promoteBlocker(b: Encoded): Boolean = {
