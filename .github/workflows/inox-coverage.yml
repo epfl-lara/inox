@@ -80,19 +80,15 @@ jobs:
         bitwuzla: ${{ env.BITWUZLA_VER }}
     - name: Test solver availability
       run: cvc5 --version && z3 --version && cvc4 --version && bitwuzla --version
-    # Unit and integration
-    # tests run in separate sbt invocations (the native Z3 library can only be
-    # loaded once per JVM) and their coverage measurements accumulate.
+    # Unit and integration tests run in separate sbt invocations (the native Z3
+    # library can only be loaded once per JVM) and their coverage measurements
+    # accumulate.
     - name: Run Tests
       id: unit-tests
-      run: sbt -Dtest-parallelism=10 -Dinox.require-solvers=smt-z3,smt-cvc4,smt-cvc5,smt-bitwuzla,princess -batch $SBT_COVERAGE test
-      env:
-        SBT_COVERAGE: coverage
+      run: sbt -Dtest-parallelism=10 -Dinox.require-solvers=smt-z3,smt-cvc4,smt-cvc5,smt-bitwuzla,princess -batch coverage test
     - name: Run integration tests
       id: integration-tests
-      run: sbt -Dtest-parallelism=10 -batch $SBT_COVERAGE IntegrationTest/test
-      env:
-        SBT_COVERAGE: coverage
+      run: sbt -Dtest-parallelism=10 -batch coverage IntegrationTest/test
     # Read by the coverage comment workflow, which compares the duration of
     # each test of a pull request build with that of main in the same job.
     - name: Collect test durations
