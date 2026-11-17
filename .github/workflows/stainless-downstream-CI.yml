@@ -181,7 +181,7 @@ jobs:
         if [ -n "$PR_NUMBER" ]; then
           echo "$PR_NUMBER" > "$out/pr-number"
           echo "$PR_HEAD_SHA" > "$out/pr-head-sha"
-          git -C "$INOX_DIR" cat-file -p HEAD | sed -n '/^parent /{s///p;q}' > "$out/base-sha"
+          git -C "$INOX_DIR" cat-file -p HEAD | awk '/^parent /{print $2; exit}' > "$out/base-sha"
         elif [ $# -eq 1 ] && git -C "$INOX_DIR" rev-parse -q --verify "pr-$1^{commit}" > "$out/pr-head-sha"; then
           echo "$1" > "$out/pr-number"
           echo "$GITHUB_SHA" > "$out/base-sha"
