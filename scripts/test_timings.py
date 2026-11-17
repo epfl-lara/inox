@@ -9,9 +9,9 @@ usage:
       Merges collected timings, for builds that ran their tests in several jobs.
   test_timings.py section <title> <groups.tsv> [<note.md>]
       Prints a Markdown section that compares the test durations of pull
-      request builds with those of main: a table with one row per suite, then
-      a collapsed block per job. Each line of `groups.tsv` describes a job:
-      its label (or nothing), then, separated by tabs, the timings of the
+      request builds with those of main: a table with one row per job, then
+      the tests that changed significantly, collapsed. Each line of
+      `groups.tsv` describes a job: its label, then, separated by tabs, the timings of the
       pull request build (head), of the build of main (base), and of earlier
       builds of main (history), used to estimate how much the durations of
       two builds vary without any change to the code. `note.md` is printed
@@ -56,8 +56,6 @@ BUCKETS = [0.2, 1, 5, 30]
 # Listed tests change by at least this factor, and this many seconds.
 MIN_FACTOR = 1.5
 MIN_SECONDS = 1.0
-# Suites are shown in bold when their change is significant and at least this factor.
-SUITE_MIN_FACTOR = 1.2
 MAX_LISTED = 15
 
 NORMAL = statistics.NormalDist()
@@ -173,16 +171,12 @@ def show(key):
     return f"`{s}`"
 
 
-def suite_of(key):
-    # `<classname> :: <name>`: the suite's class, without its package.
-    return key.split(" :: ", 1)[0].rsplit(".", 1)[-1]
-
-
 class Comparison:
     """The comparison of one job's build with the build of main."""
 
     def __init__(self, label, head_path, base_path, history_paths):
-        self.label = label
+        # Labels come from artifact names, which pull request builds choose.
+        self.label = SAFE.sub("?", label)[:60].replace("<", "‹").replace(">", "›").replace("&", "+")
         head, base = passed(load(head_path)), passed(load(base_path))
         history = [passed(load(p)) for p in history_paths]
         self.head, self.base = head, base
@@ -250,55 +244,25 @@ class Comparison:
                                     key=lambda k: -rel[k] * sign)
                        for sign in (1, -1)}
 
-        # Each suite's change, relative to the median test like the tests'.
-        # Its noise combines those of its tests, weighted by their durations,
-        # and is at least the suite's own variation between builds of main.
-        self.suites = {}
-        by_suite = {}
-        for k in common:
-            by_suite.setdefault(suite_of(k), []).append(k)
-        for suite, ks in by_suite.items():
-            sb, sh = sum(base[k] for k in ks), sum(head[k] for k in ks)
-            ms = [k for k in ks if k in sigma]
-            if not ms or sb <= 0:
-                continue
-            r = log_ratio(sh, sb) - speed
-            var = sum((base[k] / sb) ** 2 * sigma[k] ** 2 for k in ms)
-            hs = []
-            for h, m, _ in hist_rel:
-                if all(k in h for k in ks):
-                    hs.append(log_ratio(sum(h[k] for k in ks), sb) - m)
-            if len(hs) >= 3:
-                var = max(var, sum(x * x for x in hs) / len(hs))
-            self.suites[suite] = (sb, sh, r, max(math.sqrt(var), 0.01))
-        # The tests of a suite share the load of the runner while they run, so
-        # their noise doesn't average out as if independent: the spread of the
-        # suites' changes, since most suites are unaffected by a change,
-        # bounds each suite's noise from below.
-        big = [v[2] for v in self.suites.values() if v[0] >= MIN_SECONDS]
-        if len(big) >= 8:
-            floor = mad_sigma(big)
-            self.suites = {k: (sb, sh, r, max(sg, floor)) for k, (sb, sh, r, sg) in self.suites.items()}
-
-    def summary(self):
-        prefix = f"<b>{self.label}</b>: " if self.label else ""
+    def row(self):
+        """The job's row in the table: the total durations, their change, and
+        how many tests got significantly slower or faster."""
         if not self.enough:
-            return f"{prefix}too few tests passed in both builds to compare them."
+            return f"| {self.label} | | | | too few tests passed in both builds |"
         ci = f" ({interval(*self.total_ci)})" if self.total_ci else ""
-        s = f"{prefix}total {factor(self.total)}{ci}"
         if not self.per_test:
-            return s
-        counts = ", ".join(f"{len(self.listed[sign])} test{'s' if len(self.listed[sign]) != 1 else ''} {what}"
-                           for sign, what in ((1, "slower"), (-1, "faster")) if self.listed[sign])
-        return f"{s}, {counts or 'no test changed significantly'}"
+            tests = ""
+        else:
+            tests = ", ".join(f"{len(self.listed[sign])} {what}"
+                              for sign, what in ((1, "slower"), (-1, "faster")) if self.listed[sign]) or "none"
+        return f"| {self.label} | {seconds(self.tb)} | {seconds(self.th)} | {factor(self.total)}{ci} | {tests} |"
 
     def details(self):
-        totals = (f"{len(self.common):,} tests took {seconds(self.th)}, against {seconds(self.tb)} on `main`"
-                  + ("" if self.total_ci else " (no interval yet: fewer than 2 earlier builds of `main`)") + ".")
-        if not self.per_test:
-            return totals
-        out = [f"{totals} The median test took {factor(self.speed)} as long, mostly from the runners' "
-               f"speed: changes are relative to it, with 95% intervals.\n"]
+        """The tests that got significantly slower or faster, or nothing."""
+        if not self.enough or not self.per_test or not (self.listed[1] or self.listed[-1]):
+            return ""
+        out = [f"**{self.label}** (the median test took {factor(self.speed)} as long, "
+               f"mostly from the runners' speed: changes are relative to it)\n"]
         z95 = NORMAL.inv_cdf(0.975)
         for sign, what in ((1, "Slower"), (-1, "Faster")):
             ks = self.listed[sign]
@@ -315,41 +279,11 @@ class Comparison:
         return "\n".join(out).rstrip("\n")
 
 
-def suite_table(comparisons):
-    """One row per suite: its duration on main and its change relative to the
-    median test, combining the jobs (weighted by the inverse of their noise)."""
-    rows = {}
-    for c in comparisons:
-        for suite, (sb, sh, r, sg) in getattr(c, "suites", {}).items():
-            rows.setdefault(suite, []).append((sb, sh, r, sg))
-    rows = {s: v for s, v in rows.items() if statistics.mean(x[0] for x in v) >= MIN_SECONDS}
-    if not rows:
-        return ""
-    z95 = NORMAL.inv_cdf(0.975)
-    stats = {}
-    for suite, v in rows.items():
-        w = [1 / (sg * sg) for *_, sg in v]
-        r = sum(wi * x[2] for wi, x in zip(w, v)) / sum(w)
-        sg = 1 / math.sqrt(sum(w))
-        stats[suite] = (statistics.mean(x[0] for x in v), statistics.mean(x[1] for x in v), r, sg)
-    z_crit = NORMAL.inv_cdf(1 - 0.05 / (2 * len(stats)))
-    jobs = len(comparisons)
-    out = ["| Suite | `main` | This PR | Change (95%) |", "|---|---:|---:|---:|"]
-    for suite, (sb, sh, r, sg) in sorted(stats.items(), key=lambda kv: -kv[1][2]):
-        ch = f"{factor(r)} ({interval(r - z95 * sg, r + z95 * sg)})"
-        if abs(r) / sg > z_crit and abs(r) > math.log(SUITE_MIN_FACTOR):
-            ch = f"<b>{ch}</b>"
-        out.append(f"| {show(suite)} | {seconds(sb)} | {seconds(sh)} | {ch} |")
-    note = (f"Suites that take at least {MIN_SECONDS:g} s, largest slowdowns first"
-            + (f", averaged over the {jobs} jobs" if jobs > 1 else "")
-            + ". Changes are relative to the median test, and in bold when significant.")
-    return "\n".join(out) + f"\n\n<sub>{note}</sub>"
-
-
 def section(title, groups_path, note_path=None):
-    """Prints the section of the comment: the suites' table, then one
-    collapsed block per job. Each line of `groups_path` holds a job's label
-    (or nothing), then its head, base and history timings, separated by tabs."""
+    """Prints the section of the comment: a table with one row per job, then
+    the tests that changed significantly, collapsed. Each line of
+    `groups_path` holds a job's label, then its head, base and history
+    timings, separated by tabs."""
     comparisons = []
     for line in open(groups_path):
         fields = line.rstrip("\n").split("\t")
@@ -358,21 +292,29 @@ def section(title, groups_path, note_path=None):
     if not comparisons:
         return
     print(f"### {title}\n")
-    table = suite_table(comparisons)
-    if table:
-        print(table + "\n")
+    print("| Job | `main` | This PR | Change (95%) | Tests changed |")
+    print("|---|---:|---:|---:|---|")
     for c in comparisons:
-        if c.enough:
-            print(f"<details><summary>{c.summary()}</summary>\n\n{c.details()}\n\n</details>\n")
-        else:
-            print(c.summary() + "\n")
+        print(c.row())
+    print()
+    notes = []
+    if any(c.enough and not c.total_ci for c in comparisons):
+        notes.append("No interval yet for the totals: fewer than 2 earlier builds of `main`.")
     if note_path:
         note = open(note_path).read().strip()
         if note:
-            print(note + "\n")
-    print(f"<sub>Tests are listed when their change, relative to the median test, is significant "
-          f"after a Bonferroni correction and is at least {MIN_FACTOR:g}× and {MIN_SECONDS:g} s. "
-          f"See `scripts/test_timings.py`.</sub>")
+            notes.append(note)
+    details = [d for d in (c.details() for c in comparisons) if d]
+    if details:
+        n = sum(len(c.listed[1]) + len(c.listed[-1]) for c in comparisons if c.enough and c.per_test)
+        print(f"<details><summary>Tests that changed significantly ({n})</summary>\n")
+        print("\n\n".join(details))
+        print(f"\nOther tests changed within the noise between builds, or by less than "
+              f"{MIN_FACTOR:g}× or {MIN_SECONDS:g} s. Intervals are 95%, and significance accounts for "
+              f"the number of tests (Bonferroni). See `scripts/test_timings.py`.\n")
+        print("</details>\n")
+    if notes:
+        print("<sub>" + " ".join(n.strip("_") for n in notes) + "</sub>")
 
 
 def t_quantile(p, df):
