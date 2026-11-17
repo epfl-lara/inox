@@ -2,8 +2,10 @@
 # Compares the test durations of a pull request build with those of main, for
 # the pull request comment. Called by the coverage comment workflow.
 #
-# usage: test-timings-comment.sh <workflow file> <run id> <artifact prefix> <mode> <title> <out.md>
+# usage: test-timings-comment.sh <workflow files> <run id> <artifact prefix> <mode> <label> <out.json>
 #
+# Writes the rows of the comment's table of test durations, as JSON (see
+# scripts/test_timings.py section), labelled with <label>.
 # The build's artifacts named <artifact prefix>* hold the timings collected by
 # scripts/test_timings.py, with the files that say what was tested (pr-number,
 # pr-head-sha, base-sha, tested-sha, merged-prs). With mode `per-artifact`,
@@ -14,13 +16,15 @@
 # The build is compared with the build of main at the commit it was merged
 # into (or else the latest build of main), and earlier builds of main give the
 # variation between builds of the same code. Builds of main are those that
-# tested main without merging pull requests into it.
+# tested main without merging pull requests into it, in any of the workflows
+# of the comma-separated <workflow files> (newest first), so that a job that
+# moves to another workflow keeps its history.
 #
 # Writes nothing when the build has no timings. Prints the pull request
 # number and head commit that the build tested, if any, to stdout.
 set -euo pipefail
 
-workflow=$1 run=$2 prefix=$3 mode=$4 title=$5 out=$6
+workflows=$1 run=$2 prefix=$3 mode=$4 title=$5 out=$6
 work=$(mktemp -d)
 : > "$out"
 
@@ -71,19 +75,23 @@ while read -r id; do
     history_runs+=("$id")
   fi
   [ -n "$base_run" ] && [ "${#history_runs[@]}" -ge 6 ] && break
-done < <(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --branch main --status completed \
-           --limit 20 --json databaseId --jq '.[].databaseId')
+done < <(IFS=,; for workflow in $workflows; do
+           gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --branch main --status completed \
+             --limit 20 --json databaseId,createdAt --jq '.[] | "\(.createdAt) \(.databaseId)"'
+         done | sort -r | head -n 20 | cut -d' ' -f2)
 
 if [ -z "$base_run" ]; then
   # The latest build of main, compared with the others.
   if [ "${#history_runs[@]}" -eq 0 ]; then
-    { echo "### $title"; echo; echo "_No build of \`main\` with test durations to compare with._"; } > "$out"
+    echo "_No build of \`main\` with test durations to compare with yet ($title)._" > "$work/note.md"
+    : > "$work/groups.tsv"
+    python3 scripts/test_timings.py section "$work/groups.tsv" "$work/note.md" > "$out"
     echo "$pr $pr_head"
     exit 0
   fi
   base_run=${history_runs[0]}
   history_runs=("${history_runs[@]:1}")
-  note="_Compared with the latest build of \`main\` (none at this build's base), so later changes to \`main\` count too._"
+  note="_Compared with the latest build of \`main\` (none at this build's base), so later changes to \`main\` count too ($title)._"
 else
   note=
 fi
@@ -95,9 +103,9 @@ for head in "$work/head"/*.timings; do
   base="$work/main-$base_run/$name.timings"
   [ -f "$base" ] || continue
   if [ "$mode" = merged ]; then
-    label="Stainless downstream CI"
+    label=$title
   else
-    label=$(echo "${name#"$prefix"}" | sed 's/-jdk/, JDK /')
+    label="$title ($(echo "${name#"$prefix"}" | sed 's/-jdk/, JDK /'))"
   fi
   line="$label"$'\t'"$head"$'\t'"$base"
   for id in "${history_runs[@]}"; do
@@ -112,5 +120,5 @@ if [ -n "$head_stainless" ] && [ "$head_stainless" != "$base_stainless" ]; then
   note="${note:+$note }_The two builds tested different Stainless commits, so Stainless changes count too._"
 fi
 echo "$note" > "$work/note.md"
-python3 scripts/test_timings.py section "$title" "$groups" "$work/note.md" > "$out"
+python3 scripts/test_timings.py section "$groups" "$work/note.md" > "$out"
 echo "$pr $pr_head"
