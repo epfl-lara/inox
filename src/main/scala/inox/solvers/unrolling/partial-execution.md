@@ -42,19 +42,21 @@ query uses was returned, and the clauses hold for these results.
 |---|---|---|
 | `Error`, failed `Assume`, undefined operation | A failure literal, which formulas assert to be false, so the path that reaches it is infeasible (`TemplateGenerator.Builder.storeFailure`, §4) | Evaluation along that path doesn't return |
 | Call `f(a)` | Unfolded as `f(a) = body[a]`, guarded by the call's blocker | The equation holds whenever `f(a)` returns |
-| Call `g(b)` reached while evaluating the body of `f(a)` | `rank_f(a) > rank_g(b)` on the path that reaches it (`FunctionTemplates.rankClauses`, §3) | A call that returns has a finite evaluation, whose depth is a rank |
+| Call `g(b)` reached while evaluating the body of `f(a)` | `rank_f(a) > rank_g(b) \|\| diverges` on the path that reaches it, where the search for models assumes `!diverges` (`FunctionTemplates.rankClauses`, §3) | A call that returns has a finite evaluation, whose depth is a rank |
 | Application of a free function, `f(a) ∈ B` | Assumed at each application (`LambdaTemplates.registerApplication`) | The application is reached, so `f(a)` returned |
 | Return type of a call | Assumed of the result, for arguments in the parameter types | Only constrains a result that was returned |
 | Membership of a function value in `Pi(x: A). B` | Checked at a witness `x0` under a free guard `w`: `w ==> B(f(x0))` (`TemplateGenerator.mkTypeClauses`) | Where `f(x0)` is ⊥, the guard's path is infeasible, so `x0` can't refute membership |
 
-The last row is where the partial reading shows. A function that fails or diverges at some point
-still lies in the type, as long as it returns values of the type wherever it returns:
+The last row is where the partial reading shows. A function that fails at some point still lies in
+the type, as long as it returns values of the type wherever it returns. A function that diverges at
+some point lies in the type as well, but showing it needs the call to diverge, which the procedure
+never establishes (§3):
 
 ```scala
 // h: (BigInt => {v: BigInt | v > 0}) => {b: Boolean | b}
 !h((x: BigInt) => error[BigInt])                           // UNSAT: the lambda is in h's domain
-!h((x: BigInt) => if (x > 0) x else loop(x))               // UNSAT: likewise
 !h((x: BigInt) => if (x > 0) x else 0)                     // not UNSAT: 0 is outside the codomain
+!h((x: BigInt) => if (x > 0) x else loop(x))               // Unknown
 ```
 
 `PartialExecutionSuite` checks these cases.
@@ -71,32 +73,34 @@ cycle is unfolded, no call is left pending, and the equations of the cycle hold 
   `g(x) = f(x)`. The call `f(x)` that unfolding `g(x)` reaches is already unfolded.
 
 The solver could then return a model that relies on, say, `loop(0) = -1` or `f(2) = 0`, which only
-`--check-models` rejects, and it couldn't prove anything that relies on these calls never returning.
+`--check-models` rejects.
 
 `FunctionTemplate.apply` therefore ranks calls. Each function `f` gets an uninterpreted integer
 function `rank_f` of its arguments. Every call `g(b)` that evaluating the body of `f(a)` reaches
-adds `rank_f(a) > rank_g(b)` on the path that reaches it. A call that returns has a finite
-evaluation, so ranking it by the depth of its evaluation satisfies these clauses. Along a cycle on
-the same arguments, the ranks would have to decrease back to themselves, so the paths that close the
-cycle are infeasible. This gives these loops their least fixpoint:
+adds `rank_f(a) > rank_g(b) || diverges` on the path that reaches it, where `diverges` is a single
+literal shared by all calls. A call that returns has a finite evaluation, so ranking it by the depth
+of its evaluation satisfies these clauses. Along a cycle on the same arguments, the ranks would have
+to decrease back to themselves, so the paths that close the cycle need `diverges`.
+
+The search for models assumes `!diverges`, like the blockers of the calls that aren't unfolded yet,
+so no model takes the paths that close a cycle. Proofs don't assume it, so no proof relies on a call
+never returning either. The evaluator can't tell that a call diverges, as it runs out of steps, and
+the solver doesn't decide more than the evaluator: a query whose answer depends on a call diverging
+gets `Unknown`.
 
 ```scala
 def loopPos(x: BigInt): BigInt = if (x > 0) loopPos(x) else x
 
-loopPos(k) == 5   // UNSAT: loopPos only returns non-positive values
 loopPos(k) == 0   // SAT, with k = 0
-loop(k) == 0      // UNSAT
-f(k) == 0         // UNSAT
+loopPos(k) == 5   // Unknown: only k > 0 could give 5, where loopPos diverges
+loop(k) == 0      // Unknown
+f(k) == 0         // Unknown
 ```
 
 Only the body's own paths are ranked: the calls in lambdas and quantifiers that the body contains
 belong to their own templates, and the calls in type checks aren't evaluated by the evaluator. One
 exception: the refinements of an uninterpreted call's result type are assumed on the body's paths,
 though the evaluator never evaluates them, so a call in such a refinement is also ranked.
-
-A front-end that proves termination with Inox must not assume the postconditions of the functions
-it is checking, as Stainless's termination checker did before it was fixed: a postcondition holds
-vacuously of a call that never returns, and ranks let the solver show that a call never returns.
 
 ## 4. Where functions fail
 
@@ -140,11 +144,11 @@ solvers make the paths on which these fail infeasible, unless a front-end has ch
 `--assume-checked`. They are then total SMT terms, and a model may rely on a value of `x / 0` that
 evaluation never produces.
 
-**Divergence isn't a failure.** The ranks of §3 make the paths of calls that reach themselves
-infeasible, and the failure literals don't cover them: every finite unrolling is consistent with a
-call returning at the next step, so "diverges" can't be established, only "returns" and "fails". A
-function that diverges on an input agrees there with every function, and the evaluator, which runs
-out of steps, can't tell such functions apart.
+**Divergence is never decided.** Neither the solver nor the evaluator establishes that a call
+diverges (§3), even when it reaches itself on the same arguments. Under extensional equality, whether
+a function that diverges on an input equals another one is therefore undecided too:
+`(x: BigInt) => loop(x)` is neither shown equal to nor distinct from `(x: BigInt) => 0`, and such
+queries get `Unknown`.
 
 **Quantified assumptions cost more.** The failure literal of an `Assume` is equal to the negation
 of its condition, so quantifiers in the condition are encoded with both polarities, and the negative
