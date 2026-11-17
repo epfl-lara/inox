@@ -27,6 +27,8 @@ comparison accounts for both:
   test look slower. The spread of these relative changes, among tests of
   similar durations, gives each test's 95% interval: since most tests are
   unaffected by a change, this spread is the noise between the two builds.
+  With at least 3 earlier builds of main, a test's own variation between
+  them bounds its noise from below, for tests that vary more than others.
   Tests are only listed when the change is significant after a Bonferroni
   correction for the number of tests compared, and changes the duration by
   at least 50% and 1 s.
@@ -198,7 +200,24 @@ def compare(title, head_path, base_path, history_paths):
     for b in range(len(BUCKETS) + 1):
         xs = [rel[k] for k in measured if bucket(base[k]) == b]
         sigma_of_bucket[b] = mad_sigma(xs) if len(xs) >= 20 else pooled
-    sigma = {k: max(sigma_of_bucket[bucket(base[k])], 0.01) for k in measured}
+    # Some tests vary much more than others of similar durations, such as the
+    # first test of a suite, which warms up the JIT. With enough history, a
+    # test's own variation between builds of main bounds its noise from below.
+    hist_rel = []
+    for h in history:
+        hk = [k for k in measured if k in h]
+        if len(hk) >= 10:
+            hd = {k: log_ratio(h[k], base[k]) for k in hk}
+            m = statistics.median(hd.values())
+            hist_rel.append({k: hd[k] - m for k in hk})
+
+    def own_sigma(k):
+        xs = [r[k] for r in hist_rel if k in r]
+        # Each history difference involves the noise of two builds, as does
+        # the difference between this build and the base.
+        return math.sqrt(sum(x * x for x in xs) / len(xs)) if len(xs) >= 3 else 0.0
+
+    sigma = {k: max(sigma_of_bucket[bucket(base[k])], own_sigma(k), 0.01) for k in measured}
     z_crit = NORMAL.inv_cdf(1 - 0.05 / (2 * len(measured)))
     z95 = NORMAL.inv_cdf(0.975)
 
