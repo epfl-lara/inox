@@ -7,7 +7,7 @@ package unrolling
 import utils._
 
 import scala.collection.generic.CanBuildFrom
-import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
+import scala.collection.mutable.{Set => MutableSet}
 
 trait Templates
   extends TemplateGenerator
