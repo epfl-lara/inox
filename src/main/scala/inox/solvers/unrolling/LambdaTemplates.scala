@@ -594,36 +594,48 @@ trait LambdaTemplates { self: Templates =>
     * functions (see [[optFunctionEquality]]). */
   private def equalityClauses(template: LambdaTemplate): Clauses = {
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
+    val body = typeOps.simplify(template.structure.body)
+
+    // The lambdas with the same body and closures (that only differ by the path they are defined on,
+    // see [[TemplateStructure.key]]) are equal wherever they are defined. They are all equated to a
+    // shared symbol, which keeps the number of clauses linear in the number of such lambdas: these
+    // arise from each unfolding of a function that defines a lambda, eg. Stainless's type predicates.
+    val classKey = (template.tpe, body, template.structure.locals)
+    val representative = lambdaClasses.getOrElse(classKey, {
+      val symbol = encodeSymbol(Variable.fresh("lc", template.tpe, true))
+      lambdaClasses += classKey -> symbol
+      symbol
+    })
+    clauses += mkImplies(template.start, mkEquals(template.ids._2, representative))
+
     for (that <- byType(template.tpe).values) {
-      val equals = mkEquals(template.ids._2, that.ids._2)
-      val (blocker, blockerClauses) = encodeBlockers(Set(template.start, that.start))
-      clauses ++= blockerClauses
-
-      val sameBody = typeOps.simplify(template.structure.body) == typeOps.simplify(that.structure.body)
+      val sameBody = body == typeOps.simplify(that.structure.body)
       val differingLocals = (template.structure.locals zip that.structure.locals).filter(p => p._1 != p._2)
-      val closuresEqual: Option[Encoded] =
-        if (sameBody && differingLocals.isEmpty) {
-          Some(trueT)
-        } else if (sameBody) {
-          Some(mkAnd(differingLocals.map { case ((v, e1), (_, e2)) =>
-            // The equality is registered so that it is unrolled before a model is accepted:
-            // the identifiers of lambdas with equal closures must be equal in the model.
-            val (equality, equalityClauses) = mkEqualities(blocker, v.getType, e1, e2, register = true)
-            clauses ++= equalityClauses
-            equality
-          }*))
-        } else {
-          None
-        }
+      if (!sameBody || differingLocals.nonEmpty) {
+        val equals = mkEquals(template.ids._2, that.ids._2)
+        val (blocker, blockerClauses) = encodeBlockers(Set(template.start, that.start))
+        clauses ++= blockerClauses
 
-      closuresEqual match {
-        case Some(eqs) if !functionWitnesses => clauses += mkImplies(blocker, mkEquals(eqs, equals))
-        case None if !functionWitnesses => clauses += mkImplies(blocker, mkNot(equals))
-        case _ =>
-          for (eqs <- closuresEqual) clauses += mkImplies(mkAnd(blocker, eqs), equals)
-          if (!sameBody || differingLocals.nonEmpty) {
-            clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2, onDemand = onDemandLambdaWitnesses)
+        val closuresEqual: Option[Encoded] =
+          if (sameBody) {
+            Some(mkAnd(differingLocals.map { case ((v, e1), (_, e2)) =>
+              // The equality is registered so that it is unrolled before a model is accepted:
+              // the identifiers of lambdas with equal closures must be equal in the model.
+              val (equality, equalityClauses) = mkEqualities(blocker, v.getType, e1, e2, register = true)
+              clauses ++= equalityClauses
+              equality
+            }*))
+          } else {
+            None
           }
+
+        closuresEqual match {
+          case Some(eqs) if !functionWitnesses => clauses += mkImplies(blocker, mkEquals(eqs, equals))
+          case None if !functionWitnesses => clauses += mkImplies(blocker, mkNot(equals))
+          case _ =>
+            for (eqs <- closuresEqual) clauses += mkImplies(mkAnd(blocker, eqs), equals)
+            clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2, onDemand = onDemandLambdaWitnesses)
+        }
       }
     }
     clauses.toSeq
@@ -755,6 +767,11 @@ trait LambdaTemplates { self: Templates =>
       */
     val byType = new IncrementalMap[FunctionType, Map[TemplateStructure, LambdaTemplate]].withDefaultValue(Map.empty)
 
+    /** The lambdas that only differ by the path they are defined on are equal wherever they are
+      * defined. Each such class of lambdas, keyed by type, normalized body and closures, is equated
+      * to a shared symbol rather than to each of its members (see [[equalityClauses]]). */
+    val lambdaClasses = new IncrementalMap[(FunctionType, Expr, Seq[(Variable, Encoded)]), Encoded]
+
     /** This is a mapping from function types to all known function applications of functions
       * of that type. The aim is to dispatch these applications to members of the `byType` map
       * while carefuly instrumenting the resulting formulas so that satisfiability has to wait
@@ -821,7 +838,7 @@ trait LambdaTemplates { self: Templates =>
 
     val incrementals: Seq[IncrementalState] = Seq(
       lambdaBlockers, appInfos, appBlockers, blockerToApps,
-      byID, byType, applications, freeBlockers, nonFreeBlockers, freeFunctions,
+      byID, byType, lambdaClasses, applications, freeBlockers, nonFreeBlockers, freeFunctions,
       instantiated, typeBlockers, witnessFunctions, witnessDepths, appDepths, resultGuards, witnessArguments, witnessInputs, pendingWitnesses)
 
     def unrollGeneration: Option[Int] =
