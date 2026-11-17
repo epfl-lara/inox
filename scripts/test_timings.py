@@ -8,7 +8,7 @@ usage:
   test_timings.py merge <out.json> <in.json>...
       Merges collected timings, for builds that ran their tests in several jobs.
   test_timings.py section <groups.tsv> [<note.md>]
-      Prints, as JSON, the rows of the comment's table of test durations for
+      Prints, as JSON, the results for the comment's table of test durations of
       the jobs of a workflow, and the tests that changed significantly. Each
       line of `groups.tsv` describes a job: its label, then, separated by
       tabs, the timings of the pull request build (head), of the build of
@@ -56,6 +56,8 @@ BUCKETS = [0.2, 1, 5, 30]
 MIN_FACTOR = 1.5
 MIN_SECONDS = 1.0
 MAX_LISTED = 15
+# The changed tests of each job kept in the comment's data.
+MAX_STORED = 40
 
 NORMAL = statistics.NormalDist()
 
@@ -224,6 +226,8 @@ class Comparison:
                 m = statistics.median(hd.values())
                 hist_rel.append((h, m, {k: hd[k] - m for k in hk}))
 
+        self.history = len(hist_rel)
+
         def own_sigma(k):
             xs = [r[k] for _, _, r in hist_rel if k in r]
             # Each history difference involves the noise of two builds, as
@@ -243,66 +247,41 @@ class Comparison:
                                     key=lambda k: -rel[k] * sign)
                        for sign in (1, -1)}
 
-    def row(self):
-        """The job's row in the table: the total durations, their change, and
-        how many tests got significantly slower or faster."""
+    def data(self):
+        """The job's results, for the comment (see scripts/pr_comment.py)."""
+        job = {"label": self.label, "enough": self.enough, "history": 0, "tests": []}
         if not self.enough:
-            return f"| {self.label} | | | | too few tests passed in both builds |"
-        ci = f" ({interval(*self.total_ci)})" if self.total_ci else ""
+            return job
+        job.update(total=self.total, base=self.tb, head=self.th, count=len(self.common),
+                   ci=list(self.total_ci) if self.total_ci else None)
         if not self.per_test:
-            tests = ""
-        else:
-            tests = ", ".join(f"{len(self.listed[sign])} {what}"
-                              for sign, what in ((1, "slower"), (-1, "faster")) if self.listed[sign]) or "none"
-        return f"| {self.label} | {seconds(self.tb)} | {seconds(self.th)} | {factor(self.total)}{ci} | {tests} |"
-
-    def details(self):
-        """The tests that got significantly slower or faster, or nothing."""
-        if not self.enough or not self.per_test or not (self.listed[1] or self.listed[-1]):
-            return ""
-        out = [f"**{self.label}** (the median test took {factor(self.speed)} as long, "
-               f"mostly from the runners' speed: changes are relative to it)\n"]
+            return job
+        job.update(history=self.history, speed=self.speed)
         z95 = NORMAL.inv_cdf(0.975)
-        for sign, what in ((1, "Slower"), (-1, "Faster")):
-            ks = self.listed[sign]
-            if not ks:
-                continue
-            out.append(f"{what}:\n")
-            for k in ks[:MAX_LISTED]:
+        for sign in (1, -1):
+            for k in self.listed[sign][:MAX_STORED]:
                 r, sg = self.rel[k], self.sigma[k]
-                out.append(f"- {show(k)}: {seconds(self.base[k])} → {seconds(self.head[k])}, "
-                           f"{factor(r)} ({interval(r - z95 * sg, r + z95 * sg)})")
-            if len(ks) > MAX_LISTED:
-                out.append(f"- and {len(ks) - MAX_LISTED} more")
-            out.append("")
-        return "\n".join(out).rstrip("\n")
+                job["tests"].append({"key": k, "rel": round(r, 4), "lo": round(r - z95 * sg, 4),
+                                     "hi": round(r + z95 * sg, 4), "base": self.base[k], "head": self.head[k]})
+        return job
 
 
 def section(groups_path, note_path=None):
-    """Prints, as JSON, the rows of the comment's table of test durations for
-    a workflow's jobs, and the tests that changed significantly (see
-    scripts/pr_comment.py, which shows those of all workflows together).
-    Each line of `groups_path` holds a job's label, then its head, base and
-    history timings, separated by tabs."""
+    """Prints, as JSON, the results of the jobs of a workflow for the comment's
+    table of test durations (see scripts/pr_comment.py, which shows those of
+    all workflows together). Each line of `groups_path` holds a job's label,
+    then its head, base and history timings, separated by tabs."""
     comparisons = []
     for line in open(groups_path):
         fields = line.rstrip("\n").split("\t")
         if len(fields) >= 3:
             comparisons.append(Comparison(fields[0], fields[1], fields[2], fields[3:]))
     notes = []
-    if any(c.enough and not c.total_ci for c in comparisons):
-        notes.append("No interval yet for the totals: fewer than 2 earlier builds of `main`.")
     if note_path:
         note = open(note_path).read().strip()
         if note:
             notes.append(note)
-    json.dump({
-        "rows": [c.row() for c in comparisons],
-        "details": [d for d in (c.details() for c in comparisons) if d],
-        "changed": sum(len(c.listed[1]) + len(c.listed[-1])
-                       for c in comparisons if c.enough and c.per_test),
-        "notes": notes,
-    }, sys.stdout, ensure_ascii=False)
+    json.dump({"jobs": [c.data() for c in comparisons], "notes": notes}, sys.stdout, ensure_ascii=False)
     print()
 
 

@@ -105,7 +105,7 @@ for head in "$work/head"/*.timings; do
   if [ "$mode" = merged ]; then
     label=$title
   else
-    label="$title ($(echo "${name#"$prefix"}" | sed 's/-jdk/, JDK /'))"
+    label="$title $(echo "${name#"$prefix"}" | sed 's/-jdk/ /')"
   fi
   line="$label"$'\t'"$head"$'\t'"$base"
   for id in "${history_runs[@]}"; do
