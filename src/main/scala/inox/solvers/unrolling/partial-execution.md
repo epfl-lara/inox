@@ -107,11 +107,12 @@ apart needs a literal for "`f(a)` fails", which the encoding builds as follows:
 
 - Each point where evaluation may fail (an `Error`, an `Assume`, a partial operation) gets a literal
   that holds exactly when its path is taken and its condition doesn't hold (`Builder.storeFailure`).
-- Whether a call `f(a)` fails is an uninterpreted predicate of its arguments, and whether an
-  application `g(a)` fails is an uninterpreted predicate of `g` and its arguments
-  (`Templates.mkCallFailure` and `mkAppFailure`). When a call or an application is unfolded, the
-  template of the body it reaches defines the predicate: the body fails iff one of its failure
-  literals holds, or a call or an application on one of its paths fails (`Template.encode`).
+- Whether a call `f(a)` fails is a literal of the call, and whether an application `g(a)` fails is
+  a first-order uninterpreted predicate of `g` and its arguments, whose congruence makes
+  applications to equal arguments fail alike (`Templates.callFailure` and `appFailure`). When a call
+  or an application is unfolded, the template of the body it reaches defines its failure: the body
+  fails iff one of its failure literals holds, or a call or an application on one of its paths fails
+  (`Template.instantiate`).
 - Free functions are partial as well: whether one of their applications fails is only constrained
   where a formula reaches it, and the model of a free function fails on the inputs on which its
   applications fail in the model.
@@ -148,9 +149,9 @@ out of steps, can't tell such functions apart.
 **Quantified assumptions cost more.** The failure literal of an `Assume` is equal to the negation
 of its condition, so quantifiers in the condition are encoded with both polarities, and the negative
 one introduces a fresh witness for each of them. Under total functions (`--assume-checked`, or any
-other function equality), assumptions can't fail and their quantifiers are only encoded positively,
-as with many quantified assumptions, such as in TIP's `Tutorial`, the witnesses keep feeding new
-instantiations.
+other function equality), assumptions can't fail and their quantifiers are only encoded positively.
+With many quantified assumptions, such as in TIP's `Tutorial`, the witnesses can keep feeding new
+instantiations, so such queries are best run under `--assume-checked`.
 
 **Equal lambdas aren't applied.** Two lambdas that a model makes equal are only compared on their
 distinguishing input once they are distinct, so a model can equate lambdas that differ on some input
