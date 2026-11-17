@@ -7,12 +7,15 @@ usage:
       the duration and outcome of every test case.
   test_timings.py merge <out.json> <in.json>...
       Merges collected timings, for builds that ran their tests in several jobs.
-  test_timings.py compare <title> <head.json> <base.json> [<history.json>...]
-      Prints a Markdown section that compares the test durations of the build
-      in `head.json` with those of `base.json`. Each `history.json` is another
+  test_timings.py compare <label> <head.json> <base.json> [<history.json>...]
+      Prints a compact Markdown block, labelled with the job's name (or an
+      empty label), that compares the test durations of the build in
+      `head.json` with those of `base.json`. Each `history.json` is another
       build of the same code base as `base.json` (earlier builds of main),
       used to estimate how much the durations of two builds vary without any
       change to the code.
+  test_timings.py footer
+      Prints the note that ends the section, after the blocks of each job.
 
 Test durations on CI runners vary a lot between builds of the same code, as a
 whole, because runners differ in speed and load, and test by test. The
@@ -136,12 +139,18 @@ def bucket(t):
     return sum(t >= b for b in BUCKETS)
 
 
+def ratio(x):
+    # Large speedups read better as fractions: ×1/1200 rather than ×0.00.
+    v = math.exp(x)
+    return f"{v:.2f}" if v >= 0.1 else f"1/{1 / v:,.0f}"
+
+
 def factor(x):
-    return f"×{math.exp(x):.2f}"
+    return f"×{ratio(x)}"
 
 
 def interval(lo, hi):
-    return f"×{math.exp(lo):.2f} to ×{math.exp(hi):.2f}"
+    return f"×{ratio(lo)}–{ratio(hi)}"
 
 
 def seconds(t):
@@ -158,14 +167,16 @@ def show(key):
     return f"`{s}`"
 
 
-def compare(title, head_path, base_path, history_paths):
+def compare(label, head_path, base_path, history_paths):
+    """Prints one compact block: a line with the totals, and the listed tests
+    in a collapsed `<details>`. `label` names the job (or is empty)."""
     head, base = passed(load(head_path)), passed(load(base_path))
     history = [passed(load(p)) for p in history_paths]
     common = sorted(head.keys() & base.keys())
+    prefix = f"<b>{label}</b>: " if label else ""
 
-    print(f"### {title}\n")
     if len(common) < 10:
-        print("_Too few tests passed in both builds to compare their durations._")
+        print(f"{prefix}too few tests passed in both builds to compare them.\n")
         return
 
     th, tb = sum(head[k] for k in common), sum(base[k] for k in common)
@@ -178,19 +189,16 @@ def compare(title, head_path, base_path, history_paths):
         # of freedom, centered on the observed change.
         sd = math.sqrt(sum(r * r for r in noise) / len(noise))
         q = t_quantile(0.975, len(noise))
-        total_ci = f"{interval(total - q * sd, total + q * sd)}"
+        total_ci = f" ({interval(total - q * sd, total + q * sd)})"
     else:
-        total_ci = "no interval: fewer than 2 earlier builds of `main`"
-
-    print("| | `main` | This PR | Change (95% interval) |")
-    print("|---|---:|---:|---:|")
-    print(f"| Total duration of the {len(common):,} tests that passed in both | {seconds(tb)} | {seconds(th)} | "
-          f"{factor(total)} ({total_ci}) |")
+        total_ci = ""
+    totals = (f"{len(common):,} tests took {seconds(th)}, against {seconds(tb)} on `main`"
+              + ("" if total_ci else " (no interval yet: fewer than 2 earlier builds of `main`)") + ".")
 
     # Relative changes, test by test.
     measured = [k for k in common if max(head[k], base[k]) >= MIN_DURATION]
     if len(measured) < 10:
-        print("\n_Too few tests take long enough to compare them one by one._")
+        print(f"{prefix}total {factor(total)}{total_ci}. {totals}\n")
         return
     d = {k: log_ratio(head[k], base[k]) for k in measured}
     speed = statistics.median(d.values())
@@ -226,30 +234,33 @@ def compare(title, head_path, base_path, history_paths):
         return (r / s > z_crit and r > math.log(MIN_FACTOR)
                 and abs(head[k] - base[k]) >= MIN_SECONDS)
 
-    print(f"\nThis build ran {factor(speed)} as long as `main` on the median test, which is mostly "
-          f"the difference in speed between the two runners. Relative to that, "
-          f"two builds' durations of a test typically differ by {factor(pooled)} "
-          f"(one standard deviation, over {len(measured):,} tests of at least {MIN_DURATION} s).")
-
-    for sign, what in ((1, "slower"), (-1, "faster")):
-        ks = sorted((k for k in measured if significant(k, sign)), key=lambda k: -rel[k] * sign)
+    listed = {sign: sorted((k for k in measured if significant(k, sign)), key=lambda k: -rel[k] * sign)
+              for sign in (1, -1)}
+    counts = ", ".join(f"{len(listed[sign])} test{'s' if len(listed[sign]) != 1 else ''} {what}"
+                       for sign, what in ((1, "slower"), (-1, "faster")) if listed[sign])
+    summary = f"{prefix}total {factor(total)}{total_ci}, {counts or 'no test changed significantly'}"
+    print(f"<details><summary>{summary}</summary>\n")
+    print(f"{totals} The median test took {factor(speed)} as long, mostly from the runners' speed: "
+          f"the changes below are relative to it, with 95% intervals.\n")
+    for sign, what in ((1, "Slower"), (-1, "Faster")):
+        ks = listed[sign]
         if not ks:
-            print(f"\nNo test got significantly {what} relative to the others.")
             continue
-        print(f"\n<details{' open' if sign == 1 else ''}><summary><b>{len(ks)} test{'s' if len(ks) > 1 else ''} "
-              f"got significantly {what}</b> relative to the others</summary>\n")
-        print("| Test | `main` | This PR | Relative change (95% interval) |")
-        print("|---|---:|---:|---:|")
+        print(f"{what}:\n")
         for k in ks[:MAX_LISTED]:
             lo, hi = rel[k] - z95 * sigma[k], rel[k] + z95 * sigma[k]
-            print(f"| {show(k)} | {seconds(base[k])} | {seconds(head[k])} | {factor(rel[k])} ({interval(lo, hi)}) |")
+            print(f"- {show(k)}: {seconds(base[k])} → {seconds(head[k])}, "
+                  f"{factor(rel[k])} ({interval(lo, hi)})")
         if len(ks) > MAX_LISTED:
-            print(f"\n_And {len(ks) - MAX_LISTED} more._")
-        print("\n</details>")
+            print(f"- and {len(ks) - MAX_LISTED} more")
+        print()
+    print("</details>\n")
 
-    print("\n<sub>Tests are listed when their change relative to the build's median is significant "
-          "after a Bonferroni correction for the number of tests, and changes their duration by at least "
-          f"{MIN_FACTOR:g}× and {MIN_SECONDS:g} s. See `scripts/test_timings.py`.</sub>")
+
+def footer():
+    print(f"<sub>Tests are listed when their change, relative to the median test, is significant "
+          f"after a Bonferroni correction and is at least {MIN_FACTOR:g}× and {MIN_SECONDS:g} s. "
+          f"See `scripts/test_timings.py`.</sub>")
 
 
 def t_quantile(p, df):
@@ -271,6 +282,8 @@ def main(args):
         merge(args[1], args[2:])
     elif len(args) >= 4 and args[0] == "compare":
         compare(args[1], args[2], args[3], args[4:])
+    elif args == ["footer"]:
+        footer()
     else:
         sys.exit(__doc__)
 
