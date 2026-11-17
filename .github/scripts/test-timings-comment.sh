@@ -88,30 +88,29 @@ else
   note=
 fi
 
-{ echo "### $title"; echo; } > "$out"
+groups="$work/groups.tsv"
+: > "$groups"
 for head in "$work/head"/*.timings; do
   name=$(basename "$head" .timings)
   base="$work/main-$base_run/$name.timings"
   [ -f "$base" ] || continue
-  hist=()
-  for id in "${history_runs[@]}"; do
-    [ -f "$work/main-$id/$name.timings" ] && hist+=("$work/main-$id/$name.timings")
-  done
   if [ "$mode" = merged ]; then
     label=
   else
     label=$(echo "${name#"$prefix"}" | sed 's/-jdk/, JDK /')
   fi
-  python3 scripts/test_timings.py compare "$label" "$head" "$base" "${hist[@]}" >> "$out"
-  compared=1
+  line="$label"$'\t'"$head"$'\t'"$base"
+  for id in "${history_runs[@]}"; do
+    [ -f "$work/main-$id/$name.timings" ] && line+=$'\t'"$work/main-$id/$name.timings"
+  done
+  echo "$line" >> "$groups"
 done
-[ -n "${compared:-}" ] || { : > "$out"; echo "$pr $pr_head"; exit 0; }
 # The Stainless downstream CI tests the Stainless main of the day.
 head_stainless=$(read_meta "$meta/stainless-sha")
 base_stainless=$(read_meta "$(ls -d "$work/main-$base_run/$prefix"*/ | head -n 1)/stainless-sha")
 if [ -n "$head_stainless" ] && [ "$head_stainless" != "$base_stainless" ]; then
   note="${note:+$note }_The two builds tested different Stainless commits, so Stainless changes count too._"
 fi
-if [ -n "$note" ]; then { echo "$note"; echo; } >> "$out"; fi
-python3 scripts/test_timings.py footer >> "$out"
+echo "$note" > "$work/note.md"
+python3 scripts/test_timings.py section "$title" "$groups" "$work/note.md" > "$out"
 echo "$pr $pr_head"
