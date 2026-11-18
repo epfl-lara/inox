@@ -15,9 +15,5 @@
       "jniAccessible": true,
       "methods": [{"name": "getBoolean", "parameterTypes": ["java.lang.String"]}]
     }
-  ],
-  "resources": [
-    {"glob": "lib-bin"},
-    {"glob": "lib-bin/*"}
   ]
 }

@@ -22,6 +22,7 @@ trait AbstractZ3Solver
   val name = "z3"
 
   private val solver: ScalaZ3Solver = z3.mkSolver()
+  rlimit.foreach(solver.setRlimit)
 
   // see `smtlib.Z3Target.ignoreSolver1()`
   private var ignoringSolver1 = false
@@ -64,7 +65,8 @@ trait AbstractZ3Solver
       case None => Unknown
     }).getOrElse(Unknown))
 
-  def check(config: CheckConfiguration): config.Response[Z3Model, Set[Z3AST]] = extractResult(config)(solver.check())
+  def check(config: CheckConfiguration): config.Response[Z3Model, Set[Z3AST]] =
+    extractResult(config)(recordResourceOut(solver.getReasonUnknown())(solver.check()))
   def checkAssumptions(config: Configuration)(assumptions: Set[Z3AST]) =
-    extractResult(config)(solver.checkAssumptions(assumptions.toSeq*))
+    extractResult(config)(recordResourceOut(solver.getReasonUnknown())(solver.checkAssumptions(assumptions.toSeq*)))
 }

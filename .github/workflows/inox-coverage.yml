@@ -28,7 +28,7 @@ jobs:
     env:
       # solver versions to test against
       INSTALL_SOLVERS: 1
-      Z3_VER: 4.15.1
+      Z3_VER: 5.4.1
       CVC4_VER: 1.8
       CVC5_VER: 1.2.1
       BITWUZLA_VER: 0.8.2
@@ -85,7 +85,7 @@ jobs:
     # accumulate.
     - name: Run Tests
       id: unit-tests
-      run: sbt -Dtest-parallelism=10 -Dinox.require-solvers=smt-z3,smt-cvc4,smt-cvc5,smt-bitwuzla,princess -batch coverage test
+      run: sbt -Dtest-parallelism=10 -Dinox.require-solvers=nativez3,unrollz3,smt-z3,smt-cvc4,smt-cvc5,smt-bitwuzla,princess -batch coverage test
     - name: Run integration tests
       id: integration-tests
       run: sbt -Dtest-parallelism=10 -batch coverage IntegrationTest/test

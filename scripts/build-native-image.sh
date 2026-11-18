@@ -23,6 +23,33 @@ shift || true
 native_image=native-image
 if [ -n "${GRAALVM_HOME:-}" ]; then native_image="$GRAALVM_HOME/bin/native-image"; fi
 
+# Z3's own loader (in the Z3 jar, bundled by ScalaZ3) extracts and loads its
+# native libraries by itself, reading them as resources, which the image only
+# keeps when they are listed. The Z3 jar lists none, and the libraries of the
+# platform the image is built for are the only ones it can use, hence this
+# list (with the platform names of Z3's loader).
+case "$(uname -s)" in
+  Linux) os=linux ;;
+  Darwin) os=osx ;;
+  MINGW*|MSYS*|CYGWIN*) os=win ;;
+  *) echo "Unsupported operating system: $(uname -s)" >&2; exit 1 ;;
+esac
+case "$(uname -m)" in
+  x86_64|amd64) arch=x64 ;;
+  aarch64|arm64) arch=arm64 ;;
+  *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+config=$(mktemp -d)
+trap 'rm -rf "$config"' EXIT
+cat > "$config/reachability-metadata.json" <<EOF
+{
+  "resources": [
+    {"glob": "com/microsoft/z3/native/$os-$arch/*"}
+  ]
+}
+EOF
+
 sbt -batch assembly
 jar=$(ls -t target/scala-*/inox-assembly-*.jar | head -n 1)
-"$native_image" -jar "$jar" -o "$out" -march=compatibility --exact-reachability-metadata "$@"
+"$native_image" -jar "$jar" -o "$out" -march=compatibility --exact-reachability-metadata \
+  -H:ConfigurationFileDirectories="$config" "$@"
