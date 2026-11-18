@@ -29,20 +29,27 @@ runs:
       uses: actions/cache/restore@v6
       with:
         # coursier's cache is ~/.cache/coursier on Linux and
-        # ~/Library/Caches/Coursier on macOS. The global base's staging
-        # directory holds the scala-smtlib checkout (RootProject(uri(...))).
+        # ~/Library/Caches/Coursier on macOS. The launcher keeps sbt and its
+        # Scala under the global base's boot directory when the global base
+        # is set (and under ~/.sbt/boot otherwise), and the global base's
+        # staging directory holds the scala-smtlib checkout
+        # (RootProject(uri(...))).
         path: |
           ~/.cache/coursier
           ~/Library/Caches/Coursier
           ~/.ivy2/cache
           ~/.sbt/boot
+          ${{ inputs.sbt-global-base }}/boot
           ${{ inputs.sbt-global-base }}/staging
+        # "sbt-boot" rather than "sbt": the caches saved before the boot
+        # directory was cached would otherwise match exactly and never be
+        # saved again with it.
         key: >-
-          sbt-${{ inputs.key }}-${{ runner.os }}-${{ runner.arch }}-${{
+          sbt-boot-${{ inputs.key }}-${{ runner.os }}-${{ runner.arch }}-${{
           hashFiles('**/*.sbt', '**/project/build.properties', '**/project/*.scala') }}
         # A build change only adds or bumps a few dependencies: start from the
         # previous cache and download the rest.
-        restore-keys: sbt-${{ inputs.key }}-${{ runner.os }}-${{ runner.arch }}-
+        restore-keys: sbt-boot-${{ inputs.key }}-${{ runner.os }}-${{ runner.arch }}-
     - name: Fetch sbt dependencies
       shell: bash
       working-directory: ${{ inputs.working-directory }}
@@ -69,5 +76,6 @@ runs:
           ~/Library/Caches/Coursier
           ~/.ivy2/cache
           ~/.sbt/boot
+          ${{ inputs.sbt-global-base }}/boot
           ${{ inputs.sbt-global-base }}/staging
         key: ${{ steps.cache.outputs.cache-primary-key }}
