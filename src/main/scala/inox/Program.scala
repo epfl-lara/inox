@@ -42,13 +42,16 @@ trait Program { self =>
     val trees: self.trees.type
   }
 
-  private var _semantics: Semantics = null
+  // Programs are shared between threads, such as the solvers of a portfolio
+  @volatile private var _semantics: Semantics = null
   implicit def getSemantics(using ev: Provider): Semantics = {
-    if (_semantics eq null) {
-      // @nv: tell the type system what's what!
-      _semantics = ev.getSemantics(
-        this.asInstanceOf[Program { val trees: self.trees.type }]
-      ).asInstanceOf[Semantics]
+    if (_semantics eq null) synchronized {
+      if (_semantics eq null) {
+        // @nv: tell the type system what's what!
+        _semantics = ev.getSemantics(
+          this.asInstanceOf[Program { val trees: self.trees.type }]
+        ).asInstanceOf[Semantics]
+      }
     }
     _semantics
   }

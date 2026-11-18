@@ -24,6 +24,13 @@ trait AbstractZ3Solver
   private val solver: ScalaZ3Solver = z3.mkSolver()
   rlimit.foreach(solver.setRlimit)
 
+  // see `smtlib.Z3Target.ignoreSolver1()`
+  private var ignoringSolver1 = false
+  override protected def pointwiseArrays(): Unit = if (!ignoringSolver1) {
+    ignoringSolver1 = true
+    solver.set(Map(smtlib.Z3Target.ignoreSolver1 -> true))
+  }
+
   // Z3 throws when it is interrupted during a push or pop. As for checks, the interrupted
   // query then ends as Unknown, so we record which pushes reached Z3 to pop only those.
   private var z3Scopes: List[Boolean] = Nil

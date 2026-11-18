@@ -79,12 +79,13 @@ trait Expressions { self: Trees =>
 
   /** $encodingof `callee(args...)`, where [[callee]] is an expression of a function type (not a method) */
   sealed case class Application(callee: Expr, args: Seq[Expr]) extends Expr with CachingTyped {
-    override protected def computeTpe(stripRefinements: Boolean)(using Symbols): Type = {
+    override protected def computeTpe(stripRefinements: Boolean)(using s: Symbols): Type = {
       val calleTpe = if (stripRefinements) callee.getType else callee.getTpe(stripRefinements = false).stripToplevelRefinement
       calleTpe match {
         // the arguments must be accepted by the function: a boolean parameter can't be given
-        // a proposition
-        case FunctionType(from, to) => checkParamTypes(args, from, to)
+        // a proposition. The result keeps the callee's refinements (`checkParamTypes` strips them)
+        case FunctionType(from, to) if args.size == from.size &&
+            (args zip from).forall((arg, tpe) => s.isSubtypeOf(arg.getType, tpe.getType)) => to
         // case PiType(params, to) => ???
         case _ => Untyped
       }
@@ -112,7 +113,7 @@ trait Expressions { self: Trees =>
     * symbols it is typed under. One can't quantify over propositions. */
   sealed case class Forall(params: Seq[ValDef], body: Expr) extends Expr with CachingTyped {
     override protected def computeTpe(stripRefinements: Boolean)(using s: Symbols): Type =
-      if (params.exists(vd => carriesProposition(vd.getType))) Untyped
+      if (params.exists(vd => s.containsProposition(vd.getType))) Untyped
       else s.modes.quantifiers match {
         case QuantifierMode.Boolean => body.getTpe(stripRefinements)
         case QuantifierMode.Propositional => checkProposition(body, PropType())
@@ -171,7 +172,7 @@ trait Expressions { self: Trees =>
         .filter(fd => tps.size == fd.tparams.size && args.size == fd.params.size)
         .map(_.typed(tps))
         // equality at a type parameter is a boolean, so it can't be a type of propositions
-        .filter(_ => !tps.exists(tp => carriesProposition(tp.getType)))
+        .filter(_ => !tps.exists(tp => s.containsProposition(tp.getType)))
         .map(tfd => checkParamTypes(args, tfd.params.map(_.getType), tfd.getTpe(stripRefinements)))
         .getOrElse(Untyped)
     }
@@ -195,7 +196,7 @@ trait Expressions { self: Trees =>
       else if (cond.getType == PropType()) getPropositionalType(thenn, elze) match {
         case Untyped =>
           val lub = s.leastUpperBound(thenn.getTpe(stripRefinements), elze.getTpe(stripRefinements))
-          if (carriesProposition(lub.getType)) lub else Untyped
+          if (s.carriesProposition(lub.getType)) lub else Untyped
         case _ => PropType()
       }
       else Untyped
@@ -456,8 +457,8 @@ trait Expressions { self: Trees =>
     override protected def computeTpe(stripRefinements: Boolean)(using s: Symbols): Type = {
       s.leastUpperBound(lhs.getType, rhs.getType) match {
         case Untyped => Untyped
-        // an equivalence between propositions, or between functions that return propositions
-        case tpe if carriesProposition(tpe) => PropType()
+        // an equivalence between propositions, or between values that hold them
+        case tpe if s.containsProposition(tpe) => PropType()
         case _ => BooleanType()
       }
     }

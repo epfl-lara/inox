@@ -178,9 +178,10 @@ $ sbt coverage IntegrationTest/test
 $ sbt coverageReport
 ```
 
-The Linux / JDK 17 job of Inox CI does the same and attaches the report to each run. On pull
-requests, the Coverage comment workflow then posts the coverage, and its difference to `main`, as
-a comment.
+The Inox coverage workflow (the Linux / JDK 17 job, which the other jobs of Inox CI complement)
+does the same and attaches the report to each run. On pull requests, the Coverage comment workflow
+then posts the coverage, and its difference to `main`, as a comment as soon as it completes, and
+adds the test durations of each CI workflow, compared with `main`, as they complete.
 
 ## Contributing
 

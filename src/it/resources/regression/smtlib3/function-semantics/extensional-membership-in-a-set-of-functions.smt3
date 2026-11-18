@@ -1,0 +1,21 @@
+; Under extensional equality, sets compare their elements as functions: x => x and
+; x => ite(x == 0, 0, x) are equal, so each is a member of the singleton of the other.
+; The first query is ground, and was simplified to `true` by the evaluator, which compared
+; the elements structurally.
+(set-option :function-equality extensional)
+(declare-const s (Set (-> Int Int)))
+(push 1)
+(assert (not (member (lambda ((x Int)) x) (insert (as emptyset (-> Int Int)) (lambda ((x Int)) (ite (= x 0) 0 x))))))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+(push 1)
+(assert (= s (insert (as emptyset (-> Int Int)) (lambda ((x Int)) (ite (= x 0) 0 x)))))
+(assert (not (member (lambda ((x Int)) x) s)))
+(set-info :status unsat)
+(check-sat)
+(pop 1)
+; functions that differ somewhere are distinct elements
+(assert (member (lambda ((x Int)) x) (insert (as emptyset (-> Int Int)) (lambda ((x Int)) (+ x 1)))))
+(set-info :status unsat)
+(check-sat)

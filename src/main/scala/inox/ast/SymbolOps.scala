@@ -267,17 +267,26 @@ trait SymbolOps extends TypeOps { self =>
     case Assume(BooleanLiteral(true), _) => false
     case uc: UninterpretedCall => hasInstance(uc.getTpe(stripRefinements = false)) != Some(true)
     case (_: Assume) | (_: Error) | (_: Application) => true
-    case (_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector) => definedness(expr).isDefined
+    case (_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector) | (_: FPToReal) =>
+      definedness(expr).isDefined
     case adt: ADT => adt.getConstructor.sort.definition.hasInvariant
     case _ => false
   }
 
   /** The condition under which the partial operation `expr` is defined, unless it always is.
     *
-    * Divisions, remainders and modulos of integers and reals fail on a zero divisor, and selectors
-    * on another constructor, as in the evaluator. Bit-vector operations follow SMT-LIB and are total.
+    * As in the evaluator, divisions, remainders and modulos of integers and reals fail on a zero
+    * divisor, selectors on another constructor, and conversions of floating points to reals on NaN
+    * and infinities. Bit-vector operations follow SMT-LIB and are total, and so do conversions of
+    * floating points to bit-vectors, which saturate as on the JVM.
     */
   def definedness(expr: Expr): Option[Expr] = {
+    def finite(e: Expr): Expr = e match {
+      case Float32Literal(f) => BooleanLiteral(!f.isNaN && !f.isInfinite)
+      case Float64Literal(d) => BooleanLiteral(!d.isNaN && !d.isInfinite)
+      case _ => and(Not(FPIsNaN(e)), Not(FPIsInfinite(e)))
+    }
+
     def nonZero(d: Expr): Option[Expr] = d match {
       case IntegerLiteral(i) => if (i != 0) None else Some(BooleanLiteral(false))
       case FractionLiteral(n, _) => if (n != 0) None else Some(BooleanLiteral(false))
@@ -292,6 +301,7 @@ trait SymbolOps extends TypeOps { self =>
       case Division(_, d) => nonZero(d)
       case Remainder(_, d) => nonZero(d)
       case Modulo(_, d) => nonZero(d)
+      case FPToReal(e) => Some(finite(e)).filter(_ != BooleanLiteral(true))
       case ADTSelector(adt, sel) => adt.getType match {
         case ADTType(id, tps) =>
           val sort = getSort(id, tps)

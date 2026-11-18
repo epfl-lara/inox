@@ -163,3 +163,37 @@ jobs:
       # Even after a failure, a timeout or a cancellation, so that jobs don't fill the runners' disk
       if: always()
       run: rm -rf "${JAVA_OPTS_TMP_DIR:?}"
+    # Read by the coverage comment workflow, which compares the duration of
+    # each Stainless test of a pull request build with that of main.
+    - name: Collect test durations
+      if: ${{ !cancelled() }}
+      run: |
+        out="$GITHUB_WORKSPACE/stainless-test-timings"
+        rm -rf "$out" && mkdir -p "$out"
+        python3 "$INOX_DIR/scripts/test_timings.py" collect "$out/timings.json" "$STAINLESS_DIR"
+        git -C "$STAINLESS_DIR" rev-parse HEAD > "$out/stainless-sha"
+        git -C "$INOX_DIR" rev-parse HEAD > "$out/tested-sha"
+        # The pull request that this build tested, and the commit of main that
+        # it was merged into, which is what it is compared with. A run started
+        # by hand (with the `prs` input, on forks that have it) tests main, with
+        # the given pull requests merged into it.
+        set -- $REQUESTED_PRS
+        if [ -n "$PR_NUMBER" ]; then
+          echo "$PR_NUMBER" > "$out/pr-number"
+          echo "$PR_HEAD_SHA" > "$out/pr-head-sha"
+          git -C "$INOX_DIR" cat-file -p HEAD | awk '/^parent /{print $2; exit}' > "$out/base-sha"
+        elif [ $# -eq 1 ] && git -C "$INOX_DIR" rev-parse -q --verify "pr-$1^{commit}" > "$out/pr-head-sha"; then
+          echo "$1" > "$out/pr-number"
+          echo "$GITHUB_SHA" > "$out/base-sha"
+        fi
+        echo "$REQUESTED_PRS" > "$out/merged-prs"
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        REQUESTED_PRS: ${{ inputs.prs }}
+    - name: Upload test durations
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: stainless-test-timings-${{ strategy.job-index }}
+        path: stainless-test-timings/

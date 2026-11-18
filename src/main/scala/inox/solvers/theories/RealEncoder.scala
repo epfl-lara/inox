@@ -154,6 +154,11 @@ def realDec(sourceProgram: Program)
     import theory.trees.dsl._
 
     override def transform(e: Expr): Expr = e match {
+      // A model that is extracted before the solver has seen the invariant of a fraction, as
+      // feeling-lucky models are, may give it a zero denominator. It stands for no real, so any
+      // real will do: such models are only candidates that are checked before they are used.
+      case ADT(id, Seq(), Seq(IntegerLiteral(_), IntegerLiteral(denom))) if id == fractionCons.id && denom == 0 =>
+        FractionLiteral(0, 1)
       case ADT(id, Seq(), Seq(IntegerLiteral(num), IntegerLiteral(denom))) if id == fractionCons.id =>
         exprOps.normalizeFraction(FractionLiteral(num, denom))
       case _ => super.transform(e)

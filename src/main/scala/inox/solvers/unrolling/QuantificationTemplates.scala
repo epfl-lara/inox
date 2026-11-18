@@ -140,13 +140,13 @@ trait QuantificationTemplates { self: Templates =>
       val (p, tmplClauses) = mkExprClauses(pathVar._1, body, clauseSubst)
 
       given TypingGenerator = if (pol) ContractGenerator else FreeGenerator
-      val (tpeCond, tpeClauses) = idQuantifiers.foldLeft((BooleanLiteral(true): Expr, emptyClauses)) {
+      val (tpeCond, tpeClauses) = idQuantifiers.foldLeft((BooleanLiteral(true): Expr, TemplateClauses())) {
         case ((tpCond, tpClauses), v) =>
           val (p, clauses) = mkTypeClauses(pathVar._1, v.tpe, v, clauseSubst, inDomain = true)
-          (and(tpCond, p), tpClauses +++ clauses)
+          (and(tpCond, p), tpClauses ++ clauses)
       }
 
-      val clauses: TemplateClauses = tmplClauses +++ tpeClauses
+      val clauses: TemplateClauses = tmplClauses ++ tpeClauses
       val (res, polarity, contents, str) = if (pol) {
         val subst = quantifiers.flatMap(v => typeOps.variablesOf(v.tpe)).map(v => v -> Left(clauseSubst(v))).toMap
 

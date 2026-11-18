@@ -254,11 +254,12 @@ trait Definitions { self: Trees =>
       if (!sort.isWellFormed) throw NotWellFormedException(sort)
       if (!(sort.constructors forall (cons => cons.sort == sort.id))) throw NotWellFormedException(sort)
       if (!(sort.constructors forall (_.fields forall (_.isTyped)))) throw NotWellFormedException(sort)
-      if (sort.constructors exists (_.fields exists (vd => carriesProposition(vd.getType))))
-        throw NotWellFormedException(sort, Some("Propositions can't be fields"))
       if (sort.constructors.flatMap(_.fields).groupBy(_.id).exists(_._2.size > 1)) throw NotWellFormedException(sort)
     }
 
+    // Cheap by design: definitions are equal by identifier, so two tables holding the same
+    // identifiers are equal even when their bodies differ. A cache keyed by symbols can
+    // therefore return results computed for a table with other bodies under the same identifiers.
     override def equals(that: Any): Boolean = that match {
       case sym: AbstractSymbols =>
         functions == sym.functions && sorts == sym.sorts && modes == sym.modes

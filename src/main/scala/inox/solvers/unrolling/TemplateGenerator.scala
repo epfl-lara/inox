@@ -13,17 +13,49 @@ trait TemplateGenerator { self: Templates =>
   import program.trees._
   import program.symbols.{given, _}
 
-  protected type TemplateClauses = (
-    Map[Variable, Encoded],
-    Map[Variable, Encoded],
-    Map[Variable, Set[Variable]],
-    Map[Variable, Seq[Expr]],
-    Seq[Expr],
-    Types,
-    Equalities,
-    Seq[LambdaTemplate],
-    Seq[QuantificationTemplate]
-  )
+  /** The clauses that [[mkExprClauses]] generates for an expression, before [[Template.encode]]
+    * encodes them.
+    *
+    * @param condVars        the condition variables, which guard the branches of the expression
+    * @param exprVars        the variables that stand for the values of subexpressions
+    * @param condTree        the condition variables that each condition variable guards
+    * @param guardedExprs    the clauses under each condition variable
+    * @param equations       the unguarded clauses
+    * @param types           the typing constraints under each condition variable
+    * @param equalities      the equalities to unroll under each condition variable
+    * @param lambdas         the templates of the lambdas in the expression
+    * @param quantifications the templates of the quantifiers in the expression
+    */
+  protected case class TemplateClauses(
+    condVars: Map[Variable, Encoded] = Map.empty,
+    exprVars: Map[Variable, Encoded] = Map.empty,
+    condTree: Map[Variable, Set[Variable]] = Map.empty,
+    guardedExprs: Map[Variable, Seq[Expr]] = Map.empty,
+    equations: Seq[Expr] = Seq.empty,
+    types: Types = Map.empty,
+    equalities: Equalities = Map.empty,
+    lambdas: Seq[LambdaTemplate] = Seq.empty,
+    quantifications: Seq[QuantificationTemplate] = Seq.empty
+  ) {
+    def ++(that: TemplateClauses): TemplateClauses = TemplateClauses(
+      condVars ++ that.condVars,
+      exprVars ++ that.exprVars,
+      condTree `merge` that.condTree,
+      guardedExprs `merge` that.guardedExprs,
+      equations ++ that.equations,
+      types `merge` that.types,
+      equalities `merge` that.equalities,
+      lambdas ++ that.lambdas,
+      quantifications ++ that.quantifications
+    )
+
+    def +(pair: (Variable, Expr)): TemplateClauses = copy(guardedExprs = guardedExprs `merge` pair)
+
+    /** The encodings of the symbols that the clauses introduce. */
+    def symbols: Map[Variable, Encoded] =
+      condVars ++ exprVars ++ lambdas.map(_.ids) ++ quantifications.flatMap(_.mapping) ++
+        equalities.flatMap(_._2.map(_.symbols))
+  }
 
   /** The interpretation of the uninterpreted function `id` at `tps` in the model that the solver
     * operates under (see [[AbstractUnrollingSolver.partialModel]]), if the model interprets it. */
@@ -64,38 +96,6 @@ trait TemplateGenerator { self: Templates =>
       (f, fT)
     })._1
 
-  protected def emptyClauses: TemplateClauses =
-    (Map.empty, Map.empty, Map.empty, Map.empty, Seq.empty, Map.empty, Map.empty, Seq.empty, Seq.empty)
-
-  extension (clauses: TemplateClauses) {
-    def +++(that: TemplateClauses): TemplateClauses = {
-      val (thisConds, thisExprs, thisTree, thisGuarded, thisEqs, thisTps, thisEqualities, thisLambdas, thisQuants) = clauses
-      val (thatConds, thatExprs, thatTree, thatGuarded, thatEqs, thatTps, thatEqualities, thatLambdas, thatQuants) = that
-
-      (thisConds ++ thatConds, thisExprs ++ thatExprs, thisTree `merge` thatTree,
-        thisGuarded `merge` thatGuarded, thisEqs ++ thatEqs, thisTps `merge` thatTps,
-        thisEqualities `merge` thatEqualities, thisLambdas ++ thatLambdas, thisQuants ++ thatQuants)
-    }
-
-    def +(pair: (Variable, Expr)): TemplateClauses = {
-      val (thisConds, thisExprs, thisTree, thisGuarded, thisEqs, thisTps, thisEqualities, thisLambdas, thisQuants) = clauses
-      (thisConds, thisExprs, thisTree, thisGuarded `merge` pair, thisEqs, thisTps, thisEqualities, thisLambdas, thisQuants)
-    }
-
-    def proj: (
-      Map[Variable, Encoded],
-      Map[Variable, Encoded],
-      Map[Variable, Set[Variable]],
-      Types,
-      Equalities,
-      Seq[LambdaTemplate],
-      Seq[QuantificationTemplate]
-    ) = {
-      val (thisConds, thisExprs, thisTree, _, _, thisTypes, thisEqualities, thisLambdas, thisQuants) = clauses
-      (thisConds, thisExprs, thisTree, thisTypes, thisEqualities, thisLambdas, thisQuants)
-    }
-  }
-
   /** Unless the front-end has checked them (see `optAssumeChecked`), the partial operations that
     * may fail make their path infeasible when they do, like errors, so that the solver agrees with
     * the evaluator (see [[ast.SymbolOps.definedness]]). */
@@ -134,7 +134,7 @@ trait TemplateGenerator { self: Templates =>
         es.foldLeft((false, facts)) { case ((res, fs), e) => (res || rec(e, fs), fs ++ negated(e)) }._1
       case Implies(l, r) =>
         rec(l, facts) || rec(r, facts ++ conjuncts(l))
-      case (_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector) =>
+      case _ if guard(e).isDefined =>
         guard(e).exists(g => !facts(g)) || rec2(e, facts)
       case _ => rec2(e, facts)
     }
@@ -167,6 +167,21 @@ trait TemplateGenerator { self: Templates =>
     tmplClauses + (pathVar -> p)
   }
 
+  /** The literals that hold where evaluation fails (see [[Builder.storeFailure]]).
+    *
+    * Templates for the bodies of functions and lambdas define whether their evaluation fails from
+    * these literals and the failures of the calls and applications they reach (see [[Template.encode]]),
+    * and only the templates of formulas assert that their evaluation doesn't fail. */
+  private[unrolling] val failureSymbols: MutableSet[Variable] = MutableSet.empty
+
+  /** Whether functions are partial, i.e. whether the solver tells apart functions that fail from
+    * functions that don't. Only extensional equality observes where functions fail, and under
+    * `optAssumeChecked`, the front-end has checked that nothing fails, so functions are total and
+    * failures make their paths infeasible instead. */
+  private[unrolling] lazy val partialFunctions: Boolean =
+    options.findOptionOrDefault(optFunctionEquality) == FunctionEquality.Extensional &&
+      !options.findOptionOrDefault(optAssumeChecked)
+
   def mergeCalls(pathVar: Variable, condVar: Variable, substMap: Map[Variable, Encoded],
                 thenClauses: TemplateClauses, elseClauses: TemplateClauses): TemplateClauses = {
     val builder = new Builder(pathVar, substMap)
@@ -193,8 +208,8 @@ trait TemplateGenerator { self: Templates =>
       .view.mapValues(_.toList.distinct.sortBy(p => countCalls(p._1)))  // place inner calls first
       .toMap
 
-    var thenGuarded = thenClauses._4
-    var elseGuarded = elseClauses._4
+    var thenGuarded = thenClauses.guardedExprs
+    var elseGuarded = elseClauses.guardedExprs
 
     val thenCalls = getCalls(thenGuarded)
     val elseCalls = getCalls(elseGuarded)
@@ -266,43 +281,38 @@ trait TemplateGenerator { self: Templates =>
             val (e, cls) = mkExprClauses(pathVar, expr, depSubst)
 
             // setup the full encoding substMap
-            val (conds, exprs, tree, types, equals, lmbds, quants) = cls.proj
-            val clauseSubst: Map[Variable, Encoded] = depSubst ++ conds ++ exprs ++
-              lmbds.map(_.ids) ++ quants.flatMap(_.mapping) ++ equals.flatMap(_._2.map(_.symbols))
+            val clauseSubst: Map[Variable, Encoded] = depSubst ++ cls.symbols
 
-            val (eCalls, eApps, eMatchers, eReads, ePointers) = Template.extractCalls(e, clauseSubst)
-            val (clsClauses, clsCalls, clsApps, clsMatchers, clsReads, clsPointers, _) =
-              Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
+            val extracted = Template.extractCalls(e, clauseSubst)
+            val encoding = Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
 
             (depSubst + (v -> mkEncoder(clauseSubst)(e)), contents `merge` (
-              conds, exprs, tree, clsClauses, types,
-              clsCalls `merge` Map(substMap(pathVar) -> eCalls),
-              clsApps `merge` Map(substMap(pathVar) -> eApps),
-              clsMatchers `merge` Map(substMap(pathVar) -> eMatchers),
-              clsReads `merge` Map(substMap(pathVar) -> eReads),
-              equals, lmbds, quants, clsPointers ++ ePointers
+              cls.condVars, cls.exprVars, cls.condTree, encoding.clauses, cls.types,
+              encoding.calls `merge` Map(substMap(pathVar) -> extracted.calls),
+              encoding.apps `merge` Map(substMap(pathVar) -> extracted.apps),
+              encoding.matchers `merge` Map(substMap(pathVar) -> extracted.matchers),
+              encoding.reads `merge` Map(substMap(pathVar) -> extracted.reads),
+              cls.equalities, cls.lambdas, cls.quantifications, encoding.pointers ++ extracted.pointers
             ))
           } else {
             val condVar = Variable.fresh("p", BooleanType())
             val exprVar = Variable.fresh("r", v.getType)
 
             val localSubst = depSubst + (condVar -> encodeSymbol(condVar)) + (exprVar -> encodeSymbol(exprVar))
-            val cls: TemplateClauses = mkClauses0(pathVar, Equals(condVar, andJoin(conditions)), localSubst) +++
+            val cls: TemplateClauses = mkClauses0(pathVar, Equals(condVar, andJoin(conditions)), localSubst) ++
               mkClauses0(condVar, Equals(exprVar, expr), localSubst)
 
             // setup the full encoding substMap
-            val (conds, exprs, tree, types, equals, lmbds, quants) = cls.proj
-            val clauseSubst: Map[Variable, Encoded] = localSubst ++ conds ++ exprs ++
-              lmbds.map(_.ids) ++ quants.flatMap(_.mapping) ++ equals.flatMap(_._2.map(_.symbols))
+            val clauseSubst: Map[Variable, Encoded] = localSubst ++ cls.symbols
 
-            val (clsClauses, clsCalls, clsApps, clsMatchers, clsReads, clsPointers, _) =
-              Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
+            val encoding = Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
 
             (depSubst + (v -> localSubst(exprVar)), contents `merge` (
-              conds + (condVar -> localSubst(condVar)),
-              exprs + (exprVar -> localSubst(exprVar)),
-              tree `merge` Map(pathVar -> Set(condVar)),
-              clsClauses, types, clsCalls, clsApps, clsMatchers, clsReads, equals, lmbds, quants, clsPointers
+              cls.condVars + (condVar -> localSubst(condVar)),
+              cls.exprVars + (exprVar -> localSubst(exprVar)),
+              cls.condTree `merge` Map(pathVar -> Set(condVar)),
+              encoding.clauses, cls.types, encoding.calls, encoding.apps, encoding.matchers, encoding.reads,
+              cls.equalities, cls.lambdas, cls.quantifications, encoding.pointers
             ))
           }
       }
@@ -344,6 +354,16 @@ trait TemplateGenerator { self: Templates =>
 
       val prev = guardedExprs.getOrElse(guardVar, Nil)
       guardedExprs += guardVar -> (expr +: prev)
+    }
+
+    // Represents the failure of evaluation on the path `guardVar` when `cond` doesn't hold, as a
+    // literal that holds exactly when the path is taken and `cond` doesn't hold (see [[failureSymbols]])
+    def storeFailure(guardVar: Variable, cond: Expr): Unit = if (!partialFunctions) storeGuarded(guardVar, cond) else {
+      val fail = Variable.fresh("fail", BooleanType(), true)
+      storeExpr(fail)
+      failureSymbols += fail
+      storeGuarded(guardVar, Equals(fail, Not(cond)))
+      equations :+= Implies(fail, guardVar)
     }
 
     var types = Map[Encoded, Set[Typing]]()
@@ -420,19 +440,18 @@ trait TemplateGenerator { self: Templates =>
       substMap ++ uninterpretedSubst ++ condVars ++ exprVars ++ lambdas.map(_.ids)
 
     def result: TemplateClauses =
-      (condVars, exprVars, condTree, guardedExprs, equations, types, equalities, lambdas, quantifications)
+      TemplateClauses(condVars, exprVars, condTree, guardedExprs, equations, types, equalities, lambdas, quantifications)
 
     def ++=(that: TemplateClauses): this.type = {
-      val (conds, exprs, tree, guarded, eqs, tpes, equls, lmbds, quants) = that
-      condVars ++= conds
-      exprVars ++= exprs
-      condTree = condTree `merge` tree
-      guardedExprs = guardedExprs `merge` guarded
-      equations ++= eqs
-      types = types `merge` tpes
-      equalities ++= equls
-      lambdas ++= lmbds
-      quantifications ++= quants
+      condVars ++= that.condVars
+      exprVars ++= that.exprVars
+      condTree = condTree `merge` that.condTree
+      guardedExprs = guardedExprs `merge` that.guardedExprs
+      equations ++= that.equations
+      types = types `merge` that.types
+      equalities ++= that.equalities
+      lambdas ++= that.lambdas
+      quantifications ++= that.quantifications
       this
     }
   }
@@ -466,8 +485,10 @@ trait TemplateGenerator { self: Templates =>
 
     def rec(pathVar: Variable, expr: Expr, pol: Option[Boolean]): Expr = expr match {
       case a @ Assume(cond, body) =>
-        val e = rec(pathVar, cond, Some(true))
-        storeGuarded(pathVar, e)
+        // The condition only holds positively unless the assumption may fail (see [[storeFailure]]),
+        // where its failure literal is equal to its negation, so quantifiers need both polarities
+        val e = rec(pathVar, cond, if (partialFunctions) None else Some(true))
+        storeFailure(pathVar, e)
         rec(pathVar, body, pol)
 
       case uc @ UninterpretedCall(id, tps, args, tpe) =>
@@ -509,8 +530,8 @@ trait TemplateGenerator { self: Templates =>
         newExpr
 
       case Error(tpe, _) =>
-        // Errors are never reached, so the path that leads to one is infeasible
-        storeGuarded(pathVar, BooleanLiteral(false))
+        // Evaluation fails on the path that leads to an error
+        storeFailure(pathVar, BooleanLiteral(false))
         val newExpr = Variable.fresh("err", tpe, true)
         storeExpr(newExpr)
         newExpr
@@ -698,10 +719,10 @@ trait TemplateGenerator { self: Templates =>
         storeEquality(pathVar, re1, re2)
         Application(v, Seq(re1, re2))
 
-      case e @ ((_: Division) | (_: Remainder) | (_: Modulo) | (_: ADTSelector)) if guard(e).isDefined =>
+      case e if guard(e).isDefined =>
         val Operator(as, r) = e: @unchecked
         val res = r(as.map(a => rec(pathVar, a, None)))
-        if (!guard(e).exists(factsOf(pathVar))) definedness(res).foreach(storeGuarded(pathVar, _))
+        if (!guard(e).exists(factsOf(pathVar))) definedness(res).foreach(storeFailure(pathVar, _))
         res
 
       case Operator(as, r) => r(as.map(a => rec(pathVar, a, None)))
