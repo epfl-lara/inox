@@ -75,6 +75,63 @@ trait Templates
     def promoteBlocker(b: Encoded): Boolean
   }
 
+  /** The pending unfoldings of a manager: the items to unfold under each key (a blocker, or an
+    * application whose unfolding a blocker guards), and the generation at which they are unfolded.
+    * Items registered under a pending key join it, at the earliest of their generations, and a
+    * promoted key is unfolded at the current generation. */
+  class UnrollingQueue[K, I] extends IncrementalStateWrapper {
+    private val pending = new IncrementalMap[K, (Int, Set[I])]
+    protected def extraIncrementals: Seq[IncrementalState] = Seq.empty
+    protected val incrementals: Seq[IncrementalState] = pending +: extraIncrementals
+
+    def isEmpty: Boolean = pending.isEmpty
+    def contains(key: K): Boolean = pending.contains(key)
+    def keys: Iterable[K] = pending.map(_._1)
+    def entries: Seq[(K, Int, Set[I])] = pending.toSeq.map { case (k, (gen, items)) => (k, gen, items) }
+
+    /** The earliest generation of the pending keys, if any. */
+    def generation: Option[Int] = if (pending.isEmpty) None else Some(pending.values.map(_._1).min)
+
+    def register(key: K, gen: Int, items: Set[I]): Unit = pending.get(key) match {
+      case Some((exGen, exItems)) => pending += key -> (gen min exGen, exItems ++ items)
+      case None => pending += key -> (gen, items)
+    }
+
+    /** Replaces the items of the pending `key`, which keeps its generation. */
+    def replace(key: K, items: Set[I]): Unit =
+      for ((gen, _) <- pending.get(key)) pending += key -> (gen, items)
+
+    def promote(key: K): Boolean = pending.get(key) match {
+      case Some((_, items)) =>
+        pending += key -> (currentGeneration, items)
+        true
+      case None =>
+        false
+    }
+
+    /** Removes the keys that are due at the current generation, and returns them with their items. */
+    def dequeue(): Seq[(K, Int, Set[I])] = {
+      val due = pending.toSeq.filter(_._2._1 <= currentGeneration)
+      pending --= due.map(_._1)
+      due.map { case (k, (gen, items)) => (k, gen, items) }
+    }
+  }
+
+  /** A queue of the items that blockers guard, whose blockers the model checks assume false. */
+  class BlockerQueue[I] extends UnrollingQueue[Encoded, I] {
+    // lazy, as the constructor of [[UnrollingQueue]] collects it
+    private lazy val negations = new IncrementalMap[Encoded, Encoded]
+    override protected def extraIncrementals: Seq[IncrementalState] = Seq(negations)
+
+    override def register(blocker: Encoded, gen: Int, items: Set[I]): Unit = {
+      if (!negations.contains(blocker)) negations += blocker -> mkNot(blocker)
+      super.register(blocker, gen, items)
+    }
+
+    /** The negations of the pending blockers. */
+    def satisfactionAssumptions: Seq[Encoded] = keys.toSeq.map(negations)
+  }
+
   private val managers: Seq[Manager] = Seq(
     functionsManager,
     typesManager,

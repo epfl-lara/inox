@@ -204,22 +204,7 @@ trait FunctionTemplates { self: Templates =>
   }
 
   def instantiateCall(blocker: Encoded, fi: Call): Clauses = {
-    val gen = nextGeneration(currentGeneration)
-    val notBlocker = mkNot(blocker)
-
-    callInfos.get(blocker) match {
-      case Some((exGen, origGen, _, exFis)) =>
-        // PS: when recycling `b`s, this assertion becomes dangerous.
-        // It's better to simply take the max of the generations.
-        // assert(exGen == gen, "Mixing the same id "+id+" with various generations "+ exGen+" and "+gen)
-
-        val minGen = gen min exGen
-
-        callInfos += blocker -> (minGen, origGen, notBlocker, exFis + fi)
-      case None =>
-        callInfos += blocker -> (gen, gen, notBlocker, Set(fi))
-    }
-
+    callInfos.register(blocker, nextGeneration(currentGeneration), Set(fi))
     Seq.empty
   }
 
@@ -297,43 +282,28 @@ trait FunctionTemplates { self: Templates =>
     // Function instantiations have their own defblocker
     private[FunctionTemplates] val defBlockers = new IncrementalMap[Call, Encoded]()
 
-    // Keep which function invocation is guarded by which guard,
-    // also specify the generation of the blocker.
-    private[FunctionTemplates] val callInfos   = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[Call])]()
+    // The calls that each blocker guards, which are unfolded with it
+    private[FunctionTemplates] val callInfos   = new BlockerQueue[Call]
 
     private lazy val evaluator = semantics.getEvaluator(using context.withOpts(evaluators.optEvalQuantifiers(false)))
 
     val incrementals: Seq[IncrementalState] = Seq(callInfos, defBlockers)
 
-    def unrollGeneration: Option[Int] =
-      if (callInfos.isEmpty) None
-      else Some(callInfos.values.map(_._1).min)
+    def unrollGeneration: Option[Int] = callInfos.generation
 
     def satisfactionAssumptions: Seq[Encoded] =
-      callInfos.map(_._2._3).toSeq ++ (if (rankedCalls) Seq(mkNot(diverges)) else Seq.empty)
+      callInfos.satisfactionAssumptions ++ (if (rankedCalls) Seq(mkNot(diverges)) else Seq.empty)
     def refutationAssumptions: Seq[Encoded] = Seq.empty
 
-    def promoteBlocker(b: Encoded): Boolean = {
-      if (callInfos `contains` b) {
-        val (_, origGen, notB, fis) = callInfos(b)
-        callInfos += b -> (currentGeneration, origGen, notB, fis)
-        true
-      } else {
-        false
-      }
-    }
+    def promoteBlocker(b: Encoded): Boolean = callInfos.promote(b)
 
     def unroll: Clauses = if (callInfos.isEmpty) Seq.empty else {
-      val blockers = callInfos.filter(_._2._1 <= currentGeneration).toSeq.map(_._1)
-
       val newClauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-      val thisCallInfos = blockers.flatMap(id => callInfos.get(id).map(id -> _))
-      callInfos --= blockers
+      val thisCallInfos = callInfos.dequeue()
+      val remainingBlockers = MutableSet.empty ++ thisCallInfos.map(_._1)
 
-      val remainingBlockers = MutableSet.empty ++ blockers
-
-      for ((blocker, (gen, _, _, calls)) <- thisCallInfos if calls.nonEmpty && !abort && !pause;
+      for ((blocker, gen, calls) <- thisCallInfos if calls.nonEmpty && !abort && !pause;
            _ = remainingBlockers -= blocker;
            call @ Call(callee, args, tpSubst) <- calls if !abort) {
         val newCls = new scala.collection.mutable.ListBuffer[Encoded]
@@ -438,10 +408,8 @@ trait FunctionTemplates { self: Templates =>
         newClauses ++= newCls
       }
 
-      for ((b, (gen, origGen, notB, calls)) <- thisCallInfos if remainingBlockers(b)) callInfos.get(b) match {
-        case Some((newGen, _, _, newCalls)) => callInfos += b -> (gen min newGen, origGen, notB, calls ++ newCalls)
-        case None => callInfos += b -> (gen, origGen, notB, calls)
-      }
+      // the blockers that an interruption left out are unfolded later
+      for ((b, gen, calls) <- thisCallInfos if remainingBlockers(b)) callInfos.register(b, gen, calls)
 
       reporter.debug(s"   - ${newClauses.size} new clauses")
 
