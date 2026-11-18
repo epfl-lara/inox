@@ -398,15 +398,13 @@ trait TypeTemplates { self: Templates =>
       instantiate(blocker, Seq(Left(container), Left(arg)))
     }
 
-    override def instantiate(substMap: Map[Encoded, Arg]): Clauses = {
-      val substituter = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
-
-      val sc = substituter(container)
-      val sfuns = functions.map(substituter)
+    override protected def instantiate(instantiation: Instantiation): Clauses = {
+      val sc = instantiation.substituter(container)
+      val sfuns = functions.map(instantiation.substituter)
 
       lessOrder += sc -> (lessOrder(sc) ++ sfuns)
 
-      super.instantiate(substMap)
+      super.instantiate(instantiation)
     }
   }
 

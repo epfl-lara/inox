@@ -92,9 +92,9 @@ trait EqualityTemplates { self: Templates =>
       instantiate(aVar, Seq(Left(e1), Left(e2)))
     }
 
-    override protected def instantiate(substMap: Map[Encoded, Arg]): Clauses = {
+    override protected def instantiate(instantiation: Instantiation): Clauses = {
       // register equalities (WILL NOT lead to any [[instantiate]] calls)
-      Template.instantiate(contents.clauses, contents.items, substMap, onEquality = { (bp, equality) =>
+      instantiation.clauses(onEquality = { (bp, equality) =>
         registerEquality(bp, equality)
         Seq.empty
       })

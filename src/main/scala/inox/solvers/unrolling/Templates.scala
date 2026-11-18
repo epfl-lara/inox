@@ -171,7 +171,7 @@ trait Templates
    * (an error, an assumption that doesn't hold, or an undefined operation, see
    * [[TemplateGenerator.failureSymbols]]). Each call and each application has a literal for whether
    * it fails, which the instance of the callee's body defines when the call or application is unfolded
-   * (see [[Template.instantiate]]). Formulas assert that the calls and applications that they reach
+   * (see [[Instantiation.itemClauses]]). Formulas assert that the calls and applications that they reach
    * don't fail, so that the paths that fail stay infeasible, while the distinguishing inputs of
    * functions tell apart a function that fails from one that doesn't (see [[instantiateWitness]]).
    * Free functions may be partial too: nothing constrains whether their applications fail, unless a
@@ -365,7 +365,7 @@ trait Templates
 
   /** An item that a template guards by a blocker: a call, an application, a matcher, a collection
     * read, an equality or a typing. Instantiating the template under the blocker instantiates its
-    * items (see [[Template.substitution]] for typings and [[Template.instantiate]] for the others). */
+    * items (see [[Instantiation]]). */
   trait Item {
     def substitute(substituter: Encoded => Encoded, msubst: Map[Encoded, Matcher]): Item
   }
@@ -553,7 +553,7 @@ trait Templates
     val pointers : Pointers,
 
     /** The failure literals of the body of a function or lambda, which define whether it fails
-      * (see [[Template.instantiate]]), or `None` if the template asserts that they don't hold. */
+      * (see [[Instantiation.itemClauses]]), or `None` if the template asserts that they don't hold. */
     val failures : Option[Seq[Encoded]] = None) {
 
     lazy val args = arguments.map(_._2)
@@ -570,20 +570,13 @@ trait Templates
         failures.map(_.map(substituter))
       )
 
-    def substitution(aVar: Encoded, args: Seq[Arg]): (Clauses, Map[Encoded, Arg]) =
-      substitution(aVar, (this.args zip args).toMap + (pathVar._2 -> Left(aVar)))
+    /** Instantiates the contents under `aVar`, where the arguments take the values `args`. */
+    def instantiation(aVar: Encoded, args: Seq[Arg]): Instantiation =
+      instantiation(aVar, (this.args zip args).toMap + (pathVar._2 -> Left(aVar)))
 
-    def substitution(aVar: Encoded, substMap: Map[Encoded, Arg]): (Clauses, Map[Encoded, Arg]) =
-      Template.substitution(condVars, exprVars, condTree, items.typings, lambdas, quantifications, pointers, substMap, aVar)
-
-    /** Instantiates the contents, where the body of a function or lambda fails iff `failure` holds. */
-    def instantiate(substMap: Map[Encoded, Arg], failure: Option[Encoded] = None): Clauses = {
-      val fails = failure.map(f => (pathVar._2, f, failures.getOrElse(Seq.empty)))
-      val notFailing = if (failure.isEmpty) failures.getOrElse(Seq.empty) else Seq.empty
-      val substituter = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
-      notFailing.map(f => mkNot(substituter(f))) ++
-        Template.instantiate(clauses, items, substMap, fails)
-    }
+    /** Instantiates the contents under `aVar`, where `baseSubst` gives the values of their symbols. */
+    def instantiation(aVar: Encoded, baseSubst: Map[Encoded, Arg]): Instantiation =
+      new Instantiation(this, aVar, baseSubst)
 
     def merge(
       condVars   : Map[Variable, Encoded],
@@ -614,20 +607,14 @@ trait Templates
 
     lazy val start = contents.pathVar._2
 
-    def instantiate(aVar: Encoded, args: Seq[Arg]): Clauses = {
-      val (clauses, substMap) = contents.substitution(aVar, args)
-      clauses ++ instantiate(substMap)
-    }
+    def instantiate(aVar: Encoded, args: Seq[Arg]): Clauses =
+      instantiate(contents.instantiation(aVar, args))
 
     /** Instantiates the body of a function or lambda, which fails iff `failure` holds. */
-    def instantiate(aVar: Encoded, args: Seq[Arg], failure: Encoded): Clauses = {
-      val (clauses, substMap) = contents.substitution(aVar, args)
-      clauses ++ contents.instantiate(substMap, Some(failure))
-    }
+    def instantiate(aVar: Encoded, args: Seq[Arg], failure: Encoded): Clauses =
+      contents.instantiation(aVar, args).clauses(failure = Some(failure))
 
-    protected def instantiate(substMap: Map[Encoded, Arg]): Clauses = {
-      contents.instantiate(substMap)
-    }
+    protected def instantiate(instantiation: Instantiation): Clauses = instantiation.clauses()
 
     override def toString : String = "Instantiated template"
   }
@@ -666,7 +653,7 @@ trait Templates
       * templates are equal, then they must necessarily be equal in every model.
       *
       * The [[instantiation]] consists of the clause set instantiation (in the sense of
-      * [[Template.instantiate]] that is required for [[dependencies]] to make sense in the solver
+      * [[Instantiation]] that is required for [[dependencies]] to make sense in the solver
       * (introduces blockers, lambdas, quantifications, etc.) Since [[dependencies]] CHANGE during
       * instantiation and [[key]] makes no sense without the associated instantiation, the implicit
       * contract here is that whenever a new key appears during unfolding, its associated
@@ -683,12 +670,11 @@ trait Templates
       * constructing [[locals]].
       */
     lazy val (key, instantiation, locals, instantiationSubst) = {
-      val (substClauses, substMap) = contents.substitution(contents.pathVar._2, Map.empty[Encoded, Arg])
-      val tmplClauses = contents.instantiate(substMap)
-      val instantiation = substClauses ++ tmplClauses
+      val inst = contents.instantiation(contents.pathVar._2, Map.empty[Encoded, Arg])
+      val instantiation = inst.clauses()
+      val substMap = inst.substMap
 
-      val substituter = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
-      val deps = dependencies.map(substituter)
+      val deps = dependencies.map(inst.substituter)
       val key = (body, blockerPath(contents.pathVar._2), deps)
 
       val sortedDeps = exprOps.variablesOf(body).toSeq.sortBy(_.id)
@@ -914,7 +900,7 @@ trait Templates
         clauses ++= eqs.map(encoder)
 
         // The failure literals of the body of a function or lambda define whether it fails (see
-        // [[Template.instantiate]]), while other templates assert that they don't hold
+        // [[Instantiation.itemClauses]]), while other templates assert that they don't hold
         if (!partial) clauses ++= failures(exprVars).map(mkNot)
 
         (clauses, items, pointers)
@@ -973,40 +959,58 @@ trait Templates
       (contents, encoding.stringRepr)
     }
 
-    def substitution(
-      condVars: Map[Variable, Encoded],
-      exprVars: Map[Variable, Encoded],
-      condTree: Map[Variable, Set[Variable]],
-      types: Types,
-      lambdas: Seq[LambdaTemplate],
-      quants: Seq[QuantificationTemplate],
-      pointers: Map[Encoded, Encoded],
-      baseSubst: Map[Encoded, Arg],
-      aVar: Encoded
-    ): (Clauses, Map[Encoded, Arg]) = {
+  }
 
-      val freshSubst = exprVars.map { case (v, vT) => vT -> encodeSymbol(v) } ++
-                       freshConds(aVar, condVars, condTree)
+  /** The instantiation of the contents of a template under the blocker `aVar`, where `baseSubst`
+    * gives the values of the arguments (and of the start blocker of the contents).
+    *
+    * Instantiation proceeds in two stages. Creating an [[Instantiation]] runs the substitution
+    * stage, which builds [[substMap]] by
+    *  1. giving fresh symbols to the expression and condition variables,
+    *  2. instantiating the typings, which registers functions before the matchers of the
+    *     quantifications are instantiated,
+    *  3. instantiating the lambdas, in the order of their dependencies,
+    *  4. instantiating the quantifications, the positive ones last, and
+    *  5. registering the lambda pointers.
+    *
+    * [[clauses]] then runs the item stage, which instantiates
+    *  6. the calls and applications, which define whether the template fails, and then
+    *  7. the matchers, collection reads and equalities.
+    */
+  final class Instantiation private[unrolling] (
+    contents: TemplateContents,
+    aVar: Encoded,
+    baseSubst: Map[Encoded, Arg]
+  ) {
+    private val matcherSubst = baseSubst.collect { case (c, Right(m)) => c -> m }
+    private var subst: Map[Encoded, Arg] = baseSubst
+    private val buffer = new scala.collection.mutable.ListBuffer[Encoded]
 
-      val matcherSubst = baseSubst.collect { case (c, Right(m)) => c -> m }
+    private def substitution: Map[Encoded, Encoded] = subst.view.mapValues(_.encoded).toMap
 
-      var subst = freshSubst.view.mapValues(Left(_)).toMap ++ baseSubst
-      var clauses : Clauses = Seq.empty
+    private def freshSymbols(): Unit = {
+      val freshSubst = contents.exprVars.map { case (v, vT) => vT -> encodeSymbol(v) } ++
+                       freshConds(aVar, contents.condVars, contents.condTree)
+      subst = freshSubst.view.mapValues(Left(_)).toMap ++ baseSubst
+    }
 
-      // We instantiate types before quantifications in order to register functions
-      // before trying to instantiate matchers introduced by quantifications
-      val baseSubstituter = mkSubstituter(subst.view.mapValues(_.encoded).toMap)
-      for ((b, tps) <- types if !abort; bp = baseSubstituter(b); tp <- tps if !abort) {
-        clauses ++= instantiateType(bp, tp.substitute(baseSubstituter, matcherSubst))
+    // We instantiate types before quantifications in order to register functions
+    // before trying to instantiate matchers introduced by quantifications
+    private def typings(): Unit = {
+      val substituter = mkSubstituter(substitution)
+      for ((b, tps) <- contents.items.typings if !abort; bp = substituter(b); tp <- tps if !abort) {
+        buffer ++= instantiateType(bp, tp.substitute(substituter, matcherSubst))
       }
+    }
 
-      // /!\ CAREFUL /!\
-      // We have to be wary while computing the lambda subst map since lambdas can
-      // depend on each other. However, these dependencies cannot be cyclic so it
-      // suffices to make sure the traversal order is correct.
+    // /!\ CAREFUL /!\
+    // We have to be wary while computing the lambda subst map since lambdas can
+    // depend on each other. However, these dependencies cannot be cyclic so it
+    // suffices to make sure the traversal order is correct.
+    private def lambdas(): Unit = {
       var seen : Set[LambdaTemplate] = Set.empty
 
-      val lambdaKeys = lambdas.map(lambda => lambda.ids._2 -> lambda).toMap
+      val lambdaKeys = contents.lambdas.map(lambda => lambda.ids._2 -> lambda).toMap
       def extractSubst(lambda: LambdaTemplate): Unit = {
         for {
           dep <- lambda.closures.map(_._2) flatMap lambdaKeys.get
@@ -1014,60 +1018,81 @@ trait Templates
         } extractSubst(dep)
 
         if (!seen(lambda)) {
-          val substMap = subst.view.mapValues(_.encoded).toMap
-          val substLambda = lambda.substitute(mkSubstituter(substMap), matcherSubst)
+          val substLambda = lambda.substitute(mkSubstituter(substitution), matcherSubst)
           val (idT, cls) = instantiateLambda(substLambda)
           subst += lambda.ids._2 -> Left(idT)
-          clauses ++= cls
+          buffer ++= cls
           seen += lambda
         }
       }
 
-      for (l <- lambdas) extractSubst(l)
-
-      // instantiate positive quantifications last to avoid introducing
-      // extra quantifier instantiations that arise due to empty domains
-      val (others, positives) = quants.partition(_.polarity.isNegative)
-      for (q <- others ++ positives) {
-        val substMap = subst.view.mapValues(_.encoded).toMap
-        val substQuant = q.substitute(mkSubstituter(substMap), matcherSubst)
-        val (map, cls) = instantiateQuantification(substQuant)
-        subst ++= map.view.mapValues(Left(_)).toMap
-        clauses ++= cls
-      }
-
-      val substituter = mkSubstituter(subst.view.mapValues(_.encoded).toMap)
-      for ((ptr, lambda) <- pointers) {
-        registerLambda(substituter(ptr), substituter(lambda))
-      }
-
-      (clauses, subst)
+      for (l <- contents.lambdas) extractSubst(l)
     }
 
-    /** Instantiates the clauses and the items under their blockers: first the calls and
-      * applications, which define the failure of the template (if `failure` is defined), then the
-      * matchers, collection reads and equalities. The typings are instantiated by [[substitution]].
+    // instantiate positive quantifications last to avoid introducing
+    // extra quantifier instantiations that arise due to empty domains
+    private def quantifications(): Unit = {
+      val (others, positives) = contents.quantifications.partition(_.polarity.isNegative)
+      for (q <- others ++ positives) {
+        val substQuant = q.substitute(mkSubstituter(substitution), matcherSubst)
+        val (map, cls) = instantiateQuantification(substQuant)
+        subst ++= map.view.mapValues(Left(_)).toMap
+        buffer ++= cls
+      }
+    }
+
+    private def pointers(): Unit = {
+      val substituter = mkSubstituter(substitution)
+      for ((ptr, lambda) <- contents.pointers) {
+        registerLambda(substituter(ptr), substituter(lambda))
+      }
+    }
+
+    freshSymbols()
+    typings()
+    lambdas()
+    quantifications()
+    pointers()
+
+    /** The clauses of the substitution stage. */
+    val substClauses: Clauses = buffer.toSeq
+
+    /** The values of the symbols of the contents. */
+    val substMap: Map[Encoded, Arg] = subst
+
+    lazy val substituter: Encoded => Encoded = mkSubstituter(substitution)
+    lazy val msubst: Map[Encoded, Matcher] = substMap.collect { case (c, Right(m)) => c -> m }
+
+    /** The clauses of both stages (see [[itemClauses]]). */
+    def clauses(
+      failure: Option[Encoded] = None,
+      exempt: App => Boolean = _ => false,
+      onMatcher: (Encoded, Matcher) => Clauses = instantiateMatcher(_, _),
+      onEquality: (Encoded, Equality) => Clauses = instantiateEquality(_, _)
+    ): Clauses = substClauses ++ itemClauses(failure, exempt, onMatcher, onEquality)
+
+    /** Instantiates the clauses and the items of the contents under their blockers: first the calls
+      * and applications, then the matchers, collection reads and equalities.
       *
-      * Templates that handle matchers or equalities differently pass `onMatcher` or `onEquality`,
+      * The body of a function or lambda fails iff `failure` holds, while other templates assert
+      * that their failure literals don't hold. The applications that `exempt` picks may fail. The
+      * templates that handle matchers or equalities differently pass `onMatcher` or `onEquality`,
       * which receive these items under their substituted blockers. */
-    def instantiate(
-      clauses: Clauses,
-      items: Items,
-      substMap: Map[Encoded, Arg],
-      failure: Option[(Encoded, Encoded, Seq[Encoded])] = None,
+    def itemClauses(
+      failure: Option[Encoded] = None,
       exempt: App => Boolean = _ => false,
       onMatcher: (Encoded, Matcher) => Clauses = instantiateMatcher(_, _),
       onEquality: (Encoded, Equality) => Clauses = instantiateEquality(_, _)
     ): Clauses = {
-      val substituter : Encoded => Encoded = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
-      val msubst = substMap.collect { case (c, Right(m)) => c -> m }
+      val literals = contents.failures.getOrElse(Seq.empty)
 
       val allClauses = new scala.collection.mutable.ListBuffer[Encoded]
-      allClauses ++= clauses.map(substituter)
+      if (failure.isEmpty) allClauses ++= literals.map(f => mkNot(substituter(f)))
+      allClauses ++= contents.clauses.map(substituter)
 
       // Applies `f` to the items that `select` picks, under their substituted blockers
       def each[I](select: PartialFunction[Item, I])(f: (Encoded, I) => Unit): Unit =
-        for ((b, is) <- items if !abort; bp = substituter(b); i <- is.collect(select) if !abort) f(bp, i)
+        for ((b, is) <- contents.items if !abort; bp = substituter(b); i <- is.collect(select) if !abort) f(bp, i)
 
       // The calls and applications that may fail, under their blockers
       val failing = new scala.collection.mutable.ListBuffer[Encoded]
@@ -1089,14 +1114,14 @@ trait Templates
 
       // The body of a function or lambda fails iff one of its failure literals holds, or one of the
       // calls and applications on its paths fails
-      for ((start, self, literals) <- failure if partialFunctions) {
+      for (self <- failure if partialFunctions) {
         val sources = literals.map(substituter) ++ failing
         val fails = sources match {
           case Seq() => falseT
           case Seq(source) => source
           case _ => mkOr(sources.toSeq*)
         }
-        allClauses += mkImplies(substituter(start), mkEquals(self, fails))
+        allClauses += mkImplies(substituter(contents.pathVar._2), mkEquals(self, fails))
       }
       allClauses ++= newFailureDefinitions()
 
@@ -1126,14 +1151,9 @@ trait Templates
 
     val tmplClauses = gen(start, encodedStart)
 
-    val encoding = Template.encode(start -> encodedStart, bindings.toSeq, tmplClauses)
-
-    val (substClauses, substMap) = Template.substitution(
-      tmplClauses.condVars, tmplClauses.exprVars, tmplClauses.condTree, tmplClauses.types,
-      tmplClauses.lambdas, tmplClauses.quantifications, encoding.pointers, Map.empty, encodedStart)
-
-    val templateClauses = Template.instantiate(encoding.clauses, encoding.items, substMap, exempt = exempt)
-    val allClauses = encodedStart +: (substClauses ++ templateClauses)
+    val (contents, _) = Template.contents(start -> encodedStart, bindings.toSeq, tmplClauses)
+    val allClauses = encodedStart +:
+      contents.instantiation(encodedStart, Map.empty[Encoded, Arg]).clauses(exempt = exempt)
 
     for (cl <- allClauses) {
       reporter.debug("  . " + cl)
