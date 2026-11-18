@@ -16,6 +16,7 @@ trait Templates
      with QuantificationTemplates
      with EqualityTemplates
      with TypeTemplates
+     with WitnessTemplates
      with IncrementalStateWrapper {
 
   val program: Program
@@ -213,7 +214,7 @@ trait Templates
   private[unrolling] def appFailure(app: App): Encoded = appFailure(app.caller, app.tpe, app.args.map(_.encoded))
 
   val incrementals: Seq[IncrementalState] = managers ++ Seq(
-    condImplies, condImplied, potImplies, potImplied, condEquals, declared, callFailures, appFailures
+    witnessState, condImplies, condImplied, potImplies, potImplied, condEquals, declared, callFailures, appFailures
   )
 
   protected def freshConds(
@@ -1152,8 +1153,8 @@ trait Templates
     val v2 = Variable.fresh("g", tpe, true)
     val ws = tpe.from.map(tp => Variable.fresh("w", tp, true))
     val bindings = Map(v1 -> f1, v2 -> f2) ++ ws.map(w => w -> encodeSymbol(w))
-    lambdasManager.witnessArguments ++= ws.map(bindings)
-    lambdasManager.witnessInputs += (f1 -> f2) -> (tpe, ws.map(bindings))
+    witnessState.witnessArguments ++= ws.map(bindings)
+    witnessState.witnessInputs += (f1 -> f2) -> (tpe, ws.map(bindings))
 
     // the compared functions have already been typed where they were registered
     declared += v1 -> f1

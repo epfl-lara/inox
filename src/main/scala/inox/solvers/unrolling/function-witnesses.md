@@ -1,6 +1,6 @@
 # Distinguishing inputs for first-class functions
 
-This note states what the distinguishing inputs ("witnesses") in `LambdaTemplates.scala`,
+This note states what the distinguishing inputs ("witnesses") in `WitnessTemplates.scala`,
 `Templates.instantiateWitness` and the check loop of `UnrollingSolver.scala` guarantee, and sketches
 why. It builds on the formalization in Nicolas Voirol's thesis, *Verified Functional Programming*
 (EPFL, no. 9479, 2019), called "the thesis" below. Theorem and lemma numbers refer to its Chapter 2
@@ -442,7 +442,7 @@ refutations as well as in models. A query that needs two functions to be distinc
 Lambdas aren't compared structurally: their equality can't be observed, so it is left open. Giving
 every pair of lambdas a distinguishing input when it is created makes some queries much harder
 (TIP's `Lang` hangs Z3). So lambda/lambda pairs are registered without an equality literal
-(`LambdaTemplates.onDemandWitnesses`), and are only instantiated when extraction needs to tell two
+(`WitnessTemplates.onDemandWitnesses`), and are only instantiated when extraction needs to tell two
 lambda arguments of a free function apart. The solver then instantiates them and checks again.
 
 **`extensional`.** Comparisons are allowed and mean extensional equality. Witnesses hold

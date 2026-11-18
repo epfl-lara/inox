@@ -15,7 +15,7 @@ package unrolling
   * - [[FunctionEquality.Extensional]]: functions are equal iff they agree on every input.
   *
   * Under `none` and `extensional`, distinct functions always have a distinguishing input, in
-  * refutations as well as in models (see [[LambdaTemplates.functionWitnesses]]). */
+  * refutations as well as in models (see [[WitnessTemplates.functionWitnesses]]). */
 enum FunctionEquality {
   case None, Intensional, Extensional
 }
