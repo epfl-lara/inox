@@ -48,7 +48,7 @@ between the two:
 | Function templates and call unfolding | `FunctionTemplates.scala` |
 | Template contents, guarded items and their instantiation (`Instantiation`) | `Templates.scala` |
 | Implications and equalities between blockers | `BlockerGraph.scala` |
-| Failure literals of calls and applications (partial functions) | `Failures.scala` |
+| Partial functions: the failure literals of calls and applications | `PartialFunctions.scala` |
 | Custom equality on datatypes (`ADTSort.equality`), unfolded like calls | `EqualityTemplates.scala` |
 | Uninterpreted calls, as applications of free functions (constants when nullary) | `TemplateGenerator.uninterpretedFunction` |
 | The check/unroll loop and model extraction | `UnrollingSolver.scala` |
