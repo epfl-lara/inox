@@ -396,7 +396,7 @@ trait QuantificationTemplates { self: Templates =>
 
     private def registerBlockers(substituter: Encoded => Encoded): Unit = {
       val enabler = substituter(contents.pathVar._2)
-      val bs = (contents.blockers.keys ++ contents.applications.keys).map(substituter).toSet
+      val bs = (contents.items.calls.keys ++ contents.items.apps.keys).map(substituter).toSet
       _insts += enabler -> bs
     }
 
@@ -406,9 +406,11 @@ trait QuantificationTemplates { self: Templates =>
 
     lazy val guard: Encoded = contents.pathVar._2
 
-    private val keys: Seq[MatcherKey] = contents.matchers.flatMap(_._2.map(matcherKey)).toSeq
+    private lazy val matchers: Matchers = contents.items.matchers
+
+    private val keys: Seq[MatcherKey] = matchers.flatMap(_._2.map(matcherKey)).toSeq
     private val constraints: Seq[(Encoded, MatcherKey, Int)] = (for {
-      (_, ms) <- contents.matchers
+      (_, ms) <- matchers
       m <- ms
       (arg,i) <- m.args.zipWithIndex
       q <- arg.left.toOption if quantified(q)
@@ -435,7 +437,7 @@ trait QuantificationTemplates { self: Templates =>
       def quantifiersOf(m: Matcher): Set[Encoded] =
         (matchersOf(m) + m).flatMap(_.args.collect { case Left(q) if quantified(q) => q })
 
-      val allMatchers = contents.matchers.flatMap(_._2).toList
+      val allMatchers = matchers.flatMap(_._2).toList
       val allQuorums = allMatchers.toSet.subsets()
         .filter(ms => ms.flatMap(quantifiersOf) == quantified)
         .filterNot(ms => allMatchers.exists { m =>
@@ -496,7 +498,7 @@ trait QuantificationTemplates { self: Templates =>
             }
 
             if (opts.nonEmpty) {
-              val tms = contents.matchers.flatMap(_._2.map(_.substitute(substituter, msubst)))
+              val tms = matchers.flatMap(_._2.map(_.substitute(substituter, msubst)))
               if (opts.map(totalDepth).max >= tms.map(totalDepth).max) 0
               else 3
             } else if (grounds(q)(bs, m.args(i))) {
@@ -609,10 +611,9 @@ trait QuantificationTemplates { self: Templates =>
 
           // matcher instantiation must be manually controlled here to avoid never-ending loops
           clauses ++= Template.instantiate(
-            contents.clauses, contents.blockers, contents.applications,
-            Map.empty, contents.reads, contents.equalities, substMap)
+            contents.clauses, contents.items.filterItems(!_.isInstanceOf[Matcher]), substMap)
 
-          for ((b,ms) <- contents.matchers; m <- ms) {
+          for ((b,ms) <- matchers; m <- ms) {
             val sb = bs ++ (if (b == guard) Set.empty else Set(substituter(b)))
             val sm = m.substitute(substituter, msubst)
 

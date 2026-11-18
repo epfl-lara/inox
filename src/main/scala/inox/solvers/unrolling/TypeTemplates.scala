@@ -131,7 +131,7 @@ trait TypeTemplates { self: Templates =>
 
 
   /** Represents a type unfolding of a free variable (or input) in the unfolding procedure */
-  case class Typing(tpe: Type, arg: Encoded, instantiator: TemplateInstantiator) {
+  case class Typing(tpe: Type, arg: Encoded, instantiator: TemplateInstantiator) extends Item {
     override def toString: String =
       tpe.asString + "(" + asString(arg) + ")" + (instantiator match {
         case Capture(f, tpe) => " in " + asString(f)
@@ -473,7 +473,7 @@ trait TypeTemplates { self: Templates =>
       val res = new CaptureTemplate(contents.copy(
         arguments = (container -> containerT) +: contents.arguments,
         clauses = contents.clauses ++ funClauses,
-        types = typeBlockers
+        items = contents.items.filterItems(!_.isInstanceOf[Typing]) `merge` asItems(typeBlockers)
       ), functions)
 
       cache(tpe -> containerType) = res

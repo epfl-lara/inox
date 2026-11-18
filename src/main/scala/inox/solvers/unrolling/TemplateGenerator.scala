@@ -287,12 +287,9 @@ trait TemplateGenerator { self: Templates =>
             val encoding = Template.encode(pathVar -> substMap(pathVar), Seq.empty, cls, clauseSubst)
 
             (depSubst + (v -> mkEncoder(clauseSubst)(e)), contents `merge` (
-              cls.condVars, cls.exprVars, cls.condTree, encoding.clauses, cls.types,
-              encoding.calls `merge` Map(substMap(pathVar) -> extracted.calls),
-              encoding.apps `merge` Map(substMap(pathVar) -> extracted.apps),
-              encoding.matchers `merge` Map(substMap(pathVar) -> extracted.matchers),
-              encoding.reads `merge` Map(substMap(pathVar) -> extracted.reads),
-              cls.equalities, cls.lambdas, cls.quantifications, encoding.pointers ++ extracted.pointers
+              cls.condVars, cls.exprVars, cls.condTree, encoding.clauses,
+              encoding.items `merge` Map(substMap(pathVar) -> extracted.items),
+              cls.lambdas, cls.quantifications, encoding.pointers ++ extracted.pointers
             ))
           } else {
             val condVar = Variable.fresh("p", BooleanType())
@@ -311,8 +308,7 @@ trait TemplateGenerator { self: Templates =>
               cls.condVars + (condVar -> localSubst(condVar)),
               cls.exprVars + (exprVar -> localSubst(exprVar)),
               cls.condTree `merge` Map(pathVar -> Set(condVar)),
-              encoding.clauses, cls.types, encoding.calls, encoding.apps, encoding.matchers, encoding.reads,
-              cls.equalities, cls.lambdas, cls.quantifications, encoding.pointers
+              encoding.clauses, encoding.items, cls.lambdas, cls.quantifications, encoding.pointers
             ))
           }
       }
