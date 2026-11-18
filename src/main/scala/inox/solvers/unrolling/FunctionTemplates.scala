@@ -384,8 +384,7 @@ trait FunctionTemplates { self: Templates =>
                     tmplClauses.condVars, tmplClauses.exprVars, tmplClauses.condTree, tmplClauses.types,
                     tmplClauses.lambdas, tmplClauses.quantifications, encoding.pointers, Map.empty, defBlocker)
                   val failure = (defBlocker, callFailure(call), Template.failures(tmplClauses.exprVars))
-                  val templateClauses = Template.instantiate(encoding.clauses, encoding.calls, encoding.apps,
-                    encoding.matchers, encoding.reads, tmplClauses.equalities, substMap, Some(failure))
+                  val templateClauses = Template.instantiate(encoding.clauses, encoding.items, substMap, Some(failure))
                   substClauses ++ templateClauses
                 } getOrElse {
                   FunctionTemplate(tfd).instantiate(defBlocker, args ++ tpSubst, callFailure(call))
