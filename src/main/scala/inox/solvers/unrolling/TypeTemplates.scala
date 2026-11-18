@@ -447,8 +447,8 @@ trait TypeTemplates { self: Templates =>
 
       given CaptureGenerator = CaptureGenerator(containerT, containerType)
       val (p, tmplClauses) = mkTypeClauses(pathVar, tpe, v, substMap)
-      val (condVars, exprVars, _, _, _, types, equalities, lambdas, quants) = tmplClauses
-      assert(equalities.isEmpty && lambdas.isEmpty && quants.isEmpty,
+      import tmplClauses.{condVars, exprVars, types}
+      assert(tmplClauses.equalities.isEmpty && tmplClauses.lambdas.isEmpty && tmplClauses.quantifications.isEmpty,
         "Unexpected complex template clauses in capture template")
 
       val (contents, _) = Template.contents(

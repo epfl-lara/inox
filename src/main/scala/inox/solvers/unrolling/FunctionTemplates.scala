@@ -55,7 +55,7 @@ trait FunctionTemplates { self: Templates =>
           case fi: FunctionInvocation => Set(fi)
           case _ => Set.empty
         } (e).toSeq
-        (bodyClauses._4.toSeq.flatMap { case (b, es) => es.flatMap(invocations).map(b -> _) } ++
+        (bodyClauses.guardedExprs.toSeq.flatMap { case (b, es) => es.flatMap(invocations).map(b -> _) } ++
           invocations(p).map(start -> _)).distinct
       }
 
@@ -69,26 +69,28 @@ trait FunctionTemplates { self: Templates =>
           // it is assumed only once the arguments' membership in these types is shown.
           // Under `optAssumeChecked`, the front-end has checked the arguments of every call, so
           // the return type is assumed directly.
-          val (domains, domClauses) = if (assumeChecked) (Seq.empty[Expr], emptyClauses) else
-            tfd.params.foldLeft((Seq.empty[Expr], emptyClauses)) { case ((domains, domClauses), vd) =>
+          val (domains, domClauses) = if (assumeChecked) (Seq.empty[Expr], TemplateClauses()) else
+            tfd.params.foldLeft((Seq.empty[Expr], TemplateClauses())) { case ((domains, domClauses), vd) =>
               mkTypeClauses(start, vd.tpe, vd.toVariable, substMap, inDomain = true)(using MembershipGenerator) match {
                 case (BooleanLiteral(true), _) => (domains, domClauses)
-                case (p, pClauses) => (domains :+ p, domClauses +++ pClauses)
+                case (p, pClauses) => (domains :+ p, domClauses ++ pClauses)
               }
             }
 
-          val (conds, exprs, tree, guarded, eqs, tps, equals, lambdas, quants) = clauses +++ domClauses
+          val allClauses = clauses ++ domClauses
           val closures = typeOps.variablesOf(tfd.returnType).toSeq.sortBy(_.id).map(v => Left(substMap(v)))
           val call = mkCall(tfd, arguments.map(_._2))
           if (domains.isEmpty) {
             val typing = Typing(tfd.returnType, call, Constraint(trueT, closures, false))
-            (conds, exprs, tree, guarded, eqs, tps `merge` Map(pathVar._2 -> Set(typing)), equals, lambdas, quants)
+            allClauses.copy(types = allClauses.types `merge` Map(pathVar._2 -> Set(typing)))
           } else {
             val result = Variable.fresh("result", BooleanType(), true)
             val resultT = encodeSymbol(result)
             val typing = Typing(tfd.returnType, call, Constraint(resultT, closures, false))
-            (conds, exprs + (result -> resultT), tree, guarded `merge` (start -> Implies(andJoin(domains), result)),
-              eqs, tps `merge` Map(pathVar._2 -> Set(typing)), equals, lambdas, quants)
+            allClauses.copy(
+              exprVars = allClauses.exprVars + (result -> resultT),
+              guardedExprs = allClauses.guardedExprs `merge` (start -> Implies(andJoin(domains), result)),
+              types = allClauses.types `merge` Map(pathVar._2 -> Set(typing)))
           }
         } else {
           clauses
@@ -370,7 +372,7 @@ trait FunctionTemplates { self: Templates =>
                   val (p, cls) = mkExprClauses(start, body, Map(start -> defBlocker))
                   val tmplClauses = cls + (start -> Equals(tfd.applied, p))
 
-                  val encoding: (Clauses, Calls, Apps, Matchers, Reads, Pointers, () => String) = Template.encode(
+                  val encoding = Template.encode(
                     start -> defBlocker,
                     tfd.params.map(_.toVariable) zip args.map(_.encoded),
                     tmplClauses,
@@ -378,13 +380,12 @@ trait FunctionTemplates { self: Templates =>
                     partial = true
                   )
 
-                  val (clauses, calls, apps, matchers, reads, pointers, _) = encoding
-                  val (condVars, exprVars, condTree, types, equalities, lambdas, quants) = tmplClauses.proj
                   val (substClauses, substMap) = Template.substitution(
-                    condVars, exprVars, condTree, types, lambdas, quants, pointers, Map.empty, defBlocker)
-                  val failure = (defBlocker, callFailure(call), Template.failures(exprVars))
-                  val templateClauses = Template.instantiate(
-                    clauses, calls, apps, matchers, reads, equalities, substMap, Some(failure))
+                    tmplClauses.condVars, tmplClauses.exprVars, tmplClauses.condTree, tmplClauses.types,
+                    tmplClauses.lambdas, tmplClauses.quantifications, encoding.pointers, Map.empty, defBlocker)
+                  val failure = (defBlocker, callFailure(call), Template.failures(tmplClauses.exprVars))
+                  val templateClauses = Template.instantiate(encoding.clauses, encoding.calls, encoding.apps,
+                    encoding.matchers, encoding.reads, tmplClauses.equalities, substMap, Some(failure))
                   substClauses ++ templateClauses
                 } getOrElse {
                   FunctionTemplate(tfd).instantiate(defBlocker, args ++ tpSubst, callFailure(call))
