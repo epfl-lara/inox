@@ -602,15 +602,15 @@ trait QuantificationTemplates { self: Templates =>
           clauses ++= enablerClauses
 
           val baseSubst = subst + (contents.pathVar._2 -> Left(enabler))
-          val (substClauses, substMap) = contents.substitution(enabler, baseSubst)
-          clauses ++= substClauses
+          val instantiation = contents.instantiation(enabler, baseSubst)
+          clauses ++= instantiation.substClauses
 
-          val msubst = substMap.collect { case (c, Right(m)) => c -> m }
-          val substituter = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
+          val msubst = instantiation.msubst
+          val substituter = instantiation.substituter
           registerBlockers(substituter)
 
           // matcher instantiation must be manually controlled here to avoid never-ending loops
-          clauses ++= Template.instantiate(contents.clauses, contents.items, substMap, onMatcher = (_, _) => Seq.empty)
+          clauses ++= instantiation.itemClauses(onMatcher = (_, _) => Seq.empty)
 
           for ((b,ms) <- matchers; m <- ms) {
             val sb = bs ++ (if (b == guard) Set.empty else Set(substituter(b)))
@@ -732,11 +732,8 @@ trait QuantificationTemplates { self: Templates =>
           val instT = encodeSymbol(insts._1)
           val freshQuants = newTemplate.quantifiers.map(p => encodeSymbol(p._1))
           val substMap = ((newTemplate.quantifiers.map(_._2) :+ insts._2) zip (freshQuants :+ instT).map(Left(_))).toMap
-          val (substClauses, fullSubst) = newTemplate.contents.substitution(newTemplate.contents.pathVar._2, substMap)
-          clauses ++= substClauses
-
           // this will call `instantiateMatcher` on all matchers in `newTemplate.matchers`
-          clauses ++= newTemplate.contents.instantiate(fullSubst)
+          clauses ++= newTemplate.contents.instantiation(newTemplate.contents.pathVar._2, substMap).clauses()
 
           (instT, Map(insts._2 -> instT))
       })

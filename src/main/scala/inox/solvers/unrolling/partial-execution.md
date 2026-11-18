@@ -121,7 +121,7 @@ apart needs a literal for "`f(a)` fails", which the encoding builds as follows:
   applications to equal arguments fail alike (`Templates.callFailure` and `appFailure`). When a call
   or an application is unfolded, the template of the body it reaches defines its failure: the body
   fails iff one of its failure literals holds, or a call or an application on one of its paths fails
-  (`Template.instantiate`).
+  (`Instantiation.itemClauses`).
 - Free functions are partial as well: whether one of their applications fails is only constrained
   where a formula reaches it, and the model of a free function fails on the inputs on which its
   applications fail in the model.
