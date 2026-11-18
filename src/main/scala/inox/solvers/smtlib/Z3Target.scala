@@ -78,6 +78,23 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
   // so make sure it is enabled at this point.
   emit(SetOption(ProduceUnsatAssumptions(true)))
 
+  /* Z3 answers a check without scopes or assumptions with a non-incremental solver, whose models
+   * give the variables that its preprocessing eliminated as terms. Equalities of arrays built with
+   * `(_ map f)`, as for `s1.subsetOf(s2)` or `s1 ++ s2 == s3`, are left unevaluated in these terms,
+   * so their values can't be extracted. Once such an array shows up, Z3 uses its incremental
+   * solver, whose models evaluate them. The non-incremental solver is kept otherwise, as it is much
+   * faster on floating point. The option outlives `reset`, so each solver sets it, and older
+   * versions of Z3 that don't know it ignore it. */
+  private var ignoringSolver1 = false
+  private def setIgnoreSolver1(ignore: Boolean): Unit =
+    emit(SetOption(AttributeOption(Attribute(SKeyword(Z3Target.ignoreSolver1), Some(SSymbol(ignore.toString))))), rawOut = true)
+  setIgnoreSolver1(false)
+
+  protected def ignoreSolver1(): Unit = if (!ignoringSolver1) {
+    ignoringSolver1 = true
+    setIgnoreSolver1(true)
+  }
+
   // Under `--strings-bmp`, restrict the string alphabet to the BMP (the default `unicode` encoding
   // ranges up to 0x2FFFF, as SMT-LIB). Older versions of Z3 don't know the option, so we ignore
   // errors here.
@@ -448,6 +465,7 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 
   protected object ArrayMap {
     def apply(op: SExpr, arrs: Term*) = {
+      ignoreSolver1()
       FunctionApplication(
         QualifiedIdentifier(SMTIdentifier(SSymbol("map"), List(op)), None),
         arrs
@@ -465,6 +483,9 @@ trait Z3Target extends SMTLIBTarget with SMTLIBDebugger {
 }
 
 object Z3Target {
+  /** The option that makes Z3 always use its incremental solver (see `Z3Target.ignoreSolver1()`). */
+  val ignoreSolver1: String = "combined_solver.ignore_solver1"
+
   class Z3Parser(lexer: Lexer) extends Parser(lexer) {
     // Z3 uses a non-standard version of get-unsat-assumptions-response that
     // returns prop literals instead of symbols directly

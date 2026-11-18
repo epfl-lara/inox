@@ -66,7 +66,6 @@ object SolverTestSuite {
     def supports(features: Seq[Feature]): Boolean = features.forall(f => !unsupported(f))
   }
 
-  private val z3BagUnionModels = "Z3 models leave equalities between bag unions unevaluated"
   private val cvcKnownIssues = Map(
     "Map Merges" -> "returns Unknown on the quantified axiom that encodes merges",
   )
@@ -83,14 +82,11 @@ object SolverTestSuite {
     */
   val solvers: Seq[SolverInfo] = Seq(
     SolverInfo("nativez3", () => SolverFactory.hasNativeZ3,
-      Set(FloatingPoint, Reset),
-      groundOnly = Map("Bag Operations" -> z3BagUnionModels)),
+      Set(FloatingPoint, Reset)),
     SolverInfo("unrollz3", () => SolverFactory.hasNativeZ3,
-      Set(FloatingPoint, Reset),
-      groundOnly = Map("Bag Operations" -> z3BagUnionModels)),
+      Set(FloatingPoint, Reset)),
     SolverInfo("smt-z3", () => SolverFactory.hasZ3,
-      Set(),
-      groundOnly = Map("Bag Operations" -> z3BagUnionModels)),
+      Set()),
     SolverInfo("smt-cvc4", () => SolverFactory.hasCVC4,
       Set(FloatingPoint, BagAlgebra, NestedArrays),
       knownIssues = cvcKnownIssues,
