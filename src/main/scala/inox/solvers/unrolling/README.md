@@ -46,7 +46,9 @@ between the two:
 |---|---|
 | Expression to clause translation | `TemplateGenerator.mkExprClauses` |
 | Function templates and call unfolding | `FunctionTemplates.scala` |
-| Clause and blocker infrastructure | `Templates.scala` |
+| Template contents, guarded items and their instantiation (`Instantiation`) | `Templates.scala` |
+| Implications and equalities between blockers | `BlockerGraph.scala` |
+| Failure literals of calls and applications (partial functions) | `Failures.scala` |
 | Custom equality on datatypes (`ADTSort.equality`), unfolded like calls | `EqualityTemplates.scala` |
 | Uninterpreted calls, as applications of free functions (constants when nullary) | `TemplateGenerator.uninterpretedFunction` |
 | The check/unroll loop and model extraction | `UnrollingSolver.scala` |
