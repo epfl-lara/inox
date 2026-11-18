@@ -524,9 +524,6 @@ trait Templates
     def reads: Reads = ofKind { case r: Read => r }
     def equalities: Equalities = ofKind { case e: Equality => e }
     def typings: Types = ofKind { case t: Typing => t }
-
-    /** The items that `p` keeps, under their blockers. */
-    def filterItems(p: Item => Boolean): Items = ofKind { case i if p(i) => i }
   }
 
   /** The items of a map from blockers to items of one kind. */
@@ -1049,13 +1046,18 @@ trait Templates
 
     /** Instantiates the clauses and the items under their blockers: first the calls and
       * applications, which define the failure of the template (if `failure` is defined), then the
-      * matchers, collection reads and equalities. The typings are instantiated by [[substitution]]. */
+      * matchers, collection reads and equalities. The typings are instantiated by [[substitution]].
+      *
+      * Templates that handle matchers or equalities differently pass `onMatcher` or `onEquality`,
+      * which receive these items under their substituted blockers. */
     def instantiate(
       clauses: Clauses,
       items: Items,
       substMap: Map[Encoded, Arg],
       failure: Option[(Encoded, Encoded, Seq[Encoded])] = None,
-      exempt: App => Boolean = _ => false
+      exempt: App => Boolean = _ => false,
+      onMatcher: (Encoded, Matcher) => Clauses = instantiateMatcher(_, _),
+      onEquality: (Encoded, Equality) => Clauses = instantiateEquality(_, _)
     ): Clauses = {
       val substituter : Encoded => Encoded = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
       val msubst = substMap.collect { case (c, Right(m)) => c -> m }
@@ -1099,7 +1101,7 @@ trait Templates
       allClauses ++= newFailureDefinitions()
 
       each { case m: Matcher => m } { (bp, m) =>
-        allClauses ++= instantiateMatcher(bp, m.substitute(substituter, msubst))
+        allClauses ++= onMatcher(bp, m.substitute(substituter, msubst))
       }
 
       each { case r: Read => r } { (bp, r) =>
@@ -1107,7 +1109,7 @@ trait Templates
       }
 
       each { case e: Equality => e } { (bp, e) =>
-        allClauses ++= instantiateEquality(bp, e.substitute(substituter))
+        allClauses ++= onEquality(bp, e.substitute(substituter))
       }
 
       allClauses.toSeq

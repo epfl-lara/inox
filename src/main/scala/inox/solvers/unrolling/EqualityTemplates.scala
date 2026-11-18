@@ -93,19 +93,11 @@ trait EqualityTemplates { self: Templates =>
     }
 
     override protected def instantiate(substMap: Map[Encoded, Arg]): Clauses = {
-      val clauses = Template.instantiate(
-        contents.clauses, contents.items.filterItems(!_.isInstanceOf[Equality]), substMap)
-
       // register equalities (WILL NOT lead to any [[instantiate]] calls)
-      val substituter = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
-      for 
-        eq <- contents.items.equalities
-        bp = substituter(eq._1)
-        equality <- eq._2
-      yield
-        registerEquality(bp, equality.substitute(substituter))
-
-      clauses
+      Template.instantiate(contents.clauses, contents.items, substMap, onEquality = { (bp, equality) =>
+        registerEquality(bp, equality)
+        Seq.empty
+      })
     }
   }
 

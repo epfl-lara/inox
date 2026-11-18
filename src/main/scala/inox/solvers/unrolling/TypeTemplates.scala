@@ -451,9 +451,6 @@ trait TypeTemplates { self: Templates =>
       assert(tmplClauses.equalities.isEmpty && tmplClauses.lambdas.isEmpty && tmplClauses.quantifications.isEmpty,
         "Unexpected complex template clauses in capture template")
 
-      val (contents, _) = Template.contents(
-        pathVar -> pathVarT, Seq(v -> idT), tmplClauses + (pathVar -> p))
-
       val fullSubst = substMap ++ condVars ++ exprVars
 
       val encoder: Expr => Encoded = mkEncoder(fullSubst)
@@ -470,10 +467,13 @@ trait TypeTemplates { self: Templates =>
         case _ => typeBlockers += b -> (typeBlockers.getOrElse(b, Set.empty) + tp)
       }
 
+      // the typings of functions are replaced by `funClauses`
+      val (contents, _) = Template.contents(
+        pathVar -> pathVarT, Seq(v -> idT), tmplClauses.copy(types = typeBlockers) + (pathVar -> p))
+
       val res = new CaptureTemplate(contents.copy(
         arguments = (container -> containerT) +: contents.arguments,
-        clauses = contents.clauses ++ funClauses,
-        items = contents.items.filterItems(!_.isInstanceOf[Typing]) `merge` asItems(typeBlockers)
+        clauses = contents.clauses ++ funClauses
       ), functions)
 
       cache(tpe -> containerType) = res
