@@ -186,12 +186,21 @@ abstract class RecursiveEvaluator(override val program: Program,
       }.take(100)
 
       // The result of applying `l` to `values`, or `None` if the application fails. Running out of
-      // steps decides nothing.
-      def result(l: Lambda, values: Seq[Expr]): Option[Option[Expr]] = try {
-        Some(Some(e(Application(l, values))))
-      } catch {
-        case _: RuntimeError if gctx.stepsLeft >= 0 && !interruptManager.isInterrupted => Some(None)
-        case scala.util.control.NonFatal(_) => None
+      // steps or of stack decides nothing, and the other inputs are still tried: each application
+      // only gets half of the steps left, so that one that diverges leaves steps to the next ones.
+      def result(l: Lambda, values: Seq[Expr]): Option[Option[Expr]] = {
+        val before = gctx.stepsLeft
+        val budget = if (before > 0) before / 2 else before
+        gctx.stepsLeft = budget
+        try {
+          Some(Some(e(Application(l, values))))
+        } catch {
+          case _: RuntimeError if gctx.stepsLeft >= 0 && !interruptManager.isInterrupted => Some(None)
+          case _: StackOverflowError => None
+          case scala.util.control.NonFatal(_) => None
+        } finally {
+          gctx.stepsLeft = before - (budget - gctx.stepsLeft)
+        }
       }
 
       // The functions differ on an input on which only one of them fails, and agree on one on which both fail
