@@ -610,8 +610,7 @@ trait QuantificationTemplates { self: Templates =>
           registerBlockers(substituter)
 
           // matcher instantiation must be manually controlled here to avoid never-ending loops
-          clauses ++= Template.instantiate(
-            contents.clauses, contents.items.filterItems(!_.isInstanceOf[Matcher]), substMap)
+          clauses ++= Template.instantiate(contents.clauses, contents.items, substMap, onMatcher = (_, _) => Seq.empty)
 
           for ((b,ms) <- matchers; m <- ms) {
             val sb = bs ++ (if (b == guard) Set.empty else Set(substituter(b)))
