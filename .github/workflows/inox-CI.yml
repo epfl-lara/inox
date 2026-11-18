@@ -87,7 +87,7 @@ jobs:
     # loaded once per JVM) and their coverage measurements accumulate.
     - name: Run Tests
       id: unit-tests
-      run: sbt -Dtest-parallelism=10 -Dinox.require-solvers=smt-z3,smt-cvc4,smt-cvc5,smt-bitwuzla,princess -batch $SBT_COVERAGE test
+      run: sbt -Dtest-parallelism=10 -Dinox.require-solvers=nativez3,unrollz3,smt-z3,smt-cvc4,smt-cvc5,smt-bitwuzla,princess -batch $SBT_COVERAGE test
       env:
         SBT_COVERAGE: ${{ (matrix.runners.os == 'Linux' && matrix.java-version == 17) && 'coverage' || '' }}
     - name: Run integration tests

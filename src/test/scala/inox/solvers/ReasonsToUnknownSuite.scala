@@ -42,6 +42,13 @@ class ReasonsToUnknownSuite extends AnyFunSuite {
 
   private case class SmtSolver(name: String, available: () => Boolean, rlimit: IntOptionDef)
 
+  /** Cancels the test when the solver isn't available, or fails it when the solver is required
+    * (see [[SolverTestSuite.requiredSolvers]]).
+    */
+  private def requireSolver(name: String, available: Boolean): Unit =
+    if (SolverTestSuite.requiredSolvers(name)) assert(available, s"Solver $name is required but isn't available")
+    else assume(available, s"$name is not available")
+
   private val smtSolvers = Seq(
     SmtSolver("smt-z3", () => SolverFactory.hasZ3, smtlib.optZ3Rlimit),
     SmtSolver("nativez3", () => SolverFactory.hasNativeZ3, smtlib.optZ3Rlimit),
@@ -65,7 +72,7 @@ class ReasonsToUnknownSuite extends AnyFunSuite {
 
   for (solver <- smtSolvers) {
     test(s"${solver.name}: exhausting the resource limit is reported") {
-      assume(solver.available(), s"${solver.name} is not available")
+      requireSolver(solver.name, solver.available())
       val (res, resourceOut, boundHit) = check(solver.name, Seq(solver.rlimit(1)), hard)
       assert(res == Unknown)
       assert(resourceOut)
@@ -73,7 +80,7 @@ class ReasonsToUnknownSuite extends AnyFunSuite {
     }
 
     test(s"${solver.name}: answers within the resource limit aren't resource-outs") {
-      assume(solver.available(), s"${solver.name} is not available")
+      requireSolver(solver.name, solver.available())
       val (unsat, unsatOut, _) = check(solver.name, Seq(solver.rlimit(1)), x > E(BigInt(0)) && x < E(BigInt(0)))
       assert(unsat == Unsat)
       assert(!unsatOut)
@@ -84,7 +91,7 @@ class ReasonsToUnknownSuite extends AnyFunSuite {
     }
 
     test(s"${solver.name}: the reason describes the last check only") {
-      assume(solver.available(), s"${solver.name} is not available")
+      requireSolver(solver.name, solver.available())
       val ctx = TestContext(Options(Seq(optSelectedSolvers(Set(solver.name)), solver.rlimit(1))))
       val factory = program.getSolver(ctx).withTimeout(60.seconds)
       val s = factory.getNewSolver()
@@ -102,7 +109,7 @@ class ReasonsToUnknownSuite extends AnyFunSuite {
     }
 
     test(s"${solver.name}: a timeout isn't a resource-out, even with a resource limit") {
-      assume(solver.available(), s"${solver.name} is not available")
+      requireSolver(solver.name, solver.available())
       // The limit is far beyond what the solver can spend within the timeout
       val (res, resourceOut, _) = check(solver.name, Seq(solver.rlimit(4000)), hard, timeout = 1.second)
       assert(res == Unknown)
@@ -110,7 +117,7 @@ class ReasonsToUnknownSuite extends AnyFunSuite {
     }
 
     test(s"${solver.name}: reaching the unroll bound is reported") {
-      assume(solver.available(), s"${solver.name} is not available")
+      requireSolver(solver.name, solver.available())
       val (res, resourceOut, boundHit) = check(solver.name, Seq(unrolling.optUnrollBound(2)), needsInduction)
       assert(res == Unknown)
       assert(boundHit)
@@ -126,7 +133,7 @@ class ReasonsToUnknownSuite extends AnyFunSuite {
   }
 
   test("no flag is set when the unroll bound isn't reached") {
-    assume(SolverFactory.hasZ3, "smt-z3 is not available")
+    requireSolver("smt-z3", SolverFactory.hasZ3)
     // f(0) == 0 needs a single unfolding
     val (res, resourceOut, boundHit) =
       check("smt-z3", Seq(unrolling.optUnrollBound(2)), Not(FunctionInvocation(fID, Seq(), Seq(E(BigInt(0)))) === E(BigInt(0))))
