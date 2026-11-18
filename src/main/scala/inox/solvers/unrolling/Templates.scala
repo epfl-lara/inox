@@ -17,6 +17,8 @@ trait Templates
      with EqualityTemplates
      with TypeTemplates
      with WitnessTemplates
+     with BlockerGraph
+     with Failures
      with IncrementalStateWrapper {
 
   val program: Program
@@ -152,143 +154,10 @@ trait Templates
   def satisfactionAssumptions = managers.flatMap(_.satisfactionAssumptions)
   def refutationAssumptions = managers.flatMap(_.refutationAssumptions)
 
-  // implication tree that we're sure about: if  (b1, b2) is in the tree, then
-  // we have the precise semantics of b1 ==> b2 in the resulting clause set
-  private val condImplies = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
-  private val condImplied = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
-
-  // implication tree that isn't quite ensured in the resulting clause set
-  // this can happen due to defBlocker caching in unrolling
-  private val potImplies = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
-  private val potImplied = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
-
-  private val condEquals  = new IncrementalBijection[Encoded, Set[Encoded]]
-
   // Set of variables that have already been declared in this solver
   private val declared = new IncrementalSet[(Variable, Encoded)]
 
-  /* Partial functions: a function or a lambda fails on the inputs on which its evaluation fails
-   * (an error, an assumption that doesn't hold, or an undefined operation, see
-   * [[TemplateGenerator.failureSymbols]]). Each call and each application has a literal for whether
-   * it fails, which the instance of the callee's body defines when the call or application is unfolded
-   * (see [[Instantiation.itemClauses]]). Formulas assert that the calls and applications that they reach
-   * don't fail, so that the paths that fail stay infeasible, while the distinguishing inputs of
-   * functions tell apart a function that fails from one that doesn't (see [[instantiateWitness]]).
-   * Free functions may be partial too: nothing constrains whether their applications fail, unless a
-   * formula reaches them, and the extracted models of free functions fail where these do. */
-  private val callFailures = new IncrementalMap[(Callee, Seq[Encoded]), Encoded]
-  private val appFailures = new IncrementalMap[(Encoded, FunctionType, Seq[Encoded]), Encoded]
-
-  /** Whether the call of `callee` on `args` fails. */
-  private[unrolling] def callFailure(callee: Callee, args: Seq[Encoded]): Encoded =
-    callFailures.cached(callee -> args)(encodeSymbol(Variable.fresh("fails", BooleanType(), true)))
-
-  /** Whether the application of `caller` of type `tpe` to `args` fails.
-    *
-    * Unlike the bodies of functions, free functions aren't determined by their applications, so the
-    * failures of applications are a first-order uninterpreted predicate of their caller and
-    * arguments, whose congruence makes applications to equal arguments fail alike. */
-  private[unrolling] def appFailure(caller: Encoded, tpe: FunctionType, args: Seq[Encoded]): Encoded =
-    appFailures.cached((caller, tpe, args)) {
-      val fails = appFailurePredicates.getOrElseUpdate(tpe, mkFunction("fails", tpe +: tpe.from, BooleanType()))
-      // the predicate is mirrored by a literal, whose value models give on every backend
-      val literal = encodeSymbol(Variable.fresh("fails", BooleanType(), true))
-      failureDefinitions += mkEquals(literal, mkFunApp(fails, caller +: args))
-      literal
-    }
-  private val appFailurePredicates = scala.collection.mutable.Map.empty[FunctionType, Function]
-  private val failureDefinitions = scala.collection.mutable.ListBuffer.empty[Encoded]
-
-  /** The definitions of the failure literals of the applications created since the last call. */
-  private[unrolling] def newFailureDefinitions(): Clauses = {
-    val clauses = failureDefinitions.toSeq
-    failureDefinitions.clear()
-    clauses
-  }
-
-  /** The failure literals of the applications of type `tpe`, by caller and arguments. */
-  def appFailureLiterals(tpe: FunctionType): Seq[((Encoded, Seq[Encoded]), Encoded)] =
-    appFailures.toSeq.collect { case ((caller, `tpe`, args), fails) => (caller, args) -> fails }
-
-  private[unrolling] def callFailure(call: Call): Encoded = callFailure(call.callee, call.args.map(_.encoded))
-  private[unrolling] def appFailure(app: App): Encoded = appFailure(app.caller, app.tpe, app.args.map(_.encoded))
-
-  val incrementals: Seq[IncrementalState] = managers ++ Seq(
-    witnessState, condImplies, condImplied, potImplies, potImplied, condEquals, declared, callFailures, appFailures
-  )
-
-  protected def freshConds(
-    pathVar: Encoded,
-    condVars: Map[Variable, Encoded],
-    tree: Map[Variable, Set[Variable]]): Map[Encoded, Encoded] = {
-
-    val subst = condVars.map { case (v, idT) => idT -> encodeSymbol(v) }
-    val mapping = condVars.view.mapValues(subst).toMap
-
-    for ((parent, children) <- tree) {
-      mapping.get(parent) match {
-        case None => // enabling condition, corresponds to pathVar
-          for (child <- children) {
-            val ec = mapping(child)
-            condImplies += pathVar -> (condImplies(pathVar) + ec)
-            condImplied += ec -> (condImplied(ec) + pathVar)
-          }
-
-        case Some(ep) =>
-          for (child <- children) {
-            val ec = mapping(child)
-            condImplies += ep -> (condImplies(ep) + ec)
-            condImplied += ec -> (condImplied(ec) + ep)
-          }
-      }
-    }
-
-    subst
-  }
-
-  private val sym = Variable.fresh("bs", BooleanType(), true)
-  protected def encodeBlockers(bs: Set[Encoded]): (Encoded, Clauses) = bs.toSeq.filter(_ != trueT) match {
-    case Seq(b) if (
-      condImplies.isDefinedAt(b) || condImplied.isDefinedAt(b) ||
-      potImplies.isDefinedAt(b) || potImplied.isDefinedAt(b) ||
-      condEquals.containsA(b)
-    ) => (b, Seq.empty)
-
-    case _ =>
-      val flatBs = fixpoint((bs: Set[Encoded]) => bs.flatMap(b => condEquals.getBorElse(b, Set(b))))(bs)
-      condEquals.getA(flatBs) match {
-        case Some(b) => (b, Seq.empty)
-        case None =>
-          val b = encodeSymbol(sym)
-          condEquals += (b -> flatBs)
-          (b, Seq(mkEquals(b, if (flatBs.isEmpty) trueT else mkAnd(flatBs.toSeq*))))
-      }
-  }
-
-  protected def registerImplication(b1: Encoded, b2: Encoded): Unit = {
-    potImplies += b1 -> (potImplies(b1) + b2)
-    potImplied += b2 -> (potImplied(b2) + b1)
-  }
-
-  protected def blockerEquals(b: Encoded): Set[Encoded] = condEquals.getBorElse(b, Set.empty)
-
-  protected def blockerParents(b: Encoded, strict: Boolean = true): Set[Encoded] = {
-    condImplied(b) ++ (if (!strict) potImplied(b) else Set.empty)
-  }
-
-  protected def blockerChildren(b: Encoded, strict: Boolean = true): Set[Encoded] = {
-    condImplies(b) ++ (if (!strict) potImplies(b) else Set.empty)
-  }
-
-  protected def blockerPath(b: Encoded): Set[Encoded] = blockerPath(Set(b))
-
-  /* This set is guaranteed finite and won't expand beyond the limit of a function's
-   * definition as aVar ==> defBlocker is NOT a strict implication (ie. won't be in
-   * the condImplied map) */
-  protected def blockerPath(bs: Set[Encoded]): Set[Encoded] = fixpoint((bs: Set[Encoded]) => bs.flatMap { b =>
-    val equal = condEquals.getBorElse(b, Set.empty)
-    if (equal.nonEmpty) equal else (condImplied(b) + b)
-  })(bs).filter(_ != trueT)
+  val incrementals: Seq[IncrementalState] = managers ++ Seq(witnessState, blockerGraph, failureState, declared)
 
   def promoteBlocker(b: Encoded, force: Boolean = false): Boolean = {
     var seen: Set[Encoded] = Set.empty
