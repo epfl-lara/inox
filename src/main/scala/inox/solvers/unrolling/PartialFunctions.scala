@@ -15,17 +15,17 @@ import utils._
   * functions tell apart a function that fails from one that doesn't (see [[instantiateWitness]]).
   * Free functions may be partial too: nothing constrains whether their applications fail, unless a
   * formula reaches them, and the extracted models of free functions fail where these do. */
-trait Failures { self: Templates =>
+trait PartialFunctions { self: Templates =>
   import context.{given, _}
   import program._
   import program.trees._
   import program.symbols.{given, _}
 
-  import failureState._
+  import partialFunctionState._
 
-  private[unrolling] object failureState extends IncrementalStateWrapper {
-    private[Failures] val callFailures = new IncrementalMap[(Callee, Seq[Encoded]), Encoded]
-    private[Failures] val appFailures = new IncrementalMap[(Encoded, FunctionType, Seq[Encoded]), Encoded]
+  private[unrolling] object partialFunctionState extends IncrementalStateWrapper {
+    private[PartialFunctions] val callFailures = new IncrementalMap[(Callee, Seq[Encoded]), Encoded]
+    private[PartialFunctions] val appFailures = new IncrementalMap[(Encoded, FunctionType, Seq[Encoded]), Encoded]
 
     val incrementals: Seq[IncrementalState] = Seq(callFailures, appFailures)
   }

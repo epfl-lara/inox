@@ -18,7 +18,7 @@ trait Templates
      with TypeTemplates
      with WitnessTemplates
      with BlockerGraph
-     with Failures
+     with PartialFunctions
      with IncrementalStateWrapper {
 
   val program: Program
@@ -157,7 +157,7 @@ trait Templates
   // Set of variables that have already been declared in this solver
   private val declared = new IncrementalSet[(Variable, Encoded)]
 
-  val incrementals: Seq[IncrementalState] = managers ++ Seq(witnessState, blockerGraph, failureState, declared)
+  val incrementals: Seq[IncrementalState] = managers ++ Seq(witnessState, blockerGraph, partialFunctionState, declared)
 
   def promoteBlocker(b: Encoded, force: Boolean = false): Boolean = {
     var seen: Set[Encoded] = Set.empty
