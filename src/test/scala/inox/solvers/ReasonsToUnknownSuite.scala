@@ -44,6 +44,8 @@ class ReasonsToUnknownSuite extends AnyFunSuite {
 
   private val smtSolvers = Seq(
     SmtSolver("smt-z3", () => SolverFactory.hasZ3, smtlib.optZ3Rlimit),
+    SmtSolver("nativez3", () => SolverFactory.hasNativeZ3, smtlib.optZ3Rlimit),
+    SmtSolver("unrollz3", () => SolverFactory.hasNativeZ3, smtlib.optZ3Rlimit),
     SmtSolver("smt-cvc5", () => SolverFactory.hasCVC5, smtlib.optCVC5Rlimit)
   )
 

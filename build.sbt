@@ -17,21 +17,12 @@ scalacOptions ++= Seq(
   "-feature"
 )
 
-val osInf = Option(System.getProperty("os.name")).getOrElse("")
+// The native Z3 interface: ScalaZ3 (https://github.com/epfl-lara/ScalaZ3), which bundles the Z3
+// Java bindings and the native libraries of Z3 for all supported platforms.
+val z3Version = "5.4.1"
 
-val isUnix    = osInf.indexOf("nix") >= 0 || osInf.indexOf("nux") >= 0
-val isWindows = osInf.indexOf("Win") >= 0
-val isMac     = osInf.indexOf("Mac") >= 0
-
-val osName = if (isWindows) "win" else if (isMac) "mac" else "unix"
-
-val osArch = System.getProperty("sun.arch.data.model")
-
-def chooseScalaZ3(scalaBinVersion: String): String = s"scalaz3-$osName-$osArch-$scalaBinVersion.jar"
-
-Compile / unmanagedJars += {
-  baseDirectory.value / "unmanaged" / chooseScalaZ3(scalaBinaryVersion.value)
-}
+Compile / unmanagedJars +=
+  baseDirectory.value / "unmanaged" / s"scalaz3_${scalaBinaryVersion.value}-$z3Version.jar"
 
 resolvers ++= Seq(
   "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",

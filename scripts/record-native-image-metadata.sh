@@ -39,14 +39,12 @@ sbt -batch assembly "Test/runMain inox.utils.WriteBinaryInputs $work/binary $(ec
 jar=$(ls -t target/scala-*/inox-assembly-*.jar | head -n 1)
 
 recorded=$work/recorded
-mkdir -p "$recorded" "$work/tmp"
+mkdir -p "$recorded"
 
 # Runs inox on the given files in a single JVM (starting a JVM under the
 # agent takes seconds). A run stops at the first file that crashes or times
 # out, so it restarts after that file until every file has been tried. The
-# fresh temporary directory makes the first native Z3 run unpack the Z3
-# libraries, so that their resources are recorded. The first argument holds
-# the options, separated by spaces.
+# first argument holds the options, separated by spaces.
 run() {
   local opts
   read -r -a opts <<< "$1"; shift
@@ -54,7 +52,7 @@ run() {
   while [ ${#todo[@]} -gt 0 ]; do
     local log
     log=$(timeout 600 "$java" -agentlib:native-image-agent=config-merge-dir="$recorded" \
-      -Djava.io.tmpdir="$work/tmp" -jar "$jar" --timeout=5 "${opts[@]}" "${todo[@]}" 2>&1 || true)
+      -jar "$jar" --timeout=5 "${opts[@]}" "${todo[@]}" 2>&1 || true)
     local rest=() started=false
     for f in "${todo[@]}"; do
       if $started; then rest+=("$f")

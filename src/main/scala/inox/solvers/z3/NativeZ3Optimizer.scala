@@ -33,6 +33,7 @@ trait NativeZ3Optimizer extends Z3Unrolling with AbstractUnrollingOptimizer  { s
     val name = "z3-opt"
 
     private val optimizer: ScalaZ3Optimizer = z3.mkOptimizer()
+    rlimit.foreach(optimizer.setRlimit)
     private val defaultGroup = "inox$default"
 
     def assertCnstr(ast: Z3AST): Unit = tryZ3(optimizer.assertCnstr(ast))
@@ -49,7 +50,7 @@ trait NativeZ3Optimizer extends Z3Unrolling with AbstractUnrollingOptimizer  { s
     //           is difficult to merge due to small API differences between the native Z3
     //           solvers and optimizers.
     private def checkOptimizer(config: Configuration): config.Response[Model, Assumptions] =
-      config.cast(tryZ3[SolverResponse[Model, Assumptions]](optimizer.check() match {
+      config.cast(tryZ3[SolverResponse[Model, Assumptions]](recordResourceOut(optimizer.getReasonUnknown())(optimizer.check()) match {
         case Some(true) => if (config.withModel) SatWithModel(optimizer.getModel()) else Sat
         case Some(false) => if (config.withUnsatAssumptions) UnsatWithAssumptions(Set()) else Unsat
         case None => Unknown

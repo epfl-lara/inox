@@ -34,6 +34,27 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   @volatile
   private var interrupted = false
 
+  /** The resource limit of each check (`--z3-rlimit`), in Z3's resource units, if one is set. */
+  protected val rlimit: Option[Long] = smtlib.optZ3Rlimit.resourceUnits(context.options)
+
+  private var resourceOut = false
+
+  override def resourceLimitReached: Boolean = resourceOut
+
+  /** Runs a check of Z3 and records whether it gave up (`None`) because of the resource limit.
+    * Z3 gives the same reason ("canceled") when it is interrupted, e.g. by a timeout, which is
+    * not a resource-out.
+    */
+  protected def recordResourceOut(reasonUnknown: => String)(check: => Option[Boolean]): Option[Boolean] = {
+    resourceOut = false
+    val res = check
+    if (res.isEmpty && rlimit.exists(_ > 0) && !interrupted) {
+      val reason = tryZ3(reasonUnknown).getOrElse("").toLowerCase
+      resourceOut = reason.contains("canceled") || reason.contains("resource")
+    }
+    res
+  }
+
   private var freed = false
   private val traceE = new Exception()
 
@@ -54,8 +75,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
   protected[z3] var z3 : Z3Context = new Z3Context(
     "MODEL"             -> true,
-    "TYPE_CHECK"        -> true,
-    "WELL_SORTED_CHECK" -> true
+    "TYPE_CHECK"        -> true
   )
 
   // @nv: This MUST take place AFTER Z3Context was created!!

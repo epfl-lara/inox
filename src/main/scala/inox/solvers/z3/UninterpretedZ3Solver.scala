@@ -56,6 +56,8 @@ class UninterpretedZ3Solver(override val program: Program, override val context:
 
   def interrupt(): Unit = underlying.interrupt()
 
+  override def resourceLimitReached: Boolean = underlying.resourceLimitReached
+
   def assertCnstr(expression: Expr): Unit = {
     freeVars ++= exprOps.variablesOf(expression)
     tryZ3(underlying.assertCnstr(underlying.toZ3Formula(expression)))

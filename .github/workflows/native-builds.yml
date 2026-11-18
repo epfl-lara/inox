@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 60
     env:
       INSTALL_SOLVERS: 1
-      Z3_VER: 4.15.1
+      Z3_VER: 5.4.1
     steps:
     - name: Checkout
       uses: actions/checkout@v7
@@ -58,7 +58,7 @@ jobs:
     timeout-minutes: 60
     env:
       INSTALL_SOLVERS: 1
-      Z3_VER: 4.15.1
+      Z3_VER: 5.4.1
     steps:
     - name: Checkout
       uses: actions/checkout@v7

@@ -21,41 +21,15 @@ private[solvers] object PlatformSolvers {
   import combinators._
   import unrolling._
 
+  /** Whether the Z3 native interface is available: the Z3 JAR bundles the native libraries of
+    * the platforms it supports, and extracts and loads those of the current one on first use.
+    */
   lazy val hasNativeZ3: Boolean = try {
-    unpackZ3Libraries
-    _root_.z3.Z3Wrapper.withinJar()
+    _root_.z3.Z3Wrapper.ensureLoaded()
     true
   } catch {
     case _: java.lang.UnsatisfiedLinkError => false
     case _: java.lang.NoClassDefFoundError => false
-    case _: java.io.IOException => false
-  }
-
-  /** ScalaZ3 unpacks its native libraries by reading its own jar file, which
-    * a GraalVM native image doesn't have. It skips unpacking when the target
-    * directory already exists, so we unpack the libraries there ourselves,
-    * from the resources on the class path (bundled into a native image). This
-    * also runs on the JVM, so that the tracing agent records the resources.
-    */
-  private lazy val unpackZ3Libraries: Unit = {
-    import java.nio.file.{Files, Paths, StandardCopyOption}
-    val dir = Paths.get(System.getProperty("java.io.tmpdir"),
-      "SCALAZ3_" + _root_.z3.LibraryChecksum.value, "lib-bin")
-    for (name <- Seq("z3", "z3java", "scalaz3")) {
-      val lib = System.mapLibraryName(name)
-      val target = dir.resolve(lib)
-      if (!Files.exists(target)) {
-        val in = getClass.getResourceAsStream("/lib-bin/" + lib)
-        if (in != null) try {
-          // Unpack next to the target and move it in place, so concurrent
-          // runs never load a partially written library.
-          Files.createDirectories(dir)
-          val tmp = Files.createTempFile(dir, lib, ".tmp")
-          Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING)
-          Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE)
-        } finally in.close()
-      }
-    }
   }
 
   val solverNames: Map[String, String] = Map(
@@ -80,7 +54,6 @@ private[solvers] object PlatformSolvers {
                     val sourceProgram: p.type
                     val targetProgram: Program { val trees: inox.trees.type }
                   })(using sem: p.Semantics): Option[SolverFactory { val program: p.type; type S <: TimeoutSolver { val program: p.type } }] = {
-    if (finalName.contains("z3")) unpackZ3Libraries
     finalName match {
       case "nativez3" => Some(create(p)(finalName, {
         class NativeZ3Impl(override val program: p.type)
@@ -130,6 +103,8 @@ private[solvers] object PlatformSolvers {
           override protected val encoder = enc
 
           override protected def partialModel = model
+
+          override def resourceLimitReached: Boolean = underlying.resourceLimitReached
         }
 
         () => new UnrollZ3Impl(p)(enc)
