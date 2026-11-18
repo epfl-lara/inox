@@ -748,6 +748,32 @@ class EvaluatorSuite extends AnyFunSuite {
     // nullary functions are equal when their only results are
     eval(extensional, Equals(Lambda(Seq.empty, Plus(int(1), int(1))), Lambda(Seq.empty, int(2)))) === BooleanLiteral(true)
     eval(extensional, Equals(Lambda(Seq.empty, int(1)), Lambda(Seq.empty, int(2)))) === BooleanLiteral(false)
+    // functions are partial: they differ on the inputs on which only one of them fails
+    eval(extensional, Equals(lambda(x => UnitLiteral()), lambda(x => IfExpr(Equals(x, int(0)), Error(UnitType(), "fails"), UnitLiteral())))) === BooleanLiteral(false)
+    eval(extensional, Equals(Lambda(Seq.empty, Division(int(1), int(0))), Lambda(Seq.empty, int(2)))) === BooleanLiteral(false)
+    val failsOnZero = lambda(x => IfExpr(Equals(x, int(0)), Error(IntegerType(), "fails"), Plus(x, int(1))))
+    eval(extensional, Equals(failsOnZero, lambda(x => Plus(x, int(2))))) === BooleanLiteral(false)
+    eval(extensional, Equals(failsOnZero, succ)) === BooleanLiteral(false)
+    // and agree on the inputs on which both fail
+    eval(extensional, Equals(Lambda(Seq.empty, Division(int(1), int(0))), Lambda(Seq.empty, Error(IntegerType(), "fails")))) === BooleanLiteral(true)
+
+    // sets, bags and maps compare their function elements and keys extensionally too
+    val fnT = FunctionType(Seq(IntegerType()), IntegerType())
+    def set(fs: Expr*) = FiniteSet(fs, fnT)
+    eval(extensional, ElementOfSet(succ, set(pred))) === BooleanLiteral(false)
+    eval(extensional, ElementOfSet(succ, set(pred, succ))) === BooleanLiteral(true)
+    eval(extensional, ElementOfSet(id, set(alsoId))).failed
+    eval(extensional, SubsetOf(set(succ), set(pred, succ))) === BooleanLiteral(true)
+    eval(extensional, Equals(set(succ, pred), set(pred, succ))) === BooleanLiteral(true)
+    eval(extensional, Equals(set(succ), set(pred))) === BooleanLiteral(false)
+    eval(extensional, Equals(SetDifference(set(succ, pred), set(succ)), set(pred))) === BooleanLiteral(true)
+    eval(extensional, MapApply(FiniteMap(Seq(succ -> int(1)), int(0), fnT, IntegerType()), pred)) === int(0)
+    eval(extensional, MultiplicityInBag(succ, FiniteBag(Seq(succ -> int(2)), fnT))) === int(2)
+    // maps with function values compare their values as functions
+    def fnMap(f: Expr) = FiniteMap(Seq(int(1) -> f), pred, IntegerType(), fnT)
+    eval(extensional, Equals(fnMap(succ), fnMap(pred))) === BooleanLiteral(false)
+    eval(extensional, Equals(fnMap(succ), fnMap(succ))) === BooleanLiteral(true)
+    eval(extensional, Equals(fnMap(id), fnMap(alsoId))).failed
 
     // without function equality, functions can't be compared at all
     val none = recursive(FunctionEquality.None)
@@ -759,7 +785,6 @@ class EvaluatorSuite extends AnyFunSuite {
     eval(none, Equals(Tuple(Seq(int(1), int(2))), Tuple(Seq(int(1), int(2))))) === BooleanLiteral(true)
 
     // sets, bags and maps compare their elements and keys, so they can't hold functions under `none`
-    val fnT = FunctionType(Seq(IntegerType()), IntegerType())
     val fnSet = FiniteSet(Seq(succ), fnT)
     eval(none, fnSet).failed
     eval(none, ElementOfSet(id, FiniteSet(Seq(alsoId), fnT))).failed

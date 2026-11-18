@@ -77,4 +77,27 @@ class PropositionSuite extends UnrollingTestSuite {
       SimpleSolverAPI(program.getSolver).solveSAT(clause)
     }
   }
+
+  test("A proposition held by data is stated when selected") {
+    // case class Claim(holds: Prop, n: BigInt)
+    val claimID = FreshIdentifier("Claim")
+    val consID = FreshIdentifier("ClaimCons")
+    val holdsID = FreshIdentifier("holds")
+    val claim = mkSort(claimID)() { _ =>
+      Seq((consID, Seq(ValDef(holdsID, PropType()), ValDef(FreshIdentifier("n"), IntegerType()))))
+    }
+    val program = InoxProgram(NoSymbols.withFunctions(Seq(pos(PropType()))).withSorts(Seq(claim))
+      .withQuantifiers(QuantifierMode.Propositional))
+    val c = "c" :: ADTType(claimID, Seq())
+    val stated = Let(c, ADT(consID, Seq(), Seq(positive, E(BigInt(1)))),
+      ADTSelector(c.toVariable, holdsID) && f(E(BigInt(3))) <= E(BigInt(0)))
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(stated).isUNSAT)
+    val pair = Tuple(Seq(positive, E(BigInt(1))))
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(TupleSelect(pair, 1) && f(E(BigInt(3))) <= E(BigInt(0))).isUNSAT)
+    // equal claims state the same proposition
+    val d = Variable.fresh("d", ADTType(claimID, Seq()))
+    val same = Equals(d, ADT(consID, Seq(), Seq(positive, E(BigInt(1)))))
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(same && ADTSelector(d, holdsID) && f(E(BigInt(3))) <= E(BigInt(0))).isUNSAT)
+    assert(SimpleSolverAPI(program.getSolver).solveSAT(same && Not(ADTSelector(d, holdsID))).isSAT)
+  }
 }

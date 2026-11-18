@@ -104,6 +104,7 @@ abstract class SMTLIBSolver private(override val program: Program,
     functions.reset()
     predicates.reset()
     predicateCalls.reset()
+    firstOrderFunctions.reset()
 
     initialize()
   }
@@ -206,6 +207,7 @@ abstract class SMTLIBSolver private(override val program: Program,
     functions.push()
     predicates.push()
     predicateCalls.push()
+    firstOrderFunctions.push()
 
     emit(Push(1))
   }
@@ -221,6 +223,7 @@ abstract class SMTLIBSolver private(override val program: Program,
     functions.pop()
     predicates.pop()
     predicateCalls.pop()
+    firstOrderFunctions.pop()
 
     emit(Pop(1))
   }

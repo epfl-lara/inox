@@ -98,6 +98,47 @@ class CollectionSemanticsSuite extends SolverTestSuite {
     )) contains true)
   }
 
+  private def int32Set(is: Int*): Expr = FiniteSet(is.map(Int32Literal(_)), Int32Type())
+
+  test("Set Subsets", Sets) { ctx =>
+    val s = solver(ctx)
+
+    check(s, SubsetOf(int32Set(1, 2), int32Set(1, 2, 3)), BooleanLiteral(true))
+    check(s, SubsetOf(int32Set(2, 1), int32Set(1, 2)), BooleanLiteral(true))
+    check(s, SubsetOf(int32Set(1, 4), int32Set(1, 2, 3)), BooleanLiteral(false))
+    check(s, SubsetOf(int32Set(), int32Set(1)), BooleanLiteral(true))
+    check(s, SubsetOf(int32Set(), int32Set()), BooleanLiteral(true))
+    check(s, SubsetOf(int32Set(1), int32Set()), BooleanLiteral(false))
+    check(s, SubsetOf(SetAdd(int32Set(1), Int32Literal(2)), int32Set(1, 2)), BooleanLiteral(true))
+    check(s, SubsetOf(int32Set(1, 2), SetDifference(int32Set(1, 2, 3), int32Set(2))), BooleanLiteral(false))
+
+    val a = Variable.fresh("a", SetType(Int32Type()))
+    val b = Variable.fresh("b", SetType(Int32Type()))
+    assert(s.solveVALID(SubsetOf(a, SetUnion(a, b))) contains true)
+    assert(s.solveVALID(SubsetOf(SetIntersection(a, b), b)) contains true)
+    assert(s.solveVALID(Implies(And(SubsetOf(a, b), SubsetOf(b, a)), Equals(a, b))) contains true)
+    assert(s.solveVALID(SubsetOf(a, b)) contains false)
+  }
+
+  test("Set Equalities of Set Operations", Sets) { ctx =>
+    val s = solver(ctx)
+
+    check(s, Equals(SetUnion(int32Set(1), int32Set(1, 2)), int32Set(2, 1)), BooleanLiteral(true))
+    check(s, Equals(SetUnion(int32Set(1), int32Set(2)), int32Set(1)), BooleanLiteral(false))
+    check(s, Equals(SetIntersection(int32Set(1, 3), int32Set(1, 2)), int32Set(1)), BooleanLiteral(true))
+    check(s, Equals(SetIntersection(int32Set(1), int32Set(2)), int32Set()), BooleanLiteral(true))
+    check(s, Equals(SetDifference(int32Set(1, 2), int32Set(2, 3)), int32Set(1)), BooleanLiteral(true))
+    check(s, Equals(SetDifference(int32Set(1), int32Set(1, 2)), int32Set(1)), BooleanLiteral(false))
+    check(s, Equals(SetAdd(int32Set(1), Int32Literal(1)), int32Set(1)), BooleanLiteral(true))
+    check(s, Equals(SetAdd(int32Set(1), Int32Literal(2)), int32Set(1)), BooleanLiteral(false))
+
+    val a = Variable.fresh("a", SetType(Int32Type()))
+    val x = Variable.fresh("x", Int32Type())
+    assert(s.solveVALID(ElementOfSet(x, SetAdd(a, x))) contains true)
+    assert(s.solveVALID(Equals(SetAdd(SetAdd(a, x), x), SetAdd(a, x))) contains true)
+    assert(s.solveVALID(Equals(SetAdd(a, x), a)) contains false)
+  }
+
   test("Simple Bag Operations", Bags) { ctx =>
     val s = solver(ctx)
 

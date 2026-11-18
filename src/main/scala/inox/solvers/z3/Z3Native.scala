@@ -73,6 +73,15 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   private val stringEncoding: String = if (maxStringChar == 0xFFFF) "bmp" else "unicode"
   private val encodingHolder: Thread = Z3Native.acquireEncoding(stringEncoding)
 
+  /** Called when an array built pointwise with `(_ map f)` is encoded (see
+    * `smtlib.Z3Target.ignoreSolver1()`). */
+  protected def pointwiseArrays(): Unit = ()
+
+  private def pointwiseMap(f: Z3FuncDecl, args: Z3AST*): Z3AST = {
+    pointwiseArrays()
+    z3.mkArrayMap(f, args*)
+  }
+
   protected[z3] var z3 : Z3Context = new Z3Context(
     "MODEL"             -> true,
     "TYPE_CHECK"        -> true
@@ -110,6 +119,10 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     }
   }
 
+  /** A fresh first-order uninterpreted function. */
+  def declareFunction(name: String, from: Seq[Type], to: Type): Z3FuncDecl =
+    z3.mkFreshFuncDecl(name, from.map(typeToSort), typeToSort(to))
+
   def declareVariable(v: Variable): Z3AST = variables.cachedB(v) {
     symbolToFreshZ3Symbol(v)
   }
@@ -120,6 +133,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
   // Bijections between Inox Types/Functions/Ids to Z3 Sorts/Decls/ASTs
   private[z3] val functions = new IncrementalBijection[TypedFunDef, Z3FuncDecl]()
   private[z3] val lambdas   = new IncrementalBijection[FunctionType, Z3FuncDecl]()
+  private[z3] val firstOrderFunctions = new IncrementalBijection[Identifier, Z3FuncDecl]()
   private[z3] val variables = new IncrementalBijection[Variable, Z3AST]()
 
   private[z3] val constructors = new IncrementalBijection[ConsType, Z3FuncDecl]()
@@ -313,6 +327,11 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
     case f @ FunctionInvocation(id, tps, args) =>
       z3.mkApp(functionDefToDecl(getFunction(id, tps.map(_.getType))), args.map(toZ3)*)
 
+    // first-order uninterpreted functions of the unrolling solver (see [[unrolling.Templates.mkFunction]])
+    case UninterpretedCall(id, Seq(), args, FunctionType(from, to)) =>
+      val funDecl = firstOrderFunctions.cachedB(id)(declareFunction(id.uniqueName, from, to))
+      z3.mkApp(funDecl, args.map(toZ3)*)
+
     case fa @ Application(caller, args) =>
       val ft @ FunctionType(froms, to) = caller.getType: @unchecked
       val funDecl = lambdas.cachedB(ft) {
@@ -443,15 +462,15 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
     case ElementOfSet(e, s) => z3.mkSetMember(toZ3(e), toZ3(s))
 
-    case SubsetOf(s1, s2) => z3.mkSetSubset(toZ3(s1), toZ3(s2))
+    case SubsetOf(s1, s2) => { pointwiseArrays(); z3.mkSetSubset(toZ3(s1), toZ3(s2)) }
 
-    case SetIntersection(s1, s2) => z3.mkSetIntersect(toZ3(s1), toZ3(s2))
+    case SetIntersection(s1, s2) => { pointwiseArrays(); z3.mkSetIntersect(toZ3(s1), toZ3(s2)) }
 
-    case SetUnion(s1, s2) => z3.mkSetUnion(toZ3(s1), toZ3(s2))
+    case SetUnion(s1, s2) => { pointwiseArrays(); z3.mkSetUnion(toZ3(s1), toZ3(s2)) }
 
     case SetAdd(s, e) => z3.mkSetAdd(toZ3(s), toZ3(e))
 
-    case SetDifference(s1, s2) => z3.mkSetDifference(toZ3(s1), toZ3(s2))
+    case SetDifference(s1, s2) => { pointwiseArrays(); z3.mkSetDifference(toZ3(s1), toZ3(s2)) }
 
     /**
      * ===== Bag operations =====
@@ -470,7 +489,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
 
     case BagUnion(b1, b2) =>
       val plus = z3.getFuncDecl(OpAdd, typeToSort(IntegerType()), typeToSort(IntegerType()))
-      z3.mkArrayMap(plus, toZ3(b1), toZ3(b2))
+      pointwiseMap(plus, toZ3(b1), toZ3(b2))
 
     case BagIntersection(b1, b2) =>
       toZ3(BagDifference(b1, BagDifference(b1, b2)))
@@ -483,8 +502,8 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       val div = z3.getFuncDecl(OpDiv, typeToSort(IntegerType()), typeToSort(IntegerType()))
 
       val all2 = z3.mkConstArray(typeToSort(base), z3.mkInt(2, typeToSort(IntegerType())))
-      val withNeg = z3.mkArrayMap(minus, toZ3(b1), toZ3(b2))
-      z3.mkArrayMap(div, z3.mkArrayMap(plus, withNeg, z3.mkArrayMap(abs, withNeg)), all2)
+      val withNeg = pointwiseMap(minus, toZ3(b1), toZ3(b2))
+      pointwiseMap(div, pointwiseMap(plus, withNeg, pointwiseMap(abs, withNeg)), all2)
 
     /**
      * ===== Map operations =====
@@ -517,7 +536,7 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       }
 
       val MapType(_, valueTpe) = map1.getType: @unchecked
-      z3.mkArrayMap(getIteFuncDecl(valueTpe), toZ3(mask), toZ3(map1), toZ3(map2))
+      pointwiseMap(getIteFuncDecl(valueTpe), toZ3(mask), toZ3(map1), toZ3(map2))
 
     case _ => unhandled
   }

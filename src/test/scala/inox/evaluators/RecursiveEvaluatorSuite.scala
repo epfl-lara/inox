@@ -195,6 +195,36 @@ class RecursiveEvaluatorSuite extends AnyFunSuite {
     }
   }
 
+  test("Functions are compared on the inputs on which they return, whether the others run out of steps or of stack") {
+    import solvers.unrolling.{optFunctionEquality, FunctionEquality}
+    // def loopPos(x: BigInt): BigInt = if (x > 0) loopPos(x) else x
+    val fid = FreshIdentifier("loopPos")
+    val x = ValDef.fresh("x", IntegerType())
+    val loopPos = new FunDef(fid, Seq(), Seq(x), IntegerType(),
+      IfExpr(GreaterThan(x.toVariable, IntegerLiteral(0)), FunctionInvocation(fid, Seq(), Seq(x.toVariable)), x.toVariable), Seq())
+    val p = InoxProgram(NoSymbols.withFunctions(Seq(loopPos)))
+    def lambda(body: Expr => Expr): Lambda = {
+      val y = ValDef.fresh("y", IntegerType())
+      Lambda(Seq(y), body(y.toVariable))
+    }
+    val loops = lambda(y => FunctionInvocation(fid, Seq(), Seq(y)))
+    // the candidate input 1 diverges, and the input 0 then tells the functions apart
+    val differ = Equals(loops, lambda(_ => IntegerLiteral(1)))
+    // they only differ on the inputs on which loopPos diverges
+    val undecided = Equals(loops, lambda(y => IfExpr(GreaterThan(y, IntegerLiteral(0)), IntegerLiteral(1), y)))
+    for (steps <- Seq(10, 50000, 10000000)) {
+      val e = RecursiveEvaluator(p, TestContext(Options(Seq(optMaxCalls(steps), optFunctionEquality(FunctionEquality.Extensional)))))
+      e.eval(differ) match {
+        case EvaluationResults.Successful(BooleanLiteral(false)) =>
+        case res => fail(s"Unexpected result $res with $steps steps")
+      }
+      e.eval(undecided) match {
+        case EvaluationResults.Successful(_) => fail(s"Decided $undecided with $steps steps")
+        case _ =>
+      }
+    }
+  }
+
   test("Lambdas whose lifted subexpressions don't hold or fail evaluate, and only fail when applied") {
     val x = ValDef.fresh("x", IntegerType())
     val k = ValDef.fresh("k", IntegerType())

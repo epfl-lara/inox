@@ -7,10 +7,11 @@ package transformers
   *
   * The input formats only have booleans, so under propositional quantifiers, a function that
   * returns a quantifier is declared to return a boolean, a variable that names one is declared
-  * as a boolean, and a parameter that is given one is declared as a boolean. This makes these
-  * functions predicate definitions, and these variables and parameters propositions. The same
-  * goes for the functions that return propositions, which are declared to return booleans.
-  * Programs without propositions are left as they are.
+  * as a boolean, and a parameter or a field that is given one is declared as a boolean. This
+  * makes these functions predicate definitions, and these variables, parameters and fields
+  * propositions. The same goes for the functions that return propositions, which are declared
+  * to return booleans, and for the tuples and maps that hold them. Programs without
+  * propositions are left as they are.
   *
   * The inference only follows the propositions of the program: it doesn't check that they are
   * used as such. A function that branches on a parameter that is given a proposition doesn't
@@ -22,8 +23,9 @@ trait PropositionInference extends SymbolTransformer {
   import s._
 
   /** The type `declared` where the booleans that are propositions in `actual` are propositions:
-    * the type itself, or the result of a function type. The refinements of `declared` are
-    * kept: they state what holds of the proposition. This is `None` if nothing changes. */
+    * the type itself, the result of a function type, the components of a tuple or the values of
+    * a map. The refinements of `declared` are kept: they state what holds of the proposition.
+    * This is `None` if nothing changes. */
   protected def asProposition(declared: Type, actual: Type): Option[Type] = (declared, actual) match {
     case (BooleanType(), PropType()) => Some(PropType().copiedFrom(declared))
     case (RefinementType(vd, pred), _) => asProposition(vd.tpe, actual).map { underlying =>
@@ -33,6 +35,12 @@ trait PropositionInference extends SymbolTransformer {
     }
     case (FunctionType(from, to), FunctionType(from2, to2)) if from.size == from2.size =>
       asProposition(to, to2).map(FunctionType(from, _).copiedFrom(declared))
+    case (TupleType(tps), TupleType(tps2)) if tps.size == tps2.size =>
+      val inferred = tps.zip(tps2).map((tp, tp2) => asProposition(tp, tp2))
+      if (inferred.forall(_.isEmpty)) None
+      else Some(TupleType(tps.zip(inferred).map((tp, tpe) => tpe.getOrElse(tp))).copiedFrom(declared))
+    case (MapType(from, to), MapType(_, to2)) =>
+      asProposition(to, to2).map(MapType(from, _).copiedFrom(declared))
     case _ => None
   }
 
@@ -58,9 +66,10 @@ trait PropositionInference extends SymbolTransformer {
   }
 
   /** The symbols `syms`, where the variables that are bound to a proposition are propositions,
-    * the functions whose body is a proposition return a proposition, and the parameters that
-    * are given a proposition are propositions. The same goes for functions that return
-    * propositions. Each of these can make more expressions propositions, so this iterates. */
+    * the functions whose body is a proposition return a proposition, and the parameters and the
+    * fields that are given a proposition are propositions. The same goes for the types that
+    * hold propositions (see [[asProposition]]). Each of these can make more expressions
+    * propositions, so this iterates. */
   override def transform(syms: Symbols): Symbols = {
     val typed = syms.functions.values.flatMap { fd =>
       val body = transform(fd.fullBody)(using syms)
@@ -71,15 +80,21 @@ trait PropositionInference extends SymbolTransformer {
     }.toSeq
     val newSyms = if (typed.isEmpty) syms else syms.withFunctions(typed)
 
-    // the types of the parameters that some call gives a proposition to
+    // the types of the parameters and of the fields that some call or construction gives a
+    // proposition to, by function or constructor
     var params: Map[Identifier, Map[Int, Type]] = Map.empty
+    var fields: Map[Identifier, Map[Int, Type]] = Map.empty
+    def propositions(declared: Seq[ValDef], args: Seq[Expr]): Map[Int, Type] = (for {
+      ((vd, arg), i) <- declared.zip(args).zipWithIndex if declared.size == args.size
+      tpe <- asProposition(vd.tpe, arg.getType(using newSyms))
+    } yield i -> tpe).toMap
     for (fd <- newSyms.functions.values) exprOps.preTraversal {
       case FunctionInvocation(id, _, args) =>
-        for {
-          callee <- newSyms.lookupFunction(id) if callee.params.size == args.size
-          ((vd, arg), i) <- callee.params.zip(args).zipWithIndex
-          tpe <- asProposition(vd.tpe, arg.getType(using newSyms))
-        } params = params.updatedWith(id)(ps => Some(ps.getOrElse(Map.empty) + (i -> tpe)))
+        for (callee <- newSyms.lookupFunction(id); tpes = propositions(callee.params, args) if tpes.nonEmpty)
+          params = params.updatedWith(id)(ps => Some(ps.getOrElse(Map.empty) ++ tpes))
+      case ADT(id, _, args) =>
+        for (cons <- newSyms.lookupConstructor(id); tpes = propositions(cons.fields, args) if tpes.nonEmpty)
+          fields = fields.updatedWith(id)(fs => Some(fs.getOrElse(Map.empty) ++ tpes))
       case _ =>
     } (fd.fullBody)
 
@@ -96,7 +111,19 @@ trait PropositionInference extends SymbolTransformer {
       ).copiedFrom(fd)
     }
 
-    if (typed.isEmpty && retyped.isEmpty) syms else transform(newSyms.withFunctions(retyped))
+    val retypedSorts = fields.keys.map(newSyms.getConstructor(_).sort).toSeq.distinct.map { id =>
+      val sort = newSyms.getSort(id)
+      sort.copy(constructors = sort.constructors.map { cons =>
+        fields.get(cons.id).map { tpes =>
+          cons.copy(fields = cons.fields.zipWithIndex.map { case (vd, i) =>
+            tpes.get(i).map(tpe => vd.copy(tpe = tpe).copiedFrom(vd)).getOrElse(vd)
+          })
+        }.getOrElse(cons)
+      }).copiedFrom(sort)
+    }
+
+    if (typed.isEmpty && retyped.isEmpty && retypedSorts.isEmpty) syms
+    else transform(newSyms.withFunctions(retyped).withSorts(retypedSorts))
   }
 }
 

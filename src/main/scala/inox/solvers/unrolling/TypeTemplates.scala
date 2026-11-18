@@ -447,8 +447,8 @@ trait TypeTemplates { self: Templates =>
 
       given CaptureGenerator = CaptureGenerator(containerT, containerType)
       val (p, tmplClauses) = mkTypeClauses(pathVar, tpe, v, substMap)
-      val (condVars, exprVars, _, _, _, types, equalities, lambdas, quants) = tmplClauses
-      assert(equalities.isEmpty && lambdas.isEmpty && quants.isEmpty,
+      import tmplClauses.{condVars, exprVars, types}
+      assert(tmplClauses.equalities.isEmpty && tmplClauses.lambdas.isEmpty && tmplClauses.quantifications.isEmpty,
         "Unexpected complex template clauses in capture template")
 
       val (contents, _) = Template.contents(
@@ -482,7 +482,7 @@ trait TypeTemplates { self: Templates =>
   }
 
   private[unrolling] object typesManager extends Manager {
-    private[TypeTemplates] val typeInfos = new IncrementalMap[Encoded, (Int, Int, Encoded, Set[Typing])]
+    private[TypeTemplates] val typeInfos = new BlockerQueue[Typing]
     private[TypeTemplates] val lessOrder = new IncrementalMap[Encoded, Set[Encoded]].withDefaultValue(Set.empty)
     // the lambdas and the functions they capture that a model made equal (see [[registerCapturedFunctions]])
     private[unrolling] val relatedCaptures = new IncrementalSet[(Encoded, Encoded)]
@@ -544,13 +544,7 @@ trait TypeTemplates { self: Templates =>
     }
 
     private[TypeTemplates] def registerTyping(blocker: Encoded, typing: Typing): Unit = {
-      val gen = nextGeneration(currentGeneration)
-      typeInfos.get(blocker) match {
-        case Some((exGen, origGen, notBlocker, exTps)) =>
-          typeInfos += blocker -> (gen min exGen, origGen, notBlocker, exTps + typing)
-        case None =>
-          typeInfos += blocker -> (gen, gen, mkNot(blocker), Set(typing))
-      }
+      typeInfos.register(blocker, nextGeneration(currentGeneration), Set(typing))
     }
 
     // a pop restores the typings that were deferred before the push, even if a guard has appeared since
@@ -596,9 +590,7 @@ trait TypeTemplates { self: Templates =>
       Seq(typeInfos, lessOrder, relatedCaptures, results, typeDepths, deferredTypings, collections, boundCollections, reads, readsOf,
         readBlockers, readTypings, collectionNexts)
 
-    def unrollGeneration: Option[Int] =
-      if (typeInfos.isEmpty) None
-      else Some(typeInfos.values.map(_._1).min)
+    def unrollGeneration: Option[Int] = typeInfos.generation
 
     /** The last literal of the reads typing of each free collection, which is assumed to hold as
       * the reads that are yet to come extend it (@see [[registerCollection]]), similarly to the
@@ -612,28 +604,16 @@ trait TypeTemplates { self: Templates =>
       * and those that reach values of a type parameter imply its flag, while the typings that
       * remain to be unfolded are blocked. A model check may then leave type parameters empty. */
     def satisfactionAssumptions: Seq[Encoded] =
-      typeInfos.map(_._2._3).toSeq ++ (if (unfoldingTypeParameters) Seq.empty else tpSubst.values) ++ readsTails
+      typeInfos.satisfactionAssumptions ++ (if (unfoldingTypeParameters) Seq.empty else tpSubst.values) ++ readsTails
 
     def refutationAssumptions: Seq[Encoded] = readsTails
 
-    def promoteBlocker(b: Encoded): Boolean = {
-      if (typeInfos `contains` b) {
-        val (_, origGen, notB, tps) = typeInfos(b)
-        typeInfos += b -> (currentGeneration, origGen, notB, tps)
-        true
-      } else {
-        false
-      }
-    }
+    def promoteBlocker(b: Encoded): Boolean = typeInfos.promote(b)
 
     def unroll: Clauses = if (typeInfos.isEmpty) Seq.empty else {
       val newClauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-      val typeBlockers = typeInfos.filter(_._2._1 <= currentGeneration).toSeq.map(_._1)
-      val newTypeInfos = typeBlockers.flatMap(id => typeInfos.get(id).map(id -> _))
-      typeInfos --= typeBlockers
-
-      for ((blocker, (gen, _, _, tps)) <- newTypeInfos; tp <- tps) {
+      for ((blocker, _, tps) <- typeInfos.dequeue(); tp <- tps) {
         newClauses ++= withWitnessDepth(typeDepths.getOrElse(blocker, 0))(instantiateTyping(blocker, tp))
       }
 

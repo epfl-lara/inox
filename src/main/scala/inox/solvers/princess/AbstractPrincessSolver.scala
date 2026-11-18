@@ -316,7 +316,7 @@ abstract class AbstractPrincessSolver(override val program: Program,
         case Division(lhs, rhs) => lhs.getType match {
           case BVType(true, _) => Mod.bvsdiv(parseTerm(lhs), parseTerm(rhs))
           case BVType(false, _) => Mod.bvudiv(parseTerm(lhs), parseTerm(rhs))
-          case IntegerType() => p.mulTheory.eDiv(parseTerm(lhs), parseTerm(rhs))
+          case IntegerType() => byZero(parseTerm(lhs), parseTerm(rhs), divByZero)(p.mulTheory.eDiv)
           case _ => unsupported(expr)
         }
 
@@ -324,13 +324,13 @@ abstract class AbstractPrincessSolver(override val program: Program,
           case BVType(true, _) => Mod.bvsrem(parseTerm(lhs), parseTerm(rhs))
           case BVType(false, _) => Mod.bvurem(parseTerm(lhs), parseTerm(rhs))
           // the remainder of the euclidean division
-          case IntegerType() => p.mulTheory.eMod(parseTerm(lhs), parseTerm(rhs))
+          case IntegerType() => byZero(parseTerm(lhs), parseTerm(rhs), modByZero)(p.mulTheory.eMod)
         }
 
         case Modulo(lhs, rhs) => lhs.getType match {
           case BVType(true, _) => Mod.bvsmod(parseTerm(lhs), parseTerm(rhs))
           case BVType(false, _) => Mod.bvurem(parseTerm(lhs), parseTerm(rhs))
-          case IntegerType() => p.mulTheory.eMod(parseTerm(lhs), parseTerm(rhs))
+          case IntegerType() => byZero(parseTerm(lhs), parseTerm(rhs), modByZero)(p.mulTheory.eMod)
         }
 
         // BITVECTOR OPERATIONS
@@ -664,9 +664,12 @@ abstract class AbstractPrincessSolver(override val program: Program,
     }
 
     config.cast(p.getStatus(true) match {
-      // FIXME @nv: for now, we treat Inconclusive as Sat, but this should
-      //            be changed once Princess ensures soundness of models with ADTs
-      case ProverStatus.Sat | ProverStatus.Inconclusive =>
+      // Princess answers Inconclusive when it gives up on a formula (eg. with quantifiers or ADTs),
+      // so its partial model needn't be one
+      case ProverStatus.Inconclusive =>
+        Unknown
+
+      case ProverStatus.Sat =>
         if (config.withModel) {
           SatWithModel(p.partialModel)
         } else {
@@ -706,6 +709,23 @@ abstract class AbstractPrincessSolver(override val program: Program,
   // unrolling templates are encoded once and reused across pops. The symbols therefore stay
   // in the maps above and are declared again after each pop of the scope that declared them.
   private var scopes: List[ListBuffer[() => Unit]] = Nil
+
+  /* Princess's integer division and remainder by zero have no value, so a path that reaches one
+   * would be infeasible, even under `optAssumeChecked` where the template generator doesn't guard
+   * them, or where a distinguishing input shows that a function fails (see
+   * `unrolling/partial-execution.md`). `x / 0` and `x % 0` are uninterpreted functions of `x` instead, as in SMT-LIB, where the
+   * remainder and the modulo are both `mod`. */
+  private lazy val divByZero = declared(p.createFunction(FreshIdentifier("divByZero").uniqueName, 1))(p.addFunction(_))
+  private lazy val modByZero = declared(p.createFunction(FreshIdentifier("modByZero").uniqueName, 1))(p.addFunction(_))
+
+  private def byZero(lhs: ITerm, rhs: ITerm, zero: => IFunction)(op: (ITerm, ITerm) => ITerm): ITerm = rhs match {
+    case IIntLit(n) if !n.isZero => op(lhs, rhs)
+    case _ => ITermITE(rhs === 0, IFunApp(zero, Seq(lhs)), op(lhs, ITermITE(rhs === 0, 1, rhs)))
+  }
+
+  /** A fresh first-order uninterpreted function. */
+  def declareFunction(name: String, arity: Int): IFunction =
+    declared(p.createFunction(FreshIdentifier(name).uniqueName, arity))(p.addFunction(_))
 
   private def declared[T](symbol: T)(redeclare: T => Unit): T = {
     for (scope <- scopes.headOption) scope += (() => redeclare(symbol))

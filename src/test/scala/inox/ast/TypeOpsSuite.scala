@@ -30,6 +30,28 @@ class TypeOpsSuite extends AnyFunSuite {
     RefinementType(vd, Equals(Modulo(vd.toVariable, E(BigInt(2))), E(BigInt(0))))
   }
 
+  test("Dependent types are equal up to the names of their binders only") {
+    def refined(pred: Variable => Expr) = { val r = ValDef.fresh("r", IntegerType()); RefinementType(r, pred(r.toVariable)) }
+    def pi(to: Variable => Type) = { val a = ValDef.fresh("a", IntegerType()); PiType(Seq(a), to(a.toVariable)) }
+    assert(refined(r => Equals(r, IntegerLiteral(0))) == refined(r => Equals(r, IntegerLiteral(0))))
+    assert(pi(a => refined(r => Equals(r, a))) == pi(a => refined(r => Equals(r, a))))
+    // the binders are renamed apart from every free variable, including those whose identifiers
+    // were the first ones created
+    for (globalId <- 0 to 3) {
+      val y = Variable(FreshIdentifier.restore("y", globalId, globalId), IntegerType(), Seq())
+      assert(refined(r => Equals(r, y)) != refined(r => Equals(r, r)))
+      assert(pi(_ => refined(r => Equals(r, y))) != pi(a => refined(r => Equals(r, a))))
+    }
+    // free variables named by `SymbolOps.getId`, as in the bodies of normalized lambdas, aren't
+    // captured either
+    for (index <- 0 to 3) {
+      val x = Variable(SymbolOps.getId(index), IntegerType(), Seq())
+      assert(refined(r => Equals(r, x)) != refined(r => Equals(r, r)))
+      assert(refined(r => Equals(r, x)) == refined(r => Equals(r, x)))
+      assert(pi(_ => refined(r => Equals(r, x))) != pi(a => refined(r => Equals(r, a))))
+    }
+  }
+
   test("Bounds of unrelated and equal types") {
     assert(leastUpperBound(IntegerType(), IntegerType()) == IntegerType())
     assert(leastUpperBound(IntegerType(), BooleanType()) == Untyped)

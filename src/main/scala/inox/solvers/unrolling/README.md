@@ -134,7 +134,10 @@ The semantics is the one implemented by `evaluators/RecursiveEvaluator`.
 The procedure is a semi-decision procedure for satisfiability, so it may run
 forever on unsatisfiable queries, and the soundness of proofs is relative to
 terminating function definitions. Inox checks neither termination nor
-positivity of datatypes; Stainless does both before it calls Inox.
+positivity of datatypes; Stainless does both before it calls Inox. How the
+procedure treats evaluation that fails or diverges, and a function that calls
+itself on its own parameters, is described in
+[`partial-execution.md`](partial-execution.md).
 
 ## Departures from the thesis
 

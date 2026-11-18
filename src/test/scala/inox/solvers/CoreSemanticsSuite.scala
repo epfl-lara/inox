@@ -87,6 +87,26 @@ class CoreSemanticsSuite extends SolverTestSuite {
     check(s, Assume(GreaterThan(Int32Literal(3), Int32Literal(2)), t), t)
   }
 
+  test("Generic Values", TypeParameters) { ctx =>
+    val s = solver(ctx)
+    val T = TypeParameter.fresh("T")
+
+    check(s, Equals(GenericValue(T, 0), GenericValue(T, 1)), BooleanLiteral(false))
+    check(s, Equals(GenericValue(T, 2), GenericValue(T, 2)), BooleanLiteral(true))
+    check(s, GenericValue(T, 3), GenericValue(T, 3))
+
+    // values of a type parameter are extracted as distinct generic values
+    val v = Variable.fresh("v", T)
+    val w = Variable.fresh("w", T)
+    s.solveSAT(And(Not(Equals(v, w)), Not(Equals(v, GenericValue(T, 0))))) match {
+      case SatWithModel(model) =>
+        val (mv, mw) = (model.vars(v.toVal), model.vars(w.toVal))
+        assert(mv.isInstanceOf[GenericValue] && mw.isInstanceOf[GenericValue], s"for $mv and $mw")
+        assert(mv != mw && mv != GenericValue(T, 0), s"for $mv and $mw")
+      case got => fail(s"Expected a model, got $got.")
+    }
+  }
+
   test("Lets of every type") { ctx =>
     val s = solver(ctx)
 

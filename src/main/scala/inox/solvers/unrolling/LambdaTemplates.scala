@@ -15,6 +15,7 @@ trait LambdaTemplates { self: Templates =>
 
   import typesManager._
   import lambdasManager._
+  import witnessState._
   import quantificationsManager._
 
   private lazy val assumeChecked = options.findOptionOrDefault(optAssumeChecked)
@@ -79,7 +80,7 @@ trait LambdaTemplates { self: Templates =>
 
       val lidT = encodeSymbol(lid)
       val (contents, str) = Template.contents(pathVar, idArgs zip trArgs, tmplClauses,
-        substMap = depSubst + (lid -> lidT), optApp = Some(lidT -> tpe))
+        substMap = depSubst + (lid -> lidT), optApp = Some(lidT -> tpe), partial = true)
 
       val lambdaString : () => String = () => {
         "Template for lambda " + lid + ": " + lambda + " is :\n" + str()
@@ -119,6 +120,11 @@ trait LambdaTemplates { self: Templates =>
     override def instantiate(blocker: Encoded, args: Seq[Arg]): Clauses = {
       val (b, clauses) = encodeBlockers(Set(blocker, contents.pathVar._2))
       clauses ++ super.instantiate(b, args)
+    }
+
+    override def instantiate(blocker: Encoded, args: Seq[Arg], failure: Encoded): Clauses = {
+      val (b, clauses) = encodeBlockers(Set(blocker, contents.pathVar._2))
+      clauses ++ super.instantiate(b, args, failure)
     }
 
     private lazy val str : String = stringRepr()
@@ -183,7 +189,7 @@ trait LambdaTemplates { self: Templates =>
         val toClosures = toVars.map(subst)
         val toResult = encodeSymbol(Variable.fresh("result", BooleanType(), true))
         // the application result descends from both `f` and the arguments of `app`
-        val depth = currentWitnessDepth max witnessDepths.getOrElse(f, 0) max appDepths.getOrElse(app, 0)
+        val depth = witnessDepth max witnessDepths.getOrElse(f, 0) max appDepths.getOrElse(app, 0)
         clauses ++= withWitnessDepth(depth) {
           instantiateType(freshBlocker, Typing(to, app.encoded, Constraint(toResult, toClosures, free)))
         }
@@ -281,7 +287,7 @@ trait LambdaTemplates { self: Templates =>
     // Make sure `f` has a distinguishing input with every other function it differs from
     if (free && functionWitnesses) {
       val guard = mkAnd(active, isFree)
-      if (currentWitnessDepth > 0) witnessDepths += f -> currentWitnessDepth
+      if (witnessDepth > 0) witnessDepths += f -> witnessDepth
 
       for ((otherGuard, other) <- witnessFunctions(ft).toSeq if other != f) {
         clauses ++= registerWitness(mkAnd(guard, otherGuard), ft, f, other, onDemand = onDemandFreeWitnesses)
@@ -356,15 +362,7 @@ trait LambdaTemplates { self: Templates =>
   }
 
   private def registerAppInfo(gen: Int, key: (Encoded, App), template: Either[LambdaTemplate, Encoded], equals: Encoded, args: Seq[Arg]): Unit = {
-    val info = TemplateAppInfo(template, equals, args)
-    appInfos.get(key) match {
-      case Some((exGen, origGen, exInfo)) =>
-        val minGen = gen min exGen
-        appInfos += key -> (minGen, origGen, exInfo + info)
-
-      case None =>
-        appInfos += key -> (gen, gen, Set(info))
-    }
+    appInfos.register(key, gen, Set(TemplateAppInfo(template, equals, args)))
   }
 
   private def registerAppBlocker(app: (Encoded, App), blocker: Encoded): Unit = {
@@ -385,8 +383,8 @@ trait LambdaTemplates { self: Templates =>
       byID += pointer -> template
       applications += template.tpe -> applications(template.tpe).filterNot(_._2.caller == pointer)
 
-      for ((key @ (_, app), (gen, origGen, fis)) <- appInfos.toSeq if fis.nonEmpty && app.caller == pointer) {
-        appInfos += key -> (gen, origGen, Set(TemplateAppInfo(template, trueT, app.args)))
+      for ((key @ (_, app), _, fis) <- appInfos.entries if fis.nonEmpty && app.caller == pointer) {
+        appInfos.replace(key, Set(TemplateAppInfo(template, trueT, app.args)))
       }
 
       true
@@ -444,7 +442,7 @@ trait LambdaTemplates { self: Templates =>
         nonFreeClauses
 
       byID += idT -> newTemplate
-      if (currentWitnessDepth > 0) witnessDepths += idT -> currentWitnessDepth
+      if (witnessDepth > 0) witnessDepths += idT -> witnessDepth
       byType += newTemplate.tpe -> (byType(newTemplate.tpe) + (newTemplate.structure -> newTemplate))
 
       val gen = nextGeneration(currentGeneration)
@@ -525,7 +523,7 @@ trait LambdaTemplates { self: Templates =>
 
         clauses ++= congruenceClauses(blocker, app)
         applications += ft -> (applications(ft) + key)
-        if (currentWitnessDepth > 0) appDepths += app -> (currentWitnessDepth max appDepths.getOrElse(app, 0))
+        if (witnessDepth > 0) appDepths += app -> (witnessDepth max appDepths.getOrElse(app, 0))
       }
     }
 
@@ -563,28 +561,6 @@ trait LambdaTemplates { self: Templates =>
     }
   }
 
-  /** Without function equality, the equality of two lambdas can't be observed, and their distinguishing
-    * input is only needed when model extraction must tell them apart (see [[onDemandWitnesses]]).
-    * Under extensional equality, lambdas that differ structurally are only equal when they agree on
-    * their distinguishing input, and nothing else can refute their equality. Their distinguishing
-    * input is then unfolded like those of free functions (see [[witnessEqualities]]): the lambdas are
-    * assumed equal when looking for a model, and the input is instantiated when that equality is
-    * part of an unsat core.
-    *
-    * Instantiating them with each new lambda instead doesn't terminate: distinguishing inputs can
-    * create lambdas on the spot (eg. in the typing constraints of applications), and each new lambda
-    * is compared to all the previous ones. */
-  private lazy val onDemandLambdaWitnesses: Boolean =
-    options.findOptionOrDefault(optFunctionEquality) == FunctionEquality.None
-
-  /** Unless function equality is extensional, whether two functions are equal never constrains their
-    * applications, so their distinguishing input is only needed when a model shows both of them. The
-    * pairs that involve a free function are therefore left out of the unfolding until then (see
-    * [[promoteWitnesses]]). Unfolding all of them instead can make queries much harder: each function
-    * term that the unrolling creates is paired with all the previous ones of its type, and the
-    * equalities of these pairs are assumed by every model check. */
-  private lazy val onDemandFreeWitnesses: Boolean =
-    options.findOptionOrDefault(optFunctionEquality) != FunctionEquality.Extensional
 
   /** Equality between the new lambda `template` and the previously instantiated ones.
     *
@@ -594,36 +570,48 @@ trait LambdaTemplates { self: Templates =>
     * functions (see [[optFunctionEquality]]). */
   private def equalityClauses(template: LambdaTemplate): Clauses = {
     val clauses = new scala.collection.mutable.ListBuffer[Encoded]
+    val body = typeOps.simplify(template.structure.body)
+
+    // The lambdas with the same body and closures (that only differ by the path they are defined on,
+    // see [[TemplateStructure.key]]) are equal wherever they are defined. They are all equated to a
+    // shared symbol, which keeps the number of clauses linear in the number of such lambdas: these
+    // arise from each unfolding of a function that defines a lambda, eg. Stainless's type predicates.
+    val classKey = (template.tpe, body, template.structure.locals)
+    val representative = lambdaClasses.getOrElse(classKey, {
+      val symbol = encodeSymbol(Variable.fresh("lc", template.tpe, true))
+      lambdaClasses += classKey -> symbol
+      symbol
+    })
+    clauses += mkImplies(template.start, mkEquals(template.ids._2, representative))
+
     for (that <- byType(template.tpe).values) {
-      val equals = mkEquals(template.ids._2, that.ids._2)
-      val (blocker, blockerClauses) = encodeBlockers(Set(template.start, that.start))
-      clauses ++= blockerClauses
-
-      val sameBody = typeOps.simplify(template.structure.body) == typeOps.simplify(that.structure.body)
+      val sameBody = body == typeOps.simplify(that.structure.body)
       val differingLocals = (template.structure.locals zip that.structure.locals).filter(p => p._1 != p._2)
-      val closuresEqual: Option[Encoded] =
-        if (sameBody && differingLocals.isEmpty) {
-          Some(trueT)
-        } else if (sameBody) {
-          Some(mkAnd(differingLocals.map { case ((v, e1), (_, e2)) =>
-            // The equality is registered so that it is unrolled before a model is accepted:
-            // the identifiers of lambdas with equal closures must be equal in the model.
-            val (equality, equalityClauses) = mkEqualities(blocker, v.getType, e1, e2, register = true)
-            clauses ++= equalityClauses
-            equality
-          }*))
-        } else {
-          None
-        }
+      if (!sameBody || differingLocals.nonEmpty) {
+        val equals = mkEquals(template.ids._2, that.ids._2)
+        val (blocker, blockerClauses) = encodeBlockers(Set(template.start, that.start))
+        clauses ++= blockerClauses
 
-      closuresEqual match {
-        case Some(eqs) if !functionWitnesses => clauses += mkImplies(blocker, mkEquals(eqs, equals))
-        case None if !functionWitnesses => clauses += mkImplies(blocker, mkNot(equals))
-        case _ =>
-          for (eqs <- closuresEqual) clauses += mkImplies(mkAnd(blocker, eqs), equals)
-          if (!sameBody || differingLocals.nonEmpty) {
-            clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2, onDemand = onDemandLambdaWitnesses)
+        val closuresEqual: Option[Encoded] =
+          if (sameBody) {
+            Some(mkAnd(differingLocals.map { case ((v, e1), (_, e2)) =>
+              // The equality is registered so that it is unrolled before a model is accepted:
+              // the identifiers of lambdas with equal closures must be equal in the model.
+              val (equality, equalityClauses) = mkEqualities(blocker, v.getType, e1, e2, register = true)
+              clauses ++= equalityClauses
+              equality
+            }*))
+          } else {
+            None
           }
+
+        closuresEqual match {
+          case Some(eqs) if !functionWitnesses => clauses += mkImplies(blocker, mkEquals(eqs, equals))
+          case None if !functionWitnesses => clauses += mkImplies(blocker, mkNot(equals))
+          case _ =>
+            for (eqs <- closuresEqual) clauses += mkImplies(mkAnd(blocker, eqs), equals)
+            clauses ++= registerWitness(blocker, template.tpe, template.ids._2, that.ids._2, onDemand = onDemandLambdaWitnesses)
+        }
       }
     }
     clauses.toSeq
@@ -634,111 +622,14 @@ trait LambdaTemplates { self: Templates =>
   /** The templates of all the lambdas that have been unrolled. */
   def getLambdaTemplates: Seq[LambdaTemplate] = byType.values.toSeq.flatMap(_.values)
 
-  /** The witness nesting depth of the symbols currently being instantiated (0 for regular inputs).
-    *
-    * Everything that descends from a distinguishing input inherits its depth: the free functions in
-    * its type unfolding (including ADT fields that are unfolded at later generations, see
-    * [[TypeTemplates]]) and the results of the applications it takes part in. Otherwise, the free
-    * functions that appear in these could get fresh distinguishing inputs of their own without bound
-    * (eg. lambdas that are created anew in each distinguishing input). */
-  private var currentWitnessDepth = 0
-
-  protected def witnessDepth: Int = currentWitnessDepth
-
-  protected def withWitnessDepth[T](depth: Int)(body: => T): T = {
-    val previous = currentWitnessDepth
-    currentWitnessDepth = depth
-    try body finally currentWitnessDepth = previous
-  }
-
-  /** Registers a distinguishing input for `f1` and `f2` (needed when `cond` holds), to be
-    * instantiated by [[instantiateWitnesses]]. Until then, the returned clause lets the solver
-    * assume that `f1 == f2` through the [[PendingWitness.equality]] literal. */
-  private def registerWitness(
-    cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, onDemand: Boolean = false
-  ): Clauses = {
-    val depth = (witnessDepths.getOrElse(f1, 0) max witnessDepths.getOrElse(f2, 0)) + 1
-    val equality = encodeSymbol(Variable.fresh("b_eq", BooleanType(), true))
-    pendingWitnesses += PendingWitness(cond, tpe, f1, f2, depth, equality, onDemand)
-    // the equality of on-demand pairs isn't assumed until they are promoted, and a free literal
-    // implying it lets the solver merge lambdas in models, which extraction then can't tell apart
-    if (onDemand) Seq.empty else Seq(mkImplies(mkAnd(equality, cond), mkEquals(f1, f2)))
-  }
-
-  /** The equality literals of the pending distinguishing inputs, along with their depth.
-    *
-    * Distinguishing inputs are unfolded progressively, much like function calls: once it has found
-    * a model, the solver assumes that the pairs of functions that don't have a distinguishing input
-    * yet are equal. A model under these assumptions needs no more distinguishing inputs, and if they
-    * make the formula unsatisfiable, the solver instantiates the ones whose equalities are in the
-    * unsat core (see [[instantiateWitnesses]]). This keeps distinguishing inputs away from unsatisfiable
-    * queries and from the pairs of functions that a model can keep equal.
-    *
-    * To stay fair with the rest of the unfolding, the solver only instantiates distinguishing inputs
-    * up to a depth that grows by one with each unrolling. Each round stays finite: the free functions
-    * and lambdas a distinguishing input creates on the spot inherit its depth, and the others are only
-    * created by later unrollings. */
-  def witnessEqualities: Map[Encoded, Int] =
-    pendingWitnesses.toSeq.filterNot(_.onDemand).map(w => w.equality -> w.depth).toMap
-
-  /** The pending distinguishing inputs that are only unfolded when model extraction needs them,
-    * as the compared functions and the equality literal to instantiate them with.
-    *
-    * Without function equality, whether two lambdas of the program are equal can't be observed, so
-    * their equality is left open. Their distinguishing input is only needed when an extracted function
-    * must tell them apart, and instantiating it for every pair of lambdas can make queries much harder.
-    * Pairs that involve a free function are on demand as well unless equality is extensional (see
-    * [[onDemandFreeWitnesses]]), and join the regular unfolding once a model shows them. */
-  def onDemandWitnesses: Seq[(FunctionType, (Encoded, Encoded, Encoded, Int))] =
-    pendingWitnesses.toSeq.filter(_.onDemand).map(w => w.tpe -> (w.f1, w.f2, w.equality, w.depth))
-
-  /** Turns the on-demand distinguishing inputs with the given equality literals into regular ones,
-    * which are unfolded through their equality (see [[witnessEqualities]]). */
-  def promoteWitnesses(equalities: Set[Encoded]): Clauses = {
-    pendingWitnesses.toSeq.filter(w => w.onDemand && equalities(w.equality)).map { w =>
-      pendingWitnesses -= w
-      pendingWitnesses += w.copy(onDemand = false)
-      mkImplies(mkAnd(w.equality, w.cond), mkEquals(w.f1, w.f2))
-    }
-  }
-
-  /** Instantiates the pending distinguishing inputs with the given equality literals. */
-  def instantiateWitnesses(equalities: Set[Encoded]): Clauses = {
-    pendingWitnesses.toSeq.filter(w => equalities(w.equality)).sortBy(_.depth).flatMap { w =>
-      pendingWitnesses -= w
-      withWitnessDepth(w.depth)(instantiateWitness(w.cond, w.tpe, w.f1, w.f2))
-    }
-  }
-
-  /** Whether distinct functions have a distinguishing input, that is whether function equality is
-    * extensional or unobservable (see [[optFunctionEquality]]).
-    *
-    * For a pair of functions `f` and `g`, we then introduce fresh witness arguments `ws` such that
-    * `f != g ==> f(ws) != g(ws)`, so that extracted models are meaningfully distinct, and lambdas
-    * aren't compared structurally. Witnesses of function type are themselves free functions, so the
-    * construction recurses on higher-order argument types (see `function-witnesses.md`). Under
-    * intensional equality, distinct functions may agree on every input, and models compare them
-    * structurally instead. */
-  protected lazy val functionWitnesses: Boolean =
-    options.findOptionOrDefault(optFunctionEquality) != FunctionEquality.Intensional
-
-  /** Whether `e` is the argument of a distinguishing input (see [[Templates.instantiateWitness]]). */
-  def isWitnessArgument(e: Encoded): Boolean = witnessArguments(e)
-
-  /** The instantiated distinguishing inputs, as the arguments on which each pair of functions
-    * is compared (see [[Templates.instantiateWitness]]). */
-  def distinguishingInputs: Seq[((Encoded, Encoded), (FunctionType, Seq[Encoded]))] = witnessInputs.toSeq
-
-  protected case class PendingWitness(
-    cond: Encoded, tpe: FunctionType, f1: Encoded, f2: Encoded, depth: Int, equality: Encoded, onDemand: Boolean)
 
   private[unrolling] object lambdasManager extends Manager {
     // Function instantiations have their own defblocker
-    private[LambdaTemplates] val lambdaBlockers = new IncrementalMap[TemplateAppInfo, Encoded]()
+    private[LambdaTemplates] val lambdaBlockers = new IncrementalMap[TemplateAppInfo, (Encoded, Encoded)]()
 
-    // Keep which function invocation is guarded by which guard,
-    // also specify the generation of the blocker.
-    private[LambdaTemplates] val appInfos      = new IncrementalMap[(Encoded, App), (Int, Int, Set[TemplateAppInfo])]()
+    // The lambdas (or free functions) that each application may be dispatched to, which are
+    // unfolded with it, under the application's current blocker (see [[appBlockers]])
+    private[LambdaTemplates] val appInfos      = new UnrollingQueue[(Encoded, App), TemplateAppInfo]
     private[LambdaTemplates] val appBlockers   = new IncrementalMap[(Encoded, App), Encoded]()
     private[LambdaTemplates] val blockerToApps = new IncrementalMap[Encoded, (Encoded, App)]()
 
@@ -754,6 +645,11 @@ trait LambdaTemplates { self: Templates =>
       * The templates contained within `byType` and `byID` are the same.
       */
     val byType = new IncrementalMap[FunctionType, Map[TemplateStructure, LambdaTemplate]].withDefaultValue(Map.empty)
+
+    /** The lambdas that only differ by the path they are defined on are equal wherever they are
+      * defined. Each such class of lambdas, keyed by type, normalized body and closures, is equated
+      * to a shared symbol rather than to each of its members (see [[equalityClauses]]). */
+    val lambdaClasses = new IncrementalMap[(FunctionType, Expr, Seq[(Variable, Encoded)]), Encoded]
 
     /** This is a mapping from function types to all known function applications of functions
       * of that type. The aim is to dispatch these applications to members of the `byType` map
@@ -793,40 +689,19 @@ trait LambdaTemplates { self: Templates =>
 
     val instantiated = new IncrementalSet[(Encoded, App)]
 
-    /** This mapping maintains the set of free functions (along with the condition under which
-      * they are free) which require distinguishing inputs with other functions of the same type.
-      * @see [[Templates.instantiateWitness]]
-      */
-    val witnessFunctions = new IncrementalMap[FunctionType, Set[(Encoded, Encoded)]].withDefaultValue(Set.empty)
-
-    /** Witness nesting depth of the free functions that were introduced as distinguishing inputs. */
-    val witnessDepths = new IncrementalMap[Encoded, Int]
-
-    /** Witness nesting depth of the applications that were registered while instantiating distinguishing inputs. */
-    val appDepths = new IncrementalMap[App, Int]
-
     /** For function-typed applications, a literal that holds whenever the application is reached.
       * Results of applications are registered as free functions under a blocker that is only an
       * upper bound, which would let a model keep two distinct results without distinguishing them. */
     val resultGuards = new IncrementalMap[Encoded, Encoded]
 
-    /** The witness arguments of the instantiated distinguishing inputs. */
-    val witnessArguments = new IncrementalSet[Encoded]
 
-    /** The type and arguments of the distinguishing input of each pair of functions that received one. */
-    val witnessInputs = new IncrementalMap[(Encoded, Encoded), (FunctionType, Seq[Encoded])]
-
-    /** The distinguishing inputs that haven't been instantiated yet. */
-    val pendingWitnesses = new IncrementalSet[PendingWitness]
 
     val incrementals: Seq[IncrementalState] = Seq(
       lambdaBlockers, appInfos, appBlockers, blockerToApps,
-      byID, byType, applications, freeBlockers, nonFreeBlockers, freeFunctions,
-      instantiated, typeBlockers, witnessFunctions, witnessDepths, appDepths, resultGuards, witnessArguments, witnessInputs, pendingWitnesses)
+      byID, byType, lambdaClasses, applications, freeBlockers, nonFreeBlockers, freeFunctions,
+      instantiated, typeBlockers, resultGuards)
 
-    def unrollGeneration: Option[Int] =
-      if (appInfos.isEmpty) None
-      else Some(appInfos.values.map(_._1).min)
+    def unrollGeneration: Option[Int] = appInfos.generation
 
     private def assumptions: Seq[Encoded] =
       freeBlockers.toSeq.flatMap(_._2.map(_._1)) ++
@@ -835,34 +710,17 @@ trait LambdaTemplates { self: Templates =>
     def satisfactionAssumptions = appBlockers.map(p => mkNot(p._2)).toSeq ++ assumptions
     def refutationAssumptions = assumptions
 
-    def promoteBlocker(b: Encoded): Boolean = {
-      if (blockerToApps `contains` b) {
-        val app = blockerToApps(b)
-        if (appInfos `contains` app) {
-          val (_, origGen, infos) = appInfos(app)
-          appInfos += app -> (currentGeneration, origGen, infos)
-          true
-        } else {
-          false
-        }
-      } else {
-        false
-      }
-    }
+    def promoteBlocker(b: Encoded): Boolean = blockerToApps.get(b).exists(appInfos.promote)
 
     def unroll: Clauses = if (appInfos.isEmpty) Seq.empty else {
       val newClauses = new scala.collection.mutable.ListBuffer[Encoded]
 
-      val apps = appInfos.toList.filter(_._2._1 <= currentGeneration).map(_._1)
-      val thisAppInfos = apps.map(app => app -> {
-        val (gen, _, infos) = appInfos(app)
-        (gen, infos)
-      })
+      val thisAppInfos = appInfos.dequeue().map { case (app, gen, infos) => app -> (gen, infos) }
+      val apps = thisAppInfos.map(_._1)
 
       val remainingApps = MutableSet.empty ++ apps
 
       blockerToApps --= apps.map(appBlockers)
-      appInfos --= apps
 
       val newBlockers = (for ((app, (_, infos)) <- thisAppInfos if infos.nonEmpty) yield {
         app -> nextAppBlocker(app)
@@ -887,24 +745,28 @@ trait LambdaTemplates { self: Templates =>
           for (info @ TemplateAppInfo(tmpl, equals, args) <- infos if !abort; template <- tmpl.left) {
             val newCls = new scala.collection.mutable.ListBuffer[Encoded]
 
-            val lambdaBlocker = lambdaBlockers.get(info) match {
-              case Some(lambdaBlocker) => lambdaBlocker
+            val (lambdaBlocker, lambdaFailure) = lambdaBlockers.get(info) match {
+              case Some(blockerAndFailure) => blockerAndFailure
 
               case None =>
                 val lambdaBlocker = encodeSymbol(Variable.fresh("d", BooleanType(), true))
-                lambdaBlockers += info -> lambdaBlocker
+                val lambdaFailure = encodeSymbol(Variable.fresh("fails", BooleanType(), true))
+                lambdaBlockers += info -> (lambdaBlocker, lambdaFailure)
 
                 // the lambda body is instantiated on the arguments of `app`, so it inherits their witness depth
                 val depth = appDepths.getOrElse(app._2, 0) max witnessDepths.getOrElse(template.ids._2, 0)
-                val instClauses: Clauses = withWitnessDepth(depth)(template.instantiate(lambdaBlocker, args))
+                val instClauses: Clauses =
+                  withWitnessDepth(depth)(template.instantiate(lambdaBlocker, args, lambdaFailure))
 
                 newCls ++= instClauses
-                lambdaBlocker
+                (lambdaBlocker, lambdaFailure)
             }
 
             val enabler = if (equals == trueT) b else mkAnd(equals, b)
             registerImplication(b, lambdaBlocker)
             newCls += mkImplies(enabler, lambdaBlocker)
+            // the application fails iff the body of the lambda it is dispatched to does
+            if (partialFunctions) newCls += mkImplies(enabler, mkEquals(appFailure(app._2), lambdaFailure))
 
             reporter.debug("Unrolling behind "+info+" ("+newCls.size+")")
             for (cl <- newCls) {
@@ -916,16 +778,13 @@ trait LambdaTemplates { self: Templates =>
         }
       }
 
-      val remainingInfos = thisAppInfos.filter { case (app, _) => remainingApps(app) }
-      for ((app, (gen, infos)) <- thisAppInfos if remainingApps(app)) appInfos.get(app) match {
-        case Some((newGen, origGen, newInfos)) =>
-          appInfos += app -> (gen min newGen, origGen, infos ++ newInfos)
-
-        case None =>
-          appInfos += app -> (gen, gen, infos)
-          blockerToApps += appBlockers(app) -> app
+      // the applications that an interruption left out are unfolded later
+      for ((app, (gen, infos)) <- thisAppInfos if remainingApps(app)) {
+        if (!appInfos.contains(app)) blockerToApps += appBlockers(app) -> app
+        appInfos.register(app, gen, infos)
       }
 
+      newClauses ++= newFailureDefinitions()
       reporter.debug(s"   - ${newClauses.size} new clauses")
 
       newClauses.toSeq
